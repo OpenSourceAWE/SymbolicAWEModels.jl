@@ -25,7 +25,7 @@ if PLOT
     using ControlPlots, LaTeXStrings, ControlSystemsBase
 end
 
-using KiteModels, LinearAlgebra, Statistics, OrdinaryDiffEqCore 
+using SymbolicAWEModels, LinearAlgebra, Statistics, OrdinaryDiffEqCore 
 using ModelingToolkit
 using ModelingToolkit: t_nounits
 toc()
@@ -61,7 +61,7 @@ lin_outputs = @variables heading(t_nounits)[1]
 # Initialize at elevation with linearization outputs
 s.sys_struct.winches[2].tether_length += 0.2
 s.sys_struct.winches[3].tether_length += 0.2
-KiteModels.init_sim!(s; 
+SymbolicAWEModels.init_sim!(s; 
     remake=false,
     reload=true,
     lin_outputs  # Specify which outputs to track in linear model
@@ -85,8 +85,8 @@ s.integrator.ps[sys.stabilize] = false
 
 # --- Linearize at operating point ---
 @info "Linearizing system at operating point..."
-@time (; A, B, C, D) = KiteModels.linearize(s)
-@time (; A, B, C, D) = KiteModels.linearize(s)
+@time (; A, B, C, D) = SymbolicAWEModels.linearize(s)
+@time (; A, B, C, D) = SymbolicAWEModels.linearize(s)
 @show norm(A)
 @info "System linearized with matrix dimensions:" A=size(A) B=size(B) C=size(C) D=size(D)
 

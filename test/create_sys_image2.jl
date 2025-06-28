@@ -11,14 +11,14 @@ if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
     Pkg.add("ControlPlots")
 end
 @info "Loading packages ..."
-using KiteUtils, KitePodModels, KiteModels, ControlPlots
+using KiteUtils, KitePodModels, SymbolicAWEModels, ControlPlots
 using PackageCompiler
 
 @info "Creating sysimage ..."
 push!(LOAD_PATH,joinpath(pwd(),"src"))
 
 PackageCompiler.create_sysimage(
-    [:KiteUtils, :KitePodModels, :KiteModels, :ControlPlots];
+    [:KiteUtils, :KitePodModels, :SymbolicAWEModels, :ControlPlots];
     sysimage_path="kps-image_tmp.so",
     include_transitive_dependencies=true,
     precompile_execution_file=joinpath("test", "test_for_precompile.jl")

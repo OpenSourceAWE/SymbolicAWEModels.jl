@@ -5,7 +5,7 @@ using Timers
 tic()
 @info "Loading packages "
 
-using KiteModels, LinearAlgebra, Statistics
+using SymbolicAWEModels, LinearAlgebra, Statistics
 
 toc()
 
@@ -35,7 +35,7 @@ toc()
 # Initialize at elevation
 s.sys_struct.winches[2].tether_length += 0.2
 s.sys_struct.winches[3].tether_length += 0.2
-KiteModels.init_sim!(s; remake=false, reload=true)
+SymbolicAWEModels.init_sim!(s; remake=false, reload=true)
 sys = s.sys
 
 @info "System initialized at:"

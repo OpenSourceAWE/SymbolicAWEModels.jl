@@ -65,7 +65,7 @@ use the input and output functions instead.
 
 $(TYPEDFIELDS)
 """
-@with_kw mutable struct SymbolicAWEModel <: AbstractKiteModel
+@with_kw mutable struct SymbolicAWEModel # TODO: <: AbstractKiteModel
     "Reference to the settings struct"
     set::Settings
     "Reference to the point mass system with points, segments, pulleys and tethers"

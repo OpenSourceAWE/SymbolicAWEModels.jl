@@ -16,6 +16,7 @@ using PrecompileTools: @setup_workload, @compile_workload
 using Serialization, StaticArrays, LinearAlgebra, Statistics, Parameters,
       DocStringExtensions, OrdinaryDiffEqCore, OrdinaryDiffEqBDF, OrdinaryDiffEqNonlinearSolve,
       NonlinearSolve, SHA
+using KiteUtils, WinchModels, AtmosphericModels
 using Pkg
 using VortexStepMethod
 import Base.zero
@@ -71,7 +72,7 @@ Basic 3-dimensional vector, stack allocated, immutable.
 """
 const SVec3    = SVector{3, SimFloat}  
 
-# Defined in ext/KiteModelsControlPlotsExt.jl
+# Defined in ext/SymbolicAWEModelsControlPlotsExt.jl
 function plot end
 
 function __init__()
@@ -84,9 +85,6 @@ include("system_structure.jl")
 include("symbolic_awe_model.jl") # include code, specific for the ram air kite model
 include("mtk_model.jl")
 
-function upwind_dir(s::AKM)
-    upwind_dir(s.v_wind_gnd)
-end
 function upwind_dir(v_wind_gnd)
     if v_wind_gnd[1] == 0.0 && v_wind_gnd[2] == 0.0
         return NaN

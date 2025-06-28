@@ -5,7 +5,7 @@
 """
     @recipe function f(sys::PointMassSystem; zoom=false, front=false, kite_pos=nothing, reltime=nothing)
 
-A plot recipe for a `PointMassSystem` type (assumed to be defined, e.g., in `KiteModels.jl`)
+A plot recipe for a `PointMassSystem` type (assumed to be defined, e.g., in `SymbolicAWEModels.jl`)
 using `RecipesBase.jl`.
 
 This recipe allows plotting a `PointMassSystem` in 2D, showing either a

@@ -38,21 +38,12 @@ end
     # precompile file and potentially make loading faster.
     path = dirname(pathof(@__MODULE__))
     set_data_path(joinpath(path, "..", "data"))
-
-    set = load_settings("system.yaml")
-    set.kcu_diameter = 0.0
-    kps4_::KPS4 = KPS4(KCU(set))
-    kps3_::KPS3 = KPS3(KCU(set))
     ver = "$(VERSION.major).$(VERSION.minor)_"
 
-    @assert ! isnothing(kps4_.wm)
     @compile_workload begin
         # all calls in this block will be precompiled, regardless of whether(
         # they belong to your package or not (on Julia 1.8 and higher)
-        integrator = KiteModels.init_sim!(kps3_; stiffness_factor=0.035, prn=false)
-        integrator = KiteModels.init_sim!(kps4_; delta=0.03, stiffness_factor=0.05, prn=false)
-
-        sam_set = load_settings("system_ram.yaml")
+        sam_set = Settings("system_ram.yaml")
         sam_set.segments = 3
         set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
         sam_set.quasi_static = false
@@ -87,7 +78,7 @@ end
             s = SymbolicAWEModel(sam_set)
 
             # Initialize at elevation
-            KiteModels.init_sim!(s; prn=false, precompile=true)
+            SymbolicAWEModels.init_sim!(s; prn=false, precompile=true)
             @info "Copying $output_file to $model_file !"
             cp(output_file, model_file; force=true)
             find_steady_state!(s)

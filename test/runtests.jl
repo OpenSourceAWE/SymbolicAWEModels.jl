@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: 2022, 2024, 2025 Uwe Fechner
 # SPDX-License-Identifier: MIT
 
-using KiteModels, KiteUtils
+using SymbolicAWEModels, KiteUtils
 using Test
 
 cd("..")
 KiteUtils.set_data_path("") 
-@testset verbose = true "Testing KiteModels..." begin
+@testset verbose = true "Testing SymbolicAWEModels..." begin
     include("test_orientation.jl")
     println("--> 1")
     include("test_ram_air_kite.jl")

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 using Test
-using KiteModels
+using SymbolicAWEModels
 using Pkg
 
 @testset "Testing helper functions..." begin
@@ -10,7 +10,7 @@ using Pkg
     tmpdir=mktempdir()
     mkpath(tmpdir)
     cd(tmpdir)
-    KiteModels.copy_examples()
+    SymbolicAWEModels.copy_examples()
     @test isfile(joinpath(tmpdir, "examples", "bench.jl"))
     @test isfile(joinpath(tmpdir, "examples", "compare_kps3_kps4.jl"))
     @test isfile(joinpath(tmpdir, "examples", "menu.jl"))
@@ -27,7 +27,7 @@ using Pkg
     tmpdir=mktempdir()
     mkpath(tmpdir)
     cd(tmpdir)
-    KiteModels.install_examples(false)
+    SymbolicAWEModels.install_examples(false)
     @test isfile(joinpath(tmpdir, "examples", "bench.jl"))
     @test isfile(joinpath(tmpdir, "examples", "compare_kps3_kps4.jl"))
     @test isfile(joinpath(tmpdir, "examples", "menu.jl"))

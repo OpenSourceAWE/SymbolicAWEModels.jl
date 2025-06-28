@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 let
-    using KiteModels, KitePodModels, KiteUtils
+    using SymbolicAWEModels, KitePodModels, KiteUtils
     kcu = KCU(se())
     kps4 = KPS4(kcu)
     dt = 0.05
@@ -98,12 +98,12 @@ let
         end
         (integrator.p.iter - start) / steps
     end
-    integrator = KiteModels.init_sim!(kps4, prn=STATISTIC)
+    integrator = SymbolicAWEModels.init_sim!(kps4, prn=STATISTIC)
     kps4.stiffness_factor = 0.04
     simulate(integrator, 100, true)
 end
 if ! haskey(ENV, "NO_MTK")
-    using KiteModels,  LinearAlgebra
+    using SymbolicAWEModels,  LinearAlgebra
     sam_set = load_settings("system_ram.yaml")
     sam_set.segments = 3
     set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
@@ -112,7 +112,7 @@ if ! haskey(ENV, "NO_MTK")
     s = SymbolicAWEModel(sam_set)
 
     # Initialize at elevation
-    KiteModels.init_sim!(s; prn=false, precompile=true)
+    SymbolicAWEModels.init_sim!(s; prn=false, precompile=true)
     find_steady_state!(s)
     steps = Int(round(10 / 0.05))
     logger = Logger(length(s.sys_struct.points), steps)

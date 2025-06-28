@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 using KiteUtils
-using KiteModels
+using SymbolicAWEModels
 using KitePodModels
 
 using LinearAlgebra
@@ -25,7 +25,7 @@ function create_kite_model(x, y, z, pos)
     s.y = y
     s.z = z
 
-    KiteModels.set_v_wind_ground!(s, pos[begin+2], deg2rad(-90))
+    SymbolicAWEModels.set_v_wind_ground!(s, pos[begin+2], deg2rad(-90))
 
     s.pos[end-2][begin] = pos[begin]
     s.pos[end-2][begin+1] = pos[begin+1]
@@ -51,7 +51,7 @@ function create_kite_model(x, y, z, pos, upwind_dir_deg)
     s.y = y
     s.z = z
 
-    KiteModels.set_v_wind_ground!(s, pos[begin+2]; upwind_dir=deg2rad(upwind_dir_deg))
+    SymbolicAWEModels.set_v_wind_ground!(s, pos[begin+2]; upwind_dir=deg2rad(upwind_dir_deg))
 
     s.pos[end-2][begin] = pos[begin]
     s.pos[end-2][begin+1] = pos[begin+1]

@@ -694,7 +694,7 @@ Constructs a SystemStructure object representing a complete kite system using a 
 - **"simple_ram"**: 4 deformable wing groups, direct bridle connections
 
 # Arguments
-- `name::String`: Model identifier. "ram" and "simple_ram" are defined inside KiteModels.jl, provide a different name for a custom model.
+- `name::String`: Model identifier. "ram" and "simple_ram" are defined inside SymbolicAWEModels.jl, provide a different name for a custom model.
 - `set::Settings`: Configuration parameters (see [KiteUtils.Settings](https://ufechner7.github.io/KiteUtils.jl/stable/types/#KiteUtils.Settings))
 
 # Returns

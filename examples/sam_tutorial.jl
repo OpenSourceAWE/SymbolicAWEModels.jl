@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 #
 # SPDX-License-Identifier: MPL-2.0
-using KiteModels, VortexStepMethod, ControlPlots, LinearAlgebra
+using SymbolicAWEModels, VortexStepMethod, ControlPlots, LinearAlgebra
 
 set = Settings("system_ram.yaml")
 set.segments = 20
@@ -86,7 +86,7 @@ end
 vsm_wing = RamAirWing(set; prn=false)
 vsm_aero = BodyAerodynamics([vsm_wing])
 vsm_solver = Solver(vsm_aero; solver_type=NONLIN, atol=2e-8, rtol=2e-8)
-wings = [KiteModels.Wing(1, Group[], I(3), [0.5, 0, set.l_tether+6])]
+wings = [SymbolicAWEModels.Wing(1, Group[], I(3), [0.5, 0, set.l_tether+6])]
 
 sys_struct = SystemStructure("wing", set; points, segments, tethers, winches, pulleys, wings, transforms)
 plot(sys_struct, 0.0)
