@@ -1,7 +1,7 @@
 name = "SymbolicAWEModels"
 uuid = "6ce6f5ae-794d-40cb-974c-9a1af99b8cb0"
 authors = ["Bart van de Lint"]
-version = "1.0.0-DEV"
+version = "0.0.0"
 
 [compat]
 julia = "1.6.7"
