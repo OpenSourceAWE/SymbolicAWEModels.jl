@@ -112,25 +112,24 @@ get_tether_length(sys_struct::SystemStructure, idx::Int16) = sys_struct.winches[
 get_tether_vel(sys_struct::SystemStructure, idx::Int16) = sys_struct.winches[idx].tether_vel
 @register_symbolic get_tether_vel(sys::SystemStructure, idx::Int16)
 
-get_set_mass(set) = set.mass
+get_set_mass(set::Settings) = set.mass
 @register_symbolic get_set_mass(set::Settings)
-get_rho_tether(set) = set.rho_tether
+get_rho_tether(set::Settings) = set.rho_tether
 @register_symbolic get_rho_tether(set::Settings)
-get_e_tether(set) = set.e_tether
+get_e_tether(set::Settings) = set.e_tether
 @register_symbolic get_e_tether(set::Settings)
-get_damping(set) = set.damping
+get_damping(set::Settings) = set.damping
 @register_symbolic get_damping(set::Settings)
-get_c_spring(set) = set.c_spring
+get_c_spring(set::Settings) = set.c_spring
 @register_symbolic get_c_spring(set::Settings)
-get_cd_tether(set) = set.cd_tether
+get_cd_tether(set::Settings) = set.cd_tether
 @register_symbolic get_cd_tether(set::Settings)
-
-
 get_v_wind(set::Settings) = set.v_wind
 @register_symbolic get_v_wind(set::Settings)
 get_upwind_dir(set::Settings) = set.upwind_dir
 @register_symbolic get_upwind_dir(set::Settings)
-
+get_g_earth(set::Settings) = set.g_earth
+@register_symbolic get_g_earth(set::Settings)
 
 """
     force_eqs!(s, system, eqs, defaults, guesses; kwargs...)
@@ -284,7 +283,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                 eqs
                 D(pos[:, point.idx]) ~ vel[:, point.idx]
                 D(vel[:, point.idx]) ~ acc_multiplier * acc[:, point.idx] - bridle_damp_vec
-                acc[:, point.idx]    ~ point_force[:, point.idx] / mass + [0, 0, -G_EARTH]
+                acc[:, point.idx]    ~ point_force[:, point.idx] / mass + [0, 0, -get_g_earth(pset)]
                                         # ifelse.(stabilize==true, r * norm(measured_ω_z)^2, zeros(3))
             ]
             defaults = [
@@ -297,7 +296,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                 eqs
                 vel[:, point.idx]    ~ zeros(3)
                 acc[:, point.idx]    ~ zeros(3)
-                acc[:, point.idx]    ~ point_force[:, point.idx] / mass + [0, 0, -G_EARTH]
+                acc[:, point.idx]    ~ point_force[:, point.idx] / mass + [0, 0, -get_g_earth(pset)]
             ]
             guesses = [
                 guesses

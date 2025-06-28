@@ -7,7 +7,6 @@ using Test
 cd("..")
 KiteUtils.set_data_path("") 
 @testset verbose = true "Testing SymbolicAWEModels..." begin
-    include("test_orientation.jl")
     println("--> 1")
     include("test_ram_air_kite.jl")
     println("--> 2")

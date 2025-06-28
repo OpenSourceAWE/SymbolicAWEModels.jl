@@ -11,7 +11,7 @@ if ! ("LaTeXStrings" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
 using ControlPlots, LaTeXStrings
-using SymbolicAWEModels, LinearAlgebra, Statistics
+using SymbolicAWEModels, KiteUtils, LinearAlgebra, Statistics
 
 if ! @isdefined SIMPLE
     SIMPLE = false

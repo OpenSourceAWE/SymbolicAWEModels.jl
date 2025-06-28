@@ -26,22 +26,22 @@ echo "Creating xz file for prob_dynamic_v${julia_major}_3_seg.bin.default.xz ...
 if [[ $julia_major == "1.10" ]]; then
     rm -f data/model_1.10_ram_dynamic_3_seg.bin.default
     rm -f data/model_1.10_ram_dynamic_3_seg.bin.default.xz
-    echo "using KiteModels. Please ignore the error message about the missing input file!"
+    echo "using SymbolicAWEModels. Please ignore the error message about the missing input file!"
     printf ' ' >> src/precompile.jl
-    julia --project -J $SOFILE -e 'using KiteModels; include("test/create_xz_file.jl")'
+    julia --project -J $SOFILE -e 'using SymbolicAWEModels; include("test/create_xz_file.jl")'
     cp data/model_1.10_ram_dynamic_3_seg.bin data/model_1.10_ram_dynamic_3_seg.bin.default
     xz data/model_1.10_ram_dynamic_3_seg.bin.default
 else
     rm -f data/model_1.11_ram_dynamic_3_seg.bin.default
     rm -f data/model_1.11_ram_dynamic_3_seg.bin.default.xz
-    echo "using KiteModels. Please ignore the error message about the missing input file!"
+    echo "using SymbolicAWEModels. Please ignore the error message about the missing input file!"
     printf ' ' >> src/precompile.jl
-    julia --project -J $SOFILE -e 'using KiteModels; include("test/create_xz_file.jl")'
+    julia --project -J $SOFILE -e 'using SymbolicAWEModels; include("test/create_xz_file.jl")'
     cp data/model_1.11_ram_dynamic_3_seg.bin data/model_1.11_ram_dynamic_3_seg.bin.default
     xz data/model_1.11_ram_dynamic_3_seg.bin.default
 fi
 
-echo "using KiteModels..."
+echo "using SymbolicAWEModels..."
 truncate -s -1 src/precompile.jl
-julia --project -J $SOFILE -e 'using KiteModels'
+julia --project -J $SOFILE -e 'using SymbolicAWEModels'
 echo "Done creating prob_dynamic_v${julia_major}_3_seg.bin.default.xz !"
