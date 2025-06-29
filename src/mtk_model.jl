@@ -11,10 +11,6 @@ function calc_moment_acc(winch::TorqueControlledMachine, tether_vel, norm_, set_
     calc_acceleration(winch, tether_vel, norm_; set_speed=nothing, set_torque, use_brake=false)
 end
 
-function calc_heading(e_x)
-    return atan(e_x[2], e_x[1])
-end
-
 function calc_angle_of_attack(va_wing_b)
     return atan(va_wing_b[3], va_wing_b[1])
 end
