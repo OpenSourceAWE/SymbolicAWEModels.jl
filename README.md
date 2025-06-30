@@ -117,6 +117,11 @@ If you want to replay old flight log files in 2D and 3D to understand and explai
 This project is licensed under the MPL-2.0 License.
 
 ## Copyright notice
+
+Technische Universiteit Delft hereby disclaims all copyright interest in the package “SymbolicAWEModels.jl” (symbolic models for airborne wind energy systems) written by the Author(s).
+
+Prof.dr. H.G.C. (Henri) Werij, Dean of Aerospace Engineering, Technische Universiteit Delft.
+
 See the copyright notices in the source files, and the list of authors in [AUTHORS.md](AUTHORS.md).
 
 ## See also
