@@ -2,22 +2,11 @@
 CurrentModule = SymbolicAWEModels
 ```
 ## Introduction
-Most of the functions work on a KPS3 or KPS4 object. For this, the variable s is used.
+Most of the functions work on a [`SymbolicAWEModel`](@ref) object.
+For this, the variable `s` is used.
 Such a variable can be created with the lines:
 ```julia
-using KiteSimulators
-set = load_settings("system.yaml")
-s = KPS3(KCU(set))
-```
-Or, if you want to use the 4 point kite model:
-```julia
-using KiteSimulators
-set = load_settings("system.yaml")
-s = KPS4(KCU(set))
-```
-Or, if you want to use the ram-air kite model:
-```julia
-set = load_settings("system_ram.yaml")
+set = Settings("system_ram.yaml")
 s = SymbolicAWEModel(set)
 ```
 Functions with an "!" as last character of the function name modify one of more of their

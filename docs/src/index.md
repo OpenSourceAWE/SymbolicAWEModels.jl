@@ -5,21 +5,23 @@ CurrentModule = SymbolicAWEModels
 # SymbolicAWEModels
 Documentation for the package [SymbolicAWEModels](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl).
 
-The models have the following subcomponents, implemented in separate packages:
+This package provides a modular symbolic model of Airborne Wind Energy (AWE) systems, 
+which consist of a wing, one or more tethers, one or more winches and a bridle system with or without pulleys.
+The kite is modeled as a deforming rigid body with orientation governed by quaternion dynamics. The aerodynamic forces and moments are computed using the Vortex Step Method. The tether is modeled as point masses connected by spring-damper elements, with aerodynamic drag modeled realistically. 
+The winch is modeled as a motor/generator that can reel in or out the tethers.
+
+The [`SymbolicAWEModel`](@ref) has the following subcomponents, implemented in separate packages:
 - AtmosphericModel from [AtmosphericModels](https://github.com/aenarete/AtmosphericModels.jl)
 - WinchModel from [WinchModels](https://github.com/aenarete/WinchModels.jl) 
-- KitePodModel from  [KitePodModels](https://github.com/aenarete/KitePodModels.jl)
 - The aerodynamic forces and moments of some of the models are calculated using the package [VortexStepMethod](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
 
-This package is part of Julia Kite Power Tools, which consist of the following packages:
+This package is part of [`KiteModels`](https://github.com/ufechner7/KiteModels.jl),
+which in turn is part of the Julia Kite Power Tools, which consist of the following packages:
 
 ![Julia Kite Power Tools](kite_power_tools.png)
 
-## What to install
-If you want to run simulations and see the results in 3D, please install the meta package  [KiteSimulators](https://github.com/aenarete/KiteSimulators.jl) which contains all other packages. If you are not interested in 3D visualization or control you can just install this package. When you have installed the package KiteSimulators, use the command `using KiteSimulators` instead of `using SymbolicAWEModels` when this is mentioned in the documentation.
-
 ## Installation
-Install [Julia 1.11](https://OpenSourceAWE.github.io/2024/08/09/installing-julia-with-juliaup.html), if you haven't already. Julia 1.10 is still supported, but the performance is worse. On Linux, make sure that Python3 and Matplotlib are installed:
+Install [Julia 1.11](https://OpenSourceAWE.github.io/2024/08/09/installing-julia-with-juliaup.html), if you haven't already. On Linux, make sure that Python3 and Matplotlib are installed:
 ```
 sudo apt install python3-matplotlib
 ```
@@ -79,7 +81,7 @@ A definition of the reference frames can be found [here](https://OpenSourceAWE.g
 ## Further reading
 
 ## See also
-- [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true) for the scientic background of this code
+- [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true) for the scientic background of the winches and tethers.
 - More kite models [KiteModels](https://github.com/OpenSourceAWE/KiteModels.jl)
 - The meta-package [KiteSimulators](https://github.com/aenarete/KiteSimulators.jl)
 - the package [KiteUtils](https://github.com/OpenSourceAWE/KiteUtils.jl)
