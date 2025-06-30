@@ -5,7 +5,7 @@ CurrentModule = SymbolicAWEModels
 # SymbolicAWEModels
 Documentation for the package [SymbolicAWEModels](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl).
 
-This package provides a modular symbolic model of Airborne Wind Energy (AWE) systems, 
+This package provides modular symbolic models of Airborne Wind Energy (AWE) systems, 
 which consist of a wing, one or more tethers, one or more winches and a bridle system with or without pulleys.
 The kite is modeled as a deforming rigid body with orientation governed by quaternion dynamics. The aerodynamic forces and moments are computed using the Vortex Step Method. The tether is modeled as point masses connected by spring-damper elements, with aerodynamic drag modeled realistically. 
 The winch is modeled as a motor/generator that can reel in or out the tethers.
