@@ -107,7 +107,7 @@ from the discrete mass-spring-damper representation defined in the [`SystemStruc
 The aerodynamic models provide forces and moments acting on wing components.
 
 # Arguments
-- `set::Settings`: Configuration parameters (see [KiteUtils.Settings](https://ufechner7.github.io/KiteUtils.jl/stable/types/#KiteUtils.Settings))
+- `set::Settings`: Configuration parameters (see [KiteUtils.Settings](https://OpenSourceAWE.github.io/KiteUtils.jl/stable/types/#KiteUtils.Settings))
 - `sys_struct::SystemStructure`: Physical system definition with points, segments, groups, etc.
 - `vsm_aeros::Vector{<:BodyAerodynamics}=BodyAerodynamics[]`: Aerodynamic models for each wing
 - `vsm_solvers::Vector{<:VortexStepMethod.Solver}=VortexStepMethod.Solver[]`: VSM solvers for aerodynamic calculations
@@ -155,7 +155,7 @@ This convenience constructor creates a complete AWE model using default configur
 - Assembles everything into a ready-to-use symbolic model
 
 # Arguments
-- `set::Settings`: Configuration parameters (see [KiteUtils.Settings](https://ufechner7.github.io/KiteUtils.jl/stable/types/#KiteUtils.Settings))
+- `set::Settings`: Configuration parameters (see [KiteUtils.Settings](https://OpenSourceAWE.github.io/KiteUtils.jl/stable/types/#KiteUtils.Settings))
 
 # Returns
 - `SymbolicAWEModel`: Model ready for symbolic equation generation via [`init_sim!`](@ref)
@@ -791,11 +791,22 @@ function initial_orient(s::SymbolicAWEModel)
     return Q_b_w, R_b_w, init_va_b
 end
 
+"""Returns the unstretched tether length of the symbolic AWE model."""
 unstretched_length(s::SymbolicAWEModel) = s.get_unstretched_length(s.integrator)
+
+"""Returns the current tether length of the symbolic AWE model."""
 tether_length(s::SymbolicAWEModel) = s.get_tether_length(s.integrator)
+
+"""Returns the height (z-position) of the wing in the symbolic AWE model."""
 calc_height(s::SymbolicAWEModel) = s.get_wing_pos(s.integrator)[3]
+
+"""Returns the winch force in the symbolic AWE model."""
 winch_force(s::SymbolicAWEModel) = s.get_winch_force(s.integrator)
+
+"""Returns the spring forces in the symbolic AWE model."""
 spring_forces(s::SymbolicAWEModel) = s.get_spring_force(s.integrator)
+
+"""Returns the position vector of the wing in the symbolic AWE model."""
 function pos(s::SymbolicAWEModel)
     pos = s.get_pos(s.integrator)
     return [pos[:,i] for i in eachindex(pos[1,:])]
