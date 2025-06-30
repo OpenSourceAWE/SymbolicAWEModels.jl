@@ -4,12 +4,12 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner
 SPDX-License-Identifier: MIT
 -->
 
-# KiteModels
+# SymbolicAWEModels
 
-[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://ufechner7.github.io/KiteModels.jl/stable)
-[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://ufechner7.github.io/KiteModels.jl/dev)
-[![CI](https://github.com/ufechner7/KiteModels.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/ufechner7/KiteModels.jl/actions/workflows/CI.yml)
-[![Coverage](https://codecov.io/gh/ufechner7/KiteModels.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/ufechner7/KiteModels.jl)
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/stable)
+[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev)
+[![CI](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/actions/workflows/CI.yml)
+[![Coverage](https://codecov.io/gh/OpenSourceAWE/SymbolicAWEModels.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/OpenSourceAWE/SymbolicAWEModels.jl)
 [![DOI](https://zenodo.org/badge/443855286.svg)](https://zenodo.org/doi/10.5281/zenodo.13310253)
 [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
@@ -25,15 +25,15 @@ The [`SymbolicAWEModel`](@ref) has the following subcomponents, implemented in s
 - WinchModel from [WinchModels](https://github.com/aenarete/WinchModels.jl) 
 - The aerodynamic forces and moments of some of the models are calculated using the package [VortexStepMethod](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
 
-This package is part of [`KiteModels`](https://github.com/ufechner7/KiteModels.jl),
+This package is part of [`SymbolicAWEModels`](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl),
 which in turn is part of the Julia Kite Power Tools, which consist of the following packages:
-<p align="center"><img src="https://github.com/ufechner7/KiteModels.jl/blob/main/docs/src/kite_power_tools.png" width="500" /></p>
+<p align="center"><img src="https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/blob/main/docs/src/kite_power_tools.png" width="500" /></p>
 
 ## News
 #### Work in progress
 
 ## Installation
-If possible, install [Julia 1.11](https://ufechner7.github.io/2024/08/09/installing-julia-with-juliaup.html), if you haven't already. Julia 1.10 is still supported, but the performance is worse. On Linux, make sure that Python3 and Matplotlib are installed:
+If possible, install [Julia 1.11](https://OpenSourceAWE.github.io/2024/08/09/installing-julia-with-juliaup.html), if you haven't already. Julia 1.10 is still supported, but the performance is worse. On Linux, make sure that Python3 and Matplotlib are installed:
 ```
 sudo apt install python3-matplotlib
 ```
@@ -44,19 +44,19 @@ mkdir test
 cd test
 julia --project="."
 ```
-Then add KiteModels from  Julia's package manager, by typing:
+Then add SymbolicAWEModels from  Julia's package manager, by typing:
 ```julia
 using Pkg
-pkg"add KiteModels"
+pkg"add SymbolicAWEModels"
 ``` 
 at the Julia prompt. You can run the unit tests with the command (careful, can take 60 min):
 ```julia
-pkg"test KiteModels"
+pkg"test SymbolicAWEModels"
 ```
 You can copy the examples to your project with:
 ```julia
-using KiteModels
-KiteModels.install_examples()
+using SymbolicAWEModels
+SymbolicAWEModels.install_examples()
 ```
 This also adds the extra packages, needed for the examples to the project. Furthermore, it creates a folder `data`
 with some example input files. You can now run the examples with the command:
@@ -76,14 +76,14 @@ If you now launch Julia with `./bin/run_julia` and then run the above example ag
 times faster.
 
 ## Advanced installation
-If you intend to modify or extend the code, it is suggested to fork the `KiteModels.jl` repository and to check out your fork:
+If you intend to modify or extend the code, it is suggested to fork the `SymbolicAWEModels.jl` repository and to check out your fork:
 ```bash
-git clone https://github.com/USERNAME/KiteModels.jl
+git clone https://github.com/USERNAME/SymbolicAWEModels.jl
 ```
 where USERNAME is your github username.
 Then compile a system image:
 ```bash
-cd KiteModels.jl/bin
+cd SymbolicAWEModels.jl/bin
 ./create_sys_image
 ```
 If you now launch julia with:
@@ -121,11 +121,13 @@ See the copyright notices in the source files, and the list of authors in [AUTHO
 
 ## See also
 - [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true) for the scientic background of the winches and tethers.
-- More kite models [KiteModels](https://github.com/OpenSourceAWE/KiteModels.jl)
+- More kite models [KiteModels](https://github.com/ufechner7/KiteModels.jl)
 - The meta-package [KiteSimulators](https://github.com/aenarete/KiteSimulators.jl)
 - the package [KiteUtils](https://github.com/OpenSourceAWE/KiteUtils.jl)
 - the packages [WinchModels](https://github.com/aenarete/WinchModels.jl) and [KitePodModels](https://github.com/aenarete/KitePodModels.jl) and [AtmosphericModels](https://github.com/aenarete/AtmosphericModels.jl)
 - the packages [KiteControllers](https://github.com/aenarete/KiteControllers.jl) and [KiteViewers](https://github.com/aenarete/KiteViewers.jl)
 - the [VortexStepMethod](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
 
-**Documentation** [Stable Version](https://ufechner7.github.io/KiteModels.jl/stable) --- [Development Version](https://ufechner7.github.io/KiteModels.jl/dev)
+Authors: Bart van de Lint (bart@vandelint.net), Uwe Fechner (uwe.fechner.msc@gmail.com)
+
+**Documentation** [Stable Version](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/stable) --- [Development Version](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev)
