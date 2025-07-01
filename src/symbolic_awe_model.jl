@@ -35,6 +35,7 @@
     set_lin_set_values::Union{Function, Nothing}   = nothing
     set_lin_unknowns::Union{Function, Nothing}     = nothing
     set_stabilize::Union{Function, Nothing}        = nothing
+    set_x̂::Union{Function, Nothing}               = nothing
     
     get_vsm::Union{Function, Nothing}              = nothing
     get_set_values::Union{Function, Nothing}       = nothing
@@ -42,7 +43,7 @@
     get_wing_state::Union{Function, Nothing}       = nothing
     get_winch_state::Union{Function, Nothing}      = nothing
     get_point_state::Union{Function, Nothing}      = nothing
-    get_y::Union{Function, Nothing}                = nothing
+    get_vsm_y::Union{Function, Nothing}                = nothing
     get_unstretched_length::Union{Function, Nothing} = nothing
     get_tether_length::Union{Function, Nothing}    = nothing
     get_wing_pos::Union{Function, Nothing}         = nothing
@@ -50,6 +51,17 @@
     get_spring_force::Union{Function, Nothing}     = nothing
     get_stabilize::Union{Function, Nothing}        = nothing
     get_pos::Union{Function, Nothing}              = nothing
+    get_sphere::Union{Function, Nothing}                = nothing
+    get_x̂::Union{Function, Nothing}              = nothing
+    get_lin_x::Union{Function, Nothing}            = nothing
+    get_lin_dx::Union{Function, Nothing}          = nothing
+    get_lin_y::Union{Function, Nothing}            = nothing
+    get_distance::Union{Function, Nothing}         = nothing
+
+    A::Union{Matrix{SimFloat}, Nothing} = nothing
+    B::Union{Matrix{SimFloat}, Nothing} = nothing
+    C::Union{Matrix{SimFloat}, Nothing} = nothing
+    D::Union{Matrix{SimFloat}, Nothing} = nothing
 end
 
 """
@@ -451,6 +463,71 @@ function generate_getters!(s, sym_vec)
     c = collect
     @unpack wings, winches, tethers = s.sys_struct
 
+    if length(wings) == 1
+        sphere_vec = [
+            sys.elevation[1]
+            sys.elevation_vel[1]
+            sys.azimuth[1]
+            sys.azimuth_vel[1]
+        ]
+        lin_x_vec = [
+            sys.heading[1]
+            sys.turn_rate[1,3]
+            sys.tether_length[1]
+            sys.tether_length[2]
+            sys.tether_length[3]
+            sys.tether_vel[1]
+            sys.tether_vel[2]
+            sys.tether_vel[3]
+        ]
+        lin_dx_vec = [
+            sys.turn_rate[1,3]
+            sys.turn_acc[1,3]
+            sys.tether_vel[1]
+            sys.tether_vel[2]
+            sys.tether_vel[3]
+            sys.tether_acc[1]
+            sys.tether_acc[2]
+            sys.tether_acc[3]
+        ]
+        lin_y_vec = [
+            sys.heading[1]
+            sys.tether_length[1]
+            sys.angle_of_attack[1]
+            sys.winch_force[1]
+        ]
+        x̂_vec = [
+            sys.wing_pos[1,:], 
+            sys.wing_vel[1,:], 
+            sys.Q_b_w[1,:], 
+            sys.ω_b[1,:], 
+            sys.tether_length, 
+            sys.tether_vel
+        ]
+        nx = length(lin_x_vec)
+        ny = length(lin_y_vec)
+        nu = length(winches)
+        s.A = zeros(nx, nx)
+        s.B = zeros(nx, nu)
+        s.C = zeros(ny, nx)
+        s.D = zeros(ny, nu)
+    
+        get_sphere = getu(sys, sphere_vec)
+        s.get_sphere = (integ) -> get_sphere(integ)
+        set_x̂ = setu(sys, x̂_vec)
+        s.set_x̂ = (integ, val) -> set_x̂(integ, val)
+        get_x̂ = getu(sys, x̂_vec)
+        s.get_x̂ = (integ) -> get_x̂(integ)
+        get_lin_x = getu(sys, lin_x_vec)
+        s.get_lin_x = (integ) -> get_lin_x(integ)
+        get_lin_dx = getu(sys, lin_dx_vec)
+        s.get_lin_dx = (integ) -> get_lin_dx(integ)
+        get_lin_y = getu(sys, lin_y_vec)
+        s.get_lin_y = (integ) -> get_lin_y(integ)
+        get_distance = getu(sys, sys.distance)
+        s.get_distance = (integ) -> get_distance(integ)
+    end
+
     if length(wings) > 0
         vsm_sym = c.([
             sys.last_x,
@@ -459,8 +536,8 @@ function generate_getters!(s, sym_vec)
         ])
         get_vsm = getp(sys, vsm_sym)
         s.get_vsm = (integ) -> get_vsm(integ)
-        get_y = getu(sys, sys.y)
-        s.get_y = (integ) -> get_y(integ)
+        get_vsm_y = getu(sys, sys.y)
+        s.get_vsm_y = (integ) -> get_vsm_y(integ)
         get_wing_state = getu(sys, c.([
             sys.Q_b_w,           # Orientation quaternion
             sys.elevation,       # Elevation angle

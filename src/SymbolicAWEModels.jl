@@ -42,6 +42,7 @@ import LinearAlgebra: norm
 export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
 export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
+export linearize, simple_linearize, simple_linearize!
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
@@ -79,7 +80,8 @@ function __init__()
 end
 
 include("system_structure.jl")
-include("symbolic_awe_model.jl") # include code, specific for the ram air kite model
+include("symbolic_awe_model.jl")
+include("linearize.jl")
 include("mtk_model.jl")
 
 function upwind_dir(v_wind_gnd)
