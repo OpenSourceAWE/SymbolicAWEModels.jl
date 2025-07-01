@@ -2,6 +2,9 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
+function vsm_affect!(integ::SciMLBase.Integrator)
+end
+
 function SciMLBase.__solve(prob::SciMLBase.SteadyStateProblem, alg::VSMDynamicSS,
         args...; abstol = 1e-8, reltol = 1e-6, odesolve_kwargs = (;),
         save_idxs = nothing, termination_condition = NonlinearSolveBase.NormTerminationMode(infnorm),

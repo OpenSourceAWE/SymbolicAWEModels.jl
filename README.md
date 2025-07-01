@@ -25,8 +25,7 @@ The [`SymbolicAWEModel`](@ref) has the following subcomponents, implemented in s
 - WinchModel from [WinchModels](https://github.com/aenarete/WinchModels.jl) 
 - The aerodynamic forces and moments of some of the models are calculated using the package [VortexStepMethod](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
 
-This package is part of [`SymbolicAWEModels`](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl),
-which in turn is part of the Julia Kite Power Tools, which consist of the following packages:
+This package is part of the Julia Kite Power Tools, which consist of the following packages:
 <p align="center"><img src="https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/blob/main/docs/src/kite_power_tools.png" width="500" /></p>
 
 ## News
@@ -117,6 +116,11 @@ If you want to replay old flight log files in 2D and 3D to understand and explai
 This project is licensed under the MPL-2.0 License.
 
 ## Copyright notice
+
+Technische Universiteit Delft hereby disclaims all copyright interest in the package “SymbolicAWEModels.jl” (symbolic models for airborne wind energy systems) written by the Author(s).
+
+Prof.dr. H.G.C. (Henri) Werij, Dean of Aerospace Engineering, Technische Universiteit Delft.
+
 See the copyright notices in the source files, and the list of authors in [AUTHORS.md](AUTHORS.md).
 
 ## See also
