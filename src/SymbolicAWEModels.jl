@@ -31,6 +31,7 @@ using ModelingToolkit, SymbolicIndexingInterface
 using ModelingToolkit: t_nounits as t, D_nounits as D
 using ADTypes: AutoFiniteDiff
 import ModelingToolkit.SciMLBase: successful_retcode
+import OrdinaryDiffEqCore.ODEIntegrator
 
 export SymbolicAWEModel                                 # constants and types
 export copy_examples, copy_bin, update_sys_state!       # helper functions
@@ -80,6 +81,7 @@ end
 
 include("system_structure.jl")
 include("symbolic_awe_model.jl") # include code, specific for the ram air kite model
+include("linearize.jl")
 include("mtk_model.jl")
 
 function upwind_dir(v_wind_gnd)

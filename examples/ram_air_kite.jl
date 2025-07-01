@@ -16,13 +16,14 @@ using SymbolicAWEModels, KiteUtils, LinearAlgebra, Statistics
 if ! @isdefined SIMPLE
     SIMPLE = false
 end
+SIMPLE = true
 
 toc()
 
 # Simulation parameters
 dt = 0.05
 total_time = 10.0  # Longer simulation to see oscillations
-vsm_interval = 3
+vsm_interval = 0
 steps = Int(round(total_time / dt))
 
 # Steering parameters
@@ -33,7 +34,7 @@ steering_magnitude = 10.0      # Magnitude of steering input [Nm]
 set = Settings("system_ram.yaml")
 set.segments = 3
 set_values = [-50, 0.0, 0.0]  # Set values of the torques of the three winches. [Nm]
-set.quasi_static = false
+set.quasi_static = true
 set.physical_model = SIMPLE ? "simple_ram" : "ram"
 
 @info "Creating wing, aero, vsm_solver, sys_struct and symbolic_awe_model:"
@@ -76,7 +77,7 @@ try
             set_values .+= [0.0, steering, -steering]  # Opposite steering for left/right
             _vsm_interval = vsm_interval
         end
-
+        @show norm(sam.integrator[sys.dy])
         # Step simulation
         steptime = @elapsed next_step!(sam; set_values, dt, vsm_interval=vsm_interval)
         t_new = sam.integrator.t

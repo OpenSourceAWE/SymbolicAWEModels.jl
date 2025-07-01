@@ -1047,9 +1047,9 @@ function create_simple_ram_sys_struct(set::Settings, wing::RamAirWing)
     points, segments, tethers, left_steering_idx = create_tether(3, set, points, segments, tethers, points[6], STEERING_LINE, dynamics_type)
     points, segments, tethers, right_steering_idx = create_tether(4, set, points, segments, tethers, points[8], STEERING_LINE, dynamics_type)
 
-    winches = [winches; Winch(1, TorqueControlledMachine(set), [left_power_idx, right_power_idx], set.l_tether)]
-    winches = [winches; Winch(2, TorqueControlledMachine(set), [left_steering_idx], set.l_tether)]
-    winches = [winches; Winch(3, TorqueControlledMachine(set), [right_steering_idx], set.l_tether)]
+    winches = [winches; Winch(1, TorqueControlledMachine(set), [left_power_idx, right_power_idx])]
+    winches = [winches; Winch(2, TorqueControlledMachine(set), [left_steering_idx])]
+    winches = [winches; Winch(3, TorqueControlledMachine(set), [right_steering_idx])]
 
     wings = [Wing(1, [1,2,3,4], I(3), zeros(3))]
     transforms = [Transform(1, deg2rad(set.elevation), deg2rad(set.azimuth), deg2rad(set.heading);

@@ -50,6 +50,7 @@
     get_spring_force::Union{Function, Nothing}     = nothing
     get_stabilize::Union{Function, Nothing}        = nothing
     get_pos::Union{Function, Nothing}              = nothing
+    get_dy::Union{Function, Nothing}               = nothing
 end
 
 """
@@ -358,14 +359,6 @@ function init_sim!(s::SymbolicAWEModel;
     return s.integrator
 end
 
-function linearize(s::SymbolicAWEModel; set_values=s.get_set_values(s.integrator))
-    isnothing(s.lin_prob) && error("Run init_sim! with remake=true and lin_outputs=...")
-    s.set_lin_vsm(s.lin_prob, s.get_vsm(s.integrator))
-    s.set_lin_set_values(s.lin_prob, set_values)
-    s.set_lin_unknowns(s.lin_prob, s.get_unknowns(s.integrator))
-    return solve(s.lin_prob)
-end
-
 """
     reinit!(s::SymbolicAWEModel, solver; prn=true, precompile=false) -> Nothing
 
@@ -435,8 +428,12 @@ function reinit!(
         t = @elapsed begin
             dt = SimFloat(1/s.set.sample_freq)
             s.sys = s.prob.f.sys
+            if length(s.sys_struct.wings) > 0
+                cb = create_callback(s)
+            end
             s.integrator = OrdinaryDiffEqCore.init(s.prob, solver; 
-                adaptive, dt, abstol=s.set.abs_tol, reltol=s.set.rel_tol, save_on=false, save_everystep=false)
+                adaptive, dt, abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
+                save_on=false, save_everystep=false, callback=cb)
             !s.set.quasi_static && (length(s.unknowns_vec) != length(s.integrator.u)) &&
                 error("sam.integrator unknowns of length $(length(s.integrator.u)) should equal sam.unknowns_vec of length $(length(s.unknowns_vec)).
                     Maybe you forgot to run init_sim!(model; remake=true)?")
@@ -488,6 +485,8 @@ function generate_getters!(s, sym_vec)
 
         set_vsm = setp(sys, vsm_sym)
         s.set_vsm = (integ, val) -> set_vsm(integ, val)
+        get_dy = getu(sys, sys.dy)
+        s.get_dy = (integ) -> get_dy(integ)
         if !isnothing(s.lin_prob)
             set_lin_vsm = setp(s.lin_prob, vsm_sym)
             s.set_lin_vsm = (lin_prob, val) -> set_lin_vsm(lin_prob, val)
@@ -555,28 +554,6 @@ function generate_getters!(s, sym_vec)
     if !isnothing(s.lin_prob)
         set_lin_unknowns = setu(s.lin_prob, Initial.(sym_vec))
         s.set_lin_unknowns = (lin_prob, val) -> set_lin_unknowns(lin_prob, val)
-    end
-    nothing
-end
-
-function linearize_vsm!(s::SymbolicAWEModel, integ=s.integrator)
-    @unpack wings, y, x, jac = s.sys_struct
-    if length(wings) > 0
-        y .= s.get_y(integ)
-        for wing in wings
-            res = VortexStepMethod.linearize(
-                s.vsm_solvers[wing.idx], 
-                s.vsm_aeros[wing.idx], 
-                y[wing.idx, :];
-                va_idxs=1:3, 
-                omega_idxs=4:6,
-                theta_idxs=7:6+length(s.sys_struct.groups),
-                moment_frac=s.sys_struct.groups[1].moment_frac
-            )
-            jac[wing.idx, :, :] .= res[1]
-            x[wing.idx, :] .= res[2]
-        end
-        s.set_vsm(integ, [x, y, jac])
     end
     nothing
 end
