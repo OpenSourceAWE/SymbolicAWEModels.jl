@@ -381,7 +381,7 @@ mutable struct Winch
     tether_length::Union{SimFloat, Nothing}
     tether_vel::SimFloat
     set_value::SimFloat
-    const winch_force::KVec3
+    const force::KVec3
 end
 
 """
@@ -469,6 +469,7 @@ mutable struct Wing
     const angular_vel::KVec3
     const pos_w::KVec3
     const vel_w::KVec3
+    const acc_w::KVec3
 
     # Derived variables and parameters, updated during simulation
     const va_b::KVec3 # apparent wind in body frame
@@ -568,7 +569,7 @@ Create a wing with identity orientation and two attached groups:
 ```
 """
 function Wing(idx, group_idxs, R_b_c, pos_cad; transform_idx=1)
-    return Wing(idx, group_idxs, transform_idx, R_b_c, pos_cad, zeros(3,3),
+    return Wing(idx, group_idxs, transform_idx, R_b_c, pos_cad, zeros(3,3), zeros(KVec3),
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
         zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 

@@ -203,13 +203,13 @@ function update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
         for winch in winches
             ss.l_tether[winch.idx] = winch.tether_length
             ss.v_reelout[winch.idx] = winch.tether_vel
-            ss.force[winch.idx] = winch.force
+            ss.force[winch.idx] = norm(winch.force)
             ss.set_torque[winch.idx] = winch.set_value
         end
     end
     if length(groups) > 0
         for group in groups
-            ss.twist_angles[group.idx] = group.twist_angle
+            ss.twist_angles[group.idx] = group.twist
         end
         ss.depower = rad2deg(mean(ss.twist_angles)) # Average twist for depower
         ss.steering = rad2deg(ss.twist_angles[length(groups)] - ss.twist_angles[1])
@@ -218,7 +218,7 @@ function update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
         wing = wings[1]
         ss.acc = norm(wing.acc_w) # Use the norm of the wing's acceleration vector
         ss.orient .= wing.Q_b_w
-        ss.turn_rates .= wing.ω_b
+        ss.turn_rates .= wing.turn_rate
         ss.elevation = wing.elevation
         ss.azimuth = wing.azimuth
         ss.heading = wing.heading
@@ -352,7 +352,6 @@ function init_sim!(s::SymbolicAWEModel;
         sym_vec = get_unknowns(s.sys_struct, s.sys)
         s.unknowns_vec = zeros(SimFloat, length(sym_vec))
         generate_getters!(s, sym_vec)
-        s.set_stabilize(s.sprob, true)
         s.set_hash = get_set_hash(s.set)
         s.sys_struct_hash = get_sys_struct_hash(s.sys_struct)
         serialize(model_path, s.serialized_model)
@@ -737,14 +736,14 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure)
             heading, turn_rate, turn_acc, course, aoa = s.get_wing_state(s.integrator)
         for wing in wings
             wing.Q_b_w = Q_b_w[wing.idx, :]
-            wing.angular_vel = angular_vel[wing.idx, :]
-            wing.pos_w = pos_w[wing.idx, :]
-            wing.vel_w = vel_w[wing.idx, :]
-            wing.acc_w = acc_w[wing.idx, :]
-            wing.va_b = va_b[wing.idx, :]
-            wing.v_wind = v_wind[wing.idx, :]
-            wing.aero_force_b = aero_force_b[wing.idx, :]
-            wing.aero_moment_b = aero_moment_b[wing.idx, :]
+            wing.angular_vel .= angular_vel[wing.idx, :]
+            wing.pos_w .= pos_w[wing.idx, :]
+            wing.vel_w .= vel_w[wing.idx, :]
+            wing.acc_w .= acc_w[wing.idx, :]
+            wing.va_b .= va_b[wing.idx, :]
+            wing.v_wind .= v_wind[wing.idx, :]
+            wing.aero_force_b .= aero_force_b[wing.idx, :]
+            wing.aero_moment_b .= aero_moment_b[wing.idx, :]
             wing.elevation = elevation[wing.idx]
             wing.elevation_vel = elevation_vel[wing.idx]
             wing.elevation_acc = elevation_acc[wing.idx]
@@ -752,13 +751,13 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure)
             wing.azimuth_vel = azimuth_vel[wing.idx]
             wing.azimuth_acc = azimuth_acc[wing.idx]
             wing.heading = heading[wing.idx]
-            wing.turn_rate = turn_rate[wing.idx, :]
-            wing.turn_acc = turn_acc[wing.idx, :]
+            wing.turn_rate .= turn_rate[wing.idx, :]
+            wing.turn_acc .= turn_acc[wing.idx, :]
             wing.course = course[wing.idx]
             wing.aoa = aoa[wing.idx]
         end
     end
-    s.sys_struct.wind_vec_gnd = s.get_struct_state(s.integrator)
+    s.sys_struct.wind_vec_gnd .= s.get_struct_state(s.integrator)
     return nothing
 end
 
@@ -833,7 +832,7 @@ function init_unknowns_vec!(
 
     for wing in wings
         for i in 1:4
-            vec[vec_idx] = wing.orient[i]
+            vec[vec_idx] = wing.Q_b_w[i]
             vec_idx += 1
         end
         for i in 1:3

@@ -43,6 +43,10 @@ if [[ $(basename $(pwd)) == "bin" ]]; then
 fi
 
 # disable pre-compilation
+# if localpreferences exist, move it
+if test -f "LocalPreferences.toml"; then
+    mv LocalPreferences.toml LocalPreferences.toml.bak
+fi
 cp LocalPreferences.toml.default LocalPreferences.toml
 
 export JULIA_PKG_SERVER_REGISTRY_PREFERENCE="eager"
@@ -174,7 +178,11 @@ if [ -d src ]; then
 fi
 
 # enable pre-compilation
-rm LocalPreferences.toml
+if test -f "LocalPreferences.toml.bak"; then
+    mv LocalPreferences.toml.bak LocalPreferences.toml
+else
+    rm LocalPreferences.toml
+fi
 echo "Precompiling package SymbolicAWEModels..."
 $JULIA_CMD --startup-file=no --project -J $SOFILE -e "using SymbolicAWEModels, KitePodModels, KiteUtils"
 echo "Precompiling package ControlPlots and SymbolicAWEModelsControlPlotsExt ..."
