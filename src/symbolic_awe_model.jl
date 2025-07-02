@@ -27,36 +27,38 @@
     defaults::Vector{Pair} = Pair[]
     guesses::Vector{Pair} = Pair[]
 
-    set_psys::Union{Function, Nothing}             = nothing
-    set_set_values::Union{Function, Nothing}       = nothing
-    set_set::Union{Function, Nothing}             = nothing
-    set_vsm::Union{Function, Nothing}              = nothing
-    set_unknowns::Union{Function, Nothing}         = nothing
-    set_initial::Union{Function, Nothing}        = nothing
-    set_nonstiff::Union{Function, Nothing}         = nothing
-    set_lin_vsm::Union{Function, Nothing}          = nothing
-    set_lin_set_values::Union{Function, Nothing}   = nothing
-    set_lin_unknowns::Union{Function, Nothing}     = nothing
-    set_stabilize::Union{Function, Nothing}        = nothing
-    set_x̂::Union{Function, Nothing}               = nothing
+    set_psys::Union{Function, Nothing}          = nothing
+    set_set_values::Union{Function, Nothing}    = nothing
+    set_set::Union{Function, Nothing}           = nothing
+    set_vsm::Union{Function, Nothing}           = nothing
+    set_unknowns::Union{Function, Nothing}      = nothing
+    set_initial::Union{Function, Nothing}       = nothing
+    set_nonstiff::Union{Function, Nothing}      = nothing
+    set_lin_vsm::Union{Function, Nothing}       = nothing
+    set_lin_set_values::Union{Function, Nothing}= nothing
+    set_lin_unknowns::Union{Function, Nothing}  = nothing
+    set_stabilize::Union{Function, Nothing}     = nothing
+    set_x̂::Union{Function, Nothing}             = nothing
     
-    get_vsm::Union{Function, Nothing}              = nothing
-    get_set_values::Union{Function, Nothing}       = nothing
-    get_unknowns::Union{Function, Nothing}         = nothing
-    get_wing_state::Union{Function, Nothing}       = nothing
-    get_winch_state::Union{Function, Nothing}      = nothing
-    get_point_state::Union{Function, Nothing}      = nothing
-    get_pulley_state::Union{Function, Nothing}   = nothing
-    get_group_state::Union{Function, Nothing}      = nothing
-    get_vsm_y::Union{Function, Nothing}                = nothing
-    get_spring_force::Union{Function, Nothing}     = nothing
-    get_stabilize::Union{Function, Nothing}        = nothing
-    get_sphere::Union{Function, Nothing}                = nothing
-    get_x̂::Union{Function, Nothing}              = nothing
-    get_lin_x::Union{Function, Nothing}            = nothing
-    get_lin_dx::Union{Function, Nothing}          = nothing
-    get_lin_y::Union{Function, Nothing}            = nothing
-    get_distance::Union{Function, Nothing}         = nothing
+    get_vsm::Union{Function, Nothing}           = nothing
+    get_set_values::Union{Function, Nothing}    = nothing
+    get_unknowns::Union{Function, Nothing}      = nothing
+    get_wing_state::Union{Function, Nothing}    = nothing
+    get_segment_state::Union{Function, Nothing} = nothing
+    get_winch_state::Union{Function, Nothing}   = nothing
+    get_struct_state::Union{Function, Nothing}  = nothing
+    get_point_state::Union{Function, Nothing}   = nothing
+    get_pulley_state::Union{Function, Nothing}  = nothing
+    get_group_state::Union{Function, Nothing}   = nothing
+    get_vsm_y::Union{Function, Nothing}         = nothing
+    get_spring_force::Union{Function, Nothing}  = nothing
+    get_stabilize::Union{Function, Nothing}     = nothing
+    get_sphere::Union{Function, Nothing}        = nothing
+    get_x̂::Union{Function, Nothing}             = nothing
+    get_lin_x::Union{Function, Nothing}         = nothing
+    get_lin_dx::Union{Function, Nothing}        = nothing
+    get_lin_y::Union{Function, Nothing}         = nothing
+    get_distance::Union{Function, Nothing}      = nothing
 
     A::Union{Matrix{SimFloat}, Nothing} = nothing
     B::Union{Matrix{SimFloat}, Nothing} = nothing
@@ -462,7 +464,7 @@ end
 function generate_getters!(s, sym_vec)
     sys = s.sys
     c = collect
-    @unpack wings, groups, pulleys, winches, tethers = s.sys_struct
+    @unpack wings, groups, pulleys, winches, tethers, segments = s.sys_struct
 
     if length(wings) == 1
         sphere_vec = [
@@ -545,14 +547,21 @@ function generate_getters!(s, sym_vec)
             sys.wing_pos,         # Position vector (world frame)
             sys.wing_vel,         # Velocity vector (world frame)
             sys.wing_acc,
-            sys.va_b,           # Apparent wind vector (body frame)
-            sys.v_wind,         # Wind vector (body frame)
+            sys.va_wing_b,           # Apparent wind vector (body frame)
+            sys.wind_vel_wing,         # Wind vector (body frame)
             sys.aero_force_b,   # Aerodynamic force vector (body frame)
             sys.aero_moment_b,  # Aerodynamic moment vector (body frame)
             sys.elevation,      # Elevation angle
+            sys.elevation_vel,
+            sys.elevation_acc,
             sys.azimuth,       # Azimuth angle
+            sys.azimuth_vel,
+            sys.azimuth_acc,
             sys.heading,        # Heading angle
+            sys.turn_rate,
+            sys.turn_acc,
             sys.course,         # Course angle
+            sys.angle_of_attack,
         ]))
         s.get_wing_state = (integ) -> get_wing_state(integ)
 
@@ -575,7 +584,7 @@ function generate_getters!(s, sym_vec)
     if length(groups) > 0
         get_group_state = getu(sys, c.([
             sys.twist_angle,     # Twist angle per group
-            sys.twist_vel,       # Twist velocity per group
+            sys.twist_ω,       # Twist velocity per group
         ]))
         s.get_group_state = (integ) -> get_group_state(integ)
     end
@@ -723,8 +732,9 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure)
     end
     if !isnothing(s.get_wing_state)
         Q_b_w, angular_vel, pos_w, vel_w, acc_w, va_b, v_wind, 
-            aero_force_b, aero_moment_b, elevation, 
-            azimuth, heading, course = s.get_wing_state(s.integrator)
+            aero_force_b, aero_moment_b, elevation, elevation_vel,
+            elevation_acc, azimuth, azimuth_vel, azimuth_acc,
+            heading, turn_rate, turn_acc, course, aoa = s.get_wing_state(s.integrator)
         for wing in wings
             wing.Q_b_w = Q_b_w[wing.idx, :]
             wing.angular_vel = angular_vel[wing.idx, :]
@@ -736,9 +746,16 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure)
             wing.aero_force_b = aero_force_b[wing.idx, :]
             wing.aero_moment_b = aero_moment_b[wing.idx, :]
             wing.elevation = elevation[wing.idx]
+            wing.elevation_vel = elevation_vel[wing.idx]
+            wing.elevation_acc = elevation_acc[wing.idx]
             wing.azimuth = azimuth[wing.idx]
+            wing.azimuth_vel = azimuth_vel[wing.idx]
+            wing.azimuth_acc = azimuth_acc[wing.idx]
             wing.heading = heading[wing.idx]
+            wing.turn_rate = turn_rate[wing.idx, :]
+            wing.turn_acc = turn_acc[wing.idx, :]
             wing.course = course[wing.idx]
+            wing.aoa = aoa[wing.idx]
         end
     end
     s.sys_struct.wind_vec_gnd = s.get_struct_state(s.integrator)

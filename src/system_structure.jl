@@ -476,9 +476,16 @@ mutable struct Wing
     const aero_force_b::KVec3 # aerodynamic force in body frame
     const aero_moment_b::KVec3 # aerodynamic moment in body frame
     elevation::SimFloat
+    elevation_vel::SimFloat
+    elevation_acc::SimFloat
     azimuth::SimFloat
+    azimuth_vel::SimFloat
+    azimuth_acc::SimFloat
     heading::SimFloat
+    const turn_rate::KVec3
+    const turn_acc::KVec3
     course::SimFloat
+    aoa::SimFloat
 end
 function Base.getproperty(wing::Wing, sym::Symbol)
     if sym == :Q_b_w
@@ -564,7 +571,8 @@ function Wing(idx, group_idxs, R_b_c, pos_cad; transform_idx=1)
     return Wing(idx, group_idxs, transform_idx, R_b_c, pos_cad, zeros(3,3),
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
         zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
-        0.0, 0.0, 0.0, 0.0)
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
+        zeros(KVec3), zeros(KVec3), 0.0, 0.0)
 end
 
 """

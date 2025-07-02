@@ -81,8 +81,8 @@ get_wing_vel_w(sys_struct::SystemStructure, idx::Int16) = sys_struct.wings[idx].
     size=(3,)
     eltype=SimFloat
 end
-get_orient(sys_struct::SystemStructure, idx::Int16) = sys_struct.wings[idx].orient
-@register_array_symbolic get_orient(sys::SystemStructure, idx::Int16) begin
+get_Q_b_w(sys_struct::SystemStructure, idx::Int16) = sys_struct.wings[idx].Q_b_w
+@register_array_symbolic get_Q_b_w(sys::SystemStructure, idx::Int16) begin
     size=(4,)
     eltype=SimFloat
 end
@@ -711,7 +711,7 @@ function wing_eqs!(s, eqs, psys, pset, defaults; tether_wing_force, tether_wing_
         ]
         defaults = [
             defaults
-            [Q_b_w[wing.idx, i] => get_orient(psys, wing.idx)[i] for i in 1:4]
+            [Q_b_w[wing.idx, i] => get_Q_b_w(psys, wing.idx)[i] for i in 1:4]
             [ω_b[wing.idx, i] => get_angular_vel(psys, wing.idx)[i] for i in 1:3]
             [wing_pos[wing.idx, i] => get_wing_pos_w(psys, wing.idx)[i] for i in 1:3]
             [wing_vel[wing.idx, i] => get_wing_vel_w(psys, wing.idx)[i] for i in 1:3]
