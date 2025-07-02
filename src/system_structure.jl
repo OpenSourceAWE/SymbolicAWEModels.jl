@@ -439,7 +439,7 @@ A rigid wing body that can have multiple groups of points attached to it.
 - `group_idxs::Vector{Int16}`: Indices of groups attached to this wing
 - `transform_idx::Int16`: Transform used for initial positioning and orientation
 - `R_b_c::Matrix{SimFloat}`: Rotation matrix from body frame to CAD frame
-- `angular_vel::KVec3`: Angular velocity of the wing in world frame
+- `ω_b::KVec3`: Angular velocity of the wing in world frame
 - `pos_w::KVec3`: Position of wing center of mass in world frame
 - `pos_cad::KVec3`: Position of wing center of mass in CAD frame
 - `vel_w::KVec3`: Velocity of wing center of mass in world frame
@@ -466,7 +466,7 @@ mutable struct Wing
 
     # Differential variables in world frame, updated during simulation
     const R_b_w::Matrix{SimFloat}
-    const angular_vel::KVec3
+    const ω_b::KVec3
     const pos_w::KVec3
     const vel_w::KVec3
     const acc_w::KVec3
@@ -504,7 +504,7 @@ function Base.setproperty!(wing::Wing, sym::Symbol, value)
 end
 
 """
-    Wing(idx, group_idxs, R_b_c, pos_cad; transform_idx=1, angular_vel=zeros(KVec3), 
+    Wing(idx, group_idxs, R_b_c, pos_cad; transform_idx=1, ω_b=zeros(KVec3), 
          pos_w=zeros(KVec3), vel_w=zeros(KVec3))
 
 Constructs a Wing object representing a rigid body that serves as a reference frame for attached points and groups.

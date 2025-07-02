@@ -76,7 +76,6 @@ try
             set_values .+= [0.0, steering, -steering]  # Opposite steering for left/right
             _vsm_interval = vsm_interval
         end
-        @show norm(sam.integrator[sys.dy])
         # Step simulation
         steptime = @elapsed next_step!(sam; set_values, dt, vsm_interval=vsm_interval)
         t_new = sam.integrator.t

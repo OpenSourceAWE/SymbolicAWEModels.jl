@@ -117,6 +117,9 @@ const BUILD_SYS = true
         old_elevation = set.elevation
         set.elevation = 85.0
         SymbolicAWEModels.init_sim!(s, prn=true, reload=false)
+        @show s.set.elevation
+        @show s.sys_struct.transforms[1].elevation
+        @show s.integrator[s.sys.elevation]
 
         # Get new state using SysState
         sys_state_after = SymbolicAWEModels.SysState(s)
@@ -126,7 +129,7 @@ const BUILD_SYS = true
         @test isapprox(sys_state_after.elevation, deg2rad(85.0), atol=1e-2)
 
         @testset "set_depower_steering!" begin
-            initial_tether_lengths = s.get_tether_length(s.integrator)
+            initial_tether_lengths = tether_length(s)
             depower = 0.1
             steering = 0.05
             SymbolicAWEModels.set_depower_steering!(s, depower, steering)
@@ -237,7 +240,7 @@ const BUILD_SYS = true
 
             # Check course direction using SysState
             sys_state = SymbolicAWEModels.SysState(s)
-            @info "Course at 60 deg elevation:" sys_state.course
+            @info "Course at 60 deg elevation:" sys_state.course sys_state.elevation
 
             # At 60 degrees elevation, course should be roughly forward
             @show sys_state.course

@@ -20,8 +20,6 @@
     lin_prob::Union{ModelingToolkit.LinearizationProblem, Nothing} = nothing
     "ODE function of the mtk model"
     prob::Union{OrdinaryDiffEqCore.ODEProblem, Nothing} = nothing
-    "Steady state problem of the mtk model"
-    sprob::Union{SteadyStateDiffEq.SteadyStateProblem, Nothing} = nothing
 
     unknowns_vec::Vector{SimFloat} = zeros(SimFloat, 3)
     defaults::Vector{Pair} = Pair[]
@@ -340,10 +338,8 @@ function init_sim!(s::SymbolicAWEModel;
         if prn
             @info "Creating ODEProblem"
             @time s.prob = ODEProblem(s.sys, s.defaults, (0.0, dt); s.guesses)
-            s.sprob = SteadyStateProblem(s.prob)
         else
             s.prob = ODEProblem(s.sys, s.defaults, (0.0, dt); s.guesses)
-            s.sprob = SteadyStateProblem(s.prob)
         end
         if length(lin_outputs) > 0
             lin_fun, _ = linearization_function(s.full_sys, [inputs...], lin_outputs; op=s.defaults, guesses=s.guesses)
@@ -443,7 +439,8 @@ function reinit!(
             dt = SimFloat(1/s.set.sample_freq)
             s.sys = s.prob.f.sys
             s.integrator = OrdinaryDiffEqCore.init(s.prob, solver; 
-                adaptive, dt, abstol=s.set.abs_tol, reltol=s.set.rel_tol, save_on=false, save_everystep=false)
+                adaptive, dt, abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
+                save_on=false, save_everystep=false)
             !s.set.quasi_static && (length(s.unknowns_vec) != length(s.integrator.u)) &&
                 error("sam.integrator unknowns of length $(length(s.integrator.u)) should equal sam.unknowns_vec of length $(length(s.unknowns_vec)).
                     Maybe you forgot to run init_sim!(model; remake=true)?")
@@ -457,6 +454,7 @@ function reinit!(
     s.set_psys(s.integrator, s.sys_struct)
     OrdinaryDiffEqCore.reinit!(s.integrator, s.integrator.u; reinit_dae=true)
     linearize_vsm!(s)
+    update_sys_struct!(s, s.sys_struct)
     return s.integrator, true
 end
 
@@ -730,13 +728,13 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure)
         end
     end
     if !isnothing(s.get_wing_state)
-        Q_b_w, angular_vel, pos_w, vel_w, acc_w, va_b, v_wind, 
+        Q_b_w, ω_b, pos_w, vel_w, acc_w, va_b, v_wind, 
             aero_force_b, aero_moment_b, elevation, elevation_vel,
             elevation_acc, azimuth, azimuth_vel, azimuth_acc,
             heading, turn_rate, turn_acc, course, aoa = s.get_wing_state(s.integrator)
         for wing in wings
             wing.Q_b_w = Q_b_w[wing.idx, :]
-            wing.angular_vel .= angular_vel[wing.idx, :]
+            wing.ω_b .= ω_b[wing.idx, :]
             wing.pos_w .= pos_w[wing.idx, :]
             wing.vel_w .= vel_w[wing.idx, :]
             wing.acc_w .= acc_w[wing.idx, :]
@@ -836,7 +834,7 @@ function init_unknowns_vec!(
             vec_idx += 1
         end
         for i in 1:3
-            vec[vec_idx] = wing.angular_vel[i]
+            vec[vec_idx] = wing.ω_b[i]
             vec_idx += 1
         end
         for i in 1:3

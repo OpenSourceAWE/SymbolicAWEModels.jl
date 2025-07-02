@@ -32,43 +32,37 @@ end
 function simple_linearize(s::SymbolicAWEModel)
     init_sim!(s; remake=false, adaptive=true)
     find_steady_state!(s)
-    sol = solve(s.sprob, DynamicSS(FBDF()); abstol=0.01, reltol=0.01, tspan=10.0);
-    s.set_initial(s.sprob, s.get_unknowns(sol))
     simple_linearize!(s)
     return s.A, s.B, s.C, s.D
 end
 
-function set_measured!(s::SymbolicAWEModel, x)
-    integ = s.integrator
-    # get variables from y
-    elevation       = x[1]
-    elevation_vel   = x[2]
-    azimuth         = x[3]
-    azimuth_vel     = x[4]
-    heading         = x[5]
-    turn_rate       = x[6]
-    tether_length   = x[7:9]
-    tether_vel      = x[10:12]
+function set_measured!(s::SymbolicAWEModel, 
+    heading, turn_rate,
+    tether_length, tether_vel
+)
+    @unpack wings, winches = s.sys_struct
+    wing = wings[1]
 
     # get variables from integrator
-    distance = s.get_distance(s.sprob)[1]
-    R_t_w = calc_R_t_w(elevation, azimuth) # rotation of tether to world, similar to view rotation, but always pointing up
+    distance = norm(wing.pos_w)
+    R_t_w = calc_R_t_w(wing.elevation, wing.azimuth) # rotation of tether to world, similar to view rotation, but always pointing up
     
     # get wing_pos, rotate it by elevation and azimuth around the x and z axis
-    wing_pos = R_t_w * [0, 0, distance]
+    wing.pos_w .= R_t_w * [0, 0, distance]
     # wing_vel from elevation_vel and azimuth_vel
-    wing_vel = R_t_w * [-elevation_vel, azimuth_vel, tether_vel[1]]
+    wing.vel_w .= R_t_w * [-wing.elevation_vel, wing.azimuth_vel, tether_vel[1]]
     # find quaternion orientation from heading, R_cad_body and R_t_w
     x = [cos(-heading), -sin(-heading), 0]
     y = [sin(-heading),  cos(-heading), 0]
     z = [0, 0, 1]
-    R_b_w = R_t_w * s.vsm_wings[1].R_cad_body' * [x y z]
-    Q_b_w = rotation_matrix_to_quaternion(R_b_w)
+    wing.R_b_w .= R_t_w * s.vsm_wings[1].R_cad_body' * [x y z]
     # adjust the turn rates for observed turn rate
-    ω_b = R_b_w' * R_t_w * [0, 0, turn_rate]
+    wing.ω_b .= wing.R_b_w' * R_t_w * [0, 0, turn_rate]
     # directly set tether length
-    # directly set tether vel
-    s.set_x̂(s.sprob, [wing_pos, wing_vel, Q_b_w, ω_b, tether_length, tether_vel])
+    for winch in winches
+        winch.tether_length = tether_length[winch.idx]
+        winch.tether_vel = tether_vel[winch.idx]
+    end
     return nothing
 end
 
@@ -85,35 +79,45 @@ function jacobian(f::Function, x::AbstractVector, ϵ::AbstractVector)
     return J
 end
 
-function simple_linearize!(s::SymbolicAWEModel; 
-                           x0=s.get_unknowns(s.integrator), 
-                           u0=s.get_set_values(s.integrator),
-                           tstab=0.1)
-    s.set_set_values(s.sprob, u0)
-    s.set_initial(s.sprob, x0)
-    lin_x0 = s.get_lin_x(s.sprob)
-    linearize_vsm!(s)
+function simple_linearize!(s::SymbolicAWEModel; tstab=0.1)
+    old_stab = s.get_stabilize(s.integrator)
+    s.set_stabilize(s.integrator, true)
+    integ = s.integrator
+    init_sim!(s; reload=false)
+    lin_x0 = s.get_lin_x(s.integrator)
+    u0 = [winch.set_value for winch in s.sys_struct.winches]
     s.A .= 0.0
     s.B .= 0.0
     s.C .= 0.0
     s.D .= 0.0
     
     function f(x, u)
-        s.set_initial(s.sprob, x0)
-        sphere_pos_vel = s.get_sphere(s.sprob)
-        set_measured!(s, [sphere_pos_vel; x])
-        s.set_set_values(s.sprob, u)
-        OrdinaryDiffEqCore.reinit!(integ, integ.u; reinit_dae=false)
+        heading = x[1]
+        turn_rate = x[2]
+        @show turn_rate
+        tether_length = x[3:5]
+        tether_vel = x[6:8]
+        set_measured!(s, heading, turn_rate,
+                      tether_length, tether_vel)
+        s.set_psys(integ, s.sys_struct)
+        @show s.sys_struct.wings[1].angular_vel
+        s.set_set_values(s.integrator, u)
+        OrdinaryDiffEqCore.reinit!(integ)
         OrdinaryDiffEqCore.step!(integ, tstab)
+        @show s.get_lin_dx(integ)[1]
         return s.get_lin_dx(integ)
     end
 
     # yes it looks weird to step in an output function, but this is a steady state finder rather than output
     function h(x)
-        s.set_initial(integ, x0)
-        sphere_pos_vel = s.get_sphere(integ)
-        set_measured!(s, [sphere_pos_vel; x])
-        OrdinaryDiffEqCore.reinit!(integ, integ.u; reinit_dae=false)
+        heading = x[1]
+        turn_rate = x[2]
+        tether_length = x[3:5]
+        tether_vel = x[6:8]
+        set_measured!(s, heading, turn_rate,
+                      tether_length, tether_vel)
+        s.set_psys(integ, s.sys_struct)
+        OrdinaryDiffEqCore.reinit!(integ)
         OrdinaryDiffEqCore.step!(integ, tstab)
         return s.get_lin_y(integ)
     end
@@ -128,7 +132,7 @@ function simple_linearize!(s::SymbolicAWEModel;
     s.B .= jacobian(f_u, u0, ϵ_u)
     s.C .= jacobian(h,   lin_x0, ϵ_x)
     
-    s.set_initial(integ, x0)
     s.set_set_values(integ, u0)
+    s.set_stabilize(integ, old_stab)
     nothing
 end
