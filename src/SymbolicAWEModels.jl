@@ -15,7 +15,7 @@ module SymbolicAWEModels
 using PrecompileTools: @setup_workload, @compile_workload 
 using Serialization, StaticArrays, LinearAlgebra, Statistics, Parameters,
       DocStringExtensions, OrdinaryDiffEqCore, OrdinaryDiffEqBDF, OrdinaryDiffEqNonlinearSolve,
-      NonlinearSolve, SHA
+      NonlinearSolve, SHA, SteadyStateDiffEq
 using KiteUtils, WinchModels, AtmosphericModels
 using Pkg
 using VortexStepMethod

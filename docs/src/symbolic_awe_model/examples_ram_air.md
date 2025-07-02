@@ -28,7 +28,7 @@ Expected output for first run:
 Time elapsed: 7.483472342 s
 [ Info: Creating wing, aero, vsm_solver, sys_struct and s:
 Time elapsed: 15.341197455 s
-[ Info: Creating ODESystem
+[ Info: Creating System
   4.316010 seconds (8.72 M allocations: 222.606 MiB, 1.42% gc time, 25.46% compilation time: 14% of which was recompilation)
 [ Info: Simplifying the system
  38.520311 seconds (335.98 M allocations: 11.256 GiB, 3.30% gc time, 26.34% compilation time: 29% of which was recompilation)

@@ -32,8 +32,9 @@ end
 function simple_linearize(s::SymbolicAWEModel)
     init_sim!(s; remake=false, adaptive=true)
     find_steady_state!(s)
-    s.set_stabilize(s.integrator, true)
-    @time simple_linearize!(s)
+    sol = solve(s.sprob, DynamicSS(FBDF()); abstol=0.01, reltol=0.01, tspan=10.0);
+    s.set_initial(s.sprob, s.get_unknowns(sol))
+    simple_linearize!(s)
     return s.A, s.B, s.C, s.D
 end
 
@@ -50,7 +51,7 @@ function set_measured!(s::SymbolicAWEModel, x)
     tether_vel      = x[10:12]
 
     # get variables from integrator
-    distance = s.get_distance(integ)[1]
+    distance = s.get_distance(s.sprob)[1]
     R_t_w = calc_R_t_w(elevation, azimuth) # rotation of tether to world, similar to view rotation, but always pointing up
     
     # get wing_pos, rotate it by elevation and azimuth around the x and z axis
@@ -67,7 +68,7 @@ function set_measured!(s::SymbolicAWEModel, x)
     ω_b = R_b_w' * R_t_w * [0, 0, turn_rate]
     # directly set tether length
     # directly set tether vel
-    s.set_x̂(integ, [wing_pos, wing_vel, Q_b_w, ω_b, tether_length, tether_vel])
+    s.set_x̂(s.sprob, [wing_pos, wing_vel, Q_b_w, ω_b, tether_length, tether_vel])
     return nothing
 end
 
@@ -88,10 +89,9 @@ function simple_linearize!(s::SymbolicAWEModel;
                            x0=s.get_unknowns(s.integrator), 
                            u0=s.get_set_values(s.integrator),
                            tstab=0.1)
-    integ = s.integrator
-    s.set_set_values(integ, u0)
-    s.set_unknowns(integ, x0)
-    lin_x0 = s.get_lin_x(integ)
+    s.set_set_values(s.sprob, u0)
+    s.set_initial(s.sprob, x0)
+    lin_x0 = s.get_lin_x(s.sprob)
     linearize_vsm!(s)
     s.A .= 0.0
     s.B .= 0.0
@@ -99,10 +99,10 @@ function simple_linearize!(s::SymbolicAWEModel;
     s.D .= 0.0
     
     function f(x, u)
-        s.set_unknowns(integ, x0)
-        sphere_pos_vel = s.get_sphere(integ)
+        s.set_initial(s.sprob, x0)
+        sphere_pos_vel = s.get_sphere(s.sprob)
         set_measured!(s, [sphere_pos_vel; x])
-        s.set_set_values(integ, u)
+        s.set_set_values(s.sprob, u)
         OrdinaryDiffEqCore.reinit!(integ, integ.u; reinit_dae=false)
         OrdinaryDiffEqCore.step!(integ, tstab)
         return s.get_lin_dx(integ)
@@ -110,7 +110,7 @@ function simple_linearize!(s::SymbolicAWEModel;
 
     # yes it looks weird to step in an output function, but this is a steady state finder rather than output
     function h(x)
-        s.set_unknowns(integ, x0)
+        s.set_initial(integ, x0)
         sphere_pos_vel = s.get_sphere(integ)
         set_measured!(s, [sphere_pos_vel; x])
         OrdinaryDiffEqCore.reinit!(integ, integ.u; reinit_dae=false)
@@ -127,6 +127,8 @@ function simple_linearize!(s::SymbolicAWEModel;
     s.A .= jacobian(f_x, lin_x0, ϵ_x)
     s.B .= jacobian(f_u, u0, ϵ_u)
     s.C .= jacobian(h,   lin_x0, ϵ_x)
-
+    
+    s.set_initial(integ, x0)
+    s.set_set_values(integ, u0)
     nothing
 end

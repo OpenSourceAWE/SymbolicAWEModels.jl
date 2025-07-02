@@ -990,9 +990,9 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; init_va_b)
     #         ]
     #     ]
 
-    @info "Creating ODESystem"
-    # @named sys = ODESystem(eqs, t; discrete_events)
-    @time @named sys = ODESystem(eqs, t)
+    @info "Creating System"
+    # @named sys = System(eqs, t; discrete_events)
+    @time @named sys = System(eqs, t)
 
     defaults = [
         defaults

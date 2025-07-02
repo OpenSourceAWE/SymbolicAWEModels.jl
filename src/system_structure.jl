@@ -203,6 +203,8 @@ mutable struct Segment
     l0::SimFloat
     compression_frac::SimFloat
     diameter::SimFloat
+    length::SimFloat # current length of the segment
+    force::SimFloat # current force in the segment
 end
 
 """
@@ -254,7 +256,8 @@ To create a Segment:
 ```
 """
 function Segment(idx, point_idxs, type; l0=zero(SimFloat), compression_frac=0.1)
-    Segment(idx, point_idxs, type, l0, compression_frac, zero(SimFloat))
+    Segment(idx, point_idxs, type, l0, compression_frac, 
+        zero(SimFloat), zero(SimFloat), zero(SimFloat))
 end
 
 """
@@ -377,6 +380,8 @@ mutable struct Winch
     const tether_idxs::Vector{Int16}
     tether_length::Union{SimFloat, Nothing}
     tether_vel::SimFloat
+    set_value::SimFloat
+    const winch_force::KVec3
 end
 
 """
@@ -421,7 +426,7 @@ To create a Winch:
 ```
 """
 function Winch(idx, model, tether_idxs; tether_length=0.0, tether_vel=0.0)
-    return Winch(idx, model, tether_idxs, tether_length, tether_vel)
+    return Winch(idx, model, tether_idxs, tether_length, tether_vel, 0.0, zeros(KVec3))
 end
 
 """
@@ -444,28 +449,49 @@ Points with `type == WING` move rigidly with the wing body according to the
 wing's orientation matrix `R_b_c` and position `pos_w`.
 
 # Extended help
-The wing's orientation can be accessed as a quaternion through the `orient` property:
+The wing's orientation can be accessed as a quaternion through the `Q_b_w` property:
 ```julia
 wing = Wing(1, [1,2], I(3), zeros(3))
-quat = wing.orient  # Returns quaternion representation of R_b_c
+quat = wing.Q_b_w  # Returns quaternion representation of R_b_c
 ```
 """
-struct Wing
-    idx::Int16
-    group_idxs::Vector{Int16}
-    transform_idx::Int16
-    R_b_c::Matrix{SimFloat}
-    R_b_w::Matrix{SimFloat}
-    angular_vel::KVec3
-    pos_w::KVec3
-    pos_cad::KVec3
-    vel_w::KVec3
+mutable struct Wing
+    const idx::Int16
+
+    # Structural information
+    const group_idxs::Vector{Int16}
+    const transform_idx::Int16
+    const R_b_c::Matrix{SimFloat}
+    const pos_cad::KVec3
+
+    # Differential variables in world frame, updated during simulation
+    const R_b_w::Matrix{SimFloat}
+    const angular_vel::KVec3
+    const pos_w::KVec3
+    const vel_w::KVec3
+
+    # Derived variables and parameters, updated during simulation
+    const va_b::KVec3 # apparent wind in body frame
+    const v_wind::KVec3 # wind velocity in world frame at the wing
+    const aero_force_b::KVec3 # aerodynamic force in body frame
+    const aero_moment_b::KVec3 # aerodynamic moment in body frame
+    elevation::SimFloat
+    azimuth::SimFloat
+    heading::SimFloat
+    course::SimFloat
 end
 function Base.getproperty(wing::Wing, sym::Symbol)
-    if sym == :orient
+    if sym == :Q_b_w
         return rotation_matrix_to_quaternion(wing.R_b_w)
     else
         return getfield(wing, sym)
+    end
+end
+function Base.setproperty!(wing::Wing, sym::Symbol, value)
+    if sym == :Q_b_w
+        wing.R_b_w .= quaternion_to_rotation_matrix(value)
+    else
+        setfield!(wing, sym, value)
     end
 end
 
@@ -516,14 +542,11 @@ where:
 
 # Keyword Arguments
 - `transform_idx::Int16=1`: Transform used for initial positioning and orientation
-- `angular_vel::KVec3=zeros(KVec3)`: Initial angular velocity of the wing in world frame
-- `pos_w::KVec3=zeros(KVec3)`: Initial position of wing center of mass in world frame
-- `vel_w::KVec3=zeros(KVec3)`: Initial velocity of wing center of mass in world frame
 
 # Special Properties
 The wing orientation can be accessed as a quaternion:
 ```julia
-  quat = wing.orient  # Returns quaternion representation of R_b_c
+  quat = wing.Q_b_w  # Returns quaternion representation of R_b_w
 ```
 
 # Returns
@@ -537,9 +560,11 @@ Create a wing with identity orientation and two attached groups:
   wing = Wing(1, [1, 2], R_b_c, pos_cad)
 ```
 """
-function Wing(idx, group_idxs, R_b_c, pos_cad; transform_idx=1, angular_vel=zeros(KVec3), 
-        pos_w=zeros(KVec3), vel_w=zeros(KVec3))
-    return Wing(idx, group_idxs, transform_idx, R_b_c, zeros(3,3), angular_vel, pos_w, pos_cad, vel_w)
+function Wing(idx, group_idxs, R_b_c, pos_cad; transform_idx=1)
+    return Wing(idx, group_idxs, transform_idx, R_b_c, pos_cad, zeros(3,3),
+        zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        0.0, 0.0, 0.0, 0.0)
 end
 
 """
@@ -669,6 +694,7 @@ struct SystemStructure
     y::Array{Float64, 2}
     x::Array{Float64, 2}
     jac::Array{Float64, 3}
+    wind_vec_gnd::KVec3
 end
 
 """
@@ -769,7 +795,8 @@ function SystemStructure(name, set;
     x = zeros(length(wings), nx)
     jac = zeros(length(wings), nx, ny)
     set.physical_model = name
-    sys_struct = SystemStructure(name, set, points, groups, segments, pulleys, tethers, winches, wings, transforms, y, x, jac)
+    sys_struct = SystemStructure(name, set, points, groups, segments, pulleys, tethers,
+        winches, wings, transforms, y, x, jac, zeros(KVec3))
     init!(sys_struct, set)
     return sys_struct
 end
@@ -1102,3 +1129,4 @@ function init!(sys_struct::SystemStructure, set::Settings)
     init!(transforms, sys_struct)
     return nothing
 end
+
