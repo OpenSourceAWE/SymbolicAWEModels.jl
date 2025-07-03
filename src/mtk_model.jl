@@ -66,6 +66,11 @@ get_pos_w(sys_struct::SystemStructure, idx::Int16) = sys_struct.points[idx].pos_
     size=(3,)
     eltype=SimFloat
 end
+get_vel_w(sys_struct::SystemStructure, idx::Int16) = sys_struct.points[idx].vel_w
+@register_array_symbolic get_vel_w(sys::SystemStructure, idx::Int16) begin
+    size=(3,)
+    eltype=SimFloat
+end
 get_pos_b(sys_struct::SystemStructure, idx::Int16) = sys_struct.points[idx].pos_b
 @register_array_symbolic get_pos_b(sys::SystemStructure, idx::Int16) begin
     size=(3,)
@@ -91,6 +96,16 @@ get_ω_b(sys_struct::SystemStructure, idx::Int16) = sys_struct.wings[idx].ω_b
     size=(3,)
     eltype=SimFloat
 end
+get_pulley_len(sys_struct::SystemStructure, idx::Int16) = sys_struct.pulleys[idx].len
+@register_symbolic get_pulley_len(sys::SystemStructure, idx::Int16)
+get_pulley_vel(sys_struct::SystemStructure, idx::Int16) = sys_struct.pulleys[idx].vel
+@register_symbolic get_pulley_vel(sys::SystemStructure, idx::Int16)
+get_set_value(sys_struct::SystemStructure, idx::Int16) = sys_struct.winches[idx].set_value
+@register_symbolic get_set_value(sys::SystemStructure, idx::Int16)
+get_twist(sys_struct::SystemStructure, idx::Int16) = sys_struct.groups[idx].twist
+@register_symbolic get_twist(sys::SystemStructure, idx::Int16)
+get_twist_ω(sys_struct::SystemStructure, idx::Int16) = sys_struct.groups[idx].twist_ω
+@register_symbolic get_twist_ω(sys::SystemStructure, idx::Int16)
 get_mass(sys_struct::SystemStructure, idx::Int16) = sys_struct.points[idx].mass
 @register_symbolic get_mass(sys::SystemStructure, idx::Int16)
 get_l0(sys_struct::SystemStructure, idx::Int16) = sys_struct.segments[idx].l0
@@ -101,10 +116,10 @@ get_compression_frac(sys_struct::SystemStructure, idx::Int16) = sys_struct.segme
 @register_symbolic get_compression_frac(sys::SystemStructure, idx::Int16)
 get_moment_frac(sys_struct::SystemStructure, idx::Int16) = sys_struct.groups[idx].moment_frac
 @register_symbolic get_moment_frac(sys::SystemStructure, idx::Int16)
-get_sum_length(sys_struct::SystemStructure, idx::Int16) = sys_struct.pulleys[idx].sum_length
-@register_symbolic get_sum_length(sys::SystemStructure, idx::Int16)
-get_tether_length(sys_struct::SystemStructure, idx::Int16) = sys_struct.winches[idx].tether_length
-@register_symbolic get_tether_length(sys::SystemStructure, idx::Int16)
+get_sum_len(sys_struct::SystemStructure, idx::Int16) = sys_struct.pulleys[idx].sum_len
+@register_symbolic get_sum_len(sys::SystemStructure, idx::Int16)
+get_tether_len(sys_struct::SystemStructure, idx::Int16) = sys_struct.winches[idx].tether_len
+@register_symbolic get_tether_len(sys::SystemStructure, idx::Int16)
 get_tether_vel(sys_struct::SystemStructure, idx::Int16) = sys_struct.winches[idx].tether_vel
 @register_symbolic get_tether_vel(sys::SystemStructure, idx::Int16)
 
@@ -285,7 +300,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             defaults = [
                 defaults
                 [pos[j, point.idx] => get_pos_w(psys, point.idx)[j] for j in 1:3]
-                [vel[j, point.idx] => 0 for j in 1:3]
+                [vel[j, point.idx] => get_vel_w(psys, point.idx)[j] for j in 1:3]
             ]
         elseif point.type == QUASI_STATIC
             eqs = [
@@ -367,8 +382,8 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             ]
             defaults = [
                 defaults
-                free_twist_angle[group.idx] => 0
-                twist_ω[group.idx] => 0
+                free_twist_angle[group.idx] => get_twist(psys, group.idx)
+                twist_ω[group.idx] => get_twist_ω(psys, group.idx)
             ]
         elseif group.type == QUASI_STATIC
             eqs = [
@@ -406,9 +421,9 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         app_perp_vel(t)[1:3, eachindex(segments)]
         drag_force(t)[1:3, eachindex(segments)]
 
-        pulley_l0(t)[eachindex(pulleys)]
+        pulley_len(t)[eachindex(pulleys)]
 
-        tether_length(t)[eachindex(winches)]
+        tether_len(t)[eachindex(winches)]
     end
     for segment in segments
         p1, p2 = segment.point_idxs[1], segment.point_idxs[2]
@@ -424,14 +439,14 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             if segment.idx == pulley.segment_idxs[1] # each bridle segment has to be part of no pulley or one pulley
                 eqs = [
                     eqs
-                    l0[segment.idx] ~ pulley_l0[pulley.idx]
+                    l0[segment.idx] ~ pulley_len[pulley.idx]
                 ]
                 in_pulley += 1
             end
             if segment.idx == pulley.segment_idxs[2]
                 eqs = [
                     eqs
-                    l0[segment.idx] ~ get_sum_length(psys, pulley.idx) - pulley_l0[pulley.idx]
+                    l0[segment.idx] ~ get_sum_len(psys, pulley.idx) - pulley_len[pulley.idx]
                 ]
                 in_pulley += 1
             end
@@ -457,7 +472,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
 
                     eqs = [
                         eqs
-                        l0[segment.idx] ~ tether_length[winch_idx] / length(tether.segment_idxs)
+                        l0[segment.idx] ~ tether_len[winch_idx] / length(tether.segment_idxs)
                     ]
                     in_tether += 1
                 end
@@ -510,7 +525,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
 
     # ==================== PULLEYS ==================== #
     @variables begin
-        pulley_l0(t)[eachindex(pulleys)]
+        pulley_len(t)[eachindex(pulleys)]
         pulley_vel(t)[eachindex(pulleys)]
         pulley_force(t)[eachindex(pulleys)]
         pulley_acc(t)[eachindex(pulleys)]
@@ -519,7 +534,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
     for pulley in pulleys
         segment = segments[pulley.segment_idxs[1]]
         mass_per_meter = get_rho_tether(pset) * π * (get_diameter(psys, segment.idx)/2)^2
-        mass = get_sum_length(psys, pulley.idx) * mass_per_meter
+        mass = get_sum_len(psys, pulley.idx) * mass_per_meter
         eqs = [
             eqs
             pulley_force[pulley.idx]    ~ spring_force[pulley.segment_idxs[1]] - spring_force[pulley.segment_idxs[2]]
@@ -528,13 +543,13 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         if pulley.type == DYNAMIC
             eqs = [
                 eqs
-                D(pulley_l0[pulley.idx])  ~ pulley_vel[pulley.idx]
+                D(pulley_len[pulley.idx])  ~ pulley_vel[pulley.idx]
                 D(pulley_vel[pulley.idx]) ~ acc_multiplier * pulley_acc[pulley.idx] - pulley_damp * pulley_vel[pulley.idx]
             ]
             defaults = [
                 defaults
-                pulley_l0[pulley.idx] => get_l0(psys, pulley.segment_idxs[1])
-                pulley_vel[pulley.idx] => 0
+                pulley_len[pulley.idx] => get_pulley_len(psys, pulley.idx)
+                pulley_vel[pulley.idx] => get_pulley_vel(psys, pulley.idx)
             ]
         elseif pulley.type == QUASI_STATIC
             eqs = [
@@ -544,7 +559,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
             ]
             guesses = [
                 guesses
-                pulley_l0[pulley.idx] => get_l0(psys, pulley.segment_idxs[1])
+                pulley_len[pulley.idx] => get_l0(psys, pulley.segment_idxs[1])
             ]
         else
             error("Wrong pulley type")
@@ -576,7 +591,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         end
         eqs = [
             eqs
-            D(tether_length[winch.idx]) ~ ifelse(fix_nonstiff==true, 0, ifelse(stabilize==true, 0, tether_vel[winch.idx]))
+            D(tether_len[winch.idx]) ~ ifelse(fix_nonstiff==true, 0, ifelse(stabilize==true, 0, tether_vel[winch.idx]))
             D(tether_vel[winch.idx]) ~ ifelse(fix_nonstiff==true, 0, ifelse(stabilize==true, 0, tether_acc[winch.idx]))
 
             tether_acc[winch.idx] ~ calc_moment_acc( # TODO: moment and speed control
@@ -588,14 +603,14 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         ]
         defaults = [
             defaults
-            tether_length[winch.idx] => get_tether_length(psys, winch.idx)
+            tether_len[winch.idx] => get_tether_len(psys, winch.idx)
             tether_vel[winch.idx] => get_tether_vel(psys, winch.idx)
         ]
     end
 
     # ==================== TETHERS ==================== #
     @variables begin
-        stretched_length(t)[eachindex(tethers)]
+        stretched_len(t)[eachindex(tethers)]
     end
     for tether in tethers
         slen = zero(Num)
@@ -604,7 +619,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
         end
         eqs = [
             eqs
-            stretched_length[tether.idx] ~ slen
+            stretched_len[tether.idx] ~ slen
         ]
     end
 
@@ -969,16 +984,16 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; init_va_b)
         ω_b, α_b, R_b_w, wing_pos, wing_vel, wing_acc, stabilize, fix_nonstiff)
     eqs = scalar_eqs!(s, eqs, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc, twist_angle, twist_ω, ω_b, α_b)
     
-    # te_I = (1/3 * (get_set_mass(pset)/8) * te_length^2)
+    # te_I = (1/3 * (get_set_mass(pset)/8) * te_len^2)
     # # -damping / I * ω = α_damping
     # # solve for c: (c * (k*m/s^2) / (k*m^2)) * (m/s)=m/s^2 in wolframalpha
     # # damping should be in N*m*s
-    # rot_damping = 0.1s.damping * te_length
+    # rot_damping = 0.1s.damping * te_len
 
     # eqs = [
     #     eqs
-    #     trailing_edge_α[1] ~ (force[:, s.i_A]) ⋅ e_te_A * te_length / te_I - (rot_damping[1] / te_I) * trailing_edge_ω[1] # TODO: add trailing edge
-    #     trailing_edge_α[2] ~ (force[:, s.i_B]) ⋅ e_te_B * te_length / te_I - (rot_damping[2] / te_I) * trailing_edge_ω[2]
+    #     trailing_edge_α[1] ~ (force[:, s.i_A]) ⋅ e_te_A * te_len / te_I - (rot_damping[1] / te_I) * trailing_edge_ω[1] # TODO: add trailing edge
+    #     trailing_edge_α[2] ~ (force[:, s.i_B]) ⋅ e_te_B * te_len / te_I - (rot_damping[2] / te_I) * trailing_edge_ω[2]
     # ]
     
     eqs = Symbolics.scalarize.(reduce(vcat, Symbolics.scalarize.(eqs)))
@@ -996,7 +1011,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; init_va_b)
 
     defaults = [
         defaults
-        [set_values[i] => [-50.0, -1.0, -1.0][i] for i in eachindex(winches)]
+        [set_values[winch.idx] => get_set_value(psys, winch.idx) for winch in winches]
     ]
 
     s.defaults = defaults

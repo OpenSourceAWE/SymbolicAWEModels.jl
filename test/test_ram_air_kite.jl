@@ -107,6 +107,24 @@ const BUILD_SYS = true
         end
     end
 
+    @testset "Reset using psys" begin
+        init_sim!(s; prn=true, reload=false)
+        norm1 = s.integrator.u
+        next_step!(s)
+        @test norm1 != norm(s.integrator.u)
+        
+        u1 = copy(s.integrator.u)
+        s.set_psys(integ, s.sys_struct)
+        OrdinaryDiffEqCore.reinit!(integ)
+        u2 = s.integrator.u
+        for (v1, v2, n) in zip(u1, u2, unknowns(s.sys))
+            @test v1 == v2
+            if v1 != v2
+                println(n, " ", v1, " ", v2)
+            end
+        end
+    end
+
     @testset "State Consistency" begin
         SymbolicAWEModels.init_sim!(s, prn=true, reload=false)
         sys_state_before = SymbolicAWEModels.SysState(s)
@@ -117,9 +135,6 @@ const BUILD_SYS = true
         old_elevation = set.elevation
         set.elevation = 85.0
         SymbolicAWEModels.init_sim!(s, prn=true, reload=false)
-        @show s.set.elevation
-        @show s.sys_struct.transforms[1].elevation
-        @show s.integrator[s.sys.elevation]
 
         # Get new state using SysState
         sys_state_after = SymbolicAWEModels.SysState(s)

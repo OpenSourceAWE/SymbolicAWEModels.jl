@@ -121,7 +121,7 @@ mutable struct Group
     const type::DynamicsType
     moment_frac::SimFloat
     twist::SimFloat
-    twist_vel::SimFloat
+    twist_ω::SimFloat
 end
 
 """
@@ -203,7 +203,7 @@ mutable struct Segment
     l0::SimFloat
     compression_frac::SimFloat
     diameter::SimFloat
-    length::SimFloat # current length of the segment
+    len::SimFloat # current len of the segment
     force::SimFloat # current force in the segment
 end
 
@@ -231,7 +231,7 @@ The segment follows Hooke's law with damping and aerodynamic drag:
 
 where:
 - ``k = \\frac{E \\pi d^2/4}{l}`` is the axial stiffness
-- ``l`` is current length, ``l_0`` is unstretched length
+- ``l`` is current len, ``l_0`` is unstretched len
 - ``c = \\frac{\\xi}{c_{spring}} k`` is damping coefficient
 - ``\\hat{\\mathbf{u}} = \\frac{\\mathbf{r}_2 - \\mathbf{r}_1}{l}`` is unit vector along segment
 - ``\\dot{l} = (\\mathbf{v}_1 - \\mathbf{v}_2) \\cdot \\hat{\\mathbf{u}}`` is extension rate
@@ -243,7 +243,7 @@ where:
 - `type::SegmentType`: Type of the segment (POWER_LINE, STEERING_LINE, BRIDLE).
 
 # Keyword Arguments
-- `l0::SimFloat=zero(SimFloat)`: Unstretched length of the segment. Calculated from point positions if zero.
+- `l0::SimFloat=zero(SimFloat)`: Unstretched len of the segment. Calculated from point positions if zero.
 - `compression_frac::SimFloat=0.1`: Compression fraction of stiffness for compression behavior.
 
 # Returns
@@ -271,8 +271,8 @@ mutable struct Pulley
     const idx::Int16
     const segment_idxs::Tuple{Int16, Int16}
     const type::DynamicsType
-    sum_length::SimFloat
-    length::SimFloat
+    sum_len::SimFloat
+    len::SimFloat
     vel::SimFloat
 end
 
@@ -283,7 +283,7 @@ Constructs a Pulley object that enforces length redistribution between two segme
 
 The pulley constraint maintains constant total length while allowing force transmission:
 
-**Constraint Equations:**
+**Constraint Equatins:**
 ```math
 l_1 + l_2 = l_{total} = \\text{constant}
 ```
@@ -378,14 +378,14 @@ mutable struct Winch
     const idx::Int16
     const model::AbstractWinchModel
     const tether_idxs::Vector{Int16}
-    tether_length::Union{SimFloat, Nothing}
+    tether_len::Union{SimFloat, Nothing}
     tether_vel::SimFloat
     set_value::SimFloat
     const force::KVec3
 end
 
 """
-    Winch(idx, model, tether_idxs; tether_length=nothing, tether_vel=0.0)
+    Winch(idx, model, tether_idxs; tether_len=nothing, tether_vel=0.0)
 
 Constructs a Winch object that controls tether length through torque or speed regulation.
 
@@ -414,7 +414,7 @@ see the [WinchModels.jl documentation](https://github.com/aenarete/WinchModels.j
 
 # Keyword Arguments
 - `tether_vel::SimFloat=0.0`: Initial tether velocity (reel-out rate).
-- `tether_length::SimFloat`: Initial tether length.
+- `tether_len::SimFloat`: Initial tether len.
 
 # Returns
 - `Winch`: A new Winch object.
@@ -425,8 +425,8 @@ To create a Winch:
     winch = Winch(1, TorqueControlledMachine(set), [1, 2], 100.0)
 ```
 """
-function Winch(idx, model, tether_idxs; tether_length=0.0, tether_vel=0.0)
-    return Winch(idx, model, tether_idxs, tether_length, tether_vel, 0.0, zeros(KVec3))
+function Winch(idx, model, tether_idxs; tether_len=0.0, tether_vel=0.0)
+    return Winch(idx, model, tether_idxs, tether_len, tether_vel, 0.0, zeros(KVec3))
 end
 
 """
@@ -465,7 +465,7 @@ mutable struct Wing
     const pos_cad::KVec3
 
     # Differential variables in world frame, updated during simulation
-    const R_b_w::Matrix{SimFloat}
+    const Q_b_w::Vector{SimFloat}
     const ω_b::KVec3
     const pos_w::KVec3
     const vel_w::KVec3
@@ -489,15 +489,15 @@ mutable struct Wing
     aoa::SimFloat
 end
 function Base.getproperty(wing::Wing, sym::Symbol)
-    if sym == :Q_b_w
-        return rotation_matrix_to_quaternion(wing.R_b_w)
+    if sym == :R_b_w
+        return quaternion_to_rotation_matrix(wing.Q_b_w)
     else
         return getfield(wing, sym)
     end
 end
 function Base.setproperty!(wing::Wing, sym::Symbol, value)
-    if sym == :Q_b_w
-        wing.R_b_w .= quaternion_to_rotation_matrix(value)
+    if sym == :R_b_w
+        wing.Q_b_w .= rotation_matrix_to_quaternion(value)
     else
         setfield!(wing, sym, value)
     end
@@ -569,7 +569,7 @@ Create a wing with identity orientation and two attached groups:
 ```
 """
 function Wing(idx, group_idxs, R_b_c, pos_cad; transform_idx=1)
-    return Wing(idx, group_idxs, transform_idx, R_b_c, pos_cad, zeros(3,3), zeros(KVec3),
+    return Wing(idx, group_idxs, transform_idx, R_b_c, pos_cad, zeros(4), zeros(KVec3),
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
         zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
@@ -776,12 +776,12 @@ function SystemStructure(name, set;
     end
     for (i, winch) in enumerate(winches)
         @assert winch.idx == i
-        if iszero(winch.tether_length)
+        if iszero(winch.tether_len)
             for segment_idx in tethers[winch.tether_idxs[1]].segment_idxs
-                winch.tether_length += segments[segment_idx].l0
+                winch.tether_len += segments[segment_idx].l0
             end
         end
-        set.l_tethers[i]   = winch.tether_length
+        set.l_tethers[i]   = winch.tether_len
         set.v_reel_outs[i] = winch.tether_vel
     end
     for (i, wing) in enumerate(wings)
@@ -836,11 +836,13 @@ function init!(transforms::Vector{Transform}, sys_struct::SystemStructure)
         for point in points
             if point.transform_idx == transform.idx
                 point.pos_w .= point.pos_cad .+ T
+                point.vel_w .= 0.0
             end
         end
         for wing in wings
             if wing.transform_idx == transform.idx
                 wing.pos_w .= wing.pos_cad .+ T
+                wing.vel_w .= 0.0
             end
         end
 
@@ -865,12 +867,13 @@ function init!(transforms::Vector{Transform}, sys_struct::SystemStructure)
             if wing.transform_idx == transform.idx
                 vec = wing.pos_w - base_pos
                 wing.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, transform.heading)
+                R_b_w = zeros(3,3)
                 for i in 1:3
-                    wing.R_b_w[:, i] .= apply_heading(wing.R_b_c[:, i], R_t_w, curr_R_t_w, transform.heading)
+                    R_b_w[:, i] .= apply_heading(wing.R_b_c[:, i], R_t_w, curr_R_t_w, transform.heading)
                 end
+                wing.R_b_w = R_b_w
             end
         end
-
     end
 end
 
@@ -1105,14 +1108,14 @@ function init!(sys_struct::SystemStructure, set::Settings)
     end
 
     for winch in winches
-        winch.tether_length = set.l_tethers[winch.idx]
+        winch.tether_len = set.l_tethers[winch.idx]
         winch.tether_vel    = set.v_reel_outs[winch.idx]
     end
 
     (length(groups) > 0) && (first_moment_frac = groups[1].moment_frac)
     for group in groups
         group.twist = 0.0
-        group.twist_vel = 0.0
+        group.twist_ω = 0.0
         @assert group.moment_frac ≈ first_moment_frac "All group.moment_frac must be the same."
     end
     
@@ -1129,10 +1132,10 @@ function init!(sys_struct::SystemStructure, set::Settings)
 
     for pulley in pulleys
         segment1, segment2 = segments[pulley.segment_idxs[1]], segments[pulley.segment_idxs[2]]
-        pulley.sum_length = segment1.l0 + segment2.l0
-        pulley.length = segment1.l0
+        pulley.sum_len = segment1.l0 + segment2.l0
+        pulley.len = segment1.l0
         pulley.vel = 0.0
-        @assert !(pulley.sum_length ≈ 0)
+        @assert !(pulley.sum_len ≈ 0)
     end
 
     init!(transforms, sys_struct)

@@ -30,15 +30,15 @@ function linearize(s::SymbolicAWEModel; set_values=s.get_set_values(s.integrator
 end
 
 function simple_linearize(s::SymbolicAWEModel)
-    init_sim!(s; remake=false, adaptive=true)
-    find_steady_state!(s)
+    init_sim!(s)
+    find_steady_state!(s; t=4.0)
     simple_linearize!(s)
     return s.A, s.B, s.C, s.D
 end
 
 function set_measured!(s::SymbolicAWEModel, 
     heading, turn_rate,
-    tether_length, tether_vel
+    tether_len, tether_vel
 )
     @unpack wings, winches = s.sys_struct
     wing = wings[1]
@@ -60,7 +60,7 @@ function set_measured!(s::SymbolicAWEModel,
     wing.ω_b .= wing.R_b_w' * R_t_w * [0, 0, turn_rate]
     # directly set tether length
     for winch in winches
-        winch.tether_length = tether_length[winch.idx]
+        winch.tether_len = tether_len[winch.idx]
         winch.tether_vel = tether_vel[winch.idx]
     end
     return nothing
@@ -83,28 +83,40 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=0.1)
     old_stab = s.get_stabilize(s.integrator)
     s.set_stabilize(s.integrator, true)
     integ = s.integrator
-    init_sim!(s; reload=false)
     lin_x0 = s.get_lin_x(s.integrator)
     u0 = [winch.set_value for winch in s.sys_struct.winches]
     s.A .= 0.0
     s.B .= 0.0
     s.C .= 0.0
     s.D .= 0.0
-    
+
+    update_sys_struct!(s, s.sys_struct)
+    s.set_psys(integ, s.sys_struct)
+    @show int1 = copy(s.integrator.u)
+    OrdinaryDiffEqCore.reinit!(integ)
+    @show int1 .== s.integrator.u
+    for (i, u, un) in zip(int1, s.integrator.u, unknowns(s.sys))
+        if i != u
+            println(un, " ", i, " ", u)
+        end
+    end
+    @time next_step!(s; dt=1.0, vsm_interval=0)
+    @time next_step!(s; dt=1.0, vsm_interval=0)
+    @time next_step!(s; dt=1.0, vsm_interval=0)
+    println("continue")
+
     function f(x, u)
         heading = x[1]
         turn_rate = x[2]
-        @show turn_rate
-        tether_length = x[3:5]
+        tether_len = x[3:5]
         tether_vel = x[6:8]
         set_measured!(s, heading, turn_rate,
-                      tether_length, tether_vel)
+                      tether_len, tether_vel)
         s.set_psys(integ, s.sys_struct)
-        @show s.sys_struct.wings[1].angular_vel
         s.set_set_values(s.integrator, u)
         OrdinaryDiffEqCore.reinit!(integ)
-        OrdinaryDiffEqCore.step!(integ, tstab)
-        @show s.get_lin_dx(integ)[1]
+        @time OrdinaryDiffEqCore.step!(integ, tstab)
+        s.get_lin_dx(integ)[1]
         return s.get_lin_dx(integ)
     end
 
@@ -112,10 +124,10 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=0.1)
     function h(x)
         heading = x[1]
         turn_rate = x[2]
-        tether_length = x[3:5]
+        tether_len = x[3:5]
         tether_vel = x[6:8]
         set_measured!(s, heading, turn_rate,
-                      tether_length, tether_vel)
+                      tether_len, tether_vel)
         s.set_psys(integ, s.sys_struct)
         OrdinaryDiffEqCore.reinit!(integ)
         OrdinaryDiffEqCore.step!(integ, tstab)

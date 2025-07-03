@@ -90,7 +90,7 @@ $(TYPEDFIELDS)
     iter::Int64 = 0
     t_vsm::SimFloat  = zero(SimFloat)
     t_step::SimFloat = zero(SimFloat)
-    set_tether_length::Vector{SimFloat} = zeros(SimFloat, 3)
+    set_tether_len::Vector{SimFloat} = zeros(SimFloat, 3)
 end
 
 function Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
@@ -199,7 +199,7 @@ function update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
     # Get the state vectors from the integrator
     if length(winches) > 0
         for winch in winches
-            ss.l_tether[winch.idx] = winch.tether_length
+            ss.l_tether[winch.idx] = winch.tether_len
             ss.v_reelout[winch.idx] = winch.tether_vel
             ss.force[winch.idx] = norm(winch.force)
             ss.set_torque[winch.idx] = winch.set_value
@@ -210,7 +210,7 @@ function update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
             ss.twist_angles[group.idx] = group.twist
         end
         ss.depower = rad2deg(mean(ss.twist_angles)) # Average twist for depower
-        ss.steering = rad2deg(ss.twist_angles[length(groups)] - ss.twist_angles[1])
+        ss.steering = rad2deg(ss.twist_angles[len(groups)] - ss.twist_angles[1])
     end
     if length(wings) > 0
         wing = wings[1]
@@ -473,9 +473,9 @@ function generate_getters!(s, sym_vec)
         lin_x_vec = [
             sys.heading[1]
             sys.turn_rate[1,3]
-            sys.tether_length[1]
-            sys.tether_length[2]
-            sys.tether_length[3]
+            sys.tether_len[1]
+            sys.tether_len[2]
+            sys.tether_len[3]
             sys.tether_vel[1]
             sys.tether_vel[2]
             sys.tether_vel[3]
@@ -492,7 +492,7 @@ function generate_getters!(s, sym_vec)
         ]
         lin_y_vec = [
             sys.heading[1]
-            sys.tether_length[1]
+            sys.tether_len[1]
             sys.angle_of_attack[1]
             sys.winch_force[1]
         ]
@@ -501,7 +501,7 @@ function generate_getters!(s, sym_vec)
             sys.wing_vel[1,:], 
             sys.Q_b_w[1,:], 
             sys.ω_b[1,:], 
-            sys.tether_length, 
+            sys.tether_len, 
             sys.tether_vel
         ]
         nx = length(lin_x_vec)
@@ -585,10 +585,18 @@ function generate_getters!(s, sym_vec)
         ]))
         s.get_group_state = (integ) -> get_group_state(integ)
     end
+    
+    if length(pulleys) > 0
+        get_pulley_state = getu(sys, c.([
+            sys.pulley_len,      # Position vector (world frame)
+            sys.pulley_vel,      # Velocity vector (world frame)
+        ]))
+        s.get_pulley_state = (integ) -> get_pulley_state(integ)
+    end
 
     if length(winches) > 0
         get_winch_state = getu(sys, c.([
-             sys.tether_length,   # Unstretched length per winch
+             sys.tether_len,   # Unstretched len per winch
              sys.tether_vel,      # Reeling velocity per winch
              sys.set_values,
              sys.winch_force,     # Force at winch connection point per winch
@@ -697,43 +705,43 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure)
         point.pos_w .= pos[:, point.idx]
         point.vel_w .= vel[:, point.idx]
     end
-    if !isnothing(s.get_pulley_state)
-        length, vel = s.get_pulley_state(s.integrator)
+    if length(pulleys) > 0
+        len, vel = s.get_pulley_state(s.integrator)
         for pulley in pulleys
-            pulley.length = length[pulley.idx]
+            pulley.len = len[pulley.idx]
             pulley.vel = vel[pulley.idx]
         end
     end
-    if !isnothing(s.get_segment_state)
+    if length(segments) > 0
         spring_force, len = s.get_segment_state(s.integrator)
         for segment in segments
             segment.force = spring_force[segment.idx]
-            segment.length = len[segment.idx]
+            segment.len = len[segment.idx]
         end
     end
-    if !isnothing(s.get_group_state)
-        twist, twist_vel = s.get_group_state(s.integrator)
+    if length(groups) > 0
+        twist, twist_ω = s.get_group_state(s.integrator)
         for group in groups
             group.twist = twist[group.idx]
-            group.twist_vel = twist_vel[group.idx]
+            group.twist_ω = twist_ω[group.idx]
         end
     end
-    if !isnothing(s.get_winch_state)
-        tether_length, tether_vel, set_value, winch_force = s.get_winch_state(s.integrator)
+    if length(winches) > 0
+        tether_len, tether_vel, set_value, winch_force = s.get_winch_state(s.integrator)
         for winch in winches
-            winch.tether_length = tether_length[winch.idx]
+            winch.tether_len = tether_len[winch.idx]
             winch.tether_vel = tether_vel[winch.idx]
             winch.set_value = set_value[winch.idx]
             winch.force .= winch_force[winch.idx]
         end
     end
-    if !isnothing(s.get_wing_state)
+    if length(wings) > 0
         Q_b_w, ω_b, pos_w, vel_w, acc_w, va_b, v_wind, 
             aero_force_b, aero_moment_b, elevation, elevation_vel,
             elevation_acc, azimuth, azimuth_vel, azimuth_acc,
             heading, turn_rate, turn_acc, course, aoa = s.get_wing_state(s.integrator)
         for wing in wings
-            wing.Q_b_w = Q_b_w[wing.idx, :]
+            wing.Q_b_w .= Q_b_w[wing.idx, :]
             wing.ω_b .= ω_b[wing.idx, :]
             wing.pos_w .= pos_w[wing.idx, :]
             wing.vel_w .= vel_w[wing.idx, :]
@@ -807,7 +815,7 @@ function init_unknowns_vec!(
     end
     for pulley in pulleys
         if pulley.type == DYNAMIC
-            vec[vec_idx] = pulley.length
+            vec[vec_idx] = pulley.len
             vec_idx += 1
             vec[vec_idx] = pulley.vel
             vec_idx += 1
@@ -817,12 +825,12 @@ function init_unknowns_vec!(
         if group.type == DYNAMIC
             vec[vec_idx] = group.twist
             vec_idx += 1
-            vec[vec_idx] = group.twist_vel
+            vec[vec_idx] = group.twist_ω
             vec_idx += 1
         end
     end
     for winch in winches
-        vec[vec_idx] = winch.tether_length
+        vec[vec_idx] = winch.tether_len
         vec_idx += 1
         vec[vec_idx] = winch.tether_vel
         vec_idx += 1
@@ -864,7 +872,7 @@ function get_unknowns(sys_struct::SystemStructure, sys::System)
         end
     end
     for pulley in pulleys
-        pulley.type == DYNAMIC && push!(vec, sys.pulley_l0[pulley.idx])
+        pulley.type == DYNAMIC && push!(vec, sys.pulley_len[pulley.idx])
         pulley.type == DYNAMIC && push!(vec, sys.pulley_vel[pulley.idx])
     end
     vec = get_nonstiff_unknowns(sys_struct, sys, vec)
@@ -878,7 +886,7 @@ function get_nonstiff_unknowns(sys_struct::SystemStructure, sys::System, vec=Num
         group.type == DYNAMIC && push!(vec, sys.twist_ω[group.idx])
     end
     for winch in winches
-        push!(vec, sys.tether_length[winch.idx])
+        push!(vec, sys.tether_len[winch.idx])
         push!(vec, sys.tether_vel[winch.idx])
     end
     for wing in wings
@@ -890,13 +898,14 @@ function get_nonstiff_unknowns(sys_struct::SystemStructure, sys::System, vec=Num
     return vec
 end
 
-function find_steady_state!(s::SymbolicAWEModel; dt=1/s.set.sample_freq)
+function find_steady_state!(s::SymbolicAWEModel; t=1.0, dt=1/s.set.sample_freq)
     old_state = s.get_stabilize(s.integrator)
     s.set_stabilize(s.integrator, true)
-    for _ in 1:1÷dt
+    for _ in 1:Int(round(t÷dt))
         next_step!(s; dt, vsm_interval=1)
     end
     s.set_stabilize(s.integrator, old_state)
+    update_sys_struct!(s, s.sys_struct)
     return nothing
 end
 
@@ -922,10 +931,10 @@ function initial_orient(s::SymbolicAWEModel)
 end
 
 """Returns the unstretched tether length of the symbolic AWE model."""
-unstretched_length(s::SymbolicAWEModel) = [winch.tether_length for winch in s.sys_struct.winches]
+unstretched_len(s::SymbolicAWEModel) = [winch.tether_len for winch in s.sys_struct.winches]
 
 """Returns the current tether length of the symbolic AWE model."""
-tether_length(s::SymbolicAWEModel) = [winch.tether_length for winch in s.sys_struct.winches]
+tether_len(s::SymbolicAWEModel) = [winch.tether_len for winch in s.sys_struct.winches]
 
 """Returns the height (z-position) of the wing in the symbolic AWE model."""
 calc_height(s::SymbolicAWEModel) = [wing.pos_w[3] for wing in s.sys_struct.wings]
@@ -941,7 +950,7 @@ function pos(s::SymbolicAWEModel)
     return [point.pos_w for point in s.sys_struct.points]
 end    
 
-function min_chord_length(s::SymbolicAWEModel)
+function min_chord_len(s::SymbolicAWEModel)
     min_len = Inf
     for wing in s.vsm_wings
         le_pos = [wing.le_interp[i](wing.gamma_tip) for i in 1:3]
@@ -958,10 +967,10 @@ Set kite depower and steering by adjusting tether lengths. Depower controls angl
 steering controls left/right differential. Values are scaled by minimum chord length.
 """
 function set_depower_steering!(s::SymbolicAWEModel, depower, steering)
-    len = s.set_tether_length
-    len .= tether_length(s)
-    depower *= min_chord_length(s)
-    steering *= min_chord_length(s)
+    len = s.set_tether_len
+    len .= tether_len(s)
+    depower *= min_chord_len(s)
+    steering *= min_chord_len(s)
     len[2] = 0.5 * (2*depower + 2*len[1] + steering)
     len[3] = 0.5 * (2*depower + 2*len[1] - steering)
     return nothing
