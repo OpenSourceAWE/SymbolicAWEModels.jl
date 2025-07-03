@@ -55,7 +55,7 @@ function set_measured!(s::SymbolicAWEModel,
     x = [cos(-heading), -sin(-heading), 0]
     y = [sin(-heading),  cos(-heading), 0]
     z = [0, 0, 1]
-    wing.R_b_w .= R_t_w * s.vsm_wings[1].R_cad_body' * [x y z]
+    wing.R_b_w = R_t_w * s.vsm_wings[1].R_cad_body' * [x y z]
     # adjust the turn rates for observed turn rate
     wing.ω_b .= wing.R_b_w' * R_t_w * [0, 0, turn_rate]
     # directly set tether length
@@ -90,21 +90,6 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=0.1)
     s.C .= 0.0
     s.D .= 0.0
 
-    update_sys_struct!(s, s.sys_struct)
-    s.set_psys(integ, s.sys_struct)
-    @show int1 = copy(s.integrator.u)
-    OrdinaryDiffEqCore.reinit!(integ)
-    @show int1 .== s.integrator.u
-    for (i, u, un) in zip(int1, s.integrator.u, unknowns(s.sys))
-        if i != u
-            println(un, " ", i, " ", u)
-        end
-    end
-    @time next_step!(s; dt=1.0, vsm_interval=0)
-    @time next_step!(s; dt=1.0, vsm_interval=0)
-    @time next_step!(s; dt=1.0, vsm_interval=0)
-    println("continue")
-
     function f(x, u)
         heading = x[1]
         turn_rate = x[2]
@@ -138,7 +123,7 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=0.1)
     f_u(u) = f(lin_x0, u)
 
     # calculate jacobian
-    ϵ_x = [0.01, 0.01, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
+    ϵ_x = [0.01, 0.01, 0.01, 0.01, 0.01, 0.1, 0.1, 0.1]
     ϵ_u = [1.0, 0.1, 0.1]
     s.A .= jacobian(f_x, lin_x0, ϵ_x)
     s.B .= jacobian(f_u, u0, ϵ_u)
