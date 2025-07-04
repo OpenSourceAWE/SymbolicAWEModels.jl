@@ -68,7 +68,7 @@ SymbolicAWEModels.init_sim!(s;
 )
 sys = s.sys
 
-@show rad2deg(s.integrator[sys.elevation[1]])
+rad2deg(s.integrator[sys.elevation[1]])
 
 
 @info "System initialized at:"
@@ -87,7 +87,7 @@ s.integrator.ps[sys.stabilize] = false
 @info "Linearizing system at operating point..."
 @time (; A, B, C, D) = SymbolicAWEModels.linearize(s)
 @time (; A, B, C, D) = SymbolicAWEModels.linearize(s)
-@show norm(A)
+norm(A)
 @info "System linearized with matrix dimensions:" A=size(A) B=size(B) C=size(C) D=size(D)
 
 sys = ss(A,B,C,D)
