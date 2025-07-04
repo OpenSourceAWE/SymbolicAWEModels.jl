@@ -78,7 +78,6 @@ try
         end
         # Step simulation
         steptime = @elapsed next_step!(sam; set_values, dt, vsm_interval=vsm_interval)
-        @show sam.t_step
         t_new = sam.integrator.t
         integ_steptime = sam.t_step
         t = t_new - t0  # Adjust for initial stabilization time

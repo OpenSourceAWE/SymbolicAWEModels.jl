@@ -76,7 +76,7 @@ function jacobian(f::Function, x::AbstractVector, ϵ::AbstractVector)
     return J
 end
 
-function simple_linearize!(s::SymbolicAWEModel; tstab=0.1)
+function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
     integ = s.integrator
     old_stab = s.get_stabilize(integ)
     s.set_stabilize(integ, true)
@@ -88,6 +88,7 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=0.1)
     s.C .= 0.0
     s.D .= 0.0
 
+    # TODO: add sparsity pattern for the known zeros
     function f(x, u)
         heading = x[1]
         turn_rate = x[2]
@@ -95,7 +96,6 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=0.1)
         tether_vel = x[6:8]
         set_measured!(s, heading, turn_rate,
                       tether_len, tether_vel)
-        s.set_psys(integ, s.sys_struct)
         s.set_set_values(integ, u)
         OrdinaryDiffEqCore.reinit!(integ)
         OrdinaryDiffEqCore.step!(integ, tstab)
@@ -110,7 +110,6 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=0.1)
         tether_vel = x[6:8]
         set_measured!(s, heading, turn_rate,
                       tether_len, tether_vel)
-        s.set_psys(integ, s.sys_struct)
         OrdinaryDiffEqCore.reinit!(integ)
         OrdinaryDiffEqCore.step!(integ, tstab)
         return s.get_lin_y(integ)
@@ -120,12 +119,12 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=0.1)
     f_u(u) = f(lin_x0, u)
 
     # calculate jacobian
-    ϵ_x = fill(0.001, length(lin_x0))
+    ϵ_x = fill(0.01, length(lin_x0))
     ϵ_u = [1.0, 0.1, 0.1]
     s.A .= jacobian(f_x, lin_x0, ϵ_x)
     s.B .= jacobian(f_u, u0, ϵ_u)
     s.C .= jacobian(h,   lin_x0, ϵ_x)
-    display(s.A) 
+    s.A[2,1] = 0.0 # Aero moment due to change in heading cannot be found in steady state
     s.set_set_values(integ, u0)
     s.set_stabilize(integ, old_stab)
     nothing

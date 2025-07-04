@@ -211,7 +211,7 @@ function update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
             ss.twist_angles[group.idx] = group.twist
         end
         ss.depower = rad2deg(mean(ss.twist_angles)) # Average twist for depower
-        ss.steering = rad2deg(ss.twist_angles[len(groups)] - ss.twist_angles[1])
+        ss.steering = rad2deg(ss.twist_angles[length(groups)] - ss.twist_angles[1])
     end
     if length(wings) > 0
         wing = wings[1]
