@@ -124,7 +124,7 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
     s.A .= jacobian(f_x, lin_x0, ϵ_x)
     s.B .= jacobian(f_u, u0, ϵ_u)
     s.C .= jacobian(h,   lin_x0, ϵ_x)
-    s.A[2,1] = 0.0 # Aero moment due to change in heading cannot be found in steady state
+    s.A[:,1] .= 0.0 # Aero moment due to change in heading cannot be found in steady state
     s.set_set_values(integ, u0)
     s.set_stabilize(integ, old_stab)
     nothing
