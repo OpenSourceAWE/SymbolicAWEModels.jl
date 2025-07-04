@@ -38,7 +38,7 @@ sys = sam.sys
 toc()
 
 # Stabilize system
-find_steady_state!(sam)
-simple_linearize(sam)
+find_steady_state!(sam; t=4.0)
+@time simple_linearize!(sam)
 
 

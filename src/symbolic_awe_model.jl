@@ -84,6 +84,7 @@ $(TYPEDFIELDS)
     sys_struct::SystemStructure
     serialized_model::SerializedModel
     integrator::Union{OrdinaryDiffEqCore.ODEIntegrator, Nothing} = nothing
+    lin_integ::Union{OrdinaryDiffEqCore.ODEIntegrator, Nothing} = nothing
     "relative start time of the current time interval"
     t_0::SimFloat = 0.0
     "Number of solve! calls"
@@ -441,6 +442,9 @@ function reinit!(
             s.integrator = OrdinaryDiffEqCore.init(s.prob, solver; 
                 adaptive, dt, abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
                 save_on=false, save_everystep=false)
+            s.lin_integ = OrdinaryDiffEqCore.init(s.prob, solver; 
+                adaptive, dt, abstol=s.set.abs_tol, reltol=s.set.rel_tol, 
+                save_on=false, save_everystep=false)
             !s.set.quasi_static && (length(s.unknowns_vec) != length(s.integrator.u)) &&
                 error("sam.integrator unknowns of length $(length(s.integrator.u)) should equal sam.unknowns_vec of length $(length(s.unknowns_vec)).
                     Maybe you forgot to run init_sim!(model; remake=true)?")
@@ -698,36 +702,36 @@ function next_step!(s::SymbolicAWEModel; set_values=nothing, dt=1/s.set.sample_f
     return nothing
 end
 
-function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure)
+function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, integ=s.integrator)
     @unpack points, groups, segments, pulleys, winches, wings = sys_struct
-    pos, vel = s.get_point_state(s.integrator)
+    pos, vel = s.get_point_state(integ)
     for point in points
         point.pos_w .= pos[:, point.idx]
         point.vel_w .= vel[:, point.idx]
     end
     if length(pulleys) > 0
-        len, vel = s.get_pulley_state(s.integrator)
+        len, vel = s.get_pulley_state(integ)
         for pulley in pulleys
             pulley.len = len[pulley.idx]
             pulley.vel = vel[pulley.idx]
         end
     end
     if length(segments) > 0
-        spring_force, len = s.get_segment_state(s.integrator)
+        spring_force, len = s.get_segment_state(integ)
         for segment in segments
             segment.force = spring_force[segment.idx]
             segment.len = len[segment.idx]
         end
     end
     if length(groups) > 0
-        twist, twist_ω = s.get_group_state(s.integrator)
+        twist, twist_ω = s.get_group_state(integ)
         for group in groups
             group.twist = twist[group.idx]
             group.twist_ω = twist_ω[group.idx]
         end
     end
     if length(winches) > 0
-        tether_len, tether_vel, set_value, winch_force = s.get_winch_state(s.integrator)
+        tether_len, tether_vel, set_value, winch_force = s.get_winch_state(integ)
         for winch in winches
             winch.tether_len = tether_len[winch.idx]
             winch.tether_vel = tether_vel[winch.idx]
@@ -739,7 +743,7 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure)
         Q_b_w, ω_b, pos_w, vel_w, acc_w, va_b, v_wind, 
             aero_force_b, aero_moment_b, elevation, elevation_vel,
             elevation_acc, azimuth, azimuth_vel, azimuth_acc,
-            heading, turn_rate, turn_acc, course, aoa = s.get_wing_state(s.integrator)
+            heading, turn_rate, turn_acc, course, aoa = s.get_wing_state(integ)
         for wing in wings
             wing.Q_b_w .= Q_b_w[wing.idx, :]
             wing.ω_b .= ω_b[wing.idx, :]
@@ -763,7 +767,7 @@ function update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure)
             wing.aoa = aoa[wing.idx]
         end
     end
-    s.sys_struct.wind_vec_gnd .= s.get_struct_state(s.integrator)
+    s.sys_struct.wind_vec_gnd .= s.get_struct_state(integ)
     return nothing
 end
 
@@ -898,13 +902,13 @@ function get_nonstiff_unknowns(sys_struct::SystemStructure, sys::System, vec=Num
     return vec
 end
 
-function find_steady_state!(s::SymbolicAWEModel; t=1.0, dt=1/s.set.sample_freq)
-    old_state = s.get_stabilize(s.integrator)
-    s.set_stabilize(s.integrator, true)
+function find_steady_state!(s::SymbolicAWEModel, integ=s.integrator; t=1.0, dt=1/s.set.sample_freq)
+    old_state = s.get_stabilize(integ)
+    s.set_stabilize(integ, true)
     for _ in 1:Int(round(t÷dt))
         next_step!(s; dt, vsm_interval=1)
     end
-    s.set_stabilize(s.integrator, old_state)
+    s.set_stabilize(integ, old_state)
     update_sys_struct!(s, s.sys_struct)
     return nothing
 end

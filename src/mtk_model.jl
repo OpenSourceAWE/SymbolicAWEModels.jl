@@ -756,6 +756,12 @@ function calc_R_t_w(elevation, azimuth)
     return [x y z]
 end
 
+function calc_heading(R_t_w::AbstractMatrix, R_v_w::AbstractMatrix)
+    heading_vec = R_t_w' * R_v_w[:, 1]
+    heading = atan(heading_vec[2], heading_vec[1])
+    return heading
+end
+
 """
     scalar_eqs!(s, eqs; R_b_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc, twist_angle, twist_ω)
 
@@ -836,13 +842,12 @@ function scalar_eqs!(s, eqs, pset; R_b_w, wind_vec_gnd, va_wing_b, wing_pos, win
         x´´, y´´, z´´ = wing_acc[wing.idx, :]
 
         half_len = wing.group_idxs[1] + length(wing.group_idxs)÷2 - 1
-        heading_vec = R_t_w[wing.idx, :, :]' * R_v_w[wing.idx, :, 1]
 
         eqs = [
             eqs
             vec(R_v_w[wing.idx, :, :])     .~ vec(calc_R_v_w(wing_pos[wing.idx, :], e_x[wing.idx, :]))
             vec(R_t_w[wing.idx, :, :])     .~ vec(calc_R_t_w(elevation[wing.idx], azimuth[wing.idx]))
-            heading[wing.idx]         ~ atan(heading_vec[2], heading_vec[1])
+            heading[wing.idx]         ~ calc_heading(R_t_w, R_v_w)
             turn_rate[wing.idx, :]       ~ R_v_w[wing.idx, :, :]' * (R_b_w[wing.idx, :, :] * ω_b[wing.idx, :]) # Project angular velocity onto view frame
             turn_acc[wing.idx, :]        ~ R_v_w[wing.idx, :, :]' * (R_b_w[wing.idx, :, :] * α_b[wing.idx, :])
             distance[wing.idx]        ~ norm(wing_pos[wing.idx, :])

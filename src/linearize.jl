@@ -29,13 +29,6 @@ function linearize(s::SymbolicAWEModel; set_values=s.get_set_values(s.integrator
     return solve(s.lin_prob)
 end
 
-function simple_linearize(s::SymbolicAWEModel)
-    init_sim!(s)
-    find_steady_state!(s; t=4.0)
-    simple_linearize!(s)
-    return s.A, s.B, s.C, s.D
-end
-
 function set_measured!(s::SymbolicAWEModel, 
     heading, turn_rate,
     tether_len, tether_vel
@@ -46,6 +39,7 @@ function set_measured!(s::SymbolicAWEModel,
     # get variables from integrator
     distance = norm(wing.pos_w)
     R_t_w = calc_R_t_w(wing.elevation, wing.azimuth) # rotation of tether to world, similar to view rotation, but always pointing up
+    R_v_w = calc_R_v_w(wing.pos_w, wing.R_b_w[:,1])
     
     # get wing_pos, rotate it by elevation and azimuth around the x and z axis
     wing.pos_w .= R_t_w * [0, 0, distance + tether_len[1] - winches[1].tether_len]
@@ -53,12 +47,14 @@ function set_measured!(s::SymbolicAWEModel,
     wing.vel_w .= R_t_w * [-wing.elevation_vel, wing.azimuth_vel, tether_vel[1]]
     # find quaternion orientation from heading, R_b_w and R_t_w
     R_b_w = zeros(3,3)
+    cur_heading = calc_heading(R_t_w, R_v_w)
+    d_heading = heading - cur_heading
     for i in 1:3
-        R_b_w[:,i] .= R_t_w * rotate_around_z(R_t_w' * wing.R_b_w[:,i], heading - wing.heading)
+        R_b_w[:,i] .= R_t_w * rotate_around_z(R_t_w' * wing.R_b_w[:,i], d_heading)
     end
     wing.R_b_w = R_b_w
     # adjust the turn rates for observed turn rate
-    wing.ω_b .= wing.R_b_w' * R_t_w * [0, 0, turn_rate]
+    wing.ω_b .= wing.R_b_w' * R_t_w * [wing.turn_rate[1], wing.turn_rate[2], turn_rate]
     # directly set tether length
     for winch in winches
         winch.tether_len = tether_len[winch.idx]
@@ -81,10 +77,11 @@ function jacobian(f::Function, x::AbstractVector, ϵ::AbstractVector)
 end
 
 function simple_linearize!(s::SymbolicAWEModel; tstab=0.1)
-    old_stab = s.get_stabilize(s.integrator)
-    s.set_stabilize(s.integrator, true)
     integ = s.integrator
-    lin_x0 = s.get_lin_x(s.integrator)
+    old_stab = s.get_stabilize(integ)
+    s.set_stabilize(integ, true)
+    find_steady_state!(s, integ)
+    lin_x0 = s.get_lin_x(integ)
     u0 = [winch.set_value for winch in s.sys_struct.winches]
     s.A .= 0.0
     s.B .= 0.0
@@ -99,10 +96,9 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=0.1)
         set_measured!(s, heading, turn_rate,
                       tether_len, tether_vel)
         s.set_psys(integ, s.sys_struct)
-        s.set_set_values(s.integrator, u)
+        s.set_set_values(integ, u)
         OrdinaryDiffEqCore.reinit!(integ)
         OrdinaryDiffEqCore.step!(integ, tstab)
-        update_sys_struct!(s, s.sys_struct)
         return s.get_lin_dx(integ)
     end
 
@@ -117,7 +113,6 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=0.1)
         s.set_psys(integ, s.sys_struct)
         OrdinaryDiffEqCore.reinit!(integ)
         OrdinaryDiffEqCore.step!(integ, tstab)
-        update_sys_struct!(s, s.sys_struct)
         return s.get_lin_y(integ)
     end
 
@@ -125,7 +120,7 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=0.1)
     f_u(u) = f(lin_x0, u)
 
     # calculate jacobian
-    ϵ_x = 0.1*[0.001, 0.001, 0.001, 0.001, 0.001, 0.01, 0.01, 0.01]
+    ϵ_x = fill(0.001, length(lin_x0))
     ϵ_u = [1.0, 0.1, 0.1]
     s.A .= jacobian(f_x, lin_x0, ϵ_x)
     s.B .= jacobian(f_u, u0, ϵ_u)
