@@ -744,13 +744,13 @@ function SystemStructure(name, set;
     nb_segments_per_point = Dict(p.idx => sum(p.idx in s.point_idxs for s in segments) for p in points)
     for (i, winch) in enumerate(winches)
         @assert winch.idx == i
+        for point_idx in winch.point_idxs
+            @assert nb_segments_per_point[point_idx] == 1
+        end
         if iszero(winch.tether_length)
             for segment_idx in tethers[winch.tether_idxs[1]].segment_idxs
                 winch.tether_length += segments[segment_idx].l0
             end
-        end
-        for point_idx in winch.point_idxs
-            @assert nb_segments_per_point[point_idx] == 1
         end
         set.l_tethers[i]   = winch.tether_length
         set.v_reel_outs[i] = winch.tether_vel
