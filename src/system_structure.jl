@@ -375,6 +375,7 @@ mutable struct Winch
     const idx::Int16
     const model::AbstractWinchModel
     const tether_idxs::Vector{Int16}
+    const point_idxs::Vector{Int16}
     tether_length::Union{SimFloat, Nothing}
     tether_vel::SimFloat
 end
@@ -406,6 +407,7 @@ see the [WinchModels.jl documentation](https://github.com/aenarete/WinchModels.j
 - `idx::Int16`: Unique identifier for the winch.
 - `model::AbstractWinchModel`: The winch model (TorqueControlledMachine, AsyncMachine, etc.).
 - `tether_idxs::Vector{Int16}`: Vector containing the indices of the tethers connected to this winch.
+- `point_idxs::Vector{Int16}`: Vector containing the indices of each tether's attachment point to the winch.
 
 # Keyword Arguments
 - `tether_vel::SimFloat=0.0`: Initial tether velocity (reel-out rate).
@@ -417,11 +419,11 @@ see the [WinchModels.jl documentation](https://github.com/aenarete/WinchModels.j
 # Example
 To create a Winch:
 ```julia
-    winch = Winch(1, TorqueControlledMachine(set), [1, 2], 100.0)
+    winch = Winch(1, TorqueControlledMachine(set), [1, 2], [1, 2]; tether_length=100.0)
 ```
 """
-function Winch(idx, model, tether_idxs; tether_length=0.0, tether_vel=0.0)
-    return Winch(idx, model, tether_idxs, tether_length, tether_vel)
+function Winch(idx, model, tether_idxs, attach_point_idx; tether_length=0.0, tether_vel=0.0)
+    return Winch(idx, model, tether_idxs, attach_point_idx, tether_length, tether_vel)
 end
 
 """
@@ -739,12 +741,16 @@ function SystemStructure(name, set;
     for (i, tether) in enumerate(tethers)
         @assert tether.idx == i
     end
+    nb_segments_per_point = Dict(p.idx => sum(p.idx in s.point_idxs for s in segments) for p in points)
     for (i, winch) in enumerate(winches)
         @assert winch.idx == i
         if iszero(winch.tether_length)
             for segment_idx in tethers[winch.tether_idxs[1]].segment_idxs
                 winch.tether_length += segments[segment_idx].l0
             end
+        end
+        for point_idx in winch.point_idxs
+            @assert nb_segments_per_point[point_idx] == 1
         end
         set.l_tethers[i]   = winch.tether_length
         set.v_reel_outs[i] = winch.tether_vel
