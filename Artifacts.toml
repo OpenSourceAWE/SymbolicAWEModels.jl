@@ -1,0 +1,6 @@
+["models_v1.11"]
+git-tree-sha1 = "a4cb489b4337ce55723709d4ada18f24b7f7ae04"
+
+    [["models_v1.11".download]]
+    sha256 = "b280f9547f67220f948a58d51c38d843cf93ea1b85b0c9d0e6f049b0e4535956"
+    url = "https://github.com/OpenSourceAWE/SymbolicAWEModels/releases/download/v0.2.1/models_v1.11.tar.gz"
