@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: MPL-2.0
 
 using SymbolicAWEModels, KiteUtils, ModelingToolkit, BenchmarkTools, Plots, Printf
 using OrdinaryDiffEqCore, OrdinaryDiffEqBDF
