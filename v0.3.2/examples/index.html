@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Examples · SymbolicAWEModels.jl</title><meta name="title" content="Examples · SymbolicAWEModels.jl"/><meta property="og:title" content="Examples · SymbolicAWEModels.jl"/><meta property="twitter:title" content="Examples · SymbolicAWEModels.jl"/><meta name="description" content="Documentation for SymbolicAWEModels.jl."/><meta property="og:description" content="Documentation for SymbolicAWEModels.jl."/><meta property="twitter:description" content="Documentation for SymbolicAWEModels.jl."/><meta property="og:url" content="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/examples/"/><meta property="twitter:url" content="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/examples/"/><link rel="canonical" href="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/examples/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><a class="docs-logo" href="../"><img src="../assets/logo.png" alt="SymbolicAWEModels.jl logo"/></a><div class="docs-package-name"><span class="docs-autofit"><a href="../">SymbolicAWEModels.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li class="is-active"><a class="tocitem" href>Examples</a><ul class="internal"><li><a class="tocitem" href="#Create-a-test-project"><span>Create a test project</span></a></li><li><a class="tocitem" href="#Running-the-first-example"><span>Running the first example</span></a></li><li><a class="tocitem" href="#Running-the-second-example"><span>Running the second example</span></a></li><li><a class="tocitem" href="#Linearization"><span>Linearization</span></a></li></ul></li><li><a class="tocitem" href="../tutorial_system_structure/">Custom Model</a></li><li><a class="tocitem" href="../exported_types/">Exported Types</a></li><li><a class="tocitem" href="../exported_functions/">Exported Functions</a></li><li><a class="tocitem" href="../parameters/">Parameters</a></li><li><a class="tocitem" href="../private_functions/">Private functions</a></li><li><a class="tocitem" href="../developers/">Developers</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Examples</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Examples</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/OpenSourceAWE/SymbolicAWEModels.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/blob/main/docs/src/examples.md#" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Examples-for-using-the-ram-air-kite-model"><a class="docs-heading-anchor" href="#Examples-for-using-the-ram-air-kite-model">Examples for using the ram air kite model</a><a id="Examples-for-using-the-ram-air-kite-model-1"></a><a class="docs-heading-anchor-permalink" href="#Examples-for-using-the-ram-air-kite-model" title="Permalink"></a></h1><h2 id="Create-a-test-project"><a class="docs-heading-anchor" href="#Create-a-test-project">Create a test project</a><a id="Create-a-test-project-1"></a><a class="docs-heading-anchor-permalink" href="#Create-a-test-project" title="Permalink"></a></h2><pre><code class="language-bash hljs">mkdir test
+cd test
+julia --project=.</code></pre><p>Don&#39;t forget to type the dot at the end of the last line. With the last command, we told Julia to create a new project in the current directory.</p><p>You can copy the examples to your project with:</p><pre><code class="language-julia hljs">using SymbolicAWEModels
+SymbolicAWEModels.install_examples()</code></pre><h2 id="Running-the-first-example"><a class="docs-heading-anchor" href="#Running-the-first-example">Running the first example</a><a id="Running-the-first-example-1"></a><a class="docs-heading-anchor-permalink" href="#Running-the-first-example" title="Permalink"></a></h2><pre><code class="language-julia hljs">include(&quot;examples/ram_air_kite.jl&quot;)</code></pre><p>Expected output for first run:</p><pre><code class="language-julia hljs">[ Info: Loading packages 
+[ Info: Precompiling SymbolicAWEModelsControlPlotsExt [986c3e0b-c4a6-5a67-87ac-f6b86e76af74] (cache mi
+sses: include_dependency fsize change (2), wrong dep version loaded (14), mismatched flags (2))
+Time elapsed: 24.149010176 s
+[ Info: Creating SymbolicAWEModel:
+Time elapsed: 38.51030329 s
+[ Info: System initialized at:
+Time elapsed: 120.861073757 s
+[ Info: Generating oscillating steering commands...
+[ Info: Starting simulation
+┌ Info: Performance Summary:
+│ Component    | Speedup (×)  | Total Time
+│ -------------|--------------|------------
+│ Simulation   |         2.34 |       2.14
+│ Step         |         5.96 |       0.84
+│ Integrator   |        34.15 |       0.15
+└ VSM          |         2.62 |       1.91
+[ Info: Simulated at:
+Time elapsed: 213.981574478 s
+[ Info: Plotted at:
+Time elapsed: 220.05251771 s
+220.05251771</code></pre><p>After the second time it runs much faster, because the simplified ODE system is cached in the  <code>model*.bin</code> file in the <code>data</code> folder and the deserialization is precompiled:</p><pre><code class="language-julia hljs">[ Info: Loading packages 
+Time elapsed: 0.017465498 s
+[ Info: Creating SymbolicAWEModel:
+Time elapsed: 1.85496798 s
+[ Info: System initialized at:
+Time elapsed: 5.364508521 s
+[ Info: Generating oscillating steering commands...
+[ Info: Starting simulation
+┌ Info: Performance Summary:
+│ Component    | Speedup (×)  | Total Time
+│ -------------|--------------|------------
+│ Simulation   |         2.53 |       1.97
+│ Step         |         6.61 |       0.76
+│ Integrator   |        41.21 |       0.12
+└ VSM          |         2.79 |       1.79
+[ Info: Simulated at:
+Time elapsed: 7.995500858 s
+[ Info: Plotted at:
+Time elapsed: 8.309523118 s
+8.309523118</code></pre><p>In this example, the kite is first stabilized, and then a sinus-shaped steering input is  applied such that the kite is dancing in the sky.</p><p><img src="../assets/oscillating_steering.png" alt="Oscillating steering input response"/></p><h2 id="Running-the-second-example"><a class="docs-heading-anchor" href="#Running-the-second-example">Running the second example</a><a id="Running-the-second-example-1"></a><a class="docs-heading-anchor-permalink" href="#Running-the-second-example" title="Permalink"></a></h2><pre><code class="language-julia hljs">include(&quot;examples/simple_model.jl&quot;)</code></pre><pre><code class="language-julia hljs">Tether 1: ω_n=227.039 rad/s,
+                      T_s=0.1 s, 
+                      ζ=0.1319, c=3.4209 Ns/m
+Tether 2: ω_n=228.866 rad/s,
+                      T_s=0.1 s, 
+                      ζ=0.1309, c=3.4211 Ns/m
+Tether 3: ω_n=235.585 rad/s,
+                      T_s=0.1 s, 
+                      ζ=0.1272, c=0.8549 Ns/m
+Tether 4: ω_n=236.834 rad/s,
+                      T_s=0.1 s, 
+                      ζ=0.1265, c=0.8552 Ns/m
+Summary of Results:
+Tether 1: k = 2943.0749476475257 N/m, c = 3.4208593453647103 Ns/m
+Tether 2: k = 2990.816045085089 N/m, c = 3.4210625600793843 Ns/m
+Tether 3: k = 791.9269801315223 N/m, c = 0.8549123148071024 Ns/m
+Tether 4: k = 800.5953494095929 N/m, c = 0.8551804418169453 Ns/m
+[ Info: Generating oscillating steering commands...
+[ Info: Starting simulation
+┌ Info: Performance Summary:
+│ Component    | Speedup (×)  | Total Time
+│ -------------|--------------|------------
+│ Simulation   |         1.99 |       1.25
+│ Step         |         5.54 |       0.45
+│ Integrator   |        24.27 |       0.10
+└ VSM          |         2.59 |       0.97
+[ Info: Generating oscillating steering commands...
+[ Info: Starting simulation
+┌ Info: Performance Summary:
+│ Component    | Speedup (×)  | Total Time
+│ -------------|--------------|------------
+│ Simulation   |         0.46 |       5.44
+│ Step         |        10.22 |       0.24
+│ Integrator   |      1385.79 |       0.00
+└ VSM          |         3.49 |       0.72</code></pre><p>The simple model connects the tethers directly to the wing. In contrast, the default model  features a more complex <a href="https://kiteboarding.com/proddetail.asp?prod=ozone-r1v4-pro-tune-speedsystem-complete">speed system</a> that uses pulleys and multiple attachment points. By  matching key dynamic properties—such as the moment on the wing groups, stiffness, and  damping—the simple model can be tuned to closely replicate the response of the more complex  default model, at a much better performance.</p><p><img src="../assets/oscillating_steering_simple.png" alt="Oscillating steering input response, simple system"/></p><h2 id="Linearization"><a class="docs-heading-anchor" href="#Linearization">Linearization</a><a id="Linearization-1"></a><a class="docs-heading-anchor-permalink" href="#Linearization" title="Permalink"></a></h2><p>The following example creates a nonlinear system model, finds a steady-state operating point,  linearizes the model around this operating point and creates bode plots from inputs (torques) to output (heading).</p><pre><code class="language-julia hljs">include(&quot;examples/lin_ram_model.jl&quot;)</code></pre><p>See: <a href="https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/blob/main/examples/lin_ram_model.jl"><code>lin_ram_model.jl</code></a></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../tutorial_system_structure/">Custom Model »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.14.1 on <span class="colophon-date" title="Thursday 7 August 2025 11:10">Thursday 7 August 2025</span>. Using Julia version 1.11.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
