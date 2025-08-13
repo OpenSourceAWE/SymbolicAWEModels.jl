@@ -24,9 +24,11 @@ using Timers
 
 # --- Numerical, Modeling & Scientific Computing ---
 using ModelingToolkit
+using ControlSystemsBase
 using RecipesBase
 using StaticArrays
 using SymbolicIndexingInterface
+using SymbolicIndexingInterface: AbstractIndexer
 
 # --- Solvers (Nonlinear, Differential Equations) ---
 using NonlinearSolve
@@ -86,8 +88,7 @@ export unstretched_length
 export tether_length
 
 # --- Helper Functions ---
-export copy_examples
-export copy_bin
+export init_module
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
@@ -126,6 +127,7 @@ end
 
 include("system_structure.jl")
 include("symbolic_awe_model.jl")
+include("model_management.jl")
 include("predefined_structures.jl")
 include("tether_properties.jl")
 include("linearize.jl")
@@ -174,74 +176,92 @@ end
 Copy all example scripts to the folder "examples"
 (it will be created if it doesn't exist).
 """
-function copy_examples()
-    PATH = "examples"
-    if ! isdir(PATH) 
-        mkdir(PATH)
-    end
-    src_path = joinpath(dirname(pathof(@__MODULE__)), "..", PATH)
-    copy_files("examples", readdir(src_path))
-end
-
-function copy_model_settings()
-    files = ["settings.yaml", "ram_air_kite_body.obj", "ram_air_kite_foil.dat", "system.yaml", "settings.yaml", 
-             "system.yaml", "ram_air_kite_foil_cd_polar.csv", "ram_air_kite_foil_cl_polar.csv", "ram_air_kite_foil_cm_polar.csv"]
-    dst_path = abspath(joinpath(pwd(), "data"))
-    copy_files("data", files)
-    set_data_path(joinpath(pwd(), "data"))
-    println("Copied $(length(files)) files to $(dst_path) !")
-end
-
-function install_examples(add_packages=true)
-    copy_examples()
-    copy_settings()
-    copy_bin()
-    copy_model_settings()
-    if add_packages
-        Pkg.add(["KiteUtils", "KitePodModels", "WinchModels", "ControlPlots", 
-                 "LaTeXStrings", "StatsBase", "Timers", "Rotations"])
-    end
-end
-
-function copy_files(relpath, files)
-    if ! isdir(relpath) 
-        mkdir(relpath)
-    end
-    src_path = joinpath(dirname(pathof(@__MODULE__)), "..", relpath)
-    for file in files
-        cp(joinpath(src_path, file), joinpath(relpath, file), force=true)
-        chmod(joinpath(relpath, file), 0o774)
-    end
-    files
+function copy_examples(; force=false)
+    src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "examples")
+    dst_data_path = abspath(joinpath(pwd(), "examples"))
+    copy_dir(src_data_path, dst_data_path; force)
 end
 
 """
     copy_bin()
 
-Copy the scripts create_sys_image and run_julia to the folder "bin"
+Copy all example scripts to the folder "bin"
 (it will be created if it doesn't exist).
 """
-function copy_bin()
-    PATH = "bin"
-    if ! isdir(PATH) 
-        mkdir(PATH)
+function copy_bin(; force=false)
+    src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "bin")
+    dst_data_path = abspath(joinpath(pwd(), "bin"))
+    copy_dir(src_data_path, dst_data_path; force)
+end
+
+"""
+    copy_data()
+
+Copy all data scripts to the folder "data"
+(it will be created if it doesn't exist).
+"""
+function copy_data(; force=false)
+    src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "data")
+    dst_data_path = abspath(joinpath(pwd(), "data"))
+    copy_dir(src_data_path, dst_data_path; force)
+end
+
+"""
+    copy_dir(src_dir, dst_dir)
+
+Copies all files from `src_dir` to `dst_dir`.
+Overwrites existing files if force=true.
+Creates `dst_dir` if it does not exist.
+"""
+function copy_dir(src_dir::AbstractString, dst_dir::AbstractString; force=false)
+    if !isdir(dst_dir)
+        mkdir(dst_dir)
     end
-    src_path = joinpath(dirname(pathof(@__MODULE__)), "..", PATH)
-    cp(joinpath(src_path, "create_sys_image2"), joinpath(PATH, "create_sys_image"), force=true)
-    cp(joinpath(src_path, "run_julia"), joinpath(PATH, "run_julia"), force=true)
-    chmod(joinpath(PATH, "create_sys_image"), 0o774)
-    chmod(joinpath(PATH, "run_julia"), 0o774)
-    PATH = "test"
-    if ! isdir(PATH) 
-        mkdir(PATH)
+    for file in readdir(src_dir)
+        src_file = joinpath(src_dir, file)
+        dst_file = joinpath(dst_dir, file)
+        if force || (isfile(src_file) && !isfile(dst_file))
+            cp(src_file, dst_file; force=true)
+            chmod(dst_file, 0o774)
+        elseif isdir(src_file)
+            copy_dir(src_file, dst_file; force)
+        end
     end
-    src_path = joinpath(dirname(pathof(@__MODULE__)), "..", PATH)
-    cp(joinpath(src_path, "create_sys_image2.jl"), joinpath(PATH, "create_sys_image.jl"), force=true)
-    cp(joinpath(src_path, "test_for_precompile.jl"), joinpath(PATH, "test_for_precompile.jl"), force=true)
-    cp(joinpath(src_path, "update_packages.jl"), joinpath(PATH, "update_packages.jl"), force=true)
-    chmod(joinpath(PATH, "create_sys_image.jl"), 0o664)
-    chmod(joinpath(PATH, "test_for_precompile.jl"), 0o664)
-    chmod(joinpath(PATH, "update_packages.jl"), 0o664)
+end
+
+"""
+    init_module(; force=false, add_pkg=true)
+
+Initialize the module in the current working directory.
+
+This function performs the following actions:
+
+- Copies all files from the module's `data` directory to the current working directory's `data` folder (`pwd()/data`). Existing files in the destination are NOT overwritten unless `force=true`.
+- Copies all example scripts from the module to the current working directory's `examples` folder (`pwd()/examples`). The folder is created if it does not exist. Existing files are NOT overwritten unless `force=true`.
+- Copies the `bin` directory from the module to the current working directory's `bin` folder (`pwd()/bin`). The folder is created if it does not exist. Existing files are NOT overwritten unless `force=true`.
+- Installs all required packages if they are not already installed. This occurs only if `add_pkg=true` (default). The packages installed are: `KiteUtils`, `ControlPlots`, `LaTeXStrings`, and `Timers`.
+
+# Keyword Arguments
+- `force::Bool=false`: If `true`, existing files in the destination directories will be overwritten. If `false` (default), existing files will be preserved.
+- `add_pkg::Bool=true`: If `true` (default), installs required packages if they are not already present. If `false`, package installation is skipped.
+"""
+function init_module(; force=false, add_pkg=true)
+    copy_data(; force)
+    copy_examples(; force)
+    copy_bin(; force)
+
+    if add_pkg
+        # Install required packages if not already present
+        pkgs = ["KiteUtils", "ControlPlots", 
+                "LaTeXStrings", "Timers"]
+        for pkg in pkgs
+            if !(pkg in keys(Pkg.project().dependencies))
+                Pkg.add(pkg)
+            end
+        end
+    end
+
+    println("Initialization complete! Scripts, examples, and binaries are prepared in the current directory.")
 end
 
 include("precompile.jl")

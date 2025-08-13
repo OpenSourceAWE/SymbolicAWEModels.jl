@@ -12,43 +12,43 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Julia
         uses: julia-actions/setup-julia@v2
         with:
-          version: '1' # Use latest stable Julia
+          version: '1'
 
-      - name: Get latest ModelingToolkit version
+      - name: Get latest ModelingToolkit minor version
         id: get_version
         run: |
-          # This Julia one-liner finds the latest version of ModelingToolkit in the General registry
-          # and prints its major.minor version string (e.g., "10.10") to be used in the next steps.
-          LATEST_VERSION=$(julia -e '
-            using Pkg, TOML
-            try
-                general_registry = only(filter(r -> r.name == "General", Pkg.Registry.reachable_registries()))
-                mtk_info = TOML.parsefile(joinpath(general_registry.path, "M", "ModelingToolkit", "Versions.toml"))
-                latest = maximum(VersionNumber.(keys(mtk_info)))
-                println("$(latest.major).$(latest.minor)")
-            catch e
-                println(stderr, "Error fetching ModelingToolkit version: ", e)
-                exit(1)
-            end
-          ')
+          LATEST_VERSION=$(curl -s https://api.github.com/repos/SciML/ModelingToolkit.jl/releases/latest | jq -r .tag_name | sed -E 's/^v([0-9]+\.[0-9]+)\..*/\1/')
           echo "latest_version=$LATEST_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Read current compat version from Project.toml
+        id: get_current_compat
+        run: |
+          CURRENT_VERSION=$(awk '/^\[compat\]/ {f=1; next} /^\[/ {f=0} f && /^ModelingToolkit/ {gsub(/[~^>=< ]/,""); split($3,a,"."); print a[1]"."a[2]}' Project.toml | head -n1)
+          echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check if update is needed
+        id: check_update
+        run: |
+          if [ "${{ steps.get_version.outputs.latest_version }}" = "${{ steps.get_current_compat.outputs.current_version }}" ]; then
+            echo "No update needed."
+            exit 0
+          else
+            echo "Update needed: ${{ steps.get_current_compat.outputs.current_version }} -> ${{ steps.get_version.outputs.latest_version }}"
+          fi
 
       - name: Update Project.toml compat entry
         run: |
-          # This command uses sed to find the line for ModelingToolkit and replaces its
-          # compat string with the new version fetched in the previous step.
-          # The regex is designed to handle existing version strings like "10" or "~10.9, 10".
-          sed -i -E 's/(ModelingToolkit\s*=\s*")[^"]+/\1~${{ steps.get_version.outputs.latest_version }}/' Project.toml
+          sed -i -E '/\[compat\]/,/\[/ s/(ModelingToolkit\s*=\s*")[^"]+/\1~${{ steps.get_version.outputs.latest_version }}/' Project.toml          
 
       # Generate a token from the GitHub App to authorize the PR creation
       - name: Generate token
         id: generate_token
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.PRIVATE_KEY }}

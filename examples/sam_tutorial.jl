@@ -52,7 +52,6 @@ wm = TorqueControlledMachine(set)
 winches = [Winch(1, wm, [1])]
 
 sys_struct = SystemStructure("winch", set; points, segments, tethers, winches, transforms)
-@show set.v_wind
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam; remake=false)
 ss = SysState(sam)
@@ -62,7 +61,6 @@ for i in 1:80
     next_step!(sam; set_values=[-20.0])
     update_sys_state!(ss, sam)
 end
-@show ss.l_tether[1]
 
 # ADDING A PULLEY
 push!(points, Point(22, [0, 0, set.l_tether+5], DYNAMIC))

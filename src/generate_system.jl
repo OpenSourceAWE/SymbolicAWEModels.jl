@@ -270,7 +270,6 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                 F .+= 0.5drag_force[:, segment.idx]
             end
         end
-        @assert !iszero(mass)
 
         eqs = [
             eqs
@@ -362,7 +361,7 @@ function force_eqs!(s, system, psys, pset, eqs, defaults, guesses;
                                                 acc[:, point.idx] ⋅ axis * axis,
                                                 acc[:, point.idx]
                                         )
-                acc[:, point.idx]    ~ point_force[:, point.idx] / mass - bridle_damp_vec
+                acc[:, point.idx]    ~ point_force[:, point.idx] ./ mass - bridle_damp_vec
             ]
             defaults = [
                 defaults
@@ -1107,10 +1106,9 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn=true)
     #         ]
     #     ]
 
-    prn && @info "Creating System..."
     # @named sys = System(eqs, t; discrete_events)
     time = @elapsed @named sys = System(eqs, t)
-    prn && @info "Created System in $time seconds"
+    prn && println("\tCreated System in $time seconds.")
 
     defaults = [
         defaults

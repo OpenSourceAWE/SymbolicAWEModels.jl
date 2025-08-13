@@ -1,5 +1,5 @@
-# Copyright (c) 2024 Uwe Fechner, Bart van de Lint
-# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Uwe Fechner, Bart van de Lint
+# SPDX-License-Identifier: MPL-2.0
 
 """
     create_model_archive(source_dir, archive_path)
@@ -105,8 +105,7 @@ function create_default_models(; prn=true)
         set.segments = segments
         set.physical_model = name
         s = SymbolicAWEModel(set)
-        time = @elapsed init!(s; prn=false)
-        prn && @info "Loaded $name model in $time seconds"
+        init!(s; prn)
         return s
     end
     sam = create_model("ram")
@@ -118,38 +117,58 @@ function create_default_models(; prn=true)
 end
 
 @setup_workload begin
-    path = dirname(pathof(@__MODULE__))
-    set_data_path(joinpath(path, "..", "data"))
+    using Pkg.Artifacts
+
+    local will_precompile
+    will_precompile = get(ENV, "SAM_PRECOMPILE", "true") != "false"
+    if will_precompile
+        try
+            path = dirname(dirname(pathof(@__MODULE__)))
+            data_path = joinpath(path, "data")
+            set_data_path(data_path)
+
+            # Copy .default files to expected files
+            cp(joinpath(path, "Artifacts.toml.default"), joinpath(path, "Artifacts.toml"); force=true)
+
+            version_minor = VERSION.minor
+            manifest_default = joinpath(path, "Manifest-v1.$version_minor.toml.default")
+            manifest_actual = joinpath(path, "Manifest-v1.$version_minor.toml")
+            cp(manifest_default, manifest_actual; force=true)
+
+            # Use explicit Artifacts API to get the artifact and extract it
+            artifact_toml = joinpath(path, "Artifacts.toml")
+            artifact_name = "models_v1_$version_minor"
+            model_hash = artifact_hash(artifact_name, artifact_toml)
+
+            if !isnothing(model_hash) && artifact_exists(model_hash)
+                model_dir = artifact_path(model_hash)
+                mkpath(data_path)
+                for f in readdir(model_dir)
+                    cp(joinpath(model_dir, f), joinpath(data_path, f); force=true)
+                end
+                @info "Downloaded and extracted $artifact_name to $data_path"
+            else
+                @warn "Artifact $artifact_name not found in Artifacts.toml or does not exist!"
+                will_precompile = false
+            end
+        catch e
+            will_precompile = false
+            @info "Not precompiling because of error: $e"
+        end
+    end
 
     @compile_workload begin
-        if get(ENV, "SAM_PRECOMPILE", "true") != "false"
-            m1 = "Manifest-v1.$(VERSION.minor).toml"
-            m2 = "Manifest-v1.$(VERSION.minor).toml.default"
-            if isfile(m1) && isfile(m2) && filecmp(m1, m2)
-                found_archive = false
-                @info "Manifest files match, using the default .tar.gz files will work!"
-                version = VERSION.minor
-                input_path = joinpath(get_data_path(), "models_v1.$version.tar.gz")
-                if isfile(input_path)
-                    println("Decompressing $input_path ...")
-                    extract_model_archive(input_path, get_data_path())
-
-                    prn=true
-                    sam, tether_sam, simple_sam, _, _ = create_default_models(; prn)
-                    init!(sam; prn=false, reload=true)
-                    init!(sam; prn=false, reload=false)
-                    sim_oscillate!(sam; total_time=1.0)
-                    copy_to_simple!(sam, tether_sam, simple_sam; prn=false)
-                    find_steady_state!(sam)
-                    ss = SysState(sam)
-                    next_step!(sam)
-                    update_sys_state!(ss, sam)
-                else
-                    @warn "No .tar.gz model archives found, skipping precompilation."
-                end
-            else
-                @warn "Manifest files differ or are missing, skipping precompilation."
-            end
+        if will_precompile
+            prn=true
+            sam, tether_sam, simple_sam, _, _ = create_default_models(; prn)
+            init!(sam; prn=false, reload=true)
+            init!(sam; prn=false, reload=false)
+            sim_oscillate!(sam; total_time=1.0)
+            copy_to_simple!(sam, tether_sam, simple_sam; prn=false)
+            find_steady_state!(sam)
+            ss = SysState(sam)
+            next_step!(sam)
+            update_sys_state!(ss, sam)
         end
     end
 end

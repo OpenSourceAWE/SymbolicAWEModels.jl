@@ -1021,8 +1021,9 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
     if length(sys1.points) > 0
         if length(sys1.points) == length(sys2.points)
             for (point1, point2) in zip(sys1.points, sys2.points)
-                point2.pos_w = point1.pos_w
-                point2.vel_w = point1.vel_w
+                point2.pos_w .= point1.pos_w
+                point2.vel_w .= point1.vel_w
+                point2.disturb .= point1.disturb
             end
         # if different number of points, copy only the tether points
         elseif length(sys1.tethers) > 1 && length(sys1.tethers) == length(sys2.tethers)
@@ -1035,6 +1036,7 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
                         for (point_idx1, point_idx2) in zip(point_idxs1, point_idxs2)
                             sys2.points[point_idx2].pos_w .= sys1.points[point_idx1].pos_w
                             sys2.points[point_idx2].vel_w .= sys1.points[point_idx1].vel_w
+                            sys2.points[point_idx2].disturb .= sys1.points[point_idx1].disturb
                         end
                     end
                 elseif length(tether2.segment_idxs) == 1
@@ -1046,6 +1048,8 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
                     sys2.points[point_idxs2[2]].pos_w .= sys1.points[point_idxs1[2]].pos_w
                     sys2.points[point_idxs2[1]].vel_w .= sys1.points[point_idxs1[1]].vel_w
                     sys2.points[point_idxs2[2]].vel_w .= sys1.points[point_idxs1[2]].vel_w
+                    sys2.points[point_idxs2[1]].disturb .= sys1.points[point_idxs1[1]].disturb
+                    sys2.points[point_idxs2[2]].disturb .= sys1.points[point_idxs1[2]].disturb
                     simple = true
                 end
             end
@@ -1094,10 +1098,10 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
     # copy wing positions and velocities
     if length(sys1.wings) > 1 && length(sys1.wings) == length(sys2.wings)
         for (wing1, wing2) in zip(sys1.wings, sys2.wings)
-            wing2.pos_w = wing1.pos_w
-            wing2.vel_w = wing1.vel_w
-            wing2.ω_b = wing1.ω_b
-            wing2.Q_b_w = wing1.Q_b_w
+            wing2.pos_w .= wing1.pos_w
+            wing2.vel_w .= wing1.vel_w
+            wing2.ω_b .= wing1.ω_b
+            wing2.Q_b_w .= wing1.Q_b_w
         end
     end
 end

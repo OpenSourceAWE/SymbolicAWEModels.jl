@@ -47,7 +47,7 @@ for entry in readdir(data_dir)
         artifact_name = replace(replace(fname, r"\.tar\.gz" => ""), "." => "_")
 
         # Construct the correct URL using the version from Project.toml
-        url = "https://github.com/OpenSourceAWE/SymbolicAWEModels/releases/download/v$version/$fname"
+        url = "https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/releases/download/v$version/$fname"
 
         artifacts[artifact_name] = Dict(
             "git-tree-sha1" => gtree_sha1,

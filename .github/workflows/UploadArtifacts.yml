@@ -1,31 +1,75 @@
-name: Upload Release Artifacts
+name: Attach archives to release
 
 on:
   push:
     tags:
-      - 'v*'
-  release:
-    types: [created, published]
+      - '*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to use (e.g., v0.1.0 or 0.1.0)
+        required: false
+
+permissions:
+  actions: read
+  contents: write
 
 jobs:
-  release:
+  attach-assets:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout (not strictly required)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
 
-    - name: Download build artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: model-tarballs
-        path: data
+      - name: Determine version from tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}"
+          tag="${tag##refs/tags/}"
+          ver="${tag#v}"  # strip optional leading 'v'
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "Using version: $ver"
 
-    - name: Create GitHub Release and upload .tar.gz assets
-      id: create_release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: 'data/*.tar.gz'
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download archives artifact from CI
+        uses: dawidd6/action-download-artifact@v11
+        with:
+          # Must match the artifact name used in the build workflow
+          name: model-archives-${{ steps.version.outputs.version }}
+          # Point to the workflow file that produced the artifact
+          workflow: BuildArtifacts.yml
+          # Use the repository's default branch to find the matching run
+          branch: ${{ github.event.repository.default_branch }}
+          workflow_conclusion: success
+          repo: ${{ github.repository }}
+          path: data
+          if_no_artifact_found: fail
+
+      - name: List downloaded files
+        run: ls -lR data/*.tar.gz
+
+      - name: Ensure release exists for tag
+        id: ensure_release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.version.outputs.tag }}"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "No release found for tag '$tag'."
+            exit 1
+          fi
+
+      - name: Upload files to this release (overwrites assets with same name)
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            data/*.tar.gz
+          tag_name: ${{ steps.version.outputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

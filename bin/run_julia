@@ -1,6 +1,23 @@
 #!/bin/bash -eu
 # SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: MPL-2.0
+
+# --- Usage Instructions ---
+# This script is a wrapper for running the Julia project.
+#
+# For regular users:
+# No special flags are needed. The script will use the default settings,
+# which includes copying a default manifest file for a stable environment.
+# e.g., ./bin/run_julia
+#
+# For developers:
+# To avoid overwriting your local Manifest.toml and to disable precompilation
+# during development, use the following flags:
+# ./bin/run_julia --copy-manifest false --precompile false
+# You should create an alias for this ;)
+# In my config.fish I have:
+# alias jd './bin/run_julia --copy-manifest false --precompile false'
+# alias jl './bin/run_julia'
 
 # Ensure the script runs from the project root
 if [[ $(basename "$(pwd)") == "bin" ]]; then
@@ -9,15 +26,102 @@ fi
 
 export JULIA_PKG_SERVER_REGISTRY_PREFERENCE=eager
 
-julia_channel=""
-if [[ "${1-}" == \+* ]]; then
-    julia_channel="$1"
-    julia_major="${1#+}"
+# --- Argument Parsing and Setup ---
+final_args=()
+# Default values
+copy_manifest=true
+# By default, SAM_PRECOMPILE is not set, which allows precompilation.
+# Setting it to "false" will disable it.
+
+# First, find the Julia channel argument (e.g., +1.9) if it exists, as it determines the version
+julia_channel_arg=""
+for arg in "$@"; do
+    if [[ "$arg" == \+* ]]; then
+        julia_channel_arg="$arg"
+        break
+    fi
+done
+
+# Determine Julia major.minor version from the channel arg or by calling julia
+if [[ -n "$julia_channel_arg" ]]; then
+    julia_major="${julia_channel_arg#+}"
 else
+    # If no channel is specified, get version from the default julia executable
     julia_major=$(julia --version | cut -d' ' -f3 | cut -d'.' -f1,2)
 fi
 
-# TODO: copy default manifest by default
+# Parse all arguments, handle script-specific flags, and collect the rest for Julia
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -cm|--copy-manifest)
+      if [[ -z "$2" || "$2" == -* ]]; then
+        echo "Error: '$1' requires a 'true' or 'false' value." >&2
+        exit 1
+      fi
+      copy_manifest="$2"
+      shift # past key
+      shift # past value
+      ;;
+    -p|--precompile)
+      if [[ -z "$2" || "$2" == -* ]]; then
+        echo "Error: '$1' requires a 'true' or 'false' value." >&2
+        exit 1
+      fi
+      if [[ "$2" == "false" ]]; then
+        export SAM_PRECOMPILE=false
+        echo "Precompilation for SymbolicAWEModels.jl disabled."
+      fi
+      # If "true", we do nothing, as the default is to precompile.
+      shift # past key
+      shift # past value
+      ;;
+    *)
+      # Collect all other arguments to be passed through to the Julia executable
+      final_args+=("$1")
+      shift # past argument
+      ;;
+  esac
+done
+
+# --- Handle Default Manifest Copy, if requested ---
+if [[ "$copy_manifest" == "true" ]]; then
+    # Export the version for Julia to read from the environment.
+    # This allows using a clean, single-quoted script string below.
+    export JULIA_MAJOR_VER="$julia_major"
+
+    # This Julia script finds the package path, constructs the manifest paths,
+    # and performs the copy operation. It reads the version from the environment.
+    julia_script='
+        julia_major_ver = ENV["JULIA_MAJOR_VER"]
+        project_dir = dirname(Base.active_project())
+        pkg_path_jl = Base.find_package("SymbolicAWEModels")
+        
+        if pkg_path_jl === nothing
+            println(stderr, "Error: Could not find the SymbolicAWEModels.jl package. Is it in your project environment?")
+            exit(1)
+        end
+        
+        pkg_root = dirname(dirname(pkg_path_jl))
+        src_manifest = joinpath(pkg_root, "Manifest-v" * julia_major_ver * ".toml.default")
+        dest_manifest = joinpath(project_dir, "Manifest-v" * julia_major_ver * ".toml")
+        
+        if !isfile(src_manifest)
+            println(stderr, "Error: Default manifest not found at: ", src_manifest)
+        else
+            println("Copying default manifest: \n\t", src_manifest, " -> \n\t", dest_manifest)
+            cp(src_manifest, dest_manifest, force=true)
+        end
+    '
+
+    # Execute the Julia command with the correct channel if specified.
+    # This is a separate execution step before the main program starts.
+    if [[ -n "$julia_channel_arg" ]]; then
+        julia "$julia_channel_arg" --project -e "$julia_script"
+    else
+        julia --project -e "$julia_script"
+    fi
+fi
+
 
 # --- Find system image ---
 branch=""
@@ -31,11 +135,10 @@ if [[ -n "$branch" ]]; then
 fi
 
 # --- Execution logic ---
-# Pass any remaining arguments ("$@") to the julia executable
+# Execute Julia with the filtered arguments
 if test -f "$SOFILE"; then
     echo "Found system image: $SOFILE"
-    julia "$@" -J "$SOFILE" --project
+    julia "${final_args[@]}" -J "$SOFILE" --project
 else
-    echo "No system image found, starting default Julia session"
-    julia "$@" --project
+    julia "${final_args[@]}" --project
 fi

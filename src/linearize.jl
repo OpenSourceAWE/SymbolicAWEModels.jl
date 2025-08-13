@@ -19,19 +19,19 @@ equilibrium before starting a maneuver or analysis.
 - `t::Float64=1.0`: The duration [s] for which to run the settling simulation.
 - `dt::Float64`: The time step [s] for the settling simulation.
 """
-function find_steady_state!(s::SymbolicAWEModel; 
-                            t=1.0, dt=1/s.set.sample_freq, vsm_interval=1)
-    @unpack winches, wings = s.sys_struct
+function find_steady_state!(sam::SymbolicAWEModel; 
+                            t=1.0, dt=1/sam.set.sample_freq, vsm_interval=1)
+    @unpack winches, wings = sam.sys_struct
     old_brakes = [winch.brake for winch in winches]
     old_fixes = [wing.fix_sphere for wing in wings]
     [winch.brake=true for winch in winches]
     [wing.fix_sphere=true for wing in wings]
     for _ in 1:Int(round(t÷dt))
-        next_step!(s; dt, vsm_interval)
+        next_step!(sam; dt, vsm_interval)
     end
     [winch.brake=old_brakes[winch.idx] for winch in winches]
     [wing.fix_sphere=old_fixes[wing.idx] for wing in wings]
-    update_sys_struct!(s, s.sys_struct)
+    update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
     return nothing
 end
 
@@ -45,10 +45,10 @@ velocity, twist angles), linearizes the VSM aerodynamics around this operating p
 and updates the Jacobian (`vsm_jac`) and the steady-state forces (`vsm_x`) in the
 `SystemStructure`. This is typically called periodically during a simulation.
 """
-function linearize_vsm!(s::SymbolicAWEModel, integ=s.integrator)
-    wings = s.sys_struct.wings
+function linearize_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes, integ=sam.integrator)
+    wings = sam.sys_struct.wings
     if length(wings) > 0
-        vsm_y = s.get_vsm_y(integ)
+        vsm_y = prob.get_vsm_y(integ)
         for wing in wings
             wing.vsm_y .= vsm_y[wing.idx,:]
             res = VortexStepMethod.linearize(
@@ -57,13 +57,13 @@ function linearize_vsm!(s::SymbolicAWEModel, integ=s.integrator)
                 wing.vsm_y;
                 va_idxs=1:3, 
                 omega_idxs=4:6,
-                theta_idxs=7:6+length(s.sys_struct.groups),
-                moment_frac=s.sys_struct.groups[1].moment_frac
+                theta_idxs=7:6+length(sam.sys_struct.groups),
+                moment_frac=sam.sys_struct.groups[1].moment_frac
             )
             wing.vsm_jac .= res[1]
             wing.vsm_x .= res[2]
         end
-        s.set_psys(integ, s.sys_struct)
+        prob.set_sys(integ, sam.sys_struct)
     end
     nothing
 end
@@ -85,11 +85,25 @@ calculate the A, B, C, and D matrices for the complete, high-order system.
 # Returns
 - `LinType`: A NamedTuple `(A, B, C, D)` containing the state-space matrices.
 """
-function linearize!(s::SymbolicAWEModel; set_values=s.get_set_values(s.integrator))
-    isnothing(s.lin_prob) && error("Run init! with remake=true and lin_outputs=...")
-    s.set_lin_set_values(s.lin_prob, set_values)
-    s.lin_model = solve(s.lin_prob)[1]
-    return s.lin_model
+function linearize!(sam::SymbolicAWEModel; set_values=nothing)
+    isnothing(sam.lin_prob) && error("Run init! with create_lin_prob=true")
+    lin_prob = sam.lin_prob
+    prob = sam.prob
+
+    # copy set values from prob to lin prob
+    if !isnothing(prob) && !isnothing(prob.get_set_values)
+        if isnothing(set_values)
+            set_values = prob.get_set_values(sam.integrator)
+        end
+        lin_prob.set_set_values(lin_prob.prob, set_values)
+    end
+
+    # copy state and settings to lin prob
+    lin_prob.set_sys(lin_prob.prob, sam.sys_struct)
+    lin_prob.set_set(lin_prob.prob, sam.set)
+
+    lin_model = solve(lin_prob.prob)[1]
+    return lin_model
 end
 
 """
@@ -219,18 +233,19 @@ steady-state response.
 # Returns
 - `LinType`: A NamedTuple `(A, B, C, D)` containing the identified low-order state-space matrices.
 """
-function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
-    @unpack segments, winches, tethers, wings = s.sys_struct
-    integ = s.integrator
-    update_sys_struct!(s, s.sys_struct)
-    state0 = getstate(s.sys_struct)
+function simple_linearize!(sam::SymbolicAWEModel; tstab=10.0)
+    @unpack segments, winches, tethers, wings = sam.sys_struct
+    integ = sam.integrator
+    prob = sam.prob
+    update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+    state0 = getstate(sam.sys_struct)
     old_brakes = [winch.brake for winch in winches]
     old_fixes = [wing.fix_sphere for wing in wings]
     [winch.brake=true for winch in winches]
     [wing.fix_sphere=true for wing in wings]
-    lin_x0 = s.get_lin_x(integ)
-    u0 = [winch.set_value for winch in s.sys_struct.winches]
-    @unpack A, B, C, D = s.simple_lin_model
+    lin_x0 = sam.simple_lin_model.get_x(integ)
+    u0 = [winch.set_value for winch in sam.sys_struct.winches]
+    @unpack A, B, C, D = sam.simple_lin_model.model
     A .= 0.0
     B .= 0.0
     C .= 0.0
@@ -242,12 +257,12 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
         turn_rate = x[2]
         tether_len = x[3:5]
         tether_vel = x[6:8]
-        set_measured!(s.sys_struct, heading, turn_rate,
+        set_measured!(sam.sys_struct, heading, turn_rate,
                         tether_len, tether_vel)
-        s.set_set_values(integ, u)
+        prob.set_set_values(integ, u)
         OrdinaryDiffEqCore.reinit!(integ)
         OrdinaryDiffEqCore.step!(integ, tstab)
-        return s.get_lin_dx(integ)
+        return sam.simple_lin_model.get_dx(integ)
     end
 
     # yes it looks weird to step in an output function, but this is a steady state finder rather than output
@@ -256,12 +271,12 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
         turn_rate = x[2]
         tether_len = x[3:5]
         tether_vel = x[6:8]
-        set_measured!(s.sys_struct, heading, turn_rate,
+        set_measured!(sam.sys_struct, heading, turn_rate,
                         tether_len, tether_vel)
-        s.set_set_values(integ, u)
+        prob.set_set_values(integ, u)
         OrdinaryDiffEqCore.reinit!(integ)
         OrdinaryDiffEqCore.step!(integ, tstab)
-        return s.get_lin_y(integ)
+        return sam.simple_lin_model.get_y(integ)
     end
 
     f_x(x) = f(x, u0)
@@ -270,8 +285,8 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
     h_u(u) = h(lin_x0, u)
 
     segment = segments[tethers[1].segment_idxs[1]]
-    mass_per_meter = s.set.rho_tether * π * (segment.diameter/2)^2
-    mass = winches[1].tether_len * mass_per_meter + s.set.mass
+    mass_per_meter = sam.set.rho_tether * π * (segment.diameter/2)^2
+    mass = winches[1].tether_len * mass_per_meter + sam.set.mass
 
     # calculate jacobian
     ϵ_x = [0.001, 0.1, 0.001, 0.001, 0.001, 0.1, 0.1, 0.1]
@@ -283,10 +298,10 @@ function simple_linearize!(s::SymbolicAWEModel; tstab=10.0)
     D[4,1] = -mass * B[6,1]
     A[:,1] .= 0.0 # Aero moment due to change in heading cannot be found in steady state
     C[4,1] = 0.0
-    s.set_set_values(integ, u0)
+    prob.set_set_values(integ, u0)
     [winch.brake=old_brakes[winch.idx] for winch in winches]
     [wing.fix_sphere=old_fixes[wing.idx] for wing in wings]
-    setstate!(s.sys_struct, state0)
+    setstate!(sam.sys_struct, state0)
     OrdinaryDiffEqCore.reinit!(integ)
-    return s.simple_lin_model
+    return sam.simple_lin_model.model
 end

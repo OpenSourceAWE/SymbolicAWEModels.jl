@@ -1,5 +1,5 @@
-# Copyright (c) 2024, 2025 Bart van de Lint, Uwe Fechner
-# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Bart van de Lint
+# SPDX-License-Identifier: MPL-2.0
 
 using Timers
 @info "Loading packages"

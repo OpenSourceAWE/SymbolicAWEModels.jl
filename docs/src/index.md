@@ -43,10 +43,10 @@ at the Julia prompt. You can run the unit tests with the command (careful, can t
 ```julia
 pkg"test SymbolicAWEModels"
 ```
-You can copy the examples to your project with:
+Copy the examples, data and scripts to your project, and install dependencies:
 ```julia
 using SymbolicAWEModels
-SymbolicAWEModels.install_examples()
+SymbolicAWEModels.init_module(; force=false) # force=true to remove existing files with the same name
 ```
 This also adds the extra packages, needed for the examples to the project. Furthermore, it creates a folder `data`
 with some example input files. You can now run the examples with the command:
@@ -75,7 +75,7 @@ init!(sam)
 
 Simulate and plot:
 ```julia
-log = sim_oscillate!(sam)
+(log, _) = sim_oscillate!(sam)
 plot(sam.sys_struct, log; plot_all=false, plot_heading=true)
 ```
 
@@ -98,7 +98,7 @@ init!(simple_sam)
 Simulate and plot:
 ```julia
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
-simple_log = sim_oscillate!(simple_sam)
+(simple_log, _) = sim_oscillate!(simple_sam)
 plot(simple_sam.sys_struct, simple_log; plot_all=false, plot_heading=true)
 ```
 

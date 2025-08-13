@@ -1,5 +1,5 @@
-# SPDX-FileCopyrightText: 2022, 2024, 2025 Uwe Fechner
-# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2025 Bart van de Lint
+# SPDX-License-Identifier: MPL-2.0
 
 ENV["MPLBACKEND"] = "Agg"
 using KiteUtils

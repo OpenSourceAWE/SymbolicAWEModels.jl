@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: MPL-2.0
 
 using Pkg
 if ("TestEnv" ∈ keys(Pkg.project().dependencies))

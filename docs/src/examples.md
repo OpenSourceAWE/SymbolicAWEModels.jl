@@ -12,10 +12,11 @@ julia --project=.
 Don't forget to type the dot at the end of the last line.
 With the last command, we told Julia to create a new project in the current directory.
 
-You can copy the examples to your project with:
+You can copy the examples, data and scripts to your project, and install dependencies
+with the following lines:
 ```julia
 using SymbolicAWEModels
-SymbolicAWEModels.install_examples()
+SymbolicAWEModels.init_module(; force=false) # force=true to remove existing files with the same name
 ```
 
 ## Running the first example

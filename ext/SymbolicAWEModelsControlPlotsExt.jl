@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint, Uwe Fechner
 #
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: MPL-2.0
 
 module SymbolicAWEModelsControlPlotsExt
 using ControlPlots, LaTeXStrings, KiteUtils, SymbolicAWEModels
@@ -43,6 +43,7 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
                            plot_twist=plot_all,
                            plot_aoa=plot_all,
                            plot_heading=plot_all,
+                           plot_force=plot_all,
                            suffix=" - " * sys.name)
     sl = lg.syslog
 
@@ -96,6 +97,13 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
         push!(plot_ylabels, "heading [°]")
     end
 
+    if plot_force
+        winch_force = [[sl.force[i][j] for i in eachindex(sl.force)] for j in 1:3]
+        push!(plot_data, winch_force)
+        push!(plot_labels, [L"F_{winch,1}"*suffix, L"F_{winch,2}"*suffix, L"F_{winch,3}"*suffix])
+        push!(plot_ylabels, "Winch force [N]")
+    end
+
     # Only create a plot if there is data to show
     if isempty(plot_data)
         @warn "No plot sections enabled. Nothing to display."
@@ -114,7 +122,8 @@ function ControlPlots.plot(sys::SystemStructure, lg::SysLog;
         fig="Oscillating Steering Input Response")
 end
 
-function ControlPlots.plot(sys::SystemStructure, reltime; l_tether=50.0, wing_pos=nothing, e_z=zeros(3), zoom=false, front=false, xy=nothing)
+function ControlPlots.plot(sys::SystemStructure, reltime::Real;
+                           l_tether=50.0, wing_pos=nothing, zoom=false, front=false, xy=nothing)
     pos = [sys.points[i].pos_w for i in eachindex(sys.points)]
     !isnothing(wing_pos) && (pos = [pos..., wing_pos...])
     seg = [[sys.segments[i].point_idxs[1], sys.segments[i].point_idxs[2]] for i in eachindex(sys.segments)]
@@ -134,21 +143,14 @@ function ControlPlots.plot(sys::SystemStructure, reltime; l_tether=50.0, wing_po
     ControlPlots.plot2d(pos, seg, reltime; zoom, front, xlim, ylim, dz_zoom=0.6, xy)
 end
 
-function ControlPlots.plot(s::SymbolicAWEModel, reltime; kwargs...)
-    wings = s.sys_struct.wings
-    pos = s.integrator[s.sys.pos]
+function ControlPlots.plot(sam::SymbolicAWEModel, reltime::Real; kwargs...)
+    wings = sam.sys_struct.wings
     if length(wings) > 0
-        wing_pos = [s.integrator[s.sys.wing_pos[i, :]] for i in eachindex(wings)]
-        e_z = [s.integrator[s.sys.e_z[i, :]] for i in eachindex(wings)]
+        wing_pos = [wing.pos_w for wing in wings]
     else
         wing_pos = nothing
-        e_z = zeros(3)
     end
-        
-    for (i, point) in enumerate(s.sys_struct.points)
-        point.pos_w .= pos[:, i]
-    end
-    plot(s.sys_struct, reltime; s.set.l_tether, wing_pos, e_z, kwargs...)
+    plot(sam.sys_struct, reltime; sam.set.l_tether, wing_pos, kwargs...)
 end
 
 end

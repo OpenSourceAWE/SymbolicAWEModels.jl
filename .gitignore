@@ -7,6 +7,7 @@
 *.xopp
 *.so
 *.so.bak
+data/*.png
 /Manifest.toml
 /Manifest.toml.1.7
 test/data/kite.obj

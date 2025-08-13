@@ -56,6 +56,5 @@ tether_length
 General helper functions for package management and setup.
 
 ```@docs
-copy_examples
-copy_bin
+init_module
 ```

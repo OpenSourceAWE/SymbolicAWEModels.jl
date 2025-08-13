@@ -63,3 +63,11 @@ Transform
 Transform(idx, elevation, azimuth, heading; base_point_idx, base_pos, base_transform_idx, wing_idx, rot_point_idx)
 Transform(idx, set, base_point_idx; kwargs...)
 ```
+
+## System state
+
+```@docs
+SysState
+update_sys_state!
+```
+

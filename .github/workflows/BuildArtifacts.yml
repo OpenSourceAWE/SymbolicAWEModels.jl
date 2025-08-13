@@ -1,5 +1,8 @@
 # This workflow builds artifacts for multiple Julia versions concurrently
 # and then creates a single pull request with the updated TOML files.
+# Additionally it aggregates all built
+# tarballs and uploads a single versioned artifact:
+#   model-archives-<package-version>
 
 name: Build Tarball Artifacts
 
@@ -7,6 +10,8 @@ on:
   push:
     branches:
       - main
+    paths:
+      - Project.toml
   workflow_dispatch:
 
 concurrency:
@@ -14,9 +19,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Detect package version and whether it changed vs previous commit.
+  version_check:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check_version_changed.outputs.changed }}
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Read current version
+        id: get_version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! grep -qE '^\s*version\s*=' Project.toml; then
+            echo "Project.toml has no 'version' field"; exit 1
+          fi
+          ver=$(grep -E '^\s*version\s*=' Project.toml | sed -E 's/.*=\s*"([^"]+)".*/\1/')
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "Detected version: $ver"
+
+      - name: Check if version changed vs previous commit
+        id: check_version_changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          prev=""
+          if git cat-file -e HEAD^ 2>/dev/null && git show HEAD^:Project.toml >/tmp/prev.toml 2>/dev/null; then
+            prev=$(grep -E '^\s*version\s*=' /tmp/prev.toml | sed -E 's/.*=\s*"([^"]+)".*/\1/' || true)
+          fi
+          curr="${{ steps.get_version.outputs.version }}"
+          echo "Previous version: ${prev:-<none>}"
+          echo "Current version: $curr"
+          if [ -n "$prev" ] && [ "$prev" = "$curr" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No version change detected."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Version change detected."
+          fi
+
   # This job runs in parallel for each Julia version specified in the matrix.
   build:
-    if: "!contains(github.event.head_commit.message, 'Update TOML files')"
+    needs: version_check
+    if: >
+      (github.event_name == 'workflow_dispatch' || needs.version_check.outputs.changed == 'true')
+      && !contains(github.event.head_commit.message || '', 'update-toml-files')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
@@ -25,21 +77,21 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Install matplotlib
-      run: if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get install -y python3-matplotlib; fi
+      run: if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get update && sudo apt-get install -y python3-matplotlib; fi
       shell: bash
 
     - name: Setup Julia ${{ matrix.julia-version }}
-      uses: julia-actions/setup-julia@v1
+      uses: julia-actions/setup-julia@v2
       with:
         version: ${{ matrix.julia-version }}
 
     - name: Install ArtifactUtils package
       run: julia -e 'using Pkg; Pkg.add("ArtifactUtils");'
 
-    # This script creates the model archives and updates the default manifest for the 
+    # This script creates the model archives and updates the default manifest for the
     # current Julia version.
     - name: Run create_model_archive script
       run: ./bin/create_model_archive
@@ -63,14 +115,40 @@ jobs:
         path: .
         retention-days: 1
 
+  # Aggregate all tarballs into a single versioned artifact.
+  collect_archives:
+    runs-on: ubuntu-latest
+    needs: [version_check, build]
+    if: github.event_name == 'workflow_dispatch' || needs.version_check.outputs.changed == 'true'
+    steps:
+      - name: Download all tarball artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: model-tarballs-*
+          merge-multiple: true
+          path: data
+
+      - name: List downloaded files
+        run: ls -lR
+
+      - name: Upload combined model archives artifact (versioned)
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-archives-${{ needs.version_check.outputs.version }}
+          path: |
+            data/*.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+
   # This job runs only after all 'build' jobs have successfully completed.
   create_pr:
     runs-on: ubuntu-latest
     needs: build
+    if: github.event_name == 'workflow_dispatch' || needs.version_check.outputs.changed == 'true'
 
     steps:
     - name: Checkout a clean version of the code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     # Download only the specific workspace artifacts needed.
     - name: Download workspace-1.10 artifact
@@ -104,7 +182,7 @@ jobs:
     # Generate a token from the GitHub App to authorize the PR creation
     - name: Generate token
       id: generate_token
-      uses: actions/create-github-app-token@v1
+      uses: actions/create-github-app-token@v2
       with:
         app-id: ${{ secrets.APP_ID }}
         private-key: ${{ secrets.PRIVATE_KEY }}

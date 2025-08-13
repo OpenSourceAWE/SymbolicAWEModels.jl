@@ -10,18 +10,23 @@ using Pkg
     tmpdir=mktempdir()
     mkpath(tmpdir)
     cd(tmpdir)
-    SymbolicAWEModels.copy_examples()
+    SymbolicAWEModels.init_module(; force=true, add_pkg=false)
     @test isfile(joinpath(tmpdir, "examples", "menu.jl"))
     if ! Sys.iswindows()
         rm(tmpdir, recursive=true)
     end
     cd(path)
+
     path=pwd()
     tmpdir=mktempdir()
     mkpath(tmpdir)
+    menu_file = joinpath(tmpdir, "examples", "menu.jl")
+    mkpath(joinpath(tmpdir, "examples"))
+    touch(menu_file)
     cd(tmpdir)
-    SymbolicAWEModels.install_examples(false)
+    SymbolicAWEModels.init_module(; force=false, add_pkg=false)
     @test isfile(joinpath(tmpdir, "examples", "menu.jl"))
+    @test filesize(menu_file) == 0
     if ! Sys.iswindows()
         rm(tmpdir, recursive=true)
     end
@@ -30,12 +35,4 @@ using Pkg
     @test ! ("TestEnv" ∈ keys(Pkg.project().dependencies))
     @test ! ("Revise" ∈ keys(Pkg.project().dependencies))
     @test ! ("Plots" ∈ keys(Pkg.project().dependencies))
-    # # ensure that BenchmarkTools is not in the main environment
-    # oldprpath = Pkg.project().path
-    # if ! Pkg.project().ispackage
-    #     Pkg.activate(".")
-    # end
-    # hasbm = ("BenchmarkTools" ∈ keys(Pkg.project().dependencies))
-    # Pkg.activate(oldprpath)
-    # @test ! hasbm
 end

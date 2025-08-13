@@ -11,17 +11,16 @@
 using Timers
 tic()
 @info "Loading packages "
+using SymbolicAWEModels
+using ModelingToolkit
+using ModelingToolkit: t_nounits
 
 PLOT = true
 using Pkg
-if ! ("ControlSystemsBase" ∈ keys(Pkg.project().dependencies))
+if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
     using TestEnv; TestEnv.activate()
 end
-using ControlPlots, LaTeXStrings, ControlSystemsBase
-
-using SymbolicAWEModels, KiteUtils, LinearAlgebra, Statistics
-using ModelingToolkit
-using ModelingToolkit: t_nounits
+using ControlPlots, ControlSystemsBase
 toc()
 
 # Initialize model
@@ -39,11 +38,11 @@ toc()
     tether_len(t_nounits)[1:3]
     winch_force(t_nounits)[1:3]
 end
-lin_outputs = [heading[1], angle_of_attack[1], tether_len[1], winch_force[1]]
-@info "Linear outputs: $lin_outputs"
+outputs = [heading[1], angle_of_attack[1], tether_len[1], winch_force[1]]
+@info "Linear outputs: $outputs"
 
 # Initialize at elevation with linearization outputs
-SymbolicAWEModels.init!(s; lin_outputs)
+SymbolicAWEModels.init!(s; outputs)
 sys = s.sys
 
 @info "System initialized at:"

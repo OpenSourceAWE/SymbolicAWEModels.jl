@@ -1,6 +1,6 @@
 <!--
 SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
-SPDX-License-Identifier: MIT
+SPDX-License-Identifier: MPL-2.0
 -->
 
 # SymbolicAWEModels
@@ -64,11 +64,11 @@ Run the unit tests (can take about 60 minutes):
 pkg"test SymbolicAWEModels"
 ```
 
-Copy the examples to your project:
+Copy the examples, data and scripts to your project, and install dependencies:
 
 ```julia
 using SymbolicAWEModels
-SymbolicAWEModels.install_examples()
+SymbolicAWEModels.init_module(; force=false) # force=true to remove existing files with the same name
 ```
 
 This adds extra packages needed for the examples and creates a `data` folder with example input files.
@@ -105,7 +105,7 @@ init!(sam)
 **Simulate and plot:**
 
 ```julia
-log = sim_oscillate!(sam)
+(log, _) = sim_oscillate!(sam)
 plot(sam.sys_struct, log; plot_all=false, plot_heading=true)
 ```
 
@@ -131,7 +131,7 @@ init!(simple_sam)
 
 ```julia
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
-simple_log = sim_oscillate!(simple_sam)
+(simple_log, _) = sim_oscillate!(simple_sam)
 plot(simple_sam.sys_struct, simple_log; plot_all=false, plot_heading=true)
 ```
 

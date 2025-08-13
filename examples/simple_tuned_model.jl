@@ -2,8 +2,12 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
-using SymbolicAWEModels, VortexStepMethod, KiteUtils, ControlPlots, Statistics
-using OrdinaryDiffEqCore
+using Pkg
+if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
+    using TestEnv; TestEnv.activate()
+end
+
+using SymbolicAWEModels, ControlPlots
 
 set = Settings("system.yaml")
 sam = SymbolicAWEModel(set, "ram")
@@ -21,9 +25,9 @@ sim_oscillate!(sam; total_time=1.0)
 SymbolicAWEModels.copy_to_simple!(sam, tether_sam, simple_sam)
 
 bias = 0.2
-sl = sim_oscillate!(sam; total_time=5.0, prn=true, bias) # TODO: add first frac ram model
+sl, _ = sim_oscillate!(sam; total_time=5.0, prn=true, bias) # TODO: add first frac ram model
 display(plot(sam.sys_struct, sl))
 
-sl = sim_oscillate!(simple_sam; total_time=5.0, prn=true, bias)
+sl, _ = sim_oscillate!(simple_sam; total_time=5.0, prn=true, bias)
 display(plot(simple_sam.sys_struct, sl))
 
