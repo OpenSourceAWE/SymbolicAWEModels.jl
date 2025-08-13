@@ -1,5 +1,5 @@
 system:
-    log_file: "data/ram_air_kite"  # filename without extension  [replay only]
+    log_file: "data/base"  # filename without extension  [replay only]
                                    #   use / as path delimiter, even on Windows 
     time_lapse:   1.0              # relative replay speed
     sim_time:   100.0              # simulation time             [sim only]
@@ -22,8 +22,8 @@ solver:
     relaxation: 0.6        # relaxation factor of inner linear Newton solver, needed for quasi-steady solver
 
 kite:
-    model: "data/ram_air_kite_body.obj"     # 3D model of the kite
-    foil_file: "data/ram_air_kite_foil.dat" # filename for the foil shape
+    model: ""     # 3D model of the kite
+    foil_file: "" # filename for the foil shape
     physical_model: "ram"            # name of the kite model to use (KPS3, KPS4 or SymbolicAWEModel)
     top_bridle_points:                      # top bridle points that are not on the kite body in CAD frame
         - [0.290199, 0.784697, -2.61305]
@@ -36,6 +36,8 @@ kite:
     quasi_static: false                     # whether to use quasi static kite points or not
 
 tether:
+    # Bosch et al. 2014 used k = AE/L = 4.52E3 N/m for the bridles of the V3
+    # Bosch et al. 2014 used C = 251.7 Ns/m for bridles of the V3
     bridle_tether_diameter: 2 # [mm]
     power_tether_diameter: 2 # [mm]
     steering_tether_diameter: 1 # [mm]

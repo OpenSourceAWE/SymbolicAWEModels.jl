@@ -1,4 +1,4 @@
-using SymbolicAWEModels, VortexStepMethod, ControlPlots
+using SymbolicAWEModels, VortexStepMethod, ControlPlots,KiteUtils
 
 # --- Analytical solution functions for hanging mass ---
 """
@@ -30,7 +30,7 @@ end
 println("\n\nHanging Mass Example\n", "="^40)
 ### Loading Settings
 # Use load_settings() to temporarily create system.yaml pointing to the desired subdirectory
-set = load_settings("base")  # Loads from data/base/settings.yaml
+set = SymbolicAWEModels.load_settings("base")  # Loads from data/base/settings.yaml
 set.v_wind = 0  # No wind
 set.sample_freq = 1  # Increase to 100 Hz for better visualization (dt = 0.01s)
 set.abs_tol = 1e-6     # Higher precision for better dynamics resolution
@@ -86,7 +86,7 @@ set.damping = recommended_damping  # Update settings with recommended damping
 # even though the tether is not used here, it defines the size of the plot
 # and therefore we must set it to a reasonable length
 set.l_tether = 5.0
-plot(sys_struct, 0.0; zoom=false)
+ControlPlots.plot(sys_struct, 0.0; zoom=false)
 
 # Create and initialize the symbolic model
 sam = SymbolicAWEModel(set, sys_struct)
@@ -95,7 +95,7 @@ init!(sam; remake=false)
 # Run simulation for longer time with smaller steps for better convergence visualization
 for i in 1:30
     current_time = i/set.sample_freq
-    plot(sam, current_time; zoom=false)
+    ControlPlots.plot(sam, current_time; zoom=false)
     next_step!(sam)
 end
 
