@@ -36,6 +36,7 @@ set.l_tethers[2] += 0.2
 set.l_tethers[3] += 0.2
 @time time_ = init!(sam; remake=false, reload=true) # bench=true
 @info "Simplify took $time_ seconds"
+sys = sam.prob.sys
 nothing
 
 ## Results for SymbolicAWEModels.jl
