@@ -38,6 +38,11 @@ set.l_tethers[3] += 0.2
 @info "Simplify took $time_ seconds"
 nothing
 
+## Results for SymbolicAWEModels.jl
+# Laptop, AMD Ryzen 7 7840U, Julia 1.11:
+# - first  run 97.5 seconds
+
+## Results for KiteModels.jl
 # Desktop, AMD Ryzen 9 7950X, Julia 1.11:
 # - first  run 34.5 seconds
 # - second run 21.1 seconds
