@@ -87,8 +87,8 @@ export unstretched_length
 export tether_length
 
 # --- Logging Functions ---
-export SystemLogger, create_logger, log!, log_state!
-export get_log_data, get_field_data, list_fields
+export SystemLogger, LoggingConfig, create_logger, log!, log_state!
+export get_log_data, get_field_data, list_fields, list_available_fields
 export save_log, load_log, export_csv
 export callback_logger, selective_logger
 export is_full, n_logged, resize_logger!

@@ -15,6 +15,42 @@ using Dates
 # ==================== LOGGING DATA STRUCTURES ==================== #
 
 """
+    LoggingConfig
+
+Configuration for controlling which fields get logged.
+
+$(TYPEDFIELDS)
+"""
+struct LoggingConfig
+    include_fields::Union{Vector{String}, Nothing}     # Specific fields to include
+    exclude_fields::Union{Vector{String}, Nothing}     # Specific fields to exclude
+    include_patterns::Union{Vector{Regex}, Nothing}    # Regex patterns to include
+    exclude_patterns::Union{Vector{Regex}, Nothing}    # Regex patterns to exclude
+end
+
+"""
+    LoggingConfig(; include_fields=nothing, exclude_fields=nothing,
+                    include_patterns=nothing, exclude_patterns=nothing)
+
+Create a logging configuration. If all parameters are `nothing`, all fields are logged.
+
+# Examples
+```julia
+# Log only position and velocity
+config = LoggingConfig(include_patterns=[r"\\.pos_w", r"\\.vel_w"])
+
+# Exclude internal fields
+config = LoggingConfig(exclude_patterns=[r"\\.internal_", r"\\.cache_"])
+
+# Specific field selection
+config = LoggingConfig(include_fields=["points.pos_w[1]", "points.mass"])
+```
+"""
+LoggingConfig(; include_fields=nothing, exclude_fields=nothing,
+                include_patterns=nothing, exclude_patterns=nothing) =
+    LoggingConfig(include_fields, exclude_fields, include_patterns, exclude_patterns)
+
+"""
     SystemLogger
 
 A logging system for efficiently recording SystemStructure states over time.
@@ -31,6 +67,178 @@ mutable struct SystemLogger
     const metadata::Dict{String, Any}   # Field names, types, sizes for reconstruction
     current_step::Int                   # Current logging position
     capacity::Int                      # Maximum number of time steps
+end
+
+# ==================== FIELD FILTERING ==================== #
+
+"""
+    _collect_logged_fields(sys::SystemStructure, fields_metadata::Vector)
+
+Collect only the specific fields listed in the metadata, in the same order.
+This ensures the collected data matches exactly what the logger expects.
+"""
+function _collect_logged_fields(sys::SystemStructure, fields_metadata::Vector)
+    # Pre-allocate result vector
+    total_size = sum(meta["size"] for meta in fields_metadata)
+    result = Vector{SimFloat}(undef, total_size)
+
+    # Create a map from component type to objects for efficient lookup
+    component_map = Dict(
+        "points" => sys.points,
+        "groups" => sys.groups,
+        "segments" => sys.segments,
+        "pulleys" => sys.pulleys,
+        "tethers" => sys.tethers,
+        "winches" => sys.winches,
+        "wings" => sys.wings,
+        "transforms" => sys.transforms,
+        "system" => [sys]
+    )
+
+    current_idx = 1
+
+    for field_meta in fields_metadata
+        field_name = field_meta["name"]
+        field_size = field_meta["size"]
+
+        # Parse field name like "points.pos_w[1]" or "points.mass"
+        parts = split(field_name, ".")
+        component_type = parts[1]
+        field_part = parts[2]
+
+        objects = component_map[component_type]
+
+        # Check if this is a vector component or scalar field
+        if occursin("[", field_part)
+            # Vector component: "pos_w[1]"
+            bracket_match = match(r"(\w+)\[(\d+)\]", field_part)
+            if bracket_match !== nothing
+                field_name_base = bracket_match.captures[1]
+                component_idx = parse(Int, bracket_match.captures[2])
+
+                # Collect this component from all objects
+                for obj in objects
+                    value = getfield(obj, Symbol(field_name_base))
+                    result[current_idx] = value[component_idx]
+                    current_idx += 1
+                end
+            end
+        else
+            # Scalar field: "mass"
+            field_symbol = Symbol(field_part)
+            for obj in objects
+                result[current_idx] = getfield(obj, field_symbol)
+                current_idx += 1
+            end
+        end
+    end
+
+    return result
+end
+
+"""
+    should_log_field(field_name::String, config::LoggingConfig)
+
+Determine if a field should be logged based on the configuration.
+
+Returns `true` if the field should be logged, `false` otherwise.
+"""
+function should_log_field(field_name::String, config::LoggingConfig)
+    # If no configuration provided, log everything
+    if config.include_fields === nothing && config.exclude_fields === nothing &&
+       config.include_patterns === nothing && config.exclude_patterns === nothing
+        return true
+    end
+
+    # Check explicit exclude list first
+    if config.exclude_fields !== nothing && field_name in config.exclude_fields
+        return false
+    end
+
+    # Check exclude patterns
+    if config.exclude_patterns !== nothing
+        for pattern in config.exclude_patterns
+            if occursin(pattern, field_name)
+                return false
+            end
+        end
+    end
+
+    # If include lists are specified, field must match at least one
+    has_include_criteria = config.include_fields !== nothing || config.include_patterns !== nothing
+    if has_include_criteria
+        # Check explicit include list
+        if config.include_fields !== nothing && field_name in config.include_fields
+            return true
+        end
+
+        # Check include patterns
+        if config.include_patterns !== nothing
+            for pattern in config.include_patterns
+                if occursin(pattern, field_name)
+                    return true
+                end
+            end
+        end
+
+        # No include criteria matched
+        return false
+    end
+
+    # No exclude criteria matched and no include criteria specified
+    return true
+end
+
+"""
+    list_available_fields(sys::SystemStructure)
+
+List all fields that could potentially be logged from a SystemStructure.
+
+Useful for configuring selective logging.
+"""
+function list_available_fields(sys::SystemStructure)
+    all_fields = String[]
+
+    # Helper function to collect field names
+    function collect_field_names(objects, type_name)
+        if isempty(objects)
+            return
+        end
+        T = typeof(objects[1])
+        field_names = fieldnames(T)
+        field_types = T.types
+
+        for (name, field_type) in zip(field_names, field_types)
+            if field_type <: SimFloat
+                push!(all_fields, "$(type_name).$(name)")
+            elseif field_type <: AbstractVector{SimFloat}
+                first_value = getfield(objects[1], name)
+                n_components = length(first_value)
+                for component_idx in 1:n_components
+                    push!(all_fields, "$(type_name).$(name)[$(component_idx)]")
+                end
+            elseif field_type <: AbstractMatrix{SimFloat}
+                first_value = getfield(objects[1], name)
+                n_components = length(first_value)
+                for component_idx in 1:n_components
+                    push!(all_fields, "$(type_name).$(name)[$(component_idx)]")
+                end
+            end
+        end
+    end
+
+    # Collect from all component types
+    for (type_name, objects) in [("points", sys.points), ("groups", sys.groups),
+                                  ("segments", sys.segments), ("pulleys", sys.pulleys),
+                                  ("tethers", sys.tethers), ("winches", sys.winches),
+                                  ("wings", sys.wings), ("transforms", sys.transforms)]
+        collect_field_names(objects, type_name)
+    end
+
+    # System structure itself
+    collect_field_names([sys], "system")
+
+    return sort(all_fields)
 end
 
 # ==================== METADATA GENERATION ==================== #
@@ -81,12 +289,13 @@ function _collect_field_metadata(obj, prefix="")
 end
 
 """
-    _collect_grouped_scalar_metadata(objects, type_name)
+    _collect_grouped_scalar_metadata(objects, type_name, config::LoggingConfig)
 
 Collect metadata for all scalar fields across all objects of a given type.
 Returns grouped metadata where each scalar field gets one entry per component type.
+Only includes fields that pass the configuration filter.
 """
-function _collect_grouped_scalar_metadata(objects, type_name)
+function _collect_grouped_scalar_metadata(objects, type_name, config::LoggingConfig)
     metadata = Dict{String, Any}[]
     if isempty(objects)
         return metadata
@@ -100,13 +309,16 @@ function _collect_grouped_scalar_metadata(objects, type_name)
     # Collect scalar fields
     for (name, field_type) in zip(field_names, field_types)
         if field_type <: SimFloat
-            push!(metadata, Dict(
-                "name" => "$(type_name).$(name)",
-                "type" => "Vector{SimFloat}",  # Grouped scalars become vectors
-                "size" => length(objects),
-                "shape" => (length(objects),),
-                "start_idx" => nothing  # Will be filled during collection
-            ))
+            field_name = "$(type_name).$(name)"
+            if should_log_field(field_name, config)
+                push!(metadata, Dict(
+                    "name" => field_name,
+                    "type" => "Vector{SimFloat}",  # Grouped scalars become vectors
+                    "size" => length(objects),
+                    "shape" => (length(objects),),
+                    "start_idx" => nothing  # Will be filled during collection
+                ))
+            end
         end
     end
 
@@ -114,12 +326,13 @@ function _collect_grouped_scalar_metadata(objects, type_name)
 end
 
 """
-    _collect_grouped_vector_metadata(objects, type_name)
+    _collect_grouped_vector_metadata(objects, type_name, config::LoggingConfig)
 
 Collect metadata for all vector/matrix fields across all objects of a given type.
 Returns grouped metadata where each vector component gets one entry per component type.
+Only includes fields that pass the configuration filter.
 """
-function _collect_grouped_vector_metadata(objects, type_name)
+function _collect_grouped_vector_metadata(objects, type_name, config::LoggingConfig)
     metadata = Dict{String, Any}[]
     if isempty(objects)
         return metadata
@@ -138,13 +351,16 @@ function _collect_grouped_vector_metadata(objects, type_name)
             n_components = length(first_value)
             # Create metadata for each component
             for component_idx in 1:n_components
-                push!(metadata, Dict(
-                    "name" => "$(type_name).$(name)[$(component_idx)]",
-                    "type" => "Vector{SimFloat}",  # Grouped components become vectors
-                    "size" => length(objects),
-                    "shape" => (length(objects),),
-                    "start_idx" => nothing  # Will be filled during collection
-                ))
+                field_name = "$(type_name).$(name)[$(component_idx)]"
+                if should_log_field(field_name, config)
+                    push!(metadata, Dict(
+                        "name" => field_name,
+                        "type" => "Vector{SimFloat}",  # Grouped components become vectors
+                        "size" => length(objects),
+                        "shape" => (length(objects),),
+                        "start_idx" => nothing  # Will be filled during collection
+                    ))
+                end
             end
         elseif field_type <: AbstractMatrix{SimFloat}
             # Get the size from the first object
@@ -152,13 +368,16 @@ function _collect_grouped_vector_metadata(objects, type_name)
             n_components = length(first_value)
             # Create metadata for each component (flattened)
             for component_idx in 1:n_components
-                push!(metadata, Dict(
-                    "name" => "$(type_name).$(name)[$(component_idx)]",
-                    "type" => "Vector{SimFloat}",  # Grouped components become vectors
-                    "size" => length(objects),
-                    "shape" => (length(objects),),
-                    "start_idx" => nothing  # Will be filled during collection
-                ))
+                field_name = "$(type_name).$(name)[$(component_idx)]"
+                if should_log_field(field_name, config)
+                    push!(metadata, Dict(
+                        "name" => field_name,
+                        "type" => "Vector{SimFloat}",  # Grouped components become vectors
+                        "size" => length(objects),
+                        "shape" => (length(objects),),
+                        "start_idx" => nothing  # Will be filled during collection
+                    ))
+                end
             end
         end
     end
@@ -167,12 +386,13 @@ function _collect_grouped_vector_metadata(objects, type_name)
 end
 
 """
-    _generate_system_metadata(sys::SystemStructure)
+    _generate_system_metadata(sys::SystemStructure, config::LoggingConfig)
 
 Generate complete metadata for all loggable fields in a SystemStructure using grouped approach.
+Only includes fields that pass the configuration filter.
 Returns a dictionary with field information and total variable count.
 """
-function _generate_system_metadata(sys::SystemStructure)
+function _generate_system_metadata(sys::SystemStructure, config::LoggingConfig)
     all_metadata = Dict{String, Any}[]
     current_idx = 1
 
@@ -184,7 +404,7 @@ function _generate_system_metadata(sys::SystemStructure)
                                   ("segments", sys.segments), ("pulleys", sys.pulleys),
                                   ("tethers", sys.tethers), ("winches", sys.winches),
                                   ("wings", sys.wings), ("transforms", sys.transforms)]
-        scalar_meta = _collect_grouped_scalar_metadata(objects, type_name)
+        scalar_meta = _collect_grouped_scalar_metadata(objects, type_name, config)
         for meta in scalar_meta
             meta["start_idx"] = current_idx
             current_idx += meta["size"]
@@ -197,7 +417,7 @@ function _generate_system_metadata(sys::SystemStructure)
                                   ("segments", sys.segments), ("pulleys", sys.pulleys),
                                   ("tethers", sys.tethers), ("winches", sys.winches),
                                   ("wings", sys.wings), ("transforms", sys.transforms)]
-        vector_meta = _collect_grouped_vector_metadata(objects, type_name)
+        vector_meta = _collect_grouped_vector_metadata(objects, type_name, config)
         for meta in vector_meta
             meta["start_idx"] = current_idx
             current_idx += meta["size"]
@@ -206,14 +426,14 @@ function _generate_system_metadata(sys::SystemStructure)
     end
 
     # SystemStructure itself
-    sys_scalar_meta = _collect_grouped_scalar_metadata([sys], "system")
+    sys_scalar_meta = _collect_grouped_scalar_metadata([sys], "system", config)
     for meta in sys_scalar_meta
         meta["start_idx"] = current_idx
         current_idx += meta["size"]
     end
     append!(all_metadata, sys_scalar_meta)
 
-    sys_vector_meta = _collect_grouped_vector_metadata([sys], "system")
+    sys_vector_meta = _collect_grouped_vector_metadata([sys], "system", config)
     for meta in sys_vector_meta
         meta["start_idx"] = current_idx
         current_idx += meta["size"]
@@ -240,23 +460,113 @@ end
 # ==================== LOGGER INITIALIZATION ==================== #
 
 """
-    create_logger(sys::SystemStructure, capacity::Int=10000)
+    create_logger(sys::SystemStructure, capacity::Int=10000;
+                  include_fields=nothing, exclude_fields=nothing,
+                  include_patterns=nothing, exclude_patterns=nothing,
+                  config::Union{LoggingConfig, Nothing}=nothing)
 
 Create a SystemLogger for efficiently recording system states over time.
 
 Automatically generates metadata about all loggable fields in the system and
-pre-allocates memory for efficient data collection.
+pre-allocates memory for efficient data collection. Supports selective logging
+through field filtering.
 
 # Arguments
 - `sys::SystemStructure`: The system to log
 - `capacity::Int=10000`: Maximum number of time steps to log
 
+# Keyword Arguments
+- `include_fields`: Field names to include (String, Vector{String}, Regex, or Vector{Regex})
+- `exclude_fields`: Field names to exclude (String, Vector{String}, Regex, or Vector{Regex})
+- `include_patterns`: Regex patterns for fields to include (Regex or Vector{Regex})
+- `exclude_patterns`: Regex patterns for fields to exclude (Regex or Vector{Regex})
+- `config::LoggingConfig`: Pre-configured logging configuration (overrides other parameters)
+
+If no filtering parameters are provided, all compatible fields are logged.
+Regex patterns passed to `*_fields` parameters are automatically moved to `*_patterns`.
+
 # Returns
 - `SystemLogger`: Initialized logger ready for data collection
+
+# Examples
+```julia
+# Log everything (default behavior)
+logger = create_logger(sys, 5000)
+
+# Log only position fields (multiple equivalent syntaxes)
+logger = create_logger(sys, 5000, include_fields=r"\\.pos_w")
+logger = create_logger(sys, 5000, include_fields=[r"\\.pos_w"])
+logger = create_logger(sys, 5000, include_patterns=r"\\.pos_w")
+logger = create_logger(sys, 5000, include_patterns=[r"\\.pos_w"])
+
+# Log position and velocity fields
+logger = create_logger(sys, 5000, include_fields=[r"\\.pos_w", r"\\.vel_w"])
+logger = create_logger(sys, 5000, include_patterns=[r"\\.pos_w", r"\\.vel_w"])
+
+# Exclude internal computation fields
+logger = create_logger(sys, 5000, exclude_fields=r"\\.internal_")
+
+# Use specific field names (strings)
+logger = create_logger(sys, 5000, include_fields=["points.pos_w[1]", "points.mass"])
+
+# Use pre-configured settings
+config = LoggingConfig(include_patterns=[r"\\.pos_w"])
+logger = create_logger(sys, 5000, config=config)
+```
 """
-function create_logger(sys::SystemStructure, capacity::Int=10000)
-    metadata = _generate_system_metadata(sys)
+function create_logger(sys::SystemStructure, capacity::Int=10000;
+                       include_fields=nothing, exclude_fields=nothing,
+                       include_patterns=nothing, exclude_patterns=nothing,
+                       config::Union{LoggingConfig, Nothing}=nothing)
+    # Use provided config or create one from parameters
+    if config === nothing
+        # Handle common user mistakes: convert regex to pattern parameters
+        if include_fields isa Regex
+            include_patterns = [include_fields]
+            include_fields = nothing
+        elseif include_fields isa Vector && !isempty(include_fields) && include_fields[1] isa Regex
+            include_patterns = include_fields
+            include_fields = nothing
+        end
+
+        if exclude_fields isa Regex
+            exclude_patterns = [exclude_fields]
+            exclude_fields = nothing
+        elseif exclude_fields isa Vector && !isempty(exclude_fields) && exclude_fields[1] isa Regex
+            exclude_patterns = exclude_fields
+            exclude_fields = nothing
+        end
+
+        # Convert single patterns to vectors
+        if include_patterns isa Regex
+            include_patterns = [include_patterns]
+        end
+        if exclude_patterns isa Regex
+            exclude_patterns = [exclude_patterns]
+        end
+
+        config = LoggingConfig(include_fields, exclude_fields, include_patterns, exclude_patterns)
+    end
+
+    metadata = _generate_system_metadata(sys, config)
     n_vars = metadata["total_variables"]
+
+    # Provide helpful feedback if no fields were selected
+    if n_vars == 0
+        all_fields = list_available_fields(sys)
+        if !isempty(all_fields)
+            @warn """No fields matched the filtering criteria.
+
+                     Available fields include: $(join(first(all_fields, 5), ", "))$(length(all_fields) > 5 ? " ... (+$(length(all_fields)-5) more)" : "")
+
+                     Common regex patterns:
+                     - r"\\\\.pos_w" matches position fields
+                     - r"\\\\.vel_w" matches velocity fields
+                     - r"\\\\.mass" matches mass fields
+
+                     Use list_available_fields(sys) to see all available fields."""
+        end
+    end
 
     # Pre-allocate memory
     data = zeros(SimFloat, capacity, n_vars)
@@ -337,8 +647,8 @@ function log!(logger::SystemLogger, sys::SystemStructure, time::SimFloat)
     # Record timestamp
     logger.time_stamps[step] = time
 
-    # Record state vector using the existing vec property (zero-copy)
-    state_vec = vec(sys.vec)  # Flatten the 2D column vector to 1D
+    # Record state vector using filtered collection that matches logger metadata
+    state_vec = _collect_logged_fields(sys, logger.metadata["fields"])
     logger.data[step, :] .= state_vec
 
     return true
