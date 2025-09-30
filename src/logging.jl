@@ -81,95 +81,144 @@ function _collect_field_metadata(obj, prefix="")
 end
 
 """
+    _collect_grouped_scalar_metadata(objects, type_name)
+
+Collect metadata for all scalar fields across all objects of a given type.
+Returns grouped metadata where each scalar field gets one entry per component type.
+"""
+function _collect_grouped_scalar_metadata(objects, type_name)
+    metadata = Dict{String, Any}[]
+    if isempty(objects)
+        return metadata
+    end
+
+    # Get the field structure from the first object
+    T = typeof(objects[1])
+    field_names = fieldnames(T)
+    field_types = T.types
+
+    # Collect scalar fields
+    for (name, field_type) in zip(field_names, field_types)
+        if field_type <: SimFloat
+            push!(metadata, Dict(
+                "name" => "$(type_name).$(name)",
+                "type" => "Vector{SimFloat}",  # Grouped scalars become vectors
+                "size" => length(objects),
+                "shape" => (length(objects),),
+                "start_idx" => nothing  # Will be filled during collection
+            ))
+        end
+    end
+
+    return metadata
+end
+
+"""
+    _collect_grouped_vector_metadata(objects, type_name)
+
+Collect metadata for all vector/matrix fields across all objects of a given type.
+Returns grouped metadata where each vector component gets one entry per component type.
+"""
+function _collect_grouped_vector_metadata(objects, type_name)
+    metadata = Dict{String, Any}[]
+    if isempty(objects)
+        return metadata
+    end
+
+    # Get the field structure from the first object
+    T = typeof(objects[1])
+    field_names = fieldnames(T)
+    field_types = T.types
+
+    # Collect vector/matrix fields, component by component
+    for (name, field_type) in zip(field_names, field_types)
+        if field_type <: AbstractVector{SimFloat}
+            # Get the size from the first object
+            first_value = getfield(objects[1], name)
+            n_components = length(first_value)
+            # Create metadata for each component
+            for component_idx in 1:n_components
+                push!(metadata, Dict(
+                    "name" => "$(type_name).$(name)[$(component_idx)]",
+                    "type" => "Vector{SimFloat}",  # Grouped components become vectors
+                    "size" => length(objects),
+                    "shape" => (length(objects),),
+                    "start_idx" => nothing  # Will be filled during collection
+                ))
+            end
+        elseif field_type <: AbstractMatrix{SimFloat}
+            # Get the size from the first object
+            first_value = getfield(objects[1], name)
+            n_components = length(first_value)
+            # Create metadata for each component (flattened)
+            for component_idx in 1:n_components
+                push!(metadata, Dict(
+                    "name" => "$(type_name).$(name)[$(component_idx)]",
+                    "type" => "Vector{SimFloat}",  # Grouped components become vectors
+                    "size" => length(objects),
+                    "shape" => (length(objects),),
+                    "start_idx" => nothing  # Will be filled during collection
+                ))
+            end
+        end
+    end
+
+    return metadata
+end
+
+"""
     _generate_system_metadata(sys::SystemStructure)
 
-Generate complete metadata for all loggable fields in a SystemStructure.
+Generate complete metadata for all loggable fields in a SystemStructure using grouped approach.
 Returns a dictionary with field information and total variable count.
 """
 function _generate_system_metadata(sys::SystemStructure)
     all_metadata = Dict{String, Any}[]
     current_idx = 1
 
-    # Process each component type
-    for (i, point) in enumerate(sys.points)
-        point_meta = _collect_field_metadata(point, "points[$i]")
-        for meta in point_meta
+    # Process each component type using grouped approach
+    # First all scalars, then all vectors
+
+    # Collect scalar metadata for each component type
+    for (type_name, objects) in [("points", sys.points), ("groups", sys.groups),
+                                  ("segments", sys.segments), ("pulleys", sys.pulleys),
+                                  ("tethers", sys.tethers), ("winches", sys.winches),
+                                  ("wings", sys.wings), ("transforms", sys.transforms)]
+        scalar_meta = _collect_grouped_scalar_metadata(objects, type_name)
+        for meta in scalar_meta
             meta["start_idx"] = current_idx
             current_idx += meta["size"]
         end
-        append!(all_metadata, point_meta)
+        append!(all_metadata, scalar_meta)
     end
 
-    for (i, group) in enumerate(sys.groups)
-        group_meta = _collect_field_metadata(group, "groups[$i]")
-        for meta in group_meta
+    # Collect vector metadata for each component type
+    for (type_name, objects) in [("points", sys.points), ("groups", sys.groups),
+                                  ("segments", sys.segments), ("pulleys", sys.pulleys),
+                                  ("tethers", sys.tethers), ("winches", sys.winches),
+                                  ("wings", sys.wings), ("transforms", sys.transforms)]
+        vector_meta = _collect_grouped_vector_metadata(objects, type_name)
+        for meta in vector_meta
             meta["start_idx"] = current_idx
             current_idx += meta["size"]
         end
-        append!(all_metadata, group_meta)
-    end
-
-    for (i, segment) in enumerate(sys.segments)
-        segment_meta = _collect_field_metadata(segment, "segments[$i]")
-        for meta in segment_meta
-            meta["start_idx"] = current_idx
-            current_idx += meta["size"]
-        end
-        append!(all_metadata, segment_meta)
-    end
-
-    for (i, pulley) in enumerate(sys.pulleys)
-        pulley_meta = _collect_field_metadata(pulley, "pulleys[$i]")
-        for meta in pulley_meta
-            meta["start_idx"] = current_idx
-            current_idx += meta["size"]
-        end
-        append!(all_metadata, pulley_meta)
-    end
-
-    for (i, tether) in enumerate(sys.tethers)
-        tether_meta = _collect_field_metadata(tether, "tethers[$i]")
-        for meta in tether_meta
-            meta["start_idx"] = current_idx
-            current_idx += meta["size"]
-        end
-        append!(all_metadata, tether_meta)
-    end
-
-    for (i, winch) in enumerate(sys.winches)
-        winch_meta = _collect_field_metadata(winch, "winches[$i]")
-        for meta in winch_meta
-            meta["start_idx"] = current_idx
-            current_idx += meta["size"]
-        end
-        append!(all_metadata, winch_meta)
-    end
-
-    for (i, wing) in enumerate(sys.wings)
-        wing_meta = _collect_field_metadata(wing, "wings[$i]")
-        for meta in wing_meta
-            meta["start_idx"] = current_idx
-            current_idx += meta["size"]
-        end
-        append!(all_metadata, wing_meta)
-    end
-
-    for (i, transform) in enumerate(sys.transforms)
-        transform_meta = _collect_field_metadata(transform, "transforms[$i]")
-        for meta in transform_meta
-            meta["start_idx"] = current_idx
-            current_idx += meta["size"]
-        end
-        append!(all_metadata, transform_meta)
+        append!(all_metadata, vector_meta)
     end
 
     # SystemStructure itself
-    sys_meta = _collect_field_metadata(sys, "system")
-    for meta in sys_meta
+    sys_scalar_meta = _collect_grouped_scalar_metadata([sys], "system")
+    for meta in sys_scalar_meta
         meta["start_idx"] = current_idx
         current_idx += meta["size"]
     end
-    append!(all_metadata, sys_meta)
+    append!(all_metadata, sys_scalar_meta)
+
+    sys_vector_meta = _collect_grouped_vector_metadata([sys], "system")
+    for meta in sys_vector_meta
+        meta["start_idx"] = current_idx
+        current_idx += meta["size"]
+    end
+    append!(all_metadata, sys_vector_meta)
 
     return Dict(
         "fields" => all_metadata,
@@ -432,40 +481,21 @@ function _dict_to_nested_named_tuple(d::Dict)
             continue
         end
 
-        # Parse field names like "points[1].pos_w" or "system.wind_elevation"
-        if occursin("[", key)
-            # Component with index: "points[1].pos_w"
+        # Parse field names like "points.pos_w[1]" or "system.wind_elevation"
+        if occursin(".", key)
             parts = split(key, ".")
-            component_part = parts[1]  # "points[1]"
-            field_name = parts[2]      # "pos_w"
+            comp_type = parts[1]      # "points" or "system"
+            field_part = parts[2]     # "pos_w[1]" or "wind_elevation"
 
-            # Extract component type and index
-            comp_match = match(r"(\w+)\[(\d+)\]", component_part)
-            if comp_match !== nothing
-                comp_type = comp_match.captures[1]
-                comp_idx = parse(Int, comp_match.captures[2])
-
-                if !haskey(grouped, comp_type)
-                    grouped[comp_type] = Dict{String, Any}()
-                end
-                if !haskey(grouped[comp_type], string(comp_idx))
-                    grouped[comp_type][string(comp_idx)] = Dict{String, Any}()
-                end
-
-                grouped[comp_type][string(comp_idx)][field_name] = value
+            if !haskey(grouped, comp_type)
+                grouped[comp_type] = Dict{String, Any}()
             end
+
+            # The field is already grouped, so we can directly store it
+            grouped[comp_type][field_part] = value
         else
-            # System-level field: "system.wind_elevation"
-            parts = split(key, ".")
-            if length(parts) == 2 && parts[1] == "system"
-                if !haskey(grouped, "system")
-                    grouped["system"] = Dict{String, Any}()
-                end
-                grouped["system"][parts[2]] = value
-            else
-                # Direct field
-                grouped[key] = value
-            end
+            # Direct field
+            grouped[key] = value
         end
     end
 
@@ -475,21 +505,9 @@ function _dict_to_nested_named_tuple(d::Dict)
     for (key, value) in grouped
         if key == "time"
             result[:time] = value
-        elseif isa(value, Dict) && any(k -> tryparse(Int, k) !== nothing, keys(value))
-            # Component array (points, groups, etc.)
-            indices = sort([parse(Int, k) for k in keys(value) if tryparse(Int, k) !== nothing])
-            component_array = []
-            for idx in indices
-                idx_str = string(idx)
-                if haskey(value, idx_str)
-                    component_data = value[idx_str]
-                    # Convert to named tuple
-                    push!(component_array, NamedTuple{Tuple(Symbol.(keys(component_data)))}(values(component_data)))
-                end
-            end
-            result[Symbol(key)] = component_array
         elseif isa(value, Dict)
-            # System or other grouped data
+            # Convert grouped field dictionary to named tuple
+            # Fields like "pos_w[1]", "pos_w[2]", "scalar_field" become symbols
             result[Symbol(key)] = NamedTuple{Tuple(Symbol.(keys(value)))}(values(value))
         else
             result[Symbol(key)] = value
@@ -691,24 +709,27 @@ function export_csv(logger::SystemLogger, filename::String; selected_fields=noth
         fields_to_export = selected_fields
     end
 
-    # Prepare header and data matrix
+    # Prepare header and data for CSV with vector-valued cells
     headers = ["time"]
-    data_matrix = reshape(times, :, 1)
+    csv_rows = []
+
+    # Initialize rows with time data as strings to allow mixed content
+    n_rows = length(times)
+    for i in 1:n_rows
+        push!(csv_rows, [string(times[i])])
+    end
 
     for field_name in fields_to_export
         field_data = data_dict[field_name]
+        push!(headers, field_name)
 
-        if field_data isa Vector
-            # Scalar field over time
-            push!(headers, field_name)
-            data_matrix = hcat(data_matrix, field_data)
-        elseif field_data isa Matrix
-            # Vector field over time
-            n_components = size(field_data, 2)
-            for i in 1:n_components
-                push!(headers, "$(field_name)[$i]")
-                data_matrix = hcat(data_matrix, field_data[:, i])
-            end
+        # With the new grouped approach, all fields are matrices (vectors over time)
+        # Each row contains a vector of values from all objects of that type
+        for i in 1:n_rows
+            row_vector = field_data[i, :]
+            # Format as vector string like "[1.0, 2.0, 3.0]"
+            vector_str = "[" * join(row_vector, ", ") * "]"
+            push!(csv_rows[i], vector_str)
         end
     end
 
@@ -718,12 +739,12 @@ function export_csv(logger::SystemLogger, filename::String; selected_fields=noth
         println(io, join(headers, ","))
 
         # Write data rows
-        for i in 1:size(data_matrix, 1)
-            println(io, join(data_matrix[i, :], ","))
+        for row in csv_rows
+            println(io, join(row, ","))
         end
     end
 
-    @info "Data exported to $filepath ($(length(headers)) columns, $(size(data_matrix, 1)) rows)"
+    @info "Data exported to $filepath ($(length(headers)) columns, $(n_rows) rows)"
     return filepath
 end
 

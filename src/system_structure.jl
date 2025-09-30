@@ -787,38 +787,106 @@ function _collect_vector_fields(obj)
     return vars
 end
 
+"""
+    _collect_grouped_scalars!(vars, objects, type_name)
+
+Collect all SimFloat scalars from objects, grouped by field name.
+All values of the same field type are collected together.
+"""
+function _collect_grouped_scalars!(vars::Vector{SimFloat}, objects, type_name::String)
+    if isempty(objects)
+        return
+    end
+
+    # Get the field structure from the first object
+    T = typeof(objects[1])
+    field_names = fieldnames(T)
+    field_types = T.types
+
+    # Collect scalars field by field
+    for (name, field_type) in zip(field_names, field_types)
+        if field_type <: SimFloat
+            # Collect this scalar field from all objects
+            for obj in objects
+                push!(vars, getfield(obj, name))
+            end
+        end
+    end
+end
+
+"""
+    _collect_grouped_vectors!(vars, objects, type_name)
+
+Collect all vector/matrix components from objects, grouped by field name and component index.
+For example, all pos_w[1] values together, then all pos_w[2] values, etc.
+"""
+function _collect_grouped_vectors!(vars::Vector{SimFloat}, objects, type_name::String)
+    if isempty(objects)
+        return
+    end
+
+    # Get the field structure from the first object
+    T = typeof(objects[1])
+    field_names = fieldnames(T)
+    field_types = T.types
+
+    # Collect vector/matrix fields, component by component
+    for (name, field_type) in zip(field_names, field_types)
+        if field_type <: AbstractVector{SimFloat}
+            # Get the size from the first object
+            first_value = getfield(objects[1], name)
+            n_components = length(first_value)
+
+            # Collect each component across all objects
+            for component_idx in 1:n_components
+                for obj in objects
+                    value = getfield(obj, name)
+                    push!(vars, value[component_idx])
+                end
+            end
+        elseif field_type <: AbstractMatrix{SimFloat}
+            # Get the size from the first object
+            first_value = getfield(objects[1], name)
+            n_components = length(first_value)
+
+            # Collect each component (flattened) across all objects
+            for component_idx in 1:n_components
+                for obj in objects
+                    value = getfield(obj, name)
+                    flat_value = vec(value)
+                    push!(vars, flat_value[component_idx])
+                end
+            end
+        end
+    end
+end
+
 function Base.getproperty(sys::SystemStructure, sym::Symbol)
     if sym == :vec
         vars = SimFloat[]
 
-        # Collect from all component vectors
-        for point in sys.points
-            append!(vars, _collect_vector_fields(point))
-        end
-        for group in sys.groups
-            append!(vars, _collect_vector_fields(group))
-        end
-        for segment in sys.segments
-            append!(vars, _collect_vector_fields(segment))
-        end
-        for pulley in sys.pulleys
-            append!(vars, _collect_vector_fields(pulley))
-        end
-        for tether in sys.tethers
-            append!(vars, _collect_vector_fields(tether))
-        end
-        for winch in sys.winches
-            append!(vars, _collect_vector_fields(winch))
-        end
-        for wing in sys.wings
-            append!(vars, _collect_vector_fields(wing))
-        end
-        for transform in sys.transforms
-            append!(vars, _collect_vector_fields(transform))
-        end
+        # Collect all SimFloat scalars from all component types, grouped by field type
+        _collect_grouped_scalars!(vars, sys.points, "points")
+        _collect_grouped_scalars!(vars, sys.groups, "groups")
+        _collect_grouped_scalars!(vars, sys.segments, "segments")
+        _collect_grouped_scalars!(vars, sys.pulleys, "pulleys")
+        _collect_grouped_scalars!(vars, sys.tethers, "tethers")
+        _collect_grouped_scalars!(vars, sys.winches, "winches")
+        _collect_grouped_scalars!(vars, sys.wings, "wings")
+        _collect_grouped_scalars!(vars, sys.transforms, "transforms")
 
-        # Collect from SystemStructure itself
+        # Add system-level scalars
         append!(vars, _collect_vector_fields(sys))
+
+        # Collect all vector/matrix components, grouped by field and component index
+        _collect_grouped_vectors!(vars, sys.points, "points")
+        _collect_grouped_vectors!(vars, sys.groups, "groups")
+        _collect_grouped_vectors!(vars, sys.segments, "segments")
+        _collect_grouped_vectors!(vars, sys.pulleys, "pulleys")
+        _collect_grouped_vectors!(vars, sys.tethers, "tethers")
+        _collect_grouped_vectors!(vars, sys.winches, "winches")
+        _collect_grouped_vectors!(vars, sys.wings, "wings")
+        _collect_grouped_vectors!(vars, sys.transforms, "transforms")
 
         return reshape(vars, :, 1) # Return as a column vector (2D array)
     else
@@ -826,27 +894,61 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
     end
 end
 
-function _set_vector_fields!(obj, flat_value, offset_ref)
-    T = typeof(obj)
+function _set_grouped_scalars!(objects, flat_value, offset_ref)
+    if isempty(objects)
+        return
+    end
+    # Get the field structure from the first object
+    T = typeof(objects[1])
     field_names = fieldnames(T)
     field_types = T.types
+    # Set scalars field by field
     for (name, field_type) in zip(field_names, field_types)
-        current_value = getfield(obj, name)
-        # Set field if it matches our criteria
         if field_type <: SimFloat
-            setfield!(obj, name, flat_value[offset_ref[]])
-            offset_ref[] += 1
-        elseif field_type <: AbstractVector{SimFloat}
-            # Const vector fields
-            len = length(current_value)
-            current_value .= @view flat_value[offset_ref[]:offset_ref[]+len-1]
-            offset_ref[] += len
+            # Set this scalar field for all objects
+            for obj in objects
+                setfield!(obj, name, flat_value[offset_ref[]])
+                offset_ref[] += 1
+            end
+        end
+    end
+end
+
+function _set_grouped_vectors!(objects, flat_value, offset_ref)
+    if isempty(objects)
+        return
+    end
+    # Get the field structure from the first object
+    T = typeof(objects[1])
+    field_names = fieldnames(T)
+    field_types = T.types
+    # Set vector/matrix fields, component by component
+    for (name, field_type) in zip(field_names, field_types)
+        if field_type <: AbstractVector{SimFloat}
+            # Get the size from the first object
+            first_value = getfield(objects[1], name)
+            n_components = length(first_value)
+            # Set each component across all objects
+            for component_idx in 1:n_components
+                for obj in objects
+                    value = getfield(obj, name)
+                    value[component_idx] = flat_value[offset_ref[]]
+                    offset_ref[] += 1
+                end
+            end
         elseif field_type <: AbstractMatrix{SimFloat}
-            # Const matrix fields
-            len = length(current_value)
-            current_value .= reshape(@view(flat_value[offset_ref[]:offset_ref[]+len-1]),
-                                     size(current_value))
-            offset_ref[] += len
+            # Get the size from the first object
+            first_value = getfield(objects[1], name)
+            n_components = length(first_value)
+            # Set each component (flattened) across all objects
+            for component_idx in 1:n_components
+                for obj in objects
+                    value = getfield(obj, name)
+                    flat_view = vec(value)
+                    flat_view[component_idx] = flat_value[offset_ref[]]
+                    offset_ref[] += 1
+                end
+            end
         end
     end
 end
@@ -856,34 +958,30 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
         flat_value = vec(value) # Ensure value is a flat vector
         offset_ref = Ref(1)
 
-        # Set values in all component vectors in the same order as collection
-        for point in sys.points
-            _set_vector_fields!(point, flat_value, offset_ref)
-        end
-        for group in sys.groups
-            _set_vector_fields!(group, flat_value, offset_ref)
-        end
-        for segment in sys.segments
-            _set_vector_fields!(segment, flat_value, offset_ref)
-        end
-        for pulley in sys.pulleys
-            _set_vector_fields!(pulley, flat_value, offset_ref)
-        end
-        for tether in sys.tethers
-            _set_vector_fields!(tether, flat_value, offset_ref)
-        end
-        for winch in sys.winches
-            _set_vector_fields!(winch, flat_value, offset_ref)
-        end
-        for wing in sys.wings
-            _set_vector_fields!(wing, flat_value, offset_ref)
-        end
-        for transform in sys.transforms
-            _set_vector_fields!(transform, flat_value, offset_ref)
-        end
+        # Set values using grouped approach - scalars first, then vectors
+        _set_grouped_scalars!(sys.points, flat_value, offset_ref)
+        _set_grouped_scalars!(sys.groups, flat_value, offset_ref)
+        _set_grouped_scalars!(sys.segments, flat_value, offset_ref)
+        _set_grouped_scalars!(sys.pulleys, flat_value, offset_ref)
+        _set_grouped_scalars!(sys.tethers, flat_value, offset_ref)
+        _set_grouped_scalars!(sys.winches, flat_value, offset_ref)
+        _set_grouped_scalars!(sys.wings, flat_value, offset_ref)
+        _set_grouped_scalars!(sys.transforms, flat_value, offset_ref)
 
-        # Set values in SystemStructure itself
-        _set_vector_fields!(sys, flat_value, offset_ref)
+        # Then set vectors and matrices
+        _set_grouped_vectors!(sys.points, flat_value, offset_ref)
+        _set_grouped_vectors!(sys.groups, flat_value, offset_ref)
+        _set_grouped_vectors!(sys.segments, flat_value, offset_ref)
+        _set_grouped_vectors!(sys.pulleys, flat_value, offset_ref)
+        _set_grouped_vectors!(sys.tethers, flat_value, offset_ref)
+        _set_grouped_vectors!(sys.winches, flat_value, offset_ref)
+        _set_grouped_vectors!(sys.wings, flat_value, offset_ref)
+        _set_grouped_vectors!(sys.transforms, flat_value, offset_ref)
+
+        # Set scalar fields in SystemStructure itself
+        _set_grouped_scalars!([sys], flat_value, offset_ref)
+        # Set vector fields in SystemStructure itself
+        _set_grouped_vectors!([sys], flat_value, offset_ref)
 
         return value
     else
