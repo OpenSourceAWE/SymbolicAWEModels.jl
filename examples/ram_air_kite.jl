@@ -30,6 +30,8 @@ sam = SymbolicAWEModel(set)
 SymbolicAWEModels.init!(sam)
 plot(sam.sys_struct)
 
+@show sam.sys_struct.diff_vars
+
 # find_steady_state!(sam)
 # bias = 0.2
 # if set.physical_model == "4_attach_ram"

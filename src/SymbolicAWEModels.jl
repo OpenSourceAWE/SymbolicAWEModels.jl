@@ -86,6 +86,13 @@ export winch_force
 export unstretched_length
 export tether_length
 
+# --- Logging Functions ---
+export SystemLogger, create_logger, log!, log_state!
+export get_log_data, get_field_data, list_fields
+export save_log, load_log, export_csv
+export callback_logger, selective_logger
+export is_full, n_logged, resize_logger!
+
 # --- Helper Functions ---
 export init_module
 
@@ -127,6 +134,7 @@ function __init__()
 end
 
 include("system_structure.jl")
+include("logging.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
 include("predefined_structures.jl")

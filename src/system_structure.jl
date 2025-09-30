@@ -765,97 +765,126 @@ mutable struct SystemStructure
     fix_wing::Bool
 end
 
+function _collect_vector_fields(obj)
+    vars = SimFloat[]
+    T = typeof(obj)
+
+    # Get all field names and types
+    field_names = fieldnames(T)
+    field_types = T.types
+
+    for (name, field_type) in zip(field_names, field_types)
+        value = getfield(obj, name)
+        if field_type <: SimFloat
+            push!(vars, value)
+        elseif field_type <: AbstractVector{SimFloat}
+            append!(vars, value)
+        elseif field_type <: AbstractMatrix{SimFloat}
+            append!(vars, vec(value))
+        end
+    end
+
+    return vars
+end
+
 function Base.getproperty(sys::SystemStructure, sym::Symbol)
-    if sym == :diff_vars
+    if sym == :vec
         vars = SimFloat[]
-        # points
+
+        # Collect from all component vectors
         for point in sys.points
-            if point.type == DYNAMIC
-                append!(vars, point.pos_w)
-                append!(vars, point.vel_w)
-            end
+            append!(vars, _collect_vector_fields(point))
         end
-        # wings
-        for wing in sys.wings
-            append!(vars, wing.pos_w)
-            append!(vars, wing.vel_w)
-            append!(vars, wing.Q_b_w)
-            append!(vars, wing.ω_b)
-        end
-        # groups
         for group in sys.groups
-            if group.type == DYNAMIC
-                push!(vars, group.twist)
-                push!(vars, group.twist_ω)
-            end
+            append!(vars, _collect_vector_fields(group))
         end
-        # pulleys
+        for segment in sys.segments
+            append!(vars, _collect_vector_fields(segment))
+        end
         for pulley in sys.pulleys
-            if pulley.type == DYNAMIC
-                push!(vars, pulley.len)
-                push!(vars, pulley.vel)
-            end
+            append!(vars, _collect_vector_fields(pulley))
         end
-        # winches
+        for tether in sys.tethers
+            append!(vars, _collect_vector_fields(tether))
+        end
         for winch in sys.winches
-            push!(vars, winch.tether_len)
-            push!(vars, winch.tether_vel)
+            append!(vars, _collect_vector_fields(winch))
         end
+        for wing in sys.wings
+            append!(vars, _collect_vector_fields(wing))
+        end
+        for transform in sys.transforms
+            append!(vars, _collect_vector_fields(transform))
+        end
+
+        # Collect from SystemStructure itself
+        append!(vars, _collect_vector_fields(sys))
+
         return reshape(vars, :, 1) # Return as a column vector (2D array)
     else
         return getfield(sys, sym)
     end
 end
 
+function _set_vector_fields!(obj, flat_value, offset_ref)
+    T = typeof(obj)
+    field_names = fieldnames(T)
+    field_types = T.types
+    for (name, field_type) in zip(field_names, field_types)
+        current_value = getfield(obj, name)
+        # Set field if it matches our criteria
+        if field_type <: SimFloat
+            setfield!(obj, name, flat_value[offset_ref[]])
+            offset_ref[] += 1
+        elseif field_type <: AbstractVector{SimFloat}
+            # Const vector fields
+            len = length(current_value)
+            current_value .= @view flat_value[offset_ref[]:offset_ref[]+len-1]
+            offset_ref[] += len
+        elseif field_type <: AbstractMatrix{SimFloat}
+            # Const matrix fields
+            len = length(current_value)
+            current_value .= reshape(@view(flat_value[offset_ref[]:offset_ref[]+len-1]),
+                                     size(current_value))
+            offset_ref[] += len
+        end
+    end
+end
+
 function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
-    if sym == :diff_vars
+    if sym == :vec
         flat_value = vec(value) # Ensure value is a flat vector
-        offset = 1
-        # points
+        offset_ref = Ref(1)
+
+        # Set values in all component vectors in the same order as collection
         for point in sys.points
-            if point.type == DYNAMIC
-                point.pos_w .= @view flat_value[offset:offset+2]
-                offset += 3
-                point.vel_w .= @view flat_value[offset:offset+2]
-                offset += 3
-            end
+            _set_vector_fields!(point, flat_value, offset_ref)
         end
-        # wings
-        for wing in sys.wings
-            wing.pos_w .= @view flat_value[offset:offset+2]
-            offset += 3
-            wing.vel_w .= @view flat_value[offset:offset+2]
-            offset += 3
-            wing.Q_b_w .= @view flat_value[offset:offset+3]
-            offset += 4
-            wing.ω_b .= @view flat_value[offset:offset+2]
-            offset += 3
-        end
-        # groups
         for group in sys.groups
-            if group.type == DYNAMIC
-                group.twist = flat_value[offset]
-                offset += 1
-                group.twist_ω = flat_value[offset]
-                offset += 1
-            end
+            _set_vector_fields!(group, flat_value, offset_ref)
         end
-        # pulleys
+        for segment in sys.segments
+            _set_vector_fields!(segment, flat_value, offset_ref)
+        end
         for pulley in sys.pulleys
-            if pulley.type == DYNAMIC
-                pulley.len = flat_value[offset]
-                offset += 1
-                pulley.vel = flat_value[offset]
-                offset += 1
-            end
+            _set_vector_fields!(pulley, flat_value, offset_ref)
         end
-        # winches
+        for tether in sys.tethers
+            _set_vector_fields!(tether, flat_value, offset_ref)
+        end
         for winch in sys.winches
-            winch.tether_len = flat_value[offset]
-            offset += 1
-            winch.tether_vel = flat_value[offset]
-            offset += 1
+            _set_vector_fields!(winch, flat_value, offset_ref)
         end
+        for wing in sys.wings
+            _set_vector_fields!(wing, flat_value, offset_ref)
+        end
+        for transform in sys.transforms
+            _set_vector_fields!(transform, flat_value, offset_ref)
+        end
+
+        # Set values in SystemStructure itself
+        _set_vector_fields!(sys, flat_value, offset_ref)
+
         return value
     else
         return setfield!(sys, sym, value)
