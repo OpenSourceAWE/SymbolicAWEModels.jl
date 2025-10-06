@@ -8,6 +8,14 @@ if ! ("ControlPlots" ∈ keys(Pkg.project().dependencies))
 end
 using SymbolicAWEModels, KiteUtils, Printf, ControlPlots, LaTeXStrings
 
+# Initialize data path for loading settings
+data_path = joinpath(@__DIR__, "..", "..", "data")
+if isdir(data_path)
+    KiteUtils.set_data_path(data_path)
+else
+    @warn "Data directory not found at $data_path"
+end
+
 # --- Setup Models ---
 set = Settings("ram_air_kite/system.yaml")
 set.sample_freq = 600

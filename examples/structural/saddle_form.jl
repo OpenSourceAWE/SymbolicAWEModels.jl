@@ -18,6 +18,15 @@ using YAML
 using PlotlyJS
 plotlyjs()  # Use PlotlyJS backend for interactive 3D plots
 # gr()
+
+# Initialize data path for loading settings
+data_path = joinpath(@__DIR__, "..", "..", "data")
+if isdir(data_path)
+    KiteUtils.set_data_path(data_path)
+else
+    @warn "Data directory not found at $data_path"
+end
+
 # ------------------- Transform Helpers -------------------
 
 """

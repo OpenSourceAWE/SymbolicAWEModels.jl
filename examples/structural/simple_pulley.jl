@@ -1,5 +1,14 @@
-using SymbolicAWEModels, VortexStepMethod, ControlPlots
+using SymbolicAWEModels, VortexStepMethod, ControlPlots, KiteUtils
 using YAML
+
+# Initialize data path for loading settings
+data_path = joinpath(@__DIR__, "..", "..", "data")
+if isdir(data_path)
+    KiteUtils.set_data_path(data_path)
+else
+    @warn "Data directory not found at $data_path"
+end
+
 include("load_settings.jl")
 
 # --- Analytical solution functions for simple pulley ---

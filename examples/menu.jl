@@ -43,6 +43,7 @@
 
 using REPL.TerminalMenus
 using OrderedCollections: OrderedDict
+using KiteUtils
 
 """
     run_examples_menu()
@@ -51,6 +52,13 @@ Top-level menu to choose a category (by subdirectory), then a
 specific example to run. Use `q` to exit any menu.
 """
 function run_examples_menu()
+    # # Initialize data path once for all examples
+    # data_path = joinpath(@__DIR__, "..", "data")
+    # if isdir(data_path)
+    #     KiteUtils.set_data_path(data_path)
+    # else
+    #     @warn "Data directory not found at $data_path"
+    # end
     categories = OrderedDict(
         "aerodynamic/" => OrderedDict(
             "pyramid_model" => """include(joinpath(@__DIR__, "examples", "aerodynamic", "pyramid_model.jl"))""",
@@ -141,9 +149,5 @@ function pick(prompt::AbstractString, options::Vector{String}; pagesize::Int=8)
     return request("\n$prompt ", menu)
 end
 
-# entry point
-run_examples_menu()
-run_examples_menu()
-run_examples_menu()
-run_examples_menu()
+# Entry point - run the examples menu once
 run_examples_menu()

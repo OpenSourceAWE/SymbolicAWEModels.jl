@@ -21,7 +21,7 @@ labels= [
 settings = VSMSettings("TUDELFT_V3_KITE/vsm_settings.yaml")
 
 # Create wing, body_aero, and solver objects using settings
-wing = VortexStepMethod.Wing(vsm_settings)
+wing = VortexStepMethod.Wing(settings)
 body_aero = VortexStepMethod.BodyAerodynamics([wing])
 solver = VortexStepMethod.Solver(body_aero, vsm_settings)
 

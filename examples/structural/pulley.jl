@@ -2,9 +2,17 @@
 #
 # SPDX-License-Identifier: MPL-2.0
 
-using SymbolicAWEModels, VortexStepMethod, ControlPlots
+using SymbolicAWEModels, VortexStepMethod, ControlPlots, KiteUtils
 
-set = Setttings("base/system.yaml")
+# Initialize data path for loading settings
+data_path = joinpath(@__DIR__, "..", "..", "data")
+if isdir(data_path)
+    KiteUtils.set_data_path(data_path)
+else
+    @warn "Data directory not found at $data_path"
+end
+
+set = Settings("base/system.yaml")
 set.v_wind = 10.0
 set.l_tether = 5.0
 set.abs_tol = 1e-3
