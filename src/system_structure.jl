@@ -33,13 +33,13 @@ function VortexStepMethod.RamAirWing(set::Settings; prn=true, kwargs...)
         align_to_principal=true, prn, kwargs...
     )
 end
-
 """
     load_settings(subdirectory::String)
 
 Load settings from a specific subdirectory in the data folder.
 
-This function temporarily creates a `system.yaml` file that points to the settings
+This function ensures the KiteUtils data path points to the project's data directory,
+then temporarily creates a `system.yaml` file that points to the settings
 in the specified subdirectory, loads the settings using the KiteUtils Settings
 constructor, then cleans up the temporary file.
 
@@ -49,14 +49,30 @@ constructor, then cleans up the temporary file.
 # Example
 ```julia
 set = load_settings("ram_air_kite")  # Loads from data/ram_air_kite/settings.yaml
+set = load_settings("base")          # Loads from data/base/settings.yaml
 ```
 
 # Returns
 - `Settings`: A Settings object loaded from the specified subdirectory.
 """
 function load_settings(subdirectory::String)
-    # Define paths
-    system_yaml_path = joinpath(get_data_path(), "system.yaml")
+    # ✅ CRITICAL: Ensure KiteUtils data path points to project data directory
+    project_root = dirname(dirname(pathof(SymbolicAWEModels)))
+    project_data_path = joinpath(project_root, "data")
+    
+    # Verify the project data directory exists
+    if !isdir(project_data_path)
+        error("Project data directory not found at: $project_data_path")
+    end
+    
+    # Set KiteUtils data path if not already pointing to project data
+    if KiteUtils.get_data_path() != project_data_path
+        KiteUtils.set_data_path(project_data_path)
+        @info "Set KiteUtils data path to: $project_data_path"
+    end
+    
+    # Now get_data_path() returns the correct project data directory
+    system_yaml_path = joinpath(KiteUtils.get_data_path(), "system.yaml")
     temp_created = false
     
     try
@@ -71,14 +87,22 @@ function load_settings(subdirectory::String)
         end
         
         # Create temporary system.yaml content
+        # Note: subdirectory can be "base" or "base/settings.yaml"
+        # Normalize to always point to settings.yaml
+        if endswith(subdirectory, ".yaml")
+            settings_path = subdirectory
+        else
+            settings_path = "$subdirectory/settings.yaml"
+        end
+        
         yaml_content = """system:
-    sim_settings: "$subdirectory/settings.yaml"  # simulator settings
+    sim_settings: "$settings_path"  # simulator settings
 """
         
         # Write temporary system.yaml
         write(system_yaml_path, yaml_content)
         
-        # Load settings using KiteUtils
+        # Load settings using KiteUtils - use the Settings constructor
         set = Settings("system.yaml")
         
         return set
@@ -97,7 +121,6 @@ function load_settings(subdirectory::String)
         end
     end
 end
-
 """
     SegmentType `POWER_LINE` `STEERING_LINE` `BRIDLE`
 

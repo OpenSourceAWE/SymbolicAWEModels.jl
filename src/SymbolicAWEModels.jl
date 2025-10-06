@@ -60,7 +60,6 @@ import ModelingToolkit.SciMLBase: successful_retcode
 export init!, next_step!, update_sys_state!, get_data_path, set_data_path, se
 export SysState, Settings, AbstractKiteModel
 export load_settings
-
 # --- Types ---
 # Core Model
 export SymbolicAWEModel

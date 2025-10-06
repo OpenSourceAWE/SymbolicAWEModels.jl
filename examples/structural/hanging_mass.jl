@@ -1,14 +1,6 @@
 using SymbolicAWEModels, VortexStepMethod, ControlPlots, KiteUtils
 using YAML
 
-# # Initialize data path for loading settings
-# data_path = joinpath(@__DIR__, "..", "..", "data")
-# if isdir(data_path)
-#     KiteUtils.set_data_path(data_path)
-# else
-#     @warn "Data directory not found at $data_path"
-# end
-
 # --- Analytical solution functions for hanging mass ---
 """
     hanging_mass_equilibrium(l0, mass, g, k)
@@ -38,6 +30,7 @@ end
 
 println("\n\nHanging Mass Example\n", "="^40)
 ### Loading Settings
+using SymbolicAWEModels: load_settings
 set = SymbolicAWEModels.load_settings("base")  # Loads from the data/ dir using our helper function
 
 # Example usage: settings.v_wind = 10  # Set wind speed to 10 m/s
