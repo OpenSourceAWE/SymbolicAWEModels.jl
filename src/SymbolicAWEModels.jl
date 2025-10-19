@@ -43,6 +43,14 @@ using AtmosphericModels
 using KiteUtils
 using VortexStepMethod
 
+# Import system structure types from KiteUtils
+using KiteUtils: SimFloat, KVec3, KVec4, SVec3
+using KiteUtils: SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
+using KiteUtils: DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
+using KiteUtils: Point, Group, Segment, Pulley, Tether, Winch
+using KiteUtils: AbstractWing, BaseWing
+using KiteUtils: Transform, SystemStructure
+
 #======================================================================#
 #                  IMPORTS (for extending functions)
 #======================================================================#
@@ -63,11 +71,8 @@ export SysState, Settings, AbstractKiteModel
 # --- Types ---
 # Core Model
 export SymbolicAWEModel
-# System Structure Components
-export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
-# Enums
-export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
-export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
+# VSM Wing type (system structure components are now exported from KiteUtils)
+export VSMWing, Wing
 
 # --- High-Level Simulation Functions (Workers) ---
 export sim!, sim_oscillate!, sim_turn!, sim_reposition!
@@ -92,31 +97,7 @@ export init_module
 export update_plot_observables!
 export replay
 
-set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
-
-# Type definitions
-"""
-    const SimFloat = Float64
-
-This type is used for all real variables, used in the Simulation. Possible alternatives: Float32, Double64, Dual
-Other types than Float64 or Float32 do require support of Julia types by the solver. 
-"""
-const SimFloat = Float64
-
-"""
-   const KVec3    = MVector{3, SimFloat}
-
-Basic 3-dimensional vector, stack allocated, mutable.
-"""
-const KVec3    = MVector{3, SimFloat}
-const KVec4    = MVector{4, SimFloat}
-
-"""
-   const SVec3    = SVector{3, SimFloat}
-
-Basic 3-dimensional vector, stack allocated, immutable.
-"""
-const SVec3    = SVector{3, SimFloat}  
+set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small  
 
 # Defined in ext/SymbolicAWEModelsControlPlotsExt.jl
 function plot end
