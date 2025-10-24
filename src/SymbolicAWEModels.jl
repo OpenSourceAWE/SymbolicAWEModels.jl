@@ -26,7 +26,6 @@ using Timers
 # --- Numerical, Modeling & Scientific Computing ---
 using ModelingToolkit
 using ControlSystemsBase
-using RecipesBase
 using StaticArrays
 using SymbolicIndexingInterface
 using SymbolicIndexingInterface: AbstractIndexer
@@ -63,11 +62,18 @@ export SysState, Settings, AbstractKiteModel
 # --- Types ---
 # Core Model
 export SymbolicAWEModel
-# System Structure Components
+# System Structure Components (Legacy)
 export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
 # Enums
 export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
+
+# --- Modern MTK Components ---
+# Connectors
+export MechanicalNode, ControlSignal
+# Components (note: MassPoint, SpringDamperSegment, etc. are @mtkmodel macro-generated types)
+# Example functions
+export simple_pendulum_system, double_tether_system, winch_controlled_system, build_custom_system
 
 # --- High-Level Simulation Functions (Workers) ---
 export sim!, sim_oscillate!, sim_turn!, sim_reposition!
@@ -138,8 +144,12 @@ include("predefined_structures.jl")
 include("tether_properties.jl")
 include("linearize.jl")
 include("generate_system.jl")
-include("plot_recipe.jl")
 include("simulate.jl")
+
+# Modern MTK components (optional - load only if user wants them)
+# This allows backward compatibility - legacy code doesn't pay compilation cost
+include("components/components.jl")
+include("components/examples.jl")
 
 function upwind_dir(v_wind_gnd)
     if v_wind_gnd[1] == 0.0 && v_wind_gnd[2] == 0.0
