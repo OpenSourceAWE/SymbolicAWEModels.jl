@@ -50,7 +50,6 @@ function simple_pendulum_system()
     # Components
     @named ground = PointMass(
         dynamics_type = 4,  # STATIC
-        fixed_pos = [0.0, 0.0, 0.0],
         mass = 1.0
     )
 
@@ -72,10 +71,19 @@ function simple_pendulum_system()
         wind_shear_exp = 0.14
     )
 
-    # Connections
+    # Connections via direct equations
     eqs = [
-        connect(ground.node, tether.node1)
-        connect(tether.node2, kite.node)
+        # Connect ground to tether end 1
+        tether.pos1 ~ ground.pos
+        tether.vel1 ~ ground.vel
+        ground.force ~ -tether.force1  # Newton's 3rd law
+        ground.wing_vel ~ zeros(3)  # No wing attached
+
+        # Connect kite to tether end 2
+        tether.pos2 ~ kite.pos
+        tether.vel2 ~ kite.vel
+        kite.force ~ -tether.force2
+        kite.wing_vel ~ zeros(3)  # No wing attached
     ]
 
     # Build system
@@ -122,7 +130,7 @@ function double_tether_system()
     t = ModelingToolkit.t_nounits
 
     # Points
-    @named ground = PointMass(dynamics_type=4, fixed_pos=[0,0,0])
+    @named ground = PointMass(dynamics_type=4)
     @named pulley_point = PointMass(dynamics_type=1, mass=0.5)
     @named kite = PointMass(dynamics_type=1, mass=5.0)
 
@@ -145,21 +153,36 @@ function double_tether_system()
         damping = 5.0
     )
 
-    # Connections
+    # Connections via direct equations
     eqs = [
-        # Mechanical connections
-        connect(ground.node, seg1.node1)
-        connect(seg1.node2, pulley_point.node)
-        connect(pulley_point.node, seg2.node1)
-        connect(seg2.node2, kite.node)
+        # Connect ground to segment 1 end 1
+        seg1.pos1 ~ ground.pos
+        seg1.vel1 ~ ground.vel
+        ground.force ~ -seg1.force1
+        ground.wing_vel ~ zeros(3)
+
+        # Connect pulley_point to segment 1 end 2
+        seg1.pos2 ~ pulley_point.pos
+        seg1.vel2 ~ pulley_point.vel
+        pulley_point.force ~ -seg1.force2 - seg2.force1  # Forces from both segments
+        pulley_point.wing_vel ~ zeros(3)
+
+        # Connect pulley_point to segment 2 end 1
+        seg2.pos1 ~ pulley_point.pos
+        seg2.vel1 ~ pulley_point.vel
+
+        # Connect kite to segment 2 end 2
+        seg2.pos2 ~ kite.pos
+        seg2.vel2 ~ kite.vel
+        kite.force ~ -seg2.force2
+        kite.wing_vel ~ zeros(3)
 
         # Pulley force coupling
         pulley.seg1_force ~ seg1.spring_force
         pulley.seg2_force ~ seg2.spring_force
 
-        # Pulley length control (this would need integration with seg1/seg2.l0)
-        # For now, this is a simplified coupling - full implementation would
-        # require more sophisticated length redistribution
+        # Pulley length control (simplified coupling)
+        # Full implementation would require dynamic modification of seg1.l0 and seg2.l0
     ]
 
     @named sys = ODESystem(eqs, t;
@@ -216,7 +239,7 @@ function winch_controlled_system()
         inertia_total = 1.47
     )
 
-    @named ground = PointMass(dynamics_type=4, fixed_pos=[0,0,0])
+    @named ground = PointMass(dynamics_type=4)
     @named kite = PointMass(dynamics_type=1, mass=5.0)
 
     @named tether = TetherSegment(
@@ -226,14 +249,22 @@ function winch_controlled_system()
         diameter = 0.004
     )
 
-    # Connections
+    # Connections via direct equations
     eqs = [
-        # Mechanical
-        connect(ground.node, tether.node1)
-        connect(tether.node2, kite.node)
+        # Connect ground to tether end 1
+        tether.pos1 ~ ground.pos
+        tether.vel1 ~ ground.vel
+        ground.force ~ -tether.force1
+        ground.wing_vel ~ zeros(3)
+
+        # Connect kite to tether end 2
+        tether.pos2 ~ kite.pos
+        tether.vel2 ~ kite.vel
+        kite.force ~ -tether.force2
+        kite.wing_vel ~ zeros(3)
 
         # Winch control
-        winch.ctrl.value ~ 50.0  # 50 Nm motor torque (constant for now)
+        winch.set_value ~ 50.0  # 50 Nm motor torque (constant for now)
         winch.tether_force ~ tether.spring_force
 
         # Length coupling (simplified - full version would modify tether.l0 dynamically)

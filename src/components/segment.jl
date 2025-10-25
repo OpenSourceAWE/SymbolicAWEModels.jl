@@ -26,11 +26,15 @@ This component models a flexible tether segment with:
 - `v_wind_gnd[1:3] = [10.0, 0, 0]`: Ground wind vector [m/s]
 - `wind_shear_exp = 0.0`: Wind profile exponent (0=constant, 0.14=typical)
 
-# Connectors
-- `node1::MechanicalNode`: First connection point
-- `node2::MechanicalNode`: Second connection point
+# Variables (Connection Interface)
+- `pos1(t)[1:3]`: Position of first end [m]
+- `vel1(t)[1:3]`: Velocity of first end [m/s]
+- `force1(t)[1:3]`: Force applied to first end [N]
+- `pos2(t)[1:3]`: Position of second end [m]
+- `vel2(t)[1:3]`: Velocity of second end [m/s]
+- `force2(t)[1:3]`: Force applied to second end [N]
 
-# Variables
+# Variables (Internal)
 - `len(t)`: Current length of segment [m]
 - `unit_vec(t)[1:3]`: Unit vector from node1 to node2
 - `spring_force(t)`: Axial spring-damper force magnitude [N]
@@ -117,13 +121,20 @@ using ModelingToolkit, SymbolicAWEModels
     cd_tether = 1.1
 )
 
-# Connect to points
+# Connect to points via direct equations
 @named p1 = PointMass(mass=0.1)
 @named p2 = PointMass(mass=0.1)
 
 eqs = [
-    connect(p1.node, seg.node1)
-    connect(p2.node, seg.node2)
+    # Connect first end
+    seg.pos1 ~ p1.pos
+    seg.vel1 ~ p1.vel
+    seg.force1 ~ -p1.force  # Newton's 3rd law
+
+    # Connect second end
+    seg.pos2 ~ p2.pos
+    seg.vel2 ~ p2.vel
+    seg.force2 ~ -p2.force
 ]
 ```
 
@@ -154,9 +165,17 @@ eqs = [
     end
 
     @variables begin
+        # Connection interface (exposed to other components)
+        pos1(t)[1:3], [description = "Position of first end [m]"]
+        vel1(t)[1:3], [description = "Velocity of first end [m/s]"]
+        force1(t)[1:3], [description = "Force applied to first end [N]"]
+        pos2(t)[1:3], [description = "Position of second end [m]"]
+        vel2(t)[1:3], [description = "Velocity of second end [m/s]"]
+        force2(t)[1:3], [description = "Force applied to second end [N]"]
+
         # Geometric quantities
         len(t), [description = "Current length [m]"]
-        unit_vec(t)[1:3], [description = "Unit vector from node1 to node2"]
+        unit_vec(t)[1:3], [description = "Unit vector from end1 to end2"]
         segment_vec(t)[1:3], [description = "Position difference vector [m]"]
 
         # Spring-damper dynamics
@@ -184,19 +203,14 @@ eqs = [
         wind_factor(t), [description = "Wind speed factor at height"]
     end
 
-    @components begin
-        node1 = MechanicalNode()
-        node2 = MechanicalNode()
-    end
-
     @equations begin
         # ==================== GEOMETRY ==================== #
-        segment_vec ~ node2.pos - node1.pos
+        segment_vec ~ pos2 - pos1
         len ~ max(1e-6, sqrt(sum(segment_vec .^ 2)))  # Prevent division by zero
         unit_vec ~ segment_vec / len
 
         # ==================== SPRING-DAMPER FORCE ==================== #
-        rel_vel ~ node1.vel - node2.vel
+        rel_vel ~ vel1 - vel2
         spring_vel ~ sum(rel_vel .* unit_vec)
 
         # Effective properties (length-dependent)
@@ -217,8 +231,8 @@ eqs = [
         segment_mass ~ rho_tether * pi * (diameter / 2)^2 * l0
 
         # ==================== AERODYNAMIC DRAG ==================== #
-        height ~ max(0.0, 0.5 * (node1.pos[3] + node2.pos[3]))
-        segment_vel ~ 0.5 * (node1.vel + node2.vel)
+        height ~ max(0.0, 0.5 * (pos1[3] + pos2[3]))
+        segment_vel ~ 0.5 * (vel1 + vel2)
 
         # Wind profile (power law or constant)
         wind_factor ~ ifelse(
@@ -238,10 +252,10 @@ eqs = [
         drag_force ~ (0.5 * segment_rho * cd_tether * sqrt(sum(va .^ 2)) * area) * app_perp_vel
 
         # ==================== FORCE APPLICATION ==================== #
-        # Spring force: +F on node2, -F on node1
-        # Drag: half to each node
-        # Gravity: half segment mass to each node
-        node1.force ~ -spring_force_vec + 0.5 * drag_force + [0, 0, -0.5 * segment_mass * g_earth]
-        node2.force ~ spring_force_vec + 0.5 * drag_force + [0, 0, -0.5 * segment_mass * g_earth]
+        # Spring force: +F on end2, -F on end1
+        # Drag: half to each end
+        # Gravity: half segment mass to each end
+        force1 ~ -spring_force_vec + 0.5 * drag_force + [0, 0, -0.5 * segment_mass * g_earth]
+        force2 ~ spring_force_vec + 0.5 * drag_force + [0, 0, -0.5 * segment_mass * g_earth]
     end
 end

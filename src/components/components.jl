@@ -168,7 +168,6 @@ For users of the legacy system:
 """
 
 # Include all component definitions
-include("connectors.jl")
 include("mass_point.jl")
 include("segment.jl")
 include("pulley.jl")

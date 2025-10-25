@@ -17,14 +17,17 @@ This component models a particle in 3D space that can be:
 # Parameters
 - `mass = 1.0`: Mass of the point [kg]
 - `dynamics_type = 1`: Type of dynamics (1=DYNAMIC, 2=QUASI_STATIC, 3=WING, 4=STATIC)
-- `fixed_pos = [0.0, 0.0, 0.0]`: Fixed position for STATIC type [m]
+- `fixed_pos[1:3] = [0.0, 0.0, 0.0]`: Fixed position for STATIC type [m]
 - `fix_sphere = false`: If true, constrains motion to a sphere (radial only)
 - `bridle_damping = 0.0`: Damping coefficient for bridle points [Ns/m]
 
-# Connectors
-- `node::MechanicalNode`: Mechanical connection point
+# Variables (Connection Interface)
+- `pos(t)[1:3]`: Position in world frame [m]
+- `vel(t)[1:3]`: Velocity in world frame [m/s]
+- `force(t)[1:3]`: Force on the point [N] (sum of all external forces)
+- `wing_vel(t)[1:3]`: Wing velocity for bridle damping [m/s] (connect to zeros if no wing)
 
-# Variables
+# Variables (Internal)
 - `acc(t)[1:3]`: Acceleration vector [m/s²]
 - `disturb_force(t)[1:3]`: External disturbance force [N]
 - `net_force(t)[1:3]`: Net force on the point [N]
@@ -80,29 +83,34 @@ Position is determined algebraically by force balance.
 ```julia
 using ModelingToolkit, SymbolicAWEModels
 
-@named ground = PointMass(dynamics_type=4, fixed_pos=[0, 0, 0])
+@named ground = PointMass(dynamics_type=4)
 @named kite_point = PointMass(mass=0.5, dynamics_type=1, bridle_damping=2.0)
 @named quasi_point = PointMass(dynamics_type=2)  # Force-balanced point
 
-# Connect to other components
+# Connect to other components via direct variable equations
 @named seg = TetherSegment()
 eqs = [
-    connect(ground.node, seg.node1)
-    connect(kite_point.node, seg.node2)
+    # Connect ground to segment end 1
+    seg.pos1 ~ ground.pos
+    seg.vel1 ~ ground.vel
+    ground.force ~ -seg.force1  # Newton's 3rd law
+    ground.wing_vel ~ zeros(3)  # No wing attached
+
+    # Connect kite to segment end 2
+    seg.pos2 ~ kite_point.pos
+    seg.vel2 ~ kite_point.vel
+    kite_point.force ~ -seg.force2
+    kite_point.wing_vel ~ zeros(3)  # No wing attached
 ]
 ```
 
 # Notes
-- The `node.force` connector accumulates forces from all connected components
-- Gravity must be added externally via `disturb_force` or through a separate component
+- Forces are connected directly between components (no automatic accumulation)
+- Gravity is included automatically via `g_earth` parameter
 - For QUASI_STATIC, the solver finds the position where all forces balance
+- Use Newton's 3rd law when connecting: component A's force on B = -(component B's force on A)
 """
 @mtkmodel PointMass begin
-    @structural_parameters begin
-        fixed_pos = [0.0, 0.0, 0.0]
-        wing_vel = [0.0, 0.0, 0.0]
-    end
-
     @parameters begin
         mass = 1.0, [description = "Mass of the point [kg]"]
         dynamics_type = 1, [
@@ -111,9 +119,17 @@ eqs = [
         fix_sphere = false, [description = "Constrain to sphere (radial motion only)"]
         bridle_damping = 0.0, [description = "Damping coefficient for bridle points [Ns/m]"]
         g_earth = 9.81, [description = "Gravitational acceleration [m/s²]"]
+        fixed_pos[1:3] = [0.0, 0.0, 0.0], [description = "Fixed position for STATIC type [m]"]
     end
 
     @variables begin
+        # Connection interface (exposed to other components)
+        pos(t)[1:3], [description = "Position in world frame [m]"]
+        vel(t)[1:3], [description = "Velocity in world frame [m/s]"]
+        force(t)[1:3], [description = "Force on the point [N]"]
+        wing_vel(t)[1:3], [description = "Wing velocity for bridle damping (connect to zeros if no wing) [m/s]"]
+
+        # Internal variables
         acc(t)[1:3], [description = "Acceleration vector [m/s²]"]
         disturb_force(t)[1:3] = zeros(3), [description = "External disturbance force [N]"]
         net_force(t)[1:3], [description = "Net force on the point [N]"]
@@ -123,52 +139,95 @@ eqs = [
         ]
     end
 
-    @components begin
-        node = MechanicalNode()
+    @equations begin
+        # ===== Always-present equations =====
+        # Compute normalized radial axis for sphere constraint
+        axis ~ pos / max(1e-6, sqrt(sum(pos .^ 2)))
+
+        # Bridle damping (velocity relative to wing)
+        bridle_damp_vec ~ bridle_damping * (vel - wing_vel)
+
+        # Net force calculation (external force + gravity + disturbances)
+        net_force ~ force + [0, 0, -mass * g_earth] + disturb_force
+    end
+
+    # ===== Conditional equations for different dynamics types =====
+    @equations begin
+        # Position derivative (depends on dynamics_type and fix_sphere)
+        # STATIC (4): no motion
+        # DYNAMIC (1): either sphere-constrained or unconstrained
+        # QUASI_STATIC (2): position is algebraic (no D(pos) equation)
+        # WING (3): position set externally (no D(pos) equation)
+
+        D.(pos) .~ ifelse(
+            dynamics_type == 4,  # STATIC
+            zeros(3),
+            ifelse(
+                dynamics_type == 1,  # DYNAMIC
+                ifelse(
+                    fix_sphere,
+                    (sum(vel .* axis)) * axis,  # Sphere constraint
+                    vel  # Unconstrained
+                ),
+                zeros(3)  # QUASI_STATIC or WING: handled algebraically
+            )
+        )
     end
 
     @equations begin
-        # Compute normalized radial axis for sphere constraint
-        axis ~ node.pos / max(1e-6, sqrt(sum(node.pos .^ 2)))
+        # Velocity derivative (depends on dynamics_type and fix_sphere)
+        D.(vel) .~ ifelse(
+            dynamics_type == 4,  # STATIC
+            zeros(3),
+            ifelse(
+                dynamics_type == 1,  # DYNAMIC
+                ifelse(
+                    fix_sphere,
+                    (sum(acc .* axis)) * axis,  # Sphere constraint
+                    acc  # Unconstrained
+                ),
+                zeros(3)  # QUASI_STATIC or WING
+            )
+        )
+    end
 
-        # Bridle damping (velocity relative to wing)
-        bridle_damp_vec ~ bridle_damping * (node.vel - wing_vel)
+    @equations begin
+        # Position constraints for STATIC type
+        pos ~ ifelse(
+            dynamics_type == 4,  # STATIC
+            fixed_pos,
+            pos  # Otherwise position evolves from ODE or algebraically
+        )
+    end
 
-        # Net force calculation (connector force + gravity + disturbances)
-        net_force ~ node.force + [0, 0, -mass * g_earth] + disturb_force
+    @equations begin
+        # Velocity constraints
+        vel ~ ifelse(
+            dynamics_type == 4,  # STATIC
+            zeros(3),
+            ifelse(
+                (dynamics_type == 2) | (dynamics_type == 3),  # QUASI_STATIC or WING
+                zeros(3),
+                vel  # DYNAMIC: velocity evolves from ODE
+            )
+        )
+    end
 
-        # Equations based on dynamics type
-        if dynamics_type == 4  # STATIC
-            D.(node.pos) .~ zeros(3)
-            D.(node.vel) .~ zeros(3)
-            node.pos ~ fixed_pos
-            node.vel ~ zeros(3)
-            acc ~ zeros(3)
+    @equations begin
+        # Acceleration equation
+        acc ~ ifelse(
+            dynamics_type == 1,  # DYNAMIC
+            net_force / mass - bridle_damp_vec,  # Newton's 2nd law with damping
+            zeros(3)  # STATIC, QUASI_STATIC, or WING
+        )
+    end
 
-        elseif dynamics_type == 1  # DYNAMIC
-            # Apply sphere constraint if requested
-            if fix_sphere
-                D.(node.pos) .~ (sum(node.vel .* axis)) * axis
-                D.(node.vel) .~ (sum(acc .* axis)) * axis
-            else
-                D.(node.pos) .~ node.vel
-                D.(node.vel) .~ acc
-            end
-            # Newton's second law with bridle damping
-            acc ~ net_force / mass - bridle_damp_vec
-
-        elseif dynamics_type == 2  # QUASI_STATIC
-            node.vel ~ zeros(3)
-            acc ~ zeros(3)
-            # Force balance constraint (algebraic)
-            net_force .~ zeros(3)
-
-        elseif dynamics_type == 3  # WING (placeholder - actual position set externally)
-            # Velocity and acceleration determined by wing dynamics
-            node.vel ~ zeros(3)
-            acc ~ zeros(3)
-            # Position is set via external equation (wing transformation)
-            # D.(node.pos) .~ zeros(3)  # Will be overridden by connect
-        end
+    @equations begin
+        # Force balance constraint for QUASI_STATIC
+        net_force .~ ifelse(
+            dynamics_type == 2,  # QUASI_STATIC
+            zeros(3),  # Algebraic constraint: forces must balance
+            net_force  # Otherwise net_force is just a computed variable
+        )
     end
 end

@@ -39,9 +39,6 @@ torque or speed regulation. It includes:
 - `τ_total(t)`: Total torque on drum [Nm]
 - `α_motor(t)`: Motor angular acceleration [rad/s²]
 
-# Connectors
-- `ctrl::ControlSignal`: Control input connector
-
 # Equations
 
 ## Kinematic Conversion
@@ -98,9 +95,9 @@ using ModelingToolkit, SymbolicAWEModels
     inertia_total = 1.47
 )
 
-# Set control torque
+# Set control torque via direct parameter/variable connection
 eqs = [
-    winch.ctrl.value ~ 50.0  # 50 Nm motor torque
+    winch.set_value ~ 50.0  # 50 Nm motor torque
     winch.tether_force ~ 1000.0  # External: tether tension
 ]
 ```
@@ -135,13 +132,9 @@ eqs = [
         smooth_sign_val(t), [description = "Smooth sign of motor velocity"]
     end
 
-    @components begin
-        ctrl = ControlSignal()
-    end
-
     @equations begin
-        # Control input
-        set_value ~ ctrl.value
+        # Motor torque comes from set_value (connected externally)
+        τ_motor ~ set_value
 
         # Kinematic conversion
         ω_motor ~ gear_ratio / drum_radius * tether_vel
@@ -154,9 +147,6 @@ eqs = [
             smooth_sign_val * f_coulomb * drum_radius / gear_ratio +
             c_vf * ω_motor * drum_radius^2 / gear_ratio^2
         )
-
-        # Motor and tether force torque
-        τ_motor ~ set_value
 
         # Total torque balance
         τ_total ~ τ_motor + drum_radius / gear_ratio * tether_force - τ_friction

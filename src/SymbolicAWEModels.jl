@@ -69,9 +69,7 @@ export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 
 # --- Modern MTK Components ---
-# Connectors
-export MechanicalNode, ControlSignal
-# Components (note: MassPoint, SpringDamperSegment, etc. are @mtkmodel macro-generated types)
+# Components (note: PointMass, TetherSegment, etc. are @mtkmodel macro-generated types)
 # Example functions
 export simple_pendulum_system, double_tether_system, winch_controlled_system, build_custom_system
 
