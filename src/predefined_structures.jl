@@ -17,7 +17,7 @@ function based on the `physical_model` field in the `Settings` object.
 # Returns
 - `SystemStructure`: The fully constructed system model.
 """
-function SystemStructure(set::Settings; kwargs...)
+function KiteUtils.SystemStructure(set::Settings; kwargs...)
     func_name = Symbol("create_$(set.physical_model)_sys_struct")
     return getfield(SymbolicAWEModels, func_name)(set; kwargs...)
 end

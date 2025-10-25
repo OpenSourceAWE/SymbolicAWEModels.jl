@@ -12,13 +12,13 @@ The `SystemStructure` type and its components (`Point`, `Segment`, `Tether`, `Wi
 
 **For comprehensive documentation of SystemStructure and all its components, please refer to:**
 
-**[KiteUtils.jl System Structure Documentation](https://opensourceawe.github.io/KiteUtils.jl/stable/system_structure/)**
+**[KiteUtils.jl System Structure Documentation](https://opensourceawe.github.io/KiteUtils.jl/dev/system_structure/)**
 
 This page documents only the SymbolicAWEModels-specific extensions and usage patterns.
 
 ## Overview
 
-The [`SystemStructure`](@ref) serves as input to the [`SymbolicAWEModel`](@ref), which uses ModelingToolkit.jl to automatically generate symbolic differential algebraic equations from the structural definition.
+The `SystemStructure` serves as input to the [`SymbolicAWEModel`](@ref), which uses ModelingToolkit.jl to automatically generate symbolic differential algebraic equations from the structural definition.
 
 A `SystemStructure` can represent many different AWE system configurations:
 - Simple single-line kites
@@ -28,20 +28,18 @@ A `SystemStructure` can represent many different AWE system configurations:
 
 ## Workflow
 
-1. Define system components ([`Point`](@ref), [`Segment`](@ref), [`Group`](@ref), etc.)
-2. Assemble into a [`SystemStructure`](@ref)
+1. Define system components (see [Point](https://opensourceawe.github.io/KiteUtils.jl/dev/system_structure/#KiteUtils.Point), [Segment](https://opensourceawe.github.io/KiteUtils.jl/dev/system_structure/#KiteUtils.Segment), [Group](https://opensourceawe.github.io/KiteUtils.jl/dev/system_structure/#KiteUtils.Group), etc. in KiteUtils docs)
+2. Assemble into a `SystemStructure`
 3. Pass to [`SymbolicAWEModel`](@ref) for automatic symbolic model generation
 4. Simulate using standard simulation functions
 
 ## Predefined System Structures
 
-SymbolicAWEModels provides factory functions to create common system topologies:
+SymbolicAWEModels provides factory functions to create common system topologies. See the [Simulation Functions](exported_functions.md#System-Structure-Constructors) page for detailed documentation of:
 
-```@docs
-create_ram_sys_struct
-create_simple_ram_sys_struct
-create_tether_sys_struct
-```
+- `create_ram_sys_struct` - Standard ram-air kite
+- `create_simple_ram_sys_struct` - Simplified ram-air kite
+- `create_tether_sys_struct` - Tether-only helper model
 
 ## Example: Creating a Custom Structure
 
@@ -76,11 +74,11 @@ sam = SymbolicAWEModel(set, sys_struct)
 init!(sam)
 ```
 
-For more detailed examples, see the [Custom Model Tutorial](@ref).
+For more detailed examples, see the [Custom Model Tutorial](tutorial_system_structure.md).
 
 ## Component Types Defined in KiteUtils
 
-The following types are documented in [KiteUtils.jl](https://opensourceawe.github.io/KiteUtils.jl/stable/system_structure/):
+The following types are documented in [KiteUtils.jl](https://opensourceawe.github.io/KiteUtils.jl/dev/system_structure/):
 
 - **`SystemStructure`** - Main container type
 - **`Point`** - Mass particles with position/velocity
@@ -96,17 +94,21 @@ The following types are documented in [KiteUtils.jl](https://opensourceawe.githu
 - **`DynamicsType`** - Point dynamics: `STATIC`, `QUASI_STATIC`, `DYNAMIC`, `WING`
 - **`SegmentType`** - Segment types: `BRIDLE`, `TETHER`, etc.
 
-## SymbolicAWEModels-Specific Types
+## SymbolicAWEModels-Specific Types and Constructors
 
-The following wing-related types are defined in SymbolicAWEModels:
+The following wing-related types are defined in SymbolicAWEModels. For detailed documentation, see the [SymbolicAWEModel page](symbolic_awe_model.md#Wing-Types).
+
+### Extended Constructors
+
+SymbolicAWEModels provides extended constructors for some KiteUtils types:
 
 ```@docs
-VSMWing
-Wing
+KiteUtils.Group(idx, point_idxs, vsm_wing::RamAirWing, gamma, type, moment_frac)
+KiteUtils.SystemStructure(set::Settings)
 ```
 
 ## See Also
 
-- **[KiteUtils System Structure Docs](https://opensourceawe.github.io/KiteUtils.jl/stable/system_structure/)** - Complete component documentation
-- [SymbolicAWEModel](@ref) - Using structures in simulations
-- [Custom Model Tutorial](@ref) - Step-by-step examples
+- **[KiteUtils System Structure Docs](https://opensourceawe.github.io/KiteUtils.jl/dev/system_structure/)** - Complete component documentation
+- [`SymbolicAWEModel`](@ref) - Using structures in simulations
+- [Custom Model Tutorial](tutorial_system_structure.md) - Step-by-step examples

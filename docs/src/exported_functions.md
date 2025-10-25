@@ -34,7 +34,7 @@ simple_linearize!
 
 ## System Structure Constructors
 
-These functions are used to procedurally generate predefined [`SystemStructure`](@ref) topologies.
+These functions are used to procedurally generate predefined `SystemStructure` topologies.
 
 ```@docs
 create_ram_sys_struct

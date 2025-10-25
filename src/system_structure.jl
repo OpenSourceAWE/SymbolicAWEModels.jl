@@ -47,7 +47,7 @@ at the specified spanwise location `gamma`.
 # Returns
 - `Group`: A new `Group` object with twist dynamics capability.
 """
-function Group(idx, point_idxs, vsm_wing::RamAirWing, gamma, type, moment_frac; damping=50.0)
+function KiteUtils.Group(idx, point_idxs, vsm_wing::RamAirWing, gamma, type, moment_frac; damping=50.0)
     le_pos = [vsm_wing.le_interp[i](gamma) for i in 1:3]
     chord = [vsm_wing.te_interp[i](gamma) for i in 1:3] .- le_pos
     y_airf = normalize([vsm_wing.le_interp[i](gamma-0.01) for i in 1:3] - le_pos)
@@ -155,7 +155,7 @@ with existing code. New code should use `VSMWing(...)` directly.
 # Returns
 - `VSMWing`: A new VSM wing object.
 """
-function Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; kwargs...)
+function SymbolicAWEModels.Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; kwargs...)
     return VSMWing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; kwargs...)
 end
 

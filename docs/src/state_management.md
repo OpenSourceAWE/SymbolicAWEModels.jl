@@ -124,7 +124,7 @@ wing_state = sam.prob.get_wing_state(sam.integrator)
 winch_state = sam.prob.get_winch_state(sam.integrator)
 ```
 
-See [State Accessor Functions](@ref) for more getter functions.
+See the [Simulation Functions](exported_functions.md) page for more getter functions like `winch_force`, `unstretched_length`, and `tether_length`.
 
 ## Performance Considerations
 
@@ -134,7 +134,6 @@ See [State Accessor Functions](@ref) for more getter functions.
 
 ## See Also
 
-- [SymbolicAWEModel](@ref) - Main simulation type
-- [Simulation Functions](@ref) - High-level simulation interface
-- [State Accessor Functions](@ref) - Direct state access functions
-- [KiteUtils.jl](https://opensourceawe.github.io/KiteUtils.jl/stable/) - SysState type documentation
+- [`SymbolicAWEModel`](@ref) - Main simulation type
+- [Simulation Functions](exported_functions.md) - High-level simulation interface and state accessor functions
+- [KiteUtils.jl](https://opensourceawe.github.io/KiteUtils.jl/dev/) - SysState type documentation

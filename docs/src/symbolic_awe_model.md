@@ -4,7 +4,7 @@ CurrentModule = SymbolicAWEModels
 
 # SymbolicAWEModel
 
-The [`SymbolicAWEModel`](@ref) is the main type that encapsulates a complete symbolic simulation model of an Airborne Wind Energy (AWE) system. It uses ModelingToolkit.jl to automatically generate symbolic differential algebraic equations from a [`SystemStructure`](@ref) definition.
+The [`SymbolicAWEModel`](@ref) is the main type that encapsulates a complete symbolic simulation model of an Airborne Wind Energy (AWE) system. It uses ModelingToolkit.jl to automatically generate symbolic differential algebraic equations from a `SystemStructure` definition.
 
 ## Overview
 
@@ -54,7 +54,7 @@ The package provides several predefined physical models via factory functions:
 - **`"4_attach_ram"`** (detailed): Full ram-air kite with 4-point bridle attachment, deformable wing groups, pulleys, and 3 winches
 - **`"tether"`**: Helper model for tether property calculations
 
-See [System Structure Constructors](@ref) for the factory functions that create these models.
+See the [System Structure](system_structure.md#Predefined-System-Structures) page for the factory functions that create these models.
 
 ## Basic Workflow
 
@@ -88,11 +88,9 @@ SymbolicAWEModel(set::Settings, name::String; kwargs...)
 
 ## Wing Types
 
-The package provides specialized wing types for aerodynamic modeling:
+The package provides specialized wing types for aerodynamic modeling. Base types (`AbstractWing`, `BaseWing`) are defined in [KiteUtils.jl](https://opensourceawe.github.io/KiteUtils.jl/dev/).
 
 ```@docs
-AbstractWing
-BaseWing
 VSMWing
 Wing
 Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; transform_idx)
@@ -100,6 +98,7 @@ Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; transform_
 
 ## See Also
 
-- [System Structure](@ref) - Physical topology definition
-- [State Management](@ref) - Working with system state
-- [Simulation Functions](@ref) - Running simulations
+- [System Structure](system_structure.md) - Physical topology definition
+- [State Management](state_management.md) - Working with system state
+- [Simulation Functions](exported_functions.md) - Running simulations
+- [Custom Model Tutorial](tutorial_system_structure.md) - Step-by-step examples

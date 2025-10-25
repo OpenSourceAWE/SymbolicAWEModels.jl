@@ -45,7 +45,7 @@ segments = Segment[]
 points = push!(points, Point(1, zeros(3), STATIC; wing_idx=0))
 ```
 
-The first point we add is a static point. There are four different [`DynamicsType`](@ref)s to choose from: `STATIC`, `QUASI_STATIC`, `DYNAMIC` and `WING`. `STATIC` just means that the point doesn't move. `DYNAMIC` is a point modeled with acceleration, while `QUASI_STATIC` constrains this acceleration to be zero at all times. A `WING` point is connected to a wing body.
+The first point we add is a static point. There are four different `DynamicsType`s to choose from: `STATIC`, `QUASI_STATIC`, `DYNAMIC` and `WING`. `STATIC` just means that the point doesn't move. `DYNAMIC` is a point modeled with acceleration, while `QUASI_STATIC` constrains this acceleration to be zero at all times. A `WING` point is connected to a wing body. (See [KiteUtils DynamicsType docs](https://opensourceawe.github.io/KiteUtils.jl/dev/system_structure/#KiteUtils.DynamicsType) for details.)
 
 Now we can add `DYNAMIC` points and connect them to each other with segments. `BRIDLE` segments don't need to have a tether, because they have a constant unstretched length.
 ```julia
@@ -65,7 +65,7 @@ for i in 1:set.segments
 end
 ```
 
-In order to describe the initial orientation of the structure, we define a [`Transform(idx, elevation, azimuth, heading)`](@ref) with an elevation (-80 degrees), azimuth and heading, and a base position `[0.0, 0.0, 50.0]`.
+In order to describe the initial orientation of the structure, we define a `Transform(idx, elevation, azimuth, heading)` with an elevation (-80 degrees), azimuth and heading, and a base position `[0.0, 0.0, 50.0]`.
 ```julia
 transforms = [Transform(1, deg2rad(-80), 0.0, 0.0; 
               base_pos = [0.0, 0.0, 50.0], base_point_idx=points[1].idx,
@@ -94,12 +94,12 @@ end
 
 # Using a winch and a tether
 
-Let's try to adjust the length of the tether in the last example. To do this we first need to create a set of segments with a common changing `l0`, called a [`Tether`](@ref).
+Let's try to adjust the length of the tether in the last example. To do this we first need to create a set of segments with a common changing `l0`, called a `Tether`.
 ```julia
 set.v_wind = 0.0
 tethers = [Tether(1,[segment.idx for segment in segments])]
 ```
-As you can see, we just add all of the segments from the simple tether to our [`Tether`](@ref) struct.
+As you can see, we just add all of the segments from the simple tether to our `Tether` struct.
 The next step is to create a winch. Each winch can be connected to one or more tethers, so it is possible to connect multiple tethers to the same winch.
 The winch is a torque controlled winch.
 
@@ -108,7 +108,7 @@ using WinchModels
 winches = [Winch(1, set, [1])]
 ```
 
-The plot of the [`SystemStructure`](@ref) should still look the same, so we don't have to plot that. We can just create the system, and simulate it. We call `plot(sys_struct, 0.0)` to create a new plot.
+The plot of the `SystemStructure` should still look the same, so we don't have to plot that. We can just create the system, and simulate it. We call `plot(sys_struct, 0.0)` to create a new plot.
 
 ```julia
 sys_struct = SystemStructure("winch", set; points, segments, tethers, winches, transforms)
@@ -156,13 +156,13 @@ push!(segments, Segment(2, set, (3,2), BRIDLE))
 push!(segments, Segment(3, set, (3,4), BRIDLE))
 ```
 
-Pulleys can be modeled when three or more [`Segment`](@ref)s are connected to a common [`Point`](@ref). When creating a pulley, only two segments are specified: these are the segments of the tether moving through the pulley.
+Pulleys can be modeled when three or more `Segment`s are connected to a common `Point`. When creating a pulley, only two segments are specified: these are the segments of the tether moving through the pulley.
 
 ```julia
 push!(pulleys, Pulley(1, (1,2), DYNAMIC))
 ```
 
-We can then use a [`Transform`](@ref) to describe the orientation of the initial system. 
+We can then use a `Transform` to describe the orientation of the initial system. 
 
 ```julia
 transforms = [Transform(1, -deg2rad(0.0), 0.0, 0.0; base_pos=[1.0, 0.0, 4.0], base_point_idx=1, rot_point_idx=2)]
@@ -170,7 +170,7 @@ sys_struct = SymbolicAWEModels.SystemStructure("pulley", set; points, segments, 
 plot(sys_struct, 0.0)
 ```
 
-If the plot of the [`SystemStructure`](@ref) looks good, we can continue by creating a [`SymbolicAWEModel`](@ref) and simulating through time.
+If the plot of the `SystemStructure` looks good, we can continue by creating a [`SymbolicAWEModel`](@ref) and simulating through time.
 
 ```julia
 sam = SymbolicAWEModel(set, sys_struct)
