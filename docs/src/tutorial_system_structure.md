@@ -1,13 +1,21 @@
 ```@meta
 CurrentModule = SymbolicAWEModels
 ```
-# Custom SystemStructure and SymbolicAWESystem
+# Custom Model Tutorial
 
-A custom `SystemStructure` can be used to create models of kite power systems of almost any configuration.
-- custom amount of tethers
-- custom bridle configurations
-- quasi-static or dynamic point masses
-- different amounts of stiffness, damping and diameter on different tether segments
+This tutorial demonstrates how to create custom kite power system models using `SystemStructure`.
+
+!!! info "API Documentation"
+    For detailed API documentation, see:
+    - [System Structure](@ref) - Component types and reference to KiteUtils documentation
+    - [SymbolicAWEModel](@ref) - Main simulation type
+    - [State Management](@ref) - Working with system state
+
+A custom `SystemStructure` can be used to create models of kite power systems of almost any configuration:
+- Custom amount of tethers
+- Custom bridle configurations
+- Quasi-static or dynamic point masses
+- Different amounts of stiffness, damping and diameter on different tether segments
 
 ## Precondition
 First, following the [Home](index.md) section up to the installation of the examples. To start Julia,
