@@ -58,6 +58,9 @@ Tether(idx, segment_idxs, winch_idx)
 Winch
 Winch(idx, set::Settings, tether_idxs; tether_len, tether_vel, brake)
 Winch(idx, tether_idxs, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; tether_len, tether_vel, brake)
+AbstractWing
+BaseWing
+VSMWing
 Wing
 Wing(idx, vsm_aero, vsm_wing, vsm_solver, group_idxs, R_b_c, pos_cad; transform_idx)
 Transform
@@ -70,5 +73,6 @@ Transform(idx, set, base_point_idx; kwargs...)
 ```@docs
 SysState
 update_sys_state!
+update_from_sysstate!
 ```
 
