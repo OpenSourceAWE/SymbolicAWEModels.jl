@@ -125,7 +125,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || needs.version_check.outputs.changed == 'true'
     steps:
       - name: Download all tarball artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           pattern: model-tarballs-*
           merge-multiple: true
@@ -155,7 +155,7 @@ jobs:
 
     # Download all workspace artifacts (regardless of version)
     - name: Download all workspace artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v6
       with:
         pattern: workspace-*
         path: ./artifacts
