@@ -18,7 +18,7 @@ jobs:
   reuse-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Run REUSE lint
         run: docker run --rm --volume ${{ github.workspace }}:/data fsfe/reuse lint
@@ -44,7 +44,7 @@ jobs:
             arch: aarch64
             version: '1'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - uses: julia-actions/setup-julia@v2
         with:
@@ -77,7 +77,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - uses: julia-actions/setup-julia@v2
         with:
