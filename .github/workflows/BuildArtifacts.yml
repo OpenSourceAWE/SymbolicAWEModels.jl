@@ -208,7 +208,7 @@ jobs:
 
     # Create the PR using the token generated from the GitHub App
     - name: Create Pull Request with updated TOML files
-      uses: peter-evans/create-pull-request@v6
+      uses: peter-evans/create-pull-request@v8
       with:
         token: ${{ steps.generate_token.outputs.token }}
         commit-message: "Update TOML files"
