@@ -104,7 +104,7 @@ jobs:
 
     # Upload the generated tarballs for this specific job.
     - name: Upload tar.gz artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: model-tarballs-${{ steps.detect_version.outputs.version }}
         path: data/models_v${{ steps.detect_version.outputs.version }}.tar.gz
@@ -112,7 +112,7 @@ jobs:
 
     # Upload the entire workspace to capture the generated TOML files.
     - name: Upload workspace for Julia ${{ steps.detect_version.outputs.version }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: workspace-${{ steps.detect_version.outputs.version }}
         path: .
@@ -135,7 +135,7 @@ jobs:
         run: ls -lR
 
       - name: Upload combined model archives artifact (versioned)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: model-archives-${{ needs.version_check.outputs.version }}
           path: |
