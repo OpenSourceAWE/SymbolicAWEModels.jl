@@ -36,7 +36,7 @@ jobs:
           echo "Using version: $ver"
 
       - name: Download archives artifact from CI
-        uses: dawidd6/action-download-artifact@v11
+        uses: dawidd6/action-download-artifact@v12
         with:
           # Must match the artifact name used in the build workflow
           name: model-archives-${{ steps.version.outputs.version }}
