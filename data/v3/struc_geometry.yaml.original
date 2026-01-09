@@ -1,0 +1,329 @@
+##############################
+## System Structure ##########
+##############################
+# This file defines the v3 kite SystemStructure components
+# Similar to how create_ram_sys_struct() builds the system programmatically
+
+###########################
+## Materials ##############
+###########################
+# Material properties for automatic stiffness calculation
+# k = E * A / l0, where A = π * (d/2)^2
+# c = damping_per_stiffness * k
+
+materials:
+  headers: [name, youngs_modulus, density, damping_per_stiffness]
+  data:
+    - [dyneema, 55000000000.0, 724, 0.00077]
+
+###########################
+## Points #################
+###########################
+# Point(idx, pos_cad, type; wing_idx=1, transform_idx=1,
+#       mass=0.0, body_frame_damping=0.0,
+#       world_frame_damping=0.0)
+# type: STATIC, DYNAMIC, WING, QUASI_STATIC
+# pos_cad is a 3-element array [x, y, z]
+
+points:
+  headers: [idx, pos_cad, type, wing_idx, transform_idx,
+            mass, body_frame_damping, world_frame_damping, area, drag_coeff]
+  data:
+    # KCU
+    - [1, [0.0, 0.0, 0.0], DYNAMIC, 1, 1, 23.25, 0.0, 0.0, 0.48, 0.83]
+
+    # Wing particles (LE/TE pairs)
+    - [2, [-0.16686417, 4.07190711, 8.25938552], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0] #TODO: was 4.07190711
+    - [3, [0.8950856, 4.23504033, 8.28564737], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0] #TODO: was 4.23504033
+    - [4, [-0.66385373, 3.97158462, 9.10345727], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0] 
+    - [5, [0.84466799, 4.04893109, 9.16869541], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [6, [-1.00179344, 3.13938093, 10.08117033], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [7, [0.95411064, 3.19044693, 10.20618443], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [8, [-1.11933902, 1.96778538, 10.69146438], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [9, [1.03150699, 1.98490264, 10.81013669], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [10, [-1.16537227, 0.67379745, 10.96630823], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [11, [1.09790203, 0.6605361, 11.06585663], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [12, [-1.16537227, -0.67379745, 10.96630823], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [13, [1.09790203, -0.6605361, 11.06585663], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [14, [-1.11933902, -1.96778538, 10.69146438], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [15, [1.03150699, -1.98490264, 10.81013669], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [16, [-1.00179344, -3.13938093, 10.08117033], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [17, [0.95411064, -3.19044693, 10.20618443], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [18, [-0.66385373, -3.97158462, 9.10345727], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [19, [0.84466799, -4.04893109, 9.16869541], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [20, [-0.16686417, -4.07190711, 8.25938552], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0] #TODO: was -4.07190711
+    - [21, [0.8950856, -4.23504033, 8.28564737], WING, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0] #TODO: was -4.23504033
+
+    # Bridle particles
+    - [22, [-0.67653494, 2.10580567, 7.08413599], DYNAMIC, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [23, [-0.79196791, 1.01882151, 7.57069579], DYNAMIC, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [24, [-0.79196791, -1.01882151, 7.57069579], DYNAMIC, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [25, [-0.67653494, -2.10580567, 7.08413599], DYNAMIC, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [26, [-0.46444477, 0.77505128, 4.23316161], DYNAMIC, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [27, [-0.46444477, -0.77505128, 4.23316161], DYNAMIC, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [28, [0.54344694, 1.57655435, 5.91086207], DYNAMIC, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [29, [0.62960591, 0.92728966, 6.64639402], DYNAMIC, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [30, [0.62960591, -0.92728966, 6.64639402], DYNAMIC, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [31, [0.54344694, -1.57655435, 5.91086207], DYNAMIC, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [32, [0.39092886, 0.71221536, 4.26118728], DYNAMIC, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [33, [0.39092886, -0.71221536, 4.26118728], DYNAMIC, 1, 1, 0.0, 10.0, 0.0, 0.0, 0.0]
+    - [34, [0.30679124, 0.49235914, 3.39885672], DYNAMIC, 1, 1, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [35, [0.28625931, 0.0, 3.19030736], DYNAMIC, 1, 1, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [36, [0.30679124, -0.49235914, 3.39885672], DYNAMIC, 1, 1, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [37, [0.13269336, 0.23394851, 1.48060245], DYNAMIC, 1, 1, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [38, [0.13269336, -0.23394851, 1.48060245], DYNAMIC, 1, 1, 0.1, 10.0, 0.0, 0.0, 0.0]
+
+    # Tether and ground particle
+    - [39, [0.0, 0.0, -45.0], DYNAMIC, 1, 1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [40, [0.0, 0.0, -90.0], DYNAMIC, 1, 1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [41, [0.0, 0.0, -135.0], DYNAMIC, 1, 1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [42, [0.0, 0.0, -180.0], DYNAMIC, 1, 1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [43, [0.0, 0.0, -225.0], DYNAMIC, 1, 1, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [44, [0.0, 0.0, -270.0], STATIC, 1, 1, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+###########################
+## Segments ###############
+###########################
+# Spring-damper connections between points
+# Supports two formats:
+#   1. Material-based: [id, point_i, point_j, type, l0, diameter_mm, material, compression_frac]
+#      - material is an unquoted string reference (e.g., dyneema)
+#      - stiffness is auto-calculated: k = E*A/l0
+#   2. Explicit stiffness: [id, point_i, point_j, type, l0, diameter_mm, axial_stiffness, compression_frac]
+#      - axial_stiffness is a number (e.g., 2000.0)
+#      - axial_damping defaults to 0.0
+# type: POWER_LINE, STEERING_LINE, BRIDLE
+
+segments:
+  headers: [idx, point_i, point_j, type, l0, diameter_mm, axial_stiffness, axial_damping, compression_frac]
+  data:
+    #TODO: stiffness 
+    # Wing structural elements - leading edge tubes (hardcoded stiffness, not dyneema)
+    - [1, 2, 4,   POWER_LINE, 0.984642, 1.0, 10000.0, 20.0, 1]
+    - [2, 4, 6,   POWER_LINE, 1.327663, 1.0, 10000.0, 20.0, 1]
+    - [3, 6, 8,   POWER_LINE, 1.326240, 1.0, 10000.0, 20.0, 1]
+    - [4, 8, 10,  POWER_LINE, 1.323655, 1.0, 10000.0, 20.0, 1]
+    - [5, 10, 12, POWER_LINE, 1.347595, 1.0, 10000.0, 20.0, 1]
+    - [6, 12, 14, POWER_LINE, 1.323655, 1.0, 10000.0, 20.0, 1]
+    - [7, 14, 16, POWER_LINE, 1.326240, 1.0, 10000.0, 20.0, 1]
+    - [8, 16, 18, POWER_LINE, 1.327663, 1.0, 10000.0, 20.0, 1]
+    - [9, 18, 20, POWER_LINE, 0.984642, 1.0, 10000.0, 20.0, 1]
+
+    #TODO: stiffness
+    # Wing structural elements - struts (chords, hardcoded stiffness)
+    - [10, 2, 3,   POWER_LINE, 1.074728, 1.0, 10000.0, 20.0, 1]
+    - [11, 4, 5,   POWER_LINE, 1.511911, 1.0, 10000.0, 20.0, 1]
+    - [12, 6, 7,   POWER_LINE, 1.960560, 1.0, 10000.0, 20.0, 1]
+    - [13, 8, 9,   POWER_LINE, 2.154185, 1.0, 10000.0, 20.0, 1]
+    - [14, 10, 11, POWER_LINE, 2.265501, 1.0, 10000.0, 20.0, 1]
+    - [15, 12, 13, POWER_LINE, 2.265501, 1.0, 10000.0, 20.0, 1]
+    - [16, 14, 15, POWER_LINE, 2.154185, 1.0, 10000.0, 20.0, 1]
+    - [17, 16, 17, POWER_LINE, 1.960560, 1.0, 10000.0, 20.0, 1]
+    - [18, 18, 19, POWER_LINE, 1.511911, 1.0, 10000.0, 20.0, 1]
+    - [19, 20, 21, POWER_LINE, 1.074728, 1.0, 10000.0, 20.0, 1]
+
+    #TODO: stiffness ratio between LE+struts & wires is crucial for stability
+    # Wing structural elements - trailing edge wires (hardcoded stiffness)
+    - [20, 3, 5,   POWER_LINE, 0.9039, 1.0, 5000.0, 10.0, 0.00]
+    - [21, 5, 7,   POWER_LINE, 1.3511, 1.0, 5000.0, 10.0, 0.00]
+    - [22, 7, 9,   POWER_LINE, 1.3506, 1.0, 5000.0, 10.0, 0.00]
+    - [23, 9, 11,  POWER_LINE, 1.3505, 1.0, 5000.0, 10.0, 0.00]
+    - [24, 11, 13, POWER_LINE, 1.3211, 1.0, 5000.0, 10.0, 0.00]
+    - [25, 13, 15, POWER_LINE, 1.3505, 1.0, 5000.0, 10.0, 0.00]
+    - [26, 15, 17, POWER_LINE, 1.3506, 1.0, 5000.0, 10.0, 0.00]
+    - [27, 17, 19, POWER_LINE, 1.3511, 1.0, 5000.0, 10.0, 0.00]
+    - [28, 19, 21, POWER_LINE, 0.9039, 1.0, 5000.0, 10.0, 0.00]
+
+    # Wing structural elements - diagonal springs (hardcoded stiffness)
+    - [29, 2, 5, POWER_LINE, 1.3604, 1.0,   5000.0, 10.0, 0.00]
+    - [30, 3, 4, POWER_LINE, 1.78, 1.0,   5000.0, 10.0, 0.00]
+    - [31, 4, 7, POWER_LINE, 2.1081, 1.0,   5000.0, 10.0, 0.00]
+    - [32, 5, 6, POWER_LINE, 2.2515, 1.0,   5000.0, 10.0, 0.00]
+    - [33, 6, 9, POWER_LINE, 2.4492, 1.0,   5000.0, 10.0, 0.00]
+    - [34, 7, 8, POWER_LINE, 2.4555, 1.0,   5000.0, 10.0, 0.00]
+    - [35, 8, 11, POWER_LINE, 2.601, 1.0,  5000.0, 10.0, 0.00]
+    - [36, 9, 10, POWER_LINE, 2.5631, 1.0,  5000.0, 10.0, 0.00]
+    - [37, 10, 13, POWER_LINE, 2.6292, 1.0, 5000.0, 10.0, 0.00]
+    - [38, 11, 12, POWER_LINE, 2.6292, 1.0, 5000.0, 10.0, 0.00]
+    - [39, 12, 15, POWER_LINE, 2.5631, 1.0, 5000.0, 10.0, 0.00]
+    - [40, 13, 14, POWER_LINE, 2.601, 1.0, 5000.0, 10.0, 0.00]
+    - [41, 14, 17, POWER_LINE, 2.4555, 1.0, 5000.0, 10.0, 0.00]
+    - [42, 15, 16, POWER_LINE, 2.4492, 1.0, 5000.0, 10.0, 0.00]
+    - [43, 16, 19, POWER_LINE, 2.2515, 1.0, 5000.0, 10.0, 0.00]
+    - [44, 17, 18, POWER_LINE, 2.1081, 1.0, 5000.0, 10.0, 0.00]
+    - [45, 18, 21, POWER_LINE, 1.78, 1.0, 5000.0, 10.0, 0.00]
+    - [46, 19, 20, POWER_LINE, 1.3604, 1.0, 5000.0, 10.0, 0.00]
+
+    # Bridle segments - left front lines (non-compressive, using dyneema material)
+    - [47, 2, 26, BRIDLE,   5.964, 5.0,  dyneema, nothing, 0.010]  # AIII/Br,main,2 or a6 first half (pulley) TODO: 5.686
+    - [48, 2, 34, BRIDLE,   5.964, 5.0,  dyneema, nothing, 0.010]  # AIII/Br,main,2 or a6 second half (pulley) TODO: 5.686
+    - [49, 4, 22, BRIDLE, 2.987, 5.0,  dyneema, nothing, 0.010]  # A4 or A5- original 2.782
+    - [50, 6, 22, BRIDLE, 3.4915, 5.0,  dyneema, nothing, 0.010]  # A3
+    - [51, 8, 23, BRIDLE, 3.518, 5.0,  dyneema, nothing, 0.010]  # A2
+    - [52, 10, 23, BRIDLE, 3.71, 5.0,  dyneema, nothing, 0.010]  # A1
+
+    # Bridle segments - left rear lines (mirror, non-compressive, using dyneema)
+    - [53, 12, 24, BRIDLE, 3.71, 5.0,  dyneema, nothing, 0.010]  # A1
+    - [54, 14, 24, BRIDLE, 3.518, 5.0,  dyneema, nothing, 0.010]  # A2
+    - [55, 16, 25, BRIDLE, 3.4915, 5.0,  dyneema, nothing, 0.010]  # A3
+    - [56, 18, 25, BRIDLE, 2.987, 5.0,  dyneema, nothing, 0.010]  # A4 or A5- original 2.782
+    - [57, 27, 20, BRIDLE,   5.964, 5.0,  dyneema, nothing, 0.010]  # a6 first half (pulley) TODO: 5.686
+    - [58, 20, 36, BRIDLE,   5.964, 5.0,  dyneema, nothing, 0.010]  # a6 second half (pulley) TODO:5.686
+
+    # Bridle convergence - left side (non-compressive, using dyneema)
+    - [59, 22, 26, BRIDLE, 3.36, 10.0,  dyneema, nothing, 0.010]  # AII
+    - [60, 23, 26, BRIDLE, 3.67, 10.0,  dyneema, nothing, 0.010]  # AI
+    - [61, 24, 27, BRIDLE, 3.67, 10.0,  dyneema, nothing, 0.010]  # AI
+    - [62, 25, 27, BRIDLE, 3.36, 10.0,  dyneema, nothing, 0.010]  # AII
+
+    # Main power lines to KCU (non-compressive, using dyneema)
+    - [63, 26, 1, BRIDLE, 3.903, 20.0,  dyneema, nothing, 0.010]  # amain
+    - [64, 27, 1, BRIDLE, 3.903, 20.0,  dyneema, nothing, 0.010]  # amain
+
+    # Bridle segments - right front lines (non-compressive, using dyneema)
+    - [65, 34, 3, BRIDLE, 6.909, 2.0,  dyneema, nothing, 0.010]  # Br,5 or br6 first half (pulley) #TODO: was 7.086
+    - [66, 3, 37, BRIDLE, 6.909, 2.0,  dyneema, nothing, 0.010]  # Br,5 or br6 second half (pulley) #TODO: was 7.086
+    - [67, 5, 28, BRIDLE, 3.55, 2.0,  dyneema, nothing, 0.010]  # br,4 or br5
+    - [68, 7, 28, BRIDLE, 4.094, 2.0,  dyneema, nothing, 0.010]  # br,3
+    - [69, 9, 29, BRIDLE, 4.18, 2.0,  dyneema, nothing, 0.010]  # br,2
+    - [70, 11, 29, BRIDLE, 4.407, 2.0,  dyneema, nothing, 0.010]  # br,1
+
+    # Bridle segments - right rear lines (mirror, non-compressive, using dyneema)
+    - [71, 13, 30, BRIDLE, 4.407, 2.0,  dyneema, nothing, 0.010]  # br,1
+    - [72, 15, 30, BRIDLE, 4.18, 2.0,  dyneema, nothing, 0.010]  # br,2
+    - [73, 17, 31, BRIDLE, 4.094, 2.0,  dyneema, nothing, 0.010]  # br,3
+    - [74, 19, 31, BRIDLE, 3.55, 2.0,  dyneema, nothing, 0.010]  # br,4 or br5
+    - [75, 36, 21, BRIDLE, 6.909, 2.0,  dyneema, nothing, 0.010]  # br6 first half (pulley) #TODO: was 7.086
+    - [76, 21, 38, BRIDLE, 6.909, 2.0,  dyneema, nothing, 0.010]  # br6 second half (pulley)#TODO: was 7.086
+    
+    # Bridle convergence - right side (non-compressive, using dyneema)
+    - [77, 28, 32, BRIDLE, 2.045, 2.0,  dyneema, nothing, 0.010]  # BRII
+    - [78, 29, 32, BRIDLE, 2.333, 2.0,  dyneema, nothing, 0.010]  # BRI
+    - [79, 30, 33, BRIDLE, 2.333, 2.0,  dyneema, nothing, 0.010]  # BRI
+    - [80, 31, 33, BRIDLE, 2.045, 2.0,  dyneema, nothing, 0.010]  # BRII
+
+    # Right main lines (non-compressive, using dyneema)
+    - [81, 32, 34, BRIDLE, 0.61, 2.0,  dyneema, nothing, 0.010]  # BR-main-1
+    - [82, 33, 36, BRIDLE, 0.61, 2.0,  dyneema, nothing, 0.010]  # BR-main-1
+
+    # Central pulley system - M-line (non-compressive, using dyneema)
+    # because Br,main,e is not modelled. Some additional length should be added to the M-line.
+    # it is under an supposably 20deg angle
+    # 0deg would mean the addition was 2x70mm
+    # at 80deg we get, 70/cos(10deg) = 71mm --> addition of 2x71mm = 0.142m
+    # that gives us M = 4856+0.142 = 4.998m --> 2499mm per
+    - [83, 37, 34, BRIDLE, 2.499, 2.0,  dyneema, nothing, 0.010]  # M-line first half (pulley)
+    - [84, 34, 35, BRIDLE, 2.499, 2.0,  dyneema, nothing, 0.010]  # M-line second half (pulley)
+    - [85, 35, 36, BRIDLE, 2.499, 2.0,  dyneema, nothing, 0.010]  # M-line first half (pulley)
+    - [86, 36, 38, BRIDLE, 2.499, 2.0,  dyneema, nothing, 0.010]  # M-line second half (pulley)
+
+    # Final attachment to KCU/tethers (non-compressive, using dyneema)
+    - [87, 37, 1, BRIDLE, 1.506, 2.0,  dyneema, nothing, 0.010]  # Steering Tape #TODO: was 1.506
+    - [88, 35, 1, BRIDLE, 2.2, 2.0,  dyneema, nothing, 0.010]  # Power Tape
+    - [89, 38, 1, BRIDLE, 1.506, 2.0,  dyneema, nothing, 0.010]  # Steering Tape #TODO: was 1.506
+
+    - [90, 1, 39, BRIDLE, 45.0, 13.5,  dyneema, nothing, 0.010]
+    - [91, 39, 40, BRIDLE, 45.0, 13.5,  dyneema, nothing, 0.010]
+    - [92, 40, 41, BRIDLE, 45.0, 13.5,  dyneema, nothing, 0.010]
+    - [93, 41, 42, BRIDLE, 45.0, 13.5,  dyneema, nothing, 0.010]
+    - [94, 42, 43, BRIDLE, 45.0, 13.5,  dyneema, nothing, 0.010]
+    - [95, 43, 44, BRIDLE, 45.0, 13.5,  dyneema, nothing, 0.010]
+
+    # - [96, 2, 6, POWER_LINE, 0.0, 1.0, 10000.0, 10.0, 1.0]
+    # - [97, 16, 20, POWER_LINE, 0.0, 1.0, 10000.0, 10.0, 1.0]
+
+###########################
+## Pulleys ################
+###########################
+# Pulleys enforce equal tension constraints
+# headers: [id, segment_i, segment_j, type]
+# type: DYNAMIC, QUASI_STATIC
+
+pulleys:
+  headers: [idx, segment_i, segment_j, type]
+  data:
+    - [1, 48, 47, DYNAMIC]  # a6 left front pulley
+    - [2, 57, 58, DYNAMIC]  # a6 left rear pulley
+    - [3, 65, 66, DYNAMIC]  # br6 right front pulley
+    - [4, 75, 76, DYNAMIC]  # br6 right rear pulley
+    - [5, 83, 84, DYNAMIC]  # M-line front pulley
+    - [6, 85, 86, DYNAMIC]  # M-line rear pulley
+
+###########################
+## Groups #################
+###########################
+# Deformable wing sections with twist dynamics
+# headers: [id, point_ids, gamma, type, reference_chord_frac]
+# type: DYNAMIC, QUASI_STATIC
+
+groups:
+  headers: [idx, point_ids, gamma, type, reference_chord_frac]
+  data:
+    # Note: groups would be defined here if using deformable wing model
+    # For a rigid structure, this can be empty or omitted
+
+###########################
+## Tethers ################
+###########################
+# Collections of segments forming tether lines
+# headers: [id, segment_idxs, ground_point_id]
+# Note: For this structure, tethers would connect from bridle to winches
+# This is typically handled by the simulation setup rather than structure definition
+
+tethers:
+  headers: [idx, segment_idxs, winch_idx]
+  data:
+    - [1, [90, 91, 92, 93, 94, 95], 1]
+
+###########################
+## Winches ################
+###########################
+# Ground-based winches controlling tethers
+# headers: [id, tether_ids]
+
+winches:
+  headers: [idx, tether_idxs]
+  data:
+    - [1, [1]]
+
+###########################
+## Wings ##################
+###########################
+# Wing aerodynamic bodies
+# headers: [id, type, point_ids]
+# type: REFINE or QUATERNION
+# point_ids: List of WING-type points (for REFINE: must be LE/TE pairs)
+
+wings:
+  data:
+    # QUATERNION wing: Rigid body with twist groups (auto-created from LE/TE pairs)
+    # Points 2-21 form 10 LE/TE segment pairs (2,3), ..., (20,21)
+    # For QUATERNION wings, use aero_z_offset to shift VSM panels in body frame z
+    # For REFINE wings, use point_ids, origin_idx, z_ref_points, y_ref_points
+    - idx: 1
+      type: REFINE
+      point_ids: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+        13, 14, 15, 16, 17, 18, 19, 20, 21]
+      origin_idx: 1
+      z_ref_points: [1, [12, 11]]  # KCU to LE for Z (normal)
+      y_ref_points: [12, 10]  # Center LE for Y (span)
+      aero_z_offset: 0.0  # QUATERNION only: shifts VSM panels +z in body frame
+
+###########################
+## Transforms #############
+###########################
+# Spatial transformations for initial positioning
+# Each transform defines orientation (elevation, azimuth, heading) relative to a base point
+# Required fields: id, elevation, azimuth, heading
+# Must provide either (wing_idx OR rot_point_idx) AND (base_pos + base_point_idx OR base_transform_idx)
+
+transforms:
+  data:
+    # Main transform for v3 kite wing
+    - idx: 1
+      elevation: 72
+      azimuth: 0.0
+      heading: 0.0
+      wing_idx: 1           # Transform applies to wing 1
+      base_pos: [0.0, 0.0, 0.0] # Base position (at KCU/ground point)
+      base_point_idx: 44     # Reference to point 39 (ground attachment)

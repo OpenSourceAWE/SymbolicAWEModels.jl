@@ -808,7 +808,8 @@ function VSMWing(idx::Int, set::Settings,
                      Tuple{Union{Int16, Vector{Int16}}, Union{Int16, Vector{Int16}}}}=nothing,
                  origin_idx::Union{Nothing, Int16}=nothing,
                  aero_scale_chord::SimFloat=0.0,
-                 aero_z_offset::SimFloat=0.0)
+                 aero_z_offset::SimFloat=0.0,
+                 sort_sections::Bool=false)
 
     # Validation
     if wing_type == REFINE
@@ -829,9 +830,8 @@ function VSMWing(idx::Int, set::Settings,
             "QUATERNION wings don't use origin_idx"
     end
 
-    # Create VSM wing, aero, and solver
-    vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false)
-    refine!(vsm_wing)
+    # Create VSM wing, aero, and solver (sort_sections passed to prevent sorting)
+    vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false, sort_sections)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
     vsm_solver = VortexStepMethod.Solver(vsm_aero;
         solver_type=VortexStepMethod.NONLIN,
@@ -1649,6 +1649,111 @@ function apply_heading(vec, R_t_w, curr_R_t_w, heading)
 end
 
 """
+    wrap_to_pi(angle)
+
+Wrap angle to [-π, π] range.
+"""
+function wrap_to_pi(angle)
+    return mod(angle + π, 2π) - π
+end
+
+"""
+    calc_heading(R_b_w, wind_norm)
+
+Calculate heading angle from body-to-world rotation matrix and wind direction.
+Heading is the angle of the body x-axis projected onto a wind-perpendicular plane.
+"""
+function calc_heading(R_b_w, wind_norm)
+    e_x = R_b_w[:, 1]
+    # Project -e_x onto plane perpendicular to wind
+    minus_e_x = -e_x
+    proj_on_wind = dot(minus_e_x, wind_norm) * wind_norm
+    e_x_perp = minus_e_x - proj_on_wind
+    # Heading components in wind-perpendicular plane
+    wind_cross_z = [wind_norm[2], -wind_norm[1], 0]
+    heading_x = dot(e_x_perp, wind_cross_z)
+    heading_z = e_x_perp[3]
+    heading = atan(heading_x, heading_z)
+    return wrap_to_pi(heading)
+end
+
+"""
+    calc_heading(sys::SystemStructure)
+
+Calculate heading angles for all wings in the system structure.
+Returns a vector of heading angles, one per wing.
+"""
+function calc_heading(sys::SystemStructure)
+    wind_norm = normalize(sys.wind_vec_gnd)
+    return [calc_heading(wing.R_b_w, wind_norm) for wing in sys.wings]
+end
+
+"""
+    get_heading_components(e_x, k, θ, wind_norm)
+
+Get heading_y and heading_z components for body x-axis rotated by θ around k.
+"""
+function get_heading_components(e_x, k, θ, wind_norm)
+    e_x_rot = rotate_v_around_k(e_x, k, θ)
+    minus_ex = -e_x_rot
+    proj_on_wind = dot(minus_ex, wind_norm) * wind_norm
+    e_x_perp = minus_ex - proj_on_wind
+    wind_cross_z = [wind_norm[2], -wind_norm[1], 0.0]
+    hy = dot(e_x_perp, wind_cross_z)
+    hz = e_x_perp[3]
+    return hy, hz
+end
+
+"""
+    solve_heading_rotation(R_b_w, target_heading, k, wind_norm)
+
+Analytical solution for heading rotation angle.
+
+The heading components vary with rotation angle θ as:
+  hy(θ) = A1*sin(θ) + B1*cos(θ) + C1  (same form for hz)
+
+The equation hy*cos(h) - hz*sin(h) = 0 gives: A*sin(θ) + B*cos(θ) + C = 0
+
+Solution: θ = atan2(A, B) - acos(-C / √(A² + B²))
+"""
+function solve_heading_rotation(R_b_w, target_heading, k, wind_norm)
+    k = normalize(k)
+    e_x = R_b_w[:, 1]
+
+    # Extract coefficients by sampling at θ = 0, π/2, π
+    hy_0, hz_0 = get_heading_components(e_x, k, 0.0, wind_norm)
+    hy_90, hz_90 = get_heading_components(e_x, k, π/2, wind_norm)
+    hy_180, hz_180 = get_heading_components(e_x, k, π, wind_norm)
+
+    C1 = (hy_0 + hy_180) / 2
+    B1 = hy_0 - C1
+    A1 = hy_90 - C1
+
+    C2 = (hz_0 + hz_180) / 2
+    B2 = hz_0 - C2
+    A2 = hz_90 - C2
+
+    ch = cos(target_heading)
+    sh = sin(target_heading)
+
+    A = A1 * ch - A2 * sh
+    B = B1 * ch - B2 * sh
+    C = C1 * ch - C2 * sh
+
+    r = sqrt(A^2 + B^2)
+
+    if r < 1e-10
+        return 0.0
+    end
+
+    base_angle = atan(A, B)
+    arg = clamp(-C / r, -1.0, 1.0)
+    delta = acos(arg)
+
+    return base_angle - delta
+end
+
+"""
     reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
 
 Apply the initial spatial transformations to all components in a `SystemStructure`.
@@ -1661,7 +1766,7 @@ If transforms is empty, simply initializes pos_w = pos_cad for all components.
 """
 function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
     @unpack points, wings = sys_struct
-    
+
     # Handle the case with no transforms: just copy CAD positions to world positions
     if isempty(transforms)
         for point in points
@@ -1676,7 +1781,7 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
         end
         return  # Early return - no transforms to apply
     end
-    
+
     # Apply transforms
     for transform in transforms
         # Warn if turn_rate is not zero (not yet implemented)
@@ -1701,7 +1806,7 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
             end
         end
 
-        # ==================== ROTATE ==================== #
+        # ==================== ROTATE (azimuth/elevation only) ==================== #
         curr_rot_pos = get_rot_pos(transform, wings, points)
         rel_pos = curr_rot_pos - base_pos
 
@@ -1719,7 +1824,6 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
         R_t_w = calc_R_t_w(transform_pos)
 
         # Compute velocity components from spherical coordinate motion
-        # elevation_vel and azimuth_vel are angular velocities in rad/s
         elev = transform.elevation
         azim = transform.azimuth
         rot_pos = get_rot_pos(transform, wings, points)
@@ -1727,38 +1831,64 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
         vel_spherical = rotate_around_y([0, 0, r_rot * transform.elevation_vel], -elev) +
                         rotate_around_z([0, r_rot * transform.azimuth_vel, 0], -azim)
 
+        # First apply only azimuth/elevation rotation (heading=0)
         for point in points
             if point.transform_idx == transform.idx
                 vec = point.pos_w - base_pos
-                point.pos_w .= base_pos +
-                    apply_heading(vec, R_t_w, curr_R_t_w, transform.heading)
-
-                # Calculate velocity from spherical coordinate motion
+                point.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, 0.0)
                 point.vel_w .= norm(point.pos_w - base_pos) / norm(rot_pos - base_pos) *
                                vel_spherical
-            end
-            if point.type == WING
-                wing = wings[point.wing_idx]
-                # For QUATERNION wings, calculate pos_b from CAD geometry
-                # For REFINE wings, pos_b will be calculated after all transforms are complete
-                if wing.wing_type != REFINE
-                    point.pos_b .= wing.R_b_c' * (point.pos_cad - wing.pos_cad)
-                end
             end
         end
         for wing in wings
             if wing.transform_idx == transform.idx
                 vec = wing.pos_w - base_pos
-                wing.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, transform.heading)
-
-                # Calculate velocity from spherical coordinate motion
+                wing.pos_w .= base_pos + apply_heading(vec, R_t_w, curr_R_t_w, 0.0)
                 wing.vel_w .= norm(wing.pos_w - base_pos) / norm(rot_pos - base_pos) *
                               vel_spherical
-                wing.ω_b .= 0.0  # Angular velocity in body frame (turn_rate not yet implemented)
+                wing.ω_b .= 0.0
+            end
+        end
 
-                R_b_w = zeros(3,3)
+        # ==================== APPLY HEADING VIA NONLINEAR SOLVE ==================== #
+        # For each wing in this transform, calculate R_b_w and solve for heading
+        for wing in wings
+            if wing.transform_idx == transform.idx
+                # Calculate R_b_w depending on wing type
+                if wing.wing_type == REFINE
+                    R_b_w, _ = calc_refine_wing_frame(
+                        points, wing.z_ref_points, wing.y_ref_points, wing.origin_idx)
+                else
+                    # For non-REFINE wings, apply az/el rotation to R_b_c
+                    R_b_w = zeros(3, 3)
+                    for i in 1:3
+                        R_b_w[:, i] .= apply_heading(
+                            wing.R_b_c[:, i], R_t_w, curr_R_t_w, 0.0)
+                    end
+                end
+
+                # Solve for the rotation angle that achieves target heading
+                k = normalize(wing.pos_w)
+                wind_norm = normalize(sys_struct.wind_vec_gnd)
+                delta_heading = solve_heading_rotation(
+                    R_b_w, transform.heading, k, wind_norm)
+
+                # Apply the solved rotation to all points in this transform
+                for point in points
+                    if point.transform_idx == transform.idx
+                        point.pos_w .= rotate_v_around_k(point.pos_w, k, delta_heading)
+                    end
+                    if point.type == WING && point.wing_idx == wing.idx
+                        if wing.wing_type != REFINE
+                            point.pos_b .= wing.R_b_c' * (point.pos_cad - wing.pos_cad)
+                        end
+                    end
+                end
+
+                # Apply rotation to wing position and orientation
+                wing.pos_w .= rotate_v_around_k(wing.pos_w, k, delta_heading)
                 for i in 1:3
-                    R_b_w[:, i] .= apply_heading(wing.R_b_c[:, i], R_t_w, curr_R_t_w, transform.heading)
+                    R_b_w[:, i] .= rotate_v_around_k(R_b_w[:, i], k, delta_heading)
                 end
                 wing.R_b_w = R_b_w
             end
@@ -1766,27 +1896,16 @@ function reinit!(transforms::Vector{Transform}, sys_struct::SystemStructure)
     end
 
     # Calculate pos_b for REFINE wing points after all transforms are complete
-    # This stores the initial body-frame positions for displacement tracking
     for wing in wings
         if wing.wing_type == REFINE
-            # Calculate initial R_b_w and origin from structural geometry
             R_b_w, origin = calc_refine_wing_frame(
-                points,
-                wing.z_ref_points,
-                wing.y_ref_points,
-                wing.origin_idx
-            )
+                points, wing.z_ref_points, wing.y_ref_points, wing.origin_idx)
 
-            # Store R_b_w in wing (used for plotting and VSM updates)
             wing.R_b_w = R_b_w
-
-            # Update wing.pos_w to match origin (KCU position)
             wing.pos_w .= origin
 
-            # Calculate and store pos_b for all WING points of this wing
             for point in points
                 if point.type == WING && point.wing_idx == wing.idx
-                    # Transform to body frame: pos_b = R_b_w' * (pos_w - origin)
                     point.pos_b .= R_b_w' * (point.pos_w - origin)
                 end
             end
@@ -2235,13 +2354,25 @@ function reinit!(sys_struct::SystemStructure, set::Settings; ignore_l0::Bool=fal
         pulley.vel = 0.0
     end
 
+    # Calculate ground-level wind vector BEFORE transforms (needed for heading calculation)
+    # Matches symbolic equations in generate_system.jl:1259-1264
+    upwind_dir = deg2rad(set.upwind_dir)
+    wind_elevation = sys_struct.wind_elevation
+    wind_scale_gnd = set.v_wind
+
+    wind_vec_base = [0.0, -1.0, 0.0]
+    wind_vec_elevated = rotate_around_x(wind_vec_base, wind_elevation)
+    wind_vec_rotated = rotate_around_z(wind_vec_elevated, -upwind_dir)
+    sys_struct.wind_vec_gnd .= max(wind_scale_gnd, 1e-6) * wind_vec_rotated
+
     reinit!(transforms, sys_struct)
 
     # Recreate VSM wing and aero if requested
     if remake_vsm
         for wing in wings
-            # Recreate VSM wing from settings
-            wing.vsm_wing = VortexStepMethod.Wing(set, sys_struct.vsm_set; prn=false)
+            # Recreate VSM wing from settings (sort_sections=false for YAML systems)
+            wing.vsm_wing = VortexStepMethod.Wing(set, sys_struct.vsm_set;
+                prn=false, sort_sections=false)
             wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
             wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero;
                 solver_type=VortexStepMethod.NONLIN,

@@ -263,7 +263,7 @@ starting from 1 with no gaps.
 - `wings`: (optional, typically from VSM configuration)
 - `transforms`: (optional, typically from settings)
 """
-function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing(), ignore_l0::Bool=false, wing_type::Union{Nothing,WingType}=nothing, vsm_set=nothing)
+function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing(), ignore_l0::Bool=false, wing_type::Union{Nothing,WingType}=nothing, vsm_set=nothing, sort_sections::Bool=false)
     data = YAML.load_file(yaml_path)
 
     # Use provided settings or fall back to base settings
@@ -523,7 +523,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     [:idx, :set, :group_idxs, :vsm_set],
                     [:transform_idx, :y_damping, :wing_type,
                      :z_ref_points, :y_ref_points, :origin_idx, :pos_cad,
-                     :aero_scale_chord];
+                     :aero_scale_chord, :sort_sections];
                     mappings=Dict(
                         :set => r -> set,
                         :group_idxs => r -> Int16[],
@@ -541,13 +541,15 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         :pos_cad => r -> begin
                             oidx = get_field_or_nothing(Int16, r, :origin_idx)
                             isnothing(oidx) ? nothing : KVec3(points[oidx].pos_cad)
-                        end
+                        end,
+                        :sort_sections => r -> sort_sections
                     ))
             else  # QUATERNION
                 # QUATERNION wings don't use these fields
                 wing = call_yaml_constructor(VSMWing, row,
                     [:idx, :set, :group_idxs, :vsm_set],
-                    [:transform_idx, :y_damping, :wing_type, :aero_scale_chord, :aero_z_offset];
+                    [:transform_idx, :y_damping, :wing_type, :aero_scale_chord, :aero_z_offset,
+                    :sort_sections];
                     mappings=Dict(
                         :set => r -> set,
                         :group_idxs => r -> Int16[],
@@ -555,7 +557,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         :wing_type => r -> wt,
                         :aero_scale_chord => r ->
                             hasfield(typeof(r), :aero_scale_chord) && !isnothing(r.aero_scale_chord) ?
-                                float(r.aero_scale_chord) : 0.0
+                                float(r.aero_scale_chord) : 0.0,
+                        :sort_sections => r -> sort_sections
                     ))
             end
             push!(wings, wing)
@@ -669,17 +672,22 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
     src_aero = abspath(source_aero_yaml)
     dst_aero = abspath(dest_aero_yaml)
 
-    if src_struc == dst_struc
-        error("Source and destination structural YAML paths cannot be the same: $src_struc")
-    end
-    if src_aero == dst_aero
-        error("Source and destination aero YAML paths cannot be the same: $src_aero")
+    # Update pos_b for REFINE wing points based on current wing orientation
+    for wing in sys_struct.wings
+        if wing.wing_type == REFINE
+            R_w_b = wing.R_b_w'  # transpose to get world-to-body
+            for point in sys_struct.points
+                if point.wing_idx == wing.idx
+                    point.pos_b .= R_w_b * (point.pos_w - wing.pos_w)
+                end
+            end
+        end
     end
 
-    # Build position dictionary from system structure
+    # Build position dictionary from system structure (body-frame positions)
     positions = Dict{Int, Vector{Float64}}()
     for point in sys_struct.points
-        positions[point.idx] = copy(point.pos_w)
+        positions[point.idx] = copy(point.pos_b)
     end
 
     # Build segment l0 dictionary from system structure

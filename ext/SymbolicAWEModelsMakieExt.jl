@@ -70,6 +70,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                      show_points = true, show_segments = true, show_orient = true,
                      show_panes = true, margin = 10.0, force_color = false,
                      plot_vsm = true, plot_aero = true,
+                     extra_points = nothing,
                      # Optional observable for real-time updates
                      geometry_obs = nothing,
                      pane_observables = nothing)
@@ -346,6 +347,14 @@ function Makie.plot!(ax, sys::SystemStructure;
         yz_pane = mesh!(ax, plots[:pane_observables][2], color=pane_color)
         xy_pane = mesh!(ax, plots[:pane_observables][3], color=pane_color)
         plots[:panes] = [xz_pane, yz_pane, xy_pane]
+    end
+
+    # === Plot Extra Points (e.g., from external CSV) ===
+    if !isnothing(extra_points)
+        extra_positions = [Point3f(p...) for p in extra_points]
+        plots[:extra_points] = scatter!(ax, extra_positions, color=:cyan,
+                                        markersize=10, label="Extra Points",
+                                        transparency=true)
     end
 
     return plots
@@ -1086,6 +1095,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_kite_vel=false,
                    plot_aoa=plot_default,
                    aoa_ylims=(0.0, 15.0),
+                   plot_sideslip=false,
                    plot_heading=plot_default,
                    plot_kiteutils_course=false,
                    plot_aero_moment=false,
@@ -1093,6 +1103,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                    plot_turn_radius=false,
                    plot_elevation=false,
                    plot_azimuth=false,
+                   plot_wind=false,
                    plot_tether_moment=false,
                    plot_winch_force=plot_default,
                    plot_set_values=false,
@@ -1136,6 +1147,12 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 end
             end
             heading_rate = diff(rad2deg.(heading_unwrapped)) ./ diff(sl.time)
+            # Filter out high jumps (> 200 °/s)
+            for j in eachindex(heading_rate)
+                if abs(heading_rate[j]) > 200
+                    heading_rate[j] = j > 1 ? heading_rate[j-1] : 0.0
+                end
+            end
             push!(all_data, heading_rate)
             push!(all_labels, "ψ̇" * suffix)
             push!(all_times, sl.time[1:end-1])
@@ -1629,14 +1646,14 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         all_times = []
         for (i, tl) in enumerate(tape_lengths)
             suffix = actual_suffixes[i]
-            if hasproperty(tl, :right_steering) && !isempty(tl.right_steering)
-                push!(all_data, tl.right_steering)
-                push!(all_labels, "L_right" * suffix)
+            if hasproperty(tl, :steering) && !isempty(tl.steering)
+                push!(all_data, tl.steering)
+                push!(all_labels, "steering" * suffix)
                 push!(all_times, tl.time)
             end
             if hasproperty(tl, :depower) && !isempty(tl.depower)
                 push!(all_data, tl.depower)
-                push!(all_labels, "L_depower" * suffix)
+                push!(all_labels, "depower" * suffix)
                 push!(all_times, tl.time)
             end
         end
@@ -1645,7 +1662,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 data = all_data,
                 labels = all_labels,
                 times = all_times,
-                ylabel = "tape length [m]"
+                ylabel = "tape [%]"
             ))
         end
     end
@@ -1824,7 +1841,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             # calculate gk, guarding against zero steering
             gk = similar(heading_rate)
             @inbounds for k in eachindex(gk)
-                gk[k] = abs(us_seg[k]) > 1e-8 ? heading_rate[k] / (v_app[k] * us_seg[k]) : NaN
+                gk[k] = abs(us_seg[k]) > 1e-2 ? heading_rate[k] / (v_app[k] * us_seg[k]) : NaN
             end
             
             # force ylimits from 0 to 10 for gk axis
@@ -2035,6 +2052,26 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         ))
     end
 
+    if plot_sideslip
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            sl = lg.syslog
+            suffix = actual_suffixes[i]
+            sideslip_deg = rad2deg.(sl.side_slip)
+            push!(all_data, sideslip_deg)
+            push!(all_labels, "β" * suffix)
+            push!(all_times, sl.time)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            times = all_times,
+            ylabel = "sideslip [°]"
+        ))
+    end
+
     if plot_heading
         all_data = []
         all_labels = []
@@ -2207,6 +2244,27 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             labels = all_labels,
             times = all_times,
             ylabel = "ɸ [°]\nazimuth"
+        ))
+    end
+
+    if plot_wind
+        all_data = []
+        all_labels = []
+        all_times = []
+        for (i, lg) in enumerate(logs)
+            sl = lg.syslog
+            suffix = actual_suffixes[i]
+            # v_wind_gnd is a vector, take norm
+            wind_speed = [norm(sl.v_wind_gnd[j]) for j in eachindex(sl.v_wind_gnd)]
+            push!(all_data, wind_speed)
+            push!(all_labels, "v_wind" * suffix)
+            push!(all_times, sl.time)
+        end
+        push!(panels, (
+            data = all_data,
+            labels = all_labels,
+            times = all_times,
+            ylabel = "wind [m/s]"
         ))
     end
 
@@ -2437,11 +2495,11 @@ function _plot_with_panes(sys::SystemStructure;
                     highlight_color = :red,
                     force_color = false,
                     body_frame = false,
-                    perspective = false,
+                    extra_points = nothing,
                     kwargs...)
     # Use LScene for advanced camera controls
     scene = Scene(; camera=cam3d!, show_axis = false, size, zoommode = :free, samples = 16)
-    plots = plot!(scene, sys; segment_color, margin, force_color, kwargs...)
+    plots = plot!(scene, sys; segment_color, margin, force_color, extra_points, kwargs...)
     
     relevant_plots = AbstractPlot[]
     if haskey(plots, :segments)
@@ -2601,8 +2659,9 @@ function _plot_with_panes(sys::SystemStructure;
                         inv_view_matrix = inv(cam.view[])
                         cam_dir_vec = normalize(Vec3f(inv_view_matrix[1, 3], inv_view_matrix[2, 3], inv_view_matrix[3, 3]))
                         new_eyepos = center + dist_heuristic * cam_dir_vec
-                        
+
                         update_cam!(scene, new_eyepos, center)
+                        PLOT_CAMERA_DISTANCE[] = dist_heuristic
                         zoomed_in[] = true
                         PLOT_ZOOMED_IN[] = true  # Track global zoom state
                         PLOT_ZOOM_SEGMENT_IDX[] = hover_idx  # Track which segment we're zoomed into
@@ -2663,22 +2722,8 @@ function _plot_with_panes(sys::SystemStructure;
     # Extract pane observables from plots (created by plot!())
     pane_observables = haskey(plots, :pane_observables) ? plots[:pane_observables] : nothing
 
-    # Set camera projection type
-    cam = scene.camera
-    if !perspective
-        # Use orthographic projection
-        # Get current projection view bounds
-        widths = scene.viewport[].widths
-        w_half = Float32(widths[1] / 2)
-        h_half = Float32(widths[2] / 2)
-        cam.projection[] = Makie.orthographicprojection(
-            -w_half, w_half,
-            -h_half, h_half,
-            -10_000f0, 10_000f0
-        )
-    end
-
     # Set initial camera position
+    cam = scene.camera
     if body_frame
         zoom_body_frame!(scene, cam, sys)
     else
@@ -2699,7 +2744,7 @@ function Makie.plot(sys::SystemStructure;
                     plot_aero=true,
                     relmargin=0.2,
                     body_frame=false,
-                    perspective=false,
+                    extra_points=nothing,
                     kwargs...)
     # Store SystemStructure globally FIRST so @lift expressions can access it
     PLOT_SYSTEM_STRUCTURE[] = sys
@@ -2720,7 +2765,7 @@ function Makie.plot(sys::SystemStructure;
                 plot_aero,
                 relmargin,
                 body_frame,
-                perspective,
+                extra_points,
                 kwargs...)
 
     # Get the segment colors observable from the plots if available
@@ -3183,6 +3228,349 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     end
 
     return scene
+end
+
+"""
+    plot_sphere_trajectory(logs; radius=1.0, colors=nothing, labels=nothing, ...)
+
+Plot elevation-azimuth trajectories as lines on a sphere surface.
+
+# Arguments
+- `logs`: Vector of SysLog objects (or single SysLog)
+- `radius`: Sphere radius (default 1.0)
+- `colors`: Optional vector of colors for each trajectory
+- `labels`: Optional vector of labels for legend
+- `sphere_alpha`: Transparency of reference sphere (default 0.2)
+- `linewidth`: Line width for trajectories (default 2.0)
+- `size`: Figure size tuple (default (800, 800))
+"""
+function SymbolicAWEModels.plot_sphere_trajectory(lg::SysLog; kwargs...)
+    SymbolicAWEModels.plot_sphere_trajectory([lg]; kwargs...)
+end
+
+function SymbolicAWEModels.plot_sphere_trajectory(logs::Vector{<:SysLog};
+    radius=1.0,
+    colors=nothing,
+    labels=nothing,
+    sphere_alpha=0.2,
+    linewidth=2.0,
+    size=(800, 800)
+)
+    fig = Figure(; size)
+    ax = LScene(fig[1, 1], show_axis=false)
+    # Disable perspective (orthographic projection)
+    ax.scene.camera.projection[] = Makie.orthographicprojection(
+        -2f0, 2f0, -2f0, 2f0, -10f0, 10f0)
+
+    # Draw semi-transparent sphere
+    sphere_mesh = Sphere(Point3f(0, 0, 0), Float32(radius))
+    mesh!(ax, sphere_mesh, color=(:gray, sphere_alpha), transparency=true)
+
+    # Draw origin and reference axes
+    axis_len = radius * 1.3
+    scatter!(ax, [Point3f(0, 0, 0)], color=:black, markersize=10)
+    # X axis: azimuth=0 (east)
+    lines!(ax, [Point3f(0, 0, 0), Point3f(axis_len, 0, 0)],
+           color=:red, linewidth=3)
+    text!(ax, Point3f(axis_len * 1.1, 0, 0), text="X (az=0°)",
+          fontsize=14, color=:red)
+    # Y axis: azimuth=-90° (north)
+    lines!(ax, [Point3f(0, 0, 0), Point3f(0, axis_len, 0)],
+           color=:green, linewidth=3)
+    text!(ax, Point3f(0, axis_len * 1.1, 0), text="Y (az=-90°)",
+          fontsize=14, color=:green)
+    # Z axis: elevation=90° (up)
+    lines!(ax, [Point3f(0, 0, 0), Point3f(0, 0, axis_len)],
+           color=:blue, linewidth=3)
+    text!(ax, Point3f(0, 0, axis_len * 1.1), text="Z (el=90°)",
+          fontsize=14, color=:blue)
+
+    # Default colors if not provided
+    default_colors = [:blue, :red, :green, :orange, :purple, :cyan]
+    actual_colors = isnothing(colors) ? default_colors : colors
+
+    # Plot each trajectory
+    for (i, lg) in enumerate(logs)
+        sl = lg.syslog
+        elevation = sl.elevation
+        azimuth = sl.azimuth
+
+        # Convert to Cartesian (ENU frame, azimuth_east convention)
+        x = radius .* cos.(elevation) .* cos.(azimuth)
+        y = -radius .* cos.(elevation) .* sin.(azimuth)
+        z = radius .* sin.(elevation)
+
+        color = actual_colors[mod1(i, length(actual_colors))]
+        label = isnothing(labels) ? "trajectory $i" : labels[i]
+        lines!(ax, x, y, z; color, linewidth, label)
+    end
+
+    # Add legend if multiple logs
+    if length(logs) > 1 || !isnothing(labels)
+        Legend(fig[1, 2], ax)
+    end
+
+    return fig
+end
+
+"""
+    plot_body_frame(sys_struct; extra_points=nothing, dir=:side)
+
+Plot wing points in 2D body frame coordinates.
+Updates pos_b for REFINE wing points and shows all WING-type points.
+
+# Arguments
+- `sys_struct::SystemStructure`: System structure to plot
+- `extra_points`: Optional vector of (x,y,z) tuples to overlay
+- `dir::Symbol`: Viewing direction (:side, :front, or :top, default :side)
+
+# Returns
+- Figure with 2D scatter plot of wing points in body frame
+"""
+function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
+                         extra_points=nothing,
+                         dir::Symbol=:front,
+                         point_size=10,
+                         extra_point_size=6,
+                         figsize=(800, 600))
+    @unpack points, wings, segments = sys_struct
+
+    # Update pos_b for REFINE wing points based on current wing orientation
+    for wing in wings
+        if wing.wing_type == SymbolicAWEModels.REFINE
+            R_w_b = wing.R_b_w'  # transpose to get world-to-body
+            for point in points
+                if point.wing_idx == wing.idx
+                    point.pos_b .= R_w_b * (point.pos_w - wing.pos_w)
+                end
+            end
+        end
+    end
+
+    # Collect WING points
+    wing_points = [p for p in points if p.type == SymbolicAWEModels.WING]
+
+    # Extract coordinates and depth based on viewing direction
+    # :front = looking in +x direction (shows y-z plane)
+    # :side = looking in +y direction (shows x-z plane)
+    # :top = looking in -z direction (shows x-y plane)
+    if dir == :top
+        coords = [(p.pos_b[1], p.pos_b[2]) for p in wing_points]
+        depths = [-p.pos_b[3] for p in wing_points]  # -z: lower z = further
+        xlabel, ylabel = "x [m]", "y [m]"
+    elseif dir == :side
+        coords = [(p.pos_b[1], p.pos_b[3]) for p in wing_points]
+        depths = [p.pos_b[2] for p in wing_points]  # +y: higher y = further
+        xlabel, ylabel = "x [m]", "z [m]"
+    else  # :front (default)
+        coords = [(p.pos_b[2], p.pos_b[3]) for p in wing_points]
+        depths = [p.pos_b[1] for p in wing_points]  # +x: higher x = further
+        xlabel, ylabel = "y [m]", "z [m]"
+    end
+
+    x_vals = [c[1] for c in coords]
+    y_vals = [c[2] for c in coords]
+
+    # Compute colors based on depth (closer = red, further = green)
+    if !isempty(depths)
+        d_min, d_max = extrema(depths)
+        d_range = d_max - d_min
+        if d_range > 0
+            norm_d = [(d - d_min) / d_range for d in depths]
+            # Closer (low depth) = red, further (high depth) = green
+            point_colors = [RGBf(1.0 - nd, nd, 0.0) for nd in norm_d]
+        else
+            point_colors = fill(RGBf(0.5, 0.5, 0.0), length(depths))
+        end
+    else
+        point_colors = [:red]
+    end
+
+    # Create figure
+    fig = Figure(size=figsize)
+    ax = Axis(fig[1, 1];
+              xlabel, ylabel,
+              title="Wing Points (Body Frame)",
+              aspect=DataAspect())
+
+    # Helper to get 2D coords from body frame position
+    function get_2d(pos_b)
+        if dir == :top
+            return (pos_b[1], pos_b[2])
+        elseif dir == :side
+            return (pos_b[1], pos_b[3])
+        else  # :front
+            return (pos_b[2], pos_b[3])
+        end
+    end
+
+    # Plot segments as thin gray lines
+    wing_point_idxs = Set(p.idx for p in wing_points)
+    for seg in segments
+        # Only plot segments between wing points
+        from_idx, to_idx = seg.point_idxs
+        if from_idx in wing_point_idxs && to_idx in wing_point_idxs
+            p1 = points[from_idx]
+            p2 = points[to_idx]
+            c1 = get_2d(p1.pos_b)
+            c2 = get_2d(p2.pos_b)
+            lines!(ax, [c1[1], c2[1]], [c1[2], c2[2]];
+                   color=:gray, linewidth=0.5)
+        end
+    end
+
+    # Plot wing points with depth-based coloring
+    scatter!(ax, x_vals, y_vals;
+             markersize=point_size,
+             color=point_colors)
+
+    # Add point indices as labels, placed away from other points
+    for (i, p) in enumerate(wing_points)
+        px, py = coords[i]
+
+        # Calculate direction away from nearby points
+        away_x, away_y = 0.0, 0.0
+        for (j, _) in enumerate(wing_points)
+            if i != j
+                ox, oy = coords[j]
+                dx, dy = px - ox, py - oy
+                dist = sqrt(dx^2 + dy^2) + 0.01
+                # Weight by inverse distance (closer points push harder)
+                away_x += dx / dist^2
+                away_y += dy / dist^2
+            end
+        end
+
+        # Normalize and determine offset direction
+        away_len = sqrt(away_x^2 + away_y^2)
+        if away_len > 0
+            away_x /= away_len
+            away_y /= away_len
+        else
+            away_x, away_y = 1.0, 1.0
+        end
+
+        # Set offset and alignment based on direction
+        offset_dist = 12
+        offset = (offset_dist * sign(away_x), offset_dist * sign(away_y))
+        align_x = away_x >= 0 ? :left : :right
+        align_y = away_y >= 0 ? :bottom : :top
+
+        text!(ax, px, py;
+              text=string(p.idx),
+              fontsize=12,
+              align=(align_x, align_y),
+              offset=offset)
+    end
+
+    # Plot extra points if provided
+    if !isnothing(extra_points)
+        # Transform extra points to body frame
+        wing = wings[1]
+        R_w_b = wing.R_b_w'
+
+        extra_body = [R_w_b * (collect(p) - wing.pos_w) for p in extra_points]
+
+        if dir == :top
+            extra_coords = [(p[1], p[2]) for p in extra_body]
+            extra_depths = [-p[3] for p in extra_body]
+        elseif dir == :side
+            extra_coords = [(p[1], p[3]) for p in extra_body]
+            extra_depths = [p[2] for p in extra_body]
+        else  # :front
+            extra_coords = [(p[2], p[3]) for p in extra_body]
+            extra_depths = [p[1] for p in extra_body]
+        end
+
+        ex_x = [c[1] for c in extra_coords]
+        ex_y = [c[2] for c in extra_coords]
+
+        # Depth-based colors for extra points (same red-to-green as sim)
+        if !isempty(extra_depths)
+            ed_min, ed_max = extrema(extra_depths)
+            ed_range = ed_max - ed_min
+            if ed_range > 0
+                norm_ed = [(d - ed_min) / ed_range for d in extra_depths]
+                extra_colors = [RGBf(1.0 - nd, nd, 0.0) for nd in norm_ed]
+            else
+                extra_colors = fill(RGBf(0.5, 0.5, 0.0), length(extra_depths))
+            end
+        else
+            extra_colors = [:red]
+        end
+
+        scatter!(ax, ex_x, ex_y;
+                 markersize=extra_point_size + 6,
+                 color=extra_colors,
+                 marker=:cross)
+    end
+
+    # Auto-zoom to fit all WING points with margin
+    if !isempty(x_vals)
+        x_min, x_max = extrema(x_vals)
+        y_min, y_max = extrema(y_vals)
+        margin_x = 0.1 * (x_max - x_min + 1)
+        margin_y = 0.1 * (y_max - y_min + 1)
+        limits!(ax, x_min - margin_x, x_max + margin_x,
+                    y_min - margin_y, y_max + margin_y)
+    end
+
+    # Custom legend with depth colors
+    legend_entries = [
+        [MarkerElement(color=RGBf(1, 0, 0), marker=:circle, markersize=10),
+         MarkerElement(color=RGBf(0, 1, 0), marker=:circle, markersize=10)],
+    ]
+    legend_labels = ["sim (● close → far)"]
+
+    if !isnothing(extra_points)
+        push!(legend_entries,
+              [MarkerElement(color=RGBf(1, 0, 0), marker=:cross, markersize=12),
+               MarkerElement(color=RGBf(0, 1, 0), marker=:cross, markersize=12)])
+        push!(legend_labels, "csv (✕ close → far)")
+    end
+
+    Legend(fig[1, 2], legend_entries, legend_labels)
+
+    return fig
+end
+
+"""
+    plot_aoa(sys_struct; wing_idx=1, figsize=(800, 400))
+
+Plot the angle of attack distribution along the wing span.
+
+# Arguments
+- `sys_struct::SystemStructure`: System structure containing the wing with VSM solver
+- `wing_idx::Int`: Index of the wing to plot (default: 1)
+- `figsize`: Figure size tuple (default: (800, 400))
+
+# Returns
+- Figure with angle of attack vs spanwise position
+"""
+function SymbolicAWEModels.plot_aoa(sys_struct::SystemStructure;
+                                    wing_idx::Int=1,
+                                    figsize=(800, 400))
+    wing = sys_struct.wings[wing_idx]
+
+    # Get alpha distribution (in radians)
+    alpha_dist = wing.vsm_solver.sol.alpha_dist
+
+    # Get spanwise positions from panel aero centers
+    y_coords = [panel.aero_center[2] for panel in wing.vsm_aero.panels]
+
+    # Convert to degrees for plotting
+    alpha_deg = rad2deg.(alpha_dist)
+
+    fig = Figure(size=figsize)
+    ax = Axis(fig[1, 1];
+              xlabel="Spanwise position y [m]",
+              ylabel="Angle of attack [deg]",
+              title="Angle of Attack Distribution")
+
+    lines!(ax, y_coords, alpha_deg; linewidth=2)
+    scatter!(ax, y_coords, alpha_deg; markersize=6)
+
+    return fig
 end
 
 end

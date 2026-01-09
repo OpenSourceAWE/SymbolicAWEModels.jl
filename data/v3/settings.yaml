@@ -21,7 +21,7 @@ kite:
     model: ""     # 3D model of the kite
     foil_file: "" # filename for the foil shape
     physical_model: "v3"            # name of the kite model to use (KPS3, KPS4 or SymbolicAWEModel)
-    mass: 23.0                               # kite mass [kg]
+    mass: 18.0                               # kite mass [kg]
     quasi_static: false                     # whether to use quasi static kite points or not
 
 tether:

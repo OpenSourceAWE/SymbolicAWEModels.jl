@@ -88,7 +88,7 @@ function run_v3_kite(wing_type::WingType;
     set.upwind_dir = upwind_dir
 
     # Load YAML structure path
-    model_name = wing_type == QUATERNION ? "v3_quat" : "v3_refine"
+    model_name = wing_type == QUATERNION ? "v3_quat" : "v3"
     struc_yaml_path = joinpath("data", "v3", "struc_geometry_stable.yaml")
 
     # Load VSMSettings
