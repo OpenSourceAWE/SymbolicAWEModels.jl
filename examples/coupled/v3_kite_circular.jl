@@ -186,21 +186,18 @@ function run_v3_kite(;
     end
 
     ## ACTUATION
-    #len_power-tape = 200 + 5000 * up
     #len_steering_tape = 1600 + 1400 * us
     #us < 0 shortens right tape, and lengths left tape, causing a right turn
     #RIGHT len_steering_tape (us = -1) = 1600 - 1400 = 200
     #LEFT len_steering_tape (us = 1) = 1600 + 1400 = 3000
 
     steering_tape_change = 1400 * us / 1000  # Convert mm to m
-    power_tape_change = ((200 + 5000 * up) / 1000) - nominal_l0_88  # Convert mm to m
     vw_change = v_wind - v_wind_base
-
 
     # Time-marching loop
     @info "Starting simulation: $n_steps steps, Δt = $(round(Δt, digits=4)) s"
     @info " Initial lengths (m): segment 87: $(round(nominal_l0_87, digits=4)), segment 88: $(round(nominal_l0_88, digits=4)), segment 89: $(round(nominal_l0_89, digits=4))"
-    @info " Steering tape change (m): $(round(steering_tape_change, digits=4)), Power tape change (m): $(round(power_tape_change, digits=4))"
+    @info " Steering tape change (m): $(round(steering_tape_change, digits=4))"
     sim_start_time = time()
     aoa_log_interval_steps = max(1, Int(round(3.0 / Δt)))  # roughly every 3 seconds
 
@@ -219,28 +216,16 @@ function run_v3_kite(;
         current_damping = max(initial_damping * (1.0 - t / decay_time), min_damping)
         SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, damping_pattern * current_damping)
 
-        # World frame damping: decay from 1000 to 0 over first 1.0s
-        world_damping = t <= 1.0 ? 1000.0 * (1.0 - t) : 0.0
-        SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, world_damping)
-
         # Fixed tether length: brake engaged; only steering ramp is applied
         ramp_factor = min(t / ramp_time, 1.0)
         steering_control = steering_tape_change * ramp_factor
-        power_control = power_tape_change * ramp_factor
         push!(heading_setpoint, 0.0)  # Keep heading setpoint flat for plotting
-
-        # Apply power control
-        sys.segments[88].l0 = nominal_l0_88 + power_control
-        # print every x second & time below 30 sec
-        if step % Int(round(3.0 / Δt)) == 0 && t <= 30.0 && power_tape_change > 1e-4
-            @info "power-tape = $(round(sys.segments[88].l0, digits=4)) m at t=$(round(t, digits=2)) s"
-        end
 
         # Apply differential steering (opposite signs for turning moment)
         sys.segments[87].l0 = nominal_l0_87 + steering_control
         sys.segments[89].l0 = nominal_l0_89 - steering_control
 
-        # Update wind speed linearly
+        # Update wind speed
         sam.sys_struct.set.v_wind = v_wind_base + vw_change
 
         # Apply outward tube bending resistance forces in body-frame ±y directions
@@ -347,12 +332,12 @@ end
     vw = 11.1  # {{{ 10.  <> 15.0 }}} suitable range?
     lt = 225  # problems when changing...
 
-    sim_time = 40.0
-    decay_time = 10.0 #2secs works better than 3 somehow
-    ramp_time = 10.0 #2sec
+    sim_time = 10.0
+    decay_time = 2.0 #2secs works better than 3 somehow
+    ramp_time = 2.0 #2sec
     fps = 120
     initial_damping = 10.0
-    damping_pattern = [0.0, 100.0, 100.0]
+    damping_pattern = [10.0, 100.0, 100.0]
     min_damping = 1.0
     tube_bending_resistance = 0  # N
 

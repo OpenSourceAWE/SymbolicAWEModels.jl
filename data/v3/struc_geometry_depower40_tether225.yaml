@@ -351,7 +351,7 @@ transforms:
   data:
     # Main transform for v3 kite wing
     - idx: 1
-      elevation: 80
+      elevation: 60
       azimuth: 0.0
       heading: 0.0
       wing_idx: 1           # Transform applies to wing 1
