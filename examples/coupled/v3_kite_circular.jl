@@ -30,47 +30,6 @@ WINCH_I = 100.0     # Integral gain [N/(m·s)]
 WINCH_D = 50.0      # Derivative gain [N·s/m]
 
 """
-    adjust_tether_length!(sam::SymbolicAWEModel, tether_length_raw; tether_point_idxs=39:44)
-
-Update the winch rest length, reposition tether points in CAD/body frames,
-and reapply the main transform so the wing stays at the requested tether radius.
-"""
-function adjust_tether_length!(sam::SymbolicAWEModel, tether_length_raw; tether_point_idxs=39:44)
-    tether_length = float(tether_length_raw)
-    sys = sam.sys_struct
-    set = sam.set
-
-    if !isempty(set.l_tethers)
-        set.l_tethers[1] = tether_length
-    end
-
-    n_points = length(tether_point_idxs)
-    for (n, p_idx) in enumerate(tether_point_idxs)
-        pos = (0.0, 0.0, -n * tether_length / n_points)
-        sys.points[p_idx].pos_cad .= pos
-        sys.points[p_idx].pos_b .= pos
-    end
-
-    if !isempty(sys.transforms)
-        transform = sys.transforms[1]
-        if !isempty(sys.wings) && norm(sys.wings[1].pos_w) > 0
-            target_pos = normalize(sys.wings[1].pos_w) * tether_length
-            transform.elevation = KiteUtils.calc_elevation(target_pos)
-            transform.azimuth = KiteUtils.azimuth_east(target_pos)
-        end
-        SymbolicAWEModels.reinit!([transform], sys)
-    end
-
-    if !isempty(sys.winches)
-        winch = sys.winches[1]
-        winch.tether_len = tether_length
-        winch.tether_vel = 0.0
-        winch.brake = true
-    end
-    return nothing
-end
-
-"""
     run_v3_kite(; kwargs...)
 
 Run a v3 kite simulation using the REFINE wing type.
@@ -142,14 +101,18 @@ function run_v3_kite(;
     # set.l_tethers[1] = tether_length
     set.v_reel_outs[1] = 0.0
 
-    # Load YAML structure path
+    # Load YAML structure path based on depower and tether length
     model_name = "v3"
-    struc_yaml_path = joinpath("data", "v3", "CORRECT_struc_geometry.yaml")
+    depower_int = Int(round(up * 100))
+    tether_int = Int(round(tether_length))
+    struc_yaml_path = joinpath("data", "v3",
+        "struc_geometry_depower$(depower_int)_tether$(tether_int).yaml")
+    aero_yaml_path = "data/v3/aero_geometry_depower$(depower_int)_tether$(tether_int).yaml"
 
     # Load VSMSettings
     vsm_set_path = joinpath(get_data_path(), "CORRECT_vsm_settings.yaml")
     vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
-    vsm_set.wings[1].geometry_file = "data/v3/CORRECT_aero_geometry.yaml"
+    vsm_set.wings[1].geometry_file = aero_yaml_path
 
     # Use 36 panels for both wing types (matches vsm_settings.yaml default)
     vsm_set.wings[1].n_panels = 36
@@ -168,7 +131,6 @@ function run_v3_kite(;
 
     # Create symbolic model
     sam = SymbolicAWEModel(set, sys)
-    adjust_tether_length!(sam, tether_length)
 
     # Apply steering
     # sys.segments[87].l0 += max_steering
@@ -176,10 +138,10 @@ function run_v3_kite(;
 
     # Initialize model
     n_unrefined = sys.wings[1].vsm_wing.n_unrefined_sections
-    SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
-    # hold tether length (no dynamic reel-in)
+    sam.set.l_tether = tether_length
+    sam.sys_struct.winches[1].tether_len = tether_length
     sam.sys_struct.winches[1].brake = true
-    # reset_tether_length!(sam, tether_length)
+    SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
     # SymbolicAWEModels.reinit!(sam, sam.prob, SymbolicAWEModels.FBDF())
 
     # Create logger
@@ -252,9 +214,13 @@ function run_v3_kite(;
     for step in 1:n_steps
         t = step * Δt
 
-        # Update damping: decay to min_damping
+        # Update body frame damping: decay to min_damping
         current_damping = max(initial_damping * (1.0 - t / decay_time), min_damping)
         SymbolicAWEModels.set_body_frame_damping(sam.sys_struct, damping_pattern * current_damping)
+
+        # World frame damping: decay from 1000 to 0 over first 1.0s
+        world_damping = t <= 1.0 ? 1000.0 * (1.0 - t) : 0.0
+        SymbolicAWEModels.set_world_frame_damping(sam.sys_struct, world_damping)
 
         # Fixed tether length: brake engaged; only steering ramp is applied
         ramp_factor = min(t / ramp_time, 1.0)
@@ -384,8 +350,8 @@ end
     decay_time = 10.0 #2secs works better than 3 somehow
     ramp_time = 10.0 #2sec
     fps = 600
-    initial_damping = 200.0
-    damping_pattern = [0.0, 30.0, 60.0]
+    initial_damping = 10.0
+    damping_pattern = [100.0, 100.0, 100.0]
     min_damping = 1.0
     tube_bending_resistance = 0  # N
 

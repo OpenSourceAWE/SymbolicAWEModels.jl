@@ -23,17 +23,17 @@ using CSV, DataFrames
 # Configuration
 WORLD_DAMPING = 1000.0  # Ns/m
 DECAY_STEPS = 5000     # Steps over which damping decays to zero
-NUM_STEPS = 2000
+NUM_STEPS = 4000
 DT = 0.1  # seconds
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
 DEPOWER_PERCENTAGE = 40   # depower [0, 100]
 SOURCE_STRUC_PATH = "data/v3/CORRECT_struc_geometry.yaml"
-DEST_STRUC_PATH = "data/v3/struc_geometry_stable_$(DEPOWER_PERCENTAGE).yaml"
 SOURCE_AERO_PATH = "data/v3/CORRECT_aero_geometry.yaml"
-DEST_AERO_PATH = "data/v3/aero_geometry_stable_$(DEPOWER_PERCENTAGE).yaml"
+TETHER_LENGTH = 225  # Total tether length (m), 6 segments
+DEST_STRUC_PATH = "data/v3/struc_geometry_depower$(DEPOWER_PERCENTAGE)_tether$(TETHER_LENGTH).yaml"
+DEST_AERO_PATH = "data/v3/aero_geometry_depower$(DEPOWER_PERCENTAGE)_tether$(TETHER_LENGTH).yaml"
 WIND_VEL = 20.0
 ELEVATION = 75
-TETHER_LENGTH = 212.68  # Total tether length (m), 6 segments
 EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
 LE_FRAC = 0.95  # Factor to reduce l0 of LE struts (segments 20-28)
 TIP_REDUCTION = 0.4
@@ -174,6 +174,10 @@ sys.segments[58].l0 -= TIP_REDUCTION
 
 # Set initial world frame damping (will decay over DECAY_STEPS)
 SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING)
+
+# Set constant body frame damping
+BODY_DAMPING = 100.0
+SymbolicAWEModels.set_body_frame_damping(sys, BODY_DAMPING)
 
 wing_points = [p for p in sys.points if p.type == WING]
 @info "System setup" n_wing_points=length(wing_points) n_points=length(sys.points) n_segments=length(sys.segments)
