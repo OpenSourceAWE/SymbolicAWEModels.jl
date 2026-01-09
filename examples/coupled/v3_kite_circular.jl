@@ -142,6 +142,7 @@ function run_v3_kite(;
     sam.sys_struct.winches[1].tether_len = tether_length
     sam.sys_struct.winches[1].brake = true
     SymbolicAWEModels.init!(sam; remake=remake_cache, ignore_l0=false, remake_vsm=true)
+    @show rad2deg(sam.sys_struct.transforms[1].elevation)
     # SymbolicAWEModels.reinit!(sam, sam.prob, SymbolicAWEModels.FBDF())
 
     # Create logger
@@ -340,18 +341,18 @@ end
 # ==========================================
 # ============= Main Execution =============
 # ==========================================
-    us = 0.15  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
+    us = 0.05  # {{{ 0.0  <> 0.30 }}} suitable range ~kite-as-a-sensor
     up = 0.4 # 22  # {{{ 0.4 <> 0.5 }}} 0.5858 is baseline ~PIM's thesis
     #0.4151powered and #0.5012depowered #0.39 during turns
     vw = 11.1  # {{{ 10.  <> 15.0 }}} suitable range?
     lt = 225  # problems when changing...
 
-    sim_time = 5.0
+    sim_time = 40.0
     decay_time = 10.0 #2secs works better than 3 somehow
     ramp_time = 10.0 #2sec
-    fps = 600
+    fps = 120
     initial_damping = 10.0
-    damping_pattern = [100.0, 100.0, 100.0]
+    damping_pattern = [0.0, 100.0, 100.0]
     min_damping = 1.0
     tube_bending_resistance = 0  # N
 
