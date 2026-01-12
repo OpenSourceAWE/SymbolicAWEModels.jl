@@ -25,14 +25,10 @@ using DiscretePIDs
 
 include("../examples/coupled/utils.jl")
 
-# Configuration - Reduction flags
-REDUCE_TIP_LE = true         # Reduce tip LE segments (47,48,57,58)
-REDUCE_TE = true             # Reduce TE segments
-
 # Configuration - Simulation
 WORLD_DAMPING = 1000.0  # Ns/m
-DECAY_STEPS = 20     # Steps over which damping decays to zero
 NUM_STEPS = 4000
+MIN_DAMPING = 10.0  # Ns/m
 DT = 0.1  # seconds
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
 DEPOWER_PERCENTAGE = 40   # depower [0, 100]
@@ -41,7 +37,6 @@ ELEVATION = 60
 TETHER_LENGTH = 240  # Total tether length (m), 6 segments
 EXTRA_POINTS_CSV = "data/v3/straight_flight_reelout_frame_7182.csv"
 EXTRA_POINTS_FRAME = 7182
-# FLIGHT_CSV = "data/v3/2025-10-09_16-58-33_ProtoLogger_lidar.csv"
 FLIGHT_CSV = "data/v3/v3_2025-10-09-ekf.csv"
 
 # Video frame mapping (video_frame 7182 = UTC 15:36:31.0)
@@ -49,14 +44,13 @@ VIDEO_FRAME_REF = 7182
 UTC_REF_SECONDS = 15*3600 + 36*60 + 31.0
 VIDEO_FPS = 29.97
 
-TE_FRAC = 0.95  # Factor to reduce l0 of TE wires (segments 20-28)
-TIP_REDUCTION = 0.4
+# Geometry reductions
+TE_FRAC = 0.95       # Factor for TE wires (segments 20-28), 1.0 = no change
+TIP_REDUCTION = 0.4  # Tip LE reduction (m), 0.0 = no change
+L0_REDUCTION = 0.2   # Reduction for steering/depower L0 (m), 0.0 = no change
 
 # Build destination filename suffix
-TETHER_INT = Int(round(TETHER_LENGTH))
-TIP_LE_STR = REDUCE_TIP_LE ? "tipLE" : "no_tipLE"
-TE_STR = REDUCE_TE ? "TE$(Int(round(TE_FRAC*100)))" : "no_TE"
-DEST_SUFFIX = "depower$(DEPOWER_PERCENTAGE)_tether$(TETHER_INT)_$(TIP_LE_STR)_$(TE_STR)"
+DEST_SUFFIX = "l0$(L0_REDUCTION)_tip$(TIP_REDUCTION)_te$(TE_FRAC)"
 
 SOURCE_STRUC_PATH = "data/v3/CORRECT_struc_geometry.yaml"
 DEST_STRUC_PATH = "data/v3/struc_geometry_$(DEST_SUFFIX).yaml"
@@ -64,9 +58,9 @@ SOURCE_AERO_PATH = "data/v3/CORRECT_aero_geometry.yaml"
 DEST_AERO_PATH = "data/v3/aero_geometry_$(DEST_SUFFIX).yaml"
 
 # V3 Kite steering/depower calibration (from KCU documentation)
-STEERING_L0 = 1.4  # Neutral steering tape length (m)
+STEERING_L0 = 1.6 - L0_REDUCTION  # Neutral steering tape length (m)
 STEERING_GAIN = 1.4  # Maximum differential (m) at |u_s| = 1
-DEPOWER_L0 = 0.0
+DEPOWER_L0 = 0.2 - L0_REDUCTION   # Neutral depower tape length (m)
 DEPOWER_GAIN = 5.0
 
 # Heading controller parameters
@@ -112,7 +106,7 @@ function utc_to_video_frame(utc_seconds::Float64)
 end
 
 @info "Settling REFINE wing with world frame damping..."
-@info "Configuration" WORLD_DAMPING DECAY_STEPS NUM_STEPS DT total_time=NUM_STEPS*DT
+@info "Configuration" WORLD_DAMPING NUM_STEPS DT total_time=NUM_STEPS*DT
 
 # Load settings
 set_data_path("data/v3")
@@ -146,23 +140,17 @@ for seg_idx in 90:95
 end
 @info "Tether configured" TETHER_LENGTH segment_len
 
-# Apply reductions based on flags
-if REDUCE_TIP_LE
-    sys.segments[47].l0 -= TIP_REDUCTION
-    sys.segments[48].l0 -= TIP_REDUCTION
-    sys.segments[57].l0 -= TIP_REDUCTION
-    sys.segments[58].l0 -= TIP_REDUCTION
-    @info "Tip LE reduced" TIP_REDUCTION
+# Apply geometry reductions
+sys.segments[47].l0 -= TIP_REDUCTION
+sys.segments[48].l0 -= TIP_REDUCTION
+sys.segments[57].l0 -= TIP_REDUCTION
+sys.segments[58].l0 -= TIP_REDUCTION
+for seg_idx in 20:28
+    sys.segments[seg_idx].l0 *= TE_FRAC
 end
+@info "Reductions applied" TIP_REDUCTION TE_FRAC
 
-if REDUCE_TE
-    for seg_idx in 20:28
-        sys.segments[seg_idx].l0 *= TE_FRAC
-    end
-    @info "TE wires l0 reduced" TE_FRAC
-end
-
-# Set initial world frame damping (will decay over DECAY_STEPS)
+# Set initial world frame damping (decays linearly to MIN_DAMPING)
 SymbolicAWEModels.set_world_frame_damping(sys, WORLD_DAMPING)
 SymbolicAWEModels.set_body_frame_damping(sys, 300.0)
 
@@ -211,11 +199,9 @@ log!(logger, sys_state)
 for step in 1:NUM_STEPS
     t = step * DT
 
-    # Decay world damping exponentially over DECAY_STEPS
-    if step <= DECAY_STEPS
-        damping = WORLD_DAMPING * exp(-3.0 * step / DECAY_STEPS)
-        SymbolicAWEModels.set_world_frame_damping(sys, damping)
-    end
+    # Linear damping decrease over entire simulation
+    damping = max(WORLD_DAMPING * (1.0 - step / NUM_STEPS), MIN_DAMPING)
+    SymbolicAWEModels.set_world_frame_damping(sys, damping)
 
     # Heading control
     wing = sys.wings[1]
@@ -248,9 +234,7 @@ for step in 1:NUM_STEPS
     # Progress updates
     if step % 20 == 0 || step == NUM_STEPS
         wing = sys.wings[1]
-        current_damping = step <= DECAY_STEPS ?
-            WORLD_DAMPING * exp(-3.0 * step / DECAY_STEPS) : 0.0
-        @info "Step $step/$NUM_STEPS (t = $(round(t, digits=2)) s)" damping=round(current_damping, digits=1) elevation=round(rad2deg(wing.elevation), digits=2) azimuth=round(rad2deg(wing.azimuth), digits=2) heading=round(rad2deg(wing.heading), digits=2)
+        @info "Step $step/$NUM_STEPS (t = $(round(t, digits=2)) s)" damping=round(damping, digits=1) elevation=round(rad2deg(wing.elevation), digits=2) azimuth=round(rad2deg(wing.azimuth), digits=2) heading=round(rad2deg(wing.heading), digits=2)
     end
 end
 
@@ -335,11 +319,19 @@ for dir in (:front, :side, :top)
     @info "Plot saved" pdf_filename
 end
 
+# Define ylims for plots
+plot_ylims = Dict(
+    :winch_force => (0, 2000),
+    :heading => (-180, 180),
+    :aoa => (0, 25),
+)
+
 # Save 2D plot
 fig = plot([sam.sys_struct], [syslog];
      plot_tether=false, plot_aero_force=false, plot_kite_vel=true,
      plot_wind=false, plot_reelout=false, plot_v_app=true, plot_turn_rates=false,
-     plot_winch_force=true, setpoints)
+     plot_winch_force=true, plot_heading=true, plot_course=false, plot_aoa=true,
+     setpoints, ylims=plot_ylims, suffixes=["sim"])
 pdf_2d = "data/v3/settle_2d_frame$(EXTRA_POINTS_FRAME)_$(DEST_SUFFIX).pdf"
 save(pdf_2d, fig)
 @info "Plot saved" pdf_2d
@@ -349,4 +341,5 @@ GLMakie.activate!()
 fig = plot([sam.sys_struct], [syslog];
      plot_tether=false, plot_aero_force=false, plot_kite_vel=true,
      plot_wind=false, plot_reelout=false, plot_v_app=true, plot_turn_rates=false,
-     plot_winch_force=true, setpoints)
+     plot_winch_force=true, plot_heading=true, plot_course=false, plot_aoa=true,
+     setpoints, ylims=plot_ylims, suffixes=["sim"])
