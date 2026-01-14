@@ -28,7 +28,7 @@ include("../examples/coupled/utils.jl")
 # Configuration - Simulation
 WORLD_DAMPING = 1000.0  # Ns/m
 NUM_STEPS = 4000
-MIN_DAMPING = 10.0  # Ns/m
+MIN_DAMPING = 50.0  # Ns/m
 DT = 0.1  # seconds
 STEERING_PERCENTAGE = 0.0  # steering [-100, 100]
 DEPOWER_PERCENTAGE = 40   # depower [0, 100]
@@ -212,6 +212,7 @@ for step in 1:NUM_STEPS
     steering_control = DiscretePIDs.calculate_control!(
         heading_pid, 0.0, delta_heading, 0.0)
     L_left, L_right = steering_percentage_to_lengths(STEERING_PERCENTAGE)
+    @show steering_control
     sys.segments[87].l0 = L_left + STEERING_GAIN * steering_control
     sys.segments[89].l0 = L_right - STEERING_GAIN * steering_control
 
@@ -324,6 +325,7 @@ plot_ylims = Dict(
     :winch_force => (0, 2000),
     :heading => (-180, 180),
     :aoa => (0, 25),
+    :v_app => (0, 15),
 )
 
 # Save 2D plot
@@ -331,7 +333,7 @@ fig = plot([sam.sys_struct], [syslog];
      plot_tether=false, plot_aero_force=false, plot_kite_vel=true,
      plot_wind=false, plot_reelout=false, plot_v_app=true, plot_turn_rates=false,
      plot_winch_force=true, plot_heading=true, plot_course=false, plot_aoa=true,
-     setpoints, ylims=plot_ylims, suffixes=["sim"])
+     setpoints, ylims=plot_ylims, suffixes=["sim"], size=(800, 500))
 pdf_2d = "data/v3/settle_2d_frame$(EXTRA_POINTS_FRAME)_$(DEST_SUFFIX).pdf"
 save(pdf_2d, fig)
 @info "Plot saved" pdf_2d
@@ -342,4 +344,4 @@ fig = plot([sam.sys_struct], [syslog];
      plot_tether=false, plot_aero_force=false, plot_kite_vel=true,
      plot_wind=false, plot_reelout=false, plot_v_app=true, plot_turn_rates=false,
      plot_winch_force=true, plot_heading=true, plot_course=false, plot_aoa=true,
-     setpoints, ylims=plot_ylims, suffixes=["sim"])
+     setpoints, ylims=plot_ylims, suffixes=["sim"], size=(800, 500))

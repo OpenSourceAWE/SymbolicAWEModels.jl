@@ -1456,12 +1456,10 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
     axes = []
     label_fontsize = 16
     for (i, panel) in enumerate(panels)
-        # Share x-axis with first subplot
-        if i == 1
-            ax = Axis(fig[i, 1], ylabel=panel.ylabel, ylabelsize=label_fontsize)
-        else
-            ax = Axis(fig[i, 1], ylabel=panel.ylabel, ylabelsize=label_fontsize,
-                      xticklabelsvisible=false)
+        # All panels hide x tick labels; bottom panel enables them later
+        ax = Axis(fig[i, 1], ylabel=panel.ylabel, ylabelsize=label_fontsize,
+                  xticklabelsvisible=false)
+        if i > 1
             linkxaxes!(axes[1], ax)
         end
 
@@ -1478,11 +1476,6 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
         # Apply ylims if specified
         if haskey(panel, :ylim) && !isnothing(panel.ylim)
             Makie.ylims!(ax, panel.ylim...)
-        end
-
-        # Add legend if multiple traces
-        if length(panel.data) > 1
-            axislegend(ax, position=:rt)
         end
 
         # Display error info as text annotation with white background if present
@@ -1506,6 +1499,11 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
     axes[end].xlabel = L"t \; [s]"
     axes[end].xlabelsize = label_fontsize
     axes[end].xticklabelsvisible = true
+
+    # Add single shared legend if multiple traces
+    if !isempty(panels) && length(panels[1].data) > 1
+        Legend(fig[1:n_panels, 2], axes[1], framevisible=false)
+    end
 
     Makie.resize_to_layout!(fig)
     return fig

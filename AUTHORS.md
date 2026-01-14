@@ -10,3 +10,4 @@ SPDX-License-Identifier: MPL-2.0
 
 ## Contributors
 - Uwe Fechner, Delft, Netherlands
+- Jelle Agatho Wilhelm Poland
