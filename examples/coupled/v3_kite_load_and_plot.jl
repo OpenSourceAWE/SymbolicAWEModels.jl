@@ -301,14 +301,14 @@ function plot_time_series(lg, sam)
                plot_heading=false, 
                plot_elevation=true,
                plot_azimuth=true, 
-               plot_winch_force=false, 
+               plot_winch_force=true, 
                plot_set_values=false,
                plot_us=true,
                plot_tether_actual=false,
-               plot_turn_radius=true,
+               plot_turn_radius=false,
                turn_radius_ylims=(0.0, 40.0),
-               plot_cs=true,
-               cs_ylims=(0.0, 0.02)             
+               plot_cs=false,
+               cs_ylims=(0.0, 0.02),
          )
       return fig
 end
@@ -671,7 +671,10 @@ end
 
 # log_name = "batch_2026_01_07_10_58_14/circle__up_24_us_15_vw_8_lt_260_run_008_date_2026_01_07_11_26_11"
 # log_name = "zenith_circle__up_40_us_20_vw_15_lt_275_date_2026_01_09_14_49"
-log_name = "batch_2026_01_08_15_52_33/circle__up_22_us_22_vw_9_lt_275_run_004_date_2026_01_08_15_58_42"
+# log_name = "circular_2019_batch_2026_01_10_12_01_04/circle__up_18_us_15_vw_9_lt_268_run_005_date_2026_01_10_12_11_49"
+# log_name = "circular_2025_batch_2026_01_10_11_28_38/circle__up_42_us_20_vw_8_lt_262_run_007_date_2026_01_10_11_42_53"
+log_name = "circular_up_varying_batch_2026_01_11_11_29_19/circle__up_38_us_8_vw_8_lt_262_run_062_date_2026_01_11_17_09_20"
+# log_name = "zenith_circle__up_42_us_20_vw_8_lt_262_date_2026_01_10_09_54"
 lg, sam, up, us, v_wind, lt = load_log_and_system(log_name=log_name)
 
 # Log alignment info before plotting to decide tension source

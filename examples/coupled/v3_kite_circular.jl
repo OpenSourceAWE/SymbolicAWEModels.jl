@@ -422,10 +422,10 @@ end
 # ==========================================
 # ============= Main Execution =============
 # ==========================================
-    us = 0.05 #0.35 # 2019: 0.35 2025: 0.21
-    up = 0.42 #0.18 # 2019: 0.18 2025: 0.42 (0.4151powered and #0.5012depowered #0.39 during turns)
-    vw = 7.6  #8.6  # 2019: 8.6  2025: 7.6 # {{{ 10.  <> 15.0 }}} suitable range?
-    lt = 262  #268  # 2019: 268  2025: 262  
+    us = 0.15 # 0.05 #0.35 # 2019: 0.35 2025: 0.21
+    up = 0.18 # 0.42 #0.18 # 2019: 0.18 2025: 0.42 (0.4151powered and #0.5012depowered #0.39 during turns)
+    vw = 8.6  # 7.6  #8.6  # 2019: 8.6  2025: 7.6 # {{{ 10.  <> 15.0 }}} suitable range?
+    lt = 268  # 262  #268  # 2019: 268  2025: 262  
     sim_time = 60.0
     decay_time = 2.0 #2secs works better than 3 somehow
     ramp_start_time_up = 0.1
@@ -438,7 +438,7 @@ end
     damping_pattern = [0.0, 0.0, 20.0]
     min_damping = 1.0
     tube_bending_resistance = 0  # N
-    elevation = 20.0  # degrees
+    elevation = 80.0  # degrees
 
 
     syslog_refine, sam_refine, heading_setpoint_refine = run_v3_kite(

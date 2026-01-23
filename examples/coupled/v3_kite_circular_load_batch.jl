@@ -516,10 +516,14 @@ function analyze_log(lg, sys; window_sec::Real=WINDOW_SEC)
     # Initialize time-series dictionaries
     usva_at = Dict{Int, Float64}()
     yaw_rate_at = Dict{Int, Float64}()
+    va_at = Dict{Int, Float64}()
+    aoa_at = Dict{Int, Float64}()
     
     for t_sec in 3:10
         usva_at[t_sec] = mean_at_time(usva, sl.time, Float64(t_sec))
         yaw_rate_at[t_sec] = mean_at_time(yaw_rate_deg, yaw_rate_time, Float64(t_sec))
+        va_at[t_sec] = mean_at_time(sl.v_app, sl.time, Float64(t_sec))
+        aoa_at[t_sec] = mean_at_time(aoa_deg, sl.time, Float64(t_sec))
     end
 
     return (
@@ -536,7 +540,9 @@ function analyze_log(lg, sys; window_sec::Real=WINDOW_SEC)
         cs=cs,
         turn_radius=turn_radius,
         usva_at=usva_at,
-        yaw_rate_at=yaw_rate_at
+        yaw_rate_at=yaw_rate_at,
+        va_at=va_at,
+        aoa_at=aoa_at
     )
 end
 
@@ -561,6 +567,8 @@ function write_csv(path::AbstractString, rows)
     for t in 3:10
         push!(time_cols, "usva_$t")
         push!(time_cols, "yaw_rate_$t")
+        push!(time_cols, "va$(t)")
+        push!(time_cols, "aoa$(t)")
     end
     header = base_cols * "," * join(time_cols, ",")
     
@@ -575,6 +583,8 @@ function write_csv(path::AbstractString, rows)
             for t in 3:10
                 push!(time_vals, r.usva_at[t])
                 push!(time_vals, r.yaw_rate_at[t])
+                push!(time_vals, r.va_at[t])
+                push!(time_vals, r.aoa_at[t])
             end
             println(io, join(vcat(base_vals, time_vals), ","))
         end
@@ -583,7 +593,7 @@ end
 
 function main()
     batch_name = isempty(ARGS) ? "" : strip(ARGS[1])
-    batch_name = "circular_2025_batch_2026_01_11_11_29_19"
+    batch_name = "circular_2019_batch_2026_01_10_12_01_04"
     if isempty(batch_name)
         print("Enter batch folder name (e.g. batch_2026_01_07_10_04_38): ")
         batch_name = strip(readline())
@@ -624,7 +634,9 @@ function main()
             cs=metrics.cs,
             turn_radius=metrics.turn_radius,
             usva_at=metrics.usva_at,
-            yaw_rate_at=metrics.yaw_rate_at
+            yaw_rate_at=metrics.yaw_rate_at,
+            va_at=metrics.va_at,
+            aoa_at=metrics.aoa_at
         ))
     end
 

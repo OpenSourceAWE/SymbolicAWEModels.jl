@@ -1774,7 +1774,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "us [%]\nsteering"
+            ylabel = "u_s (-)", # \nsteering"
         ))
     end
 
@@ -1990,7 +1990,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "va [m/s]"
+            ylabel = "v_a (ms^-1)",
         ))
     end
 
@@ -2030,7 +2030,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "α_w [°]\nangle of attack",
+            ylabel = "α_w (°)",#\nangle of attack",
             ylims = aoa_ylims
         ))
     end
@@ -2186,7 +2186,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "β [°]\nelevation"
+            ylabel = "β (°)",#\nelevation"
         ))
     end
 
@@ -2206,7 +2206,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = "ɸ [°]\nazimuth"
+            ylabel = "ɸ (°)",#\nazimuth"
         ))
     end
 
@@ -2232,7 +2232,7 @@ function Makie.plot(syss::Vector{SystemStructure}, logs::Vector{<:SysLog};
                 data = all_data,
                 labels = all_labels,
                 times = all_times,
-                ylabel = "Winch force [N]"
+                ylabel = "F_t ground (N)",#Winch force [N]"
             ))
         end
     end
