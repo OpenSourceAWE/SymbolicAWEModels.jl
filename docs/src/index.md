@@ -131,4 +131,4 @@ If you have questions or problems, please submit an
 The Julia community is also very helpful:
 [Julia Discourse](https://discourse.julialang.org/).
 
-Authors: Bart van de Lint (bart@vandelint.net), Uwe Fechner (uwe.fechner.msc@gmail.com)
+Authors: Bart van de Lint (bart@vandelint.net), Uwe Fechner (uwe.fechner.msc@gmail.com), Jelle Poland

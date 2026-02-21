@@ -13,28 +13,49 @@ SPDX-License-Identifier: MPL-2.0
 
 ## Overview
 
-**SymbolicAWEModels.jl** provides modular symbolic models for simulating Airborne Wind Energy (AWE) systems, including:
+**SymbolicAWEModels.jl** is a **compiler** for mechanical systems, built for
+**Airborne Wind Energy** (AWE) modelling. It takes a structural description
+of a system — defined in Julia code or a YAML file — and compiles it into
+an efficient ODE solver using
+[ModelingToolkit.jl](https://github.com/SciML/ModelingToolkit.jl).
 
-- One or more wings (kites)
-- Tethers (with or without pulleys)
-- Winches
-- Bridle systems
+```
+ Define Components         Assemble             Compile            Simulate
+┌──────────────────┐   ┌──────────────┐    ┌─────────────────┐    ┌────────────┐
+│ Point, Segment,  │──▶│ System       │───▶│ SymbolicAWE     │───▶│ init!()    │
+│ Wing, Winch, ... │   │ Structure    │    │ Model           │    │ next_step! │
+│                  │   │              │    │ (symbolic eqs → │    │ sim!()     │
+│ Julia or YAML    │   │ (resolves    │    │  ODEProblem)    │    │            │
+│                  │   │  references) │    │                 │    │            │
+└──────────────────┘   └──────────────┘    └─────────────────┘    └────────────┘
+```
 
-The kite is modeled as a deforming rigid body with quaternion dynamics for orientation. Aerodynamic forces and moments are computed using the [Vortex Step Method](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl). Tethers are modeled as point masses connected by spring-damper elements with realistic drag. Winches are modeled as motors/generators that can reel tethers in/out.
+The first compilation is slow (minutes) as ModelingToolkit generates and
+simplifies the symbolic equations. The result is cached to a binary file,
+making subsequent runs fast (seconds).
 
-### Modular Subcomponents
+### What can it model?
 
-- **AtmosphericModel** from [AtmosphericModels.jl](https://github.com/aenarete/AtmosphericModels.jl)
-- **WinchModel** from [WinchModels.jl](https://github.com/aenarete/WinchModels.jl)
-- **Aerodynamics** via [VortexStepMethod.jl](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
+SymbolicAWEModels provides building blocks for flexible mechanical systems:
 
-This package is part of the Julia Kite Power Tools ecosystem:
+- **Point** masses — static, dynamic, or quasi-static nodes
+- **Segment** spring-dampers — with per-unit-length stiffness, damping,
+  and drag
+- **Tether**s — collections of segments controlled by a winch
+- **Winch**es — torque-controlled motors with Coulomb and viscous friction
+- **Pulley**s — equal-tension constraints between segments
+- **Wing**s — rigid body quaternion dynamics with aerodynamic forces from
+  the [Vortex Step Method](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
+- **Group**s — twist degrees of freedom for aeroelastic coupling
+- **Transform**s — spherical coordinate positioning of components
 
-![Julia Kite Power Tools](docs/src/kite_power_tools.png)
+These components can be combined to model a wide range of systems, from
+simple hanging masses to complex kite power systems with multiple tethers,
+bridles, and wings.
 
 ---
 
-## Installation
+## Quick Start
 
 Install Julia using [juliaup](https://github.com/JuliaLang/juliaup):
 
@@ -44,45 +65,71 @@ juliaup add release
 juliaup default release
 ```
 
-**Quick Start:**
+Create a project and add SymbolicAWEModels:
 
 ```bash
-mkdir my_kite_project
-cd my_kite_project
+mkdir my_project && cd my_project
 julia --project="."
 ```
-
-Then add the package and copy examples:
 
 ```julia
 using Pkg
 pkg"add SymbolicAWEModels"
-
-using SymbolicAWEModels
-SymbolicAWEModels.init_module()  # Copies examples and installs dependencies
 ```
 
-Run the interactive example menu:
+### Minimal example — a pendulum
 
 ```julia
-include("examples/menu.jl")
+using SymbolicAWEModels
+
+set = Settings("system.yaml")
+set.v_wind = 0.0
+
+# Define components using symbolic names
+points = [
+    Point(:anchor, [0, 0, 0], STATIC),
+    Point(:mass, [0, 0, -50], DYNAMIC; extra_mass=1.0),
+]
+segments = [Segment(:spring, set, :anchor, :mass, BRIDLE)]
+transforms = [Transform(:tf, deg2rad(-80), 0.0, 0.0;
+    base_pos=[0, 0, 50], base_point=:anchor, rot_point=:mass)]
+
+# Assemble and compile
+sys = SystemStructure("pendulum", set; points, segments, transforms)
+sam = SymbolicAWEModel(set, sys)
+init!(sam)
+
+# Simulate
+for _ in 1:100
+    next_step!(sam)
+end
 ```
 
-> **Note:** The first run will be slow (several minutes) due to compilation. Run a second time for a significant speedup - subsequent runs will be much faster.
+For the full tutorial, see
+[Building a System using Julia](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/tutorial_julia/).
+For YAML-based model definition, see
+[Building a System using YAML](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/tutorial_yaml/).
 
-See the [Getting Started Guide](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/getting_started/) for detailed instructions for registry users, cloned package users, and developers.
+> **Note:** The first run will be slow (several minutes) due to
+> compilation. Subsequent runs will be much faster thanks to binary
+> caching.
+
+See the [Getting Started Guide](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/getting_started/)
+for detailed instructions.
 
 ---
 
 ## Kite Models
 
-SymbolicAWEModels provides the building blocks for assembling kite models from
-YAML or Julia constructors. Ready-to-use kite models live in dedicated packages:
+SymbolicAWEModels provides the building blocks for assembling kite models
+from YAML or Julia constructors. Ready-to-use kite models live in dedicated
+packages:
 
-- **[RamAirKite.jl](https://github.com/OpenSourceAWE/RamAirKite.jl)** — Ram
-  air kite with bridle system, 4-tether steering, and deformable wing groups
-- **[V3Kite.jl](https://github.com/OpenSourceAWE/V3Kite.jl)** — TU Delft V3
-  leading-edge-inflatable kite, YAML-based configuration
+- **[RamAirKite.jl](https://github.com/OpenSourceAWE/RamAirKite.jl)** —
+  Ram air kite with bridle system, 4-tether steering, and deformable wing
+  groups
+- **[V3Kite.jl](https://github.com/OpenSourceAWE/V3Kite.jl)** — TU Delft
+  V3 leading-edge-inflatable kite, YAML-based configuration
 
 ### 2-Plate Kite Example
 
@@ -92,33 +139,81 @@ A minimal coupled aero-structural model included in `data/2plate_kite/`:
 using SymbolicAWEModels, VortexStepMethod
 
 set_data_path("data/2plate_kite")
+
+# Sync aero geometry from structural geometry
 struc_yaml = joinpath(get_data_path(), "quat_struc_geometry.yaml")
+aero_yaml = joinpath(get_data_path(), "aero_geometry.yaml")
+update_aero_yaml_from_struc_yaml!(struc_yaml, aero_yaml)
+
+# Load settings and VSM configuration
 set = Settings("system.yaml")
 vsm_set = VortexStepMethod.VSMSettings(
     joinpath(get_data_path(), "vsm_settings.yaml"))
 
+# Build system structure from YAML
 sys = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite", set, vsm_set)
+
 sam = SymbolicAWEModel(set, sys)
 init!(sam)
-```
 
-For visualization with Makie, see the [Examples](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/examples/) page.
+# Run with a steering ramp
+for step in 1:600
+    t = step * (10.0 / 600)
+    ramp = clamp(t / 2.0, 0.0, 1.0)
+    sam.sys_struct.segments[:kcu_steering_left].l0 -= 0.1 * ramp
+    sam.sys_struct.segments[:kcu_steering_right].l0 += 0.1 * ramp
+    next_step!(sam; dt=10.0/600, vsm_interval=1)
+end
+```
 
 ![2-plate kite structure](docs/src/assets/2plate_kite_structure.png)
 
+### Running examples
+
+Copy examples to your project and run the interactive menu:
+
+```julia
+using SymbolicAWEModels
+SymbolicAWEModels.init_module()
+include("examples/menu.jl")
+```
+
+For visualization, `using GLMakie` enables the built-in plotting extension.
+See the [Examples](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/examples/)
+page for details.
+
 ---
 
-## See Also
+## Ecosystem
 
-- **Kite models:** [RamAirKite.jl](https://github.com/OpenSourceAWE/RamAirKite.jl), [V3Kite.jl](https://github.com/OpenSourceAWE/V3Kite.jl)
-- [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true) – scientific background for winches and tethers
-- More kite models: [KiteModels.jl](https://github.com/ufechner7/KiteModels.jl)
-- Meta-package: [KiteSimulators.jl](https://github.com/aenarete/KiteSimulators.jl)
-- Utilities: [KiteUtils.jl](https://github.com/OpenSourceAWE/KiteUtils.jl)
-- Component models: [WinchModels.jl](https://github.com/aenarete/WinchModels.jl), [KitePodModels.jl](https://github.com/aenarete/KitePodModels.jl), [AtmosphericModels.jl](https://github.com/aenarete/AtmosphericModels.jl)
-- Controllers and viewers: [KiteControllers.jl](https://github.com/aenarete/KiteControllers.jl), [KiteViewers.jl](https://github.com/aenarete/KiteViewers.jl)
-- Aerodynamics: [VortexStepMethod.jl](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
+Key related packages:
+
+- [RamAirKite.jl](https://github.com/OpenSourceAWE/RamAirKite.jl) — ram
+  air kite model
+- [V3Kite.jl](https://github.com/OpenSourceAWE/V3Kite.jl) — TU Delft V3
+  kite model
+- [KiteUtils.jl](https://github.com/OpenSourceAWE/KiteUtils.jl) — shared
+  types and utilities
+- [VortexStepMethod.jl](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
+  — aerodynamic solver
+- [AtmosphericModels.jl](https://github.com/aenarete/AtmosphericModels.jl)
+  — wind profiles
+- [KiteModels.jl](https://github.com/ufechner7/KiteModels.jl) —
+  non-symbolic, predefined kite models
+- [KiteSimulators.jl](https://github.com/aenarete/KiteSimulators.jl) —
+  meta-package
+- [KiteControllers.jl](https://github.com/aenarete/KiteControllers.jl) —
+  control algorithms
+
+Visualisation uses the built-in GLMakie extension
+(`ext/SymbolicAWEModelsMakieExt.jl`) — just `using GLMakie` to enable
+plotting.
+
+- [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true)
+  — scientific background for winches and tethers
+
+![Julia Kite Power Tools](docs/src/kite_power_tools.png)
 
 ---
 
@@ -129,8 +224,8 @@ For visualization with Makie, see the [Examples](https://OpenSourceAWE.github.io
 - Ask on [Julia Discourse](https://discourse.julialang.org/)
 - Email Bart van de Lint: bart@vandelint.net
 
-**Authors:**  
-Bart van de Lint (bart@vandelint.net)  
+**Authors:**
+Bart van de Lint (bart@vandelint.net)
 Uwe Fechner (uwe.fechner.msc@gmail.com)
 Jelle Poland
 
@@ -159,10 +254,8 @@ If you use SymbolicAWEModels in your research, please cite this repository:
 
 ## Copyright Notice
 
-Technische Universiteit Delft hereby disclaims all copyright interest in the package “SymbolicAWEModels.jl” (symbolic models for airborne wind energy systems) written by the Author(s).
+Technische Universiteit Delft hereby disclaims all copyright interest in the package "SymbolicAWEModels.jl" (symbolic models for airborne wind energy systems) written by the Author(s).
 
 Prof.dr. H.G.C. (Henri) Werij, Dean of Aerospace Engineering, Technische Universiteit Delft.
 
 See copyright notices in the source files and the list of authors in [AUTHORS.md](AUTHORS.md).
-
-**Documentation** [Stable Version](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/stable) --- [Development Version](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev)
