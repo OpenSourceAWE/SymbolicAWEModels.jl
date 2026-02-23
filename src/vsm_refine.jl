@@ -53,6 +53,96 @@ function identify_wing_segments(wing_points::AbstractVector{Point})
 end
 
 """
+    prime_polars_then_lock_unrefined_to_structure!(wing::VSMWing, points::AbstractVector{Point})
+
+Lock REFINE unrefined aerodynamic sections to structural LE/TE sections when
+their counts differ, while preserving already initialized refined/panel polars.
+
+This helper supports workflows that initialize polars from a denser
+`aero_geometry.yaml` and then run REFINE coupling from structural sections.
+
+# Behavior
+- If `n_struct_sections == n_aero_sections`: no-op
+- If counts differ:
+  - Requires `wing.vsm_wing.use_prior_polar == true`
+  - Rebuilds `wing.vsm_wing.unrefined_sections` from structural LE/TE pairs
+    in body frame
+  - Calls `refine!(...; sort_sections=false)` and `VortexStepMethod.reinit!`
+"""
+function prime_polars_then_lock_unrefined_to_structure!(
+    wing::VSMWing,
+    points::AbstractVector{Point}
+)
+    wing.wing_type == REFINE || return nothing
+
+    wing_points = [
+        p for p in points if
+        p.type == WING && p.wing_idx == wing.idx
+    ]
+    n_points = length(wing_points)
+    n_points % 2 == 0 || error(
+        "REFINE wing $(wing.idx) must have an even number of WING points, got $(n_points)"
+    )
+
+    n_struct_sections = n_points ÷ 2
+    n_aero_sections = length(wing.vsm_wing.unrefined_sections)
+
+    n_struct_sections == n_aero_sections && return nothing
+
+    wing.vsm_wing.use_prior_polar || error(
+        "REFINE wing $(wing.idx): structural sections ($(n_struct_sections)) " *
+        "do not match aerodynamic sections ($(n_aero_sections)). " *
+        "Set use_prior_polar=true to allow one-time polar seeding and lock to structural sections."
+    )
+
+    isempty(wing.vsm_wing.refined_sections) && error(
+        "REFINE wing $(wing.idx): cannot lock unrefined sections because no refined sections exist to reuse polars."
+    )
+
+    wing_segments = identify_wing_segments(wing_points)
+    length(wing_segments) == n_struct_sections || error(
+        "REFINE wing $(wing.idx): failed to identify structural LE/TE pairs."
+    )
+
+    template_sections = wing.vsm_wing.unrefined_sections
+    n_templates = length(template_sections)
+    n_templates > 0 || error(
+        "REFINE wing $(wing.idx): aerodynamic geometry has zero unrefined sections."
+    )
+    R_b_to_c = wing.R_b_to_c
+    origin_cad = wing.pos_cad
+    new_sections = Vector{VortexStepMethod.Section}(undef, n_struct_sections)
+
+    for (i, (le_idx, te_idx)) in enumerate(wing_segments)
+        template_idx = n_struct_sections == 1 ? 1 :
+            round(Int, 1 + (i - 1) * (n_templates - 1) / (n_struct_sections - 1))
+        template = template_sections[template_idx]
+
+        le_body = R_b_to_c' * (points[le_idx].pos_cad - origin_cad)
+        te_body = R_b_to_c' * (points[te_idx].pos_cad - origin_cad)
+
+        section = VortexStepMethod.Section()
+        if isnothing(template.aero_data)
+            VortexStepMethod.reinit!(
+                section, le_body, te_body, template.aero_model
+            )
+        else
+            VortexStepMethod.reinit!(
+                section, le_body, te_body, template.aero_model, template.aero_data
+            )
+        end
+        new_sections[i] = section
+    end
+
+    wing.vsm_wing.unrefined_sections = new_sections
+    wing.vsm_wing.n_unrefined_sections = Int16(n_struct_sections)
+
+    refine!(wing.vsm_wing; recompute_mapping=true, sort_sections=false)
+    VortexStepMethod.reinit!(wing.vsm_aero)
+    return nothing
+end
+
+"""
     build_point_to_vsm_point_mapping(wing_points::AbstractVector{Point}, vsm_wing::VortexStepMethod.AbstractWing)
 
 Build 1:1 mapping from structural WING points to VSM wing section points (LE/TE) using closest-point distance.

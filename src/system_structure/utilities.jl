@@ -389,6 +389,9 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                 vsm_wing.R_cad_body .= wing.R_b_to_c
                 VortexStepMethod.reinit!(
                     wing.vsm_aero)
+
+                prime_polars_then_lock_unrefined_to_structure!(wing, points)
+
                 if !isnothing(wing.point_to_vsm_point)
                     wing_point_idxs = collect(
                         keys(wing.point_to_vsm_point))

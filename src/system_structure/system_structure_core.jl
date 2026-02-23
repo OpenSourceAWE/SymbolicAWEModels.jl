@@ -834,6 +834,8 @@ function SystemStructure(name, set;
         @assert wing.idx == i
         # For REFINE wings, set defaults if not provided
         if wing.wing_type == REFINE
+            prime_polars_then_lock_unrefined_to_structure!(wing, points)
+
             # Build point_to_vsm_point mapping if not provided
             if isnothing(wing.point_to_vsm_point)
                 # Get WING-type points for this wing
