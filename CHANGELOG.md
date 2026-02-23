@@ -3,6 +3,13 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.6.1 23-02-2026
+
+## Fixed
+- Disable VSM auto-sorting of sections (`sort_sections=false`) in all
+  VortexStepMethod calls. Auto-sorting silently broke the correspondence
+  between VSM sections and structural point indices / group mappings.
+
 # v0.6.0 21-02-2026
 
 ## Changed

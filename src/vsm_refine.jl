@@ -328,7 +328,7 @@ function update_vsm_wing_from_structure!(wing::VSMWing, points::AbstractVector{P
         end
     end
 
-    refine!(wing.vsm_wing; recompute_mapping=false)
+    refine!(wing.vsm_wing; recompute_mapping=false, sort_sections=false)
     VortexStepMethod.reinit!(wing.vsm_aero)
     # Do NOT call reinit! on wing - only modify sections!
     # body_aero reinit! will update panels from modified sections (called in update_vsm!)
