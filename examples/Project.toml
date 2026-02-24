@@ -15,3 +15,6 @@ SymbolicAWEModels = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
 Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
 VortexStepMethod = "ed3cd733-9f0f-46a9-93e0-89b8d4998dd9"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
+
+[sources]
+SymbolicAWEModels = {path = ".."}
