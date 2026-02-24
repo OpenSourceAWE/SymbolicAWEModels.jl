@@ -1,0 +1,69 @@
+#!/bin/bash -eu
+# SPDX-FileCopyrightText: 2025 Uwe Fechner
+# SPDX-License-Identifier: MIT
+
+if [[ $(basename $(pwd)) == "bin" ]]; then
+    cd ..
+fi
+
+export JULIA_PKG_SERVER_REGISTRY_PREFERENCE=eager
+
+if [[ "$(uname -s)" == "Linux" ]]; then
+    export FONTCONFIG_FILE=/etc/fonts/fonts.conf
+    # Preload Julia-bundled libraries to avoid version conflicts with older system libs.
+    # On Ubuntu 22.04: OpenSSL 3.0.2 (artifacts need 3.3+), fontconfig 2.13 (missing
+    # FcConfigSetDefaultSubstitute added in 2.15). The dynamic linker reuses already-loaded
+    # system libs instead of the bundled ones, so we force the bundled versions in first.
+    _PRELOADS=()
+    _BUNDLED=$(find ~/.julia/artifacts -maxdepth 3 -name "libcrypto.so.3"   -path "*/lib/*" 2>/dev/null | head -1); [[ -n "$_BUNDLED" ]] && _PRELOADS+=("$_BUNDLED")
+    # Pick the fontconfig that exports FcConfigSetDefaultSubstitute (needed by Pango ≥ 1.57).
+    # Multiple artifact versions may coexist; `find | head -1` can return the wrong one.
+    _BUNDLED=""
+    for _fc in $(find ~/.julia/artifacts -maxdepth 3 -name "libfontconfig.so.1" -path "*/lib/*" 2>/dev/null); do
+        if nm -D "$_fc" 2>/dev/null | grep -q FcConfigSetDefaultSubstitute; then
+            _BUNDLED="$_fc"
+            break
+        fi
+    done
+    [[ -n "$_BUNDLED" ]] && _PRELOADS+=("$_BUNDLED")
+    if [[ ${#_PRELOADS[@]} -gt 0 ]]; then
+        export LD_PRELOAD=$(IFS=:; echo "${_PRELOADS[*]}")
+    fi
+    unset _PRELOADS _BUNDLED
+fi
+
+julia_version=$(julia --version | awk '{print($3)}')
+julia_major=${julia_version:0:3} 
+if [[ $julia_major == "1.1" ]]; then
+    julia_major=${julia_version:0:4} 
+fi
+
+if [ -d .git ] || git rev-parse --git-dir > /dev/null 2>&1 ; then
+    branch=$(git rev-parse --abbrev-ref HEAD | sed 's/\//-/g')
+else
+    branch=""
+fi
+
+if [[ $HOSTNAME == "ufryzen" || $HOSTNAME == "framework" ]]; then
+    GCT="--gcthreads=8,1"
+    # export NO_MTK=true
+    # export USE_V9=true
+else
+    GCT="--gcthreads=4,1"
+fi
+
+if [[ $branch != "" ]]; then
+    if test -f "bin/kps-image-${julia_major}-${branch}.so"; then
+        echo "Found system image!"
+        julia +${julia_major} -J  bin/kps-image-${julia_major}-${branch}.so -t 1 $GCT --project -i
+    else
+        julia +${julia_major} -t 1 $GCT --project -i
+    fi
+else
+    if test -f "bin/kps-image-${julia_major}.so"; then
+        echo "Found system image!"
+        julia +${julia_major} -J  bin/kps-image-${julia_major}.so -t 1 $GCT --project -i
+    else
+        julia +${julia_major} -t 1 $GCT --project -i
+    fi
+fi
