@@ -374,7 +374,8 @@ function VSMWing(name, set::Settings,
     origin_ref = isnothing(origin) ? nothing : _to_name_ref(origin)
 
     # Create VSM wing, aero, and solver
-    vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false)
+    vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false,
+        sort_sections=false)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
     vsm_solver = VortexStepMethod.Solver(vsm_aero;
         solver_type=VortexStepMethod.NONLIN,
