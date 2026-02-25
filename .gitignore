@@ -16,7 +16,6 @@ AGENTS.md
 CLAUDE.md
 Manifest.toml
 !/Manifest-v*.toml
-Manifest*.default
 data/*.png
 /Manifest.toml
 /Manifest.toml.1.7
