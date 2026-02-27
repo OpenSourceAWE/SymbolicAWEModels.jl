@@ -779,13 +779,13 @@ function SystemStructure(name, set;
         end
     end
 
-    # Lock unrefined aero sections to structural LE/TE for
-    # ALL VSMWing types (runs after auto-group creation so
+    # Match aero sections to structural LE/TE for ALL
+    # VSMWing types (runs after auto-group creation so
     # identify_wing_segments can use groups).
     for wing in wings
         isa(wing, VSMWing) || continue
         wing.aero_mode == AERO_NONE && continue
-        prime_polars_then_lock_unrefined_to_structure!(
+        match_aero_sections_to_structure!(
             wing, points; groups=groups)
     end
 

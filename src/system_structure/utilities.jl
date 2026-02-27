@@ -381,8 +381,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
             end
             VortexStepMethod.reinit!(wing.vsm_aero)
 
-            # Lock aero sections to structure (all types)
-            prime_polars_then_lock_unrefined_to_structure!(
+            # Match aero sections to structure (all types)
+            match_aero_sections_to_structure!(
                 wing, points; groups=groups)
 
             # Recompute group→section mapping

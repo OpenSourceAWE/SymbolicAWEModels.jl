@@ -317,7 +317,7 @@ Creates vsm_wing, vsm_aero, and vsm_solver internally.
 - `wing_type::WingType=QUATERNION`: Aerodynamic model type.
 - `point_to_vsm_point`: 1:1 structural point to VSM point mapping (REFINE only).
 - `wing_segments`: LE/TE pairs (populated for all VSM wing types by
-  `prime_polars_then_lock_unrefined_to_structure!`).
+  `match_aero_sections_to_structure!`).
 - `z_ref_points`: Chord direction reference points (REFINE only, names or indices).
 - `y_ref_points`: Span direction reference points (REFINE only, names or indices).
 - `origin`: Reference to origin point (REFINE only, name or index).

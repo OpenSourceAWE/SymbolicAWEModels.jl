@@ -6,7 +6,7 @@ Helper functions for VSM wing types.
 
 REFINE-specific functions (panel force distribution, structural geometry
 updates) are at the bottom of this file.  The shared
-`prime_polars_then_lock_unrefined_to_structure!` works for all VSMWing types.
+`match_aero_sections_to_structure!` works for all VSMWing types.
 """
 
 # Baseline chord-based aero scaling for REFINE wings.
@@ -100,14 +100,14 @@ function identify_wing_segments(
 end
 
 """
-    prime_polars_then_lock_unrefined_to_structure!(wing, points; groups)
+    match_aero_sections_to_structure!(wing, points; groups)
 
-Lock unrefined aerodynamic sections to structural LE/TE positions,
-preserving already-initialized refined/panel polars.
+Rebuild unrefined sections to match structural LE/TE positions,
+preserving refined panel polars via `use_prior_polar`.
 
 Works for **all** VSMWing types (QUATERNION and REFINE).  When the
 structural and aerodynamic section counts match the rebuild is a 1:1
-copy (`template_idx == i`) that ensures positions exactly match
+copy (`source_idx == i`) that ensures positions exactly match
 structural points.  When they differ, `use_prior_polar` and non-empty
 `refined_sections` are required.
 
@@ -119,7 +119,7 @@ vectors (`vsm_y`, `vsm_x`, `vsm_jac`) are resized to match the new
 - `groups::AbstractVector{Group}`: Groups in the system (used for
   group-based LE/TE identification via [`identify_wing_segments`](@ref)).
 """
-function prime_polars_then_lock_unrefined_to_structure!(
+function match_aero_sections_to_structure!(
     wing::VSMWing,
     points::AbstractVector{Point};
     groups::AbstractVector{Group}=Group[]
@@ -169,17 +169,17 @@ function prime_polars_then_lock_unrefined_to_structure!(
             "($(n_struct_sections)) do not match " *
             "aerodynamic sections " *
             "($(n_aero_sections)). Set " *
-            "use_prior_polar=true to allow one-time " *
-            "polar seeding and lock to structural " *
-            "sections."
+            "use_prior_polar=true to rebuild " *
+            "unrefined sections from structural " *
+            "geometry."
         )
 
         isempty(wing.vsm_wing.refined_sections) &&
             error(
-                "Wing $(wing.idx): cannot lock " *
+                "Wing $(wing.idx): cannot rebuild " *
                 "unrefined sections because no " *
-                "refined sections exist to reuse " *
-                "polars."
+                "refined sections exist to " *
+                "preserve polars from."
             )
     end
 
@@ -192,9 +192,9 @@ function prime_polars_then_lock_unrefined_to_structure!(
         "structural LE/TE pairs."
     )
 
-    template_sections = wing.vsm_wing.unrefined_sections
-    n_templates = length(template_sections)
-    n_templates > 0 || error(
+    original_sections = wing.vsm_wing.unrefined_sections
+    n_original = length(original_sections)
+    n_original > 0 || error(
         "Wing $(wing.idx): aerodynamic geometry " *
         "has zero unrefined sections."
     )
@@ -204,15 +204,15 @@ function prime_polars_then_lock_unrefined_to_structure!(
         undef, n_struct_sections)
 
     for (i, (le_idx, te_idx)) in enumerate(wing_segments)
-        template_idx = if counts_differ
+        source_idx = if counts_differ
             n_struct_sections == 1 ? 1 :
                 round(Int,
-                    1 + (i - 1) * (n_templates - 1) /
+                    1 + (i - 1) * (n_original - 1) /
                     (n_struct_sections - 1))
         else
             i  # 1:1 copy when counts match
         end
-        template = template_sections[template_idx]
+        source_section = original_sections[source_idx]
 
         le_body = R_b_to_c' *
             (points[le_idx].pos_cad - origin_cad)
@@ -220,16 +220,16 @@ function prime_polars_then_lock_unrefined_to_structure!(
             (points[te_idx].pos_cad - origin_cad)
 
         section = VortexStepMethod.Section()
-        if isnothing(template.aero_data)
+        if isnothing(source_section.aero_data)
             VortexStepMethod.reinit!(
                 section, le_body, te_body,
-                template.aero_model
+                source_section.aero_model
             )
         else
             VortexStepMethod.reinit!(
                 section, le_body, te_body,
-                template.aero_model,
-                template.aero_data
+                source_section.aero_model,
+                source_section.aero_data
             )
         end
         new_sections[i] = section
