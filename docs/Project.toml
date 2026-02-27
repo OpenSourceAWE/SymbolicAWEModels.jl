@@ -11,3 +11,7 @@ VortexStepMethod = "ed3cd733-9f0f-46a9-93e0-89b8d4998dd9"
 
 [compat]
 Documenter = "1.11"
+
+[sources]
+SymbolicAWEModels = {path = ".."}
+
