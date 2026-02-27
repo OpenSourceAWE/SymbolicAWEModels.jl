@@ -3,6 +3,42 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.7.0 DD-02-2026
+
+## Changed
+- BREAKING: Julia version requirement raised from 1.10 to 1.11, 1.12.
+- `reinit!()` uses a unified code path for all wing types, calling
+  `match_aero_sections_to_structure!` and
+  `compute_spatial_group_mapping!` during VSM rebuild.
+- `test_bench.jl` refactored from ad-hoc benchmarks into a proper
+  `@testset` suite with `setup_bench_sam()` helper.
+- Added `[workspace]` configuration in `Project.toml` for docs, examples,
+  scripts, and test sub-projects.
+- Manifest files renamed to `.default` suffix and gitignored.
+
+## Added
+- Asymmetric aero/structural section counts: aerodynamic and structural
+  meshes can now have different numbers of sections. When counts differ,
+  `match_aero_sections_to_structure!()` rebuilds unrefined
+  sections from structural LE/TE positions while `use_prior_polar=true`
+  preserves existing refined panel polars. Opt-in via
+  `use_prior_polar=true` on the VortexStepMethod wing.
+- `identify_wing_segments()` — identifies LE/TE pairs from groups
+  (preferred) or via a consecutive-pair heuristic.
+- `compute_spatial_group_mapping!()` — maps groups to VSM sections by
+  spatial proximity, supporting n_groups != n_aero_sections.
+- REFINE wings can now have groups (used for LE/TE pair identification).
+- QUATERNION wings can now have `wing_segments` for structural geometry
+  locking.
+- YAML loader fallback LE/TE detection in
+  `update_aero_yaml_from_struc_yaml!()` when no groups are defined
+  (consecutive-pair heuristic with x-coordinate check).
+- `test_match_aero_sections.jl` — tests geometry matching and polar
+  interpolation for both REFINE and QUATERNION wings, including
+  mismatched section counts.
+- Helper scripts: `bin/install` (environment setup, Julia version detection)
+  and `bin/run_julia` (launcher with system image support).
+
 # v0.6.1 23-02-2026
 
 ## Fixed

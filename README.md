@@ -216,6 +216,7 @@ julia --project=test test/test_point.jl
 | `test_principal_body_frame` | Principal vs body frame separation |
 | `test_heading_calculation` | Kite heading from tether geometry |
 | `test_section_alignment` | VSM section ↔ structural point mapping |
+| `test_match_aero_sections` | Asymmetric aero/structural section matching, polar interpolation |
 | `test_profile_law` | Atmospheric wind profile verification |
 | `test_bench` | Performance regression tracking |
 
