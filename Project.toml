@@ -83,4 +83,7 @@ Timers = "0.1.5"
 UnPack = "1.0.2"
 VortexStepMethod = "3"
 YAML = "0.4"
-julia = "1.10"
+julia = "1.11, 1.12"
+
+[workspace]
+projects = ["docs", "examples", "scripts", "test"]

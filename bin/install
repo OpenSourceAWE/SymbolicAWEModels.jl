@@ -1,0 +1,137 @@
+#!/bin/bash -eu
+# SPDX-FileCopyrightText: 2025 Uwe Fechner
+# SPDX-License-Identifier: MIT
+
+if [[ $(basename $(pwd)) == "bin" ]]; then
+    cd ..
+fi
+
+# Detect Julia version
+julia_version=$(julia --version | awk '{print($3)}')
+julia_major=${julia_version:0:3}
+if [[ $julia_major == "1.1" ]]; then
+    julia_major=${julia_version:0:4} 
+fi
+
+echo "Detected Julia version: $julia_version (major: $julia_major)"
+
+export JULIA_PKG_SERVER_REGISTRY_PREFERENCE=eager
+
+# Detect current git branch
+if [ -d .git ] || git rev-parse --git-dir > /dev/null 2>&1 ; then
+    branch=$(git rev-parse --abbrev-ref HEAD | sed 's/\//-/g')
+else
+    branch=""
+fi
+
+# Delete any existing custom system image for this Julia version and branch
+if [[ $branch != "" ]]; then
+    SOFILE="bin/kps-image-${julia_major}-${branch}.so"
+else
+    SOFILE="bin/kps-image-${julia_major}.so"
+fi
+if test -f "$SOFILE"; then
+    echo "Deleting old system image: $SOFILE"
+    rm -f "$SOFILE"
+fi
+
+# Only accept Julia 1.11 and 1.12
+if [[ $julia_major != "1.11" ]] && [[ $julia_major != "1.12" ]]; then
+    echo "Error: Julia $julia_major is not supported. Only Julia 1.11 and 1.12 are supported."
+    echo "You can install Julia 1.11 with the following commands:"
+    echo "juliaup add 1.11"
+    echo "juliaup default 1.11"
+    exit 1
+fi
+
+# Copy LocalPreferences if not present
+if [ ! -f "LocalPreferences.toml" ]; then
+    if [ -f "LocalPreferences.toml.default" ]; then
+        cp LocalPreferences.toml.default LocalPreferences.toml
+        echo "Copied LocalPreferences.toml.default to LocalPreferences.toml"
+    fi
+fi
+
+# Copy the appropriate default manifest
+if [[ $julia_major == "1.11" ]]; then
+    if [ -f "Manifest-v1.11.toml.default" ]; then
+        cp Manifest-v1.11.toml.default Manifest-v1.11.toml
+        echo "Copied Manifest-v1.11.toml.default to Manifest-v1.11.toml"
+    else
+        echo "Warning: Manifest-v1.11.toml.default not found"
+        exit 1
+    fi
+else
+    # Default to 1.12 for newer versions
+    if [ -f "Manifest-v1.12.toml.default" ]; then
+        cp Manifest-v1.12.toml.default Manifest-v1.12.toml
+        echo "Copied Manifest-v1.12.toml.default to Manifest-v1.12.toml"
+    else
+        echo "Warning: Manifest-v1.12.toml.default not found"
+        exit 1
+    fi
+fi
+
+# Instantiate the project
+echo "Instantiating project..."
+julia --project -e '
+using Pkg
+try
+    Pkg.instantiate()
+catch e
+    @warn "Pkg.instantiate() failed, attempting fresh resolve..." exception=e
+    proj_dir = dirname(Base.active_project())
+    # Remove all manifest files to force a clean resolve
+    for f in readdir(proj_dir)
+        if startswith(f, "Manifest") && endswith(f, ".toml") && !endswith(f, ".default")
+            rm(joinpath(proj_dir, f), force=true)
+        end
+    end
+    Pkg.resolve()
+    Pkg.instantiate()
+end
+'
+echo "Precompiling main project..."
+julia --project -e 'using Pkg; Pkg.precompile()'
+
+# Instantiate all sub-projects: examples, test, docs
+echo "Julia $julia_major: instantiating all sub-projects..."
+# Seed examples and test manifests from the main manifest so that
+# shared dependencies use the same package versions.
+rm -f examples/Manifest*.toml test/Manifest*.toml
+cp "Manifest-v${julia_major}.toml" "examples/Manifest-v${julia_major}.toml"
+cp "Manifest-v${julia_major}.toml" "test/Manifest-v${julia_major}.toml"
+
+# Develop the main package into the sub-project environments so Julia finds the local source.
+julia --project=examples -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.resolve(); Pkg.instantiate()'
+echo "Precompiling examples project..."
+julia --project=examples -e 'using Pkg; Pkg.precompile()'
+
+julia --project=test -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.resolve(); Pkg.instantiate()'
+echo "Precompiling test project..."
+julia --project=test -e 'using Pkg; Pkg.precompile()'
+
+# Docs resolves independently (different dep tree; seeding from main causes missing extensions)
+rm -f docs/Manifest*.toml
+julia --project=docs -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.resolve(); Pkg.instantiate()'
+echo "Precompiling docs project..."
+julia --project=docs -e 'using Pkg; Pkg.precompile()'
+
+# Rename manifest files to version-specific names
+if [ -f "examples/Manifest.toml" ]; then
+    mv examples/Manifest.toml examples/Manifest-v${julia_major}.toml
+    echo "Renamed examples/Manifest.toml to examples/Manifest-v${julia_major}.toml"
+fi
+if [ -f "test/Manifest.toml" ]; then
+    mv test/Manifest.toml test/Manifest-v${julia_major}.toml
+    echo "Renamed test/Manifest.toml to test/Manifest-v${julia_major}.toml"
+fi
+if [ -f "docs/Manifest.toml" ]; then
+    mv docs/Manifest.toml docs/Manifest-v${julia_major}.toml
+    echo "Renamed docs/Manifest.toml to docs/Manifest-v${julia_major}.toml"
+fi
+
+echo "Installation complete!"
+echo
+echo "You can now launch Julia by typing"
+echo "./bin/run_julia"

@@ -15,9 +15,7 @@
 AGENTS.md
 CLAUDE.md
 Manifest.toml
-Manifest*.toml
 !/Manifest-v*.toml
-Manifest*.default
 data/*.png
 /Manifest.toml
 /Manifest.toml.1.7
@@ -62,3 +60,4 @@ docs/src/.$kite_power_tools.drawio.bkp
 /hooks
 /objects
 /refs
+Manifest-v1.12.toml
