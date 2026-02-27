@@ -1,11 +1,13 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
-# Benchmark ODE RHS for 2plate_kite model.
-# Tests: raw RHS, registered functions directly, allocation profile.
+# Benchmark tests for ODE RHS of 2plate_kite model.
+# Verifies allocation counts for registered functions and
+# ensures no allocations originate from package source code.
 #
 # Usage: julia --project=test test/test_bench.jl
 
+using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, SystemStructure, KVec3
 using KiteUtils
@@ -14,301 +16,158 @@ using Statistics
 using Printf
 using Profile
 
-function setup_sam()
+function setup_bench_sam()
     pkg_root = dirname(@__DIR__)
     src_data = joinpath(pkg_root, "data", "2plate_kite")
-
     tmpdir = mktempdir()
-    data_path = joinpath(tmpdir, "2plate_kite")
-    cp(src_data, data_path; force=true)
-
-    set_data_path(data_path)
+    dp = joinpath(tmpdir, "2plate_kite")
+    cp(src_data, dp; force=true)
+    set_data_path(dp)
     set = Settings("system.yaml")
-
     vsm_set = VortexStepMethod.VSMSettings(
-        joinpath(data_path, "vsm_settings.yaml");
+        joinpath(dp, "vsm_settings.yaml");
         data_prefix=false)
-
-    struc_yaml = joinpath(data_path,
-                          "quat_struc_geometry.yaml")
+    struc_yaml = joinpath(dp, "quat_struc_geometry.yaml")
     sys = load_sys_struct_from_yaml(struc_yaml;
         system_name="bench", set, vsm_set)
     sys.winches[:main_winch].brake = true
-
     sam = SymbolicAWEModel(set, sys)
-    init!(sam; remake=false, prn=true)
+    init!(sam; remake=false, prn=false)
     return sam
 end
 
-# --- 1. RHS Benchmark ---
-function bench_rhs(sam)
-    f = sam.integrator.f
-    u = copy(sam.integrator.u)
-    p = sam.integrator.p
-    t = sam.integrator.t
-    du = similar(u)
-    f(du, u, p, t)
-    return @benchmark $f($du, $u, $p, $t) samples=10
+function get_pkg_src_files()
+    pkg_root = dirname(@__DIR__)
+    src_files = Set{String}()
+    for (_, _, files) in walkdir(joinpath(pkg_root, "src"))
+        for f in files
+            endswith(f, ".jl") && push!(src_files, f)
+        end
+    end
+    return src_files
 end
 
-# --- 2. Direct registered function calls ---
-function bench_registered_functions(sys::SystemStructure)
+@testset verbose = true "Benchmarks" begin
+    sam = setup_bench_sam()
+    sys = sam.sys_struct
     idx = Int64(1)
-    # Warmup
-    SymbolicAWEModels.get_pos_w(sys, idx)
-    SymbolicAWEModels.get_Q_b_to_w(sys, idx)
+
+    @testset "ODE RHS" begin
+        f = sam.integrator.f
+        u = copy(sam.integrator.u)
+        p = sam.integrator.p
+        t = sam.integrator.t
+        du = similar(u)
+        f(du, u, p, t)
+
+        rhs = @benchmark $f($du, $u, $p, $t) samples = 10
+        med_ms = median(rhs.times) / 1e6
+        @printf("  median: %8.3f ms | allocs: %d (%d B)\n",
+                med_ms, rhs.allocs, rhs.memory)
+        @test rhs.allocs <= 200
+    end
+
+    # --- warmup all accessors once ---
     SymbolicAWEModels.get_l0(sys, idx)
     SymbolicAWEModels.get_extra_mass(sys, idx)
+    SymbolicAWEModels.get_pos_w(sys, idx)
+    SymbolicAWEModels.get_Q_b_to_w(sys, idx)
+    SymbolicAWEModels.get_com_w(sys, idx)
+    SymbolicAWEModels.get_R_b_to_p(sys, idx)
+    SymbolicAWEModels.get_inertia_principal(sys, idx)
+    SymbolicAWEModels.get_vsm_y(sys, idx, 1)
+    SymbolicAWEModels.get_vsm_x(sys, idx, 1)
+    SymbolicAWEModels.get_vsm_jac(sys, idx, 1, 1)
+    SymbolicAWEModels.get_aero_force_override(sys, idx, 1)
+    SymbolicAWEModels.get_aero_moment_override(sys, idx, 1)
 
-    header = @sprintf("  %-20s %6s\n", "Function", "Allocs")
-    sep = "  " * "-"^30
-
-    # Raw field access
-    println("\n  Raw field access (no @register):")
-    println(sep)
-    print(header)
-    println(sep)
-
-    a = @allocations sys.segments[idx].l0
-    @printf("  %-20s %6d\n", "seg.l0", a)
-
-    a = @allocations sys.points[idx].extra_mass
-    @printf("  %-20s %6d\n", "pt.extra_mass", a)
-
-    a = @allocations sys.points[idx].pos_w
-    @printf("  %-20s %6d\n", "pt.pos_w", a)
-
-    a = @allocations sys.wings[idx].Q_b_to_w
-    @printf("  %-20s %6d\n", "wing.Q_b_to_w", a)
-
-    a = @allocations sys.wings[idx].com_w
-    @printf("  %-20s %6d\n", "wing.com_w", a)
-
-    a = @allocations sys.wings[idx].R_b_to_p
-    @printf("  %-20s %6d\n", "wing.R_b_to_p", a)
-
-    a = @allocations sys.wings[idx].inertia_principal
-    @printf("  %-20s %6d\n", "wing.inertia_princ", a)
-
-    # @register_symbolic calls
-    println("\n  @register_symbolic calls:")
-    println(sep)
-    print(header)
-    println(sep)
-
-    a = @allocations SymbolicAWEModels.get_l0(sys, idx)
-    @printf("  %-20s %6d\n", "get_l0", a)
-
-    a = @allocations SymbolicAWEModels.get_extra_mass(sys, idx)
-    @printf("  %-20s %6d\n", "get_extra_mass", a)
-
-    a = @allocations SymbolicAWEModels.get_pos_w(sys, idx)
-    @printf("  %-20s %6d\n", "get_pos_w", a)
-
-    a = @allocations SymbolicAWEModels.get_Q_b_to_w(sys, idx)
-    @printf("  %-20s %6d\n", "get_Q_b_to_w", a)
-
-    a = @allocations SymbolicAWEModels.get_com_w(sys, idx)
-    @printf("  %-20s %6d\n", "get_com_w", a)
-
-    a = @allocations SymbolicAWEModels.get_R_b_to_p(sys, idx)
-    @printf("  %-20s %6d\n", "get_R_b_to_p", a)
-
-    a = @allocations SymbolicAWEModels.get_inertia_principal(
-        sys, idx)
-    @printf("  %-20s %6d\n", "get_inertia_princ", a)
-
-    # VSM accessors
-    println("\n  VSM accessors:")
-    println(sep)
-    print(header)
-    println(sep)
-
-    a = @allocations SymbolicAWEModels.get_vsm_y(sys, idx, 1)
-    @printf("  %-20s %6d\n", "get_vsm_y", a)
-
-    a = @allocations SymbolicAWEModels.get_vsm_x(sys, idx, 1)
-    @printf("  %-20s %6d\n", "get_vsm_x", a)
-
-    a = @allocations SymbolicAWEModels.get_vsm_jac(
-        sys, idx, 1, 1)
-    @printf("  %-20s %6d\n", "get_vsm_jac", a)
-
-    a = @allocations SymbolicAWEModels.get_aero_force_override(
-        sys, idx, 1)
-    @printf("  %-20s %6d\n", "get_aero_f_override", a)
-
-    a = @allocations SymbolicAWEModels.get_aero_moment_override(
-        sys, idx, 1)
-    @printf("  %-20s %6d\n", "get_aero_m_override", a)
-end
-
-# --- 3. Allocation profile ---
-function profile_rhs_allocs(sam)
-    f = sam.integrator.f
-    u = copy(sam.integrator.u)
-    p = sam.integrator.p
-    t = sam.integrator.t
-    du = similar(u)
-    f(du, u, p, t)
-
-    Profile.Allocs.clear()
-    Profile.Allocs.@profile sample_rate=1.0 f(du, u, p, t)
-    results = Profile.Allocs.fetch()
-
-    type_counts = Dict{Any,Int}()
-    type_bytes = Dict{Any,Int}()
-
-    # Helper: is this a meaningful Julia source frame?
-    function is_julia_src(frame)
-        frame.line <= 0 && return false
-        file = string(frame.file)
-        # Skip C runtime, GC, profiler, sysimage
-        contains(file, "gc-") && return false
-        contains(file, "Profile") && return false
-        contains(file, "datatype.c") && return false
-        endswith(file, ".c") && return false
-        endswith(file, ".h") && return false
-        file == ":-1" && return false
-        return true
+    @testset "@register_symbolic" begin
+        a = @allocations SymbolicAWEModels.get_l0(sys, idx)
+        @test a == 0
+        a = @allocations SymbolicAWEModels.get_extra_mass(
+            sys, idx)
+        @test a == 0
+        a = @allocations SymbolicAWEModels.get_pos_w(
+            sys, idx)
+        @test a <= 1
+        a = @allocations SymbolicAWEModels.get_Q_b_to_w(
+            sys, idx)
+        @test a == 0
+        a = @allocations SymbolicAWEModels.get_com_w(
+            sys, idx)
+        @test a == 0
+        a = @allocations SymbolicAWEModels.get_R_b_to_p(
+            sys, idx)
+        @test a == 0
+        a = @allocations SymbolicAWEModels.get_inertia_principal(
+            sys, idx)
+        @test a == 0
     end
 
-    # Aggregate by source location (first Julia src frame)
-    loc_counts = Dict{String,Int}()
-    loc_bytes = Dict{String,Int}()
+    @testset "VSM accessors" begin
+        a = @allocations SymbolicAWEModels.get_vsm_y(
+            sys, idx, 1)
+        @test a == 0
+        a = @allocations SymbolicAWEModels.get_vsm_x(
+            sys, idx, 1)
+        @test a == 0
+        a = @allocations SymbolicAWEModels.get_vsm_jac(
+            sys, idx, 1, 1)
+        @test a <= 2
+        a = @allocations SymbolicAWEModels.get_aero_force_override(
+            sys, idx, 1)
+        @test a <= 4
+        a = @allocations SymbolicAWEModels.get_aero_moment_override(
+            sys, idx, 1)
+        @test a == 0
+    end
 
-    for a in results.allocs
-        T = a.type
-        type_counts[T] = get(type_counts, T, 0) + 1
-        type_bytes[T] = get(type_bytes, T, 0) + a.size
+    @testset "No package allocations in RHS" begin
+        f = sam.integrator.f
+        u = copy(sam.integrator.u)
+        p = sam.integrator.p
+        t = sam.integrator.t
+        du = similar(u)
+        f(du, u, p, t)
 
-        loc = "unknown"
-        for frame in a.stacktrace
-            is_julia_src(frame) || continue
-            file = string(frame.file)
-            # Skip base Julia math (sys.so compiled)
-            endswith(file, ".so") && continue
-            basename(file) in (
-                "int.jl", "float.jl", "promotion.jl",
-                "number.jl", "boot.jl") && continue
-            loc = "$(basename(file)):$(frame.line)"
-            break
+        Profile.Allocs.clear()
+        Profile.Allocs.@profile sample_rate = 1.0 begin
+            f(du, u, p, t)
         end
-        loc_counts[loc] = get(loc_counts, loc, 0) + 1
-        loc_bytes[loc] = get(loc_bytes, loc, 0) + a.size
-    end
+        results = Profile.Allocs.fetch()
+        src_files = get_pkg_src_files()
 
-    # Aggregate by call stack (top 5 Julia src frames,
-    # skipping base math)
-    stack_counts = Dict{String,Int}()
-    stack_bytes = Dict{String,Int}()
-    for a in results.allocs
-        frames = String[]
-        for frame in a.stacktrace
-            is_julia_src(frame) || continue
-            fname = basename(string(frame.file))
-            func = string(frame.func)
-            # Truncate long generated function names
-            if length(func) > 40
-                func = func[1:37] * "..."
+        skip_bases = ("int.jl", "float.jl", "promotion.jl",
+                      "number.jl", "boot.jl")
+
+        pkg_locs = String[]
+        for a in results.allocs
+            for frame in a.stacktrace
+                frame.line <= 0 && continue
+                file = string(frame.file)
+                any(p -> contains(file, p),
+                    ("gc-", "Profile", "datatype.c")) &&
+                    continue
+                (endswith(file, ".c") ||
+                    endswith(file, ".h")) && continue
+                file == ":-1" && continue
+                fname = basename(file)
+                endswith(fname, ".so") && continue
+                fname in skip_bases && continue
+                if fname in src_files
+                    loc = "$fname:$(frame.line)"
+                    loc ∉ pkg_locs && push!(pkg_locs, loc)
+                end
+                break  # only check first meaningful frame
             end
-            push!(frames, "$func ($fname:$(frame.line))")
-            length(frames) >= 5 && break
         end
-        key = isempty(frames) ? "unknown" :
-            join(frames, "\n       <- ")
-        stack_counts[key] = get(stack_counts, key, 0) + 1
-        stack_bytes[key] = get(stack_bytes, key, 0) + a.size
-    end
 
-    return (; type_counts, type_bytes,
-              loc_counts, loc_bytes,
-              stack_counts, stack_bytes)
+        if !isempty(pkg_locs)
+            println("  Allocating locations in package src:")
+            for loc in pkg_locs
+                println("    ", loc)
+            end
+        end
+        @test isempty(pkg_locs)
+    end
 end
-
-# --- Reporting ---
-function print_rhs_bench(rhs)
-    println("\n", "="^60)
-    println("  ODE RHS Benchmark")
-    println("="^60)
-    @printf("  median: %8.3f ms\n",
-            median(rhs.times) / 1e6)
-    @printf("  allocs: %8d  (%d bytes)\n",
-            rhs.allocs, rhs.memory)
-    println("="^60)
-end
-
-function print_alloc_profile(prof)
-    (; type_counts, type_bytes,
-       loc_counts, loc_bytes,
-       stack_counts, stack_bytes) = prof
-    sorted = sort(collect(type_counts); by=last, rev=true)
-    total = sum(values(type_counts))
-
-    println("\n", "="^60)
-    println("  Allocation Profile by Type ($total total)")
-    println("="^60)
-    @printf("  %-35s %7s %10s\n", "Type", "Count", "Bytes")
-    println("  ", "-"^56)
-    for (T, count) in sorted[1:min(15, end)]
-        name = string(T)
-        if length(name) > 35
-            name = name[1:32] * "..."
-        end
-        bytes = get(type_bytes, T, 0)
-        @printf("  %-35s %7d %10d\n", name, count, bytes)
-    end
-    println("="^60)
-
-    # --- By source location ---
-    loc_sorted = sort(collect(loc_counts);
-                      by=last, rev=true)
-    println("\n", "="^70)
-    println("  Top Allocating Source Locations")
-    println("="^70)
-    @printf("  %-50s %7s %10s\n",
-            "Location", "Count", "Bytes")
-    println("  ", "-"^67)
-    for (loc, count) in loc_sorted[1:min(20, end)]
-        name = loc
-        if length(name) > 50
-            name = "..." * name[end-46:end]
-        end
-        bytes = get(loc_bytes, loc, 0)
-        @printf("  %-50s %7d %10d\n", name, count, bytes)
-    end
-    println("="^70)
-
-    # --- By call stack ---
-    stack_sorted = sort(collect(stack_counts);
-                        by=last, rev=true)
-    println("\n", "="^70)
-    println("  Top Allocating Call Stacks (top 3 frames)")
-    println("="^70)
-    for (i, (stack, count)) in enumerate(
-            stack_sorted[1:min(15, end)])
-        bytes = get(stack_bytes, stack, 0)
-        @printf("  #%-2d  %5d allocs (%d bytes)\n",
-                i, count, bytes)
-        for frame in split(stack, " <- ")
-            println("       ", frame)
-        end
-        println()
-    end
-    println("="^70)
-end
-
-# --- Run ---
-println("\n>> Setting up 2plate_kite model...")
-sam = setup_sam()
-
-println("\n>> Benchmarking ODE RHS...")
-rhs = bench_rhs(sam)
-print_rhs_bench(rhs)
-
-println("\n>> Benchmarking registered functions directly...")
-bench_registered_functions(sam.sys_struct)
-
-println("\n>> Profiling RHS allocations...")
-prof = profile_rhs_allocs(sam)
-print_alloc_profile(prof)
