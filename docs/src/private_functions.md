@@ -127,6 +127,8 @@ SymbolicAWEModels.update_aero_yaml_from_struc_yaml!
 ## SystemStructure internals
 
 ```@docs
+SymbolicAWEModels.segment_cad_length
+SymbolicAWEModels.autocalc_tether_len
 SymbolicAWEModels.assign_indices_and_resolve!
 SymbolicAWEModels.resolve_ref
 SymbolicAWEModels.resolve_ref_spec
