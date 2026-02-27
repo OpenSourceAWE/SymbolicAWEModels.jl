@@ -12,8 +12,8 @@ SPDX-License-Identifier: MPL-2.0
   replacing duplicated code in the constructor, `reinit!`, and YAML loader.
 
 ## Fixed
-- `SystemStructure` constructor now sums all tethers (not just the first)
-  when auto-calculating `winch.tether_len`, consistent with `reinit!`.
+- `SystemStructure` constructor auto-calculates `winch.tether_len` from
+  all connected tethers (was only using the first).
 
 # v0.7.0 DD-02-2026
 

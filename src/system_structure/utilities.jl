@@ -29,13 +29,14 @@ end
 """
     autocalc_tether_len(winch::Winch, tethers, segments)
 
-Compute total tether length from segment `l0` values for all
-tethers connected to this winch.
+Average unstretched tether length across all tethers connected
+to this winch (sum of segment `l0` per tether, then average).
 """
 function autocalc_tether_len(winch::Winch, tethers, segments)
+    n = length(winch.tether_idxs)
     return sum(segments[seg_idx].l0
                for tether_idx in winch.tether_idxs
-               for seg_idx in tethers[tether_idx].segment_idxs)
+               for seg_idx in tethers[tether_idx].segment_idxs) / n
 end
 
 # ==================== TETHER CREATION ==================== #
