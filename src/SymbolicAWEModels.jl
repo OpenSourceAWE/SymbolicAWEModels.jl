@@ -97,6 +97,7 @@ export update_plot_observables!
 export animate
 export load_sys_struct_from_yaml
 export update_yaml_from_sys_struct!
+export update_sys_struct_from_yaml!
 export update_aero_yaml_from_struc_yaml!
 export replay
 export record

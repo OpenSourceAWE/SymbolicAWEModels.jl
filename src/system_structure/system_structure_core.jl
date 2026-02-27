@@ -573,7 +573,7 @@ function SystemStructure(name, set;
     end
     for (i, segment) in enumerate(segments)
         @assert segment.idx == i
-        (segment.l0 ≈ 0) && (segment.l0 = norm(points[segment.point_idxs[1]].pos_cad - points[segment.point_idxs[2]].pos_cad))
+        (segment.l0 ≈ 0) && (segment.l0 = segment_cad_length(segment, points))
     end
     for (i, pulley) in enumerate(pulleys)
         @assert pulley.idx == i
@@ -584,9 +584,8 @@ function SystemStructure(name, set;
     for (i, winch) in enumerate(winches)
         @assert winch.idx == i
         if iszero(winch.tether_len)
-            for segment_idx in tethers[winch.tether_idxs[1]].segment_idxs
-                winch.tether_len += segments[segment_idx].l0
-            end
+            winch.tether_len = autocalc_tether_len(
+                winch, tethers, segments)
         end
     end
     # Compute body frame (COM + principal axes) and

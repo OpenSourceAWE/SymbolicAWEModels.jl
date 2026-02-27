@@ -13,6 +13,31 @@ This file contains:
 - Segment statistics
 """
 
+# ==================== SHARED HELPERS ==================== #
+
+"""
+    segment_cad_length(segment::Segment, points)
+
+Compute segment length from endpoint `pos_cad` positions.
+"""
+function segment_cad_length(segment::Segment, points)
+    p1 = points[segment.point_idxs[1]]
+    p2 = points[segment.point_idxs[2]]
+    return norm(p1.pos_cad - p2.pos_cad)
+end
+
+"""
+    autocalc_tether_len(winch::Winch, tethers, segments)
+
+Compute total tether length from segment `l0` values for all
+tethers connected to this winch.
+"""
+function autocalc_tether_len(winch::Winch, tethers, segments)
+    return sum(segments[seg_idx].l0
+               for tether_idx in winch.tether_idxs
+               for seg_idx in tethers[tether_idx].segment_idxs)
+end
+
 # ==================== TETHER CREATION ==================== #
 
 """
@@ -310,20 +335,17 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     # Transforms are not updated from Settings - YAML structure geometry has priority
 
     for segment in segments
-        len = norm(points[segment.point_idxs[1]].pos_cad -
-                   points[segment.point_idxs[2]].pos_cad)
+        len = segment_cad_length(segment, points)
         (segment.l0 ≈ 0) && (segment.l0 = len)
         segment.len = len
     end
 
-    # Calculate winch tether_len from settings or sum of segment l0 values
+    # Calculate winch tether_len from settings or segment l0s
     for winch in winches
         l_tether = set.l_tethers[winch.idx]
         if l_tether == 0
-            # Calculate from total segment l0 of all segments in this winch's tethers
-            l_tether = sum(segments[seg_idx].l0
-                           for tether_idx in winch.tether_idxs
-                           for seg_idx in tethers[tether_idx].segment_idxs)
+            l_tether = autocalc_tether_len(
+                winch, tethers, segments)
         end
         winch.tether_len = l_tether
     end
