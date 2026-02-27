@@ -1017,8 +1017,11 @@ end
                                   struc_yaml::AbstractString)
 
 Update an existing `SystemStructure` in-place from a (possibly modified)
-structural geometry YAML file. Updates `pos_cad` for points and `l0`
-for segments, matched by symbolic name.
+structural geometry YAML file. Inverse of `update_yaml_from_sys_struct!`.
+
+Updates `pos_cad` for points and `l0` for segments, matched by symbolic
+name. When `l0` is `nothing` in the YAML, it is auto-calculated from the
+endpoint `pos_cad` positions.
 
 Only raw geometry is updated. Call `reinit!(sys_struct, set)` afterward
 to recompute derived quantities (`pos_b`, `pos_w`, wing frames, etc.).
@@ -1062,25 +1065,7 @@ function update_sys_struct_from_yaml!(
         end
     end
 
-    # --- Update segments ---
-    # Build property tables for material reference resolution
-    property_tables = Dict{String,
-                           Dict{String, NamedTuple}}()
-    if haskey(data, "materials")
-        materials_dict = Dict{String, NamedTuple}()
-        for row in parse_table(data["materials"])
-            materials_dict[String(row.name)] = row
-        end
-        property_tables["materials"] = materials_dict
-    end
-    if haskey(data, "elements")
-        elements_dict = Dict{String, NamedTuple}()
-        for row in parse_table(data["elements"])
-            elements_dict[String(row.name)] = row
-        end
-        property_tables["elements"] = elements_dict
-    end
-
+    # --- Update segment l0 ---
     n_segments = 0
     if haskey(data, "segments")
         segment_rows = parse_table(data["segments"])
@@ -1089,33 +1074,15 @@ function update_sys_struct_from_yaml!(
             name = Symbol(row.name)
             haskey(sys_struct.segments, name) || continue
 
-            resolved = resolve_references(row,
-                                          property_tables)
-            props = Dict{Symbol, Any}(pairs(resolved))
-            calculate_derived_properties!(props)
-
             seg = sys_struct.segments[name]
 
             # l0: use YAML value, or auto-calc from pos_cad
-            if haskey(props, :l0) && !isnothing(props[:l0]) &&
-               props[:l0] != "nothing"
-                seg.l0 = Float64(props[:l0])
+            l0_val = haskey(row, :l0) ? row.l0 : nothing
+            if !isnothing(l0_val) && l0_val != "nothing"
+                seg.l0 = Float64(l0_val)
             else
                 seg.l0 = segment_cad_length(
                     seg, sys_struct.points)
-            end
-
-            # unit_stiffness/unit_damping: update when
-            # material resolution produces numeric values
-            if haskey(props, :unit_stiffness) &&
-               props[:unit_stiffness] isa Number
-                seg.unit_stiffness =
-                    Float64(props[:unit_stiffness])
-            end
-            if haskey(props, :unit_damping) &&
-               props[:unit_damping] isa Number
-                seg.unit_damping =
-                    Float64(props[:unit_damping])
             end
 
             n_segments += 1

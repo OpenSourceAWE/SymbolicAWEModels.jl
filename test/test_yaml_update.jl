@@ -8,7 +8,6 @@
 # 2. Modified pos_cad: only the changed point is updated
 # 3. Modified segment l0: segment updated correctly
 # 4. l0=nothing in YAML: auto-calc from pos_cad
-# 5. Material reference resolves unit_stiffness/unit_damping
 
 using Test
 using SymbolicAWEModels
@@ -167,46 +166,6 @@ system:
         update_sys_struct_from_yaml!(sys, nothing_path)
 
         @test sys.segments[:seg_ab].l0 ≈ expected_l0
-    end
-
-    # --------------------------------------------------------
-    # Test 5: Material reference resolves stiffness/damping
-    # --------------------------------------------------------
-    @testset "material reference updates properties" begin
-        mat_yaml = """
-materials:
-  headers: [name, youngs_modulus, damping_per_stiffness]
-  data:
-    - [dyneema, 1.0e11, 0.05]
-
-points:
-  headers: [name, pos_cad, type, wing_idx, transform_idx,
-            extra_mass, body_frame_damping,
-            world_frame_damping, area, drag_coeff]
-  data:
-    - [pt_a, [1.0, 2.0, 3.0], DYNAMIC, nothing, nothing,
-       1.0, 0.0, 0.0, 0.0, 0.0]
-    - [pt_b, [4.0, 5.0, 6.0], DYNAMIC, nothing, nothing,
-       1.0, 0.0, 0.0, 0.0, 0.0]
-
-segments:
-  headers: [name, point_i, point_j, type, l0,
-            diameter_mm, unit_stiffness, unit_damping,
-            compression_frac]
-  data:
-    - [seg_ab, pt_a, pt_b, POWER_LINE, 10.0,
-       2.0, dyneema, dyneema, 1.0]
-"""
-        mat_path = joinpath(tmpdir, "material.yaml")
-        write(mat_path, mat_yaml)
-
-        update_sys_struct_from_yaml!(sys, mat_path)
-
-        seg = sys.segments[:seg_ab]
-        d_m = 2.0 / 1000.0
-        expected_ea = 1.0e11 * π * (d_m / 2)^2
-        @test seg.unit_stiffness ≈ expected_ea
-        @test seg.unit_damping ≈ 0.05 * expected_ea
     end
 
     rm(tmpdir; recursive=true)
