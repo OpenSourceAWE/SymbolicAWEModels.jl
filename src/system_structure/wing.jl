@@ -316,7 +316,8 @@ Creates vsm_wing, vsm_aero, and vsm_solver internally.
 - `y_damping::SimFloat=150.0`: Lateral damping coefficient.
 - `wing_type::WingType=QUATERNION`: Aerodynamic model type.
 - `point_to_vsm_point`: 1:1 structural point to VSM point mapping (REFINE only).
-- `wing_segments`: LE/TE pairs (REFINE only).
+- `wing_segments`: LE/TE pairs (populated for all VSM wing types by
+  `prime_polars_then_lock_unrefined_to_structure!`).
 - `z_ref_points`: Chord direction reference points (REFINE only, names or indices).
 - `y_ref_points`: Span direction reference points (REFINE only, names or indices).
 - `origin`: Reference to origin point (REFINE only, name or index).
@@ -346,8 +347,6 @@ function VSMWing(name, set::Settings,
 
     # Validation
     if wing_type == REFINE
-        @assert length(groups) == 0
-            "REFINE wings cannot have groups"
         @assert !isnothing(origin)
             "REFINE wings require origin to define KCU position"
         if !isnothing(pos_cad)
@@ -359,8 +358,6 @@ function VSMWing(name, set::Settings,
     else
         @assert isnothing(point_to_vsm_point)
             "QUATERNION wings: no point_to_vsm_point"
-        @assert isnothing(wing_segments)
-            "QUATERNION wings: no wing_segments"
         # origin, z_ref_points, y_ref_points are now
         # accepted for QUATERNION wings (body frame
         # defined by structural ref points)

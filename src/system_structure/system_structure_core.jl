@@ -398,6 +398,82 @@ function calc_inertia_y_rotation(I_tensor)
     return I_diag, Ry
 end
 
+"""
+    compute_spatial_group_mapping!(the_wing, groups, points)
+
+Map groups to unrefined sections using spatial proximity.
+Each group is assigned to the closest unrefined section
+based on distance between centers.
+"""
+function compute_spatial_group_mapping!(
+    the_wing::VSMWing,
+    groups::AbstractVector{Group},
+    points::AbstractVector{Point}
+)
+    the_vsm_wing = the_wing.vsm_wing
+    n_unrefined = the_vsm_wing.n_unrefined_sections
+    n_groups = length(the_wing.base.group_idxs)
+
+    # Compute group centers in body frame
+    group_centers = Vector{MVec3}(undef, n_groups)
+    for (local_idx, group_idx) in
+            enumerate(the_wing.base.group_idxs)
+        group = groups[group_idx]
+        center = zeros(3)
+        for pt_idx in group.point_idxs
+            center += the_wing.base.R_b_to_c' *
+                (points[pt_idx].pos_cad -
+                 the_wing.base.pos_cad)
+        end
+        group_centers[local_idx] =
+            center / length(group.point_idxs)
+    end
+
+    # Compute unrefined section centers
+    unrefined_centers = Vector{MVec3}(
+        undef, n_unrefined)
+    for i in 1:n_unrefined
+        le_point =
+            the_vsm_wing.unrefined_sections[i].LE_point
+        te_point =
+            the_vsm_wing.unrefined_sections[i].TE_point
+        unrefined_centers[i] =
+            (le_point + te_point) / 2
+    end
+
+    # Map each group to closest unrefined section
+    for (local_idx, group_idx) in
+            enumerate(the_wing.base.group_idxs)
+        group = groups[group_idx]
+        min_dist = Inf
+        closest_idx = 1
+        for unrefined_idx in 1:n_unrefined
+            dist = norm(
+                group_centers[local_idx] -
+                unrefined_centers[unrefined_idx])
+            if dist < min_dist
+                min_dist = dist
+                closest_idx = unrefined_idx
+            end
+        end
+        group.unrefined_section_idxs =
+            Int64[closest_idx]
+    end
+
+    # Validate: check all sections are covered
+    assigned = Set{Int64}()
+    for group_idx in the_wing.base.group_idxs
+        union!(assigned,
+            groups[group_idx].unrefined_section_idxs)
+    end
+    if length(assigned) != n_unrefined
+        unassigned = setdiff(1:n_unrefined, assigned)
+        @warn "Wing $(the_wing.base.idx): " *
+            "$(length(unassigned)) unrefined sections " *
+            "not assigned to any group: $unassigned"
+    end
+end
+
 # ==================== CONSTRUCTOR ==================== #
 
 """
@@ -458,14 +534,6 @@ function SystemStructure(name, set;
     (point_names_dict, group_names_dict, segment_names_dict, pulley_names_dict,
      tether_names_dict, winch_names_dict, wing_names_dict, transform_names_dict) =
         assign_indices_and_resolve!(points, groups, segments, pulleys, tethers, winches, wings, transforms)
-
-    # For REFINE wings, clear group_idxs - groups are not used with REFINE
-    # (REFINE applies panel forces directly to structural points)
-    for wing in wings
-        if wing.wing_type == REFINE && !isempty(wing.group_idxs)
-            empty!(wing.group_idxs)
-        end
-    end
 
     # If no wings defined, convert WING points to STATIC
     if isempty(wings)
@@ -682,12 +750,14 @@ function SystemStructure(name, set;
                 # Use integer as name for auto-created groups
                 group_name = group_idx
 
-                # Only TE point, moment_frac=0.0 (rotate around LE)
-                new_group = Group(group_name, [te_idx], DYNAMIC, 0.0)
+                # Both LE and TE points (matches YAML convention)
+                new_group = Group(group_name,
+                    [le_idx, te_idx], DYNAMIC, 0.0)
 
-                # Assign idx and resolve point_refs since these are dynamically created
+                # Assign idx and resolve point_refs since
+                # these are dynamically created
                 new_group.idx = group_idx
-                new_group.point_idxs = [te_idx]
+                new_group.point_idxs = [le_idx, te_idx]
 
                 push!(groups, new_group)
                 push!(new_group_idxs, Int64(group_idx))
@@ -709,59 +779,24 @@ function SystemStructure(name, set;
         end
     end
 
-    """
-        compute_spatial_group_mapping!(the_wing, groups, points)
+    # Lock unrefined aero sections to structural LE/TE for
+    # ALL VSMWing types (runs after auto-group creation so
+    # identify_wing_segments can use groups).
+    for wing in wings
+        isa(wing, VSMWing) || continue
+        wing.aero_mode == AERO_NONE && continue
+        prime_polars_then_lock_unrefined_to_structure!(
+            wing, points; groups=groups)
+    end
 
-    Map groups to unrefined sections using spatial proximity.
-    Each group is assigned to the closest unrefined section based on distance between centers.
-    """
-    function compute_spatial_group_mapping!(the_wing::VSMWing, groups::AbstractVector{Group}, points::AbstractVector{Point})
-        the_vsm_wing = the_wing.vsm_wing
-        n_unrefined = the_vsm_wing.n_unrefined_sections
-        n_groups = length(the_wing.base.group_idxs)
-
-        # Compute group centers in body frame (average of all attach points)
-        group_centers = Vector{MVec3}(undef, n_groups)
-        for (local_idx, group_idx) in enumerate(the_wing.base.group_idxs)
-            group = groups[group_idx]
-            center = zeros(3)
-            for pt_idx in group.point_idxs
-                center += the_wing.base.R_b_to_c' * (points[pt_idx].pos_cad - the_wing.base.pos_cad)
-            end
-            group_centers[local_idx] = center / length(group.point_idxs)
-        end
-
-        # Compute unrefined section centers
-        unrefined_centers = Vector{MVec3}(undef, n_unrefined)
-        for i in 1:n_unrefined
-            le_point = the_vsm_wing.unrefined_sections[i].LE_point
-            te_point = the_vsm_wing.unrefined_sections[i].TE_point
-            unrefined_centers[i] = (le_point + te_point) / 2
-        end
-
-        # Map each group to closest unrefined section
-        for (local_idx, group_idx) in enumerate(the_wing.base.group_idxs)
-            group = groups[group_idx]
-            min_dist = Inf
-            closest_idx = 1
-            for unrefined_idx in 1:n_unrefined
-                dist = norm(group_centers[local_idx] - unrefined_centers[unrefined_idx])
-                if dist < min_dist
-                    min_dist = dist
-                    closest_idx = unrefined_idx
-                end
-            end
-            group.unrefined_section_idxs = Int64[closest_idx]
-        end
-
-        # Validate: check all sections are covered
-        assigned = Set{Int64}()
-        for group_idx in the_wing.base.group_idxs
-            union!(assigned, groups[group_idx].unrefined_section_idxs)
-        end
-        if length(assigned) != n_unrefined
-            unassigned = setdiff(1:n_unrefined, assigned)
-            @warn "Wing $(the_wing.base.idx): $(length(unassigned)) unrefined sections not assigned to any group: $unassigned"
+    # Clear REFINE wing.group_idxs — groups were used
+    # for LE/TE identification but REFINE doesn't use
+    # them for aerodynamics.  Groups stay in sys_struct
+    # (useful for structural info / future linearization).
+    for wing in wings
+        if wing.wing_type == REFINE &&
+           !isempty(wing.group_idxs)
+            empty!(wing.group_idxs)
         end
     end
 
@@ -834,8 +869,6 @@ function SystemStructure(name, set;
         @assert wing.idx == i
         # For REFINE wings, set defaults if not provided
         if wing.wing_type == REFINE
-            prime_polars_then_lock_unrefined_to_structure!(wing, points)
-
             # Build point_to_vsm_point mapping if not provided
             if isnothing(wing.point_to_vsm_point)
                 # Get WING-type points for this wing
@@ -860,7 +893,9 @@ function SystemStructure(name, set;
             # Identify wing segments (LE/TE pairs)
             if isnothing(wing.wing_segments)
                 wing.wing_segments =
-                    identify_wing_segments(wing_points)
+                    identify_wing_segments(
+                        wing_points; groups=groups,
+                        wing_group_idxs=wing.group_idxs)
             end
 
             # Set default reference points if not provided

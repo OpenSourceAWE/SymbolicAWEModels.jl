@@ -2,7 +2,7 @@
 
 julia_version = "1.12.5"
 manifest_format = "2.0"
-project_hash = "d296d3061f996a5cbf044df76a287df0b07ac23f"
+project_hash = "9c15a3db3961b4c54c236d98049d4aa24d20cca9"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "f7304359109c768cf32dc5fa2d371565bb63b68a"
@@ -1925,7 +1925,7 @@ version = "0.2.8"
 deps = ["AtmosphericModels", "CodecZlib", "ControlSystemsBase", "Dates", "DocStringExtensions", "KiteUtils", "LaTeXStrings", "LinearAlgebra", "Logging", "ModelingToolkit", "NonlinearSolve", "OrdinaryDiffEqBDF", "OrdinaryDiffEqCore", "OrdinaryDiffEqNonlinearSolve", "Parameters", "Pkg", "PrecompileTools", "Printf", "RecipesBase", "SHA", "Serialization", "StaticArrays", "Statistics", "SteadyStateDiffEq", "Suppressor", "SymbolicIndexingInterface", "SymbolicUtils", "Symbolics", "TOML", "Tar", "Timers", "UnPack", "VortexStepMethod", "YAML"]
 path = "."
 uuid = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
-version = "0.5.0"
+version = "0.6.1"
 
     [deps.SymbolicAWEModels.extensions]
     SymbolicAWEModelsMakieExt = ["GeometryBasics", "Makie"]

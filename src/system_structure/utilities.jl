@@ -369,38 +369,39 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
             # Transform sections: CAD → body frame
             # (must match SystemStructure constructor)
             vsm_wing = wing.vsm_wing
-            if wing.wing_type == QUATERNION
-                vsm_wing.T_cad_body .= wing.pos_cad
-                adjust_vsm_panels_to_origin!(
-                    vsm_wing, wing.pos_cad)
-                rotate_vsm_sections!(
-                    vsm_wing, wing.R_b_to_c')
-                vsm_wing.R_cad_body .= wing.R_b_to_c
+            vsm_wing.T_cad_body .= wing.pos_cad
+            adjust_vsm_panels_to_origin!(
+                vsm_wing, wing.pos_cad)
+            rotate_vsm_sections!(
+                vsm_wing, wing.R_b_to_c')
+            vsm_wing.R_cad_body .= wing.R_b_to_c
+            if wing.wing_type != REFINE
                 apply_aero_z_offset!(
                     vsm_wing, wing.aero_z_offset)
-                VortexStepMethod.reinit!(
-                    wing.vsm_aero)
-            elseif wing.wing_type == REFINE
-                vsm_wing.T_cad_body .= wing.pos_cad
-                adjust_vsm_panels_to_origin!(
-                    vsm_wing, wing.pos_cad)
-                rotate_vsm_sections!(
-                    vsm_wing, wing.R_b_to_c')
-                vsm_wing.R_cad_body .= wing.R_b_to_c
-                VortexStepMethod.reinit!(
-                    wing.vsm_aero)
+            end
+            VortexStepMethod.reinit!(wing.vsm_aero)
 
-                prime_polars_then_lock_unrefined_to_structure!(wing, points)
+            # Lock aero sections to structure (all types)
+            prime_polars_then_lock_unrefined_to_structure!(
+                wing, points; groups=groups)
 
-                if !isnothing(wing.point_to_vsm_point)
-                    wing_point_idxs = collect(
-                        keys(wing.point_to_vsm_point))
-                    wing_points = [points[idx]
-                        for idx in wing_point_idxs]
-                    wing.point_to_vsm_point =
-                        build_point_to_vsm_point_mapping(
-                            wing_points, vsm_wing)
-                end
+            # Recompute group→section mapping
+            if wing.wing_type == QUATERNION &&
+               !isempty(wing.group_idxs)
+                compute_spatial_group_mapping!(
+                    wing, groups, points)
+            end
+
+            # REFINE-only: rebuild point mapping
+            if wing.wing_type == REFINE &&
+               !isnothing(wing.point_to_vsm_point)
+                wing_point_idxs = collect(
+                    keys(wing.point_to_vsm_point))
+                wing_pts = [points[idx]
+                    for idx in wing_point_idxs]
+                wing.point_to_vsm_point =
+                    build_point_to_vsm_point_mapping(
+                        wing_pts, vsm_wing)
             end
         end
     end

@@ -1066,6 +1066,7 @@ function update_aero_yaml_from_struc_yaml!(source_struc_yaml::AbstractString,
     # Parse struc YAML to extract WING point positions and group LE/TE pairs
     struc_lines = readlines(struc_full_path)
     wing_pos_dict = Dict{String, Vector{Float64}}()  # name => [x, y, z]
+    wing_names_ordered = String[]                     # preserve YAML order
     group_le_te = Vector{Tuple{String, String}}()     # (le_name, te_name)
 
     current_section = :none
@@ -1097,10 +1098,12 @@ function update_aero_yaml_from_struc_yaml!(source_struc_yaml::AbstractString,
             # Format: - [name, [x, y, z], TYPE, ...]
             m = match(r"^\s*-\s*\[(\w+)\s*,\s*\[([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*,\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*,\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*\]\s*,\s*(\w+)", line)
             if m !== nothing && m.captures[5] == "WING"
-                wing_pos_dict[m.captures[1]] = [
+                name = m.captures[1]
+                wing_pos_dict[name] = [
                     parse(Float64, m.captures[2]),
                     parse(Float64, m.captures[3]),
                     parse(Float64, m.captures[4])]
+                push!(wing_names_ordered, name)
             end
         elseif current_section == :groups
             # Format: - [name, [pt1, pt2, ...], ...]
@@ -1114,10 +1117,26 @@ function update_aero_yaml_from_struc_yaml!(source_struc_yaml::AbstractString,
         end
     end
 
-    # Validate
+    # Fallback: consecutive-pair heuristic when no groups
     if isempty(group_le_te)
-        error("No groups with point_idxs found in $struc_full_path")
+        n_wp = length(wing_names_ordered)
+        n_wp % 2 == 0 || error(
+            "No groups in $struc_full_path and odd " *
+            "number of WING points ($n_wp). " *
+            "Define groups to specify LE/TE pairs.")
+        for i in 1:2:n_wp
+            a = wing_names_ordered[i]
+            b = wing_names_ordered[i + 1]
+            # LE has smaller x
+            if wing_pos_dict[a][1] <
+                    wing_pos_dict[b][1]
+                push!(group_le_te, (a, b))
+            else
+                push!(group_le_te, (b, a))
+            end
+        end
     end
+
     for (le, te) in group_le_te
         haskey(wing_pos_dict, le) || error(
             "Group LE point '$le' not found in WING points")
