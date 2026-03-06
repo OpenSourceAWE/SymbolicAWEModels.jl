@@ -3026,9 +3026,12 @@ function Makie.plot(syss::Vector{<:SystemStructure};
             push!(segment_colors_list, color)
             obs = build_geometry_observables(sys, triggers[i])
 
-            # Plot with observable data
+            # Plot with observable data (use vector color to match
+            # setup_segment_hover_events! which assigns Vector{RGBA})
+            seg_colors = fill(to_color(color), length(sys.segments))
             seg_plot = linesegments!(scene, obs[:segment_points];
-                                     color=color, linewidth=2, transparency=true)
+                                     color=seg_colors, linewidth=2,
+                                     transparency=true)
             push!(all_plots, seg_plot)
             push!(segment_plots, seg_plot)
 
@@ -3203,6 +3206,98 @@ function SymbolicAWEModels.record(lg::SysLog, sys::SystemStructure, filename::St
         if frame_num % max(1, div(n_frames, 10)) == 0 || frame_num == n_frames
             progress_pct = round(100 * frame_num / n_frames, digits=1)
             println("  Progress: $progress_pct% ($frame_num/$n_frames frames)")
+        end
+    end
+
+    println("Video saved successfully!")
+    return scene
+end
+
+"""
+    record(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure},
+           filename::String; framerate=30, colors=Makie.wong_colors(),
+           vector_scale=0.2, kwargs...)
+
+Record a multi-system SysLog animation to a video or GIF file.
+The output format is determined by the file extension
+(`.mp4`, `.gif`, `.mkv`, `.webm`).
+
+# Arguments
+- `logs::Vector{<:SysLog}`: Simulation logs (one per system)
+- `syss::Vector{<:SystemStructure}`: System structures
+    (must match logs length)
+- `filename::String`: Output filename
+    (e.g., `"sim.mp4"`, `"sim.gif"`)
+
+# Keyword Arguments
+- `framerate::Int=30`: Framerate (frames per second)
+- `colors`: Color palette for distinguishing systems
+    (default: wong_colors())
+- `vector_scale::Real=0.2`: Scale factor for wing arrows
+- All other keyword arguments are passed through to `plot`
+
+# Returns
+- The Scene object used for recording
+
+# Example
+```julia
+record([log1, log2], [sys1, sys2], "output.mp4")
+record([log1, log2], [sys1, sys2], "output.mp4";
+       framerate=60, colors=[:red, :blue])
+```
+"""
+function SymbolicAWEModels.record(
+        logs::Vector{<:SysLog},
+        syss::Vector{<:SystemStructure},
+        filename::String;
+        framerate::Int=30,
+        colors=Makie.wong_colors(),
+        vector_scale::Real=0.2,
+        kwargs...)
+    length(logs) == length(syss) ||
+        error("logs and systems must have same length")
+    n_frames = minimum(length(lg.syslog) for lg in logs)
+    n_frames == 0 &&
+        error("Empty SysLog provided for recording")
+
+    println("Recording multi-system video to: $filename")
+    println("Framerate: $framerate fps")
+    println("Total frames: $n_frames")
+    println("Systems: $(length(syss))")
+
+    # Initialize all systems with first state
+    for (sys, lg) in zip(syss, logs)
+        update_from_sysstate!(sys, lg.syslog[1])
+    end
+
+    # Create plot with observables for dynamic updates
+    scene = plot(syss; colors, vector_scale,
+                 use_observables=true, kwargs...)
+
+    # Record video by stepping through all frames
+    Makie.record(scene, filename, 1:n_frames;
+                 framerate=framerate) do frame_num
+        # Update each system's state
+        for (sys, lg) in zip(syss, logs)
+            frame = min(frame_num, length(lg.syslog))
+            update_from_sysstate!(sys, lg.syslog[frame])
+        end
+        # Trigger all geometry observables
+        if !isnothing(PLOT_MULTI_GEOMETRY_OBS[])
+            for obs in PLOT_MULTI_GEOMETRY_OBS[]
+                obs[] = time()
+            end
+        end
+
+        # Yield to render thread for observable updates
+        sleep(0.001)
+
+        # Print progress every 10% or at the end
+        if frame_num % max(1, div(n_frames, 10)) == 0 ||
+                frame_num == n_frames
+            pct = round(100 * frame_num / n_frames, digits=1)
+            println("  Progress: $pct% " *
+                    "($frame_num/$n_frames frames)")
         end
     end
 
