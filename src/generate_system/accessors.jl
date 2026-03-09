@@ -209,6 +209,10 @@ end
     sys::SystemStructure{VSMWing}, idx::Int64, component::Int)
 get_brake(sys::SystemStructure{VSMWing}, idx::Int64) = sys.winches[idx].brake
 @register_symbolic get_brake(sys::SystemStructure{VSMWing}, idx::Int64)
+get_speed_controlled(sys::SystemStructure{VSMWing}, idx::Int64) =
+    sys.winches[idx].speed_controlled
+@register_symbolic get_speed_controlled(
+    sys::SystemStructure{VSMWing}, idx::Int64)
 get_fix_point_sphere(sys::SystemStructure{VSMWing}, idx::Int64) =
     sys.points[idx].fix_sphere
 @register_symbolic get_fix_point_sphere(sys::SystemStructure{VSMWing}, idx::Int64)

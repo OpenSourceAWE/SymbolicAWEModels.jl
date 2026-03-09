@@ -449,6 +449,7 @@ mutable struct Winch
     tether_acc::SimFloat
     set_value::SimFloat
     brake::Bool
+    speed_controlled::Bool
     const force::KVec3
     gear_ratio::SimFloat
     drum_radius::SimFloat
@@ -460,7 +461,7 @@ mutable struct Winch
 end
 
 """
-    Winch(name, set, tethers; tether_len=0.0, tether_vel=0.0, brake=false)
+    Winch(name, set, tethers; tether_len=0.0, tether_vel=0.0, brake=false, speed_controlled=false)
 
 Constructs a `Winch` object that controls tether length through torque or speed regulation.
 
@@ -473,15 +474,17 @@ Constructs a `Winch` object that controls tether length through torque or speed 
 - `tether_len::SimFloat=0.0`: Initial tether length [m].
 - `tether_vel::SimFloat=0.0`: Initial tether velocity (reel-out rate) [m/s].
 - `brake::Bool=false`: If true, the winch brake is engaged.
+- `speed_controlled::Bool=false`: If true, tether velocity is prescribed externally
+  (not integrated by the ODE). `D(tether_vel) = 0`, length still tracks velocity.
 - `friction_epsilon::SimFloat=6.0`: Smoothing parameter for sign function in Coulomb friction.
 """
 function Winch(name, set::Settings, tethers;
                tether_len=0.0, tether_vel=0.0, brake=false,
-               friction_epsilon=6.0)
+               speed_controlled=false, friction_epsilon=6.0)
     tether_refs = Vector{NameRef}([t isa Integer ? Int(t) : Symbol(t) for t in tethers])
     return Winch(0, name, Int64[], tether_refs,
                  tether_len, tether_vel, 0.0, 0.0,
-                 brake, zeros(KVec3),
+                 brake, speed_controlled, zeros(KVec3),
                  set.gear_ratio, set.drum_radius,
                  set.f_coulomb, set.c_vf,
                  set.inertia_total, zero(SimFloat),
@@ -489,7 +492,7 @@ function Winch(name, set::Settings, tethers;
 end
 
 """
-    Winch(name, tethers, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; tether_len=0.0, tether_vel=0.0, brake=false)
+    Winch(name, tethers, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; tether_len=0.0, tether_vel=0.0, brake=false, speed_controlled=false)
 
 Constructs a `Winch` object by directly providing its physical parameters.
 
@@ -501,11 +504,11 @@ Constructs a `Winch` object by directly providing its physical parameters.
 function Winch(name, tethers, gear_ratio, drum_radius,
                f_coulomb, c_vf, inertia_total;
                tether_len=0.0, tether_vel=0.0, brake=false,
-               friction_epsilon=6.0)
+               speed_controlled=false, friction_epsilon=6.0)
     tether_refs = Vector{NameRef}([t isa Integer ? Int(t) : Symbol(t) for t in tethers])
     return Winch(0, name, Int64[], tether_refs,
                  tether_len, tether_vel, 0.0, 0.0,
-                 brake, zeros(KVec3),
+                 brake, speed_controlled, zeros(KVec3),
                  gear_ratio, drum_radius, f_coulomb,
                  c_vf, inertia_total, zero(SimFloat),
                  friction_epsilon)

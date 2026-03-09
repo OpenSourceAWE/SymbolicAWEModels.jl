@@ -29,6 +29,7 @@ function winch_eqs!(eqs, defaults, winches, tethers, points, psys, pset;
         winch_force(t)[eachindex(winches)]
         winch_force_vec(t)[1:3, eachindex(winches)]
         brake(t)[eachindex(winches)]
+        speed_controlled(t)[eachindex(winches)]
         # Winch motor and friction dynamics
         ω_motor(t)[eachindex(winches)]
         tau_friction(t)[eachindex(winches)]
@@ -60,12 +61,15 @@ function winch_eqs!(eqs, defaults, winches, tethers, points, psys, pset;
         eqs = [
             eqs
             brake[winch.idx] ~ get_brake(psys, winch.idx)
+            speed_controlled[winch.idx] ~
+                get_speed_controlled(psys, winch.idx)
             D(tether_len[winch.idx]) ~
                 ifelse(brake[winch.idx] == true, 0,
                        tether_vel[winch.idx])
             D(tether_vel[winch.idx]) ~
                 ifelse(brake[winch.idx] == true, 0,
-                       tether_acc[winch.idx])
+                    ifelse(speed_controlled[winch.idx] == true,
+                           0, tether_acc[winch.idx]))
 
             # Winch motor, gear, and friction dynamics
             ω_motor[winch.idx] ~

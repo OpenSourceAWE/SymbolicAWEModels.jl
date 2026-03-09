@@ -14,7 +14,8 @@
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, VortexStepMethod
+using SymbolicAWEModels: KVec3, VortexStepMethod,
+    calc_heading, reposition!
 using KiteUtils
 using LinearAlgebra
 
@@ -281,6 +282,45 @@ using LinearAlgebra
                 println("\n  ====== [$wing_type_name] Base point: " *
                     "ground_pos=$(round.(ground_pos, digits=2)), " *
                     "transform.base_pos=$(round.(transform.base_pos, digits=2)) ======\n")
+            end
+
+            # ================================================================
+            # Physics Test 9: reposition! heading matches reinit! heading
+            # ================================================================
+            @testset "Reposition heading matches reinit" begin
+                sys = sam.sys_struct
+                wind_norm = normalize(sys.wind_vec_gnd)
+
+                for h_deg in [0, 10, -15, 30, 45, -45]
+                    target_h = deg2rad(h_deg)
+
+                    # Reference: reinit! with target heading
+                    reset_transform!(sys)
+                    sys.transforms[:main_transform].heading = target_h
+                    init!(sam; remake=false, reload=false)
+                    wing = sys.wings[:main_wing]
+                    reinit_R = copy(wing.R_b_to_w)
+                    reinit_pos = copy(wing.pos_w)
+                    reinit_h = calc_heading(reinit_R, wind_norm)
+
+                    # Test: reinit! with heading=0, then reposition!
+                    reset_transform!(sys)
+                    init!(sam; remake=false, reload=false)
+                    sys.transforms[:main_transform].heading = target_h
+                    reposition!(sys.transforms, sys)
+                    wing = sys.wings[:main_wing]
+                    repos_R = copy(wing.R_b_to_w)
+                    repos_pos = copy(wing.pos_w)
+                    repos_h = calc_heading(repos_R, wind_norm)
+
+                    @test reinit_h ≈ repos_h atol=1e-6
+                    @test reinit_pos ≈ repos_pos atol=1e-4
+                    @test reinit_R ≈ repos_R atol=1e-6
+                end
+
+                println("\n  ====== [$wing_type_name] " *
+                    "reposition! heading matches reinit! " *
+                    "for all test angles ======\n")
             end
         end
     end

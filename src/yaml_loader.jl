@@ -526,7 +526,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             winch = call_yaml_constructor(Winch, row,
                 [:name, :set, :tethers],
                 [:tether_len, :tether_vel, :brake,
-                 :friction_epsilon];
+                 :speed_controlled, :friction_epsilon];
                 mappings=Dict(
                     :set => r -> set,
                     :tethers => r -> [to_ref(t) for t in r.tether_idxs],

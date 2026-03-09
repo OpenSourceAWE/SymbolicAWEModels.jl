@@ -379,6 +379,9 @@ function init!(sam::SymbolicAWEModel;
     tunable_params::Bool=false
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
+    sam.sys_struct isa SystemStructure{VSMWing} || error(
+        "Equation generation requires SystemStructure{VSMWing}, " *
+        "got SystemStructure{$(eltype(sam.sys_struct.wings))}.")
     time = @elapsed begin
         if isnothing(solver)
             solver = if sam.set.solver == "FBDF"
