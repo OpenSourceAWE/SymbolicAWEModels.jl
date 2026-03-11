@@ -133,6 +133,8 @@ end
         t = sam.integrator.t
         du = similar(u)
         f(du, u, p, t)
+        f(du, u, p, t)
+        GC.gc()
 
         Profile.Allocs.clear()
         Profile.Allocs.@profile sample_rate = 1.0 begin
