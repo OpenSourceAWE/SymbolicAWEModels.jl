@@ -45,6 +45,11 @@ jobs:
           - os: ubuntu-latest
             version: '1.11'
             arch: x64
+            prefix: xvfb-run -a
+          - os: ubuntu-latest
+            version: '1.12'
+            arch: x64
+            prefix: xvfb-run -a
           - os: macOS-latest
             version: '1.12'
             arch: aarch64
@@ -56,9 +61,17 @@ jobs:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
 
+      - name: Install display dependencies for GLMakie
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgl1-mesa-dri
+
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
+        with:
+          prefix: ${{ matrix.prefix }}
 
       - name: Upload PNG plots as artifact
         if: always()

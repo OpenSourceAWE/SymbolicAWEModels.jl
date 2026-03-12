@@ -11,7 +11,8 @@
 # 5. Replay multiple systems
 
 using Test
-using CairoMakie
+using GLMakie
+GLMakie.activate!(; visible=false)
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
 using KiteUtils
@@ -93,13 +94,8 @@ function build_test_syslog(sam, sys, n_steps, dt)
         sys_state.time = i * dt
         log!(logger, sys_state)
     end
-    # save/load round-trip to get a SysLog
-    tmpdir = mktempdir()
-    set_data_path(tmpdir)
     save_log(logger, "makie_test_log")
-    lg = load_log("makie_test_log")
-    rm(tmpdir; recursive=true)
-    return lg
+    return load_log("makie_test_log")
 end
 
 @testset "Makie Extension" begin
@@ -140,7 +136,7 @@ end
     # ================================================================
     @testset "Multi-system plot vector colors" begin
         scene = plot([sys1, sys2]; use_observables=true)
-        @test scene isa Makie.Scene
+        @test scene isa GLMakie.Scene
     end
 
     # ================================================================
@@ -148,8 +144,8 @@ end
     # ================================================================
     @testset "Single-system record" begin
         outfile = joinpath(tmpdir, "single.mp4")
-        scene = record(lg1, sys1, outfile; framerate=10)
-        @test scene isa Makie.Scene
+        scene = SymbolicAWEModels.record(lg1, sys1, outfile; framerate=10)
+        @test scene isa GLMakie.Scene
         @test isfile(outfile)
         @test filesize(outfile) > 0
     end
@@ -159,9 +155,9 @@ end
     # ================================================================
     @testset "Multi-system record" begin
         outfile = joinpath(tmpdir, "multi.mp4")
-        scene = record(
+        scene = SymbolicAWEModels.record(
             [lg1, lg2], [sys1, sys2], outfile; framerate=10)
-        @test scene isa Makie.Scene
+        @test scene isa GLMakie.Scene
         @test isfile(outfile)
         @test filesize(outfile) > 0
     end
@@ -171,7 +167,7 @@ end
     # ================================================================
     @testset "Single-system replay" begin
         scene = replay(lg1, sys1)
-        @test scene isa Makie.Scene
+        @test scene isa GLMakie.Scene
     end
 
     # ================================================================
@@ -179,7 +175,7 @@ end
     # ================================================================
     @testset "Multi-system replay" begin
         scene = replay([lg1, lg2], [sys1, sys2])
-        @test scene isa Makie.Scene
+        @test scene isa GLMakie.Scene
     end
 
     rm(tmpdir; recursive=true)
