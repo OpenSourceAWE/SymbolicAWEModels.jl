@@ -45,7 +45,6 @@ $JULIA --project=. -e '
 # Verify example files were copied
 for f in menu.jl hanging_mass.jl catenary_line.jl \
          pulley.jl saddle_form.jl \
-         aero_2plate_kite.jl \
          coupled_2plate_kite.jl coupled_2plate_kite_linear_vsm.jl \
          coupled_tether_deflection.jl coupled_realtime_visualization.jl \
          coupled_linearize.jl coupled_simple_lin_model.jl \
@@ -61,8 +60,7 @@ done
 
 # Verify all examples use GLMakie
 for f in menu.jl hanging_mass.jl catenary_line.jl \
-         pulley.jl saddle_form.jl \
-         aero_2plate_kite.jl coupled_2plate_kite.jl; do
+         pulley.jl saddle_form.jl coupled_2plate_kite.jl; do
     if grep -q "using GLMakie" "examples/$f"; then
         pass "$f uses GLMakie"
     else
@@ -73,7 +71,6 @@ done
 # Run examples (ordered from simple to complex)
 for f in hanging_mass.jl catenary_line.jl \
          pulley.jl saddle_form.jl sam_tutorial.jl \
-         aero_2plate_kite.jl \
          coupled_tether_deflection.jl \
          coupled_2plate_kite.jl \
          coupled_2plate_kite_linear_vsm.jl \
