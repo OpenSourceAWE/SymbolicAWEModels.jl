@@ -11,8 +11,24 @@
 # 5. Replay multiple systems
 
 using Test
-using GLMakie
-GLMakie.activate!(; visible=false)
+
+# GLMakie requires OpenGL — skip tests on CI runners without GPU drivers
+const GLMAKIE_AVAILABLE = try
+    @eval using GLMakie
+    GLMakie.activate!(; visible=false)
+    true
+catch e
+    @warn "GLMakie not available, skipping Makie extension tests" exception=e
+    false
+end
+
+if !GLMAKIE_AVAILABLE
+    @testset "Makie Extension" begin
+        @test_skip "GLMakie unavailable"
+    end
+    return
+end
+
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
 using KiteUtils
