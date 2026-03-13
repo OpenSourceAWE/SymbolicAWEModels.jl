@@ -34,7 +34,8 @@ update_aero_yaml_from_struc_yaml!(struc_yaml, aero_yaml)
 set = Settings("system.yaml")
 set.profile_law = 3
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml"))
+    joinpath(get_data_path(), "vsm_settings.yaml");
+    data_prefix=false)
 sys = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite", set, vsm_set)
 sam = SymbolicAWEModel(set, sys)

@@ -69,7 +69,7 @@ end
 
 # --- STEP 3: Add a pulley ---
 
-push!(points, Point(22, [0, 0, set.l_tether + 5], DYNAMIC))
+push!(points, Point(22, [0, 0, set.l_tether + 5], DYNAMIC; extra_mass=0.1))
 push!(points, Point(23, [1, 0, set.l_tether + 5], STATIC))
 push!(segments, Segment(21, 21, 22,
     seg_stiffness, seg_damping, seg_diameter))
@@ -94,12 +94,25 @@ end
 
 # --- STEP 4: Add a kite ---
 
-vsm_wing = VortexStepMethod.Wing(set; prn=false)
+vsm_set = VortexStepMethod.VSMSettings(
+    joinpath(get_data_path(), "vsm_settings.yaml");
+    data_prefix=false)
+vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false)
 vsm_aero = BodyAerodynamics([vsm_wing])
 vsm_solver = Solver(vsm_aero;
     solver_type=NONLIN, atol=2e-8, rtol=2e-8)
 wings = [SymbolicAWEModels.Wing(1, vsm_aero, vsm_wing,
     vsm_solver, [], I(3), [0.5, 0, set.l_tether + 6])]
+
+# WING-type points: 3 LE/TE pairs matching the 3 aero sections
+wing_z = set.l_tether + 6
+for (i, y) in enumerate([-1.0, 0.0, 1.0])
+    n = length(points)
+    push!(points, Point(n + 1, [-0.5, y, wing_z],
+        WING; wing=1, transform=1, extra_mass=0.1))
+    push!(points, Point(n + 2, [0.5, y, wing_z],
+        WING; wing=1, transform=1, extra_mass=0.1))
+end
 
 sys = SystemStructure("wing", set;
     points, segments, tethers, winches, pulleys,

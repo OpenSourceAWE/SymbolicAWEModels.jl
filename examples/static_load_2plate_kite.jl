@@ -7,7 +7,7 @@ kite structure and simulate a few steps under those loads.
 """
 
 using GLMakie
-using SymbolicAWEModels, KiteUtils
+using SymbolicAWEModels, VortexStepMethod, KiteUtils
 using LinearAlgebra
 using SymbolicAWEModels: Point
 
@@ -30,10 +30,16 @@ set_data_path(joinpath(pkg_root, "data", MODEL_NAME))
 
 struc_yaml = joinpath(get_data_path(),
                       "quat_struc_geometry.yaml")
+aero_yaml = joinpath(get_data_path(), "aero_geometry.yaml")
+update_aero_yaml_from_struc_yaml!(struc_yaml, aero_yaml)
+
 set = Settings("system.yaml")
+vsm_set = VSMSettings(joinpath(get_data_path(),
+    "vsm_settings.yaml"); data_prefix=false)
 
 sys = load_sys_struct_from_yaml(struc_yaml;
-    system_name=MODEL_NAME, set, aero_mode=AERO_NONE)
+    system_name=MODEL_NAME, set, vsm_set,
+    aero_mode=AERO_NONE)
 
 function apply_loads!(points, F)
     for (i, point) in enumerate(points)

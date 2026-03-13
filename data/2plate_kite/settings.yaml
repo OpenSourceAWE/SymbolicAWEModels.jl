@@ -1,6 +1,7 @@
 system:
     log_file: "data/2plate"  # filename without extension  [replay only]
-                                   #   use / as path delimiter, even on Windows 
+                                   #   use / as path delimiter, even on Windows
+    sample_freq:   20              # sample frequency in Hz
     g_earth:     9.81
 
 initial:
