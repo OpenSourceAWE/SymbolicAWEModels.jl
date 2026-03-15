@@ -24,7 +24,7 @@ end
 
 if !GLMAKIE_AVAILABLE
     @testset "Makie Extension" begin
-        @test_skip "GLMakie unavailable"
+        @test true skip=true  # GLMakie unavailable
     end
     return
 end
