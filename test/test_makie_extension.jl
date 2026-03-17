@@ -26,8 +26,7 @@ if !GLMAKIE_AVAILABLE
     @testset "Makie Extension" begin
         @test true skip=true  # GLMakie unavailable
     end
-    return
-end
+else
 
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
@@ -160,7 +159,8 @@ end
     # ================================================================
     @testset "Single-system record" begin
         outfile = joinpath(tmpdir, "single.mp4")
-        scene = SymbolicAWEModels.record(lg1, sys1, outfile; framerate=10)
+        scene = SymbolicAWEModels.record(
+            lg1, sys1, outfile; framerate=10)
         @test scene isa GLMakie.Scene
         @test isfile(outfile)
         @test filesize(outfile) > 0
@@ -196,3 +196,5 @@ end
 
     rm(tmpdir; recursive=true)
 end
+
+end # if GLMAKIE_AVAILABLE
