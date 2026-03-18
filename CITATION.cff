@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "SymbolicAWEModels.jl"
+type: software
+authors:
+  - family-names: "van de Lint"
+    given-names: "Bart"
+    affiliation: "Open Source AWE"
+  - family-names: "Poland"
+    given-names: "Jelle"
+    affiliation: "Delft University of Technology"
+  - family-names: "Fechner"
+    given-names: "Uwe"
+    affiliation: "Delft University of Technology"
+repository-code: "https://github.com/OpenSourceAWE/SymbolicAWEModels.jl"
+license: MPL-2.0
+version: "0.7.1"
+date-released: "2025-01-01"
+keywords:
+  - airborne wind energy
+  - kite power
+  - symbolic modeling
+  - ModelingToolkit
+  - Julia
+  - vortex step method
+  - flight dynamics
+abstract: >-
+  A Julia package for symbolic modeling and simulation of
+  Airborne Wind Energy (AWE) systems using ModelingToolkit.jl,
+  with aerodynamics computed via the Vortex Step Method.

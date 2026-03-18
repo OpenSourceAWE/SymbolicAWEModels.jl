@@ -3,6 +3,43 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.7.2 18-03-2026
+
+## Added
+- `speed_controlled` field on `Winch` — when `true`, tether velocity
+  is prescribed externally (`D(tether_vel) = 0`) while length still
+  tracks velocity.
+- Multi-system `record()` for recording side-by-side SysLog animations
+  to video (MP4/GIF/MKV/WebM).
+- Makie extension test suite (`test_makie_extension.jl`) covering
+  multi-system plot, record, and replay.
+- Zenodo metadata (`.zenodo.json`) and `CITATION.cff` for citing the
+  package.
+- CI: GLMakie tests on Linux via `xvfb-run`, Julia 1.12 test matrix.
+
+## Fixed
+- `reposition!()` now uses the analytical `solve_heading_rotation`
+  for wind-relative heading, consistent with `reinit!`. Previously
+  heading was applied as a relative delta, causing drift.
+- `reposition!()` correctly updates REFINE wings by recalculating
+  `R_b_to_w` and `pos_b` from structural points.
+- Multi-system `plot()` now passes vector-typed segment colors,
+  fixing a crash when `setup_segment_hover_events!` assigned
+  `Vector{RGBA}`.
+- `init!()` validates that `SystemStructure` uses `VSMWing` type
+  before equation generation.
+- `sim_reposition!()` passes absolute heading to the transform
+  instead of subtracting the current wing heading.
+- Typo fixes in README and documentation ("ODE solver" → "ODE
+  problem").
+
+## Changed
+- `sam_tutorial.jl` example updated: adds WING-type points and uses
+  `VSMSettings` with `data_prefix=false`.
+- Examples updated to pass `data_prefix=false` to `VSMSettings`.
+- 2plate_kite aero geometry TE z-coordinates adjusted.
+- `settings.yaml` now includes `sample_freq` field.
+
 # v0.7.1 27-02-2026
 
 ## Added
