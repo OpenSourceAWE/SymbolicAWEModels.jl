@@ -101,9 +101,10 @@ groups:
 ## Tethers ################
 ###########################
 tethers:
-  headers: [name, segment_idxs]
+  headers: [name, start_point, end_point, n_segments,
+            diameter_mm, unit_stiffness, unit_damping]
   data:
-    - [main_tether, [tether_upper, tether_lower]]
+    - [main_tether, kcu, ground, 2, 1.0, dyneema, nothing]
 
 ###########################
 ## Winches ################
