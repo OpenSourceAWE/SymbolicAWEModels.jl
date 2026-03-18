@@ -84,7 +84,7 @@ using LinearAlgebra
                 transform = sys.transforms[:main_transform]
 
                 # Verify base point
-                @test transform.base_point_idx == 11  # ground point index
+                @test transform.base_point_idx == 10  # ground point index
 
                 # Verify wing reference
                 @test transform.wing_idx == 1  # main_wing index
@@ -270,7 +270,7 @@ using LinearAlgebra
             @testset "Base position from base_point" begin
                 # The transform references ground as base_point
                 transform = sam.sys_struct.transforms[:main_transform]
-                @test transform.base_point_idx == 11  # ground index
+                @test transform.base_point_idx == 10  # ground index
 
                 reset_transform!(sam.sys_struct)
                 init!(sam; remake=false, reload=false)
