@@ -33,88 +33,38 @@ function wrap_to_pi(angle)
 end
 
 """
-    calc_heading(R_b_to_w, wind_norm)
+    calc_heading(R_b_to_w, wing_pos)
 
-Calculate heading angle from body-to-world rotation matrix and wind direction.
-Heading is the angle of the body x-axis projected onto a wind-perpendicular plane.
+Calculate heading angle using the tangential sphere frame.
+
+Projects the body x-axis onto the tangent plane of the tether
+sphere at `wing_pos`. Heading is measured from the elevation
+direction (x_t, away from zenith) toward the azimuthal direction
+(y_t). Heading = 0 when the kite nose points toward the ground
+station.
 """
-function calc_heading(R_b_to_w, wind_norm)
+function calc_heading(R_b_to_w, wing_pos)
+    R_t_to_w = calc_R_t_to_w(wing_pos)
     e_x = R_b_to_w[:, 1]
-    # Project -e_x onto plane perpendicular to wind
-    minus_e_x = -e_x
-    proj_on_wind = dot(minus_e_x, wind_norm) * wind_norm
-    e_x_perp = minus_e_x - proj_on_wind
-    # Heading components in wind-perpendicular plane
-    wind_cross_z = [wind_norm[2], -wind_norm[1], 0]
-    heading_x = dot(e_x_perp, wind_cross_z)
-    heading_z = e_x_perp[3]
-    heading = atan(heading_x, heading_z)
-    return wrap_to_pi(heading)
+    e_x_t = R_t_to_w' * e_x
+    return atan(e_x_t[2], e_x_t[1])
 end
 
 """
-    get_heading_components(e_x, k, θ, wind_norm)
+    solve_heading_rotation(R_b_to_w, target_heading, wing_pos)
 
-Get heading_y and heading_z components for body x-axis rotated by θ around k.
+Calculate the rotation angle around the radial axis needed to
+achieve `target_heading`.
+
+With the tangential sphere heading, rotating around the radial
+axis by θ simply shifts the heading by θ, so the solution is
+`target_heading - current_heading`.
 """
-function get_heading_components(e_x, k, θ, wind_norm)
-    e_x_rot = rotate_v_around_k(e_x, k, θ)
-    minus_ex = -e_x_rot
-    proj_on_wind = dot(minus_ex, wind_norm) * wind_norm
-    e_x_perp = minus_ex - proj_on_wind
-    wind_cross_z = [wind_norm[2], -wind_norm[1], 0.0]
-    hy = dot(e_x_perp, wind_cross_z)
-    hz = e_x_perp[3]
-    return hy, hz
-end
-
-"""
-    solve_heading_rotation(R_b_to_w, target_heading, k, wind_norm)
-
-Analytical solution for heading rotation angle.
-
-The heading components vary with rotation angle θ as:
-  hy(θ) = A1*sin(θ) + B1*cos(θ) + C1  (same form for hz)
-
-The equation hy*cos(h) - hz*sin(h) = 0 gives: A*sin(θ) + B*cos(θ) + C = 0
-
-Solution: θ = atan2(A, B) - acos(-C / √(A² + B²))
-"""
-function solve_heading_rotation(R_b_to_w, target_heading, k, wind_norm)
-    k = normalize(k)
-    e_x = R_b_to_w[:, 1]
-
-    # Extract coefficients by sampling at θ = 0, π/2, π
-    hy_0, hz_0 = get_heading_components(e_x, k, 0.0, wind_norm)
-    hy_90, hz_90 = get_heading_components(e_x, k, π/2, wind_norm)
-    hy_180, hz_180 = get_heading_components(e_x, k, π, wind_norm)
-
-    C1 = (hy_0 + hy_180) / 2
-    B1 = hy_0 - C1
-    A1 = hy_90 - C1
-
-    C2 = (hz_0 + hz_180) / 2
-    B2 = hz_0 - C2
-    A2 = hz_90 - C2
-
-    ch = cos(target_heading)
-    sh = sin(target_heading)
-
-    A = A1 * ch - A2 * sh
-    B = B1 * ch - B2 * sh
-    C = C1 * ch - C2 * sh
-
-    r = sqrt(A^2 + B^2)
-
-    if r < 1e-10
-        return 0.0
-    end
-
-    base_angle = atan(A, B)
-    arg = clamp(-C / r, -1.0, 1.0)
-    delta = acos(arg)
-
-    return base_angle - delta
+function solve_heading_rotation(
+    R_b_to_w, target_heading, wing_pos,
+)
+    current = calc_heading(R_b_to_w, wing_pos)
+    return wrap_to_pi(target_heading - current)
 end
 
 # ==================== REFINE WING FRAME CALCULATION ==================== #
@@ -371,7 +321,7 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
             end
         end
 
-        # ==================== APPLY HEADING VIA NONLINEAR SOLVE ==================== #
+        # ==================== APPLY HEADING ==================== #
         # For each wing in this transform, calculate R_b_to_w and solve for heading
         for wing in wings
             if wing.transform_idx == transform.idx
@@ -395,15 +345,13 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
 
                 # Solve for the rotation angle that
                 # achieves target heading
-                k = normalize(wing.pos_w)
-                wind_norm = normalize(
-                    sys_struct.wind_vec_gnd)
                 delta_heading = solve_heading_rotation(
                     R_b_to_w, transform.heading,
-                    k, wind_norm)
+                    wing.pos_w)
 
                 # Apply the solved rotation to all
                 # points in this transform
+                k = normalize(wing.pos_w)
                 for point in points
                     if point.transform_idx ==
                        transform.idx
@@ -458,8 +406,8 @@ position, preserving velocities.
 
 Unlike `reinit!`, uses current world positions (`pos_w`) as
 the starting point rather than resetting from CAD coordinates.
-Heading is wind-relative (absolute), consistent with `reinit!`:
-the same analytical `solve_heading_rotation` is used.
+Heading uses the tangential sphere frame, consistent with
+`reinit!`.
 
 Preserves existing velocities (`vel_w`, `ω_b`) of all points
 and wings.
@@ -530,15 +478,13 @@ function reposition!(
                     end
                 end
 
-                # Analytical heading solve
-                k = normalize(wing.pos_w)
-                wind_norm = normalize(
-                    sys_struct.wind_vec_gnd)
+                # Tangential sphere heading solve
                 delta_heading = solve_heading_rotation(
                     R_b_to_w, transform.heading,
-                    k, wind_norm)
+                    wing.pos_w)
 
                 # Apply to all points in this transform
+                k = normalize(wing.pos_w)
                 for point in points
                     if point.transform_idx ==
                        transform.idx

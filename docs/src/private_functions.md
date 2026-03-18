@@ -181,7 +181,6 @@ SymbolicAWEModels.get_group_moment_override
 ## Heading and geometry
 
 ```@docs
-SymbolicAWEModels.get_heading_components
 SymbolicAWEModels.solve_heading_rotation
 SymbolicAWEModels.get_ref_position_from_points
 SymbolicAWEModels.sym_calc_R_t_to_w

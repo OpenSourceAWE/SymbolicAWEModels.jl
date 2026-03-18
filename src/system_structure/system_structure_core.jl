@@ -177,12 +177,13 @@ end
 """
     calc_heading(sys::SystemStructure)
 
-Calculate heading angles for all wings in the system structure.
-Returns a vector of heading angles, one per wing.
+Calculate heading angles for all wings using the tangential
+sphere frame method. Returns a vector of heading angles, one
+per wing.
 """
 function calc_heading(sys::SystemStructure)
-    wind_norm = normalize(getfield(sys, :wind_vec_gnd))
-    return [calc_heading(wing.R_b_to_w, wind_norm) for wing in getfield(sys, :wings)]
+    return [calc_heading(wing.R_b_to_w, wing.pos_w)
+            for wing in getfield(sys, :wings)]
 end
 
 """
