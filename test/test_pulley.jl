@@ -55,11 +55,11 @@ points:
 # Dyneema tethers: very stiff (E=55 GPa) with low damping
 # l0 = nothing -> auto-calculated from point positions
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
-    - [left_leg, attach_left, pulley_point, BRIDLE, nothing, 5.0, dyneema, nothing, 0.01]
-    - [right_leg, attach_right, pulley_point, BRIDLE, nothing, 5.0, dyneema, nothing, 0.01]
-    - [main_tether, pulley_point, weight, BRIDLE, nothing, 5.0, dyneema, nothing, 0.01]
+    - [left_leg, attach_left, pulley_point, nothing, 5.0, dyneema, nothing, 0.01]
+    - [right_leg, attach_right, pulley_point, nothing, 5.0, dyneema, nothing, 0.01]
+    - [main_tether, pulley_point, weight, nothing, 5.0, dyneema, nothing, 0.01]
 
 ###########################
 ## Pulleys ################
@@ -105,11 +105,11 @@ points:
 ###########################
 # l0 = nothing -> auto-calculated from point positions
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
-    - [left_leg, attach_left, pulley_point, BRIDLE, nothing, 5.0, dyneema, nothing, 0.01]
-    - [right_leg, attach_right, pulley_point, BRIDLE, nothing, 5.0, dyneema, nothing, 0.01]
-    - [main_tether, pulley_point, weight, BRIDLE, nothing, 5.0, dyneema, nothing, 0.01]
+    - [left_leg, attach_left, pulley_point, nothing, 5.0, dyneema, nothing, 0.01]
+    - [right_leg, attach_right, pulley_point, nothing, 5.0, dyneema, nothing, 0.01]
+    - [main_tether, pulley_point, weight, nothing, 5.0, dyneema, nothing, 0.01]
 
 ###########################
 ## Pulleys ################

@@ -252,6 +252,144 @@ function resolve_ref_spec(spec::Nothing, name_dict::Dict{Symbol, Int64}, compone
 end
 
 """
+    expand_auto_tethers!(points, segments, tethers, set)
+
+For Route 2 tethers (auto-generation), create intermediate DYNAMIC
+points and segments. Must be called before `assign_indices_and_resolve!`.
+
+Detects Route 2 tethers by checking `start_point_ref !== nothing`
+and `segment_refs` names not yet present in `segments`.
+"""
+function expand_auto_tethers!(
+    points::Vector{Point},
+    segments::Vector{Segment},
+    tethers::Vector{Tether},
+    set::Settings
+)
+    # Build point name lookup for finding start/end points
+    pt_names = Dict{Symbol, Int}()
+    for (i, p) in enumerate(points)
+        if !isnothing(p.name)
+            nm = p.name isa Symbol ? p.name : Symbol(p.name)
+            pt_names[nm] = i
+        end
+    end
+
+    # Build segment name set for checking existing segments
+    seg_names = Set{Symbol}()
+    for s in segments
+        if !isnothing(s.name)
+            nm = s.name isa Symbol ? s.name : Symbol(s.name)
+            push!(seg_names, nm)
+        end
+    end
+
+    for tether in tethers
+        # Skip Route 1 tethers (no start_point_ref)
+        isnothing(tether.start_point_ref) && continue
+
+        # Skip if segments already exist (user pre-created)
+        first_seg_name = tether.segment_refs[1]
+        first_seg_sym = first_seg_name isa Symbol ?
+            first_seg_name : Symbol(first_seg_name)
+        first_seg_sym in seg_names && continue
+
+        # Resolve start and end points by name
+        sp_sym = tether.start_point_ref isa Symbol ?
+            tether.start_point_ref :
+            Symbol(tether.start_point_ref)
+        ep_sym = tether.end_point_ref isa Symbol ?
+            tether.end_point_ref :
+            Symbol(tether.end_point_ref)
+        haskey(pt_names, sp_sym) || error(
+            "Tether $(tether.name): start_point " *
+            ":$sp_sym not found in points")
+        haskey(pt_names, ep_sym) || error(
+            "Tether $(tether.name): end_point " *
+            ":$ep_sym not found in points")
+        sp_idx = pt_names[sp_sym]
+        ep_idx = pt_names[ep_sym]
+        start_pos = points[sp_idx].pos_cad
+        end_pos = points[ep_idx].pos_cad
+
+        # Inherit transform from endpoints
+        sp_tf = points[sp_idx].transform_ref
+        ep_tf = points[ep_idx].transform_ref
+        sp_has_tf = sp_tf != 0
+        ep_has_tf = ep_tf != 0
+        if sp_has_tf && ep_has_tf && sp_tf != ep_tf
+            error("Tether $(tether.name): " *
+                "start_point :$sp_sym (transform=" *
+                "$sp_tf) and end_point :$ep_sym " *
+                "(transform=$ep_tf) have different " *
+                "transforms")
+        end
+        tf = sp_has_tf ? sp_tf : ep_has_tf ? ep_tf : 0
+
+        n = tether.n_segments
+
+        # Derive segment properties from settings if NaN
+        us = tether.unit_stiffness
+        ud = tether.unit_damping
+        d = tether.diameter
+        if isnan(d)
+            d = set.d_tether * 0.001  # mm → m
+        end
+        if isnan(us)
+            us = set.e_tether * (d / 2)^2 * π
+        end
+        if isnan(ud)
+            if hasproperty(set, :rel_damping) &&
+               set.rel_damping != 0.0
+                ud = set.rel_damping * us
+            else
+                ud = 0.0
+            end
+        end
+
+        # Total length from point positions
+        total_len = norm(end_pos - start_pos)
+        seg_l0 = total_len / n
+
+        # Generate n-1 intermediate DYNAMIC points
+        dir = end_pos - start_pos
+        for i in 1:(n - 1)
+            frac = i / n
+            pos = start_pos + frac * dir
+            pt_name = Symbol("$(tether.name)_point_$i")
+            tf_kw = tf == 0 ? () :
+                (transform=tf,)
+            push!(points, Point(pt_name, pos,
+                DYNAMIC; tf_kw...))
+            pt_names[pt_name] = length(points)
+        end
+
+        # Generate n segments
+        for i in 1:n
+            seg_name = tether.segment_refs[i]
+            seg_sym = seg_name isa Symbol ? seg_name :
+                Symbol(seg_name)
+            if i == 1
+                p_i = tether.start_point_ref
+            else
+                p_i = Symbol(
+                    "$(tether.name)_point_$(i - 1)")
+            end
+            if i == n
+                p_j = tether.end_point_ref
+            else
+                p_j = Symbol(
+                    "$(tether.name)_point_$i")
+            end
+            push!(segments, Segment(
+                seg_sym, p_i, p_j, us, ud, d;
+                l0=seg_l0))
+            push!(seg_names, seg_sym)
+        end
+    end
+end
+
+"""
     assign_indices_and_resolve!(components, name_dicts)
 
 Assign indices to all components based on their position in the vectors,
@@ -330,15 +468,28 @@ function assign_indices_and_resolve!(
         pulley.segment_idxs = (s1, s2)
     end
 
-    # Tethers: resolve segment_refs and winch_point_ref
+    # Tethers: resolve segment_refs and start/end point refs
     for tether in tethers
-        tether.segment_idxs = Int64[resolve_ref(r, segment_names, "segment") for r in tether.segment_refs]
-        tether.winch_point_idx = resolve_ref(tether.winch_point_ref, point_names, "point")
+        tether.segment_idxs = Int64[
+            resolve_ref(r, segment_names, "segment")
+            for r in tether.segment_refs]
+        if !isnothing(tether.start_point_ref)
+            tether.start_point_idx = resolve_ref(
+                tether.start_point_ref, point_names, "point")
+        end
+        if !isnothing(tether.end_point_ref)
+            tether.end_point_idx = resolve_ref(
+                tether.end_point_ref, point_names, "point")
+        end
     end
 
-    # Winches: resolve tether_refs
+    # Winches: resolve tether_refs and winch_point_ref
     for winch in winches
-        winch.tether_idxs = Int64[resolve_ref(r, tether_names, "tether") for r in winch.tether_refs]
+        winch.tether_idxs = Int64[
+            resolve_ref(r, tether_names, "tether")
+            for r in winch.tether_refs]
+        winch.winch_point_idx = resolve_ref(
+            winch.winch_point_ref, point_names, "point")
     end
 
     # Transforms: resolve wing_ref, rot_point_ref, base_point_ref, base_transform_ref
@@ -529,11 +680,18 @@ function SystemStructure(name, set;
         end
     end
 
-    # Assign indices and resolve all references FIRST
+    # Expand Route 2 tethers (auto-generate points/segments)
+    expand_auto_tethers!(points, segments, tethers, set)
+
+    # Assign indices and resolve all references
     # This converts symbolic names to numeric indices
-    (point_names_dict, group_names_dict, segment_names_dict, pulley_names_dict,
-     tether_names_dict, winch_names_dict, wing_names_dict, transform_names_dict) =
-        assign_indices_and_resolve!(points, groups, segments, pulleys, tethers, winches, wings, transforms)
+    (point_names_dict, group_names_dict,
+     segment_names_dict, pulley_names_dict,
+     tether_names_dict, winch_names_dict,
+     wing_names_dict, transform_names_dict) =
+        assign_indices_and_resolve!(
+            points, groups, segments, pulleys,
+            tethers, winches, wings, transforms)
 
     # If no wings defined, convert WING points to STATIC
     if isempty(wings)
@@ -580,6 +738,16 @@ function SystemStructure(name, set;
     end
     for (i, tether) in enumerate(tethers)
         @assert tether.idx == i
+        # Route 1: auto-detect start/end from segment chain
+        if isnothing(tether.start_point_ref) &&
+           !isempty(tether.segment_idxs)
+            seg_first = segments[tether.segment_idxs[1]]
+            seg_last = segments[tether.segment_idxs[end]]
+            tether.start_point_idx =
+                seg_first.point_idxs[1]
+            tether.end_point_idx =
+                seg_last.point_idxs[2]
+        end
     end
     for (i, winch) in enumerate(winches)
         @assert winch.idx == i

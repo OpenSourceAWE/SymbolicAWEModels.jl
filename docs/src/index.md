@@ -66,7 +66,8 @@ points = [
     Point(:anchor, [0, 0, 0], STATIC),
     Point(:mass, [0, 0, -50], DYNAMIC; extra_mass=1.0),
 ]
-segments = [Segment(:spring, set, :anchor, :mass, BRIDLE)]
+segments = [Segment(:spring, :anchor, :mass,
+    614600.0, 473.0, 0.004)]
 transforms = [Transform(:tf, deg2rad(-80), 0.0, 0.0;
     base_pos=[0, 0, 50], base_point=:anchor, rot_point=:mass)]
 

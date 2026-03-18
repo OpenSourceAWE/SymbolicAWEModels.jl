@@ -39,7 +39,8 @@ points = [
     Point(:mass, [0, 0, -50], DYNAMIC; extra_mass=1.0),
 ]
 # :anchor and :mass are just names here, not yet resolved
-segments = [Segment(:spring, set, :anchor, :mass, BRIDLE)]
+segments = [Segment(:spring, :anchor, :mass,
+    614600.0, 473.0, 0.004)]
 ```
 
 Alternatively, components can be parsed from a YAML file using

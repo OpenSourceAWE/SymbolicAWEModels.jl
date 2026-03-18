@@ -48,10 +48,10 @@ points:
 ## Segments ###############
 ###########################
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
     # unit_stiffness=1000, l0=10 -> k=100 N/m; unit_damping=10, l0=10 -> c=1 N·s/m
-    - [test_segment, anchor, mass_point, BRIDLE, 10.0, 5.0, 1000.0, 10.0, 0.1]
+    - [test_segment, anchor, mass_point, 10.0, 5.0, 1000.0, 10.0, 0.1]
 """
 
 # YAML for oscillation test
@@ -75,10 +75,10 @@ points:
     - [mass_point, [0.0, 0.0, -10.0], DYNAMIC, nothing, nothing, 5.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
     # unit_stiffness=1000 -> k=100 N/m, unit_damping=100 -> c=10 N*s/m -> zeta=0.224
-    - [test_segment, anchor, mass_point, BRIDLE, 10.0, 5.0, 1000.0, 100.0, 0.1]
+    - [test_segment, anchor, mass_point, 10.0, 5.0, 1000.0, 100.0, 0.1]
 """
 
 # YAML for horizontal segment drag test - two dynamic points, no extra mass
@@ -94,9 +94,9 @@ points:
     - [point_right, [5.0, 0.0, 50.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
-    - [horiz_segment, point_left, point_right, BRIDLE, 10.0, 4.0, 100000.0, 100.0, 0.1]
+    - [horiz_segment, point_left, point_right, 10.0, 4.0, 100000.0, 100.0, 0.1]
 """
 
 # YAML for vertical segment wind drag test - two dynamic points, no extra mass
@@ -112,9 +112,9 @@ points:
     - [point_bottom, [0.0, 0.0, 50.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
-    - [vert_segment, point_top, point_bottom, BRIDLE, 10.0, 4.0, 100000.0, 100.0, 0.1]
+    - [vert_segment, point_top, point_bottom, 10.0, 4.0, 100000.0, 100.0, 0.1]
 """
 
 # YAML for high altitude drag test - starts at 5000m where air is thinner
@@ -130,9 +130,9 @@ points:
     - [point_right, [5.0, 0.0, 5000.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
-    - [horiz_segment, point_left, point_right, BRIDLE, 10.0, 4.0, 100000.0, 100.0, 0.1]
+    - [horiz_segment, point_left, point_right, 10.0, 4.0, 100000.0, 100.0, 0.1]
 """
 
 @testset "Segment Tests" begin

@@ -75,10 +75,10 @@ points:
     - [2, [0, 0, -50], DYNAMIC, nothing, 1, 1.0]
 
 segments:
-  headers: [idx, point_i, point_j, type, l0, diameter_mm,
+  headers: [idx, point_i, point_j, l0, diameter_mm,
             unit_stiffness, unit_damping, compression_frac]
   data:
-    - [1, 1, 2, BRIDLE, 50.0, 5.0, 100000, 50.0, 0.001]
+    - [1, 1, 2, 50.0, 5.0, 100000, 50.0, 0.001]
 
 transforms:
   headers: [idx, elevation, azimuth, heading,
@@ -122,13 +122,13 @@ materials:
     - [dyneema, 55e9, 724, 0.00077]
 
 segments:
-  headers: [idx, point_i, point_j, type, l0, diameter_mm,
+  headers: [idx, point_i, point_j, l0, diameter_mm,
             unit_stiffness, unit_damping, compression_frac]
   data:
     # 'dyneema' in unit_stiffness triggers material lookup
-    - [1, 1, 2, BRIDLE, 5.0, 5.0, dyneema, nothing, 0.01]
+    - [1, 1, 2, 5.0, 5.0, dyneema, nothing, 0.01]
     # Explicit stiffness (no material lookup)
-    - [2, 2, 3, BRIDLE, 5.0, 1.0, 100000, 50.0, 0.01]
+    - [2, 2, 3, 5.0, 1.0, 100000, 50.0, 0.01]
 ```
 
 When a material is referenced, derived properties are calculated automatically:
@@ -167,31 +167,30 @@ Two formats are supported:
 **With explicit stiffness:**
 ```yaml
 segments:
-  headers: [idx, point_i, point_j, type, l0, diameter_mm,
+  headers: [idx, point_i, point_j, l0, diameter_mm,
             unit_stiffness, unit_damping, compression_frac]
   data:
-    - [1, 1, 2, BRIDLE, 5.0, 5.0, 100000, 50.0, 0.01]
+    - [1, 1, 2, 5.0, 5.0, 100000, 50.0, 0.01]
 ```
 
 **With material reference:**
 ```yaml
 segments:
-  headers: [idx, point_i, point_j, type, l0, diameter_mm,
+  headers: [idx, point_i, point_j, l0, diameter_mm,
             unit_stiffness, unit_damping, compression_frac]
   data:
-    - [1, 1, 2, BRIDLE, 5.0, 5.0, dyneema, nothing, 0.01]
+    - [1, 1, 2, 5.0, 5.0, dyneema, nothing, 0.01]
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `idx` | Int | Segment identifier |
 | `point_i`, `point_j` | Int | Endpoint point indices |
-| `type` | String | `POWER_LINE`, `STEERING_LINE`, or `BRIDLE` |
 | `l0` | Float | Unstretched length [m] (0 = calculate from points) |
 | `diameter_mm` | Float | Diameter [mm] |
 | `unit_stiffness` | Float/String | Per-unit-length stiffness [N], or material name |
 | `unit_damping` | Float/nothing | Per-unit-length damping [Ns], or nothing for auto |
-| `compression_frac` | Float | Stiffness reduction in compression (0-1) |
+| `compression_frac` | Float | Compressive/tensile stiffness ratio (0-1) |
 
 ### Pulleys
 
@@ -204,20 +203,29 @@ pulleys:
 
 ### Tethers
 
+**Route 1** (explicit segments):
 ```yaml
 tethers:
-  headers: [idx, segment_idxs, winch_point_idx]
+  headers: [idx, segment_idxs]
   data:
-    - [1, [1, 2, 3], 1]
+    - [1, [1, 2, 3]]
+```
+
+**Route 2** (auto-generated segments):
+```yaml
+tethers:
+  headers: [name, start_point, end_point, n_segments]
+  data:
+    - [main, kite, ground, 5]
 ```
 
 ### Winches
 
 ```yaml
 winches:
-  headers: [idx, tether_idxs]
+  headers: [idx, tether_idxs, winch_point]
   data:
-    - [1, [1]]
+    - [1, [1], ground]
 ```
 
 ### Transforms

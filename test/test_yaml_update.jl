@@ -27,11 +27,11 @@ points:
        1.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, type, l0,
+  headers: [name, point_i, point_j, l0,
             diameter_mm, unit_stiffness, unit_damping,
             compression_frac]
   data:
-    - [seg_ab, pt_a, pt_b, POWER_LINE, 10.0,
+    - [seg_ab, pt_a, pt_b, 10.0,
        1.0, 5000.0, 10.0, 1.0]
 """
 

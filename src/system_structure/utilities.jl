@@ -42,42 +42,54 @@ end
 # ==================== TETHER CREATION ==================== #
 
 """
-    create_tether(tether_idx, set, points, segments, tethers, attach_point, type, dynamics_type; z, unit_stiffness, unit_damping)
+    create_tether(tether_idx, set, points, segments,
+                  tethers, attach_point, dynamics_type;
+                  z, unit_stiffness, unit_damping)
 
 Procedurally create a multi-segment tether.
 
-This function builds a tether from a specified number of segments, connecting a given
-`attach_point` on the kite to a new anchor point on the ground.
+This function builds a tether from a specified number of
+segments, connecting a given `attach_point` on the kite to
+a new anchor point on the ground.
 """
-function create_tether(tether_idx, set, points, segments, tethers, attach_point,
-                       type, dynamics_type; z=[0,0,1], unit_stiffness=NaN,
+function create_tether(tether_idx, set, points, segments,
+                       tethers, attach_point,
+                       dynamics_type; z=[0,0,1],
+                       unit_stiffness=NaN,
                        unit_damping=NaN, d_pos=zeros(3))
-    winch_pos = find_axis_point(attach_point.pos_cad, set.l_tether, z) .+ d_pos
+    winch_pos = find_axis_point(
+        attach_point.pos_cad, set.l_tether, z) .+ d_pos
     dir = winch_pos - attach_point.pos_cad
     segment_idxs = Int64[]
-    winch_point_idx = 0
+    ground_point_idx = 0
     for i in 1:set.segments
         frac = i / set.segments
         pos = attach_point.pos_cad + frac * dir
-        point_idx = length(points)+1 # last point idx
-        segment_idx = length(segments)+1 # last segment idx
+        point_idx = length(points) + 1
+        segment_idx = length(segments) + 1
         if i == 1
             last_idx = attach_point.idx
         else
-            last_idx = point_idx-1
+            last_idx = point_idx - 1
         end
         if i == set.segments
-            points = [points; Point(point_idx, pos, STATIC)]
-            winch_point_idx = points[end].idx
+            points = [points;
+                Point(point_idx, pos, STATIC)]
+            ground_point_idx = points[end].idx
         else
-            points = [points; Point(point_idx, pos, dynamics_type)]
+            points = [points;
+                Point(point_idx, pos, dynamics_type)]
         end
-        segments = [segments; Segment(segment_idx, set, last_idx, point_idx, type;
-                                      unit_stiffness, unit_damping)]
+        segments = [segments;
+            Segment(segment_idx, set, last_idx,
+                    point_idx;
+                    unit_stiffness, unit_damping)]
         push!(segment_idxs, segment_idx)
     end
-    tethers = [tethers; Tether(tether_idx, segment_idxs; winch_point=winch_point_idx)]
-    return points, segments, tethers, tethers[end].idx
+    tethers = [tethers;
+        Tether(tether_idx, segment_idxs)]
+    return (points, segments, tethers,
+            tethers[end].idx, ground_point_idx)
 end
 
 """

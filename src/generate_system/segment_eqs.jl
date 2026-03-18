@@ -104,16 +104,25 @@ function segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winch
                             in_winch += 1
                         end
                     end
-                    (in_winch != 1) && error(
-                        "Tether $(tether.idx) is connected to $in_winch " *
-                        "winches; should be 1.",
+                    (in_winch > 1) && error(
+                        "Tether $(tether.idx) is connected " *
+                        "to $in_winch winches; should be " *
+                        "0 or 1.",
                     )
 
-                    eqs = [
-                        eqs
-                        l0[segment.idx] ~
-                            tether_len[winch_idx] / length(tether.segment_idxs)
-                    ]
+                    if in_winch == 1
+                        eqs = [
+                            eqs
+                            l0[segment.idx] ~
+                                tether_len[winch_idx] /
+                                length(tether.segment_idxs)
+                        ]
+                    else
+                        # Tether without winch: constant l0
+                        eqs = [eqs;
+                            l0[segment.idx] ~
+                                get_l0(psys, segment.idx)]
+                    end
                     in_tether += 1
                 end
             end

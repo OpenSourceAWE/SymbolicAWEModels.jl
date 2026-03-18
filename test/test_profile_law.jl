@@ -41,10 +41,10 @@ points:
     - [dynamic_point, [0.0, 0.0, 10.5], DYNAMIC, nothing, nothing, 1.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
     # Connect dynamic point to 10m probe with very stiff segment
-    - [anchor_segment, probe_10m, dynamic_point, BRIDLE, 0.5, 1.0, 1000000.0, 1000.0, 0.1]
+    - [anchor_segment, probe_10m, dynamic_point, 0.5, 1.0, 1000000.0, 1000.0, 0.1]
 """
 
 @testset "Profile Law Tests" begin
