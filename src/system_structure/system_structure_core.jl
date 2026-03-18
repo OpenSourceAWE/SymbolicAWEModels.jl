@@ -253,6 +253,23 @@ function resolve_ref_spec(spec::Nothing, name_dict::Dict{Symbol, Int64}, compone
 end
 
 """
+    resolve!(ref_pt::WeightedRefPoints, name_dict, type)
+
+Resolve symbolic refs to integer indices, filling
+`ref_pt.ids`. No-op if `refs` is empty (already resolved).
+"""
+function resolve!(
+    ref_pt::WeightedRefPoints,
+    name_dict::Dict{Symbol, Int64},
+    component_type::String
+)
+    isempty(ref_pt.refs) && return
+    ref_pt.ids = Int64[
+        resolve_ref(r, name_dict, component_type)
+        for r in ref_pt.refs]
+end
+
+"""
     expand_auto_tethers!(points, segments, tethers, set)
 
 For Route 2 tethers (auto-generation), create intermediate DYNAMIC
@@ -509,20 +526,24 @@ function assign_indices_and_resolve!(
         wing.group_idxs = Int64[resolve_ref(r, group_names, "group") for r in wing.group_refs]
         wing.transform_idx = resolve_ref(wing.transform_ref, transform_names, "transform")
 
-        # VSMWing-specific REFINE fields
+        # VSMWing-specific fields
         if isa(wing, VSMWing)
             if !isnothing(wing.origin_ref)
-                wing.origin_idx = resolve_ref(wing.origin_ref, point_names, "point")
+                wing.origin_idx = resolve_ref(
+                    wing.origin_ref, point_names,
+                    "point")
             end
-            if !isnothing(wing.z_ref_points_ref)
-                z1 = resolve_ref_spec(wing.z_ref_points_ref[1], point_names, "point")
-                z2 = resolve_ref_spec(wing.z_ref_points_ref[2], point_names, "point")
-                wing.z_ref_points = (z1, z2)
+            if !isnothing(wing.z_ref_points)
+                resolve!(wing.z_ref_points[1],
+                    point_names, "point")
+                resolve!(wing.z_ref_points[2],
+                    point_names, "point")
             end
-            if !isnothing(wing.y_ref_points_ref)
-                y1 = resolve_ref_spec(wing.y_ref_points_ref[1], point_names, "point")
-                y2 = resolve_ref_spec(wing.y_ref_points_ref[2], point_names, "point")
-                wing.y_ref_points = (y1, y2)
+            if !isnothing(wing.y_ref_points)
+                resolve!(wing.y_ref_points[1],
+                    point_names, "point")
+                resolve!(wing.y_ref_points[2],
+                    point_names, "point")
             end
         end
     end
@@ -1066,22 +1087,14 @@ function SystemStructure(name, set;
                         wing_group_idxs=wing.group_idxs)
             end
 
-            # Set default reference points if not provided
-            if isnothing(wing.z_ref_points) ||
-               isnothing(wing.y_ref_points)
-                segs = wing.wing_segments
-
-                if isnothing(wing.z_ref_points)
-                    # Use first segment (center LE-TE) for Z (normal)
-                    wing.z_ref_points = segs[1]
-                end
-
-                if isnothing(wing.y_ref_points)
-                    # Use center LE and mid-span LE for Y (spanwise)
-                    mid = length(segs) ÷ 2
-                    wing.y_ref_points = (segs[1][1],
-                        segs[mid][1])
-                end
+            # REFINE wings require explicit ref points
+            if isnothing(wing.z_ref_points)
+                error("REFINE wing '$(wing.name)': " *
+                    "z_ref_points must be specified")
+            end
+            if isnothing(wing.y_ref_points)
+                error("REFINE wing '$(wing.name)': " *
+                    "y_ref_points must be specified")
             end
 
         end

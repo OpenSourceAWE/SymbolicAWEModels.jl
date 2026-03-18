@@ -67,7 +67,7 @@ export SymbolicAWEModel
 # System Structure Components
 export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
 export AbstractWing, BaseWing, VSMWing
-export NameRef, NamedCollection
+export NameRef, NamedCollection, WeightedRefPoints
 # Enums
 export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE

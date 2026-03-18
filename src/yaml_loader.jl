@@ -599,29 +599,51 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         error("Unknown AeroMode: $s")
     end
 
-    # Parse reference points - returns raw references (SystemStructure will resolve)
-    # Supports both numeric indices and symbolic names
-    # Examples: [12, 13], [le_center, te_center], [12, [13, 14]], [[le_1, le_2], [te_1, te_2]]
+    # Parse reference points → WeightedRefPoints
+    # Supports same syntax as code API:
+    #   [kcu, le_center]                    → single
+    #   [kcu, [le_1, le_2]]                → equal
+    #   [kcu, [(le_c, 0.7), (te_c, 0.3)]] → weighted
     function parse_ref_points(row, field)
         !hasfield(typeof(row), field) && return nothing
         val = getfield(row, field)
         val === nothing && return nothing
 
-        # Parse [a, b] or [a, [b, c]] - keep as raw references
-        @assert length(val) == 2 "ref_points must have 2 elements"
+        @assert length(val) == 2 "ref_points must " *
+            "have 2 elements"
 
-        function convert_ref(v)
-            if v isa Vector
-                return [to_ref(x) for x in v]
-            else
-                return to_ref(v)
-            end
-        end
-
-        p1 = convert_ref(val[1])
-        p2 = convert_ref(val[2])
-
+        p1 = _parse_ref_element(val[1])
+        p2 = _parse_ref_element(val[2])
         return (p1, p2)
+    end
+
+    # Parse one element: scalar, vector of names,
+    # or vector of (name, weight) tuples.
+    function _parse_ref_element(v)
+        if v isa Vector
+            # Check if elements are (name, weight)
+            if !isempty(v) && v[1] isa Vector
+                refs = NameRef[to_ref(x[1]) for x in v]
+                weights = Float64[Float64(x[2])
+                    for x in v]
+                s = sum(weights)
+                if !isapprox(s, 1.0; atol=1e-6)
+                    @warn "Ref point weights sum " *
+                        "to $s, normalizing to 1.0"
+                    weights ./= s
+                end
+                return WeightedRefPoints(
+                    refs, Int64[], weights)
+            end
+            # Plain names → equal weights
+            refs = NameRef[to_ref(x) for x in v]
+            n = length(refs)
+            return WeightedRefPoints(
+                refs, Int64[], fill(1.0 / n, n))
+        end
+        # Scalar
+        return WeightedRefPoints(
+            [to_ref(v)], Int64[], [1.0])
     end
 
     # Load wings (optional)

@@ -70,53 +70,42 @@ end
 # ==================== REFINE WING FRAME CALCULATION ==================== #
 
 """
-    get_ref_position_from_points(points::AbstractVector{Point}, ref::Int64)
-    get_ref_position_from_points(points::AbstractVector{Point}, refs::Vector{Int64})
+    get_ref_position_from_points(points, ref_pt)
 
-Helper to get position (single point or average of multiple).
-Used for REFINE wing reference point calculations.
+Weighted position from structural points.
 """
-get_ref_position_from_points(points::AbstractVector{Point}, ref::Int64) = points[ref].pos_w
-function get_ref_position_from_points(points::AbstractVector{Point}, refs::Vector{Int64})
-    n = length(refs)
-    return sum(points[idx].pos_w for idx in refs) / n
+function get_ref_position_from_points(
+    points::AbstractVector{Point},
+    ref_pt::WeightedRefPoints
+)
+    pos = zero(KVec3)
+    for (idx, w) in zip(ref_pt.ids, ref_pt.weights)
+        pos += w * points[idx].pos_w
+    end
+    return pos
 end
 
 """
-    calc_refine_wing_frame(points::Vector{Point}, z_ref_points, y_ref_points, origin_idx)
+    calc_refine_wing_frame(points, z_ref_points, y_ref_points, origin_idx)
 
-Calculate R_b_to_w rotation matrix and origin position for a REFINE wing from structural point positions.
-
-This function implements the same R_b_to_w calculation logic as used in `generate_system.jl`
-for REFINE wings, ensuring consistency between initialization (`reinit!`) and simulation
-(symbolic equations).
+Calculate R_b_to_w rotation matrix and origin position
+from structural point positions.
 
 # Algorithm
-1. Extract reference point positions (with averaging if vectors provided)
-2. Calculate Z-axis (normal to wing): normalized vector from z_p1 to z_p2
-3. Calculate X-axis (chord direction): Y_temp × Z, where Y_temp is from y_p1 to y_p2
-4. Calculate Y-axis (spanwise): Z × X (ensures orthogonality and right-handed system)
-5. Extract origin position from origin_idx point
-
-# Arguments
-- `points::AbstractVector{Point}`: All structural points (must have pos_w initialized)
-- `z_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}`:
-  Reference points defining Z-axis (normal direction)
-- `y_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}`:
-  Reference points defining Y-axis (spanwise direction)
-- `origin_idx::Int64`: Point index defining wing origin (KCU position)
-
-# Returns
-- `R_b_to_w::Matrix{SimFloat}`: 3x3 rotation matrix from body frame to world frame
-- `origin::KVec3`: Origin position in world frame
+1. Weighted ref point positions
+2. Z-axis (normal): z_p1 → z_p2
+3. X-axis (chord): Y_temp × Z
+4. Y-axis (span): Z × X (orthogonal, right-handed)
+5. Origin from origin_idx point
 """
 function calc_refine_wing_frame(
     points::AbstractVector{Point},
-    z_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}},
-    y_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}},
+    z_ref_points::Tuple{WeightedRefPoints,
+                        WeightedRefPoints},
+    y_ref_points::Tuple{WeightedRefPoints,
+                        WeightedRefPoints},
     origin_idx::Int64
 )
-    # Extract reference point positions (with averaging if vectors provided)
     z_p1, z_p2 = z_ref_points
     y_p1, y_p2 = y_ref_points
 
@@ -125,23 +114,19 @@ function calc_refine_wing_frame(
     pos_y1 = get_ref_position_from_points(points, y_p1)
     pos_y2 = get_ref_position_from_points(points, y_p2)
 
-    # Build rotation matrix from structural geometry
     # Z direction (normal to wing, normalized)
     z_axis = normalize(pos_z2 - pos_z1)
 
-    # Y temp direction (not necessarily orthogonal yet)
+    # Y temp direction (not necessarily orthogonal)
     y_temp = normalize(pos_y2 - pos_y1)
 
-    # X = Y_temp × Z (chord direction, orthogonal to Z)
+    # X = Y_temp × Z (chord, orthogonal to Z)
     x_axis = normalize(y_temp × z_axis)
 
-    # Y = Z × X (ensure orthogonality and right-handed system)
+    # Y = Z × X (orthogonal, right-handed)
     y_axis = z_axis × x_axis
 
-    # Construct rotation matrix [x y z]
     R_b_to_w = hcat(x_axis, y_axis, z_axis)
-
-    # Extract origin position
     origin = points[origin_idx].pos_w
 
     return R_b_to_w, origin
