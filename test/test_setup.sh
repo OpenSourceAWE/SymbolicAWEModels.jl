@@ -124,7 +124,7 @@ $JULIA --project=. -e '
 
     set = Settings("system.yaml")
     vsm_set = VortexStepMethod.VSMSettings(
-        joinpath(get_data_path(), "vsm_settings.yaml"))
+        joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
 
     sys = load_sys_struct_from_yaml(struc_yaml;
         system_name="2plate_kite", set, vsm_set)

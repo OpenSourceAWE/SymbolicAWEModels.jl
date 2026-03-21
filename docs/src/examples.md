@@ -95,7 +95,7 @@ update_aero_yaml_from_struc_yaml!(struc_yaml, aero_yaml)
 # Load settings and VSM configuration
 set = Settings("system.yaml")
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml"))
+    joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
 
 # Build system structure from YAML
 sys = load_sys_struct_from_yaml(struc_yaml;
