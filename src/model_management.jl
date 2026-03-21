@@ -390,7 +390,8 @@ function init!(sam::SymbolicAWEModel;
                 @warn "This solver is not tested."
                 QNDF()
             else
-                error("Unavailable solver for SymbolicAWEModel: $(sam.set.solver).")
+                @warn "Unavailable solver for SymbolicAWEModel: $(sam.set.solver). Falling back to FBDF."
+                sam.set.quasi_static ? FBDF(nlsolve=OrdinaryDiffEqNonlinearSolve.NLNewton(relax=sam.set.relaxation)) : FBDF()
             end
         end
 
