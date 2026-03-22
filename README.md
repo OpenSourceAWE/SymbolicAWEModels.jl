@@ -161,12 +161,15 @@ sys = load_sys_struct_from_yaml(struc_yaml;
 sam = SymbolicAWEModel(set, sys)
 init!(sam)
 
+l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
+l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
+
 # Run with a steering ramp
 for step in 1:600
     t = step * (10.0 / 600)
     ramp = clamp(t / 2.0, 0.0, 1.0)
-    sam.sys_struct.segments[:kcu_steering_left].l0 -= 0.1 * ramp
-    sam.sys_struct.segments[:kcu_steering_right].l0 += 0.1 * ramp
+    sam.sys_struct.segments[:kcu_steering_left].l0 = l0_left - 0.1 * ramp
+    sam.sys_struct.segments[:kcu_steering_right].l0 = l0_right + 0.1 * ramp
     next_step!(sam; dt=10.0/600, vsm_interval=1)
 end
 ```
