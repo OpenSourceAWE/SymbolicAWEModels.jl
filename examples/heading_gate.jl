@@ -274,7 +274,7 @@ function plot_error_vs_cone_angle(; use_glmakie=true)
 end
 
 """Create 3D trajectory plot for a single cone angle."""
-function plot_3d_trajectory(cone_angle_deg, res; use_glmakie=true)
+function plot_3d_trajectory(_cone_angle_deg, res; use_glmakie=true)
     if use_glmakie
         GLMakie.activate!()
     else
