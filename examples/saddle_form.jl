@@ -67,9 +67,9 @@ function run_saddle(; yaml_file)
     # Neutral transform: match current orientation
     dir = points[2].pos_cad .- points[1].pos_cad
     elev = KiteUtils.calc_elevation(dir)
-    azim = -KiteUtils.azimuth_east(dir)
+    azimuth = -KiteUtils.azimuth_east(dir)
     transforms = [
-        Transform(1, elev, azim, 0.0;
+        Transform(1, elev, azimuth, 0.0;
                   base_pos=Vector(points[1].pos_cad),
                   base_point=1, rot_point=2),
     ]
@@ -77,14 +77,14 @@ function run_saddle(; yaml_file)
     sys = SystemStructure("saddle_form", set;
                           points, segments, transforms)
     sam = SymbolicAWEModel(set, sys)
-    init!(sam; remake=false)
+    SymbolicAWEModels.init!(sam; remake=false)
 
     logger = Logger(sam, n_steps)
     sys_state = SysState(sam)
 
     for i in 1:n_steps
-        next_step!(sam)
-        update_sys_state!(sys_state, sam)
+        SymbolicAWEModels.next_step!(sam)
+        SymbolicAWEModels.update_sys_state!(sys_state, sam)
         sys_state.time = i / set.sample_freq
         log!(logger, sys_state)
     end
