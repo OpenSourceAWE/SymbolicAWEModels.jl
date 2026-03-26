@@ -52,7 +52,7 @@ end
 apply_loads!(sys.points, F_AERO)
 
 sam = SymbolicAWEModel(set, sys)
-init!(sam; remake=false)
+SymbolicAWEModels.init!(sam; remake=false)
 apply_loads!(sam.sys_struct.points, F_AERO)
 
 logger = Logger(sam, n_steps)
@@ -60,8 +60,8 @@ sys_state = SysState(sam)
 
 for step in 1:n_steps
     apply_loads!(sam.sys_struct.points, F_AERO)
-    next_step!(sam)
-    update_sys_state!(sys_state, sam)
+    SymbolicAWEModels.next_step!(sam)
+    SymbolicAWEModels.update_sys_state!(sys_state, sam)
     sys_state.time = step / set.sample_freq
     log!(logger, sys_state)
 end
