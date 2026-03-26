@@ -39,7 +39,7 @@ vsm_set = VortexStepMethod.VSMSettings(
 sys = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite", set, vsm_set)
 sam = SymbolicAWEModel(set, sys)
-init!(sam; remake=false)
+SymbolicAWEModels.init!(sam; remake=false)
 find_steady_state!(sam)
 
 sys_struct = sam.sys_struct
@@ -106,7 +106,7 @@ function run_realtime!(sam, sys_struct, scene)
         control = steady_torque .+ current_steering[]
 
         t0 = time()
-        next_step!(sam; set_values=control,
+        SymbolicAWEModels.next_step!(sam; set_values=control,
                    dt, vsm_interval)
         sim_time += time() - t0
 
@@ -136,7 +136,7 @@ function run_realtime!(sam, sys_struct, scene)
     record_video && save(output_filename, io)
 
     elapsed = time() - start_time
-    @info "Done" runtime=round(elapsed; digits=2) sim_speedup=round(total_time / sim_time; digits=2)
+    @info "Done" runtime=round(elapsed; digits=2) sim_speedup=round(total_time / sim_time; digits=2) # runtime
 
     SymbolicAWEModels.save_log(logger,
                                "tmp_realtime_run")

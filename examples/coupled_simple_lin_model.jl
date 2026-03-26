@@ -36,11 +36,11 @@ sam = SymbolicAWEModel(set, sys)
 sam.set.abs_tol = 1e-3
 sam.set.rel_tol = 1e-3
 
-init!(sam; remake=false)
+SymbolicAWEModels.init!(sam; remake=false)
 find_steady_state!(sam; t=10.0, dt=1.0)
 
 # Simple linearization
-simple_linearize!(sam; tstab=10.0)
+SymbolicAWEModels.simple_linearize!(sam; tstab=10.0)
 lin = sam.serialized_model.simple_lin_model
 lin_ss = ss(lin.A, lin.B, lin.C, lin.D)
 
@@ -64,9 +64,9 @@ for i in 1:steps
         [10.0, steering_magnitude, -steering_magnitude]
     set_values_mat[:, i] = sv
 
-    next_step!(sam; set_values=sv, dt, vsm_interval)
+    SymbolicAWEModels.next_step!(sam; set_values=sv, dt, vsm_interval)
+    SymbolicAWEModels.update_sys_state!(sys_state, sam)
 
-    update_sys_state!(sys_state, sam)
     sys_state.time = t
     log!(logger, sys_state)
 end
