@@ -6,9 +6,16 @@ Hanging mass on a spring: a single dynamic point connected to a static
 anchor by an elastic segment, relaxing under gravity.
 """
 
+using Pkg
+if ! ("GLMakie" ∈ keys(Pkg.project().dependencies))
+    Pkg.activate("examples")
+end
+using Timers; tic()
+
 using GLMakie
 using SymbolicAWEModels
 import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie
+toc()
 
 set_data_path(joinpath(dirname(@__DIR__), "data"))
 set = Settings("base/system.yaml")
@@ -45,6 +52,9 @@ for i in 1:n_steps
 end
 
 save_log(logger, "hanging_mass")
+toc()
+
 syslog = load_log("hanging_mass")
 scene = replay(syslog, sam.sys_struct)
 display(scene)
+toc()
