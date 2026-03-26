@@ -38,7 +38,7 @@ sam = SymbolicAWEModel(set, sys)
 l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
 l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
 
-init!(sam; remake=false, lin_vsm=false)
+SymbolicAWEModels.init!(sam; remake=false, lin_vsm=false)
 
 dt = SIM_TIME / N_STEPS
 logger = Logger(sam, N_STEPS + 1)
@@ -56,9 +56,9 @@ for step in 1:N_STEPS
     sam.sys_struct.segments[:kcu_steering_right].l0 =
         l0_right + steer + depower
 
-    next_step!(sam; dt, vsm_interval=1)
+    SymbolicAWEModels.next_step!(sam; dt, vsm_interval=1)
 
-    update_sys_state!(sys_state, sam)
+    SymbolicAWEModels.update_sys_state!(sys_state, sam)
     sys_state.time = t
     log!(logger, sys_state)
 
@@ -70,5 +70,5 @@ end
 save_log(logger, "tmp_run")
 syslog = load_log("tmp_run")
 scene = replay(syslog, sam.sys_struct;
-               autoplay=false, loop=true)
+               autoplay=false, loop=true) # autoplay
 display(scene)
