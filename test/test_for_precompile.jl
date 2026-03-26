@@ -1,4 +1,5 @@
-# TODO add code that always is needed
+# Copyright (c) 2025 Bart van de Lint, Jelle Poland, Uwe Fechner
+# SPDX-License-Identifier: MPL-2.0
 
 using GLMakie
 using SymbolicAWEModels
