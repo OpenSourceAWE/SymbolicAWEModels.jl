@@ -196,7 +196,7 @@ for step in 1:NUM_STEPS
 
     # Advance one timestep
     try
-        next_step!(sam; dt=DT, vsm_interval=1)
+        SymbolicAWEModels.next_step!(sam; dt=DT, vsm_interval=1)
     catch err
         if err isa AssertionError
             @error "Simulation failed" step t
@@ -206,7 +206,7 @@ for step in 1:NUM_STEPS
     end
 
     # Log state
-    update_sys_state!(sys_state, sam)
+    SymbolicAWEModels.update_sys_state!(sys_state, sam)
     sys_state.time = t
     log!(logger, sys_state)
 
