@@ -350,7 +350,7 @@ function Makie.plot!(ax, sys::SystemStructure;
 
         # Draw lines connecting points within each group
         if !isnothing(extra_groups)
-            for (gname, indices) in extra_groups
+            for (_gname, indices) in extra_groups
                 for i in 1:(length(indices)-1)
                     p1 = extra_positions[indices[i]]
                     p2 = extra_positions[indices[i+1]]
@@ -539,7 +539,7 @@ function unwrap_phase!(vals::AbstractVector{<:Real}; period=2π, thresh=π)
     end
     offset = 0.0
     prev = vals[1]
-    for i in 2:length(vals)
+    for i in Iterators.drop(eachindex(vals), 1)
         δ = vals[i] - prev
         if δ > thresh
             offset -= period
@@ -602,7 +602,7 @@ projected into the world xy-plane.
 - `(radius, time)`: Tuple of signed turn radius [m] and time vector [s]
 - `nothing` if required data is missing
 """
-function compute_turn_radius(sl_in, sys::SystemStructure; smooth_window=10, eps=1e-12)
+function compute_turn_radius(sl_in, _sys::SystemStructure; smooth_window=10, eps=1e-12)
     sl = hasproperty(sl_in, :syslog) ? sl_in.syslog : sl_in
     n = length(sl.time)
     if n < 2 || isempty(sl.vel_kite) || isempty(sl.orient)
@@ -667,13 +667,13 @@ function compute_turn_radius(sl_in, sys::SystemStructure; smooth_window=10, eps=
 end
 
 """
-    midle_to_kcu_dir(sl, k; eps=1e-12)
+    middle_le_to_kcu_dir(sl, k; eps=1e-12)
 
 Compute the unit vector from the mid leading-edge (avg of points 12 & 14)
 to the KCU/bridle hub (point 1) for sample `k` of a syslog entry.
 Returns `nothing` if the required points are unavailable or degenerate.
 """
-function midle_to_kcu_dir(sl, k; eps=1e-12)
+function middle_le_to_kcu_dir(sl, k; eps=1e-12)
     Xk = sl.X[k]; Yk = sl.Y[k]; Zk = sl.Z[k]
     if length(Xk) < 14 || length(Yk) < 14 || length(Zk) < 14
         return nothing
@@ -724,7 +724,7 @@ function calculate_cs(sl_in, sys; rho=1.225, eps=1e-12)
         end
         drag_dir = -v_a / v_a_norm
 
-        up_dir = midle_to_kcu_dir(sl, k; eps=eps)
+        up_dir = middle_le_to_kcu_dir(sl, k; eps=eps)
         if up_dir === nothing
             cs[k] = NaN
             continue
@@ -793,10 +793,10 @@ function compute_ekf_yaw_and_rate(sl_in, sys::SystemStructure; eps=1e-12)
             
             # Project velocity into tangent plane
             tang_vel = vel - (vel ⋅ radial) * radial
-            ntang = norm(tang_vel)
+            norm_tang_vel = norm(tang_vel)
             
-            if ntang > eps
-                tang_vel_unit = tang_vel / ntang
+            if norm_tang_vel > eps
+                tang_vel_unit = tang_vel / norm_tang_vel
                 
                 # Build local "up" frame at kite position
                 # up_z = radial (points away from origin)
@@ -906,7 +906,7 @@ function compute_ekf_yaw_and_rate_tension(sl_in, sys::SystemStructure; eps=1e-12
         tension_raw = SVector{3, Float64}(sl.tether_induced_force[k])
 
         # Prefer geometry-based bridle direction
-        tension_dir = midle_to_kcu_dir(sl, k; eps=eps)
+        tension_dir = middle_le_to_kcu_dir(sl, k; eps=eps)
         
         # Enforce continuity on tension direction
         if tension_dir !== nothing && all(isfinite, tension_dir) && norm(tension_dir) >= eps
@@ -1944,7 +1944,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             # @info "--- resolving alpha mystery ---"
             # # ss.AoA = atan(wing.va_b[3], wing.va_b[1]) # version-1 
             # #---> ss.AoA = wing.vsm_solver.sol.alpha_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
-            # # ss.AoA =wing.vsm_aero.alpha_uncorrected[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-3, hopefullu without induction
+            # # ss.AoA =wing.vsm_aero.alpha_uncorrected[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-3, hopefully without induction
             # @info "alpha VSM (with induction?) $(rad2deg(sl.AoA[end])) deg"
 
             # # computing alpha geometrically
