@@ -37,6 +37,7 @@ function vsm_eqs!(
     length(wings) == 0 && return eqs, guesses
 
     has_linearized = any(
+        w isa VSMWing &&
         w.wing_type == QUATERNION &&
         w.aero_mode == AERO_LINEARIZED
         for w in wings)
