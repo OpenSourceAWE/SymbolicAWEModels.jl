@@ -102,11 +102,13 @@ SymbolicAWEModels.copy_examples
 SymbolicAWEModels.copy_data
 SymbolicAWEModels.copy_dir
 SymbolicAWEModels.get_example_packages
+SymbolicAWEModels.make_lin_sys_state
 ```
 
 ## Base overloads (internal use)
 
 ```@docs
+SymbolicAWEModels._SAM_FIELDS
 Base.getindex
 Base.getproperty
 Base.setproperty!

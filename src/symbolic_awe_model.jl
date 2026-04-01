@@ -196,13 +196,21 @@ $(TYPEDFIELDS)
 end
 
 """
+    _SAM_FIELDS
+
+Tuple of field names that are direct fields of `SymbolicAWEModel` (as opposed to fields
+delegated to the nested `serialized_model`). Used by `getproperty` and `setproperty!`
+to dispatch field access correctly.
+"""
+const _SAM_FIELDS = (:set, :sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :set_tether_len)
+
+"""
     Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
 
 Overloads `getproperty` to allow direct access to fields within the nested `serialized_model`.
 This provides a convenient way to access compiled functions and other model
 components without explicitly referencing `sam.serialized_model`.
 """
-const _SAM_FIELDS = (:set, :sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :set_tether_len)
 
 function Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
     if sym === :am
