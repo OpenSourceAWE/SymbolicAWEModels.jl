@@ -30,12 +30,12 @@ end
 A container for the main Ordinary Differential Equation (ODE) problem and its
 associated getter and setter functions for the full, nonlinear physical state.
 """
-@with_kw struct ProbWithAttributes{SetSys, SetSetValues, SetSet,
+@with_kw struct ProbWithAttributes{Prob, SetSys, SetSetValues, SetSet,
                                   GetSetValues, GetWingState, GetVsmY, GetSegmentState,
                                   GetWinchState, GetTetherState, GetStructState, GetPointState,
                                   GetPulleyState, GetGroupState}
     "The ODE problem for the full nonlinear model."
-    prob::OrdinaryDiffEqCore.ODEProblem
+    prob::Prob
 
     # Setters for the ODE
     "Setter for the system parameters."
@@ -81,9 +81,9 @@ linearized model (A,B,C,D matrices).
 
 $(TYPEDFIELDS)
 """
-@with_kw struct LinProbWithAttributes{SetSetValues, SetSys, SetSet}
+@with_kw struct LinProbWithAttributes{Prob, SetSetValues, SetSys, SetSet}
     "Linearization problem of the mtk model."
-    prob::ModelingToolkit.LinearizationProblem
+    prob::Prob
 
     # Setters for the linearization
     set_set_values::SetSetValues
@@ -458,26 +458,31 @@ function next_step!(sam::SymbolicAWEModel;
     vsm_interval=1
 )
     prob = sam.prob
+    integrator = sam.integrator
     if (isnothing(set_values))
         set_values = [winch.set_value
             for winch in sam.sys_struct.winches]
     end
-    if !isnothing(prob.set_set_values)
-        prob.set_set_values(sam.integrator, set_values)
+    if prob isa ProbWithAttributes && !isnothing(prob.set_set_values)
+        prob.set_set_values(integrator, set_values)
     end
 
-    sam.t_0 = sam.integrator.t
-    sam.t_step = @elapsed step!(
-        sam.integrator, dt, true)
-    if !successful_retcode(sam.integrator.sol)
-        error("Solver unstable at t=" *
-            "$(round(sam.integrator.t; digits=4))" *
-            ": $(sam.integrator.sol.retcode)")
-    end
-    sam.iter += 1
-    update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
-    if vsm_interval != 0 && sam.iter % vsm_interval == 0
-        sam.t_vsm = @elapsed update_vsm!(sam, sam.prob)
+    if integrator isa OrdinaryDiffEqCore.ODEIntegrator
+        sam.t_0 = integrator.t
+        sam.t_step = @elapsed step!(
+            integrator, dt, true)
+        if !successful_retcode(integrator.sol)
+            error("Solver unstable at t=" *
+                "$(round(integrator.t; digits=4))" *
+                ": $(integrator.sol.retcode)")
+        end
+        sam.iter += 1
+        if prob isa ProbWithAttributes
+            update_sys_struct!(prob, integrator, sam.sys_struct)
+            if vsm_interval != 0 && sam.iter % vsm_interval == 0
+                sam.t_vsm = @elapsed update_vsm!(sam, prob)
+            end
+        end
     end
     return nothing
 end
@@ -807,6 +812,9 @@ Sets the ground wind speed [m/s] and upwind direction [rad] in the model.
 function set_v_wind_ground!(sam::SymbolicAWEModel, v_wind_gnd=sam.set.v_wind, upwind_dir=-pi/2)
     sam.set.v_wind = v_wind_gnd
     sam.set.upwind_dir = rad2deg(upwind_dir)
-    sam.set_set(sam.integrator, sam.set)
+    local_prob = sam.prob
+    if local_prob isa ProbWithAttributes
+        local_prob.set_set(sam.integrator, sam.set)
+    end
     return nothing
 end

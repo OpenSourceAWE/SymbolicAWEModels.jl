@@ -308,8 +308,9 @@ function sim_reposition!(
             SymbolicAWEModels.reposition!(sys_struct.transforms, sys_struct)
             
             # Reinitialize the solver to handle the state discontinuity
-            if !isnothing(sam.prob)
-                SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
+            local_prob = sam.prob
+            if local_prob isa ProbWithAttributes
+                SymbolicAWEModels.reinit!(sam, local_prob, FBDF())
             end
 
             if prn
