@@ -39,9 +39,12 @@ for i in 1:n_steps
     log!(logger, sys_state)
 end
 
+tmpdir = mktempdir()
+set_data_path(tmpdir)
 save_log(logger, "_hanging_mass")
-
 syslog = load_log("_hanging_mass")
+rm(tmpdir; recursive=true)
+
 scene = replay(syslog, sam.sys_struct)
 if isinteractive()
     display(scene)
