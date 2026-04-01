@@ -306,9 +306,11 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         # Calculate AoA and Side Slip from apparent wind in body frame
         if ss.v_app > 1e-6 # Avoid division by zero
             # ss.AoA = atan(wing.va_b[3], wing.va_b[1]) # version-1
-            aoa_raw = wing.vsm_solver.sol.alpha_geometric_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
-            # ss.AoA = mean(wing.vsm_solver.sol.alpha_geometric_dist)
-            ss.AoA = mod(aoa_raw + π, 2π) - π  # Wrap to [-π, π]
+            if wing isa VSMWing
+                aoa_raw = wing.vsm_solver.sol.alpha_geometric_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
+                # ss.AoA = mean(wing.vsm_solver.sol.alpha_geometric_dist)
+                ss.AoA = mod(aoa_raw + π, 2π) - π  # Wrap to [-π, π]
+            end
             ss.side_slip = asin(wing.va_b[2] / norm(wing.va_b))
         else
             ss.AoA = 0.0
@@ -339,7 +341,8 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     # Store VSM panel corner positions in world frame
     corner_idx = length(points)
     for wing in wings
-        R_b_to_w = wing.R_b_to_w
+        wing isa VSMWing || continue
+        R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
         for panel in wing.vsm_aero.panels
             for j in 1:4
                 corner_idx += 1
@@ -376,7 +379,8 @@ function SysState(s::SymbolicAWEModel, zoom=1.0)
     # Calculate total points: regular points + 4 corners per panel
     n_points = length(s.sys_struct.points)
     n_panel_corners = isempty(s.sys_struct.wings) ? 0 : sum(
-        length(wing.vsm_aero.panels) * 4 for wing in s.sys_struct.wings
+        length(wing.vsm_aero.panels) * 4 for wing in s.sys_struct.wings if wing isa VSMWing;
+        init=0
     )
     total_points = n_points + n_panel_corners
     ss = SysState{total_points}()
@@ -409,7 +413,8 @@ function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
     # Calculate total points: regular points + 4 corners per panel
     n_points = length(sam.sys_struct.points)
     n_panel_corners = isempty(sam.sys_struct.wings) ? 0 : sum(
-        length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings
+        length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings if wing isa VSMWing;
+        init=0
     )
     total_points = n_points + n_panel_corners
     return Logger(total_points, steps)
@@ -719,7 +724,9 @@ end
 Calculates the mean angle of attack [rad] over the wingspan from the VSM solver.
 """
 function calc_aoa(sam::SymbolicAWEModel)
-    alpha_array = sam.sys_struct.wings[1].vsm_solver.sol.alpha_array
+    wing = sam.sys_struct.wings[1]
+    wing isa VSMWing || error("calc_aoa: wing[1] is not a VSMWing")
+    alpha_array = wing.vsm_solver.sol.alpha_array
     middle = length(alpha_array) ÷ 2
     return iseven(length(alpha_array)) ? (0.5 * (alpha_array[middle] + alpha_array[middle+1])) : alpha_array[middle+1]
 end
@@ -774,6 +781,7 @@ Calculates the minimum chord length of the wing at the tip.
 function min_chord_len(sam::SymbolicAWEModel)
     min_len = Inf
     for wing in sam.sys_struct.wings
+        wing isa VSMWing || continue
         vsm_wing = wing.vsm_wing
         if hasproperty(vsm_wing, :le_interp) && hasproperty(vsm_wing, :te_interp) && hasproperty(vsm_wing, :gamma_tip)
             le_pos = [vsm_wing.le_interp[i](vsm_wing.gamma_tip) for i in 1:3]

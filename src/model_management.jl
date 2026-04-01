@@ -597,8 +597,8 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
     end
     for wing in wings
         wing_data = ("wing", wing.idx, wing.group_idxs,
-                     Int(wing.base.wing_type),
-                     Int(wing.base.aero_mode))
+                     Int(wing.wing_type),
+                     Int(wing.aero_mode))
 
         # Include REFINE wing reference points in hash
         if wing isa VSMWing

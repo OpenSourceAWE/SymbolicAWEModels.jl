@@ -730,7 +730,8 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
     # Update VSM panel corner positions from world frame back to body frame
     corner_idx = n_points
     for wing in wings
-        R_w_to_b = wing.R_b_to_w'  # Transpose to get world-to-body rotation
+        wing isa VSMWing || continue
+        R_w_to_b = (wing.R_b_to_w::Matrix{SimFloat})'  # Transpose to get world-to-body rotation
         for panel in wing.vsm_aero.panels
             for j in 1:4
                 corner_idx += 1

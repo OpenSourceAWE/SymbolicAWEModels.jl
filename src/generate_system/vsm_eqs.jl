@@ -44,13 +44,14 @@ function vsm_eqs!(
     # Declare symbolic variables only when needed
     # for AERO_LINEARIZED QUATERNION wings
     if has_linearized
-        n_unrefined =
-            wings[1].vsm_wing.n_unrefined_sections
+        first_lin_wing = first(w for w in wings if w isa VSMWing &&
+            w.wing_type == QUATERNION && w.aero_mode == AERO_LINEARIZED)
+        n_unrefined = first_lin_wing.vsm_wing.n_unrefined_sections
         ny_quaternion = 3 + n_unrefined + 3
         nx_values = [
             3 + 3 + w.vsm_wing.n_unrefined_sections
             for w in wings
-            if w.wing_type == QUATERNION &&
+            if w isa VSMWing && w.wing_type == QUATERNION &&
                w.aero_mode == AERO_LINEARIZED]
         nx_max = maximum(nx_values)
 
@@ -75,6 +76,7 @@ function vsm_eqs!(
     for wing in wings
         if wing.wing_type == REFINE
             # ========== REFINE WING ==========
+            afpb = aero_force_point_b::AbstractArray
             wing_points = [
                 p for p in points
                 if p.type == WING &&
@@ -85,8 +87,7 @@ function vsm_eqs!(
                 for point in wing_points
                     eqs = [
                         eqs
-                        aero_force_point_b[
-                            :, point.idx] ~ zeros(3)
+                        afpb[:, point.idx] ~ zeros(3)
                     ]
                 end
             else
@@ -94,8 +95,7 @@ function vsm_eqs!(
                 for point in wing_points
                     eqs = [
                         eqs
-                        aero_force_point_b[
-                            :, point.idx] ~ [
+                        afpb[:, point.idx] ~ [
                             get_point_aero_force(
                                 psys, point.idx, i)
                             for i in 1:3
@@ -107,7 +107,7 @@ function vsm_eqs!(
             eqs = [
                 eqs
                 aero_force_b[:, wing.idx] ~
-                    sum([aero_force_point_b[:, p.idx]
+                    sum([afpb[:, p.idx]
                          for p in wing_points])
                 aero_moment_b[:, wing.idx] ~ zeros(3)
             ]
@@ -160,6 +160,7 @@ function vsm_eqs!(
         else
             # ========== QUATERNION + AERO_LINEARIZED =====
             # Full symbolic linearization equations
+            wing isa VSMWing || error("AERO_LINEARIZED wing $(wing.idx) is not a VSMWing")
 
             area = wing.vsm_aero.projected_area
             n_un = wing.vsm_wing.n_unrefined_sections
