@@ -8,7 +8,7 @@ anchor by an elastic segment, relaxing under gravity.
 
 using Pkg
 if ! ("GLMakie" ∈ keys(Pkg.project().dependencies))
-    Pkg.activate("examples")
+    Pkg.activate(@__DIR__)
 end
 using Timers; tic()
 
