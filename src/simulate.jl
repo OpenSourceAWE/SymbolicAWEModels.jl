@@ -36,7 +36,6 @@ function sim!(
     torque_damp=0.9,
 )
     steps = Int(round(total_time / dt))
-    sys_struct = sam.sys_struct
     if size(set_values, 1) != steps
         error("The number of rows in set_values ($(size(set_values, 1))) must match the number of simulation steps ($steps).")
     end
@@ -361,13 +360,11 @@ function make_lin_sys_state(y::AbstractVector, sam::SymbolicAWEModel, t::Real; z
 end
 
 """
-    update_sys_state!(ss, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
-                      zoom=1.0)
+    update_sys_state!(ss, y::AbstractVector, sam::SymbolicAWEModel, t::Real)
 
 Update a SysState for a linear state-space simulation, using output y and model sam.
 """
-function update_sys_state!(ss, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
-                           zoom=1.0)
+function update_sys_state!(ss, y::AbstractVector, sam::SymbolicAWEModel, t::Real)
     sys = sam.prob.sys
     outputs = sam.outputs
     for (i, sym) in enumerate(outputs)
