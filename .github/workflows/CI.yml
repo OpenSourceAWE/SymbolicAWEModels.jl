@@ -50,9 +50,7 @@ jobs:
             version: '1.12'
             arch: x64
             prefix: xvfb-run -a
-          - os: macOS-latest
-            version: '1.12'
-            arch: aarch64
+
     steps:
       - uses: actions/checkout@v5
 
