@@ -474,7 +474,7 @@ function next_step!(sam::SymbolicAWEModel;
 )
     prob = sam.prob
     integrator = sam.integrator
-    if !(integrator isa OrdinaryDiffEqCore.ODEIntegrator)
+    if isnothing(integrator)
         error("next_step! called before init!: integrator is not initialized")
     end
     if (isnothing(set_values))
