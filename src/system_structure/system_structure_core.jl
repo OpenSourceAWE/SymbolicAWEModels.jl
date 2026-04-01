@@ -230,7 +230,7 @@ function resolve_ref(ref::Union{Int, Symbol}, name_dict::Dict{Symbol, Int64}, co
     end
 end
 
-function resolve_ref(ref::Nothing, name_dict::Dict{Symbol, Int64}, component_type::String)
+function resolve_ref(::Nothing, ::Dict{Symbol, Int64}, ::String)
     return Int64(0)
 end
 
@@ -247,7 +247,7 @@ function resolve_ref_spec(spec::AbstractVector, name_dict::Dict{Symbol, Int64}, 
     return Int64[resolve_ref(r, name_dict, component_type) for r in spec]
 end
 
-function resolve_ref_spec(spec::Nothing, name_dict::Dict{Symbol, Int64}, component_type::String)
+function resolve_ref_spec(::Nothing, ::Dict{Symbol, Int64}, ::String)
     return nothing
 end
 
@@ -728,7 +728,7 @@ function SystemStructure(name, set;
 
     # Auto-create groups for QUATERNION wings if needed (before geometry initialization)
     # Skip for AERO_NONE — no aerodynamics means no twist DOFs needed.
-    for (i, wing) in enumerate(wings)
+    for wing in wings
         if wing.wing_type == QUATERNION &&
            isempty(wing.group_idxs) &&
            wing.aero_mode != AERO_NONE
@@ -881,7 +881,7 @@ function SystemStructure(name, set;
             end
 
             wing_point_idxs = collect(keys(
-                wing.point_to_vsm_point))
+                something(wing.point_to_vsm_point)))
             wing_points = [points[idx]
                 for idx in wing_point_idxs]
 
@@ -900,7 +900,7 @@ function SystemStructure(name, set;
             # Set default reference points if not provided
             if isnothing(wing.z_ref_points) ||
                isnothing(wing.y_ref_points)
-                segs = wing.wing_segments
+                segs = something(wing.wing_segments)
 
                 if isnothing(wing.z_ref_points)
                     # Use first segment (center LE-TE) for Z (normal)
@@ -927,7 +927,7 @@ function SystemStructure(name, set;
 
         # Sum of user-specified WING point masses
         point_mass_sum = sum(
-            p.extra_mass for p in points if p.idx in wing_point_idxs;
+            p.extra_mass for p in points if p.type == WING && p.wing_idx == wing.idx;
             init=0.0
         )
 
@@ -994,7 +994,8 @@ function SystemStructure(name, set;
     end
     if length(wings) > 0
         # Use number of unrefined sections
-        n_unrefined = wings[1].vsm_wing.n_unrefined_sections
+        first_wing = wings[1]
+        n_unrefined = first_wing isa VSMWing ? first_wing.vsm_wing.n_unrefined_sections : 0
         ny = 3 + n_unrefined + 3
         nx = 3 + 3 + n_unrefined
     else
