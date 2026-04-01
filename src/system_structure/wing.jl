@@ -301,7 +301,7 @@ _to_ref_point_spec(x::Symbol) = x
 _to_ref_point_spec(x::AbstractVector) = Vector{NameRef}([_to_name_ref(v) for v in x])
 
 """
-    VortexStepMethod.Wing(set::Settings; prn=true, kwargs...)
+    VortexStepMethod.Wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, kwargs...)
 
 Create a `Wing` geometry object from the settings provided.
 
