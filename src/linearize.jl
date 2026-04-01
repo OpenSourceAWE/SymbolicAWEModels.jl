@@ -421,7 +421,7 @@ steady-state response.
 """
 function simple_linearize!(sam::SymbolicAWEModel; tstab=10.0)
     @unpack segments, winches, tethers, wings = sam.sys_struct
-    integ = sam.integrator
+    integ = sam.integrator::OrdinaryDiffEqCore.ODEIntegrator
     prob = sam.prob
     update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
     state0 = getstate(sam.sys_struct)
@@ -447,7 +447,7 @@ function simple_linearize!(sam::SymbolicAWEModel; tstab=10.0)
                         tether_len, tether_vel)
         prob.set_set_values(integ, u)
         OrdinaryDiffEqCore.reinit!(integ)
-        OrdinaryDiffEqCore.step!(integ, tstab, true)
+        ModelingToolkit.SciMLBase.step!(integ, tstab, true)
         return sam.simple_lin_model.get_dx(integ)
     end
 
@@ -461,7 +461,7 @@ function simple_linearize!(sam::SymbolicAWEModel; tstab=10.0)
                         tether_len, tether_vel)
         prob.set_set_values(integ, u)
         OrdinaryDiffEqCore.reinit!(integ)
-        OrdinaryDiffEqCore.step!(integ, tstab, true)
+        ModelingToolkit.SciMLBase.step!(integ, tstab, true)
         return sam.simple_lin_model.get_y(integ)
     end
 

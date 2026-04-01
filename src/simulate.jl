@@ -104,7 +104,8 @@ function sim!(
         
         # Log the complete linear simulation result
         lin_logger = Logger(sam, steps)
-        lin_sys_state = SysState(y_op, sam, t_vec[1])
+        lin_sys_state = SysState(sam)
+        update_sys_state!(lin_sys_state, collect(y_op), sam, t_vec[1])
         for step in 1:steps
             y_k = lin_y_full[:, step]
             update_sys_state!(lin_sys_state, y_k, sam, t_vec[step])
@@ -345,12 +346,12 @@ end
 
 
 """
-    SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
+    make_lin_sys_state(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
 
 Construct a SysState for logging linear state-space simulation output y (ordered as
 sam.outputs).
 """
-function KiteUtils.SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
+function make_lin_sys_state(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
     # Calculate total points: regular points + 4 corners per panel
     n_points = length(sam.sys_struct.points)
     n_panel_corners = isempty(sam.sys_struct.wings) ? 0 : sum(
@@ -368,7 +369,7 @@ end
 
 Update a SysState for a linear state-space simulation, using output y and model sam.
 """
-function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
+function update_sys_state!(ss::SysState{<:Any}, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
                            zoom=1.0)
     sys = sam.prob.sys
     outputs = sam.outputs

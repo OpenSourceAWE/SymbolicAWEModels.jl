@@ -2172,7 +2172,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                 push!(all_linestyles, :solid)
             end
             if plot_kiteutils_course
-                course_kiteutils_deg = [rad2deg(KiteUtils.calc_course(sl.orient[i]))
+                course_kiteutils_deg = [rad2deg(KiteUtils.calc_course(sl.vel_kite[i], sl.elevation[i], sl.azimuth[i]))
                                         for i in eachindex(sl.orient)]
                 push!(all_data, course_kiteutils_deg)
                 push!(all_labels, L"\chi_{KU}" * suffix)

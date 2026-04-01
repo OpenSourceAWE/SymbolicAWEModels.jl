@@ -509,7 +509,7 @@ function reinit!(
 )
     if isnothing(sam.integrator) || !successful_retcode(sam.integrator.sol) || reload
         dt = SimFloat(1/sam.set.sample_freq)
-        sam.integrator = OrdinaryDiffEqCore.init(prob.prob, solver; 
+        sam.integrator = ModelingToolkit.SciMLBase.init(prob.prob, solver; 
             adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol, 
             save_on=false, save_everystep=false)
     end
