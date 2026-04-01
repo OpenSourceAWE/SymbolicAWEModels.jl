@@ -726,7 +726,7 @@ Calculates the mean angle of attack [rad] over the wingspan from the VSM solver.
 function calc_aoa(sam::SymbolicAWEModel)
     wing = sam.sys_struct.wings[1]
     wing isa VSMWing || error("calc_aoa: wing[1] is not a VSMWing")
-    alpha_array = wing.vsm_solver.sol.alpha_array
+    alpha_array = wing.vsm_solver.sol.alpha_dist
     middle = length(alpha_array) ÷ 2
     return iseven(length(alpha_array)) ? (0.5 * (alpha_array[middle] + alpha_array[middle+1])) : alpha_array[middle+1]
 end

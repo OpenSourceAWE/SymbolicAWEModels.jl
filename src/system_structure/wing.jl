@@ -140,14 +140,16 @@ modeling capabilities, including vortex wake computations and aerodynamic loads.
 
 $(TYPEDFIELDS)
 """
-mutable struct VSMWing <: AbstractWing
+mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
+                       W<:VortexStepMethod.AbstractWing,
+                       SL<:VortexStepMethod.Solver} <: AbstractWing
     # Base wing functionality
     base::BaseWing
 
     # VSM aerodynamics
-    vsm_aero::VortexStepMethod.BodyAerodynamics
-    vsm_wing::VortexStepMethod.AbstractWing
-    vsm_solver::VortexStepMethod.Solver
+    vsm_aero::BA
+    vsm_wing::W
+    vsm_solver::SL
 
     # VSM state and linearization
     vsm_y::Vector{SimFloat}
@@ -191,7 +193,8 @@ mutable struct VSMWing <: AbstractWing
                      point_to_vsm_point, wing_segments,
                      z_ref_points, y_ref_points, z_ref_points_ref, y_ref_points_ref,
                      origin_idx, origin_ref, aero_scale_chord, aero_z_offset)
-        new(base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac,
+        new{typeof(vsm_aero), typeof(vsm_wing), typeof(vsm_solver)}(
+            base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac,
             point_to_vsm_point, wing_segments,
             z_ref_points, y_ref_points, z_ref_points_ref, y_ref_points_ref,
             origin_idx, origin_ref, aero_scale_chord, aero_z_offset)
@@ -210,7 +213,7 @@ function Base.getproperty(wing::VSMWing, sym::Symbol)
     elseif sym == :vsm_aoa
         # Compute mean angle of attack from VSM solver solution
         solver = getfield(wing, :vsm_solver)
-        return mean(solver.sol.alpha_array)
+        return mean(solver.sol.alpha_dist)
     else
         return getproperty(getfield(wing, :base), sym)
     end
