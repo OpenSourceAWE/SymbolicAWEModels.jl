@@ -8,7 +8,6 @@
 
 using GLMakie
 using SymbolicAWEModels, VortexStepMethod, KiteUtils
-import SymbolicAWEModels: init!
 
 MODEL_NAME = "2plate_kite"
 SIM_TIME = 10.0
