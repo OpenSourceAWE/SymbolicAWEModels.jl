@@ -381,8 +381,10 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     # Recreate VSM wing and aero if requested
     if remake_vsm
         for wing in wings
+            wing isa VSMWing || continue
             # Recreate VSM wing from settings
-            wing.vsm_wing = VortexStepMethod.Wing(sys_struct.vsm_set;
+            vsm_set = sys_struct.vsm_set::VortexStepMethod.VSMSettings
+            wing.vsm_wing = VortexStepMethod.Wing(vsm_set;
                 sort_sections=false)
             wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
             wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero;
@@ -419,7 +421,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
             if wing.wing_type == REFINE &&
                !isnothing(wing.point_to_vsm_point)
                 wing_point_idxs = collect(
-                    keys(wing.point_to_vsm_point))
+                    keys(something(wing.point_to_vsm_point)))
                 wing_pts = [points[idx]
                     for idx in wing_point_idxs]
                 wing.point_to_vsm_point =
@@ -451,18 +453,19 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                                        wing.pos_w[1], wing.pos_w[2], wing.pos_w[3], set)
         wing.v_wind .= wind_factor * wind_vec_gnd
 
+        R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
         if wing.wing_type == REFINE
             # Initialize apparent wind in body frame for REFINE wings
             # va_wing = wind_vel - wing_vel + wind_disturb
             # va_b = R_b_to_w' * va_wing
             # At initialization: wing_vel typically 0, wind_disturb typically 0
             va_wing_w = wing.v_wind - wing.vel_w + wing.wind_disturb
-            wing.va_b .= wing.R_b_to_w' * va_wing_w
+            wing.va_b .= R_b_to_w' * va_wing_w
         else
             # Initialize vsm_y for QUATERNION wings (REFINE wings have ny=0)
             if length(wing.vsm_y) >= 3
                 wing.vsm_y .= 0.0
-                wing.vsm_y[1:3] .= wing.R_b_to_w' * [set.v_wind, 0., 0.]
+                wing.vsm_y[1:3] .= R_b_to_w' * [set.v_wind, 0., 0.]
             end
         end
     end
@@ -557,7 +560,7 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
                 winch2.tether_len = winch1.tether_len
                 winch2.tether_vel = winch1.tether_vel
             else
-                winch2.tether_len = 0.0
+                tether_len_acc = 0.0
                 for tether_idx in winch1.tether_idxs
                     tether2 = sys2.tethers[tether_idx]
                     segment2 = sys2.segments[tether2.segment_idxs[1]]
@@ -566,8 +569,9 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
                                         sys2.points[point_idxs2[2]].pos_w)
                     stiffness = segment2.unit_stiffness / slen
                     nt = length(winch1.tether_idxs)
-                    winch2.tether_len += (slen - norm(winch1.force)/stiffness/nt) / nt
+                    tether_len_acc += (slen - norm(winch1.force)/stiffness/nt) / nt
                 end
+                winch2.tether_len = tether_len_acc
                 winch2.tether_vel = winch1.tether_vel
             end
         end
@@ -638,7 +642,8 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
     # Calculate expected total points (regular points + panel corners)
     n_points = length(points)
     n_panel_corners = isempty(wings) ? 0 : sum(
-        length(wing.vsm_aero.panels) * 4 for wing in wings
+        length(wing.vsm_aero.panels) * 4 for wing in wings if wing isa VSMWing;
+        init=0
     )
     expected_total = n_points + n_panel_corners
 

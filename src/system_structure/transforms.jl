@@ -513,7 +513,7 @@ function reposition!(
         for wing in wings
             if wing.transform_idx == transform.idx
                 # R_b_to_w after azim/elev rotation
-                if !isnothing(wing.z_ref_points)
+                if wing isa VSMWing && !isnothing(wing.z_ref_points)
                     R_b_to_w, _ = calc_refine_wing_frame(
                         points, wing.z_ref_points,
                         wing.y_ref_points,
@@ -562,7 +562,7 @@ function reposition!(
     # REFINE wings: recalculate R_b_to_w and pos_b
     # from structural points
     for wing in wings
-        if wing.wing_type == REFINE
+        if wing isa VSMWing && wing.wing_type == REFINE
             R_b_to_w, origin = calc_refine_wing_frame(
                 points, wing.z_ref_points,
                 wing.y_ref_points, wing.origin_idx)
