@@ -138,8 +138,8 @@ $(TYPEDFIELDS)
     sys_struct_hash::Vector{UInt8}
     "Unsimplified system of the mtk model"
     full_sys::Union{ModelingToolkit.System, Nothing} = nothing
-    defaults::Vector{Pair} = Pair[]
-    guesses::Vector{Pair} = Pair[]
+    defaults::Vector{Any} = Any[]
+    guesses::Vector{Any} = Any[]
     "Symbolic representation of the control inputs."
     inputs::Union{Symbolics.Arr, Vector{Num}} = Num[]
     "Outputs of the linearization and control function."
