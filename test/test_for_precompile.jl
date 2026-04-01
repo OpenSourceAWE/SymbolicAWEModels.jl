@@ -43,4 +43,6 @@ save_log(logger, "_hanging_mass")
 
 syslog = load_log("_hanging_mass")
 scene = replay(syslog, sam.sys_struct)
-display(scene)
+if isinteractive()
+    display(scene)
+end
