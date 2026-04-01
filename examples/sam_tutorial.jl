@@ -97,7 +97,7 @@ end
 vsm_set = VortexStepMethod.VSMSettings(
     joinpath(get_data_path(), "vsm_settings.yaml");
     data_prefix=false)
-vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false)
+vsm_wing = VortexStepMethod.Wing(vsm_set)
 vsm_aero = BodyAerodynamics([vsm_wing])
 vsm_solver = Solver(vsm_aero;
     solver_type=NONLIN, atol=2e-8, rtol=2e-8)

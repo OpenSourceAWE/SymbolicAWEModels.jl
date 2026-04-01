@@ -447,7 +447,7 @@ function simple_linearize!(sam::SymbolicAWEModel; tstab=10.0)
                         tether_len, tether_vel)
         prob.set_set_values(integ, u)
         OrdinaryDiffEqCore.reinit!(integ)
-        OrdinaryDiffEqCore.step!(integ, tstab)
+        OrdinaryDiffEqCore.step!(integ, tstab, true)
         return sam.simple_lin_model.get_dx(integ)
     end
 
@@ -461,7 +461,7 @@ function simple_linearize!(sam::SymbolicAWEModel; tstab=10.0)
                         tether_len, tether_vel)
         prob.set_set_values(integ, u)
         OrdinaryDiffEqCore.reinit!(integ)
-        OrdinaryDiffEqCore.step!(integ, tstab)
+        OrdinaryDiffEqCore.step!(integ, tstab, true)
         return sam.simple_lin_model.get_y(integ)
     end
 

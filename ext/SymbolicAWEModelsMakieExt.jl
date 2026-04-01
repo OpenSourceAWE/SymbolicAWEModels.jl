@@ -618,7 +618,7 @@ function compute_turn_radius(sl_in, _sys::SystemStructure; smooth_window=10, eps
     v_x = Vector{Float64}(undef, n)
     v_y = Vector{Float64}(undef, n)
     v_z = Vector{Float64}(undef, n)
-    @inbounds for k in 1:n
+    @inbounds for k in eachindex(v_x)
         v = sl.vel_kite[k]
         v_x[k] = v[1]
         v_y[k] = v[2]
@@ -636,7 +636,7 @@ function compute_turn_radius(sl_in, _sys::SystemStructure; smooth_window=10, eps
     end
 
     radius = Vector{Float64}(undef, n)
-    @inbounds for k in 1:n
+    @inbounds for k in eachindex(radius)
         v = SVector{3, Float64}(v_x[k], v_y[k], v_z[k])
         a = SVector{3, Float64}(a_x[k], a_y[k], a_z[k])
         v_norm = norm(v)
@@ -713,7 +713,7 @@ function calculate_cs(sl_in, sys; rho=1.225, eps=1e-12)
 
     cs = Vector{Float64}(undef, n)
 
-    @inbounds for k in 1:n
+    @inbounds for k in eachindex(cs)
         v_kite = sl.vel_kite[k]
         v_wind = sl.v_wind_kite[k]
         v_a = v_kite - v_wind
@@ -780,7 +780,7 @@ function compute_ekf_yaw_and_rate(sl_in, sys::SystemStructure; eps=1e-12)
     
     # Use velocity-based tangent frame (same as HeadingGate/sphere method)
     # This is more robust than tension × apparent wind
-    @inbounds for k in 1:n
+    @inbounds for k in eachindex(yaw)
         pos = SVector{3, Float64}(sl.X[k][kite_idx], sl.Y[k][kite_idx], sl.Z[k][kite_idx])
         vel = SVector{3, Float64}(sl.vel_kite[k])
         
@@ -899,7 +899,7 @@ function compute_ekf_yaw_and_rate_tension(sl_in, sys::SystemStructure; eps=1e-12
     t_sum = 0.0
     t_cnt = 0
     
-    @inbounds for k in 1:n
+    @inbounds for k in eachindex(yaw)
         v_kite = SVector{3, Float64}(sl.vel_kite[k])
         v_wind = SVector{3, Float64}(sl.v_wind_kite[k])
         pos = SVector{3, Float64}(sl.X[k][kite_idx], sl.Y[k][kite_idx], sl.Z[k][kite_idx])
@@ -1186,7 +1186,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
 
             # Calculate heading rate from diff for quaternion wings
             heading_unwrapped = copy(sl.heading)
-            for j in 2:length(heading_unwrapped)
+            for j in 2:lastindex(heading_unwrapped)
                 while heading_unwrapped[j] - heading_unwrapped[j-1] > π
                     heading_unwrapped[j] -= 2π
                 end
@@ -1238,7 +1238,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
 
             # Compute heading rate from diff for quaternion wings
             heading_unwrapped = copy(sl.heading)
-            for j in 2:length(heading_unwrapped)
+            for j in 2:lastindex(heading_unwrapped)
                 while heading_unwrapped[j] - heading_unwrapped[j-1] > π
                     heading_unwrapped[j] -= 2π
                 end
@@ -1260,7 +1260,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             # Tangential sphere heading: use velocity projected into tangent plane
             yaw_sphere = Vector{Float64}(undef, n)
             kite_idx = syss[i].wings[1].origin_idx
-            @inbounds for k in 1:n
+            @inbounds for k in eachindex(yaw_sphere)
                 pos = SVector{3, Float64}(sl.X[k][kite_idx], sl.Y[k][kite_idx], sl.Z[k][kite_idx])
                 vel = SVector{3, Float64}(sl.vel_kite[k])
                 
@@ -1319,7 +1319,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             if yaw_rate_paper_compare
                 yaw_cmp = yaw_ekf === nothing ? copy(heading_unwrapped) : copy(yaw_ekf)
                 yaw_sph = copy(yaw_sphere)
-                for k in 2:n
+                for k in 2:lastindex(yaw_cmp)
                     if !isnan(yaw_cmp[k]) && !isnan(yaw_cmp[k - 1])
                         dψ = yaw_cmp[k] - yaw_cmp[k - 1]
                         if dψ > π
@@ -1390,14 +1390,14 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             end
             # Paper yaw-rate from apparent wind
             yaw = Vector{Float64}(undef, n)
-            @inbounds for k in 1:n
+            @inbounds for k in eachindex(yaw)
                 v = sl.vel_kite[k]
                 w = sl.v_wind_kite[k]
                 va_enu = w .- v
                 va_ned = SVector{3, Float64}(va_enu[2], va_enu[1], -va_enu[3])
                 yaw[k] = atan(va_ned[2], va_ned[1])
             end
-            for k in 2:n
+            for k in 2:lastindex(yaw)
                 dψ = yaw[k] - yaw[k - 1]
                 if dψ > π
                     yaw[k] -= 2π
@@ -1822,7 +1822,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                 zs = sl.Z
                 n = length(sl.time)
                 steering_len = zeros(Float64, n)
-                @inbounds for k in 1:n
+                @inbounds for k in eachindex(steering_len)
                     p1 = SVector{3,Float64}(xs[k][p_i], ys[k][p_i], zs[k][p_i])
                     p2 = SVector{3,Float64}(xs[k][p_j], ys[k][p_j], zs[k][p_j])
                     steering_len[k] = norm(p2 - p1)
@@ -1877,7 +1877,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                 zs = sl.Z
                 n = length(sl.time)
                 steering_len = zeros(Float64, n)
-                @inbounds for k in 1:n
+                @inbounds for k in eachindex(steering_len)
                     p1 = SVector{3,Float64}(xs[k][p_i], ys[k][p_i], zs[k][p_i])
                     p2 = SVector{3,Float64}(xs[k][p_j], ys[k][p_j], zs[k][p_j])
                     steering_len[k] = norm(p2 - p1)
@@ -1891,7 +1891,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
 
             # Calculate heading rate from diff for quaternion wings
             heading_unwrapped = copy(sl.heading)
-            for j in 2:length(heading_unwrapped)
+            for j in 2:lastindex(heading_unwrapped)
                 while heading_unwrapped[j] - heading_unwrapped[j-1] > π
                     heading_unwrapped[j] -= 2π
                 end
@@ -2684,7 +2684,7 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
 
         for (sys_i, (sys, seg_plot)) in enumerate(zip(systems, segment_plots))
             seg_points_3d = seg_plot[1][]
-            for seg_i in 1:length(sys.segments)
+            for seg_i in eachindex(sys.segments)
                 p1_3d = seg_points_3d[2*seg_i - 1]
                 p2_3d = seg_points_3d[2*seg_i]
                 p1_2d = Makie.project(scene, p1_3d)
