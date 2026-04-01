@@ -308,7 +308,9 @@ function sim_reposition!(
             SymbolicAWEModels.reposition!(sys_struct.transforms, sys_struct)
             
             # Reinitialize the solver to handle the state discontinuity
-            SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
+            if !isnothing(sam.prob)
+                SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
+            end
 
             if prn
                 # Verify the new pose after one step
@@ -352,24 +354,18 @@ Construct a SysState for logging linear state-space simulation output y (ordered
 sam.outputs).
 """
 function make_lin_sys_state(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
-    # Calculate total points: regular points + 4 corners per panel
-    n_points = length(sam.sys_struct.points)
-    n_panel_corners = isempty(sam.sys_struct.wings) ? 0 : sum(
-        length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings
-    )
-    P = n_points + n_panel_corners
-    ss = SysState{P}()
+    ss = SysState(sam)
     update_sys_state!(ss, y, sam, t; zoom)
     return ss
 end
 
 """
-    update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
+    update_sys_state!(ss, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
                       zoom=1.0)
 
 Update a SysState for a linear state-space simulation, using output y and model sam.
 """
-function update_sys_state!(ss::SysState{<:Any}, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
+function update_sys_state!(ss, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
                            zoom=1.0)
     sys = sam.prob.sys
     outputs = sam.outputs

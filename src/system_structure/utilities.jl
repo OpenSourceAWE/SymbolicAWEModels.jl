@@ -382,8 +382,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     if remake_vsm
         for wing in wings
             # Recreate VSM wing from settings
-            wing.vsm_wing = VortexStepMethod.Wing(set, sys_struct.vsm_set;
-                prn=false, sort_sections=false)
+            wing.vsm_wing = VortexStepMethod.Wing(sys_struct.vsm_set;
+                sort_sections=false)
             wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
             wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero;
                 solver_type=VortexStepMethod.NONLIN,

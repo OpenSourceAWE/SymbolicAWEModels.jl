@@ -467,7 +467,7 @@ function next_step!(sam::SymbolicAWEModel;
     end
 
     sam.t_0 = sam.integrator.t
-    sam.t_step = @elapsed OrdinaryDiffEqCore.step!(
+    sam.t_step = @elapsed step!(
         sam.integrator, dt, true)
     if !successful_retcode(sam.integrator.sol)
         error("Solver unstable at t=" *
@@ -621,7 +621,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     # Determine wing type and aero mode
     wing_types = [wing.wing_type for wing in sys_struct.wings]
     wing_type_str = if isempty(wing_types)
-        "nowng"
+        "no_wing"
     elseif all(wt -> wt == QUATERNION, wing_types)
         "quat"
     elseif all(wt -> wt == REFINE, wing_types)
@@ -640,7 +640,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     elseif all(m -> m == AERO_NONE, aero_modes)
         "none"
     else
-        "mixaero"
+        "mixed_aero_modes"
     end
 
     dynamics_type = ifelse(set.quasi_static, "static", "dynamic")

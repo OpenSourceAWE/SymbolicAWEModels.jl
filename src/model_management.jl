@@ -20,7 +20,7 @@ function generate_prob_getters(sys_struct, sys)
     c = collect
     @unpack wings, groups, pulleys, winches, tethers, segments = sys_struct
     get_wing_state, get_vsm_y, get_segment_state, get_group_state, get_pulley_state,
-    get_winch_state, get_tether_state, set_set_values, get_set_values = ntuple(i -> nothing, 9)
+    get_winch_state, get_tether_state, set_set_values, get_set_values = ntuple(_ -> nothing, 9)
 
     if length(wings) > 0
         wing_vars = c.([
@@ -507,19 +507,23 @@ function reinit!(
     reload=true, 
     lin_vsm=true
 )
-    if isnothing(sam.integrator) || !successful_retcode(sam.integrator.sol) || reload
-        dt = SimFloat(1/sam.set.sample_freq)
-        sam.integrator = ModelingToolkit.SciMLBase.init(prob.prob, solver; 
+    dt = SimFloat(1/sam.set.sample_freq)
+    existing = sam.integrator
+    integrator = if isnothing(existing) || !successful_retcode(existing.sol) || reload
+        ModelingToolkit.SciMLBase.init(prob.prob, solver; 
             adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol, 
             save_on=false, save_everystep=false)
+    else
+        something(existing)
     end
-    prob.set_sys(sam.integrator, sam.sys_struct)
-    prob.set_set(sam.integrator, sam.set)
-    OrdinaryDiffEqCore.reinit!(sam.integrator; reinit_dae=true)
-    lin_vsm && update_vsm!(sam, sam.prob)
-    update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+    sam.integrator = integrator
+    prob.set_sys(integrator, sam.sys_struct)
+    prob.set_set(integrator, sam.set)
+    OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
+    lin_vsm && update_vsm!(sam, prob)
+    update_sys_struct!(prob, integrator, sam.sys_struct)
     validate_sys_struct(sam.sys_struct)  # Check for division-by-zero issues
-    return sam.integrator, true
+    return integrator, true
 end
 
 """
