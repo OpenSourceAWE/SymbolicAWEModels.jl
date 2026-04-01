@@ -207,5 +207,5 @@ Extend `Base.getindex` to allow indexing a symbolic array with a vector of
 integer indices, which is not natively supported by ModelingToolkit.
 """
 function Base.getindex(x::ModelingToolkit.Symbolics.Arr, idxs::Vector{Int64})
-    Num[Base.getindex(x, idx) for idx in idxs]
+    Num[x[idx] for idx in idxs]
 end
