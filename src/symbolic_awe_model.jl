@@ -474,6 +474,9 @@ function next_step!(sam::SymbolicAWEModel;
 )
     prob = sam.prob
     integrator = sam.integrator
+    if !(integrator isa OrdinaryDiffEqCore.ODEIntegrator)
+        error("next_step! called before init!: integrator is not initialized")
+    end
     if (isnothing(set_values))
         set_values = [winch.set_value
             for winch in sam.sys_struct.winches]
@@ -482,21 +485,18 @@ function next_step!(sam::SymbolicAWEModel;
         prob.set_set_values(integrator, set_values)
     end
 
-    if integrator isa OrdinaryDiffEqCore.ODEIntegrator
-        sam.t_0 = integrator.t
-        sam.t_step = @elapsed step!(
-            integrator, dt, true)
-        if !successful_retcode(integrator.sol)
-            error("Solver unstable at t=" *
-                "$(round(integrator.t; digits=4))" *
-                ": $(integrator.sol.retcode)")
-        end
-        sam.iter += 1
-        if prob isa ProbWithAttributes
-            update_sys_struct!(prob, integrator, sam.sys_struct)
-            if vsm_interval != 0 && sam.iter % vsm_interval == 0
-                sam.t_vsm = @elapsed update_vsm!(sam, prob)
-            end
+    sam.t_0 = integrator.t
+    sam.t_step = @elapsed step!(integrator, dt, true)
+    if !successful_retcode(integrator.sol)
+        error("Solver unstable at t=" *
+            "$(round(integrator.t; digits=4))" *
+            ": $(integrator.sol.retcode)")
+    end
+    sam.iter += 1
+    if prob isa ProbWithAttributes
+        update_sys_struct!(prob, integrator, sam.sys_struct)
+        if vsm_interval != 0 && sam.iter % vsm_interval == 0
+            sam.t_vsm = @elapsed update_vsm!(sam, prob)
         end
     end
     return nothing
