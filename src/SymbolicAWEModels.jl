@@ -46,7 +46,7 @@ using VortexStepMethod
 #                  IMPORTS (for extending functions)
 #======================================================================#
 
-import KiteUtils: init!, next_step!, update_sys_state!, SysState
+import KiteUtils: init!, next_step!, update_sys_state!
 import ModelingToolkit: t_nounits as t, D_nounits as D
 import ModelingToolkit.SciMLBase: successful_retcode
 

@@ -350,7 +350,7 @@ end
 Construct a SysState for logging linear state-space simulation output y (ordered as
 sam.outputs).
 """
-function SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
+function KiteUtils.SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
     # Calculate total points: regular points + 4 corners per panel
     n_points = length(sam.sys_struct.points)
     n_panel_corners = isempty(sam.sys_struct.wings) ? 0 : sum(
