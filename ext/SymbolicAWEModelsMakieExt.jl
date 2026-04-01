@@ -2622,7 +2622,7 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
     cam_offset_world = R_b_w * cam_offset_body
     cam_pos = kite_pos + cam_offset_world
 
-    # Set camera position and lookat
+    # Set camera position and "look at" target
     update_cam!(scene, Vec3f(cam_pos), Vec3f(kite_pos))
 
     # Set up vector to align with body z-axis AFTER updating camera
