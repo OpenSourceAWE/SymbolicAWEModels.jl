@@ -133,13 +133,13 @@ This simplifies the structure and improves serialization robustness.
 
 $(TYPEDFIELDS)
 """
-@with_kw mutable struct SerializedModel
+@with_kw mutable struct SerializedModel{D<:AbstractVector, G<:AbstractVector}
     set_hash::Vector{UInt8}
     sys_struct_hash::Vector{UInt8}
     "Unsimplified system of the mtk model"
     full_sys::Union{ModelingToolkit.System, Nothing} = nothing
-    defaults::Vector{Any} = Any[]
-    guesses::Vector{Any} = Any[]
+    defaults::D = Any[]
+    guesses::G = Any[]
     "Symbolic representation of the control inputs."
     inputs::Union{Symbolics.Arr, Vector{Num}} = Num[]
     "Outputs of the linearization and control function."
@@ -174,13 +174,13 @@ Users typically interact with this model through high-level functions like
 
 $(TYPEDFIELDS)
 """
-@with_kw mutable struct SymbolicAWEModel <: AbstractKiteModel
+@with_kw mutable struct SymbolicAWEModel{SS<:SystemStructure, SM<:SerializedModel} <: AbstractKiteModel
     "Reference to the settings struct"
     set::Settings
     "Reference to the point mass system with points, segments, pulleys and tethers"
-    sys_struct::SystemStructure
+    sys_struct::SS
     "Container for the compiled and serialized model components"
-    serialized_model::SerializedModel # Now strongly typed
+    serialized_model::SM # Now strongly typed
     "The ODE integrator for the full nonlinear model"
     integrator::Union{OrdinaryDiffEqCore.ODEIntegrator, Nothing} = nothing
     "Relative start time of the current time interval"
@@ -202,10 +202,12 @@ Overloads `getproperty` to allow direct access to fields within the nested `seri
 This provides a convenient way to access compiled functions and other model
 components without explicitly referencing `sam.serialized_model`.
 """
+const _SAM_FIELDS = (:set, :sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :set_tether_len)
+
 function Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
     if sym === :am
         getfield(sam, :sys_struct).am
-    elseif hasfield(SymbolicAWEModel, sym)
+    elseif sym in _SAM_FIELDS
         getfield(sam, sym)
     else
         getproperty(getfield(sam, :serialized_model), sym)
@@ -220,7 +222,7 @@ This allows you to change properties of the compiled model as if they were
 fields of the `SymbolicAWEModel` itself.
 """
 function Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
-    if hasfield(SymbolicAWEModel, sym)
+    if sym in _SAM_FIELDS
         setfield!(sam, sym, val)
     else
         setproperty!(getfield(sam, :serialized_model), sym, val)
