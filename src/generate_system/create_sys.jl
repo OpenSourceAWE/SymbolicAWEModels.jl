@@ -24,8 +24,8 @@ kinematics, linearized aerodynamics) and assembles them into a single `System`.
 function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
                      prn=true, tunable_params::Bool=false)
     eqs = Equation[]
-    defaults = Any[]
-    guesses = Any[]
+    defaults = Pair{Num, Any}[]
+    guesses = Pair{Num, Any}[]
 
     @unpack points, groups, segments, pulleys, tethers, winches, wings = system
 
