@@ -4,7 +4,7 @@
 # Point dynamics equation generation
 
 """
-    point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, psys, pset;
+    point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, psys, _pset;
                R_b_to_w, wing_pos, wing_vel, wind_vec_gnd, fix_wing, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                spring_sum_force, point_drag_force, disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,

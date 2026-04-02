@@ -4,7 +4,7 @@
 # Winch motor dynamics equation generation
 
 """
-    winch_eqs!(eqs, defaults, winches, tethers, points, psys, pset;
+    winch_eqs!(eqs, defaults, winches, tethers, points, psys, _pset;
                point_force, set_values, tether_len, tether_vel)
 
 Generate equations for winch motor dynamics and tether reeling.
@@ -22,7 +22,7 @@ Generate equations for winch motor dynamics and tether reeling.
 # Returns
 - Tuple `(eqs, defaults)` with updated equation vectors.
 """
-function winch_eqs!(eqs, defaults, winches, tethers, points, psys, pset;
+function winch_eqs!(eqs, defaults, winches, tethers, points, psys, _pset;
                     point_force, set_values, tether_len, tether_vel)
     @variables begin
         tether_acc(t)[eachindex(winches)]
