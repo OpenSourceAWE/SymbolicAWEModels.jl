@@ -124,7 +124,7 @@ $JULIA --project=. -e '
 
     set = Settings("system.yaml")
     vsm_set = VortexStepMethod.VSMSettings(
-        joinpath(get_data_path(), "vsm_settings.yaml"))
+        joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
 
     sys = load_sys_struct_from_yaml(struc_yaml;
         system_name="2plate_kite", set, vsm_set)
@@ -132,11 +132,14 @@ $JULIA --project=. -e '
     sam = SymbolicAWEModel(set, sys)
     init!(sam)
 
+    l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
+    l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
+
     for step in 1:600
         t = step * (10.0 / 600)
         ramp = clamp(t / 2.0, 0.0, 1.0)
-        sam.sys_struct.segments[:kcu_steering_left].l0 -= 0.1 * ramp
-        sam.sys_struct.segments[:kcu_steering_right].l0 += 0.1 * ramp
+        sam.sys_struct.segments[:kcu_steering_left].l0 = l0_left - 0.1 * ramp
+        sam.sys_struct.segments[:kcu_steering_right].l0 = l0_right + 0.1 * ramp
         next_step!(sam; dt=10.0/600, vsm_interval=1)
     end
 ' 2>&1 && pass "README 2plate kite example" || fail "README 2plate kite example"

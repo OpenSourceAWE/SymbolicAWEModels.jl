@@ -240,7 +240,7 @@ using SymbolicAWEModels, VortexStepMethod
 set_data_path("data/2plate_kite")
 set = Settings("system.yaml")
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml"))
+    joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
 
 struc_yaml = joinpath(get_data_path(),
     "quat_struc_geometry.yaml")
