@@ -844,12 +844,6 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
         return rounded
     end
 
-    # Validate paths are not the same
-    src_struc = abspath(source_struc_yaml)
-    dst_struc = abspath(dest_struc_yaml)
-    src_aero = abspath(source_aero_yaml)
-    dst_aero = abspath(dest_aero_yaml)
-
     # Update pos_b for REFINE wing points based on current wing orientation
     for wing in sys_struct.wings
         if wing.wing_type == REFINE
