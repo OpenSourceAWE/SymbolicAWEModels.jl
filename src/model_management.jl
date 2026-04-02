@@ -326,10 +326,10 @@ Create and cache the control functions if they do not exist or if the outputs ha
 - `true` if new functions were created, `false` otherwise.
 """
 function maybe_create_control_functions!(sam, outputs; create_control_func=false, prn=true)
-    if create_control_func && isnothing(sam.control_funcs)
+    if create_control_func && isnothing(sam.control_functions)
         inputs = [sam.inputs...]
         time = @elapsed result = generate_control_funcs(sam.full_sys, inputs, outputs)
-        sam.control_funcs = ControlFuncWithAttributes(; result...)
+        sam.control_functions = ControlFuncWithAttributes(; result...)
         prn && println("\tCreated the control functions in $time seconds.")
         return true
     end
@@ -426,7 +426,7 @@ function init!(sam::SymbolicAWEModel;
         if outputs_changed
             sam.simple_lin_model = nothing
             sam.lin_prob = nothing
-            sam.control_funcs = nothing
+            sam.control_functions = nothing
         end
         sam.outputs = outputs
         
