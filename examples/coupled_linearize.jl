@@ -29,13 +29,13 @@ sam = SymbolicAWEModel(set, sys)
 @variables begin
     heading(t_nounits)[1:1]
     angle_of_attack(t_nounits)[1:1]
-    tether_len(t_nounits)[1:3]
-    winch_force(t_nounits)[1:3]
+    tether_len(t_nounits)[1:1]
+    winch_force(t_nounits)[1:1]
 end
 outputs = [heading[1], angle_of_attack[1], tether_len[1],
            winch_force[1]]
 
-init!(sam; outputs)
+init!(sam; outputs, create_lin_prob=true)
 find_steady_state!(sam)
 
 (; A, B, C, D) = SymbolicAWEModels.linearize!(sam)
