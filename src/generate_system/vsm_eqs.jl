@@ -36,6 +36,16 @@ function vsm_eqs!(
     @unpack groups, wings, points = s.sys_struct
     length(wings) == 0 && return eqs, guesses
 
+    # Predeclare symbolic arrays so static analysis sees these bindings
+    # even though they are only populated when a linearized wing exists.
+    vsm_input_state = nothing
+    vsm_input_state_delta = nothing
+    vsm_input_state_prev = nothing
+    force_jacobian = nothing
+    vsm_output_force_prev = nothing
+    q_inf = nothing
+    no_scale_aero_force_b = nothing
+
     has_linearized = any(
         w isa VSMWing &&
         w.wing_type == QUATERNION &&
@@ -165,6 +175,7 @@ function vsm_eqs!(
 
             area = wing.vsm_aero.projected_area
             n_un = wing.vsm_wing.n_unrefined_sections
+            ny_quat = 3 + n_un + 3
             nx_quat = 3 + 3 + n_un
 
             force_b = no_scale_aero_force_b[:, wing.idx]
@@ -184,6 +195,30 @@ function vsm_eqs!(
                 end
             end
 
+            local prev_state_eqs = []
+            for iy in 1:ny_quat
+                push!(prev_state_eqs,
+                    vsm_input_state_prev[iy, wing.idx] ~
+                    get_vsm_y(psys, wing.idx, iy))
+            end
+
+            local prev_force_eqs = []
+            for ix in 1:nx_quat
+                push!(prev_force_eqs,
+                    vsm_output_force_prev[ix, wing.idx] ~
+                    get_vsm_x(psys, wing.idx, ix))
+            end
+
+            local force_jacobian_eqs = []
+            for ix in 1:nx_quat
+                for iy in 1:ny_quat
+                    push!(force_jacobian_eqs,
+                        force_jacobian[ix, iy, wing.idx] ~
+                        get_vsm_jac(
+                            psys, wing.idx, ix, iy))
+                end
+            end
+
             eqs = [
                 eqs
                 # Dynamic pressure
@@ -195,17 +230,9 @@ function vsm_eqs!(
                         va_wing_b[:, wing.idx]))^2
 
                 # Load linearization data from struct
-                [vsm_input_state_prev[iy, wing.idx] ~
-                    get_vsm_y(psys, wing.idx, iy)
-                 for iy in 1:ny_quaternion]
-                [vsm_output_force_prev[ix, wing.idx] ~
-                    get_vsm_x(psys, wing.idx, ix)
-                 for ix in 1:nx_quat]
-                [force_jacobian[ix, iy, wing.idx] ~
-                    get_vsm_jac(
-                        psys, wing.idx, ix, iy)
-                 for ix in 1:nx_quat
-                 for iy in 1:ny_quaternion]
+                prev_state_eqs
+                prev_force_eqs
+                force_jacobian_eqs
 
                 # Current input state (symbolic)
                 vsm_input_state[:, wing.idx] ~ [
@@ -245,7 +272,7 @@ function vsm_eqs!(
                     push!(moment_terms,
                         x0[vix] +
                         sum([J[vix, iy] * delta[iy]
-                            for iy in 1:ny_quaternion
+                            for iy in 1:ny_quat
                         ]))
                 end
                 push!(group_moment_eqs,
@@ -278,11 +305,15 @@ function vsm_eqs!(
             ]
 
             if s.set.quasi_static
+                local wing_guesses = []
+                for iy in 1:ny_quat
+                    push!(wing_guesses,
+                        vsm_input_state[iy, wing.idx] =>
+                        get_vsm_y(psys, wing.idx, iy))
+                end
                 guesses = [
                     guesses
-                    [vsm_input_state[iy, wing.idx] =>
-                        get_vsm_y(psys, wing.idx, iy)
-                     for iy in 1:ny_quaternion]
+                    wing_guesses
                 ]
             end
         end
