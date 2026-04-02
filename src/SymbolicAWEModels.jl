@@ -65,7 +65,7 @@ export load_settings
 # Core Model
 export SymbolicAWEModel
 # System Structure Components
-export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
+export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform, SteeringConfig
 export AbstractWing, BaseWing, VSMWing
 export NameRef, NamedCollection, WeightedRefPoints
 # Enums
@@ -79,7 +79,8 @@ export sim!, sim_oscillate!, sim_turn!, sim_reposition!
 
 # --- Low-Level Simulation Functions ---
 export find_steady_state!
-export linearize!, simple_linearize!
+export linearize!
+export set_steering!, set_depower!
 export update_segment_forces!
 export set_world_frame_damping
 export set_body_frame_damping

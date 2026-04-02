@@ -27,7 +27,6 @@ init!
 next_step!
 find_steady_state!
 linearize!
-simple_linearize!
 ```
 
 ## YAML loading

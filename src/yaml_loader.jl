@@ -875,10 +875,37 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
+    # Parse steering config (optional)
+    steering_config = nothing
+    if haskey(data, "steering")
+        steer_data = data["steering"]
+        steer_segs = steer_data["steer_segments"]
+        length(steer_segs) == 2 || error(
+            "steering.steer_segments must have " *
+            "exactly 2 entries")
+        sc_kwargs = Dict{Symbol, Any}(
+            :steer_left => Symbol(steer_segs[1]),
+            :steer_right => Symbol(steer_segs[2]),
+            :steer_gain => Float64(
+                steer_data["steer_gain"]),
+        )
+        if haskey(steer_data, "depower_segment")
+            sc_kwargs[:depower_segment] = Symbol(
+                steer_data["depower_segment"])
+        end
+        if haskey(steer_data, "depower_gain")
+            sc_kwargs[:depower_gain] = Float64(
+                steer_data["depower_gain"])
+        end
+        steering_config = SteeringConfig(;
+            sc_kwargs...)
+    end
+
     # SystemStructure constructor now handles WING→STATIC
     # conversion when no wings are defined
     return SystemStructure(system_name, set; points, groups,
-        segments, pulleys, tethers, winches, wings, transforms, ignore_l0, vsm_set)
+        segments, pulleys, tethers, winches, wings,
+        transforms, ignore_l0, vsm_set, steering_config)
 end
 
 """
