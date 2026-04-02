@@ -264,7 +264,10 @@ starting from 1 with no gaps.
   - `type`: DYNAMIC or QUASI_STATIC
 
 - `groups`: (optional) table with headers `[id,point_idxs,gamma,type,reference_chord_frac]`
-- `tethers`: (optional) table with headers `[id,segment_ids,ground_point_id]`
+- `tethers`: (optional) table with headers
+  - Route 1 (explicit segments): `[name, segment_idxs]`, optional: `init_len`
+  - Route 2 (auto-generated): `[name, start_point, end_point, n_segments, material]`, optional: `init_len`
+  - `init_len`: initial tether length [m]; scales `pos_w` before transforms, `pos_cad` unchanged
 - `winches`: (optional) table with headers `[id,tether_ids]`
 - `wings`: (optional, typically from VSM configuration)
 - `transforms`: (optional, typically from settings)
@@ -511,13 +514,28 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 else
                     nothing
                 end
+                il = if hasfield(typeof(row),
+                        :init_len) &&
+                        !isnothing(row.init_len)
+                    Float64(row.init_len)
+                else
+                    nothing
+                end
                 tether = Tether(tether_name, segs;
-                    start_point=sp, end_point=ep)
+                    start_point=sp, end_point=ep,
+                    initial_tether_length=il)
             else
                 # Route 2: auto-generation
                 sp = to_ref(row.start_point)
                 ep = to_ref(row.end_point)
                 n_seg = Int(row.n_segments)
+                il = if hasfield(typeof(row),
+                        :init_len) &&
+                        !isnothing(row.init_len)
+                    Float64(row.init_len)
+                else
+                    nothing
+                end
                 # Resolve material reference if present
                 resolved = resolve_references(
                     row, property_tables)
@@ -542,7 +560,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     start_point=sp, end_point=ep,
                     n_segments=n_seg,
                     unit_stiffness=us, unit_damping=ud,
-                    diameter=d)
+                    diameter=d, initial_tether_length=il)
             end
             push!(tethers, tether)
         end

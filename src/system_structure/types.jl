@@ -513,6 +513,8 @@ mutable struct Tether
     const diameter::SimFloat
     "Current stretched length [m] (updated during simulation)."
     stretched_len::SimFloat
+    "Initial tether length [m]. Applied to `pos_w` before transforms. `nothing` = use CAD length."
+    init_len::Union{SimFloat, Nothing}
 end
 
 """
@@ -530,7 +532,7 @@ Route 1: Construct a `Tether` from explicit segment references.
 """
 function Tether(name, segments;
                 start_point=nothing, end_point=nothing,
-                winch_point=nothing)
+                winch_point=nothing, initial_tether_length=nothing)
     if !isnothing(winch_point)
         error("`winch_point` moved from Tether to Winch. " *
               "Use Tether(name, segments) and pass " *
@@ -544,10 +546,12 @@ function Tether(name, segments;
     ep = isnothing(end_point) ? nothing :
         (end_point isa Integer ? Int(end_point) :
          Symbol(end_point))
+    il = isnothing(initial_tether_length) ? nothing :
+        SimFloat(initial_tether_length)
     return Tether(0, name, Int64[], segment_refs,
                   0, sp, 0, ep,
                   length(segments),
-                  NaN, NaN, NaN, 0.0)
+                  NaN, NaN, NaN, 0.0, il)
 end
 
 """
@@ -573,19 +577,21 @@ points and segments by `expand_auto_tethers!`.
 """
 function Tether(name; start_point, end_point, n_segments,
                 unit_stiffness=NaN, unit_damping=NaN,
-                diameter=NaN)
+                diameter=NaN, initial_tether_length=nothing)
     sp = start_point isa Integer ? Int(start_point) :
          Symbol(start_point)
     ep = end_point isa Integer ? Int(end_point) :
          Symbol(end_point)
     seg_refs = Vector{NameRef}(
         [Symbol("$(name)_seg_$i") for i in 1:n_segments])
+    il = isnothing(initial_tether_length) ? nothing :
+        SimFloat(initial_tether_length)
     return Tether(0, name, Int64[], seg_refs,
                   0, sp, 0, ep,
                   Int64(n_segments),
                   Float64(unit_stiffness),
                   Float64(unit_damping),
-                  Float64(diameter), 0.0)
+                  Float64(diameter), 0.0, il)
 end
 
 # ==================== WINCH ==================== #
@@ -834,7 +840,7 @@ end
 Get the base position for a given transform, resolving chained transforms if necessary.
 """
 function get_base_pos(transform::Transform, transforms, wings, points)
-    curr_base_pos = points[transform.base_point_idx].pos_cad
+    curr_base_pos = points[transform.base_point_idx].pos_w
     if !isnothing(transform.base_pos)
         return transform.base_pos, curr_base_pos
     elseif !isnothing(transform.base_transform_idx)

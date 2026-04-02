@@ -14,6 +14,7 @@ set_data_path(joinpath(dirname(@__DIR__), "data"))
 set = Settings("base/system.yaml")
 set.abs_tol = 1e-8
 set.rel_tol = 1e-8
+set.upwind_dir = 0.0
 set.g_earth = 0.0
 set.v_wind = 5.0
 

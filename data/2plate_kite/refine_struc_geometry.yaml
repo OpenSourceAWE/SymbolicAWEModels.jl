@@ -91,9 +91,9 @@ pulleys:
 ## Tethers ################
 ###########################
 tethers:
-  headers: [name, start_point, end_point, n_segments, material, diameter_mm]
+  headers: [name, start_point, end_point, n_segments, material, diameter_mm, init_len]
   data:
-    - [main_tether, kcu, ground, 6, dyneema, 1.0]
+    - [main_tether, kcu, ground, 6, dyneema, 1.0, 20.0]
 
 ###########################
 ## Winches ################

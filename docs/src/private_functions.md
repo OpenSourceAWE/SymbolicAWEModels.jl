@@ -137,7 +137,7 @@ SymbolicAWEModels.build_name_dict
 SymbolicAWEModels.identify_wing_segments
 SymbolicAWEModels.match_aero_sections_to_structure!
 SymbolicAWEModels.compute_spatial_group_mapping!
-SymbolicAWEModels.init_untransformed_components!
+SymbolicAWEModels.copy_cad_to_world!
 SymbolicAWEModels.adjust_vsm_panels_to_origin!
 SymbolicAWEModels.apply_aero_z_offset!
 SymbolicAWEModels.calc_refine_wing_frame
