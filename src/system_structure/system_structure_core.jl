@@ -51,6 +51,7 @@ mutable struct SystemStructure{W<:AbstractWing}
     stabilize::Bool
     fix_wing::Bool
     vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
+    steering_config::Union{SteeringConfig, Nothing}
 end
 
 function Base.getproperty(sys::SystemStructure, sym::Symbol)
@@ -680,6 +681,7 @@ function SystemStructure(name, set;
         transforms=Transform[],
         ignore_l0::Bool=false,
         vsm_set=nothing,
+        steering_config::Union{SteeringConfig, Nothing}=nothing,
         prn::Bool=true,
     )
     # Load VSMSettings if not provided and wings exist
@@ -714,6 +716,12 @@ function SystemStructure(name, set;
         assign_indices_and_resolve!(
             points, groups, segments, pulleys,
             tethers, winches, wings, transforms)
+
+    # Resolve steering config segment references
+    if !isnothing(steering_config)
+        resolve_steering_config!(
+            steering_config, segment_names_dict)
+    end
 
     # If no wings defined, convert WING points to STATIC
     if isempty(wings)
@@ -1170,8 +1178,12 @@ function SystemStructure(name, set;
         NamedCollection{Winch}(winches, winch_names_dict),
         NamedCollection{eltype(wings)}(wings, wing_names_dict),
         NamedCollection{Transform}(transforms, transform_names_dict),
-        y, x, jac, zeros(KVec3), AtmosphericModel(set), 0.0, false, false, vsm_set)
+        y, x, jac, zeros(KVec3), AtmosphericModel(set), 0.0, false, false, vsm_set,
+        steering_config)
     reinit!(sys_struct, set)
+
+    # Capture base segment lengths for steering config
+    capture_steering_base_lengths!(sys_struct)
 
     # Recalculate segment rest lengths from current positions if requested
     if ignore_l0

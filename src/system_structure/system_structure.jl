@@ -19,6 +19,7 @@ Files are organized as:
 
 # Include files in dependency order
 include("types.jl")         # Enums, Point, Group, Segment, Pulley, Tether, Winch, Transform
+include("steering_config.jl") # SteeringConfig, set_steering!, set_depower!
 include("wing.jl")          # AbstractWing, BaseWing, VSMWing
 include("named_collection.jl")  # NamedCollection wrapper for symbol-based indexing
 include("system_structure_core.jl")  # SystemStructure type and constructor (uses Transform)
