@@ -152,7 +152,7 @@ $(TYPEDFIELDS)
     "Container for the linearization problem and its components."
     lin_prob::Union{LinProbWithAttributes, Nothing} = nothing
     "Container for the control functions."
-    control_funcs::Union{ControlFuncWithAttributes, Nothing} = nothing
+    control_functions::Union{ControlFuncWithAttributes, Nothing} = nothing
 end
 
 """
