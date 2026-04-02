@@ -82,6 +82,8 @@ pkg"add SymbolicAWEModels"
 
 ```julia
 using SymbolicAWEModels
+SymbolicAWEModels.init_module(; force=false)
+set_data_path("data/base")
 
 set = Settings("system.yaml")
 set.v_wind = 0.0
@@ -139,6 +141,7 @@ A minimal coupled aero-structural model included in `data/2plate_kite/`:
 
 ```julia
 using SymbolicAWEModels, VortexStepMethod
+SymbolicAWEModels.init_module(; force=false)
 
 set_data_path("data/2plate_kite")
 
@@ -150,7 +153,7 @@ update_aero_yaml_from_struc_yaml!(struc_yaml, aero_yaml)
 # Load settings and VSM configuration
 set = Settings("system.yaml")
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml"))
+    joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
 
 # Build system structure from YAML
 sys = load_sys_struct_from_yaml(struc_yaml;
@@ -159,12 +162,15 @@ sys = load_sys_struct_from_yaml(struc_yaml;
 sam = SymbolicAWEModel(set, sys)
 init!(sam)
 
+l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
+l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
+
 # Run with a steering ramp
 for step in 1:600
     t = step * (10.0 / 600)
     ramp = clamp(t / 2.0, 0.0, 1.0)
-    sam.sys_struct.segments[:kcu_steering_left].l0 -= 0.1 * ramp
-    sam.sys_struct.segments[:kcu_steering_right].l0 += 0.1 * ramp
+    sam.sys_struct.segments[:kcu_steering_left].l0 = l0_left - 0.1 * ramp
+    sam.sys_struct.segments[:kcu_steering_right].l0 = l0_right + 0.1 * ramp
     next_step!(sam; dt=10.0/600, vsm_interval=1)
 end
 ```

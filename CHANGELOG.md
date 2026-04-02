@@ -49,6 +49,18 @@ SPDX-License-Identifier: MPL-2.0
   segment format (no `type` column).
 - Heading calculation uses tangential sphere frame, fixing drift issues
   with the old wind-perpendicular projection.
+- Unknown solver string (e.g. `DFBDF` from default KiteUtils settings)
+  no longer throws an error — a warning is emitted and the solver
+  falls back to `FBDF`.
+- README code examples now include the required
+  `SymbolicAWEModels.init_module(; force=false)` call so they work
+  correctly on a fresh install.
+- README pendulum example also calls `set_data_path("data/base")`
+  before loading `Settings`.
+
+## Tests
+- README pendulum example and README 2-plate kite example are now
+  executed in `test/test_setup.sh`.
 
 # v0.7.2 18-03-2026
 

@@ -37,7 +37,7 @@ sam.set.abs_tol = 1e-3
 sam.set.rel_tol = 1e-3
 
 init!(sam; remake=false)
-find_steady_state!(sam; t=10.0, dt=1.0)
+find_steady_state!(sam; t=10.0, dt=1/sam.set.sample_freq)
 
 # Simple linearization
 simple_linearize!(sam; tstab=10.0)

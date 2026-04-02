@@ -30,7 +30,7 @@ update_aero_yaml_from_struc_yaml!(struc_yaml, aero_yaml)
 set_2p = Settings("system.yaml")
 set_2p.solver = "FBDF"
 vsm_set_2p = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml"))
+    joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
 
 sys_2p = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite", set=set_2p, vsm_set=vsm_set_2p)
