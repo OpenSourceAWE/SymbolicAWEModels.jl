@@ -201,10 +201,8 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
 
                 if found == 1
                     found = 0
-                    wing = nothing
                     for wing_ in wings
                         if group.idx in wing_.group_idxs
-                            wing = wing_
                             found += 1
                         end
                     end
