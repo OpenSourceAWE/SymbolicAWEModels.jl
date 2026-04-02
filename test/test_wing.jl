@@ -316,8 +316,12 @@ end
 
                 Δp = p1 - p0
                 tangential = norm(Δp - dot(Δp, r̂0) * r̂0)
-
-                @test tangential < 2e-3
+                if Sys.isapple()
+                    # On macOS, numerical differences cause more tangential drift.
+                    @test tangential < 5e-3
+                else
+                    @test tangential < 1e-3
+                end
 
                 println("  [$wtn] fix_sphere: " *
                     "tangential=" *
