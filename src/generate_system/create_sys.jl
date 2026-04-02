@@ -179,12 +179,12 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     eqs, defaults, guesses = point_eqs!(
         s, eqs, defaults, guesses, points, segments, groups, wings, psys, pset;
         R_b_to_w, com_w,
-        wing_pos, wing_vel, wind_vec_gnd, fix_wing, twist_angle,
+        wing_vel, wind_vec_gnd, twist_angle,
         pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
         spring_sum_force, point_drag_force, disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
         fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
         va_point_b, va_point_w, wind_at_point, height,
-        aero_force_point_b, has_refine_wings,
+        aero_force_point_b,
         group_y_airf, tether_wing_force, tether_wing_moment
     )
 
