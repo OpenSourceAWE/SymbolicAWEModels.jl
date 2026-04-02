@@ -545,7 +545,7 @@ mutable struct Transform
 end
 
 # Helper to convert ref to NameRef or nothing
-_to_ref(x::Nothing) = nothing
+_to_ref(::Nothing) = nothing
 _to_ref(x::Integer) = Int(x)
 _to_ref(x) = Symbol(x)
 
