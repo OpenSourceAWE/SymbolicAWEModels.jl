@@ -8,6 +8,7 @@
 
 using GLMakie
 using SymbolicAWEModels, VortexStepMethod, KiteUtils
+using SymbolicAWEModels: init!, next_step!, update_sys_state!
 
 MODEL_NAME = "2plate_kite"
 SIM_TIME = 10.0
@@ -29,7 +30,7 @@ vsm_set = VortexStepMethod.VSMSettings(
 sys = load_sys_struct_from_yaml(struc_yaml;
     system_name=MODEL_NAME, set, vsm_set)
 sam = SymbolicAWEModel(set, sys)
-SymbolicAWEModels.init!(sam; remake=false)
+init!(sam; remake=false)
 
 dt = 1.0 / set.sample_freq
 n_steps = max(1, round(Int, SIM_TIME / dt))
@@ -38,8 +39,8 @@ logger = Logger(sam, n_steps)
 sys_state = SysState(sam)
 
 for step in 1:n_steps
-    SymbolicAWEModels.next_step!(sam; dt, vsm_interval=VSM_INTERVAL)
-    SymbolicAWEModels.update_sys_state!(sys_state, sam)
+    next_step!(sam; dt, vsm_interval=VSM_INTERVAL)
+    update_sys_state!(sys_state, sam)
     sys_state.time = step * dt
     log!(logger, sys_state)
     if step % 100 == 0 || step == n_steps
