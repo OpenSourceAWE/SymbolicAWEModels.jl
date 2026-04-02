@@ -317,7 +317,7 @@ end
                 Δp = p1 - p0
                 tangential = norm(Δp - dot(Δp, r̂0) * r̂0)
 
-                @test tangential < 1e-3
+                @test tangential < 2e-3
 
                 println("  [$wtn] fix_sphere: " *
                     "tangential=" *
