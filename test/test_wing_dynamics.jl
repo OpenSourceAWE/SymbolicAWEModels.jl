@@ -346,7 +346,7 @@ end
         # Measure precession period from zero crossings
         # of omega_p (which oscillates around 0)
         crossings = Int[]
-        for i in 2:length(omega_p_vals)
+        for i in 2:lastindex(omega_p_vals)
             if omega_p_vals[i-1] * omega_p_vals[i] < 0
                 push!(crossings, i)
             end
