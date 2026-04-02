@@ -108,7 +108,7 @@ function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=5, prn=
         k_values[j] = k
         ω_n = sqrt(k/m)
 
-        # Find settling time index according to your in_Xpercent_band function:
+        # Find settling time index according to your in_percent_band function:
         T_s_index = -1
         for i in 1:length(tether_len_series)
             if in_percent_band(tether_len_series, final_len, delta_x_ss, i, p)
