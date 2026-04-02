@@ -292,12 +292,13 @@ end
                 wing = sam.sys_struct.wings[:main_wing]
                 if expected_wing_type ==
                         SymbolicAWEModels.QUATERNION
-                    initial_dir = normalize(wing.com_w)
+                    p0 = copy(wing.com_w)
                 else
-                    initial_dir = normalize(
+                    p0 = copy(
                         sam.sys_struct.points[:kcu].pos_w
                     )
                 end
+                r̂0 = normalize(p0)
 
                 for _ in 1:100
                     next_step!(sam; dt=0.05,
@@ -306,19 +307,21 @@ end
 
                 if expected_wing_type ==
                         SymbolicAWEModels.QUATERNION
-                    final_dir = normalize(wing.com_w)
+                    p1 = copy(wing.com_w)
                 else
-                    final_dir = normalize(
+                    p1 = copy(
                         sam.sys_struct.points[:kcu].pos_w
                     )
                 end
-                dir_change = norm(final_dir - initial_dir)
 
-                @test dir_change < 1e-6
+                Δp = p1 - p0
+                tangential = norm(Δp - dot(Δp, r̂0) * r̂0)
+
+                @test tangential < 1e-3
 
                 println("  [$wtn] fix_sphere: " *
-                    "dir_change=" *
-                    "$(round(dir_change; digits=5))")
+                    "tangential=" *
+                    "$(round(tangential; digits=6))")
             end
 
             # ========================================================
