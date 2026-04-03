@@ -11,6 +11,8 @@
 import GLMakie
 GLMakie.activate!(; visible=false)
 
+using SymbolicAWEModels: Point
+
 # --- Section 1: Literate tutorial figures ---
 include(joinpath(@__DIR__, "src", "literate", "tutorial_julia.jl"))
 
