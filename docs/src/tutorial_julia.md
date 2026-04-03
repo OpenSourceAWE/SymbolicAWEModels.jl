@@ -142,10 +142,10 @@ end
 
 save_log(logger, "tether_sim")
 lg = load_log("tether_sim")
-record(lg, sam.sys_struct, "tether_sim.gif")
+SymbolicAWEModels.record(lg, sam.sys_struct, "tether_sim.gif")
 ```
 
-![Tether simulation](assets/tether_during_sim.png)
+![Tether simulation](assets/tether_sim.gif)
 
 ## Step 2: adding a winch
 
@@ -195,10 +195,10 @@ end
 
 save_log(logger, "winch_sim")
 lg = load_log("winch_sim")
-record(lg, sam.sys_struct, "winch_sim.gif")
+SymbolicAWEModels.record(lg, sam.sys_struct, "winch_sim.gif")
 ```
 
-![Winch simulation](assets/tether_during_sim.png)
+![Winch simulation](assets/winch_sim.gif)
 
 ## Step 3: adding a pulley
 
@@ -272,10 +272,10 @@ end
 
 save_log(logger, "pulley_sim")
 lg = load_log("pulley_sim")
-record(lg, sam.sys_struct, "pulley_sim.gif")
+SymbolicAWEModels.record(lg, sam.sys_struct, "pulley_sim.gif")
 ```
 
-![Pulley simulation](assets/pulley_sys_struct.png)
+![Pulley simulation](assets/pulley_sim.gif)
 
 ## Step 4: wings
 
