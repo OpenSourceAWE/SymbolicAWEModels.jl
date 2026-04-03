@@ -4,10 +4,6 @@ system:
     sample_freq:   20              # sample frequency in Hz
     g_earth:     9.81
 
-initial:
-    l_tethers: [0.0]  # initial tether length       [m]
-    v_reel_outs: [0.0]   # initial reel out speed    [m/s]
-
 solver:
     solver: "FBDF"
     abs_tol: 0.01          # absolute tolerance of the DAE solver [m, m/s]

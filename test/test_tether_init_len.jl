@@ -43,34 +43,6 @@ winches:
     - [main_winch, [main_tether], ground]
 """
 
-# Route 2 tether without init_len (for programmatic tests)
-const INIT_LEN_NO_YAML_ROUTE2 = """
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [test_mat, 120000.0, 724, 0.001]
-
-points:
-  headers: [name, pos_cad, type, wing_idx, transform_idx,
-            extra_mass, body_frame_damping, world_frame_damping,
-            area, drag_coeff]
-  data:
-    - [ground, [0.0, 0.0, 0.0], STATIC, nothing, nothing,
-       0.0, 0.0, 0.0, 0.0, 0.0]
-    - [top, [0.0, 0.0, -100.0], DYNAMIC, nothing, nothing,
-       1.0, 0.0, 0.0, 0.0, 0.0]
-
-tethers:
-  headers: [name, start_point, end_point, n_segments, material]
-  data:
-    - [main_tether, ground, top, 2, test_mat]
-
-winches:
-  headers: [name, tether_idxs, winch_point]
-  data:
-    - [main_winch, [main_tether], ground]
-"""
-
 # Route 1 tether (explicit segments) with init_len in YAML
 const INIT_LEN_YAML_ROUTE1 = """
 materials:
@@ -182,10 +154,6 @@ const INIT_LEN_SETTINGS = """
 system:
     log_file: "data/init_len_test"
     g_earth: 9.81
-
-initial:
-    l_tethers: [100.0]
-    v_reel_outs: [0.0]
 
 solver:
     solver: "FBDF"
@@ -305,34 +273,13 @@ environment:
     end
 
     # ================================================================
-    # Test 5: init_len takes priority over set.l_tethers
-    # ================================================================
-    @testset "Winch priority over set.l_tethers" begin
-        yaml_path = joinpath(tmpdir, "r2_no_yaml.yaml")
-        write(yaml_path, INIT_LEN_NO_YAML_ROUTE2)
-        sys = load_sys_struct_from_yaml(
-            yaml_path; system_name="init_len_r2_winch", set=set)
-
-        # init_len set programmatically → overrides set.l_tethers = 100
-        sys.tethers[:main_tether].init_len = 150.0
-        SymbolicAWEModels.reinit!(sys, set)
-        @test sys.winches[:main_winch].tether_len ≈ 150.0
-
-        # Without init_len → falls back to set.l_tethers = 100
-        sys.tethers[:main_tether].init_len = nothing
-        SymbolicAWEModels.reinit!(sys, set)
-        @test sys.winches[:main_winch].tether_len ≈ 100.0
-    end
-
-    # ================================================================
-    # Test 6: Idempotency — repeated reinit! gives same result
+    # Test 5: Idempotency — repeated reinit! gives same result
     # ================================================================
     @testset "Idempotency" begin
-        yaml_path = joinpath(tmpdir, "r2_no_yaml.yaml")
+        yaml_path = joinpath(tmpdir, "r2_yaml.yaml")
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_len_r2_idem", set=set)
 
-        sys.tethers[:main_tether].init_len = 200.0
         SymbolicAWEModels.reinit!(sys, set)
         mid_pos = copy(sys.points[:main_tether_point_1].pos_w)
         top_pos = copy(sys.points[:top].pos_w)
@@ -342,17 +289,4 @@ environment:
         @test sys.points[:top].pos_w ≈ top_pos
     end
 
-    # ================================================================
-    # Test 7: apply_init_len=false skips scaling
-    # ================================================================
-    @testset "apply_init_len=false skips scaling" begin
-        yaml_path = joinpath(tmpdir, "r2_yaml.yaml")
-        sys = load_sys_struct_from_yaml(
-            yaml_path; system_name="init_len_r2_skip", set=set)
-
-        # YAML sets init_len=200, but apply_init_len=false should skip
-        SymbolicAWEModels.reinit!(sys, set; apply_init_len=false)
-        @test sys.points[:top].pos_w ≈ KVec3(0, 0, -100)
-        @test sys.points[:main_tether_point_1].pos_w ≈ KVec3(0, 0, -50)
-    end
 end

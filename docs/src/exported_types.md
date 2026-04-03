@@ -52,7 +52,6 @@ BaseWing
 VSMWing
 Transform
 Transform(name, elevation, azimuth, heading; base_point, base_pos, base_transform, wing, rot_point)
-Transform(name, set, base_point; kwargs...)
 ```
 
 ## Indexing

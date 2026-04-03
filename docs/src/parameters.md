@@ -26,11 +26,6 @@ system:
     kite_scale:   3.0              # relative zoom factor for the 4 point kite
     fixed_font: ""                 # name or filepath+filename of alternative fixed pitch font
 
-initial:
-    l_tethers: [50.0, 50.0, 50.0]  # initial tether length       [m]
-    elevation: 70.8                # initial elevation angle   [deg]
-    v_reel_outs: [0.0, 0.0, 0.0]   # initial reel out speed    [m/s]
-
 solver:
     solver: "FBDF"
     abs_tol: 0.01          # absolute tolerance of the DAE solver [m, m/s]

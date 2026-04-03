@@ -1144,35 +1144,6 @@ function SystemStructure(name, set;
 
     for (i, transform) in enumerate(transforms)
         @assert transform.idx == i
-
-        # Check for conflict with Settings (only warn if values differ)
-        set_elev = hasproperty(set, :elevations) && i <= length(set.elevations) ?
-                   set.elevations[i] : 0.0
-        set_azim = hasproperty(set, :azimuths) && i <= length(set.azimuths) ?
-                   set.azimuths[i] : 0.0
-        set_head = hasproperty(set, :headings) && i <= length(set.headings) ?
-                   set.headings[i] : 0.0
-
-        sys_elev = rad2deg(transform.elevation)
-        sys_azim = rad2deg(transform.azimuth)
-        sys_head = rad2deg(transform.heading)
-
-        # Only warn if both have nonzero values AND they differ
-        elev_conflict = (set_elev != 0.0 && sys_elev != 0.0 && !isapprox(set_elev, sys_elev))
-        azim_conflict = (set_azim != 0.0 && sys_azim != 0.0 && !isapprox(set_azim, sys_azim))
-        head_conflict = (set_head != 0.0 && sys_head != 0.0 && !isapprox(set_head, sys_head))
-
-        if elev_conflict || azim_conflict || head_conflict
-            @warn "Transform $(transform.name): Settings and sys_struct have different " *
-                  "angles. Settings: (elev=$(set_elev)°, azim=$(set_azim)°, " *
-                  "head=$(set_head)°). Using sys_struct: (elev=$(sys_elev)°, " *
-                  "azim=$(sys_azim)°, head=$(sys_head)°)."
-        end
-
-        # sys_struct values take priority - update Settings to match
-        set.elevations[i] = sys_elev
-        set.azimuths[i]   = sys_azim
-        set.headings[i]   = sys_head
     end
     if length(wings) > 0
         # Use number of unrefined sections

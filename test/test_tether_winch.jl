@@ -55,10 +55,6 @@ system:
     log_file: "data/winch_test"
     g_earth: 9.81
 
-initial:
-    l_tethers: [0.0]
-    v_reel_outs: [0.0]
-
 solver:
     solver: "FBDF"
     abs_tol: 0.0001
@@ -426,13 +422,32 @@ environment:
         end
         init!(sam2; remake=true, prn=false)
 
-        for _ in 1:3000
-            next_step!(sam2; dt=0.001, vsm_interval=0)
-        end
+        next_step!(sam2; dt=3.0, vsm_interval=0)
 
-        # Mass should be below -100m (stretched by gravity)
+        # Exact equilibrium: each segment carries weight of
+        # all mass below its upper end.
+        # extension_j = T_j * l0 / (unit_k - T_j)
+        l0 = 25.0
+        g = set.g_earth
+        unit_k = 50000.0
+        d = sam2.sys_struct.segments[1].diameter
+        rho = set.rho_tether
+        half_seg_m = rho * π * (d / 2)^2 * l0 / 2
+        m_mass = 5.0 + half_seg_m         # bottom point
+        m_mid = 2 * half_seg_m            # intermediate pts
+
+        # Cumulative weight below each segment (bottom-up)
+        cum_mass = [m_mass,
+                    m_mass + m_mid,
+                    m_mass + 2 * m_mid,
+                    m_mass + 3 * m_mid]
+        total_len = sum(
+            l0 * unit_k / (unit_k - m * g)
+            for m in cum_mass)
+        expected_z = -total_len
+
         mass_z = sam2.sys_struct.points[:mass].pos_w[3]
-        @test mass_z < -100.0
+        @test mass_z ≈ expected_z rtol=0.01
     end
 
     # ============================================================

@@ -375,7 +375,7 @@ function apply_tether_init_lens!(sys_struct::SystemStructure)
 
         delta = points[tether.end_point_idx].pos_w .- old_end_pos
 
-        # Set winch tether_len (priority over set.l_tethers)
+        # Set winch tether_len
         for winch in winches
             tether.idx in winch.tether_idxs || continue
             winch.tether_len = tether.init_len
@@ -434,16 +434,14 @@ Pulley lengths are initialized proportionally based on current segment lengths:
 - `remake_vsm::Bool=false`: If true, recreate VSM wing, aerodynamics, and solver from settings.
   This is useful after modifying aero_geometry.yaml or other VSM-related configuration files.
   For REFINE wings, also rebuilds the point_to_vsm_point mapping.
-- `apply_init_len::Bool=true`: If true, apply `tether.init_len` scaling to `pos_w`
-  before transforms. `pos_cad` is never modified.
 """
 function reinit!(sys_struct::SystemStructure, set::Settings;
                  ignore_l0::Bool=false, remake_vsm::Bool=false,
-                 reset_vel::Bool=true, apply_init_len::Bool=true)
+                 reset_vel::Bool=true)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
 
     for winch in winches
-        winch.tether_vel = set.v_reel_outs[winch.idx]
+        winch.tether_vel = winch.init_vel
     end
 
     for group in groups
@@ -457,7 +455,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     copy_cad_to_world!(points, wings; update_vel=reset_vel)
 
     # Step 2: apply tether initial lengths (scales pos_w; pos_cad unchanged)
-    apply_init_len && apply_tether_init_lens!(sys_struct)
+    apply_tether_init_lens!(sys_struct)
 
     # Step 3: compute segment lengths from pos_w
     for segment in segments
@@ -466,17 +464,13 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         segment.len = len
     end
 
-    # Step 4: calculate winch tether_len from settings or segment l0s;
-    # skip if init_len already set the length in apply_tether_init_lens!
+    # Step 4: set winch tether_len from segment l0s
+    # (skip if init_len already set it in apply_tether_init_lens!)
     for winch in winches
         any(!isnothing(tethers[ti].init_len)
             for ti in winch.tether_idxs) && continue
-        l_tether = set.l_tethers[winch.idx]
-        if l_tether == 0
-            l_tether = autocalc_tether_len(
-                winch, tethers, segments)
-        end
-        winch.tether_len = l_tether
+        winch.tether_len = autocalc_tether_len(
+            winch, tethers, segments)
     end
 
     for pulley in pulleys

@@ -620,6 +620,8 @@ mutable struct Winch
     tether_len::Union{SimFloat, Nothing}
     "Current reel-out velocity [m/s]."
     tether_vel::SimFloat
+    "Initial reel-out velocity [m/s]. Applied on reinit!."
+    init_vel::SimFloat
     "Current reel-out acceleration [m/s²]."
     tether_acc::SimFloat
     "Control input value (torque [N·m] or speed [m/s])."
@@ -678,7 +680,8 @@ function Winch(name, set::Settings, tethers;
     wp = winch_point isa Integer ? Int(winch_point) :
          Symbol(winch_point)
     return Winch(0, name, Int64[], tether_refs, 0, wp,
-                 tether_len, tether_vel, 0.0, 0.0,
+                 tether_len, tether_vel, tether_vel,
+                 0.0, 0.0,
                  brake, speed_controlled, zeros(KVec3),
                  set.gear_ratio, set.drum_radius,
                  set.f_coulomb, set.c_vf,
@@ -711,7 +714,8 @@ function Winch(name, tethers, gear_ratio, drum_radius,
     wp = winch_point isa Integer ? Int(winch_point) :
          Symbol(winch_point)
     return Winch(0, name, Int64[], tether_refs, 0, wp,
-                 tether_len, tether_vel, 0.0, 0.0,
+                 tether_len, tether_vel, tether_vel,
+                 0.0, 0.0,
                  brake, speed_controlled, zeros(KVec3),
                  gear_ratio, drum_radius, f_coulomb,
                  c_vf, inertia_total, zero(SimFloat),
@@ -805,20 +809,6 @@ function Transform(name, elevation, azimuth, heading;
               nothing, base_point_ref, nothing, base_transform_ref,
               elevation, azimuth, heading, elevation_vel, azimuth_vel, turn_rate,
               isnothing(base_pos) ? nothing : KVec3(base_pos...))
-end
-
-"""
-    Transform(name, set, base_point; kwargs...)
-
-Constructor helper to create a `Transform` from a `Settings` object.
-Note: Uses idx=1 for settings indexing (legacy compatibility).
-"""
-function Transform(name, set, base_point; idx_for_set=1, kwargs...)
-    elevation_vel = hasfield(typeof(set), :elevation_vels) ? set.elevation_vels[idx_for_set] : 0.0
-    azimuth_vel = hasfield(typeof(set), :azimuth_vels) ? set.azimuth_vels[idx_for_set] : 0.0
-    turn_rate = hasfield(typeof(set), :turn_rates) ? set.turn_rates[idx_for_set] : 0.0
-    Transform(name, set.elevations[idx_for_set], set.azimuths[idx_for_set], set.headings[idx_for_set];
-              base_point, elevation_vel, azimuth_vel, turn_rate, kwargs...)
 end
 
 """

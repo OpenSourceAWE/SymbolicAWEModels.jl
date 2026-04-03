@@ -59,10 +59,6 @@ system:
     log_file: "data/profile_law_test"
     g_earth: 0.0   # No gravity for wind-only tests
 
-initial:
-    l_tethers: [0.0]
-    v_reel_outs: [0.0]
-
 solver:
     solver: "FBDF"
     abs_tol: 0.001

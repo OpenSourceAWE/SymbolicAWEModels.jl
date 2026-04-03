@@ -160,10 +160,6 @@ system:
                                    #   use / as path delimiter, even on Windows
     g_earth:     9.81
 
-initial:
-    l_tethers: [0.0]  # initial tether length       [m]
-    v_reel_outs: [0.0]   # initial reel out speed    [m/s]
-
 solver:
     solver: "FBDF"
     abs_tol: 0.0001          # absolute tolerance of the DAE solver [m, m/s]
