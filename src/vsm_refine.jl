@@ -469,7 +469,6 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::AbstractVecto
         Mp = scale .* SVector{3}(m_body[:, panel_idx])
 
         section_idx = panel_to_section[local_panel_idx]
-        section = wing.vsm_wing.unrefined_sections[section_idx]
 
         le_key = (Int64(section_idx), :LE)
         te_key = (Int64(section_idx), :TE)

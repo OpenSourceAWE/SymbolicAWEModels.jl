@@ -203,7 +203,7 @@ point = call_yaml_constructor(Point, row,
     ))
 ```
 """
-function _extract_args(Constructor, row, args_spec, mappings)
+function _extract_args(row, args_spec, mappings)
     args = []
     for arg_name in args_spec
         if haskey(mappings, arg_name)
@@ -222,10 +222,10 @@ function call_yaml_constructor(
         Constructor,
         row::NamedTuple,
         args_spec::Vector{Symbol},
-        kwargs_spec::Vector{Union{}};
+    ::Vector{Union{}};
         mappings::Dict{Symbol, <:Function}=
             Dict{Symbol, Function}())
-    args = _extract_args(Constructor, row, args_spec, mappings)
+    args = _extract_args(row, args_spec, mappings)
     return Constructor(args...)
 end
 
@@ -236,7 +236,7 @@ function call_yaml_constructor(
         kwargs_spec::Vector;
         mappings::Dict{Symbol, <:Function}=
             Dict{Symbol, Function}())
-    args = _extract_args(Constructor, row, args_spec, mappings)
+    args = _extract_args(row, args_spec, mappings)
 
     # Extract keyword arguments (only if present)
     kwargs = Dict{Symbol, Any}()
