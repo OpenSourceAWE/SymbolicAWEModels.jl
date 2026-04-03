@@ -172,7 +172,7 @@ cone_color(angle, min_angle, max_angle) = HSV(120 * (1 - (angle - min_angle) / (
 
 """Plot combined trajectory, heading, and turn rate for multiple cone angles."""
 function plot_combined(cone_angles_list, results; use_glmakie=true)
-    if use_glmakie # glmakie
+    if use_glmakie
         GLMakie.activate!()
     else
         CairoMakie.activate!()
