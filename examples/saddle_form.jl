@@ -65,11 +65,11 @@ function run_saddle(; yaml_file)
         compression_frac=1.0)
 
     # Neutral transform: match current orientation
-    dir = points[2].pos_cad .- points[1].pos_cad
-    elev = KiteUtils.calc_elevation(dir)
-    azimuth = -KiteUtils.azimuth_east(dir)
+    direction = points[2].pos_cad .- points[1].pos_cad
+    elevation = KiteUtils.calc_elevation(direction)
+    azimuth = -KiteUtils.azimuth_east(direction)
     transforms = [
-        Transform(1, elev, azimuth, 0.0;
+        Transform(1, elevation, azimuth, 0.0;
                   base_pos=Vector(points[1].pos_cad),
                   base_point=1, rot_point=2),
     ]
