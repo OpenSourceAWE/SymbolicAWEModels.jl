@@ -53,11 +53,11 @@ If found, merge those properties into the current row (current row takes precede
 function resolve_references(row::NamedTuple, property_tables::Dict{String, Dict{String, NamedTuple}})
     resolved = Dict{Symbol, Any}(pairs(row))
 
-    for (field, value) in pairs(row)
+    for (_, value) in pairs(row)
         # Check if this is a string reference (unquoted strings in YAML)
         if value isa String
             # Try to find this reference in any property table
-            for (table_name, lookup_dict) in property_tables
+            for (_, lookup_dict) in property_tables
                 if haskey(lookup_dict, value)
                     # Found! Merge these properties (current row takes precedence)
                     ref_props = lookup_dict[value]
@@ -203,15 +203,7 @@ point = call_yaml_constructor(Point, row,
     ))
 ```
 """
-function call_yaml_constructor(
-        Constructor,
-        row::NamedTuple,
-        args_spec::Vector{Symbol},
-        kwargs_spec::Vector;
-        mappings::Dict{Symbol, <:Function}=
-            Dict{Symbol, Function}())
-
-    # Extract positional arguments
+function _extract_args(Constructor, row, args_spec, mappings)
     args = []
     for arg_name in args_spec
         if haskey(mappings, arg_name)
@@ -222,6 +214,29 @@ function call_yaml_constructor(
             error("Missing required arg $arg_name")
         end
     end
+    return args
+end
+
+# Specialization for no kwargs (e.g. Pulley) — avoids kwcall dispatch
+function call_yaml_constructor(
+        Constructor,
+        row::NamedTuple,
+        args_spec::Vector{Symbol},
+        kwargs_spec::Vector{Union{}};
+        mappings::Dict{Symbol, <:Function}=
+            Dict{Symbol, Function}())
+    args = _extract_args(Constructor, row, args_spec, mappings)
+    return Constructor(args...)
+end
+
+function call_yaml_constructor(
+        Constructor,
+        row::NamedTuple,
+        args_spec::Vector{Symbol},
+        kwargs_spec::Vector;
+        mappings::Dict{Symbol, <:Function}=
+            Dict{Symbol, Function}())
+    args = _extract_args(Constructor, row, args_spec, mappings)
 
     # Extract keyword arguments (only if present)
     kwargs = Dict{Symbol, Any}()
@@ -237,7 +252,43 @@ function call_yaml_constructor(
         end
     end
 
-    return Constructor(args...; kwargs...)
+    if isempty(kwargs)
+        return Constructor(args...)
+    else
+        return Constructor(args...; kwargs...)
+    end
+end
+
+function parse_dynamics_type(s::String)
+    s_upper = uppercase(s)
+    s_upper == "STATIC" && return STATIC
+    s_upper == "DYNAMIC" && return DYNAMIC
+    s_upper == "WING" && return WING
+    s_upper == "QUASI_STATIC" && return QUASI_STATIC
+    error("Unknown DynamicsType: $s")
+end
+
+function parse_segment_type(s::String)
+    s_upper = uppercase(s)
+    s_upper == "POWER_LINE" && return POWER_LINE
+    s_upper == "STEERING_LINE" && return STEERING_LINE
+    s_upper == "BRIDLE" && return BRIDLE
+    error("Unknown SegmentType: $s")
+end
+
+function parse_wing_type(s::String)
+    s_upper = uppercase(s)
+    s_upper == "REFINE" && return REFINE
+    s_upper == "QUATERNION" && return QUATERNION
+    error("Unknown WingType: $s")
+end
+
+function parse_aero_mode(s::String)
+    s_upper = uppercase(s)
+    s_upper == "AERO_NONE" && return AERO_NONE
+    s_upper == "AERO_DIRECT" && return AERO_DIRECT
+    s_upper == "AERO_LINEARIZED" && return AERO_LINEARIZED
+    error("Unknown AeroMode: $s")
 end
 
 """
@@ -269,40 +320,20 @@ starting from 1 with no gaps.
 - `wings`: (optional, typically from VSM configuration)
 - `transforms`: (optional, typically from settings)
 """
-function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing(), ignore_l0::Bool=false, wing_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AeroMode}=nothing, vsm_set=nothing)
+function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, wing_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AeroMode}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing)
     data = YAML.load_file(yaml_path)
 
     # Use provided settings or fall back to base settings
-    set === nothing && (set = load_settings("base"))
-
-    # Parse string types to enums
-    function parse_dynamics_type(s::String)
-        s_upper = uppercase(s)
-        s_upper == "STATIC" && return STATIC
-        s_upper == "DYNAMIC" && return DYNAMIC
-        s_upper == "WING" && return WING
-        s_upper == "QUASI_STATIC" && return QUASI_STATIC
-        error("Unknown DynamicsType: $s")
-    end
-
-    function parse_segment_type(s::String)
-        s_upper = uppercase(s)
-        s_upper == "POWER_LINE" && return POWER_LINE
-        s_upper == "STEERING_LINE" && return STEERING_LINE
-        s_upper == "BRIDLE" && return BRIDLE
-        error("Unknown SegmentType: $s")
-    end
+    local resolved_set = (set === nothing ? load_settings("base") : set)
 
     # Note: Name resolution is now handled by SystemStructure.assign_indices_and_resolve!
 
-    # Helper to convert raw reference to proper type (Int or Symbol)
-    function to_ref(val)
-        # Handle Julia nothing
+    # Helper to convert raw reference to proper type (Int or Symbol).
+    yaml_to_ref = function (val)
         isnothing(val) && return nothing
         if val isa Integer
             return Int(val)
         elseif val isa String
-            # Handle "nothing" string from YAML as Julia nothing
             val == "nothing" && return nothing
             return Symbol(val)
         elseif val isa Symbol
@@ -310,6 +341,20 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         else
             return Int(val)
         end
+    end
+
+    # Parse [a, b] or [a, [b, c]] style reference-point fields from YAML rows.
+    yaml_parse_ref_points = function (row, field)
+        !hasfield(typeof(row), field) && return nothing
+        val = getfield(row, field)
+        val === nothing && return nothing
+
+        @assert length(val) == 2 "ref_points must have 2 elements"
+
+        convert_ref(v) = v isa Vector ? [yaml_to_ref(x) for x in v] : yaml_to_ref(v)
+        p1 = convert_ref(val[1])
+        p2 = convert_ref(val[2])
+        return (p1, p2)
     end
 
     # Load points - SystemStructure handles resolution
@@ -330,8 +375,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     :type => r -> parse_dynamics_type(String(r.type)),
                     :name => r -> haskey(r, :name) && !isnothing(r.name) ? Symbol(r.name) : i,
                     # Pass raw references - constructor handles defaults
-                    :wing => r -> haskey(r, :wing_idx) ? to_ref(r.wing_idx) : nothing,
-                    :transform => r -> haskey(r, :transform_idx) ? to_ref(r.transform_idx) : nothing,
+                    :wing => r -> haskey(r, :wing_idx) ? yaml_to_ref(r.wing_idx) : nothing,
+                    :transform => r -> haskey(r, :transform_idx) ? yaml_to_ref(r.transform_idx) : nothing,
                     :body_frame_damping => r -> haskey(r, :body_frame_damping) ? r.body_frame_damping : nothing,
                     :world_frame_damping => r -> haskey(r, :world_frame_damping) ? r.world_frame_damping : nothing
                 ))
@@ -402,9 +447,9 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 [:l0, :diameter_mm, :unit_stiffness,
                  :unit_damping, :compression_frac];
                 mappings=Dict(
-                    :set => r -> set,
-                    :point_i => r -> to_ref(r.point_i),
-                    :point_j => r -> to_ref(r.point_j),
+                    :set => r -> resolved_set,
+                    :point_i => r -> yaml_to_ref(r.point_i),
+                    :point_j => r -> yaml_to_ref(r.point_j),
                     :name => r -> begin
                         if haskey(r, :name) && !isnothing(r.name)
                             Symbol(r.name)
@@ -428,10 +473,10 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Create Pulley using new constructor (name, segment_i, segment_j, type)
             pulley = call_yaml_constructor(Pulley, row,
                 [:name, :segment_i, :segment_j, :type],
-                [];
+                Vector{Union{}}();
                 mappings=Dict(
-                    :segment_i => r -> to_ref(r.segment_i),
-                    :segment_j => r -> to_ref(r.segment_j),
+                    :segment_i => r -> yaml_to_ref(r.segment_i),
+                    :segment_j => r -> yaml_to_ref(r.segment_j),
                     :name => r -> begin
                         if haskey(r, :name) && !isnothing(r.name)
                             Symbol(r.name)
@@ -459,7 +504,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 [:name, :points, :type, :moment_frac],
                 [:damping];
                 mappings=Dict(
-                    :points => r -> [to_ref(p) for p in r.point_idxs],
+                    :points => r -> [yaml_to_ref(p) for p in r.point_idxs],
                     :name => r -> begin
                         if haskey(r, :name) && !isnothing(r.name)
                             Symbol(r.name)
@@ -492,14 +537,14 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         if !hasfield(typeof(r), :segment_idxs) || isnothing(r.segment_idxs)
                             []
                         else
-                            [to_ref(s) for s in r.segment_idxs]
+                            [yaml_to_ref(s) for s in r.segment_idxs]
                         end
                     end,
                     :winch_point => r -> begin
                         if !hasfield(typeof(r), :winch_point_idx) || isnothing(r.winch_point_idx)
                             nothing  # Constructor handles default
                         else
-                            to_ref(r.winch_point_idx)
+                            yaml_to_ref(r.winch_point_idx)
                         end
                     end,
                     :name => r -> begin
@@ -528,8 +573,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 [:tether_len, :tether_vel, :brake,
                  :speed_controlled, :friction_epsilon];
                 mappings=Dict(
-                    :set => r -> set,
-                    :tethers => r -> [to_ref(t) for t in r.tether_idxs],
+                    :set => r -> resolved_set,
+                    :tethers => r -> [yaml_to_ref(t) for t in r.tether_idxs],
                     :name => r -> begin
                         if haskey(r, :name) && !isnothing(r.name)
                             Symbol(r.name)
@@ -540,48 +585,6 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 ))
             push!(winches, winch)
         end
-    end
-
-    # Parse wing type
-    function parse_wing_type(s::String)
-        s_upper = uppercase(s)
-        s_upper == "REFINE" && return REFINE
-        s_upper == "QUATERNION" && return QUATERNION
-        error("Unknown WingType: $s")
-    end
-
-    # Parse aero mode
-    function parse_aero_mode(s::String)
-        s_upper = uppercase(s)
-        s_upper == "AERO_NONE" && return AERO_NONE
-        s_upper == "AERO_DIRECT" && return AERO_DIRECT
-        s_upper == "AERO_LINEARIZED" && return AERO_LINEARIZED
-        error("Unknown AeroMode: $s")
-    end
-
-    # Parse reference points - returns raw references (SystemStructure will resolve)
-    # Supports both numeric indices and symbolic names
-    # Examples: [12, 13], [le_center, te_center], [12, [13, 14]], [[le_1, le_2], [te_1, te_2]]
-    function parse_ref_points(row, field)
-        !hasfield(typeof(row), field) && return nothing
-        val = getfield(row, field)
-        val === nothing && return nothing
-
-        # Parse [a, b] or [a, [b, c]] - keep as raw references
-        @assert length(val) == 2 "ref_points must have 2 elements"
-
-        function convert_ref(v)
-            if v isa Vector
-                return [to_ref(x) for x in v]
-            else
-                return to_ref(v)
-            end
-        end
-
-        p1 = convert_ref(val[1])
-        p2 = convert_ref(val[2])
-
-        return (p1, p2)
     end
 
     # Load wings (optional)
@@ -624,7 +627,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                      :z_ref_points, :y_ref_points, :origin, :pos_cad,
                      :aero_scale_chord];
                     mappings=Dict(
-                        :set => r -> set,
+                        :set => r -> resolved_set,
                         :groups => r -> [],  # REFINE wings don't have groups
                         :vsm_set => r -> vsm_set,
                         :wing_type => r -> wt,
@@ -638,20 +641,20 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         end,
                         :transform => r -> begin
                             if hasfield(typeof(r), :transform_idx) && !isnothing(r.transform_idx)
-                                to_ref(r.transform_idx)
+                                yaml_to_ref(r.transform_idx)
                             else
                                 nothing  # Constructor handles default
                             end
                         end,
                         :z_ref_points => r ->
-                            parse_ref_points(r, :z_ref_points),
+                            yaml_parse_ref_points(r, :z_ref_points),
                         :y_ref_points => r ->
-                            parse_ref_points(r, :y_ref_points),
+                            yaml_parse_ref_points(r, :y_ref_points),
                         :origin => r -> begin
                             if !hasfield(typeof(r), :origin_idx) || r.origin_idx === nothing
                                 return nothing
                             end
-                            to_ref(r.origin_idx)
+                            yaml_to_ref(r.origin_idx)
                         end,
                         :aero_scale_chord => r ->
                             hasfield(typeof(r), :aero_scale_chord) && !isnothing(r.aero_scale_chord) ?
@@ -671,11 +674,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                      :aero_z_offset, :pos_cad,
                      :z_ref_points, :y_ref_points, :origin];
                     mappings=Dict(
-                        :set => r -> set,
+                        :set => r -> resolved_set,
                         :aero_mode => r -> am,
                         :groups => r -> hasfield(typeof(r), :groups) &&
                             !isnothing(r.groups) ?
-                            [to_ref(g) for g in r.groups] : [],
+                            [yaml_to_ref(g) for g in r.groups] : [],
                         :vsm_set => r -> vsm_set,
                         :wing_type => r -> wt,
                         :name => r -> begin
@@ -688,7 +691,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         :transform => r -> begin
                             if hasfield(typeof(r), :transform_idx) &&
                                !isnothing(r.transform_idx)
-                                to_ref(r.transform_idx)
+                                yaml_to_ref(r.transform_idx)
                             else
                                 nothing
                             end
@@ -705,15 +708,15 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                             !isnothing(r.aero_scale_chord) ?
                                 float(r.aero_scale_chord) : 0.0,
                         :z_ref_points => r ->
-                            parse_ref_points(r, :z_ref_points),
+                            yaml_parse_ref_points(r, :z_ref_points),
                         :y_ref_points => r ->
-                            parse_ref_points(r, :y_ref_points),
+                            yaml_parse_ref_points(r, :y_ref_points),
                         :origin => r -> begin
                             if !hasfield(typeof(r), :origin_idx) ||
                                r.origin_idx === nothing
                                 return nothing
                             end
-                            to_ref(r.origin_idx)
+                            yaml_to_ref(r.origin_idx)
                         end
                     ))
             end
@@ -747,17 +750,17 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     :turn_rate => r -> hasfield(typeof(r), :turn_rate) && !isnothing(r.turn_rate) ?
                         deg2rad(r.turn_rate) : 0.0,
                     :base_pos => r -> KVec3(r.base_pos...),
-                    :base_point => r -> to_ref(r.base_point_idx),
+                    :base_point => r -> yaml_to_ref(r.base_point_idx),
                     :base_transform => r -> begin
                         if hasfield(typeof(r), :base_transform_idx) && !isnothing(r.base_transform_idx)
-                            to_ref(r.base_transform_idx)
+                            yaml_to_ref(r.base_transform_idx)
                         else
                             nothing
                         end
                     end,
                     :rot_point => r -> begin
                         if hasfield(typeof(r), :rot_point_idx) && !isnothing(r.rot_point_idx)
-                            to_ref(r.rot_point_idx)
+                            yaml_to_ref(r.rot_point_idx)
                         else
                             nothing
                         end
@@ -766,7 +769,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         if !hasfield(typeof(r), :wing_idx) || r.wing_idx === nothing
                             return nothing
                         end
-                        to_ref(r.wing_idx)
+                        yaml_to_ref(r.wing_idx)
                     end,
                     :name => r -> begin
                         if haskey(r, :name) && !isnothing(r.name)
@@ -797,7 +800,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     # SystemStructure constructor now handles WING→STATIC
     # conversion when no wings are defined
-    return SystemStructure(system_name, set; points, groups,
+    return SystemStructure(system_name, resolved_set; points, groups,
         segments, pulleys, tethers, winches, wings, transforms, ignore_l0, vsm_set)
 end
 
@@ -903,15 +906,15 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
             # Match: "- [idx, [x, y, z], ..." where coordinates are floats
             m = match(r"^(\s*-\s*\[)(\d+)(,\s*\[)([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?,\s*[-+]?\d+\.?\d*(?:[eE][-+]?\d+)?,\s*[-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)(\].*)", line)
             if m !== nothing
-                point_idx = parse(Int, m.captures[2])
+                point_idx = parse(Int, something(m.captures[2]))
                 if haskey(positions, point_idx)
                     new_pos = positions[point_idx]
                     x = format_coord(new_pos[1])
                     y = format_coord(new_pos[2])
                     z = format_coord(new_pos[3])
                     new_coords = "$x, $y, $z"
-                    lines[i] = m.captures[1] * m.captures[2] *
-                              m.captures[3] * new_coords * m.captures[5]
+                    lines[i] = something(m.captures[1]) * something(m.captures[2]) *
+                              something(m.captures[3]) * new_coords * something(m.captures[5])
                     n_points_updated += 1
                 end
             end
@@ -924,13 +927,13 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
             # We want to update the l0 field (5th field, index 4)
             m = match(r"^(\s*-\s*\[)(\d+)(,\s*\d+,\s*\d+,\s*\w+,\s*)([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)(.*)", line)
             if m !== nothing
-                seg_idx = parse(Int, m.captures[2])
+                seg_idx = parse(Int, something(m.captures[2]))
 
                 if haskey(segment_l0s, seg_idx)
                     new_l0 = format_coord(segment_l0s[seg_idx])
                     # Reconstruct line with updated l0
-                    lines[i] = m.captures[1] * m.captures[2] * m.captures[3] *
-                              string(new_l0) * m.captures[5]
+                    lines[i] = something(m.captures[1]) * something(m.captures[2]) * something(m.captures[3]) *
+                              string(new_l0) * something(m.captures[5])
                     n_segments_updated += 1
                 end
             end
@@ -968,8 +971,8 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
         comment_match = match(r"#.*points?\s+(\d+).*\(LE\).*and\s+(\d+).*\(TE\)", line)
 
         if comment_match !== nothing
-            le_idx = parse(Int, comment_match.captures[1])
-            te_idx = parse(Int, comment_match.captures[2])
+            le_idx = parse(Int, something(comment_match.captures[1]))
+            te_idx = parse(Int, something(comment_match.captures[2]))
 
             # Check next line for the actual data
             if i < length(aero_lines)
@@ -1173,18 +1176,18 @@ function update_aero_yaml_from_struc_yaml!(source_struc_yaml::AbstractString,
             # Format: - [name, [x, y, z], TYPE, ...]
             m = match(r"^\s*-\s*\[(\w+)\s*,\s*\[([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*,\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*,\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*\]\s*,\s*(\w+)", line)
             if m !== nothing && m.captures[5] == "WING"
-                name = m.captures[1]
+                name = something(m.captures[1])
                 wing_pos_dict[name] = [
-                    parse(Float64, m.captures[2]),
-                    parse(Float64, m.captures[3]),
-                    parse(Float64, m.captures[4])]
+                    parse(Float64, something(m.captures[2])),
+                    parse(Float64, something(m.captures[3])),
+                    parse(Float64, something(m.captures[4]))]
                 push!(wing_names_ordered, name)
             end
         elseif current_section == :groups
             # Format: - [name, [pt1, pt2, ...], ...]
             m = match(r"^\s*-\s*\[\w+\s*,\s*\[([^\]]+)\]", line)
             if m !== nothing
-                pts = strip.(split(m.captures[1], ","))
+                pts = strip.(split(something(m.captures[1]), ","))
                 if length(pts) >= 2
                     push!(group_le_te, (pts[1], pts[end]))
                 end
