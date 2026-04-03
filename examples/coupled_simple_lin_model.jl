@@ -57,7 +57,8 @@ set_values_mat = zeros(3, steps)
 
 for i in 1:steps
     t = i * dt
-    steady_torque = torque_damp * steady_torque +
+    prev_steady_torque = steady_torque
+    steady_torque = torque_damp * prev_steady_torque +
         (1 - torque_damp) *
         calc_steady_torque(sam)
     sign_val = t > 0.5 ? -1 : 1

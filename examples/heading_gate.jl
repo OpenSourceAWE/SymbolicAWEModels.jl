@@ -196,7 +196,7 @@ function plot_combined(cone_angles_list, results; use_glmakie=true)
 
     # Shared angle legend at top with error
     angle_elems = [LineElement(color=cone_color(a, min_a, max_a)) for a in cone_angles_list]
-    angle_labels = [L"%$(Int(a))° (%$(round(Int, res.turn_rate_rel_err_sphere * 100))\%)"
+    angle_labels = ["$(Int(a))° ($(round(Int, res.turn_rate_rel_err_sphere * 100))%)"
                     for (a, res) in zip(cone_angles_list, results)]
     Legend(fig[0, 1], angle_elems, angle_labels, L"\textrm{Cone angle (error)}",
            orientation=:horizontal, tellwidth=false, titleposition=:left, halign=1.0,
