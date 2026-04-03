@@ -538,8 +538,9 @@ function unwrap_phase!(vals::AbstractVector{<:Real}; period=2π, thresh=π)
         return vals
     end
     offset = 0.0
-    prev = vals[1]
-    for i in Iterators.drop(eachindex(vals), 1)
+    start_idx = firstindex(vals)
+    prev = vals[start_idx]
+    for i in (start_idx + 1):lastindex(vals)
         δ = vals[i] - prev
         if δ > thresh
             offset -= period
