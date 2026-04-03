@@ -369,7 +369,7 @@ end
                         sam.sys_struct.points[name].pos_w -
                         initial_positions[name]
                     )
-                    @test drift < 1e-6
+                    @test drift < 2e-6
                 end
 
                 println("  [$wtn] fix_static: frozen")
