@@ -8,7 +8,8 @@ and compare to the linear prediction.
 """
 
 using GLMakie
-using SymbolicAWEModels, VortexStepMethod, KiteUtils
+using KiteUtils, SymbolicAWEModels, VortexStepMethod
+using SymbolicAWEModels: calc_steady_torque, init!, next_step!, simple_linearize!, update_sys_state!
 using ControlSystemsBase
 
 # Simulation parameters
@@ -36,11 +37,11 @@ sam = SymbolicAWEModel(set, sys)
 sam.set.abs_tol = 1e-3
 sam.set.rel_tol = 1e-3
 
-SymbolicAWEModels.init!(sam; remake=false)
+init!(sam; remake=false)
 find_steady_state!(sam; t=10.0, dt=1/sam.set.sample_freq)
 
 # Simple linearization
-SymbolicAWEModels.simple_linearize!(sam; tstab=10.0)
+simple_linearize!(sam; tstab=10.0)
 lin = sam.serialized_model.simple_lin_model
 lin_ss = ss(lin.A, lin.B, lin.C, lin.D)
 
@@ -49,7 +50,7 @@ logger = Logger(sam, steps)
 sys_state = SysState(sam)
 t = 0.0
 steady_torque =
-    SymbolicAWEModels.calc_steady_torque(sam)
+    calc_steady_torque(sam)
 torque_damp = 0.9
 u0 = copy(steady_torque)
 set_values_mat = zeros(3, steps)
@@ -58,14 +59,14 @@ for i in 1:steps
     t = i * dt
     steady_torque = torque_damp * steady_torque +
         (1 - torque_damp) *
-        SymbolicAWEModels.calc_steady_torque(sam)
+        calc_steady_torque(sam)
     sign_val = t > 0.5 ? -1 : 1
     sv = steady_torque .+ sign_val .*
         [10.0, steering_magnitude, -steering_magnitude]
     set_values_mat[:, i] = sv
 
-    SymbolicAWEModels.next_step!(sam; set_values=sv, dt, vsm_interval)
-    SymbolicAWEModels.update_sys_state!(sys_state, sam)
+    next_step!(sam; set_values=sv, dt, vsm_interval)
+    update_sys_state!(sys_state, sam)
 
     sys_state.time = t
     log!(logger, sys_state)
