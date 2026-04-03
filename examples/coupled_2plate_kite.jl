@@ -71,5 +71,5 @@ end
 save_log(logger, "tmp_run")
 syslog = load_log("tmp_run")
 scene = replay(syslog, sam.sys_struct;
-               autoplay=false, loop=true) # autoplay
+               autoplay=false, loop=true)
 display(scene)
