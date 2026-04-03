@@ -137,7 +137,9 @@ function run_realtime!(sam, sys_struct, scene)
     record_video && save(output_filename, io)
 
     elapsed = time() - start_time
-    @info "Done" runtime=round(elapsed; digits=2) sim_speedup=round(total_time / sim_time; digits=2) # runtime
+    runtime = round(elapsed; digits=2)
+    sim_speedup = round(total_time / sim_time; digits=2)
+    @info "Done. Runtime: " runtime "Simulation speedup: " sim_speedup
 
     save_log(logger,
                                "tmp_realtime_run")
