@@ -223,15 +223,14 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     if has_refine_wings
         eqs, guesses = vsm_eqs!(
             s, eqs, guesses, psys;
-            aero_force_b, R_v_to_w, aero_moment_b, group_aero_moment,
+            aero_force_b, aero_moment_b, group_aero_moment,
             twist_angle, va_wing_b, wing_pos, ω_b,
-            aero_force_point_b=aero_force_point_b,
-            va_point_b=va_point_b
+            aero_force_point_b=aero_force_point_b
         )
     else
         eqs, guesses = vsm_eqs!(
             s, eqs, guesses, psys;
-            aero_force_b, R_v_to_w, aero_moment_b, group_aero_moment,
+            aero_force_b, aero_moment_b, group_aero_moment,
             twist_angle, va_wing_b, wing_pos, ω_b
         )
     end

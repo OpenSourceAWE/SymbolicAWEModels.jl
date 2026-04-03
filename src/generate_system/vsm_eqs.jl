@@ -29,9 +29,8 @@ For REFINE wings, per-point forces come from
 function vsm_eqs!(
     s, eqs, guesses, psys;
     aero_force_b, aero_moment_b, group_aero_moment,
-    twist_angle, va_wing_b, wing_pos, ω_b, R_v_to_w,
-    aero_force_point_b=nothing,
-    va_point_b=nothing
+    twist_angle, va_wing_b, wing_pos, ω_b,
+    aero_force_point_b=nothing
 )
     @unpack groups, wings, points = s.sys_struct
     length(wings) == 0 && return eqs, guesses
