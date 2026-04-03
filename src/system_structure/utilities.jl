@@ -384,7 +384,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
             wing isa VSMWing || continue
             # Recreate VSM wing from settings
             vsm_set = sys_struct.vsm_set::VortexStepMethod.VSMSettings
-            wing.vsm_wing = VortexStepMethod.Wing(set, vsm_set;
+            wing.vsm_wing = create_vsm_wing(set, vsm_set;
                 prn=false, sort_sections=false)
             wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
             wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero;

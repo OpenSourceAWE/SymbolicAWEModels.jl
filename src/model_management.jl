@@ -510,8 +510,8 @@ function reinit!(
     dt = SimFloat(1/sam.set.sample_freq)
     existing = sam.integrator
     integrator = if isnothing(existing) || !successful_retcode(existing.sol) || reload
-        ModelingToolkit.SciMLBase.init(prob.prob, solver; 
-            adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol, 
+        init(prob.prob, solver;
+            adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol,
             save_on=false, save_everystep=false)
     else
         something(existing)

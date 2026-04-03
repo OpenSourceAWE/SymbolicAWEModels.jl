@@ -301,18 +301,18 @@ _to_ref_point_spec(x::Symbol) = x
 _to_ref_point_spec(x::AbstractVector) = Vector{NameRef}([_to_name_ref(v) for v in x])
 
 """
-    VortexStepMethod.Wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, kwargs...)
+    create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, kwargs...)
 
 Create a `Wing` geometry object from the settings provided.
 
-This constructor checks for .obj and .dat files in the model directory.
+This function checks for .obj and .dat files in the model directory.
 If found, it uses `VortexStepMethod.ObjWing(obj_path, dat_path)` to load the wing.
 Otherwise, it falls back to loading from `aero_geometry.yaml`.
 
-This is a constructor helper that reads geometry from the `Settings` object
-and initializes the `Wing` object from `VortexStepMethod.jl`.
+Reads geometry from the `Settings` object and initializes the `Wing` object
+from `VortexStepMethod.jl`.
 """
-function VortexStepMethod.Wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, kwargs...)
+function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, kwargs...)
     # Check for .obj and .dat files in the model directory
     model_dir = get_data_path()
     obj_path = joinpath(model_dir, set.model)
@@ -420,7 +420,7 @@ function VSMWing(name, set::Settings,
     origin_ref = isnothing(origin) ? nothing : _to_name_ref(origin)
 
     # Create VSM wing, aero, and solver
-    vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false,
+    vsm_wing = create_vsm_wing(set, vsm_set; prn=false,
         sort_sections=false)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
     vsm_solver = VortexStepMethod.Solver(vsm_aero;
