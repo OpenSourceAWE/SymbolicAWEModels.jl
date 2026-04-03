@@ -8,6 +8,7 @@ and saddle z-profile, relaxed to equilibrium via dynamic simulation.
 
 using GLMakie
 using SymbolicAWEModels
+using SymbolicAWEModels: init!, next_step!, update_sys_state!
 import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie
 using KiteUtils
 using LinearAlgebra
@@ -77,14 +78,14 @@ function run_saddle(; yaml_file)
     sys = SystemStructure("saddle_form", set;
                           points, segments, transforms)
     sam = SymbolicAWEModel(set, sys)
-    SymbolicAWEModels.init!(sam; remake=false)
+    init!(sam; remake=false)
 
     logger = Logger(sam, n_steps)
     sys_state = SysState(sam)
 
     for i in 1:n_steps
-        SymbolicAWEModels.next_step!(sam)
-        SymbolicAWEModels.update_sys_state!(sys_state, sam)
+        next_step!(sam)
+        update_sys_state!(sys_state, sam)
         sys_state.time = i / set.sample_freq
         log!(logger, sys_state)
     end
