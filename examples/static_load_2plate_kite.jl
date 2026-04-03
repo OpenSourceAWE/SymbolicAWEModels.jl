@@ -8,6 +8,7 @@ kite structure and simulate a few steps under those loads.
 
 using GLMakie
 using SymbolicAWEModels, VortexStepMethod, KiteUtils
+using SymbolicAWEModels: init!, next_step!, update_sys_state!
 using LinearAlgebra
 using SymbolicAWEModels: Point
 
@@ -52,7 +53,7 @@ end
 apply_loads!(sys.points, F_AERO)
 
 sam = SymbolicAWEModel(set, sys)
-SymbolicAWEModels.init!(sam; remake=false)
+init!(sam; remake=false)
 apply_loads!(sam.sys_struct.points, F_AERO)
 
 logger = Logger(sam, n_steps)
@@ -60,8 +61,8 @@ sys_state = SysState(sam)
 
 for step in 1:n_steps
     apply_loads!(sam.sys_struct.points, F_AERO)
-    SymbolicAWEModels.next_step!(sam)
-    SymbolicAWEModels.update_sys_state!(sys_state, sam)
+    next_step!(sam)
+    update_sys_state!(sys_state, sam)
     sys_state.time = step / set.sample_freq
     log!(logger, sys_state)
 end
