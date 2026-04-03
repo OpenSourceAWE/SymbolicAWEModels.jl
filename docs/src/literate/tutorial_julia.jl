@@ -136,11 +136,11 @@ end
 
 save_log(logger, "tether_sim")
 lg = load_log("tether_sim")
-record(lg, sam.sys_struct, "tether_sim.gif")
-record(lg, sam.sys_struct,                                        #hide
+SymbolicAWEModels.record(lg, sam.sys_struct, "tether_sim.gif")
+SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
     joinpath(ASSETS, "tether_sim.gif"); framerate=20)             #hide
 
-#md # ![Tether simulation](assets/tether_during_sim.png)
+#md # ![Tether simulation](assets/tether_sim.gif)
 
 # ## Step 2: adding a winch
 #
@@ -188,11 +188,11 @@ end
 
 save_log(logger, "winch_sim")
 lg = load_log("winch_sim")
-record(lg, sam.sys_struct, "winch_sim.gif")
-record(lg, sam.sys_struct,                                        #hide
+SymbolicAWEModels.record(lg, sam.sys_struct, "winch_sim.gif")
+SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
     joinpath(ASSETS, "winch_sim.gif"); framerate=20)              #hide
 
-#md # ![Winch simulation](assets/tether_during_sim.png)
+#md # ![Winch simulation](assets/winch_sim.gif)
 
 # ## Step 3: adding a pulley
 #
@@ -260,11 +260,11 @@ end
 
 save_log(logger, "pulley_sim")
 lg = load_log("pulley_sim")
-record(lg, sam.sys_struct, "pulley_sim.gif")
-record(lg, sam.sys_struct,                                        #hide
+SymbolicAWEModels.record(lg, sam.sys_struct, "pulley_sim.gif")
+SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
     joinpath(ASSETS, "pulley_sim.gif"); framerate=20)             #hide
 
-#md # ![Pulley simulation](assets/pulley_sys_struct.png)
+#md # ![Pulley simulation](assets/pulley_sim.gif)
 
 # ## Step 4: wings
 #
