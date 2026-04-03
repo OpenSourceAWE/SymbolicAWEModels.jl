@@ -140,7 +140,7 @@ record(lg, sam.sys_struct, "tether_sim.gif")
 record(lg, sam.sys_struct,                                        #hide
     joinpath(ASSETS, "tether_sim.gif"); framerate=20)             #hide
 
-#md # ![Tether simulation](assets/tether_sim.gif)
+#md # ![Tether simulation](assets/tether_during_sim.png)
 
 # ## Step 2: adding a winch
 #
@@ -192,7 +192,7 @@ record(lg, sam.sys_struct, "winch_sim.gif")
 record(lg, sam.sys_struct,                                        #hide
     joinpath(ASSETS, "winch_sim.gif"); framerate=20)              #hide
 
-#md # ![Winch simulation](assets/winch_sim.gif)
+#md # ![Winch simulation](assets/tether_during_sim.png)
 
 # ## Step 3: adding a pulley
 #
@@ -264,7 +264,7 @@ record(lg, sam.sys_struct, "pulley_sim.gif")
 record(lg, sam.sys_struct,                                        #hide
     joinpath(ASSETS, "pulley_sim.gif"); framerate=20)             #hide
 
-#md # ![Pulley simulation](assets/pulley_sim.gif)
+#md # ![Pulley simulation](assets/pulley_sys_struct.png)
 
 # ## Step 4: wings
 #

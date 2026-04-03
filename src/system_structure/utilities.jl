@@ -316,8 +316,8 @@ Pulley lengths are initialized proportionally based on current segment lengths:
 # Keyword Arguments
 - `ignore_l0::Bool=false`: If true, recalculate segment rest lengths from current positions
 - `remake_vsm::Bool=false`: If true, recreate VSM wing, aerodynamics, and solver from settings.
-  This is useful after modifying aero_geometry.yaml or other VSM-related configuration files.
-  For REFINE wings, also rebuilds the point_to_vsm_point mapping.
+  This is useful after modifying `aero_geometry.yaml` or other VSM-related configuration files.
+  For REFINE wings, also rebuilds the `point_to_vsm_point` mapping.
 """
 function reinit!(sys_struct::SystemStructure, set::Settings;
                  ignore_l0::Bool=false, remake_vsm::Bool=false,

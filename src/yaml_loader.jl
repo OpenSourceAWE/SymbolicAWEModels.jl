@@ -81,7 +81,7 @@ end
 """
     calculate_derived_properties!(props::Dict{Symbol, Any})
 
-Calculate derived properties like unit_stiffness and unit_damping from material properties.
+Calculate derived properties like `unit_stiffness` and `unit_damping` from material properties.
 Modifies props in-place.
 """
 function calculate_derived_properties!(props::Dict{Symbol, Any})
@@ -173,6 +173,29 @@ function parse_table(tbl)::Vector{NamedTuple}
 end
 
 """
+    _extract_args(row, args_spec, mappings)
+
+Extract positional constructor arguments from a YAML row.
+
+For each name in `args_spec`, this helper first checks for a
+mapping in `mappings`, then falls back to `row[arg_name]`.
+Throws an error if a required argument is missing.
+"""
+function _extract_args(row, args_spec, mappings)
+    args = []
+    for arg_name in args_spec
+        if haskey(mappings, arg_name)
+            push!(args, mappings[arg_name](row))
+        elseif haskey(row, arg_name)
+            push!(args, row[arg_name])
+        else
+            error("Missing required arg $arg_name")
+        end
+    end
+    return args
+end
+
+"""
     call_yaml_constructor(Constructor, row::NamedTuple,
         args_spec, kwargs_spec; mappings=Dict())
 
@@ -203,21 +226,6 @@ point = call_yaml_constructor(Point, row,
     ))
 ```
 """
-function _extract_args(row, args_spec, mappings)
-    args = []
-    for arg_name in args_spec
-        if haskey(mappings, arg_name)
-            push!(args, mappings[arg_name](row))
-        elseif haskey(row, arg_name)
-            push!(args, row[arg_name])
-        else
-            error("Missing required arg $arg_name")
-        end
-    end
-    return args
-end
-
-# Specialization for no kwargs (e.g. Pulley) — avoids kwcall dispatch
 function call_yaml_constructor(
         Constructor,
         row::NamedTuple,

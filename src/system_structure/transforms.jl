@@ -233,11 +233,11 @@ end
     init_principal_frame!(wings, points)
 
 Compute principal frame ODE state from body frame.
-Must be called after body frame (pos_w, R_b_to_w,
-vel_w, ω_b) is fully initialized.
+Must be called after body frame (`pos_w`, `R_b_to_w`,
+`vel_w`, `ω_b`) is fully initialized.
 
-Sets: com_w, Q_p_to_w, com_vel, ω_p (derived from body
-frame), and pos_b for QUATERNION wing points (body
+Sets: `com_w`, `Q_p_to_w`, `com_vel`, `ω_p` (derived from body
+frame), and `pos_b` for QUATERNION wing points (body
 frame, relative to COM).
 """
 function init_principal_frame!(wings, points)
