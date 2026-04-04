@@ -36,7 +36,6 @@ function sim!(
     torque_damp=0.9,
 )
     steps = Int(round(total_time / dt))
-    sys_struct = sam.sys_struct
     if size(set_values, 1) != steps
         error("The number of rows in set_values ($(size(set_values, 1))) must match the number of simulation steps ($steps).")
     end
@@ -104,7 +103,8 @@ function sim!(
         
         # Log the complete linear simulation result
         lin_logger = Logger(sam, steps)
-        lin_sys_state = SysState(y_op, sam, t_vec[1])
+        lin_sys_state = SysState(sam)
+        update_sys_state!(lin_sys_state, collect(y_op), sam, t_vec[1])
         for step in 1:steps
             y_k = lin_y_full[:, step]
             update_sys_state!(lin_sys_state, y_k, sam, t_vec[step])
@@ -307,7 +307,10 @@ function sim_reposition!(
             SymbolicAWEModels.reposition!(sys_struct.transforms, sys_struct)
             
             # Reinitialize the solver to handle the state discontinuity
-            SymbolicAWEModels.reinit!(sam, sam.prob, FBDF())
+            local_prob = sam.prob
+            if local_prob isa ProbWithAttributes
+                SymbolicAWEModels.reinit!(sam, local_prob, FBDF())
+            end
 
             if prn
                 # Verify the new pose after one step
@@ -345,31 +348,23 @@ end
 
 
 """
-    SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
+    make_lin_sys_state(y::AbstractVector, sam::SymbolicAWEModel, t::Real)
 
 Construct a SysState for logging linear state-space simulation output y (ordered as
 sam.outputs).
 """
-function SysState(y::AbstractVector, sam::SymbolicAWEModel, t::Real; zoom=1.0)
-    # Calculate total points: regular points + 4 corners per panel
-    n_points = length(sam.sys_struct.points)
-    n_panel_corners = isempty(sam.sys_struct.wings) ? 0 : sum(
-        length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings
-    )
-    P = n_points + n_panel_corners
-    ss = SysState{P}()
-    update_sys_state!(ss, y, sam, t; zoom)
+function make_lin_sys_state(y::AbstractVector, sam::SymbolicAWEModel, t::Real)
+    ss = SysState(sam)
+    update_sys_state!(ss, y, sam, t)
     return ss
 end
 
 """
-    update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
-                      zoom=1.0)
+    update_sys_state!(ss, y::AbstractVector, sam::SymbolicAWEModel, t::Real)
 
 Update a SysState for a linear state-space simulation, using output y and model sam.
 """
-function update_sys_state!(ss::SysState, y::AbstractVector, sam::SymbolicAWEModel, t::Real;
-                           zoom=1.0)
+function update_sys_state!(ss, y::AbstractVector, sam::SymbolicAWEModel, t::Real)
     sys = sam.prob.sys
     outputs = sam.outputs
     for (i, sym) in enumerate(outputs)

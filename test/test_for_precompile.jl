@@ -1,21 +1,9 @@
-# Copyright (c) 2025 Bart van de Lint, Jelle Poland
+# Copyright (c) 2025 Bart van de Lint, Jelle Poland, Uwe Fechner
 # SPDX-License-Identifier: MPL-2.0
-
-"""
-Hanging mass on a spring: a single dynamic point connected to a static
-anchor by an elastic segment, relaxing under gravity.
-"""
-
-using Pkg
-if ! ("GLMakie" ∈ keys(Pkg.project().dependencies))
-    Pkg.activate(@__DIR__)
-end
-using Timers; tic()
 
 using GLMakie
 using SymbolicAWEModels
 import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie
-toc()
 
 set_data_path(joinpath(dirname(@__DIR__), "data"))
 set = Settings("base/system.yaml")
@@ -51,10 +39,18 @@ for i in 1:n_steps
     log!(logger, sys_state)
 end
 
-save_log(logger, "hanging_mass")
-toc()
+prev_data_path = get_data_path()
+tmpdir = mktempdir()
+syslog = try
+    set_data_path(tmpdir)
+    save_log(logger, "_hanging_mass")
+    load_log("_hanging_mass")
+finally
+    rm(tmpdir; recursive=true)
+    set_data_path(prev_data_path)
+end
 
-syslog = load_log("hanging_mass")
 scene = replay(syslog, sam.sys_struct)
-display(scene)
-toc()
+if isinteractive()
+    display(scene)
+end

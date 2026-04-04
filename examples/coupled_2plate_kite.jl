@@ -8,6 +8,7 @@ ramped steering inputs and interactive replay.
 
 using GLMakie
 using SymbolicAWEModels, VortexStepMethod, KiteUtils
+using SymbolicAWEModels: init!, next_step!, update_sys_state!
 
 MODEL_NAME = "2plate_kite"
 SIM_TIME = 2.0

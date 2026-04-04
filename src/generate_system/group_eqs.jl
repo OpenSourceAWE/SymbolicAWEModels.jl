@@ -4,7 +4,7 @@
 # Group twist dynamics equation generation
 
 """
-    group_eqs!(eqs, defaults, guesses, groups, wings, psys, pset;
+    group_eqs!(eqs, defaults, guesses, groups, wings, psys, _pset;
                R_b_to_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
                point_force, tether_wing_moment, group_y_airf, group_chord, group_le_pos)
 
@@ -26,7 +26,7 @@ Generate equations for deformable wing group twist dynamics.
 # Returns
 - Tuple `(eqs, defaults, guesses)` with updated equation vectors.
 """
-function group_eqs!(eqs, defaults, guesses, groups, wings, psys, pset;
+function group_eqs!(eqs, defaults, guesses, groups, wings, psys, _pset=nothing;
                     R_b_to_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
                     point_force, tether_wing_moment, group_y_airf, group_chord, group_le_pos)
 

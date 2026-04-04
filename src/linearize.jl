@@ -405,6 +405,34 @@ function jacobian(f::Function, x::AbstractVector, ϵ::AbstractVector)
     return J
 end
 
+function jacobian(f::Function, x::AbstractVector,
+                  ϵ::AbstractVector, arg2)
+    n = length(x)
+    fx = f(x, arg2)
+    m = length(fx)
+    J = zeros(m, n)
+    for i in 1:n
+        x_perturbed = copy(x)
+        x_perturbed[i] += ϵ[i]
+        J[:, i] = (f(x_perturbed, arg2) - fx) / ϵ[i]
+    end
+    return J
+end
+
+function jacobian(f::Function, ::Val{:second_arg},
+                  x::AbstractVector, ϵ::AbstractVector, arg1)
+    n = length(x)
+    fx = f(arg1, x)
+    m = length(fx)
+    J = zeros(m, n)
+    for i in 1:n
+        x_perturbed = copy(x)
+        x_perturbed[i] += ϵ[i]
+        J[:, i] = (f(arg1, x_perturbed) - fx) / ϵ[i]
+    end
+    return J
+end
+
 """
     simple_linearize!(s::SymbolicAWEModel; tstab=10.0) -> LinType
 
@@ -426,7 +454,7 @@ steady-state response.
 """
 function simple_linearize!(sam::SymbolicAWEModel; tstab=10.0)
     @unpack segments, winches, tethers, wings = sam.sys_struct
-    integ = sam.integrator
+    integ = sam.integrator::OrdinaryDiffEqCore.ODEIntegrator
     prob = sam.prob
     update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
     state0 = getstate(sam.sys_struct)
@@ -452,7 +480,7 @@ function simple_linearize!(sam::SymbolicAWEModel; tstab=10.0)
                         tether_len, tether_vel)
         prob.set_set_values(integ, u)
         OrdinaryDiffEqCore.reinit!(integ)
-        OrdinaryDiffEqCore.step!(integ, tstab)
+        ModelingToolkit.SciMLBase.step!(integ, tstab, true)
         return sam.simple_lin_model.get_dx(integ)
     end
 
@@ -466,14 +494,9 @@ function simple_linearize!(sam::SymbolicAWEModel; tstab=10.0)
                         tether_len, tether_vel)
         prob.set_set_values(integ, u)
         OrdinaryDiffEqCore.reinit!(integ)
-        OrdinaryDiffEqCore.step!(integ, tstab)
+        ModelingToolkit.SciMLBase.step!(integ, tstab, true)
         return sam.simple_lin_model.get_y(integ)
     end
-
-    f_x(x) = f(x, u0)
-    f_u(u) = f(lin_x0, u)
-    h_x(x) = h(x, u0)
-    h_u(u) = h(lin_x0, u)
 
     segment = segments[tethers[1].segment_idxs[1]]
     mass_per_meter = sam.set.rho_tether * π * (segment.diameter/2)^2
@@ -482,9 +505,9 @@ function simple_linearize!(sam::SymbolicAWEModel; tstab=10.0)
     # calculate jacobian
     ϵ_x = [0.001, 0.1, 0.001, 0.001, 0.001, 0.1, 0.1, 0.1]
     ϵ_u = [1.0, 0.1, 0.1]
-    A .= jacobian(f_x, lin_x0, ϵ_x)
-    B .= jacobian(f_u, u0, ϵ_u)
-    C .= jacobian(h_x, lin_x0, ϵ_x)
+    A .= jacobian(f, lin_x0, ϵ_x, u0)
+    B .= jacobian(f, Val(:second_arg), u0, ϵ_u, lin_x0)
+    C .= jacobian(h, lin_x0, ϵ_x, u0)
     D .= 0.0
     D[4,1] = -mass * B[6,1]
     A[:,1] .= 0.0 # Aero moment due to change in heading cannot be found in steady state

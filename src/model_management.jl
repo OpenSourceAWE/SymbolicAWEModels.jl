@@ -20,7 +20,7 @@ function generate_prob_getters(sys_struct, sys)
     c = collect
     @unpack wings, groups, pulleys, winches, tethers, segments = sys_struct
     get_wing_state, get_vsm_y, get_segment_state, get_group_state, get_pulley_state,
-    get_winch_state, get_tether_state, set_set_values, get_set_values = ntuple(i -> nothing, 9)
+    get_winch_state, get_tether_state, set_set_values, get_set_values = ntuple(_ -> nothing, 9)
 
     if length(wings) > 0
         wing_vars = c.([
@@ -326,10 +326,10 @@ Create and cache the control functions if they do not exist or if the outputs ha
 - `true` if new functions were created, `false` otherwise.
 """
 function maybe_create_control_functions!(sam, outputs; create_control_func=false, prn=true)
-    if create_control_func && isnothing(sam.control_funcs)
+    if create_control_func && isnothing(sam.control_functions)
         inputs = [sam.inputs...]
         time = @elapsed result = generate_control_funcs(sam.full_sys, inputs, outputs)
-        sam.control_funcs = ControlFuncWithAttributes(; result...)
+        sam.control_functions = ControlFuncWithAttributes(; result...)
         prn && println("\tCreated the control functions in $time seconds.")
         return true
     end
@@ -426,7 +426,7 @@ function init!(sam::SymbolicAWEModel;
         if outputs_changed
             sam.simple_lin_model = nothing
             sam.lin_prob = nothing
-            sam.control_funcs = nothing
+            sam.control_functions = nothing
         end
         sam.outputs = outputs
         
@@ -507,19 +507,23 @@ function reinit!(
     reload=true, 
     lin_vsm=true
 )
-    if isnothing(sam.integrator) || !successful_retcode(sam.integrator.sol) || reload
-        dt = SimFloat(1/sam.set.sample_freq)
-        sam.integrator = OrdinaryDiffEqCore.init(prob.prob, solver; 
-            adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol, 
+    dt = SimFloat(1/sam.set.sample_freq)
+    existing = sam.integrator
+    integrator = if isnothing(existing) || !successful_retcode(existing.sol) || reload
+        init(prob.prob, solver;
+            adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol,
             save_on=false, save_everystep=false)
+    else
+        something(existing)
     end
-    prob.set_sys(sam.integrator, sam.sys_struct)
-    prob.set_set(sam.integrator, sam.set)
-    OrdinaryDiffEqCore.reinit!(sam.integrator; reinit_dae=true)
-    lin_vsm && update_vsm!(sam, sam.prob)
-    update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+    sam.integrator = integrator
+    prob.set_sys(integrator, sam.sys_struct)
+    prob.set_set(integrator, sam.set)
+    OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
+    lin_vsm && update_vsm!(sam, prob)
+    update_sys_struct!(prob, integrator, sam.sys_struct)
     validate_sys_struct(sam.sys_struct)  # Check for division-by-zero issues
-    return sam.integrator, true
+    return integrator, true
 end
 
 """
@@ -593,8 +597,8 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
     end
     for wing in wings
         wing_data = ("wing", wing.idx, wing.group_idxs,
-                     Int(wing.base.wing_type),
-                     Int(wing.base.aero_mode))
+                     Int(wing.wing_type),
+                     Int(wing.aero_mode))
 
         # Include wing reference points in hash
         if wing isa VSMWing

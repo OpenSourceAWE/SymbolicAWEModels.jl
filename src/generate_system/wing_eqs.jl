@@ -4,25 +4,25 @@
 # Wing rigid body dynamics equation generation
 
 """
-    wing_eqs!(s, eqs, psys, pset, defaults; kwargs...)
+    wing_eqs!(s, eqs, psys, _pset, defaults; kwargs...)
 
 Generate the differential equations for the wing's
 rigid body dynamics.
 
 For QUATERNION wings:
-- ODE state: com_w, com_vel, Q_p_to_w, ω_p (principal frame)
+- ODE state: `com_w`, `com_vel`, `Q_p_to_w`, `ω_p` (principal frame)
 - Euler rotation equations in principal frame (diagonal I)
 - Newton's 2nd law for COM translation
-- Body frame output (R_b_to_w, wing_pos, ω_b) computed
-  algebraically via R_b_to_w = R_p_to_w * R_b_to_p (constant)
+- Body frame output (`R_b_to_w`, `wing_pos`, `ω_b`) computed
+  algebraically via `R_b_to_w` = `R_p_to_w` * `R_b_to_p` (constant)
 
 For REFINE wings:
 - No rigid body dynamics (handled by DYNAMIC points)
-- R_b_to_w from structural ref points
+- `R_b_to_w` from structural ref points
 - Principal frame variables set to zero/aliases
 """
 function wing_eqs!(
-    s, eqs, psys, pset, defaults;
+    s, eqs, psys, _pset, defaults;
     tether_wing_force, tether_wing_moment,
     aero_force_b, aero_moment_b,
     ω_b, α_b, R_b_to_w, R_p_to_w,

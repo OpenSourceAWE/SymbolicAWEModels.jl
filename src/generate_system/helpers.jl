@@ -88,14 +88,14 @@ rotation_matrix_to_quaternion_z(R) = rotation_matrix_to_quaternion(R)[4]
 @register_symbolic rotation_matrix_to_quaternion_y(R::AbstractMatrix)
 @register_symbolic rotation_matrix_to_quaternion_z(R::AbstractMatrix)
 
-function calc_wind_factor(am::AtmosphericModel, pos_x, pos_y, pos_z, set::Settings)
+function calc_wind_factor(am::AtmosphericModel, _pos_x, _pos_y, pos_z, set::Settings)
     if set.profile_law == 0
         return 1.0
     else
         return AtmosphericModels.calc_wind_factor(am, max(1.0, pos_z), set.profile_law)
     end
 end
-@register_symbolic calc_wind_factor(am::AtmosphericModel, pos_x, pos_y, pos_z,
+@register_symbolic calc_wind_factor(am::AtmosphericModel, _pos_x, _pos_y, pos_z,
                                     set::Settings)
 
 """
@@ -207,5 +207,5 @@ Extend `Base.getindex` to allow indexing a symbolic array with a vector of
 integer indices, which is not natively supported by ModelingToolkit.
 """
 function Base.getindex(x::ModelingToolkit.Symbolics.Arr, idxs::Vector{Int64})
-    Num[Base.getindex(x, idx) for idx in idxs]
+    Num[x[idx] for idx in idxs]
 end

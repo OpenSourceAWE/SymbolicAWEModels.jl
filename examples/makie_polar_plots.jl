@@ -47,7 +47,10 @@ function generate_polar_data(solver, body_aero, angle_range;
         end
         
         # Set flight conditions
-        VortexStepMethod.set_va!(body_aero, v_a, alpha, beta, 0.0)
+        α = deg2rad(alpha)
+        β = deg2rad(beta)
+        va = v_a * [cos(α)*cos(β), sin(β), sin(α)*cos(β)]
+        VortexStepMethod.set_va!(body_aero, va)
         
         @info "Polar sweep $(idx)/$num_angles at $(round(angle, digits=2))°"
 

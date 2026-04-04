@@ -6,7 +6,8 @@ on:
   push:
     branches:
       - main
-    tags: '*'
+    tags:
+      - '*'
   pull_request:
 
 concurrency:
@@ -35,7 +36,6 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
-          - macOS-latest
         arch:
           - x64
         exclude:
@@ -53,6 +53,7 @@ jobs:
           - os: macOS-latest
             version: '1.12'
             arch: aarch64
+
     steps:
       - uses: actions/checkout@v5
 

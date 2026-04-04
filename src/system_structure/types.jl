@@ -770,7 +770,7 @@ mutable struct Transform
 end
 
 # Helper to convert ref to NameRef or nothing
-_to_ref(x::Nothing) = nothing
+_to_ref(::Nothing) = nothing
 _to_ref(x::Integer) = Int(x)
 _to_ref(x) = Symbol(x)
 
@@ -817,11 +817,15 @@ end
 Get the position of the rotating object (wing or point) for a given transform.
 """
 function get_rot_pos(transform::Transform, wings, points)
-    if !isnothing(transform.wing_idx)
-        return wings[transform.wing_idx].pos_w
-    elseif !isnothing(transform.rot_point_idx)
-        return points[transform.rot_point_idx].pos_w
+    wing_idx = transform.wing_idx
+    if !isnothing(wing_idx)
+        return wings[something(wing_idx)].pos_w
     end
+    rot_point_idx = transform.rot_point_idx
+    if !isnothing(rot_point_idx)
+        return points[something(rot_point_idx)].pos_w
+    end
+    error("Transform #$(transform.idx): neither wing_idx nor rot_point_idx is set")
 end
 
 """
@@ -830,11 +834,15 @@ end
 Get the base position for a given transform, resolving chained transforms if necessary.
 """
 function get_base_pos(transform::Transform, transforms, wings, points)
-    curr_base_pos = points[transform.base_point_idx].pos_w
-    if !isnothing(transform.base_pos)
-        return transform.base_pos, curr_base_pos
-    elseif !isnothing(transform.base_transform_idx)
-        base_transform = transforms[transform.base_transform_idx]
+    curr_base_pos = points[something(transform.base_point_idx)].pos_w
+    base_pos = transform.base_pos
+    if !isnothing(base_pos)
+        return something(base_pos), curr_base_pos
+    end
+    base_transform_idx = transform.base_transform_idx
+    if !isnothing(base_transform_idx)
+        base_transform = transforms[something(base_transform_idx)]
         return get_rot_pos(base_transform, wings, points), curr_base_pos
     end
+    error("Transform #$(transform.idx): neither base_pos nor base_transform_idx is set")
 end

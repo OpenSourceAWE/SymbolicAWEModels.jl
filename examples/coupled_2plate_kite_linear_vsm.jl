@@ -3,11 +3,12 @@
 
 """
 2-Plate kite: coupled simulation using linearized VSM updates
-(relinearize every few steps instead of solving full VSM).
+(re-linearize every few steps instead of solving full VSM).
 """
 
 using GLMakie
 using SymbolicAWEModels, VortexStepMethod, KiteUtils
+using SymbolicAWEModels: init!, next_step!, update_sys_state!
 
 MODEL_NAME = "2plate_kite"
 SIM_TIME = 10.0

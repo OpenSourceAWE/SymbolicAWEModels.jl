@@ -30,12 +30,12 @@ end
 A container for the main Ordinary Differential Equation (ODE) problem and its
 associated getter and setter functions for the full, nonlinear physical state.
 """
-@with_kw struct ProbWithAttributes{SetSys, SetSetValues, SetSet,
+@with_kw struct ProbWithAttributes{Prob, SetSys, SetSetValues, SetSet,
                                   GetSetValues, GetWingState, GetVsmY, GetSegmentState,
                                   GetWinchState, GetTetherState, GetStructState, GetPointState,
                                   GetPulleyState, GetGroupState}
     "The ODE problem for the full nonlinear model."
-    prob::OrdinaryDiffEqCore.ODEProblem
+    prob::Prob
 
     # Setters for the ODE
     "Setter for the system parameters."
@@ -81,9 +81,9 @@ linearized model (A,B,C,D matrices).
 
 $(TYPEDFIELDS)
 """
-@with_kw struct LinProbWithAttributes{SetSetValues, SetSys, SetSet}
+@with_kw struct LinProbWithAttributes{Prob, SetSetValues, SetSys, SetSet}
     "Linearization problem of the mtk model."
-    prob::ModelingToolkit.LinearizationProblem
+    prob::Prob
 
     # Setters for the linearization
     set_set_values::SetSetValues
@@ -133,13 +133,13 @@ This simplifies the structure and improves serialization robustness.
 
 $(TYPEDFIELDS)
 """
-@with_kw mutable struct SerializedModel
+@with_kw mutable struct SerializedModel{D<:AbstractVector, G<:AbstractVector}
     set_hash::Vector{UInt8}
     sys_struct_hash::Vector{UInt8}
     "Unsimplified system of the mtk model"
     full_sys::Union{ModelingToolkit.System, Nothing} = nothing
-    defaults::Vector{Pair} = Pair[]
-    guesses::Vector{Pair} = Pair[]
+    defaults::D = Pair{Num, Any}[]
+    guesses::G = Pair{Num, Any}[]
     "Symbolic representation of the control inputs."
     inputs::Union{Symbolics.Arr, Vector{Num}} = Num[]
     "Outputs of the linearization and control function."
@@ -152,7 +152,7 @@ $(TYPEDFIELDS)
     "Container for the linearization problem and its components."
     lin_prob::Union{LinProbWithAttributes, Nothing} = nothing
     "Container for the control functions."
-    control_funcs::Union{ControlFuncWithAttributes, Nothing} = nothing
+    control_functions::Union{ControlFuncWithAttributes, Nothing} = nothing
 end
 
 """
@@ -174,13 +174,13 @@ Users typically interact with this model through high-level functions like
 
 $(TYPEDFIELDS)
 """
-@with_kw mutable struct SymbolicAWEModel <: AbstractKiteModel
+@with_kw mutable struct SymbolicAWEModel{SS<:SystemStructure, SM<:SerializedModel} <: AbstractKiteModel
     "Reference to the settings struct"
     set::Settings
     "Reference to the point mass system with points, segments, pulleys and tethers"
-    sys_struct::SystemStructure
+    sys_struct::SS
     "Container for the compiled and serialized model components"
-    serialized_model::SerializedModel # Now strongly typed
+    serialized_model::SM # Now strongly typed
     "The ODE integrator for the full nonlinear model"
     integrator::Union{OrdinaryDiffEqCore.ODEIntegrator, Nothing} = nothing
     "Relative start time of the current time interval"
@@ -196,16 +196,26 @@ $(TYPEDFIELDS)
 end
 
 """
+    _SAM_FIELDS
+
+Tuple of field names that are direct fields of `SymbolicAWEModel` (as opposed to fields
+delegated to the nested `serialized_model`). Used by `getproperty` and `setproperty!`
+to dispatch field access correctly.
+"""
+const _SAM_FIELDS = (:set, :sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :set_tether_len)
+
+"""
     Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
 
 Overloads `getproperty` to allow direct access to fields within the nested `serialized_model`.
 This provides a convenient way to access compiled functions and other model
 components without explicitly referencing `sam.serialized_model`.
 """
+
 function Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
     if sym === :am
         getfield(sam, :sys_struct).am
-    elseif hasfield(SymbolicAWEModel, sym)
+    elseif sym in _SAM_FIELDS
         getfield(sam, sym)
     else
         getproperty(getfield(sam, :serialized_model), sym)
@@ -220,7 +230,7 @@ This allows you to change properties of the compiled model as if they were
 fields of the `SymbolicAWEModel` itself.
 """
 function Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
-    if hasfield(SymbolicAWEModel, sym)
+    if sym in _SAM_FIELDS
         setfield!(sam, sym, val)
     else
         setproperty!(getfield(sam, :serialized_model), sym, val)
@@ -305,14 +315,19 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.v_wind_kite .= wing.v_wind
         # Calculate AoA and Side Slip from apparent wind in body frame
         if ss.v_app > 1e-6 # Avoid division by zero
-            # ss.AoA = atan(wing.va_b[3], wing.va_b[1]) # version-1
-            aoa_raw = wing.vsm_solver.sol.alpha_geometric_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
-            # ss.AoA = mean(wing.vsm_solver.sol.alpha_geometric_dist)
-            ss.AoA = mod(aoa_raw + π, 2π) - π  # Wrap to [-π, π]
-            ss.side_slip = asin(wing.va_b[2] / norm(wing.va_b))
+            if wing isa VSMWing
+                aoa_raw = wing.vsm_solver.sol.alpha_geometric_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + 
+                          (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
+                ss.AoA = mod(aoa_raw + π, 2π) - π  # Wrap to [-π, π]
+                ss.side_slip = asin(wing.va_b[2] / norm(wing.va_b))
+            else
+                ss.AoA = NaN # AoA not defined for non-VSM wings
+                ss.side_slip = NaN # Side slip not defined for non-VSM wings
+            end
+            
         else
-            ss.AoA = 0.0
-            ss.side_slip = 0.0
+            ss.AoA = NaN       # Apparent wind too small to define AoA
+            ss.side_slip = NaN # Side slip not defined for zero apparent wind
         end
         ss.aero_force_b .= wing.aero_force_b
         ss.aero_moment_b .= wing.aero_moment_b
@@ -339,7 +354,8 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     # Store VSM panel corner positions in world frame
     corner_idx = length(points)
     for wing in wings
-        R_b_to_w = wing.R_b_to_w
+        wing isa VSMWing || continue
+        R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
         for panel in wing.vsm_aero.panels
             for j in 1:4
                 corner_idx += 1
@@ -376,7 +392,8 @@ function SysState(s::SymbolicAWEModel, zoom=1.0)
     # Calculate total points: regular points + 4 corners per panel
     n_points = length(s.sys_struct.points)
     n_panel_corners = isempty(s.sys_struct.wings) ? 0 : sum(
-        length(wing.vsm_aero.panels) * 4 for wing in s.sys_struct.wings
+        length(wing.vsm_aero.panels) * 4 for wing in s.sys_struct.wings if wing isa VSMWing;
+        init=0
     )
     total_points = n_points + n_panel_corners
     ss = SysState{total_points}()
@@ -409,7 +426,8 @@ function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
     # Calculate total points: regular points + 4 corners per panel
     n_points = length(sam.sys_struct.points)
     n_panel_corners = isempty(sam.sys_struct.wings) ? 0 : sum(
-        length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings
+        length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings if wing isa VSMWing;
+        init=0
     )
     total_points = n_points + n_panel_corners
     return Logger(total_points, steps)
@@ -458,26 +476,31 @@ function next_step!(sam::SymbolicAWEModel;
     vsm_interval=1
 )
     prob = sam.prob
+    integrator = sam.integrator
+    if isnothing(integrator)
+        error("next_step! called before init!: integrator is not initialized")
+    end
     if (isnothing(set_values))
         set_values = [winch.set_value
             for winch in sam.sys_struct.winches]
     end
-    if !isnothing(prob.set_set_values)
-        prob.set_set_values(sam.integrator, set_values)
+    if prob isa ProbWithAttributes && !isnothing(prob.set_set_values)
+        prob.set_set_values(integrator, set_values)
     end
 
-    sam.t_0 = sam.integrator.t
-    sam.t_step = @elapsed OrdinaryDiffEqCore.step!(
-        sam.integrator, dt, true)
-    if !successful_retcode(sam.integrator.sol)
+    sam.t_0 = integrator.t
+    sam.t_step = @elapsed step!(integrator, dt, true)
+    if !successful_retcode(integrator.sol)
         error("Solver unstable at t=" *
-            "$(round(sam.integrator.t; digits=4))" *
-            ": $(sam.integrator.sol.retcode)")
+            "$(round(integrator.t; digits=4))" *
+            ": $(integrator.sol.retcode)")
     end
     sam.iter += 1
-    update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
-    if vsm_interval != 0 && sam.iter % vsm_interval == 0
-        sam.t_vsm = @elapsed update_vsm!(sam, sam.prob)
+    if prob isa ProbWithAttributes
+        update_sys_struct!(prob, integrator, sam.sys_struct)
+        if vsm_interval != 0 && sam.iter % vsm_interval == 0
+            sam.t_vsm = @elapsed update_vsm!(sam, prob)
+        end
     end
     return nothing
 end
@@ -621,7 +644,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     # Determine wing type and aero mode
     wing_types = [wing.wing_type for wing in sys_struct.wings]
     wing_type_str = if isempty(wing_types)
-        "nowng"
+        "no_wing"
     elseif all(wt -> wt == QUATERNION, wing_types)
         "quat"
     elseif all(wt -> wt == REFINE, wing_types)
@@ -640,7 +663,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     elseif all(m -> m == AERO_NONE, aero_modes)
         "none"
     else
-        "mixaero"
+        "mixed_aero_modes"
     end
 
     dynamics_type = ifelse(set.quasi_static, "static", "dynamic")
@@ -714,7 +737,9 @@ end
 Calculates the mean angle of attack [rad] over the wingspan from the VSM solver.
 """
 function calc_aoa(sam::SymbolicAWEModel)
-    alpha_array = sam.sys_struct.wings[1].vsm_solver.sol.alpha_array
+    wing = sam.sys_struct.wings[1]
+    wing isa VSMWing || error("calc_aoa: wing[1] is not a VSMWing")
+    alpha_array = wing.vsm_solver.sol.alpha_dist
     middle = length(alpha_array) ÷ 2
     return iseven(length(alpha_array)) ? (0.5 * (alpha_array[middle] + alpha_array[middle+1])) : alpha_array[middle+1]
 end
@@ -769,6 +794,7 @@ Calculates the minimum chord length of the wing at the tip.
 function min_chord_len(sam::SymbolicAWEModel)
     min_len = Inf
     for wing in sam.sys_struct.wings
+        wing isa VSMWing || continue
         vsm_wing = wing.vsm_wing
         if hasproperty(vsm_wing, :le_interp) && hasproperty(vsm_wing, :te_interp) && hasproperty(vsm_wing, :gamma_tip)
             le_pos = [vsm_wing.le_interp[i](vsm_wing.gamma_tip) for i in 1:3]
@@ -807,6 +833,9 @@ Sets the ground wind speed [m/s] and upwind direction [rad] in the model.
 function set_v_wind_ground!(sam::SymbolicAWEModel, v_wind_gnd=sam.set.v_wind, upwind_dir=-pi/2)
     sam.set.v_wind = v_wind_gnd
     sam.set.upwind_dir = rad2deg(upwind_dir)
-    sam.set_set(sam.integrator, sam.set)
+    local_prob = sam.prob
+    if local_prob isa ProbWithAttributes
+        local_prob.set_set(sam.integrator, sam.set)
+    end
     return nothing
 end

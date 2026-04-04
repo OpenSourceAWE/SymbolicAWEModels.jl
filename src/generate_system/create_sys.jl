@@ -24,8 +24,8 @@ kinematics, linearized aerodynamics) and assembles them into a single `System`.
 function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
                      prn=true, tunable_params::Bool=false)
     eqs = Equation[]
-    defaults = Pair{Num,Any}[]
-    guesses = Pair{Num,Any}[]
+    defaults = Pair{Num, Any}[]
+    guesses = Pair{Num, Any}[]
 
     @unpack points, groups, segments, pulleys, tethers, winches, wings = system
 
@@ -179,12 +179,12 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     eqs, defaults, guesses = point_eqs!(
         s, eqs, defaults, guesses, points, segments, groups, wings, psys, pset;
         R_b_to_w, com_w,
-        wing_pos, wing_vel, wind_vec_gnd, fix_wing, twist_angle,
+        wing_vel, wind_vec_gnd, twist_angle,
         pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
         spring_sum_force, point_drag_force, disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
         fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
         va_point_b, va_point_w, wind_at_point, height,
-        aero_force_point_b, has_refine_wings,
+        aero_force_point_b,
         group_y_airf, tether_wing_force, tether_wing_moment
     )
 
@@ -223,15 +223,14 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     if has_refine_wings
         eqs, guesses = vsm_eqs!(
             s, eqs, guesses, psys;
-            aero_force_b, R_v_to_w, aero_moment_b, group_aero_moment,
+            aero_force_b, aero_moment_b, group_aero_moment,
             twist_angle, va_wing_b, wing_pos, ω_b,
-            aero_force_point_b=aero_force_point_b,
-            va_point_b=va_point_b
+            aero_force_point_b=aero_force_point_b
         )
     else
         eqs, guesses = vsm_eqs!(
             s, eqs, guesses, psys;
-            aero_force_b, R_v_to_w, aero_moment_b, group_aero_moment,
+            aero_force_b, aero_moment_b, group_aero_moment,
             twist_angle, va_wing_b, wing_pos, ω_b
         )
     end

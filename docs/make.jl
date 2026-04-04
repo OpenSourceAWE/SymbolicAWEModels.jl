@@ -41,6 +41,7 @@ makedocs(;
     authors="Uwe Fechner <fechner@aenarete.eu>, Bart van de Lint <bart@vandelint.net> and contributors",
     repo="https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/blob/{commit}{path}#{line}",
     sitename="SymbolicAWEModels.jl",
+    warnonly=[:cross_references],
     format=Documenter.HTML(;
         repolink = "https://github.com/OpenSourceAWE/SymbolicAWEModels.jl",
         prettyurls=get(ENV, "CI", "false") == "true",

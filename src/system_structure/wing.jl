@@ -170,14 +170,16 @@ modeling capabilities, including vortex wake computations and aerodynamic loads.
 
 $(TYPEDFIELDS)
 """
-mutable struct VSMWing <: AbstractWing
+mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
+                       W<:VortexStepMethod.AbstractWing,
+                       SL<:VortexStepMethod.Solver} <: AbstractWing
     # Base wing functionality
     base::BaseWing
 
     # VSM aerodynamics
-    vsm_aero::VortexStepMethod.BodyAerodynamics
-    vsm_wing::VortexStepMethod.AbstractWing
-    vsm_solver::VortexStepMethod.Solver
+    vsm_aero::BA
+    vsm_wing::W
+    vsm_solver::SL
 
     # VSM state and linearization
     vsm_y::Vector{SimFloat}
@@ -219,7 +221,9 @@ mutable struct VSMWing <: AbstractWing
                      z_ref_points, y_ref_points,
                      origin_idx, origin_ref,
                      aero_scale_chord, aero_z_offset)
-        new(base, vsm_aero, vsm_wing, vsm_solver,
+        new{typeof(vsm_aero), typeof(vsm_wing),
+            typeof(vsm_solver)}(
+            base, vsm_aero, vsm_wing, vsm_solver,
             vsm_y, vsm_x, vsm_jac,
             point_to_vsm_point, wing_segments,
             z_ref_points, y_ref_points,
@@ -243,7 +247,7 @@ function Base.getproperty(wing::VSMWing, sym::Symbol)
     elseif sym == :vsm_aoa
         # Compute mean angle of attack from VSM solver solution
         solver = getfield(wing, :vsm_solver)
-        return mean(solver.sol.alpha_array)
+        return mean(solver.sol.alpha_dist)
     else
         return getproperty(getfield(wing, :base), sym)
     end
@@ -367,6 +371,52 @@ function _validate_weights!(weights::Vector{Float64})
 end
 
 """
+    create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, kwargs...)
+
+Create a `Wing` geometry object from the settings provided.
+
+This function checks for .obj and .dat files in the model directory.
+If found, it uses `VortexStepMethod.ObjWing(obj_path, dat_path)` to load the wing.
+Otherwise, it falls back to loading from `aero_geometry.yaml`.
+
+Reads geometry from the `Settings` object and initializes the `Wing` object
+from `VortexStepMethod.jl`.
+"""
+function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, kwargs...)
+    # Check for .obj and .dat files in the model directory
+    model_dir = get_data_path()
+    obj_path = joinpath(model_dir, set.model)
+    dat_path = joinpath(model_dir, set.foil_file)
+
+    if isfile(obj_path) && isfile(dat_path)
+        # Use ObjWing constructor (default path)
+        prn && @info "Loading wing from .obj/.dat files"
+
+        if set.physical_model == "simple_ram"
+            n_unrefined_sections = 2
+        else
+            n_unrefined_sections = 4
+        end
+
+        return VortexStepMethod.ObjWing(obj_path, dat_path;
+            mass=set.mass, crease_frac=set.crease_frac, n_unrefined_sections,
+            align_to_principal=true, prn, kwargs...
+        )
+    end
+
+    # Fallback: load from aero_geometry.yaml using provided vsm_set
+    prn && @info "Using provided VSMSettings for wing creation"
+    # Resolve relative geometry_file paths against data dir
+    for ws in vsm_set.wings
+        gf = ws.geometry_file
+        if !isempty(gf) && !isabspath(gf)
+            ws.geometry_file = joinpath(model_dir, basename(gf))
+        end
+    end
+    return VortexStepMethod.Wing(vsm_set; kwargs...)
+end
+
+"""
     VSMWing(name, set, groups, vsm_set; transform=nothing, y_damping=150.0, ...)
 
 Constructs a `VSMWing` object with Vortex Step Method aerodynamics.
@@ -443,7 +493,7 @@ function VSMWing(name, set::Settings,
         _to_name_ref(origin)
 
     # Create VSM wing, aero, and solver
-    vsm_wing = VortexStepMethod.Wing(set, vsm_set; prn=false,
+    vsm_wing = create_vsm_wing(set, vsm_set; prn=false,
         sort_sections=false)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
     vsm_solver = VortexStepMethod.Solver(vsm_aero;
@@ -635,52 +685,6 @@ function apply_aero_z_offset!(vsm_wing, aero_z_offset)
             section.TE_point .+= offset_vec
         end
     end
-end
-
-"""
-    VortexStepMethod.Wing(set::Settings; prn=true, kwargs...)
-
-Create a `Wing` geometry object from the settings provided.
-
-This constructor checks for .obj and .dat files in the model directory.
-If found, it uses `VortexStepMethod.ObjWing(obj_path, dat_path)` to load the wing.
-Otherwise, it falls back to loading from `aero_geometry.yaml`.
-
-This is a constructor helper that reads geometry from the `Settings` object
-and initializes the `Wing` object from `VortexStepMethod.jl`.
-"""
-function VortexStepMethod.Wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, kwargs...)
-    # Check for .obj and .dat files in the model directory
-    model_dir = get_data_path()
-    obj_path = joinpath(model_dir, set.model)
-    dat_path = joinpath(model_dir, set.foil_file)
-
-    if isfile(obj_path) && isfile(dat_path)
-        # Use ObjWing constructor (default path)
-        prn && @info "Loading wing from .obj/.dat files"
-
-        if set.physical_model == "simple_ram"
-            n_unrefined_sections = 2
-        else
-            n_unrefined_sections = 4
-        end
-
-        return VortexStepMethod.ObjWing(obj_path, dat_path;
-            mass=set.mass, crease_frac=set.crease_frac, n_unrefined_sections,
-            align_to_principal=true, prn, kwargs...
-        )
-    end
-
-    # Fallback: load from aero_geometry.yaml using provided vsm_set
-    prn && @info "Using provided VSMSettings for wing creation"
-    # Resolve relative geometry_file paths against data dir
-    for ws in vsm_set.wings
-        gf = ws.geometry_file
-        if !isempty(gf) && !isabspath(gf)
-            ws.geometry_file = joinpath(model_dir, basename(gf))
-        end
-    end
-    return VortexStepMethod.Wing(vsm_set; kwargs...)
 end
 
 """

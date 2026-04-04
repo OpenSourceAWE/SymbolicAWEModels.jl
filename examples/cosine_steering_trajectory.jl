@@ -293,8 +293,8 @@ function solve_for_target(target_x, target_y, target_tilt;
     T = 2π / ω  # one full period
 
     function residual!(F, params)
-        x_shift, y_shift, tilt_param = params
-        result = simulate_cosine_steering(; v, ω, j0_zero, x_shift, y_shift, tilt=tilt_param, φ, T, dt)
+        xs, ys, tp = params
+        result = simulate_cosine_steering(; v, ω, j0_zero, x_shift=xs, y_shift=ys, tilt=tp, φ, T, dt)
         metrics = compute_trajectory_metrics(result.x, result.y)
 
         F[1] = metrics.centroid_x - target_x
@@ -353,7 +353,6 @@ function animate_x_based(; ω = 1.0, j0_zero = 1, δ = 0.0, n_periods = 1, fps =
     result = simulate_from_steering_vs_x(; ω, j0_zero, δ, T, dt, x_weight,
                                           v_mult, v_offset, ψ_dot_mult, ψ_dot_offset)
     A = J0_ZEROS[j0_zero] * ω * (1 + δ)
-    B = A / ω
     n = length(result.t)
 
     # Observables
@@ -458,8 +457,6 @@ end
 function plot_trajectory(; ω = 1.0, j0_zero = 1, x_shift = 0.0, y_shift = 0.0, tilt = 0.0, φ = 0.0, n_periods = 1)
     T = n_periods * 2π / ω
     result = simulate_cosine_steering(; ω, j0_zero, x_shift, y_shift, tilt, φ, T)
-    A = get_closed_amplitude(; ω, j0_zero, δ=y_shift)
-    B = A / ω
 
     fig = Figure(size = (1200, 800))
 
@@ -506,8 +503,6 @@ function animate_trajectory(; ω = 1.0, j0_zero = 1, x_shift = 0.0, y_shift = 0.
                             n_periods = 1, fps = 30, speed = 1.0)
     T = n_periods * 2π / ω
     result = simulate_cosine_steering(; ω, j0_zero, x_shift, y_shift, tilt, φ, T)
-    A = get_closed_amplitude(; ω, j0_zero, δ=y_shift)
-    B = A / ω
     n = length(result.t)
 
     # Observables for current index

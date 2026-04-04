@@ -2,9 +2,101 @@
 # SPDX-FileCopyrightText: 2025 Uwe Fechner
 # SPDX-License-Identifier: MIT
 
+_yes_to_all=false
+
+print_usage() {
+    echo "Usage:"
+    echo "./install"
+    echo "./install -y"
+    echo "./install --yes"
+    echo "./install -h"
+    echo "./install --help"
+    echo "Options:"
+    echo "  -y, --yes     Automatically choose the default Julia version without prompting."
+    echo "  -h, --help    Show this help message and exit."
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            print_usage
+            exit 0
+            ;;
+        -y|--yes)
+            _yes_to_all=true
+            shift
+            ;;
+        *)
+            echo "Invalid parameter!"
+            print_usage
+            exit 1
+            ;;
+    esac
+done
+
 if [[ $(basename $(pwd)) == "bin" ]]; then
     cd ..
 fi
+
+# Check if juliaup is installed
+if ! command -v juliaup &> /dev/null; then
+    echo "Error: juliaup is not installed. Please install it first."
+    case "$(uname -s)" in
+        Linux|Darwin)
+            echo "  curl -fsSL https://install.julialang.org | sh -s -- --default-channel 1.11"
+            ;;
+        MINGW*|MSYS*|CYGWIN*)
+            echo "  winget install --name Julia --id 9NJNWW8PVKMN -e -s msstore"
+            ;;
+        *)
+            echo "  See https://github.com/JuliaLang/juliaup for installation instructions."
+            ;;
+    esac
+    exit 1
+fi
+
+# Ask which Julia version to use.
+# Default to 1.12 if it is already the current default, otherwise 1.11.
+if juliaup status 2>/dev/null | grep '^\s*\*' | grep -q '1\.12'; then
+    _default_choice=2
+    _default_julia="1.12"
+else
+    _default_choice=1
+    _default_julia="1.11"
+fi
+
+echo "Which Julia version do you want to use?"
+echo "  1) Julia 1.11"
+echo "  2) Julia 1.12"
+if [[ $_yes_to_all == true ]]; then
+    _julia_choice=""
+    echo "Using Julia version: ${_default_julia}"
+else
+    read -rp "Enter 1 or 2 [default: ${_default_choice}]: " _julia_choice
+fi
+
+case "${_julia_choice}" in
+    1)
+        _desired_julia="1.11"
+        ;;
+    2)
+        _desired_julia="1.12"
+        ;;
+    "")
+        _desired_julia="${_default_julia}"
+        ;;
+    *)
+        echo "Invalid choice: '${_julia_choice}'. Please enter 1 or 2."
+        exit 1
+        ;;
+esac
+
+echo "Installing and activating Julia ${_desired_julia}..."
+juliaup add "${_desired_julia}"
+juliaup default "${_desired_julia}"
+echo "Julia ${_desired_julia} is now the default."
+echo
 
 # Detect Julia version
 julia_version=$(julia --version | awk '{print($3)}')
@@ -93,6 +185,13 @@ end
 '
 echo "Precompiling main project..."
 julia --project -e 'using Pkg; Pkg.precompile()'
+
+# Julia may write a generic Manifest.toml instead of Manifest-v${julia_major}.toml.
+# Rename it so the install script can seed sub-projects from the correct versioned file.
+if [ -f "Manifest.toml" ] && [ ! -f "Manifest-v${julia_major}.toml" ]; then
+    mv Manifest.toml "Manifest-v${julia_major}.toml"
+    echo "Renamed Manifest.toml to Manifest-v${julia_major}.toml"
+fi
 
 # Instantiate all sub-projects: examples, test, docs
 echo "Julia $julia_major: instantiating all sub-projects..."

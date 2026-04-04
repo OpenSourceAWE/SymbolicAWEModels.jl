@@ -84,8 +84,9 @@ function scalar_eqs!(
     end
 
     for wing in wings
-        x, y, z = wing_pos[:, wing.idx]
+        x, y, _ = wing_pos[:, wing.idx]
         has_groups = !isempty(wing.group_idxs)
+        half_len = 0
         if has_groups
             half_len = wing.group_idxs[1] + length(wing.group_idxs) ÷ 2 - 1
         end

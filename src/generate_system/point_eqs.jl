@@ -4,13 +4,13 @@
 # Point dynamics equation generation
 
 """
-    point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, psys, pset;
-               R_b_to_w, wing_pos, wing_vel, wind_vec_gnd, fix_wing, twist_angle,
+    point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, psys, _pset;
+               R_b_to_w, wing_vel, wind_vec_gnd, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                spring_sum_force, point_drag_force, disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
                fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
                va_point_b, va_point_w, wind_at_point, height,
-               aero_force_point_b, has_refine_wings,
+               aero_force_point_b,
                group_y_airf, tether_wing_force, tether_wing_moment)
 
 Generate equations for all point types (STATIC, DYNAMIC, QUASI_STATIC, WING).
@@ -21,9 +21,8 @@ Generate equations for all point types (STATIC, DYNAMIC, QUASI_STATIC, WING).
 - `points`, `segments`, `groups`, `wings`: System components.
 - `psys`, `pset`: Symbolic parameters representing system and settings.
 - `R_b_to_w`: Symbolic rotation matrix (body to world).
-- `wing_pos`, `wing_vel`: Symbolic wing center of mass position/velocity.
+- `wing_vel`: Symbolic wing center of mass velocity.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
-- `fix_wing`: Symbolic boolean for fixing wing dynamics.
 - `twist_angle`: Symbolic group twist angle.
 - `pos`, `vel`, `acc`: Pre-declared point state variables.
 - `point_force`, `point_mass`: Pre-declared point force and mass variables.
@@ -38,12 +37,12 @@ Generate equations for all point types (STATIC, DYNAMIC, QUASI_STATIC, WING).
 """
 function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, psys, pset;
                     R_b_to_w, com_w,
-                    wing_pos, wing_vel, wind_vec_gnd, fix_wing, twist_angle,
+                    wing_vel, wind_vec_gnd, twist_angle,
                     pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                     spring_sum_force, point_drag_force, disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
                     fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
                     va_point_b, va_point_w, wind_at_point, height,
-                    aero_force_point_b, has_refine_wings,
+                    aero_force_point_b,
                     group_y_airf, tether_wing_force, tether_wing_moment)
 
     for point in points
@@ -202,10 +201,8 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
 
                 if found == 1
                     found = 0
-                    wing = nothing
                     for wing_ in wings
                         if group.idx in wing_.group_idxs
-                            wing = wing_
                             found += 1
                         end
                     end

@@ -18,6 +18,7 @@ SymbolicAWEModels.KVec3
 SymbolicAWEModels.SVec3
 VortexStepMethod.Wing
 SymbolicAWEModels.create_tether
+SymbolicAWEModels.create_vsm_wing
 ```
 
 ## State management and model simplification
@@ -102,11 +103,13 @@ SymbolicAWEModels.copy_examples
 SymbolicAWEModels.copy_data
 SymbolicAWEModels.copy_dir
 SymbolicAWEModels.get_example_packages
+SymbolicAWEModels.make_lin_sys_state
 ```
 
 ## Base overloads (internal use)
 
 ```@docs
+SymbolicAWEModels._SAM_FIELDS
 Base.getindex
 Base.getproperty
 Base.setproperty!
@@ -119,6 +122,7 @@ SymbolicAWEModels.get_field_or_nothing
 SymbolicAWEModels.convert_to_type
 SymbolicAWEModels.resolve_references
 SymbolicAWEModels.calculate_derived_properties!
+SymbolicAWEModels._extract_args
 SymbolicAWEModels.call_yaml_constructor
 SymbolicAWEModels.update_yaml_from_sys_struct!
 SymbolicAWEModels.update_aero_yaml_from_struc_yaml!

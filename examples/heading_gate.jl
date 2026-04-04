@@ -82,7 +82,7 @@ function run_simulation(cone_angle_deg; tether_len=tether_length)
 
     heading = zeros(n)
 
-    for i in 1:n
+    for i in eachindex(t)
         R_body_z[i, :] = kite_pos[i, :] / norm(kite_pos[i, :])
         velocity = [0.0, -cos(t[i]), -sin(t[i])]
         R_body_y[i, :] = velocity / norm(velocity)
@@ -99,7 +99,7 @@ function run_simulation(cone_angle_deg; tether_len=tether_length)
 
     wind_vel = [1.0, 0.0, 0.0]
     heading_wind = zeros(n)
-    for i in 1:n
+    for i in eachindex(t)
         heading_wind[i] = wind_frame_heading(R_body_x[i, :], wind_vel)
     end
 
@@ -144,7 +144,7 @@ end
 """Unwrap phase angles to avoid discontinuities."""
 function unwrap(phase)
     result = copy(phase)
-    for i in 2:length(result)
+    for i in 2:lastindex(result)
         diff = result[i] - result[i-1]
         if diff > π
             result[i:end] .-= 2π
@@ -161,7 +161,7 @@ function gradient(y, dt)
     grad = zeros(n)
     grad[1] = (y[2] - y[1]) / dt
     grad[end] = (y[end] - y[end-1]) / dt
-    for i in 2:n-1
+    for i in 2:lastindex(y)-1
         grad[i] = (y[i+1] - y[i-1]) / (2dt)
     end
     return grad
@@ -196,7 +196,7 @@ function plot_combined(cone_angles_list, results; use_glmakie=true)
 
     # Shared angle legend at top with error
     angle_elems = [LineElement(color=cone_color(a, min_a, max_a)) for a in cone_angles_list]
-    angle_labels = [L"%$(Int(a))° (%$(round(Int, res.turn_rate_rel_err_sphere * 100))\%)"
+    angle_labels = ["$(Int(a))° ($(round(Int, res.turn_rate_rel_err_sphere * 100))%)"
                     for (a, res) in zip(cone_angles_list, results)]
     Legend(fig[0, 1], angle_elems, angle_labels, L"\textrm{Cone angle (error)}",
            orientation=:horizontal, tellwidth=false, titleposition=:left, halign=1.0,
@@ -274,7 +274,7 @@ function plot_error_vs_cone_angle(; use_glmakie=true)
 end
 
 """Create 3D trajectory plot for a single cone angle."""
-function plot_3d_trajectory(cone_angle_deg, res; use_glmakie=true)
+function plot_3d_trajectory(_cone_angle_deg, res; use_glmakie=true)
     if use_glmakie
         GLMakie.activate!()
     else
@@ -319,7 +319,7 @@ function plot_3d_trajectory(cone_angle_deg, res; use_glmakie=true)
     first_up_z = true
 
     quality = 8
-    for i in 1:step:length(t)
+    for i in firstindex(t):step:lastindex(t)
         if show_body_x
             label = first_body_x ? L"R_{\textrm{body},x}" : nothing
             first_body_x = false

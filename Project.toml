@@ -3,6 +3,9 @@ uuid = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
 version = "0.7.2"
 authors = ["Bart van de Lint <bart@vandelint.net> and contributors"]
 
+[workspace]
+projects = ["docs", "examples", "scripts", "test"]
+
 [deps]
 AtmosphericModels = "c59cac55-771d-4f45-b14d-1c681463a295"
 CodecZlib = "944b1d66-785c-5afd-91f1-9de20f533193"
@@ -15,6 +18,7 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 ModelingToolkit = "961ee093-0014-501f-94e3-6117800e7a78"
 NonlinearSolve = "8913a72c-1f9b-4ce2-8d82-65094dcecaec"
+NonlinearSolveQuasiNewton = "9a2c21bd-3a47-402d-9113-8faf9a0ee114"
 OrdinaryDiffEqBDF = "6ad6398a-0878-4a85-9266-38940aa047c8"
 OrdinaryDiffEqCore = "bbf590c4-e513-4bbe-9b18-05decba2e5d8"
 OrdinaryDiffEqNonlinearSolve = "127b3ac7-2247-4354-8eb6-78cf4e7c58e8"
@@ -59,7 +63,8 @@ LinearAlgebra = "1"
 Logging = "1"
 Makie = "0.24.6"
 ModelingToolkit = "11"
-NonlinearSolve = "4.8.0"
+NonlinearSolve = "~4.14.0"
+NonlinearSolveQuasiNewton = "~1.12.0"
 OrdinaryDiffEqBDF = "1.16.0"
 OrdinaryDiffEqCore = "3"
 OrdinaryDiffEqNonlinearSolve = "1.6.1"
@@ -84,6 +89,3 @@ UnPack = "1.0.2"
 VortexStepMethod = "3"
 YAML = "0.4"
 julia = "1.11, 1.12"
-
-[workspace]
-projects = ["docs", "examples", "scripts", "test"]

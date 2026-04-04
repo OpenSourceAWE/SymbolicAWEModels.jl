@@ -130,7 +130,7 @@ Base.values(nc::NamedCollection) = nc.items
 
 Base.push!(nc::NamedCollection, item) = push!(nc.items, item)
 Base.eltype(::Type{NamedCollection{T}}) where T = T
-Base.eltype(nc::NamedCollection{T}) where T = T
+Base.eltype(::NamedCollection{T}) where T = T
 
 # Allow findall and other array operations
 Base.findall(f::Function, nc::NamedCollection) = findall(f, nc.items)

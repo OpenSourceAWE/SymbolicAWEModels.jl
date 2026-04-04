@@ -248,8 +248,8 @@ get_winch_friction_epsilon(sys::SystemStructure{VSMWing}, idx::Int64) =
     sys.winches[idx].friction_epsilon
 @register_symbolic get_winch_friction_epsilon(
     sys::SystemStructure{VSMWing}, idx::Int64)
-@register_symbolic get_wind_elevation(sys::SystemStructure{VSMWing})
 get_wind_elevation(sys::SystemStructure{VSMWing}) = sys.wind_elevation
+@register_symbolic get_wind_elevation(sys::SystemStructure{VSMWing})
 get_rho_tether(set::Settings) = set.rho_tether
 @register_symbolic get_rho_tether(set::Settings)
 get_cd_tether(set::Settings) = set.cd_tether

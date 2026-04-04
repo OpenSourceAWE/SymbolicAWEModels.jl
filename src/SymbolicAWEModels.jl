@@ -48,7 +48,7 @@ using VortexStepMethod
 
 import KiteUtils: init!, next_step!, update_sys_state!, SysState
 import ModelingToolkit: t_nounits as t, D_nounits as D
-import ModelingToolkit.SciMLBase: successful_retcode
+import ModelingToolkit.SciMLBase: successful_retcode, step!, init
 
 #======================================================================#
 #                          EXPORTS
@@ -207,7 +207,7 @@ Copy all example scripts to the folder "examples"
 (it will be created if it doesn't exist).
 """
 function copy_examples(; force=false)
-    src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "examples")
+    src_data_path = joinpath(@__DIR__, "..", "examples")
     dst_data_path = abspath(joinpath(pwd(), "examples"))
     copy_dir(src_data_path, dst_data_path; force)
 end
@@ -219,7 +219,7 @@ Copy all example scripts to the folder "bin"
 (it will be created if it doesn't exist).
 """
 function copy_bin(; force=false)
-    src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "bin")
+    src_data_path = joinpath(@__DIR__, "..", "bin")
     dst_data_path = abspath(joinpath(pwd(), "bin"))
     copy_dir(src_data_path, dst_data_path; force)
 end
@@ -231,7 +231,7 @@ Copy all data scripts to the folder "data"
 (it will be created if it doesn't exist).
 """
 function copy_data(; force=false)
-    src_data_path = joinpath(dirname(pathof(@__MODULE__)), "..", "data")
+    src_data_path = joinpath(@__DIR__, "..", "data")
     dst_data_path = abspath(joinpath(pwd(), "data"))
     copy_dir(src_data_path, dst_data_path; force)
 end
@@ -266,7 +266,7 @@ Get the list of packages from examples/Project.toml, excluding SymbolicAWEModels
 This ensures init_module installs the correct dependencies for running examples.
 """
 function get_example_packages()
-    examples_project_path = joinpath(dirname(pathof(@__MODULE__)), "..", "examples", "Project.toml")
+    examples_project_path = joinpath(@__DIR__, "..", "examples", "Project.toml")
     if !isfile(examples_project_path)
         @warn "examples/Project.toml not found, using default package list"
         return ["KiteUtils", "GLMakie"]

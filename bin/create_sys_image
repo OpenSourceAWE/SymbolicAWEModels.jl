@@ -135,3 +135,4 @@ else
 fi
 
 echo "✅ System image creation and precompilation complete!"
+# 14:57 minutes on laptop with 7840U and 32GB RAM and 32 GB swap file.

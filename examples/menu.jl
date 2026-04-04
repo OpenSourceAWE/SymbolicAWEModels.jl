@@ -1,6 +1,11 @@
 # Copyright (c) 2022-2025
 # SPDX-License-Identifier: MIT
 
+using Pkg
+if ! ("GLMakie" ∈ keys(Pkg.project().dependencies))
+    Pkg.activate(@__DIR__)
+end
+
 using GLMakie
 using SymbolicAWEModels
 using REPL.TerminalMenus

@@ -40,12 +40,10 @@ smaller `pos_cad[1]`).
 """
 function identify_wing_segments(
     wing_points::AbstractVector{Point};
-    groups::Union{Nothing, AbstractVector{Group}}=nothing,
-    wing_group_idxs::Union{Nothing,
-        AbstractVector{<:Integer}}=nothing
+    groups::AbstractVector{Group}=Group[],
+    wing_group_idxs::AbstractVector{<:Integer}=Int[]
 )
-    use_groups = !isnothing(groups) &&
-        !isnothing(wing_group_idxs) &&
+    use_groups = !isempty(groups) &&
         !isempty(wing_group_idxs)
 
     if use_groups
@@ -129,11 +127,8 @@ function match_aero_sections_to_structure!(
         p.type == WING && p.wing_idx == wing.idx
     ]
 
-    wing_group_idxs = isempty(groups) ? nothing :
-        wing.group_idxs
-    grps = isempty(groups) ? nothing : groups
-    has_groups = !isnothing(grps) &&
-        !isnothing(wing_group_idxs) &&
+    wing_group_idxs = wing.group_idxs
+    has_groups = !isempty(groups) &&
         !isempty(wing_group_idxs)
 
     if has_groups
@@ -141,7 +136,7 @@ function match_aero_sections_to_structure!(
         # REFINE: each group is a 2-point strut (LE/TE)
         if wing.wing_type == REFINE
             for g_idx in wing_group_idxs
-                g = grps[g_idx]
+                g = groups[g_idx]
                 length(g.point_idxs) == 2 || error(
                     "REFINE wing $(wing.idx): group " *
                     "$(g.name) must have exactly 2 " *
@@ -184,7 +179,7 @@ function match_aero_sections_to_structure!(
     end
 
     wing_segments = identify_wing_segments(
-        wing_points; groups=grps,
+        wing_points; groups=groups,
         wing_group_idxs=wing_group_idxs)
     wing.wing_segments = wing_segments
     length(wing_segments) == n_struct_sections || error(
@@ -442,8 +437,16 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::AbstractVecto
     end
 
     # Build inverse mapping: (section_idx, :LE/:TE) -> point_idx
+    point_to_vsm_point =
+        wing.point_to_vsm_point::Union{Nothing,
+            Dict{Int64, Tuple{Int64, Symbol}}}
+    isnothing(point_to_vsm_point) && error(
+        "REFINE wing $(wing.idx) missing point_to_vsm_point mapping")
+    point_to_vsm_point =
+        point_to_vsm_point::Dict{Int64,
+            Tuple{Int64, Symbol}}
     vsm_point_to_struct = Dict{Tuple{Int64, Symbol}, Int64}()
-    for (point_idx, (section_idx, le_or_te)) in wing.point_to_vsm_point
+    for (point_idx, (section_idx, le_or_te)) in point_to_vsm_point
         vsm_point_to_struct[(section_idx, le_or_te)] = point_idx
     end
 
@@ -466,7 +469,6 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::AbstractVecto
         Mp = scale .* SVector{3}(m_body[:, panel_idx])
 
         section_idx = panel_to_section[local_panel_idx]
-        section = wing.vsm_wing.unrefined_sections[section_idx]
 
         le_key = (Int64(section_idx), :LE)
         te_key = (Int64(section_idx), :TE)
@@ -512,11 +514,19 @@ function update_vsm_wing_from_structure!(wing::VSMWing, points::AbstractVector{P
 
     # Get current R_b_to_w and origin from wing state
     # (These are updated during simulation from structural geometry)
-    R_b_to_w = wing.R_b_to_w
-    origin = wing.pos_w
+    R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
+    origin = wing.pos_w::KVec3
 
     # Update each VSM section point directly from its corresponding structural point
-    for (point_idx, (section_idx, le_or_te)) in wing.point_to_vsm_point
+    point_to_vsm_point =
+        wing.point_to_vsm_point::Union{Nothing,
+            Dict{Int64, Tuple{Int64, Symbol}}}
+    isnothing(point_to_vsm_point) && error(
+        "REFINE wing $(wing.idx) missing point_to_vsm_point mapping")
+    point_to_vsm_point =
+        point_to_vsm_point::Dict{Int64,
+            Tuple{Int64, Symbol}}
+    for (point_idx, (section_idx, le_or_te)) in point_to_vsm_point
         point = points[point_idx]
 
         # Calculate current position in body frame

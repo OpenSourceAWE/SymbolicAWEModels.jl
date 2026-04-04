@@ -142,7 +142,7 @@ end
 
 save_log(logger, "tether_sim")
 lg = load_log("tether_sim")
-record(lg, sam.sys_struct, "tether_sim.gif")
+SymbolicAWEModels.record(lg, sam.sys_struct, "tether_sim.gif")
 ```
 
 ![Tether simulation](assets/tether_sim.gif)
@@ -196,7 +196,7 @@ end
 
 save_log(logger, "winch_sim")
 lg = load_log("winch_sim")
-record(lg, sam.sys_struct, "winch_sim.gif")
+SymbolicAWEModels.record(lg, sam.sys_struct, "winch_sim.gif")
 ```
 
 ![Winch simulation](assets/winch_sim.gif)
@@ -273,7 +273,7 @@ end
 
 save_log(logger, "pulley_sim")
 lg = load_log("pulley_sim")
-record(lg, sam.sys_struct, "pulley_sim.gif")
+SymbolicAWEModels.record(lg, sam.sys_struct, "pulley_sim.gif")
 ```
 
 ![Pulley simulation](assets/pulley_sim.gif)
