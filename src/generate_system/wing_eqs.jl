@@ -48,6 +48,14 @@ function wing_eqs!(
     end
     moment_tether_wing = collect(moment_tether_wing)
 
+    # Skew-symmetric matrix for quaternion kinematics
+    Ω(ω) = [
+        0 -ω[1] -ω[2] -ω[3]
+        ω[1] 0 ω[3] -ω[2]
+        ω[2] -ω[3] 0 ω[1]
+        ω[3] ω[2] -ω[1] 0
+    ]
+
     # Helper for ref point positions (single or average)
     get_ref_position(pos, ref::Int64) = pos[:, ref]
     function get_ref_position(pos, refs::Vector{Int64})
@@ -142,32 +150,6 @@ function wing_eqs!(
         com_axis_p = collect(
             R_p_to_w[:, :, wing.idx]' * com_axis)
 
-        ωs = ω_p_stable[:, wing.idx]
-        Ω_stable = [
-            0 -ωs[1] -ωs[2] -ωs[3]
-            ωs[1] 0 ωs[3] -ωs[2]
-            ωs[2] -ωs[3] 0 ωs[1]
-            ωs[3] ωs[2] -ωs[1] 0
-        ]
-        local q_dot_eqs = []
-        local q_vel_eqs = []
-        for i in 1:4
-            push!(q_dot_eqs,
-                D(Q_p_to_w[i, wing.idx]) ~
-                Q_p_vel[i, wing.idx])
-            push!(q_vel_eqs,
-                Q_p_vel[i, wing.idx] ~
-                0.5 * (
-                    Ω_stable[i, 1] *
-                    Q_p_to_w[1, wing.idx] +
-                    Ω_stable[i, 2] *
-                    Q_p_to_w[2, wing.idx] +
-                    Ω_stable[i, 3] *
-                    Q_p_to_w[3, wing.idx] +
-                    Ω_stable[i, 4] *
-                    Q_p_to_w[4, wing.idx]))
-        end
-
         eqs = [
             eqs
             fix_wing_sphere[wing.idx] ~
@@ -176,8 +158,12 @@ function wing_eqs!(
             # === Principal frame quaternion
             #     kinematics ===
             # D(Q_p_to_w) = 0.5 * Ω(ω_p_stable) * Q_p_to_w
-            q_dot_eqs
-            q_vel_eqs
+            [D(Q_p_to_w[i, wing.idx]) ~
+                Q_p_vel[i, wing.idx] for i = 1:4]
+            [Q_p_vel[i, wing.idx] ~ 0.5 * sum(
+                Ω(ω_p_stable[:, wing.idx])[i, j] *
+                Q_p_to_w[j, wing.idx]
+                for j = 1:4) for i = 1:4]
 
             # Constrain ω for spherical joint
             ω_p_stable[:, wing.idx] ~ ifelse.(
