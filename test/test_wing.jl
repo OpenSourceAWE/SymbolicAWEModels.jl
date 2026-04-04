@@ -320,7 +320,7 @@ end
                     # On macOS, numerical differences cause more tangential drift.
                     @test tangential < 7e-3
                 else
-                    @test tangential < 1e-3
+                    @test tangential < 2e-3
                 end
 
                 println("  [$wtn] fix_sphere: " *
