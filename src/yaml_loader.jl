@@ -335,19 +335,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     data = YAML.load_file(yaml_path)
 
     # Use provided settings or fall back to base settings
-    set === nothing && (set = load_settings("base"))
-
-    # Parse string types to enums
-    function parse_dynamics_type(s::String)
-        s_upper = uppercase(s)
-        s_upper == "STATIC" && return STATIC
-        s_upper == "DYNAMIC" && return DYNAMIC
-        s_upper == "WING" && return WING
-        s_upper == "QUASI_STATIC" && return QUASI_STATIC
-        error("Unknown DynamicsType: $s")
-    end
-
-    # parse_segment_type removed — SegmentType no longer used
+    local resolved_set = (set === nothing ? load_settings("base") : set)
 
     # Note: Name resolution is now handled by SystemStructure.assign_indices_and_resolve!
 
@@ -569,19 +557,19 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 !isnothing(row.segment_idxs)
             if has_segments
                 # Route 1: explicit segments
-                segs = [to_ref(s)
+                segs = [yaml_to_ref(s)
                     for s in row.segment_idxs]
                 sp = if hasfield(typeof(row),
                         :start_point) &&
                         !isnothing(row.start_point)
-                    to_ref(row.start_point)
+                    yaml_to_ref(row.start_point)
                 else
                     nothing
                 end
                 ep = if hasfield(typeof(row),
                         :end_point) &&
                         !isnothing(row.end_point)
-                    to_ref(row.end_point)
+                    yaml_to_ref(row.end_point)
                 else
                     nothing
                 end
@@ -597,8 +585,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     initial_tether_length=il)
             else
                 # Route 2: auto-generation
-                sp = to_ref(row.start_point)
-                ep = to_ref(row.end_point)
+                sp = yaml_to_ref(row.start_point)
+                ep = yaml_to_ref(row.end_point)
                 n_seg = Int(row.n_segments)
                 il = if hasfield(typeof(row),
                         :init_len) &&
@@ -652,11 +640,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                  :brake, :speed_controlled,
                  :friction_epsilon];
                 mappings=Dict(
-                    :set => r -> set,
-                    :tethers => r -> [to_ref(t)
+                    :set => r -> resolved_set,
+                    :tethers => r -> [yaml_to_ref(t)
                         for t in r.tether_idxs],
                     :winch_point => r -> begin
-                        to_ref(r.winch_point)
+                        yaml_to_ref(r.winch_point)
                     end,
                     :name => r -> begin
                         if haskey(r, :name) &&
