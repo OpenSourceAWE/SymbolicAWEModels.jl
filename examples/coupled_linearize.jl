@@ -1,6 +1,8 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
+# ERROR: LoadError: Solver unstable at t=6.5261: Unstable
+
 """
 Linearize the 2-plate kite model at a steady-state operating point
 and build a state-space representation.
