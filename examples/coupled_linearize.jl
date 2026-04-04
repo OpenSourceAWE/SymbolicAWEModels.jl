@@ -9,9 +9,8 @@ and build a state-space representation.
 using Pkg
 Pkg.activate(@__DIR__)
 
+using KiteUtils: init!
 using SymbolicAWEModels, VortexStepMethod
-using ModelingToolkit
-using ModelingToolkit: t_nounits
 using ControlSystemsBase
 
 set_data_path("data/2plate_kite")
@@ -29,16 +28,13 @@ sys = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite", set, vsm_set)
 sam = SymbolicAWEModel(set, sys)
 
-@variables begin
-    heading(t_nounits)[1:1]
-    angle_of_attack(t_nounits)[1:1]
-    tether_len(t_nounits)[1:3]
-    winch_force(t_nounits)[1:3]
-end
-outputs = [heading[1], angle_of_attack[1], tether_len[1],
-           winch_force[1]]
+init!(sam)
 
-init!(sam; outputs)
+sys = sam.prob.sys
+outputs = [sys.heading[1], sys.angle_of_attack[1], sys.tether_len[1],
+           sys.winch_force[1]]
+
+init!(sam; outputs, create_lin_prob=true)
 find_steady_state!(sam)
 
 (; A, B, C, D) = SymbolicAWEModels.linearize!(sam)
