@@ -11,8 +11,8 @@ using Pkg
 Pkg.activate(@__DIR__)
 
 using GLMakie
-using KiteUtils, SymbolicAWEModels, VortexStepMethod
-using SymbolicAWEModels: calc_steady_torque, init!, next_step!, simple_linearize!, update_sys_state!
+using KiteUtils: init!, next_step!, update_sys_state!
+using SymbolicAWEModels, VortexStepMethod
 using ControlSystemsBase
 
 # Simulation parameters
@@ -52,8 +52,7 @@ lin_ss = ss(lin.A, lin.B, lin.C, lin.D)
 logger = Logger(sam, steps)
 sys_state = SysState(sam)
 t = 0.0
-steady_torque =
-    calc_steady_torque(sam)
+steady_torque = calc_steady_torque(sam)
 torque_damp = 0.9
 u0 = copy(steady_torque)
 set_values_mat = zeros(3, steps)
@@ -61,12 +60,9 @@ set_values_mat = zeros(3, steps)
 for i in 1:steps
     t = i * dt
     prev_steady_torque = steady_torque
-    steady_torque = torque_damp * prev_steady_torque +
-        (1 - torque_damp) *
-        calc_steady_torque(sam)
+    global steady_torque = torque_damp * prev_steady_torque + (1 - torque_damp) * calc_steady_torque(sam)
     sign_val = t > 0.5 ? -1 : 1
-    sv = steady_torque .+ sign_val .*
-        [10.0, steering_magnitude, -steering_magnitude]
+    sv = steady_torque .+ sign_val .* [10.0, steering_magnitude, -steering_magnitude]
     set_values_mat[:, i] = sv
 
     next_step!(sam; set_values=sv, dt, vsm_interval)
