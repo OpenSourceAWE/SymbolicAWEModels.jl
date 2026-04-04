@@ -6,6 +6,9 @@
 (re-linearize every few steps instead of solving full VSM).
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using GLMakie
 using SymbolicAWEModels, VortexStepMethod, KiteUtils
 using SymbolicAWEModels: init!, next_step!, update_sys_state!

@@ -6,6 +6,9 @@ Static load test: apply external aerodynamic forces to the 2-plate
 kite structure and simulate a few steps under those loads.
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using GLMakie
 using SymbolicAWEModels, VortexStepMethod, KiteUtils
 using SymbolicAWEModels: init!, next_step!, update_sys_state!

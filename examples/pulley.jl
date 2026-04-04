@@ -7,6 +7,9 @@ Pulley demo: a dynamic point connected through a pulley constraint
 to two anchors, with a hanging mass below.
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using GLMakie
 using SymbolicAWEModels
 import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie

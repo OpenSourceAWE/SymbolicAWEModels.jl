@@ -2,9 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 using Pkg
-if ! ("GLMakie" ∈ keys(Pkg.project().dependencies))
-    Pkg.activate(@__DIR__)
-end
+Pkg.activate(@__DIR__)
 
 using GLMakie
 using SymbolicAWEModels

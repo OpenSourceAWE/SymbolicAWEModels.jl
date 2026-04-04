@@ -6,6 +6,9 @@ Catenary line: tether fixed at both ends under gravity, relaxing
 into its equilibrium shape.
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using GLMakie
 using SymbolicAWEModels
 import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie

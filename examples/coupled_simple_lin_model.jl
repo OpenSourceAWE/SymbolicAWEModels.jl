@@ -7,6 +7,9 @@ Simple linearized model: stabilize, linearize with
 and compare to the linear prediction.
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using GLMakie
 using KiteUtils, SymbolicAWEModels, VortexStepMethod
 using SymbolicAWEModels: calc_steady_torque, init!, next_step!, simple_linearize!, update_sys_state!

@@ -5,6 +5,9 @@
 # Assumes: downwind flight, constant tether, zero gravity, straight tether, no sideslip.
 # Expects constant turn rate (uniform circular motion).
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using GLMakie
 using CairoMakie
 using Makie: NoShading

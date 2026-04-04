@@ -7,6 +7,9 @@ Progressive tutorial: builds up from a simple tether to a full kite
 model, adding a winch, pulley, and wing step by step.
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using SymbolicAWEModels, VortexStepMethod, LinearAlgebra
 using SymbolicAWEModels: Point
 

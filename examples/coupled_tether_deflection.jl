@@ -6,6 +6,9 @@ Vertical tether under pure horizontal wind drag, with gravity set
 to zero to isolate aerodynamic effects.
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using GLMakie
 using SymbolicAWEModels
 import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie

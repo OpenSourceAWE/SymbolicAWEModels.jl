@@ -6,6 +6,9 @@ Saddle form relaxation: diamond mesh with fixed boundary nodes
 and saddle z-profile, relaxed to equilibrium via dynamic simulation.
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using GLMakie
 using SymbolicAWEModels
 using SymbolicAWEModels: init!, next_step!, update_sys_state!

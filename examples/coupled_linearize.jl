@@ -6,6 +6,9 @@ Linearize the 2-plate kite model at a steady-state operating point
 and build a state-space representation.
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using SymbolicAWEModels, VortexStepMethod
 using ModelingToolkit
 using ModelingToolkit: t_nounits
