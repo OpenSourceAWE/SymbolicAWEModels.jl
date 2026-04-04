@@ -186,6 +186,13 @@ end
 echo "Precompiling main project..."
 julia --project -e 'using Pkg; Pkg.precompile()'
 
+# Julia may write a generic Manifest.toml instead of Manifest-v${julia_major}.toml.
+# Rename it so the install script can seed sub-projects from the correct versioned file.
+if [ -f "Manifest.toml" ] && [ ! -f "Manifest-v${julia_major}.toml" ]; then
+    mv Manifest.toml "Manifest-v${julia_major}.toml"
+    echo "Renamed Manifest.toml to Manifest-v${julia_major}.toml"
+fi
+
 # Instantiate all sub-projects: examples, test, docs
 echo "Julia $julia_major: instantiating all sub-projects..."
 # Seed examples and test manifests from the main manifest so that
