@@ -12,8 +12,8 @@ using Pkg
 Pkg.activate(@__DIR__)
 
 using GLMakie
-using SymbolicAWEModels, VortexStepMethod, KiteUtils
-using SymbolicAWEModels: init!, next_step!, update_sys_state!, log!, calc_steady_torque, save_log, Logger
+using KiteUtils: init!, next_step!, update_sys_state!
+using SymbolicAWEModels, VortexStepMethod
 using Printf
 
 # Parameters
@@ -42,7 +42,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     data_prefix=false)
 sys = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite", set, vsm_set)
-sam = SymbolicAWEModel(set, sys)
+sam::SymbolicAWEModel = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 find_steady_state!(sam)
 
