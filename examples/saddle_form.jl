@@ -10,7 +10,7 @@ using Pkg
 Pkg.activate(@__DIR__)
 
 using GLMakie
-using KiteUtils: init!, next_step!, update_sys_state!, calc_elevation, azimuth_east
+using KiteUtils: azimuth_east, calc_elevation, init!, next_step!, update_sys_state!
 using SymbolicAWEModels
 import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie
 using LinearAlgebra

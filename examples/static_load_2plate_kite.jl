@@ -10,10 +10,10 @@ using Pkg
 Pkg.activate(@__DIR__)
 
 using GLMakie
-using SymbolicAWEModels, VortexStepMethod, KiteUtils
-using SymbolicAWEModels: init!, next_step!, update_sys_state!
-using LinearAlgebra
+using KiteUtils: init!, next_step!, update_sys_state!
+using SymbolicAWEModels, VortexStepMethod
 using SymbolicAWEModels: Point
+using LinearAlgebra
 
 MODEL_NAME = "2plate_kite"
 n_steps = 3
