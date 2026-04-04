@@ -10,8 +10,8 @@ using Pkg
 Pkg.activate(@__DIR__)
 
 using GLMakie
-using SymbolicAWEModels, VortexStepMethod, KiteUtils
-using SymbolicAWEModels: init!, next_step!, update_sys_state!
+using KiteUtils: init!, next_step!, update_sys_state!
+using SymbolicAWEModels, VortexStepMethod
 
 MODEL_NAME = "2plate_kite"
 SIM_TIME = 2.0
