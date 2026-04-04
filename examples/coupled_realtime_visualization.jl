@@ -8,6 +8,8 @@ Controls:
   Arrow keys to steer, ESC to stop.
 """
 
+# ERROR: LoadError: ArgumentError: Wake reference speed must be positive.
+
 using Pkg
 Pkg.activate(@__DIR__)
 
