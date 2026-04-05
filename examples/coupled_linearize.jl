@@ -40,7 +40,6 @@ outputs = [heading[1], angle_of_attack[1], tether_len[1],
            winch_force[1]]
 
 init!(sam; outputs, create_lin_prob=true)
-init!(sam; outputs, create_lin_prob=true)
 find_steady_state!(sam)
 
 (; A, B, C, D) = SymbolicAWEModels.linearize!(sam)
