@@ -84,6 +84,7 @@ aerodynamic-structural simulation with a steering ramp:
 
 ```julia
 using SymbolicAWEModels, VortexStepMethod
+using KiteUtils: init!, next_step!, update_sys_state!
 
 set_data_path("data/2plate_kite")
 

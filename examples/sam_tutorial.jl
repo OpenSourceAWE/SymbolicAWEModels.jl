@@ -10,6 +10,7 @@ model, adding a winch, pulley, and wing step by step.
 using Pkg
 Pkg.activate(@__DIR__)
 
+using KiteUtils: init!, next_step!, update_sys_state!
 using SymbolicAWEModels, VortexStepMethod, LinearAlgebra
 using SymbolicAWEModels: Point
 

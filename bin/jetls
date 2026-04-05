@@ -8,3 +8,4 @@ if [[ $(basename $(pwd)) == "bin" ]]; then
 fi
 
 jetls check --root=. src/
+# jetls -t 1,0 -- check --root=. src/

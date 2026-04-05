@@ -127,6 +127,8 @@ plot(sys_struct)
 If the system looks correct, compile and simulate:
 
 ```julia
+using KiteUtils: init!, next_step!, update_sys_state!
+
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam)
 
@@ -180,6 +182,8 @@ sys_struct = SystemStructure("winch", set;
 ![Winch system structure](assets/winch_sys_struct.png)
 
 ```julia
+using KiteUtils: init!, next_step!, update_sys_state!
+
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam)
 
@@ -257,6 +261,8 @@ sys_struct = SystemStructure("pulley", set;
 ![Pulley system structure](assets/pulley_sys_struct.png)
 
 ```julia
+using KiteUtils: init!, next_step!, update_sys_state!
+
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam)
 

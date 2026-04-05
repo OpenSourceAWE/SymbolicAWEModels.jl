@@ -111,6 +111,8 @@ Once compiled, the simulation loop consists of:
    aerodynamic forces (controlled by `vsm_interval`)
 
 ```julia
+using KiteUtils: next_step!
+
 for i in 1:1000
     next_step!(sam; set_values=[torque])
 end
