@@ -14,6 +14,7 @@ Pkg.activate(@__DIR__)
 using KiteUtils: init!
 using SymbolicAWEModels, VortexStepMethod
 using ControlSystemsBase
+using ModelingToolkit: @variables, t_nounits
 
 set_data_path("data/2plate_kite")
 struc_yaml = joinpath(get_data_path(),
