@@ -56,8 +56,8 @@ mutable struct SteeringConfig
 end
 
 """
-    SteeringConfig(; steer_left, steer_right, steer_gain,
-                     depower_segment=nothing, depower_gain=0.0)
+    SteeringConfig(; steer_left, steer_right, steer_gain=1.0,
+                     depower_segment=nothing, depower_gain=1.0)
 
 Construct a `SteeringConfig` from segment references.
 
@@ -66,17 +66,18 @@ Construct a `SteeringConfig` from segment references.
   (name or index).
 - `steer_right`: Reference to the right steering segment
   (name or index).
-- `steer_gain::Float64`: Maximum length offset per side [m].
+- `steer_gain::Float64=1.0`: Maximum length offset per
+  side [m].
 - `depower_segment=nothing`: Reference to a dedicated depower
   segment. If `nothing`, depower is applied to the steering
   segments.
-- `depower_gain::Float64=0.0`: Maximum depower length
+- `depower_gain::Float64=1.0`: Maximum depower length
   offset [m].
 """
 function SteeringConfig(; steer_left, steer_right,
-                          steer_gain,
+                          steer_gain=1.0,
                           depower_segment=nothing,
-                          depower_gain=0.0)
+                          depower_gain=1.0)
     sl = steer_left isa Integer ? Int(steer_left) :
          Symbol(steer_left)
     sr = steer_right isa Integer ? Int(steer_right) :
@@ -102,7 +103,7 @@ end
 Apply the current steering and depower values to segment rest
 lengths. Called by `set_steering!` and `set_depower!`.
 
-Steering offsets: left = -s * gain, right = +s * gain.
+Steering offsets: left = +s * gain, right = -s * gain.
 Depower lengthens by d * depower_gain.
 
 If `depower_idx > 0` (dedicated segment):
@@ -122,8 +123,8 @@ function apply_steering_config!(sys_struct)
     s = cfg.steering
     d = cfg.depower
 
-    left_offset  = -s * cfg.steer_gain
-    right_offset =  s * cfg.steer_gain
+    left_offset  =  s * cfg.steer_gain
+    right_offset = -s * cfg.steer_gain
 
     if cfg.depower_idx > 0
         # Dedicated depower segment
