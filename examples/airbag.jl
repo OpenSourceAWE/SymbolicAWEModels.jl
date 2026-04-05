@@ -69,6 +69,7 @@ seg_id   = 1
 
 # Structural edges: horizontal (x-direction) and vertical (y-direction)
 for j in 0:N, i in 0:N
+    global seg_id
     if i < N
         push!(segments, Segment(seg_id, pname(i, j), pname(i + 1, j),
               SEG_STIFF, SEG_DAMP, SEG_DIA; compression_frac=0.0))
@@ -83,6 +84,7 @@ end
 
 # Diagonal shear segments (both diagonals per quad cell)
 for j in 0:N-1, i in 0:N-1
+    global seg_id
     push!(segments, Segment(seg_id, pname(i, j), pname(i + 1, j + 1),
           SEG_STIFF, SEG_DAMP, SEG_DIA; compression_frac=0.0))
     seg_id += 1
