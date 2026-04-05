@@ -296,10 +296,7 @@ using LinearAlgebra
                 orig_base_pos = copy(tf.base_pos)
                 orig_ground_cad = copy(ground.pos_cad)
 
-                # Shift base to non-origin position
                 offset = KVec3(10.0, 5.0, 0.0)
-                tf.base_pos .= offset
-                ground.pos_cad .= offset
 
                 for h_deg in [0, 30, -45]
                     target_h = deg2rad(h_deg)
@@ -314,7 +311,8 @@ using LinearAlgebra
                     origin_R = copy(wing.R_b_to_w)
                     origin_rel = wing.pos_w - orig_base_pos
 
-                    # Test: same heading at offset base
+                    # Test: same heading at offset base via
+                    # reinit!
                     tf.base_pos .= offset
                     ground.pos_cad .= offset
                     reset_transform!(sys)
@@ -324,10 +322,24 @@ using LinearAlgebra
                     offset_R = copy(wing.R_b_to_w)
                     offset_rel = wing.pos_w - offset
 
-                    # Orientation should match
                     @test origin_R ≈ offset_R atol=1e-6
-                    # Relative position should match
                     @test origin_rel ≈ offset_rel atol=1e-4
+
+                    # Test: same heading at offset base via
+                    # reposition!
+                    tf.base_pos .= offset
+                    ground.pos_cad .= offset
+                    reset_transform!(sys)
+                    tf.heading = 0.0
+                    init!(sam; remake=false, reload=false)
+                    tf.heading = target_h
+                    reposition!(sys.transforms, sys)
+                    wing = sys.wings[:main_wing]
+                    repos_R = copy(wing.R_b_to_w)
+                    repos_rel = wing.pos_w - offset
+
+                    @test origin_R ≈ repos_R atol=1e-6
+                    @test origin_rel ≈ repos_rel atol=1e-4
                 end
 
                 # Restore
@@ -336,7 +348,8 @@ using LinearAlgebra
 
                 println("\n  ====== [$wing_type_name] " *
                     "Heading with non-origin base: " *
-                    "consistent for all test angles ======\n")
+                    "reinit! and reposition! consistent " *
+                    "for all test angles ======\n")
             end
 
             # ================================================================
@@ -351,22 +364,27 @@ using LinearAlgebra
 
                     # Reference: reinit! with target heading
                     reset_transform!(sys)
-                    sys.transforms[:main_transform].heading = target_h
+                    sys.transforms[:main_transform].heading =
+                        target_h
                     init!(sam; remake=false, reload=false)
                     wing = sys.wings[:main_wing]
                     reinit_R = copy(wing.R_b_to_w)
                     reinit_pos = copy(wing.pos_w)
-                    reinit_h = calc_heading(reinit_R, wind_norm)
+                    reinit_h = calc_heading(
+                        reinit_R, wind_norm)
 
-                    # Test: reinit! with heading=0, then reposition!
+                    # Test: reinit! with heading=0, then
+                    # reposition!
                     reset_transform!(sys)
                     init!(sam; remake=false, reload=false)
-                    sys.transforms[:main_transform].heading = target_h
+                    sys.transforms[:main_transform].heading =
+                        target_h
                     reposition!(sys.transforms, sys)
                     wing = sys.wings[:main_wing]
                     repos_R = copy(wing.R_b_to_w)
                     repos_pos = copy(wing.pos_w)
-                    repos_h = calc_heading(repos_R, wind_norm)
+                    repos_h = calc_heading(
+                        repos_R, wind_norm)
 
                     @test reinit_h ≈ repos_h atol=1e-6
                     @test reinit_pos ≈ repos_pos atol=1e-4
