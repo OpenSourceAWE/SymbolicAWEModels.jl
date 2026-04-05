@@ -169,7 +169,10 @@ Supports:
 - `[(:le, 0.7), (:te, 0.3)]` → weighted combination
 """
 function WeightedRefPoints(refs::AbstractVector)
-    if !isempty(refs) && refs[1] isa Tuple
+    isempty(refs) && error(
+        "WeightedRefPoints requires at least one " *
+        "reference point, got empty vector")
+    if refs[1] isa Tuple
         names = NameRef[_to_name_ref(t[1]) for t in refs]
         weights = Float64[Float64(t[2]) for t in refs]
         _validate_weights!(weights)
