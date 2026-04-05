@@ -48,10 +48,10 @@ points:
 ## Segments ###############
 ###########################
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
     # unit_stiffness=1000, l0=10 -> k=100 N/m; unit_damping=10, l0=10 -> c=1 N·s/m
-    - [test_segment, anchor, mass_point, BRIDLE, 10.0, 5.0, 1000.0, 10.0, 0.1]
+    - [test_segment, anchor, mass_point, 10.0, 5.0, 1000.0, 10.0, 0.1]
 """
 
 # YAML for oscillation test
@@ -75,10 +75,10 @@ points:
     - [mass_point, [0.0, 0.0, -10.0], DYNAMIC, nothing, nothing, 5.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
     # unit_stiffness=1000 -> k=100 N/m, unit_damping=100 -> c=10 N*s/m -> zeta=0.224
-    - [test_segment, anchor, mass_point, BRIDLE, 10.0, 5.0, 1000.0, 100.0, 0.1]
+    - [test_segment, anchor, mass_point, 10.0, 5.0, 1000.0, 100.0, 0.1]
 """
 
 # YAML for horizontal segment drag test - two dynamic points, no extra mass
@@ -94,9 +94,9 @@ points:
     - [point_right, [5.0, 0.0, 50.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
-    - [horiz_segment, point_left, point_right, BRIDLE, 10.0, 4.0, 100000.0, 100.0, 0.1]
+    - [horiz_segment, point_left, point_right, 10.0, 4.0, 100000.0, 100.0, 0.1]
 """
 
 # YAML for vertical segment wind drag test - two dynamic points, no extra mass
@@ -112,9 +112,9 @@ points:
     - [point_bottom, [0.0, 0.0, 50.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
-    - [vert_segment, point_top, point_bottom, BRIDLE, 10.0, 4.0, 100000.0, 100.0, 0.1]
+    - [vert_segment, point_top, point_bottom, 10.0, 4.0, 100000.0, 100.0, 0.1]
 """
 
 # YAML for high altitude drag test - starts at 5000m where air is thinner
@@ -130,9 +130,9 @@ points:
     - [point_right, [5.0, 0.0, 5000.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
-    - [horiz_segment, point_left, point_right, BRIDLE, 10.0, 4.0, 100000.0, 100.0, 0.1]
+    - [horiz_segment, point_left, point_right, 10.0, 4.0, 100000.0, 100.0, 0.1]
 """
 
 @testset "Segment Tests" begin
@@ -160,10 +160,6 @@ system:
                                    #   use / as path delimiter, even on Windows
     g_earth:     9.81
 
-initial:
-    l_tethers: [0.0]  # initial tether length       [m]
-    v_reel_outs: [0.0]   # initial reel out speed    [m/s]
-
 solver:
     solver: "FBDF"
     abs_tol: 0.0001          # absolute tolerance of the DAE solver [m, m/s]
@@ -174,7 +170,7 @@ kite:
     model: ""     # 3D model of the kite
     foil_file: "ram_air_kite/ram_air_kite_foil.dat" # filename for the foil shape
     physical_model: "2plate"            # name of the kite model to use (2plate, ram, etc.)
-    struc_geometry_path: "struc_geometry.yaml"  # structural YAML
+    struc_geometry_path: "refine_struc_geometry.yaml"  # structural YAML
     aero_geometry_path: "aero_geometry.yaml"    # aerodynamic YAML
     mass: 0.0                               # kite mass [kg]
     quasi_static: false                     # whether to use quasi static kite points or not

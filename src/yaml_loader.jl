@@ -87,7 +87,7 @@ Modifies props in-place.
 function calculate_derived_properties!(props::Dict{Symbol, Any})
     # Calculate unit_stiffness from material properties if missing or if it's a string (material name)
     # Store EA; the spring k is computed later as EA / len in generate_system.jl.
-    if haskey(props, :youngs_modulus) && haskey(props, :diameter_mm) && haskey(props, :l0)
+    if haskey(props, :youngs_modulus) && haskey(props, :diameter_mm)
         # Check if we need to calculate (missing, nothing, or is a string reference)
         need_calculation = !haskey(props, :unit_stiffness) ||
                           props[:unit_stiffness] === nothing ||
@@ -323,8 +323,11 @@ starting from 1 with no gaps.
   - `type`: DYNAMIC or QUASI_STATIC
 
 - `groups`: (optional) table with headers `[id,point_idxs,gamma,type,reference_chord_frac]`
-- `tethers`: (optional) table with headers `[id,segment_ids,ground_point_id]`
-- `winches`: (optional) table with headers `[id,tether_ids]`
+- `tethers`: (optional) table with headers
+  - Route 1 (explicit segments): `[name, segment_idxs]`, optional: `init_len`
+  - Route 2 (auto-generated): `[name, start_point, end_point, n_segments, material]`, optional: `init_len`
+  - `init_len`: initial tether length [m]; scales `pos_w` before transforms, `pos_cad` unchanged
+- `winches`: (optional) table with headers `[name, tether_idxs, winch_point]`
 - `wings`: (optional, typically from VSM configuration)
 - `transforms`: (optional, typically from settings)
 """
@@ -448,10 +451,18 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Convert back to NamedTuple for constructor
             resolved_row = NamedTuple(props)
 
-            # Create Segment using new constructor (name, set, point_i, point_j, type)
-            # Raw point references are passed - SystemStructure will resolve
-            segment = call_yaml_constructor(Segment, resolved_row,
-                [:name, :set, :point_i, :point_j, :type],
+            # Deprecation check: error if old `type` column present
+            if haskey(resolved_row, :type)
+                error("Segment YAML `type` column " *
+                    "(SegmentType) is removed. Delete " *
+                    "the `type` header and column from " *
+                    "your YAML segments block.")
+            end
+
+            # Create Segment (name, set, point_i, point_j; kwargs)
+            segment = call_yaml_constructor(
+                Segment, resolved_row,
+                [:name, :set, :point_i, :point_j],
                 [:l0, :diameter_mm, :unit_stiffness,
                  :unit_damping, :compression_frac];
                 mappings=Dict(
@@ -459,14 +470,13 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     :point_i => r -> yaml_to_ref(r.point_i),
                     :point_j => r -> yaml_to_ref(r.point_j),
                     :name => r -> begin
-                        if haskey(r, :name) && !isnothing(r.name)
+                        if haskey(r, :name) &&
+                                !isnothing(r.name)
                             Symbol(r.name)
                         else
-                            i  # Use index as name if no name provided
+                            i
                         end
-                    end,
-                    :type => r -> parse_segment_type(
-                        String(r.type))
+                    end
                 ))
 
             push!(segments, segment)
@@ -535,34 +545,82 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
        !isempty(data["tethers"]["data"])
         tether_rows = parse_table(data["tethers"])
         for (i, row) in enumerate(tether_rows)
-            # Create Tether using new constructor (name, segments; winch_point)
-            # Pass raw values - constructor handles defaults
-            tether = call_yaml_constructor(Tether, row,
-                [:name, :segments],
-                [:winch_point];
-                mappings=Dict(
-                    :segments => r -> begin
-                        if !hasfield(typeof(r), :segment_idxs) || isnothing(r.segment_idxs)
-                            []
-                        else
-                            [yaml_to_ref(s) for s in r.segment_idxs]
-                        end
-                    end,
-                    :winch_point => r -> begin
-                        if !hasfield(typeof(r), :winch_point_idx) || isnothing(r.winch_point_idx)
-                            nothing  # Constructor handles default
-                        else
-                            yaml_to_ref(r.winch_point_idx)
-                        end
-                    end,
-                    :name => r -> begin
-                        if haskey(r, :name) && !isnothing(r.name)
-                            Symbol(r.name)
-                        else
-                            i  # Use index as name if no name provided
-                        end
-                    end
-                ))
+            tether_name = if haskey(row, :name) &&
+                             !isnothing(row.name)
+                Symbol(row.name)
+            else
+                i
+            end
+            # Detect Route 1 vs Route 2
+            has_segments = hasfield(typeof(row),
+                :segment_idxs) &&
+                !isnothing(row.segment_idxs)
+            if has_segments
+                # Route 1: explicit segments
+                segs = [yaml_to_ref(s)
+                    for s in row.segment_idxs]
+                sp = if hasfield(typeof(row),
+                        :start_point) &&
+                        !isnothing(row.start_point)
+                    yaml_to_ref(row.start_point)
+                else
+                    nothing
+                end
+                ep = if hasfield(typeof(row),
+                        :end_point) &&
+                        !isnothing(row.end_point)
+                    yaml_to_ref(row.end_point)
+                else
+                    nothing
+                end
+                il = if hasfield(typeof(row),
+                        :init_len) &&
+                        !isnothing(row.init_len)
+                    Float64(row.init_len)
+                else
+                    nothing
+                end
+                tether = Tether(tether_name, segs;
+                    start_point=sp, end_point=ep,
+                    initial_tether_length=il)
+            else
+                # Route 2: auto-generation
+                sp = yaml_to_ref(row.start_point)
+                ep = yaml_to_ref(row.end_point)
+                n_seg = Int(row.n_segments)
+                il = if hasfield(typeof(row),
+                        :init_len) &&
+                        !isnothing(row.init_len)
+                    Float64(row.init_len)
+                else
+                    nothing
+                end
+                # Resolve material reference if present
+                resolved = resolve_references(
+                    row, property_tables)
+                props = Dict{Symbol, Any}(
+                    pairs(resolved))
+                calculate_derived_properties!(props)
+                us = get(props, :unit_stiffness,
+                    NaN)
+                us = isnothing(us) ? NaN :
+                    Float64(us)
+                ud = get(props, :unit_damping,
+                    NaN)
+                ud = isnothing(ud) ? NaN :
+                    Float64(ud)
+                d_mm = get(props, :diameter_mm,
+                    NaN)
+                d_mm = isnothing(d_mm) ? NaN :
+                    Float64(d_mm)
+                d = isnan(d_mm) ? NaN :
+                    d_mm * 0.001
+                tether = Tether(tether_name;
+                    start_point=sp, end_point=ep,
+                    n_segments=n_seg,
+                    unit_stiffness=us, unit_damping=ud,
+                    diameter=d, initial_tether_length=il)
+            end
             push!(tethers, tether)
         end
     end
@@ -575,19 +633,25 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
        !isempty(data["winches"]["data"])
         winch_rows = parse_table(data["winches"])
         for (i, row) in enumerate(winch_rows)
-            # Create Winch using new constructor (name, set, tethers)
+            # Create Winch using constructor (name, set, tethers; winch_point)
             winch = call_yaml_constructor(Winch, row,
                 [:name, :set, :tethers],
-                [:tether_len, :tether_vel, :brake,
-                 :speed_controlled, :friction_epsilon];
+                [:winch_point, :tether_len, :tether_vel,
+                 :brake, :speed_controlled,
+                 :friction_epsilon];
                 mappings=Dict(
                     :set => r -> resolved_set,
-                    :tethers => r -> [yaml_to_ref(t) for t in r.tether_idxs],
+                    :tethers => r -> [yaml_to_ref(t)
+                        for t in r.tether_idxs],
+                    :winch_point => r -> begin
+                        yaml_to_ref(r.winch_point)
+                    end,
                     :name => r -> begin
-                        if haskey(r, :name) && !isnothing(r.name)
+                        if haskey(r, :name) &&
+                           !isnothing(r.name)
                             Symbol(r.name)
                         else
-                            i  # Use index as name if no name provided
+                            i
                         end
                     end
                 ))
@@ -833,12 +897,12 @@ Source and destination paths must be different for each pair.
 
 # Example
 ```julia
-sys = load_sys_struct_from_yaml("struc_geometry.yaml"; ...)
+sys = load_sys_struct_from_yaml("refine_struc_geometry.yaml"; ...)
 sam = SymbolicAWEModel(set, sys)
 # ... run simulation ...
 update_yaml_from_sys_struct!(sys,
-    "struc_geometry.yaml",
-    "struc_geometry_stable.yaml",
+    "refine_struc_geometry.yaml",
+    "refine_struc_geometry_stable.yaml",
     "aero_geometry.yaml",
     "aero_geometry_stable.yaml")
 ```
@@ -930,10 +994,10 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
 
         # Update lines in the segments section
         if in_segments_section
-            # Match: "- [idx, point_i, point_j, type, l0, ...]"
-            # Format: [idx, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
-            # We want to update the l0 field (5th field, index 4)
-            m = match(r"^(\s*-\s*\[)(\d+)(,\s*\d+,\s*\d+,\s*\w+,\s*)([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)(.*)", line)
+            # Match: "- [idx, point_i, point_j, l0, ...]"
+            # Format: [idx, point_i, point_j, l0, diameter_mm, ...]
+            # We want to update the l0 field (4th field)
+            m = match(r"^(\s*-\s*\[)(\d+)(,\s*\d+,\s*\d+,\s*)([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)(.*)", line)
             if m !== nothing
                 seg_idx = parse(Int, something(m.captures[2]))
 
@@ -1040,9 +1104,9 @@ components).
 
 # Example
 ```julia
-sys = load_sys_struct_from_yaml("struc_geometry.yaml"; ...)
+sys = load_sys_struct_from_yaml("refine_struc_geometry.yaml"; ...)
 # ... edit YAML externally ...
-update_sys_struct_from_yaml!(sys, "struc_geometry.yaml")
+update_sys_struct_from_yaml!(sys, "refine_struc_geometry.yaml")
 ```
 """
 function update_sys_struct_from_yaml!(
@@ -1120,7 +1184,7 @@ requiring a full SystemStructure object. This is a simpler alternative to
 # Example
 ```julia
 update_aero_yaml_from_struc_yaml!(
-    "data/2plate_kite/struc_geometry.yaml",
+    "data/2plate_kite/refine_struc_geometry.yaml",
     "data/2plate_kite/aero_geometry.yaml",
     "/tmp/claude/aero_geometry_updated.yaml")
 ```

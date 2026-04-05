@@ -600,10 +600,15 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
                      Int(wing.wing_type),
                      Int(wing.aero_mode))
 
-        # Include REFINE wing reference points in hash
+        # Include wing reference points in hash
         if wing isa VSMWing
+            _ref_hash(r) = (r.ids, r.weights)
+            _rp_hash(rp) = isnothing(rp) ? nothing :
+                (_ref_hash(rp[1]), _ref_hash(rp[2]))
             wing_data = (wing_data...,
-                wing.z_ref_points, wing.y_ref_points, wing.origin_idx)
+                _rp_hash(wing.z_ref_points),
+                _rp_hash(wing.y_ref_points),
+                wing.origin_idx)
         end
 
         push!(data_parts, wing_data)

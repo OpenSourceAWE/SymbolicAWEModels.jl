@@ -125,10 +125,65 @@ function Base.setproperty!(wing::BaseWing, sym::Symbol, value)
     end
 end
 
-# ==================== VSM WING ==================== #
+# ==================== WEIGHTED REF POINTS ==================== #
 
-# Reference type for orientation points - single or multiple points
-const RefPointSpec = Union{NameRef, Vector{NameRef}}
+"""
+    WeightedRefPoints
+
+Weighted combination of reference points for wing frame
+definition. Supports single points, equal-weight averaging,
+and arbitrary weight combinations.
+
+# Fields
+- `refs`: Unresolved names/indices (filled at construction)
+- `ids`: Resolved point indices (filled by `resolve!`)
+- `weights`: Normalized weights (sum to 1.0)
+"""
+mutable struct WeightedRefPoints
+    const refs::Vector{NameRef}
+    ids::Vector{Int64}
+    const weights::Vector{Float64}
+end
+
+"""Single point from a Symbol ref."""
+WeightedRefPoints(ref::Symbol) =
+    WeightedRefPoints(NameRef[ref], Int64[], [1.0])
+
+"""
+    WeightedRefPoints(id::Integer)
+
+Single point from a resolved index. Stores in `ids`
+(not `refs`) so `resolve!` is a no-op.
+"""
+WeightedRefPoints(id::Integer) =
+    WeightedRefPoints(NameRef[], Int64[Int64(id)], [1.0])
+
+"""
+    WeightedRefPoints(refs::AbstractVector)
+
+Equal-weight average of multiple ref points, or weighted
+if elements are `(name, weight)` tuples.
+
+Supports:
+- `[:le, :te]` → equal-weight average
+- `[(:le, 0.7), (:te, 0.3)]` → weighted combination
+"""
+function WeightedRefPoints(refs::AbstractVector)
+    isempty(refs) && error(
+        "WeightedRefPoints requires at least one " *
+        "reference point, got empty vector")
+    if refs[1] isa Tuple
+        names = NameRef[_to_name_ref(t[1]) for t in refs]
+        weights = Float64[Float64(t[2]) for t in refs]
+        _validate_weights!(weights)
+        return WeightedRefPoints(names, Int64[], weights)
+    end
+    names = NameRef[_to_name_ref(v) for v in refs]
+    n = length(names)
+    WeightedRefPoints(names, Int64[], fill(1.0 / n, n))
+end
+
+# ==================== VSM WING ==================== #
 
 """
     mutable struct VSMWing <: AbstractWing
@@ -160,19 +215,14 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
     point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}
     wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}
 
-    # Orientation reference points - RESOLVED indices
-    # Used to calculate R_b_to_w from structural point positions
-    # Can specify single point or vector of points to average:
-    #   (12, 13) - point 12 to point 13
-    #   (12, [13, 14]) - point 12 to average of points 13,14
-    #   ([11, 12], [13, 14]) - average of 11,12 to average of 13,14
-    # Z-axis: Normal to wing plane, Y-axis: Spanwise, X = Y × Z (chord)
-    z_ref_points::Union{Nothing, Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}}
-    y_ref_points::Union{Nothing, Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}}
-
-    # Orientation reference points - RAW references (names or indices)
-    const z_ref_points_ref::Union{Nothing, Tuple{RefPointSpec, RefPointSpec}}
-    const y_ref_points_ref::Union{Nothing, Tuple{RefPointSpec, RefPointSpec}}
+    # Orientation reference points (WeightedRefPoints carry
+    # both refs and resolved ids, with weights).
+    # Z-axis: Normal to wing plane
+    # Y-axis: Spanwise, X = Y × Z (chord)
+    z_ref_points::Union{Nothing,
+        Tuple{WeightedRefPoints, WeightedRefPoints}}
+    y_ref_points::Union{Nothing,
+        Tuple{WeightedRefPoints, WeightedRefPoints}}
 
     # Origin point - RESOLVED index
     # Defines wing.pos_w = pos[:, origin_idx]
@@ -189,23 +239,32 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
     # to adjust moment arm for improved stability
     aero_z_offset::SimFloat
 
-    function VSMWing(base::BaseWing, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac,
+    function VSMWing(base::BaseWing, vsm_aero,
+                     vsm_wing, vsm_solver,
+                     vsm_y, vsm_x, vsm_jac,
                      point_to_vsm_point, wing_segments,
-                     z_ref_points, y_ref_points, z_ref_points_ref, y_ref_points_ref,
-                     origin_idx, origin_ref, aero_scale_chord, aero_z_offset)
-        new{typeof(vsm_aero), typeof(vsm_wing), typeof(vsm_solver)}(
-            base, vsm_aero, vsm_wing, vsm_solver, vsm_y, vsm_x, vsm_jac,
+                     z_ref_points, y_ref_points,
+                     origin_idx, origin_ref,
+                     aero_scale_chord, aero_z_offset)
+        new{typeof(vsm_aero), typeof(vsm_wing),
+            typeof(vsm_solver)}(
+            base, vsm_aero, vsm_wing, vsm_solver,
+            vsm_y, vsm_x, vsm_jac,
             point_to_vsm_point, wing_segments,
-            z_ref_points, y_ref_points, z_ref_points_ref, y_ref_points_ref,
-            origin_idx, origin_ref, aero_scale_chord, aero_z_offset)
+            z_ref_points, y_ref_points,
+            origin_idx, origin_ref,
+            aero_scale_chord, aero_z_offset)
     end
 end
 
 # Delegate property access to base wing for VSMWing
-const VSM_WING_OWN_FIELDS = (:base, :vsm_aero, :vsm_wing, :vsm_solver, :vsm_y, :vsm_x, :vsm_jac,
-                              :point_to_vsm_point, :wing_segments,
-                              :z_ref_points, :y_ref_points, :z_ref_points_ref, :y_ref_points_ref,
-                              :origin_idx, :origin_ref, :aero_scale_chord, :aero_z_offset)
+const VSM_WING_OWN_FIELDS = (
+    :base, :vsm_aero, :vsm_wing, :vsm_solver,
+    :vsm_y, :vsm_x, :vsm_jac,
+    :point_to_vsm_point, :wing_segments,
+    :z_ref_points, :y_ref_points,
+    :origin_idx, :origin_ref,
+    :aero_scale_chord, :aero_z_offset)
 
 function Base.getproperty(wing::VSMWing, sym::Symbol)
     if sym in VSM_WING_OWN_FIELDS
@@ -295,10 +354,18 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
         0.0)  # mass initialized to 0, set by SystemStructure
 end
 
-# Helper to convert ref point spec to proper type
-_to_ref_point_spec(x::Integer) = Int(x)
-_to_ref_point_spec(x::Symbol) = x
-_to_ref_point_spec(x::AbstractVector) = Vector{NameRef}([_to_name_ref(v) for v in x])
+"""Warn and normalize if weights don't sum to 1."""
+function _validate_weights!(weights::Vector{Float64})
+    s = sum(weights)
+    s > 0 || error(
+        "Ref point weights sum to $s; " *
+        "all weights must be positive")
+    if !isapprox(s, 1.0; atol=1e-6)
+        @warn "Ref point weights sum to $s, " *
+            "normalizing to 1.0"
+        weights ./= s
+    end
+end
 
 """
     create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, kwargs...)
@@ -412,12 +479,15 @@ function VSMWing(name, set::Settings,
         # defined by structural ref points)
     end
 
-    # Convert ref points to proper types
-    z_ref_points_ref = isnothing(z_ref_points) ? nothing :
-        (_to_ref_point_spec(z_ref_points[1]), _to_ref_point_spec(z_ref_points[2]))
-    y_ref_points_ref = isnothing(y_ref_points) ? nothing :
-        (_to_ref_point_spec(y_ref_points[1]), _to_ref_point_spec(y_ref_points[2]))
-    origin_ref = isnothing(origin) ? nothing : _to_name_ref(origin)
+    # Convert ref points to WeightedRefPoints
+    z_ref = isnothing(z_ref_points) ? nothing :
+        (WeightedRefPoints(z_ref_points[1]),
+         WeightedRefPoints(z_ref_points[2]))
+    y_ref = isnothing(y_ref_points) ? nothing :
+        (WeightedRefPoints(y_ref_points[1]),
+         WeightedRefPoints(y_ref_points[2]))
+    origin_ref = isnothing(origin) ? nothing :
+        _to_name_ref(origin)
 
     # Create VSM wing, aero, and solver
     vsm_wing = create_vsm_wing(set, vsm_set; prn=false,
@@ -449,18 +519,13 @@ function VSMWing(name, set::Settings,
         nx = 3 + 3 + n_unrefined  # force(3) + moment(3) + unrefined_moments(n_unrefined)
     end
 
-    # Placeholder values for resolved indices (set by SystemStructure)
-    z_ref_resolved = nothing
-    y_ref_resolved = nothing
-    origin_idx_resolved = nothing
-
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
                    zeros(SimFloat, ny), zeros(SimFloat, nx),
                    zeros(SimFloat, nx, ny),
                    point_to_vsm_point, wing_segments,
-                   z_ref_resolved, y_ref_resolved, z_ref_points_ref, y_ref_points_ref,
-                   origin_idx_resolved, origin_ref, aero_scale_chord,
-                   aero_z_offset)
+                   z_ref, y_ref,
+                   nothing, origin_ref,
+                   aero_scale_chord, aero_z_offset)
 end
 
 """
@@ -501,7 +566,7 @@ function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, ny), zeros(SimFloat, nx),
         zeros(SimFloat, nx, ny),
         nothing, nothing,
-        nothing, nothing, nothing, nothing,  # z/y_ref_points and refs
+        nothing, nothing,  # z/y_ref_points
         nothing, nothing,  # origin_idx and origin_ref
         0.0, 0.0)
 end

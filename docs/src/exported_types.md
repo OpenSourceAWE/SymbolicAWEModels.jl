@@ -15,7 +15,6 @@ See [Building a system using Julia](tutorial_julia.md) and
 ## Public enumerations
 
 ```@docs
-SegmentType
 DynamicsType
 WingType
 AeroMode
@@ -38,21 +37,21 @@ Point(name, pos_cad, type; wing, transform, extra_mass, body_frame_damping, worl
 Group
 Group(name, points, type, moment_frac; damping)
 Segment
-Segment(name, set, point_i, point_j, type; l0, compression_frac, unit_stiffness, unit_damping)
+Segment(name, set, point_i, point_j; l0, compression_frac, diameter_mm, unit_stiffness, unit_damping)
 Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, compression_frac)
 Pulley
 Pulley(name, segment_i, segment_j, type)
 Tether
-Tether(name, segments; winch_point)
+Tether(name, segments; start_point, end_point)
+Tether(name; start_point, end_point, n_segments, unit_stiffness, unit_damping, diameter)
 Winch
-Winch(name, set::Settings, tethers; tether_len, tether_vel, brake)
-Winch(name, tethers, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; tether_len, tether_vel, brake)
+Winch(name, set::Settings, tethers; winch_point, tether_len, tether_vel, brake)
+Winch(name, tethers, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; winch_point, tether_len, tether_vel, brake)
 AbstractWing
 BaseWing
 VSMWing
 Transform
 Transform(name, elevation, azimuth, heading; base_point, base_pos, base_transform, wing, rot_point)
-Transform(name, set, base_point; kwargs...)
 ```
 
 ## Indexing

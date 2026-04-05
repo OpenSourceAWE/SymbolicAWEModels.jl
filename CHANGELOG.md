@@ -3,17 +3,64 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
-# v0.7.3 21-03-2026
+# v0.8.0 DD-MM-2026
+
+## Changed
+- BREAKING: `SegmentType` positional argument removed from `Segment`
+  constructor. Use `unit_stiffness`, `unit_damping`, `diameter_mm`
+  kwargs or a YAML material instead. The `SegmentType` enum is kept
+  temporarily to produce a helpful deprecation error.
+- BREAKING: `winch_point` moved from `Tether` to `Winch`. Pass
+  `winch_point` as a keyword to the `Winch` constructor instead.
+- BREAKING: Heading calculation changed from wind-perpendicular
+  projection to tangential sphere frame. `calc_heading(R_b_to_w,
+  wind_norm)` → `calc_heading(R_b_to_w, wing_pos)`.
+  `get_heading_components()` removed. `solve_heading_rotation` takes
+  `wing_pos` instead of `k, wind_norm`.
+- BREAKING: `Tether` struct fields restructured — `winch_point_idx/ref`
+  removed, new fields: `start_point_idx/ref`, `end_point_idx/ref`,
+  `n_segments`, `unit_stiffness`, `unit_damping`, `diameter`.
+- BREAKING: `create_tether()` utility returns a 5-tuple (added
+  `ground_point_idx`) and no longer takes a `SegmentType` argument.
+- BREAKING: YAML segment format no longer has a `type` column. Existing
+  YAML files with a `type` column in segments will raise an error.
+- Tethers no longer require a connected winch. Winch-less tethers use
+  constant `l0` from segment properties.
+- `compression_frac` description clarified: "Compressive/tensile
+  stiffness ratio (0-1). 0 = no compression stiffness."
+
+## Added
+- Route 2 tether auto-generation: `Tether(name; start_point,
+  end_point, n_segments)` automatically creates intermediate points
+  and segments, evenly spaced between endpoints. YAML format:
+  `headers: [name, start_point, end_point, n_segments, ...]`.
+- Route 1 tethers auto-detect `start_point_idx` and `end_point_idx`
+  from the first/last segment endpoints.
+- Comprehensive docstrings on all `Point`, `Group`, `Segment`,
+  `Pulley`, `Tether`, `Winch`, and `Transform` struct fields.
+- New tests: "Route 2 auto-generated tether" and "Tether without
+  winch" in `test_tether_winch.jl`.
 
 ## Fixed
-- Unknown solver string (e.g. `DFBDF` from default KiteUtils settings) no longer throws an
-  error — a warning is emitted and the solver falls back to `FBDF`.
-- README code examples now include the required `SymbolicAWEModels.init_module(; force=false)`
-  call so they work correctly on a fresh install.
-- README pendulum example also calls `set_data_path("data/base")` before loading `Settings`.
+- YAML `calculate_derived_properties!` no longer requires `l0` to
+  compute `unit_stiffness` from material properties (needed for
+  Route 2 tethers).
+- YAML `update_yaml_from_sys_struct!` regex updated for the new
+  segment format (no `type` column).
+- Heading calculation uses tangential sphere frame, fixing drift issues
+  with the old wind-perpendicular projection.
+- Unknown solver string (e.g. `DFBDF` from default KiteUtils settings)
+  no longer throws an error — a warning is emitted and the solver
+  falls back to `FBDF`.
+- README code examples now include the required
+  `SymbolicAWEModels.init_module(; force=false)` call so they work
+  correctly on a fresh install.
+- README pendulum example also calls `set_data_path("data/base")`
+  before loading `Settings`.
 
 ## Tests
-- README pendulum example and README 2-plate kite example are now executed in `test/test_setup.sh`.
+- README pendulum example and README 2-plate kite example are now
+  executed in `test/test_setup.sh`.
 
 # v0.7.2 18-03-2026
 

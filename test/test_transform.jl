@@ -84,7 +84,7 @@ using LinearAlgebra
                 transform = sys.transforms[:main_transform]
 
                 # Verify base point
-                @test transform.base_point_idx == 11  # ground point index
+                @test transform.base_point_idx == 10  # ground point index
 
                 # Verify wing reference
                 @test transform.wing_idx == 1  # main_wing index
@@ -270,7 +270,7 @@ using LinearAlgebra
             @testset "Base position from base_point" begin
                 # The transform references ground as base_point
                 transform = sam.sys_struct.transforms[:main_transform]
-                @test transform.base_point_idx == 11  # ground index
+                @test transform.base_point_idx == 10  # ground index
 
                 reset_transform!(sam.sys_struct)
                 init!(sam; remake=false, reload=false)
@@ -285,43 +285,50 @@ using LinearAlgebra
             end
 
             # ================================================================
-            # Physics Test 9: reposition! heading matches reinit! heading
+            # Physics Test 9: reposition! heading matches reinit!
+            # Tested with both origin and non-origin base positions
+            # to verify heading rotates around the correct axis.
             # ================================================================
-            @testset "Reposition heading matches reinit" begin
+            function test_reposition_heading(sam, base_pos, label)
                 sys = sam.sys_struct
-                wind_norm = normalize(sys.wind_vec_gnd)
+                tf = sys.transforms[:main_transform]
+                orig_base_pos = copy(tf.base_pos)
 
-                for h_deg in [0, 10, -15, 30, 45, -45]
-                    target_h = deg2rad(h_deg)
+                @testset "Reposition heading ($label)" begin
+                    for h_deg in [0, 10, -15, 30, 45, -45]
+                        target_h = deg2rad(h_deg)
 
-                    # Reference: reinit! with target heading
-                    reset_transform!(sys)
-                    sys.transforms[:main_transform].heading = target_h
-                    init!(sam; remake=false, reload=false)
-                    wing = sys.wings[:main_wing]
-                    reinit_R = copy(wing.R_b_to_w)
-                    reinit_pos = copy(wing.pos_w)
-                    reinit_h = calc_heading(reinit_R, wind_norm)
+                        # Reference: reinit! with target heading
+                        tf.base_pos .= base_pos
+                        reset_transform!(sys)
+                        tf.heading = target_h
+                        init!(sam; remake=false, reload=false)
+                        wing = sys.wings[:main_wing]
+                        reinit_R = copy(wing.R_b_to_w)
+                        reinit_pos = copy(wing.pos_w)
 
-                    # Test: reinit! with heading=0, then reposition!
-                    reset_transform!(sys)
-                    init!(sam; remake=false, reload=false)
-                    sys.transforms[:main_transform].heading = target_h
-                    reposition!(sys.transforms, sys)
-                    wing = sys.wings[:main_wing]
-                    repos_R = copy(wing.R_b_to_w)
-                    repos_pos = copy(wing.pos_w)
-                    repos_h = calc_heading(repos_R, wind_norm)
+                        # reinit! with heading=0, then
+                        # reposition! to target
+                        tf.base_pos .= base_pos
+                        reset_transform!(sys)
+                        init!(sam; remake=false, reload=false)
+                        tf.heading = target_h
+                        reposition!(sys.transforms, sys)
+                        wing = sys.wings[:main_wing]
 
-                    @test reinit_h ≈ repos_h atol=1e-6
-                    @test reinit_pos ≈ repos_pos atol=1e-4
-                    @test reinit_R ≈ repos_R atol=1e-6
+                        @test reinit_R ≈ wing.R_b_to_w atol=1e-6
+                        @test reinit_pos ≈ wing.pos_w atol=1e-4
+                    end
                 end
 
-                println("\n  ====== [$wing_type_name] " *
-                    "reposition! heading matches reinit! " *
-                    "for all test angles ======\n")
+                tf.base_pos .= orig_base_pos
             end
+
+            test_reposition_heading(
+                sam, KVec3(0.0, 0.0, 0.0), "origin base")
+            test_reposition_heading(
+                sam, KVec3(10.0, 5.0, 0.0),
+                "non-origin base")
         end
     end
 

@@ -132,7 +132,9 @@ SymbolicAWEModels.update_aero_yaml_from_struc_yaml!
 
 ```@docs
 SymbolicAWEModels.segment_cad_length
+SymbolicAWEModels.segment_world_length
 SymbolicAWEModels.autocalc_tether_len
+SymbolicAWEModels.apply_tether_init_lens!
 SymbolicAWEModels.assign_indices_and_resolve!
 SymbolicAWEModels.resolve_ref
 SymbolicAWEModels.resolve_ref_spec
@@ -141,12 +143,17 @@ SymbolicAWEModels.build_name_dict
 SymbolicAWEModels.identify_wing_segments
 SymbolicAWEModels.match_aero_sections_to_structure!
 SymbolicAWEModels.compute_spatial_group_mapping!
-SymbolicAWEModels.init_untransformed_components!
+SymbolicAWEModels.copy_cad_to_world!
 SymbolicAWEModels.adjust_vsm_panels_to_origin!
 SymbolicAWEModels.apply_aero_z_offset!
 SymbolicAWEModels.calc_refine_wing_frame
 SymbolicAWEModels.calc_inertia_y_rotation
 SymbolicAWEModels.rotate_vsm_sections!
+SymbolicAWEModels.expand_auto_tethers!
+SymbolicAWEModels.WeightedRefPoints
+SymbolicAWEModels.resolve!
+SymbolicAWEModels._validate_weights!
+SymbolicAWEModels.SegmentType
 ```
 
 ## NamedCollection internals
@@ -185,11 +192,18 @@ SymbolicAWEModels.get_group_moment_override
 ## Heading and geometry
 
 ```@docs
-SymbolicAWEModels.get_heading_components
 SymbolicAWEModels.solve_heading_rotation
 SymbolicAWEModels.get_ref_position_from_points
 SymbolicAWEModels.sym_calc_R_t_to_w
 SymbolicAWEModels.wrap_to_pi
+```
+
+## Transform internals
+
+```@docs
+SymbolicAWEModels._apply_azimuth_elevation!
+SymbolicAWEModels._apply_heading!
+SymbolicAWEModels._finalize_transforms!
 ```
 
 ## Other internals

@@ -38,9 +38,8 @@
 # connected by spring-damper segments, hanging under gravity.
 
 using SymbolicAWEModels, VortexStepMethod
-import GLMakie                                                    #hide
+using GLMakie
 GLMakie.activate!(; visible=false)                                #hide
-using Makie: plot                                                 #hide
 ASSETS = joinpath(@__DIR__, "..", "assets")                        #hide
 pkg_root = joinpath(@__DIR__, "..", "..", "..")                    #hide
 set_data_path(joinpath(pkg_root, "data", "base"))                 #hide
@@ -150,7 +149,7 @@ SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
 
 ## Group all segments into a tether
 seg_names = [s.name for s in segments]
-tethers = [Tether(:main, seg_names; winch_point=:anchor)]
+tethers = [Tether(:main, seg_names)]
 
 ## Create a winch connected to the tether
 gear_ratio = 1.0
@@ -160,7 +159,8 @@ c_vf = 30.6              # [Ns/m]
 inertia_total = 0.024    # [kgm²]
 
 winches = [Winch(:winch, [:main],
-    gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total)]
+    gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total;
+    winch_point=:anchor)]
 
 # Build and simulate with a constant torque of -20 Nm:
 
@@ -285,10 +285,11 @@ SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
 # Segment(:spring, :anchor, :mass, 1000.0, 50.0, 0.002)
 #
 # ## Tether references segments by name
-# Tether(:main, [:seg1, :seg2]; winch_point=:anchor)
+# Tether(:main, [:seg1, :seg2])
 #
-# ## Winch references tethers by name
-# Winch(:winch, [:main], 1.0, 0.11, 122.0, 30.6, 0.024)
+# ## Winch references tethers and winch point by name
+# Winch(:winch, [:main], 1.0, 0.11, 122.0, 30.6, 0.024;
+#     winch_point=:anchor)
 #
 # ## Pulley references segments by name
 # Pulley(:pulley, :seg_a, :seg_b, DYNAMIC)

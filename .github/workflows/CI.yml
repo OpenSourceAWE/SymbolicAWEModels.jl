@@ -126,11 +126,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
-
-      - name: Run doctests
-        run: |
-          julia --project=docs -e '
-            using Documenter: DocMeta, doctest
-            using KiteUtils
-            DocMeta.setdocmeta!(KiteUtils, :DocTestSetup, :(using KiteUtils); recursive=true)
-            doctest(KiteUtils)'

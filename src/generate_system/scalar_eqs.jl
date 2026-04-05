@@ -23,7 +23,8 @@ derivatives, as well as apparent wind calculations.
 function scalar_eqs!(
     s, eqs, psys, pset;
     R_b_to_w, wind_vec_gnd, va_wing_b, wing_pos,
-    wing_vel, wing_acc, twist_angle, ω_b, α_b, R_v_to_w
+    wing_vel, wing_acc, twist_angle, ω_b, α_b,
+    R_v_to_w, pos
 )
     @unpack wings = s.sys_struct
     @variables begin
@@ -84,73 +85,102 @@ function scalar_eqs!(
     end
 
     for wing in wings
-        x, y, _ = wing_pos[:, wing.idx]
+        # Compute position relative to transform base point.
+        # Spherical coordinates (heading, elevation, azimuth,
+        # distance, R_t_to_w) are defined on the sphere centered
+        # at the base, not at the world origin.
+        transforms = s.sys_struct.transforms
+        if wing.transform_idx != 0 &&
+                wing.transform_idx <= length(transforms)
+            tf = transforms[wing.transform_idx]
+            bp_idx = tf.base_point_idx
+            rel_pos = wing_pos[:, wing.idx] .-
+                pos[:, bp_idx]
+        else
+            rel_pos = wing_pos[:, wing.idx]
+        end
+
+        x, y, _ = rel_pos
         has_groups = !isempty(wing.group_idxs)
         half_len = 0
         if has_groups
-            half_len = wing.group_idxs[1] + length(wing.group_idxs) ÷ 2 - 1
+            half_len = wing.group_idxs[1] +
+                length(wing.group_idxs) ÷ 2 - 1
         end
 
-        # Calculate heading using wind-perpendicular frame
-        wind_norm = sym_normalize(wind_vel_wing[:, wing.idx])
-        # Project -e_x onto plane perpendicular to wind
-        minus_e_x = -e_x[:, wing.idx]
-        proj_on_wind = (minus_e_x ⋅ wind_norm) * wind_norm
-        e_x_perp = minus_e_x - proj_on_wind
-        # x-component: perpendicular to both wind and z
-        wind_cross_z = [wind_norm[2], -wind_norm[1], 0]
-        heading_x = e_x_perp ⋅ wind_cross_z
-        # z-component: world z-axis
-        heading_z = e_x_perp[3]
-        # Calculate course using same wind-perpendicular projection
-        proj_vel_on_wind = (wing_vel[:, wing.idx] ⋅ wind_norm) * wind_norm
-        vel_perp = wing_vel[:, wing.idx] - proj_vel_on_wind
-        course_x = vel_perp ⋅ wind_cross_z
-        course_z = vel_perp[3]
+        # Calculate heading using tangential sphere frame.
+        # Projects e_x onto the tangent plane via R_t_to_w:
+        # x_t = elevation dir (away from zenith),
+        # y_t = azimuthal.
+        # heading = 0 when e_x aligns with x_t (nose toward
+        # GS).
+        heading_t_1 = e_x[:, wing.idx] ⋅
+            R_t_to_w[:, 1, wing.idx]
+        heading_t_2 = e_x[:, wing.idx] ⋅
+            R_t_to_w[:, 2, wing.idx]
+        # Course: velocity direction in same tangential frame.
+        course_t_1 = wing_vel[:, wing.idx] ⋅
+            R_t_to_w[:, 1, wing.idx]
+        course_t_2 = wing_vel[:, wing.idx] ⋅
+            R_t_to_w[:, 2, wing.idx]
 
-        # Unified equations for both QUATERNION and REFINE wings.
-        # REFINE wings have ω_b=α_b=0 (set in wing_eqs!), so turn_rate/turn_acc
-        # naturally evaluate to zero.
+        # Unified equations for both QUATERNION and REFINE
+        # wings. REFINE wings have ω_b=α_b=0 (set in
+        # wing_eqs!), so turn_rate/turn_acc naturally evaluate
+        # to zero.
         eqs = [
             eqs
             vec(R_v_to_w[:, :, wing.idx]) ~
-                vec(calc_R_v_to_w(wing_pos[:, wing.idx], e_x[:, wing.idx]))
+                vec(calc_R_v_to_w(
+                    rel_pos, e_x[:, wing.idx]))
             vec(R_t_to_w[:, :, wing.idx]) ~
-                vec(sym_calc_R_t_to_w(wing_pos[:, wing.idx]))
-            heading[wing.idx] ~ atan(heading_x, heading_z)
+                vec(sym_calc_R_t_to_w(rel_pos))
+            heading[wing.idx] ~
+                atan(heading_t_2, heading_t_1)
             turn_rate[:, wing.idx] ~
                 R_v_to_w[:, :, wing.idx]' *
-                (R_b_to_w[:, :, wing.idx] * ω_b[:, wing.idx])
+                (R_b_to_w[:, :, wing.idx] *
+                    ω_b[:, wing.idx])
             turn_acc[:, wing.idx] ~
                 R_v_to_w[:, :, wing.idx]' *
-                (R_b_to_w[:, :, wing.idx] * α_b[:, wing.idx])
-            distance[wing.idx] ~ norm(wing_pos[:, wing.idx])
+                (R_b_to_w[:, :, wing.idx] *
+                    α_b[:, wing.idx])
+            distance[wing.idx] ~ norm(rel_pos)
             distance_vel[wing.idx] ~
-                wing_vel[:, wing.idx] ⋅ R_t_to_w[:, 3, wing.idx]
+                wing_vel[:, wing.idx] ⋅
+                    R_t_to_w[:, 3, wing.idx]
             distance_acc[wing.idx] ~
-                wing_acc[:, wing.idx] ⋅ R_t_to_w[:, 3, wing.idx]
+                wing_acc[:, wing.idx] ⋅
+                    R_t_to_w[:, 3, wing.idx]
             elevation[wing.idx] ~
-                KiteUtils.calc_elevation(wing_pos[:, wing.idx])
+                KiteUtils.calc_elevation(rel_pos)
             elevation_vel[wing.idx] ~
-                dot(wing_vel[:, wing.idx], -R_t_to_w[:, 1, wing.idx]) /
+                dot(wing_vel[:, wing.idx],
+                    -R_t_to_w[:, 1, wing.idx]) /
                 distance[wing.idx]
             elevation_acc[wing.idx] ~
-                dot(wing_acc[:, wing.idx], -R_t_to_w[:, 1, wing.idx]) /
+                dot(wing_acc[:, wing.idx],
+                    -R_t_to_w[:, 1, wing.idx]) /
                 distance[wing.idx]
             azimuth[wing.idx] ~
-                KiteUtils.azimuth_east(wing_pos[:, wing.idx])
+                KiteUtils.azimuth_east(rel_pos)
             azimuth_vel[wing.idx] ~
-                dot(wing_vel[:, wing.idx], -R_t_to_w[:, 2, wing.idx]) /
+                dot(wing_vel[:, wing.idx],
+                    -R_t_to_w[:, 2, wing.idx]) /
                 norm([x, y])
             azimuth_acc[wing.idx] ~
-                dot(wing_acc[:, wing.idx], -R_t_to_w[:, 2, wing.idx]) /
+                dot(wing_acc[:, wing.idx],
+                    -R_t_to_w[:, 2, wing.idx]) /
                 norm([x, y])
-            course[wing.idx] ~ atan(course_x, course_z)
+            course[wing.idx] ~
+                atan(course_t_2, course_t_1)
             angle_of_attack[wing.idx] ~
-                calc_angle_of_attack(va_wing_b[:, wing.idx]) +
+                calc_angle_of_attack(
+                    va_wing_b[:, wing.idx]) +
                 (has_groups ?
                     0.5 * twist_angle[half_len] +
-                    0.5 * twist_angle[half_len + 1] : 0)
+                    0.5 * twist_angle[half_len + 1] :
+                    0)
         ]
     end
     return eqs

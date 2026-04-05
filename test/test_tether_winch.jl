@@ -33,31 +33,27 @@ points:
        0.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm,
+  headers: [name, point_i, point_j, l0, diameter_mm,
             unit_stiffness, unit_damping, compression_frac]
   data:
-    - [tether_seg, weight, ground, BRIDLE, 50.0, 1.0,
+    - [tether_seg, weight, ground, 50.0, 1.0,
        0.0, 0.0, 0.0]
 
 tethers:
-  headers: [name, segment_idxs, winch_point_idx]
+  headers: [name, segment_idxs]
   data:
-    - [main_tether, [tether_seg], ground]
+    - [main_tether, [tether_seg]]
 
 winches:
-  headers: [name, tether_idxs]
+  headers: [name, tether_idxs, winch_point]
   data:
-    - [main_winch, [main_tether]]
+    - [main_winch, [main_tether], ground]
 """
 
 const WINCH_TEST_SETTINGS = """
 system:
     log_file: "data/winch_test"
     g_earth: 9.81
-
-initial:
-    l_tethers: [0.0]
-    v_reel_outs: [0.0]
 
 solver:
     solver: "FBDF"
@@ -69,7 +65,7 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "struc_geometry.yaml"
+    struc_geometry_path: "refine_struc_geometry.yaml"
     aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
     quasi_static: false
@@ -343,6 +339,170 @@ environment:
             "applied=$(tau_motor), " *
             "computed=$(round(steady[1]; digits=4))"
         )
+    end
+
+    # ============================================================
+    # Test 7: Route 2 tether auto-generation
+    # Same weight-on-string setup but using Route 2 (only
+    # start_point, end_point, n_segments — no explicit segments).
+    # Verify: correct number of points/segments created, mass
+    # falls under gravity to expected steady-state position.
+    # ============================================================
+    @testset "Route 2 auto-generated tether" begin
+        using SymbolicAWEModels: Point, Segment, Tether, Winch,
+            Transform, SystemStructure, SymbolicAWEModel,
+            STATIC, DYNAMIC, init!
+
+        points = [
+            Point(:mass, [0.0, 0.0, -100.0], DYNAMIC;
+                  extra_mass=5.0),
+            Point(:anchor, [0.0, 0.0, 0.0], STATIC),
+        ]
+        transforms = [
+            Transform(:tf, deg2rad(-80.0), 0.0, 0.0;
+                base_pos=[0, 0, 0], base_point=:anchor,
+                rot_point=:mass)
+        ]
+
+        # Route 2: auto-generate 4 segments between mass
+        # and anchor
+        tethers = [Tether(:line;
+            start_point=:mass, end_point=:anchor,
+            n_segments=4)]
+        winches = [Winch(:winch, set, [:line];
+            winch_point=:anchor)]
+
+        sys2 = SystemStructure("route2_test", set;
+            points, tethers, winches, transforms,
+            prn=false)
+
+        # 2 original + 3 intermediate = 5 points
+        @test length(sys2.points) == 5
+        # 4 auto-generated segments
+        @test length(sys2.segments) == 4
+        # Segment names follow convention
+        @test sys2.segments[:line_seg_1].idx == 1
+        @test sys2.segments[:line_seg_4].idx == 4
+
+        # Tether start/end resolved correctly
+        teth = sys2.tethers[:line]
+        @test teth.start_point_idx ==
+            sys2.points[:mass].idx
+        @test teth.end_point_idx ==
+            sys2.points[:anchor].idx
+        @test length(teth.segment_idxs) == 4
+
+        # Winch point is anchor
+        @test sys2.winches[:winch].winch_point_idx ==
+            sys2.points[:anchor].idx
+
+        # Intermediate points evenly spaced
+        for i in 1:3
+            pt = sys2.points[Symbol("line_point_$i")]
+            expected_z = -100.0 + i * 25.0
+            @test pt.pos_w[3] ≈ expected_z atol=0.1
+        end
+
+        # Segments have correct l0 (100m / 4 = 25m each)
+        for i in 1:4
+            s = sys2.segments[Symbol("line_seg_$i")]
+            @test s.l0 ≈ 25.0 atol=0.01
+        end
+
+        # Build and simulate: mass should settle under gravity
+        sam2 = SymbolicAWEModel(set, sys2)
+        init!(sam2; remake=true, prn=false)
+
+        # Brake on, stiff tether
+        w2 = sam2.sys_struct.winches[:winch]
+        w2.brake = true
+        for s in sam2.sys_struct.segments
+            s.unit_stiffness = 50000.0
+            s.unit_damping = 500.0
+        end
+        init!(sam2; remake=true, prn=false)
+
+        next_step!(sam2; dt=3.0, vsm_interval=0)
+
+        # Exact equilibrium: each segment carries weight of
+        # all mass below its upper end.
+        # extension_j = T_j * l0 / (unit_k - T_j)
+        l0 = 25.0
+        g = set.g_earth
+        unit_k = 50000.0
+        d = sam2.sys_struct.segments[1].diameter
+        rho = set.rho_tether
+        half_seg_m = rho * π * (d / 2)^2 * l0 / 2
+        m_mass = 5.0 + half_seg_m         # bottom point
+        m_mid = 2 * half_seg_m            # intermediate pts
+
+        # Cumulative weight below each segment (bottom-up)
+        cum_mass = [m_mass,
+                    m_mass + m_mid,
+                    m_mass + 2 * m_mid,
+                    m_mass + 3 * m_mid]
+        total_len = sum(
+            l0 * unit_k / (unit_k - m * g)
+            for m in cum_mass)
+        expected_z = -total_len
+
+        mass_z = sam2.sys_struct.points[:mass].pos_w[3]
+        @test mass_z ≈ expected_z rtol=0.01
+    end
+
+    # ============================================================
+    # Test 8: Tether without winch (constant l0)
+    # A tether with segments but no winch. Segments should use
+    # constant rest length (from get_l0). Verify the system
+    # builds and simulates without errors.
+    # ============================================================
+    @testset "Tether without winch" begin
+        using SymbolicAWEModels: Point, Segment, Tether,
+            Transform, SystemStructure, SymbolicAWEModel,
+            STATIC, DYNAMIC
+
+        points = [
+            Point(:top, [0.0, 0.0, -50.0], DYNAMIC;
+                  extra_mass=5.0),
+            Point(:bot, [0.0, 0.0, 0.0], STATIC),
+        ]
+        segments = [
+            Segment(:seg, :top, :bot, 50000.0, 500.0,
+                    0.001; l0=50.0)
+        ]
+        tethers = [Tether(:free_tether, [:seg])]
+        transforms = [
+            Transform(:tf, deg2rad(-80.0), 0.0, 0.0;
+                base_pos=[0, 0, 0], base_point=:bot,
+                rot_point=:top)
+        ]
+
+        # No winches — should build fine
+        sys3 = SystemStructure("no_winch", set;
+            points, segments, tethers, transforms,
+            prn=false)
+
+        @test length(sys3.winches) == 0
+        @test length(sys3.tethers) == 1
+        teth = sys3.tethers[:free_tether]
+        @test teth.start_point_idx ==
+            sys3.points[:top].idx
+        @test teth.end_point_idx ==
+            sys3.points[:bot].idx
+
+        sam3 = SymbolicAWEModel(set, sys3)
+        init!(sam3; remake=true, prn=false)
+
+        # Simulate: mass settles under gravity with stiff
+        # constant-l0 tether
+        for _ in 1:2000
+            next_step!(sam3; dt=0.001, vsm_interval=0)
+        end
+
+        # Should reach equilibrium (not diverge)
+        top_z = sam3.sys_struct.points[:top].pos_w[3]
+        @test isfinite(top_z)
+        @test top_z < -49.0  # stretched slightly by gravity
     end
 
     rm(tmpdir; recursive=true)

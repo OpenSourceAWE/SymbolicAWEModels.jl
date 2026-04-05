@@ -336,19 +336,24 @@ function set_measured!(sys_struct::SystemStructure,
 
     # get variables from integrator
     distance = norm(wing.pos_w)
-    R_t_to_w = calc_R_t_to_w(wing.pos_w) # rotation of tether to world
-    R_v_to_w = calc_R_v_to_w(wing.pos_w, wing.R_b_to_w[:,1])
-    
-    # get wing_pos, rotate it by elevation and azimuth around the x and z axis
-    wing.pos_w .= R_t_to_w * [0, 0, distance + tether_len[1] - winches[1].tether_len]
-    wing.vel_w .= R_t_to_w * [-wing.elevation_vel, wing.azimuth_vel, 0.0]
-    wing.wind_disturb .= R_t_to_w * [0.0, 0.0, -tether_vel[1]]
-    # find quaternion orientation from heading, R_b_to_w and R_t_to_w
-    R_b_to_w = zeros(3,3)
-    cur_heading = calc_heading(R_t_to_w, R_v_to_w)
+    R_t_to_w = calc_R_t_to_w(wing.pos_w)
+
+    # Update wing position for new tether length
+    wing.pos_w .= R_t_to_w * [0, 0,
+        distance + tether_len[1] - winches[1].tether_len]
+    wing.vel_w .= R_t_to_w *
+        [-wing.elevation_vel, wing.azimuth_vel, 0.0]
+    wing.wind_disturb .= R_t_to_w *
+        [0.0, 0.0, -tether_vel[1]]
+    # Rotate to target heading (tangential sphere frame)
+    cur_heading = calc_heading(
+        wing.R_b_to_w, wing.pos_w)
     d_heading = heading - cur_heading
+    R_b_to_w = zeros(3, 3)
     for i in 1:3
-        R_b_to_w[:,i] .= R_t_to_w * rotate_around_z(R_t_to_w' * wing.R_b_to_w[:,i], d_heading)
+        R_b_to_w[:, i] .= R_t_to_w * rotate_around_z(
+            R_t_to_w' * wing.R_b_to_w[:, i],
+            d_heading)
     end
     wing.R_b_to_w = R_b_to_w
     # adjust the turn rates for observed turn rate

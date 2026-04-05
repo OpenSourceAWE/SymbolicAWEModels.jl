@@ -16,10 +16,6 @@ options = [
     "coupled_2plate_kite = include(\"coupled_2plate_kite.jl\")",
     "coupled_2plate_kite_linear_vsm = include(\"coupled_2plate_kite_linear_vsm.jl\")",
     "coupled_tether_deflection = include(\"coupled_tether_deflection.jl\")",
-    "coupled_realtime_visualization = include(\"coupled_realtime_visualization.jl\")",
-    "coupled_linearize = include(\"coupled_linearize.jl\")",
-    "coupled_simple_lin_model = include(\"coupled_simple_lin_model.jl\")",
-    "static_load_2plate_kite = include(\"static_load_2plate_kite.jl\")",
     "sam_tutorial = include(\"sam_tutorial.jl\")",
     "quit",
 ]

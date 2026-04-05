@@ -47,10 +47,10 @@ points:
        nothing, 1.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm,
+  headers: [name, point_i, point_j, l0, diameter_mm,
             unit_stiffness, unit_damping, compression_frac]
   data:
-    - [seg1, anchor, mass_point, BRIDLE, 10.0, 5.0,
+    - [seg1, anchor, mass_point, 10.0, 5.0,
        1000.0, 10.0, 0.1]
 """
 
@@ -58,10 +58,6 @@ SETTINGS_YAML = """
 system:
     log_file: "data/makie_test"
     g_earth: 9.81
-
-initial:
-    l_tethers: [0.0]
-    v_reel_outs: [0.0]
 
 solver:
     solver: "FBDF"
@@ -73,7 +69,7 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "struc_geometry.yaml"
+    struc_geometry_path: "refine_struc_geometry.yaml"
     aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
     quasi_static: false
@@ -115,7 +111,7 @@ end
 
 @testset "Makie Extension" begin
     tmpdir = mktempdir()
-    yaml_path = joinpath(tmpdir, "struc_geometry.yaml")
+    yaml_path = joinpath(tmpdir, "refine_struc_geometry.yaml")
     write(yaml_path, MAKIE_TEST_YAML)
     settings_path = joinpath(tmpdir, "settings.yaml")
     write(settings_path, SETTINGS_YAML)

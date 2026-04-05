@@ -39,13 +39,11 @@ function winch_eqs!(eqs, defaults, winches, tethers, points, psys, _pset;
     end
 
     for winch in winches
-        F = zeros(Num, 3)
-        for tether_idx in winch.tether_idxs
-            winch_point_idx = tethers[tether_idx].winch_point_idx
-            (winch_point_idx > length(points)) &&
-                error("Point number $winch_point_idx does not exist.")
-            F .+= point_force[:, winch_point_idx]
-        end
+        winch_point_idx = winch.winch_point_idx
+        (winch_point_idx > length(points)) &&
+            error("Winch $(winch.name): point " *
+                  "$winch_point_idx does not exist.")
+        F = point_force[:, winch_point_idx]
 
         gear_ratio = get_winch_gear_ratio(psys, winch.idx)
         drum_radius = get_winch_drum_radius(psys, winch.idx)

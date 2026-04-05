@@ -9,7 +9,7 @@ the file `data/system.yaml`.
 !!! note
     These are the simulation `Settings` parameters loaded from `system.yaml`.
     For YAML-based models, the structural geometry (points, segments, etc.)
-    is defined separately in `struc_geometry.yaml`. See
+    is defined separately in `refine_struc_geometry.yaml` (or `quat_struc_geometry.yaml`). See
     [Building a system using YAML](tutorial_yaml.md) for details.
 
 ## Parameters
@@ -25,11 +25,6 @@ system:
     zoom:        0.03              # zoom factor for the system view
     kite_scale:   3.0              # relative zoom factor for the 4 point kite
     fixed_font: ""                 # name or filepath+filename of alternative fixed pitch font
-
-initial:
-    l_tethers: [50.0, 50.0, 50.0]  # initial tether length       [m]
-    elevation: 70.8                # initial elevation angle   [deg]
-    v_reel_outs: [0.0, 0.0, 0.0]   # initial reel out speed    [m/s]
 
 solver:
     solver: "FBDF"

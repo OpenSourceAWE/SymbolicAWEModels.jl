@@ -27,11 +27,11 @@ points:
        1.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, type, l0,
+  headers: [name, point_i, point_j, l0,
             diameter_mm, unit_stiffness, unit_damping,
             compression_frac]
   data:
-    - [seg_ab, pt_a, pt_b, POWER_LINE, 10.0,
+    - [seg_ab, pt_a, pt_b, 10.0,
        1.0, 5000.0, 10.0, 1.0]
 """
 
@@ -39,9 +39,6 @@ const SETTINGS_YAML_UPDATE = """
 system:
     log_file: "data/2plate"
     g_earth: 9.81
-initial:
-    l_tethers: [0.0]
-    v_reel_outs: [0.0]
 solver:
     solver: "FBDF"
     abs_tol: 0.01
@@ -51,7 +48,7 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "struc_geometry.yaml"
+    struc_geometry_path: "refine_struc_geometry.yaml"
     aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
     quasi_static: false

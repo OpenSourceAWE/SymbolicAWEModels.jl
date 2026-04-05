@@ -56,11 +56,17 @@ function wing_eqs!(
         ω[3] ω[2] -ω[1] 0
     ]
 
-    # Helper for ref point positions (single or average)
-    get_ref_position(pos, ref::Int64) = pos[:, ref]
-    function get_ref_position(pos, refs::Vector{Int64})
-        n = length(refs)
-        return sum(pos[:, idx] for idx in refs) / n
+    # Weighted ref point position (symbolic)
+    function get_ref_position(
+        pos, ref_pt::WeightedRefPoints
+    )
+        result = ref_pt.weights[1] *
+            pos[:, ref_pt.ids[1]]
+        for i in 2:length(ref_pt.ids)
+            result += ref_pt.weights[i] *
+                pos[:, ref_pt.ids[i]]
+        end
+        return result
     end
 
     for wing in wings

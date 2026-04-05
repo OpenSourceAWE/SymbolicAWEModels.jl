@@ -33,140 +33,79 @@ function wrap_to_pi(angle)
 end
 
 """
-    calc_heading(R_b_to_w, wind_norm)
+    calc_heading(R_b_to_w, wing_pos)
 
-Calculate heading angle from body-to-world rotation matrix and wind direction.
-Heading is the angle of the body x-axis projected onto a wind-perpendicular plane.
+Calculate heading angle using the tangential sphere frame.
+
+Projects the body x-axis onto the tangent plane of the tether
+sphere at `wing_pos`. Heading is measured from the elevation
+direction (x_t, away from zenith) toward the azimuthal direction
+(y_t). Heading = 0 when the kite nose points toward the ground
+station.
 """
-function calc_heading(R_b_to_w, wind_norm)
+function calc_heading(R_b_to_w, wing_pos)
+    R_t_to_w = calc_R_t_to_w(wing_pos)
     e_x = R_b_to_w[:, 1]
-    # Project -e_x onto plane perpendicular to wind
-    minus_e_x = -e_x
-    proj_on_wind = dot(minus_e_x, wind_norm) * wind_norm
-    e_x_perp = minus_e_x - proj_on_wind
-    # Heading components in wind-perpendicular plane
-    wind_cross_z = [wind_norm[2], -wind_norm[1], 0]
-    heading_x = dot(e_x_perp, wind_cross_z)
-    heading_z = e_x_perp[3]
-    heading = atan(heading_x, heading_z)
-    return wrap_to_pi(heading)
+    e_x_t = R_t_to_w' * e_x
+    return atan(e_x_t[2], e_x_t[1])
 end
 
 """
-    get_heading_components(e_x, k, θ, wind_norm)
+    solve_heading_rotation(R_b_to_w, target_heading, wing_pos)
 
-Get heading_y and heading_z components for body x-axis rotated by θ around k.
+Calculate the rotation angle around the radial axis needed to
+achieve `target_heading`.
+
+With the tangential sphere heading, rotating around the radial
+axis by θ simply shifts the heading by θ, so the solution is
+`target_heading - current_heading`.
 """
-function get_heading_components(e_x, k, θ, wind_norm)
-    e_x_rot = rotate_v_around_k(e_x, k, θ)
-    minus_ex = -e_x_rot
-    proj_on_wind = dot(minus_ex, wind_norm) * wind_norm
-    e_x_perp = minus_ex - proj_on_wind
-    wind_cross_z = [wind_norm[2], -wind_norm[1], 0.0]
-    hy = dot(e_x_perp, wind_cross_z)
-    hz = e_x_perp[3]
-    return hy, hz
-end
-
-"""
-    solve_heading_rotation(R_b_to_w, target_heading, k, wind_norm)
-
-Analytical solution for heading rotation angle.
-
-The heading components vary with rotation angle θ as:
-  hy(θ) = A1*sin(θ) + B1*cos(θ) + C1  (same form for hz)
-
-The equation hy*cos(h) - hz*sin(h) = 0 gives: A*sin(θ) + B*cos(θ) + C = 0
-
-Solution: θ = atan2(A, B) - acos(-C / √(A² + B²))
-"""
-function solve_heading_rotation(R_b_to_w, target_heading, k, wind_norm)
-    k = normalize(k)
-    e_x = R_b_to_w[:, 1]
-
-    # Extract coefficients by sampling at θ = 0, π/2, π
-    hy_0, hz_0 = get_heading_components(e_x, k, 0.0, wind_norm)
-    hy_90, hz_90 = get_heading_components(e_x, k, π/2, wind_norm)
-    hy_180, hz_180 = get_heading_components(e_x, k, π, wind_norm)
-
-    C1 = (hy_0 + hy_180) / 2
-    B1 = hy_0 - C1
-    A1 = hy_90 - C1
-
-    C2 = (hz_0 + hz_180) / 2
-    B2 = hz_0 - C2
-    A2 = hz_90 - C2
-
-    ch = cos(target_heading)
-    sh = sin(target_heading)
-
-    A = A1 * ch - A2 * sh
-    B = B1 * ch - B2 * sh
-    C = C1 * ch - C2 * sh
-
-    r = sqrt(A^2 + B^2)
-
-    if r < 1e-10
-        return 0.0
-    end
-
-    base_angle = atan(A, B)
-    arg = clamp(-C / r, -1.0, 1.0)
-    delta = acos(arg)
-
-    return base_angle - delta
+function solve_heading_rotation(
+    R_b_to_w, target_heading, wing_pos,
+)
+    current = calc_heading(R_b_to_w, wing_pos)
+    return wrap_to_pi(target_heading - current)
 end
 
 # ==================== REFINE WING FRAME CALCULATION ==================== #
 
 """
-    get_ref_position_from_points(points::AbstractVector{Point}, ref::Int64)
-    get_ref_position_from_points(points::AbstractVector{Point}, refs::Vector{Int64})
+    get_ref_position_from_points(points, ref_pt)
 
-Helper to get position (single point or average of multiple).
-Used for REFINE wing reference point calculations.
+Weighted position from structural points.
 """
-get_ref_position_from_points(points::AbstractVector{Point}, ref::Int64) = points[ref].pos_w
-function get_ref_position_from_points(points::AbstractVector{Point}, refs::Vector{Int64})
-    n = length(refs)
-    return sum(points[idx].pos_w for idx in refs) / n
+function get_ref_position_from_points(
+    points::AbstractVector{Point},
+    ref_pt::WeightedRefPoints
+)
+    pos = zero(KVec3)
+    for (idx, w) in zip(ref_pt.ids, ref_pt.weights)
+        pos += w * points[idx].pos_w
+    end
+    return pos
 end
 
 """
-    calc_refine_wing_frame(points::Vector{Point}, z_ref_points, y_ref_points, origin_idx)
+    calc_refine_wing_frame(points, z_ref_points, y_ref_points, origin_idx)
 
-Calculate R_b_to_w rotation matrix and origin position for a REFINE wing from structural point positions.
-
-This function implements the same R_b_to_w calculation logic as used in `generate_system.jl`
-for REFINE wings, ensuring consistency between initialization (`reinit!`) and simulation
-(symbolic equations).
+Calculate R_b_to_w rotation matrix and origin position
+from structural point positions.
 
 # Algorithm
-1. Extract reference point positions (with averaging if vectors provided)
-2. Calculate Z-axis (normal to wing): normalized vector from z_p1 to z_p2
-3. Calculate X-axis (chord direction): Y_temp × Z, where Y_temp is from y_p1 to y_p2
-4. Calculate Y-axis (spanwise): Z × X (ensures orthogonality and right-handed system)
-5. Extract origin position from origin_idx point
-
-# Arguments
-- `points::AbstractVector{Point}`: All structural points (must have pos_w initialized)
-- `z_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}`:
-  Reference points defining Z-axis (normal direction)
-- `y_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}}`:
-  Reference points defining Y-axis (spanwise direction)
-- `origin_idx::Int64`: Point index defining wing origin (KCU position)
-
-# Returns
-- `R_b_to_w::Matrix{SimFloat}`: 3x3 rotation matrix from body frame to world frame
-- `origin::KVec3`: Origin position in world frame
+1. Weighted ref point positions
+2. Z-axis (normal): z_p1 → z_p2
+3. X-axis (chord): Y_temp × Z
+4. Y-axis (span): Z × X (orthogonal, right-handed)
+5. Origin from origin_idx point
 """
 function calc_refine_wing_frame(
     points::AbstractVector{Point},
-    z_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}},
-    y_ref_points::Tuple{Union{Int64, Vector{Int64}}, Union{Int64, Vector{Int64}}},
+    z_ref_points::Tuple{WeightedRefPoints,
+                        WeightedRefPoints},
+    y_ref_points::Tuple{WeightedRefPoints,
+                        WeightedRefPoints},
     origin_idx::Int64
 )
-    # Extract reference point positions (with averaging if vectors provided)
     z_p1, z_p2 = z_ref_points
     y_p1, y_p2 = y_ref_points
 
@@ -175,23 +114,19 @@ function calc_refine_wing_frame(
     pos_y1 = get_ref_position_from_points(points, y_p1)
     pos_y2 = get_ref_position_from_points(points, y_p2)
 
-    # Build rotation matrix from structural geometry
     # Z direction (normal to wing, normalized)
     z_axis = normalize(pos_z2 - pos_z1)
 
-    # Y temp direction (not necessarily orthogonal yet)
+    # Y temp direction (not necessarily orthogonal)
     y_temp = normalize(pos_y2 - pos_y1)
 
-    # X = Y_temp × Z (chord direction, orthogonal to Z)
+    # X = Y_temp × Z (chord, orthogonal to Z)
     x_axis = normalize(y_temp × z_axis)
 
-    # Y = Z × X (ensure orthogonality and right-handed system)
+    # Y = Z × X (orthogonal, right-handed)
     y_axis = z_axis × x_axis
 
-    # Construct rotation matrix [x y z]
     R_b_to_w = hcat(x_axis, y_axis, z_axis)
-
-    # Extract origin position
     origin = points[origin_idx].pos_w
 
     return R_b_to_w, origin
@@ -200,33 +135,145 @@ end
 # ==================== HELPERS ==================== #
 
 """
-    init_untransformed_components!(points, wings, update_vel;
-                                   filter=true)
+    copy_cad_to_world!(points, wings; update_vel=true)
 
-Initialize `pos_w = pos_cad` for untransformed components.
-When `filter=true` (default), only components with
-`transform_idx == 0` are initialized. When `filter=false`,
-all components are initialized (used when no transforms exist).
+Copy CAD geometry to world frame for ALL points and wings.
+Sets `pos_w = pos_cad` (and `Q_b_to_w` to initial CAD orientation
+for wings). Must be called before `reinit!(transforms, ...)`.
 """
-function init_untransformed_components!(
-    points, wings, update_vel::Bool; filter::Bool=true
-)
+function copy_cad_to_world!(points, wings; update_vel::Bool=true)
     for point in points
-        filter && point.transform_idx != 0 && continue
         point.pos_w .= point.pos_cad
         update_vel && (point.vel_w .= 0.0)
     end
     for wing in wings
-        filter && wing.transform_idx != 0 && continue
-        # Body frame output
         wing.pos_w .= wing.pos_cad
-        wing.Q_b_to_w .= rotation_matrix_to_quaternion(
-            wing.R_b_to_c)
+        wing.Q_b_to_w .= rotation_matrix_to_quaternion(wing.R_b_to_c)
         if update_vel
             wing.vel_w .= 0.0
             wing.ω_b .= 0.0
         end
     end
+end
+
+"""
+    _apply_azimuth_elevation!(transform, wings, points, base_pos; update_vel=false)
+
+Apply the azimuth/elevation rotation of a single transform to all
+components in it. Returns `(curr_R_t_to_w, R_t_to_w)` for use in
+the heading step.
+"""
+function _apply_azimuth_elevation!(transform, wings, points, base_pos;
+                                   update_vel::Bool=false)
+    curr_rot_pos = get_rot_pos(transform, wings, points)
+    rel_pos = curr_rot_pos - base_pos
+
+    if norm(rel_pos) < 1e-6
+        error("Transform #$(transform.idx): Wing/rot position and base " *
+              "position overlap at $(base_pos). Cannot define " *
+              "elevation/azimuth rotation. Use transform_idx: 0 to skip " *
+              "transforms, or adjust positions.")
+    end
+    curr_R_t_to_w = calc_R_t_to_w(rel_pos)
+
+    transform_pos = rotate_around_z(
+        rotate_around_y([1, 0, 0], -transform.elevation), -transform.azimuth)
+    R_t_to_w = calc_R_t_to_w(transform_pos)
+
+    r_rot = norm(curr_rot_pos - base_pos)
+    elev = transform.elevation
+    azim = transform.azimuth
+    vel_spherical = rotate_around_y([0, 0, r_rot * transform.elevation_vel], -elev) +
+                    rotate_around_z([0, r_rot * transform.azimuth_vel, 0], -azim)
+
+    for point in points
+        point.transform_idx == transform.idx || continue
+        vec = point.pos_w - base_pos
+        point.pos_w .= base_pos + apply_heading(vec, R_t_to_w, curr_R_t_to_w, 0.0)
+        update_vel && (point.vel_w .= norm(point.pos_w - base_pos) / r_rot * vel_spherical)
+    end
+    for wing in wings
+        wing.transform_idx == transform.idx || continue
+        vec = wing.pos_w - base_pos
+        wing.pos_w .= base_pos + apply_heading(vec, R_t_to_w, curr_R_t_to_w, 0.0)
+        if update_vel
+            wing.vel_w .= norm(wing.pos_w - base_pos) / r_rot * vel_spherical
+            wing.ω_b .= 0.0
+        end
+    end
+
+    return curr_R_t_to_w, R_t_to_w
+end
+
+"""
+    _apply_heading!(transform, wings, points,
+                    curr_R_t_to_w, R_t_to_w, base_pos)
+
+Apply heading rotation to all components in a single transform.
+Rotates around the radial axis through `base_pos` (not the origin).
+Uses `wing.R_b_to_w` for the no-ref-points orientation source.
+After `copy_cad_to_world!`, this equals `wing.R_b_to_c` (for
+`reinit!`), or the current world orientation (for `reposition!`).
+"""
+function _apply_heading!(transform, wings, points,
+                         curr_R_t_to_w, R_t_to_w, base_pos)
+    for wing in wings
+        wing.transform_idx == transform.idx || continue
+
+        if !isnothing(wing.z_ref_points)
+            R_b_to_w, _ = calc_refine_wing_frame(
+                points, wing.z_ref_points,
+                wing.y_ref_points, wing.origin_idx)
+        else
+            R_b_to_w = zeros(3, 3)
+            for i in 1:3
+                R_b_to_w[:, i] .= apply_heading(
+                    wing.R_b_to_w[:, i],
+                    R_t_to_w, curr_R_t_to_w, 0.0)
+            end
+        end
+
+        rel_pos = wing.pos_w - base_pos
+        delta_heading = solve_heading_rotation(
+            R_b_to_w, transform.heading, rel_pos)
+        k = normalize(rel_pos)
+
+        for point in points
+            point.transform_idx == transform.idx || continue
+            point.pos_w .= base_pos .+ rotate_v_around_k(
+                point.pos_w .- base_pos, k, delta_heading)
+        end
+
+        wing.pos_w .= base_pos .+ rotate_v_around_k(
+            rel_pos, k, delta_heading)
+        for i in 1:3
+            R_b_to_w[:, i] .= rotate_v_around_k(
+                R_b_to_w[:, i], k, delta_heading)
+        end
+        wing.R_b_to_w = R_b_to_w
+    end
+end
+
+"""
+    _finalize_transforms!(wings, points)
+
+Finalize transforms: update REFINE wing frames from structural
+point positions, then compute principal frame ODE state.
+"""
+function _finalize_transforms!(wings, points)
+    for wing in wings
+        wing.wing_type == REFINE || continue
+        R_b_to_w, origin = calc_refine_wing_frame(
+            points, wing.z_ref_points, wing.y_ref_points, wing.origin_idx)
+        wing.R_b_to_w = R_b_to_w
+        wing.pos_w .= origin
+        for point in points
+            if point.type == WING && point.wing_idx == wing.idx
+                point.pos_b .= R_b_to_w' * (point.pos_w - origin)
+            end
+        end
+    end
+    init_principal_frame!(wings, points)
 end
 
 """
@@ -274,178 +321,57 @@ end
 # ==================== REINIT! ==================== #
 
 """
-    reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure)
+    reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure;
+            update_vel=true)
 
-Apply the initial spatial transformations to all components in a `SystemStructure`.
+Apply transforms to all components in a `SystemStructure`.
 
-This function iterates through all transforms and applies the specified translation
-and rotation to position and orient the kite system components correctly in the
-world frame at the beginning of a simulation.
-
-If transforms is empty, simply initializes pos_w = pos_cad for all components.
+Expects `pos_w` to already be set (via `copy_cad_to_world!` and optionally
+`apply_tether_init_lens!` from `reinit!(sys_struct, set; ...)`).
+Applies: translate (from pos_w) → azimuth/elevation → heading.
 """
 function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure;
                  update_vel::Bool=true)
     @unpack points, wings = sys_struct
 
-    # No transforms: init ALL as pos_w = pos_cad
     if isempty(transforms)
-        init_untransformed_components!(
-            points, wings, update_vel; filter=false)
-        init_principal_frame!(wings, points)
+        _finalize_transforms!(wings, points)
         return
     end
 
-    # Initialize untransformed components (transform_idx == 0)
-    init_untransformed_components!(points, wings, update_vel)
-
-    # Apply transforms
     for transform in transforms
-        # Warn if turn_rate is not zero (not yet implemented)
         if transform.turn_rate != 0.0
-            @warn "Transform #$(transform.idx): turn_rate = $(rad2deg(transform.turn_rate))°/s is not zero, " *
-                  "but turn_rate dynamics are not yet implemented. This field will be ignored."
+            @warn "Transform #$(transform.idx): turn_rate = " *
+                  "$(rad2deg(transform.turn_rate))°/s is not zero, " *
+                  "but turn_rate dynamics are not yet implemented. " *
+                  "This field will be ignored."
         end
 
         # ==================== TRANSLATE ==================== #
+        # T is computed from pos_w of base (via get_base_pos).
+        # After copy_cad_to_world! and apply_tether_init_lens!,
+        # pos_w reflects any tether scaling already applied.
         base_pos, curr_base_pos = get_base_pos(transform, transforms, wings, points)
         T = base_pos - curr_base_pos
         for point in points
-            if point.transform_idx == transform.idx
-                point.pos_w .= point.pos_cad .+ T
-                update_vel && (point.vel_w .= 0.0)
-            end
+            point.transform_idx == transform.idx || continue
+            point.pos_w .= point.pos_w .+ T
+            update_vel && (point.vel_w .= 0.0)
         end
         for wing in wings
-            if wing.transform_idx == transform.idx
-                wing.pos_w .= wing.pos_cad .+ T
-                update_vel && (wing.vel_w .= 0.0)
-            end
+            wing.transform_idx == transform.idx || continue
+            wing.pos_w .= wing.pos_w .+ T
+            update_vel && (wing.vel_w .= 0.0)
         end
 
-        # ==================== ROTATE (azimuth/elevation only) ==================== #
-        curr_rot_pos = get_rot_pos(transform, wings, points)
-        rel_pos = curr_rot_pos - base_pos
-
-        # Error if wing/rot position coincides with base (cannot define rotation)
-        if norm(rel_pos) < 1e-6
-            error("Transform #$(transform.idx): Wing/rot position and base position " *
-                  "overlap at $(base_pos). Cannot define elevation/azimuth rotation. " *
-                  "Use transform_idx: 0 to skip transforms, or adjust positions.")
-        end
-        curr_R_t_to_w = calc_R_t_to_w(rel_pos)
-
-        transform_pos = rotate_around_z(rotate_around_y([1,0,0], -transform.elevation),
-                                        -transform.azimuth)
-        R_t_to_w = calc_R_t_to_w(transform_pos)
-
-        # Compute velocity components from spherical coordinate motion
-        elev = transform.elevation
-        azim = transform.azimuth
-        rot_pos = get_rot_pos(transform, wings, points)
-        r_rot = norm(rot_pos - base_pos)
-        vel_spherical = rotate_around_y([0, 0, r_rot * transform.elevation_vel], -elev) +
-                        rotate_around_z([0, r_rot * transform.azimuth_vel, 0], -azim)
-
-        # First apply only azimuth/elevation rotation (heading=0)
-        for point in points
-            if point.transform_idx == transform.idx
-                vec = point.pos_w - base_pos
-                point.pos_w .= base_pos + apply_heading(vec, R_t_to_w, curr_R_t_to_w, 0.0)
-                if update_vel
-                    point.vel_w .= norm(point.pos_w - base_pos) / norm(rot_pos - base_pos) *
-                                   vel_spherical
-                end
-            end
-        end
-        for wing in wings
-            if wing.transform_idx == transform.idx
-                vec = wing.pos_w - base_pos
-                wing.pos_w .= base_pos + apply_heading(vec, R_t_to_w, curr_R_t_to_w, 0.0)
-                if update_vel
-                    wing.vel_w .= norm(wing.pos_w - base_pos) / norm(rot_pos - base_pos) *
-                                  vel_spherical
-                    wing.ω_b .= 0.0
-                end
-            end
-        end
-
-        # ==================== APPLY HEADING VIA NONLINEAR SOLVE ==================== #
-        # For each wing in this transform, calculate R_b_to_w and solve for heading
-        for wing in wings
-            if wing.transform_idx == transform.idx
-                # Calculate R_b_to_w depending on wing type
-                if !isnothing(wing.z_ref_points)
-                    # Ref points available (REFINE or
-                    # QUATERNION with ref points)
-                    R_b_to_w, _ = calc_refine_wing_frame(
-                        points, wing.z_ref_points,
-                        wing.y_ref_points,
-                        wing.origin_idx)
-                else
-                    # No ref points: rotate R_b_to_c
-                    R_b_to_w = zeros(3, 3)
-                    for i in 1:3
-                        R_b_to_w[:, i] .= apply_heading(
-                            wing.R_b_to_c[:, i],
-                            R_t_to_w, curr_R_t_to_w, 0.0)
-                    end
-                end
-
-                # Solve for the rotation angle that
-                # achieves target heading
-                k = normalize(wing.pos_w)
-                wind_norm = normalize(
-                    sys_struct.wind_vec_gnd)
-                delta_heading = solve_heading_rotation(
-                    R_b_to_w, transform.heading,
-                    k, wind_norm)
-
-                # Apply the solved rotation to all
-                # points in this transform
-                for point in points
-                    if point.transform_idx ==
-                       transform.idx
-                        point.pos_w .= rotate_v_around_k(
-                            point.pos_w,
-                            k, delta_heading)
-                    end
-                end
-
-                # Apply rotation to wing position and orientation
-                wing.pos_w .= rotate_v_around_k(wing.pos_w, k, delta_heading)
-                for i in 1:3
-                    R_b_to_w[:, i] .= rotate_v_around_k(R_b_to_w[:, i], k, delta_heading)
-                end
-                wing.R_b_to_w = R_b_to_w
-            end
-        end
+        # ==================== ROTATE + HEADING ==================== #
+        curr_R_t_to_w, R_t_to_w = _apply_azimuth_elevation!(
+            transform, wings, points, base_pos; update_vel)
+        _apply_heading!(transform, wings, points,
+            curr_R_t_to_w, R_t_to_w, base_pos)
     end
 
-    # Calculate pos_b for REFINE wing points after all
-    # transforms are complete
-    for wing in wings
-        if wing isa VSMWing && wing.wing_type == REFINE
-            R_b_to_w, origin = calc_refine_wing_frame(
-                points, wing.z_ref_points,
-                wing.y_ref_points, wing.origin_idx)
-
-            wing.R_b_to_w = R_b_to_w
-            wing.pos_w .= origin
-
-            for point in points
-                if point.type == WING &&
-                   point.wing_idx == wing.idx
-                    point.pos_b .= R_b_to_w' *
-                        (point.pos_w - origin)
-                end
-            end
-        end
-    end
-
-    # Compute principal frame state from body frame
-    # for all wings (QUATERNION pos_b also set here)
-    init_principal_frame!(wings, points)
+    _finalize_transforms!(wings, points)
 end
 
 """
@@ -456,15 +382,9 @@ Update the system's spatial orientation based on its current
 position, preserving velocities.
 
 Unlike `reinit!`, uses current world positions (`pos_w`) as
-the starting point rather than resetting from CAD coordinates.
-Heading is wind-relative (absolute), consistent with `reinit!`:
-the same analytical `solve_heading_rotation` is used.
-
-Preserves existing velocities (`vel_w`, `ω_b`) of all points
-and wings.
-
-# Arguments
-- `sys_struct::SystemStructure`: The system model to update.
+the starting point (no reset from CAD coordinates, no tether
+length scaling). Heading uses the tangential sphere frame,
+consistent with `reinit!`.
 """
 function reposition!(
     transforms::AbstractVector{Transform},
@@ -473,113 +393,10 @@ function reposition!(
     @unpack points, wings = sys_struct
     for transform in transforms
         base_pos = points[transform.base_point_idx].pos_w
-        rot_pos = get_rot_pos(transform, wings, points)
-        curr_rel_pos = rot_pos - base_pos
-
-        if norm(curr_rel_pos) < 1e-6
-            error(
-                "Transform #$(transform.idx): " *
-                "Wing/rot position and base position " *
-                "overlap at $(base_pos). " *
-                "Cannot define rotation.")
-        end
-        curr_R_t_to_w = calc_R_t_to_w(curr_rel_pos)
-
-        transform_pos = rotate_around_z(
-            rotate_around_y(
-                [1,0,0], -transform.elevation),
-            -transform.azimuth)
-        R_t_to_w = calc_R_t_to_w(transform_pos)
-
-        # ========= PHASE 1: AZIMUTH/ELEVATION ========= #
-        for point in points
-            if point.transform_idx == transform.idx
-                vec = point.pos_w - base_pos
-                point.pos_w .= base_pos +
-                    apply_heading(vec, R_t_to_w,
-                                  curr_R_t_to_w, 0.0)
-            end
-        end
-        for wing in wings
-            if wing.transform_idx == transform.idx
-                vec = wing.pos_w - base_pos
-                wing.pos_w .= base_pos +
-                    apply_heading(vec, R_t_to_w,
-                                  curr_R_t_to_w, 0.0)
-            end
-        end
-
-        # ======== PHASE 2: HEADING VIA SOLVE ========== #
-        for wing in wings
-            if wing.transform_idx == transform.idx
-                # R_b_to_w after azim/elev rotation
-                if wing isa VSMWing && !isnothing(wing.z_ref_points)
-                    R_b_to_w, _ = calc_refine_wing_frame(
-                        points, wing.z_ref_points,
-                        wing.y_ref_points,
-                        wing.origin_idx)
-                else
-                    R_b_to_w = zeros(3, 3)
-                    for i in 1:3
-                        R_b_to_w[:, i] .= apply_heading(
-                            wing.R_b_to_w[:, i],
-                            R_t_to_w, curr_R_t_to_w,
-                            0.0)
-                    end
-                end
-
-                # Analytical heading solve
-                k = normalize(wing.pos_w)
-                wind_norm = normalize(
-                    sys_struct.wind_vec_gnd)
-                delta_heading = solve_heading_rotation(
-                    R_b_to_w, transform.heading,
-                    k, wind_norm)
-
-                # Apply to all points in this transform
-                for point in points
-                    if point.transform_idx ==
-                       transform.idx
-                        point.pos_w .= rotate_v_around_k(
-                            point.pos_w,
-                            k, delta_heading)
-                    end
-                end
-
-                # Apply to wing position and orientation
-                wing.pos_w .= rotate_v_around_k(
-                    wing.pos_w, k, delta_heading)
-                for i in 1:3
-                    R_b_to_w[:, i] .= rotate_v_around_k(
-                        R_b_to_w[:, i],
-                        k, delta_heading)
-                end
-                wing.R_b_to_w = R_b_to_w
-            end
-        end
+        curr_R_t_to_w, R_t_to_w = _apply_azimuth_elevation!(
+            transform, wings, points, base_pos; update_vel=false)
+        _apply_heading!(transform, wings, points,
+            curr_R_t_to_w, R_t_to_w, base_pos)
     end
-
-    # REFINE wings: recalculate R_b_to_w and pos_b
-    # from structural points
-    for wing in wings
-        if wing isa VSMWing && wing.wing_type == REFINE
-            R_b_to_w, origin = calc_refine_wing_frame(
-                points, wing.z_ref_points,
-                wing.y_ref_points, wing.origin_idx)
-
-            wing.R_b_to_w = R_b_to_w
-            wing.pos_w .= origin
-
-            for point in points
-                if point.type == WING &&
-                   point.wing_idx == wing.idx
-                    point.pos_b .= R_b_to_w' *
-                        (point.pos_w - origin)
-                end
-            end
-        end
-    end
-
-    # Compute principal frame state from body frame
-    init_principal_frame!(wings, points)
+    _finalize_transforms!(wings, points)
 end

@@ -5,7 +5,7 @@
 Basic type definitions for the system structure components.
 
 This file contains enums and struct definitions for:
-- SegmentType, DynamicsType, WingType enums
+- DynamicsType, WingType, AeroMode, SegmentType (deprecated) enums
 - Point, Group, Segment, Pulley, Tether, Winch structs
 """
 
@@ -14,12 +14,10 @@ This file contains enums and struct definitions for:
 """
     SegmentType `POWER_LINE` `STEERING_LINE` `BRIDLE`
 
-Enumeration for the type of a tether segment.
-
-# Elements
-- `POWER_LINE`: A segment belonging to a main power line.
-- `STEERING_LINE`: A segment belonging to a steering line.
-- `BRIDLE`: A segment belonging to the bridle system.
+!!! warning "Deprecated"
+    `SegmentType` is no longer used as a Segment constructor
+    parameter. It is kept only so that old code hits a
+    deprecation error instead of `UndefVarError`.
 """
 @enum SegmentType begin
     POWER_LINE
@@ -78,10 +76,31 @@ Orthogonal to WingType — determines the aero computation strategy at runtime.
     AERO_LINEARIZED
 end
 
-# ==================== POINT ==================== #
+"""
+    NameRef = Union{Int, Symbol}
 
-"Reference type that can be an integer index or a symbolic name"
+A reference to another component, either by symbolic name
+(`:ground`) or integer index (`1`).
+
+## Name resolution
+
+Components reference each other by name or index at construction
+time. These are stored in `_ref` fields (e.g. `point_refs`,
+`wing_ref`). During [`SystemStructure`](@ref) construction,
+`assign_indices_and_resolve!` maps every ref to a numeric index
+via `build_name_dict` (name → vector position) and stores the
+result in the corresponding `_idx` fields (e.g. `point_idxs`,
+`wing_idx`).
+
+Each component has a `name` field (`const`, set once at
+construction) that identifies it for lookup. The type includes
+`Nothing` for forward-compatibility but no public constructor
+produces `name=nothing`; a nothing-named component would simply
+be unreferenceable by name (only by vector index).
+"""
 const NameRef = Union{Int, Symbol}
+
+# ==================== POINT ==================== #
 
 """
     mutable struct Point
@@ -91,28 +110,51 @@ A point mass, representing a node in the mass-spring system.
 $(TYPEDFIELDS)
 """
 mutable struct Point
-    idx::Int64  # Assigned by SystemStructure based on vector position
-    const name::Union{Int, Symbol, Nothing}  # Name/identifier (Int for backwards compat)
-    transform_idx::Int64 # idx of transform (resolved by SystemStructure from transform_ref)
-    wing_idx::Int64      # idx of wing (resolved by SystemStructure from wing_ref)
-    const transform_ref::Union{Int, Symbol}  # Raw reference to transform (name or idx), 0=no transform
-    const wing_ref::Union{Int, Symbol}       # Raw reference to wing (name or idx), 0=no wing
+    "Index in the points vector (assigned by SystemStructure)."
+    idx::Int64
+    "Name used for lookup by other components' `_ref` fields."
+    const name::Union{Int, Symbol, Nothing}
+    "Resolved transform index (filled by SystemStructure)."
+    transform_idx::Int64
+    "Resolved wing index (filled by SystemStructure)."
+    wing_idx::Int64
+    "Raw transform reference (name or idx). 0 = no transform."
+    const transform_ref::Union{Int, Symbol}
+    "Raw wing reference (name or idx). 0 = no wing."
+    const wing_ref::Union{Int, Symbol}
+    "Position in CAD frame [m]."
     const pos_cad::KVec3
-    const pos_b::KVec3 # pos relative to wing COM in body frame
-    const pos_w::KVec3 # pos in world frame
-    const vel_w::KVec3 # vel in world frame
-    const disturb::KVec3 # disturbing force
+    "Position relative to wing COM in principal frame [m]."
+    const pos_b::KVec3
+    "Position in world frame [m] (updated during simulation)."
+    const pos_w::KVec3
+    "Velocity in world frame [m/s] (updated during simulation)."
+    const vel_w::KVec3
+    "External disturbance force [N]."
+    const disturb::KVec3
+    "Net force on the point [N] (updated during simulation)."
     const force::KVec3
-    const aero_force_b::KVec3 # aerodynamic force in body frame (for REFINE WING points)
-    const va_b::KVec3 # apparent velocity in body frame (for VSM per-point va)
+    "Aerodynamic force in body frame [N] (REFINE WING points)."
+    const aero_force_b::KVec3
+    "Apparent velocity in body frame [m/s] (VSM per-point)."
+    const va_b::KVec3
+    "Dynamics type (STATIC, DYNAMIC, QUASI_STATIC, WING)."
     const type::DynamicsType
-    extra_mass::SimFloat      # User-provided mass
-    total_mass::SimFloat      # extra_mass + segment weights (computed during simulation)
+    "User-provided mass [kg]."
+    extra_mass::SimFloat
+    "Total mass [kg]: extra_mass + segment contributions (computed during simulation)."
+    total_mass::SimFloat
+    "Per-axis damping in body frame [N·s/m]."
     body_frame_damping::KVec3
+    "Per-axis damping in world frame [N·s/m]."
     world_frame_damping::KVec3
+    "Cross-sectional area for drag [m²]."
     area::SimFloat
+    "Drag coefficient [-]."
     drag_coeff::SimFloat
+    "If true, constrain point to a sphere."
     fix_sphere::Bool
+    "If true, dynamically freeze point position."
     fix_static::Bool
 end
 
@@ -187,22 +229,38 @@ A set of bridle lines that share the same twist angle and trailing edge angle.
 $(TYPEDFIELDS)
 """
 mutable struct Group
-    idx::Int64  # Assigned by SystemStructure
+    "Index in the groups vector (assigned by SystemStructure)."
+    idx::Int64
+    "Name used for lookup by other components' `_ref` fields."
     const name::Union{Int, Symbol, Nothing}
-    point_idxs::Vector{Int64}  # Resolved by SystemStructure from point_refs
-    const point_refs::Vector{NameRef}  # Raw references to points (names or indices)
-    le_pos::KVec3  # Leading edge position in body frame (from closest VSM panel)
-    chord::KVec3   # Chord vector in body frame (from closest VSM panel)
-    y_airf::KVec3  # Spanwise vector in local panel frame (from closest VSM panel)
+    "Resolved point indices (filled by SystemStructure)."
+    point_idxs::Vector{Int64}
+    "Raw point references (names or indices)."
+    const point_refs::Vector{NameRef}
+    "Leading edge position in body frame [m] (from closest VSM panel)."
+    le_pos::KVec3
+    "Chord vector in body frame [m] (from closest VSM panel)."
+    chord::KVec3
+    "Spanwise vector in local panel frame (from closest VSM panel)."
+    y_airf::KVec3
+    "Dynamics type (DYNAMIC or QUASI_STATIC)."
     const type::DynamicsType
+    "Chordwise rotation point fraction (0=LE, 1=TE)."
     moment_frac::SimFloat
+    "Damping coefficient for twist dynamics [N·m·s/rad]."
     damping::SimFloat
+    "Current twist angle [rad]."
     twist::SimFloat
+    "Current twist angular velocity [rad/s]."
     twist_ω::SimFloat
+    "Tether force contribution [N]."
     tether_force::SimFloat
+    "Tether moment contribution [N·m]."
     tether_moment::SimFloat
+    "Aerodynamic moment [N·m]."
     aero_moment::SimFloat
-    unrefined_section_idxs::Vector{Int64}  # Indices of VSM unrefined sections in this group
+    "Indices of VSM unrefined sections in this group."
+    unrefined_section_idxs::Vector{Int64}
 end
 
 """
@@ -251,23 +309,27 @@ The spring-damper model uses per-unit-length stiffness and damping:
 $(TYPEDFIELDS)
 """
 mutable struct Segment
-    idx::Int64  # Assigned by SystemStructure
+    "Index in the segments vector (assigned by SystemStructure)."
+    idx::Int64
+    "Name used for lookup by other components' `_ref` fields."
     const name::Union{Int, Symbol, Nothing}
-    point_idxs::Tuple{Int64, Int64}  # Resolved by SystemStructure from point_refs
-    const point_refs::Tuple{NameRef, NameRef}  # Raw references to endpoints (names or indices)
+    "Resolved endpoint indices (filled by SystemStructure)."
+    point_idxs::Tuple{Int64, Int64}
+    "Raw endpoint references (names or indices)."
+    const point_refs::Tuple{NameRef, NameRef}
     "Stiffness per unit length [N]. Effective k = unit_stiffness/length [N/m]."
     unit_stiffness::SimFloat
     "Damping per unit length [N·s]. Effective c = unit_damping/length [N·s/m]."
     unit_damping::SimFloat
     "Rest (unstretched) length [m]."
     l0::SimFloat
-    "Stiffness reduction factor when segment is in compression (0-1)."
+    "Compressive/tensile stiffness ratio (0-1). 0 = no compression stiffness."
     compression_frac::SimFloat
     "Segment diameter [m]."
     diameter::SimFloat
-    "Current length of the segment [m]."
+    "Current length [m] (updated during simulation)."
     len::SimFloat
-    "Current force in the segment [N]."
+    "Current force [N] (updated during simulation)."
     force::SimFloat
 end
 
@@ -293,34 +355,40 @@ function Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter;
 end
 
 """
-    Segment(name, set, point_i, point_j, type; l0, compression_frac, unit_stiffness, unit_damping)
+    Segment(name, set, point_i, point_j; l0, compression_frac,
+            diameter_mm, unit_stiffness, unit_damping)
 
 Constructs a `Segment` using settings for material properties.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the segment.
 - `set::Settings`: The settings object containing material properties.
-- `point_i`, `point_j`: References to the two endpoint points (names or indices).
-- `type::SegmentType`: Type of the segment (`POWER_LINE`, `STEERING_LINE`, `BRIDLE`).
+- `point_i`, `point_j`: References to the two endpoint points
+  (names or indices).
 
 # Keyword Arguments
-- `l0::SimFloat=zero(SimFloat)`: Unstretched length [m]. Calculated from point positions if zero.
-- `compression_frac::SimFloat=0.0`: Stiffness reduction factor in compression.
-- `diameter_mm::Float64=NaN`: Tether diameter [mm]. If `NaN`, uses default from settings.
-- `unit_stiffness::Float64=NaN`: Stiffness per unit length [N]. Effective k = unit_stiffness/length.
-- `unit_damping::Float64=NaN`: Damping per unit length [N·s]. Effective c = unit_damping/length.
+- `l0::SimFloat=zero(SimFloat)`: Unstretched length [m].
+  Calculated from point positions if zero.
+- `compression_frac::SimFloat=0.0`: Compressive/tensile stiffness
+  ratio (0-1). 0 = no compression stiffness.
+- `diameter_mm::Float64=NaN`: Tether diameter [mm]. If `NaN`,
+  uses `set.d_tether`.
+- `unit_stiffness::Float64=NaN`: Stiffness per unit length [N].
+  Effective k = unit_stiffness/length.
+- `unit_damping::Float64=NaN`: Damping per unit length [N·s].
+  Effective c = unit_damping/length.
 """
-function Segment(name, set, point_i, point_j, type;
-    l0=zero(SimFloat), compression_frac=0.0, diameter_mm=NaN, unit_stiffness=NaN, unit_damping=NaN
+function Segment(name, set, point_i, point_j;
+    l0=zero(SimFloat), compression_frac=0.0,
+    diameter_mm=NaN, unit_stiffness=NaN,
+    unit_damping=NaN
 )
     p1 = point_i isa Integer ? Int(point_i) : Symbol(point_i)
     p2 = point_j isa Integer ? Int(point_j) : Symbol(point_j)
 
     # Set default diameter from settings if not specified
     if isnan(diameter_mm)
-        (type == BRIDLE) && (diameter_mm = set.bridle_tether_diameter)
-        (type == POWER_LINE) && (diameter_mm = set.power_tether_diameter)
-        (type == STEERING_LINE) && (diameter_mm = set.steering_tether_diameter)
+        diameter_mm = set.d_tether
     end
     # Convert diameter from mm to m
     diameter_m = 0.001 * diameter_mm
@@ -328,30 +396,36 @@ function Segment(name, set, point_i, point_j, type;
     # Compute unit_stiffness if not provided
     if isnan(unit_stiffness)
         unit_stiffness = set.e_tether * (diameter_m/2)^2 * π
-        if type == BRIDLE
-            stiffness_frac = 0.01
-        else
-            stiffness_frac = 1.0
-        end
-        unit_stiffness *= stiffness_frac
     end
 
     # Compute unit_damping if not provided
     if isnan(unit_damping)
-        # Use rel_damping if available, otherwise compute from unit_damping/unit_stiffness ratio
-        if hasproperty(set, :rel_damping) && set.rel_damping != 0.0
+        if hasproperty(set, :rel_damping) &&
+                set.rel_damping != 0.0
             unit_damping = set.rel_damping * unit_stiffness
-        elseif hasproperty(set, :unit_damping) && hasproperty(set, :unit_stiffness) &&
+        elseif hasproperty(set, :unit_damping) &&
+                hasproperty(set, :unit_stiffness) &&
                 set.unit_damping != 0.0
-            unit_damping = (set.unit_damping / set.unit_stiffness) * unit_stiffness
+            unit_damping = (set.unit_damping /
+                set.unit_stiffness) * unit_stiffness
         else
             @warn "damping is zero!"
-            unit_damping = 0.0  # fallback if no damping info available
+            unit_damping = 0.0
         end
     end
 
-    Segment(0, name, (0, 0), (p1, p2), unit_stiffness, unit_damping, l0, compression_frac,
-        diameter_m, zero(SimFloat), zero(SimFloat))
+    Segment(0, name, (0, 0), (p1, p2),
+        unit_stiffness, unit_damping, l0,
+        compression_frac, diameter_m,
+        zero(SimFloat), zero(SimFloat))
+end
+
+"""Deprecated: SegmentType parameter removed."""
+function Segment(name, set, p_i, p_j, type::SegmentType;
+                 kw...)
+    error("Segment `type` (SegmentType) parameter removed. " *
+          "Use `unit_stiffness`, `unit_damping`, " *
+          "`diameter_mm` kwargs, or a YAML material.")
 end
 
 # ==================== PULLEY ==================== #
@@ -364,13 +438,21 @@ A pulley described by two segments with the common point of the segments being t
 $(TYPEDFIELDS)
 """
 mutable struct Pulley
-    idx::Int64  # Assigned by SystemStructure
+    "Index in the pulleys vector (assigned by SystemStructure)."
+    idx::Int64
+    "Name used for lookup by other components' `_ref` fields."
     const name::Union{Int, Symbol, Nothing}
-    segment_idxs::Tuple{Int64, Int64}  # Resolved by SystemStructure from segment_refs
-    const segment_refs::Tuple{NameRef, NameRef}  # Raw references to segments
+    "Resolved segment indices (filled by SystemStructure)."
+    segment_idxs::Tuple{Int64, Int64}
+    "Raw segment references (names or indices)."
+    const segment_refs::Tuple{NameRef, NameRef}
+    "Dynamics type (DYNAMIC or QUASI_STATIC)."
     const type::DynamicsType
+    "Sum of connected segment lengths [m]."
     sum_len::SimFloat
+    "Current pulley length [m] (updated during simulation)."
     len::SimFloat
+    "Current pulley velocity [m/s] (updated during simulation)."
     vel::SimFloat
 end
 
@@ -395,39 +477,121 @@ end
 """
     mutable struct Tether
 
-A collection of segments that are controlled together by a winch.
+A collection of segments forming a flexible line.
+
+Can be constructed two ways:
+- **Route 1** (explicit segments): Provide segment references directly.
+- **Route 2** (auto-generation): Provide start/end points and `n_segments`;
+  intermediate points and segments are created by `expand_auto_tethers!`.
 
 $(TYPEDFIELDS)
 """
 mutable struct Tether
-    idx::Int64  # Assigned by SystemStructure
+    "Index in the tethers vector (assigned by SystemStructure)."
+    idx::Int64
+    "Name used for lookup by other components' `_ref` fields."
     const name::Union{Int, Symbol, Nothing}
-    segment_idxs::Vector{Int64}  # Resolved by SystemStructure from segment_refs
-    const segment_refs::Vector{NameRef}  # Raw references to segments
-    winch_point_idx::Int64  # Resolved by SystemStructure from winch_point_ref
-    const winch_point_ref::NameRef  # Raw reference to winch point
+    "Resolved segment indices (filled by SystemStructure)."
+    segment_idxs::Vector{Int64}
+    "Raw segment references (names or indices)."
+    const segment_refs::Vector{NameRef}
+    "Resolved start point index (filled by SystemStructure)."
+    start_point_idx::Int64
+    "Raw start point reference. Nothing for Route 1."
+    const start_point_ref::Union{NameRef, Nothing}
+    "Resolved end point index (filled by SystemStructure)."
+    end_point_idx::Int64
+    "Raw end point reference. Nothing for Route 1."
+    const end_point_ref::Union{NameRef, Nothing}
+    "Number of segments (Route 2 only)."
+    const n_segments::Int64
+    "Stiffness per unit length [N]. NaN = derive from Settings."
+    const unit_stiffness::SimFloat
+    "Damping per unit length [N·s]. NaN = derive from Settings."
+    const unit_damping::SimFloat
+    "Tether diameter [m]. NaN = derive from Settings."
+    const diameter::SimFloat
+    "Current stretched length [m] (updated during simulation)."
     stretched_len::SimFloat
+    "Initial tether length [m]. Applied to `pos_w` before transforms. `nothing` = use CAD length."
+    init_len::Union{SimFloat, Nothing}
 end
 
 """
-    Tether(name, segments; winch_point=nothing)
+    Tether(name, segments; start_point=nothing, end_point=nothing)
 
-Constructs a `Tether` object representing a flexible line composed of multiple segments.
+Route 1: Construct a `Tether` from explicit segment references.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the tether.
-- `segments::Vector`: References to segments that form this tether (names or indices).
+- `segments::Vector`: References to segments (names or indices).
 
 # Keyword Arguments
-- `winch_point=nothing`: Reference to the ground point where tether attaches to winch.
-  Defaults to point 1 if not specified.
+- `start_point=nothing`: Optional start point ref (for validation).
+- `end_point=nothing`: Optional end point ref (for validation).
 """
-function Tether(name, segments; winch_point=nothing)
-    segment_refs = Vector{NameRef}([s isa Integer ? Int(s) : Symbol(s) for s in segments])
-    # Handle nothing - default to point 1
-    wp = isnothing(winch_point) ? 1 : winch_point
-    wp_ref = wp isa Integer ? Int(wp) : Symbol(wp)
-    return Tether(0, name, Int64[], segment_refs, 0, wp_ref, 0.0)
+function Tether(name, segments;
+                start_point=nothing, end_point=nothing,
+                winch_point=nothing, initial_tether_length=nothing)
+    if !isnothing(winch_point)
+        error("`winch_point` moved from Tether to Winch. " *
+              "Use Tether(name, segments) and pass " *
+              "winch_point to the Winch constructor.")
+    end
+    segment_refs = Vector{NameRef}(
+        [s isa Integer ? Int(s) : Symbol(s) for s in segments])
+    sp = isnothing(start_point) ? nothing :
+        (start_point isa Integer ? Int(start_point) :
+         Symbol(start_point))
+    ep = isnothing(end_point) ? nothing :
+        (end_point isa Integer ? Int(end_point) :
+         Symbol(end_point))
+    il = isnothing(initial_tether_length) ? nothing :
+        SimFloat(initial_tether_length)
+    return Tether(0, name, Int64[], segment_refs,
+                  0, sp, 0, ep,
+                  length(segments),
+                  NaN, NaN, NaN, 0.0, il)
+end
+
+"""
+    Tether(name; start_point, end_point, n_segments,
+           unit_stiffness=NaN, unit_damping=NaN, diameter=NaN)
+
+Route 2: Construct a `Tether` for auto-generation of intermediate
+points and segments by `expand_auto_tethers!`.
+
+# Arguments
+- `name::Union{Int, Symbol}`: Name/identifier for the tether.
+
+# Keyword Arguments
+- `start_point`: Reference to the start point (required).
+- `end_point`: Reference to the end point (required).
+- `n_segments::Int`: Number of segments to generate (required).
+- `unit_stiffness::Float64=NaN`: Per-unit-length stiffness [N].
+  NaN = derive from Settings during auto-expansion.
+- `unit_damping::Float64=NaN`: Per-unit-length damping [N·s].
+  NaN = derive from Settings during auto-expansion.
+- `diameter::Float64=NaN`: Tether diameter [m].
+  NaN = derive from Settings during auto-expansion.
+"""
+function Tether(name; start_point, end_point, n_segments,
+                unit_stiffness=NaN, unit_damping=NaN,
+                diameter=NaN, initial_tether_length=nothing)
+    sp = start_point isa Integer ? Int(start_point) :
+         Symbol(start_point)
+    ep = end_point isa Integer ? Int(end_point) :
+         Symbol(end_point)
+    seg_refs = Vector{NameRef}(
+        [Symbol("$(name)_seg_$i") for i in 1:n_segments])
+    il = isnothing(initial_tether_length) ? nothing :
+        SimFloat(initial_tether_length)
+    return Tether(0, name, Int64[], seg_refs,
+                  0, sp, 0, ep,
+                  Int64(n_segments),
+                  Float64(unit_stiffness),
+                  Float64(unit_damping),
+                  Float64(diameter), 0.0, il)
 end
 
 # ==================== WINCH ==================== #
@@ -440,50 +604,84 @@ A set of tethers (or a single tether) connected to a winch mechanism.
 $(TYPEDFIELDS)
 """
 mutable struct Winch
-    idx::Int64  # Assigned by SystemStructure
+    "Index in the winches vector (assigned by SystemStructure)."
+    idx::Int64
+    "Name used for lookup by other components' `_ref` fields."
     const name::Union{Int, Symbol, Nothing}
-    tether_idxs::Vector{Int64}  # Resolved by SystemStructure from tether_refs
-    const tether_refs::Vector{NameRef}  # Raw references to tethers
+    "Resolved tether indices (filled by SystemStructure)."
+    tether_idxs::Vector{Int64}
+    "Raw tether references (names or indices)."
+    const tether_refs::Vector{NameRef}
+    "Resolved winch point index (filled by SystemStructure)."
+    winch_point_idx::Int64
+    "Raw winch point reference (name or index)."
+    const winch_point_ref::NameRef
+    "Current tether length [m] (updated during simulation)."
     tether_len::Union{SimFloat, Nothing}
+    "Current reel-out velocity [m/s]."
     tether_vel::SimFloat
+    "Initial reel-out velocity [m/s]. Applied on reinit!."
+    init_vel::SimFloat
+    "Current reel-out acceleration [m/s²]."
     tether_acc::SimFloat
+    "Control input value (torque [N·m] or speed [m/s])."
     set_value::SimFloat
+    "If true, brake is engaged."
     brake::Bool
+    "If true, velocity is prescribed (not integrated)."
     speed_controlled::Bool
+    "Force vector at winch point [N]."
     const force::KVec3
+    "Gear ratio [-]."
     gear_ratio::SimFloat
+    "Drum radius [m]."
     drum_radius::SimFloat
+    "Coulomb friction force [N]."
     f_coulomb::SimFloat
+    "Viscous friction coefficient [N·s/m]."
     c_vf::SimFloat
+    "Total rotational inertia [kg·m²]."
     inertia_total::SimFloat
+    "Current friction force [N] (updated during simulation)."
     friction::SimFloat
+    "Smoothing width for Coulomb friction sign function."
     friction_epsilon::SimFloat
 end
 
 """
-    Winch(name, set, tethers; tether_len=0.0, tether_vel=0.0, brake=false, speed_controlled=false)
+    Winch(name, set, tethers; winch_point, ...)
 
-Constructs a `Winch` object that controls tether length through torque or speed regulation.
+Constructs a `Winch` object that controls tether length through
+torque or speed regulation.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the winch.
-- `set::Settings`: The main settings object, used to retrieve winch parameters.
-- `tethers::Vector`: References to tethers connected to this winch (names or indices).
+- `set::Settings`: Settings object for winch parameters.
+- `tethers::Vector`: References to tethers connected to this
+  winch (names or indices).
 
 # Keyword Arguments
+- `winch_point`: Reference to the ground attachment point
+  (name or index). Required.
 - `tether_len::SimFloat=0.0`: Initial tether length [m].
-- `tether_vel::SimFloat=0.0`: Initial tether velocity (reel-out rate) [m/s].
-- `brake::Bool=false`: If true, the winch brake is engaged.
-- `speed_controlled::Bool=false`: If true, tether velocity is prescribed externally
-  (not integrated by the ODE). `D(tether_vel) = 0`, length still tracks velocity.
-- `friction_epsilon::SimFloat=6.0`: Smoothing parameter for sign function in Coulomb friction.
+- `tether_vel::SimFloat=0.0`: Initial reel-out rate [m/s].
+- `brake::Bool=false`: If true, brake is engaged.
+- `speed_controlled::Bool=false`: If true, velocity is
+  prescribed (not integrated).
+- `friction_epsilon::SimFloat=6.0`: Smoothing parameter for
+  Coulomb friction sign function.
 """
 function Winch(name, set::Settings, tethers;
+               winch_point,
                tether_len=0.0, tether_vel=0.0, brake=false,
                speed_controlled=false, friction_epsilon=6.0)
-    tether_refs = Vector{NameRef}([t isa Integer ? Int(t) : Symbol(t) for t in tethers])
-    return Winch(0, name, Int64[], tether_refs,
-                 tether_len, tether_vel, 0.0, 0.0,
+    tether_refs = Vector{NameRef}(
+        [t isa Integer ? Int(t) : Symbol(t) for t in tethers])
+    wp = winch_point isa Integer ? Int(winch_point) :
+         Symbol(winch_point)
+    return Winch(0, name, Int64[], tether_refs, 0, wp,
+                 tether_len, tether_vel, tether_vel,
+                 0.0, 0.0,
                  brake, speed_controlled, zeros(KVec3),
                  set.gear_ratio, set.drum_radius,
                  set.f_coulomb, set.c_vf,
@@ -492,22 +690,32 @@ function Winch(name, set::Settings, tethers;
 end
 
 """
-    Winch(name, tethers, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; tether_len=0.0, tether_vel=0.0, brake=false, speed_controlled=false)
+    Winch(name, tethers, gear_ratio, drum_radius, f_coulomb,
+          c_vf, inertia_total; winch_point, ...)
 
-Constructs a `Winch` object by directly providing its physical parameters.
+Constructs a `Winch` by directly providing physical parameters.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the winch.
-- `tethers::Vector`: References to tethers connected to this winch (names or indices).
-- `gear_ratio`, `drum_radius`, `f_coulomb`, `c_vf`, `inertia_total`: Physical parameters.
+- `tethers::Vector`: References to tethers (names or indices).
+- `gear_ratio`, `drum_radius`, `f_coulomb`, `c_vf`,
+  `inertia_total`: Physical parameters.
+
+# Keyword Arguments
+- `winch_point`: Reference to ground attachment point. Required.
 """
 function Winch(name, tethers, gear_ratio, drum_radius,
                f_coulomb, c_vf, inertia_total;
+               winch_point,
                tether_len=0.0, tether_vel=0.0, brake=false,
                speed_controlled=false, friction_epsilon=6.0)
-    tether_refs = Vector{NameRef}([t isa Integer ? Int(t) : Symbol(t) for t in tethers])
-    return Winch(0, name, Int64[], tether_refs,
-                 tether_len, tether_vel, 0.0, 0.0,
+    tether_refs = Vector{NameRef}(
+        [t isa Integer ? Int(t) : Symbol(t) for t in tethers])
+    wp = winch_point isa Integer ? Int(winch_point) :
+         Symbol(winch_point)
+    return Winch(0, name, Int64[], tether_refs, 0, wp,
+                 tether_len, tether_vel, tether_vel,
+                 0.0, 0.0,
                  brake, speed_controlled, zeros(KVec3),
                  gear_ratio, drum_radius, f_coulomb,
                  c_vf, inertia_total, zero(SimFloat),
@@ -525,22 +733,39 @@ relative to a base reference point.
 $(TYPEDFIELDS)
 """
 mutable struct Transform
-    idx::Int64  # Assigned by SystemStructure
+    "Index in the transforms vector (assigned by SystemStructure)."
+    idx::Int64
+    "Name used for lookup by other components' `_ref` fields."
     const name::Union{Int, Symbol, Nothing}
-    wing_idx::Union{Int64, Nothing}  # Resolved by SystemStructure
-    const wing_ref::Union{NameRef, Nothing}  # Raw reference to wing
-    rot_point_idx::Union{Int64, Nothing}  # Resolved by SystemStructure
-    const rot_point_ref::Union{NameRef, Nothing}  # Raw reference to rotation point
-    base_point_idx::Union{Int64, Nothing}  # Resolved by SystemStructure
-    const base_point_ref::Union{NameRef, Nothing}  # Raw reference to base point
-    base_transform_idx::Union{Int64, Nothing}  # Resolved by SystemStructure
-    const base_transform_ref::Union{NameRef, Nothing}  # Raw reference to base transform
-    elevation::SimFloat  # [rad]
-    azimuth::SimFloat    # [rad]
-    heading::SimFloat    # [rad]
-    elevation_vel::SimFloat  # [rad/s] angular velocity in elevation direction
-    azimuth_vel::SimFloat    # [rad/s] angular velocity in azimuth direction
-    turn_rate::SimFloat      # [rad/s] angular velocity around radial axis (not yet implemented)
+    "Resolved wing index (filled by SystemStructure)."
+    wing_idx::Union{Int64, Nothing}
+    "Raw wing reference (name or index). Nothing = uses rot_point."
+    const wing_ref::Union{NameRef, Nothing}
+    "Resolved rotation point index (filled by SystemStructure)."
+    rot_point_idx::Union{Int64, Nothing}
+    "Raw rotation point reference. Nothing = uses wing."
+    const rot_point_ref::Union{NameRef, Nothing}
+    "Resolved base point index (filled by SystemStructure)."
+    base_point_idx::Union{Int64, Nothing}
+    "Raw base point reference."
+    const base_point_ref::Union{NameRef, Nothing}
+    "Resolved base transform index (filled by SystemStructure)."
+    base_transform_idx::Union{Int64, Nothing}
+    "Raw base transform reference. Nothing = uses base_pos."
+    const base_transform_ref::Union{NameRef, Nothing}
+    "Elevation angle [rad]."
+    elevation::SimFloat
+    "Azimuth angle [rad]."
+    azimuth::SimFloat
+    "Heading angle [rad]."
+    heading::SimFloat
+    "Angular velocity in elevation direction [rad/s]."
+    elevation_vel::SimFloat
+    "Angular velocity in azimuth direction [rad/s]."
+    azimuth_vel::SimFloat
+    "Angular velocity around radial axis [rad/s]."
+    turn_rate::SimFloat
+    "Base position [m]. Nothing = derived from base_transform."
     base_pos::Union{KVec3, Nothing}
 end
 
@@ -587,20 +812,6 @@ function Transform(name, elevation, azimuth, heading;
 end
 
 """
-    Transform(name, set, base_point; kwargs...)
-
-Constructor helper to create a `Transform` from a `Settings` object.
-Note: Uses idx=1 for settings indexing (legacy compatibility).
-"""
-function Transform(name, set, base_point; idx_for_set=1, kwargs...)
-    elevation_vel = hasfield(typeof(set), :elevation_vels) ? set.elevation_vels[idx_for_set] : 0.0
-    azimuth_vel = hasfield(typeof(set), :azimuth_vels) ? set.azimuth_vels[idx_for_set] : 0.0
-    turn_rate = hasfield(typeof(set), :turn_rates) ? set.turn_rates[idx_for_set] : 0.0
-    Transform(name, set.elevations[idx_for_set], set.azimuths[idx_for_set], set.headings[idx_for_set];
-              base_point, elevation_vel, azimuth_vel, turn_rate, kwargs...)
-end
-
-"""
     get_rot_pos(transform::Transform, wings, points)
 
 Get the position of the rotating object (wing or point) for a given transform.
@@ -623,7 +834,7 @@ end
 Get the base position for a given transform, resolving chained transforms if necessary.
 """
 function get_base_pos(transform::Transform, transforms, wings, points)
-    curr_base_pos = points[something(transform.base_point_idx)].pos_cad
+    curr_base_pos = points[something(transform.base_point_idx)].pos_w
     base_pos = transform.base_pos
     if !isnothing(base_pos)
         return something(base_pos), curr_base_pos

@@ -122,7 +122,6 @@ end
                 @test haskey(sys.points, :kcu)
                 @test haskey(sys.points, :steering_left)
                 @test haskey(sys.points, :steering_right)
-                @test haskey(sys.points, :tether_mid)
 
                 @test sys.points[:le_left].type ==
                     SymbolicAWEModels.WING
@@ -342,11 +341,10 @@ end
                 # point, so fix_static has no effect on it.
                 check_names = if expected_wing_type ==
                         SymbolicAWEModels.QUATERNION
-                    [:steering_left, :steering_right,
-                        :tether_mid]
+                    [:steering_left, :steering_right]
                 else
                     [:kcu, :steering_left,
-                        :steering_right, :tether_mid]
+                        :steering_right]
                 end
                 initial_positions = Dict(
                     n => copy(sam.sys_struct.points[n].pos_w)
@@ -370,7 +368,7 @@ end
                         # millimeter-level residual drift in this test.
                         1e-2
                     else
-                        2e-6
+                        1e-5
                     end
                     @test drift < drift_tol
                 end

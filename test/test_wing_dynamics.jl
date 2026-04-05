@@ -55,10 +55,6 @@ system:
     log_file: "data/wing_test"
     g_earth: 9.81
 
-initial:
-    l_tethers: [0.0]
-    v_reel_outs: [0.0]
-
 solver:
     solver: "FBDF"
     abs_tol: 0.0001

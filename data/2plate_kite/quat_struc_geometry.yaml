@@ -35,7 +35,6 @@ points:
 
     # Tether attachment and ground points
     - [kcu,        [0.0, 0.0, 0.0],   WING, main_wing, main_transform, 1.0, 0.0, 0.0, 0.1, 1.0]
-    - [tether_mid, [0.0, 0.0, -10.0],  DYNAMIC, main_wing, main_transform, 0.0, 0.0, 0.0, 0.0, 0.0]
     - [ground,     [0.0, 0.0, -20.0],  STATIC,  main_wing, main_transform, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 ###########################
@@ -44,42 +43,40 @@ points:
 # References use symbolic names (e.g., te_left) instead of numeric indices
 
 segments:
-  headers: [name, point_i, point_j, type, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
   data:
     # Wing structural elements - leading edge tubes
-    - [le_tube_left,  te_left, te_center, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
-    - [le_tube_right, te_center, te_right, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [le_tube_left,  te_left, te_center, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [le_tube_right, te_center, te_right, nothing, 1.0, 5000.0, 10.0, 1.0]
 
     # Wing structural elements - struts (chords)
-    - [strut_left,   le_left, te_left, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
-    - [strut_center, le_center, te_center, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
-    - [strut_right,  le_right, te_right, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [strut_left,   le_left, te_left, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [strut_center, le_center, te_center, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [strut_right,  le_right, te_right, nothing, 1.0, 5000.0, 10.0, 1.0]
 
     # Wing structural elements - trailing edge wires
-    - [te_wire_left,  le_center, le_right, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
-    - [te_wire_right, le_center, le_left, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [te_wire_left,  le_center, le_right, nothing, 1.0, 5000.0, 10.0, 1.0]
+    - [te_wire_right, le_center, le_left, nothing, 1.0, 5000.0, 10.0, 1.0]
 
     # Wing structural elements - diagonal springs
-    - [diag_1, te_left, le_center, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 0.010]
-    - [diag_2, le_left, te_center, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 0.010]
-    - [diag_3, te_right, le_center, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 0.010]
-    - [diag_4, le_right, te_center, POWER_LINE, nothing, 1.0, 5000.0, 10.0, 0.010]
+    - [diag_1, te_left, le_center, nothing, 1.0, 5000.0, 10.0, 0.010]
+    - [diag_2, le_left, te_center, nothing, 1.0, 5000.0, 10.0, 0.010]
+    - [diag_3, te_right, le_center, nothing, 1.0, 5000.0, 10.0, 0.010]
+    - [diag_4, le_right, te_center, nothing, 1.0, 5000.0, 10.0, 0.010]
 
     # Bridle segments
-    - [le_left, le_left, kcu, BRIDLE, nothing, 1.0, dyneema, nothing, 0.010]
-    - [le_center, le_center, kcu, BRIDLE, nothing, 1.0, dyneema, nothing, 0.010]
-    - [le_right, le_right, kcu, BRIDLE, nothing, 1.0, dyneema, nothing, 0.010]
-    - [te_center, te_center, kcu, BRIDLE, nothing, 1.0, dyneema, nothing, 0.010]
-    - [le_steering_left, le_left, steering_left, BRIDLE, nothing, 1.0, dyneema, nothing, 0.010]
-    - [te_steering_left, te_left, steering_left, BRIDLE, nothing, 1.0, dyneema, nothing, 0.010]
-    - [kcu_steering_left, steering_left, kcu, BRIDLE, nothing, 1.0, dyneema, nothing, 0.010]
-    - [le_steering_right, le_right, steering_right, BRIDLE, nothing, 1.0, dyneema, nothing, 0.010]
-    - [te_steering_right, te_right, steering_right, BRIDLE, nothing, 1.0, dyneema, nothing, 0.010]
-    - [kcu_steering_right, steering_right, kcu, BRIDLE, nothing, 1.0, dyneema, nothing, 0.010]
+    - [le_left, le_left, kcu, nothing, 1.0, dyneema, nothing, 0.010]
+    - [le_center, le_center, kcu, nothing, 1.0, dyneema, nothing, 0.010]
+    - [le_right, le_right, kcu, nothing, 1.0, dyneema, nothing, 0.010]
+    - [te_center, te_center, kcu, nothing, 1.0, dyneema, nothing, 0.010]
+    - [le_steering_left, le_left, steering_left, nothing, 1.0, dyneema, nothing, 0.010]
+    - [te_steering_left, te_left, steering_left, nothing, 1.0, dyneema, nothing, 0.010]
+    - [kcu_steering_left, steering_left, kcu, nothing, 1.0, dyneema, nothing, 0.010]
+    - [le_steering_right, le_right, steering_right, nothing, 1.0, dyneema, nothing, 0.010]
+    - [te_steering_right, te_right, steering_right, nothing, 1.0, dyneema, nothing, 0.010]
+    - [kcu_steering_right, steering_right, kcu, nothing, 1.0, dyneema, nothing, 0.010]
 
-    # Tether segments
-    - [tether_upper, kcu, tether_mid, BRIDLE, nothing, 1.0, dyneema, nothing, 0.010]
-    - [tether_lower, tether_mid, ground, BRIDLE, nothing, 1.0, dyneema, nothing, 0.010]
+    # Tether segments are auto-generated
 
 ###########################
 ## Pulleys ################
@@ -104,17 +101,18 @@ groups:
 ## Tethers ################
 ###########################
 tethers:
-  headers: [name, segment_idxs, winch_point_idx]
+  headers: [name, start_point, end_point, n_segments,
+            diameter_mm, unit_stiffness, unit_damping, init_len]
   data:
-    - [main_tether, [tether_upper, tether_lower], ground]
+    - [main_tether, kcu, ground, 2, 1.0, dyneema, nothing, 20.0]
 
 ###########################
 ## Winches ################
 ###########################
 winches:
-  headers: [name, tether_idxs]
+  headers: [name, tether_idxs, winch_point]
   data:
-    - [main_winch, [main_tether]]
+    - [main_winch, [main_tether], ground]
 
 ###########################
 ## Wings ##################
