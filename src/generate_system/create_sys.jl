@@ -249,8 +249,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     # Build scalar kinematic and apparent wind equations
     eqs = scalar_eqs!(
         s, eqs, psys, pset;
-        R_b_to_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel, wing_acc,
-        twist_angle, ω_b, α_b, R_v_to_w
+        R_b_to_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel,
+        wing_acc, twist_angle, ω_b, α_b, R_v_to_w, pos
     )
 
     # Debug: Find which equation fails to scalarize

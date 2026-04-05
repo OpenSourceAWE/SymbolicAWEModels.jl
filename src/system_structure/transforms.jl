@@ -213,33 +213,40 @@ Uses `wing.R_b_to_w` for the no-ref-points orientation source.
 After `copy_cad_to_world!`, this equals `wing.R_b_to_c` (for `reinit!`),
 or the current world orientation (for `reposition!`).
 """
-function _apply_heading!(transform, wings, points, curr_R_t_to_w, R_t_to_w)
+function _apply_heading!(transform, wings, points,
+                         curr_R_t_to_w, R_t_to_w, base_pos)
     for wing in wings
         wing.transform_idx == transform.idx || continue
 
         if !isnothing(wing.z_ref_points)
             R_b_to_w, _ = calc_refine_wing_frame(
-                points, wing.z_ref_points, wing.y_ref_points, wing.origin_idx)
+                points, wing.z_ref_points,
+                wing.y_ref_points, wing.origin_idx)
         else
             R_b_to_w = zeros(3, 3)
             for i in 1:3
                 R_b_to_w[:, i] .= apply_heading(
-                    wing.R_b_to_w[:, i], R_t_to_w, curr_R_t_to_w, 0.0)
+                    wing.R_b_to_w[:, i],
+                    R_t_to_w, curr_R_t_to_w, 0.0)
             end
         end
 
+        rel_pos = wing.pos_w - base_pos
         delta_heading = solve_heading_rotation(
-            R_b_to_w, transform.heading, wing.pos_w)
-        k = normalize(wing.pos_w)
+            R_b_to_w, transform.heading, rel_pos)
+        k = normalize(rel_pos)
 
         for point in points
             point.transform_idx == transform.idx || continue
-            point.pos_w .= rotate_v_around_k(point.pos_w, k, delta_heading)
+            point.pos_w .= base_pos .+ rotate_v_around_k(
+                point.pos_w .- base_pos, k, delta_heading)
         end
 
-        wing.pos_w .= rotate_v_around_k(wing.pos_w, k, delta_heading)
+        wing.pos_w .= base_pos .+ rotate_v_around_k(
+            rel_pos, k, delta_heading)
         for i in 1:3
-            R_b_to_w[:, i] .= rotate_v_around_k(R_b_to_w[:, i], k, delta_heading)
+            R_b_to_w[:, i] .= rotate_v_around_k(
+                R_b_to_w[:, i], k, delta_heading)
         end
         wing.R_b_to_w = R_b_to_w
     end
@@ -358,7 +365,8 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
         # ==================== ROTATE + HEADING ==================== #
         curr_R_t_to_w, R_t_to_w = _apply_azimuth_elevation!(
             transform, wings, points, base_pos; update_vel)
-        _apply_heading!(transform, wings, points, curr_R_t_to_w, R_t_to_w)
+        _apply_heading!(transform, wings, points,
+            curr_R_t_to_w, R_t_to_w, base_pos)
     end
 
     _finalize_transforms!(wings, points)
@@ -385,7 +393,8 @@ function reposition!(
         base_pos = points[transform.base_point_idx].pos_w
         curr_R_t_to_w, R_t_to_w = _apply_azimuth_elevation!(
             transform, wings, points, base_pos; update_vel=false)
-        _apply_heading!(transform, wings, points, curr_R_t_to_w, R_t_to_w)
+        _apply_heading!(transform, wings, points,
+            curr_R_t_to_w, R_t_to_w, base_pos)
     end
     _finalize_transforms!(wings, points)
 end

@@ -1,5 +1,5 @@
 # 2-plate kite aero geometry
-# Must match structural geometry in struc_geometry.yaml
+# Must match structural geometry in refine_struc_geometry.yaml
 # 3 sections with LE/TE pairs matching points 2-7
 
 wing_sections:

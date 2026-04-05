@@ -23,7 +23,8 @@ derivatives, as well as apparent wind calculations.
 function scalar_eqs!(
     s, eqs, psys, pset;
     R_b_to_w, wind_vec_gnd, va_wing_b, wing_pos,
-    wing_vel, wing_acc, twist_angle, ω_b, α_b, R_v_to_w
+    wing_vel, wing_acc, twist_angle, ω_b, α_b,
+    R_v_to_w, pos
 )
     @unpack wings = s.sys_struct
     @variables begin
