@@ -352,6 +352,13 @@ function apply_tether_init_lens!(sys_struct::SystemStructure)
             push!(tether_point_idxs, segments[seg_idx].point_idxs[2])
         end
 
+        # Always set winch tether_len when init_len is specified,
+        # even if no geometric scaling is needed
+        for winch in winches
+            tether.idx in winch.tether_idxs || continue
+            winch.tether_len = tether.init_len
+        end
+
         current_len = sum(
             segment_world_length(segments[si], points)
             for si in tether.segment_idxs)
@@ -377,12 +384,6 @@ function apply_tether_init_lens!(sys_struct::SystemStructure)
         end
 
         delta = points[tether.end_point_idx].pos_w .- old_end_pos
-
-        # Set winch tether_len
-        for winch in winches
-            tether.idx in winch.tether_idxs || continue
-            winch.tether_len = tether.init_len
-        end
 
         # BFS from end point through non-tether segments;
         # translate downstream pos_w by delta
