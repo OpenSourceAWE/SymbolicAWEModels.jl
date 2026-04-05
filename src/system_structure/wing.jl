@@ -158,6 +158,28 @@ Single point from a resolved index. Stores in `ids`
 WeightedRefPoints(id::Integer) =
     WeightedRefPoints(NameRef[], Int64[Int64(id)], [1.0])
 
+"""
+    WeightedRefPoints(refs::AbstractVector)
+
+Equal-weight average of multiple ref points, or weighted
+if elements are `(name, weight)` tuples.
+
+Supports:
+- `[:le, :te]` → equal-weight average
+- `[(:le, 0.7), (:te, 0.3)]` → weighted combination
+"""
+function WeightedRefPoints(refs::AbstractVector)
+    if !isempty(refs) && refs[1] isa Tuple
+        names = NameRef[_to_name_ref(t[1]) for t in refs]
+        weights = Float64[Float64(t[2]) for t in refs]
+        _validate_weights!(weights)
+        return WeightedRefPoints(names, Int64[], weights)
+    end
+    names = NameRef[_to_name_ref(v) for v in refs]
+    n = length(names)
+    WeightedRefPoints(names, Int64[], fill(1.0 / n, n))
+end
+
 # ==================== VSM WING ==================== #
 
 """
@@ -329,40 +351,12 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
         0.0)  # mass initialized to 0, set by SystemStructure
 end
 
-# Convert various inputs to WeightedRefPoints
-# Supports:
-#   :kcu              → single point
-#   5                 → single point (index)
-#   [:le, :te]        → equal-weight average
-#   [(:le, 0.7), (:te, 0.3)]  → weighted
-#   WeightedRefPoints → passthrough
-function _to_weighted_ref_points(x::Integer)
-    WeightedRefPoints([Int(x)], Int64[], [1.0])
-end
-function _to_weighted_ref_points(x::Symbol)
-    WeightedRefPoints([x], Int64[], [1.0])
-end
-function _to_weighted_ref_points(x::WeightedRefPoints)
-    x
-end
-function _to_weighted_ref_points(x::AbstractVector)
-    # Check if elements are (name, weight) tuples
-    if !isempty(x) && x[1] isa Tuple
-        refs = NameRef[_to_name_ref(t[1]) for t in x]
-        weights = Float64[Float64(t[2]) for t in x]
-        _validate_weights!(weights)
-        return WeightedRefPoints(
-            refs, Int64[], weights)
-    end
-    # Plain names/indices → equal weights
-    refs = NameRef[_to_name_ref(v) for v in x]
-    n = length(refs)
-    WeightedRefPoints(refs, Int64[], fill(1.0 / n, n))
-end
-
 """Warn and normalize if weights don't sum to 1."""
 function _validate_weights!(weights::Vector{Float64})
     s = sum(weights)
+    s > 0 || error(
+        "Ref point weights sum to $s; " *
+        "all weights must be positive")
     if !isapprox(s, 1.0; atol=1e-6)
         @warn "Ref point weights sum to $s, " *
             "normalizing to 1.0"
@@ -484,11 +478,11 @@ function VSMWing(name, set::Settings,
 
     # Convert ref points to WeightedRefPoints
     z_ref = isnothing(z_ref_points) ? nothing :
-        (_to_weighted_ref_points(z_ref_points[1]),
-         _to_weighted_ref_points(z_ref_points[2]))
+        (WeightedRefPoints(z_ref_points[1]),
+         WeightedRefPoints(z_ref_points[2]))
     y_ref = isnothing(y_ref_points) ? nothing :
-        (_to_weighted_ref_points(y_ref_points[1]),
-         _to_weighted_ref_points(y_ref_points[2]))
+        (WeightedRefPoints(y_ref_points[1]),
+         WeightedRefPoints(y_ref_points[2]))
     origin_ref = isnothing(origin) ? nothing :
         _to_name_ref(origin)
 

@@ -327,7 +327,7 @@ starting from 1 with no gaps.
   - Route 1 (explicit segments): `[name, segment_idxs]`, optional: `init_len`
   - Route 2 (auto-generated): `[name, start_point, end_point, n_segments, material]`, optional: `init_len`
   - `init_len`: initial tether length [m]; scales `pos_w` before transforms, `pos_cad` unchanged
-- `winches`: (optional) table with headers `[id,tether_ids]`
+- `winches`: (optional) table with headers `[name, tether_idxs, winch_point]`
 - `wings`: (optional, typically from VSM configuration)
 - `transforms`: (optional, typically from settings)
 """

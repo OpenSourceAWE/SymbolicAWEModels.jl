@@ -64,7 +64,7 @@ end
         med_ms = median(rhs.times) / 1e6
         @printf("  median: %8.3f ms | allocs: %d (%d B)\n",
                 med_ms, rhs.allocs, rhs.memory)
-        @test rhs.allocs <= 200
+        @test rhs.allocs == 0
     end
 
     # --- warmup all accessors once ---

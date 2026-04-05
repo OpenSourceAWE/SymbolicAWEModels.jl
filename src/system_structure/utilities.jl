@@ -356,6 +356,9 @@ function apply_tether_init_lens!(sys_struct::SystemStructure)
             segment_world_length(segments[si], points)
             for si in tether.segment_idxs)
         current_len ≈ tether.init_len && continue
+        current_len > 0 || error(
+            "Tether $(tether.name): current length " *
+            "is zero, cannot scale to init_len")
 
         scale = tether.init_len / current_len
         start_pos = copy(points[tether.start_point_idx].pos_w)
