@@ -206,12 +206,14 @@ function _apply_azimuth_elevation!(transform, wings, points, base_pos;
 end
 
 """
-    _apply_heading!(transform, wings, points, curr_R_t_to_w, R_t_to_w)
+    _apply_heading!(transform, wings, points,
+                    curr_R_t_to_w, R_t_to_w, base_pos)
 
 Apply heading rotation to all components in a single transform.
+Rotates around the radial axis through `base_pos` (not the origin).
 Uses `wing.R_b_to_w` for the no-ref-points orientation source.
-After `copy_cad_to_world!`, this equals `wing.R_b_to_c` (for `reinit!`),
-or the current world orientation (for `reposition!`).
+After `copy_cad_to_world!`, this equals `wing.R_b_to_c` (for
+`reinit!`), or the current world orientation (for `reposition!`).
 """
 function _apply_heading!(transform, wings, points,
                          curr_R_t_to_w, R_t_to_w, base_pos)

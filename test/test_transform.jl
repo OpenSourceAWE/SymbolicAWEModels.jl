@@ -285,7 +285,62 @@ using LinearAlgebra
             end
 
             # ================================================================
-            # Physics Test 9: reposition! heading matches reinit! heading
+            # Physics Test 9: Non-origin base position heading
+            # ================================================================
+            @testset "Heading with non-origin base" begin
+                sys = sam.sys_struct
+                tf = sys.transforms[:main_transform]
+                ground = sys.points[:ground]
+
+                # Save original values
+                orig_base_pos = copy(tf.base_pos)
+                orig_ground_cad = copy(ground.pos_cad)
+
+                # Shift base to non-origin position
+                offset = KVec3(10.0, 5.0, 0.0)
+                tf.base_pos .= offset
+                ground.pos_cad .= offset
+
+                for h_deg in [0, 30, -45]
+                    target_h = deg2rad(h_deg)
+
+                    # Reference: heading at origin base
+                    tf.base_pos .= orig_base_pos
+                    ground.pos_cad .= orig_ground_cad
+                    reset_transform!(sys)
+                    tf.heading = target_h
+                    init!(sam; remake=false, reload=false)
+                    wing = sys.wings[:main_wing]
+                    origin_R = copy(wing.R_b_to_w)
+                    origin_rel = wing.pos_w - orig_base_pos
+
+                    # Test: same heading at offset base
+                    tf.base_pos .= offset
+                    ground.pos_cad .= offset
+                    reset_transform!(sys)
+                    tf.heading = target_h
+                    init!(sam; remake=false, reload=false)
+                    wing = sys.wings[:main_wing]
+                    offset_R = copy(wing.R_b_to_w)
+                    offset_rel = wing.pos_w - offset
+
+                    # Orientation should match
+                    @test origin_R ≈ offset_R atol=1e-6
+                    # Relative position should match
+                    @test origin_rel ≈ offset_rel atol=1e-4
+                end
+
+                # Restore
+                tf.base_pos .= orig_base_pos
+                ground.pos_cad .= orig_ground_cad
+
+                println("\n  ====== [$wing_type_name] " *
+                    "Heading with non-origin base: " *
+                    "consistent for all test angles ======\n")
+            end
+
+            # ================================================================
+            # Physics Test 10: reposition! heading matches reinit! heading
             # ================================================================
             @testset "Reposition heading matches reinit" begin
                 sys = sam.sys_struct
