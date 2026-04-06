@@ -237,4 +237,5 @@ fi
 echo "Installation complete!"
 echo
 echo "You can now launch Julia by typing"
+echo "cd .."
 echo "./bin/run_julia"
