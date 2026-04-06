@@ -7,13 +7,13 @@ wing_sections:
   headers: [airfoil_id, LE_x, LE_y, LE_z, TE_x, TE_y, TE_z]
   data:
     # Right section: points 2 (LE) and 3 (TE)
-    - [1, -0.5, 1.0, 2.0, 0.5, 1.0, 2.3]
+    - [1, -0.5, 1.0, 2.0, 0.5, 1.0, 2.2]
 
     # Center section: points 4 (LE) and 5 (TE)
-    - [1, -0.5, 0.0, 2.5, 0.5, 0.0, 2.8]
+    - [1, -0.5, 0.0, 2.5, 0.5, 0.0, 2.7]
 
     # Left section: points 6 (LE) and 7 (TE)
-    - [1, -0.5, -1.0, 2.0, 0.5, -1.0, 2.3]
+    - [1, -0.5, -1.0, 2.0, 0.5, -1.0, 2.2]
 
 wing_airfoils:
   alpha_range: [-180, 180, 1]  # deg
