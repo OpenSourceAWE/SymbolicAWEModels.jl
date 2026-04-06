@@ -54,6 +54,15 @@ Transform
 Transform(name, elevation, azimuth, heading; base_point, base_pos, base_transform, wing, rot_point)
 ```
 
+## Steering and depower
+
+```@docs
+SteeringConfig
+SteeringConfig(; steer_left, steer_right, steer_gain, depower_segment, depower_gain)
+set_steering!
+set_depower!
+```
+
 ## Indexing
 
 ```@docs
