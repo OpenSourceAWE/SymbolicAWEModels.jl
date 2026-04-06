@@ -24,9 +24,6 @@ SymbolicAWEModels.create_vsm_wing
 ## State management and model simplification
 
 ```@docs
-SymbolicAWEModels.getstate
-SymbolicAWEModels.setstate!
-SymbolicAWEModels.set_measured!
 SymbolicAWEModels.copy!
 SymbolicAWEModels.reinit!
 SymbolicAWEModels.reposition!
@@ -71,14 +68,11 @@ SymbolicAWEModels.load_serialized_model!
 SymbolicAWEModels.maybe_create_lin_prob!
 SymbolicAWEModels.maybe_create_control_functions!
 SymbolicAWEModels.maybe_create_prob!
-SymbolicAWEModels.maybe_create_simple_lin_model!
 SymbolicAWEModels.generate_control_funcs
-SymbolicAWEModels.generate_simple_lin_model
 SymbolicAWEModels.generate_lin_getters
 SymbolicAWEModels.generate_prob_getters
 SymbolicAWEModels.LinProbWithAttributes
 SymbolicAWEModels.ProbWithAttributes
-SymbolicAWEModels.SimpleLinModelWithAttributes
 SymbolicAWEModels.ControlFuncWithAttributes
 ```
 

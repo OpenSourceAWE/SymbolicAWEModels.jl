@@ -13,8 +13,6 @@ These functions provide convenient wrappers for running common simulation scenar
 
 ```@docs
 sim!
-sim_oscillate!
-sim_turn!
 sim_reposition!
 ```
 
@@ -27,7 +25,6 @@ init!
 next_step!
 find_steady_state!
 linearize!
-simple_linearize!
 ```
 
 ## YAML loading

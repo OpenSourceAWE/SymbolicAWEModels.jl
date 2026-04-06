@@ -24,7 +24,7 @@ plot(sam.sys_struct)
 
 **Time-series data** — multi-panel plots of simulation results:
 ```julia
-(log, _) = sim_oscillate!(sam)
+(log, _) = sim!(sam, set_values)
 plot(sam.sys_struct, log; plot_default=true)
 ```
 
