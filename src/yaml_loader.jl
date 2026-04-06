@@ -368,8 +368,15 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         convert_ref = function (v)
             if v isa Vector && !isempty(v) && v[1] isa Vector
                 # Weighted: [[id, weight], ...] → tuples
-                return [(yaml_to_ref(x[1]), Float64(x[2]))
-                        for x in v]
+                return map(v) do x
+                    if !(x isa Vector) || length(x) != 2
+                        throw(ArgumentError("Invalid weighted reference point entry $(repr(x)); expected format [[id, weight], ...]"))
+                    end
+                    if !(x[2] isa Number)
+                        throw(ArgumentError("Invalid weighted reference point weight $(repr(x[2])) in entry $(repr(x)); expected format [[id, weight], ...] with numeric weight"))
+                    end
+                    (yaml_to_ref(x[1]), Float64(x[2]))
+                end
             elseif v isa Vector
                 # Multiple equal-weight refs: [a, b, ...]
                 return [yaml_to_ref(x) for x in v]
