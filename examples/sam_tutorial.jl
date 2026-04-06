@@ -49,7 +49,7 @@ sys = SystemStructure("tether", set;
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 
-for i in 1:80
+for _ in 1:80
     next_step!(sam)
 end
 @info "Tether simulation completed" steps=80
@@ -66,7 +66,7 @@ sys = SystemStructure("winch", set;
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 
-for i in 1:80
+for _ in 1:80
     next_step!(sam; set_values=[-20.0])
 end
 @info "Winch simulation completed" steps=80
@@ -91,7 +91,7 @@ sys = SystemStructure("pulley", set;
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 
-for i in 1:80
+for _ in 1:80
     next_step!(sam; set_values=[-10.0])
 end
 @info "Pulley simulation completed" steps=80
@@ -110,7 +110,7 @@ wings = [SymbolicAWEModels.Wing(1, vsm_aero, vsm_wing,
 
 # WING-type points: 3 LE/TE pairs matching the 3 aero sections
 wing_z = set.l_tether + 6
-for (i, y) in enumerate([-1.0, 0.0, 1.0])
+for (_, y) in enumerate([-1.0, 0.0, 1.0])
     n = length(points)
     push!(points, Point(n + 1, [-0.5, y, wing_z],
         WING; wing=1, transform=1, extra_mass=0.1))
