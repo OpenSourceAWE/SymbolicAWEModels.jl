@@ -2,28 +2,29 @@
 # SPDX-License-Identifier: MPL-2.0
 
 """
-    sim!(sam, set_values; dt, total_time, vsm_interval, prn, lin_model)
+    sim!(sam, set_values; dt, total_time, vsm_interval,
+         prn, lin_model, y_op)
 
-Run a generic simulation for a given AWE model and a matrix of control inputs.
-Optionally, also simulate a provided linear model, returning both logs.
+Run a generic simulation with a matrix of control inputs.
+Optionally, also simulate a provided linear model.
 
 # Arguments
 - `sam::SymbolicAWEModel`: Initialized AWE model.
-- `set_values::Matrix{Float64}`: A matrix of external control torques [Nm] to be
-  applied at each time step. The number of rows must equal the number of
-  simulation steps, and the number of columns must equal the number of winches.
+- `set_values::Matrix{Float64}`: Control torque offsets [Nm]
+  per step. Rows = steps, columns = winches.
 
 # Keywords
-- `dt::Float64`: Time step [s]. Defaults to `1/sam.set.sample_freq`.
-- `total_time::Float64`: Total simulation duration [s]. Defaults to 10.0.
-- `vsm_interval::Int`: Interval for the value state machine updates. Defaults to 3.
-- `prn::Bool`: If true, prints a performance summary upon completion. Defaults to true.
-- `lin_model`: (optional) a continuous-time `StateSpace` object from `ControlSystemsBase`.
-    If provided, the linear model is simulated in parallel and a second log is returned.
+- `dt`: Time step [s]. Default `1/sam.set.sample_freq`.
+- `total_time`: Simulation duration [s]. Default 10.0.
+- `vsm_interval`: Steps between VSM updates. Default 3.
+- `prn`: Print performance summary. Default true.
+- `lin_model`: Optional `StateSpace` for linear comparison.
+- `y_op`: Operating point output vector. Required when
+  `lin_model` is provided.
 
 # Returns
-- If `lin_model` is not provided: `(SysLog, Nothing)` (nonlinear log, nothing)
-- If `lin_model` is provided: `(SysLog, SysLog)` (nonlinear, linear logs)
+- `(SysLog, Nothing)` or `(SysLog, SysLog)` when `lin_model`
+  is provided.
 """
 function sim!(
     sam::SymbolicAWEModel,
@@ -33,6 +34,7 @@ function sim!(
     vsm_interval=3,
     prn=true,
     lin_model::Union{Nothing, <:NamedTuple, StateSpace}=nothing,
+    y_op::Union{Nothing, AbstractVector}=nothing,
     torque_damp=0.9,
 )
     steps = Int(round(total_time / dt))
@@ -55,7 +57,6 @@ function sim!(
     vsm_time = 0.0
     integ_time = 0.0
     set_torques = similar(set_values)
-    y_op = sam.simple_lin_model.get_y(sam.integrator)
 
     steady_torque = calc_steady_torque(sam)
 
@@ -93,21 +94,26 @@ function sim!(
     # --- Linear Simulation ---
     lin_lg = nothing
     if !isnothing(lin_model)
+        isnothing(y_op) && error(
+            "y_op (operating point output) is required " *
+            "when lin_model is provided")
         t_vec = 0:dt:(total_time - dt)
         ΔU = permutedims(set_torques) .- set_torques[1, :]
         lin_res = lsim(lin_model, ΔU, t_vec)
-        
-        # Reconstruct full output from deviation output: y = y_op + Δy
+
+        # Reconstruct full output from deviation output:
+        # y = y_op + Δy
         ΔY = lin_res.y
         lin_y_full = ΔY .+ y_op
-        
+
         # Log the complete linear simulation result
         lin_logger = Logger(sam, steps)
         lin_sys_state = SysState(sam)
         update_sys_state!(lin_sys_state, collect(y_op), sam, t_vec[1])
         for step in 1:steps
             y_k = lin_y_full[:, step]
-            update_sys_state!(lin_sys_state, y_k, sam, t_vec[step])
+            update_sys_state!(
+                lin_sys_state, y_k, sam, t_vec[step])
             log!(lin_logger, lin_sys_state)
         end
         save_log(lin_logger, "tmp_run_lin")
@@ -133,103 +139,6 @@ function sim!(
 
     return (lg, lin_lg)
 end
-
-"""
-    sim_oscillate!(sam; dt, total_time, steering_freq, steering_magnitude, vsm_interval,
-                   bias, prn, lin_model)
-
-Run a simulation with oscillating steering input on the given AWE model.
-Optionally also simulate a provided linear model.
-
-# Keywords (see sim!)
-- `lin_model`: (optional) a continuous-time `StateSpace` object from `ControlSystemsBase`.
-
-# Returns
-- If `lin_model` is not provided: `(SysLog, Nothing)` (nonlinear log, nothing)
-- If `lin_model` is provided: `(SysLog, SysLog)` (nonlinear, linear logs)
-"""
-function sim_oscillate!(
-    sam::SymbolicAWEModel;
-    dt=1/sam.set.sample_freq,
-    total_time=10.0,
-    steering_freq=0.5,
-    steering_magnitude=10.0,
-    vsm_interval=3,
-    bias = 0.0,
-    prn=false,
-    lin_model=nothing,
-    torque_damp=0.9,
-)
-    sys_struct = sam.sys_struct
-    steps = Int(round(total_time / dt))
-    num_winches = length(sys_struct.winches)
-    @assert num_winches == 3
-    set_values = zeros(Float64, steps, num_winches)
-
-    if prn
-        @info "Simulating using oscillating steering inputs\n" *
-              "\twith frequency = $steering_freq Hz\n" *
-              "\tand magnitude = $steering_magnitude N."
-    end
-
-    for step in 1:steps
-        t = (step-1) * dt
-        steering = steering_magnitude * cos(2π * steering_freq * t + bias)
-        set_values[step, :] = [0.0, steering, -steering]
-    end
-
-    return sim!(sam, set_values; dt, total_time, vsm_interval,
-                prn, lin_model, torque_damp)
-end
-
-"""
-    sim_turn!(sam; dt, total_time, steering_time, steering_magnitude, vsm_interval, prn,
-              lin_model)
-
-Run a simulation with a constant steering input for a specified duration.
-Optionally also simulate a provided linear model.
-
-# Keywords (see sim!)
-- `lin_model`: (optional) a continuous-time `StateSpace` object from `ControlSystemsBase`.
-
-# Returns
-- If `lin_model` is not provided: `(SysLog, Nothing)` (nonlinear log, nothing)
-- If `lin_model` is provided: `(SysLog, SysLog)` (nonlinear, linear logs)
-"""
-function sim_turn!(
-    sam::SymbolicAWEModel;
-    dt=1/sam.set.sample_freq,
-    total_time=10.0,
-    steering_time=2.0,
-    steering_magnitude=10.0,
-    vsm_interval=3,
-    prn=false,
-    lin_model=nothing,
-    torque_damp=0.9
-)
-    sys_struct = sam.sys_struct
-    steps = Int(round(total_time / dt))
-    steering_steps = Int(round(steering_time / dt))
-    num_winches = length(sys_struct.winches)
-    @assert num_winches == 3
-    set_values = zeros(Float64, steps, num_winches)
-
-    if prn
-        @info "Generating turn commands..."
-    end
-
-    for step in 1:steps
-        if step <= steering_steps
-            set_values[step, :] = [0.0, steering_magnitude, -steering_magnitude]
-        else
-            set_values[step, :] = zeros(num_winches)
-        end
-    end
-
-    return sim!(sam, set_values; dt, total_time, vsm_interval,
-                prn, lin_model, torque_damp)
-end
-
 
 """
     sim_reposition!(sam; dt, total_time, reposition_interval_s, target_elevation_deg,

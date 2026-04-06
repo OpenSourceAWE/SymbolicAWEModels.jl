@@ -77,51 +77,6 @@ function generate_prob_getters(sys_struct, sys)
 end
 
 """
-    generate_simple_lin_model(sys_struct, sys, y_vec)
-
-Generate a simplified linear state-space model for a single-wing system.
-
-This model is a minimal representation suitable for simple controllers, focusing on
-heading, turn rate, and tether dynamics.
-
-# Arguments
-- `sys_struct::SystemStructure`: The structure defining the system topology.
-- `sys::ODESystem`: The compiled ModelingToolkit system.
-- `y_vec`: A vector of output variables for the linear model.
-
-# Returns
-- A `NamedTuple` containing the state-space matrices (`model`), and getters for the state (`get_x`),
-  state derivatives (`get_dx`), and outputs (`get_y`). Returns `nothing` for all fields if the
-  system does not have exactly one wing.
-"""
-function generate_simple_lin_model(sys_struct, sys, y_vec)
-    @unpack wings, winches = sys_struct
-    if length(wings) == 1 && hasproperty(sys, :tether_len) && hasproperty(sys, :tether_vel) && hasproperty(sys, :tether_acc)
-        n_tethers = length(sys_struct.tethers)
-        if n_tethers < 3 || length(sys.tether_len) < 3
-            return (model=nothing, get_x=nothing, get_dx=nothing, get_y=nothing)
-        end
-        x_vec = [
-            sys.heading[1], sys.turn_rate[3, 1],
-            sys.tether_len[1], sys.tether_len[2], sys.tether_len[3],
-            sys.tether_vel[1], sys.tether_vel[2], sys.tether_vel[3]
-        ]
-        dx_vec = [
-            sys.turn_rate[3, 1], sys.turn_acc[3, 1],
-            sys.tether_vel[1], sys.tether_vel[2], sys.tether_vel[3],
-            sys.tether_acc[1], sys.tether_acc[2], sys.tether_acc[3]
-        ]
-        get_x = getu(sys, x_vec)
-        get_dx = getu(sys, dx_vec)
-        get_y = getu(sys, y_vec)
-        nx, ny, nu = length(x_vec), length(y_vec), length(winches)
-        model = (; A=zeros(nx,nx), B=zeros(nx,nu), C=zeros(ny,nx), D=zeros(ny,nu))
-        return (; model, get_x, get_dx, get_y)
-    end
-    return (model=nothing, get_x=nothing, get_dx=nothing, get_y=nothing)
-end
-
-"""
     generate_lin_getters(sys)
 
 Generate setter functions for the parameters of a linearized system.
@@ -247,34 +202,6 @@ function maybe_create_prob!(sam; create_prob=true, prn=true)
 
         sam.prob = ProbWithAttributes(; prob, getters...)
         return true
-    end
-    return false
-end
-
-"""
-    maybe_create_simple_lin_model!(sam, outputs; ...)
-
-Create and cache a simplified linear model if it does not exist or if the outputs have changed.
-
-# Arguments
-- `sam::SymbolicAWEModel`: The main model object.
-- `outputs`: A vector of output variables for the linear model.
-- `create_simple_lin_model::Bool`: Flag to enable/disable creation.
-- `outputs_changed::Bool`: Flag indicating if the output vector has changed.
-- `prn::Bool`: Flag to enable/disable printing of progress messages.
-
-# Returns
-- `true` if a new model was created, `false` otherwise.
-"""
-function maybe_create_simple_lin_model!(sam, outputs; create_simple_lin_model=true, prn=true)
-    if create_simple_lin_model && isnothing(sam.simple_lin_model)
-        sys = sam.prob.sys
-        time = @elapsed slm_attrs = generate_simple_lin_model(sam.sys_struct, sys, outputs)
-        if !isnothing(slm_attrs.model)
-            sam.simple_lin_model = SimpleLinModelWithAttributes(; slm_attrs...)
-            prn && println("\tCreated simplified linear model in $time seconds.")
-            return true
-        end
     end
     return false
 end
@@ -424,7 +351,6 @@ function init!(sam::SymbolicAWEModel;
                             length(outputs) != length(sam.outputs) ||
                             !all(string.(outputs) .== string.(sam.outputs))
         if outputs_changed
-            sam.simple_lin_model = nothing
             sam.lin_prob = nothing
             sam.control_functions = nothing
         end
@@ -432,8 +358,6 @@ function init!(sam::SymbolicAWEModel;
         
         changed |= outputs_changed
         changed |= maybe_create_prob!(sam; create_prob, prn)
-        changed |= maybe_create_simple_lin_model!(sam, outputs;
-                                                  create_simple_lin_model=create_prob, prn)
         changed |= maybe_create_lin_prob!(sam, outputs; create_lin_prob, prn)
         changed |= maybe_create_control_functions!(sam, outputs; create_control_func, prn)
 
@@ -448,13 +372,9 @@ function init!(sam::SymbolicAWEModel;
         # force ODEProblem recreation to pick up new defaults.
         if !reset_vel && !isnothing(sam.prob)
             sam.prob = nothing
-            sam.simple_lin_model = nothing
             changed = true
             changed |= maybe_create_prob!(sam;
                 create_prob, prn)
-            changed |= maybe_create_simple_lin_model!(
-                sam, outputs;
-                create_simple_lin_model=create_prob, prn)
         end
         create_prob && !isnothing(sam.prob) && reinit!(sam, sam.prob, solver; adaptive, reload, lin_vsm)
         create_lin_prob && !isnothing(sam.lin_prob) && reinit!(sam, sam.lin_prob)

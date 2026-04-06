@@ -47,7 +47,7 @@ for f in menu.jl hanging_mass.jl catenary_line.jl \
          pulley.jl saddle_form.jl \
          coupled_2plate_kite.jl coupled_2plate_kite_linear_vsm.jl \
          coupled_tether_deflection.jl coupled_realtime_visualization.jl \
-         coupled_linearize.jl coupled_simple_lin_model.jl \
+         coupled_linearize.jl \
          static_load_2plate_kite.jl sam_tutorial.jl; do
     [[ -f "examples/$f" ]] && pass "copied examples/$f" \
                            || fail "copied examples/$f"
@@ -75,7 +75,6 @@ for f in hanging_mass.jl catenary_line.jl \
          coupled_2plate_kite.jl \
          coupled_2plate_kite_linear_vsm.jl \
          coupled_linearize.jl \
-         coupled_simple_lin_model.jl \
          static_load_2plate_kite.jl; do
     echo "  Running $f..."
     $JULIA --project=. -e '

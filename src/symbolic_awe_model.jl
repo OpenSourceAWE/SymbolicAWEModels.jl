@@ -5,26 +5,6 @@ const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{
 const GetSetNothing = Union{AbstractIndexer, Nothing}
 
 """
-    @with_kw struct SimpleLinModelWithAttributes{...}
-
-A container for the simplified linear model (derived from the full ODE state)
-and its associated getter functions.
-"""
-@with_kw struct SimpleLinModelWithAttributes{GetX, GetDx, GetY}
-    "The simplified linearized model (A,B,C,D matrices)."
-    model::LinType
-
-    # Getters for the simplified linear model state from the integrator
-    "Getter for the state vector x of the simplified linear model."
-    get_x::GetX
-    "Getter for the state derivative vector dx of the simplified linear model."
-    get_dx::GetDx
-    "Getter for the output vector y of the simplified linear model."
-    get_y::GetY
-end
-
-
-"""
     @with_kw struct ProbWithAttributes{...}
 
 A container for the main Ordinary Differential Equation (ODE) problem and its
@@ -147,8 +127,6 @@ $(TYPEDFIELDS)
 
     "Container for the ODE problem and its getters/setters."
     prob::Union{ProbWithAttributes, Nothing} = nothing
-    "Container for the simplified linear model and its state getters."
-    simple_lin_model::Union{SimpleLinModelWithAttributes, Nothing} = nothing
     "Container for the linearization problem and its components."
     lin_prob::Union{LinProbWithAttributes, Nothing} = nothing
     "Container for the control functions."

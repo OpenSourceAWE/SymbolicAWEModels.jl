@@ -24,7 +24,7 @@ plot(sam.sys_struct)
 
 **Time-series data** — multi-panel plots of simulation results:
 ```julia
-(log, _) = sim_oscillate!(sam)
+(log, _) = sim!(sam, set_values)
 plot(sam.sys_struct, log; plot_default=true)
 ```
 
@@ -71,6 +71,7 @@ These examples demonstrate the building blocks without aerodynamics:
 | `simple_pulley.jl` | Two segments with a pulley constraint |
 | `pulley.jl` | Pulley system with winch control |
 | `saddle_form.jl` | Complex mesh demonstrating 3D structures |
+| `airbag.jl` | Pressurized square membrane inflating under internal gauge pressure |
 
 ## Coupled examples
 

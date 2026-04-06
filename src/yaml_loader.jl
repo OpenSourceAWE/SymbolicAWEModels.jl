@@ -873,7 +873,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     # SystemStructure constructor now handles WING→STATIC
     # conversion when no wings are defined
     return SystemStructure(system_name, resolved_set; points, groups,
-        segments, pulleys, tethers, winches, wings, transforms, ignore_l0, vsm_set)
+        segments, pulleys, tethers, winches, wings,
+        transforms, ignore_l0, vsm_set)
 end
 
 """
