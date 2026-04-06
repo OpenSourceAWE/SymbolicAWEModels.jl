@@ -195,11 +195,13 @@ fi
 
 # Instantiate all sub-projects: examples, test, docs
 echo "Julia $julia_major: instantiating all sub-projects..."
-# Seed examples and test manifests from the main manifest so that
-# shared dependencies use the same package versions.
+# Seed subproject manifests from the main manifest only for Julia 1.11.
+# For Julia 1.12, keep no manifests in subprojects.
 rm -f examples/Manifest*.toml test/Manifest*.toml
-cp "Manifest-v${julia_major}.toml" "examples/Manifest-v${julia_major}.toml"
-cp "Manifest-v${julia_major}.toml" "test/Manifest-v${julia_major}.toml"
+if [[ $julia_major == "1.11" ]]; then
+    cp "Manifest-v${julia_major}.toml" "examples/Manifest-v${julia_major}.toml"
+    cp "Manifest-v${julia_major}.toml" "test/Manifest-v${julia_major}.toml"
+fi
 
 # Develop the main package into the sub-project environments so Julia finds the local source.
 julia --project=examples -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.resolve(); Pkg.instantiate()'
@@ -217,17 +219,26 @@ echo "Precompiling docs project..."
 julia --project=docs -e 'using Pkg; Pkg.precompile()'
 
 # Rename manifest files to version-specific names
-if [ -f "examples/Manifest.toml" ]; then
+if [[ $julia_major == "1.11" ]] && [ -f "examples/Manifest.toml" ]; then
     mv examples/Manifest.toml examples/Manifest-v${julia_major}.toml
     echo "Renamed examples/Manifest.toml to examples/Manifest-v${julia_major}.toml"
 fi
 if [ -f "test/Manifest.toml" ]; then
-    mv test/Manifest.toml test/Manifest-v${julia_major}.toml
-    echo "Renamed test/Manifest.toml to test/Manifest-v${julia_major}.toml"
+    if [[ $julia_major == "1.11" ]]; then
+        mv test/Manifest.toml test/Manifest-v${julia_major}.toml
+        echo "Renamed test/Manifest.toml to test/Manifest-v${julia_major}.toml"
+    fi
 fi
 if [ -f "docs/Manifest.toml" ]; then
-    mv docs/Manifest.toml docs/Manifest-v${julia_major}.toml
-    echo "Renamed docs/Manifest.toml to docs/Manifest-v${julia_major}.toml"
+    if [[ $julia_major == "1.11" ]]; then
+        mv docs/Manifest.toml docs/Manifest-v${julia_major}.toml
+        echo "Renamed docs/Manifest.toml to docs/Manifest-v${julia_major}.toml"
+    fi
+fi
+
+if [[ $julia_major == "1.12" ]]; then
+    rm -f examples/Manifest*.toml test/Manifest*.toml docs/Manifest*.toml
+    echo "Removed subproject manifests for Julia 1.12"
 fi
 
 echo "Installation complete!"
