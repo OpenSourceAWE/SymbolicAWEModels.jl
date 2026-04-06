@@ -176,13 +176,13 @@ function apply_pressure!(sam, pressure)
 end
 
 # ── Simulation loop ──────────────────────────────────────────────────────
-n_steps  = 200
+n_steps  = 50
 logger   = Logger(sam, n_steps)
 sys_state = SysState(sam)
 
 for i in 1:n_steps
     apply_pressure!(sam, P_GAUGE)
-    next_step!(sam)
+    next_step!(sam; dt=0.001)
     update_sys_state!(sys_state, sam)
     sys_state.time = i / set.sample_freq
     log!(logger, sys_state)
