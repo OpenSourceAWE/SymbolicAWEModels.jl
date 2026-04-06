@@ -22,8 +22,6 @@ set_data_path(joinpath(pkg_root, "data", MODEL_NAME))
 
 struc_yaml = joinpath(get_data_path(),
                       "quat_struc_geometry.yaml")
-aero_yaml = joinpath(get_data_path(), "aero_geometry.yaml")
-update_aero_yaml_from_struc_yaml!(struc_yaml, aero_yaml)
 
 set = Settings("system.yaml")
 vsm_set = VortexStepMethod.VSMSettings(
