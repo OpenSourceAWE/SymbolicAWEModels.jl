@@ -15,6 +15,9 @@ Reference: Thedens, P. Dissertation (2022), p.45
            https://github.com/awegroup/Particle_System_Simulator
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using GLMakie
 using SymbolicAWEModels
 import SymbolicAWEModels: Point   # resolve ambiguity with GLMakie
