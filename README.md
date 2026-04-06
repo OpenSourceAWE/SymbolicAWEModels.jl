@@ -76,14 +76,16 @@ julia --project="."
 ```julia
 using Pkg
 pkg"add SymbolicAWEModels"
+pkg"add GLMakie"
 ```
 
 ### Minimal example — a pendulum
 
 ```julia
 using SymbolicAWEModels
+using GLMakie
 using KiteUtils: init!, next_step!, update_sys_state!
-SymbolicAWEModels.init_module(; force=false)
+SymbolicAWEModels.copy_data()
 set_data_path("data/base")
 
 set = Settings("system.yaml")
@@ -108,6 +110,9 @@ init!(sam)
 for _ in 1:100
     next_step!(sam)
 end
+
+# Visualize the system structure
+plot(sam.sys_struct)
 ```
 
 For the full tutorial, see
@@ -142,8 +147,9 @@ A minimal coupled aero-structural model included in `data/2plate_kite/`:
 
 ```julia
 using SymbolicAWEModels, VortexStepMethod
+using GLMakie
 using KiteUtils: init!, next_step!, update_sys_state!
-SymbolicAWEModels.init_module(; force=false)
+SymbolicAWEModels.copy_data()
 
 set_data_path("data/2plate_kite")
 
@@ -185,11 +191,13 @@ Copy examples to your project and run the interactive menu:
 
 ```julia
 using SymbolicAWEModels
-SymbolicAWEModels.init_module()
+using GLMakie
+SymbolicAWEModels.copy_data()
+SymbolicAWEModels.copy_examples()
 include("examples/menu.jl")
 ```
 
-For visualization, `using GLMakie` enables the built-in plotting extension.
+`using GLMakie` enables the built-in plotting extension.
 See the [Examples](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/examples/)
 page for details.
 

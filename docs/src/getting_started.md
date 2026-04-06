@@ -38,16 +38,18 @@ This is the recommended approach for most users who want to use SymbolicAWEModel
    julia --project=.
    ```
 
-3. **Add SymbolicAWEModels**:
+3. **Add SymbolicAWEModels and GLMakie**:
    ```julia
    using Pkg
    pkg"add SymbolicAWEModels"
+   pkg"add GLMakie"
    ```
 
    **Alternatively**, use the package manager mode (press `]` to enter, backspace to exit):
    ```julia
    ]  # Press ] to enter Pkg mode - prompt changes to (my_kite_project) pkg>
    add SymbolicAWEModels
+   add GLMakie
    ```
 
    **Common Pkg commands:**
@@ -61,17 +63,17 @@ This is the recommended approach for most users who want to use SymbolicAWEModel
 4. **Copy examples and data files**:
    ```julia
    using SymbolicAWEModels
-   SymbolicAWEModels.init_module(; force=false)
+   SymbolicAWEModels.copy_data()
+   SymbolicAWEModels.copy_examples()
    ```
 
    This will:
-   - Copy all example files to an `examples/` directory
    - Copy configuration files to a `data/` directory
-   - Install necessary dependencies (GLMakie, KiteUtils)
+   - Copy all example files to an `examples/` directory
 
 ### Running examples
 
-After running `init_module()`, you can run the examples:
+After copying the files, you can run the examples:
 
 ```julia
 include("examples/menu.jl")  # Interactive menu
@@ -224,7 +226,7 @@ Then open `docs/build/index.html` in your browser.
 | Task | Command |
 |------|---------|
 | Install from registry | `pkg"add SymbolicAWEModels"` |
-| Copy examples (registry users) | `SymbolicAWEModels.init_module()` |
+| Copy data and examples (registry users) | `SymbolicAWEModels.copy_data()` then `SymbolicAWEModels.copy_examples()` |
 | Run examples (cloned/dev) | `julia --project=examples` then `pkg"dev ."` |
 | Build docs locally | `julia --project=docs` then `pkg"dev ."` and `servedocs()` |
 | Run tests | `pkg"test SymbolicAWEModels"` |

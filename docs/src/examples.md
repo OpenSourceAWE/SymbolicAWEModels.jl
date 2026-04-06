@@ -44,10 +44,12 @@ See the [Functions](exported_functions.md) page for plotting keyword arguments.
 
 ## Getting examples
 
-**Registry users** — copy examples to your project:
+**Registry users** — copy examples and data to your project:
 ```julia
 using SymbolicAWEModels
-SymbolicAWEModels.init_module()
+using GLMakie
+SymbolicAWEModels.copy_data()
+SymbolicAWEModels.copy_examples()
 include("examples/menu.jl")  # Interactive menu
 ```
 
