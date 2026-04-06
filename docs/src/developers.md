@@ -96,7 +96,8 @@ This has a few advantages:
 
 - It will activate the current project
 - it will set the required number of threads
-- it will use a system image if available.
+- it will use a system image if available
+- it will provide the function `menu()` to launch any of the examples without the need to type the longish `include(...)` command.
 
 ## Contributing code: branches and pull requests
 
@@ -162,7 +163,7 @@ repository. Provide a clear title and a detailed description of your changes.
 
 ### Use Revise.jl for faster workflow
 
-We strongly recommend adding
+We recommend adding
 **[Revise.jl](https://timholy.github.io/Revise.jl/stable/)** to your global
 Julia environment. It allows you to modify source code without restarting your
 Julia session, which is essential for efficient development.
@@ -214,10 +215,10 @@ Here's how to set up the examples to use your local development version:
 
 #### Setup
 
-1. **From the package root directory**, start Julia with the examples project:
+1. **From the package root directory**:
 
    ```bash
-   julia --project=examples
+   jl
    ```
 
 2. **Link your local development version**:
@@ -231,6 +232,8 @@ Here's how to set up the examples to use your local development version:
    directory (`.`) instead of the registered package version. Use `]st` to
    verify the package is linked to your local path.
 
+   This is NOT needed if you have checked out `SymbolicAWEModels.jl` using git. It is only needed if you work on a project that depends on `SymbolicAWEModels.jl` and you want to modify code in `SymbolicAWEModels.jl`.
+
 #### Running examples
 
 Now any changes you make to the source code will be immediately reflected when
@@ -241,8 +244,7 @@ include("examples/coupled_2plate_kite.jl")
 include("examples/menu.jl")
 ```
 
-**Important**: `--project=examples` sets which project environment to use, but
-doesn't change your current working directory. You still need to use `examples/`
+**Important**: You still need to use `examples/`
 in the include paths.
 
 The `examples/Project.toml` file already contains the necessary dependencies:
@@ -250,6 +252,8 @@ The `examples/Project.toml` file already contains the necessary dependencies:
 - `GLMakie` - for visualization
 - `KiteUtils` - for utility functions
 - `SymbolicAWEModels` - the package itself
+
+The `examples` project gets automatically activated when you run one of the examples. You can also just type `menu()` to get a menu with the examples.
 
 #### Managing package dependencies
 
