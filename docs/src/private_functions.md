@@ -150,14 +150,6 @@ SymbolicAWEModels._validate_weights!
 SymbolicAWEModels.SegmentType
 ```
 
-## Steering config internals
-
-```@docs
-SymbolicAWEModels.apply_steering_config!
-SymbolicAWEModels.capture_steering_base_lengths!
-SymbolicAWEModels.resolve_steering_config!
-```
-
 ## NamedCollection internals
 
 ```@docs
