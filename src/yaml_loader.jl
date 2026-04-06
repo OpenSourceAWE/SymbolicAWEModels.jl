@@ -363,7 +363,9 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         val = getfield(row, field)
         val === nothing && return nothing
 
-        @assert length(val) == 2 "ref_points must have 2 elements"
+        if length(val) != 2
+            throw(ArgumentError("ref_points must have 2 elements"))
+        end
 
         convert_ref = function (v)
             if v isa Vector && !isempty(v) && v[1] isa Vector
