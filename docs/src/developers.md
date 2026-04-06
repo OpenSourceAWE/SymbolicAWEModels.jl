@@ -13,16 +13,20 @@ to `SymbolicAWEModels.jl`.
 
 Before you begin, ensure you have the following software installed:
 
-- **Julia**: Latest release version. Install using
+- **Julia**: Latest release version. Install on Linux using
   [juliaup](https://github.com/JuliaLang/juliaup):
+
   ```bash
   curl -fsSL https://install.julialang.org | sh
   juliaup add release
   juliaup default release
   ```
+
 - **Git**: For version control.
 - **Bash**: A Unix-like shell environment.
 - **Code editor**: Your preferred code editor with Julia support.
+
+For Windows or MacOS, check [these](https://ufechner7.github.io/2024/08/09/installing-julia-with-juliaup.html) instructions.
 
 ---
 
@@ -177,11 +181,13 @@ Here's how to set up the examples to use your local development version:
 #### Setup
 
 1. **From the package root directory**, start Julia with the examples project:
+
    ```bash
    julia --project=examples
    ```
 
 2. **Link your local development version**:
+
    ```julia
    ]  # Press ] to enter Pkg mode - prompt shows (examples) pkg>
    dev .
@@ -271,17 +277,20 @@ To preview documentation changes as you work:
 #### Using LiveServer (recommended)
 
 1. **Start Julia with the docs project**:
+
    ```bash
    julia --project=docs
    ```
 
 2. **Link your local development version** (first time only):
+
    ```julia
    ]  # Press ] to enter Pkg mode - prompt shows (docs) pkg>
    dev .
    ```
 
 3. **Serve the docs with live reload**:
+
    ```julia
    using LiveServer
    servedocs(launch_browser=true)
