@@ -27,7 +27,7 @@ using LinearAlgebra
 # ── Parameters ─────────────────────────────────────────────────────────
 const N         = 4        # grid divisions per side (N+1 nodes per edge)
 const L         = 1.0      # side length [m]
-const Z0        = 5.0      # membrane height above ground [m]
+const Z0        = 0.0      # membrane height above ground [m]
 const P_GAUGE   = 100.0    # internal gauge pressure [Pa]
 
 # Membrane material
