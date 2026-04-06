@@ -55,14 +55,48 @@ cd SymbolicAWEModels.jl
 git remote add upstream https://github.com/OpenSourceAWE/SymbolicAWEModels.jl
 ```
 
-**Activate the Project** Start a Julia session with the project environment
-activated:
+**Install and precompile the packages**
 
 ```bash
-julia --project=.
+cd bin
+./install
 ```
 
----
+If you have the time, also create a system image, which contains all packages but `SymbolicAWEModels.jl` itself.
+
+```
+cd bin
+./create_sys_image
+```
+
+This requires at least 48 GB memory. If you have 16GB RAM, create a swap file with 32 GB. Also close all other 
+programs before creating the system image to avoid an out-of-memory error. On MacOS this is handled automatically.
+
+**Start Julia**
+Always start Julia with
+
+```bash
+./bin/run_julia
+```
+
+or with
+```bash
+jl
+```
+
+The second form requires that the line:
+
+```bash
+alias jl='./bin/run_julia'
+```
+
+in your `.bashrc` file in your home directory (Linux and Windows). For Mac, add this line to the `.zshrc` file.
+
+This has a few advantages:
+
+- It will activate the current project
+- it will set the required number of threads
+- it will use a system image if available.
 
 ## Contributing code: branches and pull requests
 
