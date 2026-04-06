@@ -75,7 +75,7 @@ export WingType, QUATERNION, REFINE
 export AeroMode, AERO_NONE, AERO_DIRECT, AERO_LINEARIZED
 
 # --- High-Level Simulation Functions (Workers) ---
-export sim!, sim_oscillate!, sim_turn!, sim_reposition!
+export sim!, sim_reposition!
 
 # --- Low-Level Simulation Functions ---
 export find_steady_state!

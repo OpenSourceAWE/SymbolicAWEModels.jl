@@ -119,8 +119,7 @@ for i in 1:1000
 end
 ```
 
-Higher-level functions like [`sim!`](@ref), [`sim_oscillate!`](@ref), and
-[`sim_turn!`](@ref) wrap this loop with pre-defined control input patterns.
+[`sim!`](@ref) wraps this loop with a matrix of control inputs.
 
 ## Runtime parameter changes
 

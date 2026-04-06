@@ -421,5 +421,4 @@ The source code is organized into modular directories:
 - **`src/yaml_loader.jl`** — YAML configuration file parser
   ([`load_sys_struct_from_yaml`](@ref))
 - **`src/linearize.jl`** — VSM linearization ([`linearize!`](@ref))
-- **`src/simulate.jl`** — high-level simulation functions ([`sim!`](@ref),
-  [`sim_oscillate!`](@ref))
+- **`src/simulate.jl`** — high-level simulation functions ([`sim!`](@ref))
