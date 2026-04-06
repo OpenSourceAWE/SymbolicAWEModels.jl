@@ -34,13 +34,14 @@ cd "$TMPDIR_USER"
 
 # Simulate: mkdir my_project && cd my_project && julia --project=.
 # Then: pkg> add SymbolicAWEModels (use dev for unreleased)
-# Then: using SymbolicAWEModels; SymbolicAWEModels.init_module()
+# Then: using SymbolicAWEModels; SymbolicAWEModels.copy_data(); SymbolicAWEModels.copy_examples()
 $JULIA --project=. -e '
     using Pkg
     Pkg.develop(path="'"$REPO_ROOT"'")
     using SymbolicAWEModels
-    SymbolicAWEModels.init_module()
-' 2>&1 && pass "init_module()" || fail "init_module()"
+    SymbolicAWEModels.copy_data()
+    SymbolicAWEModels.copy_examples()
+' 2>&1 && pass "copy_data() + copy_examples()" || fail "copy_data() + copy_examples()"
 
 # Verify example files were copied
 for f in menu.jl hanging_mass.jl catenary_line.jl \
@@ -87,7 +88,8 @@ done
 echo "  Running README pendulum example..."
 $JULIA --project=. -e '
     using SymbolicAWEModels
-    SymbolicAWEModels.init_module(; force=false)
+    SymbolicAWEModels.copy_data(; force=false)
+    SymbolicAWEModels.copy_examples(; force=false)
     set_data_path("data/base")
 
     set = Settings("system.yaml")
@@ -114,7 +116,8 @@ $JULIA --project=. -e '
 echo "  Running README 2plate kite example..."
 $JULIA --project=. -e '
     using SymbolicAWEModels, VortexStepMethod
-    SymbolicAWEModels.init_module(; force=false)
+    SymbolicAWEModels.copy_data(; force=false)
+    SymbolicAWEModels.copy_examples(; force=false)
 
     set_data_path("data/2plate_kite")
 
