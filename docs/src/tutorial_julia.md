@@ -43,6 +43,7 @@ connected by spring-damper segments, hanging under gravity.
 
 ```julia
 using SymbolicAWEModels, VortexStepMethod
+using GLMakie
 
 set = Settings("system.yaml")
 set.solver = "FBDF"

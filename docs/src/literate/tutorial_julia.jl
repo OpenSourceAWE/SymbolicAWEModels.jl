@@ -119,6 +119,8 @@ GLMakie.save(joinpath(ASSETS, "tether_sys_struct.png"), scene)    #hide
 #
 # If the system looks correct, compile and simulate:
 
+using KiteUtils: init!, next_step!, update_sys_state!
+
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam; prn=false, remake=true)                                             #hide
 init!(sam)
@@ -171,6 +173,8 @@ scene = plot(sys_struct)                                          #hide
 GLMakie.save(joinpath(ASSETS, "winch_sys_struct.png"), scene)     #hide
 
 #md # ![Winch system structure](assets/winch_sys_struct.png)
+
+using KiteUtils: init!, next_step!, update_sys_state!
 
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam; prn=false, remake=true)                                             #hide
@@ -243,6 +247,8 @@ scene = plot(sys_struct)                                          #hide
 GLMakie.save(joinpath(ASSETS, "pulley_sys_struct.png"), scene)    #hide
 
 #md # ![Pulley system structure](assets/pulley_sys_struct.png)
+
+using KiteUtils: init!, next_step!, update_sys_state!
 
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam; prn=false, remake=true)                                             #hide
