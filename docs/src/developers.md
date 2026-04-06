@@ -400,6 +400,35 @@ readability:
 
 ---
 
+## Known issues and troubleshooting
+
+### Segmentation fault when loading a cached `.bin` model
+
+**Symptom:** Julia crashes with a segmentation fault when calling [`init!`](@ref) and a
+cached `.bin` file exists on disk.
+
+**Cause:** The `.bin` files contain serialized Julia objects (compiled ModelingToolkit
+systems, ODE problems, and getter/setter functions). These objects hold raw function
+pointers that are only valid for the exact combination of Julia version and
+SymbolicAWEModels version used to create them. Loading a `.bin` compiled with a
+different version causes Julia to dereference stale pointers, resulting in a segfault.
+
+**Solution:** Force a full rebuild by passing `remake=true` to [`init!`](@ref):
+
+```julia
+init!(sam; remake=true)
+```
+
+This ignores the cached file and recompiles the symbolic model from scratch, then
+overwrites the old `.bin` with a fresh one.
+
+**Prevention:** Starting from this version, the `.bin` filename automatically includes
+the SymbolicAWEModels version number (e.g. `model_v0.7.2_jl1.11_...`). This means that
+upgrading the package will automatically trigger a recompile, since the filename will no
+longer match the old cached file.
+
+---
+
 ## Source code organization
 
 The source code is organized into modular directories:
