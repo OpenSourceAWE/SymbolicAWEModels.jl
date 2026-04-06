@@ -98,14 +98,6 @@ groups:
     - [right, [le_right, te_right], DYNAMIC, 0.25, 100.0]
 
 ###########################
-## Steering ###############
-###########################
-steering:
-  steer_segments: [kcu_steering_left, kcu_steering_right]
-  steer_gain: 0.1
-  depower_gain: 0.1   # no depower_segment → uses steering lines
-
-###########################
 ## Tethers ################
 ###########################
 tethers:
