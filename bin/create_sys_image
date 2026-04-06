@@ -103,13 +103,9 @@ rm -f "data/model_${julia_major}_*.bin" "data/model_${julia_major}_*.bin.xz"
 $JULIA_CMD --startup-file=no --project=test -e "include(\"test/create_sys_image.jl\");"
 
 # Determine final system image path
-branch=""
-if git rev-parse --git-dir > /dev/null 2>&1; then
-    branch=$(git rev-parse --abbrev-ref HEAD | sed 's/\//-/g')
-fi
 SOFILE="bin/kps-image-${julia_major}.so"
-if [[ -n "$branch" ]]; then
-    SOFILE="bin/kps-image-${julia_major}-${branch}.so"
+if compgen -G "bin/kps-image-${julia_major}-*.so" > /dev/null; then
+    rm -f bin/kps-image-"${julia_major}"-*.so
 fi
 
 # Move the newly created image to its final destination
