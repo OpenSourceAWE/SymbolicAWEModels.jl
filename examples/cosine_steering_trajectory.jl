@@ -29,6 +29,9 @@ Run from REPL:
     animate_trajectory(j0_zero=2, n_periods=2)        # more loops
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using GLMakie
 using Interpolations
 using NLsolve

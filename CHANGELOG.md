@@ -28,6 +28,8 @@ SPDX-License-Identifier: MPL-2.0
   constant `l0` from segment properties.
 - `compression_frac` description clarified: "Compressive/tensile
   stiffness ratio (0-1). 0 = no compression stiffness."
+- `init!`, `next_step!`, `update_sys_state!` are no longer exported and must be imported from `KiteUtils`
+- fixed most `JETLS` warnings for improved robustness and performance
 
 ## Added
 - Route 2 tether auto-generation: `Tether(name; start_point,
@@ -40,6 +42,9 @@ SPDX-License-Identifier: MPL-2.0
   `Pulley`, `Tether`, `Winch`, and `Transform` struct fields.
 - New tests: "Route 2 auto-generated tether" and "Tether without
   winch" in `test_tether_winch.jl`.
+- the script `bin/install`. Use it after installation from git.
+- the script `bin/create_sys_image`. Improves time for first run by a factor of 3-5.
+- the scripts `bin/install_jetls` and `bin/jetls` to install and run `JETLS.jl`, a static code checker for Julia
 
 ## Fixed
 - YAML `calculate_derived_properties!` no longer requires `l0` to

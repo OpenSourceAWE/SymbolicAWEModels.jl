@@ -1,4 +1,4 @@
-# Copyright (c) 2025 Bart van de Lint
+# Copyright (c) 2025 Bart van de Lint, Uwe Fechner
 # SPDX-License-Identifier: MPL-2.0
 
 """
@@ -6,10 +6,13 @@ Linearize the 2-plate kite model at a steady-state operating point
 and build a state-space representation.
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
+using KiteUtils: init!
 using SymbolicAWEModels, VortexStepMethod
-using ModelingToolkit
-using ModelingToolkit: t_nounits
 using ControlSystemsBase
+using ModelingToolkit: @variables, t_nounits
 
 set_data_path("data/2plate_kite")
 struc_yaml = joinpath(get_data_path(),

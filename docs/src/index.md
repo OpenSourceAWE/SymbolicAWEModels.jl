@@ -57,6 +57,7 @@ pkg"add SymbolicAWEModels"
 ```julia
 using SymbolicAWEModels
 using GLMakie
+using KiteUtils: init!, next_step!, update_sys_state!
 
 set = Settings("system.yaml")
 set.v_wind = 0.0

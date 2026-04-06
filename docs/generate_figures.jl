@@ -11,6 +11,7 @@
 import GLMakie
 GLMakie.activate!(; visible=false)
 
+using KiteUtils: init!, next_step!, update_sys_state!
 using SymbolicAWEModels: Point
 
 # --- Section 1: Literate tutorial figures ---

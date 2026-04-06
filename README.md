@@ -82,6 +82,7 @@ pkg"add SymbolicAWEModels"
 
 ```julia
 using SymbolicAWEModels
+using KiteUtils: init!, next_step!, update_sys_state!
 SymbolicAWEModels.init_module(; force=false)
 set_data_path("data/base")
 
@@ -141,6 +142,7 @@ A minimal coupled aero-structural model included in `data/2plate_kite/`:
 
 ```julia
 using SymbolicAWEModels, VortexStepMethod
+using KiteUtils: init!, next_step!, update_sys_state!
 SymbolicAWEModels.init_module(; force=false)
 
 set_data_path("data/2plate_kite")

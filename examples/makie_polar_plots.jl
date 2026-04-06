@@ -6,6 +6,9 @@ Custom Makie-based polar plotting functions for VortexStepMethod results.
 This provides a temporary replacement for PyPlot-based plot_polars during the Makie migration.
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using GLMakie
 using VortexStepMethod
 

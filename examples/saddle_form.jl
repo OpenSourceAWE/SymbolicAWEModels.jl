@@ -6,11 +6,13 @@ Saddle form relaxation: diamond mesh with fixed boundary nodes
 and saddle z-profile, relaxed to equilibrium via dynamic simulation.
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using GLMakie
+using KiteUtils: azimuth_east, calc_elevation, init!, next_step!, update_sys_state!
 using SymbolicAWEModels
-using SymbolicAWEModels: init!, next_step!, update_sys_state!
 import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie
-using KiteUtils
 using LinearAlgebra
 using YAML
 
@@ -67,8 +69,8 @@ function run_saddle(; yaml_file)
 
     # Neutral transform: match current orientation
     direction = points[2].pos_cad .- points[1].pos_cad
-    elevation = KiteUtils.calc_elevation(direction)
-    azimuth = -KiteUtils.azimuth_east(direction)
+    elevation = calc_elevation(direction)
+    azimuth = -azimuth_east(direction)
     transforms = [
         Transform(1, elevation, azimuth, 0.0;
                   base_pos=Vector(points[1].pos_cad),
@@ -107,5 +109,6 @@ function run_saddle(; yaml_file)
 end
 
 project_dir = dirname(@__DIR__)
-run_saddle(yaml_file=joinpath(project_dir, "data",
-    "saddle_form", "saddle_gridsize4.yaml"))
+sam = run_saddle(yaml_file=joinpath(project_dir, "data",
+      "saddle_form", "saddle_gridsize4.yaml"))
+@info "Type 'sam' to inspect the final model."

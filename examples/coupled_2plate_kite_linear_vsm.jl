@@ -6,9 +6,12 @@
 (re-linearize every few steps instead of solving full VSM).
 """
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using GLMakie
-using SymbolicAWEModels, VortexStepMethod, KiteUtils
-using SymbolicAWEModels: init!, next_step!, update_sys_state!
+using KiteUtils: init!, next_step!, update_sys_state!
+using SymbolicAWEModels, VortexStepMethod
 
 MODEL_NAME = "2plate_kite"
 SIM_TIME = 10.0
@@ -29,7 +32,7 @@ vsm_set = VortexStepMethod.VSMSettings(
 
 sys = load_sys_struct_from_yaml(struc_yaml;
     system_name=MODEL_NAME, set, vsm_set)
-sam = SymbolicAWEModel(set, sys)
+sam::SymbolicAWEModel = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 
 dt = 1.0 / set.sample_freq
