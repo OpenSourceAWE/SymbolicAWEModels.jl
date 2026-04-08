@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: MPL-2.0
 
 using Pkg
-Pkg.activate(@__DIR__)
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
 
 using Test
 using SymbolicAWEModels

@@ -8,7 +8,9 @@
 # Usage: jl test/test_bench.jl
 
 using Pkg
-Pkg.activate(@__DIR__)
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
 
 using Test
 using SymbolicAWEModels

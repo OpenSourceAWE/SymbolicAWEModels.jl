@@ -14,7 +14,9 @@
 # 3. R_b_to_p = R_p_to_c' * R_b_to_c (constant body→principal)
 
 using Pkg
-Pkg.activate(@__DIR__)
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
 
 using Test
 using SymbolicAWEModels

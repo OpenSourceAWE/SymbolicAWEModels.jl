@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: MIT
 
 using Pkg
-Pkg.activate(@__DIR__)
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
 
 using Aqua, SymbolicAWEModels, Test
 
@@ -14,3 +16,4 @@ using Aqua, SymbolicAWEModels, Test
         persistent_tasks = false,
     )
 end
+nothing

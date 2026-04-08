@@ -10,7 +10,9 @@
 # 4. Vertical segment wind drag: terminal velocity matches wind (two DYNAMIC points)
 
 using Pkg
-Pkg.activate(@__DIR__)
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
 
 using Test
 using SymbolicAWEModels
