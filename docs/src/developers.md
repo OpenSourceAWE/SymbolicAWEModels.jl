@@ -116,7 +116,7 @@ git rebase upstream/main
 If rebase fails, you can also use the `git merge` command instead.
 
 **Keep Your Feature Branch Up to Date** While working on your feature branch,
-regularly merge the latest changes from `main` to avoid merge conflicts later:
+regularly rebase onto the latest changes from `main` to avoid conflicts later:
 
 ```bash
 git fetch upstream
@@ -126,7 +126,7 @@ git checkout add_lei_model
 git rebase main
 ```
 
-This is especially important for long-running feature branches. Merging
+This is especially important for long-running feature branches. Rebasing
 frequently makes conflicts smaller and easier to resolve.
 
 **Create a Feature Branch** Create a new branch from your up-to-date `main`
