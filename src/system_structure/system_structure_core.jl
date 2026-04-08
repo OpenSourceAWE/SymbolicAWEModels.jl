@@ -101,11 +101,11 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
                 push!(vars, pulley.vel)
             end
         end
-        # winches
-        winches = getfield(sys, :winches)
-        for winch in winches
-            push!(vars, winch.tether_len)
-            push!(vars, winch.tether_vel)
+        # tethers
+        tethers = getfield(sys, :tethers)
+        for tether in tethers
+            push!(vars, tether.len)
+            push!(vars, tether.vel)
         end
         return reshape(vars, :, 1) # Return as a column vector (2D array)
     else
@@ -160,12 +160,12 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
                 offset += 1
             end
         end
-        # winches
-        winches = getfield(sys, :winches)
-        for winch in winches
-            winch.tether_len = flat_value[offset]
+        # tethers
+        tethers = getfield(sys, :tethers)
+        for tether in tethers
+            tether.len = flat_value[offset]
             offset += 1
-            winch.tether_vel = flat_value[offset]
+            tether.vel = flat_value[offset]
             offset += 1
         end
         return value
@@ -365,11 +365,21 @@ function expand_auto_tethers!(
             end
         end
 
-        # Total length from point positions
-        total_len = norm(end_pos - start_pos)
-        seg_l0 = total_len / n
+        # Geometric length from point positions
+        geom_len = norm(end_pos - start_pos)
+
+        # Segment l0: use tether.init_len if set,
+        # otherwise geometric distance
+        rope_len = tether.init_len > 0 ?
+            tether.init_len : geom_len
+        seg_l0 = rope_len / n
+
+        # Store len and init_len on tether
+        tether.len = rope_len
+        tether.init_len = rope_len
 
         # Generate n-1 intermediate DYNAMIC points
+        # (placed along the straight line at geometric spacing)
         dir = end_pos - start_pos
         for i in 1:(n - 1)
             frac = i / n
@@ -771,11 +781,13 @@ function SystemStructure(name, set;
                 seg_last.point_idxs[2]
         end
     end
-    for (i, winch) in enumerate(winches)
-        @assert winch.idx == i
-        if iszero(winch.tether_len)
-            winch.tether_len = autocalc_tether_len(
-                winch, tethers, segments)
+    # Initialize tether.len from segment l0 sums when not set
+    for tether in tethers
+        if iszero(tether.len)
+            tether.len = sum(
+                segments[si].l0 for si in tether.segment_idxs;
+                init=0.0)
+            tether.init_len = tether.len
         end
     end
     # Compute body frame (COM + principal axes) and

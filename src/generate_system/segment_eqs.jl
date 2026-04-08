@@ -94,44 +94,32 @@ function segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winch
 
         if in_pulley == 0
             in_tether = 0
+            tether_idx = 0
             for tether in tethers
                 if segment.idx in tether.segment_idxs
-                    in_winch = 0
-                    winch_idx = 0
-                    for winch in winches
-                        if tether.idx in winch.tether_idxs
-                            winch_idx = winch.idx
-                            in_winch += 1
-                        end
-                    end
-                    (in_winch > 1) && error(
-                        "Tether $(tether.idx) is connected " *
-                        "to $in_winch winches; should be " *
-                        "0 or 1.",
-                    )
-
-                    if in_winch == 1
-                        eqs = [
-                            eqs
-                            l0[segment.idx] ~
-                                tether_len[winch_idx] /
-                                length(tether.segment_idxs)
-                        ]
-                    else
-                        # Tether without winch: constant l0
-                        eqs = [eqs;
-                            l0[segment.idx] ~
-                                get_l0(psys, segment.idx)]
-                    end
+                    tether_idx = tether.idx
                     in_tether += 1
                 end
             end
             !(in_tether in [0, 1]) && error(
-                "Segment $(segment.idx) is in $in_tether tethers; should be 0 or 1.",
+                "Segment $(segment.idx) is in " *
+                "$in_tether tethers; should be 0 or 1.",
             )
 
-            if in_tether == 0
-                eqs = [eqs; l0[segment.idx] ~ get_l0(psys, segment.idx)]
+            if in_tether == 1
+                # Segment l0 = tether_len / n_segments
+                # (same for winched and winchless tethers)
+                n_segs = length(
+                    tethers[tether_idx].segment_idxs)
+                eqs = [
+                    eqs
+                    l0[segment.idx] ~
+                        tether_len[tether_idx] / n_segs
+                ]
+            else
+                eqs = [eqs;
+                    l0[segment.idx] ~
+                        get_l0(psys, segment.idx)]
             end
         end
 

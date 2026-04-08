@@ -42,11 +42,11 @@ Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, comp
 Pulley
 Pulley(name, segment_i, segment_j, type)
 Tether
-Tether(name, segments; start_point, end_point)
-Tether(name; start_point, end_point, n_segments, unit_stiffness, unit_damping, diameter)
+Tether(name, segments; start_point, end_point, tether_length, initial_tether_length)
+Tether(name; start_point, end_point, n_segments, unit_stiffness, unit_damping, diameter, tether_length, initial_tether_length)
 Winch
-Winch(name, set::Settings, tethers; winch_point, tether_len, tether_vel, brake)
-Winch(name, tethers, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; winch_point, tether_len, tether_vel, brake)
+Winch(name, set::Settings, tethers; winch_point, init_vel, brake)
+Winch(name, tethers, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; winch_point, init_vel, brake)
 AbstractWing
 BaseWing
 VSMWing

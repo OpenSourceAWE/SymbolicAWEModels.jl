@@ -603,8 +603,18 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 else
                     nothing
                 end
+                tl = if hasfield(typeof(row),
+                        :tether_length) &&
+                        !isnothing(row.tether_length)
+                    Float64(row.tether_length)
+                else
+                    # init_len sets both unstretched and
+                    # stretched length (backwards compat)
+                    il
+                end
                 tether = Tether(tether_name, segs;
                     start_point=sp, end_point=ep,
+                    tether_length=tl,
                     initial_tether_length=il)
             else
                 # Route 2: auto-generation
@@ -617,6 +627,13 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     Float64(row.init_len)
                 else
                     nothing
+                end
+                tl = if hasfield(typeof(row),
+                        :tether_length) &&
+                        !isnothing(row.tether_length)
+                    Float64(row.tether_length)
+                else
+                    il
                 end
                 # Resolve material reference if present
                 resolved = resolve_references(
@@ -642,7 +659,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     start_point=sp, end_point=ep,
                     n_segments=n_seg,
                     unit_stiffness=us, unit_damping=ud,
-                    diameter=d, initial_tether_length=il)
+                    diameter=d, tether_length=tl,
+                    initial_tether_length=il)
             end
             push!(tethers, tether)
         end
@@ -659,7 +677,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Create Winch using constructor (name, set, tethers; winch_point)
             winch = call_yaml_constructor(Winch, row,
                 [:name, :set, :tethers],
-                [:winch_point, :tether_len, :tether_vel,
+                [:winch_point, :init_vel,
                  :brake, :speed_controlled,
                  :friction_epsilon];
                 mappings=Dict(

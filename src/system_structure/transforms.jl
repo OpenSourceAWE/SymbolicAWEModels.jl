@@ -327,7 +327,7 @@ end
 Apply transforms to all components in a `SystemStructure`.
 
 Expects `pos_w` to already be set (via `copy_cad_to_world!` and optionally
-`apply_tether_init_lens!` from `reinit!(sys_struct, set; ...)`).
+`apply_tether_init_stretched_lens!` from `reinit!(sys_struct, set; ...)`).
 Applies: translate (from pos_w) → azimuth/elevation → heading.
 """
 function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure;
@@ -349,7 +349,7 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
 
         # ==================== TRANSLATE ==================== #
         # T is computed from pos_w of base (via get_base_pos).
-        # After copy_cad_to_world! and apply_tether_init_lens!,
+        # After copy_cad_to_world! and apply_tether_init_stretched_lens!,
         # pos_w reflects any tether scaling already applied.
         base_pos, curr_base_pos = get_base_pos(transform, transforms, wings, points)
         T = base_pos - curr_base_pos

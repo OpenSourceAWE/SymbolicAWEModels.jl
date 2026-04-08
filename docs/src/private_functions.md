@@ -126,8 +126,7 @@ SymbolicAWEModels.update_yaml_from_sys_struct!
 ```@docs
 SymbolicAWEModels.segment_cad_length
 SymbolicAWEModels.segment_world_length
-SymbolicAWEModels.autocalc_tether_len
-SymbolicAWEModels.apply_tether_init_lens!
+SymbolicAWEModels.apply_tether_init_stretched_lens!
 SymbolicAWEModels.assign_indices_and_resolve!
 SymbolicAWEModels.resolve_ref
 SymbolicAWEModels.resolve_ref_spec

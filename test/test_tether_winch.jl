@@ -118,6 +118,7 @@ environment:
     init!(sam; remake=true, prn=false)
 
     winch = sam.sys_struct.winches[:main_winch]
+    tether = sam.sys_struct.tethers[:main_tether]
     seg = sam.sys_struct.segments[:tether_seg]
     r = winch.drum_radius   # 0.1 m
     n = winch.gear_ratio     # 1.0
@@ -139,7 +140,7 @@ environment:
             next_step!(sam; set_values=[tau_motor],
                        dt=0.001, vsm_interval=0)
         end
-        @test abs(winch.tether_vel) < 1e-10
+        @test abs(tether.vel) < 1e-10
     end
 
     # ============================================================
@@ -167,7 +168,7 @@ environment:
             end
 
             # v(t) = a*t, so a = v / t
-            a_measured = winch.tether_vel / (n_steps * dt)
+            a_measured = tether.vel / (n_steps * dt)
             a_expected = (r / n) * tau_motor / I_test
 
             @test a_measured ≈ a_expected rtol=0.05
@@ -200,7 +201,7 @@ environment:
                 next_step!(sam; set_values=[tau_motor],
                            dt=dt, vsm_interval=0)
             end
-            v0 = winch.tether_vel
+            v0 = tether.vel
 
             # Measure acceleration over next steps
             n_meas = 20
@@ -208,7 +209,7 @@ environment:
                 next_step!(sam; set_values=[tau_motor],
                            dt=dt, vsm_interval=0)
             end
-            v1 = winch.tether_vel
+            v1 = tether.vel
 
             a_measured = (v1 - v0) / (n_meas * dt)
             a_expected = (r / n) / I *
@@ -250,7 +251,7 @@ environment:
             end
 
             v_expected = tau_motor * n / (c_vf_test * r)
-            @test winch.tether_vel ≈ v_expected rtol=0.05
+            @test tether.vel ≈ v_expected rtol=0.05
         end
     end
 
@@ -331,7 +332,7 @@ environment:
         end
 
         steady = calc_steady_torque(sam)
-        @test sam.sys_struct.winches[1].tether_acc ≈ 0.0 atol=0.01
+        @test sam.sys_struct.winches[1].acc ≈ 0.0 atol=0.01
         @test steady[1] ≈ tau_motor rtol=0.01
 
         println(

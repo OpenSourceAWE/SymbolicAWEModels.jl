@@ -32,7 +32,7 @@ vsm_set = VortexStepMethod.VSMSettings(
 
 sys = load_sys_struct_from_yaml(struc_yaml;
     system_name=MODEL_NAME, set, vsm_set)
-sam::SymbolicAWEModel = SymbolicAWEModel(set, sys)
+sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 
 dt = 1.0 / set.sample_freq

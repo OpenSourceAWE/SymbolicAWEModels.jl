@@ -171,9 +171,9 @@ get_moment_frac(sys::SystemStructure{VSMWing}, idx::Int64) = sys.groups[idx].mom
 @register_symbolic get_moment_frac(sys::SystemStructure{VSMWing}, idx::Int64)
 get_sum_len(sys::SystemStructure{VSMWing}, idx::Int64) = sys.pulleys[idx].sum_len
 @register_symbolic get_sum_len(sys::SystemStructure{VSMWing}, idx::Int64)
-get_tether_len(sys::SystemStructure{VSMWing}, idx::Int64) = sys.winches[idx].tether_len
+get_tether_len(sys::SystemStructure{VSMWing}, idx::Int64) = sys.tethers[idx].len
 @register_symbolic get_tether_len(sys::SystemStructure{VSMWing}, idx::Int64)
-get_tether_vel(sys::SystemStructure{VSMWing}, idx::Int64) = sys.winches[idx].tether_vel
+get_tether_vel(sys::SystemStructure{VSMWing}, idx::Int64) = sys.tethers[idx].vel
 @register_symbolic get_tether_vel(sys::SystemStructure{VSMWing}, idx::Int64)
 get_unit_stiffness(sys::SystemStructure{VSMWing}, idx::Int64) =
     sys.segments[idx].unit_stiffness

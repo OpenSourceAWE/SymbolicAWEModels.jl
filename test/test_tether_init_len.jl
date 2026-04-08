@@ -220,7 +220,7 @@ environment:
         mid = sys.points[:main_tether_point_1]
         @test mid.pos_w ≈ KVec3(0, 0, -100)
         @test sys.points[:top].pos_w ≈ KVec3(0, 0, -200)
-        @test sys.winches[:main_winch].tether_len ≈ 200.0
+        @test sys.tethers[:main_tether].len ≈ 200.0
         # pos_cad unchanged
         @test mid.pos_cad ≈ KVec3(0, 0, -50)
         @test sys.points[:top].pos_cad ≈ KVec3(0, 0, -100)
@@ -268,7 +268,7 @@ environment:
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_len_r2_loop", set=set)
 
-        sys.tethers[:main_tether].init_len = 200.0
+        sys.tethers[:main_tether].init_stretched_len = 200.0
         @test_throws ErrorException SymbolicAWEModels.reinit!(sys, set)
     end
 

@@ -165,12 +165,12 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         aero_force_point_b = nothing
     end
 
-    # Pulley and tether length state variables (shared between segments, pulleys, winches)
+    # Pulley and tether length state variables
     @variables begin
         pulley_len(t)[eachindex(pulleys)]
         pulley_vel(t)[eachindex(pulleys)]
-        tether_len(t)[eachindex(winches)]
-        tether_vel(t)[eachindex(winches)]
+        tether_len(t)[eachindex(tethers)]
+        tether_vel(t)[eachindex(tethers)]
     end
 
     # ==================== CALL COMPONENT FUNCTIONS ==================== #
