@@ -20,7 +20,7 @@
 - When changing behavior, add or update tests under `test/`.
 - Run targeted tests first (closest affected test files), then broader tests if needed.
 - Do not ignore failing tests; either fix them or explain why they are unrelated.
-- To run a single test, use `include("test/<test_file>.jl")` from the Julia REPL, or use `./run_julia test/<test_file>.jl` from the command line.
+- To run a single test, use `include("test/<test_file>.jl")` from the Julia REPL, or use `./bin/run_julia test/<test_file>.jl` from the command line.
 
 ## Documentation
 - Update docs in `docs/src/` when user-facing behavior, APIs, or workflows change.
