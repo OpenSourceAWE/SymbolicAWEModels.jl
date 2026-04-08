@@ -285,7 +285,7 @@ st  # Verify the package was added
 # Start Julia
 jl
 ```
-Use the package manger to add your package:
+Use the package manager to add your package:
 ```julia
 ]  # Enter Pkg mode - prompt shows (SymbolicAWEModels) pkg>
 add YourPackage
