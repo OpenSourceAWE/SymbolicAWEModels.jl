@@ -232,9 +232,6 @@ include("examples/coupled_2plate_kite.jl")
 include("examples/menu.jl")
 ```
 
-**Important**: You still need to use `examples/`
-in the include paths.
-
 The `examples/Project.toml` file already contains the necessary dependencies:
 
 - `GLMakie` - for visualization
