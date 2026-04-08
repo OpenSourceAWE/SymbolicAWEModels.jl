@@ -111,8 +111,9 @@ helps prevent merge conflicts.
 ```bash
 git fetch upstream
 git checkout main
-git merge upstream/main
+git rebase upstream/main
 ```
+If rebase fails, you can also use the `git merge` command instead.
 
 **Keep Your Feature Branch Up to Date** While working on your feature branch,
 regularly merge the latest changes from `main` to avoid merge conflicts later:
@@ -120,9 +121,9 @@ regularly merge the latest changes from `main` to avoid merge conflicts later:
 ```bash
 git fetch upstream
 git checkout main
-git merge upstream/main
+git rebase upstream/main
 git checkout add_lei_model
-git merge main
+git rebase main
 ```
 
 This is especially important for long-running feature branches. Merging
