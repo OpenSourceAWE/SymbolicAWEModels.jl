@@ -64,7 +64,8 @@ cd bin
 
 If you have the time, also create a system image, which contains all packages but `SymbolicAWEModels.jl` itself. This
 has the advantage of a much lower startup time and the disadvantage that you need to recreate the system image after
-updating packages.
+updating packages. On a laptop with an `AMD 7840U` CPU and 32 GB RAM on battery power this takes at least 15 minutes.
+
 
 ```bash
 cd bin
