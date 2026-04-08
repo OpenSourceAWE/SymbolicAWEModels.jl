@@ -6,7 +6,6 @@ Pkg.activate(@__DIR__)
 
 using Test
 using SymbolicAWEModels
-using Pkg
 
 @testset "Testing helper functions..." begin
     path=pwd()
