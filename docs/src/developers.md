@@ -73,7 +73,7 @@ cd bin
 
 This requires at least 48 GB memory. If you have 16GB RAM, create a swap file with 32 GB. Also 
 close all other programs before creating the system image to avoid an out-of-memory error. 
-On MacOS this is handled automatically.
+On macOS this is handled automatically.
 
 **Start Julia**
 
