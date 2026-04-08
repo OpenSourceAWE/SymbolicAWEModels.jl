@@ -62,7 +62,9 @@ cd bin
 ./install
 ```
 
-If you have the time, also create a system image, which contains all packages but `SymbolicAWEModels.jl` itself.
+If you have the time, also create a system image, which contains all packages but `SymbolicAWEModels.jl` itself. This
+has the advantage of a much lower startup time and the disadvantage that you need to recreate the system image after
+updating packages.
 
 ```bash
 cd bin
