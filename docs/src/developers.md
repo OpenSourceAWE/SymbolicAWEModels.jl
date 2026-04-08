@@ -213,26 +213,13 @@ in your Julia session!
 When developing the package, you'll want to test your changes with the examples.
 Here's how to set up the examples to use your local development version:
 
-#### Setup
+#### Launching Julia
 
 1. **From the package root directory**:
 
    ```bash
    jl
    ```
-
-2. **Link your local development version**:
-
-   ```julia
-   ]  # Press ] to enter Pkg mode - prompt shows (examples) pkg>
-   dev .
-   ```
-
-   This command tells Julia to use the local source code in the current
-   directory (`.`) instead of the registered package version. Use `]st` to
-   verify the package is linked to your local path.
-
-   This is NOT needed if you have checked out `SymbolicAWEModels.jl` using git. It is only needed if you work on a project that depends on `SymbolicAWEModels.jl` and you want to modify code in `SymbolicAWEModels.jl`.
 
 #### Running examples
 
@@ -280,33 +267,32 @@ Press backspace to exit Pkg mode and return to the Julia REPL.
 
 **Adding packages to the examples:**
 
-```julia
-# Start Julia with examples project
-julia --project=examples
+```bash
+# Start Julia
+jl
+```
+Use the package manger to activate the examples project and add your package:
+```
 
 ]  # Enter Pkg mode - prompt shows (examples) pkg>
+activate examples
 add YourPackage
 st  # Verify the package was added
 ```
 
 **Adding packages to SymbolicAWEModels itself:**
-
+```bash
+# Start Julia
+jl
+```
+Use the package manger to add your package:
 ```julia
-# Start Julia with the main project
-julia --project=.
-
 ]  # Enter Pkg mode - prompt shows (SymbolicAWEModels) pkg>
 add YourPackage
 st  # Verify the package was added
 ```
 
 The prompt `(ProjectName) pkg>` always tells you which project you're modifying.
-
-**Tip**: Create a shell alias to quickly start the development environment:
-
-```bash
-alias jl-ex='julia --project=examples'
-```
 
 ### Building documentation locally
 
@@ -405,7 +391,7 @@ julia --project=test test/test_segment.jl
 When adding a new component or equation, follow this pattern:
 
 1. **Build a minimal model** using constructors — only include the
-   components needed to test the behaviour in question.
+   components needed to test the behavior in question.
 2. **Derive the expected result analytically** — free-fall distance,
    terminal velocity, oscillation frequency, etc.
 3. **Simulate and compare** — run `next_step!` in a loop and check the
