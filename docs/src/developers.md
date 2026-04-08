@@ -64,13 +64,14 @@ cd bin
 
 If you have the time, also create a system image, which contains all packages but `SymbolicAWEModels.jl` itself.
 
-```
+```bash
 cd bin
 ./create_sys_image
 ```
 
-This requires at least 48 GB memory. If you have 16GB RAM, create a swap file with 32 GB. Also close all other 
-programs before creating the system image to avoid an out-of-memory error. On MacOS this is handled automatically.
+This requires at least 48 GB memory. If you have 16GB RAM, create a swap file with 32 GB. Also 
+close all other programs before creating the system image to avoid an out-of-memory error. 
+On MacOS this is handled automatically.
 
 **Start Julia**
 
