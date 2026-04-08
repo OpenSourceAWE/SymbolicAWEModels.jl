@@ -265,6 +265,7 @@ Press backspace to exit Pkg mode and return to the Julia REPL.
 - `st` - Show status (list all packages and their versions)
 - `up` - Update all packages
 - `instantiate` - Install all packages from Project.toml
+- `resolve` - Resolve possible conflicts. This can fail. If it fails, you have to disable the system image (delete it or rename it) and delete the `Manifest-v1.xx.toml` file of the active Julia version. When you now run instantiate or resolve, a new `Manifest.toml` will be created. Rename it manually to `Manifest-v1.xx.toml` with `xx` being your minor Julia version number.
 
 **Adding packages to the examples:**
 
