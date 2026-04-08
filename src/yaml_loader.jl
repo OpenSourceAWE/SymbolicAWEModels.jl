@@ -354,15 +354,38 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
-    # Parse [a, b] or [a, [b, c]] style reference-point fields from YAML rows.
+    # Parse [a, b] or [a, [[id, w], ...]] style reference-point
+    # fields from YAML rows. Weighted specs like
+    #   [[2, 0.7], [4, 0.3]]
+    # are converted to tuples for WeightedRefPoints.
     yaml_parse_ref_points = function (row, field)
         !hasfield(typeof(row), field) && return nothing
         val = getfield(row, field)
         val === nothing && return nothing
 
-        @assert length(val) == 2 "ref_points must have 2 elements"
+        if length(val) != 2
+            throw(ArgumentError("ref_points must have 2 elements"))
+        end
 
-        convert_ref(v) = v isa Vector ? [yaml_to_ref(x) for x in v] : yaml_to_ref(v)
+        convert_ref = function (v)
+            if v isa Vector && !isempty(v) && v[1] isa Vector
+                # Weighted: [[id, weight], ...] → tuples
+                return map(v) do x
+                    if !(x isa Vector) || length(x) != 2
+                        throw(ArgumentError("Invalid weighted reference point entry $(repr(x)); expected format [[id, weight], ...]"))
+                    end
+                    if !(x[2] isa Number)
+                        throw(ArgumentError("Invalid weighted reference point weight $(repr(x[2])) in entry $(repr(x)); expected format [[id, weight], ...] with numeric weight"))
+                    end
+                    (yaml_to_ref(x[1]), Float64(x[2]))
+                end
+            elseif v isa Vector
+                # Multiple equal-weight refs: [a, b, ...]
+                return [yaml_to_ref(x) for x in v]
+            else
+                return yaml_to_ref(v)
+            end
+        end
         p1 = convert_ref(val[1])
         p2 = convert_ref(val[2])
         return (p1, p2)

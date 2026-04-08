@@ -109,22 +109,15 @@ echo "Detected Julia version: $julia_version (major: $julia_major)"
 
 export JULIA_PKG_SERVER_REGISTRY_PREFERENCE=eager
 
-# Detect current git branch
-if [ -d .git ] || git rev-parse --git-dir > /dev/null 2>&1 ; then
-    branch=$(git rev-parse --abbrev-ref HEAD | sed 's/\//-/g')
-else
-    branch=""
-fi
-
-# Delete any existing custom system image for this Julia version and branch
-if [[ $branch != "" ]]; then
-    SOFILE="bin/kps-image-${julia_major}-${branch}.so"
-else
-    SOFILE="bin/kps-image-${julia_major}.so"
-fi
+# Delete any existing custom system image for this Julia version
+SOFILE="bin/kps-image-${julia_major}.so"
 if test -f "$SOFILE"; then
     echo "Deleting old system image: $SOFILE"
     rm -f "$SOFILE"
+fi
+if compgen -G "bin/kps-image-${julia_major}-*.so" > /dev/null; then
+    echo "Deleting legacy branch-specific system images for Julia ${julia_major}"
+    rm -f bin/kps-image-"${julia_major}"-*.so
 fi
 
 # Only accept Julia 1.11 and 1.12
@@ -241,7 +234,38 @@ if [[ $julia_major == "1.12" ]]; then
     echo "Removed subproject manifests for Julia 1.12"
 fi
 
+# Add alias to shell configuration file
+if [[ "$(uname -s)" == "Linux" && -f ~/.bashrc ]]; then
+    if ! grep -q "alias jl='bin/run_julia'" ~/.bashrc; then
+        echo "alias jl='bin/run_julia'" >> ~/.bashrc
+        echo
+        echo "Added alias 'jl' to ~/.bashrc"
+        echo "Run 'source ~/.bashrc' or restart your terminal to use it"
+    fi
+elif [[ "$(uname -s)" == "Darwin" ]]; then
+    # On macOS, check for zsh (default since Catalina) or bash configuration files
+    _config_file=""
+    if [[ -f ~/.zshrc ]]; then
+        _config_file=~/.zshrc
+    elif [[ -f ~/.bash_profile ]]; then
+        _config_file=~/.bash_profile
+    elif [[ -f ~/.bashrc ]]; then
+        _config_file=~/.bashrc
+    fi
+    
+    if [[ -n "$_config_file" ]]; then
+        if ! grep -q "alias jl='bin/run_julia'" "$_config_file"; then
+            echo "alias jl='bin/run_julia'" >> "$_config_file"
+            echo
+            echo "Added alias 'jl' to $_config_file"
+            echo "Run 'source $_config_file' or restart your terminal to use it"
+        fi
+    fi
+    unset _config_file
+fi
+
 echo "Installation complete!"
 echo
 echo "You can now launch Julia by typing"
+echo "cd .."
 echo "./bin/run_julia"

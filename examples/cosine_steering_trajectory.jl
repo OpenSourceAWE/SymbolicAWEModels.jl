@@ -30,7 +30,9 @@ Run from REPL:
 """
 
 using Pkg
-Pkg.activate(@__DIR__)
+if Base.active_project() != joinpath(@__DIR__, "Project.toml")
+    Pkg.activate(@__DIR__)
+end
 
 using GLMakie
 using Interpolations

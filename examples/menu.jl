@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: MIT
 
 using Pkg
-Pkg.activate(@__DIR__)
+if Base.active_project() != joinpath(@__DIR__, "Project.toml")
+    Pkg.activate(@__DIR__)
+end
 
 using GLMakie
 using SymbolicAWEModels

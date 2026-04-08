@@ -7,7 +7,9 @@ and saddle z-profile, relaxed to equilibrium via dynamic simulation.
 """
 
 using Pkg
-Pkg.activate(@__DIR__)
+if Base.active_project() != joinpath(@__DIR__, "Project.toml")
+    Pkg.activate(@__DIR__)
+end
 
 using GLMakie
 using KiteUtils: azimuth_east, calc_elevation, init!, next_step!, update_sys_state!
@@ -67,18 +69,8 @@ function run_saddle(; yaml_file)
         world_frame_damping=1.0,
         compression_frac=1.0)
 
-    # Neutral transform: match current orientation
-    direction = points[2].pos_cad .- points[1].pos_cad
-    elevation = calc_elevation(direction)
-    azimuth = -azimuth_east(direction)
-    transforms = [
-        Transform(1, elevation, azimuth, 0.0;
-                  base_pos=Vector(points[1].pos_cad),
-                  base_point=1, rot_point=2),
-    ]
-
     sys = SystemStructure("saddle_form", set;
-                          points, segments, transforms)
+                          points, segments)
     sam = SymbolicAWEModel(set, sys)
     init!(sam; remake=false)
 

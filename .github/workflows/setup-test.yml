@@ -1,5 +1,7 @@
 name: Setup Test
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -7,7 +9,6 @@ concurrency:
 jobs:
   setup-test:
     name: Test end-user and developer setup
-    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -19,4 +20,4 @@ jobs:
       - name: Install xvfb for headless GLMakie
         run: sudo apt-get update && sudo apt-get install -y xvfb libgl1-mesa-dri
       - name: Run setup tests
-        run: bash test/test_setup.sh
+        run: xvfb-run -a julia test/setup_integration.jl

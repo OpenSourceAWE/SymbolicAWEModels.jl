@@ -65,7 +65,7 @@ SPDX-License-Identifier: MPL-2.0
 
 ## Tests
 - README pendulum example and README 2-plate kite example are now
-  executed in `test/test_setup.sh`.
+  executed in `test/setup_integration.jl`.
 
 # v0.7.2 18-03-2026
 

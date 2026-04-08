@@ -7,7 +7,9 @@ and build a state-space representation.
 """
 
 using Pkg
-Pkg.activate(@__DIR__)
+if Base.active_project() != joinpath(@__DIR__, "Project.toml")
+    Pkg.activate(@__DIR__)
+end
 
 using KiteUtils: init!
 using SymbolicAWEModels, VortexStepMethod
@@ -43,4 +45,5 @@ find_steady_state!(sam)
 @info "Linearized" A=size(A) B=size(B) C=size(C) D=size(D)
 
 lin_sys = ss(A, B, C, D)
-@info "State-space model" lin_sys
+@info "State-space model: $(size(A, 1)) states, " *
+    "$(size(B, 2)) inputs, $(size(C, 1)) outputs"

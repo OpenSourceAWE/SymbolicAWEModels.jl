@@ -83,8 +83,9 @@ pkg"add GLMakie"
 
 ```julia
 using SymbolicAWEModels
+using SymbolicAWEModels: Point
 using GLMakie
-using KiteUtils: init!, next_step!, update_sys_state!
+using KiteUtils: init!, next_step!
 SymbolicAWEModels.copy_data()
 set_data_path("data/base")
 
@@ -93,26 +94,28 @@ set.v_wind = 0.0
 
 # Define components using symbolic names
 points = [
-    Point(:anchor, [0, 0, 0], STATIC),
-    Point(:mass, [0, 0, -50], DYNAMIC; extra_mass=1.0),
+    Point(:anchor, [0, 0, 0], STATIC; transform=:tf),
+    Point(:mass, [0, 0, -50], DYNAMIC; extra_mass=1.0, transform=:tf),
 ]
 segments = [Segment(:spring, :anchor, :mass,
     614600.0, 473.0, 0.004)]
-transforms = [Transform(:tf, deg2rad(-80), 0.0, 0.0;
+transforms = [Transform(:tf, deg2rad(-70), 0.0, 0.0;
     base_pos=[0, 0, 50], base_point=:anchor, rot_point=:mass)]
 
 # Assemble and compile
 sys = SystemStructure("pendulum", set; points, segments, transforms)
 sam = SymbolicAWEModel(set, sys)
 init!(sam)
-
-# Simulate
-for _ in 1:100
-    next_step!(sam)
-end
-
-# Visualize the system structure
 plot(sam.sys_struct)
+
+# Simulate with live visualization
+dt = 0.05
+for _ in 1:500
+    t_start = time()
+    next_step!(sam; dt)
+    plot!(sam.sys_struct)
+    sleep(max(0, dt - (time() - t_start)))
+end
 ```
 
 For the full tutorial, see
@@ -146,37 +149,40 @@ packages:
 A minimal coupled aero-structural model included in `data/2plate_kite/`:
 
 ```julia
-using SymbolicAWEModels, VortexStepMethod
-using GLMakie
-using KiteUtils: init!, next_step!, update_sys_state!
+using SymbolicAWEModels, VortexStepMethod, GLMakie
+using SymbolicAWEModels: Point
+using KiteUtils: init!, next_step!
 SymbolicAWEModels.copy_data()
 
 set_data_path("data/2plate_kite")
 
-struc_yaml = joinpath(get_data_path(), "quat_struc_geometry.yaml")
+struc_yaml = joinpath(get_data_path(),
+    "refine_struc_geometry.yaml")
 
 # Load settings and VSM configuration
 set = Settings("system.yaml")
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
+    joinpath(get_data_path(), "vsm_settings.yaml");
+    data_prefix=false)
 
 # Build system structure from YAML
 sys = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite", set, vsm_set)
+sys.segments[:kcu_steering_right].l0 += 0.1
+sys.segments[:kcu_steering_left].l0 -= 0.1
+sys.winches[:main_winch].brake = true
 
 sam = SymbolicAWEModel(set, sys)
-init!(sam)
+init!(sam; remake=false, lin_vsm=false)
+plot(sam.sys_struct)
 
-l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
-l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
-
-# Run with a steering ramp
-for step in 1:600
-    t = step * (10.0 / 600)
-    ramp = clamp(t / 2.0, 0.0, 1.0)
-    sam.sys_struct.segments[:kcu_steering_left].l0 = l0_left - 0.1 * ramp
-    sam.sys_struct.segments[:kcu_steering_right].l0 = l0_right + 0.1 * ramp
-    next_step!(sam; dt=10.0/600, vsm_interval=1)
+# Simulate with live visualization
+dt = 0.01
+for step in 1:1000
+    t_start = time()
+    next_step!(sam; dt, vsm_interval=1)
+    plot!(sam.sys_struct)
+    sleep(max(0, dt - (time() - t_start)))
 end
 ```
 
