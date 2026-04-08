@@ -73,6 +73,7 @@ This requires at least 48 GB memory. If you have 16GB RAM, create a swap file wi
 programs before creating the system image to avoid an out-of-memory error. On MacOS this is handled automatically.
 
 **Start Julia**
+
 Always start Julia with
 
 ```bash
@@ -95,7 +96,7 @@ in your `.bashrc` file in your home directory (Linux and Windows). For Mac, add 
 This has a few advantages:
 
 - It will activate the current project
-- it will set the required number of threads
+- it will set the required number of threads of the garbage collector
 - it will use a system image if available
 - it will provide the function `menu()` to launch any of the examples without the need to type the longish `include(...)` command.
 
@@ -300,27 +301,20 @@ To preview documentation changes as you work:
 
 #### Using LiveServer (recommended)
 
-1. **Start Julia with the docs project**:
+1. **Start Julia**:
 
    ```bash
-   julia --project=docs
+   jl
    ```
 
-2. **Link your local development version** (first time only):
+2. **Build the docs and show them with live reload**:
 
    ```julia
-   ]  # Press ] to enter Pkg mode - prompt shows (docs) pkg>
-   dev .
-   ```
-
-3. **Serve the docs with live reload**:
-
-   ```julia
-   using LiveServer
-   servedocs(launch_browser=true)
+   include("scripts/build_docu.jl")
    ```
 
    This will:
+   - Generate documentation figures, if needed
    - Build the documentation
    - Open it in your default browser
    - Watch for changes to documentation files
@@ -331,7 +325,7 @@ To preview documentation changes as you work:
 Alternatively, you can build the documentation once without the live server:
 
 ```bash
-julia --project=docs
+jl
 ```
 
 ```julia
