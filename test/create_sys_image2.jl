@@ -23,3 +23,4 @@ PackageCompiler.create_sysimage(
     include_transitive_dependencies=true,
     precompile_execution_file=joinpath("test", "test_for_precompile.jl")
 )
+nothing

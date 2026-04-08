@@ -506,3 +506,4 @@ system:
     # Cleanup
     rm(tmpdir; recursive=true)
 end
+nothing

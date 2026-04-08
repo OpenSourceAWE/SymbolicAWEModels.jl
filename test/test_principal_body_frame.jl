@@ -162,3 +162,4 @@ using LinearAlgebra
 
     rm(tmpdir; recursive=true)
 end
+nothing

@@ -42,3 +42,4 @@ using SymbolicAWEModels
     @test ! ("Revise" ∈ keys(Pkg.project().dependencies))
     @test ! ("Plots" ∈ keys(Pkg.project().dependencies))
 end
+nothing

@@ -182,3 +182,4 @@ end
         @test isempty(pkg_locs)
     end
 end
+nothing

@@ -93,3 +93,4 @@ using LinearAlgebra
         @test !iszero(group.y_airf)
     end
 end
+nothing

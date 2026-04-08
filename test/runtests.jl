@@ -28,3 +28,4 @@ sort!(test_files)
         include(f)
     end
 end
+nothing
