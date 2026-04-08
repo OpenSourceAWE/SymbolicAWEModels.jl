@@ -11,6 +11,9 @@
 # 4. Analytical geometry: equilibrium position matches derivation
 # 5. Tension balance: symmetric forces at equilibrium
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3

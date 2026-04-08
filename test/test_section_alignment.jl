@@ -5,6 +5,9 @@
 # Check that VSM unrefined section LE/TE points align with
 # structural WING-type points in both body and world frames.
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod, WING,

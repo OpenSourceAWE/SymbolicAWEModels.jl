@@ -10,6 +10,9 @@
 # 4. Replay single system
 # 5. Replay multiple systems
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using Test
 
 # GLMakie requires OpenGL — skip tests on CI runners without GPU drivers

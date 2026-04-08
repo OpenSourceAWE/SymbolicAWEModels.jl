@@ -10,6 +10,9 @@
 # 3. Torque-free precession: transverse ω oscillates at
 #    predicted frequency from linearized Euler equations
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod

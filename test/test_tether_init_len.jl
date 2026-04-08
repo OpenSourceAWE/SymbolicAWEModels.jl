@@ -7,6 +7,9 @@
 # Uses Route 2 (auto-generated) tethers and YAML-specified init_len.
 # All tests use reinit! directly on a SystemStructure (no ODE compilation).
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3

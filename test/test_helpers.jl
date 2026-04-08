@@ -1,6 +1,9 @@
 # SPDX-FileCopyrightText: 2022, 2024, 2025 Uwe Fechner
 # SPDX-License-Identifier: MIT
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using Test
 using SymbolicAWEModels
 using Pkg

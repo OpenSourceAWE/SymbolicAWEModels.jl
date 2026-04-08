@@ -52,18 +52,24 @@ else
     GCT="--gcthreads=4,1"
 fi
 
+if [[ $# -gt 0 ]]; then
+    JULIA_ARGS=("$@")
+else
+    JULIA_ARGS=(-i -e 'using KiteUtils: menu')
+fi
+
 if [[ $branch != "" ]]; then
     if test -f "bin/kps-image-${julia_major}-${branch}.so"; then
         echo "Found system image!"
-        julia +${julia_major} -J  bin/kps-image-${julia_major}-${branch}.so -t 1 $GCT --project -i -e 'using KiteUtils: menu'
+        julia +${julia_major} -J  bin/kps-image-${julia_major}-${branch}.so -t 1 $GCT --project "${JULIA_ARGS[@]}"
     else
-        julia +${julia_major} -t 1 $GCT --project -i -e 'using KiteUtils: menu'
+        julia +${julia_major} -t 1 $GCT --project "${JULIA_ARGS[@]}"
     fi
 else
     if test -f "bin/kps-image-${julia_major}.so"; then
         echo "Found system image!"
-        julia +${julia_major} -J  bin/kps-image-${julia_major}.so -t 1 $GCT --project -i -e 'using KiteUtils: menu'
+        julia +${julia_major} -J  bin/kps-image-${julia_major}.so -t 1 $GCT --project "${JULIA_ARGS[@]}"
     else
-        julia +${julia_major} -t 1 $GCT --project -i -e 'using KiteUtils: menu'
+        julia +${julia_major} -t 1 $GCT --project "${JULIA_ARGS[@]}"
     fi
 fi

@@ -7,6 +7,9 @@
 # preserves refined panel polars across section count
 # changes (no re-interpolation).
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod, WING,

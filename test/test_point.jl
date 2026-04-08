@@ -9,6 +9,9 @@
 # 2. No gravity, with wind: correct drag acceleration
 # 3. With gravity, zero area: pure free fall acceleration
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3

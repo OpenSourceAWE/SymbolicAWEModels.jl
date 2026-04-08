@@ -9,6 +9,9 @@
 # 3. Modified segment l0: segment updated correctly
 # 4. l0=nothing in YAML: auto-calc from pos_cad
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3

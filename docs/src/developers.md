@@ -355,11 +355,11 @@ the expected constitutive law.
 
 ```bash
 # Run the full test suite
-julia --project=. -e 'using Pkg; Pkg.test()'
+jl -e 'using Pkg; Pkg.test()'
 
 # Run a single test file
-julia --project=test test/test_point.jl
-julia --project=test test/test_segment.jl
+jl test/test_point.jl
+jl test/test_segment.jl
 ```
 
 ### Test files

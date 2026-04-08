@@ -5,7 +5,10 @@
 # Verifies allocation counts for registered functions and
 # ensures no allocations originate from package source code.
 #
-# Usage: julia --project=test test/test_bench.jl
+# Usage: jl test/test_bench.jl
+
+using Pkg
+Pkg.activate(@__DIR__)
 
 using Test
 using SymbolicAWEModels

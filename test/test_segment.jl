@@ -9,6 +9,9 @@
 # 3. Horizontal segment gravity drag: terminal velocity (two DYNAMIC points)
 # 4. Vertical segment wind drag: terminal velocity matches wind (two DYNAMIC points)
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3

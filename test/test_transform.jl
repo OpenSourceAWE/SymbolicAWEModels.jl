@@ -12,6 +12,9 @@
 #
 # Uses 2plate_kite configuration files with both REFINE and QUATERNION wing types.
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod,

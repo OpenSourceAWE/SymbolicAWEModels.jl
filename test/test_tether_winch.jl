@@ -7,6 +7,9 @@
 # and low-stiffness tethers. Each test verifies one physical
 # behavior with tight tolerances and swept parameters.
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3

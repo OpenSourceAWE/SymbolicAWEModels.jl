@@ -13,6 +13,9 @@
 #    relative to COM (same frame as pos_b)
 # 3. R_b_to_p = R_p_to_c' * R_b_to_c (constant body→principal)
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, QUATERNION, WING,

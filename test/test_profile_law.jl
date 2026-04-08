@@ -12,6 +12,9 @@
 #   2 = LOG (delegated to AtmosphericModels)
 #   3 = EXPLOG (delegated to AtmosphericModels)
 
+using Pkg
+Pkg.activate(@__DIR__)
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
