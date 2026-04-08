@@ -54,18 +54,9 @@ fi
 
 THREADS="auto"
 
-if [[ $branch != "" ]]; then
-    if test -f "bin/kps-image-${julia_major}-${branch}.so"; then
-        echo "Found system image!"
-        julia +${julia_major} -J  bin/kps-image-${julia_major}-${branch}.so -t $THREADS $GCT --project "${JULIA_ARGS[@]}"
-    else
-        julia +${julia_major} -t $THREADS $GCT --project "${JULIA_ARGS[@]}"
-    fi
+if test -f "bin/kps-image-${julia_major}.so"; then
+    echo "Found system image!"
+    julia +${julia_major} -J  bin/kps-image-${julia_major}.so -t $THREADS $GCT --project "${JULIA_ARGS[@]}"
 else
-    if test -f "bin/kps-image-${julia_major}.so"; then
-        echo "Found system image!"
-        julia +${julia_major} -J  bin/kps-image-${julia_major}.so -t $THREADS $GCT --project "${JULIA_ARGS[@]}"
-    else
-        julia +${julia_major}  -t $THREADS $GCT --project "${JULIA_ARGS[@]}"
-    fi
+    julia +${julia_major}  -t $THREADS $GCT --project "${JULIA_ARGS[@]}"
 fi
