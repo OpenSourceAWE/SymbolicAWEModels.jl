@@ -271,7 +271,7 @@ Press backspace to exit Pkg mode and return to the Julia REPL.
 # Start Julia
 jl
 ```
-Use the package manger to activate the examples project and add your package:
+Use the package manager to activate the examples project and add your package:
 ```
 
 ]  # Enter Pkg mode - prompt shows (examples) pkg>
