@@ -32,8 +32,9 @@ using SymbolicAWEModels
 
 Extract the first Julia code block following a heading that
 matches `heading_pattern` in README.md. Lines containing
-`Pkg` and `pkg"` lines are filtered out since the project
-is already activated by the test harness.
+`Pkg`, `pkg"`, `plot(`, and `plot!(` lines are filtered
+out since the project is already activated and plotting
+requires a display.
 """
 function extract_readme_code(heading_pattern)
     readme = read(joinpath(REPO_ROOT, "README.md"), String)

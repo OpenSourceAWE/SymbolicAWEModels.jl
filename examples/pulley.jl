@@ -26,8 +26,10 @@ set.rel_tol = 1e-3
 points = [
     Point(:anchor1, [0, 0, 2], STATIC),
     Point(:anchor2, [2, 0, 2], STATIC),
-    Point(:pulley_pt, [0.1, 0, 1], DYNAMIC; extra_mass=0.1),
-    Point(:mass, [0.1, 0, 0], DYNAMIC; extra_mass=0.1),
+    Point(:pulley_pt, [0.1, 0, 1], DYNAMIC;
+        extra_mass=0.1),
+    Point(:mass, [0.1, 0, 0], DYNAMIC;
+        extra_mass=0.1),
 ]
 segments = [
     Segment(:seg1, :pulley_pt, :anchor1,
@@ -38,14 +40,8 @@ segments = [
             500.0, 50.0, 0.004),
 ]
 pulleys = [Pulley(:pulley, :seg1, :seg2, DYNAMIC)]
-transforms = [
-    Transform(:tf, 0, 0, 0;
-              base_pos=[1, 0, 4], base_point=:anchor1,
-              rot_point=:anchor2),
-]
-
 sys = SystemStructure("pulley", set;
-                      points, segments, pulleys, transforms)
+                      points, segments, pulleys)
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 

@@ -35,14 +35,16 @@ seg_diameter  = 0.004      # [m]
 
 # Points laid out horizontally; transform rotates to vertical
 points = [
-    Point(:top, [vertical_span, 0, 0], STATIC),
+    Point(:top, [vertical_span, 0, 0], STATIC;
+        transform=:tf),
 ]
 for i in 1:n_segments - 1
     x = vertical_span - i * vertical_span / n_segments
     push!(points, Point(Symbol("p$i"), [x, 0, 0], DYNAMIC;
-                        world_frame_damping=1.0))
+        world_frame_damping=1.0, transform=:tf))
 end
-push!(points, Point(:bottom, [0, 0, 0], STATIC))
+push!(points, Point(:bottom, [0, 0, 0], STATIC;
+    transform=:tf))
 
 l0_seg = total_length / n_segments
 segments = Segment[]

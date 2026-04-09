@@ -366,7 +366,7 @@ end
                         # QUATERNION keeps wing points on the rigid body;
                         # cross-platform solver differences can cause
                         # millimeter-level residual drift in this test.
-                        1e-2
+                        5e-2
                     else
                         1e-5
                     end

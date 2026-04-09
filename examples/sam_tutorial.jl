@@ -28,13 +28,14 @@ seg_diameter  = 0.004      # [m]
 
 # --- STEP 1: Tether ---
 
-points = [Point(1, zeros(3), STATIC)]
+points = [Point(1, zeros(3), STATIC; transform=1)]
 segments = Segment[]
 l_seg = set.l_tether / set.segments
 for i in 1:set.segments
     pos = [0.0, 0.0, i * l_seg]
     kw = i == set.segments ? (; extra_mass=1.0) : (;)
-    push!(points, Point(i + 1, pos, DYNAMIC; kw...))
+    push!(points, Point(i + 1, pos, DYNAMIC;
+        transform=1, kw...))
     push!(segments, Segment(i, i, i + 1,
         seg_stiffness, seg_damping, seg_diameter;
         l0=l_seg))
@@ -75,8 +76,10 @@ end
 
 # --- STEP 3: Add a pulley ---
 
-push!(points, Point(22, [0, 0, set.l_tether + 5], DYNAMIC; extra_mass=0.1))
-push!(points, Point(23, [1, 0, set.l_tether + 5], STATIC))
+push!(points, Point(22, [0, 0, set.l_tether + 5], DYNAMIC;
+    extra_mass=0.1, transform=1))
+push!(points, Point(23, [1, 0, set.l_tether + 5], STATIC;
+    transform=1))
 push!(segments, Segment(21, 21, 22,
     seg_stiffness, seg_damping, seg_diameter))
 push!(segments, Segment(22, 21, 23,

@@ -34,7 +34,7 @@ points = [Point(:left, [0, 0, 5], STATIC)]
 for i in 1:n_segments - 1
     x = i * horizontal_span / n_segments
     push!(points, Point(Symbol("p$i"), [x, 0, 5], DYNAMIC;
-                        world_frame_damping=1.0))
+        world_frame_damping=1.0))
 end
 push!(points, Point(:right, [horizontal_span, 0, 5], STATIC))
 
@@ -48,14 +48,7 @@ for i in 1:n_segments
         l0=l0_seg, compression_frac=0.01))
 end
 
-transforms = [
-    Transform(:tf, 0, 0, 0;
-              base_pos=[0, 0, 5], base_point=:left,
-              rot_point=:p1),
-]
-
-sys = SystemStructure("catenary", set;
-                      points, segments, transforms)
+sys = SystemStructure("catenary", set; points, segments)
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 

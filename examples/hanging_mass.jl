@@ -24,8 +24,9 @@ set = Settings("base/system.yaml")
 set.v_wind = 0
 
 points = [
-    Point(:anchor, [2, 0, 5], STATIC),
-    Point(:mass, [2, 0, 2], DYNAMIC; extra_mass=1.0),
+    Point(:anchor, [2, 0, 5], STATIC; transform=:tf),
+    Point(:mass, [2, 0, 2], DYNAMIC;
+        extra_mass=1.0, transform=:tf),
 ]
 segments = [
     Segment(:spring, :anchor, :mass,

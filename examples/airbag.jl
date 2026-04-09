@@ -65,7 +65,8 @@ for j in 0:N
         z = is_boundary ? Z0 : Z0 + Z_PERTURB
         kw = is_boundary ? (;) :
             (; extra_mass=NODE_MASS, world_frame_damping=WF_DAMP)
-        push!(points, Point(pname(i, j), [i * dx, j * dx, z], type; kw...))
+        push!(points, Point(pname(i, j),
+            [i * dx, j * dx, z], type; kw...))
     end
 end
 
@@ -100,22 +101,8 @@ for j in 0:N-1, i in 0:N-1
 end
 # Rest lengths (l0) are automatically set to initial CAD distances by SystemStructure.
 
-# ── Transform ───────────────────────────────────────────────────────────
-# A neutral transform: base = corner (0,0), rot_point = adjacent node (1,0)
-p1  = points[1]                 # (i=0, j=0) corner
-p2  = points[pidx(1, 0)]       # (i=1, j=0) adjacent node
-dir = p2.pos_cad .- p1.pos_cad
-elev = KiteUtils.calc_elevation(dir)
-azim = -KiteUtils.azimuth_east(dir)
-transforms = [
-    Transform(1, elev, azim, 0.0;
-              base_pos  = Vector(p1.pos_cad),
-              base_point= pname(0, 0),
-              rot_point = pname(1, 0)),
-]
-
 # ── Build model ─────────────────────────────────────────────────────────
-sys = SystemStructure("airbag", set; points, segments, transforms)
+sys = SystemStructure("airbag", set; points, segments)
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 
