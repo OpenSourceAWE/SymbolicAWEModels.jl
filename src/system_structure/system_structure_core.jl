@@ -105,7 +105,11 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
         tethers = getfield(sys, :tethers)
         for tether in tethers
             push!(vars, tether.len)
-            push!(vars, tether.vel)
+        end
+        # winches
+        winches = getfield(sys, :winches)
+        for winch in winches
+            push!(vars, winch.vel)
         end
         return reshape(vars, :, 1) # Return as a column vector (2D array)
     else
@@ -165,7 +169,11 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
         for tether in tethers
             tether.len = flat_value[offset]
             offset += 1
-            tether.vel = flat_value[offset]
+        end
+        # winches
+        winches = getfield(sys, :winches)
+        for winch in winches
+            winch.vel = flat_value[offset]
             offset += 1
         end
         return value

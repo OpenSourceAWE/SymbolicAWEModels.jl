@@ -37,18 +37,6 @@ function segment_world_length(segment::Segment, points)
     return norm(p1.pos_w - p2.pos_w)
 end
 
-"""
-    autocalc_tether_len(winch::Winch, tethers, segments)
-
-Average unstretched tether length across all tethers connected
-to this winch (sum of segment `l0` per tether, then average).
-"""
-function autocalc_tether_len(winch::Winch, tethers, segments)
-    n = length(winch.tether_idxs)
-    return sum(segments[seg_idx].l0
-               for tether_idx in winch.tether_idxs
-               for seg_idx in tethers[tether_idx].segment_idxs) / n
-end
 
 # ==================== TETHER CREATION ==================== #
 
@@ -450,16 +438,13 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                  apply_tether_lens::Bool=true)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
 
-    # Reset tether len/vel to initial values
+    # Reset tether len to initial values
     for tether in tethers
         tether.len = tether.init_len
-        tether.vel = 0.0
     end
-    # Apply winch init_vel to connected tethers
+    # Reset winch velocity to initial value
     for winch in winches
-        for ti in winch.tether_idxs
-            tethers[ti].vel = winch.init_vel
-        end
+        winch.vel = winch.init_vel
     end
 
     for group in groups
@@ -691,34 +676,21 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
         end
     end
 
-    # copy tether lengths and velocities
+    # copy tether lengths
     if length(sys1.tethers) > 0 &&
        length(sys1.tethers) == length(sys2.tethers)
         for (tether2, tether1) in
                 zip(sys2.tethers, sys1.tethers)
-            if !simple
-                tether2.len = tether1.len
-                tether2.vel = tether1.vel
-            else
-                seg2 = sys2.segments[
-                    tether2.segment_idxs[1]]
-                pidxs = seg2.point_idxs
-                slen = norm(
-                    sys2.points[pidxs[1]].pos_w .-
-                    sys2.points[pidxs[2]].pos_w)
-                stiffness = seg2.unit_stiffness / slen
-                # Find winch force if connected
-                wforce = zeros(3)
-                for winch in sys1.winches
-                    if tether1.idx in winch.tether_idxs
-                        wforce = winch.force
-                        break
-                    end
-                end
-                tether2.len = slen -
-                    norm(wforce) / stiffness
-                tether2.vel = tether1.vel
-            end
+            tether2.len = tether1.len
+        end
+    end
+
+    # copy winch velocities
+    if length(sys1.winches) > 0 &&
+       length(sys1.winches) == length(sys2.winches)
+        for (winch2, winch1) in
+                zip(sys2.winches, sys1.winches)
+            winch2.vel = winch1.vel
         end
     end
 
@@ -866,14 +838,13 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
             winches[i].force .= NaN
             winches[i].friction = NaN
             winches[i].acc = 0.0
+            winches[i].vel = Float64(ss.v_reelout[i])
             winches[i].set_value = Float64(ss.set_torque[i])
-            # Map SysState winch data to tethers
+            # Map SysState tether length to tethers
             for ti in winches[i].tether_idxs
                 if ti <= length(tethers)
                     tethers[ti].len =
                         Float64(ss.l_tether[i])
-                    tethers[ti].vel =
-                        Float64(ss.v_reelout[i])
                 end
             end
         end

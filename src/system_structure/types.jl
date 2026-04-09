@@ -516,8 +516,6 @@ mutable struct Tether
     """Unstretched tether length [m] (sum of segment l0).
     ODE state variable. Segment l0 = len / n_segments."""
     len::SimFloat
-    "Tether velocity [m/s]. ODE state variable."
-    vel::SimFloat
     """Initial unstretched length [m]. Used by `init!` to
     reset `len`. Segment l0 = init_len / n_segments."""
     init_len::SimFloat
@@ -572,7 +570,7 @@ function Tether(name, segments;
                   0, sp, 0, ep,
                   length(segments),
                   NaN, NaN, NaN, 0.0,
-                  il, 0.0, il, isl)
+                  il, il, isl)
 end
 
 """
@@ -622,7 +620,7 @@ function Tether(name; start_point, end_point, n_segments,
                   Float64(unit_stiffness),
                   Float64(unit_damping),
                   Float64(diameter), 0.0,
-                  il, 0.0, il, isl)
+                  il, il, isl)
 end
 
 # ==================== WINCH ==================== #
@@ -649,6 +647,8 @@ mutable struct Winch
     const winch_point_ref::NameRef
     "Initial reel-out velocity [m/s]. Applied on reinit!."
     init_vel::SimFloat
+    "Current reel-out velocity [m/s]. ODE state variable."
+    vel::SimFloat
     "Current winch acceleration [m/s²] from motor dynamics."
     acc::SimFloat
     "Control input value (torque [N·m] or speed [m/s])."
@@ -706,7 +706,7 @@ function Winch(name, set::Settings, tethers;
     wp = winch_point isa Integer ? Int(winch_point) :
          Symbol(winch_point)
     return Winch(0, name, Int64[], tether_refs, 0, wp,
-                 init_vel,
+                 init_vel, 0.0,
                  0.0, 0.0,
                  brake, speed_controlled, zeros(KVec3),
                  set.gear_ratio, set.drum_radius,
@@ -741,7 +741,7 @@ function Winch(name, tethers, gear_ratio, drum_radius,
     wp = winch_point isa Integer ? Int(winch_point) :
          Symbol(winch_point)
     return Winch(0, name, Int64[], tether_refs, 0, wp,
-                 init_vel,
+                 init_vel, 0.0,
                  0.0, 0.0,
                  brake, speed_controlled, zeros(KVec3),
                  gear_ratio, drum_radius, f_coulomb,

@@ -140,7 +140,7 @@ environment:
             next_step!(sam; set_values=[tau_motor],
                        dt=0.001, vsm_interval=0)
         end
-        @test abs(tether.vel) < 1e-10
+        @test abs(winch.vel) < 1e-10
     end
 
     # ============================================================
@@ -168,7 +168,7 @@ environment:
             end
 
             # v(t) = a*t, so a = v / t
-            a_measured = tether.vel / (n_steps * dt)
+            a_measured = winch.vel / (n_steps * dt)
             a_expected = (r / n) * tau_motor / I_test
 
             @test a_measured ≈ a_expected rtol=0.05
@@ -201,7 +201,7 @@ environment:
                 next_step!(sam; set_values=[tau_motor],
                            dt=dt, vsm_interval=0)
             end
-            v0 = tether.vel
+            v0 = winch.vel
 
             # Measure acceleration over next steps
             n_meas = 20
@@ -209,7 +209,7 @@ environment:
                 next_step!(sam; set_values=[tau_motor],
                            dt=dt, vsm_interval=0)
             end
-            v1 = tether.vel
+            v1 = winch.vel
 
             a_measured = (v1 - v0) / (n_meas * dt)
             a_expected = (r / n) / I *
@@ -251,7 +251,7 @@ environment:
             end
 
             v_expected = tau_motor * n / (c_vf_test * r)
-            @test tether.vel ≈ v_expected rtol=0.05
+            @test winch.vel ≈ v_expected rtol=0.05
         end
     end
 

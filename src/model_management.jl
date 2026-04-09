@@ -54,12 +54,12 @@ function generate_prob_getters(sys_struct, sys)
             get_vsm_y = nothing
         end
     end
-    if length(segments) > 0; get_segment_state = getu(sys, c.([sys.spring_force, sys.len])); end
+    if length(segments) > 0; get_segment_state = getu(sys, c.([sys.spring_force, sys.len, sys.l0])); end
     if length(groups) > 0; get_group_state = getu(sys, c.([sys.twist_angle, sys.twist_ω, sys.group_tether_force, sys.group_tether_moment, sys.group_aero_moment])); end
     if length(pulleys) > 0; get_pulley_state = getu(sys, c.([sys.pulley_len, sys.pulley_vel])); end
     if length(winches) > 0
         get_winch_state = getu(sys, c.([
-            sys.winch_acc,
+            sys.winch_acc, sys.winch_vel,
             sys.set_values, sys.winch_force_vec,
             sys.tau_friction]))
         set_set_values = setp(sys, sys.set_values)
@@ -67,7 +67,7 @@ function generate_prob_getters(sys_struct, sys)
     end
     if length(tethers) > 0
         get_tether_state = getu(sys, c.([
-            sys.tether_len, sys.tether_vel,
+            sys.tether_len,
             sys.stretched_len]))
     end
     set_sys = setp(sys, sys.psys)

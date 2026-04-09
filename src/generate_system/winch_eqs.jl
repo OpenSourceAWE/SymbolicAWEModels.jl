@@ -6,16 +6,20 @@
 """
     winch_eqs!(eqs, defaults, winches, tethers, points,
                psys, _pset;
-               point_force, set_values, tether_len, tether_vel)
+               point_force, set_values,
+               tether_len, winch_vel)
 
 Generate equations for winch motor dynamics and per-tether
-length/velocity state.
+length state.
 
-Each tether gets differential equations for `tether_len` and
-`tether_vel`:
-- **With winch:** driven by `winch_acc` from motor dynamics,
+Each tether gets a differential equation for `tether_len`:
+- **With winch:** `D(tether_len) = winch_vel` (shared
+  velocity from the winch motor).
+- **Without winch:** `D(tether_len) = 0` (constant).
+
+Each winch gets a differential equation for `winch_vel`:
+- `D(winch_vel) = winch_acc` (from motor dynamics),
   gated by `brake` and `speed_controlled`.
-- **Without winch:** `tether_len` is constant (zero velocity).
 
 # Returns
 - Tuple `(eqs, defaults)` with updated equation vectors.
@@ -23,7 +27,7 @@ Each tether gets differential equations for `tether_len` and
 function winch_eqs!(eqs, defaults, winches, tethers,
                     points, psys, _pset;
                     point_force, set_values,
-                    tether_len, tether_vel)
+                    tether_len, winch_vel)
     @variables begin
         winch_acc(t)[eachindex(winches)]
         winch_force(t)[eachindex(winches)]
@@ -42,44 +46,42 @@ function winch_eqs!(eqs, defaults, winches, tethers,
     tether_winch = Dict{Int, Int}()
     for winch in winches
         for ti in winch.tether_idxs
+            if haskey(tether_winch, ti)
+                error("Tether $ti is connected " *
+                    "to winch $(tether_winch[ti]) " *
+                    "and winch $(winch.idx). Each " *
+                    "tether can have at most one " *
+                    "winch.")
+            end
             tether_winch[ti] = winch.idx
         end
     end
 
-    # --- Per-tether differential equations ---
+    # --- Per-tether length equations ---
     for tether in tethers
         if haskey(tether_winch, tether.idx)
             wi = tether_winch[tether.idx]
-            # Tether with winch: driven by winch dynamics
             eqs = [
                 eqs
                 D(tether_len[tether.idx]) ~
                     ifelse(brake[wi] == true, 0,
-                           tether_vel[tether.idx])
-                D(tether_vel[tether.idx]) ~
-                    ifelse(brake[wi] == true, 0,
-                        ifelse(
-                            speed_controlled[wi] == true,
-                            0, winch_acc[wi]))
+                           winch_vel[wi])
             ]
         else
             # Winchless tether: constant length
             eqs = [
                 eqs
                 D(tether_len[tether.idx]) ~ 0
-                D(tether_vel[tether.idx]) ~ 0
             ]
         end
         defaults = [
             defaults
             tether_len[tether.idx] =>
                 get_tether_len(psys, tether.idx)
-            tether_vel[tether.idx] =>
-                get_tether_vel(psys, tether.idx)
         ]
     end
 
-    # --- Per-winch motor dynamics ---
+    # --- Per-winch velocity and motor dynamics ---
     for winch in winches
         winch_point_idx = winch.winch_point_idx
         (winch_point_idx > length(points)) &&
@@ -99,10 +101,6 @@ function winch_eqs!(eqs, defaults, winches, tethers,
         friction_eps = get_winch_friction_epsilon(
             psys, winch.idx)
 
-        # Use first tether velocity for motor speed
-        first_tether_idx = winch.tether_idxs[1]
-        tv = tether_vel[first_tether_idx]
-
         # Smooth sign function to avoid discontinuities
         # at zero velocity. eps controls transition width.
         smooth_sign(x, eps) =
@@ -110,6 +108,12 @@ function winch_eqs!(eqs, defaults, winches, tethers,
 
         eqs = [
             eqs
+            D(winch_vel[winch.idx]) ~
+                ifelse(brake[winch.idx] == true, 0,
+                    ifelse(
+                        speed_controlled[winch.idx]
+                            == true,
+                        0, winch_acc[winch.idx]))
             brake[winch.idx] ~
                 get_brake(psys, winch.idx)
             speed_controlled[winch.idx] ~
@@ -117,7 +121,8 @@ function winch_eqs!(eqs, defaults, winches, tethers,
 
             # Winch motor, gear, and friction dynamics
             ω_motor[winch.idx] ~
-                gear_ratio / drum_radius * tv
+                gear_ratio / drum_radius *
+                winch_vel[winch.idx]
             tau_friction[winch.idx] ~
                 smooth_sign(
                     ω_motor[winch.idx], friction_eps) *
@@ -139,6 +144,11 @@ function winch_eqs!(eqs, defaults, winches, tethers,
             winch_force_vec[:, winch.idx] ~ F
             winch_force[winch.idx] ~
                 norm(winch_force_vec[:, winch.idx])
+        ]
+        defaults = [
+            defaults
+            winch_vel[winch.idx] =>
+                get_winch_vel(psys, winch.idx)
         ]
     end
     return eqs, defaults

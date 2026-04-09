@@ -170,7 +170,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         pulley_len(t)[eachindex(pulleys)]
         pulley_vel(t)[eachindex(pulleys)]
         tether_len(t)[eachindex(tethers)]
-        tether_vel(t)[eachindex(tethers)]
+        winch_vel(t)[eachindex(winches)]
     end
 
     # ==================== CALL COMPONENT FUNCTIONS ==================== #
@@ -211,7 +211,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     # 5. Winch equations (motor dynamics, tether reeling)
     eqs, defaults = winch_eqs!(
         eqs, defaults, winches, tethers, points, psys, pset;
-        point_force, set_values, tether_len, tether_vel
+        point_force, set_values, tether_len, winch_vel
     )
 
     # 6. Tether equations (stretched length, average force)

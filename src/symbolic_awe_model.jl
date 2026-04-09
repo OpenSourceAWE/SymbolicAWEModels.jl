@@ -265,10 +265,10 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     @unpack tethers = sam.sys_struct
     if length(winches) > 0
         for winch in winches
-            # Use first tether's state for SysState
+            isempty(winch.tether_idxs) && continue
             ti = winch.tether_idxs[1]
             ss.l_tether[winch.idx] = tethers[ti].len
-            ss.v_reelout[winch.idx] = tethers[ti].vel
+            ss.v_reelout[winch.idx] = winch.vel
             ss.winch_force[winch.idx] = norm(winch.force)
             ss.set_torque[winch.idx] = winch.set_value
         end
@@ -515,10 +515,12 @@ function update_sys_struct!(prob::ProbWithAttributes,
         end
     end
     if length(segments) > 0
-        spring_force, len = prob.get_segment_state(integ)
+        spring_force, len, l0_arr =
+            prob.get_segment_state(integ)
         for segment in segments
             segment.force = spring_force[segment.idx]
             segment.len = len[segment.idx]
+            segment.l0 = l0_arr[segment.idx]
         end
     end
     if length(groups) > 0
@@ -532,21 +534,22 @@ function update_sys_struct!(prob::ProbWithAttributes,
         end
     end
     if length(winches) > 0
-        winch_acc, set_value, winch_force_vec, friction =
+        winch_acc, winch_vel_arr, set_value,
+            winch_force_vec, friction =
             prob.get_winch_state(integ)
         for winch in winches
             winch.acc = winch_acc[winch.idx]
+            winch.vel = winch_vel_arr[winch.idx]
             winch.set_value = set_value[winch.idx]
             winch.force .= winch_force_vec[:, winch.idx]
             winch.friction = friction[winch.idx]
         end
     end
     if length(tethers) > 0
-        tether_len, tether_vel, stretched_len =
+        tether_len, stretched_len =
             prob.get_tether_state(integ)
         for tether in tethers
             tether.len = tether_len[tether.idx]
-            tether.vel = tether_vel[tether.idx]
             tether.stretched_len =
                 stretched_len[tether.idx]
         end
@@ -678,14 +681,14 @@ function calc_steady_torque(sys_struct::SystemStructure)
 end
 
 """
-    calc_winch_force(sys, tether_vel, winch_acc, set_values)
+    calc_winch_force(sys, winch_vel, winch_acc, set_values)
 
 Calculate the tensile force on each winch tether from its
 motion and motor torque.
 
 # Arguments
 - `sys::SystemStructure`: System structure with winch params.
-- `tether_vel`: Tether velocities [m/s] per winch.
+- `winch_vel`: Winch velocities [m/s] per winch.
 - `winch_acc`: Winch accelerations [m/s²] per winch.
 - `set_values`: Motor torque inputs [Nm] per winch.
 
@@ -693,7 +696,7 @@ motion and motor torque.
 - Vector of winch forces [N].
 """
 function calc_winch_force(sys::SystemStructure,
-        tether_vel, winch_acc, set_values)
+        winch_vel, winch_acc, set_values)
     winches = sys.winches
     smooth_sign(x, eps) = x / sqrt(x * x + eps * eps)
     winch_force = zeros(length(winches))
@@ -702,7 +705,7 @@ function calc_winch_force(sys::SystemStructure,
             c_vf, inertia_total,
             friction_epsilon = winches[i]
         ω_motor = gear_ratio / drum_radius *
-            tether_vel[i]
+            winch_vel[i]
         tau_friction =
             smooth_sign(ω_motor, friction_epsilon) *
             f_coulomb * drum_radius / gear_ratio +

@@ -287,11 +287,11 @@ function update_sys_state!(ss, y::AbstractVector, sam::SymbolicAWEModel, t::Real
             ss.l_tether[2] = y[i]
         elseif isequal(sym, sys.tether_len[3])
             ss.l_tether[3] = y[i]
-        elseif isequal(sym, sys.tether_vel[1])
+        elseif isequal(sym, sys.winch_vel[1])
             ss.v_reelout[1] = y[i]
-        elseif isequal(sym, sys.tether_vel[2])
+        elseif isequal(sym, sys.winch_vel[2])
             ss.v_reelout[2] = y[i]
-        elseif isequal(sym, sys.tether_vel[3])
+        elseif isequal(sym, sys.winch_vel[3])
             ss.v_reelout[3] = y[i]
         elseif isequal(sym, sys.winch_force[1])
             ss.winch_force[1] = y[i]

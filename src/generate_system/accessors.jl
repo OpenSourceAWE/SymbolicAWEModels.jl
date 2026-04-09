@@ -173,8 +173,8 @@ get_sum_len(sys::SystemStructure{VSMWing}, idx::Int64) = sys.pulleys[idx].sum_le
 @register_symbolic get_sum_len(sys::SystemStructure{VSMWing}, idx::Int64)
 get_tether_len(sys::SystemStructure{VSMWing}, idx::Int64) = sys.tethers[idx].len
 @register_symbolic get_tether_len(sys::SystemStructure{VSMWing}, idx::Int64)
-get_tether_vel(sys::SystemStructure{VSMWing}, idx::Int64) = sys.tethers[idx].vel
-@register_symbolic get_tether_vel(sys::SystemStructure{VSMWing}, idx::Int64)
+get_winch_vel(sys::SystemStructure{VSMWing}, idx::Int64) = sys.winches[idx].vel
+@register_symbolic get_winch_vel(sys::SystemStructure{VSMWing}, idx::Int64)
 get_unit_stiffness(sys::SystemStructure{VSMWing}, idx::Int64) =
     sys.segments[idx].unit_stiffness
 @register_symbolic get_unit_stiffness(sys::SystemStructure{VSMWing}, idx::Int64)
