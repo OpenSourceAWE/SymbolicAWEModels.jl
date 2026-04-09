@@ -439,10 +439,15 @@ Pulley lengths are initialized proportionally based on current segment lengths:
 - `remake_vsm::Bool=false`: If true, recreate VSM wing, aerodynamics, and solver from settings.
   This is useful after modifying `aero_geometry.yaml` or other VSM-related configuration files.
   For REFINE wings, also rebuilds the `point_to_vsm_point` mapping.
+- `init_transforms::Bool=true`: If false, skip applying spatial transforms
+  (translate, rotate, heading) during reinitialization.
+- `apply_tether_lens::Bool=true`: If false, skip scaling point positions
+  to match `tether.init_stretched_len`.
 """
 function reinit!(sys_struct::SystemStructure, set::Settings;
                  ignore_l0::Bool=false, remake_vsm::Bool=false,
-                 reset_vel::Bool=true)
+                 reset_vel::Bool=true, init_transforms::Bool=true,
+                 apply_tether_lens::Bool=true)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
 
     # Reset tether len/vel to initial values
@@ -469,7 +474,9 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     copy_cad_to_world!(points, wings; update_vel=reset_vel)
 
     # Step 2: apply stretched lengths (scales pos_w)
-    apply_tether_init_stretched_lens!(sys_struct)
+    if apply_tether_lens
+        apply_tether_init_stretched_lens!(sys_struct)
+    end
 
     # Step 3: compute segment lengths from pos_w
     for segment in segments
@@ -505,7 +512,9 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     # Step 5: apply transforms (translate/rotate/heading);
     # pos_w already initialized by copy_cad_to_world! +
     # apply_tether_init_stretched_lens!
-    reinit!(transforms, sys_struct; update_vel=reset_vel)
+    if init_transforms
+        reinit!(transforms, sys_struct; update_vel=reset_vel)
+    end
 
     # Recreate VSM wing and aero if requested
     if remake_vsm
