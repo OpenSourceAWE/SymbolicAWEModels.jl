@@ -294,10 +294,10 @@ This is the main entry point for setting up the model. It handles:
                    Vortex Step Method (VSM) after initialization.
 - `remake_vsm::Bool`: Recreate VSM wing and aerodynamics from settings (useful after
                       modifying aero_geometry.yaml or other VSM settings).
-- `init_transforms::Bool`: Whether to apply spatial transforms
+- `apply_transforms::Bool`: Whether to apply spatial transforms
                            (translate, rotate, heading) during initialization.
                            Set to `false` to skip transform application.
-- `apply_tether_lens::Bool`: Whether to scale point positions to match
+- `apply_tether_lengths::Bool`: Whether to scale point positions to match
                              `tether.init_stretched_len`. Set to `false`
                              to keep point positions from CAD geometry.
 
@@ -315,8 +315,8 @@ function init!(sam::SymbolicAWEModel;
     ignore_l0::Bool=false,
     remake_vsm::Bool=true,
     reset_vel::Bool=true,
-    init_transforms::Bool=true,
-    apply_tether_lens::Bool=true,
+    apply_transforms::Bool=true,
+    apply_tether_lengths::Bool=true,
     tunable_params::Bool=false
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
@@ -382,7 +382,7 @@ function init!(sam::SymbolicAWEModel;
 
         reinit!(sam.sys_struct, sam.set;
                 ignore_l0, remake_vsm, reset_vel,
-                init_transforms, apply_tether_lens)
+                apply_transforms, apply_tether_lengths)
         # When reset_vel=false, state-dependent u0 changed;
         # force ODEProblem recreation to pick up new defaults.
         if !reset_vel && !isnothing(sam.prob)

@@ -17,7 +17,6 @@ SymbolicAWEModels.SimFloat
 SymbolicAWEModels.KVec3
 SymbolicAWEModels.SVec3
 VortexStepMethod.Wing
-SymbolicAWEModels.create_tether
 SymbolicAWEModels.create_vsm_wing
 ```
 
@@ -42,7 +41,6 @@ SymbolicAWEModels.calc_R_v_to_w
 SymbolicAWEModels.cad_to_body_frame
 SymbolicAWEModels.calc_pos
 SymbolicAWEModels.calc_winch_force
-SymbolicAWEModels.find_axis_point
 SymbolicAWEModels.quaternion_to_rotation_matrix
 SymbolicAWEModels.rotation_matrix_to_quaternion
 SymbolicAWEModels.rotate_v_around_k

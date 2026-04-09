@@ -373,18 +373,8 @@ function expand_auto_tethers!(
             end
         end
 
-        # Geometric length from point positions
-        geom_len = norm(end_pos - start_pos)
-
-        # Segment l0: use tether.init_len if set,
-        # otherwise geometric distance
-        rope_len = !isnan(tether.init_len) ?
-            tether.init_len : geom_len
-        seg_l0 = rope_len / n
-
-        # Store len and init_len on tether
-        tether.len = rope_len
-        tether.init_len = rope_len
+        seg_l0 = tether.init_unstretched_len / n
+        tether.len = tether.init_unstretched_len
 
         # Generate n-1 intermediate DYNAMIC points
         # (placed along the straight line at geometric spacing)
@@ -787,16 +777,6 @@ function SystemStructure(name, set;
                 seg_first.point_idxs[1]
             tether.end_point_idx =
                 seg_last.point_idxs[2]
-        end
-    end
-    # Initialize tether.len from segment l0 sums when not
-    # explicitly set (tether_length=nothing → len=NaN)
-    for tether in tethers
-        if isnan(tether.len)
-            tether.len = sum(
-                segments[si].l0 for si in tether.segment_idxs;
-                init=0.0)
-            tether.init_len = tether.len
         end
     end
     # Compute body frame (COM + principal axes) and

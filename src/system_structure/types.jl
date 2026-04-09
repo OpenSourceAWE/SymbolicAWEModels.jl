@@ -516,9 +516,10 @@ mutable struct Tether
     """Unstretched tether length [m] (sum of segment l0).
     ODE state variable. Segment l0 = len / n_segments."""
     len::SimFloat
-    """Initial unstretched length [m]. Used by `init!` to
-    reset `len`. Segment l0 = init_len / n_segments."""
-    init_len::SimFloat
+    """Initial unstretched length [m]. Used by `reinit!`
+    to reset `len`. Segment l0 = init_unstretched_len /
+    n_segments."""
+    init_unstretched_len::SimFloat
     """Initial stretched length [m]. Point positions scaled
     to this value by `apply_tether_init_stretched_lens!`.
     `nothing` = use CAD length."""
@@ -526,33 +527,33 @@ mutable struct Tether
 end
 
 """
-    Tether(name, segments; start_point=nothing, end_point=nothing,
-           tether_length=nothing, initial_tether_length=nothing)
+    Tether(name, segments, unstretched_length;
+           start_point=nothing, end_point=nothing,
+           stretched_length=nothing)
 
 Route 1: Construct a `Tether` from explicit segment references.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the tether.
 - `segments::Vector`: References to segments (names or indices).
+- `unstretched_length`: Rope length [m]. Sets
+  segment l0 = unstretched_length / n_segments.
 
 # Keyword Arguments
-- `start_point=nothing`: Optional start point ref (for validation).
-- `end_point=nothing`: Optional end point ref (for validation).
-- `tether_length=nothing`: Unstretched rope length [m]. Sets
-  segment l0 = tether_length / n_segments. `nothing` = compute
-  from segment l0 values.
-- `initial_tether_length=nothing`: Initial stretched length [m]
-  for point positioning. `nothing` = use CAD positions.
+- `start_point=nothing`: Optional start point ref.
+- `end_point=nothing`: Optional end point ref.
+- `stretched_length=nothing`: Point positioning target
+  [m]. `nothing` = skip position scaling.
 """
-function Tether(name, segments;
+function Tether(name, segments, unstretched_length;
                 start_point=nothing, end_point=nothing,
                 winch_point=nothing,
-                tether_length=nothing,
-                initial_tether_length=nothing)
+                stretched_length=nothing)
     if !isnothing(winch_point)
-        error("`winch_point` moved from Tether to Winch. " *
-              "Use Tether(name, segments) and pass " *
-              "winch_point to the Winch constructor.")
+        error("`winch_point` moved from Tether to " *
+              "Winch. Use Tether(name, segments, " *
+              "len) and pass winch_point to the " *
+              "Winch constructor.")
     end
     segment_refs = Vector{NameRef}(
         [s isa Integer ? Int(s) : Symbol(s) for s in segments])
@@ -562,10 +563,9 @@ function Tether(name, segments;
     ep = isnothing(end_point) ? nothing :
         (end_point isa Integer ? Int(end_point) :
          Symbol(end_point))
-    isl = isnothing(initial_tether_length) ? nothing :
-        SimFloat(initial_tether_length)
-    il = isnothing(tether_length) ? NaN :
-        SimFloat(tether_length)
+    isl = isnothing(stretched_length) ? nothing :
+        SimFloat(stretched_length)
+    il = SimFloat(unstretched_length)
     return Tether(0, name, Int64[], segment_refs,
                   0, sp, 0, ep,
                   length(segments),
@@ -574,15 +574,18 @@ function Tether(name, segments;
 end
 
 """
-    Tether(name; start_point, end_point, n_segments,
-           unit_stiffness=NaN, unit_damping=NaN, diameter=NaN,
-           tether_length=nothing, initial_tether_length=nothing)
+    Tether(name, unstretched_length;
+           start_point, end_point, n_segments,
+           unit_stiffness=NaN, unit_damping=NaN,
+           diameter=NaN, stretched_length=nothing)
 
 Route 2: Construct a `Tether` for auto-generation of intermediate
 points and segments by `expand_auto_tethers!`.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the tether.
+- `unstretched_length`: Rope length [m]. Sets
+  segment l0 = unstretched_length / n_segments.
 
 # Keyword Arguments
 - `start_point`: Reference to the start point (required).
@@ -594,26 +597,22 @@ points and segments by `expand_auto_tethers!`.
   NaN = derive from Settings during auto-expansion.
 - `diameter::Float64=NaN`: Tether diameter [m].
   NaN = derive from Settings during auto-expansion.
-- `tether_length=nothing`: Unstretched rope length [m]. Sets
-  segment l0 = tether_length / n_segments. `nothing` = compute
-  from point positions.
-- `initial_tether_length=nothing`: Initial stretched length [m]
-  for point positioning. `nothing` = use CAD positions.
+- `stretched_length=nothing`: Point positioning target
+  [m]. `nothing` = skip position scaling.
 """
-function Tether(name; start_point, end_point, n_segments,
+function Tether(name, unstretched_length;
+                start_point, end_point, n_segments,
                 unit_stiffness=NaN, unit_damping=NaN,
-                diameter=NaN, tether_length=nothing,
-                initial_tether_length=nothing)
+                diameter=NaN, stretched_length=nothing)
     sp = start_point isa Integer ? Int(start_point) :
          Symbol(start_point)
     ep = end_point isa Integer ? Int(end_point) :
          Symbol(end_point)
     seg_refs = Vector{NameRef}(
         [Symbol("$(name)_seg_$i") for i in 1:n_segments])
-    isl = isnothing(initial_tether_length) ? nothing :
-        SimFloat(initial_tether_length)
-    il = isnothing(tether_length) ? NaN :
-        SimFloat(tether_length)
+    isl = isnothing(stretched_length) ? nothing :
+        SimFloat(stretched_length)
+    il = SimFloat(unstretched_length)
     return Tether(0, name, Int64[], seg_refs,
                   0, sp, 0, ep,
                   Int64(n_segments),

@@ -324,9 +324,10 @@ starting from 1 with no gaps.
 
 - `groups`: (optional) table with headers `[id,point_idxs,gamma,type,reference_chord_frac]`
 - `tethers`: (optional) table with headers
-  - Route 1 (explicit segments): `[name, segment_idxs]`, optional: `init_len`
-  - Route 2 (auto-generated): `[name, start_point, end_point, n_segments, material]`, optional: `init_len`
-  - `init_len`: initial tether length [m]; scales `pos_w` before transforms, `pos_cad` unchanged
+  - Route 1 (explicit segments): `[name, segment_idxs]`, optional lengths
+  - Route 2 (auto-generated): `[name, start_point, end_point, n_segments, material]`, optional lengths
+  - `init_stretched_length`: scales `pos_w` before transforms [m]
+  - `init_unstretched_length`: rope length for segment l0 [m]
 - `winches`: (optional) table with headers `[name, tether_idxs, winch_point]`
 - `wings`: (optional, typically from VSM configuration)
 - `transforms`: (optional, typically from settings)
@@ -597,43 +598,52 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     nothing
                 end
                 il = if hasfield(typeof(row),
-                        :init_len) &&
-                        !isnothing(row.init_len)
-                    Float64(row.init_len)
+                        :init_stretched_length) &&
+                        !isnothing(
+                            row.init_stretched_length)
+                    Float64(row.init_stretched_length)
                 else
                     nothing
                 end
                 tl = if hasfield(typeof(row),
-                        :tether_length) &&
-                        !isnothing(row.tether_length)
-                    Float64(row.tether_length)
+                        :init_unstretched_length) &&
+                        !isnothing(
+                            row.init_unstretched_length)
+                    Float64(
+                        row.init_unstretched_length)
                 else
-                    # init_len sets both unstretched and
-                    # stretched length (backwards compat)
-                    il
+                    nothing
                 end
-                tether = Tether(tether_name, segs;
+                # Default: unstretched = stretched
+                ul = !isnothing(tl) ? tl :
+                    !isnothing(il) ? il :
+                    error("Tether $tether_name: " *
+                        "init_unstretched_length or " *
+                        "init_stretched_length required")
+                tether = Tether(tether_name, segs, ul;
                     start_point=sp, end_point=ep,
-                    tether_length=tl,
-                    initial_tether_length=il)
+                    stretched_length=il)
             else
                 # Route 2: auto-generation
                 sp = yaml_to_ref(row.start_point)
                 ep = yaml_to_ref(row.end_point)
                 n_seg = Int(row.n_segments)
                 il = if hasfield(typeof(row),
-                        :init_len) &&
-                        !isnothing(row.init_len)
-                    Float64(row.init_len)
+                        :init_stretched_length) &&
+                        !isnothing(
+                            row.init_stretched_length)
+                    Float64(row.init_stretched_length)
                 else
                     nothing
                 end
                 tl = if hasfield(typeof(row),
-                        :tether_length) &&
-                        !isnothing(row.tether_length)
-                    Float64(row.tether_length)
+                        :init_unstretched_length) &&
+                        !isnothing(
+                            row.init_unstretched_length)
+                    Float64(
+                        row.init_unstretched_length)
                 else
-                    il
+                    nothing
                 end
                 # Resolve material reference if present
                 resolved = resolve_references(
@@ -655,12 +665,18 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     Float64(d_mm)
                 d = isnan(d_mm) ? NaN :
                     d_mm * 0.001
-                tether = Tether(tether_name;
+                # Default: unstretched = stretched
+                ul = !isnothing(tl) ? tl :
+                    !isnothing(il) ? il :
+                    error("Tether $tether_name: " *
+                        "init_unstretched_length or " *
+                        "init_stretched_length required")
+                tether = Tether(tether_name, ul;
                     start_point=sp, end_point=ep,
                     n_segments=n_seg,
                     unit_stiffness=us, unit_damping=ud,
-                    diameter=d, tether_length=tl,
-                    initial_tether_length=il)
+                    diameter=d,
+                    stretched_length=il)
             end
             push!(tethers, tether)
         end
@@ -1054,7 +1070,75 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
         end
     end
 
-    @info "Updated structural positions and segments" n_points=n_points_updated n_segments=n_segments_updated
+    # Build tether init_len dictionary
+    tether_init_lens = Dict{String, Float64}()
+    for tether in sys_struct.tethers
+        name = string(tether.name)
+        if !isnothing(tether.init_stretched_len)
+            tether_init_lens[name] =
+                tether.init_stretched_len
+        end
+    end
+
+    # Update tether init_len values in tethers section
+    n_tethers_updated = 0
+    in_tethers_section = false
+    tether_init_len_col = 0
+    for (i, line) in enumerate(lines)
+        if occursin(r"^tethers:", line)
+            in_tethers_section = true
+            in_points_section = false
+            in_segments_section = false
+        elseif occursin(r"^\w+:", line) &&
+               !occursin(r"^tethers:", line)
+            if in_tethers_section
+                in_tethers_section = false
+                tether_init_len_col = 0
+            end
+        end
+
+        if in_tethers_section
+            # Find init_len column index from headers
+            hm = match(r"headers:\s*\[(.+)\]", line)
+            if hm !== nothing
+                cols = split(hm.captures[1], r",\s*")
+                for (ci, c) in enumerate(cols)
+                    if strip(c) == "init_stretched_length"
+                        tether_init_len_col = ci
+                    end
+                end
+            end
+
+            # Update data rows if we know the column
+            if tether_init_len_col > 0
+                dm = match(
+                    r"^(\s*-\s*\[)(\w+)(.*)", line)
+                if dm !== nothing
+                    name = String(dm.captures[2])
+                    if haskey(tether_init_lens, name)
+                        # Parse fields, update init_len
+                        rest = dm.captures[3]
+                        fields = split(
+                            strip(rest, [',', ']']),
+                            r",\s*")
+                        col = tether_init_len_col - 1
+                        if col <= length(fields)
+                            fields[col] = " " * string(
+                                format_coord(
+                                    tether_init_lens[
+                                        name]))
+                            lines[i] = dm.captures[1] *
+                                name * "," *
+                                join(fields, ",") * "]"
+                            n_tethers_updated += 1
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    @info "Updated structural positions and segments" n_points=n_points_updated n_segments=n_segments_updated n_tethers=n_tethers_updated
 
     # Write updated structural YAML
     @info "Writing updated structural YAML" source=struc_full_path dest=dest_struc_full_path
@@ -1127,12 +1211,14 @@ end
     update_sys_struct_from_yaml!(sys_struct::SystemStructure,
                                   struc_yaml::AbstractString)
 
-Update an existing `SystemStructure` in-place from a (possibly modified)
-structural geometry YAML file. Inverse of `update_yaml_from_sys_struct!`.
+Update an existing `SystemStructure` in-place from a (possibly
+modified) structural geometry YAML file. Inverse of
+`update_yaml_from_sys_struct!`.
 
-Updates `pos_cad` for points and `l0` for segments, matched by symbolic
-name. When `l0` is `nothing` in the YAML, it is auto-calculated from the
-endpoint `pos_cad` positions.
+Updates `pos_cad` for points, `l0` for segments, and
+`init_stretched_len`/`init_unstretched_len` for tethers,
+matched by symbolic name. When `l0` is `nothing` in the
+YAML, it is auto-calculated from endpoint `pos_cad`.
 
 Only raw geometry is updated. Call `reinit!(sys_struct, set)` afterward
 to recompute derived quantities (`pos_b`, `pos_w`, wing frames, etc.).
@@ -1200,6 +1286,36 @@ function update_sys_struct_from_yaml!(
         end
     end
 
-    @info "update_sys_struct_from_yaml!" n_points n_segments
+    # --- Update tether init lengths ---
+    n_tethers = 0
+    if haskey(data, "tethers")
+        tether_rows = parse_table(data["tethers"])
+        for row in tether_rows
+            haskey(row, :name) || continue
+            name = Symbol(row.name)
+            haskey(sys_struct.tethers, name) || continue
+
+            tether = sys_struct.tethers[name]
+
+            if hasfield(typeof(row),
+                    :init_stretched_length) &&
+               !isnothing(row.init_stretched_length)
+                tether.init_stretched_len =
+                    Float64(row.init_stretched_length)
+            end
+            if hasfield(typeof(row),
+                    :init_unstretched_length) &&
+               !isnothing(
+                    row.init_unstretched_length)
+                tether.init_unstretched_len =
+                    Float64(
+                        row.init_unstretched_length)
+            end
+
+            n_tethers += 1
+        end
+    end
+
+    @info "update_sys_struct_from_yaml!" n_points n_segments n_tethers
     return nothing
 end

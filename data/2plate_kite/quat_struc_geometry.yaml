@@ -102,7 +102,7 @@ groups:
 ###########################
 tethers:
   headers: [name, start_point, end_point, n_segments,
-            diameter_mm, unit_stiffness, unit_damping, init_len]
+            diameter_mm, unit_stiffness, unit_damping, init_stretched_length]
   data:
     - [main_tether, kcu, ground, 2, 1.0, dyneema, nothing, 20.0]
 

@@ -367,7 +367,7 @@ environment:
 
         # Route 2: auto-generate 4 segments between mass
         # and anchor
-        tethers = [Tether(:line;
+        tethers = [Tether(:line, 100.0;
             start_point=:mass, end_point=:anchor,
             n_segments=4)]
         winches = [Winch(:winch, set, [:line];
@@ -471,7 +471,7 @@ environment:
             Segment(:seg, :top, :bot, 50000.0, 500.0,
                     0.001; l0=50.0)
         ]
-        tethers = [Tether(:free_tether, [:seg])]
+        tethers = [Tether(:free_tether, [:seg], 50.0)]
         transforms = [
             Transform(:tf, deg2rad(-80.0), 0.0, 0.0;
                 base_pos=[0, 0, 0], base_point=:bot,

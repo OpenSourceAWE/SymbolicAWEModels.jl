@@ -5,7 +5,6 @@
 Utility functions for SystemStructure.
 
 This file contains:
-- Tether creation helpers
 - Validation functions
 - reinit! for SystemStructure
 - State copy and update functions
@@ -38,74 +37,7 @@ function segment_world_length(segment::Segment, points)
 end
 
 
-# ==================== TETHER CREATION ==================== #
 
-"""
-    create_tether(tether_idx, set, points, segments,
-                  tethers, attach_point, dynamics_type;
-                  z, unit_stiffness, unit_damping)
-
-Procedurally create a multi-segment tether.
-
-This function builds a tether from a specified number of
-segments, connecting a given `attach_point` on the kite to
-a new anchor point on the ground.
-"""
-function create_tether(tether_idx, set, points, segments,
-                       tethers, attach_point,
-                       dynamics_type; z=[0,0,1],
-                       unit_stiffness=NaN,
-                       unit_damping=NaN, d_pos=zeros(3))
-    winch_pos = find_axis_point(
-        attach_point.pos_cad, set.l_tether, z) .+ d_pos
-    dir = winch_pos - attach_point.pos_cad
-    segment_idxs = Int64[]
-    ground_point_idx = 0
-    for i in 1:set.segments
-        frac = i / set.segments
-        pos = attach_point.pos_cad + frac * dir
-        point_idx = length(points) + 1
-        segment_idx = length(segments) + 1
-        if i == 1
-            last_idx = attach_point.idx
-        else
-            last_idx = point_idx - 1
-        end
-        if i == set.segments
-            points = [points;
-                Point(point_idx, pos, STATIC)]
-            ground_point_idx = points[end].idx
-        else
-            points = [points;
-                Point(point_idx, pos, dynamics_type)]
-        end
-        segments = [segments;
-            Segment(segment_idx, set, last_idx,
-                    point_idx;
-                    unit_stiffness, unit_damping)]
-        push!(segment_idxs, segment_idx)
-    end
-    tethers = [tethers;
-        Tether(tether_idx, segment_idxs)]
-    return (points, segments, tethers,
-            tethers[end].idx, ground_point_idx)
-end
-
-"""
-    find_axis_point(P, l, v=[0,0,1])
-
-Calculate the coordinates of a point `Q` that lies on a line defined by vector `v`
-and is at a distance `l` from a given point `P`.
-"""
-function find_axis_point(P, l, v=[0,0,1])
-    # Compute discriminant
-    D = (v ⋅ P)^2 - norm(v)^2 * (norm(P)^2 - l^2)
-    D < 0 && error("No real solution: l is too small or parameters invalid")
-    # Solve quadratic for t, choose solution for negative direction
-    t = (v ⋅ P - √D) / norm(v)^2
-    # Compute point Q = t * v
-    return [t * v[1], t * v[2], t * v[3]]
-end
 
 # ==================== VALIDATION ==================== #
 
@@ -427,20 +359,20 @@ Pulley lengths are initialized proportionally based on current segment lengths:
 - `remake_vsm::Bool=false`: If true, recreate VSM wing, aerodynamics, and solver from settings.
   This is useful after modifying `aero_geometry.yaml` or other VSM-related configuration files.
   For REFINE wings, also rebuilds the `point_to_vsm_point` mapping.
-- `init_transforms::Bool=true`: If false, skip applying spatial transforms
+- `apply_transforms::Bool=true`: If false, skip applying spatial transforms
   (translate, rotate, heading) during reinitialization.
-- `apply_tether_lens::Bool=true`: If false, skip scaling point positions
+- `apply_tether_lengths::Bool=true`: If false, skip scaling point positions
   to match `tether.init_stretched_len`.
 """
 function reinit!(sys_struct::SystemStructure, set::Settings;
                  ignore_l0::Bool=false, remake_vsm::Bool=false,
-                 reset_vel::Bool=true, init_transforms::Bool=true,
-                 apply_tether_lens::Bool=true)
+                 reset_vel::Bool=true, apply_transforms::Bool=true,
+                 apply_tether_lengths::Bool=true)
     @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
 
     # Reset tether len to initial values
     for tether in tethers
-        tether.len = tether.init_len
+        tether.len = tether.init_unstretched_len
     end
     # Reset winch velocity to initial value
     for winch in winches
@@ -459,7 +391,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     copy_cad_to_world!(points, wings; update_vel=reset_vel)
 
     # Step 2: apply stretched lengths (scales pos_w)
-    if apply_tether_lens
+    if apply_tether_lengths
         apply_tether_init_stretched_lens!(sys_struct)
     end
 
@@ -508,7 +440,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     # Step 5: apply transforms (translate/rotate/heading);
     # pos_w already initialized by copy_cad_to_world! +
     # apply_tether_init_stretched_lens!
-    if init_transforms
+    if apply_transforms
         reinit!(transforms, sys_struct; update_vel=reset_vel)
     end
 

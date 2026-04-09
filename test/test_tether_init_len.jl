@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
-# test_tether_init_len.jl - Tether initial length scaling tests
+# test_tether_init_stretched_length.jl - Tether initial length scaling tests
 #
-# Tests the Tether.init_len feature: scaling pos_w before transforms.
-# Uses Route 2 (auto-generated) tethers and YAML-specified init_len.
+# Tests the Tether.init_stretched_length feature: scaling pos_w before transforms.
+# Uses Route 2 (auto-generated) tethers and YAML-specified init_stretched_length.
 # All tests use reinit! directly on a SystemStructure (no ODE compilation).
 
 using Test
@@ -14,7 +14,7 @@ using KiteUtils
 using LinearAlgebra
 
 # ================================================================
-# Route 2 tether: ground→[auto mid]→top, 2 segments, init_len in YAML
+# Route 2 tether: ground→[auto mid]→top, 2 segments, init_stretched_length in YAML
 # ================================================================
 const INIT_LEN_YAML_ROUTE2 = """
 materials:
@@ -33,7 +33,7 @@ points:
        1.0, 0.0, 0.0, 0.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material, init_len]
+  headers: [name, start_point, end_point, n_segments, material, init_stretched_length]
   data:
     - [main_tether, ground, top, 2, test_mat, 200.0]
 
@@ -43,7 +43,7 @@ winches:
     - [main_winch, [main_tether], ground]
 """
 
-# Route 1 tether (explicit segments) with init_len in YAML
+# Route 1 tether (explicit segments) with init_stretched_length in YAML
 const INIT_LEN_YAML_ROUTE1 = """
 materials:
   headers: [name, youngs_modulus, density, damping_per_stiffness]
@@ -70,7 +70,7 @@ segments:
     - [s2, mid, top, 50.0, 4.0, 120000.0, 350.0, 0.0]
 
 tethers:
-  headers: [name, segment_idxs, init_len]
+  headers: [name, segment_idxs, init_stretched_length]
   data:
     - [main_tether, [s1, s2], 200.0]
 
@@ -106,7 +106,7 @@ segments:
     - [bridle, top, downstream, 10.0, 4.0, 120000.0, 350.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material, init_len]
+  headers: [name, start_point, end_point, n_segments, material, init_stretched_length]
   data:
     - [main_tether, ground, top, 2, test_mat, 200.0]
 
@@ -197,7 +197,7 @@ environment:
     profile_law: 0
 """
 
-@testset "Tether init_len Tests" begin
+@testset "Tether init_stretched_length Tests" begin
     tmpdir = mktempdir()
     write(joinpath(tmpdir, "settings.yaml"), INIT_LEN_SETTINGS)
     write(joinpath(tmpdir, "system.yaml"),
@@ -206,15 +206,15 @@ environment:
     set = Settings("system.yaml")
 
     # ================================================================
-    # Test 1: Route 2 auto-gen + YAML init_len → scale to 2×
+    # Test 1: Route 2 auto-gen + YAML init_stretched_length → scale to 2×
     # ================================================================
-    @testset "Route 2 YAML init_len: scale to 2x" begin
+    @testset "Route 2 YAML init_stretched_length: scale to 2x" begin
         yaml_path = joinpath(tmpdir, "r2_yaml.yaml")
         write(yaml_path, INIT_LEN_YAML_ROUTE2)
         sys = load_sys_struct_from_yaml(
-            yaml_path; system_name="init_len_r2_yaml", set=set)
+            yaml_path; system_name="init_stretched_length_r2_yaml", set=set)
 
-        # init_len=200 already set from YAML; no programmatic change needed
+        # init_stretched_length=200 already set from YAML; no programmatic change needed
         SymbolicAWEModels.reinit!(sys, set)
 
         mid = sys.points[:main_tether_point_1]
@@ -227,13 +227,13 @@ environment:
     end
 
     # ================================================================
-    # Test 2: Route 1 explicit segments + YAML init_len
+    # Test 2: Route 1 explicit segments + YAML init_stretched_length
     # ================================================================
-    @testset "Route 1 YAML init_len: scale to 2x" begin
+    @testset "Route 1 YAML init_stretched_length: scale to 2x" begin
         yaml_path = joinpath(tmpdir, "r1_yaml.yaml")
         write(yaml_path, INIT_LEN_YAML_ROUTE1)
         sys = load_sys_struct_from_yaml(
-            yaml_path; system_name="init_len_r1_yaml", set=set)
+            yaml_path; system_name="init_stretched_length_r1_yaml", set=set)
 
         SymbolicAWEModels.reinit!(sys, set)
 
@@ -251,7 +251,7 @@ environment:
         yaml_path = joinpath(tmpdir, "r2_downstream.yaml")
         write(yaml_path, INIT_LEN_DOWNSTREAM_ROUTE2)
         sys = load_sys_struct_from_yaml(
-            yaml_path; system_name="init_len_r2_downstream", set=set)
+            yaml_path; system_name="init_stretched_length_r2_downstream", set=set)
 
         SymbolicAWEModels.reinit!(sys, set)
 
@@ -266,7 +266,7 @@ environment:
         yaml_path = joinpath(tmpdir, "r2_loop.yaml")
         write(yaml_path, INIT_LEN_LOOP_ROUTE2)
         sys = load_sys_struct_from_yaml(
-            yaml_path; system_name="init_len_r2_loop", set=set)
+            yaml_path; system_name="init_stretched_length_r2_loop", set=set)
 
         sys.tethers[:main_tether].init_stretched_len = 200.0
         @test_throws ErrorException SymbolicAWEModels.reinit!(sys, set)
@@ -278,7 +278,7 @@ environment:
     @testset "Idempotency" begin
         yaml_path = joinpath(tmpdir, "r2_yaml.yaml")
         sys = load_sys_struct_from_yaml(
-            yaml_path; system_name="init_len_r2_idem", set=set)
+            yaml_path; system_name="init_stretched_length_r2_idem", set=set)
 
         SymbolicAWEModels.reinit!(sys, set)
         mid_pos = copy(sys.points[:main_tether_point_1].pos_w)
