@@ -564,7 +564,7 @@ function Tether(name, segments;
          Symbol(end_point))
     isl = isnothing(initial_tether_length) ? nothing :
         SimFloat(initial_tether_length)
-    il = isnothing(tether_length) ? 0.0 :
+    il = isnothing(tether_length) ? NaN :
         SimFloat(tether_length)
     return Tether(0, name, Int64[], segment_refs,
                   0, sp, 0, ep,
@@ -612,7 +612,7 @@ function Tether(name; start_point, end_point, n_segments,
         [Symbol("$(name)_seg_$i") for i in 1:n_segments])
     isl = isnothing(initial_tether_length) ? nothing :
         SimFloat(initial_tether_length)
-    il = isnothing(tether_length) ? 0.0 :
+    il = isnothing(tether_length) ? NaN :
         SimFloat(tether_length)
     return Tether(0, name, Int64[], seg_refs,
                   0, sp, 0, ep,

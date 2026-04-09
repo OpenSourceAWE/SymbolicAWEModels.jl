@@ -378,7 +378,7 @@ function expand_auto_tethers!(
 
         # Segment l0: use tether.init_len if set,
         # otherwise geometric distance
-        rope_len = tether.init_len > 0 ?
+        rope_len = !isnan(tether.init_len) ?
             tether.init_len : geom_len
         seg_l0 = rope_len / n
 
@@ -789,9 +789,10 @@ function SystemStructure(name, set;
                 seg_last.point_idxs[2]
         end
     end
-    # Initialize tether.len from segment l0 sums when not set
+    # Initialize tether.len from segment l0 sums when not
+    # explicitly set (tether_length=nothing → len=NaN)
     for tether in tethers
-        if iszero(tether.len)
+        if isnan(tether.len)
             tether.len = sum(
                 segments[si].l0 for si in tether.segment_idxs;
                 init=0.0)

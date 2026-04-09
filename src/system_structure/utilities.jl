@@ -470,6 +470,17 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         segment.len = len
     end
 
+    # Step 3b: sync tether segment l0 from tether.len
+    # (matches ODE equation: l0 = tether_len / n_segments)
+    for tether in tethers
+        n = length(tether.segment_idxs)
+        n == 0 && continue
+        l0 = tether.len / n
+        for si in tether.segment_idxs
+            segments[si].l0 = l0
+        end
+    end
+
     for pulley in pulleys
         segment1, segment2 = segments[pulley.segment_idxs[1]],
                              segments[pulley.segment_idxs[2]]
