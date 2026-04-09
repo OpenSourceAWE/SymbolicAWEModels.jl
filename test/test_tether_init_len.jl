@@ -140,9 +140,9 @@ segments:
     - [back_loop, top, ground, 100.0, 4.0, 120000.0, 350.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material]
+  headers: [name, start_point, end_point, n_segments, material, init_unstretched_length]
   data:
-    - [main_tether, ground, top, 2, test_mat]
+    - [main_tether, ground, top, 2, test_mat, 100.0]
 
 winches:
   headers: [name, tether_idxs, winch_point]

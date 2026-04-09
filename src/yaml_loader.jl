@@ -618,8 +618,9 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 ul = !isnothing(tl) ? tl :
                     !isnothing(il) ? il :
                     error("Tether $tether_name: " *
-                        "init_unstretched_length or " *
-                        "init_stretched_length required")
+                        "init_unstretched_length " *
+                        "or init_stretched_length " *
+                        "is required")
                 tether = Tether(tether_name, segs, ul;
                     start_point=sp, end_point=ep,
                     stretched_length=il)
@@ -669,8 +670,9 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 ul = !isnothing(tl) ? tl :
                     !isnothing(il) ? il :
                     error("Tether $tether_name: " *
-                        "init_unstretched_length or " *
-                        "init_stretched_length required")
+                        "init_unstretched_length " *
+                        "or init_stretched_length " *
+                        "is required")
                 tether = Tether(tether_name, ul;
                     start_point=sp, end_point=ep,
                     n_segments=n_seg,

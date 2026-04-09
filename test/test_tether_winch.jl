@@ -40,9 +40,9 @@ segments:
        0.0, 0.0, 0.0]
 
 tethers:
-  headers: [name, segment_idxs]
+  headers: [name, segment_idxs, init_unstretched_length]
   data:
-    - [main_tether, [tether_seg]]
+    - [main_tether, [tether_seg], 50.0]
 
 winches:
   headers: [name, tether_idxs, winch_point]
