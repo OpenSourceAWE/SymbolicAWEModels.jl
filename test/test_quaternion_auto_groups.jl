@@ -1,6 +1,11 @@
 # Copyright (c) 2025 Bart van de Lint, Jelle Poland
 # SPDX-License-Identifier: MPL-2.0
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 # Test auto-creation of groups for QUATERNION wings
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, WING,
@@ -88,3 +93,4 @@ using LinearAlgebra
         @test !iszero(group.y_airf)
     end
 end
+nothing

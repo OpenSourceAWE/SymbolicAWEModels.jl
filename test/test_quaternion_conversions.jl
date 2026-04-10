@@ -1,6 +1,11 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 using Test
 using SymbolicAWEModels
 using LinearAlgebra
@@ -138,3 +143,4 @@ using Rotations
         end
     end
 end
+nothing

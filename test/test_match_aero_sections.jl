@@ -7,6 +7,11 @@
 # preserves refined panel polars across section count
 # changes (no re-interpolation).
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod, WING,
@@ -304,3 +309,4 @@ end
             for sec in vsm_w.refined_sections)
     end
 end
+nothing

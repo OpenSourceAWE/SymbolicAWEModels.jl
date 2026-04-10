@@ -1,7 +1,6 @@
 # Copyright (c) 2025 Bart van de Lint, Jelle Poland
 # SPDX-License-Identifier: MPL-2.0
 
-#!/usr/bin/env julia
 """
 Test tangential sphere heading calculation.
 
@@ -13,9 +12,14 @@ Tests run with both origin and non-origin base positions to
 verify heading is computed relative to the sphere center.
 
 Usage:
-  julia --project=test test/test_heading_calculation.jl
-  julia --project=test test/test_heading_calculation.jl special
+  jl test/test_heading_calculation.jl
+  jl test/test_heading_calculation.jl special
 """
+
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
 
 using Test
 using LinearAlgebra
@@ -150,5 +154,4 @@ end
 end
 
 println("\n=== All Heading Tests Passed ===\n")
-
 nothing

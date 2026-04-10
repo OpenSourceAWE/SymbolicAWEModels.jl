@@ -1,9 +1,13 @@
 # SPDX-FileCopyrightText: 2022, 2024, 2025 Uwe Fechner
 # SPDX-License-Identifier: MIT
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 using Test
 using SymbolicAWEModels
-using Pkg
 
 @testset "Testing helper functions..." begin
     path=pwd()
@@ -38,3 +42,4 @@ using Pkg
     @test ! ("Revise" ∈ keys(Pkg.project().dependencies))
     @test ! ("Plots" ∈ keys(Pkg.project().dependencies))
 end
+nothing

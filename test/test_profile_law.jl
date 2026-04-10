@@ -12,6 +12,11 @@
 #   2 = LOG (delegated to AtmosphericModels)
 #   3 = EXPLOG (delegated to AtmosphericModels)
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
@@ -310,3 +315,4 @@ system:
     # Cleanup
     rm(tmpdir; recursive=true)
 end
+nothing

@@ -9,6 +9,11 @@
 # 3. Horizontal segment gravity drag: terminal velocity (two DYNAMIC points)
 # 4. Vertical segment wind drag: terminal velocity matches wind (two DYNAMIC points)
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
@@ -570,3 +575,4 @@ system:
     # Cleanup
     rm(tmpdir; recursive=true)
 end
+nothing

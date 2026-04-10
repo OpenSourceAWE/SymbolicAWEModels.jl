@@ -8,6 +8,11 @@
 #   z_ref_points: [1, [[12, 0.7], [11, 0.3]]]
 # are correctly parsed into WeightedRefPoints with weights.
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, WeightedRefPoints,
@@ -112,3 +117,4 @@ transforms:
     @test y_p1.ids == [1]
     @test y_p2.ids == [5]
 end
+nothing

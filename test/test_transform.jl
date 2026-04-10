@@ -12,6 +12,11 @@
 #
 # Uses 2plate_kite configuration files with both REFINE and QUATERNION wing types.
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod,
@@ -335,3 +340,4 @@ using LinearAlgebra
     # Cleanup
     rm(tmpdir; recursive=true)
 end
+nothing

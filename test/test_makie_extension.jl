@@ -10,6 +10,11 @@
 # 4. Replay single system
 # 5. Replay multiple systems
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 using Test
 
 # GLMakie requires OpenGL — skip tests on CI runners without GPU drivers
@@ -194,3 +199,4 @@ end
 end
 
 end # if GLMAKIE_AVAILABLE
+nothing

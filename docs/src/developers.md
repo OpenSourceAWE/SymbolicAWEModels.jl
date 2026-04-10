@@ -13,16 +13,20 @@ to `SymbolicAWEModels.jl`.
 
 Before you begin, ensure you have the following software installed:
 
-- **Julia**: Latest release version. Install using
+- **Julia**: Latest release version. Install on Linux using
   [juliaup](https://github.com/JuliaLang/juliaup):
+
   ```bash
   curl -fsSL https://install.julialang.org | sh
   juliaup add release
   juliaup default release
   ```
+
 - **Git**: For version control.
 - **Bash**: A Unix-like shell environment.
 - **Code editor**: Your preferred code editor with Julia support.
+
+For Windows or macOS, check [these](https://ufechner7.github.io/2024/08/09/installing-julia-with-juliaup.html) instructions.
 
 ---
 
@@ -51,14 +55,54 @@ cd SymbolicAWEModels.jl
 git remote add upstream https://github.com/OpenSourceAWE/SymbolicAWEModels.jl
 ```
 
-**Activate the Project** Start a Julia session with the project environment
-activated:
+**Install and precompile the packages**
 
 ```bash
-julia --project=.
+cd bin
+./install
 ```
 
----
+If you have the time, also create a system image, which contains all packages but `SymbolicAWEModels.jl` itself. This
+has the advantage of a much lower startup time and the disadvantage that you need to recreate the system image after
+updating packages. On a laptop with an `AMD 7840U` CPU and 32 GB RAM on battery power this takes at least 15 minutes.
+
+
+```bash
+cd bin
+./create_sys_image
+```
+
+This requires at least 48 GB memory. If you have 16GB RAM, create a swap file with 32 GB. Also 
+close all other programs before creating the system image to avoid an out-of-memory error. 
+On macOS this is handled automatically.
+
+**Start Julia**
+
+Always start Julia with
+
+```bash
+./bin/run_julia
+```
+
+or with
+```bash
+jl
+```
+
+The second form requires that the line:
+
+```bash
+alias jl='./bin/run_julia'
+```
+
+in your `.bashrc` file in your home directory (Linux and Windows). For Mac, add this line to the `.zshrc` file.
+
+This has a few advantages:
+
+- It will activate the current project
+- it will set the required number of threads of the garbage collector
+- it will use a system image if available
+- it will provide the function `menu()` to launch any of the examples without the need to type the longish `include(...)` command.
 
 ## Contributing code: branches and pull requests
 
@@ -71,21 +115,22 @@ helps prevent merge conflicts.
 ```bash
 git fetch upstream
 git checkout main
-git merge upstream/main
+git rebase upstream/main
 ```
+If rebase fails, you can also use the `git merge` command instead.
 
 **Keep Your Feature Branch Up to Date** While working on your feature branch,
-regularly merge the latest changes from `main` to avoid merge conflicts later:
+regularly rebase onto the latest changes from `main` to avoid conflicts later:
 
 ```bash
 git fetch upstream
 git checkout main
-git merge upstream/main
+git rebase upstream/main
 git checkout add_lei_model
-git merge main
+git rebase main
 ```
 
-This is especially important for long-running feature branches. Merging
+This is especially important for long-running feature branches. Rebasing
 frequently makes conflicts smaller and easier to resolve.
 
 **Create a Feature Branch** Create a new branch from your up-to-date `main`
@@ -124,7 +169,7 @@ repository. Provide a clear title and a detailed description of your changes.
 
 ### Use Revise.jl for faster workflow
 
-We strongly recommend adding
+We recommend adding
 **[Revise.jl](https://timholy.github.io/Revise.jl/stable/)** to your global
 Julia environment. It allows you to modify source code without restarting your
 Julia session, which is essential for efficient development.
@@ -174,22 +219,13 @@ in your Julia session!
 When developing the package, you'll want to test your changes with the examples.
 Here's how to set up the examples to use your local development version:
 
-#### Setup
+#### Launching Julia
 
-1. **From the package root directory**, start Julia with the examples project:
+1. **From the package root directory**:
+
    ```bash
-   julia --project=examples
+   jl
    ```
-
-2. **Link your local development version**:
-   ```julia
-   ]  # Press ] to enter Pkg mode - prompt shows (examples) pkg>
-   dev .
-   ```
-
-   This command tells Julia to use the local source code in the current
-   directory (`.`) instead of the registered package version. Use `]st` to
-   verify the package is linked to your local path.
 
 #### Running examples
 
@@ -201,15 +237,13 @@ include("examples/coupled_2plate_kite.jl")
 include("examples/menu.jl")
 ```
 
-**Important**: `--project=examples` sets which project environment to use, but
-doesn't change your current working directory. You still need to use `examples/`
-in the include paths.
-
 The `examples/Project.toml` file already contains the necessary dependencies:
 
 - `GLMakie` - for visualization
 - `KiteUtils` - for utility functions
 - `SymbolicAWEModels` - the package itself
+
+The `examples` project gets automatically activated when you run one of the examples. You can also just type `menu()` to get a menu with the examples.
 
 #### Managing package dependencies
 
@@ -233,24 +267,30 @@ Press backspace to exit Pkg mode and return to the Julia REPL.
 - `st` - Show status (list all packages and their versions)
 - `up` - Update all packages
 - `instantiate` - Install all packages from Project.toml
+- `resolve` - Resolve possible conflicts. This can fail. If it fails, you have to disable the system image (delete it or rename it) and delete the `Manifest-v1.xx.toml` file of the active Julia version. When you now run instantiate or resolve, a new `Manifest.toml` will be created. Rename it manually to `Manifest-v1.xx.toml` with `xx` being your minor Julia version number.
 
 **Adding packages to the examples:**
 
-```julia
-# Start Julia with examples project
-julia --project=examples
+```bash
+# Start Julia
+jl
+```
+Use the package manager to activate the examples project and add your package:
+```
 
 ]  # Enter Pkg mode - prompt shows (examples) pkg>
+activate examples
 add YourPackage
 st  # Verify the package was added
 ```
 
 **Adding packages to SymbolicAWEModels itself:**
-
+```bash
+# Start Julia
+jl
+```
+Use the package manager to add your package:
 ```julia
-# Start Julia with the main project
-julia --project=.
-
 ]  # Enter Pkg mode - prompt shows (SymbolicAWEModels) pkg>
 add YourPackage
 st  # Verify the package was added
@@ -258,36 +298,26 @@ st  # Verify the package was added
 
 The prompt `(ProjectName) pkg>` always tells you which project you're modifying.
 
-**Tip**: Create a shell alias to quickly start the development environment:
-
-```bash
-alias jl-ex='julia --project=examples'
-```
-
 ### Building documentation locally
 
 To preview documentation changes as you work:
 
 #### Using LiveServer (recommended)
 
-1. **Start Julia with the docs project**:
+1. **Start Julia**:
+
    ```bash
-   julia --project=docs
+   jl
    ```
 
-2. **Link your local development version** (first time only):
-   ```julia
-   ]  # Press ] to enter Pkg mode - prompt shows (docs) pkg>
-   dev .
-   ```
+2. **Build the docs and show them with live reload**:
 
-3. **Serve the docs with live reload**:
    ```julia
-   using LiveServer
-   servedocs(launch_browser=true)
+   include("scripts/build_docu.jl")
    ```
 
    This will:
+   - Generate documentation figures, if needed
    - Build the documentation
    - Open it in your default browser
    - Watch for changes to documentation files
@@ -298,7 +328,7 @@ To preview documentation changes as you work:
 Alternatively, you can build the documentation once without the live server:
 
 ```bash
-julia --project=docs
+jl
 ```
 
 ```julia
@@ -327,11 +357,11 @@ the expected constitutive law.
 
 ```bash
 # Run the full test suite
-julia --project=. -e 'using Pkg; Pkg.test()'
+jl -e 'using Pkg; Pkg.test()'
 
 # Run a single test file
-julia --project=test test/test_point.jl
-julia --project=test test/test_segment.jl
+jl test/test_point.jl
+jl test/test_segment.jl
 ```
 
 ### Test files
@@ -358,7 +388,7 @@ julia --project=test test/test_segment.jl
 When adding a new component or equation, follow this pattern:
 
 1. **Build a minimal model** using constructors — only include the
-   components needed to test the behaviour in question.
+   components needed to test the behavior in question.
 2. **Derive the expected result analytically** — free-fall distance,
    terminal velocity, oscillation frequency, etc.
 3. **Simulate and compare** — run `next_step!` in a loop and check the

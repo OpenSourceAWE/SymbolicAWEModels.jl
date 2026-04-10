@@ -55,3 +55,4 @@ scene = replay(syslog, sam.sys_struct)
 if isinteractive()
     display(scene)
 end
+nothing

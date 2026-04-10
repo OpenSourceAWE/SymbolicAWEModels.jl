@@ -15,7 +15,7 @@ cp(src_data_path, data_path; force=true)
 @show data_path
 set_data_path(data_path)
 
-exclude = ["test_for_precompile.jl"]
+exclude = ["test_for_precompile.jl", "test_menu.jl"]
 test_files = filter(readdir(@__DIR__)) do f
     startswith(f, "test_") && endswith(f, ".jl") &&
         f ∉ exclude
@@ -28,3 +28,4 @@ sort!(test_files)
         include(f)
     end
 end
+nothing

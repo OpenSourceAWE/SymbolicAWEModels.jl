@@ -7,6 +7,11 @@
 # and low-stiffness tethers. Each test verifies one physical
 # behavior with tight tolerances and swept parameters.
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
@@ -508,3 +513,4 @@ environment:
 
     rm(tmpdir; recursive=true)
 end
+nothing

@@ -11,6 +11,11 @@
 # 4. Analytical geometry: equilibrium position matches derivation
 # 5. Tension balance: symmetric forces at equilibrium
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
@@ -465,3 +470,4 @@ system:
     # Cleanup
     rm(tmpdir; recursive=true)
 end
+nothing

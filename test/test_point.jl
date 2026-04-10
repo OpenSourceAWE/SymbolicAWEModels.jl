@@ -9,6 +9,11 @@
 # 2. No gravity, with wind: correct drag acceleration
 # 3. With gravity, zero area: pure free fall acceleration
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
@@ -501,3 +506,4 @@ system:
     # Cleanup
     rm(tmpdir; recursive=true)
 end
+nothing

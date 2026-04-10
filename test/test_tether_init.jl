@@ -7,6 +7,11 @@
 # Uses Route 2 (auto-generated) tethers and YAML-specified init_stretched_length.
 # All tests use reinit! directly on a SystemStructure (no ODE compilation).
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
@@ -290,3 +295,4 @@ environment:
     end
 
 end
+nothing

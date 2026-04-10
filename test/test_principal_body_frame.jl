@@ -13,6 +13,11 @@
 #    relative to COM (same frame as pos_b)
 # 3. R_b_to_p = R_p_to_c' * R_b_to_c (constant body→principal)
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, QUATERNION, WING,
@@ -157,3 +162,4 @@ using LinearAlgebra
 
     rm(tmpdir; recursive=true)
 end
+nothing

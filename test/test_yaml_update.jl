@@ -9,6 +9,11 @@
 # 3. Modified segment l0: segment updated correctly
 # 4. l0=nothing in YAML: auto-calc from pos_cad
 
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
@@ -167,3 +172,4 @@ system:
 
     rm(tmpdir; recursive=true)
 end
+nothing
