@@ -263,15 +263,15 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
 
     # Get the state vectors from the integrator
     @unpack tethers = sam.sys_struct
-    if length(winches) > 0
-        for winch in winches
-            isempty(winch.tether_idxs) && continue
-            ti = winch.tether_idxs[1]
-            ss.l_tether[winch.idx] = tethers[ti].len
-            ss.v_reelout[winch.idx] = winch.vel
-            ss.winch_force[winch.idx] = norm(winch.force)
-            ss.set_torque[winch.idx] = winch.set_value
-        end
+    for (ti, tether) in enumerate(tethers)
+        ti > 4 && break
+        ss.l_tether[ti] = tether.len
+    end
+    for winch in winches
+        isempty(winch.tether_idxs) && continue
+        ss.v_reelout[winch.idx] = winch.vel
+        ss.winch_force[winch.idx] = norm(winch.force)
+        ss.set_torque[winch.idx] = winch.set_value
     end
     if length(groups) > 0
         # Only fill up to the size of ss.twist_angles (typically 4)

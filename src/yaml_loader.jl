@@ -1114,7 +1114,7 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
             # Update data rows if we know the column
             if tether_init_len_col > 0
                 dm = match(
-                    r"^(\s*-\s*\[)(\w+)(.*)", line)
+                    r"^(\s*-\s*\[)([\w-]+)(.*)", line)
                 if dm !== nothing
                     name = String(dm.captures[2])
                     if haskey(tether_init_lens, name)

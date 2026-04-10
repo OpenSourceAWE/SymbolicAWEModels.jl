@@ -61,7 +61,7 @@ end
 
 set.v_wind = 0.0
 n_seg = length(segments)
-tethers = [Tether(:main, collect(1:n_seg))]
+tethers = [Tether(:main, collect(1:n_seg), set.l_tether)]
 winches = [Winch(:winch, set, [:main]; winch_point=1)]
 
 sys = SystemStructure("winch", set;

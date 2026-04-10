@@ -159,7 +159,7 @@ applies a torque to reel the tether in or out.
 ```julia
 # Group all segments into a tether
 seg_names = [s.name for s in segments]
-tethers = [Tether(:main, seg_names)]
+tethers = [Tether(:main, seg_names, l_tether)]
 
 # Create a winch connected to the tether
 gear_ratio = 1.0
@@ -304,7 +304,7 @@ other by name:
 Segment(:spring, :anchor, :mass, 1000.0, 50.0, 0.002)
 
 ## Tether references segments by name
-Tether(:main, [:seg1, :seg2])
+Tether(:main, [:seg1, :seg2], 50.0)
 
 ## Winch references tethers and winch point by name
 Winch(:winch, [:main], 1.0, 0.11, 122.0, 30.6, 0.024;

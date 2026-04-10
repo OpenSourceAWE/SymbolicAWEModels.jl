@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 # SPDX-License-Identifier: MPL-2.0
 
-# test_tether_init_stretched_length.jl - Tether initial length scaling tests
+# test_tether_init.jl - Tether initial length scaling tests
 #
 # Tests the Tether.init_stretched_length feature: scaling pos_w before transforms.
 # Uses Route 2 (auto-generated) tethers and YAML-specified init_stretched_length.

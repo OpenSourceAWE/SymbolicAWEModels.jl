@@ -570,7 +570,6 @@ The function handles several cases:
 - It also copies the state of wings, groups, winches, and pulleys where applicable.
 """
 function copy!(sys1::SystemStructure, sys2::SystemStructure)
-    simple = false
 
     # copy point pos and vel
     if length(sys1.points) > 0
@@ -605,7 +604,6 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
                     sys2.points[point_idxs2[2]].vel_w .= sys1.points[point_idxs1[2]].vel_w
                     sys2.points[point_idxs2[1]].disturb .= sys1.points[point_idxs1[1]].disturb
                     sys2.points[point_idxs2[2]].disturb .= sys1.points[point_idxs1[2]].disturb
-                    simple = true
                 end
             end
         end
@@ -774,23 +772,20 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         end
     end
 
-    # Update winch/tether state from SysState
+    # Update tether lengths from SysState (per-tether)
+    for (ti, tether) in enumerate(tethers)
+        ti > 4 && break
+        tether.len = Float64(ss.l_tether[ti])
+    end
+
+    # Update winch state from SysState (per-winch)
     n_winches = min(length(winches), 4)
     for i in 1:n_winches
-        if i <= length(winches)
-            winches[i].force .= NaN
-            winches[i].friction = NaN
-            winches[i].acc = 0.0
-            winches[i].vel = Float64(ss.v_reelout[i])
-            winches[i].set_value = Float64(ss.set_torque[i])
-            # Map SysState tether length to tethers
-            for ti in winches[i].tether_idxs
-                if ti <= length(tethers)
-                    tethers[ti].len =
-                        Float64(ss.l_tether[i])
-                end
-            end
-        end
+        winches[i].force .= NaN
+        winches[i].friction = NaN
+        winches[i].acc = 0.0
+        winches[i].vel = Float64(ss.v_reelout[i])
+        winches[i].set_value = Float64(ss.set_torque[i])
     end
 
     # Update VSM panel corner positions from world frame back to body frame

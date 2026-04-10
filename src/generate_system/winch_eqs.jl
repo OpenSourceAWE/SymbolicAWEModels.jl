@@ -83,6 +83,9 @@ function winch_eqs!(eqs, defaults, winches, tethers,
 
     # --- Per-winch velocity and motor dynamics ---
     for winch in winches
+        isempty(winch.tether_idxs) &&
+            error("Winch $(winch.name): no connected " *
+                  "tethers; at least one is required.")
         winch_point_idx = winch.winch_point_idx
         (winch_point_idx > length(points)) &&
             error("Winch $(winch.name): point " *
