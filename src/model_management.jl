@@ -487,7 +487,7 @@ This is used to check if a cached compiled model is still valid.
 
 # Runtime Fields (don't affect compilation, excluded from hash):
 - `:profile_law`: Wind profile law (evaluated at runtime via symbolic function)
-- `:v_wind`, `:elevation`: Initial conditions
+- `:wind_vec`, `:elevation`: Initial conditions
 - Other runtime parameters
 """
 function get_set_hash(set::Settings;

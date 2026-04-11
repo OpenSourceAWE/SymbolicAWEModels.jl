@@ -77,6 +77,8 @@ winch:
 environment:
     v_wind: 15.51            # wind speed at reference height          [m/s]
     upwind_dir: -90.0        # upwind direction                        [deg]
+    wind_vec: [15.51, 0.0, 0.0]  # wind vector at ref height (ENU)   [m/s]
+    use_wind_vec: false      # use wind_vec instead of v_wind/upwind_dir
     temp_ref: 15.0           # temperature at reference height         [°C]
     height_gnd: 0.0          # height of groundstation above see level [m]
     h_ref:  6.0              # reference height for the wind speed     [m]
