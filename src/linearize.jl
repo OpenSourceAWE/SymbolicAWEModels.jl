@@ -265,10 +265,6 @@ function linearize!(sam::SymbolicAWEModel; set_values=nothing)
         lin_prob.set_set_values(lin_prob.prob, set_values)
     end
 
-    # copy state and settings to lin prob
-    lin_prob.set_sys(lin_prob.prob, sam.sys_struct)
-    lin_prob.set_set(lin_prob.prob, sam.set)
-
     lin_model = solve(lin_prob.prob)[1]
     return lin_model
 end

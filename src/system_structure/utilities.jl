@@ -493,7 +493,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         # Calculate wind at wing position using atmospheric model
         wind_factor = calc_wind_factor(sys_struct.am,
                                        wing.pos_w[1], wing.pos_w[2],
-                                       wing.pos_w[3], set)
+                                       wing.pos_w[3], sys_struct)
         wing.v_wind .= wind_factor * wind_vec_gnd
 
         R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}

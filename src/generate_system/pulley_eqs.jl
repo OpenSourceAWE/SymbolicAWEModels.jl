@@ -4,7 +4,7 @@
 # Pulley dynamics equation generation
 
 """
-    pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys, pset;
+    pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys;
                 spring_force, pulley_len, pulley_vel)
 
 Generate equations for pulley dynamics (rope distribution over pulleys).
@@ -13,14 +13,14 @@ Generate equations for pulley dynamics (rope distribution over pulleys).
 - `eqs`, `defaults`, `guesses`: Accumulating vectors for the MTK system.
 - `pulleys`: Collection of Pulley objects.
 - `segments`: Collection of Segment objects (for mass calculation).
-- `psys`, `pset`: Symbolic parameters representing system and settings.
+- `psys`: Symbolic parameter representing the system structure.
 - `spring_force`: Symbolic segment spring force variable.
 - `pulley_len`, `pulley_vel`: Symbolic pulley state variables.
 
 # Returns
 - Tuple `(eqs, defaults, guesses)` with updated equation vectors.
 """
-function pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys, pset;
+function pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys;
                      spring_force, pulley_len, pulley_vel)
     @variables begin
         pulley_force(t)[eachindex(pulleys)]
@@ -31,7 +31,7 @@ function pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys, pset;
     for pulley in pulleys
         segment = segments[pulley.segment_idxs[1]]
         mass_per_meter =
-            get_rho_tether(pset) * π * (get_diameter(psys, segment.idx) / 2)^2
+            get_rho_tether(psys) * π * (get_diameter(psys, segment.idx) / 2)^2
         mass = get_sum_len(psys, pulley.idx) * mass_per_meter
         eqs = [
             eqs

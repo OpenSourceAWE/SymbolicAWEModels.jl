@@ -4,7 +4,7 @@
 # Segment spring-damper equation generation
 
 """
-    segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winches, wings, psys, pset;
+    segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winches, wings, psys;
                  pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
                  pulley_len, tether_len)
 
@@ -14,7 +14,7 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
 - `eqs`, `guesses`: Accumulating vectors for the MTK system.
 - `points`, `segments`, `pulleys`, `tethers`, `winches`, `wings`: System components.
-- `psys`, `pset`: Symbolic parameters representing system and settings.
+- `psys`: Symbolic parameter representing the system structure.
 - `pos`, `vel`: Symbolic point state variables.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
 - `spring_force_vec`, `drag_force`, `l0`: Pre-declared segment force variables.
@@ -25,7 +25,7 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
   and the segment length and spring force variables for use by other components.
 """
 function segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winches, wings,
-                      psys, pset; pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
+                      psys; pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
                       pulley_len, tether_len)
     @variables begin
         # Spring-damper model
@@ -172,7 +172,7 @@ function segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winch
             segment_rho[segment.idx] ~ calc_rho(s.am, segment_height[segment.idx])
             wind_vel[:, segment.idx] ~
                 calc_wind_factor(s.am, segment_pos_x, segment_pos_y, segment_pos_z,
-                                 pset) * wind_vec_gnd
+                                 psys) * wind_vec_gnd
             va[:, segment.idx] ~
                 wind_vel[:, segment.idx] - segment_vel[:, segment.idx]
             area[segment.idx] ~
@@ -191,7 +191,7 @@ function segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winch
                 eqs
                 drag_force[:, segment.idx] ~
                     (
-                        0.5 * segment_rho[segment.idx] * get_cd_tether(pset) *
+                        0.5 * segment_rho[segment.idx] * get_cd_tether(psys) *
                         norm(va[:, segment.idx]) * area[segment.idx]
                     ) * app_perp_vel[:, segment.idx]
             ]

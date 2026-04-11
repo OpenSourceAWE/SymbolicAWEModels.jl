@@ -10,7 +10,7 @@ const GetSetNothing = Union{AbstractIndexer, Nothing}
 A container for the main Ordinary Differential Equation (ODE) problem and its
 associated getter and setter functions for the full, nonlinear physical state.
 """
-@with_kw struct ProbWithAttributes{Prob, SetSys, SetSetValues, SetSet,
+@with_kw struct ProbWithAttributes{Prob, SetSys, SetSetValues,
                                   GetSetValues, GetWingState, GetVsmY, GetSegmentState,
                                   GetWinchState, GetTetherState, GetPointState,
                                   GetPulleyState, GetGroupState}
@@ -22,8 +22,6 @@ associated getter and setter functions for the full, nonlinear physical state.
     set_sys::SetSys
     "Setter for the control input values."
     set_set_values::SetSetValues
-    "Setter for general settings."
-    set_set::SetSet
 
     # Getters for the ODE state
     get_set_values::GetSetValues
@@ -60,14 +58,13 @@ linearized model (A,B,C,D matrices).
 
 $(TYPEDFIELDS)
 """
-@with_kw struct LinProbWithAttributes{Prob, SetSetValues, SetSys, SetSet}
+@with_kw struct LinProbWithAttributes{Prob, SetSetValues, SetSys}
     "Linearization problem of the mtk model."
     prob::Prob
 
     # Setters for the linearization
     set_set_values::SetSetValues
     set_sys::SetSys
-    set_set::SetSet
 end
 
 """
@@ -152,8 +149,6 @@ Users typically interact with this model through high-level functions like
 $(TYPEDFIELDS)
 """
 @with_kw mutable struct SymbolicAWEModel{SS<:SystemStructure, SM<:SerializedModel} <: AbstractKiteModel
-    "Reference to the settings struct"
-    set::Settings
     "Reference to the point mass system with points, segments, pulleys and tethers"
     sys_struct::SS
     "Container for the compiled and serialized model components"
@@ -179,7 +174,7 @@ Tuple of field names that are direct fields of `SymbolicAWEModel` (as opposed to
 delegated to the nested `serialized_model`). Used by `getproperty` and `setproperty!`
 to dispatch field access correctly.
 """
-const _SAM_FIELDS = (:set, :sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :set_tether_len)
+const _SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :set_tether_len)
 
 """
     Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
@@ -190,7 +185,9 @@ components without explicitly referencing `sam.serialized_model`.
 """
 
 function Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
-    if sym === :am
+    if sym === :set
+        getfield(sam, :sys_struct).set
+    elseif sym === :am
         getfield(sam, :sys_struct).am
     elseif sym in _SAM_FIELDS
         getfield(sam, sym)
@@ -207,7 +204,11 @@ This allows you to change properties of the compiled model as if they were
 fields of the `SymbolicAWEModel` itself.
 """
 function Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
-    if sym in _SAM_FIELDS
+    if sym === :set
+        error("Cannot replace `set`: it is owned by `sys_struct` " *
+              "(const field). Mutate fields directly, " *
+              "e.g. `sam.set.wind_vec = ...`.")
+    elseif sym in _SAM_FIELDS
         setfield!(sam, sym, val)
     else
         setproperty!(getfield(sam, :serialized_model), sym, val)
@@ -239,7 +240,7 @@ function SymbolicAWEModel(
     sys_struct_hash = get_sys_struct_hash(sys_struct)
     # Initialize with an empty, but now fully typed, SerializedModel.
     serialized_model = SerializedModel(; set_hash, sys_struct_hash)
-    return SymbolicAWEModel(; set, sys_struct, serialized_model, kwargs...)
+    return SymbolicAWEModel(; sys_struct, serialized_model, kwargs...)
 end
 
 """

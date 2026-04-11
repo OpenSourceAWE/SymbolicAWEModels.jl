@@ -116,8 +116,8 @@ and inject them as `disturb` forces on the dynamic interior nodes.
 Each quad cell (i,j) is split into two triangles. The force on each
 triangle is `P × area_triangle`. This force is divided equally among
 the three corners, and only DYNAMIC corners accumulate the contribution.
-After updating all `disturb` fields, `set_sys` propagates the changes
-into the ODE parameter vector so the next integration step uses them.
+The integrator holds a reference to the mutable `sys_struct`, so
+mutating `disturb` fields takes effect at the next integration step.
 """
 function apply_pressure!(sam, pressure)
     pts = sam.sys_struct.points
@@ -159,9 +159,6 @@ function apply_pressure!(sam, pressure)
             end
         end
     end
-
-    # Propagate updated disturb forces into the integrator parameter vector
-    sam.prob.set_sys(sam.integrator, sam.sys_struct)
     return nothing
 end
 

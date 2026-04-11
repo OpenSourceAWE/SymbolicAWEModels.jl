@@ -53,13 +53,11 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     if tunable_params
         @parameters begin
             psys::SystemStructure{VSMWing} = system
-            pset::Settings = s.set
             fix_wing = false
         end
     else
         @parameters begin
             (psys::SystemStructure{VSMWing} = system), [tunable = false]
-            (pset::Settings = s.set), [tunable = false]
             (fix_wing = false), [tunable = false]
         end
     end
@@ -177,7 +175,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # 1. Point equations (generates point dynamics, modifies tether_wing_force/moment in-place)
     eqs, defaults, guesses = point_eqs!(
-        s, eqs, defaults, guesses, points, segments, groups, wings, psys, pset;
+        s, eqs, defaults, guesses, points, segments, groups, wings, psys;
         R_b_to_w, com_w,
         wing_vel, wind_vec_gnd, twist_angle,
         pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -190,27 +188,27 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # 2. Group equations (deformable wing sections with twist dynamics)
     eqs, defaults, guesses = group_eqs!(
-        eqs, defaults, guesses, groups, wings, psys, pset;
+        eqs, defaults, guesses, groups, wings, psys;
         R_b_to_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
         point_force, tether_wing_moment, group_y_airf, group_chord, group_le_pos
     )
 
     # 3. Segment equations (spring-damper forces, returns len and spring_force)
     eqs, guesses, len, spring_force = segment_eqs!(
-        s, eqs, guesses, points, segments, pulleys, tethers, winches, wings, psys, pset;
+        s, eqs, guesses, points, segments, pulleys, tethers, winches, wings, psys;
         pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
         pulley_len, tether_len
     )
 
     # 4. Pulley equations (rope distribution)
     eqs, defaults, guesses = pulley_eqs!(
-        eqs, defaults, guesses, pulleys, segments, psys, pset;
+        eqs, defaults, guesses, pulleys, segments, psys;
         spring_force, pulley_len, pulley_vel
     )
 
     # 5. Winch equations (motor dynamics, tether reeling)
     eqs, defaults = winch_eqs!(
-        eqs, defaults, winches, tethers, points, psys, pset;
+        eqs, defaults, winches, tethers, points, psys;
         point_force, set_values, tether_len, winch_vel
     )
 
@@ -237,7 +235,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # Build wing rigid body dynamics equations
     eqs, defaults = wing_eqs!(
-        s, eqs, psys, pset, defaults;
+        s, eqs, psys, defaults;
         tether_wing_force, tether_wing_moment,
         aero_force_b, aero_moment_b,
         ω_b, α_b, R_b_to_w, R_p_to_w,
@@ -248,7 +246,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # Build scalar kinematic and apparent wind equations
     eqs = scalar_eqs!(
-        s, eqs, psys, pset;
+        s, eqs, psys;
         R_b_to_w, wind_vec_gnd, va_wing_b, wing_pos, wing_vel,
         wing_acc, twist_angle, ω_b, α_b, R_v_to_w, pos
     )

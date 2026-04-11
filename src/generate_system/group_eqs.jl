@@ -4,7 +4,7 @@
 # Group twist dynamics equation generation
 
 """
-    group_eqs!(eqs, defaults, guesses, groups, wings, psys, _pset;
+    group_eqs!(eqs, defaults, guesses, groups, wings, psys;
                R_b_to_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
                point_force, tether_wing_moment, group_y_airf, group_chord, group_le_pos)
 
@@ -14,7 +14,7 @@ Generate equations for deformable wing group twist dynamics.
 - `eqs`, `defaults`, `guesses`: Accumulating vectors for the MTK system.
 - `groups`: Collection of Group objects (deformable wing sections).
 - `wings`: Collection of Wing objects.
-- `psys`, `pset`: Symbolic parameters representing system and settings.
+- `psys`: Symbolic parameter representing the system structure.
 - `R_b_to_w`: Symbolic rotation matrix (body to world).
 - `fix_wing`: Symbolic boolean for fixing wing dynamics.
 - `twist_angle`, `twist_ω`: Symbolic twist state variables.
@@ -26,7 +26,7 @@ Generate equations for deformable wing group twist dynamics.
 # Returns
 - Tuple `(eqs, defaults, guesses)` with updated equation vectors.
 """
-function group_eqs!(eqs, defaults, guesses, groups, wings, psys, _pset=nothing;
+function group_eqs!(eqs, defaults, guesses, groups, wings, psys;
                     R_b_to_w, fix_wing, twist_angle, twist_ω, group_aero_moment,
                     point_force, tether_wing_moment, group_y_airf, group_chord, group_le_pos)
 

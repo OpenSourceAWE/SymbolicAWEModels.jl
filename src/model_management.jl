@@ -71,14 +71,13 @@ function generate_prob_getters(sys_struct, sys)
             sys.stretched_len]))
     end
     set_sys = setp(sys, sys.psys)
-    set_set = setp(sys, sys.pset)
 
     # Always include va_point_b and point_mass in point_state (calculated for all points now)
     get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass]))
 
     return (; get_wing_state, get_vsm_y, get_segment_state, get_group_state,
             get_pulley_state, get_winch_state, get_tether_state, set_set_values,
-            get_set_values, set_sys, set_set, get_point_state)
+            get_set_values, set_sys, get_point_state)
 end
 
 """
@@ -91,7 +90,7 @@ Generate setter functions for the parameters of a linearized system.
 
 # Returns
 - A `NamedTuple` containing setter functions for the winch set-points (`set_set_values`),
-  the system structure parameters (`set_sys`), and the settings parameters (`set_set`).
+  and the system structure parameters (`set_sys`).
 """
 function generate_lin_getters(sys)
     set_set_values = nothing
@@ -99,8 +98,7 @@ function generate_lin_getters(sys)
         set_set_values = setp(sys, sys.set_values)
     end
     set_sys = setp(sys, sys.psys)
-    set_set = setp(sys, sys.pset)
-    return (; set_set_values, set_sys, set_set)
+    return (; set_set_values, set_sys)
 end
 
 """
@@ -375,14 +373,13 @@ function init!(sam::SymbolicAWEModel;
         changed |= maybe_create_control_functions!(sam, outputs;
             create_control_func, prn)
 
-        # Update deserialized prob parameters to current settings
+        # Update deserialized prob parameters to current sys_struct
+        # (sys_struct contains set, so set_sys covers both)
         if !isnothing(sam.prob)
             sam.prob.set_sys(sam.prob.prob, sam.sys_struct)
-            sam.prob.set_set(sam.prob.prob, sam.set)
         end
         if !isnothing(sam.lin_prob)
             sam.lin_prob.set_sys(sam.lin_prob.prob, sam.sys_struct)
-            sam.lin_prob.set_set(sam.lin_prob.prob, sam.set)
         end
 
         if changed
@@ -414,11 +411,9 @@ end
 Reinitializes a `LinearizationProblem` with the current system and settings parameters.
 
 This function updates the internal parameter vectors of the linearization problem
-with the latest values from the `SymbolicAWEModel`'s `sys_struct` and `set` fields.
+with the latest values from the `SymbolicAWEModel`'s `sys_struct` (which contains `set`).
 """
 function reinit!(sam::SymbolicAWEModel, prob::LinProbWithAttributes)
-    prob.set_sys(prob.prob, sam.sys_struct)
-    prob.set_set(prob.prob, sam.set)
     nothing
 end
 
@@ -462,8 +457,6 @@ function reinit!(
         something(existing)
     end
     sam.integrator = integrator
-    prob.set_sys(integrator, sam.sys_struct)
-    prob.set_set(integrator, sam.set)
     OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
     lin_vsm && update_vsm!(sam, prob)
     update_sys_struct!(prob, integrator, sam.sys_struct)

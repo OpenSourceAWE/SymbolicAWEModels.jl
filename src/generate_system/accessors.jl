@@ -5,10 +5,10 @@
 #
 # The following `get_*` functions are registered for use within ModelingToolkit.jl's
 # symbolic context. They act as symbolic "shims" or placeholders that allow the
-# equation generation logic to access fields from the `SystemStructure` (`psys`) and
-# `Settings` (`pset`) parameter objects during the symbolic construction of the model.
-# This avoids hard-coding parameters into the equations, allowing them to be changed
-# at simulation time.
+# equation generation logic to access fields from the `SystemStructure` (`psys`)
+# parameter object during the symbolic construction of the model. Settings are
+# accessed via `psys.set`. This avoids hard-coding parameters into the equations,
+# allowing them to be changed at simulation time.
 
 get_pos_w(sys::SystemStructure{VSMWing}, idx::Int64) = sys.points[idx].pos_w
 @register_array_symbolic get_pos_w(sys::SystemStructure{VSMWing}, idx::Int64) begin
@@ -248,8 +248,8 @@ get_winch_friction_epsilon(sys::SystemStructure{VSMWing}, idx::Int64) =
     sys.winches[idx].friction_epsilon
 @register_symbolic get_winch_friction_epsilon(
     sys::SystemStructure{VSMWing}, idx::Int64)
-function get_wind_vec(set::Settings)
-    wv = set.wind_vec
+function get_wind_vec(sys::SystemStructure{VSMWing})
+    wv = sys.set.wind_vec
     # Return a tiny nonzero vector when wind is exactly zero
     # to avoid solver instability from division by zero.
     if wv[1]^2 + wv[2]^2 + wv[3]^2 < 1e-20
@@ -257,16 +257,23 @@ function get_wind_vec(set::Settings)
     end
     return wv
 end
-@register_array_symbolic get_wind_vec(set::Settings) begin
+@register_array_symbolic get_wind_vec(
+    sys::SystemStructure{VSMWing}) begin
     size = (3,)
     eltype = SimFloat
 end
-get_rho_tether(set::Settings) = set.rho_tether
-@register_symbolic get_rho_tether(set::Settings)
-get_cd_tether(set::Settings) = set.cd_tether
-@register_symbolic get_cd_tether(set::Settings)
-get_g_earth(set::Settings) = set.g_earth
-@register_symbolic get_g_earth(set::Settings)
+get_rho_tether(sys::SystemStructure{VSMWing}) =
+    sys.set.rho_tether
+@register_symbolic get_rho_tether(
+    sys::SystemStructure{VSMWing})
+get_cd_tether(sys::SystemStructure{VSMWing}) =
+    sys.set.cd_tether
+@register_symbolic get_cd_tether(
+    sys::SystemStructure{VSMWing})
+get_g_earth(sys::SystemStructure{VSMWing}) =
+    sys.set.g_earth
+@register_symbolic get_g_earth(
+    sys::SystemStructure{VSMWing})
 
 # ==================== AERO MODE FUNCTIONS ==================== #
 # Aero mode is a build-time decision (part of model SHA hash).

@@ -88,15 +88,20 @@ rotation_matrix_to_quaternion_z(R) = rotation_matrix_to_quaternion(R)[4]
 @register_symbolic rotation_matrix_to_quaternion_y(R::AbstractMatrix)
 @register_symbolic rotation_matrix_to_quaternion_z(R::AbstractMatrix)
 
-function calc_wind_factor(am::AtmosphericModel, _pos_x, _pos_y, pos_z, set::Settings)
-    if set.profile_law == 0
+function calc_wind_factor(
+    am::AtmosphericModel, _pos_x, _pos_y, pos_z,
+    sys::SystemStructure
+)
+    if sys.set.profile_law == 0
         return 1.0
     else
-        return AtmosphericModels.calc_wind_factor(am, max(1.0, pos_z), set.profile_law)
+        return AtmosphericModels.calc_wind_factor(
+            am, max(1.0, pos_z), sys.set.profile_law)
     end
 end
-@register_symbolic calc_wind_factor(am::AtmosphericModel, _pos_x, _pos_y, pos_z,
-                                    set::Settings)
+@register_symbolic calc_wind_factor(
+    am::AtmosphericModel, _pos_x, _pos_y, pos_z,
+    sys::SystemStructure{VSMWing})
 
 """
     rotate_v_around_k(v, k, θ)

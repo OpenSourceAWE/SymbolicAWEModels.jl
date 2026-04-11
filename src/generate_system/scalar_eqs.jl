@@ -4,7 +4,7 @@
 # Scalar kinematic equation generation
 
 """
-    scalar_eqs!(s, eqs, psys, pset; kwargs...)
+    scalar_eqs!(s, eqs, psys; kwargs...)
 
 Generate equations for derived scalar kinematic quantities useful for control and
 analysis.
@@ -14,14 +14,14 @@ derivatives, as well as apparent wind calculations.
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object.
-- `eqs`, `psys`, `pset`: Accumulating vectors and symbolic parameters.
+- `eqs`, `psys`: Accumulating vectors and symbolic parameter.
 - `kwargs...`: Symbolic variables for the system's state.
 
 # Returns
 - `eqs`: The updated list of system equations.
 """
 function scalar_eqs!(
-    s, eqs, psys, pset;
+    s, eqs, psys;
     R_b_to_w, wind_vec_gnd, va_wing_b, wing_pos,
     wing_vel, wing_acc, twist_angle, ω_b, α_b,
     R_v_to_w, pos
@@ -38,7 +38,7 @@ function scalar_eqs!(
     end
     eqs = [
         eqs
-        wind_vec_gnd ~ get_wind_vec(pset)
+        wind_vec_gnd ~ get_wind_vec(psys)
     ]
     for wing in wings
         eqs = [
@@ -48,7 +48,7 @@ function scalar_eqs!(
             e_z[:, wing.idx] ~ R_b_to_w[:, 3, wing.idx]
             wind_vel_wing[:, wing.idx] ~
                 calc_wind_factor(s.am, wing_pos[1, wing.idx], wing_pos[2, wing.idx],
-                                 wing_pos[3, wing.idx], pset) * wind_vec_gnd
+                                 wing_pos[3, wing.idx], psys) * wind_vec_gnd
             wind_disturb[:, wing.idx] ~ get_wind_disturb(psys, wing.idx)
             va_wing[:, wing.idx] ~
                 wind_vel_wing[:, wing.idx] - wing_vel[:, wing.idx] +
