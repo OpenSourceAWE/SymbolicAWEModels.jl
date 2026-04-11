@@ -39,4 +39,6 @@ environment:
     v_wind: 15.51            # wind speed at reference height          [m/s]
     rho_0: 1.225             # air density at sea level              [kg/m3]
     upwind_dir: -90.0        # upwind direction                        [deg]
+    upwind_elevation: 0.0    # angle above east-north plane            [deg]
+    wind_vec: [15.51, 0.0, 0.0]  # wind vector at ref height (ENU)   [m/s]
     profile_law: 0           # 1=EXP, 2=LOG, 3=EXPLOG, 4=FAST_EXP, 5=FAST_LOG, 6=FAST_EXPLOG

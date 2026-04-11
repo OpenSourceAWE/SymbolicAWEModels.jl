@@ -35,19 +35,10 @@ function scalar_eqs!(
         wind_vel_wing(t)[1:3, eachindex(wings)]
         wind_disturb(t)[1:3, eachindex(wings)]
         va_wing(t)[1:3, eachindex(wings)]
-        # Ground wind properties
-        upwind_dir(t)
-        wind_elevation(t)
-        wind_scale_gnd(t)
     end
     eqs = [
         eqs
-        upwind_dir ~ deg2rad(get_upwind_dir(pset))
-        wind_elevation ~ deg2rad(get_wind_elevation(psys))
-        wind_scale_gnd ~ get_v_wind(pset)
-        wind_vec_gnd ~
-            max(wind_scale_gnd, 1e-6) *
-            rotate_around_z(rotate_around_x([0, -1, 0], wind_elevation), -upwind_dir)
+        wind_vec_gnd ~ get_wind_vec(pset)
     ]
     for wing in wings
         eqs = [

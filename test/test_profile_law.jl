@@ -98,6 +98,8 @@ environment:
     rho_0: 1.225
     v_wind: 10.0           # Reference wind speed [m/s]
     upwind_dir: -90.0      # Wind blows in +x direction
+    upwind_elevation: 0.0
+    wind_vec: [10.0, 0.0, 0.0]
     profile_law: 0         # Will be overridden per test
     h_ref: 6.0             # Reference height for wind profile [m]
     alpha: 0.08163         # Exponent of wind profile law

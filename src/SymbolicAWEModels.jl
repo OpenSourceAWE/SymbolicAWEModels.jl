@@ -164,14 +164,6 @@ include("linearize.jl")
 include("generate_system/generate_system.jl")
 include("simulate.jl")
 
-function upwind_dir(v_wind_gnd)
-    if v_wind_gnd[1] == 0.0 && v_wind_gnd[2] == 0.0
-        return NaN
-    end
-    wind_dir = atan(v_wind_gnd[2], v_wind_gnd[1])
-    -(wind_dir + π/2)
-end
-
 # rotate a 3d vector around the x axis in the yz plane - following the right hand rule
 function rotate_around_x(vec, angle::T) where T
     result = zeros(T, 3)

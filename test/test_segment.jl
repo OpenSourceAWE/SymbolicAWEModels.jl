@@ -199,6 +199,8 @@ environment:
     rho_0: 1.225               # air density at sea level               [kg/m^3]
     v_wind: 0.0              # wind speed at reference height         [m/s]
     upwind_dir: -90.0        # upwind direction                       [deg]
+    upwind_elevation: 0.0
+    wind_vec: [0.0, 0.0, 0.0]
     profile_law: 0           # 1=EXP, 2=LOG, 3=EXPLOG, 4=FAST_EXP, 5=FAST_LOG, 6=FAST_EXPLOG
 """
     settings_path = joinpath(tmpdir, "settings.yaml")

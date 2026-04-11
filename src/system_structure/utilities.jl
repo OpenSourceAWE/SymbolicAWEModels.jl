@@ -426,17 +426,6 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         pulley.vel = 0.0
     end
 
-    # Calculate ground-level wind vector BEFORE transforms (needed for heading calculation)
-    # Matches symbolic equations in generate_system.jl:1259-1264
-    upwind_dir = deg2rad(set.upwind_dir)
-    wind_elevation = sys_struct.wind_elevation
-    wind_scale_gnd = set.v_wind
-
-    wind_vec_base = [0.0, -1.0, 0.0]
-    wind_vec_elevated = rotate_around_x(wind_vec_base, wind_elevation)
-    wind_vec_rotated = rotate_around_z(wind_vec_elevated, -upwind_dir)
-    sys_struct.wind_vec_gnd .= max(wind_scale_gnd, 1e-6) * wind_vec_rotated
-
     # Step 5: apply transforms (translate/rotate/heading);
     # pos_w already initialized by copy_cad_to_world! +
     # apply_tether_init_stretched_lens!
@@ -497,41 +486,25 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         end
     end
 
-    # Calculate ground-level wind vector with direction rotations
-    # Matches symbolic equations in generate_system.jl:1259-1264
-    upwind_dir = deg2rad(set.upwind_dir)
-    wind_elevation = sys_struct.wind_elevation
-    wind_scale_gnd = set.v_wind
-
-    # Base wind vector: [0, -1, 0] points upwind
-    wind_vec_base = [0.0, -1.0, 0.0]
-    # Rotate by elevation around x-axis (vertical tilt)
-    wind_vec_elevated = rotate_around_x(wind_vec_base, wind_elevation)
-    # Rotate by upwind direction around z-axis (negative for convention)
-    wind_vec_rotated = rotate_around_z(wind_vec_elevated, -upwind_dir)
-    # Scale by ground wind speed
-    wind_vec_gnd = max(wind_scale_gnd, 1e-6) * wind_vec_rotated
+    # Compute per-wing wind from settings
+    wind_vec_gnd = set.wind_vec
 
     for wing in wings
         # Calculate wind at wing position using atmospheric model
-        # Matches symbolic equations in generate_system.jl
         wind_factor = calc_wind_factor(sys_struct.am,
-                                       wing.pos_w[1], wing.pos_w[2], wing.pos_w[3], set)
+                                       wing.pos_w[1], wing.pos_w[2],
+                                       wing.pos_w[3], set)
         wing.v_wind .= wind_factor * wind_vec_gnd
 
         R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
         if wing.wing_type == REFINE
-            # Initialize apparent wind in body frame for REFINE wings
-            # va_wing = wind_vel - wing_vel + wind_disturb
-            # va_b = R_b_to_w' * va_wing
-            # At initialization: wing_vel typically 0, wind_disturb typically 0
             va_wing_w = wing.v_wind - wing.vel_w + wing.wind_disturb
             wing.va_b .= R_b_to_w' * va_wing_w
         else
-            # Initialize vsm_y for QUATERNION wings (REFINE wings have ny=0)
+            # Initialize vsm_y for QUATERNION wings
             if length(wing.vsm_y) >= 3
                 wing.vsm_y .= 0.0
-                wing.vsm_y[1:3] .= R_b_to_w' * [set.v_wind, 0., 0.]
+                wing.vsm_y[1:3] .= R_b_to_w' * wind_vec_gnd
             end
         end
     end
@@ -806,8 +779,10 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         end
     end
 
-    # Update global wind vector
-    sys.wind_vec_gnd .= ss.v_wind_gnd
+    # Update global wind vector (only if wind_vec mode is active)
+    if sys.set.use_wind_vec
+        sys.set.wind_vec = MVec3(ss.v_wind_gnd)
+    end
 
     # Calculate segment lengths and forces from current positions and velocities
     # Note: velocities are set to zero, so damping term will be zero

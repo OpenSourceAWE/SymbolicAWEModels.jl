@@ -74,6 +74,8 @@ environment:
     rho_0: 1.225
     v_wind: 0.0
     upwind_dir: -90.0
+    upwind_elevation: 0.0
+    wind_vec: [0.0, 0.0, 0.0]
     profile_law: 0
 """
 

@@ -142,7 +142,7 @@ end
                 init!(
                     sam; remake=false, reload=false, prn=false
                 )
-                @show sam.sys_struct.wind_vec_gnd
+                @show sam.set.wind_vec
                 @show sam.sys_struct.wings[1].heading
 
                 sys = sam.sys_struct

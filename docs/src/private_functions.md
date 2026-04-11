@@ -84,7 +84,6 @@ SymbolicAWEModels.min_chord_len
 SymbolicAWEModels.pos
 SymbolicAWEModels.spring_forces
 SymbolicAWEModels.calc_spring_props
-SymbolicAWEModels.set_v_wind_ground!
 SymbolicAWEModels.in_percent_band
 SymbolicAWEModels.step
 SymbolicAWEModels.create_model_archive

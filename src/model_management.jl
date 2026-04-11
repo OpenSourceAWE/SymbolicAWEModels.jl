@@ -72,14 +72,13 @@ function generate_prob_getters(sys_struct, sys)
     end
     set_sys = setp(sys, sys.psys)
     set_set = setp(sys, sys.pset)
-    get_struct_state = getu(sys, sys.wind_vec_gnd)
 
     # Always include va_point_b and point_mass in point_state (calculated for all points now)
     get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass]))
 
     return (; get_wing_state, get_vsm_y, get_segment_state, get_group_state,
             get_pulley_state, get_winch_state, get_tether_state, set_set_values,
-            get_set_values, set_sys, set_set, get_struct_state, get_point_state)
+            get_set_values, set_sys, set_set, get_point_state)
 end
 
 """
@@ -373,7 +372,18 @@ function init!(sam::SymbolicAWEModel;
         changed |= outputs_changed
         changed |= maybe_create_prob!(sam; create_prob, prn)
         changed |= maybe_create_lin_prob!(sam, outputs; create_lin_prob, prn)
-        changed |= maybe_create_control_functions!(sam, outputs; create_control_func, prn)
+        changed |= maybe_create_control_functions!(sam, outputs;
+            create_control_func, prn)
+
+        # Update deserialized prob parameters to current settings
+        if !isnothing(sam.prob)
+            sam.prob.set_sys(sam.prob.prob, sam.sys_struct)
+            sam.prob.set_set(sam.prob.prob, sam.set)
+        end
+        if !isnothing(sam.lin_prob)
+            sam.lin_prob.set_sys(sam.lin_prob.prob, sam.sys_struct)
+            sam.lin_prob.set_set(sam.lin_prob.prob, sam.set)
+        end
 
         if changed
             prn && @info "Serializing model to: \n\t$model_path"

@@ -12,7 +12,7 @@ associated getter and setter functions for the full, nonlinear physical state.
 """
 @with_kw struct ProbWithAttributes{Prob, SetSys, SetSetValues, SetSet,
                                   GetSetValues, GetWingState, GetVsmY, GetSegmentState,
-                                  GetWinchState, GetTetherState, GetStructState, GetPointState,
+                                  GetWinchState, GetTetherState, GetPointState,
                                   GetPulleyState, GetGroupState}
     "The ODE problem for the full nonlinear model."
     prob::Prob
@@ -32,7 +32,6 @@ associated getter and setter functions for the full, nonlinear physical state.
     get_segment_state::GetSegmentState
     get_winch_state::GetWinchState
     get_tether_state::GetTetherState
-    get_struct_state::GetStructState
     get_point_state::GetPointState
     get_pulley_state::GetPulleyState
     get_group_state::GetGroupState
@@ -350,7 +349,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         end
     end
 
-    ss.v_wind_gnd .= sam.sys_struct.wind_vec_gnd
+    ss.v_wind_gnd .= sam.set.wind_vec
     nothing
 end
 
@@ -609,7 +608,6 @@ function update_sys_struct!(prob::ProbWithAttributes,
             wing.ω_p .= ω_p_v[:, wing.idx]
         end
     end
-    sys_struct.wind_vec_gnd .= prob.get_struct_state(integ)
     return nothing
 end
 
@@ -814,17 +812,3 @@ function set_depower_steering!(sam::SymbolicAWEModel, depower, steering)
     return nothing
 end
 
-"""
-    set_v_wind_ground!(s::SymbolicAWEModel, v_wind_gnd=s.set.v_wind, upwind_dir=-π/2)
-
-Sets the ground wind speed [m/s] and upwind direction [rad] in the model.
-"""
-function set_v_wind_ground!(sam::SymbolicAWEModel, v_wind_gnd=sam.set.v_wind, upwind_dir=-pi/2)
-    sam.set.v_wind = v_wind_gnd
-    sam.set.upwind_dir = rad2deg(upwind_dir)
-    local_prob = sam.prob
-    if local_prob isa ProbWithAttributes
-        local_prob.set_set(sam.integrator, sam.set)
-    end
-    return nothing
-end

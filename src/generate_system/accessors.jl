@@ -248,16 +248,21 @@ get_winch_friction_epsilon(sys::SystemStructure{VSMWing}, idx::Int64) =
     sys.winches[idx].friction_epsilon
 @register_symbolic get_winch_friction_epsilon(
     sys::SystemStructure{VSMWing}, idx::Int64)
-get_wind_elevation(sys::SystemStructure{VSMWing}) = sys.wind_elevation
-@register_symbolic get_wind_elevation(sys::SystemStructure{VSMWing})
+function get_wind_vec(set::Settings)
+    wv = set.wind_vec
+    if wv[1]^2 + wv[2]^2 + wv[3]^2 < 1e-20
+        return KVec3(1e-10, 0.0, 0.0)
+    end
+    return wv
+end
+@register_array_symbolic get_wind_vec(set::Settings) begin
+    size = (3,)
+    eltype = SimFloat
+end
 get_rho_tether(set::Settings) = set.rho_tether
 @register_symbolic get_rho_tether(set::Settings)
 get_cd_tether(set::Settings) = set.cd_tether
 @register_symbolic get_cd_tether(set::Settings)
-get_v_wind(set::Settings) = set.v_wind
-@register_symbolic get_v_wind(set::Settings)
-get_upwind_dir(set::Settings) = set.upwind_dir
-@register_symbolic get_upwind_dir(set::Settings)
 get_g_earth(set::Settings) = set.g_earth
 @register_symbolic get_g_earth(set::Settings)
 

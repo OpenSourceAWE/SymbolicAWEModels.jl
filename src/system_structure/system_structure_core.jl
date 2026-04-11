@@ -45,9 +45,7 @@ mutable struct SystemStructure{W<:AbstractWing}
     const y::Array{Float64, 2}
     const x::Array{Float64, 2}
     const jac::Array{Float64, 3}
-    const wind_vec_gnd::KVec3
     const am::AtmosphericModel
-    wind_elevation::SimFloat
     stabilize::Bool
     fix_wing::Bool
     vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
@@ -1171,7 +1169,7 @@ function SystemStructure(name, set;
         NamedCollection{Winch}(winches, winch_names_dict),
         NamedCollection{eltype(wings)}(wings, wing_names_dict),
         NamedCollection{Transform}(transforms, transform_names_dict),
-        y, x, jac, zeros(KVec3), AtmosphericModel(set), 0.0, false, false, vsm_set)
+        y, x, jac, AtmosphericModel(set), false, false, vsm_set)
     reinit!(sys_struct, set)
 
     # Recalculate segment rest lengths from current positions if requested
