@@ -228,9 +228,12 @@ function _apply_heading!(transform, wings, points,
                 wing.y_ref_points, wing.origin_idx)
         else
             R_b_to_w = zeros(3, 3)
+            R_source_any = wing.R_b_to_w
+            R_source_any isa AbstractMatrix || continue
+            R_source = R_source_any
             for i in 1:3
                 R_b_to_w[:, i] .= apply_heading(
-                    wing.R_b_to_w[:, i],
+                    R_source[:, i],
                     R_t_to_w, curr_R_t_to_w, 0.0)
             end
         end
