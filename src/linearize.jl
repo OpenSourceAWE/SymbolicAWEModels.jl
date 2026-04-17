@@ -64,7 +64,7 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
 
     # Handle QUATERNION wings
     has_quaternion_wings = any(
-        w.wing_type == QUATERNION for w in wings)
+        w.wing_type === QUATERNION for w in wings)
     if has_quaternion_wings && !isnothing(prob.get_vsm_y)
         vsm_y = prob.get_vsm_y(integ)
 
@@ -151,7 +151,7 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
 
     # Handle REFINE wings (full nonlinear solve)
     has_refine_wings = any(
-        w.wing_type == REFINE for w in wings)
+        w.wing_type === REFINE for w in wings)
     if has_refine_wings
         point_state = prob.get_point_state(integ)
         va_point_b_vals = point_state[4]
