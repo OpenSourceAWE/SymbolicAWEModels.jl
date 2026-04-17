@@ -195,7 +195,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # 3. Segment equations (spring-damper forces, returns len and spring_force)
     eqs, guesses, len, spring_force = segment_eqs!(
-        s, eqs, guesses, points, segments, pulleys, tethers, winches, wings, psys;
+        s, eqs, guesses, points, segments, pulleys, tethers, wings, psys;
         pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
         pulley_len, tether_len
     )

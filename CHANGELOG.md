@@ -58,6 +58,7 @@ SPDX-License-Identifier: MPL-2.0
 - fixed most `JETLS` warnings for improved robustness and performance.
 - Package version is now included in `.bin` cache filenames, so
   upgrading the package automatically invalidates stale cached models.
+- the script `bin/run_julia` was updated to work also with Julia 1.12.6
 
 ## Added
 - Route 2 tether auto-generation: `Tether(name; start_point,
