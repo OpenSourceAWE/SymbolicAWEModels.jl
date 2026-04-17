@@ -42,8 +42,12 @@ function calc_spring_props(sam::SymbolicAWEModel, tether_sam::SymbolicAWEModel;
                            F_step=-0.1, prn=false)
     find_steady_state!(sam; t=10.0, dt=10.0, vsm_interval=0)
     copy!(sam.sys_struct, tether_sam.sys_struct)
-    OrdinaryDiffEqCore.reinit!(tether_sam.integrator; reinit_dae=true)
-    update_sys_struct!(tether_sam.prob, tether_sam.integrator, tether_sam.sys_struct)
+    integrator = tether_sam.integrator
+    prob = tether_sam.prob
+    isnothing(integrator) && error("tether_sam.integrator is not initialized")
+    isnothing(prob) && error("tether_sam.prob is not initialized")
+    OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
+    update_sys_struct!(prob, integrator, tether_sam.sys_struct)
 
     F_0 = [-tether_sam.sys_struct.points[i].force for i in 1:4]
     steps = 200

@@ -109,9 +109,9 @@ end
 
 function Base.getproperty(wing::BaseWing, sym::Symbol)
     if sym == :R_b_to_w
-        return quaternion_to_rotation_matrix(wing.Q_b_to_w)
+        return quaternion_to_rotation_matrix(getfield(wing, :Q_b_to_w))
     elseif sym == :R_p_to_w
-        return quaternion_to_rotation_matrix(wing.Q_p_to_w)
+        return quaternion_to_rotation_matrix(getfield(wing, :Q_p_to_w))
     else
         return getfield(wing, sym)
     end
@@ -120,12 +120,14 @@ end
 function Base.setproperty!(wing::BaseWing, sym::Symbol, value)
     if sym == :R_b_to_w
         if value isa AbstractMatrix
-            wing.Q_b_to_w .= rotation_matrix_to_quaternion(value)
+            getfield(wing, :Q_b_to_w) .= rotation_matrix_to_quaternion(value)
         else
             error("Cannot set R_b_to_w with non-matrix value of type $(typeof(value))")
         end
-    else
+    elseif hasfield(BaseWing, sym)
         setfield!(wing, sym, value)
+    else
+        error("BaseWing has no field `$(sym)`")
     end
 end
 

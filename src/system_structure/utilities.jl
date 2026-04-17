@@ -271,7 +271,9 @@ function apply_tether_init_stretched_lens!(
     @unpack points, segments, tethers = sys_struct
 
     for tether in tethers
-        isnothing(tether.init_stretched_len) && continue
+        target = tether.init_stretched_len
+        isnothing(target) && continue
+        target = target::SimFloat
 
         # Ordered point list: start → intermediates → end
         tether_point_idxs = Int64[tether.start_point_idx]
@@ -283,7 +285,6 @@ function apply_tether_init_stretched_lens!(
         current_len = sum(
             segment_world_length(segments[si], points)
             for si in tether.segment_idxs)
-        target = tether.init_stretched_len
         current_len ≈ target && continue
         current_len > 0 || error(
             "Tether $(tether.name): current length " *
