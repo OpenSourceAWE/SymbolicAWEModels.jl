@@ -67,9 +67,9 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys;
         # Set group geometry from getters (allows runtime updates)
         eqs = [
             eqs
-            collect(group_y_airf[:, group.idx]) .~ collect(get_group_y_airf(psys, group.idx))
-            collect(group_chord[:, group.idx]) .~ collect(get_group_chord(psys, group.idx))
-            collect(group_le_pos[:, group.idx]) .~ collect(get_group_le_pos(psys, group.idx))
+            group_y_airf[:, group.idx] ~ get_group_y_airf(psys, group.idx)
+            group_chord[:, group.idx] ~ get_group_chord(psys, group.idx)
+            group_le_pos[:, group.idx] ~ get_group_le_pos(psys, group.idx)
         ]
 
         gc = collect(group_chord[:, group.idx])
@@ -86,7 +86,7 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys;
             rv = collect(r_vec[:, i, group.idx])
             eqs = [
                 eqs
-                collect(r_vec[:, i, group.idx]) .~ get_pos_b(psys, point_idx) .- (gl + get_moment_frac(psys, group.idx) * gc)
+                r_vec[:, i, group.idx] ~ get_pos_b(psys, point_idx) - (gl + get_moment_frac(psys, group.idx) * gc)
                 r_group[i, group.idx] ~ rv ⋅ sym_normalize(gc)
                 tether_force[i, group.idx] ~ pf ⋅ Rz
                 tether_moment[i, group.idx] ~ r_group[i, group.idx] * tether_force[i, group.idx]
