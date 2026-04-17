@@ -918,7 +918,8 @@ function SystemStructure(name, set;
     # Auto-create groups for QUATERNION wings if needed (before geometry initialization)
     # Skip for AERO_NONE — no aerodynamics means no twist DOFs needed.
     for wing in wings
-        if wing.wing_type == QUATERNION &&
+        if wing isa VSMWing &&
+           wing.wing_type == QUATERNION &&
            isempty(wing.group_idxs) &&
            wing.aero_mode != AERO_NONE
             # Get WING-type points for this wing

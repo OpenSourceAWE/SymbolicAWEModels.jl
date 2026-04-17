@@ -119,7 +119,11 @@ end
 
 function Base.setproperty!(wing::BaseWing, sym::Symbol, value)
     if sym == :R_b_to_w
-        wing.Q_b_to_w .= rotation_matrix_to_quaternion(value)
+        if value isa AbstractMatrix
+            wing.Q_b_to_w .= rotation_matrix_to_quaternion(value)
+        else
+            error("Cannot set R_b_to_w with non-matrix value of type $(typeof(value))")
+        end
     else
         setfield!(wing, sym, value)
     end
