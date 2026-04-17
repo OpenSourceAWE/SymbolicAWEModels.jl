@@ -23,3 +23,36 @@ pattern = "`integrator` is not defined"
 match_by = "message"
 match_type = "literal"
 severity = "off"
+
+[[diagnostic.patterns]]
+pattern = "`SymbolicAWEModels.sys` is not defined"
+match_by = "message"
+match_type = "literal"
+severity = "off"
+
+[[diagnostic.patterns]]
+pattern = "inference/method-error"
+match_by = "code"
+match_type = "literal"
+severity = "off"
+path = "src/linearize.jl"
+
+[[diagnostic.patterns]]
+pattern = "Possible method call error"
+match_by = "message"
+match_type = "literal"
+severity = "off"
+path = "src/linearize.jl"
+
+[[diagnostic.patterns]]
+pattern = "`SymbolicAWEModels.R` is not defined"
+match_by = "message"
+match_type = "literal"
+severity = "off"
+path = "src/generate_system/helpers.jl"
+
+[[diagnostic.patterns]]
+pattern = "lowering/unsorted-import-names"
+match_by = "code"
+match_type = "literal"
+severity = "off"
