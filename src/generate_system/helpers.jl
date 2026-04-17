@@ -28,7 +28,7 @@ end
 Convert a quaternion `q` (scalar-first format [w, x, y, z]) to a 3x3 rotation
 matrix.
 """
-function quaternion_to_rotation_matrix(q)
+function quaternion_to_rotation_matrix(q::AbstractVector)
     w, x, y, z = q[1], q[2], q[3], q[4]
 
     return [
@@ -44,7 +44,7 @@ end
 Convert a 3x3 rotation matrix `R` to a quaternion (scalar-first format [w, x, y, z]).
 This implementation is based on the method that avoids division by zero.
 """
-function rotation_matrix_to_quaternion(R)
+function rotation_matrix_to_quaternion(R::AbstractMatrix)
     tr_ = R[1, 1] + R[2, 2] + R[3, 3]
 
     if tr_ > 0
