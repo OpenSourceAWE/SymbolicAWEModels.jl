@@ -117,7 +117,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     tether_wing_moment = zeros(Num, 3, length(wings))
 
     # Check if we have any REFINE wings (need aero force per point)
-    has_refine_wings = any(wing.wing_type == REFINE for wing in wings)
+    has_refine_wings = any(wing.wing_type === REFINE for wing in wings)
 
     @variables begin
         # Point states
