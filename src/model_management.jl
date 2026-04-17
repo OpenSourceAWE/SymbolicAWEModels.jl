@@ -314,7 +314,8 @@ function init!(sam::SymbolicAWEModel;
     reset_vel::Bool=true,
     apply_transforms::Bool=true,
     apply_tether_lengths::Bool=true,
-    tunable_params::Bool=false
+    tunable_params::Bool=false,
+    reinit_sys::Bool=true
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
     sam.sys_struct isa SystemStructure{VSMWing} || error(
@@ -387,9 +388,11 @@ function init!(sam::SymbolicAWEModel;
             serialize(model_path, sam.serialized_model)
         end
 
-        reinit!(sam.sys_struct, sam.set;
-                ignore_l0, remake_vsm, reset_vel,
-                apply_transforms, apply_tether_lengths)
+        if reinit_sys
+            reinit!(sam.sys_struct, sam.set;
+                    ignore_l0, remake_vsm, reset_vel,
+                    apply_transforms, apply_tether_lengths)
+        end
         # When reset_vel=false, state-dependent u0 changed;
         # force ODEProblem recreation to pick up new defaults.
         if !reset_vel && !isnothing(sam.prob)
