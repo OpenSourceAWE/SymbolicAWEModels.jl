@@ -8,7 +8,8 @@ Finds all `model*.bin` files in the `source_dir`, copies them to a temporary
 directory, and compresses that directory into a `.tar.gz` archive at the
 specified `archive_path`.
 """
-function create_model_archive(source_dir, archive_path; prn=true)
+function create_model_archive(source_dir::AbstractString,
+                              archive_path::AbstractString; prn=true)
     # Find all files matching the pattern "model*.bin"
     version = VERSION.minor
     model_files = filter(
@@ -52,6 +53,7 @@ function extract_model_archive(archive_path::String, dest_dir::String; prn=true)
     end
     prn && @info "Extracting '$archive_path' to '$dest_dir'..."
     mktempdir() do temp_dir
+        temp_dir = String(temp_dir)
         # 1. Extract the archive to the temporary directory
         open(archive_path) do io
             stream = GzipDecompressorStream(io)
@@ -59,7 +61,7 @@ function extract_model_archive(archive_path::String, dest_dir::String; prn=true)
             close(stream)
         end
         # 2. Copy the extracted contents to the final destination
-        for item in readdir(temp_dir)
+        for item in String.(readdir(temp_dir))
             source_path = joinpath(temp_dir, item)
             dest_path = joinpath(dest_dir, item)
             cp(source_path, dest_path, force=true)
