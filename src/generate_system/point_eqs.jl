@@ -127,7 +127,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
             # Find the wing for this point
             wing = wings[point.wing_idx]
 
-            if wing.wing_type == REFINE
+            if wing isa VSMWing && wing.wing_type == REFINE
                 # REFINE wing: Points are DYNAMIC and receive lumped panel forces
                 # Similar to DYNAMIC points but with aero forces included
                 # (va already calculated above for all points)

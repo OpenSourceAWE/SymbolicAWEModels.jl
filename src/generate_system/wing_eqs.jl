@@ -71,7 +71,7 @@ function wing_eqs!(
 
     for wing in wings
         # ============= REFINE WINGS ============= #
-        if wing.wing_type == REFINE
+        if wing isa VSMWing && wing.wing_type == REFINE
             z_p1, z_p2 = wing.z_ref_points
             y_p1, y_p2 = wing.y_ref_points
             pos_z1 = get_ref_position(pos, z_p1)
