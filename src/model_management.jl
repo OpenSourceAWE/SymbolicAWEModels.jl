@@ -228,8 +228,11 @@ Create and cache the `LinearizationProblem` if it does not exist or if the outpu
 """
 function maybe_create_lin_prob!(sam, outputs; create_lin_prob=true, prn=true)
     if create_lin_prob && isnothing(sam.lin_prob)
+        isnothing(sam.full_sys) && return false
+        isnothing(outputs) && return false
+        full_sys = something(sam.full_sys)
         time = @elapsed @suppress_err begin
-            lin_fun, lin_sys = linearization_function(sam.full_sys, [sam.inputs...], outputs;
+            lin_fun, lin_sys = linearization_function(full_sys, [sam.inputs...], outputs;
                                                     op=sam.defaults, guesses=sam.guesses)
             prob = LinearizationProblem(lin_fun, 0.0)
             getters = generate_lin_getters(lin_sys)
@@ -406,7 +409,10 @@ function init!(sam::SymbolicAWEModel;
             changed |= maybe_create_prob!(sam;
                 create_prob, prn)
         end
-        create_prob && !isnothing(sam.prob) && reinit!(sam, sam.prob, solver; adaptive, reload, lin_vsm)
+        if create_prob && !isnothing(sam.prob)
+            prob = something(sam.prob)
+            reinit!(sam, prob, solver; adaptive, reload, lin_vsm)
+        end
     end
     prn && @info "$(sam.sys_struct.name) model initialized in $time seconds."
     return sam.integrator
