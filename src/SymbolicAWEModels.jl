@@ -146,6 +146,10 @@ function record end
 function plot_sphere_trajectory end
 function plot_body_frame end
 function plot_aoa end
+function find_steady_state! end
+function update_yaml_from_sys_struct! end
+function make_lin_sys_state end
+function create_model_archive end
 
 function __init__()
     data_dir = joinpath(pwd(), "data")

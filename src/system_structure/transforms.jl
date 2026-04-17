@@ -11,6 +11,8 @@ This file contains:
 Note: The Transform struct and its constructors are defined in types.jl
 """
 
+function _finalize_transforms! end
+
 # ==================== HEADING CALCULATION ==================== #
 
 """
