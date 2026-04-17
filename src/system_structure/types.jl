@@ -421,8 +421,8 @@ function Segment(name, set, point_i, point_j;
 end
 
 """Deprecated: SegmentType parameter removed."""
-function Segment(name, set, p_i, p_j, type::SegmentType;
-                 kw...)
+function Segment(_name, _set, _p_i, _p_j, _type::SegmentType;
+             _kw...)
     error("Segment `type` (SegmentType) parameter removed. " *
           "Use `unit_stiffness`, `unit_damping`, " *
           "`diameter_mm` kwargs, or a YAML material.")
