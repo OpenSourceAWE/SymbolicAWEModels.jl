@@ -1101,7 +1101,7 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
             # Find init_len column index from headers
             hm = match(r"headers:\s*\[(.+)\]", line)
             if hm !== nothing
-                cols = split(hm.captures[1], r",\s*")
+                cols = split(something(hm.captures[1]), r",\s*")
                 for (ci, c) in enumerate(cols)
                     if strip(c) == "init_stretched_length"
                         tether_init_len_col = ci
@@ -1114,10 +1114,10 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
                 dm = match(
                     r"^(\s*-\s*\[)([\w-]+)(.*)", line)
                 if dm !== nothing
-                    name = String(dm.captures[2])
+                    name = String(something(dm.captures[2]))
                     if haskey(tether_init_lens, name)
                         # Parse fields, update init_len
-                        rest = dm.captures[3]
+                        rest = something(dm.captures[3])
                         fields = split(
                             strip(rest, [',', ']']),
                             r",\s*")
