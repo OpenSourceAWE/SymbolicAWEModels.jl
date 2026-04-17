@@ -540,15 +540,15 @@ function assign_indices_and_resolve!(
                     "point")
             end
             if !isnothing(wing.z_ref_points)
-                resolve!(wing.z_ref_points[1],
+                resolve!(something(wing.z_ref_points)[1],
                     point_names, "point")
-                resolve!(wing.z_ref_points[2],
+                resolve!(something(wing.z_ref_points)[2],
                     point_names, "point")
             end
             if !isnothing(wing.y_ref_points)
-                resolve!(wing.y_ref_points[1],
+                resolve!(something(wing.y_ref_points)[1],
                     point_names, "point")
-                resolve!(wing.y_ref_points[2],
+                resolve!(something(wing.y_ref_points)[2],
                     point_names, "point")
             end
         end
