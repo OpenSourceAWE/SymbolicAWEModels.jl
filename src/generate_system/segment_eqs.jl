@@ -4,7 +4,7 @@
 # Segment spring-damper equation generation
 
 """
-    segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winches, wings, psys, pset;
+    segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, wings, psys, pset;
                  pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
                  pulley_len, tether_len)
 
@@ -13,7 +13,7 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
 - `eqs`, `guesses`: Accumulating vectors for the MTK system.
-- `points`, `segments`, `pulleys`, `tethers`, `winches`, `wings`: System components.
+- `points`, `segments`, `pulleys`, `tethers`, `wings`: System components.
 - `psys`, `pset`: Symbolic parameters representing system and settings.
 - `pos`, `vel`: Symbolic point state variables.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
@@ -24,9 +24,8 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
 - Tuple `(eqs, guesses, len, spring_force)` with updated equation vectors
   and the segment length and spring force variables for use by other components.
 """
-function segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, winches, wings,
-                      psys, pset; pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
-                      pulley_len, tether_len)
+function segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, wings,
+                      psys, pset; pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0, pulley_len, tether_len)
     @variables begin
         # Spring-damper model
         segment_vec(t)[1:3, eachindex(segments)]
