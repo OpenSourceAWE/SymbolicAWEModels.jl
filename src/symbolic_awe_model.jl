@@ -634,9 +634,9 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     wing_types = [wing.wing_type for wing in sys_struct.wings]
     wing_type_str = if isempty(wing_types)
         "no_wing"
-    elseif all(wt -> wt == QUATERNION, wing_types)
+    elseif all(wt -> wt === QUATERNION, wing_types)
         "quat"
-    elseif all(wt -> wt == REFINE, wing_types)
+    elseif all(wt -> wt === REFINE, wing_types)
         "refine"
     else
         "mixed"
@@ -645,11 +645,11 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     aero_modes = [wing.aero_mode for wing in sys_struct.wings]
     aero_mode_str = if isempty(aero_modes)
         ""
-    elseif all(m -> m == AERO_LINEARIZED, aero_modes)
+    elseif all(m -> m === AERO_LINEARIZED, aero_modes)
         "lin"
-    elseif all(m -> m == AERO_DIRECT, aero_modes)
+    elseif all(m -> m === AERO_DIRECT, aero_modes)
         "dir"
-    elseif all(m -> m == AERO_NONE, aero_modes)
+    elseif all(m -> m === AERO_NONE, aero_modes)
         "none"
     else
         "mixed_aero_modes"
