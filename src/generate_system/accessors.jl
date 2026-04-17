@@ -251,7 +251,7 @@ get_winch_friction_epsilon(sys::SystemStructure{VSMWing}, idx::Int64) =
 function get_wind_vec(sys::SystemStructure{VSMWing})
     wv = sys.set.wind_vec
     # Return a tiny nonzero vector when wind is exactly zero
-    # to avoid solver instability from division by zero.
+    # to avoid solver instability.
     if wv[1]^2 + wv[2]^2 + wv[3]^2 < 1e-20
         return KVec3(1e-10, 0.0, 0.0)
     end

@@ -402,23 +402,11 @@ function init!(sam::SymbolicAWEModel;
                 create_prob, prn)
         end
         create_prob && !isnothing(sam.prob) && reinit!(sam, sam.prob, solver; adaptive, reload, lin_vsm)
-        create_lin_prob && !isnothing(sam.lin_prob) && reinit!(sam, sam.lin_prob)
     end
     prn && @info "$(sam.sys_struct.name) model initialized in $time seconds."
     return sam.integrator
 end
 
-"""
-    reinit!(sam::SymbolicAWEModel, lin_prob::ModelingToolkit.LinearizationProblem)
-
-Reinitializes a `LinearizationProblem` with the current system and settings parameters.
-
-This function updates the internal parameter vectors of the linearization problem
-with the latest values from the `SymbolicAWEModel`'s `sys_struct` (which contains `set`).
-"""
-function reinit!(sam::SymbolicAWEModel, prob::LinProbWithAttributes)
-    nothing
-end
 
 """
     reinit!(s::SymbolicAWEModel, prob::ODEProblem, solver; prn, precompile, reload, outputs) -> (ODEIntegrator, Bool)

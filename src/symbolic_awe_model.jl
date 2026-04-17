@@ -232,10 +232,12 @@ physical layout of the kite system and prepares it for symbolic model generation
 - `SymbolicAWEModel`: A model ready for symbolic equation generation via [`init!`](@ref).
 """
 function SymbolicAWEModel(
-    set::Settings, 
+    set::Settings,
     sys_struct::SystemStructure;
     kwargs...
 )
+    @assert set === sys_struct.set "The `set` argument must be the" *
+        " same object as `sys_struct.set`"
     set_hash = get_set_hash(set)
     sys_struct_hash = get_sys_struct_hash(sys_struct)
     # Initialize with an empty, but now fully typed, SerializedModel.
