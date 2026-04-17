@@ -45,8 +45,8 @@ function generate_prob_getters(sys_struct, sys)
 
         # vsm_input_state only exists for QUATERNION + AERO_LINEARIZED wings
         has_linearized = any(
-            w.wing_type == QUATERNION &&
-            w.aero_mode == AERO_LINEARIZED
+            w.wing_type === QUATERNION &&
+            w.aero_mode === AERO_LINEARIZED
             for w in sys_struct.wings)
         if has_linearized
             get_vsm_y = getu(sys, sys.vsm_input_state)
@@ -192,8 +192,10 @@ the necessary getter/setter functions.
 """
 function maybe_create_prob!(sam; create_prob=true, prn=true)
     if create_prob && isnothing(sam.prob)
+        isnothing(sam.full_sys) && return false
+        full_sys = something(sam.full_sys)
         local sys
-        time = @elapsed @suppress_err sys = mtkcompile(sam.full_sys; inputs=sam.inputs)
+        time = @elapsed @suppress_err sys = mtkcompile(full_sys; inputs=sam.inputs)
         prn && println("\tSimplified the System for ODEProblem in $time seconds.")
 
         dt = SimFloat(1/sam.set.sample_freq)
@@ -257,8 +259,11 @@ Create and cache the control functions if they do not exist or if the outputs ha
 """
 function maybe_create_control_functions!(sam, outputs; create_control_func=false, prn=true)
     if create_control_func && isnothing(sam.control_functions)
+        isnothing(sam.full_sys) && return false
+        isnothing(outputs) && return false
+        full_sys = something(sam.full_sys)
         inputs = [sam.inputs...]
-        time = @elapsed result = generate_control_funcs(sam.full_sys, inputs, outputs)
+        time = @elapsed result = generate_control_funcs(full_sys, inputs, outputs)
         sam.control_functions = ControlFuncWithAttributes(; result...)
         prn && println("\tCreated the control functions in $time seconds.")
         return true
