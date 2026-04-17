@@ -24,12 +24,40 @@ SPDX-License-Identifier: MPL-2.0
   `ground_point_idx`) and no longer takes a `SegmentType` argument.
 - BREAKING: YAML segment format no longer has a `type` column. Existing
   YAML files with a `type` column in segments will raise an error.
+- BREAKING: `tether_len` moved from `Winch` to `Tether`. Each tether
+  now owns its length as an ODE state variable. Winch-connected tethers
+  evolve via `D(tether_len) = winch_vel`; winch-less tethers have
+  constant length (`D(tether_len) = 0`).
+- BREAKING: `tether_vel` renamed to `winch_vel` and remains on `Winch`.
+  `tether_acc` renamed to `winch_acc` in the generated equations.
+- BREAKING: `SimpleLinModelWithAttributes` removed. The
+  `simple_lin_model` field is no longer part of `SymbolicAWEModel`.
+  `simple_linearize!` is no longer exported.
+- BREAKING: `sim_oscillate!` and `sim_turn!` removed. Use `sim!` with
+  a custom `set_values` matrix instead.
+- BREAKING: `update_aero_yaml_from_struc_yaml!` no longer exported.
+- BREAKING: `set` field removed from `SymbolicAWEModel`. Settings are
+  now read from `sam.sys_struct.set`. The `set_set` setter was removed
+  from `ProbWithAttributes` and `LinProbWithAttributes`.
+- BREAKING: `get_struct_state` removed from `ProbWithAttributes`.
+- Wind equations now use `get_wind_vec` internally instead of
+  separate `get_v_wind`, `get_upwind_dir`, and `get_wind_elevation`
+  accessors. Not breaking: KiteUtils `Settings` syncs `wind_vec`
+  from `v_wind`/`upwind_dir`/`upwind_elevation` automatically when
+  `use_wind_vec=false` (the default).
 - Tethers no longer require a connected winch. Winch-less tethers use
   constant `l0` from segment properties.
 - `compression_frac` description clarified: "Compressive/tensile
   stiffness ratio (0-1). 0 = no compression stiffness."
-- `init!`, `next_step!`, `update_sys_state!` are no longer exported and must be imported from `KiteUtils`
-- fixed most `JETLS` warnings for improved robustness and performance
+- `init!`, `next_step!`, `update_sys_state!` are no longer exported
+  and must be imported from `KiteUtils`.
+- `sim!` now requires `y_op` keyword argument when `lin_model` is
+  provided (previously obtained from the removed simple lin model).
+- `SerializedModel` type parameters tightened for `defaults` and
+  `guesses` fields.
+- fixed most `JETLS` warnings for improved robustness and performance.
+- Package version is now included in `.bin` cache filenames, so
+  upgrading the package automatically invalidates stale cached models.
 
 ## Added
 - Route 2 tether auto-generation: `Tether(name; start_point,
@@ -40,11 +68,22 @@ SPDX-License-Identifier: MPL-2.0
   from the first/last segment endpoints.
 - Comprehensive docstrings on all `Point`, `Group`, `Segment`,
   `Pulley`, `Tether`, `Winch`, and `Transform` struct fields.
+- `WeightedRefPoints` exported for weighted reference point support.
+- `init!` keyword `reinit_sys` to optionally skip system structure
+  reinitialization.
 - New tests: "Route 2 auto-generated tether" and "Tether without
   winch" in `test_tether_winch.jl`.
+- New test file `test_tether_init.jl` for tether initialization.
+- New test file `test_yaml_weighted_ref.jl` for weighted reference
+  point YAML loading.
+- Airbag pressurized membrane simulation example (`examples/airbag.jl`).
 - the script `bin/install`. Use it after installation from git.
-- the script `bin/create_sys_image`. Improves time for first run by a factor of 3-5.
-- the scripts `bin/install_jetls` and `bin/jetls` to install and run `JETLS.jl`, a static code checker for Julia
+- the script `bin/create_sys_image`. Improves time for first run
+  by a factor of 3-5.
+- the scripts `bin/install_jetls` and `bin/jetls` to install and run
+  `JETLS.jl`, a static code checker for Julia.
+- Developer documentation improvements (troubleshooting section for
+  segfault issues, updated docs to use GLMakie).
 
 ## Fixed
 - YAML `calculate_derived_properties!` no longer requires `l0` to
@@ -52,6 +91,8 @@ SPDX-License-Identifier: MPL-2.0
   Route 2 tethers).
 - YAML `update_yaml_from_sys_struct!` regex updated for the new
   segment format (no `type` column).
+- YAML weighted reference point loading fixed (broken deserialization
+  of weighted refs).
 - Heading calculation uses tangential sphere frame, fixing drift issues
   with the old wind-perpendicular projection.
 - Unknown solver string (e.g. `DFBDF` from default KiteUtils settings)
@@ -62,6 +103,15 @@ SPDX-License-Identifier: MPL-2.0
   correctly on a fresh install.
 - README pendulum example also calls `set_data_path("data/base")`
   before loading `Settings`.
+
+## Removed
+- `SimpleLinModelWithAttributes` struct and `simple_linearize!`.
+- `sim_oscillate!` and `sim_turn!` simulation functions.
+- `getstate` and `setstate!` functions from `linearize.jl`.
+- `upwind_dir` helper function (replaced by `wind_vec`).
+- Branch-specific system images: `bin/create_sys_image` and
+  `bin/run_julia` no longer embed the git branch name in the `.so`
+  filename. A single `kps-image-<julia_major>.so` is used instead.
 
 ## Tests
 - README pendulum example and README 2-plate kite example are now
