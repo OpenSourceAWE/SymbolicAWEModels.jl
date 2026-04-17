@@ -1089,8 +1089,6 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
     for (i, line) in enumerate(lines)
         if occursin(r"^tethers:", line)
             in_tethers_section = true
-            in_points_section = false
-            in_segments_section = false
         elseif occursin(r"^\w+:", line) &&
                !occursin(r"^tethers:", line)
             if in_tethers_section
