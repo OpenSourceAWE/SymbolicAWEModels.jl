@@ -84,9 +84,14 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys;
         for (i, point_idx) in enumerate(group.point_idxs)
             pf = collect(point_force[:, point_idx])
             rv = collect(r_vec[:, i, group.idx])
+            pos_offset = collect(
+                get_pos_b(psys, point_idx) .-
+                (gl + get_moment_frac(psys, group.idx) * gc)
+            )
             eqs = [
                 eqs
-                r_vec[:, i, group.idx] ~ get_pos_b(psys, point_idx) - (gl + get_moment_frac(psys, group.idx) * gc)
+                [r_vec[j, i, group.idx] ~ pos_offset[j]
+                 for j in 1:3]
                 r_group[i, group.idx] ~ rv ⋅ sym_normalize(gc)
                 tether_force[i, group.idx] ~ pf ⋅ Rz
                 tether_moment[i, group.idx] ~ r_group[i, group.idx] * tether_force[i, group.idx]
