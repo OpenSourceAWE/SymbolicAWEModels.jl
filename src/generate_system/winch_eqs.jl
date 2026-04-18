@@ -146,7 +146,7 @@ function winch_eqs!(eqs, defaults, winches, tethers,
 
             winch_force_vec[:, winch.idx] ~ F
             winch_force[winch.idx] ~
-                norm(winch_force_vec[:, winch.idx])
+                smooth_norm(winch_force_vec[:, winch.idx])
         ]
         defaults = [
             defaults

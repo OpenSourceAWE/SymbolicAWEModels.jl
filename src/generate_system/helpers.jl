@@ -14,13 +14,18 @@ function calc_angle_of_attack(va_wing_b)
 end
 
 """
-    sym_normalize(vec)
+    smooth_normalize(vec)
 
-Symbolic-safe normalization of a vector. Returns `vec / norm(vec)`.
+Differentiable normalization: `vec / smooth_norm(vec)`.
 """
-function sym_normalize(vec)
-    return vec / norm(vec)
-end
+smooth_normalize(vec) = vec / smooth_norm(vec)
+
+"""
+    smooth_norm(v, eps=1e-12)
+
+Differentiable norm: `sqrt(sum(abs2, v) + eps^2)`.
+"""
+smooth_norm(v, eps=1e-12) = sqrt(sum(abs2, v) + eps^2)
 
 """
     quaternion_to_rotation_matrix(q)
@@ -109,7 +114,7 @@ end
 Rotate vector `v` around axis `k` by angle `θ` using Rodrigues' rotation formula.
 """
 function rotate_v_around_k(v, k, θ)
-    k = sym_normalize(k)
+    k = smooth_normalize(k)
     v_rot = v * cos(θ) + (k × v) * sin(θ) + k * (k ⋅ v) * (1 - cos(θ))
     return v_rot
 end
@@ -164,11 +169,11 @@ The tether frame is a local spherical coordinate system:
 - **x-axis**: Elevation direction, tangent to the sphere (`y × z`).
 """
 function calc_R_t_to_w(wing_pos)
-    z = sym_normalize(wing_pos)
+    z = smooth_normalize(wing_pos)
     if wing_pos[2] ≈ 0.0 && wing_pos[1] ≈ 0.0
         y = [0, 1, 0]
     else
-        y = sym_normalize([-wing_pos[2], wing_pos[1], 0])
+        y = smooth_normalize([-wing_pos[2], wing_pos[1], 0])
     end
     x = y × z
     # Explicit matrix construction for symbolic compatibility

@@ -73,7 +73,7 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys;
         ]
 
         gc = collect(group_chord[:, group.idx])
-        x_airf = sym_normalize(gc)
+        x_airf = smooth_normalize(gc)
         gy = collect(group_y_airf[:, group.idx])
         init_z_airf = x_airf × gy
         z_airf = sin(twist_angle[group.idx]) * x_airf + cos(twist_angle[group.idx]) * init_z_airf
@@ -92,7 +92,7 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys;
                 eqs
                 [r_vec[j, i, group.idx] ~ pos_offset[j]
                  for j in 1:3]
-                r_group[i, group.idx] ~ rv ⋅ sym_normalize(gc)
+                r_group[i, group.idx] ~ rv ⋅ smooth_normalize(gc)
                 tether_force[i, group.idx] ~ pf ⋅ Rz
                 tether_moment[i, group.idx] ~ r_group[i, group.idx] * tether_force[i, group.idx]
             ]
@@ -102,7 +102,7 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys;
         # I = 1/3 × m × L² where m is total mass of group points
         group_chord = collect(group_chord)
         group_mass = sum(get_extra_mass(psys, point_idx) for point_idx in group.point_idxs)
-        inertia = 1 / 3 * group_mass * norm(group_chord[:, group.idx])^2
+        inertia = 1 / 3 * group_mass * smooth_norm(group_chord[:, group.idx])^2
         max_twist = deg2rad(90)
 
         eqs = [

@@ -129,7 +129,7 @@ function segment_eqs!(s, eqs, guesses, points, segments,
         eqs = [
             eqs
             segment_vec[:, segment.idx] ~ pos[:, p2] - pos[:, p1]
-            len[segment.idx] ~ norm(segment_vec[:, segment.idx])
+            len[segment.idx] ~ smooth_norm(segment_vec[:, segment.idx])
             unit_vec[:, segment.idx] ~ segment_vec[:, segment.idx] / len[segment.idx]
             rel_vel[:, segment.idx] ~ vel[:, p1] - vel[:, p2]
             spring_vel[segment.idx] ~ rel_vel[:, segment.idx] ⋅ unit_vec[:, segment.idx]
@@ -194,7 +194,7 @@ function segment_eqs!(s, eqs, guesses, points, segments,
                 drag_force[:, segment.idx] ~
                     (
                         0.5 * segment_rho[segment.idx] * get_cd_tether(psys) *
-                        norm(va[:, segment.idx]) * area[segment.idx]
+                        smooth_smooth_norm(va[:, segment.idx]) * area[segment.idx]
                     ) * app_perp_vel[:, segment.idx]
             ]
         end

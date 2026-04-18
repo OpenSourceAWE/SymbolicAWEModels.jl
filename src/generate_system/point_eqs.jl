@@ -99,7 +99,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                 point_drag_force[:, point.idx] ~
                     0.5 * calc_rho(s.am, height[point.idx]) *
                     get_point_drag_coeff(psys, point.idx) *
-                    norm(va_point_w[:, point.idx]) *
+                    smooth_norm(va_point_w[:, point.idx]) *
                     get_point_area(psys, point.idx) *
                     va_point_w[:, point.idx]
             ]
@@ -117,7 +117,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                 point_drag_force[:, point.idx] ~
                     0.5 * calc_rho(s.am, height[point.idx]) *
                     get_point_drag_coeff(psys, point.idx) *
-                    norm(va_point_w[:, point.idx]) *
+                    smooth_norm(va_point_w[:, point.idx]) *
                     get_point_area(psys, point.idx) *
                     va_point_w[:, point.idx]
             ]
@@ -149,7 +149,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                 world_frame_damp_vec = world_frame_damping[:, point.idx] .* vel[:, point.idx]
 
                 # DYNAMIC point equations
-                axis = sym_normalize(pos[:, point.idx])
+                axis = smooth_normalize(pos[:, point.idx])
                 eqs = [
                     eqs
                     fix_point_sphere[point.idx] ~ get_fix_point_sphere(psys, point.idx)
@@ -279,7 +279,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
             end
             world_frame_damp_vec = world_frame_damping[:, point.idx] .* vel[:, point.idx]
 
-            axis = sym_normalize(pos[:, point.idx])
+            axis = smooth_normalize(pos[:, point.idx])
             eqs = [
                 eqs
                 fix_point_sphere[point.idx] ~ get_fix_point_sphere(psys, point.idx)

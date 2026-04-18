@@ -84,9 +84,9 @@ function wing_eqs!(
                 eqs
                 # R_b_to_w from structural ref points
                 R_b_to_w[:, 3, wing.idx] ~
-                    sym_normalize(pos_z2 - pos_z1)
-                R_b_to_w[:, 1, wing.idx] ~ sym_normalize(
-                    sym_normalize(pos_y2 - pos_y1) ×
+                    smooth_normalize(pos_z2 - pos_z1)
+                R_b_to_w[:, 1, wing.idx] ~ smooth_normalize(
+                    smooth_normalize(pos_y2 - pos_y1) ×
                     R_b_to_w[:, 3, wing.idx])
                 R_b_to_w[:, 2, wing.idx] ~
                     R_b_to_w[:, 3, wing.idx] ×
@@ -152,7 +152,7 @@ function wing_eqs!(
 
         I_p = get_inertia_principal(psys, wing.idx)
         com_axis = collect(
-            sym_normalize(com_w[:, wing.idx]))
+            smooth_normalize(com_w[:, wing.idx]))
         com_axis_p = collect(
             R_p_to_w[:, :, wing.idx]' * com_axis)
 

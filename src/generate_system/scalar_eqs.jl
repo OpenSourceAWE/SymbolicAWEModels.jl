@@ -136,7 +136,7 @@ function scalar_eqs!(
                 R_v_to_w[:, :, wing.idx]' *
                 (R_b_to_w[:, :, wing.idx] *
                     α_b[:, wing.idx])
-            distance[wing.idx] ~ norm(rel_pos)
+            distance[wing.idx] ~ smooth_norm(rel_pos)
             distance_vel[wing.idx] ~
                 wing_vel[:, wing.idx] ⋅
                     R_t_to_w[:, 3, wing.idx]
@@ -158,11 +158,11 @@ function scalar_eqs!(
             azimuth_vel[wing.idx] ~
                 dot(wing_vel[:, wing.idx],
                     -R_t_to_w[:, 2, wing.idx]) /
-                norm([x, y])
+                smooth_norm([x, y])
             azimuth_acc[wing.idx] ~
                 dot(wing_acc[:, wing.idx],
                     -R_t_to_w[:, 2, wing.idx]) /
-                norm([x, y])
+                smooth_norm([x, y])
             course[wing.idx] ~
                 atan(course_t_2, course_t_1)
             angle_of_attack[wing.idx] ~
