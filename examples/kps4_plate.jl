@@ -105,19 +105,20 @@ winches = [Winch(:winch, set, [:main_tether];
 # Body frame (same as VSMWing): x=chord, y=span right, z=down
 # Surface axes are in body frame, transformed to world by R_b_w.
 rel_side_area = set.rel_side_area / 100.0
+K = 1.0 - rel_side_area  # drag area correction (0.694)
 
 surfaces = [
-    # Main surface: chord=x, span=y (xz-plane projection)
+    # Main surface: full area (KPS4 convention)
     PlateSurface(:main, [1,0,0], [0,1,0],
-        set.area * (1.0 - rel_side_area), :top;
+        set.area, :top;
         twist_b=-1.0, alpha_offset=set.alpha_zero),
-    # Right tip: chord=x, span=z (xy-plane projection)
+    # Right tip: full side area fraction
     PlateSurface(:right_tip, [1,0,0], [0,0,1],
-        set.area * rel_side_area / 2, :right;
+        set.area * rel_side_area, :right;
         twist_a=1.0, alpha_offset=set.alpha_ztip),
-    # Left tip: chord=x, span=-z (mirrored)
+    # Left tip: mirrored, full side area fraction
     PlateSurface(:left_tip, [1,0,0], [0,0,-1],
-        set.area * rel_side_area / 2, :left;
+        set.area * rel_side_area, :left;
         twist_a=-1.0, alpha_offset=set.alpha_ztip),
 ]
 
@@ -130,19 +131,20 @@ cl_interp, cd_interp = create_plate_interpolations(
 wing = PlateWing(:plate_wing, surfaces, cl_interp, cd_interp;
     wing_type=REFINE,
     z_ref_points=(:kcu, :top),
-    y_ref_points=(:right, :left),
+    y_ref_points=(:left, :right),
     origin=:kcu,
-    drag_corr=0.93,
+    drag_corr=0.93 * K,
     cmq=set.cmq, smc=set.smc,
     cord_length=set.cord_length)
 
 # ==================== SYSTEM STRUCTURE ==================== #
 sys = SystemStructure("kps4", set;
     points, segments, tethers, winches, wings=[wing])
+sys.winches[1].brake = true
 
 # ==================== MODEL + INIT ======================== #
 sam = SymbolicAWEModel(set, sys)
-init!(sam; prn=true)
+init!(sam; remake=false, prn=true)
 
 # ==================== SIMULATE + LOG ====================== #
 logger = Logger(sam, N_STEPS + 1)
@@ -151,16 +153,31 @@ sys_state.time = 0.0
 log!(logger, sys_state)
 
 println("Simulating $(SIM_TIME)s parking flight...")
-total_elapsed = @elapsed for step in 1:N_STEPS
+# Warmup
+next_step!(sam; dt, set_values=[0.0])
+update_sys_state!(sys_state, sam)
+sys_state.time = dt
+log!(logger, sys_state)
+
+total_elapsed = @elapsed for step in 2:N_STEPS
     next_step!(sam; dt, set_values=[0.0])
 
     update_sys_state!(sys_state, sam)
     sys_state.time = step * dt
     log!(logger, sys_state)
 end
-avg_rt = SIM_TIME / total_elapsed
-h = round(sam.sys_struct.points[:top].pos_w[3]; digits=1)
-println("Done. h=$(h)m, avg $(round(avg_rt; digits=1))x RT")
+sim_time = (N_STEPS - 1) * dt
+avg_rt = sim_time / total_elapsed
+println("Avg realtime factor: $(round(avg_rt, digits=2))")
+
+# Lift and drag in body frame
+w = sam.sys_struct.wings[1]
+va_dir = normalize(w.va_b)
+drag_val = w.aero_force_b ⋅ va_dir
+lift_val = norm(w.aero_force_b - drag_val * va_dir)
+println("Ground wind speed: $(round(set.v_wind, digits=2)) m/s")
+println("lift, drag  [N]: $(round(lift_val, digits=2)), " *
+        "$(round(drag_val, digits=2))")
 
 # ==================== SAVE + REPLAY ======================= #
 save_log(logger, "kps4_run")

@@ -45,6 +45,7 @@ function plate_eqs!(s, eqs, psys, wing;
         plate_cl(t)[1:n_surf]
         plate_cd(t)[1:n_surf]
         plate_q(t)[1:n_surf]
+        plate_q_drag(t)[1:n_surf]
         plate_lift(t)[1:3, 1:n_surf]
         plate_drag(t)[1:3, 1:n_surf]
         plate_force_w(t)[1:3, 1:n_surf]
@@ -122,12 +123,16 @@ function plate_eqs!(s, eqs, psys, wing;
                     psys, wing.idx, plate_alpha[si])
         ]
 
-        # Dynamic pressure from in-plane wind speed
+        # Dynamic pressure: in-plane for lift, full for drag
+        va = collect(plate_va_w[:, si])
         eqs = [
             eqs
             plate_q[si] ~ 0.5 *
                 calc_rho(s.am, height[pidx]) *
                 (plate_v_tan[si]^2 + plate_v_norm[si]^2)
+            plate_q_drag[si] ~ 0.5 *
+                calc_rho(s.am, height[pidx]) *
+                (va ⋅ va)
         ]
 
         # Lift direction: perpendicular to flow in
@@ -146,7 +151,7 @@ function plate_eqs!(s, eqs, psys, wing;
                 plate_q[si] * area *
                 plate_cl[si] * lift_dir
             plate_drag[:, si] ~
-                plate_q[si] * area *
+                plate_q_drag[si] * area *
                 plate_cd[si] * drag_dir
             plate_force_w[:, si] ~
                 plate_lift[:, si] + plate_drag[:, si]
@@ -165,11 +170,11 @@ function plate_eqs!(s, eqs, psys, wing;
                     Rbw' * plate_force_w[:, si]
             ]
         end
-        # Wing-level: sum of all surface forces
+        # Wing-level: sum of all surface forces (body frame)
         eqs = [
             eqs
             aero_force_b[:, wing.idx] ~
-                sum([plate_force_w[:, si]
+                sum([Rbw' * plate_force_w[:, si]
                      for si in 1:n_surf])
             aero_moment_b[:, wing.idx] ~ zeros(3)
         ]
