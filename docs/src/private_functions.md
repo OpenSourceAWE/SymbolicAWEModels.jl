@@ -44,6 +44,7 @@ SymbolicAWEModels.calc_winch_force
 SymbolicAWEModels.quaternion_to_rotation_matrix
 SymbolicAWEModels.rotation_matrix_to_quaternion
 SymbolicAWEModels.rotate_v_around_k
+SymbolicAWEModels.smooth_norm
 SymbolicAWEModels.smooth_normalize
 SymbolicAWEModels.apply_heading
 SymbolicAWEModels.get_rot_pos

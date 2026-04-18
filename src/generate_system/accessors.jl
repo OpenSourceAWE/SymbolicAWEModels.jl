@@ -248,7 +248,15 @@ get_winch_friction_epsilon(sys::SystemStructure{VSMWing}, idx::Int64) =
     sys.winches[idx].friction_epsilon
 @register_symbolic get_winch_friction_epsilon(
     sys::SystemStructure{VSMWing}, idx::Int64)
-get_wind_vec(sys::SystemStructure{VSMWing}) = sys.set.wind_vec
+function get_wind_vec(sys::SystemStructure{VSMWing})
+    wv = sys.set.wind_vec
+    # VSM requires positive wake reference speed; return a tiny
+    # nonzero vector when wind is exactly zero.
+    if wv[1]^2 + wv[2]^2 + wv[3]^2 < 1e-20
+        return KVec3(1e-10, 0.0, 0.0)
+    end
+    return wv
+end
 @register_array_symbolic get_wind_vec(
     sys::SystemStructure{VSMWing}) begin
     size = (3,)
