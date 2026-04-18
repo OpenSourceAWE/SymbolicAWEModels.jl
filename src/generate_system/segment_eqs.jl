@@ -194,7 +194,7 @@ function segment_eqs!(s, eqs, guesses, points, segments,
                 drag_force[:, segment.idx] ~
                     (
                         0.5 * segment_rho[segment.idx] * get_cd_tether(psys) *
-                        smooth_smooth_norm(va[:, segment.idx]) * area[segment.idx]
+                        smooth_norm(va[:, segment.idx]) * area[segment.idx]
                     ) * app_perp_vel[:, segment.idx]
             ]
         end
