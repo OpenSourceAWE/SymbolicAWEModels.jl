@@ -127,34 +127,12 @@ Calculate the rotation matrix from the view frame (`_v`) to the world frame (`_w
 The view frame is defined with its z-axis pointing from the origin to the wing,
 and its x-axis aligned with the wing's x-axis projected onto the view plane.
 
-Note: Uses explicit element access to avoid slice notation that doesn't scalarize
-properly when nested inside norm/division operations.
 """
 function calc_R_v_to_w(wing_pos, e_x)
-    # Explicit element access to avoid slice scalarization issues
-    wp1, wp2, wp3 = wing_pos[1], wing_pos[2], wing_pos[3]
-    ex1, ex2, ex3 = e_x[1], e_x[2], e_x[3]
-
-    # z = normalize(wing_pos)
-    wp_norm = sqrt(wp1^2 + wp2^2 + wp3^2)
-    z1, z2, z3 = wp1 / wp_norm, wp2 / wp_norm, wp3 / wp_norm
-
-    # z × e_x (cross product)
-    zxe1 = z2 * ex3 - z3 * ex2
-    zxe2 = z3 * ex1 - z1 * ex3
-    zxe3 = z1 * ex2 - z2 * ex1
-
-    # y = normalize(z × e_x)
-    zxe_norm = sqrt(zxe1^2 + zxe2^2 + zxe3^2)
-    y1, y2, y3 = zxe1 / zxe_norm, zxe2 / zxe_norm, zxe3 / zxe_norm
-
-    # x = y × z (cross product)
-    x1 = y2 * z3 - y3 * z2
-    x2 = y3 * z1 - y1 * z3
-    x3 = y1 * z2 - y2 * z1
-
-    # Explicit matrix construction for symbolic compatibility
-    return [x1 y1 z1; x2 y2 z2; x3 y3 z3]
+    z = smooth_normalize(wing_pos)
+    y = smooth_normalize(z × e_x)
+    x = y × z
+    return [x[1] y[1] z[1]; x[2] y[2] z[2]; x[3] y[3] z[3]]
 end
 
 """
@@ -170,44 +148,14 @@ The tether frame is a local spherical coordinate system:
 """
 function calc_R_t_to_w(wing_pos)
     z = smooth_normalize(wing_pos)
-    if wing_pos[2] ≈ 0.0 && wing_pos[1] ≈ 0.0
-        y = [0, 1, 0]
-    else
-        y = smooth_normalize([-wing_pos[2], wing_pos[1], 0])
-    end
+    xy_norm = smooth_norm([-wing_pos[2], wing_pos[1], 0])
+    y = ifelse.(
+        xy_norm < 1e-10,
+        [0, 1, 0],
+        [-wing_pos[2], wing_pos[1], 0] / xy_norm
+    )
     x = y × z
-    # Explicit matrix construction for symbolic compatibility
     return [x[1] y[1] z[1]; x[2] y[2] z[2]; x[3] y[3] z[3]]
-end
-
-"""
-    sym_calc_R_t_to_w(wing_pos)
-
-Symbolic version of calc_R_t_to_w that uses explicit element access to avoid
-slice scalarization issues when nested inside norm/division operations.
-"""
-function sym_calc_R_t_to_w(wing_pos)
-    # Explicit element access to avoid slice scalarization issues
-    wp1, wp2, wp3 = wing_pos[1], wing_pos[2], wing_pos[3]
-
-    # z = normalize(wing_pos)
-    wp_norm = sqrt(wp1^2 + wp2^2 + wp3^2)
-    z1, z2, z3 = wp1 / wp_norm, wp2 / wp_norm, wp3 / wp_norm
-
-    # y_unnorm = [-wing_pos[2], wing_pos[1], 0]
-    yu1, yu2, yu3 = -wp2, wp1, 0
-
-    # y = normalize(y_unnorm)
-    y_norm = sqrt(yu1^2 + yu2^2 + yu3^2)
-    y1, y2, y3 = yu1 / y_norm, yu2 / y_norm, yu3 / y_norm
-
-    # x = y × z (cross product)
-    x1 = y2 * z3 - y3 * z2
-    x2 = y3 * z1 - y1 * z3
-    x3 = y1 * z2 - y2 * z1
-
-    # Explicit matrix construction for symbolic compatibility
-    return [x1 y1 z1; x2 y2 z2; x3 y3 z3]
 end
 
 """
