@@ -41,6 +41,7 @@ using SteadyStateDiffEq
 using AtmosphericModels
 using KiteUtils
 using VortexStepMethod
+using Interpolations: linear_interpolation, Flat, Line
 
 #======================================================================#
 #                  IMPORTS (for extending functions)
@@ -66,13 +67,14 @@ export load_settings
 export SymbolicAWEModel
 # System Structure Components
 export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
-export AbstractWing, BaseWing, VSMWing
+export AbstractWing, BaseWing, VSMWing, PlateWing, PlateSurface
+export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints
 # Enums
 export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 export WingType, QUATERNION, REFINE
-export AeroMode, AERO_NONE, AERO_DIRECT, AERO_LINEARIZED
+export AeroMode, AERO_NONE, AERO_DIRECT, AERO_LINEARIZED, AERO_PLATE
 
 # --- High-Level Simulation Functions (Workers) ---
 export sim!, sim_reposition!
@@ -162,6 +164,7 @@ include("system_structure/system_structure.jl")
 include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
+include("plate_aero.jl")
 include("yaml_loader.jl")
 include("tether_properties.jl")
 include("linearize.jl")

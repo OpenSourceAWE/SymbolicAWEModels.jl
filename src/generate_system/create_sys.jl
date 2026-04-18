@@ -29,9 +29,9 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     @unpack points, groups, segments, pulleys, tethers, winches, wings = system
 
-    # Validation for REFINE wings
+    # Validation for VSMWing REFINE wings
     for wing in wings
-        if wing.wing_type == REFINE
+        if wing isa VSMWing && wing.wing_type == REFINE
             # REFINE wings cannot have groups
             @assert length(wing.group_idxs) == 0 "REFINE wing $(wing.idx) cannot have groups"
             @assert !isnothing(wing.point_to_vsm_point) "REFINE wing $(wing.idx) missing point_to_vsm_point mapping"
@@ -232,6 +232,16 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
             aero_force_b, aero_moment_b, group_aero_moment,
             twist_angle, va_wing_b, wing_pos, ω_b
         )
+    end
+
+    # Build plate aerodynamic equations for PlateWings
+    for wing in wings
+        wing isa PlateWing || continue
+        wing.aero_mode == AERO_NONE && continue
+        eqs = plate_eqs!(s, eqs, psys, wing;
+            R_b_to_w, aero_force_b, aero_moment_b,
+            aero_force_point_b, pos, vel, com_w,
+            wind_vec_gnd, height)
     end
 
     # Build wing rigid body dynamics equations

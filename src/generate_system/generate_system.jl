@@ -19,6 +19,7 @@ include("tether_eqs.jl")
 # Higher-level equations
 include("wing_eqs.jl")
 include("vsm_eqs.jl")
+include("plate_eqs.jl")
 include("scalar_eqs.jl")
 
 # Main entry point last (depends on all above)

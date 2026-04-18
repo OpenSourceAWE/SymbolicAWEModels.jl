@@ -69,11 +69,13 @@ Orthogonal to WingType — determines the aero computation strategy at runtime.
 - `AERO_NONE`: No aerodynamic forces (returns zeros). For debugging rigid body dynamics.
 - `AERO_DIRECT`: Stored forces from nonlinear VSM solve, piecewise-constant between updates.
 - `AERO_LINEARIZED`: First-order Taylor expansion using Jacobian from VSM linearization.
+- `AERO_PLATE`: Flat-plate CL/CD lookup aerodynamics (PlateWing only).
 """
 @enum AeroMode begin
     AERO_NONE
     AERO_DIRECT
     AERO_LINEARIZED
+    AERO_PLATE
 end
 
 """

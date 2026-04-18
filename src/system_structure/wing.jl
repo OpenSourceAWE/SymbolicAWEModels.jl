@@ -604,6 +604,191 @@ function SymbolicAWEModels.Wing(name, vsm_aero, vsm_wing, vsm_solver, groups, R_
     return VSMWing(name, vsm_aero, vsm_wing, vsm_solver, groups, R_b_to_c, pos_cad; kwargs...)
 end
 
+# ==================== PLATE SURFACE ==================== #
+
+"""
+    struct PlateSurface
+
+A flat aerodynamic plate defined by orientation vectors, area,
+and a center-of-pressure WING point. Internal to PlateWing.
+
+$(TYPEDFIELDS)
+"""
+struct PlateSurface
+    "Name identifier for this surface."
+    name::Union{Symbol, Nothing}
+    "Chord direction in body frame (unit vector)."
+    x_airf::KVec3
+    "Span direction in body frame (unit vector)."
+    y_airf::KVec3
+    "Plate area [m²]."
+    area::SimFloat
+    "Raw reference to center-of-pressure WING point."
+    point_ref::NameRef
+    "Resolved point index (filled by SystemStructure)."
+    point_idx::Int64
+    "Twist coefficient for steering: twist = a * steering + b * depower + c."
+    twist_a::SimFloat
+    "Twist coefficient for depower."
+    twist_b::SimFloat
+    "Twist constant offset [rad]."
+    twist_c::SimFloat
+    "Zero-lift angle of attack offset [deg]."
+    alpha_offset::SimFloat
+end
+
+"""
+    PlateSurface(name, x_airf, y_airf, area, point;
+                 twist_a=0.0, twist_b=0.0, twist_c=0.0,
+                 alpha_offset=0.0)
+
+Construct a PlateSurface with the given geometry and twist
+coefficients. The `point_idx` is resolved later by
+SystemStructure.
+"""
+function PlateSurface(name, x_airf, y_airf, area, point;
+                      twist_a=0.0, twist_b=0.0, twist_c=0.0,
+                      alpha_offset=0.0)
+    ref = point isa Integer ? Int(point) : Symbol(point)
+    PlateSurface(
+        isnothing(name) ? nothing : Symbol(name),
+        KVec3(x_airf), KVec3(y_airf), area,
+        ref, 0,
+        twist_a, twist_b, twist_c, alpha_offset)
+end
+
+# ==================== PLATE WING ==================== #
+
+"""
+    mutable struct PlateWing <: AbstractWing
+
+A wing with flat-plate CL/CD aerodynamics. Each PlateSurface
+computes lift and drag from angle-of-attack lookup tables.
+Twist is always DIRECT (algebraic from control inputs).
+
+Supports both QUATERNION (rigid body) and REFINE (point mass)
+wing dynamics via BaseWing.wing_type.
+
+$(TYPEDFIELDS)
+"""
+mutable struct PlateWing <: AbstractWing
+    "Base wing functionality."
+    base::BaseWing
+    "Plate surfaces (one per aerodynamic plate)."
+    surfaces::Vector{PlateSurface}
+    "Z-axis reference points for body frame."
+    z_ref_points::Union{Nothing,
+        Tuple{WeightedRefPoints, WeightedRefPoints}}
+    "Y-axis reference points for body frame."
+    y_ref_points::Union{Nothing,
+        Tuple{WeightedRefPoints, WeightedRefPoints}}
+    "Resolved origin point index."
+    origin_idx::Union{Nothing, Int64}
+    "Raw origin point reference."
+    const origin_ref::Union{Nothing, NameRef}
+    "CL lookup: callable(alpha_deg) → CL."
+    calc_cl::Any
+    "CD lookup: callable(alpha_deg) → CD."
+    calc_cd::Any
+    "Drag correction factor (0.93 for KPS4)."
+    drag_corr::SimFloat
+    "Pitch moment coefficient."
+    cmq::SimFloat
+    "Steering moment coefficient."
+    smc::SimFloat
+    "Mean aerodynamic chord [m]."
+    cord_length::SimFloat
+    "Depower angle [rad] (mutable control input)."
+    alpha_depower::SimFloat
+    "Relative steering [-1..1] (mutable control input)."
+    rel_steering::SimFloat
+end
+
+# Delegate property access to base wing for PlateWing
+const PLATE_WING_OWN_FIELDS = (
+    :base, :surfaces,
+    :z_ref_points, :y_ref_points,
+    :origin_idx, :origin_ref,
+    :calc_cl, :calc_cd,
+    :drag_corr, :cmq, :smc, :cord_length,
+    :alpha_depower, :rel_steering)
+
+function Base.getproperty(wing::PlateWing, sym::Symbol)
+    if sym in PLATE_WING_OWN_FIELDS
+        return getfield(wing, sym)
+    else
+        return getproperty(getfield(wing, :base), sym)
+    end
+end
+
+function Base.setproperty!(wing::PlateWing, sym::Symbol, value)
+    if sym in PLATE_WING_OWN_FIELDS
+        setfield!(wing, sym, value)
+    else
+        setproperty!(getfield(wing, :base), sym, value)
+    end
+end
+
+"""
+    PlateWing(name, surfaces, calc_cl, calc_cd;
+              wing_type=POINT_MASS, transform=nothing,
+              y_damping=150.0, drag_corr=0.93, cmq=1.0,
+              smc=1.0, cord_length=1.0,
+              z_ref_points=nothing, y_ref_points=nothing,
+              origin=nothing)
+
+Construct a PlateWing with flat-plate aerodynamics.
+
+# Arguments
+- `name`: Wing name/identifier.
+- `surfaces`: Vector of PlateSurface definitions.
+- `calc_cl`: CL lookup callable(alpha_deg) → CL.
+- `calc_cd`: CD lookup callable(alpha_deg) → CD.
+
+# Keyword Arguments
+- `wing_type`: QUATERNION or POINT_MASS (default).
+- `transform`: Reference to transform (name or index).
+- `drag_corr`: Drag correction factor.
+- `cmq`: Pitch moment coefficient.
+- `smc`: Steering moment coefficient.
+- `cord_length`: Mean aerodynamic chord [m].
+- `z_ref_points`, `y_ref_points`: Body frame references.
+- `origin`: Origin point reference.
+"""
+function PlateWing(name, surfaces::Vector{PlateSurface},
+                   calc_cl, calc_cd;
+                   wing_type::WingType=REFINE,
+                   transform=nothing,
+                   y_damping=150.0,
+                   angular_damping=0.0,
+                   drag_corr=0.93,
+                   cmq=1.0, smc=1.0, cord_length=1.0,
+                   z_ref_points=nothing,
+                   y_ref_points=nothing,
+                   origin=nothing)
+    # PlateWing has no groups
+    base = BaseWing(name, NameRef[], Matrix{SimFloat}(I, 3, 3),
+                    zeros(KVec3), ones(MVector{3, SimFloat});
+                    transform, y_damping, angular_damping,
+                    wing_type, aero_mode=AERO_PLATE)
+
+    z_ref = isnothing(z_ref_points) ? nothing :
+        (WeightedRefPoints(z_ref_points[1]),
+         WeightedRefPoints(z_ref_points[2]))
+    y_ref = isnothing(y_ref_points) ? nothing :
+        (WeightedRefPoints(y_ref_points[1]),
+         WeightedRefPoints(y_ref_points[2]))
+    origin_ref = isnothing(origin) ? nothing :
+        _to_name_ref(origin)
+
+    PlateWing(base, surfaces,
+              z_ref, y_ref,
+              nothing, origin_ref,
+              calc_cl, calc_cd,
+              drag_corr, cmq, smc, cord_length,
+              0.0, 0.0)
+end
+
 # ==================== HELPER FUNCTIONS ==================== #
 
 """

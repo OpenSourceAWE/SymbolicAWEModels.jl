@@ -84,7 +84,11 @@ function vsm_eqs!(
     end
 
     for wing in wings
-        if wing isa VSMWing && wing.wing_type == REFINE
+        if wing isa PlateWing
+            # PlateWing equations are generated in plate_eqs!()
+            continue
+
+        elseif wing isa VSMWing && wing.wing_type == REFINE
             # ========== REFINE WING ==========
             afpb = aero_force_point_b::AbstractArray
             wing_points = [

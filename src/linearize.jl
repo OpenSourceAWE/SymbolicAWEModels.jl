@@ -157,6 +157,7 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
         va_point_b_vals = point_state[4]
 
         for wing in wings
+            wing isa VSMWing || continue
             wing.wing_type != REFINE && continue
             wing.aero_mode == AERO_NONE && continue
 

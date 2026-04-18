@@ -127,10 +127,10 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
             # Find the wing for this point
             wing = wings[point.wing_idx]
 
-            if wing isa VSMWing && wing.wing_type == REFINE
-                # REFINE wing: Points are DYNAMIC and receive lumped panel forces
-                # Similar to DYNAMIC points but with aero forces included
-                # (va already calculated above for all points)
+            if wing.wing_type == REFINE
+                # REFINE wing: Points are DYNAMIC and receive lumped
+                # panel/plate forces. Similar to DYNAMIC points but
+                # with aero forces included.
 
                 # Add aerodynamic forces (calculated in vsm_eqs!)
                 aero_force_w = R_b_to_w[:, :, wing.idx] * aero_force_point_b[:, point.idx]
@@ -178,8 +178,8 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                     [vel[j, point.idx] => get_vel_w(psys, point.idx)[j] for j = 1:3]
                 ]
 
-            else  # QUATERNION wing (current implementation)
-                # Define point_force for QUATERNION wing points
+            elseif wing.wing_type == QUATERNION
+                # QUATERNION wing: rigid body constraint
                 eqs = [
                     eqs
                     point_force[:, point.idx] ~
@@ -249,6 +249,9 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                     vel[:, point.idx] ~ zeros(3)
                     acc[:, point.idx] ~ zeros(3)
                 ]
+            else
+                error("Unsupported wing_type $(wing.wing_type) " *
+                      "for WING point $(point.idx)")
             end
         elseif point.type == STATIC
             # Define point_force for STATIC points

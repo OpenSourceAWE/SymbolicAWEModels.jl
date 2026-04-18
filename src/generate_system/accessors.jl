@@ -18,7 +18,7 @@
 # points, segments, pulleys, winches, tethers, settings, BaseWing fields.
 # Re-registered for each concrete wing type to avoid allocations.
 
-for T in [VSMWing]
+for T in [VSMWing, PlateWing]
     ST = SystemStructure{T}
     @eval begin
         # ---- Points ----

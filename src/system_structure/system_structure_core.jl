@@ -533,7 +533,7 @@ function assign_indices_and_resolve!(
         wing.transform_idx = resolve_ref(wing.transform_ref, transform_names, "transform")
 
         # VSMWing-specific fields
-        if isa(wing, VSMWing)
+        if isa(wing, VSMWing) || isa(wing, PlateWing)
             if !isnothing(wing.origin_ref)
                 wing.origin_idx = resolve_ref(
                     wing.origin_ref, point_names,
@@ -550,6 +550,19 @@ function assign_indices_and_resolve!(
                     point_names, "point")
                 resolve!(something(wing.y_ref_points)[2],
                     point_names, "point")
+            end
+        end
+        # Resolve PlateSurface point references
+        if isa(wing, PlateWing)
+            for (si, surf) in enumerate(wing.surfaces)
+                resolved_idx = resolve_ref(
+                    surf.point_ref, point_names, "point")
+                # PlateSurface is immutable, reconstruct
+                wing.surfaces[si] = PlateSurface(
+                    surf.name, surf.x_airf, surf.y_airf,
+                    surf.area, surf.point_ref, resolved_idx,
+                    surf.twist_a, surf.twist_b, surf.twist_c,
+                    surf.alpha_offset)
             end
         end
     end
@@ -682,18 +695,20 @@ function SystemStructure(name, set;
         pulleys=Pulley[],
         tethers=Tether[],
         winches=Winch[],
-        wings=VSMWing[],
+        wings=AbstractWing[],
         transforms=Transform[],
         ignore_l0::Bool=false,
         vsm_set=nothing,
         prn::Bool=true,
     )
-    # Load VSMSettings if not provided and wings exist
-    if isnothing(vsm_set) && !isempty(wings)
+    # Load VSMSettings if not provided and VSM wings exist
+    has_vsm_wings = any(w isa VSMWing for w in wings)
+    if isnothing(vsm_set) && has_vsm_wings
         model_dir = get_data_path()
         vsm_set_path = joinpath(model_dir, "vsm_settings.yaml")
         if isfile(vsm_set_path)
-            vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
+            vsm_set = VortexStepMethod.VSMSettings(
+                vsm_set_path; data_prefix=false)
         end
     end
 
@@ -1056,8 +1071,8 @@ function SystemStructure(name, set;
 
     for (i, wing) in enumerate(wings)
         @assert wing.idx == i
-        # For REFINE wings, set defaults if not provided
-        if wing.wing_type == REFINE
+        # For VSMWing REFINE wings, set defaults if not provided
+        if wing isa VSMWing && wing.wing_type == REFINE
             # Build point_to_vsm_point mapping if not provided
             if isnothing(wing.point_to_vsm_point)
                 # Get WING-type points for this wing
@@ -1106,7 +1121,6 @@ function SystemStructure(name, set;
     # - Warn if both sources have nonzero values
     for wing in wings
         wing_point_idxs = [p.idx for p in points if p.type == WING && p.wing_idx == wing.idx]
-
         # Sum of user-specified WING point masses
         point_mass_sum = sum(
             p.extra_mass for p in points if p.type == WING && p.wing_idx == wing.idx;

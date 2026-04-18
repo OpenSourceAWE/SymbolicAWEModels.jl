@@ -296,41 +296,104 @@ function parse_aero_mode(s::String)
     s_upper == "AERO_NONE" && return AERO_NONE
     s_upper == "AERO_DIRECT" && return AERO_DIRECT
     s_upper == "AERO_LINEARIZED" && return AERO_LINEARIZED
+    s_upper == "AERO_PLATE" && return AERO_PLATE
     error("Unknown AeroMode: $s")
 end
 
 """
-        load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set=nothing)
+    _load_plate_wing(row, idx, data, set, wt, am,
+                     yaml_to_ref, yaml_parse_ref_points)
 
-Build a `SystemStructure` from a component-based structural YAML file.
+Load a PlateWing from YAML wing row + surfaces block.
+CL/CD interpolations are created from Settings polar data.
+"""
+function _load_plate_wing(row, idx, data, set, wt, am,
+                          yaml_to_ref, yaml_parse_ref_points)
+    name = if haskey(row, :name) && !isnothing(row.name)
+        Symbol(row.name)
+    else
+        idx
+    end
 
-**IMPORTANT**: All indices (points, segments, etc.) must be sequential
-starting from 1 with no gaps.
+    # CL/CD from settings polar data
+    cl_interp, cd_interp = create_plate_interpolations(
+        set.alpha_cl, set.cl_list, set.cd_list;
+        alpha_cd=set.alpha_cd)
 
-# Expected top-level blocks
-- `points`: table with headers `[id,x,y,z,type,mass,body_damping,world_damping]`
-  - `type`: STATIC, DYNAMIC, WING, or QUASI_STATIC
-  - `id` must be sequential: 1, 2, 3, ...
+    # Parse wing-level parameters
+    drag_corr = hasfield(typeof(row), :drag_corr) &&
+        !isnothing(row.drag_corr) ? float(row.drag_corr) : 0.93
+    cmq = hasfield(typeof(row), :cmq) &&
+        !isnothing(row.cmq) ? float(row.cmq) : 0.0
+    smc = hasfield(typeof(row), :smc) &&
+        !isnothing(row.smc) ? float(row.smc) : 0.0
+    cord_length = hasfield(typeof(row), :cord_length) &&
+        !isnothing(row.cord_length) ?
+        float(row.cord_length) : 1.0
+    y_damping = hasfield(typeof(row), :y_damping) &&
+        !isnothing(row.y_damping) ?
+        float(row.y_damping) : 150.0
 
-- `segments`: table with one of two formats:
-  - Direct format: `[id,point_i,point_j,type,l0,diameter_mm,unit_stiffness,unit_damping,compression_frac]`
-  - Named format: `[name,point_i,point_j]` (requires `segment_properties` block)
+    # Parse reference points
+    z_ref = yaml_parse_ref_points(row, :z_ref_points)
+    y_ref = yaml_parse_ref_points(row, :y_ref_points)
+    origin = if hasfield(typeof(row), :origin_idx) &&
+                !isnothing(row.origin_idx)
+        yaml_to_ref(row.origin_idx)
+    else
+        nothing
+    end
+    transform = if hasfield(typeof(row), :transform_idx) &&
+                   !isnothing(row.transform_idx)
+        yaml_to_ref(row.transform_idx)
+    else
+        nothing
+    end
 
-- `segment_properties`: (optional) table with headers `[name,type,l0,diameter_mm,unit_stiffness,unit_damping,compression_frac]`
-  - Used with named segment format for shared properties across symmetric segments
+    # Load surfaces from YAML
+    surfaces = PlateSurface[]
+    if haskey(data, "surfaces") &&
+       haskey(data["surfaces"], "data") &&
+       data["surfaces"]["data"] !== nothing
+        surf_rows = parse_table(data["surfaces"])
+        for (si, sr) in enumerate(surf_rows)
+            sname = haskey(sr, :name) && !isnothing(sr.name) ?
+                Symbol(sr.name) : nothing
+            x_airf = KVec3(sr.x_airf...)
+            y_airf = KVec3(sr.y_airf...)
+            area = float(sr.area)
+            point = yaml_to_ref(sr.point_idx)
+            twist_a = hasfield(typeof(sr), :twist_a) &&
+                !isnothing(sr.twist_a) ?
+                float(sr.twist_a) : 0.0
+            twist_b = hasfield(typeof(sr), :twist_b) &&
+                !isnothing(sr.twist_b) ?
+                float(sr.twist_b) : 0.0
+            twist_c = hasfield(typeof(sr), :twist_c) &&
+                !isnothing(sr.twist_c) ?
+                float(sr.twist_c) : 0.0
+            alpha_offset = hasfield(typeof(sr),
+                :alpha_offset) &&
+                !isnothing(sr.alpha_offset) ?
+                float(sr.alpha_offset) : 0.0
+            push!(surfaces, PlateSurface(
+                sname, x_airf, y_airf, area, point;
+                twist_a, twist_b, twist_c, alpha_offset))
+        end
+    end
 
-- `pulleys`: table with headers `[id,segment_i,segment_j,type]`
-  - `type`: DYNAMIC or QUASI_STATIC
+    PlateWing(name, surfaces, cl_interp, cd_interp;
+              wing_type=wt, transform, y_damping,
+              drag_corr, cmq, smc, cord_length,
+              z_ref_points=z_ref, y_ref_points=y_ref,
+              origin)
+end
 
-- `groups`: (optional) table with headers `[id,point_idxs,gamma,type,reference_chord_frac]`
-- `tethers`: (optional) table with headers
-  - Route 1 (explicit segments): `[name, segment_idxs]`, optional lengths
-  - Route 2 (auto-generated): `[name, start_point, end_point, n_segments, material]`, optional lengths
-  - `init_stretched_length`: scales `pos_w` before transforms [m]
-  - `init_unstretched_length`: rope length for segment l0 [m]
-- `winches`: (optional) table with headers `[name, tether_idxs, winch_point]`
-- `wings`: (optional, typically from VSM configuration)
-- `transforms`: (optional, typically from settings)
+"""
+    load_sys_struct_from_yaml(yaml_path; system_name, set, ...)
+
+Build a `SystemStructure` from a component-based structural
+YAML file. See source for full documentation of expected blocks.
 """
 function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, wing_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AeroMode}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing)
     data = YAML.load_file(yaml_path)
@@ -719,18 +782,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     end
 
     # Load wings (optional)
-    wings = VSMWing[]
+    wings = AbstractWing[]
     if haskey(data, "wings") &&
        haskey(data["wings"], "data") &&
        data["wings"]["data"] !== nothing &&
        !isempty(data["wings"]["data"])
         wing_rows = parse_table(data["wings"])
-
-        # Validate vsm_set is provided when wings are defined
-        if isnothing(vsm_set)
-            error("Wings are defined in YAML but vsm_set was not provided to load_sys_struct_from_yaml. " *
-                  "Please pass a VortexStepMethod.VSMSettings object via the vsm_set keyword argument.")
-        end
 
         for (i, row) in enumerate(wing_rows)
             # Use provided wing_type parameter or parse from YAML
@@ -746,6 +803,21 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             else
                 wt == QUATERNION ? AERO_LINEARIZED :
                     AERO_DIRECT
+            end
+
+            if am == AERO_PLATE
+                # PlateWing — load surfaces and CL/CD from settings
+                wing = _load_plate_wing(row, i, data,
+                    resolved_set, wt, am, yaml_to_ref,
+                    yaml_parse_ref_points)
+                push!(wings, wing)
+                continue
+            end
+
+            # VSMWing — validate vsm_set
+            if isnothing(vsm_set)
+                error("VSMWing defined in YAML but vsm_set " *
+                      "was not provided.")
             end
 
             if wt == REFINE
