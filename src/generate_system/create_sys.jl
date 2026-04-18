@@ -52,12 +52,12 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     if tunable_params
         @parameters begin
-            psys::SystemStructure{VSMWing} = system
+            psys::SystemStructure{<:AbstractWing} = system
             fix_wing = false
         end
     else
         @parameters begin
-            (psys::SystemStructure{VSMWing} = system), [tunable = false]
+            (psys::SystemStructure{<:AbstractWing} = system), [tunable = false]
             (fix_wing = false), [tunable = false]
         end
     end

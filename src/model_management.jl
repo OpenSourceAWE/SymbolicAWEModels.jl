@@ -326,8 +326,8 @@ function init!(sam::SymbolicAWEModel;
     reinit_sys::Bool=true
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
-    sam.sys_struct isa SystemStructure{VSMWing} || error(
-        "Equation generation requires SystemStructure{VSMWing}, " *
+    sam.sys_struct isa SystemStructure{<:AbstractWing} || error(
+        "Equation generation requires SystemStructure{<:AbstractWing}, " *
         "got SystemStructure{$(eltype(sam.sys_struct.wings))}.")
     time = @elapsed begin
         if isnothing(solver)
