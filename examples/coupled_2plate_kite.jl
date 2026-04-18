@@ -42,7 +42,7 @@ sam = SymbolicAWEModel(set, sys)
 l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
 l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
 
-init!(sam; remake=true, lin_vsm=false)
+init!(sam; remake=false, lin_vsm=false)
 
 dt = SIM_TIME / N_STEPS
 logger = Logger(sam, N_STEPS + 1)
