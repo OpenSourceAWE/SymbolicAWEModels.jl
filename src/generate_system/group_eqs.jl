@@ -107,8 +107,8 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys;
 
         eqs = [
             eqs
-            group_tether_force[group.idx] ~ sum(collect(tether_force[:, group.idx]))
-            group_tether_moment[group.idx] ~ sum(collect(tether_moment[:, group.idx]))
+            group_tether_force[group.idx] ~ sum(tether_force[:, group.idx])
+            group_tether_moment[group.idx] ~ sum(tether_moment[:, group.idx])
             twist_α[group.idx] ~
                 (group_aero_moment[group.idx] + group_tether_moment[group.idx]) /
                 inertia

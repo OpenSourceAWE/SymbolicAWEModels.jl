@@ -225,8 +225,7 @@ function vsm_eqs!(
                     0.5 *
                     calc_rho(s.am,
                         wing_pos[3, wing.idx]) *
-                    norm(collect(
-                        va_wing_b[:, wing.idx]))^2
+                    norm(va_wing_b[:, wing.idx])^2
 
                 # Load linearization data from struct
                 prev_state_eqs
