@@ -572,6 +572,41 @@ function assign_indices_and_resolve!(
 end
 
 """
+    init_body_frame_from_ref_points!(wing, points; prn=true)
+
+Initialize wing body frame (R_b_to_c, pos_cad) from z/y
+reference points. Shared by VSMWing REFINE and PlateWing.
+"""
+function init_body_frame_from_ref_points!(
+    wing, points; prn=true
+)
+    isnothing(wing.origin_idx) && return
+    isnothing(wing.z_ref_points) && return
+    isnothing(wing.y_ref_points) && return
+
+    origin_pos = points[wing.origin_idx].pos_cad
+    wing.pos_cad .= origin_pos
+
+    # Temporarily set pos_w = pos_cad so
+    # calc_refine_wing_frame can read positions
+    for p in points
+        p.type == WING && p.wing_idx == wing.idx &&
+            (p.pos_w .= p.pos_cad)
+    end
+    R_b_to_c, _ = calc_refine_wing_frame(
+        points, wing.z_ref_points,
+        wing.y_ref_points, wing.origin_idx)
+    wing.R_b_to_c .= R_b_to_c
+    wing.R_b_to_p .= Matrix{SimFloat}(I, 3, 3)
+
+    if prn
+        o = round.(origin_pos; digits=3)
+        @info "Wing $(wing.name) ($(typeof(wing).name.name))" *
+              ": origin=[$o]"
+    end
+end
+
+"""
     calc_inertia_y_rotation(I_tensor)
 
 Find the Y-axis rotation that diagonalizes the XZ block
@@ -889,45 +924,27 @@ function SystemStructure(name, set;
             end
 
         elseif wing.wing_type == REFINE
-            # Body frame from structural ref points.
-            # Points are in CAD frame at construction
-            # time (pos_w = pos_cad before transforms).
-            if !isnothing(wing.origin_idx) &&
-               !isnothing(wing.z_ref_points) &&
-               !isnothing(wing.y_ref_points)
-                origin_pos = points[
-                    wing.origin_idx].pos_cad
-                wing.pos_cad .= origin_pos
+            init_body_frame_from_ref_points!(
+                wing, points; prn)
 
-                # Temporarily set pos_w = pos_cad so
-                # calc_refine_wing_frame can read them
-                for p in points
-                    p.type == WING &&
-                        p.wing_idx == wing.idx &&
-                        (p.pos_w .= p.pos_cad)
-                end
-                R_b_to_c, _ = calc_refine_wing_frame(
-                    points, wing.z_ref_points,
-                    wing.y_ref_points,
-                    wing.origin_idx)
-                wing.R_b_to_c .= R_b_to_c
-
+            if !isnothing(wing.origin_idx)
                 # Transform VSM sections: CAD → body
-                vsm_wing.T_cad_body .= origin_pos
+                vsm_wing.T_cad_body .= wing.pos_cad
                 adjust_vsm_panels_to_origin!(
-                    vsm_wing, origin_pos)
+                    vsm_wing, wing.pos_cad)
                 rotate_vsm_sections!(
                     vsm_wing, wing.R_b_to_c')
                 vsm_wing.R_cad_body .= wing.R_b_to_c
                 VortexStepMethod.reinit!(wing.vsm_aero)
-
-                if prn
-                    o = round.(origin_pos; digits=3)
-                    @info "REFINE wing " *
-                        "$(wing.idx): origin=[$o]"
-                end
             end
         end
+    end
+
+    # PlateWing body frame initialization from ref points
+    for wing in wings
+        wing isa PlateWing || continue
+        init_body_frame_from_ref_points!(
+            wing, points; prn)
     end
 
     # Auto-create groups for QUATERNION wings if needed (before geometry initialization)

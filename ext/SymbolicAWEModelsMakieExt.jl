@@ -190,8 +190,9 @@ function Makie.plot!(ax, sys::SystemStructure;
     # VSM panels - use observables if we're in dynamic mode
     if plot_vsm && !isempty(sys.wings)
         plots[:vsm] = []
-        use_obs = !isnothing(geometry_obs)  # If geometry observable exists, use it for VSM too
+        use_obs = !isnothing(geometry_obs)
         for (i, wing) in enumerate(sys.wings)
+            wing isa VSMWing || continue
             p = plot!(ax, wing.vsm_aero; R_b_w=wing.R_b_to_w, T_b_w=wing.pos_w, use_observables=use_obs)
             push!(plots[:vsm], p)
         end
@@ -404,6 +405,7 @@ function SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
     # Update VSM panel meshes
     if !isnothing(PLOT_GEOMETRY_OBS[])
         for wing in sys.wings
+            wing isa VSMWing || continue
             plot!(wing.vsm_aero; R_b_w=wing.R_b_to_w, T_b_w=wing.pos_w)
         end
     end
