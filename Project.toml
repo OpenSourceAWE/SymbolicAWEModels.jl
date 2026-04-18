@@ -1,6 +1,6 @@
 name = "SymbolicAWEModels"
 uuid = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
-version = "0.7.2"
+version = "0.8.0"
 authors = ["Bart van de Lint <bart@vandelint.net> and contributors"]
 
 [workspace]
