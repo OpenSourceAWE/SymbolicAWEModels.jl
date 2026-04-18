@@ -23,8 +23,8 @@ end
 
 using Test
 using LinearAlgebra
-using SymbolicAWEModels: smooth_normalize, calc_R_t_to_w,
-    calc_heading
+using SymbolicAWEModels: smooth_normalize, sym_calc_R_t_to_w,
+    calc_heading, calc_R_t_to_w
 
 # Support selective test execution via command-line args
 const test_patterns = isempty(ARGS) ? String[] : ARGS
@@ -55,7 +55,7 @@ function test_circular_path(base_pos, label)
             wing_pos = center + circle_radius *
                 [cos(angle), 0.0, sin(angle)]
             rel_pos = wing_pos - base_pos
-            R_t_to_w = calc_R_t_to_w(rel_pos)
+            R_t_to_w = sym_calc_R_t_to_w(rel_pos)
 
             tangent = [-sin(angle), 0.0, cos(angle)]
             e_x = smooth_normalize(tangent)

@@ -183,7 +183,7 @@ SymbolicAWEModels.get_group_moment_override
 ```@docs
 SymbolicAWEModels.solve_heading_rotation
 SymbolicAWEModels.get_ref_position_from_points
-SymbolicAWEModels.smooth_norm
+SymbolicAWEModels.sym_calc_R_t_to_w
 SymbolicAWEModels.wrap_to_pi
 ```
 

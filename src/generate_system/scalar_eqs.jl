@@ -125,7 +125,7 @@ function scalar_eqs!(
                 vec(calc_R_v_to_w(
                     rel_pos, e_x[:, wing.idx]))
             vec(R_t_to_w[:, :, wing.idx]) ~
-                vec(calc_R_t_to_w(rel_pos))
+                vec(sym_calc_R_t_to_w(rel_pos))
             heading[wing.idx] ~
                 atan(heading_t_2, heading_t_1)
             turn_rate[:, wing.idx] ~
