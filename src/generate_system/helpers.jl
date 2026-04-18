@@ -106,7 +106,7 @@ function calc_wind_factor(
 end
 @register_symbolic calc_wind_factor(
     am::AtmosphericModel, _pos_x, _pos_y, pos_z,
-    sys::SystemStructure{<:AbstractWing})
+    sys::SystemStructure{VSMWing})
 
 """
     rotate_v_around_k(v, k, θ)
