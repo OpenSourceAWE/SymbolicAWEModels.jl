@@ -614,7 +614,7 @@ and a center-of-pressure WING point. Internal to PlateWing.
 
 $(TYPEDFIELDS)
 """
-struct PlateSurface
+mutable struct PlateSurface
     "Name identifier for this surface."
     name::Union{Symbol, Nothing}
     "Chord direction in body frame (unit vector)."
@@ -627,34 +627,27 @@ struct PlateSurface
     point_ref::NameRef
     "Resolved point index (filled by SystemStructure)."
     point_idx::Int64
-    "Twist coefficient for steering: twist = a * steering + b * depower + c."
-    twist_a::SimFloat
-    "Twist coefficient for depower."
-    twist_b::SimFloat
-    "Twist constant offset [rad]."
-    twist_c::SimFloat
-    "Zero-lift angle of attack offset [deg]."
-    alpha_offset::SimFloat
+    "Twist angle [rad] (mutable control input)."
+    twist::SimFloat
+    "Current AoA [deg] (updated by update_sys_struct!)."
+    aoa::SimFloat
 end
 
 """
     PlateSurface(name, x_airf, y_airf, area, point;
-                 twist_a=0.0, twist_b=0.0, twist_c=0.0,
-                 alpha_offset=0.0)
+                 twist=0.0)
 
-Construct a PlateSurface with the given geometry and twist
-coefficients. The `point_idx` is resolved later by
-SystemStructure.
+Construct a PlateSurface with the given geometry. The
+`point_idx` is resolved later by SystemStructure.
 """
 function PlateSurface(name, x_airf, y_airf, area, point;
-                      twist_a=0.0, twist_b=0.0, twist_c=0.0,
-                      alpha_offset=0.0)
+                      twist=0.0)
     ref = point isa Integer ? Int(point) : Symbol(point)
     PlateSurface(
         isnothing(name) ? nothing : Symbol(name),
         KVec3(x_airf), KVec3(y_airf), area,
         ref, 0,
-        twist_a, twist_b, twist_c, alpha_offset)
+        twist, 0.0)
 end
 
 # ==================== PLATE WING ==================== #
@@ -664,7 +657,7 @@ end
 
 A wing with flat-plate CL/CD aerodynamics. Each PlateSurface
 computes lift and drag from angle-of-attack lookup tables.
-Twist is always DIRECT (algebraic from control inputs).
+Twist is set directly on each PlateSurface.
 
 Supports both QUATERNION (rigid body) and REFINE (point mass)
 wing dynamics via BaseWing.wing_type.
@@ -698,10 +691,6 @@ mutable struct PlateWing <: AbstractWing
     smc::SimFloat
     "Mean aerodynamic chord [m]."
     cord_length::SimFloat
-    "Depower angle [rad] (mutable control input)."
-    alpha_depower::SimFloat
-    "Relative steering [-1..1] (mutable control input)."
-    rel_steering::SimFloat
 end
 
 # Delegate property access to base wing for PlateWing
@@ -710,8 +699,7 @@ const PLATE_WING_OWN_FIELDS = (
     :z_ref_points, :y_ref_points,
     :origin_idx, :origin_ref,
     :calc_cl, :calc_cd,
-    :drag_corr, :cmq, :smc, :cord_length,
-    :alpha_depower, :rel_steering)
+    :drag_corr, :cmq, :smc, :cord_length)
 
 function Base.getproperty(wing::PlateWing, sym::Symbol)
     if sym in PLATE_WING_OWN_FIELDS
@@ -785,8 +773,23 @@ function PlateWing(name, surfaces::Vector{PlateSurface},
               z_ref, y_ref,
               nothing, origin_ref,
               calc_cl, calc_cd,
-              drag_corr, cmq, smc, cord_length,
-              0.0, 0.0)
+              drag_corr, cmq, smc, cord_length)
+end
+
+"""
+    plate_alpha(wing::PlateWing, surf::PlateSurface)
+
+Compute current AoA [deg] from body-frame apparent wind and
+twist. Requires `va_b` to be up to date.
+"""
+function plate_alpha(wing::PlateWing, surf::PlateSurface)
+    tw = surf.twist
+    ct, st = cos(tw), sin(tw)
+    x_tw = ct * surf.x_airf + st * (surf.y_airf × surf.x_airf)
+    z_tw = x_tw × surf.y_airf
+    v_tan = wing.va_b ⋅ x_tw
+    v_norm = wing.va_b ⋅ z_tw
+    rad2deg(atan(v_norm, v_tan))
 end
 
 # ==================== HELPER FUNCTIONS ==================== #

@@ -541,7 +541,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
                      Int(wing.aero_mode))
 
         # Include wing reference points in hash
-        if wing isa VSMWing
+        if wing isa VSMWing || wing isa PlateWing
             _ref_hash(r) = (r.ids, r.weights)
             _rp_hash(rp) = isnothing(rp) ? nothing :
                 (_ref_hash(rp[1]), _ref_hash(rp[2]))
@@ -549,6 +549,14 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
                 _rp_hash(wing.z_ref_points),
                 _rp_hash(wing.y_ref_points),
                 wing.origin_idx)
+        end
+        if wing isa PlateWing
+            # Include surface geometry in hash
+            for surf in wing.surfaces
+                wing_data = (wing_data...,
+                    surf.point_idx, surf.area,
+                    surf.x_airf, surf.y_airf)
+            end
         end
 
         push!(data_parts, wing_data)

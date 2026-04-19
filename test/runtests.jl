@@ -22,6 +22,15 @@ test_files = filter(readdir(@__DIR__)) do f
 end
 sort!(test_files)
 
+# Filter by test_args if provided, e.g.:
+#   Pkg.test(; test_args=["test_bench", "test_wing"])
+if !isempty(ARGS)
+    test_files = filter(test_files) do f
+        name = replace(f, ".jl" => "")
+        any(arg -> name == arg, ARGS)
+    end
+end
+
 @testset verbose = true "Testing SymbolicAWEModels..." begin
     for f in test_files
         println("--> $f")

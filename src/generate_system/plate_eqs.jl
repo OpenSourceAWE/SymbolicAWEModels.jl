@@ -15,9 +15,9 @@
 Generate symbolic flat-plate aerodynamic equations for a PlateWing.
 
 For each PlateSurface:
-1. Twist = a * steering + b * depower + c
+1. Read twist angle directly from surface
 2. Rotate x_airf/z_airf around y_airf by twist
-3. AoA = atan(v_normal, v_tangential) + alpha_offset
+3. AoA = atan(v_normal, v_tangential)
 4. CL/CD from registered interpolation lookup
 5. Lift perpendicular to flow in airfoil plane, drag along flow
 
@@ -54,15 +54,11 @@ function plate_eqs!(s, eqs, psys, wing;
     for (si, surf) in enumerate(surfaces)
         pidx = surf.point_idx
 
-        # Twist from control inputs
+        # Twist from surface
         eqs = [
             eqs
             plate_twist[si] ~
-                get_surface_twist_a(psys, wing.idx, si) *
-                    get_plate_steering(psys, wing.idx) +
-                get_surface_twist_b(psys, wing.idx, si) *
-                    get_plate_depower(psys, wing.idx) +
-                get_surface_twist_c(psys, wing.idx, si)
+                get_surface_twist(psys, wing.idx, si)
         ]
 
         # Get surface axes in body frame
@@ -107,9 +103,7 @@ function plate_eqs!(s, eqs, psys, wing;
             plate_v_norm[si] ~ va ⋅ zw
             plate_alpha[si] ~
                 rad2deg(atan(plate_v_norm[si],
-                             plate_v_tan[si])) +
-                get_surface_alpha_offset(
-                    psys, wing.idx, si)
+                             plate_v_tan[si]))
         ]
 
         # CL/CD lookup
@@ -135,8 +129,9 @@ function plate_eqs!(s, eqs, psys, wing;
                 (va ⋅ va)
         ]
 
-        # Lift direction: perpendicular to flow in
-        # airfoil plane (VSM convention)
+        # Lift and drag directions (VSM convention):
+        # Effective flow in airfoil plane, then lift
+        # perpendicular and drag along flow.
         alpha_rad = atan(plate_v_norm[si], plate_v_tan[si])
         va_airf_dir = cos(alpha_rad) * xw +
                       sin(alpha_rad) * zw

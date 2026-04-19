@@ -554,15 +554,9 @@ function assign_indices_and_resolve!(
         end
         # Resolve PlateSurface point references
         if isa(wing, PlateWing)
-            for (si, surf) in enumerate(wing.surfaces)
-                resolved_idx = resolve_ref(
+            for surf in wing.surfaces
+                surf.point_idx = resolve_ref(
                     surf.point_ref, point_names, "point")
-                # PlateSurface is immutable, reconstruct
-                wing.surfaces[si] = PlateSurface(
-                    surf.name, surf.x_airf, surf.y_airf,
-                    surf.area, surf.point_ref, resolved_idx,
-                    surf.twist_a, surf.twist_b, surf.twist_c,
-                    surf.alpha_offset)
             end
         end
     end
@@ -748,13 +742,17 @@ function SystemStructure(name, set;
     end
 
     # Validate all wings are the same concrete type
-    if length(wings) > 1
+    # and narrow from AbstractWing[] to concrete type
+    if length(wings) > 0
         W = typeof(wings[1])
         for i in 2:length(wings)
             @assert typeof(wings[i]) === W (
                 "All wings must be the same concrete " *
                 "type, got $(typeof(wings[i])) at " *
                 "index $i, expected $W")
+        end
+        if eltype(wings) !== W
+            wings = convert(Vector{W}, wings)
         end
     end
 

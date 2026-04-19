@@ -363,22 +363,12 @@ function _load_plate_wing(row, idx, data, set, wt, am,
             y_airf = KVec3(sr.y_airf...)
             area = float(sr.area)
             point = yaml_to_ref(sr.point_idx)
-            twist_a = hasfield(typeof(sr), :twist_a) &&
-                !isnothing(sr.twist_a) ?
-                float(sr.twist_a) : 0.0
-            twist_b = hasfield(typeof(sr), :twist_b) &&
-                !isnothing(sr.twist_b) ?
-                float(sr.twist_b) : 0.0
-            twist_c = hasfield(typeof(sr), :twist_c) &&
-                !isnothing(sr.twist_c) ?
-                float(sr.twist_c) : 0.0
-            alpha_offset = hasfield(typeof(sr),
-                :alpha_offset) &&
-                !isnothing(sr.alpha_offset) ?
-                float(sr.alpha_offset) : 0.0
+            twist = hasfield(typeof(sr), :twist) &&
+                !isnothing(sr.twist) ?
+                float(sr.twist) : 0.0
             push!(surfaces, PlateSurface(
                 sname, x_airf, y_airf, area, point;
-                twist_a, twist_b, twist_c, alpha_offset))
+                twist))
         end
     end
 

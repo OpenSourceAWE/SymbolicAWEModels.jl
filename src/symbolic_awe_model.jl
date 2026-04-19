@@ -299,13 +299,20 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         # Calculate AoA and Side Slip from apparent wind in body frame
         if ss.v_app > 1e-6 # Avoid division by zero
             if wing isa VSMWing
-                aoa_raw = wing.vsm_solver.sol.alpha_geometric_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + 
+                aoa_raw = wing.vsm_solver.sol.alpha_geometric_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 +
                           (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
                 ss.AoA = mod(aoa_raw + π, 2π) - π  # Wrap to [-π, π]
                 ss.side_slip = asin(wing.va_b[2] / norm(wing.va_b))
+            elseif wing isa PlateWing
+                # AoA from body frame apparent wind
+                # (x=chord, z=normal, same as
+                #  calc_angle_of_attack)
+                ss.AoA = atan(wing.va_b[3], wing.va_b[1])
+                ss.side_slip = asin(
+                    wing.va_b[2] / norm(wing.va_b))
             else
-                ss.AoA = NaN # AoA not defined for non-VSM wings
-                ss.side_slip = NaN # Side slip not defined for non-VSM wings
+                ss.AoA = NaN
+                ss.side_slip = NaN
             end
             
         else
@@ -609,6 +616,14 @@ function update_sys_struct!(prob::ProbWithAttributes,
                 com_vel_v[:, wing.idx]
             wing.Q_p_to_w .= Q_p_to_w_v[:, wing.idx]
             wing.ω_p .= ω_p_v[:, wing.idx]
+
+            # Update PlateWing surface aoa from current twist
+            if wing isa PlateWing
+                for surf in wing.surfaces
+                    surf.aoa =
+                        plate_alpha(wing, surf)
+                end
+            end
         end
     end
     return nothing

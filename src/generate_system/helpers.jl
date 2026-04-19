@@ -104,11 +104,9 @@ function calc_wind_factor(
             am, max(1.0, pos_z), sys.set.profile_law)
     end
 end
-for T in [VSMWing, PlateWing]
-    @eval @register_symbolic calc_wind_factor(
-        am::AtmosphericModel, _pos_x, _pos_y, pos_z,
-        sys::SystemStructure{$T})
-end
+@register_symbolic calc_wind_factor(
+    am::AtmosphericModel, _pos_x, _pos_y, pos_z,
+    sys::SystemStructure)
 
 """
     rotate_v_around_k(v, k, θ)

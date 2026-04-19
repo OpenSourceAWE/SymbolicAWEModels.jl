@@ -16,7 +16,7 @@ end
 using GLMakie
 using SymbolicAWEModels
 using SymbolicAWEModels: Point
-using KiteUtils
+using KitePodModels
 using KiteUtils: init!, next_step!, update_sys_state!
 using LinearAlgebra
 
@@ -111,15 +111,15 @@ surfaces = [
     # Main surface: full area (KPS4 convention)
     PlateSurface(:main, [1,0,0], [0,1,0],
         set.area, :top;
-        twist_b=-1.0, alpha_offset=set.alpha_zero),
+        twist=deg2rad(set.alpha_zero)),
     # Right tip: full side area fraction
     PlateSurface(:right_tip, [1,0,0], [0,0,1],
         set.area * rel_side_area, :right;
-        twist_a=1.0, alpha_offset=set.alpha_ztip),
+        twist=deg2rad(set.alpha_ztip)),
     # Left tip: mirrored, full side area fraction
     PlateSurface(:left_tip, [1,0,0], [0,0,-1],
         set.area * rel_side_area, :left;
-        twist_a=-1.0, alpha_offset=set.alpha_ztip),
+        twist=deg2rad(set.alpha_ztip)),
 ]
 
 # ==================== CL/CD INTERPOLATIONS ================ #
@@ -137,6 +137,11 @@ wing = PlateWing(:plate_wing, surfaces, cl_interp, cd_interp;
     cmq=set.cmq, smc=set.smc,
     cord_length=set.cord_length)
 
+# Set initial twist: depower on main surface (KPS4 convention)
+alpha_depower = calc_alpha_depower(KCU(set), 0.25)
+wing.surfaces[1].twist =
+    deg2rad(set.alpha_zero) - alpha_depower
+
 # ==================== SYSTEM STRUCTURE ==================== #
 sys = SystemStructure("kps4", set;
     points, segments, tethers, winches, wings=[wing])
@@ -145,6 +150,12 @@ sys.winches[1].brake = true
 # ==================== MODEL + INIT ======================== #
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false, prn=true)
+w = sam.sys_struct.wings[1]
+println("Initial: AoA=$(round(w.surfaces[1].aoa,
+    digits=2))°, elevation=$(round(rad2deg(
+    w.elevation), digits=2))°, " *
+    "alpha=$(round(rad2deg(w.aoa), digits=2))°, " *
+    "v_wind=$(round.(w.v_wind, digits=2))")
 
 # ==================== SIMULATE + LOG ====================== #
 logger = Logger(sam, N_STEPS + 1)
@@ -159,16 +170,23 @@ update_sys_state!(sys_state, sam)
 sys_state.time = dt
 log!(logger, sys_state)
 
-total_elapsed = @elapsed for step in 2:N_STEPS
-    next_step!(sam; dt, set_values=[0.0])
+sim_elapsed = 0.0
+integ_elapsed = 0.0
+for step in 2:N_STEPS
+    global sim_elapsed += @elapsed next_step!(
+        sam; dt, set_values=[0.0])
+    global integ_elapsed += sam.t_step
 
     update_sys_state!(sys_state, sam)
     sys_state.time = step * dt
     log!(logger, sys_state)
 end
 sim_time = (N_STEPS - 1) * dt
-avg_rt = sim_time / total_elapsed
+avg_rt = sim_time / sim_elapsed
+integ_rt = sim_time / integ_elapsed
 println("Avg realtime factor: $(round(avg_rt, digits=2))")
+println("Integrator realtime factor: " *
+    "$(round(integ_rt, digits=2))")
 
 # Lift and drag in body frame
 w = sam.sys_struct.wings[1]
