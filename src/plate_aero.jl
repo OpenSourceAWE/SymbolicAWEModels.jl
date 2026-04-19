@@ -5,28 +5,10 @@
 # The actual equation generation is in generate_system/plate_eqs.jl.
 
 """
-Build a cubic spline on irregular knots by interpolating on
-a regular 1:N index grid, with a linear alpha→index remap.
-"""
-function _cubic_irregular(alphas, values, extrap_bc)
-    x = Vector{Float64}(alphas)
-    y = Vector{Float64}(values)
-    n = length(x)
-    # Cubic BSpline on regular 1:N grid
-    itp = cubic_spline_interpolation(1:n, y;
-        extrapolation_bc=extrap_bc)
-    # Linear map: alpha → fractional index
-    alpha_to_idx = linear_interpolation(x,
-        collect(Float64, 1:n); extrapolation_bc=extrap_bc)
-    return alpha -> itp(alpha_to_idx(alpha))
-end
-
-"""
     create_plate_interpolations(alpha_deg, cl_data, cd_data;
         alpha_cd=nothing, spline=:cubic)
 
 Create CL and CD interpolation objects from polar data vectors.
-Flat extrapolation for CL, line extrapolation for CD.
 
 # Arguments
 - `alpha_deg`: angle of attack values [deg]
@@ -34,8 +16,8 @@ Flat extrapolation for CL, line extrapolation for CD.
 - `cd_data`: drag coefficient values
 - `alpha_cd`: separate alpha values for CD (default: same
   as CL)
-- `spline`: `:cubic` for cubic spline, `:linear` for
-  piecewise linear
+- `spline`: `:cubic` for cubic spline (DataInterpolations),
+  `:linear` for piecewise linear (Interpolations.jl)
 
 # Returns
 - `(cl_interp, cd_interp)` tuple of interpolation objects
@@ -46,10 +28,12 @@ function create_plate_interpolations(
 )
     alpha_cd_vec = isnothing(alpha_cd) ? alpha_cl : alpha_cd
     if spline == :cubic
-        cl_interp = _cubic_irregular(alpha_cl, cl_data,
-                                     Flat())
-        cd_interp = _cubic_irregular(alpha_cd_vec, cd_data,
-                                     Line())
+        cl_interp = CubicSpline(
+            Vector{Float64}(cl_data),
+            Vector{Float64}(alpha_cl))
+        cd_interp = CubicSpline(
+            Vector{Float64}(cd_data),
+            Vector{Float64}(alpha_cd_vec))
     elseif spline == :linear
         cl_interp = linear_interpolation(
             Vector{Float64}(alpha_cl),
