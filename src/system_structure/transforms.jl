@@ -399,9 +399,19 @@ function reposition!(
 )
     @unpack points, wings = sys_struct
     for transform in transforms
-        base_pos = points[transform.base_point_idx].pos_w
-        curr_R_t_to_w, R_t_to_w = _apply_azimuth_elevation!(
-            transform, wings, points, base_pos; update_vel=false)
+        base_pos = if !isnothing(
+                transform.base_transform_idx)
+            base_tf = transforms[something(
+                transform.base_transform_idx)]
+            get_rot_pos(base_tf, wings, points)
+        else
+            points[something(
+                transform.base_point_idx)].pos_w
+        end
+        curr_R_t_to_w, R_t_to_w =
+            _apply_azimuth_elevation!(
+                transform, wings, points, base_pos;
+                update_vel=false)
         _apply_heading!(transform, wings, points,
             curr_R_t_to_w, R_t_to_w, base_pos)
     end

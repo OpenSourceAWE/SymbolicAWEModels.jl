@@ -167,7 +167,18 @@ function load_serialized_model!(sam, model_path; remake=false, reload=false)
                 return true
             end
         catch e
-            @warn "Failure to deserialize $model_path: $(typeof(e))"
+            bt = catch_backtrace()
+            log_path = model_path * ".error.log"
+            open(log_path, "w") do io
+                println(io,
+                    "Deserialization failed at ",
+                    time())
+                println(io, "Path: $model_path")
+                showerror(io, e, bt)
+            end
+            @warn "Failure to deserialize " *
+                "$model_path: $(typeof(e)). " *
+                "Details in $log_path"
         end
     end
     sam.serialized_model = SerializedModel(; set_hash, sys_struct_hash)

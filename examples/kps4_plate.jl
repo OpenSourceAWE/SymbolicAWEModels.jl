@@ -23,6 +23,8 @@ using LinearAlgebra
 pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", "kps4"))
 set = deepcopy(load_settings("system.yaml"))
+UPWIND_DIR = -pi/2 + deg2rad(10)
+set.upwind_dir = rad2deg(UPWIND_DIR)
 
 # Simulation parameters
 SIM_TIME = 30.0
@@ -55,15 +57,19 @@ set.mass = 0.0  # masses set explicitly on points
 points = Point[]
 push!(points, Point(:ground, zeros(3), STATIC))
 push!(points, Point(:kcu, pos_kcu, DYNAMIC;
-    extra_mass=set.kcu_mass))
+    extra_mass=set.kcu_mass,
+    transform=:main_tf))
 push!(points, Point(:nose, pos_nose, DYNAMIC;
-    extra_mass=k_nose))
+    extra_mass=k_nose, transform=:main_tf))
 push!(points, Point(:top, pos_top, WING;
-    extra_mass=k_top, wing=:plate_wing))
+    extra_mass=k_top, wing=:plate_wing,
+    transform=:kite_tilt))
 push!(points, Point(:right, pos_right, WING;
-    extra_mass=k_side, wing=:plate_wing))
+    extra_mass=k_side, wing=:plate_wing,
+    transform=:kite_tilt))
 push!(points, Point(:left, pos_left, WING;
-    extra_mass=k_side, wing=:plate_wing))
+    extra_mass=k_side, wing=:plate_wing,
+    transform=:kite_tilt))
 
 # ==================== SEGMENTS ============================ #
 pos_map = Dict(:kcu => pos_kcu, :nose => pos_nose,
@@ -113,11 +119,11 @@ surfaces = [
         set.area, :top;
         twist=deg2rad(set.alpha_zero)),
     # Right tip: full side area fraction
-    PlateSurface(:right_tip, [1,0,0], [0,0,1],
+    PlateSurface(:right_tip, [1,0,0], [0,0,-1],
         set.area * rel_side_area, :right;
         twist=deg2rad(set.alpha_ztip)),
     # Left tip: mirrored, full side area fraction
-    PlateSurface(:left_tip, [1,0,0], [0,0,-1],
+    PlateSurface(:left_tip, [1,0,0], [0,0,1],
         set.area * rel_side_area, :left;
         twist=deg2rad(set.alpha_ztip)),
 ]
@@ -130,7 +136,7 @@ cl_interp, cd_interp = create_plate_interpolations(
 # ==================== PLATE WING ========================== #
 wing = PlateWing(:plate_wing, surfaces, cl_interp, cd_interp;
     wing_type=REFINE,
-    z_ref_points=(:kcu, :top),
+    z_ref_points=([:right, :left], :top),
     y_ref_points=(:left, :right),
     origin=:kcu,
     drag_corr=0.93 * K,
@@ -142,20 +148,56 @@ alpha_depower = calc_alpha_depower(KCU(set), 0.25)
 wing.surfaces[1].twist =
     deg2rad(set.alpha_zero) - alpha_depower
 
+# ==================== TRANSFORMS =========================== #
+KITE_ANGLE = 3.83
+transforms = [
+    # Position KCU/nose at elevation + azimuth
+    Transform(:main_tf,
+        deg2rad(set.elevation), deg2rad(10.0), 0.0;
+        base_pos=zeros(3), base_point=:ground,
+        wing=:plate_wing),
+    # Tilt kite body by KITE_ANGLE on top of main
+    Transform(:kite_tilt,
+        deg2rad(set.elevation - KITE_ANGLE),
+        deg2rad(10.0), 0.0;
+        base_transform=:main_tf,
+        rot_point=:top),
+]
+
 # ==================== SYSTEM STRUCTURE ==================== #
 sys = SystemStructure("kps4", set;
-    points, segments, tethers, winches, wings=[wing])
+    points, segments, tethers, winches,
+    wings=[wing], transforms)
 sys.winches[1].brake = true
 
 # ==================== MODEL + INIT ======================== #
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false, prn=true)
+# find_steady_state!(sam)
 w = sam.sys_struct.wings[1]
-println("Initial: AoA=$(round(w.surfaces[1].aoa,
-    digits=2))°, elevation=$(round(rad2deg(
-    w.elevation), digits=2))°, " *
-    "alpha=$(round(rad2deg(w.aoa), digits=2))°, " *
+aoas = [round(s.aoa, digits=2) for s in w.surfaces]
+println("Initial: aoa=$(aoas)°, elevation=$(round(
+    rad2deg(w.elevation), digits=2))°, " *
+    "va_b=$(round.(w.va_b, digits=2)), " *
     "v_wind=$(round.(w.v_wind, digits=2))")
+top_pt = sam.sys_struct.points[:top]
+wf = SymbolicAWEModels.calc_wind_factor(
+    sam.sys_struct.am, 0.0, 0.0, top_pt.pos_w[3],
+    sam.sys_struct)
+println("height=$(round(top_pt.pos_w[3],
+    digits=2))m, " *
+    "wind_factor=$(round(wf, digits=4)), " *
+    "v_wind_gnd=$(round.(sam.set.wind_vec, digits=2))")
+Rbw = w.R_b_to_w
+println("R_b_to_w:\n  x=$(round.(Rbw[:,1], digits=3))" *
+    "\n  y=$(round.(Rbw[:,2], digits=3))" *
+    "\n  z=$(round.(Rbw[:,3], digits=3))")
+va_dir = normalize(w.va_b)
+init_drag = w.aero_force_b ⋅ va_dir
+init_lift = norm(w.aero_force_b - init_drag * va_dir)
+println("Initial lift, drag  [N]: " *
+    "$(round(init_lift, digits=2)), " *
+    "$(round(init_drag, digits=2))")
 
 # ==================== SIMULATE + LOG ====================== #
 logger = Logger(sam, N_STEPS + 1)

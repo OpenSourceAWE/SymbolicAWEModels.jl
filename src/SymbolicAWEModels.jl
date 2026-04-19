@@ -41,7 +41,9 @@ using SteadyStateDiffEq
 using AtmosphericModels
 using KiteUtils
 using VortexStepMethod
-using Interpolations: linear_interpolation, Flat, Line
+using Interpolations: linear_interpolation,
+    cubic_spline_interpolation, scale, interpolate,
+    BSpline, Cubic, Natural, OnGrid, Flat, Line
 
 #======================================================================#
 #                  IMPORTS (for extending functions)
