@@ -3813,7 +3813,7 @@ function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
                          point_size=10,
                          extra_point_size=6,
                          figsize=(800, 600))
-    @unpack points, wings, segments = sys_struct
+    (; points, wings, segments) = sys_struct
 
     # Update pos_b for REFINE wing points based on current wing orientation
     for wing in wings

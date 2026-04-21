@@ -27,7 +27,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     defaults = Pair{Num, Any}[]
     guesses = Pair{Num, Any}[]
 
-    @unpack points, groups, segments, pulleys, tethers, winches, wings = system
+    (; points, groups, segments, pulleys, tethers, winches, wings) = system
 
     # Validation for REFINE wings
     for wing in wings

@@ -32,10 +32,7 @@ function vsm_eqs!(
     twist_angle, va_wing_b, wing_pos, ω_b,
     aero_force_point_b=nothing
 )
-    # @unpack groups, wings, points = s.sys_struct
-    groups = s.sys_struct.groups
-    wings = s.sys_struct.wings
-    points = s.sys_struct.points
+    (; groups, wings, points) = s.sys_struct
     length(wings) == 0 && return eqs, guesses
 
     # Predeclare symbolic arrays so static analysis sees these bindings
