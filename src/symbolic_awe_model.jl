@@ -261,7 +261,7 @@ to degrees) and calculating derived values like AoA and roll/pitch/yaw angles.
 """
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
-    @unpack points, groups, segments, pulleys, winches, wings = sam.sys_struct
+    (; points, groups, segments, pulleys, winches, wings) = sam.sys_struct
 
     # Get the state vectors from the integrator
     @unpack tethers = sam.sys_struct
