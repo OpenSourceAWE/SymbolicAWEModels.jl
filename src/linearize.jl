@@ -99,10 +99,6 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
             theta_idxs = isempty(group_idxs) ?
                 nothing : (4:(3 + n_unrefined))
 
-            # Keep bulk apparent wind defined for VSM APIs
-            # that still access body_aero.va during linearization.
-            set_va!(wing.vsm_aero, wing.vsm_y[1:3])
-
             # Both modes call linearize to get the VSM
             # solution at the current operating point.
             # AERO_LINEARIZED also stores the Jacobian.
@@ -222,16 +218,6 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
                 end
 
                 set_va!(wing.vsm_aero, va_dist)
-
-                # Preserve a representative bulk inflow for
-                # code paths that expect body_aero.va.
-                va_mean = vec(
-                    dropdims(
-                        sum(va_dist; dims=1) ./ n_panels,
-                        dims=1,
-                    ),
-                )
-                set_va!(wing.vsm_aero, va_mean)
             else
                 set_va!(wing.vsm_aero, wing.va_b)
             end
