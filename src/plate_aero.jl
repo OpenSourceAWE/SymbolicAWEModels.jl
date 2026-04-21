@@ -16,8 +16,8 @@ Create CL and CD interpolation objects from polar data vectors.
 - `cd_data`: drag coefficient values
 - `alpha_cd`: separate alpha values for CD (default: same
   as CL)
-- `spline`: `:cubic` for cubic spline (DataInterpolations),
-  `:linear` for piecewise linear (Interpolations.jl)
+- `spline`: `:cubic` for cubic spline, `:linear` for
+  piecewise linear
 
 # Returns
 - `(cl_interp, cd_interp)` tuple of interpolation objects
@@ -35,14 +35,12 @@ function create_plate_interpolations(
             Vector{Float64}(cd_data),
             Vector{Float64}(alpha_cd_vec))
     elseif spline == :linear
-        cl_interp = linear_interpolation(
-            Vector{Float64}(alpha_cl),
-            Vector{Float64}(cl_data);
-            extrapolation_bc=Flat())
-        cd_interp = linear_interpolation(
-            Vector{Float64}(alpha_cd_vec),
-            Vector{Float64}(cd_data);
-            extrapolation_bc=Line())
+        cl_interp = LinearInterpolation(
+            Vector{Float64}(cl_data),
+            Vector{Float64}(alpha_cl))
+        cd_interp = LinearInterpolation(
+            Vector{Float64}(cd_data),
+            Vector{Float64}(alpha_cd_vec))
     else
         error("Unknown spline type: $spline. " *
               "Use :cubic or :linear.")

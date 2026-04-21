@@ -242,6 +242,28 @@ println("lift, drag  [N]: $(round(lift_val, digits=2)), " *
 # ==================== SAVE + REPLAY ======================= #
 save_log(logger, "kps4_run")
 syslog = load_log("kps4_run")
+
+# ==================== 2D PLOTS ============================ #
+flight_log = KiteUtils.sys_log(logger)
+sl = flight_log.syslog
+time = sl.time
+top_idx = sam.sys_struct.points[:top].idx
+z = [zv[top_idx] for zv in sl.Z]
+pitch = rad2deg.(sl.pitch)
+heading = rad2deg.(sl.heading)
+
+fig = Figure(size=(900, 700))
+ax1 = Axis(fig[1, 1]; xlabel="time [s]",
+    ylabel="z [m]", title="Height")
+lines!(ax1, time, z)
+ax2 = Axis(fig[2, 1]; xlabel="time [s]",
+    ylabel="pitch [°]", title="Pitch")
+lines!(ax2, time, pitch)
+ax3 = Axis(fig[3, 1]; xlabel="time [s]",
+    ylabel="heading [°]", title="Heading")
+lines!(ax3, time, heading)
+display(fig)
+
 scene = replay(syslog, sam.sys_struct;
                autoplay=false, loop=true)
 display(scene)

@@ -41,8 +41,7 @@ using SteadyStateDiffEq
 using AtmosphericModels
 using KiteUtils
 using VortexStepMethod
-using Interpolations: linear_interpolation, Flat, Line
-using DataInterpolations: CubicSpline
+using DataInterpolations: CubicSpline, LinearInterpolation
 
 #======================================================================#
 #                  IMPORTS (for extending functions)
