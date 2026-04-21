@@ -217,8 +217,7 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
                         section_va[mapping[rpi]]
                 end
 
-                set_va!(wing.vsm_aero, va_dist,
-                    zeros(MVec3))
+                set_va!(wing.vsm_aero, va_dist)
             else
                 set_va!(wing.vsm_aero, wing.va_b)
             end
