@@ -339,7 +339,7 @@ Applies: translate (from pos_w) → azimuth/elevation → heading.
 """
 function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure;
                  update_vel::Bool=true)
-(; points, wings) = sys_struct
+    (; points, wings) = sys_struct
 
     if isempty(transforms)
         _finalize_transforms!(wings, points)
