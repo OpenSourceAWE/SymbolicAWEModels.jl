@@ -32,7 +32,7 @@ winches, and wings, forming a complete description of the kite system's structur
 """
 mutable struct SystemStructure{W<:AbstractWing}
     const name::String
-    const set::Settings
+    set::Settings
     const points::NamedCollection{Point}
     const groups::NamedCollection{Group}
     const segments::NamedCollection{Segment}
