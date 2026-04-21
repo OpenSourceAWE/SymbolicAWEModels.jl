@@ -197,21 +197,21 @@ function vsm_eqs!(
                 end
             end
 
-            local prev_state_eqs = Vector{Equation}[]
+            local prev_state_eqs = Vector{Equation}()
             for iy in 1:ny_quat
                 push!(prev_state_eqs,
                     vsm_input_state_prev[iy, wing.idx] ~
                     get_vsm_y(psys, wing.idx, iy))
             end
 
-            local prev_force_eqs = Vector{Equation}[]
+            local prev_force_eqs = Vector{Equation}()
             for ix in 1:nx_quat
                 push!(prev_force_eqs,
                     vsm_output_force_prev[ix, wing.idx] ~
                     get_vsm_x(psys, wing.idx, ix))
             end
 
-            local force_jacobian_eqs = Vector{Equation}[]
+            local force_jacobian_eqs = Vector{Equation}()
             for ix in 1:nx_quat
                 for iy in 1:ny_quat
                     push!(force_jacobian_eqs,
@@ -261,7 +261,7 @@ function vsm_eqs!(
                 J[4:6, :] * delta)
 
             # Linearized group moments
-            group_moment_eqs = Vector{Equation}[]
+            group_moment_eqs = Vector{Equation}()
             for gidx in wing.group_idxs
                 group = groups[gidx]
                 isempty(
