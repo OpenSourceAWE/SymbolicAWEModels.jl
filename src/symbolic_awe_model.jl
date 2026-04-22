@@ -261,10 +261,8 @@ to degrees) and calculating derived values like AoA and roll/pitch/yaw angles.
 """
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
-    @unpack points, groups, segments, pulleys, winches, wings = sam.sys_struct
+    (; points, groups, segments, pulleys, winches, wings, tethers) = sam.sys_struct
 
-    # Get the state vectors from the integrator
-    @unpack tethers = sam.sys_struct
     for (ti, tether) in enumerate(tethers)
         ti > 4 && break
         ss.l_tether[ti] = tether.len
@@ -500,7 +498,7 @@ synchronization step is crucial for making the simulation results accessible.
 function update_sys_struct!(prob::ProbWithAttributes,
                             integ::OrdinaryDiffEqCore.ODEIntegrator,
                             sys_struct::SystemStructure)
-    @unpack points, groups, segments, pulleys, winches, tethers, wings = sys_struct
+    (; points, groups, segments, pulleys, winches, tethers, wings) = sys_struct
     pos, vel, force, va_b, total_mass = prob.get_point_state(integ)
     for point in points
         point.pos_w .= pos[:, point.idx]
@@ -702,9 +700,7 @@ function calc_winch_force(sys::SystemStructure,
     smooth_sign(x, eps) = x / sqrt(x * x + eps * eps)
     winch_force = zeros(length(winches))
     for i in eachindex(winches)
-        @unpack gear_ratio, drum_radius, f_coulomb,
-            c_vf, inertia_total,
-            friction_epsilon = winches[i]
+        (; gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total, friction_epsilon) = winches[i]
         ω_motor = gear_ratio / drum_radius *
             winch_vel[i]
         tau_friction =

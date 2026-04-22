@@ -18,7 +18,7 @@ of the compiled `ODESystem` (`sys`).
 """
 function generate_prob_getters(sys_struct, sys)
     c = collect
-    @unpack wings, groups, pulleys, winches, tethers, segments = sys_struct
+    (; wings, groups, pulleys, winches, tethers, segments) = sys_struct
     get_wing_state, get_vsm_y, get_segment_state, get_group_state, get_pulley_state,
     get_winch_state, get_tether_state, set_set_values, get_set_values = ntuple(_ -> nothing, 9)
 
@@ -515,7 +515,7 @@ Includes all structural properties that affect the symbolic equations:
 Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
-    @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
+    (; points, groups, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
     data_parts = []
     for point in points
         push!(data_parts, ("point", point.idx, point.wing_idx, Int(point.type)))

@@ -339,7 +339,7 @@ Applies: translate (from pos_w) → azimuth/elevation → heading.
 """
 function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure;
                  update_vel::Bool=true)
-    @unpack points, wings = sys_struct
+    (; points, wings) = sys_struct
 
     if isempty(transforms)
         _finalize_transforms!(wings, points)
@@ -397,7 +397,7 @@ function reposition!(
     transforms::AbstractVector{Transform},
     sys_struct::SystemStructure
 )
-    @unpack points, wings = sys_struct
+    (; points, wings) = sys_struct
     for transform in transforms
         base_pos = points[transform.base_point_idx].pos_w
         curr_R_t_to_w, R_t_to_w = _apply_azimuth_elevation!(
