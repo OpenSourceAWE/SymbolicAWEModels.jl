@@ -32,7 +32,7 @@ function vsm_eqs!(
     twist_angle, va_wing_b, wing_pos, ω_b,
     aero_force_point_b=nothing
 )
-    @unpack groups, wings, points = s.sys_struct
+    (; groups, wings, points) = s.sys_struct
     length(wings) == 0 && return eqs, guesses
 
     # Predeclare symbolic arrays so static analysis sees these bindings
@@ -198,21 +198,21 @@ function vsm_eqs!(
                 end
             end
 
-            local prev_state_eqs = []
+            local prev_state_eqs = Equation[]
             for iy in 1:ny_quat
                 push!(prev_state_eqs,
                     vsm_input_state_prev[iy, wing.idx] ~
                     get_vsm_y(psys, wing.idx, iy))
             end
 
-            local prev_force_eqs = []
+            local prev_force_eqs = Equation[]
             for ix in 1:nx_quat
                 push!(prev_force_eqs,
                     vsm_output_force_prev[ix, wing.idx] ~
                     get_vsm_x(psys, wing.idx, ix))
             end
 
-            local force_jacobian_eqs = []
+            local force_jacobian_eqs = Equation[]
             for ix in 1:nx_quat
                 for iy in 1:ny_quat
                     push!(force_jacobian_eqs,
@@ -262,7 +262,7 @@ function vsm_eqs!(
                 J[4:6, :] * delta)
 
             # Linearized group moments
-            group_moment_eqs = []
+            group_moment_eqs = Equation[]
             for gidx in wing.group_idxs
                 group = groups[gidx]
                 isempty(

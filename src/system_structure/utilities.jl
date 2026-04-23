@@ -85,7 +85,7 @@ configurations and throws assertions for definite errors.
 - Inconsistent moment_frac across groups (error)
 """
 function validate_sys_struct(sys_struct::SystemStructure)
-    @unpack points, groups, segments, pulleys, wings, winches = sys_struct
+    (; points, groups, segments, pulleys, wings, winches) = sys_struct
 
     # ==================== POINT VALIDATIONS ==================== #
     for point in points
@@ -268,7 +268,7 @@ constraint).
 function apply_tether_init_stretched_lens!(
     sys_struct::SystemStructure
 )
-    @unpack points, segments, tethers = sys_struct
+    (; points, segments, tethers) = sys_struct
 
     for tether in tethers
         target = tether.init_stretched_len
@@ -369,7 +369,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                  ignore_l0::Bool=false, remake_vsm::Bool=false,
                  reset_vel::Bool=true, apply_transforms::Bool=true,
                  apply_tether_lengths::Bool=true)
-    @unpack points, groups, segments, pulleys, tethers, winches, wings, transforms = sys_struct
+    (; points, groups, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
 
     # Reset tether len to initial values
     for tether in tethers
@@ -669,7 +669,7 @@ plot(sys)
 - The number of points in `sys` must match the parametric type `P` of `SysState{P}`.
 """
 function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
-    @unpack points, groups, tethers, winches, wings = sys
+    (; points, groups, tethers, winches, wings) = sys
 
     # Calculate expected total points (regular points + panel corners)
     n_points = length(points)

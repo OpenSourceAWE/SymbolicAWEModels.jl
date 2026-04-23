@@ -82,7 +82,7 @@ mass-spring-damper system.
     2.  `c_values` (damping coefficients [Ns/m])
 """
 function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=5, prn=false)
-    @unpack tethers, segments = sam.sys_struct
+    (; tethers, segments) = sam.sys_struct
     set = sam.set
     dt = 1/set.sample_freq
 
@@ -184,7 +184,7 @@ function step(sam::SymbolicAWEModel, steps, F_step, F_0;
               consecutive_steps_needed=10,
               prn=false)
 
-    @unpack points, tethers = sam.sys_struct
+    (; points, tethers) = sam.sys_struct
 
     initial_tether_lens = [norm(points[i].pos_w) for i in eachindex(tethers)]
     [points[i].disturb .= F_0[i] .+ F_step * normalize(points[i].pos_w) for i in eachindex(tethers)]
@@ -255,7 +255,7 @@ end
 ```
 """
 function update_segment_forces!(sys_struct::SystemStructure)
-    @unpack points, segments = sys_struct
+    (; points, segments) = sys_struct
 
     for segment in segments
         p1, p2 = segment.point_idxs

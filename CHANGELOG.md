@@ -2,8 +2,30 @@
 SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
+# unreleased
 
-# v0.8.0 DD-MM-2026
+## Changed
+- updated the default manifest files
+
+## Fixed
+- crash with Julia 1.11; `setup_env` updated to fix that.
+
+# v0.8.1 23-04-2026
+
+## Changed
+- `SystemStructure.set` field is no longer `const`, allowing change
+  after deserialisation.
+- Replaced all `@unpack` macro usage with Julia's native destructuring
+  syntax `(; a, b) = x`.
+
+## Fixed
+- Fixed JETLS warnings across multiple source files.
+- `bin/install` now copies `.JETLSConfig.toml.default` to
+  `.JETLSConfig.toml` if it does not exist, and warns when an existing
+  config differs from the default.
+- `bin/install` warning messages now use colored output for visibility.
+
+# v0.8.0 18-04-2026
 
 ## Changed
 - BREAKING: `SegmentType` positional argument removed from `Segment`

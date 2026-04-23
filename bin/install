@@ -4,6 +4,9 @@
 
 _yes_to_all=false
 
+_red='\033[31m'
+_reset='\033[0m'
+
 print_usage() {
     echo "Usage:"
     echo "./install"
@@ -143,7 +146,7 @@ if [[ $julia_major == "1.11" ]]; then
         cp Manifest-v1.11.toml.default Manifest-v1.11.toml
         echo "Copied Manifest-v1.11.toml.default to Manifest-v1.11.toml"
     else
-        echo "Warning: Manifest-v1.11.toml.default not found"
+        echo -e "${_red}Warning:${_reset} Manifest-v1.11.toml.default not found"
         exit 1
     fi
 else
@@ -152,7 +155,7 @@ else
         cp Manifest-v1.12.toml.default Manifest-v1.12.toml
         echo "Copied Manifest-v1.12.toml.default to Manifest-v1.12.toml"
     else
-        echo "Warning: Manifest-v1.12.toml.default not found"
+        echo -e "${_red}Warning:${_reset} Manifest-v1.12.toml.default not found"
         exit 1
     fi
 fi
@@ -232,6 +235,20 @@ fi
 if [[ $julia_major == "1.12" ]]; then
     rm -f examples/Manifest*.toml test/Manifest*.toml docs/Manifest*.toml
     echo "Removed subproject manifests for Julia 1.12"
+fi
+
+# Copy .JETLSConfig.toml.default to .JETLSConfig.toml if it doesn't exist
+if [ ! -f ".JETLSConfig.toml" ]; then
+    if [ -f ".JETLSConfig.toml.default" ]; then
+        cp .JETLSConfig.toml.default .JETLSConfig.toml
+        echo "Copied .JETLSConfig.toml.default to .JETLSConfig.toml"
+    fi
+fi
+# If .JETLSConfig.toml exists but but is different from the default, print a warning
+if [ -f ".JETLSConfig.toml" ] && [ -f ".JETLSConfig.toml.default" ]; then
+    if ! cmp -s .JETLSConfig.toml .JETLSConfig.toml.default; then
+        echo -e "${_red}Warning:${_reset} .JETLSConfig.toml already exists and differs from the default. Please review its contents to ensure it is configured correctly."
+    fi
 fi
 
 # Add alias to shell configuration file
