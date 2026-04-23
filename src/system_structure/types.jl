@@ -136,7 +136,7 @@ mutable struct Point
     const force::KVec3
     "Aerodynamic force in body frame [N] (REFINE WING points)."
     const aero_force_b::KVec3
-    "Drag force in world frame [N] (from point area and drag coeff)."
+    "Total drag force in world frame [N], including the point's own drag and any segment drag contributions assigned to it."
     const drag_force::KVec3
     "Apparent velocity in body frame [m/s] (VSM per-point)."
     const va_b::KVec3
