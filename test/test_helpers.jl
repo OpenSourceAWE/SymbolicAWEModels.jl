@@ -45,7 +45,9 @@ using SymbolicAWEModels
     root = dirname(@__DIR__)
     @test ! isfile(joinpath(root, "Manifest.toml"))
     project_mtime = mtime(joinpath(root, "Project.toml"))
-    @test mtime(joinpath(root, "Manifest-v1.11.toml.default")) > project_mtime
-    @test mtime(joinpath(root, "Manifest-v1.12.toml.default")) > project_mtime
+    # Allow 1s tolerance: on CI, git checkout assigns timestamps in sequence order,
+    # so Project.toml may be fractionally newer due to checkout ordering.
+    @test mtime(joinpath(root, "Manifest-v1.11.toml.default")) >= project_mtime - 1.0
+    @test mtime(joinpath(root, "Manifest-v1.12.toml.default")) >= project_mtime - 1.0
 end
 nothing
