@@ -41,5 +41,11 @@ using SymbolicAWEModels
     @test ! ("TestEnv" ∈ keys(Pkg.project().dependencies))
     @test ! ("Revise" ∈ keys(Pkg.project().dependencies))
     @test ! ("Plots" ∈ keys(Pkg.project().dependencies))
+
+    root = dirname(@__DIR__)
+    @test ! isfile(joinpath(root, "Manifest.toml"))
+    project_mtime = mtime(joinpath(root, "Project.toml"))
+    @test mtime(joinpath(root, "Manifest-v1.11.toml.default")) > project_mtime
+    @test mtime(joinpath(root, "Manifest-v1.12.toml.default")) > project_mtime
 end
 nothing
