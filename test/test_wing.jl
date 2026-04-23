@@ -429,6 +429,73 @@ end
                     " drift $(round(undamped_drift; digits=2))" *
                     " → $(round(damped_drift; digits=2))m")
             end
+
+            # ========================================================
+            # Test 9: Aero force matches VSM sol.force in
+            #         both lift and drag directions
+            # ========================================================
+            @testset "Force vs sol.force conservation" begin
+                reset_state!(sam, set)
+                for _ in 1:5
+                    next_step!(sam; dt=0.05,
+                        vsm_interval=1)
+                end
+
+                wing = sam.sys_struct.wings[:main_wing]
+                sol_force =
+                    Vector(wing.vsm_solver.sol.force)
+
+                # REFINE: sum distributed point forces
+                # (scaled by aero_scale_chord)
+                # QUATERNION: use wing.aero_force_b from
+                # the ODE (Jacobian-extrapolated)
+                if expected_wing_type ==
+                        SymbolicAWEModels.REFINE
+                    scale = 1.0 + (
+                        isfinite(wing.aero_scale_chord) ?
+                        wing.aero_scale_chord : 0.0)
+                    sol_force .*= scale
+                    total_force = zeros(3)
+                    for p in sam.sys_struct.points
+                        if p.type ==
+                                SymbolicAWEModels.WING &&
+                                p.wing_idx == wing.idx
+                            total_force .+= p.aero_force_b
+                        end
+                    end
+                else
+                    total_force =
+                        Vector(wing.aero_force_b)
+                end
+
+                # Drag = along apparent wind
+                va = wing.va_b
+                drag_dir = normalize(va)
+
+                # Lift = perpendicular to wind, in the
+                # force plane
+                lift_vec = sol_force -
+                    dot(sol_force, drag_dir) * drag_dir
+                lift_dir = normalize(lift_vec)
+
+                drag_sol = dot(sol_force, drag_dir)
+                drag_tot = dot(total_force, drag_dir)
+                lift_sol = dot(sol_force, lift_dir)
+                lift_tot = dot(total_force, lift_dir)
+
+                println("  [$wtn] Force conservation:")
+                println("    drag: sol=" *
+                    "$(round(drag_sol; digits=2)), " *
+                    "model=$(round(drag_tot; digits=2))")
+                println("    lift: sol=" *
+                    "$(round(lift_sol; digits=2)), " *
+                    "model=$(round(lift_tot; digits=2))")
+
+                @test isapprox(drag_tot, drag_sol;
+                    rtol=0.06)
+                @test isapprox(lift_tot, lift_sol;
+                    rtol=0.06)
+            end
         end
     end
 

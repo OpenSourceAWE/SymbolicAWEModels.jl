@@ -73,7 +73,7 @@ function generate_prob_getters(sys_struct, sys)
     set_sys = setp(sys, sys.psys)
 
     # Always include va_point_b and point_mass in point_state (calculated for all points now)
-    get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass]))
+    get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass, sys.total_drag]))
 
     return (; get_wing_state, get_vsm_y, get_segment_state, get_group_state,
             get_pulley_state, get_winch_state, get_tether_state, set_set_values,

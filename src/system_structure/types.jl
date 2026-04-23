@@ -136,6 +136,8 @@ mutable struct Point
     const force::KVec3
     "Aerodynamic force in body frame [N] (REFINE WING points)."
     const aero_force_b::KVec3
+    "Drag force in world frame [N] (from point area and drag coeff)."
+    const drag_force::KVec3
     "Apparent velocity in body frame [m/s] (VSM per-point)."
     const va_b::KVec3
     "Dynamics type (STATIC, DYNAMIC, QUASI_STATIC, WING)."
@@ -214,7 +216,8 @@ function Point(name, pos_cad, type;
 
     # idx, transform_idx, wing_idx are placeholders - resolved by SystemStructure
     Point(0, name, 0, 0, transform_ref, wing_ref, KVec3(pos_cad...), zeros(KVec3), zeros(KVec3),
-        vel, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), type, extra_mass, 0.0,
+        vel, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        type, extra_mass, 0.0,
         bf_damp, wf_damp, area, drag_coeff,
         fix_sphere, fix_static)
 end

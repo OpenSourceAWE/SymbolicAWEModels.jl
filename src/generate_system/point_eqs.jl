@@ -7,7 +7,8 @@
     point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, psys;
                R_b_to_w, wing_vel, wind_vec_gnd, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
-               spring_sum_force, point_drag_force, disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
+               spring_sum_force, point_drag_force, total_drag,
+               disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
                fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
                va_point_b, va_point_w, wind_at_point, height,
                aero_force_point_b,
@@ -39,7 +40,8 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                     R_b_to_w, com_w,
                     wing_vel, wind_vec_gnd, twist_angle,
                     pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
-                    spring_sum_force, point_drag_force, disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
+                    spring_sum_force, point_drag_force, total_drag,
+                    disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
                     fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
                     va_point_b, va_point_w, wind_at_point, height,
                     aero_force_point_b,
@@ -47,6 +49,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
 
     for point in points
         F::Vector{Num} = zeros(Num, 3)
+        seg_drag::Vector{Num} = zeros(Num, 3)
         mass = get_extra_mass(psys, point.idx)
         for segment in segments
             if point.idx in segment.point_idxs
@@ -60,7 +63,9 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                     F .+= spring_force_vec[:, segment.idx]
                 end
                 mass += mass_per_meter * l0[segment.idx] / 2
-                F .+= 0.5 * drag_force[:, segment.idx]
+                half_seg_drag = 0.5 * drag_force[:, segment.idx]
+                F .+= half_seg_drag
+                seg_drag .+= half_seg_drag
             end
         end
 
@@ -122,6 +127,13 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                     va_point_w[:, point.idx]
             ]
         end
+
+        # Total drag: point aero drag + share of segment drag
+        eqs = [
+            eqs
+            total_drag[:, point.idx] ~
+                point_drag_force[:, point.idx] + seg_drag
+        ]
 
         if point.type == WING
             # Find the wing for this point

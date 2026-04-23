@@ -499,13 +499,15 @@ function update_sys_struct!(prob::ProbWithAttributes,
                             integ::OrdinaryDiffEqCore.ODEIntegrator,
                             sys_struct::SystemStructure)
     (; points, groups, segments, pulleys, winches, tethers, wings) = sys_struct
-    pos, vel, force, va_b, total_mass = prob.get_point_state(integ)
+    pos, vel, force, va_b, total_mass, drag_f =
+        prob.get_point_state(integ)
     for point in points
         point.pos_w .= pos[:, point.idx]
         point.vel_w .= vel[:, point.idx]
         point.force .= force[:, point.idx]
         point.va_b .= va_b[:, point.idx]
         point.total_mass = total_mass[point.idx]
+        point.drag_force .= drag_f[:, point.idx]
     end
     if length(pulleys) > 0
         len, vel = prob.get_pulley_state(integ)
