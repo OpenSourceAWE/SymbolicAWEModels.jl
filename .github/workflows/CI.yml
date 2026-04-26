@@ -69,6 +69,18 @@ jobs:
           sudo apt-get install -y xvfb libgl1-mesa-dri
 
       - uses: julia-actions/cache@v3
+
+      - name: Prepare version-specific manifest
+        shell: bash
+        run: |
+          JULIA_VERSION=$(julia --version | awk '{print $3}' | cut -d'.' -f1,2)
+          DEFAULT="Manifest-v${JULIA_VERSION}.toml.default"
+          TARGET="Manifest-v${JULIA_VERSION}.toml"
+          if [ -f "$DEFAULT" ] && [ ! -f "$TARGET" ]; then
+            cp "$DEFAULT" "$TARGET"
+            echo "Copied $DEFAULT to $TARGET"
+          fi
+
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         with:

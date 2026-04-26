@@ -439,6 +439,14 @@ system:
 
         println("\n  ====== Aero drag terminal velocity: measured=$(round(abs(vz_final), digits=2)) m/s, expected=$(round(v_terminal_expected, digits=2)) m/s (h=$(round(final_height, digits=0))m) ======\n")
         @test abs(vz_final) ≈ v_terminal_expected rtol=0.01
+
+        # Verify drag_force field: at terminal velocity drag
+        # balances gravity (m*g upward, opposing downward fall)
+        drag_mag = norm(point.drag_force)
+        @test drag_mag ≈ m * set.g_earth rtol=0.01
+        @test point.drag_force[3] > 0       # upward
+        @test abs(point.drag_force[1]) < 0.01  # no x
+        @test abs(point.drag_force[2]) < 0.01  # no y
     end
 
     # ========================================================================

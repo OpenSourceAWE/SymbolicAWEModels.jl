@@ -451,6 +451,20 @@ system:
         @test abs(avg_vz) ≈ v_terminal_expected rtol=0.001
 
         println("\n  ====== Terminal velocity: measured=$(round(abs(avg_vz), digits=2)) m/s, expected=$(round(v_terminal_expected, digits=2)) m/s (h=$(round(final_height, digits=0))m) ======\n")
+
+        # Verify drag_force field: each point gets half the
+        # segment drag. At terminal velocity total drag = m*g.
+        pl = sam.sys_struct.points[:point_left]
+        pr = sam.sys_struct.points[:point_right]
+        total_drag = pl.drag_force + pr.drag_force
+        @test norm(total_drag) ≈ m_total * set.g_earth rtol=0.01
+        # Both halves should be roughly equal
+        @test norm(pl.drag_force) ≈ norm(pr.drag_force) rtol=0.05
+        # Drag should point upward (opposing downward fall)
+        @test total_drag[3] > 0
+        # Points have zero area so drag is purely from segment
+        @test pl.area == 0.0
+        @test pl.drag_coeff == 0.0
     end
 
     # ========================================================================
