@@ -1,20 +1,20 @@
 version = 1
 
 [[annotations]]
-path = [".github/*", ".gitignore", ".github/workflows/*", "data/*", "docs/src/*", "docs/src/symbolic_awe_model/*", "*.default"]
+path = [".github/*", ".gitignore", ".github/workflows/*", "data/*", "docs/src/*", "docs/src/symbolic_awe_model/*", "*.default", "*.md"]
 SPDX-FileCopyrightText = "2025 Bart van de Lint, Jelle Poland, Uwe Fechner"
-SPDX-License-Identifier = "MPL-2.0"
+SPDX-License-Identifier = "LGPL-3.0-only"
 
 [[annotations]]
 path = ["data/**/*.csv", "data/**/*.pdf", "data/**/*.yaml", "data/**/*.obj",
         "processed_data/**/*.csv",
         "processed_data/**/*.png", "processed_data/**/*.txt"]
 SPDX-FileCopyrightText = "2025 Bart van de Lint, Jelle Poland, Uwe Fechner"
-SPDX-License-Identifier = "MPL-2.0"
+SPDX-License-Identifier = "LGPL-3.0-only"
 
 [[annotations]]
 path = ["docs/.gitignore", "docs/src/assets/*.png", "docs/src/assets/*.svg",
         "docs/Project.toml", "Manifest*", "docs/LocalPreferences.toml", "*/Project*", "Project*", 
         "CITATION.cff", "Artifacts*", ".zenodo.json"]
 SPDX-FileCopyrightText = "2025 Bart van de Lint, Jelle Poland, Uwe Fechner"
-SPDX-License-Identifier = "MPL-2.0"
+SPDX-License-Identifier = "LGPL-3.0-only"

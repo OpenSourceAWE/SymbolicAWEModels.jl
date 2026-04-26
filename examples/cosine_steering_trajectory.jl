@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Bart van de Lint, Jelle Poland
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 """
 Example: 2D trajectory with cosine steering input where steering = turn rate

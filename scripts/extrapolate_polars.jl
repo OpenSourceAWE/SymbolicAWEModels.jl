@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Bart van de Lint, Jelle Poland
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 data_dir = joinpath(@__DIR__, "..", "data", "v3", "2D_polars_CFD_extrapolated")
 

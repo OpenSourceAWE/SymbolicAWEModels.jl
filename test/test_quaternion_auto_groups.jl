@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Bart van de Lint, Jelle Poland
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)

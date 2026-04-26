@@ -1,5 +1,5 @@
 # Copyright (c) 2025 2-Plate Kite Coupled Simulation
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 """
 2-Plate Kite: coupled aerodynamic-structural simulation with

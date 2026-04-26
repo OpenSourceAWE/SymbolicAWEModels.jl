@@ -1,8 +1,3 @@
-<!--
-SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
-SPDX-License-Identifier: MPL-2.0
--->
-
 # SymbolicAWEModels
 
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/stable)
@@ -292,7 +287,7 @@ Jelle Poland
 
 ## License
 
-This project is licensed under the [MPL-2.0 License](LICENSE).
+This project is licensed under the [LGPL-3.0 License](LICENSE).
 
 ---
 
