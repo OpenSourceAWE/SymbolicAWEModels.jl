@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Parameters · SymbolicAWEModels.jl</title><meta name="title" content="Parameters · SymbolicAWEModels.jl"/><meta property="og:title" content="Parameters · SymbolicAWEModels.jl"/><meta property="twitter:title" content="Parameters · SymbolicAWEModels.jl"/><meta name="description" content="Documentation for SymbolicAWEModels.jl."/><meta property="og:description" content="Documentation for SymbolicAWEModels.jl."/><meta property="twitter:description" content="Documentation for SymbolicAWEModels.jl."/><meta property="og:url" content="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/parameters/"/><meta property="twitter:url" content="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/parameters/"/><link rel="canonical" href="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/parameters/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><a class="docs-logo" href="../"><img src="../assets/logo.png" alt="SymbolicAWEModels.jl logo"/></a><div class="docs-package-name"><span class="docs-autofit"><a href="../">SymbolicAWEModels.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><a class="tocitem" href="../getting_started/">Getting started</a></li><li><a class="tocitem" href="../tutorial_julia/">Building a system using Julia</a></li><li><a class="tocitem" href="../tutorial_yaml/">Building a system using YAML</a></li><li><a class="tocitem" href="../pipeline/">Compilation pipeline</a></li><li><a class="tocitem" href="../examples/">Examples</a></li><li><a class="tocitem" href="../vsm_coupling/">VSM coupling</a></li><li><a class="tocitem" href="../coordinate_frames/">Coordinate frames</a></li><li><a class="tocitem" href="../exported_types/">Types</a></li><li><a class="tocitem" href="../exported_functions/">Functions</a></li><li class="is-active"><a class="tocitem" href>Parameters</a><ul class="internal"><li><a class="tocitem" href="#Configuration"><span>Configuration</span></a></li><li><a class="tocitem" href="#Parameters"><span>Parameters</span></a></li></ul></li><li><a class="tocitem" href="../developers/">Developer guide</a></li><li><a class="tocitem" href="../private_functions/">Private API</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Parameters</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Parameters</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/OpenSourceAWE/SymbolicAWEModels.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/blob/main/docs/src/parameters.md#" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h2 id="Configuration"><a class="docs-heading-anchor" href="#Configuration">Configuration</a><a id="Configuration-1"></a><a class="docs-heading-anchor-permalink" href="#Configuration" title="Permalink"></a></h2><p>To configure the parameters of the kite models, edit the file <code>data/settings.yaml</code>, or create a copy under a different name and change the name of the active configuration in the file <code>data/system.yaml</code>.</p><div class="admonition is-info" id="Note-851fa5472918a705"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-851fa5472918a705" title="Permalink"></a></header><div class="admonition-body"><p>These are the simulation <code>Settings</code> parameters loaded from <code>system.yaml</code>. For YAML-based models, the structural geometry (points, segments, etc.) is defined separately in <code>refine_struc_geometry.yaml</code> (or <code>quat_struc_geometry.yaml</code>). See <a href="../tutorial_yaml/">Building a system using YAML</a> for details.</p></div></div><h2 id="Parameters"><a class="docs-heading-anchor" href="#Parameters">Parameters</a><a id="Parameters-1"></a><a class="docs-heading-anchor-permalink" href="#Parameters" title="Permalink"></a></h2><p>The following parameters are used by this package:</p><pre><code class="language-yaml hljs">system:
+    log_file: &quot;data/2plate_kite&quot;   # filename without extension  [replay only]
+                                   #   use / as path delimiter, even on Windows 
+    time_lapse:   1.0              # relative replay speed
+    sim_time:   100.0              # simulation time             [sim only]
+    segments:       3              # number of tether segments
+    sample_freq:   20              # sample frequency in Hz
+    zoom:        0.03              # zoom factor for the system view
+    kite_scale:   3.0              # relative zoom factor for the 4 point kite
+    fixed_font: &quot;&quot;                 # name or filepath+filename of alternative fixed pitch font
+
+solver:
+    solver: &quot;FBDF&quot;
+    abs_tol: 0.01          # absolute tolerance of the DAE solver [m, m/s]
+    rel_tol: 0.01          # relative tolerance of the DAE solver [-]
+    relaxation: 0.6        # relaxation factor of inner linear Newton solver, needed for quasi-steady solver
+
+kite:
+    model: &quot;&quot;                               # 3D model of the kite
+    foil_file: &quot;&quot;                           # filename for the foil shape
+    physical_model: &quot;2plate&quot;         # name of the kite model to use
+    top_bridle_points:                      # top bridle points that are not on the kite body in CAD frame
+        - [0.290199, 0.784697, -2.61305]
+        - [0.392683, 0.785271, -2.61201]
+        - [0.498202, 0.786175, -2.62148]
+        - [0.535543, 0.786175, -2.62148]
+    crease_frac: 0.82                       # distance along normalized foil chord for the trailing edge deformation crease
+    bridle_fracs: [0.088, 0.31, 0.58, 0.93] # distances along normalized foil chord for bridle attachment points
+    mass: 0.9                               # kite mass [kg]
+    quasi_static: false                     # whether to use quasi static kite points or not
+
+tether:
+    bridle_tether_diameter: 2 # [mm]
+    power_tether_diameter: 2 # [mm]
+    steering_tether_diameter: 1 # [mm]
+    cd_tether: 0.958       # drag coefficient of the tether
+    # Per-unit-length spring-damper properties:
+    # Effective stiffness k = unit_stiffness / length [N/m]
+    # Effective damping   c = unit_damping / length [N·s/m]
+    unit_damping: 473.0         # damping per unit length         [N·s]
+    unit_stiffness: 614600.0    # stiffness per unit length       [N]
+    rho_tether:  724.0     # density of Dyneema           [kg/m³]
+    e_tether: 55000000000.0 # axial tensile modulus of Dyneema (M.B. Ruppert) [Pa]
+                           # SK75: 109 to 132 GPa according to datasheet
+
+winch:
+    winch_model: &quot;TorqueControlledMachine&quot; # or AsynchMachine
+    max_force: 4000        # maximal (nominal) tether force; short overload allowed [N]
+    v_ro_max:  8.0         # maximal reel-out speed                          [m/s]
+    v_ro_min: -8.0         # minimal reel-out speed (=max reel-in speed)     [m/s]
+    drum_radius: 0.110    # radius of the drum                              [m]
+    max_acc: 4.0           # maximal acceleration of the winch               [m/s²]
+    gear_ratio: 1.0        # gear ratio of the winch                         [-]   
+    inertia_total: 0.024   # total inertia, as seen from the motor/generator [kgm²]
+    f_coulomb: 122.0       # coulomb friction                                [N]
+    c_vf: 30.6             # coefficient for the viscous friction            [Ns/m]
+    p_speed: 1.0           # proportional gain of the winch speed controller [-]
+    i_speed: 0.1           # integral gain of the winch speed controller     [-]
+
+environment:
+    v_wind: 15.51            # wind speed at reference height          [m/s]
+    upwind_dir: -90.0        # upwind direction                        [deg]
+    upwind_elevation: 0.0    # upwind elevation angle                  [deg]
+    wind_vec: [15.51, 0.0, 0.0]  # wind vector at ref height (ENU)   [m/s]
+    use_wind_vec: false      # use wind_vec instead of v_wind/upwind_dir
+    temp_ref: 15.0           # temperature at reference height         [°C]
+    height_gnd: 0.0          # height of groundstation above see level [m]
+    h_ref:  6.0              # reference height for the wind speed     [m]
+
+    rho_0:  1.225            # air density at zero height and 15 °C    [kg/m³]
+    alpha:  0.08163          # exponent of the wind profile law
+    z0:     0.0002           # surface roughness                       [m]
+    profile_law: 3           # 1=EXP, 2=LOG, 3=EXPLOG, 4=FAST_EXP, 5=FAST_LOG, 6=FAST_EXPLOG
+    # the following parameters are for calculating the turbulent wind field using the Mann model
+    use_turbulence: 0.0      # turbulence intensity relative to Cabau, NL
+    v_wind_gnds: [3.483, 5.324, 8.163] # wind speeds at ref height for calculating the turbulent wind field [m/s]
+    avg_height: 200.0        # average height during reel out          [m]
+    rel_turbs:   [0.342, 0.465, 0.583] # relative turbulence at the v_wind_gnds
+    i_ref: 0.14              # is the expected value of the turbulence intensity at 15 m/s.
+    v_ref: 42.9              # five times the average wind speed in m/s at hub height over the full year    [m/s]
+                             # Cabau: 8.5863 m/s * 5.0 = 42.9 m/s
+    height_step: 2.0         # use a grid with 2m resolution in z direction                                 [m]
+    grid_step:   2.0         # grid resolution in x and y direction                                         [m]               </code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../exported_functions/">« Functions</a><a class="docs-footer-nextpage" href="../developers/">Developer guide »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Sunday 26 April 2026 22:34">Sunday 26 April 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
