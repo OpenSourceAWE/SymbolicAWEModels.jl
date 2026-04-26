@@ -14,7 +14,7 @@ solver:
     solver: "FBDF"
     abs_tol: 0.01          # absolute tolerance of the DAE solver [m, m/s]
     rel_tol: 0.01          # relative tolerance of the DAE solver [-]
-    relaxation: 0.6        # relaxation factor of inner linear Newton solver, needed for quasi-steady solver
+    relaxation: 0.4        # relaxation factor of inner linear Newton solver, needed for quasi-steady solver
 
 kite:
     model: ""     # 3D model of the kite
@@ -29,6 +29,9 @@ kite:
     bridle_fracs: [0.088, 0.31, 0.58, 0.93] # distances along normalized foil chord for bridle attachment points
     mass: 0.9                               # kite mass [kg]
     quasi_static: false                     # whether to use quasi static kite points or not
+    rel_mass_p2: 0.25
+    rel_mass_p3: 0.25
+    rel_mass_p4: 0.25
 
 tether:
     # Bosch et al. 2014 used k = AE/L = 4.52E3 N/m for the bridles of the V3
@@ -37,8 +40,8 @@ tether:
     power_tether_diameter: 2 # [mm]
     steering_tether_diameter: 1 # [mm]
     cd_tether: 0.958       # drag coefficient of the tether
-    damping: 473.0         # unit damping coefficient        [Ns]
-    c_spring: 614600.0     # unit spring constant coefficient [N]
+    axial_damping: 473.0         # unit damping coefficient        [Ns]
+    axial_stiffness: 614600.0     # unit spring constant coefficient [N]
     rho_tether:  724.0     # density of Dyneema           [kg/m³]
     e_tether: 55000000000.0 # axial tensile modulus of Dyneema (M.B. Ruppert) [Pa]
                            # SK75: 109 to 132 GPa according to datasheet

@@ -22,7 +22,7 @@ using LinearAlgebra
 
 pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", "kps4"))
-set = deepcopy(load_settings("system.yaml"))
+set = Settings("system.yaml")
 UPWIND_DIR = -pi/2 + deg2rad(10)
 set.upwind_dir = rad2deg(UPWIND_DIR)
 

@@ -53,7 +53,7 @@ kite:
     mass:  6.2             # kite mass incl. sensor unit [kg]
     area: 10.18            # projected kite area         [m²]
     rel_side_area: 30.6    # relative side area           [%]
-    height: 2.23           # height of the kite           [m]
+    height_k: 2.23         # height of the kite           [m]
     alpha_cl:  [-180.0, -160.0, -90.0, -20.0, -10.0,  -5.0,  0.0, 20.0, 40.0, 90.0, 160.0, 180.0]
     cl_list:   [   0.0,    0.5,   0.0,  0.08, 0.125,  0.15,  0.2,  1.0,  1.0,  0.0,  -0.5,   0.0]
     alpha_cd:  [-180.0, -170.0, -140.0, -90.0, -20.0, 0.0, 20.0, 90.0, 140.0, 170.0, 180.0]
@@ -105,8 +105,8 @@ kcu:
 tether:
     d_tether:  4           # tether diameter                 [mm]
     cd_tether: 0.958       # drag coefficient of the tether
-    damping: 473.0         # unit damping coefficient        [Ns]
-    c_spring: 614600.0     # unit spring constant coefficient [N]
+    axial_damping: 473.0   # unit damping coefficient        [Ns]
+    axial_stiffness: 614600.0 # unit spring constant coefficient [N]
     rho_tether:  724.0     # density of Dyneema           [kg/m³]
     e_tether: 55000000000.0 # axial tensile modulus of Dyneema (M.B. Ruppert) [Pa]
                            # SK75: 109 to 132 GPa according to datasheet
