@@ -1,10 +1,26 @@
-# unreleased
+# v0.8.2 26-04-2026
 
 ## Changed
-- updated the default manifest files
+- Updated the default manifest files.
+
+## Added
+- `drag_force` field on `Point` — total drag in world frame (point's
+  own aerodynamic drag plus its share of connected segment drag).
+  Populated by `update_sys_struct!` each timestep.
+- Manifest freshness tests in `test_helpers.jl`: verify that no bare
+  `Manifest.toml` exists and that `.default` manifests are at least as
+  recent as `Project.toml`.
+- CI step to copy version-specific `.default` manifest before build,
+  ensuring the correct manifest is used per Julia version.
+- Drag-related tests in `test_point.jl`, `test_segment.jl`, and
+  `test_wing.jl`.
 
 ## Fixed
-- crash with Julia 1.11; `setup_env` updated to fix that.
+- Crash with Julia 1.11; `setup_env` updated to fix that.
+
+## Removed
+- `plot_recipe.jl` — unused legacy Plots.jl recipe. Visualization is
+  handled by `SymbolicAWEModelsMakieExt`.
 
 # v0.8.1 23-04-2026
 
