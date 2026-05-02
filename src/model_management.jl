@@ -305,6 +305,11 @@ This is the main entry point for setting up the model. It handles:
 - `apply_tether_lengths::Bool`: Whether to scale point positions to match
                              `tether.init_stretched_len`. Set to `false`
                              to keep point positions from CAD geometry.
+- `vsm_min_wind=0.5`: Minimum apparent wind [m/s] for the initial VSM
+                     solve. Below this the solve is skipped and the
+                     wing's aero outputs are zeroed, since the solver
+                     fails to converge or returns a Jacobian whose
+                     norm grows as 1/|va|.
 
 # Returns
 - The initialized `ODEIntegrator`.
@@ -323,7 +328,8 @@ function init!(sam::SymbolicAWEModel;
     apply_transforms::Bool=true,
     apply_tether_lengths::Bool=true,
     tunable_params::Bool=false,
-    reinit_sys::Bool=true
+    reinit_sys::Bool=true,
+    vsm_min_wind=0.5
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
     sam.sys_struct isa SystemStructure{VSMWing} || error(
@@ -411,7 +417,8 @@ function init!(sam::SymbolicAWEModel;
         end
         if create_prob && !isnothing(sam.prob)
             prob = something(sam.prob)
-            reinit!(sam, prob, solver; adaptive, reload, lin_vsm)
+            reinit!(sam, prob, solver;
+                adaptive, reload, lin_vsm, vsm_min_wind)
         end
     end
     prn && @info "$(sam.sys_struct.name) model initialized in $time seconds."
@@ -446,8 +453,9 @@ function reinit!(
     prob::ProbWithAttributes,
     solver;
     adaptive=true,
-    reload=true, 
-    lin_vsm=true
+    reload=true,
+    lin_vsm=true,
+    vsm_min_wind=0.5
 )
     dt = SimFloat(1/sam.set.sample_freq)
     existing = sam.integrator
@@ -460,7 +468,7 @@ function reinit!(
     end
     sam.integrator = integrator
     OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
-    lin_vsm && update_vsm!(sam, prob)
+    lin_vsm && update_vsm!(sam, prob; vsm_min_wind)
     update_sys_struct!(prob, integrator, sam.sys_struct)
     validate_sys_struct(sam.sys_struct)  # Check for division-by-zero issues
     return integrator, true

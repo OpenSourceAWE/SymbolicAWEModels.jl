@@ -436,6 +436,9 @@ end
             # ========================================================
             @testset "Force vs sol.force conservation" begin
                 reset_state!(sam, set)
+                init!(
+                    sam; remake=false, reload=false, prn=false
+                )
                 for _ in 1:5
                     next_step!(sam; dt=0.05,
                         vsm_interval=1)

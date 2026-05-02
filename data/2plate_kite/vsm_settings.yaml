@@ -69,11 +69,11 @@ solver_settings:
     artificial_damping: false        # Enable artificial damping for unstable cases
     k2: 0.1                          # 2nd-order damping coefficient
     k4: 0.0                          # 4th-order damping coefficient
-    core_radius_fraction: 1e-20      # Vortex core radius (fraction of chord)
+    core_radius_fraction: 0.05       # Vortex core radius (fraction of filament length)
 
     # --- Initial Conditions ---
     type_initial_gamma_distribution: ELLIPTIC  # Starting circulation distribution
-    use_gamma_prev: true             # Reuse previous gamma as initial guess between solves
+    use_gamma_prev: false            # Reuse previous gamma as initial guess between solves
     
     # --- Output Control ---
     calc_only_f_and_gamma: false     # true=compute only forces & circulation
