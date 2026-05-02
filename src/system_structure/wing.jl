@@ -499,9 +499,7 @@ function VSMWing(name, set::Settings,
     vsm_wing = create_vsm_wing(set, vsm_set; prn=false,
         sort_sections=false)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
-    vsm_solver = VortexStepMethod.Solver(vsm_aero;
-        solver_type=VortexStepMethod.NONLIN,
-        atol=2e-8, rtol=2e-8)
+    vsm_solver = VortexStepMethod.Solver(vsm_aero, vsm_set)
 
     # Placeholders — overwritten by SystemStructure
     # from point masses (QUATERNION) or ref points (REFINE)
