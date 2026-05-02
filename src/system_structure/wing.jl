@@ -212,10 +212,16 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
     vsm_wing::W
     vsm_solver::SL
 
-    # VSM state and linearization
-    vsm_y::Vector{SimFloat}
-    vsm_x::Vector{SimFloat}
-    vsm_jac::Matrix{SimFloat}
+    # Aerodynamic linearization state (QUATERNION)
+    # aero_y: operating point inputs
+    #   [alpha, beta, ω1, ω2, ω3, twist...]
+    # aero_x: baseline wind-axis coefficients
+    #   [CL, CD, CS, CM1, CM2, CM3, cm_1..cm_n]
+    # aero_jac: dense Jacobian d(aero_x)/d(aero_y)
+    aero_y::Vector{SimFloat}
+    aero_x::Vector{SimFloat}
+    aero_jac::Matrix{SimFloat}
+    separate_twist::Bool
 
     # REFINE-specific fields (Nothing for QUATERNION wings)
     point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}
@@ -247,7 +253,8 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
 
     function VSMWing(base::BaseWing, vsm_aero,
                      vsm_wing, vsm_solver,
-                     vsm_y, vsm_x, vsm_jac,
+                     aero_y, aero_x, aero_jac,
+                     separate_twist,
                      point_to_vsm_point, wing_segments,
                      z_ref_points, y_ref_points,
                      origin_idx, origin_ref,
@@ -255,7 +262,8 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
         new{typeof(vsm_aero), typeof(vsm_wing),
             typeof(vsm_solver)}(
             base, vsm_aero, vsm_wing, vsm_solver,
-            vsm_y, vsm_x, vsm_jac,
+            aero_y, aero_x, aero_jac,
+            separate_twist,
             point_to_vsm_point, wing_segments,
             z_ref_points, y_ref_points,
             origin_idx, origin_ref,
@@ -266,7 +274,7 @@ end
 # Delegate property access to base wing for VSMWing
 const VSM_WING_OWN_FIELDS = (
     :base, :vsm_aero, :vsm_wing, :vsm_solver,
-    :vsm_y, :vsm_x, :vsm_jac,
+    :aero_y, :aero_x, :aero_jac, :separate_twist,
     :point_to_vsm_point, :wing_segments,
     :z_ref_points, :y_ref_points,
     :origin_idx, :origin_ref,
@@ -514,20 +522,22 @@ function VSMWing(name, set::Settings,
                     inertia_vec; transform, y_damping,
                     angular_damping, wing_type, aero_mode)
 
-    # Size vsm state vectors based on wing type
+    # Size aero state vectors based on wing type
+    # For QUATERNION: placeholder sizes using n_unrefined
+    # as group count proxy; resized in SystemStructure
+    # after groups are resolved.
     if wing_type == REFINE
-        nx = 3 * length(vsm_aero.panels)
+        nx = 0
         ny = 0
     else
-        # QUATERNION: use number of unrefined sections
-        n_unrefined = vsm_wing.n_unrefined_sections
-        ny = 3 + n_unrefined + 3  # va(3) + twist(n_unrefined) + ω(3)
-        nx = 3 + 3 + n_unrefined  # force(3) + moment(3) + unrefined_moments(n_unrefined)
+        n_groups_est = vsm_wing.n_unrefined_sections
+        nx = 6 + n_groups_est
+        ny = 5 + n_groups_est  # separate_twist default
     end
 
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
                    zeros(SimFloat, ny), zeros(SimFloat, nx),
-                   zeros(SimFloat, nx, ny),
+                   zeros(SimFloat, nx, ny), false,
                    point_to_vsm_point, wing_segments,
                    z_ref, y_ref,
                    nothing, origin_ref,
@@ -564,13 +574,13 @@ function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
     inertia_vec = ones(MVector{3, SimFloat})
     base = BaseWing(name, groups, R_b_to_c, pos_cad,
                     inertia_vec; transform)
-    # Use number of unrefined sections
-    n_unrefined = vsm_wing.n_unrefined_sections
-    ny = 3 + n_unrefined + 3  # va(3) + twist(n_unrefined) + ω(3)
-    nx = 3 + 3 + n_unrefined  # force(3) + moment(3) + unrefined_moments(n_unrefined)
+    # Placeholder aero arrays — resized by SystemStructure
+    n_groups_est = vsm_wing.n_unrefined_sections
+    nx = 6 + n_groups_est
+    ny = 5 + n_groups_est
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, ny), zeros(SimFloat, nx),
-        zeros(SimFloat, nx, ny),
+        zeros(SimFloat, nx, ny), false,
         nothing, nothing,
         nothing, nothing,  # z/y_ref_points
         nothing, nothing,  # origin_idx and origin_ref

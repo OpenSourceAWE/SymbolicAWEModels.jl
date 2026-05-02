@@ -117,18 +117,18 @@ get_le_pos(sys::SystemStructure{VSMWing}, idx::Int64) = sys.groups[idx].le_pos
     size = (3,)
     eltype = SimFloat
 end
-get_vsm_y(sys::SystemStructure{VSMWing}, idx::Int64, iy::Int) =
-    sys.wings[idx].vsm_y[iy]
-@register_symbolic get_vsm_y(
+get_aero_y(sys::SystemStructure{VSMWing}, idx::Int64, iy::Int) =
+    sys.wings[idx].aero_y[iy]
+@register_symbolic get_aero_y(
     sys::SystemStructure{VSMWing}, idx::Int64, iy::Int)
-get_vsm_x(sys::SystemStructure{VSMWing}, idx::Int64, ix::Int) =
-    sys.wings[idx].vsm_x[ix]
-@register_symbolic get_vsm_x(
+get_aero_x(sys::SystemStructure{VSMWing}, idx::Int64, ix::Int) =
+    sys.wings[idx].aero_x[ix]
+@register_symbolic get_aero_x(
     sys::SystemStructure{VSMWing}, idx::Int64, ix::Int)
-get_vsm_jac(sys::SystemStructure{VSMWing}, idx::Int64,
+get_aero_jac(sys::SystemStructure{VSMWing}, idx::Int64,
              ix::Int, iy::Int) =
-    sys.wings[idx].vsm_jac[ix, iy]
-@register_symbolic get_vsm_jac(
+    sys.wings[idx].aero_jac[ix, iy]
+@register_symbolic get_aero_jac(
     sys::SystemStructure{VSMWing}, idx::Int64,
     ix::Int, iy::Int)
 get_pulley_len(sys::SystemStructure{VSMWing}, idx::Int64) = sys.pulleys[idx].len

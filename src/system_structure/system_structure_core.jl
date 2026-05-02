@@ -551,6 +551,22 @@ function assign_indices_and_resolve!(
                 resolve!(something(wing.y_ref_points)[2],
                     point_names, "point")
             end
+
+            # Resize aero arrays now that group_idxs
+            # are resolved (initial sizing used
+            # n_unrefined as proxy which may differ)
+            if wing.wing_type == QUATERNION
+                n_grp = length(wing.group_idxs)
+                nx = 6 + n_grp
+                ny = 5 + n_grp
+                if length(wing.aero_x) != nx ||
+                        length(wing.aero_y) != ny
+                    wing.aero_y = zeros(SimFloat, ny)
+                    wing.aero_x = zeros(SimFloat, nx)
+                    wing.aero_jac = zeros(
+                        SimFloat, nx, ny)
+                end
+            end
         end
     end
 
@@ -955,13 +971,13 @@ function SystemStructure(name, set;
             # Update wing with new groups and resize vsm arrays
             wing.group_idxs = new_group_idxs
 
-            # Resize vsm arrays based on number of unrefined sections
-            n_unrefined = wing.vsm_wing.n_unrefined_sections
-            ny = 3 + n_unrefined + 3  # va(3) + twist(n_unrefined) + ω(3)
-            nx = 3 + 3 + n_unrefined  # force(3) + moment(3) + unrefined_moments(n_unrefined)
-            wing.vsm_y = zeros(SimFloat, ny)
-            wing.vsm_x = zeros(SimFloat, nx)
-            wing.vsm_jac = zeros(SimFloat, nx, ny)
+            # Resize aero arrays for new group count
+            n_groups = length(new_group_idxs)
+            nx = 6 + n_groups
+            ny = 5 + n_groups
+            wing.aero_y = zeros(SimFloat, ny)
+            wing.aero_x = zeros(SimFloat, nx)
+            wing.aero_jac = zeros(SimFloat, nx, ny)
 
             prn && @info "Auto-created $(length(new_group_idxs)) groups " *
                   "for QUATERNION wing $(wing.idx)"

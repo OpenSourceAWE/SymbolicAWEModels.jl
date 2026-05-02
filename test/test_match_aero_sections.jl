@@ -282,12 +282,14 @@ end
 
         @test vsm_w.n_unrefined_sections == n_struct
 
-        # Verify linearization vectors resized
-        ny = 3 + n_struct + 3
-        nx = 3 + 3 + n_struct
-        @test length(wing.vsm_y) == ny
-        @test length(wing.vsm_x) == nx
-        @test size(wing.vsm_jac) == (nx, ny)
+        # Verify aero vectors resized
+        n_groups = length(wing.group_idxs)
+        nx = 6 + n_groups
+        ny = 5 + (wing.separate_twist ?
+            n_groups : 2)
+        @test length(wing.aero_y) == ny
+        @test length(wing.aero_x) == nx
+        @test size(wing.aero_jac) == (nx, ny)
 
         # Refined polars preserved — NOT re-interpolated
         @test length(vsm_w.refined_sections) == n_refined

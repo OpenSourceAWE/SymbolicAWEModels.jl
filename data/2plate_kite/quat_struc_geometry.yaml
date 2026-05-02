@@ -134,7 +134,7 @@ wings:
 transforms:
   data:
     - name: main_transform
-      elevation: 60
+      elevation: 70
       azimuth: 0.0
       heading: 0.0
       wing_idx: main_wing

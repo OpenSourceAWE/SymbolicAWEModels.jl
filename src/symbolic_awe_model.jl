@@ -11,8 +11,10 @@ A container for the main Ordinary Differential Equation (ODE) problem and its
 associated getter and setter functions for the full, nonlinear physical state.
 """
 @with_kw struct ProbWithAttributes{Prob, SetSys, SetSetValues,
-                                  GetSetValues, GetWingState, GetVsmY, GetSegmentState,
-                                  GetWinchState, GetTetherState, GetPointState,
+                                  GetSetValues, GetWingState,
+                                  GetAeroInput, GetSegmentState,
+                                  GetWinchState, GetTetherState,
+                                  GetPointState,
                                   GetPulleyState, GetGroupState}
     "The ODE problem for the full nonlinear model."
     prob::Prob
@@ -26,7 +28,7 @@ associated getter and setter functions for the full, nonlinear physical state.
     # Getters for the ODE state
     get_set_values::GetSetValues
     get_wing_state::GetWingState
-    get_vsm_y::GetVsmY
+    get_aero_input::GetAeroInput
     get_segment_state::GetSegmentState
     get_winch_state::GetWinchState
     get_tether_state::GetTetherState

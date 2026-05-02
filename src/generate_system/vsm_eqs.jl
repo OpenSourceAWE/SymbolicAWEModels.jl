@@ -7,7 +7,8 @@
 # Each mode generates only the equations it needs:
 #   AERO_NONE:       zeros (no VSM calls)
 #   AERO_DIRECT:     reads stored forces via registered functions
-#   AERO_LINEARIZED: full symbolic linearization (q∞·A·(x₀+J·Δ))
+#   AERO_LINEARIZED: wind-axis coefficient linearization
+#                    with q∞·A·(CL·lift - CD·drag + CS·side)
 #
 # REFINE wings use per-point forces via get_point_aero_force.
 
@@ -18,8 +19,8 @@ Generate aerodynamic equations for all wings.
 
 Aero mode is resolved at build time — each wing's `aero_mode`
 determines which equations are generated:
-- `AERO_LINEARIZED`: symbolic linearization equations
-  (q∞·A·(x₀ + J·Δ)) that the solver can differentiate through
+- `AERO_LINEARIZED`: wind-axis coefficient equations with
+  Jacobian-based linearization around the operating point
 - `AERO_DIRECT`: registered functions returning stored forces
 - `AERO_NONE`: zeros
 
@@ -35,15 +36,13 @@ function vsm_eqs!(
     (; groups, wings, points) = s.sys_struct
     length(wings) == 0 && return eqs, guesses
 
-    # Predeclare symbolic arrays so static analysis sees these bindings
-    # even though they are only populated when a linearized wing exists.
-    vsm_input_state = nothing
-    vsm_input_state_delta = nothing
-    vsm_input_state_prev = nothing
-    force_jacobian = nothing
-    vsm_output_force_prev = nothing
+    # Predeclare symbolic arrays
+    aero_input = nothing
+    aero_input_delta = nothing
+    aero_input_prev = nothing
+    aero_jac_sym = nothing
+    aero_coeffs_prev = nothing
     q_inf = nothing
-    no_scale_aero_force_b = nothing
 
     has_linearized = any(
         w isa VSMWing &&
@@ -51,35 +50,32 @@ function vsm_eqs!(
         w.aero_mode == AERO_LINEARIZED
         for w in wings)
 
-    # Declare symbolic variables only when needed
-    # for AERO_LINEARIZED QUATERNION wings
+    # Declare symbolic variables for AERO_LINEARIZED
     if has_linearized
-        first_lin_wing = first(w for w in wings if w isa VSMWing &&
-            w.wing_type == QUATERNION && w.aero_mode == AERO_LINEARIZED)
-        n_unrefined = first_lin_wing.vsm_wing.n_unrefined_sections
-        ny_quaternion = 3 + n_unrefined + 3
+        first_lin_wing = first(
+            w for w in wings if w isa VSMWing &&
+            w.wing_type == QUATERNION &&
+            w.aero_mode == AERO_LINEARIZED)
+        ny = length(first_lin_wing.aero_y)
         nx_values = [
-            3 + 3 + w.vsm_wing.n_unrefined_sections
+            length(w.aero_x)
             for w in wings
-            if w isa VSMWing && w.wing_type == QUATERNION &&
+            if w isa VSMWing &&
+               w.wing_type == QUATERNION &&
                w.aero_mode == AERO_LINEARIZED]
-        nx_max = maximum(nx_values)
+        nx = maximum(nx_values)
 
         @variables begin
-            vsm_input_state(t)[
-                1:ny_quaternion, eachindex(wings)]
-            vsm_input_state_delta(t)[
-                1:ny_quaternion, eachindex(wings)]
-            vsm_input_state_prev(t)[
-                1:ny_quaternion, eachindex(wings)]
-            force_jacobian(t)[
-                1:nx_max, 1:ny_quaternion,
-                eachindex(wings)]
-            vsm_output_force_prev(t)[
-                1:nx_max, eachindex(wings)]
+            aero_input(t)[1:ny, eachindex(wings)]
+            aero_input_delta(t)[
+                1:ny, eachindex(wings)]
+            aero_input_prev(t)[
+                1:ny, eachindex(wings)]
+            aero_jac_sym(t)[
+                1:nx, 1:ny, eachindex(wings)]
+            aero_coeffs_prev(t)[
+                1:nx, eachindex(wings)]
             q_inf(t)[eachindex(wings)]
-            no_scale_aero_force_b(t)[
-                1:3, eachindex(wings)]
         end
     end
 
@@ -123,7 +119,7 @@ function vsm_eqs!(
             ]
 
         elseif wing.aero_mode == AERO_NONE
-            # ========== QUATERNION + AERO_NONE ==========
+            # ========== QUATERNION + AERO_NONE =====
             eqs = [
                 eqs
                 aero_force_b[:, wing.idx] ~ zeros(3)
@@ -141,7 +137,7 @@ function vsm_eqs!(
             end
 
         elseif wing.aero_mode == AERO_DIRECT
-            # ========== QUATERNION + AERO_DIRECT ==========
+            # ========== QUATERNION + AERO_DIRECT ===
             eqs = [
                 eqs
                 aero_force_b[:, wing.idx] ~ [
@@ -168,146 +164,158 @@ function vsm_eqs!(
             end
 
         else
-            # ========== QUATERNION + AERO_LINEARIZED =====
-            # Full symbolic linearization equations
-            wing isa VSMWing || error("AERO_LINEARIZED wing $(wing.idx) is not a VSMWing")
+            # ========== QUATERNION + AERO_LINEARIZED
+            # Wind-axis coefficient linearization
+            wing isa VSMWing || error(
+                "AERO_LINEARIZED wing $(wing.idx)" *
+                " is not a VSMWing")
 
             area = wing.vsm_aero.projected_area
-            n_un = wing.vsm_wing.n_unrefined_sections
-            ny_quat = 3 + n_un + 3
-            nx_quat = 3 + 3 + n_un
+            c_ref = wing.vsm_aero.c_ref
+            n_groups = length(wing.group_idxs)
+            ny_w = length(wing.aero_y)
+            nx_w = length(wing.aero_x)
 
-            force_b = no_scale_aero_force_b[:, wing.idx]
-            wind_dir_b = smooth_normalize(
-                va_wing_b[:, wing.idx])
-            drag_force_b =
-                (force_b ⋅ wind_dir_b) * wind_dir_b
-
-            # Build twist mapping
-            unrefined_to_group_twist =
-                Vector{Any}(undef, n_un)
-            for gidx in wing.group_idxs
-                group = groups[gidx]
-                for ui in group.unrefined_section_idxs
-                    unrefined_to_group_twist[ui] =
-                        twist_angle[group.idx]
-                end
+            # ── Load stored operating point ──────
+            local prev_input_eqs = Equation[]
+            for iy in 1:ny_w
+                push!(prev_input_eqs,
+                    aero_input_prev[iy, wing.idx] ~
+                    get_aero_y(
+                        psys, wing.idx, iy))
             end
 
-            local prev_state_eqs = Equation[]
-            for iy in 1:ny_quat
-                push!(prev_state_eqs,
-                    vsm_input_state_prev[iy, wing.idx] ~
-                    get_vsm_y(psys, wing.idx, iy))
+            local prev_coeff_eqs = Equation[]
+            for ix in 1:nx_w
+                push!(prev_coeff_eqs,
+                    aero_coeffs_prev[ix, wing.idx] ~
+                    get_aero_x(
+                        psys, wing.idx, ix))
             end
 
-            local prev_force_eqs = Equation[]
-            for ix in 1:nx_quat
-                push!(prev_force_eqs,
-                    vsm_output_force_prev[ix, wing.idx] ~
-                    get_vsm_x(psys, wing.idx, ix))
-            end
-
-            local force_jacobian_eqs = Equation[]
-            for ix in 1:nx_quat
-                for iy in 1:ny_quat
-                    push!(force_jacobian_eqs,
-                        force_jacobian[ix, iy, wing.idx] ~
-                        get_vsm_jac(
+            local jac_eqs = Equation[]
+            for ix in 1:nx_w
+                for iy in 1:ny_w
+                    push!(jac_eqs,
+                        aero_jac_sym[
+                            ix, iy, wing.idx] ~
+                        get_aero_jac(
                             psys, wing.idx, ix, iy))
                 end
             end
 
+            # ── Current input state (symbolic) ───
+            w = wing.idx
+            vx = va_wing_b[1, w]
+            vy = va_wing_b[2, w]
+            vz = va_wing_b[3, w]
+            va_sq = vx^2 + vy^2 + vz^2
+            va_mag = sqrt(va_sq + 1e-24)
+            alpha_sym = atan(vz, vx)
+            beta_sym = asin(vy / va_mag)
+
+            # Per-group twist inputs
+            twist_inputs = [
+                twist_angle[groups[gidx].idx]
+                for gidx in wing.group_idxs]
+
             eqs = [
                 eqs
                 # Dynamic pressure
-                q_inf[wing.idx] ~
+                q_inf[w] ~
                     0.5 *
                     calc_rho(s.am,
-                        wing_pos[3, wing.idx]) *
-                    smooth_norm(va_wing_b[:, wing.idx])^2
+                        wing_pos[3, w]) * va_sq
 
-                # Load linearization data from struct
-                prev_state_eqs
-                prev_force_eqs
-                force_jacobian_eqs
+                # Load stored state from struct
+                prev_input_eqs
+                prev_coeff_eqs
+                jac_eqs
 
-                # Current input state (symbolic)
-                vsm_input_state[:, wing.idx] ~ [
-                    va_wing_b[:, wing.idx]
-                    unrefined_to_group_twist
-                    ω_b[:, wing.idx]
+                # Assemble current input state
+                aero_input[:, wing.idx] ~ [
+                    alpha_sym
+                    beta_sym
+                    ω_b[1, wing.idx]
+                    ω_b[2, wing.idx]
+                    ω_b[3, wing.idx]
+                    twist_inputs
                 ]
 
-                # Δstate = state - state₀
-                vsm_input_state_delta[:, wing.idx] ~
-                    vsm_input_state[:, wing.idx] -
-                    vsm_input_state_prev[:, wing.idx]
+                # Delta = current - operating point
+                aero_input_delta[:, wing.idx] ~
+                    aero_input[:, wing.idx] -
+                    aero_input_prev[:, wing.idx]
             ]
 
-            # Symbolic linearized expressions
-            delta = vsm_input_state_delta[:, wing.idx]
-            J = force_jacobian[:, :, wing.idx]
-            x0 = vsm_output_force_prev[:, wing.idx]
-            qA = q_inf[wing.idx] * area
+            # ── Coefficient reconstruction ───────
+            # coeff(ix) = x0[ix] + Σ J[ix,iy]*Δ[iy]
+            delta = aero_input_delta[:, w]
+            J = aero_jac_sym[:, :, w]
+            x0 = aero_coeffs_prev[:, w]
 
-            # Linearized force (1:3), moment (4:6)
-            lin_force = qA * (x0[1:3] +
-                J[1:3, :] * delta)
-            lin_moment = qA * (x0[4:6] +
-                J[4:6, :] * delta)
+            coeff(ix) = x0[ix] + sum(
+                J[ix, iy] * delta[iy]
+                for iy in 1:ny_w)
 
-            # Linearized group moments
+            CL = coeff(1)
+            CD = coeff(2)
+            CS = coeff(3)
+            qA = q_inf[w] * area
+
+            # ── Force reconstruction ─────────────
+            # drag_dir = va_b / |va_b|  (scalar)
+            # lift_dir = normalize(cross(drag_dir,
+            #            [0,1,0]))
+            #          = [-vz, 0, vx] / sqrt(vx²+vz²)
+            inv_va = 1 / va_mag
+            xz_mag = sqrt(vx^2 + vz^2 + 1e-24)
+            inv_xz = 1 / xz_mag
+
+            drag = [vx, vy, vz] .* inv_va
+            lift = [-vz, 0, vx] .* inv_xz
+            side = [0.0, 1.0, 0.0]
+
+            drag_frac = get_drag_frac(psys, w)
+            force_eq = [
+                qA * (CL * lift[i] -
+                      CD * drag_frac * drag[i] +
+                      CS * side[i])
+                for i in 1:3]
+
+            moment_eq = [
+                qA * c_ref * coeff(3 + i)
+                for i in 1:3]
+
+            # ── Group moments ────────────────────
             group_moment_eqs = Equation[]
-            for gidx in wing.group_idxs
+            for (gi, gidx) in
+                    enumerate(wing.group_idxs)
                 group = groups[gidx]
                 isempty(
                     group.unrefined_section_idxs
                 ) && continue
-                moment_terms = []
-                for ui in group.unrefined_section_idxs
-                    vix = 6 + ui
-                    push!(moment_terms,
-                        x0[vix] +
-                        sum([J[vix, iy] * delta[iy]
-                            for iy in 1:ny_quat
-                        ]))
-                end
                 push!(group_moment_eqs,
                     group_aero_moment[group.idx] ~
-                        sum(moment_terms))
+                        qA * c_ref * coeff(6 + gi))
             end
-
-            # Drag correction on linearized force
-            lin_force_corrected =
-                force_b +
-                drag_force_b *
-                    (get_drag_frac(
-                        psys, wing.idx) - 1)
 
             eqs = [
                 eqs
-                # Intermediate linearized force
-                force_b ~ lin_force
-
-                # Group moments
                 group_moment_eqs
 
-                # Final force (with drag correction)
-                aero_force_b[:, wing.idx] ~
-                    lin_force_corrected
-
-                # Final moment
+                aero_force_b[:, wing.idx] ~ force_eq
                 aero_moment_b[:, wing.idx] ~
-                    lin_moment
+                    moment_eq
             ]
 
             if s.set.quasi_static
                 local wing_guesses = []
-                for iy in 1:ny_quat
+                for iy in 1:ny_w
                     push!(wing_guesses,
-                        vsm_input_state[iy, wing.idx] =>
-                        get_vsm_y(psys, wing.idx, iy))
+                        aero_input[iy, wing.idx] =>
+                        get_aero_y(
+                            psys, wing.idx, iy))
                 end
                 guesses = [
                     guesses

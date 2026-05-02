@@ -110,7 +110,7 @@ structural points.  When they differ, `use_prior_polar` and non-empty
 `refined_sections` are required.
 
 For non-REFINE wings whose section count changed, the linearization
-vectors (`vsm_y`, `vsm_x`, `vsm_jac`) are resized to match the new
+vectors (`aero_y`, `aero_x`, `aero_jac`) are resized to match the new
 `n_unrefined_sections`.
 
 # Keyword Arguments
@@ -241,12 +241,12 @@ function match_aero_sections_to_structure!(
     # Resize linearization vectors for non-REFINE wings
     # when section count changed.
     if counts_differ && wing.wing_type != REFINE
-        n_un = Int(n_struct_sections)
-        ny = 3 + n_un + 3
-        nx = 3 + 3 + n_un
-        wing.vsm_y = zeros(SimFloat, ny)
-        wing.vsm_x = zeros(SimFloat, nx)
-        wing.vsm_jac = zeros(SimFloat, nx, ny)
+        n_groups = length(wing.group_idxs)
+        nx = 6 + n_groups
+        ny = 5 + n_groups
+        wing.aero_y = zeros(SimFloat, ny)
+        wing.aero_x = zeros(SimFloat, nx)
+        wing.aero_jac = zeros(SimFloat, nx, ny)
     end
 
     return nothing

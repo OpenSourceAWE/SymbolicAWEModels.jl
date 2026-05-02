@@ -80,9 +80,9 @@ end
     SymbolicAWEModels.get_com_w(sys, idx)
     SymbolicAWEModels.get_R_b_to_p(sys, idx)
     SymbolicAWEModels.get_inertia_principal(sys, idx)
-    SymbolicAWEModels.get_vsm_y(sys, idx, 1)
-    SymbolicAWEModels.get_vsm_x(sys, idx, 1)
-    SymbolicAWEModels.get_vsm_jac(sys, idx, 1, 1)
+    SymbolicAWEModels.get_aero_y(sys, idx, 1)
+    SymbolicAWEModels.get_aero_x(sys, idx, 1)
+    SymbolicAWEModels.get_aero_jac(sys, idx, 1, 1)
     SymbolicAWEModels.get_aero_force_override(sys, idx, 1)
     SymbolicAWEModels.get_aero_moment_override(sys, idx, 1)
 
@@ -114,13 +114,13 @@ end
     end
 
     @testset "VSM accessors" begin
-        a = @allocations SymbolicAWEModels.get_vsm_y(
+        a = @allocations SymbolicAWEModels.get_aero_y(
             sys, idx, 1)
         @test a <= (v11 ? 2 : 0)
-        a = @allocations SymbolicAWEModels.get_vsm_x(
+        a = @allocations SymbolicAWEModels.get_aero_x(
             sys, idx, 1)
         @test a <= (v11 ? 2 : 0)
-        a = @allocations SymbolicAWEModels.get_vsm_jac(
+        a = @allocations SymbolicAWEModels.get_aero_jac(
             sys, idx, 1, 1)
         @test a <= 2
         a = @allocations SymbolicAWEModels.get_aero_force_override(

@@ -19,7 +19,7 @@ of the compiled `ODESystem` (`sys`).
 function generate_prob_getters(sys_struct, sys)
     c = collect
     (; wings, groups, pulleys, winches, tethers, segments) = sys_struct
-    get_wing_state, get_vsm_y, get_segment_state, get_group_state, get_pulley_state,
+    get_wing_state, get_aero_input, get_segment_state, get_group_state, get_pulley_state,
     get_winch_state, get_tether_state, set_set_values, get_set_values = ntuple(_ -> nothing, 9)
 
     if length(wings) > 0
@@ -43,15 +43,15 @@ function generate_prob_getters(sys_struct, sys)
         ])
         get_wing_state = getu(sys, wing_vars)
 
-        # vsm_input_state only exists for QUATERNION + AERO_LINEARIZED wings
+        # aero_input only exists for QUATERNION + AERO_LINEARIZED wings
         has_linearized = any(
             w.wing_type === QUATERNION &&
             w.aero_mode === AERO_LINEARIZED
             for w in sys_struct.wings)
         if has_linearized
-            get_vsm_y = getu(sys, sys.vsm_input_state)
+            get_aero_input = getu(sys, sys.aero_input)
         else
-            get_vsm_y = nothing
+            get_aero_input = nothing
         end
     end
     if length(segments) > 0; get_segment_state = getu(sys, c.([sys.spring_force, sys.len, sys.l0])); end
@@ -75,7 +75,7 @@ function generate_prob_getters(sys_struct, sys)
     # point_state always returns, in order: pos, vel, point_force, va_point_b, point_mass, total_drag
     get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass, sys.total_drag]))
 
-    return (; get_wing_state, get_vsm_y, get_segment_state, get_group_state,
+    return (; get_wing_state, get_aero_input, get_segment_state, get_group_state,
             get_pulley_state, get_winch_state, get_tether_state, set_set_values,
             get_set_values, set_sys, get_point_state)
 end
@@ -460,8 +460,8 @@ function reinit!(
     end
     sam.integrator = integrator
     OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
-    lin_vsm && update_vsm!(sam, prob)
     update_sys_struct!(prob, integrator, sam.sys_struct)
+    lin_vsm && update_vsm!(sam, prob)
     validate_sys_struct(sam.sys_struct)  # Check for division-by-zero issues
     return integrator, true
 end
