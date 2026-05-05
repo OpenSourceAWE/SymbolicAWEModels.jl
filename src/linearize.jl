@@ -51,7 +51,8 @@ Full nonlinear VSM solve with per-point force distribution.
 """
 function update_vsm!(sam::SymbolicAWEModel,
                      prob::ProbWithAttributes,
-                     integ=sam.integrator)
+                     integ=sam.integrator;
+                     vsm_min_wind=0.5)
     wings = sam.sys_struct.wings
     groups = sam.sys_struct.groups
     points = sam.sys_struct.points
@@ -61,6 +62,18 @@ function update_vsm!(sam::SymbolicAWEModel,
     for wing in wings
         wing.wing_type != QUATERNION && continue
         wing.aero_mode == AERO_NONE && continue
+        if norm(wing.va_b) < vsm_min_wind
+            fill!(wing.aero_x, 0.0)
+            fill!(wing.aero_jac, 0.0)
+            if wing.aero_mode == AERO_DIRECT
+                fill!(wing.aero_force_b, 0.0)
+                fill!(wing.aero_moment_b, 0.0)
+            end
+            for gidx in wing.group_idxs
+                groups[gidx].aero_moment = 0.0
+            end
+            continue
+        end
         _update_quaternion_wing!(wing, sam.am, groups)
     end
 
@@ -78,6 +91,16 @@ function update_vsm!(sam::SymbolicAWEModel,
                 error(
                     "REFINE + AERO_LINEARIZED " *
                     "not yet implemented")
+            end
+
+            if norm(wing.va_b) < vsm_min_wind
+                for point in points
+                    if point.type == WING &&
+                            point.wing_idx == wing.idx
+                        fill!(point.aero_force_b, 0.0)
+                    end
+                end
+                continue
             end
 
             update_vsm_wing_from_structure!(

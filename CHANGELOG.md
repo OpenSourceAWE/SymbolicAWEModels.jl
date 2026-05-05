@@ -3,6 +3,16 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# v0.8.3 03-05-2026
+
+## Changed
+- VSM solver type is taken from VSM settings instead of being
+  hard-coded to `NONLIN`.
+- At low apparent wind, aero outputs are zeroed instead of warning
+  and skipping. Threshold via new `vsm_min_wind` kwarg (default 0.5)
+  on `init!`, `reinit!`, `next_step!`.
+- Bumped `VortexStepMethod` compat to `3.2.0`.
+
 # v0.8.2 26-04-2026
 
 ## Changed
