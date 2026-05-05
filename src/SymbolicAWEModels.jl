@@ -41,6 +41,7 @@ using SteadyStateDiffEq
 using AtmosphericModels
 using KiteUtils
 using VortexStepMethod
+using ForwardDiff
 
 #======================================================================#
 #                  IMPORTS (for extending functions)

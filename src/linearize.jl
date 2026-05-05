@@ -42,10 +42,9 @@ Update the aerodynamic model from the Vortex Step Method.
 
 **For QUATERNION wings:**
 Computes wind-axis coefficients (CL, CD, CS, CM, cm) at the
-current operating point via a baseline VSM solve, plus
-finite-difference perturbation solves for each input direction
-(alpha, beta, omega, twist). Stores the dense Jacobian
-`d(coeffs)/d(inputs)` in `wing.aero_jac`.
+current operating point, plus a `ForwardDiff` Jacobian over the
+input vector `[α, β, ω₁, ω₂, ω₃, θ_group₁…]`. Stores the dense
+Jacobian `d(coeffs)/d(inputs)` in `wing.aero_jac`.
 
 **For REFINE wings:**
 Full nonlinear VSM solve with per-point force distribution.
@@ -59,93 +58,12 @@ function update_vsm!(sam::SymbolicAWEModel,
 
     length(wings) == 0 && return nothing
 
-    # Handle QUATERNION wings
-    has_quaternion_wings = any(
-        w.wing_type === QUATERNION for w in wings)
-    if has_quaternion_wings
-        for wing in wings
-            wing.wing_type != QUATERNION && continue
-            wing.aero_mode == AERO_NONE && continue
-
-            va_b = wing.va_b
-            va_mag = norm(va_b)
-            if va_mag < 1e-3
-                @warn "Apparent wind too small " *
-                    "(va_b=$va_b), skipping " *
-                    "wing $(wing.idx)"
-                continue
-            end
-            if any(isnan.(wing.vsm_solver.sol.force))
-                wing.vsm_solver.prob = nothing
-                @warn "Resetting vsm solver."
-            end
-
-            group_idxs = wing.group_idxs
-            n_groups = length(group_idxs)
-            n_unrefined =
-                wing.vsm_wing.n_unrefined_sections
-
-            moment_frac = if isempty(group_idxs)
-                0.25
-            elseif length(groups) >=
-                    maximum(group_idxs)
-                groups[first(group_idxs)].moment_frac
-            else
-                0.25
-            end
-
-            # Current twist per unrefined section
-            theta_0 = zeros(n_unrefined)
-            group_twist_0 = zeros(n_groups)
-            for (gi, gidx) in enumerate(group_idxs)
-                g = groups[gidx]
-                group_twist_0[gi] = g.twist
-                for ui in g.unrefined_section_idxs
-                    theta_0[ui] = g.twist
-                end
-            end
-
-            # Operating point
-            omega_b = copy(wing.ω_b)
-            alpha_0 = atan(va_b[3], va_b[1])
-            beta_0 = asin(clamp(
-                va_b[2] / va_mag, -1, 1))
-
-            # Baseline solve
-            x0 = _vsm_solve_coeffs!(
-                wing, theta_0, va_b, omega_b,
-                moment_frac, groups)
-
-            # Store operating point
-            _store_operating_point!(
-                wing, alpha_0, beta_0, omega_b,
-                group_twist_0, groups)
-
-            # Store baseline coefficients
-            wing.aero_x .= x0
-
-            if wing.aero_mode == AERO_LINEARIZED
-                # Perturbation solves → Jacobian
-                _compute_aero_jacobian!(
-                    wing, x0, alpha_0, beta_0,
-                    va_mag, omega_b, theta_0,
-                    group_twist_0, moment_frac,
-                    groups)
-            elseif wing.aero_mode == AERO_DIRECT
-                # Compute physical forces from
-                # baseline wind-axis coefficients
-                _apply_direct_forces!(
-                    wing, sam.am, x0)
-            end
-
-            # Update group aero moments
-            for (gi, gidx) in enumerate(group_idxs)
-                groups[gidx].aero_moment = x0[6 + gi]
-            end
-        end
+    for wing in wings
+        wing.wing_type != QUATERNION && continue
+        wing.aero_mode == AERO_NONE && continue
+        _update_quaternion_wing!(wing, sam.am, groups)
     end
 
-    # Handle REFINE wings (full nonlinear solve)
     has_refine_wings = any(
         w.wing_type === REFINE for w in wings)
     if has_refine_wings
@@ -231,140 +149,147 @@ end
 
 # ── QUATERNION aero helpers ──────────────────────────
 
-"""Convert (alpha, beta, va_mag) to body-frame va_b."""
-function _va_from_angles(alpha, beta, va_mag)
-    return [va_mag * cos(alpha) * cos(beta),
-            va_mag * sin(beta),
-            va_mag * sin(alpha) * cos(beta)]
-end
-
 """
-    _vsm_solve_coeffs!(wing, theta, va_b, omega_b,
-                       moment_frac, groups)
+    _vsm_aero_coeffs(wing, y, va_mag, n_unrefined, n_groups,
+                     group_idxs, groups, moment_frac, shadow_ref)
 
-Single VSM solve → wind-axis coefficient vector:
-`[CL, CD, CS, CM1, CM2, CM3, cm_1..cm_n]`
+Compute the wind-axis aerodynamic coefficient vector
+`[CL, CD, CS, CM₁, CM₂, CM₃, cm_group₁…cm_groupₙ]` for input
+`y = [α, β, ω₁, ω₂, ω₃, θ_group₁…θ_groupₙ]`.
+
+`eltype(y)` may be `Float64` or `ForwardDiff.Dual`. For the dual
+path a `make_dual_shadow` of `wing.vsm_aero / vsm_solver` is
+allocated lazily (per ForwardDiff chunk type) into `shadow_ref`
+and reused for every column of the Jacobian.
 """
-function _vsm_solve_coeffs!(
-    wing, theta, va_b, omega_b,
-    moment_frac, groups
-)
-    VortexStepMethod.unrefined_deform!(
-        wing.vsm_wing, theta; smooth=false)
-    VortexStepMethod.reinit!(
-        wing.vsm_aero; init_aero=false)
-    set_va!(wing.vsm_aero, va_b, omega_b)
+function _vsm_aero_coeffs(wing, y::AbstractVector{T},
+        va_mag, n_unrefined, n_groups,
+        group_idxs, groups, moment_frac,
+        shadow_ref::Ref) where {T}
+
+    if T === Float64
+        body_aero_c = wing.vsm_aero
+        solver_c = wing.vsm_solver
+        wing_c = wing.vsm_wing
+    else
+        sh = shadow_ref[]
+        if sh === nothing || eltype(sh[1]._va) !== T
+            shadow_ref[] = VortexStepMethod.make_dual_shadow(
+                wing.vsm_solver, wing.vsm_aero, T)
+            sh = shadow_ref[]
+        end
+        body_aero_c, solver_c = sh
+        wing_c = body_aero_c.wings[1]
+    end
+
+    α = y[1]
+    β = y[2]
+    ω = MVector{3, T}(y[3], y[4], y[5])
+
+    # Body-frame apparent wind from (α, β, va_mag)
+    cα, sα = cos(α), sin(α)
+    cβ, sβ = cos(β), sin(β)
+    va_b_local = MVector{3, T}(va_mag * cα * cβ,
+                               va_mag * sβ,
+                               va_mag * sα * cβ)
+
+    # Per-group → per-section twist
+    theta = zeros(T, n_unrefined)
+    for (gi, gidx) in enumerate(group_idxs)
+        for ui in groups[gidx].unrefined_section_idxs
+            theta[ui] = y[5 + gi]
+        end
+    end
+
+    if n_unrefined > 0
+        VortexStepMethod.unrefined_deform!(
+            wing_c, theta; smooth=false)
+        VortexStepMethod.reinit!(
+            body_aero_c; init_aero=false)
+    end
+    set_va!(body_aero_c, va_b_local, ω)
     VortexStepMethod.solve!(
-        wing.vsm_solver, wing.vsm_aero;
-        moment_frac, log=false)
+        solver_c, body_aero_c; moment_frac, log=false)
 
-    sol = wing.vsm_solver.sol
+    sol = solver_c.sol
     cf = sol.force_coeffs
     cm_body = sol.moment_coeffs
     cm_unr = sol.cm_unrefined_dist
 
     # Wind-axis decomposition
-    va_norm = va_b / norm(va_b)
-    side_dir = SVector(0.0, 1.0, 0.0)
+    va_norm = va_b_local ./ va_mag
+    side_dir = SVector(zero(T), one(T), zero(T))
     lift_dir = normalize(cross(va_norm, side_dir))
 
-    n_groups = length(wing.group_idxs)
-    x = zeros(6 + n_groups)
-    x[1] = dot(cf, lift_dir)   # CL
-    x[2] = dot(cf, va_norm)    # CD
-    x[3] = dot(cf, side_dir)   # CS
-    x[4] = cm_body[1]          # CM1
-    x[5] = cm_body[2]          # CM2
-    x[6] = cm_body[3]          # CM3
-
-    for (gi, gidx) in enumerate(wing.group_idxs)
-        g = groups[gidx]
-        x[6 + gi] = sum(
-            cm_unr[ui]
-            for ui in g.unrefined_section_idxs)
+    x = zeros(T, 6 + n_groups)
+    x[1] = dot(cf, lift_dir)
+    x[2] = dot(cf, va_norm)
+    x[3] = dot(cf, side_dir)
+    x[4] = cm_body[1]
+    x[5] = cm_body[2]
+    x[6] = cm_body[3]
+    for (gi, gidx) in enumerate(group_idxs)
+        x[6 + gi] = sum(cm_unr[ui]
+            for ui in groups[gidx].unrefined_section_idxs;
+            init = zero(T))
     end
     return x
 end
 
-"""Store operating point in `wing.aero_y`.
-
-Layout: [α, β, ω₁, ω₂, ω₃, θ_group₁…θ_groupₙ]
 """
-function _store_operating_point!(
-    wing, alpha, beta, omega_b,
-    group_twist, groups
-)
-    wing.aero_y[1] = alpha
-    wing.aero_y[2] = beta
-    wing.aero_y[3] = omega_b[1]
-    wing.aero_y[4] = omega_b[2]
-    wing.aero_y[5] = omega_b[3]
+    _update_quaternion_wing!(wing, am, groups)
 
-    for gi in eachindex(group_twist)
-        wing.aero_y[5 + gi] = group_twist[gi]
-    end
-end
+Compute baseline wind-axis coefficients and the
+ForwardDiff Jacobian `d(coeffs)/d(inputs)` for one wing.
 
+Writes `wing.aero_y / aero_x / aero_jac`, updates
+`groups[gidx].aero_moment`, and (in AERO_DIRECT mode) writes
+`wing.aero_force_b` / `wing.aero_moment_b`.
 """
-Compute dense Jacobian via finite-difference
-perturbation solves. Columns are input perturbation
-directions, rows are all output coefficients.
+function _update_quaternion_wing!(wing, am, groups)
+    va_b = wing.va_b
+    va_mag = norm(va_b)
+    omega_b = wing.ω_b
 
-Input layout: [α, β, ω₁, ω₂, ω₃, θ_group₁…θ_groupₙ]
-"""
-function _compute_aero_jacobian!(
-    wing, x0, alpha_0, beta_0,
-    va_mag, omega_b, theta_0,
-    group_twist_0, moment_frac, groups
-)
-    delta_angle = 1e-2   # rad
-    delta_omega = 1e-2   # rad/s
-    n_groups = length(wing.group_idxs)
-    ny = length(wing.aero_y)
-    jac = wing.aero_jac
+    group_idxs = wing.group_idxs
+    n_groups = length(group_idxs)
+    n_unrefined = wing.vsm_wing.n_unrefined_sections
 
-    for col in 1:ny
-        va_b = _va_from_angles(
-            alpha_0, beta_0, va_mag)
-        omega = copy(omega_b)
-        theta = copy(theta_0)
+    moment_frac = isempty(group_idxs) ? 0.25 :
+        groups[first(group_idxs)].moment_frac
 
-        if col == 1       # alpha
-            va_b = _va_from_angles(
-                alpha_0 + delta_angle,
-                beta_0, va_mag)
-            d = delta_angle
-        elseif col == 2   # beta
-            va_b = _va_from_angles(
-                alpha_0,
-                beta_0 + delta_angle, va_mag)
-            d = delta_angle
-        elseif col <= 5   # omega_b[col-2]
-            omega[col - 2] += delta_omega
-            d = delta_omega
-        else              # per-group twist
-            gi = col - 5
-            gidx = wing.group_idxs[gi]
-            for ui in groups[gidx].unrefined_section_idxs
-                theta[ui] += delta_angle
-            end
-            d = delta_angle
-        end
+    alpha_0 = atan(va_b[3], va_b[1])
+    beta_0 = asin(clamp(va_b[2] / va_mag, -1, 1))
 
-        x_pert = _vsm_solve_coeffs!(
-            wing, theta, va_b, omega,
-            moment_frac, groups)
-        jac[:, col] .= (x_pert .- x0) ./ d
+    # Operating-point input vector y₀ = [α, β, ω, θ_group]
+    y0 = wing.aero_y
+    y0[1] = alpha_0
+    y0[2] = beta_0
+    y0[3] = omega_b[1]
+    y0[4] = omega_b[2]
+    y0[5] = omega_b[3]
+    for (gi, gidx) in enumerate(group_idxs)
+        y0[5 + gi] = groups[gidx].twist
     end
 
-    # Restore baseline state on VSM
-    VortexStepMethod.unrefined_deform!(
-        wing.vsm_wing, theta_0; smooth=false)
-    VortexStepMethod.reinit!(
-        wing.vsm_aero; init_aero=false)
-    set_va!(wing.vsm_aero,
-        _va_from_angles(alpha_0, beta_0, va_mag),
-        omega_b)
+    shadow_ref = Ref{Any}(nothing)
+    f = y -> _vsm_aero_coeffs(wing, y, va_mag,
+        n_unrefined, n_groups, group_idxs, groups,
+        moment_frac, shadow_ref)
+
+    # Baseline (Float64) — also leaves vsm state at the
+    # operating point and populates the live solver.sol
+    wing.aero_x .= f(y0)
+    for (gi, gidx) in enumerate(group_idxs)
+        groups[gidx].aero_moment = wing.aero_x[6 + gi]
+    end
+
+    if wing.aero_mode == AERO_LINEARIZED
+        ForwardDiff.jacobian!(wing.aero_jac, f, y0)
+    elseif wing.aero_mode == AERO_DIRECT
+        _apply_direct_forces!(wing, am, wing.aero_x)
+    end
+    return nothing
 end
 
 """Apply direct forces from wind-axis coefficients."""
