@@ -285,8 +285,7 @@ end
         # Verify aero vectors resized
         n_groups = length(wing.group_idxs)
         nx = 6 + n_groups
-        ny = 5 + (wing.separate_twist ?
-            n_groups : 2)
+        ny = 5 + n_groups
         @test length(wing.aero_y) == ny
         @test length(wing.aero_x) == nx
         @test size(wing.aero_jac) == (nx, ny)

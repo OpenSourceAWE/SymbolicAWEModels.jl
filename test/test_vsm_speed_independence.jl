@@ -14,7 +14,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod,
-    _vsm_solve_coeffs!, QUATERNION
+    _update_quaternion_wing!, QUATERNION
 using KiteUtils
 using LinearAlgebra
 
@@ -44,33 +44,19 @@ moment_frac =
     groups[first(wing.group_idxs)].moment_frac
 
 va_b_0 = copy(wing.va_b)
-omega_b = copy(wing.ω_b)
-theta_0 = zeros(n_unrefined)
-for gidx in wing.group_idxs
-    g = groups[gidx]
-    for ui in g.unrefined_section_idxs
-        theta_0[ui] = g.twist
-    end
+
+"""Drive _update_quaternion_wing! at scaled va, return aero_x copy."""
+function coeffs_at(scale)
+    wing.va_b .= va_b_0 .* scale
+    _update_quaternion_wing!(wing, sam.am, groups)
+    return copy(wing.aero_x)
 end
 
 # ── tests ───────────────────────────────────────────────
 @testset "VSM speed independence" begin
-    # Solve at baseline speed
-    x_base = _vsm_solve_coeffs!(
-        wing, theta_0, va_b_0, omega_b,
-        moment_frac, groups)
-
-    # Solve at half speed (same direction)
-    va_half = va_b_0 * 0.5
-    x_half = _vsm_solve_coeffs!(
-        wing, theta_0, va_half, omega_b,
-        moment_frac, groups)
-
-    # Solve at double speed (same direction)
-    va_double = va_b_0 * 2.0
-    x_double = _vsm_solve_coeffs!(
-        wing, theta_0, va_double, omega_b,
-        moment_frac, groups)
+    x_base = coeffs_at(1.0)
+    x_half = coeffs_at(0.5)
+    x_double = coeffs_at(2.0)
 
     # All coefficients should be speed-independent
     @testset "half speed" begin

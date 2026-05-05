@@ -221,7 +221,6 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
     aero_y::Vector{SimFloat}
     aero_x::Vector{SimFloat}
     aero_jac::Matrix{SimFloat}
-    separate_twist::Bool
 
     # REFINE-specific fields (Nothing for QUATERNION wings)
     point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}
@@ -254,7 +253,6 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
     function VSMWing(base::BaseWing, vsm_aero,
                      vsm_wing, vsm_solver,
                      aero_y, aero_x, aero_jac,
-                     separate_twist,
                      point_to_vsm_point, wing_segments,
                      z_ref_points, y_ref_points,
                      origin_idx, origin_ref,
@@ -263,7 +261,6 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
             typeof(vsm_solver)}(
             base, vsm_aero, vsm_wing, vsm_solver,
             aero_y, aero_x, aero_jac,
-            separate_twist,
             point_to_vsm_point, wing_segments,
             z_ref_points, y_ref_points,
             origin_idx, origin_ref,
@@ -274,7 +271,7 @@ end
 # Delegate property access to base wing for VSMWing
 const VSM_WING_OWN_FIELDS = (
     :base, :vsm_aero, :vsm_wing, :vsm_solver,
-    :aero_y, :aero_x, :aero_jac, :separate_twist,
+    :aero_y, :aero_x, :aero_jac,
     :point_to_vsm_point, :wing_segments,
     :z_ref_points, :y_ref_points,
     :origin_idx, :origin_ref,
@@ -530,12 +527,12 @@ function VSMWing(name, set::Settings,
     else
         n_groups_est = vsm_wing.n_unrefined_sections
         nx = 6 + n_groups_est
-        ny = 5 + n_groups_est  # separate_twist default
+        ny = 5 + n_groups_est
     end
 
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
                    zeros(SimFloat, ny), zeros(SimFloat, nx),
-                   zeros(SimFloat, nx, ny), false,
+                   zeros(SimFloat, nx, ny),
                    point_to_vsm_point, wing_segments,
                    z_ref, y_ref,
                    nothing, origin_ref,
@@ -578,7 +575,7 @@ function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
     ny = 5 + n_groups_est
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, ny), zeros(SimFloat, nx),
-        zeros(SimFloat, nx, ny), false,
+        zeros(SimFloat, nx, ny),
         nothing, nothing,
         nothing, nothing,  # z/y_ref_points
         nothing, nothing,  # origin_idx and origin_ref
