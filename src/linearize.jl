@@ -159,11 +159,28 @@ function update_vsm!(sam::SymbolicAWEModel,
                 set_va!(wing.vsm_aero, wing.va_b)
             end
 
-            VortexStepMethod.solve!(
-                wing.vsm_solver, wing.vsm_aero;
-                log=false)
+            if !_safe_vsm_solve!(wing.vsm_solver, wing.vsm_aero)
+                @warn "REFINE VSM solve produced NaN — \
+                    zeroing wing-point aero forces" wing=wing.idx
+                for point in points
+                    if point.type == WING &&
+                            point.wing_idx == wing.idx
+                        fill!(point.aero_force_b, 0)
+                    end
+                end
+                continue
+            end
             distribute_panel_forces_to_points!(
                 wing, points)
+            for point in points
+                if point.type == WING &&
+                        point.wing_idx == wing.idx &&
+                        any(!isfinite, point.aero_force_b)
+                    @warn "REFINE: non-finite point force — zeroing" wing=wing.idx point=point.idx
+                    fill!(point.aero_force_b, 0)
+                    fill!(wing.vsm_solver.sol.gamma_distribution, 0)
+                end
+            end
         end
     end
 
@@ -172,23 +189,42 @@ end
 
 # ── QUATERNION aero helpers ──────────────────────────
 
-"""
-    _vsm_aero_coeffs(wing, y, va_mag, n_unrefined, n_groups,
-                     group_idxs, groups, moment_frac, shadow_ref)
+_finite_full(x::Real) = isfinite(x)
+_finite_full(x::ForwardDiff.Dual) =
+    isfinite(ForwardDiff.value(x)) &&
+    all(isfinite, ForwardDiff.partials(x))
 
-Compute the wind-axis aerodynamic coefficient vector
-`[CL, CD, CS, CM₁, CM₂, CM₃, cm_group₁…cm_groupₙ]` for input
-`y = [α, β, ω₁, ω₂, ω₃, θ_group₁…θ_groupₙ]`.
-
-`eltype(y)` may be `Float64` or `ForwardDiff.Dual`. For the dual
-path a `make_dual_shadow` of `wing.vsm_aero / vsm_solver` is
-allocated lazily (per ForwardDiff chunk type) into `shadow_ref`
-and reused for every column of the Jacobian.
 """
+NaN/Inf-guarded `solve!`. Checks both Dual value and partials. On
+non-finite or non-converged result, zero gamma and return `false`.
+"""
+function _safe_vsm_solve!(solver, body_aero,
+                          gamma_init=nothing; moment_frac=0.1)
+    if isnothing(gamma_init)
+        VortexStepMethod.solve!(solver, body_aero;
+            moment_frac, log=false)
+    else
+        VortexStepMethod.solve!(solver, body_aero, gamma_init;
+            moment_frac, log=false)
+    end
+    cf = solver.sol.force_coeffs
+    cm = solver.sol.moment_coeffs
+    if !solver.lr.converged ||
+            any(!_finite_full, cf) || any(!_finite_full, cm)
+        if !isnothing(solver.sol.gamma_distribution)
+            fill!(solver.sol.gamma_distribution, 0)
+        end
+        return false
+    end
+    return true
+end
+
 function _vsm_aero_coeffs(wing, y::AbstractVector{T},
         va_mag, n_unrefined, n_groups,
         group_idxs, groups, moment_frac,
-        shadow_ref::Ref) where {T}
+        shadow_ref::Ref;
+        gamma_init=nothing,
+        failed_ref::Union{Nothing, Ref{Bool}}=nothing) where {T}
 
     if T === Float64
         body_aero_c = wing.vsm_aero
@@ -200,6 +236,7 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
             shadow_ref[] = VortexStepMethod.make_dual_shadow(
                 wing.vsm_solver, wing.vsm_aero, T)
             sh = shadow_ref[]
+            sh[2].use_gamma_prev = true
         end
         body_aero_c, solver_c = sh
         wing_c = body_aero_c.wings[1]
@@ -231,22 +268,30 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
             body_aero_c; init_aero=false)
     end
     set_va!(body_aero_c, va_b_local, ω)
-    VortexStepMethod.solve!(
-        solver_c, body_aero_c; moment_frac, log=false)
+    if !_safe_vsm_solve!(solver_c, body_aero_c, gamma_init;
+                         moment_frac)
+        @warn "VSM solve produced NaN — returning zeros" maxlog=10 wing=wing.idx eltype=T
+        if failed_ref !== nothing
+            failed_ref[] = true
+        end
+        return zeros(T, 6 + n_groups)
+    end
 
     sol = solver_c.sol
     cf = sol.force_coeffs
     cm_body = sol.moment_coeffs
     cm_unr = sol.cm_unrefined_dist
 
-    # Wind-axis decomposition
-    va_norm = va_b_local ./ va_mag
-    side_dir = SVector(zero(T), one(T), zero(T))
-    lift_dir = normalize(cross(va_norm, side_dir))
+    # Wind-axis basis (matches VSM): drag along va,
+    # lift = normalize(drag × span), side = lift × drag.
+    span = SVector(zero(T), one(T), zero(T))
+    drag_dir = va_b_local ./ va_mag
+    lift_dir = normalize(cross(drag_dir, span))
+    side_dir = cross(lift_dir, drag_dir)
 
     x = zeros(T, 6 + n_groups)
     x[1] = dot(cf, lift_dir)
-    x[2] = dot(cf, va_norm)
+    x[2] = dot(cf, drag_dir)
     x[3] = dot(cf, side_dir)
     x[4] = cm_body[1]
     x[5] = cm_body[2]
@@ -296,19 +341,28 @@ function _update_quaternion_wing!(wing, am, groups)
     end
 
     shadow_ref = Ref{Any}(nothing)
-    f = y -> _vsm_aero_coeffs(wing, y, va_mag,
+    failed = Ref(false)
+    f_baseline = y -> _vsm_aero_coeffs(wing, y, va_mag,
         n_unrefined, n_groups, group_idxs, groups,
-        moment_frac, shadow_ref)
+        moment_frac, shadow_ref; failed_ref=failed)
 
-    # Baseline (Float64) — also leaves vsm state at the
-    # operating point and populates the live solver.sol
-    wing.aero_x .= f(y0)
+    x_baseline = f_baseline(y0)
+    if failed[]
+        @warn "VSM Float64 baseline failed; keeping previous \
+            linearisation" wing=wing.idx
+        return nothing
+    end
+    wing.aero_x .= x_baseline
     for (gi, gidx) in enumerate(group_idxs)
         groups[gidx].aero_moment = wing.aero_x[6 + gi]
     end
 
     if wing.aero_mode == AERO_LINEARIZED
-        ForwardDiff.jacobian!(wing.aero_jac, f, y0)
+        gamma0 = copy(wing.vsm_solver.sol.gamma_distribution)
+        f_dual = y -> _vsm_aero_coeffs(wing, y, va_mag,
+            n_unrefined, n_groups, group_idxs, groups,
+            moment_frac, shadow_ref; gamma_init=gamma0)
+        ForwardDiff.jacobian!(wing.aero_jac, f_dual, y0)
     elseif wing.aero_mode == AERO_DIRECT
         _apply_direct_forces!(wing, am, wing.aero_x)
     end
@@ -318,6 +372,12 @@ end
 """Apply direct forces from wind-axis coefficients."""
 function _apply_direct_forces!(wing, am, x0)
     va_b = wing.va_b
+    if any(!isfinite, x0) || any(!isfinite, va_b)
+        @warn "AERO_DIRECT: non-finite input — zeroing forces" maxlog=10 wing=wing.idx
+        fill!(wing.aero_force_b, 0)
+        fill!(wing.aero_moment_b, 0)
+        return
+    end
     va_sq = dot(va_b, va_b)
     rho = calc_rho(am, wing.pos_w[3])
     q_inf = 0.5 * rho * va_sq
@@ -325,13 +385,14 @@ function _apply_direct_forces!(wing, am, x0)
     c_ref = wing.vsm_aero.c_ref
 
     CL, CD, CS = x0[1], x0[2], x0[3]
-    va_norm = va_b / norm(va_b)
-    side_dir = SVector(0.0, 1.0, 0.0)
-    lift_dir = normalize(cross(va_norm, side_dir))
+    span = SVector(0.0, 1.0, 0.0)
+    drag_dir = va_b / norm(va_b)
+    lift_dir = normalize(cross(drag_dir, span))
+    side_dir = cross(lift_dir, drag_dir)
 
     wing.aero_force_b .= q_inf * area * (
-        CL .* lift_dir .-
-        CD * wing.drag_frac .* va_norm .+
+        CL .* lift_dir .+
+        CD * wing.drag_frac .* drag_dir .+
         CS .* side_dir)
     wing.aero_moment_b .= q_inf * area * c_ref .*
         x0[4:6]

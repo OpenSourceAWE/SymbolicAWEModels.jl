@@ -172,80 +172,60 @@ function vsm_eqs!(
 
             area = wing.vsm_aero.projected_area
             c_ref = wing.vsm_aero.c_ref
-            n_groups = length(wing.group_idxs)
             ny_w = length(wing.aero_y)
             nx_w = length(wing.aero_x)
+            w = wing.idx
 
             # ── Load stored operating point ──────
-            local prev_input_eqs = Equation[]
-            for iy in 1:ny_w
-                push!(prev_input_eqs,
-                    aero_input_prev[iy, wing.idx] ~
-                    get_aero_y(
-                        psys, wing.idx, iy))
-            end
+            prev_input_eqs = [
+                aero_input_prev[iy, w] ~
+                    get_aero_y(psys, w, iy)
+                for iy in 1:ny_w]
 
-            local prev_coeff_eqs = Equation[]
-            for ix in 1:nx_w
-                push!(prev_coeff_eqs,
-                    aero_coeffs_prev[ix, wing.idx] ~
-                    get_aero_x(
-                        psys, wing.idx, ix))
-            end
+            prev_coeff_eqs = [
+                aero_coeffs_prev[ix, w] ~
+                    get_aero_x(psys, w, ix)
+                for ix in 1:nx_w]
 
-            local jac_eqs = Equation[]
-            for ix in 1:nx_w
-                for iy in 1:ny_w
-                    push!(jac_eqs,
-                        aero_jac_sym[
-                            ix, iy, wing.idx] ~
-                        get_aero_jac(
-                            psys, wing.idx, ix, iy))
-                end
-            end
+            jac_eqs = [
+                aero_jac_sym[ix, iy, w] ~
+                    get_aero_jac(psys, w, ix, iy)
+                for ix in 1:nx_w for iy in 1:ny_w]
 
             # ── Current input state (symbolic) ───
-            w = wing.idx
-            vx = va_wing_b[1, w]
-            vy = va_wing_b[2, w]
-            vz = va_wing_b[3, w]
-            va_sq = vx^2 + vy^2 + vz^2
-            va_mag = sqrt(va_sq + 1e-24)
-            alpha_sym = atan(vz, vx)
-            beta_sym = asin(vy / va_mag)
+            # collect() so smooth_norm's mapreduce scalarises
+            va = collect(va_wing_b[:, w])
+            drag_dir = smooth_normalize(va)
+            alpha_sym = atan(drag_dir[3], drag_dir[1])
+            beta_sym = asin(drag_dir[2])
 
-            # Per-group twist inputs
             twist_inputs = [
                 twist_angle[groups[gidx].idx]
                 for gidx in wing.group_idxs]
 
             eqs = [
                 eqs
-                # Dynamic pressure
                 q_inf[w] ~
                     0.5 *
-                    calc_rho(s.am,
-                        wing_pos[3, w]) * va_sq
+                    calc_rho(s.am, wing_pos[3, w]) *
+                    (va ⋅ va)
 
-                # Load stored state from struct
                 prev_input_eqs
                 prev_coeff_eqs
                 jac_eqs
 
-                # Assemble current input state
-                aero_input[:, wing.idx] ~ [
+                aero_input[:, w] ~ [
                     alpha_sym
                     beta_sym
-                    ω_b[1, wing.idx]
-                    ω_b[2, wing.idx]
-                    ω_b[3, wing.idx]
+                    ω_b[1, w]
+                    ω_b[2, w]
+                    ω_b[3, w]
                     twist_inputs
                 ]
 
-                # Delta = current - operating point
-                aero_input_delta[:, wing.idx] ~
-                    aero_input[:, wing.idx] -
-                    aero_input_prev[:, wing.idx]
+                aero_input_delta[:, w] ~
+                    aero_input[:, w] -
+                    aero_input_prev[:, w]
             ]
 
             # ── Coefficient reconstruction ───────
@@ -255,68 +235,51 @@ function vsm_eqs!(
             x0 = aero_coeffs_prev[:, w]
 
             coeff(ix) = x0[ix] + sum(
-                J[ix, iy] * delta[iy]
-                for iy in 1:ny_w)
+                J[ix, iy] * delta[iy] for iy in 1:ny_w)
 
             CL = coeff(1)
             CD = coeff(2)
             CS = coeff(3)
             qA = q_inf[w] * area
 
-            # ── Force reconstruction ─────────────
-            # drag_dir = va_b / |va_b|  (scalar)
-            # lift_dir = normalize(cross(drag_dir,
-            #            [0,1,0]))
-            #          = [-vz, 0, vx] / sqrt(vx²+vz²)
-            inv_va = 1 / va_mag
-            xz_mag = sqrt(vx^2 + vz^2 + 1e-24)
-            inv_xz = 1 / xz_mag
-
-            drag = [vx, vy, vz] .* inv_va
-            lift = [-vz, 0, vx] .* inv_xz
-            side = [0.0, 1.0, 0.0]
+            # ── Wind-axis basis (matches VSM) ────
+            # drag = va / |va|
+            # lift = normalize(drag × span)
+            # side = lift × drag   (orthonormal triad)
+            span = [0.0, 1.0, 0.0]
+            lift_dir = smooth_normalize(drag_dir × span)
+            side_dir = lift_dir × drag_dir
 
             drag_frac = get_drag_frac(psys, w)
-            force_eq = [
-                qA * (CL * lift[i] -
-                      CD * drag_frac * drag[i] +
-                      CS * side[i])
-                for i in 1:3]
+            force_eq = qA * (
+                CL * lift_dir +
+                CD * drag_frac * drag_dir +
+                CS * side_dir)
 
             moment_eq = [
-                qA * c_ref * coeff(3 + i)
-                for i in 1:3]
+                qA * c_ref * coeff(3 + i) for i in 1:3]
 
-            # ── Group moments ────────────────────
-            group_moment_eqs = Equation[]
-            for (gi, gidx) in
+            group_moment_eqs = [
+                group_aero_moment[groups[gidx].idx] ~
+                    qA * c_ref * coeff(6 + gi)
+                for (gi, gidx) in
                     enumerate(wing.group_idxs)
-                group = groups[gidx]
-                isempty(
-                    group.unrefined_section_idxs
-                ) && continue
-                push!(group_moment_eqs,
-                    group_aero_moment[group.idx] ~
-                        qA * c_ref * coeff(6 + gi))
-            end
+                if !isempty(
+                    groups[gidx].unrefined_section_idxs)]
 
             eqs = [
                 eqs
                 group_moment_eqs
 
-                aero_force_b[:, wing.idx] ~ force_eq
-                aero_moment_b[:, wing.idx] ~
-                    moment_eq
+                aero_force_b[:, w] ~ force_eq
+                aero_moment_b[:, w] ~ moment_eq
             ]
 
             if s.set.quasi_static
-                local wing_guesses = []
-                for iy in 1:ny_w
-                    push!(wing_guesses,
-                        aero_input[iy, wing.idx] =>
-                        get_aero_y(
-                            psys, wing.idx, iy))
-                end
+                wing_guesses = [
+                    aero_input[iy, w] =>
+                        get_aero_y(psys, w, iy)
+                    for iy in 1:ny_w]
                 guesses = [
                     guesses
                     wing_guesses
