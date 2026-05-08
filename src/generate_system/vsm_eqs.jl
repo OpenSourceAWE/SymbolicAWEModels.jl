@@ -195,7 +195,7 @@ function vsm_eqs!(
             # ── Current input state (symbolic) ───
             # collect() so smooth_norm's mapreduce scalarises
             va = collect(va_wing_b[:, w])
-            drag_dir = smooth_normalize(va)
+            drag_dir = collect(va ./ smooth_norm(va))
             alpha_sym = atan(drag_dir[3], drag_dir[1])
             beta_sym = asin(drag_dir[2])
 
@@ -246,15 +246,16 @@ function vsm_eqs!(
             # drag = va / |va|
             # lift = normalize(drag × span)
             # side = lift × drag   (orthonormal triad)
-            span = [0.0, 1.0, 0.0]
-            lift_dir = smooth_normalize(drag_dir × span)
-            side_dir = lift_dir × drag_dir
+            crossed = collect(drag_dir × [0.0, 1.0, 0.0])
+            lift_dir = collect(
+                crossed ./ smooth_norm(crossed))
+            side_dir = collect(lift_dir × drag_dir)
 
             drag_frac = get_drag_frac(psys, w)
-            force_eq = qA * (
+            force_eq = collect(qA * (
                 CL * lift_dir +
                 CD * drag_frac * drag_dir +
-                CS * side_dir)
+                CS * side_dir))
 
             moment_eq = [
                 qA * c_ref * coeff(3 + i) for i in 1:3]
