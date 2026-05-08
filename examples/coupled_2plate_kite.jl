@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: MPL-2.0
 
 """
-2-Plate Kite: coupled aerodynamic-structural simulation with
-ramped steering inputs and interactive replay.
+2-Plate kite: coupled simulation with full nonlinear VSM solve
+each step (REFINE wing). Counterpart to
+coupled_2plate_kite_linear_vsm.jl for performance comparison.
 """
 
 using Pkg
@@ -12,15 +13,15 @@ if Base.active_project() != joinpath(@__DIR__, "Project.toml")
 end
 
 using GLMakie
+using LinearAlgebra
 using KiteUtils: init!, next_step!, update_sys_state!
 using SymbolicAWEModels, VortexStepMethod
 
 MODEL_NAME = "2plate_kite"
-SIM_TIME = 2.0
-N_STEPS = 600
+SIM_TIME = 10.0
+VSM_INTERVAL = 1
 RAMP_TIME = 2.0
 STEERING_MAGNITUDE = 0.1
-DEPOWER_MAGNITUDE = 0.0
 
 pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", MODEL_NAME))
@@ -38,41 +39,43 @@ sys = load_sys_struct_from_yaml(struc_yaml;
     system_name=MODEL_NAME, set, vsm_set)
 sys.winches[:main_winch].brake = true
 sam = SymbolicAWEModel(set, sys)
-
 l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
 l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
+init!(sam; remake=false, remake_vsm=false)
+find_steady_state!(sam; dt=1/300)
 
-init!(sam; remake=false, lin_vsm=false)
+dt = 1 / 300
+n_steps = max(1, round(Int, SIM_TIME / dt))
+info_every = max(1, div(n_steps, 10))
 
-dt = SIM_TIME / N_STEPS
-logger = Logger(sam, N_STEPS + 1)
+logger = Logger(sam, n_steps)
 sys_state = SysState(sam)
-sys_state.time = 0.0
-log!(logger, sys_state)
 
-for step in 1:N_STEPS
+elapsed = @elapsed for step in 1:n_steps
     t = step * dt
     ramp = clamp(t / RAMP_TIME, 0.0, 1.0)
     steer = STEERING_MAGNITUDE * ramp
-    depower = DEPOWER_MAGNITUDE * ramp
     sam.sys_struct.segments[:kcu_steering_left].l0 =
-        l0_left - steer + depower
+        l0_left - steer
     sam.sys_struct.segments[:kcu_steering_right].l0 =
-        l0_right + steer + depower
+        l0_right + steer
 
-    next_step!(sam; dt, vsm_interval=1)
-
+    next_step!(sam; dt, vsm_interval=VSM_INTERVAL)
     update_sys_state!(sys_state, sam)
     sys_state.time = t
     log!(logger, sys_state)
-
-    if step % max(1, div(N_STEPS, 10)) == 0
-        @info "Step $step/$N_STEPS (t=$(round(t; digits=2))s)"
+    if step % info_every == 0 || step == n_steps
+        @info "Step $step/$n_steps (t=$(round(t; digits=2))s)"
     end
 end
+sim_time = n_steps * dt
+@info "Realtime factor: $(round(sim_time / elapsed; digits=2))x" *
+      " ($(round(elapsed; digits=2))s wall, " *
+      "$(round(sim_time; digits=2))s sim, " *
+      "$(round(1e3 * elapsed / n_steps; digits=2)) ms/step)"
 
-save_log(logger, "tmp_run")
-syslog = load_log("tmp_run")
-scene = replay(syslog, sam.sys_struct;
-               autoplay=false, loop=true)
+save_log(logger, "nonlin_vsm")
+syslog = load_log("nonlin_vsm")
+scene = replay(syslog, sam.sys_struct)
 display(scene)
+@info "Done (nonlinear VSM, interval=$VSM_INTERVAL)"

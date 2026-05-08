@@ -18,7 +18,9 @@ using SymbolicAWEModels, VortexStepMethod
 
 MODEL_NAME = "2plate_kite"
 SIM_TIME = 10.0
-VSM_INTERVAL = 100   # re-linearise every step while debugging
+VSM_INTERVAL = 100
+RAMP_TIME = 2.0
+STEERING_MAGNITUDE = 0.1
 
 pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", MODEL_NAME))
@@ -39,96 +41,40 @@ for wing in sys.wings
     wing.aero_mode = AERO_LINEARIZED
 end
 sam = SymbolicAWEModel(set, sys)
+l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
+l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
 init!(sam; remake=false, remake_vsm=false)
 find_steady_state!(sam)
 
-dt = 0.001
+dt = 0.05
 n_steps = max(1, round(Int, SIM_TIME / dt))
+info_every = max(1, div(n_steps, 10))
 
 logger = Logger(sam, n_steps)
 sys_state = SysState(sam)
 
-# Ring buffer of last N step diagnostics for crash forensics.
-DIAG_KEEP = 8
-diag_history = Vector{NamedTuple}()
+elapsed = @elapsed for step in 1:n_steps
+    t = step * dt
+    ramp = clamp(t / RAMP_TIME, 0.0, 1.0)
+    steer = STEERING_MAGNITUDE * ramp
+    sam.sys_struct.segments[:kcu_steering_left].l0 =
+        l0_left - steer
+    sam.sys_struct.segments[:kcu_steering_right].l0 =
+        l0_right + steer
 
-function snapshot_wing(wing, t, step)
-    (
-        step = step,
-        t = t,
-        va_b = copy(wing.va_b),
-        va_norm = norm(wing.va_b),
-        omega_b = copy(wing.ω_b),
-        aero_y = copy(wing.aero_y),
-        aero_x = copy(wing.aero_x),
-        jac = copy(wing.aero_jac),
-        jac_max = maximum(abs, wing.aero_jac),
-        jac_norm = sqrt(sum(abs2, wing.aero_jac)),
-        force_b = copy(wing.aero_force_b),
-        moment_b = copy(wing.aero_moment_b),
-        pos_w = copy(wing.pos_w),
-        com_vel = copy(wing.com_vel),
-    )
-end
-
-function push_diag!(hist, snap)
-    push!(hist, snap)
-    length(hist) > DIAG_KEEP && popfirst!(hist)
-end
-
-function print_diag(snap)
-    @info "step $(snap.step) t=$(round(snap.t; digits=4))" *
-          " |va|=$(round(snap.va_norm; digits=3))" *
-          " jac_max=$(round(snap.jac_max; digits=3))"
-    println("  aero_y     = ", round.(snap.aero_y; digits=4))
-    println("  aero_x     = ", round.(snap.aero_x; digits=4))
-    println("  va_b       = ", round.(snap.va_b; digits=4))
-    println("  omega_b    = ", round.(snap.omega_b; digits=4))
-    println("  force_b    = ", round.(snap.force_b; digits=2))
-    println("  moment_b   = ", round.(snap.moment_b; digits=2))
-    println("  pos_w      = ", round.(snap.pos_w; digits=3))
-    println("  com_vel    = ", round.(snap.com_vel; digits=3))
-end
-
-last_completed_step = 0
-for step in 1:n_steps
-    try
-        next_step!(sam; dt, vsm_interval=VSM_INTERVAL)
-    catch err
-        @warn "next_step! failed at step $step (t=$(round(
-            step * dt; digits=4))s)" exception=err
-        @info "── last $(length(diag_history)) successful steps ──"
-        for snap in diag_history
-            print_diag(snap)
-        end
-        break
-    end
-    global last_completed_step = step
-    snap = snapshot_wing(sam.sys_struct.wings[1], step * dt, step)
-    push_diag!(diag_history, snap)
-    if snap.jac_max > 1e6
-        @warn "Jacobian explosion at step $step (t=$(round(
-            snap.t; digits=4))s) — jac_max=$(snap.jac_max)"
-        println("aero_y at this step: ", snap.aero_y)
-        println("aero_x at this step: ", snap.aero_x)
-        println("Full Jacobian (rows = ∂x/∂y, " *
-                "rows: CL,CD,CS,CMx,CMy,CMz,cm_g1,cm_g2,cm_g3 ; " *
-                "cols: α,β,ω1,ω2,ω3,θ_g1,θ_g2,θ_g3):")
-        for (ix, row) in enumerate(eachrow(snap.jac))
-            println("  row ", ix, ": ", row)
-        end
-        break
-    end
+    next_step!(sam; dt, vsm_interval=VSM_INTERVAL)
     update_sys_state!(sys_state, sam)
-    sys_state.time = step * dt
+    sys_state.time = t
     log!(logger, sys_state)
-    if step % 100 == 0 || step == n_steps
-        @info "Step $step/$n_steps" t=round(
-            step * dt; digits=2) jac_max=round(
-            snap.jac_max; digits=2) force=round.(
-            snap.force_b; digits=1)
+    if step % info_every == 0 || step == n_steps
+        @info "Step $step/$n_steps (t=$(round(t; digits=2))s)"
     end
 end
+sim_time = n_steps * dt
+@info "Realtime factor: $(round(sim_time / elapsed; digits=2))x" *
+      " ($(round(elapsed; digits=2))s wall, " *
+      "$(round(sim_time; digits=2))s sim, " *
+      "$(round(1e3 * elapsed / n_steps; digits=2)) ms/step)"
 
 save_log(logger, "linear_vsm")
 syslog = load_log("linear_vsm")
