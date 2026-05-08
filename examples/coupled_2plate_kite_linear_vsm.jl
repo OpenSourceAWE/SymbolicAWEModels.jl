@@ -18,7 +18,7 @@ using SymbolicAWEModels, VortexStepMethod
 
 MODEL_NAME = "2plate_kite"
 SIM_TIME = 10.0
-VSM_INTERVAL = 100
+VSM_INTERVAL = 200
 RAMP_TIME = 2.0
 STEERING_MAGNITUDE = 0.1
 

@@ -118,11 +118,12 @@ Groups:              [─ Group₁ ─]    [─ Group₂ ─]
 ```
 
 Multiple unrefined sections can be combined into a single group
-for twist control. The mapping is configured via:
-
-```julia
-group.unrefined_section_idxs = [start_idx:end_idx]
-```
+for twist control. `compute_spatial_group_mapping!` builds the
+mapping automatically: each unrefined section is assigned to the
+nearest group centre (Voronoi partition in the body frame), and
+the group's single twist DOF then drives every section it owns
+as a rigid unit. `n_groups > n_unrefined` is rejected — a twist
+DOF without a section to drive would be undefined.
 
 #### Force distribution
 

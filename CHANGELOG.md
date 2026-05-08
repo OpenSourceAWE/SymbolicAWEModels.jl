@@ -3,6 +3,22 @@ SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
 SPDX-License-Identifier: MPL-2.0
 -->
 
+# Unreleased
+
+## Changed
+- BREAKING: simplified `AERO_LINEARIZED`. ForwardDiff Jacobian
+  over `[α, β, ω, θ_groups]` returning wind-axis coefficients
+  `[CL, CD, CS, CM, cm_groups]`. Wing fields and accessors
+  renamed `vsm_*` → `aero_*`.
+- A QUATERNION wing can now have fewer groups than unrefined
+  aero sections (one twist DOF drives several sections via a
+  spatial partition). More groups than sections errors.
+- Bumped `VortexStepMethod` compat to `3.3.0`.
+
+## Added
+- `examples/vsm_linearization.jl` — plots the VSM linearisation
+  tangents around the operating point.
+
 # v0.8.3 03-05-2026
 
 ## Changed
