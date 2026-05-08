@@ -17,6 +17,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     Pkg.activate(@__DIR__)
 end
 
+@isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
@@ -168,7 +170,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_const", set=set)
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         # All probes should see the same wind speed
         probes = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]
@@ -190,7 +192,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_exp", set=set)
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         # Wind should increase with height
         probes_ordered = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]
@@ -216,7 +218,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_log", set=set)
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         # Wind should increase with height
         probes_ordered = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]
@@ -245,7 +247,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_direction", set=set)
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         probes = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]
 
@@ -277,7 +279,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_zero", set=set)
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         probes = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]
 
@@ -299,7 +301,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_explog", set=set)
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         # Wind should increase monotonically with height
         probes_ordered = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]

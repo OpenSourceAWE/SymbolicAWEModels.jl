@@ -14,6 +14,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     Pkg.activate(@__DIR__)
 end
 
+@isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
@@ -265,7 +267,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="segment_test_nograv", set=set)
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         # Record initial position
         initial_z = sam.sys_struct.points[:mass_point].pos_w[3]
@@ -300,7 +302,7 @@ system:
         @test sys.points[:mass_point].extra_mass == 5.0
 
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         # Physics parameters
         l0 = 10.0  # rest length [m]
@@ -419,7 +421,7 @@ system:
         @test sys.points[:point_right].extra_mass == 0.0
 
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         # Run simulation until terminal velocity is reached
         dt = 0.1
@@ -482,7 +484,7 @@ system:
         @test sys.points[:point_bottom].extra_mass == 0.0
 
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         # Record initial positions
         initial_z_top = sam.sys_struct.points[:point_top].pos_w[3]
@@ -544,7 +546,7 @@ system:
         cd = set.cd_tether
 
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         # Run simulation - shorter time since we want to stay at altitude
         dt = 0.1

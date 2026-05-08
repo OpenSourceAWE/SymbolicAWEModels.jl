@@ -16,6 +16,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     Pkg.activate(@__DIR__)
 end
 
+@isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
@@ -270,7 +272,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="pulley_len_test", set=set)
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         # Get initial total length of pulley segments
         pulley = sam.sys_struct.pulleys[:main_pulley]
@@ -325,7 +327,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="pulley_eq_test", set=set)
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         # Initial x position is off-center at 0.5
         initial_x = sam.sys_struct.points[:pulley_point].pos_w[1]
@@ -381,7 +383,7 @@ system:
         @test l0_left_expected ≈ l0_right_expected atol=1e-10
 
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         # Run to settle at equilibrium
         dt = 0.001
@@ -423,7 +425,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_symmetric_path; system_name="pulley_tension", set=set)
         sam = SymbolicAWEModel(set, sys)
-        init!(sam; remake=true)
+        test_init!(sam; remake=true)
 
         # Run to equilibrium
         dt = 0.001

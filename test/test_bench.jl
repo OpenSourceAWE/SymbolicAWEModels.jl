@@ -12,6 +12,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     Pkg.activate(@__DIR__)
 end
 
+@isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, SystemStructure, KVec3
@@ -37,7 +39,7 @@ function setup_bench_sam()
         system_name="bench", set, vsm_set)
     sys.winches[:main_winch].brake = true
     sam = SymbolicAWEModel(set, sys)
-    init!(sam; remake=false, prn=false)
+    test_init!(sam; remake=false, prn=false)
     return sam
 end
 

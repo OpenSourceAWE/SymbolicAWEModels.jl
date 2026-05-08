@@ -17,6 +17,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     Pkg.activate(@__DIR__)
 end
 
+@isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
+
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod,
@@ -50,13 +52,13 @@ using LinearAlgebra
         quat_yaml_path; system_name="transform_test_QUATERNION", set=set, vsm_set=vsm_set
     )
     quat_sam = SymbolicAWEModel(set, quat_sys)
-    init!(quat_sam; remake=false, reload=false)  # Load/build once
+    test_init!(quat_sam; remake=false, reload=false)  # Load/build once
 
     refine_sys = load_sys_struct_from_yaml(
         refine_yaml_path; system_name="transform_test_REFINE", set=set, vsm_set=vsm_set
     )
     refine_sam = SymbolicAWEModel(set, refine_sys)
-    init!(refine_sam; remake=false, reload=false)  # Load/build once
+    test_init!(refine_sam; remake=false, reload=false)  # Load/build once
 
     # Helper to reset transform to default YAML values
     function reset_transform!(sys)
@@ -105,7 +107,7 @@ using LinearAlgebra
             # ================================================================
             @testset "Initial angles after init!" begin
                 reset_transform!(sam.sys_struct)
-                init!(sam; remake=false, reload=false)
+                test_init!(sam; remake=false, reload=false)
 
                 # After init, the transform angles should still match
                 transform = sam.sys_struct.transforms[:main_transform]
@@ -125,7 +127,7 @@ using LinearAlgebra
             # ================================================================
             @testset "Initial velocities after init!" begin
                 reset_transform!(sam.sys_struct)
-                init!(sam; remake=false, reload=false)
+                test_init!(sam; remake=false, reload=false)
 
                 transform = sam.sys_struct.transforms[:main_transform]
 
@@ -145,7 +147,7 @@ using LinearAlgebra
                 # For elevation=80deg, azimuth=0deg, the wing should be positioned
                 # according to spherical coordinate transformation
                 reset_transform!(sam.sys_struct)
-                init!(sam; remake=false, reload=false)
+                test_init!(sam; remake=false, reload=false)
 
                 # Get wing position
                 wing = sam.sys_struct.wings[:main_wing]
@@ -191,7 +193,7 @@ using LinearAlgebra
                 @test tf.elevation_vel ≈ deg2rad(0.1) atol=1e-10
                 @test tf.azimuth_vel ≈ deg2rad(0.5) atol=1e-10
 
-                init!(sam; remake=false, reload=false)
+                test_init!(sam; remake=false, reload=false)
 
                 # Angles should be preserved after init
                 transform_after = sam.sys_struct.transforms[:main_transform]
@@ -209,12 +211,12 @@ using LinearAlgebra
             @testset "Transform affects wing position" begin
                 # Test 1: elevation = 80 deg (default)
                 reset_transform!(sam.sys_struct)
-                init!(sam; remake=false, reload=false)
+                test_init!(sam; remake=false, reload=false)
                 wing_z1 = sam.sys_struct.wings[:main_wing].base.pos_w[3]
 
                 # Test 2: elevation = 45 deg
                 sam.sys_struct.transforms[:main_transform].elevation = deg2rad(45)
-                init!(sam; remake=false, reload=false)
+                test_init!(sam; remake=false, reload=false)
                 wing_z2 = sam.sys_struct.wings[:main_wing].base.pos_w[3]
 
                 # Higher elevation should result in higher z position
@@ -232,12 +234,12 @@ using LinearAlgebra
             @testset "Azimuth affects y-position" begin
                 # Test 1: azimuth = 0 deg (default)
                 reset_transform!(sam.sys_struct)
-                init!(sam; remake=false, reload=false)
+                test_init!(sam; remake=false, reload=false)
                 wing_y1 = sam.sys_struct.wings[:main_wing].base.pos_w[2]
 
                 # Test 2: azimuth = 30 deg (more to the side)
                 sam.sys_struct.transforms[:main_transform].azimuth = deg2rad(30)
-                init!(sam; remake=false, reload=false)
+                test_init!(sam; remake=false, reload=false)
                 wing_y2 = sam.sys_struct.wings[:main_wing].base.pos_w[2]
 
                 # Larger azimuth should give larger |y| component
@@ -253,7 +255,7 @@ using LinearAlgebra
             # ================================================================
             @testset "Heading affects orientation" begin
                 reset_transform!(sam.sys_struct)
-                init!(sam; remake=false, reload=false)
+                test_init!(sam; remake=false, reload=false)
 
                 wing = sam.sys_struct.wings[:main_wing]
 
@@ -278,7 +280,7 @@ using LinearAlgebra
                 @test transform.base_point_idx == 10  # ground index
 
                 reset_transform!(sam.sys_struct)
-                init!(sam; remake=false, reload=false)
+                test_init!(sam; remake=false, reload=false)
 
                 # Transform base_pos should match the ground point position
                 ground_pos = sam.sys_struct.points[:ground].pos_w
@@ -307,7 +309,7 @@ using LinearAlgebra
                         tf.base_pos .= base_pos
                         reset_transform!(sys)
                         tf.heading = target_h
-                        init!(sam; remake=false, reload=false)
+                        test_init!(sam; remake=false, reload=false)
                         wing = sys.wings[:main_wing]
                         reinit_R = copy(wing.R_b_to_w)
                         reinit_pos = copy(wing.pos_w)
@@ -316,7 +318,7 @@ using LinearAlgebra
                         # reposition! to target
                         tf.base_pos .= base_pos
                         reset_transform!(sys)
-                        init!(sam; remake=false, reload=false)
+                        test_init!(sam; remake=false, reload=false)
                         tf.heading = target_h
                         reposition!(sys.transforms, sys)
                         wing = sys.wings[:main_wing]

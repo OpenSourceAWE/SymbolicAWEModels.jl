@@ -6,6 +6,8 @@ using KiteUtils
 using Test
 using SymbolicAWEModels
 
+include("util.jl")
+
 # Set up data path for 2plate_kite tests
 pkg_root = dirname(@__DIR__)
 src_data_path = joinpath(pkg_root, "data", "2plate_kite")
