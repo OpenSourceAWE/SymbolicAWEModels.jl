@@ -160,15 +160,7 @@ function update_vsm!(sam::SymbolicAWEModel,
             end
 
             if !_safe_vsm_solve!(wing.vsm_solver, wing.vsm_aero)
-                @warn "REFINE VSM solve produced NaN — \
-                    zeroing wing-point aero forces" wing=wing.idx
-                for point in points
-                    if point.type == WING &&
-                            point.wing_idx == wing.idx
-                        fill!(point.aero_force_b, 0)
-                    end
-                end
-                continue
+                error("REFINE VSM solve failed (non-converged or non-finite) on wing $(wing.idx)")
             end
             distribute_panel_forces_to_points!(
                 wing, points)
@@ -176,9 +168,7 @@ function update_vsm!(sam::SymbolicAWEModel,
                 if point.type == WING &&
                         point.wing_idx == wing.idx &&
                         any(!isfinite, point.aero_force_b)
-                    @warn "REFINE: non-finite point force — zeroing" wing=wing.idx point=point.idx
-                    fill!(point.aero_force_b, 0)
-                    fill!(wing.vsm_solver.sol.gamma_distribution, 0)
+                    error("REFINE: non-finite point force on wing $(wing.idx) point $(point.idx)")
                 end
             end
         end
@@ -223,8 +213,7 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
         va_mag, n_unrefined, n_groups,
         group_idxs, groups, moment_frac,
         shadow_ref::Ref;
-        gamma_init=nothing,
-        failed_ref::Union{Nothing, Ref{Bool}}=nothing) where {T}
+        gamma_init=nothing) where {T}
 
     if T === Float64
         body_aero_c = wing.vsm_aero
@@ -270,11 +259,7 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
     set_va!(body_aero_c, va_b_local, ω)
     if !_safe_vsm_solve!(solver_c, body_aero_c, gamma_init;
                          moment_frac)
-        @warn "VSM solve produced NaN — returning zeros" maxlog=10 wing=wing.idx eltype=T
-        if failed_ref !== nothing
-            failed_ref[] = true
-        end
-        return zeros(T, 6 + n_groups)
+        error("VSM solve failed (non-converged or non-finite) on wing $(wing.idx) [eltype=$T]")
     end
 
     sol = solver_c.sol
@@ -341,18 +326,11 @@ function _update_quaternion_wing!(wing, am, groups)
     end
 
     shadow_ref = Ref{Any}(nothing)
-    failed = Ref(false)
     f_baseline = y -> _vsm_aero_coeffs(wing, y, va_mag,
         n_unrefined, n_groups, group_idxs, groups,
-        moment_frac, shadow_ref; failed_ref=failed)
+        moment_frac, shadow_ref)
 
-    x_baseline = f_baseline(y0)
-    if failed[]
-        @warn "VSM Float64 baseline failed; keeping previous \
-            linearisation" wing=wing.idx
-        return nothing
-    end
-    wing.aero_x .= x_baseline
+    wing.aero_x .= f_baseline(y0)
     for (gi, gidx) in enumerate(group_idxs)
         groups[gidx].aero_moment = wing.aero_x[6 + gi]
     end
@@ -373,10 +351,7 @@ end
 function _apply_direct_forces!(wing, am, x0)
     va_b = wing.va_b
     if any(!isfinite, x0) || any(!isfinite, va_b)
-        @warn "AERO_DIRECT: non-finite input — zeroing forces" maxlog=10 wing=wing.idx
-        fill!(wing.aero_force_b, 0)
-        fill!(wing.aero_moment_b, 0)
-        return
+        error("AERO_DIRECT: non-finite input on wing $(wing.idx)")
     end
     va_sq = dot(va_b, va_b)
     rho = calc_rho(am, wing.pos_w[3])

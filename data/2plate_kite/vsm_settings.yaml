@@ -45,7 +45,7 @@ wings:
     - name: V3_Kite                    # Wing identifier for output labeling
       geometry_file: data/2plate_kite/aero_geometry.yaml
       n_panels: 10                     # Total number of panels along wingspan
-      spanwise_panel_distribution: LINEAR    # Panel spacing algorithm
+      spanwise_panel_distribution: SPLIT_PROVIDED    # Panel spacing algorithm
       spanwise_direction: [0.0, 1.0, 0.0]   # Unit vector defining wingspan direction
       remove_nan: true                 # Remove NaN values from polar data
 

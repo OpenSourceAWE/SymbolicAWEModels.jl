@@ -39,7 +39,7 @@ for wing in sys.wings
     wing.aero_mode = AERO_LINEARIZED
 end
 sam = SymbolicAWEModel(set, sys)
-init!(sam; remake=false)
+init!(sam; remake=false, remake_vsm=false)
 find_steady_state!(sam)
 
 dt = 0.001

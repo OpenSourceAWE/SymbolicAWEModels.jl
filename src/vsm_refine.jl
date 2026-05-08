@@ -156,6 +156,17 @@ function match_aero_sections_to_structure!(
 
     n_aero_sections =
         length(wing.vsm_wing.unrefined_sections)
+
+    # QUATERNION multi-section-per-group: keep aero geometry,
+    # let compute_spatial_group_mapping! partition sections.
+    if has_groups && wing.wing_type == QUATERNION &&
+            n_struct_sections < n_aero_sections
+        wing.wing_segments = identify_wing_segments(
+            wing_points; groups=groups,
+            wing_group_idxs=wing_group_idxs)
+        return nothing
+    end
+
     counts_differ = n_struct_sections != n_aero_sections
 
     if counts_differ
