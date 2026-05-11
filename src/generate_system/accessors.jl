@@ -248,12 +248,16 @@ get_winch_friction_epsilon(sys::SystemStructure{VSMWing}, idx::Int64) =
     sys.winches[idx].friction_epsilon
 @register_symbolic get_winch_friction_epsilon(
     sys::SystemStructure{VSMWing}, idx::Int64)
+# VSM requires positive wake reference speed; we substitute this
+# tiny nonzero vector when wind is exactly zero. Hoisted to a
+# const so the zero-wind path doesn't allocate a fresh MVector
+# on every RHS call.
+const _ZERO_WIND_FALLBACK = KVec3(1e-10, 0.0, 0.0)
+
 function get_wind_vec(sys::SystemStructure{VSMWing})
     wv = sys.set.wind_vec
-    # VSM requires positive wake reference speed; return a tiny
-    # nonzero vector when wind is exactly zero.
     if wv[1]^2 + wv[2]^2 + wv[3]^2 < 1e-20
-        return KVec3(1e-10, 0.0, 0.0)
+        return _ZERO_WIND_FALLBACK
     end
     return wv
 end
