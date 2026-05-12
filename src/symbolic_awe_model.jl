@@ -425,17 +425,17 @@ function next_step!(
     s::SymbolicAWEModel,
     integrator::OrdinaryDiffEqCore.ODEIntegrator;
     set_values=nothing, dt=1/s.set.sample_freq,
-    vsm_interval=1
+    vsm_interval=1, vsm_min_wind=0.5
 )
     !(s.integrator === integrator) && error(
         "The ODEIntegrator doesn't belong to " *
         "the SymbolicAWEModel")
-    next_step!(s; set_values, dt, vsm_interval)
+    next_step!(s; set_values, dt, vsm_interval, vsm_min_wind)
 end
 
 """
     next_step!(s::SymbolicAWEModel; set_values, dt,
-               vsm_interval)
+               vsm_interval, vsm_min_wind)
 
 Take a simulation step forward in time.
 
@@ -451,10 +451,15 @@ solver returns an unstable retcode.
 - `dt=1/s.set.sample_freq`: Time step size [s].
 - `vsm_interval=1`: Steps between VSM
     re-linearization. 0 disables re-linearization.
+- `vsm_min_wind=0.5`: Minimum apparent wind [m/s] for
+    a VSM solve. Below this the solver is skipped and
+    the wing's aero outputs are zeroed, since the
+    solver fails to converge or returns a Jacobian
+    whose norm grows as 1/|va|.
 """
 function next_step!(sam::SymbolicAWEModel;
     set_values=nothing, dt=1/sam.set.sample_freq,
-    vsm_interval=1
+    vsm_interval=1, vsm_min_wind=0.5
 )
     prob = sam.prob
     integrator = sam.integrator
@@ -480,7 +485,7 @@ function next_step!(sam::SymbolicAWEModel;
     if prob isa ProbWithAttributes
         update_sys_struct!(prob, integrator, sam.sys_struct)
         if vsm_interval != 0 && sam.iter % vsm_interval == 0
-            sam.t_vsm = @elapsed update_vsm!(sam, prob)
+            sam.t_vsm = @elapsed update_vsm!(sam, prob; vsm_min_wind)
         end
     end
     return nothing

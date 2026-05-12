@@ -55,7 +55,7 @@ This function updates the VSM aerodynamics for all wings, with wing-type-specifi
 This is typically called periodically during simulation based on the `vsm_interval` parameter.
 """
 function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
-                     integ=sam.integrator)
+                     integ=sam.integrator; vsm_min_wind=0.5)
     wings = sam.sys_struct.wings
     groups = sam.sys_struct.groups
     points = sam.sys_struct.points
@@ -73,10 +73,16 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
             wing.aero_mode == AERO_NONE && continue
 
             wing.vsm_y .= vsm_y[:, wing.idx]
-            if norm(wing.vsm_y[1:3]) < 1e-3
-                @warn "Apparent wind too small for VSM " *
-                    "linearization (va_b=$(wing.vsm_y[1:3]))" *
-                    ", skipping wing $(wing.idx)"
+            if norm(wing.vsm_y[1:3]) < vsm_min_wind
+                fill!(wing.vsm_x, 0.0)
+                fill!(wing.vsm_jac, 0.0)
+                if wing.aero_mode == AERO_DIRECT
+                    fill!(wing.aero_force_b, 0.0)
+                    fill!(wing.aero_moment_b, 0.0)
+                end
+                for gidx in wing.group_idxs
+                    groups[gidx].aero_moment = 0.0
+                end
                 continue
             end
             if any(isnan.(wing.vsm_solver.sol.force))
@@ -164,6 +170,16 @@ function update_vsm!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
                 error(
                     "REFINE + AERO_LINEARIZED " *
                     "not yet implemented")
+            end
+
+            if norm(wing.va_b) < vsm_min_wind
+                for point in points
+                    if point.type == WING &&
+                            point.wing_idx == wing.idx
+                        fill!(point.aero_force_b, 0.0)
+                    end
+                end
+                continue
             end
 
             update_vsm_wing_from_structure!(
