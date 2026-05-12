@@ -177,6 +177,9 @@ SymbolicAWEModels.distribute_panel_forces_to_points!
 SymbolicAWEModels.get_aero_force_override
 SymbolicAWEModels.get_aero_moment_override
 SymbolicAWEModels.get_group_moment_override
+SymbolicAWEModels._update_quaternion_wing!
+SymbolicAWEModels._apply_direct_forces!
+SymbolicAWEModels._safe_vsm_solve!
 ```
 
 ## Heading and geometry
