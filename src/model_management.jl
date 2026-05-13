@@ -291,6 +291,10 @@ This is the main entry point for setting up the model. It handles:
 - `prn::Bool`: Enable printing of progress messages.
 - `remake::Bool`: Force a full rebuild of the symbolic model, ignoring any cached versions.
 - `reload::Bool`: Force reloading of the serialized model from disk.
+- `reset_integrator::Bool`: Discard the existing integrator and build a
+                            fresh one from `prob.prob`. Use when stale BDF
+                            history would taint the next run (e.g.,
+                            between testset reruns).
 - `outputs`: A vector of variables to be treated as system outputs.
 - `create_prob::Bool`: Whether to create the `ODEProblem`.
 - `create_lin_prob::Bool`: Whether to create the `LinearizationProblem`.
@@ -325,6 +329,7 @@ function init!(sam::SymbolicAWEModel;
     ignore_l0::Bool=false,
     remake_vsm::Bool=true,
     reset_vel::Bool=true,
+    reset_integrator::Bool=true,
     apply_transforms::Bool=true,
     apply_tether_lengths::Bool=true,
     tunable_params::Bool=false,
@@ -417,8 +422,9 @@ function init!(sam::SymbolicAWEModel;
         end
         if create_prob && !isnothing(sam.prob)
             prob = something(sam.prob)
+            reset_integrator |= reload
             reinit!(sam, prob, solver;
-                adaptive, reload, lin_vsm, vsm_min_wind)
+                adaptive, reset_integrator, lin_vsm, vsm_min_wind)
         end
     end
     prn && @info "$(sam.sys_struct.name) model initialized in $time seconds."
@@ -442,7 +448,8 @@ without needing to rebuild the entire symbolic model.
 
 # Keyword Arguments
 - `adaptive::Bool=true`: Whether to use adaptive time-stepping.
-- `reload::Bool=true`: Force reloading the model from disk.
+- `reset_integrator::Bool=true`: Discard the existing integrator and build a
+                                 fresh one from `prob.prob`.
 - `lin_vsm::Bool=true`: If `true`, linearizes the VSM model after reinitialization.
 
 # Returns
@@ -453,13 +460,13 @@ function reinit!(
     prob::ProbWithAttributes,
     solver;
     adaptive=true,
-    reload=true,
+    reset_integrator=true,
     lin_vsm=true,
     vsm_min_wind=0.5
 )
     dt = SimFloat(1/sam.set.sample_freq)
     existing = sam.integrator
-    integrator = if isnothing(existing) || !successful_retcode(existing.sol) || reload
+    integrator = if isnothing(existing) || !successful_retcode(existing.sol) || reset_integrator
         init(prob.prob, solver;
             adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol,
             save_on=false, save_everystep=false)
