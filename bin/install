@@ -4,6 +4,7 @@
 
 _update=false
 _skip_subprojects=false
+_no_precompile=false
 _desired_julia=""
 
 _red='\033[31m'
@@ -14,6 +15,7 @@ print_usage() {
     echo "./install"
     echo "./install --update"
     echo "./install --skip-subprojects"
+    echo "./install --no-precompile"
     echo "./install +1.11 | +1.12"
     echo "./install --version 1.11 | --version 1.12"
     echo "./install -h"
@@ -22,6 +24,7 @@ print_usage() {
     echo "  --update              Run Pkg.update() instead of seeding from .default manifests,"
     echo "                        then copy the resulting main manifest back to *.toml.default."
     echo "  --skip-subprojects    Skip setup/update of examples, test, and docs sub-projects."
+    echo "  --no-precompile       Skip all Pkg.precompile() steps; just resolve manifests."
     echo "  +X.Y, --version X.Y   Use Julia channel X.Y for this invocation (no juliaup default change)."
     echo "                        Without this, Julia 1.12 is used."
     echo "  -h, --help            Show this help message and exit."
@@ -40,6 +43,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-subprojects)
             _skip_subprojects=true
+            shift
+            ;;
+        --no-precompile)
+            _no_precompile=true
             shift
             ;;
         --version)
@@ -158,8 +165,12 @@ else
     echo "Instantiating project..."
     JULIA_PKG_PRECOMPILE_AUTO=0 $JULIA --project -e 'using Pkg; Pkg.instantiate()'
 fi
-echo "Precompiling main project..."
-$JULIA --project -e 'using Pkg; Pkg.precompile()'
+if [[ $_no_precompile == true ]]; then
+    echo "Skipping main precompile (--no-precompile)."
+else
+    echo "Precompiling main project..."
+    $JULIA --project -e 'using Pkg; Pkg.precompile()'
+fi
 
 if [[ $_skip_subprojects == true ]]; then
     echo "Skipping sub-project setup (--skip-subprojects)."
@@ -185,8 +196,12 @@ else
     for _sub in examples test docs; do
         _prepare_manifests "$_sub"
         JULIA_PKG_PRECOMPILE_AUTO=0 $JULIA --project="$_sub" -e "$_subproj_setup"
-        echo "Precompiling $_sub project..."
-        $JULIA --project="$_sub" -e 'using Pkg; Pkg.precompile()'
+        if [[ $_no_precompile == true ]]; then
+            echo "Skipping $_sub precompile (--no-precompile)."
+        else
+            echo "Precompiling $_sub project..."
+            $JULIA --project="$_sub" -e 'using Pkg; Pkg.precompile()'
+        fi
     done
 
     if [[ $julia_major == "1.12" ]]; then
