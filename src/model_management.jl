@@ -277,46 +277,30 @@ end
 """
     init!(sam::SymbolicAWEModel; ...)
 
-Initialize the `SymbolicAWEModel`.
-
-This is the main entry point for setting up the model. It handles:
-- Loading or building the symbolic model (`full_sys`).
-- Creating the `ODEProblem`, `LinearizationProblem`, and control functions as needed.
-- Serializing the model to disk if it was newly built.
-- Initializing the ODE integrator.
+Load or build the symbolic model, create the `ODEProblem` (and optionally the
+`LinearizationProblem` / control functions), serialize new builds to disk, and
+return a freshly initialized `ODEIntegrator`.
 
 # Keyword Arguments
-- `solver`: The ODE solver to use. If `nothing`, a default is chosen based on settings.
-- `adaptive::Bool`: Enable adaptive time-stepping for the solver.
-- `prn::Bool`: Enable printing of progress messages.
-- `remake::Bool`: Force a full rebuild of the symbolic model, ignoring any cached versions.
-- `reload::Bool`: Force reloading of the serialized model from disk.
-- `reset_integrator::Bool`: Discard the existing integrator and build a
-                            fresh one from `prob.prob`. Use when stale BDF
-                            history would taint the next run (e.g.,
-                            between testset reruns).
-- `outputs`: A vector of variables to be treated as system outputs.
-- `create_prob::Bool`: Whether to create the `ODEProblem`.
-- `create_lin_prob::Bool`: Whether to create the `LinearizationProblem`.
-- `create_control_func::Bool`: Whether to generate the control functions.
-- `lin_vsm::Bool`: Whether to linearize the aerodynamics using the
-                   Vortex Step Method (VSM) after initialization.
-- `remake_vsm::Bool`: Recreate VSM wing and aerodynamics from settings (useful after
-                      modifying aero_geometry.yaml or other VSM settings).
-- `apply_transforms::Bool`: Whether to apply spatial transforms
-                           (translate, rotate, heading) during initialization.
-                           Set to `false` to skip transform application.
-- `apply_tether_lengths::Bool`: Whether to scale point positions to match
-                             `tether.init_stretched_len`. Set to `false`
-                             to keep point positions from CAD geometry.
-- `vsm_min_wind=0.5`: Minimum apparent wind [m/s] for the initial VSM
-                     solve. Below this the solve is skipped and the
-                     wing's aero outputs are zeroed, since the solver
-                     fails to converge or returns a Jacobian whose
-                     norm grows as 1/|va|.
-
-# Returns
-- The initialized `ODEIntegrator`.
+- `solver`, `adaptive`: ODE solver and time-stepping mode. `solver=nothing` picks
+  a default from `sam.set.solver`.
+- `prn`: print progress messages.
+- `remake`: force a full rebuild, ignoring any cached compiled model.
+- `reload`: force reloading the serialized model from disk.
+- `outputs`: vector of output variables (used by linearization / control funcs).
+- `create_prob`, `create_lin_prob`, `create_control_func`: which artefacts to build.
+- `lin_vsm`: linearize the VSM aerodynamics after init.
+- `remake_vsm`: rebuild the VSM wing/aero from settings (after editing
+  `aero_geometry.yaml` etc.).
+- `reset_vel`, `ignore_l0`: forwarded to `reinit!(sys_struct, set)`.
+- `reinit_sys`: run `reinit!(sys_struct, set)` to refresh positions, lengths, and
+  transforms. Set to `false` to preserve manual adjustments to the
+  `SystemStructure` (or after calling `reinit!(sys_struct, set; …)` yourself).
+- `reset_integrator`: discard the existing integrator and build a fresh one. Use
+  when stale BDF history would taint the next run.
+- `vsm_min_wind=0.5`: minimum |va| [m/s] for the initial VSM solve. Below this the
+  solve is skipped and the wing's aero outputs are zeroed (the solver fails to
+  converge / the Jacobian blows up as 1/|va|).
 """
 function init!(sam::SymbolicAWEModel;
     solver=nothing, adaptive=true, prn=true,
@@ -330,9 +314,6 @@ function init!(sam::SymbolicAWEModel;
     remake_vsm::Bool=true,
     reset_vel::Bool=true,
     reset_integrator::Bool=true,
-    apply_transforms::Bool=true,
-    apply_tether_lengths::Bool=true,
-    tunable_params::Bool=false,
     reinit_sys::Bool=true,
     vsm_min_wind=0.5
 )
@@ -342,14 +323,16 @@ function init!(sam::SymbolicAWEModel;
         "got SystemStructure{$(eltype(sam.sys_struct.wings))}.")
     time = @elapsed begin
         if isnothing(solver)
-            solver = if sam.set.solver == "FBDF"
-                sam.set.quasi_static ? FBDF(nlsolve=OrdinaryDiffEqNonlinearSolve.NLNewton(relax=sam.set.relaxation)) : FBDF()
-            elseif sam.set.solver == "QNDF"
+            if sam.set.solver == "QNDF"
                 @warn "This solver is not tested."
-                QNDF()
+                solver = QNDF()
             else
-                @warn "Unavailable solver for SymbolicAWEModel: $(sam.set.solver). Falling back to FBDF."
-                sam.set.quasi_static ? FBDF(nlsolve=OrdinaryDiffEqNonlinearSolve.NLNewton(relax=sam.set.relaxation)) : FBDF()
+                if sam.set.solver != "FBDF"
+                    @warn "Unavailable solver for SymbolicAWEModel: $(sam.set.solver). Falling back to FBDF."
+                end
+                solver = sam.set.quasi_static ?
+                    FBDF(nlsolve=OrdinaryDiffEqNonlinearSolve.NLNewton(relax=sam.set.relaxation)) :
+                    FBDF()
             end
         end
 
@@ -375,7 +358,7 @@ function init!(sam::SymbolicAWEModel;
         loaded = load_serialized_model!(sam, model_path; remake, reload)
         changed = false
         if !loaded
-            sam.inputs = create_sys!(sam, sam.sys_struct; prn, tunable_params)
+            sam.inputs = create_sys!(sam, sam.sys_struct; prn)
             changed = true
         end
         outputs_changed = isnothing(sam.outputs) ||
@@ -409,8 +392,7 @@ function init!(sam::SymbolicAWEModel;
 
         if reinit_sys
             reinit!(sam.sys_struct, sam.set;
-                    ignore_l0, remake_vsm, reset_vel,
-                    apply_transforms, apply_tether_lengths)
+                    ignore_l0, remake_vsm, reset_vel)
         end
         # When reset_vel=false, state-dependent u0 changed;
         # force ODEProblem recreation to pick up new defaults.
@@ -433,27 +415,11 @@ end
 
 
 """
-    reinit!(s::SymbolicAWEModel, prob::ODEProblem, solver; prn, precompile, reload, outputs) -> (ODEIntegrator, Bool)
+    reinit!(sam, prob, solver; kwargs...) -> (ODEIntegrator, Bool)
 
-Reinitializes an existing kite power system model's ODE integrator.
-
-This function resets the integrator's state with new values from `s.set`,
-allowing for the simulation to be restarted from a new initial condition
-without needing to rebuild the entire symbolic model.
-
-# Arguments
-- `s::SymbolicAWEModel`: The kite power system state object.
-- `prob::ODEProblem`: The ODE problem to be solved.
-- `solver`: The solver to be used.
-
-# Keyword Arguments
-- `adaptive::Bool=true`: Whether to use adaptive time-stepping.
-- `reset_integrator::Bool=true`: Discard the existing integrator and build a
-                                 fresh one from `prob.prob`.
-- `lin_vsm::Bool=true`: If `true`, linearizes the VSM model after reinitialization.
-
-# Returns
-- `(ODEIntegrator, Bool)`: A tuple containing the reinitialized integrator and a success flag.
+Reset the ODE integrator from new initial conditions without rebuilding the
+symbolic model. See [`init!`](@ref) for `adaptive`, `reset_integrator`,
+`lin_vsm`, and `vsm_min_wind`.
 """
 function reinit!(
     sam::SymbolicAWEModel,
@@ -471,7 +437,7 @@ function reinit!(
             adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol,
             save_on=false, save_everystep=false)
     else
-        something(existing)
+        existing
     end
     sam.integrator = integrator
     OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
