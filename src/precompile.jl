@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Uwe Fechner, Bart van de Lint
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 """
     create_model_archive(source_dir, archive_path)

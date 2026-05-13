@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Bart van de Lint and Uwe Fechner
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{SimFloat}, D::Matrix{SimFloat}}
 const GetSetNothing = Union{AbstractIndexer, Nothing}

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 #
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 # Integration test for end-user setup.
 # Run from the repo root: julia test/setup_integration.jl
