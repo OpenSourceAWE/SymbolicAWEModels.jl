@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 # Shared helpers for the test suite. Not picked up automatically
 # by runtests.jl (filename must start with `test_`); included
