@@ -2,7 +2,10 @@
 # SPDX-FileCopyrightText: 2025 Uwe Fechner
 # SPDX-License-Identifier: MIT
 
-_yes_to_all=false
+_update=false
+_skip_subprojects=false
+_no_precompile=false
+_desired_julia=""
 
 _red='\033[31m'
 _reset='\033[0m'
@@ -10,13 +13,21 @@ _reset='\033[0m'
 print_usage() {
     echo "Usage:"
     echo "./install"
-    echo "./install -y"
-    echo "./install --yes"
+    echo "./install --update"
+    echo "./install --skip-subprojects"
+    echo "./install --no-precompile"
+    echo "./install +1.11 | +1.12"
+    echo "./install --version 1.11 | --version 1.12"
     echo "./install -h"
     echo "./install --help"
     echo "Options:"
-    echo "  -y, --yes     Automatically choose the default Julia version without prompting."
-    echo "  -h, --help    Show this help message and exit."
+    echo "  --update              Run Pkg.update() instead of seeding from .default manifests,"
+    echo "                        then copy the resulting main manifest back to *.toml.default."
+    echo "  --skip-subprojects    Skip setup/update of examples, test, and docs sub-projects."
+    echo "  --no-precompile       Skip all Pkg.precompile() steps; just resolve manifests."
+    echo "  +X.Y, --version X.Y   Use Julia channel X.Y for this invocation (no juliaup default change)."
+    echo "                        Without this, Julia 1.12 is used."
+    echo "  -h, --help            Show this help message and exit."
 }
 
 # Parse command line arguments
@@ -26,8 +37,28 @@ while [[ $# -gt 0 ]]; do
             print_usage
             exit 0
             ;;
-        -y|--yes)
-            _yes_to_all=true
+        --update)
+            _update=true
+            shift
+            ;;
+        --skip-subprojects)
+            _skip_subprojects=true
+            shift
+            ;;
+        --no-precompile)
+            _no_precompile=true
+            shift
+            ;;
+        --version)
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --version requires a value (e.g. --version 1.12)"
+                exit 1
+            fi
+            _desired_julia="$2"
+            shift 2
+            ;;
+        +*)
+            _desired_julia="${1#+}"
             shift
             ;;
         *)
@@ -59,56 +90,17 @@ if ! command -v juliaup &> /dev/null; then
     exit 1
 fi
 
-# Ask which Julia version to use.
-# Default to 1.12 if it is already the current default, otherwise 1.11.
-if juliaup status 2>/dev/null | grep '^\s*\*' | grep -q '1\.12'; then
-    _default_choice=2
-    _default_julia="1.12"
-else
-    _default_choice=1
-    _default_julia="1.11"
+if [[ -z "$_desired_julia" ]]; then
+    _desired_julia="1.12"
 fi
 
-echo "Which Julia version do you want to use?"
-echo "  1) Julia 1.11"
-echo "  2) Julia 1.12"
-if [[ $_yes_to_all == true ]]; then
-    _julia_choice=""
-    echo "Using Julia version: ${_default_julia}"
-else
-    read -rp "Enter 1 or 2 [default: ${_default_choice}]: " _julia_choice
-fi
-
-case "${_julia_choice}" in
-    1)
-        _desired_julia="1.11"
-        ;;
-    2)
-        _desired_julia="1.12"
-        ;;
-    "")
-        _desired_julia="${_default_julia}"
-        ;;
-    *)
-        echo "Invalid choice: '${_julia_choice}'. Please enter 1 or 2."
-        exit 1
-        ;;
-esac
-
-echo "Installing and activating Julia ${_desired_julia}..."
+echo "Ensuring Julia ${_desired_julia} channel is installed (without changing juliaup default)..."
 juliaup add "${_desired_julia}"
-juliaup default "${_desired_julia}"
-echo "Julia ${_desired_julia} is now the default."
 echo
 
-# Detect Julia version
-julia_version=$(julia --version | awk '{print($3)}')
-julia_major=${julia_version:0:3}
-if [[ $julia_major == "1.1" ]]; then
-    julia_major=${julia_version:0:4} 
-fi
-
-echo "Detected Julia version: $julia_version (major: $julia_major)"
+julia_major="${_desired_julia}"
+JULIA="julia +${_desired_julia}"
+echo "Using ${JULIA} for this run."
 
 export JULIA_PKG_SERVER_REGISTRY_PREFERENCE=eager
 
@@ -126,9 +118,7 @@ fi
 # Only accept Julia 1.11 and 1.12
 if [[ $julia_major != "1.11" ]] && [[ $julia_major != "1.12" ]]; then
     echo "Error: Julia $julia_major is not supported. Only Julia 1.11 and 1.12 are supported."
-    echo "You can install Julia 1.11 with the following commands:"
-    echo "juliaup add 1.11"
-    echo "juliaup default 1.11"
+    echo "Re-run with +1.11 or +1.12, e.g. ./bin/install +1.11"
     exit 1
 fi
 
@@ -140,101 +130,84 @@ if [ ! -f "LocalPreferences.toml" ]; then
     fi
 fi
 
-# Copy the appropriate default manifest
-if [[ $julia_major == "1.11" ]]; then
-    if [ -f "Manifest-v1.11.toml.default" ]; then
-        cp Manifest-v1.11.toml.default Manifest-v1.11.toml
-        echo "Copied Manifest-v1.11.toml.default to Manifest-v1.11.toml"
-    else
-        echo -e "${_red}Warning:${_reset} Manifest-v1.11.toml.default not found"
-        exit 1
-    fi
+# Ensure Pkg writes to the versioned manifest for a given directory:
+# delete any generic Manifest.toml and touch both versioned manifests so Pkg picks them up.
+_prepare_manifests() {
+    local dir="${1:-.}"
+    rm -f "${dir}/Manifest.toml"
+    [ -f "${dir}/Manifest-v1.11.toml" ] || touch "${dir}/Manifest-v1.11.toml"
+    [ -f "${dir}/Manifest-v1.12.toml" ] || touch "${dir}/Manifest-v1.12.toml"
+}
+
+if [[ $_update == true ]]; then
+    # Update mode: clear existing main manifest for a fresh resolve and run Pkg.update().
+    # Skip precompile during update so we can copy the new manifest to .default ASAP
+    # (so the user can commit + trigger CI while precompile runs locally afterwards).
+    rm -f "Manifest-v${julia_major}.toml"
+    _prepare_manifests .
+    echo "Updating main project (Pkg.update, no auto-precompile)..."
+    JULIA_PKG_PRECOMPILE_AUTO=0 $JULIA --project -e 'using Pkg; Pkg.update()'
+
+    cp "Manifest-v${julia_major}.toml" "Manifest-v${julia_major}.toml.default"
+    echo "Copied Manifest-v${julia_major}.toml to Manifest-v${julia_major}.toml.default"
+    echo "(safe to git commit + push now while precompile continues)"
 else
-    # Default to 1.12 for newer versions
-    if [ -f "Manifest-v1.12.toml.default" ]; then
-        cp Manifest-v1.12.toml.default Manifest-v1.12.toml
-        echo "Copied Manifest-v1.12.toml.default to Manifest-v1.12.toml"
+    # Seed the active version's manifest from its .default snapshot.
+    if [ -f "Manifest-v${julia_major}.toml.default" ]; then
+        cp "Manifest-v${julia_major}.toml.default" "Manifest-v${julia_major}.toml"
+        echo "Copied Manifest-v${julia_major}.toml.default to Manifest-v${julia_major}.toml"
     else
-        echo -e "${_red}Warning:${_reset} Manifest-v1.12.toml.default not found"
+        echo -e "${_red}Warning:${_reset} Manifest-v${julia_major}.toml.default not found"
         exit 1
     fi
+    _prepare_manifests .
+
+    echo "Instantiating project..."
+    JULIA_PKG_PRECOMPILE_AUTO=0 $JULIA --project -e 'using Pkg; Pkg.instantiate()'
+fi
+if [[ $_no_precompile == true ]]; then
+    echo "Skipping main precompile (--no-precompile)."
+else
+    echo "Precompiling main project..."
+    $JULIA --project -e 'using Pkg; Pkg.precompile()'
 fi
 
-# Instantiate the project
-echo "Instantiating project..."
-julia --project -e '
-using Pkg
-try
-    Pkg.instantiate()
-catch e
-    @warn "Pkg.instantiate() failed, attempting fresh resolve..." exception=e
-    proj_dir = dirname(Base.active_project())
-    # Remove all manifest files to force a clean resolve
-    for f in readdir(proj_dir)
-        if startswith(f, "Manifest") && endswith(f, ".toml") && !endswith(f, ".default")
-            rm(joinpath(proj_dir, f), force=true)
-        end
-    end
-    Pkg.resolve()
-    Pkg.instantiate()
-end
-'
-echo "Precompiling main project..."
-julia --project -e 'using Pkg; Pkg.precompile()'
+if [[ $_skip_subprojects == true ]]; then
+    echo "Skipping sub-project setup (--skip-subprojects)."
+else
+    echo "Julia $julia_major: instantiating all sub-projects..."
 
-# Julia may write a generic Manifest.toml instead of Manifest-v${julia_major}.toml.
-# Rename it so the install script can seed sub-projects from the correct versioned file.
-if [ -f "Manifest.toml" ] && [ ! -f "Manifest-v${julia_major}.toml" ]; then
-    mv Manifest.toml "Manifest-v${julia_major}.toml"
-    echo "Renamed Manifest.toml to Manifest-v${julia_major}.toml"
-fi
-
-# Instantiate all sub-projects: examples, test, docs
-echo "Julia $julia_major: instantiating all sub-projects..."
-# Seed subproject manifests from the main manifest only for Julia 1.11.
-# For Julia 1.12, keep no manifests in subprojects.
-rm -f examples/Manifest*.toml test/Manifest*.toml
-if [[ $julia_major == "1.11" ]]; then
-    cp "Manifest-v${julia_major}.toml" "examples/Manifest-v${julia_major}.toml"
-    cp "Manifest-v${julia_major}.toml" "test/Manifest-v${julia_major}.toml"
-fi
-
-# Develop the main package into the sub-project environments so Julia finds the local source.
-julia --project=examples -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.resolve(); Pkg.instantiate()'
-echo "Precompiling examples project..."
-julia --project=examples -e 'using Pkg; Pkg.precompile()'
-
-julia --project=test -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.resolve(); Pkg.instantiate()'
-echo "Precompiling test project..."
-julia --project=test -e 'using Pkg; Pkg.precompile()'
-
-# Docs resolves independently (different dep tree; seeding from main causes missing extensions)
-rm -f docs/Manifest*.toml
-julia --project=docs -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.resolve(); Pkg.instantiate()'
-echo "Precompiling docs project..."
-julia --project=docs -e 'using Pkg; Pkg.precompile()'
-
-# Rename manifest files to version-specific names
-if [[ $julia_major == "1.11" ]] && [ -f "examples/Manifest.toml" ]; then
-    mv examples/Manifest.toml examples/Manifest-v${julia_major}.toml
-    echo "Renamed examples/Manifest.toml to examples/Manifest-v${julia_major}.toml"
-fi
-if [ -f "test/Manifest.toml" ]; then
+    # Seed examples/test from the main manifest only on Julia 1.11.
+    # On 1.12 we let each sub-project resolve fresh.
     if [[ $julia_major == "1.11" ]]; then
-        mv test/Manifest.toml test/Manifest-v${julia_major}.toml
-        echo "Renamed test/Manifest.toml to test/Manifest-v${julia_major}.toml"
+        cp "Manifest-v${julia_major}.toml" "examples/Manifest-v${julia_major}.toml"
+        cp "Manifest-v${julia_major}.toml" "test/Manifest-v${julia_major}.toml"
+    else
+        rm -f examples/Manifest-v${julia_major}.toml test/Manifest-v${julia_major}.toml
     fi
-fi
-if [ -f "docs/Manifest.toml" ]; then
-    if [[ $julia_major == "1.11" ]]; then
-        mv docs/Manifest.toml docs/Manifest-v${julia_major}.toml
-        echo "Renamed docs/Manifest.toml to docs/Manifest-v${julia_major}.toml"
-    fi
-fi
+    rm -f docs/Manifest-v${julia_major}.toml
 
-if [[ $julia_major == "1.12" ]]; then
-    rm -f examples/Manifest*.toml test/Manifest*.toml docs/Manifest*.toml
-    echo "Removed subproject manifests for Julia 1.12"
+    if [[ $_update == true ]]; then
+        _subproj_setup='using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.resolve(); Pkg.update()'
+    else
+        _subproj_setup='using Pkg; Pkg.develop(PackageSpec(path=".")); Pkg.resolve(); Pkg.instantiate()'
+    fi
+
+    for _sub in examples test docs; do
+        _prepare_manifests "$_sub"
+        JULIA_PKG_PRECOMPILE_AUTO=0 $JULIA --project="$_sub" -e "$_subproj_setup"
+        if [[ $_no_precompile == true ]]; then
+            echo "Skipping $_sub precompile (--no-precompile)."
+        else
+            echo "Precompiling $_sub project..."
+            $JULIA --project="$_sub" -e 'using Pkg; Pkg.precompile()'
+        fi
+    done
+
+    if [[ $julia_major == "1.12" ]]; then
+        rm -f examples/Manifest*.toml test/Manifest*.toml docs/Manifest*.toml
+        echo "Removed subproject manifests for Julia 1.12"
+    fi
 fi
 
 # Copy .JETLSConfig.toml.default to .JETLSConfig.toml if it doesn't exist
