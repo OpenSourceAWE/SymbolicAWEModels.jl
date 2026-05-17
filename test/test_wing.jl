@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 # test_wing.jl - Wing sanity tests
 #
@@ -11,6 +11,8 @@ using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     Pkg.activate(@__DIR__)
 end
+
+@isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
 using SymbolicAWEModels
@@ -51,7 +53,7 @@ function reset_state!(sam, set)
 
     sam.sys_struct.winches[:main_winch].brake = true
 
-    init!(sam; remake=false, reload=false, prn=false)
+    test_init!(sam; remake=false, reload=false, prn=false)
 end
 
 @testset "Wing Tests" begin
@@ -88,14 +90,14 @@ end
         system_name="wing_test_QUATERNION", set, vsm_set
     )
     quat_sam = SymbolicAWEModel(set, quat_sys)
-    init!(quat_sam; remake=true, prn=true)
+    test_init!(quat_sam; remake=true, prn=true)
 
     refine_sys = load_sys_struct_from_yaml(
         refine_yaml_path;
         system_name="wing_test_REFINE", set, vsm_set
     )
     refine_sam = SymbolicAWEModel(set, refine_sys)
-    init!(refine_sam; remake=true, prn=true)
+    test_init!(refine_sam; remake=true, prn=true)
 
     sam_configs = [
         ("REFINE", refine_sam, SymbolicAWEModels.REFINE),
@@ -139,7 +141,7 @@ end
                 reset_state!(sam, set)
                 set.g_earth = 0.0
                 set.v_wind = 0.0
-                init!(
+                test_init!(
                     sam; remake=false, reload=false, prn=false
                 )
                 @show sam.set.wind_vec
@@ -178,7 +180,7 @@ end
             @testset "Gravity no wind" begin
                 reset_state!(sam, set)
                 set.v_wind = 0.0
-                init!(
+                test_init!(
                     sam; remake=false, reload=false, prn=false
                 )
 
@@ -256,16 +258,20 @@ end
                 wing = sam.sys_struct.wings[:main_wing]
                 initial_Q = copy(wing.Q_b_to_w)
 
-                for _ in 1:100
-                    next_step!(sam; dt=0.001,
-                        vsm_interval=1)
+                is_linearized = expected_wing_type ==
+                    SymbolicAWEModels.QUATERNION
+                dt = is_linearized ? 0.2 : 0.001
+                n_steps = is_linearized ? 5 : 100
+
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=1)
                 end
 
                 q_diff = norm(wing.Q_b_to_w - initial_Q)
                 q_norm = norm(wing.Q_b_to_w)
 
                 @test q_diff > 0.001
-                @test q_norm ≈ 1.0 atol = 0.1
+                @test q_norm ≈ 1.0 atol = 1e-4
 
                 println("  [$wtn] Rotates: " *
                     "q_diff=$(round(q_diff; digits=4)), " *
@@ -286,7 +292,7 @@ end
                 for wing in sam.sys_struct.wings
                     wing.fix_sphere = true
                 end
-                init!(
+                test_init!(
                     sam; remake=false, reload=false, prn=false
                 )
 
@@ -334,7 +340,7 @@ end
                         point.fix_static = true
                     end
                 end
-                init!(
+                test_init!(
                     sam; remake=false, reload=false, prn=false
                 )
 
@@ -385,7 +391,7 @@ end
                 # Undamped run
                 reset_state!(sam, set)
                 set.v_wind = 0.0
-                init!(
+                test_init!(
                     sam; remake=false, reload=false, prn=false
                 )
 
@@ -406,7 +412,7 @@ end
                 set_world_frame_damping(
                     sam.sys_struct, 1000.0
                 )
-                init!(
+                test_init!(
                     sam; remake=false, reload=false, prn=false
                 )
 
@@ -436,8 +442,11 @@ end
             # ========================================================
             @testset "Force vs sol.force conservation" begin
                 reset_state!(sam, set)
+                test_init!(
+                    sam; remake=false, reload=false, prn=false, remake_vsm=true
+                )
                 for _ in 1:5
-                    next_step!(sam; dt=0.05,
+                    next_step!(sam; dt=0.001,
                         vsm_interval=1)
                 end
 

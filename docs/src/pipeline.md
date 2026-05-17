@@ -130,7 +130,7 @@ can be changed at runtime without recompiling:
 - Winch parameters: `inertia_total`, `f_coulomb`, `c_vf`, `gear_ratio`
 - Segment properties: `l0` (via tether/winch control)
 - Wing damping: `body_frame_damping`, `world_frame_damping`
-- VSM state: `vsm_jac`, `vsm_x`, `vsm_y` (updated by `update_vsm!()`)
+- VSM state: `aero_jac`, `aero_x`, `aero_y` (updated by `update_vsm!()`)
 
 Since registered functions read directly from the structs, changes take effect
 instantly on the next ODE evaluation — no `init!` or `remake` call is needed.

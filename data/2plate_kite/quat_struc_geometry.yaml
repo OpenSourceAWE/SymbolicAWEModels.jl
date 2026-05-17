@@ -23,11 +23,11 @@ points:
   data:
     # Wing points - leading edge (LE) and trailing edge (TE)
     - [le_left,    [-0.5, 1.0, 2.0], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [te_left,    [0.5,  1.0, 2.2], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [te_left,    [0.5,  1.0, 2.3], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
     - [le_center,  [-0.5, 0.0, 2.5], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [te_center,  [0.5,  0.0, 2.7], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [te_center,  [0.5,  0.0, 2.8], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
     - [le_right,   [-0.5,-1.0, 2.0], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [te_right,   [0.5, -1.0, 2.2], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [te_right,   [0.5, -1.0, 2.3], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
 
     # Bridle points
     - [steering_left, [0.0, 0.5, 0.5], DYNAMIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
@@ -101,10 +101,9 @@ groups:
 ## Tethers ################
 ###########################
 tethers:
-  headers: [name, start_point, end_point, n_segments,
-            diameter_mm, unit_stiffness, unit_damping, init_stretched_length]
+  headers: [name, start_point, end_point, n_segments, material, diameter_mm, init_stretched_length]
   data:
-    - [main_tether, kcu, ground, 2, 1.0, dyneema, nothing, 20.0]
+    - [main_tether, kcu, ground, 6, dyneema, 1.0, 20.0]
 
 ###########################
 ## Winches ################
@@ -134,7 +133,7 @@ wings:
 transforms:
   data:
     - name: main_transform
-      elevation: 60
+      elevation: 50
       azimuth: 0.0
       heading: 0.0
       wing_idx: main_wing

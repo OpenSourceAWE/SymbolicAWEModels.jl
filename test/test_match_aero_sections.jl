@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Bart van de Lint
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 # test_match_aero_sections.jl
 # Tests for match_aero_sections_to_structure!:
@@ -227,86 +227,76 @@ end
         end
     end
 
-    @testset "vsm resize after count mismatch" begin
+    @testset "preserve aero when n_groups < n_aero" begin
+        # When a QUATERNION wing has fewer twist DOFs
+        # (groups) than aero sections, the OBJ/VSM
+        # geometry must stay intact — only the Voronoi
+        # partition assigns sections to groups.
         sys_q = SymbolicAWEModels.load_sys_struct_from_yaml(
             struc_yaml;
-            system_name="quat_resize", set, vsm_set,
+            system_name="quat_preserve", set, vsm_set,
             wing_type=QUATERNION)
         wing = sys_q.wings[1]
         points = sys_q.points
         vsm_w = wing.vsm_wing
 
         n_struct = length(wing.group_idxs)
-
-        # Save baseline refined polars
         n_refined = length(vsm_w.refined_sections)
-        @test n_refined > 0
-        @test all(
-            s -> !isnothing(s.aero_data),
-            vsm_w.refined_sections)
-        baseline = [
-            deepcopy(sec.aero_data)
-            for sec in vsm_w.refined_sections
-        ]
 
-        # Set all unrefined polars to a scaled value so
-        # re-interpolation would produce uniform output
-        # that differs from baseline
-        orig_ad = vsm_w.unrefined_sections[1].aero_data
-        @test !isnothing(orig_ad)
-        uniform = Tuple(v .* 2.0 for v in orig_ad)
-        for sec in vsm_w.unrefined_sections
-            sec.aero_data = deepcopy(uniform)
-        end
-
-        # Verify non-trivial: some baseline refined
-        # polars differ from the uniform unrefined data
-        @test any(
-            any(!isapprox(baseline[i][k], uniform[k])
-                for k in eachindex(uniform))
-            for i in eachindex(baseline))
-
-        # Add extra section to create mismatch
+        # Add extra section so n_aero > n_groups
         extra = deepcopy(vsm_w.unrefined_sections[1])
         push!(vsm_w.unrefined_sections, extra)
         vsm_w.n_unrefined_sections =
             Int16(length(vsm_w.unrefined_sections))
-        @test vsm_w.n_unrefined_sections != n_struct
+        n_aero_before = vsm_w.n_unrefined_sections
+        @test n_aero_before > n_struct
 
-        vsm_w.use_prior_polar = true
+        baseline_unrefined = [
+            deepcopy(sec)
+            for sec in vsm_w.unrefined_sections
+        ]
+        baseline_refined = [
+            deepcopy(sec.aero_data)
+            for sec in vsm_w.refined_sections
+        ]
+
         wing.wing_segments = nothing
-
         match_aero_sections_to_structure!(
             wing, points;
             groups=collect(sys_q.groups))
 
-        @test vsm_w.n_unrefined_sections == n_struct
+        # Aero geometry untouched
+        @test vsm_w.n_unrefined_sections == n_aero_before
+        @test length(vsm_w.unrefined_sections) ==
+              n_aero_before
+        for (i, sec) in
+                enumerate(vsm_w.unrefined_sections)
+            @test sec.LE_point ≈
+                  baseline_unrefined[i].LE_point
+            @test sec.TE_point ≈
+                  baseline_unrefined[i].TE_point
+        end
 
-        # Verify linearization vectors resized
-        ny = 3 + n_struct + 3
-        nx = 3 + 3 + n_struct
-        @test length(wing.vsm_y) == ny
-        @test length(wing.vsm_x) == nx
-        @test size(wing.vsm_jac) == (nx, ny)
-
-        # Refined polars preserved — NOT re-interpolated
+        # Refined polars untouched (no rebuild ran)
         @test length(vsm_w.refined_sections) == n_refined
         for (i, sec) in
                 enumerate(vsm_w.refined_sections)
-            @test !isnothing(sec.aero_data)
-            for k in eachindex(baseline[i])
-                @test sec.aero_data[k] ≈ baseline[i][k]
+            for k in eachindex(baseline_refined[i])
+                @test sec.aero_data[k] ≈
+                      baseline_refined[i][k]
             end
         end
 
-        # Preserved polars differ from rebuilt unrefined
-        # (re-interpolation would have made them equal)
-        unrefined_ad = vsm_w.unrefined_sections[1].aero_data
-        @test any(
-            any(!isapprox(sec.aero_data[k],
-                          unrefined_ad[k])
-                for k in eachindex(sec.aero_data))
-            for sec in vsm_w.refined_sections)
+        # wing_segments still populated — one per group
+        @test !isnothing(wing.wing_segments)
+        @test length(wing.wing_segments) == n_struct
+
+        # Aero arrays remain group-count-sized
+        n_groups = length(wing.group_idxs)
+        @test length(wing.aero_y) == 5 + n_groups
+        @test length(wing.aero_x) == 6 + n_groups
+        @test size(wing.aero_jac) ==
+              (6 + n_groups, 5 + n_groups)
     end
 end
 nothing

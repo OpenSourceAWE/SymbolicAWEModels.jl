@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Bart van de Lint, Jelle Poland, Uwe Fechner
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 using GLMakie
 using KiteUtils: init!, next_step!, update_sys_state!

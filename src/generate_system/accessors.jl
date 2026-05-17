@@ -288,12 +288,12 @@ get_tether_len(sys::SystemStructure, idx::Int64) =
     sys::SystemStructure, idx::Int64)
 
 # ---- Settings ----
+const _ZERO_WIND_FALLBACK = KVec3(1e-10, 0.0, 0.0)
+
 function get_wind_vec(sys::SystemStructure)
     wv = sys.set.wind_vec
-    # VSM requires positive wake reference speed; return a
-    # tiny nonzero vector when wind is exactly zero.
     if wv[1]^2 + wv[2]^2 + wv[3]^2 < 1e-20
-        return KVec3(1e-10, 0.0, 0.0)
+        return _ZERO_WIND_FALLBACK
     end
     return wv
 end
@@ -343,18 +343,18 @@ get_le_pos(sys::SystemStructure, idx::Int64) =
     size = (3,)
     eltype = SimFloat
 end
-get_vsm_y(sys::SystemStructure, idx::Int64, iy::Int) =
-    sys.wings[idx].vsm_y[iy]
-@register_symbolic get_vsm_y(
+get_aero_y(sys::SystemStructure, idx::Int64, iy::Int) =
+    sys.wings[idx].aero_y[iy]
+@register_symbolic get_aero_y(
     sys::SystemStructure, idx::Int64, iy::Int)
-get_vsm_x(sys::SystemStructure, idx::Int64, ix::Int) =
-    sys.wings[idx].vsm_x[ix]
-@register_symbolic get_vsm_x(
+get_aero_x(sys::SystemStructure, idx::Int64, ix::Int) =
+    sys.wings[idx].aero_x[ix]
+@register_symbolic get_aero_x(
     sys::SystemStructure, idx::Int64, ix::Int)
-get_vsm_jac(sys::SystemStructure, idx::Int64,
+get_aero_jac(sys::SystemStructure, idx::Int64,
              ix::Int, iy::Int) =
-    sys.wings[idx].vsm_jac[ix, iy]
-@register_symbolic get_vsm_jac(
+    sys.wings[idx].aero_jac[ix, iy]
+@register_symbolic get_aero_jac(
     sys::SystemStructure, idx::Int64,
     ix::Int, iy::Int)
 get_twist(sys::SystemStructure, idx::Int64) =

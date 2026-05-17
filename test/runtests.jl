@@ -1,10 +1,12 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 ENV["MPLBACKEND"] = "Agg"
 using KiteUtils
 using Test
 using SymbolicAWEModels
+
+include("util.jl")
 
 # Set up data path for 2plate_kite tests
 pkg_root = dirname(@__DIR__)

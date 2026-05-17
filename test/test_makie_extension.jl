@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 # test_makie_extension.jl - Tests for the Makie extension
 #
@@ -14,6 +14,8 @@ using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     Pkg.activate(@__DIR__)
 end
+
+@isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
 
@@ -132,13 +134,13 @@ end
     sys1 = load_sys_struct_from_yaml(
         yaml_path; system_name="makie_test_1", set=set)
     sam = SymbolicAWEModel(set, sys1)
-    init!(sam; remake=true, prn=false)
+    test_init!(sam; remake=true, prn=false)
 
     # Build SysLog with a few frames
     lg1 = build_test_syslog(sam, sys1, 5, 0.05)
 
     # Reset and build second log
-    init!(sam; prn=false)
+    test_init!(sam; prn=false)
     lg2 = build_test_syslog(sam, sys1, 5, 0.05)
 
     # Second SystemStructure for multi-system tests

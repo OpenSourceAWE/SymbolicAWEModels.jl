@@ -118,11 +118,12 @@ Groups:              [─ Group₁ ─]    [─ Group₂ ─]
 ```
 
 Multiple unrefined sections can be combined into a single group
-for twist control. The mapping is configured via:
-
-```julia
-group.unrefined_section_idxs = [start_idx:end_idx]
-```
+for twist control. `compute_spatial_group_mapping!` builds the
+mapping automatically: each unrefined section is assigned to the
+nearest group centre (Voronoi partition in the body frame), and
+the group's single twist DOF then drives every section it owns
+as a rigid unit. `n_groups > n_unrefined` is rejected — a twist
+DOF without a section to drive would be undefined.
 
 #### Force distribution
 
@@ -138,12 +139,14 @@ ODE system** — orthogonal to the wing type choice.
 
 ### AERO_DIRECT
 
-The VSM solver runs a full nonlinear solve. The resulting forces
-are stored in the wing struct and read by registered symbolic
-functions during ODE evaluation:
+A single VSM solve at the current operating point. The resulting
+forces are stored in the wing struct and read by registered
+symbolic functions during ODE evaluation:
 
-1. `VortexStepMethod.linearize()` computes baseline coefficients
-2. Physical forces are computed: `F = q∞ · A · C₀`
+1. `_vsm_aero_coeffs` (Float64 path) sets the VSM body wind/ω
+   from the live wing state and calls `VortexStepMethod.solve!`
+2. `_apply_direct_forces!` reconstructs physical forces in the
+   wind-axis basis: `F = q∞ · A · (CL · lift + CD · drag + CS · side)`
 3. Forces are stored in `wing.aero_force_b` and
    `wing.aero_moment_b` (QUATERNION) or per-point via
    `distribute_panel_forces_to_points!` (REFINE)
@@ -157,25 +160,30 @@ For REFINE wings, per-point forces are read via
 
 ### AERO_LINEARIZED
 
-A first-order Taylor expansion using the Jacobian from VSM
-linearization. This enables the ODE solver to see smooth
-force variations between VSM updates:
+First-order Taylor expansion of the VSM solver around the last
+operating point, so the ODE RHS sees smooth force variations
+between VSM updates without a nonlinear solve each call.
 
-1. `VortexStepMethod.linearize()` computes the Jacobian and
-   baseline coefficients around the current operating point
-   - Output state
-     `vsm_x = [C_F(3), C_M(3), section_moments(n_unrefined)]`
-   - Input state
-     `vsm_y = [va_b(3), twist_angles(n_unrefined), ω_b(3)]`
-2. The symbolic ODE uses
-   `F = q∞ · A · (C₀ + J · Δstate)` where
-   `Δstate = state - state₀`
-   - `C₀[1:3]` → total force coefficient,
-     `C₀[4:6]` → total moment coefficient
-   - `C₀[7:end]` → per-section twist moment coefficients,
-     summed per group
-3. Between VSM updates, the Jacobian extrapolates forces as
-   the state evolves
+State:
+
+- `aero_y = [α, β, ω₁, ω₂, ω₃, θ_g_1, …, θ_g_n]`
+- `aero_x = [CL, CD, CS, CMx, CMy, CMz, cm_g_1, …, cm_g_n]`
+- `aero_jac = ∂aero_x/∂aero_y` (dense)
+
+Every `vsm_interval` steps, `update_vsm!`:
+
+1. Float64 VSM solve at `y0` to refresh `aero_x` and the
+   converged circulation γ₀
+2. ForwardDiff Jacobian via a lazily-allocated Dual-shadow
+   solver, warm-started from γ₀ (1–2 Picard iters per column)
+3. `_safe_vsm_solve!` guards each solve, checking convergence
+   and finiteness of both Dual values and partials (plain
+   `isfinite(::Dual)` misses partial NaNs)
+
+The ODE then reconstructs forces in the wind-axis basis
+(`drag = va/|va|`, `lift = normalize(drag × span)`,
+`side = lift × drag`) using
+`coef_i = aero_x_0[i] + Σ_j aero_jac[i,j] · Δaero_y[j]`.
 
 ### AERO_NONE
 
@@ -214,8 +222,8 @@ The steps are:
    the rebuilt unrefined sections. Because `use_prior_polar=true`
    and `n_panels` is unchanged, existing refined panel polars are
    preserved — only positions are re-interpolated
-4. **Resize linearization state**: For non-REFINE wings, `vsm_y`,
-   `vsm_x`, and `vsm_jac` are resized to match the new section
+4. **Resize linearization state**: For non-REFINE wings, `aero_y`,
+   `aero_x`, and `aero_jac` are resized to match the new group
    count
 
 ## Refined panel mapping

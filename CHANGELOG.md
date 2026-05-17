@@ -1,14 +1,53 @@
-<!--
-SPDX-FileCopyrightText: 2025 Uwe Fechner, Bart van de Lint
-SPDX-License-Identifier: MPL-2.0
--->
-# unreleased
+
+# Unreleased
 
 ## Changed
-- updated the default manifest files
+- BREAKING: simplified `AERO_LINEARIZED`. ForwardDiff Jacobian
+  over `[α, β, ω, θ_groups]` returning wind-axis coefficients
+  `[CL, CD, CS, CM, cm_groups]`. Wing fields and accessors
+  renamed `vsm_*` → `aero_*`.
+- A QUATERNION wing can now have fewer groups than unrefined
+  aero sections (one twist DOF drives several sections via a
+  spatial partition). More groups than sections errors.
+- Bumped `VortexStepMethod` compat to `3.3.0`.
+
+## Added
+- `examples/vsm_linearization.jl` — plots the VSM linearisation
+  tangents around the operating point.
+
+# v0.8.3 03-05-2026
+
+## Changed
+- VSM solver type is taken from VSM settings instead of being
+  hard-coded to `NONLIN`.
+- At low apparent wind, aero outputs are zeroed instead of warning
+  and skipping. Threshold via new `vsm_min_wind` kwarg (default 0.5)
+  on `init!`, `reinit!`, `next_step!`.
+- Bumped `VortexStepMethod` compat to `3.2.0`.
+
+# v0.8.2 26-04-2026
+
+## Changed
+- Updated the default manifest files.
+
+## Added
+- `drag_force` field on `Point` — total drag in world frame (point's
+  own aerodynamic drag plus its share of connected segment drag).
+  Populated by `update_sys_struct!` each timestep.
+- Manifest freshness tests in `test_helpers.jl`: verify that no bare
+  `Manifest.toml` exists and that `.default` manifests are at least as
+  recent as `Project.toml`.
+- CI step to copy version-specific `.default` manifest before build,
+  ensuring the correct manifest is used per Julia version.
+- Drag-related tests in `test_point.jl`, `test_segment.jl`, and
+  `test_wing.jl`.
 
 ## Fixed
-- crash with Julia 1.11; `setup_env` updated to fix that.
+- Crash with Julia 1.11; `setup_env` updated to fix that.
+
+## Removed
+- `plot_recipe.jl` — unused legacy Plots.jl recipe. Visualization is
+  handled by `SymbolicAWEModelsMakieExt`.
 
 # v0.8.1 23-04-2026
 

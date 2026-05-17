@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 # test_wing_dynamics.jl - Wing rigid body dynamics tests
 #
@@ -14,6 +14,8 @@ using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     Pkg.activate(@__DIR__)
 end
+
+@isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
 using SymbolicAWEModels
@@ -201,7 +203,7 @@ end
     end
 
     sam = SymbolicAWEModel(set, sys)
-    init!(sam; remake=true, prn=false)
+    test_init!(sam; remake=true, prn=false)
 
     # ================ Free fall ================ #
 
@@ -242,7 +244,7 @@ end
         omega_init[k] = omega0
         wing.ω_b .= omega_init
         wing.vel_w .= 0.0
-        init!(sam; remake=true, prn=false,
+        test_init!(sam; remake=true, prn=false,
               reset_vel=false)
 
         Q0 = copy(wing.Q_b_to_w)
@@ -310,7 +312,7 @@ end
 
         wing.ω_b .= omega_init
         wing.vel_w .= 0.0
-        init!(sam; remake=true, prn=false,
+        test_init!(sam; remake=true, prn=false,
               reset_vel=false)
 
         T_prec = 2pi / pc.Omega

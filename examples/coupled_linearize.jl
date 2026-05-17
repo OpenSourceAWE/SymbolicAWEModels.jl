@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Bart van de Lint, Uwe Fechner
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 """
 Linearize the 2-plate kite model at a steady-state operating point

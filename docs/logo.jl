@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Jelle Poland, Bart van de Lint
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 """
 Create a logo visualization of the V3 kite in Julia's official colors.

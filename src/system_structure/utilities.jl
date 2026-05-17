@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Bart van de Lint
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 """
 Utility functions for SystemStructure.
@@ -443,9 +443,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
             wing.vsm_wing = create_vsm_wing(set, vsm_set;
                 prn=false, sort_sections=false)
             wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
-            wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero;
-                solver_type=VortexStepMethod.NONLIN,
-                atol=2e-8, rtol=2e-8)
+            wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero, vsm_set)
 
             # Transform sections: CAD → body frame
             # (must match SystemStructure constructor)
@@ -502,10 +500,17 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
             va_wing_w = wing.v_wind - wing.vel_w + wing.wind_disturb
             wing.va_b .= R_b_to_w' * va_wing_w
         else
-            # Initialize vsm_y for QUATERNION wings
-            if length(wing.vsm_y) >= 3
-                wing.vsm_y .= 0.0
-                wing.vsm_y[1:3] .= R_b_to_w' * wind_vec_gnd
+            # Initialize aero_y operating point
+            if length(wing.aero_y) >= 2
+                va_b_init = R_b_to_w' * wind_vec_gnd
+                va_mag = norm(va_b_init)
+                wing.aero_y .= 0.0
+                wing.aero_y[1] = atan(
+                    va_b_init[3], va_b_init[1])
+                wing.aero_y[2] = va_mag > 0 ?
+                    asin(clamp(
+                        va_b_init[2] / va_mag,
+                        -1, 1)) : 0.0
             end
         end
     end

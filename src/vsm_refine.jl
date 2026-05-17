@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Bart van de Lint
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 """
 Helper functions for VSM wing types.
@@ -110,7 +110,7 @@ structural points.  When they differ, `use_prior_polar` and non-empty
 `refined_sections` are required.
 
 For non-REFINE wings whose section count changed, the linearization
-vectors (`vsm_y`, `vsm_x`, `vsm_jac`) are resized to match the new
+vectors (`aero_y`, `aero_x`, `aero_jac`) are resized to match the new
 `n_unrefined_sections`.
 
 # Keyword Arguments
@@ -156,6 +156,17 @@ function match_aero_sections_to_structure!(
 
     n_aero_sections =
         length(wing.vsm_wing.unrefined_sections)
+
+    # QUATERNION multi-section-per-group: keep aero geometry,
+    # let compute_spatial_group_mapping! partition sections.
+    if has_groups && wing.wing_type == QUATERNION &&
+            n_struct_sections < n_aero_sections
+        wing.wing_segments = identify_wing_segments(
+            wing_points; groups=groups,
+            wing_group_idxs=wing_group_idxs)
+        return nothing
+    end
+
     counts_differ = n_struct_sections != n_aero_sections
 
     if counts_differ
@@ -241,12 +252,12 @@ function match_aero_sections_to_structure!(
     # Resize linearization vectors for non-REFINE wings
     # when section count changed.
     if counts_differ && wing.wing_type != REFINE
-        n_un = Int(n_struct_sections)
-        ny = 3 + n_un + 3
-        nx = 3 + 3 + n_un
-        wing.vsm_y = zeros(SimFloat, ny)
-        wing.vsm_x = zeros(SimFloat, nx)
-        wing.vsm_jac = zeros(SimFloat, nx, ny)
+        n_groups = length(wing.group_idxs)
+        nx = 6 + n_groups
+        ny = 5 + n_groups
+        wing.aero_y = zeros(SimFloat, ny)
+        wing.aero_x = zeros(SimFloat, nx)
+        wing.aero_jac = zeros(SimFloat, nx, ny)
     end
 
     return nothing

@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Bart van de Lint
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 """
 SystemStructure type and main constructor.
@@ -551,6 +551,22 @@ function assign_indices_and_resolve!(
                 resolve!(something(wing.y_ref_points)[2],
                     point_names, "point")
             end
+
+            # Resize aero arrays now that group_idxs
+            # are resolved (initial sizing used
+            # n_unrefined as proxy which may differ)
+            if wing.wing_type == QUATERNION
+                n_grp = length(wing.group_idxs)
+                nx = 6 + n_grp
+                ny = 5 + n_grp
+                if length(wing.aero_x) != nx ||
+                        length(wing.aero_y) != ny
+                    wing.aero_y = zeros(SimFloat, ny)
+                    wing.aero_x = zeros(SimFloat, nx)
+                    wing.aero_jac = zeros(
+                        SimFloat, nx, ny)
+                end
+            end
         end
         # Resolve PlateSurface point references
         if isa(wing, PlateWing)
@@ -622,9 +638,17 @@ end
 """
     compute_spatial_group_mapping!(the_wing, groups, points)
 
-Map groups to unrefined sections using spatial proximity.
-Each group is assigned to the closest unrefined section
-based on distance between centers.
+Partition the wing's unrefined VSM sections among its
+groups by spatial proximity: each unrefined section is
+assigned to the single closest group (by distance between
+section centre and group centre, both in body frame).
+
+When `n_groups == n_unrefined` this is the same 1:1
+mapping as before. When `n_groups < n_unrefined` a group
+may own several adjacent sections; its single twist DOF
+then drives all of them as a rigid unit. The case
+`n_groups > n_unrefined` is rejected — a twist DOF without
+a section to drive would be undefined.
 """
 function compute_spatial_group_mapping!(
     the_wing::VSMWing,
@@ -634,6 +658,12 @@ function compute_spatial_group_mapping!(
     the_vsm_wing = the_wing.vsm_wing
     n_unrefined = the_vsm_wing.n_unrefined_sections
     n_groups = length(the_wing.base.group_idxs)
+
+    n_groups <= n_unrefined || error(
+        "Wing $(the_wing.base.idx): n_groups " *
+        "($n_groups) > n_unrefined sections " *
+        "($n_unrefined). Reduce groups or increase " *
+        "aero resolution.")
 
     # Compute group centers in body frame
     group_centers = Vector{MVec3}(undef, n_groups)
@@ -662,36 +692,35 @@ function compute_spatial_group_mapping!(
             (le_point + te_point) / 2
     end
 
-    # Map each group to closest unrefined section
-    for (local_idx, group_idx) in
-            enumerate(the_wing.base.group_idxs)
-        group = groups[group_idx]
-        min_dist = Inf
-        closest_idx = 1
-        for unrefined_idx in 1:n_unrefined
-            dist = norm(
-                group_centers[local_idx] -
-                unrefined_centers[unrefined_idx])
-            if dist < min_dist
-                min_dist = dist
-                closest_idx = unrefined_idx
-            end
-        end
-        group.unrefined_section_idxs =
-            Int64[closest_idx]
+    # Reset section lists (we rebuild the partition)
+    for group_idx in the_wing.base.group_idxs
+        empty!(groups[group_idx].unrefined_section_idxs)
     end
 
-    # Validate: check all sections are covered
-    assigned = Set{Int64}()
-    for group_idx in the_wing.base.group_idxs
-        union!(assigned,
-            groups[group_idx].unrefined_section_idxs)
+    # Assign each unrefined section to nearest group
+    for s in 1:n_unrefined
+        min_dist = Inf
+        closest_local = 1
+        for local_idx in 1:n_groups
+            d = norm(unrefined_centers[s] -
+                     group_centers[local_idx])
+            if d < min_dist
+                min_dist = d
+                closest_local = local_idx
+            end
+        end
+        g_idx = the_wing.base.group_idxs[closest_local]
+        push!(groups[g_idx].unrefined_section_idxs,
+              Int64(s))
     end
-    if length(assigned) != n_unrefined
-        unassigned = setdiff(1:n_unrefined, assigned)
-        @warn "Wing $(the_wing.base.idx): " *
-            "$(length(unassigned)) unrefined sections " *
-            "not assigned to any group: $unassigned"
+
+    # Every group must claim at least one section
+    for group_idx in the_wing.base.group_idxs
+        group = groups[group_idx]
+        isempty(group.unrefined_section_idxs) && error(
+            "Wing $(the_wing.base.idx): group " *
+            "$(group.name) claims no unrefined " *
+            "sections (likely coincident group centres).")
     end
 end
 
@@ -985,13 +1014,13 @@ function SystemStructure(name, set;
             # Update wing with new groups and resize vsm arrays
             wing.group_idxs = new_group_idxs
 
-            # Resize vsm arrays based on number of unrefined sections
-            n_unrefined = wing.vsm_wing.n_unrefined_sections
-            ny = 3 + n_unrefined + 3  # va(3) + twist(n_unrefined) + ω(3)
-            nx = 3 + 3 + n_unrefined  # force(3) + moment(3) + unrefined_moments(n_unrefined)
-            wing.vsm_y = zeros(SimFloat, ny)
-            wing.vsm_x = zeros(SimFloat, nx)
-            wing.vsm_jac = zeros(SimFloat, nx, ny)
+            # Resize aero arrays for new group count
+            n_groups = length(new_group_idxs)
+            nx = 6 + n_groups
+            ny = 5 + n_groups
+            wing.aero_y = zeros(SimFloat, ny)
+            wing.aero_x = zeros(SimFloat, nx)
+            wing.aero_jac = zeros(SimFloat, nx, ny)
 
             prn && @info "Auto-created $(length(new_group_idxs)) groups " *
                   "for QUATERNION wing $(wing.idx)"
@@ -1070,6 +1099,39 @@ function SystemStructure(name, set;
                     break
                 end
             end
+        end
+    end
+
+    # Match VSM _apply_refined_section_thetas!: spanwise twist axis
+    # is the average of unit vectors to adjacent groups' LE points.
+    for wing in wings
+        wing.wing_type != QUATERNION && continue
+        n_grp = length(wing.group_idxs)
+        n_grp >= 2 || continue
+
+        sorted_idxs = wing.group_idxs[sortperm(
+            [groups[g].le_pos[2] for g in wing.group_idxs])]
+
+        new_y = [zeros(KVec3) for _ in 1:n_grp]
+        for k in 1:n_grp
+            le = groups[sorted_idxs[k]].le_pos
+            if k > 1
+                le_prev = groups[sorted_idxs[k - 1]].le_pos
+                new_y[k] .+= normalize(le_prev .- le)
+            end
+            if k < n_grp
+                le_next = groups[sorted_idxs[k + 1]].le_pos
+                new_y[k] .+= normalize(le .- le_next)
+            end
+            new_y[k] .= normalize(new_y[k])
+        end
+
+        for k in 1:n_grp
+            old_y = groups[sorted_idxs[k]].y_airf
+            if dot(new_y[k], old_y) < 0
+                new_y[k] .= -new_y[k]
+            end
+            groups[sorted_idxs[k]].y_airf .= new_y[k]
         end
     end
 

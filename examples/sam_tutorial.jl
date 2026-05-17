@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2025 Bart van de Lint
 #
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 """
 Progressive tutorial: builds up from a simple tether to a full kite
@@ -108,8 +108,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     data_prefix=false)
 vsm_wing = VortexStepMethod.Wing(vsm_set)
 vsm_aero = BodyAerodynamics([vsm_wing])
-vsm_solver = Solver(vsm_aero;
-    solver_type=NONLIN, atol=2e-8, rtol=2e-8)
+vsm_solver = Solver(vsm_aero, vsm_set)
 wings = [SymbolicAWEModels.Wing(1, vsm_aero, vsm_wing,
     vsm_solver, [], I(3), [0.5, 0, set.l_tether + 6])]
 

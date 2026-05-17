@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Bart van de Lint and Uwe Fechner
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{SimFloat}, D::Matrix{SimFloat}}
 const GetSetNothing = Union{AbstractIndexer, Nothing}
@@ -11,8 +11,10 @@ A container for the main Ordinary Differential Equation (ODE) problem and its
 associated getter and setter functions for the full, nonlinear physical state.
 """
 @with_kw struct ProbWithAttributes{Prob, SetSys, SetSetValues,
-                                  GetSetValues, GetWingState, GetVsmY, GetSegmentState,
-                                  GetWinchState, GetTetherState, GetPointState,
+                                  GetSetValues, GetWingState,
+                                  GetAeroInput, GetSegmentState,
+                                  GetWinchState, GetTetherState,
+                                  GetPointState,
                                   GetPulleyState, GetGroupState}
     "The ODE problem for the full nonlinear model."
     prob::Prob
@@ -26,7 +28,7 @@ associated getter and setter functions for the full, nonlinear physical state.
     # Getters for the ODE state
     get_set_values::GetSetValues
     get_wing_state::GetWingState
-    get_vsm_y::GetVsmY
+    get_aero_input::GetAeroInput
     get_segment_state::GetSegmentState
     get_winch_state::GetWinchState
     get_tether_state::GetTetherState
@@ -432,17 +434,17 @@ function next_step!(
     s::SymbolicAWEModel,
     integrator::OrdinaryDiffEqCore.ODEIntegrator;
     set_values=nothing, dt=1/s.set.sample_freq,
-    vsm_interval=1
+    vsm_interval=1, vsm_min_wind=0.5
 )
     !(s.integrator === integrator) && error(
         "The ODEIntegrator doesn't belong to " *
         "the SymbolicAWEModel")
-    next_step!(s; set_values, dt, vsm_interval)
+    next_step!(s; set_values, dt, vsm_interval, vsm_min_wind)
 end
 
 """
     next_step!(s::SymbolicAWEModel; set_values, dt,
-               vsm_interval)
+               vsm_interval, vsm_min_wind)
 
 Take a simulation step forward in time.
 
@@ -458,10 +460,15 @@ solver returns an unstable retcode.
 - `dt=1/s.set.sample_freq`: Time step size [s].
 - `vsm_interval=1`: Steps between VSM
     re-linearization. 0 disables re-linearization.
+- `vsm_min_wind=0.5`: Minimum apparent wind [m/s] for
+    a VSM solve. Below this the solver is skipped and
+    the wing's aero outputs are zeroed, since the
+    solver fails to converge or returns a Jacobian
+    whose norm grows as 1/|va|.
 """
 function next_step!(sam::SymbolicAWEModel;
     set_values=nothing, dt=1/sam.set.sample_freq,
-    vsm_interval=1
+    vsm_interval=1, vsm_min_wind=0.5
 )
     prob = sam.prob
     integrator = sam.integrator
@@ -487,7 +494,7 @@ function next_step!(sam::SymbolicAWEModel;
     if prob isa ProbWithAttributes
         update_sys_struct!(prob, integrator, sam.sys_struct)
         if vsm_interval != 0 && sam.iter % vsm_interval == 0
-            sam.t_vsm = @elapsed update_vsm!(sam, prob)
+            sam.t_vsm = @elapsed update_vsm!(sam, prob; vsm_min_wind)
         end
     end
     return nothing

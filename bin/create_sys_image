@@ -79,8 +79,12 @@ fi
 
 # --- 3. Update or Instantiate Packages ---
 if [ "$update" = true ]; then
-    echo "--- Updating packages via external script ---"
-    ./bin/update_manifest "$julia_channel_arg" --default
+    echo "--- Updating packages via ./bin/install --update --no-precompile ---"
+    if [[ -n "$julia_channel_arg" ]]; then
+        ./bin/install "$julia_channel_arg" --update --no-precompile
+    else
+        ./bin/install --update --no-precompile
+    fi
 else
     echo "--- Instantiating packages from default manifest ---"
     MANIFEST_DEFAULT="Manifest-v${julia_major}.toml.default"

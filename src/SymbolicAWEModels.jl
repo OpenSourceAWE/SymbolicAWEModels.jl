@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Bart van de Lint and Uwe Fechner
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 module SymbolicAWEModels
 
@@ -42,6 +42,7 @@ using AtmosphericModels
 using KiteUtils
 using VortexStepMethod
 using DataInterpolations: CubicSpline, LinearInterpolation
+using ForwardDiff
 
 #======================================================================#
 #                  IMPORTS (for extending functions)
