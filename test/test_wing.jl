@@ -271,7 +271,7 @@ end
                 q_norm = norm(wing.Q_b_to_w)
 
                 @test q_diff > 0.001
-                @test q_norm ≈ 1.0 atol = 0.1
+                @test q_norm ≈ 1.0 atol = 1e-4
 
                 println("  [$wtn] Rotates: " *
                     "q_diff=$(round(q_diff; digits=4)), " *
