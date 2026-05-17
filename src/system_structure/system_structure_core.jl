@@ -567,6 +567,7 @@ function assign_indices_and_resolve!(
                         SimFloat, nx, ny)
                 end
             end
+<<<<<<< HEAD
         end
         # Resolve PlateSurface point references
         if isa(wing, PlateWing)
@@ -574,6 +575,8 @@ function assign_indices_and_resolve!(
                 surf.point_idx = resolve_ref(
                     surf.point_ref, point_names, "point")
             end
+=======
+>>>>>>> origin/main
         end
     end
 

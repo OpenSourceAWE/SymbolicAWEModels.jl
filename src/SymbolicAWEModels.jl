@@ -41,7 +41,10 @@ using SteadyStateDiffEq
 using AtmosphericModels
 using KiteUtils
 using VortexStepMethod
+<<<<<<< HEAD
 using DataInterpolations: CubicSpline, LinearInterpolation
+=======
+>>>>>>> origin/main
 using ForwardDiff
 
 #======================================================================#

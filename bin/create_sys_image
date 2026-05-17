@@ -2,8 +2,12 @@
 # SPDX-FileCopyrightText: 2025 Uwe Fechner
 # SPDX-License-Identifier: MIT
 
-# This script creates a Julia system image for the project, optionally
-# updating packages first.
+# This script creates a precompiled system image for faster startup of the examples.
+# It is useful only when SymbolicAWEModels.jl is checked out as a git repository
+# (i.e., used in development mode, not installed as a regular package).
+# It includes most of the dependencies of the examples, but not SymbolicAWEModels.jl itself.
+# This means you can still use Revise for the main package while benefiting from 
+# faster startup of the examples.
 
 # --- 1. Argument Parsing & Version Setup ---
 update=false
