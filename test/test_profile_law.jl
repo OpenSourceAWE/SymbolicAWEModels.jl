@@ -170,7 +170,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_const", set=set)
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # All probes should see the same wind speed
         probes = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]
@@ -192,7 +192,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_exp", set=set)
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Wind should increase with height
         probes_ordered = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]
@@ -218,7 +218,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_log", set=set)
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Wind should increase with height
         probes_ordered = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]
@@ -247,7 +247,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_direction", set=set)
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         probes = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]
 
@@ -279,7 +279,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_zero", set=set)
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         probes = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]
 
@@ -301,7 +301,7 @@ system:
 
         sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_explog", set=set)
         sam = SymbolicAWEModel(set, sys)
-        test_init!(sam; remake=true)
+        test_init!(sam)
 
         # Wind should increase monotonically with height
         probes_ordered = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]

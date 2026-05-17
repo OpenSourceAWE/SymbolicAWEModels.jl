@@ -124,7 +124,7 @@ environment:
     sys = load_sys_struct_from_yaml(
         yaml_path; system_name="winch_test", set=set)
     sam = SymbolicAWEModel(set, sys)
-    test_init!(sam; remake=true, prn=false)
+    test_init!(sam; prn=false)
 
     winch = sam.sys_struct.winches[:main_winch]
     tether = sam.sys_struct.tethers[:main_tether]
@@ -142,7 +142,7 @@ environment:
         winch.inertia_total = 0.1
         seg.unit_stiffness = 0.0
         seg.unit_damping = 0.0
-        test_init!(sam; remake=true, prn=false)
+        test_init!(sam; prn=false)
 
         tau_motor = 5.0
         for _ in 1:100
@@ -167,7 +167,7 @@ environment:
 
         for I_test in [0.1, 0.5, 1.0]
             winch.inertia_total = I_test
-            test_init!(sam; remake=true, prn=false)
+            test_init!(sam; prn=false)
 
             dt = 0.001
             n_steps = 20
@@ -202,7 +202,7 @@ environment:
 
         for f_c in [0.5, 2.0, 5.0]
             winch.f_coulomb = f_c
-            test_init!(sam; remake=true, prn=false)
+            test_init!(sam; prn=false)
 
             dt = 0.001
             # Spin up so smooth_sign(ω, 0.01) ≈ 1
@@ -246,7 +246,7 @@ environment:
 
         for c_vf_test in [50.0, 100.0, 200.0]
             winch.c_vf = c_vf_test
-            test_init!(sam; remake=true, prn=false)
+            test_init!(sam; prn=false)
 
             # Time constant: I / (c_vf * (r/n)^2)
             tau = I / (c_vf_test * (r / n)^2)
@@ -281,7 +281,7 @@ environment:
         unit_d = unit_k * 0.01  # Damping for settling
         seg.unit_stiffness = unit_k
         seg.unit_damping = unit_d
-        test_init!(sam; remake=true, prn=false)
+        test_init!(sam; prn=false)
 
         # Compute total mass at weight point:
         # m = extra_mass + rho * pi * (d/2)^2 * l0 / 2
@@ -324,7 +324,7 @@ environment:
         # Stiff tether to transmit gravity force
         seg.unit_stiffness = 120000.0
         seg.unit_damping = 500.0
-        test_init!(sam; remake=true, prn=false)
+        test_init!(sam; prn=false)
 
         tau_motor = 0.5
 
@@ -421,7 +421,7 @@ environment:
 
         # Build and simulate: mass should settle under gravity
         sam2 = SymbolicAWEModel(set, sys2)
-        test_init!(sam2; remake=true, prn=false)
+        test_init!(sam2; prn=false)
 
         # Brake on, stiff tether
         w2 = sam2.sys_struct.winches[:winch]
@@ -430,7 +430,7 @@ environment:
             s.unit_stiffness = 50000.0
             s.unit_damping = 500.0
         end
-        test_init!(sam2; remake=true, prn=false)
+        test_init!(sam2; prn=false)
 
         next_step!(sam2; dt=3.0, vsm_interval=0)
 
@@ -501,7 +501,7 @@ environment:
             sys3.points[:bot].idx
 
         sam3 = SymbolicAWEModel(set, sys3)
-        test_init!(sam3; remake=true, prn=false)
+        test_init!(sam3; prn=false)
 
         # Simulate: mass settles under gravity with stiff
         # constant-l0 tether
