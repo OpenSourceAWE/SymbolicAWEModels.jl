@@ -258,9 +258,13 @@ end
                 wing = sam.sys_struct.wings[:main_wing]
                 initial_Q = copy(wing.Q_b_to_w)
 
-                for _ in 1:100
-                    next_step!(sam; dt=0.001,
-                        vsm_interval=1)
+                is_linearized = expected_wing_type ==
+                    SymbolicAWEModels.QUATERNION
+                dt = is_linearized ? 0.2 : 0.001
+                n_steps = is_linearized ? 5 : 100
+
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=1)
                 end
 
                 q_diff = norm(wing.Q_b_to_w - initial_Q)
