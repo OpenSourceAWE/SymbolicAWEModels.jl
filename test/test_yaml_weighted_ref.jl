@@ -120,6 +120,6 @@ transforms:
     # Compile and init — weighted refs must survive
     # symbolic equation generation and scalarization
     sam = SymbolicAWEModel(set, sys)
-    @test_nowarn init!(sam; prn=false)
+    @test_nowarn init!(sam)
 end
 nothing

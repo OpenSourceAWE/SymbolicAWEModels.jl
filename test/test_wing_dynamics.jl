@@ -203,7 +203,7 @@ end
     end
 
     sam = SymbolicAWEModel(set, sys)
-    test_init!(sam; remake=true, prn=false)
+    test_init!(sam)
 
     # ================ Free fall ================ #
 
@@ -244,8 +244,7 @@ end
         omega_init[k] = omega0
         wing.ω_b .= omega_init
         wing.vel_w .= 0.0
-        test_init!(sam; remake=true, prn=false,
-              reset_vel=false)
+        test_init!(sam; prn=false, reset_vel=false)
 
         Q0 = copy(wing.Q_b_to_w)
         println("  I_b = $(round.(I_b; digits=4))")
@@ -312,8 +311,7 @@ end
 
         wing.ω_b .= omega_init
         wing.vel_w .= 0.0
-        test_init!(sam; remake=true, prn=false,
-              reset_vel=false)
+        test_init!(sam; prn=false, reset_vel=false)
 
         T_prec = 2pi / pc.Omega
         amp_q = abs(eps * pc.Omega / pc.C_pq)

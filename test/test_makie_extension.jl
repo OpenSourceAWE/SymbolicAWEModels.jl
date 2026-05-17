@@ -134,7 +134,7 @@ end
     sys1 = load_sys_struct_from_yaml(
         yaml_path; system_name="makie_test_1", set=set)
     sam = SymbolicAWEModel(set, sys1)
-    test_init!(sam; remake=true, prn=false)
+    test_init!(sam)
 
     # Build SysLog with a few frames
     lg1 = build_test_syslog(sam, sys1, 5, 0.05)

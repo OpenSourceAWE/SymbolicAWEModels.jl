@@ -39,7 +39,7 @@ function setup_bench_sam()
         system_name="bench", set, vsm_set)
     sys.winches[:main_winch].brake = true
     sam = SymbolicAWEModel(set, sys)
-    test_init!(sam; remake=false, prn=false)
+    test_init!(sam)
     return sam
 end
 

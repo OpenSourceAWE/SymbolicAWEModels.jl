@@ -53,7 +53,7 @@ function reset_state!(sam, set)
 
     sam.sys_struct.winches[:main_winch].brake = true
 
-    test_init!(sam; remake=false, reload=false, prn=false)
+    test_init!(sam; prn=false)
 end
 
 @testset "Wing Tests" begin
@@ -90,14 +90,14 @@ end
         system_name="wing_test_QUATERNION", set, vsm_set
     )
     quat_sam = SymbolicAWEModel(set, quat_sys)
-    test_init!(quat_sam; remake=true, prn=true)
+    test_init!(quat_sam)
 
     refine_sys = load_sys_struct_from_yaml(
         refine_yaml_path;
         system_name="wing_test_REFINE", set, vsm_set
     )
     refine_sam = SymbolicAWEModel(set, refine_sys)
-    test_init!(refine_sam; remake=true, prn=true)
+    test_init!(refine_sam)
 
     sam_configs = [
         ("REFINE", refine_sam, SymbolicAWEModels.REFINE),
@@ -141,9 +141,7 @@ end
                 reset_state!(sam, set)
                 set.g_earth = 0.0
                 set.v_wind = 0.0
-                test_init!(
-                    sam; remake=false, reload=false, prn=false
-                )
+                test_init!(sam; prn=false)
                 @show sam.set.wind_vec
                 @show sam.sys_struct.wings[1].heading
 
@@ -180,9 +178,7 @@ end
             @testset "Gravity no wind" begin
                 reset_state!(sam, set)
                 set.v_wind = 0.0
-                test_init!(
-                    sam; remake=false, reload=false, prn=false
-                )
+                test_init!(sam; prn=false)
 
                 wing = sam.sys_struct.wings[:main_wing]
                 initial_z = wing.pos_w[3]
@@ -292,9 +288,7 @@ end
                 for wing in sam.sys_struct.wings
                     wing.fix_sphere = true
                 end
-                test_init!(
-                    sam; remake=false, reload=false, prn=false
-                )
+                test_init!(sam; prn=false)
 
                 # QUATERNION: fix_sphere constrains com_w
                 # (not kcu, which shifts with rotation).
@@ -340,9 +334,7 @@ end
                         point.fix_static = true
                     end
                 end
-                test_init!(
-                    sam; remake=false, reload=false, prn=false
-                )
+                test_init!(sam; prn=false)
 
                 # QUATERNION: kcu is a WING point (derived
                 # from com_w + R * pos_b), not a DYNAMIC
@@ -391,9 +383,7 @@ end
                 # Undamped run
                 reset_state!(sam, set)
                 set.v_wind = 0.0
-                test_init!(
-                    sam; remake=false, reload=false, prn=false
-                )
+                test_init!(sam; prn=false)
 
                 wing = sam.sys_struct.wings[:main_wing]
                 init_pos = copy(wing.pos_w)
@@ -412,9 +402,7 @@ end
                 set_world_frame_damping(
                     sam.sys_struct, 1000.0
                 )
-                test_init!(
-                    sam; remake=false, reload=false, prn=false
-                )
+                test_init!(sam; prn=false)
 
                 init_pos .= wing.pos_w
 
@@ -442,9 +430,7 @@ end
             # ========================================================
             @testset "Force vs sol.force conservation" begin
                 reset_state!(sam, set)
-                test_init!(
-                    sam; remake=false, reload=false, prn=false, remake_vsm=true
-                )
+                test_init!(sam; prn=false, remake_vsm=true)
                 for _ in 1:5
                     next_step!(sam; dt=0.001,
                         vsm_interval=1)

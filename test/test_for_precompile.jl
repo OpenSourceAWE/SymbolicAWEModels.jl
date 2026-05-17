@@ -27,7 +27,7 @@ transforms = [
 sys = SystemStructure("hanging_mass", set;
                       points, segments, transforms)
 sam = SymbolicAWEModel(set, sys)
-init!(sam; remake=false)
+init!(sam)
 
 n_steps = 30
 logger = Logger(sam, n_steps)

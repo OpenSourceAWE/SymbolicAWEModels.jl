@@ -124,7 +124,7 @@ environment:
     sys = load_sys_struct_from_yaml(
         yaml_path; system_name="winch_test", set=set)
     sam = SymbolicAWEModel(set, sys)
-    test_init!(sam; prn=false)
+    test_init!(sam)
 
     winch = sam.sys_struct.winches[:main_winch]
     tether = sam.sys_struct.tethers[:main_tether]
@@ -421,7 +421,7 @@ environment:
 
         # Build and simulate: mass should settle under gravity
         sam2 = SymbolicAWEModel(set, sys2)
-        test_init!(sam2; prn=false)
+        test_init!(sam2)
 
         # Brake on, stiff tether
         w2 = sam2.sys_struct.winches[:winch]
@@ -501,7 +501,7 @@ environment:
             sys3.points[:bot].idx
 
         sam3 = SymbolicAWEModel(set, sys3)
-        test_init!(sam3; prn=false)
+        test_init!(sam3)
 
         # Simulate: mass settles under gravity with stiff
         # constant-l0 tether
