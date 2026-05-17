@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Bart van de Lint
+# SPDX-License-Identifier: LGPL-3.0-only
+
 # KPS4 parking flight comparison: SymbolicAWEModels vs KiteModels
 #
 # Runs the same 30s parking flight with both packages and plots

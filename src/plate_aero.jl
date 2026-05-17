@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Bart van de Lint
-# SPDX-License-Identifier: MPL-2.0
+# SPDX-License-Identifier: LGPL-3.0-only
 
 # Registered symbolic functions for flat-plate aerodynamics.
 # The actual equation generation is in generate_system/plate_eqs.jl.
