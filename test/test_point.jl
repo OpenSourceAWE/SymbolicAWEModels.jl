@@ -210,7 +210,7 @@ system:
         set.v_wind = 0.0
 
         # Use no-drag YAML for cleaner test
-        sys = load_sys_struct_from_yaml(yaml_no_drag_path; system_name="point_test_stat", set=set)
+        sys = load_sys_struct_from_yaml(yaml_no_drag_path; system_name="point_no_drag_test", set=set)
         @test sys.points[:test_point].area == 0.0
 
         sam = SymbolicAWEModel(set, sys)
@@ -309,7 +309,7 @@ system:
         set.v_wind = 0.0
 
         # Use no-drag YAML - just a point with mass, no segments
-        sys = load_sys_struct_from_yaml(yaml_no_drag_path; system_name="freefall_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_no_drag_path; system_name="point_no_drag_test", set=set)
 
         @test sys.points[:test_point].area == 0.0
         @test sys.points[:test_point].world_frame_damping == KVec3(0.0, 0.0, 0.0)

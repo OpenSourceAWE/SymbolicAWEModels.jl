@@ -168,7 +168,7 @@ system:
         set.profile_law = 0
         set.v_wind = 10.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_const", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
         sam = SymbolicAWEModel(set, sys)
         test_init!(sam)
 
@@ -190,7 +190,7 @@ system:
         set.profile_law = 1
         set.v_wind = 10.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_exp", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
         sam = SymbolicAWEModel(set, sys)
         test_init!(sam)
 
@@ -216,7 +216,7 @@ system:
         set.profile_law = 2
         set.v_wind = 10.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_log", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
         sam = SymbolicAWEModel(set, sys)
         test_init!(sam)
 
@@ -245,7 +245,7 @@ system:
         set.v_wind = 10.0
         set.upwind_dir = -90.0  # Wind from +x direction
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_direction", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
         sam = SymbolicAWEModel(set, sys)
         test_init!(sam)
 
@@ -277,7 +277,7 @@ system:
         set.profile_law = 0
         set.v_wind = 0.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_zero", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
         sam = SymbolicAWEModel(set, sys)
         test_init!(sam)
 
@@ -299,7 +299,7 @@ system:
         set.profile_law = 3
         set.v_wind = 10.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_explog", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
         sam = SymbolicAWEModel(set, sys)
         test_init!(sam)
 

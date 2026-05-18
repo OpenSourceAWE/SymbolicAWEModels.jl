@@ -270,7 +270,7 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="pulley_len_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="pulley_test", set=set)
         sam = SymbolicAWEModel(set, sys)
         test_init!(sam)
 
@@ -325,7 +325,7 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="pulley_eq_test", set=set)
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="pulley_test", set=set)
         sam = SymbolicAWEModel(set, sys)
         test_init!(sam)
 
@@ -361,7 +361,7 @@ system:
         set.v_wind = 0.0
 
         # Load symmetric configuration (starting at equilibrium)
-        sys = load_sys_struct_from_yaml(yaml_symmetric_path; system_name="pulley_analytic", set=set)
+        sys = load_sys_struct_from_yaml(yaml_symmetric_path; system_name="pulley_symmetric", set=set)
 
         # Get positions from YAML
         attach_left_pos = sys.points[:attach_left].pos_cad
@@ -423,7 +423,7 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys = load_sys_struct_from_yaml(yaml_symmetric_path; system_name="pulley_tension", set=set)
+        sys = load_sys_struct_from_yaml(yaml_symmetric_path; system_name="pulley_symmetric", set=set)
         sam = SymbolicAWEModel(set, sys)
         test_init!(sam)
 

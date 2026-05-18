@@ -51,9 +51,9 @@ AbstractWing
 BaseWing
 VSMWing
 PlateWing
-PlateWing(name, surfaces, calc_cl, calc_cd; wing_type, transform, y_damping, angular_damping, drag_corr, cmq, smc, cord_length, z_ref_points, y_ref_points, origin)
+PlateWing(::Any, ::Vector{PlateSurface}, ::Any, ::Any)
 PlateSurface
-PlateSurface(name, x_airf, y_airf, area, point; twist)
+PlateSurface(::Any, ::Any, ::Any, ::Any, ::Any)
 create_plate_interpolations
 Transform
 Transform(name, elevation, azimuth, heading; base_point, base_pos, base_transform, wing, rot_point)
