@@ -302,14 +302,15 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
                 aoa_raw = wing.vsm_solver.sol.alpha_geometric_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 +
                           (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
                 ss.AoA = mod(aoa_raw + π, 2π) - π  # Wrap to [-π, π]
-                ss.side_slip = asin(wing.va_b[2] / norm(wing.va_b))
+                ss.side_slip = atan(wing.va_b[2],
+                    hypot(wing.va_b[1], wing.va_b[3]))
             elseif wing isa PlateWing
                 # AoA from body frame apparent wind
                 # (x=chord, z=normal, same as
                 #  calc_angle_of_attack)
                 ss.AoA = atan(wing.va_b[3], wing.va_b[1])
-                ss.side_slip = asin(
-                    wing.va_b[2] / norm(wing.va_b))
+                ss.side_slip = atan(wing.va_b[2],
+                    hypot(wing.va_b[1], wing.va_b[3]))
             else
                 ss.AoA = NaN
                 ss.side_slip = NaN

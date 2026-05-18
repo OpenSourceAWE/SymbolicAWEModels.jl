@@ -272,7 +272,7 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
     # lift = normalize(drag × span), side = lift × drag.
     span = SVector(zero(T), one(T), zero(T))
     drag_dir = va_b_local ./ va_mag
-    lift_dir = normalize(cross(drag_dir, span))
+    lift_dir = smooth_normalize(cross(drag_dir, span))
     side_dir = cross(lift_dir, drag_dir)
 
     x = zeros(T, 6 + n_groups)
@@ -363,7 +363,7 @@ function _apply_direct_forces!(wing, am, x0)
     CL, CD, CS = x0[1], x0[2], x0[3]
     span = SVector(0.0, 1.0, 0.0)
     drag_dir = va_b / norm(va_b)
-    lift_dir = normalize(cross(drag_dir, span))
+    lift_dir = smooth_normalize(cross(drag_dir, span))
     side_dir = cross(lift_dir, drag_dir)
 
     wing.aero_force_b .= q_inf * area * (

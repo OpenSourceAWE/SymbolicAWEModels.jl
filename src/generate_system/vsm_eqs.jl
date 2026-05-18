@@ -201,7 +201,8 @@ function vsm_eqs!(
             va = collect(va_wing_b[:, w])
             drag_dir = collect(va ./ smooth_norm(va))
             alpha_sym = atan(drag_dir[3], drag_dir[1])
-            beta_sym = asin(drag_dir[2])
+            beta_sym = atan(drag_dir[2],
+                smooth_norm((drag_dir[1], drag_dir[3])))
 
             twist_inputs = [
                 twist_angle[groups[gidx].idx]
