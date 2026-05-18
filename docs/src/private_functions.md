@@ -166,6 +166,19 @@ SymbolicAWEModels.tether_eqs!
 SymbolicAWEModels.pulley_eqs!
 SymbolicAWEModels.winch_eqs!
 SymbolicAWEModels.group_eqs!
+SymbolicAWEModels.plate_eqs!
+```
+
+## Plate aerodynamics internals
+
+```@docs
+SymbolicAWEModels.PlateWing
+SymbolicAWEModels.PlateWing(name, surfaces, calc_cl, calc_cd)
+SymbolicAWEModels.PlateSurface
+SymbolicAWEModels.PlateSurface(name, x_airf, y_airf, area, point)
+SymbolicAWEModels.plate_alpha
+SymbolicAWEModels.create_plate_interpolations
+SymbolicAWEModels._load_plate_wing
 ```
 
 ## VSM and aerodynamics internals
@@ -174,9 +187,6 @@ SymbolicAWEModels.group_eqs!
 SymbolicAWEModels.build_point_to_vsm_point_mapping
 SymbolicAWEModels.update_vsm_wing_from_structure!
 SymbolicAWEModels.distribute_panel_forces_to_points!
-SymbolicAWEModels.get_aero_force_override
-SymbolicAWEModels.get_aero_moment_override
-SymbolicAWEModels.get_group_moment_override
 SymbolicAWEModels._update_quaternion_wing!
 SymbolicAWEModels._apply_direct_forces!
 SymbolicAWEModels._safe_vsm_solve!
@@ -203,6 +213,8 @@ SymbolicAWEModels._finalize_transforms!
 
 ```@docs
 SymbolicAWEModels.init_principal_frame!
+SymbolicAWEModels.init_body_frame_from_ref_points!
 SymbolicAWEModels.update_segment_forces!
+SymbolicAWEModels.get_rot_pos_cad
 KiteUtils.Logger(::SymbolicAWEModel, ::Int64)
 ```
