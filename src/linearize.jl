@@ -313,7 +313,7 @@ function _update_quaternion_wing!(wing, am, groups)
         groups[first(group_idxs)].moment_frac
 
     alpha_0 = atan(va_b[3], va_b[1])
-    beta_0 = asin(clamp(va_b[2] / va_mag, -1, 1))
+    beta_0 = atan(va_b[2], hypot(va_b[1], va_b[3]))
 
     # Operating-point input vector y₀ = [α, β, ω, θ_group]
     y0 = wing.aero_y

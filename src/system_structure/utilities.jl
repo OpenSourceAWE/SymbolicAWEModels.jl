@@ -503,14 +503,11 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
             # Initialize aero_y operating point
             if length(wing.aero_y) >= 2
                 va_b_init = R_b_to_w' * wind_vec_gnd
-                va_mag = norm(va_b_init)
                 wing.aero_y .= 0.0
                 wing.aero_y[1] = atan(
                     va_b_init[3], va_b_init[1])
-                wing.aero_y[2] = va_mag > 0 ?
-                    asin(clamp(
-                        va_b_init[2] / va_mag,
-                        -1, 1)) : 0.0
+                wing.aero_y[2] = atan(va_b_init[2],
+                    hypot(va_b_init[1], va_b_init[3]))
             end
         end
     end
