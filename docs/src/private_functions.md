@@ -172,12 +172,7 @@ SymbolicAWEModels.plate_eqs!
 ## Plate aerodynamics internals
 
 ```@docs
-SymbolicAWEModels.PlateWing
-SymbolicAWEModels.PlateWing(name, surfaces, calc_cl, calc_cd)
-SymbolicAWEModels.PlateSurface
-SymbolicAWEModels.PlateSurface(name, x_airf, y_airf, area, point)
 SymbolicAWEModels.plate_alpha
-SymbolicAWEModels.create_plate_interpolations
 SymbolicAWEModels._load_plate_wing
 ```
 

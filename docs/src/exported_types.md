@@ -50,6 +50,11 @@ Winch(name, tethers, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; wi
 AbstractWing
 BaseWing
 VSMWing
+PlateWing
+PlateWing(name, surfaces, calc_cl, calc_cd; wing_type, transform, y_damping, angular_damping, drag_corr, cmq, smc, cord_length, z_ref_points, y_ref_points, origin)
+PlateSurface
+PlateSurface(name, x_airf, y_airf, area, point; twist)
+create_plate_interpolations
 Transform
 Transform(name, elevation, azimuth, heading; base_point, base_pos, base_transform, wing, rot_point)
 ```
