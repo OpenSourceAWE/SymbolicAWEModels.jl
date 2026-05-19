@@ -105,6 +105,11 @@ end
     ]
 
     for (wtn, sam, expected_wing_type) in sam_configs
+        is_linearized = expected_wing_type ==
+            SymbolicAWEModels.QUATERNION
+        dt = is_linearized ? 0.2 : 1/300
+        n_steps = is_linearized ? 5 : 300
+
         @testset "$wtn Wing" begin
             # ========================================================
             # Test 0: YAML Loading Verification
@@ -150,9 +155,8 @@ end
                 init_wing_pos = copy(wing.pos_w)
                 init_kcu_pos = copy(sys.points[:kcu].pos_w)
 
-                for _ in 1:50
-                    next_step!(sam; dt=0.05,
-                        vsm_interval=0)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=0)
                 end
 
                 wing_drift = norm(wing.pos_w - init_wing_pos)
@@ -183,9 +187,8 @@ end
                 wing = sam.sys_struct.wings[:main_wing]
                 initial_z = wing.pos_w[3]
 
-                for _ in 1:100
-                    next_step!(sam; dt=0.05,
-                        vsm_interval=0)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=0)
                 end
 
                 final_z = wing.pos_w[3]
@@ -206,9 +209,8 @@ end
                 wing = sam.sys_struct.wings[:main_wing]
                 initial_norm = norm(wing.pos_w)
 
-                for _ in 1:100
-                    next_step!(sam; dt=0.001,
-                        vsm_interval=1)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=1)
                 end
 
                 final_norm = norm(wing.pos_w)
@@ -229,9 +231,8 @@ end
                 wing = sam.sys_struct.wings[:main_wing]
                 initial_pos = copy(wing.pos_w)
 
-                for _ in 1:100
-                    next_step!(sam; dt=0.001,
-                        vsm_interval=1)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=1)
                 end
 
                 displacement = norm(wing.pos_w - initial_pos)
@@ -253,11 +254,6 @@ end
 
                 wing = sam.sys_struct.wings[:main_wing]
                 initial_Q = copy(wing.Q_b_to_w)
-
-                is_linearized = expected_wing_type ==
-                    SymbolicAWEModels.QUATERNION
-                dt = is_linearized ? 0.2 : 0.001
-                n_steps = is_linearized ? 5 : 100
 
                 for _ in 1:n_steps
                     next_step!(sam; dt, vsm_interval=1)
@@ -304,8 +300,8 @@ end
                 end
                 r̂0 = normalize(p0)
 
-                for _ in 1:100
-                    next_step!(sam; dt=0.05, vsm_interval=0)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=0)
                 end
 
                 if expected_wing_type == SymbolicAWEModels.QUATERNION
@@ -351,9 +347,8 @@ end
                     for n in check_names
                 )
 
-                for _ in 1:50
-                    next_step!(sam; dt=0.05,
-                        vsm_interval=0)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=0)
                 end
 
                 for name in check_names
@@ -388,9 +383,8 @@ end
                 wing = sam.sys_struct.wings[:main_wing]
                 init_pos = copy(wing.pos_w)
 
-                for _ in 1:100
-                    next_step!(sam; dt=0.05,
-                        vsm_interval=0)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=0)
                 end
 
                 undamped_speed = norm(wing.vel_w)
@@ -406,9 +400,8 @@ end
 
                 init_pos .= wing.pos_w
 
-                for _ in 1:100
-                    next_step!(sam; dt=0.05,
-                        vsm_interval=0)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=0)
                 end
 
                 damped_speed = norm(wing.vel_w)
@@ -431,9 +424,8 @@ end
             @testset "Force vs sol.force conservation" begin
                 reset_state!(sam, set)
                 test_init!(sam; prn=false, remake_vsm=true)
-                for _ in 1:5
-                    next_step!(sam; dt=0.001,
-                        vsm_interval=1)
+                for _ in 1:n_steps
+                    next_step!(sam; dt, vsm_interval=1)
                 end
 
                 wing = sam.sys_struct.wings[:main_wing]
