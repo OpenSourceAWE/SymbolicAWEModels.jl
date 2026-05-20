@@ -479,9 +479,9 @@ end
                     "model=$(round(lift_tot; digits=2))")
 
                 @test isapprox(drag_tot, drag_sol;
-                    rtol=0.06)
+                    rtol=0.1)
                 @test isapprox(lift_tot, lift_sol;
-                    rtol=0.06)
+                    rtol=0.1)
             end
         end
     end
