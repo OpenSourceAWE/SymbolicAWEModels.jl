@@ -707,37 +707,24 @@ end
 """
     calc_winch_force(sys, winch_vel, winch_acc, set_values)
 
-Calculate the tensile force on each winch tether from its
-motion and motor torque.
+Calculate the tensile force on each winch tether from its motion and
+motor torque, using the default-component motor dynamics inverted for
+the force connector.
 
-# Arguments
-- `sys::SystemStructure`: System structure with winch params.
-- `winch_vel`: Winch velocities [m/s] per winch.
-- `winch_acc`: Winch accelerations [m/s²] per winch.
-- `set_values`: Motor torque inputs [Nm] per winch.
-
-# Returns
-- Vector of winch forces [N].
+Reads `friction` from the live winch struct (populated each step from
+the component output), so the formula matches whatever the component
+reported even if the component overrides friction.
 """
 function calc_winch_force(sys::SystemStructure,
         winch_vel, winch_acc, set_values)
     winches = sys.winches
-    smooth_sign(x, eps) = x / sqrt(x * x + eps * eps)
     winch_force = zeros(length(winches))
     for i in eachindex(winches)
-        (; gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total, friction_epsilon) = winches[i]
-        ω_motor = gear_ratio / drum_radius *
-            winch_vel[i]
-        tau_friction =
-            smooth_sign(ω_motor, friction_epsilon) *
-            f_coulomb * drum_radius / gear_ratio +
-            c_vf * ω_motor *
-            drum_radius^2 / gear_ratio^2
-        tau_motor = set_values[i]
-        α_motor = winch_acc[i] / drum_radius * gear_ratio
+        (; gear_ratio, drum_radius, inertia_total, friction) = winches[i]
+        ratio = drum_radius / gear_ratio
+        α_motor = winch_acc[i] / ratio
         tau_total = α_motor * inertia_total
-        winch_force[i] = (-tau_motor + tau_total +
-            tau_friction) / drum_radius * gear_ratio
+        winch_force[i] = (-set_values[i] + tau_total + friction) / ratio
     end
     return winch_force
 end

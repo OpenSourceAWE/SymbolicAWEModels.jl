@@ -252,10 +252,6 @@ get_brake(sys::SystemStructure, idx::Int64) =
     sys.winches[idx].brake
 @register_symbolic get_brake(
     sys::SystemStructure, idx::Int64)
-get_speed_controlled(sys::SystemStructure, idx::Int64) =
-    sys.winches[idx].speed_controlled
-@register_symbolic get_speed_controlled(
-    sys::SystemStructure, idx::Int64)
 get_winch_gear_ratio(sys::SystemStructure, idx::Int64) =
     sys.winches[idx].gear_ratio
 @register_symbolic get_winch_gear_ratio(

@@ -24,7 +24,7 @@ function find_steady_state!(sam::SymbolicAWEModel;
     (; winches, wings) = sam.sys_struct
     old_brakes = [winch.brake for winch in winches]
     old_fixes = [wing.fix_sphere for wing in wings]
-    [winch.brake=true for winch in winches]
+    [winch.brake=1.0 for winch in winches]
     [wing.fix_sphere=true for wing in wings]
     for _ in 1:Int(round(t ÷ dt))
         next_step!(sam; dt, vsm_interval)

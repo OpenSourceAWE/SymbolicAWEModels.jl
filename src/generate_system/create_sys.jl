@@ -171,6 +171,10 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         pulley_vel(t)[eachindex(pulleys)]
         tether_len(t)[eachindex(tethers)]
         winch_vel(t)[eachindex(winches)]
+        winch_acc(t)[eachindex(winches)]
+        winch_force_vec(t)[1:3, eachindex(winches)]
+        winch_force(t)[eachindex(winches)]
+        winch_friction(t)[eachindex(winches)]
     end
 
     # ==================== CALL COMPONENT FUNCTIONS ==================== #
@@ -210,9 +214,12 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     )
 
     # 5. Winch equations (motor dynamics, tether reeling)
-    eqs, defaults = winch_eqs!(
-        eqs, defaults, winches, tethers, points, psys;
-        point_force, set_values, tether_len, winch_vel
+    eqs, defaults, winch_subsystems = winch_eqs!(
+        eqs, defaults, winches, tethers, segments, points,
+        system, psys;
+        spring_force_vec, set_values, tether_len,
+        winch_vel, winch_acc, winch_force_vec, winch_force,
+        winch_friction
     )
 
     # 6. Tether equations (stretched length, average force)
@@ -285,7 +292,13 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         end
     end
 
-    time = @elapsed @named sys = System(eqs, t)
+    time = @elapsed begin
+        if isempty(winch_subsystems)
+            @named sys = System(eqs, t)
+        else
+            @named sys = System(eqs, t; systems = winch_subsystems)
+        end
+    end
     prn && println("\tCreated System in $time seconds.")
 
     defaults = [

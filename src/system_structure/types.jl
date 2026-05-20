@@ -655,12 +655,15 @@ mutable struct Winch
     vel::SimFloat
     "Current winch acceleration [m/s²] from motor dynamics."
     acc::SimFloat
-    "Control input value (torque [N·m] or speed [m/s])."
+    """Abstract setpoint passed to the winch component as the
+    `set_value` connector. Interpretation is the component's
+    choice (e.g. motor torque, current, set velocity, set length).
+    The default component treats it as motor torque [N·m]."""
     set_value::SimFloat
-    "If true, brake is engaged."
-    brake::Bool
-    "If true, velocity is prescribed (not integrated)."
-    speed_controlled::Bool
+    """Brake input in [0, 1]. The outer integrator freezes
+    `winch_vel` and `tether_len` when `> 0.5`; custom components
+    may interpret intermediate values as a continuous brake."""
+    brake::SimFloat
     "Force vector at winch point [N]."
     const force::KVec3
     "Gear ratio [-]."
@@ -677,6 +680,10 @@ mutable struct Winch
     friction::SimFloat
     "Smoothing width for Coulomb friction sign function."
     friction_epsilon::SimFloat
+    """Builder function for the winch component.
+    Called as `model(system, winch_idx; name) -> ODESystem`.
+    Defaults to [`default_winch_component`](@ref)."""
+    model::Function
 end
 
 """
@@ -695,16 +702,19 @@ torque or speed regulation.
 - `winch_point`: Reference to the ground attachment point
   (name or index). Required.
 - `init_vel::SimFloat=0.0`: Initial reel-out rate [m/s].
-- `brake::Bool=false`: If true, brake is engaged.
-- `speed_controlled::Bool=false`: If true, velocity is
-  prescribed (not integrated).
+- `brake=0.0`: Brake input in [0, 1]. `> 0.5` engages a hard
+  freeze on `winch_vel` and `tether_len` at the outer integrator.
 - `friction_epsilon::SimFloat=6.0`: Smoothing parameter for
   Coulomb friction sign function.
+- `model::Function=default_winch_component`: Builder returning
+  the MTK component that defines the motor dynamics. See
+  [`default_winch_component`](@ref) for the connector contract.
 """
 function Winch(name, set::Settings, tethers;
                winch_point,
-               init_vel=0.0, brake=false,
-               speed_controlled=false, friction_epsilon=6.0)
+               init_vel=0.0, brake=0.0,
+               friction_epsilon=6.0,
+               model::Function=default_winch_component)
     tether_refs = Vector{NameRef}(
         [t isa Integer ? Int(t) : Symbol(t) for t in tethers])
     wp = winch_point isa Integer ? Int(winch_point) :
@@ -712,11 +722,11 @@ function Winch(name, set::Settings, tethers;
     return Winch(0, name, Int64[], tether_refs, 0, wp,
                  init_vel, 0.0,
                  0.0, 0.0,
-                 brake, speed_controlled, zeros(KVec3),
+                 SimFloat(brake), zeros(KVec3),
                  set.gear_ratio, set.drum_radius,
                  set.f_coulomb, set.c_vf,
                  set.inertia_total, zero(SimFloat),
-                 friction_epsilon)
+                 friction_epsilon, model)
 end
 
 """
@@ -738,8 +748,9 @@ Constructs a `Winch` by directly providing physical parameters.
 function Winch(name, tethers, gear_ratio, drum_radius,
                f_coulomb, c_vf, inertia_total;
                winch_point,
-               init_vel=0.0, brake=false,
-               speed_controlled=false, friction_epsilon=6.0)
+               init_vel=0.0, brake=0.0,
+               friction_epsilon=6.0,
+               model::Function=default_winch_component)
     tether_refs = Vector{NameRef}(
         [t isa Integer ? Int(t) : Symbol(t) for t in tethers])
     wp = winch_point isa Integer ? Int(winch_point) :
@@ -747,10 +758,10 @@ function Winch(name, tethers, gear_ratio, drum_radius,
     return Winch(0, name, Int64[], tether_refs, 0, wp,
                  init_vel, 0.0,
                  0.0, 0.0,
-                 brake, speed_controlled, zeros(KVec3),
+                 SimFloat(brake), zeros(KVec3),
                  gear_ratio, drum_radius, f_coulomb,
                  c_vf, inertia_total, zero(SimFloat),
-                 friction_epsilon)
+                 friction_epsilon, model)
 end
 
 # ==================== TRANSFORM ==================== #

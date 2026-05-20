@@ -61,7 +61,7 @@ function generate_prob_getters(sys_struct, sys)
         get_winch_state = getu(sys, c.([
             sys.winch_acc, sys.winch_vel,
             sys.set_values, sys.winch_force_vec,
-            sys.tau_friction]))
+            sys.winch_friction]))
         set_set_values = setp(sys, sys.set_values)
         get_set_values = getp(sys, sys.set_values)
     end

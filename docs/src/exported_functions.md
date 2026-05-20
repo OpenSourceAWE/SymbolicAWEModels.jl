@@ -42,6 +42,18 @@ set_body_frame_damping
 calc_steady_torque
 ```
 
+## Winch components
+
+The winch motor model is a pluggable MTK `ODESystem`. Pass a builder
+to `Winch(...; model=...)` to override the default torque-driven motor.
+Custom components must respect the connector contract enforced by
+[`validate_winch_component`](@ref).
+
+```@docs
+default_winch_component
+validate_winch_component
+```
+
 ## State accessor functions
 
 Use these functions to retrieve state information and calculated values from a model

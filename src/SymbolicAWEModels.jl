@@ -94,6 +94,10 @@ export winch_force
 export unstretched_length
 export tether_length
 
+# --- Winch component API ---
+export default_winch_component
+export validate_winch_component
+
 # --- Helper Functions ---
 export init_module
 export update_plot_observables!
@@ -153,6 +157,8 @@ function find_steady_state! end
 function update_yaml_from_sys_struct! end
 function make_lin_sys_state end
 function create_model_archive end
+function default_winch_component end
+function validate_winch_component end
 
 function __init__()
     data_dir = joinpath(pwd(), "data")
