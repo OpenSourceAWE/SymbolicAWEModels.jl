@@ -49,13 +49,15 @@ using LinearAlgebra
 
     # Create and initialize SAMs once for each wing type
     quat_sys = load_sys_struct_from_yaml(
-        quat_yaml_path; system_name="transform_test_QUATERNION", set=set, vsm_set=vsm_set
+        quat_yaml_path; system_name="transform_test_QUATERNION", set=set, vsm_set=vsm_set,
+        aero_mode=AERO_NONE
     )
     quat_sam = SymbolicAWEModel(set, quat_sys)
     test_init!(quat_sam)
 
     refine_sys = load_sys_struct_from_yaml(
-        refine_yaml_path; system_name="transform_test_REFINE", set=set, vsm_set=vsm_set
+        refine_yaml_path; system_name="transform_test_REFINE", set=set, vsm_set=vsm_set,
+        aero_mode=AERO_NONE
     )
     refine_sam = SymbolicAWEModel(set, refine_sys)
     test_init!(refine_sam)
