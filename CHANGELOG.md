@@ -1,5 +1,5 @@
 
-# Unreleased
+# v0.9.0 20-05-2026
 
 ## Changed
 - BREAKING: simplified `AERO_LINEARIZED`. ForwardDiff Jacobian
@@ -10,10 +10,20 @@
   aero sections (one twist DOF drives several sections via a
   spatial partition). More groups than sections errors.
 - Bumped `VortexStepMethod` compat to `3.3.0`.
+- License changed from MIT/MPL-2.0 to LGPL-3.0-only. All source
+  files updated with REUSE-compliant SPDX headers.
+- `bin/install` rewritten: unified menu, optional precompile skip,
+  removed `bin/update_manifest` and `bin/create_sys_image2`.
+- `bin/create_sys_image` updated with improved comments and options.
+- `bin/reuse_lint` made more robust with fallbacks for missing tools.
+- Safe `atan`/`smooth_normalize` replacements for `asin`/`normalize`
+  in VSM equations and linearisation to avoid NaN at edge cases.
 
 ## Added
 - `examples/vsm_linearization.jl` — plots the VSM linearisation
   tangents around the operating point.
+- `test/util.jl` — shared test utilities for allocation checks across
+  all integrators.
 
 # v0.8.3 03-05-2026
 
