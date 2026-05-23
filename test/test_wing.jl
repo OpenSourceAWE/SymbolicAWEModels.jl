@@ -182,6 +182,7 @@ end
             @testset "Gravity no wind" begin
                 reset_state!(sam, set)
                 set.v_wind = 0.0
+                sam.sys_struct.transforms[1].elevation = deg2rad(180)
                 test_init!(sam; prn=false)
 
                 wing = sam.sys_struct.wings[:main_wing]
