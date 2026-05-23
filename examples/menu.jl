@@ -20,6 +20,8 @@ options = [
     "coupled_2plate_kite_linear_vsm = include(\"coupled_2plate_kite_linear_vsm.jl\")",
     "coupled_tether_deflection = include(\"coupled_tether_deflection.jl\")",
     "sam_tutorial = include(\"sam_tutorial.jl\")",
+    "custom_winch = include(\"custom_winch.jl\")",
+    "custom_winch_vel = include(\"custom_winch_vel.jl\")",
     "quit",
 ]
 

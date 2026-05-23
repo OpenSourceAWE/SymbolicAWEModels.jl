@@ -8,14 +8,16 @@ Build the default winch motor component for
 `sys_struct.winches[winch_idx]`.
 
 The component is pure-algebraic at its connector boundary: it exposes
-inputs (`vel`, `force`, `set_value`, `brake`) and outputs (`acc`,
-`friction`) and contains no internal differential states. The outer
-SymbolicAWEModels integrator owns `winch_vel` and `tether_len`.
+inputs (`vel`, `len`, `force`, `set_value`, `brake`) and outputs
+(`acc`, `friction`) and contains no internal differential states. The
+outer SymbolicAWEModels integrator owns `winch_vel` and `tether_len`;
+`len` is wired to the mean of the connected tethers' lengths.
 
-Custom winch components must expose the same six connector variables
+Custom winch components must expose the same seven connector variables
 (see [`validate_winch_component`](@ref)) but may declare arbitrary
 internal `D(x) ~ …` states. Researchers can plug in their own model by
 passing a builder of the same signature to `Winch(...; model=...)`.
+The default component declares `len` and ignores it.
 
 # Arguments
 - `sys_struct::SystemStructure`: Live system structure. Used as the
@@ -45,6 +47,7 @@ function default_winch_component(sys_struct::SystemStructure,
     @parameters (psys::SST = sys_struct), [tunable = false]
     @variables begin
         vel(t)
+        len(t)
         force(t)
         set_value(t)
         brake(t)
@@ -72,7 +75,10 @@ function default_winch_component(sys_struct::SystemStructure,
         α_motor   ~ tau_total / inertia_total
         acc       ~ ifelse(brake > 0.5, 0.0, ratio * α_motor)
     ]
-    return System(eqs, t; name)
+    return System(eqs, t,
+                  [vel, len, force, set_value, brake, acc, friction,
+                   ω_motor, tau_total, α_motor],
+                  [psys]; name)
 end
 
 """
@@ -83,6 +89,7 @@ connector contract.
 
 Required connector variables:
 - `vel` (input, drum-perimeter velocity [m/s])
+- `len` (input, mean of connected tether lengths [m])
 - `force` (input, summed tether tension magnitude [N])
 - `set_value` (input, abstract setpoint; component fixes meaning)
 - `brake` (input, brake in [0, 1])
@@ -90,24 +97,19 @@ Required connector variables:
 - `friction` (output, friction torque [N·m])
 
 Forbidden:
-- Variable named `len` (the outer integrator owns `tether_len`).
 - Equations whose LHS is `D(vel)` or `D(len)` (those derivatives
   belong to the outer SymbolicAWEModels system).
 
 Internal `D(x) ~ …` equations for any other variable are allowed.
 """
 function validate_winch_component(subsys, winch)
-    required = (:vel, :force, :set_value, :brake, :acc, :friction)
+    required = (:vel, :len, :force, :set_value, :brake, :acc, :friction)
     required_str = join(required, ", ")
     for c in required
         hasproperty(subsys, c) || error(
             "Winch $(winch.name): component returned by `winch.model` " *
             "is missing required connector `$c`. Required connectors: " *
             "$required_str.")
-    end
-    if hasproperty(subsys, :len)
-        error("Winch $(winch.name): component must not declare a `len` " *
-              "variable; `tether_len` is integrated by the outer system.")
     end
     for eq in ModelingToolkit.equations(subsys)
         lhs = ModelingToolkit.Symbolics.unwrap(eq.lhs)
@@ -151,8 +153,9 @@ For each winch:
 2. Instantiate the user's winch component via `winch.model(...)`.
 3. Validate the connector contract with
    [`validate_winch_component`](@ref).
-4. Bind connectors to the parent variables and integrate:
-   `D(winch_vel) = ifelse(brake > 0.5, 0, subsys.acc)`.
+4. Bind connectors to the parent variables (including
+   `subsys.len ~ mean(tether_len[ti] for ti in winch.tether_idxs)`)
+   and integrate `D(winch_vel) = ifelse(brake > 0.5, 0, subsys.acc)`.
 
 For each tether:
 - With winch:    `D(tether_len) = ifelse(brake > 0.5, 0, winch_vel)`.
@@ -223,6 +226,9 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
                winch_force[winch.idx] ~
                    smooth_norm(winch_force_vec[:, winch.idx])
                subsys.vel       ~ winch_vel[winch.idx]
+               subsys.len       ~
+                   sum(tether_len[ti] for ti in winch.tether_idxs) /
+                   length(winch.tether_idxs)
                subsys.force     ~ winch_force[winch.idx]
                subsys.set_value ~ set_values[winch.idx]
                subsys.brake     ~ brake_p

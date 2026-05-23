@@ -19,6 +19,8 @@ using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
+using ModelingToolkit
+using ModelingToolkit: t_nounits as tt, D_nounits as DD
 
 # ================================================================
 # Minimal YAML: weight at z=-50 connected to ground via tether
@@ -513,6 +515,113 @@ environment:
         top_z = sam3.sys_struct.points[:top].pos_w[3]
         @test isfinite(top_z)
         @test top_z < -49.0  # stretched slightly by gravity
+    end
+
+    # ============================================================
+    # Test 9: Custom length-tracking component
+    # A custom winch component that interprets `set_value` as
+    # target tether length and uses PD on `len` to track it.
+    # Exercises the new `len` connector.
+    # ============================================================
+    @testset "Custom length-tracking component" begin
+        using SymbolicAWEModels: Point, Segment, Tether, Winch,
+            SystemStructure, SymbolicAWEModel,
+            STATIC, DYNAMIC,
+            get_winch_gear_ratio, get_winch_drum_radius,
+            get_winch_f_coulomb, get_winch_c_vf,
+            get_winch_inertia_total, get_winch_friction_epsilon,
+            validate_winch_component
+
+        function make_length_winch(K_p, K_d)
+            return function (sys_struct, winch_idx; name)
+                SST = typeof(sys_struct)
+                @parameters (psys::SST = sys_struct),
+                    [tunable = false]
+                @variables begin
+                    vel(tt); len(tt); force(tt); set_value(tt)
+                    brake(tt); acc(tt); friction(tt)
+                    ω_motor(tt); err(tt); tau_cmd(tt); tau_net(tt)
+                end
+                r = get_winch_drum_radius(psys, winch_idx)
+                n = get_winch_gear_ratio(psys, winch_idx)
+                fc = get_winch_f_coulomb(psys, winch_idx)
+                cv = get_winch_c_vf(psys, winch_idx)
+                I_ = get_winch_inertia_total(psys, winch_idx)
+                fe = get_winch_friction_epsilon(psys, winch_idx)
+                smooth_sign(x, e) = x / sqrt(x * x + e * e)
+                ratio = r / n
+                eqs = [
+                    ω_motor  ~ vel / ratio
+                    friction ~ smooth_sign(ω_motor, fe) * fc * ratio +
+                               cv * ω_motor * ratio^2
+                    err      ~ set_value - len
+                    tau_cmd  ~ K_p * err - K_d * vel
+                    tau_net  ~ tau_cmd + ratio * force - friction
+                    acc      ~ ifelse(brake > 0.5, 0.0,
+                                      ratio * tau_net / I_)
+                ]
+                return System(eqs, tt; name)
+            end
+        end
+
+        points_l = [
+            Point(:ground_l, [0.0, 0.0, 0.0], STATIC),
+            Point(:mass_l, [0.0, 0.0, -50.0], DYNAMIC;
+                  extra_mass=10.0),
+        ]
+        segments_l = [
+            Segment(:line_l, :ground_l, :mass_l,
+                    50000.0, 500.0, 0.005; l0=50.0),
+        ]
+        tethers_l = [Tether(:main_l, [:line_l], 50.0)]
+        winches_l = [Winch(:winch_l, set, [:main_l];
+                           winch_point=:ground_l,
+                           model=make_length_winch(100.0, 20.0))]
+
+        sys_l = SystemStructure("len_track_test", set;
+            points=points_l, segments=segments_l,
+            tethers=tethers_l, winches=winches_l, prn=false)
+        sam_l = SymbolicAWEModel(set, sys_l)
+        test_init!(sam_l; prn=false)
+
+        tether_l = sam_l.sys_struct.tethers[:main_l]
+
+        # Step 1: hold target = 50 for 1s (steady)
+        for _ in 1:200
+            next_step!(sam_l; set_values=[50.0],
+                       dt=0.005, vsm_interval=0)
+        end
+        @test tether_l.len ≈ 50.0 atol=0.2
+
+        # Step 2: target = 45 for 2s, expect settle
+        for _ in 1:400
+            next_step!(sam_l; set_values=[45.0],
+                       dt=0.005, vsm_interval=0)
+        end
+        @test tether_l.len ≈ 45.0 atol=0.2
+
+        # Step 3: target = 55 for 2s, expect settle
+        for _ in 1:400
+            next_step!(sam_l; set_values=[55.0],
+                       dt=0.005, vsm_interval=0)
+        end
+        @test tether_l.len ≈ 55.0 atol=0.2
+
+        # Validation: a component missing `len` must fail
+        bad_builder = function (sys_struct, winch_idx; name)
+            @variables begin
+                vel(tt); force(tt); set_value(tt); brake(tt)
+                acc(tt); friction(tt)
+            end
+            eqs = [
+                friction ~ 0.0
+                acc      ~ 0.0
+            ]
+            return System(eqs, tt; name)
+        end
+        bad_subsys = bad_builder(sys_l, 1; name=:bad)
+        @test_throws ErrorException validate_winch_component(
+            bad_subsys, sys_l.winches[1])
     end
 
     rm(tmpdir; recursive=true)
