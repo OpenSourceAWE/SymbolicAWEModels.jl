@@ -724,9 +724,9 @@ end
 
 """
     PlateWing(name, surfaces, calc_cl, calc_cd;
-              wing_type=POINT_MASS, transform=nothing,
-              y_damping=150.0, drag_corr=0.93, cmq=1.0,
-              smc=1.0, cord_length=1.0,
+              wing_type=PARTICLE_DYNAMICS, transform=nothing,
+              y_damping=150.0, angular_damping=0.0, drag_corr=0.93,
+              cmq=1.0, smc=1.0, cord_length=1.0,
               z_ref_points=nothing, y_ref_points=nothing,
               origin=nothing)
 
@@ -739,8 +739,10 @@ Construct a PlateWing with flat-plate aerodynamics.
 - `calc_cd`: CD lookup callable(alpha_deg) → CD.
 
 # Keyword Arguments
-- `wing_type`: RIGID_DYNAMICS or POINT_MASS (default).
+- `wing_type`: `RIGID_DYNAMICS` or `PARTICLE_DYNAMICS` (default).
 - `transform`: Reference to transform (name or index).
+- `y_damping`: Translational damping coefficient.
+- `angular_damping`: Angular damping coefficient.
 - `drag_corr`: Drag correction factor.
 - `cmq`: Pitch moment coefficient.
 - `smc`: Steering moment coefficient.
