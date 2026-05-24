@@ -174,7 +174,7 @@ Key points:
 - Different reference point choices produce different body frames —
   pick what makes physical sense for your model
 
-See `calc_refine_wing_frame` in `transforms.jl`.
+See `calc_particle_dynamics_wing_frame` in `transforms.jl`.
 
 ## CAD to Body Transformation (VSM Panels)
 
