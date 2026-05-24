@@ -461,9 +461,9 @@ function VSMWing(name, set::Settings,
                  transform=nothing, y_damping=150.0,
                  angular_damping=0.0,
                  inertia_diag=nothing,
-                 dynamics_type::WingType=RIGID_DYNAMICS,
-                 aero_mode::AeroMode=(dynamics_type == RIGID_DYNAMICS ?
-                     AERO_LINEARIZED : AERO_DIRECT),
+                 dynamics_type::Union{Nothing,WingType}=nothing,
+                 aero_mode::Union{Nothing,AeroMode}=nothing,
+                 wing_type::Union{Nothing,WingType}=nothing,
                  point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}=nothing,
                  wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}=nothing,
                  z_ref_points=nothing,
@@ -471,6 +471,19 @@ function VSMWing(name, set::Settings,
                  origin=nothing,
                  aero_scale_chord::SimFloat=0.0,
                  aero_z_offset::SimFloat=0.0)
+
+    # Handle deprecated wing_type keyword
+    if !isnothing(wing_type)
+        if !isnothing(dynamics_type)
+            error("Cannot specify both `wing_type` and `dynamics_type`; `wing_type` is deprecated, use `dynamics_type`.")
+        end
+        @warn "Keyword argument `wing_type` is deprecated; use `dynamics_type` instead."
+        dynamics_type = wing_type
+    end
+    # Apply defaults now that dynamics_type is resolved
+    isnothing(dynamics_type) && (dynamics_type = RIGID_DYNAMICS)
+    isnothing(aero_mode) && (aero_mode = dynamics_type == RIGID_DYNAMICS ?
+        AERO_LINEARIZED : AERO_DIRECT)
 
     # Validation
     if dynamics_type == PARTICLE_DYNAMICS
