@@ -393,7 +393,14 @@ end
 Build a `SystemStructure` from a component-based structural
 YAML file. See source for full documentation of expected blocks.
 """
-function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, dynamics_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AeroMode}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing)
+function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, dynamics_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AeroMode}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing, wing_type::Union{Nothing,WingType}=nothing)
+    if !isnothing(wing_type)
+        if !isnothing(dynamics_type)
+            error("Cannot specify both `wing_type` and `dynamics_type`; `wing_type` is deprecated, use `dynamics_type`.")
+        end
+        @warn "Keyword argument `wing_type` is deprecated; use `dynamics_type` instead."
+        dynamics_type = wing_type
+    end
     data = YAML.load_file(yaml_path)
 
     # Use provided settings or fall back to base settings
@@ -790,15 +797,19 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         for (i, row) in enumerate(wing_rows)
             # Use provided dynamics_type parameter or parse from YAML
             # Support old `type` field with deprecation warning
-            raw_wt_field = if hasfield(typeof(row), :dynamics_type) && !isnothing(row.dynamics_type)
-                String(row.dynamics_type)
-            elseif hasfield(typeof(row), :type) && !isnothing(row.type)
-                @warn "Wing YAML field `type` is deprecated; rename to `dynamics_type`."
-                String(row.type)
+            wt = if !isnothing(dynamics_type)
+                dynamics_type
             else
-                error("Wing entry missing required `dynamics_type` field.")
+                raw_wt_field = if hasfield(typeof(row), :dynamics_type) && !isnothing(row.dynamics_type)
+                    String(row.dynamics_type)
+                elseif hasfield(typeof(row), :type) && !isnothing(row.type)
+                    @warn "Wing YAML field `type` is deprecated; rename to `dynamics_type`."
+                    String(row.type)
+                else
+                    error("Wing entry missing required `dynamics_type` field.")
+                end
+                parse_wing_type(raw_wt_field)
             end
-            wt = isnothing(dynamics_type) ? parse_wing_type(raw_wt_field) : dynamics_type
 
             # Build kwargs based on wing type - SystemStructure handles resolution
             # Determine aero_mode: kwarg > YAML > default
