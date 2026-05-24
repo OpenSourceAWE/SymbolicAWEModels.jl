@@ -140,7 +140,7 @@ deforms.
 
 ```yaml
 wings:
-  - wing_type: PARTICLE_DYNAMICS
+  - type: PARTICLE_DYNAMICS
     origin_idx: kcu
     z_ref_points: [kcu, le_center]
     y_ref_points: [le_right, le_left]
