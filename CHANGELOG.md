@@ -346,7 +346,7 @@
   `REFINE` wing types. Update YAML configs from `type: QUATERNION` /
   `type: REFINE` to `dynamics_type: RIGID_DYNAMICS` / `dynamics_type: PARTICLE_DYNAMICS`,
   and rename the wing `type` field to `dynamics_type`.
-  and update any code using the old exported constants. `PARTICLE_DYNAMICS`
+  Update any code using the old exported constants. `PARTICLE_DYNAMICS`
   applies per-panel forces directly to structural points for higher
   fidelity aeroelastic coupling.
 - `AeroMode` enum (`AERO_NONE`, `AERO_DIRECT`, `AERO_LINEARIZED`) for
