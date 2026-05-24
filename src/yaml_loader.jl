@@ -1032,7 +1032,7 @@ sam = SymbolicAWEModel(set, sys)
 # ... run simulation ...
 update_yaml_from_sys_struct!(sys,
     "particle_dynamics_geometry.yaml",
-    "refine_struc_geometry_stable.yaml",
+    "particle_dynamics_geometry_stable.yaml",
     "aero_geometry.yaml",
     "aero_geometry_stable.yaml")
 ```
