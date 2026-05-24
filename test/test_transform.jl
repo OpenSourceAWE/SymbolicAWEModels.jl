@@ -44,23 +44,23 @@ using LinearAlgebra
     vsm_set = VortexStepMethod.VSMSettings(vsm_settings_path; data_prefix=false)
 
     # Paths for both wing types
-    quat_yaml_path = joinpath(data_path, "rigid_dynamics_geometry.yaml")
-    refine_yaml_path = joinpath(data_path, "particle_dynamics_geometry.yaml")
+    rigid_dynamics_yaml_path = joinpath(data_path, "rigid_dynamics_geometry.yaml")
+    particle_dynamics_yaml_path = joinpath(data_path, "particle_dynamics_geometry.yaml")
 
     # Create and initialize SAMs once for each wing type
-    quat_sys = load_sys_struct_from_yaml(
-        quat_yaml_path; system_name="transform_test_QUATERNION", set=set, vsm_set=vsm_set,
+    rigid_dynamics_sys = load_sys_struct_from_yaml(
+        rigid_dynamics_yaml_path; system_name="transform_test_QUATERNION", set=set, vsm_set=vsm_set,
         aero_mode=AERO_NONE
     )
-    quat_sam = SymbolicAWEModel(set, quat_sys)
-    test_init!(quat_sam)
+    rigid_dynamics_sam = SymbolicAWEModel(set, rigid_dynamics_sys)
+    test_init!(rigid_dynamics_sam)
 
-    refine_sys = load_sys_struct_from_yaml(
-        refine_yaml_path; system_name="transform_test_REFINE", set=set, vsm_set=vsm_set,
+    particle_dynamics_sys = load_sys_struct_from_yaml(
+        particle_dynamics_yaml_path; system_name="transform_test_REFINE", set=set, vsm_set=vsm_set,
         aero_mode=AERO_NONE
     )
-    refine_sam = SymbolicAWEModel(set, refine_sys)
-    test_init!(refine_sam)
+    particle_dynamics_sam = SymbolicAWEModel(set, particle_dynamics_sys)
+    test_init!(particle_dynamics_sam)
 
     # Helper to reset transform to default YAML values
     function reset_transform!(sys)
@@ -74,8 +74,8 @@ using LinearAlgebra
 
     # Test both wing types
     sam_configs = [
-        ("PARTICLE_DYNAMICS", refine_sam, refine_yaml_path),
-        ("RIGID_DYNAMICS", quat_sam, quat_yaml_path),
+        ("PARTICLE_DYNAMICS", particle_dynamics_sam, particle_dynamics_yaml_path),
+        ("RIGID_DYNAMICS", rigid_dynamics_sam, rigid_dynamics_yaml_path),
     ]
 
     for (wing_type_name, sam, yaml_path) in sam_configs
