@@ -328,9 +328,21 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
                   pos_cad, inertia_principal;
                   transform=nothing, y_damping=150.0,
                   angular_damping=0.0,
-                  dynamics_type::WingType=RIGID_DYNAMICS,
-                  aero_mode::AeroMode=(dynamics_type == RIGID_DYNAMICS ?
-                      AERO_LINEARIZED : AERO_DIRECT))
+                  dynamics_type::Union{Nothing,WingType}=nothing,
+                  aero_mode::Union{Nothing,AeroMode}=nothing,
+                  wing_type::Union{Nothing,WingType}=nothing)
+    # Handle deprecated wing_type keyword
+    if !isnothing(wing_type)
+        if !isnothing(dynamics_type)
+            error("Cannot specify both `wing_type` and `dynamics_type`; `wing_type` is deprecated, use `dynamics_type`.")
+        end
+        @warn "Keyword argument `wing_type` is deprecated; use `dynamics_type` instead."
+        dynamics_type = wing_type
+    end
+    # Apply defaults now that dynamics_type is resolved
+    isnothing(dynamics_type) && (dynamics_type = RIGID_DYNAMICS)
+    isnothing(aero_mode) && (aero_mode = dynamics_type == RIGID_DYNAMICS ?
+        AERO_LINEARIZED : AERO_DIRECT)
     # Convert groups to NameRef vector
     group_refs = Vector{NameRef}([_to_name_ref(g) for g in groups])
     # Handle nothing - default to transform 1
