@@ -286,8 +286,8 @@ end
 
 function parse_wing_type(s::String)
     s_upper = uppercase(s)
-    s_upper == "REFINE" && return REFINE
-    s_upper == "QUATERNION" && return QUATERNION
+    s_upper == "PARTICLE_DYNAMICS" && return PARTICLE_DYNAMICS
+    s_upper == "RIGID_DYNAMICS" && return RIGID_DYNAMICS
     error("Unknown WingType: $s")
 end
 
@@ -791,7 +791,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     !isnothing(row.aero_mode)
                 parse_aero_mode(String(row.aero_mode))
             else
-                wt == QUATERNION ? AERO_LINEARIZED :
+                wt == RIGID_DYNAMICS ? AERO_LINEARIZED :
                     AERO_DIRECT
             end
 
@@ -810,8 +810,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                       "was not provided.")
             end
 
-            if wt == REFINE
-                # REFINE wings need z_ref_points, y_ref_points, origin
+            if wt == PARTICLE_DYNAMICS
+                # PARTICLE_DYNAMICS wings need z_ref_points, y_ref_points, origin
                 # Pass raw values - constructor handles defaults
                 wing = call_yaml_constructor(VSMWing, row,
                     [:name, :set, :groups, :vsm_set],
@@ -821,7 +821,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                      :aero_scale_chord];
                     mappings=Dict(
                         :set => r -> resolved_set,
-                        :groups => r -> [],  # REFINE wings don't have groups
+                        :groups => r -> [],  # PARTICLE_DYNAMICS wings don't have groups
                         :vsm_set => r -> vsm_set,
                         :wing_type => r -> wt,
                         :aero_mode => r -> am,
@@ -858,7 +858,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                             nothing
                         end
                     ))
-            else  # QUATERNION
+            else  # RIGID_DYNAMICS
                 # Pass raw values - constructor handles defaults
                 wing = call_yaml_constructor(VSMWing, row,
                     [:name, :set, :groups, :vsm_set],
@@ -1041,9 +1041,9 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
         return rounded
     end
 
-    # Update pos_b for REFINE wing points based on current wing orientation
+    # Update pos_b for PARTICLE_DYNAMICS wing points based on current wing orientation
     for wing in sys_struct.wings
-        if wing.wing_type == REFINE
+        if wing.wing_type == PARTICLE_DYNAMICS
             R_w_to_b = wing.R_b_to_w'  # transpose to get world-to-body
             for point in sys_struct.points
                 if point.wing_idx == wing.idx

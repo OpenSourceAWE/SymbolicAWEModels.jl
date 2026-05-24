@@ -67,13 +67,13 @@ mutable struct BaseWing <: AbstractWing
     const wing_type::WingType
     aero_mode::AeroMode
 
-    # Principal frame ODE state (QUATERNION dynamics)
+    # Principal frame ODE state (RIGID_DYNAMICS dynamics)
     const com_w::KVec3                  # COM position in world frame
     const com_vel::KVec3                # COM velocity in world frame
     const Q_p_to_w::Vector{SimFloat}       # Principal frame quaternion (length 4)
     const ω_p::KVec3                    # Angular velocity in principal frame
 
-    # Body frame output (algebraic for QUATERNION, from ref points)
+    # Body frame output (algebraic for RIGID_DYNAMICS, from ref points)
     const Q_b_to_w::Vector{SimFloat}
     const ω_b::KVec3
     const pos_w::KVec3                  # Body origin world position
@@ -212,7 +212,7 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
     vsm_wing::W
     vsm_solver::SL
 
-    # Aerodynamic linearization state (QUATERNION)
+    # Aerodynamic linearization state (RIGID_DYNAMICS)
     # aero_y: operating point inputs
     #   [alpha, beta, ω1, ω2, ω3, twist...]
     # aero_x: baseline wind-axis coefficients
@@ -222,7 +222,7 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
     aero_x::Vector{SimFloat}
     aero_jac::Matrix{SimFloat}
 
-    # REFINE-specific fields (Nothing for QUATERNION wings)
+    # PARTICLE_DYNAMICS-specific fields (Nothing for RIGID_DYNAMICS wings)
     point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}
     wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}
 
@@ -242,10 +242,10 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
     # KCU origin point - RAW reference (name or idx)
     const origin_ref::Union{Nothing, NameRef}
 
-    # Additional aerodynamic force scale to compensate chord length errors (REFINE)
+    # Additional aerodynamic force scale to compensate chord length errors (PARTICLE_DYNAMICS)
     aero_scale_chord::SimFloat
 
-    # Body frame z-axis offset for VSM aerodynamics (QUATERNION only)
+    # Body frame z-axis offset for VSM aerodynamics (RIGID_DYNAMICS only)
     # Shifts VSM panel positions in positive z direction (body frame)
     # to adjust moment arm for improved stability
     aero_z_offset::SimFloat
@@ -304,7 +304,7 @@ _to_name_ref(x::Integer) = Int(x)
 _to_name_ref(x) = Symbol(x)
 
 """
-    BaseWing(name, groups, R_b_to_c, pos_cad, inertia_principal; transform=nothing, y_damping=150.0, wing_type=QUATERNION)
+    BaseWing(name, groups, R_b_to_c, pos_cad, inertia_principal; transform=nothing, y_damping=150.0, wing_type=RIGID_DYNAMICS)
 
 Constructs a `BaseWing` object representing a rigid body reference frame.
 
@@ -319,7 +319,7 @@ Constructs a `BaseWing` object representing a rigid body reference frame.
 - `transform=nothing`: Reference to the transform (name or index). Defaults to 1 if not specified.
 - `y_damping::SimFloat=150.0`: Damping coefficient for y-axis (pitch) rotation.
 - `angular_damping::SimFloat=0.0`: Isotropic angular damping on all 3 rotation axes.
-- `wing_type::WingType=QUATERNION`: Wing aerodynamic model type.
+- `wing_type::WingType=RIGID_DYNAMICS`: Wing aerodynamic model type.
 
 # Returns
 - `BaseWing`: A new base wing object. The `idx`, `group_idxs`, and `transform_idx` are resolved by SystemStructure.
@@ -328,8 +328,8 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
                   pos_cad, inertia_principal;
                   transform=nothing, y_damping=150.0,
                   angular_damping=0.0,
-                  wing_type::WingType=QUATERNION,
-                  aero_mode::AeroMode=(wing_type == QUATERNION ?
+                  wing_type::WingType=RIGID_DYNAMICS,
+                  aero_mode::AeroMode=(wing_type == RIGID_DYNAMICS ?
                       AERO_LINEARIZED : AERO_DIRECT))
     # Convert groups to NameRef vector
     group_refs = Vector{NameRef}([_to_name_ref(g) for g in groups])
@@ -433,7 +433,7 @@ Creates vsm_wing, vsm_aero, and vsm_solver internally.
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the wing.
 - `set::Settings`: Settings object for VSM configuration.
-- `groups::Vector`: References to groups (names or indices, QUATERNION only).
+- `groups::Vector`: References to groups (names or indices, RIGID_DYNAMICS only).
 - `vsm_set::VortexStepMethod.VSMSettings`: VSM settings for wing creation.
 
 # Keyword Arguments
@@ -441,14 +441,14 @@ Creates vsm_wing, vsm_aero, and vsm_solver internally.
 - `R_b_to_c::Matrix{SimFloat}`: Rotation matrix body→CAD.
 - `pos_cad::KVec3`: Position of wing COM in CAD frame.
 - `y_damping::SimFloat=150.0`: Lateral damping coefficient.
-- `wing_type::WingType=QUATERNION`: Aerodynamic model type.
-- `point_to_vsm_point`: 1:1 structural point to VSM point mapping (REFINE only).
+- `wing_type::WingType=RIGID_DYNAMICS`: Aerodynamic model type.
+- `point_to_vsm_point`: 1:1 structural point to VSM point mapping (PARTICLE_DYNAMICS only).
 - `wing_segments`: LE/TE pairs (populated for all VSM wing types by
   `match_aero_sections_to_structure!`).
-- `z_ref_points`: Chord direction reference points (REFINE only, names or indices).
-- `y_ref_points`: Span direction reference points (REFINE only, names or indices).
-- `origin`: Reference to origin point (REFINE only, name or index).
-- `aero_z_offset::SimFloat=0.0`: Body frame z-offset for VSM panels (QUATERNION only).
+- `z_ref_points`: Chord direction reference points (PARTICLE_DYNAMICS only, names or indices).
+- `y_ref_points`: Span direction reference points (PARTICLE_DYNAMICS only, names or indices).
+- `origin`: Reference to origin point (PARTICLE_DYNAMICS only, name or index).
+- `aero_z_offset::SimFloat=0.0`: Body frame z-offset for VSM panels (RIGID_DYNAMICS only).
 
 # Returns
 - `VSMWing`: A new VSM wing object. References are resolved by SystemStructure.
@@ -461,8 +461,8 @@ function VSMWing(name, set::Settings,
                  transform=nothing, y_damping=150.0,
                  angular_damping=0.0,
                  inertia_diag=nothing,
-                 wing_type::WingType=QUATERNION,
-                 aero_mode::AeroMode=(wing_type == QUATERNION ?
+                 wing_type::WingType=RIGID_DYNAMICS,
+                 aero_mode::AeroMode=(wing_type == RIGID_DYNAMICS ?
                      AERO_LINEARIZED : AERO_DIRECT),
                  point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}=nothing,
                  wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}=nothing,
@@ -473,20 +473,20 @@ function VSMWing(name, set::Settings,
                  aero_z_offset::SimFloat=0.0)
 
     # Validation
-    if wing_type == REFINE
+    if wing_type == PARTICLE_DYNAMICS
         @assert !isnothing(origin)
-            "REFINE wings require origin to define KCU position"
+            "PARTICLE_DYNAMICS wings require origin to define KCU position"
         if !isnothing(pos_cad)
             @warn "Wing '$name': pos_cad is unused for " *
-                "REFINE wings (position comes from " *
+                "PARTICLE_DYNAMICS wings (position comes from " *
                 "origin point)"
             pos_cad = nothing
         end
     else
         @assert isnothing(point_to_vsm_point)
-            "QUATERNION wings: no point_to_vsm_point"
+            "RIGID_DYNAMICS wings: no point_to_vsm_point"
         # origin, z_ref_points, y_ref_points are now
-        # accepted for QUATERNION wings (body frame
+        # accepted for RIGID_DYNAMICS wings (body frame
         # defined by structural ref points)
     end
 
@@ -507,7 +507,7 @@ function VSMWing(name, set::Settings,
     vsm_solver = VortexStepMethod.Solver(vsm_aero, vsm_set)
 
     # Placeholders — overwritten by SystemStructure
-    # from point masses (QUATERNION) or ref points (REFINE)
+    # from point masses (RIGID_DYNAMICS) or ref points (PARTICLE_DYNAMICS)
     isnothing(R_b_to_c) && (R_b_to_c = Matrix{SimFloat}(I, 3, 3))
     isnothing(pos_cad) && (pos_cad = zeros(KVec3))
     inertia_vec = isnothing(inertia_diag) ?
@@ -518,10 +518,10 @@ function VSMWing(name, set::Settings,
                     angular_damping, wing_type, aero_mode)
 
     # Size aero state vectors based on wing type
-    # For QUATERNION: placeholder sizes using n_unrefined
+    # For RIGID_DYNAMICS: placeholder sizes using n_unrefined
     # as group count proxy; resized in SystemStructure
     # after groups are resolved.
-    if wing_type == REFINE
+    if wing_type == PARTICLE_DYNAMICS
         nx = 0
         ny = 0
     else
@@ -558,7 +558,7 @@ Kept for backward compatibility with predefined structures.
 - `transform=nothing`: Reference to the transform. Defaults to 1 if not specified.
 
 # Returns
-- `VSMWing`: Wing with QUATERNION type
+- `VSMWing`: Wing with RIGID_DYNAMICS type
 """
 function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
                  groups::AbstractVector,
@@ -664,7 +664,7 @@ A wing with flat-plate CL/CD aerodynamics. Each PlateSurface
 computes lift and drag from angle-of-attack lookup tables.
 Twist is set directly on each PlateSurface.
 
-Supports both QUATERNION (rigid body) and REFINE (point mass)
+Supports both RIGID_DYNAMICS (rigid body) and PARTICLE_DYNAMICS (point mass)
 wing dynamics via BaseWing.wing_type.
 
 $(TYPEDFIELDS)
@@ -739,7 +739,7 @@ Construct a PlateWing with flat-plate aerodynamics.
 - `calc_cd`: CD lookup callable(alpha_deg) → CD.
 
 # Keyword Arguments
-- `wing_type`: QUATERNION or POINT_MASS (default).
+- `wing_type`: RIGID_DYNAMICS or POINT_MASS (default).
 - `transform`: Reference to transform (name or index).
 - `drag_corr`: Drag correction factor.
 - `cmq`: Pitch moment coefficient.
@@ -750,7 +750,7 @@ Construct a PlateWing with flat-plate aerodynamics.
 """
 function PlateWing(name, surfaces::Vector{PlateSurface},
                    calc_cl, calc_cd;
-                   wing_type::WingType=REFINE,
+                   wing_type::WingType=PARTICLE_DYNAMICS,
                    transform=nothing,
                    y_damping=150.0,
                    angular_damping=0.0,
@@ -804,7 +804,7 @@ end
 
 Adjust VSM panel positions when body frame origin changes.
 
-When QUATERNION wings are loaded from YAML, the panel positions in aero_geometry.yaml
+When RIGID_DYNAMICS wings are loaded from YAML, the panel positions in aero_geometry.yaml
 are specified in an absolute body frame. However, the body frame origin is adjusted
 to the mean position of all WING points. This function updates all panel positions
 to be relative to the new origin by subtracting the offset.
@@ -857,7 +857,7 @@ end
 
 Apply z-axis offset to VSM panel positions in body frame.
 
-For QUATERNION wings, this shifts the aerodynamic center of pressure
+For RIGID_DYNAMICS wings, this shifts the aerodynamic center of pressure
 in the positive z-direction (body frame) to adjust the moment arm.
 This is applied AFTER the COM adjustment.
 

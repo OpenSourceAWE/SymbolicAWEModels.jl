@@ -657,9 +657,9 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     wing_types = [wing.wing_type for wing in sys_struct.wings]
     wing_type_str = if isempty(wing_types)
         "no_wing"
-    elseif all(wt -> wt === QUATERNION, wing_types)
+    elseif all(wt -> wt === RIGID_DYNAMICS, wing_types)
         "quat"
-    elseif all(wt -> wt === REFINE, wing_types)
+    elseif all(wt -> wt === PARTICLE_DYNAMICS, wing_types)
         "refine"
     else
         "mixed"

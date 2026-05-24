@@ -19,7 +19,7 @@ using SymbolicAWEModels: KVec3, WeightedRefPoints,
     VortexStepMethod
 using KiteUtils
 
-# Minimal YAML with a REFINE wing using weighted z_ref_points
+# Minimal YAML with a PARTICLE_DYNAMICS wing using weighted z_ref_points
 # 3 LE/TE pairs to match the 3 aero sections in
 # 2plate_kite/vsm_settings.yaml.
 # Layout mirrors refine_struc_geometry.yaml.
@@ -60,7 +60,7 @@ segments:
 wings:
   data:
     - idx: 1
-      type: REFINE
+      type: PARTICLE_DYNAMICS
       aero_mode: AERO_NONE
       point_idxs: [1, 2, 3, 4, 5, 6]
       origin_idx: 7

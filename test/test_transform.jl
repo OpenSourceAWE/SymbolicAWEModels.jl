@@ -10,7 +10,7 @@
 # 3. Geometric consistency (position from spherical coords)
 # 4. Heading calculation consistency
 #
-# Uses 2plate_kite configuration files with both REFINE and QUATERNION wing types.
+# Uses 2plate_kite configuration files with both PARTICLE_DYNAMICS and RIGID_DYNAMICS wing types.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -74,8 +74,8 @@ using LinearAlgebra
 
     # Test both wing types
     sam_configs = [
-        ("REFINE", refine_sam, refine_yaml_path),
-        ("QUATERNION", quat_sam, quat_yaml_path),
+        ("PARTICLE_DYNAMICS", refine_sam, refine_yaml_path),
+        ("RIGID_DYNAMICS", quat_sam, quat_yaml_path),
     ]
 
     for (wing_type_name, sam, yaml_path) in sam_configs
@@ -461,7 +461,7 @@ using LinearAlgebra
 
         wing_c = PlateWing(:plate_wing, surfaces_c,
             cl_interp, cd_interp;
-            wing_type=REFINE,
+            wing_type=PARTICLE_DYNAMICS,
             z_ref_points=([:right, :left], :top),
             y_ref_points=(:left, :right),
             origin=:kcu, drag_corr=0.93 * K,

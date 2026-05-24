@@ -40,13 +40,13 @@ end
 
 Update the aerodynamic model from the Vortex Step Method.
 
-**For QUATERNION wings:**
+**For RIGID_DYNAMICS wings:**
 Computes wind-axis coefficients (CL, CD, CS, CM, cm) at the
 current operating point, plus a `ForwardDiff` Jacobian over the
 input vector `[α, β, ω₁, ω₂, ω₃, θ_group₁…]`. Stores the dense
 Jacobian `d(coeffs)/d(inputs)` in `wing.aero_jac`.
 
-**For REFINE wings:**
+**For PARTICLE_DYNAMICS wings:**
 Full nonlinear VSM solve with per-point force distribution.
 """
 function update_vsm!(sam::SymbolicAWEModel,
@@ -60,7 +60,7 @@ function update_vsm!(sam::SymbolicAWEModel,
     length(wings) == 0 && return nothing
 
     for wing in wings
-        wing.wing_type != QUATERNION && continue
+        wing.wing_type != RIGID_DYNAMICS && continue
         wing.aero_mode == AERO_NONE && continue
         if norm(wing.va_b) < vsm_min_wind
             fill!(wing.aero_x, 0.0)
@@ -74,23 +74,23 @@ function update_vsm!(sam::SymbolicAWEModel,
             end
             continue
         end
-        _update_quaternion_wing!(wing, sam.am, groups)
+        _update_rigid_dynamics_wing!(wing, sam.am, groups)
     end
 
-    has_refine_wings = any(
-        w.wing_type === REFINE for w in wings)
-    if has_refine_wings
+    has_particle_dynamics_wings = any(
+        w.wing_type === PARTICLE_DYNAMICS for w in wings)
+    if has_particle_dynamics_wings
         point_state = prob.get_point_state(integ)
         va_point_b_vals = point_state[4]
 
         for wing in wings
             wing isa VSMWing || continue
-            wing.wing_type != REFINE && continue
+            wing.wing_type != PARTICLE_DYNAMICS && continue
             wing.aero_mode == AERO_NONE && continue
 
             if wing.aero_mode == AERO_LINEARIZED
                 error(
-                    "REFINE + AERO_LINEARIZED " *
+                    "PARTICLE_DYNAMICS + AERO_LINEARIZED " *
                     "not yet implemented")
             end
 
@@ -161,7 +161,7 @@ function update_vsm!(sam::SymbolicAWEModel,
             end
 
             if !_safe_vsm_solve!(wing.vsm_solver, wing.vsm_aero)
-                error("REFINE VSM solve failed (non-converged or non-finite) on wing $(wing.idx)")
+                error("PARTICLE_DYNAMICS VSM solve failed (non-converged or non-finite) on wing $(wing.idx)")
             end
             distribute_panel_forces_to_points!(
                 wing, points)
@@ -169,7 +169,7 @@ function update_vsm!(sam::SymbolicAWEModel,
                 if point.type == WING &&
                         point.wing_idx == wing.idx &&
                         any(!isfinite, point.aero_force_b)
-                    error("REFINE: non-finite point force on wing $(wing.idx) point $(point.idx)")
+                    error("PARTICLE_DYNAMICS: non-finite point force on wing $(wing.idx) point $(point.idx)")
                 end
             end
         end
@@ -178,7 +178,7 @@ function update_vsm!(sam::SymbolicAWEModel,
     nothing
 end
 
-# ── QUATERNION aero helpers ──────────────────────────
+# ── RIGID_DYNAMICS aero helpers ──────────────────────────
 
 _finite_full(x::Real) = isfinite(x)
 _finite_full(x::ForwardDiff.Dual) =
@@ -291,7 +291,7 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
 end
 
 """
-    _update_quaternion_wing!(wing, am, groups)
+    _update_rigid_dynamics_wing!(wing, am, groups)
 
 Compute baseline wind-axis coefficients and the
 ForwardDiff Jacobian `d(coeffs)/d(inputs)` for one wing.
@@ -300,7 +300,7 @@ Writes `wing.aero_y / aero_x / aero_jac`, updates
 `groups[gidx].aero_moment`, and (in AERO_DIRECT mode) writes
 `wing.aero_force_b` / `wing.aero_moment_b`.
 """
-function _update_quaternion_wing!(wing, am, groups)
+function _update_rigid_dynamics_wing!(wing, am, groups)
     va_b = wing.va_b
     va_mag = norm(va_b)
     omega_b = wing.ω_b

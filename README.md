@@ -223,7 +223,7 @@ julia --project=test test/test_point.jl
 | ----------- | ------------------ |
 | `test_point` | Gravity free-fall, damping, quasi-static equilibrium |
 | `test_segment` | Spring-damper forces, stiffness, drag |
-| `test_wing` | QUATERNION and REFINE wing construction, VSM coupling |
+| `test_wing` | RIGID_DYNAMICS and PARTICLE_DYNAMICS wing construction, VSM coupling |
 | `test_wing_dynamics` | Rigid body torque response, precession, angular momentum |
 | `test_tether_winch` | Reel-out, Coulomb/viscous friction, terminal velocity |
 | `test_pulley` | Equal-tension constraints, multi-segment pulleys |

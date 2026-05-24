@@ -3,7 +3,7 @@
 
 """
 2-Plate kite: coupled simulation with full nonlinear VSM solve
-each step (REFINE wing). Counterpart to
+each step (PARTICLE_DYNAMICS wing). Counterpart to
 coupled_2plate_kite_linear_vsm.jl for performance comparison.
 """
 

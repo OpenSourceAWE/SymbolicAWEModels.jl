@@ -115,8 +115,8 @@ function scalar_eqs!(
         course_t_2 = wing_vel[:, wing.idx] ⋅
             R_t_to_w[:, 2, wing.idx]
 
-        # Unified equations for both QUATERNION and REFINE
-        # wings. REFINE wings have ω_b=α_b=0 (set in
+        # Unified equations for both RIGID_DYNAMICS and PARTICLE_DYNAMICS
+        # wings. PARTICLE_DYNAMICS wings have ω_b=α_b=0 (set in
         # wing_eqs!), so turn_rate/turn_acc naturally evaluate
         # to zero.
         eqs = [

@@ -13,7 +13,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod, WING,
-    QUATERNION
+    RIGID_DYNAMICS
 using KiteUtils
 using LinearAlgebra
 

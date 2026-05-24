@@ -29,24 +29,24 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     (; points, groups, segments, pulleys, tethers, winches, wings) = system
 
-    # Validation for VSMWing REFINE wings
+    # Validation for VSMWing PARTICLE_DYNAMICS wings
     for wing in wings
-        if wing isa VSMWing && wing.wing_type == REFINE
-            # REFINE wings cannot have groups
-            @assert length(wing.group_idxs) == 0 "REFINE wing $(wing.idx) cannot have groups"
-            @assert !isnothing(wing.point_to_vsm_point) "REFINE wing $(wing.idx) missing point_to_vsm_point mapping"
+        if wing isa VSMWing && wing.wing_type == PARTICLE_DYNAMICS
+            # PARTICLE_DYNAMICS wings cannot have groups
+            @assert length(wing.group_idxs) == 0 "PARTICLE_DYNAMICS wing $(wing.idx) cannot have groups"
+            @assert !isnothing(wing.point_to_vsm_point) "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping"
 
             # Verify all WING points for this wing are in the mapping
             wing_point_idxs = [p.idx for p in points if p.type == WING && p.wing_idx == wing.idx]
             for point_idx in wing_point_idxs
-                @assert haskey(wing.point_to_vsm_point, point_idx) "REFINE wing $(wing.idx) missing mapping for point $(point_idx)"
+                @assert haskey(wing.point_to_vsm_point, point_idx) "PARTICLE_DYNAMICS wing $(wing.idx) missing mapping for point $(point_idx)"
             end
 
             # Verify 1:1 correspondence: n_structural_points == 2 * n_sections
             n_sections = length(wing.vsm_wing.unrefined_sections)
-            @assert length(wing_point_idxs) == 2 * n_sections "REFINE wing $(wing.idx): expected $(2*n_sections) points for $(n_sections) sections, got $(length(wing_point_idxs))"
+            @assert length(wing_point_idxs) == 2 * n_sections "PARTICLE_DYNAMICS wing $(wing.idx): expected $(2*n_sections) points for $(n_sections) sections, got $(length(wing_point_idxs))"
 
-            prn && println("✓ REFINE wing $(wing.idx) validated: $(length(wing_point_idxs)) points, $(n_sections) sections, $(length(wing.vsm_aero.panels)) panels")
+            prn && println("✓ PARTICLE_DYNAMICS wing $(wing.idx) validated: $(length(wing_point_idxs)) points, $(n_sections) sections, $(length(wing.vsm_aero.panels)) panels")
         end
     end
 
@@ -117,8 +117,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     tether_wing_force = zeros(Num, 3, length(wings))
     tether_wing_moment = zeros(Num, 3, length(wings))
 
-    # Check if we have any REFINE wings (need aero force per point)
-    has_refine_wings = any(wing.wing_type === REFINE for wing in wings)
+    # Check if we have any PARTICLE_DYNAMICS wings (need aero force per point)
+    has_particle_dynamics_wings = any(wing.wing_type === PARTICLE_DYNAMICS for wing in wings)
 
     @variables begin
         # Point states
@@ -156,8 +156,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         height(t)[eachindex(points)]
     end
 
-    # REFINE-specific variables: per-point aero forces in body frame
-    if has_refine_wings
+    # PARTICLE_DYNAMICS-specific variables: per-point aero forces in body frame
+    if has_particle_dynamics_wings
         @variables begin
             aero_force_point_b(t)[1:3, eachindex(points)]
         end
@@ -221,7 +221,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     # ==================== END INLINED FORCE_EQS! CONTENT ==================== #
 
     # Build aerodynamic equations (dispatches on aero_mode at runtime)
-    if has_refine_wings
+    if has_particle_dynamics_wings
         eqs, guesses = vsm_eqs!(
             s, eqs, guesses, psys;
             aero_force_b, aero_moment_b, group_aero_moment,

@@ -9,14 +9,14 @@
 Generate the differential equations for the wing's
 rigid body dynamics.
 
-For QUATERNION wings:
+For RIGID_DYNAMICS wings:
 - ODE state: `com_w`, `com_vel`, `Q_p_to_w`, `ω_p` (principal frame)
 - Euler rotation equations in principal frame (diagonal I)
 - Newton's 2nd law for COM translation
 - Body frame output (`R_b_to_w`, `wing_pos`, `ω_b`) computed
   algebraically via `R_b_to_w` = `R_p_to_w` * `R_b_to_p` (constant)
 
-For REFINE wings:
+For PARTICLE_DYNAMICS wings:
 - No rigid body dynamics (handled by DYNAMIC points)
 - `R_b_to_w` from structural ref points
 - Principal frame variables set to zero/aliases
@@ -77,8 +77,8 @@ function wing_eqs!(
     end
 
     for wing in wings
-        # ============= REFINE WINGS ============= #
-        if wing.wing_type == REFINE
+        # ============= PARTICLE_DYNAMICS WINGS ============= #
+        if wing.wing_type == PARTICLE_DYNAMICS
             z_p1, z_p2 = wing.z_ref_points
             y_p1, y_p2 = wing.y_ref_points
             pos_z1 = get_ref_position(pos, z_p1)
@@ -122,7 +122,7 @@ function wing_eqs!(
                         R_wing)
 
                 # Body frame angular state (zero for
-                # REFINE — no rigid body rotation)
+                # PARTICLE_DYNAMICS — no rigid body rotation)
                 ω_b[:, wing.idx] ~ zeros(3)
                 α_b[:, wing.idx] ~ zeros(3)
 
@@ -155,7 +155,7 @@ function wing_eqs!(
             continue
         end
 
-        # ============= QUATERNION WINGS ============= #
+        # ============= RIGID_DYNAMICS WINGS ============= #
 
         I_p = get_inertia_principal(psys, wing.idx)
         com_axis = collect(

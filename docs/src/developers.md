@@ -370,7 +370,7 @@ jl test/test_segment.jl
 |-----------|-----------|------------------|
 | `test_point` | [`Point`](@ref) | Gravity free-fall, damping, quasi-static equilibrium |
 | `test_segment` | [`Segment`](@ref) | Spring-damper forces, stiffness, drag |
-| `test_wing` | [`Wing`](@ref AbstractWing) | QUATERNION and REFINE construction, VSM coupling |
+| `test_wing` | [`Wing`](@ref AbstractWing) | RIGID_DYNAMICS and PARTICLE_DYNAMICS construction, VSM coupling |
 | `test_wing_dynamics` | [`Wing`](@ref AbstractWing) | Torque response, precession, angular momentum conservation |
 | `test_tether_winch` | [`Tether`](@ref), [`Winch`](@ref) | Reel-out, Coulomb/viscous friction, terminal velocity |
 | `test_pulley` | [`Pulley`](@ref) | Equal-tension constraints, multi-segment pulleys |

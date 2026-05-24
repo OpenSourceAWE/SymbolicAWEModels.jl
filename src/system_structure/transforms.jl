@@ -69,7 +69,7 @@ function solve_heading_rotation(
     return wrap_to_pi(target_heading - current)
 end
 
-# ==================== REFINE WING FRAME CALCULATION ==================== #
+# ==================== PARTICLE_DYNAMICS WING FRAME CALCULATION ==================== #
 
 """
     get_ref_position_from_points(points, ref_pt)
@@ -88,7 +88,7 @@ function get_ref_position_from_points(
 end
 
 """
-    calc_refine_wing_frame(points, z_ref_points, y_ref_points, origin_idx)
+    calc_particle_dynamics_wing_frame(points, z_ref_points, y_ref_points, origin_idx)
 
 Calculate R_b_to_w rotation matrix and origin position
 from structural point positions.
@@ -100,7 +100,7 @@ from structural point positions.
 4. Y-axis (span): Z × X (orthogonal, right-handed)
 5. Origin from origin_idx point
 """
-function calc_refine_wing_frame(
+function calc_particle_dynamics_wing_frame(
     points::AbstractVector{Point},
     z_ref_points::Tuple{WeightedRefPoints,
                         WeightedRefPoints},
@@ -224,7 +224,7 @@ function _apply_heading!(transform, wings, points,
         wing isa VSMWing || continue
 
         if !isnothing(wing.z_ref_points)
-            R_b_to_w, _ = calc_refine_wing_frame(
+            R_b_to_w, _ = calc_particle_dynamics_wing_frame(
                 points, wing.z_ref_points,
                 wing.y_ref_points, wing.origin_idx)
         else
@@ -263,14 +263,14 @@ end
 """
     _finalize_transforms!(wings, points)
 
-Finalize transforms: update REFINE wing frames from structural
+Finalize transforms: update PARTICLE_DYNAMICS wing frames from structural
 point positions, then compute principal frame ODE state.
 """
 function _finalize_transforms!(wings, points)
     for wing in wings
         wing isa VSMWing || continue
-        wing.wing_type == REFINE || continue
-        R_b_to_w, origin = calc_refine_wing_frame(
+        wing.wing_type == PARTICLE_DYNAMICS || continue
+        R_b_to_w, origin = calc_particle_dynamics_wing_frame(
             points, wing.z_ref_points, wing.y_ref_points, wing.origin_idx)
         wing.R_b_to_w = R_b_to_w
         wing.pos_w .= origin
@@ -291,7 +291,7 @@ Must be called after body frame (`pos_w`, `R_b_to_w`,
 `vel_w`, `ω_b`) is fully initialized.
 
 Sets: `com_w`, `Q_p_to_w`, `com_vel`, `ω_p` (derived from body
-frame), and `pos_b` for QUATERNION wing points (body
+frame), and `pos_b` for RIGID_DYNAMICS wing points (body
 frame, relative to COM).
 """
 function init_principal_frame!(wings, points)
@@ -312,7 +312,7 @@ function init_principal_frame!(wings, points)
             cross(ω_w, r_com_w)
         wing.ω_p .= R_p_to_w' * ω_w
         # pos_b: offset from COM in body frame
-        wing.wing_type != QUATERNION && continue
+        wing.wing_type != RIGID_DYNAMICS && continue
         com_cad = wing.pos_cad .+
             wing.R_b_to_c * wing.com_offset_b
         for point in points

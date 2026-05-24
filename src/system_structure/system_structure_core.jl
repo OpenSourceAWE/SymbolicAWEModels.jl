@@ -74,10 +74,10 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
                 append!(vars, point.vel_w)
             end
         end
-        # wings (principal frame ODE state, QUATERNION only)
+        # wings (principal frame ODE state, RIGID_DYNAMICS only)
         wings = getfield(sys, :wings)
         for wing in wings
-            wing.wing_type != QUATERNION && continue
+            wing.wing_type != RIGID_DYNAMICS && continue
             append!(vars, wing.com_w)
             append!(vars, wing.com_vel)
             append!(vars, wing.Q_p_to_w)
@@ -129,10 +129,10 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
                 offset += 3
             end
         end
-        # wings (principal frame ODE state, QUATERNION only)
+        # wings (principal frame ODE state, RIGID_DYNAMICS only)
         wings = getfield(sys, :wings)
         for wing in wings
-            wing.wing_type != QUATERNION && continue
+            wing.wing_type != RIGID_DYNAMICS && continue
             wing.com_w .= @view flat_value[offset:offset+2]
             offset += 3
             wing.com_vel .= @view flat_value[offset:offset+2]
@@ -526,7 +526,7 @@ function assign_indices_and_resolve!(
         transform.base_transform_idx = resolve_ref_spec(transform.base_transform_ref, transform_names, "transform")
     end
 
-    # Wings: resolve group_refs, transform_ref, and REFINE-specific refs
+    # Wings: resolve group_refs, transform_ref, and PARTICLE_DYNAMICS-specific refs
     for wing in wings
         # BaseWing fields
         wing.group_idxs = Int64[resolve_ref(r, group_names, "group") for r in wing.group_refs]
@@ -555,7 +555,7 @@ function assign_indices_and_resolve!(
             # Resize aero arrays now that group_idxs
             # are resolved (initial sizing used
             # n_unrefined as proxy which may differ)
-            if wing.wing_type == QUATERNION
+            if wing.wing_type == RIGID_DYNAMICS
                 n_grp = length(wing.group_idxs)
                 nx = 6 + n_grp
                 ny = 5 + n_grp
@@ -584,7 +584,7 @@ end
     init_body_frame_from_ref_points!(wing, points; prn=true)
 
 Initialize wing body frame (R_b_to_c, pos_cad) from z/y
-reference points. Shared by VSMWing REFINE and PlateWing.
+reference points. Shared by VSMWing PARTICLE_DYNAMICS and PlateWing.
 """
 function init_body_frame_from_ref_points!(
     wing, points; prn=true
@@ -597,12 +597,12 @@ function init_body_frame_from_ref_points!(
     wing.pos_cad .= origin_pos
 
     # Temporarily set pos_w = pos_cad so
-    # calc_refine_wing_frame can read positions
+    # calc_particle_dynamics_wing_frame can read positions
     for p in points
         p.type == WING && p.wing_idx == wing.idx &&
             (p.pos_w .= p.pos_cad)
     end
-    R_b_to_c, _ = calc_refine_wing_frame(
+    R_b_to_c, _ = calc_particle_dynamics_wing_frame(
         points, wing.z_ref_points,
         wing.y_ref_points, wing.origin_idx)
     wing.R_b_to_c .= R_b_to_c
@@ -855,15 +855,15 @@ function SystemStructure(name, set;
     end
     # Compute body frame (COM + principal axes) and
     # transform VSM panels from CAD → body frame.
-    # QUATERNION: COM from point masses, Y-axis rotation
+    # RIGID_DYNAMICS: COM from point masses, Y-axis rotation
     #   to diagonalize inertia tensor.
-    # REFINE: origin from origin_idx, R_b_to_c from
+    # PARTICLE_DYNAMICS: origin from origin_idx, R_b_to_c from
     #   z/y_ref_points (no inertia needed).
     for wing in wings
         isa(wing, VSMWing) || continue
         vsm_wing = wing.vsm_wing
 
-        if wing.wing_type == QUATERNION
+        if wing.wing_type == RIGID_DYNAMICS
             wing_pts = [p for p in points
                 if p.type == WING &&
                    p.wing_idx == wing.idx]
@@ -907,7 +907,7 @@ function SystemStructure(name, set;
                         p.wing_idx == wing.idx &&
                         (p.pos_w .= p.pos_cad)
                 end
-                R_b_to_c, _ = calc_refine_wing_frame(
+                R_b_to_c, _ = calc_particle_dynamics_wing_frame(
                     points, wing.z_ref_points,
                     wing.y_ref_points,
                     wing.origin_idx)
@@ -943,13 +943,13 @@ function SystemStructure(name, set;
                                digits=4)
                 off = round.(wing.com_offset_b;
                              digits=4)
-                @info "QUATERNION wing $(wing.idx):" *
+                @info "RIGID_DYNAMICS wing $(wing.idx):" *
                     " COM=[$(round.(com_cad; digits=3))]" *
                     ", I=$I_rnd" *
                     ", com_offset_b=$off"
             end
 
-        elseif wing.wing_type == REFINE
+        elseif wing.wing_type == PARTICLE_DYNAMICS
             init_body_frame_from_ref_points!(
                 wing, points; prn)
 
@@ -973,11 +973,11 @@ function SystemStructure(name, set;
             wing, points; prn)
     end
 
-    # Auto-create groups for QUATERNION wings if needed (before geometry initialization)
+    # Auto-create groups for RIGID_DYNAMICS wings if needed (before geometry initialization)
     # Skip for AERO_NONE — no aerodynamics means no twist DOFs needed.
     for wing in wings
         if wing isa VSMWing &&
-           wing.wing_type == QUATERNION &&
+           wing.wing_type == RIGID_DYNAMICS &&
            isempty(wing.group_idxs) &&
            wing.aero_mode != AERO_NONE
             # Get WING-type points for this wing
@@ -1022,7 +1022,7 @@ function SystemStructure(name, set;
             wing.aero_jac = zeros(SimFloat, nx, ny)
 
             prn && @info "Auto-created $(length(new_group_idxs)) groups " *
-                  "for QUATERNION wing $(wing.idx)"
+                  "for RIGID_DYNAMICS wing $(wing.idx)"
         end
     end
 
@@ -1036,21 +1036,21 @@ function SystemStructure(name, set;
             wing, points; groups=groups)
     end
 
-    # Clear REFINE wing.group_idxs — groups were used
-    # for LE/TE identification but REFINE doesn't use
+    # Clear PARTICLE_DYNAMICS wing.group_idxs — groups were used
+    # for LE/TE identification but PARTICLE_DYNAMICS doesn't use
     # them for aerodynamics.  Groups stay in sys_struct
     # (useful for structural info / future linearization).
     for wing in wings
-        if wing.wing_type == REFINE &&
+        if wing.wing_type == PARTICLE_DYNAMICS &&
            !isempty(wing.group_idxs)
             empty!(wing.group_idxs)
         end
     end
 
-    # Initialize group-to-unrefined-section mapping for QUATERNION wings
+    # Initialize group-to-unrefined-section mapping for RIGID_DYNAMICS wings
     # Do this BEFORE y_airf calculation so the mapping is available
     for the_wing in wings
-        if isa(the_wing, VSMWing) && the_wing.base.wing_type == QUATERNION && !isempty(the_wing.base.group_idxs)
+        if isa(the_wing, VSMWing) && the_wing.base.wing_type == RIGID_DYNAMICS && !isempty(the_wing.base.group_idxs)
             compute_spatial_group_mapping!(the_wing, groups, points)
         end
     end
@@ -1104,7 +1104,7 @@ function SystemStructure(name, set;
     # Match VSM _apply_refined_section_thetas!: spanwise twist axis
     # is the average of unit vectors to adjacent groups' LE points.
     for wing in wings
-        wing.wing_type != QUATERNION && continue
+        wing.wing_type != RIGID_DYNAMICS && continue
         n_grp = length(wing.group_idxs)
         n_grp >= 2 || continue
 
@@ -1138,7 +1138,7 @@ function SystemStructure(name, set;
     # (body frame). chord and y_airf are direction
     # vectors already in body frame from VSM panels.
     for wing in wings
-        wing.wing_type != QUATERNION && continue
+        wing.wing_type != RIGID_DYNAMICS && continue
         for group_idx in wing.group_idxs
             group = groups[group_idx]
             group.le_pos .-= wing.com_offset_b
@@ -1147,8 +1147,8 @@ function SystemStructure(name, set;
 
     for (i, wing) in enumerate(wings)
         @assert wing.idx == i
-        # For VSMWing REFINE wings, set defaults if not provided
-        if wing isa VSMWing && wing.wing_type == REFINE
+        # For VSMWing PARTICLE_DYNAMICS wings, set defaults if not provided
+        if wing isa VSMWing && wing.wing_type == PARTICLE_DYNAMICS
             # Build point_to_vsm_point mapping if not provided
             if isnothing(wing.point_to_vsm_point)
                 # Get WING-type points for this wing
@@ -1166,7 +1166,7 @@ function SystemStructure(name, set;
             wing_points = [points[idx]
                 for idx in wing_point_idxs]
 
-            # For REFINE wings, pos_cad should be user-specified (KCU position)
+            # For PARTICLE_DYNAMICS wings, pos_cad should be user-specified (KCU position)
             # or default to vsm_wing.T_cad_body (set in VSMWing constructor)
             # DO NOT calculate as centroid - that would misalign VSM panels
 
@@ -1178,13 +1178,13 @@ function SystemStructure(name, set;
                         wing_group_idxs=wing.group_idxs)
             end
 
-            # REFINE wings require explicit ref points
+            # PARTICLE_DYNAMICS wings require explicit ref points
             if isnothing(wing.z_ref_points)
-                error("REFINE wing '$(wing.name)': " *
+                error("PARTICLE_DYNAMICS wing '$(wing.name)': " *
                     "z_ref_points must be specified")
             end
             if isnothing(wing.y_ref_points)
-                error("REFINE wing '$(wing.name)': " *
+                error("PARTICLE_DYNAMICS wing '$(wing.name)': " *
                     "y_ref_points must be specified")
             end
 

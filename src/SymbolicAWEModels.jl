@@ -74,7 +74,7 @@ export NameRef, NamedCollection, WeightedRefPoints
 # Enums
 export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
-export WingType, QUATERNION, REFINE
+export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS
 export AeroMode, AERO_NONE, AERO_DIRECT, AERO_LINEARIZED, AERO_PLATE
 
 # --- High-Level Simulation Functions (Workers) ---

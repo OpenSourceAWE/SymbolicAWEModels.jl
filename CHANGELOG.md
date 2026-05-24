@@ -6,7 +6,7 @@
   over `[α, β, ω, θ_groups]` returning wind-axis coefficients
   `[CL, CD, CS, CM, cm_groups]`. Wing fields and accessors
   renamed `vsm_*` → `aero_*`.
-- A QUATERNION wing can now have fewer groups than unrefined
+- A RIGID_DYNAMICS wing can now have fewer groups than unrefined
   aero sections (one twist DOF drives several sections via a
   spatial partition). More groups than sections errors.
 - Bumped `VortexStepMethod` compat to `3.3.0`.
@@ -207,7 +207,7 @@
 - `reposition!()` now uses the analytical `solve_heading_rotation`
   for wind-relative heading, consistent with `reinit!`. Previously
   heading was applied as a relative delta, causing drift.
-- `reposition!()` correctly updates REFINE wings by recalculating
+- `reposition!()` correctly updates PARTICLE_DYNAMICS wings by recalculating
   `R_b_to_w` and `pos_b` from structural points.
 - Multi-system `plot()` now passes vector-typed segment colors,
   fixing a crash when `setup_segment_hover_events!` assigned
@@ -262,14 +262,14 @@
   (preferred) or via a consecutive-pair heuristic.
 - `compute_spatial_group_mapping!()` — maps groups to VSM sections by
   spatial proximity, supporting n_groups != n_aero_sections.
-- REFINE wings can now have groups (used for LE/TE pair identification).
-- QUATERNION wings can now have `wing_segments` for structural geometry
+- PARTICLE_DYNAMICS wings can now have groups (used for LE/TE pair identification).
+- RIGID_DYNAMICS wings can now have `wing_segments` for structural geometry
   locking.
 - YAML loader fallback LE/TE detection in
   `update_aero_yaml_from_struc_yaml!()` when no groups are defined
   (consecutive-pair heuristic with x-coordinate check).
 - `test_match_aero_sections.jl` — tests geometry matching and polar
-  interpolation for both REFINE and QUATERNION wings, including
+  interpolation for both PARTICLE_DYNAMICS and RIGID_DYNAMICS wings, including
   mismatched section counts.
 - Helper scripts: `bin/install` (environment setup, Julia version detection)
   and `bin/run_julia` (launcher with system image support).
@@ -317,7 +317,7 @@
   solutions:
   - `test_point` — gravity free-fall, damping, quasi-static equilibrium
   - `test_segment` — spring-damper forces, stiffness, drag
-  - `test_wing` — QUATERNION and REFINE wing construction, VSM coupling
+  - `test_wing` — RIGID_DYNAMICS and PARTICLE_DYNAMICS wing construction, VSM coupling
   - `test_wing_dynamics` — rigid body torque response, precession,
     angular momentum conservation
   - `test_tether_winch` — reel-out dynamics, Coulomb and viscous
@@ -341,21 +341,21 @@
   (e.g. `sys.points[:kcu]`, `sys.segments[:bridle_1]`).
   `SystemStructure` resolves all symbolic references to numeric indices
   automatically via `assign_indices_and_resolve!()`.
-- `WingType` enum (`QUATERNION`, `REFINE`) for explicit wing type
-  selection. `REFINE` applies per-panel forces directly to structural
+- `WingType` enum (`RIGID_DYNAMICS`, `PARTICLE_DYNAMICS`) for explicit wing type
+  selection. `PARTICLE_DYNAMICS` applies per-panel forces directly to structural
   points for higher fidelity aeroelastic coupling.
 - `AeroMode` enum (`AERO_NONE`, `AERO_DIRECT`, `AERO_LINEARIZED`) for
   build-time control over aerodynamic computation strategy.
 - YAML-based model definition via `load_sys_struct_from_yaml()`,
   `update_yaml_from_sys_struct!()`, and
   `update_aero_yaml_from_struc_yaml!()`.
-- REFINE wing support (`src/vsm_refine.jl`) — structural deformation
+- PARTICLE_DYNAMICS wing support (`src/vsm_refine.jl`) — structural deformation
   coupled directly to VSM panel geometry with moment-preserving force
   distribution.
-- Principal vs body frame separation for QUATERNION wings. Principal
+- Principal vs body frame separation for RIGID_DYNAMICS wings. Principal
   frame (diagonal inertia) used for Euler equations, body frame (from
   reference points) used for output and VSM coupling.
-- Auto-group generation for QUATERNION wings when groups are not
+- Auto-group generation for RIGID_DYNAMICS wings when groups are not
   explicitly provided.
 - `record()` for saving simulation replays to MP4.
 - `plot_sphere_trajectory`, `plot_body_frame`, `plot_aoa` plotting

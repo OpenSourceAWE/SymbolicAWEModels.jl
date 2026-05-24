@@ -165,7 +165,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                 origins = Point3f[]
                 directions = Vec3f[]
                 for wing in sys_ref.wings
-                    # Skip wings without origin_idx (QUATERNION wings use pos_w directly)
+                    # Skip wings without origin_idx (RIGID_DYNAMICS wings use pos_w directly)
                     if isnothing(wing.origin_idx)
                         origin_pos = Point3f(wing.pos_w)
                     else
@@ -206,15 +206,15 @@ function Makie.plot!(ax, sys::SystemStructure;
             aero_forces_raw = Vec3f[]
 
             for wing in sys.wings
-                if wing.wing_type == QUATERNION
-                    # For QUATERNION wings, use wing.aero_force_b
+                if wing.wing_type == RIGID_DYNAMICS
+                    # For RIGID_DYNAMICS wings, use wing.aero_force_b
                     if !iszero(wing.aero_force_b)
                         aero_force_w = wing.R_b_to_w * wing.aero_force_b
                         push!(aero_origins, Point3f(wing.pos_w))
                         push!(aero_forces_raw, Vec3f(aero_force_w))
                     end
-                elseif wing.wing_type == SymbolicAWEModels.REFINE
-                    # For REFINE wings, plot both point forces and total wing force
+                elseif wing.wing_type == SymbolicAWEModels.PARTICLE_DYNAMICS
+                    # For PARTICLE_DYNAMICS wings, plot both point forces and total wing force
                     # Plot individual point forces
                     for point in sys.points
                         if point.type == WING && point.wing_idx == wing.idx
@@ -255,13 +255,13 @@ function Makie.plot!(ax, sys::SystemStructure;
                 forces_raw = Vec3f[]
 
                 for wing in sys_ref.wings
-                    if wing.wing_type == QUATERNION
+                    if wing.wing_type == RIGID_DYNAMICS
                         if !iszero(wing.aero_force_b)
                             aero_force_w = wing.R_b_to_w * wing.aero_force_b
                             push!(origins, Point3f(wing.pos_w))
                             push!(forces_raw, Vec3f(aero_force_w))
                         end
-                    elseif wing.wing_type == SymbolicAWEModels.REFINE
+                    elseif wing.wing_type == SymbolicAWEModels.PARTICLE_DYNAMICS
                         for point in sys_ref.points
                             if point.type == WING && point.wing_idx == wing.idx
                                 if !iszero(point.aero_force_b)
@@ -1060,7 +1060,7 @@ end
 
 Create a multi-panel plot comparing multiple simulation logs on the same figure.
 
-This method allows plotting multiple syslogs (e.g., from REFINE and QUATERNION models)
+This method allows plotting multiple syslogs (e.g., from PARTICLE_DYNAMICS and RIGID_DYNAMICS models)
 on the same panels for direct comparison. Each log's traces are labeled with its
 corresponding system name.
 
@@ -1073,7 +1073,7 @@ Same as the single-syslog version. See `Makie.plot(sys::SystemStructure, lg::Sys
 
 # Example
 ```julia
-# Compare REFINE vs QUATERNION models
+# Compare PARTICLE_DYNAMICS vs RIGID_DYNAMICS models
 plot(sys_struct, [syslog_refine, syslog_quat];
      plot_turn_rates=true, plot_azimuth=false,
      plot_heading=false, plot_v_app=false, plot_aoa=false,
@@ -1498,7 +1498,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                 push!(all_labels, "ω_v,z")
                 push!(all_times, sl.time)
             elseif !isempty(sl.orient)
-                # Fallback for REFINE logs: reconstruct ω_v from quaternions
+                # Fallback for PARTICLE_DYNAMICS logs: reconstruct ω_v from quaternions
                 kite_idx = syss[i].wings[1].origin_idx
                 n = length(sl.time)
                 ωx = Vector{Float64}(undef, n - 1)
@@ -3799,7 +3799,7 @@ end
     plot_body_frame(sys_struct; extra_points=nothing, dir=:side)
 
 Plot wing points in 2D body frame coordinates.
-Updates pos_b for REFINE wing points and shows all WING-type points.
+Updates pos_b for PARTICLE_DYNAMICS wing points and shows all WING-type points.
 
 # Arguments
 - `sys_struct::SystemStructure`: System structure to plot
@@ -3817,9 +3817,9 @@ function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
                          figsize=(800, 600))
     (; points, wings, segments) = sys_struct
 
-    # Update pos_b for REFINE wing points based on current wing orientation
+    # Update pos_b for PARTICLE_DYNAMICS wing points based on current wing orientation
     for wing in wings
-        if wing.wing_type == SymbolicAWEModels.REFINE
+        if wing.wing_type == SymbolicAWEModels.PARTICLE_DYNAMICS
             R_w_b = wing.R_b_to_w'  # transpose to get world-to-body
             for point in points
                 if point.wing_idx == wing.idx

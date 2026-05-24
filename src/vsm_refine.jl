@@ -4,12 +4,12 @@
 """
 Helper functions for VSM wing types.
 
-REFINE-specific functions (panel force distribution, structural geometry
+PARTICLE_DYNAMICS-specific functions (panel force distribution, structural geometry
 updates) are at the bottom of this file.  The shared
 `match_aero_sections_to_structure!` works for all VSMWing types.
 """
 
-# Baseline chord-based aero scaling for REFINE wings.
+# Baseline chord-based aero scaling for PARTICLE_DYNAMICS wings.
 # Effective multiplier = 1 + (wing.aero_scale_chord or default below).
 const AERO_SCALE_CHORD = 0.0
 
@@ -103,13 +103,13 @@ end
 Rebuild unrefined sections to match structural LE/TE positions,
 preserving refined panel polars via `use_prior_polar`.
 
-Works for **all** VSMWing types (QUATERNION and REFINE).  When the
+Works for **all** VSMWing types (RIGID_DYNAMICS and PARTICLE_DYNAMICS).  When the
 structural and aerodynamic section counts match the rebuild is a 1:1
 copy (`source_idx == i`) that ensures positions exactly match
 structural points.  When they differ, `use_prior_polar` and non-empty
 `refined_sections` are required.
 
-For non-REFINE wings whose section count changed, the linearization
+For non-PARTICLE_DYNAMICS wings whose section count changed, the linearization
 vectors (`aero_y`, `aero_x`, `aero_jac`) are resized to match the new
 `n_unrefined_sections`.
 
@@ -133,12 +133,12 @@ function match_aero_sections_to_structure!(
 
     if has_groups
         n_struct_sections = length(wing_group_idxs)
-        # REFINE: each group is a 2-point strut (LE/TE)
-        if wing.wing_type == REFINE
+        # PARTICLE_DYNAMICS: each group is a 2-point strut (LE/TE)
+        if wing.wing_type == PARTICLE_DYNAMICS
             for g_idx in wing_group_idxs
                 g = groups[g_idx]
                 length(g.point_idxs) == 2 || error(
-                    "REFINE wing $(wing.idx): group " *
+                    "PARTICLE_DYNAMICS wing $(wing.idx): group " *
                     "$(g.name) must have exactly 2 " *
                     "points (LE/TE pair), got " *
                     "$(length(g.point_idxs))")
@@ -157,9 +157,9 @@ function match_aero_sections_to_structure!(
     n_aero_sections =
         length(wing.vsm_wing.unrefined_sections)
 
-    # QUATERNION multi-section-per-group: keep aero geometry,
+    # RIGID_DYNAMICS multi-section-per-group: keep aero geometry,
     # let compute_spatial_group_mapping! partition sections.
-    if has_groups && wing.wing_type == QUATERNION &&
+    if has_groups && wing.wing_type == RIGID_DYNAMICS &&
             n_struct_sections < n_aero_sections
         wing.wing_segments = identify_wing_segments(
             wing_points; groups=groups,
@@ -249,9 +249,9 @@ function match_aero_sections_to_structure!(
         recompute_mapping=true, sort_sections=false)
     VortexStepMethod.reinit!(wing.vsm_aero)
 
-    # Resize linearization vectors for non-REFINE wings
+    # Resize linearization vectors for non-PARTICLE_DYNAMICS wings
     # when section count changed.
-    if counts_differ && wing.wing_type != REFINE
+    if counts_differ && wing.wing_type != PARTICLE_DYNAMICS
         n_groups = length(wing.group_idxs)
         nx = 6 + n_groups
         ny = 5 + n_groups
@@ -295,7 +295,7 @@ function build_point_to_vsm_point_mapping(
 
     # Validate 1:1 correspondence constraint
     if n_points != 2 * n_sections
-        error("REFINE wing requires n_structural_points ($(n_points)) == " *
+        error("PARTICLE_DYNAMICS wing requires n_structural_points ($(n_points)) == " *
               "2 * n_vsm_sections ($(n_sections))")
     end
 
@@ -428,11 +428,11 @@ the structural LE/TE points of the parent section (1:1 mapping).
    - Accumulate forces at the corresponding structural points
 
 # Arguments
-- `wing::VSMWing`: Wing with REFINE type and solved VSM state
+- `wing::VSMWing`: Wing with PARTICLE_DYNAMICS type and solved VSM state
 - `points::AbstractVector{Point}`: All structural points (will filter for WING type)
 """
 function distribute_panel_forces_to_points!(wing::VSMWing, points::AbstractVector{Point})
-    @assert wing.wing_type == REFINE "Can only distribute forces for REFINE wings"
+    @assert wing.wing_type == PARTICLE_DYNAMICS "Can only distribute forces for PARTICLE_DYNAMICS wings"
 
     sol = wing.vsm_solver.sol
     panels = wing.vsm_aero.panels
@@ -452,7 +452,7 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::AbstractVecto
         wing.point_to_vsm_point::Union{Nothing,
             Dict{Int64, Tuple{Int64, Symbol}}}
     isnothing(point_to_vsm_point) && error(
-        "REFINE wing $(wing.idx) missing point_to_vsm_point mapping")
+        "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping")
     point_to_vsm_point =
         point_to_vsm_point::Dict{Int64,
             Tuple{Int64, Symbol}}
@@ -517,11 +517,11 @@ Uses direct 1:1 correspondence between structural points and VSM section points:
 - To get world coordinates: `world_pos = wing.R_b_to_w * section.LE_point + wing.pos_w`
 
 # Arguments
-- `wing::VSMWing`: Wing with REFINE type
+- `wing::VSMWing`: Wing with PARTICLE_DYNAMICS type
 - `points::AbstractVector{Point}`: All structural points (will filter for WING type)
 """
 function update_vsm_wing_from_structure!(wing::VSMWing, points::AbstractVector{Point})
-    @assert wing.wing_type == REFINE "Can only update wing geometry for REFINE wings"
+    @assert wing.wing_type == PARTICLE_DYNAMICS "Can only update wing geometry for PARTICLE_DYNAMICS wings"
 
     # Get current R_b_to_w and origin from wing state
     # (These are updated during simulation from structural geometry)
@@ -533,7 +533,7 @@ function update_vsm_wing_from_structure!(wing::VSMWing, points::AbstractVector{P
         wing.point_to_vsm_point::Union{Nothing,
             Dict{Int64, Tuple{Int64, Symbol}}}
     isnothing(point_to_vsm_point) && error(
-        "REFINE wing $(wing.idx) missing point_to_vsm_point mapping")
+        "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping")
     point_to_vsm_point =
         point_to_vsm_point::Dict{Int64,
             Tuple{Int64, Symbol}}

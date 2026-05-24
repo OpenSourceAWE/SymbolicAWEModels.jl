@@ -60,9 +60,9 @@ configurations and throws assertions for definite errors.
 
 ## Wing Validations
 - Non-positive mass (error) - checked before NaN position
-- Zero or near-zero principal inertia components on QUATERNION wings (error/warning)
+- Zero or near-zero principal inertia components on RIGID_DYNAMICS wings (error/warning)
 - NaN inertia values (error)
-- Empty group list for QUATERNION wings (warning)
+- Empty group list for RIGID_DYNAMICS wings (warning)
 - NaN position (error) - often caused by zero mass/inertia
 
 ## Winch Validations
@@ -122,7 +122,7 @@ function validate_sys_struct(sys_struct::SystemStructure)
                   "This will cause division by zero in acceleration calculations.")
         end
 
-        if wing.wing_type == QUATERNION
+        if wing.wing_type == RIGID_DYNAMICS
             I_b = wing.inertia_principal
 
             # Check for zero or suspiciously small inertia (before NaN checks)
@@ -142,11 +142,11 @@ function validate_sys_struct(sys_struct::SystemStructure)
                 error("Wing $(wing.name) has NaN inertia: I_b = $I_b")
             end
 
-            # Warn if QUATERNION wing has no groups
+            # Warn if RIGID_DYNAMICS wing has no groups
             # (expected for AERO_NONE which skips auto-group creation)
             if isempty(wing.group_idxs) &&
                wing.aero_mode != AERO_NONE
-                @warn "Wing $(wing.name) (QUATERNION)" *
+                @warn "Wing $(wing.name) (RIGID_DYNAMICS)" *
                     " has no groups"
             end
         end
@@ -155,7 +155,7 @@ function validate_sys_struct(sys_struct::SystemStructure)
         if any(isnan.(wing.pos_w))
             error("Wing $(wing.name) has NaN position: pos_w = $(wing.pos_w)")
         end
-        # REFINE wings don't use rigid body inertia, skip
+        # PARTICLE_DYNAMICS wings don't use rigid body inertia, skip
     end
 
     # ==================== WINCH VALIDATIONS ==================== #
@@ -359,7 +359,7 @@ Pulley lengths are initialized proportionally based on current segment lengths:
 - `ignore_l0::Bool=false`: If true, recalculate segment rest lengths from current positions
 - `remake_vsm::Bool=false`: If true, recreate VSM wing, aerodynamics, and solver from settings.
   This is useful after modifying `aero_geometry.yaml` or other VSM-related configuration files.
-  For REFINE wings, also rebuilds the `point_to_vsm_point` mapping.
+  For PARTICLE_DYNAMICS wings, also rebuilds the `point_to_vsm_point` mapping.
 - `apply_transforms::Bool=true`: If false, skip applying spatial transforms
   (translate, rotate, heading) during reinitialization.
 - `apply_tether_lengths::Bool=true`: If false, skip scaling point positions
@@ -454,7 +454,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
             rotate_vsm_sections!(
                 vsm_wing, wing.R_b_to_c')
             vsm_wing.R_cad_body .= wing.R_b_to_c
-            if wing.wing_type != REFINE
+            if wing.wing_type != PARTICLE_DYNAMICS
                 apply_aero_z_offset!(
                     vsm_wing, wing.aero_z_offset)
             end
@@ -465,14 +465,14 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                 wing, points; groups=groups)
 
             # Recompute group→section mapping
-            if wing.wing_type == QUATERNION &&
+            if wing.wing_type == RIGID_DYNAMICS &&
                !isempty(wing.group_idxs)
                 compute_spatial_group_mapping!(
                     wing, groups, points)
             end
 
-            # REFINE-only: rebuild point mapping
-            if wing.wing_type == REFINE &&
+            # PARTICLE_DYNAMICS-only: rebuild point mapping
+            if wing.wing_type == PARTICLE_DYNAMICS &&
                !isnothing(wing.point_to_vsm_point)
                 wing_point_idxs = collect(
                     keys(something(wing.point_to_vsm_point)))
@@ -496,7 +496,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         wing.v_wind .= wind_factor * wind_vec_gnd
 
         R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-        if wing.wing_type == REFINE
+        if wing.wing_type == PARTICLE_DYNAMICS
             va_wing_w = wing.v_wind - wing.vel_w + wing.wind_disturb
             wing.va_b .= R_b_to_w' * va_wing_w
         else

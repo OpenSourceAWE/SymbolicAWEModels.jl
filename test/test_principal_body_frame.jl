@@ -4,7 +4,7 @@
 # test_principal_body_frame.jl
 #
 # Tests that the principal frame (dynamics) and body
-# frame (output) are correctly separated for QUATERNION
+# frame (output) are correctly separated for RIGID_DYNAMICS
 # wings with structural reference points.
 #
 # Key invariants:
@@ -20,7 +20,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, QUATERNION, WING,
+using SymbolicAWEModels: KVec3, RIGID_DYNAMICS, WING,
     VortexStepMethod
 using LinearAlgebra
 
@@ -47,7 +47,7 @@ using LinearAlgebra
         system_name="frame_test", set, vsm_set)
 
     wing = sys.wings[:main_wing]
-    @test wing.wing_type == QUATERNION
+    @test wing.wing_type == RIGID_DYNAMICS
     @test !isnothing(wing.origin_idx)
     @test !isnothing(wing.z_ref_points)
 
