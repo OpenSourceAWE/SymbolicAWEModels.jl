@@ -59,6 +59,10 @@ Enumeration for the aerodynamic model type of a wing.
     PARTICLE_DYNAMICS
 end
 
+# Backwards-compatible deprecated aliases for the previous WingType names.
+Base.@deprecate_binding QUATERNION RIGID_DYNAMICS
+Base.@deprecate_binding REFINE PARTICLE_DYNAMICS
+
 """
     AeroMode `AERO_NONE` `AERO_DIRECT` `AERO_LINEARIZED`
 
