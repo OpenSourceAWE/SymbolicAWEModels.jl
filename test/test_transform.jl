@@ -49,14 +49,14 @@ using LinearAlgebra
 
     # Create and initialize SAMs once for each wing type
     rigid_dynamics_sys = load_sys_struct_from_yaml(
-        rigid_dynamics_yaml_path; system_name="transform_test_QUATERNION", set=set, vsm_set=vsm_set,
+        rigid_dynamics_yaml_path; system_name="transform_test_RIGID_DYNAMICS", set=set, vsm_set=vsm_set,
         aero_mode=AERO_NONE
     )
     rigid_dynamics_sam = SymbolicAWEModel(set, rigid_dynamics_sys)
     test_init!(rigid_dynamics_sam)
 
     particle_dynamics_sys = load_sys_struct_from_yaml(
-        particle_dynamics_yaml_path; system_name="transform_test_REFINE", set=set, vsm_set=vsm_set,
+        particle_dynamics_yaml_path; system_name="transform_test_PARTICLE_DYNAMICS", set=set, vsm_set=vsm_set,
         aero_mode=AERO_NONE
     )
     particle_dynamics_sam = SymbolicAWEModel(set, particle_dynamics_sys)
