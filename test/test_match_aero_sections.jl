@@ -29,9 +29,9 @@ cp(src_data, data_path; force=true)
 set_data_path(data_path)
 
 struc_yaml = joinpath(data_path,
-    "quat_struc_geometry.yaml")
+    "rigid_dynamics_geometry.yaml")
 refine_yaml = joinpath(data_path,
-    "refine_struc_geometry.yaml")
+    "particle_dynamics_geometry.yaml")
 
 set = Settings("system.yaml")
 set.g_earth = 0.0

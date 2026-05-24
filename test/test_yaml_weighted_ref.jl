@@ -22,7 +22,7 @@ using KiteUtils
 # Minimal YAML with a PARTICLE_DYNAMICS wing using weighted z_ref_points
 # 3 LE/TE pairs to match the 3 aero sections in
 # 2plate_kite/vsm_settings.yaml.
-# Layout mirrors refine_struc_geometry.yaml.
+# Layout mirrors particle_dynamics_geometry.yaml.
 const WEIGHTED_REF_YAML = """
 points:
   headers: [idx, pos_cad, type, wing_idx, transform_idx,

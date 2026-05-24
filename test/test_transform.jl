@@ -44,8 +44,8 @@ using LinearAlgebra
     vsm_set = VortexStepMethod.VSMSettings(vsm_settings_path; data_prefix=false)
 
     # Paths for both wing types
-    quat_yaml_path = joinpath(data_path, "quat_struc_geometry.yaml")
-    refine_yaml_path = joinpath(data_path, "refine_struc_geometry.yaml")
+    quat_yaml_path = joinpath(data_path, "rigid_dynamics_geometry.yaml")
+    refine_yaml_path = joinpath(data_path, "particle_dynamics_geometry.yaml")
 
     # Create and initialize SAMs once for each wing type
     quat_sys = load_sys_struct_from_yaml(

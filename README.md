@@ -152,7 +152,7 @@ SymbolicAWEModels.copy_data()
 set_data_path("data/2plate_kite")
 
 struc_yaml = joinpath(get_data_path(),
-    "refine_struc_geometry.yaml")
+    "particle_dynamics_geometry.yaml")
 
 # Load settings and VSM configuration
 set = Settings("system.yaml")

@@ -1019,11 +1019,11 @@ Source and destination paths must be different for each pair.
 
 # Example
 ```julia
-sys = load_sys_struct_from_yaml("refine_struc_geometry.yaml"; ...)
+sys = load_sys_struct_from_yaml("particle_dynamics_geometry.yaml"; ...)
 sam = SymbolicAWEModel(set, sys)
 # ... run simulation ...
 update_yaml_from_sys_struct!(sys,
-    "refine_struc_geometry.yaml",
+    "particle_dynamics_geometry.yaml",
     "refine_struc_geometry_stable.yaml",
     "aero_geometry.yaml",
     "aero_geometry_stable.yaml")
@@ -1294,9 +1294,9 @@ components).
 
 # Example
 ```julia
-sys = load_sys_struct_from_yaml("refine_struc_geometry.yaml"; ...)
+sys = load_sys_struct_from_yaml("particle_dynamics_geometry.yaml"; ...)
 # ... edit YAML externally ...
-update_sys_struct_from_yaml!(sys, "refine_struc_geometry.yaml")
+update_sys_struct_from_yaml!(sys, "particle_dynamics_geometry.yaml")
 ```
 """
 function update_sys_struct_from_yaml!(
