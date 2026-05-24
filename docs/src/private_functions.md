@@ -182,7 +182,7 @@ SymbolicAWEModels._load_plate_wing
 SymbolicAWEModels.build_point_to_vsm_point_mapping
 SymbolicAWEModels.update_vsm_wing_from_structure!
 SymbolicAWEModels.distribute_panel_forces_to_points!
-SymbolicAWEModels._update_quaternion_wing!
+SymbolicAWEModels._update_rigid_dynamics_wing!
 SymbolicAWEModels._apply_direct_forces!
 SymbolicAWEModels._safe_vsm_solve!
 ```
