@@ -741,7 +741,7 @@ Construct a PlateWing with flat-plate aerodynamics.
 # Keyword Arguments
 - `wing_type`: `RIGID_DYNAMICS` or `PARTICLE_DYNAMICS` (default).
 - `transform`: Reference to transform (name or index).
-- `y_damping`: Translational damping coefficient.
+- `y_damping`: Damping coefficient for y-axis (pitch) rotation.
 - `angular_damping`: Angular damping coefficient.
 - `drag_corr`: Drag correction factor.
 - `cmq`: Pitch moment coefficient.
