@@ -155,7 +155,6 @@ function validate_sys_struct(sys_struct::SystemStructure)
         if any(isnan.(wing.pos_w))
             error("Wing $(wing.name) has NaN position: pos_w = $(wing.pos_w)")
         end
-        # PARTICLE_DYNAMICS wings don't use rigid body inertia, skip
     end
 
     # ==================== WINCH VALIDATIONS ==================== #
