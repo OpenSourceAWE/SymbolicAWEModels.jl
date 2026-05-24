@@ -1,18 +1,18 @@
 # 2-plate kite aero geometry
 # Must match structural geometry in particle_dynamics_geometry.yaml
-# 3 sections with LE/TE pairs matching points 2-7
+# 3 sections with LE/TE pairs: le_left/te_left, le_center/te_center, le_right/te_right
 
 wing_sections:
   # headers: [airfoil_id, LE_x, LE_y, LE_z, TE_x, TE_y, TE_z]
   headers: [airfoil_id, LE_x, LE_y, LE_z, TE_x, TE_y, TE_z]
   data:
-    # Right section: points 2 (LE) and 3 (TE)
+    # Left section: le_left (LE) and te_left (TE)
     - [1, -0.5, 1.0, 2.0, 0.5, 1.0, 2.2]
 
-    # Center section: points 4 (LE) and 5 (TE)
+    # Center section: le_center (LE) and te_center (TE)
     - [1, -0.5, 0.0, 2.5, 0.5, 0.0, 2.7]
 
-    # Left section: points 6 (LE) and 7 (TE)
+    # Right section: le_right (LE) and te_right (TE)
     - [1, -0.5, -1.0, 2.0, 0.5, -1.0, 2.2]
 
 wing_airfoils:
