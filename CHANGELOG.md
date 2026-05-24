@@ -342,8 +342,12 @@
   `SystemStructure` resolves all symbolic references to numeric indices
   automatically via `assign_indices_and_resolve!()`.
 - `WingType` enum (`RIGID_DYNAMICS`, `PARTICLE_DYNAMICS`) for explicit wing type
-  selection. `PARTICLE_DYNAMICS` applies per-panel forces directly to structural
-  points for higher fidelity aeroelastic coupling.
+  selection. BREAKING: these names replace the previous `QUATERNION` and
+  `REFINE` wing types. Update YAML configs from `type: QUATERNION` /
+  `type: REFINE` to `type: RIGID_DYNAMICS` / `type: PARTICLE_DYNAMICS`,
+  and update any code using the old exported constants. `PARTICLE_DYNAMICS`
+  applies per-panel forces directly to structural points for higher
+  fidelity aeroelastic coupling.
 - `AeroMode` enum (`AERO_NONE`, `AERO_DIRECT`, `AERO_LINEARIZED`) for
   build-time control over aerodynamic computation strategy.
 - YAML-based model definition via `load_sys_struct_from_yaml()`,
