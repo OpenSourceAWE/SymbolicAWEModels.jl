@@ -288,6 +288,14 @@ function parse_wing_type(s::String)
     s_upper = uppercase(s)
     s_upper == "PARTICLE_DYNAMICS" && return PARTICLE_DYNAMICS
     s_upper == "RIGID_DYNAMICS" && return RIGID_DYNAMICS
+    if s_upper == "REFINE"
+        @warn "WingType \"$s\" is deprecated; use \"PARTICLE_DYNAMICS\" instead."
+        return PARTICLE_DYNAMICS
+    end
+    if s_upper == "QUATERNION"
+        @warn "WingType \"$s\" is deprecated; use \"RIGID_DYNAMICS\" instead."
+        return RIGID_DYNAMICS
+    end
     error("Unknown WingType: $s")
 end
 
