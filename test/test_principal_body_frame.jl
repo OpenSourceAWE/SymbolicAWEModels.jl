@@ -41,7 +41,7 @@ using LinearAlgebra
         data_prefix=false)
 
     yaml_path = joinpath(
-        data_path, "rigid_dynamics_geometry.yaml")
+        data_path, "rigid_structural_geometry.yaml")
     sys = load_sys_struct_from_yaml(
         yaml_path;
         system_name="frame_test", set, vsm_set)

@@ -27,7 +27,7 @@ cp(src_data, data_path; force=true)
 set_data_path(data_path)
 
 struc_yaml = joinpath(data_path,
-    "rigid_dynamics_geometry.yaml")
+    "rigid_structural_geometry.yaml")
 
 set = Settings("system.yaml")
 vsm_set_path = joinpath(data_path, "vsm_settings.yaml")

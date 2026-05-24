@@ -78,10 +78,10 @@ end
     )
 
     quat_yaml_path = joinpath(
-        data_path, "rigid_dynamics_geometry.yaml"
+        data_path, "rigid_structural_geometry.yaml"
     )
     refine_yaml_path = joinpath(
-        data_path, "particle_dynamics_geometry.yaml"
+        data_path, "particle_structural_geometry.yaml"
     )
 
     # Build SAMs once (expensive symbolic compilation)

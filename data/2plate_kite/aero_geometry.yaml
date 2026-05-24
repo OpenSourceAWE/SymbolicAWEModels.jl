@@ -1,5 +1,5 @@
 # 2-plate kite aero geometry
-# Must match structural geometry in particle_dynamics_geometry.yaml
+# Must match structural geometry in particle_structural_geometry.yaml
 # 3 sections with LE/TE pairs: le_left/te_left, le_center/te_center, le_right/te_right
 
 wing_sections:

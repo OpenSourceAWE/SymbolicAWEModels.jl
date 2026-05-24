@@ -25,9 +25,9 @@ using LinearAlgebra
     set_data_path(data_path)
 
     struc_yaml = joinpath(
-        data_path, "rigid_dynamics_geometry.yaml")
+        data_path, "rigid_structural_geometry.yaml")
     refine_yaml = joinpath(
-        data_path, "particle_dynamics_geometry.yaml")
+        data_path, "particle_structural_geometry.yaml")
 
     set = Settings("system.yaml")
     vsm_set_path = joinpath(
@@ -46,7 +46,7 @@ using LinearAlgebra
     @test length(sys_refine.wings[1].group_idxs) == 0
 
     # ── RIGID_DYNAMICS with YAML-defined groups ───────
-    # rigid_dynamics_geometry.yaml has 3 explicit groups
+    # rigid_structural_geometry.yaml has 3 explicit groups
     # and 7 WING points (6 LE/TE + kcu).
     sys_quat = load_sys_struct_from_yaml(
         struc_yaml;
