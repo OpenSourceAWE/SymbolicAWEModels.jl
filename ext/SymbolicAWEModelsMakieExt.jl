@@ -206,14 +206,14 @@ function Makie.plot!(ax, sys::SystemStructure;
             aero_forces_raw = Vec3f[]
 
             for wing in sys.wings
-                if wing.wing_type == RIGID_DYNAMICS
+                if wing.dynamics_type == RIGID_DYNAMICS
                     # For RIGID_DYNAMICS wings, use wing.aero_force_b
                     if !iszero(wing.aero_force_b)
                         aero_force_w = wing.R_b_to_w * wing.aero_force_b
                         push!(aero_origins, Point3f(wing.pos_w))
                         push!(aero_forces_raw, Vec3f(aero_force_w))
                     end
-                elseif wing.wing_type == SymbolicAWEModels.PARTICLE_DYNAMICS
+                elseif wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS
                     # For PARTICLE_DYNAMICS wings, plot both point forces and total wing force
                     # Plot individual point forces
                     for point in sys.points
@@ -255,13 +255,13 @@ function Makie.plot!(ax, sys::SystemStructure;
                 forces_raw = Vec3f[]
 
                 for wing in sys_ref.wings
-                    if wing.wing_type == RIGID_DYNAMICS
+                    if wing.dynamics_type == RIGID_DYNAMICS
                         if !iszero(wing.aero_force_b)
                             aero_force_w = wing.R_b_to_w * wing.aero_force_b
                             push!(origins, Point3f(wing.pos_w))
                             push!(forces_raw, Vec3f(aero_force_w))
                         end
-                    elseif wing.wing_type == SymbolicAWEModels.PARTICLE_DYNAMICS
+                    elseif wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS
                         for point in sys_ref.points
                             if point.type == WING && point.wing_idx == wing.idx
                                 if !iszero(point.aero_force_b)
@@ -3819,7 +3819,7 @@ function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
 
     # Update pos_b for PARTICLE_DYNAMICS wing points based on current wing orientation
     for wing in wings
-        if wing.wing_type == SymbolicAWEModels.PARTICLE_DYNAMICS
+        if wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS
             R_w_b = wing.R_b_to_w'  # transpose to get world-to-body
             for point in points
                 if point.wing_idx == wing.idx

@@ -77,7 +77,7 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
         # wings (principal frame ODE state, RIGID_DYNAMICS only)
         wings = getfield(sys, :wings)
         for wing in wings
-            wing.wing_type != RIGID_DYNAMICS && continue
+            wing.dynamics_type != RIGID_DYNAMICS && continue
             append!(vars, wing.com_w)
             append!(vars, wing.com_vel)
             append!(vars, wing.Q_p_to_w)
@@ -132,7 +132,7 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
         # wings (principal frame ODE state, RIGID_DYNAMICS only)
         wings = getfield(sys, :wings)
         for wing in wings
-            wing.wing_type != RIGID_DYNAMICS && continue
+            wing.dynamics_type != RIGID_DYNAMICS && continue
             wing.com_w .= @view flat_value[offset:offset+2]
             offset += 3
             wing.com_vel .= @view flat_value[offset:offset+2]
@@ -555,7 +555,7 @@ function assign_indices_and_resolve!(
             # Resize aero arrays now that group_idxs
             # are resolved (initial sizing used
             # n_unrefined as proxy which may differ)
-            if wing.wing_type == RIGID_DYNAMICS
+            if wing.dynamics_type == RIGID_DYNAMICS
                 n_grp = length(wing.group_idxs)
                 nx = 6 + n_grp
                 ny = 5 + n_grp
@@ -863,7 +863,7 @@ function SystemStructure(name, set;
         isa(wing, VSMWing) || continue
         vsm_wing = wing.vsm_wing
 
-        if wing.wing_type == RIGID_DYNAMICS
+        if wing.dynamics_type == RIGID_DYNAMICS
             wing_pts = [p for p in points
                 if p.type == WING &&
                    p.wing_idx == wing.idx]
@@ -949,7 +949,7 @@ function SystemStructure(name, set;
                     ", com_offset_b=$off"
             end
 
-        elseif wing.wing_type == PARTICLE_DYNAMICS
+        elseif wing.dynamics_type == PARTICLE_DYNAMICS
             init_body_frame_from_ref_points!(
                 wing, points; prn)
 
@@ -977,7 +977,7 @@ function SystemStructure(name, set;
     # Skip for AERO_NONE — no aerodynamics means no twist DOFs needed.
     for wing in wings
         if wing isa VSMWing &&
-           wing.wing_type == RIGID_DYNAMICS &&
+           wing.dynamics_type == RIGID_DYNAMICS &&
            isempty(wing.group_idxs) &&
            wing.aero_mode != AERO_NONE
             # Get WING-type points for this wing
@@ -1041,7 +1041,7 @@ function SystemStructure(name, set;
     # them for aerodynamics.  Groups stay in sys_struct
     # (useful for structural info / future linearization).
     for wing in wings
-        if wing.wing_type == PARTICLE_DYNAMICS &&
+        if wing.dynamics_type == PARTICLE_DYNAMICS &&
            !isempty(wing.group_idxs)
             empty!(wing.group_idxs)
         end
@@ -1050,7 +1050,7 @@ function SystemStructure(name, set;
     # Initialize group-to-unrefined-section mapping for RIGID_DYNAMICS wings
     # Do this BEFORE y_airf calculation so the mapping is available
     for the_wing in wings
-        if isa(the_wing, VSMWing) && the_wing.base.wing_type == RIGID_DYNAMICS && !isempty(the_wing.base.group_idxs)
+        if isa(the_wing, VSMWing) && the_wing.base.dynamics_type == RIGID_DYNAMICS && !isempty(the_wing.base.group_idxs)
             compute_spatial_group_mapping!(the_wing, groups, points)
         end
     end
@@ -1104,7 +1104,7 @@ function SystemStructure(name, set;
     # Match VSM _apply_refined_section_thetas!: spanwise twist axis
     # is the average of unit vectors to adjacent groups' LE points.
     for wing in wings
-        wing.wing_type != RIGID_DYNAMICS && continue
+        wing.dynamics_type != RIGID_DYNAMICS && continue
         n_grp = length(wing.group_idxs)
         n_grp >= 2 || continue
 
@@ -1138,7 +1138,7 @@ function SystemStructure(name, set;
     # (body frame). chord and y_airf are direction
     # vectors already in body frame from VSM panels.
     for wing in wings
-        wing.wing_type != RIGID_DYNAMICS && continue
+        wing.dynamics_type != RIGID_DYNAMICS && continue
         for group_idx in wing.group_idxs
             group = groups[group_idx]
             group.le_pos .-= wing.com_offset_b
@@ -1148,7 +1148,7 @@ function SystemStructure(name, set;
     for (i, wing) in enumerate(wings)
         @assert wing.idx == i
         # For VSMWing PARTICLE_DYNAMICS wings, set defaults if not provided
-        if wing isa VSMWing && wing.wing_type == PARTICLE_DYNAMICS
+        if wing isa VSMWing && wing.dynamics_type == PARTICLE_DYNAMICS
             # Build point_to_vsm_point mapping if not provided
             if isnothing(wing.point_to_vsm_point)
                 # Get WING-type points for this wing

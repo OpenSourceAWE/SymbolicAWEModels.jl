@@ -45,7 +45,7 @@ function generate_prob_getters(sys_struct, sys)
 
         # aero_input only exists for RIGID_DYNAMICS + AERO_LINEARIZED wings
         has_linearized = any(
-            w.wing_type === RIGID_DYNAMICS &&
+            w.dynamics_type === RIGID_DYNAMICS &&
             w.aero_mode === AERO_LINEARIZED
             for w in sys_struct.wings)
         if has_linearized
@@ -529,7 +529,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
     end
     for wing in wings
         wing_data = ("wing", wing.idx, wing.group_idxs,
-                     Int(wing.wing_type),
+                     Int(wing.dynamics_type),
                      Int(wing.aero_mode))
 
         # Include wing reference points in hash

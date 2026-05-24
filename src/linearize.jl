@@ -60,7 +60,7 @@ function update_vsm!(sam::SymbolicAWEModel,
     length(wings) == 0 && return nothing
 
     for wing in wings
-        wing.wing_type != RIGID_DYNAMICS && continue
+        wing.dynamics_type != RIGID_DYNAMICS && continue
         wing.aero_mode == AERO_NONE && continue
         if norm(wing.va_b) < vsm_min_wind
             fill!(wing.aero_x, 0.0)
@@ -78,14 +78,14 @@ function update_vsm!(sam::SymbolicAWEModel,
     end
 
     has_particle_dynamics_wings = any(
-        w.wing_type === PARTICLE_DYNAMICS for w in wings)
+        w.dynamics_type === PARTICLE_DYNAMICS for w in wings)
     if has_particle_dynamics_wings
         point_state = prob.get_point_state(integ)
         va_point_b_vals = point_state[4]
 
         for wing in wings
             wing isa VSMWing || continue
-            wing.wing_type != PARTICLE_DYNAMICS && continue
+            wing.dynamics_type != PARTICLE_DYNAMICS && continue
             wing.aero_mode == AERO_NONE && continue
 
             if wing.aero_mode == AERO_LINEARIZED

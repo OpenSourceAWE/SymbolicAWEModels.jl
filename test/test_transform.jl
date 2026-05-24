@@ -78,8 +78,8 @@ using LinearAlgebra
         ("RIGID_DYNAMICS", rigid_dynamics_sam, rigid_dynamics_yaml_path),
     ]
 
-    for (wing_type_name, sam, yaml_path) in sam_configs
-        @testset "$wing_type_name Wing" begin
+    for (dynamics_type_name, sam, yaml_path) in sam_configs
+        @testset "$dynamics_type_name Wing" begin
             # ================================================================
             # YAML Loading Verification (uses already-loaded sys_struct)
             # ================================================================
@@ -98,7 +98,7 @@ using LinearAlgebra
                 # Verify wing reference
                 @test transform.wing_idx == 1  # main_wing index
 
-                println("\n  ====== [$wing_type_name] Loaded transform: " *
+                println("\n  ====== [$dynamics_type_name] Loaded transform: " *
                     "elev=$(round(rad2deg(transform.elevation), digits=1))°, " *
                     "azim=$(round(rad2deg(transform.azimuth), digits=1))°, " *
                     "heading=$(round(rad2deg(transform.heading), digits=1))° ======\n")
@@ -118,7 +118,7 @@ using LinearAlgebra
                 @test transform.azimuth ≈ deg2rad(0) atol=1e-10
                 @test transform.heading ≈ deg2rad(0) atol=1e-10
 
-                println("\n  ====== [$wing_type_name] After init: " *
+                println("\n  ====== [$dynamics_type_name] After init: " *
                     "elev=$(round(rad2deg(transform.elevation), digits=1))°, " *
                     "azim=$(round(rad2deg(transform.azimuth), digits=1))°, " *
                     "heading=$(round(rad2deg(transform.heading), digits=1))° ======\n")
@@ -137,7 +137,7 @@ using LinearAlgebra
                 @test transform.elevation_vel ≈ 0.0 atol=1e-10
                 @test transform.azimuth_vel ≈ 0.0 atol=1e-10
 
-                println("\n  ====== [$wing_type_name] Velocities: " *
+                println("\n  ====== [$dynamics_type_name] Velocities: " *
                     "elev_vel=$(round(rad2deg(transform.elevation_vel), digits=2))°/s, " *
                     "azim_vel=$(round(rad2deg(transform.azimuth_vel), digits=2))°/s ======\n")
             end
@@ -171,7 +171,7 @@ using LinearAlgebra
                 # Check that z component is positive (wing above ground level in world frame)
                 @test wing_pos[3] > ground_pos[3]
 
-                println("\n  ====== [$wing_type_name] Geometry: " *
+                println("\n  ====== [$dynamics_type_name] Geometry: " *
                     "wing_pos=$(round.(wing_pos, digits=2)), " *
                     "distance=$(round(distance, digits=2))m ======\n")
             end
@@ -202,7 +202,7 @@ using LinearAlgebra
                 @test transform_after.elevation ≈ deg2rad(45) atol=1e-10
                 @test transform_after.azimuth ≈ deg2rad(30) atol=1e-10
 
-                println("\n  ====== [$wing_type_name] Alt config: " *
+                println("\n  ====== [$dynamics_type_name] Alt config: " *
                     "elev=$(round(rad2deg(transform_after.elevation), digits=1))°, " *
                     "azim=$(round(rad2deg(transform_after.azimuth), digits=1))° ======\n")
             end
@@ -225,7 +225,7 @@ using LinearAlgebra
                 # (wing more overhead)
                 @test wing_z1 > wing_z2
 
-                println("\n  ====== [$wing_type_name] Elevation effect: " *
+                println("\n  ====== [$dynamics_type_name] Elevation effect: " *
                     "z(80°)=$(round(wing_z1, digits=2))m > " *
                     "z(45°)=$(round(wing_z2, digits=2))m ======\n")
             end
@@ -247,7 +247,7 @@ using LinearAlgebra
                 # Larger azimuth should give larger |y| component
                 @test abs(wing_y2) > abs(wing_y1)
 
-                println("\n  ====== [$wing_type_name] Azimuth effect: " *
+                println("\n  ====== [$dynamics_type_name] Azimuth effect: " *
                     "|y|(30°)=$(round(abs(wing_y2), digits=2))m > " *
                     "|y|(0°)=$(round(abs(wing_y1), digits=2))m ======\n")
             end
@@ -269,7 +269,7 @@ using LinearAlgebra
                 @test det(wing.base.R_b_to_w) ≈ 1.0 atol=1e-10
                 @test wing.base.R_b_to_w * wing.base.R_b_to_w' ≈ I(3) atol=1e-10
 
-                println("\n  ====== [$wing_type_name] Heading affects rotation: " *
+                println("\n  ====== [$dynamics_type_name] Heading affects rotation: " *
                     "det(R_b_to_w)=$(round(det(wing.base.R_b_to_w), digits=4)) ======\n")
             end
 
@@ -288,7 +288,7 @@ using LinearAlgebra
                 ground_pos = sam.sys_struct.points[:ground].pos_w
                 @test transform.base_pos ≈ ground_pos atol=1e-10
 
-                println("\n  ====== [$wing_type_name] Base point: " *
+                println("\n  ====== [$dynamics_type_name] Base point: " *
                     "ground_pos=$(round.(ground_pos, digits=2)), " *
                     "transform.base_pos=$(round.(transform.base_pos, digits=2)) ======\n")
             end
@@ -461,7 +461,7 @@ using LinearAlgebra
 
         wing_c = PlateWing(:plate_wing, surfaces_c,
             cl_interp, cd_interp;
-            wing_type=PARTICLE_DYNAMICS,
+            dynamics_type=PARTICLE_DYNAMICS,
             z_ref_points=([:right, :left], :top),
             y_ref_points=(:left, :right),
             origin=:kcu, drag_corr=0.93 * K,

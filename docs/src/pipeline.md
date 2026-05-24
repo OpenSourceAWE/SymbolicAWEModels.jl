@@ -95,7 +95,7 @@ initializes the ODE integrator. This stage is expensive on first run because Jul
 JIT-compiles the generated code.
 
 The compiled system is serialized to a binary cache file
-(`model_<julia_ver>_<name>_<wing_type>_...bin`) in the data directory. On subsequent
+(`model_<julia_ver>_<name>_<dynamics_type>_...bin`) in the data directory. On subsequent
 runs, the cached model is deserialized instead of recompiled, reducing startup from
 minutes to seconds.
 

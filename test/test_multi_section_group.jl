@@ -37,7 +37,7 @@ vsm_set = VortexStepMethod.VSMSettings(
 @testset "Multi-section group partition" begin
     sys = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="multi_section",
-        set, vsm_set, wing_type=RIGID_DYNAMICS)
+        set, vsm_set, dynamics_type=RIGID_DYNAMICS)
     wing = sys.wings[1]
     vsm_w = wing.vsm_wing
 
@@ -85,7 +85,7 @@ end
 @testset "n_groups > n_unrefined errors" begin
     sys = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="too_many_groups",
-        set, vsm_set, wing_type=RIGID_DYNAMICS)
+        set, vsm_set, dynamics_type=RIGID_DYNAMICS)
     wing = sys.wings[1]
     vsm_w = wing.vsm_wing
 

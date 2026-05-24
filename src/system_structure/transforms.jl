@@ -269,7 +269,7 @@ point positions, then compute principal frame ODE state.
 function _finalize_transforms!(wings, points)
     for wing in wings
         wing isa VSMWing || continue
-        wing.wing_type == PARTICLE_DYNAMICS || continue
+        wing.dynamics_type == PARTICLE_DYNAMICS || continue
         R_b_to_w, origin = calc_particle_dynamics_wing_frame(
             points, wing.z_ref_points, wing.y_ref_points, wing.origin_idx)
         wing.R_b_to_w = R_b_to_w
@@ -312,7 +312,7 @@ function init_principal_frame!(wings, points)
             cross(ω_w, r_com_w)
         wing.ω_p .= R_p_to_w' * ω_w
         # pos_b: offset from COM in body frame
-        wing.wing_type != RIGID_DYNAMICS && continue
+        wing.dynamics_type != RIGID_DYNAMICS && continue
         com_cad = wing.pos_cad .+
             wing.R_b_to_c * wing.com_offset_b
         for point in points

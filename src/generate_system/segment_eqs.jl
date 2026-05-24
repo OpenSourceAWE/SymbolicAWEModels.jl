@@ -71,7 +71,7 @@ function segment_eqs!(s, eqs, guesses, points, segments,
         if is_wing_structural_segment
             # Both points should belong to the same wing
             wing = wings[p1_obj.wing_idx]
-            is_rigid_dynamics_wing_segment = (wing.wing_type == RIGID_DYNAMICS)
+            is_rigid_dynamics_wing_segment = (wing.dynamics_type == RIGID_DYNAMICS)
         end
 
         in_pulley = 0

@@ -122,7 +122,7 @@ function validate_sys_struct(sys_struct::SystemStructure)
                   "This will cause division by zero in acceleration calculations.")
         end
 
-        if wing.wing_type == RIGID_DYNAMICS
+        if wing.dynamics_type == RIGID_DYNAMICS
             I_b = wing.inertia_principal
 
             # Check for zero or suspiciously small inertia (before NaN checks)
@@ -453,7 +453,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
             rotate_vsm_sections!(
                 vsm_wing, wing.R_b_to_c')
             vsm_wing.R_cad_body .= wing.R_b_to_c
-            if wing.wing_type != PARTICLE_DYNAMICS
+            if wing.dynamics_type != PARTICLE_DYNAMICS
                 apply_aero_z_offset!(
                     vsm_wing, wing.aero_z_offset)
             end
@@ -464,14 +464,14 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                 wing, points; groups=groups)
 
             # Recompute group→section mapping
-            if wing.wing_type == RIGID_DYNAMICS &&
+            if wing.dynamics_type == RIGID_DYNAMICS &&
                !isempty(wing.group_idxs)
                 compute_spatial_group_mapping!(
                     wing, groups, points)
             end
 
             # PARTICLE_DYNAMICS-only: rebuild point mapping
-            if wing.wing_type == PARTICLE_DYNAMICS &&
+            if wing.dynamics_type == PARTICLE_DYNAMICS &&
                !isnothing(wing.point_to_vsm_point)
                 wing_point_idxs = collect(
                     keys(something(wing.point_to_vsm_point)))
@@ -495,7 +495,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         wing.v_wind .= wind_factor * wind_vec_gnd
 
         R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-        if wing.wing_type == PARTICLE_DYNAMICS
+        if wing.dynamics_type == PARTICLE_DYNAMICS
             va_wing_w = wing.v_wind - wing.vel_w + wing.wind_disturb
             wing.va_b .= R_b_to_w' * va_wing_w
         else

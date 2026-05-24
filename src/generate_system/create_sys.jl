@@ -31,7 +31,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # Validation for VSMWing PARTICLE_DYNAMICS wings
     for wing in wings
-        if wing isa VSMWing && wing.wing_type == PARTICLE_DYNAMICS
+        if wing isa VSMWing && wing.dynamics_type == PARTICLE_DYNAMICS
             # PARTICLE_DYNAMICS wings cannot have groups
             @assert length(wing.group_idxs) == 0 "PARTICLE_DYNAMICS wing $(wing.idx) cannot have groups"
             @assert !isnothing(wing.point_to_vsm_point) "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping"
@@ -118,7 +118,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     tether_wing_moment = zeros(Num, 3, length(wings))
 
     # Check if we have any PARTICLE_DYNAMICS wings (need aero force per point)
-    has_particle_dynamics_wings = any(wing.wing_type === PARTICLE_DYNAMICS for wing in wings)
+    has_particle_dynamics_wings = any(wing.dynamics_type === PARTICLE_DYNAMICS for wing in wings)
 
     @variables begin
         # Point states

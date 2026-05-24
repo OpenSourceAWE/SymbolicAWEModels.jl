@@ -196,7 +196,7 @@ end
     @testset "Model setup" begin
         @test length(sys.wings) == 1
         wing = sys.wings[:main_wing]
-        @test wing.wing_type == SymbolicAWEModels.RIGID_DYNAMICS
+        @test wing.dynamics_type == SymbolicAWEModels.RIGID_DYNAMICS
         @test wing.aero_mode == AERO_NONE
         @test wing.mass ≈ 3.0  # 6 points * 0.5 kg
         @test length(sys.segments) == 0

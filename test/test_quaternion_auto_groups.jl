@@ -41,7 +41,7 @@ using LinearAlgebra
         system_name="2plate_refine", set, vsm_set)
 
     @test length(sys_refine.wings) == 1
-    @test sys_refine.wings[1].wing_type == PARTICLE_DYNAMICS
+    @test sys_refine.wings[1].dynamics_type == PARTICLE_DYNAMICS
     @test length(sys_refine.groups) == 0
     @test length(sys_refine.wings[1].group_idxs) == 0
 
@@ -51,10 +51,10 @@ using LinearAlgebra
     sys_quat = load_sys_struct_from_yaml(
         struc_yaml;
         system_name="2plate_quat", set, vsm_set,
-        wing_type=RIGID_DYNAMICS)
+        dynamics_type=RIGID_DYNAMICS)
 
     wing = sys_quat.wings[1]
-    @test wing.wing_type == RIGID_DYNAMICS
+    @test wing.dynamics_type == RIGID_DYNAMICS
     @test length(sys_quat.groups) == 3
     @test length(wing.group_idxs) == 3
     @test !isnothing(wing.wing_segments)
@@ -79,10 +79,10 @@ using LinearAlgebra
     sys_auto = load_sys_struct_from_yaml(
         refine_yaml;
         system_name="2plate_auto", set, vsm_set,
-        wing_type=RIGID_DYNAMICS)
+        dynamics_type=RIGID_DYNAMICS)
 
     wing_auto = sys_auto.wings[1]
-    @test wing_auto.wing_type == RIGID_DYNAMICS
+    @test wing_auto.dynamics_type == RIGID_DYNAMICS
     @test length(sys_auto.groups) == 3
     @test length(wing_auto.group_idxs) == 3
     @test !isnothing(wing_auto.wing_segments)

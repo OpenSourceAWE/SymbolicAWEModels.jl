@@ -185,7 +185,7 @@ cl_interp, cd_interp = create_plate_interpolations(
 
 plate_wing = PlateWing(
     :plate_wing, surfaces, cl_interp, cd_interp;
-    wing_type=PARTICLE_DYNAMICS,
+    dynamics_type=PARTICLE_DYNAMICS,
     z_ref_points=([:right, :left], :top),
     y_ref_points=(:left, :right),
     origin=:kcu,

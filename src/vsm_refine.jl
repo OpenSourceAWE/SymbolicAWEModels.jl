@@ -134,7 +134,7 @@ function match_aero_sections_to_structure!(
     if has_groups
         n_struct_sections = length(wing_group_idxs)
         # PARTICLE_DYNAMICS: each group is a 2-point strut (LE/TE)
-        if wing.wing_type == PARTICLE_DYNAMICS
+        if wing.dynamics_type == PARTICLE_DYNAMICS
             for g_idx in wing_group_idxs
                 g = groups[g_idx]
                 length(g.point_idxs) == 2 || error(
@@ -159,7 +159,7 @@ function match_aero_sections_to_structure!(
 
     # RIGID_DYNAMICS multi-section-per-group: keep aero geometry,
     # let compute_spatial_group_mapping! partition sections.
-    if has_groups && wing.wing_type == RIGID_DYNAMICS &&
+    if has_groups && wing.dynamics_type == RIGID_DYNAMICS &&
             n_struct_sections < n_aero_sections
         wing.wing_segments = identify_wing_segments(
             wing_points; groups=groups,
@@ -251,7 +251,7 @@ function match_aero_sections_to_structure!(
 
     # Resize linearization vectors for non-PARTICLE_DYNAMICS wings
     # when section count changed.
-    if counts_differ && wing.wing_type != PARTICLE_DYNAMICS
+    if counts_differ && wing.dynamics_type != PARTICLE_DYNAMICS
         n_groups = length(wing.group_idxs)
         nx = 6 + n_groups
         ny = 5 + n_groups
@@ -432,7 +432,7 @@ the structural LE/TE points of the parent section (1:1 mapping).
 - `points::AbstractVector{Point}`: All structural points (will filter for WING type)
 """
 function distribute_panel_forces_to_points!(wing::VSMWing, points::AbstractVector{Point})
-    @assert wing.wing_type == PARTICLE_DYNAMICS "Can only distribute forces for PARTICLE_DYNAMICS wings"
+    @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only distribute forces for PARTICLE_DYNAMICS wings"
 
     sol = wing.vsm_solver.sol
     panels = wing.vsm_aero.panels
@@ -521,7 +521,7 @@ Uses direct 1:1 correspondence between structural points and VSM section points:
 - `points::AbstractVector{Point}`: All structural points (will filter for WING type)
 """
 function update_vsm_wing_from_structure!(wing::VSMWing, points::AbstractVector{Point})
-    @assert wing.wing_type == PARTICLE_DYNAMICS "Can only update wing geometry for PARTICLE_DYNAMICS wings"
+    @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only update wing geometry for PARTICLE_DYNAMICS wings"
 
     # Get current R_b_to_w and origin from wing state
     # (These are updated during simulation from structural geometry)

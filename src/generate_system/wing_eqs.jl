@@ -78,7 +78,7 @@ function wing_eqs!(
 
     for wing in wings
         # ============= PARTICLE_DYNAMICS WINGS ============= #
-        if wing.wing_type == PARTICLE_DYNAMICS
+        if wing.dynamics_type == PARTICLE_DYNAMICS
             z_p1, z_p2 = wing.z_ref_points
             y_p1, y_p2 = wing.y_ref_points
             pos_z1 = get_ref_position(pos, z_p1)

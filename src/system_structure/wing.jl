@@ -64,7 +64,7 @@ mutable struct BaseWing <: AbstractWing
     const pos_cad::KVec3                # Body origin in CAD frame
     const com_offset_b::KVec3           # COM offset from body origin in body frame
     const inertia_principal::KVec3
-    const wing_type::WingType
+    const dynamics_type::WingType
     aero_mode::AeroMode
 
     # Principal frame ODE state (RIGID_DYNAMICS dynamics)
@@ -304,7 +304,7 @@ _to_name_ref(x::Integer) = Int(x)
 _to_name_ref(x) = Symbol(x)
 
 """
-    BaseWing(name, groups, R_b_to_c, pos_cad, inertia_principal; transform=nothing, y_damping=150.0, wing_type=RIGID_DYNAMICS)
+    BaseWing(name, groups, R_b_to_c, pos_cad, inertia_principal; transform=nothing, y_damping=150.0, dynamics_type=RIGID_DYNAMICS)
 
 Constructs a `BaseWing` object representing a rigid body reference frame.
 
@@ -319,7 +319,7 @@ Constructs a `BaseWing` object representing a rigid body reference frame.
 - `transform=nothing`: Reference to the transform (name or index). Defaults to 1 if not specified.
 - `y_damping::SimFloat=150.0`: Damping coefficient for y-axis (pitch) rotation.
 - `angular_damping::SimFloat=0.0`: Isotropic angular damping on all 3 rotation axes.
-- `wing_type::WingType=RIGID_DYNAMICS`: Wing aerodynamic model type.
+- `dynamics_type::WingType=RIGID_DYNAMICS`: Wing aerodynamic model type.
 
 # Returns
 - `BaseWing`: A new base wing object. The `idx`, `group_idxs`, and `transform_idx` are resolved by SystemStructure.
@@ -328,8 +328,8 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
                   pos_cad, inertia_principal;
                   transform=nothing, y_damping=150.0,
                   angular_damping=0.0,
-                  wing_type::WingType=RIGID_DYNAMICS,
-                  aero_mode::AeroMode=(wing_type == RIGID_DYNAMICS ?
+                  dynamics_type::WingType=RIGID_DYNAMICS,
+                  aero_mode::AeroMode=(dynamics_type == RIGID_DYNAMICS ?
                       AERO_LINEARIZED : AERO_DIRECT))
     # Convert groups to NameRef vector
     group_refs = Vector{NameRef}([_to_name_ref(g) for g in groups])
@@ -347,7 +347,7 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
         R_b_to_c, Matrix{SimFloat}(I, 3, 3),  # R_p_to_c placeholder
         Matrix{SimFloat}(I, 3, 3),         # R_b_to_p placeholder
         pos_cad, zeros(KVec3),  # com_offset_b placeholder
-        inertia_principal, wing_type,
+        inertia_principal, dynamics_type,
         aero_mode,
         # Principal frame ODE state
         zeros(KVec3), zeros(KVec3),  # com_w, com_vel
@@ -441,7 +441,7 @@ Creates vsm_wing, vsm_aero, and vsm_solver internally.
 - `R_b_to_c::Matrix{SimFloat}`: Rotation matrix body→CAD.
 - `pos_cad::KVec3`: Position of wing COM in CAD frame.
 - `y_damping::SimFloat=150.0`: Lateral damping coefficient.
-- `wing_type::WingType=RIGID_DYNAMICS`: Aerodynamic model type.
+- `dynamics_type::WingType=RIGID_DYNAMICS`: Aerodynamic model type.
 - `point_to_vsm_point`: 1:1 structural point to VSM point mapping (PARTICLE_DYNAMICS only).
 - `wing_segments`: LE/TE pairs (populated for all VSM wing types by
   `match_aero_sections_to_structure!`).
@@ -461,8 +461,8 @@ function VSMWing(name, set::Settings,
                  transform=nothing, y_damping=150.0,
                  angular_damping=0.0,
                  inertia_diag=nothing,
-                 wing_type::WingType=RIGID_DYNAMICS,
-                 aero_mode::AeroMode=(wing_type == RIGID_DYNAMICS ?
+                 dynamics_type::WingType=RIGID_DYNAMICS,
+                 aero_mode::AeroMode=(dynamics_type == RIGID_DYNAMICS ?
                      AERO_LINEARIZED : AERO_DIRECT),
                  point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}=nothing,
                  wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}=nothing,
@@ -473,7 +473,7 @@ function VSMWing(name, set::Settings,
                  aero_z_offset::SimFloat=0.0)
 
     # Validation
-    if wing_type == PARTICLE_DYNAMICS
+    if dynamics_type == PARTICLE_DYNAMICS
         @assert !isnothing(origin)
             "PARTICLE_DYNAMICS wings require origin to define KCU position"
         if !isnothing(pos_cad)
@@ -515,13 +515,13 @@ function VSMWing(name, set::Settings,
 
     base = BaseWing(name, groups, R_b_to_c, pos_cad,
                     inertia_vec; transform, y_damping,
-                    angular_damping, wing_type, aero_mode)
+                    angular_damping, dynamics_type, aero_mode)
 
     # Size aero state vectors based on wing type
     # For RIGID_DYNAMICS: placeholder sizes using n_unrefined
     # as group count proxy; resized in SystemStructure
     # after groups are resolved.
-    if wing_type == PARTICLE_DYNAMICS
+    if dynamics_type == PARTICLE_DYNAMICS
         nx = 0
         ny = 0
     else
@@ -665,7 +665,7 @@ computes lift and drag from angle-of-attack lookup tables.
 Twist is set directly on each PlateSurface.
 
 Supports both RIGID_DYNAMICS (rigid body) and PARTICLE_DYNAMICS (point mass)
-wing dynamics via BaseWing.wing_type.
+wing dynamics via BaseWing.dynamics_type.
 
 $(TYPEDFIELDS)
 """
@@ -724,7 +724,7 @@ end
 
 """
     PlateWing(name, surfaces, calc_cl, calc_cd;
-              wing_type=PARTICLE_DYNAMICS, transform=nothing,
+              dynamics_type=PARTICLE_DYNAMICS, transform=nothing,
               y_damping=150.0, angular_damping=0.0, drag_corr=0.93,
               cmq=1.0, smc=1.0, cord_length=1.0,
               z_ref_points=nothing, y_ref_points=nothing,
@@ -739,7 +739,7 @@ Construct a PlateWing with flat-plate aerodynamics.
 - `calc_cd`: CD lookup callable(alpha_deg) → CD.
 
 # Keyword Arguments
-- `wing_type`: `RIGID_DYNAMICS` or `PARTICLE_DYNAMICS` (default).
+- `dynamics_type`: `RIGID_DYNAMICS` or `PARTICLE_DYNAMICS` (default).
 - `transform`: Reference to transform (name or index).
 - `y_damping`: Damping coefficient for y-axis (pitch) rotation.
 - `angular_damping`: Angular damping coefficient.
@@ -752,7 +752,7 @@ Construct a PlateWing with flat-plate aerodynamics.
 """
 function PlateWing(name, surfaces::Vector{PlateSurface},
                    calc_cl, calc_cd;
-                   wing_type::WingType=PARTICLE_DYNAMICS,
+                   dynamics_type::WingType=PARTICLE_DYNAMICS,
                    transform=nothing,
                    y_damping=150.0,
                    angular_damping=0.0,
@@ -765,7 +765,7 @@ function PlateWing(name, surfaces::Vector{PlateSurface},
     base = BaseWing(name, NameRef[], Matrix{SimFloat}(I, 3, 3),
                     zeros(KVec3), ones(MVector{3, SimFloat});
                     transform, y_damping, angular_damping,
-                    wing_type, aero_mode=AERO_PLATE)
+                    dynamics_type, aero_mode=AERO_PLATE)
 
     z_ref = isnothing(z_ref_points) ? nothing :
         (WeightedRefPoints(z_ref_points[1]),

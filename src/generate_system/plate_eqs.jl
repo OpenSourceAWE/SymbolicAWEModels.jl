@@ -154,7 +154,7 @@ function plate_eqs!(s, eqs, psys, wing;
     end
 
     # Apply forces depending on wing type
-    if wing.wing_type == PARTICLE_DYNAMICS
+    if wing.dynamics_type == PARTICLE_DYNAMICS
         # Per-point forces in body frame
         afpb = aero_force_point_b::AbstractArray
         for (si, surf) in enumerate(surfaces)
@@ -173,7 +173,7 @@ function plate_eqs!(s, eqs, psys, wing;
                      for si in 1:n_surf])
             aero_moment_b[:, wing.idx] ~ zeros(3)
         ]
-    elseif wing.wing_type == RIGID_DYNAMICS
+    elseif wing.dynamics_type == RIGID_DYNAMICS
         # Sum forces and moments about COM
         force_sum = sum([
             Rbw' * plate_force_w[:, si]

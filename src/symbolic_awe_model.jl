@@ -654,12 +654,12 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     end
 
     # Determine wing type and aero mode
-    wing_types = [wing.wing_type for wing in sys_struct.wings]
-    wing_type_str = if isempty(wing_types)
+    dynamics_types = [wing.dynamics_type for wing in sys_struct.wings]
+    dynamics_type_str = if isempty(dynamics_types)
         "no_wing"
-    elseif all(wt -> wt === RIGID_DYNAMICS, wing_types)
+    elseif all(wt -> wt === RIGID_DYNAMICS, dynamics_types)
         "rigid"
-    elseif all(wt -> wt === PARTICLE_DYNAMICS, wing_types)
+    elseif all(wt -> wt === PARTICLE_DYNAMICS, dynamics_types)
         "particle"
     else
         "mixed"
@@ -687,7 +687,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     n_wings = length(sys_struct.wings)
     n_winches = length(sys_struct.winches)
 
-    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(wing_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_groups)grp_$(n_wings)wng_$(n_winches)wch.bin$suffix"
+    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_groups)grp_$(n_wings)wng_$(n_winches)wch.bin$suffix"
 end
 
 """

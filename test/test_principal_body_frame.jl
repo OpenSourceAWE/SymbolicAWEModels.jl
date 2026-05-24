@@ -47,7 +47,7 @@ using LinearAlgebra
         system_name="frame_test", set, vsm_set)
 
     wing = sys.wings[:main_wing]
-    @test wing.wing_type == RIGID_DYNAMICS
+    @test wing.dynamics_type == RIGID_DYNAMICS
     @test !isnothing(wing.origin_idx)
     @test !isnothing(wing.z_ref_points)
 

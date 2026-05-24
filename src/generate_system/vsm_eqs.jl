@@ -46,7 +46,7 @@ function vsm_eqs!(
 
     has_linearized = any(
         w isa VSMWing &&
-        w.wing_type == RIGID_DYNAMICS &&
+        w.dynamics_type == RIGID_DYNAMICS &&
         w.aero_mode == AERO_LINEARIZED
         for w in wings)
 
@@ -54,14 +54,14 @@ function vsm_eqs!(
     if has_linearized
         first_lin_wing = first(
             w for w in wings if w isa VSMWing &&
-            w.wing_type == RIGID_DYNAMICS &&
+            w.dynamics_type == RIGID_DYNAMICS &&
             w.aero_mode == AERO_LINEARIZED)
         ny = length(first_lin_wing.aero_y)
         nx_values = [
             length(w.aero_x)
             for w in wings
             if w isa VSMWing &&
-               w.wing_type == RIGID_DYNAMICS &&
+               w.dynamics_type == RIGID_DYNAMICS &&
                w.aero_mode == AERO_LINEARIZED]
         nx = maximum(nx_values)
 
@@ -84,7 +84,7 @@ function vsm_eqs!(
             # PlateWing equations are generated in plate_eqs!()
             continue
 
-        elseif wing isa VSMWing && wing.wing_type == PARTICLE_DYNAMICS
+        elseif wing isa VSMWing && wing.dynamics_type == PARTICLE_DYNAMICS
             # ========== PARTICLE_DYNAMICS WING ==========
             afpb = aero_force_point_b::AbstractArray
             wing_points = [

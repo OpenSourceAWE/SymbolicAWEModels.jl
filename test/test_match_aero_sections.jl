@@ -198,7 +198,7 @@ end
         sys_q = SymbolicAWEModels.load_sys_struct_from_yaml(
             struc_yaml;
             system_name="quat_geom", set, vsm_set,
-            wing_type=RIGID_DYNAMICS)
+            dynamics_type=RIGID_DYNAMICS)
         wing = sys_q.wings[1]
         points = sys_q.points
         vsm_w = wing.vsm_wing
@@ -235,7 +235,7 @@ end
         sys_q = SymbolicAWEModels.load_sys_struct_from_yaml(
             struc_yaml;
             system_name="quat_preserve", set, vsm_set,
-            wing_type=RIGID_DYNAMICS)
+            dynamics_type=RIGID_DYNAMICS)
         wing = sys_q.wings[1]
         points = sys_q.points
         vsm_w = wing.vsm_wing
