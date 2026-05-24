@@ -344,7 +344,8 @@
 - `WingType` enum (`RIGID_DYNAMICS`, `PARTICLE_DYNAMICS`) for explicit wing type
   selection. BREAKING: these names replace the previous `QUATERNION` and
   `REFINE` wing types. Update YAML configs from `type: QUATERNION` /
-  `type: REFINE` to `type: RIGID_DYNAMICS` / `type: PARTICLE_DYNAMICS`,
+  `type: REFINE` to `dynamics_type: RIGID_DYNAMICS` / `dynamics_type: PARTICLE_DYNAMICS`,
+  and rename the wing `type` field to `dynamics_type`.
   and update any code using the old exported constants. `PARTICLE_DYNAMICS`
   applies per-panel forces directly to structural points for higher
   fidelity aeroelastic coupling.

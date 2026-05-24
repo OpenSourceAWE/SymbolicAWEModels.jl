@@ -789,7 +789,16 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
         for (i, row) in enumerate(wing_rows)
             # Use provided wing_type parameter or parse from YAML
-            wt = isnothing(wing_type) ? parse_wing_type(String(row.type)) : wing_type
+            # Support old `type` field with deprecation warning
+            raw_wt_field = if hasfield(typeof(row), :dynamics_type) && !isnothing(row.dynamics_type)
+                String(row.dynamics_type)
+            elseif hasfield(typeof(row), :type) && !isnothing(row.type)
+                @warn "Wing YAML field `type` is deprecated; rename to `dynamics_type`."
+                String(row.type)
+            else
+                error("Wing entry missing required `dynamics_type` field.")
+            end
+            wt = isnothing(wing_type) ? parse_wing_type(raw_wt_field) : wing_type
 
             # Build kwargs based on wing type - SystemStructure handles resolution
             # Determine aero_mode: kwarg > YAML > default

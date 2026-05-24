@@ -50,7 +50,7 @@ points:
 wings:
   data:
     - name: main_wing
-      type: RIGID_DYNAMICS
+      dynamics_type: RIGID_DYNAMICS
       aero_mode: AERO_NONE
       transform_idx: 0
       y_damping: 0.0

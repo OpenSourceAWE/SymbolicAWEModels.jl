@@ -60,7 +60,7 @@ segments:
 wings:
   data:
     - idx: 1
-      type: PARTICLE_DYNAMICS
+      dynamics_type: PARTICLE_DYNAMICS
       aero_mode: AERO_NONE
       point_idxs: [1, 2, 3, 4, 5, 6]
       origin_idx: 7
