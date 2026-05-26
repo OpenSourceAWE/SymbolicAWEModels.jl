@@ -62,19 +62,19 @@ function update_vsm!(sam::SymbolicAWEModel,
     for wing in wings
         wing.wing_type != QUATERNION && continue
         wing.aero_mode == AERO_NONE && continue
-        if norm(wing.va_b) < vsm_min_wind
+        if norm(wing.va_b) < vsm_min_wind &&
+                wing.aero_mode == AERO_DIRECT
             fill!(wing.aero_x, 0.0)
             fill!(wing.aero_jac, 0.0)
-            if wing.aero_mode == AERO_DIRECT
-                fill!(wing.aero_force_b, 0.0)
-                fill!(wing.aero_moment_b, 0.0)
-            end
+            fill!(wing.aero_force_b, 0.0)
+            fill!(wing.aero_moment_b, 0.0)
             for gidx in wing.group_idxs
                 groups[gidx].aero_moment = 0.0
             end
             continue
         end
-        _update_quaternion_wing!(wing, sam.am, groups)
+        _update_quaternion_wing!(wing, sam.am, groups;
+                                 vsm_min_wind)
     end
 
     has_refine_wings = any(
@@ -300,9 +300,10 @@ Writes `wing.aero_y / aero_x / aero_jac`, updates
 `groups[gidx].aero_moment`, and (in AERO_DIRECT mode) writes
 `wing.aero_force_b` / `wing.aero_moment_b`.
 """
-function _update_quaternion_wing!(wing, am, groups)
+function _update_quaternion_wing!(wing, am, groups;
+                                  vsm_min_wind=0.5)
     va_b = wing.va_b
-    va_mag = norm(va_b)
+    va_mag_actual = norm(va_b)
     omega_b = wing.ω_b
 
     group_idxs = wing.group_idxs
@@ -312,8 +313,15 @@ function _update_quaternion_wing!(wing, am, groups)
     moment_frac = isempty(group_idxs) ? 0.25 :
         groups[first(group_idxs)].moment_frac
 
+    va_mag = max(va_mag_actual, vsm_min_wind)
     alpha_0 = atan(va_b[3], va_b[1])
     beta_0 = atan(va_b[2], hypot(va_b[1], va_b[3]))
+    if !isfinite(alpha_0)
+        alpha_0 = 0.0
+    end
+    if !isfinite(beta_0)
+        beta_0 = 0.0
+    end
 
     # Operating-point input vector y₀ = [α, β, ω, θ_group]
     y0 = wing.aero_y
