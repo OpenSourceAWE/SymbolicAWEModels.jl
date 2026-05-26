@@ -534,10 +534,8 @@ function assign_indices_and_resolve!(
 
         # VSMWing-specific fields
         if isa(wing, VSMWing) || isa(wing, PlateWing)
-            if !isnothing(wing.origin_ref)
-                wing.origin_idx = resolve_ref(
-                    wing.origin_ref, point_names,
-                    "point")
+            if !isnothing(wing.origin)
+                resolve!(wing.origin, point_names, "point")
             end
             if !isnothing(wing.z_ref_points)
                 resolve!(something(wing.z_ref_points)[1],
@@ -589,11 +587,12 @@ reference points. Shared by VSMWing PARTICLE_DYNAMICS and PlateWing.
 function init_body_frame_from_ref_points!(
     wing, points; prn=true
 )
-    isnothing(wing.origin_idx) && return
+    isnothing(wing.origin) && return
     isnothing(wing.z_ref_points) && return
     isnothing(wing.y_ref_points) && return
 
-    origin_pos = points[wing.origin_idx].pos_cad
+    origin_pos = get_ref_position_from_points(
+        points, wing.origin; field=:pos_cad)
     wing.pos_cad .= origin_pos
 
     # Temporarily set pos_w = pos_cad so
@@ -604,7 +603,7 @@ function init_body_frame_from_ref_points!(
     end
     R_b_to_c, _ = calc_particle_dynamics_wing_frame(
         points, wing.z_ref_points,
-        wing.y_ref_points, wing.origin_idx)
+        wing.y_ref_points, wing.origin)
     wing.R_b_to_c .= R_b_to_c
     wing.R_b_to_p .= Matrix{SimFloat}(I, 3, 3)
 
@@ -894,11 +893,11 @@ function SystemStructure(name, set;
             end
 
             # Compute body frame from ref points
-            if !isnothing(wing.origin_idx) &&
+            if !isnothing(wing.origin) &&
                !isnothing(wing.z_ref_points) &&
                !isnothing(wing.y_ref_points)
-                origin_cad =
-                    points[wing.origin_idx].pos_cad
+                origin_cad = get_ref_position_from_points(
+                    points, wing.origin; field=:pos_cad)
                 wing.pos_cad .= origin_cad
 
                 # Temporarily set pos_w = pos_cad
@@ -910,7 +909,7 @@ function SystemStructure(name, set;
                 R_b_to_c, _ = calc_particle_dynamics_wing_frame(
                     points, wing.z_ref_points,
                     wing.y_ref_points,
-                    wing.origin_idx)
+                    wing.origin)
                 wing.R_b_to_c .= R_b_to_c
 
                 # COM offset from body origin in body
@@ -953,7 +952,7 @@ function SystemStructure(name, set;
             init_body_frame_from_ref_points!(
                 wing, points; prn)
 
-            if !isnothing(wing.origin_idx)
+            if !isnothing(wing.origin)
                 # Transform VSM sections: CAD → body
                 vsm_wing.T_cad_body .= wing.pos_cad
                 adjust_vsm_panels_to_origin!(

@@ -99,13 +99,13 @@ function wing_eqs!(
                     R_b_to_w[:, 3, wing.idx] ×
                     R_b_to_w[:, 1, wing.idx]
 
-                # Body frame output from origin point
+                # Body frame output from origin ref points
                 wing_pos[:, wing.idx] ~
-                    pos[:, wing.origin_idx]
+                    get_ref_position(pos, wing.origin)
                 wing_vel[:, wing.idx] ~
-                    vel[:, wing.origin_idx]
+                    get_ref_position(vel, wing.origin)
                 wing_acc[:, wing.idx] ~
-                    acc[:, wing.origin_idx]
+                    get_ref_position(acc, wing.origin)
 
                 # Q_b_to_w from R_b_to_w
                 Q_b_to_w[1, wing.idx] ~

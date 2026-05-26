@@ -316,7 +316,8 @@ Load a PlateWing from YAML wing row + surfaces block.
 CL/CD interpolations are created from Settings polar data.
 """
 function _load_plate_wing(row, idx, data, set, wt, am,
-                          yaml_to_ref, yaml_parse_ref_points)
+                          yaml_to_ref, yaml_parse_ref_points,
+                          yaml_parse_origin)
     name = if haskey(row, :name) && !isnothing(row.name)
         Symbol(row.name)
     else
@@ -345,12 +346,7 @@ function _load_plate_wing(row, idx, data, set, wt, am,
     # Parse reference points
     z_ref = yaml_parse_ref_points(row, :z_ref_points)
     y_ref = yaml_parse_ref_points(row, :y_ref_points)
-    origin = if hasfield(typeof(row), :origin_idx) &&
-                !isnothing(row.origin_idx)
-        yaml_to_ref(row.origin_idx)
-    else
-        nothing
-    end
+    origin = yaml_parse_origin(row, :origin_idx)
     transform = if hasfield(typeof(row), :transform_idx) &&
                    !isnothing(row.transform_idx)
         yaml_to_ref(row.transform_idx)
@@ -423,10 +419,32 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
+    # Convert one YAML ref spec to WeightedRefPoints input form.
+    # Supports:
+    #   :name         → Symbol
+    #   7             → Int
+    #   [a, b]        → equal-weight average
+    #   [[a, w], ...] → explicit weights as (name, weight) tuples
+    yaml_convert_ref = function (v)
+        if v isa Vector && !isempty(v) && v[1] isa Vector
+            return map(v) do x
+                if !(x isa Vector) || length(x) != 2
+                    throw(ArgumentError("Invalid weighted reference point entry $(repr(x)); expected format [[id, weight], ...]"))
+                end
+                if !(x[2] isa Number)
+                    throw(ArgumentError("Invalid weighted reference point weight $(repr(x[2])) in entry $(repr(x)); expected format [[id, weight], ...] with numeric weight"))
+                end
+                (yaml_to_ref(x[1]), Float64(x[2]))
+            end
+        elseif v isa Vector
+            return [yaml_to_ref(x) for x in v]
+        else
+            return yaml_to_ref(v)
+        end
+    end
+
     # Parse [a, b] or [a, [[id, w], ...]] style reference-point
-    # fields from YAML rows. Weighted specs like
-    #   [[2, 0.7], [4, 0.3]]
-    # are converted to tuples for WeightedRefPoints.
+    # fields from YAML rows (pair of refs for z/y axes).
     yaml_parse_ref_points = function (row, field)
         !hasfield(typeof(row), field) && return nothing
         val = getfield(row, field)
@@ -436,28 +454,18 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             throw(ArgumentError("ref_points must have 2 elements"))
         end
 
-        convert_ref = function (v)
-            if v isa Vector && !isempty(v) && v[1] isa Vector
-                # Weighted: [[id, weight], ...] → tuples
-                return map(v) do x
-                    if !(x isa Vector) || length(x) != 2
-                        throw(ArgumentError("Invalid weighted reference point entry $(repr(x)); expected format [[id, weight], ...]"))
-                    end
-                    if !(x[2] isa Number)
-                        throw(ArgumentError("Invalid weighted reference point weight $(repr(x[2])) in entry $(repr(x)); expected format [[id, weight], ...] with numeric weight"))
-                    end
-                    (yaml_to_ref(x[1]), Float64(x[2]))
-                end
-            elseif v isa Vector
-                # Multiple equal-weight refs: [a, b, ...]
-                return [yaml_to_ref(x) for x in v]
-            else
-                return yaml_to_ref(v)
-            end
-        end
-        p1 = convert_ref(val[1])
-        p2 = convert_ref(val[2])
+        p1 = yaml_convert_ref(val[1])
+        p2 = yaml_convert_ref(val[2])
         return (p1, p2)
+    end
+
+    # Parse a single weighted-ref field (e.g. origin_idx).
+    # Accepts the same shapes as one side of yaml_parse_ref_points.
+    yaml_parse_origin = function (row, field)
+        !hasfield(typeof(row), field) && return nothing
+        val = getfield(row, field)
+        val === nothing && return nothing
+        return yaml_convert_ref(val)
     end
 
     # Load points - SystemStructure handles resolution
@@ -827,7 +835,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 # PlateWing — load surfaces and CL/CD from settings
                 wing = _load_plate_wing(row, i, data,
                     resolved_set, wt, am, yaml_to_ref,
-                    yaml_parse_ref_points)
+                    yaml_parse_ref_points,
+                    yaml_parse_origin)
                 push!(wings, wing)
                 continue
             end
@@ -873,12 +882,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                             yaml_parse_ref_points(r, :z_ref_points),
                         :y_ref_points => r ->
                             yaml_parse_ref_points(r, :y_ref_points),
-                        :origin => r -> begin
-                            if !hasfield(typeof(r), :origin_idx) || r.origin_idx === nothing
-                                return nothing
-                            end
-                            yaml_to_ref(r.origin_idx)
-                        end,
+                        :origin => r ->
+                            yaml_parse_origin(r, :origin_idx),
                         :aero_scale_chord => r ->
                             hasfield(typeof(r), :aero_scale_chord) && !isnothing(r.aero_scale_chord) ?
                                 float(r.aero_scale_chord) : 0.0,
@@ -934,13 +939,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                             yaml_parse_ref_points(r, :z_ref_points),
                         :y_ref_points => r ->
                             yaml_parse_ref_points(r, :y_ref_points),
-                        :origin => r -> begin
-                            if !hasfield(typeof(r), :origin_idx) ||
-                               r.origin_idx === nothing
-                                return nothing
-                            end
-                            yaml_to_ref(r.origin_idx)
-                        end
+                        :origin => r ->
+                            yaml_parse_origin(r, :origin_idx)
                     ))
             end
             push!(wings, wing)

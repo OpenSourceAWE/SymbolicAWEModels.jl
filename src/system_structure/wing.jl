@@ -155,6 +155,13 @@ end
 WeightedRefPoints(ref::Symbol) =
     WeightedRefPoints(NameRef[ref], Int64[], [1.0])
 
+"""Single point from a String ref (converted to Symbol)."""
+WeightedRefPoints(ref::AbstractString) =
+    WeightedRefPoints(Symbol(ref))
+
+"""Identity passthrough."""
+WeightedRefPoints(ref::WeightedRefPoints) = ref
+
 """
     WeightedRefPoints(id::Integer)
 
@@ -235,12 +242,9 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
     y_ref_points::Union{Nothing,
         Tuple{WeightedRefPoints, WeightedRefPoints}}
 
-    # Origin point - RESOLVED index
-    # Defines wing.pos_w = pos[:, origin_idx]
-    origin_idx::Union{Nothing, Int64}
-
-    # KCU origin point - RAW reference (name or idx)
-    const origin_ref::Union{Nothing, NameRef}
+    # Origin point(s) - weighted combination defining
+    # wing.pos_w. Holds both raw refs and resolved ids.
+    origin::Union{Nothing, WeightedRefPoints}
 
     # Additional aerodynamic force scale to compensate chord length errors (PARTICLE_DYNAMICS)
     aero_scale_chord::SimFloat
@@ -255,7 +259,7 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
                      aero_y, aero_x, aero_jac,
                      point_to_vsm_point, wing_segments,
                      z_ref_points, y_ref_points,
-                     origin_idx, origin_ref,
+                     origin,
                      aero_scale_chord, aero_z_offset)
         new{typeof(vsm_aero), typeof(vsm_wing),
             typeof(vsm_solver)}(
@@ -263,7 +267,7 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
             aero_y, aero_x, aero_jac,
             point_to_vsm_point, wing_segments,
             z_ref_points, y_ref_points,
-            origin_idx, origin_ref,
+            origin,
             aero_scale_chord, aero_z_offset)
     end
 end
@@ -274,7 +278,7 @@ const VSM_WING_OWN_FIELDS = (
     :aero_y, :aero_x, :aero_jac,
     :point_to_vsm_point, :wing_segments,
     :z_ref_points, :y_ref_points,
-    :origin_idx, :origin_ref,
+    :origin,
     :aero_scale_chord, :aero_z_offset)
 
 function Base.getproperty(wing::VSMWing, sym::Symbol)
@@ -526,8 +530,8 @@ function VSMWing(name, set::Settings,
     y_ref = isnothing(y_ref_points) ? nothing :
         (WeightedRefPoints(y_ref_points[1]),
          WeightedRefPoints(y_ref_points[2]))
-    origin_ref = isnothing(origin) ? nothing :
-        _to_name_ref(origin)
+    origin_rp = isnothing(origin) ? nothing :
+        WeightedRefPoints(origin)
 
     # Create VSM wing, aero, and solver
     vsm_wing = create_vsm_wing(set, vsm_set; prn=false,
@@ -564,7 +568,7 @@ function VSMWing(name, set::Settings,
                    zeros(SimFloat, nx, ny),
                    point_to_vsm_point, wing_segments,
                    z_ref, y_ref,
-                   nothing, origin_ref,
+                   origin_rp,
                    aero_scale_chord, aero_z_offset)
 end
 
@@ -607,7 +611,7 @@ function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, nx, ny),
         nothing, nothing,
         nothing, nothing,  # z/y_ref_points
-        nothing, nothing,  # origin_idx and origin_ref
+        nothing,           # origin
         0.0, 0.0)
 end
 
@@ -709,10 +713,9 @@ mutable struct PlateWing <: AbstractWing
     "Y-axis reference points for body frame."
     y_ref_points::Union{Nothing,
         Tuple{WeightedRefPoints, WeightedRefPoints}}
-    "Resolved origin point index."
-    origin_idx::Union{Nothing, Int64}
-    "Raw origin point reference."
-    const origin_ref::Union{Nothing, NameRef}
+    "Origin point(s) — weighted combination defining
+    wing.pos_w. Holds raw refs and resolved ids."
+    origin::Union{Nothing, WeightedRefPoints}
     "CL lookup: callable(alpha_deg) → CL."
     calc_cl::Any
     "CD lookup: callable(alpha_deg) → CD."
@@ -731,7 +734,7 @@ end
 const PLATE_WING_OWN_FIELDS = (
     :base, :surfaces,
     :z_ref_points, :y_ref_points,
-    :origin_idx, :origin_ref,
+    :origin,
     :calc_cl, :calc_cd,
     :drag_corr, :cmq, :smc, :cord_length)
 
@@ -802,12 +805,12 @@ function PlateWing(name, surfaces::Vector{PlateSurface},
     y_ref = isnothing(y_ref_points) ? nothing :
         (WeightedRefPoints(y_ref_points[1]),
          WeightedRefPoints(y_ref_points[2]))
-    origin_ref = isnothing(origin) ? nothing :
-        _to_name_ref(origin)
+    origin_rp = isnothing(origin) ? nothing :
+        WeightedRefPoints(origin)
 
     PlateWing(base, surfaces,
               z_ref, y_ref,
-              nothing, origin_ref,
+              origin_rp,
               calc_cl, calc_cd,
               drag_corr, cmq, smc, cord_length)
 end

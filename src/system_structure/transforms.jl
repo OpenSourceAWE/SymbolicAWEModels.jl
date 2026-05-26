@@ -72,23 +72,25 @@ end
 # ==================== PARTICLE_DYNAMICS WING FRAME CALCULATION ==================== #
 
 """
-    get_ref_position_from_points(points, ref_pt)
+    get_ref_position_from_points(points, ref_pt; field=:pos_w)
 
-Weighted position from structural points.
+Weighted position from structural points. `field` selects
+which point coordinate to read (`:pos_w` or `:pos_cad`).
 """
 function get_ref_position_from_points(
     points::AbstractVector{Point},
-    ref_pt::WeightedRefPoints
+    ref_pt::WeightedRefPoints;
+    field::Symbol=:pos_w,
 )
     pos = zero(KVec3)
     for (idx, w) in zip(ref_pt.ids, ref_pt.weights)
-        pos += w * points[idx].pos_w
+        pos += w * getproperty(points[idx], field)
     end
     return pos
 end
 
 """
-    calc_particle_dynamics_wing_frame(points, z_ref_points, y_ref_points, origin_idx)
+    calc_particle_dynamics_wing_frame(points, z_ref_points, y_ref_points, origin)
 
 Calculate R_b_to_w rotation matrix and origin position
 from structural point positions.
@@ -98,7 +100,7 @@ from structural point positions.
 2. Z-axis (normal): z_p1 → z_p2
 3. X-axis (chord): Y_temp × Z
 4. Y-axis (span): Z × X (orthogonal, right-handed)
-5. Origin from origin_idx point
+5. Origin from weighted `origin` ref points
 """
 function calc_particle_dynamics_wing_frame(
     points::AbstractVector{Point},
@@ -106,7 +108,7 @@ function calc_particle_dynamics_wing_frame(
                         WeightedRefPoints},
     y_ref_points::Tuple{WeightedRefPoints,
                         WeightedRefPoints},
-    origin_idx::Int64
+    origin::WeightedRefPoints,
 )
     z_p1, z_p2 = z_ref_points
     y_p1, y_p2 = y_ref_points
@@ -129,9 +131,9 @@ function calc_particle_dynamics_wing_frame(
     y_axis = z_axis × x_axis
 
     R_b_to_w = hcat(x_axis, y_axis, z_axis)
-    origin = points[origin_idx].pos_w
+    origin_pos = get_ref_position_from_points(points, origin)
 
-    return R_b_to_w, origin
+    return R_b_to_w, origin_pos
 end
 
 # ==================== HELPERS ==================== #
@@ -226,7 +228,7 @@ function _apply_heading!(transform, wings, points,
         if !isnothing(wing.z_ref_points)
             R_b_to_w, _ = calc_particle_dynamics_wing_frame(
                 points, wing.z_ref_points,
-                wing.y_ref_points, wing.origin_idx)
+                wing.y_ref_points, wing.origin)
         else
             R_b_to_w = zeros(3, 3)
             R_source_any = wing.R_b_to_w
@@ -271,7 +273,7 @@ function _finalize_transforms!(wings, points)
         wing isa VSMWing || continue
         wing.dynamics_type == PARTICLE_DYNAMICS || continue
         R_b_to_w, origin = calc_particle_dynamics_wing_frame(
-            points, wing.z_ref_points, wing.y_ref_points, wing.origin_idx)
+            points, wing.z_ref_points, wing.y_ref_points, wing.origin)
         wing.R_b_to_w = R_b_to_w
         wing.pos_w .= origin
         for point in points

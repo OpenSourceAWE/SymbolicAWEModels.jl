@@ -537,10 +537,12 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
             _ref_hash(r) = (r.ids, r.weights)
             _rp_hash(rp) = isnothing(rp) ? nothing :
                 (_ref_hash(rp[1]), _ref_hash(rp[2]))
+            _origin_hash(o) = isnothing(o) ? nothing :
+                _ref_hash(o)
             wing_data = (wing_data...,
                 _rp_hash(wing.z_ref_points),
                 _rp_hash(wing.y_ref_points),
-                wing.origin_idx)
+                _origin_hash(wing.origin))
         end
         if wing isa PlateWing
             # Include surface geometry in hash

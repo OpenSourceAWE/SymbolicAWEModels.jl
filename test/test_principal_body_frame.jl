@@ -48,7 +48,7 @@ using LinearAlgebra
 
     wing = sys.wings[:main_wing]
     @test wing.dynamics_type == RIGID_DYNAMICS
-    @test !isnothing(wing.origin_idx)
+    @test !isnothing(wing.origin)
     @test !isnothing(wing.z_ref_points)
 
     # Compute R_p_to_w from Q_p_to_w (same as runtime)

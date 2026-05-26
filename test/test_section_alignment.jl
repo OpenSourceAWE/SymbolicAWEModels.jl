@@ -42,7 +42,7 @@ points = sys.points
 # Exclude origin point (e.g. KCU) which is not an LE/TE
 wing_pts = filter(
     p -> p.type == WING && p.wing_idx == wing.idx &&
-         p.idx != wing.origin_idx,
+         !(p.idx in wing.origin.ids),
     points)
 sort!(wing_pts; by=p -> p.pos_cad[2], rev=true)
 
