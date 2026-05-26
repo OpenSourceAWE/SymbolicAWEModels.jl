@@ -849,7 +849,9 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                      :aero_scale_chord];
                     mappings=Dict(
                         :set => r -> resolved_set,
-                        :groups => r -> [],  # PARTICLE_DYNAMICS wings don't have groups
+                        :groups => r -> hasfield(typeof(r), :groups) &&
+                            !isnothing(r.groups) ?
+                            [yaml_to_ref(g) for g in r.groups] : [],
                         :vsm_set => r -> vsm_set,
                         :dynamics_type => r -> wt,
                         :aero_mode => r -> am,

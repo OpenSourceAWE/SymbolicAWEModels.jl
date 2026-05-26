@@ -445,7 +445,11 @@ Creates vsm_wing, vsm_aero, and vsm_solver internally.
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the wing.
 - `set::Settings`: Settings object for VSM configuration.
-- `groups::Vector`: References to groups (names or indices, RIGID_DYNAMICS only).
+- `groups::Vector`: References to groups (names or indices). Used by both
+  `RIGID_DYNAMICS` and `PARTICLE_DYNAMICS` wings during
+  `match_aero_sections_to_structure!` for LE/TE panel identification.
+  For `PARTICLE_DYNAMICS` wings, `group_idxs` is cleared from the wing
+  after section matching (groups remain in the `SystemStructure`).
 - `vsm_set::VortexStepMethod.VSMSettings`: VSM settings for wing creation.
 
 # Keyword Arguments
