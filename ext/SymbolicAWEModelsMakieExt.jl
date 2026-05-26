@@ -34,6 +34,9 @@ const PLOT_CAMERA_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)  # Stored cam
 const PLOT_PREV_BODY_FRAME = Ref{Bool}(false)  # Previous body frame state
 const PLOT_PREV_ZOOMED_IN = Ref{Bool}(false)  # Previous zoomed state
 const PLOT_PREV_SEGMENT_IDX = Ref{Int}(-1)  # Previous segment index
+const PLOT_WORLD_EYEPOS = Ref{Union{Nothing, Vec3f}}(nothing)
+const PLOT_WORLD_LOOKAT = Ref{Union{Nothing, Vec3f}}(nothing)
+const PLOT_BODY_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)
 
 # Multi-system plotting support
 const PLOT_MULTI_SYSTEMS = Ref{Union{Nothing, Vector{<:SystemStructure}}}(nothing)
@@ -410,40 +413,16 @@ function SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
         end
     end
 
-    # Auto-update camera to keep geometry centered (runs every frame during replay)
-    # Re-runs the appropriate zoom function to track moving geometry
     if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) && !isnothing(PLOT_SYSTEM_STRUCTURE[])
         scene = PLOT_SCENE[]
         relevant_plots = PLOT_RELEVANT_PLOTS[]
         stored_sys = PLOT_SYSTEM_STRUCTURE[]
 
-        # Detect mode change
         mode_changed = (PLOT_PREV_BODY_FRAME[] != PLOT_BODY_FRAME[] ||
                         PLOT_PREV_ZOOMED_IN[] != PLOT_ZOOMED_IN[] ||
                         PLOT_PREV_SEGMENT_IDX[] != PLOT_ZOOM_SEGMENT_IDX[])
 
-        if mode_changed
-            PLOT_CAMERA_DISTANCE[] = nothing  # Force recalculation
-            # Update prev state
-            PLOT_PREV_BODY_FRAME[] = PLOT_BODY_FRAME[]
-            PLOT_PREV_ZOOMED_IN[] = PLOT_ZOOMED_IN[]
-            PLOT_PREV_SEGMENT_IDX[] = PLOT_ZOOM_SEGMENT_IDX[]
-        end
-
-        # Call zoom functions with stored distance (preserves manual zoom)
-        if PLOT_BODY_FRAME[]
-            # Body frame mode: continuously track wing orientation
-            dist = zoom_body_frame!(scene, scene.camera, stored_sys, PLOT_CAMERA_DISTANCE[])
-            PLOT_CAMERA_DISTANCE[] = dist
-        elseif PLOT_ZOOMED_IN[] && PLOT_ZOOM_SEGMENT_IDX[] > 0
-            # When zoomed in, keep segment centered as it moves
-            dist = zoom_in!(scene, scene.camera, stored_sys, PLOT_ZOOM_SEGMENT_IDX[], PLOT_CAMERA_DISTANCE[])
-            PLOT_CAMERA_DISTANCE[] = dist
-        elseif !PLOT_ZOOMED_IN[]
-            # When not zoomed in, keep full view centered on geometry
-            dist = zoom_out!(scene, scene.camera, relevant_plots, PLOT_CAMERA_DISTANCE[]; relmargin=PLOT_ZOOM_RELMARGIN[])
-            PLOT_CAMERA_DISTANCE[] = dist
-        end
+        apply_zoom_mode!(scene, relevant_plots, stored_sys; mode_changed)
     end
 
     return nothing
@@ -2644,6 +2623,61 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
     return distance
 end
 
+function get_cam_eyepos(cam)
+    inv_view = inv(cam.view[])
+    return Vec3f(inv_view[1, 4], inv_view[2, 4], inv_view[3, 4])
+end
+
+function apply_zoom_mode!(scene, relevant_plots, stored_sys; mode_changed::Bool)
+    cam = scene.camera
+
+    if mode_changed
+        if PLOT_PREV_BODY_FRAME[] && !isempty(stored_sys.wings)
+            wing = stored_sys.wings[1]
+            PLOT_BODY_DISTANCE[] = norm(get_cam_eyepos(cam) - Vec3f(wing.pos_w))
+        elseif !PLOT_PREV_ZOOMED_IN[] && !PLOT_PREV_BODY_FRAME[]
+            cc = Makie.cameracontrols(scene)
+            PLOT_WORLD_EYEPOS[] = Vec3f(cc.eyeposition[])
+            PLOT_WORLD_LOOKAT[] = Vec3f(cc.lookat[])
+        end
+    end
+
+    if PLOT_BODY_FRAME[]
+        if mode_changed
+            dist = zoom_body_frame!(scene, cam, stored_sys, PLOT_BODY_DISTANCE[])
+        elseif !isempty(stored_sys.wings)
+            wing = stored_sys.wings[1]
+            current_dist = norm(get_cam_eyepos(cam) - Vec3f(wing.pos_w))
+            dist = zoom_body_frame!(scene, cam, stored_sys, current_dist)
+        else
+            dist = zoom_body_frame!(scene, cam, stored_sys, PLOT_BODY_DISTANCE[])
+        end
+        PLOT_BODY_DISTANCE[] = dist
+        PLOT_CAMERA_DISTANCE[] = dist
+    elseif PLOT_ZOOMED_IN[] && PLOT_ZOOM_SEGMENT_IDX[] > 0
+        dist = zoom_in!(scene, cam, stored_sys, PLOT_ZOOM_SEGMENT_IDX[], PLOT_CAMERA_DISTANCE[])
+        PLOT_CAMERA_DISTANCE[] = dist
+    elseif !PLOT_ZOOMED_IN[]
+        if mode_changed
+            if !isnothing(PLOT_WORLD_EYEPOS[]) && !isnothing(PLOT_WORLD_LOOKAT[])
+                update_cam!(scene, PLOT_WORLD_EYEPOS[], PLOT_WORLD_LOOKAT[])
+            else
+                dist = zoom_out!(scene, cam, relevant_plots, nothing;
+                                 relmargin=PLOT_ZOOM_RELMARGIN[])
+                PLOT_CAMERA_DISTANCE[] = dist
+            end
+        end
+    end
+
+    if mode_changed
+        PLOT_PREV_BODY_FRAME[] = PLOT_BODY_FRAME[]
+        PLOT_PREV_ZOOMED_IN[] = PLOT_ZOOMED_IN[]
+        PLOT_PREV_SEGMENT_IDX[] = PLOT_ZOOM_SEGMENT_IDX[]
+    end
+
+    return nothing
+end
+
 """
     setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                                  segment_plots::Vector, all_plots;
@@ -2783,7 +2817,6 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
             sys_i, seg_i = last_hovered[]
 
             if sys_i != -1 && seg_i != -1
-                # ZOOM IN/RE-ZOOM to segment (works whether already zoomed or not)
                 sys = systems[sys_i]
                 seg = sys.segments[seg_i]
                 p1_w = sys.points[seg.point_idxs[1]].pos_w
@@ -2792,6 +2825,12 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                 center = (p1_w + p2_w) / 2.0f0
                 segment_len = norm(p2_w - p1_w)
                 dist_heuristic = segment_len * 1.5 + 2.0
+
+                if !PLOT_ZOOMED_IN[] && !PLOT_BODY_FRAME[]
+                    cc = Makie.cameracontrols(scene)
+                    PLOT_WORLD_EYEPOS[] = Vec3f(cc.eyeposition[])
+                    PLOT_WORLD_LOOKAT[] = Vec3f(cc.lookat[])
+                end
 
                 inv_view_matrix = inv(cam.view[])
                 cam_dir = normalize(Vec3f(inv_view_matrix[1,3], inv_view_matrix[2,3], inv_view_matrix[3,3]))
@@ -2802,8 +2841,9 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                 zoomed_in[] = true
                 PLOT_ZOOMED_IN[] = true
                 PLOT_ZOOM_SEGMENT_IDX[] = seg_i
+                PLOT_PREV_ZOOMED_IN[] = true
+                PLOT_PREV_SEGMENT_IDX[] = seg_i
 
-                # Update label positions after zoom
                 sleep(0.01)
                 p1_3d = sys.points[seg.point_idxs[1]].pos_w
                 p2_3d = sys.points[seg.point_idxs[2]].pos_w
@@ -2816,11 +2856,14 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
 
                 return Consume(true)
             elseif zoomed_in[] && sys_i == -1
-                # ZOOM OUT when clicking empty space
-                zoom_out!(scene, cam, all_plots, nothing; relmargin)
                 zoomed_in[] = false
                 PLOT_ZOOMED_IN[] = false
                 PLOT_ZOOM_SEGMENT_IDX[] = -1
+                if !isnothing(PLOT_SYSTEM_STRUCTURE[])
+                    apply_zoom_mode!(scene, all_plots, PLOT_SYSTEM_STRUCTURE[]; mode_changed=true)
+                else
+                    zoom_out!(scene, cam, all_plots, nothing; relmargin)
+                end
 
                 return Consume(true)
             end
@@ -3479,30 +3522,14 @@ function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt
                    mp[2] >= body_frame_button_rect.origin[2] && mp[2] <= body_frame_button_rect.origin[2] + body_frame_button_rect.widths[2]
                     PLOT_BODY_FRAME[] = !PLOT_BODY_FRAME[]
                     body_frame_obs[] = PLOT_BODY_FRAME[]
-                    # Disable zoom-in mode when switching to body frame
                     if PLOT_BODY_FRAME[]
                         PLOT_ZOOMED_IN[] = false
                         PLOT_ZOOM_SEGMENT_IDX[] = -1
                     end
-                    # Force camera update immediately (not just during playback)
-                    PLOT_CAMERA_DISTANCE[] = nothing  # Force recalculation on mode change
                     if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) && !isnothing(PLOT_SYSTEM_STRUCTURE[])
-                        main_scene = PLOT_SCENE[]
-                        relevant_plots = PLOT_RELEVANT_PLOTS[]
-                        stored_sys = PLOT_SYSTEM_STRUCTURE[]
-
-                        if PLOT_BODY_FRAME[]
-                            dist = zoom_body_frame!(main_scene, main_scene.camera, stored_sys, PLOT_CAMERA_DISTANCE[])
-                            PLOT_CAMERA_DISTANCE[] = dist
-                        else
-                            dist = zoom_out!(main_scene, main_scene.camera, relevant_plots, PLOT_CAMERA_DISTANCE[]; relmargin=PLOT_ZOOM_RELMARGIN[])
-                            PLOT_CAMERA_DISTANCE[] = dist
-                        end
+                        apply_zoom_mode!(PLOT_SCENE[], PLOT_RELEVANT_PLOTS[],
+                                         PLOT_SYSTEM_STRUCTURE[]; mode_changed=true)
                     end
-                    # Update tracking variables to prevent mode change detection
-                    PLOT_PREV_BODY_FRAME[] = PLOT_BODY_FRAME[]
-                    PLOT_PREV_ZOOMED_IN[] = PLOT_ZOOMED_IN[]
-                    PLOT_PREV_SEGMENT_IDX[] = PLOT_ZOOM_SEGMENT_IDX[]
                     return Consume(true)
                 end
 
