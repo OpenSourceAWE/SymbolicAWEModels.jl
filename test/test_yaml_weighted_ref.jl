@@ -45,6 +45,8 @@ points:
        1.0, 0.0, 0.0, 0.1, 1.0]
     - [8, [0.0, 0.0, -20.0], STATIC, 1, 1,
        0.0, 0.0, 0.0, 0.0, 0.0]
+    - [9, [1.0, 0.0, 0.0], DYNAMIC, 1, 1,
+       1.0, 0.0, 0.0, 0.1, 1.0]
 
 segments:
   headers: [idx, point_i, point_j, l0, diameter_mm,
@@ -56,6 +58,7 @@ segments:
     - [4, 1, 7, 0, 1.0, 5000.0, 10.0, 0.01]
     - [5, 3, 7, 0, 1.0, 5000.0, 10.0, 0.01]
     - [6, 5, 7, 0, 1.0, 5000.0, 10.0, 0.01]
+    - [7, 7, 9, 0, 1.0, 5000.0, 10.0, 0.01]
 
 wings:
   data:
@@ -63,7 +66,7 @@ wings:
       dynamics_type: PARTICLE_DYNAMICS
       aero_mode: AERO_NONE
       point_idxs: [1, 2, 3, 4, 5, 6]
-      origin_idx: 7
+      origin_idx: [[7, 0.7], [9, 0.3]]
       z_ref_points: [7, [[3, 0.7], [5, 0.3]]]
       y_ref_points: [1, 5]
 
@@ -117,6 +120,28 @@ transforms:
     y_p1, y_p2 = wing.y_ref_points
     @test y_p1.ids == [1]
     @test y_p2.ids == [5]
+
+    # Weighted origin_idx: point 7 @ 0.7, point 9 @ 0.3
+    @test wing.origin isa WeightedRefPoints
+    @test wing.origin.ids == [7, 9]
+    @test wing.origin.weights ≈ [0.7, 0.3]
+
+    # pos_cad after body-frame init should equal the
+    # weighted centroid of points 7 (0,0,0) and 9 (1,0,0)
+    @test wing.pos_cad ≈ KVec3(0.3, 0.0, 0.0)
+
+    # N-point (4-point) weighted origin should also parse
+    # and resolve correctly
+    yaml_4pt = replace(WEIGHTED_REF_YAML,
+        "origin_idx: [[7, 0.7], [9, 0.3]]" =>
+        "origin_idx: [[1, 0.1], [3, 0.2], [5, 0.3], [9, 0.4]]")
+    yaml_path_4pt = joinpath(tmpdir, "geometry_4pt.yaml")
+    write(yaml_path_4pt, yaml_4pt)
+    sys_4pt = load_sys_struct_from_yaml(yaml_path_4pt;
+        system_name="weighted_ref_4pt_test", set, vsm_set)
+    wing_4pt = sys_4pt.wings[1]
+    @test wing_4pt.origin.ids == [1, 3, 5, 9]
+    @test wing_4pt.origin.weights ≈ [0.1, 0.2, 0.3, 0.4]
 
     # Compile and init — weighted refs must survive
     # symbolic equation generation and scalarization
