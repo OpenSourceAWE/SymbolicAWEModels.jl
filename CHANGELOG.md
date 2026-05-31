@@ -32,6 +32,12 @@
   `kps4_comparison`, `vsm_linearization`, and `sam_tutorial`.
 
 ### Fixed
+- `init_stretched_len` now works for multi-tether systems. Tethers
+  sharing downstream structure are placed to a single effective
+  length (the average of several specified values, with a warning),
+  and the initial-positioning BFS no longer drags other tethers'
+  ground anchors — it stops at `STATIC` points and winch points
+  (which may be `DYNAMIC`).
 - `bin/create_sys_image`: fixed a bug that prevented deletion of
   stale `.so` files before rebuilding the system image.
 - `AUTHORS.md`: corrected contributor entry.

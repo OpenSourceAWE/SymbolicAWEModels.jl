@@ -243,100 +243,141 @@ end
 
 # ==================== TETHER INIT LEN ==================== #
 
+function tether_ordered_point_idxs(tether, segments)
+    idxs = Int64[tether.start_point_idx]
+    for seg_idx in tether.segment_idxs
+        push!(idxs, segments[seg_idx].point_idxs[2])
+    end
+    return idxs
+end
+
+function tether_downstream_idxs(tether, segments, boundary)
+    own = Set{Int64}(tether_ordered_point_idxs(tether, segments))
+    tether_segment_set = Set(tether.segment_idxs)
+    visited = copy(own)
+    downstream = Set{Int64}()
+    queue = Int64[tether.end_point_idx]
+    while !isempty(queue)
+        current_idx = popfirst!(queue)
+        for seg in segments
+            seg.idx in tether_segment_set && continue
+            p1, p2 = seg.point_idxs
+            neighbor_idx = if p1 == current_idx
+                p2
+            elseif p2 == current_idx
+                p1
+            else
+                continue
+            end
+            if neighbor_idx == tether.start_point_idx
+                error("Tether $(tether.name): downstream structure " *
+                      "connects back to tether start point. Cannot " *
+                      "apply init_stretched_len scaling.")
+            end
+            neighbor_idx in visited && continue
+            push!(visited, neighbor_idx)
+            neighbor_idx in boundary && continue
+            push!(downstream, neighbor_idx)
+            push!(queue, neighbor_idx)
+        end
+    end
+    return downstream
+end
+
+function group_tethers_by_overlap(specified, reach)
+    n = length(specified)
+    parent = collect(1:n)
+    find(i) = parent[i] == i ? i : find(parent[i])
+    for i in 1:n
+        for j in i+1:n
+            isempty(intersect(reach[specified[i].idx],
+                              reach[specified[j].idx])) && continue
+            parent[find(i)] = find(j)
+        end
+    end
+    groups = Dict{Int64, Vector{Tether}}()
+    for i in 1:n
+        push!(get!(() -> Tether[], groups, find(i)), specified[i])
+    end
+    return collect(values(groups))
+end
+
+function apply_cluster_init_stretched_len!(
+    cluster, points, segments, downstream)
+    driving = cluster[1]
+    target = driving.init_stretched_len::SimFloat
+    if length(cluster) > 1
+        targets = SimFloat[t.init_stretched_len for t in cluster]
+        target = sum(targets) / length(targets)
+        names = join((string(t.name) for t in cluster), ", ")
+        @warn "Tethers ($names) attach to one structure but several have " *
+              "init_stretched_len. A multi-tether structure can be placed " *
+              "to only one effective length; using the average " *
+              "$(round(target; digits=3)) m via tether $(driving.name). " *
+              "Set init_stretched_len on a single tether to silence this."
+    end
+
+    ordered = tether_ordered_point_idxs(driving, segments)
+    current_len = sum(segment_world_length(segments[si], points)
+                      for si in driving.segment_idxs)
+    current_len ≈ target && return
+    current_len > 0 || error("Tether $(driving.name): current length is " *
+        "zero, cannot scale to init_stretched_len")
+
+    scale = target / current_len
+    start_pos = copy(points[driving.start_point_idx].pos_w)
+    old_end_pos = copy(points[driving.end_point_idx].pos_w)
+    for point_idx in ordered[2:end]
+        pt = points[point_idx]
+        pt.pos_w .= start_pos .+ scale .* (pt.pos_w .- start_pos)
+    end
+    delta = points[driving.end_point_idx].pos_w .- old_end_pos
+    for idx in downstream[driving.idx]
+        points[idx].pos_w .+= delta
+    end
+end
+
 """
     apply_tether_init_stretched_lens!(sys_struct::SystemStructure)
 
-Scale tether point positions in `pos_w` to match each tether's
-`init_stretched_len`. Must be called after `copy_cad_to_world!`
-(so `pos_w == pos_cad` at entry).
+Scale tether point positions in `pos_w` to match `init_stretched_len`.
+Must be called after `copy_cad_to_world!` (so `pos_w == pos_cad` at entry).
 
-For each tether with a non-nothing `init_stretched_len`:
-1. Scales all tether points (except start) radially from the
-   start point.
-2. Propagates the end-point displacement via BFS through
-   non-tether segments, translating downstream `pos_w` by the
-   same delta.
+Tethers sharing downstream structure (a multi-tether kite) form one cluster
+and are placed to a single effective length: the sole specified
+`init_stretched_len`, or the average of several (with a warning), by scaling
+the first specified tether and rigidly translating its downstream structure.
+Independent tethers form separate clusters and are placed independently.
 
-Note: segment `l0` values are NOT updated here — they are set
-from `tether.len` by the ODE equations.
+Ground-fixed boundaries — `STATIC` points and winch points
+(`winch.winch_point_idx`) — are never translated, so other tethers' anchors
+stay put regardless of their point type.
 
-Raises an error if a downstream non-tether segment connects back
-to the tether's start point (would create an unsolvable
-constraint).
+Note: segment `l0` values are NOT updated here — they are set from
+`tether.len` by the ODE equations.
+
+Raises an error if a downstream non-tether segment connects back to a
+tether's start point (would create an unsolvable constraint).
 """
-function apply_tether_init_stretched_lens!(
-    sys_struct::SystemStructure
-)
-    (; points, segments, tethers) = sys_struct
+function apply_tether_init_stretched_lens!(sys_struct::SystemStructure)
+    (; points, segments, tethers, winches) = sys_struct
 
-    for tether in tethers
-        target = tether.init_stretched_len
-        isnothing(target) && continue
-        target = target::SimFloat
+    specified = [t for t in tethers if !isnothing(t.init_stretched_len)]
+    isempty(specified) && return
 
-        # Ordered point list: start → intermediates → end
-        tether_point_idxs = Int64[tether.start_point_idx]
-        for seg_idx in tether.segment_idxs
-            push!(tether_point_idxs,
-                segments[seg_idx].point_idxs[2])
-        end
+    boundary = Set{Int64}(w.winch_point_idx for w in winches)
+    for point in points
+        point.type == STATIC && push!(boundary, point.idx)
+    end
 
-        current_len = sum(
-            segment_world_length(segments[si], points)
-            for si in tether.segment_idxs)
-        current_len ≈ target && continue
-        current_len > 0 || error(
-            "Tether $(tether.name): current length " *
-            "is zero, cannot scale to " *
-            "init_stretched_len")
+    downstream = Dict(t.idx => tether_downstream_idxs(t, segments, boundary)
+                      for t in specified)
+    reach = Dict(t.idx => union(
+        setdiff(Set{Int64}(tether_ordered_point_idxs(t, segments)), boundary),
+        downstream[t.idx]) for t in specified)
 
-        scale = target / current_len
-        start_pos = copy(
-            points[tether.start_point_idx].pos_w)
-        old_end_pos = copy(
-            points[tether.end_point_idx].pos_w)
-
-        # Scale non-start tether points in pos_w
-        for point_idx in tether_point_idxs[2:end]
-            pt = points[point_idx]
-            pt.pos_w .= start_pos .+
-                scale .* (pt.pos_w .- start_pos)
-        end
-
-        delta = points[tether.end_point_idx].pos_w .-
-            old_end_pos
-
-        # BFS from end point through non-tether segments;
-        # translate downstream pos_w by delta
-        tether_segment_set = Set(tether.segment_idxs)
-        visited = Set{Int64}(tether_point_idxs)
-        queue = [tether.end_point_idx]
-
-        while !isempty(queue)
-            current_idx = popfirst!(queue)
-            for seg in segments
-                seg.idx in tether_segment_set && continue
-                p1, p2 = seg.point_idxs
-                neighbor_idx = if p1 == current_idx
-                    p2
-                elseif p2 == current_idx
-                    p1
-                else
-                    continue
-                end
-                if neighbor_idx == tether.start_point_idx
-                    error("Tether $(tether.name): " *
-                          "downstream structure " *
-                          "connects back to tether " *
-                          "start point. Cannot apply " *
-                          "init_stretched_len scaling.")
-                end
-                neighbor_idx in visited && continue
-                points[neighbor_idx].pos_w .+= delta
-                push!(visited, neighbor_idx)
-                push!(queue, neighbor_idx)
-            end
-        end
+    for cluster in group_tethers_by_overlap(specified, reach)
+        apply_cluster_init_stretched_len!(cluster, points, segments, downstream)
     end
 end
 

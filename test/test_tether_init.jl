@@ -296,5 +296,60 @@ environment:
         @test sys.points[:top].pos_w ≈ top_pos
     end
 
+    # ================================================================
+    # Test 6: Multi-tether with a STATIC anchor and a winched DYNAMIC anchor
+    # ================================================================
+    @testset "Multi-tether: static + winch anchors stay fixed" begin
+        multi_yaml = """
+materials:
+  headers: [name, youngs_modulus, density, damping_per_stiffness]
+  data:
+    - [test_mat, 120000.0, 724, 0.001]
+
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx,
+            extra_mass, body_frame_damping, world_frame_damping,
+            area, drag_coeff]
+  data:
+    - [ground_static, [10.0, 0.0, 0.0], STATIC, nothing, nothing,
+       0.0, 0.0, 0.0, 0.0, 0.0]
+    - [ground_winch, [-10.0, 0.0, 0.0], DYNAMIC, nothing, nothing,
+       1.0, 0.0, 0.0, 0.0, 0.0]
+    - [top, [0.0, 0.0, -100.0], DYNAMIC, nothing, nothing,
+       1.0, 0.0, 0.0, 0.0, 0.0]
+
+tethers:
+  headers: [name, start_point, end_point, n_segments, material,
+            init_unstretched_length]
+  data:
+    - [tether_static, ground_static, top, 2, test_mat, 100.0]
+    - [tether_winch, ground_winch, top, 2, test_mat, 100.0]
+
+winches:
+  headers: [name, tether_idxs, winch_point]
+  data:
+    - [winch_b, [tether_winch], ground_winch]
+"""
+        yaml_path = joinpath(tmpdir, "multi.yaml")
+        write(yaml_path, multi_yaml)
+        sys = load_sys_struct_from_yaml(
+            yaml_path; system_name="init_stretched_length_multi", set=set)
+
+        sys.tethers[:tether_static].init_stretched_len = 200.0
+        SymbolicAWEModels.reinit!(sys, set)
+
+        ground_static = sys.points[:ground_static].pos_w
+        @test norm(sys.points[:top].pos_w - ground_static) ≈ 200.0
+        @test sys.points[:ground_static].pos_w ≈ KVec3(10, 0, 0)
+        @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
+
+        sys.tethers[:tether_winch].init_stretched_len = 100.0
+        @test_logs (:warn,) match_mode=:any SymbolicAWEModels.reinit!(sys, set)
+
+        ground_static = sys.points[:ground_static].pos_w
+        @test norm(sys.points[:top].pos_w - ground_static) ≈ 150.0
+        @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
+    end
+
 end
 nothing
