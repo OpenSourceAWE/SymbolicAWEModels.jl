@@ -38,23 +38,14 @@ const PLOT_WORLD_EYEPOS = Ref{Union{Nothing, Vec3f}}(nothing)
 const PLOT_WORLD_LOOKAT = Ref{Union{Nothing, Vec3f}}(nothing)
 const PLOT_BODY_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)
 
-# Weighted position of a wing's origin sampled from a syslog
-# at time index k. Reduces to a single-point lookup when the
-# wing.origin holds one id.
-function _wing_log_pos(sl, wing, k)
-    o = wing.origin
-    if length(o.ids) == 1
-        i = o.ids[1]
-        return SVector{3, Float64}(
-            sl.X[k][i], sl.Y[k][i], sl.Z[k][i])
-    end
-    x = 0.0; y = 0.0; z = 0.0
-    for (i, w) in zip(o.ids, o.weights)
-        x += w * sl.X[k][i]
-        y += w * sl.Y[k][i]
-        z += w * sl.Z[k][i]
-    end
-    return SVector{3, Float64}(x, y, z)
+function _wing_log_pos(sl, sys, wing, k)
+    n_points = length(sys.points)
+    n_corners = isempty(sys.wings) ? 0 : sum(
+        length(w.vsm_aero.panels) * 4
+        for w in sys.wings if w isa VSMWing; init=0)
+    i = n_points + n_corners + wing.idx
+    return SVector{3, Float64}(
+        sl.X[k][i], sl.Y[k][i], sl.Z[k][i])
 end
 
 # Multi-system plotting support
@@ -777,7 +768,7 @@ function compute_ekf_yaw_and_rate(sl_in, sys::SystemStructure; eps=1e-12)
     # Use velocity-based tangent frame (same as HeadingGate/sphere method)
     # This is more robust than tension × apparent wind
     @inbounds for k in eachindex(yaw)
-        pos = _wing_log_pos(sl, wing, k)
+        pos = _wing_log_pos(sl, sys, wing, k)
         vel = SVector{3, Float64}(sl.vel_kite[k])
         
         npos = norm(pos)
@@ -898,7 +889,7 @@ function compute_ekf_yaw_and_rate_tension(sl_in, sys::SystemStructure; eps=1e-12
     @inbounds for k in eachindex(yaw)
         v_kite = SVector{3, Float64}(sl.vel_kite[k])
         v_wind = SVector{3, Float64}(sl.v_wind_kite[k])
-        pos = _wing_log_pos(sl, wing, k)
+        pos = _wing_log_pos(sl, sys, wing, k)
         tension_raw = SVector{3, Float64}(sl.tether_induced_force[k])
 
         # Prefer geometry-based bridle direction
@@ -1264,9 +1255,10 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
 
             # Tangential sphere heading: use velocity projected into tangent plane
             yaw_sphere = Vector{Float64}(undef, n)
-            wing = syss[i].wings[1]
+            sys_i = syss[i]
+            wing = sys_i.wings[1]
             @inbounds for k in eachindex(yaw_sphere)
-                pos = _wing_log_pos(sl, wing, k)
+                pos = _wing_log_pos(sl, sys_i, wing, k)
                 vel = SVector{3, Float64}(sl.vel_kite[k])
                 
                 if norm(pos) > 1e-9 && norm(vel) > 1e-9
@@ -1501,7 +1493,8 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                 push!(all_times, sl.time)
             elseif !isempty(sl.orient)
                 # Fallback for PARTICLE_DYNAMICS logs: reconstruct ω_v from quaternions
-                wing = syss[i].wings[1]
+                sys_i = syss[i]
+                wing = sys_i.wings[1]
                 n = length(sl.time)
                 ωx = Vector{Float64}(undef, n - 1)
                 ωy = Vector{Float64}(undef, n - 1)
@@ -1524,7 +1517,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                         )
                     end
                     ω_w = (angle / dt) .* axis
-                    pos_w = _wing_log_pos(sl, wing, k)
+                    pos_w = _wing_log_pos(sl, sys_i, wing, k)
                     e_x = SVector{3, Float64}(R1[:, 1])
                     R_v_w = SymbolicAWEModels.calc_R_v_to_w(pos_w, e_x)
                     ω_v = R_v_w' * ω_w
@@ -2240,8 +2233,9 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
-            wing = syss[i].wings[1]
-            distance = [norm(_wing_log_pos(sl, wing, j)) for j in eachindex(sl.X)]
+            sys_i = syss[i]
+            wing = sys_i.wings[1]
+            distance = [norm(_wing_log_pos(sl, sys_i, wing, j)) for j in eachindex(sl.X)]
             push!(all_data, distance)
             push!(all_labels, lbl(L"r", suffix))
             push!(all_times, sl.time)
@@ -2261,11 +2255,12 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
-            wing = syss[i].wings[1]
+            sys_i = syss[i]
+            wing = sys_i.wings[1]
             # Assuming wind_vec_gnd is available in syslog
             cone_angle_rad = similar(sl.heading)
             for j in eachindex(sl.X)
-                pos = _wing_log_pos(sl, wing, j)
+                pos = _wing_log_pos(sl, sys_i, wing, j)
                 pos_norm = normalize(pos)
                 wind_norm = normalize([sl.v_wind_gnd[1], sl.v_wind_gnd[2], sl.v_wind_gnd[3]])
                 cone_angle_rad[j] = acos(clamp(dot(pos_norm, wind_norm), -1.0, 1.0))

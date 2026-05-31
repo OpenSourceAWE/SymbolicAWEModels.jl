@@ -1157,7 +1157,7 @@ function SystemStructure(name, set;
                     for idx in wing_point_idxs]
                 wing.point_to_vsm_point =
                     build_point_to_vsm_point_mapping(
-                        wing_points, wing.vsm_wing)
+                        wing_points, wing)
             end
 
             wing_point_idxs = collect(keys(

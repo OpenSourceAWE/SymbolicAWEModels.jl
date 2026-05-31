@@ -264,80 +264,69 @@ function match_aero_sections_to_structure!(
 end
 
 """
-    build_point_to_vsm_point_mapping(wing_points::AbstractVector{Point}, vsm_wing::VortexStepMethod.AbstractWing)
+    build_point_to_vsm_point_mapping(wing_points::AbstractVector{Point}, wing::VSMWing)
 
 Build 1:1 mapping from structural WING points to VSM wing section points (LE/TE) using closest-point distance.
 
-For each VSM section point (LE/TE), finds the closest structural point in CAD frame.
+For each VSM section point (LE/TE), finds the closest structural point. Distances are computed
+in body frame: structural `pos_cad` is transformed via `wing.R_b_to_c'` and `wing.pos_cad` before
+being compared against section LE/TE points (which already live in body frame after
+`match_aero_sections_to_structure!`).
 
 # Constraint
-Requires: `length(wing_points) == 2 * length(vsm_wing.unrefined_sections)`
-
-# Arguments
-- `wing_points::AbstractVector{Point}`: Structural WING-type points
-- `vsm_wing::VortexStepMethod.AbstractWing`: VSM wing with sections
-
-# Returns
-- `Dict{Int64, Tuple{Int64, Symbol}}`: Mapping structural_point_idx -> (section_idx, :LE or :TE)
-
-# Algorithm
-1. For each section in vsm_wing.sections:
-   - Find closest unused structural point to section.LE_point → assign to (section_idx, :LE)
-   - Find closest unused structural point to section.TE_point → assign to (section_idx, :TE)
-2. Distance measured in CAD/body frame using norm(point.pos_cad - section_point)
+Requires: `length(wing_points) == 2 * length(wing.vsm_wing.unrefined_sections)`
 """
 function build_point_to_vsm_point_mapping(
     wing_points::AbstractVector{Point},
-    vsm_wing::VortexStepMethod.AbstractWing
+    wing::VSMWing,
 )
+    vsm_wing = wing.vsm_wing
     n_points = length(wing_points)
     n_sections = length(vsm_wing.unrefined_sections)
 
-    # Validate 1:1 correspondence constraint
     if n_points != 2 * n_sections
         error("PARTICLE_DYNAMICS wing requires n_structural_points ($(n_points)) == " *
               "2 * n_vsm_sections ($(n_sections))")
+    end
+
+    R_c_to_b = wing.R_b_to_c'
+    origin_cad = wing.pos_cad
+
+    point_pos_b = Dict{Int64, SVector{3, SimFloat}}()
+    for point in wing_points
+        point_pos_b[point.idx] =
+            SVector{3, SimFloat}(R_c_to_b * (point.pos_cad - origin_cad))
     end
 
     point_to_vsm_point = Dict{Int64, Tuple{Int64, Symbol}}()
     used_points = Set{Int64}()
 
     for (section_idx, section) in enumerate(vsm_wing.unrefined_sections)
-        # Map LE_point to closest unused structural point
-        le_pos = section.LE_point
+        le_pos = SVector{3, SimFloat}(section.LE_point)
         min_dist = Inf
         closest_le_idx = wing_points[1].idx
-
         for point in wing_points
-            if point.idx in used_points
-                continue  # Already assigned
-            end
-            dist = norm(point.pos_cad - le_pos)
+            point.idx in used_points && continue
+            dist = norm(point_pos_b[point.idx] - le_pos)
             if dist < min_dist
                 min_dist = dist
                 closest_le_idx = point.idx
             end
         end
-
         point_to_vsm_point[closest_le_idx] = (Int64(section_idx), :LE)
         push!(used_points, closest_le_idx)
 
-        # Map TE_point to closest unused structural point
-        te_pos = section.TE_point
+        te_pos = SVector{3, SimFloat}(section.TE_point)
         min_dist = Inf
         closest_te_idx = wing_points[1].idx
-
         for point in wing_points
-            if point.idx in used_points
-                continue  # Already assigned
-            end
-            dist = norm(point.pos_cad - te_pos)
+            point.idx in used_points && continue
+            dist = norm(point_pos_b[point.idx] - te_pos)
             if dist < min_dist
                 min_dist = dist
                 closest_te_idx = point.idx
             end
         end
-
         point_to_vsm_point[closest_te_idx] = (Int64(section_idx), :TE)
         push!(used_points, closest_te_idx)
     end

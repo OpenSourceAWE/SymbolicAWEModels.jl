@@ -360,6 +360,17 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         end
     end
 
+    # Wing origin positions appended after panel corners.
+    # Lets replay read wing.pos_w directly without recomputing
+    # a weighted centroid from points.
+    wing_slot = corner_idx
+    for wing in wings
+        wing_slot += 1
+        ss.X[wing_slot] = wing.pos_w[1] * zoom
+        ss.Y[wing_slot] = wing.pos_w[2] * zoom
+        ss.Z[wing_slot] = wing.pos_w[3] * zoom
+    end
+
     ss.v_wind_gnd .= sam.set.wind_vec
     nothing
 end
@@ -380,13 +391,14 @@ with the current state of the provided model.
 - `SysState`: A new state struct representing the current model state.
 """
 function SysState(s::SymbolicAWEModel, zoom=1.0)
-    # Calculate total points: regular points + 4 corners per panel
+    # Total slots: structural points + 4 corners per panel + 1 per wing
     n_points = length(s.sys_struct.points)
     n_panel_corners = isempty(s.sys_struct.wings) ? 0 : sum(
         length(wing.vsm_aero.panels) * 4 for wing in s.sys_struct.wings if wing isa VSMWing;
         init=0
     )
-    total_points = n_points + n_panel_corners
+    n_wings = length(s.sys_struct.wings)
+    total_points = n_points + n_panel_corners + n_wings
     ss = SysState{total_points}()
     update_sys_state!(ss, s, zoom)
     ss
@@ -414,13 +426,14 @@ logger = Logger(sam, 1000)  # Instead of Logger(length(sam.sys_struct.points), 1
 ```
 """
 function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
-    # Calculate total points: regular points + 4 corners per panel
+    # Total slots: structural points + 4 corners per panel + 1 per wing
     n_points = length(sam.sys_struct.points)
     n_panel_corners = isempty(sam.sys_struct.wings) ? 0 : sum(
         length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings if wing isa VSMWing;
         init=0
     )
-    total_points = n_points + n_panel_corners
+    n_wings = length(sam.sys_struct.wings)
+    total_points = n_points + n_panel_corners + n_wings
     return Logger(total_points, steps)
 end
 
