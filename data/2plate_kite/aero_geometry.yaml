@@ -1,5 +1,7 @@
 # 2-plate kite aero geometry
-# Must match structural geometry in particle_structural_geometry.yaml
+# Coordinates must match the WING points in the structural geometry
+# files (particle_structural_geometry.yaml and
+# rigid_structural_geometry.yaml): rigid wings keep this geometry as-is.
 # 3 sections with LE/TE pairs: le_left/te_left, le_center/te_center, le_right/te_right
 
 wing_sections:
@@ -7,13 +9,13 @@ wing_sections:
   headers: [airfoil_id, LE_x, LE_y, LE_z, TE_x, TE_y, TE_z]
   data:
     # Left section: le_left (LE) and te_left (TE)
-    - [1, -0.5, 1.0, 2.0, 0.5, 1.0, 2.2]
+    - [1, -0.5, 1.0, 2.0, 0.5, 1.0, 2.3]
 
     # Center section: le_center (LE) and te_center (TE)
-    - [1, -0.5, 0.0, 2.5, 0.5, 0.0, 2.7]
+    - [1, -0.5, 0.0, 2.5, 0.5, 0.0, 2.8]
 
     # Right section: le_right (LE) and te_right (TE)
-    - [1, -0.5, -1.0, 2.0, 0.5, -1.0, 2.2]
+    - [1, -0.5, -1.0, 2.0, 0.5, -1.0, 2.3]
 
 wing_airfoils:
   alpha_range: [-180, 180, 1]  # deg

@@ -100,22 +100,19 @@ end
 """
     match_aero_sections_to_structure!(wing, points; groups)
 
-Rebuild unrefined sections to match structural LE/TE positions,
-preserving refined panel polars via `use_prior_polar`.
+Reconcile a wing's aerodynamic sections with its structural geometry.
 
-Works for **all** VSMWing types (RIGID_DYNAMICS and PARTICLE_DYNAMICS).  When the
-structural and aerodynamic section counts match the rebuild is a 1:1
-copy (`source_idx == i`) that ensures positions exactly match
-structural points.  When they differ, `use_prior_polar` and non-empty
-`refined_sections` are required.
-
-For non-PARTICLE_DYNAMICS wings whose section count changed, the linearization
-vectors (`aero_y`, `aero_x`, `aero_jac`) are resized to match the new
-`n_unrefined_sections`.
+RIGID_DYNAMICS wings own their aero panel geometry (mesh- or
+YAML-defined) and keep it; only the group→section mapping
+(`wing.wing_segments`) is recorded. PARTICLE_DYNAMICS wings deform with
+their structural points, so each unrefined section is rebuilt onto its
+structural LE/TE pair: a 1:1 copy when counts match, otherwise
+`use_prior_polar` and existing `refined_sections` are required to
+preserve polars.
 
 # Keyword Arguments
-- `groups::AbstractVector{Group}`: Groups in the system (used for
-  group-based LE/TE identification via [`identify_wing_segments`](@ref)).
+- `groups::AbstractVector{Group}`: Groups used for LE/TE identification
+  via [`identify_wing_segments`](@ref).
 """
 function match_aero_sections_to_structure!(
     wing::VSMWing,
@@ -127,22 +124,26 @@ function match_aero_sections_to_structure!(
         p.type == WING && p.wing_idx == wing.idx
     ]
 
+    if wing.dynamics_type == RIGID_DYNAMICS
+        wing.wing_segments = identify_wing_segments(
+            wing_points; groups=groups,
+            wing_group_idxs=wing.group_idxs)
+        return nothing
+    end
+
     wing_group_idxs = wing.group_idxs
     has_groups = !isempty(groups) &&
         !isempty(wing_group_idxs)
 
     if has_groups
         n_struct_sections = length(wing_group_idxs)
-        # PARTICLE_DYNAMICS: each group is a 2-point strut (LE/TE)
-        if wing.dynamics_type == PARTICLE_DYNAMICS
-            for g_idx in wing_group_idxs
-                g = groups[g_idx]
-                length(g.point_idxs) == 2 || error(
-                    "PARTICLE_DYNAMICS wing $(wing.idx): group " *
-                    "$(g.name) must have exactly 2 " *
-                    "points (LE/TE pair), got " *
-                    "$(length(g.point_idxs))")
-            end
+        for g_idx in wing_group_idxs
+            g = groups[g_idx]
+            length(g.point_idxs) == 2 || error(
+                "PARTICLE_DYNAMICS wing $(wing.idx): group " *
+                "$(g.name) must have exactly 2 " *
+                "points (LE/TE pair), got " *
+                "$(length(g.point_idxs))")
         end
     else
         n_points = length(wing_points)
@@ -156,18 +157,6 @@ function match_aero_sections_to_structure!(
 
     n_aero_sections =
         length(wing.vsm_wing.unrefined_sections)
-
-    # RIGID_DYNAMICS: keep aero geometry (wing is rigid, panel geometry comes
-    # from ObjWing/YAML, not structural points). Set wing_segments for
-    # group→section mapping and return early.
-    if has_groups && wing.dynamics_type == RIGID_DYNAMICS &&
-            n_struct_sections <= n_aero_sections
-        wing.wing_segments = identify_wing_segments(
-            wing_points; groups=groups,
-            wing_group_idxs=wing_group_idxs)
-        return nothing
-    end
-
     counts_differ = n_struct_sections != n_aero_sections
 
     if counts_differ
@@ -249,17 +238,6 @@ function match_aero_sections_to_structure!(
     refine!(wing.vsm_wing;
         recompute_mapping=true, sort_sections=false)
     VortexStepMethod.reinit!(wing.vsm_aero)
-
-    # Resize linearization vectors for non-PARTICLE_DYNAMICS wings
-    # when section count changed.
-    if counts_differ && wing.dynamics_type != PARTICLE_DYNAMICS
-        n_groups = length(wing.group_idxs)
-        nx = 6 + n_groups
-        ny = 5 + n_groups
-        wing.aero_y = zeros(SimFloat, ny)
-        wing.aero_x = zeros(SimFloat, nx)
-        wing.aero_jac = zeros(SimFloat, nx, ny)
-    end
 
     return nothing
 end

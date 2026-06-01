@@ -48,8 +48,10 @@
 ### Fixed
 - Makie zoom/pan world-camera save/restore (no view drift); body-frame
   zoom distance preserved across mode switches.
-- `vsm_refine.jl`: `<` → `<=` so equal struct/aero section counts use
-  the rigid path.
+- `vsm_refine.jl`: RIGID_DYNAMICS wings always keep their aerodynamic
+  panel geometry (mesh- or YAML-defined); section rebuilding from
+  structural points is now PARTICLE_DYNAMICS-only. The 2plate aero
+  geometry was corrected to match its structural points.
 - `get_sys_struct_hash` hashes `wing.origin`.
 
 ## v0.10.0 30-05-2026
