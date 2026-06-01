@@ -38,6 +38,14 @@ const PLOT_WORLD_EYEPOS = Ref{Union{Nothing, Vec3f}}(nothing)
 const PLOT_WORLD_LOOKAT = Ref{Union{Nothing, Vec3f}}(nothing)
 const PLOT_BODY_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)
 
+"""
+    _wing_log_pos(sl, sys, wing, k)
+
+World position of `wing` at log frame `k`, read from its dedicated
+slot appended after the structural points and panel corners in the
+`SysLog`. Older logs lack that slot; in that case fall back to the
+mean of the wing's `WING`-type structural points (or all points).
+"""
 function _wing_log_pos(sl, sys, wing, k)
     n_points = length(sys.points)
     n_corners = isempty(sys.wings) ? 0 : sum(

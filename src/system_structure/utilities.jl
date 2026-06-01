@@ -243,6 +243,12 @@ end
 
 # ==================== TETHER INIT LEN ==================== #
 
+"""
+    tether_ordered_point_idxs(tether, segments)
+
+Point indices along the tether, ordered from `start_point_idx`
+through each segment's far endpoint to the end point.
+"""
 function tether_ordered_point_idxs(tether, segments)
     idxs = Int64[tether.start_point_idx]
     for seg_idx in tether.segment_idxs
@@ -251,6 +257,14 @@ function tether_ordered_point_idxs(tether, segments)
     return idxs
 end
 
+"""
+    tether_anchor_free(tether, boundary)
+
+Return `(anchor_idx, free_idx)` for a root tether: the endpoint in
+`boundary` (`STATIC`/winch points) is the anchor, the other is free.
+Returns `(nothing, nothing)` if neither endpoint is on a boundary;
+errors if both are.
+"""
 function tether_anchor_free(tether, boundary)
     s_in = tether.start_point_idx in boundary
     e_in = tether.end_point_idx in boundary
@@ -265,6 +279,14 @@ function tether_anchor_free(tether, boundary)
     return nothing, nothing
 end
 
+"""
+    rigid_point_siblings(points, wings)
+
+Map each `WING`-type point index of a `RIGID_DYNAMICS` wing to the
+set of all such points sharing that wing. These points move as one
+rigid body without inter-point segments, so the set captures their
+connectivity for downstream traversal.
+"""
 function rigid_point_siblings(points, wings)
     siblings = Dict{Int64, Set{Int64}}()
     for wing in wings
@@ -278,6 +300,16 @@ function rigid_point_siblings(points, wings)
     return siblings
 end
 
+"""
+    tether_downstream_idxs(tether, segments, boundary, from_idx,
+                           anchor_idx, rigid_siblings)
+
+Breadth-first set of point indices reachable from `from_idx` (the
+tether's free end) through segments outside this tether and through
+`rigid_siblings`, stopping at boundary points. These are the points
+that must translate with the free end when the tether is repositioned.
+Errors if traversal reaches `anchor_idx` (a loop back to the anchor).
+"""
 function tether_downstream_idxs(tether, segments, boundary,
                                 from_idx, anchor_idx, rigid_siblings)
     own = Set{Int64}(tether_ordered_point_idxs(tether, segments))
@@ -318,6 +350,14 @@ function tether_downstream_idxs(tether, segments, boundary,
     return downstream
 end
 
+"""
+    group_tethers_by_overlap(specified, reach)
+
+Cluster the `specified` tethers with a union-find over `reach`
+(point indices each tether touches): tethers whose reaches intersect
+share structure and land in the same cluster. Returns a vector of
+tether vectors, one per cluster.
+"""
 function group_tethers_by_overlap(specified, reach)
     n = length(specified)
     parent = collect(1:n)
@@ -343,6 +383,13 @@ function group_tethers_by_overlap(specified, reach)
     return collect(values(groups))
 end
 
+"""
+    tether_unit_stiffness(tether, segments)
+
+Return the common per-unit-length stiffness `[N]` of the tether's
+segments. Errors if the segments are not uniform, since the spring
+inversion in `apply_tether_init_forces!` assumes a single stiffness.
+"""
 function tether_unit_stiffness(tether, segments)
     ks = SimFloat[segments[si].unit_stiffness
                   for si in tether.segment_idxs]
@@ -352,6 +399,18 @@ function tether_unit_stiffness(tether, segments)
     return k
 end
 
+"""
+    apply_cluster_init_stretched_len!(cluster, points, segments,
+                                      downstream, boundary; prn=true)
+
+Reposition one cluster of root tethers so each sits at its
+`init_stretched_len` standoff. Each tether contributes the
+displacement that would move its free end onto the target length
+along the anchor→free direction; the free end and everything
+downstream of it are translated by the mean of those displacements,
+then interior points are redistributed proportionally along each
+tether. For a multi-tether cluster, logs an `@info` when `prn`.
+"""
 function apply_cluster_init_stretched_len!(
     cluster, points, segments, downstream, boundary; prn=true)
     snaps = map(cluster) do t

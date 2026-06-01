@@ -149,9 +149,11 @@ SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
 # [`Tether`](@ref) and connect it to a [`Winch`](@ref). The winch
 # applies a torque to reel the tether in or out.
 
-## Group all segments into a tether
+## Group all segments into a tether. The points already sit at the
+## right spacing, so the tether takes its length from that geometry;
+## pass a stretched standoff only to reposition a root tether.
 seg_names = [s.name for s in segments]
-tethers = [Tether(:main, seg_names, l_tether)]
+tethers = [Tether(:main, seg_names)]
 
 ## Create a winch connected to the tether
 gear_ratio = 1.0
@@ -291,7 +293,7 @@ SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
 # Segment(:spring, :anchor, :mass, 1000.0, 50.0, 0.002)
 #
 # ## Tether references segments by name
-# Tether(:main, [:seg1, :seg2], 50.0)
+# Tether(:main, [:seg1, :seg2])
 #
 # ## Winch references tethers and winch point by name
 # Winch(:winch, [:main], 1.0, 0.11, 122.0, 30.6, 0.024;
