@@ -310,55 +310,72 @@ function group_tethers_by_overlap(specified, reach)
 end
 
 function apply_cluster_init_stretched_len!(
-    cluster, points, segments, downstream)
-    driving = cluster[1]
-    target = driving.init_stretched_len::SimFloat
-    if length(cluster) > 1
-        targets = SimFloat[t.init_stretched_len for t in cluster]
-        target = sum(targets) / length(targets)
-        names = join((string(t.name) for t in cluster), ", ")
-        @warn "Tethers ($names) attach to one structure but several have " *
-              "init_stretched_len. A multi-tether structure can be placed " *
-              "to only one effective length; using the average " *
-              "$(round(target; digits=3)) m via tether $(driving.name). " *
-              "Set init_stretched_len on a single tether to silence this."
+    cluster, points, segments, downstream; prn=true)
+    snaps = map(cluster) do t
+        start_pos = copy(points[t.start_point_idx].pos_w)
+        end_pos = copy(points[t.end_point_idx].pos_w)
+        ordered = tether_ordered_point_idxs(t, segments)
+        seg_lens = SimFloat[segment_world_length(segments[si], points)
+                            for si in t.segment_idxs]
+        path_len = sum(seg_lens)
+        path_len > 0 || error("Tether $(t.name): current length is " *
+            "zero, cannot scale to init_stretched_len")
+        (; t, start_pos, end_pos, ordered, seg_lens, path_len)
     end
 
-    ordered = tether_ordered_point_idxs(driving, segments)
-    current_len = sum(segment_world_length(segments[si], points)
-                      for si in driving.segment_idxs)
-    current_len ≈ target && return
-    current_len > 0 || error("Tether $(driving.name): current length is " *
-        "zero, cannot scale to init_stretched_len")
+    deltas = [(s.t.init_stretched_len::SimFloat / s.path_len - 1) .*
+              (s.end_pos .- s.start_pos) for s in snaps]
+    delta = sum(deltas) ./ length(deltas)
 
-    scale = target / current_len
-    start_pos = copy(points[driving.start_point_idx].pos_w)
-    old_end_pos = copy(points[driving.end_point_idx].pos_w)
-    for point_idx in ordered[2:end]
-        pt = points[point_idx]
-        pt.pos_w .= start_pos .+ scale .* (pt.pos_w .- start_pos)
+    if length(cluster) > 1 && prn
+        names = join((string(s.t.name) for s in snaps), ", ")
+        @info "Tethers ($names) feed one structure; placing it to the " *
+              "mean stretched length and direction of all."
     end
-    delta = points[driving.end_point_idx].pos_w .- old_end_pos
-    for idx in downstream[driving.idx]
-        points[idx].pos_w .+= delta
+    norm(delta) ≈ 0 && return
+
+    moved = Set{Int64}()
+    for s in snaps
+        for idx in downstream[s.t.idx]
+            idx in moved && continue
+            push!(moved, idx)
+            points[idx].pos_w .+= delta
+        end
+        if !(s.t.end_point_idx in moved)
+            push!(moved, s.t.end_point_idx)
+            points[s.t.end_point_idx].pos_w .+= delta
+        end
+    end
+
+    for s in snaps
+        length(s.ordered) <= 2 && continue
+        line = (s.end_pos .+ delta) .- s.start_pos
+        cum = 0.0
+        for k in 2:length(s.ordered)-1
+            cum += s.seg_lens[k-1]
+            points[s.ordered[k]].pos_w .=
+                s.start_pos .+ (cum / s.path_len) .* line
+        end
     end
 end
 
 """
-    apply_tether_init_stretched_lens!(sys_struct::SystemStructure)
+    apply_tether_init_stretched_lens!(sys_struct::SystemStructure; prn=true)
 
 Scale tether point positions in `pos_w` to match `init_stretched_len`.
 Must be called after `copy_cad_to_world!` (so `pos_w == pos_cad` at entry).
 
-Tethers sharing downstream structure (a multi-tether kite) form one cluster
-and are placed to a single effective length: the sole specified
-`init_stretched_len`, or the average of several (with a warning), by scaling
-the first specified tether and rigidly translating its downstream structure.
-Independent tethers form separate clusters and are placed independently.
+Only `init_stretched_len` on a *root* tether — one whose `start_point_idx`
+is a ground-fixed boundary (`STATIC` point or `winch.winch_point_idx`) — is
+honored. A root is placed by scaling its own points about the fixed anchor
+and rigidly translating everything downstream of it (the rest of the kite,
+including any upper tethers' start points). Upper-tether rest lengths come
+from geometry, so `init_stretched_len` on a non-root tether is an error.
 
-Ground-fixed boundaries — `STATIC` points and winch points
-(`winch.winch_point_idx`) — are never translated, so other tethers' anchors
-stay put regardless of their point type.
+Several roots feeding one downstream structure form one cluster and are
+placed together by the mean displacement of all roots — averaging both
+length and direction, so roots at an angle still pull the structure along
+the correct mean line. Independent roots form separate clusters.
 
 Note: segment `l0` values are NOT updated here — they are set from
 `tether.len` by the ODE equations.
@@ -366,7 +383,8 @@ Note: segment `l0` values are NOT updated here — they are set from
 Raises an error if a downstream non-tether segment connects back to a
 tether's start point (would create an unsolvable constraint).
 """
-function apply_tether_init_stretched_lens!(sys_struct::SystemStructure)
+function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
+                                           prn=true)
     (; points, segments, tethers, winches) = sys_struct
 
     specified = [t for t in tethers if !isnothing(t.init_stretched_len)]
@@ -377,6 +395,15 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure)
         point.type == STATIC && push!(boundary, point.idx)
     end
 
+    non_root = [t for t in specified if !(t.start_point_idx in boundary)]
+    if !isempty(non_root)
+        names = join((string(t.name) for t in non_root), ", ")
+        error("init_stretched_len is only supported on root tethers " *
+              "(those starting at a STATIC or winch point). Tether(s) " *
+              "($names) start at a non-anchored point; set their length " *
+              "via geometry instead.")
+    end
+
     downstream = Dict(t.idx => tether_downstream_idxs(t, segments, boundary)
                       for t in specified)
     reach = Dict(t.idx => union(
@@ -384,7 +411,8 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure)
         downstream[t.idx]) for t in specified)
 
     for cluster in group_tethers_by_overlap(specified, reach)
-        apply_cluster_init_stretched_len!(cluster, points, segments, downstream)
+        apply_cluster_init_stretched_len!(cluster, points, segments,
+                                          downstream; prn)
     end
 end
 
@@ -411,11 +439,13 @@ Pulley lengths are initialized proportionally based on current segment lengths:
   (translate, rotate, heading) during reinitialization.
 - `apply_tether_lengths::Bool=true`: If false, skip scaling point positions
   to match `tether.init_stretched_len`.
+- `prn::Bool=true`: If true, print info messages (e.g. when several root
+  tethers are placed to their mean stretched length).
 """
 function reinit!(sys_struct::SystemStructure, set::Settings;
                  ignore_l0::Bool=false, remake_vsm::Bool=false,
                  reset_vel::Bool=true, apply_transforms::Bool=true,
-                 apply_tether_lengths::Bool=true)
+                 apply_tether_lengths::Bool=true, prn::Bool=true)
     (; points, groups, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
 
     # Reset tether len to initial values
@@ -440,7 +470,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
 
     # Step 2: apply stretched lengths (scales pos_w)
     if apply_tether_lengths
-        apply_tether_init_stretched_lens!(sys_struct)
+        apply_tether_init_stretched_lens!(sys_struct; prn)
     end
 
     # Step 3: compute segment lengths from pos_w

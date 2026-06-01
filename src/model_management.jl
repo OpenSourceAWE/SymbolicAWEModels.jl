@@ -403,7 +403,7 @@ function init!(sam::SymbolicAWEModel;
 
         if reinit_sys
             reinit!(sam.sys_struct, sam.set;
-                    ignore_l0, remake_vsm, reset_vel)
+                    ignore_l0, remake_vsm, reset_vel, prn)
         end
         # When reset_vel=false, state-dependent u0 changed;
         # force ODEProblem recreation to pick up new defaults.

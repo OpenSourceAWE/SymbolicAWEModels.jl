@@ -344,11 +344,54 @@ winches:
         @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
 
         sys.tethers[:tether_winch].init_stretched_len = 100.0
-        @test_logs (:warn,) match_mode=:any SymbolicAWEModels.reinit!(sys, set)
+        @test_logs (:info,) match_mode=:any SymbolicAWEModels.reinit!(sys, set)
 
         ground_static = sys.points[:ground_static].pos_w
         @test norm(sys.points[:top].pos_w - ground_static) ≈ 150.0
         @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
+    end
+
+    # ================================================================
+    # Test 7: init_stretched_len on a non-root tether is an error
+    # ================================================================
+    @testset "Error on non-root init_stretched_len" begin
+        stacked_yaml = """
+materials:
+  headers: [name, youngs_modulus, density, damping_per_stiffness]
+  data:
+    - [test_mat, 120000.0, 724, 0.001]
+
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx,
+            extra_mass, body_frame_damping, world_frame_damping,
+            area, drag_coeff]
+  data:
+    - [ground, [0.0, 0.0, 0.0], STATIC, nothing, nothing,
+       0.0, 0.0, 0.0, 0.0, 0.0]
+    - [mid, [0.0, 0.0, -100.0], DYNAMIC, nothing, nothing,
+       1.0, 0.0, 0.0, 0.0, 0.0]
+    - [top, [0.0, 0.0, -200.0], DYNAMIC, nothing, nothing,
+       1.0, 0.0, 0.0, 0.0, 0.0]
+
+tethers:
+  headers: [name, start_point, end_point, n_segments, material,
+            init_unstretched_length]
+  data:
+    - [lower, ground, mid, 2, test_mat, 100.0]
+    - [upper, mid, top, 2, test_mat, 100.0]
+
+winches:
+  headers: [name, tether_idxs, winch_point]
+  data:
+    - [winch_a, [lower], ground]
+"""
+        yaml_path = joinpath(tmpdir, "stacked.yaml")
+        write(yaml_path, stacked_yaml)
+        sys = load_sys_struct_from_yaml(
+            yaml_path; system_name="init_stretched_length_nonroot", set=set)
+
+        sys.tethers[:upper].init_stretched_len = 200.0
+        @test_throws ErrorException SymbolicAWEModels.reinit!(sys, set)
     end
 
 end
