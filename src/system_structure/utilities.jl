@@ -287,17 +287,24 @@ end
 function group_tethers_by_overlap(specified, reach)
     n = length(specified)
     parent = collect(1:n)
-    find(i) = parent[i] == i ? i : find(parent[i])
+    function find_root(i)
+        parent[i] == i && return i
+        parent[i] = find_root(parent[i])
+        return parent[i]
+    end
     for i in 1:n
         for j in i+1:n
             isempty(intersect(reach[specified[i].idx],
                               reach[specified[j].idx])) && continue
-            parent[find(i)] = find(j)
+            root_i = find_root(i)
+            root_j = find_root(j)
+            root_i == root_j && continue
+            parent[root_i] = root_j
         end
     end
     groups = Dict{Int64, Vector{Tether}}()
     for i in 1:n
-        push!(get!(() -> Tether[], groups, find(i)), specified[i])
+        push!(get!(() -> Tether[], groups, find_root(i)), specified[i])
     end
     return collect(values(groups))
 end
