@@ -47,9 +47,9 @@ segments:
        0.0, 0.0, 0.0]
 
 tethers:
-  headers: [name, segment_idxs, init_unstretched_length]
+  headers: [name, segment_idxs]
   data:
-    - [main_tether, [tether_seg], 50.0]
+    - [main_tether, [tether_seg]]
 
 winches:
   headers: [name, tether_idxs, winch_point]
@@ -376,7 +376,7 @@ environment:
 
         # Route 2: auto-generate 4 segments between mass
         # and anchor
-        tethers = [Tether(:line, 100.0;
+        tethers = [Tether(:line;
             start_point=:mass, end_point=:anchor,
             n_segments=4)]
         winches = [Winch(:winch, set, [:line];

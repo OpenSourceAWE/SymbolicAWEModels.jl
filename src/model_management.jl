@@ -326,6 +326,7 @@ function init!(sam::SymbolicAWEModel;
     reset_vel::Bool=true,
     reset_integrator::Bool=true,
     reinit_sys::Bool=true,
+    apply_tether_lengths::Bool=true,
     vsm_min_wind=0.5
 )
     prn && @info "Initializing $(sam.sys_struct.name) model..."
@@ -403,7 +404,8 @@ function init!(sam::SymbolicAWEModel;
 
         if reinit_sys
             reinit!(sam.sys_struct, sam.set;
-                    ignore_l0, remake_vsm, reset_vel, prn)
+                    ignore_l0, remake_vsm, reset_vel,
+                    apply_tether_lengths, prn)
         end
         # When reset_vel=false, state-dependent u0 changed;
         # force ODEProblem recreation to pick up new defaults.

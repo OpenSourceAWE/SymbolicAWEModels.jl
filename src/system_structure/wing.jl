@@ -395,7 +395,7 @@ function _validate_weights!(weights::Vector{Float64})
 end
 
 """
-    create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, kwargs...)
+    create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, sort_sections=true)
 
 Create a `Wing` geometry object from the settings provided.
 
@@ -406,7 +406,7 @@ Otherwise, it falls back to loading from `aero_geometry.yaml`.
 Reads geometry from the `Settings` object and initializes the `Wing` object
 from `VortexStepMethod.jl`.
 """
-function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, kwargs...)
+function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, sort_sections=true)
     # Check for .obj and .dat files in the model directory
     model_dir = get_data_path()
     obj_path = joinpath(model_dir, set.model)
@@ -424,7 +424,7 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; p
 
         return VortexStepMethod.ObjWing(obj_path, dat_path;
             mass=set.mass, crease_frac=set.crease_frac, n_unrefined_sections,
-            align_to_principal=true, prn, kwargs...
+            align_to_principal=true, prn
         )
     end
 
@@ -437,7 +437,7 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; p
             ws.geometry_file = joinpath(model_dir, basename(gf))
         end
     end
-    return VortexStepMethod.Wing(vsm_set; kwargs...)
+    return VortexStepMethod.Wing(vsm_set; sort_sections)
 end
 
 """

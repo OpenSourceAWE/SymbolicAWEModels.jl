@@ -38,7 +38,7 @@ points:
        1.0, 0.0, 0.0, 0.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material, init_stretched_length]
+  headers: [name, start_point, end_point, n_segments, material, init_unstretched_length]
   data:
     - [main_tether, ground, top, 2, test_mat, 200.0]
 
@@ -75,7 +75,7 @@ segments:
     - [s2, mid, top, 50.0, 4.0, 120000.0, 350.0, 0.0]
 
 tethers:
-  headers: [name, segment_idxs, init_stretched_length]
+  headers: [name, segment_idxs, init_unstretched_length]
   data:
     - [main_tether, [s1, s2], 200.0]
 
@@ -111,7 +111,7 @@ segments:
     - [bridle, top, downstream, 10.0, 4.0, 120000.0, 350.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material, init_stretched_length]
+  headers: [name, start_point, end_point, n_segments, material, init_unstretched_length]
   data:
     - [main_tether, ground, top, 2, test_mat, 200.0]
 
@@ -272,11 +272,8 @@ environment:
     @testset "Error on loop to start" begin
         yaml_path = joinpath(tmpdir, "r2_loop.yaml")
         write(yaml_path, INIT_LEN_LOOP_ROUTE2)
-        sys = load_sys_struct_from_yaml(
+        @test_throws ErrorException load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_r2_loop", set=set)
-
-        sys.tethers[:main_tether].init_stretched_len = 200.0
-        @test_throws ErrorException SymbolicAWEModels.reinit!(sys, set)
     end
 
     # ================================================================
@@ -319,11 +316,10 @@ points:
        1.0, 0.0, 0.0, 0.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material,
-            init_unstretched_length]
+  headers: [name, start_point, end_point, n_segments, material]
   data:
-    - [tether_static, ground_static, top, 2, test_mat, 100.0]
-    - [tether_winch, ground_winch, top, 2, test_mat, 100.0]
+    - [tether_static, ground_static, top, 2, test_mat]
+    - [tether_winch, ground_winch, top, 2, test_mat]
 
 winches:
   headers: [name, tether_idxs, winch_point]
@@ -335,7 +331,7 @@ winches:
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_multi", set=set)
 
-        sys.tethers[:tether_static].init_stretched_len = 200.0
+        sys.tethers[:tether_static].init_unstretched_len = 200.0
         SymbolicAWEModels.reinit!(sys, set)
 
         ground_static = sys.points[:ground_static].pos_w
@@ -343,18 +339,24 @@ winches:
         @test sys.points[:ground_static].pos_w ≈ KVec3(10, 0, 0)
         @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
 
-        sys.tethers[:tether_winch].init_stretched_len = 100.0
+        sys.tethers[:tether_winch].init_unstretched_len = 100.0
         @test_logs (:info,) match_mode=:any SymbolicAWEModels.reinit!(sys, set)
 
+        # Placed by the mean displacement of both roots: standoff is
+        # ≈ the mean target (150), offset slightly because the two
+        # tethers pull in different directions, and top is drawn off
+        # the static-tether line toward that mean direction.
         ground_static = sys.points[:ground_static].pos_w
-        @test norm(sys.points[:top].pos_w - ground_static) ≈ 150.0
+        @test isapprox(norm(sys.points[:top].pos_w - ground_static),
+                       150.0; atol=0.05)
+        @test sys.points[:top].pos_w[1] < -4.95
         @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
     end
 
     # ================================================================
-    # Test 7: init_stretched_len on a non-root tether is an error
+    # Test 7: init_unstretched_len on a non-root tether is an error
     # ================================================================
-    @testset "Error on non-root init_stretched_len" begin
+    @testset "Error on non-root init_unstretched_len" begin
         stacked_yaml = """
 materials:
   headers: [name, youngs_modulus, density, damping_per_stiffness]
@@ -387,11 +389,8 @@ winches:
 """
         yaml_path = joinpath(tmpdir, "stacked.yaml")
         write(yaml_path, stacked_yaml)
-        sys = load_sys_struct_from_yaml(
+        @test_throws ErrorException load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_nonroot", set=set)
-
-        sys.tethers[:upper].init_stretched_len = 200.0
-        @test_throws ErrorException SymbolicAWEModels.reinit!(sys, set)
     end
 
 end

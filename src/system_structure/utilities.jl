@@ -251,28 +251,62 @@ function tether_ordered_point_idxs(tether, segments)
     return idxs
 end
 
-function tether_downstream_idxs(tether, segments, boundary)
+function tether_anchor_free(tether, boundary)
+    s_in = tether.start_point_idx in boundary
+    e_in = tether.end_point_idx in boundary
+    if s_in && e_in
+        error("Tether $(tether.name): both endpoints are " *
+              "ground-fixed; cannot place it to a length.")
+    elseif s_in
+        return tether.start_point_idx, tether.end_point_idx
+    elseif e_in
+        return tether.end_point_idx, tether.start_point_idx
+    end
+    return nothing, nothing
+end
+
+function rigid_point_siblings(points, wings)
+    siblings = Dict{Int64, Set{Int64}}()
+    for wing in wings
+        wing.dynamics_type == RIGID_DYNAMICS || continue
+        members = Set{Int64}(p.idx for p in points
+            if p.type == WING && p.wing_idx == wing.idx)
+        for m in members
+            siblings[m] = members
+        end
+    end
+    return siblings
+end
+
+function tether_downstream_idxs(tether, segments, boundary,
+                                from_idx, anchor_idx, rigid_siblings)
     own = Set{Int64}(tether_ordered_point_idxs(tether, segments))
     tether_segment_set = Set(tether.segment_idxs)
     visited = copy(own)
     downstream = Set{Int64}()
-    queue = Int64[tether.end_point_idx]
+    queue = Int64[from_idx]
     while !isempty(queue)
         current_idx = pop!(queue)
+        neighbors = Int64[]
         for seg in segments
             seg.idx in tether_segment_set && continue
             p1, p2 = seg.point_idxs
-            neighbor_idx = if p1 == current_idx
-                p2
+            if p1 == current_idx
+                push!(neighbors, p2)
             elseif p2 == current_idx
-                p1
-            else
-                continue
+                push!(neighbors, p1)
             end
-            if neighbor_idx == tether.start_point_idx
+        end
+        if haskey(rigid_siblings, current_idx)
+            for sib in rigid_siblings[current_idx]
+                sib == current_idx || push!(neighbors, sib)
+            end
+        end
+        for neighbor_idx in neighbors
+            if neighbor_idx == anchor_idx
                 error("Tether $(tether.name): downstream structure " *
-                      "connects back to tether start point. Cannot " *
-                      "apply init_stretched_len scaling.")
+                      "connects back to the anchor point. Cannot " *
+                      "apply tether length scaling.")
             end
             neighbor_idx in visited && continue
             push!(visited, neighbor_idx)
@@ -309,22 +343,41 @@ function group_tethers_by_overlap(specified, reach)
     return collect(values(groups))
 end
 
+function tether_unit_stiffness(tether, segments)
+    ks = SimFloat[segments[si].unit_stiffness
+                  for si in tether.segment_idxs]
+    k = first(ks)
+    all(≈(k), ks) || error("Tether $(tether.name): requires " *
+        "uniform unit_stiffness across its segments, got $ks")
+    return k
+end
+
+function tether_force_standoff(rope_len, force, k)
+    force == 0 && return rope_len
+    return rope_len / (1 - force / k)
+end
+
 function apply_cluster_init_stretched_len!(
-    cluster, points, segments, downstream; prn=true)
+    cluster, points, segments, downstream, boundary; prn=true)
     snaps = map(cluster) do t
-        start_pos = copy(points[t.start_point_idx].pos_w)
-        end_pos = copy(points[t.end_point_idx].pos_w)
+        anchor_idx, free_idx = tether_anchor_free(t, boundary)
+        anchor_pos = copy(points[anchor_idx].pos_w)
+        free_pos = copy(points[free_idx].pos_w)
         ordered = tether_ordered_point_idxs(t, segments)
         seg_lens = SimFloat[segment_world_length(segments[si], points)
                             for si in t.segment_idxs]
+        if ordered[1] != anchor_idx
+            reverse!(ordered)
+            reverse!(seg_lens)
+        end
         path_len = sum(seg_lens)
         path_len > 0 || error("Tether $(t.name): current length is " *
-            "zero, cannot scale to init_stretched_len")
-        (; t, start_pos, end_pos, ordered, seg_lens, path_len)
+            "zero, cannot scale to its stretched length")
+        (; t, free_idx, anchor_pos, free_pos, ordered, seg_lens, path_len)
     end
 
     deltas = [(s.t.init_stretched_len::SimFloat / s.path_len - 1) .*
-              (s.end_pos .- s.start_pos) for s in snaps]
+              (s.free_pos .- s.anchor_pos) for s in snaps]
     delta = sum(deltas) ./ length(deltas)
 
     if length(cluster) > 1 && prn
@@ -341,20 +394,20 @@ function apply_cluster_init_stretched_len!(
             push!(moved, idx)
             points[idx].pos_w .+= delta
         end
-        if !(s.t.end_point_idx in moved)
-            push!(moved, s.t.end_point_idx)
-            points[s.t.end_point_idx].pos_w .+= delta
+        if !(s.free_idx in moved)
+            push!(moved, s.free_idx)
+            points[s.free_idx].pos_w .+= delta
         end
     end
 
     for s in snaps
         length(s.ordered) <= 2 && continue
-        line = (s.end_pos .+ delta) .- s.start_pos
+        line = (s.free_pos .+ delta) .- s.anchor_pos
         cum = 0.0
         for k in 2:length(s.ordered)-1
             cum += s.seg_lens[k-1]
             points[s.ordered[k]].pos_w .=
-                s.start_pos .+ (cum / s.path_len) .* line
+                s.anchor_pos .+ (cum / s.path_len) .* line
         end
     end
 end
@@ -362,49 +415,66 @@ end
 """
     apply_tether_init_stretched_lens!(sys_struct::SystemStructure; prn=true)
 
-Scale tether point positions in `pos_w` to match `init_stretched_len`.
-Must be called after `copy_cad_to_world!` (so `pos_w == pos_cad` at entry).
+Scale tether point positions in `pos_w` so each tether with an explicit
+`init_unstretched_len` sits at its stretched standoff
+`init_unstretched_len / (1 − force/unit_stiffness)` (the placed-but-loaded
+distance; `init_stretched_len` is stored as this derived value). Must be
+called after `copy_cad_to_world!` (so `pos_w == pos_cad` at entry).
 
-Only `init_stretched_len` on a *root* tether — one whose `start_point_idx`
-is a ground-fixed boundary (`STATIC` point or `winch.winch_point_idx`) — is
-honored. A root is placed by scaling its own points about the fixed anchor
-and rigidly translating everything downstream of it (the rest of the kite,
-including any upper tethers' start points). Upper-tether rest lengths come
-from geometry, so `init_stretched_len` on a non-root tether is an error.
+Only *root* tethers — those with one endpoint on a ground-fixed boundary
+(`STATIC` point or `winch.winch_point_idx`) — are placed; the boundary
+endpoint is the fixed anchor (either `start` or `end`). A tether with
+neither endpoint anchored is an error (its position rides the root). A root
+is placed by scaling its points about the anchor toward the free end and
+rigidly translating everything downstream of the free end.
 
 Several roots feeding one downstream structure form one cluster and are
 placed together by the mean displacement of all roots — averaging both
-length and direction, so roots at an angle still pull the structure along
-the correct mean line. Independent roots form separate clusters.
+length and direction. Independent roots form separate clusters.
 
 Note: segment `l0` values are NOT updated here — they are set from
 `tether.len` by the ODE equations.
 
-Raises an error if a downstream non-tether segment connects back to a
-tether's start point (would create an unsolvable constraint).
+Raises an error if a downstream non-tether segment connects back to the
+anchor point (would create an unsolvable constraint).
 """
 function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
                                            prn=true)
-    (; points, segments, tethers, winches) = sys_struct
+    (; points, segments, tethers, winches, wings) = sys_struct
 
-    specified = [t for t in tethers if !isnothing(t.init_stretched_len)]
+    specified = [t for t in tethers if !isnothing(t.init_unstretched_len)]
     isempty(specified) && return
+
+    rigid_siblings = rigid_point_siblings(points, wings)
 
     boundary = Set{Int64}(w.winch_point_idx for w in winches)
     for point in points
         point.type == STATIC && push!(boundary, point.idx)
     end
 
-    non_root = [t for t in specified if !(t.start_point_idx in boundary)]
+    anchor_free = Dict(t.idx => tether_anchor_free(t, boundary)
+                       for t in specified)
+    non_root = [t for t in specified if isnothing(anchor_free[t.idx][1])]
     if !isempty(non_root)
         names = join((string(t.name) for t in non_root), ", ")
-        error("init_stretched_len is only supported on root tethers " *
-              "(those starting at a STATIC or winch point). Tether(s) " *
-              "($names) start at a non-anchored point; set their length " *
-              "via geometry instead.")
+        error("tether length is only supported on tethers anchored at " *
+              "a STATIC or winch point. Tether(s) ($names) have neither " *
+              "endpoint anchored; their position rides the root tether.")
     end
 
-    downstream = Dict(t.idx => tether_downstream_idxs(t, segments, boundary)
+    for t in specified
+        force = something(t.init_tether_force, 0.0)
+        k = force == 0 ? 1.0 : tether_unit_stiffness(t, segments)
+        force < k || error("Tether $(t.name): init_tether_force " *
+            "$force N ≥ unit_stiffness $k N; no positive rest length " *
+            "achieves this force")
+        t.init_stretched_len = tether_force_standoff(
+            t.init_unstretched_len::SimFloat, force, k)
+    end
+
+    downstream = Dict(t.idx => tether_downstream_idxs(
+                          t, segments, boundary, anchor_free[t.idx][2],
+                          anchor_free[t.idx][1], rigid_siblings)
                       for t in specified)
     reach = Dict(t.idx => union(
         setdiff(Set{Int64}(tether_ordered_point_idxs(t, segments)), boundary),
@@ -412,7 +482,44 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
 
     for cluster in group_tethers_by_overlap(specified, reach)
         apply_cluster_init_stretched_len!(cluster, points, segments,
-                                          downstream; prn)
+                                          downstream, boundary; prn)
+    end
+end
+
+"""
+    apply_tether_init_forces!(sys_struct::SystemStructure)
+
+Derive every tether's unstretched length `len` from its current
+(placed) stretched length so the initial spring force equals
+`init_tether_force` (default 0):
+`len = stretched · (1 − force / unit_stiffness)` (zero-velocity,
+tension branch of the segment spring law). Force 0 gives
+`len = stretched` (zero tension).
+
+Must be called after segment world lengths are current. Errors
+if `force < 0` (compression unsupported), if `force ≥
+unit_stiffness` (no positive rest length achieves it), or if a
+tether's segments have non-uniform `unit_stiffness`.
+"""
+function apply_tether_init_forces!(sys_struct::SystemStructure)
+    (; segments, tethers) = sys_struct
+    for tether in tethers
+        isempty(tether.segment_idxs) && continue
+        stretched = sum(segments[si].len
+                        for si in tether.segment_idxs)
+        force = something(tether.init_tether_force, 0.0)
+        force >= 0 || error("Tether $(tether.name): " *
+            "init_tether_force $force N is negative; " *
+            "compression is not supported")
+        if force == 0
+            tether.len = stretched
+            continue
+        end
+        k = tether_unit_stiffness(tether, segments)
+        force < k || error("Tether $(tether.name): " *
+            "init_tether_force $force N ≥ unit_stiffness $k N; " *
+            "no positive rest length achieves this force")
+        tether.len = stretched * (1 - force / k)
     end
 end
 
@@ -438,7 +545,7 @@ Pulley lengths are initialized proportionally based on current segment lengths:
 - `apply_transforms::Bool=true`: If false, skip applying spatial transforms
   (translate, rotate, heading) during reinitialization.
 - `apply_tether_lengths::Bool=true`: If false, skip scaling point positions
-  to match `tether.init_stretched_len`.
+  to match `tether.init_unstretched_len`.
 - `prn::Bool=true`: If true, print info messages (e.g. when several root
   tethers are placed to their mean stretched length).
 """
@@ -448,11 +555,6 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                  apply_tether_lengths::Bool=true, prn::Bool=true)
     (; points, groups, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
 
-    # Reset tether len to initial values
-    for tether in tethers
-        tether.len = tether.init_unstretched_len
-    end
-    # Reset winch velocity to initial value
     for winch in winches
         winch.vel = winch.init_vel
     end
@@ -480,8 +582,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         segment.len = len
     end
 
-    # Step 3b: sync tether segment l0 from tether.len
-    # (matches ODE equation: l0 = tether_len / n_segments)
+    apply_tether_init_forces!(sys_struct)
+
     for tether in tethers
         n = length(tether.segment_idxs)
         n == 0 && continue
