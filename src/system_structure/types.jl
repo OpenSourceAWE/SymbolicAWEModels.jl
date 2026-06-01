@@ -561,7 +561,7 @@ Route 1: Construct a `Tether` from explicit segment references.
 - `end_point=nothing`: Optional end point ref.
 - `tether_force=nothing`: Target initial spring force [N], default 0.
 """
-function Tether(name, segments, stretched_length=nothing;
+function Tether(name, segments::AbstractVector, stretched_length=nothing;
                 start_point=nothing, end_point=nothing,
                 winch_point=nothing, tether_force=nothing)
     if !isnothing(winch_point)

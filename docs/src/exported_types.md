@@ -42,7 +42,7 @@ Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, comp
 Pulley
 Pulley(name, segment_i, segment_j, type)
 Tether
-Tether(name, segments, stretched_length; start_point, end_point, tether_force)
+Tether(name, segments::AbstractVector, stretched_length; start_point, end_point, tether_force)
 Tether(name, stretched_length; start_point, end_point, n_segments, unit_stiffness, unit_damping, diameter, tether_force)
 Winch
 Winch(name, set::Settings, tethers; winch_point, init_vel, brake)
