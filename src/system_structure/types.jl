@@ -526,23 +526,24 @@ mutable struct Tether
     """Unstretched tether length [m] (sum of segment l0).
     ODE state variable. Segment l0 = len / n_segments."""
     len::SimFloat
-    """Initial unstretched rope length [m]. Drives placement
-    of root tethers (standoff = `init_unstretched_len /
-    (1 − force/unit_stiffness)`). `nothing` = use the
-    geometric (CAD) length, i.e. no scaling."""
+    """Derived initial unstretched rope length [m] (the
+    rest length `reinit!` sets `len` to). Computed from the
+    placed stretched length and `init_tether_force`. Not a
+    user input."""
     init_unstretched_len::Union{SimFloat, Nothing}
-    """Derived initial stretched standoff [m], computed by
-    `reinit!` from `init_unstretched_len` and
-    `init_tether_force`. Not a user input."""
+    """Initial stretched standoff [m] — the placed point
+    geometry (Σ segment norms). Drives placement of root
+    tethers. `nothing` = use the geometric (CAD) length,
+    i.e. no scaling."""
     init_stretched_len::Union{SimFloat, Nothing}
     """Target initial spring force [N], default 0. `reinit!`
-    solves `len` from the placed stretched length to achieve
-    this force: `len = stretched · (1 − force/unit_stiffness)`."""
+    solves the unstretched `len` from the placed stretched
+    length: `len = stretched · (1 − force/unit_stiffness)`."""
     init_tether_force::Union{SimFloat, Nothing}
 end
 
 """
-    Tether(name, segments, unstretched_length=nothing;
+    Tether(name, segments, stretched_length=nothing;
            start_point=nothing, end_point=nothing,
            tether_force=nothing)
 
@@ -551,15 +552,16 @@ Route 1: Construct a `Tether` from explicit segment references.
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the tether.
 - `segments::Vector`: References to segments (names or indices).
-- `unstretched_length=nothing`: Rope rest length [m]. Drives
-  placement of root tethers. `nothing` = use the geometric length.
+- `stretched_length=nothing`: Stretched standoff [m] (placed point
+  geometry). Drives placement of root tethers. `nothing` = use the
+  geometric length.
 
 # Keyword Arguments
 - `start_point=nothing`: Optional start point ref.
 - `end_point=nothing`: Optional end point ref.
 - `tether_force=nothing`: Target initial spring force [N], default 0.
 """
-function Tether(name, segments, unstretched_length=nothing;
+function Tether(name, segments, stretched_length=nothing;
                 start_point=nothing, end_point=nothing,
                 winch_point=nothing, tether_force=nothing)
     if !isnothing(winch_point)
@@ -578,17 +580,17 @@ function Tether(name, segments, unstretched_length=nothing;
          Symbol(end_point))
     itf = isnothing(tether_force) ? nothing :
         SimFloat(tether_force)
-    il = isnothing(unstretched_length) ? nothing :
-        SimFloat(unstretched_length)
+    isl = isnothing(stretched_length) ? nothing :
+        SimFloat(stretched_length)
     return Tether(0, name, Int64[], segment_refs,
                   0, sp, 0, ep,
                   length(segments),
                   NaN, NaN, NaN, 0.0,
-                  isnothing(il) ? 0.0 : il, il, nothing, itf)
+                  0.0, nothing, isl, itf)
 end
 
 """
-    Tether(name, unstretched_length=nothing;
+    Tether(name, stretched_length=nothing;
            start_point, end_point, n_segments,
            unit_stiffness=NaN, unit_damping=NaN,
            diameter=NaN, tether_force=nothing)
@@ -598,8 +600,9 @@ points and segments by `expand_auto_tethers!`.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the tether.
-- `unstretched_length=nothing`: Rope rest length [m]. Drives
-  placement of root tethers. `nothing` = use the geometric length.
+- `stretched_length=nothing`: Stretched standoff [m] (placed point
+  geometry). Drives placement of root tethers. `nothing` = use the
+  geometric length.
 
 # Keyword Arguments
 - `start_point`: Reference to the start point (required).
@@ -613,7 +616,7 @@ points and segments by `expand_auto_tethers!`.
   NaN = derive from Settings during auto-expansion.
 - `tether_force=nothing`: Target initial spring force [N], default 0.
 """
-function Tether(name, unstretched_length=nothing;
+function Tether(name, stretched_length=nothing;
                 start_point, end_point, n_segments,
                 unit_stiffness=NaN, unit_damping=NaN,
                 diameter=NaN, tether_force=nothing)
@@ -625,15 +628,15 @@ function Tether(name, unstretched_length=nothing;
         [Symbol("$(name)_seg_$i") for i in 1:n_segments])
     itf = isnothing(tether_force) ? nothing :
         SimFloat(tether_force)
-    il = isnothing(unstretched_length) ? nothing :
-        SimFloat(unstretched_length)
+    isl = isnothing(stretched_length) ? nothing :
+        SimFloat(stretched_length)
     return Tether(0, name, Int64[], seg_refs,
                   0, sp, 0, ep,
                   Int64(n_segments),
                   Float64(unit_stiffness),
                   Float64(unit_damping),
                   Float64(diameter), 0.0,
-                  isnothing(il) ? 0.0 : il, il, nothing, itf)
+                  0.0, nothing, isl, itf)
 end
 
 # ==================== WINCH ==================== #

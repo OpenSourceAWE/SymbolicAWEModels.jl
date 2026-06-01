@@ -161,7 +161,7 @@ function update_vsm!(sam::SymbolicAWEModel,
             end
 
             if !_safe_vsm_solve!(wing.vsm_solver, wing.vsm_aero)
-                error("PARTICLE_DYNAMICS VSM solve failed (non-converged or non-finite) on wing $(wing.idx)")
+                throw(AssertionError("PARTICLE_DYNAMICS VSM solve failed (non-converged or non-finite) on wing $(wing.idx)"))
             end
             distribute_panel_forces_to_points!(
                 wing, points)
@@ -169,7 +169,7 @@ function update_vsm!(sam::SymbolicAWEModel,
                 if point.type == WING &&
                         point.wing_idx == wing.idx &&
                         any(!isfinite, point.aero_force_b)
-                    error("PARTICLE_DYNAMICS: non-finite point force on wing $(wing.idx) point $(point.idx)")
+                    throw(AssertionError("PARTICLE_DYNAMICS: non-finite point force on wing $(wing.idx) point $(point.idx)"))
                 end
             end
         end
@@ -260,7 +260,7 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
     set_va!(body_aero_c, va_b_local, ω)
     if !_safe_vsm_solve!(solver_c, body_aero_c, gamma_init;
                          moment_frac)
-        error("VSM solve failed (non-converged or non-finite) on wing $(wing.idx) [eltype=$T]")
+        throw(AssertionError("VSM solve failed (non-converged or non-finite) on wing $(wing.idx) [eltype=$T]"))
     end
 
     sol = solver_c.sol
@@ -352,7 +352,7 @@ end
 function _apply_direct_forces!(wing, am, x0)
     va_b = wing.va_b
     if any(!isfinite, x0) || any(!isfinite, va_b)
-        error("AERO_DIRECT: non-finite input on wing $(wing.idx)")
+        throw(AssertionError("AERO_DIRECT: non-finite input on wing $(wing.idx)"))
     end
     va_sq = dot(va_b, va_b)
     rho = calc_rho(am, wing.pos_w[3])

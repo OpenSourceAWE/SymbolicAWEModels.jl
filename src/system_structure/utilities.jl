@@ -352,11 +352,6 @@ function tether_unit_stiffness(tether, segments)
     return k
 end
 
-function tether_force_standoff(rope_len, force, k)
-    force == 0 && return rope_len
-    return rope_len / (1 - force / k)
-end
-
 function apply_cluster_init_stretched_len!(
     cluster, points, segments, downstream, boundary; prn=true)
     snaps = map(cluster) do t
@@ -416,10 +411,10 @@ end
     apply_tether_init_stretched_lens!(sys_struct::SystemStructure; prn=true)
 
 Scale tether point positions in `pos_w` so each tether with an explicit
-`init_unstretched_len` sits at its stretched standoff
-`init_unstretched_len / (1 − force/unit_stiffness)` (the placed-but-loaded
-distance; `init_stretched_len` is stored as this derived value). Must be
-called after `copy_cad_to_world!` (so `pos_w == pos_cad` at entry).
+`init_stretched_len` sits at that stretched standoff (the placed point
+geometry, Σ segment norms). Must be called after `copy_cad_to_world!`
+(so `pos_w == pos_cad` at entry). The unstretched rest length is derived
+separately from `init_tether_force` by `apply_tether_init_forces!`.
 
 Only *root* tethers — those with one endpoint on a ground-fixed boundary
 (`STATIC` point or `winch.winch_point_idx`) — are placed; the boundary
@@ -442,7 +437,7 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
                                            prn=true)
     (; points, segments, tethers, winches, wings) = sys_struct
 
-    specified = [t for t in tethers if !isnothing(t.init_unstretched_len)]
+    specified = [t for t in tethers if !isnothing(t.init_stretched_len)]
     isempty(specified) && return
 
     rigid_siblings = rigid_point_siblings(points, wings)
@@ -460,16 +455,6 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
         error("tether length is only supported on tethers anchored at " *
               "a STATIC or winch point. Tether(s) ($names) have neither " *
               "endpoint anchored; their position rides the root tether.")
-    end
-
-    for t in specified
-        force = something(t.init_tether_force, 0.0)
-        k = force == 0 ? 1.0 : tether_unit_stiffness(t, segments)
-        force < k || error("Tether $(t.name): init_tether_force " *
-            "$force N ≥ unit_stiffness $k N; no positive rest length " *
-            "achieves this force")
-        t.init_stretched_len = tether_force_standoff(
-            t.init_unstretched_len::SimFloat, force, k)
     end
 
     downstream = Dict(t.idx => tether_downstream_idxs(
@@ -513,13 +498,14 @@ function apply_tether_init_forces!(sys_struct::SystemStructure)
             "compression is not supported")
         if force == 0
             tether.len = stretched
-            continue
+        else
+            k = tether_unit_stiffness(tether, segments)
+            force < k || error("Tether $(tether.name): " *
+                "init_tether_force $force N ≥ unit_stiffness $k N; " *
+                "no positive rest length achieves this force")
+            tether.len = stretched * (1 - force / k)
         end
-        k = tether_unit_stiffness(tether, segments)
-        force < k || error("Tether $(tether.name): " *
-            "init_tether_force $force N ≥ unit_stiffness $k N; " *
-            "no positive rest length achieves this force")
-        tether.len = stretched * (1 - force / k)
+        tether.init_unstretched_len = tether.len
     end
 end
 
@@ -545,7 +531,7 @@ Pulley lengths are initialized proportionally based on current segment lengths:
 - `apply_transforms::Bool=true`: If false, skip applying spatial transforms
   (translate, rotate, heading) during reinitialization.
 - `apply_tether_lengths::Bool=true`: If false, skip scaling point positions
-  to match `tether.init_unstretched_len`.
+  to match `tether.init_stretched_len`.
 - `prn::Bool=true`: If true, print info messages (e.g. when several root
   tethers are placed to their mean stretched length).
 """

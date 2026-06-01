@@ -371,8 +371,8 @@ function expand_auto_tethers!(
             end
         end
 
-        rope_len = isnothing(tether.init_unstretched_len) ?
-            norm(end_pos - start_pos) : tether.init_unstretched_len
+        rope_len = isnothing(tether.init_stretched_len) ?
+            norm(end_pos - start_pos) : tether.init_stretched_len
         seg_l0 = rope_len / n
         tether.len = rope_len
 

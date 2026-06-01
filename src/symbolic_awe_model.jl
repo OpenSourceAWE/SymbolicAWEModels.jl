@@ -500,9 +500,9 @@ function next_step!(sam::SymbolicAWEModel;
     sam.t_0 = integrator.t
     sam.t_step = @elapsed OrdinaryDiffEqCore.step!(integrator, dt, true)
     if !successful_retcode(integrator.sol)
-        error("Solver unstable at t=" *
+        throw(AssertionError("Solver unstable at t=" *
             "$(round(integrator.t; digits=4))" *
-            ": $(integrator.sol.retcode)")
+            ": $(integrator.sol.retcode)"))
     end
     sam.iter += 1
     if prob isa ProbWithAttributes

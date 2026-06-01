@@ -384,27 +384,28 @@ function _load_plate_wing(row, idx, data, set, wt, am,
 end
 
 """
-    parse_tether_init(row, tether_name) -> (unstretched_len, force)
+    parse_tether_init(row, tether_name) -> (stretched_len, force)
 
-Read `init_unstretched_length` and `init_tether_force` from a tether
+Read `init_stretched_length` and `init_tether_force` from a tether
 YAML row (each `nothing` if absent). Errors if the deprecated
-`init_stretched_length` field is present — the stretched standoff is
-now derived from `init_unstretched_length` and `init_tether_force`.
+`init_unstretched_length` field is present — the unstretched rest
+length is now derived from the placed stretched length and
+`init_tether_force`.
 """
 function parse_tether_init(row, tether_name)
-    if hasfield(typeof(row), :init_stretched_length) &&
-       !isnothing(row.init_stretched_length)
-        error("Tether $tether_name: init_stretched_length is " *
-              "deprecated; it is derived from init_unstretched_length " *
-              "and init_tether_force.")
+    if hasfield(typeof(row), :init_unstretched_length) &&
+       !isnothing(row.init_unstretched_length)
+        error("Tether $tether_name: init_unstretched_length is " *
+              "deprecated; it is derived from the placed " *
+              "init_stretched_length and init_tether_force.")
     end
-    ul = hasfield(typeof(row), :init_unstretched_length) &&
-        !isnothing(row.init_unstretched_length) ?
-        Float64(row.init_unstretched_length) : nothing
+    isl = hasfield(typeof(row), :init_stretched_length) &&
+        !isnothing(row.init_stretched_length) ?
+        Float64(row.init_stretched_length) : nothing
     itf = hasfield(typeof(row), :init_tether_force) &&
         !isnothing(row.init_tether_force) ?
         Float64(row.init_tether_force) : nothing
-    return ul, itf
+    return isl, itf
 end
 
 """
@@ -697,9 +698,9 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 else
                     nothing
                 end
-                ul, itf = parse_tether_init(
+                isl, itf = parse_tether_init(
                     row, tether_name)
-                tether = Tether(tether_name, segs, ul;
+                tether = Tether(tether_name, segs, isl;
                     start_point=sp, end_point=ep,
                     tether_force=itf)
             else
@@ -707,7 +708,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 sp = yaml_to_ref(row.start_point)
                 ep = yaml_to_ref(row.end_point)
                 n_seg = Int(row.n_segments)
-                ul, itf = parse_tether_init(
+                isl, itf = parse_tether_init(
                     row, tether_name)
                 # Resolve material reference if present
                 resolved = resolve_references(
@@ -729,7 +730,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     Float64(d_mm)
                 d = isnan(d_mm) ? NaN :
                     d_mm * 0.001
-                tether = Tether(tether_name, ul;
+                tether = Tether(tether_name, isl;
                     start_point=sp, end_point=ep,
                     n_segments=n_seg,
                     unit_stiffness=us, unit_damping=ud,
@@ -1145,7 +1146,7 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
 
     tether_init_lens = Dict{String, Float64}()
     for tether in sys_struct.tethers
-        tether_init_lens[string(tether.name)] = tether.len
+        tether_init_lens[string(tether.name)] = tether.stretched_len
     end
 
     # Update tether init_len values in tethers section
@@ -1169,7 +1170,7 @@ function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
             if hm !== nothing
                 cols = split(something(hm.captures[1]), r",\s*")
                 for (ci, c) in enumerate(cols)
-                    if strip(c) == "init_unstretched_length"
+                    if strip(c) == "init_stretched_length"
                         tether_init_len_col = ci
                     end
                 end
@@ -1363,9 +1364,9 @@ function update_sys_struct_from_yaml!(
 
             tether = sys_struct.tethers[name]
 
-            ul, itf = parse_tether_init(row, name)
-            isnothing(ul) ||
-                (tether.init_unstretched_len = ul)
+            isl, itf = parse_tether_init(row, name)
+            isnothing(isl) ||
+                (tether.init_stretched_len = isl)
             isnothing(itf) ||
                 (tether.init_tether_force = itf)
 

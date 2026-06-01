@@ -38,7 +38,7 @@ points:
        1.0, 0.0, 0.0, 0.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material, init_unstretched_length]
+  headers: [name, start_point, end_point, n_segments, material, init_stretched_length]
   data:
     - [main_tether, ground, top, 2, test_mat, 200.0]
 
@@ -75,7 +75,7 @@ segments:
     - [s2, mid, top, 50.0, 4.0, 120000.0, 350.0, 0.0]
 
 tethers:
-  headers: [name, segment_idxs, init_unstretched_length]
+  headers: [name, segment_idxs, init_stretched_length]
   data:
     - [main_tether, [s1, s2], 200.0]
 
@@ -111,7 +111,7 @@ segments:
     - [bridle, top, downstream, 10.0, 4.0, 120000.0, 350.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material, init_unstretched_length]
+  headers: [name, start_point, end_point, n_segments, material, init_stretched_length]
   data:
     - [main_tether, ground, top, 2, test_mat, 200.0]
 
@@ -145,7 +145,7 @@ segments:
     - [back_loop, top, ground, 100.0, 4.0, 120000.0, 350.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material, init_unstretched_length]
+  headers: [name, start_point, end_point, n_segments, material, init_stretched_length]
   data:
     - [main_tether, ground, top, 2, test_mat, 100.0]
 
@@ -331,7 +331,7 @@ winches:
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_multi", set=set)
 
-        sys.tethers[:tether_static].init_unstretched_len = 200.0
+        sys.tethers[:tether_static].init_stretched_len = 200.0
         SymbolicAWEModels.reinit!(sys, set)
 
         ground_static = sys.points[:ground_static].pos_w
@@ -339,7 +339,7 @@ winches:
         @test sys.points[:ground_static].pos_w ≈ KVec3(10, 0, 0)
         @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
 
-        sys.tethers[:tether_winch].init_unstretched_len = 100.0
+        sys.tethers[:tether_winch].init_stretched_len = 100.0
         @test_logs (:info,) match_mode=:any SymbolicAWEModels.reinit!(sys, set)
 
         # Placed by the mean displacement of both roots: standoff is
@@ -354,9 +354,9 @@ winches:
     end
 
     # ================================================================
-    # Test 7: init_unstretched_len on a non-root tether is an error
+    # Test 7: init_stretched_len on a non-root tether is an error
     # ================================================================
-    @testset "Error on non-root init_unstretched_len" begin
+    @testset "Error on non-root init_stretched_len" begin
         stacked_yaml = """
 materials:
   headers: [name, youngs_modulus, density, damping_per_stiffness]
@@ -377,7 +377,7 @@ points:
 
 tethers:
   headers: [name, start_point, end_point, n_segments, material,
-            init_unstretched_length]
+            init_stretched_length]
   data:
     - [lower, ground, mid, 2, test_mat, 100.0]
     - [upper, mid, top, 2, test_mat, 100.0]
