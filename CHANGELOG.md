@@ -15,6 +15,8 @@
   rebuilt.
 - `VSMWing` `origin_idx`/`origin_ref` replaced by
   `origin::WeightedRefPoints` (weighted body-frame origin).
+- `update_yaml_from_sys_struct!` and `update_sys_struct_from_yaml!`
+  removed (unreliable line-based YAML round-tripping, no longer used).
 
 ### Added
 - `init_tether_force` (YAML / `Tether(...; tether_force)`, default 0):

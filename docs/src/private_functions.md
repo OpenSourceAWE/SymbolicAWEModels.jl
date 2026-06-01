@@ -116,7 +116,6 @@ SymbolicAWEModels.resolve_references
 SymbolicAWEModels.calculate_derived_properties!
 SymbolicAWEModels._extract_args
 SymbolicAWEModels.call_yaml_constructor
-SymbolicAWEModels.update_yaml_from_sys_struct!
 ```
 
 ## SystemStructure internals
