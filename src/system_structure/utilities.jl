@@ -837,12 +837,15 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         init=0
     )
     n_wings = length(wings)
-    expected_total = n_points + n_panel_corners + n_wings
+    total_with_wings = n_points + n_panel_corners + n_wings
+    total_without_wings = n_points + n_panel_corners
+    has_wing_slots = P == total_with_wings
 
-    if expected_total != P
-        error("SystemStructure expects $expected_total points " *
+    if !has_wing_slots && P != total_without_wings
+        error("SystemStructure expects $total_with_wings points " *
               "($n_points regular + $n_panel_corners corners + " *
-              "$n_wings wings) but SysState has $P points")
+              "$n_wings wings) or $total_without_wings without " *
+              "wing slots, but SysState has $P points")
     end
 
     # Update point positions (X, Y, Z from SysState)
@@ -868,11 +871,14 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         wing.azimuth = Float64(ss.azimuth)
         wing.heading = Float64(ss.heading)
 
-        # Wing position from appended slot
-        wing_slot = n_points + n_panel_corners + wing.idx
-        wing.pos_w[1] = ss.X[wing_slot]
-        wing.pos_w[2] = ss.Y[wing_slot]
-        wing.pos_w[3] = ss.Z[wing_slot]
+        if has_wing_slots
+            wing_slot = n_points + n_panel_corners + wing.idx
+            wing.pos_w[1] = ss.X[wing_slot]
+            wing.pos_w[2] = ss.Y[wing_slot]
+            wing.pos_w[3] = ss.Z[wing_slot]
+        else
+            wing.pos_w .= [mean(ss.X), mean(ss.Y), mean(ss.Z)]
+        end
 
         # Copy velocity if available in vel_kite
         wing.vel_w .= ss.vel_kite

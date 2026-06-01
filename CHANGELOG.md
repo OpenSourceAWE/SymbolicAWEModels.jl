@@ -50,7 +50,7 @@
   the rigid path.
 - `get_sys_struct_hash` hashes `wing.origin`.
 
-## v0.10.0 26-05-2026
+## v0.10.0 30-05-2026
 
 ### Changed
 - BREAKING: `WingType` constants `QUATERNION` and `REFINE` are now
