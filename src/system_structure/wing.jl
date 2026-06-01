@@ -422,9 +422,13 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; p
             n_unrefined_sections = 4
         end
 
+        obj_kwargs = NamedTuple(kwargs)
+        if haskey(obj_kwargs, :sort_sections)
+            obj_kwargs = (; (k => v for (k, v) in pairs(obj_kwargs) if k != :sort_sections)...)
+        end
         return VortexStepMethod.ObjWing(obj_path, dat_path;
             mass=set.mass, crease_frac=set.crease_frac, n_unrefined_sections,
-            align_to_principal=true, prn, kwargs...
+            align_to_principal=true, prn, obj_kwargs...
         )
     end
 
