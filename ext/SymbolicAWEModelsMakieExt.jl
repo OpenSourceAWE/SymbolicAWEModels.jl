@@ -44,8 +44,17 @@ function _wing_log_pos(sl, sys, wing, k)
         length(w.vsm_aero.panels) * 4
         for w in sys.wings if w isa VSMWing; init=0)
     i = n_points + n_corners + wing.idx
+    if i <= length(sl.X[k])
+        return SVector{3, Float64}(
+            sl.X[k][i], sl.Y[k][i], sl.Z[k][i])
+    end
+    idxs = [p.idx for p in sys.points
+            if p.type == WING && p.wing_idx == wing.idx]
+    isempty(idxs) && (idxs = eachindex(sl.X[k]))
     return SVector{3, Float64}(
-        sl.X[k][i], sl.Y[k][i], sl.Z[k][i])
+        mean(@view sl.X[k][idxs]),
+        mean(@view sl.Y[k][idxs]),
+        mean(@view sl.Z[k][idxs]))
 end
 
 # Multi-system plotting support

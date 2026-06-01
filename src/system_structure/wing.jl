@@ -159,9 +159,6 @@ WeightedRefPoints(ref::Symbol) =
 WeightedRefPoints(ref::AbstractString) =
     WeightedRefPoints(Symbol(ref))
 
-"""Identity passthrough."""
-WeightedRefPoints(ref::WeightedRefPoints) = ref
-
 """
     WeightedRefPoints(id::Integer)
 
