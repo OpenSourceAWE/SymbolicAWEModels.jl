@@ -157,10 +157,11 @@ function match_aero_sections_to_structure!(
     n_aero_sections =
         length(wing.vsm_wing.unrefined_sections)
 
-    # RIGID_DYNAMICS multi-section-per-group: keep aero geometry,
-    # let compute_spatial_group_mapping! partition sections.
+    # RIGID_DYNAMICS: keep aero geometry (wing is rigid, panel geometry comes
+    # from ObjWing/YAML, not structural points). Set wing_segments for
+    # group→section mapping and return early.
     if has_groups && wing.dynamics_type == RIGID_DYNAMICS &&
-            n_struct_sections < n_aero_sections
+            n_struct_sections <= n_aero_sections
         wing.wing_segments = identify_wing_segments(
             wing_points; groups=groups,
             wing_group_idxs=wing_group_idxs)
