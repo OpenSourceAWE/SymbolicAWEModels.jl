@@ -258,7 +258,7 @@ function tether_downstream_idxs(tether, segments, boundary)
     downstream = Set{Int64}()
     queue = Int64[tether.end_point_idx]
     while !isempty(queue)
-        current_idx = popfirst!(queue)
+        current_idx = pop!(queue)
         for seg in segments
             seg.idx in tether_segment_set && continue
             p1, p2 = seg.point_idxs
