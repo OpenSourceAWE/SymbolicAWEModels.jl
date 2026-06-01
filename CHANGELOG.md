@@ -1,5 +1,52 @@
 # CHANGELOG
 
+## v0.10.1 01-06-2026
+
+### Changed
+- `VSMWing` origin field unified: `origin_idx`/`origin_ref` replaced
+  with `origin::WeightedRefPoints`, supporting weighted reference
+  points (like `z_ref_points`/`y_ref_points`). Body frame origin is
+  now computed as a weighted combination of structural points instead
+  of a single resolved index.
+- Wing origin position is now stored in dedicated `SysState` slots
+  (appended after panel corners). `update_from_sysstate!` reads
+  `wing.pos_w` directly from these slots instead of recomputing a
+  mean from all structural points.
+- `init_stretched_len` for multi-tether systems refactored: downstream
+  point discovery and position propagation split into
+  `tether_downstream_idxs`, `group_tethers_by_overlap`, and
+  `apply_cluster_init_stretched_len!`. The BFS now collects
+  downstream points before applying the delta, preventing ground
+  anchors from being dragged.
+- `build_point_to_vsm_point_mapping` now takes a `VSMWing` instead of
+  a raw `AbstractWing`, computing closest-point distances in body
+  frame (`wing.R_b_to_c'` × `wing.pos_cad`) for better accuracy.
+- Makie plot body-frame arrows now use `wing.pos_w` directly instead
+  of `points[wing.origin_idx].pos_w`.
+
+### Added
+- `WeightedRefPoints` constructors for `AbstractString` and identity
+  passthrough (`WeightedRefPoints(::WeightedRefPoints)`).
+- `yaml_parse_origin` helper for parsing weighted origin specs from
+  YAML (supports single ref, equal-weight list, and explicit
+  `[[id, weight], ...]` format).
+- `_wing_log_pos` helper in `SymbolicAWEModelsMakieExt` for reading
+  wing position from `SysState` log arrays.
+- `tether_ordered_point_idxs` and `tether_downstream_idxs` utilities
+  for init_stretched_len calculations.
+- New test: `test_tether_init.jl` for multi-tether init_stretched_len.
+
+### Fixed
+- Makie zoom/pan: world camera position is saved before zoom-in and
+  restored on zoom-out, preventing view drift.
+- Body-frame camera tracking now preserves user-adjusted zoom distance
+  across mode switches.
+- `vsm_refine.jl`: changed `n_struct_sections < n_aero_sections` to
+  `<=` so RIGID_DYNAMICS wings with equal numbers of structural
+  sections and aero sections correctly use the rigid path.
+- `get_sys_struct_hash` now hashes `wing.origin` (WeightedRefPoints)
+  instead of the now-removed `wing.origin_idx`.
+
 ## v0.10.0 26-05-2026
 
 ### Changed
