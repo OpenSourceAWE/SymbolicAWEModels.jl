@@ -410,28 +410,18 @@ end
 """
     apply_tether_init_stretched_lens!(sys_struct::SystemStructure; prn=true)
 
-Scale tether point positions in `pos_w` so each tether with an explicit
-`init_stretched_len` sits at that stretched standoff (the placed point
-geometry, Σ segment norms). Must be called after `copy_cad_to_world!`
-(so `pos_w == pos_cad` at entry). The unstretched rest length is derived
-separately from `init_tether_force` by `apply_tether_init_forces!`.
+Scale `pos_w` so each tether with an explicit `init_stretched_len` sits at
+that standoff. Call after `copy_cad_to_world!`. Rest length is derived
+separately by `apply_tether_init_forces!`.
 
-Only *root* tethers — those with one endpoint on a ground-fixed boundary
-(`STATIC` point or `winch.winch_point_idx`) — are placed; the boundary
-endpoint is the fixed anchor (either `start` or `end`). A tether with
-neither endpoint anchored is an error (its position rides the root). A root
-is placed by scaling its points about the anchor toward the free end and
-rigidly translating everything downstream of the free end.
+Only tethers with one endpoint on a boundary (`STATIC` or winch point) are
+placed; that endpoint is the fixed anchor (start or end). Scaling runs from
+the anchor toward the free end, translating everything downstream of it.
+A tether with neither endpoint anchored is an error. Roots feeding one
+structure form a cluster, placed by their mean displacement (length and
+direction).
 
-Several roots feeding one downstream structure form one cluster and are
-placed together by the mean displacement of all roots — averaging both
-length and direction. Independent roots form separate clusters.
-
-Note: segment `l0` values are NOT updated here — they are set from
-`tether.len` by the ODE equations.
-
-Raises an error if a downstream non-tether segment connects back to the
-anchor point (would create an unsolvable constraint).
+Errors if a downstream segment connects back to the anchor.
 """
 function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
                                            prn=true)
