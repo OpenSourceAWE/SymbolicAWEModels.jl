@@ -445,7 +445,7 @@ function reinit!(
     existing = sam.integrator
     integrator = if isnothing(existing) || !successful_retcode(existing.sol) || reset_integrator
         init(prob.prob, solver;
-            adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol,
+            adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol, dtmax = sam.set.dtmax,
             save_on=false, save_everystep=false)
     else
         existing
