@@ -521,40 +521,56 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
 end
 
 """
+    init_unstretched_len(tether, segments) -> SimFloat
+
+Derived initial unstretched (rest) length from the tether's current
+(placed) stretched length `stretched = Σ segment lengths`:
+- `init_stretch_frac` set: `len = stretch_frac · stretched`.
+- otherwise from `init_tether_force` (default 0):
+  `len = stretched · (1 − force / unit_stiffness)` (zero-velocity,
+  tension branch). Force 0 gives `len = stretched` (no tension).
+
+Errors if both `init_stretch_frac` and `init_tether_force` are set,
+if `stretch_frac ∉ (0, 1]`, if `force < 0`, if `force ≥
+unit_stiffness`, or if the segments have non-uniform `unit_stiffness`.
+"""
+function init_unstretched_len(tether, segments)
+    stretched = sum(segments[si].len
+                    for si in tether.segment_idxs)
+    frac = tether.init_stretch_frac
+    force = tether.init_tether_force
+    if !isnothing(frac) && !isnothing(force)
+        error("Tether $(tether.name): set only one of " *
+              "init_stretch_frac and init_tether_force")
+    end
+    if !isnothing(frac)
+        (frac > 0 && frac <= 1) || error("Tether $(tether.name): " *
+            "init_stretch_frac $frac must be in (0, 1]")
+        return stretched * frac
+    end
+    force = something(force, 0.0)
+    force >= 0 || error("Tether $(tether.name): " *
+        "init_tether_force $force N is negative; " *
+        "compression is not supported")
+    force == 0 && return stretched
+    k = tether_unit_stiffness(tether, segments)
+    force < k || error("Tether $(tether.name): " *
+        "init_tether_force $force N ≥ unit_stiffness $k N; " *
+        "no positive rest length achieves this force")
+    return stretched * (1 - force / k)
+end
+
+"""
     apply_tether_init_forces!(sys_struct::SystemStructure)
 
-Derive every tether's unstretched length `len` from its current
-(placed) stretched length so the initial spring force equals
-`init_tether_force` (default 0):
-`len = stretched · (1 − force / unit_stiffness)` (zero-velocity,
-tension branch of the segment spring law). Force 0 gives
-`len = stretched` (zero tension).
-
-Must be called after segment world lengths are current. Errors
-if `force < 0` (compression unsupported), if `force ≥
-unit_stiffness` (no positive rest length achieves it), or if a
-tether's segments have non-uniform `unit_stiffness`.
+Set every tether's `len` to its [`init_unstretched_len`](@ref).
+Must be called after segment world lengths are current.
 """
 function apply_tether_init_forces!(sys_struct::SystemStructure)
     (; segments, tethers) = sys_struct
     for tether in tethers
         isempty(tether.segment_idxs) && continue
-        stretched = sum(segments[si].len
-                        for si in tether.segment_idxs)
-        force = something(tether.init_tether_force, 0.0)
-        force >= 0 || error("Tether $(tether.name): " *
-            "init_tether_force $force N is negative; " *
-            "compression is not supported")
-        if force == 0
-            tether.len = stretched
-        else
-            k = tether_unit_stiffness(tether, segments)
-            force < k || error("Tether $(tether.name): " *
-                "init_tether_force $force N ≥ unit_stiffness $k N; " *
-                "no positive rest length achieves this force")
-            tether.len = stretched * (1 - force / k)
-        end
-        tether.init_unstretched_len = tether.len
+        tether.len = init_unstretched_len(tether, segments)
     end
 end
 

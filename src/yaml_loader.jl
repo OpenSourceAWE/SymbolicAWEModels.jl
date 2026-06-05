@@ -384,28 +384,36 @@ function _load_plate_wing(row, idx, data, set, wt, am,
 end
 
 """
-    parse_tether_init(row, tether_name) -> (stretched_len, force)
+    parse_tether_init(row, tether_name)
+        -> (stretched_length, tether_force, stretch_frac)
 
-Read `init_stretched_length` and `init_tether_force` from a tether
-YAML row (each `nothing` if absent). Errors if the deprecated
-`init_unstretched_length` field is present — the unstretched rest
-length is now derived from the placed stretched length and
-`init_tether_force`.
+Read `init_stretched_length`, `init_tether_force` and
+`init_stretch_frac` from a tether YAML row (each `nothing` if
+absent). Errors if the deprecated `init_unstretched_length` field is
+present — the unstretched rest length is now derived from the placed
+stretched length with `init_tether_force` or `init_stretch_frac`.
 """
 function parse_tether_init(row, tether_name)
-    if hasfield(typeof(row), :init_unstretched_length) &&
-       !isnothing(row.init_unstretched_length)
+    if !isnothing(yaml_field(row, :init_unstretched_length))
         error("Tether $tether_name: init_unstretched_length is " *
               "deprecated; it is derived from the placed " *
-              "init_stretched_length and init_tether_force.")
+              "init_stretched_length with init_tether_force or " *
+              "init_stretch_frac.")
     end
-    isl = hasfield(typeof(row), :init_stretched_length) &&
-        !isnothing(row.init_stretched_length) ?
-        Float64(row.init_stretched_length) : nothing
-    itf = hasfield(typeof(row), :init_tether_force) &&
-        !isnothing(row.init_tether_force) ?
-        Float64(row.init_tether_force) : nothing
-    return isl, itf
+    stretched_length = yaml_float(row, :init_stretched_length)
+    tether_force = yaml_float(row, :init_tether_force)
+    stretch_frac = yaml_float(row, :init_stretch_frac)
+    return stretched_length, tether_force, stretch_frac
+end
+
+function yaml_field(row, field)
+    hasfield(typeof(row), field) || return nothing
+    getfield(row, field)
+end
+
+function yaml_float(row, field)
+    value = yaml_field(row, field)
+    isnothing(value) ? nothing : Float64(value)
 end
 
 """
@@ -684,32 +692,32 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 # Route 1: explicit segments
                 segs = [yaml_to_ref(s)
                     for s in row.segment_idxs]
-                sp = if hasfield(typeof(row),
+                start_ref = if hasfield(typeof(row),
                         :start_point) &&
                         !isnothing(row.start_point)
                     yaml_to_ref(row.start_point)
                 else
                     nothing
                 end
-                ep = if hasfield(typeof(row),
+                end_ref = if hasfield(typeof(row),
                         :end_point) &&
                         !isnothing(row.end_point)
                     yaml_to_ref(row.end_point)
                 else
                     nothing
                 end
-                isl, itf = parse_tether_init(
-                    row, tether_name)
-                tether = Tether(tether_name, segs, isl;
-                    start_point=sp, end_point=ep,
-                    tether_force=itf)
+                stretched_length, tether_force, stretch_frac =
+                    parse_tether_init(row, tether_name)
+                tether = Tether(tether_name, segs, stretched_length;
+                    start_point=start_ref, end_point=end_ref,
+                    tether_force, stretch_frac)
             else
                 # Route 2: auto-generation
-                sp = yaml_to_ref(row.start_point)
-                ep = yaml_to_ref(row.end_point)
+                start_ref = yaml_to_ref(row.start_point)
+                end_ref = yaml_to_ref(row.end_point)
                 n_seg = Int(row.n_segments)
-                isl, itf = parse_tether_init(
-                    row, tether_name)
+                stretched_length, tether_force, stretch_frac =
+                    parse_tether_init(row, tether_name)
                 # Resolve material reference if present
                 resolved = resolve_references(
                     row, property_tables)
@@ -730,11 +738,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     Float64(d_mm)
                 d = isnan(d_mm) ? NaN :
                     d_mm * 0.001
-                tether = Tether(tether_name, isl;
-                    start_point=sp, end_point=ep,
+                tether = Tether(tether_name, stretched_length;
+                    start_point=start_ref, end_point=end_ref,
                     n_segments=n_seg,
                     unit_stiffness=us, unit_damping=ud,
-                    diameter=d, tether_force=itf)
+                    diameter=d, tether_force, stretch_frac)
             end
             push!(tethers, tether)
         end

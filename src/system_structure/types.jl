@@ -526,11 +526,6 @@ mutable struct Tether
     """Unstretched tether length [m] (sum of segment l0).
     ODE state variable. Segment l0 = len / n_segments."""
     len::SimFloat
-    """Derived initial unstretched rope length [m] (the
-    rest length `reinit!` sets `len` to). Computed from the
-    placed stretched length and `init_tether_force`. Not a
-    user input."""
-    init_unstretched_len::Union{SimFloat, Nothing}
     """Initial stretched standoff [m] — the placed point
     geometry (Σ segment norms). Drives placement of root
     tethers. `nothing` = use the geometric (CAD) length,
@@ -538,14 +533,32 @@ mutable struct Tether
     init_stretched_len::Union{SimFloat, Nothing}
     """Target initial spring force [N], default 0. `reinit!`
     solves the unstretched `len` from the placed stretched
-    length: `len = stretched · (1 − force/unit_stiffness)`."""
+    length: `len = stretched · (1 − force/unit_stiffness)`.
+    Mutually exclusive with `init_stretch_frac`."""
     init_tether_force::Union{SimFloat, Nothing}
+    """Initial unstretched/stretched length fraction. `reinit!`
+    sets `len = init_stretch_frac · stretched`; 0.9 gives 10%
+    pre-stretch, 1.0 no tension. Mutually exclusive with
+    `init_tether_force`."""
+    init_stretch_frac::Union{SimFloat, Nothing}
+end
+
+function Base.setproperty!(t::Tether, name::Symbol, x)
+    if name === :init_stretch_frac
+        isnothing(x) || setfield!(t, :init_tether_force, nothing)
+        setfield!(t, :init_stretch_frac, x)
+    elseif name === :init_tether_force
+        isnothing(x) || setfield!(t, :init_stretch_frac, nothing)
+        setfield!(t, :init_tether_force, x)
+    else
+        setfield!(t, name, x)
+    end
 end
 
 """
     Tether(name, segments, stretched_length=nothing;
            start_point=nothing, end_point=nothing,
-           tether_force=nothing)
+           tether_force=nothing, stretch_frac=nothing)
 
 Route 1: Construct a `Tether` from explicit segment references.
 
@@ -560,40 +573,52 @@ Route 1: Construct a `Tether` from explicit segment references.
 - `start_point=nothing`: Optional start point ref.
 - `end_point=nothing`: Optional end point ref.
 - `tether_force=nothing`: Target initial spring force [N], default 0.
+- `stretch_frac=nothing`: Initial `len/stretched` fraction. Mutually
+  exclusive with `tether_force`.
 """
 function Tether(name, segments::AbstractVector, stretched_length=nothing;
                 start_point=nothing, end_point=nothing,
-                winch_point=nothing, tether_force=nothing)
+                winch_point=nothing, tether_force=nothing,
+                stretch_frac=nothing)
     if !isnothing(winch_point)
         error("`winch_point` moved from Tether to " *
               "Winch. Use Tether(name, segments, " *
               "len) and pass winch_point to the " *
               "Winch constructor.")
     end
-    segment_refs = Vector{NameRef}(
-        [s isa Integer ? Int(s) : Symbol(s) for s in segments])
-    sp = isnothing(start_point) ? nothing :
-        (start_point isa Integer ? Int(start_point) :
-         Symbol(start_point))
-    ep = isnothing(end_point) ? nothing :
-        (end_point isa Integer ? Int(end_point) :
-         Symbol(end_point))
-    itf = isnothing(tether_force) ? nothing :
-        SimFloat(tether_force)
-    isl = isnothing(stretched_length) ? nothing :
-        SimFloat(stretched_length)
+    init_force, init_frac =
+        _resolve_tether_init(name, tether_force, stretch_frac)
+    segment_refs = Vector{NameRef}(_name_ref.(segments))
+    init_stretched = _opt_simfloat(stretched_length)
     return Tether(0, name, Int64[], segment_refs,
-                  0, sp, 0, ep,
+                  0, _name_ref(start_point), 0, _name_ref(end_point),
                   length(segments),
                   NaN, NaN, NaN, 0.0,
-                  0.0, nothing, isl, itf)
+                  0.0, init_stretched, init_force, init_frac)
+end
+
+_name_ref(::Nothing) = nothing
+_name_ref(x::Integer) = Int(x)
+_name_ref(x) = Symbol(x)
+
+_opt_simfloat(::Nothing) = nothing
+_opt_simfloat(x) = SimFloat(x)
+
+function _resolve_tether_init(name, tether_force, stretch_frac)
+    if !isnothing(tether_force) && !isnothing(stretch_frac)
+        error("Tether $name: set only one of `tether_force` and " *
+              "`stretch_frac`.")
+    end
+    !isnothing(stretch_frac) && return nothing, SimFloat(stretch_frac)
+    !isnothing(tether_force) && return SimFloat(tether_force), nothing
+    return SimFloat(0.0), nothing
 end
 
 """
     Tether(name, stretched_length=nothing;
            start_point, end_point, n_segments,
            unit_stiffness=NaN, unit_damping=NaN,
-           diameter=NaN, tether_force=nothing)
+           diameter=NaN, tether_force=nothing, stretch_frac=nothing)
 
 Route 2: Construct a `Tether` for auto-generation of intermediate
 points and segments by `expand_auto_tethers!`.
@@ -615,28 +640,26 @@ points and segments by `expand_auto_tethers!`.
 - `diameter::Float64=NaN`: Tether diameter [m].
   NaN = derive from Settings during auto-expansion.
 - `tether_force=nothing`: Target initial spring force [N], default 0.
+- `stretch_frac=nothing`: Initial `len/stretched` fraction. Mutually
+  exclusive with `tether_force`.
 """
 function Tether(name, stretched_length=nothing;
                 start_point, end_point, n_segments,
                 unit_stiffness=NaN, unit_damping=NaN,
-                diameter=NaN, tether_force=nothing)
-    sp = start_point isa Integer ? Int(start_point) :
-         Symbol(start_point)
-    ep = end_point isa Integer ? Int(end_point) :
-         Symbol(end_point)
+                diameter=NaN, tether_force=nothing,
+                stretch_frac=nothing)
+    init_force, init_frac =
+        _resolve_tether_init(name, tether_force, stretch_frac)
     seg_refs = Vector{NameRef}(
         [Symbol("$(name)_seg_$i") for i in 1:n_segments])
-    itf = isnothing(tether_force) ? nothing :
-        SimFloat(tether_force)
-    isl = isnothing(stretched_length) ? nothing :
-        SimFloat(stretched_length)
+    init_stretched = _opt_simfloat(stretched_length)
     return Tether(0, name, Int64[], seg_refs,
-                  0, sp, 0, ep,
+                  0, _name_ref(start_point), 0, _name_ref(end_point),
                   Int64(n_segments),
                   Float64(unit_stiffness),
                   Float64(unit_damping),
                   Float64(diameter), 0.0,
-                  0.0, nothing, isl, itf)
+                  0.0, init_stretched, init_force, init_frac)
 end
 
 # ==================== WINCH ==================== #

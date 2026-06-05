@@ -132,6 +132,7 @@ SymbolicAWEModels.group_tethers_by_overlap
 SymbolicAWEModels.tether_unit_stiffness
 SymbolicAWEModels.apply_cluster_init_stretched_len!
 SymbolicAWEModels.apply_tether_init_stretched_lens!
+SymbolicAWEModels.init_unstretched_len
 SymbolicAWEModels.apply_tether_init_forces!
 SymbolicAWEModels.assign_indices_and_resolve!
 SymbolicAWEModels.resolve_ref

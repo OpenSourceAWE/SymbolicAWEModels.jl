@@ -393,5 +393,44 @@ winches:
             yaml_path; system_name="init_stretched_length_nonroot", set=set)
     end
 
+    # ================================================================
+    # Test 8: init_tether_force / init_stretch_frac derive len
+    # ================================================================
+    @testset "init force and stretch_frac" begin
+        yaml_path = joinpath(tmpdir, "r2_force.yaml")
+        write(yaml_path, INIT_LEN_YAML_ROUTE2)
+        sys = load_sys_struct_from_yaml(yaml_path;
+            system_name="init_stretched_length_r2_force", set=set)
+        SymbolicAWEModels.reinit!(sys, set)
+
+        tether = sys.tethers[:main_tether]
+        segs = sys.segments
+        stretched = sum(segs[si].len for si in tether.segment_idxs)
+        k = SymbolicAWEModels.tether_unit_stiffness(tether, segs)
+        @test stretched ≈ 200.0
+
+        # default: force 0, no frac → len == stretched
+        @test tether.init_tether_force == 0.0
+        @test isnothing(tether.init_stretch_frac)
+        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        @test tether.len ≈ stretched
+
+        # stretch_frac → len = frac * stretched; clears the force
+        tether.init_stretch_frac = 0.8
+        @test isnothing(tether.init_tether_force)
+        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        @test tether.len ≈ 0.8 * stretched
+
+        # force → len = stretched * (1 - force/k); clears the frac
+        tether.init_tether_force = 0.1 * k
+        @test isnothing(tether.init_stretch_frac)
+        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        @test tether.len ≈ stretched * 0.9
+
+        # only one of force / frac may have a value at a time
+        @test_throws ErrorException Tether(:both, [:s1];
+            tether_force=1.0, stretch_frac=0.9)
+    end
+
 end
 nothing

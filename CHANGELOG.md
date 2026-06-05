@@ -8,21 +8,24 @@
   `init_stretched_length` (the standoff / placed point geometry,
   default = geometric) and `init_tether_force` (default 0), and
   `len = stretched·(1 − force/unit_stiffness)`.
-- `Tether.init_stretched_len`/`init_unstretched_len` are now
-  `Union{SimFloat,Nothing}` (`init_unstretched_len` is derived); `Tether`
-  gained `init_tether_force`; the positional length constructor arg
-  (now the stretched length) is optional. Serialized models must be
-  rebuilt.
+- `Tether` gained `init_stretched_len` (`Union{SimFloat,Nothing}`
+  placement standoff) and the mutually-exclusive pre-tension inputs
+  `init_tether_force` / `init_stretch_frac`. `init_unstretched_len` is
+  no longer a field — the derived rest length is now the
+  `init_unstretched_len(tether, segments)` function. The positional
+  length constructor arg (now the stretched length) is optional.
+  Serialized models must be rebuilt.
 - `VSMWing` `origin_idx`/`origin_ref` replaced by
   `origin::WeightedRefPoints` (weighted body-frame origin).
 - `update_yaml_from_sys_struct!` and `update_sys_struct_from_yaml!`
   removed (unreliable line-based YAML round-tripping, no longer used).
 
 ### Added
-- `init_tether_force` (YAML / `Tether(...; tether_force)`, default 0):
-  `reinit!` derives every tether's unstretched `len` from the placed
-  stretched length, `len = stretched·(1 − force/unit_stiffness)`;
-  force 0 gives zero tension.
+- `init_tether_force` (default 0) and `init_stretch_frac` (mutually
+  exclusive; YAML columns and `Tether(...; tether_force / stretch_frac)`
+  kwargs): `reinit!` derives every tether's unstretched `len` from the
+  placed stretched length — `len = stretched·(1 − force/unit_stiffness)`
+  or `len = stretch_frac·stretched`. Setting one clears the other.
 - `init!`/`reinit!` `apply_tether_lengths` kwarg to skip placement.
 - `WeightedRefPoints(::AbstractString)`; `yaml_parse_origin` for
   weighted origin specs.
