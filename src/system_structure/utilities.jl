@@ -525,13 +525,14 @@ end
 
 Derived initial unstretched (rest) length from the tether's current
 (placed) stretched length `stretched = Σ segment lengths`:
-- `init_stretch_frac` set: `len = stretch_frac · stretched`.
+- `init_stretch_frac` set: `len = stretch_frac · stretched`
+  (`< 1` pre-stretch, `1` neutral, `> 1` slack).
 - otherwise from `init_tether_force` (default 0):
   `len = stretched · (1 − force / unit_stiffness)` (zero-velocity,
   tension branch). Force 0 gives `len = stretched` (no tension).
 
 Errors if both `init_stretch_frac` and `init_tether_force` are set,
-if `stretch_frac ∉ (0, 1]`, if `force < 0`, if `force ≥
+if `stretch_frac ≤ 0`, if `force < 0`, if `force ≥
 unit_stiffness`, or if the segments have non-uniform `unit_stiffness`.
 """
 function init_unstretched_len(tether, segments)
@@ -544,8 +545,8 @@ function init_unstretched_len(tether, segments)
               "init_stretch_frac and init_tether_force")
     end
     if !isnothing(frac)
-        (frac > 0 && frac <= 1) || error("Tether $(tether.name): " *
-            "init_stretch_frac $frac must be in (0, 1]")
+        frac > 0 || error("Tether $(tether.name): " *
+            "init_stretch_frac $frac must be positive")
         return stretched * frac
     end
     force = something(force, 0.0)
@@ -1020,20 +1021,20 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         winches[i].set_value = Float64(ss.set_torque[i])
     end
 
-    # Update VSM panel corner positions from world frame back to body frame
     corner_idx = n_points
     for wing in wings
         wing isa VSMWing || continue
-        R_w_to_b = (wing.R_b_to_w::Matrix{SimFloat})'  # Transpose to get world-to-body rotation
+        n_corners = length(wing.vsm_aero.panels) * 4
+        if wing.dynamics_type == RIGID_DYNAMICS
+            corner_idx += n_corners
+            continue
+        end
+        R_w_to_b = (wing.R_b_to_w::Matrix{SimFloat})'
         for panel in wing.vsm_aero.panels
             for j in 1:4
                 corner_idx += 1
-                # Get corner position from SysState (world frame)
                 corner_w = [ss.X[corner_idx], ss.Y[corner_idx], ss.Z[corner_idx]]
-                # Transform from world frame to body frame
-                corner_b = R_w_to_b * (corner_w - wing.pos_w)
-                # Update panel corner
-                panel.corner_points[:, j] .= corner_b
+                panel.corner_points[:, j] .= R_w_to_b * (corner_w - wing.pos_w)
             end
         end
     end

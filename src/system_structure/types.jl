@@ -538,8 +538,8 @@ mutable struct Tether
     init_tether_force::Union{SimFloat, Nothing}
     """Initial unstretched/stretched length fraction. `reinit!`
     sets `len = init_stretch_frac · stretched`; 0.9 gives 10%
-    pre-stretch, 1.0 no tension. Mutually exclusive with
-    `init_tether_force`."""
+    pre-stretch, 1.0 no tension, >1.0 slack. Must be positive.
+    Mutually exclusive with `init_tether_force`."""
     init_stretch_frac::Union{SimFloat, Nothing}
 end
 

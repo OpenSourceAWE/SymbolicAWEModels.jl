@@ -421,6 +421,15 @@ winches:
         SymbolicAWEModels.apply_tether_init_forces!(sys)
         @test tether.len ≈ 0.8 * stretched
 
+        # stretch_frac > 1 → slack: len longer than stretched
+        tether.init_stretch_frac = 1.1
+        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        @test tether.len ≈ 1.1 * stretched
+
+        # non-positive stretch_frac errors
+        tether.init_stretch_frac = 0.0
+        @test_throws ErrorException SymbolicAWEModels.apply_tether_init_forces!(sys)
+
         # force → len = stretched * (1 - force/k); clears the frac
         tether.init_tether_force = 0.1 * k
         @test isnothing(tether.init_stretch_frac)
