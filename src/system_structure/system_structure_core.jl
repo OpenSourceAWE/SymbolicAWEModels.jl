@@ -854,6 +854,54 @@ function SystemStructure(name, set;
                 seg_last.point_idxs[2]
         end
     end
+    # Calculate wing mass with either/or priority logic:
+    # - If wing points have extra_mass specified, use point masses (priority)
+    # - If only set.mass specified, distribute to wing points
+    # - Warn if both sources have nonzero values
+    #
+    # NOTE: This MUST run before the inertia / body-frame loop below, since
+    # the inertia tensor and COM are computed from the WING points' masses.
+    # If set.mass is distributed to the points afterwards, the inertia loop
+    # sees zero mass, skips the computation, and the wing keeps its unit
+    # placeholder inertia [1,1,1] — which makes RIGID_DYNAMICS wings tumble
+    # the instant aerodynamic moments are applied (e.g. with vsm_interval>0).
+    for wing in wings
+        wing_point_idxs = [p.idx for p in points if p.type == WING && p.wing_idx == wing.idx]
+        # Sum of user-specified WING point masses
+        point_mass_sum = sum(
+            p.extra_mass for p in points if p.type == WING && p.wing_idx == wing.idx;
+            init=0.0
+        )
+
+        # Check for conflict between set.mass and point masses
+        set_mass = hasproperty(set, :mass) ? set.mass : 0.0
+
+        if set_mass > 0 && point_mass_sum > 0
+            @warn "Both set.mass ($set_mass) and wing point masses ($point_mass_sum) " *
+                  "specified for wing $(wing.idx). Using wing point masses (sys_struct " *
+                  "priority)."
+            wing.mass = point_mass_sum
+        elseif point_mass_sum > 0
+            # Wing point masses specified, no set.mass
+            wing.mass = point_mass_sum
+        elseif set_mass > 0
+            # set.mass specified, distribute equally to wing points
+            n_wing_points = length(wing_point_idxs)
+            if n_wing_points > 0
+                mass_per_point = set_mass / n_wing_points
+                for point_idx in wing_point_idxs
+                    points[point_idx].extra_mass = mass_per_point  # ASSIGN, not add
+                end
+            end
+            wing.mass = set_mass
+        else
+            # Neither specified - wing has no mass
+            wing.mass = 0.0
+        end
+
+        # Mass and inertia validation is done in validate_sys_struct()
+    end
+
     # Compute body frame (COM + principal axes) and
     # transform VSM panels from CAD → body frame.
     # RIGID_DYNAMICS: COM from point masses, Y-axis rotation
@@ -1190,47 +1238,6 @@ function SystemStructure(name, set;
             end
 
         end
-    end
-
-    # Calculate wing mass with either/or priority logic:
-    # - If wing points have extra_mass specified, use point masses (priority)
-    # - If only set.mass specified, distribute to wing points
-    # - Warn if both sources have nonzero values
-    for wing in wings
-        wing_point_idxs = [p.idx for p in points if p.type == WING && p.wing_idx == wing.idx]
-        # Sum of user-specified WING point masses
-        point_mass_sum = sum(
-            p.extra_mass for p in points if p.type == WING && p.wing_idx == wing.idx;
-            init=0.0
-        )
-
-        # Check for conflict between set.mass and point masses
-        set_mass = hasproperty(set, :mass) ? set.mass : 0.0
-
-        if set_mass > 0 && point_mass_sum > 0
-            @warn "Both set.mass ($set_mass) and wing point masses ($point_mass_sum) " *
-                  "specified for wing $(wing.idx). Using wing point masses (sys_struct " *
-                  "priority)."
-            wing.mass = point_mass_sum
-        elseif point_mass_sum > 0
-            # Wing point masses specified, no set.mass
-            wing.mass = point_mass_sum
-        elseif set_mass > 0
-            # set.mass specified, distribute equally to wing points
-            n_wing_points = length(wing_point_idxs)
-            if n_wing_points > 0
-                mass_per_point = set_mass / n_wing_points
-                for point_idx in wing_point_idxs
-                    points[point_idx].extra_mass = mass_per_point  # ASSIGN, not add
-                end
-            end
-            wing.mass = set_mass
-        else
-            # Neither specified - wing has no mass
-            wing.mass = 0.0
-        end
-
-        # Mass and inertia validation is done in validate_sys_struct()
     end
 
     for (i, transform) in enumerate(transforms)
