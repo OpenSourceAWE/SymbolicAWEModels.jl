@@ -39,6 +39,17 @@ l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
 init!(sam; prn=false, remake=false, remake_vsm=false)
 SymbolicAWEModels.find_steady_state!(sam)
 
+# Curvature-averaged spanwise axis at refined section `i`, replicating
+# VortexStepMethod._apply_refined_section_thetas! (wing_geometry.jl).
+function refined_local_y(secs, i)
+    n = length(secs)
+    le = Vector(secs[i].LE_point)
+    ly = zeros(3)
+    i > 1 && (ly += normalize(Vector(secs[i - 1].LE_point) - le))
+    i < n && (ly += normalize(le - Vector(secs[i + 1].LE_point)))
+    return normalize(ly)
+end
+
 # Distance between each group's structural strut TE (body frame, under
 # the current twist) and the matching deformed VSM panel TE.
 function twist_te_diffs(sam)
@@ -54,6 +65,9 @@ function twist_te_diffs(sam)
     for g in groups, u in g.unrefined_section_idxs
         theta[u] = g.twist
     end
+    section_thetas =
+        VortexStepMethod._interpolate_unrefined_to_refined(vsm, theta)
+    undeformed = vsm.non_deformed_sections
     VortexStepMethod.unrefined_deform!(vsm, theta)
     refined = vsm.refined_sections
 
@@ -65,12 +79,41 @@ function twist_te_diffs(sam)
             (i1, i2) : (i2, i1)
         le_b = R' * (points[le_idx].pos_w - origin)
         te_b = R' * (points[te_idx].pos_w - origin)
-        k = argmin([norm(Vector(s.LE_point) - le_b)
-                    for s in refined])
-        sec_te = Vector(refined[k].TE_point)
+        mid_b = (le_b + te_b) / 2
+
+        k_le = argmin([norm(Vector(s.LE_point) - le_b)
+                       for s in refined])
+        k_mid = argmin([
+            norm((Vector(s.LE_point) + Vector(s.TE_point)) / 2 - mid_b)
+            for s in refined])
+
+        sec_te = Vector(refined[k_le].TE_point)
+        diff_interp = norm(sec_te - te_b)
+
+        # Direct rotation of section k_le's UNDEFORMED chord by the
+        # group's own twist (bypassing per-section theta interpolation).
+        le_k = Vector(undeformed[k_le].LE_point)
+        chord_k = Vector(undeformed[k_le].TE_point) - le_k
+        ly_k = refined_local_y(undeformed, k_le)
+        te_direct = le_k +
+            cos(g.twist) * chord_k - sin(g.twist) * (chord_k × ly_k)
+        diff_direct = norm(te_direct - te_b)
+
+        # Zero-twist baseline: undeformed section TE vs structural TE
+        # back-rotated to zero twist about the same axis.
+        struct_chord = te_b - le_b
+        struct_chord0 = cos(-g.twist) * struct_chord -
+            sin(-g.twist) * (struct_chord × ly_k)
+        te_b0 = le_b + struct_chord0
+        diff_baseline = norm(Vector(undeformed[k_le].TE_point) - te_b0)
+
         push!(rows, (name=g.name, twist=g.twist,
             struct_te=te_b, vsm_te=sec_te,
-            diff=norm(sec_te - te_b)))
+            diff=diff_interp,
+            k_le=k_le, k_mid=k_mid,
+            theta_k=section_thetas[k_le],
+            diff_direct=diff_direct,
+            diff_baseline=diff_baseline))
     end
     VortexStepMethod.unrefined_deform!(vsm, zeros(Float64, n_unref))
     return rows
@@ -93,6 +136,12 @@ for r in rows
         "  struct_te=", round.(r.struct_te; digits=5),
         "  vsm_te=", round.(r.vsm_te; digits=5),
         "  diff=", round(r.diff; digits=6))
+    println("    k_le=", r.k_le, " k_mid=", r.k_mid,
+        "  theta_k=", round(r.theta_k; digits=5),
+        " (group.twist=", round(r.twist; digits=5), ")",
+        "  diff_interp=", round(r.diff; digits=6),
+        "  diff_direct=", round(r.diff_direct; digits=6),
+        "  diff_baseline=", round(r.diff_baseline; digits=6))
 end
 
 @testset "twist TE alignment" begin
