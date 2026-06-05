@@ -77,5 +77,5 @@ sim_time = n_steps * dt
 save_log(logger, "nonlin_vsm")
 syslog = load_log("nonlin_vsm")
 scene = replay(syslog, sam.sys_struct)
-# display(scene)
+display(scene)
 @info "Done (nonlinear VSM, interval=$VSM_INTERVAL)"

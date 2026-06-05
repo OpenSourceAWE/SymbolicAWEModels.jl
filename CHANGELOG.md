@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## v0.11.0 01-06-2026
+## v0.11.0 02-06-2026
 
 ### Breaking
 - Tether `init_unstretched_length` (YAML) removed; specifying it errors.
