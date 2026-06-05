@@ -972,6 +972,22 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         end
     end
 
+    for wing in wings
+        wing isa VSMWing || continue
+        wing.dynamics_type == RIGID_DYNAMICS || continue
+        isempty(wing.group_idxs) && continue
+        vsm = wing.vsm_wing
+        isempty(vsm.non_deformed_sections) && continue
+        theta = zeros(Float64, vsm.n_unrefined_sections)
+        for g_idx in wing.group_idxs
+            for u in groups[g_idx].unrefined_section_idxs
+                theta[u] = groups[g_idx].twist
+            end
+        end
+        VortexStepMethod.unrefined_deform!(vsm, theta)
+        VortexStepMethod.reinit!(wing.vsm_aero; init_aero=false)
+    end
+
     # Update tether lengths from SysState (per-tether)
     for (ti, tether) in enumerate(tethers)
         ti > 4 && break

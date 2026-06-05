@@ -1056,82 +1056,36 @@ function SystemStructure(name, set;
         end
     end
 
-    # Initialize group geometries from closest VSM panel
     for group in groups
-        if iszero(group.chord)
-            # Find which wing this group belongs to
-            for wing in wings
-                if group.idx in wing.group_idxs
-                    # Compute group center in body frame (average of all attach points)
-                    center = zeros(3)
-                    for pt_idx in group.point_idxs
-                        center += wing.R_b_to_c' * (points[pt_idx].pos_cad - wing.pos_cad)
-                    end
-                    center ./= length(group.point_idxs)
-
-                    # Find closest panel (panels are in body
-                    # frame after reinit!)
-                    panels = wing.vsm_aero.panels
-                    min_dist = Inf
-                    closest_panel = panels[1]
-                    for panel in panels
-                        pc = (panel.LE_point_1 +
-                              panel.LE_point_2 +
-                              panel.TE_point_1 +
-                              panel.TE_point_2) / 4
-                        dist = norm(center - pc)
-                        if dist < min_dist
-                            min_dist = dist
-                            closest_panel = panel
-                        end
-                    end
-
-                    # Panel geometry already in body frame
-                    group.le_pos .=
-                        (closest_panel.LE_point_1 +
-                         closest_panel.LE_point_2) / 2
-                    group.chord .=
-                        closest_panel.x_airf *
-                        closest_panel.chord
-                    group.y_airf .=
-                        closest_panel.y_airf
-
-                    break
-                end
+        iszero(group.chord) || continue
+        for wing in wings
+            group.idx in wing.group_idxs || continue
+            center = zeros(3)
+            for pt_idx in group.point_idxs
+                center += wing.R_b_to_c' *
+                    (points[pt_idx].pos_cad - wing.pos_cad)
             end
-        end
-    end
+            center ./= length(group.point_idxs)
 
-    # Match VSM _apply_refined_section_thetas!: spanwise twist axis
-    # is the average of unit vectors to adjacent groups' LE points.
-    for wing in wings
-        wing.dynamics_type != RIGID_DYNAMICS && continue
-        n_grp = length(wing.group_idxs)
-        n_grp >= 2 || continue
+            sections = wing.vsm_wing.refined_sections
+            n_sec = length(sections)
+            ksec = argmin([
+                norm(center -
+                    (Vector(s.LE_point) +
+                     Vector(s.TE_point)) / 2)
+                for s in sections])
+            le_sec = Vector(sections[ksec].LE_point)
+            te_sec = Vector(sections[ksec].TE_point)
+            ly = zeros(3)
+            ksec > 1 && (ly += normalize(
+                Vector(sections[ksec - 1].LE_point) - le_sec))
+            ksec < n_sec && (ly += normalize(
+                le_sec - Vector(sections[ksec + 1].LE_point)))
 
-        sorted_idxs = wing.group_idxs[sortperm(
-            [groups[g].le_pos[2] for g in wing.group_idxs])]
-
-        new_y = [zeros(KVec3) for _ in 1:n_grp]
-        for k in 1:n_grp
-            le = groups[sorted_idxs[k]].le_pos
-            if k > 1
-                le_prev = groups[sorted_idxs[k - 1]].le_pos
-                new_y[k] .+= normalize(le_prev .- le)
-            end
-            if k < n_grp
-                le_next = groups[sorted_idxs[k + 1]].le_pos
-                new_y[k] .+= normalize(le .- le_next)
-            end
-            new_y[k] .= normalize(new_y[k])
-        end
-
-        for k in 1:n_grp
-            old_y = groups[sorted_idxs[k]].y_airf
-            if dot(new_y[k], old_y) < 0
-                new_y[k] .= -new_y[k]
-            end
-            groups[sorted_idxs[k]].y_airf .= new_y[k]
+            group.le_pos .= le_sec
+            group.chord .= te_sec - le_sec
+            group.y_airf .= normalize(ly)
+            break
         end
     end
 
