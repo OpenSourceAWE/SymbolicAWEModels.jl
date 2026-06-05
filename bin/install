@@ -27,7 +27,7 @@ print_usage() {
     echo "                        then copy the resulting main manifest back to *.toml.default."
     echo "  --skip-subprojects    Skip setup/update of examples, test, and docs sub-projects."
     echo "  --no-precompile       Skip all Pkg.precompile() steps; just resolve manifests."
-    echo "  +X.Y, --version X.Y   Use Julia channel X.Y and set it as the juliaup default."
+    echo "  +X.Y, --version X.Y   Use Julia channel X.Y for this run (juliaup default unchanged)."
     echo "                        Without this, a menu will ask you to choose 1.11 or 1.12"
     echo "                        (with the currently active Julia version as default)."
     echo "  -h, --help            Show this help message and exit."
@@ -142,13 +142,11 @@ fi
 
 echo "Ensuring Julia ${_desired_julia} channel is installed..."
 juliaup add "${_desired_julia}"
-echo "Setting Julia ${_desired_julia} as the juliaup default..."
-juliaup default "${_desired_julia}"
 echo
 
 julia_major="${_desired_julia}"
 JULIA="julia +${_desired_julia}"
-echo "Using ${JULIA} for this run (now also the juliaup default)."
+echo "Using ${JULIA} for this run (juliaup default left unchanged)."
 
 export JULIA_PKG_SERVER_REGISTRY_PREFERENCE=eager
 
@@ -178,8 +176,8 @@ if [ ! -f "LocalPreferences.toml" ]; then
     fi
 fi
 
-# Ensure Pkg writes to the versioned manifest for a given directory:
-# delete any generic Manifest.toml and touch both versioned manifests so Pkg picks them up.
+# Delete any generic Manifest.toml and stale 0-byte versioned manifests so
+# Pkg resolves from an existing versioned manifest or writes a fresh one.
 _prepare_manifests() {
     local dir="${1:-.}"
     rm -f "${dir}/Manifest.toml"
@@ -197,6 +195,9 @@ if [[ $_update == true ]]; then
     echo "Updating main project (Pkg.update, no auto-precompile)..."
     JULIA_PKG_PRECOMPILE_AUTO=0 $JULIA --project -e 'using Pkg; Pkg.update()'
 
+    if [ ! -f "Manifest-v${julia_major}.toml" ] && [ -f "Manifest.toml" ]; then
+        mv "Manifest.toml" "Manifest-v${julia_major}.toml"
+    fi
     cp "Manifest-v${julia_major}.toml" "Manifest-v${julia_major}.toml.default"
     echo "Copied Manifest-v${julia_major}.toml to Manifest-v${julia_major}.toml.default"
     echo "(safe to git commit + push now while precompile continues)"

@@ -420,8 +420,8 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; p
         end
 
         return VortexStepMethod.ObjWing(obj_path, dat_path;
-            mass=set.mass, crease_frac=set.crease_frac, n_unrefined_sections,
-            align_to_principal=true, prn
+            mass=1.0, crease_frac=set.crease_frac, n_unrefined_sections,
+            align_to_principal=false, prn
         )
     end
 

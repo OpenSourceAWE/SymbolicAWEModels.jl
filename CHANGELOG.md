@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## v0.11.0 02-06-2026
+## v0.11.0 05-06-2026
 
 ### Breaking
 - Tether `init_unstretched_length` (YAML) removed; specifying it errors.
@@ -26,6 +26,8 @@
   kwargs): `reinit!` derives every tether's unstretched `len` from the
   placed stretched length — `len = stretched·(1 − force/unit_stiffness)`
   or `len = stretch_frac·stretched`. Setting one clears the other.
+  `init_stretch_frac` must be positive: `<1` pre-stretch, `1` neutral,
+  `>1` slack.
 - `init!`/`reinit!` `apply_tether_lengths` kwarg to skip placement.
 - `WeightedRefPoints(::AbstractString)`; `yaml_parse_origin` for
   weighted origin specs.
@@ -47,8 +49,11 @@
   use `wing.pos_w` directly.
 - `build_point_to_vsm_point_mapping` takes a `VSMWing`, using
   body-frame closest-point distances.
+- `VortexStepMethod` compat raised to `3.3.5`.
 
 ### Fixed
+- Per-group unrefined moment uses the VSM solver field
+  `moment_coeff_unrefined_dist`.
 - Makie zoom/pan world-camera save/restore (no view drift); body-frame
   zoom distance preserved across mode switches.
 - `vsm_refine.jl`: RIGID_DYNAMICS wings always keep their aerodynamic

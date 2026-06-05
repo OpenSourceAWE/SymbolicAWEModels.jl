@@ -266,7 +266,7 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
     sol = solver_c.sol
     cf = sol.force_coeffs
     cm_body = sol.moment_coeffs
-    moment_unr = sol.moment_coeff_unrefined_dist
+    moment_coeff_unrefined = sol.moment_coeff_unrefined_dist
 
     # Wind-axis basis (matches VSM): drag along va,
     # lift = normalize(drag × span), side = lift × drag.
@@ -283,7 +283,7 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
     x[5] = cm_body[2]
     x[6] = cm_body[3]
     for (gi, gidx) in enumerate(group_idxs)
-        x[6 + gi] = sum(moment_unr[ui]
+        x[6 + gi] = sum(moment_coeff_unrefined[ui]
             for ui in groups[gidx].unrefined_section_idxs;
             init = zero(T))
     end

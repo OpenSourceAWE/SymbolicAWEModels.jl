@@ -727,6 +727,18 @@ end
 # ==================== CONSTRUCTOR ==================== #
 
 """
+    has_mesh_inertia(wing) -> Bool
+
+True when `wing` is a `VSMWing` whose VSM geometry provides a non-zero mesh
+inertia tensor (an `ObjWing` built with `set.mass > 0`).
+"""
+function has_mesh_inertia(wing)
+    isa(wing, VSMWing) || return false
+    tensor = wing.vsm_wing.inertia_tensor
+    return !isempty(tensor) && any(!iszero, tensor)
+end
+
+"""
     SystemStructure(name, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
 
 Constructs a `SystemStructure` object representing a complete kite system.
@@ -872,24 +884,29 @@ function SystemStructure(name, set;
 
             masses = [p.extra_mass for p in wing_pts]
             total_m = sum(masses)
-            com_cad = if total_m > 0
-                sum(masses[j] .* wing_pts[j].pos_cad
-                    for j in eachindex(wing_pts)) /
-                    total_m
-            else
-                mean([p.pos_cad for p in wing_pts])
-            end
 
-            # Inertia tensor about COM in CAD frame
-            if total_m > 0
-                I_cad = zeros(3, 3)
-                for (m, p) in zip(masses, wing_pts)
-                    r = p.pos_cad - com_cad
-                    I_cad += m * (dot(r, r) * I(3) -
-                                  r * r')
+            # Mesh tensor is per-unit-mass; its COM is -T_cad_body.
+            if has_mesh_inertia(wing)
+                set_mass = hasproperty(set, :mass) ? set.mass : 0.0
+                wing_mass = set_mass > 0 ? set_mass : total_m
+                com_cad = -vsm_wing.T_cad_body
+                I_cad = wing_mass .* vsm_wing.inertia_tensor
+            else
+                com_cad = total_m > 0 ?
+                    sum(masses[j] .* wing_pts[j].pos_cad
+                        for j in eachindex(wing_pts)) / total_m :
+                    mean([p.pos_cad for p in wing_pts])
+                I_cad = nothing
+                if total_m > 0
+                    I_cad = zeros(3, 3)
+                    for (m, p) in zip(masses, wing_pts)
+                        r = p.pos_cad - com_cad
+                        I_cad += m * (dot(r, r) * I(3) - r * r')
+                    end
                 end
-                I_diag, Ry =
-                    calc_inertia_y_rotation(I_cad)
+            end
+            if !isnothing(I_cad)
+                I_diag, Ry = calc_inertia_y_rotation(I_cad)
                 wing.R_p_to_c .= Ry'  # principal→CAD
                 wing.inertia_principal .= diag(I_diag)
             end
@@ -1162,6 +1179,11 @@ function SystemStructure(name, set;
         set_mass = hasproperty(set, :mass) ? set.mass : 0.0
 
         if set_mass > 0 && point_mass_sum > 0
+            has_mesh_inertia(wing) && error(
+                "Wing $(wing.idx): mass specified via BOTH set.mass ($set_mass kg) and " *
+                "WING point extra_mass ($point_mass_sum kg). The VSM mesh inertia tensor " *
+                "is scaled by set.mass, so these must agree — specify the wing mass " *
+                "through exactly one source.")
             @warn "Both set.mass ($set_mass) and wing point masses ($point_mass_sum) " *
                   "specified for wing $(wing.idx). Using wing point masses (sys_struct " *
                   "priority)."
