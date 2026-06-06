@@ -12,7 +12,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, AERO_LINEARIZED
+using SymbolicAWEModels: VortexStepMethod
 using KiteUtils: init!, next_step!
 using LinearAlgebra
 
@@ -28,11 +28,8 @@ vsm_set = VortexStepMethod.VSMSettings(
     data_prefix=false)
 
 sys = load_sys_struct_from_yaml(struc_yaml;
-    system_name="2plate_kite", set, vsm_set)
+    system_name="2plate_kite", set, vsm_set, aero_type=LinearizedAero())
 sys.winches[:main_winch].brake = true
-for wing in sys.wings
-    wing.aero_mode = AERO_LINEARIZED
-end
 sam = SymbolicAWEModel(set, sys)
 l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
 l0_right = sam.sys_struct.segments[:kcu_steering_right].l0

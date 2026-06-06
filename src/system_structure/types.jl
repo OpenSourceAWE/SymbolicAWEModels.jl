@@ -5,7 +5,8 @@
 Basic type definitions for the system structure components.
 
 This file contains enums and struct definitions for:
-- DynamicsType, WingType, AeroMode, SegmentType (deprecated) enums
+- DynamicsType, WingType, AeroMode (deprecated), SegmentType (deprecated) enums
+- AbstractAero aero-coupling types
 - Point, Group, Segment, Pulley, Tether, Winch structs
 """
 
@@ -64,16 +65,34 @@ Base.@deprecate_binding QUATERNION RIGID_DYNAMICS
 Base.@deprecate_binding REFINE PARTICLE_DYNAMICS
 
 """
-    AeroMode `AERO_NONE` `AERO_DIRECT` `AERO_LINEARIZED`
+    AbstractAero
 
-Enumeration for how aerodynamic forces enter the ODE system.
-Orthogonal to WingType — determines the aero computation strategy at runtime.
+How aerodynamic forces enter the ODE system for a wing. The concrete subtype
+*is* the mode: dispatch on it (`aero_force_moment`, `aero_twist_moment`)
+selects the coupling. Bring your own backend by defining a subtype plus those
+two methods. Orthogonal to `WingType`.
 
-# Elements
-- `AERO_NONE`: No aerodynamic forces (returns zeros). For debugging rigid body dynamics.
-- `AERO_DIRECT`: Stored forces from nonlinear VSM solve, piecewise-constant between updates.
-- `AERO_LINEARIZED`: First-order Taylor expansion using Jacobian from VSM linearization.
-- `AERO_PLATE`: Flat-plate CL/CD lookup aerodynamics (PlateWing only).
+# Provided subtypes
+- `NoAero`: no aerodynamic forces (zeros). For debugging rigid body dynamics.
+- `DiscreteAero`: stored forces from a VSM solve, piecewise-constant between
+  refreshes.
+- `LinearizedAero`: first-order Taylor expansion around the operating point
+  using the VSM Jacobian.
+- `ContinuousAero`: full backend evaluation every step.
+- `PlateAero`: flat-plate CL/CD lookup aerodynamics (`PlateWing` only).
+"""
+abstract type AbstractAero end
+struct NoAero <: AbstractAero end
+struct DiscreteAero <: AbstractAero end
+struct LinearizedAero <: AbstractAero end
+struct ContinuousAero <: AbstractAero end
+struct PlateAero <: AbstractAero end
+
+"""
+    AeroMode `AERO_NONE` `AERO_DIRECT` `AERO_LINEARIZED` `AERO_PLATE`
+
+Deprecated enum kept for backwards compatibility. Each value maps to an
+`AbstractAero` type via `to_aero_type`; wing constructors accept either form.
 """
 @enum AeroMode begin
     AERO_NONE

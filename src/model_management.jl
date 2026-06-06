@@ -43,16 +43,7 @@ function generate_prob_getters(sys_struct, sys)
         ])
         get_wing_state = getu(sys, wing_vars)
 
-        # aero_input only exists for RIGID_DYNAMICS + AERO_LINEARIZED wings
-        has_linearized = any(
-            w.dynamics_type === RIGID_DYNAMICS &&
-            w.aero_mode === AERO_LINEARIZED
-            for w in sys_struct.wings)
-        if has_linearized
-            get_aero_input = getu(sys, sys.aero_input)
-        else
-            get_aero_input = nothing
-        end
+        get_aero_input = nothing
     end
     if length(segments) > 0; get_segment_state = getu(sys, c.([sys.spring_force, sys.len, sys.l0])); end
     if length(groups) > 0; get_group_state = getu(sys, c.([sys.twist_angle, sys.twist_ω, sys.group_tether_force, sys.group_tether_moment, sys.group_aero_moment])); end
@@ -532,7 +523,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
     for wing in wings
         wing_data = ("wing", wing.idx, wing.group_idxs,
                      Int(wing.dynamics_type),
-                     Int(wing.aero_mode))
+                     aero_hash_id(get_aero_type(wing)))
 
         # Include wing reference points in hash
         if wing isa VSMWing || wing isa PlateWing

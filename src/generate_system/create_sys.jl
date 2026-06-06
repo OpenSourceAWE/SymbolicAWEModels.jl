@@ -220,7 +220,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # ==================== END INLINED FORCE_EQS! CONTENT ==================== #
 
-    # Build aerodynamic equations (dispatches on aero_mode at runtime)
+    # Build aerodynamic equations (dispatches on each wing's aero_type)
     if has_particle_dynamics_wings
         eqs, guesses = vsm_eqs!(
             s, eqs, guesses, psys;
@@ -239,7 +239,6 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     # Build plate aerodynamic equations for PlateWings
     for wing in wings
         wing isa PlateWing || continue
-        wing.aero_mode == AERO_NONE && continue
         eqs = plate_eqs!(s, eqs, psys, wing;
             R_b_to_w, aero_force_b, aero_moment_b,
             aero_force_point_b, pos, vel, com_w,

@@ -65,7 +65,6 @@ mutable struct BaseWing <: AbstractWing
     const com_offset_b::KVec3           # COM offset from body origin in body frame
     const inertia_principal::KVec3
     const dynamics_type::WingType
-    aero_mode::AeroMode
 
     # Principal frame ODE state (RIGID_DYNAMICS dynamics)
     const com_w::KVec3                  # COM position in world frame
@@ -196,6 +195,31 @@ end
 # ==================== VSM WING ==================== #
 
 """
+    default_aero_type(dynamics_type) -> AbstractAero
+
+Aero coupling used when none is specified: `LinearizedAero` for rigid wings,
+`DiscreteAero` for particle wings.
+"""
+default_aero_type(dynamics_type) =
+    dynamics_type == RIGID_DYNAMICS ? LinearizedAero() : DiscreteAero()
+
+"""
+    to_aero_type(x) -> AbstractAero
+
+Normalize an aero specification to an `AbstractAero`. Passes structs through;
+converts the deprecated `AeroMode` enum (with a warning) for backwards compat.
+"""
+to_aero_type(a::AbstractAero) = a
+function to_aero_type(mode::AeroMode)
+    @warn "The AeroMode enum is deprecated and will be removed in a future " *
+          "release; pass an AbstractAero type instead (e.g. LinearizedAero())." maxlog=1
+    mode == AERO_NONE && return NoAero()
+    mode == AERO_DIRECT && return DiscreteAero()
+    mode == AERO_LINEARIZED && return LinearizedAero()
+    mode == AERO_PLATE && return PlateAero()
+end
+
+"""
     mutable struct VSMWing <: AbstractWing
 
 A wing that uses the Vortex Step Method (VSM) for aerodynamic computations.
@@ -207,7 +231,8 @@ $(TYPEDFIELDS)
 """
 mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
                        W<:VortexStepMethod.AbstractWing,
-                       SL<:VortexStepMethod.Solver} <: AbstractWing
+                       SL<:VortexStepMethod.Solver,
+                       F} <: AbstractWing
     # Base wing functionality
     base::BaseWing
 
@@ -251,21 +276,24 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
     # to adjust moment arm for improved stability
     aero_z_offset::SimFloat
 
+    aero_type::F
+
     function VSMWing(base::BaseWing, vsm_aero,
                      vsm_wing, vsm_solver,
                      aero_y, aero_x, aero_jac,
                      point_to_vsm_point, wing_segments,
                      z_ref_points, y_ref_points,
                      origin,
-                     aero_scale_chord, aero_z_offset)
+                     aero_scale_chord, aero_z_offset,
+                     aero_type=DiscreteAero())
         new{typeof(vsm_aero), typeof(vsm_wing),
-            typeof(vsm_solver)}(
+            typeof(vsm_solver), typeof(aero_type)}(
             base, vsm_aero, vsm_wing, vsm_solver,
             aero_y, aero_x, aero_jac,
             point_to_vsm_point, wing_segments,
             z_ref_points, y_ref_points,
             origin,
-            aero_scale_chord, aero_z_offset)
+            aero_scale_chord, aero_z_offset, aero_type)
     end
 end
 
@@ -276,7 +304,7 @@ const VSM_WING_OWN_FIELDS = (
     :point_to_vsm_point, :wing_segments,
     :z_ref_points, :y_ref_points,
     :origin,
-    :aero_scale_chord, :aero_z_offset)
+    :aero_scale_chord, :aero_z_offset, :aero_type)
 
 function Base.getproperty(wing::VSMWing, sym::Symbol)
     if sym in VSM_WING_OWN_FIELDS
@@ -330,7 +358,6 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
                   transform=nothing, y_damping=150.0,
                   angular_damping=0.0,
                   dynamics_type::Union{Nothing,WingType}=nothing,
-                  aero_mode::Union{Nothing,AeroMode}=nothing,
                   wing_type::Union{Nothing,WingType}=nothing)
     # Handle deprecated wing_type keyword
     if !isnothing(wing_type)
@@ -342,8 +369,6 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
     end
     # Apply defaults now that dynamics_type is resolved
     isnothing(dynamics_type) && (dynamics_type = RIGID_DYNAMICS)
-    isnothing(aero_mode) && (aero_mode = dynamics_type == RIGID_DYNAMICS ?
-        AERO_LINEARIZED : AERO_DIRECT)
     # Convert groups to NameRef vector
     group_refs = Vector{NameRef}([_to_name_ref(g) for g in groups])
     # Handle nothing - default to transform 1
@@ -361,7 +386,6 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
         Matrix{SimFloat}(I, 3, 3),         # R_b_to_p placeholder
         pos_cad, zeros(KVec3),  # com_offset_b placeholder
         inertia_principal, dynamics_type,
-        aero_mode,
         # Principal frame ODE state
         zeros(KVec3), zeros(KVec3),  # com_w, com_vel
         zeros(4), zeros(KVec3),      # Q_p_to_w, ω_p
@@ -479,7 +503,7 @@ function VSMWing(name, set::Settings,
                  angular_damping=0.0,
                  inertia_diag=nothing,
                  dynamics_type::Union{Nothing,WingType}=nothing,
-                 aero_mode::Union{Nothing,AeroMode}=nothing,
+                 aero_type::Union{Nothing,AbstractAero,AeroMode}=nothing,
                  wing_type::Union{Nothing,WingType}=nothing,
                  point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}=nothing,
                  wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}=nothing,
@@ -499,8 +523,8 @@ function VSMWing(name, set::Settings,
     end
     # Apply defaults now that dynamics_type is resolved
     isnothing(dynamics_type) && (dynamics_type = RIGID_DYNAMICS)
-    isnothing(aero_mode) && (aero_mode = dynamics_type == RIGID_DYNAMICS ?
-        AERO_LINEARIZED : AERO_DIRECT)
+    aero_type = isnothing(aero_type) ? default_aero_type(dynamics_type) :
+        to_aero_type(aero_type)
 
     # Validation
     if dynamics_type == PARTICLE_DYNAMICS
@@ -545,7 +569,7 @@ function VSMWing(name, set::Settings,
 
     base = BaseWing(name, groups, R_b_to_c, pos_cad,
                     inertia_vec; transform, y_damping,
-                    angular_damping, dynamics_type, aero_mode)
+                    angular_damping, dynamics_type)
 
     # Size aero state vectors based on wing type
     # For RIGID_DYNAMICS: placeholder sizes using n_unrefined
@@ -566,7 +590,8 @@ function VSMWing(name, set::Settings,
                    point_to_vsm_point, wing_segments,
                    z_ref, y_ref,
                    origin_rp,
-                   aero_scale_chord, aero_z_offset)
+                   aero_scale_chord, aero_z_offset,
+                   aero_type)
 end
 
 """
@@ -609,7 +634,8 @@ function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
         nothing, nothing,
         nothing, nothing,  # z/y_ref_points
         nothing,           # origin
-        0.0, 0.0)
+        0.0, 0.0,
+        default_aero_type(base.dynamics_type))
 end
 
 """
@@ -752,6 +778,23 @@ function Base.setproperty!(wing::PlateWing, sym::Symbol, value)
 end
 
 """
+    get_aero_type(wing) -> AbstractAero
+
+The wing's aero coupling instance. `VSMWing` carries it as a field; other wing
+types map to their fixed strategy. Used by build-time checks and model hashing.
+"""
+get_aero_type(wing::VSMWing) = getfield(wing, :aero_type)
+get_aero_type(wing::PlateWing) = PlateAero()
+get_aero_type(wing::BaseWing) = NoAero()
+
+"""
+    aero_hash_id(a::AbstractAero) -> UInt
+
+Stable identifier for the aero type, folded into the model cache hash.
+"""
+aero_hash_id(a::AbstractAero) = hash(nameof(typeof(a)))
+
+"""
     PlateWing(name, surfaces, calc_cl, calc_cd;
               dynamics_type=PARTICLE_DYNAMICS, transform=nothing,
               y_damping=150.0, angular_damping=0.0, drag_corr=0.93,
@@ -794,7 +837,7 @@ function PlateWing(name, surfaces::Vector{PlateSurface},
     base = BaseWing(name, NameRef[], Matrix{SimFloat}(I, 3, 3),
                     zeros(KVec3), ones(MVector{3, SimFloat});
                     transform, y_damping, angular_damping,
-                    dynamics_type, aero_mode=AERO_PLATE)
+                    dynamics_type)
 
     z_ref = isnothing(z_ref_points) ? nothing :
         (WeightedRefPoints(z_ref_points[1]),

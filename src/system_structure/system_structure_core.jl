@@ -1019,12 +1019,12 @@ function SystemStructure(name, set;
     end
 
     # Auto-create groups for RIGID_DYNAMICS wings if needed (before geometry initialization)
-    # Skip for AERO_NONE — no aerodynamics means no twist DOFs needed.
+    # Skip for NoAero — no aerodynamics means no twist DOFs needed.
     for wing in wings
         if wing isa VSMWing &&
            wing.dynamics_type == RIGID_DYNAMICS &&
            isempty(wing.group_idxs) &&
-           wing.aero_mode != AERO_NONE
+           !(wing.aero_type isa NoAero)
             # Get WING-type points for this wing
             wing_point_idxs = findall(
                 p -> p.type == WING && p.wing_idx == wing.idx, points)
@@ -1076,7 +1076,7 @@ function SystemStructure(name, set;
     # identify_wing_segments can use groups).
     for wing in wings
         isa(wing, VSMWing) || continue
-        wing.aero_mode == AERO_NONE && continue
+        wing.aero_type isa NoAero && continue
         match_aero_sections_to_structure!(
             wing, points; groups=groups)
     end

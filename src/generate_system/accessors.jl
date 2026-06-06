@@ -78,7 +78,7 @@ function get_point_aero_force(
     point = sys.points[idx]
     if point.wing_idx > 0
         wing = sys.wings[point.wing_idx]
-        wing.aero_mode == AERO_NONE && return 0.0
+        get_aero_type(wing) isa NoAero && return 0.0
     end
     return point.aero_force_b[component]
 end
@@ -309,28 +309,6 @@ get_cd_tether(sys::SystemStructure) = sys.set.cd_tether
 get_g_earth(sys::SystemStructure) = sys.set.g_earth
 @register_symbolic get_g_earth(sys::SystemStructure)
 
-# ---- Aero overrides ----
-function get_aero_force_override(
-    sys::SystemStructure, idx::Int64, component::Int
-)
-    wing = sys.wings[idx]
-    wing.aero_mode == AERO_DIRECT &&
-        return wing.aero_force_b[component]
-    return 0.0
-end
-@register_symbolic get_aero_force_override(
-    sys::SystemStructure, idx::Int64, component::Int)
-function get_aero_moment_override(
-    sys::SystemStructure, idx::Int64, component::Int
-)
-    wing = sys.wings[idx]
-    wing.aero_mode == AERO_DIRECT &&
-        return wing.aero_moment_b[component]
-    return 0.0
-end
-@register_symbolic get_aero_moment_override(
-    sys::SystemStructure, idx::Int64, component::Int)
-
 # ==================== VSM-SPECIFIC ACCESSORS ==================== #
 # These access VSMWing-specific fields or Group fields.
 # Registered with SystemStructure (UnionAll) because
@@ -343,20 +321,6 @@ get_le_pos(sys::SystemStructure, idx::Int64) =
     size = (3,)
     eltype = SimFloat
 end
-get_aero_y(sys::SystemStructure, idx::Int64, iy::Int) =
-    sys.wings[idx].aero_y[iy]
-@register_symbolic get_aero_y(
-    sys::SystemStructure, idx::Int64, iy::Int)
-get_aero_x(sys::SystemStructure, idx::Int64, ix::Int) =
-    sys.wings[idx].aero_x[ix]
-@register_symbolic get_aero_x(
-    sys::SystemStructure, idx::Int64, ix::Int)
-get_aero_jac(sys::SystemStructure, idx::Int64,
-             ix::Int, iy::Int) =
-    sys.wings[idx].aero_jac[ix, iy]
-@register_symbolic get_aero_jac(
-    sys::SystemStructure, idx::Int64,
-    ix::Int, iy::Int)
 get_twist(sys::SystemStructure, idx::Int64) =
     sys.groups[idx].twist
 @register_symbolic get_twist(
@@ -394,15 +358,3 @@ get_moment_frac(sys::SystemStructure, idx::Int64) =
     sys.groups[idx].moment_frac
 @register_symbolic get_moment_frac(
     sys::SystemStructure, idx::Int64)
-function get_group_moment_override(
-    sys::SystemStructure, wing_idx::Int64,
-    group_idx::Int64
-)
-    wing = sys.wings[wing_idx]
-    wing.aero_mode == AERO_DIRECT &&
-        return sys.groups[group_idx].aero_moment
-    return 0.0
-end
-@register_symbolic get_group_moment_override(
-    sys::SystemStructure, wing_idx::Int64,
-    group_idx::Int64)

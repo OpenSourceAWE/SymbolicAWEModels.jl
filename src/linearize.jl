@@ -61,11 +61,11 @@ function update_vsm!(sam::SymbolicAWEModel,
 
     for wing in wings
         wing.dynamics_type != RIGID_DYNAMICS && continue
-        wing.aero_mode == AERO_NONE && continue
+        get_aero_type(wing) isa NoAero && continue
         if norm(wing.va_b) < vsm_min_wind
             fill!(wing.aero_x, 0.0)
             fill!(wing.aero_jac, 0.0)
-            if wing.aero_mode == AERO_DIRECT
+            if get_aero_type(wing) isa DiscreteAero
                 fill!(wing.aero_force_b, 0.0)
                 fill!(wing.aero_moment_b, 0.0)
             end
@@ -86,11 +86,11 @@ function update_vsm!(sam::SymbolicAWEModel,
         for wing in wings
             wing isa VSMWing || continue
             wing.dynamics_type != PARTICLE_DYNAMICS && continue
-            wing.aero_mode == AERO_NONE && continue
+            wing.aero_type isa NoAero && continue
 
-            if wing.aero_mode == AERO_LINEARIZED
+            if wing.aero_type isa LinearizedAero
                 error(
-                    "PARTICLE_DYNAMICS + AERO_LINEARIZED " *
+                    "PARTICLE_DYNAMICS + LinearizedAero " *
                     "not yet implemented")
             end
 
@@ -297,7 +297,7 @@ Compute baseline wind-axis coefficients and the
 ForwardDiff Jacobian `d(coeffs)/d(inputs)` for one wing.
 
 Writes `wing.aero_y / aero_x / aero_jac`, updates
-`groups[gidx].aero_moment`, and (in AERO_DIRECT mode) writes
+`groups[gidx].aero_moment`, and (for `DiscreteAero`) writes
 `wing.aero_force_b` / `wing.aero_moment_b`.
 """
 function _update_rigid_dynamics_wing!(wing, am, groups)
@@ -336,13 +336,13 @@ function _update_rigid_dynamics_wing!(wing, am, groups)
         groups[gidx].aero_moment = wing.aero_x[6 + gi]
     end
 
-    if wing.aero_mode == AERO_LINEARIZED
+    if wing.aero_type isa LinearizedAero
         gamma0 = copy(wing.vsm_solver.sol.gamma_distribution)
         f_dual = y -> _vsm_aero_coeffs(wing, y, va_mag,
             n_unrefined, n_groups, group_idxs, groups,
             moment_frac, shadow_ref; gamma_init=gamma0)
         ForwardDiff.jacobian!(wing.aero_jac, f_dual, y0)
-    elseif wing.aero_mode == AERO_DIRECT
+    elseif wing.aero_type isa DiscreteAero
         _apply_direct_forces!(wing, am, wing.aero_x)
     end
     return nothing
@@ -352,7 +352,7 @@ end
 function _apply_direct_forces!(wing, am, x0)
     va_b = wing.va_b
     if any(!isfinite, x0) || any(!isfinite, va_b)
-        throw(AssertionError("AERO_DIRECT: non-finite input on wing $(wing.idx)"))
+        throw(AssertionError("DiscreteAero: non-finite input on wing $(wing.idx)"))
     end
     va_sq = dot(va_b, va_b)
     rho = calc_rho(am, wing.pos_w[3])
