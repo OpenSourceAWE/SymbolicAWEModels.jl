@@ -147,6 +147,7 @@ SymbolicAWEModels.adjust_vsm_panels_to_origin!
 SymbolicAWEModels.apply_aero_z_offset!
 SymbolicAWEModels.calc_particle_dynamics_wing_frame
 SymbolicAWEModels.calc_inertia_y_rotation
+SymbolicAWEModels.has_mesh_inertia
 SymbolicAWEModels.rotate_vsm_sections!
 SymbolicAWEModels.expand_auto_tethers!
 SymbolicAWEModels.WeightedRefPoints
