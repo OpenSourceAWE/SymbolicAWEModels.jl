@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Building a system using Julia · SymbolicAWEModels.jl</title><meta name="title" content="Building a system using Julia · SymbolicAWEModels.jl"/><meta property="og:title" content="Building a system using Julia · SymbolicAWEModels.jl"/><meta property="twitter:title" content="Building a system using Julia · SymbolicAWEModels.jl"/><meta name="description" content="Documentation for SymbolicAWEModels.jl."/><meta property="og:description" content="Documentation for SymbolicAWEModels.jl."/><meta property="twitter:description" content="Documentation for SymbolicAWEModels.jl."/><meta property="og:url" content="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/tutorial_julia/"/><meta property="twitter:url" content="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/tutorial_julia/"/><link rel="canonical" href="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/tutorial_julia/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><a class="docs-logo" href="../"><img src="../assets/logo.png" alt="SymbolicAWEModels.jl logo"/></a><div class="docs-package-name"><span class="docs-autofit"><a href="../">SymbolicAWEModels.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><a class="tocitem" href="../getting_started/">Getting started</a></li><li class="is-active"><a class="tocitem" href>Building a system using Julia</a><ul class="internal"><li><a class="tocitem" href="#Overview"><span>Overview</span></a></li><li><a class="tocitem" href="#Step-1:-a-simple-tether"><span>Step 1: a simple tether</span></a></li><li><a class="tocitem" href="#Step-2:-adding-a-winch"><span>Step 2: adding a winch</span></a></li><li><a class="tocitem" href="#Step-3:-adding-a-pulley"><span>Step 3: adding a pulley</span></a></li><li><a class="tocitem" href="#Step-4:-wings"><span>Step 4: wings</span></a></li><li><a class="tocitem" href="#Named-references"><span>Named references</span></a></li><li><a class="tocitem" href="#Component-summary"><span>Component summary</span></a></li></ul></li><li><a class="tocitem" href="../tutorial_yaml/">Building a system using YAML</a></li><li><a class="tocitem" href="../pipeline/">Compilation pipeline</a></li><li><a class="tocitem" href="../examples/">Examples</a></li><li><a class="tocitem" href="../vsm_coupling/">VSM coupling</a></li><li><a class="tocitem" href="../coordinate_frames/">Coordinate frames</a></li><li><a class="tocitem" href="../exported_types/">Types</a></li><li><a class="tocitem" href="../exported_functions/">Functions</a></li><li><a class="tocitem" href="../parameters/">Parameters</a></li><li><a class="tocitem" href="../developers/">Developer guide</a></li><li><a class="tocitem" href="../private_functions/">Private API</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Building a system using Julia</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Building a system using Julia</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/OpenSourceAWE/SymbolicAWEModels.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/blob/main/docs/src/literate/tutorial_julia.jl#" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><p>Copyright (c) 2025 Bart van de Lint, Jelle Poland SPDX-License-Identifier: LGPL-3.0-only</p><h1 id="Building-a-system-using-Julia"><a class="docs-heading-anchor" href="#Building-a-system-using-Julia">Building a system using Julia</a><a id="Building-a-system-using-Julia-1"></a><a class="docs-heading-anchor-permalink" href="#Building-a-system-using-Julia" title="Permalink"></a></h1><p>This tutorial walks through building mechanical systems from scratch using Julia constructors. Each component is created with a symbolic name and assembled into a <a href="../exported_types/#SymbolicAWEModels.SystemStructure"><code>SystemStructure</code></a>, which is then compiled into a simulation model.</p><h2 id="Overview"><a class="docs-heading-anchor" href="#Overview">Overview</a><a id="Overview-1"></a><a class="docs-heading-anchor-permalink" href="#Overview" title="Permalink"></a></h2><p>The construction workflow has four steps:</p><ol><li><strong>Define components</strong> — create <a href="../exported_types/#SymbolicAWEModels.Point"><code>Point</code></a>, <a href="../exported_types/#SymbolicAWEModels.Segment"><code>Segment</code></a>, <a href="../exported_types/#SymbolicAWEModels.Transform"><code>Transform</code></a>, and optionally <a href="../exported_types/#SymbolicAWEModels.Tether"><code>Tether</code></a>, <a href="../exported_types/#SymbolicAWEModels.Winch"><code>Winch</code></a>, <a href="../exported_types/#SymbolicAWEModels.Pulley"><code>Pulley</code></a></li><li><strong>Assemble</strong> — pass components to <a href="../exported_types/#SymbolicAWEModels.SystemStructure"><code>SystemStructure</code></a>, which resolves all symbolic references (<code>:anchor</code> → index 1) and validates the structure</li><li><strong>Compile</strong> — wrap in <a href="../exported_types/#SymbolicAWEModels.SymbolicAWEModel"><code>SymbolicAWEModel</code></a>, which generates symbolic equations via ModelingToolkit and compiles an <code>ODEProblem</code></li><li><strong>Simulate</strong> — call <a href="../exported_functions/#KiteUtils.init!"><code>init!</code></a> and <a href="../exported_functions/#KiteUtils.next_step!"><code>next_step!</code></a></li></ol><p>All components use symbolic names (<code>:anchor</code>, <code>:spring</code>, etc.) and reference each other by name. The <a href="../exported_types/#SymbolicAWEModels.SystemStructure"><code>SystemStructure</code></a> constructor resolves these references to numeric indices automatically. Integer indices are also supported for backwards compatibility.</p><h2 id="Step-1:-a-simple-tether"><a class="docs-heading-anchor" href="#Step-1:-a-simple-tether">Step 1: a simple tether</a><a id="Step-1:-a-simple-tether-1"></a><a class="docs-heading-anchor-permalink" href="#Step-1:-a-simple-tether" title="Permalink"></a></h2><p>We start with the simplest possible system: a chain of point masses connected by spring-damper segments, hanging under gravity.</p><pre><code class="language-julia hljs">using SymbolicAWEModels, VortexStepMethod
+using GLMakie
+
+set = Settings(&quot;system.yaml&quot;)
+set.solver = &quot;FBDF&quot;
+set.v_wind = 1.0
+
+n_segments = 20
+l_tether = 50.0</code></pre><p>First, define the points. The anchor is <code>STATIC</code> (fixed in space). The intermediate points are <code>DYNAMIC</code> (governed by Newton&#39;s second law). The tip point has some extra mass.</p><pre><code class="language-julia hljs">points = Point[]
+
+push!(points, Point(:anchor, zeros(3), STATIC; transform=:tf))
+
+for i in 1:n_segments
+    pos = [0.0, 0.0, i * l_tether / n_segments]
+    if i &lt; n_segments
+        push!(points, Point(Symbol(&quot;p_$i&quot;), pos, DYNAMIC;
+            transform=:tf))
+    else
+        push!(points, Point(:tip, pos, DYNAMIC;
+            extra_mass=1.0, transform=:tf))
+    end
+end</code></pre><p>There are four <a href="../exported_types/#SymbolicAWEModels.DynamicsType"><code>DynamicsType</code></a>s:</p><ul><li><code>STATIC</code> — the point does not move</li><li><code>DYNAMIC</code> — the point moves according to <span>$\ddot{\mathbf{r}} = \mathbf{F}/m$</span></li><li><code>QUASI_STATIC</code> — acceleration is constrained to zero (force equilibrium)</li><li><code>WING</code> — the point is rigidly attached to a wing body</li></ul><p>Next, connect the points with <a href="../exported_types/#SymbolicAWEModels.Segment"><code>Segment</code></a>s. Each segment is a spring-damper element with explicit stiffness and damping per unit length.</p><pre><code class="language-julia hljs">unit_stiffness = 614600.0  # [N]
+unit_damping = 473.0       # [Ns]
+diameter = 0.002           # [m]
+
+segments = Segment[]
+
+for i in 1:n_segments
+    p_i = points[i].name
+    p_j = points[i+1].name
+    push!(segments,
+        Segment(Symbol(&quot;seg_$i&quot;), p_i, p_j,
+            unit_stiffness, unit_damping, diameter))
+end</code></pre><p>A <a href="../exported_types/#SymbolicAWEModels.Transform"><code>Transform</code></a> describes the initial orientation of the system using spherical coordinates (elevation, azimuth, heading) relative to a base position.</p><pre><code class="language-julia hljs">transforms = [Transform(:tf, deg2rad(-80), 0.0, 0.0;
+    base_pos=[0.0, 0.0, 50.0],
+    base_point=:anchor, rot_point=:tip)]</code></pre><p>Now assemble everything into a <a href="../exported_types/#SymbolicAWEModels.SystemStructure"><code>SystemStructure</code></a> and visualize it:</p><pre><code class="language-julia hljs">sys_struct = SystemStructure(&quot;tether&quot;, set;
+    points, segments, transforms)
+
+plot(sys_struct)
+</code></pre><p><img src="../assets/tether_sys_struct.png" alt="SystemStructure visualization"/></p><p>If the system looks correct, compile and simulate:</p><pre><code class="language-julia hljs">using KiteUtils: init!, next_step!, update_sys_state!
+
+sam = SymbolicAWEModel(set, sys_struct)
+init!(sam)
+
+logger = Logger(sam, 201)
+sys_state = SysState(sam)
+log!(logger, sys_state)
+
+for i in 1:200
+    next_step!(sam)
+    update_sys_state!(sys_state, sam)
+    log!(logger, sys_state)
+end
+
+save_log(logger, &quot;tether_sim&quot;)
+lg = load_log(&quot;tether_sim&quot;)
+SymbolicAWEModels.record(lg, sam.sys_struct, &quot;tether_sim.gif&quot;)</code></pre><p><img src="../assets/tether_sim.gif" alt="Tether simulation"/></p><h2 id="Step-2:-adding-a-winch"><a class="docs-heading-anchor" href="#Step-2:-adding-a-winch">Step 2: adding a winch</a><a id="Step-2:-adding-a-winch-1"></a><a class="docs-heading-anchor-permalink" href="#Step-2:-adding-a-winch" title="Permalink"></a></h2><p>To control tether length, we group the segments into a <a href="../exported_types/#SymbolicAWEModels.Tether"><code>Tether</code></a> and connect it to a <a href="../exported_types/#SymbolicAWEModels.Winch"><code>Winch</code></a>. The winch applies a torque to reel the tether in or out.</p><pre><code class="language-julia hljs"># Group all segments into a tether. The points already sit at the
+# right spacing, so the tether takes its length from that geometry;
+# pass a stretched standoff only to reposition a root tether.
+seg_names = [s.name for s in segments]
+tethers = [Tether(:main, seg_names)]
+
+# Create a winch connected to the tether
+gear_ratio = 1.0
+drum_radius = 0.11       # [m]
+f_coulomb = 122.0        # [N]
+c_vf = 30.6              # [Ns/m]
+inertia_total = 0.024    # [kgm²]
+
+winches = [Winch(:winch, [:main],
+    gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total;
+    winch_point=:anchor)]</code></pre><p>Build and simulate with a constant torque of -20 Nm:</p><pre><code class="language-julia hljs">sys_struct = SystemStructure(&quot;winch&quot;, set;
+    points, segments, tethers, winches, transforms)
+</code></pre><p><img src="../assets/winch_sys_struct.png" alt="Winch system structure"/></p><pre><code class="language-julia hljs">using KiteUtils: init!, next_step!, update_sys_state!
+
+sam = SymbolicAWEModel(set, sys_struct)
+init!(sam)
+
+logger = Logger(sam, 201)
+sys_state = SysState(sam)
+log!(logger, sys_state)
+
+for i in 1:200
+    next_step!(sam; set_values=[-20.0])
+    update_sys_state!(sys_state, sam)
+    log!(logger, sys_state)
+end
+
+save_log(logger, &quot;winch_sim&quot;)
+lg = load_log(&quot;winch_sim&quot;)
+SymbolicAWEModels.record(lg, sam.sys_struct, &quot;winch_sim.gif&quot;)</code></pre><p><img src="../assets/winch_sim.gif" alt="Winch simulation"/></p><h2 id="Step-3:-adding-a-pulley"><a class="docs-heading-anchor" href="#Step-3:-adding-a-pulley">Step 3: adding a pulley</a><a id="Step-3:-adding-a-pulley-1"></a><a class="docs-heading-anchor-permalink" href="#Step-3:-adding-a-pulley" title="Permalink"></a></h2><p>A <a href="../exported_types/#SymbolicAWEModels.Pulley"><code>Pulley</code></a> enforces length redistribution between two segments that share a common point. This models a physical pulley where the total rope length through the pulley is conserved.</p><pre><code class="language-julia hljs">set = Settings(&quot;system.yaml&quot;)
+set.solver = &quot;FBDF&quot;
+set.v_wind = 1.0
+set.abs_tol = 1e-4
+set.rel_tol = 1e-4</code></pre><p>Create points — two static anchor points, and two dynamic points forming the pulley system:</p><pre><code class="language-julia hljs">points = [
+    Point(:left,   [0.0, 0.0, 2.0], STATIC),
+    Point(:right,  [2.0, 0.0, 2.0], STATIC),
+    Point(:pulley, [0.1, 0.0, 1.0], DYNAMIC),
+    Point(:weight, [0.1, 0.0, 0.0], DYNAMIC; extra_mass=0.1),
+]
+
+segments = [
+    Segment(:to_left,  :pulley, :left,
+        unit_stiffness, unit_damping, diameter),
+    Segment(:to_right, :pulley, :right,
+        unit_stiffness, unit_damping, diameter),
+    Segment(:hanging,  :pulley, :weight,
+        unit_stiffness, unit_damping, diameter),
+]</code></pre><p>The pulley connects the two upper segments. When one gets shorter, the other gets longer by the same amount:</p><pre><code class="language-julia hljs">pulleys = [Pulley(:pulley, :to_left, :to_right, DYNAMIC)]</code></pre><p>Orient the system and build:</p><pre><code class="language-julia hljs">transforms = [Transform(:tf, deg2rad(0.0), 0.0, 0.0;
+    base_pos=[1.0, 0.0, 4.0],
+    base_point=:left, rot_point=:right)]
+
+sys_struct = SystemStructure(&quot;pulley&quot;, set;
+    points, segments, pulleys, transforms)
+</code></pre><p><img src="../assets/pulley_sys_struct.png" alt="Pulley system structure"/></p><pre><code class="language-julia hljs">using KiteUtils: init!, next_step!, update_sys_state!
+
+sam = SymbolicAWEModel(set, sys_struct)
+init!(sam)
+
+logger = Logger(sam, 201)
+sys_state = SysState(sam)
+log!(logger, sys_state)
+
+for i in 1:200
+    next_step!(sam)
+    update_sys_state!(sys_state, sam)
+    log!(logger, sys_state)
+end
+
+save_log(logger, &quot;pulley_sim&quot;)
+lg = load_log(&quot;pulley_sim&quot;)
+SymbolicAWEModels.record(lg, sam.sys_struct, &quot;pulley_sim.gif&quot;)</code></pre><p><img src="../assets/pulley_sim.gif" alt="Pulley simulation"/></p><h2 id="Step-4:-wings"><a class="docs-heading-anchor" href="#Step-4:-wings">Step 4: wings</a><a id="Step-4:-wings-1"></a><a class="docs-heading-anchor-permalink" href="#Step-4:-wings" title="Permalink"></a></h2><p>Wings can be added via Julia constructors or YAML — both paths produce the same <a href="../exported_types/#SymbolicAWEModels.SystemStructure"><code>SystemStructure</code></a>. See the <a href="../examples/#plate-kite-2">2-Plate Kite example</a> for a complete wing system, and <a href="../vsm_coupling/">VSM Coupling</a> for how aerodynamic forces are computed.</p><h2 id="Named-references"><a class="docs-heading-anchor" href="#Named-references">Named references</a><a id="Named-references-1"></a><a class="docs-heading-anchor-permalink" href="#Named-references" title="Permalink"></a></h2><p>All component constructors accept symbolic names (<code>:anchor</code>, <code>:spring</code>) or integer indices (<code>1</code>, <code>2</code>). Components reference each other by name:</p><pre><code class="language-julia hljs">## Segment references points by name
+Segment(:spring, :anchor, :mass, 1000.0, 50.0, 0.002)
+
+## Tether references segments by name
+Tether(:main, [:seg1, :seg2])
+
+## Winch references tethers and winch point by name
+Winch(:winch, [:main], 1.0, 0.11, 122.0, 30.6, 0.024;
+    winch_point=:anchor)
+
+## Pulley references segments by name
+Pulley(:pulley, :seg_a, :seg_b, DYNAMIC)
+
+## Transform references points by name
+Transform(:tf, 0.5, 0.0, 0.0; base_point=:anchor,
+    rot_point=:tip, base_pos=[0, 0, 50])</code></pre><p>The <a href="../exported_types/#SymbolicAWEModels.SystemStructure"><code>SystemStructure</code></a> constructor resolves all names to indices. After construction, you can access components by name:</p><pre><code class="language-julia hljs">sys.points[:anchor]       # Access point by name
+sys.segments[:spring]     # Access segment by name
+sys.winches[:winch]       # Access winch by name</code></pre><h2 id="Component-summary"><a class="docs-heading-anchor" href="#Component-summary">Component summary</a><a id="Component-summary-1"></a><a class="docs-heading-anchor-permalink" href="#Component-summary" title="Permalink"></a></h2><table><tr><th style="text-align: right">Type</th><th style="text-align: right">Constructor</th><th style="text-align: right">Purpose</th></tr><tr><td style="text-align: right"><a href="../exported_types/#SymbolicAWEModels.Point"><code>Point</code></a></td><td style="text-align: right"><code>Point(name, pos, type; ...)</code></td><td style="text-align: right">Mass node</td></tr><tr><td style="text-align: right"><a href="../exported_types/#SymbolicAWEModels.Segment"><code>Segment</code></a></td><td style="text-align: right"><code>Segment(name, p_i, p_j, k, c, d; ...)</code></td><td style="text-align: right">Spring-damper</td></tr><tr><td style="text-align: right"><a href="../exported_types/#SymbolicAWEModels.Tether"><code>Tether</code></a></td><td style="text-align: right"><code>Tether(name, segments; ...)</code></td><td style="text-align: right">Winch-controlled segments</td></tr><tr><td style="text-align: right"><a href="../exported_types/#SymbolicAWEModels.Winch"><code>Winch</code></a></td><td style="text-align: right"><code>Winch(name, tethers, n, r, Fc, cv, I; ...)</code></td><td style="text-align: right">Torque-controlled motor</td></tr><tr><td style="text-align: right"><a href="../exported_types/#SymbolicAWEModels.Pulley"><code>Pulley</code></a></td><td style="text-align: right"><code>Pulley(name, seg_i, seg_j, type)</code></td><td style="text-align: right">Equal-tension constraint</td></tr><tr><td style="text-align: right"><a href="../exported_types/#SymbolicAWEModels.Group"><code>Group</code></a></td><td style="text-align: right"><code>Group(name, points, type, frac; ...)</code></td><td style="text-align: right">Wing twist section</td></tr><tr><td style="text-align: right"><a href="../exported_types/#SymbolicAWEModels.Transform"><code>Transform</code></a></td><td style="text-align: right"><code>Transform(name, el, az, hdg; ...)</code></td><td style="text-align: right">Spherical positioning</td></tr></table><p>See the <a href="../exported_types/">Types</a> page for full constructor documentation.</p><hr/><p><em>This page was generated using <a href="https://github.com/fredrikekre/Literate.jl">Literate.jl</a>.</em></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../getting_started/">« Getting started</a><a class="docs-footer-nextpage" href="../tutorial_yaml/">Building a system using YAML »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Saturday 6 June 2026 12:28">Saturday 6 June 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
