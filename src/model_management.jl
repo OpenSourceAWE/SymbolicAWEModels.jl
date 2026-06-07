@@ -16,6 +16,13 @@ of the compiled `ODESystem` (`sys`).
 # Returns
 - A `NamedTuple` containing various getter and setter functions for different parts of the system state.
 """
+function make_psys_setter(sys)
+    psys_params = filter(p -> endswith(string(p), "psys"), parameters(sys))
+    setter = setp(sys, psys_params)
+    n = length(psys_params)
+    return (prob, ss) -> setter(prob, ntuple(_ -> ss, n))
+end
+
 function generate_prob_getters(sys_struct, sys)
     c = collect
     (; wings, groups, pulleys, winches, tethers, segments) = sys_struct
@@ -75,7 +82,7 @@ function generate_prob_getters(sys_struct, sys)
             sys.tether_len,
             sys.stretched_len]))
     end
-    set_sys = setp(sys, sys.psys)
+    set_sys = make_psys_setter(sys)
 
     # point_state always returns, in order: pos, vel, point_force, va_point_b, point_mass, total_drag
     get_point_state = getu(sys, c.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass, sys.total_drag]))
@@ -102,7 +109,7 @@ function generate_lin_getters(sys)
     if hasproperty(sys, :set_values)
         set_set_values = setp(sys, sys.set_values)
     end
-    set_sys = setp(sys, sys.psys)
+    set_sys = make_psys_setter(sys)
     return (; set_set_values, set_sys)
 end
 
