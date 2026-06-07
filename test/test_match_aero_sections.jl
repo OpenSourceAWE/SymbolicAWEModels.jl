@@ -15,7 +15,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod, WING,
-    REFINE, QUATERNION, SimFloat,
+    PARTICLE_DYNAMICS, RIGID_DYNAMICS, SimFloat,
     match_aero_sections_to_structure!
 using KiteUtils
 using LinearAlgebra
@@ -29,9 +29,9 @@ cp(src_data, data_path; force=true)
 set_data_path(data_path)
 
 struc_yaml = joinpath(data_path,
-    "quat_struc_geometry.yaml")
+    "rigid_structural_geometry.yaml")
 refine_yaml = joinpath(data_path,
-    "refine_struc_geometry.yaml")
+    "particle_structural_geometry.yaml")
 
 set = Settings("system.yaml")
 set.g_earth = 0.0
@@ -40,7 +40,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     vsm_set_path; data_prefix=false)
 
 # ─────────────────────────────────────────────────────────
-@testset "match_aero_sections — REFINE" begin
+@testset "match_aero_sections — PARTICLE_DYNAMICS" begin
 
     @testset "geometry: LE/TE match structural points" begin
         sys = SymbolicAWEModels.load_sys_struct_from_yaml(
@@ -192,13 +192,13 @@ vsm_set = VortexStepMethod.VSMSettings(
 end
 
 # ─────────────────────────────────────────────────────────
-@testset "match_aero_sections — QUATERNION" begin
+@testset "match_aero_sections — RIGID_DYNAMICS" begin
 
     @testset "geometry: LE/TE match structural points" begin
         sys_q = SymbolicAWEModels.load_sys_struct_from_yaml(
             struc_yaml;
             system_name="quat_geom", set, vsm_set,
-            wing_type=QUATERNION)
+            dynamics_type=RIGID_DYNAMICS)
         wing = sys_q.wings[1]
         points = sys_q.points
         vsm_w = wing.vsm_wing
@@ -228,14 +228,14 @@ end
     end
 
     @testset "preserve aero when n_groups < n_aero" begin
-        # When a QUATERNION wing has fewer twist DOFs
+        # When a RIGID_DYNAMICS wing has fewer twist DOFs
         # (groups) than aero sections, the OBJ/VSM
         # geometry must stay intact — only the Voronoi
         # partition assigns sections to groups.
         sys_q = SymbolicAWEModels.load_sys_struct_from_yaml(
             struc_yaml;
             system_name="quat_preserve", set, vsm_set,
-            wing_type=QUATERNION)
+            dynamics_type=RIGID_DYNAMICS)
         wing = sys_q.wings[1]
         points = sys_q.points
         vsm_w = wing.vsm_wing

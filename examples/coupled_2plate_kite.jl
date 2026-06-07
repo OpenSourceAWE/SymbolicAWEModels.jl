@@ -3,7 +3,7 @@
 
 """
 2-Plate kite: coupled simulation with full nonlinear VSM solve
-each step (REFINE wing). Counterpart to
+each step (PARTICLE_DYNAMICS wing). Counterpart to
 coupled_2plate_kite_linear_vsm.jl for performance comparison.
 """
 
@@ -27,7 +27,7 @@ pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", MODEL_NAME))
 
 struc_yaml = joinpath(get_data_path(),
-                      "refine_struc_geometry.yaml")
+                      "particle_structural_geometry.yaml")
 
 set = Settings("system.yaml")
 set.g_earth = 0.0

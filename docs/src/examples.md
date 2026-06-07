@@ -91,7 +91,7 @@ using KiteUtils: init!, next_step!, update_sys_state!
 
 set_data_path("data/2plate_kite")
 
-struc_yaml = joinpath(get_data_path(), "quat_struc_geometry.yaml")
+struc_yaml = joinpath(get_data_path(), "rigid_structural_geometry.yaml")
 
 # Load settings and VSM configuration
 set = Settings("system.yaml")

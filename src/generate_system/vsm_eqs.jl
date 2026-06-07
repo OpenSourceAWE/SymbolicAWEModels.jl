@@ -10,7 +10,7 @@
 #   AERO_LINEARIZED: wind-axis coefficient linearization
 #                    with q∞·A·(CL·lift - CD·drag + CS·side)
 #
-# REFINE wings use per-point forces via get_point_aero_force.
+# PARTICLE_DYNAMICS wings use per-point forces via get_point_aero_force.
 
 """
     vsm_eqs!(s, eqs, guesses, psys; kwargs...)
@@ -24,7 +24,7 @@ determines which equations are generated:
 - `AERO_DIRECT`: registered functions returning stored forces
 - `AERO_NONE`: zeros
 
-For REFINE wings, per-point forces come from
+For PARTICLE_DYNAMICS wings, per-point forces come from
 `get_point_aero_force` (which also respects `AERO_NONE`).
 """
 function vsm_eqs!(
@@ -46,7 +46,7 @@ function vsm_eqs!(
 
     has_linearized = any(
         w isa VSMWing &&
-        w.wing_type == QUATERNION &&
+        w.dynamics_type == RIGID_DYNAMICS &&
         w.aero_mode == AERO_LINEARIZED
         for w in wings)
 
@@ -54,14 +54,14 @@ function vsm_eqs!(
     if has_linearized
         first_lin_wing = first(
             w for w in wings if w isa VSMWing &&
-            w.wing_type == QUATERNION &&
+            w.dynamics_type == RIGID_DYNAMICS &&
             w.aero_mode == AERO_LINEARIZED)
         ny = length(first_lin_wing.aero_y)
         nx_values = [
             length(w.aero_x)
             for w in wings
             if w isa VSMWing &&
-               w.wing_type == QUATERNION &&
+               w.dynamics_type == RIGID_DYNAMICS &&
                w.aero_mode == AERO_LINEARIZED]
         nx = maximum(nx_values)
 
@@ -84,8 +84,8 @@ function vsm_eqs!(
             # PlateWing equations are generated in plate_eqs!()
             continue
 
-        elseif wing isa VSMWing && wing.wing_type == REFINE
-            # ========== REFINE WING ==========
+        elseif wing isa VSMWing && wing.dynamics_type == PARTICLE_DYNAMICS
+            # ========== PARTICLE_DYNAMICS WING ==========
             afpb = aero_force_point_b::AbstractArray
             wing_points = [
                 p for p in points
@@ -123,7 +123,7 @@ function vsm_eqs!(
             ]
 
         elseif wing.aero_mode == AERO_NONE
-            # ========== QUATERNION + AERO_NONE =====
+            # ========== RIGID_DYNAMICS + AERO_NONE =====
             eqs = [
                 eqs
                 aero_force_b[:, wing.idx] ~ zeros(3)
@@ -141,7 +141,7 @@ function vsm_eqs!(
             end
 
         elseif wing.aero_mode == AERO_DIRECT
-            # ========== QUATERNION + AERO_DIRECT ===
+            # ========== RIGID_DYNAMICS + AERO_DIRECT ===
             eqs = [
                 eqs
                 aero_force_b[:, wing.idx] ~ [
@@ -168,7 +168,7 @@ function vsm_eqs!(
             end
 
         else
-            # ========== QUATERNION + AERO_LINEARIZED
+            # ========== RIGID_DYNAMICS + AERO_LINEARIZED
             # Wind-axis coefficient linearization
             wing isa VSMWing || error(
                 "AERO_LINEARIZED wing $(wing.idx)" *

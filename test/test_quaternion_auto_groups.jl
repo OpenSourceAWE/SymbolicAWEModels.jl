@@ -6,14 +6,14 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     Pkg.activate(@__DIR__)
 end
 
-# Test auto-creation of groups for QUATERNION wings
+# Test auto-creation of groups for RIGID_DYNAMICS wings
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, WING,
-    QUATERNION, REFINE
+    RIGID_DYNAMICS, PARTICLE_DYNAMICS
 using Test
 using LinearAlgebra
 
-@testset "QUATERNION wing auto-group creation" begin
+@testset "RIGID_DYNAMICS wing auto-group creation" begin
     # Copy 2plate_kite data to temp directory
     pkg_root = dirname(@__DIR__)
     src_data_path = joinpath(
@@ -25,9 +25,9 @@ using LinearAlgebra
     set_data_path(data_path)
 
     struc_yaml = joinpath(
-        data_path, "quat_struc_geometry.yaml")
+        data_path, "rigid_structural_geometry.yaml")
     refine_yaml = joinpath(
-        data_path, "refine_struc_geometry.yaml")
+        data_path, "particle_structural_geometry.yaml")
 
     set = Settings("system.yaml")
     vsm_set_path = joinpath(
@@ -35,26 +35,26 @@ using LinearAlgebra
     vsm_set = VortexStepMethod.VSMSettings(
         vsm_set_path; data_prefix=false)
 
-    # ── REFINE: should have 0 groups ──────────────
+    # ── PARTICLE_DYNAMICS: should have 0 groups ──────────────
     sys_refine = load_sys_struct_from_yaml(
         refine_yaml;
         system_name="2plate_refine", set, vsm_set)
 
     @test length(sys_refine.wings) == 1
-    @test sys_refine.wings[1].wing_type == REFINE
+    @test sys_refine.wings[1].dynamics_type == PARTICLE_DYNAMICS
     @test length(sys_refine.groups) == 0
     @test length(sys_refine.wings[1].group_idxs) == 0
 
-    # ── QUATERNION with YAML-defined groups ───────
-    # quat_struc_geometry.yaml has 3 explicit groups
+    # ── RIGID_DYNAMICS with YAML-defined groups ───────
+    # rigid_structural_geometry.yaml has 3 explicit groups
     # and 7 WING points (6 LE/TE + kcu).
     sys_quat = load_sys_struct_from_yaml(
         struc_yaml;
         system_name="2plate_quat", set, vsm_set,
-        wing_type=QUATERNION)
+        dynamics_type=RIGID_DYNAMICS)
 
     wing = sys_quat.wings[1]
-    @test wing.wing_type == QUATERNION
+    @test wing.dynamics_type == RIGID_DYNAMICS
     @test length(sys_quat.groups) == 3
     @test length(wing.group_idxs) == 3
     @test !isnothing(wing.wing_segments)
@@ -66,23 +66,23 @@ using LinearAlgebra
         @test !iszero(group.y_airf)
     end
 
-    # ── QUATERNION auto-group creation ────────────
+    # ── RIGID_DYNAMICS auto-group creation ────────────
     # Load without explicit groups: auto-group should
     # kick in for the 6 LE/TE WING points (kcu is
     # excluded because it isn't in any group → the
     # group-based path is unavailable and the fallback
     # consecutive-pair heuristic uses only even-count
     # subsets).
-    # Easiest approach: load REFINE YAML as QUATERNION
-    # (REFINE YAML has 6 WING points, no groups, no
+    # Easiest approach: load PARTICLE_DYNAMICS YAML as RIGID_DYNAMICS
+    # (PARTICLE_DYNAMICS YAML has 6 WING points, no groups, no
     # kcu WING point).
     sys_auto = load_sys_struct_from_yaml(
         refine_yaml;
         system_name="2plate_auto", set, vsm_set,
-        wing_type=QUATERNION)
+        dynamics_type=RIGID_DYNAMICS)
 
     wing_auto = sys_auto.wings[1]
-    @test wing_auto.wing_type == QUATERNION
+    @test wing_auto.dynamics_type == RIGID_DYNAMICS
     @test length(sys_auto.groups) == 3
     @test length(wing_auto.group_idxs) == 3
     @test !isnothing(wing_auto.wing_segments)

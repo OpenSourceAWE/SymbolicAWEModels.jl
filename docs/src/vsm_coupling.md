@@ -29,9 +29,9 @@ the structural model.
 the wing — how it deforms and how forces are distributed to
 structural degrees of freedom.
 
-### REFINE
+### PARTICLE_DYNAMICS
 
-The `REFINE` wing type creates the most direct coupling between
+The `PARTICLE_DYNAMICS` wing type creates the most direct coupling between
 structure and aerodynamics.
 
 #### Structural model
@@ -89,9 +89,9 @@ Per-panel forces are distributed to structural points:
    accumulated at the corresponding structural points via the
    `point_to_vsm_point` mapping
 
-### QUATERNION
+### RIGID_DYNAMICS
 
-The `QUATERNION` wing type uses a rigid body representation with
+The `RIGID_DYNAMICS` wing type uses a rigid body representation with
 optional deformable groups.
 
 #### Structural model
@@ -148,14 +148,14 @@ symbolic functions during ODE evaluation:
 2. `_apply_direct_forces!` reconstructs physical forces in the
    wind-axis basis: `F = q∞ · A · (CL · lift + CD · drag + CS · side)`
 3. Forces are stored in `wing.aero_force_b` and
-   `wing.aero_moment_b` (QUATERNION) or per-point via
-   `distribute_panel_forces_to_points!` (REFINE)
+   `wing.aero_moment_b` (RIGID_DYNAMICS) or per-point via
+   `distribute_panel_forces_to_points!` (PARTICLE_DYNAMICS)
 4. Between VSM updates (controlled by `vsm_interval`), forces
    are held constant
 
-For QUATERNION wings, the symbolic equations read the stored
+For RIGID_DYNAMICS wings, the symbolic equations read the stored
 forces via `get_aero_force_override` / `get_aero_moment_override`.
-For REFINE wings, per-point forces are read via
+For PARTICLE_DYNAMICS wings, per-point forces are read via
 `get_point_aero_force`.
 
 ### AERO_LINEARIZED
@@ -194,10 +194,10 @@ without aerodynamic coupling.
 
 | Wing type | Default aero mode | Supported modes |
 |-----------|-------------------|-----------------|
-| **QUATERNION** | `AERO_LINEARIZED` | `AERO_LINEARIZED`, `AERO_DIRECT`, `AERO_NONE` |
-| **REFINE** | `AERO_DIRECT` | `AERO_DIRECT`, `AERO_NONE` |
+| **RIGID_DYNAMICS** | `AERO_LINEARIZED` | `AERO_LINEARIZED`, `AERO_DIRECT`, `AERO_NONE` |
+| **PARTICLE_DYNAMICS** | `AERO_DIRECT` | `AERO_DIRECT`, `AERO_NONE` |
 
-`REFINE` + `AERO_LINEARIZED` is not yet implemented (raises an
+`PARTICLE_DYNAMICS` + `AERO_LINEARIZED` is not yet implemented (raises an
 error at runtime).
 
 ## Aligning aero sections to structure
@@ -222,7 +222,7 @@ The steps are:
    the rebuilt unrefined sections. Because `use_prior_polar=true`
    and `n_panels` is unchanged, existing refined panel polars are
    preserved — only positions are re-interpolated
-4. **Resize linearization state**: For non-REFINE wings, `aero_y`,
+4. **Resize linearization state**: For non-PARTICLE_DYNAMICS wings, `aero_y`,
    `aero_x`, and `aero_jac` are resized to match the new group
    count
 
@@ -258,14 +258,14 @@ The mapping enables:
 
 1. **Group twist angles**: Applying the correct twist angle from
    groups to refined panels via their parent section
-2. **Force distribution (REFINE)**: Accumulating refined panel
+2. **Force distribution (PARTICLE_DYNAMICS)**: Accumulating refined panel
    forces at the structural points of their parent section
-3. **Linearization (QUATERNION + AERO_LINEARIZED)**: Propagating
+3. **Linearization (RIGID_DYNAMICS + AERO_LINEARIZED)**: Propagating
    state perturbations through the correct sections
 
 ## Wing type summary
 
-| Aspect | REFINE | QUATERNION |
+| Aspect | PARTICLE_DYNAMICS | RIGID_DYNAMICS |
 |--------|--------|------------|
 | **Structural repr.** | Individual WING points | Rigid body + quaternion |
 | **Section count** | = structural LE/TE pairs | Independent; optionally rebuilt via `use_prior_polar` |
@@ -276,7 +276,7 @@ The mapping enables:
 ## Implementation files
 
 - `src/vsm_refine.jl`: Aero-to-structure alignment (all wing
-  types), REFINE force distribution, and geometry updates
+  types), PARTICLE_DYNAMICS force distribution, and geometry updates
 - `src/system_structure/types.jl`: Component type definitions
   including `WingType` and `AeroMode` enums
 - `src/system_structure/wing.jl`: Wing and VSMWing type
@@ -286,6 +286,6 @@ The mapping enables:
 - `src/generate_system/wing_eqs.jl`: Wing dynamics equation
   generation
 - `src/linearize.jl`: VSM update dispatch — linearization
-  (QUATERNION) and nonlinear solve (REFINE)
+  (RIGID_DYNAMICS) and nonlinear solve (PARTICLE_DYNAMICS)
 - VortexStepMethod.jl `src/wing_geometry.jl`:
   `refined_panel_mapping` computation

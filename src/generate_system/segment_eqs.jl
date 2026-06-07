@@ -60,18 +60,18 @@ function segment_eqs!(s, eqs, guesses, points, segments,
         ]
 
         # Check if both endpoints are WING points (structural segments within wings)
-        # For QUATERNION wings: skip both spring and drag forces (rigid body)
-        # For REFINE wings: skip only drag forces (spring forces needed for deformation)
+        # For RIGID_DYNAMICS wings: skip both spring and drag forces (rigid body)
+        # For PARTICLE_DYNAMICS wings: skip only drag forces (spring forces needed for deformation)
         p1_obj = points[p1]
         p2_obj = points[p2]
         is_wing_structural_segment = (p1_obj.type == WING && p2_obj.type == WING)
 
-        # Check if this is a QUATERNION wing structural segment
-        is_quaternion_wing_segment = false
+        # Check if this is a RIGID_DYNAMICS wing structural segment
+        is_rigid_dynamics_wing_segment = false
         if is_wing_structural_segment
             # Both points should belong to the same wing
             wing = wings[p1_obj.wing_idx]
-            is_quaternion_wing_segment = (wing.wing_type == QUATERNION)
+            is_rigid_dynamics_wing_segment = (wing.dynamics_type == RIGID_DYNAMICS)
         end
 
         in_pulley = 0
@@ -135,8 +135,8 @@ function segment_eqs!(s, eqs, guesses, points, segments,
             spring_vel[segment.idx] ~ rel_vel[:, segment.idx] ⋅ unit_vec[:, segment.idx]
         ]
 
-        # Spring force: zero for QUATERNION wing segments (rigid body), computed otherwise
-        if is_quaternion_wing_segment
+        # Spring force: zero for RIGID_DYNAMICS wing segments (rigid body), computed otherwise
+        if is_rigid_dynamics_wing_segment
             eqs = [
                 eqs
                 damping[segment.idx] ~ 0.0

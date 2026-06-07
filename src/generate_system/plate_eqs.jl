@@ -21,8 +21,8 @@ For each PlateSurface:
 4. CL/CD from registered interpolation lookup
 5. Lift perpendicular to flow in airfoil plane, drag along flow
 
-Forces are applied per-point (REFINE) or summed to wing
-(QUATERNION).
+Forces are applied per-point (PARTICLE_DYNAMICS) or summed to wing
+(RIGID_DYNAMICS).
 """
 function plate_eqs!(s, eqs, psys, wing;
                     R_b_to_w, aero_force_b, aero_moment_b,
@@ -154,7 +154,7 @@ function plate_eqs!(s, eqs, psys, wing;
     end
 
     # Apply forces depending on wing type
-    if wing.wing_type == REFINE
+    if wing.dynamics_type == PARTICLE_DYNAMICS
         # Per-point forces in body frame
         afpb = aero_force_point_b::AbstractArray
         for (si, surf) in enumerate(surfaces)
@@ -173,7 +173,7 @@ function plate_eqs!(s, eqs, psys, wing;
                      for si in 1:n_surf])
             aero_moment_b[:, wing.idx] ~ zeros(3)
         ]
-    elseif wing.wing_type == QUATERNION
+    elseif wing.dynamics_type == RIGID_DYNAMICS
         # Sum forces and moments about COM
         force_sum = sum([
             Rbw' * plate_force_w[:, si]

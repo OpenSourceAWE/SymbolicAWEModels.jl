@@ -1,6 +1,6 @@
 name = "SymbolicAWEModels"
 uuid = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
-version = "0.9.0"
+version = "0.11.1"
 authors = ["Bart van de Lint <bart@vandelint.net> and contributors"]
 
 [workspace]
@@ -90,6 +90,6 @@ TOML = "1"
 Tar = "1.10.0"
 Timers = "0.1.5"
 UnPack = "1.0.2"
-VortexStepMethod = "3.3.1"
+VortexStepMethod = "3.3.5"
 YAML = "0.4"
 julia = "1.11, 1.12"

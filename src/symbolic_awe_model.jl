@@ -360,6 +360,17 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         end
     end
 
+    # Wing origin positions appended after panel corners.
+    # Lets replay read wing.pos_w directly without recomputing
+    # a weighted centroid from points.
+    wing_slot = corner_idx
+    for wing in wings
+        wing_slot += 1
+        ss.X[wing_slot] = wing.pos_w[1] * zoom
+        ss.Y[wing_slot] = wing.pos_w[2] * zoom
+        ss.Z[wing_slot] = wing.pos_w[3] * zoom
+    end
+
     ss.v_wind_gnd .= sam.set.wind_vec
     nothing
 end
@@ -380,13 +391,14 @@ with the current state of the provided model.
 - `SysState`: A new state struct representing the current model state.
 """
 function SysState(s::SymbolicAWEModel, zoom=1.0)
-    # Calculate total points: regular points + 4 corners per panel
+    # Total slots: structural points + 4 corners per panel + 1 per wing
     n_points = length(s.sys_struct.points)
     n_panel_corners = isempty(s.sys_struct.wings) ? 0 : sum(
         length(wing.vsm_aero.panels) * 4 for wing in s.sys_struct.wings if wing isa VSMWing;
         init=0
     )
-    total_points = n_points + n_panel_corners
+    n_wings = length(s.sys_struct.wings)
+    total_points = n_points + n_panel_corners + n_wings
     ss = SysState{total_points}()
     update_sys_state!(ss, s, zoom)
     ss
@@ -414,13 +426,14 @@ logger = Logger(sam, 1000)  # Instead of Logger(length(sam.sys_struct.points), 1
 ```
 """
 function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
-    # Calculate total points: regular points + 4 corners per panel
+    # Total slots: structural points + 4 corners per panel + 1 per wing
     n_points = length(sam.sys_struct.points)
     n_panel_corners = isempty(sam.sys_struct.wings) ? 0 : sum(
         length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings if wing isa VSMWing;
         init=0
     )
-    total_points = n_points + n_panel_corners
+    n_wings = length(sam.sys_struct.wings)
+    total_points = n_points + n_panel_corners + n_wings
     return Logger(total_points, steps)
 end
 
@@ -487,9 +500,9 @@ function next_step!(sam::SymbolicAWEModel;
     sam.t_0 = integrator.t
     sam.t_step = @elapsed OrdinaryDiffEqCore.step!(integrator, dt, true)
     if !successful_retcode(integrator.sol)
-        error("Solver unstable at t=" *
+        throw(AssertionError("Solver unstable at t=" *
             "$(round(integrator.t; digits=4))" *
-            ": $(integrator.sol.retcode)")
+            ": $(integrator.sol.retcode)"))
     end
     sam.iter += 1
     if prob isa ProbWithAttributes
@@ -654,13 +667,13 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     end
 
     # Determine wing type and aero mode
-    wing_types = [wing.wing_type for wing in sys_struct.wings]
-    wing_type_str = if isempty(wing_types)
+    dynamics_types = [wing.dynamics_type for wing in sys_struct.wings]
+    dynamics_type_str = if isempty(dynamics_types)
         "no_wing"
-    elseif all(wt -> wt === QUATERNION, wing_types)
-        "quat"
-    elseif all(wt -> wt === REFINE, wing_types)
-        "refine"
+    elseif all(wt -> wt === RIGID_DYNAMICS, dynamics_types)
+        "rigid"
+    elseif all(wt -> wt === PARTICLE_DYNAMICS, dynamics_types)
+        "particle"
     else
         "mixed"
     end
@@ -687,7 +700,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     n_wings = length(sys_struct.wings)
     n_winches = length(sys_struct.winches)
 
-    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(wing_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_groups)grp_$(n_wings)wng_$(n_winches)wch.bin$suffix"
+    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_groups)grp_$(n_wings)wng_$(n_winches)wch.bin$suffix"
 end
 
 """

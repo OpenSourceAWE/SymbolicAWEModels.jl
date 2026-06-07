@@ -26,7 +26,7 @@ ASSETS = joinpath(@__DIR__, "src", "assets")
 pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
 
-struc_yaml = joinpath(get_data_path(), "quat_struc_geometry.yaml")
+struc_yaml = joinpath(get_data_path(), "rigid_structural_geometry.yaml")
 
 set_2p = Settings("system.yaml")
 set_2p.solver = "FBDF"

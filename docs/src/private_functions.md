@@ -116,7 +116,7 @@ SymbolicAWEModels.resolve_references
 SymbolicAWEModels.calculate_derived_properties!
 SymbolicAWEModels._extract_args
 SymbolicAWEModels.call_yaml_constructor
-SymbolicAWEModels.update_yaml_from_sys_struct!
+SymbolicAWEModels.parse_tether_init
 ```
 
 ## SystemStructure internals
@@ -124,7 +124,16 @@ SymbolicAWEModels.update_yaml_from_sys_struct!
 ```@docs
 SymbolicAWEModels.segment_cad_length
 SymbolicAWEModels.segment_world_length
+SymbolicAWEModels.tether_ordered_point_idxs
+SymbolicAWEModels.tether_anchor_free
+SymbolicAWEModels.rigid_point_siblings
+SymbolicAWEModels.tether_downstream_idxs
+SymbolicAWEModels.group_tethers_by_overlap
+SymbolicAWEModels.tether_unit_stiffness
+SymbolicAWEModels.apply_cluster_init_stretched_len!
 SymbolicAWEModels.apply_tether_init_stretched_lens!
+SymbolicAWEModels.init_unstretched_len
+SymbolicAWEModels.apply_tether_init_forces!
 SymbolicAWEModels.assign_indices_and_resolve!
 SymbolicAWEModels.resolve_ref
 SymbolicAWEModels.resolve_ref_spec
@@ -136,8 +145,9 @@ SymbolicAWEModels.compute_spatial_group_mapping!
 SymbolicAWEModels.copy_cad_to_world!
 SymbolicAWEModels.adjust_vsm_panels_to_origin!
 SymbolicAWEModels.apply_aero_z_offset!
-SymbolicAWEModels.calc_refine_wing_frame
+SymbolicAWEModels.calc_particle_dynamics_wing_frame
 SymbolicAWEModels.calc_inertia_y_rotation
+SymbolicAWEModels.has_mesh_inertia
 SymbolicAWEModels.rotate_vsm_sections!
 SymbolicAWEModels.expand_auto_tethers!
 SymbolicAWEModels.WeightedRefPoints
@@ -182,7 +192,7 @@ SymbolicAWEModels._load_plate_wing
 SymbolicAWEModels.build_point_to_vsm_point_mapping
 SymbolicAWEModels.update_vsm_wing_from_structure!
 SymbolicAWEModels.distribute_panel_forces_to_points!
-SymbolicAWEModels._update_quaternion_wing!
+SymbolicAWEModels._update_rigid_dynamics_wing!
 SymbolicAWEModels._apply_direct_forces!
 SymbolicAWEModels._safe_vsm_solve!
 ```

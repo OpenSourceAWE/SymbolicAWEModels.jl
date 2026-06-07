@@ -137,7 +137,7 @@ kite:
     model: ""     # 3D model of the kite
     foil_file: "ram_air_kite/ram_air_kite_foil.dat" # filename for the foil shape
     physical_model: "2plate"            # name of the kite model to use (2plate, ram, etc.)
-    struc_geometry_path: "refine_struc_geometry.yaml"  # structural YAML
+    struc_geometry_path: "particle_structural_geometry.yaml"  # structural YAML
     aero_geometry_path: "aero_geometry.yaml"    # aerodynamic YAML
     mass: 0.0                               # kite mass [kg]
     quasi_static: false                     # whether to use quasi static kite points or not

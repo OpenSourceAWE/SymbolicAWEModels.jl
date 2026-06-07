@@ -61,7 +61,7 @@ for step in 1:N_STEPS
     global km_elapsed += @elapsed next_step!(
         kps4, integrator;
         set_speed=0, upwind_dir=UPWIND_DIR, dt=dt)
-    sys_state = SysState(kps4)
+    local sys_state = SysState(kps4)
     sys_state.var_01 = kps4.pitch
     sys_state.var_02 = kps4.pitch_rate
     log!(km_logger, sys_state)
@@ -185,7 +185,7 @@ cl_interp, cd_interp = create_plate_interpolations(
 
 plate_wing = PlateWing(
     :plate_wing, surfaces, cl_interp, cd_interp;
-    wing_type=REFINE,
+    dynamics_type=PARTICLE_DYNAMICS,
     z_ref_points=([:right, :left], :top),
     y_ref_points=(:left, :right),
     origin=:kcu,

@@ -286,8 +286,16 @@ end
 
 function parse_wing_type(s::String)
     s_upper = uppercase(s)
-    s_upper == "REFINE" && return REFINE
-    s_upper == "QUATERNION" && return QUATERNION
+    s_upper == "PARTICLE_DYNAMICS" && return PARTICLE_DYNAMICS
+    s_upper == "RIGID_DYNAMICS" && return RIGID_DYNAMICS
+    if s_upper == "REFINE"
+        @warn "WingType \"$s\" is deprecated; use \"PARTICLE_DYNAMICS\" instead."
+        return PARTICLE_DYNAMICS
+    end
+    if s_upper == "QUATERNION"
+        @warn "WingType \"$s\" is deprecated; use \"RIGID_DYNAMICS\" instead."
+        return RIGID_DYNAMICS
+    end
     error("Unknown WingType: $s")
 end
 
@@ -308,7 +316,8 @@ Load a PlateWing from YAML wing row + surfaces block.
 CL/CD interpolations are created from Settings polar data.
 """
 function _load_plate_wing(row, idx, data, set, wt, am,
-                          yaml_to_ref, yaml_parse_ref_points)
+                          yaml_to_ref, yaml_parse_ref_points,
+                          yaml_parse_origin)
     name = if haskey(row, :name) && !isnothing(row.name)
         Symbol(row.name)
     else
@@ -337,12 +346,7 @@ function _load_plate_wing(row, idx, data, set, wt, am,
     # Parse reference points
     z_ref = yaml_parse_ref_points(row, :z_ref_points)
     y_ref = yaml_parse_ref_points(row, :y_ref_points)
-    origin = if hasfield(typeof(row), :origin_idx) &&
-                !isnothing(row.origin_idx)
-        yaml_to_ref(row.origin_idx)
-    else
-        nothing
-    end
+    origin = yaml_parse_origin(row, :origin_idx)
     transform = if hasfield(typeof(row), :transform_idx) &&
                    !isnothing(row.transform_idx)
         yaml_to_ref(row.transform_idx)
@@ -373,10 +377,43 @@ function _load_plate_wing(row, idx, data, set, wt, am,
     end
 
     PlateWing(name, surfaces, cl_interp, cd_interp;
-              wing_type=wt, transform, y_damping,
+              dynamics_type=wt, transform, y_damping,
               drag_corr, cmq, smc, cord_length,
               z_ref_points=z_ref, y_ref_points=y_ref,
               origin)
+end
+
+"""
+    parse_tether_init(row, tether_name)
+        -> (stretched_length, tether_force, stretch_frac)
+
+Read `init_stretched_length`, `init_tether_force` and
+`init_stretch_frac` from a tether YAML row (each `nothing` if
+absent). Errors if the deprecated `init_unstretched_length` field is
+present — the unstretched rest length is now derived from the placed
+stretched length with `init_tether_force` or `init_stretch_frac`.
+"""
+function parse_tether_init(row, tether_name)
+    if !isnothing(yaml_field(row, :init_unstretched_length))
+        error("Tether $tether_name: init_unstretched_length is " *
+              "deprecated; it is derived from the placed " *
+              "init_stretched_length with init_tether_force or " *
+              "init_stretch_frac.")
+    end
+    stretched_length = yaml_float(row, :init_stretched_length)
+    tether_force = yaml_float(row, :init_tether_force)
+    stretch_frac = yaml_float(row, :init_stretch_frac)
+    return stretched_length, tether_force, stretch_frac
+end
+
+function yaml_field(row, field)
+    hasfield(typeof(row), field) || return nothing
+    getfield(row, field)
+end
+
+function yaml_float(row, field)
+    value = yaml_field(row, field)
+    isnothing(value) ? nothing : Float64(value)
 end
 
 """
@@ -385,7 +422,14 @@ end
 Build a `SystemStructure` from a component-based structural
 YAML file. See source for full documentation of expected blocks.
 """
-function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, wing_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AeroMode}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing)
+function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, dynamics_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AeroMode}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing, wing_type::Union{Nothing,WingType}=nothing)
+    if !isnothing(wing_type)
+        if !isnothing(dynamics_type)
+            error("Cannot specify both `wing_type` and `dynamics_type`; `wing_type` is deprecated, use `dynamics_type`.")
+        end
+        @warn "Keyword argument `wing_type` is deprecated; use `dynamics_type` instead."
+        dynamics_type = wing_type
+    end
     data = YAML.load_file(yaml_path)
 
     # Use provided settings or fall back to base settings
@@ -408,10 +452,32 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
+    # Convert one YAML ref spec to WeightedRefPoints input form.
+    # Supports:
+    #   :name         → Symbol
+    #   7             → Int
+    #   [a, b]        → equal-weight average
+    #   [[a, w], ...] → explicit weights as (name, weight) tuples
+    yaml_convert_ref = function (v)
+        if v isa Vector && !isempty(v) && v[1] isa Vector
+            return map(v) do x
+                if !(x isa Vector) || length(x) != 2
+                    throw(ArgumentError("Invalid weighted reference point entry $(repr(x)); expected format [[id, weight], ...]"))
+                end
+                if !(x[2] isa Number)
+                    throw(ArgumentError("Invalid weighted reference point weight $(repr(x[2])) in entry $(repr(x)); expected format [[id, weight], ...] with numeric weight"))
+                end
+                (yaml_to_ref(x[1]), Float64(x[2]))
+            end
+        elseif v isa Vector
+            return [yaml_to_ref(x) for x in v]
+        else
+            return yaml_to_ref(v)
+        end
+    end
+
     # Parse [a, b] or [a, [[id, w], ...]] style reference-point
-    # fields from YAML rows. Weighted specs like
-    #   [[2, 0.7], [4, 0.3]]
-    # are converted to tuples for WeightedRefPoints.
+    # fields from YAML rows (pair of refs for z/y axes).
     yaml_parse_ref_points = function (row, field)
         !hasfield(typeof(row), field) && return nothing
         val = getfield(row, field)
@@ -421,28 +487,18 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             throw(ArgumentError("ref_points must have 2 elements"))
         end
 
-        convert_ref = function (v)
-            if v isa Vector && !isempty(v) && v[1] isa Vector
-                # Weighted: [[id, weight], ...] → tuples
-                return map(v) do x
-                    if !(x isa Vector) || length(x) != 2
-                        throw(ArgumentError("Invalid weighted reference point entry $(repr(x)); expected format [[id, weight], ...]"))
-                    end
-                    if !(x[2] isa Number)
-                        throw(ArgumentError("Invalid weighted reference point weight $(repr(x[2])) in entry $(repr(x)); expected format [[id, weight], ...] with numeric weight"))
-                    end
-                    (yaml_to_ref(x[1]), Float64(x[2]))
-                end
-            elseif v isa Vector
-                # Multiple equal-weight refs: [a, b, ...]
-                return [yaml_to_ref(x) for x in v]
-            else
-                return yaml_to_ref(v)
-            end
-        end
-        p1 = convert_ref(val[1])
-        p2 = convert_ref(val[2])
+        p1 = yaml_convert_ref(val[1])
+        p2 = yaml_convert_ref(val[2])
         return (p1, p2)
+    end
+
+    # Parse a single weighted-ref field (e.g. origin_idx).
+    # Accepts the same shapes as one side of yaml_parse_ref_points.
+    yaml_parse_origin = function (row, field)
+        !hasfield(typeof(row), field) && return nothing
+        val = getfield(row, field)
+        val === nothing && return nothing
+        return yaml_convert_ref(val)
     end
 
     # Load points - SystemStructure handles resolution
@@ -636,69 +692,32 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 # Route 1: explicit segments
                 segs = [yaml_to_ref(s)
                     for s in row.segment_idxs]
-                sp = if hasfield(typeof(row),
+                start_ref = if hasfield(typeof(row),
                         :start_point) &&
                         !isnothing(row.start_point)
                     yaml_to_ref(row.start_point)
                 else
                     nothing
                 end
-                ep = if hasfield(typeof(row),
+                end_ref = if hasfield(typeof(row),
                         :end_point) &&
                         !isnothing(row.end_point)
                     yaml_to_ref(row.end_point)
                 else
                     nothing
                 end
-                il = if hasfield(typeof(row),
-                        :init_stretched_length) &&
-                        !isnothing(
-                            row.init_stretched_length)
-                    Float64(row.init_stretched_length)
-                else
-                    nothing
-                end
-                tl = if hasfield(typeof(row),
-                        :init_unstretched_length) &&
-                        !isnothing(
-                            row.init_unstretched_length)
-                    Float64(
-                        row.init_unstretched_length)
-                else
-                    nothing
-                end
-                # Default: unstretched = stretched
-                ul = !isnothing(tl) ? tl :
-                    !isnothing(il) ? il :
-                    error("Tether $tether_name: " *
-                        "init_unstretched_length " *
-                        "or init_stretched_length " *
-                        "is required")
-                tether = Tether(tether_name, segs, ul;
-                    start_point=sp, end_point=ep,
-                    stretched_length=il)
+                stretched_length, tether_force, stretch_frac =
+                    parse_tether_init(row, tether_name)
+                tether = Tether(tether_name, segs, stretched_length;
+                    start_point=start_ref, end_point=end_ref,
+                    tether_force, stretch_frac)
             else
                 # Route 2: auto-generation
-                sp = yaml_to_ref(row.start_point)
-                ep = yaml_to_ref(row.end_point)
+                start_ref = yaml_to_ref(row.start_point)
+                end_ref = yaml_to_ref(row.end_point)
                 n_seg = Int(row.n_segments)
-                il = if hasfield(typeof(row),
-                        :init_stretched_length) &&
-                        !isnothing(
-                            row.init_stretched_length)
-                    Float64(row.init_stretched_length)
-                else
-                    nothing
-                end
-                tl = if hasfield(typeof(row),
-                        :init_unstretched_length) &&
-                        !isnothing(
-                            row.init_unstretched_length)
-                    Float64(
-                        row.init_unstretched_length)
-                else
-                    nothing
-                end
+                stretched_length, tether_force, stretch_frac =
+                    parse_tether_init(row, tether_name)
                 # Resolve material reference if present
                 resolved = resolve_references(
                     row, property_tables)
@@ -719,19 +738,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     Float64(d_mm)
                 d = isnan(d_mm) ? NaN :
                     d_mm * 0.001
-                # Default: unstretched = stretched
-                ul = !isnothing(tl) ? tl :
-                    !isnothing(il) ? il :
-                    error("Tether $tether_name: " *
-                        "init_unstretched_length " *
-                        "or init_stretched_length " *
-                        "is required")
-                tether = Tether(tether_name, ul;
-                    start_point=sp, end_point=ep,
+                tether = Tether(tether_name, stretched_length;
+                    start_point=start_ref, end_point=end_ref,
                     n_segments=n_seg,
                     unit_stiffness=us, unit_damping=ud,
-                    diameter=d,
-                    stretched_length=il)
+                    diameter=d, tether_force, stretch_frac)
             end
             push!(tethers, tether)
         end
@@ -779,8 +790,21 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         wing_rows = parse_table(data["wings"])
 
         for (i, row) in enumerate(wing_rows)
-            # Use provided wing_type parameter or parse from YAML
-            wt = isnothing(wing_type) ? parse_wing_type(String(row.type)) : wing_type
+            # Use provided dynamics_type parameter or parse from YAML
+            # Support old `type` field with deprecation warning
+            wt = if !isnothing(dynamics_type)
+                dynamics_type
+            else
+                raw_wt_field = if hasfield(typeof(row), :dynamics_type) && !isnothing(row.dynamics_type)
+                    String(row.dynamics_type)
+                elseif hasfield(typeof(row), :type) && !isnothing(row.type)
+                    @warn "Wing YAML field `type` is deprecated; rename to `dynamics_type`."
+                    String(row.type)
+                else
+                    error("Wing entry missing required `dynamics_type` field.")
+                end
+                parse_wing_type(raw_wt_field)
+            end
 
             # Build kwargs based on wing type - SystemStructure handles resolution
             # Determine aero_mode: kwarg > YAML > default
@@ -790,7 +814,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     !isnothing(row.aero_mode)
                 parse_aero_mode(String(row.aero_mode))
             else
-                wt == QUATERNION ? AERO_LINEARIZED :
+                wt == RIGID_DYNAMICS ? AERO_LINEARIZED :
                     AERO_DIRECT
             end
 
@@ -798,7 +822,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 # PlateWing — load surfaces and CL/CD from settings
                 wing = _load_plate_wing(row, i, data,
                     resolved_set, wt, am, yaml_to_ref,
-                    yaml_parse_ref_points)
+                    yaml_parse_ref_points,
+                    yaml_parse_origin)
                 push!(wings, wing)
                 continue
             end
@@ -809,20 +834,22 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                       "was not provided.")
             end
 
-            if wt == REFINE
-                # REFINE wings need z_ref_points, y_ref_points, origin
+            if wt == PARTICLE_DYNAMICS
+                # PARTICLE_DYNAMICS wings need z_ref_points, y_ref_points, origin
                 # Pass raw values - constructor handles defaults
                 wing = call_yaml_constructor(VSMWing, row,
                     [:name, :set, :groups, :vsm_set],
                     [:transform, :y_damping, :angular_damping,
-                     :wing_type, :aero_mode,
+                     :dynamics_type, :aero_mode,
                      :z_ref_points, :y_ref_points, :origin, :pos_cad,
                      :aero_scale_chord];
                     mappings=Dict(
                         :set => r -> resolved_set,
-                        :groups => r -> [],  # REFINE wings don't have groups
+                        :groups => r -> hasfield(typeof(r), :groups) &&
+                            !isnothing(r.groups) ?
+                            [yaml_to_ref(g) for g in r.groups] : [],
                         :vsm_set => r -> vsm_set,
-                        :wing_type => r -> wt,
+                        :dynamics_type => r -> wt,
                         :aero_mode => r -> am,
                         :name => r -> begin
                             if haskey(r, :name) && !isnothing(r.name)
@@ -842,12 +869,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                             yaml_parse_ref_points(r, :z_ref_points),
                         :y_ref_points => r ->
                             yaml_parse_ref_points(r, :y_ref_points),
-                        :origin => r -> begin
-                            if !hasfield(typeof(r), :origin_idx) || r.origin_idx === nothing
-                                return nothing
-                            end
-                            yaml_to_ref(r.origin_idx)
-                        end,
+                        :origin => r ->
+                            yaml_parse_origin(r, :origin_idx),
                         :aero_scale_chord => r ->
                             hasfield(typeof(r), :aero_scale_chord) && !isnothing(r.aero_scale_chord) ?
                                 float(r.aero_scale_chord) : 0.0,
@@ -857,12 +880,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                             nothing
                         end
                     ))
-            else  # QUATERNION
+            else  # RIGID_DYNAMICS
                 # Pass raw values - constructor handles defaults
                 wing = call_yaml_constructor(VSMWing, row,
                     [:name, :set, :groups, :vsm_set],
                     [:transform, :y_damping, :angular_damping,
-                     :wing_type, :aero_mode, :aero_scale_chord,
+                     :dynamics_type, :aero_mode, :aero_scale_chord,
                      :aero_z_offset, :pos_cad,
                      :z_ref_points, :y_ref_points, :origin];
                     mappings=Dict(
@@ -872,7 +895,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                             !isnothing(r.groups) ?
                             [yaml_to_ref(g) for g in r.groups] : [],
                         :vsm_set => r -> vsm_set,
-                        :wing_type => r -> wt,
+                        :dynamics_type => r -> wt,
                         :name => r -> begin
                             if haskey(r, :name) && !isnothing(r.name)
                                 Symbol(r.name)
@@ -903,13 +926,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                             yaml_parse_ref_points(r, :z_ref_points),
                         :y_ref_points => r ->
                             yaml_parse_ref_points(r, :y_ref_points),
-                        :origin => r -> begin
-                            if !hasfield(typeof(r), :origin_idx) ||
-                               r.origin_idx === nothing
-                                return nothing
-                            end
-                            yaml_to_ref(r.origin_idx)
-                        end
+                        :origin => r ->
+                            yaml_parse_origin(r, :origin_idx)
                     ))
             end
             push!(wings, wing)
@@ -995,388 +1013,4 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     return SystemStructure(system_name, resolved_set; points, groups,
         segments, pulleys, tethers, winches, wings,
         transforms, ignore_l0, vsm_set)
-end
-
-"""
-    update_yaml_from_sys_struct!(sys_struct::SystemStructure,
-                                  source_struc_yaml::AbstractString,
-                                  dest_struc_yaml::AbstractString,
-                                  source_aero_yaml::AbstractString,
-                                  dest_aero_yaml::AbstractString)
-
-Update point positions in structural and aerodynamic YAML files from
-the current state of a SystemStructure.
-
-# Arguments
-- `sys_struct`: SystemStructure with current point positions
-- `source_struc_yaml`: Path to source structural geometry YAML file
-- `dest_struc_yaml`: Path to destination structural YAML file
-- `source_aero_yaml`: Path to source aero geometry YAML file
-- `dest_aero_yaml`: Path to destination aero YAML file
-
-Source and destination paths must be different for each pair.
-
-# Example
-```julia
-sys = load_sys_struct_from_yaml("refine_struc_geometry.yaml"; ...)
-sam = SymbolicAWEModel(set, sys)
-# ... run simulation ...
-update_yaml_from_sys_struct!(sys,
-    "refine_struc_geometry.yaml",
-    "refine_struc_geometry_stable.yaml",
-    "aero_geometry.yaml",
-    "aero_geometry_stable.yaml")
-```
-"""
-function update_yaml_from_sys_struct!(sys_struct::SystemStructure,
-                                      source_struc_yaml::AbstractString,
-                                      dest_struc_yaml::AbstractString,
-                                      source_aero_yaml::AbstractString,
-                                      dest_aero_yaml::AbstractString)
-    # Helper to format coordinate with rounding
-    function format_coord(val::Float64)
-        # Round to 4 decimals, set small values to 0
-        rounded = abs(val) < 1e-4 ? 0.0 : round(val, digits=4)
-        return rounded
-    end
-
-    # Update pos_b for REFINE wing points based on current wing orientation
-    for wing in sys_struct.wings
-        if wing.wing_type == REFINE
-            R_w_to_b = wing.R_b_to_w'  # transpose to get world-to-body
-            for point in sys_struct.points
-                if point.wing_idx == wing.idx
-                    point.pos_b .= R_w_to_b * (point.pos_w - wing.pos_w)
-                end
-            end
-        end
-    end
-
-    # Build position dictionary from system structure (body-frame positions)
-    positions = Dict{Int, Vector{Float64}}()
-    for point in sys_struct.points
-        positions[point.idx] = copy(point.pos_b)
-    end
-
-    # Build segment l0 dictionary from system structure
-    segment_l0s = Dict{Int, Float64}()
-    for seg in sys_struct.segments
-        segment_l0s[seg.idx] = seg.l0
-    end
-
-    # Update structural geometry YAML
-    struc_full_path = isabspath(source_struc_yaml) ? source_struc_yaml :
-                      joinpath(pwd(), source_struc_yaml)
-
-    if !isfile(struc_full_path)
-        error("Source structural YAML file not found: $struc_full_path")
-    end
-
-    dest_struc_full_path = isabspath(dest_struc_yaml) ? dest_struc_yaml :
-                          joinpath(pwd(), dest_struc_yaml)
-
-    lines = readlines(struc_full_path)
-    n_points_updated = 0
-    n_segments_updated = 0
-    in_points_section = false
-    in_segments_section = false
-
-    for (i, line) in enumerate(lines)
-        # Track which section we're in
-        if occursin(r"^points:", line)
-            in_points_section = true
-            in_segments_section = false
-        elseif occursin(r"^segments:", line)
-            in_points_section = false
-            in_segments_section = true
-        elseif occursin(r"^\w+:", line)  # New section starts
-            in_points_section = false
-            in_segments_section = false
-        end
-
-        # Update lines in the points section
-        if in_points_section
-            # Match: "- [idx, [x, y, z], ..." where coordinates are floats
-            m = match(r"^(\s*-\s*\[)(\d+)(,\s*\[)([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?,\s*[-+]?\d+\.?\d*(?:[eE][-+]?\d+)?,\s*[-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)(\].*)", line)
-            if m !== nothing
-                point_idx = parse(Int, something(m.captures[2]))
-                if haskey(positions, point_idx)
-                    new_pos = positions[point_idx]
-                    x = format_coord(new_pos[1])
-                    y = format_coord(new_pos[2])
-                    z = format_coord(new_pos[3])
-                    new_coords = "$x, $y, $z"
-                    lines[i] = something(m.captures[1]) * something(m.captures[2]) *
-                              something(m.captures[3]) * new_coords * something(m.captures[5])
-                    n_points_updated += 1
-                end
-            end
-        end
-
-        # Update lines in the segments section
-        if in_segments_section
-            # Match: "- [idx, point_i, point_j, l0, ...]"
-            # Format: [idx, point_i, point_j, l0, diameter_mm, ...]
-            # We want to update the l0 field (4th field)
-            m = match(r"^(\s*-\s*\[)(\d+)(,\s*\d+,\s*\d+,\s*)([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)(.*)", line)
-            if m !== nothing
-                seg_idx = parse(Int, something(m.captures[2]))
-
-                if haskey(segment_l0s, seg_idx)
-                    new_l0 = format_coord(segment_l0s[seg_idx])
-                    # Reconstruct line with updated l0
-                    lines[i] = something(m.captures[1]) * something(m.captures[2]) * something(m.captures[3]) *
-                              string(new_l0) * something(m.captures[5])
-                    n_segments_updated += 1
-                end
-            end
-        end
-    end
-
-    # Build tether init_len dictionary
-    tether_init_lens = Dict{String, Float64}()
-    for tether in sys_struct.tethers
-        name = string(tether.name)
-        if !isnothing(tether.init_stretched_len)
-            tether_init_lens[name] =
-                tether.init_stretched_len
-        end
-    end
-
-    # Update tether init_len values in tethers section
-    n_tethers_updated = 0
-    in_tethers_section = false
-    tether_init_len_col = 0
-    for (i, line) in enumerate(lines)
-        if occursin(r"^tethers:", line)
-            in_tethers_section = true
-        elseif occursin(r"^\w+:", line) &&
-               !occursin(r"^tethers:", line)
-            if in_tethers_section
-                in_tethers_section = false
-                tether_init_len_col = 0
-            end
-        end
-
-        if in_tethers_section
-            # Find init_len column index from headers
-            hm = match(r"headers:\s*\[(.+)\]", line)
-            if hm !== nothing
-                cols = split(something(hm.captures[1]), r",\s*")
-                for (ci, c) in enumerate(cols)
-                    if strip(c) == "init_stretched_length"
-                        tether_init_len_col = ci
-                    end
-                end
-            end
-
-            # Update data rows if we know the column
-            if tether_init_len_col > 0
-                dm = match(
-                    r"^(\s*-\s*\[)([\w-]+)(.*)", line)
-                if dm !== nothing
-                    name = String(something(dm.captures[2]))
-                    if haskey(tether_init_lens, name)
-                        # Parse fields, update init_len
-                        rest = something(dm.captures[3])
-                        fields = split(
-                            strip(rest, [',', ']']),
-                            r",\s*")
-                        col = tether_init_len_col - 1
-                        if col <= length(fields)
-                            fields[col] = " " * string(
-                                format_coord(
-                                    tether_init_lens[
-                                        name]))
-                            lines[i] = dm.captures[1] *
-                                name * "," *
-                                join(fields, ",") * "]"
-                            n_tethers_updated += 1
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    @info "Updated structural positions and segments" n_points=n_points_updated n_segments=n_segments_updated n_tethers=n_tethers_updated
-
-    # Write updated structural YAML
-    @info "Writing updated structural YAML" source=struc_full_path dest=dest_struc_full_path
-    open(dest_struc_full_path, "w") do io
-        for line in lines
-            println(io, line)
-        end
-    end
-
-    # Update aerodynamic geometry YAML
-    aero_full_path = isabspath(source_aero_yaml) ? source_aero_yaml :
-                    joinpath(pwd(), source_aero_yaml)
-
-    if !isfile(aero_full_path)
-        error("Source aero YAML file not found: $aero_full_path")
-    end
-
-    dest_aero_full_path = isabspath(dest_aero_yaml) ? dest_aero_yaml :
-                         joinpath(pwd(), dest_aero_yaml)
-
-    aero_lines = readlines(aero_full_path)
-    n_aero_updated = 0
-
-    for (i, line) in enumerate(aero_lines)
-        # Match wing section data lines with point references in comments
-        # Format: "- [airfoil_id, LE_x, LE_y, LE_z, TE_x, TE_y, TE_z]"
-        # Look for comment indicating point mapping
-        comment_match = match(r"#.*points?\s+(\d+).*\(LE\).*and\s+(\d+).*\(TE\)", line)
-
-        if comment_match !== nothing
-            le_idx = parse(Int, something(comment_match.captures[1]))
-            te_idx = parse(Int, something(comment_match.captures[2]))
-
-            # Check next line for the actual data
-            if i < length(aero_lines)
-                data_line = aero_lines[i+1]
-                m = match(r"^(\s*-\s*\[)(\d+)(,\s*)([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?),\s*([-+]?\d+\.?\d*(?:[eE][-+]?\d+)?)(\])", data_line)
-
-                if m !== nothing && haskey(positions, le_idx) && haskey(positions, te_idx)
-                    le_pos = positions[le_idx]
-                    te_pos = positions[te_idx]
-
-                    airfoil_id = m.captures[2]
-                    new_data = "$(m.captures[1])$airfoil_id$(m.captures[3])" *
-                              "$(format_coord(le_pos[1])), $(format_coord(le_pos[2])), $(format_coord(le_pos[3])), " *
-                              "$(format_coord(te_pos[1])), $(format_coord(te_pos[2])), $(format_coord(te_pos[3]))$(m.captures[10])"
-
-                    aero_lines[i+1] = new_data
-                    n_aero_updated += 1
-                end
-            end
-        end
-    end
-
-    @info "Updated aerodynamic positions" n_sections=n_aero_updated
-
-    # Write updated aero YAML
-    @info "Writing updated aero YAML" source=aero_full_path dest=dest_aero_full_path
-    open(dest_aero_full_path, "w") do io
-        for line in aero_lines
-            println(io, line)
-        end
-    end
-
-    @info "Done!"
-    return nothing
-end
-
-"""
-    update_sys_struct_from_yaml!(sys_struct::SystemStructure,
-                                  struc_yaml::AbstractString)
-
-Update an existing `SystemStructure` in-place from a (possibly
-modified) structural geometry YAML file. Inverse of
-`update_yaml_from_sys_struct!`.
-
-Updates `pos_cad` for points, `l0` for segments, and
-`init_stretched_len`/`init_unstretched_len` for tethers,
-matched by symbolic name. When `l0` is `nothing` in the
-YAML, it is auto-calculated from endpoint `pos_cad`.
-
-Only raw geometry is updated. Call `reinit!(sys_struct, set)` afterward
-to recompute derived quantities (`pos_b`, `pos_w`, wing frames, etc.).
-
-Unmatched names are silently skipped (the YAML may contain a subset of
-components).
-
-# Arguments
-- `sys_struct`: The SystemStructure to update in-place.
-- `struc_yaml`: Path to the structural geometry YAML file.
-
-# Example
-```julia
-sys = load_sys_struct_from_yaml("refine_struc_geometry.yaml"; ...)
-# ... edit YAML externally ...
-update_sys_struct_from_yaml!(sys, "refine_struc_geometry.yaml")
-```
-"""
-function update_sys_struct_from_yaml!(
-        sys_struct::SystemStructure,
-        struc_yaml::AbstractString)
-    yaml_path = isabspath(struc_yaml) ? struc_yaml :
-                joinpath(pwd(), struc_yaml)
-    isfile(yaml_path) ||
-        error("YAML file not found: $yaml_path")
-
-    data = YAML.load_file(yaml_path)
-
-    # --- Update points ---
-    n_points = 0
-    if haskey(data, "points")
-        point_rows = parse_table(data["points"])
-        for row in point_rows
-            haskey(row, :name) || continue
-            name = Symbol(row.name)
-            haskey(sys_struct.points, name) || continue
-
-            point = sys_struct.points[name]
-            point.pos_cad .= KVec3(row.pos_cad...)
-            n_points += 1
-        end
-    end
-
-    # --- Update segment l0 ---
-    n_segments = 0
-    if haskey(data, "segments")
-        segment_rows = parse_table(data["segments"])
-        for row in segment_rows
-            haskey(row, :name) || continue
-            name = Symbol(row.name)
-            haskey(sys_struct.segments, name) || continue
-
-            seg = sys_struct.segments[name]
-
-            # l0: use YAML value, or auto-calc from pos_cad
-            l0_val = haskey(row, :l0) ? row.l0 : nothing
-            if !isnothing(l0_val) && l0_val != "nothing"
-                seg.l0 = Float64(l0_val)
-            else
-                seg.l0 = segment_cad_length(
-                    seg, sys_struct.points)
-            end
-
-            n_segments += 1
-        end
-    end
-
-    # --- Update tether init lengths ---
-    n_tethers = 0
-    if haskey(data, "tethers")
-        tether_rows = parse_table(data["tethers"])
-        for row in tether_rows
-            haskey(row, :name) || continue
-            name = Symbol(row.name)
-            haskey(sys_struct.tethers, name) || continue
-
-            tether = sys_struct.tethers[name]
-
-            if hasfield(typeof(row),
-                    :init_stretched_length) &&
-               !isnothing(row.init_stretched_length)
-                tether.init_stretched_len =
-                    Float64(row.init_stretched_length)
-            end
-            if hasfield(typeof(row),
-                    :init_unstretched_length) &&
-               !isnothing(
-                    row.init_unstretched_length)
-                tether.init_unstretched_len =
-                    Float64(
-                        row.init_unstretched_length)
-            end
-
-            n_tethers += 1
-        end
-    end
-
-    @info "update_sys_struct_from_yaml!" n_points n_segments n_tethers
-    return nothing
 end

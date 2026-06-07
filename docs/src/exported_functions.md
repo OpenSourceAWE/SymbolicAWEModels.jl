@@ -31,7 +31,6 @@ linearize!
 
 ```@docs
 load_sys_struct_from_yaml
-update_sys_struct_from_yaml!
 ```
 
 ## System configuration

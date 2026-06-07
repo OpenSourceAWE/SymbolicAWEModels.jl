@@ -44,20 +44,24 @@ Enumeration for the dynamic model governing a point's motion.
 end
 
 """
-    WingType `QUATERNION` `REFINE`
+    WingType `RIGID_DYNAMICS` `PARTICLE_DYNAMICS`
 
 Enumeration for the aerodynamic model type of a wing.
 
 # Elements
-- `QUATERNION`: Wing uses quaternion-based rigid body dynamics with twist groups.
+- `RIGID_DYNAMICS`: Wing uses quaternion-based rigid body dynamics with twist groups.
   Aerodynamic forces/moments are applied to the wing center of mass.
-- `REFINE`: Wing uses refined per-panel forces directly applied to structural points.
+- `PARTICLE_DYNAMICS`: Wing uses refined per-panel forces directly applied to structural points.
   VSM panel forces are lumped to WING-type points with no rigid body constraint.
 """
 @enum WingType begin
-    QUATERNION
-    REFINE
+    RIGID_DYNAMICS
+    PARTICLE_DYNAMICS
 end
+
+# Backwards-compatible deprecated aliases for the previous WingType names.
+Base.@deprecate_binding QUATERNION RIGID_DYNAMICS
+Base.@deprecate_binding REFINE PARTICLE_DYNAMICS
 
 """
     AeroMode `AERO_NONE` `AERO_DIRECT` `AERO_LINEARIZED`
@@ -136,7 +140,7 @@ mutable struct Point
     const disturb::KVec3
     "Net force on the point [N] (updated during simulation)."
     const force::KVec3
-    "Aerodynamic force in body frame [N] (REFINE WING points)."
+    "Aerodynamic force in body frame [N] (PARTICLE_DYNAMICS WING points)."
     const aero_force_b::KVec3
     "Total drag force in world frame [N], including the point's own drag and any segment drag contributions assigned to it."
     const drag_force::KVec3
@@ -414,7 +418,8 @@ function Segment(name, set, point_i, point_j;
             unit_damping = (set.unit_damping /
                 set.unit_stiffness) * unit_stiffness
         else
-            @warn "damping is zero!"
+            @warn "Segment $(name): unit_damping is zero " *
+                "(no rel_damping or unit_damping in settings)."
             unit_damping = 0.0
         end
     end
@@ -521,76 +526,108 @@ mutable struct Tether
     """Unstretched tether length [m] (sum of segment l0).
     ODE state variable. Segment l0 = len / n_segments."""
     len::SimFloat
-    """Initial unstretched length [m]. Used by `reinit!`
-    to reset `len`. Segment l0 = init_unstretched_len /
-    n_segments."""
-    init_unstretched_len::SimFloat
-    """Initial stretched length [m]. Point positions scaled
-    to this value by `apply_tether_init_stretched_lens!`.
-    `nothing` = use CAD length."""
+    """Initial stretched standoff [m] — the placed point
+    geometry (Σ segment norms). Drives placement of root
+    tethers. `nothing` = use the geometric (CAD) length,
+    i.e. no scaling."""
     init_stretched_len::Union{SimFloat, Nothing}
+    """Target initial spring force [N], default 0. `reinit!`
+    solves the unstretched `len` from the placed stretched
+    length: `len = stretched · (1 − force/unit_stiffness)`.
+    Mutually exclusive with `init_stretch_frac`."""
+    init_tether_force::Union{SimFloat, Nothing}
+    """Initial unstretched/stretched length fraction. `reinit!`
+    sets `len = init_stretch_frac · stretched`; 0.9 gives 10%
+    pre-stretch, 1.0 no tension, >1.0 slack. Must be positive.
+    Mutually exclusive with `init_tether_force`."""
+    init_stretch_frac::Union{SimFloat, Nothing}
+end
+
+function Base.setproperty!(t::Tether, name::Symbol, x)
+    if name === :init_stretch_frac
+        isnothing(x) || setfield!(t, :init_tether_force, nothing)
+        setfield!(t, :init_stretch_frac, x)
+    elseif name === :init_tether_force
+        isnothing(x) || setfield!(t, :init_stretch_frac, nothing)
+        setfield!(t, :init_tether_force, x)
+    else
+        setfield!(t, name, x)
+    end
 end
 
 """
-    Tether(name, segments, unstretched_length;
+    Tether(name, segments, stretched_length=nothing;
            start_point=nothing, end_point=nothing,
-           stretched_length=nothing)
+           tether_force=nothing, stretch_frac=nothing)
 
 Route 1: Construct a `Tether` from explicit segment references.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the tether.
 - `segments::Vector`: References to segments (names or indices).
-- `unstretched_length`: Rope length [m]. Sets
-  segment l0 = unstretched_length / n_segments.
+- `stretched_length=nothing`: Stretched standoff [m] (placed point
+  geometry). Drives placement of root tethers. `nothing` = use the
+  geometric length.
 
 # Keyword Arguments
 - `start_point=nothing`: Optional start point ref.
 - `end_point=nothing`: Optional end point ref.
-- `stretched_length=nothing`: Point positioning target
-  [m]. `nothing` = skip position scaling.
+- `tether_force=nothing`: Target initial spring force [N], default 0.
+- `stretch_frac=nothing`: Initial `len/stretched` fraction. Mutually
+  exclusive with `tether_force`.
 """
-function Tether(name, segments, unstretched_length;
+function Tether(name, segments::AbstractVector, stretched_length=nothing;
                 start_point=nothing, end_point=nothing,
-                winch_point=nothing,
-                stretched_length=nothing)
+                winch_point=nothing, tether_force=nothing,
+                stretch_frac=nothing)
     if !isnothing(winch_point)
         error("`winch_point` moved from Tether to " *
               "Winch. Use Tether(name, segments, " *
               "len) and pass winch_point to the " *
               "Winch constructor.")
     end
-    segment_refs = Vector{NameRef}(
-        [s isa Integer ? Int(s) : Symbol(s) for s in segments])
-    sp = isnothing(start_point) ? nothing :
-        (start_point isa Integer ? Int(start_point) :
-         Symbol(start_point))
-    ep = isnothing(end_point) ? nothing :
-        (end_point isa Integer ? Int(end_point) :
-         Symbol(end_point))
-    isl = isnothing(stretched_length) ? nothing :
-        SimFloat(stretched_length)
-    il = SimFloat(unstretched_length)
+    init_force, init_frac =
+        _resolve_tether_init(name, tether_force, stretch_frac)
+    segment_refs = Vector{NameRef}(_name_ref.(segments))
+    init_stretched = _opt_simfloat(stretched_length)
     return Tether(0, name, Int64[], segment_refs,
-                  0, sp, 0, ep,
+                  0, _name_ref(start_point), 0, _name_ref(end_point),
                   length(segments),
                   NaN, NaN, NaN, 0.0,
-                  il, il, isl)
+                  0.0, init_stretched, init_force, init_frac)
+end
+
+_name_ref(::Nothing) = nothing
+_name_ref(x::Integer) = Int(x)
+_name_ref(x) = Symbol(x)
+
+_opt_simfloat(::Nothing) = nothing
+_opt_simfloat(x) = SimFloat(x)
+
+function _resolve_tether_init(name, tether_force, stretch_frac)
+    if !isnothing(tether_force) && !isnothing(stretch_frac)
+        error("Tether $name: set only one of `tether_force` and " *
+              "`stretch_frac`.")
+    end
+    !isnothing(stretch_frac) && return nothing, SimFloat(stretch_frac)
+    !isnothing(tether_force) && return SimFloat(tether_force), nothing
+    return SimFloat(0.0), nothing
 end
 
 """
-    Tether(name, unstretched_length;
+    Tether(name, stretched_length=nothing;
            start_point, end_point, n_segments,
            unit_stiffness=NaN, unit_damping=NaN,
-           diameter=NaN, stretched_length=nothing)
+           diameter=NaN, tether_force=nothing, stretch_frac=nothing)
 
 Route 2: Construct a `Tether` for auto-generation of intermediate
 points and segments by `expand_auto_tethers!`.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the tether.
-- `unstretched_length`: Rope length [m]. Sets
-  segment l0 = unstretched_length / n_segments.
+- `stretched_length=nothing`: Stretched standoff [m] (placed point
+  geometry). Drives placement of root tethers. `nothing` = use the
+  geometric length.
 
 # Keyword Arguments
 - `start_point`: Reference to the start point (required).
@@ -602,29 +639,27 @@ points and segments by `expand_auto_tethers!`.
   NaN = derive from Settings during auto-expansion.
 - `diameter::Float64=NaN`: Tether diameter [m].
   NaN = derive from Settings during auto-expansion.
-- `stretched_length=nothing`: Point positioning target
-  [m]. `nothing` = skip position scaling.
+- `tether_force=nothing`: Target initial spring force [N], default 0.
+- `stretch_frac=nothing`: Initial `len/stretched` fraction. Mutually
+  exclusive with `tether_force`.
 """
-function Tether(name, unstretched_length;
+function Tether(name, stretched_length=nothing;
                 start_point, end_point, n_segments,
                 unit_stiffness=NaN, unit_damping=NaN,
-                diameter=NaN, stretched_length=nothing)
-    sp = start_point isa Integer ? Int(start_point) :
-         Symbol(start_point)
-    ep = end_point isa Integer ? Int(end_point) :
-         Symbol(end_point)
+                diameter=NaN, tether_force=nothing,
+                stretch_frac=nothing)
+    init_force, init_frac =
+        _resolve_tether_init(name, tether_force, stretch_frac)
     seg_refs = Vector{NameRef}(
         [Symbol("$(name)_seg_$i") for i in 1:n_segments])
-    isl = isnothing(stretched_length) ? nothing :
-        SimFloat(stretched_length)
-    il = SimFloat(unstretched_length)
+    init_stretched = _opt_simfloat(stretched_length)
     return Tether(0, name, Int64[], seg_refs,
-                  0, sp, 0, ep,
+                  0, _name_ref(start_point), 0, _name_ref(end_point),
                   Int64(n_segments),
                   Float64(unit_stiffness),
                   Float64(unit_damping),
                   Float64(diameter), 0.0,
-                  il, il, isl)
+                  0.0, init_stretched, init_force, init_frac)
 end
 
 # ==================== WINCH ==================== #

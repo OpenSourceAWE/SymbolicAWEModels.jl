@@ -109,7 +109,7 @@ winches:
 wings:
   data:
     - name: main_wing
-      type: REFINE
+      dynamics_type: PARTICLE_DYNAMICS
       point_idxs: [le_left, te_left, le_center, te_center, le_right, te_right]
       origin_idx: kcu
       z_ref_points: [kcu, le_center]

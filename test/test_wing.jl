@@ -3,7 +3,7 @@
 
 # test_wing.jl - Wing sanity tests
 #
-# Simple physics sanity checks for both REFINE and QUATERNION wings.
+# Simple physics sanity checks for both PARTICLE_DYNAMICS and RIGID_DYNAMICS wings.
 # Uses 2plate_kite configuration. All tests use winch brake engaged
 # and loose tolerances to catch "crazy stuff" without being brittle.
 
@@ -78,10 +78,10 @@ end
     )
 
     quat_yaml_path = joinpath(
-        data_path, "quat_struc_geometry.yaml"
+        data_path, "rigid_structural_geometry.yaml"
     )
     refine_yaml_path = joinpath(
-        data_path, "refine_struc_geometry.yaml"
+        data_path, "particle_structural_geometry.yaml"
     )
 
     # Build SAMs once (expensive symbolic compilation)
@@ -100,13 +100,13 @@ end
     test_init!(refine_sam)
 
     sam_configs = [
-        ("REFINE", refine_sam, SymbolicAWEModels.REFINE),
-        ("QUATERNION", quat_sam, SymbolicAWEModels.QUATERNION),
+        ("PARTICLE_DYNAMICS", refine_sam, SymbolicAWEModels.PARTICLE_DYNAMICS),
+        ("RIGID_DYNAMICS", quat_sam, SymbolicAWEModels.RIGID_DYNAMICS),
     ]
 
-    for (wtn, sam, expected_wing_type) in sam_configs
-        is_linearized = expected_wing_type ==
-            SymbolicAWEModels.QUATERNION
+    for (wtn, sam, expected_dynamics_type) in sam_configs
+        is_linearized = expected_dynamics_type ==
+            SymbolicAWEModels.RIGID_DYNAMICS
         dt = is_linearized ? 0.2 : 1/300
         n_steps = is_linearized ? 5 : 300
 
@@ -120,7 +120,7 @@ end
                 @test length(sys.wings) == 1
                 @test haskey(sys.wings, :main_wing)
                 wing = sys.wings[:main_wing]
-                @test wing.wing_type == expected_wing_type
+                @test wing.dynamics_type == expected_dynamics_type
 
                 @test haskey(sys.points, :le_left)
                 @test haskey(sys.points, :te_left)
@@ -286,12 +286,12 @@ end
                 end
                 test_init!(sam; prn=false)
 
-                # QUATERNION: fix_sphere constrains com_w
+                # RIGID_DYNAMICS: fix_sphere constrains com_w
                 # (not kcu, which shifts with rotation).
-                # REFINE: no separate COM, check kcu directly.
+                # PARTICLE_DYNAMICS: no separate COM, check kcu directly.
                 wing = sam.sys_struct.wings[:main_wing]
-                if expected_wing_type ==
-                        SymbolicAWEModels.QUATERNION
+                if expected_dynamics_type ==
+                        SymbolicAWEModels.RIGID_DYNAMICS
                     p0 = copy(wing.com_w)
                 else
                     p0 = copy(
@@ -304,7 +304,7 @@ end
                     next_step!(sam; dt, vsm_interval=0)
                 end
 
-                if expected_wing_type == SymbolicAWEModels.QUATERNION
+                if expected_dynamics_type == SymbolicAWEModels.RIGID_DYNAMICS
                     p1 = copy(wing.com_w)
                 else
                     p1 = copy(sam.sys_struct.points[:kcu].pos_w)
@@ -332,11 +332,11 @@ end
                 end
                 test_init!(sam; prn=false)
 
-                # QUATERNION: kcu is a WING point (derived
+                # RIGID_DYNAMICS: kcu is a WING point (derived
                 # from com_w + R * pos_b), not a DYNAMIC
                 # point, so fix_static has no effect on it.
-                check_names = if expected_wing_type ==
-                        SymbolicAWEModels.QUATERNION
+                check_names = if expected_dynamics_type ==
+                        SymbolicAWEModels.RIGID_DYNAMICS
                     [:steering_left, :steering_right]
                 else
                     [:kcu, :steering_left,
@@ -356,9 +356,9 @@ end
                         sam.sys_struct.points[name].pos_w -
                         initial_positions[name]
                     )
-                    drift_tol = if expected_wing_type ==
-                            SymbolicAWEModels.QUATERNION
-                        # QUATERNION keeps wing points on the rigid body;
+                    drift_tol = if expected_dynamics_type ==
+                            SymbolicAWEModels.RIGID_DYNAMICS
+                        # RIGID_DYNAMICS keeps wing points on the rigid body;
                         # cross-platform solver differences can cause
                         # millimeter-level residual drift in this test.
                         5e-2
@@ -432,12 +432,12 @@ end
                 sol_force =
                     Vector(wing.vsm_solver.sol.force)
 
-                # REFINE: sum distributed point forces
+                # PARTICLE_DYNAMICS: sum distributed point forces
                 # (scaled by aero_scale_chord)
-                # QUATERNION: use wing.aero_force_b from
+                # RIGID_DYNAMICS: use wing.aero_force_b from
                 # the ODE (Jacobian-extrapolated)
-                if expected_wing_type ==
-                        SymbolicAWEModels.REFINE
+                if expected_dynamics_type ==
+                        SymbolicAWEModels.PARTICLE_DYNAMICS
                     scale = 1.0 + (
                         isfinite(wing.aero_scale_chord) ?
                         wing.aero_scale_chord : 0.0)

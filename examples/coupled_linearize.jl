@@ -18,7 +18,7 @@ using ModelingToolkit: @variables, t_nounits
 
 set_data_path("data/2plate_kite")
 struc_yaml = joinpath(get_data_path(),
-                      "quat_struc_geometry.yaml")
+                      "rigid_structural_geometry.yaml")
 
 set = Settings("system.yaml")
 vsm_set = VortexStepMethod.VSMSettings(

@@ -4,12 +4,12 @@
 """
 Helper functions for VSM wing types.
 
-REFINE-specific functions (panel force distribution, structural geometry
+PARTICLE_DYNAMICS-specific functions (panel force distribution, structural geometry
 updates) are at the bottom of this file.  The shared
 `match_aero_sections_to_structure!` works for all VSMWing types.
 """
 
-# Baseline chord-based aero scaling for REFINE wings.
+# Baseline chord-based aero scaling for PARTICLE_DYNAMICS wings.
 # Effective multiplier = 1 + (wing.aero_scale_chord or default below).
 const AERO_SCALE_CHORD = 0.0
 
@@ -100,22 +100,19 @@ end
 """
     match_aero_sections_to_structure!(wing, points; groups)
 
-Rebuild unrefined sections to match structural LE/TE positions,
-preserving refined panel polars via `use_prior_polar`.
+Reconcile a wing's aerodynamic sections with its structural geometry.
 
-Works for **all** VSMWing types (QUATERNION and REFINE).  When the
-structural and aerodynamic section counts match the rebuild is a 1:1
-copy (`source_idx == i`) that ensures positions exactly match
-structural points.  When they differ, `use_prior_polar` and non-empty
-`refined_sections` are required.
-
-For non-REFINE wings whose section count changed, the linearization
-vectors (`aero_y`, `aero_x`, `aero_jac`) are resized to match the new
-`n_unrefined_sections`.
+RIGID_DYNAMICS wings own their aero panel geometry (mesh- or
+YAML-defined) and keep it; only the group→section mapping
+(`wing.wing_segments`) is recorded. PARTICLE_DYNAMICS wings deform with
+their structural points, so each unrefined section is rebuilt onto its
+structural LE/TE pair: a 1:1 copy when counts match, otherwise
+`use_prior_polar` and existing `refined_sections` are required to
+preserve polars.
 
 # Keyword Arguments
-- `groups::AbstractVector{Group}`: Groups in the system (used for
-  group-based LE/TE identification via [`identify_wing_segments`](@ref)).
+- `groups::AbstractVector{Group}`: Groups used for LE/TE identification
+  via [`identify_wing_segments`](@ref).
 """
 function match_aero_sections_to_structure!(
     wing::VSMWing,
@@ -127,22 +124,26 @@ function match_aero_sections_to_structure!(
         p.type == WING && p.wing_idx == wing.idx
     ]
 
+    if wing.dynamics_type == RIGID_DYNAMICS
+        wing.wing_segments = identify_wing_segments(
+            wing_points; groups=groups,
+            wing_group_idxs=wing.group_idxs)
+        return nothing
+    end
+
     wing_group_idxs = wing.group_idxs
     has_groups = !isempty(groups) &&
         !isempty(wing_group_idxs)
 
     if has_groups
         n_struct_sections = length(wing_group_idxs)
-        # REFINE: each group is a 2-point strut (LE/TE)
-        if wing.wing_type == REFINE
-            for g_idx in wing_group_idxs
-                g = groups[g_idx]
-                length(g.point_idxs) == 2 || error(
-                    "REFINE wing $(wing.idx): group " *
-                    "$(g.name) must have exactly 2 " *
-                    "points (LE/TE pair), got " *
-                    "$(length(g.point_idxs))")
-            end
+        for g_idx in wing_group_idxs
+            g = groups[g_idx]
+            length(g.point_idxs) == 2 || error(
+                "PARTICLE_DYNAMICS wing $(wing.idx): group " *
+                "$(g.name) must have exactly 2 " *
+                "points (LE/TE pair), got " *
+                "$(length(g.point_idxs))")
         end
     else
         n_points = length(wing_points)
@@ -156,17 +157,6 @@ function match_aero_sections_to_structure!(
 
     n_aero_sections =
         length(wing.vsm_wing.unrefined_sections)
-
-    # QUATERNION multi-section-per-group: keep aero geometry,
-    # let compute_spatial_group_mapping! partition sections.
-    if has_groups && wing.wing_type == QUATERNION &&
-            n_struct_sections < n_aero_sections
-        wing.wing_segments = identify_wing_segments(
-            wing_points; groups=groups,
-            wing_group_idxs=wing_group_idxs)
-        return nothing
-    end
-
     counts_differ = n_struct_sections != n_aero_sections
 
     if counts_differ
@@ -249,95 +239,73 @@ function match_aero_sections_to_structure!(
         recompute_mapping=true, sort_sections=false)
     VortexStepMethod.reinit!(wing.vsm_aero)
 
-    # Resize linearization vectors for non-REFINE wings
-    # when section count changed.
-    if counts_differ && wing.wing_type != REFINE
-        n_groups = length(wing.group_idxs)
-        nx = 6 + n_groups
-        ny = 5 + n_groups
-        wing.aero_y = zeros(SimFloat, ny)
-        wing.aero_x = zeros(SimFloat, nx)
-        wing.aero_jac = zeros(SimFloat, nx, ny)
-    end
-
     return nothing
 end
 
 """
-    build_point_to_vsm_point_mapping(wing_points::AbstractVector{Point}, vsm_wing::VortexStepMethod.AbstractWing)
+    build_point_to_vsm_point_mapping(wing_points::AbstractVector{Point}, wing::VSMWing)
 
 Build 1:1 mapping from structural WING points to VSM wing section points (LE/TE) using closest-point distance.
 
-For each VSM section point (LE/TE), finds the closest structural point in CAD frame.
+For each VSM section point (LE/TE), finds the closest structural point. Distances are computed
+in body frame: structural `pos_cad` is transformed via `wing.R_b_to_c'` and `wing.pos_cad` before
+being compared against section LE/TE points (which already live in body frame after
+`match_aero_sections_to_structure!`).
 
 # Constraint
-Requires: `length(wing_points) == 2 * length(vsm_wing.unrefined_sections)`
-
-# Arguments
-- `wing_points::AbstractVector{Point}`: Structural WING-type points
-- `vsm_wing::VortexStepMethod.AbstractWing`: VSM wing with sections
-
-# Returns
-- `Dict{Int64, Tuple{Int64, Symbol}}`: Mapping structural_point_idx -> (section_idx, :LE or :TE)
-
-# Algorithm
-1. For each section in vsm_wing.sections:
-   - Find closest unused structural point to section.LE_point → assign to (section_idx, :LE)
-   - Find closest unused structural point to section.TE_point → assign to (section_idx, :TE)
-2. Distance measured in CAD/body frame using norm(point.pos_cad - section_point)
+Requires: `length(wing_points) == 2 * length(wing.vsm_wing.unrefined_sections)`
 """
 function build_point_to_vsm_point_mapping(
     wing_points::AbstractVector{Point},
-    vsm_wing::VortexStepMethod.AbstractWing
+    wing::VSMWing,
 )
+    vsm_wing = wing.vsm_wing
     n_points = length(wing_points)
     n_sections = length(vsm_wing.unrefined_sections)
 
-    # Validate 1:1 correspondence constraint
     if n_points != 2 * n_sections
-        error("REFINE wing requires n_structural_points ($(n_points)) == " *
+        error("PARTICLE_DYNAMICS wing requires n_structural_points ($(n_points)) == " *
               "2 * n_vsm_sections ($(n_sections))")
+    end
+
+    R_c_to_b = wing.R_b_to_c'
+    origin_cad = wing.pos_cad
+
+    point_pos_b = Dict{Int64, SVector{3, SimFloat}}()
+    for point in wing_points
+        point_pos_b[point.idx] =
+            SVector{3, SimFloat}(R_c_to_b * (point.pos_cad - origin_cad))
     end
 
     point_to_vsm_point = Dict{Int64, Tuple{Int64, Symbol}}()
     used_points = Set{Int64}()
 
     for (section_idx, section) in enumerate(vsm_wing.unrefined_sections)
-        # Map LE_point to closest unused structural point
-        le_pos = section.LE_point
+        le_pos = SVector{3, SimFloat}(section.LE_point)
         min_dist = Inf
         closest_le_idx = wing_points[1].idx
-
         for point in wing_points
-            if point.idx in used_points
-                continue  # Already assigned
-            end
-            dist = norm(point.pos_cad - le_pos)
+            point.idx in used_points && continue
+            dist = norm(point_pos_b[point.idx] - le_pos)
             if dist < min_dist
                 min_dist = dist
                 closest_le_idx = point.idx
             end
         end
-
         point_to_vsm_point[closest_le_idx] = (Int64(section_idx), :LE)
         push!(used_points, closest_le_idx)
 
-        # Map TE_point to closest unused structural point
-        te_pos = section.TE_point
+        te_pos = SVector{3, SimFloat}(section.TE_point)
         min_dist = Inf
         closest_te_idx = wing_points[1].idx
-
         for point in wing_points
-            if point.idx in used_points
-                continue  # Already assigned
-            end
-            dist = norm(point.pos_cad - te_pos)
+            point.idx in used_points && continue
+            dist = norm(point_pos_b[point.idx] - te_pos)
             if dist < min_dist
                 min_dist = dist
                 closest_te_idx = point.idx
             end
         end
-
         point_to_vsm_point[closest_te_idx] = (Int64(section_idx), :TE)
         push!(used_points, closest_te_idx)
     end
@@ -428,11 +396,11 @@ the structural LE/TE points of the parent section (1:1 mapping).
    - Accumulate forces at the corresponding structural points
 
 # Arguments
-- `wing::VSMWing`: Wing with REFINE type and solved VSM state
+- `wing::VSMWing`: Wing with PARTICLE_DYNAMICS type and solved VSM state
 - `points::AbstractVector{Point}`: All structural points (will filter for WING type)
 """
 function distribute_panel_forces_to_points!(wing::VSMWing, points::AbstractVector{Point})
-    @assert wing.wing_type == REFINE "Can only distribute forces for REFINE wings"
+    @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only distribute forces for PARTICLE_DYNAMICS wings"
 
     sol = wing.vsm_solver.sol
     panels = wing.vsm_aero.panels
@@ -452,7 +420,7 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::AbstractVecto
         wing.point_to_vsm_point::Union{Nothing,
             Dict{Int64, Tuple{Int64, Symbol}}}
     isnothing(point_to_vsm_point) && error(
-        "REFINE wing $(wing.idx) missing point_to_vsm_point mapping")
+        "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping")
     point_to_vsm_point =
         point_to_vsm_point::Dict{Int64,
             Tuple{Int64, Symbol}}
@@ -517,11 +485,11 @@ Uses direct 1:1 correspondence between structural points and VSM section points:
 - To get world coordinates: `world_pos = wing.R_b_to_w * section.LE_point + wing.pos_w`
 
 # Arguments
-- `wing::VSMWing`: Wing with REFINE type
+- `wing::VSMWing`: Wing with PARTICLE_DYNAMICS type
 - `points::AbstractVector{Point}`: All structural points (will filter for WING type)
 """
 function update_vsm_wing_from_structure!(wing::VSMWing, points::AbstractVector{Point})
-    @assert wing.wing_type == REFINE "Can only update wing geometry for REFINE wings"
+    @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only update wing geometry for PARTICLE_DYNAMICS wings"
 
     # Get current R_b_to_w and origin from wing state
     # (These are updated during simulation from structural geometry)
@@ -533,7 +501,7 @@ function update_vsm_wing_from_structure!(wing::VSMWing, points::AbstractVector{P
         wing.point_to_vsm_point::Union{Nothing,
             Dict{Int64, Tuple{Int64, Symbol}}}
     isnothing(point_to_vsm_point) && error(
-        "REFINE wing $(wing.idx) missing point_to_vsm_point mapping")
+        "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping")
     point_to_vsm_point =
         point_to_vsm_point::Dict{Int64,
             Tuple{Int64, Symbol}}

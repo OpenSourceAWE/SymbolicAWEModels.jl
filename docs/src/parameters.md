@@ -9,7 +9,7 @@ the file `data/system.yaml`.
 !!! note
     These are the simulation `Settings` parameters loaded from `system.yaml`.
     For YAML-based models, the structural geometry (points, segments, etc.)
-    is defined separately in `refine_struc_geometry.yaml` (or `quat_struc_geometry.yaml`). See
+    is defined separately in `particle_structural_geometry.yaml` (or `rigid_structural_geometry.yaml`). See
     [Building a system using YAML](tutorial_yaml.md) for details.
 
 ## Parameters

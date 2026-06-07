@@ -105,7 +105,7 @@ fi
 
 # --- 4. Create System Image ---
 echo "--- Creating system image ---"
-rm -f "data/model_${julia_major}_*.bin" "data/model_${julia_major}_*.bin.xz"
+rm -f data/model_*jl"${julia_major}"*.bin data/model_*jl"${julia_major}"*.bin.xz
 
 # Run the Julia script that builds the system image
 $JULIA_CMD --startup-file=no --project=test -e "include(\"test/create_sys_image.jl\");"

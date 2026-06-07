@@ -13,7 +13,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod, WING,
-    QUATERNION
+    RIGID_DYNAMICS
 using KiteUtils
 using LinearAlgebra
 
@@ -22,7 +22,7 @@ pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
 
 struc_yaml = joinpath(
-    get_data_path(), "quat_struc_geometry.yaml")
+    get_data_path(), "rigid_structural_geometry.yaml")
 
 set = Settings("system.yaml")
 set.g_earth = 0.0
@@ -38,11 +38,15 @@ wing = sys.wings[1]
 vsm_wing = wing.vsm_wing
 points = sys.points
 
-# Collect WING-type points for this wing, sorted by y
-# Exclude origin point (e.g. KCU) which is not an LE/TE
+# Collect this wing's LE/TE section points: the WING-type points
+# that belong to a group. The structural attachment point (KCU) is
+# not in any group, so it is excluded.
+group_point_ids = reduce(vcat,
+    [sys.groups[g].point_idxs for g in wing.group_idxs];
+    init=Int[])
 wing_pts = filter(
     p -> p.type == WING && p.wing_idx == wing.idx &&
-         p.idx != wing.origin_idx,
+         p.idx in group_point_ids,
     points)
 sort!(wing_pts; by=p -> p.pos_cad[2], rev=true)
 

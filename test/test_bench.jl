@@ -34,7 +34,7 @@ function setup_bench_sam()
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(dp, "vsm_settings.yaml");
         data_prefix=false)
-    struc_yaml = joinpath(dp, "quat_struc_geometry.yaml")
+    struc_yaml = joinpath(dp, "rigid_structural_geometry.yaml")
     sys = load_sys_struct_from_yaml(struc_yaml;
         system_name="bench", set, vsm_set)
     sys.winches[:main_winch].brake = true

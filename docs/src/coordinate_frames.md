@@ -19,14 +19,14 @@ CAD frame ──────────────────▶ Body frame �
 
 Each step involves both a **rotation** and a **translation**:
 - **CAD to Body**: rotation `R_b_to_c` and origin shift to
-  `pos_cad` (COM for QUATERNION, origin point for REFINE)
+  `pos_cad` (COM for RIGID_DYNAMICS, origin point for PARTICLE_DYNAMICS)
 - **Body to World**: rotation `R_b_to_w` (from quaternion state or
   structural points) and translation to `wing.pos_w`
 
 `R_b_to_c` is a constant rotation computed once during
 [`SystemStructure`](@ref) construction.
 `R_b_to_w` evolves during simulation — from the quaternion state
-(QUATERNION) or from deformed point positions (REFINE).
+(RIGID_DYNAMICS) or from deformed point positions (PARTICLE_DYNAMICS).
 
 ## CAD Frame
 
@@ -38,8 +38,8 @@ defined, whether in a YAML file or via Julia constructors.
   permanent reference
 - There is no imposed convention on orientation or origin — use
   whatever is convenient for your geometry
-- Wing `pos_cad` is set to the centre of mass (QUATERNION) or the
-  origin point position (REFINE) during construction
+- Wing `pos_cad` is set to the centre of mass (RIGID_DYNAMICS) or the
+  origin point position (PARTICLE_DYNAMICS) during construction
 - VSM panel positions start in the CAD frame and are transformed to
   the body frame during construction
 
@@ -92,9 +92,9 @@ The world frame is the simulation-global coordinate system:
 All simulation quantities (`pos_w`, `vel_w`, forces) and the wind
 vector are expressed in the world frame.
 
-## Body Frame — QUATERNION
+## Body Frame — RIGID_DYNAMICS
 
-For `QUATERNION` wings, the body frame is **auto-computed**
+For `RIGID_DYNAMICS` wings, the body frame is **auto-computed**
 as the principal-axis frame of the wing's point masses. This
 diagonalizes the XZ-block of the inertia tensor, which simplifies
 the rotational equations of motion.
@@ -126,12 +126,12 @@ At runtime, the quaternion state ``Q_{b \to w}`` gives
 ``\mathbf{p}_w = \mathbf{wing.pos}_w +
     R_{b \to w} \, \mathbf{p}_b``
 
-See `calc_inertia_y_rotation` and the QUATERNION setup block in
+See `calc_inertia_y_rotation` and the RIGID_DYNAMICS setup block in
 `system_structure_core.jl`.
 
-## Body Frame — REFINE
+## Body Frame — PARTICLE_DYNAMICS
 
-For `REFINE` wings, the user defines the body frame by
+For `PARTICLE_DYNAMICS` wings, the user defines the body frame by
 choosing structural reference points. This gives full control over
 the frame orientation, which updates dynamically as the structure
 deforms.
@@ -140,7 +140,7 @@ deforms.
 
 ```yaml
 wings:
-  - wing_type: REFINE
+  - dynamics_type: PARTICLE_DYNAMICS
     origin_idx: kcu
     z_ref_points: [kcu, le_center]
     y_ref_points: [le_right, le_left]
@@ -174,7 +174,7 @@ Key points:
 - Different reference point choices produce different body frames —
   pick what makes physical sense for your model
 
-See `calc_refine_wing_frame` in `transforms.jl`.
+See `calc_particle_dynamics_wing_frame` in `transforms.jl`.
 
 ## CAD to Body Transformation (VSM Panels)
 
@@ -184,7 +184,7 @@ the body frame during [`SystemStructure`](@ref) construction:
 1. **Translate**: subtract origin (`adjust_vsm_panels_to_origin!`)
 2. **Rotate**: apply ``R_{b \to c}^\top`` to all section LE/TE points
    (`rotate_vsm_sections!`)
-3. **Z-offset** (QUATERNION only): apply `aero_z_offset` to shift the
+3. **Z-offset** (RIGID_DYNAMICS only): apply `aero_z_offset` to shift the
    aerodynamic reference vertically in the body frame
    (`apply_aero_z_offset!`)
 

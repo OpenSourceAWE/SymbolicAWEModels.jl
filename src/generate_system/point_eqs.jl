@@ -79,7 +79,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
             world_frame_damping[:, point.idx] ~ get_world_frame_damping(psys, point.idx)
         ]
 
-        # Calculate apparent velocity for ALL points (needed for REFINE wings and generally useful)
+        # Calculate apparent velocity for ALL points (needed for PARTICLE_DYNAMICS wings and generally useful)
         # Get the wing's R_b_to_w for transforming to body frame
         wing_idx_for_transform = if point.type == WING
             point.wing_idx
@@ -139,8 +139,8 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
             # Find the wing for this point
             wing = wings[point.wing_idx]
 
-            if wing.wing_type == REFINE
-                # REFINE wing: Points are DYNAMIC and receive lumped
+            if wing.dynamics_type == PARTICLE_DYNAMICS
+                # PARTICLE_DYNAMICS wing: Points are DYNAMIC and receive lumped
                 # panel/plate forces. Similar to DYNAMIC points but
                 # with aero forces included.
 
@@ -190,8 +190,8 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                     [vel[j, point.idx] => get_vel_w(psys, point.idx)[j] for j = 1:3]
                 ]
 
-            elseif wing.wing_type == QUATERNION
-                # QUATERNION wing: rigid body constraint
+            elseif wing.dynamics_type == RIGID_DYNAMICS
+                # RIGID_DYNAMICS wing: rigid body constraint
                 eqs = [
                     eqs
                     point_force[:, point.idx] ~
@@ -262,7 +262,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                     acc[:, point.idx] ~ zeros(3)
                 ]
             else
-                error("Unsupported wing_type $(wing.wing_type) " *
+                error("Unsupported dynamics_type $(wing.dynamics_type) " *
                       "for WING point $(point.idx)")
             end
         elseif point.type == STATIC

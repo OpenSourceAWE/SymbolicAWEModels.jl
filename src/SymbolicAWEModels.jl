@@ -74,7 +74,7 @@ export NameRef, NamedCollection, WeightedRefPoints
 # Enums
 export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
-export WingType, QUATERNION, REFINE
+export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
 export AeroMode, AERO_NONE, AERO_DIRECT, AERO_LINEARIZED, AERO_PLATE
 
 # --- High-Level Simulation Functions (Workers) ---
@@ -103,8 +103,6 @@ export init_module
 export update_plot_observables!
 export animate
 export load_sys_struct_from_yaml
-export update_yaml_from_sys_struct!
-export update_sys_struct_from_yaml!
 export replay
 export record
 export plot_sphere_trajectory
@@ -154,7 +152,6 @@ function plot_sphere_trajectory end
 function plot_body_frame end
 function plot_aoa end
 function find_steady_state! end
-function update_yaml_from_sys_struct! end
 function make_lin_sys_state end
 function create_model_archive end
 function default_winch_component end

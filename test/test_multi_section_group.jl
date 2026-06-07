@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Verifies that a QUATERNION wing can have FEWER groups
+# Verifies that a RIGID_DYNAMICS wing can have FEWER groups
 # than unrefined VSM sections — i.e. one twist DOF drives
 # multiple aero sections via the Voronoi partition in
 # compute_spatial_group_mapping!.
@@ -13,7 +13,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, QUATERNION,
+using SymbolicAWEModels: VortexStepMethod, RIGID_DYNAMICS,
     compute_spatial_group_mapping!,
     match_aero_sections_to_structure!
 using KiteUtils
@@ -27,7 +27,7 @@ cp(src_data, data_path; force=true)
 set_data_path(data_path)
 
 struc_yaml = joinpath(data_path,
-    "quat_struc_geometry.yaml")
+    "rigid_structural_geometry.yaml")
 
 set = Settings("system.yaml")
 vsm_set_path = joinpath(data_path, "vsm_settings.yaml")
@@ -37,7 +37,7 @@ vsm_set = VortexStepMethod.VSMSettings(
 @testset "Multi-section group partition" begin
     sys = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="multi_section",
-        set, vsm_set, wing_type=QUATERNION)
+        set, vsm_set, dynamics_type=RIGID_DYNAMICS)
     wing = sys.wings[1]
     vsm_w = wing.vsm_wing
 
@@ -85,7 +85,7 @@ end
 @testset "n_groups > n_unrefined errors" begin
     sys = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="too_many_groups",
-        set, vsm_set, wing_type=QUATERNION)
+        set, vsm_set, dynamics_type=RIGID_DYNAMICS)
     wing = sys.wings[1]
     vsm_w = wing.vsm_wing
 

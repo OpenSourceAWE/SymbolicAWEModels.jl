@@ -152,7 +152,7 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "refine_struc_geometry.yaml"
+    struc_geometry_path: "particle_structural_geometry.yaml"
     aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
     quasi_static: false

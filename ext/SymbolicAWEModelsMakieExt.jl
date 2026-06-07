@@ -34,6 +34,37 @@ const PLOT_CAMERA_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)  # Stored cam
 const PLOT_PREV_BODY_FRAME = Ref{Bool}(false)  # Previous body frame state
 const PLOT_PREV_ZOOMED_IN = Ref{Bool}(false)  # Previous zoomed state
 const PLOT_PREV_SEGMENT_IDX = Ref{Int}(-1)  # Previous segment index
+const PLOT_WORLD_EYEPOS = Ref{Union{Nothing, Vec3f}}(nothing)
+const PLOT_WORLD_LOOKAT = Ref{Union{Nothing, Vec3f}}(nothing)
+const PLOT_BODY_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)
+const PLOT_BODY_PREV_WING_POS = Ref{Union{Nothing, Vec3f}}(nothing)
+
+"""
+    _wing_log_pos(sl, sys, wing, k)
+
+World position of `wing` at log frame `k`, read from its dedicated
+slot appended after the structural points and panel corners in the
+`SysLog`. Older logs lack that slot; in that case fall back to the
+mean of the wing's `WING`-type structural points (or all points).
+"""
+function _wing_log_pos(sl, sys, wing, k)
+    n_points = length(sys.points)
+    n_corners = isempty(sys.wings) ? 0 : sum(
+        length(w.vsm_aero.panels) * 4
+        for w in sys.wings if w isa VSMWing; init=0)
+    i = n_points + n_corners + wing.idx
+    if i <= length(sl.X[k])
+        return SVector{3, Float64}(
+            sl.X[k][i], sl.Y[k][i], sl.Z[k][i])
+    end
+    idxs = [p.idx for p in sys.points
+            if p.type == WING && p.wing_idx == wing.idx]
+    isempty(idxs) && (idxs = eachindex(sl.X[k]))
+    return SVector{3, Float64}(
+        mean(@view sl.X[k][idxs]),
+        mean(@view sl.Y[k][idxs]),
+        mean(@view sl.Z[k][idxs]))
+end
 
 # Multi-system plotting support
 const PLOT_MULTI_SYSTEMS = Ref{Union{Nothing, Vector{<:SystemStructure}}}(nothing)
@@ -146,7 +177,7 @@ function Makie.plot!(ax, sys::SystemStructure;
             # Static plotting: create separate arrows for each wing
             plots[:wings] = []
             for (i, wing) in enumerate(sys.wings)
-                origin_pos = Point3f(sys.points[wing.origin_idx].pos_w)
+                origin_pos = Point3f(wing.pos_w)
                 R = wing.R_b_to_w
                 scale = vector_scale
                 origins = [origin_pos, origin_pos, origin_pos]
@@ -165,12 +196,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                 origins = Point3f[]
                 directions = Vec3f[]
                 for wing in sys_ref.wings
-                    # Skip wings without origin_idx (QUATERNION wings use pos_w directly)
-                    if isnothing(wing.origin_idx)
-                        origin_pos = Point3f(wing.pos_w)
-                    else
-                        origin_pos = Point3f(sys_ref.points[wing.origin_idx].pos_w)
-                    end
+                    origin_pos = Point3f(wing.pos_w)
                     R = wing.R_b_to_w
                     # Add three arrow vectors for each axis (x, y, z in body frame)
                     for i in 1:3
@@ -206,15 +232,15 @@ function Makie.plot!(ax, sys::SystemStructure;
             aero_forces_raw = Vec3f[]
 
             for wing in sys.wings
-                if wing.wing_type == QUATERNION
-                    # For QUATERNION wings, use wing.aero_force_b
+                if wing.dynamics_type == RIGID_DYNAMICS
+                    # For RIGID_DYNAMICS wings, use wing.aero_force_b
                     if !iszero(wing.aero_force_b)
                         aero_force_w = wing.R_b_to_w * wing.aero_force_b
                         push!(aero_origins, Point3f(wing.pos_w))
                         push!(aero_forces_raw, Vec3f(aero_force_w))
                     end
-                elseif wing.wing_type == SymbolicAWEModels.REFINE
-                    # For REFINE wings, plot both point forces and total wing force
+                elseif wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS
+                    # For PARTICLE_DYNAMICS wings, plot both point forces and total wing force
                     # Plot individual point forces
                     for point in sys.points
                         if point.type == WING && point.wing_idx == wing.idx
@@ -255,13 +281,13 @@ function Makie.plot!(ax, sys::SystemStructure;
                 forces_raw = Vec3f[]
 
                 for wing in sys_ref.wings
-                    if wing.wing_type == QUATERNION
+                    if wing.dynamics_type == RIGID_DYNAMICS
                         if !iszero(wing.aero_force_b)
                             aero_force_w = wing.R_b_to_w * wing.aero_force_b
                             push!(origins, Point3f(wing.pos_w))
                             push!(forces_raw, Vec3f(aero_force_w))
                         end
-                    elseif wing.wing_type == SymbolicAWEModels.REFINE
+                    elseif wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS
                         for point in sys_ref.points
                             if point.type == WING && point.wing_idx == wing.idx
                                 if !iszero(point.aero_force_b)
@@ -410,40 +436,16 @@ function SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
         end
     end
 
-    # Auto-update camera to keep geometry centered (runs every frame during replay)
-    # Re-runs the appropriate zoom function to track moving geometry
     if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) && !isnothing(PLOT_SYSTEM_STRUCTURE[])
         scene = PLOT_SCENE[]
         relevant_plots = PLOT_RELEVANT_PLOTS[]
         stored_sys = PLOT_SYSTEM_STRUCTURE[]
 
-        # Detect mode change
         mode_changed = (PLOT_PREV_BODY_FRAME[] != PLOT_BODY_FRAME[] ||
                         PLOT_PREV_ZOOMED_IN[] != PLOT_ZOOMED_IN[] ||
                         PLOT_PREV_SEGMENT_IDX[] != PLOT_ZOOM_SEGMENT_IDX[])
 
-        if mode_changed
-            PLOT_CAMERA_DISTANCE[] = nothing  # Force recalculation
-            # Update prev state
-            PLOT_PREV_BODY_FRAME[] = PLOT_BODY_FRAME[]
-            PLOT_PREV_ZOOMED_IN[] = PLOT_ZOOMED_IN[]
-            PLOT_PREV_SEGMENT_IDX[] = PLOT_ZOOM_SEGMENT_IDX[]
-        end
-
-        # Call zoom functions with stored distance (preserves manual zoom)
-        if PLOT_BODY_FRAME[]
-            # Body frame mode: continuously track wing orientation
-            dist = zoom_body_frame!(scene, scene.camera, stored_sys, PLOT_CAMERA_DISTANCE[])
-            PLOT_CAMERA_DISTANCE[] = dist
-        elseif PLOT_ZOOMED_IN[] && PLOT_ZOOM_SEGMENT_IDX[] > 0
-            # When zoomed in, keep segment centered as it moves
-            dist = zoom_in!(scene, scene.camera, stored_sys, PLOT_ZOOM_SEGMENT_IDX[], PLOT_CAMERA_DISTANCE[])
-            PLOT_CAMERA_DISTANCE[] = dist
-        elseif !PLOT_ZOOMED_IN[]
-            # When not zoomed in, keep full view centered on geometry
-            dist = zoom_out!(scene, scene.camera, relevant_plots, PLOT_CAMERA_DISTANCE[]; relmargin=PLOT_ZOOM_RELMARGIN[])
-            PLOT_CAMERA_DISTANCE[] = dist
-        end
+        apply_zoom_mode!(scene, relevant_plots, stored_sys; mode_changed)
     end
 
     return nothing
@@ -777,14 +779,14 @@ function compute_ekf_yaw_and_rate(sl_in, sys::SystemStructure; eps=1e-12)
         return nothing
     end
     
-    kite_idx = sys.wings[1].origin_idx
+    wing = sys.wings[1]
     yaw = Vector{Float64}(undef, n)
     nan_count = 0
-    
+
     # Use velocity-based tangent frame (same as HeadingGate/sphere method)
     # This is more robust than tension × apparent wind
     @inbounds for k in eachindex(yaw)
-        pos = SVector{3, Float64}(sl.X[k][kite_idx], sl.Y[k][kite_idx], sl.Z[k][kite_idx])
+        pos = _wing_log_pos(sl, sys, wing, k)
         vel = SVector{3, Float64}(sl.vel_kite[k])
         
         npos = norm(pos)
@@ -888,7 +890,7 @@ function compute_ekf_yaw_and_rate_tension(sl_in, sys::SystemStructure; eps=1e-12
         return nothing
     end
     
-    kite_idx = sys.wings[1].origin_idx
+    wing = sys.wings[1]
     yaw = Vector{Float64}(undef, n)
     ey_prev = nothing
     ex_prev = nothing
@@ -905,7 +907,7 @@ function compute_ekf_yaw_and_rate_tension(sl_in, sys::SystemStructure; eps=1e-12
     @inbounds for k in eachindex(yaw)
         v_kite = SVector{3, Float64}(sl.vel_kite[k])
         v_wind = SVector{3, Float64}(sl.v_wind_kite[k])
-        pos = SVector{3, Float64}(sl.X[k][kite_idx], sl.Y[k][kite_idx], sl.Z[k][kite_idx])
+        pos = _wing_log_pos(sl, sys, wing, k)
         tension_raw = SVector{3, Float64}(sl.tether_induced_force[k])
 
         # Prefer geometry-based bridle direction
@@ -1060,7 +1062,7 @@ end
 
 Create a multi-panel plot comparing multiple simulation logs on the same figure.
 
-This method allows plotting multiple syslogs (e.g., from REFINE and QUATERNION models)
+This method allows plotting multiple syslogs (e.g., from PARTICLE_DYNAMICS and RIGID_DYNAMICS models)
 on the same panels for direct comparison. Each log's traces are labeled with its
 corresponding system name.
 
@@ -1073,7 +1075,7 @@ Same as the single-syslog version. See `Makie.plot(sys::SystemStructure, lg::Sys
 
 # Example
 ```julia
-# Compare REFINE vs QUATERNION models
+# Compare PARTICLE_DYNAMICS vs RIGID_DYNAMICS models
 plot(sys_struct, [syslog_refine, syslog_quat];
      plot_turn_rates=true, plot_azimuth=false,
      plot_heading=false, plot_v_app=false, plot_aoa=false,
@@ -1159,6 +1161,15 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
         return get(ylims, key, nothing)
     end
 
+    # Helper: combine a LaTeX symbol with a plain-text suffix inside one math
+    # environment so MathTeXEngine renders it consistently.
+    # e.g. lbl(L"\gamma", " (SymAWE)") → LaTeXString("$\gamma\text{ (SymAWE)}$")
+    function lbl(var::LaTeXString, suffix::String)
+        isempty(suffix) && return var
+        inner = replace(String(var), r"^\$|\$$" => "")
+        return LaTeXString("\$" * inner * "\\text{" * suffix * "}\$")
+    end
+
     # Helper to add setpoint data to panel arrays and compute error
     function add_setpoint!(all_data, all_labels, all_times, all_linestyles,
                           setpoint_val, time_vec, label_base, suffix;
@@ -1205,7 +1216,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                 end
             end
             push!(all_data, heading_rate)
-            push!(all_labels, L"\dot{\psi}" * suffix)
+            push!(all_labels, lbl(L"\dot{\psi}", suffix))
             push!(all_times, sl.time[1:end-1])
 
             # Also plot z-component (yaw rate ω_z) if available
@@ -1213,7 +1224,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             if !all(iszero, turn_rates_rad)
                 omega_z_deg = rad2deg.(turn_rates_rad[3, :])
                 push!(all_data, omega_z_deg)
-                push!(all_labels, L"\omega_z" * suffix)
+                push!(all_labels, lbl(L"\omega_z", suffix))
                 push!(all_times, sl.time)
             end
         end
@@ -1262,9 +1273,10 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
 
             # Tangential sphere heading: use velocity projected into tangent plane
             yaw_sphere = Vector{Float64}(undef, n)
-            kite_idx = syss[i].wings[1].origin_idx
+            sys_i = syss[i]
+            wing = sys_i.wings[1]
             @inbounds for k in eachindex(yaw_sphere)
-                pos = SVector{3, Float64}(sl.X[k][kite_idx], sl.Y[k][kite_idx], sl.Z[k][kite_idx])
+                pos = _wing_log_pos(sl, sys_i, wing, k)
                 vel = SVector{3, Float64}(sl.vel_kite[k])
                 
                 if norm(pos) > 1e-9 && norm(vel) > 1e-9
@@ -1498,8 +1510,9 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                 push!(all_labels, "ω_v,z")
                 push!(all_times, sl.time)
             elseif !isempty(sl.orient)
-                # Fallback for REFINE logs: reconstruct ω_v from quaternions
-                kite_idx = syss[i].wings[1].origin_idx
+                # Fallback for PARTICLE_DYNAMICS logs: reconstruct ω_v from quaternions
+                sys_i = syss[i]
+                wing = sys_i.wings[1]
                 n = length(sl.time)
                 ωx = Vector{Float64}(undef, n - 1)
                 ωy = Vector{Float64}(undef, n - 1)
@@ -1522,7 +1535,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                         )
                     end
                     ω_w = (angle / dt) .* axis
-                    pos_w = SVector{3, Float64}(sl.X[k][kite_idx], sl.Y[k][kite_idx], sl.Z[k][kite_idx])
+                    pos_w = _wing_log_pos(sl, sys_i, wing, k)
                     e_x = SVector{3, Float64}(R1[:, 1])
                     R_v_w = SymbolicAWEModels.calc_R_v_to_w(pos_w, e_x)
                     ω_v = R_v_w' * ω_w
@@ -1590,7 +1603,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                 # Only plot if non-zero or if it's index 1
                 if j == 1 || !all(iszero, v_ro[j])
                     push!(all_data, v_ro[j])
-                    push!(all_labels, L"v_{ro,%$j}" * suffix)
+                    push!(all_labels, lbl(L"v_{ro,%$j}", suffix))
                     push!(all_times, sl.time)
                 end
             end
@@ -1618,7 +1631,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             l_tether = [length(sl.l_tether[j]) > 0 ? sl.l_tether[j][1] : 0.0
                         for j in eachindex(sl.l_tether)]
             push!(all_data, l_tether)
-            push!(all_labels, L"l_t" * suffix)
+            push!(all_labels, lbl(L"l_t", suffix))
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             add_setpoint!(all_data, all_labels, all_times, all_linestyles,
@@ -1694,12 +1707,12 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             if hasproperty(tl, :steering) && !isempty(tl.steering)
                 push!(all_data, tl.steering)
-                push!(all_labels, L"u_s" * suffix)
+                push!(all_labels, lbl(L"u_s", suffix))
                 push!(all_times, tl.time)
             end
             if hasproperty(tl, :depower) && !isempty(tl.depower)
                 push!(all_data, tl.depower)
-                push!(all_labels, L"u_p" * suffix)
+                push!(all_labels, lbl(L"u_p", suffix))
                 push!(all_times, tl.time)
             end
         end
@@ -1722,7 +1735,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             aero_force_z = [sl.aero_force_b[i][3] for i in eachindex(sl.aero_force_b)]
             push!(all_data, aero_force_z)
-            push!(all_labels, L"F_{aero,z}" * suffix)
+            push!(all_labels, lbl(L"F_{aero,z}", suffix))
             push!(all_times, sl.time)
         end
         push!(panels, (
@@ -1742,7 +1755,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             aero_moment_z = [sl.aero_moment_b[i][3] for i in eachindex(sl.aero_moment_b)]
             push!(all_data, aero_moment_z)
-            push!(all_labels, L"M_{aero,z}" * suffix)
+            push!(all_labels, lbl(L"M_{aero,z}", suffix))
             push!(all_times, sl.time)
         end
         push!(panels, (
@@ -1762,7 +1775,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             tether_moment_y = [sl.tether_induced_moment[i][2] for i in eachindex(sl.tether_induced_moment)]
             push!(all_data, tether_moment_y)
-            push!(all_labels, L"M_{tether,y}" * suffix)
+            push!(all_labels, lbl(L"M_{tether,y}", suffix))
             push!(all_times, sl.time)
         end
         push!(panels, (
@@ -1785,7 +1798,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                 twist_deg = rad2deg.(hcat(sl.twist_angles...))
                 for j in 1:n_groups
                     push!(all_data, twist_deg[j, :])
-                    push!(all_labels, L"\beta_%$j" * suffix)
+                    push!(all_labels, lbl(L"\beta_%$j", suffix))
                     push!(all_times, sl.time)
                 end
             end
@@ -1814,7 +1827,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                 tl = tape_lengths[i]
                 us_pct = tl.steering
                 push!(all_data, us_pct)
-                push!(all_labels, L"u_s" * suffix)
+                push!(all_labels, lbl(L"u_s", suffix))
                 push!(all_times, tl.time)
             else
                 # Fallback: reconstruct from segment positions (legacy behavior)
@@ -1838,7 +1851,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                 end
                 us_seg = us_pct[2:end]
                 push!(all_data, us_seg)
-                push!(all_labels, L"u_s" * suffix)
+                push!(all_labels, lbl(L"u_s", suffix))
                 push!(all_times, sl.time[2:end])
             end
         end
@@ -2036,7 +2049,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             # @info "Aero total forces" lift=round(total_lift, digits=2) drag=round(total_drag, digits=2) angle_lift_to_drag=round(total_angle, digits=2) L_over_D=round(total_lift / (total_drag + 1e-12), digits=2)
 
             push!(all_data, gk)
-            push!(all_labels, L"g_k" * suffix)
+            push!(all_labels, lbl(L"g_k", suffix))
             push!(all_times, sl.time[2:end])
         end
         push!(panels, (
@@ -2058,7 +2071,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             sl = lg.syslog
             suffix = actual_suffixes[i]
             push!(all_data, sl.v_app)
-            push!(all_labels, L"v_a" * suffix)
+            push!(all_labels, lbl(L"v_a", suffix))
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             add_setpoint!(all_data, all_labels, all_times, all_linestyles,
@@ -2084,7 +2097,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             v_kite_norm = [norm(v) for v in sl.vel_kite]
             push!(all_data, v_kite_norm)
-            push!(all_labels, L"v_k" * suffix)
+            push!(all_labels, lbl(L"v_k", suffix))
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             add_setpoint!(all_data, all_labels, all_times, all_linestyles,
@@ -2110,13 +2123,13 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             aoa_deg = rad2deg.(sl.AoA)
             push!(all_data, aoa_deg)
-            push!(all_labels, L"\alpha" * suffix)
+            push!(all_labels, lbl(L"\alpha", suffix))
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             if !isnothing(sp)
                 sp_deg = rad2deg.(sp)
                 push!(all_data, sp_deg)
-                push!(all_labels, L"\alpha_{ref}" * suffix)
+                push!(all_labels, lbl(L"\alpha_{ref}", suffix))
                 push!(all_times, sl.time)
                 push!(all_linestyles, :dash)
                 # Compute error
@@ -2141,7 +2154,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             sideslip_deg = rad2deg.(sl.side_slip)
             push!(all_data, sideslip_deg)
-            push!(all_labels, L"\beta" * suffix)
+            push!(all_labels, lbl(L"\beta", suffix))
             push!(all_times, sl.time)
         end
         push!(panels, (
@@ -2164,13 +2177,13 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             heading_deg = rad2deg.(sl.heading)
             push!(all_data, heading_deg)
-            push!(all_labels, L"\psi" * suffix)
+            push!(all_labels, lbl(L"\psi", suffix))
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             if plot_course
                 course_deg = rad2deg.(sl.course)
                 push!(all_data, course_deg)
-                push!(all_labels, L"\chi" * suffix)
+                push!(all_labels, lbl(L"\chi", suffix))
                 push!(all_times, sl.time)
                 push!(all_linestyles, :solid)
             end
@@ -2178,14 +2191,14 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                 course_kiteutils_deg = [rad2deg(KiteUtils.calc_course(sl.vel_kite[i], sl.elevation[i], sl.azimuth[i]))
                                         for i in eachindex(sl.orient)]
                 push!(all_data, course_kiteutils_deg)
-                push!(all_labels, L"\chi_{KU}" * suffix)
+                push!(all_labels, lbl(L"\chi_{KU}", suffix))
                 push!(all_times, sl.time)
                 push!(all_linestyles, :solid)
             end
             if !isnothing(sp)
                 sp_deg = rad2deg.(sp)
                 push!(all_data, sp_deg)
-                push!(all_labels, L"\psi_{ref}" * suffix)
+                push!(all_labels, lbl(L"\psi_{ref}", suffix))
                 push!(all_times, sl.time)
                 push!(all_linestyles, :dash)
                 # Compute error
@@ -2220,7 +2233,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             end
             old_heading_deg = rad2deg.(old_heading_rad)
             push!(all_data, old_heading_deg)
-            push!(all_labels, L"\psi_{old}" * suffix)
+            push!(all_labels, lbl(L"\psi_{old}", suffix))
             push!(all_times, sl.time)
         end
         push!(panels, (
@@ -2238,11 +2251,11 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
-            # Get wing origin index
-            kite_idx = syss[i].wings[1].origin_idx
-            distance = [norm([sl.X[j][kite_idx], sl.Y[j][kite_idx], sl.Z[j][kite_idx]]) for j in eachindex(sl.X)]
+            sys_i = syss[i]
+            wing = sys_i.wings[1]
+            distance = [norm(_wing_log_pos(sl, sys_i, wing, j)) for j in eachindex(sl.X)]
             push!(all_data, distance)
-            push!(all_labels, L"r" * suffix)
+            push!(all_labels, lbl(L"r", suffix))
             push!(all_times, sl.time)
         end
         push!(panels, (
@@ -2260,19 +2273,19 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
-            # Get wing origin index
-            kite_idx = syss[i].wings[1].origin_idx
+            sys_i = syss[i]
+            wing = sys_i.wings[1]
             # Assuming wind_vec_gnd is available in syslog
             cone_angle_rad = similar(sl.heading)
             for j in eachindex(sl.X)
-                pos = [sl.X[j][kite_idx], sl.Y[j][kite_idx], sl.Z[j][kite_idx]]
+                pos = _wing_log_pos(sl, sys_i, wing, j)
                 pos_norm = normalize(pos)
                 wind_norm = normalize([sl.v_wind_gnd[1], sl.v_wind_gnd[2], sl.v_wind_gnd[3]])
                 cone_angle_rad[j] = acos(clamp(dot(pos_norm, wind_norm), -1.0, 1.0))
             end
             cone_angle_deg = rad2deg.(cone_angle_rad)
             push!(all_data, cone_angle_deg)
-            push!(all_labels, L"\theta_c" * suffix)
+            push!(all_labels, lbl(L"\theta_c", suffix))
             push!(all_times, sl.time)
         end
         push!(panels, (
@@ -2295,13 +2308,13 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             elevation_deg = rad2deg.(sl.elevation)
             push!(all_data, elevation_deg)
-            push!(all_labels, L"\gamma" * suffix)
+            push!(all_labels, lbl(L"\gamma", suffix))
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             if !isnothing(sp)
                 sp_deg = rad2deg.(sp)
                 push!(all_data, sp_deg)
-                push!(all_labels, L"\gamma_{ref}" * suffix)
+                push!(all_labels, lbl(L"\gamma_{ref}", suffix))
                 push!(all_times, sl.time)
                 push!(all_linestyles, :dash)
                 # Compute error
@@ -2332,13 +2345,13 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             azimuth_deg = rad2deg.(sl.azimuth)
             push!(all_data, azimuth_deg)
-            push!(all_labels, L"\phi" * suffix)
+            push!(all_labels, lbl(L"\phi", suffix))
             push!(all_times, sl.time)
             push!(all_linestyles, :solid)
             if !isnothing(sp)
                 sp_deg = rad2deg.(sp)
                 push!(all_data, sp_deg)
-                push!(all_labels, L"\phi_{ref}" * suffix)
+                push!(all_labels, lbl(L"\phi_{ref}", suffix))
                 push!(all_times, sl.time)
                 push!(all_linestyles, :dash)
                 # Compute error
@@ -2367,7 +2380,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             # v_wind_gnd is a vector, take norm
             wind_speed = [norm(sl.v_wind_gnd[j]) for j in eachindex(sl.v_wind_gnd)]
             push!(all_data, wind_speed)
-            push!(all_labels, L"v_w" * suffix)
+            push!(all_labels, lbl(L"v_w", suffix))
             push!(all_times, sl.time)
         end
         push!(panels, (
@@ -2395,7 +2408,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                     if compact_labels
                         push!(all_labels, "Winch force" * suffix)
                     else
-                        push!(all_labels, L"F_{t,%$j}" * suffix)
+                        push!(all_labels, lbl(L"F_{t,%$j}", suffix))
                     end
                     push!(all_times, sl.time)
                     push!(all_linestyles, :solid)
@@ -2429,7 +2442,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                 # Only plot if non-zero or if it's index 1
                 if j == 1 || !all(iszero, set_values[j])
                     push!(all_data, set_values[j])
-                    push!(all_labels, L"\tau_%$j" * suffix)
+                    push!(all_labels, lbl(L"\tau_%$j", suffix))
                     push!(all_times, sl.time)
                 end
             end
@@ -2625,14 +2638,64 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
     cam_offset_world = R_b_w * cam_offset_body
     cam_pos = kite_pos + cam_offset_world
 
-    # Set camera position and "look at" target
-    update_cam!(scene, Vec3f(cam_pos), Vec3f(kite_pos))
-
-    # Set up vector to align with body z-axis AFTER updating camera
-    # This ensures the kite's z-axis always points straight up on screen
-    cam.upvector[] = Vec3f(R_b_w[:, 3])
+    update_cam!(scene, Vec3f(cam_pos), Vec3f(kite_pos), Vec3f(R_b_w[:, 3]))
 
     return distance
+end
+
+function get_cam_eyepos(cam)
+    inv_view = inv(cam.view[])
+    return Vec3f(inv_view[1, 4], inv_view[2, 4], inv_view[3, 4])
+end
+
+function apply_zoom_mode!(scene, relevant_plots, stored_sys; mode_changed::Bool)
+    cam = scene.camera
+
+    if mode_changed
+        if PLOT_PREV_BODY_FRAME[] && !isempty(stored_sys.wings)
+            wing = stored_sys.wings[1]
+            PLOT_BODY_DISTANCE[] = norm(get_cam_eyepos(cam) - Vec3f(wing.pos_w))
+        elseif !PLOT_PREV_ZOOMED_IN[] && !PLOT_PREV_BODY_FRAME[]
+            cc = Makie.cameracontrols(scene)
+            PLOT_WORLD_EYEPOS[] = Vec3f(cc.eyeposition[])
+            PLOT_WORLD_LOOKAT[] = Vec3f(cc.lookat[])
+        end
+    end
+
+    if PLOT_BODY_FRAME[]
+        wing_pos = isempty(stored_sys.wings) ? nothing :
+                   Vec3f(stored_sys.wings[1].pos_w)
+        if mode_changed || isnothing(PLOT_BODY_PREV_WING_POS[])
+            dist = zoom_body_frame!(scene, cam, stored_sys, PLOT_BODY_DISTANCE[])
+        else
+            current_dist = norm(get_cam_eyepos(cam) - PLOT_BODY_PREV_WING_POS[])
+            dist = zoom_body_frame!(scene, cam, stored_sys, current_dist)
+        end
+        PLOT_BODY_DISTANCE[] = dist
+        PLOT_CAMERA_DISTANCE[] = dist
+        PLOT_BODY_PREV_WING_POS[] = wing_pos
+    elseif PLOT_ZOOMED_IN[] && PLOT_ZOOM_SEGMENT_IDX[] > 0
+        dist = zoom_in!(scene, cam, stored_sys, PLOT_ZOOM_SEGMENT_IDX[], PLOT_CAMERA_DISTANCE[])
+        PLOT_CAMERA_DISTANCE[] = dist
+    elseif !PLOT_ZOOMED_IN[]
+        if mode_changed
+            if !isnothing(PLOT_WORLD_EYEPOS[]) && !isnothing(PLOT_WORLD_LOOKAT[])
+                update_cam!(scene, PLOT_WORLD_EYEPOS[], PLOT_WORLD_LOOKAT[])
+            else
+                dist = zoom_out!(scene, cam, relevant_plots, nothing;
+                                 relmargin=PLOT_ZOOM_RELMARGIN[])
+                PLOT_CAMERA_DISTANCE[] = dist
+            end
+        end
+    end
+
+    if mode_changed
+        PLOT_PREV_BODY_FRAME[] = PLOT_BODY_FRAME[]
+        PLOT_PREV_ZOOMED_IN[] = PLOT_ZOOMED_IN[]
+        PLOT_PREV_SEGMENT_IDX[] = PLOT_ZOOM_SEGMENT_IDX[]
+    end
+
+    return nothing
 end
 
 """
@@ -2774,7 +2837,6 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
             sys_i, seg_i = last_hovered[]
 
             if sys_i != -1 && seg_i != -1
-                # ZOOM IN/RE-ZOOM to segment (works whether already zoomed or not)
                 sys = systems[sys_i]
                 seg = sys.segments[seg_i]
                 p1_w = sys.points[seg.point_idxs[1]].pos_w
@@ -2783,6 +2845,12 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                 center = (p1_w + p2_w) / 2.0f0
                 segment_len = norm(p2_w - p1_w)
                 dist_heuristic = segment_len * 1.5 + 2.0
+
+                if !PLOT_ZOOMED_IN[] && !PLOT_BODY_FRAME[]
+                    cc = Makie.cameracontrols(scene)
+                    PLOT_WORLD_EYEPOS[] = Vec3f(cc.eyeposition[])
+                    PLOT_WORLD_LOOKAT[] = Vec3f(cc.lookat[])
+                end
 
                 inv_view_matrix = inv(cam.view[])
                 cam_dir = normalize(Vec3f(inv_view_matrix[1,3], inv_view_matrix[2,3], inv_view_matrix[3,3]))
@@ -2793,8 +2861,9 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                 zoomed_in[] = true
                 PLOT_ZOOMED_IN[] = true
                 PLOT_ZOOM_SEGMENT_IDX[] = seg_i
+                PLOT_PREV_ZOOMED_IN[] = true
+                PLOT_PREV_SEGMENT_IDX[] = seg_i
 
-                # Update label positions after zoom
                 sleep(0.01)
                 p1_3d = sys.points[seg.point_idxs[1]].pos_w
                 p2_3d = sys.points[seg.point_idxs[2]].pos_w
@@ -2807,11 +2876,14 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
 
                 return Consume(true)
             elseif zoomed_in[] && sys_i == -1
-                # ZOOM OUT when clicking empty space
-                zoom_out!(scene, cam, all_plots, nothing; relmargin)
                 zoomed_in[] = false
                 PLOT_ZOOMED_IN[] = false
                 PLOT_ZOOM_SEGMENT_IDX[] = -1
+                if !isnothing(PLOT_SYSTEM_STRUCTURE[])
+                    apply_zoom_mode!(scene, all_plots, PLOT_SYSTEM_STRUCTURE[]; mode_changed=true)
+                else
+                    zoom_out!(scene, cam, all_plots, nothing; relmargin)
+                end
 
                 return Consume(true)
             end
@@ -2968,7 +3040,7 @@ function build_geometry_observables(sys::SystemStructure, trigger::Observable)
         origins = Point3f[]
         directions = Vec3f[]
         for wing in sys.wings
-            origin = Point3f(sys.points[wing.origin_idx].pos_w)
+            origin = Point3f(wing.pos_w)
             R = wing.R_b_to_w
             for i in 1:3
                 push!(origins, origin)
@@ -3470,30 +3542,14 @@ function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt
                    mp[2] >= body_frame_button_rect.origin[2] && mp[2] <= body_frame_button_rect.origin[2] + body_frame_button_rect.widths[2]
                     PLOT_BODY_FRAME[] = !PLOT_BODY_FRAME[]
                     body_frame_obs[] = PLOT_BODY_FRAME[]
-                    # Disable zoom-in mode when switching to body frame
                     if PLOT_BODY_FRAME[]
                         PLOT_ZOOMED_IN[] = false
                         PLOT_ZOOM_SEGMENT_IDX[] = -1
                     end
-                    # Force camera update immediately (not just during playback)
-                    PLOT_CAMERA_DISTANCE[] = nothing  # Force recalculation on mode change
                     if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) && !isnothing(PLOT_SYSTEM_STRUCTURE[])
-                        main_scene = PLOT_SCENE[]
-                        relevant_plots = PLOT_RELEVANT_PLOTS[]
-                        stored_sys = PLOT_SYSTEM_STRUCTURE[]
-
-                        if PLOT_BODY_FRAME[]
-                            dist = zoom_body_frame!(main_scene, main_scene.camera, stored_sys, PLOT_CAMERA_DISTANCE[])
-                            PLOT_CAMERA_DISTANCE[] = dist
-                        else
-                            dist = zoom_out!(main_scene, main_scene.camera, relevant_plots, PLOT_CAMERA_DISTANCE[]; relmargin=PLOT_ZOOM_RELMARGIN[])
-                            PLOT_CAMERA_DISTANCE[] = dist
-                        end
+                        apply_zoom_mode!(PLOT_SCENE[], PLOT_RELEVANT_PLOTS[],
+                                         PLOT_SYSTEM_STRUCTURE[]; mode_changed=true)
                     end
-                    # Update tracking variables to prevent mode change detection
-                    PLOT_PREV_BODY_FRAME[] = PLOT_BODY_FRAME[]
-                    PLOT_PREV_ZOOMED_IN[] = PLOT_ZOOMED_IN[]
-                    PLOT_PREV_SEGMENT_IDX[] = PLOT_ZOOM_SEGMENT_IDX[]
                     return Consume(true)
                 end
 
@@ -3799,7 +3855,7 @@ end
     plot_body_frame(sys_struct; extra_points=nothing, dir=:side)
 
 Plot wing points in 2D body frame coordinates.
-Updates pos_b for REFINE wing points and shows all WING-type points.
+Updates pos_b for PARTICLE_DYNAMICS wing points and shows all WING-type points.
 
 # Arguments
 - `sys_struct::SystemStructure`: System structure to plot
@@ -3817,9 +3873,9 @@ function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
                          figsize=(800, 600))
     (; points, wings, segments) = sys_struct
 
-    # Update pos_b for REFINE wing points based on current wing orientation
+    # Update pos_b for PARTICLE_DYNAMICS wing points based on current wing orientation
     for wing in wings
-        if wing.wing_type == SymbolicAWEModels.REFINE
+        if wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS
             R_w_b = wing.R_b_to_w'  # transpose to get world-to-body
             for point in points
                 if point.wing_idx == wing.idx

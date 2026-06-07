@@ -18,7 +18,7 @@ an efficient ODE problem using
 ```text
  Define Components         Assemble             Compile            Simulate
 ┌──────────────────┐    ┌──────────────┐     ┌─────────────────┐     ┌────────────┐
-│ Point, Segment,  │───▶│ System       │────▶│ SymbolicAWE     │────▶│ init!()    │
+│ Point, Segment,  │──▶│ System       │───▶│ SymbolicAWE     │───▶│ init!()    │
 │ Wing, Winch, ... │    │ Structure    │     │ Model           │     │ next_step! │
 │                  │    │              │     │ (symbolic eqs → │     │ sim!()     │
 │ Julia or YAML    │    │ (resolves    │     │  ODEProblem)    │     │            │
@@ -26,7 +26,7 @@ an efficient ODE problem using
 └──────────────────┘    └──────────────┘     └─────────────────┘     └────────────┘
 ```
 
-The first compilation is slow (minutes) as ModelingToolkit generates and
+The first compilation is slow as ModelingToolkit generates and
 simplifies the symbolic equations. The result is cached to a binary file,
 making subsequent runs fast (seconds).
 
@@ -152,7 +152,7 @@ SymbolicAWEModels.copy_data()
 set_data_path("data/2plate_kite")
 
 struc_yaml = joinpath(get_data_path(),
-    "refine_struc_geometry.yaml")
+    "particle_structural_geometry.yaml")
 
 # Load settings and VSM configuration
 set = Settings("system.yaml")
@@ -223,7 +223,7 @@ julia --project=test test/test_point.jl
 | ----------- | ------------------ |
 | `test_point` | Gravity free-fall, damping, quasi-static equilibrium |
 | `test_segment` | Spring-damper forces, stiffness, drag |
-| `test_wing` | QUATERNION and REFINE wing construction, VSM coupling |
+| `test_wing` | RIGID_DYNAMICS and PARTICLE_DYNAMICS wing construction, VSM coupling |
 | `test_wing_dynamics` | Rigid body torque response, precession, angular momentum |
 | `test_tether_winch` | Reel-out, Coulomb/viscous friction, terminal velocity |
 | `test_pulley` | Equal-tension constraints, multi-segment pulleys |

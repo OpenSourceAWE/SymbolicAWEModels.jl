@@ -252,7 +252,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
 
 struc_yaml = joinpath(get_data_path(),
-    "quat_struc_geometry.yaml")
+    "rigid_structural_geometry.yaml")
 sys = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite",
     set=set,

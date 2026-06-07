@@ -145,7 +145,7 @@ segments:
     - [back_loop, top, ground, 100.0, 4.0, 120000.0, 350.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material, init_unstretched_length]
+  headers: [name, start_point, end_point, n_segments, material, init_stretched_length]
   data:
     - [main_tether, ground, top, 2, test_mat, 100.0]
 
@@ -170,7 +170,7 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "refine_struc_geometry.yaml"
+    struc_geometry_path: "particle_structural_geometry.yaml"
     aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
     quasi_static: false
@@ -272,11 +272,8 @@ environment:
     @testset "Error on loop to start" begin
         yaml_path = joinpath(tmpdir, "r2_loop.yaml")
         write(yaml_path, INIT_LEN_LOOP_ROUTE2)
-        sys = load_sys_struct_from_yaml(
+        @test_throws ErrorException load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_r2_loop", set=set)
-
-        sys.tethers[:main_tether].init_stretched_len = 200.0
-        @test_throws ErrorException SymbolicAWEModels.reinit!(sys, set)
     end
 
     # ================================================================
@@ -294,6 +291,154 @@ environment:
         SymbolicAWEModels.reinit!(sys, set)
         @test sys.points[:main_tether_point_1].pos_w ≈ mid_pos
         @test sys.points[:top].pos_w ≈ top_pos
+    end
+
+    # ================================================================
+    # Test 6: Multi-tether with a STATIC anchor and a winched DYNAMIC anchor
+    # ================================================================
+    @testset "Multi-tether: static + winch anchors stay fixed" begin
+        multi_yaml = """
+materials:
+  headers: [name, youngs_modulus, density, damping_per_stiffness]
+  data:
+    - [test_mat, 120000.0, 724, 0.001]
+
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx,
+            extra_mass, body_frame_damping, world_frame_damping,
+            area, drag_coeff]
+  data:
+    - [ground_static, [10.0, 0.0, 0.0], STATIC, nothing, nothing,
+       0.0, 0.0, 0.0, 0.0, 0.0]
+    - [ground_winch, [-10.0, 0.0, 0.0], DYNAMIC, nothing, nothing,
+       1.0, 0.0, 0.0, 0.0, 0.0]
+    - [top, [0.0, 0.0, -100.0], DYNAMIC, nothing, nothing,
+       1.0, 0.0, 0.0, 0.0, 0.0]
+
+tethers:
+  headers: [name, start_point, end_point, n_segments, material]
+  data:
+    - [tether_static, ground_static, top, 2, test_mat]
+    - [tether_winch, ground_winch, top, 2, test_mat]
+
+winches:
+  headers: [name, tether_idxs, winch_point]
+  data:
+    - [winch_b, [tether_winch], ground_winch]
+"""
+        yaml_path = joinpath(tmpdir, "multi.yaml")
+        write(yaml_path, multi_yaml)
+        sys = load_sys_struct_from_yaml(
+            yaml_path; system_name="init_stretched_length_multi", set=set)
+
+        sys.tethers[:tether_static].init_stretched_len = 200.0
+        SymbolicAWEModels.reinit!(sys, set)
+
+        ground_static = sys.points[:ground_static].pos_w
+        @test norm(sys.points[:top].pos_w - ground_static) ≈ 200.0
+        @test sys.points[:ground_static].pos_w ≈ KVec3(10, 0, 0)
+        @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
+
+        sys.tethers[:tether_winch].init_stretched_len = 100.0
+        @test_logs (:info,) match_mode=:any SymbolicAWEModels.reinit!(sys, set)
+
+        # Placed by the mean displacement of both roots: standoff is
+        # ≈ the mean target (150), offset slightly because the two
+        # tethers pull in different directions, and top is drawn off
+        # the static-tether line toward that mean direction.
+        ground_static = sys.points[:ground_static].pos_w
+        @test isapprox(norm(sys.points[:top].pos_w - ground_static),
+                       150.0; atol=0.05)
+        @test sys.points[:top].pos_w[1] < -4.95
+        @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
+    end
+
+    # ================================================================
+    # Test 7: init_stretched_len on a non-root tether is an error
+    # ================================================================
+    @testset "Error on non-root init_stretched_len" begin
+        stacked_yaml = """
+materials:
+  headers: [name, youngs_modulus, density, damping_per_stiffness]
+  data:
+    - [test_mat, 120000.0, 724, 0.001]
+
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx,
+            extra_mass, body_frame_damping, world_frame_damping,
+            area, drag_coeff]
+  data:
+    - [ground, [0.0, 0.0, 0.0], STATIC, nothing, nothing,
+       0.0, 0.0, 0.0, 0.0, 0.0]
+    - [mid, [0.0, 0.0, -100.0], DYNAMIC, nothing, nothing,
+       1.0, 0.0, 0.0, 0.0, 0.0]
+    - [top, [0.0, 0.0, -200.0], DYNAMIC, nothing, nothing,
+       1.0, 0.0, 0.0, 0.0, 0.0]
+
+tethers:
+  headers: [name, start_point, end_point, n_segments, material,
+            init_stretched_length]
+  data:
+    - [lower, ground, mid, 2, test_mat, 100.0]
+    - [upper, mid, top, 2, test_mat, 100.0]
+
+winches:
+  headers: [name, tether_idxs, winch_point]
+  data:
+    - [winch_a, [lower], ground]
+"""
+        yaml_path = joinpath(tmpdir, "stacked.yaml")
+        write(yaml_path, stacked_yaml)
+        @test_throws ErrorException load_sys_struct_from_yaml(
+            yaml_path; system_name="init_stretched_length_nonroot", set=set)
+    end
+
+    # ================================================================
+    # Test 8: init_tether_force / init_stretch_frac derive len
+    # ================================================================
+    @testset "init force and stretch_frac" begin
+        yaml_path = joinpath(tmpdir, "r2_force.yaml")
+        write(yaml_path, INIT_LEN_YAML_ROUTE2)
+        sys = load_sys_struct_from_yaml(yaml_path;
+            system_name="init_stretched_length_r2_force", set=set)
+        SymbolicAWEModels.reinit!(sys, set)
+
+        tether = sys.tethers[:main_tether]
+        segs = sys.segments
+        stretched = sum(segs[si].len for si in tether.segment_idxs)
+        k = SymbolicAWEModels.tether_unit_stiffness(tether, segs)
+        @test stretched ≈ 200.0
+
+        # default: force 0, no frac → len == stretched
+        @test tether.init_tether_force == 0.0
+        @test isnothing(tether.init_stretch_frac)
+        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        @test tether.len ≈ stretched
+
+        # stretch_frac → len = frac * stretched; clears the force
+        tether.init_stretch_frac = 0.8
+        @test isnothing(tether.init_tether_force)
+        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        @test tether.len ≈ 0.8 * stretched
+
+        # stretch_frac > 1 → slack: len longer than stretched
+        tether.init_stretch_frac = 1.1
+        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        @test tether.len ≈ 1.1 * stretched
+
+        # non-positive stretch_frac errors
+        tether.init_stretch_frac = 0.0
+        @test_throws ErrorException SymbolicAWEModels.apply_tether_init_forces!(sys)
+
+        # force → len = stretched * (1 - force/k); clears the frac
+        tether.init_tether_force = 0.1 * k
+        @test isnothing(tether.init_stretch_frac)
+        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        @test tether.len ≈ stretched * 0.9
+
+        # only one of force / frac may have a value at a time
+        @test_throws ErrorException Tether(:both, [:s1];
+            tether_force=1.0, stretch_frac=0.9)
     end
 
 end

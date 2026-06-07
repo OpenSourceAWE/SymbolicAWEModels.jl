@@ -26,7 +26,7 @@ pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", MODEL_NAME))
 
 struc_yaml = joinpath(get_data_path(),
-                      "quat_struc_geometry.yaml")
+                      "rigid_structural_geometry.yaml")
 
 set = Settings("system.yaml")
 set.g_earth = 0.0

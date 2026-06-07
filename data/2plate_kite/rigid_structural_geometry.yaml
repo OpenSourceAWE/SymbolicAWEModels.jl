@@ -119,7 +119,7 @@ winches:
 wings:
   data:
     - name: main_wing
-      type: QUATERNION
+      dynamics_type: RIGID_DYNAMICS
       point_idxs: [le_left, te_left, le_center, te_center, le_right, te_right, kcu]
       groups: [left, center, right]
       origin_idx: kcu

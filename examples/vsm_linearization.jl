@@ -40,7 +40,7 @@ pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", MODEL_NAME))
 
 struc_yaml = joinpath(
-    get_data_path(), "quat_struc_geometry.yaml")
+    get_data_path(), "rigid_structural_geometry.yaml")
 
 set = Settings("system.yaml")
 vsm_set = VortexStepMethod.VSMSettings(
