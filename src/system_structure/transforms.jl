@@ -223,7 +223,6 @@ function _apply_heading!(transform, wings, points,
                          curr_R_t_to_w, R_t_to_w, base_pos)
     for wing in wings
         wing.transform_idx == transform.idx || continue
-        wing isa VSMWing || continue
 
         if !isnothing(wing.z_ref_points)
             R_b_to_w, _ = calc_particle_dynamics_wing_frame(
@@ -270,8 +269,12 @@ point positions, then compute principal frame ODE state.
 """
 function _finalize_transforms!(wings, points)
     for wing in wings
-        wing isa VSMWing || continue
-        wing.dynamics_type == PARTICLE_DYNAMICS || continue
+        isnothing(wing.z_ref_points) && continue
+        # Recompute the body frame from structural ref points for any
+        # PARTICLE wing and for bare BaseWing (plate) wings. VSM rigid
+        # wings keep the heading-applied frame from _apply_heading!.
+        (wing.dynamics_type == PARTICLE_DYNAMICS ||
+         wing isa BaseWing) || continue
         R_b_to_w, origin = calc_particle_dynamics_wing_frame(
             points, wing.z_ref_points, wing.y_ref_points, wing.origin)
         wing.R_b_to_w = R_b_to_w

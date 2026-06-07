@@ -727,11 +727,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         wing.v_wind .= wind_factor * wind_vec_gnd
 
         R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-        if wing.dynamics_type == PARTICLE_DYNAMICS
-            va_wing_w = wing.v_wind - wing.vel_w + wing.wind_disturb
-            wing.va_b .= R_b_to_w' * va_wing_w
-        else
-            # Initialize aero_y operating point
+        if wing isa VSMWing && wing.dynamics_type == RIGID_DYNAMICS
+            # Initialize aero_y operating point (VSM linearization)
             if length(wing.aero_y) >= 2
                 va_b_init = R_b_to_w' * wind_vec_gnd
                 wing.aero_y .= 0.0
@@ -740,6 +737,10 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                 wing.aero_y[2] = atan(va_b_init[2],
                     hypot(va_b_init[1], va_b_init[3]))
             end
+        else
+            # PARTICLE wings and bare BaseWing (plate) wings
+            va_wing_w = wing.v_wind - wing.vel_w + wing.wind_disturb
+            wing.va_b .= R_b_to_w' * va_wing_w
         end
     end
 

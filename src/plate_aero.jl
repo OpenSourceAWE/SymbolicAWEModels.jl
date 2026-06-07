@@ -1,8 +1,9 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Registered symbolic functions for flat-plate aerodynamics.
-# The actual equation generation is in generate_system/plate_eqs.jl.
+# Polar (CL/CD) interpolation construction for flat-plate aerodynamics.
+# The equation generation is in generate_system/aero_components.jl
+# (`default_aero_plate`).
 
 """
     create_plate_interpolations(alpha_deg, cl_data, cd_data;
@@ -48,59 +49,8 @@ function create_plate_interpolations(
     return (cl_interp, cd_interp)
 end
 
-# Registered symbolic accessors for PlateWing fields.
-# Single concrete type — no duplicate method risk.
-get_plate_cl(sys::SystemStructure{PlateWing},
-             wing_idx::Int64, alpha_deg) =
-    sys.wings[wing_idx].calc_cl(alpha_deg)
-@register_symbolic get_plate_cl(
-    sys::SystemStructure{PlateWing},
-    wing_idx::Int64, alpha_deg)
-
-get_plate_cd(sys::SystemStructure{PlateWing},
-             wing_idx::Int64, alpha_deg) =
-    sys.wings[wing_idx].calc_cd(alpha_deg)
-@register_symbolic get_plate_cd(
-    sys::SystemStructure{PlateWing},
-    wing_idx::Int64, alpha_deg)
-
-get_plate_drag_corr(sys::SystemStructure{PlateWing},
-                    idx::Int64) =
-    sys.wings[idx].drag_corr
-@register_symbolic get_plate_drag_corr(
-    sys::SystemStructure{PlateWing}, idx::Int64)
-
-get_surface_x_airf(sys::SystemStructure{PlateWing},
-                   wing_idx::Int64, surf_idx::Int64) =
-    sys.wings[wing_idx].surfaces[surf_idx].x_airf
-@register_array_symbolic get_surface_x_airf(
-    sys::SystemStructure{PlateWing}, wing_idx::Int64,
-    surf_idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-
-get_surface_y_airf(sys::SystemStructure{PlateWing},
-                   wing_idx::Int64, surf_idx::Int64) =
-    sys.wings[wing_idx].surfaces[surf_idx].y_airf
-@register_array_symbolic get_surface_y_airf(
-    sys::SystemStructure{PlateWing}, wing_idx::Int64,
-    surf_idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-
-get_surface_area(sys::SystemStructure{PlateWing},
-                 wing_idx::Int64, surf_idx::Int64) =
-    sys.wings[wing_idx].surfaces[surf_idx].area
-@register_symbolic get_surface_area(
-    sys::SystemStructure{PlateWing},
-    wing_idx::Int64, surf_idx::Int64)
-
-
-get_surface_twist(sys::SystemStructure{PlateWing},
-                  wing_idx::Int64, surf_idx::Int64) =
-    sys.wings[wing_idx].surfaces[surf_idx].twist
-@register_symbolic get_surface_twist(
-    sys::SystemStructure{PlateWing},
-    wing_idx::Int64, surf_idx::Int64)
+# Flat-plate aerodynamics is now expressed as polar `Group`s (see
+# `plate_group`) and computed by the `default_aero_plate` component builder
+# (src/generate_system/aero_components.jl). Group-level polar accessors
+# (`get_group_cl` / `get_group_cd` / `get_group_area` / `get_group_drag_corr`)
+# live in src/generate_system/accessors.jl.

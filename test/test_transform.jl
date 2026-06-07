@@ -346,7 +346,7 @@ using LinearAlgebra
     # ================================================================
     @testset "Chained Transforms" begin
         using SymbolicAWEModels: Point, Segment, Tether, Winch,
-            PlateWing, PlateSurface, Transform,
+            BaseWing, plate_group, Transform,
             SystemStructure,
             create_plate_interpolations, get_rot_pos,
             get_rot_pos_cad, get_base_pos, reinit!
@@ -443,30 +443,39 @@ using LinearAlgebra
 
         rel_side = set_c.rel_side_area / 100.0
         K = 1.0 - rel_side
-        surfaces_c = [
-            PlateSurface(:main, [1,0,0], [0,1,0],
-                set_c.area, :top;
-                twist=deg2rad(set_c.alpha_zero)),
-            PlateSurface(:right_tip, [1,0,0], [0,0,-1],
-                set_c.area * rel_side, :right;
-                twist=deg2rad(set_c.alpha_ztip)),
-            PlateSurface(:left_tip, [1,0,0], [0,0,1],
-                set_c.area * rel_side, :left;
-                twist=deg2rad(set_c.alpha_ztip)),
-        ]
         cl_interp, cd_interp =
             create_plate_interpolations(
                 set_c.alpha_cl, set_c.cl_list,
                 set_c.cd_list; alpha_cd=set_c.alpha_cd)
 
-        wing_c = PlateWing(:plate_wing, surfaces_c,
-            cl_interp, cd_interp;
+        groups_c = [
+            plate_group(:main, :top;
+                x_airf=[1,0,0], y_airf=[0,1,0],
+                area=set_c.area, calc_cl=cl_interp,
+                calc_cd=cd_interp, drag_corr=0.93 * K,
+                twist=deg2rad(set_c.alpha_zero)),
+            plate_group(:right_tip, :right;
+                x_airf=[1,0,0], y_airf=[0,0,-1],
+                area=set_c.area * rel_side,
+                calc_cl=cl_interp, calc_cd=cd_interp,
+                drag_corr=0.93 * K,
+                twist=deg2rad(set_c.alpha_ztip)),
+            plate_group(:left_tip, :left;
+                x_airf=[1,0,0], y_airf=[0,0,1],
+                area=set_c.area * rel_side,
+                calc_cl=cl_interp, calc_cd=cd_interp,
+                drag_corr=0.93 * K,
+                twist=deg2rad(set_c.alpha_ztip)),
+        ]
+
+        wing_c = BaseWing(:plate_wing,
+            [:main, :right_tip, :left_tip],
+            [1.0 0 0; 0 1 0; 0 0 1], zeros(3), ones(3);
             dynamics_type=PARTICLE_DYNAMICS,
+            aero_mode=AERO_PLATE,
             z_ref_points=([:right, :left], :top),
             y_ref_points=(:left, :right),
-            origin=:kcu, drag_corr=0.93 * K,
-            cmq=set_c.cmq, smc=set_c.smc,
-            cord_length=set_c.cord_length)
+            origin=:kcu)
 
         elev = deg2rad(set_c.elevation)
         azim = deg2rad(10.0)
@@ -483,7 +492,8 @@ using LinearAlgebra
         ]
 
         sys_c = SystemStructure("chained_test", set_c;
-            points=points_c, segments=segments_c,
+            points=points_c, groups=groups_c,
+            segments=segments_c,
             tethers=tethers_c, winches=winches_c,
             wings=[wing_c], transforms=transforms_c)
 

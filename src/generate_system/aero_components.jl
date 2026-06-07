@@ -196,10 +196,112 @@ function default_aero_linearized(sys_struct, wing_idx; name)
     return System(eqs, t, vars, [psys]; name)
 end
 
-# ==================== PlateAero (not via component path) ==================== #
+# ==================== PlateAero (flat-plate polar groups) ==================== #
+#
+# Flat-plate aero for wings whose groups carry a polar (calc_cl/calc_cd).
+# Each group is a 1-point FIXED panel; its twist is prescribed. The math is
+# done entirely in the wing body frame.
+#
+# Extra (opportunistic) PARTICLE connectors beyond the base contract:
+#   point_va  — body-frame apparent wind per point (bound to `va_point_b`)
+#   point_rho — air density per point (bound to `calc_rho(am, height)`)
 
-default_aero_plate(sys_struct, wing_idx; name) = error(
-    "PlateWing aerodynamics use plate_eqs!, not the aero component path.")
+function _group_of_point(groups, group_idxs, point_idx)
+    for gidx in group_idxs
+        point_idx in groups[gidx].point_idxs && return gidx
+    end
+    error("Point $point_idx is not a member of any group on its wing.")
+end
+
+"""
+    _plate_group_force_b(psys, gidx, x_airf, y_airf, twist, va_b, rho)
+
+Body-frame flat-plate force on a polar group. `x_airf`/`y_airf` are the
+build-time chord/span directions (body frame); `twist`, `va_b`, `rho` are
+symbolic. Lift perpendicular to the in-plane flow, drag along it.
+"""
+function _plate_group_force_b(psys, gidx, x_airf, y_airf, twist, va_b, rho)
+    ct = cos(twist)
+    st = sin(twist)
+    x_tw = ct .* x_airf .+ st .* cross(y_airf, x_airf)
+    z_tw = cross(x_tw, y_airf)
+    v_tan = dot(va_b, x_tw)
+    v_norm = dot(va_b, z_tw)
+    alpha = rad2deg(atan(v_norm, v_tan))
+    cl = get_group_cl(psys, gidx, alpha)
+    cd = get_group_drag_corr(psys, gidx) * get_group_cd(psys, gidx, alpha)
+    q = 0.5 * rho * (v_tan^2 + v_norm^2)
+    q_drag = 0.5 * rho * dot(va_b, va_b)
+    a_rad = atan(v_norm, v_tan)
+    va_airf_dir = cos(a_rad) .* x_tw .+ sin(a_rad) .* z_tw
+    lift_dir = smooth_normalize(cross(va_airf_dir, y_airf))
+    drag_dir = smooth_normalize(cross(y_airf, lift_dir))
+    area = get_group_area(psys, gidx)
+    lift = (q * area * cl) .* lift_dir
+    drag = (q_drag * area * cd) .* drag_dir
+    return collect(lift .+ drag)
+end
+
+function default_aero_plate(sys_struct, wing_idx; name)
+    SST = typeof(sys_struct)
+    @parameters (psys::SST = sys_struct), [tunable = false]
+    wing = sys_struct.wings[wing_idx]
+    groups = sys_struct.groups
+    group_idxs = wing.group_idxs
+    isempty(group_idxs) && error(
+        "AERO_PLATE wing $wing_idx has no polar groups.")
+
+    if wing.dynamics_type == PARTICLE_DYNAMICS
+        points = _wing_points(sys_struct, wing)
+        np = length(points)
+        @variables begin
+            point_pos(t)[1:3, 1:np]
+            point_vel(t)[1:3, 1:np]
+            point_force(t)[1:3, 1:np]
+            point_va(t)[1:3, 1:np]
+            point_rho(t)[1:np]
+        end
+        eqs = Equation[]
+        for (k, point) in enumerate(points)
+            gidx = _group_of_point(groups, group_idxs, point.idx)
+            g = groups[gidx]
+            x_airf = normalize(Vector(g.chord))
+            y_airf = Vector(g.y_airf)
+            tw = get_twist(psys, gidx)
+            va_b = collect(point_va[:, k])
+            f = _plate_group_force_b(psys, gidx, x_airf, y_airf,
+                                     tw, va_b, point_rho[k])
+            eqs = [eqs; collect(point_force[:, k]) .~ f]
+        end
+        vars = Any[point_pos, point_vel, point_force, point_va, point_rho]
+        return System(eqs, t, vars, [psys]; name)
+    end
+
+    # RIGID_DYNAMICS: sum group forces and moments about the COM.
+    ng = length(group_idxs)
+    c = _rigid_aero_connectors(ng)
+    va = collect(c.va)
+    omega = collect(c.omega)
+    force = zeros(Num, 3)
+    moment = zeros(Num, 3)
+    for (gi, gidx) in enumerate(group_idxs)
+        g = groups[gidx]
+        x_airf = normalize(Vector(g.chord))
+        y_airf = Vector(g.y_airf)
+        r_g = Vector(sys_struct.points[g.point_idxs[1]].pos_b)
+        va_g = va .- cross(omega, r_g)
+        f = _plate_group_force_b(psys, gidx, x_airf, y_airf,
+                                 c.twist[gi], va_g, c.rho)
+        force = force .+ f
+        moment = moment .+ cross(r_g, f)
+    end
+    eqs = [collect(c.force) .~ force
+           collect(c.moment) .~ moment]
+    for gi in 1:ng
+        eqs = [eqs; c.twist_moment[gi] ~ 0]
+    end
+    return System(eqs, t, _rigid_unknowns(c), [psys]; name)
+end
 
 # ==================== validation ==================== #
 

@@ -26,7 +26,7 @@ This file contains enums and struct definitions for:
 end
 
 """
-    DynamicsType `DYNAMIC` `QUASI_STATIC` `WING` `STATIC`
+    DynamicsType `DYNAMIC` `QUASI_STATIC` `WING` `STATIC` `FIXED`
 
 Enumeration for the dynamic model governing a point's motion.
 
@@ -35,12 +35,15 @@ Enumeration for the dynamic model governing a point's motion.
 - `QUASI_STATIC`: The point's acceleration is constrained to zero, representing a force equilibrium.
 - `WING`: The point is rigidly attached to a wing body and moves with it.
 - `STATIC`: The point's position is fixed in the world frame.
+- `FIXED`: A prescribed (imposed) state, not solved. Used by groups for
+  open-loop prescribed-twist control.
 """
 @enum DynamicsType begin
     DYNAMIC
     QUASI_STATIC
     WING
     STATIC
+    FIXED
 end
 
 """
@@ -73,7 +76,7 @@ Orthogonal to WingType — determines the aero computation strategy at runtime.
 - `AERO_NONE`: No aerodynamic forces (returns zeros). For debugging rigid body dynamics.
 - `AERO_DIRECT`: Stored forces from nonlinear VSM solve, piecewise-constant between updates.
 - `AERO_LINEARIZED`: First-order Taylor expansion using Jacobian from VSM linearization.
-- `AERO_PLATE`: Flat-plate CL/CD lookup aerodynamics (PlateWing only).
+- `AERO_PLATE`: Flat-plate CL/CD lookup aerodynamics (wings with polar groups).
 - `AERO_CUSTOM`: User-supplied aero component (see `wing.aero_model`).
 """
 @enum AeroMode begin
@@ -233,13 +236,26 @@ end
 # ==================== GROUP ==================== #
 
 """
-    mutable struct Group
+    mutable struct Group{CL, CD, CM}
 
-A set of bridle lines that share the same twist angle and trailing edge angle.
+A deformable wing section whose twist is defined relative to the wing body
+frame. A group bundles one or more points that share a single twist angle.
+
+The twist mode is given by `type`:
+- `DYNAMIC`: twist is a differential state, restored by the bridle couple
+  (requires ≥2 points and a rigid wing).
+- `QUASI_STATIC`: twist solved to algebraic moment equilibrium.
+- `FIXED`: twist is a prescribed control input (no DOF). The only coherent
+  mode for a single-point group.
+
+The polar type parameters `CL`, `CD`, `CM` are the lift/drag/moment lookup
+callable types (`alpha_deg → coeff`), or `Nothing` when the group carries no
+polar (VSM/deformation groups). A 1-point `FIXED` group with a polar is a
+flat-plate panel. All groups in a `SystemStructure` share the same `CL/CD/CM`.
 
 $(TYPEDFIELDS)
 """
-mutable struct Group
+mutable struct Group{CL, CD, CM}
     "Index in the groups vector (assigned by SystemStructure)."
     idx::Int64
     "Name used for lookup by other components' `_ref` fields."
@@ -250,11 +266,11 @@ mutable struct Group
     const point_refs::Vector{NameRef}
     "Leading edge position in body frame [m] (from closest VSM panel)."
     le_pos::KVec3
-    "Chord vector in body frame [m] (from closest VSM panel)."
+    "Chord vector in body frame [m]. For a polar group, the chord direction."
     chord::KVec3
-    "Spanwise vector in local panel frame (from closest VSM panel)."
+    "Spanwise vector in body frame."
     y_airf::KVec3
-    "Dynamics type (DYNAMIC or QUASI_STATIC)."
+    "Twist mode (DYNAMIC, QUASI_STATIC or FIXED)."
     const type::DynamicsType
     "Chordwise rotation point fraction (0=LE, 1=TE)."
     moment_frac::SimFloat
@@ -272,38 +288,69 @@ mutable struct Group
     aero_moment::SimFloat
     "Indices of VSM unrefined sections in this group."
     unrefined_section_idxs::Vector{Int64}
+    "Plate area [m²] (polar groups only; NaN otherwise)."
+    area::SimFloat
+    "CL lookup callable(alpha_deg) → CL, or `nothing`."
+    const calc_cl::CL
+    "CD lookup callable(alpha_deg) → CD, or `nothing`."
+    const calc_cd::CD
+    "CM lookup callable(alpha_deg) → CM, or `nothing`."
+    const calc_cm::CM
+    "Drag correction factor (polar groups)."
+    drag_corr::SimFloat
+    "Current AoA [deg] (updated by update_sys_struct!, polar groups)."
+    aoa::SimFloat
 end
 
 """
-    Group(name, points, type, moment_frac; damping=50.0)
+    Group(name, points, type, moment_frac; damping=50.0,
+          area=NaN, calc_cl=nothing, calc_cd=nothing, calc_cm=nothing,
+          drag_corr=1.0, twist=0.0)
 
-Constructs a `Group` object representing a collection of points on a
-kite body that share a common twist deformation.
+Constructs a `Group` representing a deformable wing section whose points
+share a common twist relative to the wing body frame.
 
 Group geometry (le_pos, chord, y_airf) is computed later by SystemStructure
-using the closest VSM panel to the group's mean point position.
+using the closest VSM panel — unless `chord`/`y_airf` are pre-set (polar
+groups), in which case the VSM lookup is skipped.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the group.
-- `points::Vector`: References to points (names or indices).
-- `type::DynamicsType`: DYNAMIC or QUASI_STATIC.
+- `points`: References to points (names or indices). A single ref is wrapped.
+- `type::DynamicsType`: `DYNAMIC`, `QUASI_STATIC` or `FIXED`.
 - `moment_frac::SimFloat`: Chordwise rotation point (0=LE, 1=TE).
 
 # Keyword Arguments
 - `damping::SimFloat=50.0`: Damping coefficient for twist dynamics.
-
-# Returns
-- `Group`: A new `Group` object. The `idx` and `point_idxs` are resolved by SystemStructure.
-  Geometry fields (le_pos, chord, y_airf) are initialized to zero and computed during
-  SystemStructure construction from the closest VSM panel.
+- `area::SimFloat=NaN`: Plate area [m²] (polar groups).
+- `calc_cl`, `calc_cd`, `calc_cm`: Polar lookup callables, or `nothing`.
+- `drag_corr::SimFloat=1.0`: Drag correction factor.
+- `twist::SimFloat=0.0`: Initial / prescribed twist [rad].
 """
-function Group(name, points, type, moment_frac; damping=50.0)
-    point_refs = Vector{NameRef}([p isa Integer ? Int(p) : Symbol(p) for p in points])
-    Group(0, name, Int64[], point_refs,
+function Group(name, points, type, moment_frac; damping=50.0,
+               area=NaN, calc_cl=nothing, calc_cd=nothing,
+               calc_cm=nothing, drag_corr=1.0, twist=0.0)
+    pts = points isa Union{AbstractVector, Tuple} ? points : (points,)
+    point_refs = Vector{NameRef}(
+        [p isa Integer ? Int(p) : Symbol(p) for p in pts])
+    Group{typeof(calc_cl), typeof(calc_cd), typeof(calc_cm)}(
+          0, name, Int64[], point_refs,
           zeros(KVec3), zeros(KVec3), zeros(KVec3),
           type, moment_frac, damping,
-          0.0, 0.0, 0.0, 0.0, 0.0,
-          Int64[])
+          twist, 0.0, 0.0, 0.0, 0.0,
+          Int64[],
+          area, calc_cl, calc_cd, calc_cm, drag_corr, 0.0)
+end
+
+"""Convenience: build a flat-plate panel as a 1-point FIXED polar group."""
+function plate_group(name, point; x_airf, y_airf, area,
+                     calc_cl, calc_cd, calc_cm=nothing,
+                     drag_corr=0.93, twist=0.0, moment_frac=0.0)
+    g = Group(name, point, FIXED, moment_frac;
+              area, calc_cl, calc_cd, calc_cm, drag_corr, twist)
+    g.chord = KVec3(x_airf)
+    g.y_airf = KVec3(y_airf)
+    return g
 end
 
 # ==================== SEGMENT ==================== #

@@ -402,3 +402,25 @@ end
 @register_symbolic get_group_moment_override(
     sys::SystemStructure, wing_idx::Int64,
     group_idx::Int64)
+
+# ---- Group polar (flat-plate) ----
+get_group_cl(sys::SystemStructure, idx::Int64, alpha_deg) =
+    sys.groups[idx].calc_cl(alpha_deg)
+@register_symbolic get_group_cl(
+    sys::SystemStructure, idx::Int64, alpha_deg)
+get_group_cd(sys::SystemStructure, idx::Int64, alpha_deg) =
+    sys.groups[idx].calc_cd(alpha_deg)
+@register_symbolic get_group_cd(
+    sys::SystemStructure, idx::Int64, alpha_deg)
+get_group_cm(sys::SystemStructure, idx::Int64, alpha_deg) =
+    sys.groups[idx].calc_cm(alpha_deg)
+@register_symbolic get_group_cm(
+    sys::SystemStructure, idx::Int64, alpha_deg)
+get_group_drag_corr(sys::SystemStructure, idx::Int64) =
+    sys.groups[idx].drag_corr
+@register_symbolic get_group_drag_corr(
+    sys::SystemStructure, idx::Int64)
+get_group_area(sys::SystemStructure, idx::Int64) =
+    sys.groups[idx].area
+@register_symbolic get_group_area(
+    sys::SystemStructure, idx::Int64)

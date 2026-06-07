@@ -176,12 +176,12 @@ SymbolicAWEModels.tether_eqs!
 SymbolicAWEModels.pulley_eqs!
 SymbolicAWEModels.winch_eqs!
 SymbolicAWEModels.group_eqs!
-SymbolicAWEModels.plate_eqs!
 ```
 
 ## Plate aerodynamics internals
 
 ```@docs
+SymbolicAWEModels.default_aero_plate
 SymbolicAWEModels.plate_alpha
 SymbolicAWEModels._load_plate_wing
 ```

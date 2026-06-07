@@ -273,6 +273,7 @@ function parse_dynamics_type(s::String)
     s_upper == "DYNAMIC" && return DYNAMIC
     s_upper == "WING" && return WING
     s_upper == "QUASI_STATIC" && return QUASI_STATIC
+    s_upper == "FIXED" && return FIXED
     error("Unknown DynamicsType: $s")
 end
 
@@ -310,10 +311,13 @@ end
 
 """
     _load_plate_wing(row, idx, data, set, wt, am,
-                     yaml_to_ref, yaml_parse_ref_points)
+                     yaml_to_ref, yaml_parse_ref_points,
+                     yaml_parse_origin)
 
-Load a PlateWing from YAML wing row + surfaces block.
-CL/CD interpolations are created from Settings polar data.
+Load a flat-plate wing from a YAML wing row + surfaces block. Returns
+`(wing, plate_groups)`: a bare `BaseWing` (aero_mode `AERO_PLATE`) and one
+1-point `FIXED` polar `Group` per surface. CL/CD interpolations come from the
+Settings polar data.
 """
 function _load_plate_wing(row, idx, data, set, wt, am,
                           yaml_to_ref, yaml_parse_ref_points,
@@ -329,16 +333,8 @@ function _load_plate_wing(row, idx, data, set, wt, am,
         set.alpha_cl, set.cl_list, set.cd_list;
         alpha_cd=set.alpha_cd)
 
-    # Parse wing-level parameters
     drag_corr = hasfield(typeof(row), :drag_corr) &&
         !isnothing(row.drag_corr) ? float(row.drag_corr) : 0.93
-    cmq = hasfield(typeof(row), :cmq) &&
-        !isnothing(row.cmq) ? float(row.cmq) : 0.0
-    smc = hasfield(typeof(row), :smc) &&
-        !isnothing(row.smc) ? float(row.smc) : 0.0
-    cord_length = hasfield(typeof(row), :cord_length) &&
-        !isnothing(row.cord_length) ?
-        float(row.cord_length) : 1.0
     y_damping = hasfield(typeof(row), :y_damping) &&
         !isnothing(row.y_damping) ?
         float(row.y_damping) : 150.0
@@ -354,33 +350,39 @@ function _load_plate_wing(row, idx, data, set, wt, am,
         nothing
     end
 
-    # Load surfaces from YAML
-    surfaces = PlateSurface[]
+    # Each surface becomes a 1-point FIXED polar group
+    plate_groups = Group[]
+    group_refs = NameRef[]
     if haskey(data, "surfaces") &&
        haskey(data["surfaces"], "data") &&
        data["surfaces"]["data"] !== nothing
         surf_rows = parse_table(data["surfaces"])
         for (si, sr) in enumerate(surf_rows)
-            sname = haskey(sr, :name) && !isnothing(sr.name) ?
-                Symbol(sr.name) : nothing
-            x_airf = KVec3(sr.x_airf...)
-            y_airf = KVec3(sr.y_airf...)
+            gname = haskey(sr, :name) && !isnothing(sr.name) ?
+                Symbol(sr.name) : Symbol("$(name)_plate_$si")
+            x_airf = collect(float.(sr.x_airf))
+            y_airf = collect(float.(sr.y_airf))
             area = float(sr.area)
             point = yaml_to_ref(sr.point_idx)
             twist = hasfield(typeof(sr), :twist) &&
                 !isnothing(sr.twist) ?
                 float(sr.twist) : 0.0
-            push!(surfaces, PlateSurface(
-                sname, x_airf, y_airf, area, point;
-                twist))
+            push!(plate_groups, plate_group(gname, point;
+                x_airf, y_airf, area,
+                calc_cl=cl_interp, calc_cd=cd_interp,
+                drag_corr, twist))
+            push!(group_refs, gname)
         end
     end
 
-    PlateWing(name, surfaces, cl_interp, cd_interp;
-              dynamics_type=wt, transform, y_damping,
-              drag_corr, cmq, smc, cord_length,
-              z_ref_points=z_ref, y_ref_points=y_ref,
-              origin)
+    wing = BaseWing(name, group_refs,
+                    Matrix{SimFloat}(I, 3, 3), zeros(KVec3),
+                    ones(MVector{3, SimFloat});
+                    transform, y_damping, dynamics_type=wt,
+                    aero_mode=AERO_PLATE,
+                    z_ref_points=z_ref, y_ref_points=y_ref,
+                    origin)
+    return wing, plate_groups
 end
 
 """
@@ -819,11 +821,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             end
 
             if am == AERO_PLATE
-                # PlateWing — load surfaces and CL/CD from settings
-                wing = _load_plate_wing(row, i, data,
+                # Flat-plate wing — bare BaseWing + 1-point FIXED polar groups
+                wing, plate_groups = _load_plate_wing(row, i, data,
                     resolved_set, wt, am, yaml_to_ref,
                     yaml_parse_ref_points,
                     yaml_parse_origin)
+                append!(groups, plate_groups)
                 push!(wings, wing)
                 continue
             end

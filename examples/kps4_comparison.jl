@@ -163,38 +163,41 @@ tethers = [Tether(:main_tether, set.l_tethers[1];
 winches = [Winch(:winch, set, [:main_tether];
                  winch_point=:ground)]
 
-# Plate surfaces and wing
+# Plate polar groups and wing
 rel_side_area = set.rel_side_area / 100.0
 K = 1.0 - rel_side_area
-
-surfaces = [
-    PlateSurface(:main, [1,0,0], [0,1,0],
-        set.area, :top;
-        twist=deg2rad(set.alpha_zero)),
-    PlateSurface(:right_tip, [1,0,0], [0,0,-1],
-        set.area * rel_side_area, :right;
-        twist=deg2rad(set.alpha_ztip)),
-    PlateSurface(:left_tip, [1,0,0], [0,0,1],
-        set.area * rel_side_area, :left;
-        twist=deg2rad(set.alpha_ztip)),
-]
 
 cl_interp, cd_interp = create_plate_interpolations(
     set.alpha_cl, set.cl_list, set.cd_list;
     alpha_cd=set.alpha_cd)
 
-plate_wing = PlateWing(
-    :plate_wing, surfaces, cl_interp, cd_interp;
-    dynamics_type=PARTICLE_DYNAMICS,
+plate_groups = [
+    plate_group(:main, :top;
+        x_airf=[1,0,0], y_airf=[0,1,0],
+        area=set.area, calc_cl=cl_interp, calc_cd=cd_interp,
+        drag_corr=0.93 * K, twist=deg2rad(set.alpha_zero)),
+    plate_group(:right_tip, :right;
+        x_airf=[1,0,0], y_airf=[0,0,-1],
+        area=set.area * rel_side_area, calc_cl=cl_interp,
+        calc_cd=cd_interp, drag_corr=0.93 * K,
+        twist=deg2rad(set.alpha_ztip)),
+    plate_group(:left_tip, :left;
+        x_airf=[1,0,0], y_airf=[0,0,1],
+        area=set.area * rel_side_area, calc_cl=cl_interp,
+        calc_cd=cd_interp, drag_corr=0.93 * K,
+        twist=deg2rad(set.alpha_ztip)),
+]
+
+plate_wing = BaseWing(:plate_wing,
+    [:main, :right_tip, :left_tip],
+    [1.0 0 0; 0 1 0; 0 0 1], zeros(3), ones(3);
+    dynamics_type=PARTICLE_DYNAMICS, aero_mode=AERO_PLATE,
     z_ref_points=([:right, :left], :top),
     y_ref_points=(:left, :right),
-    origin=:kcu,
-    drag_corr=0.93 * K,
-    cmq=set.cmq, smc=set.smc,
-    cord_length=set.cord_length)
+    origin=:kcu)
 
 alpha_depower = calc_alpha_depower(KCU(set), 0.25)
-plate_wing.surfaces[1].twist =
+plate_groups[1].twist =
     deg2rad(set.alpha_zero) - alpha_depower
 
 KITE_ANGLE = 3.83
@@ -211,15 +214,14 @@ transforms = [
 ]
 
 sys = SystemStructure("kps4", set;
-    points, segments, tethers, winches,
+    points, groups=plate_groups, segments, tethers, winches,
     wings=[plate_wing], transforms)
 sys.winches[1].brake = true
 
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false, prn=true)
 
-w = sam.sys_struct.wings[1]
-aoas = [round(s.aoa, digits=2) for s in w.surfaces]
+aoas = [round(g.aoa, digits=2) for g in sam.sys_struct.groups]
 println("SymAWE initial aoa=$(aoas)")
 
 sam_logger = Logger(sam, N_STEPS + 1)

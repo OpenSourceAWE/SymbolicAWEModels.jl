@@ -35,7 +35,7 @@ SystemStructure(name, set; points, groups, segments, pulleys, tethers, winches, 
 Point
 Point(name, pos_cad, type; wing, transform, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
 Group
-Group(name, points, type, moment_frac; damping)
+Group(name, points, type, moment_frac; damping, area, calc_cl, calc_cd, calc_cm, drag_corr, twist)
 Segment
 Segment(name, set, point_i, point_j; l0, compression_frac, diameter_mm, unit_stiffness, unit_damping)
 Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, compression_frac)
@@ -50,11 +50,9 @@ Winch(name, tethers, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; wi
 AbstractWing
 BaseWing
 VSMWing
-PlateWing
-PlateWing(::Any, ::Vector{PlateSurface}, ::Any, ::Any)
-PlateSurface
-PlateSurface(::Any, ::Any, ::Any, ::Any, ::Any)
 create_plate_interpolations
+plate_group
+is_plate_group
 Transform
 Transform(name, elevation, azimuth, heading; base_point, base_pos, base_transform, wing, rot_point)
 ```

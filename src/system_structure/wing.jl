@@ -22,6 +22,68 @@ for attached points and groups.
 """
 abstract type AbstractWing end
 
+# ==================== WEIGHTED REF POINTS ==================== #
+
+"""
+    WeightedRefPoints
+
+Weighted combination of reference points for wing frame
+definition. Supports single points, equal-weight averaging,
+and arbitrary weight combinations.
+
+# Fields
+- `refs`: Unresolved names/indices (filled at construction)
+- `ids`: Resolved point indices (filled by `resolve!`)
+- `weights`: Normalized weights (sum to 1.0)
+"""
+mutable struct WeightedRefPoints
+    const refs::Vector{NameRef}
+    ids::Vector{Int64}
+    const weights::Vector{Float64}
+end
+
+"""Single point from a Symbol ref."""
+WeightedRefPoints(ref::Symbol) =
+    WeightedRefPoints(NameRef[ref], Int64[], [1.0])
+
+"""Single point from a String ref (converted to Symbol)."""
+WeightedRefPoints(ref::AbstractString) =
+    WeightedRefPoints(Symbol(ref))
+
+"""
+    WeightedRefPoints(id::Integer)
+
+Single point from a resolved index. Stores in `ids`
+(not `refs`) so `resolve!` is a no-op.
+"""
+WeightedRefPoints(id::Integer) =
+    WeightedRefPoints(NameRef[], Int64[Int64(id)], [1.0])
+
+"""
+    WeightedRefPoints(refs::AbstractVector)
+
+Equal-weight average of multiple ref points, or weighted
+if elements are `(name, weight)` tuples.
+
+Supports:
+- `[:le, :te]` → equal-weight average
+- `[(:le, 0.7), (:te, 0.3)]` → weighted combination
+"""
+function WeightedRefPoints(refs::AbstractVector)
+    isempty(refs) && error(
+        "WeightedRefPoints requires at least one " *
+        "reference point, got empty vector")
+    if refs[1] isa Tuple
+        names = NameRef[_to_name_ref(t[1]) for t in refs]
+        weights = Float64[Float64(t[2]) for t in refs]
+        _validate_weights!(weights)
+        return WeightedRefPoints(names, Int64[], weights)
+    end
+    names = NameRef[_to_name_ref(v) for v in refs]
+    n = length(names)
+    WeightedRefPoints(names, Int64[], fill(1.0 / n, n))
+end
+
 # ==================== BASE WING ==================== #
 
 """
@@ -106,6 +168,16 @@ mutable struct BaseWing <: AbstractWing
     angular_damping::SimFloat
     z_disturb::SimFloat
     mass::SimFloat  # Total mass of wing (sum of WING point masses if set.mass is zero)
+
+    # Orientation reference points (body frame from structural points).
+    # Z-axis: normal to wing plane; Y-axis: spanwise; X = Y × Z (chord).
+    # Used by PARTICLE_DYNAMICS and polar (AERO_PLATE) wings.
+    z_ref_points::Union{Nothing,
+        Tuple{WeightedRefPoints, WeightedRefPoints}}
+    y_ref_points::Union{Nothing,
+        Tuple{WeightedRefPoints, WeightedRefPoints}}
+    # Origin point(s) — weighted combination defining wing.pos_w.
+    origin::Union{Nothing, WeightedRefPoints}
 end
 
 function Base.getproperty(wing::BaseWing, sym::Symbol)
@@ -130,68 +202,6 @@ function Base.setproperty!(wing::BaseWing, sym::Symbol, value)
     else
         error("BaseWing has no field `$(sym)`")
     end
-end
-
-# ==================== WEIGHTED REF POINTS ==================== #
-
-"""
-    WeightedRefPoints
-
-Weighted combination of reference points for wing frame
-definition. Supports single points, equal-weight averaging,
-and arbitrary weight combinations.
-
-# Fields
-- `refs`: Unresolved names/indices (filled at construction)
-- `ids`: Resolved point indices (filled by `resolve!`)
-- `weights`: Normalized weights (sum to 1.0)
-"""
-mutable struct WeightedRefPoints
-    const refs::Vector{NameRef}
-    ids::Vector{Int64}
-    const weights::Vector{Float64}
-end
-
-"""Single point from a Symbol ref."""
-WeightedRefPoints(ref::Symbol) =
-    WeightedRefPoints(NameRef[ref], Int64[], [1.0])
-
-"""Single point from a String ref (converted to Symbol)."""
-WeightedRefPoints(ref::AbstractString) =
-    WeightedRefPoints(Symbol(ref))
-
-"""
-    WeightedRefPoints(id::Integer)
-
-Single point from a resolved index. Stores in `ids`
-(not `refs`) so `resolve!` is a no-op.
-"""
-WeightedRefPoints(id::Integer) =
-    WeightedRefPoints(NameRef[], Int64[Int64(id)], [1.0])
-
-"""
-    WeightedRefPoints(refs::AbstractVector)
-
-Equal-weight average of multiple ref points, or weighted
-if elements are `(name, weight)` tuples.
-
-Supports:
-- `[:le, :te]` → equal-weight average
-- `[(:le, 0.7), (:te, 0.3)]` → weighted combination
-"""
-function WeightedRefPoints(refs::AbstractVector)
-    isempty(refs) && error(
-        "WeightedRefPoints requires at least one " *
-        "reference point, got empty vector")
-    if refs[1] isa Tuple
-        names = NameRef[_to_name_ref(t[1]) for t in refs]
-        weights = Float64[Float64(t[2]) for t in refs]
-        _validate_weights!(weights)
-        return WeightedRefPoints(names, Int64[], weights)
-    end
-    names = NameRef[_to_name_ref(v) for v in refs]
-    n = length(names)
-    WeightedRefPoints(names, Int64[], fill(1.0 / n, n))
 end
 
 # ==================== VSM WING ==================== #
@@ -231,19 +241,6 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
     point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}
     wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}
 
-    # Orientation reference points (WeightedRefPoints carry
-    # both refs and resolved ids, with weights).
-    # Z-axis: Normal to wing plane
-    # Y-axis: Spanwise, X = Y × Z (chord)
-    z_ref_points::Union{Nothing,
-        Tuple{WeightedRefPoints, WeightedRefPoints}}
-    y_ref_points::Union{Nothing,
-        Tuple{WeightedRefPoints, WeightedRefPoints}}
-
-    # Origin point(s) - weighted combination defining
-    # wing.pos_w. Holds both raw refs and resolved ids.
-    origin::Union{Nothing, WeightedRefPoints}
-
     # Additional aerodynamic force scale to compensate chord length errors (PARTICLE_DYNAMICS)
     aero_scale_chord::SimFloat
 
@@ -256,27 +253,22 @@ mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
                      vsm_wing, vsm_solver,
                      aero_y, aero_x, aero_jac,
                      point_to_vsm_point, wing_segments,
-                     z_ref_points, y_ref_points,
-                     origin,
                      aero_scale_chord, aero_z_offset)
         new{typeof(vsm_aero), typeof(vsm_wing),
             typeof(vsm_solver)}(
             base, vsm_aero, vsm_wing, vsm_solver,
             aero_y, aero_x, aero_jac,
             point_to_vsm_point, wing_segments,
-            z_ref_points, y_ref_points,
-            origin,
             aero_scale_chord, aero_z_offset)
     end
 end
 
-# Delegate property access to base wing for VSMWing
+# Delegate property access to base wing for VSMWing.
+# z_ref_points / y_ref_points / origin now live on BaseWing.
 const VSM_WING_OWN_FIELDS = (
     :base, :vsm_aero, :vsm_wing, :vsm_solver,
     :aero_y, :aero_x, :aero_jac,
     :point_to_vsm_point, :wing_segments,
-    :z_ref_points, :y_ref_points,
-    :origin,
     :aero_scale_chord, :aero_z_offset)
 
 function Base.getproperty(wing::VSMWing, sym::Symbol)
@@ -356,7 +348,9 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
                   dynamics_type::Union{Nothing,WingType}=nothing,
                   aero_mode::Union{Nothing,AeroMode}=nothing,
                   aero_model::Union{Nothing,Function}=nothing,
-                  wing_type::Union{Nothing,WingType}=nothing)
+                  wing_type::Union{Nothing,WingType}=nothing,
+                  z_ref_points=nothing, y_ref_points=nothing,
+                  origin=nothing)
     # Handle deprecated wing_type keyword
     if !isnothing(wing_type)
         if !isnothing(dynamics_type)
@@ -375,6 +369,16 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
     # Handle nothing - default to transform 1
     tf = isnothing(transform) ? 1 : transform
     transform_ref = _to_name_ref(tf)
+
+    # Convert reference point specs to WeightedRefPoints
+    z_ref = isnothing(z_ref_points) ? nothing :
+        (WeightedRefPoints(z_ref_points[1]),
+         WeightedRefPoints(z_ref_points[2]))
+    y_ref = isnothing(y_ref_points) ? nothing :
+        (WeightedRefPoints(y_ref_points[1]),
+         WeightedRefPoints(y_ref_points[2]))
+    origin_rp = isnothing(origin) ? nothing :
+        WeightedRefPoints(origin)
 
     # idx, group_idxs, transform_idx are placeholders - resolved by SystemStructure
     return BaseWing(0, name,
@@ -401,7 +405,8 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         zeros(KVec3), zeros(KVec3), 0.0, 0.0, false,
         y_damping, angular_damping, 0.0,
-        0.0)  # mass initialized to 0, set by SystemStructure
+        0.0,  # mass initialized to 0, set by SystemStructure
+        z_ref, y_ref, origin_rp)
 end
 
 """Warn and normalize if weights don't sum to 1."""
@@ -547,16 +552,6 @@ function VSMWing(name, set::Settings,
         # defined by structural ref points)
     end
 
-    # Convert ref points to WeightedRefPoints
-    z_ref = isnothing(z_ref_points) ? nothing :
-        (WeightedRefPoints(z_ref_points[1]),
-         WeightedRefPoints(z_ref_points[2]))
-    y_ref = isnothing(y_ref_points) ? nothing :
-        (WeightedRefPoints(y_ref_points[1]),
-         WeightedRefPoints(y_ref_points[2]))
-    origin_rp = isnothing(origin) ? nothing :
-        WeightedRefPoints(origin)
-
     # Create VSM wing, aero, and solver
     vsm_wing = create_vsm_wing(set, vsm_set; prn=false,
         sort_sections=false)
@@ -573,7 +568,8 @@ function VSMWing(name, set::Settings,
     base = BaseWing(name, groups, R_b_to_c, pos_cad,
                     inertia_vec; transform, y_damping,
                     angular_damping, dynamics_type, aero_mode,
-                    aero_model)
+                    aero_model, z_ref_points, y_ref_points,
+                    origin)
 
     # Size aero state vectors based on wing type
     # For RIGID_DYNAMICS: placeholder sizes using n_unrefined
@@ -592,8 +588,6 @@ function VSMWing(name, set::Settings,
                    zeros(SimFloat, ny), zeros(SimFloat, nx),
                    zeros(SimFloat, nx, ny),
                    point_to_vsm_point, wing_segments,
-                   z_ref, y_ref,
-                   origin_rp,
                    aero_scale_chord, aero_z_offset)
 end
 
@@ -635,8 +629,6 @@ function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, ny), zeros(SimFloat, nx),
         zeros(SimFloat, nx, ny),
         nothing, nothing,
-        nothing, nothing,  # z/y_ref_points
-        nothing,           # origin
         0.0, 0.0)
 end
 
@@ -667,192 +659,32 @@ function SymbolicAWEModels.Wing(name, vsm_aero, vsm_wing, vsm_solver, groups, R_
     return VSMWing(name, vsm_aero, vsm_wing, vsm_solver, groups, R_b_to_c, pos_cad; kwargs...)
 end
 
-# ==================== PLATE SURFACE ==================== #
+# ==================== PLATE GROUP AERO ==================== #
 
 """
-    struct PlateSurface
+    is_plate_group(group) -> Bool
 
-A flat aerodynamic plate defined by orientation vectors, area,
-and a center-of-pressure WING point. Internal to PlateWing.
-
-$(TYPEDFIELDS)
+True when the group carries a flat-plate polar (`calc_cl`/`calc_cd` set).
 """
-mutable struct PlateSurface
-    "Name identifier for this surface."
-    name::Union{Symbol, Nothing}
-    "Chord direction in body frame (unit vector)."
-    x_airf::KVec3
-    "Span direction in body frame (unit vector)."
-    y_airf::KVec3
-    "Plate area [m²]."
-    area::SimFloat
-    "Raw reference to center-of-pressure WING point."
-    point_ref::NameRef
-    "Resolved point index (filled by SystemStructure)."
-    point_idx::Int64
-    "Twist angle [rad] (mutable control input)."
-    twist::SimFloat
-    "Current AoA [deg] (updated by update_sys_struct!)."
-    aoa::SimFloat
-end
+is_plate_group(group::Group) =
+    !isnothing(group.calc_cl) && !isnothing(group.calc_cd)
 
 """
-    PlateSurface(name, x_airf, y_airf, area, point;
-                 twist=0.0)
+    plate_alpha(group, va_b)
 
-Construct a PlateSurface with the given geometry. The
-`point_idx` is resolved later by SystemStructure.
+Compute current AoA [deg] for a polar group from a body-frame apparent
+wind `va_b` and the group twist. `group.chord` is the chord direction and
+`group.y_airf` the span direction (body frame).
 """
-function PlateSurface(name, x_airf, y_airf, area, point;
-                      twist=0.0)
-    ref = point isa Integer ? Int(point) : Symbol(point)
-    PlateSurface(
-        isnothing(name) ? nothing : Symbol(name),
-        KVec3(x_airf), KVec3(y_airf), area,
-        ref, 0,
-        twist, 0.0)
-end
-
-# ==================== PLATE WING ==================== #
-
-"""
-    mutable struct PlateWing <: AbstractWing
-
-A wing with flat-plate CL/CD aerodynamics. Each PlateSurface
-computes lift and drag from angle-of-attack lookup tables.
-Twist is set directly on each PlateSurface.
-
-Supports both RIGID_DYNAMICS (rigid body) and PARTICLE_DYNAMICS (point mass)
-wing dynamics via BaseWing.dynamics_type.
-
-$(TYPEDFIELDS)
-"""
-mutable struct PlateWing <: AbstractWing
-    "Base wing functionality."
-    base::BaseWing
-    "Plate surfaces (one per aerodynamic plate)."
-    surfaces::Vector{PlateSurface}
-    "Z-axis reference points for body frame."
-    z_ref_points::Union{Nothing,
-        Tuple{WeightedRefPoints, WeightedRefPoints}}
-    "Y-axis reference points for body frame."
-    y_ref_points::Union{Nothing,
-        Tuple{WeightedRefPoints, WeightedRefPoints}}
-    "Origin point(s) — weighted combination defining
-    wing.pos_w. Holds raw refs and resolved ids."
-    origin::Union{Nothing, WeightedRefPoints}
-    "CL lookup: callable(alpha_deg) → CL."
-    calc_cl::Any
-    "CD lookup: callable(alpha_deg) → CD."
-    calc_cd::Any
-    "Drag correction factor (0.93 for KPS4)."
-    drag_corr::SimFloat
-    "Pitch moment coefficient."
-    cmq::SimFloat
-    "Steering moment coefficient."
-    smc::SimFloat
-    "Mean aerodynamic chord [m]."
-    cord_length::SimFloat
-end
-
-# Delegate property access to base wing for PlateWing
-const PLATE_WING_OWN_FIELDS = (
-    :base, :surfaces,
-    :z_ref_points, :y_ref_points,
-    :origin,
-    :calc_cl, :calc_cd,
-    :drag_corr, :cmq, :smc, :cord_length)
-
-function Base.getproperty(wing::PlateWing, sym::Symbol)
-    if sym in PLATE_WING_OWN_FIELDS
-        return getfield(wing, sym)
-    else
-        return getproperty(getfield(wing, :base), sym)
-    end
-end
-
-function Base.setproperty!(wing::PlateWing, sym::Symbol, value)
-    if sym in PLATE_WING_OWN_FIELDS
-        setfield!(wing, sym, value)
-    else
-        setproperty!(getfield(wing, :base), sym, value)
-    end
-end
-
-"""
-    PlateWing(name, surfaces, calc_cl, calc_cd;
-              dynamics_type=PARTICLE_DYNAMICS, transform=nothing,
-              y_damping=150.0, angular_damping=0.0, drag_corr=0.93,
-              cmq=1.0, smc=1.0, cord_length=1.0,
-              z_ref_points=nothing, y_ref_points=nothing,
-              origin=nothing)
-
-Construct a PlateWing with flat-plate aerodynamics.
-
-# Arguments
-- `name`: Wing name/identifier.
-- `surfaces`: Vector of PlateSurface definitions.
-- `calc_cl`: CL lookup callable(alpha_deg) → CL.
-- `calc_cd`: CD lookup callable(alpha_deg) → CD.
-
-# Keyword Arguments
-- `dynamics_type`: `RIGID_DYNAMICS` or `PARTICLE_DYNAMICS` (default).
-- `transform`: Reference to transform (name or index).
-- `y_damping`: Damping coefficient for y-axis (pitch) rotation.
-- `angular_damping`: Angular damping coefficient.
-- `drag_corr`: Drag correction factor.
-- `cmq`: Pitch moment coefficient.
-- `smc`: Steering moment coefficient.
-- `cord_length`: Mean aerodynamic chord [m].
-- `z_ref_points`, `y_ref_points`: Body frame references.
-- `origin`: Origin point reference.
-"""
-function PlateWing(name, surfaces::Vector{PlateSurface},
-                   calc_cl, calc_cd;
-                   dynamics_type::WingType=PARTICLE_DYNAMICS,
-                   transform=nothing,
-                   y_damping=150.0,
-                   angular_damping=0.0,
-                   drag_corr=0.93,
-                   cmq=1.0, smc=1.0, cord_length=1.0,
-                   z_ref_points=nothing,
-                   y_ref_points=nothing,
-                   origin=nothing)
-    # PlateWing has no groups
-    base = BaseWing(name, NameRef[], Matrix{SimFloat}(I, 3, 3),
-                    zeros(KVec3), ones(MVector{3, SimFloat});
-                    transform, y_damping, angular_damping,
-                    dynamics_type, aero_mode=AERO_PLATE)
-
-    z_ref = isnothing(z_ref_points) ? nothing :
-        (WeightedRefPoints(z_ref_points[1]),
-         WeightedRefPoints(z_ref_points[2]))
-    y_ref = isnothing(y_ref_points) ? nothing :
-        (WeightedRefPoints(y_ref_points[1]),
-         WeightedRefPoints(y_ref_points[2]))
-    origin_rp = isnothing(origin) ? nothing :
-        WeightedRefPoints(origin)
-
-    PlateWing(base, surfaces,
-              z_ref, y_ref,
-              origin_rp,
-              calc_cl, calc_cd,
-              drag_corr, cmq, smc, cord_length)
-end
-
-"""
-    plate_alpha(wing::PlateWing, surf::PlateSurface)
-
-Compute current AoA [deg] from body-frame apparent wind and
-twist. Requires `va_b` to be up to date.
-"""
-function plate_alpha(wing::PlateWing, surf::PlateSurface)
-    tw = surf.twist
+function plate_alpha(group::Group, va_b)
+    tw = group.twist
+    x_airf = normalize(group.chord)
+    y_airf = group.y_airf
     ct, st = cos(tw), sin(tw)
-    x_tw = ct * surf.x_airf + st * (surf.y_airf × surf.x_airf)
-    z_tw = x_tw × surf.y_airf
-    v_tan = wing.va_b ⋅ x_tw
-    v_norm = wing.va_b ⋅ z_tw
+    x_tw = ct * x_airf + st * (y_airf × x_airf)
+    z_tw = x_tw × y_airf
+    v_tan = va_b ⋅ x_tw
+    v_norm = va_b ⋅ z_tw
     rad2deg(atan(v_norm, v_tan))
 end
 

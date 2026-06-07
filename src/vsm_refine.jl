@@ -40,7 +40,7 @@ smaller `pos_cad[1]`).
 """
 function identify_wing_segments(
     wing_points::AbstractVector{Point};
-    groups::AbstractVector{Group}=Group[],
+    groups::AbstractVector{<:Group}=Group[],
     wing_group_idxs::AbstractVector{<:Integer}=Int[]
 )
     use_groups = !isempty(groups) &&
@@ -117,7 +117,7 @@ preserve polars.
 function match_aero_sections_to_structure!(
     wing::VSMWing,
     points::AbstractVector{Point};
-    groups::AbstractVector{Group}=Group[]
+    groups::AbstractVector{<:Group}=Group[]
 )
     wing_points = [
         p for p in points if
@@ -131,13 +131,17 @@ function match_aero_sections_to_structure!(
         return nothing
     end
 
-    wing_group_idxs = wing.group_idxs
+    # Only DYNAMIC/QUASI_STATIC groups define structural LE/TE sections.
+    # FIXED groups (imposed-twist plate panels / auto-static groups) are
+    # single points, not section pairs, and are ignored here.
+    section_group_idxs = [g_idx for g_idx in wing.group_idxs
+                          if groups[g_idx].type != FIXED]
     has_groups = !isempty(groups) &&
-        !isempty(wing_group_idxs)
+        !isempty(section_group_idxs)
 
     if has_groups
-        n_struct_sections = length(wing_group_idxs)
-        for g_idx in wing_group_idxs
+        n_struct_sections = length(section_group_idxs)
+        for g_idx in section_group_idxs
             g = groups[g_idx]
             length(g.point_idxs) == 2 || error(
                 "PARTICLE_DYNAMICS wing $(wing.idx): group " *
@@ -181,7 +185,7 @@ function match_aero_sections_to_structure!(
 
     wing_segments = identify_wing_segments(
         wing_points; groups=groups,
-        wing_group_idxs=wing_group_idxs)
+        wing_group_idxs=section_group_idxs)
     wing.wing_segments = wing_segments
     length(wing_segments) == n_struct_sections || error(
         "Wing $(wing.idx): failed to identify " *

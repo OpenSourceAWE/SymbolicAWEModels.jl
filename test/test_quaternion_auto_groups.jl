@@ -9,7 +9,7 @@ end
 # Test auto-creation of groups for RIGID_DYNAMICS wings
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, WING,
-    RIGID_DYNAMICS, PARTICLE_DYNAMICS
+    RIGID_DYNAMICS, PARTICLE_DYNAMICS, FIXED
 using Test
 using LinearAlgebra
 
@@ -35,15 +35,18 @@ using LinearAlgebra
     vsm_set = VortexStepMethod.VSMSettings(
         vsm_set_path; data_prefix=false)
 
-    # ── PARTICLE_DYNAMICS: should have 0 groups ──────────────
+    # ── PARTICLE_DYNAMICS: auto-generates one FIXED single-point
+    # group per WING point (6 LE/TE points → 6 groups). ──────
     sys_refine = load_sys_struct_from_yaml(
         refine_yaml;
         system_name="2plate_refine", set, vsm_set)
 
     @test length(sys_refine.wings) == 1
     @test sys_refine.wings[1].dynamics_type == PARTICLE_DYNAMICS
-    @test length(sys_refine.groups) == 0
-    @test length(sys_refine.wings[1].group_idxs) == 0
+    @test length(sys_refine.groups) == 6
+    @test length(sys_refine.wings[1].group_idxs) == 6
+    @test all(g -> g.type == FIXED, sys_refine.groups)
+    @test all(g -> length(g.point_idxs) == 1, sys_refine.groups)
 
     # ── RIGID_DYNAMICS with YAML-defined groups ───────
     # rigid_structural_geometry.yaml has 3 explicit groups

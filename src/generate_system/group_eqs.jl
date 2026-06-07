@@ -47,6 +47,23 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys;
     end
 
     for group in groups
+        # FIXED groups: twist is a prescribed control input, not solved.
+        # No bridle couple / inertia dynamics — just pin the twist state.
+        if group.type == FIXED
+            eqs = [
+                eqs
+                group_y_airf[:, group.idx] ~ get_group_y_airf(psys, group.idx)
+                group_chord[:, group.idx] ~ get_group_chord(psys, group.idx)
+                group_le_pos[:, group.idx] ~ get_group_le_pos(psys, group.idx)
+                twist_angle[group.idx] ~ get_twist(psys, group.idx)
+                twist_ω[group.idx] ~ 0
+                group_tether_force[group.idx] ~ 0
+                group_tether_moment[group.idx] ~ 0
+                group_aero_moment[group.idx] ~ 0
+            ]
+            continue
+        end
+
         found = 0
         wing = nothing
         for wing_ in wings
@@ -112,12 +129,12 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys;
             twist_α[group.idx] ~
                 (group_aero_moment[group.idx] + group_tether_moment[group.idx]) /
                 inertia
-            twist_angle[group.idx] ~
-                clamp(free_twist_angle[group.idx], -max_twist, max_twist)
         ]
         if group.type == DYNAMIC
             eqs = [
                 eqs
+                twist_angle[group.idx] ~
+                    clamp(free_twist_angle[group.idx], -max_twist, max_twist)
                 D(free_twist_angle[group.idx]) ~
                     ifelse(fix_wing == true, 0, twist_ω[group.idx])
                 D(twist_ω[group.idx]) ~ ifelse(
@@ -133,14 +150,20 @@ function group_eqs!(eqs, defaults, guesses, groups, wings, psys;
                 twist_ω[group.idx] => get_twist_ω(psys, group.idx)
             ]
         elseif group.type == QUASI_STATIC
-            eqs = [eqs; twist_ω[group.idx] ~ 0; twist_α[group.idx] ~ 0]
+            eqs = [
+                eqs
+                twist_angle[group.idx] ~
+                    clamp(free_twist_angle[group.idx], -max_twist, max_twist)
+                twist_ω[group.idx] ~ 0
+                twist_α[group.idx] ~ 0
+            ]
             guesses = [
                 guesses
                 free_twist_angle[group.idx] => 0
                 twist_angle[group.idx] => 0
             ]
         else
-            error("Wrong group type.")
+            error("Group $(group.idx): unsupported twist mode $(group.type).")
         end
     end
 

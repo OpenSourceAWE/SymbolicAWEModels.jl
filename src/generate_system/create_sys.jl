@@ -29,11 +29,36 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     (; points, groups, segments, pulleys, tethers, winches, wings) = system
 
-    # Validation for VSMWing PARTICLE_DYNAMICS wings
+    # Group twist-mode validation (loud, no silent coercion).
+    # The differential states sit on either the bridle points (particle) or
+    # the twist (rigid), never both — so the mode is constrained by dynamics.
+    for group in groups
+        owner = nothing
+        for wing in wings
+            group.idx in wing.group_idxs && (owner = wing)
+        end
+        isnothing(owner) && continue   # orphaned group (handled elsewhere)
+        np = length(group.point_idxs)
+        if group.type == DYNAMIC
+            np >= 2 || error("Group $(group.idx): DYNAMIC twist " *
+                "needs a bridle couple (≥2 points), got $np.")
+        end
+        if group.type != FIXED &&
+           owner.dynamics_type == PARTICLE_DYNAMICS
+            error("Group $(group.idx): $(group.type) twist requires a " *
+                "RIGID_DYNAMICS wing; particle wings only support FIXED " *
+                "(imposed) twist.")
+        end
+        if group.type == FIXED &&
+           owner.dynamics_type == PARTICLE_DYNAMICS && np != 1
+            error("Group $(group.idx): FIXED twist on a PARTICLE_DYNAMICS " *
+                "wing requires exactly 1 point, got $np.")
+        end
+    end
+
+    # VSMWing PARTICLE_DYNAMICS structural-mapping validation
     for wing in wings
         if wing isa VSMWing && wing.dynamics_type == PARTICLE_DYNAMICS
-            # PARTICLE_DYNAMICS wings cannot have groups
-            @assert length(wing.group_idxs) == 0 "PARTICLE_DYNAMICS wing $(wing.idx) cannot have groups"
             @assert !isnothing(wing.point_to_vsm_point) "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping"
 
             # Verify all WING points for this wing are in the mapping
@@ -233,18 +258,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         s, eqs, guesses, psys;
         aero_force_b, aero_moment_b, group_aero_moment,
         twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
-        pos, vel, aero_force_point_b
+        pos, vel, aero_force_point_b, va_point_b, height
     )
-
-    # Build plate aerodynamic equations for PlateWings
-    for wing in wings
-        wing isa PlateWing || continue
-        wing.aero_mode == AERO_NONE && continue
-        eqs = plate_eqs!(s, eqs, psys, wing;
-            R_b_to_w, aero_force_b, aero_moment_b,
-            aero_force_point_b, pos, vel, com_w,
-            wind_vec_gnd, height)
-    end
 
     # Build wing rigid body dynamics equations
     eqs, defaults = wing_eqs!(

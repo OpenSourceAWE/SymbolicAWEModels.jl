@@ -304,10 +304,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
                 ss.AoA = mod(aoa_raw + π, 2π) - π  # Wrap to [-π, π]
                 ss.side_slip = atan(wing.va_b[2],
                     hypot(wing.va_b[1], wing.va_b[3]))
-            elseif wing isa PlateWing
-                # AoA from body frame apparent wind
-                # (x=chord, z=normal, same as
-                #  calc_angle_of_attack)
+            elseif wing.aero_mode == AERO_PLATE
                 ss.AoA = atan(wing.va_b[3], wing.va_b[1])
                 ss.side_slip = atan(wing.va_b[2],
                     hypot(wing.va_b[1], wing.va_b[3]))
@@ -638,11 +635,12 @@ function update_sys_struct!(prob::ProbWithAttributes,
             wing.Q_p_to_w .= Q_p_to_w_v[:, wing.idx]
             wing.ω_p .= ω_p_v[:, wing.idx]
 
-            # Update PlateWing surface aoa from current twist
-            if wing isa PlateWing
-                for surf in wing.surfaces
-                    surf.aoa =
-                        plate_alpha(wing, surf)
+            # Update polar group aoa from current twist
+            if wing.aero_mode == AERO_PLATE
+                for gidx in wing.group_idxs
+                    g = groups[gidx]
+                    is_plate_group(g) &&
+                        (g.aoa = plate_alpha(g, wing.va_b))
                 end
             end
         end

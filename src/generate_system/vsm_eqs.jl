@@ -21,15 +21,14 @@ function vsm_eqs!(
     s, eqs, guesses, psys;
     aero_force_b, aero_moment_b, group_aero_moment,
     twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
-    pos, vel, aero_force_point_b=nothing
+    pos, vel, aero_force_point_b=nothing,
+    va_point_b=nothing, height=nothing
 )
     (; groups, wings, points) = s.sys_struct
     aero_subsystems = Any[]
     length(wings) == 0 && return eqs, guesses, aero_subsystems
 
     for wing in wings
-        wing isa PlateWing && continue   # handled by plate_eqs!
-
         w = wing.idx
         subsys = wing.aero_model(s.sys_struct, w;
                                  name = Symbol("aero_$(w)"))
@@ -50,6 +49,16 @@ function vsm_eqs!(
                            collect(Rbw' * collect(vel[:, point.idx]))
                        collect(afpb[:, point.idx]) .~
                            collect(subsys.point_force[:, k])]
+                if hasproperty(subsys, :point_va) && !isnothing(va_point_b)
+                    eqs = [eqs
+                           collect(subsys.point_va[:, k]) .~
+                               collect(va_point_b[:, point.idx])]
+                end
+                if hasproperty(subsys, :point_rho) && !isnothing(height)
+                    eqs = [eqs
+                           subsys.point_rho[k] ~
+                               calc_rho(s.am, height[point.idx])]
+                end
             end
             eqs = [eqs
                    collect(aero_force_b[:, w]) .~

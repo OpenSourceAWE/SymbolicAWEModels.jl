@@ -539,7 +539,10 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("segment", segment.idx, segment.point_idxs))
     end
     for group in groups
-        push!(data_parts, ("group", group.idx, group.point_idxs, Int(group.type)))
+        push!(data_parts, ("group", group.idx, group.point_idxs,
+                           Int(group.type), group.area,
+                           is_plate_group(group),
+                           group.chord, group.y_airf))
     end
     for pulley in pulleys
         push!(data_parts, ("pulley", pulley.idx, pulley.segment_idxs, Int(pulley.type)))
@@ -556,26 +559,16 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
                      Int(wing.aero_mode),
                      nameof(wing.aero_model))
 
-        # Include wing reference points in hash
-        if wing isa VSMWing || wing isa PlateWing
-            _ref_hash(r) = (r.ids, r.weights)
-            _rp_hash(rp) = isnothing(rp) ? nothing :
-                (_ref_hash(rp[1]), _ref_hash(rp[2]))
-            _origin_hash(o) = isnothing(o) ? nothing :
-                _ref_hash(o)
-            wing_data = (wing_data...,
-                _rp_hash(wing.z_ref_points),
-                _rp_hash(wing.y_ref_points),
-                _origin_hash(wing.origin))
-        end
-        if wing isa PlateWing
-            # Include surface geometry in hash
-            for surf in wing.surfaces
-                wing_data = (wing_data...,
-                    surf.point_idx, surf.area,
-                    surf.x_airf, surf.y_airf)
-            end
-        end
+        # Include wing reference points in hash (all wings carry them)
+        _ref_hash(r) = (r.ids, r.weights)
+        _rp_hash(rp) = isnothing(rp) ? nothing :
+            (_ref_hash(rp[1]), _ref_hash(rp[2]))
+        _origin_hash(o) = isnothing(o) ? nothing :
+            _ref_hash(o)
+        wing_data = (wing_data...,
+            _rp_hash(wing.z_ref_points),
+            _rp_hash(wing.y_ref_points),
+            _origin_hash(wing.origin))
 
         push!(data_parts, wing_data)
     end

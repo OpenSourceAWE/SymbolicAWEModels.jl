@@ -60,6 +60,7 @@ function update_vsm!(sam::SymbolicAWEModel,
     length(wings) == 0 && return nothing
 
     for wing in wings
+        wing isa VSMWing || continue   # plate wings have no VSM to linearize
         wing.dynamics_type != RIGID_DYNAMICS && continue
         wing.aero_mode == AERO_NONE && continue
         if norm(wing.va_b) < vsm_min_wind &&

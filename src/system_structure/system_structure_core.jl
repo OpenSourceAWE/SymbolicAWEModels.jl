@@ -30,11 +30,11 @@ winches, and wings, forming a complete description of the kite system's structur
 - [`Wing`](@ref): Rigid wing bodies.
 - [`Transform`](@ref): Spatial transformations for initial positioning.
 """
-mutable struct SystemStructure{W<:AbstractWing}
+mutable struct SystemStructure{W<:AbstractWing, CL, CD, CM}
     const name::String
     set::Settings
     const points::NamedCollection{Point}
-    const groups::NamedCollection{Group}
+    const groups::NamedCollection{Group{CL, CD, CM}}
     const segments::NamedCollection{Segment}
     const pulleys::NamedCollection{Pulley}
     const tethers::NamedCollection{Tether}
@@ -423,7 +423,7 @@ and resolve all references to indices.
 """
 function assign_indices_and_resolve!(
     points::Vector{Point},
-    groups::Vector{Group},
+    groups::AbstractVector{<:Group},
     segments::Vector{Segment},
     pulleys::Vector{Pulley},
     tethers::Vector{Tether},
@@ -534,44 +534,35 @@ function assign_indices_and_resolve!(
         wing.group_idxs = Int64[resolve_ref(r, group_names, "group") for r in wing.group_refs]
         wing.transform_idx = resolve_ref(wing.transform_ref, transform_names, "transform")
 
-        # VSMWing-specific fields
-        if isa(wing, VSMWing) || isa(wing, PlateWing)
-            if !isnothing(wing.origin)
-                resolve!(wing.origin, point_names, "point")
-            end
-            if !isnothing(wing.z_ref_points)
-                resolve!(something(wing.z_ref_points)[1],
-                    point_names, "point")
-                resolve!(something(wing.z_ref_points)[2],
-                    point_names, "point")
-            end
-            if !isnothing(wing.y_ref_points)
-                resolve!(something(wing.y_ref_points)[1],
-                    point_names, "point")
-                resolve!(something(wing.y_ref_points)[2],
-                    point_names, "point")
-            end
-
-            # Resize aero arrays now that group_idxs
-            # are resolved (initial sizing used
-            # n_unrefined as proxy which may differ)
-            if wing.dynamics_type == RIGID_DYNAMICS
-                n_grp = length(wing.group_idxs)
-                nx = 6 + n_grp
-                ny = 5 + n_grp
-                if length(wing.aero_x) != nx ||
-                        length(wing.aero_y) != ny
-                    wing.aero_y = zeros(SimFloat, ny)
-                    wing.aero_x = zeros(SimFloat, nx)
-                    wing.aero_jac = zeros(
-                        SimFloat, nx, ny)
-                end
-            end
+        # Reference points (body frame) live on BaseWing for all wings.
+        if !isnothing(wing.origin)
+            resolve!(wing.origin, point_names, "point")
         end
-        if isa(wing, PlateWing)
-            for surf in wing.surfaces
-                surf.point_idx = resolve_ref(
-                    surf.point_ref, point_names, "point")
+        if !isnothing(wing.z_ref_points)
+            resolve!(something(wing.z_ref_points)[1],
+                point_names, "point")
+            resolve!(something(wing.z_ref_points)[2],
+                point_names, "point")
+        end
+        if !isnothing(wing.y_ref_points)
+            resolve!(something(wing.y_ref_points)[1],
+                point_names, "point")
+            resolve!(something(wing.y_ref_points)[2],
+                point_names, "point")
+        end
+
+        # Resize VSM aero arrays now that group_idxs are resolved
+        # (initial sizing used n_unrefined as proxy which may differ).
+        if isa(wing, VSMWing) && wing.dynamics_type == RIGID_DYNAMICS
+            n_grp = length(wing.group_idxs)
+            nx = 6 + n_grp
+            ny = 5 + n_grp
+            if length(wing.aero_x) != nx ||
+                    length(wing.aero_y) != ny
+                wing.aero_y = zeros(SimFloat, ny)
+                wing.aero_x = zeros(SimFloat, nx)
+                wing.aero_jac = zeros(
+                    SimFloat, nx, ny)
             end
         end
     end
@@ -584,7 +575,7 @@ end
     init_body_frame_from_ref_points!(wing, points; prn=true)
 
 Initialize wing body frame (R_b_to_c, pos_cad) from z/y
-reference points. Shared by VSMWing PARTICLE_DYNAMICS and PlateWing.
+reference points. Shared by VSMWing PARTICLE_DYNAMICS and plate (BaseWing) wings.
 """
 function init_body_frame_from_ref_points!(
     wing, points; prn=true
@@ -652,7 +643,7 @@ a section to drive would be undefined.
 """
 function compute_spatial_group_mapping!(
     the_wing::VSMWing,
-    groups::AbstractVector{Group},
+    groups::AbstractVector{<:Group},
     points::AbstractVector{Point}
 )
     the_vsm_wing = the_wing.vsm_wing
@@ -1011,11 +1002,37 @@ function SystemStructure(name, set;
         end
     end
 
-    # PlateWing body frame initialization from ref points
+    # Plate (bare BaseWing) body frame initialization from ref points.
+    # For RIGID_DYNAMICS, also derive COM offset and principal inertia
+    # from the WING point masses (no VSM panels to transform).
     for wing in wings
-        wing isa PlateWing || continue
+        wing isa BaseWing || continue
         init_body_frame_from_ref_points!(
             wing, points; prn)
+        wing.dynamics_type == RIGID_DYNAMICS || continue
+
+        wing_pts = [p for p in points
+            if p.type == WING && p.wing_idx == wing.idx]
+        isempty(wing_pts) && continue
+        masses = [p.extra_mass for p in wing_pts]
+        total_m = sum(masses)
+        com_cad = total_m > 0 ?
+            sum(masses[j] .* wing_pts[j].pos_cad
+                for j in eachindex(wing_pts)) / total_m :
+            mean([p.pos_cad for p in wing_pts])
+        I_cad = zeros(3, 3)
+        if total_m > 0
+            for (m, p) in zip(masses, wing_pts)
+                r = p.pos_cad - com_cad
+                I_cad += m * (dot(r, r) * I(3) - r * r')
+            end
+        end
+        I_diag, Ry = calc_inertia_y_rotation(I_cad)
+        wing.R_p_to_c .= Ry'
+        wing.inertia_principal .= diag(I_diag)
+        wing.com_offset_b .=
+            wing.R_b_to_c' * (com_cad - wing.pos_cad)
+        wing.R_b_to_p .= wing.R_p_to_c' * wing.R_b_to_c
     end
 
     # Auto-create groups for RIGID_DYNAMICS wings if needed (before geometry initialization)
@@ -1042,14 +1059,14 @@ function SystemStructure(name, set;
                 # Use integer as name for auto-created groups
                 group_name = group_idx
 
-                # Both LE and TE points (matches YAML convention)
-                new_group = Group(group_name,
-                    [le_idx, te_idx], DYNAMIC, 0.0)
-
-                # Assign idx and resolve point_refs since
-                # these are dynamically created
+                # Both LE and TE points (matches YAML convention).
+                # A single-point group has no bridle couple, so its
+                # twist is imposed (FIXED) rather than dynamic.
+                pts = le_idx == te_idx ? [le_idx] : [le_idx, te_idx]
+                mode = length(pts) == 1 ? FIXED : DYNAMIC
+                new_group = Group(group_name, pts, mode, 0.0)
                 new_group.idx = group_idx
-                new_group.point_idxs = [le_idx, te_idx]
+                new_group.point_idxs = pts
 
                 push!(groups, new_group)
                 push!(new_group_idxs, Int64(group_idx))
@@ -1081,14 +1098,33 @@ function SystemStructure(name, set;
             wing, points; groups=groups)
     end
 
-    # Clear PARTICLE_DYNAMICS wing.group_idxs — groups were used
-    # for LE/TE identification but PARTICLE_DYNAMICS doesn't use
-    # them for aerodynamics.  Groups stay in sys_struct
-    # (useful for structural info / future linearization).
+    # VSM PARTICLE_DYNAMICS groups: any provided groups were only used for
+    # LE/TE identification (per-point aero doesn't consume them), so clear
+    # them. When none were provided, auto-generate one FIXED (imposed-twist)
+    # single-point group per WING point — particle wings only admit FIXED
+    # twist, and a single point is the only coherent FIXED+particle case.
+    # Plate (bare BaseWing) wings KEEP their polar groups — those ARE the
+    # aerodynamics.
     for wing in wings
-        if wing.dynamics_type == PARTICLE_DYNAMICS &&
-           !isempty(wing.group_idxs)
+        (wing isa VSMWing &&
+         wing.dynamics_type == PARTICLE_DYNAMICS) || continue
+        if !isempty(wing.group_idxs)
             empty!(wing.group_idxs)
+        elseif wing.aero_mode != AERO_NONE
+            wing_point_idxs = findall(
+                p -> p.type == WING && p.wing_idx == wing.idx, points)
+            new_group_idxs = Int64[]
+            for pidx in wing_point_idxs
+                group_idx = length(groups) + 1
+                new_group = Group(group_idx, [pidx], FIXED, 0.0)
+                new_group.idx = group_idx
+                new_group.point_idxs = [pidx]
+                push!(groups, new_group)
+                push!(new_group_idxs, Int64(group_idx))
+            end
+            wing.group_idxs = new_group_idxs
+            prn && @info "Auto-created $(length(new_group_idxs)) FIXED " *
+                "groups for PARTICLE_DYNAMICS wing $(wing.idx)"
         end
     end
 
@@ -1208,10 +1244,25 @@ function SystemStructure(name, set;
     jac = zeros(length(wings), nx, ny)
     set.physical_model = name
 
+    # Narrow groups to a single concrete polar type (all groups must
+    # share one Group{CL,CD,CM}, mirroring the all-wings-one-type rule).
+    if isempty(groups)
+        GT = Group{Nothing, Nothing, Nothing}
+        groups = GT[]
+    else
+        GT = typeof(groups[1])
+        for (gi, g) in enumerate(groups)
+            typeof(g) === GT || error(
+                "All groups must share the same polar type; got " *
+                "$(typeof(g)) at index $gi, expected $GT.")
+        end
+        eltype(groups) === GT || (groups = convert(Vector{GT}, groups))
+    end
+
     # Name dictionaries were already built by assign_indices_and_resolve!
     sys_struct = SystemStructure(name, set,
         NamedCollection{Point}(points, point_names_dict),
-        NamedCollection{Group}(groups, group_names_dict),
+        NamedCollection{GT}(groups, group_names_dict),
         NamedCollection{Segment}(segments, segment_names_dict),
         NamedCollection{Pulley}(pulleys, pulley_names_dict),
         NamedCollection{Tether}(tethers, tether_names_dict),
