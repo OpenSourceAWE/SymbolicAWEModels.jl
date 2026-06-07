@@ -49,7 +49,12 @@ function generate_prob_getters(sys_struct, sys)
             w.aero_mode === AERO_LINEARIZED
             for w in sys_struct.wings)
         if has_linearized
-            get_aero_input = getu(sys, sys.aero_input)
+            aero_inputs = [
+                getproperty(sys, Symbol("aero_$(w.idx)")).aero_input
+                for w in sys_struct.wings
+                if w.dynamics_type === RIGID_DYNAMICS &&
+                   w.aero_mode === AERO_LINEARIZED]
+            get_aero_input = getu(sys, c.(aero_inputs))
         else
             get_aero_input = nothing
         end
@@ -286,6 +291,22 @@ function maybe_create_control_functions!(sam, outputs; create_control_func=false
 end
 
 """
+    has_custom_component(sys_struct) -> Bool
+
+True if any winch or wing carries a user-supplied component builder
+whose equations are not captured by the model hash (a custom
+`winch.model`, or a wing with `aero_mode == AERO_CUSTOM`). Used by
+`init!` to default `remake=true` for such models.
+"""
+function has_custom_component(sys_struct)
+    any(w.model !== default_winch_component
+        for w in sys_struct.winches) && return true
+    any(w.aero_mode == AERO_CUSTOM
+        for w in sys_struct.wings) && return true
+    return false
+end
+
+"""
     init!(sam::SymbolicAWEModel; ...)
 
 Load or build the symbolic model, create the `ODEProblem` (and optionally the
@@ -296,7 +317,9 @@ return a freshly initialized `ODEIntegrator`.
 - `solver`, `adaptive`: ODE solver and time-stepping mode. `solver=nothing` picks
   a default from `sam.set.solver`.
 - `prn`: print progress messages.
-- `remake`: force a full rebuild, ignoring any cached compiled model.
+- `remake`: force a full rebuild, ignoring any cached compiled model. Defaults to
+  `nothing`, which rebuilds automatically when a custom winch/aero component is
+  present (see [`has_custom_component`](@ref)) and reuses the cache otherwise.
 - `reload`: force reloading the serialized model from disk.
 - `outputs`: vector of output variables (used by linearization / control funcs).
 - `create_prob`, `create_lin_prob`, `create_control_func`: which artefacts to build.
@@ -315,7 +338,7 @@ return a freshly initialized `ODEIntegrator`.
 """
 function init!(sam::SymbolicAWEModel;
     solver=nothing, adaptive=true, prn=true,
-    remake=false, reload=false,
+    remake=nothing, reload=false,
     outputs=nothing,
     create_prob::Bool=true,
     create_lin_prob::Bool=false,
@@ -333,6 +356,12 @@ function init!(sam::SymbolicAWEModel;
     sam.sys_struct isa SystemStructure || error(
         "Equation generation requires SystemStructure, " *
         "got $(typeof(sam.sys_struct)).")
+    if isnothing(remake)
+        remake = has_custom_component(sam.sys_struct)
+        remake && prn && @info "Custom winch/aero model detected; " *
+            "forcing remake (custom component equations are not " *
+            "captured by the model hash)."
+    end
     time = @elapsed begin
         if isnothing(solver)
             if sam.set.solver == "QNDF"
@@ -532,7 +561,8 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
     for wing in wings
         wing_data = ("wing", wing.idx, wing.group_idxs,
                      Int(wing.dynamics_type),
-                     Int(wing.aero_mode))
+                     Int(wing.aero_mode),
+                     nameof(wing.aero_model))
 
         # Include wing reference points in hash
         if wing isa VSMWing || wing isa PlateWing

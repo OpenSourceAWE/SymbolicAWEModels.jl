@@ -7,6 +7,7 @@
 # Utilities and accessors first (no dependencies)
 include("helpers.jl")
 include("accessors.jl")
+include("aero_components.jl")
 
 # Component equations (can be in any order - no inter-dependencies)
 include("point_eqs.jl")

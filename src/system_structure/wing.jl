@@ -66,6 +66,7 @@ mutable struct BaseWing <: AbstractWing
     const inertia_principal::KVec3
     const dynamics_type::WingType
     aero_mode::AeroMode
+    aero_model::Function
 
     # Principal frame ODE state (RIGID_DYNAMICS dynamics)
     const com_w::KVec3                  # COM position in world frame
@@ -305,6 +306,42 @@ _to_name_ref(x::Integer) = Int(x)
 _to_name_ref(x) = Symbol(x)
 
 """
+    default_aero_model_for(aero_mode) -> Function
+
+Map a built-in `AeroMode` to its default aero component builder.
+`AERO_CUSTOM` has no default and requires an explicit `aero_model`.
+"""
+function default_aero_model_for(aero_mode::AeroMode)
+    aero_mode == AERO_NONE       && return default_aero_none
+    aero_mode == AERO_DIRECT     && return default_aero_direct
+    aero_mode == AERO_LINEARIZED && return default_aero_linearized
+    aero_mode == AERO_PLATE      && return default_aero_plate
+    error("aero_mode = $aero_mode has no default `aero_model`; " *
+          "AERO_CUSTOM requires an explicit `aero_model` builder.")
+end
+
+"""
+    resolve_aero_model(aero_mode, aero_model) -> Function
+
+Resolve the wing's aero component builder. A built-in `aero_mode`
+selects its default builder and forbids a user-supplied one; an
+explicit `aero_model` requires `aero_mode = AERO_CUSTOM`.
+"""
+function resolve_aero_model(aero_mode::AeroMode,
+                            aero_model::Union{Nothing,Function})
+    if aero_mode == AERO_CUSTOM
+        isnothing(aero_model) && error(
+            "aero_mode = AERO_CUSTOM requires an explicit " *
+            "`aero_model` builder.")
+        return aero_model
+    end
+    isnothing(aero_model) || error(
+        "Providing a custom `aero_model` requires " *
+        "`aero_mode = AERO_CUSTOM` (got aero_mode = $aero_mode).")
+    return default_aero_model_for(aero_mode)
+end
+
+"""
     BaseWing(name, groups, R_b_to_c, pos_cad, inertia_principal; transform=nothing, y_damping=150.0, dynamics_type=RIGID_DYNAMICS)
 
 Constructs a `BaseWing` object representing a rigid body reference frame.
@@ -331,6 +368,7 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
                   angular_damping=0.0,
                   dynamics_type::Union{Nothing,WingType}=nothing,
                   aero_mode::Union{Nothing,AeroMode}=nothing,
+                  aero_model::Union{Nothing,Function}=nothing,
                   wing_type::Union{Nothing,WingType}=nothing)
     # Handle deprecated wing_type keyword
     if !isnothing(wing_type)
@@ -344,6 +382,7 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
     isnothing(dynamics_type) && (dynamics_type = RIGID_DYNAMICS)
     isnothing(aero_mode) && (aero_mode = dynamics_type == RIGID_DYNAMICS ?
         AERO_LINEARIZED : AERO_DIRECT)
+    aero_model = resolve_aero_model(aero_mode, aero_model)
     # Convert groups to NameRef vector
     group_refs = Vector{NameRef}([_to_name_ref(g) for g in groups])
     # Handle nothing - default to transform 1
@@ -361,7 +400,7 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
         Matrix{SimFloat}(I, 3, 3),         # R_b_to_p placeholder
         pos_cad, zeros(KVec3),  # com_offset_b placeholder
         inertia_principal, dynamics_type,
-        aero_mode,
+        aero_mode, aero_model,
         # Principal frame ODE state
         zeros(KVec3), zeros(KVec3),  # com_w, com_vel
         zeros(4), zeros(KVec3),      # Q_p_to_w, ω_p
@@ -480,6 +519,7 @@ function VSMWing(name, set::Settings,
                  inertia_diag=nothing,
                  dynamics_type::Union{Nothing,WingType}=nothing,
                  aero_mode::Union{Nothing,AeroMode}=nothing,
+                 aero_model::Union{Nothing,Function}=nothing,
                  wing_type::Union{Nothing,WingType}=nothing,
                  point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}=nothing,
                  wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}=nothing,
@@ -545,7 +585,8 @@ function VSMWing(name, set::Settings,
 
     base = BaseWing(name, groups, R_b_to_c, pos_cad,
                     inertia_vec; transform, y_damping,
-                    angular_damping, dynamics_type, aero_mode)
+                    angular_damping, dynamics_type, aero_mode,
+                    aero_model)
 
     # Size aero state vectors based on wing type
     # For RIGID_DYNAMICS: placeholder sizes using n_unrefined

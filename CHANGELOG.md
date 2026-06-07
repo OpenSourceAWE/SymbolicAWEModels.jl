@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+- Swappable per-wing aero components, winch-style. Each wing carries an
+  `aero_model` builder (`(sys_struct, wing_idx; name) -> System`) selected by
+  `aero_mode`. The built-in modes map to `default_aero_none` /
+  `default_aero_direct` / `default_aero_linearized`; the new `AERO_CUSTOM`
+  value plugs in a user builder. Components connect at a fixed body-frame
+  contract per `dynamics_type` (RIGID: `va`, `rho`, `R_b_w`, `omega`, `twist`,
+  `twist_vel` → `force`, `moment`, `twist_moment`; PARTICLE: per-point
+  `pos`/`vel` → `force`), validated by `validate_aero_component`.
+- `has_custom_component(sys_struct)`: `init!` now defaults `remake` to rebuild
+  automatically when a custom winch/aero component is present (their equations
+  are not captured by the model hash).
+
+### Changed
+- `vsm_eqs.jl` is now a thin winch-style wiring layer: it instantiates each
+  non-plate wing's `aero_model`, binds the body-frame inputs, and reads the
+  outputs. The aero components are attached as subsystems alongside the winch
+  subsystems. The generated RHS stays allocation-free (`test_bench.jl`).
+- `nameof(wing.aero_model)` is folded into the model hash.
+
 ## v0.11.1 06-06-2026
 
 ### Added

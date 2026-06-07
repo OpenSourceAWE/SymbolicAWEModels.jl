@@ -198,7 +198,48 @@ without aerodynamic coupling.
 | **PARTICLE_DYNAMICS** | `AERO_DIRECT` | `AERO_DIRECT`, `AERO_NONE` |
 
 `PARTICLE_DYNAMICS` + `AERO_LINEARIZED` is not yet implemented (raises an
-error at runtime).
+error during model build).
+
+## Swappable aero components (`AERO_CUSTOM`)
+
+Each wing carries an `aero_model` builder, exactly like a winch's
+[`Winch`](@ref) `model` field. The built-in `aero_mode`s select a default
+builder (`default_aero_none` / `default_aero_direct` /
+`default_aero_linearized`); to plug in your own aerodynamics, pass a builder
+and set `aero_mode = AERO_CUSTOM`:
+
+```julia
+VSMWing(name, set, groups, vsm_set;
+        aero_mode = AERO_CUSTOM, aero_model = my_aero_builder)
+```
+
+The builder has the signature `my_aero_builder(sys_struct, wing_idx; name)`
+and returns a `System` whose connectors are fixed by the wing's
+`dynamics_type` (all quantities in the wing **body frame**):
+
+- **`RIGID_DYNAMICS`** (`ng = length(wing.group_idxs)`):
+  - inputs: `va[1:3]`, `rho`, `R_b_w[1:3,1:3]`, `omega[1:3]`,
+    and — when `ng > 0` — `twist[1:ng]`, `twist_vel[1:ng]`
+  - outputs: `force[1:3]`, `moment[1:3]`, `twist_moment[1:ng]`
+- **`PARTICLE_DYNAMICS`** (`np` = number of `WING` points):
+  - inputs: `point_pos[1:3,1:np]`, `point_vel[1:3,1:np]`
+  - outputs: `point_force[1:3,1:np]`
+
+The wiring layer drives the inputs and reads the outputs; the component is
+flattened by `mtkcompile`, so its connectors become inlined unknowns (no
+array crosses a registered-function boundary). `validate_aero_component`
+checks the contract at build time.
+
+Custom builder equations are **not captured by the model hash**, so `init!`
+defaults to `remake=true` whenever a custom winch/aero component is present
+(see [`has_custom_component`](@ref)).
+
+!!! note "Zero-allocation RHS"
+    The built-in modes generate an allocation-free ODE RHS (asserted by
+    `test_bench.jl`). A custom component is not tested in-package; to keep the
+    RHS allocation-free, its equations must stay scalar/zero-alloc (a registered
+    function with an array argument or return value will allocate). Check with
+    `validate_rhs_allocs(sam; max_bytes=0, diagnose=true)`.
 
 ## Aligning aero sections to structure
 

@@ -227,21 +227,14 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # ==================== END INLINED FORCE_EQS! CONTENT ==================== #
 
-    # Build aerodynamic equations (dispatches on aero_mode at runtime)
-    if has_particle_dynamics_wings
-        eqs, guesses = vsm_eqs!(
-            s, eqs, guesses, psys;
-            aero_force_b, aero_moment_b, group_aero_moment,
-            twist_angle, va_wing_b, wing_pos, ω_b,
-            aero_force_point_b=aero_force_point_b
-        )
-    else
-        eqs, guesses = vsm_eqs!(
-            s, eqs, guesses, psys;
-            aero_force_b, aero_moment_b, group_aero_moment,
-            twist_angle, va_wing_b, wing_pos, ω_b
-        )
-    end
+    # Build aerodynamic equations: each non-plate wing's aero component
+    # is wired in winch-style and returned as a subsystem.
+    eqs, guesses, aero_subsystems = vsm_eqs!(
+        s, eqs, guesses, psys;
+        aero_force_b, aero_moment_b, group_aero_moment,
+        twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
+        pos, vel, aero_force_point_b
+    )
 
     # Build plate aerodynamic equations for PlateWings
     for wing in wings
@@ -292,11 +285,12 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         end
     end
 
+    all_subsystems = [winch_subsystems; aero_subsystems]
     time = @elapsed begin
-        if isempty(winch_subsystems)
+        if isempty(all_subsystems)
             @named sys = System(eqs, t)
         else
-            @named sys = System(eqs, t; systems = winch_subsystems)
+            @named sys = System(eqs, t; systems = all_subsystems)
         end
     end
     prn && println("\tCreated System in $time seconds.")
