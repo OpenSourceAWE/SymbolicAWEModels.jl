@@ -305,12 +305,6 @@ end
 _to_name_ref(x::Integer) = Int(x)
 _to_name_ref(x) = Symbol(x)
 
-"""
-    default_aero_model_for(aero_mode) -> Function
-
-Map a built-in `AeroMode` to its default aero component builder.
-`AERO_CUSTOM` has no default and requires an explicit `aero_model`.
-"""
 function default_aero_model_for(aero_mode::AeroMode)
     aero_mode == AERO_NONE       && return default_aero_none
     aero_mode == AERO_DIRECT     && return default_aero_direct
@@ -320,13 +314,6 @@ function default_aero_model_for(aero_mode::AeroMode)
           "AERO_CUSTOM requires an explicit `aero_model` builder.")
 end
 
-"""
-    resolve_aero_model(aero_mode, aero_model) -> Function
-
-Resolve the wing's aero component builder. A built-in `aero_mode`
-selects its default builder and forbids a user-supplied one; an
-explicit `aero_model` requires `aero_mode = AERO_CUSTOM`.
-"""
 function resolve_aero_model(aero_mode::AeroMode,
                             aero_model::Union{Nothing,Function})
     if aero_mode == AERO_CUSTOM

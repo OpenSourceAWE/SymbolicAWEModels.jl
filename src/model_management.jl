@@ -290,14 +290,6 @@ function maybe_create_control_functions!(sam, outputs; create_control_func=false
     return false
 end
 
-"""
-    has_custom_component(sys_struct) -> Bool
-
-True if any winch or wing carries a user-supplied component builder
-whose equations are not captured by the model hash (a custom
-`winch.model`, or a wing with `aero_mode == AERO_CUSTOM`). Used by
-`init!` to default `remake=true` for such models.
-"""
 function has_custom_component(sys_struct)
     any(w.model !== default_winch_component
         for w in sys_struct.winches) && return true

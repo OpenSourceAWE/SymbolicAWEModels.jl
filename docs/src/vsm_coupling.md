@@ -232,7 +232,7 @@ checks the contract at build time.
 
 Custom builder equations are **not captured by the model hash**, so `init!`
 defaults to `remake=true` whenever a custom winch/aero component is present
-(see [`has_custom_component`](@ref)).
+(via `has_custom_component`).
 
 !!! note "Zero-allocation RHS"
     The built-in modes generate an allocation-free ODE RHS (asserted by

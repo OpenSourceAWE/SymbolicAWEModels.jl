@@ -19,9 +19,14 @@
 # Everything is in the wing body frame. The wiring layer (vsm_eqs!)
 # drives the inputs and reads the outputs.
 
-_flatten_vars(x) = x === nothing ? Num[] : vec(collect(x))
-
 # ==================== connector declarations ==================== #
+#
+# Connectors are declared as array variables and passed to `System`
+# unflattened — MTK accepts array (and scalar) variables as unknowns.
+# Listing them explicitly is required so that input connectors with no
+# internal equation (a built-in ignores most of them) still exist for
+# the wiring layer to bind, the same way the winch component lists
+# `len`.
 
 function _rigid_aero_connectors(ng::Int)
     @variables begin
@@ -44,10 +49,10 @@ function _rigid_aero_connectors(ng::Int)
 end
 
 function _rigid_unknowns(c)
-    return [_flatten_vars(c.va); c.rho; _flatten_vars(c.R_b_w);
-            _flatten_vars(c.omega); _flatten_vars(c.force);
-            _flatten_vars(c.moment); _flatten_vars(c.twist);
-            _flatten_vars(c.twist_vel); _flatten_vars(c.twist_moment)]
+    vars = Any[c.va, c.rho, c.R_b_w, c.omega, c.force, c.moment]
+    c.twist === nothing ||
+        append!(vars, Any[c.twist, c.twist_vel, c.twist_moment])
+    return vars
 end
 
 function _particle_aero_connectors(np::Int)
@@ -59,9 +64,7 @@ function _particle_aero_connectors(np::Int)
     return (; point_pos, point_vel, point_force)
 end
 
-_particle_unknowns(c) =
-    [_flatten_vars(c.point_pos); _flatten_vars(c.point_vel);
-     _flatten_vars(c.point_force)]
+_particle_unknowns(c) = Any[c.point_pos, c.point_vel, c.point_force]
 
 function _wing_points(sys_struct, wing)
     return [p for p in sys_struct.points
@@ -78,7 +81,7 @@ function default_aero_none(sys_struct, wing_idx; name)
     if wing.dynamics_type == PARTICLE_DYNAMICS
         np = length(_wing_points(sys_struct, wing))
         c = _particle_aero_connectors(np)
-        eqs = [collect(c.point_force) .~ 0]
+        eqs = vec(collect(c.point_force)) .~ 0
         return System(eqs, t, _particle_unknowns(c), [psys]; name)
     end
 
@@ -188,8 +191,9 @@ function default_aero_linearized(sys_struct, wing_idx; name)
             (eqs = [eqs; c.twist_moment[gi] ~ qA * c_ref * coeff(6 + gi)])
     end
 
-    unknowns = [_rigid_unknowns(c); collect(aero_input)]
-    return System(eqs, t, unknowns, [psys]; name)
+    vars = _rigid_unknowns(c)
+    push!(vars, aero_input)
+    return System(eqs, t, vars, [psys]; name)
 end
 
 # ==================== PlateAero (not via component path) ==================== #
@@ -199,12 +203,6 @@ default_aero_plate(sys_struct, wing_idx; name) = error(
 
 # ==================== validation ==================== #
 
-"""
-    validate_aero_component(subsys, wing)
-
-Check that `subsys` (built by `wing.aero_model`) exposes the
-connector contract for the wing's `dynamics_type`.
-"""
 function validate_aero_component(subsys, wing)
     if wing.dynamics_type == RIGID_DYNAMICS
         required = Symbol[:va, :rho, :R_b_w, :omega, :force, :moment]
