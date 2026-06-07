@@ -760,7 +760,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             winch = call_yaml_constructor(Winch, row,
                 [:name, :set, :tethers],
                 [:winch_point, :init_vel,
-                 :brake, :friction_epsilon];
+                 :brake, :speed_controlled, :friction_epsilon];
                 mappings=Dict(
                     :set => r -> resolved_set,
                     :tethers => r -> [yaml_to_ref(t)

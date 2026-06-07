@@ -155,7 +155,9 @@ For each winch:
    [`validate_winch_component`](@ref).
 4. Bind connectors to the parent variables (including
    `subsys.len ~ mean(tether_len[ti] for ti in winch.tether_idxs)`)
-   and integrate `D(winch_vel) = ifelse(brake > 0.5, 0, subsys.acc)`.
+   and integrate `D(winch_vel) = ifelse(brake > 0.5, 0, winch_acc)`.
+   When `winch.speed_controlled` is true, `winch_acc` is forced to 0
+   (ignoring `subsys.acc`) so velocity is prescribed via `winch.vel`.
 
 For each tether:
 - With winch:    `D(tether_len) = ifelse(brake > 0.5, 0, winch_vel)`.
@@ -232,7 +234,9 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
                subsys.force     ~ winch_force[winch.idx]
                subsys.set_value ~ set_values[winch.idx]
                subsys.brake     ~ brake_p
-               winch_acc[winch.idx]      ~ subsys.acc
+               winch_acc[winch.idx]      ~
+                   ifelse(get_speed_controlled(psys, winch.idx) == true,
+                          0.0, subsys.acc)
                winch_friction[winch.idx] ~ subsys.friction
                D(winch_vel[winch.idx]) ~
                    ifelse(brake_p > 0.5, 0, winch_acc[winch.idx])]
