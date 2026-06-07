@@ -1,4 +1,5 @@
 /LocalPreferences*
+*.log
 *.old
 *.mp4
 *.gif
