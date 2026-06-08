@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 function make_psys_setter(sys)
-    psys_params = filter(p -> endswith(string(p), "psys"), parameters(sys))
+    is_psys(p) = Symbolics.symtype(Symbolics.unwrap(p)) <: SystemStructure
+    psys_params = filter(is_psys, parameters(sys))
     setter = setp(sys, psys_params)
     n = length(psys_params)
     return (prob, sys_struct) -> setter(prob, ntuple(_ -> sys_struct, n))
