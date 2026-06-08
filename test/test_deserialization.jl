@@ -14,7 +14,8 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, MVec3
+using SymbolicAWEModels: KVec3, MVec3, WING, PARTICLE_DYNAMICS,
+    VortexStepMethod
 using KiteUtils
 using LinearAlgebra
 
@@ -145,5 +146,45 @@ system:
             sam2.sys_struct.points[:test_point].vel_w)
         # Z velocity should be negative (falling in NED)
         @test vel_with_grav[3] < -0.5
+    end
+
+    @testset "Cached PARTICLE model applies per-point aero" begin
+        plate_src = joinpath(dirname(@__DIR__), "data", "2plate_kite")
+        plate_dir = joinpath(mktempdir(), "2plate_kite")
+        cp(plate_src, plate_dir; force=true)
+        set_data_path(plate_dir)
+        refine_yaml = joinpath(plate_dir,
+            "particle_structural_geometry.yaml")
+        vsm_set = VortexStepMethod.VSMSettings(
+            joinpath(plate_dir, "vsm_settings.yaml"); data_prefix=false)
+
+        function build_refine(; remake)
+            set = Settings("system.yaml")
+            set.g_earth = 0.0
+            sys = load_sys_struct_from_yaml(refine_yaml;
+                system_name="deser_refine", set,
+                dynamics_type=PARTICLE_DYNAMICS, vsm_set)
+            sys.winches[:main_winch].brake = true
+            sam = SymbolicAWEModel(set, sys)
+            init!(sam; remake, remake_vsm=false, prn=false)
+            for _ in 1:5
+                next_step!(sam; dt=1/300, vsm_interval=1)
+            end
+            sam
+        end
+
+        sam_fresh = build_refine(; remake=true)    # builds + caches
+        sam_cached = build_refine(; remake=false)  # loads from .bin
+
+        wpts(sam) = [p for p in sam.sys_struct.points if p.type == WING]
+        fresh, cached = wpts(sam_fresh), wpts(sam_cached)
+
+        # wind is on → aero is non-trivial (test is meaningful)
+        @test sum(norm(p.aero_force_b) for p in cached) > 1.0
+        # cache load must apply the same aero as a fresh build
+        @test maximum(norm(pf.force - pc.force)
+                      for (pf, pc) in zip(fresh, cached)) < 1e-2
+        @test maximum(norm(pf.pos_w - pc.pos_w)
+                      for (pf, pc) in zip(fresh, cached)) < 1e-4
     end
 end
