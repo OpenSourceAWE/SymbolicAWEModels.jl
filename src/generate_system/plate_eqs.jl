@@ -51,35 +51,35 @@ function plate_eqs!(s, eqs, psys, wing;
         plate_force_w(t)[1:3, 1:n_surf]
     end
 
-    for (si, surf) in enumerate(surfaces)
+    for (section_idx, surf) in enumerate(surfaces)
         pidx = surf.point_idx
 
         # Twist from surface
         eqs = [
             eqs
-            plate_twist[si] ~
-                get_surface_twist(psys, wing.idx, si)
+            plate_twist[section_idx] ~
+                get_surface_twist(psys, wing.idx, section_idx)
         ]
 
         # Get surface axes in body frame
         x_b = collect(
-            get_surface_x_airf(psys, wing.idx, si))
+            get_surface_x_airf(psys, wing.idx, section_idx))
         y_b = collect(
-            get_surface_y_airf(psys, wing.idx, si))
+            get_surface_y_airf(psys, wing.idx, section_idx))
         # z_b = x_b × y_b (normal)
 
         # Rotate x and z around y by twist (Rodrigues)
-        ct = cos(plate_twist[si])
-        st = sin(plate_twist[si])
-        x_twisted = ct * x_b + st * (y_b × x_b)
+        cos_twist = cos(plate_twist[section_idx])
+        sin_twist = sin(plate_twist[section_idx])
+        x_twisted = cos_twist * x_b + sin_twist * (y_b × x_b)
         z_twisted = x_twisted × y_b
 
         # Transform to world frame
         eqs = [
             eqs
-            plate_x_w[:, si] ~ Rbw * x_twisted
-            plate_y_w[:, si] ~ Rbw * y_b
-            plate_z_w[:, si] ~ Rbw * z_twisted
+            plate_x_w[:, section_idx] ~ Rbw * x_twisted
+            plate_y_w[:, section_idx] ~ Rbw * y_b
+            plate_z_w[:, section_idx] ~ Rbw * z_twisted
         ]
 
         # Apparent wind at surface point
@@ -89,100 +89,100 @@ function plate_eqs!(s, eqs, psys, wing;
             pos[3, pidx], psys) * wind_vec_gnd
         eqs = [
             eqs
-            plate_va_w[:, si] ~
+            plate_va_w[:, section_idx] ~
                 wind_at_h - vel[:, pidx]
         ]
 
         # AoA from wind projection (VSM convention)
-        va = collect(plate_va_w[:, si])
-        xw = collect(plate_x_w[:, si])
-        zw = collect(plate_z_w[:, si])
+        apparent_wind = collect(plate_va_w[:, section_idx])
+        x_axis_w = collect(plate_x_w[:, section_idx])
+        z_axis_w = collect(plate_z_w[:, section_idx])
         eqs = [
             eqs
-            plate_v_tan[si] ~ va ⋅ xw
-            plate_v_norm[si] ~ va ⋅ zw
-            plate_alpha[si] ~
-                rad2deg(atan(plate_v_norm[si],
-                             plate_v_tan[si]))
+            plate_v_tan[section_idx] ~ apparent_wind ⋅ x_axis_w
+            plate_v_norm[section_idx] ~ apparent_wind ⋅ z_axis_w
+            plate_alpha[section_idx] ~
+                rad2deg(atan(plate_v_norm[section_idx],
+                             plate_v_tan[section_idx]))
         ]
 
         # CL/CD lookup
         eqs = [
             eqs
-            plate_cl[si] ~ get_plate_cl(
-                psys, wing.idx, plate_alpha[si])
-            plate_cd[si] ~
+            plate_cl[section_idx] ~ get_plate_cl(
+                psys, wing.idx, plate_alpha[section_idx])
+            plate_cd[section_idx] ~
                 get_plate_drag_corr(psys, wing.idx) *
                 get_plate_cd(
-                    psys, wing.idx, plate_alpha[si])
+                    psys, wing.idx, plate_alpha[section_idx])
         ]
 
         # Dynamic pressure: in-plane for lift, full for drag
-        va = collect(plate_va_w[:, si])
+        apparent_wind = collect(plate_va_w[:, section_idx])
         eqs = [
             eqs
-            plate_q[si] ~ 0.5 *
+            plate_q[section_idx] ~ 0.5 *
                 calc_rho(s.am, height[pidx]) *
-                (plate_v_tan[si]^2 + plate_v_norm[si]^2)
-            plate_q_drag[si] ~ 0.5 *
+                (plate_v_tan[section_idx]^2 + plate_v_norm[section_idx]^2)
+            plate_q_drag[section_idx] ~ 0.5 *
                 calc_rho(s.am, height[pidx]) *
-                (va ⋅ va)
+                (apparent_wind ⋅ apparent_wind)
         ]
 
         # Lift and drag directions (VSM convention):
         # Effective flow in airfoil plane, then lift
         # perpendicular and drag along flow.
-        alpha_rad = atan(plate_v_norm[si], plate_v_tan[si])
-        va_airf_dir = cos(alpha_rad) * xw +
-                      sin(alpha_rad) * zw
-        yw = collect(plate_y_w[:, si])
-        lift_dir = smooth_normalize(va_airf_dir × yw)
-        drag_dir = smooth_normalize(yw × lift_dir)
+        alpha_rad = atan(plate_v_norm[section_idx], plate_v_tan[section_idx])
+        va_airf_dir = cos(alpha_rad) * x_axis_w +
+                      sin(alpha_rad) * z_axis_w
+        y_axis_w = collect(plate_y_w[:, section_idx])
+        lift_dir = smooth_normalize(va_airf_dir × y_axis_w)
+        drag_dir = smooth_normalize(y_axis_w × lift_dir)
 
-        area = get_surface_area(psys, wing.idx, si)
+        area = get_surface_area(psys, wing.idx, section_idx)
         eqs = [
             eqs
-            plate_lift[:, si] ~
-                plate_q[si] * area *
-                plate_cl[si] * lift_dir
-            plate_drag[:, si] ~
-                plate_q_drag[si] * area *
-                plate_cd[si] * drag_dir
-            plate_force_w[:, si] ~
-                plate_lift[:, si] + plate_drag[:, si]
+            plate_lift[:, section_idx] ~
+                plate_q[section_idx] * area *
+                plate_cl[section_idx] * lift_dir
+            plate_drag[:, section_idx] ~
+                plate_q_drag[section_idx] * area *
+                plate_cd[section_idx] * drag_dir
+            plate_force_w[:, section_idx] ~
+                plate_lift[:, section_idx] + plate_drag[:, section_idx]
         ]
     end
 
     # Apply forces depending on wing type
     if wing.dynamics_type == PARTICLE_DYNAMICS
         # Per-point forces in body frame
-        afpb = aero_force_point_b::AbstractArray
-        for (si, surf) in enumerate(surfaces)
+        aero_force_point = aero_force_point_b::AbstractArray
+        for (section_idx, surf) in enumerate(surfaces)
             pidx = surf.point_idx
             eqs = [
                 eqs
-                afpb[:, pidx] ~
-                    Rbw' * plate_force_w[:, si]
+                aero_force_point[:, pidx] ~
+                    Rbw' * plate_force_w[:, section_idx]
             ]
         end
         # Wing-level: sum of all surface forces (body frame)
         eqs = [
             eqs
             aero_force_b[:, wing.idx] ~
-                sum([Rbw' * plate_force_w[:, si]
-                     for si in 1:n_surf])
+                sum([Rbw' * plate_force_w[:, section_idx]
+                     for section_idx in 1:n_surf])
             aero_moment_b[:, wing.idx] ~ zeros(3)
         ]
     elseif wing.dynamics_type == RIGID_DYNAMICS
         # Sum forces and moments about COM
         force_sum = sum([
-            Rbw' * plate_force_w[:, si]
-            for si in 1:n_surf])
+            Rbw' * plate_force_w[:, section_idx]
+            for section_idx in 1:n_surf])
         moment_sum = sum([
-            Rbw' * ((pos[:, surfaces[si].point_idx] -
+            Rbw' * ((pos[:, surfaces[section_idx].point_idx] -
                      com_w[:, wing.idx]) ×
-                    plate_force_w[:, si])
-            for si in 1:n_surf])
+                    plate_force_w[:, section_idx])
+            for section_idx in 1:n_surf])
         eqs = [
             eqs
             aero_force_b[:, wing.idx] ~ force_sum

@@ -7,14 +7,14 @@
 # (see `resolve_aero_model`). Each builder returns a `System` whose
 # connectors are fixed by the wing's `dynamics_type`:
 #
-#   RIGID_DYNAMICS (ng = length(wing.group_idxs)):
+#   RIGID_DYNAMICS (num_groups = length(wing.group_idxs)):
 #     inputs:  va[1:3], rho, R_b_w[1:3,1:3], omega[1:3],
-#              twist[1:ng], twist_vel[1:ng]            (ng > 0 only)
-#     outputs: force[1:3], moment[1:3], twist_moment[1:ng]
+#              twist[1:num_groups], twist_vel[1:num_groups]
+#     outputs: force[1:3], moment[1:3], twist_moment[1:num_groups]
 #
-#   PARTICLE_DYNAMICS (np = number of WING points):
-#     inputs:  point_pos[1:3,1:np], point_vel[1:3,1:np]
-#     outputs: point_force[1:3,1:np]
+#   PARTICLE_DYNAMICS (num_points = number of WING points):
+#     inputs:  point_pos[1:3,1:num_points], point_vel[1:3,1:num_points]
+#     outputs: point_force[1:3,1:num_points]
 #
 # Everything is in the wing body frame. The wiring layer (vsm_eqs!)
 # drives the inputs and reads the outputs.
@@ -28,7 +28,7 @@
 # the wiring layer to bind, the same way the winch component lists
 # `len`.
 
-function _rigid_aero_connectors(ng::Int)
+function _rigid_aero_connectors(num_groups::Int)
     @variables begin
         va(t)[1:3]
         rho(t)
@@ -37,8 +37,8 @@ function _rigid_aero_connectors(ng::Int)
         force(t)[1:3]
         moment(t)[1:3]
     end
-    if ng > 0
-        @variables twist(t)[1:ng] twist_vel(t)[1:ng] twist_moment(t)[1:ng]
+    if num_groups > 0
+        @variables twist(t)[1:num_groups] twist_vel(t)[1:num_groups] twist_moment(t)[1:num_groups]
     else
         twist = nothing
         twist_vel = nothing
@@ -48,27 +48,30 @@ function _rigid_aero_connectors(ng::Int)
             twist, twist_vel, twist_moment)
 end
 
-function _rigid_unknowns(c)
-    vars = Any[c.va, c.rho, c.R_b_w, c.omega, c.force, c.moment]
-    c.twist === nothing ||
-        append!(vars, Any[c.twist, c.twist_vel, c.twist_moment])
+function _rigid_unknowns(connectors)
+    vars = Any[connectors.va, connectors.rho, connectors.R_b_w,
+               connectors.omega, connectors.force, connectors.moment]
+    connectors.twist === nothing ||
+        append!(vars, Any[connectors.twist, connectors.twist_vel,
+                          connectors.twist_moment])
     return vars
 end
 
-function _particle_aero_connectors(np::Int)
+function _particle_aero_connectors(num_points::Int)
     @variables begin
-        point_pos(t)[1:3, 1:np]
-        point_vel(t)[1:3, 1:np]
-        point_force(t)[1:3, 1:np]
+        point_pos(t)[1:3, 1:num_points]
+        point_vel(t)[1:3, 1:num_points]
+        point_force(t)[1:3, 1:num_points]
     end
     return (; point_pos, point_vel, point_force)
 end
 
-_particle_unknowns(c) = Any[c.point_pos, c.point_vel, c.point_force]
+_particle_unknowns(connectors) =
+    Any[connectors.point_pos, connectors.point_vel, connectors.point_force]
 
 function _wing_points(sys_struct, wing)
-    return [p for p in sys_struct.points
-            if p.type == WING && p.wing_idx == wing.idx]
+    return [point for point in sys_struct.points
+            if point.type == WING && point.wing_idx == wing.idx]
 end
 
 # ==================== NoAero ==================== #
@@ -79,18 +82,20 @@ function default_aero_none(sys_struct, wing_idx; name)
     wing = sys_struct.wings[wing_idx]
 
     if wing.dynamics_type == PARTICLE_DYNAMICS
-        np = length(_wing_points(sys_struct, wing))
-        c = _particle_aero_connectors(np)
-        eqs = vec(collect(c.point_force)) .~ 0
-        return System(eqs, t, _particle_unknowns(c), [psys]; name)
+        num_points = length(_wing_points(sys_struct, wing))
+        connectors = _particle_aero_connectors(num_points)
+        eqs = vec(collect(connectors.point_force)) .~ 0
+        return System(eqs, t, _particle_unknowns(connectors), [psys]; name)
+    elseif wing.dynamics_type == RIGID_DYNAMICS
+        num_groups = length(wing.group_idxs)
+        connectors = _rigid_aero_connectors(num_groups)
+        eqs = [collect(connectors.force) .~ 0
+               collect(connectors.moment) .~ 0]
+        num_groups > 0 && (eqs = [eqs; collect(connectors.twist_moment) .~ 0])
+        return System(eqs, t, _rigid_unknowns(connectors), [psys]; name)
+    else
+        error("Unknown dynamics_type $(wing.dynamics_type) for wing $wing_idx.")
     end
-
-    ng = length(wing.group_idxs)
-    c = _rigid_aero_connectors(ng)
-    eqs = [collect(c.force) .~ 0
-           collect(c.moment) .~ 0]
-    ng > 0 && (eqs = [eqs; collect(c.twist_moment) .~ 0])
-    return System(eqs, t, _rigid_unknowns(c), [psys]; name)
 end
 
 # ==================== DiscreteAero (AERO_DIRECT) ==================== #
@@ -102,32 +107,33 @@ function default_aero_direct(sys_struct, wing_idx; name)
 
     if wing.dynamics_type == PARTICLE_DYNAMICS
         points = _wing_points(sys_struct, wing)
-        np = length(points)
-        c = _particle_aero_connectors(np)
+        num_points = length(points)
+        connectors = _particle_aero_connectors(num_points)
         eqs = Equation[]
-        for (k, point) in enumerate(points)
+        for (point_num, point) in enumerate(points)
             eqs = [eqs
-                   collect(c.point_force[:, k]) .~
+                   collect(connectors.point_force[:, point_num]) .~
                        [get_point_aero_force(psys, point.idx, i)
                         for i in 1:3]]
         end
-        return System(eqs, t, _particle_unknowns(c), [psys]; name)
+        return System(eqs, t, _particle_unknowns(connectors), [psys]; name)
+    elseif wing.dynamics_type == RIGID_DYNAMICS
+        groups = sys_struct.groups
+        num_groups = length(wing.group_idxs)
+        connectors = _rigid_aero_connectors(num_groups)
+        eqs = [collect(connectors.force) .~
+                   [get_aero_force_override(psys, wing.idx, i) for i in 1:3]
+               collect(connectors.moment) .~
+                   [get_aero_moment_override(psys, wing.idx, i) for i in 1:3]]
+        for (group_pos, group_idx) in enumerate(wing.group_idxs)
+            rhs = isempty(groups[group_idx].unrefined_section_idxs) ? 0 :
+                get_group_moment_override(psys, wing.idx, Int64(group_idx))
+            eqs = [eqs; connectors.twist_moment[group_pos] ~ rhs]
+        end
+        return System(eqs, t, _rigid_unknowns(connectors), [psys]; name)
+    else
+        error("Unknown dynamics_type $(wing.dynamics_type) for wing $wing_idx.")
     end
-
-    groups = sys_struct.groups
-    ng = length(wing.group_idxs)
-    c = _rigid_aero_connectors(ng)
-    w = wing.idx
-    eqs = [collect(c.force) .~
-               [get_aero_force_override(psys, w, i) for i in 1:3]
-           collect(c.moment) .~
-               [get_aero_moment_override(psys, w, i) for i in 1:3]]
-    for (gi, gidx) in enumerate(wing.group_idxs)
-        rhs = isempty(groups[gidx].unrefined_section_idxs) ? 0 :
-            get_group_moment_override(psys, w, Int64(gidx))
-        eqs = [eqs; c.twist_moment[gi] ~ rhs]
-    end
-    return System(eqs, t, _rigid_unknowns(c), [psys]; name)
 end
 
 # ==================== LinearizedAero ==================== #
@@ -144,30 +150,29 @@ function default_aero_linearized(sys_struct, wing_idx; name)
         "AERO_LINEARIZED wing $wing_idx is not a VSMWing.")
 
     groups = sys_struct.groups
-    ng = length(wing.group_idxs)
-    ny = length(wing.aero_y)
-    nx = length(wing.aero_x)
-    w = wing.idx
+    num_groups = length(wing.group_idxs)
+    num_aero_inputs = length(wing.aero_y)
     area = wing.vsm_aero.projected_area
     c_ref = wing.vsm_aero.c_ref
 
-    c = _rigid_aero_connectors(ng)
-    @variables aero_input(t)[1:ny]
+    connectors = _rigid_aero_connectors(num_groups)
+    @variables aero_input(t)[1:num_aero_inputs]
 
-    va = collect(c.va)
-    omega = collect(c.omega)
-    drag_dir = collect(va ./ smooth_norm(va))
+    apparent_wind = collect(connectors.va)
+    omega = collect(connectors.omega)
+    drag_dir = collect(apparent_wind ./ smooth_norm(apparent_wind))
     alpha = atan(drag_dir[3], drag_dir[1])
     beta = atan(drag_dir[2], smooth_norm((drag_dir[1], drag_dir[3])))
 
-    twist_inputs = ng > 0 ? collect(c.twist) : Num[]
+    twist_inputs = num_groups > 0 ? collect(connectors.twist) : Num[]
     input_rhs = [alpha; beta; omega[1]; omega[2]; omega[3]; twist_inputs]
 
-    delta(iy) = aero_input[iy] - get_aero_y(psys, w, iy)
-    coeff(ix) = get_aero_x(psys, w, ix) +
-        sum(get_aero_jac(psys, w, ix, iy) * delta(iy) for iy in 1:ny)
+    delta(input_idx) = aero_input[input_idx] - get_aero_y(psys, wing.idx, input_idx)
+    coeff(output_idx) = get_aero_x(psys, wing.idx, output_idx) +
+        sum(get_aero_jac(psys, wing.idx, output_idx, input_idx) * delta(input_idx)
+            for input_idx in 1:num_aero_inputs)
 
-    q_inf = 0.5 * c.rho * (va ⋅ va)
+    q_inf = 0.5 * connectors.rho * (apparent_wind ⋅ apparent_wind)
     qA = q_inf * area
     CL = coeff(1)
     CD = coeff(2)
@@ -176,22 +181,23 @@ function default_aero_linearized(sys_struct, wing_idx; name)
     crossed = collect(drag_dir × [0.0, 1.0, 0.0])
     lift_dir = collect(crossed ./ smooth_norm(crossed))
     side_dir = collect(lift_dir × drag_dir)
-    drag_frac = get_drag_frac(psys, w)
+    drag_frac = get_drag_frac(psys, wing.idx)
 
     force_rhs = collect(qA * (CL * lift_dir +
         CD * drag_frac * drag_dir + CS * side_dir))
     moment_rhs = [qA * c_ref * coeff(3 + i) for i in 1:3]
 
     eqs = [collect(aero_input) .~ input_rhs
-           collect(c.force) .~ force_rhs
-           collect(c.moment) .~ moment_rhs]
-    for gi in 1:ng
-        isempty(groups[wing.group_idxs[gi]].unrefined_section_idxs) ?
-            (eqs = [eqs; c.twist_moment[gi] ~ 0]) :
-            (eqs = [eqs; c.twist_moment[gi] ~ qA * c_ref * coeff(6 + gi)])
+           collect(connectors.force) .~ force_rhs
+           collect(connectors.moment) .~ moment_rhs]
+    for group_pos in 1:num_groups
+        isempty(groups[wing.group_idxs[group_pos]].unrefined_section_idxs) ?
+            (eqs = [eqs; connectors.twist_moment[group_pos] ~ 0]) :
+            (eqs = [eqs; connectors.twist_moment[group_pos] ~
+                qA * c_ref * coeff(6 + group_pos)])
     end
 
-    vars = _rigid_unknowns(c)
+    vars = _rigid_unknowns(connectors)
     push!(vars, aero_input)
     return System(eqs, t, vars, [psys]; name)
 end

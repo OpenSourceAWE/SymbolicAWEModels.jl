@@ -138,12 +138,12 @@ function match_aero_sections_to_structure!(
     if has_groups
         n_struct_sections = length(wing_group_idxs)
         for g_idx in wing_group_idxs
-            g = groups[g_idx]
-            length(g.point_idxs) == 2 || error(
+            group = groups[g_idx]
+            length(group.point_idxs) == 2 || error(
                 "PARTICLE_DYNAMICS wing $(wing.idx): group " *
-                "$(g.name) must have exactly 2 " *
+                "$(group.name) must have exactly 2 " *
                 "points (LE/TE pair), got " *
-                "$(length(g.point_idxs))")
+                "$(length(group.point_idxs))")
         end
     else
         n_points = length(wing_points)
@@ -342,32 +342,33 @@ function compute_aerostruc_loads(panel, F_panel::SVector{3}, M_panel::SVector{3}
     # Relative positions
     r_le_rel = r_le_mid - r_ac
     r_te_rel = r_te_mid - r_ac
-    d = r_le_rel - r_te_rel  # chord direction (LE→TE)
-    d_norm_sq = dot(d, d)
-    if d_norm_sq < 1e-12
+    chord_dir = r_le_rel - r_te_rel  # chord direction (LE→TE)
+    chord_norm_sq = dot(chord_dir, chord_dir)
+    if chord_norm_sq < 1e-12
         # Degenerate chord: just split equally and spanwise-preserve the torque
         F_le = 0.5 * F_panel
         F_te = 0.5 * F_panel
     else
         # Minimum-norm split that preserves moment about r_ref
-        w_le = clamp(-dot(r_te_rel, d) / d_norm_sq, 0.0, 1.0)
+        w_le = clamp(-dot(r_te_rel, chord_dir) / chord_norm_sq, 0.0, 1.0)
         r_weighted = w_le * r_le_rel + (1 - w_le) * r_te_rel
         M_cp = M_panel - cross(r_ac - r_ref, F_panel)
         M_target = M_cp - cross(r_weighted, F_panel)
-        ΔF = cross(M_target, d) / d_norm_sq
+        ΔF = cross(M_target, chord_dir) / chord_norm_sq
         F_le = w_le * F_panel + ΔF
         F_te = (1 - w_le) * F_panel - ΔF
     end
 
     # Spanwise split preserving moment about r_ref
     span_split = function (F::SVector{3}, r_mid::SVector{3}, r_left::SVector{3}, r_right::SVector{3})
-        a = cross(r_left - r_ref, F)
-        b = cross(r_right - r_ref, F)
+        left_moment = cross(r_left - r_ref, F)
+        right_moment = cross(r_right - r_ref, F)
         m_target = cross(r_mid - r_ref, F)
-        ab = a - b
-        denom = dot(ab, ab)
-        w = denom < 1e-14 ? 0.5 : clamp(dot(ab, m_target - b) / denom, 0.0, 1.0)
-        return (w * F, (1 - w) * F)
+        moment_diff = left_moment - right_moment
+        denom = dot(moment_diff, moment_diff)
+        split_weight = denom < 1e-14 ? 0.5 :
+            clamp(dot(moment_diff, m_target - right_moment) / denom, 0.0, 1.0)
+        return (split_weight * F, (1 - split_weight) * F)
     end
 
     F_le_left, F_le_right = span_split(F_le, r_le_mid, nodes[1], nodes[2])
@@ -432,9 +433,9 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::AbstractVecto
     # Determine offset of this wing's panels in the solver arrays
     start_idx = 1
     if hasproperty(wing.vsm_solver, :body_aero)
-        for w in wing.vsm_solver.body_aero.wings
-            w === wing && break
-            start_idx += length(w.vsm_aero.panels)
+        for other_wing in wing.vsm_solver.body_aero.wings
+            other_wing === wing && break
+            start_idx += length(other_wing.vsm_aero.panels)
         end
     end
 
@@ -444,8 +445,8 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::AbstractVecto
         panel_idx = start_idx + local_panel_idx - 1
         panel = panels[local_panel_idx]
         scale = 1.0 + (isfinite(wing.aero_scale_chord) ? wing.aero_scale_chord : AERO_SCALE_CHORD)
-        Fp = scale .* SVector{3}(f_body[:, panel_idx])
-        Mp = scale .* SVector{3}(m_body[:, panel_idx])
+        panel_force = scale .* SVector{3}(f_body[:, panel_idx])
+        panel_moment = scale .* SVector{3}(m_body[:, panel_idx])
 
         section_idx = panel_to_section[local_panel_idx]
 
@@ -454,7 +455,8 @@ function distribute_panel_forces_to_points!(wing::VSMWing, points::AbstractVecto
         haskey(vsm_point_to_struct, le_key) || continue
         haskey(vsm_point_to_struct, te_key) || continue
 
-        F_le_left, F_le_right, F_te_right, F_te_left, _ = compute_aerostruc_loads(panel, Fp, Mp)
+        F_le_left, F_le_right, F_te_right, F_te_left, _ =
+            compute_aerostruc_loads(panel, panel_force, panel_moment)
         F_le = F_le_left + F_le_right
         F_te = F_te_left + F_te_right
 

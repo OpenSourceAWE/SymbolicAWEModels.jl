@@ -20,9 +20,9 @@ This file contains:
 Compute segment length from endpoint `pos_cad` positions.
 """
 function segment_cad_length(segment::Segment, points)
-    p1 = points[segment.point_idxs[1]]
-    p2 = points[segment.point_idxs[2]]
-    return norm(p1.pos_cad - p2.pos_cad)
+    point1 = points[segment.point_idxs[1]]
+    point2 = points[segment.point_idxs[2]]
+    return norm(point1.pos_cad - point2.pos_cad)
 end
 
 """
@@ -31,9 +31,9 @@ end
 Compute segment length from endpoint `pos_w` positions.
 """
 function segment_world_length(segment::Segment, points)
-    p1 = points[segment.point_idxs[1]]
-    p2 = points[segment.point_idxs[2]]
-    return norm(p1.pos_w - p2.pos_w)
+    point1 = points[segment.point_idxs[1]]
+    point2 = points[segment.point_idxs[2]]
+    return norm(point1.pos_w - point2.pos_w)
 end
 
 
@@ -266,14 +266,14 @@ Returns `(nothing, nothing)` if neither endpoint is on a boundary;
 errors if both are.
 """
 function tether_anchor_free(tether, boundary)
-    s_in = tether.start_point_idx in boundary
-    e_in = tether.end_point_idx in boundary
-    if s_in && e_in
+    start_on_boundary = tether.start_point_idx in boundary
+    end_on_boundary = tether.end_point_idx in boundary
+    if start_on_boundary && end_on_boundary
         error("Tether $(tether.name): both endpoints are " *
               "ground-fixed; cannot place it to a length.")
-    elseif s_in
+    elseif start_on_boundary
         return tether.start_point_idx, tether.end_point_idx
-    elseif e_in
+    elseif end_on_boundary
         return tether.end_point_idx, tether.start_point_idx
     end
     return nothing, nothing
@@ -291,10 +291,10 @@ function rigid_point_siblings(points, wings)
     siblings = Dict{Int64, Set{Int64}}()
     for wing in wings
         wing.dynamics_type == RIGID_DYNAMICS || continue
-        members = Set{Int64}(p.idx for p in points
-            if p.type == WING && p.wing_idx == wing.idx)
-        for m in members
-            siblings[m] = members
+        members = Set{Int64}(point.idx for point in points
+            if point.type == WING && point.wing_idx == wing.idx)
+        for member in members
+            siblings[member] = members
         end
     end
     return siblings
@@ -322,16 +322,16 @@ function tether_downstream_idxs(tether, segments, boundary,
         neighbors = Int64[]
         for seg in segments
             seg.idx in tether_segment_set && continue
-            p1, p2 = seg.point_idxs
-            if p1 == current_idx
-                push!(neighbors, p2)
-            elseif p2 == current_idx
-                push!(neighbors, p1)
+            point_idx1, point_idx2 = seg.point_idxs
+            if point_idx1 == current_idx
+                push!(neighbors, point_idx2)
+            elseif point_idx2 == current_idx
+                push!(neighbors, point_idx1)
             end
         end
         if haskey(rigid_siblings, current_idx)
-            for sib in rigid_siblings[current_idx]
-                sib == current_idx || push!(neighbors, sib)
+            for sibling in rigid_siblings[current_idx]
+                sibling == current_idx || push!(neighbors, sibling)
             end
         end
         for neighbor_idx in neighbors
@@ -388,15 +388,16 @@ end
 
 Return the common per-unit-length stiffness `[N]` of the tether's
 segments. Errors if the segments are not uniform, since the spring
-inversion in `apply_tether_init_forces!` assumes a single stiffness.
+inversion in `apply_tether_init_forces!` assumes a single stiffnesys_state.
 """
 function tether_unit_stiffness(tether, segments)
-    ks = SimFloat[segments[si].unit_stiffness
-                  for si in tether.segment_idxs]
-    k = first(ks)
-    all(≈(k), ks) || error("Tether $(tether.name): requires " *
-        "uniform unit_stiffness across its segments, got $ks")
-    return k
+    stiffness_values = SimFloat[segments[seg_idx].unit_stiffness
+                                for seg_idx in tether.segment_idxs]
+    stiffness = first(stiffness_values)
+    all(≈(stiffness), stiffness_values) ||
+        error("Tether $(tether.name): requires uniform unit_stiffness " *
+              "across its segments, got $stiffness_values")
+    return stiffness
 end
 
 """
@@ -413,55 +414,55 @@ tether. For a multi-tether cluster, logs an `@info` when `prn`.
 """
 function apply_cluster_init_stretched_len!(
     cluster, points, segments, downstream, boundary; prn=true)
-    snaps = map(cluster) do t
-        anchor_idx, free_idx = tether_anchor_free(t, boundary)
+    snaps = map(cluster) do tether
+        anchor_idx, free_idx = tether_anchor_free(tether, boundary)
         anchor_pos = copy(points[anchor_idx].pos_w)
         free_pos = copy(points[free_idx].pos_w)
-        ordered = tether_ordered_point_idxs(t, segments)
-        seg_lens = SimFloat[segment_world_length(segments[si], points)
-                            for si in t.segment_idxs]
+        ordered = tether_ordered_point_idxs(tether, segments)
+        seg_lens = SimFloat[segment_world_length(segments[seg_idx], points)
+                            for seg_idx in tether.segment_idxs]
         if ordered[1] != anchor_idx
             reverse!(ordered)
             reverse!(seg_lens)
         end
         path_len = sum(seg_lens)
-        path_len > 0 || error("Tether $(t.name): current length is " *
+        path_len > 0 || error("Tether $(tether.name): current length is " *
             "zero, cannot scale to its stretched length")
-        (; t, free_idx, anchor_pos, free_pos, ordered, seg_lens, path_len)
+        (; tether, free_idx, anchor_pos, free_pos, ordered, seg_lens, path_len)
     end
 
-    deltas = [(s.t.init_stretched_len::SimFloat / s.path_len - 1) .*
-              (s.free_pos .- s.anchor_pos) for s in snaps]
+    deltas = [(snap.tether.init_stretched_len::SimFloat / snap.path_len - 1) .*
+              (snap.free_pos .- snap.anchor_pos) for snap in snaps]
     delta = sum(deltas) ./ length(deltas)
 
     if length(cluster) > 1 && prn
-        names = join((string(s.t.name) for s in snaps), ", ")
+        names = join((string(snap.tether.name) for snap in snaps), ", ")
         @info "Tethers ($names) feed one structure; placing it to the " *
               "mean stretched length and direction of all."
     end
     norm(delta) ≈ 0 && return
 
     moved = Set{Int64}()
-    for s in snaps
-        for idx in downstream[s.t.idx]
+    for snap in snaps
+        for idx in downstream[snap.tether.idx]
             idx in moved && continue
             push!(moved, idx)
             points[idx].pos_w .+= delta
         end
-        if !(s.free_idx in moved)
-            push!(moved, s.free_idx)
-            points[s.free_idx].pos_w .+= delta
+        if !(snap.free_idx in moved)
+            push!(moved, snap.free_idx)
+            points[snap.free_idx].pos_w .+= delta
         end
     end
 
-    for s in snaps
-        length(s.ordered) <= 2 && continue
-        line = (s.free_pos .+ delta) .- s.anchor_pos
+    for snap in snaps
+        length(snap.ordered) <= 2 && continue
+        line = (snap.free_pos .+ delta) .- snap.anchor_pos
         cum = 0.0
-        for k in 2:length(s.ordered)-1
-            cum += s.seg_lens[k-1]
-            points[s.ordered[k]].pos_w .=
-                s.anchor_pos .+ (cum / s.path_len) .* line
+        for k in 2:length(snap.ordered)-1
+            cum += snap.seg_lens[k-1]
+            points[snap.ordered[k]].pos_w .=
+                snap.anchor_pos .+ (cum / snap.path_len) .* line
         end
     end
 end
@@ -486,7 +487,8 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
                                            prn=true)
     (; points, segments, tethers, winches, wings) = sys_struct
 
-    specified = [t for t in tethers if !isnothing(t.init_stretched_len)]
+    specified = [tether for tether in tethers
+                 if !isnothing(tether.init_stretched_len)]
     isempty(specified) && return
 
     rigid_siblings = rigid_point_siblings(points, wings)
@@ -496,23 +498,25 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
         point.type == STATIC && push!(boundary, point.idx)
     end
 
-    anchor_free = Dict(t.idx => tether_anchor_free(t, boundary)
-                       for t in specified)
-    non_root = [t for t in specified if isnothing(anchor_free[t.idx][1])]
+    anchor_free = Dict(tether.idx => tether_anchor_free(tether, boundary)
+                       for tether in specified)
+    non_root = [tether for tether in specified
+                if isnothing(anchor_free[tether.idx][1])]
     if !isempty(non_root)
-        names = join((string(t.name) for t in non_root), ", ")
+        names = join((string(tether.name) for tether in non_root), ", ")
         error("tether length is only supported on tethers anchored at " *
               "a STATIC or winch point. Tether(s) ($names) have neither " *
               "endpoint anchored; their position rides the root tether.")
     end
 
-    downstream = Dict(t.idx => tether_downstream_idxs(
-                          t, segments, boundary, anchor_free[t.idx][2],
-                          anchor_free[t.idx][1], rigid_siblings)
-                      for t in specified)
-    reach = Dict(t.idx => union(
-        setdiff(Set{Int64}(tether_ordered_point_idxs(t, segments)), boundary),
-        downstream[t.idx]) for t in specified)
+    downstream = Dict(tether.idx => tether_downstream_idxs(
+                          tether, segments, boundary, anchor_free[tether.idx][2],
+                          anchor_free[tether.idx][1], rigid_siblings)
+                      for tether in specified)
+    reach = Dict(tether.idx => union(
+        setdiff(Set{Int64}(tether_ordered_point_idxs(tether, segments)),
+                boundary),
+        downstream[tether.idx]) for tether in specified)
 
     for cluster in group_tethers_by_overlap(specified, reach)
         apply_cluster_init_stretched_len!(cluster, points, segments,
@@ -536,8 +540,8 @@ if `stretch_frac ≤ 0`, if `force < 0`, if `force ≥
 unit_stiffness`, or if the segments have non-uniform `unit_stiffness`.
 """
 function init_unstretched_len(tether, segments)
-    stretched = sum(segments[si].len
-                    for si in tether.segment_idxs)
+    stretched = sum(segments[seg_idx].len
+                    for seg_idx in tether.segment_idxs)
     frac = tether.init_stretch_frac
     force = tether.init_tether_force
     if !isnothing(frac) && !isnothing(force)
@@ -554,11 +558,11 @@ function init_unstretched_len(tether, segments)
         "init_tether_force $force N is negative; " *
         "compression is not supported")
     force == 0 && return stretched
-    k = tether_unit_stiffness(tether, segments)
-    force < k || error("Tether $(tether.name): " *
-        "init_tether_force $force N ≥ unit_stiffness $k N; " *
+    stiffness = tether_unit_stiffness(tether, segments)
+    force < stiffness || error("Tether $(tether.name): " *
+        "init_tether_force $force N ≥ unit_stiffness $stiffness N; " *
         "no positive rest length achieves this force")
-    return stretched * (1 - force / k)
+    return stretched * (1 - force / stiffness)
 end
 
 """
@@ -640,8 +644,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         n = length(tether.segment_idxs)
         n == 0 && continue
         l0 = tether.len / n
-        for si in tether.segment_idxs
-            segments[si].l0 = l0
+        for seg_idx in tether.segment_idxs
+            segments[seg_idx].l0 = l0
         end
     end
 
@@ -749,9 +753,9 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     # Recalculate segment rest lengths from current positions if requested
     if ignore_l0
         for segment in segments
-            p1 = points[segment.point_idxs[1]]
-            p2 = points[segment.point_idxs[2]]
-            segment.l0 = norm(p2.pos_w - p1.pos_w)
+            point1 = points[segment.point_idxs[1]]
+            point2 = points[segment.point_idxs[2]]
+            segment.l0 = norm(point2.pos_w - point1.pos_w)
         end
     end
 
@@ -864,7 +868,7 @@ end
 # ==================== SYSSTATE INTEROP ==================== #
 
 """
-    update_from_sysstate!(sys::SystemStructure, ss::SysState)
+    update_from_sysstate!(sys::SystemStructure, sys_state::SysState)
 
 Update the dynamic state of a `SystemStructure` from a `SysState` snapshot.
 
@@ -878,18 +882,18 @@ and applying them to a `SystemStructure` for plotting with the Makie extension.
 
 # Arguments
 - `sys::SystemStructure`: The system structure to update (must already exist with correct topology).
-- `ss::SysState`: The state snapshot to copy from.
+- `sys_state::SysState`: The state snapshot to copy from.
 
 # Example
 ```julia
 # Load a system log
-lg = load_log(...)
+sim_log = load_log(...)
 
 # Create a SystemStructure with the same topology
 sys = SystemStructure(se(), "ram")
 
 # Update from a specific time step
-update_from_sysstate!(sys, lg.syslog[100])
+update_from_sysstate!(sys, sim_log.syslog[100])
 
 # Plot the system at that time step
 plot(sys)
@@ -901,7 +905,7 @@ plot(sys)
 - Aerodynamic and force fields are set to `NaN` and will not be plotted.
 - The number of points in `sys` must match the parametric type `P` of `SysState{P}`.
 """
-function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
+function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) where P
     (; points, groups, tethers, winches, wings) = sys
 
     # Total slots: structural points + panel corners + wings.
@@ -926,9 +930,9 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
 
     # Update point positions (X, Y, Z from SysState)
     for point in points
-        point.pos_w[1] = ss.X[point.idx]
-        point.pos_w[2] = ss.Y[point.idx]
-        point.pos_w[3] = ss.Z[point.idx]
+        point.pos_w[1] = sys_state.X[point.idx]
+        point.pos_w[2] = sys_state.Y[point.idx]
+        point.pos_w[3] = sys_state.Z[point.idx]
         # Set velocity to zero (not available in basic SysState)
         point.vel_w .= 0.0
         # Set forces to NaN (not available in SysState)
@@ -940,27 +944,27 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         wing = wings[1]
 
         # Copy orientation quaternion
-        wing.Q_b_to_w .= ss.orient
+        wing.Q_b_to_w .= sys_state.orient
 
         # Copy spherical coordinates
-        wing.elevation = Float64(ss.elevation)
-        wing.azimuth = Float64(ss.azimuth)
-        wing.heading = Float64(ss.heading)
+        wing.elevation = Float64(sys_state.elevation)
+        wing.azimuth = Float64(sys_state.azimuth)
+        wing.heading = Float64(sys_state.heading)
 
         if has_wing_slots
             wing_slot = n_points + n_panel_corners + wing.idx
-            wing.pos_w[1] = ss.X[wing_slot]
-            wing.pos_w[2] = ss.Y[wing_slot]
-            wing.pos_w[3] = ss.Z[wing_slot]
+            wing.pos_w[1] = sys_state.X[wing_slot]
+            wing.pos_w[2] = sys_state.Y[wing_slot]
+            wing.pos_w[3] = sys_state.Z[wing_slot]
         else
-            wing.pos_w .= [mean(ss.X), mean(ss.Y), mean(ss.Z)]
+            wing.pos_w .= [mean(sys_state.X), mean(sys_state.Y), mean(sys_state.Z)]
         end
 
         # Copy velocity if available in vel_kite
-        wing.vel_w .= ss.vel_kite
+        wing.vel_w .= sys_state.vel_kite
 
         # Set angular velocity to NaN (turn_rates in SysState, but need conversion)
-        wing.ω_b .= ss.turn_rates
+        wing.ω_b .= sys_state.turn_rates
 
         # Set aerodynamic quantities to NaN (to prevent plotting)
         wing.aero_force_b .= NaN
@@ -968,11 +972,11 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         wing.tether_force .= NaN
         wing.tether_moment .= NaN
         wing.va_b .= NaN
-        wing.v_wind .= ss.v_wind_kite
-        wing.aoa = Float64(ss.AoA)
-        wing.course = Float64(ss.course)
+        wing.v_wind .= sys_state.v_wind_kite
+        wing.aoa = Float64(sys_state.AoA)
+        wing.course = Float64(sys_state.course)
         wing.acc_w .= 0.0
-        wing.turn_rate .= ss.turn_rates
+        wing.turn_rate .= sys_state.turn_rates
         wing.turn_acc .= 0.0
     end
 
@@ -980,7 +984,7 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
     n_groups = min(length(groups), 4)  # SysState stores up to 4 twist angles
     for i in 1:n_groups
         if i <= length(groups)
-            groups[i].twist = Float64(ss.twist_angles[i])
+            groups[i].twist = Float64(sys_state.twist_angles[i])
             groups[i].twist_ω = 0.0  # Not available in SysState
             # Set forces/moments to NaN
             groups[i].tether_force = NaN
@@ -997,8 +1001,8 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         isempty(vsm.non_deformed_sections) && continue
         theta = zeros(Float64, vsm.n_unrefined_sections)
         for g_idx in wing.group_idxs
-            for u in groups[g_idx].unrefined_section_idxs
-                theta[u] = groups[g_idx].twist
+            for section_idx in groups[g_idx].unrefined_section_idxs
+                theta[section_idx] = groups[g_idx].twist
             end
         end
         VortexStepMethod.unrefined_deform!(vsm, theta)
@@ -1006,9 +1010,9 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
     end
 
     # Update tether lengths from SysState (per-tether)
-    for (ti, tether) in enumerate(tethers)
-        ti > 4 && break
-        tether.len = Float64(ss.l_tether[ti])
+    for (tether_idx, tether) in enumerate(tethers)
+        tether_idx > 4 && break
+        tether.len = Float64(sys_state.l_tether[tether_idx])
     end
 
     # Update winch state from SysState (per-winch)
@@ -1017,8 +1021,8 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         winches[i].force .= NaN
         winches[i].friction = NaN
         winches[i].acc = 0.0
-        winches[i].vel = Float64(ss.v_reelout[i])
-        winches[i].set_value = Float64(ss.set_torque[i])
+        winches[i].vel = Float64(sys_state.v_reelout[i])
+        winches[i].set_value = Float64(sys_state.set_torque[i])
     end
 
     corner_idx = n_points
@@ -1033,7 +1037,7 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
         for panel in wing.vsm_aero.panels
             for j in 1:4
                 corner_idx += 1
-                corner_w = [ss.X[corner_idx], ss.Y[corner_idx], ss.Z[corner_idx]]
+                corner_w = [sys_state.X[corner_idx], sys_state.Y[corner_idx], sys_state.Z[corner_idx]]
                 panel.corner_points[:, j] .= R_w_to_b * (corner_w - wing.pos_w)
             end
         end
@@ -1041,7 +1045,7 @@ function update_from_sysstate!(sys::SystemStructure, ss::SysState{P}) where P
 
     # Update global wind vector (only if wind_vec mode is active)
     if sys.set.use_wind_vec
-        sys.set.wind_vec = MVec3(ss.v_wind_gnd)
+        sys.set.wind_vec = MVec3(sys_state.v_wind_gnd)
     end
 
     # Calculate segment lengths and forces from current positions and velocities
@@ -1202,7 +1206,7 @@ function segment_stretch_stats(sys::SystemStructure)
         return (0.0, 0.0, 0)
     end
 
-    stretches = [s[2] for s in stretch_data]
+    stretches = [entry[2] for entry in stretch_data]
     max_stretch = maximum(stretches)
     mean_stretch = sum(stretches) / length(stretches)
     max_idx = stretch_data[argmax(stretches)][1]

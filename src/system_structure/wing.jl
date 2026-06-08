@@ -184,8 +184,8 @@ function WeightedRefPoints(refs::AbstractVector)
         "WeightedRefPoints requires at least one " *
         "reference point, got empty vector")
     if refs[1] isa Tuple
-        names = NameRef[_to_name_ref(t[1]) for t in refs]
-        weights = Float64[Float64(t[2]) for t in refs]
+        names = NameRef[_to_name_ref(entry[1]) for entry in refs]
+        weights = Float64[Float64(entry[2]) for entry in refs]
         _validate_weights!(weights)
         return WeightedRefPoints(names, Int64[], weights)
     end
@@ -371,10 +371,10 @@ function BaseWing(name, groups::AbstractVector, R_b_to_c::AbstractMatrix,
         AERO_LINEARIZED : AERO_DIRECT)
     aero_model = resolve_aero_model(aero_mode, aero_model)
     # Convert groups to NameRef vector
-    group_refs = Vector{NameRef}([_to_name_ref(g) for g in groups])
+    group_refs = Vector{NameRef}([_to_name_ref(group) for group in groups])
     # Handle nothing - default to transform 1
-    tf = isnothing(transform) ? 1 : transform
-    transform_ref = _to_name_ref(tf)
+    transform_value = isnothing(transform) ? 1 : transform
+    transform_ref = _to_name_ref(transform_value)
 
     # idx, group_idxs, transform_idx are placeholders - resolved by SystemStructure
     return BaseWing(0, name,
@@ -454,10 +454,10 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; p
     # Fallback: load from aero_geometry.yaml using provided vsm_set
     prn && @info "Using provided VSMSettings for wing creation"
     # Resolve relative geometry_file paths against data dir
-    for ws in vsm_set.wings
-        gf = ws.geometry_file
-        if !isempty(gf) && !isabspath(gf)
-            ws.geometry_file = joinpath(model_dir, basename(gf))
+    for wing_settings in vsm_set.wings
+        geometry_file = wing_settings.geometry_file
+        if !isempty(geometry_file) && !isabspath(geometry_file)
+            wing_settings.geometry_file = joinpath(model_dir, basename(geometry_file))
         end
     end
     return VortexStepMethod.Wing(vsm_set; sort_sections)
@@ -580,17 +580,18 @@ function VSMWing(name, set::Settings,
     # as group count proxy; resized in SystemStructure
     # after groups are resolved.
     if dynamics_type == PARTICLE_DYNAMICS
-        nx = 0
-        ny = 0
+        num_aero_outputs = 0
+        num_aero_inputs = 0
     else
         n_groups_est = vsm_wing.n_unrefined_sections
-        nx = 6 + n_groups_est
-        ny = 5 + n_groups_est
+        num_aero_outputs = 6 + n_groups_est
+        num_aero_inputs = 5 + n_groups_est
     end
 
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
-                   zeros(SimFloat, ny), zeros(SimFloat, nx),
-                   zeros(SimFloat, nx, ny),
+                   zeros(SimFloat, num_aero_inputs),
+                   zeros(SimFloat, num_aero_outputs),
+                   zeros(SimFloat, num_aero_outputs, num_aero_inputs),
                    point_to_vsm_point, wing_segments,
                    z_ref, y_ref,
                    origin_rp,
@@ -629,11 +630,12 @@ function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
                     inertia_vec; transform)
     # Placeholder aero arrays — resized by SystemStructure
     n_groups_est = vsm_wing.n_unrefined_sections
-    nx = 6 + n_groups_est
-    ny = 5 + n_groups_est
+    num_aero_outputs = 6 + n_groups_est
+    num_aero_inputs = 5 + n_groups_est
     return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
-        zeros(SimFloat, ny), zeros(SimFloat, nx),
-        zeros(SimFloat, nx, ny),
+        zeros(SimFloat, num_aero_inputs),
+        zeros(SimFloat, num_aero_outputs),
+        zeros(SimFloat, num_aero_outputs, num_aero_inputs),
         nothing, nothing,
         nothing, nothing,  # z/y_ref_points
         nothing,           # origin
@@ -847,9 +849,9 @@ Compute current AoA [deg] from body-frame apparent wind and
 twist. Requires `va_b` to be up to date.
 """
 function plate_alpha(wing::PlateWing, surf::PlateSurface)
-    tw = surf.twist
-    ct, st = cos(tw), sin(tw)
-    x_tw = ct * surf.x_airf + st * (surf.y_airf × surf.x_airf)
+    twist_angle = surf.twist
+    cos_twist, sin_twist = cos(twist_angle), sin(twist_angle)
+    x_tw = cos_twist * surf.x_airf + sin_twist * (surf.y_airf × surf.x_airf)
     z_tw = x_tw × surf.y_airf
     v_tan = wing.va_b ⋅ x_tw
     v_norm = wing.va_b ⋅ z_tw

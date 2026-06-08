@@ -113,10 +113,10 @@ function validate_winch_component(subsys, winch)
     end
     for eq in ModelingToolkit.equations(subsys)
         lhs = ModelingToolkit.Symbolics.unwrap(eq.lhs)
-        nm = _differential_inner_name(lhs)
-        if nm === :vel || nm === :len
+        var_name = _differential_inner_name(lhs)
+        if var_name === :vel || var_name === :len
             error("Winch $(winch.name): component must not define " *
-                  "`D($nm) ~ …`; that derivative is owned by the outer " *
+                  "`D($var_name) ~ …`; that derivative is owned by the outer " *
                   "system.")
         end
     end
@@ -126,8 +126,8 @@ end
 function _differential_inner_name(expr)
     try
         ModelingToolkit.iscall(expr) || return nothing
-        op = ModelingToolkit.operation(expr)
-        op isa ModelingToolkit.Differential || return nothing
+        mtk_operation = ModelingToolkit.operation(expr)
+        mtk_operation isa ModelingToolkit.Differential || return nothing
         arg = ModelingToolkit.arguments(expr)[1]
         ModelingToolkit.iscall(arg) || return nothing
         inner = ModelingToolkit.operation(arg)
@@ -154,7 +154,7 @@ For each winch:
 3. Validate the connector contract with
    [`validate_winch_component`](@ref).
 4. Bind connectors to the parent variables (including
-   `subsys.len ~ mean(tether_len[ti] for ti in winch.tether_idxs)`)
+   `subsys.len ~ mean(tether_len[tether_idx] for tether_idx in winch.tether_idxs)`)
    and integrate `D(winch_vel) = ifelse(brake > 0.5, 0, winch_acc)`.
    When `winch.speed_controlled` is true, `winch_acc` is forced to 0
    (ignoring `subsys.acc`) so velocity is prescribed via `winch.vel`.
@@ -170,22 +170,22 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
                     winch_friction)
     tether_winch = Dict{Int, Int}()
     for winch in winches
-        for ti in winch.tether_idxs
-            haskey(tether_winch, ti) && error(
-                "Tether $ti is connected to winch " *
-                "$(tether_winch[ti]) and winch $(winch.idx). " *
+        for tether_idx in winch.tether_idxs
+            haskey(tether_winch, tether_idx) && error(
+                "Tether $tether_idx is connected to winch " *
+                "$(tether_winch[tether_idx]) and winch $(winch.idx). " *
                 "Each tether can have at most one winch.")
-            tether_winch[ti] = winch.idx
+            tether_winch[tether_idx] = winch.idx
         end
     end
 
     for tether in tethers
         if haskey(tether_winch, tether.idx)
-            wi = tether_winch[tether.idx]
+            winch_idx = tether_winch[tether.idx]
             eqs = [eqs
                    D(tether_len[tether.idx]) ~
-                       ifelse(get_brake(psys, wi) > 0.5,
-                              0, winch_vel[wi])]
+                       ifelse(get_brake(psys, winch_idx) > 0.5,
+                              0, winch_vel[winch_idx])]
         else
             eqs = [eqs; D(tether_len[tether.idx]) ~ 0]
         end
@@ -199,21 +199,21 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
         isempty(winch.tether_idxs) &&
             error("Winch $(winch.name): no connected tethers; " *
                   "at least one is required.")
-        wp = winch.winch_point_idx
-        (wp > length(points)) &&
-            error("Winch $(winch.name): point $wp does not exist.")
+        winch_point_idx = winch.winch_point_idx
+        (winch_point_idx > length(points)) &&
+            error("Winch $(winch.name): point $winch_point_idx does not exist.")
 
         winch_seg_idxs = Set{Int}()
-        for ti in winch.tether_idxs
-            union!(winch_seg_idxs, tethers[ti].segment_idxs)
+        for tether_idx in winch.tether_idxs
+            union!(winch_seg_idxs, tethers[tether_idx].segment_idxs)
         end
         force_vec = zeros(Num, 3)
-        for seg in segments
-            seg.idx in winch_seg_idxs || continue
-            if seg.point_idxs[1] == wp
-                force_vec .+= spring_force_vec[:, seg.idx]
-            elseif seg.point_idxs[2] == wp
-                force_vec .-= spring_force_vec[:, seg.idx]
+        for segment in segments
+            segment.idx in winch_seg_idxs || continue
+            if segment.point_idxs[1] == winch_point_idx
+                force_vec .+= spring_force_vec[:, segment.idx]
+            elseif segment.point_idxs[2] == winch_point_idx
+                force_vec .-= spring_force_vec[:, segment.idx]
             end
         end
 
@@ -229,7 +229,7 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
                    smooth_norm(winch_force_vec[:, winch.idx])
                subsys.vel       ~ winch_vel[winch.idx]
                subsys.len       ~
-                   sum(tether_len[ti] for ti in winch.tether_idxs) /
+                   sum(tether_len[tether_idx] for tether_idx in winch.tether_idxs) /
                    length(winch.tether_idxs)
                subsys.force     ~ winch_force[winch.idx]
                subsys.set_value ~ set_values[winch.idx]

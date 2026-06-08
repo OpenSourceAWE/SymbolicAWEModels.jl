@@ -198,10 +198,11 @@ function _safe_vsm_solve!(solver, body_aero,
         VortexStepMethod.solve!(solver, body_aero, gamma_init;
             moment_frac, log=false)
     end
-    cf = solver.sol.force_coeffs
-    cm = solver.sol.moment_coeffs
+    force_coeffs = solver.sol.force_coeffs
+    moment_coeffs = solver.sol.moment_coeffs
     if !solver.lr.converged ||
-            any(!_finite_full, cf) || any(!_finite_full, cm)
+            any(!_finite_full, force_coeffs) ||
+            any(!_finite_full, moment_coeffs)
         if !isnothing(solver.sol.gamma_distribution)
             fill!(solver.sol.gamma_distribution, 0)
         end
@@ -221,14 +222,14 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
         solver_c = wing.vsm_solver
         wing_c = wing.vsm_wing
     else
-        sh = shadow_ref[]
-        if sh === nothing || eltype(sh[1]._va) !== T
+        shadow = shadow_ref[]
+        if shadow === nothing || eltype(shadow[1]._va) !== T
             shadow_ref[] = VortexStepMethod.make_dual_shadow(
                 wing.vsm_solver, wing.vsm_aero, T)
-            sh = shadow_ref[]
-            sh[2].use_gamma_prev = true
+            shadow = shadow_ref[]
+            shadow[2].use_gamma_prev = true
         end
-        body_aero_c, solver_c = sh
+        body_aero_c, solver_c = shadow
         wing_c = body_aero_c.wings[1]
     end
 
@@ -245,9 +246,9 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
 
     # Per-group → per-section twist
     theta = zeros(T, n_unrefined)
-    for (gi, gidx) in enumerate(group_idxs)
-        for ui in groups[gidx].unrefined_section_idxs
-            theta[ui] = y[5 + gi]
+    for (group_index, gidx) in enumerate(group_idxs)
+        for unrefined_index in groups[gidx].unrefined_section_idxs
+            theta[unrefined_index] = y[5 + group_index]
         end
     end
 
@@ -264,7 +265,7 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
     end
 
     sol = solver_c.sol
-    cf = sol.force_coeffs
+    force_coeffs = sol.force_coeffs
     cm_body = sol.moment_coeffs
     moment_coeff_unrefined = sol.moment_coeff_unrefined_dist
 
@@ -276,15 +277,17 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
     side_dir = cross(lift_dir, drag_dir)
 
     x = zeros(T, 6 + n_groups)
-    x[1] = dot(cf, lift_dir)
-    x[2] = dot(cf, drag_dir)
-    x[3] = dot(cf, side_dir)
+    x[1] = dot(force_coeffs, lift_dir)
+    x[2] = dot(force_coeffs, drag_dir)
+    x[3] = dot(force_coeffs, side_dir)
     x[4] = cm_body[1]
     x[5] = cm_body[2]
     x[6] = cm_body[3]
-    for (gi, gidx) in enumerate(group_idxs)
-        x[6 + gi] = sum(moment_coeff_unrefined[ui]
-            for ui in groups[gidx].unrefined_section_idxs;
+    for (group_index, gidx) in enumerate(group_idxs)
+        x[6 + group_index] = sum(
+            moment_coeff_unrefined[unrefined_index]
+            for unrefined_index in
+                groups[gidx].unrefined_section_idxs;
             init = zero(T))
     end
     return x
@@ -330,8 +333,8 @@ function _update_rigid_dynamics_wing!(wing, am, groups;
     y0[3] = omega_b[1]
     y0[4] = omega_b[2]
     y0[5] = omega_b[3]
-    for (gi, gidx) in enumerate(group_idxs)
-        y0[5 + gi] = groups[gidx].twist
+    for (group_index, gidx) in enumerate(group_idxs)
+        y0[5 + group_index] = groups[gidx].twist
     end
 
     shadow_ref = Ref{Any}(nothing)
@@ -340,8 +343,8 @@ function _update_rigid_dynamics_wing!(wing, am, groups;
         moment_frac, shadow_ref)
 
     wing.aero_x .= f_baseline(y0)
-    for (gi, gidx) in enumerate(group_idxs)
-        groups[gidx].aero_moment = wing.aero_x[6 + gi]
+    for (group_index, gidx) in enumerate(group_idxs)
+        groups[gidx].aero_moment = wing.aero_x[6 + group_index]
     end
 
     if wing.aero_mode == AERO_LINEARIZED

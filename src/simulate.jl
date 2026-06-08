@@ -76,14 +76,14 @@ function sim!(
             if step < steps ÷ 2
                 step_time, integ_time, vsm_time = 0.0, 0.0, 0.0
             end
-        catch e
-            if e isa AssertionError
+        catch exception
+            if exception isa AssertionError
                 if prn
                     @warn "Crashed at t=$t"
                 end
                 break
             else
-                rethrow(e)
+                rethrow(exception)
             end
         end
         update_sys_state!(sys_state, sam)
@@ -92,7 +92,7 @@ function sim!(
     end
 
     # --- Linear Simulation ---
-    lin_lg = nothing
+    lin_sim_log = nothing
     if !isnothing(lin_model)
         isnothing(y_op) && error(
             "y_op (operating point output) is required " *
@@ -117,12 +117,12 @@ function sim!(
             log!(lin_logger, lin_sys_state)
         end
         save_log(lin_logger, "tmp_run_lin")
-        lin_lg = load_log("tmp_run_lin")
+        lin_sim_log = load_log("tmp_run_lin")
     end
 
     mkpath(get_data_path())
     save_log(logger, "tmp_run")
-    lg = load_log("tmp_run")
+    sim_log = load_log("tmp_run")
     
     if prn
         lines = [
@@ -137,7 +137,7 @@ function sim!(
         @info join(lines, "\n")
     end
 
-    return (lg, lin_lg)
+    return (sim_log, lin_sim_log)
 end
 
 """
@@ -263,52 +263,52 @@ Construct a SysState for logging linear state-space simulation output y (ordered
 sam.outputs).
 """
 function make_lin_sys_state(y::AbstractVector, sam::SymbolicAWEModel, t::Real)
-    ss = SysState(sam)
-    update_sys_state!(ss, y, sam, t)
-    return ss
+    sys_state = SysState(sam)
+    update_sys_state!(sys_state, y, sam, t)
+    return sys_state
 end
 
 """
-    update_sys_state!(ss, y::AbstractVector, sam::SymbolicAWEModel, t::Real)
+    update_sys_state!(sys_state, y::AbstractVector, sam::SymbolicAWEModel, t::Real)
 
 Update a SysState for a linear state-space simulation, using output y and model sam.
 """
-function update_sys_state!(ss, y::AbstractVector, sam::SymbolicAWEModel, t::Real)
+function update_sys_state!(sys_state, y::AbstractVector, sam::SymbolicAWEModel, t::Real)
     sys = sam.prob.sys
     outputs = sam.outputs
     for (i, sym) in enumerate(outputs)
         if isequal(sym, sys.heading[1])
-            ss.heading = y[i]
+            sys_state.heading = y[i]
         elseif isequal(sym, sys.turn_rate[3, 1])
-            ss.turn_rates[1,3] = y[i]
+            sys_state.turn_rates[1,3] = y[i]
         elseif isequal(sym, sys.tether_len[1])
-            ss.l_tether[1] = y[i]
+            sys_state.l_tether[1] = y[i]
         elseif isequal(sym, sys.tether_len[2])
-            ss.l_tether[2] = y[i]
+            sys_state.l_tether[2] = y[i]
         elseif isequal(sym, sys.tether_len[3])
-            ss.l_tether[3] = y[i]
+            sys_state.l_tether[3] = y[i]
         elseif isequal(sym, sys.winch_vel[1])
-            ss.v_reelout[1] = y[i]
+            sys_state.v_reelout[1] = y[i]
         elseif isequal(sym, sys.winch_vel[2])
-            ss.v_reelout[2] = y[i]
+            sys_state.v_reelout[2] = y[i]
         elseif isequal(sym, sys.winch_vel[3])
-            ss.v_reelout[3] = y[i]
+            sys_state.v_reelout[3] = y[i]
         elseif isequal(sym, sys.winch_force[1])
-            ss.winch_force[1] = y[i]
+            sys_state.winch_force[1] = y[i]
         elseif isequal(sym, sys.winch_force[2])
-            ss.winch_force[2] = y[i]
+            sys_state.winch_force[2] = y[i]
         elseif isequal(sym, sys.winch_force[3])
-            ss.winch_force[3] = y[i]
+            sys_state.winch_force[3] = y[i]
         elseif isequal(sym, sys.angle_of_attack[1])
-            ss.AoA = mod(y[i] + π, 2π) - π  # Wrap to [-π, π]
+            sys_state.AoA = mod(y[i] + π, 2π) - π  # Wrap to [-π, π]
         elseif isequal(sym, sys.elevation[1])
-            ss.elevation = y[i]
+            sys_state.elevation = y[i]
         elseif isequal(sym, sys.azimuth[1])
-            ss.azimuth = y[i]
+            sys_state.azimuth = y[i]
         elseif isequal(sym, sys.course[1])
-            ss.course = y[i]
+            sys_state.course = y[i]
         end
     end
-    ss.time = t
-    return ss
+    sys_state.time = t
+    return sys_state
 end

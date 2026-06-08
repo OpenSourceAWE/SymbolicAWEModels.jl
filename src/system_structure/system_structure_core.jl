@@ -251,7 +251,7 @@ function resolve_ref_spec(spec::Union{Int, Symbol}, name_dict::Dict{Symbol, Int6
 end
 
 function resolve_ref_spec(spec::AbstractVector, name_dict::Dict{Symbol, Int64}, component_type::String)
-    return Int64[resolve_ref(r, name_dict, component_type) for r in spec]
+    return Int64[resolve_ref(ref, name_dict, component_type) for ref in spec]
 end
 
 function resolve_ref_spec(::Nothing, ::Dict{Symbol, Int64}, ::String)
@@ -271,8 +271,8 @@ function resolve!(
 )
     isempty(ref_pt.refs) && return
     ref_pt.ids = Int64[
-        resolve_ref(r, name_dict, component_type)
-        for r in ref_pt.refs]
+        resolve_ref(ref, name_dict, component_type)
+        for ref in ref_pt.refs]
 end
 
 """
@@ -291,20 +291,20 @@ function expand_auto_tethers!(
     set::Settings
 )
     # Build point name lookup for finding start/end points
-    pt_names = Dict{Symbol, Int}()
-    for (i, p) in enumerate(points)
-        if !isnothing(p.name)
-            nm = p.name isa Symbol ? p.name : Symbol(p.name)
-            pt_names[nm] = i
+    point_names = Dict{Symbol, Int}()
+    for (i, point) in enumerate(points)
+        if !isnothing(point.name)
+            name = point.name isa Symbol ? point.name : Symbol(point.name)
+            point_names[name] = i
         end
     end
 
     # Build segment name set for checking existing segments
     seg_names = Set{Symbol}()
-    for s in segments
-        if !isnothing(s.name)
-            nm = s.name isa Symbol ? s.name : Symbol(s.name)
-            push!(seg_names, nm)
+    for segment in segments
+        if !isnothing(segment.name)
+            name = segment.name isa Symbol ? segment.name : Symbol(segment.name)
+            push!(seg_names, name)
         end
     end
 
@@ -319,55 +319,57 @@ function expand_auto_tethers!(
         first_seg_sym in seg_names && continue
 
         # Resolve start and end points by name
-        sp_sym = tether.start_point_ref isa Symbol ?
+        start_point_sym = tether.start_point_ref isa Symbol ?
             tether.start_point_ref :
             Symbol(tether.start_point_ref)
-        ep_sym = tether.end_point_ref isa Symbol ?
+        end_point_sym = tether.end_point_ref isa Symbol ?
             tether.end_point_ref :
             Symbol(tether.end_point_ref)
-        haskey(pt_names, sp_sym) || error(
+        haskey(point_names, start_point_sym) || error(
             "Tether $(tether.name): start_point " *
-            ":$sp_sym not found in points")
-        haskey(pt_names, ep_sym) || error(
+            ":$start_point_sym not found in points")
+        haskey(point_names, end_point_sym) || error(
             "Tether $(tether.name): end_point " *
-            ":$ep_sym not found in points")
-        sp_idx = pt_names[sp_sym]
-        ep_idx = pt_names[ep_sym]
-        start_pos = points[sp_idx].pos_cad
-        end_pos = points[ep_idx].pos_cad
+            ":$end_point_sym not found in points")
+        start_point_idx = point_names[start_point_sym]
+        end_point_idx = point_names[end_point_sym]
+        start_pos = points[start_point_idx].pos_cad
+        end_pos = points[end_point_idx].pos_cad
 
         # Inherit transform from endpoints
-        sp_tf = points[sp_idx].transform_ref
-        ep_tf = points[ep_idx].transform_ref
-        sp_has_tf = sp_tf != 0
-        ep_has_tf = ep_tf != 0
-        if sp_has_tf && ep_has_tf && sp_tf != ep_tf
+        start_transform = points[start_point_idx].transform_ref
+        end_transform = points[end_point_idx].transform_ref
+        start_has_transform = start_transform != 0
+        end_has_transform = end_transform != 0
+        if start_has_transform && end_has_transform &&
+           start_transform != end_transform
             error("Tether $(tether.name): " *
-                "start_point :$sp_sym (transform=" *
-                "$sp_tf) and end_point :$ep_sym " *
-                "(transform=$ep_tf) have different " *
+                "start_point :$start_point_sym (transform=" *
+                "$start_transform) and end_point :$end_point_sym " *
+                "(transform=$end_transform) have different " *
                 "transforms")
         end
-        tf = sp_has_tf ? sp_tf : ep_has_tf ? ep_tf : 0
+        transform_idx = start_has_transform ? start_transform :
+            end_has_transform ? end_transform : 0
 
         n = tether.n_segments
 
         # Derive segment properties from settings if NaN
-        us = tether.unit_stiffness
-        ud = tether.unit_damping
-        d = tether.diameter
-        if isnan(d)
-            d = set.d_tether * 0.001  # mm → m
+        unit_stiffness = tether.unit_stiffness
+        unit_damping = tether.unit_damping
+        diameter = tether.diameter
+        if isnan(diameter)
+            diameter = set.d_tether * 0.001  # mm → m
         end
-        if isnan(us)
-            us = set.e_tether * (d / 2)^2 * π
+        if isnan(unit_stiffness)
+            unit_stiffness = set.e_tether * (diameter / 2)^2 * π
         end
-        if isnan(ud)
+        if isnan(unit_damping)
             if hasproperty(set, :rel_damping) &&
                set.rel_damping != 0.0
-                ud = set.rel_damping * us
+                unit_damping = set.rel_damping * unit_stiffness
             else
-                ud = 0.0
+                unit_damping = 0.0
             end
         end
 
@@ -378,16 +380,16 @@ function expand_auto_tethers!(
 
         # Generate n-1 intermediate DYNAMIC points
         # (placed along the straight line at geometric spacing)
-        dir = end_pos - start_pos
+        direction = end_pos - start_pos
         for i in 1:(n - 1)
             frac = i / n
-            pos = start_pos + frac * dir
-            pt_name = Symbol("$(tether.name)_point_$i")
-            tf_kw = tf == 0 ? () :
-                (transform=tf,)
-            push!(points, Point(pt_name, pos,
-                DYNAMIC; tf_kw...))
-            pt_names[pt_name] = length(points)
+            pos = start_pos + frac * direction
+            point_name = Symbol("$(tether.name)_point_$i")
+            transform_kw = transform_idx == 0 ? () :
+                (transform=transform_idx,)
+            push!(points, Point(point_name, pos,
+                DYNAMIC; transform_kw...))
+            point_names[point_name] = length(points)
         end
 
         # Generate n segments
@@ -396,19 +398,20 @@ function expand_auto_tethers!(
             seg_sym = seg_name isa Symbol ? seg_name :
                 Symbol(seg_name)
             if i == 1
-                p_i = tether.start_point_ref
+                start_ref = tether.start_point_ref
             else
-                p_i = Symbol(
+                start_ref = Symbol(
                     "$(tether.name)_point_$(i - 1)")
             end
             if i == n
-                p_j = tether.end_point_ref
+                end_ref = tether.end_point_ref
             else
-                p_j = Symbol(
+                end_ref = Symbol(
                     "$(tether.name)_point_$i")
             end
             push!(segments, Segment(
-                seg_sym, p_i, p_j, us, ud, d;
+                seg_sym, start_ref, end_ref,
+                unit_stiffness, unit_damping, diameter;
                 l0=seg_l0))
             push!(seg_names, seg_sym)
         end
@@ -477,28 +480,28 @@ function assign_indices_and_resolve!(
 
     # Groups: resolve point_refs
     for group in groups
-        group.point_idxs = Int64[resolve_ref(r, point_names, "point") for r in group.point_refs]
+        group.point_idxs = Int64[resolve_ref(ref, point_names, "point") for ref in group.point_refs]
     end
 
     # Segments: resolve point_refs
     for segment in segments
-        p1 = resolve_ref(segment.point_refs[1], point_names, "point")
-        p2 = resolve_ref(segment.point_refs[2], point_names, "point")
-        segment.point_idxs = (p1, p2)
+        point1 = resolve_ref(segment.point_refs[1], point_names, "point")
+        point2 = resolve_ref(segment.point_refs[2], point_names, "point")
+        segment.point_idxs = (point1, point2)
     end
 
     # Pulleys: resolve segment_refs
     for pulley in pulleys
-        s1 = resolve_ref(pulley.segment_refs[1], segment_names, "segment")
-        s2 = resolve_ref(pulley.segment_refs[2], segment_names, "segment")
-        pulley.segment_idxs = (s1, s2)
+        segment1 = resolve_ref(pulley.segment_refs[1], segment_names, "segment")
+        segment2 = resolve_ref(pulley.segment_refs[2], segment_names, "segment")
+        pulley.segment_idxs = (segment1, segment2)
     end
 
     # Tethers: resolve segment_refs and start/end point refs
     for tether in tethers
         tether.segment_idxs = Int64[
-            resolve_ref(r, segment_names, "segment")
-            for r in tether.segment_refs]
+            resolve_ref(ref, segment_names, "segment")
+            for ref in tether.segment_refs]
         if !isnothing(tether.start_point_ref)
             tether.start_point_idx = resolve_ref(
                 tether.start_point_ref, point_names, "point")
@@ -512,8 +515,8 @@ function assign_indices_and_resolve!(
     # Winches: resolve tether_refs and winch_point_ref
     for winch in winches
         winch.tether_idxs = Int64[
-            resolve_ref(r, tether_names, "tether")
-            for r in winch.tether_refs]
+            resolve_ref(ref, tether_names, "tether")
+            for ref in winch.tether_refs]
         winch.winch_point_idx = resolve_ref(
             winch.winch_point_ref, point_names, "point")
     end
@@ -531,7 +534,7 @@ function assign_indices_and_resolve!(
     # Wings: resolve group_refs, transform_ref, and PARTICLE_DYNAMICS-specific refs
     for wing in wings
         # BaseWing fields
-        wing.group_idxs = Int64[resolve_ref(r, group_names, "group") for r in wing.group_refs]
+        wing.group_idxs = Int64[resolve_ref(ref, group_names, "group") for ref in wing.group_refs]
         wing.transform_idx = resolve_ref(wing.transform_ref, transform_names, "transform")
 
         # VSMWing-specific fields
@@ -557,21 +560,21 @@ function assign_indices_and_resolve!(
             # n_unrefined as proxy which may differ)
             if wing.dynamics_type == RIGID_DYNAMICS
                 n_grp = length(wing.group_idxs)
-                nx = 6 + n_grp
-                ny = 5 + n_grp
-                if length(wing.aero_x) != nx ||
-                        length(wing.aero_y) != ny
-                    wing.aero_y = zeros(SimFloat, ny)
-                    wing.aero_x = zeros(SimFloat, nx)
+                num_aero_outputs = 6 + n_grp
+                num_aero_inputs = 5 + n_grp
+                if length(wing.aero_x) != num_aero_outputs ||
+                        length(wing.aero_y) != num_aero_inputs
+                    wing.aero_y = zeros(SimFloat, num_aero_inputs)
+                    wing.aero_x = zeros(SimFloat, num_aero_outputs)
                     wing.aero_jac = zeros(
-                        SimFloat, nx, ny)
+                        SimFloat, num_aero_outputs, num_aero_inputs)
                 end
             end
         end
         if isa(wing, PlateWing)
-            for surf in wing.surfaces
-                surf.point_idx = resolve_ref(
-                    surf.point_ref, point_names, "point")
+            for surface in wing.surfaces
+                surface.point_idx = resolve_ref(
+                    surface.point_ref, point_names, "point")
             end
         end
     end
@@ -599,9 +602,9 @@ function init_body_frame_from_ref_points!(
 
     # Temporarily set pos_w = pos_cad so
     # calc_particle_dynamics_wing_frame can read positions
-    for p in points
-        p.type == WING && p.wing_idx == wing.idx &&
-            (p.pos_w .= p.pos_cad)
+    for point in points
+        point.type == WING && point.wing_idx == wing.idx &&
+            (point.pos_w .= point.pos_cad)
     end
     R_b_to_c, _ = calc_particle_dynamics_wing_frame(
         points, wing.z_ref_points,
@@ -610,9 +613,9 @@ function init_body_frame_from_ref_points!(
     wing.R_b_to_p .= Matrix{SimFloat}(I, 3, 3)
 
     if prn
-        o = round.(origin_pos; digits=3)
+        origin_rounded = round.(origin_pos; digits=3)
         @info "Wing $(wing.name) ($(typeof(wing).name.name))" *
-              ": origin=[$o]"
+              ": origin=[$origin_rounded]"
     end
 end
 
@@ -698,20 +701,20 @@ function compute_spatial_group_mapping!(
     end
 
     # Assign each unrefined section to nearest group
-    for s in 1:n_unrefined
+    for section_idx in 1:n_unrefined
         min_dist = Inf
         closest_local = 1
         for local_idx in 1:n_groups
-            d = norm(unrefined_centers[s] -
+            dist = norm(unrefined_centers[section_idx] -
                      group_centers[local_idx])
-            if d < min_dist
-                min_dist = d
+            if dist < min_dist
+                min_dist = dist
                 closest_local = local_idx
             end
         end
         g_idx = the_wing.base.group_idxs[closest_local]
         push!(groups[g_idx].unrefined_section_idxs,
-              Int64(s))
+              Int64(section_idx))
     end
 
     # Every group must claim at least one section
@@ -772,7 +775,7 @@ function SystemStructure(name, set;
         prn::Bool=true,
     )
     # Load VSMSettings if not provided and VSM wings exist
-    has_vsm_wings = any(w isa VSMWing for w in wings)
+    has_vsm_wings = any(wing isa VSMWing for wing in wings)
     if isnothing(vsm_set) && has_vsm_wings
         model_dir = get_data_path()
         vsm_set_path = joinpath(model_dir, "vsm_settings.yaml")
@@ -812,7 +815,7 @@ function SystemStructure(name, set;
 
     # If no wings defined, convert WING points to STATIC
     if isempty(wings)
-        wing_point_idxs = findall(p -> p.type == WING, points)
+        wing_point_idxs = findall(point -> point.type == WING, points)
         if !isempty(wing_point_idxs)
             @warn "No wings provided but " *
                   "$(length(wing_point_idxs)) WING type " *
@@ -867,11 +870,11 @@ function SystemStructure(name, set;
         end
     end
     for wing in wings
-        wing_point_idxs = [p.idx for p in points
-            if p.type == WING && p.wing_idx == wing.idx]
+        wing_point_idxs = [point.idx for point in points
+            if point.type == WING && point.wing_idx == wing.idx]
         point_mass_sum = sum(
-            p.extra_mass for p in points
-            if p.type == WING && p.wing_idx == wing.idx; init=0.0)
+            point.extra_mass for point in points
+            if point.type == WING && point.wing_idx == wing.idx; init=0.0)
         set_mass = hasproperty(set, :mass) ? set.mass : 0.0
 
         if set_mass > 0 && point_mass_sum > 0
@@ -906,12 +909,12 @@ function SystemStructure(name, set;
         vsm_wing = wing.vsm_wing
 
         if wing.dynamics_type == RIGID_DYNAMICS
-            wing_pts = [p for p in points
-                if p.type == WING &&
-                   p.wing_idx == wing.idx]
-            isempty(wing_pts) && continue
+            wing_points = [point for point in points
+                if point.type == WING &&
+                   point.wing_idx == wing.idx]
+            isempty(wing_points) && continue
 
-            masses = [p.extra_mass for p in wing_pts]
+            masses = [point.extra_mass for point in wing_points]
             total_m = sum(masses)
 
             # Mesh tensor is per-unit-mass; its COM is -T_cad_body.
@@ -920,15 +923,15 @@ function SystemStructure(name, set;
                 I_cad = wing.mass .* vsm_wing.inertia_tensor
             else
                 com_cad = total_m > 0 ?
-                    sum(masses[j] .* wing_pts[j].pos_cad
-                        for j in eachindex(wing_pts)) / total_m :
-                    mean([p.pos_cad for p in wing_pts])
+                    sum(masses[j] .* wing_points[j].pos_cad
+                        for j in eachindex(wing_points)) / total_m :
+                    mean([point.pos_cad for point in wing_points])
                 I_cad = nothing
                 if total_m > 0
                     I_cad = zeros(3, 3)
-                    for (m, p) in zip(masses, wing_pts)
-                        r = p.pos_cad - com_cad
-                        I_cad += m * (dot(r, r) * I(3) - r * r')
+                    for (mass, point) in zip(masses, wing_points)
+                        r = point.pos_cad - com_cad
+                        I_cad += mass * (dot(r, r) * I(3) - r * r')
                     end
                 end
             end
@@ -947,10 +950,10 @@ function SystemStructure(name, set;
                 wing.pos_cad .= origin_cad
 
                 # Temporarily set pos_w = pos_cad
-                for p in points
-                    p.type == WING &&
-                        p.wing_idx == wing.idx &&
-                        (p.pos_w .= p.pos_cad)
+                for point in points
+                    point.type == WING &&
+                        point.wing_idx == wing.idx &&
+                        (point.pos_w .= point.pos_cad)
                 end
                 R_b_to_c, _ = calc_particle_dynamics_wing_frame(
                     points, wing.z_ref_points,
@@ -986,12 +989,12 @@ function SystemStructure(name, set;
             if prn
                 I_rnd = round.(wing.inertia_principal;
                                digits=4)
-                off = round.(wing.com_offset_b;
+                offset_rounded = round.(wing.com_offset_b;
                              digits=4)
                 @info "RIGID_DYNAMICS wing $(wing.idx):" *
                     " COM=[$(round.(com_cad; digits=3))]" *
                     ", I=$I_rnd" *
-                    ", com_offset_b=$off"
+                    ", com_offset_b=$offset_rounded"
             end
 
         elseif wing.dynamics_type == PARTICLE_DYNAMICS
@@ -1027,7 +1030,7 @@ function SystemStructure(name, set;
            wing.aero_mode != AERO_NONE
             # Get WING-type points for this wing
             wing_point_idxs = findall(
-                p -> p.type == WING && p.wing_idx == wing.idx, points)
+                point -> point.type == WING && point.wing_idx == wing.idx, points)
             wing_points = [points[idx] for idx in wing_point_idxs]
 
             # Identify LE/TE pairs
@@ -1060,11 +1063,11 @@ function SystemStructure(name, set;
 
             # Resize aero arrays for new group count
             n_groups = length(new_group_idxs)
-            nx = 6 + n_groups
-            ny = 5 + n_groups
-            wing.aero_y = zeros(SimFloat, ny)
-            wing.aero_x = zeros(SimFloat, nx)
-            wing.aero_jac = zeros(SimFloat, nx, ny)
+            num_aero_outputs = 6 + n_groups
+            num_aero_inputs = 5 + n_groups
+            wing.aero_y = zeros(SimFloat, num_aero_inputs)
+            wing.aero_x = zeros(SimFloat, num_aero_outputs)
+            wing.aero_jac = zeros(SimFloat, num_aero_outputs, num_aero_inputs)
 
             prn && @info "Auto-created $(length(new_group_idxs)) groups " *
                   "for RIGID_DYNAMICS wing $(wing.idx)"
@@ -1115,20 +1118,20 @@ function SystemStructure(name, set;
             n_sec = length(sections)
             ksec = argmin([
                 norm(center -
-                    (Vector(s.LE_point) +
-                     Vector(s.TE_point)) / 2)
-                for s in sections])
+                    (Vector(section.LE_point) +
+                     Vector(section.TE_point)) / 2)
+                for section in sections])
             le_sec = Vector(sections[ksec].LE_point)
             te_sec = Vector(sections[ksec].TE_point)
-            ly = zeros(3)
-            ksec > 1 && (ly += normalize(
+            span_dir = zeros(3)
+            ksec > 1 && (span_dir += normalize(
                 Vector(sections[ksec - 1].LE_point) - le_sec))
-            ksec < n_sec && (ly += normalize(
+            ksec < n_sec && (span_dir += normalize(
                 le_sec - Vector(sections[ksec + 1].LE_point)))
 
             group.le_pos .= le_sec
             group.chord .= te_sec - le_sec
-            group.y_airf .= normalize(ly)
+            group.y_airf .= normalize(span_dir)
             break
         end
     end
@@ -1152,7 +1155,7 @@ function SystemStructure(name, set;
             if isnothing(wing.point_to_vsm_point)
                 # Get WING-type points for this wing
                 wing_point_idxs = findall(
-                    p -> p.type == WING && p.wing_idx == wing.idx, points)
+                    point -> point.type == WING && point.wing_idx == wing.idx, points)
                 wing_points = [points[idx]
                     for idx in wing_point_idxs]
                 wing.point_to_vsm_point =
@@ -1197,15 +1200,15 @@ function SystemStructure(name, set;
         # Use number of unrefined sections
         first_wing = wings[1]
         n_unrefined = first_wing isa VSMWing ? first_wing.vsm_wing.n_unrefined_sections : 0
-        ny = 3 + n_unrefined + 3
-        nx = 3 + 3 + n_unrefined
+        num_aero_inputs = 3 + n_unrefined + 3
+        num_aero_outputs = 3 + 3 + n_unrefined
     else
-        ny = 0
-        nx = 0
+        num_aero_inputs = 0
+        num_aero_outputs = 0
     end
-    y = zeros(length(wings), ny)
-    x = zeros(length(wings), nx)
-    jac = zeros(length(wings), nx, ny)
+    y = zeros(length(wings), num_aero_inputs)
+    x = zeros(length(wings), num_aero_outputs)
+    jac = zeros(length(wings), num_aero_outputs, num_aero_inputs)
     set.physical_model = name
 
     # Name dictionaries were already built by assign_indices_and_resolve!
@@ -1224,9 +1227,9 @@ function SystemStructure(name, set;
     # Recalculate segment rest lengths from current positions if requested
     if ignore_l0
         for segment in sys_struct.segments
-            p1 = sys_struct.points[segment.point_idxs[1]]
-            p2 = sys_struct.points[segment.point_idxs[2]]
-            segment.l0 = norm(p2.pos_w - p1.pos_w)
+            point1 = sys_struct.points[segment.point_idxs[1]]
+            point2 = sys_struct.points[segment.point_idxs[2]]
+            segment.l0 = norm(point2.pos_w - point1.pos_w)
         end
     end
 
