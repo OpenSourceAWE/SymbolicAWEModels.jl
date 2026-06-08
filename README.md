@@ -267,8 +267,6 @@ plotting.
 - [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true)
   — scientific background for winches and tethers
 
-![Julia Kite Power Tools](docs/src/kite_power_tools.png)
-
 ---
 
 ## Questions?
