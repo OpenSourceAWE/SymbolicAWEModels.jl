@@ -67,6 +67,7 @@ SymbolicAWEModels.load_serialized_model!
 SymbolicAWEModels.maybe_create_lin_prob!
 SymbolicAWEModels.maybe_create_control_functions!
 SymbolicAWEModels.maybe_create_prob!
+SymbolicAWEModels.has_custom_component
 SymbolicAWEModels.generate_control_funcs
 SymbolicAWEModels.generate_lin_getters
 SymbolicAWEModels.generate_prob_getters

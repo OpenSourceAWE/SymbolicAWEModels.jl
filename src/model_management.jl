@@ -1,6 +1,13 @@
 # Copyright (c) 2025 Bart van de Lint and Uwe Fechner
 # SPDX-License-Identifier: LGPL-3.0-only
 
+function make_psys_setter(sys)
+    psys_params = filter(p -> endswith(string(p), "psys"), parameters(sys))
+    setter = setp(sys, psys_params)
+    n = length(psys_params)
+    return (prob, ss) -> setter(prob, ntuple(_ -> ss, n))
+end
+
 """
     generate_prob_getters(sys_struct, sys)
 
@@ -16,13 +23,6 @@ of the compiled `ODESystem` (`sys`).
 # Returns
 - A `NamedTuple` containing various getter and setter functions for different parts of the system state.
 """
-function make_psys_setter(sys)
-    psys_params = filter(p -> endswith(string(p), "psys"), parameters(sys))
-    setter = setp(sys, psys_params)
-    n = length(psys_params)
-    return (prob, ss) -> setter(prob, ntuple(_ -> ss, n))
-end
-
 function generate_prob_getters(sys_struct, sys)
     c = collect
     (; wings, groups, pulleys, winches, tethers, segments) = sys_struct
@@ -297,6 +297,13 @@ function maybe_create_control_functions!(sam, outputs; create_control_func=false
     return false
 end
 
+"""
+    has_custom_component(sys_struct)
+
+Return `true` when the system has a non-default winch model or a wing using
+`AERO_CUSTOM`, in which case the compiled model cannot be reused from cache and
+must be rebuilt.
+"""
 function has_custom_component(sys_struct)
     any(w.model !== default_winch_component
         for w in sys_struct.winches) && return true
