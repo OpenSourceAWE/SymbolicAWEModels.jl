@@ -683,7 +683,7 @@ function compute_spatial_group_mapping!(
             center / length(group.point_idxs)
     end
 
-    # Compute unrefined section centers
+    offset_vec = [0.0, 0.0, the_wing.aero_z_offset]
     unrefined_centers = Vector{MVec3}(
         undef, n_unrefined)
     for i in 1:n_unrefined
@@ -692,7 +692,7 @@ function compute_spatial_group_mapping!(
         te_point =
             the_vsm_wing.unrefined_sections[i].TE_point
         unrefined_centers[i] =
-            (le_point + te_point) / 2
+            (le_point + te_point) / 2 .- offset_vec
     end
 
     # Reset section lists (we rebuild the partition)
@@ -1027,7 +1027,7 @@ function SystemStructure(name, set;
         if wing isa VSMWing &&
            wing.dynamics_type == RIGID_DYNAMICS &&
            isempty(wing.group_idxs) &&
-           wing.aero_mode != AERO_NONE
+           !(wing.aero isa AeroNone)
             # Get WING-type points for this wing
             wing_point_idxs = findall(
                 point -> point.type == WING && point.wing_idx == wing.idx, points)
@@ -1079,7 +1079,7 @@ function SystemStructure(name, set;
     # identify_wing_segments can use groups).
     for wing in wings
         isa(wing, VSMWing) || continue
-        wing.aero_mode == AERO_NONE && continue
+        wing.aero isa AeroNone && continue
         match_aero_sections_to_structure!(
             wing, points; groups=groups)
     end
@@ -1116,10 +1116,12 @@ function SystemStructure(name, set;
 
             sections = wing.vsm_wing.refined_sections
             n_sec = length(sections)
+            offset_vec = [0.0, 0.0, wing.aero_z_offset]
             ksec = argmin([
                 norm(center -
-                    (Vector(section.LE_point) +
-                     Vector(section.TE_point)) / 2)
+                    ((Vector(section.LE_point) +
+                      Vector(section.TE_point)) / 2 .-
+                     offset_vec))
                 for section in sections])
             le_sec = Vector(sections[ksec].LE_point)
             te_sec = Vector(sections[ksec].TE_point)

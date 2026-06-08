@@ -61,9 +61,9 @@ function update_vsm!(sam::SymbolicAWEModel,
 
     for wing in wings
         wing.dynamics_type != RIGID_DYNAMICS && continue
-        wing.aero_mode == AERO_NONE && continue
+        wing.aero isa AeroNone && continue
         if norm(wing.va_b) < vsm_min_wind &&
-                wing.aero_mode == AERO_DIRECT
+                wing.aero isa AeroDirect
             fill!(wing.aero_x, 0.0)
             fill!(wing.aero_jac, 0.0)
             fill!(wing.aero_force_b, 0.0)
@@ -86,11 +86,11 @@ function update_vsm!(sam::SymbolicAWEModel,
         for wing in wings
             wing isa VSMWing || continue
             wing.dynamics_type != PARTICLE_DYNAMICS && continue
-            wing.aero_mode == AERO_NONE && continue
+            wing.aero isa AeroNone && continue
 
-            if wing.aero_mode == AERO_LINEARIZED
+            if wing.aero isa AeroLinearized
                 error(
-                    "PARTICLE_DYNAMICS + AERO_LINEARIZED " *
+                    "PARTICLE_DYNAMICS + AeroLinearized " *
                     "not yet implemented")
             end
 
@@ -347,13 +347,13 @@ function _update_rigid_dynamics_wing!(wing, am, groups;
         groups[gidx].aero_moment = wing.aero_x[6 + group_index]
     end
 
-    if wing.aero_mode == AERO_LINEARIZED
+    if wing.aero isa AeroLinearized
         gamma0 = copy(wing.vsm_solver.sol.gamma_distribution)
         f_dual = y -> _vsm_aero_coeffs(wing, y, va_mag,
             n_unrefined, n_groups, group_idxs, groups,
             moment_frac, shadow_ref; gamma_init=gamma0)
         ForwardDiff.jacobian!(wing.aero_jac, f_dual, y0)
-    elseif wing.aero_mode == AERO_DIRECT
+    elseif wing.aero isa AeroDirect
         _apply_direct_forces!(wing, am, wing.aero_x)
     end
     return nothing
@@ -363,7 +363,7 @@ end
 function _apply_direct_forces!(wing, am, x0)
     va_b = wing.va_b
     if any(!isfinite, x0) || any(!isfinite, va_b)
-        throw(AssertionError("AERO_DIRECT: non-finite input on wing $(wing.idx)"))
+        throw(AssertionError("AeroDirect: non-finite input on wing $(wing.idx)"))
     end
     va_sq = dot(va_b, va_b)
     rho = calc_rho(am, wing.pos_w[3])

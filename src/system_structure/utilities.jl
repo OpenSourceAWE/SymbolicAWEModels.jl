@@ -145,7 +145,7 @@ function validate_sys_struct(sys_struct::SystemStructure)
             # Warn if RIGID_DYNAMICS wing has no groups
             # (expected for AERO_NONE which skips auto-group creation)
             if isempty(wing.group_idxs) &&
-               wing.aero_mode != AERO_NONE
+               !(wing.aero isa AeroNone)
                 @warn "Wing $(wing.name) (RIGID_DYNAMICS)" *
                     " has no groups"
             end

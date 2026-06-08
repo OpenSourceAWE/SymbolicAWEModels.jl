@@ -43,8 +43,7 @@ acc       = ifelse(brake > 0.5, 0, drum_radius / gear_ratio * α_motor)
 """
 function default_winch_component(sys_struct::SystemStructure,
                                  winch_idx::Int; name)
-    SST = typeof(sys_struct)
-    @parameters (psys::SST = sys_struct), [tunable = false]
+    psys = system_struct_param(sys_struct)
     @variables begin
         vel(t)
         len(t)

@@ -75,7 +75,8 @@ export NameRef, NamedCollection, WeightedRefPoints
 export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
-export AeroMode, AERO_NONE, AERO_DIRECT, AERO_LINEARIZED, AERO_PLATE
+export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate
+export aero_component
 
 # --- High-Level Simulation Functions (Workers) ---
 export sim!, sim_reposition!

@@ -38,7 +38,7 @@ sys = load_sys_struct_from_yaml(struc_yaml;
     system_name=MODEL_NAME, set, vsm_set)
 sys.winches[:main_winch].brake = true
 for wing in sys.wings
-    wing.aero_mode = AERO_LINEARIZED
+    wing.aero = AeroLinearized()
 end
 sam = SymbolicAWEModel(set, sys)
 l0_left = sam.sys_struct.segments[:kcu_steering_left].l0

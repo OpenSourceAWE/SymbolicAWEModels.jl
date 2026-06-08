@@ -3,9 +3,9 @@
 
 # Aero coupling components (winch-style swappable subsystems).
 #
-# A wing carries an `aero_model` builder selected by `aero_mode`
-# (see `resolve_aero_model`). Each builder returns a `System` whose
-# connectors are fixed by the wing's `dynamics_type`:
+# A wing carries an `aero::AbstractAeroModel`; `aero_component(mode, …)` is
+# dispatched on its type and returns a `System` whose connectors are fixed by
+# the wing's `dynamics_type`:
 #
 #   RIGID_DYNAMICS (num_groups = length(wing.group_idxs)):
 #     inputs:  va[1:3], rho, R_b_w[1:3,1:3], omega[1:3],
@@ -74,11 +74,22 @@ function _wing_points(sys_struct, wing)
             if point.type == WING && point.wing_idx == wing.idx]
 end
 
+# ==================== dispatch ==================== #
+
+"""
+    aero_component(mode::AbstractAeroModel, sys_struct, wing_idx; name) -> System
+
+Build the aero subsystem for `sys_struct.wings[wing_idx]`, selected by dispatch
+on the wing's `aero` model. Returns a `System` exposing the connectors fixed by
+the wing's `dynamics_type` (see this file's header). Add a method on a custom
+`AbstractAeroModel` subtype to plug in your own aerodynamics.
+"""
+function aero_component end
+
 # ==================== NoAero ==================== #
 
-function default_aero_none(sys_struct, wing_idx; name)
-    SST = typeof(sys_struct)
-    @parameters (psys::SST = sys_struct), [tunable = false]
+function aero_component(::AeroNone, sys_struct, wing_idx; name)
+    psys = system_struct_param(sys_struct)
     wing = sys_struct.wings[wing_idx]
 
     if wing.dynamics_type == PARTICLE_DYNAMICS
@@ -98,11 +109,10 @@ function default_aero_none(sys_struct, wing_idx; name)
     end
 end
 
-# ==================== DiscreteAero (AERO_DIRECT) ==================== #
+# ==================== DiscreteAero (AeroDirect) ==================== #
 
-function default_aero_direct(sys_struct, wing_idx; name)
-    SST = typeof(sys_struct)
-    @parameters (psys::SST = sys_struct), [tunable = false]
+function aero_component(::AeroDirect, sys_struct, wing_idx; name)
+    psys = system_struct_param(sys_struct)
     wing = sys_struct.wings[wing_idx]
 
     if wing.dynamics_type == PARTICLE_DYNAMICS
@@ -138,16 +148,15 @@ end
 
 # ==================== LinearizedAero ==================== #
 
-function default_aero_linearized(sys_struct, wing_idx; name)
-    SST = typeof(sys_struct)
-    @parameters (psys::SST = sys_struct), [tunable = false]
+function aero_component(::AeroLinearized, sys_struct, wing_idx; name)
+    psys = system_struct_param(sys_struct)
     wing = sys_struct.wings[wing_idx]
 
     wing.dynamics_type == PARTICLE_DYNAMICS && error(
-        "AERO_LINEARIZED is not supported for PARTICLE_DYNAMICS " *
-        "wings (wing $wing_idx); use AERO_DIRECT or a custom model.")
+        "AeroLinearized is not supported for PARTICLE_DYNAMICS " *
+        "wings (wing $wing_idx); use AeroDirect or a custom model.")
     wing isa VSMWing || error(
-        "AERO_LINEARIZED wing $wing_idx is not a VSMWing.")
+        "AeroLinearized wing $wing_idx is not a VSMWing.")
 
     groups = sys_struct.groups
     num_groups = length(wing.group_idxs)
@@ -204,7 +213,7 @@ end
 
 # ==================== PlateAero (not via component path) ==================== #
 
-default_aero_plate(sys_struct, wing_idx; name) = error(
+aero_component(::AeroPlate, sys_struct, wing_idx; name) = error(
     "PlateWing aerodynamics use plate_eqs!, not the aero component path.")
 
 # ==================== validation ==================== #

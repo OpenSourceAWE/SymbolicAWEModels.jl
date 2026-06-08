@@ -54,14 +54,14 @@ function generate_prob_getters(sys_struct, sys)
         # aero_input only exists for RIGID_DYNAMICS + AERO_LINEARIZED wings
         has_linearized = any(
             wing.dynamics_type === RIGID_DYNAMICS &&
-            wing.aero_mode === AERO_LINEARIZED
+            wing.aero isa AeroLinearized
             for wing in sys_struct.wings)
         if has_linearized
             aero_inputs = [
                 getproperty(sys, Symbol("aero_$(wing.idx)")).aero_input
                 for wing in sys_struct.wings
                 if wing.dynamics_type === RIGID_DYNAMICS &&
-                   wing.aero_mode === AERO_LINEARIZED]
+                   wing.aero isa AeroLinearized]
             get_aero_input = getu(sys, collect_each.(aero_inputs))
         else
             get_aero_input = nothing
@@ -302,14 +302,14 @@ end
 """
     has_custom_component(sys_struct)
 
-Return `true` when the system has a non-default winch model or a wing using
-`AERO_CUSTOM`, in which case the compiled model cannot be reused from cache and
-must be rebuilt.
+Return `true` when the system has a non-default winch model or a wing using a
+custom aero model, in which case the compiled model cannot be reused from cache
+and must be rebuilt.
 """
 function has_custom_component(sys_struct)
     any(winch.model !== default_winch_component
         for winch in sys_struct.winches) && return true
-    any(wing.aero_mode == AERO_CUSTOM
+    any(!is_builtin_aero(wing.aero)
         for wing in sys_struct.wings) && return true
     return false
 end
@@ -569,8 +569,8 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
     for wing in wings
         wing_data = ("wing", wing.idx, wing.group_idxs,
                      Int(wing.dynamics_type),
-                     Int(wing.aero_mode),
-                     nameof(wing.aero_model))
+                     nameof(typeof(wing.aero)),
+                     aero_hash_id(wing.aero))
 
         # Include wing reference points in hash
         if wing isa VSMWing || wing isa PlateWing

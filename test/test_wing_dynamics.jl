@@ -190,14 +190,14 @@ end
         yaml_path;
         system_name="wing_freefall",
         set, vsm_set,
-        aero_mode=AERO_NONE
+        aero_mode=AeroNone()
     )
 
     @testset "Model setup" begin
         @test length(sys.wings) == 1
         wing = sys.wings[:main_wing]
         @test wing.dynamics_type == SymbolicAWEModels.RIGID_DYNAMICS
-        @test wing.aero_mode == AERO_NONE
+        @test wing.aero isa AeroNone
         @test wing.mass ≈ 3.0  # 6 points * 0.5 kg
         @test length(sys.segments) == 0
     end

@@ -4,11 +4,11 @@
 # Aero coupling wiring (winch-style).
 #
 # Each non-plate wing's aerodynamics is a swappable subsystem built by
-# `wing.aero_model` (see aero_components.jl). This layer instantiates
-# the component, validates its connector contract, drives the body-frame
-# inputs, and reads the outputs back into the wing's aero variables.
-# All built-in modes (AERO_NONE / AERO_DIRECT / AERO_LINEARIZED) and any
-# AERO_CUSTOM model go through the same wiring.
+# `aero_component(wing.aero, …)` (see aero_components.jl). This layer
+# instantiates the component, validates its connector contract, drives the
+# body-frame inputs, and reads the outputs back into the wing's aero variables.
+# All built-in models (AeroNone / AeroDirect / AeroLinearized) and any custom
+# AbstractAeroModel go through the same wiring.
 
 """
     vsm_eqs!(s, eqs, guesses, psys; kwargs...)
@@ -31,8 +31,8 @@ function vsm_eqs!(
         wing isa PlateWing && continue   # handled by plate_eqs!
 
         wing_idx = wing.idx
-        subsys = wing.aero_model(s.sys_struct, wing_idx;
-                                 name = Symbol("aero_$(wing_idx)"))
+        subsys = aero_component(wing.aero, s.sys_struct, wing_idx;
+                                name = Symbol("aero_$(wing_idx)"))
         validate_aero_component(subsys, wing)
         push!(aero_subsystems, subsys)
 

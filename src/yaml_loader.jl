@@ -300,12 +300,12 @@ function parse_wing_type(text::String)
 end
 
 function parse_aero_mode(text::String)
-    text_upper = uppercase(text)
-    text_upper == "AERO_NONE" && return AERO_NONE
-    text_upper == "AERO_DIRECT" && return AERO_DIRECT
-    text_upper == "AERO_LINEARIZED" && return AERO_LINEARIZED
-    text_upper == "AERO_PLATE" && return AERO_PLATE
-    error("Unknown AeroMode: $text")
+    key = lowercase(replace(text, "_" => ""))
+    key in ("aeronone", "none") && return AeroNone()
+    key in ("aerodirect", "direct") && return AeroDirect()
+    key in ("aerolinearized", "linearized") && return AeroLinearized()
+    key in ("aeroplate", "plate") && return AeroPlate()
+    error("Unknown aero model: $text")
 end
 
 """
@@ -422,7 +422,7 @@ end
 Build a `SystemStructure` from a component-based structural
 YAML file. See source for full documentation of expected blocks.
 """
-function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, dynamics_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AeroMode}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing, wing_type::Union{Nothing,WingType}=nothing)
+function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, dynamics_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AbstractAeroModel}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing, wing_type::Union{Nothing,WingType}=nothing)
     if !isnothing(wing_type)
         if !isnothing(dynamics_type)
             error("Cannot specify both `wing_type` and `dynamics_type`; `wing_type` is deprecated, use `dynamics_type`.")
@@ -814,11 +814,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     !isnothing(row.aero_mode)
                 parse_aero_mode(String(row.aero_mode))
             else
-                resolved_wing_type == RIGID_DYNAMICS ? AERO_LINEARIZED :
-                    AERO_DIRECT
+                resolved_wing_type == RIGID_DYNAMICS ? AeroLinearized() :
+                    AeroDirect()
             end
 
-            if resolved_aero_mode == AERO_PLATE
+            if resolved_aero_mode isa AeroPlate
                 # PlateWing — load surfaces and CL/CD from settings
                 wing = _load_plate_wing(row, i, data,
                     resolved_set, resolved_wing_type, resolved_aero_mode,
@@ -841,7 +841,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 wing = call_yaml_constructor(VSMWing, row,
                     [:name, :set, :groups, :vsm_set],
                     [:transform, :y_damping, :angular_damping,
-                     :dynamics_type, :aero_mode,
+                     :dynamics_type, :aero,
                      :z_ref_points, :y_ref_points, :origin, :pos_cad,
                      :aero_scale_chord];
                     mappings=Dict(
@@ -851,7 +851,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                             [yaml_to_ref(group_ref) for group_ref in row.groups] : [],
                         :vsm_set => row -> vsm_set,
                         :dynamics_type => row -> resolved_wing_type,
-                        :aero_mode => row -> resolved_aero_mode,
+                        :aero => row -> resolved_aero_mode,
                         :name => row -> begin
                             if haskey(row, :name) && !isnothing(row.name)
                                 Symbol(row.name)
@@ -886,12 +886,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 wing = call_yaml_constructor(VSMWing, row,
                     [:name, :set, :groups, :vsm_set],
                     [:transform, :y_damping, :angular_damping,
-                     :dynamics_type, :aero_mode, :aero_scale_chord,
+                     :dynamics_type, :aero, :aero_scale_chord,
                      :aero_z_offset, :pos_cad,
                      :z_ref_points, :y_ref_points, :origin];
                     mappings=Dict(
                         :set => row -> resolved_set,
-                        :aero_mode => row -> resolved_aero_mode,
+                        :aero => row -> resolved_aero_mode,
                         :groups => row -> hasfield(typeof(row), :groups) &&
                             !isnothing(row.groups) ?
                             [yaml_to_ref(group_ref) for group_ref in row.groups] : [],

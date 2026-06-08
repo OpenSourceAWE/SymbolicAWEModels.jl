@@ -3,6 +3,11 @@
 
 # Helper functions for symbolic equation generation
 
+function system_struct_param(sys_struct)
+    SST = typeof(sys_struct)
+    return only(@parameters (psys::SST = sys_struct), [tunable = false])
+end
+
 """
     calc_angle_of_attack(va_wing_b)
 

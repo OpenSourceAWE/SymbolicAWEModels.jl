@@ -17,7 +17,19 @@ See [Building a system using Julia](tutorial_julia.md) and
 ```@docs
 DynamicsType
 WingType
-AeroMode
+```
+
+## Aerodynamic models
+
+```@docs
+AbstractAeroModel
+AeroNone
+AeroDirect
+AeroLinearized
+AeroPlate
+aero_component
+is_builtin_aero
+aero_hash_id
 ```
 
 ## Core model type

@@ -239,7 +239,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     # Build plate aerodynamic equations for PlateWings
     for wing in wings
         wing isa PlateWing || continue
-        wing.aero_mode == AERO_NONE && continue
+        wing.aero isa AeroNone && continue
         eqs = plate_eqs!(s, eqs, psys, wing;
             R_b_to_w, aero_force_b, aero_moment_b,
             aero_force_point_b, pos, vel, com_w,

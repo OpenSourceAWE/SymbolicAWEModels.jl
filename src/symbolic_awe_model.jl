@@ -678,14 +678,14 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
         "mixed"
     end
 
-    aero_modes = [wing.aero_mode for wing in sys_struct.wings]
+    aero_modes = [wing.aero for wing in sys_struct.wings]
     aero_mode_str = if isempty(aero_modes)
         ""
-    elseif all(m -> m === AERO_LINEARIZED, aero_modes)
+    elseif all(m -> m isa AeroLinearized, aero_modes)
         "lin"
-    elseif all(m -> m === AERO_DIRECT, aero_modes)
+    elseif all(m -> m isa AeroDirect, aero_modes)
         "dir"
-    elseif all(m -> m === AERO_NONE, aero_modes)
+    elseif all(m -> m isa AeroNone, aero_modes)
         "none"
     else
         "mixed_aero_modes"

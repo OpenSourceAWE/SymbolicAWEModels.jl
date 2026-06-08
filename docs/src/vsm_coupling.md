@@ -4,7 +4,7 @@ This document explains how SymbolicAWEModels couples with the
 Vortex Step Method (VSM) for aerodynamic force computation. The
 coupling is configured by two orthogonal choices:
 [`WingType`](@ref) (structural representation) and
-[`AeroMode`](@ref) (force computation strategy).
+[`AbstractAeroModel`](@ref) (force computation strategy).
 
 ## Overview
 
@@ -134,7 +134,7 @@ DOF.
 
 ## Aero modes
 
-[`AeroMode`](@ref) controls **how aerodynamic forces enter the
+[`AbstractAeroModel`](@ref) controls **how aerodynamic forces enter the
 ODE system** — orthogonal to the wing type choice.
 
 ### AERO_DIRECT
@@ -192,30 +192,35 @@ without aerodynamic coupling.
 
 ### Compatibility
 
-| Wing type | Default aero mode | Supported modes |
-|-----------|-------------------|-----------------|
-| **RIGID_DYNAMICS** | `AERO_LINEARIZED` | `AERO_LINEARIZED`, `AERO_DIRECT`, `AERO_NONE` |
-| **PARTICLE_DYNAMICS** | `AERO_DIRECT` | `AERO_DIRECT`, `AERO_NONE` |
+| Wing type | Default aero model | Supported models |
+|-----------|--------------------|------------------|
+| **RIGID_DYNAMICS** | `AeroLinearized()` | `AeroLinearized`, `AeroDirect`, `AeroNone` |
+| **PARTICLE_DYNAMICS** | `AeroDirect()` | `AeroDirect`, `AeroNone` |
 
-`PARTICLE_DYNAMICS` + `AERO_LINEARIZED` is not yet implemented (raises an
+`PARTICLE_DYNAMICS` + `AeroLinearized` is not yet implemented (raises an
 error during model build).
 
-## Swappable aero components (`AERO_CUSTOM`)
+## Swappable aero components (dispatch)
 
-Each wing carries an `aero_model` builder, exactly like a winch's
-[`Winch`](@ref) `model` field. The built-in `aero_mode`s select a default
-builder (`default_aero_none` / `default_aero_direct` /
-`default_aero_linearized`); to plug in your own aerodynamics, pass a builder
-and set `aero_mode = AERO_CUSTOM`:
+Each wing carries an `aero::AbstractAeroModel` field. The builder is selected
+by dispatch on its type, [`aero_component`](@ref)`(mode, sys_struct, wing_idx;
+name)`, returning a `System` exactly like a winch's [`Winch`](@ref) `model`.
+The built-in subtypes [`AeroNone`](@ref), [`AeroDirect`](@ref),
+[`AeroLinearized`](@ref) ship their own methods. To plug in your own
+aerodynamics, subtype `AbstractAeroModel` and add a method:
 
 ```julia
-VSMWing(name, set, groups, vsm_set;
-        aero_mode = AERO_CUSTOM, aero_model = my_aero_builder)
+struct MyAero <: AbstractAeroModel end
+
+function SymbolicAWEModels.aero_component(::MyAero, sys_struct, wing_idx; name)
+    # ... build and return a System with the connectors below ...
+end
+
+VSMWing(name, set, groups, vsm_set; aero = MyAero())
 ```
 
-The builder has the signature `my_aero_builder(sys_struct, wing_idx; name)`
-and returns a `System` whose connectors are fixed by the wing's
-`dynamics_type` (all quantities in the wing **body frame**):
+The returned `System`'s connectors are fixed by the wing's `dynamics_type`
+(all quantities in the wing **body frame**):
 
 - **`RIGID_DYNAMICS`** (`ng = length(wing.group_idxs)`):
   - inputs: `va[1:3]`, `rho`, `R_b_w[1:3,1:3]`, `omega[1:3]`,
@@ -230,9 +235,45 @@ flattened by `mtkcompile`, so its connectors become inlined unknowns (no
 array crosses a registered-function boundary). `validate_aero_component`
 checks the contract at build time.
 
-Custom builder equations are **not captured by the model hash**, so `init!`
-defaults to `remake=true` whenever a custom winch/aero component is present
-(via `has_custom_component`).
+A custom model returns `false` from [`is_builtin_aero`](@ref) by default, so
+its equations bypass the compiled-model cache and `init!` rebuilds (via
+`has_custom_component`). Structural fields that change the *generated
+equations* must be reported by [`aero_hash_id`](@ref); runtime-mutable fields
+must not (they are read live, see below).
+
+### Live-updating fields
+
+Dispatch alone does **not** make a mode's fields update live — a registered
+getter that reads the live `SystemStructure` does. Put the mutable value on the
+mode struct and read it through a registered scalar getter:
+
+```julia
+mutable struct ConstantLiftAero <: AbstractAeroModel
+    CL::Float64                       # live-tunable
+end
+
+get_const_cl(sys::SystemStructure, w::Int) = sys.wings[w].aero.CL
+@register_symbolic get_const_cl(sys::SystemStructure, w::Int)
+
+function SymbolicAWEModels.aero_component(::ConstantLiftAero,
+                                          sys_struct, wing_idx; name)
+    SST = typeof(sys_struct)
+    @parameters (psys::SST = sys_struct), [tunable = false]
+    # ... use get_const_cl(psys, wing_idx) in the force equation ...
+end
+```
+
+Mutate the field between steps — no `remake`, read at the next RHS evaluation:
+
+```julia
+sam.sys_struct.wings[1].aero.CL = 0.8
+```
+
+Only **numeric field values** update live. A field that changes the equation
+*structure* is a compile-time change (`init!(sam; remake=true)`) and belongs in
+`aero_hash_id`. A vector-valued getter must use `@register_array_symbolic` with
+an explicit `ndims`, and must return a **stored** field (never a freshly built
+array) to stay allocation-free.
 
 !!! note "Zero-allocation RHS"
     The built-in modes generate an allocation-free ODE RHS (asserted by
@@ -319,7 +360,7 @@ The mapping enables:
 - `src/vsm_refine.jl`: Aero-to-structure alignment (all wing
   types), PARTICLE_DYNAMICS force distribution, and geometry updates
 - `src/system_structure/types.jl`: Component type definitions
-  including `WingType` and `AeroMode` enums
+  including the `WingType` enum and `AbstractAeroModel` types
 - `src/system_structure/wing.jl`: Wing and VSMWing type
   definitions, group-to-section mapping
 - `src/generate_system/vsm_eqs.jl`: Symbolic VSM equation

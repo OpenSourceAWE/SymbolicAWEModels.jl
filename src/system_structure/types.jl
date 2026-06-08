@@ -5,7 +5,7 @@
 Basic type definitions for the system structure components.
 
 This file contains enums and struct definitions for:
-- DynamicsType, WingType, AeroMode, SegmentType (deprecated) enums
+- DynamicsType, WingType, SegmentType (deprecated) enums; AbstractAeroModel types
 - Point, Group, Segment, Pulley, Tether, Winch structs
 """
 
@@ -64,25 +64,65 @@ Base.@deprecate_binding QUATERNION RIGID_DYNAMICS
 Base.@deprecate_binding REFINE PARTICLE_DYNAMICS
 
 """
-    AeroMode `AERO_NONE` `AERO_DIRECT` `AERO_LINEARIZED`
+    AbstractAeroModel
 
-Enumeration for how aerodynamic forces enter the ODE system.
-Orthogonal to WingType — determines the aero computation strategy at runtime.
-
-# Elements
-- `AERO_NONE`: No aerodynamic forces (returns zeros). For debugging rigid body dynamics.
-- `AERO_DIRECT`: Stored forces from nonlinear VSM solve, piecewise-constant between updates.
-- `AERO_LINEARIZED`: First-order Taylor expansion using Jacobian from VSM linearization.
-- `AERO_PLATE`: Flat-plate CL/CD lookup aerodynamics (PlateWing only).
-- `AERO_CUSTOM`: User-supplied aero component (see `wing.aero_model`).
+Supertype for a wing's aerodynamic model. The concrete subtype selects, by
+dispatch, the [`aero_component`](@ref) builder that emits the wing's aero
+equations. Built-in subtypes: [`AeroNone`](@ref), [`AeroDirect`](@ref),
+[`AeroLinearized`](@ref), [`AeroPlate`](@ref). Subtype it and add an
+`aero_component` method to plug in custom aerodynamics; see the VSM coupling
+documentation for a worked example with a live-updating field.
 """
-@enum AeroMode begin
-    AERO_NONE
-    AERO_DIRECT
-    AERO_LINEARIZED
-    AERO_PLATE
-    AERO_CUSTOM
-end
+abstract type AbstractAeroModel end
+
+"""
+    AeroNone()
+
+No aerodynamic forces (returns zeros). For debugging rigid body dynamics.
+"""
+struct AeroNone <: AbstractAeroModel end
+
+"""
+    AeroDirect()
+
+Stored forces from the nonlinear VSM solve, piecewise-constant between updates.
+"""
+struct AeroDirect <: AbstractAeroModel end
+
+"""
+    AeroLinearized()
+
+First-order Taylor expansion using the Jacobian from VSM linearization
+(`RIGID_DYNAMICS` only).
+"""
+struct AeroLinearized <: AbstractAeroModel end
+
+"""
+    AeroPlate()
+
+Flat-plate CL/CD lookup aerodynamics (`PlateWing` only).
+"""
+struct AeroPlate <: AbstractAeroModel end
+
+"""
+    is_builtin_aero(mode::AbstractAeroModel) -> Bool
+
+`true` for the package's built-in aero models. Custom models return `false`,
+which forces a model rebuild (the compiled cache cannot be reused for
+user-supplied equations).
+"""
+is_builtin_aero(::AbstractAeroModel) = false
+is_builtin_aero(::Union{AeroNone, AeroDirect, AeroLinearized, AeroPlate}) = true
+
+"""
+    aero_hash_id(mode::AbstractAeroModel) -> Tuple
+
+Structural fields of `mode` that change the generated equations and therefore
+must enter the model-cache key. Return only fields that alter the equation
+structure, never runtime-mutable values (those are read live via registered
+getters). Defaults to an empty tuple.
+"""
+aero_hash_id(::AbstractAeroModel) = ()
 
 """
     NameRef = Union{Int, Symbol}
