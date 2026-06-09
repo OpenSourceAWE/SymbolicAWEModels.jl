@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 """
-Wing types and VSM-related wing code.
+Wing type and VSM-related wing code.
 
 This file contains:
-- AbstractWing, BaseWing, VSMWing structs
+- AbstractWing, VSMEngine, Wing structs
 - Wing constructors and helper functions
 - VSM panel adjustment functions
 """
@@ -21,115 +21,6 @@ Concrete subtypes must implement rigid body dynamics and provide a reference fra
 for attached points and twist_surfaces.
 """
 abstract type AbstractWing end
-
-# ==================== BASE WING ==================== #
-
-"""
-    mutable struct BaseWing <: AbstractWing
-
-A rigid wing body that can have multiple twist_surfaces of points attached to it.
-
-The wing provides a rigid body reference frame for attached points and twist_surfaces.
-Points with `type == WING` move rigidly with the wing body according to the
-wing's orientation matrix `R_b_to_w` and position `pos_w`.
-
-# Special Properties
-The wing's orientation can be accessed as a rotation matrix or a quaternion:
-```julia
-R_matrix = wing.R_b_to_w
-wing.R_b_to_w = R_matrix
-
-quat = wing.Q_b_to_w
-wing.Q_b_to_w = quat
-```
-
-$(TYPEDFIELDS)
-"""
-mutable struct BaseWing <: AbstractWing
-    idx::Int64  # Assigned by SystemStructure based on vector position
-    const name::Union{Int, Symbol, Nothing}  # Name/identifier (Int for backwards compat)
-
-    # Structural information - resolved indices
-    twist_surface_idxs::Vector{Int64}  # Resolved by SystemStructure from twist_surface_refs
-    transform_idx::Int64       # Resolved by SystemStructure from transform_ref
-
-    # Structural information - raw references
-    const twist_surface_refs::Vector{NameRef}   # Raw references to twist_surfaces (names or indices)
-    const transform_ref::NameRef        # Raw reference to transform (name or idx)
-
-    # Geometry
-    const R_b_to_c::Matrix{SimFloat}       # Body frame → CAD (from ref points)
-    const R_p_to_c::Matrix{SimFloat}       # Principal frame → CAD (from inertia diag)
-    const R_b_to_p::Matrix{SimFloat}       # Body → principal (= R_p_to_c' * R_b_to_c, constant)
-    const pos_cad::KVec3                # Body origin in CAD frame
-    const com_offset_b::KVec3           # COM offset from body origin in body frame
-    const inertia_principal::KVec3
-    const dynamics_type::WingType
-    aero::AbstractAeroModel
-
-    # Principal frame ODE state (RIGID_DYNAMICS dynamics)
-    const com_w::KVec3                  # COM position in world frame
-    const com_vel::KVec3                # COM velocity in world frame
-    const Q_p_to_w::Vector{SimFloat}       # Principal frame quaternion (length 4)
-    const ω_p::KVec3                    # Angular velocity in principal frame
-
-    # Body frame output (algebraic for RIGID_DYNAMICS, from ref points)
-    const Q_b_to_w::Vector{SimFloat}
-    const ω_b::KVec3
-    const pos_w::KVec3                  # Body origin world position
-    const vel_w::KVec3                  # Body origin velocity
-    const acc_w::KVec3                  # Body origin acceleration
-
-    # Derived variables and parameters, updated during simulation
-    const wind_disturb::KVec3
-    drag_frac::SimFloat
-    const va_b::KVec3 # apparent wind in body frame
-    const v_wind::KVec3 # wind velocity in world frame at the wing
-    const aero_force_b::KVec3 # aerodynamic force in body frame
-    const aero_moment_b::KVec3 # aerodynamic moment in body frame
-    const tether_moment::KVec3 # tether moment in world frame
-    const tether_force::KVec3 # tether force in world frame
-    elevation::SimFloat
-    elevation_vel::SimFloat
-    elevation_acc::SimFloat
-    azimuth::SimFloat
-    azimuth_vel::SimFloat
-    azimuth_acc::SimFloat
-    heading::SimFloat
-    const turn_rate::KVec3
-    const turn_acc::KVec3
-    course::SimFloat
-    aoa::SimFloat
-    fix_sphere::Bool
-    y_damping::SimFloat
-    angular_damping::SimFloat
-    z_disturb::SimFloat
-    mass::SimFloat  # Total mass of wing (sum of WING point masses if set.mass is zero)
-end
-
-function Base.getproperty(wing::BaseWing, sym::Symbol)
-    if sym == :R_b_to_w
-        return quaternion_to_rotation_matrix(getfield(wing, :Q_b_to_w))
-    elseif sym == :R_p_to_w
-        return quaternion_to_rotation_matrix(getfield(wing, :Q_p_to_w))
-    else
-        return getfield(wing, sym)
-    end
-end
-
-function Base.setproperty!(wing::BaseWing, sym::Symbol, value)
-    if sym == :R_b_to_w
-        if value isa AbstractMatrix
-            getfield(wing, :Q_b_to_w) .= rotation_matrix_to_quaternion(value)
-        else
-            error("Cannot set R_b_to_w with non-matrix value of type $(typeof(value))")
-        end
-    elseif hasfield(BaseWing, sym)
-        setfield!(wing, sym, value)
-    else
-        error("BaseWing has no field `$(sym)`")
-    end
-end
 
 # ==================== WEIGHTED REF POINTS ==================== #
 
@@ -193,110 +84,198 @@ function WeightedRefPoints(refs::AbstractVector)
     WeightedRefPoints(names, Int64[], fill(1.0 / n, n))
 end
 
-# ==================== VSM WING ==================== #
+# ==================== VSM ENGINE ==================== #
 
 """
-    mutable struct VSMWing <: AbstractWing
+    mutable struct VSMEngine{BA, W, SL}
 
-A wing that uses the Vortex Step Method (VSM) for aerodynamic computations.
+Vortex Step Method aerodynamic engine carried by a [`Wing`](@ref) with VSM
+geometry (`nothing` for non-VSM wings such as flat-plate wings). Holds the
+VortexStepMethod objects, the linearization state, and the structural↔panel
+mapping.
 
-This struct extends the base wing functionality with VSM-specific aerodynamic
-modeling capabilities, including vortex wake computations and aerodynamic loads.
+This is wing infrastructure shared across all aero modes: an `AeroNone` wing
+still carries it, because section matching and twist-surface geometry are derived
+from the VSM geometry independently of whether aero forces are produced.
 
-$(TYPEDFIELDS)
+# Fields
+- `vsm_aero`, `vsm_wing`, `vsm_solver`: VortexStepMethod objects.
+- `aero_y`: operating-point inputs `[alpha, beta, ω1, ω2, ω3, twist...]`.
+- `aero_x`: baseline wind-axis coefficients `[CL, CD, CS, CM1, CM2, CM3, cm...]`.
+- `aero_jac`: dense Jacobian `d(aero_x)/d(aero_y)`.
+- `point_to_vsm_point`, `wing_segments`: PARTICLE_DYNAMICS structural↔panel maps.
+- `aero_scale_chord`: force scale compensating chord-length error (PARTICLE).
+- `aero_z_offset`: body-frame z-shift of VSM panels (RIGID).
 """
-mutable struct VSMWing{BA<:VortexStepMethod.BodyAerodynamics,
-                       W<:VortexStepMethod.AbstractWing,
-                       SL<:VortexStepMethod.Solver} <: AbstractWing
-    # Base wing functionality
-    base::BaseWing
-
-    # VSM aerodynamics
+mutable struct VSMEngine{BA, W, SL}
     vsm_aero::BA
     vsm_wing::W
     vsm_solver::SL
-
-    # Aerodynamic linearization state (RIGID_DYNAMICS)
-    # aero_y: operating point inputs
-    #   [alpha, beta, ω1, ω2, ω3, twist...]
-    # aero_x: baseline wind-axis coefficients
-    #   [CL, CD, CS, CM1, CM2, CM3, cm_1..cm_n]
-    # aero_jac: dense Jacobian d(aero_x)/d(aero_y)
     aero_y::Vector{SimFloat}
     aero_x::Vector{SimFloat}
     aero_jac::Matrix{SimFloat}
-
-    # PARTICLE_DYNAMICS-specific fields (Nothing for RIGID_DYNAMICS wings)
     point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}
     wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}
+    aero_scale_chord::SimFloat
+    aero_z_offset::SimFloat
+end
 
-    # Orientation reference points (WeightedRefPoints carry
-    # both refs and resolved ids, with weights).
-    # Z-axis: Normal to wing plane
-    # Y-axis: Spanwise, X = Y × Z (chord)
-    z_ref_points::Union{Nothing,
-        Tuple{WeightedRefPoints, WeightedRefPoints}}
-    y_ref_points::Union{Nothing,
-        Tuple{WeightedRefPoints, WeightedRefPoints}}
+# ==================== WING ==================== #
 
-    # Origin point(s) - weighted combination defining
-    # wing.pos_w. Holds both raw refs and resolved ids.
+"""
+    mutable struct Wing <: AbstractWing
+
+A wing body that can have multiple twist_surfaces of points attached to it.
+
+The wing provides a body reference frame for attached points and twist_surfaces.
+Points with `type == WING` move with the wing body according to the wing's
+orientation matrix `R_b_to_w` and position `pos_w`. Its `dynamics_type` selects
+rigid-body (`RIGID_DYNAMICS`) or per-particle (`PARTICLE_DYNAMICS`) behaviour, and
+its [`aero`](@ref AbstractAeroModel) field selects the aerodynamic model. VSM
+geometry, when present, lives in the [`VSMEngine`](@ref) at `vsm`; the
+VSM-specific fields (`vsm_wing`, `aero_x`, …) are forwarded to it.
+
+# Special Properties
+The wing's orientation can be accessed as a rotation matrix or a quaternion:
+```julia
+R_matrix = wing.R_b_to_w
+wing.R_b_to_w = R_matrix
+
+quat = wing.Q_b_to_w
+wing.Q_b_to_w = quat
+```
+
+$(TYPEDFIELDS)
+"""
+mutable struct Wing <: AbstractWing
+    idx::Int64  # Assigned by SystemStructure based on vector position
+    const name::Union{Int, Symbol, Nothing}  # Name/identifier (Int for backwards compat)
+
+    # Structural information - resolved indices
+    twist_surface_idxs::Vector{Int64}  # Resolved by SystemStructure from twist_surface_refs
+    transform_idx::Int64       # Resolved by SystemStructure from transform_ref
+
+    # Structural information - raw references
+    const twist_surface_refs::Vector{NameRef}   # Raw references to twist_surfaces (names or indices)
+    const transform_ref::NameRef        # Raw reference to transform (name or idx)
+
+    # Geometry
+    const R_b_to_c::Matrix{SimFloat}       # Body frame → CAD (from ref points)
+    const R_p_to_c::Matrix{SimFloat}       # Principal frame → CAD (from inertia diag)
+    const R_b_to_p::Matrix{SimFloat}       # Body → principal (= R_p_to_c' * R_b_to_c, constant)
+    const pos_cad::KVec3                # Body origin in CAD frame
+    const com_offset_b::KVec3           # COM offset from body origin in body frame
+    const inertia_principal::KVec3
+    const dynamics_type::WingType
+    aero::AbstractAeroModel
+
+    # Principal frame ODE state (RIGID_DYNAMICS dynamics)
+    const com_w::KVec3                  # COM position in world frame
+    const com_vel::KVec3                # COM velocity in world frame
+    const Q_p_to_w::Vector{SimFloat}       # Principal frame quaternion (length 4)
+    const ω_p::KVec3                    # Angular velocity in principal frame
+
+    # Body frame output (algebraic for RIGID_DYNAMICS, from ref points)
+    const Q_b_to_w::Vector{SimFloat}
+    const ω_b::KVec3
+    const pos_w::KVec3                  # Body origin world position
+    const vel_w::KVec3                  # Body origin velocity
+    const acc_w::KVec3                  # Body origin acceleration
+
+    # Derived variables and parameters, updated during simulation
+    const wind_disturb::KVec3
+    drag_frac::SimFloat
+    const va_b::KVec3 # apparent wind in body frame
+    const v_wind::KVec3 # wind velocity in world frame at the wing
+    const aero_force_b::KVec3 # aerodynamic force in body frame
+    const aero_moment_b::KVec3 # aerodynamic moment in body frame
+    const tether_moment::KVec3 # tether moment in world frame
+    const tether_force::KVec3 # tether force in world frame
+    elevation::SimFloat
+    elevation_vel::SimFloat
+    elevation_acc::SimFloat
+    azimuth::SimFloat
+    azimuth_vel::SimFloat
+    azimuth_acc::SimFloat
+    heading::SimFloat
+    const turn_rate::KVec3
+    const turn_acc::KVec3
+    course::SimFloat
+    aoa::SimFloat
+    fix_sphere::Bool
+    y_damping::SimFloat
+    angular_damping::SimFloat
+    z_disturb::SimFloat
+    mass::SimFloat  # Total mass of wing (sum of WING point masses if set.mass is zero)
+
+    # Body-frame reference points (define R_b_to_w / pos_w from structural points)
+    z_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
+    y_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
     origin::Union{Nothing, WeightedRefPoints}
 
-    # Additional aerodynamic force scale to compensate chord length errors (PARTICLE_DYNAMICS)
-    aero_scale_chord::SimFloat
-
-    # Body frame z-axis offset for VSM aerodynamics (RIGID_DYNAMICS only)
-    # Shifts VSM panel positions in positive z direction (body frame)
-    # to adjust moment arm for improved stability
-    aero_z_offset::SimFloat
-
-    function VSMWing(base::BaseWing, vsm_aero,
-                     vsm_wing, vsm_solver,
-                     aero_y, aero_x, aero_jac,
-                     point_to_vsm_point, wing_segments,
-                     z_ref_points, y_ref_points,
-                     origin,
-                     aero_scale_chord, aero_z_offset)
-        new{typeof(vsm_aero), typeof(vsm_wing),
-            typeof(vsm_solver)}(
-            base, vsm_aero, vsm_wing, vsm_solver,
-            aero_y, aero_x, aero_jac,
-            point_to_vsm_point, wing_segments,
-            z_ref_points, y_ref_points,
-            origin,
-            aero_scale_chord, aero_z_offset)
-    end
+    # VSM aerodynamic engine (nothing for non-VSM wings, e.g. flat-plate wings)
+    vsm::Union{Nothing, VSMEngine}
 end
 
-# Delegate property access to base wing for VSMWing
-const VSM_WING_OWN_FIELDS = (
-    :base, :vsm_aero, :vsm_wing, :vsm_solver,
-    :aero_y, :aero_x, :aero_jac,
-    :point_to_vsm_point, :wing_segments,
-    :z_ref_points, :y_ref_points,
-    :origin,
-    :aero_scale_chord, :aero_z_offset)
+# VSM engine fields forwarded from a wing to its `vsm` engine.
+const VSM_ENGINE_FIELDS = (
+    :vsm_aero, :vsm_wing, :vsm_solver, :aero_y, :aero_x, :aero_jac,
+    :point_to_vsm_point, :wing_segments, :aero_scale_chord, :aero_z_offset)
 
-function Base.getproperty(wing::VSMWing, sym::Symbol)
-    if sym in VSM_WING_OWN_FIELDS
-        return getfield(wing, sym)
-    elseif sym == :vsm_aoa
-        # Compute mean angle of attack from VSM solver solution
-        solver = getfield(wing, :vsm_solver)
-        return mean(solver.sol.alpha_dist)
+function Base.getproperty(wing::Wing, sym::Symbol)
+    if sym === :R_b_to_w
+        return quaternion_to_rotation_matrix(getfield(wing, :Q_b_to_w))
+    elseif sym === :R_p_to_w
+        return quaternion_to_rotation_matrix(getfield(wing, :Q_p_to_w))
+    elseif sym === :vsm_aoa
+        engine = getfield(wing, :vsm)
+        engine === nothing && error(
+            "Wing $(getfield(wing, :name)) has no VSM engine; vsm_aoa unavailable.")
+        return mean(engine.vsm_solver.sol.alpha_dist)
+    elseif sym in VSM_ENGINE_FIELDS
+        engine = getfield(wing, :vsm)
+        engine === nothing && error(
+            "Wing $(getfield(wing, :name)) has no VSM engine; field `$sym` unavailable.")
+        return getproperty(engine, sym)
     else
-        return getproperty(getfield(wing, :base), sym)
+        return getfield(wing, sym)
     end
 end
 
-function Base.setproperty!(wing::VSMWing, sym::Symbol, value)
-    if sym in VSM_WING_OWN_FIELDS
+function Base.setproperty!(wing::Wing, sym::Symbol, value)
+    if sym === :R_b_to_w
+        if value isa AbstractMatrix
+            getfield(wing, :Q_b_to_w) .= rotation_matrix_to_quaternion(value)
+        else
+            error("Cannot set R_b_to_w with non-matrix value of type $(typeof(value))")
+        end
+    elseif sym in VSM_ENGINE_FIELDS
+        engine = getfield(wing, :vsm)
+        engine === nothing && error(
+            "Wing $(getfield(wing, :name)) has no VSM engine; cannot set `$sym`.")
+        setproperty!(engine, sym, value)
+    elseif hasfield(Wing, sym)
         setfield!(wing, sym, value)
     else
-        setproperty!(getfield(wing, :base), sym, value)
+        error("Wing has no field `$(sym)`")
     end
 end
+
+"""
+    is_vsm(wing::AbstractWing) -> Bool
+
+`true` if the wing carries a [`VSMEngine`](@ref) (VSM geometry/solver). Replaces
+the former `wing isa VSMWing` check.
+"""
+is_vsm(wing::Wing) = getfield(wing, :vsm) !== nothing
+
+"""
+    is_plate(wing::AbstractWing) -> Bool
+
+`true` if the wing uses flat-plate aerodynamics ([`AeroPlate`](@ref)). Replaces
+the former `wing isa PlateWing` check.
+"""
+is_plate(wing::Wing) = getfield(wing, :aero) isa AeroPlate
 
 # ==================== CONSTRUCTORS ==================== #
 
@@ -304,34 +283,52 @@ end
 _to_name_ref(x::Integer) = Int(x)
 _to_name_ref(x) = Symbol(x)
 
-"""
-    BaseWing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_principal; transform=nothing, y_damping=150.0, dynamics_type=RIGID_DYNAMICS)
+"""Warn and normalize if weights don't sum to 1."""
+function _validate_weights!(weights::Vector{Float64})
+    s = sum(weights)
+    s > 0 || error(
+        "Ref point weights sum to $s; " *
+        "all weights must be positive")
+    if !isapprox(s, 1.0; atol=1e-6)
+        @warn "Ref point weights sum to $s, " *
+            "normalizing to 1.0"
+        weights ./= s
+    end
+end
 
-Constructs a `BaseWing` object representing a rigid body reference frame.
+"""
+    Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_principal;
+         transform=nothing, y_damping=150.0, angular_damping=0.0,
+         dynamics_type=RIGID_DYNAMICS, aero=nothing,
+         z_ref_points=nothing, y_ref_points=nothing, origin=nothing, vsm=nothing)
+
+Low-level `Wing` constructor. The `idx`, `twist_surface_idxs`, and `transform_idx`
+are resolved by `SystemStructure`.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the wing (e.g., `:main_wing` or `1` for legacy).
-- `twist_surfaces::Vector`: References to twist_surfaces attached to this wing (names or indices).
+- `name::Union{Int, Symbol}`: Name/identifier (e.g. `:main_wing`).
+- `twist_surfaces::Vector`: References to attached twist_surfaces (names or indices).
 - `R_b_to_c::Matrix{SimFloat}`: Rotation matrix from body frame to CAD frame.
 - `pos_cad::KVec3`: Position of wing body origin in CAD frame.
-- `inertia_principal::KVec3`: Principal moments of inertia [Ixx, Iyy, Izz] in principal frame.
+- `inertia_principal::KVec3`: Principal moments of inertia `[Ixx, Iyy, Izz]`.
 
 # Keyword Arguments
-- `transform=nothing`: Reference to the transform (name or index). Defaults to 1 if not specified.
-- `y_damping::SimFloat=150.0`: Damping coefficient for y-axis (pitch) rotation.
-- `angular_damping::SimFloat=0.0`: Isotropic angular damping on all 3 rotation axes.
-- `dynamics_type::WingType=RIGID_DYNAMICS`: Wing aerodynamic model type.
-
-# Returns
-- `BaseWing`: A new base wing object. The `idx`, `twist_surface_idxs`, and `transform_idx` are resolved by SystemStructure.
+- `transform`: Reference to the transform (name or index). Defaults to 1.
+- `y_damping`, `angular_damping`: Damping coefficients.
+- `dynamics_type::WingType`: `RIGID_DYNAMICS` (default) or `PARTICLE_DYNAMICS`.
+- `aero::AbstractAeroModel`: Aerodynamic model (defaults by `dynamics_type`).
+- `z_ref_points`, `y_ref_points`, `origin`: Body-frame reference points (raw refs).
+- `vsm::VSMEngine`: VSM engine (built by the VSM constructors).
 """
-function BaseWing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
-                  pos_cad, inertia_principal;
-                  transform=nothing, y_damping=150.0,
-                  angular_damping=0.0,
-                  dynamics_type::Union{Nothing,WingType}=nothing,
-                  aero::Union{Nothing,AbstractAeroModel}=nothing,
-                  wing_type::Union{Nothing,WingType}=nothing)
+function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
+              pos_cad, inertia_principal;
+              transform=nothing, y_damping=150.0,
+              angular_damping=0.0,
+              dynamics_type::Union{Nothing,WingType}=nothing,
+              aero::Union{Nothing,AbstractAeroModel}=nothing,
+              wing_type::Union{Nothing,WingType}=nothing,
+              z_ref_points=nothing, y_ref_points=nothing, origin=nothing,
+              vsm::Union{Nothing,VSMEngine}=nothing)
     # Handle deprecated wing_type keyword
     if !isnothing(wing_type)
         if !isnothing(dynamics_type)
@@ -344,14 +341,18 @@ function BaseWing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix
     isnothing(dynamics_type) && (dynamics_type = RIGID_DYNAMICS)
     isnothing(aero) && (aero = dynamics_type == RIGID_DYNAMICS ?
         AeroLinearized() : AeroDirect())
-    # Convert twist_surfaces to NameRef vector
     twist_surface_refs = Vector{NameRef}([_to_name_ref(twist_surface) for twist_surface in twist_surfaces])
-    # Handle nothing - default to transform 1
     transform_value = isnothing(transform) ? 1 : transform
     transform_ref = _to_name_ref(transform_value)
 
+    z_ref = isnothing(z_ref_points) ? nothing :
+        (WeightedRefPoints(z_ref_points[1]), WeightedRefPoints(z_ref_points[2]))
+    y_ref = isnothing(y_ref_points) ? nothing :
+        (WeightedRefPoints(y_ref_points[1]), WeightedRefPoints(y_ref_points[2]))
+    origin_rp = isnothing(origin) ? nothing : WeightedRefPoints(origin)
+
     # idx, twist_surface_idxs, transform_idx are placeholders - resolved by SystemStructure
-    return BaseWing(0, name,
+    return Wing(0, name,
         # Structural information - resolved (placeholders)
         Int64[], 0,
         # Structural information - raw references
@@ -375,33 +376,18 @@ function BaseWing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         zeros(KVec3), zeros(KVec3), 0.0, 0.0, false,
         y_damping, angular_damping, 0.0,
-        0.0)  # mass initialized to 0, set by SystemStructure
-end
-
-"""Warn and normalize if weights don't sum to 1."""
-function _validate_weights!(weights::Vector{Float64})
-    s = sum(weights)
-    s > 0 || error(
-        "Ref point weights sum to $s; " *
-        "all weights must be positive")
-    if !isapprox(s, 1.0; atol=1e-6)
-        @warn "Ref point weights sum to $s, " *
-            "normalizing to 1.0"
-        weights ./= s
-    end
+        0.0,  # mass initialized to 0, set by SystemStructure
+        z_ref, y_ref, origin_rp, vsm)
 end
 
 """
     create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, sort_sections=true)
 
-Create a `Wing` geometry object from the settings provided.
+Create a `VortexStepMethod.Wing` geometry object from the settings provided.
 
 This function checks for .obj and .dat files in the model directory.
 If found, it uses `VortexStepMethod.ObjWing(obj_path, dat_path)` to load the wing.
 Otherwise, it falls back to loading from `aero_geometry.yaml`.
-
-Reads geometry from the `Settings` object and initializes the `Wing` object
-from `VortexStepMethod.jl`.
 """
 function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, sort_sections=true)
     # Check for .obj and .dat files in the model directory
@@ -438,37 +424,62 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; p
 end
 
 """
+    build_vsm_engine(set, vsm_set, dynamics_type; point_to_vsm_point=nothing,
+                     wing_segments=nothing, aero_scale_chord=0.0, aero_z_offset=0.0)
+
+Build a [`VSMEngine`](@ref): create the VortexStepMethod `vsm_wing`/`vsm_aero`/
+`vsm_solver` and size the linearization state vectors. Aero-state sizes are
+placeholders for `RIGID_DYNAMICS` (using `n_unrefined_sections` as the
+twist_surface-count proxy) and resized by `SystemStructure` once twist_surfaces
+are resolved.
+"""
+function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
+                          dynamics_type::WingType;
+                          point_to_vsm_point=nothing, wing_segments=nothing,
+                          aero_scale_chord=0.0, aero_z_offset=0.0)
+    vsm_wing = create_vsm_wing(set, vsm_set; prn=false, sort_sections=false)
+    vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
+    vsm_solver = VortexStepMethod.Solver(vsm_aero, vsm_set)
+
+    if dynamics_type == PARTICLE_DYNAMICS
+        num_aero_outputs = 0
+        num_aero_inputs = 0
+    else
+        n_twist_surfaces_est = vsm_wing.n_unrefined_sections
+        num_aero_outputs = 6 + n_twist_surfaces_est
+        num_aero_inputs = 5 + n_twist_surfaces_est
+    end
+
+    return VSMEngine(vsm_aero, vsm_wing, vsm_solver,
+        zeros(SimFloat, num_aero_inputs),
+        zeros(SimFloat, num_aero_outputs),
+        zeros(SimFloat, num_aero_outputs, num_aero_inputs),
+        point_to_vsm_point, wing_segments,
+        SimFloat(aero_scale_chord), SimFloat(aero_z_offset))
+end
+
+"""
     VSMWing(name, set, twist_surfaces, vsm_set; transform=nothing, y_damping=150.0, ...)
 
-Constructs a `VSMWing` object with Vortex Step Method aerodynamics.
-Creates vsm_wing, vsm_aero, and vsm_solver internally.
+Construct a [`Wing`](@ref) with Vortex Step Method aerodynamics. Builds the
+[`VSMEngine`](@ref) (`vsm_wing`/`vsm_aero`/`vsm_solver`) internally and attaches
+it to the wing.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the wing.
 - `set::Settings`: Settings object for VSM configuration.
-- `twist_surfaces::Vector`: References to twist_surfaces (names or indices). Used by both
-  `RIGID_DYNAMICS` and `PARTICLE_DYNAMICS` wings during
-  `match_aero_sections_to_structure!` for LE/TE panel identification.
-  For `PARTICLE_DYNAMICS` wings, `twist_surface_idxs` is cleared from the wing
-  after section matching (twist_surfaces remain in the `SystemStructure`).
+- `twist_surfaces::Vector`: References to twist_surfaces (names or indices).
 - `vsm_set::VortexStepMethod.VSMSettings`: VSM settings for wing creation.
 
 # Keyword Arguments
-- `transform=nothing`: Reference to the transform (name or index). Defaults to 1 if not specified.
-- `R_b_to_c::Matrix{SimFloat}`: Rotation matrix body→CAD.
-- `pos_cad::KVec3`: Position of wing COM in CAD frame.
-- `y_damping::SimFloat=150.0`: Lateral damping coefficient.
+- `transform=nothing`: Reference to the transform. Defaults to 1.
+- `R_b_to_c`, `pos_cad`, `inertia_diag`: Geometry placeholders (resolved later).
+- `y_damping`, `angular_damping`: Damping coefficients.
 - `dynamics_type::WingType=RIGID_DYNAMICS`: Aerodynamic model type.
-- `point_to_vsm_point`: 1:1 structural point to VSM point mapping (PARTICLE_DYNAMICS only).
-- `wing_segments`: LE/TE pairs (populated for all VSM wing types by
-  `match_aero_sections_to_structure!`).
-- `z_ref_points`: Chord direction reference points (PARTICLE_DYNAMICS only, names or indices).
-- `y_ref_points`: Span direction reference points (PARTICLE_DYNAMICS only, names or indices).
-- `origin`: Reference to origin point (PARTICLE_DYNAMICS only, name or index).
-- `aero_z_offset::SimFloat=0.0`: Body frame z-offset for VSM panels (RIGID_DYNAMICS only).
-
-# Returns
-- `VSMWing`: A new VSM wing object. References are resolved by SystemStructure.
+- `aero::AbstractAeroModel`: Aerodynamic model (defaults by `dynamics_type`).
+- `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
+- `z_ref_points`, `y_ref_points`, `origin`: Body-frame references.
+- `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
 """
 function VSMWing(name, set::Settings,
                  twist_surfaces::AbstractVector,
@@ -497,7 +508,6 @@ function VSMWing(name, set::Settings,
         @warn "Keyword argument `wing_type` is deprecated; use `dynamics_type` instead."
         dynamics_type = wing_type
     end
-    # Apply defaults now that dynamics_type is resolved
     isnothing(dynamics_type) && (dynamics_type = RIGID_DYNAMICS)
 
     # Validation
@@ -513,178 +523,58 @@ function VSMWing(name, set::Settings,
     else
         @assert isnothing(point_to_vsm_point)
             "RIGID_DYNAMICS wings: no point_to_vsm_point"
-        # origin, z_ref_points, y_ref_points are now
-        # accepted for RIGID_DYNAMICS wings (body frame
-        # defined by structural ref points)
     end
 
-    # Convert ref points to WeightedRefPoints
-    z_ref = isnothing(z_ref_points) ? nothing :
-        (WeightedRefPoints(z_ref_points[1]),
-         WeightedRefPoints(z_ref_points[2]))
-    y_ref = isnothing(y_ref_points) ? nothing :
-        (WeightedRefPoints(y_ref_points[1]),
-         WeightedRefPoints(y_ref_points[2]))
-    origin_rp = isnothing(origin) ? nothing :
-        WeightedRefPoints(origin)
-
-    # Create VSM wing, aero, and solver
-    vsm_wing = create_vsm_wing(set, vsm_set; prn=false,
-        sort_sections=false)
-    vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
-    vsm_solver = VortexStepMethod.Solver(vsm_aero, vsm_set)
+    vsm = build_vsm_engine(set, vsm_set, dynamics_type;
+        point_to_vsm_point, wing_segments, aero_scale_chord, aero_z_offset)
 
     # Placeholders — overwritten by SystemStructure
-    # from point masses (RIGID_DYNAMICS) or ref points (PARTICLE_DYNAMICS)
     isnothing(R_b_to_c) && (R_b_to_c = Matrix{SimFloat}(I, 3, 3))
     isnothing(pos_cad) && (pos_cad = zeros(KVec3))
     inertia_vec = isnothing(inertia_diag) ?
         ones(MVector{3, SimFloat}) : inertia_diag
 
-    base = BaseWing(name, twist_surfaces, R_b_to_c, pos_cad,
-                    inertia_vec; transform, y_damping,
-                    angular_damping, dynamics_type, aero)
-
-    # Size aero state vectors based on wing type
-    # For RIGID_DYNAMICS: placeholder sizes using n_unrefined
-    # as twist_surface count proxy; resized in SystemStructure
-    # after twist_surfaces are resolved.
-    if dynamics_type == PARTICLE_DYNAMICS
-        num_aero_outputs = 0
-        num_aero_inputs = 0
-    else
-        n_twist_surfaces_est = vsm_wing.n_unrefined_sections
-        num_aero_outputs = 6 + n_twist_surfaces_est
-        num_aero_inputs = 5 + n_twist_surfaces_est
-    end
-
-    return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
-                   zeros(SimFloat, num_aero_inputs),
-                   zeros(SimFloat, num_aero_outputs),
-                   zeros(SimFloat, num_aero_outputs, num_aero_inputs),
-                   point_to_vsm_point, wing_segments,
-                   z_ref, y_ref,
-                   origin_rp,
-                   aero_scale_chord, aero_z_offset)
+    return Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_vec;
+        transform, y_damping, angular_damping, dynamics_type, aero,
+        z_ref_points, y_ref_points, origin, vsm)
 end
 
 """
     VSMWing(name, vsm_aero, vsm_wing, vsm_solver, twist_surfaces, R_b_to_c, pos_cad; transform=nothing)
 
-Legacy constructor accepting pre-created VSM objects directly.
-Kept for backward compatibility with predefined structures.
-
-# Arguments
-- `name::Union{Int, Symbol}`: Wing name/identifier
-- `vsm_aero`: Pre-created BodyAerodynamics
-- `vsm_wing`: Pre-created VortexStepMethod.Wing
-- `vsm_solver`: Pre-created Solver
-- `twist_surfaces`: References to twist_surfaces (names or indices)
-- `R_b_to_c`: Rotation matrix body→CAD
-- `pos_cad`: Position in CAD frame
-
-# Keyword Arguments
-- `transform=nothing`: Reference to the transform. Defaults to 1 if not specified.
-
-# Returns
-- `VSMWing`: Wing with RIGID_DYNAMICS type
+Construct a `RIGID_DYNAMICS` [`Wing`](@ref) from pre-created VSM objects. Kept for
+backward compatibility with predefined structures.
 """
 function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
                  twist_surfaces::AbstractVector,
                  R_b_to_c::AbstractMatrix,
                  pos_cad::AbstractVector;
                  transform=nothing)
-    # Placeholder inertia — overwritten by SystemStructure
     inertia_vec = ones(MVector{3, SimFloat})
-    base = BaseWing(name, twist_surfaces, R_b_to_c, pos_cad,
-                    inertia_vec; transform)
-    # Placeholder aero arrays — resized by SystemStructure
     n_twist_surfaces_est = vsm_wing.n_unrefined_sections
     num_aero_outputs = 6 + n_twist_surfaces_est
     num_aero_inputs = 5 + n_twist_surfaces_est
-    return VSMWing(base, vsm_aero, vsm_wing, vsm_solver,
+    vsm = VSMEngine(vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, num_aero_inputs),
         zeros(SimFloat, num_aero_outputs),
         zeros(SimFloat, num_aero_outputs, num_aero_inputs),
-        nothing, nothing,
-        nothing, nothing,  # z/y_ref_points
-        nothing,           # origin
-        0.0, 0.0)
+        nothing, nothing, SimFloat(0.0), SimFloat(0.0))
+    return Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_vec;
+        transform, vsm)
 end
 
 """
     Wing(name, vsm_aero, vsm_wing, vsm_solver, twist_surfaces, R_b_to_c, pos_cad; transform=1)
 
-Constructs a `VSMWing` object (backward compatibility constructor).
-
-This is a convenience constructor that creates a VSMWing for backward compatibility
-with existing code. New code should use `VSMWing(...)` directly.
-
-# Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the wing.
-- `vsm_aero`, `vsm_wing`, `vsm_solver`: Vortex Step Method components.
-- `twist_surfaces::Vector`: References to twist_surfaces attached to this wing (names or indices).
-- `R_b_to_c::Matrix{SimFloat}`: Rotation matrix from body frame to CAD frame.
-- `pos_cad::KVec3`: Position of wing center of mass in CAD frame.
-
-# Keyword Arguments
-- `transform::Union{Int, Symbol}=1`: Reference to the transform.
-- `y_damping::SimFloat=150.0`: Damping coefficient for lateral motion.
-
-# Returns
-- `VSMWing`: A new VSM wing object.
+Backward-compatibility constructor: builds a VSM [`Wing`](@ref) from pre-created
+VSM objects (delegates to [`VSMWing`](@ref)).
 """
-function SymbolicAWEModels.Wing(name, vsm_aero, vsm_wing, vsm_solver, twist_surfaces, R_b_to_c,
-                                pos_cad; kwargs...)
+function Wing(name, vsm_aero, vsm_wing, vsm_solver, twist_surfaces, R_b_to_c,
+              pos_cad; kwargs...)
     return VSMWing(name, vsm_aero, vsm_wing, vsm_solver, twist_surfaces, R_b_to_c, pos_cad; kwargs...)
 end
 
 # ==================== PLATE WING ==================== #
-
-"""
-    mutable struct PlateWing <: AbstractWing
-
-A non-VSM wing whose aerodynamics come from flat-plate CL/CD lookups. Each
-flat-plate section is a 1-point `FIXED` [`TwistSurface`](@ref) (carrying the
-section's body-frame reference frame, area, and prescribed twist); the shared
-polar lookups live on the wing's [`AeroPlate`](@ref) `aero` model. Supports both
-`RIGID_DYNAMICS` and `PARTICLE_DYNAMICS` via `BaseWing.dynamics_type`.
-
-$(TYPEDFIELDS)
-"""
-mutable struct PlateWing <: AbstractWing
-    "Base wing functionality."
-    base::BaseWing
-    "Z-axis reference points for body frame."
-    z_ref_points::Union{Nothing,
-        Tuple{WeightedRefPoints, WeightedRefPoints}}
-    "Y-axis reference points for body frame."
-    y_ref_points::Union{Nothing,
-        Tuple{WeightedRefPoints, WeightedRefPoints}}
-    "Origin point(s) — weighted combination defining
-    wing.pos_w. Holds raw refs and resolved ids."
-    origin::Union{Nothing, WeightedRefPoints}
-end
-
-# Delegate property access to base wing for PlateWing
-const PLATE_WING_OWN_FIELDS = (
-    :base, :z_ref_points, :y_ref_points, :origin)
-
-function Base.getproperty(wing::PlateWing, sym::Symbol)
-    if sym in PLATE_WING_OWN_FIELDS
-        return getfield(wing, sym)
-    else
-        return getproperty(getfield(wing, :base), sym)
-    end
-end
-
-function Base.setproperty!(wing::PlateWing, sym::Symbol, value)
-    if sym in PLATE_WING_OWN_FIELDS
-        setfield!(wing, sym, value)
-    else
-        setproperty!(getfield(wing, :base), sym, value)
-    end
-end
 
 """
     PlateWing(name, twist_surfaces, calc_cl, calc_cd;
@@ -692,24 +582,25 @@ end
               y_damping=150.0, angular_damping=0.0, drag_corr=0.93,
               z_ref_points=nothing, y_ref_points=nothing, origin=nothing)
 
-Construct a PlateWing with flat-plate aerodynamics.
+Construct a flat-plate [`Wing`](@ref) (no VSM engine; `vsm === nothing`). Each
+flat-plate section is a 1-point `FIXED` [`TwistSurface`](@ref) carrying the
+section's body-frame reference frame, area, and prescribed twist; the shared
+polar lookups live on the wing's [`AeroPlate`](@ref) `aero` model. Supports both
+`RIGID_DYNAMICS` and `PARTICLE_DYNAMICS`.
 
 # Arguments
 - `name`: Wing name/identifier.
 - `twist_surfaces`: References (names or indices) to the wing's flat-plate
-  sections — each a 1-point `FIXED` [`TwistSurface`](@ref) carrying `x_airf`,
-  `y_airf`, `area`, and prescribed `twist`.
+  sections — each a 1-point `FIXED` [`TwistSurface`](@ref).
 - `calc_cl`: CL lookup callable(alpha_deg) → CL.
 - `calc_cd`: CD lookup callable(alpha_deg) → CD.
 
 # Keyword Arguments
 - `dynamics_type`: `RIGID_DYNAMICS` or `PARTICLE_DYNAMICS` (default).
 - `transform`: Reference to transform (name or index).
-- `y_damping`: Damping coefficient for y-axis (pitch) rotation.
-- `angular_damping`: Angular damping coefficient.
+- `y_damping`, `angular_damping`: Damping coefficients.
 - `drag_corr`: Drag correction factor (stored on the `AeroPlate` model).
-- `z_ref_points`, `y_ref_points`: Body frame references.
-- `origin`: Origin point reference.
+- `z_ref_points`, `y_ref_points`, `origin`: Body-frame references.
 """
 function PlateWing(name, twist_surfaces::AbstractVector,
                    calc_cl, calc_cd;
@@ -721,22 +612,11 @@ function PlateWing(name, twist_surfaces::AbstractVector,
                    z_ref_points=nothing,
                    y_ref_points=nothing,
                    origin=nothing)
-    base = BaseWing(name, twist_surfaces, Matrix{SimFloat}(I, 3, 3),
-                    zeros(KVec3), ones(MVector{3, SimFloat});
-                    transform, y_damping, angular_damping,
-                    dynamics_type,
-                    aero=AeroPlate(calc_cl, calc_cd; drag_corr))
-
-    z_ref = isnothing(z_ref_points) ? nothing :
-        (WeightedRefPoints(z_ref_points[1]),
-         WeightedRefPoints(z_ref_points[2]))
-    y_ref = isnothing(y_ref_points) ? nothing :
-        (WeightedRefPoints(y_ref_points[1]),
-         WeightedRefPoints(y_ref_points[2]))
-    origin_rp = isnothing(origin) ? nothing :
-        WeightedRefPoints(origin)
-
-    PlateWing(base, z_ref, y_ref, origin_rp)
+    return Wing(name, twist_surfaces, Matrix{SimFloat}(I, 3, 3),
+                zeros(KVec3), ones(MVector{3, SimFloat});
+                transform, y_damping, angular_damping, dynamics_type,
+                aero=AeroPlate(calc_cl, calc_cd; drag_corr),
+                z_ref_points, y_ref_points, origin)
 end
 
 # ==================== HELPER FUNCTIONS ==================== #

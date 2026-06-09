@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 # Registered symbolic functions for flat-plate aerodynamics.
-# The actual equation generation is in generate_system/plate_eqs.jl.
+# The equation generation is in `aero_component(::AeroPlate, …)`
+# (generate_system/aero_components.jl).
 
 """
     create_plate_interpolations(alpha_deg, cl_data, cd_data;

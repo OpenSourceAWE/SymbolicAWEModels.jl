@@ -61,6 +61,7 @@ function update_vsm!(sam::SymbolicAWEModel,
 
     for wing in wings
         wing.dynamics_type != RIGID_DYNAMICS && continue
+        is_vsm(wing) || continue
         wing.aero isa AeroNone && continue
         if norm(wing.va_b) < vsm_min_wind &&
                 wing.aero isa AeroDirect
@@ -84,7 +85,7 @@ function update_vsm!(sam::SymbolicAWEModel,
         va_point_b_vals = point_state[4]
 
         for wing in wings
-            wing isa VSMWing || continue
+            is_vsm(wing) || continue
             wing.dynamics_type != PARTICLE_DYNAMICS && continue
             wing.aero isa AeroNone && continue
 

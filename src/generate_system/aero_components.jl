@@ -13,8 +13,11 @@
 #     outputs: force[1:3], moment[1:3], twist_moment[1:num_twist_surfaces]
 #
 #   PARTICLE_DYNAMICS (num_points = number of WING points):
-#     inputs:  point_pos[1:3,1:num_points], point_vel[1:3,1:num_points]
-#     outputs: point_force[1:3,1:num_points]
+#     inputs:  point_pos[1:3,1:np], point_vel[1:3,1:np],
+#              va[1:3,1:np], rho[1:np]
+#     outputs: point_force[1:3,1:np]
+#   (VSM particle modes read frozen forces and ignore va/rho; flat-plate uses
+#    them to compute per-point forces symbolically.)
 #
 # Everything is in the wing body frame. The wiring layer (vsm_eqs!)
 # drives the inputs and reads the outputs.
@@ -61,13 +64,16 @@ function _particle_aero_connectors(num_points::Int)
     @variables begin
         point_pos(t)[1:3, 1:num_points]
         point_vel(t)[1:3, 1:num_points]
+        va(t)[1:3, 1:num_points]
+        rho(t)[1:num_points]
         point_force(t)[1:3, 1:num_points]
     end
-    return (; point_pos, point_vel, point_force)
+    return (; point_pos, point_vel, va, rho, point_force)
 end
 
 _particle_unknowns(connectors) =
-    Any[connectors.point_pos, connectors.point_vel, connectors.point_force]
+    Any[connectors.point_pos, connectors.point_vel, connectors.va,
+        connectors.rho, connectors.point_force]
 
 function _wing_points(sys_struct, wing)
     return [point for point in sys_struct.points
@@ -155,8 +161,8 @@ function aero_component(::AeroLinearized, sys_struct, wing_idx; name)
     wing.dynamics_type == PARTICLE_DYNAMICS && error(
         "AeroLinearized is not supported for PARTICLE_DYNAMICS " *
         "wings (wing $wing_idx); use AeroDirect or a custom model.")
-    wing isa VSMWing || error(
-        "AeroLinearized wing $wing_idx is not a VSMWing.")
+    is_vsm(wing) || error(
+        "AeroLinearized wing $wing_idx has no VSM engine.")
 
     twist_surfaces = sys_struct.twist_surfaces
     num_twist_surfaces = length(wing.twist_surface_idxs)
@@ -211,10 +217,69 @@ function aero_component(::AeroLinearized, sys_struct, wing_idx; name)
     return System(eqs, t, vars, [psys]; name)
 end
 
-# ==================== PlateAero (not via component path) ==================== #
+# ==================== PlateAero ==================== #
+#
+# Flat-plate aero uses the same PARTICLE connector contract as the other
+# per-point modes; it is the only one that consumes the `va`/`rho` inputs (the
+# VSM particle modes read frozen forces and ignore them). Each WING point is a
+# 1-point `FIXED` TwistSurface section; the per-point force is computed from the
+# section's twisted body-frame axes, the point's apparent wind, and its density.
 
-aero_component(::AeroPlate, sys_struct, wing_idx; name) = error(
-    "PlateWing aerodynamics use plate_eqs!, not the aero component path.")
+function aero_component(::AeroPlate, sys_struct, wing_idx; name)
+    psys = system_struct_param(sys_struct)
+    wing = sys_struct.wings[wing_idx]
+    wing.dynamics_type == RIGID_DYNAMICS && error(
+        "AeroPlate is only supported for PARTICLE_DYNAMICS wings (wing $wing_idx).")
+
+    twist_surfaces = sys_struct.twist_surfaces
+    points = _wing_points(sys_struct, wing)
+    num_points = length(points)
+    connectors = _particle_aero_connectors(num_points)
+
+    eqs = Equation[]
+    for (point_num, point) in enumerate(points)
+        ts_idx = 0
+        for gidx in wing.twist_surface_idxs
+            if twist_surfaces[gidx].point_idxs[1] == point.idx
+                ts_idx = gidx
+                break
+            end
+        end
+        ts_idx == 0 && error(
+            "Wing $wing_idx: WING point $(point.idx) is not a flat-plate " *
+            "section point.")
+
+        x_airf = smooth_normalize(collect(get_twist_surface_chord(psys, ts_idx)))
+        y_airf = collect(get_twist_surface_y_airf(psys, ts_idx))
+        twist = get_twist(psys, ts_idx)
+        x_twisted = cos(twist) * x_airf + sin(twist) * (y_airf × x_airf)
+        z_twisted = x_twisted × y_airf
+
+        apparent_wind = collect(connectors.va[:, point_num])
+        v_tan = apparent_wind ⋅ x_twisted
+        v_norm = apparent_wind ⋅ z_twisted
+        alpha_deg = rad2deg(atan(v_norm, v_tan))
+
+        cl = get_plate_cl(psys, wing_idx, alpha_deg)
+        cd = get_plate_drag_corr(psys, wing_idx) *
+             get_plate_cd(psys, wing_idx, alpha_deg)
+
+        q = 0.5 * connectors.rho[point_num] * (v_tan^2 + v_norm^2)
+        q_drag = 0.5 * connectors.rho[point_num] * (apparent_wind ⋅ apparent_wind)
+
+        alpha_rad = atan(v_norm, v_tan)
+        va_airf_dir = cos(alpha_rad) * x_twisted + sin(alpha_rad) * z_twisted
+        lift_dir = smooth_normalize(va_airf_dir × y_airf)
+        drag_dir = smooth_normalize(y_airf × lift_dir)
+
+        area = get_twist_surface_area(psys, ts_idx)
+        eqs = [eqs
+               connectors.point_force[:, point_num] ~
+                   q * area * cl * lift_dir + q_drag * area * cd * drag_dir]
+    end
+
+    return System(eqs, t, _particle_unknowns(connectors), [psys]; name)
+end
 
 # ==================== validation ==================== #
 
@@ -224,7 +289,7 @@ function validate_aero_component(subsys, wing)
         length(wing.twist_surface_idxs) > 0 &&
             append!(required, [:twist, :twist_vel, :twist_moment])
     else
-        required = Symbol[:point_pos, :point_vel, :point_force]
+        required = Symbol[:point_pos, :point_vel, :va, :rho, :point_force]
     end
     required_str = join(required, ", ")
     for con in required

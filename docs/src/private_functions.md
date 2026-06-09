@@ -18,6 +18,7 @@ SymbolicAWEModels.KVec3
 SymbolicAWEModels.SVec3
 VortexStepMethod.Wing
 SymbolicAWEModels.create_vsm_wing
+SymbolicAWEModels.build_vsm_engine
 ```
 
 ## State management and model simplification

@@ -343,17 +343,25 @@ get_le_pos(sys::SystemStructure, idx::Int64) =
     size = (3,)
     eltype = SimFloat
 end
+# Function barriers: the wing's `vsm` field is an abstract `VSMEngine`, so the
+# read is dispatched to a method specialized on the concrete engine type to stay
+# type-stable and allocation-free in the compiled RHS.
+engine_aero_y(engine::VSMEngine, iy::Int)::SimFloat = engine.aero_y[iy]
+engine_aero_x(engine::VSMEngine, ix::Int)::SimFloat = engine.aero_x[ix]
+engine_aero_jac(engine::VSMEngine, ix::Int, iy::Int)::SimFloat =
+    engine.aero_jac[ix, iy]
+
 get_aero_y(sys::SystemStructure, idx::Int64, iy::Int) =
-    sys.wings[idx].aero_y[iy]
+    engine_aero_y(sys.wings[idx].vsm, iy)
 @register_symbolic get_aero_y(
     sys::SystemStructure, idx::Int64, iy::Int)
 get_aero_x(sys::SystemStructure, idx::Int64, ix::Int) =
-    sys.wings[idx].aero_x[ix]
+    engine_aero_x(sys.wings[idx].vsm, ix)
 @register_symbolic get_aero_x(
     sys::SystemStructure, idx::Int64, ix::Int)
 get_aero_jac(sys::SystemStructure, idx::Int64,
              ix::Int, iy::Int) =
-    sys.wings[idx].aero_jac[ix, iy]
+    engine_aero_jac(sys.wings[idx].vsm, ix, iy)
 @register_symbolic get_aero_jac(
     sys::SystemStructure, idx::Int64,
     ix::Int, iy::Int)

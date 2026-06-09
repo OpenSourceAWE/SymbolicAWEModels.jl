@@ -13,7 +13,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, validate_twist_surface_modes,
-    BaseWing, TwistSurface
+    Wing, TwistSurface
 using KiteUtils: init!, next_step!
 using LinearAlgebra
 
@@ -21,10 +21,10 @@ pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
 
 @testset "validate_twist_surface_modes" begin
-    rigid = BaseWing(:rigid, NameRef[], Matrix{Float64}(I, 3, 3),
+    rigid = Wing(:rigid, NameRef[], Matrix{Float64}(I, 3, 3),
         zeros(3), ones(3); dynamics_type=RIGID_DYNAMICS)
     rigid.idx = 1
-    particle = BaseWing(:particle, NameRef[], Matrix{Float64}(I, 3, 3),
+    particle = Wing(:particle, NameRef[], Matrix{Float64}(I, 3, 3),
         zeros(3), ones(3); dynamics_type=PARTICLE_DYNAMICS)
     particle.idx = 1
 

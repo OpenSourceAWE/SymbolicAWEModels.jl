@@ -537,38 +537,35 @@ function assign_indices_and_resolve!(
         wing.twist_surface_idxs = Int64[resolve_ref(ref, twist_surface_names, "twist_surface") for ref in wing.twist_surface_refs]
         wing.transform_idx = resolve_ref(wing.transform_ref, transform_names, "transform")
 
-        # VSMWing-specific fields
-        if isa(wing, VSMWing) || isa(wing, PlateWing)
-            if !isnothing(wing.origin)
-                resolve!(wing.origin, point_names, "point")
-            end
-            if !isnothing(wing.z_ref_points)
-                resolve!(something(wing.z_ref_points)[1],
-                    point_names, "point")
-                resolve!(something(wing.z_ref_points)[2],
-                    point_names, "point")
-            end
-            if !isnothing(wing.y_ref_points)
-                resolve!(something(wing.y_ref_points)[1],
-                    point_names, "point")
-                resolve!(something(wing.y_ref_points)[2],
-                    point_names, "point")
-            end
+        # Body-frame reference points (any wing may carry them)
+        if !isnothing(wing.origin)
+            resolve!(wing.origin, point_names, "point")
+        end
+        if !isnothing(wing.z_ref_points)
+            resolve!(something(wing.z_ref_points)[1],
+                point_names, "point")
+            resolve!(something(wing.z_ref_points)[2],
+                point_names, "point")
+        end
+        if !isnothing(wing.y_ref_points)
+            resolve!(something(wing.y_ref_points)[1],
+                point_names, "point")
+            resolve!(something(wing.y_ref_points)[2],
+                point_names, "point")
+        end
 
-            # Resize aero arrays now that twist_surface_idxs
-            # are resolved (initial sizing used
-            # n_unrefined as proxy which may differ)
-            if wing.dynamics_type == RIGID_DYNAMICS
-                n_grp = length(wing.twist_surface_idxs)
-                num_aero_outputs = 6 + n_grp
-                num_aero_inputs = 5 + n_grp
-                if length(wing.aero_x) != num_aero_outputs ||
-                        length(wing.aero_y) != num_aero_inputs
-                    wing.aero_y = zeros(SimFloat, num_aero_inputs)
-                    wing.aero_x = zeros(SimFloat, num_aero_outputs)
-                    wing.aero_jac = zeros(
-                        SimFloat, num_aero_outputs, num_aero_inputs)
-                end
+        # Resize VSM aero arrays now that twist_surface_idxs are resolved
+        # (initial sizing used n_unrefined as proxy which may differ)
+        if is_vsm(wing) && wing.dynamics_type == RIGID_DYNAMICS
+            n_grp = length(wing.twist_surface_idxs)
+            num_aero_outputs = 6 + n_grp
+            num_aero_inputs = 5 + n_grp
+            if length(wing.aero_x) != num_aero_outputs ||
+                    length(wing.aero_y) != num_aero_inputs
+                wing.aero_y = zeros(SimFloat, num_aero_inputs)
+                wing.aero_x = zeros(SimFloat, num_aero_outputs)
+                wing.aero_jac = zeros(
+                    SimFloat, num_aero_outputs, num_aero_inputs)
             end
         end
     end
@@ -648,16 +645,16 @@ then drives all of them as a rigid unit. The case
 a section to drive would be undefined.
 """
 function compute_spatial_twist_surface_mapping!(
-    the_wing::VSMWing,
+    the_wing::Wing,
     twist_surfaces::AbstractVector{TwistSurface},
     points::AbstractVector{Point}
 )
     the_vsm_wing = the_wing.vsm_wing
     n_unrefined = the_vsm_wing.n_unrefined_sections
-    n_twist_surfaces = length(the_wing.base.twist_surface_idxs)
+    n_twist_surfaces = length(the_wing.twist_surface_idxs)
 
     n_twist_surfaces <= n_unrefined || error(
-        "Wing $(the_wing.base.idx): n_twist_surfaces " *
+        "Wing $(the_wing.idx): n_twist_surfaces " *
         "($n_twist_surfaces) > n_unrefined sections " *
         "($n_unrefined). Reduce twist_surfaces or increase " *
         "aero resolution.")
@@ -665,13 +662,13 @@ function compute_spatial_twist_surface_mapping!(
     # Compute twist_surface centers in body frame
     twist_surface_centers = Vector{MVec3}(undef, n_twist_surfaces)
     for (local_idx, twist_surface_idx) in
-            enumerate(the_wing.base.twist_surface_idxs)
+            enumerate(the_wing.twist_surface_idxs)
         twist_surface = twist_surfaces[twist_surface_idx]
         center = zeros(3)
         for pt_idx in twist_surface.point_idxs
-            center += the_wing.base.R_b_to_c' *
+            center += the_wing.R_b_to_c' *
                 (points[pt_idx].pos_cad -
-                 the_wing.base.pos_cad)
+                 the_wing.pos_cad)
         end
         twist_surface_centers[local_idx] =
             center / length(twist_surface.point_idxs)
@@ -690,7 +687,7 @@ function compute_spatial_twist_surface_mapping!(
     end
 
     # Reset section lists (we rebuild the partition)
-    for twist_surface_idx in the_wing.base.twist_surface_idxs
+    for twist_surface_idx in the_wing.twist_surface_idxs
         empty!(twist_surfaces[twist_surface_idx].unrefined_section_idxs)
     end
 
@@ -706,16 +703,16 @@ function compute_spatial_twist_surface_mapping!(
                 closest_local = local_idx
             end
         end
-        g_idx = the_wing.base.twist_surface_idxs[closest_local]
+        g_idx = the_wing.twist_surface_idxs[closest_local]
         push!(twist_surfaces[g_idx].unrefined_section_idxs,
               Int64(section_idx))
     end
 
     # Every twist_surface must claim at least one section
-    for twist_surface_idx in the_wing.base.twist_surface_idxs
+    for twist_surface_idx in the_wing.twist_surface_idxs
         twist_surface = twist_surfaces[twist_surface_idx]
         isempty(twist_surface.unrefined_section_idxs) && error(
-            "Wing $(the_wing.base.idx): twist_surface " *
+            "Wing $(the_wing.idx): twist_surface " *
             "$(twist_surface.name) claims no unrefined " *
             "sections (likely coincident twist_surface centres).")
     end
@@ -730,7 +727,7 @@ True when `wing` is a `VSMWing` whose VSM geometry provides a non-zero mesh
 inertia tensor (an `ObjWing` built with `set.mass > 0`).
 """
 function has_mesh_inertia(wing)
-    isa(wing, VSMWing) || return false
+    is_vsm(wing) || return false
     tensor = wing.vsm_wing.inertia_tensor
     return !isempty(tensor) && any(!iszero, tensor)
 end
@@ -769,7 +766,7 @@ function SystemStructure(name, set;
         prn::Bool=true,
     )
     # Load VSMSettings if not provided and VSM wings exist
-    has_vsm_wings = any(wing isa VSMWing for wing in wings)
+    has_vsm_wings = any(is_vsm(wing) for wing in wings)
     if isnothing(vsm_set) && has_vsm_wings
         model_dir = get_data_path()
         vsm_set_path = joinpath(model_dir, "vsm_settings.yaml")
@@ -899,7 +896,7 @@ function SystemStructure(name, set;
     # PARTICLE_DYNAMICS: origin from origin_idx, R_b_to_c from
     #   z/y_ref_points (no inertia needed).
     for wing in wings
-        isa(wing, VSMWing) || continue
+        is_vsm(wing) || continue
         vsm_wing = wing.vsm_wing
 
         if wing.dynamics_type == RIGID_DYNAMICS
@@ -1008,9 +1005,9 @@ function SystemStructure(name, set;
         end
     end
 
-    # PlateWing body frame initialization from ref points
+    # Flat-plate wing body frame initialization from ref points
     for wing in wings
-        wing isa PlateWing || continue
+        is_plate(wing) || continue
         init_body_frame_from_ref_points!(
             wing, points; prn)
     end
@@ -1018,7 +1015,7 @@ function SystemStructure(name, set;
     # Auto-create twist_surfaces for RIGID_DYNAMICS wings if needed (before geometry initialization)
     # Skip for AERO_NONE — no aerodynamics means no twist DOFs needed.
     for wing in wings
-        if wing isa VSMWing &&
+        if is_vsm(wing) &&
            wing.dynamics_type == RIGID_DYNAMICS &&
            isempty(wing.twist_surface_idxs) &&
            !(wing.aero isa AeroNone)
@@ -1072,14 +1069,14 @@ function SystemStructure(name, set;
     # VSMWing types (runs after auto-twist_surface creation so
     # identify_wing_segments can use twist_surfaces).
     for wing in wings
-        isa(wing, VSMWing) || continue
+        is_vsm(wing) || continue
         wing.aero isa AeroNone && continue
         match_aero_sections_to_structure!(
             wing, points; twist_surfaces=twist_surfaces)
     end
 
     for wing in wings
-        if wing isa VSMWing && wing.dynamics_type == PARTICLE_DYNAMICS &&
+        if is_vsm(wing) && wing.dynamics_type == PARTICLE_DYNAMICS &&
            !isempty(wing.twist_surface_idxs)
             empty!(wing.twist_surface_idxs)
         end
@@ -1088,7 +1085,7 @@ function SystemStructure(name, set;
     # Initialize twist_surface-to-unrefined-section mapping for RIGID_DYNAMICS wings
     # Do this BEFORE y_airf calculation so the mapping is available
     for the_wing in wings
-        if isa(the_wing, VSMWing) && the_wing.base.dynamics_type == RIGID_DYNAMICS && !isempty(the_wing.base.twist_surface_idxs)
+        if is_vsm(the_wing) && the_wing.dynamics_type == RIGID_DYNAMICS && !isempty(the_wing.twist_surface_idxs)
             compute_spatial_twist_surface_mapping!(the_wing, twist_surfaces, points)
         end
     end
@@ -1141,8 +1138,8 @@ function SystemStructure(name, set;
 
     for (i, wing) in enumerate(wings)
         @assert wing.idx == i
-        # For VSMWing PARTICLE_DYNAMICS wings, set defaults if not provided
-        if wing isa VSMWing && wing.dynamics_type == PARTICLE_DYNAMICS
+        # For VSM PARTICLE_DYNAMICS wings, set defaults if not provided
+        if is_vsm(wing) && wing.dynamics_type == PARTICLE_DYNAMICS
             # Build point_to_vsm_point mapping if not provided
             if isnothing(wing.point_to_vsm_point)
                 # Get WING-type points for this wing
@@ -1191,7 +1188,7 @@ function SystemStructure(name, set;
     if length(wings) > 0
         # Use number of unrefined sections
         first_wing = wings[1]
-        n_unrefined = first_wing isa VSMWing ? first_wing.vsm_wing.n_unrefined_sections : 0
+        n_unrefined = is_vsm(first_wing) ? first_wing.vsm_wing.n_unrefined_sections : 0
         num_aero_inputs = 3 + n_unrefined + 3
         num_aero_outputs = 3 + 3 + n_unrefined
     else

@@ -31,9 +31,9 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     validate_twist_surface_modes(twist_surfaces, wings)
 
-    # Validation for VSMWing PARTICLE_DYNAMICS wings
+    # Validation for VSM PARTICLE_DYNAMICS wings
     for wing in wings
-        if wing isa VSMWing && wing.dynamics_type == PARTICLE_DYNAMICS
+        if is_vsm(wing) && wing.dynamics_type == PARTICLE_DYNAMICS
             @assert !isnothing(wing.point_to_vsm_point) "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping"
 
             # Verify all WING points for this wing are in the mapping
@@ -227,25 +227,14 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # ==================== END INLINED FORCE_EQS! CONTENT ==================== #
 
-    # Build aerodynamic equations: each non-plate wing's aero component
-    # is wired in winch-style and returned as a subsystem.
+    # Build aerodynamic equations: each wing's aero component (including
+    # flat-plate) is wired in winch-style and returned as a subsystem.
     eqs, guesses, aero_subsystems = vsm_eqs!(
         s, eqs, guesses, psys;
         aero_force_b, aero_moment_b, twist_surface_aero_moment,
         twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
-        pos, vel, aero_force_point_b
+        pos, vel, va_point_b, height, aero_force_point_b
     )
-
-    # Build plate aerodynamic equations for PlateWings
-    for wing in wings
-        wing isa PlateWing || continue
-        wing.aero isa AeroNone && continue
-        eqs = plate_eqs!(s, eqs, psys, wing;
-            twist_surfaces, twist_angle,
-            R_b_to_w, aero_force_b, aero_moment_b,
-            aero_force_point_b, pos, vel, com_w,
-            wind_vec_gnd, height)
-    end
 
     # Build wing rigid body dynamics equations
     eqs, defaults = wing_eqs!(

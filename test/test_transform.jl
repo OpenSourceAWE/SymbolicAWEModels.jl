@@ -153,7 +153,7 @@ using LinearAlgebra
 
                 # Get wing position
                 wing = sam.sys_struct.wings[:main_wing]
-                wing_pos = wing.base.pos_w
+                wing_pos = wing.pos_w
 
                 # Get ground position
                 ground_pos = sam.sys_struct.points[:ground].pos_w
@@ -214,12 +214,12 @@ using LinearAlgebra
                 # Test 1: elevation = 80 deg (default)
                 reset_transform!(sam.sys_struct)
                 test_init!(sam; prn=false)
-                wing_z1 = sam.sys_struct.wings[:main_wing].base.pos_w[3]
+                wing_z1 = sam.sys_struct.wings[:main_wing].pos_w[3]
 
                 # Test 2: elevation = 45 deg
                 sam.sys_struct.transforms[:main_transform].elevation = deg2rad(45)
                 test_init!(sam; prn=false)
-                wing_z2 = sam.sys_struct.wings[:main_wing].base.pos_w[3]
+                wing_z2 = sam.sys_struct.wings[:main_wing].pos_w[3]
 
                 # Higher elevation should result in higher z position
                 # (wing more overhead)
@@ -237,12 +237,12 @@ using LinearAlgebra
                 # Test 1: azimuth = 0 deg (default)
                 reset_transform!(sam.sys_struct)
                 test_init!(sam; prn=false)
-                wing_y1 = sam.sys_struct.wings[:main_wing].base.pos_w[2]
+                wing_y1 = sam.sys_struct.wings[:main_wing].pos_w[2]
 
                 # Test 2: azimuth = 30 deg (more to the side)
                 sam.sys_struct.transforms[:main_transform].azimuth = deg2rad(30)
                 test_init!(sam; prn=false)
-                wing_y2 = sam.sys_struct.wings[:main_wing].base.pos_w[2]
+                wing_y2 = sam.sys_struct.wings[:main_wing].pos_w[2]
 
                 # Larger azimuth should give larger |y| component
                 @test abs(wing_y2) > abs(wing_y1)
@@ -262,15 +262,15 @@ using LinearAlgebra
                 wing = sam.sys_struct.wings[:main_wing]
 
                 # Wing should have a rotation matrix
-                @test !isnothing(wing.base.R_b_to_w)
-                @test size(wing.base.R_b_to_w) == (3, 3)
+                @test !isnothing(wing.R_b_to_w)
+                @test size(wing.R_b_to_w) == (3, 3)
 
                 # R_b_to_w should be a valid rotation matrix (orthonormal)
-                @test det(wing.base.R_b_to_w) ≈ 1.0 atol=1e-10
-                @test wing.base.R_b_to_w * wing.base.R_b_to_w' ≈ I(3) atol=1e-10
+                @test det(wing.R_b_to_w) ≈ 1.0 atol=1e-10
+                @test wing.R_b_to_w * wing.R_b_to_w' ≈ I(3) atol=1e-10
 
                 println("\n  ====== [$dynamics_type_name] Heading affects rotation: " *
-                    "det(R_b_to_w)=$(round(det(wing.base.R_b_to_w), digits=4)) ======\n")
+                    "det(R_b_to_w)=$(round(det(wing.R_b_to_w), digits=4)) ======\n")
             end
 
             # ================================================================

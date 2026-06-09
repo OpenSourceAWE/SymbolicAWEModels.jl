@@ -63,6 +63,8 @@ winch_force
 unstretched_length
 tether_length
 segment_stretch_stats
+is_vsm
+is_plate
 ```
 
 ## Visualization functions

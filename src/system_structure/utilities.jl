@@ -673,7 +673,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     # Recreate VSM wing and aero if requested
     if remake_vsm
         for wing in wings
-            wing isa VSMWing || continue
+            is_vsm(wing) || continue
             # Recreate VSM wing from settings
             vsm_set = sys_struct.vsm_set::VortexStepMethod.VSMSettings
             wing.vsm_wing = create_vsm_wing(set, vsm_set;
@@ -914,7 +914,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
     # update_sys_state!).
     n_points = length(points)
     n_panel_corners = isempty(wings) ? 0 : sum(
-        length(wing.vsm_aero.panels) * 4 for wing in wings if wing isa VSMWing;
+        length(wing.vsm_aero.panels) * 4 for wing in wings if is_vsm(wing);
         init=0
     )
     n_wings = length(wings)
@@ -995,7 +995,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
     end
 
     for wing in wings
-        wing isa VSMWing || continue
+        is_vsm(wing) || continue
         wing.dynamics_type == RIGID_DYNAMICS || continue
         isempty(wing.twist_surface_idxs) && continue
         vsm = wing.vsm_wing
@@ -1028,7 +1028,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
 
     corner_idx = n_points
     for wing in wings
-        wing isa VSMWing || continue
+        is_vsm(wing) || continue
         n_corners = length(wing.vsm_aero.panels) * 4
         if wing.dynamics_type == RIGID_DYNAMICS
             corner_idx += n_corners

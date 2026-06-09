@@ -68,7 +68,7 @@ export load_settings
 export SymbolicAWEModel
 # System Structure Components
 export SystemStructure, Point, TwistSurface, Segment, Pulley, Tether, Winch, Wing, Transform
-export AbstractWing, BaseWing, VSMWing, PlateWing
+export AbstractWing, VSMWing, PlateWing, VSMEngine, is_vsm, is_plate
 export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints
 # Enums
