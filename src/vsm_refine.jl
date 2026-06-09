@@ -14,14 +14,14 @@ updates) are at the bottom of this file.  The shared
 const AERO_SCALE_CHORD = 0.0
 
 """
-    identify_wing_segments(wing_points; groups=nothing, wing_group_idxs=nothing)
+    identify_wing_segments(wing_points; twist_surfaces=nothing, wing_twist_surface_idxs=nothing)
 
 Identify wing segments (LE/TE pairs) from WING-type points.
 
-When `groups` and `wing_group_idxs` are provided, uses group `point_idxs`
+When `twist_surfaces` and `wing_twist_surface_idxs` are provided, uses twist_surface `point_idxs`
 to determine LE (`point_idxs[1]`) and TE (`point_idxs[end]`) for each
 section. Falls back to a consecutive-pair heuristic (sorted by point index)
-when groups are unavailable.
+when twist_surfaces are unavailable.
 
 In both paths an x-coordinate check swaps LE/TE if needed (LE has
 smaller `pos_cad[1]`).
@@ -30,32 +30,32 @@ smaller `pos_cad[1]`).
 - `wing_points::AbstractVector{Point}`: WING-type points for a wing.
 
 # Keyword Arguments
-- `groups::Union{Nothing, AbstractVector{Group}}`: All groups in the
-  system (indexed by `wing_group_idxs`).
-- `wing_group_idxs::Union{Nothing, AbstractVector{<:Integer}}`:
-  Indices into `groups` belonging to this wing.
+- `twist_surfaces::Union{Nothing, AbstractVector{TwistSurface}}`: All twist_surfaces in the
+  system (indexed by `wing_twist_surface_idxs`).
+- `wing_twist_surface_idxs::Union{Nothing, AbstractVector{<:Integer}}`:
+  Indices into `twist_surfaces` belonging to this wing.
 
 # Returns
 - `Vector{Tuple{Int64, Int64}}`: (le_point_idx, te_point_idx) pairs.
 """
 function identify_wing_segments(
     wing_points::AbstractVector{Point};
-    groups::AbstractVector{Group}=Group[],
-    wing_group_idxs::AbstractVector{<:Integer}=Int[]
+    twist_surfaces::AbstractVector{TwistSurface}=TwistSurface[],
+    wing_twist_surface_idxs::AbstractVector{<:Integer}=Int[]
 )
-    use_groups = !isempty(groups) &&
-        !isempty(wing_group_idxs)
+    use_twist_surfaces = !isempty(twist_surfaces) &&
+        !isempty(wing_twist_surface_idxs)
 
-    if use_groups
+    if use_twist_surfaces
         segments = Tuple{Int64, Int64}[]
-        for g_idx in wing_group_idxs
-            group = groups[g_idx]
-            length(group.point_idxs) >= 2 || error(
-                "Group $(group.name): need at least " *
+        for g_idx in wing_twist_surface_idxs
+            twist_surface = twist_surfaces[g_idx]
+            length(twist_surface.point_idxs) >= 2 || error(
+                "TwistSurface $(twist_surface.name): need at least " *
                 "2 point_idxs (LE/TE), got " *
-                "$(length(group.point_idxs))")
-            le_idx = group.point_idxs[1]
-            te_idx = group.point_idxs[end]
+                "$(length(twist_surface.point_idxs))")
+            le_idx = twist_surface.point_idxs[1]
+            te_idx = twist_surface.point_idxs[end]
             le_point = wing_points[findfirst(
                 p -> p.idx == le_idx, wing_points)]
             te_point = wing_points[findfirst(
@@ -98,12 +98,12 @@ function identify_wing_segments(
 end
 
 """
-    match_aero_sections_to_structure!(wing, points; groups)
+    match_aero_sections_to_structure!(wing, points; twist_surfaces)
 
 Reconcile a wing's aerodynamic sections with its structural geometry.
 
 RIGID_DYNAMICS wings own their aero panel geometry (mesh- or
-YAML-defined) and keep it; only the group→section mapping
+YAML-defined) and keep it; only the twist_surface→section mapping
 (`wing.wing_segments`) is recorded. PARTICLE_DYNAMICS wings deform with
 their structural points, so each unrefined section is rebuilt onto its
 structural LE/TE pair: a 1:1 copy when counts match, otherwise
@@ -111,13 +111,13 @@ structural LE/TE pair: a 1:1 copy when counts match, otherwise
 preserve polars.
 
 # Keyword Arguments
-- `groups::AbstractVector{Group}`: Groups used for LE/TE identification
+- `twist_surfaces::AbstractVector{TwistSurface}`: TwistSurfaces used for LE/TE identification
   via [`identify_wing_segments`](@ref).
 """
 function match_aero_sections_to_structure!(
     wing::VSMWing,
     points::AbstractVector{Point};
-    groups::AbstractVector{Group}=Group[]
+    twist_surfaces::AbstractVector{TwistSurface}=TwistSurface[]
 )
     wing_points = [
         p for p in points if
@@ -126,31 +126,31 @@ function match_aero_sections_to_structure!(
 
     if wing.dynamics_type == RIGID_DYNAMICS
         wing.wing_segments = identify_wing_segments(
-            wing_points; groups=groups,
-            wing_group_idxs=wing.group_idxs)
+            wing_points; twist_surfaces=twist_surfaces,
+            wing_twist_surface_idxs=wing.twist_surface_idxs)
         return nothing
     end
 
-    wing_group_idxs = wing.group_idxs
-    has_groups = !isempty(groups) &&
-        !isempty(wing_group_idxs)
+    wing_twist_surface_idxs = wing.twist_surface_idxs
+    has_twist_surfaces = !isempty(twist_surfaces) &&
+        !isempty(wing_twist_surface_idxs)
 
-    if has_groups
-        n_struct_sections = length(wing_group_idxs)
-        for g_idx in wing_group_idxs
-            group = groups[g_idx]
-            length(group.point_idxs) == 2 || error(
-                "PARTICLE_DYNAMICS wing $(wing.idx): group " *
-                "$(group.name) must have exactly 2 " *
+    if has_twist_surfaces
+        n_struct_sections = length(wing_twist_surface_idxs)
+        for g_idx in wing_twist_surface_idxs
+            twist_surface = twist_surfaces[g_idx]
+            length(twist_surface.point_idxs) == 2 || error(
+                "PARTICLE_DYNAMICS wing $(wing.idx): twist_surface " *
+                "$(twist_surface.name) must have exactly 2 " *
                 "points (LE/TE pair), got " *
-                "$(length(group.point_idxs))")
+                "$(length(twist_surface.point_idxs))")
         end
     else
         n_points = length(wing_points)
         n_points % 2 == 0 || error(
-            "Wing $(wing.idx): no groups and odd " *
+            "Wing $(wing.idx): no twist_surfaces and odd " *
             "number of WING points " *
-            "($(n_points)). Define groups to " *
+            "($(n_points)). Define twist_surfaces to " *
             "specify LE/TE pairs.")
         n_struct_sections = n_points ÷ 2
     end
@@ -180,8 +180,8 @@ function match_aero_sections_to_structure!(
     end
 
     wing_segments = identify_wing_segments(
-        wing_points; groups=groups,
-        wing_group_idxs=wing_group_idxs)
+        wing_points; twist_surfaces=twist_surfaces,
+        wing_twist_surface_idxs=wing_twist_surface_idxs)
     wing.wing_segments = wing_segments
     length(wing_segments) == n_struct_sections || error(
         "Wing $(wing.idx): failed to identify " *

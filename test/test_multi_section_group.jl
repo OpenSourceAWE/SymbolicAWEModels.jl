@@ -1,10 +1,10 @@
 # Copyright (c) 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Verifies that a RIGID_DYNAMICS wing can have FEWER groups
+# Verifies that a RIGID_DYNAMICS wing can have FEWER twist_surfaces
 # than unrefined VSM sections — i.e. one twist DOF drives
 # multiple aero sections via the Voronoi partition in
-# compute_spatial_group_mapping!.
+# compute_spatial_twist_surface_mapping!.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -14,7 +14,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, RIGID_DYNAMICS,
-    compute_spatial_group_mapping!,
+    compute_spatial_twist_surface_mapping!,
     match_aero_sections_to_structure!
 using KiteUtils
 using LinearAlgebra
@@ -34,22 +34,22 @@ vsm_set_path = joinpath(data_path, "vsm_settings.yaml")
 vsm_set = VortexStepMethod.VSMSettings(
     vsm_set_path; data_prefix=false)
 
-@testset "Multi-section group partition" begin
+@testset "Multi-section twist_surface partition" begin
     sys = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="multi_section",
         set, vsm_set, dynamics_type=RIGID_DYNAMICS)
     wing = sys.wings[1]
     vsm_w = wing.vsm_wing
 
-    # Baseline: 3 groups, 3 unrefined sections (1:1)
-    @test length(sys.groups) == 3
+    # Baseline: 3 twist_surfaces, 3 unrefined sections (1:1)
+    @test length(sys.twist_surfaces) == 3
     @test vsm_w.n_unrefined_sections == 3
-    for group in sys.groups
-        @test length(group.unrefined_section_idxs) == 1
+    for twist_surface in sys.twist_surfaces
+        @test length(twist_surface.unrefined_section_idxs) == 1
     end
 
     # Inject a 4th unrefined section by duplicating an
-    # existing one. Now n_groups (3) < n_unrefined (4).
+    # existing one. Now n_twist_surfaces (3) < n_unrefined (4).
     extra = deepcopy(vsm_w.unrefined_sections[2])
     push!(vsm_w.unrefined_sections, extra)
     vsm_w.n_unrefined_sections = Int16(4)
@@ -58,43 +58,43 @@ vsm_set = VortexStepMethod.VSMSettings(
     # match_aero_sections_to_structure! should NOT
     # collapse aero back to 3 sections in this case
     match_aero_sections_to_structure!(
-        wing, sys.points; groups=sys.groups)
+        wing, sys.points; twist_surfaces=sys.twist_surfaces)
     @test vsm_w.n_unrefined_sections == 4
     @test length(vsm_w.unrefined_sections) == 4
     @test !isnothing(wing.wing_segments)
     @test length(wing.wing_segments) == 3
 
     # Re-run partition: every section assigned, no
-    # overlaps, every group claims ≥ 1 section.
-    compute_spatial_group_mapping!(
-        wing, sys.groups, sys.points)
+    # overlaps, every twist_surface claims ≥ 1 section.
+    compute_spatial_twist_surface_mapping!(
+        wing, sys.twist_surfaces, sys.points)
     assigned = Int64[]
-    for group in sys.groups
-        @test !isempty(group.unrefined_section_idxs)
-        append!(assigned, group.unrefined_section_idxs)
+    for twist_surface in sys.twist_surfaces
+        @test !isempty(twist_surface.unrefined_section_idxs)
+        append!(assigned, twist_surface.unrefined_section_idxs)
     end
     @test sort(assigned) == [1, 2, 3, 4]
     @test length(unique(assigned)) == 4
 
-    # Wing aero arrays sized by n_groups, not n_unrefined.
+    # Wing aero arrays sized by n_twist_surfaces, not n_unrefined.
     @test length(wing.aero_y) == 5 + 3
     @test length(wing.aero_x) == 6 + 3
     @test size(wing.aero_jac) == (6 + 3, 5 + 3)
 end
 
-@testset "n_groups > n_unrefined errors" begin
+@testset "n_twist_surfaces > n_unrefined errors" begin
     sys = SymbolicAWEModels.load_sys_struct_from_yaml(
-        struc_yaml; system_name="too_many_groups",
+        struc_yaml; system_name="too_many_twist_surfaces",
         set, vsm_set, dynamics_type=RIGID_DYNAMICS)
     wing = sys.wings[1]
     vsm_w = wing.vsm_wing
 
     # Drop down to 2 unrefined sections while keeping
-    # the 3 groups → must error.
+    # the 3 twist_surfaces → must error.
     pop!(vsm_w.unrefined_sections)
     vsm_w.n_unrefined_sections = Int16(2)
 
-    @test_throws ErrorException compute_spatial_group_mapping!(
-        wing, sys.groups, sys.points)
+    @test_throws ErrorException compute_spatial_twist_surface_mapping!(
+        wing, sys.twist_surfaces, sys.points)
 end
 nothing

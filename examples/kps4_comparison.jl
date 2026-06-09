@@ -167,15 +167,19 @@ winches = [Winch(:winch, set, [:main_tether];
 rel_side_area = set.rel_side_area / 100.0
 K = 1.0 - rel_side_area
 
-surfaces = [
-    PlateSurface(:main, [1,0,0], [0,1,0],
-        set.area, :top;
-        twist=deg2rad(set.alpha_zero)),
-    PlateSurface(:right_tip, [1,0,0], [0,0,-1],
-        set.area * rel_side_area, :right;
+alpha_depower = calc_alpha_depower(KCU(set), 0.25)
+
+twist_surfaces = [
+    TwistSurface(:main, [:top], FIXED, 0.0;
+        x_airf=[1,0,0], y_airf=[0,1,0], area=set.area,
+        twist=deg2rad(set.alpha_zero) - alpha_depower),
+    TwistSurface(:right_tip, [:right], FIXED, 0.0;
+        x_airf=[1,0,0], y_airf=[0,0,-1],
+        area=set.area * rel_side_area,
         twist=deg2rad(set.alpha_ztip)),
-    PlateSurface(:left_tip, [1,0,0], [0,0,1],
-        set.area * rel_side_area, :left;
+    TwistSurface(:left_tip, [:left], FIXED, 0.0;
+        x_airf=[1,0,0], y_airf=[0,0,1],
+        area=set.area * rel_side_area,
         twist=deg2rad(set.alpha_ztip)),
 ]
 
@@ -184,18 +188,13 @@ cl_interp, cd_interp = create_plate_interpolations(
     alpha_cd=set.alpha_cd)
 
 plate_wing = PlateWing(
-    :plate_wing, surfaces, cl_interp, cd_interp;
+    :plate_wing, [:main, :right_tip, :left_tip],
+    cl_interp, cd_interp;
     dynamics_type=PARTICLE_DYNAMICS,
     z_ref_points=([:right, :left], :top),
     y_ref_points=(:left, :right),
     origin=:kcu,
-    drag_corr=0.93 * K,
-    cmq=set.cmq, smc=set.smc,
-    cord_length=set.cord_length)
-
-alpha_depower = calc_alpha_depower(KCU(set), 0.25)
-plate_wing.surfaces[1].twist =
-    deg2rad(set.alpha_zero) - alpha_depower
+    drag_corr=0.93 * K)
 
 KITE_ANGLE = 3.83
 transforms = [
@@ -211,16 +210,16 @@ transforms = [
 ]
 
 sys = SystemStructure("kps4", set;
-    points, segments, tethers, winches,
+    points, twist_surfaces, segments, tethers, winches,
     wings=[plate_wing], transforms)
 sys.winches[1].brake = true
 
 sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false, prn=true)
 
-w = sam.sys_struct.wings[1]
-aoas = [round(s.aoa, digits=2) for s in w.surfaces]
-println("SymAWE initial aoa=$(aoas)")
+twists = [round(rad2deg(ts.twist), digits=2)
+          for ts in sam.sys_struct.twist_surfaces]
+println("SymAWE section twists [deg]=$(twists)")
 
 sam_logger = Logger(sam, N_STEPS + 1)
 sys_state = SysState(sam)

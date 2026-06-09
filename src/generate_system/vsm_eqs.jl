@@ -19,11 +19,11 @@ component subsystems to attach to the parent `System`.
 """
 function vsm_eqs!(
     s, eqs, guesses, psys;
-    aero_force_b, aero_moment_b, group_aero_moment,
+    aero_force_b, aero_moment_b, twist_surface_aero_moment,
     twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
     pos, vel, aero_force_point_b=nothing
 )
-    (; groups, wings, points) = s.sys_struct
+    (; twist_surfaces, wings, points) = s.sys_struct
     aero_subsystems = Any[]
     length(wings) == 0 && return eqs, guesses, aero_subsystems
 
@@ -60,31 +60,31 @@ function vsm_eqs!(
         end
 
         # RIGID_DYNAMICS
-        num_groups = length(wing.group_idxs)
+        num_twist_surfaces = length(wing.twist_surface_idxs)
         rho = calc_rho(s.am, wing_pos[3, wing_idx])
         eqs = [eqs
                collect(subsys.va) .~ collect(va_wing_b[:, wing_idx])
                subsys.rho ~ rho
                vec(collect(subsys.R_b_w)) .~ vec(R_b_to_w[:, :, wing_idx])
                collect(subsys.omega) .~ collect(ω_b[:, wing_idx])]
-        if num_groups > 0
+        if num_twist_surfaces > 0
             eqs = [eqs
                    collect(subsys.twist) .~
-                       [twist_angle[groups[gidx].idx]
-                        for gidx in wing.group_idxs]
+                       [twist_angle[twist_surfaces[gidx].idx]
+                        for gidx in wing.twist_surface_idxs]
                    collect(subsys.twist_vel) .~
-                       [twist_ω[groups[gidx].idx]
-                        for gidx in wing.group_idxs]]
+                       [twist_ω[twist_surfaces[gidx].idx]
+                        for gidx in wing.twist_surface_idxs]]
         end
 
         eqs = [eqs
                collect(aero_force_b[:, wing_idx]) .~ collect(subsys.force)
                collect(aero_moment_b[:, wing_idx]) .~ collect(subsys.moment)]
-        for (group_pos, gidx) in enumerate(wing.group_idxs)
-            isempty(groups[gidx].unrefined_section_idxs) && continue
+        for (twist_surface_pos, gidx) in enumerate(wing.twist_surface_idxs)
+            isempty(twist_surfaces[gidx].unrefined_section_idxs) && continue
             eqs = [eqs
-                   group_aero_moment[groups[gidx].idx] ~
-                       subsys.twist_moment[group_pos]]
+                   twist_surface_aero_moment[twist_surfaces[gidx].idx] ~
+                       subsys.twist_moment[twist_surface_pos]]
         end
 
         if s.set.quasi_static && hasproperty(subsys, :aero_input)

@@ -206,7 +206,7 @@ end
         # wing_segments populated by constructor
         @test !isnothing(wing.wing_segments)
 
-        n_struct = length(wing.group_idxs)
+        n_struct = length(wing.twist_surface_idxs)
         @test length(wing.wing_segments) == n_struct
         @test vsm_w.n_unrefined_sections == n_struct
 
@@ -227,11 +227,11 @@ end
         end
     end
 
-    @testset "preserve aero when n_groups < n_aero" begin
+    @testset "preserve aero when n_twist_surfaces < n_aero" begin
         # When a RIGID_DYNAMICS wing has fewer twist DOFs
-        # (groups) than aero sections, the OBJ/VSM
+        # (twist_surfaces) than aero sections, the OBJ/VSM
         # geometry must stay intact — only the Voronoi
-        # partition assigns sections to groups.
+        # partition assigns sections to twist_surfaces.
         sys_q = SymbolicAWEModels.load_sys_struct_from_yaml(
             struc_yaml;
             system_name="quat_preserve", set, vsm_set,
@@ -240,10 +240,10 @@ end
         points = sys_q.points
         vsm_w = wing.vsm_wing
 
-        n_struct = length(wing.group_idxs)
+        n_struct = length(wing.twist_surface_idxs)
         n_refined = length(vsm_w.refined_sections)
 
-        # Add extra section so n_aero > n_groups
+        # Add extra section so n_aero > n_twist_surfaces
         extra = deepcopy(vsm_w.unrefined_sections[1])
         push!(vsm_w.unrefined_sections, extra)
         vsm_w.n_unrefined_sections =
@@ -263,7 +263,7 @@ end
         wing.wing_segments = nothing
         match_aero_sections_to_structure!(
             wing, points;
-            groups=collect(sys_q.groups))
+            twist_surfaces=collect(sys_q.twist_surfaces))
 
         # Aero geometry untouched
         @test vsm_w.n_unrefined_sections == n_aero_before
@@ -287,16 +287,16 @@ end
             end
         end
 
-        # wing_segments still populated — one per group
+        # wing_segments still populated — one per twist_surface
         @test !isnothing(wing.wing_segments)
         @test length(wing.wing_segments) == n_struct
 
-        # Aero arrays remain group-count-sized
-        n_groups = length(wing.group_idxs)
-        @test length(wing.aero_y) == 5 + n_groups
-        @test length(wing.aero_x) == 6 + n_groups
+        # Aero arrays remain twist_surface-count-sized
+        n_twist_surfaces = length(wing.twist_surface_idxs)
+        @test length(wing.aero_y) == 5 + n_twist_surfaces
+        @test length(wing.aero_x) == 6 + n_twist_surfaces
         @test size(wing.aero_jac) ==
-              (6 + n_groups, 5 + n_groups)
+              (6 + n_twist_surfaces, 5 + n_twist_surfaces)
     end
 end
 nothing

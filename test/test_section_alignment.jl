@@ -39,14 +39,14 @@ vsm_wing = wing.vsm_wing
 points = sys.points
 
 # Collect this wing's LE/TE section points: the WING-type points
-# that belong to a group. The structural attachment point (KCU) is
-# not in any group, so it is excluded.
-group_point_ids = reduce(vcat,
-    [sys.groups[g].point_idxs for g in wing.group_idxs];
+# that belong to a twist_surface. The structural attachment point (KCU) is
+# not in any twist_surface, so it is excluded.
+twist_surface_point_ids = reduce(vcat,
+    [sys.twist_surfaces[g].point_idxs for g in wing.twist_surface_idxs];
     init=Int[])
 wing_pts = filter(
     p -> p.type == WING && p.wing_idx == wing.idx &&
-         p.idx in group_point_ids,
+         p.idx in twist_surface_point_ids,
     points)
 sort!(wing_pts; by=p -> p.pos_cad[2], rev=true)
 

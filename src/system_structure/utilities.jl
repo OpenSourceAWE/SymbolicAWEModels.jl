@@ -62,7 +62,7 @@ configurations and throws assertions for definite errors.
 - Non-positive mass (error) - checked before NaN position
 - Zero or near-zero principal inertia components on RIGID_DYNAMICS wings (error/warning)
 - NaN inertia values (error)
-- Empty group list for RIGID_DYNAMICS wings (warning)
+- Empty twist_surface list for RIGID_DYNAMICS wings (warning)
 - NaN position (error) - often caused by zero mass/inertia
 
 ## Winch Validations
@@ -81,11 +81,11 @@ configurations and throws assertions for definite errors.
 ## Pulley Validations
 - Zero total length constraint (error)
 
-## Group Validations
-- Inconsistent moment_frac across groups (error)
+## TwistSurface Validations
+- Inconsistent moment_frac across twist_surfaces (error)
 """
 function validate_sys_struct(sys_struct::SystemStructure)
-    (; points, groups, segments, pulleys, wings, winches) = sys_struct
+    (; points, twist_surfaces, segments, pulleys, wings, winches) = sys_struct
 
     # ==================== POINT VALIDATIONS ==================== #
     for point in points
@@ -142,12 +142,12 @@ function validate_sys_struct(sys_struct::SystemStructure)
                 error("Wing $(wing.name) has NaN inertia: I_b = $I_b")
             end
 
-            # Warn if RIGID_DYNAMICS wing has no groups
-            # (expected for AERO_NONE which skips auto-group creation)
-            if isempty(wing.group_idxs) &&
+            # Warn if RIGID_DYNAMICS wing has no twist_surfaces
+            # (expected for AERO_NONE which skips auto-twist_surface creation)
+            if isempty(wing.twist_surface_idxs) &&
                !(wing.aero isa AeroNone)
                 @warn "Wing $(wing.name) (RIGID_DYNAMICS)" *
-                    " has no groups"
+                    " has no twist_surfaces"
             end
         end
 
@@ -226,14 +226,14 @@ function validate_sys_struct(sys_struct::SystemStructure)
         end
     end
 
-    # ==================== GROUP VALIDATIONS ==================== #
-    if length(groups) > 0
-        first_moment_frac = groups[1].moment_frac
-        for group in groups
-            if !(group.moment_frac ≈ first_moment_frac)
-                error("Group $(group.name) has moment_frac = " *
-                      "$(group.moment_frac), but all groups must have the " *
-                      "same moment_frac (first group has $(first_moment_frac))")
+    # ==================== TWIST_SURFACE VALIDATIONS ==================== #
+    if length(twist_surfaces) > 0
+        first_moment_frac = twist_surfaces[1].moment_frac
+        for twist_surface in twist_surfaces
+            if !(twist_surface.moment_frac ≈ first_moment_frac)
+                error("TwistSurface $(twist_surface.name) has moment_frac = " *
+                      "$(twist_surface.moment_frac), but all twist_surfaces must have the " *
+                      "same moment_frac (first twist_surface has $(first_moment_frac))")
             end
         end
     end
@@ -351,14 +351,14 @@ function tether_downstream_idxs(tether, segments, boundary,
 end
 
 """
-    group_tethers_by_overlap(specified, reach)
+    twist_surface_tethers_by_overlap(specified, reach)
 
 Cluster the `specified` tethers with a union-find over `reach`
 (point indices each tether touches): tethers whose reaches intersect
 share structure and land in the same cluster. Returns a vector of
 tether vectors, one per cluster.
 """
-function group_tethers_by_overlap(specified, reach)
+function twist_surface_tethers_by_overlap(specified, reach)
     n = length(specified)
     parent = collect(1:n)
     function find_root(i)
@@ -376,11 +376,11 @@ function group_tethers_by_overlap(specified, reach)
             parent[root_i] = root_j
         end
     end
-    groups = Dict{Int64, Vector{Tether}}()
+    twist_surfaces = Dict{Int64, Vector{Tether}}()
     for i in 1:n
-        push!(get!(() -> Tether[], groups, find_root(i)), specified[i])
+        push!(get!(() -> Tether[], twist_surfaces, find_root(i)), specified[i])
     end
-    return collect(values(groups))
+    return collect(values(twist_surfaces))
 end
 
 """
@@ -518,7 +518,7 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
                 boundary),
         downstream[tether.idx]) for tether in specified)
 
-    for cluster in group_tethers_by_overlap(specified, reach)
+    for cluster in twist_surface_tethers_by_overlap(specified, reach)
         apply_cluster_init_stretched_len!(cluster, points, segments,
                                           downstream, boundary; prn)
     end
@@ -586,7 +586,7 @@ end
 
 Re-initialize a `SystemStructure` from a `Settings` object.
 
-This function resets various component states (e.g., winch lengths, group twists,
+This function resets various component states (e.g., winch lengths, twist_surface twists,
 pulley positions) to their initial values as defined in the `Settings` object. It
 is typically called before starting a new simulation run.
 
@@ -609,15 +609,16 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                  ignore_l0::Bool=false, remake_vsm::Bool=false,
                  reset_vel::Bool=true, apply_transforms::Bool=true,
                  apply_tether_lengths::Bool=true, prn::Bool=true)
-    (; points, groups, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
+    (; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
 
     for winch in winches
         winch.vel = winch.init_vel
     end
 
-    for group in groups
-        group.twist = 0.0
-        group.twist_ω = 0.0
+    for twist_surface in twist_surfaces
+        twist_surface.type == FIXED && continue
+        twist_surface.twist = 0.0
+        twist_surface.twist_ω = 0.0
     end
 
     # Transforms are not updated from Settings -
@@ -697,13 +698,13 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
 
             # Match aero sections to structure (all types)
             match_aero_sections_to_structure!(
-                wing, points; groups=groups)
+                wing, points; twist_surfaces=twist_surfaces)
 
-            # Recompute group→section mapping
+            # Recompute twist_surface→section mapping
             if wing.dynamics_type == RIGID_DYNAMICS &&
-               !isempty(wing.group_idxs)
-                compute_spatial_group_mapping!(
-                    wing, groups, points)
+               !isempty(wing.twist_surface_idxs)
+                compute_spatial_twist_surface_mapping!(
+                    wing, twist_surfaces, points)
             end
 
             # PARTICLE_DYNAMICS-only: rebuild point mapping
@@ -778,7 +779,7 @@ The function handles several cases:
 - If `sys1` and `sys2` have the same structure, it performs a direct copy of all point states.
 - If `sys2` is a simplified (1-segment per tether) version of `sys1`, it copies the
   positions and velocities of the tether endpoints.
-- It also copies the state of wings, groups, winches, and pulleys where applicable.
+- It also copies the state of wings, twist_surfaces, winches, and pulleys where applicable.
 """
 function copy!(sys1::SystemStructure, sys2::SystemStructure)
 
@@ -820,11 +821,11 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
         end
     end
 
-    # copy twist and twist_ω of groups
-    if length(sys1.groups) > 0 && length(sys1.groups) == length(sys2.groups)
-        for (group1, group2) in zip(sys1.groups, sys2.groups)
-            group2.twist = group1.twist
-            group2.twist_ω = group1.twist_ω
+    # copy twist and twist_ω of twist_surfaces
+    if length(sys1.twist_surfaces) > 0 && length(sys1.twist_surfaces) == length(sys2.twist_surfaces)
+        for (twist_surface1, twist_surface2) in zip(sys1.twist_surfaces, sys2.twist_surfaces)
+            twist_surface2.twist = twist_surface1.twist
+            twist_surface2.twist_ω = twist_surface1.twist_ω
         end
     end
 
@@ -906,7 +907,7 @@ plot(sys)
 - The number of points in `sys` must match the parametric type `P` of `SysState{P}`.
 """
 function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) where P
-    (; points, groups, tethers, winches, wings) = sys
+    (; points, twist_surfaces, tethers, winches, wings) = sys
 
     # Total slots: structural points + panel corners + wings.
     # Wing pos_w is appended after panel corners (see
@@ -980,29 +981,29 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         wing.turn_acc .= 0.0
     end
 
-    # Update group twist angles
-    n_groups = min(length(groups), 4)  # SysState stores up to 4 twist angles
-    for i in 1:n_groups
-        if i <= length(groups)
-            groups[i].twist = Float64(sys_state.twist_angles[i])
-            groups[i].twist_ω = 0.0  # Not available in SysState
+    # Update twist_surface twist angles
+    n_twist_surfaces = min(length(twist_surfaces), 4)  # SysState stores up to 4 twist angles
+    for i in 1:n_twist_surfaces
+        if i <= length(twist_surfaces)
+            twist_surfaces[i].twist = Float64(sys_state.twist_angles[i])
+            twist_surfaces[i].twist_ω = 0.0  # Not available in SysState
             # Set forces/moments to NaN
-            groups[i].tether_force = NaN
-            groups[i].tether_moment = NaN
-            groups[i].aero_moment = NaN
+            twist_surfaces[i].tether_force = NaN
+            twist_surfaces[i].tether_moment = NaN
+            twist_surfaces[i].aero_moment = NaN
         end
     end
 
     for wing in wings
         wing isa VSMWing || continue
         wing.dynamics_type == RIGID_DYNAMICS || continue
-        isempty(wing.group_idxs) && continue
+        isempty(wing.twist_surface_idxs) && continue
         vsm = wing.vsm_wing
         isempty(vsm.non_deformed_sections) && continue
         theta = zeros(Float64, vsm.n_unrefined_sections)
-        for g_idx in wing.group_idxs
-            for section_idx in groups[g_idx].unrefined_section_idxs
-                theta[section_idx] = groups[g_idx].twist
+        for g_idx in wing.twist_surface_idxs
+            for section_idx in twist_surfaces[g_idx].unrefined_section_idxs
+                theta[section_idx] = twist_surfaces[g_idx].twist
             end
         end
         VortexStepMethod.unrefined_deform!(vsm, theta)

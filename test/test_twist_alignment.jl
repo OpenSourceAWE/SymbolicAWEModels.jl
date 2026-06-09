@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Under group twist (steering), the structural strut trailing-edge
+# Under twist_surface twist (steering), the structural strut trailing-edge
 # points should stay aligned with the deformed VSM panel trailing
 # edges for a RIGID_DYNAMICS wing.
 
@@ -39,26 +39,26 @@ l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
 init!(sam; prn=false, remake=false, remake_vsm=false)
 SymbolicAWEModels.find_steady_state!(sam)
 
-# Distance between each group's structural strut TE (body frame, under
+# Distance between each twist_surface's structural strut TE (body frame, under
 # the current twist) and the matching deformed VSM panel TE.
 function twist_te_diffs(sam)
     wing = sam.sys_struct.wings[1]
     points = sam.sys_struct.points
-    groups = sam.sys_struct.groups
+    twist_surfaces = sam.sys_struct.twist_surfaces
     vsm = wing.vsm_wing
     R = wing.R_b_to_w
     origin = wing.pos_w
 
     n_unref = vsm.n_unrefined_sections
     theta = zeros(Float64, n_unref)
-    for g in groups, u in g.unrefined_section_idxs
+    for g in twist_surfaces, u in g.unrefined_section_idxs
         theta[u] = g.twist
     end
     VortexStepMethod.unrefined_deform!(vsm, theta)
     refined = vsm.refined_sections
 
     rows = NamedTuple[]
-    for g in groups
+    for g in twist_surfaces
         i1, i2 = g.point_idxs[1], g.point_idxs[end]
         le_idx, te_idx =
             points[i1].pos_cad[1] < points[i2].pos_cad[1] ?
@@ -78,14 +78,14 @@ end
 
 function report(label, rows)
     for r in rows
-        println("[$label] group $(r.name): twist=",
+        println("[$label] twist_surface $(r.name): twist=",
             round(r.twist; digits=5),
             "  diff=", round(r.diff; digits=7))
     end
 end
 
 # Ramp steering to a moderate, stable level. Larger amplitudes drive
-# the group twist of this 2-plate config unstable (the twist runs away
+# the twist_surface twist of this 2-plate config unstable (the twist runs away
 # until the VSM solve diverges), so it is not a valid operating point.
 dt = 0.05
 steer_mag = 0.03

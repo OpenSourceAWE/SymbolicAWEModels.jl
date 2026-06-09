@@ -9,7 +9,7 @@
 #
 # Key invariants:
 # 1. pos_w = com_w + R_b_to_w * pos_b  (rigid body)
-# 2. Group le_pos, chord, y_airf in body frame
+# 2. TwistSurface le_pos, chord, y_airf in body frame
 #    relative to COM (same frame as pos_b)
 # 3. R_b_to_p = R_p_to_c' * R_b_to_c (constant body→principal)
 
@@ -94,17 +94,17 @@ using LinearAlgebra
             "points satisfy rigid body constraint")
     end
 
-    # ---- Test 3: Group geometry in principal frame ---- #
-    @testset "Group geometry frame" begin
+    # ---- Test 3: TwistSurface geometry in principal frame ---- #
+    @testset "TwistSurface geometry frame" begin
         wing_pts = [p for p in sys.points
             if p.type == WING &&
                p.wing_idx == wing.idx]
 
-        for group in sys.groups
-            # Find LE and TE points in this group
+        for twist_surface in sys.twist_surfaces
+            # Find LE and TE points in this twist_surface
             le_pt = nothing
             te_pt = nothing
-            for pt_idx in group.point_idxs
+            for pt_idx in twist_surface.point_idxs
                 pt = sys.points[pt_idx]
                 name_str = string(pt.name)
                 if occursin("le", name_str)
@@ -118,29 +118,29 @@ using LinearAlgebra
 
             # chord_b = pos_b - le_pos (from point_eqs)
             chord_from_pos = te_pt.pos_b -
-                group.le_pos
+                twist_surface.le_pos
             # chord_from_pos should be parallel to
-            # group.chord (same direction, maybe
+            # twist_surface.chord (same direction, maybe
             # different magnitude)
-            chord_dir = normalize(group.chord)
+            chord_dir = normalize(twist_surface.chord)
             pos_dir = normalize(chord_from_pos)
             dot_val = abs(dot(chord_dir, pos_dir))
             @test dot_val > 0.99
             if dot_val < 0.99
-                println("  FAIL group $(group.idx): " *
+                println("  FAIL twist_surface $(twist_surface.idx): " *
                     "chord misaligned, dot=$dot_val")
             end
 
             # le_pos should be close to the LE point's
             # pos_b (since LE is at the leading edge)
-            le_err = norm(le_pt.pos_b - group.le_pos)
+            le_err = norm(le_pt.pos_b - twist_surface.le_pos)
             # LE point may not exactly match le_pos
             # (le_pos comes from panel center, pos_b
             # from point mass position) but should be
             # in the same ballpark
             @test le_err < 1.0
         end
-        println("  All $(length(sys.groups)) groups " *
+        println("  All $(length(sys.twist_surfaces)) twist_surfaces " *
             "have consistent geometry")
     end
 

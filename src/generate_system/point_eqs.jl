@@ -4,7 +4,7 @@
 # Point dynamics equation generation
 
 """
-    point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, psys;
+    point_eqs!(s, eqs, defaults, guesses, points, segments, twist_surfaces, wings, psys;
                R_b_to_w, wing_vel, wind_vec_gnd, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                spring_sum_force, point_drag_force, total_drag,
@@ -12,19 +12,19 @@
                fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
                va_point_b, va_point_w, wind_at_point, height,
                aero_force_point_b,
-               group_y_airf, tether_wing_force, tether_wing_moment)
+               twist_surface_y_airf, tether_wing_force, tether_wing_moment)
 
 Generate equations for all point types (STATIC, DYNAMIC, QUASI_STATIC, WING).
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
 - `eqs`, `defaults`, `guesses`: Accumulating vectors for the MTK system.
-- `points`, `segments`, `groups`, `wings`: System components.
+- `points`, `segments`, `twist_surfaces`, `wings`: System components.
 - `psys`: Symbolic parameter representing the system structure.
 - `R_b_to_w`: Symbolic rotation matrix (body to world).
 - `wing_vel`: Symbolic wing center of mass velocity.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
-- `twist_angle`: Symbolic group twist angle.
+- `twist_angle`: Symbolic twist_surface twist angle.
 - `pos`, `vel`, `acc`: Pre-declared point state variables.
 - `point_force`, `point_mass`: Pre-declared point force and mass variables.
 - `spring_force_vec`, `drag_force`, `l0`: Pre-declared segment force variables.
@@ -36,7 +36,7 @@ Generate equations for all point types (STATIC, DYNAMIC, QUASI_STATIC, WING).
 - Tuple `(eqs, defaults, guesses)` with updated equation vectors.
   Note: `tether_wing_force` and `tether_wing_moment` are modified in-place.
 """
-function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, psys;
+function point_eqs!(s, eqs, defaults, guesses, points, segments, twist_surfaces, wings, psys;
                     R_b_to_w, com_w,
                     wing_vel, wind_vec_gnd, twist_angle,
                     pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -45,7 +45,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                     fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
                     va_point_b, va_point_w, wind_at_point, height,
                     aero_force_point_b,
-                    group_y_airf, tether_wing_force, tether_wing_moment)
+                    twist_surface_y_airf, tether_wing_force, tether_wing_moment)
 
     for point in points
         F::Vector{Num} = zeros(Num, 3)
@@ -199,40 +199,40 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, groups, wings, 
                 ]
 
                 found = 0
-                group = nothing
-                for group_ in groups
-                    if point.idx in group_.point_idxs
-                        group = group_
+                twist_surface = nothing
+                for twist_surface_ in twist_surfaces
+                    if point.idx in twist_surface_.point_idxs
+                        twist_surface = twist_surface_
                         found += 1
                     end
                 end
                 !(found in [0, 1]) && error(
-                    "Kite point number $(point.idx) is part of $found groups, " *
-                    "and should be part of exactly 0 or 1 groups.",
+                    "Kite point number $(point.idx) is part of $found twist_surfaces, " *
+                    "and should be part of exactly 0 or 1 twist_surfaces.",
                 )
 
                 if found == 1
                     found = 0
                     for wing_ in wings
-                        if group.idx in wing_.group_idxs
+                        if twist_surface.idx in wing_.twist_surface_idxs
                             found += 1
                         end
                     end
                     !(found == 1) && error(
-                        "Kite group number $(group.idx) is part of $found wings, " *
+                        "Kite twist_surface number $(twist_surface.idx) is part of $found wings, " *
                         "and should be part of exactly 1 wing.",
                     )
 
                     eqs = [
                         eqs
-                        fixed_pos[:, point.idx] ~ get_le_pos(psys, group.idx)
+                        fixed_pos[:, point.idx] ~ get_le_pos(psys, twist_surface.idx)
                         chord_b[:, point.idx] ~
                             get_pos_b(psys, point.idx) .- fixed_pos[:, point.idx]
-                        normal[:, point.idx] ~ chord_b[:, point.idx] × group_y_airf[:, group.idx]
+                        normal[:, point.idx] ~ chord_b[:, point.idx] × twist_surface_y_airf[:, twist_surface.idx]
                         pos_b[:, point.idx] ~
                             fixed_pos[:, point.idx] .+
-                            cos(twist_angle[group.idx]) * chord_b[:, point.idx] -
-                            sin(twist_angle[group.idx]) * normal[:, point.idx]
+                            cos(twist_angle[twist_surface.idx]) * chord_b[:, point.idx] -
+                            sin(twist_angle[twist_surface.idx]) * normal[:, point.idx]
                     ]
                 elseif found == 0
                     eqs = [eqs; pos_b[:, point.idx] ~ get_pos_b(psys, point.idx)]

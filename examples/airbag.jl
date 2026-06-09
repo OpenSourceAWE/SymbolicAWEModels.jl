@@ -12,7 +12,7 @@ pressure forces (P × triangle_area / 3 per corner) are fed in as
 The membrane starts flat; the pressure inflates it into a pillow shape.
 
 Reference: Thedens, P. Dissertation (2022), p.45
-           https://github.com/awegroup/Particle_System_Simulator
+           https://github.com/awetwist_surface/Particle_System_Simulator
 """
 
 using Pkg

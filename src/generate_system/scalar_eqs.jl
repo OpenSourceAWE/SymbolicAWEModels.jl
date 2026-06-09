@@ -92,11 +92,11 @@ function scalar_eqs!(
         end
 
         x, y, _ = rel_pos
-        has_groups = !isempty(wing.group_idxs)
+        has_twist_surfaces = !isempty(wing.twist_surface_idxs)
         half_len = 0
-        if has_groups
-            half_len = wing.group_idxs[1] +
-                length(wing.group_idxs) ÷ 2 - 1
+        if has_twist_surfaces
+            half_len = wing.twist_surface_idxs[1] +
+                length(wing.twist_surface_idxs) ÷ 2 - 1
         end
 
         # Calculate heading using tangential sphere frame.
@@ -168,7 +168,7 @@ function scalar_eqs!(
             angle_of_attack[wing.idx] ~
                 calc_angle_of_attack(
                     va_wing_b[:, wing.idx]) +
-                (has_groups ?
+                (has_twist_surfaces ?
                     0.5 * twist_angle[half_len] +
                     0.5 * twist_angle[half_len + 1] :
                     0)

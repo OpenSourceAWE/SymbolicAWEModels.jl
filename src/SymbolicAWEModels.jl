@@ -67,12 +67,12 @@ export load_settings
 # Core Model
 export SymbolicAWEModel
 # System Structure Components
-export SystemStructure, Point, Group, Segment, Pulley, Tether, Winch, Wing, Transform
-export AbstractWing, BaseWing, VSMWing, PlateWing, PlateSurface
+export SystemStructure, Point, TwistSurface, Segment, Pulley, Tether, Winch, Wing, Transform
+export AbstractWing, BaseWing, VSMWing, PlateWing
 export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints
 # Enums
-export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC
+export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC, FIXED
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
 export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate

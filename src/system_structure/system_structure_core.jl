@@ -22,10 +22,10 @@ winches, and wings, forming a complete description of the kite system's structur
 
 # Components
 - [`Point`](@ref): Point masses.
-- [`Group`](@ref): Collections of points for wing deformation.
+- [`TwistSurface`](@ref): Collections of points for wing deformation.
 - [`Segment`](@ref): Spring-damper elements.
 - [`Pulley`](@ref): Elements that redistribute line lengths.
-- [`Tether`](@ref): Groups of segments controlled by a winch.
+- [`Tether`](@ref): TwistSurfaces of segments controlled by a winch.
 - [`Winch`](@ref): Ground-based winches.
 - [`Wing`](@ref): Rigid wing bodies.
 - [`Transform`](@ref): Spatial transformations for initial positioning.
@@ -34,7 +34,7 @@ mutable struct SystemStructure{W<:AbstractWing}
     const name::String
     set::Settings
     const points::NamedCollection{Point}
-    const groups::NamedCollection{Group}
+    const twist_surfaces::NamedCollection{TwistSurface}
     const segments::NamedCollection{Segment}
     const pulleys::NamedCollection{Pulley}
     const tethers::NamedCollection{Tether}
@@ -83,12 +83,12 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
             append!(vars, wing.Q_p_to_w)
             append!(vars, wing.ω_p)
         end
-        # groups
-        groups = getfield(sys, :groups)
-        for group in groups
-            if group.type == DYNAMIC
-                push!(vars, group.twist)
-                push!(vars, group.twist_ω)
+        # twist_surfaces
+        twist_surfaces = getfield(sys, :twist_surfaces)
+        for twist_surface in twist_surfaces
+            if twist_surface.type == DYNAMIC
+                push!(vars, twist_surface.twist)
+                push!(vars, twist_surface.twist_ω)
             end
         end
         # pulleys
@@ -142,13 +142,13 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
             wing.ω_p .= @view flat_value[offset:offset+2]
             offset += 3
         end
-        # groups
-        groups = getfield(sys, :groups)
-        for group in groups
-            if group.type == DYNAMIC
-                group.twist = flat_value[offset]
+        # twist_surfaces
+        twist_surfaces = getfield(sys, :twist_surfaces)
+        for twist_surface in twist_surfaces
+            if twist_surface.type == DYNAMIC
+                twist_surface.twist = flat_value[offset]
                 offset += 1
-                group.twist_ω = flat_value[offset]
+                twist_surface.twist_ω = flat_value[offset]
                 offset += 1
             end
         end
@@ -426,7 +426,7 @@ and resolve all references to indices.
 """
 function assign_indices_and_resolve!(
     points::Vector{Point},
-    groups::Vector{Group},
+    twist_surfaces::Vector{TwistSurface},
     segments::Vector{Segment},
     pulleys::Vector{Pulley},
     tethers::Vector{Tether},
@@ -439,8 +439,8 @@ function assign_indices_and_resolve!(
     for (i, point) in enumerate(points)
         point.idx = i
     end
-    for (i, group) in enumerate(groups)
-        group.idx = i
+    for (i, twist_surface) in enumerate(twist_surfaces)
+        twist_surface.idx = i
     end
     for (i, segment) in enumerate(segments)
         segment.idx = i
@@ -463,7 +463,7 @@ function assign_indices_and_resolve!(
 
     # Build name lookup dictionaries
     point_names = build_name_dict(points)
-    group_names = build_name_dict(groups)
+    twist_surface_names = build_name_dict(twist_surfaces)
     segment_names = build_name_dict(segments)
     pulley_names = build_name_dict(pulleys)
     tether_names = build_name_dict(tethers)
@@ -478,9 +478,9 @@ function assign_indices_and_resolve!(
         point.transform_idx = resolve_ref(point.transform_ref, transform_names, "transform")
     end
 
-    # Groups: resolve point_refs
-    for group in groups
-        group.point_idxs = Int64[resolve_ref(ref, point_names, "point") for ref in group.point_refs]
+    # TwistSurfaces: resolve point_refs
+    for twist_surface in twist_surfaces
+        twist_surface.point_idxs = Int64[resolve_ref(ref, point_names, "point") for ref in twist_surface.point_refs]
     end
 
     # Segments: resolve point_refs
@@ -531,10 +531,10 @@ function assign_indices_and_resolve!(
         transform.base_transform_idx = resolve_ref_spec(transform.base_transform_ref, transform_names, "transform")
     end
 
-    # Wings: resolve group_refs, transform_ref, and PARTICLE_DYNAMICS-specific refs
+    # Wings: resolve twist_surface_refs, transform_ref, and PARTICLE_DYNAMICS-specific refs
     for wing in wings
         # BaseWing fields
-        wing.group_idxs = Int64[resolve_ref(ref, group_names, "group") for ref in wing.group_refs]
+        wing.twist_surface_idxs = Int64[resolve_ref(ref, twist_surface_names, "twist_surface") for ref in wing.twist_surface_refs]
         wing.transform_idx = resolve_ref(wing.transform_ref, transform_names, "transform")
 
         # VSMWing-specific fields
@@ -555,11 +555,11 @@ function assign_indices_and_resolve!(
                     point_names, "point")
             end
 
-            # Resize aero arrays now that group_idxs
+            # Resize aero arrays now that twist_surface_idxs
             # are resolved (initial sizing used
             # n_unrefined as proxy which may differ)
             if wing.dynamics_type == RIGID_DYNAMICS
-                n_grp = length(wing.group_idxs)
+                n_grp = length(wing.twist_surface_idxs)
                 num_aero_outputs = 6 + n_grp
                 num_aero_inputs = 5 + n_grp
                 if length(wing.aero_x) != num_aero_outputs ||
@@ -571,15 +571,9 @@ function assign_indices_and_resolve!(
                 end
             end
         end
-        if isa(wing, PlateWing)
-            for surface in wing.surfaces
-                surface.point_idx = resolve_ref(
-                    surface.point_ref, point_names, "point")
-            end
-        end
     end
 
-    return (point_names, group_names, segment_names, pulley_names,
+    return (point_names, twist_surface_names, segment_names, pulley_names,
             tether_names, winch_names, wing_names, transform_names)
 end
 
@@ -639,48 +633,48 @@ function calc_inertia_y_rotation(I_tensor)
 end
 
 """
-    compute_spatial_group_mapping!(the_wing, groups, points)
+    compute_spatial_twist_surface_mapping!(the_wing, twist_surfaces, points)
 
 Partition the wing's unrefined VSM sections among its
-groups by spatial proximity: each unrefined section is
-assigned to the single closest group (by distance between
-section centre and group centre, both in body frame).
+twist_surfaces by spatial proximity: each unrefined section is
+assigned to the single closest twist_surface (by distance between
+section centre and twist_surface centre, both in body frame).
 
-When `n_groups == n_unrefined` this is the same 1:1
-mapping as before. When `n_groups < n_unrefined` a group
+When `n_twist_surfaces == n_unrefined` this is the same 1:1
+mapping as before. When `n_twist_surfaces < n_unrefined` a twist_surface
 may own several adjacent sections; its single twist DOF
 then drives all of them as a rigid unit. The case
-`n_groups > n_unrefined` is rejected — a twist DOF without
+`n_twist_surfaces > n_unrefined` is rejected — a twist DOF without
 a section to drive would be undefined.
 """
-function compute_spatial_group_mapping!(
+function compute_spatial_twist_surface_mapping!(
     the_wing::VSMWing,
-    groups::AbstractVector{Group},
+    twist_surfaces::AbstractVector{TwistSurface},
     points::AbstractVector{Point}
 )
     the_vsm_wing = the_wing.vsm_wing
     n_unrefined = the_vsm_wing.n_unrefined_sections
-    n_groups = length(the_wing.base.group_idxs)
+    n_twist_surfaces = length(the_wing.base.twist_surface_idxs)
 
-    n_groups <= n_unrefined || error(
-        "Wing $(the_wing.base.idx): n_groups " *
-        "($n_groups) > n_unrefined sections " *
-        "($n_unrefined). Reduce groups or increase " *
+    n_twist_surfaces <= n_unrefined || error(
+        "Wing $(the_wing.base.idx): n_twist_surfaces " *
+        "($n_twist_surfaces) > n_unrefined sections " *
+        "($n_unrefined). Reduce twist_surfaces or increase " *
         "aero resolution.")
 
-    # Compute group centers in body frame
-    group_centers = Vector{MVec3}(undef, n_groups)
-    for (local_idx, group_idx) in
-            enumerate(the_wing.base.group_idxs)
-        group = groups[group_idx]
+    # Compute twist_surface centers in body frame
+    twist_surface_centers = Vector{MVec3}(undef, n_twist_surfaces)
+    for (local_idx, twist_surface_idx) in
+            enumerate(the_wing.base.twist_surface_idxs)
+        twist_surface = twist_surfaces[twist_surface_idx]
         center = zeros(3)
-        for pt_idx in group.point_idxs
+        for pt_idx in twist_surface.point_idxs
             center += the_wing.base.R_b_to_c' *
                 (points[pt_idx].pos_cad -
                  the_wing.base.pos_cad)
         end
-        group_centers[local_idx] =
-            center / length(group.point_idxs)
+        twist_surface_centers[local_idx] =
+            center / length(twist_surface.point_idxs)
     end
 
     offset_vec = [0.0, 0.0, the_wing.aero_z_offset]
@@ -696,34 +690,34 @@ function compute_spatial_group_mapping!(
     end
 
     # Reset section lists (we rebuild the partition)
-    for group_idx in the_wing.base.group_idxs
-        empty!(groups[group_idx].unrefined_section_idxs)
+    for twist_surface_idx in the_wing.base.twist_surface_idxs
+        empty!(twist_surfaces[twist_surface_idx].unrefined_section_idxs)
     end
 
-    # Assign each unrefined section to nearest group
+    # Assign each unrefined section to nearest twist_surface
     for section_idx in 1:n_unrefined
         min_dist = Inf
         closest_local = 1
-        for local_idx in 1:n_groups
+        for local_idx in 1:n_twist_surfaces
             dist = norm(unrefined_centers[section_idx] -
-                     group_centers[local_idx])
+                     twist_surface_centers[local_idx])
             if dist < min_dist
                 min_dist = dist
                 closest_local = local_idx
             end
         end
-        g_idx = the_wing.base.group_idxs[closest_local]
-        push!(groups[g_idx].unrefined_section_idxs,
+        g_idx = the_wing.base.twist_surface_idxs[closest_local]
+        push!(twist_surfaces[g_idx].unrefined_section_idxs,
               Int64(section_idx))
     end
 
-    # Every group must claim at least one section
-    for group_idx in the_wing.base.group_idxs
-        group = groups[group_idx]
-        isempty(group.unrefined_section_idxs) && error(
-            "Wing $(the_wing.base.idx): group " *
-            "$(group.name) claims no unrefined " *
-            "sections (likely coincident group centres).")
+    # Every twist_surface must claim at least one section
+    for twist_surface_idx in the_wing.base.twist_surface_idxs
+        twist_surface = twist_surfaces[twist_surface_idx]
+        isempty(twist_surface.unrefined_section_idxs) && error(
+            "Wing $(the_wing.base.idx): twist_surface " *
+            "$(twist_surface.name) claims no unrefined " *
+            "sections (likely coincident twist_surface centres).")
     end
 end
 
@@ -742,20 +736,20 @@ function has_mesh_inertia(wing)
 end
 
 """
-    SystemStructure(name, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
+    SystemStructure(name, set; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms)
 
 Constructs a `SystemStructure` object representing a complete kite system.
 
 ## Physical Models
-- **"ram"**: A model with 4 deformable wing groups and a complex pulley bridle system.
-- **"simple_ram"**: A model with 4 deformable wing groups and direct bridle connections.
+- **"ram"**: A model with 4 deformable wing twist_surfaces and a complex pulley bridle system.
+- **"simple_ram"**: A model with 4 deformable wing twist_surfaces and direct bridle connections.
 
 # Arguments
 - `name::String`: Model identifier ("ram", "simple_ram", or a custom name).
 - `set::Settings`: Configuration parameters from `KiteUtils.jl`.
 
 # Keyword Arguments
-- `points`, `groups`, `segments`, etc.: Vectors of the system components.
+- `points`, `twist_surfaces`, `segments`, etc.: Vectors of the system components.
 - `prn::Bool=true`: If true, print info messages about auto-generated components.
 
 # Returns
@@ -763,7 +757,7 @@ Constructs a `SystemStructure` object representing a complete kite system.
 """
 function SystemStructure(name, set;
         points=Point[],
-        groups=Group[],
+        twist_surfaces=TwistSurface[],
         segments=Segment[],
         pulleys=Pulley[],
         tethers=Tether[],
@@ -805,12 +799,12 @@ function SystemStructure(name, set;
 
     # Assign indices and resolve all references
     # This converts symbolic names to numeric indices
-    (point_names_dict, group_names_dict,
+    (point_names_dict, twist_surface_names_dict,
      segment_names_dict, pulley_names_dict,
      tether_names_dict, winch_names_dict,
      wing_names_dict, transform_names_dict) =
         assign_indices_and_resolve!(
-            points, groups, segments, pulleys,
+            points, twist_surfaces, segments, pulleys,
             tethers, winches, wings, transforms)
 
     # If no wings defined, convert WING points to STATIC
@@ -846,8 +840,8 @@ function SystemStructure(name, set;
         @assert point.transform_idx == 0 ||
                 point.transform_idx <= length(transforms)
     end
-    for (i, group) in enumerate(groups)
-        @assert group.idx == i
+    for (i, twist_surface) in enumerate(twist_surfaces)
+        @assert twist_surface.idx == i
     end
     for (i, segment) in enumerate(segments)
         @assert segment.idx == i
@@ -1021,12 +1015,12 @@ function SystemStructure(name, set;
             wing, points; prn)
     end
 
-    # Auto-create groups for RIGID_DYNAMICS wings if needed (before geometry initialization)
+    # Auto-create twist_surfaces for RIGID_DYNAMICS wings if needed (before geometry initialization)
     # Skip for AERO_NONE — no aerodynamics means no twist DOFs needed.
     for wing in wings
         if wing isa VSMWing &&
            wing.dynamics_type == RIGID_DYNAMICS &&
-           isempty(wing.group_idxs) &&
+           isempty(wing.twist_surface_idxs) &&
            !(wing.aero isa AeroNone)
             # Get WING-type points for this wing
             wing_point_idxs = findall(
@@ -1036,83 +1030,79 @@ function SystemStructure(name, set;
             # Identify LE/TE pairs
             wing_segments = identify_wing_segments(wing_points)
 
-            # Create a group for each section (LE/TE pair)
-            # n_groups = n_unrefined_sections (one group per section)
-            new_group_idxs = Int64[]
+            # Create a twist_surface for each section (LE/TE pair)
+            # n_twist_surfaces = n_unrefined_sections (one twist_surface per section)
+            new_twist_surface_idxs = Int64[]
 
             for (le_idx, te_idx) in wing_segments
-                group_idx = length(groups) + 1
-                # Use integer as name for auto-created groups
-                group_name = group_idx
+                twist_surface_idx = length(twist_surfaces) + 1
+                # Use integer as name for auto-created twist_surfaces
+                twist_surface_name = twist_surface_idx
 
                 # Both LE and TE points (matches YAML convention)
-                new_group = Group(group_name,
+                new_twist_surface = TwistSurface(twist_surface_name,
                     [le_idx, te_idx], DYNAMIC, 0.0)
 
                 # Assign idx and resolve point_refs since
                 # these are dynamically created
-                new_group.idx = group_idx
-                new_group.point_idxs = [le_idx, te_idx]
+                new_twist_surface.idx = twist_surface_idx
+                new_twist_surface.point_idxs = [le_idx, te_idx]
 
-                push!(groups, new_group)
-                push!(new_group_idxs, Int64(group_idx))
+                push!(twist_surfaces, new_twist_surface)
+                push!(new_twist_surface_idxs, Int64(twist_surface_idx))
             end
 
-            # Update wing with new groups and resize vsm arrays
-            wing.group_idxs = new_group_idxs
+            # Update wing with new twist_surfaces and resize vsm arrays
+            wing.twist_surface_idxs = new_twist_surface_idxs
 
-            # Resize aero arrays for new group count
-            n_groups = length(new_group_idxs)
-            num_aero_outputs = 6 + n_groups
-            num_aero_inputs = 5 + n_groups
+            # Resize aero arrays for new twist_surface count
+            n_twist_surfaces = length(new_twist_surface_idxs)
+            num_aero_outputs = 6 + n_twist_surfaces
+            num_aero_inputs = 5 + n_twist_surfaces
             wing.aero_y = zeros(SimFloat, num_aero_inputs)
             wing.aero_x = zeros(SimFloat, num_aero_outputs)
             wing.aero_jac = zeros(SimFloat, num_aero_outputs, num_aero_inputs)
 
-            prn && @info "Auto-created $(length(new_group_idxs)) groups " *
+            prn && @info "Auto-created $(length(new_twist_surface_idxs)) twist_surfaces " *
                   "for RIGID_DYNAMICS wing $(wing.idx)"
         end
     end
 
     # Match aero sections to structural LE/TE for ALL
-    # VSMWing types (runs after auto-group creation so
-    # identify_wing_segments can use groups).
+    # VSMWing types (runs after auto-twist_surface creation so
+    # identify_wing_segments can use twist_surfaces).
     for wing in wings
         isa(wing, VSMWing) || continue
         wing.aero isa AeroNone && continue
         match_aero_sections_to_structure!(
-            wing, points; groups=groups)
+            wing, points; twist_surfaces=twist_surfaces)
     end
 
-    # Clear PARTICLE_DYNAMICS wing.group_idxs — groups were used
-    # for LE/TE identification but PARTICLE_DYNAMICS doesn't use
-    # them for aerodynamics.  Groups stay in sys_struct
-    # (useful for structural info / future linearization).
     for wing in wings
-        if wing.dynamics_type == PARTICLE_DYNAMICS &&
-           !isempty(wing.group_idxs)
-            empty!(wing.group_idxs)
+        if wing isa VSMWing && wing.dynamics_type == PARTICLE_DYNAMICS &&
+           !isempty(wing.twist_surface_idxs)
+            empty!(wing.twist_surface_idxs)
         end
     end
 
-    # Initialize group-to-unrefined-section mapping for RIGID_DYNAMICS wings
+    # Initialize twist_surface-to-unrefined-section mapping for RIGID_DYNAMICS wings
     # Do this BEFORE y_airf calculation so the mapping is available
     for the_wing in wings
-        if isa(the_wing, VSMWing) && the_wing.base.dynamics_type == RIGID_DYNAMICS && !isempty(the_wing.base.group_idxs)
-            compute_spatial_group_mapping!(the_wing, groups, points)
+        if isa(the_wing, VSMWing) && the_wing.base.dynamics_type == RIGID_DYNAMICS && !isempty(the_wing.base.twist_surface_idxs)
+            compute_spatial_twist_surface_mapping!(the_wing, twist_surfaces, points)
         end
     end
 
-    for group in groups
-        iszero(group.chord) || continue
+    for twist_surface in twist_surfaces
+        iszero(twist_surface.chord) || continue
         for wing in wings
-            group.idx in wing.group_idxs || continue
+            twist_surface.idx in wing.twist_surface_idxs || continue
             center = zeros(3)
-            for pt_idx in group.point_idxs
+            for pt_idx in twist_surface.point_idxs
                 center += wing.R_b_to_c' *
                     (points[pt_idx].pos_cad - wing.pos_cad)
             end
-            center ./= length(group.point_idxs)
+            center ./= length(twist_surface.point_idxs)
 
             sections = wing.vsm_wing.refined_sections
             n_sec = length(sections)
@@ -1131,21 +1121,21 @@ function SystemStructure(name, set;
             ksec < n_sec && (span_dir += normalize(
                 le_sec - Vector(sections[ksec + 1].LE_point)))
 
-            group.le_pos .= le_sec
-            group.chord .= te_sec - le_sec
-            group.y_airf .= normalize(span_dir)
+            twist_surface.le_pos .= le_sec
+            twist_surface.chord .= te_sec - le_sec
+            twist_surface.y_airf .= normalize(span_dir)
             break
         end
     end
 
-    # Translate group le_pos from body origin to COM
+    # Translate twist_surface le_pos from body origin to COM
     # (body frame). chord and y_airf are direction
     # vectors already in body frame from VSM panels.
     for wing in wings
         wing.dynamics_type != RIGID_DYNAMICS && continue
-        for group_idx in wing.group_idxs
-            group = groups[group_idx]
-            group.le_pos .-= wing.com_offset_b
+        for twist_surface_idx in wing.twist_surface_idxs
+            twist_surface = twist_surfaces[twist_surface_idx]
+            twist_surface.le_pos .-= wing.com_offset_b
         end
     end
 
@@ -1178,8 +1168,8 @@ function SystemStructure(name, set;
             if isnothing(wing.wing_segments)
                 wing.wing_segments =
                     identify_wing_segments(
-                        wing_points; groups=groups,
-                        wing_group_idxs=wing.group_idxs)
+                        wing_points; twist_surfaces=twist_surfaces,
+                        wing_twist_surface_idxs=wing.twist_surface_idxs)
             end
 
             # PARTICLE_DYNAMICS wings require explicit ref points
@@ -1216,7 +1206,7 @@ function SystemStructure(name, set;
     # Name dictionaries were already built by assign_indices_and_resolve!
     sys_struct = SystemStructure(name, set,
         NamedCollection{Point}(points, point_names_dict),
-        NamedCollection{Group}(groups, group_names_dict),
+        NamedCollection{TwistSurface}(twist_surfaces, twist_surface_names_dict),
         NamedCollection{Segment}(segments, segment_names_dict),
         NamedCollection{Pulley}(pulleys, pulley_names_dict),
         NamedCollection{Tether}(tethers, tether_names_dict),

@@ -6,14 +6,14 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     Pkg.activate(@__DIR__)
 end
 
-# Test auto-creation of groups for RIGID_DYNAMICS wings
+# Test auto-creation of twist_surfaces for RIGID_DYNAMICS wings
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, WING,
     RIGID_DYNAMICS, PARTICLE_DYNAMICS
 using Test
 using LinearAlgebra
 
-@testset "RIGID_DYNAMICS wing auto-group creation" begin
+@testset "RIGID_DYNAMICS wing auto-twist_surface creation" begin
     # Copy 2plate_kite data to temp directory
     pkg_root = dirname(@__DIR__)
     src_data_path = joinpath(
@@ -35,18 +35,18 @@ using LinearAlgebra
     vsm_set = VortexStepMethod.VSMSettings(
         vsm_set_path; data_prefix=false)
 
-    # ── PARTICLE_DYNAMICS: should have 0 groups ──────────────
+    # ── PARTICLE_DYNAMICS: should have 0 twist_surfaces ──────────────
     sys_refine = load_sys_struct_from_yaml(
         refine_yaml;
         system_name="2plate_refine", set, vsm_set)
 
     @test length(sys_refine.wings) == 1
     @test sys_refine.wings[1].dynamics_type == PARTICLE_DYNAMICS
-    @test length(sys_refine.groups) == 0
-    @test length(sys_refine.wings[1].group_idxs) == 0
+    @test length(sys_refine.twist_surfaces) == 0
+    @test length(sys_refine.wings[1].twist_surface_idxs) == 0
 
-    # ── RIGID_DYNAMICS with YAML-defined groups ───────
-    # rigid_structural_geometry.yaml has 3 explicit groups
+    # ── RIGID_DYNAMICS with YAML-defined twist_surfaces ───────
+    # rigid_structural_geometry.yaml has 3 explicit twist_surfaces
     # and 7 WING points (6 LE/TE + kcu).
     sys_quat = load_sys_struct_from_yaml(
         struc_yaml;
@@ -55,26 +55,26 @@ using LinearAlgebra
 
     wing = sys_quat.wings[1]
     @test wing.dynamics_type == RIGID_DYNAMICS
-    @test length(sys_quat.groups) == 3
-    @test length(wing.group_idxs) == 3
+    @test length(sys_quat.twist_surfaces) == 3
+    @test length(wing.twist_surface_idxs) == 3
     @test !isnothing(wing.wing_segments)
     @test length(wing.wing_segments) == 3
 
     # Geometry was computed from closest VSM panel
-    for group in sys_quat.groups
-        @test !iszero(group.chord)
-        @test !iszero(group.y_airf)
+    for twist_surface in sys_quat.twist_surfaces
+        @test !iszero(twist_surface.chord)
+        @test !iszero(twist_surface.y_airf)
     end
 
-    # ── RIGID_DYNAMICS auto-group creation ────────────
-    # Load without explicit groups: auto-group should
+    # ── RIGID_DYNAMICS auto-twist_surface creation ────────────
+    # Load without explicit twist_surfaces: auto-twist_surface should
     # kick in for the 6 LE/TE WING points (kcu is
-    # excluded because it isn't in any group → the
-    # group-based path is unavailable and the fallback
+    # excluded because it isn't in any twist_surface → the
+    # twist_surface-based path is unavailable and the fallback
     # consecutive-pair heuristic uses only even-count
     # subsets).
     # Easiest approach: load PARTICLE_DYNAMICS YAML as RIGID_DYNAMICS
-    # (PARTICLE_DYNAMICS YAML has 6 WING points, no groups, no
+    # (PARTICLE_DYNAMICS YAML has 6 WING points, no twist_surfaces, no
     # kcu WING point).
     sys_auto = load_sys_struct_from_yaml(
         refine_yaml;
@@ -83,14 +83,14 @@ using LinearAlgebra
 
     wing_auto = sys_auto.wings[1]
     @test wing_auto.dynamics_type == RIGID_DYNAMICS
-    @test length(sys_auto.groups) == 3
-    @test length(wing_auto.group_idxs) == 3
+    @test length(sys_auto.twist_surfaces) == 3
+    @test length(wing_auto.twist_surface_idxs) == 3
     @test !isnothing(wing_auto.wing_segments)
     @test length(wing_auto.wing_segments) == 3
 
-    for group in sys_auto.groups
-        @test !iszero(group.chord)
-        @test !iszero(group.y_airf)
+    for twist_surface in sys_auto.twist_surfaces
+        @test !iszero(twist_surface.chord)
+        @test !iszero(twist_surface.y_airf)
     end
 end
 nothing

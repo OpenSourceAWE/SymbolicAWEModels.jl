@@ -14,10 +14,10 @@ Inputs:
     α, β   [rad]   apparent-flow direction perturbations
     |va|   [—]     fractional wind-speed perturbation
     ω₁..₃  [rad/s] body angular rate perturbations
-    θ_g    [rad]   per-group twist perturbations
+    θ_g    [rad]   per-twist_surface twist perturbations
 
 Outputs (wind-axis coefficients):
-    CL, CD, CS, CM₁..₃, cm_g per group
+    CL, CD, CS, CM₁..₃, cm_g per twist_surface
 """
 
 using Pkg
@@ -57,7 +57,7 @@ wing = sam.sys_struct.wings[1]
 solver = wing.vsm_solver
 body_aero = wing.vsm_aero
 vsm_wing = wing.vsm_wing
-groups = sam.sys_struct.groups
+twist_surfaces = sam.sys_struct.twist_surfaces
 
 @info "Solver" solver_type=solver.solver_type use_gamma_prev=solver.use_gamma_prev
 
@@ -66,12 +66,12 @@ omega_b_0 = copy(wing.ω_b)
 n_unrefined = vsm_wing.n_unrefined_sections
 
 moment_frac =
-    groups[first(wing.group_idxs)].moment_frac
+    twist_surfaces[first(wing.twist_surface_idxs)].moment_frac
 
 # Current twist per unrefined section
 theta_0 = zeros(n_unrefined)
-for gidx in wing.group_idxs
-    g = groups[gidx]
+for gidx in wing.twist_surface_idxs
+    g = twist_surfaces[gidx]
     for ui in g.unrefined_section_idxs
         theta_0[ui] = g.twist
     end
@@ -128,7 +128,7 @@ function coeffs_at_perturbation(d::AbstractVector{T},
         theta[i] = theta_0[i]
     end
     @inbounds for (gi, gidx) in enumerate(wing_grp_idxs)
-        for ui in groups[gidx].unrefined_section_idxs
+        for ui in twist_surfaces[gidx].unrefined_section_idxs
             theta[ui] += d[6 + gi]
         end
     end
@@ -161,7 +161,7 @@ function coeffs_at_perturbation(d::AbstractVector{T},
     x[6] = cm_body[3]
     @inbounds for (gi, gidx) in enumerate(wing_grp_idxs)
         s = zero(T)
-        for ui in groups[gidx].unrefined_section_idxs
+        for ui in twist_surfaces[gidx].unrefined_section_idxs
             s += cm_unr[ui]
         end
         x[6 + gi] = s
@@ -171,32 +171,32 @@ end
 
 # ─── Baseline + Jacobian via ForwardDiff ─────────────
 
-n_g = length(wing.group_idxs)
+n_g = length(wing.twist_surface_idxs)
 n_inputs = 6 + n_g
 
-x0 = coeffs_at_perturbation(zeros(n_inputs), wing.group_idxs)
+x0 = coeffs_at_perturbation(zeros(n_inputs), wing.twist_surface_idxs)
 
 @info "Baseline" CL=x0[1] CD=x0[2] CS=x0[3] CM=x0[4:6]
 
 @info "Computing ForwardDiff Jacobian at operating point …"
 J = ForwardDiff.jacobian(
-    d -> coeffs_at_perturbation(d, wing.group_idxs),
+    d -> coeffs_at_perturbation(d, wing.twist_surface_idxs),
     zeros(n_inputs))
 
 # ─── Plot configuration ──────────────────────────────
 
-group_names = [
-    groups[gidx].name for gidx in wing.group_idxs]
+twist_surface_names = [
+    twist_surfaces[gidx].name for gidx in wing.twist_surface_idxs]
 
 input_labels = [
     "α", "β", "|va|",
     "ω₁", "ω₂", "ω₃",
-    ["θ_$n" for n in group_names]...
+    ["θ_$n" for n in twist_surface_names]...
 ]
 output_labels = [
     "CL", "CD", "CS",
     "CM₁", "CM₂", "CM₃",
-    ["cm_$n" for n in group_names]...
+    ["cm_$n" for n in twist_surface_names]...
 ]
 
 n_outputs = length(output_labels)

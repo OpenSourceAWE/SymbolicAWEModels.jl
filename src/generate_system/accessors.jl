@@ -332,12 +332,12 @@ end
     sys::SystemStructure, idx::Int64, component::Int)
 
 # ==================== VSM-SPECIFIC ACCESSORS ==================== #
-# These access VSMWing-specific fields or Group fields.
+# These access VSMWing-specific fields or TwistSurface fields.
 # Registered with SystemStructure (UnionAll) because
 # @register_symbolic erases type parameters.
 
 get_le_pos(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].le_pos
+    sys.twist_surfaces[idx].le_pos
 @register_array_symbolic get_le_pos(
     sys::SystemStructure, idx::Int64) begin
     size = (3,)
@@ -358,51 +358,51 @@ get_aero_jac(sys::SystemStructure, idx::Int64,
     sys::SystemStructure, idx::Int64,
     ix::Int, iy::Int)
 get_twist(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].twist
+    sys.twist_surfaces[idx].twist
 @register_symbolic get_twist(
     sys::SystemStructure, idx::Int64)
-get_group_damping(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].damping
-@register_symbolic get_group_damping(
+get_twist_surface_damping(sys::SystemStructure, idx::Int64) =
+    sys.twist_surfaces[idx].damping
+@register_symbolic get_twist_surface_damping(
     sys::SystemStructure, idx::Int64)
 get_twist_ω(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].twist_ω
+    sys.twist_surfaces[idx].twist_ω
 @register_symbolic get_twist_ω(
     sys::SystemStructure, idx::Int64)
-get_group_y_airf(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].y_airf
-@register_array_symbolic get_group_y_airf(
+get_twist_surface_y_airf(sys::SystemStructure, idx::Int64) =
+    sys.twist_surfaces[idx].y_airf
+@register_array_symbolic get_twist_surface_y_airf(
     sys::SystemStructure, idx::Int64) begin
     size = (3,)
     eltype = SimFloat
 end
-get_group_chord(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].chord
-@register_array_symbolic get_group_chord(
+get_twist_surface_chord(sys::SystemStructure, idx::Int64) =
+    sys.twist_surfaces[idx].chord
+@register_array_symbolic get_twist_surface_chord(
     sys::SystemStructure, idx::Int64) begin
     size = (3,)
     eltype = SimFloat
 end
-get_group_le_pos(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].le_pos
-@register_array_symbolic get_group_le_pos(
+get_twist_surface_le_pos(sys::SystemStructure, idx::Int64) =
+    sys.twist_surfaces[idx].le_pos
+@register_array_symbolic get_twist_surface_le_pos(
     sys::SystemStructure, idx::Int64) begin
     size = (3,)
     eltype = SimFloat
 end
 get_moment_frac(sys::SystemStructure, idx::Int64) =
-    sys.groups[idx].moment_frac
+    sys.twist_surfaces[idx].moment_frac
 @register_symbolic get_moment_frac(
     sys::SystemStructure, idx::Int64)
-function get_group_moment_override(
+function get_twist_surface_moment_override(
     sys::SystemStructure, wing_idx::Int64,
-    group_idx::Int64
+    twist_surface_idx::Int64
 )
     wing = sys.wings[wing_idx]
     wing.aero isa AeroDirect &&
-        return sys.groups[group_idx].aero_moment
+        return sys.twist_surfaces[twist_surface_idx].aero_moment
     return 0.0
 end
-@register_symbolic get_group_moment_override(
+@register_symbolic get_twist_surface_moment_override(
     sys::SystemStructure, wing_idx::Int64,
-    group_idx::Int64)
+    twist_surface_idx::Int64)

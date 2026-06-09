@@ -43,7 +43,7 @@ Update the aerodynamic model from the Vortex Step Method.
 **For RIGID_DYNAMICS wings:**
 Computes wind-axis coefficients (CL, CD, CS, CM, cm) at the
 current operating point, plus a `ForwardDiff` Jacobian over the
-input vector `[α, β, ω₁, ω₂, ω₃, θ_group₁…]`. Stores the dense
+input vector `[α, β, ω₁, ω₂, ω₃, θ_twist_surface₁…]`. Stores the dense
 Jacobian `d(coeffs)/d(inputs)` in `wing.aero_jac`.
 
 **For PARTICLE_DYNAMICS wings:**
@@ -54,7 +54,7 @@ function update_vsm!(sam::SymbolicAWEModel,
                      integ=sam.integrator;
                      vsm_min_wind=0.5)
     wings = sam.sys_struct.wings
-    groups = sam.sys_struct.groups
+    twist_surfaces = sam.sys_struct.twist_surfaces
     points = sam.sys_struct.points
 
     length(wings) == 0 && return nothing
@@ -68,12 +68,12 @@ function update_vsm!(sam::SymbolicAWEModel,
             fill!(wing.aero_jac, 0.0)
             fill!(wing.aero_force_b, 0.0)
             fill!(wing.aero_moment_b, 0.0)
-            for gidx in wing.group_idxs
-                groups[gidx].aero_moment = 0.0
+            for gidx in wing.twist_surface_idxs
+                twist_surfaces[gidx].aero_moment = 0.0
             end
             continue
         end
-        _update_rigid_dynamics_wing!(wing, sam.am, groups;
+        _update_rigid_dynamics_wing!(wing, sam.am, twist_surfaces;
                                      vsm_min_wind)
     end
 
@@ -212,8 +212,8 @@ function _safe_vsm_solve!(solver, body_aero,
 end
 
 function _vsm_aero_coeffs(wing, y::AbstractVector{T},
-        va_mag, n_unrefined, n_groups,
-        group_idxs, groups, moment_frac,
+        va_mag, n_unrefined, n_twist_surfaces,
+        twist_surface_idxs, twist_surfaces, moment_frac,
         shadow_ref::Ref;
         gamma_init=nothing) where {T}
 
@@ -244,11 +244,11 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
                                va_mag * sβ,
                                va_mag * sα * cβ)
 
-    # Per-group → per-section twist
+    # Per-twist_surface → per-section twist
     theta = zeros(T, n_unrefined)
-    for (group_index, gidx) in enumerate(group_idxs)
-        for unrefined_index in groups[gidx].unrefined_section_idxs
-            theta[unrefined_index] = y[5 + group_index]
+    for (twist_surface_index, gidx) in enumerate(twist_surface_idxs)
+        for unrefined_index in twist_surfaces[gidx].unrefined_section_idxs
+            theta[unrefined_index] = y[5 + twist_surface_index]
         end
     end
 
@@ -276,45 +276,45 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
     lift_dir = smooth_normalize(cross(drag_dir, span))
     side_dir = cross(lift_dir, drag_dir)
 
-    x = zeros(T, 6 + n_groups)
+    x = zeros(T, 6 + n_twist_surfaces)
     x[1] = dot(force_coeffs, lift_dir)
     x[2] = dot(force_coeffs, drag_dir)
     x[3] = dot(force_coeffs, side_dir)
     x[4] = cm_body[1]
     x[5] = cm_body[2]
     x[6] = cm_body[3]
-    for (group_index, gidx) in enumerate(group_idxs)
-        x[6 + group_index] = sum(
+    for (twist_surface_index, gidx) in enumerate(twist_surface_idxs)
+        x[6 + twist_surface_index] = sum(
             moment_coeff_unrefined[unrefined_index]
             for unrefined_index in
-                groups[gidx].unrefined_section_idxs;
+                twist_surfaces[gidx].unrefined_section_idxs;
             init = zero(T))
     end
     return x
 end
 
 """
-    _update_rigid_dynamics_wing!(wing, am, groups; vsm_min_wind=0.5)
+    _update_rigid_dynamics_wing!(wing, am, twist_surfaces; vsm_min_wind=0.5)
 
 Compute baseline wind-axis coefficients and the
 ForwardDiff Jacobian `d(coeffs)/d(inputs)` for one wing.
 
 Writes `wing.aero_y / aero_x / aero_jac`, updates
-`groups[gidx].aero_moment`, and (in AERO_DIRECT mode) writes
+`twist_surfaces[gidx].aero_moment`, and (in AERO_DIRECT mode) writes
 `wing.aero_force_b` / `wing.aero_moment_b`.
 """
-function _update_rigid_dynamics_wing!(wing, am, groups;
+function _update_rigid_dynamics_wing!(wing, am, twist_surfaces;
                                       vsm_min_wind=0.5)
     va_b = wing.va_b
     va_mag_actual = norm(va_b)
     omega_b = wing.ω_b
 
-    group_idxs = wing.group_idxs
-    n_groups = length(group_idxs)
+    twist_surface_idxs = wing.twist_surface_idxs
+    n_twist_surfaces = length(twist_surface_idxs)
     n_unrefined = wing.vsm_wing.n_unrefined_sections
 
-    moment_frac = isempty(group_idxs) ? 0.25 :
-        groups[first(group_idxs)].moment_frac
+    moment_frac = isempty(twist_surface_idxs) ? 0.25 :
+        twist_surfaces[first(twist_surface_idxs)].moment_frac
 
     va_mag = max(va_mag_actual, vsm_min_wind)
     alpha_0 = atan(va_b[3], va_b[1])
@@ -326,31 +326,31 @@ function _update_rigid_dynamics_wing!(wing, am, groups;
         beta_0 = 0.0
     end
 
-    # Operating-point input vector y₀ = [α, β, ω, θ_group]
+    # Operating-point input vector y₀ = [α, β, ω, θ_twist_surface]
     y0 = wing.aero_y
     y0[1] = alpha_0
     y0[2] = beta_0
     y0[3] = omega_b[1]
     y0[4] = omega_b[2]
     y0[5] = omega_b[3]
-    for (group_index, gidx) in enumerate(group_idxs)
-        y0[5 + group_index] = groups[gidx].twist
+    for (twist_surface_index, gidx) in enumerate(twist_surface_idxs)
+        y0[5 + twist_surface_index] = twist_surfaces[gidx].twist
     end
 
     shadow_ref = Ref{Any}(nothing)
     f_baseline = y -> _vsm_aero_coeffs(wing, y, va_mag,
-        n_unrefined, n_groups, group_idxs, groups,
+        n_unrefined, n_twist_surfaces, twist_surface_idxs, twist_surfaces,
         moment_frac, shadow_ref)
 
     wing.aero_x .= f_baseline(y0)
-    for (group_index, gidx) in enumerate(group_idxs)
-        groups[gidx].aero_moment = wing.aero_x[6 + group_index]
+    for (twist_surface_index, gidx) in enumerate(twist_surface_idxs)
+        twist_surfaces[gidx].aero_moment = wing.aero_x[6 + twist_surface_index]
     end
 
     if wing.aero isa AeroLinearized
         gamma0 = copy(wing.vsm_solver.sol.gamma_distribution)
         f_dual = y -> _vsm_aero_coeffs(wing, y, va_mag,
-            n_unrefined, n_groups, group_idxs, groups,
+            n_unrefined, n_twist_surfaces, twist_surface_idxs, twist_surfaces,
             moment_frac, shadow_ref; gamma_init=gamma0)
         ForwardDiff.jacobian!(wing.aero_jac, f_dual, y0)
     elseif wing.aero isa AeroDirect

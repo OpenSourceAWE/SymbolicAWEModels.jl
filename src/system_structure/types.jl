@@ -6,7 +6,7 @@ Basic type definitions for the system structure components.
 
 This file contains enums and struct definitions for:
 - DynamicsType, WingType, SegmentType (deprecated) enums; AbstractAeroModel types
-- Point, Group, Segment, Pulley, Tether, Winch structs
+- Point, TwistSurface, Segment, Pulley, Tether, Winch structs
 """
 
 # ==================== ENUMS ==================== #
@@ -26,21 +26,24 @@ This file contains enums and struct definitions for:
 end
 
 """
-    DynamicsType `DYNAMIC` `QUASI_STATIC` `WING` `STATIC`
+    DynamicsType `DYNAMIC` `QUASI_STATIC` `WING` `STATIC` `FIXED`
 
-Enumeration for the dynamic model governing a point's motion.
+Enumeration for the dynamic model governing a point's motion or a twist_surface's twist.
 
 # Elements
 - `DYNAMIC`: The point is a dynamic point mass, moving according to Newton's second law.
 - `QUASI_STATIC`: The point's acceleration is constrained to zero, representing a force equilibrium.
 - `WING`: The point is rigidly attached to a wing body and moves with it.
 - `STATIC`: The point's position is fixed in the world frame.
+- `FIXED`: TwistSurface twist is a prescribed control input (no differential state, no
+  algebraic equilibrium). Read live via the registered twist getter.
 """
 @enum DynamicsType begin
     DYNAMIC
     QUASI_STATIC
     WING
     STATIC
+    FIXED
 end
 
 """
@@ -49,7 +52,7 @@ end
 Enumeration for the aerodynamic model type of a wing.
 
 # Elements
-- `RIGID_DYNAMICS`: Wing uses quaternion-based rigid body dynamics with twist groups.
+- `RIGID_DYNAMICS`: Wing uses quaternion-based rigid body dynamics with twist twist_surfaces.
   Aerodynamic forces/moments are applied to the wing center of mass.
 - `PARTICLE_DYNAMICS`: Wing uses refined per-panel forces directly applied to structural points.
   VSM panel forces are lumped to WING-type points with no rigid body constraint.
@@ -98,11 +101,30 @@ First-order Taylor expansion using the Jacobian from VSM linearization
 struct AeroLinearized <: AbstractAeroModel end
 
 """
+    AeroPlate(calc_cl, calc_cd; drag_corr=1.0)
+
+Flat-plate CL/CD lookup aerodynamics. Carries the shared polar lookups
+(`calc_cl`/`calc_cd`: `α_deg → coefficient`) and drag correction used by all of
+a wing's flat-plate (1-point `FIXED`) [`TwistSurface`](@ref)s. One polar set per
+wing.
+"""
+mutable struct AeroPlate{CL, CD} <: AbstractAeroModel
+    calc_cl::CL
+    calc_cd::CD
+    drag_corr::SimFloat
+end
+
+AeroPlate(calc_cl, calc_cd; drag_corr=1.0) =
+    AeroPlate{typeof(calc_cl), typeof(calc_cd)}(
+        calc_cl, calc_cd, SimFloat(drag_corr))
+
+"""
     AeroPlate()
 
-Flat-plate CL/CD lookup aerodynamics (`PlateWing` only).
+Polar-less marker, used only to select the flat-plate path when parsing a YAML
+`aero_mode`; the real lookups are attached when the `PlateWing` is built.
 """
-struct AeroPlate <: AbstractAeroModel end
+AeroPlate() = AeroPlate(nothing, nothing)
 
 """
     is_builtin_aero(mode::AbstractAeroModel) -> Bool
@@ -270,17 +292,17 @@ function Point(name, pos_cad, type;
         fix_sphere, fix_static)
 end
 
-# ==================== GROUP ==================== #
+# ==================== TWIST_SURFACE ==================== #
 
 """
-    mutable struct Group
+    mutable struct TwistSurface
 
 A set of bridle lines that share the same twist angle and trailing edge angle.
 
 $(TYPEDFIELDS)
 """
-mutable struct Group
-    "Index in the groups vector (assigned by SystemStructure)."
+mutable struct TwistSurface
+    "Index in the twist_surfaces vector (assigned by SystemStructure)."
     idx::Int64
     "Name used for lookup by other components' `_ref` fields."
     const name::Union{Int, Symbol, Nothing}
@@ -310,40 +332,52 @@ mutable struct Group
     tether_moment::SimFloat
     "Aerodynamic moment [N·m]."
     aero_moment::SimFloat
-    "Indices of VSM unrefined sections in this group."
+    "Indices of VSM unrefined sections in this twist_surface."
     unrefined_section_idxs::Vector{Int64}
+    "Surface area [m²] (flat-plate sections; `NaN` when unused)."
+    area::SimFloat
 end
 
 """
-    Group(name, points, type, moment_frac; damping=50.0)
+    TwistSurface(name, points, type, moment_frac; damping=50.0)
 
-Constructs a `Group` object representing a collection of points on a
+Constructs a `TwistSurface` object representing a collection of points on a
 kite body that share a common twist deformation.
 
-Group geometry (le_pos, chord, y_airf) is computed later by SystemStructure
-using the closest VSM panel to the group's mean point position.
+TwistSurface geometry (le_pos, chord, y_airf) is computed later by SystemStructure
+using the closest VSM panel to the twist_surface's mean point position.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the group.
+- `name::Union{Int, Symbol}`: Name/identifier for the twist_surface.
 - `points::Vector`: References to points (names or indices).
 - `type::DynamicsType`: DYNAMIC or QUASI_STATIC.
 - `moment_frac::SimFloat`: Chordwise rotation point (0=LE, 1=TE).
 
 # Keyword Arguments
 - `damping::SimFloat=50.0`: Damping coefficient for twist dynamics.
+- `x_airf=nothing`: Chord-direction reference (body frame). When given, stored as
+  the `chord` field — twist is measured relative to it. Defaults to auto-derived
+  from the closest VSM panel during SystemStructure construction.
+- `y_airf=nothing`: Spanwise reference (body frame). Auto-derived when omitted.
+- `area=NaN`: Surface area [m²] for flat-plate (`AeroPlate`) sections.
+- `twist=0.0`: Initial twist angle [rad] (prescribed input for `FIXED` sections).
 
 # Returns
-- `Group`: A new `Group` object. The `idx` and `point_idxs` are resolved by SystemStructure.
-  Geometry fields (le_pos, chord, y_airf) are initialized to zero and computed during
-  SystemStructure construction from the closest VSM panel.
+- `TwistSurface`: A new `TwistSurface` object. The `idx` and `point_idxs` are resolved by SystemStructure.
+  When `x_airf`/`y_airf` are omitted the geometry fields (le_pos, chord, y_airf) are
+  computed during SystemStructure construction from the closest VSM panel.
 """
-function Group(name, points, type, moment_frac; damping=50.0)
+function TwistSurface(name, points, type, moment_frac;
+                      damping=50.0, x_airf=nothing, y_airf=nothing,
+                      area=NaN, twist=0.0)
     point_refs = Vector{NameRef}([p isa Integer ? Int(p) : Symbol(p) for p in points])
-    Group(0, name, Int64[], point_refs,
-          zeros(KVec3), zeros(KVec3), zeros(KVec3),
+    chord_vec = isnothing(x_airf) ? zeros(KVec3) : KVec3(x_airf)
+    y_vec = isnothing(y_airf) ? zeros(KVec3) : KVec3(y_airf)
+    TwistSurface(0, name, Int64[], point_refs,
+          zeros(KVec3), chord_vec, y_vec,
           type, moment_frac, damping,
-          0.0, 0.0, 0.0, 0.0, 0.0,
-          Int64[])
+          SimFloat(twist), 0.0, 0.0, 0.0, 0.0,
+          Int64[], SimFloat(area))
 end
 
 # ==================== SEGMENT ==================== #

@@ -7,10 +7,10 @@
 # dispatched on its type and returns a `System` whose connectors are fixed by
 # the wing's `dynamics_type`:
 #
-#   RIGID_DYNAMICS (num_groups = length(wing.group_idxs)):
+#   RIGID_DYNAMICS (num_twist_surfaces = length(wing.twist_surface_idxs)):
 #     inputs:  va[1:3], rho, R_b_w[1:3,1:3], omega[1:3],
-#              twist[1:num_groups], twist_vel[1:num_groups]
-#     outputs: force[1:3], moment[1:3], twist_moment[1:num_groups]
+#              twist[1:num_twist_surfaces], twist_vel[1:num_twist_surfaces]
+#     outputs: force[1:3], moment[1:3], twist_moment[1:num_twist_surfaces]
 #
 #   PARTICLE_DYNAMICS (num_points = number of WING points):
 #     inputs:  point_pos[1:3,1:num_points], point_vel[1:3,1:num_points]
@@ -28,7 +28,7 @@
 # the wiring layer to bind, the same way the winch component lists
 # `len`.
 
-function _rigid_aero_connectors(num_groups::Int)
+function _rigid_aero_connectors(num_twist_surfaces::Int)
     @variables begin
         va(t)[1:3]
         rho(t)
@@ -37,8 +37,8 @@ function _rigid_aero_connectors(num_groups::Int)
         force(t)[1:3]
         moment(t)[1:3]
     end
-    if num_groups > 0
-        @variables twist(t)[1:num_groups] twist_vel(t)[1:num_groups] twist_moment(t)[1:num_groups]
+    if num_twist_surfaces > 0
+        @variables twist(t)[1:num_twist_surfaces] twist_vel(t)[1:num_twist_surfaces] twist_moment(t)[1:num_twist_surfaces]
     else
         twist = nothing
         twist_vel = nothing
@@ -98,11 +98,11 @@ function aero_component(::AeroNone, sys_struct, wing_idx; name)
         eqs = vec(collect(connectors.point_force)) .~ 0
         return System(eqs, t, _particle_unknowns(connectors), [psys]; name)
     elseif wing.dynamics_type == RIGID_DYNAMICS
-        num_groups = length(wing.group_idxs)
-        connectors = _rigid_aero_connectors(num_groups)
+        num_twist_surfaces = length(wing.twist_surface_idxs)
+        connectors = _rigid_aero_connectors(num_twist_surfaces)
         eqs = [collect(connectors.force) .~ 0
                collect(connectors.moment) .~ 0]
-        num_groups > 0 && (eqs = [eqs; collect(connectors.twist_moment) .~ 0])
+        num_twist_surfaces > 0 && (eqs = [eqs; collect(connectors.twist_moment) .~ 0])
         return System(eqs, t, _rigid_unknowns(connectors), [psys]; name)
     else
         error("Unknown dynamics_type $(wing.dynamics_type) for wing $wing_idx.")
@@ -128,17 +128,17 @@ function aero_component(::AeroDirect, sys_struct, wing_idx; name)
         end
         return System(eqs, t, _particle_unknowns(connectors), [psys]; name)
     elseif wing.dynamics_type == RIGID_DYNAMICS
-        groups = sys_struct.groups
-        num_groups = length(wing.group_idxs)
-        connectors = _rigid_aero_connectors(num_groups)
+        twist_surfaces = sys_struct.twist_surfaces
+        num_twist_surfaces = length(wing.twist_surface_idxs)
+        connectors = _rigid_aero_connectors(num_twist_surfaces)
         eqs = [collect(connectors.force) .~
                    [get_aero_force_override(psys, wing.idx, i) for i in 1:3]
                collect(connectors.moment) .~
                    [get_aero_moment_override(psys, wing.idx, i) for i in 1:3]]
-        for (group_pos, group_idx) in enumerate(wing.group_idxs)
-            rhs = isempty(groups[group_idx].unrefined_section_idxs) ? 0 :
-                get_group_moment_override(psys, wing.idx, Int64(group_idx))
-            eqs = [eqs; connectors.twist_moment[group_pos] ~ rhs]
+        for (twist_surface_pos, twist_surface_idx) in enumerate(wing.twist_surface_idxs)
+            rhs = isempty(twist_surfaces[twist_surface_idx].unrefined_section_idxs) ? 0 :
+                get_twist_surface_moment_override(psys, wing.idx, Int64(twist_surface_idx))
+            eqs = [eqs; connectors.twist_moment[twist_surface_pos] ~ rhs]
         end
         return System(eqs, t, _rigid_unknowns(connectors), [psys]; name)
     else
@@ -158,13 +158,13 @@ function aero_component(::AeroLinearized, sys_struct, wing_idx; name)
     wing isa VSMWing || error(
         "AeroLinearized wing $wing_idx is not a VSMWing.")
 
-    groups = sys_struct.groups
-    num_groups = length(wing.group_idxs)
+    twist_surfaces = sys_struct.twist_surfaces
+    num_twist_surfaces = length(wing.twist_surface_idxs)
     num_aero_inputs = length(wing.aero_y)
     area = wing.vsm_aero.projected_area
     c_ref = wing.vsm_aero.c_ref
 
-    connectors = _rigid_aero_connectors(num_groups)
+    connectors = _rigid_aero_connectors(num_twist_surfaces)
     @variables aero_input(t)[1:num_aero_inputs]
 
     apparent_wind = collect(connectors.va)
@@ -173,7 +173,7 @@ function aero_component(::AeroLinearized, sys_struct, wing_idx; name)
     alpha = atan(drag_dir[3], drag_dir[1])
     beta = atan(drag_dir[2], smooth_norm((drag_dir[1], drag_dir[3])))
 
-    twist_inputs = num_groups > 0 ? collect(connectors.twist) : Num[]
+    twist_inputs = num_twist_surfaces > 0 ? collect(connectors.twist) : Num[]
     input_rhs = [alpha; beta; omega[1]; omega[2]; omega[3]; twist_inputs]
 
     delta(input_idx) = aero_input[input_idx] - get_aero_y(psys, wing.idx, input_idx)
@@ -199,11 +199,11 @@ function aero_component(::AeroLinearized, sys_struct, wing_idx; name)
     eqs = [collect(aero_input) .~ input_rhs
            collect(connectors.force) .~ force_rhs
            collect(connectors.moment) .~ moment_rhs]
-    for group_pos in 1:num_groups
-        isempty(groups[wing.group_idxs[group_pos]].unrefined_section_idxs) ?
-            (eqs = [eqs; connectors.twist_moment[group_pos] ~ 0]) :
-            (eqs = [eqs; connectors.twist_moment[group_pos] ~
-                qA * c_ref * coeff(6 + group_pos)])
+    for twist_surface_pos in 1:num_twist_surfaces
+        isempty(twist_surfaces[wing.twist_surface_idxs[twist_surface_pos]].unrefined_section_idxs) ?
+            (eqs = [eqs; connectors.twist_moment[twist_surface_pos] ~ 0]) :
+            (eqs = [eqs; connectors.twist_moment[twist_surface_pos] ~
+                qA * c_ref * coeff(6 + twist_surface_pos)])
     end
 
     vars = _rigid_unknowns(connectors)
@@ -221,7 +221,7 @@ aero_component(::AeroPlate, sys_struct, wing_idx; name) = error(
 function validate_aero_component(subsys, wing)
     if wing.dynamics_type == RIGID_DYNAMICS
         required = Symbol[:va, :rho, :R_b_w, :omega, :force, :moment]
-        length(wing.group_idxs) > 0 &&
+        length(wing.twist_surface_idxs) > 0 &&
             append!(required, [:twist, :twist_vel, :twist_moment])
     else
         required = Symbol[:point_pos, :point_vel, :point_force]

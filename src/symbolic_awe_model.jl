@@ -15,7 +15,7 @@ associated getter and setter functions for the full, nonlinear physical state.
                                   GetAeroInput, GetSegmentState,
                                   GetWinchState, GetTetherState,
                                   GetPointState,
-                                  GetPulleyState, GetGroupState}
+                                  GetPulleyState, GetTwistSurfaceState}
     "The ODE problem for the full nonlinear model."
     prob::Prob
 
@@ -34,7 +34,7 @@ associated getter and setter functions for the full, nonlinear physical state.
     get_tether_state::GetTetherState
     get_point_state::GetPointState
     get_pulley_state::GetPulleyState
-    get_group_state::GetGroupState
+    get_twist_surface_state::GetTwistSurfaceState
 end
 
 """
@@ -263,7 +263,7 @@ to degrees) and calculating derived values like AoA and roll/pitch/yaw angles.
 """
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
-    (; points, groups, segments, pulleys, winches, wings, tethers) = sam.sys_struct
+    (; points, twist_surfaces, segments, pulleys, winches, wings, tethers) = sam.sys_struct
 
     for (ti, tether) in enumerate(tethers)
         ti > 4 && break
@@ -275,14 +275,14 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.winch_force[winch.idx] = norm(winch.force)
         ss.set_torque[winch.idx] = winch.set_value
     end
-    if length(groups) > 0
+    if length(twist_surfaces) > 0
         # Only fill up to the size of ss.twist_angles (typically 4)
-        max_groups = min(length(groups), length(ss.twist_angles))
-        for group in groups[1:max_groups]
-            ss.twist_angles[group.idx] = group.twist
+        max_twist_surfaces = min(length(twist_surfaces), length(ss.twist_angles))
+        for twist_surface in twist_surfaces[1:max_twist_surfaces]
+            ss.twist_angles[twist_surface.idx] = twist_surface.twist
         end
-        ss.depower = rad2deg(mean(ss.twist_angles[1:max_groups])) # Average twist for depower
-        ss.steering = rad2deg(ss.twist_angles[max_groups] - ss.twist_angles[1])
+        ss.depower = rad2deg(mean(ss.twist_angles[1:max_twist_surfaces])) # Average twist for depower
+        ss.steering = rad2deg(ss.twist_angles[max_twist_surfaces] - ss.twist_angles[1])
     end
     if length(wings) > 0
         wing = wings[1]
@@ -526,7 +526,7 @@ synchronization step is crucial for making the simulation results accessible.
 function update_sys_struct!(prob::ProbWithAttributes,
                             integ::OrdinaryDiffEqCore.ODEIntegrator,
                             sys_struct::SystemStructure)
-    (; points, groups, segments, pulleys, winches, tethers, wings) = sys_struct
+    (; points, twist_surfaces, segments, pulleys, winches, tethers, wings) = sys_struct
     pos, vel, force, va_b, total_mass, drag_f =
         prob.get_point_state(integ)
     for point in points
@@ -553,14 +553,14 @@ function update_sys_struct!(prob::ProbWithAttributes,
             segment.l0 = l0_arr[segment.idx]
         end
     end
-    if length(groups) > 0
-        twist, twist_ω, tether_force, tether_moment, aero_moment = prob.get_group_state(integ)
-        for group in groups
-            group.twist = twist[group.idx]
-            group.twist_ω = twist_ω[group.idx]
-            group.tether_force = tether_force[group.idx]
-            group.tether_moment = tether_moment[group.idx]
-            group.aero_moment = aero_moment[group.idx]
+    if length(twist_surfaces) > 0
+        twist, twist_ω, tether_force, tether_moment, aero_moment = prob.get_twist_surface_state(integ)
+        for twist_surface in twist_surfaces
+            twist_surface.twist = twist[twist_surface.idx]
+            twist_surface.twist_ω = twist_ω[twist_surface.idx]
+            twist_surface.tether_force = tether_force[twist_surface.idx]
+            twist_surface.tether_moment = tether_moment[twist_surface.idx]
+            twist_surface.aero_moment = aero_moment[twist_surface.idx]
         end
     end
     if length(winches) > 0
@@ -637,14 +637,6 @@ function update_sys_struct!(prob::ProbWithAttributes,
                 com_vel_v[:, wing.idx]
             wing.Q_p_to_w .= Q_p_to_w_v[:, wing.idx]
             wing.ω_p .= ω_p_v[:, wing.idx]
-
-            # Update PlateWing surface aoa from current twist
-            if wing isa PlateWing
-                for surf in wing.surfaces
-                    surf.aoa =
-                        plate_alpha(wing, surf)
-                end
-            end
         end
     end
     return nothing
@@ -696,11 +688,11 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     # Count components
     n_points = length(sys_struct.points)
     n_segments = length(sys_struct.segments)
-    n_groups = length(sys_struct.groups)
+    n_twist_surfaces = length(sys_struct.twist_surfaces)
     n_wings = length(sys_struct.wings)
     n_winches = length(sys_struct.winches)
 
-    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_groups)grp_$(n_wings)wng_$(n_winches)wch.bin$suffix"
+    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_twist_surfaces)grp_$(n_wings)wng_$(n_winches)wch.bin$suffix"
 end
 
 """

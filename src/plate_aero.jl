@@ -48,59 +48,22 @@ function create_plate_interpolations(
     return (cl_interp, cd_interp)
 end
 
-# Registered symbolic accessors for PlateWing fields.
-# Single concrete type — no duplicate method risk.
-get_plate_cl(sys::SystemStructure{PlateWing},
-             wing_idx::Int64, alpha_deg) =
-    sys.wings[wing_idx].calc_cl(alpha_deg)
+get_plate_cl(sys::SystemStructure, wing_idx::Int64, alpha_deg) =
+    sys.wings[wing_idx].aero.calc_cl(alpha_deg)
 @register_symbolic get_plate_cl(
-    sys::SystemStructure{PlateWing},
-    wing_idx::Int64, alpha_deg)
+    sys::SystemStructure, wing_idx::Int64, alpha_deg)
 
-get_plate_cd(sys::SystemStructure{PlateWing},
-             wing_idx::Int64, alpha_deg) =
-    sys.wings[wing_idx].calc_cd(alpha_deg)
+get_plate_cd(sys::SystemStructure, wing_idx::Int64, alpha_deg) =
+    sys.wings[wing_idx].aero.calc_cd(alpha_deg)
 @register_symbolic get_plate_cd(
-    sys::SystemStructure{PlateWing},
-    wing_idx::Int64, alpha_deg)
+    sys::SystemStructure, wing_idx::Int64, alpha_deg)
 
-get_plate_drag_corr(sys::SystemStructure{PlateWing},
-                    idx::Int64) =
-    sys.wings[idx].drag_corr
+get_plate_drag_corr(sys::SystemStructure, idx::Int64) =
+    sys.wings[idx].aero.drag_corr
 @register_symbolic get_plate_drag_corr(
-    sys::SystemStructure{PlateWing}, idx::Int64)
+    sys::SystemStructure, idx::Int64)
 
-get_surface_x_airf(sys::SystemStructure{PlateWing},
-                   wing_idx::Int64, surf_idx::Int64) =
-    sys.wings[wing_idx].surfaces[surf_idx].x_airf
-@register_array_symbolic get_surface_x_airf(
-    sys::SystemStructure{PlateWing}, wing_idx::Int64,
-    surf_idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-
-get_surface_y_airf(sys::SystemStructure{PlateWing},
-                   wing_idx::Int64, surf_idx::Int64) =
-    sys.wings[wing_idx].surfaces[surf_idx].y_airf
-@register_array_symbolic get_surface_y_airf(
-    sys::SystemStructure{PlateWing}, wing_idx::Int64,
-    surf_idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-
-get_surface_area(sys::SystemStructure{PlateWing},
-                 wing_idx::Int64, surf_idx::Int64) =
-    sys.wings[wing_idx].surfaces[surf_idx].area
-@register_symbolic get_surface_area(
-    sys::SystemStructure{PlateWing},
-    wing_idx::Int64, surf_idx::Int64)
-
-
-get_surface_twist(sys::SystemStructure{PlateWing},
-                  wing_idx::Int64, surf_idx::Int64) =
-    sys.wings[wing_idx].surfaces[surf_idx].twist
-@register_symbolic get_surface_twist(
-    sys::SystemStructure{PlateWing},
-    wing_idx::Int64, surf_idx::Int64)
+get_twist_surface_area(sys::SystemStructure, idx::Int64) =
+    sys.twist_surfaces[idx].area
+@register_symbolic get_twist_surface_area(
+    sys::SystemStructure, idx::Int64)
