@@ -142,10 +142,10 @@ function validate_sys_struct(sys_struct::SystemStructure)
                 error("Wing $(wing.name) has NaN inertia: I_b = $I_b")
             end
 
-            # Warn if RIGID_DYNAMICS wing has no twist_surfaces
-            # (expected for AERO_NONE which skips auto-twist_surface creation)
+            # Warn if a section-coupled RIGID_DYNAMICS wing has no twist_surfaces
+            # (AeroNone does not couple to sections, so its absence is expected)
             if isempty(wing.twist_surface_idxs) &&
-               !(wing.aero isa AeroNone)
+               couples_to_sections(wing.aero)
                 @warn "Wing $(wing.name) (RIGID_DYNAMICS)" *
                     " has no twist_surfaces"
             end

@@ -172,15 +172,8 @@ inertia_total = 0.024    # [kgm²]
 
 winches = [Winch(:winch, [:main],
     gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total;
-    winch_point=:anchor,
-    model=default_winch_component)]
+    winch_point=:anchor)]
 ```
-
-The `model` keyword selects the MTK component that defines the
-motor dynamics. [`default_winch_component`](@ref) is the built-in
-torque-driven motor; you can pass any builder of the same signature
-to swap in a custom motor model — see
-[Custom winch components](#Custom-winch-components) below.
 
 Build and simulate with a constant torque of -20 Nm:
 
@@ -214,76 +207,6 @@ SymbolicAWEModels.record(lg, sam.sys_struct, "winch_sim.gif")
 ```
 
 ![Winch simulation](assets/winch_sim.gif)
-
-### Custom winch components
-
-The default winch is a pure-algebraic motor with no internal state.
-A researcher's motor model often has *its own* dynamic state — a
-current integrator, a controller, a thermal model. Plug it in by
-writing a builder that returns an `ODESystem` with the same connector
-contract.
-
-The connectors are:
-
-| connector   | direction | meaning                             |
-|-------------|-----------|-------------------------------------|
-| `vel`       | input     | drum-perimeter velocity [m/s]       |
-| `force`     | input     | summed tether tension at winch [N]  |
-| `set_value` | input     | abstract setpoint (you choose units)|
-| `brake`     | input     | brake in [0, 1]                     |
-| `acc`       | output    | drum-perimeter acceleration [m/s²]  |
-| `friction`  | output    | friction torque [N·m]               |
-
-The component is algebraic at the connector boundary (the outer
-integrator owns `winch_vel` and `tether_len`), but it may declare
-any number of internal differential states. Example: a current-driven
-motor where `set_value` is the *commanded* current and the actual
-current `I` lags via a first-order electrical time constant `τ_e`:
-
-```julia
-using ModelingToolkit
-using ModelingToolkit: t_nounits as t, D_nounits as D
-
-function current_driven_winch(sys_struct, winch_idx; name)
-    SST = typeof(sys_struct)
-    @parameters (psys::SST = sys_struct), [tunable = false]
-    @variables begin
-        vel(t); force(t); set_value(t); brake(t)
-        acc(t); friction(t)
-        I(t) = 0.0
-    end
-    K_t   = 0.5
-    τ_e   = 0.02
-    drum  = SymbolicAWEModels.get_winch_drum_radius(psys, winch_idx)
-    gear  = SymbolicAWEModels.get_winch_gear_ratio(psys, winch_idx)
-    inertia = SymbolicAWEModels.get_winch_inertia_total(psys, winch_idx)
-    ratio = drum / gear
-
-    eqs = [
-        D(I)     ~ (set_value - I) / τ_e
-        friction ~ 0.0
-        acc      ~ ifelse(brake > 0.5, 0.0,
-                          ratio * (K_t * I + ratio * force) / inertia)
-    ]
-    return System(eqs, t; name)
-end
-```
-
-Pass the builder to the `Winch` constructor:
-
-```julia
-winches = [Winch(:winch, [:main], gear_ratio, drum_radius,
-    f_coulomb, c_vf, inertia_total;
-    winch_point=:anchor,
-    model=current_driven_winch)]
-```
-
-SymbolicAWEModels automatically calls
-[`validate_winch_component`](@ref) on the returned subsystem during
-model build, and reports a clear error if a required connector is
-missing or if the component tries to take ownership of `D(vel)` or
-`D(len)`. You can also call it directly on a manually built subsystem
-during development.
 
 ## Step 3: adding a pulley
 
@@ -415,7 +338,7 @@ sys.winches[:winch]       # Access winch by name
 | [`Tether`](@ref) | `Tether(name, segments; ...)` | Winch-controlled segments |
 | [`Winch`](@ref) | `Winch(name, tethers, n, r, Fc, cv, I; ...)` | Torque-controlled motor |
 | [`Pulley`](@ref) | `Pulley(name, seg_i, seg_j, type)` | Equal-tension constraint |
-| [`Group`](@ref) | `Group(name, points, type, frac; ...)` | Wing twist section |
+| [`TwistSurface`](@ref) | `TwistSurface(name, points, type, frac; ...)` | Wing twist section |
 | [`Transform`](@ref) | `Transform(name, el, az, hdg; ...)` | Spherical positioning |
 
 See the [Types](exported_types.md) page for full constructor

@@ -144,88 +144,17 @@ function Base.setproperty!(mode::AbstractVSMAero, sym::Symbol, value)
     return setfield!(mode, sym, value)
 end
 
-"""
-    has_engine(mode::AbstractAeroModel) -> Bool
-
-`true` if the aero mode currently carries a built [`VSMEngine`](@ref). VSM modes
-([`AbstractVSMAero`](@ref)) report `true` once their engine is attached; all other
-modes are `false`. Used by [`is_vsm`](@ref).
-"""
-has_engine(::AbstractAeroModel) = false
-has_engine(mode::AbstractVSMAero) = getfield(mode, :engine) !== nothing
-
-"""
-    AeroNone()
-
-No aerodynamic forces (returns zeros). For debugging rigid body dynamics or a
-wing with no aero coupling. A VSM-backed mode: it carries a [`VSMEngine`](@ref)
-when the wing is built from VSM geometry (so the geometry is still available),
-but produces zero force. Pure non-VSM rigid-body wings leave the engine `nothing`.
-"""
-mutable struct AeroNone <: AbstractVSMAero
-    engine::Union{Nothing, VSMEngine}
-end
-AeroNone() = AeroNone(nothing)
-
-"""
-    AeroDirect()
-
-Stored forces from the nonlinear VSM solve, piecewise-constant between updates.
-Carries a [`VSMEngine`](@ref); the no-arg form is the engine-less marker filled
-in during wing construction.
-"""
-mutable struct AeroDirect <: AbstractVSMAero
-    engine::Union{Nothing, VSMEngine}
-end
-AeroDirect() = AeroDirect(nothing)
-
-"""
-    AeroLinearized()
-
-First-order Taylor expansion using the Jacobian from VSM linearization
-(`RIGID_DYNAMICS` only). Carries a [`VSMEngine`](@ref); the no-arg form is the
-engine-less marker filled in during wing construction.
-"""
-mutable struct AeroLinearized <: AbstractVSMAero
-    engine::Union{Nothing, VSMEngine}
-end
-AeroLinearized() = AeroLinearized(nothing)
-
-"""
-    AeroPlate(calc_cl, calc_cd; drag_corr=1.0)
-
-Flat-plate CL/CD lookup aerodynamics. Carries the shared polar lookups
-(`calc_cl`/`calc_cd`: `α_deg → coefficient`) and drag correction used by all of
-a wing's flat-plate (1-point `FIXED`) [`TwistSurface`](@ref)s. One polar set per
-wing.
-"""
-mutable struct AeroPlate{CL, CD} <: AbstractAeroModel
-    calc_cl::CL
-    calc_cd::CD
-    drag_corr::SimFloat
-end
-
-AeroPlate(calc_cl, calc_cd; drag_corr=1.0) =
-    AeroPlate{typeof(calc_cl), typeof(calc_cd)}(
-        calc_cl, calc_cd, SimFloat(drag_corr))
-
-"""
-    AeroPlate()
-
-Polar-less marker, used only to select the flat-plate path when parsing a YAML
-`aero_mode`; the real lookups are attached when the `PlateWing` is built.
-"""
-AeroPlate() = AeroPlate(nothing, nothing)
+# Concrete aero modes (AeroNone/AeroDirect/AeroLinearized/AeroPlate) and their
+# dispatch methods live in src/aero_modes/, one file per mode.
 
 """
     is_builtin_aero(mode::AbstractAeroModel) -> Bool
 
 `true` for the package's built-in aero models. Custom models return `false`,
 which forces a model rebuild (the compiled cache cannot be reused for
-user-supplied equations).
+user-supplied equations). Each built-in mode sets this in its `aero_modes/` file.
 """
 is_builtin_aero(::AbstractAeroModel) = false
-is_builtin_aero(::Union{AeroNone, AeroDirect, AeroLinearized, AeroPlate}) = true
 
 """
     aero_hash_id(mode::AbstractAeroModel) -> Tuple

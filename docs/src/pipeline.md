@@ -80,7 +80,7 @@ using ModelingToolkit.jl. It calls specialized equation builders for each subsys
 | `winch_eqs!()` | `src/generate_system/winch_eqs.jl` | Motor dynamics, Coulomb/viscous friction |
 | `tether_eqs!()` | `src/generate_system/tether_eqs.jl` | Tether length kinematics |
 | `pulley_eqs!()` | `src/generate_system/pulley_eqs.jl` | Equal-tension constraints |
-| `group_eqs!()` | `src/generate_system/group_eqs.jl` | Twist deformation dynamics |
+| `twist_surface_eqs!()` | `src/generate_system/twist_surface_eqs.jl` | Twist deformation dynamics |
 | `scalar_eqs!()` | `src/generate_system/scalar_eqs.jl` | Winch dynamics, kinematics |
 | `aero_eqs!()` | `src/generate_system/aero_eqs.jl` | Linearized aerodynamics from VSM |
 

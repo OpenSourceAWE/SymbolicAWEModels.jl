@@ -100,7 +100,7 @@ SymbolicAWEModels provides building blocks for flexible mechanical systems:
 - [`Pulley`](@ref)s — equal-tension constraints between segments
 - [`Wing`](@ref AbstractWing)s — rigid body quaternion dynamics with aerodynamic forces from the
   [Vortex Step Method](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
-- [`Group`](@ref)s — twist degrees of freedom for aeroelastic coupling
+- [`TwistSurface`](@ref)s — twist degrees of freedom for aeroelastic coupling
 - [`Transform`](@ref)s — spherical coordinate positioning of components
 
 These components can be combined to model a wide range of systems, from simple

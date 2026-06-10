@@ -4,7 +4,7 @@
 # Aero coupling wiring (winch-style).
 #
 # Each wing's aerodynamics is a swappable subsystem built by
-# `aero_component(wing.aero, …)` (see aero_components.jl). This layer
+# `aero_component(wing.aero, …)` (see aero_modes/common.jl). This layer
 # instantiates the component, validates its connector contract, drives the
 # body-frame inputs, and reads the outputs back into the wing's aero variables.
 # All built-in models (AeroNone / AeroDirect / AeroLinearized / AeroPlate) and

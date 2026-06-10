@@ -310,69 +310,116 @@ function parse_aero_mode(text::String)
 end
 
 """
-    _load_plate_wing(row, idx, data, set, wing_type, aero_mode,
-                     yaml_to_ref, yaml_parse_ref_points,
-                     yaml_parse_origin, twist_surfaces)
+    load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type, vsm_set,
+              yaml_to_ref, yaml_parse_ref_points, yaml_parse_origin, twist_surfaces)
 
-Load a PlateWing from a YAML wing row + `surfaces` block. Each surface becomes a
-1-point `FIXED` [`TwistSurface`](@ref) appended to `twist_surfaces`; the wing
-references them by name. CL/CD interpolations come from `Settings` polar data.
+Build a wing from a parsed YAML `row`, dispatched on its aero `mode`. The default
+(VSM-backed modes) builds a [`VSMWing`](@ref); [`AeroPlate`](@ref) builds a
+flat-plate wing via [`load_plate_wing`](@ref). Add a method to load a wing for a
+custom aero mode.
 """
-function _load_plate_wing(row, idx, data, set, wing_type, aero_mode,
-                          yaml_to_ref, yaml_parse_ref_points,
-                          yaml_parse_origin, twist_surfaces)
-    name = if haskey(row, :name) && !isnothing(row.name)
-        Symbol(row.name)
-    else
-        idx
+function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
+                   vsm_set, yaml_to_ref, yaml_parse_ref_points,
+                   yaml_parse_origin, twist_surfaces)
+    isnothing(vsm_set) && error(
+        "VSMWing defined in YAML but vsm_set was not provided.")
+
+    if wing_type == PARTICLE_DYNAMICS
+        # PARTICLE_DYNAMICS wings need z_ref_points, y_ref_points, origin
+        # Pass raw values - constructor handles defaults
+        return call_yaml_constructor(VSMWing, row,
+            [:name, :set, :twist_surfaces, :vsm_set],
+            [:transform, :y_damping, :angular_damping,
+             :dynamics_type, :aero,
+             :z_ref_points, :y_ref_points, :origin, :pos_cad,
+             :aero_scale_chord];
+            mappings=Dict(
+                :set => row -> set,
+                :twist_surfaces => row -> hasfield(typeof(row), :twist_surfaces) &&
+                    !isnothing(row.twist_surfaces) ?
+                    [yaml_to_ref(twist_surface_ref) for twist_surface_ref in row.twist_surfaces] : [],
+                :vsm_set => row -> vsm_set,
+                :dynamics_type => row -> wing_type,
+                :aero => row -> mode,
+                :name => row -> begin
+                    if haskey(row, :name) && !isnothing(row.name)
+                        Symbol(row.name)
+                    else
+                        idx  # Use index as name if no name provided
+                    end
+                end,
+                :transform => row -> begin
+                    if hasfield(typeof(row), :transform_idx) && !isnothing(row.transform_idx)
+                        yaml_to_ref(row.transform_idx)
+                    else
+                        nothing  # Constructor handles default
+                    end
+                end,
+                :z_ref_points => row ->
+                    yaml_parse_ref_points(row, :z_ref_points),
+                :y_ref_points => row ->
+                    yaml_parse_ref_points(row, :y_ref_points),
+                :origin => row ->
+                    yaml_parse_origin(row, :origin_idx),
+                :aero_scale_chord => row ->
+                    hasfield(typeof(row), :aero_scale_chord) && !isnothing(row.aero_scale_chord) ?
+                        float(row.aero_scale_chord) : 0.0,
+                :pos_cad => row -> begin
+                    # Note: pos_cad will be set from origin point position after resolution
+                    # For now, return nothing - SystemStructure will handle this
+                    nothing
+                end
+            ))
+    else  # RIGID_DYNAMICS
+        # Pass raw values - constructor handles defaults
+        return call_yaml_constructor(VSMWing, row,
+            [:name, :set, :twist_surfaces, :vsm_set],
+            [:transform, :y_damping, :angular_damping,
+             :dynamics_type, :aero, :aero_scale_chord,
+             :aero_z_offset, :pos_cad,
+             :z_ref_points, :y_ref_points, :origin];
+            mappings=Dict(
+                :set => row -> set,
+                :aero => row -> mode,
+                :twist_surfaces => row -> hasfield(typeof(row), :twist_surfaces) &&
+                    !isnothing(row.twist_surfaces) ?
+                    [yaml_to_ref(twist_surface_ref) for twist_surface_ref in row.twist_surfaces] : [],
+                :vsm_set => row -> vsm_set,
+                :dynamics_type => row -> wing_type,
+                :name => row -> begin
+                    if haskey(row, :name) && !isnothing(row.name)
+                        Symbol(row.name)
+                    else
+                        idx
+                    end
+                end,
+                :transform => row -> begin
+                    if hasfield(typeof(row), :transform_idx) &&
+                       !isnothing(row.transform_idx)
+                        yaml_to_ref(row.transform_idx)
+                    else
+                        nothing
+                    end
+                end,
+                :pos_cad => row -> begin
+                    if !hasfield(typeof(row), :pos_cad) ||
+                       row.pos_cad === nothing
+                        return nothing
+                    end
+                    KVec3(row.pos_cad...)
+                end,
+                :aero_scale_chord => row ->
+                    hasfield(typeof(row), :aero_scale_chord) &&
+                    !isnothing(row.aero_scale_chord) ?
+                        float(row.aero_scale_chord) : 0.0,
+                :z_ref_points => row ->
+                    yaml_parse_ref_points(row, :z_ref_points),
+                :y_ref_points => row ->
+                    yaml_parse_ref_points(row, :y_ref_points),
+                :origin => row ->
+                    yaml_parse_origin(row, :origin_idx)
+            ))
     end
-
-    cl_interp, cd_interp = create_plate_interpolations(
-        set.alpha_cl, set.cl_list, set.cd_list;
-        alpha_cd=set.alpha_cd)
-
-    drag_corr = hasfield(typeof(row), :drag_corr) &&
-        !isnothing(row.drag_corr) ? float(row.drag_corr) : 0.93
-    y_damping = hasfield(typeof(row), :y_damping) &&
-        !isnothing(row.y_damping) ?
-        float(row.y_damping) : 150.0
-
-    z_ref = yaml_parse_ref_points(row, :z_ref_points)
-    y_ref = yaml_parse_ref_points(row, :y_ref_points)
-    origin = yaml_parse_origin(row, :origin_idx)
-    transform = if hasfield(typeof(row), :transform_idx) &&
-                   !isnothing(row.transform_idx)
-        yaml_to_ref(row.transform_idx)
-    else
-        nothing
-    end
-
-    section_refs = NameRef[]
-    if haskey(data, "surfaces") &&
-       haskey(data["surfaces"], "data") &&
-       data["surfaces"]["data"] !== nothing
-        surf_rows = parse_table(data["surfaces"])
-        for (si, surf_row) in enumerate(surf_rows)
-            surf_name = haskey(surf_row, :name) && !isnothing(surf_row.name) ?
-                Symbol(surf_row.name) : Symbol("$(name)_plate_$si")
-            x_airf = collect(Float64, surf_row.x_airf)
-            y_airf = collect(Float64, surf_row.y_airf)
-            area = float(surf_row.area)
-            point = yaml_to_ref(surf_row.point_idx)
-            twist = hasfield(typeof(surf_row), :twist) &&
-                !isnothing(surf_row.twist) ?
-                float(surf_row.twist) : 0.0
-            push!(twist_surfaces, TwistSurface(
-                surf_name, [point], FIXED, 0.0;
-                x_airf, y_airf, area, twist))
-            push!(section_refs, surf_name)
-        end
-    end
-
-    PlateWing(name, section_refs, cl_interp, cd_interp;
-              dynamics_type=wing_type, transform, y_damping,
-              drag_corr, z_ref_points=z_ref, y_ref_points=y_ref,
-              origin)
 end
 
 """
@@ -810,118 +857,9 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     AeroDirect()
             end
 
-            if resolved_aero_mode isa AeroPlate
-                wing = _load_plate_wing(row, i, data,
-                    resolved_set, resolved_wing_type, resolved_aero_mode,
-                    yaml_to_ref,
-                    yaml_parse_ref_points,
-                    yaml_parse_origin, twist_surfaces)
-                push!(wings, wing)
-                continue
-            end
-
-            # VSMWing — validate vsm_set
-            if isnothing(vsm_set)
-                error("VSMWing defined in YAML but vsm_set " *
-                      "was not provided.")
-            end
-
-            if resolved_wing_type == PARTICLE_DYNAMICS
-                # PARTICLE_DYNAMICS wings need z_ref_points, y_ref_points, origin
-                # Pass raw values - constructor handles defaults
-                wing = call_yaml_constructor(VSMWing, row,
-                    [:name, :set, :twist_surfaces, :vsm_set],
-                    [:transform, :y_damping, :angular_damping,
-                     :dynamics_type, :aero,
-                     :z_ref_points, :y_ref_points, :origin, :pos_cad,
-                     :aero_scale_chord];
-                    mappings=Dict(
-                        :set => row -> resolved_set,
-                        :twist_surfaces => row -> hasfield(typeof(row), :twist_surfaces) &&
-                            !isnothing(row.twist_surfaces) ?
-                            [yaml_to_ref(twist_surface_ref) for twist_surface_ref in row.twist_surfaces] : [],
-                        :vsm_set => row -> vsm_set,
-                        :dynamics_type => row -> resolved_wing_type,
-                        :aero => row -> resolved_aero_mode,
-                        :name => row -> begin
-                            if haskey(row, :name) && !isnothing(row.name)
-                                Symbol(row.name)
-                            else
-                                i  # Use index as name if no name provided
-                            end
-                        end,
-                        :transform => row -> begin
-                            if hasfield(typeof(row), :transform_idx) && !isnothing(row.transform_idx)
-                                yaml_to_ref(row.transform_idx)
-                            else
-                                nothing  # Constructor handles default
-                            end
-                        end,
-                        :z_ref_points => row ->
-                            yaml_parse_ref_points(row, :z_ref_points),
-                        :y_ref_points => row ->
-                            yaml_parse_ref_points(row, :y_ref_points),
-                        :origin => row ->
-                            yaml_parse_origin(row, :origin_idx),
-                        :aero_scale_chord => row ->
-                            hasfield(typeof(row), :aero_scale_chord) && !isnothing(row.aero_scale_chord) ?
-                                float(row.aero_scale_chord) : 0.0,
-                        :pos_cad => row -> begin
-                            # Note: pos_cad will be set from origin point position after resolution
-                            # For now, return nothing - SystemStructure will handle this
-                            nothing
-                        end
-                    ))
-            else  # RIGID_DYNAMICS
-                # Pass raw values - constructor handles defaults
-                wing = call_yaml_constructor(VSMWing, row,
-                    [:name, :set, :twist_surfaces, :vsm_set],
-                    [:transform, :y_damping, :angular_damping,
-                     :dynamics_type, :aero, :aero_scale_chord,
-                     :aero_z_offset, :pos_cad,
-                     :z_ref_points, :y_ref_points, :origin];
-                    mappings=Dict(
-                        :set => row -> resolved_set,
-                        :aero => row -> resolved_aero_mode,
-                        :twist_surfaces => row -> hasfield(typeof(row), :twist_surfaces) &&
-                            !isnothing(row.twist_surfaces) ?
-                            [yaml_to_ref(twist_surface_ref) for twist_surface_ref in row.twist_surfaces] : [],
-                        :vsm_set => row -> vsm_set,
-                        :dynamics_type => row -> resolved_wing_type,
-                        :name => row -> begin
-                            if haskey(row, :name) && !isnothing(row.name)
-                                Symbol(row.name)
-                            else
-                                i
-                            end
-                        end,
-                        :transform => row -> begin
-                            if hasfield(typeof(row), :transform_idx) &&
-                               !isnothing(row.transform_idx)
-                                yaml_to_ref(row.transform_idx)
-                            else
-                                nothing
-                            end
-                        end,
-                        :pos_cad => row -> begin
-                            if !hasfield(typeof(row), :pos_cad) ||
-                               row.pos_cad === nothing
-                                return nothing
-                            end
-                            KVec3(row.pos_cad...)
-                        end,
-                        :aero_scale_chord => row ->
-                            hasfield(typeof(row), :aero_scale_chord) &&
-                            !isnothing(row.aero_scale_chord) ?
-                                float(row.aero_scale_chord) : 0.0,
-                        :z_ref_points => row ->
-                            yaml_parse_ref_points(row, :z_ref_points),
-                        :y_ref_points => row ->
-                            yaml_parse_ref_points(row, :y_ref_points),
-                        :origin => row ->
-                            yaml_parse_origin(row, :origin_idx)
-                    ))
-            end
+            wing = load_wing(resolved_aero_mode, row, i, data,
+                resolved_set, resolved_wing_type, vsm_set, yaml_to_ref,
+                yaml_parse_ref_points, yaml_parse_origin, twist_surfaces)
             push!(wings, wing)
         end
     end

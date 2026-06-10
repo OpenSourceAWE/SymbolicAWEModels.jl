@@ -376,7 +376,7 @@ jl test/test_segment.jl
 | `test_pulley` | [`Pulley`](@ref) | Equal-tension constraints, multi-segment pulleys |
 | `test_transform` | [`Transform`](@ref) | Spherical coordinate positioning |
 | `test_quaternion_conversions` | — | Quaternion ↔ rotation matrix round-trips |
-| `test_quaternion_auto_groups` | [`Group`](@ref) | Auto-generated twist DOFs |
+| `test_quaternion_auto_groups` | [`TwistSurface`](@ref) | Auto-generated twist DOFs |
 | `test_principal_body_frame` | [`Wing`](@ref AbstractWing) | Principal vs body frame separation |
 | `test_heading_calculation` | — | Kite heading from tether geometry |
 | `test_section_alignment` | [`Wing`](@ref AbstractWing) | VSM section ↔ structural point mapping |
@@ -451,9 +451,9 @@ The source code is organized into modular directories:
 
 - **`src/system_structure/`** — component types and assembly
   - `types.jl`: [`Point`](@ref), [`Segment`](@ref), [`Pulley`](@ref),
-    [`Tether`](@ref), [`Winch`](@ref), [`Group`](@ref), [`Transform`](@ref)
-  - `wing.jl`: [`AbstractWing`](@ref) and [`VSMWing`](@ref) types, aerodynamic
-    setup
+    [`Tether`](@ref), [`Winch`](@ref), [`TwistSurface`](@ref), [`Transform`](@ref)
+  - `wing.jl`: [`AbstractWing`](@ref)/[`Wing`](@ref) types and the
+    [`VSMWing`](@ref)/[`PlateWing`](@ref) constructors, aerodynamic setup
   - `system_structure_core.jl`: [`SystemStructure`](@ref) constructor, reference
     resolution
   - `named_collection.jl`: Symbol-based indexing ([`NamedCollection`](@ref))

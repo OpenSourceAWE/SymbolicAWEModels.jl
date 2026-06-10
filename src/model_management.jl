@@ -51,17 +51,17 @@ function generate_prob_getters(sys_struct, sys)
         ])
         get_wing_state = getu(sys, wing_vars)
 
-        # aero_input only exists for RIGID_DYNAMICS + AERO_LINEARIZED wings
+        # aero_input only exists for wings whose mode exposes it (AeroLinearized)
         has_linearized = any(
             wing.dynamics_type === RIGID_DYNAMICS &&
-            wing.aero isa AeroLinearized
+            exposes_aero_input(wing.aero)
             for wing in sys_struct.wings)
         if has_linearized
             aero_inputs = [
                 getproperty(sys, Symbol("aero_$(wing.idx)")).aero_input
                 for wing in sys_struct.wings
                 if wing.dynamics_type === RIGID_DYNAMICS &&
-                   wing.aero isa AeroLinearized]
+                   exposes_aero_input(wing.aero)]
             get_aero_input = getu(sys, collect_each.(aero_inputs))
         else
             get_aero_input = nothing

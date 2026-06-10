@@ -16,7 +16,6 @@ SymbolicAWEModels.SerializedModel
 SymbolicAWEModels.SimFloat
 SymbolicAWEModels.KVec3
 SymbolicAWEModels.SVec3
-VortexStepMethod.Wing
 SymbolicAWEModels.create_vsm_wing
 SymbolicAWEModels.build_vsm_engine
 ```
@@ -130,7 +129,7 @@ SymbolicAWEModels.tether_ordered_point_idxs
 SymbolicAWEModels.tether_anchor_free
 SymbolicAWEModels.rigid_point_siblings
 SymbolicAWEModels.tether_downstream_idxs
-SymbolicAWEModels.group_tethers_by_overlap
+SymbolicAWEModels.twist_surface_tethers_by_overlap
 SymbolicAWEModels.tether_unit_stiffness
 SymbolicAWEModels.apply_cluster_init_stretched_len!
 SymbolicAWEModels.apply_tether_init_stretched_lens!
@@ -143,7 +142,7 @@ SymbolicAWEModels.validate_sys_struct
 SymbolicAWEModels.build_name_dict
 SymbolicAWEModels.identify_wing_segments
 SymbolicAWEModels.match_aero_sections_to_structure!
-SymbolicAWEModels.compute_spatial_group_mapping!
+SymbolicAWEModels.compute_spatial_twist_surface_mapping!
 SymbolicAWEModels.copy_cad_to_world!
 SymbolicAWEModels.adjust_vsm_panels_to_origin!
 SymbolicAWEModels.apply_aero_z_offset!
@@ -177,26 +176,44 @@ Base.setindex!(::NamedCollection, ::Any, ::Symbol)
 SymbolicAWEModels.tether_eqs!
 SymbolicAWEModels.pulley_eqs!
 SymbolicAWEModels.winch_eqs!
-SymbolicAWEModels.group_eqs!
-SymbolicAWEModels.plate_eqs!
+SymbolicAWEModels.twist_surface_eqs!
+SymbolicAWEModels.validate_twist_surface_modes
 ```
 
 ## Plate aerodynamics internals
 
 ```@docs
-SymbolicAWEModels.plate_alpha
-SymbolicAWEModels._load_plate_wing
+SymbolicAWEModels.load_plate_wing
+```
+
+## Aero-mode interface
+
+```@docs
+SymbolicAWEModels.has_vsm_engine
+SymbolicAWEModels.couples_to_sections
+SymbolicAWEModels.provides_aero_override
+SymbolicAWEModels.stores_point_force
+SymbolicAWEModels.exposes_aero_input
+SymbolicAWEModels.aero_mode_tag
+SymbolicAWEModels.calc_side_slip
+SymbolicAWEModels.validate_aero_component
+SymbolicAWEModels.load_wing
 ```
 
 ## VSM and aerodynamics internals
 
 ```@docs
+SymbolicAWEModels.refresh_rigid_aero!
+SymbolicAWEModels.refresh_particle_aero!
 SymbolicAWEModels.build_point_to_vsm_point_mapping
 SymbolicAWEModels.update_vsm_wing_from_structure!
 SymbolicAWEModels.distribute_panel_forces_to_points!
 SymbolicAWEModels.rigid_aero_baseline!
 SymbolicAWEModels.apply_direct_forces!
+SymbolicAWEModels.vsm_aero_coeffs
+SymbolicAWEModels.vsm_solve_objects
 SymbolicAWEModels.safe_vsm_solve!
+SymbolicAWEModels.finite_full
 ```
 
 ## Heading and geometry

@@ -78,7 +78,7 @@ function get_point_aero_force(
     point = sys.points[idx]
     if point.wing_idx > 0
         wing = sys.wings[point.wing_idx]
-        wing.aero isa AeroNone && return 0.0
+        stores_point_force(wing.aero) || return 0.0
     end
     return point.aero_force_b[component]
 end
@@ -314,7 +314,7 @@ function get_aero_force_override(
     sys::SystemStructure, idx::Int64, component::Int
 )
     wing = sys.wings[idx]
-    wing.aero isa AeroDirect &&
+    provides_aero_override(wing.aero) &&
         return wing.aero_force_b[component]
     return 0.0
 end
@@ -324,7 +324,7 @@ function get_aero_moment_override(
     sys::SystemStructure, idx::Int64, component::Int
 )
     wing = sys.wings[idx]
-    wing.aero isa AeroDirect &&
+    provides_aero_override(wing.aero) &&
         return wing.aero_moment_b[component]
     return 0.0
 end
@@ -407,7 +407,7 @@ function get_twist_surface_moment_override(
     twist_surface_idx::Int64
 )
     wing = sys.wings[wing_idx]
-    wing.aero isa AeroDirect &&
+    provides_aero_override(wing.aero) &&
         return sys.twist_surfaces[twist_surface_idx].aero_moment
     return 0.0
 end

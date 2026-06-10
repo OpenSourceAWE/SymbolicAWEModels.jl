@@ -1,10 +1,207 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Aero refresh: the low-frequency VSM-update path (every `vsm_interval` steps).
-# `refresh_aero\!` orchestrates; per-mode work is dispatched on the wing's aero
-# mode via `refresh_rigid_aero\!` / `refresh_particle_aero\!`. This is NOT the
-# compiled RHS, so dynamic dispatch on the abstract `wing.aero` field is free.
+# Code shared by all aero modes: the dispatch interface (generic functions +
+# abstract-type defaults), the MTK connector scaffolding the `aero_component`
+# builders share, and the low-frequency VSM refresh orchestrator + numerics.
+# The concrete aero modes live one-per-file alongside this (none/direct/
+# linearized/plate.jl) and add their own methods. The abstract aero types
+# themselves (AbstractAeroModel, AbstractVSMAero, VSMEngine) live in
+# system_structure/types.jl because the `Wing.aero` field references them.
+
+# ==================== interface: capability traits ==================== #
+
+"""
+    has_vsm_engine(mode::AbstractAeroModel) -> Bool
+
+`true` if the mode carries a [`VSMEngine`](@ref) (VSM geometry + linearization
+state). Drives the wing-level [`is_vsm`](@ref) helper and every VSM-geometry loop.
+"""
+has_vsm_engine(::AbstractAeroModel) = false
+has_vsm_engine(::AbstractVSMAero) = true
+
+"""
+    couples_to_sections(mode::AbstractAeroModel) -> Bool
+
+`true` if the mode needs per-section twist surfaces (auto-creation and
+aero-section matching). VSM modes do, except [`AeroNone`](@ref).
+"""
+couples_to_sections(::AbstractAeroModel) = false
+couples_to_sections(::AbstractVSMAero) = true
+
+"""
+    provides_aero_override(mode::AbstractAeroModel) -> Bool
+
+`true` if the mode supplies frozen body-frame force/moment overrides read by the
+compiled RHS (the stored-force path of [`AeroDirect`](@ref)).
+"""
+provides_aero_override(::AbstractAeroModel) = false
+
+"""
+    stores_point_force(mode::AbstractAeroModel) -> Bool
+
+`true` if a WING point's `aero_force_b` is meaningful for this mode.
+[`AeroNone`](@ref) returns `false` (it produces no force).
+"""
+stores_point_force(::AbstractAeroModel) = true
+
+"""
+    exposes_aero_input(mode::AbstractAeroModel) -> Bool
+
+`true` if the mode's subsystem exposes an `aero_input` connector (the linearized
+operating-point vector of [`AeroLinearized`](@ref)), which is logged as wing state.
+"""
+exposes_aero_input(::AbstractAeroModel) = false
+
+# ==================== interface: required cache tag ==================== #
+
+"""
+    aero_mode_tag(mode::AbstractAeroModel) -> String
+
+Short identifier for the mode in the compiled-model cache filename. Required: the
+`AbstractAeroModel` fallback errors, so every aero mode must declare its own tag
+(no silent default that could collide two distinct modes on one cache file).
+Built-ins: `"lin"`, `"dir"`, `"none"`, `"plate"`.
+"""
+aero_mode_tag(mode::AbstractAeroModel) = error(
+    "aero_mode_tag is not defined for aero mode $(typeof(mode)); " *
+    "every aero mode must provide its own cache tag.")
+
+# ==================== interface: diagnostics ==================== #
+
+"""
+    calc_aoa(mode::AbstractAeroModel, wing) -> SimFloat
+
+Angle of attack [rad] for `wing` under aero `mode`. Defaults to `NaN`
+(undefined); VSM modes read the mid-span geometric AoA (wrapped to [-π, π]) and
+[`AeroPlate`](@ref) derives it from the body-frame apparent wind. [`AeroNone`](@ref)
+produces no solve, so it stays `NaN`.
+"""
+calc_aoa(::AbstractAeroModel, wing) = SimFloat(NaN)
+function calc_aoa(mode::AbstractVSMAero, wing)
+    dist = mode.vsm_solver.sol.alpha_geometric_dist
+    n = length(dist)
+    return mod(dist[n ÷ 2 + n % 2] + π, 2π) - π
+end
+
+"""
+    calc_side_slip(mode::AbstractAeroModel, wing) -> SimFloat
+
+Side-slip angle [rad] from the body-frame apparent wind. Mode-independent
+(pure geometry), so the default serves every mode.
+"""
+calc_side_slip(::AbstractAeroModel, wing) =
+    atan(wing.va_b[2], hypot(wing.va_b[1], wing.va_b[3]))
+
+# ==================== connector scaffolding ==================== #
+#
+# A wing carries an `aero::AbstractAeroModel`; `aero_component(mode, …)` is
+# dispatched on its type and returns a `System` whose connectors are fixed by
+# the wing's `dynamics_type`:
+#
+#   RIGID_DYNAMICS (num_twist_surfaces = length(wing.twist_surface_idxs)):
+#     inputs:  va[1:3], rho, R_b_w[1:3,1:3], omega[1:3],
+#              twist[1:num_twist_surfaces], twist_vel[1:num_twist_surfaces]
+#     outputs: force[1:3], moment[1:3], twist_moment[1:num_twist_surfaces]
+#
+#   PARTICLE_DYNAMICS (num_points = number of WING points):
+#     inputs:  point_pos[1:3,1:np], point_vel[1:3,1:np], va[1:3,1:np], rho[1:np]
+#     outputs: point_force[1:3,1:np]
+#
+# Everything is in the wing body frame. The wiring layer (aero_eqs!) drives the
+# inputs and reads the outputs. Connectors are declared as array variables and
+# passed to `System` unflattened, so input connectors a mode ignores still exist
+# for the wiring layer to bind.
+
+function rigid_aero_connectors(num_twist_surfaces::Int)
+    @variables begin
+        va(t)[1:3]
+        rho(t)
+        R_b_w(t)[1:3, 1:3]
+        omega(t)[1:3]
+        force(t)[1:3]
+        moment(t)[1:3]
+    end
+    if num_twist_surfaces > 0
+        @variables twist(t)[1:num_twist_surfaces] twist_vel(t)[1:num_twist_surfaces] twist_moment(t)[1:num_twist_surfaces]
+    else
+        twist = nothing
+        twist_vel = nothing
+        twist_moment = nothing
+    end
+    return (; va, rho, R_b_w, omega, force, moment,
+            twist, twist_vel, twist_moment)
+end
+
+function rigid_unknowns(connectors)
+    vars = Any[connectors.va, connectors.rho, connectors.R_b_w,
+               connectors.omega, connectors.force, connectors.moment]
+    connectors.twist === nothing ||
+        append!(vars, Any[connectors.twist, connectors.twist_vel,
+                          connectors.twist_moment])
+    return vars
+end
+
+function particle_aero_connectors(num_points::Int)
+    @variables begin
+        point_pos(t)[1:3, 1:num_points]
+        point_vel(t)[1:3, 1:num_points]
+        va(t)[1:3, 1:num_points]
+        rho(t)[1:num_points]
+        point_force(t)[1:3, 1:num_points]
+    end
+    return (; point_pos, point_vel, va, rho, point_force)
+end
+
+particle_unknowns(connectors) =
+    Any[connectors.point_pos, connectors.point_vel, connectors.va,
+        connectors.rho, connectors.point_force]
+
+function wing_points(sys_struct, wing)
+    return [point for point in sys_struct.points
+            if point.type == WING && point.wing_idx == wing.idx]
+end
+
+"""
+    aero_component(mode::AbstractAeroModel, sys_struct, wing_idx; name) -> System
+
+Build the aero subsystem for `sys_struct.wings[wing_idx]`, selected by dispatch
+on the wing's `aero` model. Returns a `System` exposing the connectors fixed by
+the wing's `dynamics_type` (see above). Add a method on a custom
+`AbstractAeroModel` subtype to plug in your own aerodynamics.
+"""
+function aero_component end
+
+"""
+    validate_aero_component(subsys, wing)
+
+Check the built aero `subsys` exposes the connectors the wiring layer needs for
+the wing's `dynamics_type`; error naming the missing connector otherwise.
+"""
+function validate_aero_component(subsys, wing)
+    if wing.dynamics_type == RIGID_DYNAMICS
+        required = Symbol[:va, :rho, :R_b_w, :omega, :force, :moment]
+        length(wing.twist_surface_idxs) > 0 &&
+            append!(required, [:twist, :twist_vel, :twist_moment])
+    else
+        required = Symbol[:point_pos, :point_vel, :va, :rho, :point_force]
+    end
+    required_str = join(required, ", ")
+    for con in required
+        hasproperty(subsys, con) || error(
+            "Wing $(wing.name): aero component is missing required " *
+            "connector `$con`. Required: $required_str.")
+    end
+    return nothing
+end
+
+# ==================== refresh orchestrator ==================== #
+#
+# The low-frequency VSM-update path (every `vsm_interval` steps). `refresh_aero!`
+# orchestrates; per-mode work is dispatched on the wing's aero mode via
+# `refresh_rigid_aero!` / `refresh_particle_aero!` (in the per-mode files). This
+# is NOT the compiled RHS, so dynamic dispatch on the abstract `wing.aero` field
+# is free.
 
 """
     refresh_aero!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
@@ -64,51 +261,6 @@ refresh_rigid_aero!(::AbstractAeroModel, wing, am, twist_surfaces;
                     vsm_min_wind=0.5) = nothing
 
 """
-    refresh_rigid_aero!(::AeroLinearized, wing, am, twist_surfaces; vsm_min_wind=0.5)
-
-Linearized rigid-wing refresh. Computes the baseline wind-axis coefficients at the
-operating point ([`rigid_aero_baseline!`](@ref)), then the `ForwardDiff` Jacobian
-`d(coeffs)/d(inputs)` and stores it in `wing.aero_jac`. The compiled RHS uses that
-Jacobian to reconstruct forces via a first-order Taylor expansion about the
-operating point.
-"""
-function refresh_rigid_aero!(::AeroLinearized, wing, am, twist_surfaces;
-                             vsm_min_wind=0.5)
-    ctx = rigid_aero_baseline!(wing, twist_surfaces; vsm_min_wind)
-    gamma0 = copy(wing.vsm_solver.sol.gamma_distribution)
-    f_dual = y -> vsm_aero_coeffs(wing, y, ctx.va_mag, ctx.n_unrefined,
-        ctx.n_twist_surfaces, ctx.twist_surface_idxs, twist_surfaces,
-        ctx.moment_frac, ctx.shadow_ref; gamma_init=gamma0)
-    ForwardDiff.jacobian!(wing.aero_jac, f_dual, ctx.y0)
-    return nothing
-end
-
-"""
-    refresh_rigid_aero!(::AeroDirect, wing, am, twist_surfaces; vsm_min_wind=0.5)
-
-Direct rigid-wing refresh. Computes the baseline coefficients and applies the
-resulting frozen body-frame force/moment ([`apply_direct_forces!`](@ref)), which
-the RHS holds constant until the next refresh. Below `vsm_min_wind` the
-coefficients, Jacobian, force, moment, and per-twist-surface moments are zeroed.
-"""
-function refresh_rigid_aero!(::AeroDirect, wing, am, twist_surfaces;
-                             vsm_min_wind=0.5)
-    if norm(wing.va_b) < vsm_min_wind
-        fill!(wing.aero_x, 0.0)
-        fill!(wing.aero_jac, 0.0)
-        fill!(wing.aero_force_b, 0.0)
-        fill!(wing.aero_moment_b, 0.0)
-        for gidx in wing.twist_surface_idxs
-            twist_surfaces[gidx].aero_moment = 0.0
-        end
-        return nothing
-    end
-    rigid_aero_baseline!(wing, twist_surfaces; vsm_min_wind)
-    apply_direct_forces!(wing, am, wing.aero_x)
-    return nothing
-end
-
-"""
     refresh_particle_aero!(mode, wing, points, va_point_b_vals; vsm_min_wind=0.5)
 
 Refresh a `PARTICLE_DYNAMICS` wing's aero state, dispatched on its aero `mode`:
@@ -122,84 +274,7 @@ Refresh a `PARTICLE_DYNAMICS` wing's aero state, dispatched on its aero `mode`:
 refresh_particle_aero!(::AbstractAeroModel, wing, points, va_point_b_vals;
                        vsm_min_wind=0.5) = nothing
 
-"""
-    refresh_particle_aero!(::AeroLinearized, wing, points, va_point_b_vals; vsm_min_wind=0.5)
-
-Unsupported: `AeroLinearized` is not implemented for `PARTICLE_DYNAMICS` wings and
-errors. Use `AeroDirect` (per-point nonlinear VSM) for particle wings.
-"""
-refresh_particle_aero!(::AeroLinearized, wing, points, va_point_b_vals;
-                       vsm_min_wind=0.5) = error(
-    "PARTICLE_DYNAMICS + AeroLinearized not yet implemented")
-
-"""
-    refresh_particle_aero!(::AeroDirect, wing, points, va_point_b_vals; vsm_min_wind=0.5)
-
-Direct particle-wing refresh. Runs the full nonlinear VSM solve using each
-section's apparent wind (averaged from its LE/TE point velocities in
-`va_point_b_vals`), then distributes the resulting panel forces onto the wing's
-structural points ([`distribute_panel_forces_to_points!`](@ref)). Below
-`vsm_min_wind` the point forces are zeroed.
-"""
-function refresh_particle_aero!(::AeroDirect, wing, points, va_point_b_vals;
-                                vsm_min_wind=0.5)
-    if norm(wing.va_b) < vsm_min_wind
-        for point in points
-            if point.type == WING && point.wing_idx == wing.idx
-                fill!(point.aero_force_b, 0.0)
-            end
-        end
-        return nothing
-    end
-
-    update_vsm_wing_from_structure!(wing, points)
-
-    if !isnothing(wing.point_to_vsm_point)
-        n_sections = length(wing.vsm_wing.unrefined_sections)
-        section_va = Vector{Vector{Float64}}(undef, n_sections)
-
-        vsm_point_to_struct = Dict{Tuple{Int64, Symbol}, Int64}()
-        for (point_idx, (section_idx, le_or_te)) in wing.point_to_vsm_point
-            vsm_point_to_struct[(section_idx, le_or_te)] = point_idx
-        end
-
-        for section_idx in 1:n_sections
-            le_pi = get(vsm_point_to_struct, (Int64(section_idx), :LE), nothing)
-            te_pi = get(vsm_point_to_struct, (Int64(section_idx), :TE), nothing)
-            if !isnothing(le_pi) && !isnothing(te_pi)
-                va_le = va_point_b_vals[:, le_pi]
-                va_te = va_point_b_vals[:, te_pi]
-                section_va[section_idx] = 0.5 * (va_le + va_te)
-            else
-                section_va[section_idx] = wing.va_b
-            end
-        end
-
-        n_panels = length(wing.vsm_aero.panels)
-        va_dist = zeros(n_panels, 3)
-        mapping = wing.vsm_wing.refined_panel_mapping
-        for rpi in 1:n_panels
-            va_dist[rpi, :] .= section_va[mapping[rpi]]
-        end
-        set_va!(wing.vsm_aero, va_dist)
-    else
-        set_va!(wing.vsm_aero, wing.va_b)
-    end
-
-    if !safe_vsm_solve!(wing.vsm_solver, wing.vsm_aero)
-        throw(AssertionError("PARTICLE_DYNAMICS VSM solve failed (non-converged or non-finite) on wing $(wing.idx)"))
-    end
-    distribute_panel_forces_to_points!(wing, points)
-    for point in points
-        if point.type == WING && point.wing_idx == wing.idx &&
-                any(!isfinite, point.aero_force_b)
-            throw(AssertionError("PARTICLE_DYNAMICS: non-finite point force on wing $(wing.idx) point $(point.idx)"))
-        end
-    end
-    return nothing
-end
-
-# ── RIGID_DYNAMICS aero helpers ──────────────────────────
+# ==================== shared VSM numerics ==================== #
 
 """
     finite_full(x) -> Bool
@@ -399,30 +474,4 @@ function rigid_aero_baseline!(wing, twist_surfaces;
 
     return (; va_mag, n_unrefined, n_twist_surfaces,
             twist_surface_idxs, moment_frac, shadow_ref, y0)
-end
-
-"""Apply direct forces from wind-axis coefficients."""
-function apply_direct_forces!(wing, am, x0)
-    va_b = wing.va_b
-    if any(!isfinite, x0) || any(!isfinite, va_b)
-        throw(AssertionError("AeroDirect: non-finite input on wing $(wing.idx)"))
-    end
-    va_sq = dot(va_b, va_b)
-    rho = calc_rho(am, wing.pos_w[3])
-    q_inf = 0.5 * rho * va_sq
-    area = wing.vsm_aero.projected_area
-    c_ref = wing.vsm_aero.c_ref
-
-    CL, CD, CS = x0[1], x0[2], x0[3]
-    span = SVector(0.0, 1.0, 0.0)
-    drag_dir = va_b / norm(va_b)
-    lift_dir = smooth_normalize(cross(drag_dir, span))
-    side_dir = cross(lift_dir, drag_dir)
-
-    wing.aero_force_b .= q_inf * area * (
-        CL .* lift_dir .+
-        CD * wing.drag_frac .* drag_dir .+
-        CS .* side_dir)
-    wing.aero_moment_b .= q_inf * area * c_ref .*
-        x0[4:6]
 end

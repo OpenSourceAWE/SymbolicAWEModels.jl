@@ -169,12 +169,20 @@ include("system_structure/system_structure.jl")
 include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
-include("plate_aero.jl")
 include("yaml_loader.jl")
 include("tether_properties.jl")
 include("linearize.jl")
-include("aero_refresh.jl")
 include("generate_system/generate_system.jl")
+# Aero subsystem. `common.jl` holds everything shared by all modes (the dispatch
+# interface, the MTK connector scaffolding, the refresh orchestrator + VSM
+# numerics); each mode then lives in one self-contained file (struct + all its
+# dispatches). Loaded after generate_system so the accessors/MTK the builders use
+# are available.
+include("aero_modes/common.jl")
+include("aero_modes/none.jl")
+include("aero_modes/direct.jl")
+include("aero_modes/linearized.jl")
+include("aero_modes/plate.jl")
 include("simulate.jl")
 
 # rotate a 3d vector around the x axis in the yz plane - following the right hand rule

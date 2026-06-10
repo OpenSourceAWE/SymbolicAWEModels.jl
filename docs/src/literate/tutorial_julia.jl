@@ -325,7 +325,7 @@ SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
 # | [`Tether`](@ref) | `Tether(name, segments; ...)` | Winch-controlled segments |
 # | [`Winch`](@ref) | `Winch(name, tethers, n, r, Fc, cv, I; ...)` | Torque-controlled motor |
 # | [`Pulley`](@ref) | `Pulley(name, seg_i, seg_j, type)` | Equal-tension constraint |
-# | [`Group`](@ref) | `Group(name, points, type, frac; ...)` | Wing twist section |
+# | [`TwistSurface`](@ref) | `TwistSurface(name, points, type, frac; ...)` | Wing twist section |
 # | [`Transform`](@ref) | `Transform(name, el, az, hdg; ...)` | Spherical positioning |
 #
 # See the [Types](exported_types.md) page for full constructor

@@ -1,3 +1,7 @@
+```@meta
+CurrentModule = SymbolicAWEModels
+```
+
 # VSM coupling
 
 This document explains how SymbolicAWEModels couples with the
@@ -99,10 +103,10 @@ optional deformable groups.
 - Wing treated as a rigid body with quaternion-based orientation
 - No per-point wing structure — aerodynamic forces applied to
   wing center of mass
-- Optional **groups** represent deformable sections with twist
+- Optional **twist surfaces** represent deformable sections with twist
   degrees of freedom
-- Groups control segment twist angles. With
-  `use_prior_polar=true`, group LE/TE positions also define the
+- Twist surfaces control segment twist angles. With
+  `use_prior_polar=true`, their LE/TE positions also define the
   aerodynamic section geometry
 
 #### VSM mapping
@@ -113,15 +117,16 @@ individual structural points:
 ```
 Unrefined sections: [Sec₁,  Sec₂,  Sec₃,  Sec₄,  Sec₅]
                         ╲       ╱       ╲       ╱
-Groups:              [─ Group₁ ─]    [─ Group₂ ─]
+Twist surfaces:      [─ Surf₁ ─]    [─ Surf₂ ─]
                      twist DOF θ₁    twist DOF θ₂
 ```
 
-Multiple unrefined sections can be combined into a single group
-for twist control. `compute_spatial_group_mapping!` builds the
-mapping automatically: each unrefined section is assigned to the
-nearest group centre (Voronoi partition in the body frame), and
-the group's single twist DOF then drives every section it owns
+Multiple unrefined sections can be combined into a single twist
+surface for twist control. `compute_spatial_twist_surface_mapping!`
+builds the mapping automatically: each unrefined section is assigned
+to the nearest twist-surface centre (Voronoi partition in the body
+frame), and the surface's single twist DOF then drives every section
+it owns
 as a rigid unit. `n_groups > n_unrefined` is rejected — a twist
 DOF without a section to drive would be undefined.
 
@@ -338,8 +343,8 @@ end
 
 The mapping enables:
 
-1. **Group twist angles**: Applying the correct twist angle from
-   groups to refined panels via their parent section
+1. **Twist-surface twist angles**: Applying the correct twist angle
+   from twist surfaces to refined panels via their parent section
 2. **Force distribution (PARTICLE_DYNAMICS)**: Accumulating refined panel
    forces at the structural points of their parent section
 3. **Linearization (RIGID_DYNAMICS + AERO_LINEARIZED)**: Propagating

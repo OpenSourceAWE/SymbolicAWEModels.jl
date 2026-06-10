@@ -876,9 +876,9 @@ function SystemStructure(name, set;
         elseif point_mass_sum > 0
             wing.mass = point_mass_sum
         elseif set_mass > 0
-            n_wing_points = length(wing_point_idxs)
-            if n_wing_points > 0
-                mass_per_point = set_mass / n_wing_points
+            nwing_points = length(wing_point_idxs)
+            if nwing_points > 0
+                mass_per_point = set_mass / nwing_points
                 for point_idx in wing_point_idxs
                     points[point_idx].extra_mass = mass_per_point
                 end
@@ -1015,10 +1015,9 @@ function SystemStructure(name, set;
     # Auto-create twist_surfaces for RIGID_DYNAMICS wings if needed (before geometry initialization)
     # Skip for AERO_NONE — no aerodynamics means no twist DOFs needed.
     for wing in wings
-        if is_vsm(wing) &&
+        if couples_to_sections(wing.aero) &&
            wing.dynamics_type == RIGID_DYNAMICS &&
-           isempty(wing.twist_surface_idxs) &&
-           !(wing.aero isa AeroNone)
+           isempty(wing.twist_surface_idxs)
             # Get WING-type points for this wing
             wing_point_idxs = findall(
                 point -> point.type == WING && point.wing_idx == wing.idx, points)
@@ -1069,8 +1068,7 @@ function SystemStructure(name, set;
     # VSMWing types (runs after auto-twist_surface creation so
     # identify_wing_segments can use twist_surfaces).
     for wing in wings
-        is_vsm(wing) || continue
-        wing.aero isa AeroNone && continue
+        couples_to_sections(wing.aero) || continue
         match_aero_sections_to_structure!(
             wing, points; twist_surfaces=twist_surfaces)
     end

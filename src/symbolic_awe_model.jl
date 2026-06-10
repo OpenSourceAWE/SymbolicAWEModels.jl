@@ -298,24 +298,8 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.v_wind_kite .= wing.v_wind
         # Calculate AoA and Side Slip from apparent wind in body frame
         if ss.v_app > 1e-6 # Avoid division by zero
-            if is_vsm(wing)
-                aoa_raw = wing.vsm_solver.sol.alpha_geometric_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 +
-                          (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
-                ss.AoA = mod(aoa_raw + π, 2π) - π  # Wrap to [-π, π]
-                ss.side_slip = atan(wing.va_b[2],
-                    hypot(wing.va_b[1], wing.va_b[3]))
-            elseif is_plate(wing)
-                # AoA from body frame apparent wind
-                # (x=chord, z=normal, same as
-                #  calc_angle_of_attack)
-                ss.AoA = atan(wing.va_b[3], wing.va_b[1])
-                ss.side_slip = atan(wing.va_b[2],
-                    hypot(wing.va_b[1], wing.va_b[3]))
-            else
-                ss.AoA = NaN
-                ss.side_slip = NaN
-            end
-            
+            ss.AoA = calc_aoa(wing.aero, wing)
+            ss.side_slip = calc_side_slip(wing.aero, wing)
         else
             ss.AoA = NaN       # Apparent wind too small to define AoA
             ss.side_slip = NaN # Side slip not defined for zero apparent wind
@@ -670,15 +654,11 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
         "mixed"
     end
 
-    aero_modes = [wing.aero for wing in sys_struct.wings]
-    aero_mode_str = if isempty(aero_modes)
+    aero_tags = unique(aero_mode_tag(wing.aero) for wing in sys_struct.wings)
+    aero_mode_str = if isempty(aero_tags)
         ""
-    elseif all(m -> m isa AeroLinearized, aero_modes)
-        "lin"
-    elseif all(m -> m isa AeroDirect, aero_modes)
-        "dir"
-    elseif all(m -> m isa AeroNone, aero_modes)
-        "none"
+    elseif length(aero_tags) == 1
+        only(aero_tags)
     else
         "mixed_aero_modes"
     end
@@ -737,14 +717,12 @@ end
 """
     calc_aoa(s::SymbolicAWEModel)
 
-Calculates the mean angle of attack [rad] over the wingspan from the VSM solver.
+Angle of attack [rad] of the first wing, dispatched on its aero mode
+([`calc_aoa(::AbstractAeroModel, wing)`](@ref)). `NaN` if the mode defines no AoA.
 """
 function calc_aoa(sam::SymbolicAWEModel)
     wing = sam.sys_struct.wings[1]
-    is_vsm(wing) || error("calc_aoa: wing[1] has no VSM engine")
-    alpha_array = wing.vsm_solver.sol.alpha_dist
-    middle = length(alpha_array) ÷ 2
-    return iseven(length(alpha_array)) ? (0.5 * (alpha_array[middle] + alpha_array[middle+1])) : alpha_array[middle+1]
+    return calc_aoa(wing.aero, wing)
 end
 
 """
