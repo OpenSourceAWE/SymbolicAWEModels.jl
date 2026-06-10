@@ -36,23 +36,24 @@ function find_steady_state!(sam::SymbolicAWEModel;
 end
 
 """
-    update_vsm!(s::SymbolicAWEModel, integ=s.integrator)
+    refresh_aero!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
+                  integ=sam.integrator; vsm_min_wind=0.5)
 
-Update the aerodynamic model from the Vortex Step Method.
+Refresh each wing's aerodynamic state, dispatching on the wing's aero mode
+([`refresh_rigid_aero!`](@ref) / [`refresh_particle_aero!`](@ref)). Runs on the
+low-frequency VSM-update schedule (`vsm_interval`), not the compiled RHS.
 
-**For RIGID_DYNAMICS wings:**
-Computes wind-axis coefficients (CL, CD, CS, CM, cm) at the
-current operating point, plus a `ForwardDiff` Jacobian over the
-input vector `[α, β, ω₁, ω₂, ω₃, θ_twist_surface₁…]`. Stores the dense
-Jacobian `d(coeffs)/d(inputs)` in `wing.aero_jac`.
+**RIGID_DYNAMICS VSM modes:** compute wind-axis coefficients (CL, CD, CS, CM, cm)
+at the operating point, plus the `ForwardDiff` Jacobian over `[α, β, ω₁, ω₂, ω₃,
+θ_twist…]` (`AeroLinearized`) or the frozen forces (`AeroDirect`).
 
-**For PARTICLE_DYNAMICS wings:**
-Full nonlinear VSM solve with per-point force distribution.
+**PARTICLE_DYNAMICS VSM modes:** full nonlinear VSM solve with per-point force
+distribution. Non-VSM modes (`AeroNone`/`AeroPlate`) are no-ops.
 """
-function update_vsm!(sam::SymbolicAWEModel,
-                     prob::ProbWithAttributes,
-                     integ=sam.integrator;
-                     vsm_min_wind=0.5)
+function refresh_aero!(sam::SymbolicAWEModel,
+                       prob::ProbWithAttributes,
+                       integ=sam.integrator;
+                       vsm_min_wind=0.5)
     wings = sam.sys_struct.wings
     twist_surfaces = sam.sys_struct.twist_surfaces
     points = sam.sys_struct.points
@@ -60,123 +61,126 @@ function update_vsm!(sam::SymbolicAWEModel,
     length(wings) == 0 && return nothing
 
     for wing in wings
-        wing.dynamics_type != RIGID_DYNAMICS && continue
-        is_vsm(wing) || continue
-        wing.aero isa AeroNone && continue
-        if norm(wing.va_b) < vsm_min_wind &&
-                wing.aero isa AeroDirect
-            fill!(wing.aero_x, 0.0)
-            fill!(wing.aero_jac, 0.0)
-            fill!(wing.aero_force_b, 0.0)
-            fill!(wing.aero_moment_b, 0.0)
-            for gidx in wing.twist_surface_idxs
-                twist_surfaces[gidx].aero_moment = 0.0
-            end
-            continue
-        end
-        _update_rigid_dynamics_wing!(wing, sam.am, twist_surfaces;
-                                     vsm_min_wind)
+        wing.dynamics_type == RIGID_DYNAMICS || continue
+        refresh_rigid_aero!(wing.aero, wing, sam.am, twist_surfaces;
+                            vsm_min_wind)
     end
 
-    has_particle_dynamics_wings = any(
-        w.dynamics_type === PARTICLE_DYNAMICS for w in wings)
-    if has_particle_dynamics_wings
-        point_state = prob.get_point_state(integ)
-        va_point_b_vals = point_state[4]
-
-        for wing in wings
-            is_vsm(wing) || continue
-            wing.dynamics_type != PARTICLE_DYNAMICS && continue
-            wing.aero isa AeroNone && continue
-
-            if wing.aero isa AeroLinearized
-                error(
-                    "PARTICLE_DYNAMICS + AeroLinearized " *
-                    "not yet implemented")
-            end
-
-            if norm(wing.va_b) < vsm_min_wind
-                for point in points
-                    if point.type == WING &&
-                            point.wing_idx == wing.idx
-                        fill!(point.aero_force_b, 0.0)
-                    end
-                end
-                continue
-            end
-
-            update_vsm_wing_from_structure!(
-                wing, points)
-
-            if !isnothing(wing.point_to_vsm_point)
-                n_sections = length(
-                    wing.vsm_wing.unrefined_sections)
-                section_va =
-                    Vector{Vector{Float64}}(
-                        undef, n_sections)
-
-                vsm_point_to_struct =
-                    Dict{Tuple{Int64, Symbol}, Int64}()
-                for (point_idx, (section_idx, le_or_te)) in
-                        wing.point_to_vsm_point
-                    vsm_point_to_struct[
-                        (section_idx, le_or_te)] =
-                        point_idx
-                end
-
-                for section_idx in 1:n_sections
-                    le_pi = get(vsm_point_to_struct,
-                        (Int64(section_idx), :LE),
-                        nothing)
-                    te_pi = get(vsm_point_to_struct,
-                        (Int64(section_idx), :TE),
-                        nothing)
-
-                    if !isnothing(le_pi) &&
-                            !isnothing(te_pi)
-                        va_le =
-                            va_point_b_vals[:, le_pi]
-                        va_te =
-                            va_point_b_vals[:, te_pi]
-                        section_va[section_idx] =
-                            0.5 * (va_le + va_te)
-                    else
-                        section_va[section_idx] =
-                            wing.va_b
-                    end
-                end
-
-                n_panels =
-                    length(wing.vsm_aero.panels)
-                va_dist = zeros(n_panels, 3)
-
-                mapping = wing.vsm_wing.refined_panel_mapping
-                for rpi in 1:n_panels
-                    va_dist[rpi, :] .=
-                        section_va[mapping[rpi]]
-                end
-
-                set_va!(wing.vsm_aero, va_dist)
-            else
-                set_va!(wing.vsm_aero, wing.va_b)
-            end
-
-            if !_safe_vsm_solve!(wing.vsm_solver, wing.vsm_aero)
-                throw(AssertionError("PARTICLE_DYNAMICS VSM solve failed (non-converged or non-finite) on wing $(wing.idx)"))
-            end
-            distribute_panel_forces_to_points!(
-                wing, points)
-            for point in points
-                if point.type == WING &&
-                        point.wing_idx == wing.idx &&
-                        any(!isfinite, point.aero_force_b)
-                    throw(AssertionError("PARTICLE_DYNAMICS: non-finite point force on wing $(wing.idx) point $(point.idx)"))
-                end
-            end
-        end
+    any(w.dynamics_type === PARTICLE_DYNAMICS for w in wings) ||
+        return nothing
+    point_state = prob.get_point_state(integ)
+    va_point_b_vals = point_state[4]
+    for wing in wings
+        wing.dynamics_type == PARTICLE_DYNAMICS || continue
+        refresh_particle_aero!(wing.aero, wing, points, va_point_b_vals;
+                               vsm_min_wind)
     end
 
     nothing
+end
+
+"""
+    refresh_rigid_aero!(mode, wing, am, twist_surfaces; vsm_min_wind=0.5)
+    refresh_particle_aero!(mode, wing, points, va_point_b_vals; vsm_min_wind=0.5)
+
+Refresh one wing's aerodynamic state, dispatched on its aero `mode`. The fallback
+(`AeroNone` and any custom mode that doesn't refresh) is a no-op; the VSM modes
+([`AeroDirect`](@ref) / [`AeroLinearized`](@ref)) override.
+"""
+refresh_rigid_aero!(::AbstractAeroModel, wing, am, twist_surfaces;
+                    vsm_min_wind=0.5) = nothing
+
+function refresh_rigid_aero!(::AeroLinearized, wing, am, twist_surfaces;
+                             vsm_min_wind=0.5)
+    ctx = rigid_aero_baseline!(wing, twist_surfaces; vsm_min_wind)
+    gamma0 = copy(wing.vsm_solver.sol.gamma_distribution)
+    f_dual = y -> _vsm_aero_coeffs(wing, y, ctx.va_mag, ctx.n_unrefined,
+        ctx.n_twist_surfaces, ctx.twist_surface_idxs, twist_surfaces,
+        ctx.moment_frac, ctx.shadow_ref; gamma_init=gamma0)
+    ForwardDiff.jacobian!(wing.aero_jac, f_dual, ctx.y0)
+    return nothing
+end
+
+function refresh_rigid_aero!(::AeroDirect, wing, am, twist_surfaces;
+                             vsm_min_wind=0.5)
+    if norm(wing.va_b) < vsm_min_wind
+        fill!(wing.aero_x, 0.0)
+        fill!(wing.aero_jac, 0.0)
+        fill!(wing.aero_force_b, 0.0)
+        fill!(wing.aero_moment_b, 0.0)
+        for gidx in wing.twist_surface_idxs
+            twist_surfaces[gidx].aero_moment = 0.0
+        end
+        return nothing
+    end
+    rigid_aero_baseline!(wing, twist_surfaces; vsm_min_wind)
+    _apply_direct_forces!(wing, am, wing.aero_x)
+    return nothing
+end
+
+refresh_particle_aero!(::AbstractAeroModel, wing, points, va_point_b_vals;
+                       vsm_min_wind=0.5) = nothing
+
+refresh_particle_aero!(::AeroLinearized, wing, points, va_point_b_vals;
+                       vsm_min_wind=0.5) = error(
+    "PARTICLE_DYNAMICS + AeroLinearized not yet implemented")
+
+function refresh_particle_aero!(::AeroDirect, wing, points, va_point_b_vals;
+                                vsm_min_wind=0.5)
+    if norm(wing.va_b) < vsm_min_wind
+        for point in points
+            if point.type == WING && point.wing_idx == wing.idx
+                fill!(point.aero_force_b, 0.0)
+            end
+        end
+        return nothing
+    end
+
+    update_vsm_wing_from_structure!(wing, points)
+
+    if !isnothing(wing.point_to_vsm_point)
+        n_sections = length(wing.vsm_wing.unrefined_sections)
+        section_va = Vector{Vector{Float64}}(undef, n_sections)
+
+        vsm_point_to_struct = Dict{Tuple{Int64, Symbol}, Int64}()
+        for (point_idx, (section_idx, le_or_te)) in wing.point_to_vsm_point
+            vsm_point_to_struct[(section_idx, le_or_te)] = point_idx
+        end
+
+        for section_idx in 1:n_sections
+            le_pi = get(vsm_point_to_struct, (Int64(section_idx), :LE), nothing)
+            te_pi = get(vsm_point_to_struct, (Int64(section_idx), :TE), nothing)
+            if !isnothing(le_pi) && !isnothing(te_pi)
+                va_le = va_point_b_vals[:, le_pi]
+                va_te = va_point_b_vals[:, te_pi]
+                section_va[section_idx] = 0.5 * (va_le + va_te)
+            else
+                section_va[section_idx] = wing.va_b
+            end
+        end
+
+        n_panels = length(wing.vsm_aero.panels)
+        va_dist = zeros(n_panels, 3)
+        mapping = wing.vsm_wing.refined_panel_mapping
+        for rpi in 1:n_panels
+            va_dist[rpi, :] .= section_va[mapping[rpi]]
+        end
+        set_va!(wing.vsm_aero, va_dist)
+    else
+        set_va!(wing.vsm_aero, wing.va_b)
+    end
+
+    if !_safe_vsm_solve!(wing.vsm_solver, wing.vsm_aero)
+        throw(AssertionError("PARTICLE_DYNAMICS VSM solve failed (non-converged or non-finite) on wing $(wing.idx)"))
+    end
+    distribute_panel_forces_to_points!(wing, points)
+    for point in points
+        if point.type == WING && point.wing_idx == wing.idx &&
+                any(!isfinite, point.aero_force_b)
+            throw(AssertionError("PARTICLE_DYNAMICS: non-finite point force on wing $(wing.idx) point $(point.idx)"))
+        end
+    end
+    return nothing
 end
 
 # ── RIGID_DYNAMICS aero helpers ──────────────────────────
@@ -295,17 +299,15 @@ function _vsm_aero_coeffs(wing, y::AbstractVector{T},
 end
 
 """
-    _update_rigid_dynamics_wing!(wing, am, twist_surfaces; vsm_min_wind=0.5)
+    rigid_aero_baseline!(wing, twist_surfaces; vsm_min_wind=0.5)
 
-Compute baseline wind-axis coefficients and the
-ForwardDiff Jacobian `d(coeffs)/d(inputs)` for one wing.
-
-Writes `wing.aero_y / aero_x / aero_jac`, updates
-`twist_surfaces[gidx].aero_moment`, and (in AERO_DIRECT mode) writes
-`wing.aero_force_b` / `wing.aero_moment_b`.
+Compute the operating point and baseline wind-axis coefficients for one wing:
+writes `wing.aero_y` / `wing.aero_x` and updates `twist_surfaces[gidx].aero_moment`.
+Returns the context (`va_mag`, section counts, `moment_frac`, `shadow_ref`, `y0`)
+the mode-specific reduction (`refresh_rigid_aero!`) needs for the Jacobian.
 """
-function _update_rigid_dynamics_wing!(wing, am, twist_surfaces;
-                                      vsm_min_wind=0.5)
+function rigid_aero_baseline!(wing, twist_surfaces;
+                              vsm_min_wind=0.5)
     va_b = wing.va_b
     va_mag_actual = norm(va_b)
     omega_b = wing.ω_b
@@ -348,16 +350,8 @@ function _update_rigid_dynamics_wing!(wing, am, twist_surfaces;
         twist_surfaces[gidx].aero_moment = wing.aero_x[6 + twist_surface_index]
     end
 
-    if wing.aero isa AeroLinearized
-        gamma0 = copy(wing.vsm_solver.sol.gamma_distribution)
-        f_dual = y -> _vsm_aero_coeffs(wing, y, va_mag,
-            n_unrefined, n_twist_surfaces, twist_surface_idxs, twist_surfaces,
-            moment_frac, shadow_ref; gamma_init=gamma0)
-        ForwardDiff.jacobian!(wing.aero_jac, f_dual, y0)
-    elseif wing.aero isa AeroDirect
-        _apply_direct_forces!(wing, am, wing.aero_x)
-    end
-    return nothing
+    return (; va_mag, n_unrefined, n_twist_surfaces,
+            twist_surface_idxs, moment_frac, shadow_ref, y0)
 end
 
 """Apply direct forces from wind-axis coefficients."""

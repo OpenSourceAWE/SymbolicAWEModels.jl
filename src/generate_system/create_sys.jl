@@ -229,7 +229,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # Build aerodynamic equations: each wing's aero component (including
     # flat-plate) is wired in winch-style and returned as a subsystem.
-    eqs, guesses, aero_subsystems = vsm_eqs!(
+    eqs, guesses, aero_subsystems = aero_eqs!(
         s, eqs, guesses, psys;
         aero_force_b, aero_moment_b, twist_surface_aero_moment,
         twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,

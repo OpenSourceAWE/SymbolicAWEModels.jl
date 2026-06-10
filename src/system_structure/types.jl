@@ -79,26 +79,117 @@ documentation for a worked example with a live-updating field.
 abstract type AbstractAeroModel end
 
 """
+    mutable struct VSMEngine{BA, W, SL}
+
+Vortex Step Method aerodynamic engine carried by a VSM aero mode
+([`AbstractVSMAero`](@ref) `engine` field). Holds the VortexStepMethod objects,
+the linearization state, and the structural↔panel mapping.
+
+# Fields
+- `vsm_aero`, `vsm_wing`, `vsm_solver`: VortexStepMethod objects.
+- `aero_y`: operating-point inputs `[alpha, beta, ω1, ω2, ω3, twist...]`.
+- `aero_x`: baseline wind-axis coefficients `[CL, CD, CS, CM1, CM2, CM3, cm...]`.
+- `aero_jac`: dense Jacobian `d(aero_x)/d(aero_y)`.
+- `point_to_vsm_point`, `wing_segments`: PARTICLE_DYNAMICS structural↔panel maps.
+- `aero_scale_chord`: force scale compensating chord-length error (PARTICLE).
+- `aero_z_offset`: body-frame z-shift of VSM panels (RIGID).
+"""
+mutable struct VSMEngine{BA, W, SL}
+    vsm_aero::BA
+    vsm_wing::W
+    vsm_solver::SL
+    aero_y::Vector{SimFloat}
+    aero_x::Vector{SimFloat}
+    aero_jac::Matrix{SimFloat}
+    point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}
+    wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}
+    aero_scale_chord::SimFloat
+    aero_z_offset::SimFloat
+end
+
+"""
+    abstract type AbstractVSMAero <: AbstractAeroModel
+
+Aero modes backed by a [`VSMEngine`](@ref) (stored in the `engine` field). VSM
+operations dispatch on this supertype; the engine's fields (`vsm_wing`, `aero_x`,
+…) are forwarded from the mode. Built-in subtypes: [`AeroDirect`](@ref) and
+[`AeroLinearized`](@ref).
+"""
+abstract type AbstractVSMAero <: AbstractAeroModel end
+
+# VSM engine fields forwarded from a VSM aero mode to its `engine`.
+const VSM_ENGINE_FIELDS = (
+    :vsm_aero, :vsm_wing, :vsm_solver, :aero_y, :aero_x, :aero_jac,
+    :point_to_vsm_point, :wing_segments, :aero_scale_chord, :aero_z_offset)
+
+function Base.getproperty(mode::AbstractVSMAero, sym::Symbol)
+    sym === :engine && return getfield(mode, :engine)
+    if sym in VSM_ENGINE_FIELDS
+        engine = getfield(mode, :engine)
+        engine === nothing && error(
+            "$(typeof(mode)) has no VSM engine yet; field `$sym` unavailable.")
+        return getproperty(engine, sym)
+    end
+    return getfield(mode, sym)
+end
+
+function Base.setproperty!(mode::AbstractVSMAero, sym::Symbol, value)
+    sym === :engine && return setfield!(mode, :engine, value)
+    if sym in VSM_ENGINE_FIELDS
+        engine = getfield(mode, :engine)
+        engine === nothing && error(
+            "$(typeof(mode)) has no VSM engine yet; cannot set `$sym`.")
+        return setproperty!(engine, sym, value)
+    end
+    return setfield!(mode, sym, value)
+end
+
+"""
+    has_engine(mode::AbstractAeroModel) -> Bool
+
+`true` if the aero mode currently carries a built [`VSMEngine`](@ref). VSM modes
+([`AbstractVSMAero`](@ref)) report `true` once their engine is attached; all other
+modes are `false`. Used by [`is_vsm`](@ref).
+"""
+has_engine(::AbstractAeroModel) = false
+has_engine(mode::AbstractVSMAero) = getfield(mode, :engine) !== nothing
+
+"""
     AeroNone()
 
-No aerodynamic forces (returns zeros). For debugging rigid body dynamics.
+No aerodynamic forces (returns zeros). For debugging rigid body dynamics or a
+wing with no aero coupling. A VSM-backed mode: it carries a [`VSMEngine`](@ref)
+when the wing is built from VSM geometry (so the geometry is still available),
+but produces zero force. Pure non-VSM rigid-body wings leave the engine `nothing`.
 """
-struct AeroNone <: AbstractAeroModel end
+mutable struct AeroNone <: AbstractVSMAero
+    engine::Union{Nothing, VSMEngine}
+end
+AeroNone() = AeroNone(nothing)
 
 """
     AeroDirect()
 
 Stored forces from the nonlinear VSM solve, piecewise-constant between updates.
+Carries a [`VSMEngine`](@ref); the no-arg form is the engine-less marker filled
+in during wing construction.
 """
-struct AeroDirect <: AbstractAeroModel end
+mutable struct AeroDirect <: AbstractVSMAero
+    engine::Union{Nothing, VSMEngine}
+end
+AeroDirect() = AeroDirect(nothing)
 
 """
     AeroLinearized()
 
 First-order Taylor expansion using the Jacobian from VSM linearization
-(`RIGID_DYNAMICS` only).
+(`RIGID_DYNAMICS` only). Carries a [`VSMEngine`](@ref); the no-arg form is the
+engine-less marker filled in during wing construction.
 """
-struct AeroLinearized <: AbstractAeroModel end
+mutable struct AeroLinearized <: AbstractVSMAero
+    engine::Union{Nothing, VSMEngine}
+end
+AeroLinearized() = AeroLinearized(nothing)
 
 """
     AeroPlate(calc_cl, calc_cd; drag_corr=1.0)

@@ -24,6 +24,7 @@ WingType
 ```@docs
 AbstractAeroModel
 AeroNone
+AbstractVSMAero
 AeroDirect
 AeroLinearized
 AeroPlate

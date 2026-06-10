@@ -144,7 +144,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, twist_surfaces,
                 # panel/plate forces. Similar to DYNAMIC points but
                 # with aero forces included.
 
-                # Add aerodynamic forces (calculated in vsm_eqs!)
+                # Add aerodynamic forces (calculated in aero_eqs!)
                 aero_force_w = R_b_to_w[:, :, wing.idx] * aero_force_point_b[:, point.idx]
 
                 eqs = [

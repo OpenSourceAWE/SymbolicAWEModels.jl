@@ -89,9 +89,6 @@ end
     sys = load_sys_struct_from_yaml(fixed_yaml;
         system_name="2plate_fixed", set, vsm_set)
     sys.winches[:main_winch].brake = true
-    for wing in sys.wings
-        wing.aero = AeroLinearized()
-    end
     @test all(g.type == FIXED for g in sys.twist_surfaces)
 
     # Prescribe distinct twist angles per twist_surface.

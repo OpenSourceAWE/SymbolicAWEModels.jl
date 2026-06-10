@@ -352,16 +352,16 @@ engine_aero_jac(engine::VSMEngine, ix::Int, iy::Int)::SimFloat =
     engine.aero_jac[ix, iy]
 
 get_aero_y(sys::SystemStructure, idx::Int64, iy::Int) =
-    engine_aero_y(sys.wings[idx].vsm, iy)
+    engine_aero_y(sys.wings[idx].aero.engine, iy)
 @register_symbolic get_aero_y(
     sys::SystemStructure, idx::Int64, iy::Int)
 get_aero_x(sys::SystemStructure, idx::Int64, ix::Int) =
-    engine_aero_x(sys.wings[idx].vsm, ix)
+    engine_aero_x(sys.wings[idx].aero.engine, ix)
 @register_symbolic get_aero_x(
     sys::SystemStructure, idx::Int64, ix::Int)
 get_aero_jac(sys::SystemStructure, idx::Int64,
              ix::Int, iy::Int) =
-    engine_aero_jac(sys.wings[idx].vsm, ix, iy)
+    engine_aero_jac(sys.wings[idx].aero.engine, ix, iy)
 @register_symbolic get_aero_jac(
     sys::SystemStructure, idx::Int64,
     ix::Int, iy::Int)

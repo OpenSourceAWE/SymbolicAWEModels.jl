@@ -170,7 +170,7 @@ State:
 - `aero_x = [CL, CD, CS, CMx, CMy, CMz, cm_g_1, …, cm_g_n]`
 - `aero_jac = ∂aero_x/∂aero_y` (dense)
 
-Every `vsm_interval` steps, `update_vsm!`:
+Every `vsm_interval` steps, `refresh_aero!`:
 
 1. Float64 VSM solve at `y0` to refresh `aero_x` and the
    converged circulation γ₀

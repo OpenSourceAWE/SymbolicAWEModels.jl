@@ -492,7 +492,7 @@ function reinit!(
     sam.integrator = integrator
     OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
     update_sys_struct!(prob, integrator, sam.sys_struct)
-    lin_vsm && update_vsm!(sam, prob; vsm_min_wind)
+    lin_vsm && refresh_aero!(sam, prob; vsm_min_wind)
     validate_sys_struct(sam.sys_struct)  # Check for division-by-zero issues
     return integrator, true
 end

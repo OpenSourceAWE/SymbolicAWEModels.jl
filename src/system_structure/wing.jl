@@ -5,7 +5,7 @@
 Wing type and VSM-related wing code.
 
 This file contains:
-- AbstractWing, VSMEngine, Wing structs
+- AbstractWing, Wing structs (VSMEngine + aero modes live in types.jl)
 - Wing constructors and helper functions
 - VSM panel adjustment functions
 """
@@ -86,40 +86,6 @@ end
 
 # ==================== VSM ENGINE ==================== #
 
-"""
-    mutable struct VSMEngine{BA, W, SL}
-
-Vortex Step Method aerodynamic engine carried by a [`Wing`](@ref) with VSM
-geometry (`nothing` for non-VSM wings such as flat-plate wings). Holds the
-VortexStepMethod objects, the linearization state, and the structural↔panel
-mapping.
-
-This is wing infrastructure shared across all aero modes: an `AeroNone` wing
-still carries it, because section matching and twist-surface geometry are derived
-from the VSM geometry independently of whether aero forces are produced.
-
-# Fields
-- `vsm_aero`, `vsm_wing`, `vsm_solver`: VortexStepMethod objects.
-- `aero_y`: operating-point inputs `[alpha, beta, ω1, ω2, ω3, twist...]`.
-- `aero_x`: baseline wind-axis coefficients `[CL, CD, CS, CM1, CM2, CM3, cm...]`.
-- `aero_jac`: dense Jacobian `d(aero_x)/d(aero_y)`.
-- `point_to_vsm_point`, `wing_segments`: PARTICLE_DYNAMICS structural↔panel maps.
-- `aero_scale_chord`: force scale compensating chord-length error (PARTICLE).
-- `aero_z_offset`: body-frame z-shift of VSM panels (RIGID).
-"""
-mutable struct VSMEngine{BA, W, SL}
-    vsm_aero::BA
-    vsm_wing::W
-    vsm_solver::SL
-    aero_y::Vector{SimFloat}
-    aero_x::Vector{SimFloat}
-    aero_jac::Matrix{SimFloat}
-    point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}
-    wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}
-    aero_scale_chord::SimFloat
-    aero_z_offset::SimFloat
-end
-
 # ==================== WING ==================== #
 
 """
@@ -131,9 +97,9 @@ The wing provides a body reference frame for attached points and twist_surfaces.
 Points with `type == WING` move with the wing body according to the wing's
 orientation matrix `R_b_to_w` and position `pos_w`. Its `dynamics_type` selects
 rigid-body (`RIGID_DYNAMICS`) or per-particle (`PARTICLE_DYNAMICS`) behaviour, and
-its [`aero`](@ref AbstractAeroModel) field selects the aerodynamic model. VSM
-geometry, when present, lives in the [`VSMEngine`](@ref) at `vsm`; the
-VSM-specific fields (`vsm_wing`, `aero_x`, …) are forwarded to it.
+its [`aero`](@ref AbstractAeroModel) field selects the aerodynamic model. When the
+mode is a VSM mode ([`AbstractVSMAero`](@ref)) its [`VSMEngine`](@ref) fields
+(`vsm_wing`, `aero_x`, …) are forwarded through the wing.
 
 # Special Properties
 The wing's orientation can be accessed as a rotation matrix or a quaternion:
@@ -212,15 +178,7 @@ mutable struct Wing <: AbstractWing
     z_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
     y_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
     origin::Union{Nothing, WeightedRefPoints}
-
-    # VSM aerodynamic engine (nothing for non-VSM wings, e.g. flat-plate wings)
-    vsm::Union{Nothing, VSMEngine}
 end
-
-# VSM engine fields forwarded from a wing to its `vsm` engine.
-const VSM_ENGINE_FIELDS = (
-    :vsm_aero, :vsm_wing, :vsm_solver, :aero_y, :aero_x, :aero_jac,
-    :point_to_vsm_point, :wing_segments, :aero_scale_chord, :aero_z_offset)
 
 function Base.getproperty(wing::Wing, sym::Symbol)
     if sym === :R_b_to_w
@@ -228,15 +186,9 @@ function Base.getproperty(wing::Wing, sym::Symbol)
     elseif sym === :R_p_to_w
         return quaternion_to_rotation_matrix(getfield(wing, :Q_p_to_w))
     elseif sym === :vsm_aoa
-        engine = getfield(wing, :vsm)
-        engine === nothing && error(
-            "Wing $(getfield(wing, :name)) has no VSM engine; vsm_aoa unavailable.")
-        return mean(engine.vsm_solver.sol.alpha_dist)
+        return mean(_wing_vsm_mode(wing, sym).vsm_solver.sol.alpha_dist)
     elseif sym in VSM_ENGINE_FIELDS
-        engine = getfield(wing, :vsm)
-        engine === nothing && error(
-            "Wing $(getfield(wing, :name)) has no VSM engine; field `$sym` unavailable.")
-        return getproperty(engine, sym)
+        return getproperty(_wing_vsm_mode(wing, sym), sym)
     else
         return getfield(wing, sym)
     end
@@ -250,10 +202,7 @@ function Base.setproperty!(wing::Wing, sym::Symbol, value)
             error("Cannot set R_b_to_w with non-matrix value of type $(typeof(value))")
         end
     elseif sym in VSM_ENGINE_FIELDS
-        engine = getfield(wing, :vsm)
-        engine === nothing && error(
-            "Wing $(getfield(wing, :name)) has no VSM engine; cannot set `$sym`.")
-        setproperty!(engine, sym, value)
+        setproperty!(_wing_vsm_mode(wing, sym), sym, value)
     elseif hasfield(Wing, sym)
         setfield!(wing, sym, value)
     else
@@ -261,13 +210,24 @@ function Base.setproperty!(wing::Wing, sym::Symbol, value)
     end
 end
 
+# Return the wing's aero mode, asserting it is a VSM mode (so VSM-field access
+# gives a clear error on AeroNone/AeroPlate wings).
+function _wing_vsm_mode(wing::Wing, sym::Symbol)
+    aero = getfield(wing, :aero)
+    aero isa AbstractVSMAero || error(
+        "Wing $(getfield(wing, :name)) aero mode $(typeof(aero)) has no VSM " *
+        "engine; field `$sym` unavailable.")
+    return aero
+end
+
 """
     is_vsm(wing::AbstractWing) -> Bool
 
-`true` if the wing carries a [`VSMEngine`](@ref) (VSM geometry/solver). Replaces
-the former `wing isa VSMWing` check.
+`true` if the wing's aero mode carries a built [`VSMEngine`](@ref) (i.e. the wing
+has VSM geometry). Replaces the former `wing isa VSMWing` check. Note an
+`AeroNone` wing built from VSM geometry is still `is_vsm`.
 """
-is_vsm(wing::Wing) = getfield(wing, :vsm) !== nothing
+is_vsm(wing::Wing) = has_engine(getfield(wing, :aero))
 
 """
     is_plate(wing::AbstractWing) -> Bool
@@ -318,7 +278,7 @@ are resolved by `SystemStructure`.
 - `dynamics_type::WingType`: `RIGID_DYNAMICS` (default) or `PARTICLE_DYNAMICS`.
 - `aero::AbstractAeroModel`: Aerodynamic model (defaults by `dynamics_type`).
 - `z_ref_points`, `y_ref_points`, `origin`: Body-frame reference points (raw refs).
-- `vsm::VSMEngine`: VSM engine (built by the VSM constructors).
+  A VSM engine, when needed, lives in the `aero` mode (built by the VSM constructors).
 """
 function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
               pos_cad, inertia_principal;
@@ -327,8 +287,7 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
               dynamics_type::Union{Nothing,WingType}=nothing,
               aero::Union{Nothing,AbstractAeroModel}=nothing,
               wing_type::Union{Nothing,WingType}=nothing,
-              z_ref_points=nothing, y_ref_points=nothing, origin=nothing,
-              vsm::Union{Nothing,VSMEngine}=nothing)
+              z_ref_points=nothing, y_ref_points=nothing, origin=nothing)
     # Handle deprecated wing_type keyword
     if !isnothing(wing_type)
         if !isnothing(dynamics_type)
@@ -377,7 +336,7 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
         zeros(KVec3), zeros(KVec3), 0.0, 0.0, false,
         y_damping, angular_damping, 0.0,
         0.0,  # mass initialized to 0, set by SystemStructure
-        z_ref, y_ref, origin_rp, vsm)
+        z_ref, y_ref, origin_rp)
 end
 
 """
@@ -525,8 +484,14 @@ function VSMWing(name, set::Settings,
             "RIGID_DYNAMICS wings: no point_to_vsm_point"
     end
 
-    vsm = build_vsm_engine(set, vsm_set, dynamics_type;
-        point_to_vsm_point, wing_segments, aero_scale_chord, aero_z_offset)
+    # Resolve the aero mode and, when it is VSM-backed, build and attach the
+    # engine. A non-VSM mode (AeroNone) gets no engine.
+    isnothing(aero) && (aero = dynamics_type == RIGID_DYNAMICS ?
+        AeroLinearized() : AeroDirect())
+    if aero isa AbstractVSMAero
+        aero.engine = build_vsm_engine(set, vsm_set, dynamics_type;
+            point_to_vsm_point, wing_segments, aero_scale_chord, aero_z_offset)
+    end
 
     # Placeholders — overwritten by SystemStructure
     isnothing(R_b_to_c) && (R_b_to_c = Matrix{SimFloat}(I, 3, 3))
@@ -536,7 +501,7 @@ function VSMWing(name, set::Settings,
 
     return Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_vec;
         transform, y_damping, angular_damping, dynamics_type, aero,
-        z_ref_points, y_ref_points, origin, vsm)
+        z_ref_points, y_ref_points, origin)
 end
 
 """
@@ -554,13 +519,13 @@ function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
     n_twist_surfaces_est = vsm_wing.n_unrefined_sections
     num_aero_outputs = 6 + n_twist_surfaces_est
     num_aero_inputs = 5 + n_twist_surfaces_est
-    vsm = VSMEngine(vsm_aero, vsm_wing, vsm_solver,
+    engine = VSMEngine(vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, num_aero_inputs),
         zeros(SimFloat, num_aero_outputs),
         zeros(SimFloat, num_aero_outputs, num_aero_inputs),
         nothing, nothing, SimFloat(0.0), SimFloat(0.0))
     return Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_vec;
-        transform, vsm)
+        transform, aero=AeroLinearized(engine))
 end
 
 """
@@ -656,7 +621,7 @@ end
 Rotate all VSM section LE/TE points by rotation matrix `R`.
 
 Used during initialization to transform sections from CAD
-frame to body frame. After the first step, `update_vsm!()`
+frame to body frame. After the first step, `refresh_aero!()`
 updates positions from `pos_b` (already in body frame).
 """
 function rotate_vsm_sections!(vsm_wing, R)

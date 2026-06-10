@@ -508,7 +508,7 @@ function next_step!(sam::SymbolicAWEModel;
     if prob isa ProbWithAttributes
         update_sys_struct!(prob, integrator, sam.sys_struct)
         if vsm_interval != 0 && sam.iter % vsm_interval == 0
-            sam.t_vsm = @elapsed update_vsm!(sam, prob; vsm_min_wind)
+            sam.t_vsm = @elapsed refresh_aero!(sam, prob; vsm_min_wind)
         end
     end
     return nothing

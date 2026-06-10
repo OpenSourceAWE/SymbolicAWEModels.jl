@@ -19,7 +19,7 @@
 #   (VSM particle modes read frozen forces and ignore va/rho; flat-plate uses
 #    them to compute per-point forces symbolically.)
 #
-# Everything is in the wing body frame. The wiring layer (vsm_eqs!)
+# Everything is in the wing body frame. The wiring layer (aero_eqs!)
 # drives the inputs and reads the outputs.
 
 # ==================== connector declarations ==================== #

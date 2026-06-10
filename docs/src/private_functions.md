@@ -62,7 +62,7 @@ SymbolicAWEModels.wing_eqs!
 SymbolicAWEModels.vsm_eqs!
 SymbolicAWEModels.point_eqs!
 SymbolicAWEModels.segment_eqs!
-SymbolicAWEModels.update_vsm!
+SymbolicAWEModels.refresh_aero!
 SymbolicAWEModels.jacobian
 SymbolicAWEModels.load_serialized_model!
 SymbolicAWEModels.maybe_create_lin_prob!

@@ -108,7 +108,7 @@ Once compiled, the simulation loop consists of:
 1. **`next_step!(sam)`** — advances the ODE integrator by one time step
 2. **`update_sys_struct!()`** — copies the integrator state back to the mutable
    component structs (point positions, wing orientation, etc.)
-3. **`update_vsm!()`** — periodically calls the Vortex Step Method to update
+3. **`refresh_aero!()`** — periodically calls the Vortex Step Method to update
    aerodynamic forces (controlled by `vsm_interval`)
 
 ```julia
@@ -130,7 +130,7 @@ can be changed at runtime without recompiling:
 - Winch parameters: `inertia_total`, `f_coulomb`, `c_vf`, `gear_ratio`
 - Segment properties: `l0` (via tether/winch control)
 - Wing damping: `body_frame_damping`, `world_frame_damping`
-- VSM state: `aero_jac`, `aero_x`, `aero_y` (updated by `update_vsm!()`)
+- VSM state: `aero_jac`, `aero_x`, `aero_y` (updated by `refresh_aero!()`)
 
 Since registered functions read directly from the structs, changes take effect
 instantly on the next ODE evaluation — no `init!` or `remake` call is needed.
