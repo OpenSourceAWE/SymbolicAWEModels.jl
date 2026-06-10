@@ -20,7 +20,7 @@ This page explains each stage.
 │ Segment()    │   │ validate     │   │ segment_eqs!()   │   │ cache to .bin│
 │ Wing()       │   │ compute COM  │   │ wing_eqs!()      │   │              │
 │ Winch()      │   │              │   │ winch_eqs!()     │   │              │
-│ ...          │   │              │   │ vsm_eqs!()       │   │              │
+│ ...          │   │              │   │ aero_eqs!()       │   │              │
 └──────────────┘   └──────────────┘   └──────────────────┘   └──────────────┘
                                             │
                                             ▼
@@ -82,7 +82,7 @@ using ModelingToolkit.jl. It calls specialized equation builders for each subsys
 | `pulley_eqs!()` | `src/generate_system/pulley_eqs.jl` | Equal-tension constraints |
 | `group_eqs!()` | `src/generate_system/group_eqs.jl` | Twist deformation dynamics |
 | `scalar_eqs!()` | `src/generate_system/scalar_eqs.jl` | Winch dynamics, kinematics |
-| `vsm_eqs!()` | `src/generate_system/vsm_eqs.jl` | Linearized aerodynamics from VSM |
+| `aero_eqs!()` | `src/generate_system/aero_eqs.jl` | Linearized aerodynamics from VSM |
 
 After generating all equations, `structural_simplify()` from ModelingToolkit reduces
 the DAE system by eliminating algebraic constraints and identifying the minimal set

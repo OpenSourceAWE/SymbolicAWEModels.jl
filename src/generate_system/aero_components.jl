@@ -218,13 +218,17 @@ function aero_component(::AeroLinearized, sys_struct, wing_idx; name)
 end
 
 # ==================== PlateAero ==================== #
-#
-# Flat-plate aero uses the same PARTICLE connector contract as the other
-# per-point modes; it is the only one that consumes the `va`/`rho` inputs (the
-# VSM particle modes read frozen forces and ignore them). Each WING point is a
-# 1-point `FIXED` TwistSurface section; the per-point force is computed from the
-# section's twisted body-frame axes, the point's apparent wind, and its density.
 
+"""
+    aero_component(::AeroPlate, sys_struct, wing_idx; name)
+
+Flat-plate aero component. Uses the same `PARTICLE_DYNAMICS` connector contract as
+the other per-point modes; it is the only one that consumes the `va`/`rho` inputs
+(the VSM particle modes read frozen forces and ignore them). Each WING point is a
+1-point `FIXED` [`TwistSurface`](@ref) section; the per-point force is computed
+from the section's twisted body-frame axes, the point's apparent wind, and its
+air density.
+"""
 function aero_component(::AeroPlate, sys_struct, wing_idx; name)
     psys = system_struct_param(sys_struct)
     wing = sys_struct.wings[wing_idx]

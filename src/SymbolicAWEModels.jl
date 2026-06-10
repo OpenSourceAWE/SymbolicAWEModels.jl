@@ -173,6 +173,7 @@ include("plate_aero.jl")
 include("yaml_loader.jl")
 include("tether_properties.jl")
 include("linearize.jl")
+include("aero_refresh.jl")
 include("generate_system/generate_system.jl")
 include("simulate.jl")
 

@@ -143,9 +143,9 @@ A single VSM solve at the current operating point. The resulting
 forces are stored in the wing struct and read by registered
 symbolic functions during ODE evaluation:
 
-1. `_vsm_aero_coeffs` (Float64 path) sets the VSM body wind/ω
+1. `vsm_aero_coeffs` (Float64 path) sets the VSM body wind/ω
    from the live wing state and calls `VortexStepMethod.solve!`
-2. `_apply_direct_forces!` reconstructs physical forces in the
+2. `apply_direct_forces!` reconstructs physical forces in the
    wind-axis basis: `F = q∞ · A · (CL · lift + CD · drag + CS · side)`
 3. Forces are stored in `wing.aero_force_b` and
    `wing.aero_moment_b` (RIGID_DYNAMICS) or per-point via
@@ -176,7 +176,7 @@ Every `vsm_interval` steps, `refresh_aero!`:
    converged circulation γ₀
 2. ForwardDiff Jacobian via a lazily-allocated Dual-shadow
    solver, warm-started from γ₀ (1–2 Picard iters per column)
-3. `_safe_vsm_solve!` guards each solve, checking convergence
+3. `safe_vsm_solve!` guards each solve, checking convergence
    and finiteness of both Dual values and partials (plain
    `isfinite(::Dual)` misses partial NaNs)
 
@@ -363,7 +363,7 @@ The mapping enables:
   including the `WingType` enum and `AbstractAeroModel` types
 - `src/system_structure/wing.jl`: Wing and VSMWing type
   definitions, group-to-section mapping
-- `src/generate_system/vsm_eqs.jl`: Symbolic VSM equation
+- `src/generate_system/aero_eqs.jl`: Symbolic VSM equation
   generation (all wing type × aero mode combinations)
 - `src/generate_system/wing_eqs.jl`: Wing dynamics equation
   generation
