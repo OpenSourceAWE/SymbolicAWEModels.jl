@@ -11,7 +11,7 @@ This file contains:
 Note: The Transform struct and its constructors are defined in types.jl
 """
 
-function _finalize_transforms! end
+function finalize_transforms! end
 
 # ==================== HEADING CALCULATION ==================== #
 
@@ -161,13 +161,13 @@ function copy_cad_to_world!(points, wings; update_vel::Bool=true)
 end
 
 """
-    _apply_azimuth_elevation!(transform, wings, points, base_pos; update_vel=false)
+    apply_azimuth_elevation!(transform, wings, points, base_pos; update_vel=false)
 
 Apply the azimuth/elevation rotation of a single transform to all
 components in it. Returns `(curr_R_t_to_w, R_t_to_w)` for use in
 the heading step.
 """
-function _apply_azimuth_elevation!(transform, wings, points, base_pos;
+function apply_azimuth_elevation!(transform, wings, points, base_pos;
                                    update_vel::Bool=false)
     curr_rot_pos = get_rot_pos(transform, wings, points)
     rel_pos = curr_rot_pos - base_pos
@@ -210,7 +210,7 @@ function _apply_azimuth_elevation!(transform, wings, points, base_pos;
 end
 
 """
-    _apply_heading!(transform, wings, points,
+    apply_heading!(transform, wings, points,
                     curr_R_t_to_w, R_t_to_w, base_pos)
 
 Apply heading rotation to all components in a single transform.
@@ -219,7 +219,7 @@ Uses `wing.R_b_to_w` for the no-ref-points orientation source.
 After `copy_cad_to_world!`, this equals `wing.R_b_to_c` (for
 `reinit!`), or the current world orientation (for `reposition!`).
 """
-function _apply_heading!(transform, wings, points,
+function apply_heading!(transform, wings, points,
                          curr_R_t_to_w, R_t_to_w, base_pos)
     for wing in wings
         wing.transform_idx == transform.idx || continue
@@ -263,12 +263,12 @@ function _apply_heading!(transform, wings, points,
 end
 
 """
-    _finalize_transforms!(wings, points)
+    finalize_transforms!(wings, points)
 
 Finalize transforms: update PARTICLE_DYNAMICS wing frames from structural
 point positions, then compute principal frame ODE state.
 """
-function _finalize_transforms!(wings, points)
+function finalize_transforms!(wings, points)
     for wing in wings
         is_vsm(wing) || continue
         wing.dynamics_type == PARTICLE_DYNAMICS || continue
@@ -344,7 +344,7 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
     (; points, wings) = sys_struct
 
     if isempty(transforms)
-        _finalize_transforms!(wings, points)
+        finalize_transforms!(wings, points)
         return
     end
 
@@ -374,13 +374,13 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
         end
 
         # ==================== ROTATE + HEADING ==================== #
-        curr_R_t_to_w, R_t_to_w = _apply_azimuth_elevation!(
+        curr_R_t_to_w, R_t_to_w = apply_azimuth_elevation!(
             transform, wings, points, base_pos; update_vel)
-        _apply_heading!(transform, wings, points,
+        apply_heading!(transform, wings, points,
             curr_R_t_to_w, R_t_to_w, base_pos)
     end
 
-    _finalize_transforms!(wings, points)
+    finalize_transforms!(wings, points)
 end
 
 """
@@ -411,11 +411,11 @@ function reposition!(
                 transform.base_point_idx)].pos_w
         end
         curr_R_t_to_w, R_t_to_w =
-            _apply_azimuth_elevation!(
+            apply_azimuth_elevation!(
                 transform, wings, points, base_pos;
                 update_vel=false)
-        _apply_heading!(transform, wings, points,
+        apply_heading!(transform, wings, points,
             curr_R_t_to_w, R_t_to_w, base_pos)
     end
-    _finalize_transforms!(wings, points)
+    finalize_transforms!(wings, points)
 end

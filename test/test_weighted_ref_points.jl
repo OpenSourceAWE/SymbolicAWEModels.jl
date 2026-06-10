@@ -14,7 +14,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: WeightedRefPoints, _validate_weights!
+using SymbolicAWEModels: WeightedRefPoints, validate_weights!
 
 @testset "WeightedRefPoints constructors" begin
     @testset "single Symbol ref" begin
@@ -77,15 +77,15 @@ using SymbolicAWEModels: WeightedRefPoints, _validate_weights!
     end
 end
 
-@testset "_validate_weights! normalization" begin
+@testset "validate_weights! normalization" begin
     w = [3.0, 1.0]
-    @test_logs (:warn,) _validate_weights!(w)
+    @test_logs (:warn,) validate_weights!(w)
     @test w ≈ [0.75, 0.25]
 
     w_ok = [0.4, 0.6]
-    @test_logs _validate_weights!(w_ok)
+    @test_logs validate_weights!(w_ok)
     @test w_ok ≈ [0.4, 0.6]
 
-    @test_throws ErrorException _validate_weights!([0.0, 0.0])
+    @test_throws ErrorException validate_weights!([0.0, 0.0])
 end
 nothing

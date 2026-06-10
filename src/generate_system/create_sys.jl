@@ -31,23 +31,9 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     validate_twist_surface_modes(twist_surfaces, wings)
 
-    # Validation for VSM PARTICLE_DYNAMICS wings
+    # Per-mode structural validation (e.g. VSM particle point↔panel mapping)
     for wing in wings
-        if is_vsm(wing) && wing.dynamics_type == PARTICLE_DYNAMICS
-            @assert !isnothing(wing.point_to_vsm_point) "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping"
-
-            # Verify all WING points for this wing are in the mapping
-            wing_point_idxs = [p.idx for p in points if p.type == WING && p.wing_idx == wing.idx]
-            for point_idx in wing_point_idxs
-                @assert haskey(wing.point_to_vsm_point, point_idx) "PARTICLE_DYNAMICS wing $(wing.idx) missing mapping for point $(point_idx)"
-            end
-
-            # Verify 1:1 correspondence: n_structural_points == 2 * n_sections
-            n_sections = length(wing.vsm_wing.unrefined_sections)
-            @assert length(wing_point_idxs) == 2 * n_sections "PARTICLE_DYNAMICS wing $(wing.idx): expected $(2*n_sections) points for $(n_sections) sections, got $(length(wing_point_idxs))"
-
-            prn && println("✓ PARTICLE_DYNAMICS wing $(wing.idx) validated: $(length(wing_point_idxs)) points, $(n_sections) sections, $(length(wing.vsm_aero.panels)) panels")
-        end
+        validate_aero_structure(wing.aero, wing, points; prn)
     end
 
     SST = typeof(system)

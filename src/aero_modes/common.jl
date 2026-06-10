@@ -274,6 +274,80 @@ Refresh a `PARTICLE_DYNAMICS` wing's aero state, dispatched on its aero `mode`:
 refresh_particle_aero!(::AbstractAeroModel, wing, points, va_point_b_vals;
                        vsm_min_wind=0.5) = nothing
 
+# ==================== per-wing lifecycle ==================== #
+
+"""
+    remake_aero!(mode, wing, set, vsm_set, points, twist_surfaces)
+
+Rebuild the mode's aero engine from `set`/`vsm_set` (the `remake_vsm` path in
+`reinit!`, used after editing settings). Default no-op; VSM modes recreate the
+VSM wing/aero/solver, re-transform sections to the body frame, re-match aero
+sections to structure, and rebuild the twist-surface / point mappings.
+"""
+remake_aero!(::AbstractAeroModel, wing, set, vsm_set, points, twist_surfaces) =
+    nothing
+
+function remake_aero!(::AbstractVSMAero, wing, set, vsm_set, points,
+                      twist_surfaces)
+    vsm_set isa VortexStepMethod.VSMSettings || error(
+        "remake_aero!: VSM wing $(wing.idx) needs a VSMSettings, " *
+        "got $(typeof(vsm_set)).")
+    wing.vsm_wing = create_vsm_wing(set, vsm_set;
+        prn=false, sort_sections=false)
+    wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
+    wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero, vsm_set)
+
+    # Transform sections CAD → body frame (matches the SystemStructure constructor)
+    vsm_wing = wing.vsm_wing
+    vsm_wing.T_cad_body .= wing.pos_cad
+    adjust_vsm_panels_to_origin!(vsm_wing, wing.pos_cad)
+    rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
+    vsm_wing.R_cad_body .= wing.R_b_to_c
+    if wing.dynamics_type != PARTICLE_DYNAMICS
+        apply_aero_z_offset!(vsm_wing, wing.aero_z_offset)
+    end
+    VortexStepMethod.reinit!(wing.vsm_aero)
+
+    match_aero_sections_to_structure!(wing, points; twist_surfaces)
+
+    if wing.dynamics_type == RIGID_DYNAMICS && !isempty(wing.twist_surface_idxs)
+        compute_spatial_twist_surface_mapping!(wing, twist_surfaces, points)
+    end
+    if wing.dynamics_type == PARTICLE_DYNAMICS &&
+       !isnothing(wing.point_to_vsm_point)
+        wing_point_idxs = collect(keys(something(wing.point_to_vsm_point)))
+        wing_pts = [points[idx] for idx in wing_point_idxs]
+        wing.point_to_vsm_point =
+            build_point_to_vsm_point_mapping(wing_pts, wing)
+    end
+    return nothing
+end
+
+"""
+    validate_aero_structure(mode, wing, points; prn=false)
+
+Check structural invariants the mode's compiled equations rely on (run at build).
+Default no-op; VSM `PARTICLE_DYNAMICS` wings verify the structural↔panel point
+mapping exists, covers every WING point, and matches `2 × n_sections` points.
+"""
+validate_aero_structure(::AbstractAeroModel, wing, points; prn=false) = nothing
+
+function validate_aero_structure(::AbstractVSMAero, wing, points; prn=false)
+    wing.dynamics_type == PARTICLE_DYNAMICS || return nothing
+    @assert !isnothing(wing.point_to_vsm_point) "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping"
+
+    wing_point_idxs = [p.idx for p in points if p.type == WING && p.wing_idx == wing.idx]
+    for point_idx in wing_point_idxs
+        @assert haskey(wing.point_to_vsm_point, point_idx) "PARTICLE_DYNAMICS wing $(wing.idx) missing mapping for point $(point_idx)"
+    end
+
+    n_sections = length(wing.vsm_wing.unrefined_sections)
+    @assert length(wing_point_idxs) == 2 * n_sections "PARTICLE_DYNAMICS wing $(wing.idx): expected $(2*n_sections) points for $(n_sections) sections, got $(length(wing_point_idxs))"
+
+    prn && println("✓ PARTICLE_DYNAMICS wing $(wing.idx) validated: $(length(wing_point_idxs)) points, $(n_sections) sections, $(length(wing.vsm_aero.panels)) panels")
+    return nothing
+end
+
 # ==================== shared VSM numerics ==================== #
 
 """

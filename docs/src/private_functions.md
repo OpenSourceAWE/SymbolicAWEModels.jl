@@ -102,7 +102,7 @@ SymbolicAWEModels.make_lin_sys_state
 ## Base overloads (internal use)
 
 ```@docs
-SymbolicAWEModels._SAM_FIELDS
+SymbolicAWEModels.SAM_FIELDS
 Base.getindex
 Base.getproperty
 Base.setproperty!
@@ -115,7 +115,7 @@ SymbolicAWEModels.get_field_or_nothing
 SymbolicAWEModels.convert_to_type
 SymbolicAWEModels.resolve_references
 SymbolicAWEModels.calculate_derived_properties!
-SymbolicAWEModels._extract_args
+SymbolicAWEModels.extract_args
 SymbolicAWEModels.call_yaml_constructor
 SymbolicAWEModels.parse_tether_init
 ```
@@ -153,7 +153,7 @@ SymbolicAWEModels.rotate_vsm_sections!
 SymbolicAWEModels.expand_auto_tethers!
 SymbolicAWEModels.WeightedRefPoints
 SymbolicAWEModels.resolve!
-SymbolicAWEModels._validate_weights!
+SymbolicAWEModels.validate_weights!
 SymbolicAWEModels.SegmentType
 ```
 
@@ -197,6 +197,8 @@ SymbolicAWEModels.exposes_aero_input
 SymbolicAWEModels.aero_mode_tag
 SymbolicAWEModels.calc_side_slip
 SymbolicAWEModels.validate_aero_component
+SymbolicAWEModels.validate_aero_structure
+SymbolicAWEModels.remake_aero!
 SymbolicAWEModels.load_wing
 ```
 
@@ -228,9 +230,9 @@ SymbolicAWEModels.wrap_to_pi
 ## Transform internals
 
 ```@docs
-SymbolicAWEModels._apply_azimuth_elevation!
-SymbolicAWEModels._apply_heading!
-SymbolicAWEModels._finalize_transforms!
+SymbolicAWEModels.apply_azimuth_elevation!
+SymbolicAWEModels.apply_heading!
+SymbolicAWEModels.finalize_transforms!
 ```
 
 ## Other internals

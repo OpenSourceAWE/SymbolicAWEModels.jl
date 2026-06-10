@@ -75,12 +75,12 @@ function WeightedRefPoints(refs::AbstractVector)
         "WeightedRefPoints requires at least one " *
         "reference point, got empty vector")
     if refs[1] isa Tuple
-        names = NameRef[_to_name_ref(entry[1]) for entry in refs]
+        names = NameRef[to_name_ref(entry[1]) for entry in refs]
         weights = Float64[Float64(entry[2]) for entry in refs]
-        _validate_weights!(weights)
+        validate_weights!(weights)
         return WeightedRefPoints(names, Int64[], weights)
     end
-    names = NameRef[_to_name_ref(v) for v in refs]
+    names = NameRef[to_name_ref(v) for v in refs]
     n = length(names)
     WeightedRefPoints(names, Int64[], fill(1.0 / n, n))
 end
@@ -242,11 +242,11 @@ is_plate(wing::Wing) = getfield(wing, :aero) isa AeroPlate
 # ==================== CONSTRUCTORS ==================== #
 
 # Helper to convert to NameRef
-_to_name_ref(x::Integer) = Int(x)
-_to_name_ref(x) = Symbol(x)
+to_name_ref(x::Integer) = Int(x)
+to_name_ref(x) = Symbol(x)
 
 """Warn and normalize if weights don't sum to 1."""
-function _validate_weights!(weights::Vector{Float64})
+function validate_weights!(weights::Vector{Float64})
     s = sum(weights)
     s > 0 || error(
         "Ref point weights sum to $s; " *
@@ -302,9 +302,9 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
     isnothing(dynamics_type) && (dynamics_type = RIGID_DYNAMICS)
     isnothing(aero) && (aero = dynamics_type == RIGID_DYNAMICS ?
         AeroLinearized() : AeroDirect())
-    twist_surface_refs = Vector{NameRef}([_to_name_ref(twist_surface) for twist_surface in twist_surfaces])
+    twist_surface_refs = Vector{NameRef}([to_name_ref(twist_surface) for twist_surface in twist_surfaces])
     transform_value = isnothing(transform) ? 1 : transform
-    transform_ref = _to_name_ref(transform_value)
+    transform_ref = to_name_ref(transform_value)
 
     z_ref = isnothing(z_ref_points) ? nothing :
         (WeightedRefPoints(z_ref_points[1]), WeightedRefPoints(z_ref_points[2]))

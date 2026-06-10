@@ -170,13 +170,13 @@ $(TYPEDFIELDS)
 end
 
 """
-    _SAM_FIELDS
+    SAM_FIELDS
 
 Tuple of field names that are direct fields of `SymbolicAWEModel` (as opposed to fields
 delegated to the nested `serialized_model`). Used by `getproperty` and `setproperty!`
 to dispatch field access correctly.
 """
-const _SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :set_tether_len)
+const SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :set_tether_len)
 
 """
     Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
@@ -191,7 +191,7 @@ function Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
         getfield(sam, :sys_struct).set
     elseif sym === :am
         getfield(sam, :sys_struct).am
-    elseif sym in _SAM_FIELDS
+    elseif sym in SAM_FIELDS
         getfield(sam, sym)
     else
         getproperty(getfield(sam, :serialized_model), sym)
@@ -210,7 +210,7 @@ function Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
         error("Cannot replace `set`: it is owned by `sys_struct` " *
               "(const field). Mutate fields directly, " *
               "e.g. `sam.set.wind_vec = ...`.")
-    elseif sym in _SAM_FIELDS
+    elseif sym in SAM_FIELDS
         setfield!(sam, sym, val)
     else
         setproperty!(getfield(sam, :serialized_model), sym, val)

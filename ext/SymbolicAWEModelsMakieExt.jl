@@ -40,14 +40,14 @@ const PLOT_BODY_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)
 const PLOT_BODY_PREV_WING_POS = Ref{Union{Nothing, Vec3f}}(nothing)
 
 """
-    _wing_log_pos(sl, sys, wing, k)
+    wing_log_pos(sl, sys, wing, k)
 
 World position of `wing` at log frame `k`, read from its dedicated
 slot appended after the structural points and panel corners in the
 `SysLog`. Older logs lack that slot; in that case fall back to the
 mean of the wing's `WING`-type structural points (or all points).
 """
-function _wing_log_pos(sl, sys, wing, k)
+function wing_log_pos(sl, sys, wing, k)
     n_points = length(sys.points)
     n_corners = isempty(sys.wings) ? 0 : sum(
         length(w.vsm_aero.panels) * 4
@@ -786,7 +786,7 @@ function compute_ekf_yaw_and_rate(sl_in, sys::SystemStructure; eps=1e-12)
     # Use velocity-based tangent frame (same as HeadingGate/sphere method)
     # This is more robust than tension × apparent wind
     @inbounds for k in eachindex(yaw)
-        pos = _wing_log_pos(sl, sys, wing, k)
+        pos = wing_log_pos(sl, sys, wing, k)
         vel = SVector{3, Float64}(sl.vel_kite[k])
         
         npos = norm(pos)
@@ -907,7 +907,7 @@ function compute_ekf_yaw_and_rate_tension(sl_in, sys::SystemStructure; eps=1e-12
     @inbounds for k in eachindex(yaw)
         v_kite = SVector{3, Float64}(sl.vel_kite[k])
         v_wind = SVector{3, Float64}(sl.v_wind_kite[k])
-        pos = _wing_log_pos(sl, sys, wing, k)
+        pos = wing_log_pos(sl, sys, wing, k)
         tension_raw = SVector{3, Float64}(sl.tether_induced_force[k])
 
         # Prefer geometry-based bridle direction
@@ -1276,7 +1276,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             sys_i = syss[i]
             wing = sys_i.wings[1]
             @inbounds for k in eachindex(yaw_sphere)
-                pos = _wing_log_pos(sl, sys_i, wing, k)
+                pos = wing_log_pos(sl, sys_i, wing, k)
                 vel = SVector{3, Float64}(sl.vel_kite[k])
                 
                 if norm(pos) > 1e-9 && norm(vel) > 1e-9
@@ -1535,7 +1535,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                         )
                     end
                     ω_w = (angle / dt) .* axis
-                    pos_w = _wing_log_pos(sl, sys_i, wing, k)
+                    pos_w = wing_log_pos(sl, sys_i, wing, k)
                     e_x = SVector{3, Float64}(R1[:, 1])
                     R_v_w = SymbolicAWEModels.calc_R_v_to_w(pos_w, e_x)
                     ω_v = R_v_w' * ω_w
@@ -2253,7 +2253,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             suffix = actual_suffixes[i]
             sys_i = syss[i]
             wing = sys_i.wings[1]
-            distance = [norm(_wing_log_pos(sl, sys_i, wing, j)) for j in eachindex(sl.X)]
+            distance = [norm(wing_log_pos(sl, sys_i, wing, j)) for j in eachindex(sl.X)]
             push!(all_data, distance)
             push!(all_labels, lbl(L"r", suffix))
             push!(all_times, sl.time)
@@ -2278,7 +2278,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
             # Assuming wind_vec_gnd is available in syslog
             cone_angle_rad = similar(sl.heading)
             for j in eachindex(sl.X)
-                pos = _wing_log_pos(sl, sys_i, wing, j)
+                pos = wing_log_pos(sl, sys_i, wing, j)
                 pos_norm = normalize(pos)
                 wind_norm = normalize([sl.v_wind_gnd[1], sl.v_wind_gnd[2], sl.v_wind_gnd[3]])
                 cone_angle_rad[j] = acos(clamp(dot(pos_norm, wind_norm), -1.0, 1.0))
@@ -2894,7 +2894,7 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
     return nothing
 end
 
-function _plot_with_panes(sys::SystemStructure;
+function plot_with_panes(sys::SystemStructure;
                     size = (1200, 800),
                     relmargin = 0.2,
                     segment_color = :black,
@@ -2968,7 +2968,7 @@ function Makie.plot(sys::SystemStructure;
     geometry_obs = Observable(0.0)
 
     # Create scene with observables using internal function
-    scene, plots, relevant_plots, initial_distance = _plot_with_panes(sys;
+    scene, plots, relevant_plots, initial_distance = plot_with_panes(sys;
                 geometry_obs,
                 vector_scale,
                 force_color,

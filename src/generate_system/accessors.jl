@@ -288,12 +288,12 @@ get_tether_len(sys::SystemStructure, idx::Int64) =
     sys::SystemStructure, idx::Int64)
 
 # ---- Settings ----
-const _ZERO_WIND_FALLBACK = KVec3(1e-10, 0.0, 0.0)
+const ZERO_WIND_FALLBACK = KVec3(1e-10, 0.0, 0.0)
 
 function get_wind_vec(sys::SystemStructure)
     wv = sys.set.wind_vec
     if wv[1]^2 + wv[2]^2 + wv[3]^2 < 1e-20
-        return _ZERO_WIND_FALLBACK
+        return ZERO_WIND_FALLBACK
     end
     return wv
 end

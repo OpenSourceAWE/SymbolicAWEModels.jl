@@ -670,54 +670,12 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         reinit!(transforms, sys_struct; update_vel=reset_vel)
     end
 
-    # Recreate VSM wing and aero if requested
+    # Recreate each wing's aero engine from settings if requested (no-op for
+    # modes without one, e.g. flat-plate).
     if remake_vsm
         for wing in wings
-            is_vsm(wing) || continue
-            # Recreate VSM wing from settings
-            vsm_set = sys_struct.vsm_set::VortexStepMethod.VSMSettings
-            wing.vsm_wing = create_vsm_wing(set, vsm_set;
-                prn=false, sort_sections=false)
-            wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
-            wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero, vsm_set)
-
-            # Transform sections: CAD → body frame
-            # (must match SystemStructure constructor)
-            vsm_wing = wing.vsm_wing
-            vsm_wing.T_cad_body .= wing.pos_cad
-            adjust_vsm_panels_to_origin!(
-                vsm_wing, wing.pos_cad)
-            rotate_vsm_sections!(
-                vsm_wing, wing.R_b_to_c')
-            vsm_wing.R_cad_body .= wing.R_b_to_c
-            if wing.dynamics_type != PARTICLE_DYNAMICS
-                apply_aero_z_offset!(
-                    vsm_wing, wing.aero_z_offset)
-            end
-            VortexStepMethod.reinit!(wing.vsm_aero)
-
-            # Match aero sections to structure (all types)
-            match_aero_sections_to_structure!(
-                wing, points; twist_surfaces=twist_surfaces)
-
-            # Recompute twist_surface→section mapping
-            if wing.dynamics_type == RIGID_DYNAMICS &&
-               !isempty(wing.twist_surface_idxs)
-                compute_spatial_twist_surface_mapping!(
-                    wing, twist_surfaces, points)
-            end
-
-            # PARTICLE_DYNAMICS-only: rebuild point mapping
-            if wing.dynamics_type == PARTICLE_DYNAMICS &&
-               !isnothing(wing.point_to_vsm_point)
-                wing_point_idxs = collect(
-                    keys(something(wing.point_to_vsm_point)))
-                wing_pts = [points[idx]
-                    for idx in wing_point_idxs]
-                wing.point_to_vsm_point =
-                    build_point_to_vsm_point_mapping(
-                        wing_pts, wing)
-            end
+            remake_aero!(wing.aero, wing, set, sys_struct.vsm_set,
+                         points, twist_surfaces)
         end
     end
 

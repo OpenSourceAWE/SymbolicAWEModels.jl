@@ -34,7 +34,7 @@ function validate_rhs_allocs(
     f(du, u, p, t)
     bytes = @allocated f(du, u, p, t)
     if bytes > max_bytes && diagnose
-        _diagnose_rhs(f, du, u, p, t)
+        diagnose_rhs(f, du, u, p, t)
     end
     @test bytes <= max_bytes
     return bytes
@@ -58,7 +58,7 @@ function test_init!(
     return integ
 end
 
-function _diagnose_rhs(f, du, u, p, t)
+function diagnose_rhs(f, du, u, p, t)
     f(du, u, p, t)
     f(du, u, p, t)
     Profile.Allocs.clear()

@@ -573,15 +573,15 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
                      aero_hash_id(wing.aero))
 
         # Include wing reference points in hash
-        _ref_hash(ref) = (ref.ids, ref.weights)
-        _rp_hash(ref_points) = isnothing(ref_points) ? nothing :
-            (_ref_hash(ref_points[1]), _ref_hash(ref_points[2]))
-        _origin_hash(origin) = isnothing(origin) ? nothing :
-            _ref_hash(origin)
+        ref_hash(ref) = (ref.ids, ref.weights)
+        rp_hash(ref_points) = isnothing(ref_points) ? nothing :
+            (ref_hash(ref_points[1]), ref_hash(ref_points[2]))
+        origin_hash(origin) = isnothing(origin) ? nothing :
+            ref_hash(origin)
         wing_data = (wing_data...,
-            _rp_hash(wing.z_ref_points),
-            _rp_hash(wing.y_ref_points),
-            _origin_hash(wing.origin))
+            rp_hash(wing.z_ref_points),
+            rp_hash(wing.y_ref_points),
+            origin_hash(wing.origin))
         push!(data_parts, wing_data)
     end
     for transform in transforms

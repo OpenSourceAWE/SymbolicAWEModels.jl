@@ -683,24 +683,24 @@ function Tether(name, segments::AbstractVector, stretched_length=nothing;
               "Winch constructor.")
     end
     init_force, init_frac =
-        _resolve_tether_init(name, tether_force, stretch_frac)
-    segment_refs = Vector{NameRef}(_name_ref.(segments))
-    init_stretched = _opt_simfloat(stretched_length)
+        resolve_tether_init(name, tether_force, stretch_frac)
+    segment_refs = Vector{NameRef}(name_ref.(segments))
+    init_stretched = opt_simfloat(stretched_length)
     return Tether(0, name, Int64[], segment_refs,
-                  0, _name_ref(start_point), 0, _name_ref(end_point),
+                  0, name_ref(start_point), 0, name_ref(end_point),
                   length(segments),
                   NaN, NaN, NaN, 0.0,
                   0.0, init_stretched, init_force, init_frac)
 end
 
-_name_ref(::Nothing) = nothing
-_name_ref(x::Integer) = Int(x)
-_name_ref(x) = Symbol(x)
+name_ref(::Nothing) = nothing
+name_ref(x::Integer) = Int(x)
+name_ref(x) = Symbol(x)
 
-_opt_simfloat(::Nothing) = nothing
-_opt_simfloat(x) = SimFloat(x)
+opt_simfloat(::Nothing) = nothing
+opt_simfloat(x) = SimFloat(x)
 
-function _resolve_tether_init(name, tether_force, stretch_frac)
+function resolve_tether_init(name, tether_force, stretch_frac)
     if !isnothing(tether_force) && !isnothing(stretch_frac)
         error("Tether $name: set only one of `tether_force` and " *
               "`stretch_frac`.")
@@ -745,12 +745,12 @@ function Tether(name, stretched_length=nothing;
                 diameter=NaN, tether_force=nothing,
                 stretch_frac=nothing)
     init_force, init_frac =
-        _resolve_tether_init(name, tether_force, stretch_frac)
+        resolve_tether_init(name, tether_force, stretch_frac)
     seg_refs = Vector{NameRef}(
         [Symbol("$(name)_seg_$i") for i in 1:n_segments])
-    init_stretched = _opt_simfloat(stretched_length)
+    init_stretched = opt_simfloat(stretched_length)
     return Tether(0, name, Int64[], seg_refs,
-                  0, _name_ref(start_point), 0, _name_ref(end_point),
+                  0, name_ref(start_point), 0, name_ref(end_point),
                   Int64(n_segments),
                   Float64(unit_stiffness),
                   Float64(unit_damping),
@@ -950,9 +950,9 @@ mutable struct Transform
 end
 
 # Helper to convert ref to NameRef or nothing
-_to_ref(::Nothing) = nothing
-_to_ref(x::Integer) = Int(x)
-_to_ref(x) = Symbol(x)
+to_ref(::Nothing) = nothing
+to_ref(x::Integer) = Int(x)
+to_ref(x) = Symbol(x)
 
 """
     Transform(name, elevation, azimuth, heading; base_point, base_pos, base_transform, wing, rot_point)
@@ -980,10 +980,10 @@ function Transform(name, elevation, azimuth, heading;
     (isnothing(base_pos) == isnothing(base_transform)) && error("Either provide the base_pos or the base_transform, not both or none.")
     (!isnothing(base_pos) && isnothing(base_point)) && error("When providing a base_pos, also provide a base_point.")
 
-    wing_ref = _to_ref(wing)
-    rot_point_ref = _to_ref(rot_point)
-    base_point_ref = _to_ref(base_point)
-    base_transform_ref = _to_ref(base_transform)
+    wing_ref = to_ref(wing)
+    rot_point_ref = to_ref(rot_point)
+    base_point_ref = to_ref(base_point)
+    base_transform_ref = to_ref(base_transform)
 
     Transform(0, name, nothing, wing_ref, nothing, rot_point_ref,
               nothing, base_point_ref, nothing, base_transform_ref,

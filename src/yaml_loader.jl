@@ -173,7 +173,7 @@ function parse_table(table)::Vector{NamedTuple}
 end
 
 """
-    _extract_args(row, args_spec, mappings)
+    extract_args(row, args_spec, mappings)
 
 Extract positional constructor arguments from a YAML row.
 
@@ -181,7 +181,7 @@ For each name in `args_spec`, this helper first checks for a
 mapping in `mappings`, then falls back to `row[arg_name]`.
 Throws an error if a required argument is missing.
 """
-function _extract_args(row, args_spec, mappings)
+function extract_args(row, args_spec, mappings)
     args = []
     for arg_name in args_spec
         if haskey(mappings, arg_name)
@@ -233,7 +233,7 @@ function call_yaml_constructor(
     ::Vector{Union{}};
         mappings::Dict{Symbol, <:Function}=
             Dict{Symbol, Function}())
-    args = _extract_args(row, args_spec, mappings)
+    args = extract_args(row, args_spec, mappings)
     return Constructor(args...)
 end
 
@@ -244,7 +244,7 @@ function call_yaml_constructor(
         kwargs_spec::Vector;
         mappings::Dict{Symbol, <:Function}=
             Dict{Symbol, Function}())
-    args = _extract_args(row, args_spec, mappings)
+    args = extract_args(row, args_spec, mappings)
 
     # Extract keyword arguments (only if present)
     kwargs = Dict{Symbol, Any}()
