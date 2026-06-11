@@ -321,9 +321,6 @@ custom aero mode.
 function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                    vsm_set, yaml_to_ref, yaml_parse_ref_points,
                    yaml_parse_origin, twist_surfaces)
-    isnothing(vsm_set) && error(
-        "VSMWing defined in YAML but vsm_set was not provided.")
-
     if wing_type == PARTICLE_DYNAMICS
         # PARTICLE_DYNAMICS wings need z_ref_points, y_ref_points, origin
         # Pass raw values - constructor handles defaults

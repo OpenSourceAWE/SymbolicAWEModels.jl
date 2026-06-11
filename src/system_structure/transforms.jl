@@ -223,7 +223,6 @@ function apply_heading!(transform, wings, points,
                          curr_R_t_to_w, R_t_to_w, base_pos)
     for wing in wings
         wing.transform_idx == transform.idx || continue
-        is_vsm(wing) || continue
 
         if !isnothing(wing.z_ref_points)
             R_b_to_w, _ = calc_particle_dynamics_wing_frame(
@@ -270,8 +269,9 @@ point positions, then compute principal frame ODE state.
 """
 function finalize_transforms!(wings, points)
     for wing in wings
-        is_vsm(wing) || continue
         wing.dynamics_type == PARTICLE_DYNAMICS || continue
+        (isnothing(wing.z_ref_points) || isnothing(wing.y_ref_points) ||
+         isnothing(wing.origin)) && continue
         R_b_to_w, origin = calc_particle_dynamics_wing_frame(
             points, wing.z_ref_points, wing.y_ref_points, wing.origin)
         wing.R_b_to_w = R_b_to_w

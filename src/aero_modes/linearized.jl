@@ -18,7 +18,6 @@ AeroLinearized() = AeroLinearized(nothing)
 
 is_builtin_aero(::AeroLinearized) = true
 aero_mode_tag(::AeroLinearized) = "lin"
-exposes_aero_input(::AeroLinearized) = true
 
 function aero_component(::AeroLinearized, sys_struct, wing_idx; name)
     psys = system_struct_param(sys_struct)

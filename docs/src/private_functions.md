@@ -140,6 +140,10 @@ SymbolicAWEModels.resolve_ref
 SymbolicAWEModels.resolve_ref_spec
 SymbolicAWEModels.validate_sys_struct
 SymbolicAWEModels.build_name_dict
+SymbolicAWEModels.setup_wing_frame!
+SymbolicAWEModels.auto_create_twist_surfaces!
+SymbolicAWEModels.compute_twist_surface_geometry!
+SymbolicAWEModels.setup_particle_point_mapping!
 SymbolicAWEModels.identify_wing_segments
 SymbolicAWEModels.match_aero_sections_to_structure!
 SymbolicAWEModels.compute_spatial_twist_surface_mapping!
@@ -148,7 +152,6 @@ SymbolicAWEModels.adjust_vsm_panels_to_origin!
 SymbolicAWEModels.apply_aero_z_offset!
 SymbolicAWEModels.calc_particle_dynamics_wing_frame
 SymbolicAWEModels.calc_inertia_y_rotation
-SymbolicAWEModels.has_mesh_inertia
 SymbolicAWEModels.rotate_vsm_sections!
 SymbolicAWEModels.expand_auto_tethers!
 SymbolicAWEModels.WeightedRefPoints
@@ -184,21 +187,33 @@ SymbolicAWEModels.validate_twist_surface_modes
 
 ```@docs
 SymbolicAWEModels.load_plate_wing
+SymbolicAWEModels.plate_corners
 ```
 
 ## Aero-mode interface
 
 ```@docs
+SymbolicAWEModels.vsm_engine
 SymbolicAWEModels.has_vsm_engine
+SymbolicAWEModels.require_vsm_engine
 SymbolicAWEModels.couples_to_sections
 SymbolicAWEModels.provides_aero_override
 SymbolicAWEModels.stores_point_force
-SymbolicAWEModels.exposes_aero_input
 SymbolicAWEModels.aero_mode_tag
 SymbolicAWEModels.calc_side_slip
 SymbolicAWEModels.validate_aero_component
 SymbolicAWEModels.validate_aero_structure
 SymbolicAWEModels.remake_aero!
+SymbolicAWEModels.setup_aero!
+SymbolicAWEModels.resize_aero_state!
+SymbolicAWEModels.init_aero_state!
+SymbolicAWEModels.mesh_inertia
+SymbolicAWEModels.n_aero_log_points
+SymbolicAWEModels.write_aero_log_points!
+SymbolicAWEModels.read_aero_log_points!
+SymbolicAWEModels.restore_aero_twist!
+SymbolicAWEModels.aero_ref_area
+SymbolicAWEModels.aero_plot_geometry
 SymbolicAWEModels.load_wing
 ```
 
@@ -207,6 +222,7 @@ SymbolicAWEModels.load_wing
 ```@docs
 SymbolicAWEModels.refresh_rigid_aero!
 SymbolicAWEModels.refresh_particle_aero!
+SymbolicAWEModels.count_aero_log_points
 SymbolicAWEModels.build_point_to_vsm_point_mapping
 SymbolicAWEModels.update_vsm_wing_from_structure!
 SymbolicAWEModels.distribute_panel_forces_to_points!

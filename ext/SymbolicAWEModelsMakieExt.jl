@@ -49,9 +49,7 @@ mean of the wing's `WING`-type structural points (or all points).
 """
 function wing_log_pos(sl, sys, wing, k)
     n_points = length(sys.points)
-    n_corners = isempty(sys.wings) ? 0 : sum(
-        length(w.vsm_aero.panels) * 4
-        for w in sys.wings if w isa VSMWing; init=0)
+    n_corners = SymbolicAWEModels.count_aero_log_points(sys.wings)
     i = n_points + n_corners + wing.idx
     if i <= length(sl.X[k])
         return SVector{3, Float64}(
@@ -218,8 +216,9 @@ function Makie.plot!(ax, sys::SystemStructure;
         plots[:vsm] = []
         use_obs = !isnothing(geometry_obs)
         for (i, wing) in enumerate(sys.wings)
-            wing isa VSMWing || continue
-            p = plot!(ax, wing.vsm_aero; R_b_w=wing.R_b_to_w, T_b_w=wing.pos_w, use_observables=use_obs)
+            geometry = SymbolicAWEModels.aero_plot_geometry(wing.aero)
+            isnothing(geometry) && continue
+            p = plot!(ax, geometry; R_b_w=wing.R_b_to_w, T_b_w=wing.pos_w, use_observables=use_obs)
             push!(plots[:vsm], p)
         end
     end
@@ -431,8 +430,9 @@ function SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
     # Update VSM panel meshes
     if !isnothing(PLOT_GEOMETRY_OBS[])
         for wing in sys.wings
-            wing isa VSMWing || continue
-            plot!(wing.vsm_aero; R_b_w=wing.R_b_to_w, T_b_w=wing.pos_w)
+            geometry = SymbolicAWEModels.aero_plot_geometry(wing.aero)
+            isnothing(geometry) && continue
+            plot!(geometry; R_b_w=wing.R_b_to_w, T_b_w=wing.pos_w)
         end
     end
 
@@ -695,10 +695,7 @@ end
 function calc_ref_area(sys::SystemStructure)
     isempty(sys.wings) && return NaN
     wing = sys.wings[1]
-    hasproperty(wing, :vsm_aero) || return NaN
-    panels = wing.vsm_aero.panels
-    isempty(panels) && return NaN
-    return sum(p.chord * p.width for p in panels)
+    return SymbolicAWEModels.aero_ref_area(wing.aero, wing, sys)
 end
 
 function calculate_cs(sl_in, sys; rho=1.225, eps=1e-12)

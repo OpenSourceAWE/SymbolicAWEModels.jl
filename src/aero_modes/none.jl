@@ -1,27 +1,20 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# AeroNone: zero aerodynamic force. VSM-backed (carries an engine so the geometry
-# stays available) but produces no force. See common.jl for the interface.
+# AeroNone: zero aerodynamic force. Carries no state and needs no VSM geometry.
+# See common.jl for the interface.
 
 """
     AeroNone()
 
 No aerodynamic forces (returns zeros). For debugging rigid body dynamics or a
-wing with no aero coupling. A VSM-backed mode ([`AbstractVSMAero`](@ref)): it
-carries a [`VSMEngine`](@ref) built from the wing's VSM geometry (so the geometry
-stays available) but produces zero force.
+wing with no aero coupling. Needs no VSM geometry and carries no state.
 """
-mutable struct AeroNone <: AbstractVSMAero
-    engine::Union{Nothing, VSMEngine}
-end
-AeroNone() = AeroNone(nothing)
+struct AeroNone <: AbstractAeroModel end
 
 is_builtin_aero(::AeroNone) = true
 aero_mode_tag(::AeroNone) = "none"
-couples_to_sections(::AeroNone) = false
 stores_point_force(::AeroNone) = false
-calc_aoa(::AeroNone, wing) = SimFloat(NaN)
 
 function aero_component(::AeroNone, sys_struct, wing_idx; name)
     psys = system_struct_param(sys_struct)

@@ -84,9 +84,13 @@ function aero_eqs!(
                collect(aero_force_b[:, wing_idx]) .~ collect(subsys.force)
                collect(aero_moment_b[:, wing_idx]) .~ collect(subsys.moment)]
         for (twist_surface_pos, gidx) in enumerate(wing.twist_surface_idxs)
-            isempty(twist_surfaces[gidx].unrefined_section_idxs) && continue
+            twist_surface = twist_surfaces[gidx]
+            # FIXED surfaces without aero sections are zero-bound by
+            # twist_surface_eqs!; everything else reads the component output.
+            twist_surface.type == FIXED &&
+                isempty(twist_surface.unrefined_section_idxs) && continue
             eqs = [eqs
-                   twist_surface_aero_moment[twist_surfaces[gidx].idx] ~
+                   twist_surface_aero_moment[twist_surface.idx] ~
                        subsys.twist_moment[twist_surface_pos]]
         end
 

@@ -326,22 +326,11 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.Z[point.idx] = point.pos_w[3] * zoom
     end
 
-    # Store VSM panel corner positions in world frame
+    # Store per-mode aero log points (e.g. VSM panel corners) in world frame
     corner_idx = length(points)
     for wing in wings
-        is_vsm(wing) || continue
-        R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-        for panel in wing.vsm_aero.panels
-            for j in 1:4
-                corner_idx += 1
-                # Transform from body frame to world frame
-                corner_b = panel.corner_points[:, j]
-                corner_w = wing.pos_w + R_b_to_w * corner_b
-                ss.X[corner_idx] = corner_w[1] * zoom
-                ss.Y[corner_idx] = corner_w[2] * zoom
-                ss.Z[corner_idx] = corner_w[3] * zoom
-            end
-        end
+        corner_idx = write_aero_log_points!(wing.aero, wing, sam.sys_struct,
+                                            ss, corner_idx, zoom)
     end
 
     # Wing origin positions appended after panel corners.
@@ -377,10 +366,7 @@ with the current state of the provided model.
 function SysState(s::SymbolicAWEModel, zoom=1.0)
     # Total slots: structural points + 4 corners per panel + 1 per wing
     n_points = length(s.sys_struct.points)
-    n_panel_corners = isempty(s.sys_struct.wings) ? 0 : sum(
-        length(wing.vsm_aero.panels) * 4 for wing in s.sys_struct.wings if is_vsm(wing);
-        init=0
-    )
+    n_panel_corners = count_aero_log_points(s.sys_struct.wings)
     n_wings = length(s.sys_struct.wings)
     total_points = n_points + n_panel_corners + n_wings
     ss = SysState{total_points}()
@@ -412,10 +398,7 @@ logger = Logger(sam, 1000)  # Instead of Logger(length(sam.sys_struct.points), 1
 function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
     # Total slots: structural points + 4 corners per panel + 1 per wing
     n_points = length(sam.sys_struct.points)
-    n_panel_corners = isempty(sam.sys_struct.wings) ? 0 : sum(
-        length(wing.vsm_aero.panels) * 4 for wing in sam.sys_struct.wings if is_vsm(wing);
-        init=0
-    )
+    n_panel_corners = count_aero_log_points(sam.sys_struct.wings)
     n_wings = length(sam.sys_struct.wings)
     total_points = n_points + n_panel_corners + n_wings
     return Logger(total_points, steps)
@@ -775,18 +758,7 @@ Calculates the minimum chord length of the wing at the tip.
 function min_chord_len(sam::SymbolicAWEModel)
     min_len = Inf
     for wing in sam.sys_struct.wings
-        is_vsm(wing) || continue
-        vsm_wing = wing.vsm_wing
-        if hasproperty(vsm_wing, :le_interp) && hasproperty(vsm_wing, :te_interp) && hasproperty(vsm_wing, :gamma_tip)
-            le_pos = [vsm_wing.le_interp[i](vsm_wing.gamma_tip) for i in 1:3]
-            te_pos = [vsm_wing.te_interp[i](vsm_wing.gamma_tip) for i in 1:3]
-            min_len = min(norm(le_pos - te_pos), min_len)
-        elseif hasproperty(vsm_wing, :unrefined_sections) && !isempty(vsm_wing.unrefined_sections)
-            for section in vsm_wing.unrefined_sections
-                chord = section.TE_point - section.LE_point
-                min_len = min(norm(chord), min_len)
-            end
-        end
+        min_len = min(min_chord_len(wing.aero, wing), min_len)
     end
     return min_len
 end

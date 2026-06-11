@@ -187,9 +187,9 @@ function Base.getproperty(wing::Wing, sym::Symbol)
     elseif sym === :R_p_to_w
         return quaternion_to_rotation_matrix(getfield(wing, :Q_p_to_w))
     elseif sym === :vsm_aoa
-        return mean(wing_vsm_mode(wing, sym).vsm_solver.sol.alpha_dist)
+        return mean(wing_vsm_engine(wing, sym).vsm_solver.sol.alpha_dist)
     elseif sym in VSM_ENGINE_FIELDS
-        return getproperty(wing_vsm_mode(wing, sym), sym)
+        return getproperty(wing_vsm_engine(wing, sym), sym)
     else
         return getfield(wing, sym)
     end
@@ -203,7 +203,7 @@ function Base.setproperty!(wing::Wing, sym::Symbol, value)
             error("Cannot set R_b_to_w with non-matrix value of type $(typeof(value))")
         end
     elseif sym in VSM_ENGINE_FIELDS
-        setproperty!(wing_vsm_mode(wing, sym), sym, value)
+        setproperty!(wing_vsm_engine(wing, sym), sym, value)
     elseif hasfield(Wing, sym)
         setfield!(wing, sym, value)
     else
@@ -211,33 +211,31 @@ function Base.setproperty!(wing::Wing, sym::Symbol, value)
     end
 end
 
-# Return the wing's aero mode, asserting it is a VSM mode (so VSM-field access
-# gives a clear error on AeroNone/AeroPlate wings).
-function wing_vsm_mode(wing::Wing, sym::Symbol)
-    aero = getfield(wing, :aero)
-    aero isa AbstractVSMAero || error(
-        "Wing $(getfield(wing, :name)) aero mode $(typeof(aero)) has no VSM " *
-        "engine; field `$sym` unavailable.")
-    return aero
+# Return the wing's VSM engine (so VSM-field access gives a clear error on
+# wings whose aero mode carries no engine, e.g. AeroNone/AeroPlate).
+function wing_vsm_engine(wing::Wing, sym::Symbol)
+    engine = vsm_engine(getfield(wing, :aero))
+    engine === nothing && error(
+        "Wing $(getfield(wing, :name)) aero mode " *
+        "$(typeof(getfield(wing, :aero))) has no VSM engine; " *
+        "field `$sym` unavailable.")
+    return engine
 end
 
 """
-    is_vsm(wing::AbstractWing) -> Bool
+    count_aero_log_points(wings) -> Int
 
-`true` if the wing's aero mode is VSM-backed, i.e. the wing has VSM geometry and
-carries a [`VSMEngine`](@ref). Delegates to [`has_vsm_engine`](@ref) on the aero
-mode, so a custom mode opts in. Note `AeroNone` is VSM-backed, so it is still
-`is_vsm`.
+Total extra `SysState` log slots contributed by the wings' aero modes
+([`n_aero_log_points`](@ref)): 4 per VSM panel for VSM modes, 4 per section
+quad for flat-plate wings, 0 by default.
 """
-is_vsm(wing::Wing) = has_vsm_engine(getfield(wing, :aero))
-
-"""
-    is_plate(wing::AbstractWing) -> Bool
-
-`true` if the wing uses flat-plate aerodynamics ([`AeroPlate`](@ref)). Replaces
-the former `wing isa PlateWing` check.
-"""
-is_plate(wing::Wing) = getfield(wing, :aero) isa AeroPlate
+function count_aero_log_points(wings)
+    total = 0
+    for wing in wings
+        total += n_aero_log_points(getfield(wing, :aero), wing)
+    end
+    return total
+end
 
 # ==================== CONSTRUCTORS ==================== #
 
@@ -430,7 +428,9 @@ it to the wing.
 - `name::Union{Int, Symbol}`: Name/identifier for the wing.
 - `set::Settings`: Settings object for VSM configuration.
 - `twist_surfaces::Vector`: References to twist_surfaces (names or indices).
-- `vsm_set::VortexStepMethod.VSMSettings`: VSM settings for wing creation.
+- `vsm_set`: VSM settings for engine creation. Required for VSM-backed aero
+  modes ([`AbstractVSMAero`](@ref)); may be `nothing` for engine-less modes
+  like [`AeroNone`](@ref).
 
 # Keyword Arguments
 - `transform=nothing`: Reference to the transform. Defaults to 1.
@@ -444,7 +444,7 @@ it to the wing.
 """
 function VSMWing(name, set::Settings,
                  twist_surfaces::AbstractVector,
-                 vsm_set::VortexStepMethod.VSMSettings;
+                 vsm_set::Union{Nothing, VortexStepMethod.VSMSettings};
                  R_b_to_c::Union{Nothing,AbstractMatrix}=nothing,
                  pos_cad::Union{Nothing,AbstractVector}=nothing,
                  transform=nothing, y_damping=150.0,
@@ -487,10 +487,13 @@ function VSMWing(name, set::Settings,
     end
 
     # Resolve the aero mode and, when it is VSM-backed, build and attach the
-    # engine. AeroPlate (the only non-VSM built-in) gets no engine.
+    # engine. Engine-less modes (AeroNone/AeroPlate) need no vsm_set.
     isnothing(aero) && (aero = dynamics_type == RIGID_DYNAMICS ?
         AeroLinearized() : AeroDirect())
     if aero isa AbstractVSMAero
+        isnothing(vsm_set) && error(
+            "Wing '$name': aero mode $(typeof(aero)) needs VSM geometry " *
+            "but no vsm_set was provided.")
         aero.engine = build_vsm_engine(set, vsm_set, dynamics_type;
             point_to_vsm_point, wing_segments, aero_scale_chord, aero_z_offset)
     end

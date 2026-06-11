@@ -51,21 +51,16 @@ function generate_prob_getters(sys_struct, sys)
         ])
         get_wing_state = getu(sys, wing_vars)
 
-        # aero_input only exists for wings whose mode exposes it (AeroLinearized)
-        has_linearized = any(
-            wing.dynamics_type === RIGID_DYNAMICS &&
-            exposes_aero_input(wing.aero)
-            for wing in sys_struct.wings)
-        if has_linearized
-            aero_inputs = [
-                getproperty(sys, Symbol("aero_$(wing.idx)")).aero_input
-                for wing in sys_struct.wings
-                if wing.dynamics_type === RIGID_DYNAMICS &&
-                   exposes_aero_input(wing.aero)]
-            get_aero_input = getu(sys, collect_each.(aero_inputs))
-        else
-            get_aero_input = nothing
-        end
+        # aero_input only exists for wings whose component exposes the
+        # connector (e.g. AeroLinearized); detected on the built subsystem,
+        # so a custom mode opts in by exposing it — no trait needed.
+        aero_inputs = [
+            getproperty(sys, Symbol("aero_$(wing.idx)")).aero_input
+            for wing in sys_struct.wings
+            if wing.dynamics_type === RIGID_DYNAMICS && hasproperty(
+                getproperty(sys, Symbol("aero_$(wing.idx)")), :aero_input)]
+        get_aero_input = isempty(aero_inputs) ? nothing :
+            getu(sys, collect_each.(aero_inputs))
     end
     if length(segments) > 0; get_segment_state = getu(sys, collect_each.([sys.spring_force, sys.len, sys.l0])); end
     if length(twist_surfaces) > 0; get_twist_surface_state = getu(sys, collect_each.([sys.twist_angle, sys.twist_ω, sys.twist_surface_tether_force, sys.twist_surface_tether_moment, sys.twist_surface_aero_moment])); end

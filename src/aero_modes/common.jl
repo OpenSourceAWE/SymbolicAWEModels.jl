@@ -12,19 +12,32 @@
 # ==================== interface: capability traits ==================== #
 
 """
+    vsm_engine(mode::AbstractAeroModel) -> Union{Nothing, VSMEngine}
+
+The mode's [`VSMEngine`](@ref) (VSM geometry + linearization state), or
+`nothing` for modes without one. After construction every `AbstractVSMAero`
+carries an engine ([`require_vsm_engine`](@ref) enforces this in
+[`setup_aero!`](@ref)); `nothing` only occurs for non-VSM modes and bare
+pre-construction markers. Used for the wing's VSM property forwarding and
+the VSM-settings loading; per-mode behaviour goes through the dispatch
+hooks instead.
+"""
+vsm_engine(::AbstractAeroModel) = nothing
+vsm_engine(mode::AbstractVSMAero) = getfield(mode, :engine)
+
+"""
     has_vsm_engine(mode::AbstractAeroModel) -> Bool
 
-`true` if the mode carries a [`VSMEngine`](@ref) (VSM geometry + linearization
-state). Drives the wing-level [`is_vsm`](@ref) helper and every VSM-geometry loop.
+`true` if [`vsm_engine`](@ref)`(mode)` returns an engine. Derived, not a
+dispatch point — implement `vsm_engine` instead.
 """
-has_vsm_engine(::AbstractAeroModel) = false
-has_vsm_engine(::AbstractVSMAero) = true
+has_vsm_engine(mode::AbstractAeroModel) = vsm_engine(mode) !== nothing
 
 """
     couples_to_sections(mode::AbstractAeroModel) -> Bool
 
 `true` if the mode needs per-section twist surfaces (auto-creation and
-aero-section matching). VSM modes do, except [`AeroNone`](@ref).
+aero-section matching). VSM modes ([`AbstractVSMAero`](@ref)) do.
 """
 couples_to_sections(::AbstractAeroModel) = false
 couples_to_sections(::AbstractVSMAero) = true
@@ -44,14 +57,6 @@ provides_aero_override(::AbstractAeroModel) = false
 [`AeroNone`](@ref) returns `false` (it produces no force).
 """
 stores_point_force(::AbstractAeroModel) = true
-
-"""
-    exposes_aero_input(mode::AbstractAeroModel) -> Bool
-
-`true` if the mode's subsystem exposes an `aero_input` connector (the linearized
-operating-point vector of [`AeroLinearized`](@ref)), which is logged as wing state.
-"""
-exposes_aero_input(::AbstractAeroModel) = false
 
 # ==================== interface: required cache tag ==================== #
 
@@ -74,8 +79,7 @@ aero_mode_tag(mode::AbstractAeroModel) = error(
 
 Angle of attack [rad] for `wing` under aero `mode`. Defaults to `NaN`
 (undefined); VSM modes read the mid-span geometric AoA (wrapped to [-π, π]) and
-[`AeroPlate`](@ref) derives it from the body-frame apparent wind. [`AeroNone`](@ref)
-produces no solve, so it stays `NaN`.
+[`AeroPlate`](@ref) derives it from the body-frame apparent wind.
 """
 calc_aoa(::AbstractAeroModel, wing) = SimFloat(NaN)
 function calc_aoa(mode::AbstractVSMAero, wing)
@@ -92,6 +96,49 @@ Side-slip angle [rad] from the body-frame apparent wind. Mode-independent
 """
 calc_side_slip(::AbstractAeroModel, wing) =
     atan(wing.va_b[2], hypot(wing.va_b[1], wing.va_b[3]))
+
+"""
+    min_chord_len(mode::AbstractAeroModel, wing) -> Float64
+
+Minimum chord length [m] of `wing` under aero `mode`, used to scale
+depower/steering set-points. `Inf` when the mode defines no chord geometry;
+VSM modes read it from the tip interpolation or the unrefined sections.
+"""
+min_chord_len(::AbstractAeroModel, wing) = Inf
+
+function min_chord_len(mode::AbstractVSMAero, wing)
+    vsm_wing = mode.vsm_wing
+    min_len = Inf
+    if hasproperty(vsm_wing, :le_interp) && hasproperty(vsm_wing, :te_interp) &&
+            hasproperty(vsm_wing, :gamma_tip)
+        le_pos = [vsm_wing.le_interp[i](vsm_wing.gamma_tip) for i in 1:3]
+        te_pos = [vsm_wing.te_interp[i](vsm_wing.gamma_tip) for i in 1:3]
+        min_len = min(norm(le_pos - te_pos), min_len)
+    elseif hasproperty(vsm_wing, :unrefined_sections) &&
+            !isempty(vsm_wing.unrefined_sections)
+        for section in vsm_wing.unrefined_sections
+            chord = section.TE_point - section.LE_point
+            min_len = min(norm(chord), min_len)
+        end
+    end
+    return min_len
+end
+
+"""
+    mesh_inertia(mode::AbstractAeroModel) -> Union{Nothing, NamedTuple}
+
+Mesh-derived inertia for the wing body, or `nothing` when the mode provides
+none (the wing frame setup falls back to point masses). VSM modes with an
+`ObjWing` mesh return `(com_cad, unit_inertia)` — the tensor is per unit
+mass and its COM is `-T_cad_body`.
+"""
+mesh_inertia(::AbstractAeroModel) = nothing
+
+function mesh_inertia(mode::AbstractVSMAero)
+    tensor = mode.vsm_wing.inertia_tensor
+    (isempty(tensor) || all(iszero, tensor)) && return nothing
+    return (com_cad = -mode.vsm_wing.T_cad_body, unit_inertia = tensor)
+end
 
 # ==================== connector scaffolding ==================== #
 #
@@ -287,7 +334,7 @@ sections to structure, and rebuild the twist-surface / point mappings.
 remake_aero!(::AbstractAeroModel, wing, set, vsm_set, points, twist_surfaces) =
     nothing
 
-function remake_aero!(::AbstractVSMAero, wing, set, vsm_set, points,
+function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, points,
                       twist_surfaces)
     vsm_set isa VortexStepMethod.VSMSettings || error(
         "remake_aero!: VSM wing $(wing.idx) needs a VSMSettings, " *
@@ -345,6 +392,245 @@ function validate_aero_structure(::AbstractVSMAero, wing, points; prn=false)
     @assert length(wing_point_idxs) == 2 * n_sections "PARTICLE_DYNAMICS wing $(wing.idx): expected $(2*n_sections) points for $(n_sections) sections, got $(length(wing_point_idxs))"
 
     prn && println("✓ PARTICLE_DYNAMICS wing $(wing.idx) validated: $(length(wing_point_idxs)) points, $(n_sections) sections, $(length(wing.vsm_aero.panels)) panels")
+    return nothing
+end
+
+"""
+    setup_aero!(mode, wing, points, twist_surfaces; prn=false)
+
+Construction-time aero setup for `wing`, dispatched on its aero `mode` (default
+no-op). VSM modes transform the VSM panels into the body frame and, for
+section-coupled wings, auto-create twist surfaces, match aero sections to
+structure, and build the twist-surface / structural↔panel mappings. A custom mode
+adds a method to participate in construction without editing the SystemStructure
+constructor. Runs after [`setup_wing_frame!`](@ref) (which sets the body frame).
+"""
+setup_aero!(::AbstractAeroModel, wing, points, twist_surfaces; prn=false) =
+    nothing
+
+"""
+    require_vsm_engine(mode, wing) -> VSMEngine
+
+Return the mode's [`VSMEngine`](@ref), erroring with construction advice when it
+is missing (a bare `AeroDirect()`/`AeroLinearized()` marker attached to a wing
+that was not built via [`VSMWing`](@ref)). Called once, in [`setup_aero!`](@ref);
+after construction every `AbstractVSMAero` is guaranteed to carry an engine.
+"""
+function require_vsm_engine(mode, wing)
+    engine = vsm_engine(mode)
+    engine === nothing && error(
+        "Wing $(wing.name): aero mode $(typeof(mode)) has no VSM engine. " *
+        "Construct the wing via VSMWing (or attach a VSMEngine to the mode) " *
+        "to use VSM aerodynamics.")
+    return engine
+end
+
+function setup_aero!(mode::AbstractVSMAero, wing, points, twist_surfaces;
+                     prn=false)
+    require_vsm_engine(mode, wing)
+    vsm_wing = wing.vsm_wing
+    if wing.dynamics_type == RIGID_DYNAMICS
+        # Transform VSM sections CAD → body (with aero z-offset)
+        vsm_wing.T_cad_body .= wing.pos_cad
+        adjust_vsm_panels_to_origin!(vsm_wing, wing.pos_cad)
+        rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
+        vsm_wing.R_cad_body .= wing.R_b_to_c
+        apply_aero_z_offset!(vsm_wing, wing.aero_z_offset)
+        VortexStepMethod.reinit!(wing.vsm_aero)
+
+        if couples_to_sections(mode) && isempty(wing.twist_surface_idxs)
+            auto_create_twist_surfaces!(wing, points, twist_surfaces; prn)
+        end
+        couples_to_sections(mode) &&
+            match_aero_sections_to_structure!(wing, points; twist_surfaces)
+        isempty(wing.twist_surface_idxs) ||
+            compute_spatial_twist_surface_mapping!(wing, twist_surfaces, points)
+        compute_twist_surface_geometry!(wing, twist_surfaces, points)
+        for twist_surface_idx in wing.twist_surface_idxs
+            twist_surfaces[twist_surface_idx].le_pos .-= wing.com_offset_b
+        end
+    else  # PARTICLE_DYNAMICS
+        if !isnothing(wing.origin)
+            # Transform VSM sections CAD → body (no z-offset for particle)
+            vsm_wing.T_cad_body .= wing.pos_cad
+            adjust_vsm_panels_to_origin!(vsm_wing, wing.pos_cad)
+            rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
+            vsm_wing.R_cad_body .= wing.R_b_to_c
+            VortexStepMethod.reinit!(wing.vsm_aero)
+        end
+        couples_to_sections(mode) &&
+            match_aero_sections_to_structure!(wing, points; twist_surfaces)
+        isempty(wing.twist_surface_idxs) || empty!(wing.twist_surface_idxs)
+        setup_particle_point_mapping!(wing, points, twist_surfaces)
+    end
+    return nothing
+end
+
+"""
+    resize_aero_state!(mode, wing)
+
+Resize the mode's per-wing aero state after `wing.twist_surface_idxs` is
+resolved (name resolution can change the twist-surface count the initial
+sizing estimated from `n_unrefined`). Default no-op; VSM modes resize
+`aero_y`/`aero_x`/`aero_jac` for `RIGID_DYNAMICS` wings.
+"""
+resize_aero_state!(::AbstractAeroModel, wing) = nothing
+
+function resize_aero_state!(mode::AbstractVSMAero, wing)
+    wing.dynamics_type == RIGID_DYNAMICS || return nothing
+    n_twist_surfaces = length(wing.twist_surface_idxs)
+    num_aero_outputs = 6 + n_twist_surfaces
+    num_aero_inputs = 5 + n_twist_surfaces
+    if length(mode.aero_x) != num_aero_outputs ||
+            length(mode.aero_y) != num_aero_inputs
+        mode.aero_y = zeros(SimFloat, num_aero_inputs)
+        mode.aero_x = zeros(SimFloat, num_aero_outputs)
+        mode.aero_jac = zeros(
+            SimFloat, num_aero_outputs, num_aero_inputs)
+    end
+    return nothing
+end
+
+"""
+    init_aero_state!(mode, wing, va_b_init)
+
+Initialize the mode's aero state from the initial body-frame apparent wind
+`va_b_init` (runs in `update_sys_struct!`, before the first refresh). Default
+no-op; VSM modes write the operating-point angles α, β into `aero_y`.
+"""
+init_aero_state!(::AbstractAeroModel, wing, va_b_init) = nothing
+
+function init_aero_state!(mode::AbstractVSMAero, wing, va_b_init)
+    aero_y = mode.aero_y
+    length(aero_y) < 2 && return nothing
+    aero_y .= 0.0
+    aero_y[1] = atan(va_b_init[3], va_b_init[1])
+    aero_y[2] = atan(va_b_init[2],
+        hypot(va_b_init[1], va_b_init[3]))
+    return nothing
+end
+
+# ==================== logging / visualization hooks ==================== #
+#
+# A mode can contribute extra `SysState` log slots (after the structural
+# points, before the per-wing position slots) for visualization — VSM modes
+# log 4 corners per panel; a custom mode adds methods for its own geometry.
+
+"""
+    n_aero_log_points(mode, wing) -> Int
+
+Number of extra `SysState` log slots the mode contributes for `wing`
+(visualization geometry such as panel corners). Default 0; VSM modes log
+4 corners per panel. Must match what [`write_aero_log_points!`](@ref) writes.
+"""
+n_aero_log_points(::AbstractAeroModel, wing) = 0
+n_aero_log_points(mode::AbstractVSMAero, wing) =
+    4 * length(mode.vsm_aero.panels)
+
+"""
+    write_aero_log_points!(mode, wing, sys_struct, sys_state, point_idx,
+                           zoom) -> Int
+
+Write the mode's log points (world frame, scaled by `zoom`) into
+`sys_state.X/Y/Z` starting after `point_idx`; return the last index written.
+Default writes nothing; VSM modes write the panel corners, [`AeroPlate`](@ref)
+writes each section's display quad.
+"""
+write_aero_log_points!(::AbstractAeroModel, wing, sys_struct, sys_state,
+                       point_idx, zoom) = point_idx
+
+function write_aero_log_points!(mode::AbstractVSMAero, wing, sys_struct,
+                                sys_state, point_idx, zoom)
+    R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
+    for panel in mode.vsm_aero.panels
+        for j in 1:4
+            point_idx += 1
+            corner_w = wing.pos_w + R_b_to_w * panel.corner_points[:, j]
+            sys_state.X[point_idx] = corner_w[1] * zoom
+            sys_state.Y[point_idx] = corner_w[2] * zoom
+            sys_state.Z[point_idx] = corner_w[3] * zoom
+        end
+    end
+    return point_idx
+end
+
+"""
+    read_aero_log_points!(mode, wing, sys_struct, sys_state, point_idx) -> Int
+
+Inverse of [`write_aero_log_points!`](@ref): restore the mode's state from the
+logged points starting after `point_idx`; return the last index consumed (the
+slots must be skipped even when unused). Default consumes nothing; VSM
+`PARTICLE_DYNAMICS` modes read the panel corners back (rigid wings recompute
+panels from twist instead and only skip their slots).
+"""
+read_aero_log_points!(::AbstractAeroModel, wing, sys_struct, sys_state,
+                      point_idx) = point_idx
+
+function read_aero_log_points!(mode::AbstractVSMAero, wing, sys_struct,
+                               sys_state, point_idx)
+    n_corners = 4 * length(mode.vsm_aero.panels)
+    wing.dynamics_type == RIGID_DYNAMICS && return point_idx + n_corners
+    R_w_to_b = (wing.R_b_to_w::Matrix{SimFloat})'
+    for panel in mode.vsm_aero.panels
+        for j in 1:4
+            point_idx += 1
+            corner_w = [sys_state.X[point_idx], sys_state.Y[point_idx],
+                        sys_state.Z[point_idx]]
+            panel.corner_points[:, j] .= R_w_to_b * (corner_w - wing.pos_w)
+        end
+    end
+    return point_idx
+end
+
+"""
+    aero_ref_area(mode, wing, sys_struct) -> Float64
+
+Aerodynamic reference area [m²], used to normalize force coefficients
+computed from logged forces. `NaN` when the mode defines none. VSM modes sum
+panel chord·width; flat-plate wings sum their section areas.
+"""
+aero_ref_area(::AbstractAeroModel, wing, sys_struct) = NaN
+
+function aero_ref_area(mode::AbstractVSMAero, wing, sys_struct)
+    panels = mode.vsm_aero.panels
+    isempty(panels) && return NaN
+    return sum(panel.chord * panel.width for panel in panels)
+end
+
+"""
+    aero_plot_geometry(mode) -> Union{Nothing, Any}
+
+Body-frame geometry object the Makie extension renders for live plots; it
+must be `plot!`-able with `R_b_w`/`T_b_w` keywords. `nothing` (default)
+draws nothing; VSM modes return their `BodyAerodynamics`, whose Makie
+recipe ships with VortexStepMethod.
+"""
+aero_plot_geometry(::AbstractAeroModel) = nothing
+aero_plot_geometry(mode::AbstractVSMAero) = mode.vsm_aero
+
+"""
+    restore_aero_twist!(mode, wing, twist_surfaces)
+
+Re-apply the (already restored) twist-surface angles to the mode's geometry
+when loading a `SysState` log frame. Default no-op; VSM `RIGID_DYNAMICS`
+modes deform the unrefined sections and reinit the panels.
+"""
+restore_aero_twist!(::AbstractAeroModel, wing, twist_surfaces) = nothing
+
+function restore_aero_twist!(mode::AbstractVSMAero, wing, twist_surfaces)
+    wing.dynamics_type == RIGID_DYNAMICS || return nothing
+    isempty(wing.twist_surface_idxs) && return nothing
+    vsm = mode.vsm_wing
+    isempty(vsm.non_deformed_sections) && return nothing
+    theta = zeros(Float64, vsm.n_unrefined_sections)
+    for twist_surface_idx in wing.twist_surface_idxs
+        for section_idx in
+                twist_surfaces[twist_surface_idx].unrefined_section_idxs
+            theta[section_idx] = twist_surfaces[twist_surface_idx].twist
+        end
+    end
+    VortexStepMethod.unrefined_deform!(vsm, theta)
+    VortexStepMethod.reinit!(mode.vsm_aero; init_aero=false)
     return nothing
 end
 

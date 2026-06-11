@@ -694,15 +694,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
             va_wing_w = wing.v_wind - wing.vel_w + wing.wind_disturb
             wing.va_b .= R_b_to_w' * va_wing_w
         else
-            # Initialize aero_y operating point
-            if length(wing.aero_y) >= 2
-                va_b_init = R_b_to_w' * wind_vec_gnd
-                wing.aero_y .= 0.0
-                wing.aero_y[1] = atan(
-                    va_b_init[3], va_b_init[1])
-                wing.aero_y[2] = atan(va_b_init[2],
-                    hypot(va_b_init[1], va_b_init[3]))
-            end
+            # Initialize the aero operating point from the initial wind
+            init_aero_state!(wing.aero, wing, R_b_to_w' * wind_vec_gnd)
         end
     end
 
@@ -871,10 +864,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
     # Wing pos_w is appended after panel corners (see
     # update_sys_state!).
     n_points = length(points)
-    n_panel_corners = isempty(wings) ? 0 : sum(
-        length(wing.vsm_aero.panels) * 4 for wing in wings if is_vsm(wing);
-        init=0
-    )
+    n_panel_corners = count_aero_log_points(wings)
     n_wings = length(wings)
     total_with_wings = n_points + n_panel_corners + n_wings
     total_without_wings = n_points + n_panel_corners
@@ -953,19 +943,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
     end
 
     for wing in wings
-        is_vsm(wing) || continue
-        wing.dynamics_type == RIGID_DYNAMICS || continue
-        isempty(wing.twist_surface_idxs) && continue
-        vsm = wing.vsm_wing
-        isempty(vsm.non_deformed_sections) && continue
-        theta = zeros(Float64, vsm.n_unrefined_sections)
-        for g_idx in wing.twist_surface_idxs
-            for section_idx in twist_surfaces[g_idx].unrefined_section_idxs
-                theta[section_idx] = twist_surfaces[g_idx].twist
-            end
-        end
-        VortexStepMethod.unrefined_deform!(vsm, theta)
-        VortexStepMethod.reinit!(wing.vsm_aero; init_aero=false)
+        restore_aero_twist!(wing.aero, wing, twist_surfaces)
     end
 
     # Update tether lengths from SysState (per-tether)
@@ -986,20 +964,8 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
 
     corner_idx = n_points
     for wing in wings
-        is_vsm(wing) || continue
-        n_corners = length(wing.vsm_aero.panels) * 4
-        if wing.dynamics_type == RIGID_DYNAMICS
-            corner_idx += n_corners
-            continue
-        end
-        R_w_to_b = (wing.R_b_to_w::Matrix{SimFloat})'
-        for panel in wing.vsm_aero.panels
-            for j in 1:4
-                corner_idx += 1
-                corner_w = [sys_state.X[corner_idx], sys_state.Y[corner_idx], sys_state.Z[corner_idx]]
-                panel.corner_points[:, j] .= R_w_to_b * (corner_w - wing.pos_w)
-            end
-        end
+        corner_idx = read_aero_log_points!(wing.aero, wing, sys,
+                                           sys_state, corner_idx)
     end
 
     # Update global wind vector (only if wind_vec mode is active)

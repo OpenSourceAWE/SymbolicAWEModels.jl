@@ -167,6 +167,80 @@ function aero_component(::AeroPlate, sys_struct, wing_idx; name)
     return System(eqs, t, particle_unknowns(connectors), [psys]; name)
 end
 
+# ==================== log-point hooks ==================== #
+
+"""
+    plate_corners(twist_surface, point_pos_w, R_b_to_w) -> NTuple{4, Vector}
+
+World-frame corners of a flat-plate section's display quad. The section's
+structural point sits at quarter chord; the quad is a square of side
+`sqrt(area)` spanned by the twisted chord direction and `y_airf`, so the quad
+area matches the section's `area`.
+"""
+function plate_corners(twist_surface, point_pos_w, R_b_to_w)
+    x_airf = normalize(twist_surface.chord)
+    y_airf = twist_surface.y_airf
+    twist = twist_surface.twist
+    x_twisted = cos(twist) * x_airf + sin(twist) * (y_airf × x_airf)
+    side = sqrt(twist_surface.area)
+    chord_w = R_b_to_w * (side * x_twisted)
+    span_half_w = R_b_to_w * (0.5 * side * y_airf)
+    le_mid = point_pos_w - 0.25 * chord_w
+    te_mid = le_mid + chord_w
+    return (le_mid + span_half_w, te_mid + span_half_w,
+            te_mid - span_half_w, le_mid - span_half_w)
+end
+
+"""
+    n_aero_log_points(::AeroPlate, wing) -> Int
+
+4 quad corners per flat-plate section ([`plate_corners`](@ref)).
+"""
+n_aero_log_points(::AeroPlate, wing) = 4 * length(wing.twist_surface_idxs)
+
+"""
+    write_aero_log_points!(::AeroPlate, wing, sys_struct, sys_state,
+                           point_idx, zoom) -> Int
+
+Log each flat-plate section's display quad ([`plate_corners`](@ref)).
+"""
+function write_aero_log_points!(::AeroPlate, wing, sys_struct, sys_state,
+                                point_idx, zoom)
+    R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
+    for twist_surface_idx in wing.twist_surface_idxs
+        twist_surface = sys_struct.twist_surfaces[twist_surface_idx]
+        point = sys_struct.points[twist_surface.point_idxs[1]]
+        for corner_w in plate_corners(twist_surface, point.pos_w, R_b_to_w)
+            point_idx += 1
+            sys_state.X[point_idx] = corner_w[1] * zoom
+            sys_state.Y[point_idx] = corner_w[2] * zoom
+            sys_state.Z[point_idx] = corner_w[3] * zoom
+        end
+    end
+    return point_idx
+end
+
+"""
+    read_aero_log_points!(::AeroPlate, wing, sys_struct, sys_state,
+                          point_idx) -> Int
+
+Skip the quad-corner slots: plate corners are derived from the restored
+structural point positions, so nothing is read back.
+"""
+read_aero_log_points!(mode::AeroPlate, wing, sys_struct, sys_state,
+                      point_idx) = point_idx + n_aero_log_points(mode, wing)
+
+"""
+    aero_ref_area(::AeroPlate, wing, sys_struct) -> Float64
+
+Sum of the wing's flat-plate section areas; `NaN` without sections.
+"""
+function aero_ref_area(::AeroPlate, wing, sys_struct)
+    isempty(wing.twist_surface_idxs) && return NaN
+    return sum(sys_struct.twist_surfaces[idx].area
+               for idx in wing.twist_surface_idxs)
+end
+
 # ==================== YAML construction ==================== #
 
 function load_wing(mode::AeroPlate, row, idx, data, set, wing_type, vsm_set,

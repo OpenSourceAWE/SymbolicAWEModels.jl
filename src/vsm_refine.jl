@@ -530,3 +530,109 @@ function update_vsm_wing_from_structure!(wing::Wing, points::AbstractVector{Poin
     # body_aero reinit! will update panels from modified sections (called in refresh_aero!)
     return nothing
 end
+
+"""
+    auto_create_twist_surfaces!(wing, points, twist_surfaces; prn=false)
+
+Auto-create one `DYNAMIC` [`TwistSurface`](@ref) per LE/TE structural section for a
+section-coupled RIGID_DYNAMICS VSM wing that has none, append them to
+`twist_surfaces`, set `wing.twist_surface_idxs`, and resize the wing's aero arrays.
+"""
+function auto_create_twist_surfaces!(wing, points, twist_surfaces; prn=false)
+    wing_point_idxs = findall(
+        point -> point.type == WING && point.wing_idx == wing.idx, points)
+    wing_points = [points[idx] for idx in wing_point_idxs]
+    wing_segments = identify_wing_segments(wing_points)
+
+    new_twist_surface_idxs = Int64[]
+    for (le_idx, te_idx) in wing_segments
+        twist_surface_idx = length(twist_surfaces) + 1
+        # Integer name for auto-created twist_surfaces
+        new_twist_surface = TwistSurface(twist_surface_idx,
+            [le_idx, te_idx], DYNAMIC, 0.0)
+        new_twist_surface.idx = twist_surface_idx
+        new_twist_surface.point_idxs = [le_idx, te_idx]
+        push!(twist_surfaces, new_twist_surface)
+        push!(new_twist_surface_idxs, Int64(twist_surface_idx))
+    end
+    wing.twist_surface_idxs = new_twist_surface_idxs
+
+    n_twist_surfaces = length(new_twist_surface_idxs)
+    wing.aero_y = zeros(SimFloat, 5 + n_twist_surfaces)
+    wing.aero_x = zeros(SimFloat, 6 + n_twist_surfaces)
+    wing.aero_jac = zeros(SimFloat, 6 + n_twist_surfaces, 5 + n_twist_surfaces)
+
+    prn && @info "Auto-created $(n_twist_surfaces) twist_surfaces " *
+        "for RIGID_DYNAMICS wing $(wing.idx)"
+    return nothing
+end
+
+"""
+    compute_twist_surface_geometry!(wing, twist_surfaces, points)
+
+For each of `wing`'s twist surfaces with an unset chord, derive its leading-edge
+position, chord vector, and spanwise airfoil axis from the nearest VSM refined
+section (body frame). Used for auto-created twist surfaces.
+"""
+function compute_twist_surface_geometry!(wing, twist_surfaces, points)
+    for twist_surface_idx in wing.twist_surface_idxs
+        twist_surface = twist_surfaces[twist_surface_idx]
+        iszero(twist_surface.chord) || continue
+        center = zeros(3)
+        for pt_idx in twist_surface.point_idxs
+            center += wing.R_b_to_c' *
+                (points[pt_idx].pos_cad - wing.pos_cad)
+        end
+        center ./= length(twist_surface.point_idxs)
+
+        sections = wing.vsm_wing.refined_sections
+        n_sec = length(sections)
+        offset_vec = [0.0, 0.0, wing.aero_z_offset]
+        ksec = argmin([
+            norm(center -
+                ((Vector(section.LE_point) +
+                  Vector(section.TE_point)) / 2 .- offset_vec))
+            for section in sections])
+        le_sec = Vector(sections[ksec].LE_point)
+        te_sec = Vector(sections[ksec].TE_point)
+        span_dir = zeros(3)
+        ksec > 1 && (span_dir += normalize(
+            Vector(sections[ksec - 1].LE_point) - le_sec))
+        ksec < n_sec && (span_dir += normalize(
+            le_sec - Vector(sections[ksec + 1].LE_point)))
+
+        twist_surface.le_pos .= le_sec
+        twist_surface.chord .= te_sec - le_sec
+        twist_surface.y_airf .= normalize(span_dir)
+    end
+    return nothing
+end
+
+"""
+    setup_particle_point_mapping!(wing, points, twist_surfaces)
+
+For a VSM `PARTICLE_DYNAMICS` `wing`, build the structural↔panel point mapping and
+LE/TE `wing_segments` if not already set. Errors if the required body-frame
+`z_ref_points`/`y_ref_points` are missing.
+"""
+function setup_particle_point_mapping!(wing, points, twist_surfaces)
+    if isnothing(wing.point_to_vsm_point)
+        wing_point_idxs = findall(
+            point -> point.type == WING && point.wing_idx == wing.idx, points)
+        wing_pts = [points[idx] for idx in wing_point_idxs]
+        wing.point_to_vsm_point =
+            build_point_to_vsm_point_mapping(wing_pts, wing)
+    end
+    wing_point_idxs = collect(keys(something(wing.point_to_vsm_point)))
+    wing_pts = [points[idx] for idx in wing_point_idxs]
+    if isnothing(wing.wing_segments)
+        wing.wing_segments = identify_wing_segments(wing_pts;
+            twist_surfaces=twist_surfaces,
+            wing_twist_surface_idxs=wing.twist_surface_idxs)
+    end
+    isnothing(wing.z_ref_points) && error(
+        "PARTICLE_DYNAMICS wing '$(wing.name)': z_ref_points must be specified")
+    isnothing(wing.y_ref_points) && error(
+        "PARTICLE_DYNAMICS wing '$(wing.name)': y_ref_points must be specified")
+    return nothing
+end

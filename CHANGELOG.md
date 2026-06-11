@@ -15,12 +15,43 @@
   automatically when a custom winch/aero component is present (their equations
   are not captured by the model hash).
 
+### Removed
+- The dead `SystemStructure` fields `y`, `x`, `jac` (legacy linearization
+  buffers; the per-wing state lives in each mode's `VSMEngine`).
+- `is_vsm(wing)` and `is_plate(wing)` (were exported). Use
+  `vsm_engine(wing.aero) !== nothing` / `wing.aero isa AeroPlate` if you need
+  the check, or better, dispatch on the aero mode.
+
 ### Changed
 - `vsm_eqs.jl` is now a thin winch-style wiring layer: it instantiates each
   non-plate wing's `aero_model`, binds the body-frame inputs, and reads the
   outputs. The aero components are attached as subsystems alongside the winch
   subsystems. The generated RHS stays allocation-free (`test_bench.jl`).
 - `nameof(wing.aero_model)` is folded into the model hash.
+- `AeroNone` is a plain `AbstractAeroModel` again: it carries no `VSMEngine`
+  and needs no VSM geometry or `vsm_set`, so a pure rigid-body wing can be
+  built without any VSM setup.
+- A custom aero mode now needs only two methods: `aero_component` and
+  `aero_mode_tag`. All internal `is_vsm` if-branches are gone: they became
+  per-mode hooks with no-op defaults (`n_aero_log_points` /
+  `write_aero_log_points!` / `read_aero_log_points!` / `restore_aero_twist!`
+  for SysState visualization slots, `mesh_inertia`, `min_chord_len`,
+  `resize_aero_state!`, `init_aero_state!`) or were removed outright (the
+  transform pipeline is aero-agnostic). Subtyping `AbstractVSMAero` inherits
+  the VSM implementations of every hook, so custom modes are never excluded
+  from a code path they cannot extend.
+- Removed the `exposes_aero_input` trait: the `aero_input` connector is
+  detected by name on the built subsystem instead.
+- Flat-plate wings now log a display quad per section (4 corners, square of
+  side `sqrt(area)` with the structural point at quarter chord) via the
+  aero log-point hooks, so plate geometry shows up in `SysState` logs like
+  VSM panels do. Plate logs recorded before this change have a different
+  point count and will not replay.
+- The Makie extension no longer checks for a VSM engine: live wing rendering
+  goes through `aero_plot_geometry(mode)` (return a `plot!`-able object) and
+  the log-derived force coefficients through `aero_ref_area(mode, wing,
+  sys_struct)`. Flat-plate wings now report their summed section area, so
+  coefficient plots work for plate models too.
 
 ## v0.11.1 06-06-2026
 

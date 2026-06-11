@@ -212,7 +212,8 @@ by dispatch on its type, [`aero_component`](@ref)`(mode, sys_struct, wing_idx;
 name)`, returning a `System` exactly like a winch's [`Winch`](@ref) `model`.
 The built-in subtypes [`AeroNone`](@ref), [`AeroDirect`](@ref),
 [`AeroLinearized`](@ref) ship their own methods. To plug in your own
-aerodynamics, subtype `AbstractAeroModel` and add a method:
+aerodynamics, subtype `AbstractAeroModel` and add exactly two methods —
+the component builder and a cache tag:
 
 ```julia
 struct MyAero <: AbstractAeroModel end
@@ -220,9 +221,30 @@ struct MyAero <: AbstractAeroModel end
 function SymbolicAWEModels.aero_component(::MyAero, sys_struct, wing_idx; name)
     # ... build and return a System with the connectors below ...
 end
+SymbolicAWEModels.aero_mode_tag(::MyAero) = "myaero"
 
 VSMWing(name, set, groups, vsm_set; aero = MyAero())
 ```
+
+Everything else has working defaults: no twist-surface coupling, no VSM
+engine, no-op construction/refresh hooks, `NaN` angle of attack, and a forced
+model rebuild (see below). Optional hooks (each defaulting to a no-op on
+`AbstractAeroModel`) let a mode participate in the rest of the pipeline:
+[`setup_aero!`](@ref) / [`remake_aero!`](@ref) /
+[`validate_aero_structure`](@ref) (lifecycle),
+[`refresh_rigid_aero!`](@ref) / [`refresh_particle_aero!`](@ref)
+(low-frequency updates), [`resize_aero_state!`](@ref) /
+[`init_aero_state!`](@ref) (per-wing state), [`mesh_inertia`](@ref),
+`min_chord_len`, [`calc_aoa`](@ref), and the log-point hooks
+[`n_aero_log_points`](@ref) / [`write_aero_log_points!`](@ref) /
+[`read_aero_log_points!`](@ref) / [`restore_aero_twist!`](@ref), with which a
+mode contributes its own visualization geometry to the `SysState` log, plus
+[`aero_ref_area`](@ref) and [`aero_plot_geometry`](@ref) (live Makie
+rendering — return a `plot!`-able object).
+Subtyping [`AbstractVSMAero`](@ref) (a `VSMEngine` in an `engine` field,
+exposed via [`vsm_engine`](@ref)) inherits VSM implementations of all of
+them. There are no `isa`/`is_vsm` branches in the pipeline, so a custom mode
+is never excluded from a code path it cannot extend.
 
 The returned `System`'s connectors are fixed by the wing's `dynamics_type`
 (all quantities in the wing **body frame**):
@@ -232,13 +254,16 @@ The returned `System`'s connectors are fixed by the wing's `dynamics_type`
     and — when `ng > 0` — `twist[1:ng]`, `twist_vel[1:ng]`
   - outputs: `force[1:3]`, `moment[1:3]`, `twist_moment[1:ng]`
 - **`PARTICLE_DYNAMICS`** (`np` = number of `WING` points):
-  - inputs: `point_pos[1:3,1:np]`, `point_vel[1:3,1:np]`
+  - inputs: `point_pos[1:3,1:np]`, `point_vel[1:3,1:np]`,
+    `va[1:3,1:np]`, `rho[1:np]`
   - outputs: `point_force[1:3,1:np]`
 
 The wiring layer drives the inputs and reads the outputs; the component is
 flattened by `mtkcompile`, so its connectors become inlined unknowns (no
 array crosses a registered-function boundary). `validate_aero_component`
-checks the contract at build time.
+checks the contract at build time. A rigid component may additionally expose
+an `aero_input` connector vector (as `AeroLinearized` does); it is detected by
+name and logged as wing state — no extra method needed.
 
 A custom model returns `false` from [`is_builtin_aero`](@ref) by default, so
 its equations bypass the compiled-model cache and `init!` rebuilds (via

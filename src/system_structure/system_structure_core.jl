@@ -42,9 +42,6 @@ mutable struct SystemStructure{W<:AbstractWing}
     const wings::NamedCollection{W}
     const transforms::NamedCollection{Transform}
 
-    const y::Array{Float64, 2}
-    const x::Array{Float64, 2}
-    const jac::Array{Float64, 3}
     const am::AtmosphericModel
     stabilize::Bool
     fix_wing::Bool
@@ -554,20 +551,9 @@ function assign_indices_and_resolve!(
                 point_names, "point")
         end
 
-        # Resize VSM aero arrays now that twist_surface_idxs are resolved
+        # Resize per-mode aero state now that twist_surface_idxs are resolved
         # (initial sizing used n_unrefined as proxy which may differ)
-        if is_vsm(wing) && wing.dynamics_type == RIGID_DYNAMICS
-            n_grp = length(wing.twist_surface_idxs)
-            num_aero_outputs = 6 + n_grp
-            num_aero_inputs = 5 + n_grp
-            if length(wing.aero_x) != num_aero_outputs ||
-                    length(wing.aero_y) != num_aero_inputs
-                wing.aero_y = zeros(SimFloat, num_aero_inputs)
-                wing.aero_x = zeros(SimFloat, num_aero_outputs)
-                wing.aero_jac = zeros(
-                    SimFloat, num_aero_outputs, num_aero_inputs)
-            end
-        end
+        resize_aero_state!(wing.aero, wing)
     end
 
     return (point_names, twist_surface_names, segment_names, pulley_names,
@@ -721,15 +707,81 @@ end
 # ==================== CONSTRUCTOR ==================== #
 
 """
-    has_mesh_inertia(wing) -> Bool
+    setup_wing_frame!(wing, points; prn=true)
 
-True when `wing` is a `VSMWing` whose VSM geometry provides a non-zero mesh
-inertia tensor (an `ObjWing` built with `set.mass > 0`).
+Compute a wing's body frame (`R_b_to_c`, `pos_cad`) and, for `RIGID_DYNAMICS`, its
+COM offset and principal inertia, from the WING points and ref points. This is
+dynamics/geometry only — independent of the aero mode, which does its own
+mode-specific setup afterwards in [`setup_aero!`](@ref).
 """
-function has_mesh_inertia(wing)
-    is_vsm(wing) || return false
-    tensor = wing.vsm_wing.inertia_tensor
-    return !isempty(tensor) && any(!iszero, tensor)
+function setup_wing_frame!(wing, points; prn=true)
+    if wing.dynamics_type == RIGID_DYNAMICS
+        wing_points = [point for point in points
+            if point.type == WING && point.wing_idx == wing.idx]
+        isempty(wing_points) && return nothing
+
+        masses = [point.extra_mass for point in wing_points]
+        total_m = sum(masses)
+
+        mesh = mesh_inertia(wing.aero)
+        if !isnothing(mesh)
+            com_cad = mesh.com_cad
+            I_cad = wing.mass .* mesh.unit_inertia
+        else
+            com_cad = total_m > 0 ?
+                sum(masses[j] .* wing_points[j].pos_cad
+                    for j in eachindex(wing_points)) / total_m :
+                mean([point.pos_cad for point in wing_points])
+            I_cad = nothing
+            if total_m > 0
+                I_cad = zeros(3, 3)
+                for (mass, point) in zip(masses, wing_points)
+                    r = point.pos_cad - com_cad
+                    I_cad += mass * (dot(r, r) * I(3) - r * r')
+                end
+            end
+        end
+        if !isnothing(I_cad)
+            I_diag, Ry = calc_inertia_y_rotation(I_cad)
+            wing.R_p_to_c .= Ry'  # principal→CAD
+            wing.inertia_principal .= diag(I_diag)
+        end
+
+        # Body frame from ref points (else body = principal, origin = COM)
+        if !isnothing(wing.origin) &&
+           !isnothing(wing.z_ref_points) &&
+           !isnothing(wing.y_ref_points)
+            origin_cad = get_ref_position_from_points(
+                points, wing.origin; field=:pos_cad)
+            wing.pos_cad .= origin_cad
+            for point in points
+                point.type == WING &&
+                    point.wing_idx == wing.idx &&
+                    (point.pos_w .= point.pos_cad)
+            end
+            R_b_to_c, _ = calc_particle_dynamics_wing_frame(
+                points, wing.z_ref_points, wing.y_ref_points, wing.origin)
+            wing.R_b_to_c .= R_b_to_c
+            wing.com_offset_b .= R_b_to_c' * (com_cad - origin_cad)
+        else
+            wing.pos_cad .= com_cad
+            wing.R_b_to_c .= wing.R_p_to_c
+            wing.com_offset_b .= 0.0
+        end
+
+        wing.R_b_to_p .= wing.R_p_to_c' * wing.R_b_to_c  # body → principal
+
+        if prn
+            I_rnd = round.(wing.inertia_principal; digits=4)
+            offset_rounded = round.(wing.com_offset_b; digits=4)
+            @info "RIGID_DYNAMICS wing $(wing.idx):" *
+                " COM=[$(round.(com_cad; digits=3))]" *
+                ", I=$I_rnd, com_offset_b=$offset_rounded"
+        end
+    else  # PARTICLE_DYNAMICS (VSM or flat-plate)
+        init_body_frame_from_ref_points!(wing, points; prn)
+    end
+    return nothing
 end
 
 """
@@ -766,7 +818,7 @@ function SystemStructure(name, set;
         prn::Bool=true,
     )
     # Load VSMSettings if not provided and VSM wings exist
-    has_vsm_wings = any(is_vsm(wing) for wing in wings)
+    has_vsm_wings = any(has_vsm_engine(wing.aero) for wing in wings)
     if isnothing(vsm_set) && has_vsm_wings
         model_dir = get_data_path()
         vsm_set_path = joinpath(model_dir, "vsm_settings.yaml")
@@ -889,313 +941,23 @@ function SystemStructure(name, set;
         end
     end
 
-    # Compute body frame (COM + principal axes) and
-    # transform VSM panels from CAD → body frame.
-    # RIGID_DYNAMICS: COM from point masses, Y-axis rotation
-    #   to diagonalize inertia tensor.
-    # PARTICLE_DYNAMICS: origin from origin_idx, R_b_to_c from
-    #   z/y_ref_points (no inertia needed).
+    # Body frame + COM/principal inertia (dynamics, independent of aero mode).
     for wing in wings
-        is_vsm(wing) || continue
-        vsm_wing = wing.vsm_wing
-
-        if wing.dynamics_type == RIGID_DYNAMICS
-            wing_points = [point for point in points
-                if point.type == WING &&
-                   point.wing_idx == wing.idx]
-            isempty(wing_points) && continue
-
-            masses = [point.extra_mass for point in wing_points]
-            total_m = sum(masses)
-
-            # Mesh tensor is per-unit-mass; its COM is -T_cad_body.
-            if has_mesh_inertia(wing)
-                com_cad = -vsm_wing.T_cad_body
-                I_cad = wing.mass .* vsm_wing.inertia_tensor
-            else
-                com_cad = total_m > 0 ?
-                    sum(masses[j] .* wing_points[j].pos_cad
-                        for j in eachindex(wing_points)) / total_m :
-                    mean([point.pos_cad for point in wing_points])
-                I_cad = nothing
-                if total_m > 0
-                    I_cad = zeros(3, 3)
-                    for (mass, point) in zip(masses, wing_points)
-                        r = point.pos_cad - com_cad
-                        I_cad += mass * (dot(r, r) * I(3) - r * r')
-                    end
-                end
-            end
-            if !isnothing(I_cad)
-                I_diag, Ry = calc_inertia_y_rotation(I_cad)
-                wing.R_p_to_c .= Ry'  # principal→CAD
-                wing.inertia_principal .= diag(I_diag)
-            end
-
-            # Compute body frame from ref points
-            if !isnothing(wing.origin) &&
-               !isnothing(wing.z_ref_points) &&
-               !isnothing(wing.y_ref_points)
-                origin_cad = get_ref_position_from_points(
-                    points, wing.origin; field=:pos_cad)
-                wing.pos_cad .= origin_cad
-
-                # Temporarily set pos_w = pos_cad
-                for point in points
-                    point.type == WING &&
-                        point.wing_idx == wing.idx &&
-                        (point.pos_w .= point.pos_cad)
-                end
-                R_b_to_c, _ = calc_particle_dynamics_wing_frame(
-                    points, wing.z_ref_points,
-                    wing.y_ref_points,
-                    wing.origin)
-                wing.R_b_to_c .= R_b_to_c
-
-                # COM offset from body origin in body
-                wing.com_offset_b .=
-                    R_b_to_c' * (com_cad - origin_cad)
-            else
-                # No ref points: body = principal,
-                # origin = COM
-                wing.pos_cad .= com_cad
-                wing.R_b_to_c .= wing.R_p_to_c
-                wing.com_offset_b .= 0.0
-            end
-
-            # Transform VSM sections: CAD → body
-            vsm_wing.T_cad_body .= wing.pos_cad
-            adjust_vsm_panels_to_origin!(
-                vsm_wing, wing.pos_cad)
-            rotate_vsm_sections!(
-                vsm_wing, wing.R_b_to_c')
-            vsm_wing.R_cad_body .= wing.R_b_to_c
-            apply_aero_z_offset!(
-                vsm_wing, wing.aero_z_offset)
-            VortexStepMethod.reinit!(wing.vsm_aero)
-
-            # Body → principal (constant rotation)
-            wing.R_b_to_p .= wing.R_p_to_c' * wing.R_b_to_c
-
-            if prn
-                I_rnd = round.(wing.inertia_principal;
-                               digits=4)
-                offset_rounded = round.(wing.com_offset_b;
-                             digits=4)
-                @info "RIGID_DYNAMICS wing $(wing.idx):" *
-                    " COM=[$(round.(com_cad; digits=3))]" *
-                    ", I=$I_rnd" *
-                    ", com_offset_b=$offset_rounded"
-            end
-
-        elseif wing.dynamics_type == PARTICLE_DYNAMICS
-            init_body_frame_from_ref_points!(
-                wing, points; prn)
-
-            if !isnothing(wing.origin)
-                # Transform VSM sections: CAD → body
-                vsm_wing.T_cad_body .= wing.pos_cad
-                adjust_vsm_panels_to_origin!(
-                    vsm_wing, wing.pos_cad)
-                rotate_vsm_sections!(
-                    vsm_wing, wing.R_b_to_c')
-                vsm_wing.R_cad_body .= wing.R_b_to_c
-                VortexStepMethod.reinit!(wing.vsm_aero)
-            end
-        end
+        setup_wing_frame!(wing, points; prn)
     end
 
-    # Flat-plate wing body frame initialization from ref points
-    for wing in wings
-        is_plate(wing) || continue
-        init_body_frame_from_ref_points!(
-            wing, points; prn)
-    end
-
-    # Auto-create twist_surfaces for RIGID_DYNAMICS wings if needed (before geometry initialization)
-    # Skip for AERO_NONE — no aerodynamics means no twist DOFs needed.
-    for wing in wings
-        if couples_to_sections(wing.aero) &&
-           wing.dynamics_type == RIGID_DYNAMICS &&
-           isempty(wing.twist_surface_idxs)
-            # Get WING-type points for this wing
-            wing_point_idxs = findall(
-                point -> point.type == WING && point.wing_idx == wing.idx, points)
-            wing_points = [points[idx] for idx in wing_point_idxs]
-
-            # Identify LE/TE pairs
-            wing_segments = identify_wing_segments(wing_points)
-
-            # Create a twist_surface for each section (LE/TE pair)
-            # n_twist_surfaces = n_unrefined_sections (one twist_surface per section)
-            new_twist_surface_idxs = Int64[]
-
-            for (le_idx, te_idx) in wing_segments
-                twist_surface_idx = length(twist_surfaces) + 1
-                # Use integer as name for auto-created twist_surfaces
-                twist_surface_name = twist_surface_idx
-
-                # Both LE and TE points (matches YAML convention)
-                new_twist_surface = TwistSurface(twist_surface_name,
-                    [le_idx, te_idx], DYNAMIC, 0.0)
-
-                # Assign idx and resolve point_refs since
-                # these are dynamically created
-                new_twist_surface.idx = twist_surface_idx
-                new_twist_surface.point_idxs = [le_idx, te_idx]
-
-                push!(twist_surfaces, new_twist_surface)
-                push!(new_twist_surface_idxs, Int64(twist_surface_idx))
-            end
-
-            # Update wing with new twist_surfaces and resize vsm arrays
-            wing.twist_surface_idxs = new_twist_surface_idxs
-
-            # Resize aero arrays for new twist_surface count
-            n_twist_surfaces = length(new_twist_surface_idxs)
-            num_aero_outputs = 6 + n_twist_surfaces
-            num_aero_inputs = 5 + n_twist_surfaces
-            wing.aero_y = zeros(SimFloat, num_aero_inputs)
-            wing.aero_x = zeros(SimFloat, num_aero_outputs)
-            wing.aero_jac = zeros(SimFloat, num_aero_outputs, num_aero_inputs)
-
-            prn && @info "Auto-created $(length(new_twist_surface_idxs)) twist_surfaces " *
-                  "for RIGID_DYNAMICS wing $(wing.idx)"
-        end
-    end
-
-    # Match aero sections to structural LE/TE for ALL
-    # VSMWing types (runs after auto-twist_surface creation so
-    # identify_wing_segments can use twist_surfaces).
-    for wing in wings
-        couples_to_sections(wing.aero) || continue
-        match_aero_sections_to_structure!(
-            wing, points; twist_surfaces=twist_surfaces)
-    end
-
-    for wing in wings
-        if is_vsm(wing) && wing.dynamics_type == PARTICLE_DYNAMICS &&
-           !isempty(wing.twist_surface_idxs)
-            empty!(wing.twist_surface_idxs)
-        end
-    end
-
-    # Initialize twist_surface-to-unrefined-section mapping for RIGID_DYNAMICS wings
-    # Do this BEFORE y_airf calculation so the mapping is available
-    for the_wing in wings
-        if is_vsm(the_wing) && the_wing.dynamics_type == RIGID_DYNAMICS && !isempty(the_wing.twist_surface_idxs)
-            compute_spatial_twist_surface_mapping!(the_wing, twist_surfaces, points)
-        end
-    end
-
-    for twist_surface in twist_surfaces
-        iszero(twist_surface.chord) || continue
-        for wing in wings
-            twist_surface.idx in wing.twist_surface_idxs || continue
-            center = zeros(3)
-            for pt_idx in twist_surface.point_idxs
-                center += wing.R_b_to_c' *
-                    (points[pt_idx].pos_cad - wing.pos_cad)
-            end
-            center ./= length(twist_surface.point_idxs)
-
-            sections = wing.vsm_wing.refined_sections
-            n_sec = length(sections)
-            offset_vec = [0.0, 0.0, wing.aero_z_offset]
-            ksec = argmin([
-                norm(center -
-                    ((Vector(section.LE_point) +
-                      Vector(section.TE_point)) / 2 .-
-                     offset_vec))
-                for section in sections])
-            le_sec = Vector(sections[ksec].LE_point)
-            te_sec = Vector(sections[ksec].TE_point)
-            span_dir = zeros(3)
-            ksec > 1 && (span_dir += normalize(
-                Vector(sections[ksec - 1].LE_point) - le_sec))
-            ksec < n_sec && (span_dir += normalize(
-                le_sec - Vector(sections[ksec + 1].LE_point)))
-
-            twist_surface.le_pos .= le_sec
-            twist_surface.chord .= te_sec - le_sec
-            twist_surface.y_airf .= normalize(span_dir)
-            break
-        end
-    end
-
-    # Translate twist_surface le_pos from body origin to COM
-    # (body frame). chord and y_airf are direction
-    # vectors already in body frame from VSM panels.
-    for wing in wings
-        wing.dynamics_type != RIGID_DYNAMICS && continue
-        for twist_surface_idx in wing.twist_surface_idxs
-            twist_surface = twist_surfaces[twist_surface_idx]
-            twist_surface.le_pos .-= wing.com_offset_b
-        end
-    end
-
+    # Per-mode aero construction (dispatched; no-op for modes without one, e.g.
+    # flat-plate). Each VSM wing's pipeline — panel transform to body frame,
+    # auto-twist, section matching, twist-surface/point mappings — runs inside
+    # setup_aero! (see aero_modes/common.jl + vsm_refine.jl).
     for (i, wing) in enumerate(wings)
         @assert wing.idx == i
-        # For VSM PARTICLE_DYNAMICS wings, set defaults if not provided
-        if is_vsm(wing) && wing.dynamics_type == PARTICLE_DYNAMICS
-            # Build point_to_vsm_point mapping if not provided
-            if isnothing(wing.point_to_vsm_point)
-                # Get WING-type points for this wing
-                wing_point_idxs = findall(
-                    point -> point.type == WING && point.wing_idx == wing.idx, points)
-                wing_points = [points[idx]
-                    for idx in wing_point_idxs]
-                wing.point_to_vsm_point =
-                    build_point_to_vsm_point_mapping(
-                        wing_points, wing)
-            end
-
-            wing_point_idxs = collect(keys(
-                something(wing.point_to_vsm_point)))
-            wing_points = [points[idx]
-                for idx in wing_point_idxs]
-
-            # For PARTICLE_DYNAMICS wings, pos_cad should be user-specified (KCU position)
-            # or default to vsm_wing.T_cad_body (set in VSMWing constructor)
-            # DO NOT calculate as centroid - that would misalign VSM panels
-
-            # Identify wing segments (LE/TE pairs)
-            if isnothing(wing.wing_segments)
-                wing.wing_segments =
-                    identify_wing_segments(
-                        wing_points; twist_surfaces=twist_surfaces,
-                        wing_twist_surface_idxs=wing.twist_surface_idxs)
-            end
-
-            # PARTICLE_DYNAMICS wings require explicit ref points
-            if isnothing(wing.z_ref_points)
-                error("PARTICLE_DYNAMICS wing '$(wing.name)': " *
-                    "z_ref_points must be specified")
-            end
-            if isnothing(wing.y_ref_points)
-                error("PARTICLE_DYNAMICS wing '$(wing.name)': " *
-                    "y_ref_points must be specified")
-            end
-
-        end
+        setup_aero!(wing.aero, wing, points, twist_surfaces; prn)
     end
 
     for (i, transform) in enumerate(transforms)
         @assert transform.idx == i
     end
-    if length(wings) > 0
-        # Use number of unrefined sections
-        first_wing = wings[1]
-        n_unrefined = is_vsm(first_wing) ? first_wing.vsm_wing.n_unrefined_sections : 0
-        num_aero_inputs = 3 + n_unrefined + 3
-        num_aero_outputs = 3 + 3 + n_unrefined
-    else
-        num_aero_inputs = 0
-        num_aero_outputs = 0
-    end
-    y = zeros(length(wings), num_aero_inputs)
-    x = zeros(length(wings), num_aero_outputs)
-    jac = zeros(length(wings), num_aero_outputs, num_aero_inputs)
     set.physical_model = name
 
     # Name dictionaries were already built by assign_indices_and_resolve!
@@ -1208,7 +970,7 @@ function SystemStructure(name, set;
         NamedCollection{Winch}(winches, winch_names_dict),
         NamedCollection{eltype(wings)}(wings, wing_names_dict),
         NamedCollection{Transform}(transforms, transform_names_dict),
-        y, x, jac, AtmosphericModel(set), false, false, vsm_set)
+        AtmosphericModel(set), false, false, vsm_set)
     reinit!(sys_struct, set)
 
     # Recalculate segment rest lengths from current positions if requested
