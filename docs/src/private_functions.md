@@ -208,12 +208,14 @@ SymbolicAWEModels.setup_aero!
 SymbolicAWEModels.resize_aero_state!
 SymbolicAWEModels.init_aero_state!
 SymbolicAWEModels.mesh_inertia
+SymbolicAWEModels.point_mass_inertia
 SymbolicAWEModels.n_aero_log_points
 SymbolicAWEModels.write_aero_log_points!
 SymbolicAWEModels.read_aero_log_points!
 SymbolicAWEModels.restore_aero_twist!
 SymbolicAWEModels.aero_ref_area
-SymbolicAWEModels.aero_plot_geometry
+SymbolicAWEModels.plot_wing_aero!
+SymbolicAWEModels.update_wing_aero_plot!
 SymbolicAWEModels.load_wing
 ```
 

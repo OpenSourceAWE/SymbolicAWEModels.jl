@@ -758,7 +758,7 @@ Calculates the minimum chord length of the wing at the tip.
 function min_chord_len(sam::SymbolicAWEModel)
     min_len = Inf
     for wing in sam.sys_struct.wings
-        min_len = min(min_chord_len(wing.aero, wing), min_len)
+        min_len = min(min_chord_len(wing.aero, wing, sam.sys_struct), min_len)
     end
     return min_len
 end

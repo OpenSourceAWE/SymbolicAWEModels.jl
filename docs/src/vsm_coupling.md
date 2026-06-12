@@ -239,8 +239,9 @@ model rebuild (see below). Optional hooks (each defaulting to a no-op on
 [`n_aero_log_points`](@ref) / [`write_aero_log_points!`](@ref) /
 [`read_aero_log_points!`](@ref) / [`restore_aero_twist!`](@ref), with which a
 mode contributes its own visualization geometry to the `SysState` log, plus
-[`aero_ref_area`](@ref) and [`aero_plot_geometry`](@ref) (live Makie
-rendering — return a `plot!`-able object).
+[`aero_ref_area`](@ref), and live Makie rendering via
+[`plot_wing_aero!`](@ref) / [`update_wing_aero_plot!`](@ref) (methods live in
+the Makie extension, so a custom mode draws with full Makie access).
 Subtyping [`AbstractVSMAero`](@ref) (a `VSMEngine` in an `engine` field,
 exposed via [`vsm_engine`](@ref)) inherits VSM implementations of all of
 them. There are no `isa`/`is_vsm` branches in the pipeline, so a custom mode

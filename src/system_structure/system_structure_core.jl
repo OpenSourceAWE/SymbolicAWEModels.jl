@@ -716,31 +716,10 @@ mode-specific setup afterwards in [`setup_aero!`](@ref).
 """
 function setup_wing_frame!(wing, points; prn=true)
     if wing.dynamics_type == RIGID_DYNAMICS
-        wing_points = [point for point in points
-            if point.type == WING && point.wing_idx == wing.idx]
-        isempty(wing_points) && return nothing
+        any(point.type == WING && point.wing_idx == wing.idx
+            for point in points) || return nothing
 
-        masses = [point.extra_mass for point in wing_points]
-        total_m = sum(masses)
-
-        mesh = mesh_inertia(wing.aero)
-        if !isnothing(mesh)
-            com_cad = mesh.com_cad
-            I_cad = wing.mass .* mesh.unit_inertia
-        else
-            com_cad = total_m > 0 ?
-                sum(masses[j] .* wing_points[j].pos_cad
-                    for j in eachindex(wing_points)) / total_m :
-                mean([point.pos_cad for point in wing_points])
-            I_cad = nothing
-            if total_m > 0
-                I_cad = zeros(3, 3)
-                for (mass, point) in zip(masses, wing_points)
-                    r = point.pos_cad - com_cad
-                    I_cad += mass * (dot(r, r) * I(3) - r * r')
-                end
-            end
-        end
+        com_cad, I_cad = mesh_inertia(wing.aero, wing, points)
         if !isnothing(I_cad)
             I_diag, Ry = calc_inertia_y_rotation(I_cad)
             wing.R_p_to_c .= Ry'  # principal→CAD

@@ -152,6 +152,8 @@ function record end
 function plot_sphere_trajectory end
 function plot_body_frame end
 function plot_aoa end
+function plot_wing_aero! end
+function update_wing_aero_plot! end
 function find_steady_state! end
 function make_lin_sys_state end
 function create_model_archive end

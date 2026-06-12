@@ -98,15 +98,27 @@ calc_side_slip(::AbstractAeroModel, wing) =
     atan(wing.va_b[2], hypot(wing.va_b[1], wing.va_b[3]))
 
 """
-    min_chord_len(mode::AbstractAeroModel, wing) -> Float64
+    min_chord_len(mode::AbstractAeroModel, wing, sys_struct) -> Float64
 
 Minimum chord length [m] of `wing` under aero `mode`, used to scale
-depower/steering set-points. `Inf` when the mode defines no chord geometry;
-VSM modes read it from the tip interpolation or the unrefined sections.
+depower/steering set-points. The default takes the minimum distance between
+each twist surface's first and last point (the LE/TE pair); `Inf` without a
+two-point surface. VSM modes read the tip interpolation or the unrefined
+sections instead.
 """
-min_chord_len(::AbstractAeroModel, wing) = Inf
+function min_chord_len(::AbstractAeroModel, wing, sys_struct)
+    min_len = Inf
+    for twist_surface_idx in wing.twist_surface_idxs
+        twist_surface = sys_struct.twist_surfaces[twist_surface_idx]
+        length(twist_surface.point_idxs) < 2 && continue
+        first_point = sys_struct.points[twist_surface.point_idxs[1]]
+        last_point = sys_struct.points[twist_surface.point_idxs[end]]
+        min_len = min(norm(first_point.pos_w - last_point.pos_w), min_len)
+    end
+    return min_len
+end
 
-function min_chord_len(mode::AbstractVSMAero, wing)
+function min_chord_len(mode::AbstractVSMAero, wing, sys_struct)
     vsm_wing = mode.vsm_wing
     min_len = Inf
     if hasproperty(vsm_wing, :le_interp) && hasproperty(vsm_wing, :te_interp) &&
@@ -125,19 +137,51 @@ function min_chord_len(mode::AbstractVSMAero, wing)
 end
 
 """
-    mesh_inertia(mode::AbstractAeroModel) -> Union{Nothing, NamedTuple}
+    mesh_inertia(mode::AbstractAeroModel, wing, points) -> NamedTuple
 
-Mesh-derived inertia for the wing body, or `nothing` when the mode provides
-none (the wing frame setup falls back to point masses). VSM modes with an
-`ObjWing` mesh return `(com_cad, unit_inertia)` — the tensor is per unit
-mass and its COM is `-T_cad_body`.
+Inertia of the wing body about its COM in the CAD frame, as
+`(com_cad, I_cad)`; `I_cad` is `nothing` when no mass is available. The
+default treats the wing's WING points as point masses
+([`point_mass_inertia`](@ref)). VSM modes with an `ObjWing` mesh use the
+per-unit-mass mesh tensor scaled by `wing.mass` (its COM is `-T_cad_body`)
+and fall back to the point masses otherwise.
 """
-mesh_inertia(::AbstractAeroModel) = nothing
+mesh_inertia(::AbstractAeroModel, wing, points) =
+    point_mass_inertia(wing, points)
 
-function mesh_inertia(mode::AbstractVSMAero)
+function mesh_inertia(mode::AbstractVSMAero, wing, points)
     tensor = mode.vsm_wing.inertia_tensor
-    (isempty(tensor) || all(iszero, tensor)) && return nothing
-    return (com_cad = -mode.vsm_wing.T_cad_body, unit_inertia = tensor)
+    (isempty(tensor) || all(iszero, tensor)) &&
+        return point_mass_inertia(wing, points)
+    return (com_cad = -mode.vsm_wing.T_cad_body,
+            I_cad = wing.mass .* tensor)
+end
+
+"""
+    point_mass_inertia(wing, points) -> NamedTuple
+
+`(com_cad, I_cad)` of the wing's WING points treated as point masses
+(`extra_mass`). With zero total mass, `com_cad` is the unweighted centroid
+and `I_cad` is `nothing`.
+"""
+function point_mass_inertia(wing, points)
+    wing_points = [point for point in points
+                   if point.type == WING && point.wing_idx == wing.idx]
+    masses = [point.extra_mass for point in wing_points]
+    total_mass = sum(masses)
+    com_cad = total_mass > 0 ?
+        sum(masses[j] .* wing_points[j].pos_cad
+            for j in eachindex(wing_points)) / total_mass :
+        mean([point.pos_cad for point in wing_points])
+    I_cad = nothing
+    if total_mass > 0
+        I_cad = zeros(3, 3)
+        for (mass, point) in zip(masses, wing_points)
+            r = point.pos_cad - com_cad
+            I_cad += mass * (dot(r, r) * I(3) - r * r')
+        end
+    end
+    return (; com_cad, I_cad)
 end
 
 # ==================== connector scaffolding ==================== #
@@ -596,17 +640,6 @@ function aero_ref_area(mode::AbstractVSMAero, wing, sys_struct)
     isempty(panels) && return NaN
     return sum(panel.chord * panel.width for panel in panels)
 end
-
-"""
-    aero_plot_geometry(mode) -> Union{Nothing, Any}
-
-Body-frame geometry object the Makie extension renders for live plots; it
-must be `plot!`-able with `R_b_w`/`T_b_w` keywords. `nothing` (default)
-draws nothing; VSM modes return their `BodyAerodynamics`, whose Makie
-recipe ships with VortexStepMethod.
-"""
-aero_plot_geometry(::AbstractAeroModel) = nothing
-aero_plot_geometry(mode::AbstractVSMAero) = mode.vsm_aero
 
 """
     restore_aero_twist!(mode, wing, twist_surfaces)

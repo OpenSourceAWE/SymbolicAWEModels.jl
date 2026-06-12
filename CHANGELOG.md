@@ -1,57 +1,104 @@
 # CHANGELOG
 
-## Unreleased
+## Unreleased (v0.12.0)
 
 ### Added
-- Swappable per-wing aero components, winch-style. Each wing carries an
-  `aero_model` builder (`(sys_struct, wing_idx; name) -> System`) selected by
-  `aero_mode`. The built-in modes map to `default_aero_none` /
-  `default_aero_direct` / `default_aero_linearized`; the new `AERO_CUSTOM`
-  value plugs in a user builder. Components connect at a fixed body-frame
-  contract per `dynamics_type` (RIGID: `va`, `rho`, `R_b_w`, `omega`, `twist`,
-  `twist_vel` → `force`, `moment`, `twist_moment`; PARTICLE: per-point
-  `pos`/`vel` → `force`), validated by `validate_aero_component`.
-- `has_custom_component(sys_struct)`: `init!` now defaults `remake` to rebuild
-  automatically when a custom winch/aero component is present (their equations
-  are not captured by the model hash).
-
-### Removed
-- The dead `SystemStructure` fields `y`, `x`, `jac` (legacy linearization
-  buffers; the per-wing state lives in each mode's `VSMEngine`).
-- `is_vsm(wing)` and `is_plate(wing)` (were exported). Use
-  `vsm_engine(wing.aero) !== nothing` / `wing.aero isa AeroPlate` if you need
-  the check, or better, dispatch on the aero mode.
+- Winch interface (#210): each `Winch` carries a `model` builder
+  (`model(sys_struct, winch_idx; name) -> System`, default
+  `default_winch_component`) so custom winch dynamics plug in as subsystems;
+  contract checked by `validate_winch_component`. New `speed_controlled` flag
+  prescribes reel-out speed directly. See `examples/custom_tape_winch.jl`.
+- Swappable per-wing aero modes (#221 and follow-ups): each `Wing` carries an
+  `aero::AbstractAeroModel` selecting its aerodynamics by dispatch. Built-ins
+  `AeroLinearized` (default for `RIGID_DYNAMICS`), `AeroDirect` (default for
+  `PARTICLE_DYNAMICS`), `AeroPlate`, and `AeroNone`, one file each under
+  `src/aero_modes/`; chosen via the `aero` kwarg or the YAML `aero_mode`
+  column. The mode's `aero_component(mode, sys_struct, wing_idx; name)`
+  returns a subsystem wired at a fixed body-frame connector contract per
+  `dynamics_type` (RIGID: `va`, `rho`, `R_b_w`, `omega`, `twist`, `twist_vel`
+  → `force`, `moment`, `twist_moment`; PARTICLE: per-point `pos`/`vel`/`va`/
+  `rho` → `point_force`), validated by `validate_aero_component`. The
+  generated RHS stays allocation-free (`test_bench.jl`).
+- A custom aero mode needs exactly two methods: `aero_component` and
+  `aero_mode_tag` (cache tag). Everything else is an optional hook with a
+  working default, dispatched on the mode — lifecycle (`setup_aero!`,
+  `remake_aero!`, `validate_aero_structure`, `resize_aero_state!`,
+  `init_aero_state!`), low-frequency refresh (`refresh_rigid_aero!`,
+  `refresh_particle_aero!`, orchestrated by `refresh_aero!`), diagnostics
+  (`calc_aoa`, `calc_side_slip`, `min_chord_len`, `mesh_inertia`,
+  `aero_ref_area`), and visualization (`n_aero_log_points`,
+  `write_aero_log_points!`, `read_aero_log_points!`, `restore_aero_twist!`,
+  `aero_plot_geometry`). There are no `isa`/`is_vsm` branches anywhere in the
+  pipeline, so a custom mode is never excluded from a code path it cannot
+  extend. VSM state (solver, geometry, linearization buffers) lives in a
+  `VSMEngine` carried by `AbstractVSMAero` modes; subtyping it inherits the
+  VSM implementation of every hook.
+- `mesh_inertia` and `min_chord_len` have structural defaults: point-mass
+  inertia from the wing's WING points (`point_mass_inertia`) and the minimum
+  first–last point distance over the wing's twist surfaces, so non-VSM modes
+  get sensible values without writing a method.
+- `has_custom_component(sys_struct)`: `init!` defaults `remake` to rebuild
+  automatically when a custom winch/aero component is present (their
+  equations are not captured by the model hash). Structural mode fields enter
+  the cache key via `aero_hash_id`; the mode tag enters the cache filename.
+- Flat-plate wings log a display quad per section (4 corners, square of side
+  `sqrt(area)`, structural point at quarter chord) via the log-point hooks,
+  so plate geometry shows up in `SysState` logs like VSM panels do.
 
 ### Changed
-- `vsm_eqs.jl` is now a thin winch-style wiring layer: it instantiates each
-  non-plate wing's `aero_model`, binds the body-frame inputs, and reads the
-  outputs. The aero components are attached as subsystems alongside the winch
-  subsystems. The generated RHS stays allocation-free (`test_bench.jl`).
-- `nameof(wing.aero_model)` is folded into the model hash.
-- `AeroNone` is a plain `AbstractAeroModel` again: it carries no `VSMEngine`
-  and needs no VSM geometry or `vsm_set`, so a pure rigid-body wing can be
-  built without any VSM setup.
-- A custom aero mode now needs only two methods: `aero_component` and
-  `aero_mode_tag`. All internal `is_vsm` if-branches are gone: they became
-  per-mode hooks with no-op defaults (`n_aero_log_points` /
-  `write_aero_log_points!` / `read_aero_log_points!` / `restore_aero_twist!`
-  for SysState visualization slots, `mesh_inertia`, `min_chord_len`,
-  `resize_aero_state!`, `init_aero_state!`) or were removed outright (the
-  transform pipeline is aero-agnostic). Subtyping `AbstractVSMAero` inherits
-  the VSM implementations of every hook, so custom modes are never excluded
-  from a code path they cannot extend.
-- Removed the `exposes_aero_input` trait: the `aero_input` connector is
-  detected by name on the built subsystem instead.
-- Flat-plate wings now log a display quad per section (4 corners, square of
-  side `sqrt(area)` with the structural point at quarter chord) via the
-  aero log-point hooks, so plate geometry shows up in `SysState` logs like
-  VSM panels do. Plate logs recorded before this change have a different
-  point count and will not replay.
-- The Makie extension no longer checks for a VSM engine: live wing rendering
-  goes through `aero_plot_geometry(mode)` (return a `plot!`-able object) and
-  the log-derived force coefficients through `aero_ref_area(mode, wing,
-  sys_struct)`. Flat-plate wings now report their summed section area, so
-  coefficient plots work for plate models too.
+- BREAKING: `Group` is renamed to `TwistSurface` throughout (type, YAML
+  section, and fields, e.g. `wing.group_idxs` → `wing.twist_surface_idxs`).
+  Flat-plate surfaces are now 1-point `FIXED` `TwistSurface`s instead of a
+  separate plate type.
+- BREAKING: the wing types are merged into one `Wing` struct. `VSMWing` and
+  `PlateWing` remain as constructor functions; the polar lookups and drag
+  correction of a flat-plate wing live on its `AeroPlate` mode. The
+  `wing_type` keyword is deprecated in favour of `dynamics_type`.
+- `AeroNone` carries no VSM engine and needs no VSM geometry or `vsm_set`, so
+  a pure rigid-body wing builds without any VSM setup (`VSMWing` accepts
+  `vsm_set=nothing` for engine-less modes).
+- The symbolic aero generation was restructured: `vsm_eqs.jl`, `plate_eqs.jl`
+  and `linearize.jl` are replaced by a thin mode-agnostic wiring layer
+  (`aero_eqs.jl`), the per-mode files under `src/aero_modes/`, and
+  `twist_surface_eqs.jl` (formerly `group_eqs.jl`). `SystemStructure`
+  construction is split into `setup_wing_frame!` (mass/inertia/body frame,
+  aero-independent) and the mode-dispatched `setup_aero!`.
+- The Makie extension is aero-mode agnostic: wing rendering dispatches on
+  the aero mode via `plot_wing_aero!(ax, sys, wing, mode)` (and the per-frame
+  `update_wing_aero_plot!`), with methods living in the extension so a custom
+  mode draws with full Makie access. Flat-plate wings now render their
+  section quads in `plot` and `replay` in the VSM panel style (red mesh,
+  black borders). Log-derived force coefficients go through
+  `aero_ref_area(mode, wing, sys_struct)`; flat-plate wings report their
+  summed section area, so coefficient plots work for plate models too.
+- The transform pipeline (`apply_heading!`, `finalize_transforms!`) no longer
+  filters wings by aero mode; flat-plate wings now get heading and frame
+  finalization like every other wing.
+- Internal renames for readability: leading-underscore function names and
+  short abbreviations were removed throughout.
+
+### Removed
+- The exported `is_vsm(wing)` and `is_plate(wing)`. Use
+  `vsm_engine(wing.aero) !== nothing` / `wing.aero isa AeroPlate` if you need
+  the check, or better, dispatch on the aero mode.
+- The dead `SystemStructure` fields `y`, `x`, `jac` (legacy linearization
+  buffers; the per-wing state lives in each mode's `VSMEngine`).
+- The `exposes_aero_input` trait: the `aero_input` connector is detected by
+  name on the built subsystem instead.
+
+### Fixed
+- A `DYNAMIC` twist surface without aero sections left
+  `twist_surface_aero_moment` unbound and broke `mtkcompile`; the wiring now
+  binds the aero component's `twist_moment` for every non-`FIXED`-empty
+  surface.
+- Makie extension: `wing isa VSMWing` checks (a constructor function since
+  the wing merge, so `isa` threw) and a `hasproperty(wing, :vsm_aero)` check
+  that always failed, which made `calc_ref_area` return `NaN` and disabled
+  the coefficient plots.
+
+### Compatibility notes
+- Plate logs recorded before the quad logging have a different point count
+  and will not replay.
 
 ## v0.11.1 06-06-2026
 

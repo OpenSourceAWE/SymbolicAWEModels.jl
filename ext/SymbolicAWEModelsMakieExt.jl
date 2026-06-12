@@ -98,6 +98,81 @@ function calculate_segment_force_colors(segments, segment_color)
     end for seg in segments]
 end
 
+"""
+    plot_wing_aero!(ax, sys, wing, mode::AbstractAeroModel;
+                    use_observables=false, geometry_obs=nothing)
+
+Render `wing`'s aero geometry into `ax`, dispatched on its aero `mode`:
+VSM modes plot their panels via VortexStepMethod's recipe, flat-plate modes
+draw their section quads in the same style (red mesh, black borders). The
+default draws nothing — add a method for a custom mode to render its own
+geometry. With `use_observables`, the plot re-reads the live structure on
+every `geometry_obs` trigger (live plots and replay). Returns the plot
+object, or `nothing` when nothing was drawn.
+"""
+function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing,
+        mode::SymbolicAWEModels.AbstractAeroModel;
+        use_observables=false, geometry_obs=nothing)
+    return nothing
+end
+
+function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing,
+        mode::SymbolicAWEModels.AbstractVSMAero;
+        use_observables=false, geometry_obs=nothing)
+    return plot!(ax, mode.vsm_aero; R_b_w=wing.R_b_to_w, T_b_w=wing.pos_w,
+                 use_observables)
+end
+
+function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
+        use_observables=false, geometry_obs=nothing)
+    quad_vertices() = [Point3f(corner)
+        for twist_surface_idx in wing.twist_surface_idxs
+        for corner in SymbolicAWEModels.plate_corners(
+            sys.twist_surfaces[twist_surface_idx],
+            sys.points[
+                sys.twist_surfaces[twist_surface_idx].point_idxs[1]].pos_w,
+            wing.R_b_to_w)]
+    initial = quad_vertices()
+    isempty(initial) && return nothing
+
+    nan_point = Point3f(NaN, NaN, NaN)
+    quad_borders(verts) = [point
+        for quad_num in 1:(length(verts) ÷ 4)
+        for point in (verts[4quad_num-3], verts[4quad_num-2],
+                      verts[4quad_num-1], verts[4quad_num],
+                      verts[4quad_num-3], nan_point)]
+    faces = GLTriangleFace[]
+    for quad_num in 1:(length(initial) ÷ 4)
+        base = 4 * (quad_num - 1)
+        push!(faces, GLTriangleFace(base + 1, base + 2, base + 3))
+        push!(faces, GLTriangleFace(base + 1, base + 3, base + 4))
+    end
+
+    animate = use_observables && !isnothing(geometry_obs)
+    vertices = animate ?
+        @lift(begin; $geometry_obs; quad_vertices(); end) : initial
+    p = mesh!(ax, vertices, faces; color=(:red, 0.2), transparency=true)
+    borders = animate ?
+        @lift(quad_borders($vertices)) : quad_borders(initial)
+    lines!(ax, borders; color=:black, transparency=true)
+    return p
+end
+
+"""
+    update_wing_aero_plot!(wing, mode::AbstractAeroModel)
+
+Per-frame update of `wing`'s aero plot, dispatched on its aero `mode`.
+Default no-op; VSM modes push the current pose into the panel-mesh
+observables. Modes drawn through the geometry observable (flat-plate quads)
+need no update here.
+"""
+SymbolicAWEModels.update_wing_aero_plot!(wing,
+    ::SymbolicAWEModels.AbstractAeroModel) = nothing
+
+SymbolicAWEModels.update_wing_aero_plot!(wing,
+    mode::SymbolicAWEModels.AbstractVSMAero) =
+    plot!(mode.vsm_aero; R_b_w=wing.R_b_to_w, T_b_w=wing.pos_w)
+
 function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
                      wing_colors = Makie.wong_colors(), vector_scale = 1.0,
@@ -215,11 +290,10 @@ function Makie.plot!(ax, sys::SystemStructure;
     if plot_vsm && !isempty(sys.wings)
         plots[:vsm] = []
         use_obs = !isnothing(geometry_obs)
-        for (i, wing) in enumerate(sys.wings)
-            geometry = SymbolicAWEModels.aero_plot_geometry(wing.aero)
-            isnothing(geometry) && continue
-            p = plot!(ax, geometry; R_b_w=wing.R_b_to_w, T_b_w=wing.pos_w, use_observables=use_obs)
-            push!(plots[:vsm], p)
+        for wing in sys.wings
+            p = SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, wing.aero;
+                use_observables=use_obs, geometry_obs)
+            isnothing(p) || push!(plots[:vsm], p)
         end
     end
 
@@ -427,12 +501,11 @@ function SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
         PLOT_SEGMENT_COLORS_OBS[][] = calculate_segment_force_colors(sys.segments, PLOT_SEGMENT_COLOR[])
     end
 
-    # Update VSM panel meshes
+    # Update per-mode aero plots (VSM panel meshes; quad plots update
+    # through the geometry observable on their own)
     if !isnothing(PLOT_GEOMETRY_OBS[])
         for wing in sys.wings
-            geometry = SymbolicAWEModels.aero_plot_geometry(wing.aero)
-            isnothing(geometry) && continue
-            plot!(geometry; R_b_w=wing.R_b_to_w, T_b_w=wing.pos_w)
+            SymbolicAWEModels.update_wing_aero_plot!(wing, wing.aero)
         end
     end
 
