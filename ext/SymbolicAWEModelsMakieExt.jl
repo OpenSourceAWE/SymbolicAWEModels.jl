@@ -98,18 +98,6 @@ function calculate_segment_force_colors(segments, segment_color)
     end for seg in segments]
 end
 
-"""
-    plot_wing_aero!(ax, sys, wing, mode::AbstractAeroModel;
-                    use_observables=false, geometry_obs=nothing)
-
-Render `wing`'s aero geometry into `ax`, dispatched on its aero `mode`:
-VSM modes plot their panels via VortexStepMethod's recipe, flat-plate modes
-draw their section quads in the same style (red mesh, black borders). The
-default draws nothing — add a method for a custom mode to render its own
-geometry. With `use_observables`, the plot re-reads the live structure on
-every `geometry_obs` trigger (live plots and replay). Returns the plot
-object, or `nothing` when nothing was drawn.
-"""
 function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing,
         mode::SymbolicAWEModels.AbstractAeroModel;
         use_observables=false, geometry_obs=nothing)
@@ -158,14 +146,6 @@ function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
     return p
 end
 
-"""
-    update_wing_aero_plot!(wing, mode::AbstractAeroModel)
-
-Per-frame update of `wing`'s aero plot, dispatched on its aero `mode`.
-Default no-op; VSM modes push the current pose into the panel-mesh
-observables. Modes drawn through the geometry observable (flat-plate quads)
-need no update here.
-"""
 SymbolicAWEModels.update_wing_aero_plot!(wing,
     ::SymbolicAWEModels.AbstractAeroModel) = nothing
 
