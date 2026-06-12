@@ -2025,6 +2025,14 @@ function apply_zoom_mode!(scene, relevant_plots, stored_sys; mode_changed::Bool)
 end
 
 """
+    hover_ref_label(name, idx)
+
+Hover label for a point/segment: its `name` ref (e.g. `bridle_1`) when set,
+falling back to the integer `idx` for auto-generated components with no name.
+"""
+hover_ref_label(name, idx) = isnothing(name) ? string(idx) : string(name)
+
+"""
     setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                                  segment_plots::Vector, all_plots;
                                  segment_colors, highlight_color=:yellow,
@@ -2032,8 +2040,8 @@ end
 
 Add hover labels and click-to-zoom for segments across multiple systems.
 
-For multi-system, labels show "sys_idx:seg_idx" and "sys_idx:pt_idx" format.
-For single system, labels show just "seg_idx" and "pt_idx".
+For multi-system, labels show "sys_idx:seg_ref" and "sys_idx:pt_ref" format.
+For single system, labels show just "seg_ref" and "pt_ref".
 """
 function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                                       segment_plots::Vector, all_plots;
@@ -2112,20 +2120,22 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                 p1_3d = sys.points[seg.point_idxs[1]].pos_w
                 p2_3d = sys.points[seg.point_idxs[2]].pos_w
 
-                # Multi-system label format: "1:seg5" or just "seg5" if single system
+                # Multi-system label format: "1:seg_ref" or just "seg_ref" if single system
                 prefix = length(systems) > 1 ? "$(sys_i):" : ""
+                p1 = sys.points[seg.point_idxs[1]]
+                p2 = sys.points[seg.point_idxs[2]]
 
                 mid_point_2d = Makie.project(scene, (p1_3d + p2_3d) / 2)
-                segment_label[] = "$(prefix)$(seg_i)"
+                segment_label[] = "$(prefix)$(hover_ref_label(seg.name, seg_i))"
                 segment_label_pos[] = mid_point_2d + Point2f(20, 0)
                 segment_label_visible[] = true
 
                 p1_2d = Makie.project(scene, p1_3d)
                 p2_2d = Makie.project(scene, p2_3d)
-                point1_label[] = "$(prefix)$(seg.point_idxs[1])"
+                point1_label[] = "$(prefix)$(hover_ref_label(p1.name, seg.point_idxs[1]))"
                 point1_label_pos[] = p1_2d + Point2f(20, 0)
                 point1_label_visible[] = true
-                point2_label[] = "$(prefix)$(seg.point_idxs[2])"
+                point2_label[] = "$(prefix)$(hover_ref_label(p2.name, seg.point_idxs[2]))"
                 point2_label_pos[] = p2_2d + Point2f(20, 0)
                 point2_label_visible[] = true
             else

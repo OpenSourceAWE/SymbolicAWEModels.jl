@@ -191,8 +191,9 @@ function validate_sys_struct(sys_struct::SystemStructure)
 
     # ==================== SEGMENT VALIDATIONS ==================== #
     for segment in segments
-        # Diameter should be in valid range (warn only, not critical)
-        if !(0 < segment.diameter < 1)
+        # Wing structural segments don't use diameter (stiffness explicit, drag from VSM)
+        wing_structural = all(points[i].type == WING for i in segment.point_idxs)
+        if !wing_structural && !(0 < segment.diameter < 1)
             @warn "Segment $(segment.name) has unusual diameter " *
                   "$(segment.diameter) m (expected range: 0 to 1 m)"
         end

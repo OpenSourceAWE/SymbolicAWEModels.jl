@@ -190,6 +190,10 @@ get_drag_frac(sys::SystemStructure, idx::Int64) =
     sys.wings[idx].drag_frac
 @register_symbolic get_drag_frac(
     sys::SystemStructure, idx::Int64)
+get_group_points_moment(sys::SystemStructure, idx::Int64) =
+    sys.wings[idx].group_points_moment
+@register_symbolic get_group_points_moment(
+    sys::SystemStructure, idx::Int64)
 get_y_damping(sys::SystemStructure, idx::Int64) =
     sys.wings[idx].y_damping
 @register_symbolic get_y_damping(

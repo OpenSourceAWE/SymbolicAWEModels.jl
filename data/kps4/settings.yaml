@@ -9,6 +9,7 @@ system:
     zoom:        0.03              # zoom factor for the system view
     kite_scale:   3.0              # relative zoom factor for the 4 point kite
     fixed_font: ""                 # name or filepath+filename of alternative fixed pitch font, e.g. Liberation Mono
+    g_earth:     9.81              # gravity; KiteModels hardcodes 9.81, SAM reads this
 
 initial:
     elevations: [70.8]               # initial elevation angle   [deg]

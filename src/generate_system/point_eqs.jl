@@ -206,6 +206,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, twist_surfaces,
                         found += 1
                     end
                 end
+                in_group = found == 1
                 !(found in [0, 1]) && error(
                     "Kite point number $(point.idx) is part of $found twist_surfaces, " *
                     "and should be part of exactly 0 or 1 twist_surfaces.",
@@ -244,9 +245,18 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, twist_surfaces,
                         pos[:, point.idx] -
                         com_w[:, point.wing_idx]
                 ]
-                tether_wing_moment[:, point.wing_idx] .+=
-                    tether_r[:, point.idx] ×
+                # In-group (twist_surface) points can be excluded from the
+                # wing moment via the wing's group_points_moment flag, while
+                # their force always contributes.
+                point_moment = tether_r[:, point.idx] ×
                     point_force[:, point.idx]
+                if in_group
+                    point_moment = ifelse.(
+                        get_group_points_moment(
+                            psys, point.wing_idx) == true,
+                        point_moment, zeros(3))
+                end
+                tether_wing_moment[:, point.wing_idx] .+= point_moment
                 tether_wing_force[:, point.wing_idx] .+=
                     point_force[:, point.idx]
 

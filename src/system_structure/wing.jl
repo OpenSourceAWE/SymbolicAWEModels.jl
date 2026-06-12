@@ -170,6 +170,8 @@ mutable struct Wing <: AbstractWing
     course::SimFloat
     aoa::SimFloat
     fix_sphere::Bool
+    "Whether in-group (twist_surface) points contribute their moment to the wing body."
+    group_points_moment::Bool
     y_damping::SimFloat
     angular_damping::SimFloat
     z_disturb::SimFloat
@@ -277,6 +279,8 @@ are resolved by `SystemStructure`.
 - `y_damping`, `angular_damping`: Damping coefficients.
 - `dynamics_type::WingType`: `RIGID_DYNAMICS` (default) or `PARTICLE_DYNAMICS`.
 - `aero::AbstractAeroModel`: Aerodynamic model (defaults by `dynamics_type`).
+- `group_points_moment::Bool=true`: When `false`, in-group (twist_surface) points
+  add no moment to the wing body; their force still contributes. Runtime-switchable.
 - `z_ref_points`, `y_ref_points`, `origin`: Body-frame reference points (raw refs).
   A VSM engine, when needed, lives in the `aero` mode (built by the VSM constructors).
 """
@@ -287,6 +291,7 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
               dynamics_type::Union{Nothing,WingType}=nothing,
               aero::Union{Nothing,AbstractAeroModel}=nothing,
               wing_type::Union{Nothing,WingType}=nothing,
+              group_points_moment::Bool=true,
               z_ref_points=nothing, y_ref_points=nothing, origin=nothing)
     # Handle deprecated wing_type keyword
     if !isnothing(wing_type)
@@ -334,6 +339,7 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
         zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         zeros(KVec3), zeros(KVec3), 0.0, 0.0, false,
+        group_points_moment,
         y_damping, angular_damping, 0.0,
         0.0,  # mass initialized to 0, set by SystemStructure
         z_ref, y_ref, origin_rp)
@@ -438,6 +444,8 @@ it to the wing.
 - `y_damping`, `angular_damping`: Damping coefficients.
 - `dynamics_type::WingType=RIGID_DYNAMICS`: Aerodynamic model type.
 - `aero::AbstractAeroModel`: Aerodynamic model (defaults by `dynamics_type`).
+- `group_points_moment::Bool=true`: When `false`, in-group (twist_surface) points
+  add no moment to the wing body; their force still contributes. Runtime-switchable.
 - `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
 - `z_ref_points`, `y_ref_points`, `origin`: Body-frame references.
 - `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
@@ -453,6 +461,7 @@ function VSMWing(name, set::Settings,
                  dynamics_type::Union{Nothing,WingType}=nothing,
                  aero::Union{Nothing,AbstractAeroModel}=nothing,
                  wing_type::Union{Nothing,WingType}=nothing,
+                 group_points_moment::Bool=true,
                  point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}=nothing,
                  wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}=nothing,
                  z_ref_points=nothing,
@@ -506,7 +515,7 @@ function VSMWing(name, set::Settings,
 
     return Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_vec;
         transform, y_damping, angular_damping, dynamics_type, aero,
-        z_ref_points, y_ref_points, origin)
+        group_points_moment, z_ref_points, y_ref_points, origin)
 end
 
 """
