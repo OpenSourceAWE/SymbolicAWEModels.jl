@@ -25,18 +25,20 @@
   `remake_aero!`, `validate_aero_structure`, `resize_aero_state!`,
   `init_aero_state!`), low-frequency refresh (`refresh_rigid_aero!`,
   `refresh_particle_aero!`, orchestrated by `refresh_aero!`), diagnostics
-  (`calc_aoa`, `calc_side_slip`, `min_chord_len`, `mesh_inertia`,
-  `aero_ref_area`), and visualization (`n_aero_log_points`,
-  `write_aero_log_points!`, `read_aero_log_points!`, `restore_aero_twist!`,
-  `aero_plot_geometry`). There are no `isa`/`is_vsm` branches anywhere in the
+  (`calc_aoa`, `normalized_inertia`),
+  log-point visualization (`n_aero_log_points`, `write_aero_log_points!`,
+  `read_aero_log_points!`, `restore_aero_twist!`), and live Makie rendering
+  (`plot_wing_aero!` / `update_wing_aero_plot!`, with methods in the Makie
+  extension). There are no `isa`/`is_vsm` branches anywhere in the
   pipeline, so a custom mode is never excluded from a code path it cannot
   extend. VSM state (solver, geometry, linearization buffers) lives in a
   `VSMEngine` carried by `AbstractVSMAero` modes; subtyping it inherits the
   VSM implementation of every hook.
-- `mesh_inertia` and `min_chord_len` have structural defaults: point-mass
-  inertia from the wing's WING points (`point_mass_inertia`) and the minimum
-  first–last point distance over the wing's twist surfaces, so non-VSM modes
-  get sensible values without writing a method.
+- `normalized_inertia` returns per-unit-mass inertia [m²] for every mode —
+  the VSM `ObjWing` mesh tensor is already normalized and is now passed
+  through as-is, the default normalizes the WING-point point-mass inertia
+  (`normalized_point_inertia`), and the single scaling by `wing.mass`
+  happens in `setup_wing_frame!`.
 - `has_custom_component(sys_struct)`: `init!` defaults `remake` to rebuild
   automatically when a custom winch/aero component is present (their
   equations are not captured by the model hash). Structural mode fields enter
@@ -68,9 +70,7 @@
   `update_wing_aero_plot!`), with methods living in the extension so a custom
   mode draws with full Makie access. Flat-plate wings now render their
   section quads in `plot` and `replay` in the VSM panel style (red mesh,
-  black borders). Log-derived force coefficients go through
-  `aero_ref_area(mode, wing, sys_struct)`; flat-plate wings report their
-  summed section area, so coefficient plots work for plate models too.
+  black borders).
 - The transform pipeline (`apply_heading!`, `finalize_transforms!`) no longer
   filters wings by aero mode; flat-plate wings now get heading and frame
   finalization like every other wing.
@@ -85,16 +85,30 @@
   buffers; the per-wing state lives in each mode's `VSMEngine`).
 - The `exposes_aero_input` trait: the `aero_input` connector is detected by
   name on the built subsystem instead.
+- The V3-kite-specific analysis code in the Makie extension:
+  `compute_ekf_yaw_and_rate`, `compute_ekf_yaw_and_rate_tension`,
+  `calculate_cs`, `calc_ref_area`, `middle_le_to_kcu_dir` and their helpers,
+  along with the `plot_cs`, `plot_yaw_rate_paper` and `plot_gk_paper` panels
+  (the last hardcoded a V3 segment index). V3Kite carries its own copies.
+- The `tape_lengths` kwarg of the multi-panel plot and the hardcoded
+  steering reconstruction from `segments[87]`: the `plot_us` and `plot_gk`
+  panels now read the logged `syslog.steering` directly (so `steering` must
+  be written into the `SysState` before `log!` for these panels to show
+  data).
+- `set_depower_steering!`, `min_chord_len`, and the
+  `SymbolicAWEModel.set_tether_len` field (3-line-kite-specific set-point
+  logic with hardcoded tether indices). `calc_side_slip` no longer
+  dispatches on the aero mode — it is the same apparent-wind formula for
+  every mode and takes just the wing.
 
 ### Fixed
 - A `DYNAMIC` twist surface without aero sections left
   `twist_surface_aero_moment` unbound and broke `mtkcompile`; the wiring now
   binds the aero component's `twist_moment` for every non-`FIXED`-empty
   surface.
-- Makie extension: `wing isa VSMWing` checks (a constructor function since
-  the wing merge, so `isa` threw) and a `hasproperty(wing, :vsm_aero)` check
-  that always failed, which made `calc_ref_area` return `NaN` and disabled
-  the coefficient plots.
+- Makie extension: `wing isa VSMWing` checks in the panel plotting and the
+  log-slot lookup threw at runtime (`VSMWing` is a constructor function since
+  the wing merge, not a type).
 
 ### Compatibility notes
 - Plate logs recorded before the quad logging have a different point count

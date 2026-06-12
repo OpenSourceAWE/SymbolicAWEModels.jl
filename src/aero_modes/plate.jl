@@ -230,17 +230,6 @@ structural point positions, so nothing is read back.
 read_aero_log_points!(mode::AeroPlate, wing, sys_struct, sys_state,
                       point_idx) = point_idx + n_aero_log_points(mode, wing)
 
-"""
-    aero_ref_area(::AeroPlate, wing, sys_struct) -> Float64
-
-Sum of the wing's flat-plate section areas; `NaN` without sections.
-"""
-function aero_ref_area(::AeroPlate, wing, sys_struct)
-    isempty(wing.twist_surface_idxs) && return NaN
-    return sum(sys_struct.twist_surfaces[idx].area
-               for idx in wing.twist_surface_idxs)
-end
-
 # ==================== YAML construction ==================== #
 
 function load_wing(mode::AeroPlate, row, idx, data, set, wing_type, vsm_set,

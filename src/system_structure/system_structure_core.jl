@@ -719,8 +719,10 @@ function setup_wing_frame!(wing, points; prn=true)
         any(point.type == WING && point.wing_idx == wing.idx
             for point in points) || return nothing
 
-        com_cad, I_cad = mesh_inertia(wing.aero, wing, points)
-        if !isnothing(I_cad)
+        com_cad, inertia_normalized = normalized_inertia(wing.aero, wing, points)
+        if !isnothing(inertia_normalized)
+            # The hook returns per-unit-mass inertia [m²]; scale once here.
+            I_cad = wing.mass .* inertia_normalized
             I_diag, Ry = calc_inertia_y_rotation(I_cad)
             wing.R_p_to_c .= Ry'  # principal→CAD
             wing.inertia_principal .= diag(I_diag)

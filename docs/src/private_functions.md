@@ -81,8 +81,6 @@ SymbolicAWEModels.ControlFuncWithAttributes
 ```@docs
 SymbolicAWEModels.get_model_name
 SymbolicAWEModels.calc_height
-SymbolicAWEModels.set_depower_steering!
-SymbolicAWEModels.min_chord_len
 SymbolicAWEModels.pos
 SymbolicAWEModels.spring_forces
 SymbolicAWEModels.calc_spring_props
@@ -207,13 +205,12 @@ SymbolicAWEModels.remake_aero!
 SymbolicAWEModels.setup_aero!
 SymbolicAWEModels.resize_aero_state!
 SymbolicAWEModels.init_aero_state!
-SymbolicAWEModels.mesh_inertia
-SymbolicAWEModels.point_mass_inertia
+SymbolicAWEModels.normalized_inertia
+SymbolicAWEModels.normalized_point_inertia
 SymbolicAWEModels.n_aero_log_points
 SymbolicAWEModels.write_aero_log_points!
 SymbolicAWEModels.read_aero_log_points!
 SymbolicAWEModels.restore_aero_twist!
-SymbolicAWEModels.aero_ref_area
 SymbolicAWEModels.plot_wing_aero!
 SymbolicAWEModels.update_wing_aero_plot!
 SymbolicAWEModels.load_wing

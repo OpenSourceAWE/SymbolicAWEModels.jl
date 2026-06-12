@@ -165,8 +165,6 @@ $(TYPEDFIELDS)
     t_vsm::SimFloat  = zero(SimFloat)
     "Time spent in the ODE integration step"
     t_step::SimFloat = zero(SimFloat)
-    "Vector of tether length set-points"
-    set_tether_len::Vector{SimFloat} = zeros(SimFloat, 3)
 end
 
 """
@@ -176,7 +174,7 @@ Tuple of field names that are direct fields of `SymbolicAWEModel` (as opposed to
 delegated to the nested `serialized_model`). Used by `getproperty` and `setproperty!`
 to dispatch field access correctly.
 """
-const SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :set_tether_len)
+const SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step)
 
 """
     Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
@@ -299,7 +297,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         # Calculate AoA and Side Slip from apparent wind in body frame
         if ss.v_app > 1e-6 # Avoid division by zero
             ss.AoA = calc_aoa(wing.aero, wing)
-            ss.side_slip = calc_side_slip(wing.aero, wing)
+            ss.side_slip = calc_side_slip(wing)
         else
             ss.AoA = NaN       # Apparent wind too small to define AoA
             ss.side_slip = NaN # Side slip not defined for zero apparent wind
@@ -750,31 +748,4 @@ Returns a vector of the position vectors [m] for each point in the system.
 """
 pos(sam::SymbolicAWEModel) = [point.pos_w for point in sam.sys_struct.points]
 
-"""
-    min_chord_len(s::SymbolicAWEModel)
-
-Calculates the minimum chord length of the wing at the tip.
-"""
-function min_chord_len(sam::SymbolicAWEModel)
-    min_len = Inf
-    for wing in sam.sys_struct.wings
-        min_len = min(min_chord_len(wing.aero, wing, sam.sys_struct), min_len)
-    end
-    return min_len
-end
-
-"""
-    set_depower_steering!(s::SymbolicAWEModel, depower, steering)
-
-Sets the kite's depower and steering by adjusting the tether length set-points.
-"""
-function set_depower_steering!(sam::SymbolicAWEModel, depower, steering)
-    len = sam.set_tether_len
-    len .= [tether.len for tether in sam.sys_struct.tethers]
-    depower *= min_chord_len(sam)
-    steering *= min_chord_len(sam)
-    len[2] = 0.5 * (2*depower + 2*len[1] + steering)
-    len[3] = 0.5 * (2*depower + 2*len[1] - steering)
-    return nothing
-end
 

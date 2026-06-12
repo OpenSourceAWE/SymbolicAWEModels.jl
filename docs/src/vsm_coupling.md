@@ -223,34 +223,44 @@ function SymbolicAWEModels.aero_component(::MyAero, sys_struct, wing_idx; name)
 end
 SymbolicAWEModels.aero_mode_tag(::MyAero) = "myaero"
 
-VSMWing(name, set, groups, vsm_set; aero = MyAero())
+Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia; aero = MyAero())
 ```
 
-Everything else has working defaults: no twist-surface coupling, no VSM
-engine, no-op construction/refresh hooks, `NaN` angle of attack, and a forced
-model rebuild (see below). Optional hooks (each defaulting to a no-op on
-`AbstractAeroModel`) let a mode participate in the rest of the pipeline:
-[`setup_aero!`](@ref) / [`remake_aero!`](@ref) /
-[`validate_aero_structure`](@ref) (lifecycle),
-[`refresh_rigid_aero!`](@ref) / [`refresh_particle_aero!`](@ref)
-(low-frequency updates), [`resize_aero_state!`](@ref) /
-[`init_aero_state!`](@ref) (per-wing state), [`mesh_inertia`](@ref),
-`min_chord_len`, [`calc_aoa`](@ref), and the log-point hooks
-[`n_aero_log_points`](@ref) / [`write_aero_log_points!`](@ref) /
-[`read_aero_log_points!`](@ref) / [`restore_aero_twist!`](@ref), with which a
-mode contributes its own visualization geometry to the `SysState` log, plus
-[`aero_ref_area`](@ref), and live Makie rendering via
-[`plot_wing_aero!`](@ref) / [`update_wing_aero_plot!`](@ref) (methods live in
-the Makie extension, so a custom mode draws with full Makie access).
-Subtyping [`AbstractVSMAero`](@ref) (a `VSMEngine` in an `engine` field,
-exposed via [`vsm_engine`](@ref)) inherits VSM implementations of all of
-them. There are no `isa`/`is_vsm` branches in the pipeline, so a custom mode
-is never excluded from a code path it cannot extend.
+Everything else is an **optional hook with a working default**, dispatched
+on the mode:
+
+- **Lifecycle**: [`setup_aero!`](@ref) (construction),
+  [`remake_aero!`](@ref) (settings change), [`validate_aero_structure`](@ref)
+  (build-time checks), [`resize_aero_state!`](@ref) (after name resolution),
+  [`init_aero_state!`](@ref) (initial operating point).
+- **Low-frequency refresh** (every `vsm_interval` steps, orchestrated by
+  [`refresh_aero!`](@ref)): [`refresh_rigid_aero!`](@ref) /
+  [`refresh_particle_aero!`](@ref).
+- **Diagnostics**: [`calc_aoa`](@ref) (default `NaN`),
+  [`normalized_inertia`](@ref) — per-unit-mass inertia [m²], scaled by the
+  wing's mass at the single consumer (default: normalized point-mass inertia
+  from the WING points).
+- **Log-point visualization**: [`n_aero_log_points`](@ref) /
+  [`write_aero_log_points!`](@ref) / [`read_aero_log_points!`](@ref) /
+  [`restore_aero_twist!`](@ref) — extra `SysState` slots for the mode's
+  display geometry (defaults: none).
+- **Live Makie rendering**: [`plot_wing_aero!`](@ref) /
+  [`update_wing_aero_plot!`](@ref) — methods live in the Makie extension,
+  so a custom mode draws with full Makie access (default: draws nothing).
+- **Traits**: [`couples_to_sections`](@ref) (needs per-section twist
+  surfaces; default `false`), [`provides_aero_override`](@ref),
+  [`stores_point_force`](@ref), and the cache controls
+  [`is_builtin_aero`](@ref) / [`aero_hash_id`](@ref) (see below).
+
+Subtyping [`AbstractVSMAero`](@ref) (a [`VSMEngine`](@ref) in an `engine`
+field, exposed via [`vsm_engine`](@ref)) inherits the VSM implementation of
+every hook. There are no `isa`/`is_vsm` branches in the pipeline, so a
+custom mode is never excluded from a code path it cannot extend.
 
 The returned `System`'s connectors are fixed by the wing's `dynamics_type`
 (all quantities in the wing **body frame**):
 
-- **`RIGID_DYNAMICS`** (`ng = length(wing.group_idxs)`):
+- **`RIGID_DYNAMICS`** (`ng = length(wing.twist_surface_idxs)`):
   - inputs: `va[1:3]`, `rho`, `R_b_w[1:3,1:3]`, `omega[1:3]`,
     and — when `ng > 0` — `twist[1:ng]`, `twist_vel[1:ng]`
   - outputs: `force[1:3]`, `moment[1:3]`, `twist_moment[1:ng]`
