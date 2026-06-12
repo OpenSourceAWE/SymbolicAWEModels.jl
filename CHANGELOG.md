@@ -46,6 +46,8 @@
 - Flat-plate wings log a display quad per section (4 corners, square of side
   `sqrt(area)`, structural point at quarter chord) via the log-point hooks,
   so plate geometry shows up in `SysState` logs like VSM panels do.
+- New `FIXED` `DynamicsType`: a twist surface whose twist is a prescribed
+  control input (no differential state). Flat-plate surfaces use it.
 
 ### Changed
 - BREAKING: `Group` is renamed to `TwistSurface` throughout (type, YAML
@@ -78,9 +80,14 @@
   short abbreviations were removed throughout.
 
 ### Removed
-- The exported `is_vsm(wing)` and `is_plate(wing)`. Use
-  `vsm_engine(wing.aero) !== nothing` / `wing.aero isa AeroPlate` if you need
-  the check, or better, dispatch on the aero mode.
+- BREAKING: the exported `PlateSurface` type and the `AeroMode` enum with its
+  `AERO_NONE`/`AERO_DIRECT`/`AERO_LINEARIZED`/`AERO_PLATE` values, along with
+  the `BaseWing` type. Use the `AbstractAeroModel` mode structs and the single
+  `Wing` type instead.
+- BREAKING: `VSMWing` and `PlateWing` are now constructor functions, not types,
+  so `wing isa VSMWing` / `isa PlateWing` errors. Use the exported
+  `wing.aero isa AbstractVSMAero` / `wing.aero isa AeroPlate` if you need the
+  check, or better, dispatch on the aero mode.
 - The dead `SystemStructure` fields `y`, `x`, `jac` (legacy linearization
   buffers; the per-wing state lives in each mode's `VSMEngine`).
 - The `exposes_aero_input` trait: the `aero_input` connector is detected by
