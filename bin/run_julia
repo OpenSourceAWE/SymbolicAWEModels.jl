@@ -27,7 +27,7 @@ fi
 if [[ $# -gt 0 ]]; then
     JULIA_ARGS=("$@")
 else
-    JULIA_ARGS=()
+    JULIA_ARGS=(-i -e 'function menu(); include("examples/menu.jl"); end')
 fi
 
 THREADS="auto"
