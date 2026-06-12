@@ -119,8 +119,8 @@ end
 function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing,
         mode::SymbolicAWEModels.AbstractVSMAero;
         use_observables=false, geometry_obs=nothing)
-    return plot!(ax, mode.vsm_aero; R_b_w=wing.R_b_to_w, T_b_w=wing.pos_w,
-                 use_observables)
+    return plot!(ax, mode.vsm_aero; R_b_w=wing.R_b_to_w,
+                 T_b_w=aero_plot_translation(wing), use_observables)
 end
 
 function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
@@ -171,7 +171,18 @@ SymbolicAWEModels.update_wing_aero_plot!(wing,
 
 SymbolicAWEModels.update_wing_aero_plot!(wing,
     mode::SymbolicAWEModels.AbstractVSMAero) =
-    plot!(mode.vsm_aero; R_b_w=wing.R_b_to_w, T_b_w=wing.pos_w)
+    plot!(mode.vsm_aero; R_b_w=wing.R_b_to_w,
+          T_b_w=aero_plot_translation(wing))
+
+"""
+    aero_plot_translation(wing)
+
+World-frame translation for the wing's VSM panels with `aero_z_offset`
+removed, so panels render at the structural pose instead of the shifted
+aero pose.
+"""
+aero_plot_translation(wing) =
+    wing.pos_w .- wing.R_b_to_w * [0.0, 0.0, wing.aero_z_offset]
 
 function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
