@@ -28,6 +28,7 @@ AbstractVSMAero
 AeroDirect
 AeroLinearized
 AeroPlate
+ContinuousAero
 aero_component
 is_builtin_aero
 aero_hash_id

@@ -306,6 +306,7 @@ function parse_aero_mode(text::String)
     key in ("aerodirect", "direct") && return AeroDirect()
     key in ("aerolinearized", "linearized") && return AeroLinearized()
     key in ("aeroplate", "plate") && return AeroPlate()
+    key in ("continuousaero", "continuous") && return ContinuousAero()
     error("Unknown aero model: $text")
 end
 

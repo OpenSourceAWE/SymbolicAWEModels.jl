@@ -1,0 +1,418 @@
+# Copyright (c) 2025 Bart van de Lint
+# SPDX-License-Identifier: LGPL-3.0-only
+
+# ContinuousAero: frozen-circulation VSM with live symbolic force assembly
+# (PARTICLE_DYNAMICS). The refresh solves only the circulation and freezes the
+# per-refined-panel induced velocity; the compiled RHS rebuilds the force
+# chain of VSM's `calc_forces!` symbolically per refined panel, so the forces
+# respond to wing motion between refreshes (aerodynamic damping), unlike the
+# piecewise-constant AeroDirect forces.
+
+"""
+    ContinuousAero()
+
+Frozen-circulation VSM aerodynamics with live symbolic force assembly
+(`PARTICLE_DYNAMICS` only). The VSM solver runs every `vsm_interval` steps and
+solves only the circulation distribution (`VortexStepMethod.solve_base!`); the
+resulting per-refined-panel induced velocity is frozen. Each RHS step then
+evaluates the `calc_forces!` chain symbolically per refined panel — geometry
+interpolated from the live strut points with the frozen mesh weights,
+effective angle of attack, polar lookups, and lift/drag directions all live —
+capturing aerodynamic damping between refreshes. Carries a
+[`VSMEngine`](@ref); the no-arg form is the engine-less marker filled in
+during wing construction.
+"""
+mutable struct ContinuousAero <: AbstractVSMAero
+    engine::Union{Nothing, VSMEngine}
+    "Frozen body-frame induced velocity per refined panel (3 × n_panels)."
+    v_ind::Matrix{SimFloat}
+    "Left strut (unrefined section) of each refined section (n_panels + 1)."
+    section_left_strut::Vector{Int64}
+    "Left-strut weight: section = w·strut[left] + (1−w)·strut[left+1]."
+    section_left_weight::Vector{SimFloat}
+end
+
+ContinuousAero() =
+    ContinuousAero(nothing, zeros(SimFloat, 3, 0), Int64[], SimFloat[])
+
+is_builtin_aero(::ContinuousAero) = true
+aero_mode_tag(::ContinuousAero) = "cont"
+
+"""
+    aero_hash_id(mode::ContinuousAero)
+
+The frozen mesh-interpolation weights are baked into the generated equations,
+so they are structural and enter the model-cache hash.
+"""
+aero_hash_id(mode::ContinuousAero) =
+    (mode.section_left_strut, round.(mode.section_left_weight; digits=8))
+
+# ==================== registered accessors ==================== #
+"""
+    induced_velocity_component(mode::ContinuousAero, panel_idx, component)
+
+Function barrier (see accessors.jl): the wing's `aero` field is abstract, so
+the buffer read is dispatched to the concrete mode and return-annotated to
+stay type-stable and allocation-free in the compiled RHS.
+"""
+induced_velocity_component(mode::ContinuousAero, panel_idx::Int,
+                           component::Int)::SimFloat =
+    mode.v_ind[component, panel_idx]
+
+"""
+    get_continuous_v_ind(sys, wing_idx, panel_idx, component)
+
+Frozen body-frame induced-velocity component [m/s] of refined panel
+`panel_idx` of wing `wing_idx`, read live from the [`ContinuousAero`](@ref)
+buffer.
+"""
+get_continuous_v_ind(sys::SystemStructure, wing_idx::Int64,
+                     panel_idx::Int, component::Int) =
+    induced_velocity_component(sys.wings[wing_idx].aero, panel_idx, component)
+@register_symbolic get_continuous_v_ind(
+    sys::SystemStructure, wing_idx::Int64, panel_idx::Int, component::Int)
+
+"""
+    continuous_panel(mode::ContinuousAero, panel_idx) -> Panel
+
+The refined VSM panel, typeasserted concrete (the wing's `aero` and the
+engine field are abstract) so the polar calls dispatch statically with an
+inferred Float64 return — a dynamic call would box the `alpha` argument and
+allocate in the compiled RHS. Only `Int`s cross the one remaining dynamic
+boundary (this function), which costs nothing.
+"""
+continuous_panel(mode::ContinuousAero, panel_idx::Int) =
+    mode.vsm_aero.panels[panel_idx]::VortexStepMethod.Panel{SimFloat}
+
+"""
+    get_continuous_cl(sys, wing_idx, panel_idx, alpha)
+
+Lift coefficient of refined panel `panel_idx` at angle of attack `alpha`
+[rad], evaluated live on the panel polar (`ForwardDiff.Dual`-safe, so the
+solver can differentiate through it).
+"""
+get_continuous_cl(sys::SystemStructure, wing_idx::Int64,
+                  panel_idx::Int, alpha) =
+    VortexStepMethod.calculate_cl(
+        continuous_panel(sys.wings[wing_idx].aero, panel_idx), alpha)
+@register_symbolic get_continuous_cl(
+    sys::SystemStructure, wing_idx::Int64, panel_idx::Int, alpha)
+
+"""
+    get_continuous_cd(sys, wing_idx, panel_idx, alpha)
+
+Drag coefficient of refined panel `panel_idx` at angle of attack `alpha` [rad]
+(live polar lookup, see [`get_continuous_cl`](@ref)).
+"""
+get_continuous_cd(sys::SystemStructure, wing_idx::Int64,
+                  panel_idx::Int, alpha) =
+    VortexStepMethod.calculate_cd(
+        continuous_panel(sys.wings[wing_idx].aero, panel_idx), alpha)
+@register_symbolic get_continuous_cd(
+    sys::SystemStructure, wing_idx::Int64, panel_idx::Int, alpha)
+
+"""
+    get_continuous_cm(sys, wing_idx, panel_idx, alpha)
+
+Pitching-moment coefficient of refined panel `panel_idx` at angle of attack
+`alpha` [rad] (live polar lookup, see [`get_continuous_cl`](@ref)).
+"""
+get_continuous_cm(sys::SystemStructure, wing_idx::Int64,
+                  panel_idx::Int, alpha) =
+    VortexStepMethod.calculate_cm(
+        continuous_panel(sys.wings[wing_idx].aero, panel_idx), alpha)
+@register_symbolic get_continuous_cm(
+    sys::SystemStructure, wing_idx::Int64, panel_idx::Int, alpha)
+
+# ==================== mesh maps ==================== #
+
+"""
+    build_mesh_maps!(mode::ContinuousAero)
+
+Size the frozen induced-velocity buffer and copy the refined-section →
+strut interpolation (`refined_section_left_idx` / `refined_section_weight`
+from the VSM wing): refined section `s` lies at
+`w·strut[left] + (1−w)·strut[left+1]`. These weights are constants of the
+mesh and are baked into the symbolic equations.
+"""
+function build_mesh_maps!(mode::ContinuousAero)
+    vsm_wing = mode.vsm_wing
+    n_panels = Int(vsm_wing.n_panels)
+    n_sections = n_panels + 1
+    n_struts = Int(vsm_wing.n_unrefined_sections)
+    n_struts >= 2 || error(
+        "ContinuousAero: need at least 2 unrefined sections, got $n_struts.")
+    left = vsm_wing.refined_section_left_idx
+    weight = vsm_wing.refined_section_weight
+    if length(left) == n_sections && length(weight) == n_sections
+        mode.section_left_strut = Int64.(left)
+        mode.section_left_weight = SimFloat.(weight)
+    elseif n_struts == n_sections
+        # No refinement: refined section s is strut s
+        mode.section_left_strut = [min(Int64(s), Int64(n_struts - 1))
+                                   for s in 1:n_sections]
+        mode.section_left_weight = [s < n_sections ? 1.0 : 0.0
+                                    for s in 1:n_sections]
+    else
+        error("ContinuousAero: VSM wing has no refined-section " *
+              "interpolation cache ($(length(left)) entries for " *
+              "$n_sections refined sections).")
+    end
+    size(mode.v_ind) == (3, n_panels) ||
+        (mode.v_ind = zeros(SimFloat, 3, n_panels))
+    return nothing
+end
+
+"""
+    setup_aero!(mode::ContinuousAero, wing, points, twist_surfaces; prn=false)
+
+The generic VSM particle setup plus the [`ContinuousAero`](@ref) mesh maps
+([`build_mesh_maps!`](@ref)).
+"""
+function setup_aero!(mode::ContinuousAero, wing, points, twist_surfaces;
+                     prn=false)
+    wing.dynamics_type == PARTICLE_DYNAMICS || error(
+        "ContinuousAero supports PARTICLE_DYNAMICS wings only; wing " *
+        "$(wing.name) is $(wing.dynamics_type).")
+    invoke(setup_aero!, Tuple{AbstractVSMAero, Any, Any, Any},
+           mode, wing, points, twist_surfaces; prn)
+    build_mesh_maps!(mode)
+    return nothing
+end
+
+"""
+    remake_aero!(mode::ContinuousAero, wing, set, vsm_set, points,
+                 twist_surfaces)
+
+The generic VSM remake plus a rebuild of the mesh maps (the VSM wing geometry
+objects are replaced, invalidating the panel indexing).
+"""
+function remake_aero!(mode::ContinuousAero, wing, set, vsm_set, points,
+                      twist_surfaces)
+    invoke(remake_aero!, Tuple{AbstractVSMAero, Any, Any, Any, Any, Any},
+           mode, wing, set, vsm_set, points, twist_surfaces)
+    build_mesh_maps!(mode)
+    return nothing
+end
+
+# ==================== equation builder ==================== #
+
+"""
+    aero_component(mode::ContinuousAero, sys_struct, wing_idx; name)
+
+Symbolic per-refined-panel re-expression of `VortexStepMethod.calc_forces!` on
+the `PARTICLE_DYNAMICS` connector contract. Refined-section positions,
+apparent wind, and density are interpolated from the live strut points with
+the frozen mesh weights; per panel, the axes, chord, width, effective angle of
+attack (live apparent wind + frozen induced velocity), polar coefficients, and
+lift/drag directions are symbolic variables of the component (observable
+through the integrator, e.g. `aero_1.alpha`). Each panel force acts on the
+quarter-chord line (75 % LE / 25 % TE) with the pitching moment as an LE/TE
+force couple, distributed to the bounding struts by the mesh weights.
+"""
+function aero_component(mode::ContinuousAero, sys_struct, wing_idx; name)
+    psys = system_struct_param(sys_struct)
+    wing = sys_struct.wings[wing_idx]
+    wing.dynamics_type == PARTICLE_DYNAMICS || error(
+        "ContinuousAero supports PARTICLE_DYNAMICS wings only; wing " *
+        "$(wing.name) is $(wing.dynamics_type).")
+
+    points = wing_points(sys_struct, wing)
+    num_points = length(points)
+    connectors = particle_aero_connectors(num_points)
+
+    point_to_vsm = wing.point_to_vsm_point
+    isnothing(point_to_vsm) && error(
+        "ContinuousAero: wing $(wing.name) is missing the structural↔panel " *
+        "point mapping.")
+    column = Dict{Tuple{Int64, Symbol}, Int}()
+    for (k, point) in enumerate(points)
+        strut_idx, le_or_te = point_to_vsm[point.idx]
+        column[(strut_idx, le_or_te)] = k
+    end
+
+    n_panels = Int(wing.vsm_wing.n_panels)
+    n_struts = Int(wing.vsm_wing.n_unrefined_sections)
+    left = mode.section_left_strut
+    lweight = mode.section_left_weight
+    length(left) == n_panels + 1 || error(
+        "ContinuousAero: mesh maps not built for wing $(wing.name).")
+    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
+    scale = 1.0 + (isfinite(wing.aero_scale_chord) ?
+        wing.aero_scale_chord : AERO_SCALE_CHORD)
+
+    strut_le = [collect(connectors.point_pos[:, column[(s, :LE)]])
+                for s in 1:n_struts]
+    strut_te = [collect(connectors.point_pos[:, column[(s, :TE)]])
+                for s in 1:n_struts]
+    strut_va = [0.5 * (collect(connectors.va[:, column[(s, :LE)]]) +
+                       collect(connectors.va[:, column[(s, :TE)]]))
+                for s in 1:n_struts]
+    strut_rho = [0.5 * (connectors.rho[column[(s, :LE)]] +
+                        connectors.rho[column[(s, :TE)]])
+                 for s in 1:n_struts]
+
+    interp(values, s) = lweight[s] * values[left[s]] +
+                        (1.0 - lweight[s]) * values[left[s] + 1]
+    sec_le = [interp(strut_le, s) for s in 1:(n_panels + 1)]
+    sec_te = [interp(strut_te, s) for s in 1:(n_panels + 1)]
+    sec_va = [interp(strut_va, s) for s in 1:(n_panels + 1)]
+    sec_rho = [interp(strut_rho, s) for s in 1:(n_panels + 1)]
+
+    @variables begin
+        x_airf(t)[1:3, 1:n_panels]
+        y_airf(t)[1:3, 1:n_panels]
+        z_airf(t)[1:3, 1:n_panels]
+        v_eff(t)[1:3, 1:n_panels]
+        chord(t)[1:n_panels]
+        width(t)[1:n_panels]
+        alpha(t)[1:n_panels]
+        cl(t)[1:n_panels]
+        cd(t)[1:n_panels]
+        cm(t)[1:n_panels]
+        q_dyn(t)[1:n_panels]
+        dir_lift(t)[1:3, 1:n_panels]
+        dir_drag(t)[1:3, 1:n_panels]
+        panel_force(t)[1:3, 1:n_panels]
+        panel_couple(t)[1:3, 1:n_panels]
+    end
+
+    eqs = Equation[]
+    point_force = [zeros(Num, 3) for _ in 1:num_points]
+    for i in 1:n_panels
+        le_1, te_1 = sec_le[i], sec_te[i]
+        le_2, te_2 = sec_le[i + 1], sec_te[i + 1]
+
+        chord_vec = 0.5 * (te_1 + te_2) - 0.5 * (le_1 + le_2)
+        x_unit = chord_vec ./ smooth_norm(chord_vec)
+        span_vec = (0.75 * le_1 + 0.25 * te_1) - (0.75 * le_2 + 0.25 * te_2)
+        y_unit = span_vec ./ smooth_norm(span_vec)
+        z_cross = x_unit × (le_1 - le_2)
+        z_unit = z_cross ./ smooth_norm(z_cross)
+
+        va_panel = 0.5 * (sec_va[i] + sec_va[i + 1])
+        v_eff_panel = va_panel + [get_continuous_v_ind(psys, wing_idx, i, c)
+                                  for c in 1:3]
+        rho_panel = 0.5 * (sec_rho[i] + sec_rho[i + 1])
+        # VSM dynamic pressure uses |v_eff × ŷ|² (spanwise component removed).
+        v_eff_crossy = v_eff_panel × y_unit
+
+        lift = cl[i] * q_dyn[i] * chord[i]
+        drag = cd[i] * q_dyn[i] * chord[i]
+        panel_moment = cm[i] * q_dyn[i] * chord[i]^2
+
+        dir_iva = cos(alpha[i]) .* x_unit .+ sin(alpha[i]) .* z_unit
+        lift_cross = dir_iva × y_unit
+        drag_cross = spanwise × (lift_cross ./ smooth_norm(lift_cross))
+
+        eqs = [eqs;
+            chord[i] ~ 0.5 * (smooth_norm(te_1 - le_1) +
+                              smooth_norm(te_2 - le_2));
+            width[i] ~ smooth_norm(span_vec);
+            x_airf[:, i] ~ x_unit;
+            y_airf[:, i] ~ y_unit;
+            z_airf[:, i] ~ z_unit;
+            v_eff[:, i] ~ v_eff_panel;
+            alpha[i] ~ atan(v_eff_panel ⋅ z_unit, v_eff_panel ⋅ x_unit);
+            cl[i] ~ get_continuous_cl(psys, wing_idx, i, alpha[i]);
+            cd[i] ~ get_continuous_cd(psys, wing_idx, i, alpha[i]);
+            cm[i] ~ get_continuous_cm(psys, wing_idx, i, alpha[i]);
+            q_dyn[i] ~ 0.5 * rho_panel * (v_eff_crossy ⋅ v_eff_crossy);
+            dir_lift[:, i] ~ lift_cross ./ smooth_norm(lift_cross);
+            dir_drag[:, i] ~ drag_cross ./ smooth_norm(drag_cross);
+            panel_force[:, i] ~ (scale * width[i]) .*
+                (lift .* collect(dir_lift[:, i]) .+
+                 drag .* collect(dir_drag[:, i]));
+            panel_couple[:, i] ~
+                (scale * width[i] * panel_moment / chord[i]) .* z_unit]
+
+        force = collect(panel_force[:, i])
+        couple = collect(panel_couple[:, i])
+        force_le = 0.75 * force + couple
+        force_te = 0.25 * force - couple
+        for s in (i, i + 1), (strut, w) in
+                ((left[s], lweight[s]), (left[s] + 1, 1.0 - lweight[s]))
+            w == 0.0 && continue
+            kle = column[(strut, :LE)]
+            kte = column[(strut, :TE)]
+            point_force[kle] = point_force[kle] + (0.5 * w) * force_le
+            point_force[kte] = point_force[kte] + (0.5 * w) * force_te
+        end
+    end
+
+    for k in 1:num_points
+        eqs = [eqs; connectors.point_force[:, k] ~ point_force[k]]
+    end
+    vars = particle_unknowns(connectors)
+    append!(vars, Any[x_airf, y_airf, z_airf, v_eff, chord, width, alpha,
+                      cl, cd, cm, q_dyn, dir_lift, dir_drag,
+                      panel_force, panel_couple])
+    return System(eqs, t, vars, [psys]; name)
+end
+
+# ==================== refresh ==================== #
+
+"""
+    refresh_particle_aero!(::ContinuousAero, wing, points, va_point_b_vals;
+                           vsm_min_wind=0.5)
+
+Circulation-only refresh: update the VSM geometry from the structure, set the
+per-panel apparent wind, run `VortexStepMethod.solve_base!` (no `calc_forces!`,
+no Jacobian), and freeze the per-refined-panel induced velocity
+([`store_induced_velocity!`](@ref)). Below `vsm_min_wind` the induced velocity
+is zeroed; the symbolic forces remain live (and vanish with the dynamic
+pressure).
+"""
+function refresh_particle_aero!(mode::ContinuousAero, wing, points,
+                                va_point_b_vals; vsm_min_wind=0.5)
+    if norm(wing.va_b) < vsm_min_wind
+        fill!(mode.v_ind, 0.0)
+        return nothing
+    end
+
+    update_vsm_wing_from_structure!(wing, points)
+    set_particle_panel_va!(wing, va_point_b_vals)
+
+    solver = wing.vsm_solver
+    body_aero = wing.vsm_aero
+    VortexStepMethod.solve_base!(solver, body_aero,
+        solver.sol.gamma_distribution; log=false)
+    gamma = solver.lr.gamma_new
+    if !solver.lr.converged || any(!isfinite, gamma)
+        throw(AssertionError(
+            "ContinuousAero circulation solve failed (non-converged or " *
+            "non-finite) on wing $(wing.idx)"))
+    end
+    if isnothing(solver.sol.gamma_distribution)
+        solver.sol.gamma_distribution = copy(gamma)
+    else
+        solver.sol.gamma_distribution .= gamma
+    end
+    store_induced_velocity!(mode, body_aero, gamma)
+    return nothing
+end
+
+"""
+    store_induced_velocity!(mode::ContinuousAero, body_aero, gamma)
+
+Freeze the converged circulation: each refined panel's induced velocity is
+`AIC · gamma`, the same product the VSM gamma loop converged on.
+"""
+function store_induced_velocity!(mode::ContinuousAero, body_aero, gamma)
+    n_panels = length(body_aero.panels)
+    size(mode.v_ind) == (3, n_panels) || error(
+        "ContinuousAero: induced-velocity buffer is stale " *
+        "($(size(mode.v_ind)) for $n_panels panels); reinitialize the model.")
+    aic = body_aero.AIC
+    v_ind = mode.v_ind
+    for i in 1:n_panels
+        for component in 1:3
+            acc = 0.0
+            for j in 1:n_panels
+                acc += aic[component, i, j] * gamma[j]
+            end
+            v_ind[component, i] = acc
+        end
+    end
+    return nothing
+end

@@ -102,38 +102,7 @@ function refresh_particle_aero!(::AeroDirect, wing, points, va_point_b_vals;
     end
 
     update_vsm_wing_from_structure!(wing, points)
-
-    if !isnothing(wing.point_to_vsm_point)
-        n_sections = length(wing.vsm_wing.unrefined_sections)
-        section_va = Vector{Vector{Float64}}(undef, n_sections)
-
-        vsm_point_to_struct = Dict{Tuple{Int64, Symbol}, Int64}()
-        for (point_idx, (section_idx, le_or_te)) in wing.point_to_vsm_point
-            vsm_point_to_struct[(section_idx, le_or_te)] = point_idx
-        end
-
-        for section_idx in 1:n_sections
-            le_pi = get(vsm_point_to_struct, (Int64(section_idx), :LE), nothing)
-            te_pi = get(vsm_point_to_struct, (Int64(section_idx), :TE), nothing)
-            if !isnothing(le_pi) && !isnothing(te_pi)
-                va_le = va_point_b_vals[:, le_pi]
-                va_te = va_point_b_vals[:, te_pi]
-                section_va[section_idx] = 0.5 * (va_le + va_te)
-            else
-                section_va[section_idx] = wing.va_b
-            end
-        end
-
-        n_panels = length(wing.vsm_aero.panels)
-        va_dist = zeros(n_panels, 3)
-        mapping = wing.vsm_wing.refined_panel_mapping
-        for rpi in 1:n_panels
-            va_dist[rpi, :] .= section_va[mapping[rpi]]
-        end
-        set_va!(wing.vsm_aero, va_dist)
-    else
-        set_va!(wing.vsm_aero, wing.va_b)
-    end
+    set_particle_panel_va!(wing, va_point_b_vals)
 
     if !safe_vsm_solve!(wing.vsm_solver, wing.vsm_aero)
         throw(AssertionError("PARTICLE_DYNAMICS VSM solve failed (non-converged or non-finite) on wing $(wing.idx)"))

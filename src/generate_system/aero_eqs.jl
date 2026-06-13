@@ -58,7 +58,11 @@ function aero_eqs!(
                    collect(aero_force_b[:, wing_idx]) .~
                        sum(collect(aero_force_point[:, point.idx])
                            for point in wing_points)
-                   collect(aero_moment_b[:, wing_idx]) .~ 0]
+                   collect(aero_moment_b[:, wing_idx]) .~
+                       sum(collect(cross(
+                               collect(subsys.point_pos[:, k]),
+                               collect(aero_force_point[:, wing_points[k].idx])))
+                           for k in eachindex(wing_points))]
             continue
         end
 

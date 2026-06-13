@@ -75,7 +75,8 @@ export NameRef, NamedCollection, WeightedRefPoints
 export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC, FIXED
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
-export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate
+export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate,
+       ContinuousAero
 export aero_component
 
 # --- High-Level Simulation Functions (Workers) ---
@@ -205,6 +206,7 @@ include("aero_modes/common.jl")
 include("aero_modes/none.jl")
 include("aero_modes/direct.jl")
 include("aero_modes/linearized.jl")
+include("aero_modes/continuous.jl")
 include("aero_modes/plate.jl")
 include("simulate.jl")
 

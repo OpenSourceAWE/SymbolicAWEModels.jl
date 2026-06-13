@@ -231,6 +231,13 @@ SymbolicAWEModels.vsm_aero_coeffs
 SymbolicAWEModels.vsm_solve_objects
 SymbolicAWEModels.safe_vsm_solve!
 SymbolicAWEModels.finite_full
+SymbolicAWEModels.set_particle_panel_va!
+SymbolicAWEModels.build_mesh_maps!
+SymbolicAWEModels.store_induced_velocity!
+SymbolicAWEModels.get_continuous_v_ind
+SymbolicAWEModels.get_continuous_cl
+SymbolicAWEModels.get_continuous_cd
+SymbolicAWEModels.get_continuous_cm
 ```
 
 ## Heading and geometry
