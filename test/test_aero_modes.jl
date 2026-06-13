@@ -122,6 +122,15 @@ aero_poses = [
 
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
+    # ContinuousAero requires the BILLOWING spanwise distribution; the other
+    # modes keep the file default (SPLIT_PROVIDED).
+    vsm_set_billow = VortexStepMethod.VSMSettings(
+        joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
+    for vsm_wing_settings in vsm_set_billow.wings
+        vsm_wing_settings.spanwise_panel_distribution =
+            VortexStepMethod.BILLOWING
+        vsm_wing_settings.billowing_percentage = 8.0
+    end
     particle_yaml = joinpath(data_path, "particle_structural_geometry.yaml")
     rigid_yaml = joinpath(data_path, "rigid_structural_geometry.yaml")
 
@@ -132,29 +141,30 @@ aero_poses = [
     # residual scales with force times a fraction of the chord.
     cases = [
         (name="none particle", make=() -> AeroNone(), yaml=particle_yaml,
-            dynamics=PARTICLE_DYNAMICS, reference=:zero,
+            vsm_set=vsm_set, dynamics=PARTICLE_DYNAMICS, reference=:zero,
             force_rtol=1e-6, moment_rtol=1e-6, moment_lever=0.0),
         (name="none rigid", make=() -> AeroNone(), yaml=rigid_yaml,
-            dynamics=RIGID_DYNAMICS, reference=:zero,
+            vsm_set=vsm_set, dynamics=RIGID_DYNAMICS, reference=:zero,
             force_rtol=1e-6, moment_rtol=1e-6, moment_lever=0.0),
         (name="direct particle", make=() -> AeroDirect(), yaml=particle_yaml,
-            dynamics=PARTICLE_DYNAMICS, reference=:vsm,
+            vsm_set=vsm_set, dynamics=PARTICLE_DYNAMICS, reference=:vsm,
             force_rtol=0.03, moment_rtol=0.10, moment_lever=0.06),
         (name="direct rigid", make=() -> AeroDirect(), yaml=rigid_yaml,
-            dynamics=RIGID_DYNAMICS, reference=:vsm,
+            vsm_set=vsm_set, dynamics=RIGID_DYNAMICS, reference=:vsm,
             force_rtol=0.10, moment_rtol=0.12, moment_lever=0.03),
         (name="continuous particle", make=() -> ContinuousAero(),
-            yaml=particle_yaml, dynamics=PARTICLE_DYNAMICS, reference=:vsm,
+            yaml=particle_yaml, vsm_set=vsm_set_billow,
+            dynamics=PARTICLE_DYNAMICS, reference=:vsm,
             force_rtol=0.07, moment_rtol=0.15, moment_lever=0.10),
         (name="linearized rigid", make=() -> AeroLinearized(), yaml=rigid_yaml,
-            dynamics=RIGID_DYNAMICS, reference=:vsm,
+            vsm_set=vsm_set, dynamics=RIGID_DYNAMICS, reference=:vsm,
             force_rtol=0.10, moment_rtol=0.12, moment_lever=0.03),
     ]
 
     for (idx, case) in enumerate(cases)
         @testset "$(case.name)" begin
             sys = load_sys_struct_from_yaml(case.yaml;
-                system_name="aero_modes_$(idx)", set, vsm_set,
+                system_name="aero_modes_$(idx)", set, vsm_set=case.vsm_set,
                 aero_mode=case.make())
             wing = sys.wings[1]
             @test wing.dynamics_type == case.dynamics

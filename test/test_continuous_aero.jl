@@ -36,6 +36,12 @@ using LinearAlgebra
     vsm_settings_path = joinpath(data_path, "vsm_settings.yaml")
     vsm_set = VortexStepMethod.VSMSettings(
         vsm_settings_path; data_prefix=false)
+    # ContinuousAero requires the BILLOWING spanwise distribution.
+    for vsm_wing_settings in vsm_set.wings
+        vsm_wing_settings.spanwise_panel_distribution =
+            VortexStepMethod.BILLOWING
+        vsm_wing_settings.billowing_percentage = 8.0
+    end
     particle_yaml = joinpath(data_path,
         "particle_structural_geometry.yaml")
 

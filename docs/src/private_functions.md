@@ -233,7 +233,9 @@ SymbolicAWEModels.safe_vsm_solve!
 SymbolicAWEModels.finite_full
 SymbolicAWEModels.set_particle_panel_va!
 SymbolicAWEModels.build_mesh_maps!
+SymbolicAWEModels.store_billow_offsets!
 SymbolicAWEModels.store_induced_velocity!
+SymbolicAWEModels.reconstruct_sections_b
 SymbolicAWEModels.get_continuous_v_ind
 SymbolicAWEModels.get_continuous_cl
 SymbolicAWEModels.get_continuous_cd
