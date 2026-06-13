@@ -432,6 +432,8 @@ mutable struct Segment
     compression_frac::SimFloat
     "Segment diameter [m]."
     diameter::SimFloat
+    "Material density [kg/m³]."
+    density::SimFloat
     "Current length [m] (updated during simulation)."
     len::SimFloat
     "Current force [N] (updated during simulation)."
@@ -449,14 +451,17 @@ Basic constructor for a `Segment` object.
 - `unit_stiffness`: Stiffness per unit length [N]. Effective k = unit_stiffness/length [N/m].
 - `unit_damping`: Damping per unit length [N·s]. Effective c = unit_damping/length [N·s/m].
 - `diameter`: Segment diameter [m].
+
+# Keyword Arguments
+- `density::SimFloat=NaN`: Material density [kg/m³] used for mass.
 """
 function Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter;
-    l0=zero(SimFloat), compression_frac=0.1
+    l0=zero(SimFloat), compression_frac=0.1, density=NaN
 )
     p1 = point_i isa Integer ? Int(point_i) : Symbol(point_i)
     p2 = point_j isa Integer ? Int(point_j) : Symbol(point_j)
     Segment(0, name, (0, 0), (p1, p2), unit_stiffness, unit_damping, l0, compression_frac,
-        diameter, zero(SimFloat), zero(SimFloat))
+        diameter, SimFloat(density), zero(SimFloat), zero(SimFloat))
 end
 
 """
@@ -482,11 +487,13 @@ Constructs a `Segment` using settings for material properties.
   Effective k = unit_stiffness/length.
 - `unit_damping::Float64=NaN`: Damping per unit length [N·s].
   Effective c = unit_damping/length.
+- `density::Float64=NaN`: Material density [kg/m³]. If `NaN`,
+  uses `set.rho_tether`.
 """
 function Segment(name, set, point_i, point_j;
     l0=zero(SimFloat), compression_frac=0.0,
     diameter_mm=NaN, unit_stiffness=NaN,
-    unit_damping=NaN
+    unit_damping=NaN, density=NaN
 )
     p1 = point_i isa Integer ? Int(point_i) : Symbol(point_i)
     p2 = point_j isa Integer ? Int(point_j) : Symbol(point_j)
@@ -520,9 +527,13 @@ function Segment(name, set, point_i, point_j;
         end
     end
 
+    if isnan(density)
+        density = set.rho_tether
+    end
+
     Segment(0, name, (0, 0), (p1, p2),
         unit_stiffness, unit_damping, l0,
-        compression_frac, diameter_m,
+        compression_frac, diameter_m, SimFloat(density),
         zero(SimFloat), zero(SimFloat))
 end
 
@@ -617,6 +628,8 @@ mutable struct Tether
     const unit_damping::SimFloat
     "Tether diameter [m]. NaN = derive from Settings."
     const diameter::SimFloat
+    "Material density [kg/m³]. NaN = derive from Settings."
+    const density::SimFloat
     "Current stretched length [m] (updated during simulation)."
     stretched_len::SimFloat
     """Unstretched tether length [m] (sum of segment l0).
@@ -689,7 +702,7 @@ function Tether(name, segments::AbstractVector, stretched_length=nothing;
     return Tether(0, name, Int64[], segment_refs,
                   0, name_ref(start_point), 0, name_ref(end_point),
                   length(segments),
-                  NaN, NaN, NaN, 0.0,
+                  NaN, NaN, NaN, NaN, 0.0,
                   0.0, init_stretched, init_force, init_frac)
 end
 
@@ -735,6 +748,8 @@ points and segments by `expand_auto_tethers!`.
   NaN = derive from Settings during auto-expansion.
 - `diameter::Float64=NaN`: Tether diameter [m].
   NaN = derive from Settings during auto-expansion.
+- `density::Float64=NaN`: Material density [kg/m³].
+  NaN = derive from Settings during auto-expansion.
 - `tether_force=nothing`: Target initial spring force [N], default 0.
 - `stretch_frac=nothing`: Initial `len/stretched` fraction. Mutually
   exclusive with `tether_force`.
@@ -742,7 +757,7 @@ points and segments by `expand_auto_tethers!`.
 function Tether(name, stretched_length=nothing;
                 start_point, end_point, n_segments,
                 unit_stiffness=NaN, unit_damping=NaN,
-                diameter=NaN, tether_force=nothing,
+                diameter=NaN, density=NaN, tether_force=nothing,
                 stretch_frac=nothing)
     init_force, init_frac =
         resolve_tether_init(name, tether_force, stretch_frac)
@@ -754,7 +769,7 @@ function Tether(name, stretched_length=nothing;
                   Int64(n_segments),
                   Float64(unit_stiffness),
                   Float64(unit_damping),
-                  Float64(diameter), 0.0,
+                  Float64(diameter), Float64(density), 0.0,
                   0.0, init_stretched, init_force, init_frac)
 end
 

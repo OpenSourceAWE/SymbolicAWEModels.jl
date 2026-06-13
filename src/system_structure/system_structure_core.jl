@@ -355,8 +355,12 @@ function expand_auto_tethers!(
         unit_stiffness = tether.unit_stiffness
         unit_damping = tether.unit_damping
         diameter = tether.diameter
+        density = tether.density
         if isnan(diameter)
             diameter = set.d_tether * 0.001  # mm → m
+        end
+        if isnan(density)
+            density = set.rho_tether
         end
         if isnan(unit_stiffness)
             unit_stiffness = set.e_tether * (diameter / 2)^2 * π
@@ -409,7 +413,7 @@ function expand_auto_tethers!(
             push!(segments, Segment(
                 seg_sym, start_ref, end_ref,
                 unit_stiffness, unit_damping, diameter;
-                l0=seg_l0))
+                l0=seg_l0, density))
             push!(seg_names, seg_sym)
         end
     end
@@ -876,6 +880,7 @@ function SystemStructure(name, set;
     for (i, segment) in enumerate(segments)
         @assert segment.idx == i
         (segment.l0 ≈ 0) && (segment.l0 = segment_cad_length(segment, points))
+        isnan(segment.density) && (segment.density = set.rho_tether)
     end
     for (i, pulley) in enumerate(pulleys)
         @assert pulley.idx == i

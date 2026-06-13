@@ -142,6 +142,32 @@ segments:
     - [horiz_segment, point_left, point_right, 10.0, 4.0, 100000.0, 100.0, 0.1]
 """
 
+# YAML for per-material density test - two segments, two materials
+const SEGMENT_MATERIAL_DENSITY_YAML = """
+##############################
+## Per-material Density ######
+##############################
+
+materials:
+  headers: [name, youngs_modulus, density, damping_per_stiffness]
+  data:
+    - [dyneema, 55000000000.0, 724.0, 0.00077]
+    - [steel, 200000000000.0, 7800.0, 0.00077]
+
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
+  data:
+    - [anchor, [0.0, 0.0, 0.0], STATIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [mass_dyneema, [0.0, 0.0, -10.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
+    - [mass_steel, [10.0, 0.0, -10.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+segments:
+  headers: [name, point_i, point_j, material, l0, diameter_mm, compression_frac]
+  data:
+    - [seg_dyneema, anchor, mass_dyneema, dyneema, 10.0, 5.0, 0.1]
+    - [seg_steel, anchor, mass_steel, steel, 10.0, 5.0, 0.1]
+"""
+
 @testset "Segment Tests" begin
     # Write YAML to temp files
     tmpdir = mktempdir()
@@ -159,6 +185,9 @@ segments:
 
     yaml_high_alt_path = joinpath(tmpdir, "test_high_alt_geometry.yaml")
     write(yaml_high_alt_path, SEGMENT_HIGH_ALTITUDE_YAML)
+
+    yaml_material_density_path = joinpath(tmpdir, "test_material_density_geometry.yaml")
+    write(yaml_material_density_path, SEGMENT_MATERIAL_DENSITY_YAML)
 
     # Create minimal settings file
     settings_yaml = """
@@ -312,7 +341,7 @@ system:
 
         # Calculate expected total mass: extra_mass + half segment mass
         segment = sys.segments[:test_segment]
-        half_segment_mass = 0.5 * set.rho_tether * π * (segment.diameter / 2)^2 * l0
+        half_segment_mass = 0.5 * segment.density * π * (segment.diameter / 2)^2 * l0
         expected_total_mass = sys.points[:mass_point].extra_mass + half_segment_mass
 
         # Verify total_mass is correctly computed
@@ -410,8 +439,8 @@ system:
         L = segment.l0  # 10.0 m
         d = segment.diameter  # 0.004 m (4mm)
 
-        # Segment mass from tether density
-        rho_tether = set.rho_tether  # 724 kg/m^3
+        # Segment mass from material density
+        rho_tether = segment.density  # 724 kg/m^3
         segment_mass = rho_tether * π * (d/2)^2 * L
         m_total = segment_mass
         cd = set.cd_tether  # 0.958
@@ -539,8 +568,8 @@ system:
         L = segment.l0  # 10.0 m
         d = segment.diameter  # 0.004 m (4mm)
 
-        # Segment mass from tether density
-        rho_tether = set.rho_tether
+        # Segment mass from material density
+        rho_tether = segment.density
         segment_mass = rho_tether * π * (d/2)^2 * L
         m_total = segment_mass
         cd = set.cd_tether
@@ -588,6 +617,41 @@ system:
 
         println("\n  ====== High altitude (h=$(round(final_height, digits=0))m): v=$(round(abs(avg_vz), digits=2)) m/s")
         println("  ====== Sea level would be: v=$(round(v_terminal_sea_level, digits=2)) m/s ($(round((v_terminal_altitude/v_terminal_sea_level - 1)*100, digits=1))% faster at altitude) ======\n")
+    end
+
+    # ========================================================================
+    # Per-material density: segments use their material's density, not rho_tether
+    # ========================================================================
+    @testset "Per-material density from YAML" begin
+        set.g_earth = 0.0
+        set.v_wind = 0.0
+
+        sys = load_sys_struct_from_yaml(yaml_material_density_path;
+            system_name="segment_test", set=set)
+
+        seg_dyneema = sys.segments[:seg_dyneema]
+        seg_steel = sys.segments[:seg_steel]
+
+        # Each segment carries its material's density, not the global rho_tether
+        @test seg_dyneema.density ≈ 724.0
+        @test seg_steel.density ≈ 7800.0
+        @test set.rho_tether == 724.0
+
+        sam = SymbolicAWEModel(set, sys)
+        test_init!(sam)
+
+        # total_mass of each hanging point = half the connected segment mass,
+        # computed with the per-segment density
+        l0 = 10.0
+        area = π * (seg_dyneema.diameter / 2)^2
+        expected_dyneema = 0.5 * 724.0 * area * l0
+        expected_steel = 0.5 * 7800.0 * area * l0
+
+        m_dyneema = sam.sys_struct.points[:mass_dyneema].total_mass
+        m_steel = sam.sys_struct.points[:mass_steel].total_mass
+        @test m_dyneema ≈ expected_dyneema rtol=0.01
+        @test m_steel ≈ expected_steel rtol=0.01
+        @test m_steel / m_dyneema ≈ 7800.0 / 724.0 rtol=0.01
     end
 
     # Cleanup

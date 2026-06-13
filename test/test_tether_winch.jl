@@ -289,7 +289,7 @@ environment:
         # m = extra_mass + rho * pi * (d/2)^2 * l0 / 2
         l0 = 50.0
         d = seg.diameter  # meters
-        rho = set.rho_tether
+        rho = seg.density
         extra_m = sam.sys_struct.points[:weight].extra_mass
         tether_m = rho * π * (d / 2)^2 * l0 / 2
         m = extra_m + tether_m
@@ -443,7 +443,7 @@ environment:
         g = set.g_earth
         unit_k = 50000.0
         d = sam2.sys_struct.segments[1].diameter
-        rho = set.rho_tether
+        rho = sam2.sys_struct.segments[1].density
         half_seg_m = rho * π * (d / 2)^2 * l0 / 2
         m_mass = 5.0 + half_seg_m         # bottom point
         m_mid = 2 * half_seg_m            # intermediate pts

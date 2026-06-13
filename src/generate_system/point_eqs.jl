@@ -54,7 +54,7 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, twist_surfaces,
         for segment in segments
             if point.idx in segment.point_idxs
                 mass_per_meter =
-                    get_rho_tether(psys) * π *
+                    get_density(psys, segment.idx) * π *
                     (get_diameter(psys, segment.idx) / 2)^2
                 inverted = segment.point_idxs[2] == point.idx
                 if inverted

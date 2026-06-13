@@ -634,7 +634,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 Segment, resolved_row,
                 [:name, :set, :point_i, :point_j],
                 [:l0, :diameter_mm, :unit_stiffness,
-                 :unit_damping, :compression_frac];
+                 :unit_damping, :compression_frac, :density];
                 mappings=Dict(
                     :set => row -> resolved_set,
                     :point_i => row -> yaml_to_ref(row.point_i),
@@ -775,11 +775,14 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     Float64(diameter_mm)
                 diameter = isnan(diameter_mm) ? NaN :
                     diameter_mm * 0.001
+                density = get(props, :density, NaN)
+                density = isnothing(density) ? NaN :
+                    Float64(density)
                 tether = Tether(tether_name, stretched_length;
                     start_point=start_ref, end_point=end_ref,
                     n_segments,
                     unit_stiffness, unit_damping,
-                    diameter, tether_force, stretch_frac)
+                    diameter, density, tether_force, stretch_frac)
             end
             push!(tethers, tether)
         end

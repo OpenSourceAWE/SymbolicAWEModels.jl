@@ -89,8 +89,9 @@ function calc_spring_props(sam::SymbolicAWEModel, tether_lens, F_step; p=5, prn=
     k_values = zeros(4)
     c_values = zeros(4)
 
-    diameters = [segments[tether.segment_idxs[1]].diameter for tether in tethers]
-    mass_per_meter = set.rho_tether * π * ((diameters/2).^2)
+    first_segments = [segments[tether.segment_idxs[1]] for tether in tethers]
+    mass_per_meter = [seg.density * π * (seg.diameter / 2)^2
+        for seg in first_segments]
 
     for j in eachindex(tethers)
         tether_len_series = tether_lens[j, :]

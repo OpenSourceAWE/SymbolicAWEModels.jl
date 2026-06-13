@@ -31,7 +31,7 @@ function pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys;
     for pulley in pulleys
         segment = segments[pulley.segment_idxs[1]]
         mass_per_meter =
-            get_rho_tether(psys) * π * (get_diameter(psys, segment.idx) / 2)^2
+            get_density(psys, segment.idx) * π * (get_diameter(psys, segment.idx) / 2)^2
         mass = get_sum_len(psys, pulley.idx) * mass_per_meter
         eqs = [
             eqs

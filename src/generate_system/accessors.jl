@@ -216,6 +216,10 @@ get_diameter(sys::SystemStructure, idx::Int64) =
     sys.segments[idx].diameter
 @register_symbolic get_diameter(
     sys::SystemStructure, idx::Int64)
+get_density(sys::SystemStructure, idx::Int64) =
+    sys.segments[idx].density
+@register_symbolic get_density(
+    sys::SystemStructure, idx::Int64)
 get_compression_frac(sys::SystemStructure, idx::Int64) =
     sys.segments[idx].compression_frac
 @register_symbolic get_compression_frac(
@@ -306,8 +310,6 @@ end
     size = (3,)
     eltype = SimFloat
 end
-get_rho_tether(sys::SystemStructure) = sys.set.rho_tether
-@register_symbolic get_rho_tether(sys::SystemStructure)
 get_cd_tether(sys::SystemStructure) = sys.set.cd_tether
 @register_symbolic get_cd_tether(sys::SystemStructure)
 get_g_earth(sys::SystemStructure) = sys.set.g_earth
