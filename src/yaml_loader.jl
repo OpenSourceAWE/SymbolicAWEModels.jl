@@ -941,3 +941,499 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         segments, pulleys, tethers, winches, wings,
         transforms, ignore_l0, vsm_set)
 end
+
+# ==================== EXPORT (YAML) ==================== #
+
+"""
+    dynamics_type_to_str(dt::DynamicsType) -> String
+
+Convert a `DynamicsType` enum to its YAML string representation.
+"""
+function dynamics_type_to_str(dt::DynamicsType)
+    dt == DYNAMIC && return "DYNAMIC"
+    dt == QUASI_STATIC && return "QUASI_STATIC"
+    dt == WING && return "WING"
+    dt == STATIC && return "STATIC"
+    dt == FIXED && return "FIXED"
+    return "DYNAMIC"
+end
+
+"""
+    wing_type_to_str(wt::WingType) -> String
+
+Convert a `WingType` enum to its YAML string representation.
+"""
+function wing_type_to_str(wt::WingType)
+    wt == RIGID_DYNAMICS && return "RIGID_DYNAMICS"
+    wt == PARTICLE_DYNAMICS && return "PARTICLE_DYNAMICS"
+    return "RIGID_DYNAMICS"
+end
+
+"""
+    aero_mode_to_str(aero::AbstractAeroModel) -> String
+
+Convert an aero mode to YAML string representation.
+"""
+function aero_mode_to_str(aero::AbstractAeroModel)
+    aero isa AeroNone && return "AeroNone"
+    aero isa AeroDirect && return "AeroDirect"
+    aero isa AeroLinearized && return "AeroLinearized"
+    aero isa AeroPlate && return "AeroPlate"
+    return "AeroDirect"
+end
+
+"""
+    name_or_nothing(name) -> Any
+
+Return the name as-is (Symbol) if non-nothing, otherwise `nothing`.
+Useful for fields that may have `nothing` name.
+"""
+name_or_nothing(name) = name === nothing ? nothing : name
+
+"""
+    ref_to_yaml(ref) -> Any
+
+Convert a `NameRef` back to the appropriate YAML representation.
+Symbols become strings, integers stay as integers.
+"""
+ref_to_yaml(ref::Symbol) = String(ref)
+ref_to_yaml(ref::Int) = ref
+ref_to_yaml(::Nothing) = nothing
+
+"""
+    ref_point_to_yaml(wrp::WeightedRefPoints) -> Any
+
+Convert a `WeightedRefPoints` to YAML-friendly representation:
+- Single point → name string or integer
+- Equal-weight average → array of refs
+- Weighted → array of [ref, weight] pairs
+"""
+function ref_point_to_yaml(wrp::WeightedRefPoints)
+    if length(wrp.refs) == 1 && length(wrp.ids) == 0
+        return ref_to_yaml(wrp.refs[1])
+    elseif length(wrp.ids) == 1 && isempty(wrp.refs)
+        return wrp.ids[1]
+    end
+    # Multi-point case
+    has_explicit_refs = !isempty(wrp.refs)
+    has_ids = !isempty(wrp.ids)
+    n = length(has_explicit_refs ? wrp.refs : wrp.ids)
+    if all(w -> abs(w - 1.0/n) < 1e-10, wrp.weights)
+        # Equal weights → simple list
+        if has_explicit_refs
+            return [ref_to_yaml(r) for r in wrp.refs]
+        else
+            return collect(wrp.ids)
+        end
+    else
+        # Weighted → list of [ref, weight] pairs
+        result = []
+        for i in eachindex(wrp.weights)
+            ref = has_explicit_refs ? ref_to_yaml(wrp.refs[i]) : wrp.ids[i]
+            push!(result, [ref, wrp.weights[i]])
+        end
+        return result
+    end
+end
+
+"""
+    ref_point_tuple_to_yaml(tup) -> Vector
+
+Convert a tuple of two `WeightedRefPoints` to YAML-friendly `[a, b]` format.
+"""
+function ref_point_tuple_to_yaml(tup)
+    return [ref_point_to_yaml(tup[1]), ref_point_to_yaml(tup[2])]
+end
+
+"""
+    vec3_to_yaml(v) -> Vector{Float64}
+
+Convert a 3-element vector to a plain Float64 array for YAML output.
+"""
+vec3_to_yaml(v) = [Float64(v[1]), Float64(v[2]), Float64(v[3])]
+
+"""
+    save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString;
+                           materials::Bool=true)
+
+Export a `SystemStructure` to a YAML file in the same component-based format
+that `load_sys_struct_from_yaml` can read back.
+
+# Arguments
+- `sys::SystemStructure`: The system structure to export.
+- `yaml_path::AbstractString`: Output YAML file path.
+
+# Keyword Arguments
+- `materials::Bool=true`: Whether to include a materials section.
+"""
+function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString;
+                                 materials::Bool=true)
+    data = Dict{String, Any}()
+
+    # ==================== Materials ==================== #
+    if materials
+        # Collect unique material-like stiffness values
+        materials_data = [["dyneema", 55000000000.0, 724, 0.00077]]
+        data["materials"] = Dict(
+            "headers" => ["name", "youngs_modulus", "density", "damping_per_stiffness"],
+            "data" => materials_data
+        )
+    end
+
+    # ==================== Points ==================== #
+    point_headers = ["name", "pos_cad", "type", "wing_idx", "transform_idx",
+                     "extra_mass", "body_frame_damping", "world_frame_damping",
+                     "area", "drag_coeff"]
+    point_data = []
+
+    for point in sys.points
+        if point.name === nothing
+            continue  # Skip points without names (auto-generated)
+        end
+        push!(point_data, [
+            name_or_nothing(point.name) isa Symbol ? String(point.name) : point.name,
+            vec3_to_yaml(point.pos_cad),
+            dynamics_type_to_str(point.type),
+            wing_type_to_yaml_ref(point.wing_idx, sys.wings),
+            transform_to_yaml_ref(point.transform_idx, sys.transforms),
+            Float64(point.extra_mass),
+            vec3_to_yaml(point.body_frame_damping),
+            vec3_to_yaml(point.world_frame_damping),
+            Float64(point.area),
+            Float64(point.drag_coeff)
+        ])
+    end
+
+    if !isempty(point_data)
+        data["points"] = Dict(
+            "headers" => point_headers,
+            "data" => point_data
+        )
+    end
+
+    # ==================== Segments ==================== #
+    seg_headers = ["name", "point_i", "point_j", "l0", "diameter_mm",
+                   "unit_stiffness", "unit_damping", "compression_frac"]
+    seg_data = []
+
+    for seg in sys.segments
+        if seg.name === nothing
+            continue
+        end
+        push!(seg_data, [
+            name_or_nothing(seg.name) isa Symbol ? String(seg.name) : seg.name,
+            idx_to_name_or_number(seg.point_idxs[1], sys.points),
+            idx_to_name_or_number(seg.point_idxs[2], sys.points),
+            seg.l0 == 0.0 ? "nothing" : Float64(seg.l0),
+            Float64(seg.diameter * 1000.0),  # m to mm
+            Float64(seg.unit_stiffness),
+            Float64(seg.unit_damping),
+            Float64(seg.compression_frac)
+        ])
+    end
+
+    if !isempty(seg_data)
+        data["segments"] = Dict(
+            "headers" => seg_headers,
+            "data" => seg_data
+        )
+    end
+
+    # ==================== Pulleys ==================== #
+    if !isempty(sys.pulleys)
+        pulley_headers = ["name", "segment_i", "segment_j", "type"]
+        pulley_data = []
+
+        for pulley in sys.pulleys
+            if pulley.name === nothing
+                continue
+            end
+            push!(pulley_data, [
+                name_or_nothing(pulley.name) isa Symbol ? String(pulley.name) : pulley.name,
+                idx_to_name_or_number(pulley.segment_idxs[1], sys.segments),
+                idx_to_name_or_number(pulley.segment_idxs[2], sys.segments),
+                dynamics_type_to_str(pulley.type)
+            ])
+        end
+
+        data["pulleys"] = Dict(
+            "headers" => pulley_headers,
+            "data" => pulley_data
+        )
+    end
+
+    # ==================== Twist Surfaces ==================== #
+    if !isempty(sys.twist_surfaces)
+        ts_headers = ["name", "point_idxs", "type", "moment_frac", "damping"]
+        ts_data = []
+
+        for ts in sys.twist_surfaces
+            if ts.name === nothing
+                continue
+            end
+            point_names = [idx_to_name_or_number(idx, sys.points) for idx in ts.point_idxs]
+            push!(ts_data, [
+                name_or_nothing(ts.name) isa Symbol ? String(ts.name) : ts.name,
+                point_names,
+                dynamics_type_to_str(ts.type),
+                Float64(ts.moment_frac),
+                Float64(ts.damping)
+            ])
+        end
+
+        data["twist_surfaces"] = Dict(
+            "headers" => ts_headers,
+            "data" => ts_data
+        )
+    end
+
+    # ==================== Tethers ==================== #
+    if !isempty(sys.tethers)
+        tether_headers = ["name", "start_point", "end_point", "n_segments",
+                          "material", "diameter_mm", "init_stretched_length"]
+        tether_data = []
+
+        for tether in sys.tethers
+            if tether.name === nothing
+                continue
+            end
+            has_auto_segments = !isempty(tether.segment_refs)
+            push!(tether_data, [
+                name_or_nothing(tether.name) isa Symbol ? String(tether.name) : tether.name,
+                idx_to_name_or_number(tether.start_point_idx, sys.points),
+                idx_to_name_or_number(tether.end_point_idx, sys.points),
+                tether.n_segments > 0 ? tether.n_segments : length(tether.segment_idxs),
+                "dyneema",
+                Float64(tether.diameter * 1000.0),  # m to mm
+                something(tether.init_stretched_len, tether.stretched_len) isa Number ?
+                    Float64(something(tether.init_stretched_len, tether.stretched_len)) :
+                    Float64(tether.stretched_len)
+            ])
+        end
+
+        data["tethers"] = Dict(
+            "headers" => tether_headers,
+            "data" => tether_data
+        )
+    end
+
+    # ==================== Winches ==================== #
+    if !isempty(sys.winches)
+        winch_headers = ["name", "tether_idxs", "winch_point"]
+        winch_data = []
+
+        for winch in sys.winches
+            if winch.name === nothing
+                continue
+            end
+            tether_names = [idx_to_name_or_number(idx, sys.tethers) for idx in winch.tether_idxs]
+            push!(winch_data, [
+                name_or_nothing(winch.name) isa Symbol ? String(winch.name) : winch.name,
+                tether_names,
+                idx_to_name_or_number(winch.winch_point_idx, sys.points)
+            ])
+        end
+
+        data["winches"] = Dict(
+            "headers" => winch_headers,
+            "data" => winch_data
+        )
+    end
+
+    # ==================== Wings ==================== #
+    if !isempty(sys.wings)
+        wing_data_list = []
+
+        for wing in sys.wings
+            if wing.name === nothing
+                continue
+            end
+            wing_dict = Dict{String, Any}()
+            wing_dict["name"] = String(wing.name)
+            wing_dict["dynamics_type"] = wing_type_to_str(wing.dynamics_type)
+            wing_dict["aero_mode"] = aero_mode_to_str(wing.aero)
+
+            # Point references
+            wing_point_names = String[]
+            # Find points with this wing_idx
+            for point in sys.points
+                if point.wing_idx == wing.idx
+                    if point.name !== nothing
+                        push!(wing_point_names, String(point.name))
+                    end
+                end
+            end
+            wing_dict["point_idxs"] = wing_point_names
+
+            # Twist surface references
+            ts_names = [String(sys.twist_surfaces[idx].name) for idx in wing.twist_surface_idxs
+                       if sys.twist_surfaces[idx].name !== nothing]
+            if !isempty(ts_names)
+                wing_dict["twist_surfaces"] = ts_names
+            end
+
+            # Origin and ref points
+            if wing.origin !== nothing
+                wing_dict["origin_idx"] = ref_point_to_yaml(wing.origin)
+            end
+            if wing.z_ref_points !== nothing
+                wing_dict["z_ref_points"] = ref_point_tuple_to_yaml(wing.z_ref_points)
+            end
+            if wing.y_ref_points !== nothing
+                wing_dict["y_ref_points"] = ref_point_tuple_to_yaml(wing.y_ref_points)
+            end
+
+            # Transform reference
+            if wing.transform_idx > 0 && wing.transform_idx <= length(sys.transforms)
+                tf = sys.transforms[wing.transform_idx]
+                if tf.name !== nothing
+                    wing_dict["transform_idx"] = String(tf.name)
+                end
+            end
+
+            # Aero offset
+            if hasproperty(wing.aero, :aero_z_offset)
+                wing_dict["aero_z_offset"] = Float64(wing.aero.aero_z_offset)
+            end
+
+            push!(wing_data_list, wing_dict)
+        end
+
+        if !isempty(wing_data_list)
+            data["wings"] = Dict("data" => wing_data_list)
+        end
+    end
+
+    # ==================== Transforms ==================== #
+    if !isempty(sys.transforms)
+        transform_data_list = []
+
+        for tf in sys.transforms
+            if tf.name === nothing
+                continue
+            end
+            tf_dict = Dict{String, Any}()
+            tf_dict["name"] = String(tf.name)
+            tf_dict["elevation"] = Float64(rad2deg(tf.elevation))
+            tf_dict["azimuth"] = Float64(rad2deg(tf.azimuth))
+            tf_dict["heading"] = Float64(rad2deg(tf.heading))
+
+            if tf.elevation_vel != 0.0
+                tf_dict["elevation_vel"] = Float64(rad2deg(tf.elevation_vel))
+            end
+            if tf.azimuth_vel != 0.0
+                tf_dict["azimuth_vel"] = Float64(rad2deg(tf.azimuth_vel))
+            end
+            if tf.turn_rate != 0.0
+                tf_dict["turn_rate"] = Float64(rad2deg(tf.turn_rate))
+            end
+
+            if tf.base_point_idx !== nothing && tf.base_point_idx > 0
+                bp = sys.points[tf.base_point_idx]
+                if bp.name !== nothing
+                    tf_dict["base_point_idx"] = String(bp.name)
+                end
+            end
+
+            if tf.base_pos !== nothing
+                tf_dict["base_pos"] = vec3_to_yaml(tf.base_pos)
+            end
+
+            if tf.wing_idx !== nothing && tf.wing_idx > 0
+                w = sys.wings[tf.wing_idx]
+                if w.name !== nothing
+                    tf_dict["wing_idx"] = String(w.name)
+                end
+            end
+
+            if tf.rot_point_idx !== nothing && tf.rot_point_idx > 0
+                rp = sys.points[tf.rot_point_idx]
+                if rp.name !== nothing
+                    tf_dict["rot_point_idx"] = String(rp.name)
+                end
+            end
+
+            if tf.base_transform_idx !== nothing && tf.base_transform_idx > 0
+                bt = sys.transforms[tf.base_transform_idx]
+                if bt.name !== nothing
+                    tf_dict["base_transform_idx"] = String(bt.name)
+                end
+            end
+
+            push!(transform_data_list, tf_dict)
+        end
+
+        if !isempty(transform_data_list)
+            data["transforms"] = Dict("data" => transform_data_list)
+        end
+    end
+
+    # ==================== Write YAML ==================== #
+    open(yaml_path, "w") do io
+        # Write header comment
+        write(io, "##############################\n")
+        write(io, "## System Structure ##########\n")
+        write(io, "##############################\n")
+        write(io, "# This file was generated by save_sys_struct_to_yaml\n\n")
+
+        YAML.write(io, data)
+    end
+
+    @info "System structure saved to $yaml_path"
+    return nothing
+end
+
+# ==================== Lookup helpers for export ==================== #
+
+"""
+    idx_to_name_or_number(idx, collection) -> Any
+
+Convert a resolved index back to its symbolic name (if available) or keep
+the numeric index. Used when exporting YAML to produce human-readable references.
+"""
+function idx_to_name_or_number(idx, collection)
+    if idx < 1 || idx > length(collection)
+        return idx
+    end
+    item = collection[idx]
+    if item.name !== nothing
+        name = item.name
+        return name isa Symbol ? String(name) : name
+    end
+    return idx
+end
+
+"""
+    wing_type_to_yaml_ref(wing_idx, wings) -> Any
+
+Convert a wing index to its name reference for YAML export.
+Returns the wing name as a string, or the integer index if nameless.
+"""
+function wing_type_to_yaml_ref(wing_idx, wings)
+    if wing_idx < 1 || wing_idx > length(wings)
+        return 0
+    end
+    wing = wings[wing_idx]
+    if wing.name !== nothing
+        name = wing.name
+        return name isa Symbol ? String(name) : name
+    end
+    return wing_idx
+end
+
+"""
+    transform_to_yaml_ref(tf_idx, transforms) -> Any
+
+Convert a transform index to its name reference for YAML export.
+"""
+function transform_to_yaml_ref(tf_idx, transforms)
+    if tf_idx < 1 || tf_idx > length(transforms)
+        return 0
+    end
+    tf = transforms[tf_idx]
+    if tf.name !== nothing
+        name = tf.name
+        return name isa Symbol ? String(name) : name
+    end
+    return tf_idx
+end

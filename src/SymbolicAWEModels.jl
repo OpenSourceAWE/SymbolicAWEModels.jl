@@ -104,6 +104,7 @@ export init_module
 export update_plot_observables!
 export animate
 export load_sys_struct_from_yaml
+export save_sys_struct_to_yaml
 export replay
 export record
 export plot_sphere_trajectory
