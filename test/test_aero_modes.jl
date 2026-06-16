@@ -148,17 +148,17 @@ aero_poses = [
             force_rtol=1e-6, moment_rtol=1e-6, moment_lever=0.0),
         (name="direct particle", make=() -> AeroDirect(), yaml=particle_yaml,
             vsm_set=vsm_set, dynamics=PARTICLE_DYNAMICS, reference=:vsm,
-            force_rtol=0.03, moment_rtol=0.10, moment_lever=0.06),
+            force_rtol=0.006, moment_rtol=0.10, moment_lever=0.06),
         (name="direct rigid", make=() -> AeroDirect(), yaml=rigid_yaml,
             vsm_set=vsm_set, dynamics=RIGID_DYNAMICS, reference=:vsm,
-            force_rtol=0.10, moment_rtol=0.12, moment_lever=0.03),
+            force_rtol=0.001, moment_rtol=0.001, moment_lever=0.0),
         (name="continuous particle", make=() -> ContinuousAero(),
             yaml=particle_yaml, vsm_set=vsm_set_billow,
             dynamics=PARTICLE_DYNAMICS, reference=:vsm,
-            force_rtol=0.07, moment_rtol=0.15, moment_lever=0.10),
+            force_rtol=0.006, moment_rtol=0.06, moment_lever=0.04),
         (name="linearized rigid", make=() -> AeroLinearized(), yaml=rigid_yaml,
             vsm_set=vsm_set, dynamics=RIGID_DYNAMICS, reference=:vsm,
-            force_rtol=0.10, moment_rtol=0.12, moment_lever=0.03),
+            force_rtol=0.001, moment_rtol=0.001, moment_lever=0.0),
     ]
 
     for (idx, case) in enumerate(cases)
@@ -173,6 +173,9 @@ aero_poses = [
             test_init!(sam)
 
             @testset "pose sweep" begin
+                max_relF = 0.0; max_dir = 0.0
+                max_relM = 0.0; max_mom_use = 0.0
+                max_zeroF = 0.0; max_zeroM = 0.0
                 for pose in aero_poses
                     apply_pose!(sam, set, pose)
                     force, moment = model_force_moment(sam, wing)
@@ -180,6 +183,8 @@ aero_poses = [
                     @test all(isfinite, moment)
 
                     if case.reference == :zero
+                        max_zeroF = max(max_zeroF, norm(force))
+                        max_zeroM = max(max_zeroM, norm(moment))
                         @test norm(force) < case.force_rtol
                         @test norm(moment) < case.moment_rtol
                         continue
@@ -187,14 +192,36 @@ aero_poses = [
 
                     force_ref, moment_ref = vsm_reference_force_moment(wing)
                     @test norm(force_ref) > 1.0
-                    @test rel_error(force, force_ref) < case.force_rtol
+                    relF = rel_error(force, force_ref)
+                    max_relF = max(max_relF, relF)
+                    @test relF < case.force_rtol
                     cos_force = dot(force, force_ref) /
                         (norm(force) * norm(force_ref))
-                    @test cos_force > cos(deg2rad(4))
+                    max_dir = max(max_dir,
+                        rad2deg(acos(clamp(cos_force, -1.0, 1.0))))
+                    @test cos_force > cos(deg2rad(1))
 
                     moment_tol = case.moment_rtol * norm(moment_ref) +
                         case.moment_lever * norm(force_ref)
+                    max_relM = max(max_relM,
+                        norm(moment .- moment_ref) / norm(moment_ref))
+                    max_mom_use = max(max_mom_use,
+                        norm(moment .- moment_ref) / moment_tol)
                     @test norm(moment .- moment_ref) <= moment_tol
+                end
+                pct(use) = "$(round(100 * use; digits=1))% of budget"
+                if case.reference == :zero
+                    println("  [$(case.name)] max|F|=",
+                        "$(round(max_zeroF; sigdigits=2)) (tol $(case.force_rtol)), ",
+                        "max|M|=$(round(max_zeroM; sigdigits=2)) ",
+                        "(tol $(case.moment_rtol))")
+                else
+                    println("  [$(case.name)] ",
+                        "rel_F=$(round(max_relF; sigdigits=3)) ",
+                        "(tol $(case.force_rtol), $(pct(max_relF/case.force_rtol))); ",
+                        "dir=$(round(max_dir; digits=3))° (tol 1°); ",
+                        "rel_M=$(round(max_relM; sigdigits=3)), ",
+                        "moment $(pct(max_mom_use))")
                 end
             end
 

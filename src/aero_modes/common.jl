@@ -257,6 +257,20 @@ end
 # is free.
 
 """
+    sync_aero_density!(wing, am)
+
+Set the wing's VSM solver air density to `calc_rho(am, wing.pos_w[3])`, the same
+altitude-dependent density the symbolic RHS uses to dimensionalize aero forces
+(see `aero_eqs.jl`). Keeps the VSM solve and the model consistent on dynamic
+pressure. No-op for non-VSM aero modes.
+"""
+function sync_aero_density!(wing, am)
+    wing.aero isa AbstractVSMAero || return nothing
+    wing.vsm_solver.density = calc_rho(am, wing.pos_w[3])
+    return nothing
+end
+
+"""
     refresh_aero!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
                   integ=sam.integrator; vsm_min_wind=0.5)
 
@@ -280,6 +294,10 @@ function refresh_aero!(sam::SymbolicAWEModel,
     points = sam.sys_struct.points
 
     length(wings) == 0 && return nothing
+
+    for wing in wings
+        sync_aero_density!(wing, sam.am)
+    end
 
     for wing in wings
         wing.dynamics_type == RIGID_DYNAMICS || continue
