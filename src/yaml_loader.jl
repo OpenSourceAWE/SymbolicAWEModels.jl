@@ -1068,307 +1068,6 @@ that `load_sys_struct_from_yaml` can read back.
 """
 function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString;
                                  materials::Bool=true)
-    data = Dict{String, Any}()
-
-    # ==================== Materials ==================== #
-    if materials
-        # Collect unique material-like stiffness values
-        materials_data = [["dyneema", 55000000000.0, 724, 0.00077]]
-        data["materials"] = Dict(
-            "headers" => ["name", "youngs_modulus", "density", "damping_per_stiffness"],
-            "data" => materials_data
-        )
-    end
-
-    # ==================== Points ==================== #
-    point_headers = ["name", "pos_cad", "type", "wing_idx", "transform_idx",
-                     "extra_mass", "body_frame_damping", "world_frame_damping",
-                     "area", "drag_coeff"]
-    point_data = []
-
-    for point in sys.points
-        if point.name === nothing
-            continue  # Skip points without names (auto-generated)
-        end
-        push!(point_data, [
-            name_or_nothing(point.name) isa Symbol ? String(point.name) : point.name,
-            vec3_to_yaml(point.pos_cad),
-            dynamics_type_to_str(point.type),
-            wing_type_to_yaml_ref(point.wing_idx, sys.wings),
-            transform_to_yaml_ref(point.transform_idx, sys.transforms),
-            Float64(point.extra_mass),
-            vec3_to_yaml(point.body_frame_damping),
-            vec3_to_yaml(point.world_frame_damping),
-            Float64(point.area),
-            Float64(point.drag_coeff)
-        ])
-    end
-
-    if !isempty(point_data)
-        data["points"] = Dict(
-            "headers" => point_headers,
-            "data" => point_data
-        )
-    end
-
-    # ==================== Segments ==================== #
-    seg_headers = ["name", "point_i", "point_j", "l0", "diameter_mm",
-                   "unit_stiffness", "unit_damping", "compression_frac"]
-    seg_data = []
-
-    for seg in sys.segments
-        if seg.name === nothing
-            continue
-        end
-        push!(seg_data, [
-            name_or_nothing(seg.name) isa Symbol ? String(seg.name) : seg.name,
-            idx_to_name_or_number(seg.point_idxs[1], sys.points),
-            idx_to_name_or_number(seg.point_idxs[2], sys.points),
-            seg.l0 == 0.0 ? "nothing" : Float64(seg.l0),
-            Float64(seg.diameter * 1000.0),  # m to mm
-            Float64(seg.unit_stiffness),
-            Float64(seg.unit_damping),
-            Float64(seg.compression_frac)
-        ])
-    end
-
-    if !isempty(seg_data)
-        data["segments"] = Dict(
-            "headers" => seg_headers,
-            "data" => seg_data
-        )
-    end
-
-    # ==================== Pulleys ==================== #
-    if !isempty(sys.pulleys)
-        pulley_headers = ["name", "segment_i", "segment_j", "type"]
-        pulley_data = []
-
-        for pulley in sys.pulleys
-            if pulley.name === nothing
-                continue
-            end
-            push!(pulley_data, [
-                name_or_nothing(pulley.name) isa Symbol ? String(pulley.name) : pulley.name,
-                idx_to_name_or_number(pulley.segment_idxs[1], sys.segments),
-                idx_to_name_or_number(pulley.segment_idxs[2], sys.segments),
-                dynamics_type_to_str(pulley.type)
-            ])
-        end
-
-        data["pulleys"] = Dict(
-            "headers" => pulley_headers,
-            "data" => pulley_data
-        )
-    end
-
-    # ==================== Twist Surfaces ==================== #
-    if !isempty(sys.twist_surfaces)
-        ts_headers = ["name", "point_idxs", "type", "moment_frac", "damping"]
-        ts_data = []
-
-        for ts in sys.twist_surfaces
-            if ts.name === nothing
-                continue
-            end
-            point_names = [idx_to_name_or_number(idx, sys.points) for idx in ts.point_idxs]
-            push!(ts_data, [
-                name_or_nothing(ts.name) isa Symbol ? String(ts.name) : ts.name,
-                point_names,
-                dynamics_type_to_str(ts.type),
-                Float64(ts.moment_frac),
-                Float64(ts.damping)
-            ])
-        end
-
-        data["twist_surfaces"] = Dict(
-            "headers" => ts_headers,
-            "data" => ts_data
-        )
-    end
-
-    # ==================== Tethers ==================== #
-    if !isempty(sys.tethers)
-        tether_headers = ["name", "start_point", "end_point", "n_segments",
-                          "material", "diameter_mm", "init_stretched_length"]
-        tether_data = []
-
-        for tether in sys.tethers
-            if tether.name === nothing
-                continue
-            end
-            has_auto_segments = !isempty(tether.segment_refs)
-            push!(tether_data, [
-                name_or_nothing(tether.name) isa Symbol ? String(tether.name) : tether.name,
-                idx_to_name_or_number(tether.start_point_idx, sys.points),
-                idx_to_name_or_number(tether.end_point_idx, sys.points),
-                tether.n_segments > 0 ? tether.n_segments : length(tether.segment_idxs),
-                "dyneema",
-                Float64(tether.diameter * 1000.0),  # m to mm
-                something(tether.init_stretched_len, tether.stretched_len) isa Number ?
-                    Float64(something(tether.init_stretched_len, tether.stretched_len)) :
-                    Float64(tether.stretched_len)
-            ])
-        end
-
-        data["tethers"] = Dict(
-            "headers" => tether_headers,
-            "data" => tether_data
-        )
-    end
-
-    # ==================== Winches ==================== #
-    if !isempty(sys.winches)
-        winch_headers = ["name", "tether_idxs", "winch_point"]
-        winch_data = []
-
-        for winch in sys.winches
-            if winch.name === nothing
-                continue
-            end
-            tether_names = [idx_to_name_or_number(idx, sys.tethers) for idx in winch.tether_idxs]
-            push!(winch_data, [
-                name_or_nothing(winch.name) isa Symbol ? String(winch.name) : winch.name,
-                tether_names,
-                idx_to_name_or_number(winch.winch_point_idx, sys.points)
-            ])
-        end
-
-        data["winches"] = Dict(
-            "headers" => winch_headers,
-            "data" => winch_data
-        )
-    end
-
-    # ==================== Wings ==================== #
-    if !isempty(sys.wings)
-        wing_data_list = []
-
-        for wing in sys.wings
-            if wing.name === nothing
-                continue
-            end
-            wing_dict = Dict{String, Any}()
-            wing_dict["name"] = String(wing.name)
-            wing_dict["dynamics_type"] = wing_type_to_str(wing.dynamics_type)
-            wing_dict["aero_mode"] = aero_mode_to_str(wing.aero)
-
-            # Point references
-            wing_point_names = String[]
-            # Find points with this wing_idx
-            for point in sys.points
-                if point.wing_idx == wing.idx
-                    if point.name !== nothing
-                        push!(wing_point_names, String(point.name))
-                    end
-                end
-            end
-            wing_dict["point_idxs"] = wing_point_names
-
-            # Twist surface references
-            ts_names = [String(sys.twist_surfaces[idx].name) for idx in wing.twist_surface_idxs
-                       if sys.twist_surfaces[idx].name !== nothing]
-            if !isempty(ts_names)
-                wing_dict["twist_surfaces"] = ts_names
-            end
-
-            # Origin and ref points
-            if wing.origin !== nothing
-                wing_dict["origin_idx"] = ref_point_to_yaml(wing.origin)
-            end
-            if wing.z_ref_points !== nothing
-                wing_dict["z_ref_points"] = ref_point_tuple_to_yaml(wing.z_ref_points)
-            end
-            if wing.y_ref_points !== nothing
-                wing_dict["y_ref_points"] = ref_point_tuple_to_yaml(wing.y_ref_points)
-            end
-
-            # Transform reference
-            if wing.transform_idx > 0 && wing.transform_idx <= length(sys.transforms)
-                tf = sys.transforms[wing.transform_idx]
-                if tf.name !== nothing
-                    wing_dict["transform_idx"] = String(tf.name)
-                end
-            end
-
-            # Aero offset
-            if hasproperty(wing.aero, :aero_z_offset)
-                wing_dict["aero_z_offset"] = Float64(wing.aero.aero_z_offset)
-            end
-
-            push!(wing_data_list, wing_dict)
-        end
-
-        if !isempty(wing_data_list)
-            data["wings"] = Dict("data" => wing_data_list)
-        end
-    end
-
-    # ==================== Transforms ==================== #
-    if !isempty(sys.transforms)
-        transform_data_list = []
-
-        for tf in sys.transforms
-            if tf.name === nothing
-                continue
-            end
-            tf_dict = Dict{String, Any}()
-            tf_dict["name"] = String(tf.name)
-            tf_dict["elevation"] = Float64(rad2deg(tf.elevation))
-            tf_dict["azimuth"] = Float64(rad2deg(tf.azimuth))
-            tf_dict["heading"] = Float64(rad2deg(tf.heading))
-
-            if tf.elevation_vel != 0.0
-                tf_dict["elevation_vel"] = Float64(rad2deg(tf.elevation_vel))
-            end
-            if tf.azimuth_vel != 0.0
-                tf_dict["azimuth_vel"] = Float64(rad2deg(tf.azimuth_vel))
-            end
-            if tf.turn_rate != 0.0
-                tf_dict["turn_rate"] = Float64(rad2deg(tf.turn_rate))
-            end
-
-            if tf.base_point_idx !== nothing && tf.base_point_idx > 0
-                bp = sys.points[tf.base_point_idx]
-                if bp.name !== nothing
-                    tf_dict["base_point_idx"] = String(bp.name)
-                end
-            end
-
-            if tf.base_pos !== nothing
-                tf_dict["base_pos"] = vec3_to_yaml(tf.base_pos)
-            end
-
-            if tf.wing_idx !== nothing && tf.wing_idx > 0
-                w = sys.wings[tf.wing_idx]
-                if w.name !== nothing
-                    tf_dict["wing_idx"] = String(w.name)
-                end
-            end
-
-            if tf.rot_point_idx !== nothing && tf.rot_point_idx > 0
-                rp = sys.points[tf.rot_point_idx]
-                if rp.name !== nothing
-                    tf_dict["rot_point_idx"] = String(rp.name)
-                end
-            end
-
-            if tf.base_transform_idx !== nothing && tf.base_transform_idx > 0
-                bt = sys.transforms[tf.base_transform_idx]
-                if bt.name !== nothing
-                    tf_dict["base_transform_idx"] = String(bt.name)
-                end
-            end
-
-            push!(transform_data_list, tf_dict)
-        end
-
-        if !isempty(transform_data_list)
-            data["transforms"] = Dict("data" => transform_data_list)
-        end
-    end
-
-    # ==================== Write YAML ==================== #
     open(yaml_path, "w") do io
         # Write header comment
         write(io, "##############################\n")
@@ -1376,7 +1075,215 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
         write(io, "##############################\n")
         write(io, "# This file was generated by save_sys_struct_to_yaml\n\n")
 
-        YAML.write(io, data)
+        # ==================== Materials ==================== #
+        if materials
+            write(io, "materials:\n")
+            write(io, "  headers: [name, youngs_modulus, density, damping_per_stiffness]\n")
+            write(io, "  data:\n")
+            write(io, "    - [dyneema, 55000000000.0, 724, 0.00077]\n")
+            write(io, "\n")
+        end
+
+        # ==================== Points ==================== #
+        write(io, "points:\n")
+        write(io, "  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]\n")
+        write(io, "  data:\n")
+        for point in sys.points
+            point.name === nothing && continue
+            name_str = point.name isa Symbol ? String(point.name) : string(point.name)
+            pos = vec3_to_yaml(point.pos_cad)
+            dtype = dynamics_type_to_str(point.type)
+            widx = wing_type_to_yaml_ref(point.wing_idx, sys.wings)
+            tidx = transform_to_yaml_ref(point.transform_idx, sys.transforms)
+            bfd = vec3_to_yaml(point.body_frame_damping)
+            wfd = vec3_to_yaml(point.world_frame_damping)
+            write(io, "    - [$name_str, $pos, $dtype, $widx, $tidx, $(Float64(point.extra_mass)), $bfd, $wfd, $(Float64(point.area)), $(Float64(point.drag_coeff))]\n")
+        end
+        write(io, "\n")
+
+        # ==================== Segments ==================== #
+        write(io, "segments:\n")
+        write(io, "  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]\n")
+        write(io, "  data:\n")
+        for seg in sys.segments
+            seg.name === nothing && continue
+            name_str = seg.name isa Symbol ? String(seg.name) : string(seg.name)
+            p1 = idx_to_name_or_number(seg.point_idxs[1], sys.points)
+            p2 = idx_to_name_or_number(seg.point_idxs[2], sys.points)
+            l0_str = seg.l0 == 0.0 ? "nothing" : string(Float64(seg.l0))
+            write(io, "    - [$name_str, $p1, $p2, $l0_str, $(Float64(seg.diameter * 1000.0)), $(Float64(seg.unit_stiffness)), $(Float64(seg.unit_damping)), $(Float64(seg.compression_frac))]\n")
+        end
+        write(io, "\n")
+
+        # ==================== Pulleys ==================== #
+        if !isempty(sys.pulleys)
+            write(io, "pulleys:\n")
+            write(io, "  headers: [name, segment_i, segment_j, type]\n")
+            write(io, "  data:\n")
+            for pulley in sys.pulleys
+                pulley.name === nothing && continue
+                name_str = pulley.name isa Symbol ? String(pulley.name) : string(pulley.name)
+                s1 = idx_to_name_or_number(pulley.segment_idxs[1], sys.segments)
+                s2 = idx_to_name_or_number(pulley.segment_idxs[2], sys.segments)
+                write(io, "    - [$name_str, $s1, $s2, $(dynamics_type_to_str(pulley.type))]\n")
+            end
+            write(io, "\n")
+        end
+
+        # ==================== Twist Surfaces ==================== #
+        if !isempty(sys.twist_surfaces)
+            write(io, "twist_surfaces:\n")
+            write(io, "  headers: [name, point_idxs, type, moment_frac, damping]\n")
+            write(io, "  data:\n")
+            for ts in sys.twist_surfaces
+                ts.name === nothing && continue
+                name_str = ts.name isa Symbol ? String(ts.name) : string(ts.name)
+                pts = "[$(join([repr(idx_to_name_or_number(idx, sys.points)) for idx in ts.point_idxs], ", "))]"
+                write(io, "    - [$name_str, $pts, $(dynamics_type_to_str(ts.type)), $(Float64(ts.moment_frac)), $(Float64(ts.damping))]\n")
+            end
+            write(io, "\n")
+        end
+
+        # ==================== Tethers ==================== #
+        if !isempty(sys.tethers)
+            write(io, "tethers:\n")
+            write(io, "  headers: [name, start_point, end_point, n_segments, material, diameter_mm, init_stretched_length]\n")
+            write(io, "  data:\n")
+            for tether in sys.tethers
+                tether.name === nothing && continue
+                name_str = tether.name isa Symbol ? String(tether.name) : string(tether.name)
+                sp = idx_to_name_or_number(tether.start_point_idx, sys.points)
+                ep = idx_to_name_or_number(tether.end_point_idx, sys.points)
+                nseg = tether.n_segments > 0 ? tether.n_segments : length(tether.segment_idxs)
+                stretched = something(tether.init_stretched_len, tether.stretched_len)
+                stretched_str = stretched isa Number ? string(Float64(stretched)) : string(Float64(tether.stretched_len))
+                write(io, "    - [$name_str, $sp, $ep, $nseg, dyneema, $(Float64(tether.diameter * 1000.0)), $stretched_str]\n")
+            end
+            write(io, "\n")
+        end
+
+        # ==================== Winches ==================== #
+        if !isempty(sys.winches)
+            write(io, "winches:\n")
+            write(io, "  headers: [name, tether_idxs, winch_point]\n")
+            write(io, "  data:\n")
+            for winch in sys.winches
+                winch.name === nothing && continue
+                name_str = winch.name isa Symbol ? String(winch.name) : string(winch.name)
+                tether_refs = "[$(join([repr(idx_to_name_or_number(idx, sys.tethers)) for idx in winch.tether_idxs], ", "))]"
+                wp = idx_to_name_or_number(winch.winch_point_idx, sys.points)
+                write(io, "    - [$name_str, $tether_refs, $wp]\n")
+            end
+            write(io, "\n")
+        end
+
+        # ==================== Wings ==================== #
+        if !isempty(sys.wings)
+            write(io, "wings:\n")
+            write(io, "  data:\n")
+            for wing in sys.wings
+                wing.name === nothing && continue
+                write(io, "    - name: $(String(wing.name))\n")
+                write(io, "      dynamics_type: $(wing_type_to_str(wing.dynamics_type))\n")
+                write(io, "      aero_mode: $(aero_mode_to_str(wing.aero))\n")
+
+                # Point references
+                wing_point_names = String[]
+                for point in sys.points
+                    if point.wing_idx == wing.idx && point.name !== nothing
+                        push!(wing_point_names, String(point.name))
+                    end
+                end
+                write(io, "      point_idxs: $(repr(wing_point_names))\n")
+
+                # Twist surface references
+                ts_names = [String(sys.twist_surfaces[idx].name) for idx in wing.twist_surface_idxs
+                           if sys.twist_surfaces[idx].name !== nothing]
+                if !isempty(ts_names)
+                    write(io, "      twist_surfaces: $(repr(ts_names))\n")
+                end
+
+                # Origin and ref points
+                if wing.origin !== nothing
+                    write(io, "      origin_idx: $(repr(ref_point_to_yaml(wing.origin)))\n")
+                end
+                if wing.z_ref_points !== nothing
+                    write(io, "      z_ref_points: $(repr(ref_point_tuple_to_yaml(wing.z_ref_points)))\n")
+                end
+                if wing.y_ref_points !== nothing
+                    write(io, "      y_ref_points: $(repr(ref_point_tuple_to_yaml(wing.y_ref_points)))\n")
+                end
+
+                # Transform reference
+                if wing.transform_idx > 0 && wing.transform_idx <= length(sys.transforms)
+                    tf = sys.transforms[wing.transform_idx]
+                    if tf.name !== nothing
+                        write(io, "      transform_idx: $(String(tf.name))\n")
+                    end
+                end
+
+                # Aero offset
+                if hasproperty(wing.aero, :aero_z_offset)
+                    write(io, "      aero_z_offset: $(Float64(wing.aero.aero_z_offset))\n")
+                end
+            end
+            write(io, "\n")
+        end
+
+        # ==================== Transforms ==================== #
+        if !isempty(sys.transforms)
+            write(io, "transforms:\n")
+            write(io, "  data:\n")
+            for tf in sys.transforms
+                tf.name === nothing && continue
+                write(io, "    - name: $(String(tf.name))\n")
+                write(io, "      elevation: $(Float64(rad2deg(tf.elevation)))\n")
+                write(io, "      azimuth: $(Float64(rad2deg(tf.azimuth)))\n")
+                write(io, "      heading: $(Float64(rad2deg(tf.heading)))\n")
+
+                if tf.base_point_idx !== nothing && tf.base_point_idx > 0
+                    bp = sys.points[tf.base_point_idx]
+                    if bp.name !== nothing
+                        write(io, "      base_point_idx: $(String(bp.name))\n")
+                    end
+                end
+
+                if tf.base_pos !== nothing
+                    write(io, "      base_pos: $(repr(vec3_to_yaml(tf.base_pos)))\n")
+                end
+
+                if tf.wing_idx !== nothing && tf.wing_idx > 0
+                    w = sys.wings[tf.wing_idx]
+                    if w.name !== nothing
+                        write(io, "      wing_idx: $(String(w.name))\n")
+                    end
+                end
+
+                if tf.rot_point_idx !== nothing && tf.rot_point_idx > 0
+                    rp = sys.points[tf.rot_point_idx]
+                    if rp.name !== nothing
+                        write(io, "      rot_point_idx: $(String(rp.name))\n")
+                    end
+                end
+
+                if tf.base_transform_idx !== nothing && tf.base_transform_idx > 0
+                    bt = sys.transforms[tf.base_transform_idx]
+                    if bt.name !== nothing
+                        write(io, "      base_transform_idx: $(String(bt.name))\n")
+                    end
+                end
+
+                if tf.elevation_vel != 0.0
+                    write(io, "      elevation_vel: $(Float64(rad2deg(tf.elevation_vel)))\n")
+                end
+                if tf.azimuth_vel != 0.0
+                    write(io, "      azimuth_vel: $(Float64(rad2deg(tf.azimuth_vel)))\n")
+                end
+                if tf.turn_rate != 0.0
+                    write(io, "      turn_rate: $(Float64(rad2deg(tf.turn_rate)))\n")
+                end
+            end
+        end
     end
 
     @info "System structure saved to $yaml_path"
