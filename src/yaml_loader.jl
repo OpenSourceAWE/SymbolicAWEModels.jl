@@ -1236,7 +1236,7 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
             write(io, "  data:\n")
             for wing in sys.wings
                 wing.name === nothing && continue
-                write(io, "    - name: $(String(wing.name))\n")
+                write(io, "    - name: $(string(wing.name))\n")
                 write(io, "      dynamics_type: $(wing_type_to_str(wing.dynamics_type))\n")
                 write(io, "      aero_mode: $(aero_mode_to_str(wing.aero))\n")
 
@@ -1244,13 +1244,13 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
                 wing_point_names = String[]
                 for point in sys.points
                     if point.wing_idx == wing.idx && point.name !== nothing
-                        push!(wing_point_names, String(point.name))
+                        push!(wing_point_names, string(point.name))
                     end
                 end
                 write(io, "      point_idxs: $(to_yaml_flow(wing_point_names))\n")
 
                 # Twist surface references
-                ts_names = [String(sys.twist_surfaces[idx].name) for idx in wing.twist_surface_idxs
+                ts_names = [string(sys.twist_surfaces[idx].name) for idx in wing.twist_surface_idxs
                            if sys.twist_surfaces[idx].name !== nothing]
                 if !isempty(ts_names)
                     write(io, "      twist_surfaces: $(to_yaml_flow(ts_names))\n")
@@ -1271,7 +1271,7 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
                 if wing.transform_idx > 0 && wing.transform_idx <= length(sys.transforms)
                     tf = sys.transforms[wing.transform_idx]
                     if tf.name !== nothing
-                        write(io, "      transform_idx: $(String(tf.name))\n")
+                        write(io, "      transform_idx: $(string(tf.name))\n")
                     end
                 end
 
@@ -1289,7 +1289,7 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
             write(io, "  data:\n")
             for tf in sys.transforms
                 tf.name === nothing && continue
-                write(io, "    - name: $(String(tf.name))\n")
+                write(io, "    - name: $(string(tf.name))\n")
                 write(io, "      elevation: $(Float64(rad2deg(tf.elevation)))\n")
                 write(io, "      azimuth: $(Float64(rad2deg(tf.azimuth)))\n")
                 write(io, "      heading: $(Float64(rad2deg(tf.heading)))\n")
@@ -1297,7 +1297,7 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
                 if tf.base_point_idx !== nothing && tf.base_point_idx > 0
                     bp = sys.points[tf.base_point_idx]
                     if bp.name !== nothing
-                        write(io, "      base_point_idx: $(String(bp.name))\n")
+                        write(io, "      base_point_idx: $(string(bp.name))\n")
                     end
                 end
 
@@ -1308,21 +1308,21 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
                 if tf.wing_idx !== nothing && tf.wing_idx > 0
                     w = sys.wings[tf.wing_idx]
                     if w.name !== nothing
-                        write(io, "      wing_idx: $(String(w.name))\n")
+                        write(io, "      wing_idx: $(string(w.name))\n")
                     end
                 end
 
                 if tf.rot_point_idx !== nothing && tf.rot_point_idx > 0
                     rp = sys.points[tf.rot_point_idx]
                     if rp.name !== nothing
-                        write(io, "      rot_point_idx: $(String(rp.name))\n")
+                        write(io, "      rot_point_idx: $(string(rp.name))\n")
                     end
                 end
 
                 if tf.base_transform_idx !== nothing && tf.base_transform_idx > 0
                     bt = sys.transforms[tf.base_transform_idx]
                     if bt.name !== nothing
-                        write(io, "      base_transform_idx: $(String(bt.name))\n")
+                        write(io, "      base_transform_idx: $(string(bt.name))\n")
                     end
                 end
 
