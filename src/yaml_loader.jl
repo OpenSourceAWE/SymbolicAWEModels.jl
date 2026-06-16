@@ -1208,8 +1208,11 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
                 sp = idx_to_name_or_number(tether.start_point_idx, sys.points)
                 ep = idx_to_name_or_number(tether.end_point_idx, sys.points)
                 nseg = tether.n_segments > 0 ? tether.n_segments : length(tether.segment_idxs)
-                stretched = something(tether.init_stretched_len, tether.stretched_len)
-                stretched_str = stretched isa Number ? string(Float64(stretched)) : string(Float64(tether.stretched_len))
+                stretched_str = if !isnothing(tether.init_stretched_len)
+                    string(Float64(tether.init_stretched_len))
+                else
+                    "nothing"
+                end
                 write(io, "    - [$(to_yaml_flow(name_str)), $(to_yaml_flow(sp)), $(to_yaml_flow(ep)), $nseg, $(to_yaml_flow("dyneema")), $(Float64(tether.diameter * 1000.0)), $stretched_str]\n")
             end
             write(io, "\n")
