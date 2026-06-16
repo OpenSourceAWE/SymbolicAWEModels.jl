@@ -61,4 +61,4 @@ println("  Points: $(length(sys2.points)), Segments: $(length(sys2.segments))")
 println("Export/import round-trip successful!")
 
 # Visualize
-scene = plot(sys)
+scene = plot(sys2)
