@@ -46,6 +46,7 @@ end
 @testset "YAML Export — Catenary round-trip" begin
     tmpdir = mktempdir()
     yaml_path = joinpath(tmpdir, "catenary.yaml")
+    pkg_root = dirname(@__DIR__)
 
     # Build a simple catenary system
     horizontal_span = 8.0
@@ -74,7 +75,7 @@ end
             l0=l0_seg, compression_frac=0.01))
     end
 
-    set = Settings("base/system.yaml")
+    set = Settings(joinpath(pkg_root, "data", "base", "system.yaml"))
     set.v_wind = 0.0
     sys = SymbolicAWEModels.SystemStructure(
         "catenary", set; points, segments)
@@ -246,12 +247,10 @@ end
     tmpdir = mktempdir()
 
     # Export to non-existent directory (should fail)
-    sys = let
-        set = Settings("base/system.yaml")
-        set.v_wind = 0.0
-        p = [SymbolicAWEModels.Point(:test, [0,0,0], STATIC)]
-        SymbolicAWEModels.SystemStructure("test", set; points=p)
-    end
+    pkg_root = dirname(@__DIR__)
+    set = Settings(joinpath(pkg_root, "data", "base", "system.yaml"))
+    p = [SymbolicAWEModels.Point(:test, [0,0,0], STATIC)]
+    sys = SymbolicAWEModels.SystemStructure("test", set; points=p)
 
     bad_path = joinpath(tmpdir, "nonexistent", "out.yaml")
     @test_throws SystemError save_sys_struct_to_yaml(sys, bad_path)
@@ -261,10 +260,10 @@ end
 
 @testset "YAML Export — Minimal system" begin
     tmpdir = mktempdir()
+    pkg_root = dirname(@__DIR__)
 
     # System with just a single point
-    set = Settings("base/system.yaml")
-    set.v_wind = 0.0
+    set = Settings(joinpath(pkg_root, "data", "base", "system.yaml"))
     points = [SymbolicAWEModels.Point(:origin, [0,0,0], STATIC)]
     sys = SymbolicAWEModels.SystemStructure(
         "minimal", set; points=points)
