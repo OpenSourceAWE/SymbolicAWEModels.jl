@@ -1150,7 +1150,7 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
             tidx = transform_to_yaml_ref(point.transform_idx, sys.transforms)
             bfd = vec3_to_yaml(point.body_frame_damping)
             wfd = vec3_to_yaml(point.world_frame_damping)
-            write(io, "    - [$name_str, $pos, $dtype, $widx, $tidx, $(Float64(point.extra_mass)), $bfd, $wfd, $(Float64(point.area)), $(Float64(point.drag_coeff))]\n")
+            write(io, "    - [$(to_yaml_flow(name_str)), $pos, $(to_yaml_flow(dtype)), $(to_yaml_flow(widx)), $(to_yaml_flow(tidx)), $(Float64(point.extra_mass)), $bfd, $wfd, $(Float64(point.area)), $(Float64(point.drag_coeff))]\n")
         end
         write(io, "\n")
 
@@ -1164,7 +1164,7 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
             p1 = idx_to_name_or_number(seg.point_idxs[1], sys.points)
             p2 = idx_to_name_or_number(seg.point_idxs[2], sys.points)
             l0_str = seg.l0 == 0.0 ? "nothing" : string(Float64(seg.l0))
-            write(io, "    - [$name_str, $p1, $p2, $l0_str, $(Float64(seg.diameter * 1000.0)), $(Float64(seg.unit_stiffness)), $(Float64(seg.unit_damping)), $(Float64(seg.compression_frac))]\n")
+            write(io, "    - [$(to_yaml_flow(name_str)), $(to_yaml_flow(p1)), $(to_yaml_flow(p2)), $l0_str, $(Float64(seg.diameter * 1000.0)), $(Float64(seg.unit_stiffness)), $(Float64(seg.unit_damping)), $(Float64(seg.compression_frac))]\n")
         end
         write(io, "\n")
 
@@ -1178,7 +1178,7 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
                 name_str = pulley.name isa Symbol ? String(pulley.name) : string(pulley.name)
                 s1 = idx_to_name_or_number(pulley.segment_idxs[1], sys.segments)
                 s2 = idx_to_name_or_number(pulley.segment_idxs[2], sys.segments)
-                write(io, "    - [$name_str, $s1, $s2, $(dynamics_type_to_str(pulley.type))]\n")
+                write(io, "    - [$(to_yaml_flow(name_str)), $(to_yaml_flow(s1)), $(to_yaml_flow(s2)), $(to_yaml_flow(dynamics_type_to_str(pulley.type)))]\n")
             end
             write(io, "\n")
         end
@@ -1192,7 +1192,7 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
                 ts.name === nothing && continue
                 name_str = ts.name isa Symbol ? String(ts.name) : string(ts.name)
                 pts = "[$(join([to_yaml_flow(idx_to_name_or_number(idx, sys.points)) for idx in ts.point_idxs], ", "))]"
-                write(io, "    - [$name_str, $pts, $(dynamics_type_to_str(ts.type)), $(Float64(ts.moment_frac)), $(Float64(ts.damping))]\n")
+                write(io, "    - [$(to_yaml_flow(name_str)), $pts, $(to_yaml_flow(dynamics_type_to_str(ts.type))), $(Float64(ts.moment_frac)), $(Float64(ts.damping))]\n")
             end
             write(io, "\n")
         end
@@ -1210,7 +1210,7 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
                 nseg = tether.n_segments > 0 ? tether.n_segments : length(tether.segment_idxs)
                 stretched = something(tether.init_stretched_len, tether.stretched_len)
                 stretched_str = stretched isa Number ? string(Float64(stretched)) : string(Float64(tether.stretched_len))
-                write(io, "    - [$name_str, $sp, $ep, $nseg, dyneema, $(Float64(tether.diameter * 1000.0)), $stretched_str]\n")
+                write(io, "    - [$(to_yaml_flow(name_str)), $(to_yaml_flow(sp)), $(to_yaml_flow(ep)), $nseg, $(to_yaml_flow("dyneema")), $(Float64(tether.diameter * 1000.0)), $stretched_str]\n")
             end
             write(io, "\n")
         end
@@ -1225,7 +1225,7 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
                 name_str = winch.name isa Symbol ? String(winch.name) : string(winch.name)
                 tether_refs = "[$(join([to_yaml_flow(idx_to_name_or_number(idx, sys.tethers)) for idx in winch.tether_idxs], ", "))]"
                 wp = idx_to_name_or_number(winch.winch_point_idx, sys.points)
-                write(io, "    - [$name_str, $tether_refs, $wp]\n")
+                write(io, "    - [$(to_yaml_flow(name_str)), $tether_refs, $(to_yaml_flow(wp))]\n")
             end
             write(io, "\n")
         end
