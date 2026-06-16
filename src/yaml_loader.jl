@@ -317,10 +317,14 @@ Build a wing from a parsed YAML `row`, dispatched on its aero `mode`. The defaul
 (VSM-backed modes) builds a [`VSMWing`](@ref); [`AeroPlate`](@ref) builds a
 flat-plate wing via [`load_plate_wing`](@ref). Add a method to load a wing for a
 custom aero mode.
+
+Unused parameters (`data`, `twist_surfaces`) are accepted with `_` for dispatch
+compatibility with the [`AeroPlate`](@ref) method which needs them.
+
 """
-function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
+function load_wing(mode::AbstractAeroModel, row, idx, _, set, wing_type,
                    vsm_set, yaml_to_ref, yaml_parse_ref_points,
-                   yaml_parse_origin, twist_surfaces)
+                   yaml_parse_origin, _)
     if wing_type == PARTICLE_DYNAMICS
         # PARTICLE_DYNAMICS wings need z_ref_points, y_ref_points, origin
         # Pass raw values - constructor handles defaults
@@ -331,13 +335,13 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
              :z_ref_points, :y_ref_points, :origin, :pos_cad,
              :aero_scale_chord];
             mappings=Dict(
-                :set => row -> set,
+                :set => _row -> set,
                 :twist_surfaces => row -> hasfield(typeof(row), :twist_surfaces) &&
                     !isnothing(row.twist_surfaces) ?
                     [yaml_to_ref(twist_surface_ref) for twist_surface_ref in row.twist_surfaces] : [],
-                :vsm_set => row -> vsm_set,
-                :dynamics_type => row -> wing_type,
-                :aero => row -> mode,
+                :vsm_set => _row -> vsm_set,
+                :dynamics_type => _row -> wing_type,
+                :aero => _row -> mode,
                 :name => row -> begin
                     if haskey(row, :name) && !isnothing(row.name)
                         Symbol(row.name)
@@ -361,7 +365,7 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                 :aero_scale_chord => row ->
                     hasfield(typeof(row), :aero_scale_chord) && !isnothing(row.aero_scale_chord) ?
                         float(row.aero_scale_chord) : 0.0,
-                :pos_cad => row -> begin
+                :pos_cad => _row -> begin
                     # Note: pos_cad will be set from origin point position after resolution
                     # For now, return nothing - SystemStructure will handle this
                     nothing
@@ -376,13 +380,13 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
              :aero_z_offset, :pos_cad,
              :z_ref_points, :y_ref_points, :origin];
             mappings=Dict(
-                :set => row -> set,
-                :aero => row -> mode,
+                :set => _row -> set,
+                :aero => _row -> mode,
                 :twist_surfaces => row -> hasfield(typeof(row), :twist_surfaces) &&
                     !isnothing(row.twist_surfaces) ?
                     [yaml_to_ref(twist_surface_ref) for twist_surface_ref in row.twist_surfaces] : [],
-                :vsm_set => row -> vsm_set,
-                :dynamics_type => row -> wing_type,
+                :vsm_set => _row -> vsm_set,
+                :dynamics_type => _row -> wing_type,
                 :name => row -> begin
                     if haskey(row, :name) && !isnothing(row.name)
                         Symbol(row.name)
@@ -635,7 +639,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 [:l0, :diameter_mm, :unit_stiffness,
                  :unit_damping, :compression_frac];
                 mappings=Dict(
-                    :set => row -> resolved_set,
+                    :set => _row -> resolved_set,
                     :point_i => row -> yaml_to_ref(row.point_i),
                     :point_j => row -> yaml_to_ref(row.point_j),
                     :name => row -> begin
@@ -798,7 +802,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 [:winch_point, :init_vel,
                  :brake, :speed_controlled, :friction_epsilon];
                 mappings=Dict(
-                    :set => row -> resolved_set,
+                    :set => _row -> resolved_set,
                     :tethers => row -> [yaml_to_ref(tether_ref)
                         for tether_ref in row.tether_idxs],
                     :winch_point => row -> begin
@@ -1016,7 +1020,7 @@ function ref_point_to_yaml(wrp::WeightedRefPoints)
     end
     # Multi-point case
     has_explicit_refs = !isempty(wrp.refs)
-    has_ids = !isempty(wrp.ids)
+    _has_ids = !isempty(wrp.ids)
     n = length(has_explicit_refs ? wrp.refs : wrp.ids)
     if all(w -> abs(w - 1.0/n) < 1e-10, wrp.weights)
         # Equal weights → simple list

@@ -17,8 +17,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, DYNAMIC, STATIC, WING,
-    RIGID_DYNAMICS, PARTICLE_DYNAMICS
+using SymbolicAWEModels: DYNAMIC, STATIC, PARTICLE_DYNAMICS, save_sys_struct_to_yaml, load_sys_struct_from_yaml
 using KiteUtils
 using LinearAlgebra
 
