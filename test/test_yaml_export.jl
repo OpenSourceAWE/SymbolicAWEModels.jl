@@ -240,6 +240,95 @@ end
     end
 end
 
+# ==================== Weighted reference points ==================== #
+
+@testset "YAML Export — Weighted reference points" begin
+    pkg_root = dirname(@__DIR__)
+    tmpdir = mktempdir()
+    set = Settings(joinpath(pkg_root, "data", "base", "system.yaml"))
+
+    # Points used for wing reference definitions
+    points = [
+        Point(:p1, [0, 0, 0], STATIC),
+        Point(:p2, [1, 0, 0], STATIC),
+        Point(:p3, [0, 1, 0], STATIC),
+        Point(:p4, [0, 0, 1], STATIC),
+        Point(:p5, [0, -1, 0], STATIC),
+        Point(:p6, [1, 1, 0], STATIC),
+    ]
+
+    twist_surfaces = [
+        TwistSurface(:ts1, [:p1, :p2], QUASI_STATIC, 0.25),
+        TwistSurface(:ts2, [:p3, :p4], QUASI_STATIC, 0.25),
+    ]
+
+    R_b_to_c = Matrix{Float64}(I, 3, 3)
+    pos_cad = Float64[10, 0, 0]
+    inertia = [1.0, 1.0, 1.0]
+
+    # Wing with non-uniform weighted reference points.
+    # - origin: weighted average of p1 (40 %) and p2 (60 %)
+    # - z_ref_points: first is weighted [p1(0.7), p2(0.3)],
+    #                 second is equal-weight [p3, p4]
+    # - y_ref_points: first is weighted [p5(0.8), p6(0.2)],
+    #                 second is equal-weight [p1, p3]
+    wing = Wing(:test_wing, [:ts1, :ts2], R_b_to_c, pos_cad, inertia;
+        aero=AeroNone(),
+        origin=[(:p1, 0.4), (:p2, 0.6)],
+        z_ref_points=([(:p1, 0.7), (:p2, 0.3)], [:p3, :p4]),
+        y_ref_points=([(:p5, 0.8), (:p6, 0.2)], [:p1, :p3]),
+        transform=0)
+
+    sys = SystemStructure("weighted_refs", set;
+        points=points, twist_surfaces=twist_surfaces,
+        wings=[wing])
+
+    export_path = joinpath(tmpdir, "weighted_refs.yaml")
+    save_sys_struct_to_yaml(sys, export_path)
+
+    # Verify the YAML output contains the weighted format,
+    # not Julia type prefixes like Any[...]
+    yaml_content = read(export_path, String)
+    @test occursin("origin_idx:", yaml_content)
+    @test occursin("z_ref_points:", yaml_content)
+    @test occursin("y_ref_points:", yaml_content)
+    @test !occursin("Any[", yaml_content)
+    @test occursin("[\"p1\", 0.4]", yaml_content)
+
+    # Round-trip: load back
+    sys2 = load_sys_struct_from_yaml(
+        export_path; system_name="weighted_refs2", set=set)
+
+    @test length(sys2.wings) == 1
+    w2 = sys2.wings[1]
+
+    # Verify weighted origin
+    @test w2.origin !== nothing
+    @test length(w2.origin.weights) == 2
+    @test w2.origin.weights[1] ≈ 0.4
+    @test w2.origin.weights[2] ≈ 0.6
+
+    # Verify weighted z_ref_points (first element weighted, second equal-weight)
+    @test w2.z_ref_points !== nothing
+    z1, z2 = w2.z_ref_points
+    @test length(z1.weights) == 2
+    @test z1.weights[1] ≈ 0.7
+    @test z1.weights[2] ≈ 0.3
+    @test length(z2.weights) == 2
+    @test z2.weights[1] ≈ 0.5
+    @test z2.weights[2] ≈ 0.5
+
+    # Verify weighted y_ref_points (first element weighted, second equal-weight)
+    @test w2.y_ref_points !== nothing
+    y1, y2 = w2.y_ref_points
+    @test length(y1.weights) == 2
+    @test y1.weights[1] ≈ 0.8
+    @test y1.weights[2] ≈ 0.2
+    @test length(y2.weights) == 2
+    @test y2.weights[1] ≈ 0.5
+    @test y2.weights[2] ≈ 0.5
+end
+
 # ==================== Error handling ==================== #
 
 @testset "YAML Export — Error handling" begin

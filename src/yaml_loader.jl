@@ -322,9 +322,9 @@ Unused parameters (`data`, `twist_surfaces`) are accepted with `_` for dispatch
 compatibility with the [`AeroPlate`](@ref) method which needs them.
 
 """
-function load_wing(mode::AbstractAeroModel, row, idx, _, set, wing_type,
+function load_wing(mode::AbstractAeroModel, row, idx, _data, set, wing_type,
                    vsm_set, yaml_to_ref, yaml_parse_ref_points,
-                   yaml_parse_origin, _)
+                   yaml_parse_origin, _twist_surfaces)
     if wing_type == PARTICLE_DYNAMICS
         # PARTICLE_DYNAMICS wings need z_ref_points, y_ref_points, origin
         # Pass raw values - constructor handles defaults
@@ -983,7 +983,8 @@ function aero_mode_to_str(aero::AbstractAeroModel)
     aero isa AeroDirect && return "AeroDirect"
     aero isa AeroLinearized && return "AeroLinearized"
     aero isa AeroPlate && return "AeroPlate"
-    return "AeroDirect"
+    error("Unknown aero mode: $(typeof(aero)). " *
+          "Add an overload of aero_mode_to_str for this type.")
 end
 
 """
@@ -1055,6 +1056,54 @@ end
 Convert a 3-element vector to a plain Float64 array for YAML output.
 """
 vec3_to_yaml(v) = [Float64(v[1]), Float64(v[2]), Float64(v[3])]
+
+"""
+    to_yaml_flow(value) -> String
+
+Convert a value to a YAML flow-style representation string.
+
+Always returns valid YAML, unlike `repr()` which can emit
+Julia type annotations like `Any[...]` for vectors with
+non-concrete element types.
+
+# Examples
+```julia
+to_yaml_flow("foo")            # -> "\"foo\""
+to_yaml_flow(42)               # -> "42"
+to_yaml_flow(1.5)              # -> "1.5"
+to_yaml_flow(nothing)          # -> "nothing"
+to_yaml_flow(["a", "b"])      # -> "[\\"a\\", \\"b\\"]"
+to_yaml_flow([["a", 0.5]])    # -> "[[\"a\", 0.5]]"
+```
+"""
+function to_yaml_flow(value::AbstractString)
+    return repr(value)
+end
+
+function to_yaml_flow(value::Symbol)
+    return repr(String(value))
+end
+
+function to_yaml_flow(value::Integer)
+    return string(value)
+end
+
+function to_yaml_flow(value::AbstractFloat)
+    return string(value)
+end
+
+function to_yaml_flow(::Nothing)
+    return "nothing"
+end
+
+function to_yaml_flow(value::AbstractVector)
+    parts = join((to_yaml_flow(v) for v in value), ", ")
+    return "[$parts]"
+end
+
+function to_yaml_flow(value::Tuple)
+    return to_yaml_flow(collect(value))
+end
 
 """
     save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString;
@@ -1142,7 +1191,7 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
             for ts in sys.twist_surfaces
                 ts.name === nothing && continue
                 name_str = ts.name isa Symbol ? String(ts.name) : string(ts.name)
-                pts = "[$(join([repr(idx_to_name_or_number(idx, sys.points)) for idx in ts.point_idxs], ", "))]"
+                pts = "[$(join([to_yaml_flow(idx_to_name_or_number(idx, sys.points)) for idx in ts.point_idxs], ", "))]"
                 write(io, "    - [$name_str, $pts, $(dynamics_type_to_str(ts.type)), $(Float64(ts.moment_frac)), $(Float64(ts.damping))]\n")
             end
             write(io, "\n")
@@ -1174,7 +1223,7 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
             for winch in sys.winches
                 winch.name === nothing && continue
                 name_str = winch.name isa Symbol ? String(winch.name) : string(winch.name)
-                tether_refs = "[$(join([repr(idx_to_name_or_number(idx, sys.tethers)) for idx in winch.tether_idxs], ", "))]"
+                tether_refs = "[$(join([to_yaml_flow(idx_to_name_or_number(idx, sys.tethers)) for idx in winch.tether_idxs], ", "))]"
                 wp = idx_to_name_or_number(winch.winch_point_idx, sys.points)
                 write(io, "    - [$name_str, $tether_refs, $wp]\n")
             end
@@ -1198,24 +1247,24 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
                         push!(wing_point_names, String(point.name))
                     end
                 end
-                write(io, "      point_idxs: $(repr(wing_point_names))\n")
+                write(io, "      point_idxs: $(to_yaml_flow(wing_point_names))\n")
 
                 # Twist surface references
                 ts_names = [String(sys.twist_surfaces[idx].name) for idx in wing.twist_surface_idxs
                            if sys.twist_surfaces[idx].name !== nothing]
                 if !isempty(ts_names)
-                    write(io, "      twist_surfaces: $(repr(ts_names))\n")
+                    write(io, "      twist_surfaces: $(to_yaml_flow(ts_names))\n")
                 end
 
                 # Origin and ref points
                 if wing.origin !== nothing
-                    write(io, "      origin_idx: $(repr(ref_point_to_yaml(wing.origin)))\n")
+                    write(io, "      origin_idx: $(to_yaml_flow(ref_point_to_yaml(wing.origin)))\n")
                 end
                 if wing.z_ref_points !== nothing
-                    write(io, "      z_ref_points: $(repr(ref_point_tuple_to_yaml(wing.z_ref_points)))\n")
+                    write(io, "      z_ref_points: $(to_yaml_flow(ref_point_tuple_to_yaml(wing.z_ref_points)))\n")
                 end
                 if wing.y_ref_points !== nothing
-                    write(io, "      y_ref_points: $(repr(ref_point_tuple_to_yaml(wing.y_ref_points)))\n")
+                    write(io, "      y_ref_points: $(to_yaml_flow(ref_point_tuple_to_yaml(wing.y_ref_points)))\n")
                 end
 
                 # Transform reference
@@ -1253,7 +1302,7 @@ function save_sys_struct_to_yaml(sys::SystemStructure, yaml_path::AbstractString
                 end
 
                 if tf.base_pos !== nothing
-                    write(io, "      base_pos: $(repr(vec3_to_yaml(tf.base_pos)))\n")
+                    write(io, "      base_pos: $(to_yaml_flow(vec3_to_yaml(tf.base_pos)))\n")
                 end
 
                 if tf.wing_idx !== nothing && tf.wing_idx > 0

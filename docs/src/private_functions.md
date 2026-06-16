@@ -116,6 +116,18 @@ SymbolicAWEModels.calculate_derived_properties!
 SymbolicAWEModels.extract_args
 SymbolicAWEModels.call_yaml_constructor
 SymbolicAWEModels.parse_tether_init
+SymbolicAWEModels.dynamics_type_to_str
+SymbolicAWEModels.wing_type_to_str
+SymbolicAWEModels.aero_mode_to_str
+SymbolicAWEModels.name_or_nothing
+SymbolicAWEModels.ref_to_yaml
+SymbolicAWEModels.ref_point_to_yaml
+SymbolicAWEModels.ref_point_tuple_to_yaml
+SymbolicAWEModels.vec3_to_yaml
+SymbolicAWEModels.to_yaml_flow
+SymbolicAWEModels.idx_to_name_or_number
+SymbolicAWEModels.wing_type_to_yaml_ref
+SymbolicAWEModels.transform_to_yaml_ref
 ```
 
 ## SystemStructure internals
