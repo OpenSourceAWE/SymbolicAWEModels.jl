@@ -310,15 +310,15 @@ function parse_aero_mode(text::String)
 end
 
 """
-    load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type, vsm_set,
-              yaml_to_ref, yaml_parse_ref_points, yaml_parse_origin, twist_surfaces)
+    load_wing(mode::AbstractAeroModel, row, idx, _data, set, wing_type, vsm_set,
+              yaml_to_ref, yaml_parse_ref_points, yaml_parse_origin, _twist_surfaces)
 
 Build a wing from a parsed YAML `row`, dispatched on its aero `mode`. The default
 (VSM-backed modes) builds a [`VSMWing`](@ref); [`AeroPlate`](@ref) builds a
 flat-plate wing via [`load_plate_wing`](@ref). Add a method to load a wing for a
 custom aero mode.
 
-Unused parameters (`data`, `twist_surfaces`) are accepted with `_` for dispatch
+Unused parameters (`_data`, `_twist_surfaces`) are prefixed with `_` for dispatch
 compatibility with the [`AeroPlate`](@ref) method which needs them.
 
 """
