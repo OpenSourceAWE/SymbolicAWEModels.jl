@@ -58,6 +58,11 @@ SymbolicAWEModels.calc_aoa
 SymbolicAWEModels.create_sys!
 SymbolicAWEModels.scalar_eqs!
 SymbolicAWEModels.wing_eqs!
+SymbolicAWEModels.rigid_body_eqs!
+SymbolicAWEModels.body_eqs!
+SymbolicAWEModels.joint_eqs!
+SymbolicAWEModels.init_rigid_body!
+SymbolicAWEModels.n_orient_frames
 SymbolicAWEModels.aero_eqs!
 SymbolicAWEModels.point_eqs!
 SymbolicAWEModels.segment_eqs!

@@ -11,10 +11,9 @@ rigid body dynamics.
 
 For RIGID_DYNAMICS wings:
 - ODE state: `com_w`, `com_vel`, `Q_p_to_w`, `ω_p` (principal frame)
-- Euler rotation equations in principal frame (diagonal I)
-- Newton's 2nd law for COM translation
-- Body frame output (`R_b_to_w`, `wing_pos`, `ω_b`) computed
-  algebraically via `R_b_to_w` = `R_p_to_w` * `R_b_to_p` (constant)
+- Wing-specific loads (aero transport, tether, damping) and pinning
+  constraints are assembled here, then the generic 6-DOF integration is
+  delegated to `rigid_body_eqs!`.
 
 For PARTICLE_DYNAMICS wings:
 - No rigid body dynamics (handled by DYNAMIC points)
@@ -47,14 +46,6 @@ function wing_eqs!(
         fix_wing_sphere(t)[eachindex(wings)]
     end
     moment_tether_wing = collect(moment_tether_wing)
-
-    # Skew-symmetric matrix for quaternion kinematics
-    Ω(ω) = [
-        0 -ω[1] -ω[2] -ω[3]
-        ω[1] 0 ω[3] -ω[2]
-        ω[2] -ω[3] 0 ω[1]
-        ω[3] ω[2] -ω[1] 0
-    ]
 
     # Weighted ref point position (symbolic)
     function get_ref_position(
@@ -157,222 +148,85 @@ function wing_eqs!(
 
         # ============= RIGID_DYNAMICS WINGS ============= #
 
-        I_p = get_inertia_principal(psys, wing.idx)
-        com_axis = collect(
-            smooth_normalize(com_w[:, wing.idx]))
-        com_axis_p = collect(
-            R_p_to_w[:, :, wing.idx]' * com_axis)
+        idx = wing.idx
+        com_axis = collect(smooth_normalize(com_w[:, idx]))
+        com_axis_p = collect(R_p_to_w[:, :, idx]' * com_axis)
+        sphere = fix_wing_sphere[idx]
 
+        # Wing-specific intermediates: pinning flag, damped angular
+        # acceleration, tether loads, mass.
         eqs = [
             eqs
-            fix_wing_sphere[wing.idx] ~
-                get_fix_wing_sphere(psys, wing.idx)
+            fix_wing_sphere[idx] ~ get_fix_wing_sphere(psys, idx)
 
-            # === Principal frame quaternion
-            #     kinematics ===
-            # D(Q_p_to_w) = 0.5 * Ω(ω_p_stable) * Q_p_to_w
-            [D(Q_p_to_w[i, wing.idx]) ~
-                Q_p_vel[i, wing.idx] for i = 1:4]
-            [Q_p_vel[i, wing.idx] ~ 0.5 * sum(
-                Ω(ω_p_stable[:, wing.idx])[i, j] *
-                Q_p_to_w[j, wing.idx]
-                for j = 1:4) for i = 1:4]
+            ω_p_stable[:, idx] ~ ifelse.(
+                fix_wing == true, zeros(3),
+                ifelse.(sphere == true,
+                    ω_p[:, idx] -
+                    (ω_p[:, idx] ⋅ com_axis_p) * com_axis_p,
+                    ω_p[:, idx]))
 
-            # Constrain ω for spherical joint
-            ω_p_stable[:, wing.idx] ~ ifelse.(
-                fix_wing == true,
-                zeros(3),
-                ifelse.(
-                    fix_wing_sphere[wing.idx] == true,
-                    ω_p[:, wing.idx] -
-                    (ω_p[:, wing.idx] ⋅ com_axis_p) *
-                    com_axis_p,
-                    ω_p[:, wing.idx],
-                ),
-            )
-
-            # Constrain angular acceleration
-            D(ω_p[:, wing.idx]) ~ ifelse.(
-                fix_wing == true,
-                zeros(3),
-                ifelse.(
-                    fix_wing_sphere[wing.idx] == true,
-                    α_p_damped[:, wing.idx] -
-                    (α_p_damped[:, wing.idx] ⋅
-                     com_axis_p) * com_axis_p,
-                    α_p_damped[:, wing.idx],
-                ),
-            )
-
-            # Damping in principal frame
-            α_p_damped[:, wing.idx] ~ [
-                α_p[1, wing.idx] -
-                    get_angular_damping(
-                        psys, wing.idx) *
-                    ω_p[1, wing.idx],
-                α_p[2, wing.idx] -
-                    (get_y_damping(psys, wing.idx) +
-                     get_angular_damping(
-                         psys, wing.idx)) *
-                    ω_p[2, wing.idx],
-                α_p[3, wing.idx] +
-                    get_z_disturb(psys, wing.idx) -
-                    get_angular_damping(
-                        psys, wing.idx) *
-                    ω_p[3, wing.idx],
+            α_p_damped[:, idx] ~ [
+                α_p[1, idx] -
+                    get_angular_damping(psys, idx) * ω_p[1, idx],
+                α_p[2, idx] -
+                    (get_y_damping(psys, idx) +
+                     get_angular_damping(psys, idx)) * ω_p[2, idx],
+                α_p[3, idx] + get_z_disturb(psys, idx) -
+                    get_angular_damping(psys, idx) * ω_p[3, idx],
             ]
 
-            # R_p_to_w from Q_p_to_w
-            [R_p_to_w[:, i, wing.idx] ~
-                quaternion_to_rotation_matrix(
-                    Q_p_to_w[:, wing.idx])[:, i]
-                for i = 1:3]
-
-            # === Euler equations (principal frame,
-            #     diagonal inertia) ===
-            α_p[1, wing.idx] ~ (
-                moment_p[1, wing.idx] +
-                (I_p[2] - I_p[3]) *
-                ω_p[2, wing.idx] *
-                ω_p[3, wing.idx]) / I_p[1]
-            α_p[2, wing.idx] ~ (
-                moment_p[2, wing.idx] +
-                (I_p[3] - I_p[1]) *
-                ω_p[3, wing.idx] *
-                ω_p[1, wing.idx]) / I_p[2]
-            α_p[3, wing.idx] ~ (
-                moment_p[3, wing.idx] +
-                (I_p[1] - I_p[2]) *
-                ω_p[1, wing.idx] *
-                ω_p[2, wing.idx]) / I_p[3]
-
-            # === Total moment about COM ===
-            moment_tether_wing[:, wing.idx] ~
-                tether_wing_moment[:, wing.idx]
+            moment_tether_wing[:, idx] ~ tether_wing_moment[:, idx]
+            force_tether_wing[:, idx] ~ tether_wing_force[:, idx]
+            wing_mass[idx] ~ get_wing_mass(psys, idx)
         ]
 
-        # Aero moment transport: body origin → COM
-        com_off_b = collect(
-            get_com_offset_b(psys, wing.idx))
-        aero_moment_com_b =
-            aero_moment_b[:, wing.idx] .+
-            (aero_force_b[:, wing.idx] × com_off_b)
-        # Total moment in world frame about COM
-        moment_w =
-            collect(R_b_to_w[:, :, wing.idx]) *
-            aero_moment_com_b .+
-            moment_tether_wing[:, wing.idx]
+        # Total force/moment at/about COM (world frame).
+        # Aero moment transported body origin → COM.
+        com_off_b = collect(get_com_offset_b(psys, idx))
+        aero_moment_com_b = aero_moment_b[:, idx] .+
+            (aero_force_b[:, idx] × com_off_b)
+        moment_w = collect(R_b_to_w[:, :, idx]) * aero_moment_com_b .+
+            moment_tether_wing[:, idx]
+        force_w = force_tether_wing[:, idx] .+
+            collect(R_b_to_w[:, :, idx]) * aero_force_b[:, idx]
 
-        eqs = [
-            eqs
-            # Rotate to principal frame
-            moment_p[:, wing.idx] ~
-                collect(R_p_to_w[:, :, wing.idx])' *
-                moment_w
+        # Pinning constraints project the integrated derivatives:
+        # fix_wing freezes the body, fix_wing_sphere keeps it on a sphere.
+        d_ω_p = ifelse.(
+            fix_wing == true, zeros(3),
+            ifelse.(sphere == true,
+                α_p_damped[:, idx] -
+                (α_p_damped[:, idx] ⋅ com_axis_p) * com_axis_p,
+                α_p_damped[:, idx]))
+        d_com_w = ifelse.(
+            fix_wing == true, zeros(3),
+            ifelse.(sphere == true,
+                (com_vel[:, idx] ⋅ com_axis) * com_axis,
+                com_vel[:, idx]))
+        d_com_vel = ifelse.(
+            fix_wing == true, zeros(3),
+            ifelse.(sphere == true,
+                (com_acc[:, idx] ⋅ com_axis) * com_axis,
+                com_acc[:, idx]))
 
-            # === Translational dynamics ===
-            D(com_w[:, wing.idx]) ~ ifelse.(
-                fix_wing == true,
-                zeros(3),
-                ifelse.(
-                    fix_wing_sphere[wing.idx] == true,
-                    (com_vel[:, wing.idx] ⋅ com_axis) *
-                    com_axis,
-                    com_vel[:, wing.idx],
-                ),
-            )
-            D(com_vel[:, wing.idx]) ~ ifelse.(
-                fix_wing == true,
-                zeros(3),
-                ifelse.(
-                    fix_wing_sphere[wing.idx] == true,
-                    (com_acc[:, wing.idx] ⋅ com_axis) *
-                    com_axis,
-                    com_acc[:, wing.idx],
-                ),
-            )
-            wing_mass[wing.idx] ~
-                get_wing_mass(psys, wing.idx)
-            force_tether_wing[:, wing.idx] ~
-                tether_wing_force[:, wing.idx]
-            com_acc[:, wing.idx] ~ (
-                force_tether_wing[:, wing.idx] .+
-                collect(R_b_to_w[:, :, wing.idx]) *
-                aero_force_b[:, wing.idx]
-            ) / wing_mass[wing.idx]
-        ]
-
-        # === Body frame output (unified) ===
-        # R_b_to_w = R_p_to_w * R_b_to_p (constant R_b_to_p)
-        # When R_b_to_p = I (no ref points): R_b_to_w = R_p_to_w
-        R_b_to_p = get_R_b_to_p(psys, wing.idx)
-        R_p_to_w_mat = collect(R_p_to_w[:, :, wing.idx])
-        R_b_to_w_mat = R_p_to_w_mat * R_b_to_p
-
-        # COM→origin in world frame
-        r_w = -(R_b_to_w_mat * com_off_b)
-        ω_w = R_p_to_w_mat * ω_p[:, wing.idx]
-
-        eqs = [
-            eqs
-            # R_b_to_w from constant body-principal rotation
-            [R_b_to_w[:, i, wing.idx] ~
-                R_b_to_w_mat[:, i] for i = 1:3]
-
-            # wing_pos = com_w + R_b_to_w * (-com_offset_b)
-            wing_pos[:, wing.idx] ~
-                com_w[:, wing.idx] .+ r_w
-            # Rigid body kinematics for origin vel/acc
-            wing_vel[:, wing.idx] ~
-                com_vel[:, wing.idx] .+
-                (ω_w × r_w)
-            wing_acc[:, wing.idx] ~
-                com_acc[:, wing.idx] .+
-                ((R_p_to_w_mat *
-                  α_p[:, wing.idx]) × r_w) .+
-                (ω_w × (ω_w × r_w))
-
-            # ω_b = R_b_to_p' * ω_p (constant rotation)
-            ω_b[:, wing.idx] ~
-                R_b_to_p' * ω_p[:, wing.idx]
-            α_b[:, wing.idx] ~
-                R_b_to_p' * α_p[:, wing.idx]
-        ]
-
-        # Q_b_to_w from R_b_to_w (both cases)
-        R_wing = R_b_to_w[:, :, wing.idx]
-        eqs = [
-            eqs
-            Q_b_to_w[1, wing.idx] ~
-                rotation_matrix_to_quaternion_w(
-                    R_wing)
-            Q_b_to_w[2, wing.idx] ~
-                rotation_matrix_to_quaternion_x(
-                    R_wing)
-            Q_b_to_w[3, wing.idx] ~
-                rotation_matrix_to_quaternion_y(
-                    R_wing)
-            Q_b_to_w[4, wing.idx] ~
-                rotation_matrix_to_quaternion_z(
-                    R_wing)
-        ]
-
-        # Defaults: principal frame ODE state
-        defaults = [
-            defaults
-            [com_w[i, wing.idx] =>
-                get_com_w(psys, wing.idx)[i]
-                for i = 1:3]
-            [com_vel[i, wing.idx] =>
-                get_com_vel(psys, wing.idx)[i]
-                for i = 1:3]
-            [Q_p_to_w[i, wing.idx] =>
-                get_Q_p_to_w(psys, wing.idx)[i]
-                for i = 1:4]
-            [ω_p[i, wing.idx] =>
-                get_ω_p(psys, wing.idx)[i]
-                for i = 1:3]
-        ]
+        eqs, defaults = rigid_body_eqs!(
+            eqs, defaults, idx;
+            force_w, moment_w,
+            inertia_p=get_inertia_principal(psys, idx),
+            mass=wing_mass[idx],
+            R_b_to_p=get_R_b_to_p(psys, idx),
+            com_offset_b=com_off_b,
+            com_w, com_vel, Q_p_to_w, ω_p,
+            com_acc, α_p, R_p_to_w, moment_p, Q_p_vel,
+            R_b_to_w, wing_pos, wing_vel, wing_acc, ω_b, α_b, Q_b_to_w,
+            com_w_0=get_com_w(psys, idx),
+            com_vel_0=get_com_vel(psys, idx),
+            Q_p_to_w_0=get_Q_p_to_w(psys, idx),
+            ω_p_0=get_ω_p(psys, idx),
+            ω_kinematic=ω_p_stable[:, idx],
+            d_ω_p, d_com_w, d_com_vel,
+        )
     end
 
     return eqs, defaults

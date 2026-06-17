@@ -207,6 +207,119 @@ get_z_disturb(sys::SystemStructure, idx::Int64) =
 @register_symbolic get_z_disturb(
     sys::SystemStructure, idx::Int64)
 
+# ---- Rigid bodies (standalone component) ----
+get_body_mass(sys::SystemStructure, idx::Int64) =
+    sys.rigid_bodies[idx].mass
+@register_symbolic get_body_mass(
+    sys::SystemStructure, idx::Int64)
+get_body_inertia_principal(sys::SystemStructure, idx::Int64) =
+    sys.rigid_bodies[idx].inertia_principal
+@register_array_symbolic get_body_inertia_principal(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_body_R_b_to_p(sys::SystemStructure, idx::Int64) =
+    sys.rigid_bodies[idx].R_b_to_p
+@register_array_symbolic get_body_R_b_to_p(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3, 3)
+    eltype = SimFloat
+end
+get_body_com_offset_b(sys::SystemStructure, idx::Int64) =
+    sys.rigid_bodies[idx].com_offset_b
+@register_array_symbolic get_body_com_offset_b(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_body_ext_force_w(sys::SystemStructure, idx::Int64) =
+    sys.rigid_bodies[idx].ext_force_w
+@register_array_symbolic get_body_ext_force_w(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_body_ext_moment_b(sys::SystemStructure, idx::Int64) =
+    sys.rigid_bodies[idx].ext_moment_b
+@register_array_symbolic get_body_ext_moment_b(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_body_angular_damping(sys::SystemStructure, idx::Int64) =
+    sys.rigid_bodies[idx].angular_damping
+@register_symbolic get_body_angular_damping(
+    sys::SystemStructure, idx::Int64)
+get_body_com_w(sys::SystemStructure, idx::Int64) =
+    sys.rigid_bodies[idx].com_w
+@register_array_symbolic get_body_com_w(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_body_com_vel(sys::SystemStructure, idx::Int64) =
+    sys.rigid_bodies[idx].com_vel
+@register_array_symbolic get_body_com_vel(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_body_Q_p_to_w(sys::SystemStructure, idx::Int64) =
+    sys.rigid_bodies[idx].Q_p_to_w
+@register_array_symbolic get_body_Q_p_to_w(
+    sys::SystemStructure, idx::Int64) begin
+    size = (4,)
+    eltype = SimFloat
+end
+get_body_ω_p(sys::SystemStructure, idx::Int64) =
+    sys.rigid_bodies[idx].ω_p
+@register_array_symbolic get_body_ω_p(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+
+# ---- Elastic joints ----
+get_joint_anchor_a(sys::SystemStructure, idx::Int64) =
+    sys.elastic_joints[idx].anchor_a_b
+@register_array_symbolic get_joint_anchor_a(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_joint_anchor_b(sys::SystemStructure, idx::Int64) =
+    sys.elastic_joints[idx].anchor_b_b
+@register_array_symbolic get_joint_anchor_b(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_joint_stiffness_axial(sys::SystemStructure, idx::Int64) =
+    sys.elastic_joints[idx].stiffness_axial
+@register_symbolic get_joint_stiffness_axial(
+    sys::SystemStructure, idx::Int64)
+get_joint_stiffness_shear(sys::SystemStructure, idx::Int64) =
+    sys.elastic_joints[idx].stiffness_shear
+@register_symbolic get_joint_stiffness_shear(
+    sys::SystemStructure, idx::Int64)
+get_joint_stiffness_torsion(sys::SystemStructure, idx::Int64) =
+    sys.elastic_joints[idx].stiffness_torsion
+@register_symbolic get_joint_stiffness_torsion(
+    sys::SystemStructure, idx::Int64)
+get_joint_stiffness_bending(sys::SystemStructure, idx::Int64) =
+    sys.elastic_joints[idx].stiffness_bending
+@register_symbolic get_joint_stiffness_bending(
+    sys::SystemStructure, idx::Int64)
+get_joint_damping_trans(sys::SystemStructure, idx::Int64) =
+    sys.elastic_joints[idx].damping_trans
+@register_symbolic get_joint_damping_trans(
+    sys::SystemStructure, idx::Int64)
+get_joint_damping_rot(sys::SystemStructure, idx::Int64) =
+    sys.elastic_joints[idx].damping_rot
+@register_symbolic get_joint_damping_rot(
+    sys::SystemStructure, idx::Int64)
+
 # ---- Segments ----
 get_l0(sys::SystemStructure, idx::Int64) =
     sys.segments[idx].l0

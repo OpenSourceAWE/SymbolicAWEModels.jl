@@ -25,6 +25,7 @@ init!
 next_step!
 find_steady_state!
 linearize!
+position_slots
 ```
 
 ## YAML loading

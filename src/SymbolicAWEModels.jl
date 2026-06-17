@@ -59,6 +59,7 @@ import ModelingToolkit.SciMLBase: successful_retcode, init
 
 # --- KiteUtils ---
 export update_from_sysstate!, get_data_path, set_data_path, se
+export position_slots
 export SysState, SysLog, Settings, AbstractKiteModel
 export Logger, log!, save_log, load_log
 export load_settings
@@ -68,6 +69,7 @@ export load_settings
 export SymbolicAWEModel
 # System Structure Components
 export SystemStructure, Point, TwistSurface, Segment, Pulley, Tether, Winch, Wing, Transform
+export RigidBody, ElasticJoint
 export AbstractWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
 export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints

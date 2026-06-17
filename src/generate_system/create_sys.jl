@@ -27,7 +27,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     defaults = Pair{Num, Any}[]
     guesses = Pair{Num, Any}[]
 
-    (; points, twist_surfaces, segments, pulleys, tethers, winches, wings) = system
+    (; points, twist_surfaces, segments, pulleys, tethers, winches, wings,
+       rigid_bodies, elastic_joints) = system
 
     validate_twist_surface_modes(twist_surfaces, wings)
 
@@ -78,10 +79,33 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         # Wind and apparent velocity
         wind_vec_gnd(t)[1:3]
         va_wing_b(t)[1:3, eachindex(wings)]
+        # Standalone rigid body state/output
+        body_pos_w(t)[1:3, eachindex(rigid_bodies)]
+        body_vel_w(t)[1:3, eachindex(rigid_bodies)]
+        body_acc_w(t)[1:3, eachindex(rigid_bodies)]
+        body_ω_b(t)[1:3, eachindex(rigid_bodies)]
+        body_α_b(t)[1:3, eachindex(rigid_bodies)]
+        body_com_w(t)[1:3, eachindex(rigid_bodies)]
+        body_com_vel(t)[1:3, eachindex(rigid_bodies)]
+        body_com_acc(t)[1:3, eachindex(rigid_bodies)]
+        body_Q_p_to_w(t)[1:4, eachindex(rigid_bodies)]
+        body_Q_b_to_w(t)[1:4, eachindex(rigid_bodies)]
+        body_ω_p(t)[1:3, eachindex(rigid_bodies)]
+        body_α_p(t)[1:3, eachindex(rigid_bodies)]
+        body_moment_p(t)[1:3, eachindex(rigid_bodies)]
+        body_Q_p_vel(t)[1:4, eachindex(rigid_bodies)]
+        body_R_b_to_w(t)[1:3, 1:3, eachindex(rigid_bodies)]
+        body_R_p_to_w(t)[1:3, 1:3, eachindex(rigid_bodies)]
     end
     R_b_to_w = collect(R_b_to_w)
     R_p_to_w = collect(R_p_to_w)
     R_v_to_w = collect(R_v_to_w)
+    body_R_b_to_w = collect(body_R_b_to_w)
+    body_R_p_to_w = collect(body_R_p_to_w)
+
+    # Rigid body load accumulators (filled by joint_eqs!, read by body_eqs!).
+    body_force = zeros(Num, 3, length(rigid_bodies))
+    body_moment = zeros(Num, 3, length(rigid_bodies))
 
     # ==================== INLINED FORCE_EQS! CONTENT ==================== #
     # The following variables and component calls were previously in force_eqs!
@@ -231,6 +255,23 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         wing_pos, wing_vel, wing_acc,
         com_w, com_vel, com_acc, Q_p_to_w, ω_p, α_p,
         fix_wing, pos, vel, acc
+    )
+
+    # Elastic joints: accumulate restoring wrenches into body_force/body_moment
+    # (must precede body_eqs!, which reads them).
+    eqs = joint_eqs!(
+        eqs, psys, elastic_joints;
+        body_force, body_moment,
+        body_com_w, body_pos_w, body_com_vel, body_ω_b, body_R_b_to_w,
+    )
+
+    # Build standalone rigid body dynamics equations
+    eqs, defaults = body_eqs!(
+        eqs, defaults, psys, rigid_bodies;
+        body_force, body_moment,
+        body_com_w, body_com_vel, body_com_acc, body_Q_p_to_w, body_ω_p, body_α_p,
+        body_pos_w, body_vel_w, body_acc_w, body_ω_b, body_α_b, body_Q_b_to_w,
+        body_R_b_to_w, body_R_p_to_w, body_moment_p, body_Q_p_vel,
     )
 
     # Build scalar kinematic and apparent wind equations

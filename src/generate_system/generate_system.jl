@@ -17,7 +17,10 @@ include("winch_eqs.jl")
 include("tether_eqs.jl")
 
 # Higher-level equations
+include("rigid_body_eqs.jl")
 include("wing_eqs.jl")
+include("body_eqs.jl")
+include("joint_eqs.jl")
 include("aero_eqs.jl")
 include("scalar_eqs.jl")
 

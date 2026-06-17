@@ -48,9 +48,7 @@ slot appended after the structural points and panel corners in the
 mean of the wing's `WING`-type structural points (or all points).
 """
 function wing_log_pos(sl, sys, wing, k)
-    n_points = length(sys.points)
-    n_corners = SymbolicAWEModels.count_aero_log_points(sys.wings)
-    i = n_points + n_corners + wing.idx
+    i = SymbolicAWEModels.position_slots(sys).wings[wing.idx]
     if i <= length(sl.X[k])
         return SVector{3, Float64}(
             sl.X[k][i], sl.Y[k][i], sl.Z[k][i])
@@ -164,6 +162,60 @@ aero pose.
 aero_plot_translation(wing) =
     wing.pos_w .- wing.R_b_to_w * [0.0, 0.0, wing.aero_z_offset]
 
+"""
+    body_frame_arrows(frames, scale)
+
+Build flat `(origins, directions)` arrays of RGB body-frame axes (x→red,
+y→green, z→blue) for a list of `(position, rotation_matrix)` frames, each axis
+scaled by `scale`. Shared by the wing and rigid-body renderers.
+"""
+function body_frame_arrows(frames, scale)
+    origins = Point3f[]
+    directions = Vec3f[]
+    for (position, R) in frames
+        origin_pos = Point3f(position)
+        for i in 1:3
+            push!(origins, origin_pos)
+            push!(directions, Vec3f(R[:, i]) * scale)
+        end
+    end
+    return origins, directions
+end
+
+"""World-frame `(position, R_b_to_w)` per wing, orientation from the quaternion."""
+wing_frames(sys) = [(wing.pos_w,
+    SymbolicAWEModels.quaternion_to_rotation_matrix(wing.Q_b_to_w))
+    for wing in sys.wings]
+
+"""World-frame `(position, R_b_to_w)` per rigid body, orientation from the quaternion."""
+rigid_body_frames(sys) = [(body.pos_w,
+    SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w))
+    for body in sys.rigid_bodies]
+
+"""
+    plot_frame_axes!(ax, plots, key, sys, n, frames_of, scale, geometry_obs)
+
+Plot RGB body-frame axes for `n` entities, reading frames via `frames_of(sys)`.
+Static when `geometry_obs === nothing`, otherwise observable-driven from
+`PLOT_SYSTEM_STRUCTURE[]`. No-op when `n == 0`.
+"""
+function plot_frame_axes!(ax, plots, key, sys, n, frames_of, scale, geometry_obs)
+    n == 0 && return nothing
+    axis_colors = repeat([:red, :green, :blue], n)
+    if isnothing(geometry_obs)
+        origins, directions = body_frame_arrows(frames_of(sys), scale)
+        plots[key] = arrows3d!(ax, origins, directions; color=axis_colors)
+    else
+        origins_dirs = @lift begin
+            $geometry_obs  # Trigger dependency
+            body_frame_arrows(frames_of(PLOT_SYSTEM_STRUCTURE[]), PLOT_VECTOR_SCALE[])
+        end
+        plots[key] = arrows3d!(ax, @lift($origins_dirs[1]),
+            @lift($origins_dirs[2]); color=axis_colors)
+    end
+    return nothing
+end
+
 function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
                      wing_colors = Makie.wong_colors(), vector_scale = 1.0,
@@ -235,45 +287,31 @@ function Makie.plot!(ax, sys::SystemStructure;
                                   transparency=true)
     end
 
-    # === Plot Wings ===
-    if show_orient
+    # === Plot Rigid Bodies (standalone chain, e.g. a beam) ===
+    if !isempty(sys.rigid_bodies)
+        # Faint polyline through the body origins to show connectivity.
         if isnothing(geometry_obs)
-            # Static plotting: create separate arrows for each wing
-            plots[:wings] = []
-            for (i, wing) in enumerate(sys.wings)
-                origin_pos = Point3f(wing.pos_w)
-                R = wing.R_b_to_w
-                scale = vector_scale
-                origins = [origin_pos, origin_pos, origin_pos]
-                directions = [Vec3f(R[:, 1]) * scale, Vec3f(R[:, 2]) * scale, Vec3f(R[:, 3]) * scale]
-
-                axis_colors = [:red, :green, :blue]
-                p = arrows3d!(ax, origins, directions, color=axis_colors, label="Wing $i Axes")
-                push!(plots[:wings], p)
-            end
+            body_positions = [Point3f(b.pos_w) for b in sys.rigid_bodies]
         else
-            # Dynamic plotting: compute from PLOT_SYSTEM_STRUCTURE when triggered
-            wing_origins_dirs = @lift begin
+            body_positions = @lift begin
                 $geometry_obs  # Trigger dependency
-                sys_ref = PLOT_SYSTEM_STRUCTURE[]
-                scale = PLOT_VECTOR_SCALE[]
-                origins = Point3f[]
-                directions = Vec3f[]
-                for wing in sys_ref.wings
-                    origin_pos = Point3f(wing.pos_w)
-                    R = wing.R_b_to_w
-                    # Add three arrow vectors for each axis (x, y, z in body frame)
-                    for i in 1:3
-                        push!(origins, origin_pos)
-                        push!(directions, Vec3f(R[:, i]) * scale)
-                    end
-                end
-                (origins, directions)
+                [Point3f(b.pos_w) for b in PLOT_SYSTEM_STRUCTURE[].rigid_bodies]
             end
-            axis_colors = repeat([:red, :green, :blue], length(sys.wings))
-            plots[:wings] = arrows3d!(ax, @lift($wing_origins_dirs[1]), @lift($wing_origins_dirs[2]),
-                                     color=axis_colors)
         end
+        plots[:body_chain] = lines!(ax, body_positions; color=(:gray, 0.5),
+                                    linewidth=2, label="Rigid bodies")
+
+        # RGB body-frame axes per body, from the orientation quaternion.
+        if show_orient
+            plot_frame_axes!(ax, plots, :bodies, sys, length(sys.rigid_bodies),
+                             rigid_body_frames, vector_scale, geometry_obs)
+        end
+    end
+
+    # === Plot Wings (RGB body-frame axes from the orientation quaternion) ===
+    if show_orient
+        plot_frame_axes!(ax, plots, :wings, sys, length(sys.wings),
+                         wing_frames, vector_scale, geometry_obs)
     end
 
     # === Plot VSM Aerodynamics ===
@@ -396,6 +434,12 @@ function Makie.plot!(ax, sys::SystemStructure;
             xr[2] - xr[1], yr[2] - yr[1], zr[2] - zr[1],
             1.0,  # minimum to avoid zero
         )
+    elseif !isempty(sys.rigid_bodies)
+        all_x = [b.pos_w[1] for b in sys.rigid_bodies]
+        all_y = [b.pos_w[2] for b in sys.rigid_bodies]
+        all_z = [b.pos_w[3] for b in sys.rigid_bodies]
+        xr, yr, zr = extrema(all_x), extrema(all_y), extrema(all_z)
+        data_char_length = max(xr[2]-xr[1], yr[2]-yr[1], zr[2]-zr[1], 1.0)
     end
 
     axis_length = data_char_length * 0.2
@@ -2241,6 +2285,9 @@ function plot_with_panes(sys::SystemStructure;
             push!(relevant_plots, plots[:wings])
         end
     end
+    # Standalone rigid bodies (so the camera frames a body-only scene, e.g. a beam)
+    haskey(plots, :body_chain) && push!(relevant_plots, plots[:body_chain])
+    haskey(plots, :bodies) && push!(relevant_plots, plots[:bodies])
 
     # --- Event Handling for Segments (using extracted reusable function) ---
     if haskey(plots, :segments)

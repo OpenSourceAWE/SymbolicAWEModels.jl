@@ -26,9 +26,11 @@ of the compiled `ODESystem` (`sys`).
 """
 function generate_prob_getters(sys_struct, sys)
     collect_each = collect
-    (; wings, twist_surfaces, pulleys, winches, tethers, segments) = sys_struct
+    (; points, wings, twist_surfaces, pulleys, winches, tethers, segments, rigid_bodies) = sys_struct
     get_wing_state, get_aero_input, get_segment_state, get_twist_surface_state, get_pulley_state,
     get_winch_state, get_tether_state, set_set_values, get_set_values = ntuple(_ -> nothing, 9)
+    get_rigid_body_state = nothing
+    get_point_state = nothing
 
     if length(wings) > 0
         wing_vars = collect_each.([
@@ -62,6 +64,13 @@ function generate_prob_getters(sys_struct, sys)
         get_aero_input = isempty(aero_inputs) ? nothing :
             getu(sys, collect_each.(aero_inputs))
     end
+    if length(rigid_bodies) > 0
+        get_rigid_body_state = getu(sys, collect_each.([
+            sys.body_Q_b_to_w, sys.body_ω_b,
+            sys.body_pos_w, sys.body_vel_w, sys.body_acc_w,
+            sys.body_com_w, sys.body_com_vel,
+            sys.body_Q_p_to_w, sys.body_ω_p]))
+    end
     if length(segments) > 0; get_segment_state = getu(sys, collect_each.([sys.spring_force, sys.len, sys.l0])); end
     if length(twist_surfaces) > 0; get_twist_surface_state = getu(sys, collect_each.([sys.twist_angle, sys.twist_ω, sys.twist_surface_tether_force, sys.twist_surface_tether_moment, sys.twist_surface_aero_moment])); end
     if length(pulleys) > 0; get_pulley_state = getu(sys, collect_each.([sys.pulley_len, sys.pulley_vel])); end
@@ -80,12 +89,14 @@ function generate_prob_getters(sys_struct, sys)
     end
     set_sys = make_psys_setter(sys)
 
-    # point_state always returns, in order: pos, vel, point_force, va_point_b, point_mass, total_drag
-    get_point_state = getu(sys, collect_each.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass, sys.total_drag]))
+    # point_state returns, in order: pos, vel, point_force, va_point_b, point_mass, total_drag
+    if length(points) > 0
+        get_point_state = getu(sys, collect_each.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass, sys.total_drag]))
+    end
 
     return (; get_wing_state, get_aero_input, get_segment_state, get_twist_surface_state,
             get_pulley_state, get_winch_state, get_tether_state, set_set_values,
-            get_set_values, set_sys, get_point_state)
+            get_set_values, set_sys, get_point_state, get_rigid_body_state)
 end
 
 """
@@ -541,7 +552,8 @@ Includes all structural properties that affect the symbolic equations:
 Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
-    (; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
+    (; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms,
+       rigid_bodies, elastic_joints) = sys_struct
     data_parts = []
     for point in points
         push!(data_parts, ("point", point.idx, point.wing_idx, Int(point.type)))
@@ -582,6 +594,13 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
     for transform in transforms
         push!(data_parts, ("transform", transform.idx, transform.wing_idx, transform.rot_point_idx,
                         transform.base_point_idx, transform.base_transform_idx))
+    end
+    for rigid_body in rigid_bodies
+        push!(data_parts, ("rigid_body", rigid_body.idx))
+    end
+    for joint in elastic_joints
+        push!(data_parts, ("elastic_joint", joint.idx,
+                           joint.body_a_idx, joint.body_b_idx))
     end
     content = string(data_parts)
     return sha1(content)

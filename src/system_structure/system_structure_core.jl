@@ -41,6 +41,8 @@ mutable struct SystemStructure{W<:AbstractWing}
     const winches::NamedCollection{Winch}
     const wings::NamedCollection{W}
     const transforms::NamedCollection{Transform}
+    const rigid_bodies::NamedCollection{RigidBody}
+    const elastic_joints::NamedCollection{ElasticJoint}
 
     const am::AtmosphericModel
     stabilize::Bool
@@ -79,6 +81,14 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
             append!(vars, wing.com_vel)
             append!(vars, wing.Q_p_to_w)
             append!(vars, wing.ω_p)
+        end
+        # rigid_bodies (principal frame ODE state)
+        rigid_bodies = getfield(sys, :rigid_bodies)
+        for rigid_body in rigid_bodies
+            append!(vars, rigid_body.com_w)
+            append!(vars, rigid_body.com_vel)
+            append!(vars, rigid_body.Q_p_to_w)
+            append!(vars, rigid_body.ω_p)
         end
         # twist_surfaces
         twist_surfaces = getfield(sys, :twist_surfaces)
@@ -137,6 +147,18 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
             wing.Q_p_to_w .= @view flat_value[offset:offset+3]
             offset += 4
             wing.ω_p .= @view flat_value[offset:offset+2]
+            offset += 3
+        end
+        # rigid_bodies (principal frame ODE state)
+        rigid_bodies = getfield(sys, :rigid_bodies)
+        for rigid_body in rigid_bodies
+            rigid_body.com_w .= @view flat_value[offset:offset+2]
+            offset += 3
+            rigid_body.com_vel .= @view flat_value[offset:offset+2]
+            offset += 3
+            rigid_body.Q_p_to_w .= @view flat_value[offset:offset+3]
+            offset += 4
+            rigid_body.ω_p .= @view flat_value[offset:offset+2]
             offset += 3
         end
         # twist_surfaces
@@ -798,6 +820,8 @@ function SystemStructure(name, set;
         winches=Winch[],
         wings=AbstractWing[],
         transforms=Transform[],
+        rigid_bodies=RigidBody[],
+        elastic_joints=ElasticJoint[],
         ignore_l0::Bool=false,
         vsm_set=nothing,
         prn::Bool=true,
@@ -946,6 +970,23 @@ function SystemStructure(name, set;
     end
     set.physical_model = name
 
+    # Standalone rigid bodies: assign indices and build name dict here (they
+    # carry no references, so they skip assign_indices_and_resolve!).
+    for (i, rigid_body) in enumerate(rigid_bodies)
+        rigid_body.idx = i
+    end
+    rigid_body_names_dict = build_name_dict(rigid_bodies)
+
+    # Elastic joints: assign indices, resolve their body references.
+    for (i, joint) in enumerate(elastic_joints)
+        joint.idx = i
+        joint.body_a_idx = resolve_ref(
+            joint.body_a_ref, rigid_body_names_dict, "rigid_body")
+        joint.body_b_idx = resolve_ref(
+            joint.body_b_ref, rigid_body_names_dict, "rigid_body")
+    end
+    elastic_joint_names_dict = build_name_dict(elastic_joints)
+
     # Name dictionaries were already built by assign_indices_and_resolve!
     sys_struct = SystemStructure(name, set,
         NamedCollection{Point}(points, point_names_dict),
@@ -956,6 +997,8 @@ function SystemStructure(name, set;
         NamedCollection{Winch}(winches, winch_names_dict),
         NamedCollection{eltype(wings)}(wings, wing_names_dict),
         NamedCollection{Transform}(transforms, transform_names_dict),
+        NamedCollection{RigidBody}(rigid_bodies, rigid_body_names_dict),
+        NamedCollection{ElasticJoint}(elastic_joints, elastic_joint_names_dict),
         AtmosphericModel(set), false, false, vsm_set)
     reinit!(sys_struct, set)
 

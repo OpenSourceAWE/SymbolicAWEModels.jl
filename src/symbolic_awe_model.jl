@@ -15,7 +15,8 @@ associated getter and setter functions for the full, nonlinear physical state.
                                   GetAeroInput, GetSegmentState,
                                   GetWinchState, GetTetherState,
                                   GetPointState,
-                                  GetPulleyState, GetTwistSurfaceState}
+                                  GetPulleyState, GetTwistSurfaceState,
+                                  GetRigidBodyState}
     "The ODE problem for the full nonlinear model."
     prob::Prob
 
@@ -35,6 +36,7 @@ associated getter and setter functions for the full, nonlinear physical state.
     get_point_state::GetPointState
     get_pulley_state::GetPulleyState
     get_twist_surface_state::GetTwistSurfaceState
+    get_rigid_body_state::GetRigidBodyState
 end
 
 """
@@ -261,7 +263,8 @@ to degrees) and calculating derived values like AoA and roll/pitch/yaw angles.
 """
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
-    (; points, twist_surfaces, segments, pulleys, winches, wings, tethers) = sam.sys_struct
+    (; points, twist_surfaces, segments, pulleys, winches, wings, tethers,
+       rigid_bodies) = sam.sys_struct
 
     for (ti, tether) in enumerate(tethers)
         ti > 4 && break
@@ -331,20 +334,62 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
                                             ss, corner_idx, zoom)
     end
 
-    # Wing origin positions appended after panel corners.
-    # Lets replay read wing.pos_w directly without recomputing
-    # a weighted centroid from points.
-    wing_slot = corner_idx
+    # Wing/body origins occupy dedicated slots after the panel corners (see
+    # `position_slots`); orientation frames are wings-first, then bodies. This
+    # lets replay read each pose directly without recomputing a centroid.
+    slots = position_slots(sam.sys_struct)
+    n_wings = length(wings)
     for wing in wings
-        wing_slot += 1
-        ss.X[wing_slot] = wing.pos_w[1] * zoom
-        ss.Y[wing_slot] = wing.pos_w[2] * zoom
-        ss.Z[wing_slot] = wing.pos_w[3] * zoom
+        slot = slots.wings[wing.idx]
+        ss.X[slot] = wing.pos_w[1] * zoom
+        ss.Y[slot] = wing.pos_w[2] * zoom
+        ss.Z[slot] = wing.pos_w[3] * zoom
+        ss.orients[wing.idx] .= wing.Q_b_to_w   # frame 1 == legacy `orient`
+    end
+    for rigid_body in rigid_bodies
+        slot = slots.bodies[rigid_body.idx]
+        ss.X[slot] = rigid_body.pos_w[1] * zoom
+        ss.Y[slot] = rigid_body.pos_w[2] * zoom
+        ss.Z[slot] = rigid_body.pos_w[3] * zoom
+        ss.orients[n_wings + rigid_body.idx] .= rigid_body.Q_b_to_w
     end
 
     ss.v_wind_gnd .= sam.set.wind_vec
     nothing
 end
+
+"""
+    position_slots(sys_struct) -> NamedTuple
+
+Index layout of a `SysState`'s `X/Y/Z` position arrays for this model:
+structural `points`, then VSM `panel_corners`, then `wings` origins, then
+standalone rigid `bodies` origins. Each field is the `UnitRange` of slots for
+that group (empty if none); `total` is the position count. Orientation frames
+(`orients`) are laid out wings-first, then bodies — i.e. wing `w` uses frame
+`w`, rigid body `b` uses frame `n_wings + b`.
+
+```julia
+slots = position_slots(sam.sys_struct)
+sam.sys_struct.rigid_bodies[2]  # logged at X/Y/Z slot slots.bodies[2]
+```
+"""
+function position_slots(sys_struct)
+    n_points = length(sys_struct.points)
+    n_corners = count_aero_log_points(sys_struct.wings)
+    n_wings = length(sys_struct.wings)
+    n_bodies = length(sys_struct.rigid_bodies)
+    base_wings = n_points + n_corners
+    base_bodies = base_wings + n_wings
+    return (points        = 1:n_points,
+            panel_corners = (n_points + 1):(n_points + n_corners),
+            wings         = (base_wings + 1):(base_wings + n_wings),
+            bodies        = (base_bodies + 1):(base_bodies + n_bodies),
+            total         = base_bodies + n_bodies)
+end
+
+"""Number of orientation frames (wings + rigid bodies, at least 1)."""
+n_orient_frames(sys_struct) = max(1,
+    length(sys_struct.wings) + length(sys_struct.rigid_bodies))
 
 """
     SysState(s::SymbolicAWEModel, zoom=1.0)
@@ -362,12 +407,8 @@ with the current state of the provided model.
 - `SysState`: A new state struct representing the current model state.
 """
 function SysState(s::SymbolicAWEModel, zoom=1.0)
-    # Total slots: structural points + 4 corners per panel + 1 per wing
-    n_points = length(s.sys_struct.points)
-    n_panel_corners = count_aero_log_points(s.sys_struct.wings)
-    n_wings = length(s.sys_struct.wings)
-    total_points = n_points + n_panel_corners + n_wings
-    ss = SysState{total_points}()
+    slots = position_slots(s.sys_struct)
+    ss = SysState{slots.total, n_orient_frames(s.sys_struct)}()
     update_sys_state!(ss, s, zoom)
     ss
 end
@@ -394,12 +435,8 @@ logger = Logger(sam, 1000)  # Instead of Logger(length(sam.sys_struct.points), 1
 ```
 """
 function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
-    # Total slots: structural points + 4 corners per panel + 1 per wing
-    n_points = length(sam.sys_struct.points)
-    n_panel_corners = count_aero_log_points(sam.sys_struct.wings)
-    n_wings = length(sam.sys_struct.wings)
-    total_points = n_points + n_panel_corners + n_wings
-    return Logger(total_points, steps)
+    slots = position_slots(sam.sys_struct)
+    return Logger(slots.total, n_orient_frames(sam.sys_struct), steps)
 end
 
 """
@@ -491,16 +528,19 @@ synchronization step is crucial for making the simulation results accessible.
 function update_sys_struct!(prob::ProbWithAttributes,
                             integ::OrdinaryDiffEqCore.ODEIntegrator,
                             sys_struct::SystemStructure)
-    (; points, twist_surfaces, segments, pulleys, winches, tethers, wings) = sys_struct
-    pos, vel, force, va_b, total_mass, drag_f =
-        prob.get_point_state(integ)
-    for point in points
-        point.pos_w .= pos[:, point.idx]
-        point.vel_w .= vel[:, point.idx]
-        point.force .= force[:, point.idx]
-        point.va_b .= va_b[:, point.idx]
-        point.total_mass = total_mass[point.idx]
-        point.drag_force .= drag_f[:, point.idx]
+    (; points, twist_surfaces, segments, pulleys, winches, tethers, wings,
+       rigid_bodies) = sys_struct
+    if length(points) > 0
+        pos, vel, force, va_b, total_mass, drag_f =
+            prob.get_point_state(integ)
+        for point in points
+            point.pos_w .= pos[:, point.idx]
+            point.vel_w .= vel[:, point.idx]
+            point.force .= force[:, point.idx]
+            point.va_b .= va_b[:, point.idx]
+            point.total_mass = total_mass[point.idx]
+            point.drag_force .= drag_f[:, point.idx]
+        end
     end
     if length(pulleys) > 0
         len, vel = prob.get_pulley_state(integ)
@@ -604,6 +644,23 @@ function update_sys_struct!(prob::ProbWithAttributes,
             wing.ω_p .= ω_p_v[:, wing.idx]
         end
     end
+    if length(rigid_bodies) > 0
+        Q_b_to_w, ω_b, pos_w, vel_w, acc_w,
+            com_w_v, com_vel_v, Q_p_to_w_v, ω_p_v =
+            prob.get_rigid_body_state(integ)
+        for rigid_body in rigid_bodies
+            idx = rigid_body.idx
+            rigid_body.Q_b_to_w .= Q_b_to_w[:, idx]
+            rigid_body.ω_b .= ω_b[:, idx]
+            rigid_body.pos_w .= pos_w[:, idx]
+            rigid_body.vel_w .= vel_w[:, idx]
+            rigid_body.acc_w .= acc_w[:, idx]
+            rigid_body.com_w .= com_w_v[:, idx]
+            rigid_body.com_vel .= com_vel_v[:, idx]
+            rigid_body.Q_p_to_w .= Q_p_to_w_v[:, idx]
+            rigid_body.ω_p .= ω_p_v[:, idx]
+        end
+    end
     return nothing
 end
 
@@ -652,8 +709,10 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     n_twist_surfaces = length(sys_struct.twist_surfaces)
     n_wings = length(sys_struct.wings)
     n_winches = length(sys_struct.winches)
+    n_bodies = length(sys_struct.rigid_bodies)
+    body_tag = n_bodies > 0 ? "_$(n_bodies)bdy" : ""
 
-    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_twist_surfaces)grp_$(n_wings)wng_$(n_winches)wch.bin$suffix"
+    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_twist_surfaces)grp_$(n_wings)wng_$(n_winches)wch$(body_tag).bin$suffix"
 end
 
 """
