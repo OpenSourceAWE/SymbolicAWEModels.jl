@@ -50,6 +50,7 @@ makedocs(;
         prettyurls=get(ENV, "CI", "false") == "true",
         canonical="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl",
         assets=String[],
+        size_threshold=300 * 1024,
     ),
     pages=[
         "Home" => "index.md",
