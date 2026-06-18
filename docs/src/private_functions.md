@@ -241,6 +241,8 @@ SymbolicAWEModels.set_particle_panel_va!
 SymbolicAWEModels.build_mesh_maps!
 SymbolicAWEModels.store_billow_offsets!
 SymbolicAWEModels.store_induced_velocity!
+SymbolicAWEModels.continuous_panel
+SymbolicAWEModels.induced_velocity_component
 SymbolicAWEModels.reconstruct_sections_b
 SymbolicAWEModels.get_continuous_v_ind
 SymbolicAWEModels.get_continuous_cl

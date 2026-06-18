@@ -1000,7 +1000,7 @@ function SystemStructure(name, set;
         NamedCollection{RigidBody}(rigid_bodies, rigid_body_names_dict),
         NamedCollection{ElasticJoint}(elastic_joints, elastic_joint_names_dict),
         AtmosphericModel(set), false, false, vsm_set)
-    reinit!(sys_struct, set)
+    reinit!(sys_struct, set; prn)
 
     # Recalculate segment rest lengths from current positions if requested
     if ignore_l0
