@@ -122,6 +122,7 @@ function aero_component(::AeroPlate, sys_struct, wing_idx; name, params=nothing)
     num_points = length(points)
     connectors = particle_aero_connectors(num_points)
 
+    flat_ps = Any[psys]
     eqs = Equation[]
     for (point_num, point) in enumerate(points)
         ts_idx = 0
@@ -135,9 +136,15 @@ function aero_component(::AeroPlate, sys_struct, wing_idx; name, params=nothing)
             "Wing $wing_idx: WING point $(point.idx) is not a flat-plate " *
             "section point.")
 
-        x_airf = smooth_normalize(collect(get_twist_surface_chord(psys, ts_idx)))
-        y_airf = collect(get_twist_surface_y_airf(psys, ts_idx))
-        twist = get_twist(psys, ts_idx)
+        chord_p = params.twist_surfaces[ts_idx].chord
+        y_airf_p = params.twist_surfaces[ts_idx].y_airf
+        twist_p = params.twist_surfaces[ts_idx].twist
+        drag_corr_p = params.wings[wing_idx].aero.drag_corr
+        area_p = params.twist_surfaces[ts_idx].area
+        append!(flat_ps, (chord_p, y_airf_p, twist_p, drag_corr_p, area_p))
+        x_airf = smooth_normalize(collect(chord_p))
+        y_airf = collect(y_airf_p)
+        twist = twist_p
         x_twisted = cos(twist) * x_airf + sin(twist) * (y_airf × x_airf)
         z_twisted = x_twisted × y_airf
 
@@ -147,8 +154,7 @@ function aero_component(::AeroPlate, sys_struct, wing_idx; name, params=nothing)
         alpha_deg = rad2deg(atan(v_norm, v_tan))
 
         cl = get_plate_cl(psys, wing_idx, alpha_deg)
-        cd = get_plate_drag_corr(psys, wing_idx) *
-             get_plate_cd(psys, wing_idx, alpha_deg)
+        cd = drag_corr_p * get_plate_cd(psys, wing_idx, alpha_deg)
 
         q = 0.5 * connectors.rho[point_num] * (v_tan^2 + v_norm^2)
         q_drag = 0.5 * connectors.rho[point_num] * (apparent_wind ⋅ apparent_wind)
@@ -158,13 +164,13 @@ function aero_component(::AeroPlate, sys_struct, wing_idx; name, params=nothing)
         lift_dir = smooth_normalize(va_airf_dir × y_airf)
         drag_dir = smooth_normalize(y_airf × lift_dir)
 
-        area = get_twist_surface_area(psys, ts_idx)
+        area = area_p
         eqs = [eqs
                connectors.point_force[:, point_num] ~
                    q * area * cl * lift_dir + q_drag * area * cd * drag_dir]
     end
 
-    return System(eqs, t, particle_unknowns(connectors), [psys]; name)
+    return System(eqs, t, particle_unknowns(connectors), unique(flat_ps); name)
 end
 
 # ==================== log-point hooks ==================== #

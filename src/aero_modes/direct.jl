@@ -27,32 +27,41 @@ function aero_component(::AeroDirect, sys_struct, wing_idx; name, params=nothing
     psys = system_struct_param(sys_struct)
     wing = sys_struct.wings[wing_idx]
 
+    # AeroDirect's forces are frozen between refreshes (provides_aero_override /
+    # stores_point_force are both true), so the per-point/wing/twist outputs are
+    # flat params synced after each refresh.
+    flat_ps = Any[psys]
     if wing.dynamics_type == PARTICLE_DYNAMICS
         points = wing_points(sys_struct, wing)
         num_points = length(points)
         connectors = particle_aero_connectors(num_points)
         eqs = Equation[]
         for (point_num, point) in enumerate(points)
+            force_p = params.points[point.idx].aero_force_b
+            push!(flat_ps, force_p)
             eqs = [eqs
-                   collect(connectors.point_force[:, point_num]) .~
-                       [get_point_aero_force(psys, point.idx, i)
-                        for i in 1:3]]
+                   collect(connectors.point_force[:, point_num]) .~ collect(force_p)]
         end
-        return System(eqs, t, particle_unknowns(connectors), [psys]; name)
+        return System(eqs, t, particle_unknowns(connectors), flat_ps; name)
     elseif wing.dynamics_type == RIGID_DYNAMICS
         twist_surfaces = sys_struct.twist_surfaces
         num_twist_surfaces = length(wing.twist_surface_idxs)
         connectors = rigid_aero_connectors(num_twist_surfaces)
-        eqs = [collect(connectors.force) .~
-                   [get_aero_force_override(psys, wing.idx, i) for i in 1:3]
-               collect(connectors.moment) .~
-                   [get_aero_moment_override(psys, wing.idx, i) for i in 1:3]]
+        force_p = params.wings[wing.idx].aero_force_b
+        moment_p = params.wings[wing.idx].aero_moment_b
+        push!(flat_ps, force_p, moment_p)
+        eqs = [collect(connectors.force) .~ collect(force_p)
+               collect(connectors.moment) .~ collect(moment_p)]
         for (twist_surface_pos, twist_surface_idx) in enumerate(wing.twist_surface_idxs)
-            rhs = isempty(twist_surfaces[twist_surface_idx].unrefined_section_idxs) ? 0 :
-                get_twist_surface_moment_override(psys, wing.idx, Int64(twist_surface_idx))
-            eqs = [eqs; connectors.twist_moment[twist_surface_pos] ~ rhs]
+            if isempty(twist_surfaces[twist_surface_idx].unrefined_section_idxs)
+                eqs = [eqs; connectors.twist_moment[twist_surface_pos] ~ 0]
+            else
+                moment_ts_p = params.twist_surfaces[twist_surface_idx].aero_moment
+                push!(flat_ps, moment_ts_p)
+                eqs = [eqs; connectors.twist_moment[twist_surface_pos] ~ moment_ts_p]
+            end
         end
-        return System(eqs, t, rigid_unknowns(connectors), [psys]; name)
+        return System(eqs, t, rigid_unknowns(connectors), flat_ps; name)
     else
         error("Unknown dynamics_type $(wing.dynamics_type) for wing $wing_idx.")
     end

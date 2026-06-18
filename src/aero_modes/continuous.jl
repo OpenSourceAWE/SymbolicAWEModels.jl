@@ -265,6 +265,7 @@ force couple, distributed to the bounding struts by the mesh weights.
 """
 function aero_component(mode::ContinuousAero, sys_struct, wing_idx; name, params=nothing)
     psys = system_struct_param(sys_struct)
+    vind_p = params.wings[wing_idx].aero.v_ind
     wing = sys_struct.wings[wing_idx]
     wing.dynamics_type == PARTICLE_DYNAMICS || error(
         "ContinuousAero supports PARTICLE_DYNAMICS wings only; wing " *
@@ -347,8 +348,7 @@ function aero_component(mode::ContinuousAero, sys_struct, wing_idx; name, params
         z_unit = z_cross ./ smooth_norm(z_cross)
 
         va_panel = 0.5 * (sec_va[i] + sec_va[i + 1])
-        v_eff_panel = va_panel + [get_continuous_v_ind(psys, wing_idx, i, c)
-                                  for c in 1:3]
+        v_eff_panel = va_panel + [vind_p[c, i] for c in 1:3]
         rho_panel = 0.5 * (sec_rho[i] + sec_rho[i + 1])
         # VSM dynamic pressure uses |v_eff × ŷ|² (spanwise component removed).
         v_eff_crossy = v_eff_panel × y_unit
@@ -403,7 +403,7 @@ function aero_component(mode::ContinuousAero, sys_struct, wing_idx; name, params
     append!(vars, Any[x_airf, y_airf, z_airf, v_eff, chord, width, alpha,
                       cl, cd, cm, q_dyn, dir_lift, dir_drag,
                       panel_force, panel_couple])
-    return System(eqs, t, vars, [psys]; name)
+    return System(eqs, t, vars, [psys, vind_p]; name)
 end
 
 # ==================== refresh ==================== #
