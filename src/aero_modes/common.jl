@@ -358,6 +358,17 @@ sections to structure, and rebuild the twist-surface / point mappings.
 remake_aero!(::AbstractAeroModel, wing, set, vsm_set, points, twist_surfaces) =
     nothing
 
+"""
+    attach_engine!(mode, engine) -> mode
+
+Attach a freshly built [`VSMEngine`](@ref) to a VSM aero `mode` during wing
+construction. Built-in modes reconstruct (so the concrete engine type lands in
+the wing's type parameter, removing the abstract-`engine` dispatch from the RHS);
+the default mutates a custom mode in place.
+"""
+attach_engine!(mode::AbstractVSMAero, engine::VSMEngine) =
+    (setfield!(mode, :engine, engine); mode)
+
 function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, points,
                       twist_surfaces)
     vsm_set isa VortexStepMethod.VSMSettings || error(

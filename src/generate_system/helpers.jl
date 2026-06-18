@@ -51,52 +51,52 @@ end
 """
     rotation_matrix_to_quaternion(R)
 
-Convert a 3x3 rotation matrix `R` to a quaternion (scalar-first format [w, x, y, z]).
-This implementation is based on the method that avoids division by zero.
+Convert a 3x3 rotation matrix `R` to a quaternion (scalar-first format [w, x, y, z]),
+selecting the numerically stable branch (largest of the trace / diagonal). Written
+with `ifelse` and `&` (not `if`/`&&`) so it evaluates symbolically on `Num` as well
+as on concrete `Float64` — a single symbolic expression, computed once and
+common-subexpression-shared across components, with no `@register_symbolic`. The
+unselected branches' `sqrt` arguments are clamped to ≥0 so they never error; the
+selected branch always has a positive radicand.
 """
 function rotation_matrix_to_quaternion(R::AbstractMatrix)
-    tr_ = R[1, 1] + R[2, 2] + R[3, 3]
+    Rc = collect(R)
+    r11, r22, r33 = Rc[1, 1], Rc[2, 2], Rc[3, 3]
+    tr_ = r11 + r22 + r33
 
-    if tr_ > 0
-        S = sqrt(tr_ + 1.0) * 2
-        w = 0.25 * S
-        x = (R[3, 2] - R[2, 3]) / S
-        y = (R[1, 3] - R[3, 1]) / S
-        z = (R[2, 1] - R[1, 2]) / S
-    elseif (R[1, 1] > R[2, 2]) && (R[1, 1] > R[3, 3])
-        S = sqrt(1.0 + R[1, 1] - R[2, 2] - R[3, 3]) * 2
-        w = (R[3, 2] - R[2, 3]) / S
-        x = 0.25 * S
-        y = (R[1, 2] + R[2, 1]) / S
-        z = (R[1, 3] + R[3, 1]) / S
-    elseif R[2, 2] > R[3, 3]
-        S = sqrt(1.0 + R[2, 2] - R[1, 1] - R[3, 3]) * 2
-        w = (R[1, 3] - R[3, 1]) / S
-        x = (R[1, 2] + R[2, 1]) / S
-        y = 0.25 * S
-        z = (R[2, 3] + R[3, 2]) / S
-    else
-        S = sqrt(1.0 + R[3, 3] - R[1, 1] - R[2, 2]) * 2
-        w = (R[2, 1] - R[1, 2]) / S
-        x = (R[1, 3] + R[3, 1]) / S
-        y = (R[2, 3] + R[3, 2]) / S
-        z = 0.25 * S
-    end
+    S1 = sqrt(max(tr_ + 1.0, 0.0)) * 2
+    w1 = 0.25 * S1
+    x1 = (Rc[3, 2] - Rc[2, 3]) / S1
+    y1 = (Rc[1, 3] - Rc[3, 1]) / S1
+    z1 = (Rc[2, 1] - Rc[1, 2]) / S1
 
-    return [w, x, y, z]
+    S2 = sqrt(max(1.0 + r11 - r22 - r33, 0.0)) * 2
+    w2 = (Rc[3, 2] - Rc[2, 3]) / S2
+    x2 = 0.25 * S2
+    y2 = (Rc[1, 2] + Rc[2, 1]) / S2
+    z2 = (Rc[1, 3] + Rc[3, 1]) / S2
+
+    S3 = sqrt(max(1.0 + r22 - r11 - r33, 0.0)) * 2
+    w3 = (Rc[1, 3] - Rc[3, 1]) / S3
+    x3 = (Rc[1, 2] + Rc[2, 1]) / S3
+    y3 = 0.25 * S3
+    z3 = (Rc[2, 3] + Rc[3, 2]) / S3
+
+    S4 = sqrt(max(1.0 + r33 - r11 - r22, 0.0)) * 2
+    w4 = (Rc[2, 1] - Rc[1, 2]) / S4
+    x4 = (Rc[1, 3] + Rc[3, 1]) / S4
+    y4 = (Rc[2, 3] + Rc[3, 2]) / S4
+    z4 = 0.25 * S4
+
+    # Trace branch if positive, else the largest-diagonal branch (nested ifelse, no `&`).
+    pick(b1, b2, b3, b4) = ifelse(tr_ > 0, b1,
+        ifelse(r11 >= r22,
+            ifelse(r11 >= r33, b2, b4),
+            ifelse(r22 >= r33, b3, b4)))
+
+    return [pick(w1, w2, w3, w4), pick(x1, x2, x3, x4),
+            pick(y1, y2, y3, y4), pick(z1, z2, z3, z4)]
 end
-
-# Component accessors for symbolic registration
-rotation_matrix_to_quaternion_w(R) = rotation_matrix_to_quaternion(R)[1]
-rotation_matrix_to_quaternion_x(R) = rotation_matrix_to_quaternion(R)[2]
-rotation_matrix_to_quaternion_y(R) = rotation_matrix_to_quaternion(R)[3]
-rotation_matrix_to_quaternion_z(R) = rotation_matrix_to_quaternion(R)[4]
-
-# Register component functions as symbolic
-@register_symbolic rotation_matrix_to_quaternion_w(R::AbstractMatrix)
-@register_symbolic rotation_matrix_to_quaternion_x(R::AbstractMatrix)
-@register_symbolic rotation_matrix_to_quaternion_y(R::AbstractMatrix)
-@register_symbolic rotation_matrix_to_quaternion_z(R::AbstractMatrix)
 
 function calc_wind_factor(
     am::AtmosphericModel, _pos_x, _pos_y, pos_z,

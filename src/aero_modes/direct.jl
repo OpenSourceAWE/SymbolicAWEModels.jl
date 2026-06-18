@@ -12,16 +12,18 @@ Stored forces from the nonlinear VSM solve, piecewise-constant between updates.
 Carries a [`VSMEngine`](@ref); the no-arg form is the engine-less marker filled
 in during wing construction.
 """
-mutable struct AeroDirect <: AbstractVSMAero
-    engine::Union{Nothing, VSMEngine}
+mutable struct AeroDirect{E} <: AbstractVSMAero
+    engine::Union{Nothing, E}
 end
-AeroDirect() = AeroDirect(nothing)
+AeroDirect() = AeroDirect{VSMEngine}(nothing)
+AeroDirect(engine::VSMEngine) = AeroDirect{typeof(engine)}(engine)
+attach_engine!(::AeroDirect, engine::VSMEngine) = AeroDirect(engine)
 
 is_builtin_aero(::AeroDirect) = true
 aero_mode_tag(::AeroDirect) = "dir"
 provides_aero_override(::AeroDirect) = true
 
-function aero_component(::AeroDirect, sys_struct, wing_idx; name)
+function aero_component(::AeroDirect, sys_struct, wing_idx; name, params=nothing)
     psys = system_struct_param(sys_struct)
     wing = sys_struct.wings[wing_idx]
 

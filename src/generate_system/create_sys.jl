@@ -37,6 +37,10 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         validate_aero_structure(wing.aero, wing, points; prn)
     end
 
+    # Flattened-parameter registry + build-time `params` view (see flat_params.jl).
+    param_registry = ParamRegistry(system)
+    params = ParamView(param_registry)
+
     SST = typeof(system)
     if tunable_params
         @parameters begin
@@ -212,7 +216,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # 3. Segment equations (spring-damper forces, returns len and spring_force)
     eqs, guesses, len, spring_force = segment_eqs!(
-        s, eqs, guesses, points, segments, pulleys, tethers, wings, psys;
+        s, eqs, guesses, points, segments, pulleys, tethers, wings, psys, params;
         pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
         pulley_len, tether_len
     )
@@ -240,7 +244,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     # Build aerodynamic equations: each wing's aero component (including
     # flat-plate) is wired in winch-style and returned as a subsystem.
     eqs, guesses, aero_subsystems = aero_eqs!(
-        s, eqs, guesses, psys;
+        s, eqs, guesses, psys, params;
         aero_force_b, aero_moment_b, twist_surface_aero_moment,
         twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
         pos, vel, va_point_b, height, aero_force_point_b
@@ -260,7 +264,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     # Elastic joints: accumulate restoring wrenches into body_force/body_moment
     # (must precede body_eqs!, which reads them).
     eqs = joint_eqs!(
-        eqs, psys, elastic_joints;
+        eqs, psys, elastic_joints, params;
         body_force, body_moment,
         body_com_w, body_pos_w, body_com_vel, body_ω_b, body_R_b_to_w,
     )
@@ -339,5 +343,6 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     s.defaults = defaults
     s.guesses = guesses
     s.full_sys = sys
+    s.param_registry = param_registry
     return set_values
 end

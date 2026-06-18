@@ -16,7 +16,7 @@ is_builtin_aero(::AeroNone) = true
 aero_mode_tag(::AeroNone) = "none"
 stores_point_force(::AeroNone) = false
 
-function aero_component(::AeroNone, sys_struct, wing_idx; name)
+function aero_component(::AeroNone, sys_struct, wing_idx; name, params=nothing)
     psys = system_struct_param(sys_struct)
     wing = sys_struct.wings[wing_idx]
 

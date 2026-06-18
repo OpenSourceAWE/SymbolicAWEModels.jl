@@ -123,14 +123,15 @@ function rigid_body_eqs!(
         α_b[:, idx] ~ R_b_to_p' * α_p[:, idx]
     ]
 
-    # Q_b_to_w from R_b_to_w
+    # Q_b_to_w from R_b_to_w (one symbolic conversion, CSE-shared)
     R_body = R_b_to_w[:, :, idx]
+    q_body = rotation_matrix_to_quaternion(R_body)
     eqs = [
         eqs
-        Q_b_to_w[1, idx] ~ rotation_matrix_to_quaternion_w(R_body)
-        Q_b_to_w[2, idx] ~ rotation_matrix_to_quaternion_x(R_body)
-        Q_b_to_w[3, idx] ~ rotation_matrix_to_quaternion_y(R_body)
-        Q_b_to_w[4, idx] ~ rotation_matrix_to_quaternion_z(R_body)
+        Q_b_to_w[1, idx] ~ q_body[1]
+        Q_b_to_w[2, idx] ~ q_body[2]
+        Q_b_to_w[3, idx] ~ q_body[3]
+        Q_b_to_w[4, idx] ~ q_body[4]
     ]
 
     defaults = [

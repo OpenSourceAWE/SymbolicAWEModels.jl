@@ -113,7 +113,7 @@ the other per-point modes; it is the only one that consumes the `va`/`rho` input
 from the section's twisted body-frame axes, the point's apparent wind, and its
 air density.
 """
-function aero_component(::AeroPlate, sys_struct, wing_idx; name)
+function aero_component(::AeroPlate, sys_struct, wing_idx; name, params=nothing)
     psys = system_struct_param(sys_struct)
     wing = sys_struct.wings[wing_idx]
 

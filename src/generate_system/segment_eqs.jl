@@ -26,7 +26,7 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
 """
 function segment_eqs!(s, eqs, guesses, points, segments,
                       pulleys, tethers, wings,
-                      psys; pos, vel, wind_vec_gnd,
+                      psys, params; pos, vel, wind_vec_gnd,
                       spring_force_vec, drag_force, l0,
                       pulley_len, tether_len)
     @variables begin
@@ -121,7 +121,7 @@ function segment_eqs!(s, eqs, guesses, points, segments,
             else
                 eqs = [eqs;
                     l0[segment.idx] ~
-                        get_l0(psys, segment.idx)]
+                        params.segments[segment.idx].l0]
             end
         end
 
@@ -147,12 +147,13 @@ function segment_eqs!(s, eqs, guesses, points, segments,
         else
             eqs = [
                 eqs
-                damping[segment.idx] ~ get_unit_damping(psys, segment.idx) / len[segment.idx]
+                damping[segment.idx] ~
+                    params.segments[segment.idx].unit_damping / len[segment.idx]
                 stiffness[segment.idx] ~ ifelse(
                     len[segment.idx] > l0[segment.idx],
-                    get_unit_stiffness(psys, segment.idx) / len[segment.idx],
-                    get_compression_frac(psys, segment.idx) *
-                    get_unit_stiffness(psys, segment.idx) / len[segment.idx],
+                    params.segments[segment.idx].unit_stiffness / len[segment.idx],
+                    params.segments[segment.idx].compression_frac *
+                    params.segments[segment.idx].unit_stiffness / len[segment.idx],
                 )
                 spring_force[segment.idx] ~ (
                     stiffness[segment.idx] * (len[segment.idx] - l0[segment.idx]) -
@@ -178,7 +179,7 @@ function segment_eqs!(s, eqs, guesses, points, segments,
             va[:, segment.idx] ~
                 wind_vel[:, segment.idx] - segment_vel[:, segment.idx]
             area[segment.idx] ~
-                len[segment.idx] * get_diameter(psys, segment.idx)
+                len[segment.idx] * params.segments[segment.idx].diameter
             app_perp_vel[:, segment.idx] ~
                 va[:, segment.idx] -
                 (va[:, segment.idx] ⋅ unit_vec[:, segment.idx]) *

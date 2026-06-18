@@ -209,6 +209,7 @@ SymbolicAWEModels.validate_aero_component
 SymbolicAWEModels.validate_aero_structure
 SymbolicAWEModels.remake_aero!
 SymbolicAWEModels.setup_aero!
+SymbolicAWEModels.attach_engine!
 SymbolicAWEModels.resize_aero_state!
 SymbolicAWEModels.init_aero_state!
 SymbolicAWEModels.normalized_inertia
@@ -265,6 +266,29 @@ SymbolicAWEModels.wrap_to_pi
 SymbolicAWEModels.apply_azimuth_elevation!
 SymbolicAWEModels.apply_heading!
 SymbolicAWEModels.finalize_transforms!
+```
+
+## Flat parameters
+
+```@docs
+SymbolicAWEModels.read_path
+SymbolicAWEModels.PathReader
+SymbolicAWEModels.ParamEntry
+SymbolicAWEModels.ParamRegistry
+SymbolicAWEModels.make_param
+SymbolicAWEModels.make_array_param
+SymbolicAWEModels.make_callable_param
+SymbolicAWEModels.leaf_param!
+SymbolicAWEModels.param_computed!
+SymbolicAWEModels.param_descend
+SymbolicAWEModels.ParamView
+SymbolicAWEModels.PathView
+SymbolicAWEModels.ParamGroup
+SymbolicAWEModels.ParamSync
+SymbolicAWEModels.survivor_index
+SymbolicAWEModels.build_param_sync
+SymbolicAWEModels.sync_params!
+SymbolicAWEModels.joint_stiffness_term
 ```
 
 ## Other internals

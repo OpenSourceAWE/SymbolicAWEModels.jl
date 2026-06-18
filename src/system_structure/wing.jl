@@ -114,7 +114,7 @@ wing.Q_b_to_w = quat
 
 $(TYPEDFIELDS)
 """
-mutable struct Wing <: AbstractWing
+mutable struct Wing{A<:AbstractAeroModel} <: AbstractWing
     idx::Int64  # Assigned by SystemStructure based on vector position
     const name::Union{Int, Symbol, Nothing}  # Name/identifier (Int for backwards compat)
 
@@ -134,7 +134,7 @@ mutable struct Wing <: AbstractWing
     const com_offset_b::KVec3           # COM offset from body origin in body frame
     const inertia_principal::KVec3
     const dynamics_type::WingType
-    aero::AbstractAeroModel
+    aero::A
 
     # Principal frame ODE state (RIGID_DYNAMICS dynamics)
     const com_w::KVec3                  # COM position in world frame
@@ -315,8 +315,8 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
         (WeightedRefPoints(y_ref_points[1]), WeightedRefPoints(y_ref_points[2]))
     origin_rp = isnothing(origin) ? nothing : WeightedRefPoints(origin)
 
-    # idx, twist_surface_idxs, transform_idx are placeholders - resolved by SystemStructure
-    return Wing(0, name,
+    # Inner constructor with A pinned converts loosely-typed args to field types.
+    return Wing{typeof(aero)}(0, name,
         # Structural information - resolved (placeholders)
         Int64[], 0,
         # Structural information - raw references
@@ -503,8 +503,8 @@ function VSMWing(name, set::Settings,
         isnothing(vsm_set) && error(
             "Wing '$name': aero mode $(typeof(aero)) needs VSM geometry " *
             "but no vsm_set was provided.")
-        aero.engine = build_vsm_engine(set, vsm_set, dynamics_type;
-            point_to_vsm_point, wing_segments, aero_scale_chord, aero_z_offset)
+        aero = attach_engine!(aero, build_vsm_engine(set, vsm_set, dynamics_type;
+            point_to_vsm_point, wing_segments, aero_scale_chord, aero_z_offset))
     end
 
     # Placeholders — overwritten by SystemStructure

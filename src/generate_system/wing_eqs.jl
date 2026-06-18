@@ -78,6 +78,7 @@ function wing_eqs!(
             pos_y2 = get_ref_position(pos, y_p2)
 
             R_wing = R_b_to_w[:, :, wing.idx]
+            q_wing = rotation_matrix_to_quaternion(R_wing)
             eqs = [
                 eqs
                 # R_b_to_w from structural ref points
@@ -98,19 +99,11 @@ function wing_eqs!(
                 wing_acc[:, wing.idx] ~
                     get_ref_position(acc, wing.origin)
 
-                # Q_b_to_w from R_b_to_w
-                Q_b_to_w[1, wing.idx] ~
-                    rotation_matrix_to_quaternion_w(
-                        R_wing)
-                Q_b_to_w[2, wing.idx] ~
-                    rotation_matrix_to_quaternion_x(
-                        R_wing)
-                Q_b_to_w[3, wing.idx] ~
-                    rotation_matrix_to_quaternion_y(
-                        R_wing)
-                Q_b_to_w[4, wing.idx] ~
-                    rotation_matrix_to_quaternion_z(
-                        R_wing)
+                # Q_b_to_w from R_b_to_w (one symbolic conversion, CSE-shared)
+                Q_b_to_w[1, wing.idx] ~ q_wing[1]
+                Q_b_to_w[2, wing.idx] ~ q_wing[2]
+                Q_b_to_w[3, wing.idx] ~ q_wing[3]
+                Q_b_to_w[4, wing.idx] ~ q_wing[4]
 
                 # Body frame angular state (zero for
                 # PARTICLE_DYNAMICS — no rigid body rotation)

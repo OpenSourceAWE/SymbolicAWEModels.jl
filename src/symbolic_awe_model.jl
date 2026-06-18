@@ -16,13 +16,15 @@ associated getter and setter functions for the full, nonlinear physical state.
                                   GetWinchState, GetTetherState,
                                   GetPointState,
                                   GetPulleyState, GetTwistSurfaceState,
-                                  GetRigidBodyState}
+                                  GetRigidBodyState, ParamSync}
     "The ODE problem for the full nonlinear model."
     prob::Prob
 
     # Setters for the ODE
     "Setter for the system parameters."
     set_sys::SetSys
+    "Syncs flattened struct-field parameters into the flat buffer once per step."
+    param_sync::ParamSync
     "Setter for the control input values."
     set_set_values::SetSetValues
 
@@ -167,6 +169,8 @@ $(TYPEDFIELDS)
     t_vsm::SimFloat  = zero(SimFloat)
     "Time spent in the ODE integration step"
     t_step::SimFloat = zero(SimFloat)
+    "Build-time flattened-parameter registry (transient, never serialized)."
+    param_registry::Any = nothing
 end
 
 """
@@ -176,7 +180,7 @@ Tuple of field names that are direct fields of `SymbolicAWEModel` (as opposed to
 delegated to the nested `serialized_model`). Used by `getproperty` and `setproperty!`
 to dispatch field access correctly.
 """
-const SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step)
+const SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :param_registry)
 
 """
     Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
@@ -498,6 +502,9 @@ function next_step!(sam::SymbolicAWEModel;
     if prob isa ProbWithAttributes && !isnothing(prob.set_set_values)
         prob.set_set_values(integrator, set_values)
     end
+    if prob isa ProbWithAttributes
+        sync_params!(prob.param_sync, integrator, sam.sys_struct)
+    end
 
     sam.t_0 = integrator.t
     sam.t_step = @elapsed OrdinaryDiffEqCore.step!(integrator, dt, true)
@@ -510,7 +517,10 @@ function next_step!(sam::SymbolicAWEModel;
     if prob isa ProbWithAttributes
         update_sys_struct!(prob, integrator, sam.sys_struct)
         if vsm_interval != 0 && sam.iter % vsm_interval == 0
-            sam.t_vsm = @elapsed refresh_aero!(sam, prob; vsm_min_wind)
+            sam.t_vsm = @elapsed begin
+                refresh_aero!(sam, prob; vsm_min_wind)
+                sync_params!(prob.param_sync, integrator, sam.sys_struct)
+            end
         end
     end
     return nothing

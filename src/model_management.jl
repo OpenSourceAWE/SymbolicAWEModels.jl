@@ -24,7 +24,7 @@ of the compiled `ODESystem` (`sys`).
 # Returns
 - A `NamedTuple` containing various getter and setter functions for different parts of the system state.
 """
-function generate_prob_getters(sys_struct, sys)
+function generate_prob_getters(sys_struct, sys, param_registry=nothing)
     collect_each = collect
     (; points, wings, twist_surfaces, pulleys, winches, tethers, segments, rigid_bodies) = sys_struct
     get_wing_state, get_aero_input, get_segment_state, get_twist_surface_state, get_pulley_state,
@@ -94,9 +94,12 @@ function generate_prob_getters(sys_struct, sys)
         get_point_state = getu(sys, collect_each.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass, sys.total_drag]))
     end
 
+    param_sync = isnothing(param_registry) ? nothing :
+        build_param_sync(sys, param_registry)
+
     return (; get_wing_state, get_aero_input, get_segment_state, get_twist_surface_state,
             get_pulley_state, get_winch_state, get_tether_state, set_set_values,
-            get_set_values, set_sys, get_point_state, get_rigid_body_state)
+            get_set_values, set_sys, get_point_state, get_rigid_body_state, param_sync)
 end
 
 """
@@ -233,7 +236,8 @@ function maybe_create_prob!(sam; create_prob=true, prn=true)
         time = @elapsed prob = ODEProblem(sys, sam.defaults, (0.0, dt); u0_prior=sam.guesses)
         prn && println("\tCreated the ODEProblem in $time seconds.")
 
-        time = @elapsed getters = generate_prob_getters(sam.sys_struct, sys)
+        time = @elapsed getters = generate_prob_getters(sam.sys_struct, sys,
+            sam.param_registry)
         prn && println("\tCreated state getters and setters in $time seconds.")
 
         sam.prob = ProbWithAttributes(; prob, getters...)
@@ -435,6 +439,7 @@ function init!(sam::SymbolicAWEModel;
         # (sys_struct contains set, so set_sys covers both)
         if !isnothing(sam.prob)
             sam.prob.set_sys(sam.prob.prob, sam.sys_struct)
+            sync_params!(sam.prob.param_sync, sam.prob.prob, sam.sys_struct)
         end
         if !isnothing(sam.lin_prob)
             sam.lin_prob.set_sys(sam.lin_prob.prob, sam.sys_struct)
@@ -496,9 +501,13 @@ function reinit!(
         existing
     end
     sam.integrator = integrator
+    sync_params!(prob.param_sync, integrator, sam.sys_struct)
     OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
     update_sys_struct!(prob, integrator, sam.sys_struct)
-    lin_vsm && refresh_aero!(sam, prob; vsm_min_wind)
+    if lin_vsm
+        refresh_aero!(sam, prob; vsm_min_wind)
+        sync_params!(prob.param_sync, integrator, sam.sys_struct)
+    end
     validate_sys_struct(sam.sys_struct)  # Check for division-by-zero issues
     return integrator, true
 end

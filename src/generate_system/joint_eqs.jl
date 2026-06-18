@@ -6,7 +6,21 @@
 # in body A's frame into axial/shear/torsion/bending with optional damping.
 
 """
-    joint_eqs!(eqs, psys, elastic_joints; kwargs...)
+    joint_stiffness_term(joint, params, kind, Δ)
+
+Restoring force/moment for one joint DOF, built without `@register_symbolic`:
+a `Real` stiffness uses a numeric flat parameter (`k·Δ`); an interpolation uses a
+callable flat parameter (`k(Δ)`). `kind`: 1=axial, 2=shear, 3=torsion, 4=bending.
+"""
+function joint_stiffness_term(joint, params, kind::Int, Δ)
+    field = (:stiffness_axial, :stiffness_shear,
+             :stiffness_torsion, :stiffness_bending)[kind]
+    k = getproperty(params.elastic_joints[joint.idx], field)
+    return getfield(joint, field) isa Real ? k * Δ : k(Δ)
+end
+
+"""
+    joint_eqs!(eqs, psys, elastic_joints, params; kwargs...)
 
 For each `ElasticJoint`, compute the restoring wrench from the relative pose of
 the two anchors (in body A's frame) and accumulate it — equal and opposite —
@@ -15,7 +29,7 @@ relative rotation uses the small-angle vector extraction, exact for the small
 per-joint rotations of a stiff chain.
 """
 function joint_eqs!(
-    eqs, psys, elastic_joints;
+    eqs, psys, elastic_joints, params;
     body_force, body_moment,
     body_com_w, body_pos_w, body_com_vel, body_ω_b, body_R_b_to_w,
 )
@@ -62,22 +76,23 @@ function joint_eqs!(
         Δv_a = R_a' * (vel_anchor_b .- vel_anchor_a)
         Δω_a = R_a' * (ω_b_w .- ω_a_w)
 
-        damp_trans = get_joint_damping_trans(psys, j)
-        damp_rot = get_joint_damping_rot(psys, j)
+        damp_trans = params.elastic_joints[j].damping_trans
+        damp_rot = params.elastic_joints[j].damping_rot
 
         # Restoring wrench on body B, body A frame (then rotate to world). The
-        # per-DOF stiffness force (linear `k·Δ` or interpolation `f(Δ)`) comes
-        # from `get_joint_force` (kind 1=axial, 2=shear, 3=torsion, 4=bending).
+        # per-DOF stiffness force (linear `k·Δ` via a numeric param, or
+        # interpolation `k(Δ)` via a callable param) comes from
+        # `joint_stiffness_term` (kind 1=axial, 2=shear, 3=torsion, 4=bending).
         # Built element-wise: symbolic-array broadcasting is fragile.
         force_a = [
-            -get_joint_force(psys, j, 1, Δr_a[1]) - damp_trans * Δv_a[1],
-            -get_joint_force(psys, j, 2, Δr_a[2]) - damp_trans * Δv_a[2],
-            -get_joint_force(psys, j, 2, Δr_a[3]) - damp_trans * Δv_a[3],
+            -joint_stiffness_term(joint, params, 1, Δr_a[1]) - damp_trans * Δv_a[1],
+            -joint_stiffness_term(joint, params, 2, Δr_a[2]) - damp_trans * Δv_a[2],
+            -joint_stiffness_term(joint, params, 2, Δr_a[3]) - damp_trans * Δv_a[3],
         ]
         torque_a = [
-            -get_joint_force(psys, j, 3, Δθ_a[1]) - damp_rot * Δω_a[1],
-            -get_joint_force(psys, j, 4, Δθ_a[2]) - damp_rot * Δω_a[2],
-            -get_joint_force(psys, j, 4, Δθ_a[3]) - damp_rot * Δω_a[3],
+            -joint_stiffness_term(joint, params, 3, Δθ_a[1]) - damp_rot * Δω_a[1],
+            -joint_stiffness_term(joint, params, 4, Δθ_a[2]) - damp_rot * Δω_a[2],
+            -joint_stiffness_term(joint, params, 4, Δθ_a[3]) - damp_rot * Δω_a[3],
         ]
 
         eqs = [

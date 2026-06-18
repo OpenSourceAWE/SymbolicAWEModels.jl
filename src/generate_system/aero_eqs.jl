@@ -20,7 +20,7 @@ Instantiate and wire each wing's aero component. Returns the list of
 component subsystems to attach to the parent `System`.
 """
 function aero_eqs!(
-    s, eqs, guesses, psys;
+    s, eqs, guesses, psys, params;
     aero_force_b, aero_moment_b, twist_surface_aero_moment,
     twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
     pos, vel, va_point_b, height, aero_force_point_b=nothing
@@ -32,7 +32,7 @@ function aero_eqs!(
     for wing in wings
         wing_idx = wing.idx
         subsys = aero_component(wing.aero, s.sys_struct, wing_idx;
-                                name = Symbol("aero_$(wing_idx)"))
+                                name = Symbol("aero_$(wing_idx)"), params)
         push!(aero_subsystems, subsys)
         validate_aero_component(subsys, wing)
 
@@ -102,7 +102,7 @@ function aero_eqs!(
             num_aero_inputs = length(wing.aero_y)
             guesses = [guesses
                        [subsys.aero_input[input_idx] =>
-                            get_aero_y(psys, wing_idx, input_idx)
+                            params.wings[wing_idx].aero_y[input_idx]
                         for input_idx in 1:num_aero_inputs]]
         end
     end

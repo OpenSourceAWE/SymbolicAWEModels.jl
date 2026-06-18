@@ -11,17 +11,24 @@ First-order Taylor expansion using the Jacobian from VSM linearization
 (`RIGID_DYNAMICS` only). Carries a [`VSMEngine`](@ref); the no-arg form is the
 engine-less marker filled in during wing construction.
 """
-mutable struct AeroLinearized <: AbstractVSMAero
-    engine::Union{Nothing, VSMEngine}
+mutable struct AeroLinearized{E} <: AbstractVSMAero
+    engine::Union{Nothing, E}
 end
-AeroLinearized() = AeroLinearized(nothing)
+AeroLinearized() = AeroLinearized{VSMEngine}(nothing)
+AeroLinearized(engine::VSMEngine) = AeroLinearized{typeof(engine)}(engine)
+attach_engine!(::AeroLinearized, engine::VSMEngine) = AeroLinearized(engine)
 
 is_builtin_aero(::AeroLinearized) = true
 aero_mode_tag(::AeroLinearized) = "lin"
 
-function aero_component(::AeroLinearized, sys_struct, wing_idx; name)
+function aero_component(::AeroLinearized, sys_struct, wing_idx; name, params)
     psys = system_struct_param(sys_struct)
     wing = sys_struct.wings[wing_idx]
+    # Aero coefficients as flat params (frozen between VSM refreshes, synced per refresh).
+    aero_y_p = params.wings[wing_idx].aero_y
+    aero_x_p = params.wings[wing_idx].aero_x
+    aero_jac_p = params.wings[wing_idx].aero_jac
+    drag_frac_p = params.wings[wing_idx].drag_frac
 
     twist_surfaces = sys_struct.twist_surfaces
     num_twist_surfaces = length(wing.twist_surface_idxs)
@@ -41,9 +48,9 @@ function aero_component(::AeroLinearized, sys_struct, wing_idx; name)
     twist_inputs = num_twist_surfaces > 0 ? collect(connectors.twist) : Num[]
     input_rhs = [alpha; beta; omega[1]; omega[2]; omega[3]; twist_inputs]
 
-    delta(input_idx) = aero_input[input_idx] - get_aero_y(psys, wing.idx, input_idx)
-    coeff(output_idx) = get_aero_x(psys, wing.idx, output_idx) +
-        sum(get_aero_jac(psys, wing.idx, output_idx, input_idx) * delta(input_idx)
+    delta(input_idx) = aero_input[input_idx] - aero_y_p[input_idx]
+    coeff(output_idx) = aero_x_p[output_idx] +
+        sum(aero_jac_p[output_idx, input_idx] * delta(input_idx)
             for input_idx in 1:num_aero_inputs)
 
     q_inf = 0.5 * connectors.rho * (apparent_wind ⋅ apparent_wind)
@@ -55,7 +62,7 @@ function aero_component(::AeroLinearized, sys_struct, wing_idx; name)
     crossed = collect(drag_dir × [0.0, 1.0, 0.0])
     lift_dir = collect(crossed ./ smooth_norm(crossed))
     side_dir = collect(lift_dir × drag_dir)
-    drag_frac = get_drag_frac(psys, wing.idx)
+    drag_frac = drag_frac_p
 
     force_rhs = collect(qA * (CL * lift_dir +
         CD * drag_frac * drag_dir + CS * side_dir))
@@ -73,7 +80,8 @@ function aero_component(::AeroLinearized, sys_struct, wing_idx; name)
 
     vars = rigid_unknowns(connectors)
     push!(vars, aero_input)
-    return System(eqs, t, vars, [psys]; name)
+    return System(eqs, t, vars,
+        [psys, aero_y_p, aero_x_p, aero_jac_p, drag_frac_p]; name)
 end
 
 """

@@ -22,8 +22,8 @@ capturing aerodynamic damping between refreshes. Carries a
 [`VSMEngine`](@ref); the no-arg form is the engine-less marker filled in
 during wing construction.
 """
-mutable struct ContinuousAero <: AbstractVSMAero
-    engine::Union{Nothing, VSMEngine}
+mutable struct ContinuousAero{E} <: AbstractVSMAero
+    engine::Union{Nothing, E}
     "Frozen body-frame induced velocity per refined panel (3 × n_panels)."
     v_ind::Matrix{SimFloat}
     "Left strut (unrefined section) of each refined section (n_panels + 1)."
@@ -37,8 +37,11 @@ mutable struct ContinuousAero <: AbstractVSMAero
 end
 
 ContinuousAero() =
-    ContinuousAero(nothing, zeros(SimFloat, 3, 0), Int64[], SimFloat[],
+    ContinuousAero{VSMEngine}(nothing, zeros(SimFloat, 3, 0), Int64[], SimFloat[],
                    zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0))
+attach_engine!(mode::ContinuousAero, engine::VSMEngine) =
+    ContinuousAero{typeof(engine)}(engine, mode.v_ind, mode.section_left_strut,
+        mode.section_left_weight, mode.section_le_offset, mode.section_te_offset)
 
 is_builtin_aero(::ContinuousAero) = true
 aero_mode_tag(::ContinuousAero) = "cont"
@@ -260,7 +263,7 @@ through the integrator, e.g. `aero_1.alpha`). Each panel force acts on the
 quarter-chord line (75 % LE / 25 % TE) with the pitching moment as an LE/TE
 force couple, distributed to the bounding struts by the mesh weights.
 """
-function aero_component(mode::ContinuousAero, sys_struct, wing_idx; name)
+function aero_component(mode::ContinuousAero, sys_struct, wing_idx; name, params=nothing)
     psys = system_struct_param(sys_struct)
     wing = sys_struct.wings[wing_idx]
     wing.dynamics_type == PARTICLE_DYNAMICS || error(
