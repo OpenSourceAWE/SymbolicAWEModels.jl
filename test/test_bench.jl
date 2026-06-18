@@ -74,64 +74,9 @@ end
         @test rhs.allocs == 0
     end
 
-    # --- warmup all accessors once ---
-    SymbolicAWEModels.get_l0(sys, idx)
-    SymbolicAWEModels.get_extra_mass(sys, idx)
-    SymbolicAWEModels.get_pos_w(sys, idx)
-    SymbolicAWEModels.get_Q_b_to_w(sys, idx)
-    SymbolicAWEModels.get_com_w(sys, idx)
-    SymbolicAWEModels.get_R_b_to_p(sys, idx)
-    SymbolicAWEModels.get_inertia_principal(sys, idx)
-    SymbolicAWEModels.get_aero_y(sys, idx, 1)
-    SymbolicAWEModels.get_aero_x(sys, idx, 1)
-    SymbolicAWEModels.get_aero_jac(sys, idx, 1, 1)
-    SymbolicAWEModels.get_aero_force_override(sys, idx, 1)
-    SymbolicAWEModels.get_aero_moment_override(sys, idx, 1)
-
-    # Julia 1.11 has extra allocations in @register_symbolic
-    # accessors that 1.12+ optimizes away.
-    v11 = VERSION < v"1.12"
-
-    @testset "@register_symbolic" begin
-        a = @allocations SymbolicAWEModels.get_l0(sys, idx)
-        @test a <= (v11 ? 2 : 0)
-        a = @allocations SymbolicAWEModels.get_extra_mass(
-            sys, idx)
-        @test a <= (v11 ? 2 : 0)
-        a = @allocations SymbolicAWEModels.get_pos_w(
-            sys, idx)
-        @test a <= 1
-        a = @allocations SymbolicAWEModels.get_Q_b_to_w(
-            sys, idx)
-        @test a <= (v11 ? 1 : 0)
-        a = @allocations SymbolicAWEModels.get_com_w(
-            sys, idx)
-        @test a <= (v11 ? 1 : 0)
-        a = @allocations SymbolicAWEModels.get_R_b_to_p(
-            sys, idx)
-        @test a <= (v11 ? 1 : 0)
-        a = @allocations SymbolicAWEModels.get_inertia_principal(
-            sys, idx)
-        @test a <= (v11 ? 1 : 0)
-    end
-
-    @testset "VSM accessors" begin
-        a = @allocations SymbolicAWEModels.get_aero_y(
-            sys, idx, 1)
-        @test a <= (v11 ? 2 : 0)
-        a = @allocations SymbolicAWEModels.get_aero_x(
-            sys, idx, 1)
-        @test a <= (v11 ? 2 : 0)
-        a = @allocations SymbolicAWEModels.get_aero_jac(
-            sys, idx, 1, 1)
-        @test a <= 2
-        a = @allocations SymbolicAWEModels.get_aero_force_override(
-            sys, idx, 1)
-        @test a <= 4
-        a = @allocations SymbolicAWEModels.get_aero_moment_override(
-            sys, idx, 1)
-        @test a <= (v11 ? 2 : 0)
-    end
+    # Per-getter allocation tests were removed: the equation-level struct reads
+    # are now flat MTK parameters (synced once per step), not `@register_symbolic`
+    # getters. The "No package allocations in RHS" test below is the real guard.
 
     @testset "No package allocations in RHS" begin
         f = sam.integrator.f

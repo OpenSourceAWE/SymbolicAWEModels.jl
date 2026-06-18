@@ -59,30 +59,6 @@ aero_hash_id(mode::ContinuousAero) =
 
 # ==================== registered accessors ==================== #
 """
-    induced_velocity_component(mode::ContinuousAero, panel_idx, component)
-
-Function barrier (see accessors.jl): the wing's `aero` field is abstract, so
-the buffer read is dispatched to the concrete mode and return-annotated to
-stay type-stable and allocation-free in the compiled RHS.
-"""
-induced_velocity_component(mode::ContinuousAero, panel_idx::Int,
-                           component::Int)::SimFloat =
-    mode.v_ind[component, panel_idx]
-
-"""
-    get_continuous_v_ind(sys, wing_idx, panel_idx, component)
-
-Frozen body-frame induced-velocity component [m/s] of refined panel
-`panel_idx` of wing `wing_idx`, read live from the [`ContinuousAero`](@ref)
-buffer.
-"""
-get_continuous_v_ind(sys::SystemStructure, wing_idx::Int64,
-                     panel_idx::Int, component::Int) =
-    induced_velocity_component(sys.wings[wing_idx].aero, panel_idx, component)
-@register_symbolic get_continuous_v_ind(
-    sys::SystemStructure, wing_idx::Int64, panel_idx::Int, component::Int)
-
-"""
     continuous_panel(mode::ContinuousAero, panel_idx) -> Panel
 
 The refined VSM panel, typeasserted concrete (the wing's `aero` and the

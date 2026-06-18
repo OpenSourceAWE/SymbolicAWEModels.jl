@@ -25,96 +25,6 @@ get_vel_w(sys::SystemStructure, idx::Int64) =
     size = (3,)
     eltype = SimFloat
 end
-get_pos_b(sys::SystemStructure, idx::Int64) =
-    sys.points[idx].pos_b
-@register_array_symbolic get_pos_b(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_va_b(sys::SystemStructure, idx::Int64) =
-    sys.points[idx].va_b
-@register_array_symbolic get_va_b(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_disturb(sys::SystemStructure, idx::Int64) =
-    sys.points[idx].disturb
-@register_array_symbolic get_disturb(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_extra_mass(sys::SystemStructure, idx::Int64) =
-    sys.points[idx].extra_mass
-@register_symbolic get_extra_mass(
-    sys::SystemStructure, idx::Int64)
-get_body_frame_damping(sys::SystemStructure, idx::Int64) =
-    sys.points[idx].body_frame_damping
-@register_array_symbolic get_body_frame_damping(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_world_frame_damping(sys::SystemStructure, idx::Int64) =
-    sys.points[idx].world_frame_damping
-@register_array_symbolic get_world_frame_damping(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_point_area(sys::SystemStructure, idx::Int64) =
-    sys.points[idx].area
-@register_symbolic get_point_area(
-    sys::SystemStructure, idx::Int64)
-get_point_drag_coeff(sys::SystemStructure, idx::Int64) =
-    sys.points[idx].drag_coeff
-@register_symbolic get_point_drag_coeff(
-    sys::SystemStructure, idx::Int64)
-function get_point_aero_force(
-    sys::SystemStructure, idx::Int64, component::Int
-)
-    point = sys.points[idx]
-    if point.wing_idx > 0
-        wing = sys.wings[point.wing_idx]
-        stores_point_force(wing.aero) || return 0.0
-    end
-    return point.aero_force_b[component]
-end
-@register_symbolic get_point_aero_force(
-    sys::SystemStructure, idx::Int64, component::Int)
-get_fix_point_sphere(sys::SystemStructure, idx::Int64) =
-    sys.points[idx].fix_sphere
-@register_symbolic get_fix_point_sphere(
-    sys::SystemStructure, idx::Int64)
-get_fix_static(sys::SystemStructure, idx::Int64) =
-    sys.points[idx].fix_static
-@register_symbolic get_fix_static(
-    sys::SystemStructure, idx::Int64)
-
-# ---- Wings (BaseWing fields via delegation) ----
-get_wing_pos_w(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].pos_w
-@register_array_symbolic get_wing_pos_w(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_wing_vel_w(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].vel_w
-@register_array_symbolic get_wing_vel_w(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_Q_b_to_w(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].Q_b_to_w
-@register_array_symbolic get_Q_b_to_w(
-    sys::SystemStructure, idx::Int64) begin
-    size = (4,)
-    eltype = SimFloat
-end
 get_com_w(sys::SystemStructure, idx::Int64) =
     sys.wings[idx].com_w
 @register_array_symbolic get_com_w(
@@ -136,89 +46,6 @@ get_Q_p_to_w(sys::SystemStructure, idx::Int64) =
     size = (4,)
     eltype = SimFloat
 end
-get_ω_p(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].ω_p
-@register_array_symbolic get_ω_p(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_com_offset_b(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].com_offset_b
-@register_array_symbolic get_com_offset_b(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_R_b_to_p(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].R_b_to_p
-@register_array_symbolic get_R_b_to_p(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3, 3)
-    eltype = SimFloat
-end
-get_wing_mass(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].mass
-@register_symbolic get_wing_mass(
-    sys::SystemStructure, idx::Int64)
-get_inertia_principal(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].inertia_principal
-@register_array_symbolic get_inertia_principal(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_ω_b(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].ω_b
-@register_array_symbolic get_ω_b(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_wind_disturb(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].wind_disturb
-@register_array_symbolic get_wind_disturb(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_fix_wing_sphere(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].fix_sphere
-@register_symbolic get_fix_wing_sphere(
-    sys::SystemStructure, idx::Int64)
-get_drag_frac(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].drag_frac
-@register_symbolic get_drag_frac(
-    sys::SystemStructure, idx::Int64)
-get_group_points_moment(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].group_points_moment
-@register_symbolic get_group_points_moment(
-    sys::SystemStructure, idx::Int64)
-get_y_damping(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].y_damping
-@register_symbolic get_y_damping(
-    sys::SystemStructure, idx::Int64)
-get_angular_damping(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].angular_damping
-@register_symbolic get_angular_damping(
-    sys::SystemStructure, idx::Int64)
-get_z_disturb(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].z_disturb
-@register_symbolic get_z_disturb(
-    sys::SystemStructure, idx::Int64)
-
-# ---- Rigid bodies (standalone component) ----
-get_body_mass(sys::SystemStructure, idx::Int64) =
-    sys.rigid_bodies[idx].mass
-@register_symbolic get_body_mass(
-    sys::SystemStructure, idx::Int64)
-get_body_inertia_principal(sys::SystemStructure, idx::Int64) =
-    sys.rigid_bodies[idx].inertia_principal
-@register_array_symbolic get_body_inertia_principal(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
 get_body_R_b_to_p(sys::SystemStructure, idx::Int64) =
     sys.rigid_bodies[idx].R_b_to_p
 @register_array_symbolic get_body_R_b_to_p(
@@ -226,31 +53,6 @@ get_body_R_b_to_p(sys::SystemStructure, idx::Int64) =
     size = (3, 3)
     eltype = SimFloat
 end
-get_body_com_offset_b(sys::SystemStructure, idx::Int64) =
-    sys.rigid_bodies[idx].com_offset_b
-@register_array_symbolic get_body_com_offset_b(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_body_ext_force_w(sys::SystemStructure, idx::Int64) =
-    sys.rigid_bodies[idx].ext_force_w
-@register_array_symbolic get_body_ext_force_w(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_body_ext_moment_b(sys::SystemStructure, idx::Int64) =
-    sys.rigid_bodies[idx].ext_moment_b
-@register_array_symbolic get_body_ext_moment_b(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_body_angular_damping(sys::SystemStructure, idx::Int64) =
-    sys.rigid_bodies[idx].angular_damping
-@register_symbolic get_body_angular_damping(
-    sys::SystemStructure, idx::Int64)
 get_body_com_w(sys::SystemStructure, idx::Int64) =
     sys.rigid_bodies[idx].com_w
 @register_array_symbolic get_body_com_w(
@@ -272,29 +74,6 @@ get_body_Q_p_to_w(sys::SystemStructure, idx::Int64) =
     size = (4,)
     eltype = SimFloat
 end
-get_body_ω_p(sys::SystemStructure, idx::Int64) =
-    sys.rigid_bodies[idx].ω_p
-@register_array_symbolic get_body_ω_p(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-
-# ---- Elastic joints ----
-get_joint_anchor_a(sys::SystemStructure, idx::Int64) =
-    sys.elastic_joints[idx].anchor_a_b
-@register_array_symbolic get_joint_anchor_a(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_joint_anchor_b(sys::SystemStructure, idx::Int64) =
-    sys.elastic_joints[idx].anchor_b_b
-@register_array_symbolic get_joint_anchor_b(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
 # Restoring force/moment from one joint stiffness, given the relative DOF `Δ`.
 # `kind`: 1=axial, 2=shear, 3=torsion, 4=bending. A `Real` stiffness is the
 # linear law `k·Δ`; a callable interpolation gives the (possibly saturating)
@@ -313,40 +92,6 @@ get_joint_force(sys::SystemStructure, idx::Int64, kind::Int, Δ) =
     stiffness_force(joint_stiffness(sys.elastic_joints[idx], kind), Δ)
 @register_symbolic get_joint_force(
     sys::SystemStructure, idx::Int64, kind::Int, Δ)
-get_joint_damping_trans(sys::SystemStructure, idx::Int64) =
-    sys.elastic_joints[idx].damping_trans
-@register_symbolic get_joint_damping_trans(
-    sys::SystemStructure, idx::Int64)
-get_joint_damping_rot(sys::SystemStructure, idx::Int64) =
-    sys.elastic_joints[idx].damping_rot
-@register_symbolic get_joint_damping_rot(
-    sys::SystemStructure, idx::Int64)
-
-# ---- Segments ----
-get_l0(sys::SystemStructure, idx::Int64) =
-    sys.segments[idx].l0
-@register_symbolic get_l0(
-    sys::SystemStructure, idx::Int64)
-get_diameter(sys::SystemStructure, idx::Int64) =
-    sys.segments[idx].diameter
-@register_symbolic get_diameter(
-    sys::SystemStructure, idx::Int64)
-get_density(sys::SystemStructure, idx::Int64) =
-    sys.segments[idx].density
-@register_symbolic get_density(
-    sys::SystemStructure, idx::Int64)
-get_compression_frac(sys::SystemStructure, idx::Int64) =
-    sys.segments[idx].compression_frac
-@register_symbolic get_compression_frac(
-    sys::SystemStructure, idx::Int64)
-get_unit_stiffness(sys::SystemStructure, idx::Int64) =
-    sys.segments[idx].unit_stiffness
-@register_symbolic get_unit_stiffness(
-    sys::SystemStructure, idx::Int64)
-get_unit_damping(sys::SystemStructure, idx::Int64) =
-    sys.segments[idx].unit_damping
-@register_symbolic get_unit_damping(
-    sys::SystemStructure, idx::Int64)
 
 # ---- Pulleys ----
 get_pulley_len(sys::SystemStructure, idx::Int64) =
@@ -357,10 +102,6 @@ get_pulley_vel(sys::SystemStructure, idx::Int64) =
     sys.pulleys[idx].vel
 @register_symbolic get_pulley_vel(
     sys::SystemStructure, idx::Int64)
-get_sum_len(sys::SystemStructure, idx::Int64) =
-    sys.pulleys[idx].sum_len
-@register_symbolic get_sum_len(
-    sys::SystemStructure, idx::Int64)
 
 # ---- Winches ----
 get_set_value(sys::SystemStructure, idx::Int64) =
@@ -370,14 +111,6 @@ get_set_value(sys::SystemStructure, idx::Int64) =
 get_winch_vel(sys::SystemStructure, idx::Int64) =
     sys.winches[idx].vel
 @register_symbolic get_winch_vel(
-    sys::SystemStructure, idx::Int64)
-get_brake(sys::SystemStructure, idx::Int64) =
-    sys.winches[idx].brake
-@register_symbolic get_brake(
-    sys::SystemStructure, idx::Int64)
-get_speed_controlled(sys::SystemStructure, idx::Int64) =
-    sys.winches[idx].speed_controlled
-@register_symbolic get_speed_controlled(
     sys::SystemStructure, idx::Int64)
 get_winch_gear_ratio(sys::SystemStructure, idx::Int64) =
     sys.winches[idx].gear_ratio
@@ -409,10 +142,43 @@ get_tether_len(sys::SystemStructure, idx::Int64) =
     sys.tethers[idx].len
 @register_symbolic get_tether_len(
     sys::SystemStructure, idx::Int64)
+get_twist(sys::SystemStructure, idx::Int64) =
+    sys.twist_surfaces[idx].twist
+@register_symbolic get_twist(
+    sys::SystemStructure, idx::Int64)
 
-# ---- Settings ----
+# ---- Initial-condition getters kept registered (used only in defaults/guesses) ----
+get_l0(sys::SystemStructure, idx::Int64) =
+    sys.segments[idx].l0
+@register_symbolic get_l0(
+    sys::SystemStructure, idx::Int64)
+get_twist_ω(sys::SystemStructure, idx::Int64) =
+    sys.twist_surfaces[idx].twist_ω
+@register_symbolic get_twist_ω(
+    sys::SystemStructure, idx::Int64)
+get_ω_p(sys::SystemStructure, idx::Int64) =
+    sys.wings[idx].ω_p
+@register_array_symbolic get_ω_p(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+get_body_ω_p(sys::SystemStructure, idx::Int64) =
+    sys.rigid_bodies[idx].ω_p
+@register_array_symbolic get_body_ω_p(
+    sys::SystemStructure, idx::Int64) begin
+    size = (3,)
+    eltype = SimFloat
+end
+
 const ZERO_WIND_FALLBACK = KVec3(1e-10, 0.0, 0.0)
+"""
+    get_wind_vec(sys)
 
+Ground wind vector [m/s] from settings, with a tiny x-axis fallback for
+exactly-zero wind (avoids normalize-by-zero). Read by the flat `wind_vec`
+parameter sync (no longer a registered symbolic — it is the computed reader).
+"""
 function get_wind_vec(sys::SystemStructure)
     wv = sys.set.wind_vec
     if wv[1]^2 + wv[2]^2 + wv[3]^2 < 1e-20
@@ -420,118 +186,3 @@ function get_wind_vec(sys::SystemStructure)
     end
     return wv
 end
-@register_array_symbolic get_wind_vec(
-    sys::SystemStructure) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_cd_tether(sys::SystemStructure) = sys.set.cd_tether
-@register_symbolic get_cd_tether(sys::SystemStructure)
-get_g_earth(sys::SystemStructure) = sys.set.g_earth
-@register_symbolic get_g_earth(sys::SystemStructure)
-
-# ---- Aero overrides ----
-function get_aero_force_override(
-    sys::SystemStructure, idx::Int64, component::Int
-)
-    wing = sys.wings[idx]
-    provides_aero_override(wing.aero) &&
-        return wing.aero_force_b[component]
-    return 0.0
-end
-@register_symbolic get_aero_force_override(
-    sys::SystemStructure, idx::Int64, component::Int)
-function get_aero_moment_override(
-    sys::SystemStructure, idx::Int64, component::Int
-)
-    wing = sys.wings[idx]
-    provides_aero_override(wing.aero) &&
-        return wing.aero_moment_b[component]
-    return 0.0
-end
-@register_symbolic get_aero_moment_override(
-    sys::SystemStructure, idx::Int64, component::Int)
-
-# ==================== VSM-SPECIFIC ACCESSORS ==================== #
-# These access VSMWing-specific fields or TwistSurface fields.
-# Registered with SystemStructure (UnionAll) because
-# @register_symbolic erases type parameters.
-
-get_le_pos(sys::SystemStructure, idx::Int64) =
-    sys.twist_surfaces[idx].le_pos
-@register_array_symbolic get_le_pos(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-# Function barriers: the wing's `vsm` field is an abstract `VSMEngine`, so the
-# read is dispatched to a method specialized on the concrete engine type to stay
-# type-stable and allocation-free in the compiled RHS.
-engine_aero_y(engine::VSMEngine, iy::Int)::SimFloat = engine.aero_y[iy]
-engine_aero_x(engine::VSMEngine, ix::Int)::SimFloat = engine.aero_x[ix]
-engine_aero_jac(engine::VSMEngine, ix::Int, iy::Int)::SimFloat =
-    engine.aero_jac[ix, iy]
-
-get_aero_y(sys::SystemStructure, idx::Int64, iy::Int) =
-    engine_aero_y(sys.wings[idx].aero.engine, iy)
-@register_symbolic get_aero_y(
-    sys::SystemStructure, idx::Int64, iy::Int)
-get_aero_x(sys::SystemStructure, idx::Int64, ix::Int) =
-    engine_aero_x(sys.wings[idx].aero.engine, ix)
-@register_symbolic get_aero_x(
-    sys::SystemStructure, idx::Int64, ix::Int)
-get_aero_jac(sys::SystemStructure, idx::Int64,
-             ix::Int, iy::Int) =
-    engine_aero_jac(sys.wings[idx].aero.engine, ix, iy)
-@register_symbolic get_aero_jac(
-    sys::SystemStructure, idx::Int64,
-    ix::Int, iy::Int)
-get_twist(sys::SystemStructure, idx::Int64) =
-    sys.twist_surfaces[idx].twist
-@register_symbolic get_twist(
-    sys::SystemStructure, idx::Int64)
-get_twist_surface_damping(sys::SystemStructure, idx::Int64) =
-    sys.twist_surfaces[idx].damping
-@register_symbolic get_twist_surface_damping(
-    sys::SystemStructure, idx::Int64)
-get_twist_ω(sys::SystemStructure, idx::Int64) =
-    sys.twist_surfaces[idx].twist_ω
-@register_symbolic get_twist_ω(
-    sys::SystemStructure, idx::Int64)
-get_twist_surface_y_airf(sys::SystemStructure, idx::Int64) =
-    sys.twist_surfaces[idx].y_airf
-@register_array_symbolic get_twist_surface_y_airf(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_twist_surface_chord(sys::SystemStructure, idx::Int64) =
-    sys.twist_surfaces[idx].chord
-@register_array_symbolic get_twist_surface_chord(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_twist_surface_le_pos(sys::SystemStructure, idx::Int64) =
-    sys.twist_surfaces[idx].le_pos
-@register_array_symbolic get_twist_surface_le_pos(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_moment_frac(sys::SystemStructure, idx::Int64) =
-    sys.twist_surfaces[idx].moment_frac
-@register_symbolic get_moment_frac(
-    sys::SystemStructure, idx::Int64)
-function get_twist_surface_moment_override(
-    sys::SystemStructure, wing_idx::Int64,
-    twist_surface_idx::Int64
-)
-    wing = sys.wings[wing_idx]
-    provides_aero_override(wing.aero) &&
-        return sys.twist_surfaces[twist_surface_idx].aero_moment
-    return 0.0
-end
-@register_symbolic get_twist_surface_moment_override(
-    sys::SystemStructure, wing_idx::Int64,
-    twist_surface_idx::Int64)

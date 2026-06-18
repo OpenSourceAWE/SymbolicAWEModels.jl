@@ -91,16 +91,6 @@ get_plate_cd(sys::SystemStructure, wing_idx::Int64, alpha_deg) =
 @register_symbolic get_plate_cd(
     sys::SystemStructure, wing_idx::Int64, alpha_deg)
 
-get_plate_drag_corr(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].aero.drag_corr
-@register_symbolic get_plate_drag_corr(
-    sys::SystemStructure, idx::Int64)
-
-get_twist_surface_area(sys::SystemStructure, idx::Int64) =
-    sys.twist_surfaces[idx].area
-@register_symbolic get_twist_surface_area(
-    sys::SystemStructure, idx::Int64)
-
 # ==================== equation builder ==================== #
 
 """

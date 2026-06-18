@@ -243,9 +243,7 @@ SymbolicAWEModels.build_mesh_maps!
 SymbolicAWEModels.store_billow_offsets!
 SymbolicAWEModels.store_induced_velocity!
 SymbolicAWEModels.continuous_panel
-SymbolicAWEModels.induced_velocity_component
 SymbolicAWEModels.reconstruct_sections_b
-SymbolicAWEModels.get_continuous_v_ind
 SymbolicAWEModels.get_continuous_cl
 SymbolicAWEModels.get_continuous_cd
 SymbolicAWEModels.get_continuous_cm
@@ -279,6 +277,7 @@ SymbolicAWEModels.make_param
 SymbolicAWEModels.make_array_param
 SymbolicAWEModels.leaf_param!
 SymbolicAWEModels.param_computed!
+SymbolicAWEModels.get_wind_vec
 SymbolicAWEModels.param_descend
 SymbolicAWEModels.ParamView
 SymbolicAWEModels.PathView
