@@ -189,6 +189,44 @@ end
         b2.inertia_principal .= inertia
     end
 
+    @testset "Interpolated (nonlinear) stiffness" begin
+        # A LinearInterpolation reproducing force = EA·Δ must give the same axial
+        # frequency as the float law — exercises the float/interp mix, the
+        # zero-alloc function barrier, and the Dual derivative through the interp.
+        EA = 100.0
+        knots = collect(-0.6:0.05:0.6)
+        f_axial = SymbolicAWEModels.LinearInterpolation(EA .* knots, knots)
+        b1i = RigidBody(:b1; mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
+        b2i = RigidBody(:b2; mass=1.0, inertia_principal=inertia, pos=[1.0, 0.0, 0.0])
+        joint_i = ElasticJoint(:j1, :b1, :b2;
+            anchor_a=[0.5, 0.0, 0.0], anchor_b=[-0.5, 0.0, 0.0],
+            stiffness_axial=f_axial,       # interpolation ...
+            stiffness_shear=0.0, stiffness_torsion=0.0, stiffness_bending=0.0)  # ... mixed with floats
+        @test joint_i.stiffness_axial === f_axial
+        sys_i = SystemStructure("joint_test", set;
+            rigid_bodies=[b1i, b2i], elastic_joints=[joint_i])
+        sam_i = SymbolicAWEModel(set, sys_i)
+        test_init!(sam_i; prn=false)   # zero-alloc RHS with the interpolation
+
+        body1 = sam_i.sys_struct.rigid_bodies[:b1]
+        body2 = sam_i.sys_struct.rigid_bodies[:b2]
+        body2.pos_w .= [1.05, 0.0, 0.0]
+        test_init!(sam_i; prn=false, reset_vel=false)
+
+        ω_expected = sqrt(EA * (1/1.0 + 1/1.0))
+        dt = 0.001
+        n_steps = round(Int, 4 * (2pi / ω_expected) / dt)
+        times = Float64[]
+        rel_x = Float64[]
+        for _ in 1:n_steps
+            next_step!(sam_i; dt, vsm_interval=0)
+            push!(times, sam_i.integrator.t)
+            push!(rel_x, (body2.pos_w[1] - body1.pos_w[1]) - 1.0)
+        end
+        T_measured = period_from_crossings(times, rel_x)
+        @test 2pi / T_measured ≈ ω_expected rtol=0.02
+    end
+
     rm(tmpdir; recursive=true)
 end
 nothing

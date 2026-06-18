@@ -62,24 +62,22 @@ function joint_eqs!(
         Δv_a = R_a' * (vel_anchor_b .- vel_anchor_a)
         Δω_a = R_a' * (ω_b_w .- ω_a_w)
 
-        axial = get_joint_stiffness_axial(psys, j)
-        shear = get_joint_stiffness_shear(psys, j)
-        torsion = get_joint_stiffness_torsion(psys, j)
-        bending = get_joint_stiffness_bending(psys, j)
         damp_trans = get_joint_damping_trans(psys, j)
         damp_rot = get_joint_damping_rot(psys, j)
 
-        # Restoring wrench on body B, body A frame (then rotate to world).
+        # Restoring wrench on body B, body A frame (then rotate to world). The
+        # per-DOF stiffness force (linear `k·Δ` or interpolation `f(Δ)`) comes
+        # from `get_joint_force` (kind 1=axial, 2=shear, 3=torsion, 4=bending).
         # Built element-wise: symbolic-array broadcasting is fragile.
         force_a = [
-            -axial * Δr_a[1] - damp_trans * Δv_a[1],
-            -shear * Δr_a[2] - damp_trans * Δv_a[2],
-            -shear * Δr_a[3] - damp_trans * Δv_a[3],
+            -get_joint_force(psys, j, 1, Δr_a[1]) - damp_trans * Δv_a[1],
+            -get_joint_force(psys, j, 2, Δr_a[2]) - damp_trans * Δv_a[2],
+            -get_joint_force(psys, j, 2, Δr_a[3]) - damp_trans * Δv_a[3],
         ]
         torque_a = [
-            -torsion * Δθ_a[1] - damp_rot * Δω_a[1],
-            -bending * Δθ_a[2] - damp_rot * Δω_a[2],
-            -bending * Δθ_a[3] - damp_rot * Δω_a[3],
+            -get_joint_force(psys, j, 3, Δθ_a[1]) - damp_rot * Δω_a[1],
+            -get_joint_force(psys, j, 4, Δθ_a[2]) - damp_rot * Δω_a[2],
+            -get_joint_force(psys, j, 4, Δθ_a[3]) - damp_rot * Δω_a[3],
         ]
 
         eqs = [

@@ -122,18 +122,25 @@ end
     ElasticJoint
 
 A 6-DOF elastic connection between two `RigidBody`s. Anchored at a body-frame
-offset on each body, it applies a restoring wrench proportional to the relative
-pose of the anchors, decomposed in body A's frame into axial (`EA`), shear
-(`GA`, both transverse axes), torsion (`GJ`), and bending (`EI`, both transverse
-axes), with optional translational/rotational damping. The equal-and-opposite
-wrench is added to both bodies' load accumulators.
+offset on each body, it applies a restoring wrench from the relative pose of the
+anchors, decomposed in body A's frame into axial (`EA`), shear (`GA`, both
+transverse axes), torsion (`GJ`), and bending (`EI`, both transverse axes), with
+optional translational/rotational damping. The equal-and-opposite wrench is added
+to both bodies' load accumulators.
 
-The stiffness law is linear here; a single tunable function of the relative DOF
-keeps a nonlinear/pressure-dependent law (e.g. `EI(p)`) a drop-in later.
+Each stiffness is either a `Real` (linear law, force `= k·Δ`) or a callable
+interpolation `f` (nonlinear law, force `= f(Δ)`, e.g. a wrinkling/saturating
+inflatable beam). They may be mixed per DOF; the type parameter `S` keeps the
+fields concrete (`Real`s share one type, interpolations share one type) so the
+ODE right-hand side stays allocation-free. The symbolic equations are identical
+for `Real` or interpolation stiffnesses (the choice is resolved at runtime in the
+registered force function), but the stiffness types are part of the
+`SystemStructure` type parameter, so a float vs an interpolation is a distinct
+compiled model with its own cache entry.
 
 $(TYPEDFIELDS)
 """
-mutable struct ElasticJoint
+mutable struct ElasticJoint{S}
     "Index in the elastic_joints vector (assigned by SystemStructure)."
     idx::Int64
     "Name used for lookup."
@@ -153,14 +160,14 @@ mutable struct ElasticJoint
     "Anchor offset from body B origin, body B frame [m]."
     const anchor_b_b::KVec3
 
-    "Axial stiffness EA [N/m] (body A x-axis)."
-    stiffness_axial::SimFloat
-    "Shear stiffness GA [N/m] (both transverse axes)."
-    stiffness_shear::SimFloat
-    "Torsional stiffness GJ [N·m/rad] (about body A x-axis)."
-    stiffness_torsion::SimFloat
-    "Bending stiffness EI [N·m/rad] (both transverse axes)."
-    stiffness_bending::SimFloat
+    "Axial stiffness: `Real` EA [N/m], or interpolation force(Δx) (body A x-axis)."
+    stiffness_axial::S
+    "Shear stiffness: `Real` GA [N/m], or interpolation force(Δ) (both transverse)."
+    stiffness_shear::S
+    "Torsional stiffness: `Real` GJ [N·m/rad], or interpolation moment(Δθ) (x-axis)."
+    stiffness_torsion::S
+    "Bending stiffness: `Real` EI [N·m/rad], or interpolation moment(Δθ) (transverse)."
+    stiffness_bending::S
     "Translational damping [N·s/m]."
     damping_trans::SimFloat
     "Rotational damping [N·m·s/rad]."
@@ -173,23 +180,32 @@ end
                  stiffness_bending, damping_trans=0, damping_rot=0)
 
 Connect `body_a` to `body_b` (names or indices) with a 6-DOF elastic joint.
-`anchor_a`/`anchor_b` are the connection points in each body's frame.
+`anchor_a`/`anchor_b` are the connection points in each body's frame. Each
+stiffness is a `Real` (linear) or a callable interpolation of the relative DOF
+(nonlinear); interpolations must all be the same type.
 """
 function ElasticJoint(name, body_a, body_b;
         anchor_a = zeros(SimFloat, 3),
         anchor_b = zeros(SimFloat, 3),
-        stiffness_axial::Real,
-        stiffness_shear::Real,
-        stiffness_torsion::Real,
-        stiffness_bending::Real,
+        stiffness_axial,
+        stiffness_shear,
+        stiffness_torsion,
+        stiffness_bending,
         damping_trans::Real = 0.0,
         damping_rot::Real = 0.0,
     )
+    # Reals → SimFloat; interpolations kept as-is. All interps must share a type.
+    conv(s) = s isa Real ? SimFloat(s) : s
+    stiffs = map(conv, (stiffness_axial, stiffness_shear,
+                        stiffness_torsion, stiffness_bending))
+    interp_types = unique(typeof(s) for s in stiffs if !(s isa Real))
+    length(interp_types) > 1 && error(
+        "ElasticJoint: all interpolation stiffnesses must be the same type, " *
+        "got $(interp_types). Mix only `Real`s and a single interpolation type.")
+    S = Union{map(typeof, stiffs)...}
     body_a_ref = body_a isa Integer ? Int(body_a) : Symbol(body_a)
     body_b_ref = body_b isa Integer ? Int(body_b) : Symbol(body_b)
-    return ElasticJoint(0, name, 0, 0, body_a_ref, body_b_ref,
-        KVec3(anchor_a), KVec3(anchor_b),
-        SimFloat(stiffness_axial), SimFloat(stiffness_shear),
-        SimFloat(stiffness_torsion), SimFloat(stiffness_bending),
+    return ElasticJoint{S}(0, name, 0, 0, body_a_ref, body_b_ref,
+        KVec3(anchor_a), KVec3(anchor_b), stiffs...,
         SimFloat(damping_trans), SimFloat(damping_rot))
 end

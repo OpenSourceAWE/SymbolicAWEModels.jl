@@ -6,7 +6,7 @@
 # tube). No wind. The root segment is fixed; the beam sags under gravity and
 # settles into a static cantilever deflection set by the joints' bending
 # stiffness EI. The motion is logged to a SysLog and shown with `replay`.
-# Set `g_earth = 0.0` below for a free, gravity-free beam.
+# Set `g_earth: 0.0` in data/beam/settings.yaml for a free, gravity-free beam.
 
 using Pkg
 Pkg.activate(@__DIR__)
@@ -19,7 +19,6 @@ n_segments = 10
 seg_length = 0.5                 # [m] per segment
 seg_mass = 0.5                   # [kg] per segment
 seg_radius = 0.02                # [m] equivalent rod radius (axial inertia)
-g_earth = 9.81                   # set to 0.0 for a gravity-free beam
 
 # Slender-rod principal inertia: small about the long (x) axis, m·L²/12 about
 # the transverse axes.
@@ -35,51 +34,11 @@ stiffness_bending = 5.0e3        # ↓ for a floppier beam, ↑ for a stiffer on
 damping_trans = 50.0
 damping_rot = 20.0
 
-# ----- settings (no wind; gravity as configured) -----
-settings_yaml = """
-system:
-    log_file: "data/beam"
-    g_earth: $g_earth
-solver:
-    solver: "FBDF"
-    abs_tol: 1.0e-7
-    rel_tol: 1.0e-7
-kite:
-    model: ""
-    foil_file: "ram_air_kite/ram_air_kite_foil.dat"
-    physical_model: "beam_6dof"
-    mass: 0.0
-    quasi_static: false
-tether:
-    cd_tether: 0.958
-    unit_damping: 0.0
-    unit_stiffness: 0.0
-    rho_tether: 724.0
-    e_tether: 5.5e10
-winch:
-    winch_model: "TorqueControlledMachine"
-    drum_radius: 0.110
-    gear_ratio: 1.0
-    inertia_total: 0.024
-    f_coulomb: 122.0
-    c_vf: 30.6
-environment:
-    rho_0: 1.225
-    v_wind: 0.0
-    upwind_dir: -90.0
-    upwind_elevation: 0.0
-    wind_vec: [0.0, 0.0, 0.0]
-    profile_law: 0
-"""
-
-pkg_root = dirname(@__DIR__)
-tmpdir = mktempdir()
-data_path = joinpath(tmpdir, "2plate_kite")
-cp(joinpath(pkg_root, "data", "2plate_kite"), data_path; force=true)
-write(joinpath(data_path, "settings.yaml"), settings_yaml)
-write(joinpath(data_path, "system.yaml"),
-    "system:\n  sim_settings: settings.yaml\n")
-set_data_path(data_path)
+# ----- settings -----
+# Environment settings (no wind; gravity) live in the committed data dir
+# `data/beam/settings.yaml`; edit `g_earth` there for a gravity-free beam. Using
+# the package data dir keeps the compiled model cached and reused across runs.
+set_data_path(joinpath(dirname(@__DIR__), "data", "beam"))
 set = Settings("system.yaml")
 
 # ----- build the beam -----

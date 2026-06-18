@@ -295,22 +295,24 @@ get_joint_anchor_b(sys::SystemStructure, idx::Int64) =
     size = (3,)
     eltype = SimFloat
 end
-get_joint_stiffness_axial(sys::SystemStructure, idx::Int64) =
-    sys.elastic_joints[idx].stiffness_axial
-@register_symbolic get_joint_stiffness_axial(
-    sys::SystemStructure, idx::Int64)
-get_joint_stiffness_shear(sys::SystemStructure, idx::Int64) =
-    sys.elastic_joints[idx].stiffness_shear
-@register_symbolic get_joint_stiffness_shear(
-    sys::SystemStructure, idx::Int64)
-get_joint_stiffness_torsion(sys::SystemStructure, idx::Int64) =
-    sys.elastic_joints[idx].stiffness_torsion
-@register_symbolic get_joint_stiffness_torsion(
-    sys::SystemStructure, idx::Int64)
-get_joint_stiffness_bending(sys::SystemStructure, idx::Int64) =
-    sys.elastic_joints[idx].stiffness_bending
-@register_symbolic get_joint_stiffness_bending(
-    sys::SystemStructure, idx::Int64)
+# Restoring force/moment from one joint stiffness, given the relative DOF `Δ`.
+# `kind`: 1=axial, 2=shear, 3=torsion, 4=bending. A `Real` stiffness is the
+# linear law `k·Δ`; a callable interpolation gives the (possibly saturating)
+# force directly as `f(Δ)`. The `stiffness_force` function barrier dispatches on
+# the concrete stiffness type so the RHS stays allocation-free; `Δ` flows through
+# as a ForwardDiff `Dual` for the Jacobian.
+stiffness_force(k::Real, Δ) = k * Δ
+stiffness_force(interpolation, Δ) = interpolation(Δ)
+
+joint_stiffness(joint::ElasticJoint, kind::Int) =
+    kind == 1 ? joint.stiffness_axial :
+    kind == 2 ? joint.stiffness_shear :
+    kind == 3 ? joint.stiffness_torsion : joint.stiffness_bending
+
+get_joint_force(sys::SystemStructure, idx::Int64, kind::Int, Δ) =
+    stiffness_force(joint_stiffness(sys.elastic_joints[idx], kind), Δ)
+@register_symbolic get_joint_force(
+    sys::SystemStructure, idx::Int64, kind::Int, Δ)
 get_joint_damping_trans(sys::SystemStructure, idx::Int64) =
     sys.elastic_joints[idx].damping_trans
 @register_symbolic get_joint_damping_trans(

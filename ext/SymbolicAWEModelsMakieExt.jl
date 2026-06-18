@@ -29,6 +29,7 @@ const PLOT_SEGMENT_COLOR = Ref{Symbol}(:black)
 const PLOT_ZOOMED_IN = Ref{Bool}(false)
 const PLOT_ZOOM_RELMARGIN = Ref{Float64}(0.2)
 const PLOT_ZOOM_SEGMENT_IDX = Ref{Int}(-1)  # Which segment we're zoomed into (-1 = none)
+const PLOT_ZOOM_BODY_IDX = Ref{Int}(-1)     # Which rigid body we're zoomed into (-1 = none)
 const PLOT_BODY_FRAME = Ref{Bool}(false)  # Whether body frame tracking is active
 const PLOT_CAMERA_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)  # Stored camera distance
 const PLOT_PREV_BODY_FRAME = Ref{Bool}(false)  # Previous body frame state
@@ -193,25 +194,104 @@ rigid_body_frames(sys) = [(body.pos_w,
     for body in sys.rigid_bodies]
 
 """
+    cylinders_mesh(pair_points, radius, resolution) -> GeometryBasics.Mesh
+
+One merged triangle mesh of thin cylinders, one per consecutive endpoint pair in
+`pair_points` (the `linesegments!` layout: [p1,p2, p3,p4, …]). `resolution` is the
+number of facets around each cylinder. Zero-length pairs are skipped.
+"""
+function cylinders_mesh(pair_points, radius, resolution)
+    verts = Point3f[]
+    faces = GLTriangleFace[]
+    res = max(3, resolution)
+    r = Float32(radius)
+    for s in 1:(length(pair_points) ÷ 2)
+        p1 = Point3f(pair_points[2s - 1])
+        p2 = Point3f(pair_points[2s])
+        axis = p2 - p1
+        len = norm(axis)
+        len < 1f-9 && continue
+        zhat = axis / len
+        ref = abs(zhat[1]) < 0.9f0 ? Vec3f(1, 0, 0) : Vec3f(0, 1, 0)
+        xhat = normalize(cross(zhat, ref))
+        yhat = cross(zhat, xhat)
+        base = length(verts)
+        for i in 0:(res - 1)
+            θ = 2f0 * Float32(π) * i / res
+            off = r * (cos(θ) * xhat + sin(θ) * yhat)
+            push!(verts, p1 + off)
+            push!(verts, p2 + off)
+        end
+        for i in 0:(res - 1)
+            a = base + 2i + 1
+            b = base + 2i + 2
+            j = (i + 1) % res
+            c = base + 2j + 1
+            d = base + 2j + 2
+            push!(faces, GLTriangleFace(a, b, d))
+            push!(faces, GLTriangleFace(a, d, c))
+        end
+    end
+    isempty(verts) && push!(verts, Point3f(NaN))  # mesh! needs ≥1 vertex
+    return GeometryBasics.Mesh(verts, faces)
+end
+
+"""Per-vertex colors for `cylinders_mesh`: repeat each segment's color over its
+`2·resolution` ring vertices (assumes no zero-length segments)."""
+function cylinder_vertex_colors(seg_colors, resolution)
+    res = max(3, resolution)
+    colors = similar(seg_colors, 0)
+    for c in seg_colors, _ in 1:(2 * res)
+        push!(colors, c)
+    end
+    return colors
+end
+
+"""
+    body_joint_spokes(sys) -> Vector{Point3f}
+
+Flat list of segment endpoints (consecutive pairs, for `linesegments!`): for each
+elastic joint, a rigid spoke from each connected body's origin to its anchor on
+that joint. This shows a body's rigid extent and the actual joint connectivity,
+rather than assuming a rod shape or a fixed body order. (Point→body spokes would
+slot in here the same way once points can attach to rigid bodies.)
+"""
+function body_joint_spokes(sys)
+    points = Point3f[]
+    for joint in sys.elastic_joints
+        body_a = sys.rigid_bodies[joint.body_a_idx]
+        body_b = sys.rigid_bodies[joint.body_b_idx]
+        R_a = SymbolicAWEModels.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
+        R_b = SymbolicAWEModels.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
+        push!(points, Point3f(body_a.pos_w),
+              Point3f(body_a.pos_w .+ R_a * joint.anchor_a_b))
+        push!(points, Point3f(body_b.pos_w),
+              Point3f(body_b.pos_w .+ R_b * joint.anchor_b_b))
+    end
+    return points
+end
+
+"""
     plot_frame_axes!(ax, plots, key, sys, n, frames_of, scale, geometry_obs)
 
 Plot RGB body-frame axes for `n` entities, reading frames via `frames_of(sys)`.
 Static when `geometry_obs === nothing`, otherwise observable-driven from
 `PLOT_SYSTEM_STRUCTURE[]`. No-op when `n == 0`.
 """
-function plot_frame_axes!(ax, plots, key, sys, n, frames_of, scale, geometry_obs)
+function plot_frame_axes!(ax, plots, key, sys, n, frames_of, scale, geometry_obs;
+                          facets=8)
     n == 0 && return nothing
     axis_colors = repeat([:red, :green, :blue], n)
     if isnothing(geometry_obs)
         origins, directions = body_frame_arrows(frames_of(sys), scale)
-        plots[key] = arrows3d!(ax, origins, directions; color=axis_colors)
+        plots[key] = arrows3d!(ax, origins, directions; color=axis_colors, quality=facets)
     else
         origins_dirs = @lift begin
             $geometry_obs  # Trigger dependency
             body_frame_arrows(frames_of(PLOT_SYSTEM_STRUCTURE[]), PLOT_VECTOR_SCALE[])
         end
         plots[key] = arrows3d!(ax, @lift($origins_dirs[1]),
-            @lift($origins_dirs[2]); color=axis_colors)
+            @lift($origins_dirs[2]); color=axis_colors, quality=facets)
     end
     return nothing
 end
@@ -225,13 +305,30 @@ function Makie.plot!(ax, sys::SystemStructure;
                      extra_points = nothing,
                      extra_groups = nothing,
                      mesh = nothing,
+                     # Segments and rigid-body spokes render as thin cylinders;
+                     # `facets` is the facet count (also used for the
+                     # orientation arrows), `cylinder_radius` overrides the
+                     # auto thin radius derived from the scene scale.
+                     facets::Int = 8,
+                     cylinder_radius = nothing,
                      # Optional observable for real-time updates
                      geometry_obs = nothing)
 
     plots = Dict{Symbol, Any}()
 
+    # Thin-cylinder radius from the scene's characteristic length.
+    char_positions = vcat([Point3f(p.pos_w) for p in sys.points],
+                          [Point3f(b.pos_w) for b in sys.rigid_bodies])
+    char_len = if isempty(char_positions)
+        20.0f0
+    else
+        spans = (extrema(getindex.(char_positions, d)) for d in 1:3)
+        max(maximum(hi - lo for (lo, hi) in spans), 1.0f0)
+    end
+    cyl_radius = isnothing(cylinder_radius) ? char_len * 0.004f0 : Float32(cylinder_radius)
+
     # === Plot Segments ===
-    if show_segments
+    if show_segments && !isempty(sys.segments)
         if isnothing(geometry_obs)
             # Static plotting: build segment points once
             lineseg_points = Point3f[]
@@ -266,8 +363,12 @@ function Makie.plot!(ax, sys::SystemStructure;
             seg_colors = Observable(fill(to_color(segment_color), num_segments))
         end
 
-        plots[:segments] = linesegments!(ax, lineseg_points, color=seg_colors,
-                                         linewidth=2, label="Segments", transparency=true)
+        seg_mesh = isnothing(geometry_obs) ?
+            cylinders_mesh(lineseg_points, cyl_radius, facets) :
+            @lift(cylinders_mesh($lineseg_points, cyl_radius, facets))
+        seg_vertex_colors = @lift(cylinder_vertex_colors($seg_colors, facets))
+        plots[:segments] = mesh!(ax, seg_mesh; color=seg_vertex_colors,
+                                 label="Segments")
         plots[:segment_colors_obs] = seg_colors
     end
 
@@ -287,31 +388,38 @@ function Makie.plot!(ax, sys::SystemStructure;
                                   transparency=true)
     end
 
-    # === Plot Rigid Bodies (standalone chain, e.g. a beam) ===
+    # === Plot Rigid Bodies (standalone, e.g. a beam) ===
     if !isempty(sys.rigid_bodies)
-        # Faint polyline through the body origins to show connectivity.
-        if isnothing(geometry_obs)
-            body_positions = [Point3f(b.pos_w) for b in sys.rigid_bodies]
-        else
-            body_positions = @lift begin
-                $geometry_obs  # Trigger dependency
-                [Point3f(b.pos_w) for b in PLOT_SYSTEM_STRUCTURE[].rigid_bodies]
+        # Grey spokes from each body origin to its joint anchors: show the rigid
+        # extent and the true joint connectivity (works for chains, stars, Ys).
+        # Only when joints exist — an empty mesh can't be rendered.
+        if !isempty(sys.elastic_joints)
+            if isnothing(geometry_obs)
+                spoke_points = body_joint_spokes(sys)
+            else
+                spoke_points = @lift begin
+                    $geometry_obs  # Trigger dependency
+                    body_joint_spokes(PLOT_SYSTEM_STRUCTURE[])
+                end
             end
+            spoke_mesh = isnothing(geometry_obs) ?
+                cylinders_mesh(spoke_points, cyl_radius, facets) :
+                @lift(cylinders_mesh($spoke_points, cyl_radius, facets))
+            plots[:body_chain] = mesh!(ax, spoke_mesh; color=RGBf(0.32, 0.32, 0.32),
+                                       label="Rigid bodies")
         end
-        plots[:body_chain] = lines!(ax, body_positions; color=(:gray, 0.5),
-                                    linewidth=2, label="Rigid bodies")
 
         # RGB body-frame axes per body, from the orientation quaternion.
         if show_orient
             plot_frame_axes!(ax, plots, :bodies, sys, length(sys.rigid_bodies),
-                             rigid_body_frames, vector_scale, geometry_obs)
+                             rigid_body_frames, vector_scale, geometry_obs; facets)
         end
     end
 
     # === Plot Wings (RGB body-frame axes from the orientation quaternion) ===
     if show_orient
         plot_frame_axes!(ax, plots, :wings, sys, length(sys.wings),
-                         wing_frames, vector_scale, geometry_obs)
+                         wing_frames, vector_scale, geometry_obs; facets)
     end
 
     # === Plot VSM Aerodynamics ===
@@ -1998,6 +2106,32 @@ function get_cam_eyepos(cam)
     return Vec3f(inv_view[1, 4], inv_view[2, 4], inv_view[3, 4])
 end
 
+"""
+    zoom_in_body!(scene, cam, sys, body_idx, distance=nothing)
+
+Center the camera on rigid body `body_idx`. Without `distance`, derives one from
+the body's spoke reach (joint anchors) so the body fills the view.
+"""
+function zoom_in_body!(scene, cam, sys, body_idx, distance=nothing)
+    body = sys.rigid_bodies[body_idx]
+    center = Vec3f(body.pos_w)
+    if isnothing(distance)
+        R = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
+        reach = 0.0
+        for joint in sys.elastic_joints
+            joint.body_a_idx == body_idx &&
+                (reach = max(reach, norm(R * joint.anchor_a_b)))
+            joint.body_b_idx == body_idx &&
+                (reach = max(reach, norm(R * joint.anchor_b_b)))
+        end
+        distance = reach * 4.0 + 2.0
+    end
+    inv_view = inv(cam.view[])
+    cam_dir = normalize(Vec3f(inv_view[1, 3], inv_view[2, 3], inv_view[3, 3]))
+    update_cam!(scene, center + distance * cam_dir, center)
+    return distance
+end
+
 function apply_zoom_mode!(scene, relevant_plots, stored_sys; mode_changed::Bool)
     cam = scene.camera
 
@@ -2026,6 +2160,9 @@ function apply_zoom_mode!(scene, relevant_plots, stored_sys; mode_changed::Bool)
         PLOT_BODY_PREV_WING_POS[] = wing_pos
     elseif PLOT_ZOOMED_IN[] && PLOT_ZOOM_SEGMENT_IDX[] > 0
         dist = zoom_in!(scene, cam, stored_sys, PLOT_ZOOM_SEGMENT_IDX[], PLOT_CAMERA_DISTANCE[])
+        PLOT_CAMERA_DISTANCE[] = dist
+    elseif PLOT_ZOOMED_IN[] && PLOT_ZOOM_BODY_IDX[] > 0
+        dist = zoom_in_body!(scene, cam, stored_sys, PLOT_ZOOM_BODY_IDX[], PLOT_CAMERA_DISTANCE[])
         PLOT_CAMERA_DISTANCE[] = dist
     elseif !PLOT_ZOOMED_IN[]
         if mode_changed
@@ -2221,6 +2358,7 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                 zoomed_in[] = true
                 PLOT_ZOOMED_IN[] = true
                 PLOT_ZOOM_SEGMENT_IDX[] = seg_i
+                PLOT_ZOOM_BODY_IDX[] = -1
                 PLOT_PREV_ZOOMED_IN[] = true
                 PLOT_PREV_SEGMENT_IDX[] = seg_i
 
@@ -2251,6 +2389,109 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
         return Consume(false)
     end
 
+    return nothing
+end
+
+"""
+    setup_body_zoom_events!(scene, sys; relmargin=0.2)
+
+Hover labels and click-to-zoom for standalone rigid bodies, picking on the grey
+joint spokes (origin→anchor segments). Hovering a body shows its name; clicking
+zooms in and tracks it (`PLOT_ZOOM_BODY_IDX`, followed each frame by
+`apply_zoom_mode!`); clicking empty space restores the prior view. No-op when the
+system has no rigid bodies. Mirrors `setup_segment_hover_events!`; the two don't
+clash because segment-less models (e.g. a beam) never install the segment one.
+"""
+function setup_body_zoom_events!(scene, sys; relmargin=0.2)
+    isempty(sys.rigid_bodies) && return nothing
+    last_body = Ref(-1)
+
+    body_label = Observable("")
+    body_label_pos = Observable(Point2f(0, 0))
+    body_label_visible = Observable(false)
+    text!(scene, body_label, position=body_label_pos, space=:pixel,
+          fontsize=14, color=:white, strokecolor=:black, strokewidth=1,
+          align=(:center, :center), visible=body_label_visible, transparency=true)
+
+    # Min 2D distance from the cursor to any of body `b`'s joint spokes.
+    function spoke_distance(b, mouse_2d)
+        body = sys.rigid_bodies[b]
+        R = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
+        origin_2d = Makie.project(scene, Point3f(body.pos_w))
+        dist = Inf
+        for joint in sys.elastic_joints
+            anchor = if joint.body_a_idx == b
+                joint.anchor_a_b
+            elseif joint.body_b_idx == b
+                joint.anchor_b_b
+            else
+                continue
+            end
+            anchor_2d = Makie.project(scene, Point3f(body.pos_w .+ R * anchor))
+            dist = min(dist, point_line_segment_distance(mouse_2d, origin_2d, anchor_2d))
+        end
+        return dist
+    end
+
+    on(events(scene).mouseposition, priority=2) do mp
+        mouse_2d = Point2f(mp)
+        margin_px = 30.0
+        best, best_dist = -1, Inf
+        for b in eachindex(sys.rigid_bodies)
+            d = spoke_distance(b, mouse_2d)
+            d < best_dist && ((best, best_dist) = (b, d))
+        end
+        hovered = best_dist < margin_px ? best : -1
+        if hovered != last_body[]
+            if hovered != -1
+                body = sys.rigid_bodies[hovered]
+                body_label[] = hover_ref_label(body.name, hovered)
+                body_label_pos[] =
+                    Makie.project(scene, Point3f(body.pos_w)) + Point2f(20, 0)
+                body_label_visible[] = true
+            else
+                body_label_visible[] = false
+            end
+            last_body[] = hovered
+        end
+    end
+
+    on(scene.camera.view, priority=1) do _
+        if last_body[] != -1
+            body = sys.rigid_bodies[last_body[]]
+            body_label_pos[] =
+                Makie.project(scene, Point3f(body.pos_w)) + Point2f(20, 0)
+        end
+    end
+
+    on(events(scene).mousebutton, priority=1) do event
+        if event.button == Mouse.left && event.action == Mouse.press
+            cam = scene.camera
+            if last_body[] != -1
+                if !PLOT_ZOOMED_IN[] && !PLOT_BODY_FRAME[]
+                    cc = Makie.cameracontrols(scene)
+                    PLOT_WORLD_EYEPOS[] = Vec3f(cc.eyeposition[])
+                    PLOT_WORLD_LOOKAT[] = Vec3f(cc.lookat[])
+                end
+                dist = zoom_in_body!(scene, cam, sys, last_body[])
+                PLOT_CAMERA_DISTANCE[] = dist
+                PLOT_ZOOMED_IN[] = true
+                PLOT_PREV_ZOOMED_IN[] = true
+                PLOT_ZOOM_BODY_IDX[] = last_body[]
+                PLOT_ZOOM_SEGMENT_IDX[] = -1
+                return Consume(true)
+            elseif PLOT_ZOOMED_IN[]
+                PLOT_ZOOMED_IN[] = false
+                PLOT_ZOOM_BODY_IDX[] = -1
+                PLOT_ZOOM_SEGMENT_IDX[] = -1
+                if !isnothing(PLOT_WORLD_EYEPOS[]) && !isnothing(PLOT_WORLD_LOOKAT[])
+                    update_cam!(scene, PLOT_WORLD_EYEPOS[], PLOT_WORLD_LOOKAT[])
+                end
+                return Consume(true)
+            end
+        end
+        return Consume(false)
+    end
     return nothing
 end
 
@@ -2295,6 +2536,8 @@ function plot_with_panes(sys::SystemStructure;
                                     segment_colors=[segment_color],
                                     highlight_color, force_color, relmargin)
     end
+    # Hover labels + click-to-zoom for standalone rigid bodies (via spokes).
+    setup_body_zoom_events!(scene, sys; relmargin)
 
     # Set initial camera position
     cam = scene.camera

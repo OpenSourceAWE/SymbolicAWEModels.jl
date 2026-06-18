@@ -30,7 +30,7 @@ winches, and wings, forming a complete description of the kite system's structur
 - [`Wing`](@ref): Rigid wing bodies.
 - [`Transform`](@ref): Spatial transformations for initial positioning.
 """
-mutable struct SystemStructure{W<:AbstractWing}
+mutable struct SystemStructure{W<:AbstractWing, J<:ElasticJoint}
     const name::String
     set::Settings
     const points::NamedCollection{Point}
@@ -42,7 +42,7 @@ mutable struct SystemStructure{W<:AbstractWing}
     const wings::NamedCollection{W}
     const transforms::NamedCollection{Transform}
     const rigid_bodies::NamedCollection{RigidBody}
-    const elastic_joints::NamedCollection{ElasticJoint}
+    const elastic_joints::NamedCollection{J}
 
     const am::AtmosphericModel
     stabilize::Bool
@@ -998,7 +998,7 @@ function SystemStructure(name, set;
         NamedCollection{eltype(wings)}(wings, wing_names_dict),
         NamedCollection{Transform}(transforms, transform_names_dict),
         NamedCollection{RigidBody}(rigid_bodies, rigid_body_names_dict),
-        NamedCollection{ElasticJoint}(elastic_joints, elastic_joint_names_dict),
+        NamedCollection{eltype(elastic_joints)}(elastic_joints, elastic_joint_names_dict),
         AtmosphericModel(set), false, false, vsm_set)
     reinit!(sys_struct, set; prn)
 

@@ -1,0 +1,38 @@
+system:
+    log_file: "data/beam"
+    g_earth: 9.81          # set to 0.0 for a gravity-free beam
+
+solver:
+    solver: "FBDF"
+    abs_tol: 0.0000001
+    rel_tol: 0.0000001
+
+kite:
+    model: ""
+    foil_file: "ram_air_kite/ram_air_kite_foil.dat"
+    physical_model: "beam_6dof"
+    mass: 0.0
+    quasi_static: false
+
+tether:
+    cd_tether: 0.958
+    unit_damping: 0.0
+    unit_stiffness: 0.0
+    rho_tether: 724.0
+    e_tether: 5.5e10
+
+winch:
+    winch_model: "TorqueControlledMachine"
+    drum_radius: 0.110
+    gear_ratio: 1.0
+    inertia_total: 0.024
+    f_coulomb: 122.0
+    c_vf: 30.6
+
+environment:
+    rho_0: 1.225
+    v_wind: 0.0
+    upwind_dir: -90.0
+    upwind_elevation: 0.0
+    wind_vec: [0.0, 0.0, 0.0]
+    profile_law: 0

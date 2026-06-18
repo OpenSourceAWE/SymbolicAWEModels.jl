@@ -599,8 +599,16 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("rigid_body", rigid_body.idx))
     end
     for joint in elastic_joints
+        # Stiffness field types are part of the SystemStructure type parameter
+        # (J), so they are baked into the compiled problem's `psys` — a float vs
+        # interpolation (or a different interpolation type) is a distinct model.
+        stiff_type(s) = s isa Real ? "float" : string(typeof(s))
         push!(data_parts, ("elastic_joint", joint.idx,
-                           joint.body_a_idx, joint.body_b_idx))
+                           joint.body_a_idx, joint.body_b_idx,
+                           stiff_type(joint.stiffness_axial),
+                           stiff_type(joint.stiffness_shear),
+                           stiff_type(joint.stiffness_torsion),
+                           stiff_type(joint.stiffness_bending)))
     end
     content = string(data_parts)
     return sha1(content)
