@@ -239,10 +239,25 @@ each phase). Three commits on `rhs-perf`: `01b8c1c5` (Wing/engine concrete-typin
 - **`psys` anchor:** `get_body_R_b_to_p` (point-less models).
 - **Winch component:** `get_winch_*` (custom `winch.model` interface).
 
-**Remaining (cosmetic, not done):** the ~50 now-*unused* getter defs + their
-`@register_symbolic` lines are dead code (no equation or default references them).
-Deleting them + updating `test_bench.jl`'s warmup list is pure cleanup with zero
-runtime effect — left as a careful follow-up to avoid risking the green build.
+**Dead-code deletion (DONE).** Removed ~65 unused registered getters from
+`accessors.jl` (537→148 lines) + `engine_aero_*` barriers + dead plate/continuous
+data getters; `test_bench.jl` per-getter allocation tests dropped. Full suite
+**1727/1727** (12 fewer than 1739 = the removed getter-allocation tests).
+Subtlety: 5 getters my first ASCII/`(psys`-only scan misclassified as dead were
+actually live and had to be restored — `get_l0`, `get_twist_ω`, `get_ω_p`,
+`get_body_ω_p` (Greek names + a pulley guess the regex missed) and `get_wind_vec`
+(used as a bare function reference in `param_computed!`, kept as a plain reader).
+
+**Cache caveat:** deleting the getters means old cached `.bin` models that
+reference them fail to deserialize. The load path's try/catch rebuilds, but stale
+`v0.12.0` caches in `data/` had to be purged here. Users rebuild on first run
+(or `remake=true`).
+
+**ICs could be uniform too (not done).** MTK's `Initial(x)` parameters are
+settable via `setp` — `initial.points[i].pos_w → Initial(pos[:,i])` would give a
+uniform `initial`-view mirroring `params`, syncing ICs the same way instead of
+registered getters in defaults. Feasible follow-up; current ICs use registered
+getters.
 
 ## Core idea
 
