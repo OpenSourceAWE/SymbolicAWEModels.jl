@@ -84,7 +84,7 @@ function segment_eqs!(s, eqs, guesses, points, segments,
                 eqs = [
                     eqs
                     l0[segment.idx] ~
-                        get_sum_len(psys, pulley.idx) - pulley_len[pulley.idx]
+                        params.pulleys[pulley.idx].sum_len - pulley_len[pulley.idx]
                 ]
                 in_pulley += 1
             end
@@ -194,7 +194,7 @@ function segment_eqs!(s, eqs, guesses, points, segments,
                 eqs
                 drag_force[:, segment.idx] ~
                     (
-                        0.5 * segment_rho[segment.idx] * get_cd_tether(psys) *
+                        0.5 * segment_rho[segment.idx] * params.set.cd_tether *
                         smooth_norm(va[:, segment.idx]) * area[segment.idx]
                     ) * app_perp_vel[:, segment.idx]
             ]

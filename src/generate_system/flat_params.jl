@@ -77,21 +77,12 @@ make_array_param(name::Symbol, value::AbstractMatrix) =
     only(@parameters $name[1:size(value, 1), 1:size(value, 2)] = collect(value))
 
 """
-    make_callable_param(name, value)
-
-Callable parameter (`(name::T)(..)`) carrying a non-numeric object (e.g. an
-interpolation), invoked directly as `p(x)` in equations — no `@register_symbolic`.
-Mirrors the MTKStandardLibrary `Interpolation` block.
-"""
-make_callable_param(name::Symbol, value) =
-    only(@parameters ($name::typeof(value))(..) = value)
-
-"""
     leaf_param!(reg, key, name, reader, value)
 
-Create (once, memoised on `key`) and record the parameter for a leaf `value`:
-numeric scalar/array → flat param, anything else → callable param. `reader` reads
-the live value from a `sys_struct` at sync time.
+Create (once, memoised on `key`) and record the flat parameter for a leaf numeric
+`value` (scalar or array). `reader` reads the live value from a `sys_struct` at
+sync time. Non-numeric values are an error: genuine functions (interpolations,
+atmosphere, polars) stay `@register_symbolic`; only data is flattened.
 """
 function leaf_param!(reg::ParamRegistry, key, name::Symbol, reader, value)
     cached = get(reg.cache, key, nothing)
@@ -101,7 +92,8 @@ function leaf_param!(reg::ParamRegistry, key, name::Symbol, reader, value)
     elseif value isa AbstractArray{<:Real}
         param, kind = make_array_param(name, value), :array
     else
-        param, kind = make_callable_param(name, value), :callable
+        error("flat param $name: only numeric data is flattened, got " *
+              "$(typeof(value)) — keep functions as registered symbolics.")
     end
     push!(reg.entries, ParamEntry(param, reader, kind))
     reg.cache[key] = param
@@ -172,10 +164,9 @@ struct ParamGroup{Setter, Buf}
 end
 
 """Bundle of the per-kind sync groups (each may be `nothing`)."""
-struct ParamSync{S, A, C}
+struct ParamSync{S, A}
     scalar::S
     array::A
-    callable::C
 end
 
 """
@@ -221,9 +212,8 @@ function build_param_sync(sys, registry::ParamRegistry)
     end
     scalar = grp(by_kind(:scalar), Vector{SimFloat})
     array = grp(by_kind(:array), Vector{Any})
-    callable = grp(by_kind(:callable), Vector{Any})
-    (scalar === nothing && array === nothing && callable === nothing) && return nothing
-    return ParamSync(scalar, array, callable)
+    (scalar === nothing && array === nothing) && return nothing
+    return ParamSync(scalar, array)
 end
 
 """
@@ -237,7 +227,6 @@ sync_params!(::Nothing, target, sys_struct) = nothing
 function sync_params!(sync::ParamSync, target, sys_struct::SystemStructure)
     sync_group!(sync.scalar, target, sys_struct)
     sync_group!(sync.array, target, sys_struct)
-    sync_group!(sync.callable, target, sys_struct)
     return nothing
 end
 

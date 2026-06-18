@@ -6,7 +6,7 @@
 # the 6-DOF integration to the shared `rigid_body_eqs!`.
 
 """
-    body_eqs!(eqs, defaults, psys, rigid_bodies; kwargs...)
+    body_eqs!(eqs, defaults, psys, rigid_bodies, params; kwargs...)
 
 Generate the differential equations for each standalone `RigidBody`. Loads are
 the accumulated joint wrench (`body_force`/`body_moment`, filled by `joint_eqs!`)
@@ -15,7 +15,7 @@ live from the struct (`ext_force_w` world, `ext_moment_b` body). Isotropic
 angular damping is applied through the `d_ω_p` integration override.
 """
 function body_eqs!(
-    eqs, defaults, psys, rigid_bodies;
+    eqs, defaults, psys, rigid_bodies, params;
     body_force, body_moment,
     body_com_w, body_com_vel, body_com_acc, body_Q_p_to_w, body_ω_p, body_α_p,
     body_pos_w, body_vel_w, body_acc_w, body_ω_b, body_α_b, body_Q_b_to_w,
@@ -23,14 +23,14 @@ function body_eqs!(
 )
     for rigid_body in rigid_bodies
         idx = rigid_body.idx
-        mass = get_body_mass(psys, idx)
+        mass = params.rigid_bodies[idx].mass
 
-        gravity_w = Num[0, 0, -get_g_earth(psys) * mass]
+        gravity_w = Num[0, 0, -params.set.g_earth * mass]
         force_w = collect(body_force[:, idx]) .+
-            collect(get_body_ext_force_w(psys, idx)) .+ gravity_w
+            collect(params.rigid_bodies[idx].ext_force_w) .+ gravity_w
         moment_w = collect(body_moment[:, idx]) .+
             collect(body_R_b_to_w[:, :, idx]) *
-            collect(get_body_ext_moment_b(psys, idx))
+            collect(params.rigid_bodies[idx].ext_moment_b)
 
         # A fixed body freezes all DOF: zero every integrated derivative so the
         # state stays at its initial pose. Otherwise apply isotropic angular
@@ -40,17 +40,17 @@ function body_eqs!(
                          d_com_w=zeros(3), d_com_vel=zeros(3))
         else
             d_ω_p = body_α_p[:, idx] .-
-                get_body_angular_damping(psys, idx) * body_ω_p[:, idx]
+                params.rigid_bodies[idx].angular_damping * body_ω_p[:, idx]
             overrides = (; d_ω_p)
         end
 
         eqs, defaults = rigid_body_eqs!(
             eqs, defaults, idx;
             force_w, moment_w,
-            inertia_p=get_body_inertia_principal(psys, idx),
+            inertia_p=params.rigid_bodies[idx].inertia_principal,
             mass,
             R_b_to_p=get_body_R_b_to_p(psys, idx),
-            com_offset_b=get_body_com_offset_b(psys, idx),
+            com_offset_b=params.rigid_bodies[idx].com_offset_b,
             com_w=body_com_w, com_vel=body_com_vel,
             Q_p_to_w=body_Q_p_to_w, ω_p=body_ω_p,
             com_acc=body_com_acc, α_p=body_α_p, R_p_to_w=body_R_p_to_w,

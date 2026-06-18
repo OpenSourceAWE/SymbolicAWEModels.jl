@@ -4,7 +4,7 @@
 # Pulley dynamics equation generation
 
 """
-    pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys;
+    pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys, params;
                 spring_force, pulley_len, pulley_vel)
 
 Generate equations for pulley dynamics (rope distribution over pulleys).
@@ -20,7 +20,7 @@ Generate equations for pulley dynamics (rope distribution over pulleys).
 # Returns
 - Tuple `(eqs, defaults, guesses)` with updated equation vectors.
 """
-function pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys;
+function pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys, params;
                      spring_force, pulley_len, pulley_vel)
     @variables begin
         pulley_force(t)[eachindex(pulleys)]
@@ -31,8 +31,8 @@ function pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys;
     for pulley in pulleys
         segment = segments[pulley.segment_idxs[1]]
         mass_per_meter =
-            get_density(psys, segment.idx) * π * (get_diameter(psys, segment.idx) / 2)^2
-        mass = get_sum_len(psys, pulley.idx) * mass_per_meter
+            params.segments[segment.idx].density * π * (params.segments[segment.idx].diameter / 2)^2
+        mass = params.pulleys[pulley.idx].sum_len * mass_per_meter
         eqs = [
             eqs
             pulley_force[pulley.idx] ~

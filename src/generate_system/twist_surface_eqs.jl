@@ -45,7 +45,7 @@ function validate_twist_surface_modes(twist_surfaces, wings)
 end
 
 """
-    twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys;
+    twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys, params;
                R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
                point_force, tether_wing_moment, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos)
 
@@ -67,7 +67,7 @@ Generate equations for deformable wing twist_surface twist dynamics.
 # Returns
 - Tuple `(eqs, defaults, guesses)` with updated equation vectors.
 """
-function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys;
+function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys, params;
                     R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
                     point_force, tether_wing_moment, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos)
 
@@ -103,15 +103,15 @@ function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys;
         # Set twist_surface geometry from getters (allows runtime updates)
         eqs = [
             eqs
-            twist_surface_y_airf[:, twist_surface.idx] ~ get_twist_surface_y_airf(psys, twist_surface.idx)
-            twist_surface_chord[:, twist_surface.idx] ~ get_twist_surface_chord(psys, twist_surface.idx)
-            twist_surface_le_pos[:, twist_surface.idx] ~ get_twist_surface_le_pos(psys, twist_surface.idx)
+            twist_surface_y_airf[:, twist_surface.idx] ~ params.twist_surfaces[twist_surface.idx].y_airf
+            twist_surface_chord[:, twist_surface.idx] ~ params.twist_surfaces[twist_surface.idx].chord
+            twist_surface_le_pos[:, twist_surface.idx] ~ params.twist_surfaces[twist_surface.idx].le_pos
         ]
 
         if twist_surface.type == FIXED
             eqs = [
                 eqs
-                twist_angle[twist_surface.idx] ~ get_twist(psys, twist_surface.idx)
+                twist_angle[twist_surface.idx] ~ params.twist_surfaces[twist_surface.idx].twist
                 twist_ω[twist_surface.idx] ~ 0
                 twist_surface_tether_force[twist_surface.idx] ~ 0
                 twist_surface_tether_moment[twist_surface.idx] ~ 0
@@ -139,8 +139,8 @@ function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys;
             pf = collect(point_force[:, point_idx])
             rv = collect(r_vec[:, i, twist_surface.idx])
             pos_offset = collect(
-                get_pos_b(psys, point_idx) .-
-                (gl + get_moment_frac(psys, twist_surface.idx) * gc)
+                params.points[point_idx].pos_b .-
+                (gl + params.twist_surfaces[twist_surface.idx].moment_frac * gc)
             )
             eqs = [
                 eqs
@@ -155,7 +155,7 @@ function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys;
         # Inertia of a thin rectangular plate rotating around one edge
         # I = 1/3 × m × L² where m is total mass of twist_surface points
         twist_surface_chord = collect(twist_surface_chord)
-        twist_surface_mass = sum(get_extra_mass(psys, point_idx) for point_idx in twist_surface.point_idxs)
+        twist_surface_mass = sum(params.points[point_idx].extra_mass for point_idx in twist_surface.point_idxs)
         inertia = 1 / 3 * twist_surface_mass * smooth_norm(twist_surface_chord[:, twist_surface.idx])^2
         max_twist = deg2rad(90)
 
@@ -178,7 +178,7 @@ function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys;
                     fix_wing == true,
                     0,
                     twist_α[twist_surface.idx] -
-                    get_twist_surface_damping(psys, twist_surface.idx) * twist_ω[twist_surface.idx],
+                    params.twist_surfaces[twist_surface.idx].damping * twist_ω[twist_surface.idx],
                 )
             ]
             defaults = [

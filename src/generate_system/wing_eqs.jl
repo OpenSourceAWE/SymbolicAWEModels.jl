@@ -4,7 +4,7 @@
 # Wing rigid body dynamics equation generation
 
 """
-    wing_eqs!(s, eqs, psys, defaults; kwargs...)
+    wing_eqs!(s, eqs, psys, defaults, params; kwargs...)
 
 Generate the differential equations for the wing's
 rigid body dynamics.
@@ -21,7 +21,7 @@ For PARTICLE_DYNAMICS wings:
 - Principal frame variables set to zero/aliases
 """
 function wing_eqs!(
-    s, eqs, psys, defaults;
+    s, eqs, psys, defaults, params;
     tether_wing_force, tether_wing_moment,
     aero_force_b, aero_moment_b,
     ω_b, α_b, R_b_to_w, R_p_to_w,
@@ -150,7 +150,7 @@ function wing_eqs!(
         # acceleration, tether loads, mass.
         eqs = [
             eqs
-            fix_wing_sphere[idx] ~ get_fix_wing_sphere(psys, idx)
+            fix_wing_sphere[idx] ~ params.wings[idx].fix_sphere
 
             ω_p_stable[:, idx] ~ ifelse.(
                 fix_wing == true, zeros(3),
@@ -161,22 +161,22 @@ function wing_eqs!(
 
             α_p_damped[:, idx] ~ [
                 α_p[1, idx] -
-                    get_angular_damping(psys, idx) * ω_p[1, idx],
+                    params.wings[idx].angular_damping * ω_p[1, idx],
                 α_p[2, idx] -
-                    (get_y_damping(psys, idx) +
-                     get_angular_damping(psys, idx)) * ω_p[2, idx],
-                α_p[3, idx] + get_z_disturb(psys, idx) -
-                    get_angular_damping(psys, idx) * ω_p[3, idx],
+                    (params.wings[idx].y_damping +
+                     params.wings[idx].angular_damping) * ω_p[2, idx],
+                α_p[3, idx] + params.wings[idx].z_disturb -
+                    params.wings[idx].angular_damping * ω_p[3, idx],
             ]
 
             moment_tether_wing[:, idx] ~ tether_wing_moment[:, idx]
             force_tether_wing[:, idx] ~ tether_wing_force[:, idx]
-            wing_mass[idx] ~ get_wing_mass(psys, idx)
+            wing_mass[idx] ~ params.wings[idx].mass
         ]
 
         # Total force/moment at/about COM (world frame).
         # Aero moment transported body origin → COM.
-        com_off_b = collect(get_com_offset_b(psys, idx))
+        com_off_b = collect(params.wings[idx].com_offset_b)
         aero_moment_com_b = aero_moment_b[:, idx] .+
             (aero_force_b[:, idx] × com_off_b)
         moment_w = collect(R_b_to_w[:, :, idx]) * aero_moment_com_b .+
@@ -206,9 +206,9 @@ function wing_eqs!(
         eqs, defaults = rigid_body_eqs!(
             eqs, defaults, idx;
             force_w, moment_w,
-            inertia_p=get_inertia_principal(psys, idx),
+            inertia_p=params.wings[idx].inertia_principal,
             mass=wing_mass[idx],
-            R_b_to_p=get_R_b_to_p(psys, idx),
+            R_b_to_p=params.wings[idx].R_b_to_p,
             com_offset_b=com_off_b,
             com_w, com_vel, Q_p_to_w, ω_p,
             com_acc, α_p, R_p_to_w, moment_p, Q_p_vel,

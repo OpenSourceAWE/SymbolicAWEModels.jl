@@ -6,17 +6,20 @@
 # in body A's frame into axial/shear/torsion/bending with optional damping.
 
 """
-    joint_stiffness_term(joint, params, kind, Δ)
+    joint_stiffness_term(joint, params, psys, kind, Δ)
 
-Restoring force/moment for one joint DOF, built without `@register_symbolic`:
-a `Real` stiffness uses a numeric flat parameter (`k·Δ`); an interpolation uses a
-callable flat parameter (`k(Δ)`). `kind`: 1=axial, 2=shear, 3=torsion, 4=bending.
+Restoring force/moment for one joint DOF. A `Real` stiffness uses a numeric flat
+parameter (`k·Δ`, data); an interpolation stays a registered symbolic call
+(`get_joint_force`, a genuine function of `Δ`). `kind`: 1=axial, 2=shear,
+3=torsion, 4=bending.
 """
-function joint_stiffness_term(joint, params, kind::Int, Δ)
+function joint_stiffness_term(joint, params, psys, kind::Int, Δ)
     field = (:stiffness_axial, :stiffness_shear,
              :stiffness_torsion, :stiffness_bending)[kind]
-    k = getproperty(params.elastic_joints[joint.idx], field)
-    return getfield(joint, field) isa Real ? k * Δ : k(Δ)
+    if getfield(joint, field) isa Real
+        return getproperty(params.elastic_joints[joint.idx], field) * Δ
+    end
+    return get_joint_force(psys, joint.idx, kind, Δ)
 end
 
 """
@@ -44,8 +47,8 @@ function joint_eqs!(
         b = joint.body_b_idx
         R_a = collect(body_R_b_to_w[:, :, a])
         R_b = collect(body_R_b_to_w[:, :, b])
-        anchor_a = collect(get_joint_anchor_a(psys, j))
-        anchor_b = collect(get_joint_anchor_b(psys, j))
+        anchor_a = collect(params.elastic_joints[j].anchor_a_b)
+        anchor_b = collect(params.elastic_joints[j].anchor_b_b)
         pos_a = collect(body_pos_w[:, a])
         pos_b = collect(body_pos_w[:, b])
         com_a = collect(body_com_w[:, a])
@@ -85,14 +88,14 @@ function joint_eqs!(
         # `joint_stiffness_term` (kind 1=axial, 2=shear, 3=torsion, 4=bending).
         # Built element-wise: symbolic-array broadcasting is fragile.
         force_a = [
-            -joint_stiffness_term(joint, params, 1, Δr_a[1]) - damp_trans * Δv_a[1],
-            -joint_stiffness_term(joint, params, 2, Δr_a[2]) - damp_trans * Δv_a[2],
-            -joint_stiffness_term(joint, params, 2, Δr_a[3]) - damp_trans * Δv_a[3],
+            -joint_stiffness_term(joint, params, psys, 1, Δr_a[1]) - damp_trans * Δv_a[1],
+            -joint_stiffness_term(joint, params, psys, 2, Δr_a[2]) - damp_trans * Δv_a[2],
+            -joint_stiffness_term(joint, params, psys, 2, Δr_a[3]) - damp_trans * Δv_a[3],
         ]
         torque_a = [
-            -joint_stiffness_term(joint, params, 3, Δθ_a[1]) - damp_rot * Δω_a[1],
-            -joint_stiffness_term(joint, params, 4, Δθ_a[2]) - damp_rot * Δω_a[2],
-            -joint_stiffness_term(joint, params, 4, Δθ_a[3]) - damp_rot * Δω_a[3],
+            -joint_stiffness_term(joint, params, psys, 3, Δθ_a[1]) - damp_rot * Δω_a[1],
+            -joint_stiffness_term(joint, params, psys, 4, Δθ_a[2]) - damp_rot * Δω_a[2],
+            -joint_stiffness_term(joint, params, psys, 4, Δθ_a[3]) - damp_rot * Δω_a[3],
         ]
 
         eqs = [

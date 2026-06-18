@@ -277,7 +277,6 @@ SymbolicAWEModels.ParamEntry
 SymbolicAWEModels.ParamRegistry
 SymbolicAWEModels.make_param
 SymbolicAWEModels.make_array_param
-SymbolicAWEModels.make_callable_param
 SymbolicAWEModels.leaf_param!
 SymbolicAWEModels.param_computed!
 SymbolicAWEModels.param_descend

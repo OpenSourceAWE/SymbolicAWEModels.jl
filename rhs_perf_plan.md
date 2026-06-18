@@ -188,6 +188,40 @@ Goal (Bart): zero `@register_symbolic`. Two tiers:
 - **Atmosphere** (`calc_rho`/`calc_wind_factor`): top-level callable params,
   arithmetic (~0%), cleanliness.
 
+## Flatten-all phase (data → params, functions → register)
+
+Decision refined (Bart): **a callable param wrapping a function is no improvement
+over `@register_symbolic`** — keep functions registered, flatten only *data*.
+Reverted the callable-param mechanism (atmosphere `calc_wind_factor`, joint
+interpolation stay registered; `rotation_matrix_to_quaternion` stays the inlined
+*symbolic* version — that one's a real win, not a callable param).
+
+Converted the remaining **data** getters to flat params (points, segments, wings,
+twist surfaces, pulleys, rigid bodies, settings, winch top-level): **RHS 1.375 →
+1.197 µs (now 3.17× over baseline), 0 allocations; full suite 1739/1739.**
+
+Still registered, by design: IC getters (defaults/guesses — see rule below),
+genuine functions (`calc_wind_factor`, joint interpolation, polars), `psys` anchor
+(`get_body_R_b_to_p` for point-less models), winch-component getters (custom
+interface), and the aero-mode subsystem data getters (direct overrides,
+continuous `v_ind`, plate data) — not yet converted.
+
+Two hard rules learned (each cost a rebuild):
+- **Equations → flat params; defaults/guesses → keep registered getters.** A flat
+  param referenced *only* in a default/guess (initial conditions: `pos_w`/`vel_w`
+  of dynamic points, `com_w_0`/`Q_p_to_w_0`, `twist` of dynamic surfaces,
+  `set_value`, `tether_len`, `pulley_len/vel`, `winch_vel`) is **pruned** by
+  `mtkcompile`, then the default references a missing param → build error. ICs
+  aren't in the RHS anyway, so registered getters there cost nothing.
+- **`psys` must stay anchored in an equation.** When every equation-level getter
+  in a model is flattened, `psys` becomes orphaned (only in IC defaults) →
+  `mtkcompile`: "psys is present but not an unknown". Point models keep it alive
+  via `calc_wind_factor(…, psys)`; rigid-body/joint/beam models (no points) need
+  `get_body_R_b_to_p` left registered to re-anchor it.
+- **Custom winch components can't take a `params` kwarg** (user-defined
+  `winch.model`), so the default winch component's getters stay registered (1
+  winch, negligible) rather than break the extension interface.
+
 ## Core idea
 
 Every `@register_symbolic get_field(psys, idx)` call site already encodes the

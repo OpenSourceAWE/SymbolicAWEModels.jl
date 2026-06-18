@@ -4,7 +4,7 @@
 # Scalar kinematic equation generation
 
 """
-    scalar_eqs!(s, eqs, psys; kwargs...)
+    scalar_eqs!(s, eqs, psys, params; kwargs...)
 
 Generate equations for derived scalar kinematic quantities useful for control and
 analysis.
@@ -21,7 +21,7 @@ derivatives, as well as apparent wind calculations.
 - `eqs`: The updated list of system equations.
 """
 function scalar_eqs!(
-    s, eqs, psys;
+    s, eqs, psys, params;
     R_b_to_w, wind_vec_gnd, va_wing_b, wing_pos,
     wing_vel, wing_acc, twist_angle, ω_b, α_b,
     R_v_to_w, pos
@@ -38,7 +38,7 @@ function scalar_eqs!(
     end
     eqs = [
         eqs
-        wind_vec_gnd ~ get_wind_vec(psys)
+        wind_vec_gnd ~ param_computed!(params.reg, :wind_vec, get_wind_vec)
     ]
     for wing in wings
         eqs = [
@@ -49,7 +49,7 @@ function scalar_eqs!(
             wind_vel_wing[:, wing.idx] ~
                 calc_wind_factor(s.am, wing_pos[1, wing.idx], wing_pos[2, wing.idx],
                                  wing_pos[3, wing.idx], psys) * wind_vec_gnd
-            wind_disturb[:, wing.idx] ~ get_wind_disturb(psys, wing.idx)
+            wind_disturb[:, wing.idx] ~ params.wings[wing.idx].wind_disturb
             va_wing[:, wing.idx] ~
                 wind_vel_wing[:, wing.idx] - wing_vel[:, wing.idx] +
                 wind_disturb[:, wing.idx]

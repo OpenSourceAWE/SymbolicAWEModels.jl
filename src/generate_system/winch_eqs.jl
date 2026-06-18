@@ -138,7 +138,7 @@ end
 
 """
     winch_eqs!(eqs, defaults, winches, tethers, segments, points,
-               sys_struct, psys;
+               sys_struct, psys, params;
                spring_force_vec, set_values, tether_len,
                winch_vel, winch_acc, winch_force_vec, winch_friction)
 
@@ -163,7 +163,7 @@ For each tether:
 - Without winch: `D(tether_len) = 0`.
 """
 function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
-                    sys_struct, psys;
+                    sys_struct, psys, params;
                     spring_force_vec, set_values, tether_len,
                     winch_vel, winch_acc, winch_force_vec, winch_force,
                     winch_friction)
@@ -183,7 +183,7 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
             winch_idx = tether_winch[tether.idx]
             eqs = [eqs
                    D(tether_len[tether.idx]) ~
-                       ifelse(get_brake(psys, winch_idx) > 0.5,
+                       ifelse(params.winches[winch_idx].brake > 0.5,
                               0, winch_vel[winch_idx])]
         else
             eqs = [eqs; D(tether_len[tether.idx]) ~ 0]
@@ -221,7 +221,7 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
         validate_winch_component(subsys, winch)
         push!(winch_subsystems, subsys)
 
-        brake_p = get_brake(psys, winch.idx)
+        brake_p = params.winches[winch.idx].brake
         eqs = [eqs
                winch_force_vec[:, winch.idx] ~ force_vec
                winch_force[winch.idx] ~
@@ -234,7 +234,7 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
                subsys.set_value ~ set_values[winch.idx]
                subsys.brake     ~ brake_p
                winch_acc[winch.idx]      ~
-                   ifelse(get_speed_controlled(psys, winch.idx) == true,
+                   ifelse(params.winches[winch.idx].speed_controlled == true,
                           0.0, subsys.acc)
                winch_friction[winch.idx] ~ subsys.friction
                D(winch_vel[winch.idx]) ~
