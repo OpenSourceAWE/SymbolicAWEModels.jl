@@ -222,6 +222,28 @@ Two hard rules learned (each cost a rebuild):
   `winch.model`), so the default winch component's getters stay registered (1
   winch, negligible) rather than break the extension interface.
 
+## Status: data flattening COMPLETE (1739/1739, 3.17×)
+
+Every equation-level data getter is now a flat MTK param — top-level *and*
+aero-mode subsystems (direct overrides, continuous `v_ind`, plate geometry). RHS
+**3.79 → 1.197 µs (3.17×), 0 allocations; full suite 1739/1739** (validated after
+each phase). Three commits on `rhs-perf`: `01b8c1c5` (Wing/engine concrete-typing),
+`dc1fb82a` (top-level data), `e7e6c769` (aero-mode subsystems).
+
+`@register_symbolic` deliberately retained (not removable as flat params):
+- **Functions of state:** `calc_wind_factor`, joint interpolation `get_joint_force`,
+  polars `get_plate_cl/cd`, `get_continuous_cl/cd/cm`.
+- **Initial-condition reads** (defaults/guesses — pruned if flattened): `get_pos_w`,
+  `get_vel_w`, `get_com_w/com_vel/Q_p_to_w` (+ body variants), `get_pulley_len/vel`,
+  `get_winch_vel`, `get_set_value`, `get_tether_len`, `get_twist`.
+- **`psys` anchor:** `get_body_R_b_to_p` (point-less models).
+- **Winch component:** `get_winch_*` (custom `winch.model` interface).
+
+**Remaining (cosmetic, not done):** the ~50 now-*unused* getter defs + their
+`@register_symbolic` lines are dead code (no equation or default references them).
+Deleting them + updating `test_bench.jl`'s warmup list is pure cleanup with zero
+runtime effect — left as a careful follow-up to avoid risking the green build.
+
 ## Core idea
 
 Every `@register_symbolic get_field(psys, idx)` call site already encodes the
