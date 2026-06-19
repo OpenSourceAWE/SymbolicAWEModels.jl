@@ -9,7 +9,7 @@
 Check that each twist_surface's twist mode is coherent with its owning wing's dynamics
 and its point count. Errors loudly on an inconsistent combination:
 
-- `DYNAMIC`/`QUASI_STATIC` twist is an added rigid-body deformation DOF and needs
+- `DYNAMIC` twist is an added rigid-body deformation DOF and needs
   a bridle couple, so it requires a `RIGID_DYNAMICS` wing and ≥2 points.
 - A 1-point twist_surface has no bridle couple to oppose a twist moment, so its only
   coherent twist is prescribed → must be `FIXED`.
@@ -24,7 +24,7 @@ function validate_twist_surface_modes(twist_surfaces, wings)
         wing = owners[1]
         rigid = wing.dynamics_type == RIGID_DYNAMICS
         npoints = length(twist_surface.point_idxs)
-        if twist_surface.type in (DYNAMIC, QUASI_STATIC)
+        if twist_surface.type == DYNAMIC
             rigid || error(
                 "TwistSurface $(twist_surface.name): $(twist_surface.type) twist requires a " *
                 "RIGID_DYNAMICS wing (differential/algebraic twist is a rigid " *
@@ -187,13 +187,6 @@ function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys,
                               free_twist_angle[twist_surface.idx])
                 bind_initial!(initial.twist_surfaces[twist_surface.idx].twist_ω,
                               twist_ω[twist_surface.idx])
-            ]
-        elseif twist_surface.type == QUASI_STATIC
-            eqs = [eqs; twist_ω[twist_surface.idx] ~ 0; twist_α[twist_surface.idx] ~ 0]
-            guesses = [
-                guesses
-                free_twist_angle[twist_surface.idx] => 0
-                twist_angle[twist_surface.idx] => 0
             ]
         else
             error("Wrong twist_surface type.")

@@ -74,7 +74,7 @@ export AbstractWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
 export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints
 # Enums
-export DynamicsType, DYNAMIC, QUASI_STATIC, WING, STATIC, FIXED
+export DynamicsType, DYNAMIC, WING, STATIC, FIXED
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
 export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate,

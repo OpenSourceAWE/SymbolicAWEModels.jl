@@ -152,7 +152,7 @@ points:
 |-------|------|---------|-------------|
 | `idx` | Int | required | Point identifier |
 | `pos_cad` | [x,y,z] | required | Position in CAD frame [m] |
-| `type` | String | required | `STATIC`, `DYNAMIC`, `QUASI_STATIC`, or `WING` |
+| `type` | String | required | `STATIC`, `DYNAMIC`, or `WING` |
 | `wing_idx` | Int/nothing | 1 | Wing this point belongs to |
 | `transform_idx` | Int/nothing | nothing | Transform for initial positioning |
 | `extra_mass` | Float | 0.0 | Additional mass [kg] |

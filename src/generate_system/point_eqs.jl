@@ -14,7 +14,7 @@
                aero_force_point_b,
                twist_surface_y_airf, tether_wing_force, tether_wing_moment)
 
-Generate equations for all point types (STATIC, DYNAMIC, QUASI_STATIC, WING).
+Generate equations for all point types (STATIC, DYNAMIC, WING).
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
@@ -330,33 +330,6 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, twist_surfaces,
                 defaults
                 bind_initial!(initial.points[point.idx].pos_w, collect(pos[:, point.idx]))
                 bind_initial!(initial.points[point.idx].vel_w, collect(vel[:, point.idx]))
-            ]
-        elseif point.type == QUASI_STATIC
-            # Define point_force for QUASI_STATIC points
-            eqs = [
-                eqs
-                point_force[:, point.idx] ~
-                    spring_sum_force[:, point.idx] + Num[0, 0, -params.set.g_earth * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
-                fix_static[point.idx] ~ params.points[point.idx].fix_static
-                vel[:, point.idx] ~ zeros(3)
-                acc[:, point.idx] ~ zeros(3)
-                # When fix_static=true: position is fixed at get_pos_w
-                # When fix_static=false: force must balance to zero
-                ifelse.(
-                    fix_static[point.idx] == true,
-                    pos[:, point.idx],
-                    point_force[:, point.idx]
-                ) ~ ifelse.(
-                    fix_static[point.idx] == true,
-                    params.points[point.idx].pos_w,
-                    zeros(3)
-                )
-            ]
-            guesses = [
-                guesses
-                [acc[j, point.idx] => 0 for j = 1:3]
-                [pos[j, point.idx] => get_pos_w(psys, point.idx)[j] for j = 1:3]
-                [point_force[j, point.idx] => 0 for j = 1:3]
             ]
         else
             error("Unknown point type: $(typeof(point))")

@@ -715,7 +715,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
         "mixed_aero_modes"
     end
 
-    dynamics_type = ifelse(set.quasi_static, "static", "dynamic")
+    dynamics_type = "dynamic"
 
     # Count components
     n_points = length(sys_struct.points)

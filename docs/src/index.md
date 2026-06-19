@@ -93,7 +93,7 @@ For YAML-based model definition, see [Building a System using YAML](tutorial_yam
 
 SymbolicAWEModels provides building blocks for flexible mechanical systems:
 
-- [`Point`](@ref) **masses** — static, dynamic, or quasi-static nodes
+- [`Point`](@ref) **masses** — static, dynamic, or wing-fixed nodes
 - [`Segment`](@ref) **spring-dampers** — with per-unit-length stiffness, damping, and drag
 - [`Tether`](@ref)s — collections of segments controlled by a winch
 - [`Winch`](@ref)es — torque-controlled motors with Coulomb and viscous friction

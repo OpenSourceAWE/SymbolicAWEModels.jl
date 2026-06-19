@@ -98,13 +98,6 @@ function aero_eqs!(
                        subsys.twist_moment[twist_surface_pos]]
         end
 
-        if s.set.quasi_static && hasproperty(subsys, :aero_input)
-            num_aero_inputs = length(wing.aero_y)
-            guesses = [guesses
-                       [subsys.aero_input[input_idx] =>
-                            params.wings[wing_idx].aero_y[input_idx]
-                        for input_idx in 1:num_aero_inputs]]
-        end
     end
     return eqs, guesses, aero_subsystems
 end

@@ -194,60 +194,6 @@ rigid_body_frames(sys) = [(body.pos_w,
     for body in sys.rigid_bodies]
 
 """
-    cylinders_mesh(pair_points, radius, resolution) -> GeometryBasics.Mesh
-
-One merged triangle mesh of thin cylinders, one per consecutive endpoint pair in
-`pair_points` (the `linesegments!` layout: [p1,p2, p3,p4, …]). `resolution` is the
-number of facets around each cylinder. Zero-length pairs are skipped.
-"""
-function cylinders_mesh(pair_points, radius, resolution)
-    verts = Point3f[]
-    faces = GLTriangleFace[]
-    res = max(3, resolution)
-    r = Float32(radius)
-    for s in 1:(length(pair_points) ÷ 2)
-        p1 = Point3f(pair_points[2s - 1])
-        p2 = Point3f(pair_points[2s])
-        axis = p2 - p1
-        len = norm(axis)
-        len < 1f-9 && continue
-        zhat = axis / len
-        ref = abs(zhat[1]) < 0.9f0 ? Vec3f(1, 0, 0) : Vec3f(0, 1, 0)
-        xhat = normalize(cross(zhat, ref))
-        yhat = cross(zhat, xhat)
-        base = length(verts)
-        for i in 0:(res - 1)
-            θ = 2f0 * Float32(π) * i / res
-            off = r * (cos(θ) * xhat + sin(θ) * yhat)
-            push!(verts, p1 + off)
-            push!(verts, p2 + off)
-        end
-        for i in 0:(res - 1)
-            a = base + 2i + 1
-            b = base + 2i + 2
-            j = (i + 1) % res
-            c = base + 2j + 1
-            d = base + 2j + 2
-            push!(faces, GLTriangleFace(a, b, d))
-            push!(faces, GLTriangleFace(a, d, c))
-        end
-    end
-    isempty(verts) && push!(verts, Point3f(NaN))  # mesh! needs ≥1 vertex
-    return GeometryBasics.Mesh(verts, faces)
-end
-
-"""Per-vertex colors for `cylinders_mesh`: repeat each segment's color over its
-`2·resolution` ring vertices (assumes no zero-length segments)."""
-function cylinder_vertex_colors(seg_colors, resolution)
-    res = max(3, resolution)
-    colors = similar(seg_colors, 0)
-    for c in seg_colors, _ in 1:(2 * res)
-        push!(colors, c)
-    end
-    return colors
-end
-
-"""
     body_joint_spokes(sys) -> Vector{Point3f}
 
 Flat list of segment endpoints (consecutive pairs, for `linesegments!`): for each
@@ -269,6 +215,21 @@ function body_joint_spokes(sys)
               Point3f(body_b.pos_w .+ R_b * joint.anchor_b_b))
     end
     return points
+end
+
+"""
+    spoke_body_indices(sys) -> Vector{Int}
+
+Body index owning each spoke, in the same order as `body_joint_spokes` emits them
+(per joint: body_a's spoke then body_b's). Used to highlight a hovered body's
+spokes.
+"""
+function spoke_body_indices(sys)
+    idxs = Int[]
+    for joint in sys.elastic_joints
+        push!(idxs, joint.body_a_idx, joint.body_b_idx)
+    end
+    return idxs
 end
 
 """
@@ -305,27 +266,16 @@ function Makie.plot!(ax, sys::SystemStructure;
                      extra_points = nothing,
                      extra_groups = nothing,
                      mesh = nothing,
-                     # Segments and rigid-body spokes render as thin cylinders;
-                     # `facets` is the facet count (also used for the
-                     # orientation arrows), `cylinder_radius` overrides the
-                     # auto thin radius derived from the scene scale.
+                     # `facets` sets the orientation-arrow quality; `linewidth`
+                     # sizes the segment/rigid-body lines and `point_size` the
+                     # point-node markers.
                      facets::Int = 8,
-                     cylinder_radius = nothing,
+                     linewidth = 2,
+                     point_size = 9,
                      # Optional observable for real-time updates
                      geometry_obs = nothing)
 
     plots = Dict{Symbol, Any}()
-
-    # Thin-cylinder radius from the scene's characteristic length.
-    char_positions = vcat([Point3f(p.pos_w) for p in sys.points],
-                          [Point3f(b.pos_w) for b in sys.rigid_bodies])
-    char_len = if isempty(char_positions)
-        20.0f0
-    else
-        spans = (extrema(getindex.(char_positions, d)) for d in 1:3)
-        max(maximum(hi - lo for (lo, hi) in spans), 1.0f0)
-    end
-    cyl_radius = isnothing(cylinder_radius) ? char_len * 0.004f0 : Float32(cylinder_radius)
 
     # === Plot Segments ===
     if show_segments && !isempty(sys.segments)
@@ -363,12 +313,9 @@ function Makie.plot!(ax, sys::SystemStructure;
             seg_colors = Observable(fill(to_color(segment_color), num_segments))
         end
 
-        seg_mesh = isnothing(geometry_obs) ?
-            cylinders_mesh(lineseg_points, cyl_radius, facets) :
-            @lift(cylinders_mesh($lineseg_points, cyl_radius, facets))
-        seg_vertex_colors = @lift(cylinder_vertex_colors($seg_colors, facets))
-        plots[:segments] = mesh!(ax, seg_mesh; color=seg_vertex_colors,
-                                 label="Segments")
+        plots[:segments] = linesegments!(ax, lineseg_points; color=seg_colors,
+                                         linewidth, transparency=true,
+                                         label="Segments")
         plots[:segment_colors_obs] = seg_colors
     end
 
@@ -384,7 +331,8 @@ function Makie.plot!(ax, sys::SystemStructure;
                 [Point3f(p.pos_w) for p in PLOT_SYSTEM_STRUCTURE[].points]
             end
         end
-        plots[:points] = scatter!(ax, point_positions, color=point_color, label="Points",
+        plots[:points] = scatter!(ax, point_positions, color=point_color,
+                                  markersize=point_size, label="Points",
                                   transparency=true)
     end
 
@@ -392,7 +340,6 @@ function Makie.plot!(ax, sys::SystemStructure;
     if !isempty(sys.rigid_bodies)
         # Grey spokes from each body origin to its joint anchors: show the rigid
         # extent and the true joint connectivity (works for chains, stars, Ys).
-        # Only when joints exist — an empty mesh can't be rendered.
         if !isempty(sys.elastic_joints)
             if isnothing(geometry_obs)
                 spoke_points = body_joint_spokes(sys)
@@ -402,11 +349,11 @@ function Makie.plot!(ax, sys::SystemStructure;
                     body_joint_spokes(PLOT_SYSTEM_STRUCTURE[])
                 end
             end
-            spoke_mesh = isnothing(geometry_obs) ?
-                cylinders_mesh(spoke_points, cyl_radius, facets) :
-                @lift(cylinders_mesh($spoke_points, cyl_radius, facets))
-            plots[:body_chain] = mesh!(ax, spoke_mesh; color=RGBf(0.32, 0.32, 0.32),
-                                       label="Rigid bodies")
+            spoke_colors = Observable(fill(to_color(RGBf(0.32, 0.32, 0.32)),
+                                           length(spoke_body_indices(sys))))
+            plots[:body_chain] = linesegments!(ax, spoke_points; color=spoke_colors,
+                                               linewidth, label="Rigid bodies")
+            plots[:body_chain_colors_obs] = spoke_colors
         end
 
         # RGB body-frame axes per body, from the orientation quaternion.
@@ -2195,17 +2142,21 @@ hover_ref_label(name, idx) = isnothing(name) ? string(idx) : string(name)
 
 """
     setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
-                                 segment_plots::Vector, all_plots;
+                                 segment_color_obs::Vector, all_plots;
                                  segment_colors, highlight_color=:yellow,
                                  force_color=false, relmargin=0.2)
 
 Add hover labels and click-to-zoom for segments across multiple systems.
 
+`segment_color_obs[i]` is system `i`'s per-segment color observable (the one
+driving the `linesegments!` colors); the highlight is applied by writing to it.
+Segment endpoints are read from the live `SystemStructure`, not the plot.
+
 For multi-system, labels show "sys_idx:seg_ref" and "sys_idx:pt_ref" format.
 For single system, labels show just "seg_ref" and "pt_ref".
 """
 function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
-                                      segment_plots::Vector, all_plots;
+                                      segment_color_obs::Vector, all_plots;
                                       segment_colors::Vector,
                                       highlight_color=:yellow,
                                       force_color=false,
@@ -2243,13 +2194,11 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
         mouse_pos_2d = Point2f(mp)
         margin_px = 30.0
 
-        for (sys_i, (sys, seg_plot)) in enumerate(zip(systems, segment_plots))
-            seg_points_3d = seg_plot[1][]
+        for (sys_i, sys) in enumerate(systems)
             for seg_i in eachindex(sys.segments)
-                p1_3d = seg_points_3d[2*seg_i - 1]
-                p2_3d = seg_points_3d[2*seg_i]
-                p1_2d = Makie.project(scene, p1_3d)
-                p2_2d = Makie.project(scene, p2_3d)
+                seg = sys.segments[seg_i]
+                p1_2d = Makie.project(scene, Point3f(sys.points[seg.point_idxs[1]].pos_w))
+                p2_2d = Makie.project(scene, Point3f(sys.points[seg.point_idxs[2]].pos_w))
                 dist = point_line_segment_distance(mouse_pos_2d, p1_2d, p2_2d)
                 if dist < min_dist
                     min_dist = dist
@@ -2260,8 +2209,8 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
 
         hover = (min_dist < margin_px) ? closest : (-1, -1)
         if hover != last_hovered[]
-            # Reset all segment colors
-            for (sys_i, (sys, seg_plot)) in enumerate(zip(systems, segment_plots))
+            # Reset all segment colors (per-segment obs drives the mesh vertices)
+            for (sys_i, sys) in enumerate(systems)
                 base_color = segment_colors[sys_i]
                 if force_color
                     new_colors = calculate_segment_force_colors(sys.segments, base_color)
@@ -2271,7 +2220,7 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                 if hover[1] == sys_i && hover[2] != -1
                     new_colors[hover[2]] = to_color(highlight_color)
                 end
-                seg_plot.color[] = new_colors
+                segment_color_obs[sys_i][] = new_colors
             end
 
             if hover != (-1, -1)
@@ -2393,18 +2342,24 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
 end
 
 """
-    setup_body_zoom_events!(scene, sys; relmargin=0.2)
+    setup_body_zoom_events!(scene, sys; relmargin=0.2,
+                            spoke_colors_obs=nothing, highlight_color=:red)
 
 Hover labels and click-to-zoom for standalone rigid bodies, picking on the grey
-joint spokes (origin→anchor segments). Hovering a body shows its name; clicking
-zooms in and tracks it (`PLOT_ZOOM_BODY_IDX`, followed each frame by
-`apply_zoom_mode!`); clicking empty space restores the prior view. No-op when the
-system has no rigid bodies. Mirrors `setup_segment_hover_events!`; the two don't
-clash because segment-less models (e.g. a beam) never install the segment one.
+joint spokes (origin→anchor segments). Hovering a body shows its name and, when
+`spoke_colors_obs` (the per-spoke color observable of `plots[:body_chain]`) is
+given, recolors that body's spokes to `highlight_color`. Clicking zooms in and
+tracks it (`PLOT_ZOOM_BODY_IDX`, followed each frame by `apply_zoom_mode!`);
+clicking empty space restores the prior view. No-op when the system has no rigid
+bodies. Mirrors `setup_segment_hover_events!`; the two don't clash because
+segment-less models (e.g. a beam) never install the segment one.
 """
-function setup_body_zoom_events!(scene, sys; relmargin=0.2)
+function setup_body_zoom_events!(scene, sys; relmargin=0.2,
+                                 spoke_colors_obs=nothing, highlight_color=:red)
     isempty(sys.rigid_bodies) && return nothing
     last_body = Ref(-1)
+    base_spoke_color = to_color(RGBf(0.32, 0.32, 0.32))
+    spoke_owner = spoke_body_indices(sys)
 
     body_label = Observable("")
     body_label_pos = Observable(Point2f(0, 0))
@@ -2443,6 +2398,10 @@ function setup_body_zoom_events!(scene, sys; relmargin=0.2)
         end
         hovered = best_dist < margin_px ? best : -1
         if hovered != last_body[]
+            if !isnothing(spoke_colors_obs)
+                spoke_colors_obs[] = [owner == hovered ? to_color(highlight_color) :
+                                      base_spoke_color for owner in spoke_owner]
+            end
             if hovered != -1
                 body = sys.rigid_bodies[hovered]
                 body_label[] = hover_ref_label(body.name, hovered)
@@ -2532,12 +2491,13 @@ function plot_with_panes(sys::SystemStructure;
 
     # --- Event Handling for Segments (using extracted reusable function) ---
     if haskey(plots, :segments)
-        setup_segment_hover_events!(scene, [sys], [plots[:segments]], relevant_plots;
+        setup_segment_hover_events!(scene, [sys], [plots[:segment_colors_obs]], relevant_plots;
                                     segment_colors=[segment_color],
                                     highlight_color, force_color, relmargin)
     end
-    # Hover labels + click-to-zoom for standalone rigid bodies (via spokes).
-    setup_body_zoom_events!(scene, sys; relmargin)
+    # Hover labels + highlight + click-to-zoom for standalone rigid bodies.
+    setup_body_zoom_events!(scene, sys; relmargin, highlight_color,
+                            spoke_colors_obs=get(plots, :body_chain_colors_obs, nothing))
 
     # Set initial camera position
     cam = scene.camera
@@ -2694,8 +2654,8 @@ function Makie.plot(syss::Vector{<:SystemStructure};
 
     PLOT_MULTI_SYSTEMS[] = syss
     all_plots = AbstractPlot[]
-    segment_plots = AbstractPlot[]  # Track segment plots for hover
-    segment_colors_list = Any[]     # Track colors for hover reset
+    segment_color_obs = Observable[]  # Per-segment color obs per system, for hover
+    segment_colors_list = Any[]       # Track base colors for hover reset
 
     if use_observables
         # Create trigger observables for each system
@@ -2707,14 +2667,14 @@ function Makie.plot(syss::Vector{<:SystemStructure};
             push!(segment_colors_list, color)
             obs = build_geometry_observables(sys, triggers[i])
 
-            # Plot with observable data (use vector color to match
-            # setup_segment_hover_events! which assigns Vector{RGBA})
-            seg_colors = fill(to_color(color), length(sys.segments))
+            # Observable per-segment colors so the hover handler can highlight
+            # (setup_segment_hover_events! writes Vector{RGBA} into this obs).
+            seg_colors = Observable(fill(to_color(color), length(sys.segments)))
             seg_plot = linesegments!(scene, obs[:segment_points];
                                      color=seg_colors, linewidth=2,
                                      transparency=true)
             push!(all_plots, seg_plot)
-            push!(segment_plots, seg_plot)
+            push!(segment_color_obs, seg_colors)
 
             pt_plot = scatter!(scene, obs[:point_positions];
                               color=color, transparency=true)
@@ -2741,15 +2701,17 @@ function Makie.plot(syss::Vector{<:SystemStructure};
                           kwargs...)
             if haskey(plots, :segments)
                 push!(all_plots, plots[:segments])
-                push!(segment_plots, plots[:segments])
             end
+            # One obs per system (aligned with `systems`); empty for segment-less.
+            push!(segment_color_obs, get(plots, :segment_colors_obs,
+                                         Observable(RGBAf[])))
             haskey(plots, :points) && push!(all_plots, plots[:points])
         end
     end
 
     # Add hover/click events for segments
-    if !isempty(segment_plots)
-        setup_segment_hover_events!(scene, syss, segment_plots, all_plots;
+    if !isempty(segment_color_obs)
+        setup_segment_hover_events!(scene, syss, segment_color_obs, all_plots;
                                     segment_colors=segment_colors_list,
                                     highlight_color, force_color, relmargin)
     end

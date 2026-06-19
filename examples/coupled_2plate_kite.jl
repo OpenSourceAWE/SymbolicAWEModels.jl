@@ -41,7 +41,7 @@ sys.winches[:main_winch].brake = true
 sam = SymbolicAWEModel(set, sys)
 l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
 l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
-init!(sam; remake=false, remake_vsm=false)
+init!(sam; remake=true, remake_vsm=false)
 find_steady_state!(sam; dt=1/300)
 
 dt = 1 / 300

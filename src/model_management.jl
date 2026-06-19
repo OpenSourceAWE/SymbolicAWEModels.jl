@@ -393,9 +393,7 @@ function init!(sam::SymbolicAWEModel;
                 if sam.set.solver != "FBDF"
                     @warn "Unavailable solver for SymbolicAWEModel: $(sam.set.solver). Falling back to FBDF."
                 end
-                solver = sam.set.quasi_static ?
-                    FBDF(nlsolve=OrdinaryDiffEqNonlinearSolve.NLNewton(relax=sam.set.relaxation)) :
-                    FBDF()
+                solver = FBDF()
             end
         end
 
@@ -528,7 +526,6 @@ This is used to check if a cached compiled model is still valid.
 - `:model`: Kite model name (affects geometry)
 - `:foil_file`: Airfoil data file (affects VSM setup)
 - `:physical_model`: Model type (ram, simple_ram, 4_attach_ram)
-- `:quasi_static`: Whether points are quasi-static (affects equations)
 - `:winch_model`: Winch dynamics model (affects winch equations)
 
 # Runtime Fields (don't affect compilation, excluded from hash):
@@ -537,7 +534,7 @@ This is used to check if a cached compiled model is still valid.
 - Other runtime parameters
 """
 function get_set_hash(set::Settings;
-        fields=[:segments, :model, :foil_file, :physical_model, :quasi_static, :winch_model]
+        fields=[:segments, :model, :foil_file, :physical_model, :winch_model]
     )
     hash_acc = zeros(UInt8, 1)
     for field in fields
@@ -554,7 +551,7 @@ Calculates a SHA1 hash for the topology and structure of a `SystemStructure`.
 This is used to check if a cached compiled model is still valid.
 
 Includes all structural properties that affect the symbolic equations:
-- Point connectivity and types (STATIC, DYNAMIC, QUASI_STATIC, WING)
+- Point connectivity and types (STATIC, DYNAMIC, WING)
 - Segment connectivity
 - TwistSurface structure and types (FIXED, TWIST)
 - Pulley constraints and types

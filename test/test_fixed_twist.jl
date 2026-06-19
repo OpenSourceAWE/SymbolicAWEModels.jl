@@ -38,8 +38,6 @@ set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
     # DYNAMIC on rigid + >=2 points -> ok
     rigid.twist_surface_idxs = [1]
     @test validate_twist_surface_modes([mktwist_surface(:g, 2, DYNAMIC)], [rigid]) === nothing
-    # QUASI_STATIC on rigid + >=2 points -> ok
-    @test validate_twist_surface_modes([mktwist_surface(:g, 2, QUASI_STATIC)], [rigid]) === nothing
     # FIXED on rigid, any point count -> ok
     @test validate_twist_surface_modes([mktwist_surface(:g, 1, FIXED)], [rigid]) === nothing
     @test validate_twist_surface_modes([mktwist_surface(:g, 3, FIXED)], [rigid]) === nothing
@@ -51,9 +49,6 @@ set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
     # DYNAMIC 1-point -> reject (needs bridle couple)
     @test_throws ErrorException validate_twist_surface_modes(
         [mktwist_surface(:g, 1, DYNAMIC)], [rigid])
-    # QUASI_STATIC 1-point -> reject
-    @test_throws ErrorException validate_twist_surface_modes(
-        [mktwist_surface(:g, 1, QUASI_STATIC)], [rigid])
     # FIXED on particle + multi-point -> reject
     @test_throws ErrorException validate_twist_surface_modes(
         [mktwist_surface(:g, 2, FIXED)], [particle])

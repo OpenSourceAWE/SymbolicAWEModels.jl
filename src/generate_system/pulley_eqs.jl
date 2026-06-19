@@ -52,12 +52,6 @@ function pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys, params, in
                 bind_initial!(initial.pulleys[pulley.idx].len, pulley_len[pulley.idx])
                 bind_initial!(initial.pulleys[pulley.idx].vel, pulley_vel[pulley.idx])
             ]
-        elseif pulley.type == QUASI_STATIC
-            eqs = [eqs; pulley_vel[pulley.idx] ~ 0; pulley_acc[pulley.idx] ~ 0]
-            guesses = [
-                guesses
-                pulley_len[pulley.idx] => get_l0(psys, pulley.segment_idxs[1])
-            ]
         else
             error("Wrong pulley type")
         end
