@@ -72,7 +72,6 @@ kite:
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "wing_test"
     mass: 0.0
-    quasi_static: false
 
 tether:
     cd_tether: 0.958

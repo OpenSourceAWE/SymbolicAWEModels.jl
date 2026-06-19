@@ -18,34 +18,8 @@ get_pos_w(sys::SystemStructure, idx::Int64) =
     size = (3,)
     eltype = SimFloat
 end
-get_vel_w(sys::SystemStructure, idx::Int64) =
-    sys.points[idx].vel_w
-@register_array_symbolic get_vel_w(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_com_w(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].com_w
-@register_array_symbolic get_com_w(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_com_vel(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].com_vel
-@register_array_symbolic get_com_vel(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_Q_p_to_w(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].Q_p_to_w
-@register_array_symbolic get_Q_p_to_w(
-    sys::SystemStructure, idx::Int64) begin
-    size = (4,)
-    eltype = SimFloat
-end
+
+# ---- Rigid bodies ----
 get_body_R_b_to_p(sys::SystemStructure, idx::Int64) =
     sys.rigid_bodies[idx].R_b_to_p
 @register_array_symbolic get_body_R_b_to_p(
@@ -53,27 +27,8 @@ get_body_R_b_to_p(sys::SystemStructure, idx::Int64) =
     size = (3, 3)
     eltype = SimFloat
 end
-get_body_com_w(sys::SystemStructure, idx::Int64) =
-    sys.rigid_bodies[idx].com_w
-@register_array_symbolic get_body_com_w(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_body_com_vel(sys::SystemStructure, idx::Int64) =
-    sys.rigid_bodies[idx].com_vel
-@register_array_symbolic get_body_com_vel(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_body_Q_p_to_w(sys::SystemStructure, idx::Int64) =
-    sys.rigid_bodies[idx].Q_p_to_w
-@register_array_symbolic get_body_Q_p_to_w(
-    sys::SystemStructure, idx::Int64) begin
-    size = (4,)
-    eltype = SimFloat
-end
+
+# ---- Elastic joints ----
 # Restoring force/moment from one joint stiffness, given the relative DOF `Δ`.
 # `kind`: 1=axial, 2=shear, 3=torsion, 4=bending. A `Real` stiffness is the
 # linear law `k·Δ`; a callable interpolation gives the (possibly saturating)
@@ -93,24 +48,10 @@ get_joint_force(sys::SystemStructure, idx::Int64, kind::Int, Δ) =
 @register_symbolic get_joint_force(
     sys::SystemStructure, idx::Int64, kind::Int, Δ)
 
-# ---- Pulleys ----
-get_pulley_len(sys::SystemStructure, idx::Int64) =
-    sys.pulleys[idx].len
-@register_symbolic get_pulley_len(
-    sys::SystemStructure, idx::Int64)
-get_pulley_vel(sys::SystemStructure, idx::Int64) =
-    sys.pulleys[idx].vel
-@register_symbolic get_pulley_vel(
-    sys::SystemStructure, idx::Int64)
-
 # ---- Winches ----
 get_set_value(sys::SystemStructure, idx::Int64) =
     sys.winches[idx].set_value
 @register_symbolic get_set_value(
-    sys::SystemStructure, idx::Int64)
-get_winch_vel(sys::SystemStructure, idx::Int64) =
-    sys.winches[idx].vel
-@register_symbolic get_winch_vel(
     sys::SystemStructure, idx::Int64)
 get_winch_gear_ratio(sys::SystemStructure, idx::Int64) =
     sys.winches[idx].gear_ratio
@@ -136,40 +77,6 @@ get_winch_friction_epsilon(sys::SystemStructure, idx::Int64) =
     sys.winches[idx].friction_epsilon
 @register_symbolic get_winch_friction_epsilon(
     sys::SystemStructure, idx::Int64)
-
-# ---- Tethers ----
-get_tether_len(sys::SystemStructure, idx::Int64) =
-    sys.tethers[idx].len
-@register_symbolic get_tether_len(
-    sys::SystemStructure, idx::Int64)
-get_twist(sys::SystemStructure, idx::Int64) =
-    sys.twist_surfaces[idx].twist
-@register_symbolic get_twist(
-    sys::SystemStructure, idx::Int64)
-
-# ---- Initial-condition getters kept registered (used only in defaults/guesses) ----
-get_l0(sys::SystemStructure, idx::Int64) =
-    sys.segments[idx].l0
-@register_symbolic get_l0(
-    sys::SystemStructure, idx::Int64)
-get_twist_ω(sys::SystemStructure, idx::Int64) =
-    sys.twist_surfaces[idx].twist_ω
-@register_symbolic get_twist_ω(
-    sys::SystemStructure, idx::Int64)
-get_ω_p(sys::SystemStructure, idx::Int64) =
-    sys.wings[idx].ω_p
-@register_array_symbolic get_ω_p(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-get_body_ω_p(sys::SystemStructure, idx::Int64) =
-    sys.rigid_bodies[idx].ω_p
-@register_array_symbolic get_body_ω_p(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
 
 const ZERO_WIND_FALLBACK = KVec3(1e-10, 0.0, 0.0)
 """

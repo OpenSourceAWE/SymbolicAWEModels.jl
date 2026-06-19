@@ -155,7 +155,6 @@ kite:
     struc_geometry_path: "particle_structural_geometry.yaml"
     aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
-    quasi_static: false
 
 tether:
     cd_tether: 0.958

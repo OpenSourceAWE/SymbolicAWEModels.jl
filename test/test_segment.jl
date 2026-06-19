@@ -209,7 +209,6 @@ kite:
     struc_geometry_path: "particle_structural_geometry.yaml"  # structural YAML
     aero_geometry_path: "aero_geometry.yaml"    # aerodynamic YAML
     mass: 0.0                               # kite mass [kg]
-    quasi_static: false                     # whether to use quasi static kite points or not
 
 tether:
     cd_tether: 0.0             # disable segment aero drag for pure spring-damper test

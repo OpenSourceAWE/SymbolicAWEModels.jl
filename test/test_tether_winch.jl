@@ -77,7 +77,6 @@ kite:
     struc_geometry_path: "particle_structural_geometry.yaml"
     aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
-    quasi_static: false
 
 tether:
     cd_tether: 0.0
@@ -465,8 +464,8 @@ environment:
     # ============================================================
     # Test 8: Tether without winch (constant l0)
     # A tether with segments but no winch. Segments should use
-    # constant rest length (from get_l0). Verify the system
-    # builds and simulates without errors.
+    # constant rest length. Verify the system builds and
+    # simulates without errors.
     # ============================================================
     @testset "Tether without winch" begin
         using SymbolicAWEModels: Point, Segment, Tether,
