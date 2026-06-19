@@ -289,6 +289,20 @@ SymbolicAWEModels.sync_params!
 SymbolicAWEModels.joint_stiffness_term
 ```
 
+## Initial conditions
+
+```@docs
+SymbolicAWEModels.InitialEntry
+SymbolicAWEModels.InitialRegistry
+SymbolicAWEModels.InitialView
+SymbolicAWEModels.InitialPath
+SymbolicAWEModels.bind_initial!
+SymbolicAWEModels.ElementReader
+SymbolicAWEModels.InitialSync
+SymbolicAWEModels.build_initial_sync
+SymbolicAWEModels.sync_initial!
+```
+
 ## Other internals
 
 ```@docs

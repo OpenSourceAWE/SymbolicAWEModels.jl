@@ -4,7 +4,7 @@
 # Wing rigid body dynamics equation generation
 
 """
-    wing_eqs!(s, eqs, psys, defaults, params; kwargs...)
+    wing_eqs!(s, eqs, psys, defaults, params, initial; kwargs...)
 
 Generate the differential equations for the wing's
 rigid body dynamics.
@@ -21,7 +21,7 @@ For PARTICLE_DYNAMICS wings:
 - Principal frame variables set to zero/aliases
 """
 function wing_eqs!(
-    s, eqs, psys, defaults, params;
+    s, eqs, psys, defaults, params, initial;
     tether_wing_force, tether_wing_moment,
     aero_force_b, aero_moment_b,
     ω_b, α_b, R_b_to_w, R_p_to_w,
@@ -213,10 +213,10 @@ function wing_eqs!(
             com_w, com_vel, Q_p_to_w, ω_p,
             com_acc, α_p, R_p_to_w, moment_p, Q_p_vel,
             R_b_to_w, wing_pos, wing_vel, wing_acc, ω_b, α_b, Q_b_to_w,
-            com_w_0=get_com_w(psys, idx),
-            com_vel_0=get_com_vel(psys, idx),
-            Q_p_to_w_0=get_Q_p_to_w(psys, idx),
-            ω_p_0=get_ω_p(psys, idx),
+            initial_com_w=initial.wings[idx].com_w,
+            initial_com_vel=initial.wings[idx].com_vel,
+            initial_Q_p_to_w=initial.wings[idx].Q_p_to_w,
+            initial_ω_p=initial.wings[idx].ω_p,
             ω_kinematic=ω_p_stable[:, idx],
             d_ω_p, d_com_w, d_com_vel,
         )

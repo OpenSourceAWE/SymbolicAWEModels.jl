@@ -30,7 +30,8 @@ overrides left at their defaults the body integrates freely.
   `com_vel`, `Q_p_to_w`, `ω_p`, `com_acc`, `α_p`, `R_p_to_w`, `moment_p`,
   `Q_p_vel`, `R_b_to_w`, `wing_pos`, `wing_vel`, `wing_acc`, `ω_b`, `α_b`,
   `Q_b_to_w`.
-- Initial conditions: `com_w_0`, `com_vel_0`, `Q_p_to_w_0`, `ω_p_0`.
+- Initial conditions: `initial_com_w`, `initial_com_vel`, `initial_Q_p_to_w`,
+  `initial_ω_p` — `initial.*` view paths bound to the integrated state.
 
 # Optional integration overrides (default to the unconstrained body)
 - `ω_kinematic`: angular velocity used in quaternion kinematics (default `ω_p`).
@@ -44,7 +45,7 @@ function rigid_body_eqs!(
     com_w, com_vel, Q_p_to_w, ω_p,
     com_acc, α_p, R_p_to_w, moment_p, Q_p_vel,
     R_b_to_w, wing_pos, wing_vel, wing_acc, ω_b, α_b, Q_b_to_w,
-    com_w_0, com_vel_0, Q_p_to_w_0, ω_p_0,
+    initial_com_w, initial_com_vel, initial_Q_p_to_w, initial_ω_p,
     ω_kinematic=nothing, d_ω_p=nothing, d_com_w=nothing, d_com_vel=nothing,
 )
     # Skew-symmetric matrix for quaternion kinematics
@@ -136,10 +137,10 @@ function rigid_body_eqs!(
 
     defaults = [
         defaults
-        [com_w[i, idx] => com_w_0[i] for i = 1:3]
-        [com_vel[i, idx] => com_vel_0[i] for i = 1:3]
-        [Q_p_to_w[i, idx] => Q_p_to_w_0[i] for i = 1:4]
-        [ω_p[i, idx] => ω_p_0[i] for i = 1:3]
+        bind_initial!(initial_com_w, collect(com_w[:, idx]))
+        bind_initial!(initial_com_vel, collect(com_vel[:, idx]))
+        bind_initial!(initial_Q_p_to_w, collect(Q_p_to_w[:, idx]))
+        bind_initial!(initial_ω_p, collect(ω_p[:, idx]))
     ]
 
     return eqs, defaults

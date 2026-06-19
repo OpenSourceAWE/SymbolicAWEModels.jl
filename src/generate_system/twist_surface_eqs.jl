@@ -67,7 +67,7 @@ Generate equations for deformable wing twist_surface twist dynamics.
 # Returns
 - Tuple `(eqs, defaults, guesses)` with updated equation vectors.
 """
-function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys, params;
+function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys, params, initial;
                     R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
                     point_force, tether_wing_moment, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos)
 
@@ -183,8 +183,10 @@ function twist_surface_eqs!(eqs, defaults, guesses, twist_surfaces, wings, psys,
             ]
             defaults = [
                 defaults
-                free_twist_angle[twist_surface.idx] => get_twist(psys, twist_surface.idx)
-                twist_ω[twist_surface.idx] => get_twist_ω(psys, twist_surface.idx)
+                bind_initial!(initial.twist_surfaces[twist_surface.idx].twist,
+                              free_twist_angle[twist_surface.idx])
+                bind_initial!(initial.twist_surfaces[twist_surface.idx].twist_ω,
+                              twist_ω[twist_surface.idx])
             ]
         elseif twist_surface.type == QUASI_STATIC
             eqs = [eqs; twist_ω[twist_surface.idx] ~ 0; twist_α[twist_surface.idx] ~ 0]

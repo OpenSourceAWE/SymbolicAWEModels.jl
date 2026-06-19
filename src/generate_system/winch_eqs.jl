@@ -163,7 +163,7 @@ For each tether:
 - Without winch: `D(tether_len) = 0`.
 """
 function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
-                    sys_struct, psys, params;
+                    sys_struct, psys, params, initial;
                     spring_force_vec, set_values, tether_len,
                     winch_vel, winch_acc, winch_force_vec, winch_force,
                     winch_friction)
@@ -189,8 +189,8 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
             eqs = [eqs; D(tether_len[tether.idx]) ~ 0]
         end
         defaults = [defaults
-                    tether_len[tether.idx] =>
-                        get_tether_len(psys, tether.idx)]
+                    bind_initial!(initial.tethers[tether.idx].len,
+                                  tether_len[tether.idx])]
     end
 
     winch_subsystems = Any[]
@@ -240,8 +240,8 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
                D(winch_vel[winch.idx]) ~
                    ifelse(brake_p > 0.5, 0, winch_acc[winch.idx])]
         defaults = [defaults
-                    winch_vel[winch.idx] =>
-                        get_winch_vel(psys, winch.idx)]
+                    bind_initial!(initial.winches[winch.idx].vel,
+                                  winch_vel[winch.idx])]
     end
     return eqs, defaults, winch_subsystems
 end

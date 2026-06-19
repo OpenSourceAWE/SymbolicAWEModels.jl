@@ -16,7 +16,7 @@ associated getter and setter functions for the full, nonlinear physical state.
                                   GetWinchState, GetTetherState,
                                   GetPointState,
                                   GetPulleyState, GetTwistSurfaceState,
-                                  GetRigidBodyState, ParamSync}
+                                  GetRigidBodyState, ParamSync, InitialSync}
     "The ODE problem for the full nonlinear model."
     prob::Prob
 
@@ -25,6 +25,8 @@ associated getter and setter functions for the full, nonlinear physical state.
     set_sys::SetSys
     "Syncs flattened struct-field parameters into the flat buffer once per step."
     param_sync::ParamSync
+    "Pushes the struct's initial conditions onto the problem's `Initial` params."
+    initial_sync::InitialSync
     "Setter for the control input values."
     set_set_values::SetSetValues
 
@@ -171,6 +173,8 @@ $(TYPEDFIELDS)
     t_step::SimFloat = zero(SimFloat)
     "Build-time flattened-parameter registry (transient, never serialized)."
     param_registry::Any = nothing
+    "Build-time initial-condition registry (transient, never serialized)."
+    initial_registry::Any = nothing
 end
 
 """
@@ -180,7 +184,7 @@ Tuple of field names that are direct fields of `SymbolicAWEModel` (as opposed to
 delegated to the nested `serialized_model`). Used by `getproperty` and `setproperty!`
 to dispatch field access correctly.
 """
-const SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :param_registry)
+const SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :param_registry, :initial_registry)
 
 """
     Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)

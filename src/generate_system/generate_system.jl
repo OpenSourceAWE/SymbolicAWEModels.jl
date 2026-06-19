@@ -8,6 +8,7 @@
 include("helpers.jl")
 include("accessors.jl")
 include("flat_params.jl")
+include("initial_conditions.jl")
 
 # Component equations (can be in any order - no inter-dependencies)
 include("point_eqs.jl")

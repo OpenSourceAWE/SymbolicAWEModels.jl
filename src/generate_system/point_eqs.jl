@@ -36,7 +36,7 @@ Generate equations for all point types (STATIC, DYNAMIC, QUASI_STATIC, WING).
 - Tuple `(eqs, defaults, guesses)` with updated equation vectors.
   Note: `tether_wing_force` and `tether_wing_moment` are modified in-place.
 """
-function point_eqs!(s, eqs, defaults, guesses, points, segments, twist_surfaces, wings, psys, params;
+function point_eqs!(s, eqs, defaults, guesses, points, segments, twist_surfaces, wings, psys, params, initial;
                     R_b_to_w, com_w,
                     wing_vel, wind_vec_gnd, twist_angle,
                     pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -186,8 +186,8 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, twist_surfaces,
                 ]
                 defaults = [
                     defaults
-                    [pos[j, point.idx] => get_pos_w(psys, point.idx)[j] for j = 1:3]
-                    [vel[j, point.idx] => get_vel_w(psys, point.idx)[j] for j = 1:3]
+                    bind_initial!(initial.points[point.idx].pos_w, collect(pos[:, point.idx]))
+                    bind_initial!(initial.points[point.idx].vel_w, collect(vel[:, point.idx]))
                 ]
 
             elseif wing.dynamics_type == RIGID_DYNAMICS
@@ -328,8 +328,8 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, twist_surfaces,
             ]
             defaults = [
                 defaults
-                [pos[j, point.idx] => get_pos_w(psys, point.idx)[j] for j = 1:3]
-                [vel[j, point.idx] => get_vel_w(psys, point.idx)[j] for j = 1:3]
+                bind_initial!(initial.points[point.idx].pos_w, collect(pos[:, point.idx]))
+                bind_initial!(initial.points[point.idx].vel_w, collect(vel[:, point.idx]))
             ]
         elseif point.type == QUASI_STATIC
             # Define point_force for QUASI_STATIC points

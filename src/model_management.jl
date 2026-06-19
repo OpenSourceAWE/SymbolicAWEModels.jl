@@ -24,7 +24,8 @@ of the compiled `ODESystem` (`sys`).
 # Returns
 - A `NamedTuple` containing various getter and setter functions for different parts of the system state.
 """
-function generate_prob_getters(sys_struct, sys, param_registry=nothing)
+function generate_prob_getters(sys_struct, sys, param_registry=nothing,
+                               initial_registry=nothing)
     collect_each = collect
     (; points, wings, twist_surfaces, pulleys, winches, tethers, segments, rigid_bodies) = sys_struct
     get_wing_state, get_aero_input, get_segment_state, get_twist_surface_state, get_pulley_state,
@@ -96,10 +97,13 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing)
 
     param_sync = isnothing(param_registry) ? nothing :
         build_param_sync(sys, param_registry)
+    initial_sync = isnothing(initial_registry) ? nothing :
+        build_initial_sync(sys, initial_registry)
 
     return (; get_wing_state, get_aero_input, get_segment_state, get_twist_surface_state,
             get_pulley_state, get_winch_state, get_tether_state, set_set_values,
-            get_set_values, set_sys, get_point_state, get_rigid_body_state, param_sync)
+            get_set_values, set_sys, get_point_state, get_rigid_body_state, param_sync,
+            initial_sync)
 end
 
 """
@@ -237,7 +241,7 @@ function maybe_create_prob!(sam; create_prob=true, prn=true)
         prn && println("\tCreated the ODEProblem in $time seconds.")
 
         time = @elapsed getters = generate_prob_getters(sam.sys_struct, sys,
-            sam.param_registry)
+            sam.param_registry, sam.initial_registry)
         prn && println("\tCreated state getters and setters in $time seconds.")
 
         sam.prob = ProbWithAttributes(; prob, getters...)
@@ -455,14 +459,7 @@ function init!(sam::SymbolicAWEModel;
                     ignore_l0, remake_vsm, reset_vel,
                     apply_tether_lengths, prn)
         end
-        # When reset_vel=false, state-dependent u0 changed;
-        # force ODEProblem recreation to pick up new defaults.
-        if !reset_vel && !isnothing(sam.prob)
-            sam.prob = nothing
-            changed = true
-            changed |= maybe_create_prob!(sam;
-                create_prob, prn)
-        end
+        # reinit! below syncs the struct's ICs onto the problem; no rebuild needed.
         if create_prob && !isnothing(sam.prob)
             prob = something(sam.prob)
             reset_integrator |= reload
@@ -493,16 +490,24 @@ function reinit!(
 )
     dt = SimFloat(1/sam.set.sample_freq)
     existing = sam.integrator
-    integrator = if isnothing(existing) || !successful_retcode(existing.sol) || reset_integrator
-        init(prob.prob, solver;
+    fresh = isnothing(existing) || !successful_retcode(existing.sol) || reset_integrator
+    if fresh
+        # Sync params and initial conditions onto the problem so the single init
+        # solve honors both. A trailing `reinit!(...; reinit_dae)` would re-solve
+        # the DAE init without re-reading `Initial`, discarding the synced state.
+        prob.set_sys(prob.prob, sam.sys_struct)
+        sync_params!(prob.param_sync, prob.prob, sam.sys_struct)
+        sync_initial!(prob.initial_sync, prob.prob, sam.sys_struct)
+        integrator = init(prob.prob, solver;
             adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol,
             save_on=false, save_everystep=false)
+        sam.integrator = integrator
     else
-        existing
+        integrator = existing
+        sam.integrator = integrator
+        sync_params!(prob.param_sync, integrator, sam.sys_struct)
+        OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
     end
-    sam.integrator = integrator
-    sync_params!(prob.param_sync, integrator, sam.sys_struct)
-    OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
     update_sys_struct!(prob, integrator, sam.sys_struct)
     if lin_vsm
         refresh_aero!(sam, prob; vsm_min_wind)

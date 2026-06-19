@@ -20,7 +20,7 @@ Generate equations for pulley dynamics (rope distribution over pulleys).
 # Returns
 - Tuple `(eqs, defaults, guesses)` with updated equation vectors.
 """
-function pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys, params;
+function pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys, params, initial;
                      spring_force, pulley_len, pulley_vel)
     @variables begin
         pulley_force(t)[eachindex(pulleys)]
@@ -49,8 +49,8 @@ function pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys, params;
             ]
             defaults = [
                 defaults
-                pulley_len[pulley.idx] => get_pulley_len(psys, pulley.idx)
-                pulley_vel[pulley.idx] => get_pulley_vel(psys, pulley.idx)
+                bind_initial!(initial.pulleys[pulley.idx].len, pulley_len[pulley.idx])
+                bind_initial!(initial.pulleys[pulley.idx].vel, pulley_vel[pulley.idx])
             ]
         elseif pulley.type == QUASI_STATIC
             eqs = [eqs; pulley_vel[pulley.idx] ~ 0; pulley_acc[pulley.idx] ~ 0]
