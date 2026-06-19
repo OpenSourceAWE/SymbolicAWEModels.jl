@@ -99,8 +99,8 @@ export unstretched_length
 export tether_length
 
 # --- Winch component API ---
-export default_winch_component
-export validate_winch_component
+export AbstractWinchModel, DefaultWinchModel
+export winch_component, is_builtin_winch, validate_winch_component
 
 # --- Helper Functions ---
 export init_module
@@ -181,8 +181,6 @@ function update_wing_aero_plot! end
 function find_steady_state! end
 function make_lin_sys_state end
 function create_model_archive end
-function default_winch_component end
-function validate_winch_component end
 
 function __init__()
     data_dir = joinpath(pwd(), "data")
@@ -210,6 +208,11 @@ include("aero_modes/direct.jl")
 include("aero_modes/linearized.jl")
 include("aero_modes/continuous.jl")
 include("aero_modes/plate.jl")
+# Winch motor dynamics. Same one-file-per-model layout as aero_modes: `common.jl`
+# holds the dispatch interface + connector validation, `default.jl` the
+# torque-controlled model. Loaded after generate_system for the MTK/flat-params it uses.
+include("winch_models/common.jl")
+include("winch_models/default.jl")
 include("simulate.jl")
 
 # rotate a 3d vector around the x axis in the yz plane - following the right hand rule

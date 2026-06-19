@@ -4,7 +4,7 @@
 # Segment spring-damper equation generation
 
 """
-    segment_eqs!(s, eqs, guesses, points, segments, pulleys, tethers, wings, psys;
+    segment_eqs!(s, eqs, points, segments, pulleys, tethers, wings, psys;
                  pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
                  pulley_len, tether_len)
 
@@ -12,7 +12,7 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
-- `eqs`, `guesses`: Accumulating vectors for the MTK system.
+- `eqs`: Accumulating equation vector for the MTK system.
 - `points`, `segments`, `pulleys`, `tethers`, `wings`: System components.
 - `psys`: Symbolic parameter representing the system structure.
 - `pos`, `vel`: Symbolic point state variables.
@@ -21,10 +21,10 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
 - `pulley_len`, `tether_len`: Symbolic state variables for pulley and tether lengths.
 
 # Returns
-- Tuple `(eqs, guesses, len, spring_force)` with updated equation vectors
+- Tuple `(eqs, len, spring_force)` with updated equation vector
   and the segment length and spring force variables for use by other components.
 """
-function segment_eqs!(s, eqs, guesses, points, segments,
+function segment_eqs!(s, eqs, points, segments,
                       pulleys, tethers, wings,
                       psys, params; pos, vel, wind_vec_gnd,
                       spring_force_vec, drag_force, l0,
@@ -51,13 +51,6 @@ function segment_eqs!(s, eqs, guesses, points, segments,
 
     for segment in segments
         p1, p2 = segment.point_idxs[1], segment.point_idxs[2]
-        guesses = [
-            guesses
-            [
-                segment_vec[i, segment.idx] =>
-                    get_pos_w(psys, p2)[i] - get_pos_w(psys, p1)[i] for i = 1:3
-            ]
-        ]
 
         # Check if both endpoints are WING points (structural segments within wings)
         # For RIGID_DYNAMICS wings: skip both spring and drag forces (rigid body)
@@ -201,5 +194,5 @@ function segment_eqs!(s, eqs, guesses, points, segments,
         end
     end
 
-    return eqs, guesses, len, spring_force
+    return eqs, len, spring_force
 end

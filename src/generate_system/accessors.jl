@@ -10,24 +10,6 @@
 # points, segments, pulleys, winches, tethers, settings, BaseWing
 # fields.
 
-# ---- Points ----
-get_pos_w(sys::SystemStructure, idx::Int64) =
-    sys.points[idx].pos_w
-@register_array_symbolic get_pos_w(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3,)
-    eltype = SimFloat
-end
-
-# ---- Rigid bodies ----
-get_body_R_b_to_p(sys::SystemStructure, idx::Int64) =
-    sys.rigid_bodies[idx].R_b_to_p
-@register_array_symbolic get_body_R_b_to_p(
-    sys::SystemStructure, idx::Int64) begin
-    size = (3, 3)
-    eltype = SimFloat
-end
-
 # ---- Elastic joints ----
 # Restoring force/moment from one joint stiffness, given the relative DOF `Δ`.
 # `kind`: 1=axial, 2=shear, 3=torsion, 4=bending. A `Real` stiffness is the
@@ -48,35 +30,6 @@ get_joint_force(sys::SystemStructure, idx::Int64, kind::Int, Δ) =
 @register_symbolic get_joint_force(
     sys::SystemStructure, idx::Int64, kind::Int, Δ)
 
-# ---- Winches ----
-get_set_value(sys::SystemStructure, idx::Int64) =
-    sys.winches[idx].set_value
-@register_symbolic get_set_value(
-    sys::SystemStructure, idx::Int64)
-get_winch_gear_ratio(sys::SystemStructure, idx::Int64) =
-    sys.winches[idx].gear_ratio
-@register_symbolic get_winch_gear_ratio(
-    sys::SystemStructure, idx::Int64)
-get_winch_drum_radius(sys::SystemStructure, idx::Int64) =
-    sys.winches[idx].drum_radius
-@register_symbolic get_winch_drum_radius(
-    sys::SystemStructure, idx::Int64)
-get_winch_f_coulomb(sys::SystemStructure, idx::Int64) =
-    sys.winches[idx].f_coulomb
-@register_symbolic get_winch_f_coulomb(
-    sys::SystemStructure, idx::Int64)
-get_winch_c_vf(sys::SystemStructure, idx::Int64) =
-    sys.winches[idx].c_vf
-@register_symbolic get_winch_c_vf(
-    sys::SystemStructure, idx::Int64)
-get_winch_inertia_total(sys::SystemStructure, idx::Int64) =
-    sys.winches[idx].inertia_total
-@register_symbolic get_winch_inertia_total(
-    sys::SystemStructure, idx::Int64)
-get_winch_friction_epsilon(sys::SystemStructure, idx::Int64) =
-    sys.winches[idx].friction_epsilon
-@register_symbolic get_winch_friction_epsilon(
-    sys::SystemStructure, idx::Int64)
 
 const ZERO_WIND_FALLBACK = KVec3(1e-10, 0.0, 0.0)
 """

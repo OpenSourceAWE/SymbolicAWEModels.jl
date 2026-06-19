@@ -44,13 +44,16 @@ calc_steady_torque
 
 ## Winch components
 
-The winch motor model is a pluggable MTK `ODESystem`. Pass a builder
-to `Winch(...; model=...)` to override the default torque-driven motor.
-Custom components must respect the connector contract enforced by
+The winch motor model is a pluggable [`AbstractWinchModel`](@ref) struct.
+Pass one to `Winch(...; model=...)` to override the default
+torque-driven motor ([`DefaultWinchModel`](@ref)). The builder is
+selected by dispatch on the model type, [`winch_component`](@ref); custom
+components must respect the connector contract enforced by
 [`validate_winch_component`](@ref).
 
 ```@docs
-default_winch_component
+winch_component
+is_builtin_winch
 validate_winch_component
 ```
 

@@ -4,7 +4,7 @@
 # Point dynamics equation generation
 
 """
-    point_eqs!(s, eqs, defaults, guesses, points, segments, twist_surfaces, wings, psys;
+    point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, psys;
                R_b_to_w, wing_vel, wind_vec_gnd, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                spring_sum_force, point_drag_force, total_drag,
@@ -18,7 +18,7 @@ Generate equations for all point types (STATIC, DYNAMIC, WING).
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
-- `eqs`, `defaults`, `guesses`: Accumulating vectors for the MTK system.
+- `eqs`, `defaults`: Accumulating vectors for the MTK system.
 - `points`, `segments`, `twist_surfaces`, `wings`: System components.
 - `psys`: Symbolic parameter representing the system structure.
 - `R_b_to_w`: Symbolic rotation matrix (body to world).
@@ -33,10 +33,10 @@ Generate equations for all point types (STATIC, DYNAMIC, WING).
 - `tether_wing_force`, `tether_wing_moment`: Mutable arrays to accumulate forces/moments.
 
 # Returns
-- Tuple `(eqs, defaults, guesses)` with updated equation vectors.
+- Tuple `(eqs, defaults)` with updated equation vectors.
   Note: `tether_wing_force` and `tether_wing_moment` are modified in-place.
 """
-function point_eqs!(s, eqs, defaults, guesses, points, segments, twist_surfaces, wings, psys, params, initial;
+function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, psys, params, initial;
                     R_b_to_w, com_w,
                     wing_vel, wind_vec_gnd, twist_angle,
                     pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -336,5 +336,5 @@ function point_eqs!(s, eqs, defaults, guesses, points, segments, twist_surfaces,
         end
     end
 
-    return eqs, defaults, guesses
+    return eqs, defaults
 end

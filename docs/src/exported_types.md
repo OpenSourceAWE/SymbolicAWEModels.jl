@@ -34,6 +34,13 @@ is_builtin_aero
 aero_hash_id
 ```
 
+## Winch models
+
+```@docs
+AbstractWinchModel
+DefaultWinchModel
+```
+
 ## Core model type
 
 ```@docs

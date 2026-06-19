@@ -25,7 +25,6 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
                      prn=true, tunable_params::Bool=false)
     eqs = Equation[]
     defaults = Pair{Num, Any}[]
-    guesses = Pair{Num, Any}[]
 
     (; points, twist_surfaces, segments, pulleys, tethers, winches, wings,
        rigid_bodies, elastic_joints) = system
@@ -198,8 +197,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     # ==================== CALL COMPONENT FUNCTIONS ==================== #
 
     # 1. Point equations (generates point dynamics, modifies tether_wing_force/moment in-place)
-    eqs, defaults, guesses = point_eqs!(
-        s, eqs, defaults, guesses, points, segments, twist_surfaces, wings, psys, params, initial;
+    eqs, defaults = point_eqs!(
+        s, eqs, defaults, points, segments, twist_surfaces, wings, psys, params, initial;
         R_b_to_w, com_w,
         wing_vel, wind_vec_gnd, twist_angle,
         pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -212,22 +211,22 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     )
 
     # 2. TwistSurface equations (deformable wing sections with twist dynamics)
-    eqs, defaults, guesses = twist_surface_eqs!(
-        eqs, defaults, guesses, twist_surfaces, wings, psys, params, initial;
+    eqs, defaults = twist_surface_eqs!(
+        eqs, defaults, twist_surfaces, wings, psys, params, initial;
         R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
         point_force, tether_wing_moment, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos
     )
 
     # 3. Segment equations (spring-damper forces, returns len and spring_force)
-    eqs, guesses, len, spring_force = segment_eqs!(
-        s, eqs, guesses, points, segments, pulleys, tethers, wings, psys, params;
+    eqs, len, spring_force = segment_eqs!(
+        s, eqs, points, segments, pulleys, tethers, wings, psys, params;
         pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
         pulley_len, tether_len
     )
 
     # 4. Pulley equations (rope distribution)
-    eqs, defaults, guesses = pulley_eqs!(
-        eqs, defaults, guesses, pulleys, segments, psys, params, initial;
+    eqs, defaults = pulley_eqs!(
+        eqs, defaults, pulleys, segments, psys, params, initial;
         spring_force, pulley_len, pulley_vel
     )
 
@@ -247,8 +246,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # Build aerodynamic equations: each wing's aero component (including
     # flat-plate) is wired in winch-style and returned as a subsystem.
-    eqs, guesses, aero_subsystems = aero_eqs!(
-        s, eqs, guesses, psys, params;
+    eqs, aero_subsystems = aero_eqs!(
+        s, eqs, psys, params;
         aero_force_b, aero_moment_b, twist_surface_aero_moment,
         twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
         pos, vel, va_point_b, height, aero_force_point_b
@@ -320,13 +319,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     end
     prn && println("\tCreated System in $time seconds.")
 
-    defaults = [
-        defaults
-        [
-            set_values[winch.idx] => get_set_value(psys, winch.idx) for
-            winch in winches
-        ]
-    ]
+    # set_values is seeded from the struct at init and set every step; no default.
 
     # Debug: Check defaults for slice references
     for (i, d) in enumerate(defaults)
@@ -336,16 +329,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         end
     end
 
-    # Debug: Check guesses for slice references
-    for (i, g) in enumerate(guesses)
-        g_str = string(g)
-        if occursin("Colon()", g_str)
-            @warn "Guess $i contains Colon(): $g"
-        end
-    end
-
     s.defaults = defaults
-    s.guesses = guesses
     s.full_sys = sys
     s.param_registry = param_registry
     s.initial_registry = initial_registry

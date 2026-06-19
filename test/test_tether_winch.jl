@@ -21,6 +21,51 @@ using KiteUtils
 using LinearAlgebra
 using ModelingToolkit
 using ModelingToolkit: t_nounits as tt, D_nounits as DD
+using SymbolicAWEModels: AbstractWinchModel
+
+# Custom winch model for Test 9: `set_value` is a target tether length; a PD law
+# on `len` tracks it. Drum params come from the flat `params` view (mirrors
+# DefaultWinchModel); `friction_epsilon` is the model's own field. Defined at
+# top level because structs cannot live inside `@testset` (a local scope).
+if !@isdefined(LengthTrackWinch)
+    mutable struct LengthTrackWinch <: AbstractWinchModel
+        K_p::Float64
+        K_d::Float64
+        friction_epsilon::Float64
+    end
+    LengthTrackWinch(K_p, K_d; friction_epsilon=6.0) =
+        LengthTrackWinch(K_p, K_d, friction_epsilon)
+
+    function SymbolicAWEModels.winch_component(model::LengthTrackWinch,
+            sys_struct, winch_idx; name, params)
+        @variables begin
+            vel(tt); len(tt); force(tt); set_value(tt)
+            brake(tt); acc(tt); friction(tt)
+            ω_motor(tt); err(tt); tau_cmd(tt); tau_net(tt)
+        end
+        r  = params.winches[winch_idx].drum_radius
+        n  = params.winches[winch_idx].gear_ratio
+        fc = params.winches[winch_idx].f_coulomb
+        cv = params.winches[winch_idx].c_vf
+        I_ = params.winches[winch_idx].inertia_total
+        fe = params.winches[winch_idx].model.friction_epsilon
+        smooth_sign(x, e) = x / sqrt(x * x + e * e)
+        ratio = r / n
+        eqs = [
+            ω_motor  ~ vel / ratio
+            friction ~ smooth_sign(ω_motor, fe) * fc * ratio +
+                       cv * ω_motor * ratio^2
+            err      ~ set_value - len
+            tau_cmd  ~ model.K_p * err - model.K_d * vel
+            tau_net  ~ tau_cmd + ratio * force - friction
+            acc      ~ ifelse(brake > 0.5, 0.0, ratio * tau_net / I_)
+        ]
+        return System(eqs, tt,
+            [vel, len, force, set_value, brake, acc, friction,
+             ω_motor, err, tau_cmd, tau_net],
+            [r, n, fc, cv, I_, fe]; name)
+    end
+end
 
 # ================================================================
 # Minimal YAML: weight at z=-50 connected to ground via tether
@@ -194,7 +239,7 @@ environment:
     @testset "Acceleration vs Coulomb friction" begin
         winch.brake = false
         winch.c_vf = 0.0
-        winch.friction_epsilon = 0.01
+        winch.model.friction_epsilon = 0.01
         winch.inertia_total = 0.1
         seg.unit_stiffness = 0.0
         seg.unit_damping = 0.0
@@ -238,7 +283,7 @@ environment:
     @testset "Terminal velocity vs viscous friction" begin
         winch.brake = false
         winch.f_coulomb = 0.0
-        winch.friction_epsilon = 6.0
+        winch.model.friction_epsilon = 6.0
         winch.inertia_total = 0.01  # Small I for fast settling
         seg.unit_stiffness = 0.0
         seg.unit_damping = 0.0
@@ -275,7 +320,7 @@ environment:
         winch.brake = true
         winch.f_coulomb = 1.0
         winch.c_vf = 0.5
-        winch.friction_epsilon = 6.0
+        winch.model.friction_epsilon = 6.0
         winch.inertia_total = 0.1
 
         unit_k = 50000.0  # Low but not too low [N]
@@ -318,7 +363,7 @@ environment:
     @testset "calc_steady_torque at terminal velocity" begin
         winch.brake = false
         winch.f_coulomb = 0.0
-        winch.friction_epsilon = 6.0
+        winch.model.friction_epsilon = 6.0
         winch.inertia_total = 0.01
         winch.c_vf = 100.0
 
@@ -525,43 +570,7 @@ environment:
     @testset "Custom length-tracking component" begin
         using SymbolicAWEModels: Point, Segment, Tether, Winch,
             SystemStructure, SymbolicAWEModel,
-            STATIC, DYNAMIC,
-            get_winch_gear_ratio, get_winch_drum_radius,
-            get_winch_f_coulomb, get_winch_c_vf,
-            get_winch_inertia_total, get_winch_friction_epsilon,
-            validate_winch_component
-
-        function make_length_winch(K_p, K_d)
-            return function (sys_struct, winch_idx; name)
-                SST = typeof(sys_struct)
-                @parameters (psys::SST = sys_struct),
-                    [tunable = false]
-                @variables begin
-                    vel(tt); len(tt); force(tt); set_value(tt)
-                    brake(tt); acc(tt); friction(tt)
-                    ω_motor(tt); err(tt); tau_cmd(tt); tau_net(tt)
-                end
-                r = get_winch_drum_radius(psys, winch_idx)
-                n = get_winch_gear_ratio(psys, winch_idx)
-                fc = get_winch_f_coulomb(psys, winch_idx)
-                cv = get_winch_c_vf(psys, winch_idx)
-                I_ = get_winch_inertia_total(psys, winch_idx)
-                fe = get_winch_friction_epsilon(psys, winch_idx)
-                smooth_sign(x, e) = x / sqrt(x * x + e * e)
-                ratio = r / n
-                eqs = [
-                    ω_motor  ~ vel / ratio
-                    friction ~ smooth_sign(ω_motor, fe) * fc * ratio +
-                               cv * ω_motor * ratio^2
-                    err      ~ set_value - len
-                    tau_cmd  ~ K_p * err - K_d * vel
-                    tau_net  ~ tau_cmd + ratio * force - friction
-                    acc      ~ ifelse(brake > 0.5, 0.0,
-                                      ratio * tau_net / I_)
-                ]
-                return System(eqs, tt; name)
-            end
-        end
+            STATIC, DYNAMIC, validate_winch_component
 
         points_l = [
             Point(:ground_l, [0.0, 0.0, 0.0], STATIC),
@@ -575,7 +584,7 @@ environment:
         tethers_l = [Tether(:main_l, [:line_l], 50.0)]
         winches_l = [Winch(:winch_l, set, [:main_l];
                            winch_point=:ground_l,
-                           model=make_length_winch(100.0, 20.0))]
+                           model=LengthTrackWinch(100.0, 20.0))]
 
         sys_l = SystemStructure("len_track_test", set;
             points=points_l, segments=segments_l,

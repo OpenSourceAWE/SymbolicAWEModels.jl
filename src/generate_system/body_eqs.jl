@@ -49,7 +49,7 @@ function body_eqs!(
             force_w, moment_w,
             inertia_p=params.rigid_bodies[idx].inertia_principal,
             mass,
-            R_b_to_p=get_body_R_b_to_p(psys, idx),
+            R_b_to_p=params.rigid_bodies[idx].R_b_to_p,
             com_offset_b=params.rigid_bodies[idx].com_offset_b,
             com_w=body_com_w, com_vel=body_com_vel,
             Q_p_to_w=body_Q_p_to_w, ω_p=body_ω_p,

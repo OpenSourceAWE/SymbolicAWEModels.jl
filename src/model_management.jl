@@ -237,7 +237,7 @@ function maybe_create_prob!(sam; create_prob=true, prn=true)
         prn && println("\tSimplified the System for ODEProblem in $time seconds.")
 
         dt = SimFloat(1/sam.set.sample_freq)
-        time = @elapsed prob = ODEProblem(sys, sam.defaults, (0.0, dt); u0_prior=sam.guesses)
+        time = @elapsed prob = ODEProblem(sys, sam.defaults, (0.0, dt))
         prn && println("\tCreated the ODEProblem in $time seconds.")
 
         time = @elapsed getters = generate_prob_getters(sam.sys_struct, sys,
@@ -272,7 +272,7 @@ function maybe_create_lin_prob!(sam, outputs; create_lin_prob=true, prn=true)
         full_sys = something(sam.full_sys)
         time = @elapsed @suppress_err begin
             lin_fun, lin_sys = linearization_function(full_sys, [sam.inputs...], outputs;
-                                                    op=sam.defaults, guesses=sam.guesses)
+                                                    op=sam.defaults)
             prob = LinearizationProblem(lin_fun, 0.0)
             getters = generate_lin_getters(lin_sys)
             sam.lin_prob = LinProbWithAttributes(; prob,
@@ -321,7 +321,7 @@ custom aero model, in which case the compiled model cannot be reused from cache
 and must be rebuilt.
 """
 function has_custom_component(sys_struct)
-    any(winch.model !== default_winch_component
+    any(!is_builtin_winch(winch.model)
         for winch in sys_struct.winches) && return true
     any(!is_builtin_aero(wing.aero)
         for wing in sys_struct.wings) && return true
@@ -489,6 +489,9 @@ function reinit!(
     dt = SimFloat(1/sam.set.sample_freq)
     existing = sam.integrator
     fresh = isnothing(existing) || !successful_retcode(existing.sol) || reset_integrator
+    seed_set_values!(target) = isnothing(prob.set_set_values) ? nothing :
+        prob.set_set_values(target,
+            SimFloat[winch.set_value for winch in sam.sys_struct.winches])
     if fresh
         # Sync params and initial conditions onto the problem so the single init
         # solve honors both. A trailing `reinit!(...; reinit_dae)` would re-solve
@@ -496,6 +499,7 @@ function reinit!(
         prob.set_sys(prob.prob, sam.sys_struct)
         sync_params!(prob.param_sync, prob.prob, sam.sys_struct)
         sync_initial!(prob.initial_sync, prob.prob, sam.sys_struct)
+        seed_set_values!(prob.prob)
         integrator = init(prob.prob, solver;
             adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol,
             save_on=false, save_everystep=false)
@@ -504,6 +508,7 @@ function reinit!(
         integrator = existing
         sam.integrator = integrator
         sync_params!(prob.param_sync, integrator, sam.sys_struct)
+        seed_set_values!(integrator)
         OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
     end
     update_sys_struct!(prob, integrator, sam.sys_struct)

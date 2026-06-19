@@ -4,13 +4,13 @@
 # Pulley dynamics equation generation
 
 """
-    pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys, params;
+    pulley_eqs!(eqs, defaults, pulleys, segments, psys, params;
                 spring_force, pulley_len, pulley_vel)
 
 Generate equations for pulley dynamics (rope distribution over pulleys).
 
 # Arguments
-- `eqs`, `defaults`, `guesses`: Accumulating vectors for the MTK system.
+- `eqs`, `defaults`: Accumulating vectors for the MTK system.
 - `pulleys`: Collection of Pulley objects.
 - `segments`: Collection of Segment objects (for mass calculation).
 - `psys`: Symbolic parameter representing the system structure.
@@ -18,9 +18,9 @@ Generate equations for pulley dynamics (rope distribution over pulleys).
 - `pulley_len`, `pulley_vel`: Symbolic pulley state variables.
 
 # Returns
-- Tuple `(eqs, defaults, guesses)` with updated equation vectors.
+- Tuple `(eqs, defaults)` with updated equation vectors.
 """
-function pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys, params, initial;
+function pulley_eqs!(eqs, defaults, pulleys, segments, psys, params, initial;
                      spring_force, pulley_len, pulley_vel)
     @variables begin
         pulley_force(t)[eachindex(pulleys)]
@@ -56,5 +56,5 @@ function pulley_eqs!(eqs, defaults, guesses, pulleys, segments, psys, params, in
             error("Wrong pulley type")
         end
     end
-    return eqs, defaults, guesses
+    return eqs, defaults
 end

@@ -24,62 +24,70 @@ using KiteUtils: init!, next_step!
 using ModelingToolkit
 using ModelingToolkit: t_nounits as t, D_nounits as D
 using SymbolicAWEModels
-using SymbolicAWEModels: SystemStructure,
-    get_winch_gear_ratio, get_winch_drum_radius,
-    get_winch_f_coulomb, get_winch_c_vf,
-    get_winch_inertia_total, get_winch_friction_epsilon
+using SymbolicAWEModels: AbstractWinchModel
 import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie
 
 set_data_path(joinpath(dirname(@__DIR__), "data"))
 set = Settings("base/system.yaml")
 set.v_wind = 0.0
 
-function make_length_to_velocity_winch(;
-        v_max::Float64, K_pos::Float64, K_p::Float64)
-    return function (sys_struct::SystemStructure, winch_idx::Int; name)
-        SST = typeof(sys_struct)
-        @parameters (psys::SST = sys_struct), [tunable = false]
-        @variables begin
-            vel(t)
-            len(t)
-            force(t)
-            set_value(t)
-            brake(t)
-            acc(t)
-            friction(t)
-            ω_motor(t)
-            vel_unclamped(t)
-            vel_ref(t)
-            tau_cmd(t)
-            tau_net(t)
-        end
+"""
+Custom winch model: `set_value` is a target tether length. Drum params come from
+the flat `params` view (mirrors `DefaultWinchModel`); the controller gains and
+`friction_epsilon` are the model's own fields.
+"""
+mutable struct CascadedLengthWinch <: AbstractWinchModel
+    v_max::Float64
+    K_pos::Float64
+    K_p::Float64
+    friction_epsilon::Float64
+end
+CascadedLengthWinch(; v_max, K_pos, K_p, friction_epsilon=6.0) =
+    CascadedLengthWinch(v_max, K_pos, K_p, friction_epsilon)
 
-        gear_ratio    = get_winch_gear_ratio(psys, winch_idx)
-        drum_radius   = get_winch_drum_radius(psys, winch_idx)
-        f_coulomb     = get_winch_f_coulomb(psys, winch_idx)
-        c_vf          = get_winch_c_vf(psys, winch_idx)
-        inertia_total = get_winch_inertia_total(psys, winch_idx)
-        friction_eps  = get_winch_friction_epsilon(psys, winch_idx)
-        smooth_sign(x, eps) = x / sqrt(x * x + eps * eps)
-        ratio = drum_radius / gear_ratio
-
-        eqs = [
-            ω_motor       ~ vel / ratio
-            friction      ~ smooth_sign(ω_motor, friction_eps) *
-                            f_coulomb * ratio +
-                            c_vf * ω_motor * ratio^2
-            vel_unclamped ~ K_pos * (set_value - len)
-            vel_ref       ~ max(-v_max, min(v_max, vel_unclamped))
-            tau_cmd       ~ K_p * (vel_ref - vel) + friction - ratio * force
-            tau_net       ~ tau_cmd + ratio * force - friction
-            acc           ~ ifelse(brake > 0.5, 0.0,
-                                   ratio * tau_net / inertia_total)
-        ]
-        return System(eqs, t,
-                      [vel, len, force, set_value, brake, acc, friction,
-                       ω_motor, vel_unclamped, vel_ref, tau_cmd, tau_net],
-                      [psys]; name)
+function SymbolicAWEModels.winch_component(model::CascadedLengthWinch,
+        sys_struct, winch_idx; name, params)
+    @variables begin
+        vel(t)
+        len(t)
+        force(t)
+        set_value(t)
+        brake(t)
+        acc(t)
+        friction(t)
+        ω_motor(t)
+        vel_unclamped(t)
+        vel_ref(t)
+        tau_cmd(t)
+        tau_net(t)
     end
+
+    gear_ratio    = params.winches[winch_idx].gear_ratio
+    drum_radius   = params.winches[winch_idx].drum_radius
+    f_coulomb     = params.winches[winch_idx].f_coulomb
+    c_vf          = params.winches[winch_idx].c_vf
+    inertia_total = params.winches[winch_idx].inertia_total
+    friction_eps  = params.winches[winch_idx].model.friction_epsilon
+    smooth_sign(x, eps) = x / sqrt(x * x + eps * eps)
+    ratio = drum_radius / gear_ratio
+
+    eqs = [
+        ω_motor       ~ vel / ratio
+        friction      ~ smooth_sign(ω_motor, friction_eps) *
+                        f_coulomb * ratio +
+                        c_vf * ω_motor * ratio^2
+        vel_unclamped ~ model.K_pos * (set_value - len)
+        vel_ref       ~ max(-model.v_max, min(model.v_max, vel_unclamped))
+        tau_cmd       ~ model.K_p * (vel_ref - vel) + friction - ratio * force
+        tau_net       ~ tau_cmd + ratio * force - friction
+        acc           ~ ifelse(brake > 0.5, 0.0,
+                               ratio * tau_net / inertia_total)
+    ]
+    return System(eqs, t,
+                  [vel, len, force, set_value, brake, acc, friction,
+                   ω_motor, vel_unclamped, vel_ref, tau_cmd, tau_net],
+                  [gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total,
+                   friction_eps]; name)
 end
 
 points = [
@@ -91,8 +99,7 @@ segments = [
 ]
 tethers = [Tether(:main, [:line], 50.0)]
 winches = [Winch(:winch, set, [:main]; winch_point=:ground,
-                 model=make_length_to_velocity_winch(
-                     v_max=1.0, K_pos=50.0, K_p=10.0))]
+                 model=CascadedLengthWinch(v_max=1.0, K_pos=50.0, K_p=10.0))]
 winches[1].inertia_total = 0.001  # tiny rotor → near-instant velocity tracking
 
 sys_struct = SystemStructure("custom_winch_vel", set;

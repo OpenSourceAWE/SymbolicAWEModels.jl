@@ -117,13 +117,12 @@ This simplifies the structure and improves serialization robustness.
 
 $(TYPEDFIELDS)
 """
-@with_kw mutable struct SerializedModel{D<:AbstractVector, G<:AbstractVector}
+@with_kw mutable struct SerializedModel{D<:AbstractVector}
     set_hash::Vector{UInt8}
     sys_struct_hash::Vector{UInt8}
     "Unsimplified system of the mtk model"
     full_sys::Union{ModelingToolkit.System, Nothing} = nothing
     defaults::D = Pair{Num, Any}[]
-    guesses::G = Pair{Num, Any}[]
     "Symbolic representation of the control inputs."
     inputs::Union{Symbolics.Arr, Vector{Num}} = Num[]
     "Outputs of the linearization and control function."

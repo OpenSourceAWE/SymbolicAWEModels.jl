@@ -773,6 +773,19 @@ end
 # ==================== WINCH ==================== #
 
 """
+    abstract type AbstractWinchModel
+
+Selects the winch motor dynamics. Each concrete model carries its own
+parameter fields and adds a `winch_component(model, sys_struct, idx; name,
+params)` method building the MTK subsystem (mirrors [`AbstractAeroModel`](@ref)).
+The model lives in [`Winch`](@ref)`.model`; common drum parameters
+(`gear_ratio`, `drum_radius`, `f_coulomb`, `c_vf`, `inertia_total`) stay on
+the `Winch` struct. New models = new struct + a few methods; see
+[`DefaultWinchModel`](@ref).
+"""
+abstract type AbstractWinchModel end
+
+"""
     mutable struct Winch
 
 A set of tethers (or a single tether) connected to a winch mechanism.
@@ -825,12 +838,9 @@ mutable struct Winch
     inertia_total::SimFloat
     "Current friction force [N] (updated during simulation)."
     friction::SimFloat
-    "Smoothing width for Coulomb friction sign function."
-    friction_epsilon::SimFloat
-    """Builder function for the winch component.
-    Called as `model(system, winch_idx; name) -> ODESystem`.
-    Defaults to [`default_winch_component`](@ref)."""
-    model::Function
+    """Winch motor dynamics model carrying its own parameters.
+    Defaults to [`DefaultWinchModel`](@ref). See [`AbstractWinchModel`](@ref)."""
+    model::AbstractWinchModel
 end
 
 """
@@ -854,17 +864,17 @@ torque or speed regulation.
 - `speed_controlled::Bool=false`: If true, prescribe reel-out
   velocity via `winch.vel` instead of integrating motor dynamics;
   winch acceleration is forced to 0, ignoring `model`.
-- `friction_epsilon::SimFloat=6.0`: Smoothing parameter for
-  Coulomb friction sign function.
-- `model::Function=default_winch_component`: Builder returning
-  the MTK component that defines the motor dynamics. See
-  [`default_winch_component`](@ref) for the connector contract.
+- `friction_epsilon::SimFloat=6.0`: Coulomb-friction smoothing width;
+  forwarded into the default [`DefaultWinchModel`](@ref) (ignored when an
+  explicit non-default `model` is passed).
+- `model::AbstractWinchModel=DefaultWinchModel()`: Winch motor dynamics
+  model. See [`AbstractWinchModel`](@ref) for plugging in your own.
 """
 function Winch(name, set::Settings, tethers;
                winch_point,
                init_vel=0.0, brake=0.0, speed_controlled=false,
                friction_epsilon=6.0,
-               model::Function=default_winch_component)
+               model::AbstractWinchModel=DefaultWinchModel(; friction_epsilon))
     tether_refs = Vector{NameRef}(
         [t isa Integer ? Int(t) : Symbol(t) for t in tethers])
     wp = winch_point isa Integer ? Int(winch_point) :
@@ -876,7 +886,7 @@ function Winch(name, set::Settings, tethers;
                  set.gear_ratio, set.drum_radius,
                  set.f_coulomb, set.c_vf,
                  set.inertia_total, zero(SimFloat),
-                 friction_epsilon, model)
+                 model)
 end
 
 """
@@ -900,7 +910,7 @@ function Winch(name, tethers, gear_ratio, drum_radius,
                winch_point,
                init_vel=0.0, brake=0.0, speed_controlled=false,
                friction_epsilon=6.0,
-               model::Function=default_winch_component)
+               model::AbstractWinchModel=DefaultWinchModel(; friction_epsilon))
     tether_refs = Vector{NameRef}(
         [t isa Integer ? Int(t) : Symbol(t) for t in tethers])
     wp = winch_point isa Integer ? Int(winch_point) :
@@ -911,7 +921,7 @@ function Winch(name, tethers, gear_ratio, drum_radius,
                  SimFloat(brake), speed_controlled, zeros(KVec3),
                  gear_ratio, drum_radius, f_coulomb,
                  c_vf, inertia_total, zero(SimFloat),
-                 friction_epsilon, model)
+                 model)
 end
 
 # ==================== TRANSFORM ==================== #
