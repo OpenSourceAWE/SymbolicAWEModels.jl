@@ -24,13 +24,12 @@ aero_mode_tag(::AeroDirect) = "dir"
 provides_aero_override(::AeroDirect) = true
 
 function aero_component(::AeroDirect, sys_struct, wing_idx; name, params=nothing)
-    psys = system_struct_param(sys_struct)
     wing = sys_struct.wings[wing_idx]
 
     # AeroDirect's forces are frozen between refreshes (provides_aero_override /
     # stores_point_force are both true), so the per-point/wing/twist outputs are
     # flat params synced after each refresh.
-    flat_ps = Any[psys]
+    flat_ps = Any[]
     if wing.dynamics_type == PARTICLE_DYNAMICS
         points = wing_points(sys_struct, wing)
         num_points = length(points)

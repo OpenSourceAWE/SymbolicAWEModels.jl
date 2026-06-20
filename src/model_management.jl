@@ -1,14 +1,6 @@
 # Copyright (c) 2025 Bart van de Lint and Uwe Fechner
 # SPDX-License-Identifier: LGPL-3.0-only
 
-function make_psys_setter(sys)
-    is_psys(p) = Symbolics.symtype(Symbolics.unwrap(p)) <: SystemStructure
-    psys_params = filter(is_psys, parameters(sys))
-    setter = setp(sys, psys_params)
-    n = length(psys_params)
-    return (prob, sys_struct) -> setter(prob, ntuple(_ -> sys_struct, n))
-end
-
 """
     generate_prob_getters(sys_struct, sys)
 
@@ -88,8 +80,6 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             sys.tether_len,
             sys.stretched_len]))
     end
-    set_sys = make_psys_setter(sys)
-
     # point_state returns, in order: pos, vel, point_force, va_point_b, point_mass, total_drag
     if length(points) > 0
         get_point_state = getu(sys, collect_each.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass, sys.total_drag]))
@@ -102,7 +92,7 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
 
     return (; get_wing_state, get_aero_input, get_segment_state, get_twist_surface_state,
             get_pulley_state, get_winch_state, get_tether_state, set_set_values,
-            get_set_values, set_sys, get_point_state, get_rigid_body_state, param_sync,
+            get_set_values, get_point_state, get_rigid_body_state, param_sync,
             initial_sync)
 end
 
@@ -115,16 +105,15 @@ Generate setter functions for the parameters of a linearized system.
 - `sys`: The linearized ModelingToolkit system.
 
 # Returns
-- A `NamedTuple` containing setter functions for the winch set-points (`set_set_values`),
-  and the system structure parameters (`set_sys`).
+- A `NamedTuple` containing the setter function for the winch set-points
+  (`set_set_values`).
 """
 function generate_lin_getters(sys)
     set_set_values = nothing
     if hasproperty(sys, :set_values)
         set_set_values = setp(sys, sys.set_values)
     end
-    set_sys = make_psys_setter(sys)
-    return (; set_set_values, set_sys)
+    return (; set_set_values)
 end
 
 """
@@ -437,14 +426,9 @@ function init!(sam::SymbolicAWEModel;
         changed |= maybe_create_control_functions!(sam, outputs;
             create_control_func, prn)
 
-        # Update deserialized prob parameters to current sys_struct
-        # (sys_struct contains set, so set_sys covers both)
+        # Sync deserialized prob's flat parameters to the current sys_struct.
         if !isnothing(sam.prob)
-            sam.prob.set_sys(sam.prob.prob, sam.sys_struct)
             sync_params!(sam.prob.param_sync, sam.prob.prob, sam.sys_struct)
-        end
-        if !isnothing(sam.lin_prob)
-            sam.lin_prob.set_sys(sam.lin_prob.prob, sam.sys_struct)
         end
 
         if changed
@@ -496,7 +480,6 @@ function reinit!(
         # Sync params and initial conditions onto the problem so the single init
         # solve honors both. A trailing `reinit!(...; reinit_dae)` would re-solve
         # the DAE init without re-reading `Initial`, discarding the synced state.
-        prob.set_sys(prob.prob, sam.sys_struct)
         sync_params!(prob.param_sync, prob.prob, sam.sys_struct)
         sync_initial!(prob.initial_sync, prob.prob, sam.sys_struct)
         seed_set_values!(prob.prob)
@@ -615,8 +598,8 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("rigid_body", rigid_body.idx))
     end
     for joint in elastic_joints
-        # Stiffness field types are part of the SystemStructure type parameter
-        # (J), so they are baked into the compiled problem's `psys` — a float vs
+        # The stiffness type selects the generated law: a `Real` emits a scalar
+        # param (`k·Δ`), an interpolation a callable param (`k(Δ)`). So a float vs
         # interpolation (or a different interpolation type) is a distinct model.
         stiff_type(s) = s isa Real ? "float" : string(typeof(s))
         push!(data_parts, ("elastic_joint", joint.idx,

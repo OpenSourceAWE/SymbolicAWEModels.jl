@@ -6,7 +6,7 @@
 # Tests wind profile calculations at different altitudes using STATIC points as "probes".
 # Verifies that wind_at_point matches expected wind speed for each profile law.
 #
-# Profile laws (see helpers.jl calc_wind_factor):
+# Profile laws (see helpers.jl WindFactor):
 #   0 = CONST (constant wind, factor = 1.0)
 #   1 = EXP (delegated to AtmosphericModels)
 #   2 = LOG (delegated to AtmosphericModels)

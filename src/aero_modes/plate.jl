@@ -81,16 +81,6 @@ function create_plate_interpolations(
     return (cl_interp, cd_interp)
 end
 
-get_plate_cl(sys::SystemStructure, wing_idx::Int64, alpha_deg) =
-    sys.wings[wing_idx].aero.calc_cl(alpha_deg)
-@register_symbolic get_plate_cl(
-    sys::SystemStructure, wing_idx::Int64, alpha_deg)
-
-get_plate_cd(sys::SystemStructure, wing_idx::Int64, alpha_deg) =
-    sys.wings[wing_idx].aero.calc_cd(alpha_deg)
-@register_symbolic get_plate_cd(
-    sys::SystemStructure, wing_idx::Int64, alpha_deg)
-
 # ==================== equation builder ==================== #
 
 """
@@ -104,7 +94,6 @@ from the section's twisted body-frame axes, the point's apparent wind, and its
 air density.
 """
 function aero_component(::AeroPlate, sys_struct, wing_idx; name, params=nothing)
-    psys = system_struct_param(sys_struct)
     wing = sys_struct.wings[wing_idx]
 
     twist_surfaces = sys_struct.twist_surfaces
@@ -112,7 +101,10 @@ function aero_component(::AeroPlate, sys_struct, wing_idx; name, params=nothing)
     num_points = length(points)
     connectors = particle_aero_connectors(num_points)
 
-    flat_ps = Any[psys]
+    # Airfoil polars as callable params (live splines, applied as `cl(α)`).
+    calc_cl_p = params.wings[wing_idx].aero.calc_cl
+    calc_cd_p = params.wings[wing_idx].aero.calc_cd
+    flat_ps = Any[calc_cl_p, calc_cd_p]
     eqs = Equation[]
     for (point_num, point) in enumerate(points)
         ts_idx = 0
@@ -143,8 +135,8 @@ function aero_component(::AeroPlate, sys_struct, wing_idx; name, params=nothing)
         v_norm = apparent_wind ⋅ z_twisted
         alpha_deg = rad2deg(atan(v_norm, v_tan))
 
-        cl = get_plate_cl(psys, wing_idx, alpha_deg)
-        cd = drag_corr_p * get_plate_cd(psys, wing_idx, alpha_deg)
+        cl = calc_cl_p(alpha_deg)
+        cd = drag_corr_p * calc_cd_p(alpha_deg)
 
         q = 0.5 * connectors.rho[point_num] * (v_tan^2 + v_norm^2)
         q_drag = 0.5 * connectors.rho[point_num] * (apparent_wind ⋅ apparent_wind)

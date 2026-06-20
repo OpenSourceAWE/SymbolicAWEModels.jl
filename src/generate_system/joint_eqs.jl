@@ -6,24 +6,21 @@
 # in body A's frame into axial/shear/torsion/bending with optional damping.
 
 """
-    joint_stiffness_term(joint, params, psys, kind, Δ)
+    joint_stiffness_term(joint, params, kind, Δ)
 
-Restoring force/moment for one joint DOF. A `Real` stiffness uses a numeric flat
-parameter (`k·Δ`, data); an interpolation stays a registered symbolic call
-(`get_joint_force`, a genuine function of `Δ`). `kind`: 1=axial, 2=shear,
-3=torsion, 4=bending.
+Restoring force/moment for one joint DOF, read as a flat parameter: a `Real`
+stiffness is a numeric scalar param (`k·Δ`); an interpolation is a callable param
+applied as `k(Δ)`. `kind`: 1=axial, 2=shear, 3=torsion, 4=bending.
 """
-function joint_stiffness_term(joint, params, psys, kind::Int, Δ)
+function joint_stiffness_term(joint, params, kind::Int, Δ)
     field = (:stiffness_axial, :stiffness_shear,
              :stiffness_torsion, :stiffness_bending)[kind]
-    if getfield(joint, field) isa Real
-        return getproperty(params.elastic_joints[joint.idx], field) * Δ
-    end
-    return get_joint_force(psys, joint.idx, kind, Δ)
+    k = getproperty(params.elastic_joints[joint.idx], field)
+    return getfield(joint, field) isa Real ? k * Δ : k(Δ)
 end
 
 """
-    joint_eqs!(eqs, psys, elastic_joints, params; kwargs...)
+    joint_eqs!(eqs, elastic_joints, params; kwargs...)
 
 For each `ElasticJoint`, compute the restoring wrench from the relative pose of
 the two anchors (in body A's frame) and accumulate it — equal and opposite —
@@ -32,7 +29,7 @@ relative rotation uses the small-angle vector extraction, exact for the small
 per-joint rotations of a stiff chain.
 """
 function joint_eqs!(
-    eqs, psys, elastic_joints, params;
+    eqs, elastic_joints, params;
     body_force, body_moment,
     body_com_w, body_pos_w, body_com_vel, body_ω_b, body_R_b_to_w,
 )
@@ -88,14 +85,14 @@ function joint_eqs!(
         # `joint_stiffness_term` (kind 1=axial, 2=shear, 3=torsion, 4=bending).
         # Built element-wise: symbolic-array broadcasting is fragile.
         force_a = [
-            -joint_stiffness_term(joint, params, psys, 1, Δr_a[1]) - damp_trans * Δv_a[1],
-            -joint_stiffness_term(joint, params, psys, 2, Δr_a[2]) - damp_trans * Δv_a[2],
-            -joint_stiffness_term(joint, params, psys, 2, Δr_a[3]) - damp_trans * Δv_a[3],
+            -joint_stiffness_term(joint, params, 1, Δr_a[1]) - damp_trans * Δv_a[1],
+            -joint_stiffness_term(joint, params, 2, Δr_a[2]) - damp_trans * Δv_a[2],
+            -joint_stiffness_term(joint, params, 2, Δr_a[3]) - damp_trans * Δv_a[3],
         ]
         torque_a = [
-            -joint_stiffness_term(joint, params, psys, 3, Δθ_a[1]) - damp_rot * Δω_a[1],
-            -joint_stiffness_term(joint, params, psys, 4, Δθ_a[2]) - damp_rot * Δω_a[2],
-            -joint_stiffness_term(joint, params, psys, 4, Δθ_a[3]) - damp_rot * Δω_a[3],
+            -joint_stiffness_term(joint, params, 3, Δθ_a[1]) - damp_rot * Δω_a[1],
+            -joint_stiffness_term(joint, params, 4, Δθ_a[2]) - damp_rot * Δω_a[2],
+            -joint_stiffness_term(joint, params, 4, Δθ_a[3]) - damp_rot * Δω_a[3],
         ]
 
         eqs = [

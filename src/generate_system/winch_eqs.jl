@@ -6,7 +6,7 @@
 
 """
     winch_eqs!(eqs, defaults, winches, tethers, segments, points,
-               sys_struct, psys, params;
+               sys_struct, params;
                spring_force_vec, set_values, tether_len,
                winch_vel, winch_acc, winch_force_vec, winch_friction)
 
@@ -31,7 +31,7 @@ For each tether:
 - Without winch: `D(tether_len) = 0`.
 """
 function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
-                    sys_struct, psys, params, initial;
+                    sys_struct, params, initial;
                     spring_force_vec, set_values, tether_len,
                     winch_vel, winch_acc, winch_force_vec, winch_force,
                     winch_friction)

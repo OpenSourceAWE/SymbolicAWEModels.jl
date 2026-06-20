@@ -3,10 +3,32 @@
 
 # Helper functions for symbolic equation generation
 
-function system_struct_param(sys_struct)
-    SST = typeof(sys_struct)
-    return only(@parameters (psys::SST = sys_struct), [tunable = false])
+"""
+    WindFactor(am, profile_law)
+
+Callable wind-shear factor, used as a callable flat parameter `w(pos_z)`: the
+ratio of wind speed at height `pos_z` to the ground value, from atmospheric model
+`am` under `profile_law` (1.0 when `profile_law == 0`). `ForwardDiff.Dual`-safe in
+`pos_z`. Read live from `sys_struct` via [`WindFactorReader`](@ref).
+"""
+struct WindFactor
+    am::AtmosphericModel
+    profile_law::Int
 end
+function (w::WindFactor)(pos_z)
+    w.profile_law == 0 && return 1.0
+    return AtmosphericModels.calc_wind_factor(w.am, max(1.0, pos_z), w.profile_law)
+end
+
+"""
+    WindFactorReader()
+
+Serializable flat-param reader producing a [`WindFactor`](@ref) from the live
+`sys_struct`'s atmospheric model and wind profile law.
+"""
+struct WindFactorReader end
+(::WindFactorReader)(sys_struct) =
+    WindFactor(sys_struct.am, sys_struct.set.profile_law)
 
 """
     calc_angle_of_attack(va_wing_b)
@@ -97,21 +119,6 @@ function rotation_matrix_to_quaternion(R::AbstractMatrix)
     return [pick(w1, w2, w3, w4), pick(x1, x2, x3, x4),
             pick(y1, y2, y3, y4), pick(z1, z2, z3, z4)]
 end
-
-function calc_wind_factor(
-    am::AtmosphericModel, _pos_x, _pos_y, pos_z,
-    sys::SystemStructure
-)
-    if sys.set.profile_law == 0
-        return 1.0
-    else
-        return AtmosphericModels.calc_wind_factor(
-            am, max(1.0, pos_z), sys.set.profile_law)
-    end
-end
-@register_symbolic calc_wind_factor(
-    am::AtmosphericModel, _pos_x, _pos_y, pos_z,
-    sys::SystemStructure)
 
 """
     rotate_v_around_k(v, k, θ)

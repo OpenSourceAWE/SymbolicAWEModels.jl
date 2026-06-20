@@ -284,43 +284,40 @@ must not (they are read live, see below).
 
 ### Live-updating fields
 
-Dispatch alone does **not** make a mode's fields update live — a registered
-getter that reads the live `SystemStructure` does. Put the mutable value on the
-mode struct and read it through a registered scalar getter:
+Put the mutable value on the mode struct and read it through the build-time
+`params` view: the field becomes a flat MTK parameter synced from the live
+`SystemStructure` once per step (no `@register_symbolic`, no `psys`):
 
 ```julia
 mutable struct ConstantLiftAero <: AbstractAeroModel
     CL::Float64                       # live-tunable
 end
 
-get_const_cl(sys::SystemStructure, w::Int) = sys.wings[w].aero.CL
-@register_symbolic get_const_cl(sys::SystemStructure, w::Int)
-
 function SymbolicAWEModels.aero_component(::ConstantLiftAero,
-                                          sys_struct, wing_idx; name)
-    SST = typeof(sys_struct)
-    @parameters (psys::SST = sys_struct), [tunable = false]
-    # ... use get_const_cl(psys, wing_idx) in the force equation ...
+                                          sys_struct, wing_idx; name, params)
+    CL = params.wings[wing_idx].aero.CL   # flat param, synced live each step
+    # ... use CL in the force equation ...
 end
 ```
 
-Mutate the field between steps — no `remake`, read at the next RHS evaluation:
+Mutate the field between steps — no `remake`, picked up at the next sync:
 
 ```julia
 sam.sys_struct.wings[1].aero.CL = 0.8
 ```
 
-Only **numeric field values** update live. A field that changes the equation
-*structure* is a compile-time change (`init!(sam; remake=true)`) and belongs in
-`aero_hash_id`. A vector-valued getter must use `@register_array_symbolic` with
-an explicit `ndims`, and must return a **stored** field (never a freshly built
-array) to stay allocation-free.
+A numeric field becomes a scalar/array param; a **callable** field (an
+interpolation or polar) becomes a callable param applied as `CL(α)` — see
+[`ContinuousPolar`](@ref). A field that changes the equation *structure* is a
+compile-time change (`init!(sam; remake=true)`) and belongs in
+[`aero_hash_id`](@ref).
 
 !!! note "Zero-allocation RHS"
     The built-in modes generate an allocation-free ODE RHS (asserted by
     `test_bench.jl`). A custom component is not tested in-package; to keep the
-    RHS allocation-free, its equations must stay scalar/zero-alloc (a registered
-    function with an array argument or return value will allocate). Check with
+    RHS allocation-free, read data through the `params` view (flat params compile
+    to direct buffer loads) rather than `@register_symbolic` getters, which box
+    array arguments/returns and allocate. Check with
     `validate_rhs_allocs(sam; max_bytes=0, diagnose=true)`.
 
 ## Aligning aero sections to structure

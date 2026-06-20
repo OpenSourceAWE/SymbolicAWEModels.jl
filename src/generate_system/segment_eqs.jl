@@ -4,7 +4,7 @@
 # Segment spring-damper equation generation
 
 """
-    segment_eqs!(s, eqs, points, segments, pulleys, tethers, wings, psys;
+    segment_eqs!(s, eqs, points, segments, pulleys, tethers, wings, params;
                  pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
                  pulley_len, tether_len)
 
@@ -14,7 +14,6 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
 - `eqs`: Accumulating equation vector for the MTK system.
 - `points`, `segments`, `pulleys`, `tethers`, `wings`: System components.
-- `psys`: Symbolic parameter representing the system structure.
 - `pos`, `vel`: Symbolic point state variables.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
 - `spring_force_vec`, `drag_force`, `l0`: Pre-declared segment force variables.
@@ -26,9 +25,10 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
 """
 function segment_eqs!(s, eqs, points, segments,
                       pulleys, tethers, wings,
-                      psys, params; pos, vel, wind_vec_gnd,
+                      params; pos, vel, wind_vec_gnd,
                       spring_force_vec, drag_force, l0,
                       pulley_len, tether_len)
+    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
     @variables begin
         # Spring-damper model
         segment_vec(t)[1:3, eachindex(segments)]
@@ -158,8 +158,6 @@ function segment_eqs!(s, eqs, points, segments,
         end
 
         # Aerodynamic properties for all segments
-        segment_pos_x = 0.5 * (pos[1, p1] + pos[1, p2])
-        segment_pos_y = 0.5 * (pos[2, p1] + pos[2, p2])
         segment_pos_z = 0.5 * (pos[3, p1] + pos[3, p2])
         eqs = [
             eqs
@@ -167,8 +165,7 @@ function segment_eqs!(s, eqs, points, segments,
             segment_vel[:, segment.idx] ~ 0.5 * (vel[:, p1] + vel[:, p2])
             segment_rho[segment.idx] ~ calc_rho(s.am, segment_height[segment.idx])
             wind_vel[:, segment.idx] ~
-                calc_wind_factor(s.am, segment_pos_x, segment_pos_y, segment_pos_z,
-                                 psys) * wind_vec_gnd
+                wind_factor(segment_pos_z) * wind_vec_gnd
             va[:, segment.idx] ~
                 wind_vel[:, segment.idx] - segment_vel[:, segment.idx]
             area[segment.idx] ~

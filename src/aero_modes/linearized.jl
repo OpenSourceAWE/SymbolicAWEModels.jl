@@ -22,7 +22,6 @@ is_builtin_aero(::AeroLinearized) = true
 aero_mode_tag(::AeroLinearized) = "lin"
 
 function aero_component(::AeroLinearized, sys_struct, wing_idx; name, params)
-    psys = system_struct_param(sys_struct)
     wing = sys_struct.wings[wing_idx]
     # Aero coefficients as flat params (frozen between VSM refreshes, synced per refresh).
     aero_y_p = params.wings[wing_idx].aero_y
@@ -81,7 +80,7 @@ function aero_component(::AeroLinearized, sys_struct, wing_idx; name, params)
     vars = rigid_unknowns(connectors)
     push!(vars, aero_input)
     return System(eqs, t, vars,
-        [psys, aero_y_p, aero_x_p, aero_jac_p, drag_frac_p]; name)
+        [aero_y_p, aero_x_p, aero_jac_p, drag_frac_p]; name)
 end
 
 """

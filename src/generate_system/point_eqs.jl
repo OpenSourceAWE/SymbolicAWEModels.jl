@@ -4,7 +4,7 @@
 # Point dynamics equation generation
 
 """
-    point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, psys;
+    point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, params, initial;
                R_b_to_w, wing_vel, wind_vec_gnd, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                spring_sum_force, point_drag_force, total_drag,
@@ -20,7 +20,6 @@ Generate equations for all point types (STATIC, DYNAMIC, WING).
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
 - `eqs`, `defaults`: Accumulating vectors for the MTK system.
 - `points`, `segments`, `twist_surfaces`, `wings`: System components.
-- `psys`: Symbolic parameter representing the system structure.
 - `R_b_to_w`: Symbolic rotation matrix (body to world).
 - `wing_vel`: Symbolic wing center of mass velocity.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
@@ -36,7 +35,7 @@ Generate equations for all point types (STATIC, DYNAMIC, WING).
 - Tuple `(eqs, defaults)` with updated equation vectors.
   Note: `tether_wing_force` and `tether_wing_moment` are modified in-place.
 """
-function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, psys, params, initial;
+function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, params, initial;
                     R_b_to_w, com_w,
                     wing_vel, wind_vec_gnd, twist_angle,
                     pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -47,6 +46,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     aero_force_point_b,
                     twist_surface_y_airf, tether_wing_force, tether_wing_moment)
 
+    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
     for point in points
         F::Vector{Num} = zeros(Num, 3)
         seg_drag::Vector{Num} = zeros(Num, 3)
@@ -95,8 +95,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                 eqs
                 height[point.idx] ~ max(0.0, pos[3, point.idx])
                 wind_at_point[:, point.idx] ~
-                    calc_wind_factor(s.am, pos[1, point.idx], pos[2, point.idx],
-                                     pos[3, point.idx], psys) * wind_vec_gnd
+                    wind_factor(pos[3, point.idx]) * wind_vec_gnd
                 va_point_w[:, point.idx] ~
                     wind_at_point[:, point.idx] - vel[:, point.idx]
                 va_point_b[:, point.idx] ~
@@ -114,8 +113,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                 eqs
                 height[point.idx] ~ max(0.0, pos[3, point.idx])
                 wind_at_point[:, point.idx] ~
-                    calc_wind_factor(s.am, pos[1, point.idx], pos[2, point.idx],
-                                     pos[3, point.idx], psys) * wind_vec_gnd
+                    wind_factor(pos[3, point.idx]) * wind_vec_gnd
                 va_point_w[:, point.idx] ~
                     wind_at_point[:, point.idx] - vel[:, point.idx]
                 va_point_b[:, point.idx] ~ zeros(3)  # No body frame without wing

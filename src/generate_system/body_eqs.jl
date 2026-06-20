@@ -6,7 +6,7 @@
 # the 6-DOF integration to the shared `rigid_body_eqs!`.
 
 """
-    body_eqs!(eqs, defaults, psys, rigid_bodies, params, initial; kwargs...)
+    body_eqs!(eqs, defaults, rigid_bodies, params, initial; kwargs...)
 
 Generate the differential equations for each standalone `RigidBody`. Loads are
 the accumulated joint wrench (`body_force`/`body_moment`, filled by `joint_eqs!`)
@@ -15,7 +15,7 @@ live from the struct (`ext_force_w` world, `ext_moment_b` body). Isotropic
 angular damping is applied through the `d_ω_p` integration override.
 """
 function body_eqs!(
-    eqs, defaults, psys, rigid_bodies, params, initial;
+    eqs, defaults, rigid_bodies, params, initial;
     body_force, body_moment,
     body_com_w, body_com_vel, body_com_acc, body_Q_p_to_w, body_ω_p, body_α_p,
     body_pos_w, body_vel_w, body_acc_w, body_ω_b, body_α_b, body_Q_b_to_w,

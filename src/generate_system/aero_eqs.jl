@@ -13,14 +13,14 @@
 # `va`/`rho` inputs the wiring drives for every particle wing.
 
 """
-    aero_eqs!(s, eqs, psys; kwargs...)
+    aero_eqs!(s, eqs; kwargs...)
         -> (eqs, aero_subsystems)
 
 Instantiate and wire each wing's aero component. Returns the list of
 component subsystems to attach to the parent `System`.
 """
 function aero_eqs!(
-    s, eqs, psys, params;
+    s, eqs, params;
     aero_force_b, aero_moment_b, twist_surface_aero_moment,
     twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
     pos, vel, va_point_b, height, aero_force_point_b=nothing

@@ -45,7 +45,7 @@ function validate_twist_surface_modes(twist_surfaces, wings)
 end
 
 """
-    twist_surface_eqs!(eqs, defaults, twist_surfaces, wings, psys, params;
+    twist_surface_eqs!(eqs, defaults, twist_surfaces, wings, params;
                R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
                point_force, tether_wing_moment, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos)
 
@@ -55,7 +55,6 @@ Generate equations for deformable wing twist_surface twist dynamics.
 - `eqs`, `defaults`: Accumulating vectors for the MTK system.
 - `twist_surfaces`: Collection of TwistSurface objects (deformable wing sections).
 - `wings`: Collection of Wing objects.
-- `psys`: Symbolic parameter representing the system structure.
 - `R_b_to_w`: Symbolic rotation matrix (body to world).
 - `fix_wing`: Symbolic boolean for fixing wing dynamics.
 - `twist_angle`, `twist_ω`: Symbolic twist state variables.
@@ -67,7 +66,7 @@ Generate equations for deformable wing twist_surface twist dynamics.
 # Returns
 - Tuple `(eqs, defaults)` with updated equation vectors.
 """
-function twist_surface_eqs!(eqs, defaults, twist_surfaces, wings, psys, params, initial;
+function twist_surface_eqs!(eqs, defaults, twist_surfaces, wings, params, initial;
                     R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
                     point_force, tether_wing_moment, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos)
 

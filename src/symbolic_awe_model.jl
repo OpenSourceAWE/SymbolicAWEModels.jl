@@ -10,7 +10,7 @@ const GetSetNothing = Union{AbstractIndexer, Nothing}
 A container for the main Ordinary Differential Equation (ODE) problem and its
 associated getter and setter functions for the full, nonlinear physical state.
 """
-@with_kw struct ProbWithAttributes{Prob, SetSys, SetSetValues,
+@with_kw struct ProbWithAttributes{Prob, SetSetValues,
                                   GetSetValues, GetWingState,
                                   GetAeroInput, GetSegmentState,
                                   GetWinchState, GetTetherState,
@@ -21,8 +21,6 @@ associated getter and setter functions for the full, nonlinear physical state.
     prob::Prob
 
     # Setters for the ODE
-    "Setter for the system parameters."
-    set_sys::SetSys
     "Syncs flattened struct-field parameters into the flat buffer once per step."
     param_sync::ParamSync
     "Pushes the struct's initial conditions onto the problem's `Initial` params."
@@ -66,13 +64,12 @@ linearized model (A,B,C,D matrices).
 
 $(TYPEDFIELDS)
 """
-@with_kw struct LinProbWithAttributes{Prob, SetSetValues, SetSys}
+@with_kw struct LinProbWithAttributes{Prob, SetSetValues}
     "Linearization problem of the mtk model."
     prob::Prob
 
     # Setters for the linearization
     set_set_values::SetSetValues
-    set_sys::SetSys
 end
 
 """

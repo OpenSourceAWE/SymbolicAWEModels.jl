@@ -689,12 +689,10 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     # Compute per-wing wind from settings
     wind_vec_gnd = set.wind_vec
 
+    wind_factor = WindFactor(sys_struct.am, sys_struct.set.profile_law)
     for wing in wings
         # Calculate wind at wing position using atmospheric model
-        wind_factor = calc_wind_factor(sys_struct.am,
-                                       wing.pos_w[1], wing.pos_w[2],
-                                       wing.pos_w[3], sys_struct)
-        wing.v_wind .= wind_factor * wind_vec_gnd
+        wing.v_wind .= wind_factor(wing.pos_w[3]) * wind_vec_gnd
 
         R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
         if wing.dynamics_type == PARTICLE_DYNAMICS

@@ -4,7 +4,7 @@
 # Wing rigid body dynamics equation generation
 
 """
-    wing_eqs!(s, eqs, psys, defaults, params, initial; kwargs...)
+    wing_eqs!(s, eqs, defaults, params, initial; kwargs...)
 
 Generate the differential equations for the wing's
 rigid body dynamics.
@@ -21,7 +21,7 @@ For PARTICLE_DYNAMICS wings:
 - Principal frame variables set to zero/aliases
 """
 function wing_eqs!(
-    s, eqs, psys, defaults, params, initial;
+    s, eqs, defaults, params, initial;
     tether_wing_force, tether_wing_moment,
     aero_force_b, aero_moment_b,
     ω_b, α_b, R_b_to_w, R_p_to_w,

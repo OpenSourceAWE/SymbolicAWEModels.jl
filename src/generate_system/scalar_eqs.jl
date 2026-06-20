@@ -4,7 +4,7 @@
 # Scalar kinematic equation generation
 
 """
-    scalar_eqs!(s, eqs, psys, params; kwargs...)
+    scalar_eqs!(s, eqs, params; kwargs...)
 
 Generate equations for derived scalar kinematic quantities useful for control and
 analysis.
@@ -14,19 +14,20 @@ derivatives, as well as apparent wind calculations.
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object.
-- `eqs`, `psys`: Accumulating vectors and symbolic parameter.
+- `eqs`: Accumulating equation vector.
 - `kwargs...`: Symbolic variables for the system's state.
 
 # Returns
 - `eqs`: The updated list of system equations.
 """
 function scalar_eqs!(
-    s, eqs, psys, params;
+    s, eqs, params;
     R_b_to_w, wind_vec_gnd, va_wing_b, wing_pos,
     wing_vel, wing_acc, twist_angle, ω_b, α_b,
     R_v_to_w, pos
 )
     (; wings) = s.sys_struct
+    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
     @variables begin
         # Body frame axes and apparent wind (column-major: [1:3, wing_idx])
         e_x(t)[1:3, eachindex(wings)]
@@ -36,9 +37,15 @@ function scalar_eqs!(
         wind_disturb(t)[1:3, eachindex(wings)]
         va_wing(t)[1:3, eachindex(wings)]
     end
+    # Ground wind as a flat param, with a tiny x-axis fallback for exactly-zero
+    # wind (keeps apparent-wind directions defined; avoids normalize-by-zero).
+    wind_vec_raw = collect(params.set.wind_vec)
+    near_zero = sum(abs2, wind_vec_raw) < 1e-20
+    fallback = (1e-10, 0.0, 0.0)
     eqs = [
         eqs
-        wind_vec_gnd ~ param_computed!(params.reg, :wind_vec, get_wind_vec)
+        [wind_vec_gnd[k] ~ ifelse(near_zero, fallback[k], wind_vec_raw[k])
+         for k in 1:3]
     ]
     for wing in wings
         eqs = [
@@ -47,8 +54,7 @@ function scalar_eqs!(
             e_y[:, wing.idx] ~ R_b_to_w[:, 2, wing.idx]
             e_z[:, wing.idx] ~ R_b_to_w[:, 3, wing.idx]
             wind_vel_wing[:, wing.idx] ~
-                calc_wind_factor(s.am, wing_pos[1, wing.idx], wing_pos[2, wing.idx],
-                                 wing_pos[3, wing.idx], psys) * wind_vec_gnd
+                wind_factor(wing_pos[3, wing.idx]) * wind_vec_gnd
             wind_disturb[:, wing.idx] ~ params.wings[wing.idx].wind_disturb
             va_wing[:, wing.idx] ~
                 wind_vel_wing[:, wing.idx] - wing_vel[:, wing.idx] +

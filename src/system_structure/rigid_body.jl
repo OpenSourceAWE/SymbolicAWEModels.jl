@@ -16,7 +16,7 @@ The body is specified directly: `mass`, `inertia_principal` (diagonal, principal
 frame), initial pose/twist (`pos_w`, `vel_w`, `Q_b_to_w`, `ω_b`), and optional
 `com_offset_b`/`R_b_to_p` relating the body frame to the principal frame. Loads
 are gravity plus the settable external wrench (`ext_force_w`, `ext_moment_b`),
-which `@register_symbolic` getters read live each RHS evaluation.
+read live each step as flat parameters synced from this struct.
 
 $(TYPEDFIELDS)
 """

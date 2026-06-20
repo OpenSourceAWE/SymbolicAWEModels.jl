@@ -17,21 +17,20 @@ aero_mode_tag(::AeroNone) = "none"
 stores_point_force(::AeroNone) = false
 
 function aero_component(::AeroNone, sys_struct, wing_idx; name, params=nothing)
-    psys = system_struct_param(sys_struct)
     wing = sys_struct.wings[wing_idx]
 
     if wing.dynamics_type == PARTICLE_DYNAMICS
         num_points = length(wing_points(sys_struct, wing))
         connectors = particle_aero_connectors(num_points)
         eqs = vec(collect(connectors.point_force)) .~ 0
-        return System(eqs, t, particle_unknowns(connectors), [psys]; name)
+        return System(eqs, t, particle_unknowns(connectors), []; name)
     elseif wing.dynamics_type == RIGID_DYNAMICS
         num_twist_surfaces = length(wing.twist_surface_idxs)
         connectors = rigid_aero_connectors(num_twist_surfaces)
         eqs = [collect(connectors.force) .~ 0
                collect(connectors.moment) .~ 0]
         num_twist_surfaces > 0 && (eqs = [eqs; collect(connectors.twist_moment) .~ 0])
-        return System(eqs, t, rigid_unknowns(connectors), [psys]; name)
+        return System(eqs, t, rigid_unknowns(connectors), []; name)
     else
         error("Unknown dynamics_type $(wing.dynamics_type) for wing $wing_idx.")
     end

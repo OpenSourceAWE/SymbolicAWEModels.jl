@@ -34,6 +34,8 @@ SymbolicAWEModels.get_sys_struct_hash
 ## Physics and geometry helpers
 
 ```@docs
+SymbolicAWEModels.WindFactor
+SymbolicAWEModels.WindFactorReader
 SymbolicAWEModels.calc_angle_of_attack
 SymbolicAWEModels.calc_heading
 SymbolicAWEModels.calc_R_t_to_w
@@ -242,11 +244,8 @@ SymbolicAWEModels.set_particle_panel_va!
 SymbolicAWEModels.build_mesh_maps!
 SymbolicAWEModels.store_billow_offsets!
 SymbolicAWEModels.store_induced_velocity!
-SymbolicAWEModels.continuous_panel
 SymbolicAWEModels.reconstruct_sections_b
-SymbolicAWEModels.get_continuous_cl
-SymbolicAWEModels.get_continuous_cd
-SymbolicAWEModels.get_continuous_cm
+SymbolicAWEModels.ContinuousPolar
 ```
 
 ## Heading and geometry
@@ -275,9 +274,9 @@ SymbolicAWEModels.ParamEntry
 SymbolicAWEModels.ParamRegistry
 SymbolicAWEModels.make_param
 SymbolicAWEModels.make_array_param
+SymbolicAWEModels.make_callable_param
 SymbolicAWEModels.leaf_param!
 SymbolicAWEModels.param_computed!
-SymbolicAWEModels.get_wind_vec
 SymbolicAWEModels.param_descend
 SymbolicAWEModels.ParamView
 SymbolicAWEModels.PathView

@@ -4,9 +4,8 @@
 # Implementation of the ram air wing model using ModelingToolkit.jl
 # This directory contains the symbolic equation generation for the AWE model.
 
-# Utilities and accessors first (no dependencies)
+# Utilities first (no dependencies)
 include("helpers.jl")
-include("accessors.jl")
 include("flat_params.jl")
 include("initial_conditions.jl")
 
