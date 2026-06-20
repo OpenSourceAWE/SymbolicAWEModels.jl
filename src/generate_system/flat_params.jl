@@ -113,9 +113,9 @@ end
     param_computed!(reg, name, reader)
 
 Escape hatch for a value that is not a plain field read — `reader(sys_struct)`
-computes it (e.g. a [`PanelPolarReader`](@ref) wrapping a live VSM panel into a
-callable). `reader` must be a named struct (serialisable), not a closure over
-`sys_struct`.
+computes it (e.g. a [`WindFactorReader`](@ref) building a callable wind-factor
+from the atmospheric model). `reader` must be a named struct (serialisable), not
+a closure over `sys_struct`.
 """
 param_computed!(reg::ParamRegistry, name::Symbol, reader) =
     leaf_param!(reg, name, name, reader, reader(reg.sys_struct))

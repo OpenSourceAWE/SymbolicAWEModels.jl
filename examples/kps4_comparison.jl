@@ -268,4 +268,8 @@ fig = plot(
     plot_default=false,
     plot_elevation=true,
     plot_azimuth=true)
+Label(fig[0, 1],
+    "Realtime factor — SymAWE: $(round(sam_rt, digits=1))×, " *
+    "KiteModels: $(round(km_rt, digits=1))×";
+    fontsize=16, font=:bold)
 display(fig)
