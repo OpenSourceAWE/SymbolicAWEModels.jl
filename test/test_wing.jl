@@ -107,8 +107,8 @@ end
     for (wtn, sam, expected_dynamics_type) in sam_configs
         is_linearized = expected_dynamics_type ==
             SymbolicAWEModels.RIGID_DYNAMICS
-        dt = is_linearized ? 0.2 : 1/300
-        n_steps = is_linearized ? 5 : 300
+        dt = is_linearized ? 0.2 : 0.05
+        n_steps = is_linearized ? 5 : 20
 
         @testset "$wtn Wing" begin
             # ========================================================

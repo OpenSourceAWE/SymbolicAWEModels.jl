@@ -988,9 +988,8 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         sys.set.wind_vec = MVec3(sys_state.v_wind_gnd)
     end
 
-    # Calculate segment lengths and forces from current positions and velocities
-    # Note: velocities are set to zero, so damping term will be zero
-    update_segment_forces!(sys)
+    # Segment lengths/forces are not part of the SysState; they are populated
+    # by the symbolic getters from a live integrator, not reconstructed here.
 
     return nothing
 end

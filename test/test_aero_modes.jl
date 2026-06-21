@@ -227,7 +227,7 @@ aero_poses = [
 
             @testset "dynamic run" begin
                 apply_pose!(sam, set, aero_poses[1])
-                dt = 1/300
+                dt = 0.05
                 force0, _ = model_force_moment(sam, wing)
                 bound = 50.0 * max(norm(force0), 1.0)
                 for _ in 1:20

@@ -99,9 +99,6 @@ SymbolicAWEModels.get_model_name
 SymbolicAWEModels.calc_height
 SymbolicAWEModels.pos
 SymbolicAWEModels.spring_forces
-SymbolicAWEModels.calc_spring_props
-SymbolicAWEModels.in_percent_band
-SymbolicAWEModels.step
 SymbolicAWEModels.create_model_archive
 SymbolicAWEModels.filecmp
 SymbolicAWEModels.extract_model_archive
@@ -316,7 +313,6 @@ SymbolicAWEModels.sync_initial!
 ```@docs
 SymbolicAWEModels.init_principal_frame!
 SymbolicAWEModels.init_body_frame_from_ref_points!
-SymbolicAWEModels.update_segment_forces!
 SymbolicAWEModels.get_rot_pos_cad
 KiteUtils.Logger(::SymbolicAWEModel, ::Int64)
 ```

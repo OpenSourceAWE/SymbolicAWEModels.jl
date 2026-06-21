@@ -42,9 +42,9 @@ sam = SymbolicAWEModel(set, sys)
 l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
 l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
 init!(sam; remake=false, remake_vsm=false)
-find_steady_state!(sam; dt=1/300)
+find_steady_state!(sam; dt=0.05)
 
-dt = 1 / 300
+dt = 0.05
 n_steps = max(1, round(Int, SIM_TIME / dt))
 info_every = max(1, div(n_steps, 10))
 

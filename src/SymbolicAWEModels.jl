@@ -87,7 +87,6 @@ export sim!, sim_reposition!
 # --- Low-Level Simulation Functions ---
 export find_steady_state!
 export linearize!
-export update_segment_forces!
 export set_world_frame_damping
 export set_body_frame_damping
 export segment_stretch_stats
@@ -194,7 +193,6 @@ include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
 include("yaml_loader.jl")
-include("tether_properties.jl")
 include("linearize.jl")
 include("generate_system/generate_system.jl")
 # Aero subsystem. `common.jl` holds everything shared by all modes (the dispatch

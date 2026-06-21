@@ -167,7 +167,7 @@ system:
             sam = SymbolicAWEModel(set, sys)
             init!(sam; remake, remake_vsm=false, prn=false)
             for _ in 1:5
-                next_step!(sam; dt=1/300, vsm_interval=1)
+                next_step!(sam; dt=0.05, vsm_interval=1)
             end
             sam
         end
