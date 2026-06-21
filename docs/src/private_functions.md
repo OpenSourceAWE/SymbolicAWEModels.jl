@@ -203,6 +203,7 @@ SymbolicAWEModels.vsm_engine
 SymbolicAWEModels.has_vsm_engine
 SymbolicAWEModels.require_vsm_engine
 SymbolicAWEModels.couples_to_sections
+SymbolicAWEModels.has_vsm_wing
 SymbolicAWEModels.provides_aero_override
 SymbolicAWEModels.stores_point_force
 SymbolicAWEModels.aero_mode_tag

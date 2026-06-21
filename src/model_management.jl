@@ -495,8 +495,8 @@ function reinit!(
         OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
     end
     update_sys_struct!(prob, integrator, sam.sys_struct)
-    if lin_vsm
-        refresh_aero!(sam, prob; vsm_min_wind)
+    if lin_vsm && has_vsm_wing(sam.sys_struct)
+        refresh_aero!(sam; vsm_min_wind)
         sync_params!(prob.param_sync, integrator, sam.sys_struct)
     end
     validate_sys_struct(sam.sys_struct)  # Check for division-by-zero issues

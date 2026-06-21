@@ -43,6 +43,16 @@ couples_to_sections(::AbstractAeroModel) = false
 couples_to_sections(::AbstractVSMAero) = true
 
 """
+    has_vsm_wing(sys_struct::SystemStructure) -> Bool
+
+`true` if any wing carries a VSM aero mode ([`AbstractVSMAero`](@ref)) whose
+state must be refreshed each `vsm_interval`. When `false`, [`refresh_aero!`](@ref)
+is a no-op for every wing, so callers skip it and the trailing parameter sync.
+"""
+has_vsm_wing(sys_struct::SystemStructure) =
+    any(wing -> wing.aero isa AbstractVSMAero, sys_struct.wings)
+
+"""
     provides_aero_override(mode::AbstractAeroModel) -> Bool
 
 `true` if the mode supplies frozen body-frame force/moment overrides read by the
@@ -271,24 +281,23 @@ function sync_aero_density!(wing, am)
 end
 
 """
-    refresh_aero!(sam::SymbolicAWEModel, prob::ProbWithAttributes,
-                  integ=sam.integrator; vsm_min_wind=0.5)
+    refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5)
 
 Refresh each wing's aerodynamic state, dispatching on the wing's aero mode
 ([`refresh_rigid_aero!`](@ref) / [`refresh_particle_aero!`](@ref)). Runs on the
-low-frequency VSM-update schedule (`vsm_interval`), not the compiled RHS.
+low-frequency VSM-update schedule (`vsm_interval`), not the compiled RHS. Reads
+per-point apparent wind from the `points` (populated by `update_sys_struct!`,
+which always runs first), so it does not re-extract integrator state.
 
 **RIGID_DYNAMICS VSM modes:** compute wind-axis coefficients (CL, CD, CS, CM, cm)
 at the operating point, plus the `ForwardDiff` Jacobian over `[α, β, ω₁, ω₂, ω₃,
 θ_twist…]` (`AeroLinearized`) or the frozen forces (`AeroDirect`).
 
 **PARTICLE_DYNAMICS VSM modes:** full nonlinear VSM solve with per-point force
-distribution. Non-VSM modes (`AeroNone`/`AeroPlate`) are no-ops.
+distribution. Non-VSM modes (`AeroNone`/`AeroPlate`) are no-ops, so callers
+should gate this on [`has_vsm_wing`](@ref).
 """
-function refresh_aero!(sam::SymbolicAWEModel,
-                       prob::ProbWithAttributes,
-                       integ=sam.integrator;
-                       vsm_min_wind=0.5)
+function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5)
     wings = sam.sys_struct.wings
     twist_surfaces = sam.sys_struct.twist_surfaces
     points = sam.sys_struct.points
@@ -307,8 +316,10 @@ function refresh_aero!(sam::SymbolicAWEModel,
 
     any(w.dynamics_type === PARTICLE_DYNAMICS for w in wings) ||
         return nothing
-    point_state = prob.get_point_state(integ)
-    va_point_b_vals = point_state[4]
+    va_point_b_vals = Matrix{SimFloat}(undef, 3, length(points))
+    for point in points
+        @views va_point_b_vals[:, point.idx] .= point.va_b
+    end
     for wing in wings
         wing.dynamics_type == PARTICLE_DYNAMICS || continue
         refresh_particle_aero!(wing.aero, wing, points, va_point_b_vals;
