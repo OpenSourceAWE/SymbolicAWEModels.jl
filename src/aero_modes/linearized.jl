@@ -13,6 +13,7 @@ engine-less marker filled in during wing construction.
 """
 mutable struct AeroLinearized{E} <: AbstractVSMAero
     engine::Union{Nothing, E}
+    AeroLinearized{E}(engine) where {E} = new{E}(engine)
 end
 AeroLinearized() = AeroLinearized{VSMEngine}(nothing)
 AeroLinearized(engine::VSMEngine) = AeroLinearized{typeof(engine)}(engine)

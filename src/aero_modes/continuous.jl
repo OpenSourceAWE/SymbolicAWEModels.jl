@@ -38,6 +38,10 @@ mutable struct ContinuousAero{E} <: AbstractVSMAero
     cl::Any
     cd::Any
     cm::Any
+    ContinuousAero{E}(engine, v_ind, section_left_strut, section_left_weight,
+        section_le_offset, section_te_offset, cl, cd, cm) where {E} =
+        new{E}(engine, v_ind, section_left_strut, section_left_weight,
+            section_le_offset, section_te_offset, cl, cd, cm)
 end
 
 ContinuousAero() =

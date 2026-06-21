@@ -14,6 +14,7 @@ in during wing construction.
 """
 mutable struct AeroDirect{E} <: AbstractVSMAero
     engine::Union{Nothing, E}
+    AeroDirect{E}(engine) where {E} = new{E}(engine)
 end
 AeroDirect() = AeroDirect{VSMEngine}(nothing)
 AeroDirect(engine::VSMEngine) = AeroDirect{typeof(engine)}(engine)
