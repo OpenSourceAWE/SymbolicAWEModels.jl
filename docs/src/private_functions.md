@@ -16,6 +16,8 @@ SymbolicAWEModels.SerializedModel
 SymbolicAWEModels.SimFloat
 SymbolicAWEModels.KVec3
 SymbolicAWEModels.SVec3
+SymbolicAWEModels.InplaceGetter
+SymbolicAWEModels.ScatterGroup
 SymbolicAWEModels.create_vsm_wing
 SymbolicAWEModels.build_vsm_engine
 ```
@@ -79,6 +81,12 @@ SymbolicAWEModels.has_custom_component
 SymbolicAWEModels.generate_control_funcs
 SymbolicAWEModels.generate_lin_getters
 SymbolicAWEModels.generate_prob_getters
+SymbolicAWEModels.scatter_spec
+SymbolicAWEModels.build_inplace_getter
+SymbolicAWEModels.build_grouped_views
+SymbolicAWEModels.copy_vec!
+SymbolicAWEModels.scatter_component
+SymbolicAWEModels.scatter_groups
 SymbolicAWEModels.LinProbWithAttributes
 SymbolicAWEModels.ProbWithAttributes
 SymbolicAWEModels.ControlFuncWithAttributes

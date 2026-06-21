@@ -5,18 +5,80 @@ const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{
 const GetSetNothing = Union{AbstractIndexer, Nothing}
 
 """
+    ScatterGroup{Sel, Fns, Views}
+
+One component group of an [`InplaceGetter`](@ref). `selector(sys_struct)` returns
+the group's component vector (e.g. `sys_struct.points`); `copyfns` is a tuple of
+`(component, view) -> _` closures, one per output array, each copying that
+array's slice into the component's struct field; `views` is the matching tuple of
+zero-copy reshaped views into the getter's buffer.
+"""
+struct ScatterGroup{Sel, Fns, Views}
+    selector::Sel
+    copyfns::Fns
+    views::Views
+end
+
+"""
+    InplaceGetter{F, B, G}
+
+A single zero-allocation getter that both reads and scatters all per-step
+component state. `fn` is an in-place MTK observed function `fn(buf, u, p, t)`
+over the concatenation of every component's output arrays; `buf` is a
+preallocated flat buffer reused each call; `groups` is a tuple of
+[`ScatterGroup`](@ref)s that write the freshly-computed buffer straight into the
+`SystemStructure` fields. One spec drives both the buffer layout and the scatter.
+"""
+struct InplaceGetter{F, B, G}
+    fn::F
+    buf::B
+    groups::G
+end
+
+"Copy column `idx` of the matrix view `v` into the mutable vector `field` in place."
+@inline copy_vec!(field, v, idx) = (@views field .= v[:, idx]; nothing)
+
+"Apply each `(component, view)` copy closure for one component (tuple recursion)."
+@inline scatter_component(::Tuple{}, ::Tuple{}, component) = nothing
+@inline function scatter_component(copyfns::Tuple, views::Tuple, component)
+    first(copyfns)(component, first(views))
+    scatter_component(Base.tail(copyfns), Base.tail(views), component)
+    return nothing
+end
+
+"Scatter every group into `sys_struct` (tuple recursion over heterogeneous groups)."
+@inline scatter_groups(::Tuple{}, sys_struct) = nothing
+@inline function scatter_groups(groups::Tuple, sys_struct)
+    group = first(groups)
+    for component in group.selector(sys_struct)
+        scatter_component(group.copyfns, group.views, component)
+    end
+    scatter_groups(Base.tail(groups), sys_struct)
+    return nothing
+end
+
+"""
+    (g::InplaceGetter)(integ, sys_struct)
+
+Evaluate all component state at the integrator's current point and scatter it
+into `sys_struct` in place. Reads `integ.u`/`integ.p`/`integ.t` as direct fields;
+this method is itself the function barrier that keeps the call allocation-free.
+"""
+function (g::InplaceGetter)(integ, sys_struct)
+    g.fn(g.buf, integ.u, integ.p, integ.t)
+    scatter_groups(g.groups, sys_struct)
+    return nothing
+end
+
+"""
     @with_kw struct ProbWithAttributes{...}
 
 A container for the main Ordinary Differential Equation (ODE) problem and its
 associated getter and setter functions for the full, nonlinear physical state.
 """
 @with_kw struct ProbWithAttributes{Prob, SetSetValues,
-                                  GetSetValues, GetWingState,
-                                  GetAeroInput, GetSegmentState,
-                                  GetWinchState, GetTetherState,
-                                  GetPointState,
-                                  GetPulleyState, GetTwistSurfaceState,
-                                  GetRigidBodyState, ParamSync, InitialSync}
+                                  GetSetValues, GetAeroInput,
+                                  GetAllState, ParamSync, InitialSync}
     "The ODE problem for the full nonlinear model."
     prob::Prob
 
@@ -30,15 +92,9 @@ associated getter and setter functions for the full, nonlinear physical state.
 
     # Getters for the ODE state
     get_set_values::GetSetValues
-    get_wing_state::GetWingState
     get_aero_input::GetAeroInput
-    get_segment_state::GetSegmentState
-    get_winch_state::GetWinchState
-    get_tether_state::GetTetherState
-    get_point_state::GetPointState
-    get_pulley_state::GetPulleyState
-    get_twist_surface_state::GetTwistSurfaceState
-    get_rigid_body_state::GetRigidBodyState
+    "One monolithic zero-alloc getter for all per-step component state."
+    get_all_state::GetAllState
 end
 
 """
@@ -539,139 +595,7 @@ synchronization step is crucial for making the simulation results accessible.
 function update_sys_struct!(prob::ProbWithAttributes,
                             integ::OrdinaryDiffEqCore.ODEIntegrator,
                             sys_struct::SystemStructure)
-    (; points, twist_surfaces, segments, pulleys, winches, tethers, wings,
-       rigid_bodies) = sys_struct
-    if length(points) > 0
-        pos, vel, force, va_b, total_mass, drag_f =
-            prob.get_point_state(integ)
-        for point in points
-            point.pos_w .= pos[:, point.idx]
-            point.vel_w .= vel[:, point.idx]
-            point.force .= force[:, point.idx]
-            point.va_b .= va_b[:, point.idx]
-            point.total_mass = total_mass[point.idx]
-            point.drag_force .= drag_f[:, point.idx]
-        end
-    end
-    if length(pulleys) > 0
-        len, vel = prob.get_pulley_state(integ)
-        for pulley in pulleys
-            pulley.len = len[pulley.idx]
-            pulley.vel = vel[pulley.idx]
-        end
-    end
-    if length(segments) > 0
-        spring_force, len, l0_arr =
-            prob.get_segment_state(integ)
-        for segment in segments
-            segment.force = spring_force[segment.idx]
-            segment.len = len[segment.idx]
-            segment.l0 = l0_arr[segment.idx]
-        end
-    end
-    if length(twist_surfaces) > 0
-        twist, twist_ω, tether_force, tether_moment, aero_moment = prob.get_twist_surface_state(integ)
-        for twist_surface in twist_surfaces
-            twist_surface.twist = twist[twist_surface.idx]
-            twist_surface.twist_ω = twist_ω[twist_surface.idx]
-            twist_surface.tether_force = tether_force[twist_surface.idx]
-            twist_surface.tether_moment = tether_moment[twist_surface.idx]
-            twist_surface.aero_moment = aero_moment[twist_surface.idx]
-        end
-    end
-    if length(winches) > 0
-        winch_acc, winch_vel_arr, set_value,
-            winch_force_vec, friction =
-            prob.get_winch_state(integ)
-        for winch in winches
-            winch.acc = winch_acc[winch.idx]
-            winch.vel = winch_vel_arr[winch.idx]
-            winch.set_value = set_value[winch.idx]
-            winch.force .= winch_force_vec[:, winch.idx]
-            winch.friction = friction[winch.idx]
-        end
-    end
-    if length(tethers) > 0
-        tether_len, stretched_len =
-            prob.get_tether_state(integ)
-        for tether in tethers
-            tether.len = tether_len[tether.idx]
-            tether.stretched_len =
-                stretched_len[tether.idx]
-        end
-    end
-    if length(wings) > 0
-        wing_state = prob.get_wing_state(integ)
-        Q_b_to_w, ω_b, pos_w, vel_w, acc_w,
-            va_b, v_wind,
-            aero_force_b, aero_moment_b,
-            tether_moment, tether_force,
-            elevation, elevation_vel, elevation_acc,
-            azimuth, azimuth_vel, azimuth_acc,
-            heading, turn_rate, turn_acc,
-            course, aoa,
-            com_w_v, com_vel_v,
-            Q_p_to_w_v, ω_p_v = wing_state
-        for wing in wings
-            # Body frame output
-            wing.Q_b_to_w .= Q_b_to_w[:, wing.idx]
-            wing.ω_b .= ω_b[:, wing.idx]
-            wing.pos_w .= pos_w[:, wing.idx]
-            wing.vel_w .= vel_w[:, wing.idx]
-            wing.acc_w .= acc_w[:, wing.idx]
-            wing.va_b .= va_b[:, wing.idx]
-            wing.v_wind .= v_wind[:, wing.idx]
-            wing.aero_force_b .=
-                aero_force_b[:, wing.idx]
-            wing.aero_moment_b .=
-                aero_moment_b[:, wing.idx]
-            wing.tether_moment .=
-                tether_moment[:, wing.idx]
-            wing.tether_force .=
-                tether_force[:, wing.idx]
-            wing.elevation =
-                elevation[wing.idx]
-            wing.elevation_vel =
-                elevation_vel[wing.idx]
-            wing.elevation_acc =
-                elevation_acc[wing.idx]
-            wing.azimuth = azimuth[wing.idx]
-            wing.azimuth_vel =
-                azimuth_vel[wing.idx]
-            wing.azimuth_acc =
-                azimuth_acc[wing.idx]
-            wing.heading = heading[wing.idx]
-            wing.turn_rate .=
-                turn_rate[:, wing.idx]
-            wing.turn_acc .=
-                turn_acc[:, wing.idx]
-            wing.course = course[wing.idx]
-            wing.aoa = aoa[wing.idx]
-            # Principal frame state
-            wing.com_w .= com_w_v[:, wing.idx]
-            wing.com_vel .=
-                com_vel_v[:, wing.idx]
-            wing.Q_p_to_w .= Q_p_to_w_v[:, wing.idx]
-            wing.ω_p .= ω_p_v[:, wing.idx]
-        end
-    end
-    if length(rigid_bodies) > 0
-        Q_b_to_w, ω_b, pos_w, vel_w, acc_w,
-            com_w_v, com_vel_v, Q_p_to_w_v, ω_p_v =
-            prob.get_rigid_body_state(integ)
-        for rigid_body in rigid_bodies
-            idx = rigid_body.idx
-            rigid_body.Q_b_to_w .= Q_b_to_w[:, idx]
-            rigid_body.ω_b .= ω_b[:, idx]
-            rigid_body.pos_w .= pos_w[:, idx]
-            rigid_body.vel_w .= vel_w[:, idx]
-            rigid_body.acc_w .= acc_w[:, idx]
-            rigid_body.com_w .= com_w_v[:, idx]
-            rigid_body.com_vel .= com_vel_v[:, idx]
-            rigid_body.Q_p_to_w .= Q_p_to_w_v[:, idx]
-            rigid_body.ω_p .= ω_p_v[:, idx]
-        end
-    end
+    prob.get_all_state(integ, sys_struct)
     return nothing
 end
 

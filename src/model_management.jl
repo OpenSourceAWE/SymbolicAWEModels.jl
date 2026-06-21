@@ -18,33 +18,82 @@ of the compiled `ODESystem` (`sys`).
 """
 function generate_prob_getters(sys_struct, sys, param_registry=nothing,
                                initial_registry=nothing)
-    collect_each = collect
     (; points, wings, twist_surfaces, pulleys, winches, tethers, segments, rigid_bodies) = sys_struct
-    get_wing_state, get_aero_input, get_segment_state, get_twist_surface_state, get_pulley_state,
-    get_winch_state, get_tether_state, set_set_values, get_set_values = ntuple(_ -> nothing, 9)
-    get_rigid_body_state = nothing
-    get_point_state = nothing
+    get_aero_input, set_set_values, get_set_values = nothing, nothing, nothing
 
+    specs = NamedTuple[]
+    if length(points) > 0
+        push!(specs, scatter_spec(ss -> ss.points,
+            sys.pos         => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
+            sys.vel         => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
+            sys.point_force => (c, v) -> copy_vec!(c.force, v, c.idx),
+            sys.va_point_b  => (c, v) -> copy_vec!(c.va_b, v, c.idx),
+            sys.point_mass  => (c, v) -> (c.total_mass = v[c.idx]; nothing),
+            sys.total_drag  => (c, v) -> copy_vec!(c.drag_force, v, c.idx)))
+    end
+    if length(pulleys) > 0
+        push!(specs, scatter_spec(ss -> ss.pulleys,
+            sys.pulley_len => (c, v) -> (c.len = v[c.idx]; nothing),
+            sys.pulley_vel => (c, v) -> (c.vel = v[c.idx]; nothing)))
+    end
+    if length(segments) > 0
+        push!(specs, scatter_spec(ss -> ss.segments,
+            sys.spring_force => (c, v) -> (c.force = v[c.idx]; nothing),
+            sys.len          => (c, v) -> (c.len = v[c.idx]; nothing),
+            sys.l0           => (c, v) -> (c.l0 = v[c.idx]; nothing)))
+    end
+    if length(twist_surfaces) > 0
+        push!(specs, scatter_spec(ss -> ss.twist_surfaces,
+            sys.twist_angle                 => (c, v) -> (c.twist = v[c.idx]; nothing),
+            sys.twist_ω                     => (c, v) -> (c.twist_ω = v[c.idx]; nothing),
+            sys.twist_surface_tether_force  => (c, v) -> (c.tether_force = v[c.idx]; nothing),
+            sys.twist_surface_tether_moment => (c, v) -> (c.tether_moment = v[c.idx]; nothing),
+            sys.twist_surface_aero_moment   => (c, v) -> (c.aero_moment = v[c.idx]; nothing)))
+    end
+    if length(winches) > 0
+        push!(specs, scatter_spec(ss -> ss.winches,
+            sys.winch_acc       => (c, v) -> (c.acc = v[c.idx]; nothing),
+            sys.winch_vel       => (c, v) -> (c.vel = v[c.idx]; nothing),
+            sys.set_values      => (c, v) -> (c.set_value = v[c.idx]; nothing),
+            sys.winch_force_vec => (c, v) -> copy_vec!(c.force, v, c.idx),
+            sys.winch_friction  => (c, v) -> (c.friction = v[c.idx]; nothing)))
+        set_set_values = setp(sys, sys.set_values)
+        get_set_values = getp(sys, sys.set_values)
+    end
+    if length(tethers) > 0
+        push!(specs, scatter_spec(ss -> ss.tethers,
+            sys.tether_len    => (c, v) -> (c.len = v[c.idx]; nothing),
+            sys.stretched_len => (c, v) -> (c.stretched_len = v[c.idx]; nothing)))
+    end
     if length(wings) > 0
-        wing_vars = collect_each.([
-            sys.Q_b_to_w, sys.ω_b, sys.wing_pos,
-            sys.wing_vel, sys.wing_acc,
-            sys.va_wing_b, sys.wind_vel_wing,
-            sys.aero_force_b, sys.aero_moment_b,
-            sys.moment_tether_wing,
-            sys.force_tether_wing,
-            sys.elevation, sys.elevation_vel,
-            sys.elevation_acc,
-            sys.azimuth, sys.azimuth_vel,
-            sys.azimuth_acc,
-            sys.heading, sys.turn_rate,
-            sys.turn_acc, sys.course,
-            sys.angle_of_attack,
+        push!(specs, scatter_spec(ss -> ss.wings,
+            sys.Q_b_to_w         => (c, v) -> copy_vec!(c.Q_b_to_w, v, c.idx),
+            sys.ω_b              => (c, v) -> copy_vec!(c.ω_b, v, c.idx),
+            sys.wing_pos         => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
+            sys.wing_vel         => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
+            sys.wing_acc         => (c, v) -> copy_vec!(c.acc_w, v, c.idx),
+            sys.va_wing_b        => (c, v) -> copy_vec!(c.va_b, v, c.idx),
+            sys.wind_vel_wing    => (c, v) -> copy_vec!(c.v_wind, v, c.idx),
+            sys.aero_force_b     => (c, v) -> copy_vec!(c.aero_force_b, v, c.idx),
+            sys.aero_moment_b    => (c, v) -> copy_vec!(c.aero_moment_b, v, c.idx),
+            sys.moment_tether_wing => (c, v) -> copy_vec!(c.tether_moment, v, c.idx),
+            sys.force_tether_wing  => (c, v) -> copy_vec!(c.tether_force, v, c.idx),
+            sys.elevation        => (c, v) -> (c.elevation = v[c.idx]; nothing),
+            sys.elevation_vel    => (c, v) -> (c.elevation_vel = v[c.idx]; nothing),
+            sys.elevation_acc    => (c, v) -> (c.elevation_acc = v[c.idx]; nothing),
+            sys.azimuth          => (c, v) -> (c.azimuth = v[c.idx]; nothing),
+            sys.azimuth_vel      => (c, v) -> (c.azimuth_vel = v[c.idx]; nothing),
+            sys.azimuth_acc      => (c, v) -> (c.azimuth_acc = v[c.idx]; nothing),
+            sys.heading          => (c, v) -> (c.heading = v[c.idx]; nothing),
+            sys.turn_rate        => (c, v) -> copy_vec!(c.turn_rate, v, c.idx),
+            sys.turn_acc         => (c, v) -> copy_vec!(c.turn_acc, v, c.idx),
+            sys.course           => (c, v) -> (c.course = v[c.idx]; nothing),
+            sys.angle_of_attack  => (c, v) -> (c.aoa = v[c.idx]; nothing),
             # Principal frame state
-            sys.com_w, sys.com_vel,
-            sys.Q_p_to_w, sys.ω_p,
-        ])
-        get_wing_state = getu(sys, wing_vars)
+            sys.com_w            => (c, v) -> copy_vec!(c.com_w, v, c.idx),
+            sys.com_vel          => (c, v) -> copy_vec!(c.com_vel, v, c.idx),
+            sys.Q_p_to_w         => (c, v) -> copy_vec!(c.Q_p_to_w, v, c.idx),
+            sys.ω_p              => (c, v) -> copy_vec!(c.ω_p, v, c.idx)))
 
         # aero_input only exists for wings whose component exposes the
         # connector (e.g. AeroLinearized); detected on the built subsystem,
@@ -55,45 +104,124 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             if wing.dynamics_type === RIGID_DYNAMICS && hasproperty(
                 getproperty(sys, Symbol("aero_$(wing.idx)")), :aero_input)]
         get_aero_input = isempty(aero_inputs) ? nothing :
-            getu(sys, collect_each.(aero_inputs))
+            getu(sys, collect.(aero_inputs))
     end
     if length(rigid_bodies) > 0
-        get_rigid_body_state = getu(sys, collect_each.([
-            sys.body_Q_b_to_w, sys.body_ω_b,
-            sys.body_pos_w, sys.body_vel_w, sys.body_acc_w,
-            sys.body_com_w, sys.body_com_vel,
-            sys.body_Q_p_to_w, sys.body_ω_p]))
+        push!(specs, scatter_spec(ss -> ss.rigid_bodies,
+            sys.body_Q_b_to_w => (c, v) -> copy_vec!(c.Q_b_to_w, v, c.idx),
+            sys.body_ω_b      => (c, v) -> copy_vec!(c.ω_b, v, c.idx),
+            sys.body_pos_w    => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
+            sys.body_vel_w    => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
+            sys.body_acc_w    => (c, v) -> copy_vec!(c.acc_w, v, c.idx),
+            sys.body_com_w    => (c, v) -> copy_vec!(c.com_w, v, c.idx),
+            sys.body_com_vel  => (c, v) -> copy_vec!(c.com_vel, v, c.idx),
+            sys.body_Q_p_to_w => (c, v) -> copy_vec!(c.Q_p_to_w, v, c.idx),
+            sys.body_ω_p      => (c, v) -> copy_vec!(c.ω_p, v, c.idx)))
     end
-    if length(segments) > 0; get_segment_state = getu(sys, collect_each.([sys.spring_force, sys.len, sys.l0])); end
-    if length(twist_surfaces) > 0; get_twist_surface_state = getu(sys, collect_each.([sys.twist_angle, sys.twist_ω, sys.twist_surface_tether_force, sys.twist_surface_tether_moment, sys.twist_surface_aero_moment])); end
-    if length(pulleys) > 0; get_pulley_state = getu(sys, collect_each.([sys.pulley_len, sys.pulley_vel])); end
-    if length(winches) > 0
-        get_winch_state = getu(sys, collect_each.([
-            sys.winch_acc, sys.winch_vel,
-            sys.set_values, sys.winch_force_vec,
-            sys.winch_friction]))
-        set_set_values = setp(sys, sys.set_values)
-        get_set_values = getp(sys, sys.set_values)
-    end
-    if length(tethers) > 0
-        get_tether_state = getu(sys, collect_each.([
-            sys.tether_len,
-            sys.stretched_len]))
-    end
-    # point_state returns, in order: pos, vel, point_force, va_point_b, point_mass, total_drag
-    if length(points) > 0
-        get_point_state = getu(sys, collect_each.([sys.pos, sys.vel, sys.point_force, sys.va_point_b, sys.point_mass, sys.total_drag]))
-    end
+
+    get_all_state = build_inplace_getter(sys, specs)
 
     param_sync = isnothing(param_registry) ? nothing :
         build_param_sync(sys, param_registry)
     initial_sync = isnothing(initial_registry) ? nothing :
         build_initial_sync(sys, initial_registry)
 
-    return (; get_wing_state, get_aero_input, get_segment_state, get_twist_surface_state,
-            get_pulley_state, get_winch_state, get_tether_state, set_set_values,
-            get_set_values, get_point_state, get_rigid_body_state, param_sync,
-            initial_sync)
+    return (; get_aero_input, set_set_values, get_set_values, get_all_state,
+            param_sync, initial_sync)
+end
+
+"""
+    scatter_spec(selector, pairs...)
+
+Describe one component group: `selector(sys_struct)` yields its component vector
+and each `sys_array => copyfn` pair maps a symbolic output array to a
+`(component, view) -> _` closure that writes that array's slice into the
+component's struct field. This is the single source of truth — both the buffer
+layout and the scatter derive from the same ordered list.
+"""
+function scatter_spec(selector, pairs::Pair...)
+    return (; selector,
+            arrays  = [pair.first for pair in pairs],
+            copyfns = Tuple(pair.second for pair in pairs))
+end
+
+"""
+    build_grouped_views(buf, group_shapes)
+
+Build a tuple (per group) of tuples (per output array) of zero-copy reshaped
+views into `buf`. Flat order is groups-in-order, arrays-in-order, column-major
+within each array — shared by [`build_inplace_getter`](@ref) and deserialization
+so layouts always match.
+"""
+function build_grouped_views(buf, group_shapes::Tuple)
+    offset = 0
+    return map(group_shapes) do shapes
+        Tuple(map(shapes) do shp
+            n = prod(shp)
+            rng = (offset + 1):(offset + n)
+            offset += n
+            reshape(view(buf, rng), shp)
+        end)
+    end
+end
+
+"""
+    build_inplace_getter(sys, specs)
+
+Build one [`InplaceGetter`](@ref) from the per-group `specs` (see
+[`scatter_spec`](@ref)). All component output arrays are concatenated into a
+single MTK in-place observed function so shared subexpressions (e.g. the
+spring/force network) are computed once.
+"""
+function build_inplace_getter(sys, specs)
+    arrays_per_group = [collect.(spec.arrays) for spec in specs]
+    group_shapes = Tuple(Tuple(size.(arrs)) for arrs in arrays_per_group)
+    flat = reduce(vcat, [vec(a) for arrs in arrays_per_group for a in arrs];
+                  init = Num[])
+    _, iip = ModelingToolkit.build_explicit_observed_function(
+        sys, flat; return_inplace=true)
+    buf = Vector{SimFloat}(undef, length(flat))
+    grouped_views = build_grouped_views(buf, group_shapes)
+    groups = Tuple(ScatterGroup(spec.selector, spec.copyfns, views)
+                   for (spec, views) in zip(specs, grouped_views))
+    return InplaceGetter(iip, buf, groups)
+end
+
+# Julia's serializer does not preserve `SubArray.parent === buf` sharing, so
+# serialize the (heavy) generated function plus a cheap layout and rebuild the
+# aliased buffer + views on load. The selectors/copyfns are stateless closures
+# that serialize directly.
+function Serialization.serialize(s::Serialization.AbstractSerializer,
+                                 g::InplaceGetter)
+    Serialization.serialize_type(s, typeof(g))
+    serialize(s, g.fn)
+    serialize(s, length(g.buf))
+    serialize(s, length(g.groups))
+    for group in g.groups
+        serialize(s, group.selector)
+        serialize(s, group.copyfns)
+        serialize(s, map(size, group.views))
+    end
+end
+
+function Serialization.deserialize(s::Serialization.AbstractSerializer,
+                                   ::Type{<:InplaceGetter})
+    fn = deserialize(s)
+    n = deserialize(s)
+    n_groups = deserialize(s)
+    selectors = Vector{Any}(undef, n_groups)
+    copyfns = Vector{Any}(undef, n_groups)
+    shapes = Vector{Any}(undef, n_groups)
+    for i in 1:n_groups
+        selectors[i] = deserialize(s)
+        copyfns[i] = deserialize(s)
+        shapes[i] = deserialize(s)
+    end
+    buf = Vector{SimFloat}(undef, n)
+    grouped_views = build_grouped_views(buf, Tuple(shapes))
+    groups = Tuple(ScatterGroup(selectors[i], copyfns[i], grouped_views[i])
+                   for i in 1:n_groups)
+    return InplaceGetter(fn, buf, groups)
 end
 
 """
