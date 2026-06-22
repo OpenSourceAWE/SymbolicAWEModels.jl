@@ -495,7 +495,9 @@ function assign_indices_and_resolve!(
     transform_names = build_name_dict(transforms)
 
     # Resolve references for all components
-    # Points: resolve wing_ref and transform_ref
+    # Points: resolve wing_ref and transform_ref (body_ref resolved later in the
+    # constructor, alongside elastic-joint body refs, since rigid_bodies are not
+    # passed to this function).
     for point in points
         point.wing_idx = resolve_ref(point.wing_ref, wing_names, "wing")
         point.transform_idx = resolve_ref(point.transform_ref, transform_names, "transform")
@@ -623,25 +625,6 @@ function init_body_frame_from_ref_points!(
 end
 
 """
-    calc_inertia_y_rotation(I_tensor)
-
-Find the Y-axis rotation that diagonalizes the XZ block
-of the inertia tensor (zeros out `I[1,3]` and `I[3,1]`).
-
-Returns `(I_diag, Ry)` where `I_diag = Ry * I_tensor * Ry'`
-and `Ry` is a rotation about the Y axis by angle
-`θ = atan(2·I₁₃, I₁₁ − I₃₃) / 2`.
-"""
-function calc_inertia_y_rotation(I_tensor)
-    θ = atan(2 * I_tensor[1, 3],
-             I_tensor[1, 1] - I_tensor[3, 3]) / 2
-    cθ, sθ = cos(θ), sin(θ)
-    Ry = [cθ 0 sθ; 0 1 0; -sθ 0 cθ]
-    I_diag = Ry * I_tensor * Ry'
-    return I_diag, Ry
-end
-
-"""
     compute_spatial_twist_surface_mapping!(the_wing, twist_surfaces, points)
 
 Partition the wing's unrefined VSM sections among its
@@ -749,9 +732,9 @@ function setup_wing_frame!(wing, points; prn=true)
         if !isnothing(inertia_normalized)
             # The hook returns per-unit-mass inertia [m²]; scale once here.
             I_cad = wing.mass .* inertia_normalized
-            I_diag, Ry = calc_inertia_y_rotation(I_cad)
-            wing.R_p_to_c .= Ry'  # principal→CAD
-            wing.inertia_principal .= diag(I_diag)
+            inertia_principal, R_c_to_p = principal_frame(I_cad)
+            wing.R_p_to_c .= R_c_to_p'  # principal→CAD
+            wing.inertia_principal .= inertia_principal
         end
 
         # Body frame from ref points (else body = principal, origin = COM)
@@ -974,8 +957,17 @@ function SystemStructure(name, set;
     # carry no references, so they skip assign_indices_and_resolve!).
     for (i, rigid_body) in enumerate(rigid_bodies)
         rigid_body.idx = i
+        rigid_body.transform_idx = resolve_ref(
+            rigid_body.transform_ref, transform_names_dict, "transform")
     end
     rigid_body_names_dict = build_name_dict(rigid_bodies)
+
+    # Body-anchored points: resolve their rigid-body reference now that the
+    # rigid bodies have indices and a name dictionary.
+    for point in points
+        point.body_idx = resolve_ref(
+            point.body_ref, rigid_body_names_dict, "rigid_body")
+    end
 
     # Elastic joints: assign indices, resolve their body references.
     for (i, joint) in enumerate(elastic_joints)

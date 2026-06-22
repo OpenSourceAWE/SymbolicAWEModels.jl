@@ -44,7 +44,8 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
                     va_point_b, va_point_w, wind_at_point, height,
                     aero_force_point_b,
-                    twist_surface_y_airf, tether_wing_force, tether_wing_moment)
+                    twist_surface_y_airf, tether_wing_force, tether_wing_moment,
+                    body_force, body_moment, body_pos_w, body_com_w, body_R_b_to_w)
 
     wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
     for point in points
@@ -133,7 +134,27 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                 point_drag_force[:, point.idx] + seg_drag
         ]
 
-        if point.type == WING
+        if point.type == BODY_STATIC
+            # Rides a RigidBody kinematically; feeds its force and COM moment to the body.
+            body = point.body_idx
+            anchor = collect(params.points[point.idx].anchor_b)
+            anchor_w = collect(body_pos_w[:, body]) .+
+                collect(body_R_b_to_w[:, :, body]) * anchor
+            eqs = [
+                eqs
+                point_force[:, point.idx] ~
+                    spring_sum_force[:, point.idx] +
+                    Num[0, 0, -params.set.g_earth * mass] +
+                    disturb_force[:, point.idx] + point_drag_force[:, point.idx]
+                pos[:, point.idx] ~ anchor_w
+                vel[:, point.idx] ~ zeros(3)
+                acc[:, point.idx] ~ zeros(3)
+            ]
+            force_on_body = collect(point_force[:, point.idx])
+            arm = anchor_w .- collect(body_com_w[:, body])
+            body_force[:, body] .+= force_on_body
+            body_moment[:, body] .+= arm × force_on_body
+        elseif point.type == WING
             # Find the wing for this point
             wing = wings[point.wing_idx]
 

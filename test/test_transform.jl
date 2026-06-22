@@ -444,14 +444,14 @@ using LinearAlgebra
         rel_side = set_c.rel_side_area / 100.0
         K = 1.0 - rel_side
         twist_surfaces_c = [
-            TwistSurface(:main, [:top], FIXED, 0.0;
+            TwistSurface(:main, [:top], STATIC, 0.0;
                 x_airf=[1,0,0], y_airf=[0,1,0],
                 area=set_c.area, twist=deg2rad(set_c.alpha_zero)),
-            TwistSurface(:right_tip, [:right], FIXED, 0.0;
+            TwistSurface(:right_tip, [:right], STATIC, 0.0;
                 x_airf=[1,0,0], y_airf=[0,0,-1],
                 area=set_c.area * rel_side,
                 twist=deg2rad(set_c.alpha_ztip)),
-            TwistSurface(:left_tip, [:left], FIXED, 0.0;
+            TwistSurface(:left_tip, [:left], STATIC, 0.0;
                 x_airf=[1,0,0], y_airf=[0,0,1],
                 area=set_c.area * rel_side,
                 twist=deg2rad(set_c.alpha_ztip)),

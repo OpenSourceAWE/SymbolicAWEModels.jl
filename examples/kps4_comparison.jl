@@ -170,14 +170,14 @@ K = 1.0 - rel_side_area
 alpha_depower = calc_alpha_depower(KCU(set), set.depower_offset / 100.0)
 
 twist_surfaces = [
-    TwistSurface(:main, [:top], FIXED, 0.0;
+    TwistSurface(:main, [:top], STATIC, 0.0;
         x_airf=[1,0,0], y_airf=[0,1,0], area=set.area,
         twist=deg2rad(set.alpha_zero) - alpha_depower),
-    TwistSurface(:right_tip, [:right], FIXED, 0.0;
+    TwistSurface(:right_tip, [:right], STATIC, 0.0;
         x_airf=[1,0,0], y_airf=[0,0,-1],
         area=set.area * rel_side_area,
         twist=deg2rad(set.alpha_ztip)),
-    TwistSurface(:left_tip, [:left], FIXED, 0.0;
+    TwistSurface(:left_tip, [:left], STATIC, 0.0;
         x_airf=[1,0,0], y_airf=[0,0,1],
         area=set.area * rel_side_area,
         twist=deg2rad(set.alpha_ztip)),

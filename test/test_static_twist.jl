@@ -1,9 +1,9 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# FIXED twist mode: twist is a prescribed control input (no differential state,
+# STATIC twist mode: twist is a prescribed control input (no differential state,
 # no algebraic equilibrium). Verifies validate_twist_surface_modes and a rigid
-# wing built with FIXED-twist twist_surfaces.
+# wing built with STATIC-twist twist_surfaces.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -38,9 +38,9 @@ set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
     # DYNAMIC on rigid + >=2 points -> ok
     rigid.twist_surface_idxs = [1]
     @test validate_twist_surface_modes([mktwist_surface(:g, 2, DYNAMIC)], [rigid]) === nothing
-    # FIXED on rigid, any point count -> ok
-    @test validate_twist_surface_modes([mktwist_surface(:g, 1, FIXED)], [rigid]) === nothing
-    @test validate_twist_surface_modes([mktwist_surface(:g, 3, FIXED)], [rigid]) === nothing
+    # STATIC on rigid, any point count -> ok
+    @test validate_twist_surface_modes([mktwist_surface(:g, 1, STATIC)], [rigid]) === nothing
+    @test validate_twist_surface_modes([mktwist_surface(:g, 3, STATIC)], [rigid]) === nothing
 
     # DYNAMIC on particle -> reject (needs rigid)
     particle.twist_surface_idxs = [1]
@@ -49,15 +49,15 @@ set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
     # DYNAMIC 1-point -> reject (needs bridle couple)
     @test_throws ErrorException validate_twist_surface_modes(
         [mktwist_surface(:g, 1, DYNAMIC)], [rigid])
-    # FIXED on particle + multi-point -> reject
+    # STATIC on particle + multi-point -> reject
     @test_throws ErrorException validate_twist_surface_modes(
-        [mktwist_surface(:g, 2, FIXED)], [particle])
-    # FIXED on particle + 1 point -> ok
-    @test validate_twist_surface_modes([mktwist_surface(:g, 1, FIXED)], [particle]) === nothing
+        [mktwist_surface(:g, 2, STATIC)], [particle])
+    # STATIC on particle + 1 point -> ok
+    @test validate_twist_surface_modes([mktwist_surface(:g, 1, STATIC)], [particle]) === nothing
 end
 
-@testset "FIXED twist on rigid VSM wing" begin
-    # Work in a tmpdir copy so the temp FIXED-twist_surfaces geometry never touches the
+@testset "STATIC twist on rigid VSM wing" begin
+    # Work in a tmpdir copy so the temp STATIC-twist_surfaces geometry never touches the
     # repo data dir.
     data_dir = mktempdir()
     cp(joinpath(pkg_root, "data", "2plate_kite"), data_dir; force=true)
@@ -68,23 +68,23 @@ end
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
 
-    # Build a temp structural geometry with FIXED twist_surfaces.
+    # Build a temp structural geometry with STATIC twist_surfaces.
     src_yaml = joinpath(get_data_path(), "rigid_structural_geometry.yaml")
     txt = read(src_yaml, String)
     txt = replace(txt,
         "[left, [le_left, te_left], DYNAMIC, 0.25, 100.0]" =>
-            "[left, [le_left, te_left], FIXED, 0.25, 100.0]",
+            "[left, [le_left, te_left], STATIC, 0.25, 100.0]",
         "[center, [le_center, te_center], DYNAMIC, 0.25, 100.0]" =>
-            "[center, [le_center, te_center], FIXED, 0.25, 100.0]",
+            "[center, [le_center, te_center], STATIC, 0.25, 100.0]",
         "[right, [le_right, te_right], DYNAMIC, 0.25, 100.0]" =>
-            "[right, [le_right, te_right], FIXED, 0.25, 100.0]")
+            "[right, [le_right, te_right], STATIC, 0.25, 100.0]")
     fixed_yaml = joinpath(get_data_path(), "rigid_fixed_twist_geometry.yaml")
     write(fixed_yaml, txt)
 
     sys = load_sys_struct_from_yaml(fixed_yaml;
         system_name="2plate_fixed", set, vsm_set)
     sys.winches[:main_winch].brake = true
-    @test all(g.type == FIXED for g in sys.twist_surfaces)
+    @test all(g.type == STATIC for g in sys.twist_surfaces)
 
     # Prescribe distinct twist angles per twist_surface.
     prescribed = Dict(:left => 0.05, :center => -0.10, :right => 0.08)

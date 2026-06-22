@@ -38,7 +38,8 @@ aero_hash_id
 
 ```@docs
 AbstractWinchModel
-DefaultWinchModel
+TorqueWinch
+CascadedLengthWinch
 ```
 
 ## Core model type

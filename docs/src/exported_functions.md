@@ -46,7 +46,7 @@ calc_steady_torque
 
 The winch motor model is a pluggable [`AbstractWinchModel`](@ref) struct.
 Pass one to `Winch(...; model=...)` to override the default
-torque-driven motor ([`DefaultWinchModel`](@ref)). The builder is
+torque-driven motor ([`TorqueWinch`](@ref)). The builder is
 selected by dispatch on the model type, [`winch_component`](@ref); custom
 components must respect the connector contract enforced by
 [`validate_winch_component`](@ref).

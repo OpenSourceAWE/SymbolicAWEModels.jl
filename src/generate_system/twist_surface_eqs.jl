@@ -12,8 +12,8 @@ and its point count. Errors loudly on an inconsistent combination:
 - `DYNAMIC` twist is an added rigid-body deformation DOF and needs
   a bridle couple, so it requires a `RIGID_DYNAMICS` wing and ≥2 points.
 - A 1-point twist_surface has no bridle couple to oppose a twist moment, so its only
-  coherent twist is prescribed → must be `FIXED`.
-- `FIXED` twist on a `PARTICLE_DYNAMICS` wing cannot move free particles, so it is
+  coherent twist is prescribed → must be `STATIC`.
+- `STATIC` twist on a `PARTICLE_DYNAMICS` wing cannot move free particles, so it is
   only coherent for a single point.
 """
 function validate_twist_surface_modes(twist_surfaces, wings)
@@ -31,10 +31,10 @@ function validate_twist_surface_modes(twist_surfaces, wings)
                 "body DOF), but wing $(wing.name) is $(wing.dynamics_type).")
             npoints >= 2 || error(
                 "TwistSurface $(twist_surface.name): $(twist_surface.type) twist needs a bridle couple " *
-                "(≥2 points), got $npoints. A 1-point twist_surface must use FIXED twist.")
-        elseif twist_surface.type == FIXED
+                "(≥2 points), got $npoints. A 1-point twist_surface must use STATIC twist.")
+        elseif twist_surface.type == STATIC
             (rigid || npoints == 1) || error(
-                "TwistSurface $(twist_surface.name): FIXED twist on a PARTICLE_DYNAMICS wing is " *
+                "TwistSurface $(twist_surface.name): STATIC twist on a PARTICLE_DYNAMICS wing is " *
                 "only coherent for a single point (imposed twist cannot move free " *
                 "particles), got $npoints points.")
         else
@@ -107,7 +107,7 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, wings, params, initia
             twist_surface_le_pos[:, twist_surface.idx] ~ params.twist_surfaces[twist_surface.idx].le_pos
         ]
 
-        if twist_surface.type == FIXED
+        if twist_surface.type == STATIC
             eqs = [
                 eqs
                 twist_angle[twist_surface.idx] ~ params.twist_surfaces[twist_surface.idx].twist

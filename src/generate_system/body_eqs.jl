@@ -32,10 +32,8 @@ function body_eqs!(
             collect(body_R_b_to_w[:, :, idx]) *
             collect(params.rigid_bodies[idx].ext_moment_b)
 
-        # A fixed body freezes all DOF: zero every integrated derivative so the
-        # state stays at its initial pose. Otherwise apply isotropic angular
-        # damping in the principal frame.
-        if rigid_body.fixed
+        # STATIC body freezes all DOF; else apply isotropic principal-frame angular damping.
+        if rigid_body.type == STATIC
             overrides = (ω_kinematic=zeros(3), d_ω_p=zeros(3),
                          d_com_w=zeros(3), d_com_vel=zeros(3))
         else

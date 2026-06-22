@@ -272,7 +272,7 @@ function parse_dynamics_type(text::String)
     text_upper == "STATIC" && return STATIC
     text_upper == "DYNAMIC" && return DYNAMIC
     text_upper == "WING" && return WING
-    text_upper == "FIXED" && return FIXED
+    text_upper == "BODY_STATIC" && return BODY_STATIC
     error("Unknown DynamicsType: $text")
 end
 

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 # AeroPlate: flat-plate CL/CD-lookup aerodynamics (PARTICLE_DYNAMICS only). Each
-# WING point is a 1-point FIXED TwistSurface; per-point forces are built
+# WING point is a 1-point STATIC TwistSurface; per-point forces are built
 # symbolically from the section's twisted axes, apparent wind, and polar lookups.
 
 """
@@ -10,7 +10,7 @@
 
 Flat-plate CL/CD lookup aerodynamics. Carries the shared polar lookups
 (`calc_cl`/`calc_cd`: `α_deg → coefficient`) and drag correction used by all of
-a wing's flat-plate (1-point `FIXED`) [`TwistSurface`](@ref)s. One polar set per
+a wing's flat-plate (1-point `STATIC`) [`TwistSurface`](@ref)s. One polar set per
 wing.
 """
 mutable struct AeroPlate{CL, CD} <: AbstractAeroModel
@@ -89,7 +89,7 @@ end
 Flat-plate aero component. Uses the same `PARTICLE_DYNAMICS` connector contract as
 the other per-point modes; it is the only one that consumes the `va`/`rho` inputs
 (the VSM particle modes read frozen forces and ignore them). Each WING point is a
-1-point `FIXED` [`TwistSurface`](@ref) section; the per-point force is computed
+1-point `STATIC` [`TwistSurface`](@ref) section; the per-point force is computed
 from the section's twisted body-frame axes, the point's apparent wind, and its
 air density.
 """
@@ -233,7 +233,7 @@ end
                     yaml_parse_origin, twist_surfaces)
 
 Load a flat-plate wing from a YAML wing row + `surfaces` block. Each surface
-becomes a 1-point `FIXED` [`TwistSurface`](@ref) appended to `twist_surfaces`; the
+becomes a 1-point `STATIC` [`TwistSurface`](@ref) appended to `twist_surfaces`; the
 wing references them by name. CL/CD interpolations come from `Settings` polar data.
 """
 function load_plate_wing(row, idx, data, set, wing_type, aero_mode,
@@ -281,7 +281,7 @@ function load_plate_wing(row, idx, data, set, wing_type, aero_mode,
                 !isnothing(surf_row.twist) ?
                 float(surf_row.twist) : 0.0
             push!(twist_surfaces, TwistSurface(
-                surf_name, [point], FIXED, 0.0;
+                surf_name, [point], STATIC, 0.0;
                 x_airf, y_airf, area, twist))
             push!(section_refs, surf_name)
         end

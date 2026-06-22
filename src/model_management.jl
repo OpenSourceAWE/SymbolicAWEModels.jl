@@ -667,9 +667,9 @@ Calculates a SHA1 hash for the topology and structure of a `SystemStructure`.
 This is used to check if a cached compiled model is still valid.
 
 Includes all structural properties that affect the symbolic equations:
-- Point connectivity and types (STATIC, DYNAMIC, WING)
+- Point connectivity and types (STATIC, DYNAMIC, WING, BODY_STATIC)
 - Segment connectivity
-- TwistSurface structure and types (FIXED, TWIST)
+- TwistSurface structure and types (STATIC, DYNAMIC)
 - Pulley constraints and types
 - Tether topology
 - Winch configuration
@@ -683,7 +683,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
        rigid_bodies, elastic_joints) = sys_struct
     data_parts = []
     for point in points
-        push!(data_parts, ("point", point.idx, point.wing_idx, Int(point.type)))
+        push!(data_parts, ("point", point.idx, point.wing_idx, point.body_idx, Int(point.type)))
     end
     for segment in segments
         push!(data_parts, ("segment", segment.idx, segment.point_idxs))
@@ -723,7 +723,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
                         transform.base_point_idx, transform.base_transform_idx))
     end
     for rigid_body in rigid_bodies
-        push!(data_parts, ("rigid_body", rigid_body.idx))
+        push!(data_parts, ("rigid_body", rigid_body.idx, Int(rigid_body.type)))
     end
     for joint in elastic_joints
         # The stiffness type selects the generated law: a `Real` emits a scalar

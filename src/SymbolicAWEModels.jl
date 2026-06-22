@@ -74,7 +74,7 @@ export AbstractWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
 export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints
 # Enums
-export DynamicsType, DYNAMIC, WING, STATIC, FIXED
+export DynamicsType, DYNAMIC, STATIC, WING, BODY_STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
 export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate,
@@ -98,7 +98,7 @@ export unstretched_length
 export tether_length
 
 # --- Winch component API ---
-export AbstractWinchModel, DefaultWinchModel
+export AbstractWinchModel, TorqueWinch, CascadedLengthWinch
 export winch_component, is_builtin_winch, validate_winch_component
 
 # --- Helper Functions ---
@@ -210,7 +210,8 @@ include("aero_modes/plate.jl")
 # holds the dispatch interface + connector validation, `default.jl` the
 # torque-controlled model. Loaded after generate_system for the MTK/flat-params it uses.
 include("winch_models/common.jl")
-include("winch_models/default.jl")
+include("winch_models/torque.jl")
+include("winch_models/cascaded_length.jl")
 include("simulate.jl")
 
 # rotate a 3d vector around the x axis in the yz plane - following the right hand rule

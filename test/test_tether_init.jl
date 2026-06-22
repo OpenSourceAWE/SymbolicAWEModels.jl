@@ -440,5 +440,48 @@ winches:
             tether_force=1.0, stretch_frac=0.9)
     end
 
+    # ================================================================
+    # Test 9: placement translates a rigid body anchored via a BODY_STATIC point
+    # ================================================================
+    @testset "Placement moves a rigid body (BODY_STATIC anchor)" begin
+        seg_len = 1.0
+        inertia = [0.01, 0.1, 0.1]
+        bodies = [
+            RigidBody(:root; mass=1.0, inertia_principal=inertia,
+                pos=[0.5seg_len, 0.0, 0.0], type=STATIC),
+            RigidBody(:tip; mass=1.0, inertia_principal=inertia,
+                pos=[1.5seg_len, 0.0, 0.0], type=DYNAMIC),
+        ]
+        joints = [ElasticJoint(:j, :root, :tip; anchor_a=[seg_len/2, 0, 0],
+            anchor_b=[-seg_len/2, 0, 0], stiffness_axial=1e4,
+            stiffness_shear=1e4, stiffness_torsion=1e3, stiffness_bending=1e3,
+            damping_trans=10.0, damping_rot=5.0)]
+        # Ground 5 m below the tip; standoff 6 m forces the tip body up ~1 m.
+        points = [
+            Point(:ground, [2.0seg_len, 0.0, -5.0], STATIC),
+            Point(:tip_anchor, [2.0seg_len, 0.0, 0.0], BODY_STATIC;
+                  body=:tip, anchor_b=[seg_len/2, 0.0, 0.0]),
+        ]
+        segments = [Segment(:tether_seg, :ground, :tip_anchor,
+            1e4, 10.0, 0.01; l0=5.0)]
+        tethers = [Tether(:tether, [:tether_seg], 6.0)]
+        winches = [Winch(:winch, set, [:tether]; winch_point=:ground)]
+        sys = SystemStructure("init_stretched_length_body", set; points,
+            segments, tethers, winches, rigid_bodies=bodies,
+            elastic_joints=joints)
+
+        SymbolicAWEModels.reinit!(sys, set)
+
+        tip = sys.rigid_bodies[:tip]
+        @test tip.pos_w[3] > 0.5
+        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(tip.Q_b_to_w)
+        anchor_w = tip.pos_w .+ R_b_to_w * sys.points[:tip_anchor].anchor_b
+        @test sys.points[:tip_anchor].pos_w ≈ anchor_w
+        @test norm(sys.points[:tip_anchor].pos_w -
+                   sys.points[:ground].pos_w) ≈ 6.0
+        # The clamped root body must not move.
+        @test sys.rigid_bodies[:root].pos_w ≈ KVec3(0.5seg_len, 0, 0)
+    end
+
 end
 nothing

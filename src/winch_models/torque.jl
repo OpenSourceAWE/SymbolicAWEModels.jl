@@ -1,18 +1,19 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# DefaultWinchModel: torque-controlled drum with Coulomb + viscous friction.
+# TorqueWinch: torque-controlled drum with Coulomb + viscous friction.
 # `set_value` is interpreted as motor torque [N·m]. See common.jl for the
 # interface.
 
 """
-    DefaultWinchModel(; friction_epsilon=6.0)
+    TorqueWinch(; friction_epsilon=6.0)
 
-Torque-controlled winch motor. `set_value` is the motor torque [N·m]. Coulomb
-friction is smoothed by `friction_epsilon` (the `smooth_sign` transition width).
-The drum parameters (`gear_ratio`, `drum_radius`, `f_coulomb`, `c_vf`,
-`inertia_total`) live on the [`Winch`](@ref) struct; `friction_epsilon` is a
-numerical property of this model and lives here (mutable, live-tunable).
+Torque-controlled winch motor (the default winch model). `set_value` is the
+motor torque [N·m]. Coulomb friction is smoothed by `friction_epsilon` (the
+`smooth_sign` transition width). The drum parameters (`gear_ratio`,
+`drum_radius`, `f_coulomb`, `c_vf`, `inertia_total`) live on the [`Winch`](@ref)
+struct; `friction_epsilon` is a numerical property of this model and lives here
+(mutable, live-tunable).
 
 # Equations
 ```
@@ -23,16 +24,16 @@ tau_total = set_value + ratio * force - friction
 acc       = ifelse(brake > 0.5, 0, ratio * tau_total / inertia_total)
 ```
 """
-mutable struct DefaultWinchModel <: AbstractWinchModel
+mutable struct TorqueWinch <: AbstractWinchModel
     "Smoothing width for the Coulomb-friction sign function."
     friction_epsilon::SimFloat
 end
-DefaultWinchModel(; friction_epsilon=6.0) =
-    DefaultWinchModel(SimFloat(friction_epsilon))
+TorqueWinch(; friction_epsilon=6.0) =
+    TorqueWinch(SimFloat(friction_epsilon))
 
-is_builtin_winch(::DefaultWinchModel) = true
+is_builtin_winch(::TorqueWinch) = true
 
-function winch_component(::DefaultWinchModel, sys_struct, winch_idx; name, params)
+function winch_component(::TorqueWinch, sys_struct, winch_idx; name, params)
     @variables begin
         vel(t)
         len(t)

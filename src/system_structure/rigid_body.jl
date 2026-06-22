@@ -13,10 +13,12 @@ A free 6-DOF rigid body integrated in the principal frame. Use it on its own or
 as a link in a multi-body chain (connected by elastic joints).
 
 The body is specified directly: `mass`, `inertia_principal` (diagonal, principal
-frame), initial pose/twist (`pos_w`, `vel_w`, `Q_b_to_w`, `ω_b`), and optional
-`com_offset_b`/`R_b_to_p` relating the body frame to the principal frame. Loads
-are gravity plus the settable external wrench (`ext_force_w`, `ext_moment_b`),
-read live each step as flat parameters synced from this struct.
+frame), initial pose/twist, and optional `com_offset_b`/`R_b_to_p` relating the
+body frame to the principal frame. The initial origin pose is stored in
+`pos_cad`/`R_b_to_c`; each `reinit!` resets `pos_w`/`Q_b_to_w` from them (mirroring
+wings), so tether-length placement is idempotent. Loads are
+gravity plus the settable external wrench (`ext_force_w`, `ext_moment_b`), read
+live each step as flat parameters synced from this struct.
 
 $(TYPEDFIELDS)
 """
@@ -25,6 +27,10 @@ mutable struct RigidBody
     idx::Int64
     "Name used for lookup by other components' `_ref` fields."
     const name::Union{Int, Symbol, Nothing}
+    "Resolved transform index (filled by SystemStructure). 0 = no transform."
+    transform_idx::Int64
+    "Raw transform reference (name or idx). 0 = no transform."
+    const transform_ref::Union{Int, Symbol}
 
     "Total mass [kg]."
     mass::SimFloat
@@ -41,8 +47,13 @@ mutable struct RigidBody
     const ext_moment_b::KVec3
     "Isotropic angular damping coefficient [N·m·s] (principal frame)."
     angular_damping::SimFloat
-    "If true, the body is held at its initial pose (all DOF frozen)."
-    fixed::Bool
+    "Dynamics type: `DYNAMIC` (free 6-DOF) or `STATIC` (clamped to its initial pose)."
+    type::DynamicsType
+
+    "Initial body-origin position [m]; `pos_w` is reset to this each `reinit!`."
+    const pos_cad::KVec3
+    "Initial body→world orientation; `Q_b_to_w` is reset from this each `reinit!`."
+    const R_b_to_c::Matrix{SimFloat}
 
     # Body frame state: initial conditions in, live output out.
     "Body→world quaternion. Initial condition in; algebraic output out."
@@ -68,17 +79,66 @@ mutable struct RigidBody
 end
 
 """
-    RigidBody(name; mass, inertia_principal, pos, vel=zeros, Q_b_to_w=[1,0,0,0],
-              ω_b=zeros, com_offset_b=zeros, R_b_to_p=I, angular_damping=0,
+    principal_frame(inertia) -> (inertia_principal, R_to_principal)
+
+Diagonalise a 3×3 symmetric inertia tensor. Returns the principal moments
+`inertia_principal` and the rotation `R_to_principal` mapping the input frame to
+the principal frame, so that `R · inertia · R' = Diagonal(inertia_principal)`.
+
+The principal axes are permuted and signed to align as closely as possible with
+the input-frame axes: a near-diagonal tensor gives `R ≈ I`, and a body symmetric
+about a coordinate plane gives a pure rotation about the normal of that plane.
+`R` is always a proper rotation (`det = +1`).
+"""
+function principal_frame(inertia::AbstractMatrix)
+    decomposition = eigen(Symmetric(Matrix{SimFloat}(inertia)))
+    moments = decomposition.values
+    axes = Matrix(decomposition.vectors)   # columns: principal axes, input frame
+    # Permute columns so principal axis i aligns with input axis i (R ≈ I).
+    best_perm, best_score = (1, 2, 3), -Inf
+    for perm in ((1,2,3), (1,3,2), (2,1,3), (2,3,1), (3,1,2), (3,2,1))
+        score = abs(axes[1, perm[1]]) + abs(axes[2, perm[2]]) +
+                abs(axes[3, perm[3]])
+        score > best_score && ((best_perm, best_score) = (perm, score))
+    end
+    order = collect(best_perm)
+    axes, moments = axes[:, order], moments[order]
+    # Sign each axis to point along its positive input axis.
+    for i in 1:3
+        axes[i, i] < 0 && (axes[:, i] .*= -1)
+    end
+    # Guarantee a proper rotation by flipping the least-aligned axis if reflected.
+    if det(axes) < 0
+        flip = argmin([abs(axes[i, i]) for i in 1:3])
+        axes[:, flip] .*= -1
+    end
+    return Vector{SimFloat}(moments), Matrix{SimFloat}(axes')
+end
+
+"""
+    RigidBody(name; mass, inertia_principal | inertia, pos, vel=zeros,
+              Q_b_to_w=[1,0,0,0], ω_b=zeros, com_offset_b=zeros, R_b_to_p=I,
+              angular_damping=0, type=DYNAMIC, transform=nothing,
               ext_force_w=zeros, ext_moment_b=zeros)
 
 Construct a standalone rigid body. `pos`/`vel` are the body origin's initial
 world-frame position/velocity; `Q_b_to_w`/`ω_b` its initial orientation/spin.
 The principal-frame ODE state is derived from these by `init_rigid_body!`.
+
+`type` is `DYNAMIC` (free 6-DOF, default) or `STATIC` (clamped to its initial
+pose — e.g. a cantilever root). `transform` optionally references a
+[`Transform`](@ref) that repositions/rotates the body's initial pose (azimuth,
+elevation, heading), like a wing.
+
+Supply the inertia in one of two ways: `inertia_principal` (a length-3 diagonal
+principal inertia, with `R_b_to_p` giving the body→principal rotation), or
+`inertia` (a full 3×3 body-frame tensor), in which case both `inertia_principal`
+and `R_b_to_p` are derived via [`principal_frame`](@ref). Give one, not both.
 """
 function RigidBody(name;
         mass::Real,
-        inertia_principal,
+        inertia_principal = nothing,
+        inertia = nothing,
         pos,
         vel = zeros(SimFloat, 3),
         Q_b_to_w = SimFloat[1, 0, 0, 0],
@@ -86,14 +146,27 @@ function RigidBody(name;
         com_offset_b = zeros(SimFloat, 3),
         R_b_to_p = Matrix{SimFloat}(I, 3, 3),
         angular_damping::Real = 0.0,
-        fixed::Bool = false,
+        type::DynamicsType = DYNAMIC,
+        transform = nothing,
         ext_force_w = zeros(SimFloat, 3),
         ext_moment_b = zeros(SimFloat, 3),
     )
-    return RigidBody(0, name,
+    type in (DYNAMIC, STATIC) || error(
+        "RigidBody $name: type must be DYNAMIC or STATIC, got $type.")
+    transform_ref = isnothing(transform) ? 0 : transform
+    if !isnothing(inertia)
+        isnothing(inertia_principal) || error(
+            "RigidBody $name: give `inertia` or `inertia_principal`, not both.")
+        inertia_principal, R_b_to_p = principal_frame(inertia)
+    elseif isnothing(inertia_principal)
+        error("RigidBody $name: provide `inertia_principal` or `inertia`.")
+    end
+    R_b_to_c = quaternion_to_rotation_matrix(Vector{SimFloat}(Q_b_to_w))
+    return RigidBody(0, name, 0, transform_ref,
         SimFloat(mass), KVec3(inertia_principal),
         Matrix{SimFloat}(R_b_to_p), KVec3(com_offset_b),
-        KVec3(ext_force_w), KVec3(ext_moment_b), SimFloat(angular_damping), fixed,
+        KVec3(ext_force_w), KVec3(ext_moment_b), SimFloat(angular_damping), type,
+        KVec3(pos), Matrix{SimFloat}(R_b_to_c),
         Vector{SimFloat}(Q_b_to_w), KVec3(ω_b),
         KVec3(pos), KVec3(vel), zeros(KVec3),
         zeros(KVec3), zeros(KVec3), zeros(SimFloat, 4), zeros(KVec3))

@@ -33,7 +33,7 @@ set.v_wind = 0.0
 
 """
 Custom winch model: `set_value` is a target tether length. Drum params come from
-the flat `params` view (mirrors `DefaultWinchModel`); the controller gains and
+the flat `params` view (mirrors `TorqueWinch`); the controller gains and
 `friction_epsilon` are the model's own fields.
 """
 mutable struct CascadedLengthWinch <: AbstractWinchModel

@@ -200,7 +200,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
         va_point_b, va_point_w, wind_at_point, height,
         aero_force_point_b,
-        twist_surface_y_airf, tether_wing_force, tether_wing_moment
+        twist_surface_y_airf, tether_wing_force, tether_wing_moment,
+        body_force, body_moment, body_pos_w, body_com_w, body_R_b_to_w
     )
 
     # 2. TwistSurface equations (deformable wing sections with twist dynamics)

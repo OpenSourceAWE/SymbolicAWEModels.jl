@@ -103,10 +103,10 @@ environment:
 
     @testset "Spin-up under applied moment" begin
         rb = sam.sys_struct.rigid_bodies[:body1]
-        rb.pos_w .= [0.0, 0.0, 10.0]
+        rb.pos_cad .= [0.0, 0.0, 10.0]
+        rb.R_b_to_c .= [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
         rb.vel_w .= 0.0
         rb.ω_b .= 0.0
-        rb.Q_b_to_w .= [1.0, 0.0, 0.0, 0.0]
         torque = 0.05
         rb.ext_moment_b .= [torque, 0.0, 0.0]
         test_init!(sam; prn=false, reset_vel=false)
@@ -141,6 +141,35 @@ environment:
         R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
         @test rb.com_w ≈ rb.pos_w .+ R_b_to_w * offset atol=1e-5
         @test norm(rb.ω_b) < 1e-6
+    end
+
+    # A transform must reposition AND reorient a rigid body, like a wing.
+    # Tested at the SystemStructure level (reinit!), no ODE compilation.
+    @testset "Transform repositions and rotates a rigid body" begin
+        ground = Point(:ground, [0.0, 0.0, 0.0], STATIC; transform=0)
+        body3 = RigidBody(:body3; mass=1.0, inertia_principal=inertia,
+                          pos=[100.0, 0.0, 0.0], transform=:tf)
+        tip = Point(:tip, [100.0, 0.0, 0.0], BODY_STATIC;
+                    body=:body3, anchor_b=[0.0, 0.0, 0.0], transform=:tf)
+        tf = Transform(:tf, deg2rad(45), 0.0, 0.0;
+                       base_pos=[0.0, 0.0, 0.0], base_point=:ground,
+                       rot_point=:tip)
+        sys3 = SystemStructure("rigid_body_transform_test", set;
+            points=[ground, tip], rigid_bodies=[body3], transforms=[tf])
+
+        SymbolicAWEModels.reinit!(sys3, set)
+
+        rb = sys3.rigid_bodies[:body3]
+        r = 100.0 / sqrt(2)
+        @test rb.pos_w ≈ KVec3(r, 0.0, r) atol=1e-6
+        # body x-axis followed the radial from +x to the 45° elevation direction
+        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
+        @test R_b_to_w[:, 1] ≈ normalize(KVec3(1.0, 0.0, 1.0)) atol=1e-6
+        # the body-anchored point rides the rotated body
+        @test sys3.points[:tip].pos_w ≈ rb.pos_w atol=1e-6
+        # idempotent across a second reinit!
+        SymbolicAWEModels.reinit!(sys3, set)
+        @test rb.pos_w ≈ KVec3(r, 0.0, r) atol=1e-6
     end
 
     rm(tmpdir; recursive=true)

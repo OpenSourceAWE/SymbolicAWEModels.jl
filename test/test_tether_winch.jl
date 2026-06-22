@@ -25,7 +25,7 @@ using SymbolicAWEModels: AbstractWinchModel
 
 # Custom winch model for Test 9: `set_value` is a target tether length; a PD law
 # on `len` tracks it. Drum params come from the flat `params` view (mirrors
-# DefaultWinchModel); `friction_epsilon` is the model's own field. Defined at
+# TorqueWinch); `friction_epsilon` is the model's own field. Defined at
 # top level because structs cannot live inside `@testset` (a local scope).
 if !@isdefined(LengthTrackWinch)
     mutable struct LengthTrackWinch <: AbstractWinchModel

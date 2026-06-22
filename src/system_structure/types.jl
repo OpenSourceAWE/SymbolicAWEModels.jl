@@ -26,22 +26,30 @@ This file contains enums and struct definitions for:
 end
 
 """
-    DynamicsType `DYNAMIC` `WING` `STATIC` `FIXED`
+    DynamicsType `DYNAMIC` `STATIC` `WING` `BODY_STATIC`
 
-Enumeration for the dynamic model governing a point's motion or a twist_surface's twist.
+Enumeration for the dynamic model governing a point's motion, a rigid body's
+motion, or a twist_surface's twist. The shared idea: `DYNAMIC` quantities carry
+differential state and are solved by the dynamics; the others are *prescribed* —
+no state, held constant within a step, but mutable between steps.
 
 # Elements
-- `DYNAMIC`: The point is a dynamic point mass, moving according to Newton's second law.
-- `WING`: The point is rigidly attached to a wing body and moves with it.
-- `STATIC`: The point's position is fixed in the world frame.
-- `FIXED`: TwistSurface twist is a prescribed control input (no differential state, no
-  algebraic equilibrium). Read live via the registered twist getter.
+- `DYNAMIC`: Solved by the dynamics. A point moves by Newton's second law; a
+  rigid body integrates its 6-DOF state; a twist_surface twist solves its
+  equilibrium.
+- `STATIC`: Prescribed, no state. A point's position is welded in the **world**
+  frame; a rigid body is clamped to the world; a twist_surface twist is a
+  prescribed control input read live via the registered getter.
+- `WING`: A point rides a [`Wing`](@ref) — static in the wing's body frame.
+- `BODY_STATIC`: A point rides a [`RigidBody`](@ref) — static in the rigid
+  body's body frame; it feeds its net force (and the moment about the body COM)
+  into the body.
 """
 @enum DynamicsType begin
     DYNAMIC
-    WING
     STATIC
-    FIXED
+    WING
+    BODY_STATIC
 end
 
 """
@@ -206,14 +214,20 @@ mutable struct Point
     transform_idx::Int64
     "Resolved wing index (filled by SystemStructure)."
     wing_idx::Int64
+    "Resolved rigid-body index for a body-anchored point (filled by SystemStructure). 0 = not anchored."
+    body_idx::Int64
     "Raw transform reference (name or idx). 0 = no transform."
     const transform_ref::Union{Int, Symbol}
     "Raw wing reference (name or idx). 0 = no wing."
     const wing_ref::Union{Int, Symbol}
+    "Raw rigid-body reference for anchoring (name or idx). 0 = not anchored to a body."
+    const body_ref::Union{Int, Symbol}
     "Position in CAD frame [m]."
     const pos_cad::KVec3
     "Position relative to wing COM in principal frame [m]."
     const pos_b::KVec3
+    "Anchor offset in the rigid body's body frame [m] (body-anchored points)."
+    const anchor_b::KVec3
     "Position in world frame [m] (updated during simulation)."
     const pos_w::KVec3
     "Velocity in world frame [m/s] (updated during simulation)."
@@ -228,7 +242,7 @@ mutable struct Point
     const drag_force::KVec3
     "Apparent velocity in body frame [m/s] (VSM per-point)."
     const va_b::KVec3
-    "Dynamics type (STATIC, DYNAMIC, WING)."
+    "Dynamics type (DYNAMIC, STATIC, WING, BODY_STATIC)."
     const type::DynamicsType
     "User-provided mass [kg]."
     extra_mass::SimFloat
@@ -251,19 +265,27 @@ end
 """
     Point(name, pos_cad, type; wing=1, transform=1, ...)
 
-Constructs a `Point` object, which can be of three different [`DynamicsType`](@ref)s:
+Constructs a `Point` object, which can be of four different [`DynamicsType`](@ref)s:
 - `STATIC`: The point does not move. ``\\ddot{\\mathbf{r}} = \\mathbf{0}``
 - `DYNAMIC`: The point moves according to Newton's second law. ``\\ddot{\\mathbf{r}} = \\mathbf{F}/m``
 - `WING`: The point has a static position in the rigid body wing frame. ``\\mathbf{r}_w = \\mathbf{r}_{wing} + \\mathbf{R}_{b\\rightarrow w} \\mathbf{r}_b``
+- `BODY_STATIC`: The point is static in a [`RigidBody`](@ref)'s body frame
+  (pass `body`); it rides the body and feeds its net force and moment into it.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the point (e.g., `:kcu`, `:le_1`, or `1` for legacy).
 - `pos_cad::KVec3`: Position of the point in the CAD frame.
 - `type::DynamicsType`: Dynamics type of the point (`STATIC`, `DYNAMIC`, etc.).
+  Pass `BODY_STATIC` together with `body` to anchor the point to a rigid body.
 
 # Keyword Arguments
 - `wing::Union{Int, Symbol}=1`: Reference to the wing (name or index).
 - `transform::Union{Int, Symbol}=1`: Reference to the transform (name or index).
+- `body::Union{Int, Symbol}`: Reference to a [`RigidBody`](@ref) to anchor the
+  point to (requires `type = BODY_STATIC`). The point then rides the body
+  kinematically and feeds its net force (and the moment about the body COM)
+  into the body. Defaults to no anchor.
+- `anchor_b::KVec3`: Anchor offset in the body frame [m] (used with `body`).
 - `vel_w::KVec3=zeros(KVec3)`: Initial velocity of the point in world frame.
 - `extra_mass::Float64=0.0`: User-provided mass of the point [kg].
 - `body_frame_damping::Union{Float64,KVec3}=zeros(KVec3)`: Per-axis damping for body frame.
@@ -276,13 +298,23 @@ Constructs a `Point` object, which can be of three different [`DynamicsType`](@r
 """
 function Point(name, pos_cad, type;
     wing=nothing, transform=nothing, vel_w=nothing,
+    body=nothing, anchor_b=nothing,
     extra_mass=0.0, body_frame_damping=nothing, world_frame_damping=nothing,
     area=0.0, drag_coeff=0.0,
     fix_sphere=false, fix_static=false
 )
-    # Handle nothing values - wing defaults to 1, transform 0 means no transform
-    wing_ref = isnothing(wing) ? 1 : wing
+    if type == BODY_STATIC
+        isnothing(body) && error("Point $name: BODY_STATIC requires a `body` " *
+            "reference to a RigidBody.")
+    elseif !isnothing(body)
+        error("Point $name: `body` is only valid with type BODY_STATIC.")
+    end
+    # Handle nothing values - wing defaults to 1, transform 0 means no transform.
+    # A body-anchored point has no wing (wing_ref = 0).
+    body_ref = isnothing(body) ? 0 : body
+    wing_ref = isnothing(wing) ? (type == BODY_STATIC ? 0 : 1) : wing
     transform_ref = isnothing(transform) ? 0 : transform
+    anchor = isnothing(anchor_b) ? zeros(KVec3) : KVec3(anchor_b...)
     vel = isnothing(vel_w) ? zeros(KVec3) : KVec3(vel_w...)
 
     # Convert scalar damping to vector (broadcast to all axes), handle nothing
@@ -301,8 +333,9 @@ function Point(name, pos_cad, type;
         SVector{3,SimFloat}(world_frame_damping...)
     end
 
-    # idx, transform_idx, wing_idx are placeholders - resolved by SystemStructure
-    Point(0, name, 0, 0, transform_ref, wing_ref, KVec3(pos_cad...), zeros(KVec3), zeros(KVec3),
+    # idx, transform_idx, wing_idx, body_idx are placeholders - resolved by SystemStructure
+    Point(0, name, 0, 0, 0, transform_ref, wing_ref, body_ref,
+        KVec3(pos_cad...), zeros(KVec3), anchor, zeros(KVec3),
         vel, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         type, extra_mass, 0.0,
         bf_damp, wf_damp, area, drag_coeff,
@@ -333,7 +366,7 @@ mutable struct TwistSurface
     chord::KVec3
     "Spanwise vector in local panel frame (from closest VSM panel)."
     y_airf::KVec3
-    "Dynamics type (DYNAMIC or FIXED)."
+    "Dynamics type (DYNAMIC or STATIC)."
     const type::DynamicsType
     "Chordwise rotation point fraction (0=LE, 1=TE)."
     moment_frac::SimFloat
@@ -367,7 +400,7 @@ using the closest VSM panel to the twist_surface's mean point position.
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the twist_surface.
 - `points::Vector`: References to points (names or indices).
-- `type::DynamicsType`: DYNAMIC or FIXED.
+- `type::DynamicsType`: DYNAMIC or STATIC.
 - `moment_frac::SimFloat`: Chordwise rotation point (0=LE, 1=TE).
 
 # Keyword Arguments
@@ -377,7 +410,7 @@ using the closest VSM panel to the twist_surface's mean point position.
   from the closest VSM panel during SystemStructure construction.
 - `y_airf=nothing`: Spanwise reference (body frame). Auto-derived when omitted.
 - `area=NaN`: Surface area [m²] for flat-plate (`AeroPlate`) sections.
-- `twist=0.0`: Initial twist angle [rad] (prescribed input for `FIXED` sections).
+- `twist=0.0`: Initial twist angle [rad] (prescribed input for `STATIC` sections).
 
 # Returns
 - `TwistSurface`: A new `TwistSurface` object. The `idx` and `point_idxs` are resolved by SystemStructure.
@@ -781,7 +814,7 @@ params)` method building the MTK subsystem (mirrors [`AbstractAeroModel`](@ref))
 The model lives in [`Winch`](@ref)`.model`; common drum parameters
 (`gear_ratio`, `drum_radius`, `f_coulomb`, `c_vf`, `inertia_total`) stay on
 the `Winch` struct. New models = new struct + a few methods; see
-[`DefaultWinchModel`](@ref).
+[`TorqueWinch`](@ref).
 """
 abstract type AbstractWinchModel end
 
@@ -839,7 +872,7 @@ mutable struct Winch
     "Current friction force [N] (updated during simulation)."
     friction::SimFloat
     """Winch motor dynamics model carrying its own parameters.
-    Defaults to [`DefaultWinchModel`](@ref). See [`AbstractWinchModel`](@ref)."""
+    Defaults to [`TorqueWinch`](@ref). See [`AbstractWinchModel`](@ref)."""
     model::AbstractWinchModel
 end
 
@@ -865,16 +898,16 @@ torque or speed regulation.
   velocity via `winch.vel` instead of integrating motor dynamics;
   winch acceleration is forced to 0, ignoring `model`.
 - `friction_epsilon::SimFloat=6.0`: Coulomb-friction smoothing width;
-  forwarded into the default [`DefaultWinchModel`](@ref) (ignored when an
+  forwarded into the default [`TorqueWinch`](@ref) (ignored when an
   explicit non-default `model` is passed).
-- `model::AbstractWinchModel=DefaultWinchModel()`: Winch motor dynamics
+- `model::AbstractWinchModel=TorqueWinch()`: Winch motor dynamics
   model. See [`AbstractWinchModel`](@ref) for plugging in your own.
 """
 function Winch(name, set::Settings, tethers;
                winch_point,
                init_vel=0.0, brake=0.0, speed_controlled=false,
                friction_epsilon=6.0,
-               model::AbstractWinchModel=DefaultWinchModel(; friction_epsilon))
+               model::AbstractWinchModel=TorqueWinch(; friction_epsilon))
     tether_refs = Vector{NameRef}(
         [t isa Integer ? Int(t) : Symbol(t) for t in tethers])
     wp = winch_point isa Integer ? Int(winch_point) :
@@ -910,7 +943,7 @@ function Winch(name, tethers, gear_ratio, drum_radius,
                winch_point,
                init_vel=0.0, brake=0.0, speed_controlled=false,
                friction_epsilon=6.0,
-               model::AbstractWinchModel=DefaultWinchModel(; friction_epsilon))
+               model::AbstractWinchModel=TorqueWinch(; friction_epsilon))
     tether_refs = Vector{NameRef}(
         [t isa Integer ? Int(t) : Symbol(t) for t in tethers])
     wp = winch_point isa Integer ? Int(winch_point) :

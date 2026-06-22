@@ -562,7 +562,7 @@ end
               z_ref_points=nothing, y_ref_points=nothing, origin=nothing)
 
 Construct a flat-plate [`Wing`](@ref) (no VSM engine; `vsm === nothing`). Each
-flat-plate section is a 1-point `FIXED` [`TwistSurface`](@ref) carrying the
+flat-plate section is a 1-point `STATIC` [`TwistSurface`](@ref) carrying the
 section's body-frame reference frame, area, and prescribed twist; the shared
 polar lookups live on the wing's [`AeroPlate`](@ref) `aero` model. Supports both
 `RIGID_DYNAMICS` and `PARTICLE_DYNAMICS`.
@@ -570,7 +570,7 @@ polar lookups live on the wing's [`AeroPlate`](@ref) `aero` model. Supports both
 # Arguments
 - `name`: Wing name/identifier.
 - `twist_surfaces`: References (names or indices) to the wing's flat-plate
-  sections — each a 1-point `FIXED` [`TwistSurface`](@ref).
+  sections — each a 1-point `STATIC` [`TwistSurface`](@ref).
 - `calc_cl`: CL lookup callable(alpha_deg) → CL.
 - `calc_cd`: CD lookup callable(alpha_deg) → CD.
 

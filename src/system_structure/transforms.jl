@@ -161,13 +161,13 @@ function copy_cad_to_world!(points, wings; update_vel::Bool=true)
 end
 
 """
-    apply_azimuth_elevation!(transform, wings, points, base_pos; update_vel=false)
+    apply_azimuth_elevation!(transform, wings, points, rigid_bodies, base_pos; update_vel=false)
 
-Apply the azimuth/elevation rotation of a single transform to all
-components in it. Returns `(curr_R_t_to_w, R_t_to_w)` for use in
-the heading step.
+Apply the azimuth/elevation rotation of a single transform to all components in
+it (points, wings, and rigid bodies). Returns `(curr_R_t_to_w, R_t_to_w)` for
+use in the heading step.
 """
-function apply_azimuth_elevation!(transform, wings, points, base_pos;
+function apply_azimuth_elevation!(transform, wings, points, rigid_bodies, base_pos;
                                    update_vel::Bool=false)
     curr_rot_pos = get_rot_pos(transform, wings, points)
     rel_pos = curr_rot_pos - base_pos
@@ -205,12 +205,26 @@ function apply_azimuth_elevation!(transform, wings, points, base_pos;
             wing.ω_b .= 0.0
         end
     end
+    # Bodies carry their own orientation, so rotate both pos_w (about base) and
+    # Q_b_to_w by the same azimuth/elevation rotation R_t_to_w·curr_R_t_to_w'.
+    R_azel = R_t_to_w * curr_R_t_to_w'
+    for body in rigid_bodies
+        body.transform_idx == transform.idx || continue
+        vec = body.pos_w - base_pos
+        body.pos_w .= base_pos + apply_heading(vec, R_t_to_w, curr_R_t_to_w, 0.0)
+        R_b_to_w = R_azel * quaternion_to_rotation_matrix(body.Q_b_to_w)
+        body.Q_b_to_w .= rotation_matrix_to_quaternion(R_b_to_w)
+        if update_vel
+            body.vel_w .= norm(body.pos_w - base_pos) / r_rot * vel_spherical
+            body.ω_b .= 0.0
+        end
+    end
 
     return curr_R_t_to_w, R_t_to_w
 end
 
 """
-    apply_heading!(transform, wings, points,
+    apply_heading!(transform, wings, points, rigid_bodies,
                     curr_R_t_to_w, R_t_to_w, base_pos)
 
 Apply heading rotation to all components in a single transform.
@@ -218,8 +232,10 @@ Rotates around the radial axis through `base_pos` (not the origin).
 Uses `wing.R_b_to_w` for the no-ref-points orientation source.
 After `copy_cad_to_world!`, this equals `wing.R_b_to_c` (for
 `reinit!`), or the current world orientation (for `reposition!`).
+Rigid bodies in the transform rotate with the same heading delta; a transform
+without a wing applies no heading (matching point behavior).
 """
-function apply_heading!(transform, wings, points,
+function apply_heading!(transform, wings, points, rigid_bodies,
                          curr_R_t_to_w, R_t_to_w, base_pos)
     for wing in wings
         wing.transform_idx == transform.idx || continue
@@ -250,6 +266,16 @@ function apply_heading!(transform, wings, points,
             point.pos_w .= base_pos .+ rotate_v_around_k(
                 point.pos_w .- base_pos, k, delta_heading)
         end
+        for body in rigid_bodies
+            body.transform_idx == transform.idx || continue
+            body.pos_w .= base_pos .+ rotate_v_around_k(
+                body.pos_w .- base_pos, k, delta_heading)
+            R_b = quaternion_to_rotation_matrix(body.Q_b_to_w)
+            for i in 1:3
+                R_b[:, i] .= rotate_v_around_k(R_b[:, i], k, delta_heading)
+            end
+            body.Q_b_to_w .= rotation_matrix_to_quaternion(R_b)
+        end
 
         wing.pos_w .= base_pos .+ rotate_v_around_k(
             rel_pos, k, delta_heading)
@@ -262,12 +288,13 @@ function apply_heading!(transform, wings, points,
 end
 
 """
-    finalize_transforms!(wings, points)
+    finalize_transforms!(wings, points, rigid_bodies)
 
 Finalize transforms: update PARTICLE_DYNAMICS wing frames from structural
-point positions, then compute principal frame ODE state.
+point positions, then compute principal frame ODE state for wings and rigid
+bodies (the latter re-derived from the transformed `pos_w`/`Q_b_to_w`).
 """
-function finalize_transforms!(wings, points)
+function finalize_transforms!(wings, points, rigid_bodies)
     for wing in wings
         wing.dynamics_type == PARTICLE_DYNAMICS || continue
         (isnothing(wing.z_ref_points) || isnothing(wing.y_ref_points) ||
@@ -283,6 +310,9 @@ function finalize_transforms!(wings, points)
         end
     end
     init_principal_frame!(wings, points)
+    for rigid_body in rigid_bodies
+        init_rigid_body!(rigid_body)
+    end
 end
 
 """
@@ -341,10 +371,10 @@ Applies: translate (from pos_w) → azimuth/elevation → heading.
 """
 function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure;
                  update_vel::Bool=true)
-    (; points, wings) = sys_struct
+    (; points, wings, rigid_bodies) = sys_struct
 
     if isempty(transforms)
-        finalize_transforms!(wings, points)
+        finalize_transforms!(wings, points, rigid_bodies)
         return
     end
 
@@ -372,15 +402,20 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
             wing.pos_w .= wing.pos_w .+ T
             update_vel && (wing.vel_w .= 0.0)
         end
+        for body in rigid_bodies
+            body.transform_idx == transform.idx || continue
+            body.pos_w .= body.pos_w .+ T
+            update_vel && (body.vel_w .= 0.0)
+        end
 
         # ==================== ROTATE + HEADING ==================== #
         curr_R_t_to_w, R_t_to_w = apply_azimuth_elevation!(
-            transform, wings, points, base_pos; update_vel)
-        apply_heading!(transform, wings, points,
+            transform, wings, points, rigid_bodies, base_pos; update_vel)
+        apply_heading!(transform, wings, points, rigid_bodies,
             curr_R_t_to_w, R_t_to_w, base_pos)
     end
 
-    finalize_transforms!(wings, points)
+    finalize_transforms!(wings, points, rigid_bodies)
 end
 
 """
@@ -399,7 +434,7 @@ function reposition!(
     transforms::AbstractVector{Transform},
     sys_struct::SystemStructure
 )
-    (; points, wings) = sys_struct
+    (; points, wings, rigid_bodies) = sys_struct
     for transform in transforms
         base_pos = if !isnothing(
                 transform.base_transform_idx)
@@ -412,10 +447,10 @@ function reposition!(
         end
         curr_R_t_to_w, R_t_to_w =
             apply_azimuth_elevation!(
-                transform, wings, points, base_pos;
+                transform, wings, points, rigid_bodies, base_pos;
                 update_vel=false)
-        apply_heading!(transform, wings, points,
+        apply_heading!(transform, wings, points, rigid_bodies,
             curr_R_t_to_w, R_t_to_w, base_pos)
     end
-    finalize_transforms!(wings, points)
+    finalize_transforms!(wings, points, rigid_bodies)
 end

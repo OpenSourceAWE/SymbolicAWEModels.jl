@@ -263,15 +263,14 @@ end
 
 Return `(anchor_idx, free_idx)` for a root tether: the endpoint in
 `boundary` (`STATIC`/winch points) is the anchor, the other is free.
-Returns `(nothing, nothing)` if neither endpoint is on a boundary;
-errors if both are.
+Returns `(nothing, nothing)` if neither endpoint is on a boundary, or if
+both are (a both-fixed tether cannot be placed; the caller warns and skips it).
 """
 function tether_anchor_free(tether, boundary)
     start_on_boundary = tether.start_point_idx in boundary
     end_on_boundary = tether.end_point_idx in boundary
     if start_on_boundary && end_on_boundary
-        error("Tether $(tether.name): both endpoints are " *
-              "ground-fixed; cannot place it to a length.")
+        return nothing, nothing
     elseif start_on_boundary
         return tether.start_point_idx, tether.end_point_idx
     elseif end_on_boundary
@@ -283,10 +282,11 @@ end
 """
     rigid_point_siblings(points, wings)
 
-Map each `WING`-type point index of a `RIGID_DYNAMICS` wing to the
-set of all such points sharing that wing. These points move as one
-rigid body without inter-point segments, so the set captures their
-connectivity for downstream traversal.
+Map each point index that rides a rigid body to the set of all points sharing
+that body, so downstream traversal moves them as one unit. Covers `WING` points
+of a `RIGID_DYNAMICS` wing (grouped by `wing_idx`) and `BODY_STATIC` points
+(grouped by `body_idx`). These points carry no inter-point segments, so the set
+captures their connectivity.
 """
 function rigid_point_siblings(points, wings)
     siblings = Dict{Int64, Set{Int64}}()
@@ -294,6 +294,15 @@ function rigid_point_siblings(points, wings)
         wing.dynamics_type == RIGID_DYNAMICS || continue
         members = Set{Int64}(point.idx for point in points
             if point.type == WING && point.wing_idx == wing.idx)
+        for member in members
+            siblings[member] = members
+        end
+    end
+    body_idxs = unique(point.body_idx for point in points
+        if point.type == BODY_STATIC)
+    for body_idx in body_idxs
+        members = Set{Int64}(point.idx for point in points
+            if point.type == BODY_STATIC && point.body_idx == body_idx)
         for member in members
             siblings[member] = members
         end
@@ -414,7 +423,7 @@ then interior points are redistributed proportionally along each
 tether. For a multi-tether cluster, logs an `@info` when `prn`.
 """
 function apply_cluster_init_stretched_len!(
-    cluster, points, segments, downstream, boundary; prn=true)
+    cluster, points, segments, rigid_bodies, downstream, boundary; prn=true)
     snaps = map(cluster) do tether
         anchor_idx, free_idx = tether_anchor_free(tether, boundary)
         anchor_pos = copy(points[anchor_idx].pos_w)
@@ -456,6 +465,14 @@ function apply_cluster_init_stretched_len!(
         end
     end
 
+    # Move the body, not its points: the pos~anchor constraint would snap them back.
+    moved_bodies = Set{Int64}(points[idx].body_idx for idx in moved
+                              if points[idx].body_idx != 0)
+    for body_idx in moved_bodies
+        rigid_bodies[body_idx].pos_w .+= delta
+        rigid_bodies[body_idx].com_w .+= delta
+    end
+
     for snap in snaps
         length(snap.ordered) <= 2 && continue
         line = (snap.free_pos .+ delta) .- snap.anchor_pos
@@ -494,10 +511,26 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
 
     rigid_siblings = rigid_point_siblings(points, wings)
 
+    # Boundary = externally world-fixed points: STATIC, winch, and BODY_STATIC on a STATIC body.
+    rigid_bodies = sys_struct.rigid_bodies
     boundary = Set{Int64}(w.winch_point_idx for w in winches)
     for point in points
         point.type == STATIC && push!(boundary, point.idx)
+        point.type == BODY_STATIC && rigid_bodies[point.body_idx].type == STATIC &&
+            push!(boundary, point.idx)
     end
+
+    # A both-fixed tether (both endpoints on a boundary) cannot be placed to a
+    # length — warn and skip it rather than failing the whole init.
+    both_fixed(tether) = tether.start_point_idx in boundary &&
+                         tether.end_point_idx in boundary
+    placeable = filter(!both_fixed, specified)
+    for tether in specified
+        both_fixed(tether) && @warn "Tether $(tether.name): both endpoints " *
+            "are fixed; skipping its length placement."
+    end
+    isempty(placeable) && return
+    specified = placeable
 
     anchor_free = Dict(tether.idx => tether_anchor_free(tether, boundary)
                        for tether in specified)
@@ -521,6 +554,7 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
 
     for cluster in twist_surface_tethers_by_overlap(specified, reach)
         apply_cluster_init_stretched_len!(cluster, points, segments,
+                                          sys_struct.rigid_bodies,
                                           downstream, boundary; prn)
     end
 end
@@ -616,14 +650,20 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         winch.vel = winch.init_vel
     end
 
-    # Standalone rigid bodies: derive principal-frame ODE state from the
-    # body-frame initial conditions (pos_w/vel_w/Q_b_to_w/ω_b).
+    # Standalone rigid bodies: reset pose to CAD (so placement is idempotent),
+    # then derive principal-frame ODE state from the body-frame ICs.
     for rigid_body in sys_struct.rigid_bodies
+        rigid_body.pos_w .= rigid_body.pos_cad
+        rigid_body.Q_b_to_w .= rotation_matrix_to_quaternion(rigid_body.R_b_to_c)
+        if reset_vel
+            rigid_body.vel_w .= 0.0
+            rigid_body.ω_b .= 0.0
+        end
         init_rigid_body!(rigid_body)
     end
 
     for twist_surface in twist_surfaces
-        twist_surface.type == FIXED && continue
+        twist_surface.type == STATIC && continue
         twist_surface.twist = 0.0
         twist_surface.twist_ω = 0.0
     end

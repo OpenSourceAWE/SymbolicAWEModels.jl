@@ -46,7 +46,7 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
 
     make_bodies() = [RigidBody(Symbol("seg_$i"); mass=m,
         inertia_principal=inertia, pos=[(i-0.5)*L, 0.0, 0.0],
-        fixed=(i==1)) for i in 1:n]
+        type=(i==1 ? STATIC : DYNAMIC)) for i in 1:n]
     joints = [ElasticJoint(Symbol("j_$i"), Symbol("seg_$i"), Symbol("seg_$(i+1)");
         anchor_a=[L/2,0.0,0.0], anchor_b=[-L/2,0.0,0.0],
         stiffness_axial=1e5, stiffness_shear=1e5, stiffness_torsion=5e3,
