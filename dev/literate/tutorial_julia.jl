@@ -74,8 +74,6 @@ end
 # - `STATIC` — the point does not move
 # - `DYNAMIC` — the point moves according to
 #   ``\ddot{\mathbf{r}} = \mathbf{F}/m``
-# - `QUASI_STATIC` — acceleration is constrained to zero (force
-#   equilibrium)
 # - `WING` — the point is rigidly attached to a wing body
 #
 # Next, connect the points with [`Segment`](@ref)s. Each segment is
