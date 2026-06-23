@@ -56,3 +56,6 @@ pattern = "lowering/unsorted-import-names"
 match_by = "code"
 match_type = "literal"
 severity = "off"
+
+[inlay_hint.types]
+enabled = false  # Hide type hints; keep `end`-tag hints
