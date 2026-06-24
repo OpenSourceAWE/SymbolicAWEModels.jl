@@ -193,8 +193,8 @@ end
     )
 
     @testset "Model setup" begin
-        @test length(sys.wings) == 1
-        wing = sys.wings[:main_wing]
+        @test length(sys.bodies) == 1
+        wing = sys.bodies[:main_wing]
         @test wing.dynamics_type == SymbolicAWEModels.RIGID_DYNAMICS
         @test wing.aero isa AeroNone
         @test wing.mass ≈ 3.0  # 6 points * 0.5 kg
@@ -207,7 +207,7 @@ end
     # ================ Free fall ================ #
 
     @testset "Free fall acceleration = g" begin
-        wing = sam.sys_struct.wings[:main_wing]
+        wing = sam.sys_struct.bodies[:main_wing]
         dt = 0.01
         for _ in 1:5
             next_step!(sam; dt, vsm_interval=0)
@@ -234,7 +234,7 @@ end
     # analytically as Q0 * q_rot(omega*t).
 
     @testset "Constant spin about principal axis" begin
-        wing = sam.sys_struct.wings[:main_wing]
+        wing = sam.sys_struct.bodies[:main_wing]
         I_b = collect(wing.inertia_principal)
         k = argmax(I_b)  # max I axis: always stable
 
@@ -296,7 +296,7 @@ end
     #                         / (I_a * I_b))
 
     @testset "Torque-free precession" begin
-        wing = sam.sys_struct.wings[:main_wing]
+        wing = sam.sys_struct.bodies[:main_wing]
         I_b = collect(wing.inertia_principal)
         k = argmax(I_b)  # stable spin axis
 

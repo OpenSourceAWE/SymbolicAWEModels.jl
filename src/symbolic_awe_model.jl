@@ -324,7 +324,7 @@ to degrees) and calculating derived values like AoA and roll/pitch/yaw angles.
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
     (; points, twist_surfaces, segments, pulleys, winches, wings, tethers,
-       rigid_bodies) = sam.sys_struct
+       bodies) = sam.sys_struct
 
     for (ti, tether) in enumerate(tethers)
         ti > 4 && break
@@ -406,7 +406,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.Z[slot] = wing.pos_w[3] * zoom
         ss.orients[wing.idx] .= wing.Q_b_to_w   # frame 1 == legacy `orient`
     end
-    for rigid_body in rigid_bodies
+    for rigid_body in bodies
         slot = slots.bodies[rigid_body.idx]
         ss.X[slot] = rigid_body.pos_w[1] * zoom
         ss.Y[slot] = rigid_body.pos_w[2] * zoom
@@ -430,14 +430,14 @@ that group (empty if none); `total` is the position count. Orientation frames
 
 ```julia
 slots = position_slots(sam.sys_struct)
-sam.sys_struct.rigid_bodies[2]  # logged at X/Y/Z slot slots.bodies[2]
+sam.sys_struct.bodies[2]  # logged at X/Y/Z slot slots.bodies[2]
 ```
 """
 function position_slots(sys_struct)
     n_points = length(sys_struct.points)
     n_corners = count_aero_log_points(sys_struct.wings)
     n_wings = length(sys_struct.wings)
-    n_bodies = length(sys_struct.rigid_bodies)
+    n_bodies = length(sys_struct.bodies)
     base_wings = n_points + n_corners
     base_bodies = base_wings + n_wings
     return (points        = 1:n_points,
@@ -449,7 +449,7 @@ end
 
 """Number of orientation frames (wings + rigid bodies, at least 1)."""
 n_orient_frames(sys_struct) = max(1,
-    length(sys_struct.wings) + length(sys_struct.rigid_bodies))
+    length(sys_struct.wings) + length(sys_struct.bodies))
 
 """
     SysState(s::SymbolicAWEModel, zoom=1.0)
@@ -644,7 +644,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     n_twist_surfaces = length(sys_struct.twist_surfaces)
     n_wings = length(sys_struct.wings)
     n_winches = length(sys_struct.winches)
-    n_bodies = length(sys_struct.rigid_bodies)
+    n_bodies = length(sys_struct.bodies)
     body_tag = n_bodies > 0 ? "_$(n_bodies)bdy" : ""
 
     return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_twist_surfaces)grp_$(n_wings)wng_$(n_winches)wch$(body_tag).bin$suffix"

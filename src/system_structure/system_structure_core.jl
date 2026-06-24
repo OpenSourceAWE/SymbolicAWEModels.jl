@@ -30,7 +30,7 @@ winches, and wings, forming a complete description of the kite system's structur
 - [`Wing`](@ref): Rigid wing bodies.
 - [`Transform`](@ref): Spatial transformations for initial positioning.
 """
-mutable struct SystemStructure{W<:AbstractWing, J<:ElasticJoint}
+mutable struct SystemStructure{J<:ElasticJoint}
     const name::String
     set::Settings
     const points::NamedCollection{Point}
@@ -39,9 +39,9 @@ mutable struct SystemStructure{W<:AbstractWing, J<:ElasticJoint}
     const pulleys::NamedCollection{Pulley}
     const tethers::NamedCollection{Tether}
     const winches::NamedCollection{Winch}
-    const wings::NamedCollection{W}
     const transforms::NamedCollection{Transform}
-    const rigid_bodies::NamedCollection{RigidBody}
+    "All bodies (plain bodies + wings). `sys.wings` is a filtered view of those with aero."
+    const bodies::NamedCollection{Body}
     const elastic_joints::NamedCollection{J}
 
     const am::AtmosphericModel
@@ -51,7 +51,12 @@ mutable struct SystemStructure{W<:AbstractWing, J<:ElasticJoint}
 end
 
 function Base.getproperty(sys::SystemStructure, sym::Symbol)
-    if sym == :total_mass
+    if sym == :wings
+        # Filtered view of the wing bodies (registered first, so position == idx),
+        # as a NamedCollection so name and integer indexing both work.
+        wing_bodies = filter(is_wing, getfield(sys, :bodies))
+        return NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies))
+    elseif sym == :total_mass
         # Sum of all point total_mass values (computed during simulation)
         # Falls back to extra_mass if total_mass is 0
         total = 0.0
@@ -73,18 +78,11 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
                 append!(vars, point.vel_w)
             end
         end
-        # wings (principal frame ODE state, RIGID_DYNAMICS only)
-        wings = getfield(sys, :wings)
-        for wing in wings
-            wing.dynamics_type != RIGID_DYNAMICS && continue
-            append!(vars, wing.com_w)
-            append!(vars, wing.com_vel)
-            append!(vars, wing.Q_p_to_w)
-            append!(vars, wing.ω_p)
-        end
-        # rigid_bodies (principal frame ODE state)
-        rigid_bodies = getfield(sys, :rigid_bodies)
-        for rigid_body in rigid_bodies
+        # bodies (principal frame ODE state). KINEMATIC bodies (particle wings)
+        # are skipped: their principal state is algebraic, not integrated.
+        bodies = getfield(sys, :bodies)
+        for rigid_body in bodies
+            rigid_body.type == KINEMATIC && continue
             append!(vars, rigid_body.com_w)
             append!(vars, rigid_body.com_vel)
             append!(vars, rigid_body.Q_p_to_w)
@@ -136,22 +134,10 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
                 offset += 3
             end
         end
-        # wings (principal frame ODE state, RIGID_DYNAMICS only)
-        wings = getfield(sys, :wings)
-        for wing in wings
-            wing.dynamics_type != RIGID_DYNAMICS && continue
-            wing.com_w .= @view flat_value[offset:offset+2]
-            offset += 3
-            wing.com_vel .= @view flat_value[offset:offset+2]
-            offset += 3
-            wing.Q_p_to_w .= @view flat_value[offset:offset+3]
-            offset += 4
-            wing.ω_p .= @view flat_value[offset:offset+2]
-            offset += 3
-        end
-        # rigid_bodies (principal frame ODE state)
-        rigid_bodies = getfield(sys, :rigid_bodies)
-        for rigid_body in rigid_bodies
+        # bodies (principal frame ODE state); skip KINEMATIC (particle) bodies.
+        bodies = getfield(sys, :bodies)
+        for rigid_body in bodies
+            rigid_body.type == KINEMATIC && continue
             rigid_body.com_w .= @view flat_value[offset:offset+2]
             offset += 3
             rigid_body.com_vel .= @view flat_value[offset:offset+2]
@@ -207,8 +193,7 @@ sphere frame method. Returns a vector of heading angles, one
 per wing.
 """
 function calc_heading(sys::SystemStructure)
-    return [calc_heading(wing.R_b_to_w, wing.pos_w)
-            for wing in getfield(sys, :wings)]
+    return [calc_heading(wing.R_b_to_w, wing.pos_w) for wing in sys.wings]
 end
 
 """
@@ -454,7 +439,7 @@ function assign_indices_and_resolve!(
     pulleys::Vector{Pulley},
     tethers::Vector{Tether},
     winches::Vector{Winch},
-    wings::Vector{<:AbstractWing},
+    wings::AbstractVector{<:Body},
     transforms::Vector{Transform}
 )
     # Build name dictionaries FIRST (using idx values after assignment)
@@ -496,7 +481,7 @@ function assign_indices_and_resolve!(
 
     # Resolve references for all components
     # Points: resolve wing_ref and transform_ref (body_ref resolved later in the
-    # constructor, alongside elastic-joint body refs, since rigid_bodies are not
+    # constructor, alongside elastic-joint body refs, since bodies are not
     # passed to this function).
     for point in points
         point.wing_idx = resolve_ref(point.wing_ref, wing_names, "wing")
@@ -640,7 +625,7 @@ then drives all of them as a rigid unit. The case
 a section to drive would be undefined.
 """
 function compute_spatial_twist_surface_mapping!(
-    the_wing::Wing,
+    the_wing::Body,
     twist_surfaces::AbstractVector{TwistSurface},
     points::AbstractVector{Point}
 )
@@ -801,9 +786,9 @@ function SystemStructure(name, set;
         pulleys=Pulley[],
         tethers=Tether[],
         winches=Winch[],
-        wings=AbstractWing[],
+        wings=Body[],
         transforms=Transform[],
-        rigid_bodies=RigidBody[],
+        bodies=Body[],
         elastic_joints=ElasticJoint[],
         ignore_l0::Bool=false,
         vsm_set=nothing,
@@ -820,17 +805,10 @@ function SystemStructure(name, set;
         end
     end
 
-    # Validate all wings are the same concrete type
-    # and narrow from AbstractWing[] to concrete type
+    # Narrow to a concrete element type only when wings are homogeneous; mixed dynamics keep the broader type.
     if length(wings) > 0
         W = typeof(wings[1])
-        for i in 2:length(wings)
-            @assert typeof(wings[i]) === W (
-                "All wings must be the same concrete " *
-                "type, got $(typeof(wings[i])) at " *
-                "index $i, expected $W")
-        end
-        if eltype(wings) !== W
+        if all(wing -> typeof(wing) === W, wings) && eltype(wings) !== W
             wings = convert(Vector{W}, wings)
         end
     end
@@ -953,14 +931,19 @@ function SystemStructure(name, set;
     end
     set.physical_model = name
 
-    # Standalone rigid bodies: assign indices and build name dict here (they
-    # carry no references, so they skip assign_indices_and_resolve!).
-    for (i, rigid_body) in enumerate(rigid_bodies)
-        rigid_body.idx = i
-        rigid_body.transform_idx = resolve_ref(
-            rigid_body.transform_ref, transform_names_dict, "transform")
+    # Register each wing's embedded body as a rigid body, placed FIRST so its
+    # slot index equals wing.idx — the body-state arrays then share wing indices
+    # and consumers keep indexing by wing.idx. Standalone bodies follow.
+    # Wings ARE bodies (Body with aero). Place the wing bodies first (so their
+    # idx stays 1..n_wings — the wing-sized arrays are indexed by idx), then the
+    # plain bodies; index all and resolve every body's transform.
+    prepend!(bodies, wings)
+    for (i, body) in enumerate(bodies)
+        body.idx = i
+        body.transform_idx = resolve_ref(
+            body.transform_ref, transform_names_dict, "transform")
     end
-    rigid_body_names_dict = build_name_dict(rigid_bodies)
+    rigid_body_names_dict = build_name_dict(bodies)
 
     # Body-anchored points: resolve their rigid-body reference now that the
     # rigid bodies have indices and a name dictionary.
@@ -987,9 +970,8 @@ function SystemStructure(name, set;
         NamedCollection{Pulley}(pulleys, pulley_names_dict),
         NamedCollection{Tether}(tethers, tether_names_dict),
         NamedCollection{Winch}(winches, winch_names_dict),
-        NamedCollection{eltype(wings)}(wings, wing_names_dict),
         NamedCollection{Transform}(transforms, transform_names_dict),
-        NamedCollection{RigidBody}(rigid_bodies, rigid_body_names_dict),
+        NamedCollection{Body}(bodies, rigid_body_names_dict),
         NamedCollection{eltype(elastic_joints)}(elastic_joints, elastic_joint_names_dict),
         AtmosphericModel(set), false, false, vsm_set)
     reinit!(sys_struct, set; prn)

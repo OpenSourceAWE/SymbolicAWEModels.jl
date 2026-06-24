@@ -41,7 +41,7 @@ no state, held constant within a step, but mutable between steps.
   frame; a rigid body is clamped to the world; a twist_surface twist is a
   prescribed control input read live via the registered getter.
 - `WING`: A point rides a [`Wing`](@ref) — static in the wing's body frame.
-- `BODY_STATIC`: A point rides a [`RigidBody`](@ref) — static in the rigid
+- `BODY_STATIC`: A point rides a [`Body`](@ref) — static in the rigid
   body's body frame; it feeds its net force (and the moment about the body COM)
   into the body.
 """
@@ -50,6 +50,7 @@ no state, held constant within a step, but mutable between steps.
     STATIC
     WING
     BODY_STATIC
+    KINEMATIC
 end
 
 """
@@ -71,6 +72,31 @@ end
 # Backwards-compatible deprecated aliases for the previous WingType names.
 Base.@deprecate_binding QUATERNION RIGID_DYNAMICS
 Base.@deprecate_binding REFINE PARTICLE_DYNAMICS
+
+"""
+    abstract type WingDynamics
+
+Phantom tag for a wing's dynamics, carried as the second type parameter of
+[`Wing`](@ref). It mirrors the `dynamics_type` field but lifts the
+rigid/particle distinction into the type domain so aero (and other) methods can
+dispatch on [`RigidWing`](@ref)/[`ParticleWing`](@ref) instead of branching on
+`dynamics_type`. Subtypes: [`RigidDynamics`](@ref), [`ParticleDynamics`](@ref).
+"""
+abstract type WingDynamics end
+
+"""Dynamics tag for a `RIGID_DYNAMICS` wing (integrated 6-DOF body)."""
+struct RigidDynamics <: WingDynamics end
+
+"""Dynamics tag for a `PARTICLE_DYNAMICS` wing (frame fitted from points)."""
+struct ParticleDynamics <: WingDynamics end
+
+"""
+    wing_dynamics(dynamics_type::WingType) -> Type{<:WingDynamics}
+
+Map a [`WingType`](@ref) to its [`WingDynamics`](@ref) tag.
+"""
+wing_dynamics(dynamics_type::WingType) =
+    dynamics_type == RIGID_DYNAMICS ? RigidDynamics : ParticleDynamics
 
 """
     AbstractAeroModel
@@ -232,8 +258,8 @@ mutable struct Point
     const pos_w::KVec3
     "Velocity in world frame [m/s] (updated during simulation)."
     const vel_w::KVec3
-    "External disturbance force [N]."
-    const disturb::KVec3
+    "External force applied to the point, world frame [N] (settable). Was `disturb`."
+    const ext_force_w::KVec3
     "Net force on the point [N] (updated during simulation)."
     const force::KVec3
     "Aerodynamic force in body frame [N] (PARTICLE_DYNAMICS WING points)."
@@ -262,6 +288,11 @@ mutable struct Point
     fix_static::Bool
 end
 
+# Deprecated: `point.disturb` is the point's external world-frame force; the field
+# is now `ext_force_w`. Read and in-place write (`.disturb .= …`) forward to it.
+Base.getproperty(point::Point, sym::Symbol) =
+    getfield(point, sym === :disturb ? :ext_force_w : sym)
+
 """
     Point(name, pos_cad, type; wing=1, transform=1, ...)
 
@@ -269,7 +300,7 @@ Constructs a `Point` object, which can be of four different [`DynamicsType`](@re
 - `STATIC`: The point does not move. ``\\ddot{\\mathbf{r}} = \\mathbf{0}``
 - `DYNAMIC`: The point moves according to Newton's second law. ``\\ddot{\\mathbf{r}} = \\mathbf{F}/m``
 - `WING`: The point has a static position in the rigid body wing frame. ``\\mathbf{r}_w = \\mathbf{r}_{wing} + \\mathbf{R}_{b\\rightarrow w} \\mathbf{r}_b``
-- `BODY_STATIC`: The point is static in a [`RigidBody`](@ref)'s body frame
+- `BODY_STATIC`: The point is static in a [`Body`](@ref)'s body frame
   (pass `body`); it rides the body and feeds its net force and moment into it.
 
 # Arguments
@@ -281,7 +312,7 @@ Constructs a `Point` object, which can be of four different [`DynamicsType`](@re
 # Keyword Arguments
 - `wing::Union{Int, Symbol}=1`: Reference to the wing (name or index).
 - `transform::Union{Int, Symbol}=1`: Reference to the transform (name or index).
-- `body::Union{Int, Symbol}`: Reference to a [`RigidBody`](@ref) to anchor the
+- `body::Union{Int, Symbol}`: Reference to a [`Body`](@ref) to anchor the
   point to (requires `type = BODY_STATIC`). The point then rides the body
   kinematically and feeds its net force (and the moment about the body COM)
   into the body. Defaults to no anchor.
@@ -305,7 +336,7 @@ function Point(name, pos_cad, type;
 )
     if type == BODY_STATIC
         isnothing(body) && error("Point $name: BODY_STATIC requires a `body` " *
-            "reference to a RigidBody.")
+            "reference to a Body.")
     elseif !isnothing(body)
         error("Point $name: `body` is only valid with type BODY_STATIC.")
     end
@@ -1047,14 +1078,14 @@ function Transform(name, elevation, azimuth, heading;
 end
 
 """
-    get_rot_pos(transform::Transform, wings, points)
+    get_rot_pos(transform::Transform, bodies, points)
 
-Get the world position of the rotating object (wing or point).
+Get the world position of the rotating object (body or point).
 """
-function get_rot_pos(transform::Transform, wings, points)
+function get_rot_pos(transform::Transform, bodies, points)
     wing_idx = transform.wing_idx
     if !isnothing(wing_idx)
-        return wings[something(wing_idx)].pos_w
+        return bodies[something(wing_idx)].pos_w
     end
     rot_point_idx = transform.rot_point_idx
     if !isnothing(rot_point_idx)
@@ -1065,16 +1096,16 @@ function get_rot_pos(transform::Transform, wings, points)
 end
 
 """
-    get_rot_pos_cad(transform::Transform, wings, points)
+    get_rot_pos_cad(transform::Transform, bodies, points)
 
-Get the CAD-frame position of the rotating object (wing or point).
+Get the CAD-frame position of the rotating object (body or point).
 Used by `get_base_pos` to compute the translation offset for
 chained transforms.
 """
-function get_rot_pos_cad(transform::Transform, wings, points)
+function get_rot_pos_cad(transform::Transform, bodies, points)
     wing_idx = transform.wing_idx
     if !isnothing(wing_idx)
-        return wings[something(wing_idx)].pos_cad
+        return bodies[something(wing_idx)].pos_cad
     end
     rot_point_idx = transform.rot_point_idx
     if !isnothing(rot_point_idx)
@@ -1085,7 +1116,7 @@ function get_rot_pos_cad(transform::Transform, wings, points)
 end
 
 """
-    get_base_pos(transform, transforms, wings, points)
+    get_base_pos(transform, transforms, bodies, points)
 
 Get `(base_pos, curr_base_pos)` for a transform.
 
@@ -1098,14 +1129,14 @@ For direct transforms (`base_pos` + `base_point`): returns the
 user-specified position and the base point's current position.
 """
 function get_base_pos(transform::Transform,
-        transforms, wings, points)
+        transforms, bodies, points)
     base_transform_idx = transform.base_transform_idx
     if !isnothing(base_transform_idx)
         base_tf = transforms[something(
             base_transform_idx)]
-        rot_pos = get_rot_pos(base_tf, wings, points)
+        rot_pos = get_rot_pos(base_tf, bodies, points)
         rot_pos_cad = get_rot_pos_cad(
-            base_tf, wings, points)
+            base_tf, bodies, points)
         return rot_pos, rot_pos_cad
     end
     curr_base_pos = points[something(

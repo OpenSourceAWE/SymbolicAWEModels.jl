@@ -27,9 +27,9 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     defaults = Pair{Num, Any}[]
 
     (; points, twist_surfaces, segments, pulleys, tethers, winches, wings,
-       rigid_bodies, elastic_joints) = system
+       bodies, elastic_joints) = system
 
-    validate_twist_surface_modes(twist_surfaces, wings)
+    validate_twist_surface_modes(twist_surfaces, bodies)
 
     # Per-mode structural validation (e.g. VSM particle point↔panel mapping)
     for wing in wings
@@ -52,22 +52,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     @variables begin
         # Control inputs
         set_values(t)[eachindex(winches)] = zeros(length(winches))
-        # Wing body frame output
-        wing_pos(t)[1:3, eachindex(wings)]
-        wing_vel(t)[1:3, eachindex(wings)]
-        wing_acc(t)[1:3, eachindex(wings)]
-        ω_b(t)[1:3, eachindex(wings)]
-        α_b(t)[1:3, eachindex(wings)]
-        # Wing principal frame ODE state
-        com_w(t)[1:3, eachindex(wings)]
-        com_vel(t)[1:3, eachindex(wings)]
-        com_acc(t)[1:3, eachindex(wings)]
-        Q_p_to_w(t)[1:4, eachindex(wings)]
-        ω_p(t)[1:3, eachindex(wings)]
-        α_p(t)[1:3, eachindex(wings)]
-        # Rotation matrices
-        R_b_to_w(t)[1:3, 1:3, eachindex(wings)]
-        R_p_to_w(t)[1:3, 1:3, eachindex(wings)]
+        # Wing velocity-frame rotation (wing-specific; the rigid-body state and
+        # body frame come from the shared body_* arrays via aliases below).
         R_v_to_w(t)[1:3, 1:3, eachindex(wings)]
         # Aerodynamic forces and moments
         aero_force_b(t)[1:3, eachindex(wings)]
@@ -80,32 +66,39 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         wind_vec_gnd(t)[1:3]
         va_wing_b(t)[1:3, eachindex(wings)]
         # Standalone rigid body state/output
-        body_pos_w(t)[1:3, eachindex(rigid_bodies)]
-        body_vel_w(t)[1:3, eachindex(rigid_bodies)]
-        body_acc_w(t)[1:3, eachindex(rigid_bodies)]
-        body_ω_b(t)[1:3, eachindex(rigid_bodies)]
-        body_α_b(t)[1:3, eachindex(rigid_bodies)]
-        body_com_w(t)[1:3, eachindex(rigid_bodies)]
-        body_com_vel(t)[1:3, eachindex(rigid_bodies)]
-        body_com_acc(t)[1:3, eachindex(rigid_bodies)]
-        body_Q_p_to_w(t)[1:4, eachindex(rigid_bodies)]
-        body_Q_b_to_w(t)[1:4, eachindex(rigid_bodies)]
-        body_ω_p(t)[1:3, eachindex(rigid_bodies)]
-        body_α_p(t)[1:3, eachindex(rigid_bodies)]
-        body_moment_p(t)[1:3, eachindex(rigid_bodies)]
-        body_Q_p_vel(t)[1:4, eachindex(rigid_bodies)]
-        body_R_b_to_w(t)[1:3, 1:3, eachindex(rigid_bodies)]
-        body_R_p_to_w(t)[1:3, 1:3, eachindex(rigid_bodies)]
+        body_pos_w(t)[1:3, eachindex(bodies)]
+        body_vel_w(t)[1:3, eachindex(bodies)]
+        body_acc_w(t)[1:3, eachindex(bodies)]
+        body_ω_b(t)[1:3, eachindex(bodies)]
+        body_α_b(t)[1:3, eachindex(bodies)]
+        body_com_w(t)[1:3, eachindex(bodies)]
+        body_com_vel(t)[1:3, eachindex(bodies)]
+        body_com_acc(t)[1:3, eachindex(bodies)]
+        body_Q_p_to_w(t)[1:4, eachindex(bodies)]
+        body_Q_b_to_w(t)[1:4, eachindex(bodies)]
+        body_ω_p(t)[1:3, eachindex(bodies)]
+        body_α_p(t)[1:3, eachindex(bodies)]
+        body_moment_p(t)[1:3, eachindex(bodies)]
+        body_Q_p_vel(t)[1:4, eachindex(bodies)]
+        body_R_b_to_w(t)[1:3, 1:3, eachindex(bodies)]
+        body_R_p_to_w(t)[1:3, 1:3, eachindex(bodies)]
     end
-    R_b_to_w = collect(R_b_to_w)
-    R_p_to_w = collect(R_p_to_w)
     R_v_to_w = collect(R_v_to_w)
     body_R_b_to_w = collect(body_R_b_to_w)
     body_R_p_to_w = collect(body_R_p_to_w)
 
+    # Wings are bodies, so the wing equation generators read the same body_*
+    # state arrays as the body dynamics; these aliases keep their wing-named
+    # kwargs (`com_w`, `R_b_to_w`, …) pointing at the shared body arrays.
+    wing_pos = body_pos_w; wing_vel = body_vel_w; wing_acc = body_acc_w
+    ω_b = body_ω_b; α_b = body_α_b
+    com_w = body_com_w; com_vel = body_com_vel; com_acc = body_com_acc
+    Q_p_to_w = body_Q_p_to_w; ω_p = body_ω_p; α_p = body_α_p
+    R_b_to_w = body_R_b_to_w; R_p_to_w = body_R_p_to_w
+
     # Rigid body load accumulators (filled by joint_eqs!, read by body_eqs!).
-    body_force = zeros(Num, 3, length(rigid_bodies))
-    body_moment = zeros(Num, 3, length(rigid_bodies))
+    body_force = zeros(Num, 3, length(bodies))
+    body_moment = zeros(Num, 3, length(bodies))
 
     # ==================== INLINED FORCE_EQS! CONTENT ==================== #
     # The following variables and component calls were previously in force_eqs!
@@ -122,10 +115,6 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         twist_surface_chord = nothing
         twist_surface_le_pos = nothing
     end
-
-    # Aggregate forces and moments from tethers onto the wing's center of mass
-    tether_wing_force = zeros(Num, 3, length(wings))
-    tether_wing_moment = zeros(Num, 3, length(wings))
 
     # Check if we have any PARTICLE_DYNAMICS wings (need aero force per point)
     has_particle_dynamics_wings = any(wing.dynamics_type === PARTICLE_DYNAMICS for wing in wings)
@@ -189,7 +178,8 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # ==================== CALL COMPONENT FUNCTIONS ==================== #
 
-    # 1. Point equations (generates point dynamics, modifies tether_wing_force/moment in-place)
+    # 1. Point equations (generates point dynamics, accumulates WING-point loads
+    #    into body_force/body_moment in-place)
     eqs, defaults = point_eqs!(
         s, eqs, defaults, points, segments, twist_surfaces, wings, params, initial;
         R_b_to_w, com_w,
@@ -200,20 +190,20 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
         va_point_b, va_point_w, wind_at_point, height,
         aero_force_point_b,
-        twist_surface_y_airf, tether_wing_force, tether_wing_moment,
+        twist_surface_y_airf,
         body_force, body_moment, body_pos_w, body_com_w, body_R_b_to_w
     )
 
     # 2. TwistSurface equations (deformable wing sections with twist dynamics)
     eqs, defaults = twist_surface_eqs!(
-        eqs, defaults, twist_surfaces, wings, params, initial;
+        eqs, defaults, twist_surfaces, bodies, params, initial;
         R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
-        point_force, tether_wing_moment, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos
+        point_force, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos
     )
 
     # 3. Segment equations (spring-damper forces, returns len and spring_force)
     eqs, len, spring_force = segment_eqs!(
-        s, eqs, points, segments, pulleys, tethers, wings, params;
+        s, eqs, points, segments, pulleys, tethers, bodies, params;
         pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
         pulley_len, tether_len
     )
@@ -247,16 +237,28 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         pos, vel, va_point_b, height, aero_force_point_b
     )
 
-    # Build wing rigid body dynamics equations
+    # Wing frame equations: KINEMATIC (particle) wings get their fitted-frame
+    # algebraic state here. Rigid (DYNAMIC) wings are integrated by body_eqs!.
     eqs, defaults = wing_eqs!(
         s, eqs, defaults, params, initial;
-        tether_wing_force, tether_wing_moment,
-        aero_force_b, aero_moment_b,
         ω_b, α_b, R_b_to_w, R_p_to_w,
         wing_pos, wing_vel, wing_acc,
         com_w, com_vel, com_acc, Q_p_to_w, ω_p, α_p,
+        Q_b_to_w=body_Q_b_to_w, moment_p=body_moment_p, Q_p_vel=body_Q_p_vel,
         fix_wing, pos, vel, acc
     )
+
+    # Each rigid wing's aero wrench (body frame → world, transported to the COM)
+    # accumulates into the body load accumulator, read by body_eqs!.
+    for wing in wings
+        wing.dynamics_type == RIGID_DYNAMICS || continue
+        widx = wing.idx
+        Rbw = body_R_b_to_w[:, :, widx]
+        com_off = collect(params.bodies[widx].com_offset_b)
+        body_force[:, widx] .+= collect(Rbw * collect(aero_force_b[:, widx]))
+        body_moment[:, widx] .+= collect(Rbw * collect(
+            aero_moment_b[:, widx] .+ (aero_force_b[:, widx] × com_off)))
+    end
 
     # Elastic joints: accumulate restoring wrenches into body_force/body_moment
     # (must precede body_eqs!, which reads them).
@@ -268,7 +270,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # Build standalone rigid body dynamics equations
     eqs, defaults = body_eqs!(
-        eqs, defaults, rigid_bodies, params, initial;
+        eqs, defaults, bodies, params, initial;
         body_force, body_moment,
         body_com_w, body_com_vel, body_com_acc, body_Q_p_to_w, body_ω_p, body_α_p,
         body_pos_w, body_vel_w, body_acc_w, body_ω_b, body_α_b, body_Q_b_to_w,

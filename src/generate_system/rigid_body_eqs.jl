@@ -1,8 +1,9 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Generic rigid body 6-DOF dynamics equation generation.
-# Shared by RIGID_DYNAMICS wings and the standalone RigidBody component.
+# Generic rigid body 6-DOF dynamics equation generation. The freeze/sphere/
+# damping integration overrides are built directly by the callers (`body_eqs!`,
+# `wing_eqs!`) and passed in as `ω_kinematic`/`d_ω_p`/`d_com_w`/`d_com_vel`.
 
 """
     rigid_body_eqs!(eqs, defaults, idx; kwargs...)

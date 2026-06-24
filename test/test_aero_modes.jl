@@ -166,7 +166,7 @@ aero_poses = [
             sys = load_sys_struct_from_yaml(case.yaml;
                 system_name="aero_modes_$(idx)", set, vsm_set=case.vsm_set,
                 aero_mode=case.make())
-            wing = sys.wings[1]
+            wing = sys.bodies[1]
             @test wing.dynamics_type == case.dynamics
 
             sam = SymbolicAWEModel(set, sys)

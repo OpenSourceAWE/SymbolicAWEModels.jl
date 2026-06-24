@@ -4,7 +4,7 @@
 # Segment spring-damper equation generation
 
 """
-    segment_eqs!(s, eqs, points, segments, pulleys, tethers, wings, params;
+    segment_eqs!(s, eqs, points, segments, pulleys, tethers, bodies, params;
                  pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
                  pulley_len, tether_len)
 
@@ -13,7 +13,7 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
 - `eqs`: Accumulating equation vector for the MTK system.
-- `points`, `segments`, `pulleys`, `tethers`, `wings`: System components.
+- `points`, `segments`, `pulleys`, `tethers`, `bodies`: System components.
 - `pos`, `vel`: Symbolic point state variables.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
 - `spring_force_vec`, `drag_force`, `l0`: Pre-declared segment force variables.
@@ -24,7 +24,7 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
   and the segment length and spring force variables for use by other components.
 """
 function segment_eqs!(s, eqs, points, segments,
-                      pulleys, tethers, wings,
+                      pulleys, tethers, bodies,
                       params; pos, vel, wind_vec_gnd,
                       spring_force_vec, drag_force, l0,
                       pulley_len, tether_len)
@@ -63,7 +63,7 @@ function segment_eqs!(s, eqs, points, segments,
         is_rigid_dynamics_wing_segment = false
         if is_wing_structural_segment
             # Both points should belong to the same wing
-            wing = wings[p1_obj.wing_idx]
+            wing = bodies[p1_obj.wing_idx]
             is_rigid_dynamics_wing_segment = (wing.dynamics_type == RIGID_DYNAMICS)
         end
 

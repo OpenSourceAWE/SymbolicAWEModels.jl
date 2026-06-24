@@ -19,8 +19,8 @@ Files are organized as:
 
 # Include files in dependency order
 include("types.jl")         # Enums, Point, TwistSurface, Segment, Pulley, Tether, Winch, Transform
-include("wing.jl")          # AbstractWing, BaseWing, VSMWing
-include("rigid_body.jl")    # RigidBody standalone component
+include("rigid_body.jl")    # Body (embedded in Wing and standalone)
+include("wing.jl")          # AbstractWing, Wing (embeds a Body)
 include("named_collection.jl")  # NamedCollection wrapper for symbol-based indexing
 include("system_structure_core.jl")  # SystemStructure type and constructor (uses Transform)
 include("transforms.jl")    # Heading calculations, reinit!/reposition! (uses SystemStructure)

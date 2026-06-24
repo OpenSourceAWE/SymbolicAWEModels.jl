@@ -423,7 +423,7 @@ then interior points are redistributed proportionally along each
 tether. For a multi-tether cluster, logs an `@info` when `prn`.
 """
 function apply_cluster_init_stretched_len!(
-    cluster, points, segments, rigid_bodies, downstream, boundary; prn=true)
+    cluster, points, segments, bodies, downstream, boundary; prn=true)
     snaps = map(cluster) do tether
         anchor_idx, free_idx = tether_anchor_free(tether, boundary)
         anchor_pos = copy(points[anchor_idx].pos_w)
@@ -469,8 +469,8 @@ function apply_cluster_init_stretched_len!(
     moved_bodies = Set{Int64}(points[idx].body_idx for idx in moved
                               if points[idx].body_idx != 0)
     for body_idx in moved_bodies
-        rigid_bodies[body_idx].pos_w .+= delta
-        rigid_bodies[body_idx].com_w .+= delta
+        bodies[body_idx].pos_w .+= delta
+        bodies[body_idx].com_w .+= delta
     end
 
     for snap in snaps
@@ -512,11 +512,11 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
     rigid_siblings = rigid_point_siblings(points, wings)
 
     # Boundary = externally world-fixed points: STATIC, winch, and BODY_STATIC on a STATIC body.
-    rigid_bodies = sys_struct.rigid_bodies
+    bodies = sys_struct.bodies
     boundary = Set{Int64}(w.winch_point_idx for w in winches)
     for point in points
         point.type == STATIC && push!(boundary, point.idx)
-        point.type == BODY_STATIC && rigid_bodies[point.body_idx].type == STATIC &&
+        point.type == BODY_STATIC && bodies[point.body_idx].type == STATIC &&
             push!(boundary, point.idx)
     end
 
@@ -554,7 +554,7 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
 
     for cluster in twist_surface_tethers_by_overlap(specified, reach)
         apply_cluster_init_stretched_len!(cluster, points, segments,
-                                          sys_struct.rigid_bodies,
+                                          sys_struct.bodies,
                                           downstream, boundary; prn)
     end
 end
@@ -652,7 +652,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
 
     # Standalone rigid bodies: reset pose to CAD (so placement is idempotent),
     # then derive principal-frame ODE state from the body-frame ICs.
-    for rigid_body in sys_struct.rigid_bodies
+    for rigid_body in sys_struct.bodies
         rigid_body.pos_w .= rigid_body.pos_cad
         rigid_body.Q_b_to_w .= rotation_matrix_to_quaternion(rigid_body.R_b_to_c)
         if reset_vel
@@ -672,7 +672,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     # YAML structure geometry has priority
 
     # Step 1: copy CAD geometry to world frame
-    copy_cad_to_world!(points, wings; update_vel=reset_vel)
+    copy_cad_to_world!(points, sys_struct.bodies; update_vel=reset_vel)
 
     # Step 2: apply stretched lengths (scales pos_w)
     if apply_tether_lengths
@@ -903,7 +903,7 @@ plot(sys)
 - The number of points in `sys` must match the parametric type `P` of `SysState{P}`.
 """
 function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) where P
-    (; points, twist_surfaces, tethers, winches, wings, rigid_bodies) = sys
+    (; points, twist_surfaces, tethers, winches, wings, bodies) = sys
 
     # Position slot layout (points, panel corners, wing origins, body origins).
     slots = position_slots(sys)
@@ -916,7 +916,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
     if !has_wing_slots && P != total_without_wings
         error("SystemStructure expects $(slots.total) points " *
               "($n_points regular + $n_panel_corners corners + " *
-              "$n_wings wings + $(length(rigid_bodies)) bodies) or " *
+              "$n_wings wings + $(length(bodies)) bodies) or " *
               "$total_without_wings without wing slots, but SysState has $P points")
     end
 
@@ -975,7 +975,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
     # Update standalone rigid bodies (origins after the wing slots;
     # orientation frames after the wings).
     if has_wing_slots
-        for rigid_body in rigid_bodies
+        for rigid_body in bodies
             slot = slots.bodies[rigid_body.idx]
             rigid_body.pos_w[1] = sys_state.X[slot]
             rigid_body.pos_w[2] = sys_state.Y[slot]

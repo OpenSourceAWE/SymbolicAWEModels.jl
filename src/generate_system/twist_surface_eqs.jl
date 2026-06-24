@@ -4,23 +4,23 @@
 # TwistSurface twist dynamics equation generation
 
 """
-    validate_twist_surface_modes(twist_surfaces, wings)
+    validate_twist_surface_modes(twist_surfaces, bodies)
 
-Check that each twist_surface's twist mode is coherent with its owning wing's dynamics
+Check that each twist_surface's twist mode is coherent with its owning body's dynamics
 and its point count. Errors loudly on an inconsistent combination:
 
 - `DYNAMIC` twist is an added rigid-body deformation DOF and needs
-  a bridle couple, so it requires a `RIGID_DYNAMICS` wing and ≥2 points.
+  a bridle couple, so it requires a `RIGID_DYNAMICS` body and ≥2 points.
 - A 1-point twist_surface has no bridle couple to oppose a twist moment, so its only
   coherent twist is prescribed → must be `STATIC`.
-- `STATIC` twist on a `PARTICLE_DYNAMICS` wing cannot move free particles, so it is
+- `STATIC` twist on a `PARTICLE_DYNAMICS` body cannot move free particles, so it is
   only coherent for a single point.
 """
-function validate_twist_surface_modes(twist_surfaces, wings)
+function validate_twist_surface_modes(twist_surfaces, bodies)
     for twist_surface in twist_surfaces
-        owners = [wing for wing in wings if twist_surface.idx in wing.twist_surface_idxs]
+        owners = [body for body in bodies if twist_surface.idx in body.twist_surface_idxs]
         length(owners) == 1 || error(
-            "TwistSurface $(twist_surface.name) is in $(length(owners)) wings; must be in exactly 1.")
+            "TwistSurface $(twist_surface.name) is in $(length(owners)) bodies; must be in exactly 1.")
         wing = owners[1]
         rigid = wing.dynamics_type == RIGID_DYNAMICS
         npoints = length(twist_surface.point_idxs)
@@ -45,30 +45,29 @@ function validate_twist_surface_modes(twist_surfaces, wings)
 end
 
 """
-    twist_surface_eqs!(eqs, defaults, twist_surfaces, wings, params;
+    twist_surface_eqs!(eqs, defaults, twist_surfaces, bodies, params;
                R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
-               point_force, tether_wing_moment, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos)
+               point_force, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos)
 
 Generate equations for deformable wing twist_surface twist dynamics.
 
 # Arguments
 - `eqs`, `defaults`: Accumulating vectors for the MTK system.
 - `twist_surfaces`: Collection of TwistSurface objects (deformable wing sections).
-- `wings`: Collection of Wing objects.
+- `bodies`: Collection of `Body` objects (the twist_surface owners).
 - `R_b_to_w`: Symbolic rotation matrix (body to world).
 - `fix_wing`: Symbolic boolean for fixing wing dynamics.
 - `twist_angle`, `twist_ω`: Symbolic twist state variables.
 - `twist_surface_aero_moment`: Symbolic aerodynamic moment on twist_surfaces.
 - `point_force`: Symbolic point force variable.
-- `tether_wing_moment`: Accumulated tether moments on wings (for validation).
 - `twist_surface_y_airf`, `twist_surface_chord`, `twist_surface_le_pos`: Symbolic twist_surface geometry variables.
 
 # Returns
 - Tuple `(eqs, defaults)` with updated equation vectors.
 """
-function twist_surface_eqs!(eqs, defaults, twist_surfaces, wings, params, initial;
+function twist_surface_eqs!(eqs, defaults, twist_surfaces, bodies, params, initial;
                     R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
-                    point_force, tether_wing_moment, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos)
+                    point_force, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos)
 
     length(twist_surfaces) == 0 && return eqs, defaults
 
@@ -89,15 +88,20 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, wings, params, initia
     for twist_surface in twist_surfaces
         found = 0
         wing = nothing
-        for wing_ in wings
-            if twist_surface.idx in wing_.twist_surface_idxs
-                wing = wing_
+        for body in bodies
+            if twist_surface.idx in body.twist_surface_idxs
+                wing = body
                 found += 1
             end
         end
         !(found == 1) && error(
-            "Kite twist_surface $(twist_surface.idx) is in $found wings; must be in exactly 1.",
+            "Kite twist_surface $(twist_surface.idx) is in $found bodies; must be in exactly 1.",
         )
+
+        # An AeroNone owner drives no aero moment; aero_eqs! never sets it.
+        no_aero = !is_wing(wing)
+        no_aero &&
+            (eqs = [eqs; twist_surface_aero_moment[twist_surface.idx] ~ 0])
 
         # Set twist_surface geometry from getters (allows runtime updates)
         eqs = [
@@ -115,15 +119,10 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, wings, params, initia
                 twist_surface_tether_force[twist_surface.idx] ~ 0
                 twist_surface_tether_moment[twist_surface.idx] ~ 0
             ]
-            isempty(twist_surface.unrefined_section_idxs) &&
+            (!no_aero && isempty(twist_surface.unrefined_section_idxs)) &&
                 (eqs = [eqs; twist_surface_aero_moment[twist_surface.idx] ~ 0])
             continue
         end
-
-        all(iszero.(tether_wing_moment[:, wing.idx])) && error(
-            "Tether wing moment is zero. At least one wing connection point " *
-            "should not be part of a deforming twist_surface.",
-        )
 
         gc = collect(twist_surface_chord[:, twist_surface.idx])
         x_airf = smooth_normalize(gc)

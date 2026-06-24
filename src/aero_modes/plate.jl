@@ -84,7 +84,7 @@ end
 # ==================== equation builder ==================== #
 
 """
-    aero_component(::AeroPlate, sys_struct, wing_idx; name)
+    aero_component(::AeroPlate, wing::ParticleWing, sys_struct; name)
 
 Flat-plate aero component. Uses the same `PARTICLE_DYNAMICS` connector contract as
 the other per-point modes; it is the only one that consumes the `va`/`rho` inputs
@@ -93,9 +93,9 @@ the other per-point modes; it is the only one that consumes the `va`/`rho` input
 from the section's twisted body-frame axes, the point's apparent wind, and its
 air density.
 """
-function aero_component(::AeroPlate, sys_struct, wing_idx; name, params=nothing)
-    wing = sys_struct.wings[wing_idx]
-
+function aero_component(::AeroPlate, wing::ParticleWing, sys_struct;
+                        name, params=nothing)
+    wing_idx = wing.idx
     twist_surfaces = sys_struct.twist_surfaces
     points = wing_points(sys_struct, wing)
     num_points = length(points)

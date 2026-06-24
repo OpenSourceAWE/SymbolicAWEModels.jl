@@ -1,29 +1,48 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Standalone rigid body component. Shares the 6-DOF dynamics generator
-# `rigid_body_eqs!` with RIGID_DYNAMICS wings, but carries no aero, tether, or
-# transform machinery — it is specified directly by mass, principal inertia, and
-# initial conditions, and driven by gravity plus a settable external wrench.
+# The Body component: ONE struct for plain rigid bodies AND wings. A body is
+# `aero = AeroNone()` (no aerodynamics) or carries an aero mode (a "wing"); its
+# `type` selects DYNAMIC (6-DOF quaternion), KINEMATIC (pose fitted from points,
+# particle wings) or STATIC (frozen). Shares the 6-DOF generator
+# `rigid_body_eqs!`. The `D<:WingDynamics` type parameter mirrors `type` into the
+# type domain so aero (and dynamics) methods dispatch without runtime branching.
 
 """
-    RigidBody
+    WeightedRefPoints
 
-A free 6-DOF rigid body integrated in the principal frame. Use it on its own or
-as a link in a multi-body chain (connected by elastic joints).
+Weighted combination of reference points for body-frame definition. Supports
+single points, equal-weight averaging, and arbitrary weight combinations.
 
-The body is specified directly: `mass`, `inertia_principal` (diagonal, principal
-frame), initial pose/twist, and optional `com_offset_b`/`R_b_to_p` relating the
-body frame to the principal frame. The initial origin pose is stored in
-`pos_cad`/`R_b_to_c`; each `reinit!` resets `pos_w`/`Q_b_to_w` from them (mirroring
-wings), so tether-length placement is idempotent. Loads are
-gravity plus the settable external wrench (`ext_force_w`, `ext_moment_b`), read
-live each step as flat parameters synced from this struct.
+# Fields
+- `refs`: Unresolved names/indices (filled at construction)
+- `ids`: Resolved point indices (filled by `resolve!`)
+- `weights`: Normalized weights (sum to 1.0)
+"""
+mutable struct WeightedRefPoints
+    const refs::Vector{NameRef}
+    ids::Vector{Int64}
+    const weights::Vector{Float64}
+end
+
+"""
+    Body{A<:AbstractAeroModel, D<:WingDynamics}
+
+A 6-DOF body integrated (or fitted) in the principal frame, optionally carrying
+aerodynamics. A plain body has `aero = AeroNone()`; a "wing" carries a real aero
+mode (see [`sys_struct.wings`]). `type` is DYNAMIC (free 6-DOF), KINEMATIC (pose
+fitted from structural points — particle wings) or STATIC (clamped). `D` mirrors
+the rigid/particle distinction into the type domain for aero dispatch.
+
+The rigid-body core (`mass`, `inertia_principal`, frames, 6-DOF state) is set
+directly or derived from the body's points; aero/wing fields are inert when
+`aero` is [`AeroNone`](@ref). Loads are gravity (`-g·mass` for DYNAMIC bodies),
+the settable external wrench, joint wrenches, and aerodynamics.
 
 $(TYPEDFIELDS)
 """
-mutable struct RigidBody
-    "Index in the rigid_bodies vector (assigned by SystemStructure)."
+mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
+    "Index in the bodies vector (assigned by SystemStructure)."
     idx::Int64
     "Name used for lookup by other components' `_ref` fields."
     const name::Union{Int, Symbol, Nothing}
@@ -32,51 +51,84 @@ mutable struct RigidBody
     "Raw transform reference (name or idx). 0 = no transform."
     const transform_ref::Union{Int, Symbol}
 
+    # ---- rigid-body core ----
     "Total mass [kg]."
     mass::SimFloat
     "Principal moments of inertia `[Ixx, Iyy, Izz]` [kg·m²]."
     const inertia_principal::KVec3
     "Constant body→principal rotation."
     const R_b_to_p::Matrix{SimFloat}
+    "Principal frame → CAD (from inertia diagonalisation)."
+    const R_p_to_c::Matrix{SimFloat}
     "Offset from body origin to COM, body frame [m]."
     const com_offset_b::KVec3
-
     "External force applied at the COM, world frame [N] (settable)."
     const ext_force_w::KVec3
+    "External force applied at the COM, body frame [N] (settable)."
+    const ext_force_b::KVec3
     "External moment applied about the COM, body frame [N·m] (settable)."
     const ext_moment_b::KVec3
-    "Isotropic angular damping coefficient [N·m·s] (principal frame)."
-    angular_damping::SimFloat
-    "Dynamics type: `DYNAMIC` (free 6-DOF) or `STATIC` (clamped to its initial pose)."
+    "Angular damping `[d_x, d_y, d_z]` [N·m·s] along the body-frame axes."
+    damping::KVec3
+    "If true, COM motion is confined to a sphere about the world origin."
+    fix_sphere::Bool
+    "Dynamics type: DYNAMIC (free 6-DOF), KINEMATIC (fitted) or STATIC (frozen)."
     type::DynamicsType
-
     "Initial body-origin position [m]; `pos_w` is reset to this each `reinit!`."
     const pos_cad::KVec3
     "Initial body→world orientation; `Q_b_to_w` is reset from this each `reinit!`."
     const R_b_to_c::Matrix{SimFloat}
 
-    # Body frame state: initial conditions in, live output out.
-    "Body→world quaternion. Initial condition in; algebraic output out."
+    # ---- body frame state (ICs in, live output out) ----
     const Q_b_to_w::Vector{SimFloat}
-    "Angular velocity, body frame [rad/s]. Initial condition in; output out."
     const ω_b::KVec3
-    "Body origin position, world frame [m]. Initial condition in; output out."
     const pos_w::KVec3
-    "Body origin velocity, world frame [m/s]. Initial condition in; output out."
     const vel_w::KVec3
-    "Body origin acceleration, world frame [m/s²] (output)."
     const acc_w::KVec3
 
-    # Principal frame ODE state (derived at init, then integrated).
-    "COM position, world frame [m]."
+    # ---- principal frame ODE state ----
     const com_w::KVec3
-    "COM velocity, world frame [m/s]."
     const com_vel::KVec3
-    "Principal→world quaternion."
     const Q_p_to_w::Vector{SimFloat}
-    "Angular velocity, principal frame [rad/s]."
     const ω_p::KVec3
+
+    # ---- aerodynamics + wing machinery (inert when aero === AeroNone) ----
+    aero::A
+    "Resolved twist_surface indices (filled by SystemStructure)."
+    twist_surface_idxs::Vector{Int64}
+    "Raw twist_surface references."
+    const twist_surface_refs::Vector{NameRef}
+    const wind_disturb::KVec3
+    drag_frac::SimFloat
+    const va_b::KVec3
+    const v_wind::KVec3
+    const aero_force_b::KVec3
+    const aero_moment_b::KVec3
+    const tether_moment::KVec3
+    const tether_force::KVec3
+    elevation::SimFloat
+    elevation_vel::SimFloat
+    elevation_acc::SimFloat
+    azimuth::SimFloat
+    azimuth_vel::SimFloat
+    azimuth_acc::SimFloat
+    heading::SimFloat
+    const turn_rate::KVec3
+    const turn_acc::KVec3
+    course::SimFloat
+    aoa::SimFloat
+    "Whether in-group (twist_surface) points contribute their moment to the body."
+    group_points_moment::Bool
+    # Body-frame reference points (define R_b_to_w / pos_w from structural points)
+    z_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
+    y_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
+    origin::Union{Nothing, WeightedRefPoints}
 end
+
+"""`Body` with rigid (DYNAMIC/STATIC) 6-DOF dynamics."""
+const RigidWing{A} = Body{A, RigidDynamics}
+"""`Body` whose pose is fitted from structural points (particle/KINEMATIC)."""
+const ParticleWing{A} = Body{A, ParticleDynamics}
 
 """
     principal_frame(inertia) -> (inertia_principal, R_to_principal)
@@ -116,9 +168,9 @@ function principal_frame(inertia::AbstractMatrix)
 end
 
 """
-    RigidBody(name; mass, inertia_principal | inertia, pos, vel=zeros,
+    Body(name; mass, inertia_principal | inertia, pos, vel=zeros,
               Q_b_to_w=[1,0,0,0], ω_b=zeros, com_offset_b=zeros, R_b_to_p=I,
-              angular_damping=0, type=DYNAMIC, transform=nothing,
+              angular_damping=0, fix_sphere=false, type=DYNAMIC, transform=nothing,
               ext_force_w=zeros, ext_moment_b=zeros)
 
 Construct a standalone rigid body. `pos`/`vel` are the body origin's initial
@@ -130,12 +182,16 @@ pose — e.g. a cantilever root). `transform` optionally references a
 [`Transform`](@ref) that repositions/rotates the body's initial pose (azimuth,
 elevation, heading), like a wing.
 
+`angular_damping` is a scalar (isotropic) or length-3 per-axis principal-frame
+damping. `fix_sphere=true` confines COM motion to a sphere about the world
+origin (radial DOF frozen), like a `RIGID_DYNAMICS` wing's `fix_sphere`.
+
 Supply the inertia in one of two ways: `inertia_principal` (a length-3 diagonal
 principal inertia, with `R_b_to_p` giving the body→principal rotation), or
 `inertia` (a full 3×3 body-frame tensor), in which case both `inertia_principal`
 and `R_b_to_p` are derived via [`principal_frame`](@ref). Give one, not both.
 """
-function RigidBody(name;
+function Body(name;
         mass::Real,
         inertia_principal = nothing,
         inertia = nothing,
@@ -145,56 +201,79 @@ function RigidBody(name;
         ω_b = zeros(SimFloat, 3),
         com_offset_b = zeros(SimFloat, 3),
         R_b_to_p = Matrix{SimFloat}(I, 3, 3),
-        angular_damping::Real = 0.0,
+        damping = 0.0,
+        fix_sphere::Bool = false,
         type::DynamicsType = DYNAMIC,
         transform = nothing,
         ext_force_w = zeros(SimFloat, 3),
+        ext_force_b = zeros(SimFloat, 3),
         ext_moment_b = zeros(SimFloat, 3),
     )
+    # Scalar damping broadcasts to an isotropic per-axis vector.
+    damping_vec = damping isa Real ? KVec3(damping, damping, damping) : KVec3(damping)
     type in (DYNAMIC, STATIC) || error(
-        "RigidBody $name: type must be DYNAMIC or STATIC, got $type.")
+        "Body $name: type must be DYNAMIC or STATIC, got $type.")
     transform_ref = isnothing(transform) ? 0 : transform
     if !isnothing(inertia)
         isnothing(inertia_principal) || error(
-            "RigidBody $name: give `inertia` or `inertia_principal`, not both.")
+            "Body $name: give `inertia` or `inertia_principal`, not both.")
         inertia_principal, R_b_to_p = principal_frame(inertia)
     elseif isnothing(inertia_principal)
-        error("RigidBody $name: provide `inertia_principal` or `inertia`.")
+        error("Body $name: provide `inertia_principal` or `inertia`.")
     end
     R_b_to_c = quaternion_to_rotation_matrix(Vector{SimFloat}(Q_b_to_w))
-    return RigidBody(0, name, 0, transform_ref,
-        SimFloat(mass), KVec3(inertia_principal),
-        Matrix{SimFloat}(R_b_to_p), KVec3(com_offset_b),
-        KVec3(ext_force_w), KVec3(ext_moment_b), SimFloat(angular_damping), type,
+    # Plain body: no aero (AeroNone), rigid dynamics, inert aero/wing fields.
+    return Body{AeroNone, RigidDynamics}(
+        0, name, 0, transform_ref,
+        SimFloat(mass), KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p),
+        Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b),
+        KVec3(ext_force_w), KVec3(ext_force_b), KVec3(ext_moment_b),
+        damping_vec, fix_sphere, type,
         KVec3(pos), Matrix{SimFloat}(R_b_to_c),
         Vector{SimFloat}(Q_b_to_w), KVec3(ω_b),
         KVec3(pos), KVec3(vel), zeros(KVec3),
-        zeros(KVec3), zeros(KVec3), zeros(SimFloat, 4), zeros(KVec3))
+        zeros(KVec3), zeros(KVec3), zeros(SimFloat, 4), zeros(KVec3),
+        # aero/wing fields (inert for a plain body)
+        AeroNone(), Int64[], NameRef[],
+        zeros(KVec3), one(SimFloat),
+        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        zeros(KVec3), zeros(KVec3), 0.0, 0.0,
+        true, nothing, nothing, nothing)
 end
 
 """
-    init_rigid_body!(body::RigidBody)
+    init_principal_state!(obj)
 
 Derive the principal-frame ODE state (`com_w`, `com_vel`, `Q_p_to_w`, `ω_p`) from
-the body-frame initial conditions (`pos_w`, `vel_w`, `Q_b_to_w`, `ω_b`). Mirrors
-`init_principal_frame!` for wings, with `R_p_to_w = R_b_to_w * R_b_to_p'`.
+the body-frame initial conditions (`pos_w`, `vel_w`, `Q_b_to_w`, `ω_b`) of a rigid
+body or `RIGID_DYNAMICS` wing, with `R_p_to_w = R_b_to_w * R_b_to_p'`. Shared by
+[`init_rigid_body!`](@ref) and the rigid branch of `init_principal_frame!` (for a
+`RIGID_DYNAMICS` wing `R_b_to_p = R_p_to_c' * R_b_to_c`, so the two agree).
 """
-function init_rigid_body!(body::RigidBody)
-    R_b_to_w = quaternion_to_rotation_matrix(body.Q_b_to_w)
-    body.com_w .= body.pos_w .+ R_b_to_w * body.com_offset_b
-    R_p_to_w = R_b_to_w * body.R_b_to_p'
-    body.Q_p_to_w .= rotation_matrix_to_quaternion(R_p_to_w)
-    ω_w = R_b_to_w * body.ω_b
-    r_com_w = R_b_to_w * body.com_offset_b
-    body.com_vel .= body.vel_w .+ cross(ω_w, r_com_w)
-    body.ω_p .= R_p_to_w' * ω_w
+function init_principal_state!(obj)
+    R_b_to_w = quaternion_to_rotation_matrix(obj.Q_b_to_w)
+    obj.com_w .= obj.pos_w .+ R_b_to_w * obj.com_offset_b
+    R_p_to_w = R_b_to_w * obj.R_b_to_p'
+    obj.Q_p_to_w .= rotation_matrix_to_quaternion(R_p_to_w)
+    ω_w = R_b_to_w * obj.ω_b
+    obj.com_vel .= obj.vel_w .+ cross(ω_w, R_b_to_w * obj.com_offset_b)
+    obj.ω_p .= R_p_to_w' * ω_w
     return nothing
 end
 
 """
+    init_rigid_body!(body::Body)
+
+Derive the body's principal-frame ODE state from its body-frame initial
+conditions via [`init_principal_state!`](@ref).
+"""
+init_rigid_body!(body::Body) = init_principal_state!(body)
+
+"""
     ElasticJoint
 
-A 6-DOF elastic connection between two `RigidBody`s. Anchored at a body-frame
+A 6-DOF elastic connection between two `Body`s. Anchored at a body-frame
 offset on each body, it applies a restoring wrench from the relative pose of the
 anchors, decomposed in body A's frame into axial (`EA`), shear (`GA`, both
 transverse axes), torsion (`GJ`), and bending (`EI`, both transverse axes), with

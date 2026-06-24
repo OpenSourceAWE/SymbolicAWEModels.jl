@@ -85,9 +85,9 @@ end
     set = Settings("system.yaml")
 
     inertia = [0.1, 0.2, 0.3]
-    body1 = RigidBody(:b1; mass=1.0, inertia_principal=inertia,
+    body1 = Body(:b1; mass=1.0, inertia_principal=inertia,
                       pos=[0.0, 0.0, 0.0])
-    body2 = RigidBody(:b2; mass=1.0, inertia_principal=inertia,
+    body2 = Body(:b2; mass=1.0, inertia_principal=inertia,
                       pos=[1.0, 0.0, 0.0])
     # Anchors meet at the midpoint [0.5, 0, 0] when relaxed.
     joint = ElasticJoint(:j1, :b1, :b2;
@@ -95,10 +95,10 @@ end
         stiffness_axial=0.0, stiffness_shear=0.0,
         stiffness_torsion=0.0, stiffness_bending=0.0)
     sys = SystemStructure("joint_test", set;
-        rigid_bodies=[body1, body2], elastic_joints=[joint])
+        bodies=[body1, body2], elastic_joints=[joint])
 
     @testset "Model setup" begin
-        @test length(sys.rigid_bodies) == 2
+        @test length(sys.bodies) == 2
         @test length(sys.elastic_joints) == 1
         @test sys.elastic_joints[:j1].body_a_idx == 1
         @test sys.elastic_joints[:j1].body_b_idx == 2
@@ -106,8 +106,8 @@ end
 
     sam = SymbolicAWEModel(set, sys)
     test_init!(sam)
-    b1 = sam.sys_struct.rigid_bodies[:b1]
-    b2 = sam.sys_struct.rigid_bodies[:b2]
+    b1 = sam.sys_struct.bodies[:b1]
+    b2 = sam.sys_struct.bodies[:b2]
     jt = sam.sys_struct.elastic_joints[:j1]
 
     function reset_bodies!()
@@ -195,20 +195,20 @@ end
         EA = 100.0
         knots = collect(-0.6:0.05:0.6)
         f_axial = SymbolicAWEModels.LinearInterpolation(EA .* knots, knots)
-        b1i = RigidBody(:b1; mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
-        b2i = RigidBody(:b2; mass=1.0, inertia_principal=inertia, pos=[1.0, 0.0, 0.0])
+        b1i = Body(:b1; mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
+        b2i = Body(:b2; mass=1.0, inertia_principal=inertia, pos=[1.0, 0.0, 0.0])
         joint_i = ElasticJoint(:j1, :b1, :b2;
             anchor_a=[0.5, 0.0, 0.0], anchor_b=[-0.5, 0.0, 0.0],
             stiffness_axial=f_axial,       # interpolation ...
             stiffness_shear=0.0, stiffness_torsion=0.0, stiffness_bending=0.0)  # ... mixed with floats
         @test joint_i.stiffness_axial === f_axial
         sys_i = SystemStructure("joint_test", set;
-            rigid_bodies=[b1i, b2i], elastic_joints=[joint_i])
+            bodies=[b1i, b2i], elastic_joints=[joint_i])
         sam_i = SymbolicAWEModel(set, sys_i)
         test_init!(sam_i; prn=false)   # zero-alloc RHS with the interpolation
 
-        body1 = sam_i.sys_struct.rigid_bodies[:b1]
-        body2 = sam_i.sys_struct.rigid_bodies[:b2]
+        body1 = sam_i.sys_struct.bodies[:b1]
+        body2 = sam_i.sys_struct.bodies[:b2]
         body2.pos_w .= [1.05, 0.0, 0.0]
         test_init!(sam_i; prn=false, reset_vel=false)
 

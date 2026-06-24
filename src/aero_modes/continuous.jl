@@ -205,7 +205,7 @@ end
 # ==================== equation builder ==================== #
 
 """
-    aero_component(mode::ContinuousAero, sys_struct, wing_idx; name)
+    aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct; name)
 
 Symbolic per-refined-panel re-expression of `VortexStepMethod.calc_forces!` on
 the `PARTICLE_DYNAMICS` connector contract. Refined-section positions,
@@ -217,15 +217,13 @@ through the integrator, e.g. `aero_1.alpha`). Each panel force acts on the
 quarter-chord line (75 % LE / 25 % TE) with the pitching moment as an LE/TE
 force couple, distributed to the bounding struts by the mesh weights.
 """
-function aero_component(mode::ContinuousAero, sys_struct, wing_idx; name, params=nothing)
+function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
+                        name, params=nothing)
+    wing_idx = wing.idx
     vind_p = params.wings[wing_idx].aero.v_ind
     cl = params.wings[wing_idx].aero.cl   # callable flat params: `cl(panel_idx, α)`
     cd = params.wings[wing_idx].aero.cd
     cm = params.wings[wing_idx].aero.cm
-    wing = sys_struct.wings[wing_idx]
-    wing.dynamics_type == PARTICLE_DYNAMICS || error(
-        "ContinuousAero supports PARTICLE_DYNAMICS wings only; wing " *
-        "$(wing.name) is $(wing.dynamics_type).")
 
     points = wing_points(sys_struct, wing)
     num_points = length(points)

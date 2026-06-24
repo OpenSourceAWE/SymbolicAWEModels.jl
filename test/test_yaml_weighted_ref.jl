@@ -104,7 +104,7 @@ transforms:
     sys = load_sys_struct_from_yaml(yaml_path;
         system_name="weighted_ref_test", set, vsm_set)
 
-    wing = sys.wings[1]
+    wing = sys.bodies[1]
 
     # z_ref_points[1] should be a single point (idx 7, kcu)
     z_p1, z_p2 = wing.z_ref_points
@@ -139,7 +139,7 @@ transforms:
     write(yaml_path_4pt, yaml_4pt)
     sys_4pt = load_sys_struct_from_yaml(yaml_path_4pt;
         system_name="weighted_ref_4pt_test", set, vsm_set)
-    wing_4pt = sys_4pt.wings[1]
+    wing_4pt = sys_4pt.bodies[1]
     @test wing_4pt.origin.ids == [1, 3, 5, 9]
     @test wing_4pt.origin.weights ≈ [0.1, 0.2, 0.3, 0.4]
 

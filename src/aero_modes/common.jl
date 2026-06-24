@@ -226,12 +226,15 @@ function wing_points(sys_struct, wing)
 end
 
 """
-    aero_component(mode::AbstractAeroModel, sys_struct, wing_idx; name) -> System
+    aero_component(mode::AbstractAeroModel, wing::AbstractWing, sys_struct; name, params) -> System
 
-Build the aero subsystem for `sys_struct.wings[wing_idx]`, selected by dispatch
-on the wing's `aero` model. Returns a `System` exposing the connectors fixed by
-the wing's `dynamics_type` (see above). Add a method on a custom
-`AbstractAeroModel` subtype to plug in your own aerodynamics.
+Build the aero subsystem for `wing`, selected by dispatch on both the wing's
+`aero` model and its dynamics type ([`RigidWing`](@ref)/[`ParticleWing`](@ref)).
+Returns a `System` exposing the connectors fixed by the dynamics type (see
+above). A mode supports a dynamics type by defining the matching method; a mode
+may support rigid, particle, or both. Add a method on a custom
+`AbstractAeroModel` subtype (dispatched on the wing dynamics) to plug in your
+own aerodynamics.
 """
 function aero_component end
 

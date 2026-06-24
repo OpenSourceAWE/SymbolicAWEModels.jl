@@ -18,7 +18,7 @@ of the compiled `ODESystem` (`sys`).
 """
 function generate_prob_getters(sys_struct, sys, param_registry=nothing,
                                initial_registry=nothing)
-    (; points, wings, twist_surfaces, pulleys, winches, tethers, segments, rigid_bodies) = sys_struct
+    (; points, wings, twist_surfaces, pulleys, winches, tethers, segments, bodies) = sys_struct
     get_aero_input, set_set_values, get_set_values = nothing, nothing, nothing
 
     specs = NamedTuple[]
@@ -66,18 +66,14 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             sys.stretched_len => (c, v) -> (c.stretched_len = v[c.idx]; nothing)))
     end
     if length(wings) > 0
+        # The wing rigid-body state (Q_b_to_w, ω_b, pos_w, vel_w, acc_w, com_w,
+        # com_vel, Q_p_to_w, ω_p) is synced by the bodies spec below: each
+        # wing's embedded body is in bodies and forwards to the wing.
         push!(specs, scatter_spec(ss -> ss.wings,
-            sys.Q_b_to_w         => (c, v) -> copy_vec!(c.Q_b_to_w, v, c.idx),
-            sys.ω_b              => (c, v) -> copy_vec!(c.ω_b, v, c.idx),
-            sys.wing_pos         => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
-            sys.wing_vel         => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
-            sys.wing_acc         => (c, v) -> copy_vec!(c.acc_w, v, c.idx),
             sys.va_wing_b        => (c, v) -> copy_vec!(c.va_b, v, c.idx),
             sys.wind_vel_wing    => (c, v) -> copy_vec!(c.v_wind, v, c.idx),
             sys.aero_force_b     => (c, v) -> copy_vec!(c.aero_force_b, v, c.idx),
             sys.aero_moment_b    => (c, v) -> copy_vec!(c.aero_moment_b, v, c.idx),
-            sys.moment_tether_wing => (c, v) -> copy_vec!(c.tether_moment, v, c.idx),
-            sys.force_tether_wing  => (c, v) -> copy_vec!(c.tether_force, v, c.idx),
             sys.elevation        => (c, v) -> (c.elevation = v[c.idx]; nothing),
             sys.elevation_vel    => (c, v) -> (c.elevation_vel = v[c.idx]; nothing),
             sys.elevation_acc    => (c, v) -> (c.elevation_acc = v[c.idx]; nothing),
@@ -88,12 +84,7 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             sys.turn_rate        => (c, v) -> copy_vec!(c.turn_rate, v, c.idx),
             sys.turn_acc         => (c, v) -> copy_vec!(c.turn_acc, v, c.idx),
             sys.course           => (c, v) -> (c.course = v[c.idx]; nothing),
-            sys.angle_of_attack  => (c, v) -> (c.aoa = v[c.idx]; nothing),
-            # Principal frame state
-            sys.com_w            => (c, v) -> copy_vec!(c.com_w, v, c.idx),
-            sys.com_vel          => (c, v) -> copy_vec!(c.com_vel, v, c.idx),
-            sys.Q_p_to_w         => (c, v) -> copy_vec!(c.Q_p_to_w, v, c.idx),
-            sys.ω_p              => (c, v) -> copy_vec!(c.ω_p, v, c.idx)))
+            sys.angle_of_attack  => (c, v) -> (c.aoa = v[c.idx]; nothing)))
 
         # aero_input only exists for wings whose component exposes the
         # connector (e.g. AeroLinearized); detected on the built subsystem,
@@ -106,8 +97,8 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
         get_aero_input = isempty(aero_inputs) ? nothing :
             getu(sys, collect.(aero_inputs))
     end
-    if length(rigid_bodies) > 0
-        push!(specs, scatter_spec(ss -> ss.rigid_bodies,
+    if length(bodies) > 0
+        push!(specs, scatter_spec(ss -> ss.bodies,
             sys.body_Q_b_to_w => (c, v) -> copy_vec!(c.Q_b_to_w, v, c.idx),
             sys.body_ω_b      => (c, v) -> copy_vec!(c.ω_b, v, c.idx),
             sys.body_pos_w    => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
@@ -680,7 +671,7 @@ Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
     (; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms,
-       rigid_bodies, elastic_joints) = sys_struct
+       bodies, elastic_joints) = sys_struct
     data_parts = []
     for point in points
         push!(data_parts, ("point", point.idx, point.wing_idx, point.body_idx, Int(point.type)))
@@ -722,7 +713,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("transform", transform.idx, transform.wing_idx, transform.rot_point_idx,
                         transform.base_point_idx, transform.base_transform_idx))
     end
-    for rigid_body in rigid_bodies
+    for rigid_body in bodies
         push!(data_parts, ("rigid_body", rigid_body.idx, Int(rigid_body.type)))
     end
     for joint in elastic_joints

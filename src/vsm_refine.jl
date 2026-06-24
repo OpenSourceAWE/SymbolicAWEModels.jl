@@ -115,7 +115,7 @@ preserve polars.
   via [`identify_wing_segments`](@ref).
 """
 function match_aero_sections_to_structure!(
-    wing::Wing,
+    wing::Body,
     points::AbstractVector{Point};
     twist_surfaces::AbstractVector{TwistSurface}=TwistSurface[]
 )
@@ -243,7 +243,7 @@ function match_aero_sections_to_structure!(
 end
 
 """
-    build_point_to_vsm_point_mapping(wing_points::AbstractVector{Point}, wing::Wing)
+    build_point_to_vsm_point_mapping(wing_points::AbstractVector{Point}, wing::Body)
 
 Build 1:1 mapping from structural WING points to VSM wing section points (LE/TE) using closest-point distance.
 
@@ -257,7 +257,7 @@ Requires: `length(wing_points) == 2 * length(wing.vsm_wing.unrefined_sections)`
 """
 function build_point_to_vsm_point_mapping(
     wing_points::AbstractVector{Point},
-    wing::Wing,
+    wing::Body,
 )
     vsm_wing = wing.vsm_wing
     n_points = length(wing_points)
@@ -379,7 +379,7 @@ function compute_aerostruc_loads(panel, F_panel::SVector{3}, M_panel::SVector{3}
 end
 
 """
-    distribute_panel_forces_to_points!(wing::Wing, points::AbstractVector{Point})
+    distribute_panel_forces_to_points!(wing::Body, points::AbstractVector{Point})
 
 Distribute VSM forces to structural points using refined panel forces.
 
@@ -397,10 +397,10 @@ the structural LE/TE points of the parent section (1:1 mapping).
    - Accumulate forces at the corresponding structural points
 
 # Arguments
-- `wing::Wing`: Wing with PARTICLE_DYNAMICS type and solved VSM state
+- `wing::Body`: Wing with PARTICLE_DYNAMICS type and solved VSM state
 - `points::AbstractVector{Point}`: All structural points (will filter for WING type)
 """
-function distribute_panel_forces_to_points!(wing::Wing, points::AbstractVector{Point})
+function distribute_panel_forces_to_points!(wing::Body, points::AbstractVector{Point})
     @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only distribute forces for PARTICLE_DYNAMICS wings"
 
     sol = wing.vsm_solver.sol
@@ -468,7 +468,7 @@ function distribute_panel_forces_to_points!(wing::Wing, points::AbstractVector{P
 end
 
 """
-    update_vsm_wing_from_structure!(wing::Wing, points::AbstractVector{Point})
+    update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Point})
 
 Update VSM section points (LE/TE) directly from structural point positions using 1:1 mapping.
 
@@ -487,10 +487,10 @@ Uses direct 1:1 correspondence between structural points and VSM section points:
 - To get world coordinates: `world_pos = wing.R_b_to_w * section.LE_point + wing.pos_w`
 
 # Arguments
-- `wing::Wing`: Wing with PARTICLE_DYNAMICS type
+- `wing::Body`: Wing with PARTICLE_DYNAMICS type
 - `points::AbstractVector{Point}`: All structural points (will filter for WING type)
 """
-function update_vsm_wing_from_structure!(wing::Wing, points::AbstractVector{Point})
+function update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Point})
     @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only update wing geometry for PARTICLE_DYNAMICS wings"
 
     # Get current R_b_to_w and origin from wing state

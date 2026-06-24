@@ -152,7 +152,7 @@ using LinearAlgebra
                 test_init!(sam; prn=false)
 
                 # Get wing position
-                wing = sam.sys_struct.wings[:main_wing]
+                wing = sam.sys_struct.bodies[:main_wing]
                 wing_pos = wing.pos_w
 
                 # Get ground position
@@ -214,12 +214,12 @@ using LinearAlgebra
                 # Test 1: elevation = 80 deg (default)
                 reset_transform!(sam.sys_struct)
                 test_init!(sam; prn=false)
-                wing_z1 = sam.sys_struct.wings[:main_wing].pos_w[3]
+                wing_z1 = sam.sys_struct.bodies[:main_wing].pos_w[3]
 
                 # Test 2: elevation = 45 deg
                 sam.sys_struct.transforms[:main_transform].elevation = deg2rad(45)
                 test_init!(sam; prn=false)
-                wing_z2 = sam.sys_struct.wings[:main_wing].pos_w[3]
+                wing_z2 = sam.sys_struct.bodies[:main_wing].pos_w[3]
 
                 # Higher elevation should result in higher z position
                 # (wing more overhead)
@@ -237,12 +237,12 @@ using LinearAlgebra
                 # Test 1: azimuth = 0 deg (default)
                 reset_transform!(sam.sys_struct)
                 test_init!(sam; prn=false)
-                wing_y1 = sam.sys_struct.wings[:main_wing].pos_w[2]
+                wing_y1 = sam.sys_struct.bodies[:main_wing].pos_w[2]
 
                 # Test 2: azimuth = 30 deg (more to the side)
                 sam.sys_struct.transforms[:main_transform].azimuth = deg2rad(30)
                 test_init!(sam; prn=false)
-                wing_y2 = sam.sys_struct.wings[:main_wing].pos_w[2]
+                wing_y2 = sam.sys_struct.bodies[:main_wing].pos_w[2]
 
                 # Larger azimuth should give larger |y| component
                 @test abs(wing_y2) > abs(wing_y1)
@@ -259,7 +259,7 @@ using LinearAlgebra
                 reset_transform!(sam.sys_struct)
                 test_init!(sam; prn=false)
 
-                wing = sam.sys_struct.wings[:main_wing]
+                wing = sam.sys_struct.bodies[:main_wing]
 
                 # Wing should have a rotation matrix
                 @test !isnothing(wing.R_b_to_w)
@@ -312,7 +312,7 @@ using LinearAlgebra
                         reset_transform!(sys)
                         tf.heading = target_h
                         test_init!(sam; prn=false)
-                        wing = sys.wings[:main_wing]
+                        wing = sys.bodies[:main_wing]
                         reinit_R = copy(wing.R_b_to_w)
                         reinit_pos = copy(wing.pos_w)
 
@@ -323,7 +323,7 @@ using LinearAlgebra
                         test_init!(sam; prn=false)
                         tf.heading = target_h
                         reposition!(sys.transforms, sys)
-                        wing = sys.wings[:main_wing]
+                        wing = sys.bodies[:main_wing]
 
                         @test reinit_R ≈ wing.R_b_to_w atol=1e-6
                         @test reinit_pos ≈ wing.pos_w atol=1e-4
@@ -497,7 +497,7 @@ using LinearAlgebra
             tf_child = sys.transforms[:kite_tilt]
             base_pos, curr_base_pos = get_base_pos(
                 tf_child, sys.transforms,
-                sys.wings, sys.points)
+                sys.bodies, sys.points)
             # After init, parent wing has moved from CAD
             # so base_pos (world) != curr_base_pos (CAD)
             @test !(base_pos ≈ curr_base_pos)

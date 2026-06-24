@@ -24,47 +24,54 @@ is_builtin_aero(::AeroDirect) = true
 aero_mode_tag(::AeroDirect) = "dir"
 provides_aero_override(::AeroDirect) = true
 
-function aero_component(::AeroDirect, sys_struct, wing_idx; name, params=nothing)
-    wing = sys_struct.wings[wing_idx]
+"""
+    aero_component(::AeroDirect, wing::ParticleWing, sys_struct; name, params)
 
-    # AeroDirect's forces are frozen between refreshes (provides_aero_override /
-    # stores_point_force are both true), so the per-point/wing/twist outputs are
-    # flat params synced after each refresh.
+Frozen per-point VSM forces (synced each refresh, so emitted as flat params) on
+the particle connector contract.
+"""
+function aero_component(::AeroDirect, wing::ParticleWing, sys_struct;
+                        name, params=nothing)
+    points = wing_points(sys_struct, wing)
+    num_points = length(points)
+    connectors = particle_aero_connectors(num_points)
     flat_ps = Any[]
-    if wing.dynamics_type == PARTICLE_DYNAMICS
-        points = wing_points(sys_struct, wing)
-        num_points = length(points)
-        connectors = particle_aero_connectors(num_points)
-        eqs = Equation[]
-        for (point_num, point) in enumerate(points)
-            force_p = params.points[point.idx].aero_force_b
-            push!(flat_ps, force_p)
-            eqs = [eqs
-                   collect(connectors.point_force[:, point_num]) .~ collect(force_p)]
-        end
-        return System(eqs, t, particle_unknowns(connectors), flat_ps; name)
-    elseif wing.dynamics_type == RIGID_DYNAMICS
-        twist_surfaces = sys_struct.twist_surfaces
-        num_twist_surfaces = length(wing.twist_surface_idxs)
-        connectors = rigid_aero_connectors(num_twist_surfaces)
-        force_p = params.wings[wing.idx].aero_force_b
-        moment_p = params.wings[wing.idx].aero_moment_b
-        push!(flat_ps, force_p, moment_p)
-        eqs = [collect(connectors.force) .~ collect(force_p)
-               collect(connectors.moment) .~ collect(moment_p)]
-        for (twist_surface_pos, twist_surface_idx) in enumerate(wing.twist_surface_idxs)
-            if isempty(twist_surfaces[twist_surface_idx].unrefined_section_idxs)
-                eqs = [eqs; connectors.twist_moment[twist_surface_pos] ~ 0]
-            else
-                moment_ts_p = params.twist_surfaces[twist_surface_idx].aero_moment
-                push!(flat_ps, moment_ts_p)
-                eqs = [eqs; connectors.twist_moment[twist_surface_pos] ~ moment_ts_p]
-            end
-        end
-        return System(eqs, t, rigid_unknowns(connectors), flat_ps; name)
-    else
-        error("Unknown dynamics_type $(wing.dynamics_type) for wing $wing_idx.")
+    eqs = Equation[]
+    for (point_num, point) in enumerate(points)
+        force_p = params.points[point.idx].aero_force_b
+        push!(flat_ps, force_p)
+        eqs = [eqs
+               collect(connectors.point_force[:, point_num]) .~ collect(force_p)]
     end
+    return System(eqs, t, particle_unknowns(connectors), flat_ps; name)
+end
+
+"""
+    aero_component(::AeroDirect, wing::RigidWing, sys_struct; name, params)
+
+Frozen lumped VSM force/moment (synced each refresh, so emitted as flat params)
+on the rigid connector contract.
+"""
+function aero_component(::AeroDirect, wing::RigidWing, sys_struct;
+                        name, params=nothing)
+    twist_surfaces = sys_struct.twist_surfaces
+    num_twist_surfaces = length(wing.twist_surface_idxs)
+    connectors = rigid_aero_connectors(num_twist_surfaces)
+    force_p = params.wings[wing.idx].aero_force_b
+    moment_p = params.wings[wing.idx].aero_moment_b
+    flat_ps = Any[force_p, moment_p]
+    eqs = [collect(connectors.force) .~ collect(force_p)
+           collect(connectors.moment) .~ collect(moment_p)]
+    for (twist_surface_pos, twist_surface_idx) in enumerate(wing.twist_surface_idxs)
+        if isempty(twist_surfaces[twist_surface_idx].unrefined_section_idxs)
+            eqs = [eqs; connectors.twist_moment[twist_surface_pos] ~ 0]
+        else
+            moment_ts_p = params.twist_surfaces[twist_surface_idx].aero_moment
+            push!(flat_ps, moment_ts_p)
+            eqs = [eqs; connectors.twist_moment[twist_surface_pos] ~ moment_ts_p]
+        end
+    end
+    return System(eqs, t, rigid_unknowns(connectors), flat_ps; name)
 end
 
 """

@@ -208,17 +208,20 @@ error during model build).
 ## Swappable aero components (dispatch)
 
 Each wing carries an `aero::AbstractAeroModel` field. The builder is selected
-by dispatch on its type, [`aero_component`](@ref)`(mode, sys_struct, wing_idx;
-name)`, returning a `System` exactly like a winch's [`Winch`](@ref) `model`.
-The built-in subtypes [`AeroNone`](@ref), [`AeroDirect`](@ref),
-[`AeroLinearized`](@ref) ship their own methods. To plug in your own
-aerodynamics, subtype `AbstractAeroModel` and add exactly two methods —
-the component builder and a cache tag:
+by dispatch on **both** its type and the wing's dynamics,
+[`aero_component`](@ref)`(mode, wing::AbstractWing, sys_struct; name, params)`,
+returning a `System` exactly like a winch's [`Winch`](@ref) `model`. The
+built-in subtypes [`AeroNone`](@ref), [`AeroDirect`](@ref),
+[`AeroLinearized`](@ref) ship their own methods. A mode supports a wing
+dynamics by defining the matching method, dispatched on [`RigidWing`](@ref)
+and/or [`ParticleWing`](@ref) — rigid, particle, or both. To plug in your own
+aerodynamics, subtype `AbstractAeroModel` and add a component builder (per
+dynamics you support) and a cache tag:
 
 ```julia
 struct MyAero <: AbstractAeroModel end
 
-function SymbolicAWEModels.aero_component(::MyAero, sys_struct, wing_idx; name)
+function SymbolicAWEModels.aero_component(::MyAero, wing::RigidWing, sys_struct; name, params)
     # ... build and return a System with the connectors below ...
 end
 SymbolicAWEModels.aero_mode_tag(::MyAero) = "myaero"
@@ -257,8 +260,9 @@ field, exposed via [`vsm_engine`](@ref)) inherits the VSM implementation of
 every hook. There are no `isa`/`is_vsm` branches in the pipeline, so a
 custom mode is never excluded from a code path it cannot extend.
 
-The returned `System`'s connectors are fixed by the wing's `dynamics_type`
-(all quantities in the wing **body frame**):
+The returned `System`'s connectors are fixed by the wing's dynamics type
+([`RigidWing`](@ref)/[`ParticleWing`](@ref); all quantities in the wing
+**body frame**):
 
 - **`RIGID_DYNAMICS`** (`ng = length(wing.twist_surface_idxs)`):
   - inputs: `va[1:3]`, `rho`, `R_b_w[1:3,1:3]`, `omega[1:3]`,
@@ -294,8 +298,8 @@ mutable struct ConstantLiftAero <: AbstractAeroModel
 end
 
 function SymbolicAWEModels.aero_component(::ConstantLiftAero,
-                                          sys_struct, wing_idx; name, params)
-    CL = params.wings[wing_idx].aero.CL   # flat param, synced live each step
+                                          wing::RigidWing, sys_struct; name, params)
+    CL = params.wings[wing.idx].aero.CL   # flat param, synced live each step
     # ... use CL in the force equation ...
 end
 ```

@@ -191,7 +191,7 @@ wing_frames(sys) = [(wing.pos_w,
 """World-frame `(position, R_b_to_w)` per rigid body, orientation from the quaternion."""
 rigid_body_frames(sys) = [(body.pos_w,
     SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w))
-    for body in sys.rigid_bodies]
+    for body in sys.bodies]
 
 """
     body_joint_spokes(sys) -> Vector{Point3f}
@@ -205,8 +205,8 @@ slot in here the same way once points can attach to rigid bodies.)
 function body_joint_spokes(sys)
     points = Point3f[]
     for joint in sys.elastic_joints
-        body_a = sys.rigid_bodies[joint.body_a_idx]
-        body_b = sys.rigid_bodies[joint.body_b_idx]
+        body_a = sys.bodies[joint.body_a_idx]
+        body_b = sys.bodies[joint.body_b_idx]
         R_a = SymbolicAWEModels.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
         R_b = SymbolicAWEModels.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
         push!(points, Point3f(body_a.pos_w),
@@ -337,7 +337,7 @@ function Makie.plot!(ax, sys::SystemStructure;
     end
 
     # === Plot Rigid Bodies (standalone, e.g. a beam) ===
-    if !isempty(sys.rigid_bodies)
+    if !isempty(sys.bodies)
         # Grey spokes from each body origin to its joint anchors: show the rigid
         # extent and the true joint connectivity (works for chains, stars, Ys).
         if !isempty(sys.elastic_joints)
@@ -358,7 +358,7 @@ function Makie.plot!(ax, sys::SystemStructure;
 
         # RGB body-frame axes per body, from the orientation quaternion.
         if show_orient
-            plot_frame_axes!(ax, plots, :bodies, sys, length(sys.rigid_bodies),
+            plot_frame_axes!(ax, plots, :bodies, sys, length(sys.bodies),
                              rigid_body_frames, vector_scale, geometry_obs; facets)
         end
     end
@@ -489,10 +489,10 @@ function Makie.plot!(ax, sys::SystemStructure;
             xr[2] - xr[1], yr[2] - yr[1], zr[2] - zr[1],
             1.0,  # minimum to avoid zero
         )
-    elseif !isempty(sys.rigid_bodies)
-        all_x = [b.pos_w[1] for b in sys.rigid_bodies]
-        all_y = [b.pos_w[2] for b in sys.rigid_bodies]
-        all_z = [b.pos_w[3] for b in sys.rigid_bodies]
+    elseif !isempty(sys.bodies)
+        all_x = [b.pos_w[1] for b in sys.bodies]
+        all_y = [b.pos_w[2] for b in sys.bodies]
+        all_z = [b.pos_w[3] for b in sys.bodies]
         xr, yr, zr = extrema(all_x), extrema(all_y), extrema(all_z)
         data_char_length = max(xr[2]-xr[1], yr[2]-yr[1], zr[2]-zr[1], 1.0)
     end
@@ -2060,7 +2060,7 @@ Center the camera on rigid body `body_idx`. Without `distance`, derives one from
 the body's spoke reach (joint anchors) so the body fills the view.
 """
 function zoom_in_body!(scene, cam, sys, body_idx, distance=nothing)
-    body = sys.rigid_bodies[body_idx]
+    body = sys.bodies[body_idx]
     center = Vec3f(body.pos_w)
     if isnothing(distance)
         R = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
@@ -2356,7 +2356,7 @@ segment-less models (e.g. a beam) never install the segment one.
 """
 function setup_body_zoom_events!(scene, sys; relmargin=0.2,
                                  spoke_colors_obs=nothing, highlight_color=:red)
-    isempty(sys.rigid_bodies) && return nothing
+    isempty(sys.bodies) && return nothing
     last_body = Ref(-1)
     base_spoke_color = to_color(RGBf(0.32, 0.32, 0.32))
     spoke_owner = spoke_body_indices(sys)
@@ -2370,7 +2370,7 @@ function setup_body_zoom_events!(scene, sys; relmargin=0.2,
 
     # Min 2D distance from the cursor to any of body `b`'s joint spokes.
     function spoke_distance(b, mouse_2d)
-        body = sys.rigid_bodies[b]
+        body = sys.bodies[b]
         R = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
         origin_2d = Makie.project(scene, Point3f(body.pos_w))
         dist = Inf
@@ -2392,7 +2392,7 @@ function setup_body_zoom_events!(scene, sys; relmargin=0.2,
         mouse_2d = Point2f(mp)
         margin_px = 30.0
         best, best_dist = -1, Inf
-        for b in eachindex(sys.rigid_bodies)
+        for b in eachindex(sys.bodies)
             d = spoke_distance(b, mouse_2d)
             d < best_dist && ((best, best_dist) = (b, d))
         end
@@ -2403,7 +2403,7 @@ function setup_body_zoom_events!(scene, sys; relmargin=0.2,
                                       base_spoke_color for owner in spoke_owner]
             end
             if hovered != -1
-                body = sys.rigid_bodies[hovered]
+                body = sys.bodies[hovered]
                 body_label[] = hover_ref_label(body.name, hovered)
                 body_label_pos[] =
                     Makie.project(scene, Point3f(body.pos_w)) + Point2f(20, 0)
@@ -2417,7 +2417,7 @@ function setup_body_zoom_events!(scene, sys; relmargin=0.2,
 
     on(scene.camera.view, priority=1) do _
         if last_body[] != -1
-            body = sys.rigid_bodies[last_body[]]
+            body = sys.bodies[last_body[]]
             body_label_pos[] =
                 Makie.project(scene, Point3f(body.pos_w)) + Point2f(20, 0)
         end

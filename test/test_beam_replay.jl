@@ -44,7 +44,7 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     set_data_path(data_path)
     set = Settings("system.yaml")
 
-    make_bodies() = [RigidBody(Symbol("seg_$i"); mass=m,
+    make_bodies() = [Body(Symbol("seg_$i"); mass=m,
         inertia_principal=inertia, pos=[(i-0.5)*L, 0.0, 0.0],
         type=(i==1 ? STATIC : DYNAMIC)) for i in 1:n]
     joints = [ElasticJoint(Symbol("j_$i"), Symbol("seg_$i"), Symbol("seg_$(i+1)");
@@ -54,7 +54,7 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
         for i in 1:(n-1)]
 
     sys = SystemStructure("beam_replay", set;
-        rigid_bodies=make_bodies(), elastic_joints=joints)
+        bodies=make_bodies(), elastic_joints=joints)
     sam = SymbolicAWEModel(set, sys)
     init!(sam)
 
@@ -67,7 +67,7 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
         step > 0 && next_step!(sam; dt, vsm_interval=0)
         update_sys_state!(ss, sam); ss.time = step*dt; log!(logger, ss)
     end
-    tip = sam.sys_struct.rigid_bodies[:seg_6]
+    tip = sam.sys_struct.bodies[:seg_6]
     @test tip.pos_w[3] < -0.01           # beam sagged under gravity
 
     save_log(logger, "beam_replay_test")
@@ -78,10 +78,10 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
 
     # Reconstruct geometry from the last frame (the path replay uses).
     sys2 = SystemStructure("beam_replay", set;
-        rigid_bodies=make_bodies(), elastic_joints=joints)
+        bodies=make_bodies(), elastic_joints=joints)
     update_from_sysstate!(sys2, lg.syslog[end])
-    @test sys2.rigid_bodies[:seg_6].pos_w[3] ≈ tip.pos_w[3] atol=1e-3
-    @test sys2.rigid_bodies[:seg_1].pos_w[1] ≈ 0.25 atol=1e-4  # fixed root
+    @test sys2.bodies[:seg_6].pos_w[3] ≈ tip.pos_w[3] atol=1e-3
+    @test sys2.bodies[:seg_1].pos_w[1] ≈ 0.25 atol=1e-4  # fixed root
 
     rm(tmpdir; recursive=true)
 end

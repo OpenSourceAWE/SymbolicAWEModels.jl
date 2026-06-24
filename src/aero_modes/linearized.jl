@@ -22,8 +22,8 @@ attach_engine!(::AeroLinearized, engine::VSMEngine) = AeroLinearized(engine)
 is_builtin_aero(::AeroLinearized) = true
 aero_mode_tag(::AeroLinearized) = "lin"
 
-function aero_component(::AeroLinearized, sys_struct, wing_idx; name, params)
-    wing = sys_struct.wings[wing_idx]
+function aero_component(::AeroLinearized, wing::RigidWing, sys_struct; name, params)
+    wing_idx = wing.idx
     # Aero coefficients as flat params (frozen between VSM refreshes, synced per refresh).
     aero_y_p = params.wings[wing_idx].aero_y
     aero_x_p = params.wings[wing_idx].aero_x

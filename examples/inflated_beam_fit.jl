@@ -7,7 +7,7 @@
 # tube in closed form (parametrised by the slack-arc angle θ₀), from the linear
 # regime through wrinkling onset to collapse. We sample that curve as synthetic
 # "measurements", fit a smooth per-joint bending law to it, and build a
-# RigidBody + ElasticJoint chain. It is validated as a cantilever under a ramped
+# Body + ElasticJoint chain. It is validated as a cantilever under a ramped
 # downward tip force, reproducing the P-vs-tip-deflection curve up to collapse.
 #
 # Isotropic by choice: Comer-Levy assumes one modulus E. A woven (orthotropic)
@@ -356,19 +356,19 @@ section_collapse_moment(radius, backend) = backend === :comer ?
 """
     build_beam(name, n_seg, joint_law) -> SymbolicAWEModel
 
-Build and init an `n_seg`-link RigidBody chain along `beam_length` (root fixed,
+Build and init an `n_seg`-link Body chain along `beam_length` (root fixed,
 per-station radius for inertia), joint `i` carrying `joint_law(i)`. A point is
 anchored to the tip body and pulled straight down by a CascadedLengthWinch tether
 whose ground anchor sits `winch_depth` below the tip — the displacement actuator.
 """
 function build_beam(name, n_seg, joint_law)
     seg_len = beam_length / n_seg
-    bodies = RigidBody[]
+    bodies = Body[]
     for i in 1:n_seg
         radius = station_radius((i - 0.5) / n_seg)
         inertia = [0.5 * seg_mass * radius^2,
                    seg_mass * seg_len^2 / 12, seg_mass * seg_len^2 / 12]
-        push!(bodies, RigidBody(Symbol("seg_$i"); mass = seg_mass,
+        push!(bodies, Body(Symbol("seg_$i"); mass = seg_mass,
             inertia_principal = inertia, pos = [(i - 0.5) * seg_len, 0.0, 0.0],
             type = i == 1 ? STATIC : DYNAMIC))
     end
@@ -403,7 +403,7 @@ function build_beam(name, n_seg, joint_law)
             position_gain = 20.0, velocity_gain = 20.0))]
     winches[1].inertia_total = 1.0e-4     # tiny rotor → near-instant tracking
     sys = SystemStructure(name, set; points, segments, tethers, winches,
-        rigid_bodies = bodies, elastic_joints = joints)
+        bodies = bodies, elastic_joints = joints)
     sam = SymbolicAWEModel(set, sys)
     init!(sam; remake = false, prn = true)
     return sam

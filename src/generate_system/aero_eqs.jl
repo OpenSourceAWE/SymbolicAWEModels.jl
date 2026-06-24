@@ -31,7 +31,7 @@ function aero_eqs!(
 
     for wing in wings
         wing_idx = wing.idx
-        subsys = aero_component(wing.aero, s.sys_struct, wing_idx;
+        subsys = aero_component(wing.aero, wing, s.sys_struct;
                                 name = Symbol("aero_$(wing_idx)"), params)
         push!(aero_subsystems, subsys)
         validate_aero_component(subsys, wing)
