@@ -1935,12 +1935,13 @@ end
     resolve_camera_pan(pan, cam_dir, up_ref, auto_distance)
 
 Resolve a `pan = (forward, right, up)` request (meters in the camera's local
-frame) into the eye offset from the look-at target. `cam_dir` is the unit
+frame) into eye and look-at offsets from the target. `cam_dir` is the unit
 target→eye direction. The forward distance is `pan[1]` when nonzero, otherwise
-`auto_distance`; `pan[2]`/`pan[3]` slide the eye right/up within the screen
-plane (local axes built from `cam_dir` and `up_ref`). Returns
-`(eye_offset, resolved_pan)` with the forward distance filled in, so callers
-can store `resolved_pan` and reproduce the exact framing on later frames.
+`auto_distance`, and moves the eye only (dolly/zoom). `pan[2]`/`pan[3]` slide
+both eye and look-at right/up within the screen plane (local axes built from
+`cam_dir` and `up_ref`), so the viewing direction stays fixed — a true pan.
+Returns `(eye_offset, lookat_offset, resolved_pan)` with the forward distance
+filled in, so callers can store `resolved_pan` and reproduce the framing later.
 
 In body-frame view `cam_dir` is the −body-x axis and `up_ref` the body z-axis,
 so `pan` moves the camera along the body's x/y/z axes.
@@ -1951,8 +1952,9 @@ function resolve_camera_pan(pan, cam_dir, up_ref, auto_distance)
     forward = -cam_dir
     right = normalize(cross(Vec3f(up_ref), forward))
     screen_up = normalize(cross(forward, right))
-    eye_offset = cam_dir * forward_distance + pan[2] * right + pan[3] * screen_up
-    return eye_offset, (forward_distance, Float64(pan[2]), Float64(pan[3]))
+    lateral = pan[2] * right + pan[3] * screen_up
+    eye_offset = cam_dir * forward_distance + lateral
+    return eye_offset, lateral, (forward_distance, Float64(pan[2]), Float64(pan[3]))
 end
 
 function zoom_out!(scene, cam, plots, pan=(0.0, 0.0, 0.0); relmargin=0.2)
@@ -1975,9 +1977,9 @@ function zoom_out!(scene, cam, plots, pan=(0.0, 0.0, 0.0); relmargin=0.2)
     fov_rad = 2 * atan(1 / cam.projection[][2, 2])
     auto_distance = radius / tan(fov_rad / 2.0) * (1 + relmargin)
 
-    eye_offset, resolved = resolve_camera_pan(pan, cam_dir_vec, Vec3f(0, 0, 1),
-                                              auto_distance)
-    update_cam!(scene, center + eye_offset, center)
+    eye_offset, lookat_offset, resolved =
+        resolve_camera_pan(pan, cam_dir_vec, Vec3f(0, 0, 1), auto_distance)
+    update_cam!(scene, center + eye_offset, center + lookat_offset)
 
     return resolved
 end
@@ -2001,12 +2003,11 @@ function zoom_in!(scene, cam, sys, segment_idx, pan=(0.0, 0.0, 0.0))
                                   inv_view_matrix[2, 3],
                                   inv_view_matrix[3, 3]))
 
-    eye_offset, resolved = resolve_camera_pan(pan, cam_dir_vec, Vec3f(0, 0, 1),
-                                              auto_distance)
-    new_eyepos = center + eye_offset
+    eye_offset, lookat_offset, resolved =
+        resolve_camera_pan(pan, cam_dir_vec, Vec3f(0, 0, 1), auto_distance)
 
     # Update camera
-    update_cam!(scene, new_eyepos, center)
+    update_cam!(scene, center + eye_offset, center + lookat_offset)
 
     return resolved
 end
@@ -2051,10 +2052,11 @@ function zoom_body_frame!(scene, cam, sys, pan=(0.0, 0.0, 0.0))
     # cam_dir is the target->eye direction: in front of the kite (−body x).
     cam_dir = Vec3f(-R_b_w[:, 1])
     up = Vec3f(R_b_w[:, 3])
-    eye_offset, resolved = resolve_camera_pan(pan, cam_dir, up, auto_distance)
-    cam_pos = Vec3f(kite_pos) + eye_offset
+    eye_offset, lookat_offset, resolved =
+        resolve_camera_pan(pan, cam_dir, up, auto_distance)
+    kite = Vec3f(kite_pos)
 
-    update_cam!(scene, cam_pos, Vec3f(kite_pos), up)
+    update_cam!(scene, kite + eye_offset, kite + lookat_offset, up)
 
     return resolved
 end
@@ -2085,9 +2087,9 @@ function zoom_in_body!(scene, cam, sys, body_idx, pan=(0.0, 0.0, 0.0))
     auto_distance = reach * 4.0 + 2.0
     inv_view = inv(cam.view[])
     cam_dir = normalize(Vec3f(inv_view[1, 3], inv_view[2, 3], inv_view[3, 3]))
-    eye_offset, resolved = resolve_camera_pan(pan, cam_dir, Vec3f(0, 0, 1),
-                                              auto_distance)
-    update_cam!(scene, center + eye_offset, center)
+    eye_offset, lookat_offset, resolved =
+        resolve_camera_pan(pan, cam_dir, Vec3f(0, 0, 1), auto_distance)
+    update_cam!(scene, center + eye_offset, center + lookat_offset)
     return resolved
 end
 
