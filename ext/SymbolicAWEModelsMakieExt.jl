@@ -31,13 +31,13 @@ const PLOT_ZOOM_RELMARGIN = Ref{Float64}(0.2)
 const PLOT_ZOOM_SEGMENT_IDX = Ref{Int}(-1)  # Which segment we're zoomed into (-1 = none)
 const PLOT_ZOOM_BODY_IDX = Ref{Int}(-1)     # Which rigid body we're zoomed into (-1 = none)
 const PLOT_BODY_FRAME = Ref{Bool}(false)  # Whether body frame tracking is active
-const PLOT_CAMERA_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)  # Stored camera distance
+const PLOT_CAMERA_PAN = Ref{NTuple{3, Float64}}((0.0, 0.0, 0.0))  # Stored camera pan (fwd, right, up)
 const PLOT_PREV_BODY_FRAME = Ref{Bool}(false)  # Previous body frame state
 const PLOT_PREV_ZOOMED_IN = Ref{Bool}(false)  # Previous zoomed state
 const PLOT_PREV_SEGMENT_IDX = Ref{Int}(-1)  # Previous segment index
 const PLOT_WORLD_EYEPOS = Ref{Union{Nothing, Vec3f}}(nothing)
 const PLOT_WORLD_LOOKAT = Ref{Union{Nothing, Vec3f}}(nothing)
-const PLOT_BODY_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)
+const PLOT_BODY_PAN = Ref{NTuple{3, Float64}}((0.0, 0.0, 0.0))  # Stored body-frame pan
 const PLOT_BODY_PREV_WING_POS = Ref{Union{Nothing, Vec3f}}(nothing)
 
 """
@@ -1931,7 +1931,31 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
     return fig
 end
 
-function zoom_out!(scene, cam, plots, distance=nothing; relmargin=0.2)
+"""
+    resolve_camera_pan(pan, cam_dir, up_ref, auto_distance)
+
+Resolve a `pan = (forward, right, up)` request (meters in the camera's local
+frame) into the eye offset from the look-at target. `cam_dir` is the unit
+target→eye direction. The forward distance is `pan[1]` when nonzero, otherwise
+`auto_distance`; `pan[2]`/`pan[3]` slide the eye right/up within the screen
+plane (local axes built from `cam_dir` and `up_ref`). Returns
+`(eye_offset, resolved_pan)` with the forward distance filled in, so callers
+can store `resolved_pan` and reproduce the exact framing on later frames.
+
+In body-frame view `cam_dir` is the −body-x axis and `up_ref` the body z-axis,
+so `pan` moves the camera along the body's x/y/z axes.
+"""
+function resolve_camera_pan(pan, cam_dir, up_ref, auto_distance)
+    forward_distance = iszero(pan[1]) ? auto_distance : pan[1]
+    cam_dir = normalize(Vec3f(cam_dir))
+    forward = -cam_dir
+    right = normalize(cross(Vec3f(up_ref), forward))
+    screen_up = normalize(cross(forward, right))
+    eye_offset = cam_dir * forward_distance + pan[2] * right + pan[3] * screen_up
+    return eye_offset, (forward_distance, Float64(pan[2]), Float64(pan[3]))
+end
+
+function zoom_out!(scene, cam, plots, pan=(0.0, 0.0, 0.0); relmargin=0.2)
     # --- ROBUST ZOOM OUT ---
     # 1. Get the current camera viewing direction vector
     inv_view_matrix = inv(cam.view[])
@@ -1946,23 +1970,19 @@ function zoom_out!(scene, cam, plots, distance=nothing; relmargin=0.2)
     bbox = Rect3f(lo, hi .- lo)
     center = lo .+ (hi .- lo) ./ 2
 
-    # 3. Calculate distance only if not provided
-    if isnothing(distance)
-        # Calculate the distance needed to see the whole box
-        radius = norm(bbox.widths) / 2.0
-        fov_rad = 2 * atan(1 / cam.projection[][2, 2])
-        distance = radius / tan(fov_rad / 2.0) * (1 + relmargin)
-    end
+    # Distance needed to see the whole box (used when pan forward is zero)
+    radius = norm(bbox.widths) / 2.0
+    fov_rad = 2 * atan(1 / cam.projection[][2, 2])
+    auto_distance = radius / tan(fov_rad / 2.0) * (1 + relmargin)
 
-    # 4. Calculate the new camera position
-    new_eyepos = center + cam_dir_vec * distance
-    # 5. Update the camera to the new "fit-all" view
-    update_cam!(scene, new_eyepos, center)
+    eye_offset, resolved = resolve_camera_pan(pan, cam_dir_vec, Vec3f(0, 0, 1),
+                                              auto_distance)
+    update_cam!(scene, center + eye_offset, center)
 
-    return distance
+    return resolved
 end
 
-function zoom_in!(scene, cam, sys, segment_idx, distance=nothing)
+function zoom_in!(scene, cam, sys, segment_idx, pan=(0.0, 0.0, 0.0))
     # --- ZOOM IN ON SEGMENT ---
     # Get current segment endpoints
     seg = sys.segments[segment_idx]
@@ -1972,11 +1992,8 @@ function zoom_in!(scene, cam, sys, segment_idx, distance=nothing)
     # Calculate segment center
     center = (p1_w + p2_w) / 2.0f0
 
-    # Calculate distance only if not provided
-    if isnothing(distance)
-        segment_len = norm(p2_w - p1_w)
-        distance = segment_len * 1.5 + 2.0
-    end
+    segment_len = norm(p2_w - p1_w)
+    auto_distance = segment_len * 1.5 + 2.0
 
     # Get camera direction
     inv_view_matrix = inv(cam.view[])
@@ -1984,31 +2001,28 @@ function zoom_in!(scene, cam, sys, segment_idx, distance=nothing)
                                   inv_view_matrix[2, 3],
                                   inv_view_matrix[3, 3]))
 
-    # Calculate new camera position
-    new_eyepos = center + distance * cam_dir_vec
+    eye_offset, resolved = resolve_camera_pan(pan, cam_dir_vec, Vec3f(0, 0, 1),
+                                              auto_distance)
+    new_eyepos = center + eye_offset
 
     # Update camera
     update_cam!(scene, new_eyepos, center)
 
-    return distance
+    return resolved
 end
 
 """
-    zoom_body_frame!(scene, cam, sys, distance=nothing)
+    zoom_body_frame!(scene, cam, sys, pan=(0.0, 0.0, 0.0))
 
 Set camera to body-frame view tracking the wing orientation.
-Camera positioned behind the kite looking forward along body x-axis.
-
-# Arguments
-- `scene`: The Makie scene
-- `cam`: The camera object
-- `sys`: SystemStructure with wing to track
-- `distance`: Optional fixed distance to use (if nothing, calculates from geometry)
+Camera positioned in front of the kite looking forward along body x-axis.
+`pan = (forward, right, up)` shifts the camera along the body x/y/z axes
+in meters; a zero forward component derives the distance from geometry.
 
 # Returns
-- Camera distance used (for storage/reuse)
+- Resolved `pan` tuple with the forward distance filled in (for storage/reuse)
 """
-function zoom_body_frame!(scene, cam, sys, distance=nothing)
+function zoom_body_frame!(scene, cam, sys, pan=(0.0, 0.0, 0.0))
     if isempty(sys.wings)
         @warn "No wings in system, cannot use body frame view"
         return nothing
@@ -2018,34 +2032,31 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
     kite_pos = wing.pos_w
     R_b_w = wing.R_b_to_w
 
-    # Calculate distance only if not provided
-    if isnothing(distance)
-        # Calculate characteristic system length
-        if !isempty(sys.points)
-            all_x = [p.pos_w[1] for p in sys.points]
-            all_y = [p.pos_w[2] for p in sys.points]
-            all_z = [p.pos_w[3] for p in sys.points]
+    # Characteristic system length drives the distance when pan forward is zero
+    if !isempty(sys.points)
+        all_x = [p.pos_w[1] for p in sys.points]
+        all_y = [p.pos_w[2] for p in sys.points]
+        all_z = [p.pos_w[3] for p in sys.points]
 
-            xlims = extrema(all_x)
-            ylims = extrema(all_y)
-            zlims = extrema(all_z)
+        xlims = extrema(all_x)
+        ylims = extrema(all_y)
+        zlims = extrema(all_z)
 
-            char_length = max(xlims[2] - xlims[1], ylims[2] - ylims[1], zlims[2] - zlims[1])
-        else
-            char_length = 10.0
-        end
-        distance = char_length * 0.1
+        char_length = max(xlims[2] - xlims[1], ylims[2] - ylims[1], zlims[2] - zlims[1])
+    else
+        char_length = 10.0
     end
+    auto_distance = char_length * 0.1
 
-    # Camera position: kite_pos - R_b_w * [distance, 0, 0]
-    # Places camera in front of kite (negative x in body frame), looking along +x axis
-    cam_offset_body = [-distance, 0.0, 0.0]
-    cam_offset_world = R_b_w * cam_offset_body
-    cam_pos = kite_pos + cam_offset_world
+    # cam_dir is the target->eye direction: in front of the kite (−body x).
+    cam_dir = Vec3f(-R_b_w[:, 1])
+    up = Vec3f(R_b_w[:, 3])
+    eye_offset, resolved = resolve_camera_pan(pan, cam_dir, up, auto_distance)
+    cam_pos = Vec3f(kite_pos) + eye_offset
 
-    update_cam!(scene, Vec3f(cam_pos), Vec3f(kite_pos), Vec3f(R_b_w[:, 3]))
+    update_cam!(scene, cam_pos, Vec3f(kite_pos), up)
 
-    return distance
+    return resolved
 end
 
 function get_cam_eyepos(cam)
@@ -2054,29 +2065,30 @@ function get_cam_eyepos(cam)
 end
 
 """
-    zoom_in_body!(scene, cam, sys, body_idx, distance=nothing)
+    zoom_in_body!(scene, cam, sys, body_idx, pan=(0.0, 0.0, 0.0))
 
-Center the camera on rigid body `body_idx`. Without `distance`, derives one from
-the body's spoke reach (joint anchors) so the body fills the view.
+Center the camera on rigid body `body_idx`. A zero pan forward component derives
+the distance from the body's spoke reach (joint anchors) so the body fills the
+view; `pan` then shifts the camera within its local frame (meters).
 """
-function zoom_in_body!(scene, cam, sys, body_idx, distance=nothing)
+function zoom_in_body!(scene, cam, sys, body_idx, pan=(0.0, 0.0, 0.0))
     body = sys.rigid_bodies[body_idx]
     center = Vec3f(body.pos_w)
-    if isnothing(distance)
-        R = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
-        reach = 0.0
-        for joint in sys.elastic_joints
-            joint.body_a_idx == body_idx &&
-                (reach = max(reach, norm(R * joint.anchor_a_b)))
-            joint.body_b_idx == body_idx &&
-                (reach = max(reach, norm(R * joint.anchor_b_b)))
-        end
-        distance = reach * 4.0 + 2.0
+    R = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
+    reach = 0.0
+    for joint in sys.elastic_joints
+        joint.body_a_idx == body_idx &&
+            (reach = max(reach, norm(R * joint.anchor_a_b)))
+        joint.body_b_idx == body_idx &&
+            (reach = max(reach, norm(R * joint.anchor_b_b)))
     end
+    auto_distance = reach * 4.0 + 2.0
     inv_view = inv(cam.view[])
     cam_dir = normalize(Vec3f(inv_view[1, 3], inv_view[2, 3], inv_view[3, 3]))
-    update_cam!(scene, center + distance * cam_dir, center)
-    return distance
+    eye_offset, resolved = resolve_camera_pan(pan, cam_dir, Vec3f(0, 0, 1),
+                                              auto_distance)
+    update_cam!(scene, center + eye_offset, center)
+    return resolved
 end
 
 function apply_zoom_mode!(scene, relevant_plots, stored_sys; mode_changed::Bool)
@@ -2085,7 +2097,8 @@ function apply_zoom_mode!(scene, relevant_plots, stored_sys; mode_changed::Bool)
     if mode_changed
         if PLOT_PREV_BODY_FRAME[] && !isempty(stored_sys.wings)
             wing = stored_sys.wings[1]
-            PLOT_BODY_DISTANCE[] = norm(get_cam_eyepos(cam) - Vec3f(wing.pos_w))
+            live_distance = norm(get_cam_eyepos(cam) - Vec3f(wing.pos_w))
+            PLOT_BODY_PAN[] = (live_distance, PLOT_BODY_PAN[][2], PLOT_BODY_PAN[][3])
         elseif !PLOT_PREV_ZOOMED_IN[] && !PLOT_PREV_BODY_FRAME[]
             cc = Makie.cameracontrols(scene)
             PLOT_WORLD_EYEPOS[] = Vec3f(cc.eyeposition[])
@@ -2097,28 +2110,31 @@ function apply_zoom_mode!(scene, relevant_plots, stored_sys; mode_changed::Bool)
         wing_pos = isempty(stored_sys.wings) ? nothing :
                    Vec3f(stored_sys.wings[1].pos_w)
         if mode_changed || isnothing(PLOT_BODY_PREV_WING_POS[])
-            dist = zoom_body_frame!(scene, cam, stored_sys, PLOT_BODY_DISTANCE[])
+            pan = zoom_body_frame!(scene, cam, stored_sys, PLOT_BODY_PAN[])
         else
+            # Track the live distance while keeping the requested lateral pan.
             current_dist = norm(get_cam_eyepos(cam) - PLOT_BODY_PREV_WING_POS[])
-            dist = zoom_body_frame!(scene, cam, stored_sys, current_dist)
+            lateral = PLOT_BODY_PAN[]
+            pan = zoom_body_frame!(scene, cam, stored_sys,
+                                   (current_dist, lateral[2], lateral[3]))
         end
-        PLOT_BODY_DISTANCE[] = dist
-        PLOT_CAMERA_DISTANCE[] = dist
+        PLOT_BODY_PAN[] = pan
+        PLOT_CAMERA_PAN[] = pan
         PLOT_BODY_PREV_WING_POS[] = wing_pos
     elseif PLOT_ZOOMED_IN[] && PLOT_ZOOM_SEGMENT_IDX[] > 0
-        dist = zoom_in!(scene, cam, stored_sys, PLOT_ZOOM_SEGMENT_IDX[], PLOT_CAMERA_DISTANCE[])
-        PLOT_CAMERA_DISTANCE[] = dist
+        PLOT_CAMERA_PAN[] = zoom_in!(scene, cam, stored_sys,
+                                     PLOT_ZOOM_SEGMENT_IDX[], PLOT_CAMERA_PAN[])
     elseif PLOT_ZOOMED_IN[] && PLOT_ZOOM_BODY_IDX[] > 0
-        dist = zoom_in_body!(scene, cam, stored_sys, PLOT_ZOOM_BODY_IDX[], PLOT_CAMERA_DISTANCE[])
-        PLOT_CAMERA_DISTANCE[] = dist
+        PLOT_CAMERA_PAN[] = zoom_in_body!(scene, cam, stored_sys,
+                                          PLOT_ZOOM_BODY_IDX[], PLOT_CAMERA_PAN[])
     elseif !PLOT_ZOOMED_IN[]
         if mode_changed
             if !isnothing(PLOT_WORLD_EYEPOS[]) && !isnothing(PLOT_WORLD_LOOKAT[])
                 update_cam!(scene, PLOT_WORLD_EYEPOS[], PLOT_WORLD_LOOKAT[])
             else
-                dist = zoom_out!(scene, cam, relevant_plots, nothing;
-                                 relmargin=PLOT_ZOOM_RELMARGIN[])
-                PLOT_CAMERA_DISTANCE[] = dist
+                PLOT_CAMERA_PAN[] = zoom_out!(scene, cam, relevant_plots,
+                                              PLOT_CAMERA_PAN[];
+                                              relmargin=PLOT_ZOOM_RELMARGIN[])
             end
         end
     end
@@ -2303,7 +2319,7 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                 new_eyepos = center + dist_heuristic * cam_dir
 
                 update_cam!(scene, new_eyepos, center)
-                PLOT_CAMERA_DISTANCE[] = dist_heuristic
+                PLOT_CAMERA_PAN[] = (dist_heuristic, 0.0, 0.0)
                 zoomed_in[] = true
                 PLOT_ZOOMED_IN[] = true
                 PLOT_ZOOM_SEGMENT_IDX[] = seg_i
@@ -2329,7 +2345,7 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                 if !isnothing(PLOT_SYSTEM_STRUCTURE[])
                     apply_zoom_mode!(scene, all_plots, PLOT_SYSTEM_STRUCTURE[]; mode_changed=true)
                 else
-                    zoom_out!(scene, cam, all_plots, nothing; relmargin)
+                    zoom_out!(scene, cam, all_plots; relmargin)
                 end
 
                 return Consume(true)
@@ -2432,8 +2448,7 @@ function setup_body_zoom_events!(scene, sys; relmargin=0.2,
                     PLOT_WORLD_EYEPOS[] = Vec3f(cc.eyeposition[])
                     PLOT_WORLD_LOOKAT[] = Vec3f(cc.lookat[])
                 end
-                dist = zoom_in_body!(scene, cam, sys, last_body[])
-                PLOT_CAMERA_DISTANCE[] = dist
+                PLOT_CAMERA_PAN[] = zoom_in_body!(scene, cam, sys, last_body[])
                 PLOT_ZOOMED_IN[] = true
                 PLOT_PREV_ZOOMED_IN[] = true
                 PLOT_ZOOM_BODY_IDX[] = last_body[]
@@ -2461,6 +2476,7 @@ function plot_with_panes(sys::SystemStructure;
                     highlight_color = :red,
                     force_color = false,
                     body_frame = false,
+                    pan = (0.0, 0.0, 0.0),
                     extra_points = nothing,
                     extra_groups = nothing,
                     mesh = nothing,
@@ -2502,13 +2518,13 @@ function plot_with_panes(sys::SystemStructure;
     # Set initial camera position
     cam = scene.camera
     if body_frame
-        initial_distance = zoom_body_frame!(scene, cam, sys)
+        initial_pan = zoom_body_frame!(scene, cam, sys, pan)
     else
         update_cam!(scene, Vec3f(-100, -100, 100), Vec3f(0, 0, 0))
-        initial_distance = zoom_out!(scene, cam, relevant_plots, nothing; relmargin)
+        initial_pan = zoom_out!(scene, cam, relevant_plots, pan; relmargin)
     end
 
-    return scene, plots, relevant_plots, initial_distance
+    return scene, plots, relevant_plots, initial_pan
 end
 
 # Public API function - creates scene with observables for dynamic updates
@@ -2519,10 +2535,12 @@ function Makie.plot(sys::SystemStructure;
                     plot_aero=true,
                     relmargin=0.2,
                     body_frame=false,
+                    pan=(0.0, 0.0, 0.0),
                     extra_points=nothing,
                     extra_groups=nothing,
                     mesh=nothing,
                     kwargs...)
+    pan = (Float64(pan[1]), Float64(pan[2]), Float64(pan[3]))
     # Store SystemStructure globally FIRST so @lift expressions can access it
     PLOT_SYSTEM_STRUCTURE[] = sys
     PLOT_VECTOR_SCALE[] = vector_scale
@@ -2534,7 +2552,7 @@ function Makie.plot(sys::SystemStructure;
     geometry_obs = Observable(0.0)
 
     # Create scene with observables using internal function
-    scene, plots, relevant_plots, initial_distance = plot_with_panes(sys;
+    scene, plots, relevant_plots, initial_pan = plot_with_panes(sys;
                 geometry_obs,
                 vector_scale,
                 force_color,
@@ -2542,6 +2560,7 @@ function Makie.plot(sys::SystemStructure;
                 plot_aero,
                 relmargin,
                 body_frame,
+                pan,
                 extra_points,
                 extra_groups,
                 mesh,
@@ -2562,7 +2581,10 @@ function Makie.plot(sys::SystemStructure;
     PLOT_ZOOMED_IN[] = false  # Initialize zoom state (not zoomed in)
     PLOT_ZOOM_RELMARGIN[] = relmargin  # Store relmargin for auto-updates
     PLOT_ZOOM_SEGMENT_IDX[] = -1  # No segment zoomed initially
-    PLOT_CAMERA_DISTANCE[] = initial_distance  # Preserve initial zoom during replay
+    PLOT_CAMERA_PAN[] = initial_pan  # Preserve initial pan/zoom during replay
+    # Seed body-frame pan so toggling to body view honours the requested pan
+    PLOT_BODY_PAN[] = body_frame ? initial_pan : pan
+    PLOT_BODY_PREV_WING_POS[] = nothing
 
     return scene
 end
@@ -2631,6 +2653,8 @@ Plot multiple SystemStructures in a single scene with different colors.
 - `colors`: Color palette for systems (default: wong_colors())
 - `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
 - `relmargin::Real=0.2`: Relative margin for camera zoom
+- `pan=(0.0, 0.0, 0.0)`: Camera pan `(forward, right, up)` in meters in the
+  camera's local frame; a zero forward component auto-fits the distance
 - `use_observables::Bool=false`: If true, create observables for dynamic updates (used by replay)
 - All other kwargs passed to plot!
 
@@ -2649,7 +2673,9 @@ function Makie.plot(syss::Vector{<:SystemStructure};
                     use_observables=false,
                     highlight_color=:yellow,
                     force_color=false,
+                    pan=(0.0, 0.0, 0.0),
                     kwargs...)
+    pan = (Float64(pan[1]), Float64(pan[2]), Float64(pan[3]))
     scene = Scene(; camera=cam3d!, show_axis=false, size=(1200, 800))
 
     PLOT_MULTI_SYSTEMS[] = syss
@@ -2716,7 +2742,7 @@ function Makie.plot(syss::Vector{<:SystemStructure};
                                     highlight_color, force_color, relmargin)
     end
 
-    zoom_out!(scene, scene.camera, all_plots; relmargin)
+    PLOT_CAMERA_PAN[] = zoom_out!(scene, scene.camera, all_plots, pan; relmargin)
     return scene
 end
 
