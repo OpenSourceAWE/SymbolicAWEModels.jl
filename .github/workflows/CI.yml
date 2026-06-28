@@ -81,6 +81,10 @@ jobs:
             echo "Copied $DEFAULT to $TARGET"
           fi
 
+      - name: Install registry (clone fallback)
+        shell: bash
+        run: julia .github/install_registry.jl
+
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         with:
@@ -115,6 +119,11 @@ jobs:
           version: '1'
 
       - uses: julia-actions/cache@v3
+
+      - name: Install registry (clone fallback)
+        shell: bash
+        run: julia .github/install_registry.jl
+
       - uses: julia-actions/julia-buildpkg@v1
 
       - name: Install display dependencies for GLMakie
