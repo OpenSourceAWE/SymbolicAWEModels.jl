@@ -117,6 +117,7 @@ SymbolicAWEModels.SAM_FIELDS
 Base.getindex
 Base.getproperty
 Base.setproperty!
+Serialization.serialize(::Serialization.AbstractSerializer, ::SymbolicAWEModels.InplaceGetter)
 ```
 
 ## YAML loader internals
