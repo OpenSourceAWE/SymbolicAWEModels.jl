@@ -323,7 +323,7 @@ to degrees) and calculating derived values like AoA and roll/pitch/yaw angles.
 """
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
-    (; points, twist_surfaces, segments, pulleys, winches, wings, tethers,
+    (; points, twist_surfaces, winches, wings, tethers,
        bodies) = sam.sys_struct
 
     for (ti, tether) in enumerate(tethers)
@@ -394,9 +394,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
                                             ss, corner_idx, zoom)
     end
 
-    # Wing/body origins occupy dedicated slots after the panel corners (see
-    # `position_slots`); orientation frames are wings-first, then bodies. This
-    # lets replay read each pose directly without recomputing a centroid.
+    # Orientation frames are ordered wings-first, then bodies (slots after corners).
     slots = position_slots(sam.sys_struct)
     n_wings = length(wings)
     for wing in wings

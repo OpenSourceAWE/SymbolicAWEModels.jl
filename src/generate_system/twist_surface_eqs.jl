@@ -150,8 +150,7 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, bodies, params, initi
             ]
         end
 
-        # Inertia of a thin rectangular plate rotating around one edge
-        # I = 1/3 × m × L² where m is total mass of twist_surface points
+        # Thin-plate inertia about one edge: I = 1/3·m·L² (m = twist_surface mass).
         twist_surface_chord = collect(twist_surface_chord)
         twist_surface_mass = sum(params.points[point_idx].extra_mass for point_idx in twist_surface.point_idxs)
         inertia = 1 / 3 * twist_surface_mass * smooth_norm(twist_surface_chord[:, twist_surface.idx])^2

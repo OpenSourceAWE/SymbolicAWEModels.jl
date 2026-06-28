@@ -37,8 +37,7 @@ function scalar_eqs!(
         wind_disturb(t)[1:3, eachindex(wings)]
         va_wing(t)[1:3, eachindex(wings)]
     end
-    # Ground wind as a flat param, with a tiny x-axis fallback for exactly-zero
-    # wind (keeps apparent-wind directions defined; avoids normalize-by-zero).
+    # Tiny x-axis fallback for exactly-zero wind avoids normalize-by-zero.
     wind_vec_raw = collect(params.set.wind_vec)
     near_zero = sum(abs2, wind_vec_raw) < 1e-20
     fallback = (1e-10, 0.0, 0.0)
@@ -82,10 +81,7 @@ function scalar_eqs!(
     end
 
     for wing in wings
-        # Compute position relative to transform base point.
-        # Spherical coordinates (heading, elevation, azimuth,
-        # distance, R_t_to_w) are defined on the sphere centered
-        # at the base, not at the world origin.
+        # Spherical coords are centered at the transform base point, not origin.
         transforms = s.sys_struct.transforms
         if wing.transform_idx != 0 &&
                 wing.transform_idx <= length(transforms)
@@ -105,12 +101,7 @@ function scalar_eqs!(
                 length(wing.twist_surface_idxs) ÷ 2 - 1
         end
 
-        # Calculate heading using tangential sphere frame.
-        # Projects e_x onto the tangent plane via R_t_to_w:
-        # x_t = elevation dir (away from zenith),
-        # y_t = azimuthal.
-        # heading = 0 when e_x aligns with x_t (nose toward
-        # GS).
+        # heading = 0 when e_x aligns with R_t_to_w x-axis (elevation dir, nose to GS).
         heading_t_1 = e_x[:, wing.idx] ⋅
             R_t_to_w[:, 1, wing.idx]
         heading_t_2 = e_x[:, wing.idx] ⋅
@@ -121,10 +112,7 @@ function scalar_eqs!(
         course_t_2 = wing_vel[:, wing.idx] ⋅
             R_t_to_w[:, 2, wing.idx]
 
-        # Unified equations for both RIGID_DYNAMICS and PARTICLE_DYNAMICS
-        # wings. PARTICLE_DYNAMICS wings have ω_b=α_b=0 (set in
-        # wing_eqs!), so turn_rate/turn_acc naturally evaluate
-        # to zero.
+        # PARTICLE_DYNAMICS wings have ω_b=α_b=0, so turn_rate/turn_acc are zero.
         eqs = [
             eqs
             vec(R_v_to_w[:, :, wing.idx]) ~

@@ -1,8 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# AeroLinearized: first-order Taylor expansion of the VSM coefficients about the
-# operating point (RIGID_DYNAMICS only). Shared VSM numerics live in common.jl.
+# AeroLinearized: first-order Taylor of VSM coefficients; numerics in common.jl.
 
 """
     AeroLinearized()

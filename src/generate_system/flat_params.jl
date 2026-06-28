@@ -1,18 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Flat MTK parameters: replace `@register_symbolic` struct reads in the ODE RHS
-# with plain MTK parameters that compile to direct flat-buffer loads. The live
-# `SystemStructure` is read once per step by `sync_params!`, instead of
-# thousands of times per step by the registered getters.
-#
-# A build-time `params` view mirrors `sys_struct`: writing
-# `params.segments[i].l0` or `params.wings[w].aero.engine.aero_jac` during
-# equation generation creates (once) the MTK parameter standing in for that
-# field, records it in the registry, and returns the symbolic term baked into the
-# RHS. The view descends structs/collections and stops at a leaf:
-#   numeric scalar → scalar param · numeric array → array param ·
-#   other object   → callable param (invoked as `p(x)`, e.g. an interpolation).
+# Flat MTK parameters replacing per-step `@register_symbolic` struct reads.
 
 """
     read_path(obj, path)
@@ -121,9 +110,6 @@ param_computed!(reg::ParamRegistry, name::Symbol, reader) =
     leaf_param!(reg, name, name, reader, reader(reg.sys_struct))
 
 # ==================== BUILD-TIME VIEW ==================== #
-# `params.segments[i].l0` reads character-for-character like
-# `sys_struct.segments[i].l0`. These views exist only during equation
-# construction; at runtime there is no `params` object.
 
 """Types the view descends *through* (everything else is a leaf)."""
 param_descend(x) = x isa NamedCollection || x isa AbstractAeroModel ||
@@ -131,7 +117,10 @@ param_descend(x) = x isa NamedCollection || x isa AbstractAeroModel ||
 
 param_name(path::Tuple) = Symbol("p_", join(path, "_"))
 
-"""Top-level `params` view wrapping a [`ParamRegistry`](@ref)."""
+"""
+Top-level `params` view wrapping a [`ParamRegistry`](@ref).
+`params.segments[i].l0` mirrors `sys_struct.segments[i].l0` (build-time only).
+"""
 struct ParamView
     reg::ParamRegistry
 end
@@ -158,8 +147,6 @@ function Base.getproperty(view::PathView, sym::Symbol)
 end
 
 # ==================== SYNC ==================== #
-# One bridge from the live struct into the parameter buffers. Built once after
-# compilation (`build_param_sync`); called once per `next_step!`.
 
 """
     ParamGroup

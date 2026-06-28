@@ -100,8 +100,7 @@ function validate_sys_struct(sys_struct::SystemStructure)
                   "This is physically nonsensical."
         end
 
-        # Check total_mass for division by zero (DYNAMIC points only)
-        # NOTE: Check mass before NaN position - NaN pos is often caused by zero mass
+        # Check mass before NaN position: NaN pos is often caused by zero mass.
         if point.type == DYNAMIC && point.total_mass <= 0
             error("Point $(point.name) has non-positive total_mass ($(point.total_mass)). " *
                   "This will cause division by zero in acceleration calculations.")
@@ -115,8 +114,7 @@ function validate_sys_struct(sys_struct::SystemStructure)
 
     # ==================== WING VALIDATIONS ==================== #
     for wing in wings
-        # Check for non-positive mass (all wing types)
-        # NOTE: Check mass/inertia before NaN position - NaN pos is often caused by zero mass
+        # Check mass/inertia before NaN position: NaN pos is often caused by zero mass.
         if wing.mass <= 0
             error("Wing $(wing.name) has non-positive mass ($(wing.mass)). " *
                   "This will cause division by zero in acceleration calculations.")
@@ -142,8 +140,7 @@ function validate_sys_struct(sys_struct::SystemStructure)
                 error("Wing $(wing.name) has NaN inertia: I_b = $I_b")
             end
 
-            # Warn if a section-coupled RIGID_DYNAMICS wing has no twist_surfaces
-            # (AeroNone does not couple to sections, so its absence is expected)
+            # AeroNone does not couple to sections, so missing twist_surfaces is fine.
             if isempty(wing.twist_surface_idxs) &&
                couples_to_sections(wing.aero)
                 @warn "Wing $(wing.name) (RIGID_DYNAMICS)" *
@@ -372,9 +369,11 @@ function twist_surface_tethers_by_overlap(specified, reach)
     n = length(specified)
     parent = collect(1:n)
     function find_root(i)
-        parent[i] == i && return i
-        parent[i] = find_root(parent[i])
-        return parent[i]
+        while parent[i] != i
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        end
+        return i
     end
     for i in 1:n
         for j in i+1:n
@@ -520,8 +519,7 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
             push!(boundary, point.idx)
     end
 
-    # A both-fixed tether (both endpoints on a boundary) cannot be placed to a
-    # length — warn and skip it rather than failing the whole init.
+    # Both-fixed tethers (both endpoints on a boundary) are warned and skipped.
     both_fixed(tether) = tether.start_point_idx in boundary &&
                          tether.end_point_idx in boundary
     placeable = filter(!both_fixed, specified)
@@ -650,8 +648,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         winch.vel = winch.init_vel
     end
 
-    # Standalone rigid bodies: reset pose to CAD (so placement is idempotent),
-    # then derive principal-frame ODE state from the body-frame ICs.
+    # Reset body pose to CAD (idempotent placement); ODE state derived below.
     for rigid_body in sys_struct.bodies
         rigid_body.pos_w .= rigid_body.pos_cad
         rigid_body.Q_b_to_w .= rotation_matrix_to_quaternion(rigid_body.R_b_to_c)
@@ -668,8 +665,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         twist_surface.twist_ω = 0.0
     end
 
-    # Transforms are not updated from Settings -
-    # YAML structure geometry has priority
+    # Transforms are not updated from Settings; YAML structure geometry has priority.
 
     # Step 1: copy CAD geometry to world frame
     copy_cad_to_world!(points, sys_struct.bodies; update_vel=reset_vel)
@@ -702,23 +698,19 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                              segments[pulley.segment_idxs[2]]
         pulley.sum_len = segment1.l0 + segment2.l0
 
-        # Initialize pulley.len proportional to current segment lengths
-        # More accurate for asymmetric bridle configurations
+        # Proportional to current segment lengths (accurate for asymmetric bridles).
         pulley.len = segment1.len / (segment1.len+segment2.len) *
                      pulley.sum_len
 
         pulley.vel = 0.0
     end
 
-    # Step 5: apply transforms (translate/rotate/heading);
-    # pos_w already initialized by copy_cad_to_world! +
-    # apply_tether_init_stretched_lens!
+    # Step 5: apply transforms (translate/rotate/heading); pos_w already initialized.
     if apply_transforms
         reinit!(transforms, sys_struct; update_vel=reset_vel)
     end
 
-    # Recreate each wing's aero engine from settings if requested (no-op for
-    # modes without one, e.g. flat-plate).
+    # Recreate each wing's aero engine from settings (no-op for engine-less modes).
     if remake_vsm
         for wing in wings
             remake_aero!(wing.aero, wing, set, sys_struct.vsm_set,
@@ -744,8 +736,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         end
     end
 
-    # NOTE: validate_sys_struct() is called from model_management.jl after update_sys_struct!
-    # because total_mass is only computed after the integrator exists.
+    # validate_sys_struct() runs later: total_mass needs the live integrator.
 
     # Recalculate segment rest lengths from current positions if requested
     if ignore_l0
@@ -972,8 +963,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         wing.turn_acc .= 0.0
     end
 
-    # Update standalone rigid bodies (origins after the wing slots;
-    # orientation frames after the wings).
+    # Standalone bodies: origins after the wing slots, orientations after the wings.
     if has_wing_slots
         for rigid_body in bodies
             slot = slots.bodies[rigid_body.idx]
@@ -1028,8 +1018,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         sys.set.wind_vec = MVec3(sys_state.v_wind_gnd)
     end
 
-    # Segment lengths/forces are not part of the SysState; they are populated
-    # by the symbolic getters from a live integrator, not reconstructed here.
+    # Segment lengths/forces come from symbolic getters, not from the SysState.
 
     return nothing
 end

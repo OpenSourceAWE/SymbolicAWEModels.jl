@@ -1,13 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Initial conditions as MTK `Initial(x)` parameters. The system `defaults` bake a
-# build-time numeric constant for every integrated state, which makes MTK expose a
-# settable `Initial(state)` parameter. The live `SystemStructure` ICs are pushed
-# onto those parameters by `sync_initial!` before each fresh `init`, so the
-# integrator starts at the struct's state — the symmetric counterpart of the
-# flat `params` view (see flat_params.jl), in the same `initial.points[i].pos_w`
-# style. Reuses `read_path`/`PathReader` from flat_params.jl.
+# Initial conditions as MTK `Initial(x)` parameters (mirror of flat_params.jl).
 
 """
     InitialEntry
@@ -35,10 +29,11 @@ InitialRegistry(sys_struct::SystemStructure) =
     InitialRegistry(sys_struct, InitialEntry[])
 
 # ==================== BUILD-TIME VIEW ==================== #
-# `initial.points[i].pos_w` reads character-for-character like
-# `sys_struct.points[i].pos_w`, mirroring the `params` view.
 
-"""Top-level `initial` view wrapping an [`InitialRegistry`](@ref)."""
+"""
+Top-level `initial` view wrapping an [`InitialRegistry`](@ref).
+`initial.points[i].pos_w` mirrors `sys_struct.points[i].pos_w`.
+"""
 struct InitialView
     reg::InitialRegistry
 end

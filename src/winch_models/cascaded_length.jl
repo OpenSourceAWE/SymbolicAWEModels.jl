@@ -1,8 +1,7 @@
 # Copyright (c) 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# CascadedLengthWinch: length-controlled drum with a reel-speed cap. `set_value`
-# is interpreted as a target tether length [m]. See common.jl for the interface.
+# CascadedLengthWinch: length-controlled drum with a reel-speed cap.
 
 """
     CascadedLengthWinch(; v_max, position_gain, velocity_gain, friction_epsilon=6.0)

@@ -9,8 +9,12 @@ updates) are at the bottom of this file.  The shared
 `match_aero_sections_to_structure!` works for all VSMWing types.
 """
 
-# Baseline chord-based aero scaling for PARTICLE_DYNAMICS wings.
-# Effective multiplier = 1 + (wing.aero_scale_chord or default below).
+"""
+    const AERO_SCALE_CHORD = 0.0
+
+Baseline chord-based aero scaling for PARTICLE_DYNAMICS wings; effective
+multiplier is `1 + (wing.aero_scale_chord or this default)`.
+"""
 const AERO_SCALE_CHORD = 0.0
 
 """
@@ -493,8 +497,7 @@ Uses direct 1:1 correspondence between structural points and VSM section points:
 function update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Point})
     @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only update wing geometry for PARTICLE_DYNAMICS wings"
 
-    # Get current R_b_to_w and origin from wing state
-    # (These are updated during simulation from structural geometry)
+    # R_b_to_w and origin are updated during simulation from structural geometry.
     R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
     origin = wing.pos_w::KVec3
 
@@ -526,8 +529,7 @@ function update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Poin
 
     refine!(wing.vsm_wing; recompute_mapping=false, sort_sections=false)
     VortexStepMethod.reinit!(wing.vsm_aero)
-    # Do NOT call reinit! on wing - only modify sections!
-    # body_aero reinit! will update panels from modified sections (called in refresh_aero!)
+    # Do NOT reinit! the wing; body_aero reinit! updates panels in refresh_aero!.
     return nothing
 end
 
@@ -580,7 +582,7 @@ function compute_twist_surface_geometry!(wing, twist_surfaces, points)
         iszero(twist_surface.chord) || continue
         center = zeros(3)
         for pt_idx in twist_surface.point_idxs
-            center += wing.R_b_to_c' *
+            center .+= wing.R_b_to_c' *
                 (points[pt_idx].pos_cad - wing.pos_cad)
         end
         center ./= length(twist_surface.point_idxs)

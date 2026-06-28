@@ -1,9 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# 6-DOF elastic joint equation generation. Each joint applies an equal-and-
-# opposite restoring wrench to two rigid bodies' load accumulators, decomposed
-# in body A's frame into axial/shear/torsion/bending with optional damping.
+# 6-DOF elastic joint equation generation.
 
 """
     joint_stiffness_term(joint, params, kind, Δ)
@@ -79,11 +77,7 @@ function joint_eqs!(
         damp_trans = params.elastic_joints[j].damping_trans
         damp_rot = params.elastic_joints[j].damping_rot
 
-        # Restoring wrench on body B, body A frame (then rotate to world). The
-        # per-DOF stiffness force (linear `k·Δ` via a numeric param, or
-        # interpolation `k(Δ)` via a callable param) comes from
-        # `joint_stiffness_term` (kind 1=axial, 2=shear, 3=torsion, 4=bending).
-        # Built element-wise: symbolic-array broadcasting is fragile.
+        # Built element-wise: symbolic-array broadcasting is fragile here.
         force_a = [
             -joint_stiffness_term(joint, params, 1, Δr_a[1]) - damp_trans * Δv_a[1],
             -joint_stiffness_term(joint, params, 2, Δr_a[2]) - damp_trans * Δv_a[2],

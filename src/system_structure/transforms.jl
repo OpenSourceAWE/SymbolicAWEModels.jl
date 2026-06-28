@@ -196,9 +196,7 @@ function apply_azimuth_elevation!(transform, points, bodies, base_pos;
         point.pos_w .= base_pos + apply_heading(vec, R_t_to_w, curr_R_t_to_w, 0.0)
         update_vel && (point.vel_w .= norm(point.pos_w - base_pos) / r_rot * vel_spherical)
     end
-    # Wings are bodies, handled by the bodies loop below.
-    # Bodies carry their own orientation, so rotate both pos_w (about base) and
-    # Q_b_to_w by the same azimuth/elevation rotation R_t_to_w·curr_R_t_to_w'.
+    # Bodies carry orientation: rotate both pos_w (about base) and Q_b_to_w by R_azel.
     R_azel = R_t_to_w * curr_R_t_to_w'
     for body in bodies
         body.transform_idx == transform.idx || continue
@@ -319,8 +317,7 @@ function init_principal_frame!(bodies, points)
                 end
             end
         else
-            # PARTICLE: R_b_to_p is the identity placeholder, so derive R_p_to_w
-            # from the fitted R_b_to_c / R_p_to_c instead of R_b_to_p.
+            # PARTICLE: R_b_to_p is identity, so derive R_p_to_w from R_b_to_c/R_p_to_c.
             R_b_to_w = body.R_b_to_w::Matrix{SimFloat}
             body.com_w .= body.pos_w .+ R_b_to_w * body.com_offset_b
             R_p_to_w = R_b_to_w * body.R_b_to_c' * body.R_p_to_c
@@ -362,9 +359,6 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
         end
 
         # ==================== TRANSLATE ==================== #
-        # T is computed from pos_w of base (via get_base_pos).
-        # After copy_cad_to_world! and apply_tether_init_stretched_lens!,
-        # pos_w reflects any tether scaling already applied.
         base_pos, curr_base_pos = get_base_pos(transform, transforms, bodies, points)
         T = base_pos - curr_base_pos
         for point in points

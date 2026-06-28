@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 # TorqueWinch: torque-controlled drum with Coulomb + viscous friction.
-# `set_value` is interpreted as motor torque [N·m]. See common.jl for the
-# interface.
 
 """
     TorqueWinch(; friction_epsilon=6.0)

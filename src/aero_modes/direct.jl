@@ -1,9 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# AeroDirect: frozen forces from the nonlinear VSM solve, held piecewise-constant
-# between refreshes. Works for both RIGID_DYNAMICS and PARTICLE_DYNAMICS. Shared
-# VSM numerics (rigid_aero_baseline!, the solve helpers) live in common.jl.
+# AeroDirect: frozen piecewise-constant forces from the nonlinear VSM solve.
 
 """
     AeroDirect()

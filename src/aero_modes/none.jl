@@ -1,10 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# AeroNone: zero aerodynamic force. A body with `aero::AeroNone` is a plain body
-# (no aero coupling). As an AbstractAeroModel it inherits the full default
-# interface (vsm_engine, setup_aero!, refresh, log-points, …); only the few
-# methods that differ are overridden here. See common.jl for the interface.
+# AeroNone: zero aerodynamic force; inherits AbstractAeroModel defaults (common.jl).
 
 """
     AeroNone()

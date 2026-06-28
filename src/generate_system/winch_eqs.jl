@@ -1,8 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Thin caller for winch motor dynamics: dispatches to `winch_component` on the
-# winch's `model` (see winch_models/). Mirrors aero_eqs.jl.
+# Thin caller for winch motor dynamics; dispatches to `winch_component`.
 
 """
     winch_eqs!(eqs, defaults, winches, tethers, segments, points,

@@ -1,13 +1,6 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# ContinuousAero: frozen-circulation VSM with live symbolic force assembly
-# (PARTICLE_DYNAMICS). The refresh solves only the circulation and freezes the
-# per-refined-panel induced velocity; the compiled RHS rebuilds the force
-# chain of VSM's `calc_forces!` symbolically per refined panel, so the forces
-# respond to wing motion between refreshes (aerodynamic damping), unlike the
-# piecewise-constant AeroDirect forces.
-
 """
     ContinuousAero()
 

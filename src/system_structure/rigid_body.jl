@@ -1,13 +1,6 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# The Body component: ONE struct for plain rigid bodies AND wings. A body is
-# `aero = AeroNone()` (no aerodynamics) or carries an aero mode (a "wing"); its
-# `type` selects DYNAMIC (6-DOF quaternion), KINEMATIC (pose fitted from points,
-# particle wings) or STATIC (frozen). Shares the 6-DOF generator
-# `rigid_body_eqs!`. The `D<:WingDynamics` type parameter mirrors `type` into the
-# type domain so aero (and dynamics) methods dispatch without runtime branching.
-
 """
     WeightedRefPoints
 
@@ -32,7 +25,8 @@ A 6-DOF body integrated (or fitted) in the principal frame, optionally carrying
 aerodynamics. A plain body has `aero = AeroNone()`; a "wing" carries a real aero
 mode (see [`sys_struct.wings`]). `type` is DYNAMIC (free 6-DOF), KINEMATIC (pose
 fitted from structural points — particle wings) or STATIC (clamped). `D` mirrors
-the rigid/particle distinction into the type domain for aero dispatch.
+the rigid/particle distinction into the type domain for aero dispatch. All bodies
+share the 6-DOF generator `rigid_body_eqs!`.
 
 The rigid-body core (`mass`, `inertia_principal`, frames, 6-DOF state) is set
 directly or derived from the body's points; aero/wing fields are inert when

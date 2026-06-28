@@ -1,8 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Implementation of the ram air wing model using ModelingToolkit.jl
-# This directory contains the symbolic equation generation for the AWE model.
+# Symbolic equation generation for the AWE model (ModelingToolkit.jl).
 
 # Utilities first (no dependencies)
 include("helpers.jl")

@@ -176,8 +176,7 @@ function Base.setproperty!(mode::AbstractVSMAero, sym::Symbol, value)
     return setfield!(mode, sym, value)
 end
 
-# Concrete aero modes (AeroNone/AeroDirect/AeroLinearized/AeroPlate) and their
-# dispatch methods live in src/aero_modes/, one file per mode.
+# Concrete aero modes and their dispatch methods live in src/aero_modes/.
 
 """
     is_builtin_aero(mode::AbstractAeroModel) -> Bool
@@ -288,8 +287,7 @@ mutable struct Point
     fix_static::Bool
 end
 
-# Deprecated: `point.disturb` is the point's external world-frame force; the field
-# is now `ext_force_w`. Read and in-place write (`.disturb .= …`) forward to it.
+# Deprecated `point.disturb` forwards to `ext_force_w` (external world-frame force).
 Base.getproperty(point::Point, sym::Symbol) =
     getfield(point, sym === :disturb ? :ext_force_w : sym)
 
@@ -340,8 +338,7 @@ function Point(name, pos_cad, type;
     elseif !isnothing(body)
         error("Point $name: `body` is only valid with type BODY_STATIC.")
     end
-    # Handle nothing values - wing defaults to 1, transform 0 means no transform.
-    # A body-anchored point has no wing (wing_ref = 0).
+    # transform 0 means no transform; a body-anchored point has no wing (wing_ref 0).
     body_ref = isnothing(body) ? 0 : body
     wing_ref = isnothing(wing) ? (type == BODY_STATIC ? 0 : 1) : wing
     transform_ref = isnothing(transform) ? 0 : transform

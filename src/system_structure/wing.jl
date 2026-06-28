@@ -24,8 +24,6 @@ for attached points and twist_surfaces.
 abstract type AbstractWing end
 
 # ==================== WEIGHTED REF POINTS ==================== #
-# The WeightedRefPoints struct lives in rigid_body.jl (before Body, which uses
-# it); its constructors stay here.
 
 """Single point from a Symbol ref."""
 WeightedRefPoints(ref::Symbol) =
@@ -72,9 +70,6 @@ end
 # ==================== VSM ENGINE ==================== #
 
 # ==================== BODY PROPERTY FORWARDING (VSM) ==================== #
-# `Body` is defined in rigid_body.jl. Its computed/forwarded properties live here
-# alongside the VSM machinery: `R_b_to_w`/`R_p_to_w` from the quaternions, and the
-# VSM engine fields forwarded from the body's aero mode.
 
 function Base.getproperty(body::Body, sym::Symbol)
     if sym === :R_b_to_w
@@ -107,8 +102,12 @@ function Base.setproperty!(body::Body, sym::Symbol, value)
     end
 end
 
-# Return the body's VSM engine (clear error on bodies whose aero mode carries no
-# engine, e.g. AeroNone/AeroPlate).
+"""
+    body_vsm_engine(body::Body, sym::Symbol)
+
+Return the body's VSM engine; errors if the aero mode carries none
+(e.g. AeroNone/AeroPlate).
+"""
 function body_vsm_engine(body::Body, sym::Symbol)
     engine = vsm_engine(getfield(body, :aero))
     engine === nothing && error(
@@ -208,10 +207,7 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
         (WeightedRefPoints(y_ref_points[1]), WeightedRefPoints(y_ref_points[2]))
     origin_rp = isnothing(origin) ? nothing : WeightedRefPoints(origin)
 
-    # A wing is a Body carrying an aero mode. mass, R_b_to_p, R_p_to_c and
-    # com_offset_b are placeholders filled by SystemStructure. DYNAMIC = rigid
-    # 6-DOF; KINEMATIC = pose fitted from points (particle). y_damping folds into
-    # the body-frame damping vector (extra damping about the body y-axis).
+    # mass, R_b_to_p, R_p_to_c, com_offset_b are placeholders filled by SystemStructure.
     body_type = dynamics_type == RIGID_DYNAMICS ? DYNAMIC : KINEMATIC
     damping_vec = KVec3(angular_damping, angular_damping + y_damping, angular_damping)
     return Body{typeof(aero), wing_dynamics(dynamics_type)}(
@@ -384,8 +380,7 @@ function VSMWing(name, set::Settings,
             "RIGID_DYNAMICS wings: no point_to_vsm_point"
     end
 
-    # Resolve the aero mode and, when it is VSM-backed, build and attach the
-    # engine. Engine-less modes (AeroNone/AeroPlate) need no vsm_set.
+    # Engine-less modes (AeroNone/AeroPlate) need no vsm_set.
     isnothing(aero) && (aero = dynamics_type == RIGID_DYNAMICS ?
         AeroLinearized() : AeroDirect())
     if aero isa AbstractVSMAero

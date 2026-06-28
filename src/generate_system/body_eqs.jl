@@ -1,11 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Rigid-body dynamics for plain bodies (no aero). Assembles the body's loads
-# (accumulated joint wrench + gravity + settable external wrench), builds the
-# integration overrides (STATIC freeze / sphere constraint / per-axis damping)
-# inline, and delegates the 6-DOF integration to `rigid_body_eqs!`. Wings (bodies
-# carrying aero) are integrated/fitted by `wing_eqs!`.
+# Body loads assembly + integration overrides; delegates to `rigid_body_eqs!`.
 
 """
     body_eqs!(eqs, defaults, bodies, params, initial; kwargs...)
@@ -25,9 +21,7 @@ function body_eqs!(
     body_R_b_to_w, body_R_p_to_w, body_moment_p, body_Q_p_vel,
 )
     for rigid_body in bodies
-        # KINEMATIC bodies (particle wings) are pose-fitted from their points, not
-        # integrated. Every other body (plain or rigid wing) integrates here, with
-        # all loads — joints, attached points, aero — read from body_force/moment.
+        # KINEMATIC bodies (particle wings) are pose-fitted by wing_eqs!, not here.
         rigid_body.type == KINEMATIC && continue
         idx = rigid_body.idx
         mass = params.bodies[idx].mass
@@ -41,9 +35,7 @@ function body_eqs!(
         moment_w = collect(body_moment[:, idx]) .+
             R_b_to_w * collect(params.bodies[idx].ext_moment_b)
 
-        # Integration overrides (built directly). STATIC freezes every DOF;
-        # fix_sphere confines the COM to a sphere about the origin and removes the
-        # radial spin; `damping` damps ω_p per principal axis.
+        # fix_sphere also drops the radial spin component of ω_p.
         frozen = rigid_body.type == STATIC
         sphere = params.bodies[idx].fix_sphere
         ω = collect(body_ω_p[:, idx])

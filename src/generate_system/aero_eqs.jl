@@ -1,16 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Aero coupling wiring (winch-style).
-#
-# Each wing's aerodynamics is a swappable subsystem built by
-# `aero_component(wing.aero, …)` (see aero_modes/common.jl). This layer
-# instantiates the component, validates its connector contract, drives the
-# body-frame inputs, and reads the outputs back into the wing's aero variables.
-# All built-in models (AeroNone / AeroDirect / AeroLinearized / AeroPlate) and
-# any custom AbstractAeroModel go through the same wiring. Flat-plate aero uses
-# the standard PARTICLE contract: it is the only mode that consumes the per-point
-# `va`/`rho` inputs the wiring drives for every particle wing.
+# Aero coupling wiring (winch-style): each wing's aero is a swappable subsystem.
 
 """
     aero_eqs!(s, eqs; kwargs...)

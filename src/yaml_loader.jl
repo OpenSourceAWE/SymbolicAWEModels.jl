@@ -62,8 +62,7 @@ function resolve_references(row::NamedTuple, property_tables::Dict{String, Dict{
                     # Found! Merge these properties (current row takes precedence)
                     ref_props = lookup_dict[value]
                     for (key, field_value) in pairs(ref_props)
-                        # Skip 'name' — it identifies the referenced
-                        # item, not a property to inherit.
+                        # Skip 'name': it identifies the referenced item, not a property.
                         key === :name && continue
                         if !haskey(resolved, key) || resolved[key] === nothing
                             resolved[key] = field_value
@@ -85,7 +84,6 @@ Calculate derived properties like `unit_stiffness` and `unit_damping` from mater
 Modifies props in-place.
 """
 function calculate_derived_properties!(props::Dict{Symbol, Any})
-    # Calculate unit_stiffness from material properties if missing or if it's a string (material name)
     # Store EA; the spring k is computed later as EA / len in generate_system.jl.
     if haskey(props, :youngs_modulus) && haskey(props, :diameter_mm)
         # Check if we need to calculate (missing, nothing, or is a string reference)
@@ -127,13 +125,10 @@ function parse_table(table)::Vector{NamedTuple}
     rows = table["data"]
     (isnothing(rows) || isempty(rows)) && return NamedTuple[]
 
-    # Check format: if first row is a Dict,
-    # use dict format; if Array, use header format
+    # Dict first row => dict format; Array first row => header format.
     first_row = first(rows)
 
     if first_row isa AbstractDict
-        # Dict format: each row is already a dict with named keys
-        # Convert each dict to a NamedTuple
         out = NamedTuple[]
         for row in rows
             named_row = NamedTuple{Tuple(Symbol.(keys(row)))}(
@@ -322,8 +317,7 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                    vsm_set, yaml_to_ref, yaml_parse_ref_points,
                    yaml_parse_origin, twist_surfaces)
     if wing_type == PARTICLE_DYNAMICS
-        # PARTICLE_DYNAMICS wings need z_ref_points, y_ref_points, origin
-        # Pass raw values - constructor handles defaults
+        # Pass raw values; the constructor handles defaults.
         return call_yaml_constructor(VSMWing, row,
             [:name, :set, :twist_surfaces, :vsm_set],
             [:transform, :y_damping, :angular_damping,
@@ -362,8 +356,7 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                     hasfield(typeof(row), :aero_scale_chord) && !isnothing(row.aero_scale_chord) ?
                         float(row.aero_scale_chord) : 0.0,
                 :pos_cad => row -> begin
-                    # Note: pos_cad will be set from origin point position after resolution
-                    # For now, return nothing - SystemStructure will handle this
+                    # pos_cad is set from the origin point position during resolution.
                     nothing
                 end
             ))
@@ -488,12 +481,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
-    # Convert one YAML ref spec to WeightedRefPoints input form.
-    # Supports:
-    #   :name         → Symbol
-    #   7             → Int
-    #   [a, b]        → equal-weight average
-    #   [[a, w], ...] → explicit weights as (name, weight) tuples
+    # Ref spec to WeightedRefPoints: Symbol, Int, [a,b] (avg), or [[a,w],...] (weights).
     yaml_convert_ref = function (value)
         if value isa Vector && !isempty(value) && value[1] isa Vector
             return map(value) do entry
@@ -512,8 +500,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
-    # Parse [a, b] or [a, [[id, w], ...]] style reference-point
-    # fields from YAML rows (pair of refs for z/y axes).
+    # Parse a pair of reference-point refs (z/y axes) from a YAML row field.
     yaml_parse_ref_points = function (row, field)
         !hasfield(typeof(row), field) && return nothing
         val = getfield(row, field)
@@ -529,7 +516,6 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     end
 
     # Parse a single weighted-ref field (e.g. origin_idx).
-    # Accepts the same shapes as one side of yaml_parse_ref_points.
     yaml_parse_origin = function (row, field)
         !hasfield(typeof(row), field) && return nothing
         val = getfield(row, field)
@@ -543,8 +529,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     if haskey(data, "points")
         point_rows = parse_table(data["points"])
         for (i, row) in enumerate(point_rows)
-            # Create Point using new constructor (name as first positional arg)
-            # Raw references are passed - SystemStructure will resolve them
+            # Raw references are passed; SystemStructure resolves them.
             point = call_yaml_constructor(Point, row,
                 [:name, :pos_cad, :type],
                 [:wing, :transform, :extra_mass,
@@ -829,8 +814,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         wing_rows = parse_table(data["wings"])
 
         for (i, row) in enumerate(wing_rows)
-            # Use provided dynamics_type parameter or parse from YAML
-            # Support old `type` field with deprecation warning
+            # Old `type` field is still parsed, with a deprecation warning.
             resolved_wing_type = if !isnothing(dynamics_type)
                 dynamics_type
             else
@@ -845,8 +829,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 parse_wing_type(raw_type_field)
             end
 
-            # Build kwargs based on wing type - SystemStructure handles resolution
-            # Determine aero_mode: kwarg > YAML > default
+            # Determine aero_mode: kwarg > YAML > default.
             resolved_aero_mode = if !isnothing(aero_mode)
                 aero_mode
             elseif hasfield(typeof(row), :aero_mode) &&
@@ -938,8 +921,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
-    # SystemStructure constructor now handles WING→STATIC
-    # conversion when no wings are defined
+    # The SystemStructure constructor handles WING->STATIC when no wings exist.
     return SystemStructure(system_name, resolved_set; points, twist_surfaces,
         segments, pulleys, tethers, winches, wings,
         transforms, ignore_l0, vsm_set)

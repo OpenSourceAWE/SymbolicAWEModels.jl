@@ -1,11 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Code shared by all winch models: the dispatch interface (generic function +
-# abstract-type trait) and the connector-contract validation. Concrete models
-# live one-per-file alongside this (default.jl). The abstract type
-# `AbstractWinchModel` lives in system_structure/types.jl because the
-# `Winch.model` field references it. Mirrors aero_modes/common.jl.
+# Code shared by all winch models: dispatch interface + connector validation.
 
 """
     winch_component(model::AbstractWinchModel, sys_struct, winch_idx; name, params)

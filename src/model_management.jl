@@ -66,9 +66,7 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             sys.stretched_len => (c, v) -> (c.stretched_len = v[c.idx]; nothing)))
     end
     if length(wings) > 0
-        # The wing rigid-body state (Q_b_to_w, ω_b, pos_w, vel_w, acc_w, com_w,
-        # com_vel, Q_p_to_w, ω_p) is synced by the bodies spec below: each
-        # wing's embedded body is in bodies and forwards to the wing.
+        # Wing rigid-body state is synced via the embedded body in the bodies spec below.
         push!(specs, scatter_spec(ss -> ss.wings,
             sys.va_wing_b        => (c, v) -> copy_vec!(c.va_b, v, c.idx),
             sys.wind_vel_wing    => (c, v) -> copy_vec!(c.v_wind, v, c.idx),
@@ -86,9 +84,7 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             sys.course           => (c, v) -> (c.course = v[c.idx]; nothing),
             sys.angle_of_attack  => (c, v) -> (c.aoa = v[c.idx]; nothing)))
 
-        # aero_input only exists for wings whose component exposes the
-        # connector (e.g. AeroLinearized); detected on the built subsystem,
-        # so a custom mode opts in by exposing it — no trait needed.
+        # aero_input exists only for wings whose component exposes the connector.
         aero_inputs = [
             getproperty(sys, Symbol("aero_$(wing.idx)")).aero_input
             for wing in sys_struct.wings
@@ -178,10 +174,13 @@ function build_inplace_getter(sys, specs)
     return InplaceGetter(iip, buf, groups)
 end
 
-# Julia's serializer does not preserve `SubArray.parent === buf` sharing, so
-# serialize the (heavy) generated function plus a cheap layout and rebuild the
-# aliased buffer + views on load. The selectors/copyfns are stateless closures
-# that serialize directly.
+"""
+    serialize(s, g::InplaceGetter)
+
+Julia's serializer does not preserve `SubArray.parent === buf` sharing, so
+serialize the generated function plus a cheap layout and rebuild the aliased
+buffer and views on load.
+"""
 function Serialization.serialize(s::Serialization.AbstractSerializer,
                                  g::InplaceGetter)
     Serialization.serialize_type(s, typeof(g))
@@ -596,9 +595,7 @@ function reinit!(
         prob.set_set_values(target,
             SimFloat[winch.set_value for winch in sam.sys_struct.winches])
     if fresh
-        # Sync params and initial conditions onto the problem so the single init
-        # solve honors both. A trailing `reinit!(...; reinit_dae)` would re-solve
-        # the DAE init without re-reading `Initial`, discarding the synced state.
+        # A trailing reinit! would re-solve the DAE init and discard this synced state.
         sync_params!(prob.param_sync, prob.prob, sam.sys_struct)
         sync_initial!(prob.initial_sync, prob.prob, sam.sys_struct)
         seed_set_values!(prob.prob)
@@ -717,9 +714,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("rigid_body", rigid_body.idx, Int(rigid_body.type)))
     end
     for joint in elastic_joints
-        # The stiffness type selects the generated law: a `Real` emits a scalar
-        # param (`k·Δ`), an interpolation a callable param (`k(Δ)`). So a float vs
-        # interpolation (or a different interpolation type) is a distinct model.
+        # Stiffness type selects the generated law (scalar `k·Δ` vs callable `k(Δ)`).
         stiff_type(s) = s isa Real ? "float" : string(typeof(s))
         push!(data_parts, ("elastic_joint", joint.idx,
                            joint.body_a_idx, joint.body_b_idx,

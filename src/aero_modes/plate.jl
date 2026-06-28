@@ -1,9 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# AeroPlate: flat-plate CL/CD-lookup aerodynamics (PARTICLE_DYNAMICS only). Each
-# WING point is a 1-point STATIC TwistSurface; per-point forces are built
-# symbolically from the section's twisted axes, apparent wind, and polar lookups.
+# AeroPlate: flat-plate CL/CD-lookup aerodynamics (PARTICLE_DYNAMICS only).
 
 """
     AeroPlate(calc_cl, calc_cd; drag_corr=1.0)

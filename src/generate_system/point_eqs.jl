@@ -80,8 +80,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
             world_frame_damping[:, point.idx] ~ params.points[point.idx].world_frame_damping
         ]
 
-        # Calculate apparent velocity for ALL points (needed for PARTICLE_DYNAMICS wings and generally useful)
-        # Get the wing's R_b_to_w for transforming to body frame
+        # Apparent velocity for ALL points (PARTICLE_DYNAMICS wings need body frame).
         wing_idx_for_transform = if point.type == WING
             point.wing_idx
         elseif length(wings) > 0
@@ -159,12 +158,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
             wing = s.sys_struct.bodies[point.wing_idx]
 
             if wing.dynamics_type == PARTICLE_DYNAMICS
-                # PARTICLE_DYNAMICS wing: Points are DYNAMIC and receive lumped
-                # panel/plate forces. Similar to DYNAMIC points but
-                # with aero forces included.
-
-                # Add aerodynamic forces (calculated in aero_eqs!). An AeroNone
-                # particle wing has no per-point aero array, so its force is zero.
+                # AeroNone particle wings have no per-point aero array, so zero force.
                 aero_force_w = is_wing(wing) ?
                     R_b_to_w[:, :, wing.idx] * aero_force_point_b[:, point.idx] :
                     zeros(Num, 3)
@@ -213,9 +207,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                 ]
 
             elseif wing.dynamics_type == RIGID_DYNAMICS
-                # RIGID_DYNAMICS wing: point is attached to the rigid body (like
-                # BODY_STATIC). It feeds its force into the body's accumulator; no
-                # gravity term here — the body applies -g·mass at its COM.
+                # RIGID_DYNAMICS point feeds force to body accumulator; gravity at COM.
                 eqs = [
                     eqs
                     point_force[:, point.idx] ~
@@ -269,9 +261,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                         pos[:, point.idx] -
                         com_w[:, point.wing_idx]
                 ]
-                # In-group (twist_surface) points can be excluded from the
-                # wing moment via the wing's group_points_moment flag, while
-                # their force always contributes.
+                # group_points_moment may exclude in-group points from the wing moment.
                 point_moment = tether_r[:, point.idx] ×
                     point_force[:, point.idx]
                 if in_group
@@ -279,13 +269,11 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                         params.bodies[point.wing_idx].group_points_moment == true,
                         point_moment, zeros(3))
                 end
-                # Feed the body's load accumulator (the same one joints and
-                # BODY_STATIC points use, read by body_eqs!).
+                # Feed the body load accumulator (read by body_eqs!).
                 body_force[:, point.wing_idx] .+= point_force[:, point.idx]
                 body_moment[:, point.wing_idx] .+= point_moment
 
-                # Rigid body constraint: COM + R_b_to_w * pos_b
-                # (pos_b is offset from COM in body frame)
+                # pos_b is the offset from COM in the body frame.
                 eqs = [
                     eqs
                     pos[:, point.idx] ~

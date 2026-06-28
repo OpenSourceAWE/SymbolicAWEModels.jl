@@ -52,8 +52,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     @variables begin
         # Control inputs
         set_values(t)[eachindex(winches)] = zeros(length(winches))
-        # Wing velocity-frame rotation (wing-specific; the rigid-body state and
-        # body frame come from the shared body_* arrays via aliases below).
+        # Wing velocity-frame rotation (wing-specific)
         R_v_to_w(t)[1:3, 1:3, eachindex(wings)]
         # Aerodynamic forces and moments
         aero_force_b(t)[1:3, eachindex(wings)]
@@ -87,9 +86,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     body_R_b_to_w = collect(body_R_b_to_w)
     body_R_p_to_w = collect(body_R_p_to_w)
 
-    # Wings are bodies, so the wing equation generators read the same body_*
-    # state arrays as the body dynamics; these aliases keep their wing-named
-    # kwargs (`com_w`, `R_b_to_w`, …) pointing at the shared body arrays.
+    # Wings are bodies: alias wing-named arrays onto the shared body_* state.
     wing_pos = body_pos_w; wing_vel = body_vel_w; wing_acc = body_acc_w
     ω_b = body_ω_b; α_b = body_α_b
     com_w = body_com_w; com_vel = body_com_vel; com_acc = body_com_acc
@@ -101,7 +98,6 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     body_moment = zeros(Num, 3, length(bodies))
 
     # ==================== INLINED FORCE_EQS! CONTENT ==================== #
-    # The following variables and component calls were previously in force_eqs!
 
     # Declare twist_surface geometry symbolic variables
     if length(twist_surfaces) > 0
@@ -178,8 +174,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # ==================== CALL COMPONENT FUNCTIONS ==================== #
 
-    # 1. Point equations (generates point dynamics, accumulates WING-point loads
-    #    into body_force/body_moment in-place)
+    # 1. Point equations (also accumulate WING-point loads into body_force/moment).
     eqs, defaults = point_eqs!(
         s, eqs, defaults, points, segments, twist_surfaces, wings, params, initial;
         R_b_to_w, com_w,
@@ -228,8 +223,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # ==================== END INLINED FORCE_EQS! CONTENT ==================== #
 
-    # Build aerodynamic equations: each wing's aero component (including
-    # flat-plate) is wired in winch-style and returned as a subsystem.
+    # Aero: each wing's aero component is wired winch-style as a subsystem.
     eqs, aero_subsystems = aero_eqs!(
         s, eqs, params;
         aero_force_b, aero_moment_b, twist_surface_aero_moment,
@@ -237,8 +231,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         pos, vel, va_point_b, height, aero_force_point_b
     )
 
-    # Wing frame equations: KINEMATIC (particle) wings get their fitted-frame
-    # algebraic state here. Rigid (DYNAMIC) wings are integrated by body_eqs!.
+    # Wing frame: KINEMATIC wings fitted here; DYNAMIC wings via body_eqs!.
     eqs, defaults = wing_eqs!(
         s, eqs, defaults, params, initial;
         ω_b, α_b, R_b_to_w, R_p_to_w,
@@ -248,8 +241,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         fix_wing, pos, vel, acc
     )
 
-    # Each rigid wing's aero wrench (body frame → world, transported to the COM)
-    # accumulates into the body load accumulator, read by body_eqs!.
+    # Rigid wing aero wrench (body→world, transported to COM) into body loads.
     for wing in wings
         wing.dynamics_type == RIGID_DYNAMICS || continue
         widx = wing.idx
@@ -260,8 +252,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
             aero_moment_b[:, widx] .+ (aero_force_b[:, widx] × com_off)))
     end
 
-    # Elastic joints: accumulate restoring wrenches into body_force/body_moment
-    # (must precede body_eqs!, which reads them).
+    # Elastic joints accumulate wrenches into body loads; must precede body_eqs!.
     eqs = joint_eqs!(
         eqs, elastic_joints, params;
         body_force, body_moment,

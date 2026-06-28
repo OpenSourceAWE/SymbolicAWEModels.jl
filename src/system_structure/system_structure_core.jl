@@ -52,13 +52,11 @@ end
 
 function Base.getproperty(sys::SystemStructure, sym::Symbol)
     if sym == :wings
-        # Filtered view of the wing bodies (registered first, so position == idx),
-        # as a NamedCollection so name and integer indexing both work.
+        # Wing bodies are registered first, so position == idx in this view.
         wing_bodies = filter(is_wing, getfield(sys, :bodies))
         return NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies))
     elseif sym == :total_mass
-        # Sum of all point total_mass values (computed during simulation)
-        # Falls back to extra_mass if total_mass is 0
+        # Falls back to extra_mass for points whose total_mass is not yet computed.
         total = 0.0
         for point in getfield(sys, :points)
             if point.total_mass > 0
@@ -78,8 +76,7 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
                 append!(vars, point.vel_w)
             end
         end
-        # bodies (principal frame ODE state). KINEMATIC bodies (particle wings)
-        # are skipped: their principal state is algebraic, not integrated.
+        # KINEMATIC bodies are skipped: principal state is algebraic, not integrated.
         bodies = getfield(sys, :bodies)
         for rigid_body in bodies
             rigid_body.type == KINEMATIC && continue
@@ -386,8 +383,7 @@ function expand_auto_tethers!(
         seg_l0 = rope_len / n
         tether.len = rope_len
 
-        # Generate n-1 intermediate DYNAMIC points
-        # (placed along the straight line at geometric spacing)
+        # Generate n-1 intermediate DYNAMIC points along the straight line.
         direction = end_pos - start_pos
         for i in 1:(n - 1)
             frac = i / n
@@ -442,8 +438,7 @@ function assign_indices_and_resolve!(
     wings::AbstractVector{<:Body},
     transforms::Vector{Transform}
 )
-    # Build name dictionaries FIRST (using idx values after assignment)
-    # First pass: assign indices based on position
+    # First pass: assign indices based on position.
     for (i, point) in enumerate(points)
         point.idx = i
     end
@@ -479,10 +474,7 @@ function assign_indices_and_resolve!(
     wing_names = build_name_dict(wings)
     transform_names = build_name_dict(transforms)
 
-    # Resolve references for all components
-    # Points: resolve wing_ref and transform_ref (body_ref resolved later in the
-    # constructor, alongside elastic-joint body refs, since bodies are not
-    # passed to this function).
+    # Points: resolve wing/transform refs (body_ref resolved later, no bodies here).
     for point in points
         point.wing_idx = resolve_ref(point.wing_ref, wing_names, "wing")
         point.transform_idx = resolve_ref(point.transform_ref, transform_names, "transform")
@@ -531,9 +523,7 @@ function assign_indices_and_resolve!(
             winch.winch_point_ref, point_names, "point")
     end
 
-    # Transforms: resolve wing_ref, rot_point_ref, base_point_ref, base_transform_ref
-    # Use resolve_ref_spec (returns nothing for nothing inputs) since Transform
-    # fields are Union{Int64, Nothing}.
+    # Transforms: resolve refs via resolve_ref_spec (nothing-safe for Union fields).
     for transform in transforms
         transform.wing_idx = resolve_ref_spec(transform.wing_ref, wing_names, "wing")
         transform.rot_point_idx = resolve_ref_spec(transform.rot_point_ref, point_names, "point")
@@ -564,8 +554,7 @@ function assign_indices_and_resolve!(
                 point_names, "point")
         end
 
-        # Resize per-mode aero state now that twist_surface_idxs are resolved
-        # (initial sizing used n_unrefined as proxy which may differ)
+        # Resize per-mode aero state now that twist_surface_idxs are resolved.
         resize_aero_state!(wing.aero, wing)
     end
 
@@ -590,8 +579,7 @@ function init_body_frame_from_ref_points!(
         points, wing.origin; field=:pos_cad)
     wing.pos_cad .= origin_pos
 
-    # Temporarily set pos_w = pos_cad so
-    # calc_particle_dynamics_wing_frame can read positions
+    # Temporarily set pos_w = pos_cad so the frame calc can read positions.
     for point in points
         point.type == WING && point.wing_idx == wing.idx &&
             (point.pos_w .= point.pos_cad)
@@ -723,11 +711,12 @@ function setup_wing_frame!(wing, points; prn=true)
         end
 
         # Body frame from ref points (else body = principal, origin = COM)
-        if !isnothing(wing.origin) &&
-           !isnothing(wing.z_ref_points) &&
-           !isnothing(wing.y_ref_points)
+        origin = wing.origin
+        z_ref = wing.z_ref_points
+        y_ref = wing.y_ref_points
+        if !isnothing(origin) && !isnothing(z_ref) && !isnothing(y_ref)
             origin_cad = get_ref_position_from_points(
-                points, wing.origin; field=:pos_cad)
+                points, origin; field=:pos_cad)
             wing.pos_cad .= origin_cad
             for point in points
                 point.type == WING &&
@@ -735,7 +724,7 @@ function setup_wing_frame!(wing, points; prn=true)
                     (point.pos_w .= point.pos_cad)
             end
             R_b_to_c, _ = calc_particle_dynamics_wing_frame(
-                points, wing.z_ref_points, wing.y_ref_points, wing.origin)
+                points, z_ref, y_ref, origin)
             wing.R_b_to_c .= R_b_to_c
             wing.com_offset_b .= R_b_to_c' * (com_cad - origin_cad)
         else
@@ -816,12 +805,11 @@ function SystemStructure(name, set;
     # Expand Route 2 tethers (auto-generate points/segments)
     expand_auto_tethers!(points, segments, tethers, set)
 
-    # Assign indices and resolve all references
-    # This converts symbolic names to numeric indices
+    # Assign indices and resolve all symbolic references to numeric indices.
     (point_names_dict, twist_surface_names_dict,
      segment_names_dict, pulley_names_dict,
      tether_names_dict, winch_names_dict,
-     wing_names_dict, transform_names_dict) =
+     _, transform_names_dict) =
         assign_indices_and_resolve!(
             points, twist_surfaces, segments, pulleys,
             tethers, winches, wings, transforms)
@@ -917,10 +905,7 @@ function SystemStructure(name, set;
         setup_wing_frame!(wing, points; prn)
     end
 
-    # Per-mode aero construction (dispatched; no-op for modes without one, e.g.
-    # flat-plate). Each VSM wing's pipeline — panel transform to body frame,
-    # auto-twist, section matching, twist-surface/point mappings — runs inside
-    # setup_aero! (see aero_modes/common.jl + vsm_refine.jl).
+    # Per-mode aero construction (dispatched; no-op for modes without an engine).
     for (i, wing) in enumerate(wings)
         @assert wing.idx == i
         setup_aero!(wing.aero, wing, points, twist_surfaces; prn)
@@ -931,12 +916,7 @@ function SystemStructure(name, set;
     end
     set.physical_model = name
 
-    # Register each wing's embedded body as a rigid body, placed FIRST so its
-    # slot index equals wing.idx — the body-state arrays then share wing indices
-    # and consumers keep indexing by wing.idx. Standalone bodies follow.
-    # Wings ARE bodies (Body with aero). Place the wing bodies first (so their
-    # idx stays 1..n_wings — the wing-sized arrays are indexed by idx), then the
-    # plain bodies; index all and resolve every body's transform.
+    # Wings are bodies, placed first so idx stays 1..n_wings (wing arrays index by idx).
     prepend!(bodies, wings)
     for (i, body) in enumerate(bodies)
         body.idx = i
@@ -945,8 +925,7 @@ function SystemStructure(name, set;
     end
     rigid_body_names_dict = build_name_dict(bodies)
 
-    # Body-anchored points: resolve their rigid-body reference now that the
-    # rigid bodies have indices and a name dictionary.
+    # Body-anchored points: resolve their rigid-body reference.
     for point in points
         point.body_idx = resolve_ref(
             point.body_ref, rigid_body_names_dict, "rigid_body")

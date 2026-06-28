@@ -1,9 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Generic rigid body 6-DOF dynamics equation generation. The freeze/sphere/
-# damping integration overrides are built directly by the callers (`body_eqs!`,
-# `wing_eqs!`) and passed in as `ω_kinematic`/`d_ω_p`/`d_com_w`/`d_com_vel`.
+# Generic rigid body 6-DOF dynamics equation generation.
 
 """
     rigid_body_eqs!(eqs, defaults, idx; kwargs...)
@@ -102,8 +100,6 @@ function rigid_body_eqs!(
     ]
 
     # === Body frame output ===
-    # R_b_to_w = R_p_to_w * R_b_to_p (constant R_b_to_p).
-    # When R_b_to_p = I (no ref points): R_b_to_w = R_p_to_w.
     R_p_to_w_mat = collect(R_p_to_w[:, :, idx])
     R_b_to_w_mat = R_p_to_w_mat * R_b_to_p
     r_w = -(R_b_to_w_mat * com_off_b)              # COM→origin, world

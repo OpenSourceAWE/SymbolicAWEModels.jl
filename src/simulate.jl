@@ -101,8 +101,7 @@ function sim!(
         ΔU = permutedims(set_torques) .- set_torques[1, :]
         lin_res = lsim(lin_model, ΔU, t_vec)
 
-        # Reconstruct full output from deviation output:
-        # y = y_op + Δy
+        # Reconstruct full output from deviation: y = y_op + Δy
         ΔY = lin_res.y
         lin_y_full = ΔY .+ y_op
 

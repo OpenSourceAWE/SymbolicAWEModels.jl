@@ -32,13 +32,11 @@ function wing_eqs!(
     function get_ref_position(
         pos, ref_pt::WeightedRefPoints
     )
-        w1 = ref_pt.weights[1]
         id1 = ref_pt.ids[1]
         if length(ref_pt.ids) == 1
             return pos[:, id1]
         end
-        # Use element-wise access to avoid
-        # symbolic slice scalarization issues
+        # Element-wise access avoids symbolic slice scalarization issues.
         result = [
             sum(ref_pt.weights[i] *
                 pos[j, ref_pt.ids[i]]
@@ -49,8 +47,7 @@ function wing_eqs!(
     end
 
     for wing in s.sys_struct.bodies
-        # KINEMATIC (particle) wings: body frame fitted from structural ref points,
-        # all rigid-body state algebraic. DYNAMIC bodies are integrated by body_eqs!.
+        # KINEMATIC wings: body frame fitted from ref points; DYNAMIC via body_eqs!.
         wing.type == KINEMATIC || continue
         z_p1, z_p2 = wing.z_ref_points
         y_p1, y_p2 = wing.y_ref_points

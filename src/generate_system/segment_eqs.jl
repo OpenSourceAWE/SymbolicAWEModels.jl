@@ -52,9 +52,7 @@ function segment_eqs!(s, eqs, points, segments,
     for segment in segments
         p1, p2 = segment.point_idxs[1], segment.point_idxs[2]
 
-        # Check if both endpoints are WING points (structural segments within wings)
-        # For RIGID_DYNAMICS wings: skip both spring and drag forces (rigid body)
-        # For PARTICLE_DYNAMICS wings: skip only drag forces (spring forces needed for deformation)
+        # WING-WING segments: rigid wings skip spring+drag, particle wings skip drag.
         p1_obj = points[p1]
         p2_obj = points[p2]
         is_wing_structural_segment = (p1_obj.type == WING && p2_obj.type == WING)
@@ -102,8 +100,7 @@ function segment_eqs!(s, eqs, points, segments,
             )
 
             if in_tether == 1
-                # Segment l0 = tether_len / n_segments
-                # (same for winched and winchless tethers)
+                # l0 = tether_len / n_segments (winched and winchless alike).
                 n_segs = length(
                     tethers[tether_idx].segment_idxs)
                 eqs = [

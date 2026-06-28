@@ -3,9 +3,7 @@
 
 module SymbolicAWEModels
 
-#======================================================================#
-#                         DEPENDENCIES
-#======================================================================#
+# ===== Dependencies ===== #
 
 # --- Julia Standard Library & General Utilities ---
 using Pkg
@@ -44,18 +42,13 @@ using VortexStepMethod
 using DataInterpolations: CubicSpline, LinearInterpolation
 using ForwardDiff
 
-#======================================================================#
-#                  IMPORTS (for extending functions)
-#======================================================================#
+# ===== Imports (for extending functions) ===== #
 
 import KiteUtils: init!, next_step!, update_sys_state!, SysState
 import ModelingToolkit: t_nounits as t, D_nounits as D
 import ModelingToolkit.SciMLBase: successful_retcode, init
 
-#======================================================================#
-#                          EXPORTS
-#                 (The Public API of this Module)
-#======================================================================#
+# ===== Exports (the public API of this module) ===== #
 
 # --- KiteUtils ---
 export update_from_sysstate!, get_data_path, set_data_path, se
@@ -64,8 +57,7 @@ export SysState, SysLog, Settings, AbstractKiteModel
 export Logger, log!, save_log, load_log
 export load_settings
 
-# --- Types ---
-# Core Model
+# --- Types: Core Model ---
 export SymbolicAWEModel
 # System Structure Components
 export SystemStructure, Point, TwistSurface, Segment, Pulley, Tether, Winch, Wing, Transform
@@ -114,11 +106,8 @@ export plot_aoa
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
-#======================================================================#
-#                       TYPE DEFINITIONS
-#======================================================================#
+# ===== Type Definitions ===== #
 
-# Type definitions
 """
     const SimFloat = Float64
 
@@ -195,20 +184,14 @@ include("model_management.jl")
 include("yaml_loader.jl")
 include("linearize.jl")
 include("generate_system/generate_system.jl")
-# Aero subsystem. `common.jl` holds everything shared by all modes (the dispatch
-# interface, the MTK connector scaffolding, the refresh orchestrator + VSM
-# numerics); each mode then lives in one self-contained file (struct + all its
-# dispatches). Loaded after generate_system so the accessors/MTK the builders use
-# are available.
+# Aero subsystem; loaded after generate_system for the accessors/MTK it uses.
 include("aero_modes/common.jl")
 include("aero_modes/none.jl")
 include("aero_modes/direct.jl")
 include("aero_modes/linearized.jl")
 include("aero_modes/continuous.jl")
 include("aero_modes/plate.jl")
-# Winch motor dynamics. Same one-file-per-model layout as aero_modes: `common.jl`
-# holds the dispatch interface + connector validation, `default.jl` the
-# torque-controlled model. Loaded after generate_system for the MTK/flat-params it uses.
+# Winch models; loaded after generate_system for the MTK/flat-params it uses.
 include("winch_models/common.jl")
 include("winch_models/torque.jl")
 include("winch_models/cascaded_length.jl")

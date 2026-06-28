@@ -1,13 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Code shared by all aero modes: the dispatch interface (generic functions +
-# abstract-type defaults), the MTK connector scaffolding the `aero_component`
-# builders share, and the low-frequency VSM refresh orchestrator + numerics.
-# The concrete aero modes live one-per-file alongside this (none/direct/
-# linearized/plate.jl) and add their own methods. The abstract aero types
-# themselves (AbstractAeroModel, AbstractVSMAero, VSMEngine) live in
-# system_structure/types.jl because the `Wing.aero` field references them.
+# Shared aero-mode code: dispatch interface, connector scaffolding, VSM refresh.
 
 # ==================== interface: capability traits ==================== #
 
@@ -157,24 +151,6 @@ function normalized_point_inertia(wing, points)
 end
 
 # ==================== connector scaffolding ==================== #
-#
-# A wing carries an `aero::AbstractAeroModel`; `aero_component(mode, …)` is
-# dispatched on its type and returns a `System` whose connectors are fixed by
-# the wing's `dynamics_type`:
-#
-#   RIGID_DYNAMICS (num_twist_surfaces = length(wing.twist_surface_idxs)):
-#     inputs:  va[1:3], rho, R_b_w[1:3,1:3], omega[1:3],
-#              twist[1:num_twist_surfaces], twist_vel[1:num_twist_surfaces]
-#     outputs: force[1:3], moment[1:3], twist_moment[1:num_twist_surfaces]
-#
-#   PARTICLE_DYNAMICS (num_points = number of WING points):
-#     inputs:  point_pos[1:3,1:np], point_vel[1:3,1:np], va[1:3,1:np], rho[1:np]
-#     outputs: point_force[1:3,1:np]
-#
-# Everything is in the wing body frame. The wiring layer (aero_eqs!) drives the
-# inputs and reads the outputs. Connectors are declared as array variables and
-# passed to `System` unflattened, so input connectors a mode ignores still exist
-# for the wiring layer to bind.
 
 function rigid_aero_connectors(num_twist_surfaces::Int)
     @variables begin
@@ -230,11 +206,18 @@ end
 
 Build the aero subsystem for `wing`, selected by dispatch on both the wing's
 `aero` model and its dynamics type ([`RigidWing`](@ref)/[`ParticleWing`](@ref)).
-Returns a `System` exposing the connectors fixed by the dynamics type (see
-above). A mode supports a dynamics type by defining the matching method; a mode
-may support rigid, particle, or both. Add a method on a custom
-`AbstractAeroModel` subtype (dispatched on the wing dynamics) to plug in your
-own aerodynamics.
+Returns a `System` exposing the connectors fixed by the dynamics type, all in
+the wing body frame (the wiring layer `aero_eqs!` drives inputs and reads
+outputs; connectors a mode ignores still exist for binding):
+- `RIGID_DYNAMICS` (`num = length(wing.twist_surface_idxs)`): in `va[1:3]`,
+  `rho`, `R_b_w[1:3,1:3]`, `omega[1:3]`, `twist[1:num]`, `twist_vel[1:num]`;
+  out `force[1:3]`, `moment[1:3]`, `twist_moment[1:num]`.
+- `PARTICLE_DYNAMICS` (`np = number of WING points`): in `point_pos[1:3,1:np]`,
+  `point_vel[1:3,1:np]`, `va[1:3,1:np]`, `rho[1:np]`; out `point_force[1:3,1:np]`.
+
+A mode supports a dynamics type by defining the matching method (rigid,
+particle, or both). Add a method on a custom `AbstractAeroModel` subtype to
+plug in your own aerodynamics.
 """
 function aero_component end
 
@@ -262,12 +245,6 @@ function validate_aero_component(subsys, wing)
 end
 
 # ==================== refresh orchestrator ==================== #
-#
-# The low-frequency VSM-update path (every `vsm_interval` steps). `refresh_aero!`
-# orchestrates; per-mode work is dispatched on the wing's aero mode via
-# `refresh_rigid_aero!` / `refresh_particle_aero!` (in the per-mode files). This
-# is NOT the compiled RHS, so dynamic dispatch on the abstract `wing.aero` field
-# is free.
 
 """
     sync_aero_density!(wing, am)
@@ -560,10 +537,6 @@ function init_aero_state!(mode::AbstractVSMAero, wing, va_b_init)
 end
 
 # ==================== logging / visualization hooks ==================== #
-#
-# A mode can contribute extra `SysState` log slots (after the structural
-# points, before the per-wing position slots) for visualization — VSM modes
-# log 4 corners per panel; a custom mode adds methods for its own geometry.
 
 """
     n_aero_log_points(mode, wing) -> Int
@@ -822,8 +795,7 @@ function vsm_aero_coeffs(wing, y::AbstractVector{T},
     cm_body = sol.moment_coeffs
     moment_coeff_unrefined = sol.moment_coeff_unrefined_dist
 
-    # Wind-axis basis (matches VSM): drag along va,
-    # lift = normalize(drag × span), side = lift × drag.
+    # Wind-axis basis (VSM): drag∥va, lift=norm(drag×span), side=lift×drag.
     span = SVector(zero(T), one(T), zero(T))
     drag_dir = va_b_local ./ va_mag
     lift_dir = smooth_normalize(cross(drag_dir, span))
