@@ -70,6 +70,8 @@ Winch
 Winch(name, set::Settings, tethers; winch_point, init_vel, brake)
 Winch(name, tethers, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; winch_point, init_vel, brake)
 AbstractWing
+RigidWing
+ParticleWing
 Wing
 VSMEngine
 VSMWing

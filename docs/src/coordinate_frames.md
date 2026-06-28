@@ -126,7 +126,7 @@ At runtime, the quaternion state ``Q_{b \to w}`` gives
 ``\mathbf{p}_w = \mathbf{wing.pos}_w +
     R_{b \to w} \, \mathbf{p}_b``
 
-See `calc_inertia_y_rotation` and the RIGID_DYNAMICS setup block in
+See `principal_frame` and the RIGID_DYNAMICS setup block in
 `system_structure_core.jl`.
 
 ## Body Frame — PARTICLE_DYNAMICS
