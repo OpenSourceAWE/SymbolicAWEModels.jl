@@ -18,7 +18,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using SymbolicAWEModels: KVec3, Point
 using KiteUtils
 using LinearAlgebra
 
