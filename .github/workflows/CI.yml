@@ -15,6 +15,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Clone registries/packages directly from their git sources instead of the
+# Julia package server, which intermittently 404s on stale registry trees.
+env:
+  JULIA_PKG_SERVER: ""
+
 jobs:
   reuse-lint:
     runs-on: ubuntu-latest
