@@ -43,6 +43,7 @@ mutable struct SystemStructure{J<:ElasticJoint}
     "All bodies (plain bodies + wings). `sys.wings` is a filtered view of those with aero."
     const bodies::NamedCollection{Body}
     const elastic_joints::NamedCollection{J}
+    const timoshenko_joints::NamedCollection{TimoshenkoJoint}
 
     const am::AtmosphericModel
     stabilize::Bool
@@ -779,6 +780,7 @@ function SystemStructure(name, set;
         transforms=Transform[],
         bodies=Body[],
         elastic_joints=ElasticJoint[],
+        timoshenko_joints=TimoshenkoJoint[],
         ignore_l0::Bool=false,
         vsm_set=nothing,
         prn::Bool=true,
@@ -941,6 +943,16 @@ function SystemStructure(name, set;
     end
     elastic_joint_names_dict = build_name_dict(elastic_joints)
 
+    # Timoshenko joints: assign indices, resolve their body references.
+    for (i, joint) in enumerate(timoshenko_joints)
+        joint.idx = i
+        joint.body_a_idx = resolve_ref(
+            joint.body_a_ref, rigid_body_names_dict, "rigid_body")
+        joint.body_b_idx = resolve_ref(
+            joint.body_b_ref, rigid_body_names_dict, "rigid_body")
+    end
+    timoshenko_joint_names_dict = build_name_dict(timoshenko_joints)
+
     # Name dictionaries were already built by assign_indices_and_resolve!
     sys_struct = SystemStructure(name, set,
         NamedCollection{Point}(points, point_names_dict),
@@ -952,6 +964,7 @@ function SystemStructure(name, set;
         NamedCollection{Transform}(transforms, transform_names_dict),
         NamedCollection{Body}(bodies, rigid_body_names_dict),
         NamedCollection{eltype(elastic_joints)}(elastic_joints, elastic_joint_names_dict),
+        NamedCollection{TimoshenkoJoint}(timoshenko_joints, timoshenko_joint_names_dict),
         AtmosphericModel(set), false, false, vsm_set)
     reinit!(sys_struct, set; prn)
 

@@ -27,7 +27,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     defaults = Pair{Num, Any}[]
 
     (; points, twist_surfaces, segments, pulleys, tethers, winches, wings,
-       bodies, elastic_joints) = system
+       bodies, elastic_joints, timoshenko_joints) = system
 
     validate_twist_surface_modes(twist_surfaces, bodies)
 
@@ -255,6 +255,13 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     # Elastic joints accumulate wrenches into body loads; must precede body_eqs!.
     eqs = joint_eqs!(
         eqs, elastic_joints, params;
+        body_force, body_moment,
+        body_com_w, body_pos_w, body_com_vel, body_ω_b, body_R_b_to_w,
+    )
+
+    # Timoshenko joints: distributed-stiffness wrenches into the same accumulators.
+    eqs = timoshenko_joint_eqs!(
+        eqs, timoshenko_joints, params;
         body_force, body_moment,
         body_com_w, body_pos_w, body_com_vel, body_ω_b, body_R_b_to_w,
     )

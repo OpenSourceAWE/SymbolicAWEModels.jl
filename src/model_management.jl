@@ -668,7 +668,7 @@ Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
     (; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms,
-       bodies, elastic_joints) = sys_struct
+       bodies, elastic_joints, timoshenko_joints) = sys_struct
     data_parts = []
     for point in points
         push!(data_parts, ("point", point.idx, point.wing_idx, point.body_idx, Int(point.type)))
@@ -722,6 +722,10 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
                            stiff_type(joint.stiffness_shear),
                            stiff_type(joint.stiffness_torsion),
                            stiff_type(joint.stiffness_bending)))
+    end
+    for joint in timoshenko_joints
+        push!(data_parts, ("timoshenko_joint", joint.idx,
+                           joint.body_a_idx, joint.body_b_idx))
     end
     content = string(data_parts)
     return sha1(content)

@@ -355,3 +355,145 @@ function ElasticJoint(name, body_a, body_b;
         KVec3(anchor_a), KVec3(anchor_b), stiffs...,
         SimFloat(damping_trans), SimFloat(damping_rot))
 end
+
+"""
+    TimoshenkoJoint
+
+A consistent-stiffness Timoshenko connection between two `Body`s — the
+distributed-compliance counterpart of the lumped [`ElasticJoint`](@ref). Like
+that joint it connects two bodies and applies a restoring wrench; a chain of
+bodies joined by `TimoshenkoJoint`s forms a beam. The "element" of the underlying
+2-node beam finite element is exactly this body-A–to–body-B connection.
+
+Unlike the hinge, the stiffness couples each node's transverse displacement to its
+rotation, so transverse shear (cross-sections rotating while the centerline stays
+straight) is represented — the defining Timoshenko ingredient. Fewer segments
+match a given beam fidelity than a hinge chain.
+
+The element wraps the linear stiffness corotationally: an element frame follows
+the chord and node A's orientation, small deformations are measured relative to
+it, and the restoring wrench is accumulated equal-and-opposite into both bodies'
+load accumulators (the same `body_force`/`body_moment` that [`ElasticJoint`](@ref)
+and `body_eqs!` use). Damping resists the relative node velocity/spin.
+
+Stiffnesses are linear `Real`s (Phase 1): `EA` axial, `GA` shear rigidity with
+`shear_coeff` correction factor `k` (`Φ = 12·EI/(k·GA·L²)`), `GJ` torsion, and
+`EIy`/`EIz` bending about the two transverse axes. `rest_length` (0 ⇒ taken from
+the initial geometry) and the per-node rest orientations `R_a_rel0`/`R_b_rel0`
+(set at `reinit!`) define the unstrained configuration.
+
+$(TYPEDFIELDS)
+"""
+mutable struct TimoshenkoJoint
+    "Index in the timoshenko_joints vector (assigned by SystemStructure)."
+    idx::Int64
+    "Name used for lookup."
+    const name::Union{Int, Symbol, Nothing}
+
+    "Resolved index of body A (filled by SystemStructure)."
+    body_a_idx::Int64
+    "Resolved index of body B (filled by SystemStructure)."
+    body_b_idx::Int64
+    "Raw reference (name or index) of body A."
+    const body_a_ref::NameRef
+    "Raw reference (name or index) of body B."
+    const body_b_ref::NameRef
+
+    "Node offset from body A origin, body A frame [m]."
+    const anchor_a_b::KVec3
+    "Node offset from body B origin, body B frame [m]."
+    const anchor_b_b::KVec3
+
+    "Axial rigidity EA [N]."
+    EA::SimFloat
+    "Shear rigidity GA [N] (before the `shear_coeff` correction)."
+    GA::SimFloat
+    "Torsional rigidity GJ [N·m²]."
+    GJ::SimFloat
+    "Bending rigidity about the body y-axis EIy [N·m²]."
+    EIy::SimFloat
+    "Bending rigidity about the body z-axis EIz [N·m²]."
+    EIz::SimFloat
+    "Shear correction factor k (e.g. 5/6 solid, 8/9 inflated tube)."
+    shear_coeff::SimFloat
+    "Translational damping [N·s/m] on relative node velocity."
+    damping_trans::SimFloat
+    "Rotational damping [N·m·s/rad] on relative node spin."
+    damping_rot::SimFloat
+    "Rest (unstrained) chord length [m]; 0 ⇒ taken from initial geometry."
+    rest_length::SimFloat
+    "Rest orientation of node A in the element frame (set at reinit!)."
+    const R_a_rel0::Matrix{SimFloat}
+    "Rest orientation of node B in the element frame (set at reinit!)."
+    const R_b_rel0::Matrix{SimFloat}
+end
+
+"""
+    TimoshenkoJoint(name, body_a, body_b; anchor_a=zeros, anchor_b=zeros,
+                   EA, GA, GJ, EIy, EIz, shear_coeff=5/6,
+                   damping_trans=0, damping_rot=0, rest_length=0)
+
+Connect `body_a` to `body_b` (names or indices) with a Timoshenko beam element.
+`anchor_a`/`anchor_b` are the node points in each body's frame. `rest_length=0`
+takes the unstrained length from the initial geometry.
+"""
+function TimoshenkoJoint(name, body_a, body_b;
+        anchor_a = zeros(SimFloat, 3),
+        anchor_b = zeros(SimFloat, 3),
+        EA, GA, GJ, EIy, EIz,
+        shear_coeff::Real = 5 / 6,
+        damping_trans::Real = 0.0,
+        damping_rot::Real = 0.0,
+        rest_length::Real = 0.0,
+    )
+    body_a_ref = body_a isa Integer ? Int(body_a) : Symbol(body_a)
+    body_b_ref = body_b isa Integer ? Int(body_b) : Symbol(body_b)
+    return TimoshenkoJoint(0, name, 0, 0, body_a_ref, body_b_ref,
+        KVec3(anchor_a), KVec3(anchor_b),
+        SimFloat(EA), SimFloat(GA), SimFloat(GJ), SimFloat(EIy), SimFloat(EIz),
+        SimFloat(shear_coeff), SimFloat(damping_trans), SimFloat(damping_rot),
+        SimFloat(rest_length),
+        Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3))
+end
+
+"""
+    timoshenko_element_frame(x_a, x_b, R_a) -> (e1, e2, e3, len)
+
+Orthonormal corotational element frame: `e1` along the chord from node A to node
+B, `e2`/`e3` from node A's y-axis projected transverse to the chord. `len` is the
+current chord length. Generic over numeric and symbolic inputs.
+"""
+function timoshenko_element_frame(x_a, x_b, R_a)
+    d = x_b .- x_a
+    len = sqrt(sum(abs2, d))
+    e1 = d ./ len
+    y_a = R_a[:, 2]
+    e2_raw = y_a .- sum(y_a .* e1) .* e1
+    e2 = e2_raw ./ sqrt(sum(abs2, e2_raw))
+    e3 = e1 × e2
+    return e1, e2, e3, len
+end
+
+"""
+    init_timoshenko_joints!(joints, bodies)
+
+Set each joint's rest length (if 0) and per-node rest orientations from the current
+(placed) body poses, so deformation is measured against the unstrained geometry.
+"""
+function init_timoshenko_joints!(joints, bodies)
+    for joint in joints
+        body_a = bodies[joint.body_a_idx]
+        body_b = bodies[joint.body_b_idx]
+        R_a = quaternion_to_rotation_matrix(body_a.Q_b_to_w)
+        R_b = quaternion_to_rotation_matrix(body_b.Q_b_to_w)
+        x_a = body_a.pos_w .+ R_a * joint.anchor_a_b
+        x_b = body_b.pos_w .+ R_b * joint.anchor_b_b
+        e1, e2, e3, len = timoshenko_element_frame(x_a, x_b, R_a)
+        element_frame = [e1[1] e2[1] e3[1];
+                         e1[2] e2[2] e3[2];
+                         e1[3] e2[3] e3[3]]
+        joint.rest_length ≈ 0 && (joint.rest_length = len)
+        joint.R_a_rel0 .= element_frame' * R_a
+        joint.R_b_rel0 .= element_frame' * R_b
+    end
+end

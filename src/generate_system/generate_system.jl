@@ -21,6 +21,7 @@ include("rigid_body_eqs.jl")
 include("wing_eqs.jl")
 include("body_eqs.jl")
 include("joint_eqs.jl")
+include("timoshenko_joint_eqs.jl")
 include("aero_eqs.jl")
 include("scalar_eqs.jl")
 

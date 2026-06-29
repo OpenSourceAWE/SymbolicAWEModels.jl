@@ -747,6 +747,9 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         end
     end
 
+    # Timoshenko joint rest geometry, from the final placed body poses.
+    init_timoshenko_joints!(sys_struct.timoshenko_joints, sys_struct.bodies)
+
     return nothing
 end
 
