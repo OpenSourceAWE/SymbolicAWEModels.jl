@@ -495,45 +495,48 @@ function timoshenko_element_frame(x_a, x_b, R_a)
 end
 
 """
-    init_elastic_joints!(joints, bodies)
+    joint_endpoint_frames(joint, bodies) -> (R_a, R_b, anchor_a_w, anchor_b_w)
 
-Capture each joint's rest anchor offset and rest relative rotation from the current
-(placed) body poses, so the as-placed (CAD) geometry is the unstrained reference and
-the joint wrench is exactly zero at initialization.
+World rotations of the two connected bodies and the world positions of the joint's
+two anchors, from the current (placed) poses. Shared by every `init_joint_rest!`.
 """
-function init_elastic_joints!(joints, bodies)
-    for joint in joints
-        body_a = bodies[joint.body_a_idx]
-        body_b = bodies[joint.body_b_idx]
-        R_a = quaternion_to_rotation_matrix(body_a.Q_b_to_w)
-        R_b = quaternion_to_rotation_matrix(body_b.Q_b_to_w)
-        anchor_a_w = body_a.pos_w .+ R_a * joint.anchor_a_b
-        anchor_b_w = body_b.pos_w .+ R_b * joint.anchor_b_b
-        joint.rest_offset_a .= R_a' * (anchor_b_w .- anchor_a_w)
-        joint.R_rel0 .= R_a' * R_b
-    end
+function joint_endpoint_frames(joint, bodies)
+    body_a = bodies[joint.body_a_idx]
+    body_b = bodies[joint.body_b_idx]
+    R_a = quaternion_to_rotation_matrix(body_a.Q_b_to_w)
+    R_b = quaternion_to_rotation_matrix(body_b.Q_b_to_w)
+    anchor_a_w = body_a.pos_w .+ R_a * joint.anchor_a_b
+    anchor_b_w = body_b.pos_w .+ R_b * joint.anchor_b_b
+    return R_a, R_b, anchor_a_w, anchor_b_w
 end
 
 """
-    init_timoshenko_joints!(joints, bodies)
+    init_joint_rest!(joint, bodies)
 
-Set each joint's rest length (if 0) and per-node rest orientations from the current
-(placed) body poses, so deformation is measured against the unstrained geometry.
+Capture `joint`'s rest reference from the current (placed) body poses, so the
+as-placed (CAD) geometry is unstrained and the joint wrench is exactly zero at
+initialization. One method per joint type; a new joint type adds a method.
+
+- [`ElasticJoint`](@ref): rest anchor offset (body-A frame) and rest relative
+  rotation `R_a' R_b`.
+- [`TimoshenkoJoint`](@ref): rest length (if unset) and per-node orientations
+  relative to the corotational element frame.
 """
-function init_timoshenko_joints!(joints, bodies)
-    for joint in joints
-        body_a = bodies[joint.body_a_idx]
-        body_b = bodies[joint.body_b_idx]
-        R_a = quaternion_to_rotation_matrix(body_a.Q_b_to_w)
-        R_b = quaternion_to_rotation_matrix(body_b.Q_b_to_w)
-        x_a = body_a.pos_w .+ R_a * joint.anchor_a_b
-        x_b = body_b.pos_w .+ R_b * joint.anchor_b_b
-        e1, e2, e3, len = timoshenko_element_frame(x_a, x_b, R_a)
-        element_frame = [e1[1] e2[1] e3[1];
-                         e1[2] e2[2] e3[2];
-                         e1[3] e2[3] e3[3]]
-        joint.rest_length ≈ 0 && (joint.rest_length = len)
-        joint.R_a_rel0 .= element_frame' * R_a
-        joint.R_b_rel0 .= element_frame' * R_b
-    end
+function init_joint_rest!(joint::ElasticJoint, bodies)
+    R_a, R_b, anchor_a_w, anchor_b_w = joint_endpoint_frames(joint, bodies)
+    joint.rest_offset_a .= R_a' * (anchor_b_w .- anchor_a_w)
+    joint.R_rel0 .= R_a' * R_b
+    return nothing
+end
+
+function init_joint_rest!(joint::TimoshenkoJoint, bodies)
+    R_a, R_b, x_a, x_b = joint_endpoint_frames(joint, bodies)
+    e1, e2, e3, len = timoshenko_element_frame(x_a, x_b, R_a)
+    element_frame = [e1[1] e2[1] e3[1];
+                     e1[2] e2[2] e3[2];
+                     e1[3] e2[3] e3[3]]
+    joint.rest_length ≈ 0 && (joint.rest_length = len)
+    joint.R_a_rel0 .= element_frame' * R_a
+    joint.R_b_rel0 .= element_frame' * R_b
+    return nothing
 end

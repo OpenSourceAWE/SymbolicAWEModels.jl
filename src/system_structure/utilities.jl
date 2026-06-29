@@ -754,8 +754,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     end
 
     # Joint rest geometry, from the final placed body poses (as-placed = unstrained).
-    init_elastic_joints!(sys_struct.elastic_joints, sys_struct.bodies)
-    init_timoshenko_joints!(sys_struct.timoshenko_joints, sys_struct.bodies)
+    init_joint_rest!.(sys_struct.elastic_joints, Ref(sys_struct.bodies))
+    init_joint_rest!.(sys_struct.timoshenko_joints, Ref(sys_struct.bodies))
 
     return nothing
 end
