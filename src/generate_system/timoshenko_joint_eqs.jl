@@ -9,12 +9,26 @@
 # these forms a beam.
 
 """
+    timoshenko_rigidity(joint, params, field, arg)
+
+Effective rigidity for one [`TimoshenkoJoint`](@ref) mode, read as a flat
+parameter: a `Real` rigidity is a numeric scalar param used directly; a callable
+is a callable param evaluated at the mode's strain/curvature `arg`. `field` is one
+of `:EA`, `:GA`, `:GJ`, `:EIy`, `:EIz`.
+"""
+function timoshenko_rigidity(joint, params, field::Symbol, arg)
+    rigidity = getproperty(params.timoshenko_joints[joint.idx], field)
+    return getfield(joint, field) isa Real ? rigidity : rigidity(arg)
+end
+
+"""
     timoshenko_joint_eqs!(eqs, timoshenko_joints, params; kwargs...)
 
 For each [`TimoshenkoJoint`](@ref), build a corotational element frame, extract the
 small per-node deformations (axial stretch, chord-relative rotations) relative to
 the rest geometry, evaluate the consistent Timoshenko stiffness (axial, torsion,
-and two bending planes with the shear reduction `Φ = 12·EI/(k·GA·L²)`), and
+and two bending planes with the shear reduction `Φ = 12·EI/(k·GA·L²)`) — each
+rigidity either constant or a callable of its strain/curvature ([`timoshenko_rigidity`](@ref)) — and
 accumulate the restoring wrench — equal and opposite, transported to each COM —
 into `body_force`/`body_moment` (the same accumulators `body_eqs!` reads).
 Damping resists the relative node velocity and spin.
@@ -68,21 +82,32 @@ function timoshenko_joint_eqs!(
                0.5 * (Db[2, 1] - Db[1, 2])]
         δ = len - L0
 
-        EA = params.timoshenko_joints[j].EA
-        GA = params.timoshenko_joints[j].GA
-        GJ = params.timoshenko_joints[j].GJ
-        EIy = params.timoshenko_joints[j].EIy
-        EIz = params.timoshenko_joints[j].EIz
         kshear = params.timoshenko_joints[j].shear_coeff
 
-        Φy = 12 * EIy / (kshear * GA * L0^2)
-        Φz = 12 * EIz / (kshear * GA * L0^2)
-        by = EIy / (L0 * (1 + Φy))
-        bz = EIz / (L0 * (1 + Φz))
-        shy = 6 * EIy / (L0^2 * (1 + Φy))
-        shz = 6 * EIz / (L0^2 * (1 + Φz))
-        Mt = GJ / L0
-        f_axial = EA * δ / L0
+        # Per-mode strain/curvature: axial, twist rate, bending curvatures, and the
+        # two transverse shear angles. Nonlinear rigidities are evaluated at these.
+        ε = δ / L0
+        κt = (θ_b[1] - θ_a[1]) / L0
+        κy = (θ_b[2] - θ_a[2]) / L0
+        κz = (θ_b[3] - θ_a[3]) / L0
+        γy = 0.5 * (θ_a[2] + θ_b[2])
+        γz = 0.5 * (θ_a[3] + θ_b[3])
+
+        EA_eff = timoshenko_rigidity(joint, params, :EA, ε)
+        GJ_eff = timoshenko_rigidity(joint, params, :GJ, κt)
+        EIy_eff = timoshenko_rigidity(joint, params, :EIy, κy)
+        EIz_eff = timoshenko_rigidity(joint, params, :EIz, κz)
+        GAy_eff = timoshenko_rigidity(joint, params, :GA, γy)
+        GAz_eff = timoshenko_rigidity(joint, params, :GA, γz)
+
+        Φy = 12 * EIy_eff / (kshear * GAy_eff * L0^2)
+        Φz = 12 * EIz_eff / (kshear * GAz_eff * L0^2)
+        by = EIy_eff / (L0 * (1 + Φy))
+        bz = EIz_eff / (L0 * (1 + Φz))
+        shy = 6 * EIy_eff / (L0^2 * (1 + Φy))
+        shz = 6 * EIz_eff / (L0^2 * (1 + Φz))
+        Mt = GJ_eff / L0
+        f_axial = EA_eff * δ / L0
 
         # Restoring nodal forces/moments in the element frame. The `shy/shz` terms
         # are the transverse shear coupling absent from a lumped joint.

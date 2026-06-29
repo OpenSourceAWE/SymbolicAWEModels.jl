@@ -376,15 +376,21 @@ it, and the restoring wrench is accumulated equal-and-opposite into both bodies'
 load accumulators (the same `body_force`/`body_moment` that [`ElasticJoint`](@ref)
 and `body_eqs!` use). Damping resists the relative node velocity/spin.
 
-Stiffnesses are linear `Real`s (Phase 1): `EA` axial, `GA` shear rigidity with
-`shear_coeff` correction factor `k` (`Φ = 12·EI/(k·GA·L²)`), `GJ` torsion, and
-`EIy`/`EIz` bending about the two transverse axes. `rest_length` (0 ⇒ taken from
-the initial geometry) and the per-node rest orientations `R_a_rel0`/`R_b_rel0`
-(set at `reinit!`) define the unstrained configuration.
+Each rigidity (`EA` axial, `GA` shear with `shear_coeff` correction factor `k`,
+`Φ = 12·EI/(k·GA·L²)`, `GJ` torsion, `EIy`/`EIz` bending about the two transverse
+axes) is either a `Real` (linear) or a callable of that mode's strain/curvature
+returning the *effective rigidity* at the current deformation — the
+distributed-beam analogue of [`ElasticJoint`](@ref)'s nonlinear stiffness. Unlike
+the hinge, whose callable returns a force, here it returns a rigidity, because the
+consistent element couples bending to shear and no single force suffices; a
+curvature-softening `EIy(κ)` is how inflated-tube wrinkling enters (Breukels). All
+callables must share one type. `rest_length` (0 ⇒ taken from the initial geometry)
+and the per-node rest orientations `R_a_rel0`/`R_b_rel0` (set at `reinit!`) define
+the unstrained configuration.
 
 $(TYPEDFIELDS)
 """
-mutable struct TimoshenkoJoint
+mutable struct TimoshenkoJoint{S}
     "Index in the timoshenko_joints vector (assigned by SystemStructure)."
     idx::Int64
     "Name used for lookup."
@@ -404,16 +410,16 @@ mutable struct TimoshenkoJoint
     "Node offset from body B origin, body B frame [m]."
     const anchor_b_b::KVec3
 
-    "Axial rigidity EA [N]."
-    EA::SimFloat
-    "Shear rigidity GA [N] (before the `shear_coeff` correction)."
-    GA::SimFloat
-    "Torsional rigidity GJ [N·m²]."
-    GJ::SimFloat
-    "Bending rigidity about the body y-axis EIy [N·m²]."
-    EIy::SimFloat
-    "Bending rigidity about the body z-axis EIz [N·m²]."
-    EIz::SimFloat
+    "Axial rigidity: `Real` EA [N], or callable EA(ε) of axial strain ε=δ/L₀."
+    EA::S
+    "Shear rigidity (before `shear_coeff`): `Real` GA [N], or callable GA(γ) of shear angle."
+    GA::S
+    "Torsional rigidity: `Real` GJ [N·m²], or callable GJ(κ) of twist rate κ=Δθ/L₀."
+    GJ::S
+    "Bending rigidity about y: `Real` EIy [N·m²], or callable EIy(κ) of curvature κ=Δθ/L₀."
+    EIy::S
+    "Bending rigidity about z: `Real` EIz [N·m²], or callable EIz(κ) of curvature κ=Δθ/L₀."
+    EIz::S
     "Shear correction factor k (e.g. 5/6 solid, 8/9 inflated tube)."
     shear_coeff::SimFloat
     "Translational damping [N·s/m] on relative node velocity."
@@ -434,8 +440,10 @@ end
                    damping_trans=0, damping_rot=0, rest_length=0)
 
 Connect `body_a` to `body_b` (names or indices) with a Timoshenko beam element.
-`anchor_a`/`anchor_b` are the node points in each body's frame. `rest_length=0`
-takes the unstrained length from the initial geometry.
+`anchor_a`/`anchor_b` are the node points in each body's frame. Each rigidity is a
+`Real` (linear) or a callable of its strain/curvature returning the effective
+rigidity (nonlinear); callables must all be the same type. `rest_length=0` takes
+the unstrained length from the initial geometry.
 """
 function TimoshenkoJoint(name, body_a, body_b;
         anchor_a = zeros(SimFloat, 3),
@@ -446,11 +454,18 @@ function TimoshenkoJoint(name, body_a, body_b;
         damping_rot::Real = 0.0,
         rest_length::Real = 0.0,
     )
+    # Reals → SimFloat; callables kept as-is. All callables must share a type.
+    conv(s) = s isa Real ? SimFloat(s) : s
+    rigidities = map(conv, (EA, GA, GJ, EIy, EIz))
+    callable_types = unique(typeof(s) for s in rigidities if !(s isa Real))
+    length(callable_types) > 1 && error(
+        "TimoshenkoJoint: all callable rigidities must be the same type, " *
+        "got $(callable_types). Mix only `Real`s and a single callable type.")
+    S = Union{map(typeof, rigidities)...}
     body_a_ref = body_a isa Integer ? Int(body_a) : Symbol(body_a)
     body_b_ref = body_b isa Integer ? Int(body_b) : Symbol(body_b)
-    return TimoshenkoJoint(0, name, 0, 0, body_a_ref, body_b_ref,
-        KVec3(anchor_a), KVec3(anchor_b),
-        SimFloat(EA), SimFloat(GA), SimFloat(GJ), SimFloat(EIy), SimFloat(EIz),
+    return TimoshenkoJoint{S}(0, name, 0, 0, body_a_ref, body_b_ref,
+        KVec3(anchor_a), KVec3(anchor_b), rigidities...,
         SimFloat(shear_coeff), SimFloat(damping_trans), SimFloat(damping_rot),
         SimFloat(rest_length),
         Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3))

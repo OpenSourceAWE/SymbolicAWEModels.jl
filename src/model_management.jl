@@ -724,8 +724,13 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
                            stiff_type(joint.stiffness_bending)))
     end
     for joint in timoshenko_joints
+        # Rigidity type selects the generated law (scalar vs callable of strain).
+        rigidity_type(r) = r isa Real ? "float" : string(typeof(r))
         push!(data_parts, ("timoshenko_joint", joint.idx,
-                           joint.body_a_idx, joint.body_b_idx))
+                           joint.body_a_idx, joint.body_b_idx,
+                           rigidity_type(joint.EA), rigidity_type(joint.GA),
+                           rigidity_type(joint.GJ), rigidity_type(joint.EIy),
+                           rigidity_type(joint.EIz)))
     end
     content = string(data_parts)
     return sha1(content)

@@ -11,6 +11,9 @@
 #    deflection exceeds the Euler-only value.
 # 2. Axial load: δ = PL/EA.
 # 3. Torsion moment: φ = TL/GJ.
+# 4. Nonlinear rigidities: callable EA(ε)/EIy(κ) softening laws, compared to the
+#    self-consistent closed-form equilibrium (proves the strain/curvature argument
+#    is passed and the effective-rigidity convention is right).
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -144,6 +147,63 @@ end
         @info "Torsion: φ = TL/GJ." measured=twist expected=(torque * beam_length / GJ)
         @test twist ≈ torque * beam_length / GJ rtol=5e-4
         rb.ext_moment_b .= 0.0
+    end
+
+    # Nonlinear rigidities: each callable returns the effective rigidity at the
+    # current strain/curvature (the inflated-tube/Breukels convention). Softening
+    # laws EA(ε)=EA0-aε, EIy(κ)=EI0-bκ make the equilibrium self-consistent, which
+    # is solvable in closed form so the comparison stays exact.
+    EA0 = 1.0e4; axial_slope = 4.0e5
+    EI0 = 100.0; bend_slope = 400.0
+    eps_knots = collect(-0.02:0.001:0.02)
+    kappa_knots = collect(-0.12:0.005:0.12)
+    EA_law = SymbolicAWEModels.LinearInterpolation(
+        EA0 .- axial_slope .* abs.(eps_knots), eps_knots)
+    EIy_law = SymbolicAWEModels.LinearInterpolation(
+        EI0 .- bend_slope .* abs.(kappa_knots), kappa_knots)
+
+    nodeA2 = Body(:nodeA; mass=1.0, inertia_principal=inertia,
+                  pos=[0.0, 0.0, 0.0], type=STATIC)
+    nodeB2 = Body(:nodeB; mass=1.0, inertia_principal=inertia,
+                  pos=[beam_length, 0.0, 0.0])
+    joint_nl = TimoshenkoJoint(:joint, :nodeA, :nodeB;
+        EA=EA_law, GA, GJ, EIy=EIy_law, EIz=EI, shear_coeff=kshear,
+        damping_trans=200.0, damping_rot=3.0)
+    sys_nl = SystemStructure("timoshenko_test", set;
+        bodies=[nodeA2, nodeB2], timoshenko_joints=[joint_nl])
+    sam_nl = SymbolicAWEModel(set, sys_nl)
+    rb_nl = sam_nl.sys_struct.bodies[:nodeB]
+
+    @testset "Nonlinear axial (callable rigidity)" begin
+        @test !(sys_nl.timoshenko_joints[:joint].EA isa Real)  # callable path
+        load = 20.0
+        rb_nl.ext_force_w .= [load, 0.0, 0.0]
+        rb_nl.ext_moment_b .= 0.0
+        test_init!(sam_nl; prn=false)
+        settle!(sam_nl, rb_nl)
+        # P = EA_eff·ε with EA_eff = EA0 - axial_slope·ε ⇒ quadratic, larger root.
+        EA_eff = (EA0 + sqrt(EA0^2 - 4 * axial_slope * load)) / 2
+        expected = load / EA_eff
+        @info "Softening axial: P=EA(ε)·ε self-consistent." measured=(rb_nl.pos_w[1] - beam_length) expected=expected
+        @test rb_nl.pos_w[1] - beam_length ≈ expected rtol=1e-3
+        @test expected > load / EA0                              # softer than linear
+    end
+
+    @testset "Nonlinear bending (callable rigidity)" begin
+        load = 5.0
+        rb_nl.ext_force_w .= [0.0, 0.0, load]
+        rb_nl.ext_moment_b .= 0.0
+        test_init!(sam_nl; prn=false)
+        settle!(sam_nl, rb_nl)
+        # κ = PL/(2·EI_eff), EI_eff = EI0 - bend_slope·κ ⇒ quadratic, larger root.
+        EI_eff = (EI0 + sqrt(EI0^2 - 2 * bend_slope * load * beam_length)) / 2
+        expected = load * beam_length^3 / (3 * EI_eff) +
+                   load * beam_length / (kshear * GA)
+        linear = load * beam_length^3 / (3 * EI0) +
+                 load * beam_length / (kshear * GA)
+        @info "Softening bending: κ=PL/2EI(κ) self-consistent." measured=rb_nl.pos_w[3] expected=expected
+        @test rb_nl.pos_w[3] ≈ expected rtol=5e-3
+        @test rb_nl.pos_w[3] > linear                            # softer than linear
     end
 
     rm(tmpdir; recursive=true)
