@@ -65,6 +65,7 @@ SymbolicAWEModels.wing_eqs!
 SymbolicAWEModels.rigid_body_eqs!
 SymbolicAWEModels.body_eqs!
 SymbolicAWEModels.joint_eqs!
+SymbolicAWEModels.timoshenko_joint_eqs!
 SymbolicAWEModels.init_rigid_body!
 SymbolicAWEModels.n_orient_frames
 SymbolicAWEModels.aero_eqs!
@@ -147,6 +148,9 @@ SymbolicAWEModels.apply_cluster_init_stretched_len!
 SymbolicAWEModels.apply_tether_init_stretched_lens!
 SymbolicAWEModels.init_unstretched_len
 SymbolicAWEModels.apply_tether_init_forces!
+SymbolicAWEModels.init_elastic_joints!
+SymbolicAWEModels.init_timoshenko_joints!
+SymbolicAWEModels.timoshenko_element_frame
 SymbolicAWEModels.assign_indices_and_resolve!
 SymbolicAWEModels.resolve_ref
 SymbolicAWEModels.resolve_ref_spec
@@ -301,6 +305,7 @@ SymbolicAWEModels.survivor_index
 SymbolicAWEModels.build_param_sync
 SymbolicAWEModels.sync_params!
 SymbolicAWEModels.joint_stiffness_term
+SymbolicAWEModels.timoshenko_rigidity
 ```
 
 ## Initial conditions
