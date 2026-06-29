@@ -135,22 +135,34 @@ function segment_eqs!(s, eqs, points, segments,
                 spring_force_vec[:, segment.idx] ~ zeros(3)
             ]
         else
+            idx = segment.idx
+            damp_eq = damping[idx] ~
+                params.segments[idx].unit_damping / len[idx]
+            if segment.unit_stiffness isa Real
+                k = params.segments[idx].unit_stiffness
+                stiff_eqs = [
+                    stiffness[idx] ~ ifelse(
+                        len[idx] > l0[idx], k / len[idx],
+                        params.segments[idx].compression_frac * k / len[idx])
+                    spring_force[idx] ~ stiffness[idx] * (len[idx] - l0[idx]) -
+                        damping[idx] * spring_vel[idx]
+                ]
+            else
+                # Callable force law F(ε) of strain ε = (len − l0)/l0; it owns the
+                # full law (slack/compression included), so `compression_frac` is unused.
+                force_law = params.segments[idx].unit_stiffness
+                strain = (len[idx] - l0[idx]) / l0[idx]
+                stiff_eqs = [
+                    stiffness[idx] ~ 0.0
+                    spring_force[idx] ~ force_law(strain) -
+                        damping[idx] * spring_vel[idx]
+                ]
+            end
             eqs = [
                 eqs
-                damping[segment.idx] ~
-                    params.segments[segment.idx].unit_damping / len[segment.idx]
-                stiffness[segment.idx] ~ ifelse(
-                    len[segment.idx] > l0[segment.idx],
-                    params.segments[segment.idx].unit_stiffness / len[segment.idx],
-                    params.segments[segment.idx].compression_frac *
-                    params.segments[segment.idx].unit_stiffness / len[segment.idx],
-                )
-                spring_force[segment.idx] ~ (
-                    stiffness[segment.idx] * (len[segment.idx] - l0[segment.idx]) -
-                    damping[segment.idx] * spring_vel[segment.idx]
-                )
-                spring_force_vec[:, segment.idx] ~
-                    spring_force[segment.idx] * unit_vec[:, segment.idx]
+                damp_eq
+                stiff_eqs
+                spring_force_vec[:, idx] ~ spring_force[idx] * unit_vec[:, idx]
             ]
         end
 

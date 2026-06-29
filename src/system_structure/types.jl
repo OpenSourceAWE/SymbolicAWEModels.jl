@@ -469,9 +469,14 @@ The spring-damper model uses per-unit-length stiffness and damping:
 - Effective stiffness: `k = unit_stiffness / length` [N/m]
 - Effective damping: `c = unit_damping / length` [N·s/m]
 
+`unit_stiffness` is either a `Real` (linear) or a callable `F(ε)` of the axial
+strain `ε = (len − l0)/l0` returning the spring force [N] (nonlinear); the callable
+owns the full law, including any slack/compression behaviour, so `compression_frac`
+is ignored for it.
+
 $(TYPEDFIELDS)
 """
-mutable struct Segment
+mutable struct Segment{S}
     "Index in the segments vector (assigned by SystemStructure)."
     idx::Int64
     "Name used for lookup by other components' `_ref` fields."
@@ -480,8 +485,8 @@ mutable struct Segment
     point_idxs::Tuple{Int64, Int64}
     "Raw endpoint references (names or indices)."
     const point_refs::Tuple{NameRef, NameRef}
-    "Stiffness per unit length [N]. Effective k = unit_stiffness/length [N/m]."
-    unit_stiffness::SimFloat
+    "Stiffness per unit length: `Real` [N] (k = unit_stiffness/length), or callable F(ε) → force [N]."
+    unit_stiffness::S
     "Damping per unit length [N·s]. Effective c = unit_damping/length [N·s/m]."
     unit_damping::SimFloat
     "Rest (unstretched) length [m]."
@@ -518,8 +523,10 @@ function Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter;
 )
     p1 = point_i isa Integer ? Int(point_i) : Symbol(point_i)
     p2 = point_j isa Integer ? Int(point_j) : Symbol(point_j)
-    Segment(0, name, (0, 0), (p1, p2), unit_stiffness, unit_damping, l0, compression_frac,
-        diameter, SimFloat(density), zero(SimFloat), zero(SimFloat))
+    # Real → SimFloat; a callable force law F(ε) is kept as-is (sets S).
+    stiff = unit_stiffness isa Real ? SimFloat(unit_stiffness) : unit_stiffness
+    Segment(0, name, (0, 0), (p1, p2), stiff, SimFloat(unit_damping), l0,
+        compression_frac, diameter, SimFloat(density), zero(SimFloat), zero(SimFloat))
 end
 
 """
@@ -563,14 +570,17 @@ function Segment(name, set, point_i, point_j;
     # Convert diameter from mm to m
     diameter_m = 0.001 * diameter_mm
 
-    # Compute unit_stiffness if not provided
-    if isnan(unit_stiffness)
+    # Compute unit_stiffness if not provided (only meaningful for a Real).
+    if unit_stiffness isa Real && isnan(unit_stiffness)
         unit_stiffness = set.e_tether * (diameter_m/2)^2 * π
     end
 
     # Compute unit_damping if not provided
     if isnan(unit_damping)
-        if hasproperty(set, :rel_damping) &&
+        if !(unit_stiffness isa Real)
+            error("Segment $(name): unit_damping must be given explicitly " *
+                  "when unit_stiffness is a nonlinear force law.")
+        elseif hasproperty(set, :rel_damping) &&
                 set.rel_damping != 0.0
             unit_damping = set.rel_damping * unit_stiffness
         elseif hasproperty(set, :unit_damping) &&
@@ -589,8 +599,9 @@ function Segment(name, set, point_i, point_j;
         density = set.rho_tether
     end
 
+    stiff = unit_stiffness isa Real ? SimFloat(unit_stiffness) : unit_stiffness
     Segment(0, name, (0, 0), (p1, p2),
-        unit_stiffness, unit_damping, l0,
+        stiff, SimFloat(unit_damping), l0,
         compression_frac, diameter_m, SimFloat(density),
         zero(SimFloat), zero(SimFloat))
 end
@@ -659,9 +670,13 @@ Can be constructed two ways:
 - **Route 2** (auto-generation): Provide start/end points and `n_segments`;
   intermediate points and segments are created by `expand_auto_tethers!`.
 
+`unit_stiffness` is either a `Real` (linear) or a callable `F(ε)` of the axial
+strain returning force [N]; a callable propagates to every auto-generated segment
+(Route 2), making the whole line nonlinear.
+
 $(TYPEDFIELDS)
 """
-mutable struct Tether
+mutable struct Tether{S}
     "Index in the tethers vector (assigned by SystemStructure)."
     idx::Int64
     "Name used for lookup by other components' `_ref` fields."
@@ -680,8 +695,8 @@ mutable struct Tether
     const end_point_ref::Union{NameRef, Nothing}
     "Number of segments (Route 2 only)."
     const n_segments::Int64
-    "Stiffness per unit length [N]. NaN = derive from Settings."
-    const unit_stiffness::SimFloat
+    "Stiffness per unit length: `Real` [N], or callable F(ε) → force [N]. NaN = derive from Settings."
+    const unit_stiffness::S
     "Damping per unit length [N·s]. NaN = derive from Settings."
     const unit_damping::SimFloat
     "Tether diameter [m]. NaN = derive from Settings."
@@ -822,10 +837,12 @@ function Tether(name, stretched_length=nothing;
     seg_refs = Vector{NameRef}(
         [Symbol("$(name)_seg_$i") for i in 1:n_segments])
     init_stretched = opt_simfloat(stretched_length)
+    # Real → Float64; a callable force law F(ε) is kept as-is (sets S).
+    stiff = unit_stiffness isa Real ? Float64(unit_stiffness) : unit_stiffness
     return Tether(0, name, Int64[], seg_refs,
                   0, name_ref(start_point), 0, name_ref(end_point),
                   Int64(n_segments),
-                  Float64(unit_stiffness),
+                  stiff,
                   Float64(unit_damping),
                   Float64(diameter), Float64(density), 0.0,
                   0.0, init_stretched, init_force, init_frac)

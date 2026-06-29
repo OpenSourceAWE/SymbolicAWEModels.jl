@@ -127,8 +127,9 @@ end
         jt.stiffness_torsion = 0.0
         jt.stiffness_bending = 0.0
         reset_bodies!()
-        b2.pos_cad .= [1.05, 0.0, 0.0]   # stretch the joint by 0.05 m
-        test_init!(sam; prn=false)
+        # CAD pose is unstrained, so excite the axial mode with a velocity kick.
+        b2.vel_w .= [0.5, 0.0, 0.0]
+        test_init!(sam; prn=false, reset_vel=false)
 
         ω_expected = sqrt(100.0 * (1/1.0 + 1/1.0))
         dt = 0.001
@@ -147,17 +148,22 @@ end
         @test abs(b2.pos_w[3]) < 1e-6
     end
 
-    @testset "Momentum conservation (COM fixed)" begin
+    @testset "Momentum conservation (COM constant velocity)" begin
         jt.stiffness_axial = 100.0
         reset_bodies!()
-        b2.pos_cad .= [1.05, 0.0, 0.0]
-        test_init!(sam; prn=false)
+        # No external force: a velocity kick conserves total momentum, so the COM
+        # drifts at constant velocity while the bodies oscillate internally.
+        b2.vel_w .= [0.3, 0.0, 0.0]
+        test_init!(sam; prn=false, reset_vel=false)
         com0 = (b1.pos_w + b2.pos_w) / 2
-        for _ in 1:200
-            next_step!(sam; dt=0.001, vsm_interval=0)
+        vcom = (b1.vel_w + b2.vel_w) / 2
+        dt = 0.001
+        n_steps = 200
+        for _ in 1:n_steps
+            next_step!(sam; dt, vsm_interval=0)
         end
         com = (b1.pos_w + b2.pos_w) / 2
-        @test com ≈ com0 atol=1e-6
+        @test com ≈ com0 + vcom * (n_steps * dt) atol=1e-6
     end
 
     @testset "Torsional oscillation frequency" begin
@@ -170,11 +176,9 @@ end
         jt.stiffness_bending = 0.0
         jt.stiffness_shear = 0.0
         reset_bodies!()
-        θ0 = 0.05
-        b2.R_b_to_c .= [1.0 0.0 0.0;            # twist about x by θ0
-                        0.0 cos(θ0) -sin(θ0);
-                        0.0 sin(θ0) cos(θ0)]
-        test_init!(sam; prn=false)
+        # CAD orientation is unstrained, so excite the torsional mode with a spin kick.
+        b2.ω_b .= [0.5, 0.0, 0.0]
+        test_init!(sam; prn=false, reset_vel=false)
 
         ω_expected = sqrt(5.0 / Ixx)
         dt = 0.001
@@ -213,8 +217,9 @@ end
 
         body1 = sam_i.sys_struct.bodies[:b1]
         body2 = sam_i.sys_struct.bodies[:b2]
-        body2.pos_cad .= [1.05, 0.0, 0.0]
-        test_init!(sam_i; prn=false)
+        # CAD pose is unstrained, so excite the axial mode with a velocity kick.
+        body2.vel_w .= [0.5, 0.0, 0.0]
+        test_init!(sam_i; prn=false, reset_vel=false)
 
         ω_expected = sqrt(EA * (1/1.0 + 1/1.0))
         dt = 0.001
@@ -228,6 +233,43 @@ end
         end
         T_measured = period_from_crossings(times, rel_x)
         @test 2pi / T_measured ≈ ω_expected rtol=0.02
+    end
+
+    @testset "As-placed geometry is unstrained (zero wrench at init)" begin
+        # Body B is both offset (1 m anchor gap) and rotated 30° about z relative
+        # to A. With CAD-as-rest capture the joint wrench is zero at init, so B
+        # must stay put despite stiff springs; without it the 1 m gap alone would
+        # fling it.
+        half = π / 12  # half-angle of 30°
+        Q_rot = Float64[cos(half), 0.0, 0.0, sin(half)]
+        bodyA = Body(:b1; mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
+        bodyB = Body(:b2; mass=1.0, inertia_principal=inertia,
+                     pos=[1.0, 0.0, 0.0], Q_b_to_w=Q_rot)
+        joint_r = ElasticJoint(:j1, :b1, :b2;
+            stiffness_axial=1000.0, stiffness_shear=1000.0,
+            stiffness_torsion=1000.0, stiffness_bending=1000.0,
+            damping_trans=10.0, damping_rot=10.0)
+        sys_r = SystemStructure("joint_test", set;
+            bodies=[bodyA, bodyB], elastic_joints=[joint_r])
+        sam_r = SymbolicAWEModel(set, sys_r)
+        test_init!(sam_r; prn=false)
+
+        jr = sam_r.sys_struct.elastic_joints[:j1]
+        Rz30 = [cos(2half) -sin(2half) 0.0; sin(2half) cos(2half) 0.0; 0.0 0.0 1.0]
+        @info "Rest captured from CAD: anchor offset and relative rotation."
+        @test jr.rest_offset_a ≈ [1.0, 0.0, 0.0] atol=1e-9
+        @test norm(jr.R_rel0 - Rz30) < 1e-9
+
+        nodeB = sam_r.sys_struct.bodies[:b2]
+        pos0 = copy(nodeB.pos_w)
+        for _ in 1:50
+            next_step!(sam_r; dt=0.01, vsm_interval=0)
+        end
+        R_meas = SymbolicAWEModels.quaternion_to_rotation_matrix(nodeB.Q_b_to_w)
+        @info "Body B unmoved ⇒ wrench was zero at the placed config." drift=norm(nodeB.pos_w - pos0)
+        @test norm(nodeB.pos_w - pos0) < 1e-7
+        @test norm(nodeB.vel_w) < 1e-7
+        @test norm(R_meas - Rz30) < 1e-6
     end
 
     rm(tmpdir; recursive=true)

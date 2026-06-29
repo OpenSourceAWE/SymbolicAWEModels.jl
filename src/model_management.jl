@@ -674,7 +674,10 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("point", point.idx, point.wing_idx, point.body_idx, Int(point.type)))
     end
     for segment in segments
-        push!(data_parts, ("segment", segment.idx, segment.point_idxs))
+        # Stiffness type selects the spring law (scalar k·Δ vs callable F(ε)).
+        stiff_type = segment.unit_stiffness isa Real ? "float" :
+                     string(typeof(segment.unit_stiffness))
+        push!(data_parts, ("segment", segment.idx, segment.point_idxs, stiff_type))
     end
     for twist_surface in twist_surfaces
         push!(data_parts, ("twist_surface", twist_surface.idx, twist_surface.point_idxs, Int(twist_surface.type)))

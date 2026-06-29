@@ -53,11 +53,15 @@ function joint_eqs!(
         pos_anchor_a = pos_a .+ R_a * anchor_a
         pos_anchor_b = pos_b .+ R_b * anchor_b
 
+        # Rest references captured at init: the as-placed geometry is unstrained.
+        rest_offset = collect(params.elastic_joints[j].rest_offset_a)
+        R_rel0 = collect(params.elastic_joints[j].R_rel0)
+
         # Relative displacement, body A frame: [axial, shear_y, shear_z].
-        Δr_a = R_a' * (pos_anchor_b .- pos_anchor_a)
+        Δr_a = R_a' * (pos_anchor_b .- pos_anchor_a) .- rest_offset
 
         # Relative rotation, body A frame: [torsion, bend_y, bend_z].
-        R_rel = R_a' * R_b
+        R_rel = R_rel0' * (R_a' * R_b)
         Δθ_a = [
             0.5 * (R_rel[3, 2] - R_rel[2, 3]),
             0.5 * (R_rel[1, 3] - R_rel[3, 1]),

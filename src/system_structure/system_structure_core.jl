@@ -288,8 +288,8 @@ and `segment_refs` names not yet present in `segments`.
 """
 function expand_auto_tethers!(
     points::Vector{Point},
-    segments::Vector{Segment},
-    tethers::Vector{Tether},
+    segments::Vector{<:Segment},
+    tethers::Vector{<:Tether},
     set::Settings
 )
     # Build point name lookup for finding start/end points
@@ -367,11 +367,14 @@ function expand_auto_tethers!(
         if isnan(density)
             density = set.rho_tether
         end
-        if isnan(unit_stiffness)
+        if unit_stiffness isa Real && isnan(unit_stiffness)
             unit_stiffness = set.e_tether * (diameter / 2)^2 * π
         end
         if isnan(unit_damping)
-            if hasproperty(set, :rel_damping) &&
+            if !(unit_stiffness isa Real)
+                error("Tether $(tether.name): unit_damping must be given " *
+                      "explicitly when unit_stiffness is a nonlinear force law.")
+            elseif hasproperty(set, :rel_damping) &&
                set.rel_damping != 0.0
                 unit_damping = set.rel_damping * unit_stiffness
             else
@@ -432,9 +435,9 @@ and resolve all references to indices.
 function assign_indices_and_resolve!(
     points::Vector{Point},
     twist_surfaces::Vector{TwistSurface},
-    segments::Vector{Segment},
+    segments::Vector{<:Segment},
     pulleys::Vector{Pulley},
-    tethers::Vector{Tether},
+    tethers::Vector{<:Tether},
     winches::Vector{Winch},
     wings::AbstractVector{<:Body},
     transforms::Vector{Transform}

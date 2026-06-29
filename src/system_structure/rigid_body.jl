@@ -318,6 +318,10 @@ mutable struct ElasticJoint{S}
     damping_trans::SimFloat
     "Rotational damping [N·m·s/rad]."
     damping_rot::SimFloat
+    "Rest anchor offset (body A frame), set at `reinit!` so the as-placed geometry is unstrained."
+    const rest_offset_a::KVec3
+    "Rest relative rotation `R_a' R_b`, set at `reinit!` so the as-placed orientation is unstrained."
+    const R_rel0::Matrix{SimFloat}
 end
 
 """
@@ -353,7 +357,8 @@ function ElasticJoint(name, body_a, body_b;
     body_b_ref = body_b isa Integer ? Int(body_b) : Symbol(body_b)
     return ElasticJoint{S}(0, name, 0, 0, body_a_ref, body_b_ref,
         KVec3(anchor_a), KVec3(anchor_b), stiffs...,
-        SimFloat(damping_trans), SimFloat(damping_rot))
+        SimFloat(damping_trans), SimFloat(damping_rot),
+        KVec3(0.0, 0.0, 0.0), Matrix{SimFloat}(I, 3, 3))
 end
 
 """
@@ -487,6 +492,26 @@ function timoshenko_element_frame(x_a, x_b, R_a)
     e2 = e2_raw ./ sqrt(sum(abs2, e2_raw))
     e3 = e1 × e2
     return e1, e2, e3, len
+end
+
+"""
+    init_elastic_joints!(joints, bodies)
+
+Capture each joint's rest anchor offset and rest relative rotation from the current
+(placed) body poses, so the as-placed (CAD) geometry is the unstrained reference and
+the joint wrench is exactly zero at initialization.
+"""
+function init_elastic_joints!(joints, bodies)
+    for joint in joints
+        body_a = bodies[joint.body_a_idx]
+        body_b = bodies[joint.body_b_idx]
+        R_a = quaternion_to_rotation_matrix(body_a.Q_b_to_w)
+        R_b = quaternion_to_rotation_matrix(body_b.Q_b_to_w)
+        anchor_a_w = body_a.pos_w .+ R_a * joint.anchor_a_b
+        anchor_b_w = body_b.pos_w .+ R_b * joint.anchor_b_b
+        joint.rest_offset_a .= R_a' * (anchor_b_w .- anchor_a_w)
+        joint.R_rel0 .= R_a' * R_b
+    end
 end
 
 """
