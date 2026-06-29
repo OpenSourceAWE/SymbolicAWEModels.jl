@@ -288,8 +288,8 @@ and `segment_refs` names not yet present in `segments`.
 """
 function expand_auto_tethers!(
     points::Vector{Point},
-    segments::Vector{<:Segment},
-    tethers::Vector{<:Tether},
+    segments::Vector{Segment},
+    tethers::Vector{Tether},
     set::Settings
 )
     # Build point name lookup for finding start/end points
@@ -435,9 +435,9 @@ and resolve all references to indices.
 function assign_indices_and_resolve!(
     points::Vector{Point},
     twist_surfaces::Vector{TwistSurface},
-    segments::Vector{<:Segment},
+    segments::Vector{Segment},
     pulleys::Vector{Pulley},
-    tethers::Vector{<:Tether},
+    tethers::Vector{Tether},
     winches::Vector{Winch},
     wings::AbstractVector{<:Body},
     transforms::Vector{Transform}

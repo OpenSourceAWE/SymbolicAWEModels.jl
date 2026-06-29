@@ -474,9 +474,13 @@ strain `ε = (len − l0)/l0` returning the spring force [N] (nonlinear); the ca
 owns the full law, including any slack/compression behaviour, so `compression_frac`
 is ignored for it.
 
+`unit_stiffness` is typed `Any` (not a type parameter) so the segment stays a
+concrete type — `SystemStructure.segments` is written every step, and a parametric
+element type would make that collection abstract and allocate.
+
 $(TYPEDFIELDS)
 """
-mutable struct Segment{S}
+mutable struct Segment
     "Index in the segments vector (assigned by SystemStructure)."
     idx::Int64
     "Name used for lookup by other components' `_ref` fields."
@@ -486,7 +490,7 @@ mutable struct Segment{S}
     "Raw endpoint references (names or indices)."
     const point_refs::Tuple{NameRef, NameRef}
     "Stiffness per unit length: `Real` [N] (k = unit_stiffness/length), or callable F(ε) → force [N]."
-    unit_stiffness::S
+    unit_stiffness::Any
     "Damping per unit length [N·s]. Effective c = unit_damping/length [N·s/m]."
     unit_damping::SimFloat
     "Rest (unstretched) length [m]."
@@ -523,7 +527,7 @@ function Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter;
 )
     p1 = point_i isa Integer ? Int(point_i) : Symbol(point_i)
     p2 = point_j isa Integer ? Int(point_j) : Symbol(point_j)
-    # Real → SimFloat; a callable force law F(ε) is kept as-is (sets S).
+    # Real → SimFloat; a callable force law F(ε) is kept as-is.
     stiff = unit_stiffness isa Real ? SimFloat(unit_stiffness) : unit_stiffness
     Segment(0, name, (0, 0), (p1, p2), stiff, SimFloat(unit_damping), l0,
         compression_frac, diameter, SimFloat(density), zero(SimFloat), zero(SimFloat))
@@ -674,9 +678,12 @@ Can be constructed two ways:
 strain returning force [N]; a callable propagates to every auto-generated segment
 (Route 2), making the whole line nonlinear.
 
+`unit_stiffness` is typed `Any` (not a type parameter) to keep `Tether` concrete,
+since `SystemStructure.tethers` is read every step.
+
 $(TYPEDFIELDS)
 """
-mutable struct Tether{S}
+mutable struct Tether
     "Index in the tethers vector (assigned by SystemStructure)."
     idx::Int64
     "Name used for lookup by other components' `_ref` fields."
@@ -696,7 +703,7 @@ mutable struct Tether{S}
     "Number of segments (Route 2 only)."
     const n_segments::Int64
     "Stiffness per unit length: `Real` [N], or callable F(ε) → force [N]. NaN = derive from Settings."
-    const unit_stiffness::S
+    const unit_stiffness::Any
     "Damping per unit length [N·s]. NaN = derive from Settings."
     const unit_damping::SimFloat
     "Tether diameter [m]. NaN = derive from Settings."
