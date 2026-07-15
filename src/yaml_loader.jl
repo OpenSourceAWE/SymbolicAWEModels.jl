@@ -341,113 +341,42 @@ custom aero mode.
 function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                    vsm_set, yaml_to_ref, yaml_parse_ref_points,
                    yaml_parse_origin, twist_surfaces)
-    if wing_type == PARTICLE_DYNAMICS
-        # Pass raw values; the constructor handles defaults.
-        return call_yaml_constructor(VSMWing, row,
-            [:name, :set, :twist_surfaces, :vsm_set],
-            [:transform, :y_damping, :angular_damping,
-             :dynamics_type, :aero,
-             :z_ref_points, :y_ref_points, :origin, :pos_cad,
-             :aero_scale_chord, :n_unrefined_sections, :principal_frame_method];
-            mappings=Dict(
-                :set => row -> set,
-                :twist_surfaces => row -> hasfield(typeof(row), :twist_surfaces) &&
-                    !isnothing(row.twist_surfaces) ?
-                    [yaml_to_ref(twist_surface_ref) for twist_surface_ref in row.twist_surfaces] : [],
-                :vsm_set => row -> vsm_set,
-                :n_unrefined_sections => yaml_n_unrefined_sections,
-                :dynamics_type => row -> wing_type,
-                :aero => row -> mode,
-                :name => row -> begin
-                    if haskey(row, :name) && !isnothing(row.name)
-                        Symbol(row.name)
-                    else
-                        idx  # Use index as name if no name provided
-                    end
-                end,
-                :transform => row -> begin
-                    if hasfield(typeof(row), :transform_idx) && !isnothing(row.transform_idx)
-                        yaml_to_ref(row.transform_idx)
-                    else
-                        nothing  # Constructor handles default
-                    end
-                end,
-                :z_ref_points => row ->
-                    yaml_parse_ref_points(row, :z_ref_points),
-                :y_ref_points => row ->
-                    yaml_parse_ref_points(row, :y_ref_points),
-                :origin => row ->
-                    yaml_parse_origin(row, :origin_idx),
-                :aero_scale_chord => row ->
-                    hasfield(typeof(row), :aero_scale_chord) && !isnothing(row.aero_scale_chord) ?
-                        float(row.aero_scale_chord) : 0.0,
-                :pos_cad => row -> begin
-                    # pos_cad is set from the origin point position during resolution.
-                    nothing
-                end,
-                :principal_frame_method => row ->
-                    hasfield(typeof(row), :principal_frame_method) &&
-                    !isnothing(row.principal_frame_method) ?
-                        parse_principal_frame_method(String(row.principal_frame_method)) :
-                        EIGEN_DECOMP
-            ))
-    else  # RIGID_DYNAMICS
-        # Pass raw values - constructor handles defaults
-        return call_yaml_constructor(VSMWing, row,
-            [:name, :set, :twist_surfaces, :vsm_set],
-            [:transform, :y_damping, :angular_damping,
-             :dynamics_type, :aero, :aero_scale_chord,
-             :aero_z_offset, :pos_cad,
-             :z_ref_points, :y_ref_points, :origin,
-             :n_unrefined_sections, :principal_frame_method];
-            mappings=Dict(
-                :set => row -> set,
-                :aero => row -> mode,
-                :twist_surfaces => row -> hasfield(typeof(row), :twist_surfaces) &&
-                    !isnothing(row.twist_surfaces) ?
-                    [yaml_to_ref(twist_surface_ref) for twist_surface_ref in row.twist_surfaces] : [],
-                :vsm_set => row -> vsm_set,
-                :n_unrefined_sections => yaml_n_unrefined_sections,
-                :dynamics_type => row -> wing_type,
-                :name => row -> begin
-                    if haskey(row, :name) && !isnothing(row.name)
-                        Symbol(row.name)
-                    else
-                        idx
-                    end
-                end,
-                :transform => row -> begin
-                    if hasfield(typeof(row), :transform_idx) &&
-                       !isnothing(row.transform_idx)
-                        yaml_to_ref(row.transform_idx)
-                    else
-                        nothing
-                    end
-                end,
-                :pos_cad => row -> begin
-                    if !hasfield(typeof(row), :pos_cad) ||
-                       row.pos_cad === nothing
-                        return nothing
-                    end
-                    KVec3(row.pos_cad...)
-                end,
-                :aero_scale_chord => row ->
-                    hasfield(typeof(row), :aero_scale_chord) &&
-                    !isnothing(row.aero_scale_chord) ?
-                        float(row.aero_scale_chord) : 0.0,
-                :z_ref_points => row ->
-                    yaml_parse_ref_points(row, :z_ref_points),
-                :y_ref_points => row ->
-                    yaml_parse_ref_points(row, :y_ref_points),
-                :origin => row ->
-                    yaml_parse_origin(row, :origin_idx),
-                :principal_frame_method => row ->
-                    hasfield(typeof(row), :principal_frame_method) &&
-                    !isnothing(row.principal_frame_method) ?
-                        parse_principal_frame_method(String(row.principal_frame_method)) :
-                        EIGEN_DECOMP
-            ))
-    end
+    # PARTICLE derives pos_cad from the origin point during resolution; RIGID
+    # reads it from the row when given.
+    pos_cad = wing_type == PARTICLE_DYNAMICS ? (row -> nothing) :
+        (row -> yaml_vec3(row, :pos_cad))
+    # aero_z_offset only applies to RIGID wings.
+    kwargs_spec = [:transform, :y_damping, :angular_damping, :dynamics_type,
+        :aero, :z_ref_points, :y_ref_points, :origin, :pos_cad,
+        :aero_scale_chord, :n_unrefined_sections, :principal_frame_method]
+    wing_type == RIGID_DYNAMICS && push!(kwargs_spec, :aero_z_offset)
+    return call_yaml_constructor(VSMWing, row,
+        [:name, :set, :twist_surfaces, :vsm_set], kwargs_spec;
+        mappings=Dict(
+            :set => row -> set,
+            :aero => row -> mode,
+            :twist_surfaces => row -> hasfield(typeof(row), :twist_surfaces) &&
+                !isnothing(row.twist_surfaces) ?
+                [yaml_to_ref(ref) for ref in row.twist_surfaces] : [],
+            :vsm_set => row -> vsm_set,
+            :n_unrefined_sections => yaml_n_unrefined_sections,
+            :dynamics_type => row -> wing_type,
+            :name => row -> yaml_row_name(row, idx),
+            :transform => row -> yaml_ref_field(row, :transform_idx, yaml_to_ref),
+            :pos_cad => pos_cad,
+            :z_ref_points => row -> yaml_parse_ref_points(row, :z_ref_points),
+            :y_ref_points => row -> yaml_parse_ref_points(row, :y_ref_points),
+            :origin => row -> yaml_parse_origin(row, :origin_idx),
+            :aero_scale_chord => row ->
+                hasfield(typeof(row), :aero_scale_chord) &&
+                !isnothing(row.aero_scale_chord) ?
+                    float(row.aero_scale_chord) : 0.0,
+            :principal_frame_method => row ->
+                hasfield(typeof(row), :principal_frame_method) &&
+                !isnothing(row.principal_frame_method) ?
+                    parse_principal_frame_method(String(row.principal_frame_method)) :
+                    EIGEN_DECOMP
+        ))
 end
 
 """
@@ -481,6 +410,170 @@ end
 function yaml_float(row, field)
     value = yaml_field(row, field)
     isnothing(value) ? nothing : Float64(value)
+end
+
+"""
+    yaml_row_name(row, i)
+
+Name for a YAML row: its `name` field (as a `Symbol`) when present, else the
+1-based row index `i`. Shared by the body/joint loaders so components can be
+referenced either by name or by position.
+"""
+yaml_row_name(row, i) =
+    (hasfield(typeof(row), :name) && !isnothing(row.name)) ? Symbol(row.name) : i
+
+"""
+    yaml_block_empty(data, key) -> Bool
+
+`true` when the top-level YAML `key` is absent or holds no `data` rows.
+"""
+function yaml_block_empty(data, key)
+    haskey(data, key) || return true
+    table = data[key]
+    (haskey(table, "data") && !isnothing(table["data"]) &&
+     !isempty(table["data"])) || return true
+    return false
+end
+
+"""
+    yaml_vec3(row, field) -> KVec3 or nothing
+
+Read a 3-element vector field, or `nothing` when absent.
+"""
+function yaml_vec3(row, field)
+    value = yaml_field(row, field)
+    isnothing(value) ? nothing : KVec3(value...)
+end
+
+"""
+    yaml_matrix3(value) -> Matrix{SimFloat}
+
+Convert a nested `[[…],[…],[…]]` YAML value into a 3×3 matrix (rows preserved).
+"""
+yaml_matrix3(value) =
+    Matrix{SimFloat}(permutedims(reduce(hcat,
+        (Vector{SimFloat}(row) for row in value))))
+
+"""
+    yaml_ref_field(row, field, to_ref) -> reference or nothing
+
+Resolve an optional reference column `field` (e.g. `:transform_idx`) through
+`to_ref`, or `nothing` when the field is absent or empty.
+"""
+yaml_ref_field(row, field, to_ref) =
+    (hasfield(typeof(row), field) && !isnothing(getfield(row, field))) ?
+        to_ref(getfield(row, field)) : nothing
+
+"""
+    load_property_table(data, key) -> Dict{String, NamedTuple}
+
+Index a reference table (`materials`, `elements`, `segment_properties`) by its
+`name` column, so [`resolve_references`](@ref) can merge shared properties.
+"""
+function load_property_table(data, key)
+    table = Dict{String, NamedTuple}()
+    for row in parse_table(data[key])
+        table[String(row.name)] = row
+    end
+    return table
+end
+
+"""
+    load_yaml_bodies(data, yaml_to_ref) -> Vector{Body}
+
+Build the plain rigid [`Body`](@ref)s from a `bodies` YAML block (empty when the
+block is absent). Field names mirror the [`Body`](@ref) constructor: required
+`name`, `mass`, `pos`, and one of `inertia_principal` (3-vector) or `inertia`
+(3×3); optional `type` (`DYNAMIC`/`STATIC`), `transform_idx`, `vel`, `Q_b_to_w`
+(4-vector), `omega_b`, `com_offset_b`, `damping` (scalar or 3-vector),
+`fix_sphere`, `ext_force_w`, `ext_force_b`, `ext_moment_b`,
+`principal_frame_method`.
+"""
+function load_yaml_bodies(data, yaml_to_ref)
+    bodies = Body[]
+    yaml_block_empty(data, "bodies") && return bodies
+    for (i, row) in enumerate(parse_table(data["bodies"]))
+        name = yaml_row_name(row, i)
+        mass = yaml_float(row, :mass)
+        isnothing(mass) && error("Body $name: missing required `mass`.")
+        pos = yaml_vec3(row, :pos)
+        isnothing(pos) && error("Body $name: missing required `pos`.")
+        kwargs = Dict{Symbol, Any}(:mass => mass, :pos => pos)
+        inertia_principal = yaml_vec3(row, :inertia_principal)
+        isnothing(inertia_principal) ||
+            (kwargs[:inertia_principal] = inertia_principal)
+        inertia = yaml_field(row, :inertia)
+        isnothing(inertia) || (kwargs[:inertia] = yaml_matrix3(inertia))
+        vel = yaml_vec3(row, :vel); isnothing(vel) || (kwargs[:vel] = vel)
+        quat = yaml_field(row, :Q_b_to_w)
+        isnothing(quat) || (kwargs[:Q_b_to_w] = Vector{SimFloat}(quat))
+        omega = yaml_vec3(row, :omega_b)
+        isnothing(omega) || (kwargs[:ω_b] = omega)
+        com_offset = yaml_vec3(row, :com_offset_b)
+        isnothing(com_offset) || (kwargs[:com_offset_b] = com_offset)
+        damping = yaml_field(row, :damping)
+        isnothing(damping) ||
+            (kwargs[:damping] = damping isa Real ? SimFloat(damping) :
+                KVec3(damping...))
+        fix_sphere = yaml_field(row, :fix_sphere)
+        isnothing(fix_sphere) || (kwargs[:fix_sphere] = Bool(fix_sphere))
+        body_type = yaml_field(row, :type)
+        isnothing(body_type) ||
+            (kwargs[:type] = parse_dynamics_type(String(body_type)))
+        transform = yaml_ref_field(row, :transform_idx, yaml_to_ref)
+        isnothing(transform) || (kwargs[:transform] = transform)
+        for (field, key) in ((:ext_force_w, :ext_force_w),
+                             (:ext_force_b, :ext_force_b),
+                             (:ext_moment_b, :ext_moment_b))
+            vec = yaml_vec3(row, field)
+            isnothing(vec) || (kwargs[key] = vec)
+        end
+        pfm = yaml_field(row, :principal_frame_method)
+        isnothing(pfm) || (kwargs[:principal_frame_method] =
+            parse_principal_frame_method(String(pfm)))
+        push!(bodies, Body(name; kwargs...))
+    end
+    return bodies
+end
+
+"""
+    load_yaml_joints(::Type{Joint}, data, key, required, optional; yaml_to_ref)
+
+Build two-body joints of type `Joint` from the `key` YAML block (empty when the
+block is absent). Every row needs `body_a`, `body_b` and each `required` scalar;
+`anchor_a`/`anchor_b` (3-vectors) and each `optional` scalar are read when
+present. Shared by the [`TimoshenkoJoint`](@ref) and [`ElasticJoint`](@ref)
+loaders — scalar fields from YAML are linear; callable/nonlinear laws are
+supplied programmatically.
+"""
+function load_yaml_joints(::Type{Joint}, data, key, required, optional;
+                          yaml_to_ref) where Joint
+    joints = Joint[]
+    yaml_block_empty(data, key) && return joints
+    for (i, row) in enumerate(parse_table(data[key]))
+        name = yaml_row_name(row, i)
+        body_a = yaml_to_ref(yaml_field(row, :body_a))
+        body_b = yaml_to_ref(yaml_field(row, :body_b))
+        (isnothing(body_a) || isnothing(body_b)) &&
+            error("$(nameof(Joint)) $name: requires `body_a` and `body_b`.")
+        kwargs = Dict{Symbol, Any}()
+        for field in required
+            value = yaml_float(row, field)
+            isnothing(value) &&
+                error("$(nameof(Joint)) $name: missing `$field`.")
+            kwargs[field] = value
+        end
+        for field in (:anchor_a, :anchor_b)
+            anchor = yaml_vec3(row, field)
+            isnothing(anchor) || (kwargs[field] = anchor)
+        end
+        for field in optional
+            value = yaml_float(row, field)
+            isnothing(value) || (kwargs[field] = value)
+        end
+        push!(joints, Joint(name, body_a, body_b; kwargs...))
+    end
+    return joints
 end
 
 """
@@ -570,16 +663,21 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Raw references are passed; SystemStructure resolves them.
             point = call_yaml_constructor(Point, row,
                 [:name, :pos_cad, :type],
-                [:wing, :transform, :extra_mass,
+                [:wing, :transform, :body, :anchor_b, :vel_w, :extra_mass,
                  :body_frame_damping, :world_frame_damping,
-                 :area, :drag_coeff];
+                 :area, :drag_coeff, :fix_sphere, :fix_static];
                 mappings=Dict(
                     :pos_cad => row -> KVec3(row.pos_cad...),
                     :type => row -> parse_dynamics_type(String(row.type)),
-                    :name => row -> haskey(row, :name) && !isnothing(row.name) ? Symbol(row.name) : i,
+                    :name => row -> yaml_row_name(row, i),
                     # Pass raw references - constructor handles defaults
-                    :wing => row -> haskey(row, :wing_idx) ? yaml_to_ref(row.wing_idx) : nothing,
-                    :transform => row -> haskey(row, :transform_idx) ? yaml_to_ref(row.transform_idx) : nothing,
+                    :wing => row -> yaml_ref_field(row, :wing_idx, yaml_to_ref),
+                    :transform => row -> yaml_ref_field(row, :transform_idx, yaml_to_ref),
+                    # A BODY_STATIC/WING point rides a Body; anchor_b is its body-frame offset.
+                    :body => row -> haskey(row, :body_idx) ? yaml_to_ref(row.body_idx) :
+                        yaml_ref_field(row, :body, yaml_to_ref),
+                    :anchor_b => row -> yaml_vec3(row, :anchor_b),
+                    :vel_w => row -> yaml_vec3(row, :vel_w),
                     :body_frame_damping => row -> haskey(row, :body_frame_damping) ? row.body_frame_damping : nothing,
                     :world_frame_damping => row -> haskey(row, :world_frame_damping) ? row.world_frame_damping : nothing
                 ))
@@ -593,40 +691,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     isempty(points) &&
         error("No points found in YAML file $(yaml_path).")
 
-    # Build property tables for reference resolution
+    # Build property tables for reference resolution: materials, old-style
+    # `elements`, and `segment_properties` (kept for backward compatibility).
     property_tables = Dict{String, Dict{String, NamedTuple}}()
-
-    # Load materials table
-    if haskey(data, "materials")
-        materials_dict = Dict{String, NamedTuple}()
-        material_rows = parse_table(data["materials"])
-        for row in material_rows
-            name = String(row.name)
-            materials_dict[name] = row
-        end
-        property_tables["materials"] = materials_dict
-    end
-
-    # Load elements table (old-style segment properties)
-    if haskey(data, "elements")
-        elements_dict = Dict{String, NamedTuple}()
-        element_rows = parse_table(data["elements"])
-        for row in element_rows
-            name = String(row.name)
-            elements_dict[name] = row
-        end
-        property_tables["elements"] = elements_dict
-    end
-
-    # Load segment_properties table (for backward compatibility)
-    if haskey(data, "segment_properties")
-        segment_props_dict = Dict{String, NamedTuple}()
-        prop_rows = parse_table(data["segment_properties"])
-        for row in prop_rows
-            name = String(row.name)
-            segment_props_dict[name] = row
-        end
-        property_tables["segment_properties"] = segment_props_dict
+    for key in ("materials", "elements", "segment_properties")
+        haskey(data, key) || continue
+        property_tables[key] = load_property_table(data, key)
     end
 
     # Load segments - SystemStructure handles resolution
@@ -661,14 +731,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     :set => row -> resolved_set,
                     :point_i => row -> yaml_to_ref(row.point_i),
                     :point_j => row -> yaml_to_ref(row.point_j),
-                    :name => row -> begin
-                        if haskey(row, :name) &&
-                                !isnothing(row.name)
-                            Symbol(row.name)
-                        else
-                            i
-                        end
-                    end
+                    :name => row -> yaml_row_name(row, i)
                 ))
 
             push!(segments, segment)
@@ -687,13 +750,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 mappings=Dict(
                     :segment_i => row -> yaml_to_ref(row.segment_i),
                     :segment_j => row -> yaml_to_ref(row.segment_j),
-                    :name => row -> begin
-                        if haskey(row, :name) && !isnothing(row.name)
-                            Symbol(row.name)
-                        else
-                            i  # Use index as name if no name provided
-                        end
-                    end,
+                    :name => row -> yaml_row_name(row, i),
                     :type => row -> parse_dynamics_type(String(row.type))
                 ))
             push!(pulleys, pulley)
@@ -702,10 +759,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     # Load twist_surfaces (optional, for deformable wings) - SystemStructure handles resolution
     twist_surfaces = TwistSurface[]
-    if haskey(data, "twist_surfaces") &&
-       haskey(data["twist_surfaces"], "data") &&
-       data["twist_surfaces"]["data"] !== nothing &&
-       !isempty(data["twist_surfaces"]["data"])
+    if !yaml_block_empty(data, "twist_surfaces")
         twist_surface_rows = parse_table(data["twist_surfaces"])
 
         for (i, row) in enumerate(twist_surface_rows)
@@ -715,13 +769,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 [:damping, :stiffness];
                 mappings=Dict(
                     :points => row -> [yaml_to_ref(point) for point in row.point_idxs],
-                    :name => row -> begin
-                        if haskey(row, :name) && !isnothing(row.name)
-                            Symbol(row.name)
-                        else
-                            i  # Use index as name if no name provided
-                        end
-                    end,
+                    :name => row -> yaml_row_name(row, i),
                     :type => row -> parse_dynamics_type(
                         String(row.type))
                 ))
@@ -731,18 +779,10 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     # Load tethers (optional) - SystemStructure handles resolution
     tethers = Tether[]
-    if haskey(data, "tethers") &&
-       haskey(data["tethers"], "data") &&
-       data["tethers"]["data"] !== nothing &&
-       !isempty(data["tethers"]["data"])
+    if !yaml_block_empty(data, "tethers")
         tether_rows = parse_table(data["tethers"])
         for (i, row) in enumerate(tether_rows)
-            tether_name = if haskey(row, :name) &&
-                             !isnothing(row.name)
-                Symbol(row.name)
-            else
-                i
-            end
+            tether_name = yaml_row_name(row, i)
             # Detect Route 1 vs Route 2
             has_segments = hasfield(typeof(row),
                 :segment_idxs) &&
@@ -751,20 +791,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 # Route 1: explicit segments
                 segment_refs = [yaml_to_ref(segment_ref)
                     for segment_ref in row.segment_idxs]
-                start_ref = if hasfield(typeof(row),
-                        :start_point) &&
-                        !isnothing(row.start_point)
-                    yaml_to_ref(row.start_point)
-                else
-                    nothing
-                end
-                end_ref = if hasfield(typeof(row),
-                        :end_point) &&
-                        !isnothing(row.end_point)
-                    yaml_to_ref(row.end_point)
-                else
-                    nothing
-                end
+                start_ref = yaml_ref_field(row, :start_point, yaml_to_ref)
+                end_ref = yaml_ref_field(row, :end_point, yaml_to_ref)
                 stretched_length, tether_force, stretch_frac =
                     parse_tether_init(row, tether_name)
                 tether = Tether(tether_name, segment_refs, stretched_length;
@@ -783,23 +811,15 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 props = Dict{Symbol, Any}(
                     pairs(resolved))
                 calculate_derived_properties!(props)
-                unit_stiffness = get(props, :unit_stiffness,
-                    NaN)
-                unit_stiffness = isnothing(unit_stiffness) ? NaN :
-                    Float64(unit_stiffness)
-                unit_damping = get(props, :unit_damping,
-                    NaN)
-                unit_damping = isnothing(unit_damping) ? NaN :
-                    Float64(unit_damping)
-                diameter_mm = get(props, :diameter_mm,
-                    NaN)
-                diameter_mm = isnothing(diameter_mm) ? NaN :
-                    Float64(diameter_mm)
-                diameter = isnan(diameter_mm) ? NaN :
-                    diameter_mm * 0.001
-                density = get(props, :density, NaN)
-                density = isnothing(density) ? NaN :
-                    Float64(density)
+                prop_float = key -> begin
+                    value = get(props, key, NaN)
+                    isnothing(value) ? NaN : Float64(value)
+                end
+                unit_stiffness = prop_float(:unit_stiffness)
+                unit_damping = prop_float(:unit_damping)
+                diameter_mm = prop_float(:diameter_mm)
+                diameter = isnan(diameter_mm) ? NaN : diameter_mm * 0.001
+                density = prop_float(:density)
                 tether = Tether(tether_name, stretched_length;
                     start_point=start_ref, end_point=end_ref,
                     n_segments,
@@ -812,10 +832,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     # Load winches (optional) - SystemStructure handles resolution
     winches = Winch[]
-    if haskey(data, "winches") &&
-       haskey(data["winches"], "data") &&
-       data["winches"]["data"] !== nothing &&
-       !isempty(data["winches"]["data"])
+    if !yaml_block_empty(data, "winches")
         winch_rows = parse_table(data["winches"])
         for (i, row) in enumerate(winch_rows)
             # Create Winch using constructor (name, set, tethers; winch_point)
@@ -827,17 +844,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     :set => row -> resolved_set,
                     :tethers => row -> [yaml_to_ref(tether_ref)
                         for tether_ref in row.tether_idxs],
-                    :winch_point => row -> begin
-                        yaml_to_ref(row.winch_point)
-                    end,
-                    :name => row -> begin
-                        if haskey(row, :name) &&
-                           !isnothing(row.name)
-                            Symbol(row.name)
-                        else
-                            i
-                        end
-                    end
+                    :winch_point => row -> yaml_to_ref(row.winch_point),
+                    :name => row -> yaml_row_name(row, i)
                 ))
             push!(winches, winch)
         end
@@ -845,10 +853,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     # Load wings (optional)
     wings = Body[]
-    if haskey(data, "wings") &&
-       haskey(data["wings"], "data") &&
-       data["wings"]["data"] !== nothing &&
-       !isempty(data["wings"]["data"])
+    if !yaml_block_empty(data, "wings")
         wing_rows = parse_table(data["wings"])
 
         for (i, row) in enumerate(wing_rows)
@@ -887,10 +892,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     # Load transforms (optional) - SystemStructure handles resolution
     transforms = Transform[]
-    if haskey(data, "transforms") &&
-       haskey(data["transforms"], "data") &&
-       data["transforms"]["data"] !== nothing &&
-       !isempty(data["transforms"]["data"])
+    if !yaml_block_empty(data, "transforms")
         transform_rows = parse_table(data["transforms"])
 
         for (i, row) in enumerate(transform_rows)
@@ -912,33 +914,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         deg2rad(row.turn_rate) : 0.0,
                     :base_pos => row -> KVec3(row.base_pos...),
                     :base_point => row -> yaml_to_ref(row.base_point_idx),
-                    :base_transform => row -> begin
-                        if hasfield(typeof(row), :base_transform_idx) && !isnothing(row.base_transform_idx)
-                            yaml_to_ref(row.base_transform_idx)
-                        else
-                            nothing
-                        end
-                    end,
-                    :rot_point => row -> begin
-                        if hasfield(typeof(row), :rot_point_idx) && !isnothing(row.rot_point_idx)
-                            yaml_to_ref(row.rot_point_idx)
-                        else
-                            nothing
-                        end
-                    end,
-                    :wing => row -> begin
-                        if !hasfield(typeof(row), :wing_idx) || row.wing_idx === nothing
-                            return nothing
-                        end
-                        yaml_to_ref(row.wing_idx)
-                    end,
-                    :name => row -> begin
-                        if haskey(row, :name) && !isnothing(row.name)
-                            Symbol(row.name)
-                        else
-                            i  # Use index as name if no name provided
-                        end
-                    end
+                    :base_transform => row ->
+                        yaml_ref_field(row, :base_transform_idx, yaml_to_ref),
+                    :rot_point => row ->
+                        yaml_ref_field(row, :rot_point_idx, yaml_to_ref),
+                    :wing => row -> yaml_ref_field(row, :wing_idx, yaml_to_ref),
+                    :name => row -> yaml_row_name(row, i)
                 ))
             push!(transforms, transform)
             elev_deg = rad2deg(transform.elevation)
@@ -959,8 +940,18 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
+    # Plain rigid bodies + beam/elastic joints (empty when the blocks are absent).
+    bodies = load_yaml_bodies(data, yaml_to_ref)
+    timoshenko_joints = load_yaml_joints(TimoshenkoJoint, data,
+        "timoshenko_joints", (:EA, :GA, :GJ, :EIy, :EIz),
+        (:shear_coeff, :damping_trans, :damping_rot, :rest_length); yaml_to_ref)
+    elastic_joints = load_yaml_joints(ElasticJoint, data, "elastic_joints",
+        (:stiffness_axial, :stiffness_shear, :stiffness_torsion,
+         :stiffness_bending), (:damping_trans, :damping_rot); yaml_to_ref)
+
     # The SystemStructure constructor handles WING->STATIC when no wings exist.
     return SystemStructure(system_name, resolved_set; points, twist_surfaces,
         segments, pulleys, tethers, winches, wings,
-        transforms, ignore_l0, vsm_set)
+        transforms, bodies, elastic_joints, timoshenko_joints,
+        ignore_l0, vsm_set)
 end

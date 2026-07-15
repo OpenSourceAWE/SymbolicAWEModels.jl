@@ -131,6 +131,14 @@ SymbolicAWEModels.calculate_derived_properties!
 SymbolicAWEModels.extract_args
 SymbolicAWEModels.call_yaml_constructor
 SymbolicAWEModels.parse_tether_init
+SymbolicAWEModels.yaml_row_name
+SymbolicAWEModels.yaml_block_empty
+SymbolicAWEModels.yaml_vec3
+SymbolicAWEModels.yaml_matrix3
+SymbolicAWEModels.yaml_ref_field
+SymbolicAWEModels.load_property_table
+SymbolicAWEModels.load_yaml_bodies
+SymbolicAWEModels.load_yaml_joints
 ```
 
 ## SystemStructure internals
