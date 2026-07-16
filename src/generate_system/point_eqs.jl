@@ -45,7 +45,8 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     va_point_b, va_point_w, wind_at_point, height,
                     aero_force_point_b,
                     twist_surface_y_airf,
-                    body_force, body_moment, body_pos_w, body_com_w, body_R_b_to_w)
+                    body_force, body_moment, body_pos_w, body_com_w, body_R_b_to_w,
+                    body_com_vel, body_ω_b)
 
     wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
     for point in points
@@ -168,6 +169,26 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     point_force[:, point.idx] ~
                         spring_sum_force[:, point.idx] + aero_force_w + Num[0, 0, -params.set.g_earth * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
                 ]
+
+                if point.body_idx > 0
+                    # Rides a Body (beam-node coupling): kinematic pose, loads to body.
+                    body = point.body_idx
+                    anchor = collect(params.points[point.idx].anchor_b)
+                    R_body = collect(body_R_b_to_w[:, :, body])
+                    anchor_w = collect(body_pos_w[:, body]) .+ R_body * anchor
+                    ω_w = R_body * collect(body_ω_b[:, body])
+                    arm = anchor_w .- collect(body_com_w[:, body])
+                    eqs = [
+                        eqs
+                        pos[:, point.idx] ~ anchor_w
+                        vel[:, point.idx] ~ collect(body_com_vel[:, body]) .+ (ω_w × arm)
+                        acc[:, point.idx] ~ zeros(3)
+                    ]
+                    force_on_body = collect(point_force[:, point.idx])
+                    body_force[:, body] .+= force_on_body
+                    body_moment[:, body] .+= arm × force_on_body
+                    continue
+                end
 
                 # Damping terms (applied in body frame, then transformed to world frame)
                 vel_diff_w = vel[:, point.idx] - wing_vel[:, point.wing_idx]

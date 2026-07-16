@@ -69,6 +69,7 @@ export NameRef, NamedCollection, WeightedRefPoints
 export DynamicsType, DYNAMIC, STATIC, WING, BODY_STATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
+export PrincipalFrameMethod, EIGEN_DECOMP, Y_ROTATION
 export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate,
        ContinuousAero
 export aero_component

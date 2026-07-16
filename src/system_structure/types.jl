@@ -74,6 +74,23 @@ Base.@deprecate_binding QUATERNION RIGID_DYNAMICS
 Base.@deprecate_binding REFINE PARTICLE_DYNAMICS
 
 """
+    PrincipalFrameMethod
+
+Strategy for computing the principal frame from an inertia tensor.
+
+- `EIGEN_DECOMP`: full 3-axis eigendecomposition + permutation search
+  ([`principal_frame`](@ref)). General-purpose; correct for any body.
+- `Y_ROTATION`: closed-form rotation about Y only
+  ([`calc_inertia_y_rotation`](@ref)). Use for wings symmetric about the
+  XZ-plane where the generic permutation search is ambiguous when two
+  principal moments are close.
+"""
+@enum PrincipalFrameMethod begin
+    EIGEN_DECOMP
+    Y_ROTATION
+end
+
+"""
     abstract type WingDynamics
 
 Phantom tag for a wing's dynamics, carried as the second type parameter of
@@ -301,6 +318,12 @@ Constructs a `Point` object, which can be of four different [`DynamicsType`](@re
 - `BODY_STATIC`: The point is static in a [`Body`](@ref)'s body frame
   (pass `body`); it rides the body and feeds its net force and moment into it.
 
+A `WING` point of a `PARTICLE_DYNAMICS` wing may also pass `body`: it then rides
+that [`Body`](@ref) instead of integrating Newton's law, keeping its wing
+membership (per-point aero, wing-frame fitting) while feeding its net force and
+COM moment into the body — the coupling used when the wing structure is a chain
+of bodies joined by [`TimoshenkoJoint`](@ref)s instead of spring segments.
+
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the point (e.g., `:kcu`, `:le_1`, or `1` for legacy).
 - `pos_cad::KVec3`: Position of the point in the CAD frame.
@@ -311,9 +334,9 @@ Constructs a `Point` object, which can be of four different [`DynamicsType`](@re
 - `wing::Union{Int, Symbol}=1`: Reference to the wing (name or index).
 - `transform::Union{Int, Symbol}=1`: Reference to the transform (name or index).
 - `body::Union{Int, Symbol}`: Reference to a [`Body`](@ref) to anchor the
-  point to (requires `type = BODY_STATIC`). The point then rides the body
-  kinematically and feeds its net force (and the moment about the body COM)
-  into the body. Defaults to no anchor.
+  point to (requires `type = BODY_STATIC` or `type = WING`). The point then
+  rides the body kinematically and feeds its net force (and the moment about
+  the body COM) into the body. Defaults to no anchor.
 - `anchor_b::KVec3`: Anchor offset in the body frame [m] (used with `body`).
 - `vel_w::KVec3=zeros(KVec3)`: Initial velocity of the point in world frame.
 - `extra_mass::Float64=0.0`: User-provided mass of the point [kg].
@@ -335,8 +358,8 @@ function Point(name, pos_cad, type;
     if type == BODY_STATIC
         isnothing(body) && error("Point $name: BODY_STATIC requires a `body` " *
             "reference to a Body.")
-    elseif !isnothing(body)
-        error("Point $name: `body` is only valid with type BODY_STATIC.")
+    elseif !isnothing(body) && type != WING
+        error("Point $name: `body` is only valid with type BODY_STATIC or WING.")
     end
     # transform 0 means no transform; a body-anchored point has no wing (wing_ref 0).
     body_ref = isnothing(body) ? 0 : body
@@ -400,6 +423,14 @@ mutable struct TwistSurface
     moment_frac::SimFloat
     "Damping coefficient for twist dynamics [N·m·s/rad]."
     damping::SimFloat
+    "Torsional restoring stiffness for twist dynamics [N·m/rad]. The resulting
+    moment (`stiffness * twist_angle`) is divided by the twist_surface's
+    inertia, same as the aero/tether moments, before being applied to the
+    twist angular acceleration. Models the panel's own structural resistance
+    to twisting, independent of any restoring moment from bridle tension
+    geometry. Defaults to 0.0 (no effect, matching prior behaviour) when not
+    set."
+    stiffness::SimFloat
     "Current twist angle [rad]."
     twist::SimFloat
     "Current twist angular velocity [rad/s]."
@@ -433,6 +464,10 @@ using the closest VSM panel to the twist_surface's mean point position.
 
 # Keyword Arguments
 - `damping::SimFloat=50.0`: Damping coefficient for twist dynamics.
+- `stiffness::SimFloat=0.0`: Torsional restoring stiffness [N·m/rad]. Adds a
+  `-stiffness * twist_angle / inertia` term to the twist angular acceleration,
+  independent of the bridle-tension restoring moment. `0.0` reproduces prior
+  behaviour exactly.
 - `x_airf=nothing`: Chord-direction reference (body frame). When given, stored as
   the `chord` field — twist is measured relative to it. Defaults to auto-derived
   from the closest VSM panel during SystemStructure construction.
@@ -446,14 +481,14 @@ using the closest VSM panel to the twist_surface's mean point position.
   computed during SystemStructure construction from the closest VSM panel.
 """
 function TwistSurface(name, points, type, moment_frac;
-                      damping=50.0, x_airf=nothing, y_airf=nothing,
+                      damping=50.0, stiffness=0.0, x_airf=nothing, y_airf=nothing,
                       area=NaN, twist=0.0)
     point_refs = Vector{NameRef}([p isa Integer ? Int(p) : Symbol(p) for p in points])
     chord_vec = isnothing(x_airf) ? zeros(KVec3) : KVec3(x_airf)
     y_vec = isnothing(y_airf) ? zeros(KVec3) : KVec3(y_airf)
     TwistSurface(0, name, Int64[], point_refs,
           zeros(KVec3), chord_vec, y_vec,
-          type, moment_frac, damping,
+          type, moment_frac, damping, stiffness,
           SimFloat(twist), 0.0, 0.0, 0.0, 0.0,
           Int64[], SimFloat(area))
 end

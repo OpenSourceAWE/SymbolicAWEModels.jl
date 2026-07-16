@@ -483,5 +483,82 @@ winches:
         @test sys.bodies[:root].pos_w ≈ KVec3(0.5seg_len, 0, 0)
     end
 
+    # ================================================================
+    # Test 10: placement translates a RIGID_DYNAMICS wing whose free end
+    # is a WING point. A WING point carries its body in wing_idx (its
+    # body_idx is 0), so collecting moved bodies via body_idx alone leaves
+    # the wing behind while its points move — the pos~anchor constraint
+    # then snaps everything back at simulation time.
+    # ================================================================
+    @testset "Placement moves a rigid wing (WING-point free end)" begin
+        wing_yaml = """
+materials:
+  headers: [name, youngs_modulus, density, damping_per_stiffness]
+  data:
+    - [test_mat, 120000.0, 724, 0.001]
+
+points:
+  headers: [name, pos_cad, type, wing_idx, transform_idx,
+            extra_mass, body_frame_damping, world_frame_damping,
+            area, drag_coeff]
+  data:
+    - [le_left,   [-0.5, 1.0, 2.0], WING, main_wing, ~, 0.5, 0.0, 0.0, 0.0, 0.0]
+    - [te_left,   [0.5,  1.0, 2.2], WING, main_wing, ~, 0.5, 0.0, 0.0, 0.0, 0.0]
+    - [le_center, [-0.5, 0.0, 2.5], WING, main_wing, ~, 0.5, 0.0, 0.0, 0.0, 0.0]
+    - [te_center, [0.5,  0.0, 2.7], WING, main_wing, ~, 0.5, 0.0, 0.0, 0.0, 0.0]
+    - [le_right,  [-0.5,-1.0, 2.0], WING, main_wing, ~, 0.5, 0.0, 0.0, 0.0, 0.0]
+    - [te_right,  [0.5, -1.0, 2.2], WING, main_wing, ~, 0.5, 0.0, 0.0, 0.0, 0.0]
+    - [ground,    [0.0, 0.0, 0.0], STATIC, ~, ~, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+segments:
+  headers: [name, point_i, point_j, l0, diameter_mm,
+            unit_stiffness, unit_damping, compression_frac]
+  data:
+    - [tether_seg, ground, le_center, 0.0, 4.0, 120000.0, 350.0, 0.0]
+
+wings:
+  data:
+    - name: main_wing
+      dynamics_type: RIGID_DYNAMICS
+      aero_mode: AERO_NONE
+      transform_idx: 0
+      y_damping: 0.0
+
+tethers:
+  headers: [name, segment_idxs, init_stretched_length]
+  data:
+    - [main_tether, [tether_seg], 5.0990195135927845]
+
+winches:
+  headers: [name, tether_idxs, winch_point]
+  data:
+    - [main_winch, [main_tether], ground]
+"""
+        yaml_path = joinpath(tmpdir, "wing.yaml")
+        write(yaml_path, wing_yaml)
+        sys = load_sys_struct_from_yaml(yaml_path;
+            system_name="init_stretched_length_wing", set=set,
+            aero_mode=AeroNone())
+
+        wing = sys.bodies[:main_wing]
+        pos_cad = copy(wing.pos_cad)
+        # Free end le_center at [-0.5, 0, 2.5]; standoff = 2× its distance to
+        # ground, so the whole wing translates by delta = [-0.5, 0, 2.5].
+        delta = KVec3(-0.5, 0.0, 2.5)
+
+        SymbolicAWEModels.reinit!(sys, set)
+
+        ground = sys.points[:ground].pos_w
+        le_center = sys.points[:le_center].pos_w
+        # Free end sits at the stretched standoff.
+        @test norm(le_center - ground) ≈ 5.0990195135927845
+        # The wing body translated with its points (the regression: the body
+        # stayed at pos_cad while the points moved).
+        @test wing.pos_w ≈ pos_cad .+ delta
+        # Body and its WING points stay rigid: point→origin offset preserved.
+        @test le_center .- wing.pos_w ≈
+              sys.points[:le_center].pos_cad .- pos_cad
+    end
+
 end
 nothing

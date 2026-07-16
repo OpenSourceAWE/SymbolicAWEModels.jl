@@ -56,6 +56,8 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     const R_p_to_c::Matrix{SimFloat}
     "Offset from body origin to COM, body frame [m]."
     const com_offset_b::KVec3
+    "Method used to compute the principal frame (see [`PrincipalFrameMethod`](@ref))."
+    principal_frame_method::PrincipalFrameMethod
     "External force applied at the COM, world frame [N] (settable)."
     const ext_force_w::KVec3
     "External force applied at the COM, body frame [N] (settable)."
@@ -162,6 +164,28 @@ function principal_frame(inertia::AbstractMatrix)
 end
 
 """
+    calc_inertia_y_rotation(I_tensor) -> (inertia_principal, R_to_principal)
+
+Diagonalize a 3×3 inertia tensor via a closed-form rotation about the Y axis,
+returning `(moments, R)` in the same format as [`principal_frame`](@ref).
+
+The rotation angle is `θ = atan(2·I₁₃, I₁₁ − I₃₃) / 2`, zeroing out the
+`I[1,3]` / `I[3,1]` cross terms while leaving the Y axis unchanged.
+
+Unlike [`principal_frame`](@ref) (full 3-axis eigendecomposition + permutation
+search), this is a unique, closed-form solution — the right choice for a wing
+symmetric about the XZ-plane (no Y products of inertia), where the generic
+permutation search is ambiguous when two principal moments are close.
+"""
+function calc_inertia_y_rotation(I_tensor)
+    θ = atan(2 * I_tensor[1, 3], I_tensor[1, 1] - I_tensor[3, 3]) / 2
+    cθ, sθ = cos(θ), sin(θ)
+    Ry = SimFloat[cθ 0 sθ; 0 1 0; -sθ 0 cθ]
+    I_diag = Ry * I_tensor * Ry'
+    return Vector{SimFloat}(diag(I_diag)), Ry
+end
+
+"""
     Body(name; mass, inertia_principal | inertia, pos, vel=zeros,
               Q_b_to_w=[1,0,0,0], ω_b=zeros, com_offset_b=zeros, R_b_to_p=I,
               angular_damping=0, fix_sphere=false, type=DYNAMIC, transform=nothing,
@@ -183,7 +207,7 @@ origin (radial DOF frozen), like a `RIGID_DYNAMICS` wing's `fix_sphere`.
 Supply the inertia in one of two ways: `inertia_principal` (a length-3 diagonal
 principal inertia, with `R_b_to_p` giving the body→principal rotation), or
 `inertia` (a full 3×3 body-frame tensor), in which case both `inertia_principal`
-and `R_b_to_p` are derived via [`principal_frame`](@ref). Give one, not both.
+and `R_b_to_p` are derived via the chosen `principal_frame_method`. Give one, not both.
 """
 function Body(name;
         mass::Real,
@@ -202,6 +226,7 @@ function Body(name;
         ext_force_w = zeros(SimFloat, 3),
         ext_force_b = zeros(SimFloat, 3),
         ext_moment_b = zeros(SimFloat, 3),
+        principal_frame_method::PrincipalFrameMethod = EIGEN_DECOMP,
     )
     # Scalar damping broadcasts to an isotropic per-axis vector.
     damping_vec = damping isa Real ? KVec3(damping, damping, damping) : KVec3(damping)
@@ -211,7 +236,8 @@ function Body(name;
     if !isnothing(inertia)
         isnothing(inertia_principal) || error(
             "Body $name: give `inertia` or `inertia_principal`, not both.")
-        inertia_principal, R_b_to_p = principal_frame(inertia)
+        inertia_principal, R_b_to_p = principal_frame_method == Y_ROTATION ?
+            calc_inertia_y_rotation(inertia) : principal_frame(inertia)
     elseif isnothing(inertia_principal)
         error("Body $name: provide `inertia_principal` or `inertia`.")
     end
@@ -220,7 +246,7 @@ function Body(name;
     return Body{AeroNone, RigidDynamics}(
         0, name, 0, transform_ref,
         SimFloat(mass), KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p),
-        Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b),
+        Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b), principal_frame_method,
         KVec3(ext_force_w), KVec3(ext_force_b), KVec3(ext_moment_b),
         damping_vec, fix_sphere, type,
         KVec3(pos), Matrix{SimFloat}(R_b_to_c),

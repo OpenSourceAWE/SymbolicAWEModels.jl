@@ -50,4 +50,15 @@ using SymbolicAWEModels
     @test mtime(joinpath(root, "Manifest-v1.11.toml.default")) >= project_mtime - 1.0
     @test mtime(joinpath(root, "Manifest-v1.12.toml.default")) >= project_mtime - 1.0
 end
+
+@testset "yaml_n_unrefined_sections" begin
+    n_sections = SymbolicAWEModels.yaml_n_unrefined_sections
+    @test n_sections((; n_unrefined_sections=4)) == 4
+    @test n_sections((; twist_surfaces=[:a, :b, :c])) == 3
+    # An explicit value wins over the twist-surface count.
+    @test n_sections((; n_unrefined_sections=5, twist_surfaces=[:a])) == 5
+    @test n_sections((; n_unrefined_sections=nothing, twist_surfaces=[:a])) == 1
+    @test isnothing(n_sections((; name=:wing)))
+    @test isnothing(n_sections((; twist_surfaces=nothing)))
+end
 nothing

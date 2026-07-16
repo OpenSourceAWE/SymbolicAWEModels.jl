@@ -150,6 +150,9 @@ function validate_weights!(weights::Vector{Float64})
     end
 end
 
+"""Declare Wing as a generic function (not an extension of VortexStepMethod.Wing)."""
+function Wing end
+
 """
     Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_principal;
          transform=nothing, y_damping=150.0, angular_damping=0.0,
@@ -184,7 +187,8 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
               aero::Union{Nothing,AbstractAeroModel}=nothing,
               wing_type::Union{Nothing,WingType}=nothing,
               group_points_moment::Bool=true,
-              z_ref_points=nothing, y_ref_points=nothing, origin=nothing)
+              z_ref_points=nothing, y_ref_points=nothing, origin=nothing,
+              principal_frame_method::PrincipalFrameMethod=EIGEN_DECOMP)
     # Handle deprecated wing_type keyword
     if !isnothing(wing_type)
         if !isnothing(dynamics_type)
@@ -214,6 +218,7 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
         0, name, 0, transform_ref,
         zero(SimFloat), KVec3(inertia_principal),
         Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3), zeros(KVec3),
+        principal_frame_method,
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
         damping_vec, false, body_type,
         KVec3(pos_cad), Matrix{SimFloat}(R_b_to_c),
@@ -231,23 +236,19 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
 end
 
 """
-    create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, sort_sections=true,
-                    n_unrefined_sections=nothing)
+    create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
+                    prn=true, sort_sections=true, n_unrefined_sections=nothing)
 
 Create a `VortexStepMethod.Wing` geometry object from the settings provided.
 
 This function checks for .obj and .dat files in the model directory.
-If found, it uses `VortexStepMethod.ObjWing(obj_path, dat_path)` to load the wing.
+If found, it uses `VortexStepMethod.ObjWing(obj_path, dat_path)` to load the
+wing, passing `n_unrefined_sections` through (`nothing` leaves the choice to
+`ObjWing`, which defaults to one unrefined section per panel boundary).
 Otherwise, it falls back to loading from `aero_geometry.yaml`.
-
-# Keywords
-- `prn=true`: Print progress info.
-- `sort_sections=true`: Sort wing sections.
-- `n_unrefined_sections`: Number of unrefined (twist) sections for the wing.
-  Defaults to `2` for `"simple_ram"`, `4` otherwise.
 """
-function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; prn=true, sort_sections=true,
-                          n_unrefined_sections=nothing)
+function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
+                         prn=true, sort_sections=true, n_unrefined_sections=nothing)
     # Check for .obj and .dat files in the model directory
     model_dir = get_data_path()
     obj_path = joinpath(model_dir, set.model)
@@ -256,14 +257,6 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings; p
     if isfile(obj_path) && isfile(dat_path)
         # Use ObjWing constructor (default path)
         prn && @info "Loading wing from .obj/.dat files"
-
-        if n_unrefined_sections === nothing
-            n_unrefined_sections = if set.physical_model == "simple_ram"
-                2
-            else
-                4
-            end
-        end
 
         return VortexStepMethod.ObjWing(obj_path, dat_path;
             mass=1.0, crease_frac=set.crease_frac, n_unrefined_sections,
@@ -298,8 +291,8 @@ are resolved.
 - `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
 - `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
 - `n_unrefined_sections`: Forwarded to [`create_vsm_wing`](@ref). When `nothing`
-  (default), the value is determined by `create_vsm_wing`'s own default logic
-  (2 for `"simple_ram"`, 4 otherwise).
+  (default), `ObjWing` picks its own default (one unrefined section per panel
+  boundary).
 """
 function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
                           dynamics_type::WingType;
@@ -354,6 +347,14 @@ it to the wing.
 - `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
 - `z_ref_points`, `y_ref_points`, `origin`: Body-frame references.
 - `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
+- `n_unrefined_sections=nothing`: Number of coarse (unrefined) spanwise
+  sections used for twist/deformation control, before mesh refinement into
+  the full VSM panel mesh; also sizes the linearized aero I/O in
+  [`build_vsm_engine`](@ref) (twist_surface-count proxy). Only used for
+  `.obj`/`.dat`-based wings ([`create_vsm_wing`](@ref)); ignored when loading
+  from `aero_geometry.yaml`, where it is inferred from the geometry file's
+  sections instead. When `nothing`, `ObjWing` picks its own default (one
+  unrefined section per panel boundary).
 """
 function VSMWing(name, set::Settings,
                  twist_surfaces::AbstractVector,
@@ -373,7 +374,9 @@ function VSMWing(name, set::Settings,
                  y_ref_points=nothing,
                  origin=nothing,
                  aero_scale_chord::SimFloat=0.0,
-                 aero_z_offset::SimFloat=0.0)
+                 aero_z_offset::SimFloat=0.0,
+                 n_unrefined_sections=nothing,
+                 principal_frame_method::PrincipalFrameMethod=EIGEN_DECOMP)
 
     # Handle deprecated wing_type keyword
     if !isnothing(wing_type)
@@ -408,7 +411,8 @@ function VSMWing(name, set::Settings,
             "Wing '$name': aero mode $(typeof(aero)) needs VSM geometry " *
             "but no vsm_set was provided.")
         aero = attach_engine!(aero, build_vsm_engine(set, vsm_set, dynamics_type;
-            point_to_vsm_point, wing_segments, aero_scale_chord, aero_z_offset))
+            point_to_vsm_point, wing_segments, aero_scale_chord, aero_z_offset,
+            n_unrefined_sections))
     end
 
     # Placeholders — overwritten by SystemStructure
@@ -419,7 +423,8 @@ function VSMWing(name, set::Settings,
 
     return Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_vec;
         transform, y_damping, angular_damping, dynamics_type, aero,
-        group_points_moment, z_ref_points, y_ref_points, origin)
+        group_points_moment, z_ref_points, y_ref_points, origin,
+        principal_frame_method)
 end
 
 """
@@ -432,9 +437,11 @@ function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
                  twist_surfaces::AbstractVector,
                  R_b_to_c::AbstractMatrix,
                  pos_cad::AbstractVector;
-                 transform=nothing)
+                 transform=nothing,
+                 n_unrefined_sections=nothing)
     inertia_vec = ones(MVector{3, SimFloat})
-    n_twist_surfaces_est = vsm_wing.n_unrefined_sections
+    n_twist_surfaces_est = isnothing(n_unrefined_sections) ?
+        vsm_wing.n_unrefined_sections : n_unrefined_sections
     num_aero_outputs = 6 + n_twist_surfaces_est
     num_aero_inputs = 5 + n_twist_surfaces_est
     engine = VSMEngine(vsm_aero, vsm_wing, vsm_solver,

@@ -199,6 +199,11 @@ end
         @test wing.aero isa AeroNone
         @test wing.mass ≈ 3.0  # 6 points * 0.5 kg
         @test length(sys.segments) == 0
+        # No ref points: body frame = CAD orientation, not principal.
+        @test wing.R_b_to_c ≈ I(3) atol=1e-12
+        @test wing.R_b_to_p ≈ wing.R_p_to_c' atol=1e-12
+        # This wing has a nonzero xz inertia product, so body ≠ principal.
+        @test !isapprox(wing.R_b_to_p, I(3); atol=0.01)
     end
 
     sam = SymbolicAWEModel(set, sys)
@@ -239,8 +244,10 @@ end
         k = argmax(I_b)  # max I axis: always stable
 
         omega0 = 3.0  # rad/s
-        omega_init = zeros(3)
-        omega_init[k] = omega0
+        omega_principal = zeros(3)
+        omega_principal[k] = omega0
+        # Body frame ≠ principal: express the principal-axis spin in body coords.
+        omega_init = collect(wing.R_b_to_p' * omega_principal)
         wing.ω_b .= omega_init
         wing.vel_w .= 0.0
         test_init!(sam; prn=false, reset_vel=false)
@@ -308,7 +315,8 @@ end
         pc = precession_coeffs(I_b, k, omega0)
         omega_init[pc.p] = eps
 
-        wing.ω_b .= omega_init
+        # omega_init is a principal-frame vector; ω_b is body frame.
+        wing.ω_b .= wing.R_b_to_p' * omega_init
         wing.vel_w .= 0.0
         test_init!(sam; prn=false, reset_vel=false)
 
@@ -334,10 +342,11 @@ end
 
         for _ in 1:n_steps
             next_step!(sam; dt, vsm_interval=0)
+            omega_principal = wing.R_b_to_p * wing.ω_b
             push!(times, sam.integrator.t)
-            push!(omega_p_vals, wing.ω_b[pc.p])
-            push!(omega_q_vals, wing.ω_b[pc.q])
-            push!(omega_k_vals, wing.ω_b[k])
+            push!(omega_p_vals, omega_principal[pc.p])
+            push!(omega_q_vals, omega_principal[pc.q])
+            push!(omega_k_vals, omega_principal[k])
         end
 
         # Spin-axis omega stays constant
@@ -364,9 +373,9 @@ end
         @test T_measured ≈ T_prec rtol=0.05
 
         # Rotational kinetic energy conservation:
-        # E = 0.5 * sum(I_i * omega_i^2)
+        # E = 0.5 * sum(I_i * omega_i^2) (principal frame)
         E_initial = 0.5 * sum(I_b .* omega_init .^ 2)
-        omega_final = collect(wing.ω_b)
+        omega_final = collect(wing.R_b_to_p * wing.ω_b)
         E_final = 0.5 * sum(I_b .* omega_final .^ 2)
         println("  E_initial = $(round(E_initial; digits=4))" *
             ", E_final = $(round(E_final; digits=4))")

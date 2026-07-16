@@ -71,6 +71,12 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, bodies, params, initi
 
     length(twist_surfaces) == 0 && return eqs, defaults
 
+    # Twist surfaces may have differing point counts (e.g. left/right halves of a
+    # bridle with an asymmetric number of attachment points). Size the per-point
+    # arrays by the largest point count so every twist_surface fits, and fill the
+    # unused tail slots with zero equations below so the system stays balanced.
+    max_npoints = maximum(length(ts.point_idxs) for ts in twist_surfaces)
+
     @variables begin
         trailing_edge_angle(t)[eachindex(twist_surfaces)]
         trailing_edge_ω(t)[eachindex(twist_surfaces)]
@@ -79,10 +85,10 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, bodies, params, initi
         twist_α(t)[eachindex(twist_surfaces)]
         twist_surface_tether_force(t)[eachindex(twist_surfaces)]
         twist_surface_tether_moment(t)[eachindex(twist_surfaces)]
-        tether_force(t)[eachindex(twist_surfaces[1].point_idxs), eachindex(twist_surfaces)]
-        tether_moment(t)[eachindex(twist_surfaces[1].point_idxs), eachindex(twist_surfaces)]
-        r_twist_surface(t)[eachindex(twist_surfaces[1].point_idxs), eachindex(twist_surfaces)]
-        r_vec(t)[1:3, eachindex(twist_surfaces[1].point_idxs), eachindex(twist_surfaces)]
+        tether_force(t)[1:max_npoints, eachindex(twist_surfaces)]
+        tether_moment(t)[1:max_npoints, eachindex(twist_surfaces)]
+        r_twist_surface(t)[1:max_npoints, eachindex(twist_surfaces)]
+        r_vec(t)[1:3, 1:max_npoints, eachindex(twist_surfaces)]
     end
 
     for twist_surface in twist_surfaces
@@ -118,6 +124,10 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, bodies, params, initi
                 twist_ω[twist_surface.idx] ~ 0
                 twist_surface_tether_force[twist_surface.idx] ~ 0
                 twist_surface_tether_moment[twist_surface.idx] ~ 0
+                [tether_force[i, twist_surface.idx] ~ 0 for i in 1:max_npoints]
+                [tether_moment[i, twist_surface.idx] ~ 0 for i in 1:max_npoints]
+                [r_twist_surface[i, twist_surface.idx] ~ 0 for i in 1:max_npoints]
+                [r_vec[j, i, twist_surface.idx] ~ 0 for i in 1:max_npoints for j in 1:3]
             ]
             (!no_aero && isempty(twist_surface.unrefined_section_idxs)) &&
                 (eqs = [eqs; twist_surface_aero_moment[twist_surface.idx] ~ 0])
@@ -150,6 +160,20 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, bodies, params, initi
             ]
         end
 
+        # Zero out the unused tail rows for twist_surfaces with fewer than
+        # max_npoints points, so every declared array element gets exactly one
+        # equation regardless of how many points this particular surface has.
+        npoints = length(twist_surface.point_idxs)
+        if npoints < max_npoints
+            eqs = [
+                eqs
+                [tether_force[i, twist_surface.idx] ~ 0 for i in (npoints+1):max_npoints]
+                [tether_moment[i, twist_surface.idx] ~ 0 for i in (npoints+1):max_npoints]
+                [r_twist_surface[i, twist_surface.idx] ~ 0 for i in (npoints+1):max_npoints]
+                [r_vec[j, i, twist_surface.idx] ~ 0 for i in (npoints+1):max_npoints for j in 1:3]
+            ]
+        end
+
         # Thin-plate inertia about one edge: I = 1/3·m·L² (m = twist_surface mass).
         twist_surface_chord = collect(twist_surface_chord)
         twist_surface_mass = sum(params.points[point_idx].extra_mass for point_idx in twist_surface.point_idxs)
@@ -175,7 +199,9 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, bodies, params, initi
                     fix_wing == true,
                     0,
                     twist_α[twist_surface.idx] -
-                    params.twist_surfaces[twist_surface.idx].damping * twist_ω[twist_surface.idx],
+                    params.twist_surfaces[twist_surface.idx].damping * twist_ω[twist_surface.idx] -
+                    params.twist_surfaces[twist_surface.idx].stiffness * twist_angle[twist_surface.idx] /
+                    inertia,
                 )
             ]
             defaults = [

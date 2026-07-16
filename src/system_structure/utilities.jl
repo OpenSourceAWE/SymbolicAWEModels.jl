@@ -471,8 +471,17 @@ function apply_cluster_init_stretched_len!(
     end
 
     # Move the body, not its points: the pos~anchor constraint would snap them back.
-    moved_bodies = Set{Int64}(points[idx].body_idx for idx in moved
-                              if points[idx].body_idx != 0)
+    # WING points carry their body association in wing_idx (body_idx is 0);
+    # BODY_STATIC points use body_idx.
+    moved_bodies = Set{Int64}()
+    for idx in moved
+        point = points[idx]
+        if point.type == WING && point.wing_idx != 0
+            push!(moved_bodies, point.wing_idx)
+        elseif point.body_idx != 0
+            push!(moved_bodies, point.body_idx)
+        end
+    end
     for body_idx in moved_bodies
         bodies[body_idx].pos_w .+= delta
         bodies[body_idx].com_w .+= delta
