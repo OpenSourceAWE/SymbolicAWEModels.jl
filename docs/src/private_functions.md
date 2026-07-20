@@ -276,6 +276,13 @@ SymbolicAWEModels.store_billow_offsets!
 SymbolicAWEModels.store_induced_velocity!
 SymbolicAWEModels.reconstruct_sections_b
 SymbolicAWEModels.ContinuousPolar
+SymbolicAWEModels.transform_vsm_sections_to_body!
+SymbolicAWEModels.frozen_point_force_component
+SymbolicAWEModels.build_panel_force_eqs
+SymbolicAWEModels.loft_contour_node
+SymbolicAWEModels.build_station_point_map!
+SymbolicAWEModels.init_pressure_buffers!
+SymbolicAWEModels.freeze_traction_pattern!
 ```
 
 ## Heading and geometry

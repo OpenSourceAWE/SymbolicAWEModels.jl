@@ -71,7 +71,7 @@ export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
 export PrincipalFrameMethod, EIGEN_DECOMP, Y_ROTATION
 export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate,
-       ContinuousAero
+       ContinuousAero, AeroPressure
 export aero_component
 
 # --- High-Level Simulation Functions (Workers) ---
@@ -191,6 +191,7 @@ include("aero_modes/none.jl")
 include("aero_modes/direct.jl")
 include("aero_modes/linearized.jl")
 include("aero_modes/continuous.jl")
+include("aero_modes/pressure.jl")
 include("aero_modes/plate.jl")
 # Winch models; loaded after generate_system for the MTK/flat-params it uses.
 include("winch_models/common.jl")

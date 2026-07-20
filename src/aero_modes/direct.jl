@@ -28,21 +28,8 @@ provides_aero_override(::AeroDirect) = true
 Frozen per-point VSM forces (synced each refresh, so emitted as flat params) on
 the particle connector contract.
 """
-function aero_component(::AeroDirect, wing::ParticleWing, sys_struct;
-                        name, params=nothing)
-    points = wing_points(sys_struct, wing)
-    num_points = length(points)
-    connectors = particle_aero_connectors(num_points)
-    flat_ps = Any[]
-    eqs = Equation[]
-    for (point_num, point) in enumerate(points)
-        force_p = params.points[point.idx].aero_force_b
-        push!(flat_ps, force_p)
-        eqs = [eqs
-               collect(connectors.point_force[:, point_num]) .~ collect(force_p)]
-    end
-    return System(eqs, t, particle_unknowns(connectors), flat_ps; name)
-end
+aero_component(::AeroDirect, wing::ParticleWing, sys_struct; name, params=nothing) =
+    frozen_point_force_component(wing, sys_struct; name, params)
 
 """
     aero_component(::AeroDirect, wing::RigidWing, sys_struct; name, params)
