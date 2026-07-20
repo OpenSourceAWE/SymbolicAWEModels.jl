@@ -15,12 +15,13 @@ Generate equations for pulley dynamics (rope distribution over pulleys).
 - `segments`: Collection of Segment objects (for mass calculation).
 - `spring_force`: Symbolic segment spring force variable.
 - `pulley_len`, `pulley_vel`: Symbolic pulley state variables.
+- `l0`: Symbolic segment rest lengths (segment 1's `l0` is bound to the pulley length).
 
 # Returns
 - Tuple `(eqs, defaults)` with updated equation vectors.
 """
 function pulley_eqs!(eqs, defaults, pulleys, segments, params, initial;
-                     spring_force, pulley_len, pulley_vel)
+                     spring_force, pulley_len, pulley_vel, l0)
     @variables begin
         pulley_force(t)[eachindex(pulleys)]
         pulley_acc(t)[eachindex(pulleys)]
@@ -50,6 +51,8 @@ function pulley_eqs!(eqs, defaults, pulleys, segments, params, initial;
                 defaults
                 bind_initial!(initial.pulleys[pulley.idx].len, pulley_len[pulley.idx])
                 bind_initial!(initial.pulleys[pulley.idx].vel, pulley_vel[pulley.idx])
+                # l0[seg1] == pulley_len; bind for the tearing that keeps l0.
+                bind_initial!(initial.pulleys[pulley.idx].len, l0[pulley.segment_idxs[1]])
             ]
         else
             error("Wrong pulley type")

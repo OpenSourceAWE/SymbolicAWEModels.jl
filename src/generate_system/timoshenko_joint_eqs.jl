@@ -45,6 +45,10 @@ function timoshenko_joint_eqs!(
         timoshenko_force_b_w(t)[1:3, eachindex(timoshenko_joints)]
         timoshenko_moment_a_w(t)[1:3, eachindex(timoshenko_joints)]
         timoshenko_moment_b_w(t)[1:3, eachindex(timoshenko_joints)]
+        # Torn intermediates so the reused frame subtree is not re-embedded/re-scalarized per nesting level.
+        timoshenko_frame(t)[1:3, 1:3, eachindex(timoshenko_joints)]
+        timoshenko_theta_a(t)[1:3, eachindex(timoshenko_joints)]
+        timoshenko_theta_b(t)[1:3, eachindex(timoshenko_joints)]
     end
 
     for joint in timoshenko_joints
@@ -63,9 +67,10 @@ function timoshenko_joint_eqs!(
         x_a = pos_a .+ R_a * anchor_a
         x_b = pos_b .+ R_b * anchor_b
         e1, e2, e3, len = timoshenko_element_frame(x_a, x_b, R_a)
-        element_frame = [e1[1] e2[1] e3[1];
-                         e1[2] e2[2] e3[2];
-                         e1[3] e2[3] e3[3]]
+        element_frame_expr = [e1[1] e2[1] e3[1];
+                              e1[2] e2[2] e3[2];
+                              e1[3] e2[3] e3[3]]
+        element_frame = collect(timoshenko_frame[:, :, j])
 
         L0 = params.timoshenko_joints[j].rest_length
         R_a_rel0 = collect(params.timoshenko_joints[j].R_a_rel0)
@@ -74,12 +79,14 @@ function timoshenko_joint_eqs!(
         # Deformational rotation of each node, in the element frame.
         Da = (element_frame' * R_a) * R_a_rel0'
         Db = (element_frame' * R_b) * R_b_rel0'
-        θ_a = [0.5 * (Da[3, 2] - Da[2, 3]),
-               0.5 * (Da[1, 3] - Da[3, 1]),
-               0.5 * (Da[2, 1] - Da[1, 2])]
-        θ_b = [0.5 * (Db[3, 2] - Db[2, 3]),
-               0.5 * (Db[1, 3] - Db[3, 1]),
-               0.5 * (Db[2, 1] - Db[1, 2])]
+        θ_a_expr = [0.5 * (Da[3, 2] - Da[2, 3]),
+                    0.5 * (Da[1, 3] - Da[3, 1]),
+                    0.5 * (Da[2, 1] - Da[1, 2])]
+        θ_b_expr = [0.5 * (Db[3, 2] - Db[2, 3]),
+                    0.5 * (Db[1, 3] - Db[3, 1]),
+                    0.5 * (Db[2, 1] - Db[1, 2])]
+        θ_a = collect(timoshenko_theta_a[:, j])
+        θ_b = collect(timoshenko_theta_b[:, j])
         δ = len - L0
 
         kshear = params.timoshenko_joints[j].shear_coeff
@@ -136,6 +143,9 @@ function timoshenko_joint_eqs!(
 
         eqs = [
             eqs
+            vec(timoshenko_frame[:, :, j]) ~ vec(element_frame_expr)
+            timoshenko_theta_a[:, j] ~ θ_a_expr
+            timoshenko_theta_b[:, j] ~ θ_b_expr
             timoshenko_force_a_w[:, j] ~ element_frame * F_a_local .+ c_t .* Δv
             timoshenko_force_b_w[:, j] ~ element_frame * F_b_local .- c_t .* Δv
             timoshenko_moment_a_w[:, j] ~ element_frame * M_a_local .+ c_r .* Δω
