@@ -196,9 +196,145 @@ particle_unknowns(connectors) =
     Any[connectors.point_pos, connectors.point_vel, connectors.va,
         connectors.rho, connectors.point_force]
 
+"""
+    frozen_point_force_component(wing::AbstractWing, sys_struct; name, params) -> System
+
+Particle aero component binding each WING point's connector force to its frozen
+`point.aero_force_b` flat parameter (synced every refresh). Shared by the modes
+that store a precomputed per-point force ([`AeroDirect`](@ref),
+[`AeroPressure`](@ref)); the difference between those modes is only how the
+refresh fills `aero_force_b`, not the (identical) symbolic binding.
+"""
+function frozen_point_force_component(wing, sys_struct; name, params=nothing)
+    points = wing_points(sys_struct, wing)
+    connectors = particle_aero_connectors(length(points))
+    flat_ps = Any[]
+    eqs = Equation[]
+    for (point_num, point) in enumerate(points)
+        force_p = params.points[point.idx].aero_force_b
+        push!(flat_ps, force_p)
+        eqs = [eqs
+               collect(connectors.point_force[:, point_num]) .~ collect(force_p)]
+    end
+    return System(eqs, t, particle_unknowns(connectors), flat_ps; name)
+end
+
 function wing_points(sys_struct, wing)
     return [point for point in sys_struct.points
             if point.type == WING && point.wing_idx == wing.idx]
+end
+
+"""
+    build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, cl, cd, cm,
+                          spanwise, scale) -> (eqs, vars, panel_force, panel_couple)
+
+Shared per-refined-panel VSM force assembly for the live particle aero modes
+([`ContinuousAero`](@ref), [`AeroPressure`](@ref)). Re-expresses
+`VortexStepMethod.calc_forces!` symbolically from the frozen circulation:
+per panel `i` (between section boundaries `i` and `i+1`) it builds the airfoil
+axes, chord, width, effective angle of attack (live apparent wind
+`sec_va` + frozen induced velocity `vind_p`), polar coefficients (`cl/cd/cm`
+callable params), and the lift/drag directions, and emits the panel force and
+the pitching-moment couple. Returns the panel equations, the intermediate
+variables to register, and the `panel_force`/`panel_couple` symbolic arrays for
+the caller's scatter (strut couple or surface pattern).
+
+`sec_le`/`sec_te`/`sec_va` are length-`n_panels+1` vectors of body-frame
+3-vectors (positions and apparent wind at the section boundaries), `sec_rho`
+the matching air densities; they may be live (interpolated from structure) or
+constant (a fixed mesh). `spanwise` is the wing spanwise direction, `scale` the
+chord-scale factor.
+"""
+function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
+                               vind_p, cl, cd, cm, spanwise, scale)
+    n_panels = length(sec_le) - 1
+    @variables begin
+        x_airf(t)[1:3, 1:n_panels]
+        y_airf(t)[1:3, 1:n_panels]
+        z_airf(t)[1:3, 1:n_panels]
+        v_eff(t)[1:3, 1:n_panels]
+        chord(t)[1:n_panels]
+        width(t)[1:n_panels]
+        alpha(t)[1:n_panels]
+        q_dyn(t)[1:n_panels]
+        dir_lift(t)[1:3, 1:n_panels]
+        dir_drag(t)[1:3, 1:n_panels]
+        panel_force(t)[1:3, 1:n_panels]
+        panel_couple(t)[1:3, 1:n_panels]
+    end
+
+    eqs = Equation[]
+    for i in 1:n_panels
+        le_1, te_1 = sec_le[i], sec_te[i]
+        le_2, te_2 = sec_le[i + 1], sec_te[i + 1]
+
+        chord_vec = 0.5 * (te_1 + te_2) - 0.5 * (le_1 + le_2)
+        x_unit = chord_vec ./ smooth_norm(chord_vec)
+        span_vec = (0.75 * le_1 + 0.25 * te_1) - (0.75 * le_2 + 0.25 * te_2)
+        y_unit = span_vec ./ smooth_norm(span_vec)
+        z_cross = x_unit × (le_1 - le_2)
+        z_unit = z_cross ./ smooth_norm(z_cross)
+
+        va_panel = 0.5 * (sec_va[i] + sec_va[i + 1])
+        v_eff_panel = va_panel + [vind_p[c, i] for c in 1:3]
+        rho_panel = 0.5 * (sec_rho[i] + sec_rho[i + 1])
+        v_eff_crossy = v_eff_panel × y_unit
+
+        lift = cl(i, alpha[i]) * q_dyn[i] * chord[i]
+        drag = cd(i, alpha[i]) * q_dyn[i] * chord[i]
+        panel_moment = cm(i, alpha[i]) * q_dyn[i] * chord[i]^2
+
+        dir_iva = cos(alpha[i]) .* x_unit .+ sin(alpha[i]) .* z_unit
+        lift_cross = dir_iva × y_unit
+        drag_cross = spanwise × (lift_cross ./ smooth_norm(lift_cross))
+
+        eqs = [eqs;
+            chord[i] ~ 0.5 * (smooth_norm(te_1 - le_1) +
+                              smooth_norm(te_2 - le_2));
+            width[i] ~ smooth_norm(span_vec);
+            x_airf[:, i] ~ x_unit;
+            y_airf[:, i] ~ y_unit;
+            z_airf[:, i] ~ z_unit;
+            v_eff[:, i] ~ v_eff_panel;
+            alpha[i] ~ atan(v_eff_panel ⋅ z_unit, v_eff_panel ⋅ x_unit);
+            q_dyn[i] ~ 0.5 * rho_panel * (v_eff_crossy ⋅ v_eff_crossy);
+            dir_lift[:, i] ~ lift_cross ./ smooth_norm(lift_cross);
+            dir_drag[:, i] ~ drag_cross ./ smooth_norm(drag_cross);
+            panel_force[:, i] ~ (scale * width[i]) .*
+                (lift .* collect(dir_lift[:, i]) .+
+                 drag .* collect(dir_drag[:, i]));
+            panel_couple[:, i] ~
+                (scale * width[i] * panel_moment / chord[i]) .* z_unit]
+    end
+
+    vars = Any[x_airf, y_airf, z_airf, v_eff, chord, width, alpha,
+               q_dyn, dir_lift, dir_drag, panel_force, panel_couple]
+    return eqs, vars, panel_force, panel_couple
+end
+
+"""
+    store_induced_velocity!(v_ind, body_aero, gamma)
+
+Freeze the converged circulation into the buffer `v_ind` (3 × n_panels): each
+refined panel's induced velocity is `AIC · gamma`, the same product the VSM
+gamma loop converged on. Shared by the live particle modes.
+"""
+function store_induced_velocity!(v_ind, body_aero, gamma)
+    n_panels = length(body_aero.panels)
+    size(v_ind) == (3, n_panels) || error(
+        "induced-velocity buffer is stale ($(size(v_ind)) for $n_panels " *
+        "panels); reinitialize the model.")
+    aic = body_aero.AIC
+    for i in 1:n_panels
+        for component in 1:3
+            acc = 0.0
+            for j in 1:n_panels
+                acc += aic[component, i, j] * gamma[j]
+            end
+            v_ind[component, i] = acc
+        end
+    end
+    return nothing
 end
 
 """
@@ -372,15 +508,9 @@ function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, points,
     wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero, vsm_set)
 
     # Transform sections CAD → body frame (matches the SystemStructure constructor)
-    vsm_wing = wing.vsm_wing
-    vsm_wing.T_cad_body .= wing.pos_cad
-    adjust_vsm_panels_to_origin!(vsm_wing, wing.pos_cad)
-    rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
-    vsm_wing.R_cad_body .= wing.R_b_to_c
-    if wing.dynamics_type != PARTICLE_DYNAMICS
-        apply_aero_z_offset!(vsm_wing, wing.aero_z_offset)
-    end
-    VortexStepMethod.reinit!(wing.vsm_aero)
+    transform_vsm_sections_to_body!(wing;
+        aero_z_offset=(wing.dynamics_type == PARTICLE_DYNAMICS ? nothing :
+                       wing.aero_z_offset))
 
     match_aero_sections_to_structure!(wing, points; twist_surfaces)
 
@@ -452,18 +582,31 @@ function require_vsm_engine(mode, wing)
     return engine
 end
 
+"""
+    transform_vsm_sections_to_body!(wing; aero_z_offset=nothing)
+
+Move the wing's VSM sections/panels from the CAD frame into the body frame
+(translate to `wing.pos_cad`, rotate by `wing.R_b_to_c'`) and reinit the panels.
+With `aero_z_offset` set, also apply the chordwise aero z-offset (RIGID wings);
+PARTICLE wings pass `nothing`. Shared by [`setup_aero!`](@ref) and
+[`remake_aero!`](@ref).
+"""
+function transform_vsm_sections_to_body!(wing; aero_z_offset=nothing)
+    vsm_wing = wing.vsm_wing
+    vsm_wing.T_cad_body .= wing.pos_cad
+    adjust_vsm_panels_to_origin!(vsm_wing, wing.pos_cad)
+    rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
+    vsm_wing.R_cad_body .= wing.R_b_to_c
+    isnothing(aero_z_offset) || apply_aero_z_offset!(vsm_wing, aero_z_offset)
+    VortexStepMethod.reinit!(wing.vsm_aero)
+    return nothing
+end
+
 function setup_aero!(mode::AbstractVSMAero, wing, points, twist_surfaces;
                      prn=false)
     require_vsm_engine(mode, wing)
-    vsm_wing = wing.vsm_wing
     if wing.dynamics_type == RIGID_DYNAMICS
-        # Transform VSM sections CAD → body (with aero z-offset)
-        vsm_wing.T_cad_body .= wing.pos_cad
-        adjust_vsm_panels_to_origin!(vsm_wing, wing.pos_cad)
-        rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
-        vsm_wing.R_cad_body .= wing.R_b_to_c
-        apply_aero_z_offset!(vsm_wing, wing.aero_z_offset)
-        VortexStepMethod.reinit!(wing.vsm_aero)
+        transform_vsm_sections_to_body!(wing; aero_z_offset=wing.aero_z_offset)
 
         if couples_to_sections(mode) && isempty(wing.twist_surface_idxs)
             auto_create_twist_surfaces!(wing, points, twist_surfaces; prn)
@@ -477,14 +620,7 @@ function setup_aero!(mode::AbstractVSMAero, wing, points, twist_surfaces;
             twist_surfaces[twist_surface_idx].le_pos .-= wing.com_offset_b
         end
     else  # PARTICLE_DYNAMICS
-        if !isnothing(wing.origin)
-            # Transform VSM sections CAD → body (no z-offset for particle)
-            vsm_wing.T_cad_body .= wing.pos_cad
-            adjust_vsm_panels_to_origin!(vsm_wing, wing.pos_cad)
-            rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
-            vsm_wing.R_cad_body .= wing.R_b_to_c
-            VortexStepMethod.reinit!(wing.vsm_aero)
-        end
+        isnothing(wing.origin) || transform_vsm_sections_to_body!(wing)
         couples_to_sections(mode) &&
             match_aero_sections_to_structure!(wing, points; twist_surfaces)
         isempty(wing.twist_surface_idxs) || empty!(wing.twist_surface_idxs)

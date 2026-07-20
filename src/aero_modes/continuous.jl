@@ -263,66 +263,13 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
     sec_va = [interp(strut_va, s) for s in 1:(n_panels + 1)]
     sec_rho = [interp(strut_rho, s) for s in 1:(n_panels + 1)]
 
-    @variables begin
-        x_airf(t)[1:3, 1:n_panels]
-        y_airf(t)[1:3, 1:n_panels]
-        z_airf(t)[1:3, 1:n_panels]
-        v_eff(t)[1:3, 1:n_panels]
-        chord(t)[1:n_panels]
-        width(t)[1:n_panels]
-        alpha(t)[1:n_panels]
-        q_dyn(t)[1:n_panels]
-        dir_lift(t)[1:3, 1:n_panels]
-        dir_drag(t)[1:3, 1:n_panels]
-        panel_force(t)[1:3, 1:n_panels]
-        panel_couple(t)[1:3, 1:n_panels]
-    end
+    eqs, panel_vars, panel_force, panel_couple = build_panel_force_eqs(
+        sec_le, sec_te, sec_va, sec_rho, vind_p, cl, cd, cm, spanwise, scale)
+    vars = particle_unknowns(connectors)
+    append!(vars, panel_vars)
 
-    eqs = Equation[]
     point_force = [zeros(Num, 3) for _ in 1:num_points]
     for i in 1:n_panels
-        le_1, te_1 = sec_le[i], sec_te[i]
-        le_2, te_2 = sec_le[i + 1], sec_te[i + 1]
-
-        chord_vec = 0.5 * (te_1 + te_2) - 0.5 * (le_1 + le_2)
-        x_unit = chord_vec ./ smooth_norm(chord_vec)
-        span_vec = (0.75 * le_1 + 0.25 * te_1) - (0.75 * le_2 + 0.25 * te_2)
-        y_unit = span_vec ./ smooth_norm(span_vec)
-        z_cross = x_unit × (le_1 - le_2)
-        z_unit = z_cross ./ smooth_norm(z_cross)
-
-        va_panel = 0.5 * (sec_va[i] + sec_va[i + 1])
-        v_eff_panel = va_panel + [vind_p[c, i] for c in 1:3]
-        rho_panel = 0.5 * (sec_rho[i] + sec_rho[i + 1])
-        # VSM dynamic pressure uses |v_eff × ŷ|² (spanwise component removed).
-        v_eff_crossy = v_eff_panel × y_unit
-
-        lift = cl(i, alpha[i]) * q_dyn[i] * chord[i]
-        drag = cd(i, alpha[i]) * q_dyn[i] * chord[i]
-        panel_moment = cm(i, alpha[i]) * q_dyn[i] * chord[i]^2
-
-        dir_iva = cos(alpha[i]) .* x_unit .+ sin(alpha[i]) .* z_unit
-        lift_cross = dir_iva × y_unit
-        drag_cross = spanwise × (lift_cross ./ smooth_norm(lift_cross))
-
-        eqs = [eqs;
-            chord[i] ~ 0.5 * (smooth_norm(te_1 - le_1) +
-                              smooth_norm(te_2 - le_2));
-            width[i] ~ smooth_norm(span_vec);
-            x_airf[:, i] ~ x_unit;
-            y_airf[:, i] ~ y_unit;
-            z_airf[:, i] ~ z_unit;
-            v_eff[:, i] ~ v_eff_panel;
-            alpha[i] ~ atan(v_eff_panel ⋅ z_unit, v_eff_panel ⋅ x_unit);
-            q_dyn[i] ~ 0.5 * rho_panel * (v_eff_crossy ⋅ v_eff_crossy);
-            dir_lift[:, i] ~ lift_cross ./ smooth_norm(lift_cross);
-            dir_drag[:, i] ~ drag_cross ./ smooth_norm(drag_cross);
-            panel_force[:, i] ~ (scale * width[i]) .*
-                (lift .* collect(dir_lift[:, i]) .+
-                 drag .* collect(dir_drag[:, i]));
-            panel_couple[:, i] ~
-                (scale * width[i] * panel_moment / chord[i]) .* z_unit]
-
         force = collect(panel_force[:, i])
         couple = collect(panel_couple[:, i])
         force_le = 0.75 * force + couple
@@ -340,10 +287,6 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
     for k in 1:num_points
         eqs = [eqs; connectors.point_force[:, k] ~ point_force[k]]
     end
-    vars = particle_unknowns(connectors)
-    append!(vars, Any[x_airf, y_airf, z_airf, v_eff, chord, width, alpha,
-                      q_dyn, dir_lift, dir_drag,
-                      panel_force, panel_couple])
     return System(eqs, t, vars, [vind_p, cl, cd, cm]; name)
 end
 
@@ -353,11 +296,13 @@ end
     refresh_particle_aero!(::ContinuousAero, wing, points, va_point_b_vals;
                            vsm_min_wind=0.5)
 
-Circulation-only refresh: update the VSM geometry from the structure, set the
-per-panel apparent wind, run `VortexStepMethod.solve_base!` (no `calc_forces!`,
-no Jacobian), and freeze the per-refined-panel induced velocity
-([`store_induced_velocity!`](@ref)). Below `vsm_min_wind` the induced velocity
-is zeroed; the symbolic forces remain live (and vanish with the dynamic
+Refresh: update the VSM geometry from the structure, set the per-panel apparent
+wind, run the full `VortexStepMethod.solve!` (via [`safe_vsm_solve!`](@ref)), and
+freeze the per-refined-panel induced velocity ([`store_induced_velocity!`](@ref)).
+The forces themselves are re-derived symbolically each RHS step, so `calc_forces!`
+is only run so the shared solve path also populates `sol` (`alpha_dist`,
+`f_body_3D`) rather than leaving it stale. Below `vsm_min_wind` the induced
+velocity is zeroed; the symbolic forces remain live (and vanish with the dynamic
 pressure).
 """
 function refresh_particle_aero!(mode::ContinuousAero, wing, points,
@@ -372,45 +317,18 @@ function refresh_particle_aero!(mode::ContinuousAero, wing, points,
 
     solver = wing.vsm_solver
     body_aero = wing.vsm_aero
-    VortexStepMethod.solve_base!(solver, body_aero,
-        solver.sol.gamma_distribution; log=false)
-    gamma = solver.lr.gamma_new
-    if !solver.lr.converged || any(!isfinite, gamma)
+    if !safe_vsm_solve!(solver, body_aero, solver.sol.gamma_distribution)
         throw(AssertionError(
-            "ContinuousAero circulation solve failed (non-converged or " *
-            "non-finite) on wing $(wing.idx)"))
+            "ContinuousAero VSM solve failed (non-converged or non-finite) " *
+            "on wing $(wing.idx)"))
     end
+    gamma = solver.lr.gamma_new
     if isnothing(solver.sol.gamma_distribution)
         solver.sol.gamma_distribution = copy(gamma)
     else
         solver.sol.gamma_distribution .= gamma
     end
-    store_induced_velocity!(mode, body_aero, gamma)
-    return nothing
-end
-
-"""
-    store_induced_velocity!(mode::ContinuousAero, body_aero, gamma)
-
-Freeze the converged circulation: each refined panel's induced velocity is
-`AIC · gamma`, the same product the VSM gamma loop converged on.
-"""
-function store_induced_velocity!(mode::ContinuousAero, body_aero, gamma)
-    n_panels = length(body_aero.panels)
-    size(mode.v_ind) == (3, n_panels) || error(
-        "ContinuousAero: induced-velocity buffer is stale " *
-        "($(size(mode.v_ind)) for $n_panels panels); reinitialize the model.")
-    aic = body_aero.AIC
-    v_ind = mode.v_ind
-    for i in 1:n_panels
-        for component in 1:3
-            acc = 0.0
-            for j in 1:n_panels
-                acc += aic[component, i, j] * gamma[j]
-            end
-            v_ind[component, i] = acc
-        end
-    end
+    store_induced_velocity!(mode.v_ind, body_aero, gamma)
     return nothing
 end
 

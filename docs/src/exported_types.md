@@ -29,6 +29,7 @@ AeroDirect
 AeroLinearized
 AeroPlate
 ContinuousAero
+AeroPressure
 aero_component
 is_builtin_aero
 aero_hash_id
