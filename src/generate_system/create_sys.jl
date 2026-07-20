@@ -207,7 +207,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     # 4. Pulley equations (rope distribution)
     eqs, defaults = pulley_eqs!(
         eqs, defaults, pulleys, segments, params, initial;
-        spring_force, pulley_len, pulley_vel
+        spring_force, pulley_len, pulley_vel, l0
     )
 
     # 5. Winch equations (motor dynamics, tether reeling)
@@ -283,26 +283,10 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         wing_acc, twist_angle, ω_b, α_b, R_v_to_w, pos
     )
 
-    # Debug: Find which equation fails to scalarize
-    for (i, eq) in enumerate(eqs)
-        try
-            Symbolics.scalarize(eq)
-        catch e
-            println("Failed to scalarize equation index: $i")
-            println("Eq: ", eqs[i])
-            rethrow(e)
-        end
-    end
-    
-    eqs = Symbolics.scalarize.(reduce(vcat, Symbolics.scalarize.(eqs)))
-
-    # Debug: Look for any remaining slice references after scalarization
-    for (i, eq) in enumerate(eqs)
-        eq_str = string(eq)
-        if occursin("Colon()", eq_str)
-            @warn "Equation $i contains Colon() after scalarization: $eq"
-        end
-    end
+    # Two passes: the first expands array equations to scalar, the second resolves
+    # slice references (`X[:, i]`) that a single pass leaves unexpanded.
+    time = @elapsed (eqs = Symbolics.scalarize.(reduce(vcat, Symbolics.scalarize.(eqs))))
+    prn && println("\tScalarized equations in $time seconds.")
 
     all_subsystems = [winch_subsystems; aero_subsystems]
     time = @elapsed begin

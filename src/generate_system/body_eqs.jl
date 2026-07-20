@@ -21,9 +21,25 @@ function body_eqs!(
     body_R_b_to_w, body_R_p_to_w, body_moment_p, body_Q_p_vel,
 )
     for rigid_body in bodies
-        # KINEMATIC bodies (particle wings) are pose-fitted by wing_eqs!, not here.
-        rigid_body.type == KINEMATIC && continue
         idx = rigid_body.idx
+        # Bind body-frame outputs for every body (mtkcompile may integrate them, not principal).
+        defaults = [
+            defaults
+            bind_initial!(initial.bodies[idx].pos_w, collect(body_pos_w[:, idx]))
+            bind_initial!(initial.bodies[idx].vel_w, collect(body_vel_w[:, idx]))
+            bind_initial!(initial.bodies[idx].R_b_to_w, body_R_b_to_w[:, :, idx])
+        ]
+        # KINEMATIC bodies (particle wings) are pose-fitted by wing_eqs!, not here.
+        # Their slaved COM can still survive as a tearing iteration variable, so it
+        # needs a u0 guess (build_initializeprob=false runs no DAE init to fill it).
+        if rigid_body.type == KINEMATIC
+            defaults = [
+                defaults
+                bind_initial!(initial.bodies[idx].com_w, collect(body_com_w[:, idx]))
+                bind_initial!(initial.bodies[idx].com_vel, collect(body_com_vel[:, idx]))
+            ]
+            continue
+        end
         mass = params.bodies[idx].mass
         R_b_to_w = collect(body_R_b_to_w[:, :, idx])
 

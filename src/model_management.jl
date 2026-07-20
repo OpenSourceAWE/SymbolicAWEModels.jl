@@ -344,7 +344,9 @@ function maybe_create_prob!(sam; create_prob=true, prn=true)
         prn && println("\tSimplified the System for ODEProblem in $time seconds.")
 
         dt = SimFloat(1/sam.set.sample_freq)
-        time = @elapsed prob = ODEProblem(sys, sam.defaults, (0.0, dt))
+        # skip MTK's DAE init system; reinit! already sets consistent ICs
+        time = @elapsed prob = ODEProblem(sys, sam.defaults, (0.0, dt);
+            build_initializeprob=false)
         prn && println("\tCreated the ODEProblem in $time seconds.")
 
         time = @elapsed getters = generate_prob_getters(sam.sys_struct, sys,

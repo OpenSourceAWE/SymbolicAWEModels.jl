@@ -61,17 +61,18 @@ Base.getproperty(view::InitialPath, sym::Symbol) =
     bind_initial!(initial_path, state_var) -> Vector{Pair}
 
 Record that struct field `initial_path` (e.g. `initial.points[i].pos_w`) provides
-the initial condition for `state_var` (a scalar state term or a collected vector
-of them, e.g. `pos[:, i]`). Returns the constant default pair(s) (build-time
-numeric value) to splice into the system `defaults`, which makes MTK expose a
-settable `Initial(state_var)`.
+the initial condition for `state_var` (a scalar state term, a collected vector,
+e.g. `pos[:, i]`, or a matrix, e.g. `R_b_to_w[:, :, i]` — arrays are flattened
+column-major and must align element-wise with the read value). Returns the constant
+default pair(s) (build-time numeric value) to splice into the system `defaults`,
+which makes MTK expose a settable `Initial(state_var)`.
 """
 function bind_initial!(path_view::InitialPath, state_var)
     reg = getfield(path_view, :reg)
     path = getfield(path_view, :path)
     value = read_path(reg.sys_struct, path)
-    vars = state_var isa AbstractVector ? collect(state_var) : Any[state_var]
-    vals = value isa AbstractVector ? collect(value) : Any[value]
+    vars = state_var isa AbstractArray ? vec(collect(state_var)) : Any[state_var]
+    vals = value isa AbstractArray ? vec(collect(value)) : Any[value]
     length(vars) == length(vals) || error(
         "bind_initial! length mismatch at $path: " *
         "$(length(vars)) state vars vs $(length(vals)) values.")
