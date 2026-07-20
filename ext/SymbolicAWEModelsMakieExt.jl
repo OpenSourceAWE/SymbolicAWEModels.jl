@@ -501,7 +501,7 @@ function Makie.plot!(ax, sys::SystemStructure;
     axis_length = data_char_length * 0.2
 
     # === Plot Global Axes ===
-    begin
+    if show_orient
         origins = [Point3f(0, 0, 0), Point3f(0, 0, 0), Point3f(0, 0, 0)]
         directions = [
             Vec3f(axis_length, 0, 0),
