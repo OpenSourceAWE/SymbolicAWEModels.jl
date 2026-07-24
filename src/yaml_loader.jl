@@ -268,6 +268,7 @@ function parse_dynamics_type(text::String)
     text_upper == "DYNAMIC" && return DYNAMIC
     text_upper == "WING" && return WING
     text_upper == "BODY_STATIC" && return BODY_STATIC
+    text_upper == "KINEMATIC" && return KINEMATIC
     error("Unknown DynamicsType: $text")
 end
 
@@ -664,7 +665,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Raw references are passed; SystemStructure resolves them.
             point = call_yaml_constructor(Point, row,
                 [:name, :pos_cad, :type],
-                [:wing, :transform, :body, :anchor_b, :vel_w, :extra_mass,
+                [:wing, :transform, :body, :joint, :vel_w, :extra_mass,
                  :body_frame_damping, :world_frame_damping,
                  :area, :drag_coeff, :fix_sphere, :fix_static];
                 mappings=Dict(
@@ -677,7 +678,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     # A BODY_STATIC/WING point rides a Body; anchor_b is its body-frame offset.
                     :body => row -> haskey(row, :body_idx) ? yaml_to_ref(row.body_idx) :
                         yaml_ref_field(row, :body, yaml_to_ref),
-                    :anchor_b => row -> yaml_vec3(row, :anchor_b),
+                    :joint => row -> yaml_ref_field(row, :joint, yaml_to_ref),
                     :vel_w => row -> yaml_vec3(row, :vel_w),
                     :body_frame_damping => row -> haskey(row, :body_frame_damping) ? row.body_frame_damping : nothing,
                     :world_frame_damping => row -> haskey(row, :world_frame_damping) ? row.world_frame_damping : nothing
@@ -767,12 +768,24 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Create TwistSurface using new constructor (name, points, type, moment_frac)
             twist_surface = call_yaml_constructor(TwistSurface, row,
                 [:name, :points, :type, :moment_frac],
-                [:damping, :stiffness];
+                [:damping, :stiffness, :wing, :bodies, :flap_bodies,
+                 :flap_axis, :flap_rest_delta];
                 mappings=Dict(
-                    :points => row -> [yaml_to_ref(point) for point in row.point_idxs],
+                    :points => row -> haskey(row, :points) ?
+                        [yaml_to_ref(p) for p in row.points] :
+                        (haskey(row, :point_idxs) ?
+                         [yaml_to_ref(p) for p in row.point_idxs] : NameRef[]),
                     :name => row -> yaml_row_name(row, i),
-                    :type => row -> parse_dynamics_type(
-                        String(row.type))
+                    :type => row -> parse_dynamics_type(String(row.type)),
+                    :moment_frac => row -> haskey(row, :moment_frac) &&
+                        !isnothing(row.moment_frac) ? float(row.moment_frac) : 0.0,
+                    :wing => row -> haskey(row, :wing) && !isnothing(row.wing) ?
+                        yaml_to_ref(row.wing) : 0,
+                    :bodies => row -> haskey(row, :bodies) && !isnothing(row.bodies) ?
+                        [yaml_to_ref(b) for b in row.bodies] : NameRef[],
+                    :flap_bodies => row -> haskey(row, :flap_bodies) &&
+                        !isnothing(row.flap_bodies) ?
+                        [yaml_to_ref(b) for b in row.flap_bodies] : NameRef[]
                 ))
             push!(twist_surfaces, twist_surface)
         end

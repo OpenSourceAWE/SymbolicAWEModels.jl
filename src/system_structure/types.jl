@@ -268,8 +268,8 @@ mutable struct Point
     const pos_cad::KVec3
     "Position relative to wing COM in principal frame [m]."
     const pos_b::KVec3
-    "Anchor offset in the rigid body's body frame [m] (body-anchored points)."
-    const anchor_b::KVec3
+    "Anchor offset in the rigid body's body frame [m] (body-anchored points). Auto-derived from `pos_cad` by SystemStructure when left at zero."
+    anchor_b::KVec3
     "Position in world frame [m] (updated during simulation)."
     const pos_w::KVec3
     "Velocity in world frame [m/s] (updated during simulation)."
@@ -302,6 +302,15 @@ mutable struct Point
     fix_sphere::Bool
     "If true, dynamically freeze point position."
     fix_static::Bool
+    # ---- beam-curvature anchoring (rides a TimoshenkoJoint's deformed centerline) ----
+    "Resolved anchoring TimoshenkoJoint index (filled by SystemStructure). 0 = not beam-anchored."
+    joint_idx::Int64
+    "Raw anchoring TimoshenkoJoint reference (name or idx). 0 = not beam-anchored."
+    const joint_ref::Union{Int, Symbol}
+    "Parameter `s ∈ [0,1]` along the beam element (auto-derived from `pos_cad`)."
+    beam_frac::SimFloat
+    "Perpendicular offset off the centerline in the rest element frame [m] (auto-derived)."
+    beam_offset_b::KVec3
 end
 
 # Deprecated `point.disturb` forwards to `ext_force_w` (external world-frame force).
@@ -350,19 +359,25 @@ of bodies joined by [`TimoshenkoJoint`](@ref)s instead of spring segments.
 """
 function Point(name, pos_cad, type;
     wing=nothing, transform=nothing, vel_w=nothing,
-    body=nothing, anchor_b=nothing,
+    body=nothing, anchor_b=nothing, joint=nothing,
     extra_mass=0.0, body_frame_damping=nothing, world_frame_damping=nothing,
     area=0.0, drag_coeff=0.0,
     fix_sphere=false, fix_static=false
 )
     if type == BODY_STATIC
-        isnothing(body) && error("Point $name: BODY_STATIC requires a `body` " *
-            "reference to a Body.")
+        (isnothing(body) && isnothing(joint)) && error(
+            "Point $name: BODY_STATIC requires a `body` or a `joint` reference.")
     elseif !isnothing(body) && type != WING
         error("Point $name: `body` is only valid with type BODY_STATIC or WING.")
     end
+    (!isnothing(body) && !isnothing(joint)) && error(
+        "Point $name: set either `body` (rigid rider) or `joint` (beam rider), " *
+        "not both.")
+    (!isnothing(joint) && type != BODY_STATIC) && error(
+        "Point $name: `joint` (beam anchoring) requires type BODY_STATIC.")
     # transform 0 means no transform; a body-anchored point has no wing (wing_ref 0).
     body_ref = isnothing(body) ? 0 : body
+    joint_ref = isnothing(joint) ? 0 : joint
     wing_ref = isnothing(wing) ? (type == BODY_STATIC ? 0 : 1) : wing
     transform_ref = isnothing(transform) ? 0 : transform
     anchor = isnothing(anchor_b) ? zeros(KVec3) : KVec3(anchor_b...)
@@ -390,7 +405,8 @@ function Point(name, pos_cad, type;
         vel, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         type, extra_mass, 0.0,
         bf_damp, wf_damp, area, drag_coeff,
-        fix_sphere, fix_static)
+        fix_sphere, fix_static,
+        0, joint_ref, 0.0, zeros(KVec3))
 end
 
 # ==================== TWIST_SURFACE ==================== #
@@ -445,6 +461,25 @@ mutable struct TwistSurface
     unrefined_section_idxs::Vector{Int64}
     "Surface area [m²] (flat-plate sections; `NaN` when unused)."
     area::SimFloat
+    # ---- owning wing + flap deflection (KINEMATIC α+δ variant) ----
+    "Resolved owning-wing index (filled by SystemStructure). 0 = inferred from body membership."
+    wing_idx::Int64
+    "Raw owning-wing reference (name or idx). 0 = inferred from body membership."
+    const wing_ref::NameRef
+    "Resolved member-body indices — all bodies in this chordwise piece (filled by SystemStructure)."
+    body_idxs::Vector{Int64}
+    "Raw member-body references (names or indices)."
+    const body_refs::Vector{NameRef}
+    "Resolved flap-hinge body indices, ordered `[main, flap]` (filled by SystemStructure). Empty = no flap."
+    flap_body_idxs::Vector{Int64}
+    "Raw flap-hinge body references, ordered `[main, flap]`. Empty = no flap."
+    const flap_body_refs::Vector{NameRef}
+    "Flap-hinge axis (unit) in the main body's frame."
+    flap_axis::KVec3
+    "Reference chord directions `[main, flap]` for δ (each body's frame; auto-derived at build)."
+    flap_chord_refs::Vector{KVec3}
+    "Deflection δ of the undeformed (as-placed) configuration [rad] (captured at build)."
+    flap_rest_delta::SimFloat
 end
 
 """
@@ -474,6 +509,17 @@ using the closest VSM panel to the twist_surface's mean point position.
 - `y_airf=nothing`: Spanwise reference (body frame). Auto-derived when omitted.
 - `area=NaN`: Surface area [m²] for flat-plate (`AeroPlate`) sections.
 - `twist=0.0`: Initial twist angle [rad] (prescribed input for `STATIC` sections).
+- `wing=0`: Owning-wing reference (name or idx). Needed for the `KINEMATIC` flap
+  variant; other surfaces infer their wing from body membership.
+- `bodies=[]`: Member-body references — all bodies in this chordwise piece
+  (retained for future use, e.g. deriving twist or multi-element chords).
+- `flap_bodies=[]`: Ordered `[main, flap]` body references of the flap hinge.
+  When given (with `type=KINEMATIC`) the surface carries a live deflection δ, the
+  signed angle between the two bodies about `flap_axis`; empty = no flap.
+- `flap_axis=[0,1,0]`: Flap-hinge axis (unit) in the main body's frame.
+- `flap_chord_refs=[]`: Reference chord directions `[main, flap]`; auto-derived
+  (each body's x-axis) at build when omitted.
+- `flap_rest_delta=0.0`: Rest deflection [rad]; captured at build when omitted.
 
 # Returns
 - `TwistSurface`: A new `TwistSurface` object. The `idx` and `point_idxs` are resolved by SystemStructure.
@@ -482,15 +528,25 @@ using the closest VSM panel to the twist_surface's mean point position.
 """
 function TwistSurface(name, points, type, moment_frac;
                       damping=50.0, stiffness=0.0, x_airf=nothing, y_airf=nothing,
-                      area=NaN, twist=0.0)
+                      area=NaN, twist=0.0,
+                      wing=0, bodies=NameRef[], flap_bodies=NameRef[],
+                      flap_axis=[0.0, 1.0, 0.0], flap_chord_refs=KVec3[],
+                      flap_rest_delta=0.0)
     point_refs = Vector{NameRef}([p isa Integer ? Int(p) : Symbol(p) for p in points])
     chord_vec = isnothing(x_airf) ? zeros(KVec3) : KVec3(x_airf)
     y_vec = isnothing(y_airf) ? zeros(KVec3) : KVec3(y_airf)
+    wing_ref = wing isa Integer ? Int(wing) : Symbol(wing)
+    body_refs = Vector{NameRef}([b isa Integer ? Int(b) : Symbol(b) for b in bodies])
+    flap_body_refs = Vector{NameRef}([b isa Integer ? Int(b) : Symbol(b)
+                                      for b in flap_bodies])
     TwistSurface(0, name, Int64[], point_refs,
           zeros(KVec3), chord_vec, y_vec,
           type, moment_frac, damping, stiffness,
           SimFloat(twist), 0.0, 0.0, 0.0, 0.0,
-          Int64[], SimFloat(area))
+          Int64[], SimFloat(area),
+          0, wing_ref, Int64[], body_refs,
+          Int64[], flap_body_refs, KVec3(flap_axis),
+          Vector{KVec3}(flap_chord_refs), SimFloat(flap_rest_delta))
 end
 
 # ==================== SEGMENT ==================== #

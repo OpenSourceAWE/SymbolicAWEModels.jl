@@ -66,7 +66,7 @@ export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, Abs
 export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints
 # Enums
-export DynamicsType, DYNAMIC, STATIC, WING, BODY_STATIC
+export DynamicsType, DYNAMIC, STATIC, WING, BODY_STATIC, KINEMATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
 export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
 export PrincipalFrameMethod, EIGEN_DECOMP, Y_ROTATION

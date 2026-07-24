@@ -76,6 +76,9 @@ struct ContinuousPolar{BA, F}
 end
 (p::ContinuousPolar)(panel_idx, alpha) = p.coef(
     p.body_aero.panels[round(Int, panel_idx)]::VortexStepMethod.Panel{SimFloat}, alpha)
+(p::ContinuousPolar)(panel_idx, alpha, delta) = p.coef(
+    p.body_aero.panels[round(Int, panel_idx)]::VortexStepMethod.Panel{SimFloat},
+    alpha, delta)
 
 # ==================== mesh maps ==================== #
 
@@ -263,8 +266,9 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
     sec_va = [interp(strut_va, s) for s in 1:(n_panels + 1)]
     sec_rho = [interp(strut_rho, s) for s in 1:(n_panels + 1)]
 
+    orient = panel_span_signs(wing, spanwise)
     eqs, panel_vars, panel_force, panel_couple = build_panel_force_eqs(
-        sec_le, sec_te, sec_va, sec_rho, vind_p, cl, cd, cm, spanwise, scale)
+        sec_le, sec_te, sec_va, sec_rho, vind_p, cl, cd, cm, spanwise, scale, orient)
     vars = particle_unknowns(connectors)
     append!(vars, panel_vars)
 

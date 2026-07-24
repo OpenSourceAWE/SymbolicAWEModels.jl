@@ -18,6 +18,16 @@ and its point count. Errors loudly on an inconsistent combination:
 """
 function validate_twist_surface_modes(twist_surfaces, bodies)
     for twist_surface in twist_surfaces
+        if twist_surface.type == KINEMATIC
+            # KINEMATIC surfaces are derived (no twist DOF, no owning-body couple);
+            # a flap variant needs its owning wing and an ordered [main, flap] pair.
+            has_flap(twist_surface) || isempty(twist_surface.flap_body_idxs) || error(
+                "TwistSurface $(twist_surface.name): flap needs exactly 2 flap " *
+                "bodies [main, flap], got $(length(twist_surface.flap_body_idxs)).")
+            has_flap(twist_surface) && twist_surface.wing_idx == 0 && error(
+                "TwistSurface $(twist_surface.name): KINEMATIC flap needs a `wing`.")
+            continue
+        end
         owners = [body for body in bodies if twist_surface.idx in body.twist_surface_idxs]
         length(owners) == 1 || error(
             "TwistSurface $(twist_surface.name) is in $(length(owners)) bodies; must be in exactly 1.")
@@ -92,6 +102,26 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, bodies, params, initi
     end
 
     for twist_surface in twist_surfaces
+        # KINEMATIC surfaces have no twist DOF; zero-bind their vars (δ is emitted by twist_surface_delta_eqs!).
+        if twist_surface.type == KINEMATIC
+            eqs = [
+                eqs
+                twist_angle[twist_surface.idx] ~ 0
+                twist_ω[twist_surface.idx] ~ 0
+                twist_surface_aero_moment[twist_surface.idx] ~ 0
+                twist_surface_y_airf[:, twist_surface.idx] ~ zeros(3)
+                twist_surface_chord[:, twist_surface.idx] ~ zeros(3)
+                twist_surface_le_pos[:, twist_surface.idx] ~ zeros(3)
+                twist_surface_tether_force[twist_surface.idx] ~ 0
+                twist_surface_tether_moment[twist_surface.idx] ~ 0
+                [tether_force[i, twist_surface.idx] ~ 0 for i in 1:max_npoints]
+                [tether_moment[i, twist_surface.idx] ~ 0 for i in 1:max_npoints]
+                [r_twist_surface[i, twist_surface.idx] ~ 0 for i in 1:max_npoints]
+                [r_vec[j, i, twist_surface.idx] ~ 0 for i in 1:max_npoints for j in 1:3]
+            ]
+            continue
+        end
+
         found = 0
         wing = nothing
         for body in bodies
@@ -217,4 +247,39 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, bodies, params, initi
     end
 
     return eqs, defaults
+end
+
+"""
+    twist_surface_delta_eqs!(eqs, twist_surfaces; twist_surface_delta, body_R_b_to_w)
+
+Emit the live flap deflection δ for each twist_surface into `twist_surface_delta`.
+A flapped surface ([`has_flap`](@ref)) gets the signed angle between its two flap
+bodies' reference chords about the world hinge axis, referenced to rest (same
+formula as [`flap_delta`](@ref), evaluated symbolically from the bodies'
+orientations `body_R_b_to_w`); every other surface gets 0. The flap axis,
+reference chords and rest angle are frozen rest geometry baked in as constants.
+"""
+function twist_surface_delta_eqs!(eqs, twist_surfaces;
+                                  twist_surface_delta, body_R_b_to_w)
+    length(twist_surfaces) == 0 && return eqs
+    for twist_surface in twist_surfaces
+        j = twist_surface.idx
+        if !has_flap(twist_surface)
+            eqs = [eqs; twist_surface_delta[j] ~ 0]
+            continue
+        end
+        R_main = collect(body_R_b_to_w[:, :, twist_surface.flap_body_idxs[1]])
+        R_flap = collect(body_R_b_to_w[:, :, twist_surface.flap_body_idxs[2]])
+        chord_main = collect(twist_surface.flap_chord_refs[1])
+        chord_flap = collect(twist_surface.flap_chord_refs[2])
+        axis_main = collect(twist_surface.flap_axis)
+        main_w = R_main * chord_main
+        flap_w = R_flap * chord_flap
+        n_w = R_main * axis_main
+        mp = main_w .- (main_w ⋅ n_w) .* n_w
+        fp = flap_w .- (flap_w ⋅ n_w) .* n_w
+        delta_expr = atan(n_w ⋅ (mp × fp), mp ⋅ fp) - twist_surface.flap_rest_delta
+        eqs = [eqs; twist_surface_delta[j] ~ delta_expr]
+    end
+    return eqs
 end

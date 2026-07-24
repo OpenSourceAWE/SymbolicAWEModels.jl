@@ -566,7 +566,7 @@ function init!(sam::SymbolicAWEModel;
             prob = something(sam.prob)
             reset_integrator |= reload
             reinit!(sam, prob, solver;
-                adaptive, reset_integrator, lin_vsm, vsm_min_wind)
+                adaptive, reset_integrator, lin_vsm, vsm_min_wind, prn)
         end
     end
     prn && @info "$(sam.sys_struct.name) model initialized in $time seconds."
@@ -579,7 +579,8 @@ end
 
 Reset the ODE integrator from new initial conditions without rebuilding the
 symbolic model. See [`init!`](@ref) for `adaptive`, `reset_integrator`,
-`lin_vsm`, and `vsm_min_wind`.
+`lin_vsm`, and `vsm_min_wind`. `prn` toggles the per-phase timing logs
+(integrator build / first-call JIT, initial aero solve).
 """
 function reinit!(
     sam::SymbolicAWEModel,
@@ -588,7 +589,8 @@ function reinit!(
     adaptive=true,
     reset_integrator=true,
     lin_vsm=true,
-    vsm_min_wind=0.5
+    vsm_min_wind=0.5,
+    prn=true
 )
     dt = SimFloat(1/sam.set.sample_freq)
     existing = sam.integrator
@@ -601,9 +603,12 @@ function reinit!(
         sync_params!(prob.param_sync, prob.prob, sam.sys_struct)
         sync_initial!(prob.initial_sync, prob.prob, sam.sys_struct)
         seed_set_values!(prob.prob)
-        integrator = init(prob.prob, solver;
+        prn && @info "JIT-compiling the RHS and building the integrator (first " *
+            "solve; this is the slow step on large beams)…"
+        jit_time = @elapsed integrator = init(prob.prob, solver;
             adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol,
             save_on=false, save_everystep=false)
+        prn && @info "RHS compiled & integrator built in $(round(jit_time; digits=1)) s."
         sam.integrator = integrator
     else
         integrator = existing
@@ -614,7 +619,9 @@ function reinit!(
     end
     update_sys_struct!(prob, integrator, sam.sys_struct)
     if lin_vsm && has_vsm_wing(sam.sys_struct)
-        refresh_aero!(sam; vsm_min_wind)
+        prn && @info "Running initial VSM aero solve…"
+        aero_time = @elapsed refresh_aero!(sam; vsm_min_wind)
+        prn && @info "Initial aero solved in $(round(aero_time; digits=1)) s."
         sync_params!(prob.param_sync, integrator, sam.sys_struct)
     end
     validate_sys_struct(sam.sys_struct)  # Check for division-by-zero issues

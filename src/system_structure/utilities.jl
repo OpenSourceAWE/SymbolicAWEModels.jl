@@ -279,15 +279,18 @@ function tether_anchor_free(tether, boundary)
 end
 
 """
-    rigid_point_siblings(points, wings)
+    rigid_point_siblings(points, wings, joints)
 
-Map each point index that rides a rigid body to the set of all points sharing
-that body, so downstream traversal moves them as one unit. Covers `WING` points
-of a `RIGID_DYNAMICS` wing (grouped by `wing_idx`) and `BODY_STATIC` points
-(grouped by `body_idx`). These points carry no inter-point segments, so the set
-captures their connectivity.
+Map each point index that rides a rigid structure to the set of all points
+sharing it, so downstream traversal moves them as one unit. A point rides a node
+`Body` via its `body_idx`; bodies tied together by beam `joints` form one
+continuous structure, so all points riding any body in a joint-connected chain
+are siblings. This is how the two halves of a beam wing — bridged only through
+the beam, not by inter-point segments — are recognised as one structure. Also
+covers `WING` points of a `RIGID_DYNAMICS` wing (grouped by `wing_idx`), which
+carry their body association there rather than in `body_idx`.
 """
-function rigid_point_siblings(points, wings)
+function rigid_point_siblings(points, wings, joints)
     siblings = Dict{Int64, Set{Int64}}()
     for wing in wings
         wing.dynamics_type == RIGID_DYNAMICS || continue
@@ -297,11 +300,22 @@ function rigid_point_siblings(points, wings)
             siblings[member] = members
         end
     end
-    body_idxs = unique(point.body_idx for point in points
-        if point.type == BODY_STATIC)
-    for body_idx in body_idxs
-        members = Set{Int64}(point.idx for point in points
-            if point.type == BODY_STATIC && point.body_idx == body_idx)
+
+    # Union-find over body indices tied by beam joints.
+    root = Dict{Int64, Int64}()
+    find_root(x) = (get!(root, x, x); root[x] == x ? x : (root[x] = find_root(root[x])))
+    unite(a, b) = (root[find_root(a)] = find_root(b))
+    for joint in joints
+        unite(joint.body_a_idx, joint.body_b_idx)
+    end
+
+    body_members = Dict{Int64, Set{Int64}}()
+    for point in points
+        (point.type == BODY_STATIC || point.type == WING) || continue
+        point.body_idx == 0 && continue
+        push!(get!(body_members, find_root(point.body_idx), Set{Int64}()), point.idx)
+    end
+    for members in values(body_members)
         for member in members
             siblings[member] = members
         end
@@ -470,16 +484,16 @@ function apply_cluster_init_stretched_len!(
         end
     end
 
-    # Move the body, not its points: the pos~anchor constraint would snap them back.
-    # WING points carry their body association in wing_idx (body_idx is 0);
-    # BODY_STATIC points use body_idx.
+    # Move the body, not its points: the pos~anchor constraint would snap them
+    # back. A point riding a node body uses body_idx; a RIGID_DYNAMICS wing's
+    # WING points carry the association in wing_idx (body_idx is 0) instead.
     moved_bodies = Set{Int64}()
     for idx in moved
         point = points[idx]
-        if point.type == WING && point.wing_idx != 0
-            push!(moved_bodies, point.wing_idx)
-        elseif point.body_idx != 0
+        if point.body_idx != 0
             push!(moved_bodies, point.body_idx)
+        elseif point.type == WING && point.wing_idx != 0
+            push!(moved_bodies, point.wing_idx)
         end
     end
     for body_idx in moved_bodies
@@ -523,15 +537,16 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
                  if !isnothing(tether.init_stretched_len)]
     isempty(specified) && return
 
-    rigid_siblings = rigid_point_siblings(points, wings)
+    rigid_siblings = rigid_point_siblings(points, wings,
+        Iterators.flatten((sys_struct.elastic_joints, sys_struct.timoshenko_joints)))
 
     # Boundary = externally world-fixed points: STATIC, winch, and BODY_STATIC on a STATIC body.
     bodies = sys_struct.bodies
     boundary = Set{Int64}(w.winch_point_idx for w in winches)
     for point in points
         point.type == STATIC && push!(boundary, point.idx)
-        point.type == BODY_STATIC && bodies[point.body_idx].type == STATIC &&
-            push!(boundary, point.idx)
+        point.type == BODY_STATIC && point.body_idx > 0 &&
+            bodies[point.body_idx].type == STATIC && push!(boundary, point.idx)
     end
 
     # Both-fixed tethers (both endpoints on a boundary) are warned and skipped.
@@ -765,6 +780,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     # Joint rest geometry, from the final placed body poses (as-placed = unstrained).
     init_joint_rest!.(sys_struct.elastic_joints, Ref(sys_struct.bodies))
     init_joint_rest!.(sys_struct.timoshenko_joints, Ref(sys_struct.bodies))
+    # Flap KINEMATIC twist_surfaces: capture rest deflection from the placed bodies.
+    init_twist_surface_flap!.(sys_struct.twist_surfaces, Ref(sys_struct.bodies))
 
     return nothing
 end

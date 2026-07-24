@@ -566,3 +566,77 @@ function init_joint_rest!(joint::TimoshenkoJoint, bodies)
     joint.R_b_rel0 .= element_frame' * R_b
     return nothing
 end
+
+"""
+    derive_point_beam_anchor!(point, joint, bodies)
+
+Derive a beam-anchored point's `beam_frac` and `beam_offset_b` from its
+`pos_cad`: project onto the rest beam line between the joint's two node anchors
+(CAD frame), storing the axial fraction `s ∈ [0,1]` and the perpendicular
+remainder expressed in the rest element frame (so the point tracks the same
+off-centerline offset as the beam bends). Usually near-centerline (offset ≈ 0).
+"""
+function derive_point_beam_anchor!(point::Point, joint, bodies)
+    body_a = bodies[joint.body_a_idx]
+    body_b = bodies[joint.body_b_idx]
+    node_a = body_a.pos_cad .+ body_a.R_b_to_c * joint.anchor_a_b
+    node_b = body_b.pos_cad .+ body_b.R_b_to_c * joint.anchor_b_b
+    e1, e2, e3, len = timoshenko_element_frame(node_a, node_b, body_a.R_b_to_c)
+    rel = point.pos_cad .- node_a
+    s = clamp(dot(rel, e1) / len, 0.0, 1.0)
+    point.beam_frac = s
+    perp = rel .- (s * len) .* e1
+    point.beam_offset_b = KVec3(dot(perp, e1), dot(perp, e2), dot(perp, e3))
+    return nothing
+end
+
+"""
+    has_flap(twist_surface::TwistSurface) -> Bool
+
+`true` if the twist_surface carries a flap hinge (two ordered flap bodies), so it
+drives a live deflection δ ([`flap_delta`](@ref) / `twist_surface_delta_eqs!`).
+"""
+has_flap(twist_surface::TwistSurface) = length(twist_surface.flap_body_idxs) == 2
+
+"""
+    flap_delta(twist_surface, R_main, R_flap) -> SimFloat
+
+Signed flap deflection δ [rad] of `twist_surface` from the two flap bodies'
+world orientations `R_main`, `R_flap`: project each body's reference chord
+direction onto the plane normal to the world hinge axis and take the signed angle
+about that axis, minus the rest deflection `flap_rest_delta`. Robust across the
+full polar δ range (an `atan`, not a small-angle approximation). The same formula
+the symbolic RHS uses (`twist_surface_delta_eqs!`), so it is the ground truth for
+tests.
+"""
+function flap_delta(twist_surface::TwistSurface, R_main, R_flap)
+    chord_main = twist_surface.flap_chord_refs[1]
+    chord_flap = twist_surface.flap_chord_refs[2]
+    main_w = R_main * chord_main
+    flap_w = R_flap * chord_flap
+    n_w = R_main * twist_surface.flap_axis
+    mp = main_w .- dot(main_w, n_w) .* n_w
+    fp = flap_w .- dot(flap_w, n_w) .* n_w
+    return atan(dot(n_w, cross(mp, fp)), dot(mp, fp)) - twist_surface.flap_rest_delta
+end
+
+"""
+    init_twist_surface_flap!(twist_surface, bodies)
+
+Capture a flapped `KINEMATIC` twist_surface's rest geometry from the placed body
+poses: default the reference chords to each body's x-axis, then set
+`flap_rest_delta` so the as-placed configuration has δ = 0. No-op for surfaces
+without a flap.
+"""
+function init_twist_surface_flap!(twist_surface::TwistSurface, bodies)
+    has_flap(twist_surface) || return nothing
+    isempty(twist_surface.flap_chord_refs) &&
+        (twist_surface.flap_chord_refs = [KVec3(1.0, 0.0, 0.0), KVec3(1.0, 0.0, 0.0)])
+    R_main = quaternion_to_rotation_matrix(
+        bodies[twist_surface.flap_body_idxs[1]].Q_b_to_w)
+    R_flap = quaternion_to_rotation_matrix(
+        bodies[twist_surface.flap_body_idxs[2]].Q_b_to_w)
+    twist_surface.flap_rest_delta = 0.0
+    twist_surface.flap_rest_delta = flap_delta(twist_surface, R_main, R_flap)
+    return nothing
+end

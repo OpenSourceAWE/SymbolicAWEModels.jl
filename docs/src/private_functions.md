@@ -66,6 +66,11 @@ SymbolicAWEModels.rigid_body_eqs!
 SymbolicAWEModels.body_eqs!
 SymbolicAWEModels.joint_eqs!
 SymbolicAWEModels.timoshenko_joint_eqs!
+SymbolicAWEModels.twist_surface_delta_eqs!
+SymbolicAWEModels.has_flap
+SymbolicAWEModels.flap_delta
+SymbolicAWEModels.init_twist_surface_flap!
+SymbolicAWEModels.derive_point_beam_anchor!
 SymbolicAWEModels.init_rigid_body!
 SymbolicAWEModels.n_orient_frames
 SymbolicAWEModels.aero_eqs!
@@ -281,6 +286,9 @@ SymbolicAWEModels.frozen_point_force_component
 SymbolicAWEModels.build_panel_force_eqs
 SymbolicAWEModels.loft_contour_node
 SymbolicAWEModels.build_station_point_map!
+SymbolicAWEModels.build_panel_twist_surface_map!
+SymbolicAWEModels.twist_surface_deltas
+SymbolicAWEModels.apply_flap_delta!
 SymbolicAWEModels.init_pressure_buffers!
 SymbolicAWEModels.freeze_traction_pattern!
 ```
