@@ -161,11 +161,33 @@ function copy_cad_to_world!(points, bodies; update_vel::Bool=true)
 end
 
 """
+    min_rotation(curr_dir, target_dir) -> (axis, angle)
+
+Axis and angle of the minimal rotation taking unit vector `curr_dir` onto
+`target_dir`. The rotation lies in the plane the two directions span, so it adds
+no roll about either — the tangential (heading) orientation is left untouched.
+Falls back to an arbitrary perpendicular axis when the directions are anti-parallel.
+"""
+function min_rotation(curr_dir, target_dir)
+    cosang = clamp(dot(curr_dir, target_dir), -1.0, 1.0)
+    if cosang > 1 - 1e-12
+        return [0.0, 0.0, 1.0], 0.0
+    elseif cosang < -1 + 1e-12
+        ref = abs(curr_dir[1]) < 0.9 ? [1.0, 0.0, 0.0] : [0.0, 1.0, 0.0]
+        return normalize(cross(curr_dir, ref)), Float64(π)
+    end
+    return normalize(cross(curr_dir, target_dir)), acos(cosang)
+end
+
+"""
     apply_azimuth_elevation!(transform, points, bodies, base_pos; update_vel=false)
 
 Apply the azimuth/elevation rotation of a single transform to all components in
-it (points and bodies). Returns `(curr_R_t_to_w, R_t_to_w)` for
-use in the heading step.
+it (points and bodies). Rotates the current radial onto the target radial by the
+minimal (roll-free) rotation, so placement never depends on the source frame —
+which is undefined when the components start at the zenith. Roll about the radial
+is set afterwards by the heading step, which is well-defined at the target
+elevation/azimuth. Returns `(curr_R_t_to_w, R_t_to_w)` for use in that step.
 """
 function apply_azimuth_elevation!(transform, points, bodies, base_pos;
                                    update_vel::Bool=false)
@@ -184,7 +206,15 @@ function apply_azimuth_elevation!(transform, points, bodies, base_pos;
         rotate_around_y([1, 0, 0], -transform.elevation), -transform.azimuth)
     R_t_to_w = calc_R_t_to_w(transform_pos)
 
-    r_rot = norm(curr_rot_pos - base_pos)
+    if abs(abs(transform.elevation) - π / 2) < 1e-6
+        @warn "Transform #$(transform.idx): elevation = " *
+              "$(round(rad2deg(transform.elevation); digits=2))° is at the " *
+              "zenith/nadir, where azimuth and heading are undefined."
+    end
+
+    axis, angle = min_rotation(normalize(rel_pos), normalize(transform_pos))
+
+    r_rot = norm(rel_pos)
     elev = transform.elevation
     azim = transform.azimuth
     vel_spherical = rotate_around_y([0, 0, r_rot * transform.elevation_vel], -elev) +
@@ -192,18 +222,17 @@ function apply_azimuth_elevation!(transform, points, bodies, base_pos;
 
     for point in points
         point.transform_idx == transform.idx || continue
-        vec = point.pos_w - base_pos
-        point.pos_w .= base_pos + apply_heading(vec, R_t_to_w, curr_R_t_to_w, 0.0)
+        point.pos_w .= base_pos .+ rotate_v_around_k(point.pos_w .- base_pos, axis, angle)
         update_vel && (point.vel_w .= norm(point.pos_w - base_pos) / r_rot * vel_spherical)
     end
-    # Bodies carry orientation: rotate both pos_w (about base) and Q_b_to_w by R_azel.
-    R_azel = R_t_to_w * curr_R_t_to_w'
     for body in bodies
         body.transform_idx == transform.idx || continue
-        vec = body.pos_w - base_pos
-        body.pos_w .= base_pos + apply_heading(vec, R_t_to_w, curr_R_t_to_w, 0.0)
-        R_b_to_w = R_azel * quaternion_to_rotation_matrix(body.Q_b_to_w)
-        body.Q_b_to_w .= rotation_matrix_to_quaternion(R_b_to_w)
+        body.pos_w .= base_pos .+ rotate_v_around_k(body.pos_w .- base_pos, axis, angle)
+        R_b = quaternion_to_rotation_matrix(body.Q_b_to_w)
+        for i in 1:3
+            R_b[:, i] .= rotate_v_around_k(R_b[:, i], axis, angle)
+        end
+        body.Q_b_to_w .= rotation_matrix_to_quaternion(R_b)
         if update_vel
             body.vel_w .= norm(body.pos_w - base_pos) / r_rot * vel_spherical
             body.ω_b .= 0.0
@@ -227,46 +256,55 @@ without a body target applies no heading (matching point behavior).
 """
 function apply_heading!(transform, points, bodies,
                          curr_R_t_to_w, R_t_to_w, base_pos)
-    for reference_body in bodies
-        reference_body.transform_idx == transform.idx || continue
+    reference_body = heading_reference_body(transform, bodies)
+    isnothing(reference_body) && return
 
-        if !isnothing(reference_body.z_ref_points)
-            R_b_to_w, _ = calc_particle_dynamics_wing_frame(
-                points, reference_body.z_ref_points,
-                reference_body.y_ref_points, reference_body.origin)
-        else
-            R_b_to_w = zeros(3, 3)
-            R_source_any = reference_body.R_b_to_w
-            R_source_any isa AbstractMatrix || continue
-            R_source = R_source_any
-            for i in 1:3
-                R_b_to_w[:, i] .= apply_heading(
-                    R_source[:, i],
-                    R_t_to_w, curr_R_t_to_w, 0.0)
-            end
-        end
-
-        rel_pos = reference_body.pos_w - base_pos
-        delta_heading = solve_heading_rotation(
-            R_b_to_w, transform.heading, rel_pos)
-        k = normalize(rel_pos)
-
-        for point in points
-            point.transform_idx == transform.idx || continue
-            point.pos_w .= base_pos .+ rotate_v_around_k(
-                point.pos_w .- base_pos, k, delta_heading)
-        end
-        for body in bodies
-            body.transform_idx == transform.idx || continue
-            body.pos_w .= base_pos .+ rotate_v_around_k(
-                body.pos_w .- base_pos, k, delta_heading)
-            R_b = quaternion_to_rotation_matrix(body.Q_b_to_w)
-            for i in 1:3
-                R_b[:, i] .= rotate_v_around_k(R_b[:, i], k, delta_heading)
-            end
-            body.Q_b_to_w .= rotation_matrix_to_quaternion(R_b)
-        end
+    if !isnothing(reference_body.z_ref_points)
+        R_b_to_w, _ = calc_particle_dynamics_wing_frame(
+            points, reference_body.z_ref_points,
+            reference_body.y_ref_points, reference_body.origin)
+    else
+        R_b_to_w = quaternion_to_rotation_matrix(reference_body.Q_b_to_w)
     end
+
+    rel_pos = reference_body.pos_w - base_pos
+    delta_heading = solve_heading_rotation(
+        R_b_to_w, transform.heading, rel_pos)
+    k = normalize(rel_pos)
+
+    for point in points
+        point.transform_idx == transform.idx || continue
+        point.pos_w .= base_pos .+ rotate_v_around_k(
+            point.pos_w .- base_pos, k, delta_heading)
+    end
+    for body in bodies
+        body.transform_idx == transform.idx || continue
+        body.pos_w .= base_pos .+ rotate_v_around_k(
+            body.pos_w .- base_pos, k, delta_heading)
+        R_b = quaternion_to_rotation_matrix(body.Q_b_to_w)
+        for i in 1:3
+            R_b[:, i] .= rotate_v_around_k(R_b[:, i], k, delta_heading)
+        end
+        body.Q_b_to_w .= rotation_matrix_to_quaternion(R_b)
+    end
+end
+
+"""
+    heading_reference_body(transform, bodies) -> Body or nothing
+
+The single body whose frame defines the transform's heading: the wing/rot body
+(`transform.wing_idx`) when set, otherwise the first body in the transform. The
+heading rotation is applied once about the radial through it — not once per body,
+which would compound into a spurious rotation for multi-body (beam) transforms.
+"""
+function heading_reference_body(transform, bodies)
+    if !isnothing(transform.wing_idx)
+        return bodies[something(transform.wing_idx)]
+    end
+    for body in bodies
+        body.transform_idx == transform.idx && return body
+    end
+    return nothing
 end
 
 """
