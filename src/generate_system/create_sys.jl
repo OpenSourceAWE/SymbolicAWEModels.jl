@@ -105,11 +105,13 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
             twist_surface_y_airf(t)[1:3, eachindex(twist_surfaces)]
             twist_surface_chord(t)[1:3, eachindex(twist_surfaces)]
             twist_surface_le_pos(t)[1:3, eachindex(twist_surfaces)]
+            twist_surface_delta(t)[eachindex(twist_surfaces)]
         end
     else
         twist_surface_y_airf = nothing
         twist_surface_chord = nothing
         twist_surface_le_pos = nothing
+        twist_surface_delta = nothing
     end
 
     # Check if we have any PARTICLE_DYNAMICS wings (need aero force per point)
@@ -224,12 +226,19 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # ==================== END INLINED FORCE_EQS! CONTENT ==================== #
 
+    # Live flap deflection δ per twist_surface (derived from body orientations).
+    if length(twist_surfaces) > 0
+        eqs = twist_surface_delta_eqs!(
+            eqs, twist_surfaces; twist_surface_delta, body_R_b_to_w)
+    end
+
     # Aero: each wing's aero component is wired winch-style as a subsystem.
     eqs, aero_subsystems = aero_eqs!(
         s, eqs, params;
         aero_force_b, aero_moment_b, twist_surface_aero_moment,
         twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
-        pos, vel, va_point_b, height, aero_force_point_b
+        pos, vel, va_point_b, height, aero_force_point_b,
+        twist_surface_delta
     )
 
     # Wing frame: KINEMATIC wings fitted here; DYNAMIC wings via body_eqs!.

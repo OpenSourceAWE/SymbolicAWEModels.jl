@@ -181,7 +181,7 @@ function rigid_unknowns(connectors)
     return vars
 end
 
-function particle_aero_connectors(num_points::Int)
+function particle_aero_connectors(num_points::Int; n_delta::Int=0)
     @variables begin
         point_pos(t)[1:3, 1:num_points]
         point_vel(t)[1:3, 1:num_points]
@@ -189,12 +189,21 @@ function particle_aero_connectors(num_points::Int)
         rho(t)[1:num_points]
         point_force(t)[1:3, 1:num_points]
     end
-    return (; point_pos, point_vel, va, rho, point_force)
+    if n_delta > 0
+        @variables delta(t)[1:n_delta]
+    else
+        delta = nothing
+    end
+    return (; point_pos, point_vel, va, rho, point_force, delta)
 end
 
-particle_unknowns(connectors) =
-    Any[connectors.point_pos, connectors.point_vel, connectors.va,
-        connectors.rho, connectors.point_force]
+function particle_unknowns(connectors)
+    vars = Any[connectors.point_pos, connectors.point_vel, connectors.va,
+               connectors.rho, connectors.point_force]
+    hasproperty(connectors, :delta) && connectors.delta !== nothing &&
+        push!(vars, connectors.delta)
+    return vars
+end
 
 """
     frozen_point_force_component(wing::AbstractWing, sys_struct; name, params) -> System
@@ -225,8 +234,25 @@ function wing_points(sys_struct, wing)
 end
 
 """
+    panel_span_signs(wing, spanwise)
+
+Per-panel sign (`±1`) that orients the local span/normal so each panel's `y_airf`
+points along `+spanwise` and `z_airf` to the upper surface, independent of section
+ordering. Baked at build time because the section order is fixed for a wing.
+"""
+function panel_span_signs(wing, spanwise)
+    refined = wing.vsm_wing.refined_sections
+    n = Int(wing.vsm_wing.n_panels)
+    map(1:n) do i
+        qc1 = 0.75 .* refined[i].LE_point .+ 0.25 .* refined[i].TE_point
+        qc2 = 0.75 .* refined[i + 1].LE_point .+ 0.25 .* refined[i + 1].TE_point
+        dot(qc1 .- qc2, spanwise) < 0 ? -1.0 : 1.0
+    end
+end
+
+"""
     build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, cl, cd, cm,
-                          spanwise, scale) -> (eqs, vars, panel_force, panel_couple)
+                          spanwise, scale, orient) -> (eqs, vars, panel_force, panel_couple)
 
 Shared per-refined-panel VSM force assembly for the live particle aero modes
 ([`ContinuousAero`](@ref), [`AeroPressure`](@ref)). Re-expresses
@@ -243,10 +269,17 @@ the caller's scatter (strut couple or surface pattern).
 3-vectors (positions and apparent wind at the section boundaries), `sec_rho`
 the matching air densities; they may be live (interpolated from structure) or
 constant (a fixed mesh). `spanwise` is the wing spanwise direction, `scale` the
-chord-scale factor.
+chord-scale factor. `orient` is the per-panel `±1` span/normal sign from
+[`panel_span_signs`](@ref).
+
+`delta` is an optional length-`n_panels` vector of symbolic per-panel flap
+deflections δ. When given the polars are evaluated as `cl(i, alpha[i], delta[i])`
+(the `(α, δ)` tables); when `nothing` the 2-arg `cl(i, alpha[i])` is used, so a
+mode without a flap ([`ContinuousAero`](@ref)) is untouched.
 """
 function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
-                               vind_p, cl, cd, cm, spanwise, scale)
+                               vind_p, cl, cd, cm, spanwise, scale, orient;
+                               delta=nothing)
     n_panels = length(sec_le) - 1
     @variables begin
         x_airf(t)[1:3, 1:n_panels]
@@ -271,18 +304,20 @@ function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
         chord_vec = 0.5 * (te_1 + te_2) - 0.5 * (le_1 + le_2)
         x_unit = chord_vec ./ smooth_norm(chord_vec)
         span_vec = (0.75 * le_1 + 0.25 * te_1) - (0.75 * le_2 + 0.25 * te_2)
-        y_unit = span_vec ./ smooth_norm(span_vec)
+        y_unit = orient[i] .* (span_vec ./ smooth_norm(span_vec))
         z_cross = x_unit × (le_1 - le_2)
-        z_unit = z_cross ./ smooth_norm(z_cross)
+        z_unit = orient[i] .* (z_cross ./ smooth_norm(z_cross))
 
         va_panel = 0.5 * (sec_va[i] + sec_va[i + 1])
         v_eff_panel = va_panel + [vind_p[c, i] for c in 1:3]
         rho_panel = 0.5 * (sec_rho[i] + sec_rho[i + 1])
         v_eff_crossy = v_eff_panel × y_unit
 
-        lift = cl(i, alpha[i]) * q_dyn[i] * chord[i]
-        drag = cd(i, alpha[i]) * q_dyn[i] * chord[i]
-        panel_moment = cm(i, alpha[i]) * q_dyn[i] * chord[i]^2
+        coeff(polar) = delta === nothing ? polar(i, alpha[i]) :
+                                           polar(i, alpha[i], delta[i])
+        lift = coeff(cl) * q_dyn[i] * chord[i]
+        drag = coeff(cd) * q_dyn[i] * chord[i]
+        panel_moment = coeff(cm) * q_dyn[i] * chord[i]^2
 
         dir_iva = cos(alpha[i]) .* x_unit .+ sin(alpha[i]) .* z_unit
         lift_cross = dir_iva × y_unit
@@ -438,6 +473,7 @@ function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5)
     end
     for wing in wings
         wing.dynamics_type == PARTICLE_DYNAMICS || continue
+        apply_flap_delta!(wing.aero, wing, sam.sys_struct)
         refresh_particle_aero!(wing.aero, wing, points, va_point_b_vals;
                                vsm_min_wind)
     end

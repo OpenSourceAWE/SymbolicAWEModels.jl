@@ -934,10 +934,14 @@ function SystemStructure(name, set;
     end
     rigid_body_names_dict = build_name_dict(bodies)
 
-    # Body-anchored points: resolve their rigid-body reference.
+    # Body-anchored points: resolve the body, deriving anchor_b from pos_cad when unset.
     for point in points
         point.body_idx = resolve_ref(
             point.body_ref, rigid_body_names_dict, "rigid_body")
+        if point.body_idx > 0 && iszero(point.anchor_b)
+            body = bodies[point.body_idx]
+            point.anchor_b = KVec3(body.R_b_to_c' * (point.pos_cad - body.pos_cad))
+        end
     end
 
     # Elastic joints: assign indices, resolve their body references.
@@ -960,6 +964,25 @@ function SystemStructure(name, set;
     end
     timoshenko_joint_names_dict = build_name_dict(timoshenko_joints)
 
+    # TwistSurfaces: resolve owning-wing and (member + flap) body references.
+    for twist_surface in twist_surfaces
+        twist_surface.wing_idx = resolve_ref(
+            twist_surface.wing_ref, rigid_body_names_dict, "rigid_body")
+        twist_surface.body_idxs = Int64[resolve_ref(ref, rigid_body_names_dict,
+            "rigid_body") for ref in twist_surface.body_refs]
+        twist_surface.flap_body_idxs = Int64[resolve_ref(ref, rigid_body_names_dict,
+            "rigid_body") for ref in twist_surface.flap_body_refs]
+    end
+
+    # Beam-anchored points: resolve the joint ref, derive beam_frac + offset.
+    for point in points
+        point.joint_idx = resolve_ref(
+            point.joint_ref, timoshenko_joint_names_dict, "timoshenko_joint")
+        point.joint_idx == 0 && continue
+        derive_point_beam_anchor!(
+            point, timoshenko_joints[point.joint_idx], bodies)
+    end
+
     # Name dictionaries were already built by assign_indices_and_resolve!
     sys_struct = SystemStructure(name, set,
         NamedCollection{Point}(points, point_names_dict),
@@ -974,6 +997,11 @@ function SystemStructure(name, set;
         NamedCollection{TimoshenkoJoint}(timoshenko_joints, timoshenko_joint_names_dict),
         AtmosphericModel(set), false, false, vsm_set)
     reinit!(sys_struct, set; prn)
+
+    # Panel→flap twist_surface map (structural; needs placed bodies + built panels).
+    for wing in sys_struct.wings
+        build_panel_twist_surface_map!(wing.aero, wing, sys_struct)
+    end
 
     # Recalculate segment rest lengths from current positions if requested
     if ignore_l0

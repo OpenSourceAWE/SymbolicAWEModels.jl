@@ -14,7 +14,8 @@ function aero_eqs!(
     s, eqs, params;
     aero_force_b, aero_moment_b, twist_surface_aero_moment,
     twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
-    pos, vel, va_point_b, height, aero_force_point_b=nothing
+    pos, vel, va_point_b, height, aero_force_point_b=nothing,
+    twist_surface_delta=nothing
 )
     (; twist_surfaces, wings, points) = s.sys_struct
     aero_subsystems = Any[]
@@ -32,6 +33,15 @@ function aero_eqs!(
                            if point.type == WING && point.wing_idx == wing_idx]
             Rbw = R_b_to_w[:, :, wing_idx]
             aero_force_point = aero_force_point_b::AbstractArray
+
+            # Wire each panel's δ connector to its mapped twist_surface's deflection.
+            if hasproperty(subsys, :delta) && subsys.delta !== nothing
+                panel_map = wing.aero.panel_twist_surface
+                for i in eachindex(panel_map)
+                    eqs = [eqs
+                           subsys.delta[i] ~ twist_surface_delta[panel_map[i]]]
+                end
+            end
             for (k, point) in enumerate(wing_points)
                 eqs = [eqs
                        collect(subsys.point_pos[:, k]) .~
