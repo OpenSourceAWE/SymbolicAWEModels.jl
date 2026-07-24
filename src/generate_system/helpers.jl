@@ -176,7 +176,7 @@ The tether frame is a local spherical coordinate system:
 """
 function calc_R_t_to_w(wing_pos)
     z = smooth_normalize(wing_pos)
-    if wing_pos[2] ≈ 0.0 && wing_pos[1] ≈ 0.0
+    if abs(wing_pos[1]) < 1e-6 && abs(wing_pos[2]) < 1e-6
         y = [0, 1, 0]
     else
         y = smooth_normalize([-wing_pos[2], wing_pos[1], 0])
