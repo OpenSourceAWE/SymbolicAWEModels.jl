@@ -120,7 +120,6 @@ wings:
   data:
     - name: main_wing
       dynamics_type: RIGID_DYNAMICS
-      point_idxs: [le_left, te_left, le_center, te_center, le_right, te_right, kcu]
       twist_surfaces: [left, center, right]
       origin_idx: kcu
       z_ref_points: [kcu, le_center]

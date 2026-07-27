@@ -65,7 +65,6 @@ wings:
     - idx: 1
       dynamics_type: PARTICLE_DYNAMICS
       aero_mode: AERO_NONE
-      point_idxs: [1, 2, 3, 4, 5, 6]
       origin_idx: [[7, 0.7], [9, 0.3]]
       z_ref_points: [7, [[3, 0.7], [5, 0.3]]]
       y_ref_points: [1, 5]
