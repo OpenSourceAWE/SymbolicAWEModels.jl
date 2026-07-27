@@ -16,10 +16,74 @@
   per-panel quantities (`alpha`, `cl`, `q_dyn`, `panel_force`, …) are
   observable component variables. The mesh weights enter the model-cache
   hash via `aero_hash_id`.
+- New aero mode `AeroPressure` (YAML `aero_mode: pressure`): like
+  `ContinuousAero`, the VSM solve stays discrete (every `vsm_interval`) but
+  the per-panel force is re-derived symbolically each RHS step from the
+  frozen circulation, then *scattered onto arbitrary `BODY_STATIC` surface
+  points* via a build-time station→point map. Gives aero damping between
+  refreshes.
+- Deflecting flap for `AeroPressure`: a live flap deflection `δ` (the signed
+  angle between two structural bodies about a hinge, relative to rest) feeds
+  the `(α, δ)` polars each RHS step. Modeled by extending `TwistSurface` with
+  a `KINEMATIC` twist source and flap fields (`flap_body_idxs`, `flap_axis`,
+  `flap_chord_refs`, `flap_rest_delta`) — no new component. Needs
+  VortexStepMethod's 3-arg `calculate_cl/cd/cm(panel, α, δ)`.
+- Structural `Body` / beam subsystem: a rigid `Body` type with new
+  `BODY_STATIC` and `KINEMATIC` `DynamicsType`s, `ElasticJoint`, and
+  `TimoshenkoJoint` (a 2-node corotational Timoshenko beam element between
+  two `Body`s — the distributed-stiffness counterpart of `ElasticJoint`;
+  chains form a beam, closed-form validated for bending with the `PL/kGA`
+  shear term, axial and torsion, with nonlinear-stiffness dropoff).
+- Beam-anchored points: a `BODY_STATIC` point rides a body rigidly, or a
+  joint's corotational-Hermite deformed centerline (`joint_idx`,
+  `beam_frac`, `beam_offset_b`, splitting its load to both nodes). A
+  body-anchored point's body-frame offset is auto-derived from its
+  `pos_cad`, so riding a body needs only `body=`/`joint=` plus a CAD
+  position.
 - Per-segment material `density` [kg/m³]: each `Segment` and `Tether` carries
   its own `density` (from the YAML `materials` table), replacing the single
   global `set.rho_tether` in mass calculations. Falls back to `set.rho_tether`
   when unset.
+- Twist-surface restoring `stiffness` [N·m/rad] for the twist DOF; the
+  number of unrefined VSM sections can be read from the YAML.
+- Replay camera pan and zoom controls (#250).
+
+### Changed
+- The dependency stack was widened to the newer MTK/Symbolics generation
+  (Symbolics 7→8, SymbolicUtils 4→5, OrdinaryDiffEqBDF 1→2/3,
+  NonlinearSolve 4→5/6; added SteadyStateDiffEq / SymbolicIndexingInterface).
+  `mtkcompile` now keeps body-frame outputs (`body_pos_w`, `body_vel_w`,
+  `body_R_b_to_w`) and pulley `l0` in the torn-out state set. Not breaking:
+  the package version is part of the `.bin` cache filename, so upgrading
+  auto-invalidates stale model caches.
+- RHS performance: model parameters are flattened for faster evaluation
+  (#234). Rigid-body / beam element handling improved with aero separated
+  into its own component (#236); `winch.speed_controlled` restored after the
+  winch refactor dropped it.
+
+### Fixed
+- Wing principal frame restores the Y-axis-constrained inertia
+  diagonalization (`calc_inertia_y_rotation`) instead of the generic
+  eigendecomposition, fixing an axis-assignment flip (~90°) for near-equal
+  principal moments that caused growing lift/drag oscillation (#245).
+- Transform placement (`apply_azimuth_elevation!`) is now roll-free and
+  zenith/nadir-safe: the current radial is rotated onto the target with a
+  minimal rotation (no dependence on the source frame, undefined at the
+  zenith), with roll set solely by the heading step and a warning at the
+  zenith/nadir where azimuth and heading are undefined. Placement of existing
+  models shifts slightly.
+
+### Removed
+- BREAKING: `auto_create_twist_surfaces!`. A section-coupled (VSM) RIGID
+  wing that declared no `twist_surfaces` used to have one `DYNAMIC`
+  `TwistSurface` invented per LE/TE section; this silent black box is gone
+  and the case now raises a clear error. *How to migrate:* declare explicit
+  `twist_surfaces` covering the wing's LE/TE structural sections (see
+  `data/2plate_kite/rigid_structural_geometry.yaml`). `AeroNone` wings are
+  unaffected (they never coupled to sections).
+- The redundant wing-side `point_idxs` list in YAML (non-breaking: the loader
+  never read it — wing↔point membership is the point row's `wing_idx`
+  column). Drop it from your wing definitions.
 
 ## v0.12.0 12-06-2026
 
