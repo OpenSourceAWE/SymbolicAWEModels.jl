@@ -20,7 +20,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, WING, refresh_particle_aero!, SimFloat
+using SymbolicAWEModels: VortexStepMethod, refresh_particle_aero!, SimFloat
 using KiteUtils
 using LinearAlgebra
 
@@ -97,7 +97,7 @@ end
     set, sys = load_pressure_sys(data_path, AeroPressure())
     wing = sys.wings[1]
     mode = wing.aero
-    wing_pts = [p for p in sys.points if p.type == WING && p.wing_idx == wing.idx]
+    wing_pts = [p for p in sys.points if p.is_wing_node && p.wing_idx == wing.idx]
 
     @testset "surface→point map" begin
         @test mode isa AeroPressure

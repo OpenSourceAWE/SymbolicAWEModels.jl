@@ -21,7 +21,7 @@ end
 using Test
 using SymbolicAWEModels
 const S = SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, WING, SimFloat, has_flap,
+using SymbolicAWEModels: VortexStepMethod, SimFloat, has_flap,
     twist_surface_deltas
 using KiteUtils, LinearAlgebra
 
@@ -78,12 +78,12 @@ materials:
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx, body, extra_mass, area, drag_coeff]
   data:
-    - [le_left,   [-0.5, 1.0, 2.0], WING, main_wing, main_transform, le_body, 0.1, 0.0, 0.0]
-    - [te_left,   [0.5,  1.0, 2.3], WING, main_wing, main_transform, te_body, 0.1, 0.0, 0.0]
-    - [le_center, [-0.5, 0.0, 2.5], WING, main_wing, main_transform, le_body, 0.1, 0.0, 0.0]
-    - [te_center, [0.5,  0.0, 2.8], WING, main_wing, main_transform, te_body, 0.1, 0.0, 0.0]
-    - [le_right,  [-0.5,-1.0, 2.0], WING, main_wing, main_transform, le_body, 0.1, 0.0, 0.0]
-    - [te_right,  [0.5, -1.0, 2.3], WING, main_wing, main_transform, te_body, 0.1, 0.0, 0.0]
+    - [le_left,   [-0.5, 1.0, 2.0], BODY_STATIC, main_wing, main_transform, le_body, 0.1, 0.0, 0.0]
+    - [te_left,   [0.5,  1.0, 2.3], BODY_STATIC, main_wing, main_transform, te_body, 0.1, 0.0, 0.0]
+    - [le_center, [-0.5, 0.0, 2.5], BODY_STATIC, main_wing, main_transform, le_body, 0.1, 0.0, 0.0]
+    - [te_center, [0.5,  0.0, 2.8], BODY_STATIC, main_wing, main_transform, te_body, 0.1, 0.0, 0.0]
+    - [le_right,  [-0.5,-1.0, 2.0], BODY_STATIC, main_wing, main_transform, le_body, 0.1, 0.0, 0.0]
+    - [te_right,  [0.5, -1.0, 2.3], BODY_STATIC, main_wing, main_transform, te_body, 0.1, 0.0, 0.0]
     - [kcu,       [0.0,  0.0, 0.0],   DYNAMIC, main_wing, main_transform, nothing, 1.0, 0.1, 1.0]
     - [ground,    [0.0,  0.0,-20.0],  STATIC,  main_wing, main_transform, nothing, 0.0, 0.0, 0.0]
 segments:
@@ -107,7 +107,7 @@ bodies:
 $(joint_block)twist_surfaces:
   headers: [name, wing, type, points, flap_bodies, flap_axis]
   data:
-    - [flap, main_wing, KINEMATIC, [], [le_body, te_body], [0.0, 1.0, 0.0]]
+    - [flap, main_wing, KINEMATIC, [le_left, te_left, le_center, te_center, le_right, te_right], [le_body, te_body], [0.0, 1.0, 0.0]]
 wings:
   data:
     - name: main_wing

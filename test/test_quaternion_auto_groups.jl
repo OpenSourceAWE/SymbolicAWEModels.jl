@@ -8,7 +8,7 @@ end
 
 # Test twist_surface handling for RIGID_DYNAMICS wings (explicit only)
 using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, WING,
+using SymbolicAWEModels: VortexStepMethod,
     RIGID_DYNAMICS, PARTICLE_DYNAMICS
 using Test
 using LinearAlgebra

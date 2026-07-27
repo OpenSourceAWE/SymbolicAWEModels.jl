@@ -29,17 +29,17 @@ points:
             extra_mass, body_frame_damping,
             world_frame_damping, area, drag_coeff]
   data:
-    - [1, [-0.5, 1.0, 2.0], WING, 1, 1,
+    - [1, [-0.5, 1.0, 2.0], DYNAMIC, 1, 1,
        0.1, 10.0, 0.0, 0.0, 0.0]
-    - [2, [0.5, 1.0, 2.3], WING, 1, 1,
+    - [2, [0.5, 1.0, 2.3], DYNAMIC, 1, 1,
        0.1, 10.0, 0.0, 0.0, 0.0]
-    - [3, [-0.5, 0.0, 2.5], WING, 1, 1,
+    - [3, [-0.5, 0.0, 2.5], DYNAMIC, 1, 1,
        0.1, 10.0, 0.0, 0.0, 0.0]
-    - [4, [0.5, 0.0, 2.8], WING, 1, 1,
+    - [4, [0.5, 0.0, 2.8], DYNAMIC, 1, 1,
        0.1, 10.0, 0.0, 0.0, 0.0]
-    - [5, [-0.5, -1.0, 2.0], WING, 1, 1,
+    - [5, [-0.5, -1.0, 2.0], DYNAMIC, 1, 1,
        0.1, 10.0, 0.0, 0.0, 0.0]
-    - [6, [0.5, -1.0, 2.3], WING, 1, 1,
+    - [6, [0.5, -1.0, 2.3], DYNAMIC, 1, 1,
        0.1, 10.0, 0.0, 0.0, 0.0]
     - [7, [0.0, 0.0, 0.0], DYNAMIC, 1, 1,
        1.0, 0.0, 0.0, 0.1, 1.0]
@@ -60,11 +60,19 @@ segments:
     - [6, 5, 7, 0, 1.0, 5000.0, 10.0, 0.01]
     - [7, 7, 9, 0, 1.0, 5000.0, 10.0, 0.01]
 
+twist_surfaces:
+  headers: [name, point_idxs, type, moment_frac, damping]
+  data:
+    - [ts_left,   [1, 2], STATIC, 0.75, 50.0]
+    - [ts_center, [3, 4], STATIC, 0.75, 50.0]
+    - [ts_right,  [5, 6], STATIC, 0.75, 50.0]
+
 wings:
   data:
     - idx: 1
       dynamics_type: PARTICLE_DYNAMICS
       aero_mode: AERO_NONE
+      twist_surfaces: [ts_left, ts_center, ts_right]
       origin_idx: [[7, 0.7], [9, 0.3]]
       z_ref_points: [7, [[3, 0.7], [5, 0.3]]]
       y_ref_points: [1, 5]

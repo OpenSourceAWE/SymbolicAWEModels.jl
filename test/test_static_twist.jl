@@ -49,9 +49,9 @@ set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
     # DYNAMIC 1-point -> reject (needs bridle couple)
     @test_throws ErrorException validate_twist_surface_modes(
         [mktwist_surface(:g, 1, DYNAMIC)], [rigid])
-    # STATIC on particle + multi-point -> reject
-    @test_throws ErrorException validate_twist_surface_modes(
-        [mktwist_surface(:g, 2, STATIC)], [particle])
+    # STATIC on particle + multi-point -> ok (inert aero-section membership
+    # marker; the free particles carry the deformation)
+    @test validate_twist_surface_modes([mktwist_surface(:g, 2, STATIC)], [particle]) === nothing
     # STATIC on particle + 1 point -> ok
     @test validate_twist_surface_modes([mktwist_surface(:g, 1, STATIC)], [particle]) === nothing
 end

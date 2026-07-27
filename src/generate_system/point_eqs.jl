@@ -166,11 +166,17 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
         ]
 
         if point.type == BODY_STATIC && !point.is_wing_node
+            # Skip point gravity when the ridden body already counts this point's
+            # mass (a rigid wing's own attachment points), so it is not applied
+            # twice — once here and once at the body COM via `body.mass`.
+            rides_own_wing = point.body_idx > 0 &&
+                wing_frame_member(point, point.body_idx)
+            gravity = rides_own_wing ? zeros(Num, 3) :
+                Num[0, 0, -params.set.g_earth * mass]
             eqs = [
                 eqs
                 point_force[:, point.idx] ~
-                    spring_sum_force[:, point.idx] +
-                    Num[0, 0, -params.set.g_earth * mass] +
+                    spring_sum_force[:, point.idx] + gravity +
                     disturb_force[:, point.idx] + point_drag_force[:, point.idx]
             ]
             force_on_point = collect(point_force[:, point.idx])
