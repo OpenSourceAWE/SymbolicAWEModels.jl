@@ -241,27 +241,27 @@ end
 
 Create a `VortexStepMethod.Wing` geometry object from the settings provided.
 
-This function checks for .obj and .dat files in the model directory.
-If found, it uses `VortexStepMethod.ObjWing(obj_path, dat_path)` to load the
-wing, passing `n_unrefined_sections` through (`nothing` leaves the choice to
-`ObjWing`, which defaults to one unrefined section per panel boundary).
-Otherwise, it falls back to loading from `aero_geometry.yaml`.
+This function checks for a `.obj` file in the model directory. If present it uses
+`VortexStepMethod.ObjWing(obj_path; …)` to generate the aero geometry (airfoils
+are extracted from the mesh; no `.dat` is needed), passing `n_unrefined_sections`
+through as `n_sections` (`nothing` leaves the choice to `ObjWing`, one unrefined
+section per panel boundary). The generated `geometry.yaml` is cached under
+`<model_dir>/obj_geometry` and reused on later runs. When no `.obj` is present it
+falls back to `vsm_set`'s `geometry_file`. Aero only — mass properties are handled
+separately (see [`VSMWing`](@ref) and [`ObjAdapter`](@ref)).
 """
 function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
                          prn=true, sort_sections=true, n_unrefined_sections=nothing)
-    # Check for .obj and .dat files in the model directory
     model_dir = get_data_path()
     obj_path = joinpath(model_dir, set.model)
-    dat_path = joinpath(model_dir, set.foil_file)
 
-    if isfile(obj_path) && isfile(dat_path)
-        # Use ObjWing constructor (default path)
-        prn && @info "Loading wing from .obj/.dat files"
-
-        return VortexStepMethod.ObjWing(obj_path, dat_path;
-            mass=1.0, crease_frac=set.crease_frac, n_unrefined_sections,
-            align_to_principal=false, prn
-        )
+    if isfile(obj_path)
+        prn && @info "Generating wing aero geometry from .obj file"
+        n_panels = isempty(vsm_set.wings) ? 56 : vsm_set.wings[1].n_panels
+        return VortexStepMethod.ObjWing(obj_path;
+            n_panels, n_sections=n_unrefined_sections,
+            crease_frac=set.crease_frac,
+            output_dir=joinpath(model_dir, "obj_geometry"), verbose=prn)
     end
 
     # Fallback: load from aero_geometry.yaml using provided vsm_set
@@ -364,6 +364,9 @@ function VSMWing(name, set::Settings,
                  transform=nothing, y_damping=150.0,
                  angular_damping=0.0,
                  inertia_diag=nothing,
+                 mass=nothing,
+                 com=nothing,
+                 unit_inertia=nothing,
                  dynamics_type::Union{Nothing,WingType}=nothing,
                  aero::Union{Nothing,AbstractAeroModel}=nothing,
                  wing_type::Union{Nothing,WingType}=nothing,
@@ -413,6 +416,7 @@ function VSMWing(name, set::Settings,
         aero = attach_engine!(aero, build_vsm_engine(set, vsm_set, dynamics_type;
             point_to_vsm_point, wing_segments, aero_scale_chord, aero_z_offset,
             n_unrefined_sections))
+        seed_wing_inertia!(aero.engine.vsm_wing, set, com, unit_inertia)
     end
 
     # Placeholders — overwritten by SystemStructure
@@ -421,10 +425,42 @@ function VSMWing(name, set::Settings,
     inertia_vec = isnothing(inertia_diag) ?
         ones(MVector{3, SimFloat}) : inertia_diag
 
-    return Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_vec;
+    wing = Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_vec;
         transform, y_damping, angular_damping, dynamics_type, aero,
         group_points_moment, z_ref_points, y_ref_points, origin,
         principal_frame_method)
+    isnothing(mass) || (wing.mass = SimFloat(mass))
+    return wing
+end
+
+"""
+    seed_wing_inertia!(vsm_wing, set, com, unit_inertia)
+
+Seed a VSM mesh's per-unit-mass inertia `vsm_wing.inertia_tensor` (3×3, [m²]) and
+COM `vsm_wing.T_cad_body = -com` so the SystemStructure inertia pipeline
+([`normalized_inertia`](@ref)) uses them instead of the point-mass fallback.
+`unit_inertia` accepts either the symmetric 6-vector `[Ixx,Iyy,Izz,Ixy,Ixz,Iyz]`
+or a full 3×3. When `com`/`unit_inertia` are omitted they auto-compute from the
+`.obj` at `joinpath(get_data_path(), set.model)` if present; with neither given
+and no `.obj`, this is a no-op (point-mass fallback stays in effect).
+"""
+function seed_wing_inertia!(vsm_wing, set::Settings, com, unit_inertia)
+    tensor = isnothing(unit_inertia) ? nothing :
+        (unit_inertia isa AbstractMatrix ? Matrix{SimFloat}(unit_inertia) :
+         Matrix{SimFloat}(ObjAdapter.unit_inertia_matrix(unit_inertia)))
+    com_val = isnothing(com) ? nothing : KVec3(com)
+    if isnothing(tensor) || isnothing(com_val)
+        obj_path = joinpath(get_data_path(), set.model)
+        if isfile(obj_path)
+            com_auto, tensor_auto = ObjAdapter.unit_inertia_from_obj(obj_path)
+            isnothing(com_val) && (com_val = KVec3(com_auto))
+            isnothing(tensor) && (tensor = Matrix{SimFloat}(tensor_auto))
+        end
+    end
+    (isnothing(tensor) || isnothing(com_val)) && return nothing
+    vsm_wing.inertia_tensor = tensor
+    vsm_wing.T_cad_body .= -com_val
+    return nothing
 end
 
 """
