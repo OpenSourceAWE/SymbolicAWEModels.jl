@@ -26,12 +26,17 @@ This file contains enums and struct definitions for:
 end
 
 """
-    DynamicsType `DYNAMIC` `STATIC` `WING` `BODY_STATIC`
+    DynamicsType `DYNAMIC` `STATIC` `BODY_STATIC` `KINEMATIC`
 
 Enumeration for the dynamic model governing a point's motion, a rigid body's
 motion, or a twist_surface's twist. The shared idea: `DYNAMIC` quantities carry
 differential state and are solved by the dynamics; the others are *prescribed* —
 no state, held constant within a step, but mutable between steps.
+
+A wing's aerodynamic-surface structural points are ordinary `DYNAMIC` (particle
+wing) or `BODY_STATIC` (rigid wing, riding the wing body) points; their wing
+membership is carried by twist-surface membership (`point.is_wing_node`), not by
+a dedicated dynamics type.
 
 # Elements
 - `DYNAMIC`: Solved by the dynamics. A point moves by Newton's second law; a
@@ -40,15 +45,15 @@ no state, held constant within a step, but mutable between steps.
 - `STATIC`: Prescribed, no state. A point's position is welded in the **world**
   frame; a rigid body is clamped to the world; a twist_surface twist is a
   prescribed control input read live via the registered getter.
-- `WING`: A point rides a [`Wing`](@ref) — static in the wing's body frame.
 - `BODY_STATIC`: A point rides a [`Body`](@ref) — static in the rigid
   body's body frame; it feeds its net force (and the moment about the body COM)
   into the body.
+- `KINEMATIC`: A twist source whose deflection is prescribed by geometry (e.g. a
+  flap hinge between two bodies).
 """
 @enum DynamicsType begin
     DYNAMIC
     STATIC
-    WING
     BODY_STATIC
     KINEMATIC
 end
@@ -284,7 +289,7 @@ mutable struct Point
     const drag_force::KVec3
     "Apparent velocity in body frame [m/s] (VSM per-point)."
     const va_b::KVec3
-    "Dynamics type (DYNAMIC, STATIC, WING, BODY_STATIC)."
+    "Dynamics type (DYNAMIC, STATIC, BODY_STATIC, KINEMATIC)."
     const type::DynamicsType
     "User-provided mass [kg]."
     extra_mass::SimFloat
@@ -302,6 +307,10 @@ mutable struct Point
     fix_sphere::Bool
     "If true, dynamically freeze point position."
     fix_static::Bool
+    "Derived: true when the point is an aerodynamic-surface structural node of a
+    wing (a member of one of the wing's twist surfaces). Set by SystemStructure
+    from twist-surface membership; drives the wing-node equations."
+    is_wing_node::Bool
     # ---- beam-curvature anchoring (rides a TimoshenkoJoint's deformed centerline) ----
     "Resolved anchoring TimoshenkoJoint index (filled by SystemStructure). 0 = not beam-anchored."
     joint_idx::Int64
@@ -320,18 +329,16 @@ Base.getproperty(point::Point, sym::Symbol) =
 """
     Point(name, pos_cad, type; wing=1, transform=1, ...)
 
-Constructs a `Point` object, which can be of four different [`DynamicsType`](@ref)s:
+Constructs a `Point` object, which can be of three different [`DynamicsType`](@ref)s:
 - `STATIC`: The point does not move. ``\\ddot{\\mathbf{r}} = \\mathbf{0}``
 - `DYNAMIC`: The point moves according to Newton's second law. ``\\ddot{\\mathbf{r}} = \\mathbf{F}/m``
-- `WING`: The point has a static position in the rigid body wing frame. ``\\mathbf{r}_w = \\mathbf{r}_{wing} + \\mathbf{R}_{b\\rightarrow w} \\mathbf{r}_b``
 - `BODY_STATIC`: The point is static in a [`Body`](@ref)'s body frame
   (pass `body`); it rides the body and feeds its net force and moment into it.
 
-A `WING` point of a `PARTICLE_DYNAMICS` wing may also pass `body`: it then rides
-that [`Body`](@ref) instead of integrating Newton's law, keeping its wing
-membership (per-point aero, wing-frame fitting) while feeding its net force and
-COM moment into the body — the coupling used when the wing structure is a chain
-of bodies joined by [`TimoshenkoJoint`](@ref)s instead of spring segments.
+A wing's aerodynamic-surface structural points are ordinary `DYNAMIC` (particle
+wing) or `BODY_STATIC` (rigid wing, `body` = the wing) points that are members
+of one of the wing's twist surfaces; their `is_wing_node` flag is then set from
+that membership and drives the per-point aero and wing-frame fitting.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the point (e.g., `:kcu`, `:le_1`, or `1` for legacy).
@@ -343,9 +350,9 @@ of bodies joined by [`TimoshenkoJoint`](@ref)s instead of spring segments.
 - `wing::Union{Int, Symbol}=1`: Reference to the wing (name or index).
 - `transform::Union{Int, Symbol}=1`: Reference to the transform (name or index).
 - `body::Union{Int, Symbol}`: Reference to a [`Body`](@ref) to anchor the
-  point to (requires `type = BODY_STATIC` or `type = WING`). The point then
-  rides the body kinematically and feeds its net force (and the moment about
-  the body COM) into the body. Defaults to no anchor.
+  point to (requires `type = BODY_STATIC`). The point then rides the body
+  kinematically and feeds its net force (and the moment about the body COM)
+  into the body. Defaults to no anchor.
 - `anchor_b::KVec3`: Anchor offset in the body frame [m] (used with `body`).
 - `vel_w::KVec3=zeros(KVec3)`: Initial velocity of the point in world frame.
 - `extra_mass::Float64=0.0`: User-provided mass of the point [kg].
@@ -367,8 +374,8 @@ function Point(name, pos_cad, type;
     if type == BODY_STATIC
         (isnothing(body) && isnothing(joint)) && error(
             "Point $name: BODY_STATIC requires a `body` or a `joint` reference.")
-    elseif !isnothing(body) && type != WING
-        error("Point $name: `body` is only valid with type BODY_STATIC or WING.")
+    elseif !isnothing(body)
+        error("Point $name: `body` is only valid with type BODY_STATIC.")
     end
     (!isnothing(body) && !isnothing(joint)) && error(
         "Point $name: set either `body` (rigid rider) or `joint` (beam rider), " *
@@ -405,7 +412,7 @@ function Point(name, pos_cad, type;
         vel, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         type, extra_mass, 0.0,
         bf_damp, wf_damp, area, drag_coeff,
-        fix_sphere, fix_static,
+        fix_sphere, fix_static, false,
         0, joint_ref, 0.0, zeros(KVec3))
 end
 

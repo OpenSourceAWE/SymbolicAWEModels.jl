@@ -324,7 +324,7 @@ function finalize_transforms!(points, bodies)
         body.R_b_to_w = R_b_to_w
         body.pos_w .= origin
         for point in points
-            if point.type == WING && point.wing_idx == body.idx
+            if point.is_wing_node && point.wing_idx == body.idx
                 point.pos_b .= R_b_to_w' * (point.pos_w - origin)
             end
         end
@@ -350,7 +350,7 @@ function init_principal_frame!(bodies, points)
             # pos_b: WING points' offset from COM in body frame
             com_cad = body.pos_cad .+ body.R_b_to_c * body.com_offset_b
             for point in points
-                if point.type == WING && point.wing_idx == body.idx
+                if point.is_wing_node && point.wing_idx == body.idx
                     point.pos_b .= body.R_b_to_c' * (point.pos_cad - com_cad)
                 end
             end

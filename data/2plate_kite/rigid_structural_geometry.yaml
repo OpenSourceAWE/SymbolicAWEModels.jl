@@ -19,23 +19,24 @@ materials:
 # Access by name: sys.points[:le_left] or by index: sys.points[1]
 
 points:
-  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
+  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff, body_idx]
   data:
-    # Wing points - leading edge (LE) and trailing edge (TE)
-    - [le_left,    [-0.5, 1.0, 2.0], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [te_left,    [0.5,  1.0, 2.3], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [le_center,  [-0.5, 0.0, 2.5], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [te_center,  [0.5,  0.0, 2.8], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [le_right,   [-0.5,-1.0, 2.0], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [te_right,   [0.5, -1.0, 2.3], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
+    # Wing points - leading edge (LE) and trailing edge (TE); rigid wing nodes
+    # ride the wing body (BODY_STATIC, body_idx = main_wing).
+    - [le_left,    [-0.5, 1.0, 2.0], BODY_STATIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0, main_wing]
+    - [te_left,    [0.5,  1.0, 2.3], BODY_STATIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0, main_wing]
+    - [le_center,  [-0.5, 0.0, 2.5], BODY_STATIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0, main_wing]
+    - [te_center,  [0.5,  0.0, 2.8], BODY_STATIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0, main_wing]
+    - [le_right,   [-0.5,-1.0, 2.0], BODY_STATIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0, main_wing]
+    - [te_right,   [0.5, -1.0, 2.3], BODY_STATIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0, main_wing]
 
     # Bridle points
-    - [steering_left, [0.0, 0.5, 0.5], DYNAMIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [steering_right,[0.0,-0.5, 0.5], DYNAMIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [steering_left, [0.0, 0.5, 0.5], DYNAMIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0, nothing]
+    - [steering_right,[0.0,-0.5, 0.5], DYNAMIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0, nothing]
 
-    # Tether attachment and ground points
-    - [kcu,        [0.0, 0.0, 0.0],   WING, main_wing, main_transform, 1.0, 0.0, 0.0, 0.1, 1.0]
-    - [ground,     [0.0, 0.0, -20.0],  STATIC,  main_wing, main_transform, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # Tether attachment (rides the wing body) and ground points
+    - [kcu,        [0.0, 0.0, 0.0],   BODY_STATIC, main_wing, main_transform, 1.0, 0.0, 0.0, 0.1, 1.0, main_wing]
+    - [ground,     [0.0, 0.0, -20.0],  STATIC,  main_wing, main_transform, 0.0, 0.0, 0.0, 0.0, 0.0, nothing]
 
 ###########################
 ## Segments ###############

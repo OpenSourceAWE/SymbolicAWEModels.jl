@@ -189,7 +189,7 @@ function validate_sys_struct(sys_struct::SystemStructure)
     # ==================== SEGMENT VALIDATIONS ==================== #
     for segment in segments
         # Wing structural segments don't use diameter (stiffness explicit, drag from VSM)
-        wing_structural = all(points[i].type == WING for i in segment.point_idxs)
+        wing_structural = all(points[i].is_wing_node for i in segment.point_idxs)
         if !wing_structural && !(0 < segment.diameter < 1)
             @warn "Segment $(segment.name) has unusual diameter " *
                   "$(segment.diameter) m (expected range: 0 to 1 m)"
@@ -295,7 +295,7 @@ function rigid_point_siblings(points, wings, joints)
     for wing in wings
         wing.dynamics_type == RIGID_DYNAMICS || continue
         members = Set{Int64}(point.idx for point in points
-            if point.type == WING && point.wing_idx == wing.idx)
+            if point.is_wing_node && point.wing_idx == wing.idx)
         for member in members
             siblings[member] = members
         end
@@ -311,7 +311,7 @@ function rigid_point_siblings(points, wings, joints)
 
     body_members = Dict{Int64, Set{Int64}}()
     for point in points
-        (point.type == BODY_STATIC || point.type == WING) || continue
+        (point.type == BODY_STATIC || point.is_wing_node) || continue
         point.body_idx == 0 && continue
         push!(get!(body_members, find_root(point.body_idx), Set{Int64}()), point.idx)
     end
@@ -492,7 +492,7 @@ function apply_cluster_init_stretched_len!(
         point = points[idx]
         if point.body_idx != 0
             push!(moved_bodies, point.body_idx)
-        elseif point.type == WING && point.wing_idx != 0
+        elseif point.is_wing_node && point.wing_idx != 0
             push!(moved_bodies, point.wing_idx)
         end
     end

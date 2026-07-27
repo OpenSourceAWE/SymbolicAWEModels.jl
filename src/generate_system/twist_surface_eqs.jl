@@ -43,10 +43,10 @@ function validate_twist_surface_modes(twist_surfaces, bodies)
                 "TwistSurface $(twist_surface.name): $(twist_surface.type) twist needs a bridle couple " *
                 "(≥2 points), got $npoints. A 1-point twist_surface must use STATIC twist.")
         elseif twist_surface.type == STATIC
-            (rigid || npoints == 1) || error(
-                "TwistSurface $(twist_surface.name): STATIC twist on a PARTICLE_DYNAMICS wing is " *
-                "only coherent for a single point (imposed twist cannot move free " *
-                "particles), got $npoints points.")
+            # STATIC = prescribed twist (default 0). On a rigid wing it imposes
+            # the section twist; on a PARTICLE wing the free points carry the
+            # deformation, so a multi-point STATIC surface is an inert
+            # aero-section membership marker (its prescribed twist is unused).
         else
             error("TwistSurface $(twist_surface.name): unsupported twist mode $(twist_surface.type).")
         end

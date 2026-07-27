@@ -427,6 +427,38 @@ function expand_auto_tethers!(
 end
 
 """
+    mark_wing_nodes!(points, twist_surfaces)
+
+Set `point.is_wing_node` for every point that is a member of some twist surface.
+A wing's aerodynamic-surface structural points carry their wing membership
+through twist-surface membership (there is no `WING` dynamics type); this flag,
+derived once here, drives the per-point aero and wing-frame equations. Requires
+`twist_surface.point_idxs` to be resolved first.
+"""
+function mark_wing_nodes!(points, twist_surfaces)
+    members = Set{Int64}()
+    for twist_surface in twist_surfaces, point_idx in twist_surface.point_idxs
+        push!(members, point_idx)
+    end
+    for point in points
+        point.is_wing_node = point.idx in members
+    end
+    return nothing
+end
+
+"""
+    wing_frame_member(point, wing_idx) -> Bool
+
+Whether `point` contributes to wing `wing_idx`'s mass, COM and body frame. Its
+aerodynamic-surface nodes (`is_wing_node`) plus any `BODY_STATIC` structural
+point sharing its `wing_idx` — e.g. a rigid wing's attachment points (like the
+KCU) that ride the wing body without being aero-surface members. Bridle points
+riding a beam carry `wing_idx == 0`, so they are excluded.
+"""
+wing_frame_member(point, wing_idx) =
+    (point.is_wing_node || point.type == BODY_STATIC) && point.wing_idx == wing_idx
+
+"""
     assign_indices_and_resolve!(components, name_dicts)
 
 Assign indices to all components based on their position in the vectors,
@@ -488,6 +520,7 @@ function assign_indices_and_resolve!(
     for twist_surface in twist_surfaces
         twist_surface.point_idxs = Int64[resolve_ref(ref, point_names, "point") for ref in twist_surface.point_refs]
     end
+    mark_wing_nodes!(points, twist_surfaces)
 
     # Segments: resolve point_refs
     for segment in segments
@@ -585,7 +618,7 @@ function init_body_frame_from_ref_points!(
 
     # Temporarily set pos_w = pos_cad so the frame calc can read positions.
     for point in points
-        point.type == WING && point.wing_idx == wing.idx &&
+        wing_frame_member(point, wing.idx) &&
             (point.pos_w .= point.pos_cad)
     end
     R_b_to_c, _ = calc_particle_dynamics_wing_frame(
@@ -705,7 +738,7 @@ COM).
 """
 function setup_wing_frame!(wing, points; prn=true)
     if wing.dynamics_type == RIGID_DYNAMICS
-        any(point.type == WING && point.wing_idx == wing.idx
+        any(wing_frame_member(point, wing.idx)
             for point in points) || return nothing
 
         com_cad, inertia_normalized = normalized_inertia(wing.aero, wing, points)
@@ -727,8 +760,7 @@ function setup_wing_frame!(wing, points; prn=true)
                 points, origin; field=:pos_cad)
             wing.pos_cad .= origin_cad
             for point in points
-                point.type == WING &&
-                    point.wing_idx == wing.idx &&
+                wing_frame_member(point, wing.idx) &&
                     (point.pos_w .= point.pos_cad)
             end
             R_b_to_c, _ = calc_particle_dynamics_wing_frame(
@@ -825,7 +857,7 @@ function SystemStructure(name, set;
 
     # If no wings defined, convert WING points to STATIC
     if isempty(wings)
-        wing_point_idxs = findall(point -> point.type == WING, points)
+        wing_point_idxs = findall(point -> point.is_wing_node, points)
         if !isempty(wing_point_idxs)
             @warn "No wings provided but " *
                   "$(length(wing_point_idxs)) WING type " *
@@ -882,10 +914,10 @@ function SystemStructure(name, set;
     end
     for wing in wings
         wing_point_idxs = [point.idx for point in points
-            if point.type == WING && point.wing_idx == wing.idx]
+            if wing_frame_member(point, wing.idx)]
         point_mass_sum = sum(
             point.extra_mass for point in points
-            if point.type == WING && point.wing_idx == wing.idx; init=0.0)
+            if wing_frame_member(point, wing.idx); init=0.0)
         set_mass = hasproperty(set, :mass) ? set.mass : 0.0
 
         if set_mass > 0 && point_mass_sum > 0

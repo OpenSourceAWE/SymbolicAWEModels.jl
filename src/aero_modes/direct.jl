@@ -97,7 +97,7 @@ function refresh_particle_aero!(::AeroDirect, wing, points, va_point_b_vals;
                                 vsm_min_wind=0.5)
     if norm(wing.va_b) < vsm_min_wind
         for point in points
-            if point.type == WING && point.wing_idx == wing.idx
+            if point.is_wing_node && point.wing_idx == wing.idx
                 fill!(point.aero_force_b, 0.0)
             end
         end
@@ -112,7 +112,7 @@ function refresh_particle_aero!(::AeroDirect, wing, points, va_point_b_vals;
     end
     distribute_panel_forces_to_points!(wing, points)
     for point in points
-        if point.type == WING && point.wing_idx == wing.idx &&
+        if point.is_wing_node && point.wing_idx == wing.idx &&
                 any(!isfinite, point.aero_force_b)
             throw(AssertionError("PARTICLE_DYNAMICS: non-finite point force on wing $(wing.idx) point $(point.idx)"))
         end
