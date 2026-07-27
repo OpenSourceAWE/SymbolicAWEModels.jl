@@ -27,6 +27,35 @@ function point_damping_accel(point, params, R_b_to_w, wing_idx, vel_w, vel_diff_
 end
 
 """
+    body_ride_eqs(point, body, force_on_body, params;
+                  pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
+                  body_com_vel, body_ω_b, body_force, body_moment)
+
+Kinematic pose equations for a point rigidly anchored to `body` at
+`anchor_b`, and the load it feeds back to that body. The point tracks the
+body's rigid motion (`vel = com_vel + ω×arm`), and its `force_on_body` is
+applied at the anchor with the moment about the body COM. Shared by the
+`BODY_STATIC` single-body ride and PARTICLE-wing beam-node coupling; mutates
+`body_force`/`body_moment` in place and returns the pos/vel/acc equations.
+"""
+function body_ride_eqs(point, body, force_on_body, params;
+                       pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
+                       body_com_vel, body_ω_b, body_force, body_moment)
+    anchor = collect(params.points[point.idx].anchor_b)
+    R_body = collect(body_R_b_to_w[:, :, body])
+    anchor_w = collect(body_pos_w[:, body]) .+ R_body * anchor
+    ω_w = R_body * collect(body_ω_b[:, body])
+    arm = anchor_w .- collect(body_com_w[:, body])
+    body_force[:, body] .+= force_on_body
+    body_moment[:, body] .+= arm × force_on_body
+    return [
+        pos[:, point.idx] ~ anchor_w
+        vel[:, point.idx] ~ collect(body_com_vel[:, body]) .+ (ω_w × arm)
+        acc[:, point.idx] ~ zeros(3)
+    ]
+end
+
+"""
     point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, params, initial;
                R_b_to_w, wing_vel, wind_vec_gnd, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -199,19 +228,9 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     (pos_point .- collect(body_com_w[:, b])) × force_b
             else
                 # Rides a Body kinematically; feeds its force and COM moment to the body.
-                body = point.body_idx
-                anchor = collect(params.points[point.idx].anchor_b)
-                anchor_w = collect(body_pos_w[:, body]) .+
-                    collect(body_R_b_to_w[:, :, body]) * anchor
-                eqs = [
-                    eqs
-                    pos[:, point.idx] ~ anchor_w
-                    vel[:, point.idx] ~ zeros(3)
-                    acc[:, point.idx] ~ zeros(3)
-                ]
-                arm = anchor_w .- collect(body_com_w[:, body])
-                body_force[:, body] .+= force_on_point
-                body_moment[:, body] .+= arm × force_on_point
+                eqs = [eqs; body_ride_eqs(point, point.body_idx, force_on_point,
+                    params; pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
+                    body_com_vel, body_ω_b, body_force, body_moment)]
             end
         elseif point.type == WING
             # The wing is a body (looked up in the full bodies, incl. AeroNone wings).
@@ -231,21 +250,10 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
 
                 if point.body_idx > 0
                     # Rides a Body (beam-node coupling): kinematic pose, loads to body.
-                    body = point.body_idx
-                    anchor = collect(params.points[point.idx].anchor_b)
-                    R_body = collect(body_R_b_to_w[:, :, body])
-                    anchor_w = collect(body_pos_w[:, body]) .+ R_body * anchor
-                    ω_w = R_body * collect(body_ω_b[:, body])
-                    arm = anchor_w .- collect(body_com_w[:, body])
-                    eqs = [
-                        eqs
-                        pos[:, point.idx] ~ anchor_w
-                        vel[:, point.idx] ~ collect(body_com_vel[:, body]) .+ (ω_w × arm)
-                        acc[:, point.idx] ~ zeros(3)
-                    ]
-                    force_on_body = collect(point_force[:, point.idx])
-                    body_force[:, body] .+= force_on_body
-                    body_moment[:, body] .+= arm × force_on_body
+                    eqs = [eqs; body_ride_eqs(point, point.body_idx,
+                        collect(point_force[:, point.idx]), params;
+                        pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
+                        body_com_vel, body_ω_b, body_force, body_moment)]
                     continue
                 end
 
