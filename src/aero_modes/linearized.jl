@@ -90,7 +90,9 @@ Linearized rigid-wing refresh. Computes the baseline wind-axis coefficients at t
 operating point ([`rigid_aero_baseline!`](@ref)), then the `ForwardDiff` Jacobian
 `d(coeffs)/d(inputs)` and stores it in `wing.aero_jac`. The compiled RHS uses that
 Jacobian to reconstruct forces via a first-order Taylor expansion about the
-operating point.
+operating point. `wing.aero_force_b`/`aero_moment_b` are set to the operating-point
+force so the reported value tracks the VSM solve; between refreshes `update_sys_struct!`
+overwrites it with the RHS-applied linearized force.
 """
 function refresh_rigid_aero!(::AeroLinearized, wing, am, twist_surfaces;
                              vsm_min_wind=0.5)
@@ -100,6 +102,12 @@ function refresh_rigid_aero!(::AeroLinearized, wing, am, twist_surfaces;
         ctx.n_twist_surfaces, ctx.twist_surface_idxs, twist_surfaces,
         ctx.moment_frac, ctx.shadow_ref; gamma_init=gamma0)
     ForwardDiff.jacobian!(wing.aero_jac, f_dual, ctx.y0)
+    if norm(wing.va_b) < vsm_min_wind
+        fill!(wing.aero_force_b, 0.0)
+        fill!(wing.aero_moment_b, 0.0)
+    else
+        apply_direct_forces!(wing, am, wing.aero_x)
+    end
     return nothing
 end
 

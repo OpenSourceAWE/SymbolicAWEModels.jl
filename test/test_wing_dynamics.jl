@@ -303,6 +303,32 @@ end
         @test max_norm_err < 1e-4
     end
 
+    # ========== reset_vel init behaviour ========== #
+    # reset_vel=false must keep the struct velocities/spin set before init!;
+    # reset_vel=true must zero them (and the derived principal-frame state).
+
+    @testset "reset_vel preserves vs zeros velocity" begin
+        wing = sam.sys_struct.bodies[:main_wing]
+        vel_set = [1.5, -0.7, 2.3]
+        omega_set = collect(wing.R_b_to_p' * [0.0, 0.0, 4.0])
+
+        wing.vel_w .= vel_set
+        wing.ω_b .= omega_set
+        test_init!(sam; prn=false, reset_vel=false)
+        @test wing.vel_w ≈ vel_set atol=1e-10
+        @test wing.ω_b ≈ omega_set atol=1e-10
+        @test norm(wing.com_vel) > 1e-6
+        @test norm(wing.ω_p) > 1e-6
+
+        wing.vel_w .= vel_set
+        wing.ω_b .= omega_set
+        test_init!(sam; prn=false, reset_vel=true)
+        @test norm(wing.vel_w) < 1e-10
+        @test norm(wing.ω_b) < 1e-10
+        @test norm(wing.com_vel) < 1e-10
+        @test norm(wing.ω_p) < 1e-10
+    end
+
     # ========== Torque-free precession ========== #
     # Spin about max-I axis with small perturbation on
     # a transverse axis. Linearized Euler equations
@@ -347,6 +373,7 @@ end
         omega_p_vals = Float64[]
         omega_q_vals = Float64[]
         omega_k_vals = Float64[]
+        max_qp_norm_dev = 0.0
 
         for _ in 1:n_steps
             next_step!(sam; dt, vsm_interval=0)
@@ -355,6 +382,8 @@ end
             push!(omega_p_vals, omega_principal[pc.p])
             push!(omega_q_vals, omega_principal[pc.q])
             push!(omega_k_vals, omega_principal[k])
+            max_qp_norm_dev = max(max_qp_norm_dev,
+                abs(norm(wing.Q_p_to_w) - 1.0))
         end
 
         # Spin-axis omega stays constant
@@ -389,8 +418,12 @@ end
             ", E_final = $(round(E_final; digits=4))")
         @test E_final ≈ E_initial rtol=0.01
 
-        # Quaternion norm preserved
+        # Quaternion norm preserved. Q_b_to_w is derived (rot→quat, always
+        # unit); Q_p_to_w is the integrated state that would drift without the
+        # Baumgarte normalisation term in rigid_body_eqs.
+        println("  Max ||Q_p| - 1|: $max_qp_norm_dev")
         @test norm(wing.Q_b_to_w) ≈ 1.0 atol=1e-4
+        @test max_qp_norm_dev < 1e-4
     end
 
     rm(tmpdir; recursive=true)
