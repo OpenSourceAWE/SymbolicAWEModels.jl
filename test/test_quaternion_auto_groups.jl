@@ -6,14 +6,14 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     Pkg.activate(@__DIR__)
 end
 
-# Test auto-creation of twist_surfaces for RIGID_DYNAMICS wings
+# Test twist_surface handling for RIGID_DYNAMICS wings (explicit only)
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, WING,
     RIGID_DYNAMICS, PARTICLE_DYNAMICS
 using Test
 using LinearAlgebra
 
-@testset "RIGID_DYNAMICS wing auto-twist_surface creation" begin
+@testset "RIGID_DYNAMICS wing twist_surface handling" begin
     # Copy 2plate_kite data to temp directory
     pkg_root = dirname(@__DIR__)
     src_data_path = joinpath(
@@ -66,31 +66,15 @@ using LinearAlgebra
         @test !iszero(twist_surface.y_airf)
     end
 
-    # ── RIGID_DYNAMICS auto-twist_surface creation ────────────
-    # Load without explicit twist_surfaces: auto-twist_surface should
-    # kick in for the 6 LE/TE WING points (kcu is
-    # excluded because it isn't in any twist_surface → the
-    # twist_surface-based path is unavailable and the fallback
-    # consecutive-pair heuristic uses only even-count
-    # subsets).
-    # Easiest approach: load PARTICLE_DYNAMICS YAML as RIGID_DYNAMICS
-    # (PARTICLE_DYNAMICS YAML has 6 WING points, no twist_surfaces, no
-    # kcu WING point).
-    sys_auto = load_sys_struct_from_yaml(
+    # ── RIGID_DYNAMICS without explicit twist_surfaces errors ──
+    # Section-coupled aero on a RIGID wing requires explicit
+    # twist_surfaces (auto-creation was removed as a black box).
+    # Loading the PARTICLE_DYNAMICS YAML (6 LE/TE WING points, no
+    # twist_surfaces) as RIGID_DYNAMICS must raise rather than
+    # silently invent them.
+    @test_throws "explicit twist_surfaces" load_sys_struct_from_yaml(
         refine_yaml;
         system_name="2plate_auto", set, vsm_set,
         dynamics_type=RIGID_DYNAMICS)
-
-    wing_auto = sys_auto.wings[1]
-    @test wing_auto.dynamics_type == RIGID_DYNAMICS
-    @test length(sys_auto.twist_surfaces) == 3
-    @test length(wing_auto.twist_surface_idxs) == 3
-    @test !isnothing(wing_auto.wing_segments)
-    @test length(wing_auto.wing_segments) == 3
-
-    for twist_surface in sys_auto.twist_surfaces
-        @test !iszero(twist_surface.chord)
-        @test !iszero(twist_surface.y_airf)
-    end
 end
 nothing

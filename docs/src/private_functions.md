@@ -170,7 +170,6 @@ SymbolicAWEModels.resolve_ref_spec
 SymbolicAWEModels.validate_sys_struct
 SymbolicAWEModels.build_name_dict
 SymbolicAWEModels.setup_wing_frame!
-SymbolicAWEModels.auto_create_twist_surfaces!
 SymbolicAWEModels.compute_twist_surface_geometry!
 SymbolicAWEModels.setup_particle_point_mapping!
 SymbolicAWEModels.identify_wing_segments

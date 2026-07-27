@@ -534,47 +534,11 @@ function update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Poin
 end
 
 """
-    auto_create_twist_surfaces!(wing, points, twist_surfaces; prn=false)
-
-Auto-create one `DYNAMIC` [`TwistSurface`](@ref) per LE/TE structural section for a
-section-coupled RIGID_DYNAMICS VSM wing that has none, append them to
-`twist_surfaces`, set `wing.twist_surface_idxs`, and resize the wing's aero arrays.
-"""
-function auto_create_twist_surfaces!(wing, points, twist_surfaces; prn=false)
-    wing_point_idxs = findall(
-        point -> point.type == WING && point.wing_idx == wing.idx, points)
-    wing_points = [points[idx] for idx in wing_point_idxs]
-    wing_segments = identify_wing_segments(wing_points)
-
-    new_twist_surface_idxs = Int64[]
-    for (le_idx, te_idx) in wing_segments
-        twist_surface_idx = length(twist_surfaces) + 1
-        # Integer name for auto-created twist_surfaces
-        new_twist_surface = TwistSurface(twist_surface_idx,
-            [le_idx, te_idx], DYNAMIC, 0.0)
-        new_twist_surface.idx = twist_surface_idx
-        new_twist_surface.point_idxs = [le_idx, te_idx]
-        push!(twist_surfaces, new_twist_surface)
-        push!(new_twist_surface_idxs, Int64(twist_surface_idx))
-    end
-    wing.twist_surface_idxs = new_twist_surface_idxs
-
-    n_twist_surfaces = length(new_twist_surface_idxs)
-    wing.aero_y = zeros(SimFloat, 5 + n_twist_surfaces)
-    wing.aero_x = zeros(SimFloat, 6 + n_twist_surfaces)
-    wing.aero_jac = zeros(SimFloat, 6 + n_twist_surfaces, 5 + n_twist_surfaces)
-
-    prn && @info "Auto-created $(n_twist_surfaces) twist_surfaces " *
-        "for RIGID_DYNAMICS wing $(wing.idx)"
-    return nothing
-end
-
-"""
     compute_twist_surface_geometry!(wing, twist_surfaces, points)
 
 For each of `wing`'s twist surfaces with an unset chord, derive its leading-edge
 position, chord vector, and spanwise airfoil axis from the nearest VSM refined
-section (body frame). Used for auto-created twist surfaces.
+section (body frame). Fills the chord for any twist surface left unset.
 """
 function compute_twist_surface_geometry!(wing, twist_surfaces, points)
     for twist_surface_idx in wing.twist_surface_idxs

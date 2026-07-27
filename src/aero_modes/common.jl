@@ -645,7 +645,9 @@ function setup_aero!(mode::AbstractVSMAero, wing, points, twist_surfaces;
         transform_vsm_sections_to_body!(wing; aero_z_offset=wing.aero_z_offset)
 
         if couples_to_sections(mode) && isempty(wing.twist_surface_idxs)
-            auto_create_twist_surfaces!(wing, points, twist_surfaces; prn)
+            error("Section-coupled aero on RIGID wing $(wing.idx) requires " *
+                  "explicit twist_surfaces covering its LE/TE structural " *
+                  "sections; none were declared. Add them to the wing.")
         end
         couples_to_sections(mode) &&
             match_aero_sections_to_structure!(wing, points; twist_surfaces)
