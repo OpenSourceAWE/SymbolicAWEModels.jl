@@ -98,55 +98,81 @@ end
 """
     InitialSync
 
-A `setp` setter for a list of `Initial(state)` parameters, their per-element
-readers, and a preallocated value buffer.
+Push bound initial conditions from the struct onto a problem. A bound variable
+reaches the problem one of two ways: through its `Initial(state)` parameter when
+that parameter exists (an initialization constraint mtkcompile kept), or — when
+there is no such parameter (`build_initializeprob=false`) — by writing the
+surviving unknown's `u0` directly. Holds a `setp`/`setu` setter, per-element
+readers, and a preallocated value buffer for each path.
 """
-struct InitialSync{Setter}
-    setter::Setter
-    readers::Vector{Any}
-    buffer::Vector{SimFloat}
+struct InitialSync{PSet, USet}
+    param_setter::PSet
+    param_readers::Vector{Any}
+    param_buffer::Vector{SimFloat}
+    state_setter::USet
+    state_readers::Vector{Any}
+    state_buffer::Vector{SimFloat}
 end
 
 """
     build_initial_sync(sys, registry) -> InitialSync | Nothing
 
-Build the `Initial`-parameter sync from the compiled system and the registry. A
-bound variable is kept when `Initial(var)` is a real parameter of `sys` — this
-holds for surviving unknowns *and* for observed variables `mtkcompile` solves
-during initialization (their `Initial` is an initialization constraint); only
-variables removed entirely are dropped, so the setter never touches an absent
-`Initial` parameter.
+Build the initial-condition sync from the compiled system and the registry. Each
+bound variable is routed by how it survived `mtkcompile`: to its `Initial(var)`
+parameter when that is a real parameter of `sys` (a surviving observed variable
+or an init constraint), otherwise — when the variable survives as an unknown but
+carries no `Initial` parameter — to a direct `u0` write. Variables removed
+entirely are dropped.
 """
 function build_initial_sync(sys, registry::InitialRegistry)
     isempty(registry.entries) && return nothing
-    init_params, readers = Any[], Any[]
+    init_params, param_readers = Any[], Any[]
+    state_vars, state_readers = Any[], Any[]
     for entry in registry.entries
         for k in eachindex(entry.vars)
-            init = ModelingToolkit.Initial(entry.vars[k])
-            is_parameter(sys, init) || continue
-            push!(init_params, init)
-            push!(readers, ElementReader(entry.read, k))
+            var = entry.vars[k]
+            init = ModelingToolkit.Initial(var)
+            # A surviving unknown's u0 must be written directly: with
+            # build_initializeprob=false there is no init solve to apply its
+            # Initial parameter, so setting that parameter alone leaves u0 stale.
+            if is_variable(sys, var)
+                push!(state_vars, var)
+                push!(state_readers, ElementReader(entry.read, k))
+            elseif is_parameter(sys, init)
+                push!(init_params, init)
+                push!(param_readers, ElementReader(entry.read, k))
+            end
         end
     end
-    isempty(init_params) && return nothing
-    return InitialSync(setp(sys, init_params), readers,
-                       Vector{SimFloat}(undef, length(init_params)))
+    (isempty(init_params) && isempty(state_vars)) && return nothing
+    return InitialSync(
+        isempty(init_params) ? nothing : setp(sys, init_params),
+        param_readers, Vector{SimFloat}(undef, length(init_params)),
+        isempty(state_vars) ? nothing : setu(sys, state_vars),
+        state_readers, Vector{SimFloat}(undef, length(state_vars)))
 end
 
 """
     sync_initial!(sync, prob, sys_struct)
 
-Copy every bound initial condition from the live `sys_struct` onto `prob`'s
-`Initial` parameters. Must run before a fresh `init`/`solve` (a `reinit!` with
-`reinit_dae` does not re-read `Initial`). A no-op when there are none.
+Copy every bound initial condition from the live `sys_struct` onto `prob` — both
+the `Initial` parameters and the directly-set unknown `u0` values. Must run
+before a fresh `init`/`solve` (a `reinit!` with `reinit_dae` does not re-read
+them). A no-op when there are none.
 """
 sync_initial!(::Nothing, prob, sys_struct) = nothing
 function sync_initial!(sync::InitialSync, prob, sys_struct::SystemStructure)
-    readers = sync.readers
-    buffer = sync.buffer
-    @inbounds for k in eachindex(readers)
-        buffer[k] = readers[k](sys_struct)
+    if sync.param_setter !== nothing
+        @inbounds for k in eachindex(sync.param_readers)
+            sync.param_buffer[k] = sync.param_readers[k](sys_struct)
+        end
+        sync.param_setter(prob, sync.param_buffer)
     end
-    sync.setter(prob, buffer)
+    if sync.state_setter !== nothing
+        @inbounds for k in eachindex(sync.state_readers)
+            sync.state_buffer[k] = sync.state_readers[k](sys_struct)
+        end
+        sync.state_setter(prob, sync.state_buffer)
+    end
     return nothing
 end
