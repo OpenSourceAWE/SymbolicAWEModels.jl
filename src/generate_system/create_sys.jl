@@ -136,9 +136,6 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         pos_b(t)[1:3, eachindex(points)]
         fix_point_sphere(t)[eachindex(points)]
         fix_static(t)[eachindex(points)]
-        # Point damping (per-axis)
-        body_frame_damping(t)[1:3, eachindex(points)]
-        world_frame_damping(t)[1:3, eachindex(points)]
         # Segment forces and rest length
         spring_force_vec(t)[1:3, eachindex(segments)]
         drag_force(t)[1:3, eachindex(segments)]
@@ -184,7 +181,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
         spring_sum_force, point_drag_force, total_drag,
         disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
-        fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
+        fix_point_sphere, fix_static,
         va_point_b, va_point_w, wind_at_point, height,
         aero_force_point_b,
         twist_surface_y_airf,

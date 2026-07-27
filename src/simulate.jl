@@ -217,7 +217,7 @@ function sim_reposition!(
             # Reinitialize the solver to handle the state discontinuity
             local_prob = sam.prob
             if local_prob isa ProbWithAttributes
-                SymbolicAWEModels.reinit!(sam, local_prob, FBDF())
+                SymbolicAWEModels.reinit!(sam, local_prob, FBDF(; autodiff=AutoFiniteDiff()))
             end
 
             if prn

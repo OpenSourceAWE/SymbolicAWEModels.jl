@@ -348,17 +348,20 @@ mutable struct ElasticJoint{S}
     const rest_offset_a::KVec3
     "Rest relative rotation `R_a' R_b`, set at `reinit!` so the as-placed orientation is unstrained."
     const R_rel0::Matrix{SimFloat}
+    "Cylinder radius for plotting the beam element [m]; `nothing` ⇒ not drawn. Visual only."
+    radius::Union{Nothing, SimFloat}
 end
 
 """
     ElasticJoint(name, body_a, body_b; anchor_a=zeros, anchor_b=zeros,
                  stiffness_axial, stiffness_shear, stiffness_torsion,
-                 stiffness_bending, damping_trans=0, damping_rot=0)
+                 stiffness_bending, damping_trans=0, damping_rot=0, radius=nothing)
 
 Connect `body_a` to `body_b` (names or indices) with a 6-DOF elastic joint.
 `anchor_a`/`anchor_b` are the connection points in each body's frame. Each
 stiffness is a `Real` (linear) or a callable interpolation of the relative DOF
-(nonlinear); interpolations must all be the same type.
+(nonlinear); interpolations must all be the same type. `radius` sets the beam
+cylinder radius when visualising (`nothing` ⇒ not drawn); no effect on dynamics.
 """
 function ElasticJoint(name, body_a, body_b;
         anchor_a = zeros(SimFloat, 3),
@@ -369,6 +372,7 @@ function ElasticJoint(name, body_a, body_b;
         stiffness_bending,
         damping_trans::Real = 0.0,
         damping_rot::Real = 0.0,
+        radius::Union{Nothing, Real} = nothing,
     )
     # Reals → SimFloat; interpolations kept as-is. All interps must share a type.
     conv(s) = s isa Real ? SimFloat(s) : s
@@ -384,7 +388,8 @@ function ElasticJoint(name, body_a, body_b;
     return ElasticJoint{S}(0, name, 0, 0, body_a_ref, body_b_ref,
         KVec3(anchor_a), KVec3(anchor_b), stiffs...,
         SimFloat(damping_trans), SimFloat(damping_rot),
-        KVec3(0.0, 0.0, 0.0), Matrix{SimFloat}(I, 3, 3))
+        KVec3(0.0, 0.0, 0.0), Matrix{SimFloat}(I, 3, 3),
+        radius === nothing ? nothing : SimFloat(radius))
 end
 
 """
@@ -463,18 +468,21 @@ mutable struct TimoshenkoJoint{S}
     const R_a_rel0::Matrix{SimFloat}
     "Rest orientation of node B in the element frame (set at reinit!)."
     const R_b_rel0::Matrix{SimFloat}
+    "Cylinder radius for plotting the beam element [m]; `nothing` ⇒ not drawn. Visual only."
+    radius::Union{Nothing, SimFloat}
 end
 
 """
     TimoshenkoJoint(name, body_a, body_b; anchor_a=zeros, anchor_b=zeros,
                    EA, GA, GJ, EIy, EIz, shear_coeff=5/6,
-                   damping_trans=0, damping_rot=0, rest_length=0)
+                   damping_trans=0, damping_rot=0, rest_length=0, radius=nothing)
 
 Connect `body_a` to `body_b` (names or indices) with a Timoshenko beam element.
 `anchor_a`/`anchor_b` are the node points in each body's frame. Each rigidity is a
 `Real` (linear) or a callable of its strain/curvature returning the effective
 rigidity (nonlinear); callables must all be the same type. `rest_length=0` takes
-the unstrained length from the initial geometry.
+the unstrained length from the initial geometry. `radius` sets the beam cylinder
+radius when visualising (`nothing` ⇒ not drawn); no effect on dynamics.
 """
 function TimoshenkoJoint(name, body_a, body_b;
         anchor_a = zeros(SimFloat, 3),
@@ -484,6 +492,7 @@ function TimoshenkoJoint(name, body_a, body_b;
         damping_trans::Real = 0.0,
         damping_rot::Real = 0.0,
         rest_length::Real = 0.0,
+        radius::Union{Nothing, Real} = nothing,
     )
     # Reals → SimFloat; callables kept as-is. All callables must share a type.
     conv(s) = s isa Real ? SimFloat(s) : s
@@ -499,7 +508,8 @@ function TimoshenkoJoint(name, body_a, body_b;
         KVec3(anchor_a), KVec3(anchor_b), rigidities...,
         SimFloat(shear_coeff), SimFloat(damping_trans), SimFloat(damping_rot),
         SimFloat(rest_length),
-        Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3))
+        Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3),
+        radius === nothing ? nothing : SimFloat(radius))
 end
 
 """
