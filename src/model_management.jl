@@ -447,6 +447,10 @@ return a freshly initialized `ODEIntegrator`.
 # Keyword Arguments
 - `solver`, `adaptive`: ODE solver and time-stepping mode. `solver=nothing` picks
   a default from `sam.set.solver`.
+- `autodiff`: automatic-differentiation choice for the default solver's Jacobian.
+  Defaults to `AutoFiniteDiff()`, which skips re-compiling the (large) RHS at
+  `ForwardDiff.Dual` types — a big first-`init!` compile saving with negligible
+  runtime cost on these stiff systems. Ignored when `solver` is passed explicitly.
 - `prn`: print progress messages.
 - `remake`: force a full rebuild, ignoring any cached compiled model. Defaults to
   `nothing`, which rebuilds automatically when a custom winch/aero component is
@@ -468,7 +472,7 @@ return a freshly initialized `ODEIntegrator`.
   converge / the Jacobian blows up as 1/|va|).
 """
 function init!(sam::SymbolicAWEModel;
-    solver=nothing, adaptive=true, prn=true,
+    solver=nothing, autodiff=AutoFiniteDiff(), adaptive=true, prn=true,
     remake=nothing, reload=false,
     outputs=nothing,
     create_prob::Bool=true,
@@ -497,12 +501,12 @@ function init!(sam::SymbolicAWEModel;
         if isnothing(solver)
             if sam.set.solver == "QNDF"
                 @warn "This solver is not tested."
-                solver = QNDF()
+                solver = QNDF(; autodiff)
             else
                 if sam.set.solver != "FBDF"
                     @warn "Unavailable solver for SymbolicAWEModel: $(sam.set.solver). Falling back to FBDF."
                 end
-                solver = FBDF()
+                solver = FBDF(; autodiff)
             end
         end
 
@@ -664,7 +668,8 @@ Calculates a SHA1 hash for the topology and structure of a `SystemStructure`.
 This is used to check if a cached compiled model is still valid.
 
 Includes all structural properties that affect the symbolic equations:
-- Point connectivity and types (STATIC, DYNAMIC, WING, BODY_STATIC)
+- Point connectivity and types (STATIC, DYNAMIC, WING, BODY_STATIC), including the
+  beam joint a BODY_STATIC point anchors to (selects which bodies enter its equations)
 - Segment connectivity
 - TwistSurface structure and types (STATIC, DYNAMIC)
 - Pulley constraints and types
@@ -680,7 +685,10 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
        bodies, elastic_joints, timoshenko_joints) = sys_struct
     data_parts = []
     for point in points
-        push!(data_parts, ("point", point.idx, point.wing_idx, point.body_idx, Int(point.type)))
+        # nothing-vs-set gates whether drag/damping equations are emitted (structure,
+        # not value), so 0.0↔1.0 reuses the cached bin but adding/removing regenerates.
+        push!(data_parts, ("point", point.idx, point.wing_idx, point.body_idx,
+                           point.joint_idx, Int(point.type)))
     end
     for segment in segments
         # Stiffness type selects the spring law (scalar k·Δ vs callable F(ε)).

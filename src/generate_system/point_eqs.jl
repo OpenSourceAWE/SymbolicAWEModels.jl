@@ -4,12 +4,35 @@
 # Point dynamics equation generation
 
 """
+    point_damping_accel(point, params, R_b_to_w, wing_idx, vel_w, vel_diff_w)
+
+Per-mass damping acceleration for a DYNAMIC point. Each frame's term is built
+only when its coefficient is set; a `nothing` coefficient keeps that term out of
+the equation entirely (no zero-valued parameter to prune). The body-frame term
+also needs a wing frame — pass `vel_diff_w = nothing` (point velocity relative to
+its wing) to skip it when no wing is available.
+"""
+function point_damping_accel(point, params, R_b_to_w, wing_idx, vel_w, vel_diff_w)
+    accel = zeros(Num, 3)
+    if !isnothing(point.body_frame_damping) && !isnothing(vel_diff_w)
+        R = R_b_to_w[:, :, wing_idx]
+        coeff = params.points[point.idx].body_frame_damping
+        accel = accel + R * (coeff .* (R' * vel_diff_w))
+    end
+    if !isnothing(point.world_frame_damping)
+        coeff = params.points[point.idx].world_frame_damping
+        accel = accel + coeff .* vel_w
+    end
+    return accel
+end
+
+"""
     point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, params, initial;
                R_b_to_w, wing_vel, wind_vec_gnd, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                spring_sum_force, point_drag_force, total_drag,
                disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
-               fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
+               fix_point_sphere, fix_static,
                va_point_b, va_point_w, wind_at_point, height,
                aero_force_point_b,
                twist_surface_y_airf)
@@ -41,7 +64,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                     spring_sum_force, point_drag_force, total_drag,
                     disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
-                    fix_point_sphere, fix_static, body_frame_damping, world_frame_damping,
+                    fix_point_sphere, fix_static,
                     va_point_b, va_point_w, wind_at_point, height,
                     aero_force_point_b,
                     twist_surface_y_airf,
@@ -71,14 +94,11 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
             end
         end
 
-        # The net force on the point. This variable is used by other components.
         eqs = [
             eqs
-            spring_sum_force[:, point.idx] ~ F  # Store accumulated spring/drag forces
+            spring_sum_force[:, point.idx] ~ F
             point_mass[point.idx] ~ mass
             disturb_force[:, point.idx] ~ params.points[point.idx].ext_force_w
-            body_frame_damping[:, point.idx] ~ params.points[point.idx].body_frame_damping
-            world_frame_damping[:, point.idx] ~ params.points[point.idx].world_frame_damping
         ]
 
         # Apparent velocity for ALL points (PARTICLE_DYNAMICS wings need body frame).
@@ -91,41 +111,23 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
             nothing
         end
 
-        if !isnothing(wing_idx_for_transform)
-            eqs = [
-                eqs
-                height[point.idx] ~ max(0.0, pos[3, point.idx])
-                wind_at_point[:, point.idx] ~
-                    wind_factor(pos[3, point.idx]) * wind_vec_gnd
-                va_point_w[:, point.idx] ~
-                    wind_at_point[:, point.idx] - vel[:, point.idx]
-                va_point_b[:, point.idx] ~
-                    R_b_to_w[:, :, wing_idx_for_transform]' * va_point_w[:, point.idx]
-                point_drag_force[:, point.idx] ~
-                    0.5 * calc_rho(s.am, height[point.idx]) *
-                    params.points[point.idx].drag_coeff *
-                    smooth_norm(va_point_w[:, point.idx]) *
-                    params.points[point.idx].area *
-                    va_point_w[:, point.idx]
-            ]
-        else
-            # No wings - still compute wind and drag in world frame
-            eqs = [
-                eqs
-                height[point.idx] ~ max(0.0, pos[3, point.idx])
-                wind_at_point[:, point.idx] ~
-                    wind_factor(pos[3, point.idx]) * wind_vec_gnd
-                va_point_w[:, point.idx] ~
-                    wind_at_point[:, point.idx] - vel[:, point.idx]
-                va_point_b[:, point.idx] ~ zeros(3)  # No body frame without wing
-                point_drag_force[:, point.idx] ~
-                    0.5 * calc_rho(s.am, height[point.idx]) *
-                    params.points[point.idx].drag_coeff *
-                    smooth_norm(va_point_w[:, point.idx]) *
-                    params.points[point.idx].area *
-                    va_point_w[:, point.idx]
-            ]
-        end
+        drag_rhs = 0.5 * calc_rho(s.am, height[point.idx]) *
+            params.points[point.idx].drag_coeff *
+            smooth_norm(va_point_w[:, point.idx]) *
+            params.points[point.idx].area *
+            va_point_w[:, point.idx]
+        va_point_b_rhs = isnothing(wing_idx_for_transform) ? zeros(3) :
+            R_b_to_w[:, :, wing_idx_for_transform]' * va_point_w[:, point.idx]
+        eqs = [
+            eqs
+            height[point.idx] ~ max(0.0, pos[3, point.idx])
+            wind_at_point[:, point.idx] ~
+                wind_factor(pos[3, point.idx]) * wind_vec_gnd
+            va_point_w[:, point.idx] ~
+                wind_at_point[:, point.idx] - vel[:, point.idx]
+            va_point_b[:, point.idx] ~ va_point_b_rhs
+            point_drag_force[:, point.idx] ~ drag_rhs
+        ]
 
         # Total drag: point aero drag + share of segment drag
         eqs = [
@@ -247,12 +249,9 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     continue
                 end
 
-                # Damping terms (applied in body frame, then transformed to world frame)
-                vel_diff_w = vel[:, point.idx] - wing_vel[:, point.wing_idx]
-                vel_diff_b = R_b_to_w[:, :, wing.idx]' * vel_diff_w
-                body_frame_damp_b = body_frame_damping[:, point.idx] .* vel_diff_b
-                body_frame_damp_vec = R_b_to_w[:, :, wing.idx] * body_frame_damp_b
-                world_frame_damp_vec = world_frame_damping[:, point.idx] .* vel[:, point.idx]
+                damp_accel = point_damping_accel(
+                    point, params, R_b_to_w, wing.idx, vel[:, point.idx],
+                    vel[:, point.idx] - wing_vel[:, point.wing_idx])
 
                 # DYNAMIC point equations
                 axis = smooth_normalize(pos[:, point.idx])
@@ -276,7 +275,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                                 acc[:, point.idx]
                         )
                     )
-                    acc[:, point.idx] ~ point_force[:, point.idx] ./ mass - body_frame_damp_vec - world_frame_damp_vec
+                    acc[:, point.idx] ~ point_force[:, point.idx] ./ mass - damp_accel
                 ]
                 defaults = [
                     defaults
@@ -383,16 +382,11 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     spring_sum_force[:, point.idx] + Num[0, 0, -params.set.g_earth * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
             ]
 
-            if length(wings) > 0
-                # Damping applied in body frame, then transformed to world frame
-                vel_diff_w = vel[:, point.idx] - wing_vel[:, point.wing_idx]
-                vel_diff_b = R_b_to_w[:, :, point.wing_idx]' * vel_diff_w
-                body_frame_damp_b = body_frame_damping[:, point.idx] .* vel_diff_b
-                body_frame_damp_vec = R_b_to_w[:, :, point.wing_idx] * body_frame_damp_b
-            else
-                body_frame_damp_vec = zeros(3)
-            end
-            world_frame_damp_vec = world_frame_damping[:, point.idx] .* vel[:, point.idx]
+            wing_idx = length(wings) > 0 ? point.wing_idx : 0
+            vel_diff_w = length(wings) > 0 ?
+                vel[:, point.idx] - wing_vel[:, point.wing_idx] : nothing
+            damp_accel = point_damping_accel(
+                point, params, R_b_to_w, wing_idx, vel[:, point.idx], vel_diff_w)
 
             axis = smooth_normalize(pos[:, point.idx])
             eqs = [
@@ -415,7 +409,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                             acc[:, point.idx]
                     )
                 )
-                acc[:, point.idx]    ~ point_force[:, point.idx] ./ mass - body_frame_damp_vec - world_frame_damp_vec
+                acc[:, point.idx]    ~ point_force[:, point.idx] ./ mass - damp_accel
             ]
             defaults = [
                 defaults

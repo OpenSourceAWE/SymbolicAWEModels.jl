@@ -679,9 +679,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     :body => row -> haskey(row, :body_idx) ? yaml_to_ref(row.body_idx) :
                         yaml_ref_field(row, :body, yaml_to_ref),
                     :joint => row -> yaml_ref_field(row, :joint, yaml_to_ref),
-                    :vel_w => row -> yaml_vec3(row, :vel_w),
-                    :body_frame_damping => row -> haskey(row, :body_frame_damping) ? row.body_frame_damping : nothing,
-                    :world_frame_damping => row -> haskey(row, :world_frame_damping) ? row.world_frame_damping : nothing
+                    :vel_w => row -> yaml_vec3(row, :vel_w)
                 ))
 
             point.pos_w .= point.pos_cad
@@ -958,10 +956,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     bodies = load_yaml_bodies(data, yaml_to_ref)
     timoshenko_joints = load_yaml_joints(TimoshenkoJoint, data,
         "timoshenko_joints", (:EA, :GA, :GJ, :EIy, :EIz),
-        (:shear_coeff, :damping_trans, :damping_rot, :rest_length); yaml_to_ref)
+        (:shear_coeff, :damping_trans, :damping_rot, :rest_length, :radius);
+        yaml_to_ref)
     elastic_joints = load_yaml_joints(ElasticJoint, data, "elastic_joints",
         (:stiffness_axial, :stiffness_shear, :stiffness_torsion,
-         :stiffness_bending), (:damping_trans, :damping_rot); yaml_to_ref)
+         :stiffness_bending), (:damping_trans, :damping_rot, :radius);
+        yaml_to_ref)
 
     # The SystemStructure constructor handles WING->STATIC when no wings exist.
     return SystemStructure(system_name, resolved_set; points, twist_surfaces,

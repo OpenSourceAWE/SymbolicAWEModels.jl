@@ -22,6 +22,9 @@ const PLOT_GEOMETRY_OBS = Ref{Union{Nothing, Observable}}(nothing)  # Single tri
 const PLOT_SEGMENT_COLORS_OBS = Ref{Union{Nothing, Observable}}(nothing)  # Separate for force coloring
 const PLOT_SCENE = Ref{Union{Nothing, Scene}}(nothing)
 const PLOT_RELEVANT_PLOTS = Ref{Union{Nothing, Vector}}(nothing)
+# All plot layers by key (:bodies, :wings, :beam_tubes, :vsm, :airfoils, …), so
+# the replay checkboxes can toggle each layer's visibility.
+const PLOT_LAYERS = Ref{Union{Nothing, Dict{Symbol, Any}}}(nothing)
 const PLOT_SYSTEM_STRUCTURE = Ref{Union{Nothing, SystemStructure}}(nothing)
 const PLOT_VECTOR_SCALE = Ref{Float64}(1.0)
 const PLOT_FORCE_COLOR = Ref{Bool}(false)
@@ -40,6 +43,10 @@ const PLOT_WORLD_EYEPOS = Ref{Union{Nothing, Vec3f}}(nothing)
 const PLOT_WORLD_LOOKAT = Ref{Union{Nothing, Vec3f}}(nothing)
 const PLOT_BODY_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)
 const PLOT_BODY_PREV_WING_POS = Ref{Union{Nothing, Vec3f}}(nothing)
+# Wing orientation at the previous body-frame frame; with PLOT_BODY_PREV_WING_POS
+# it re-anchors the user's camera onto the moving wing so mouse pan/zoom/orbit
+# survives playback (issue #256).
+const PLOT_BODY_PREV_R = Ref{Union{Nothing, SMatrix{3, 3, Float32, 9}}}(nothing)
 
 """
     wing_log_pos(sl, sys, wing, k)
@@ -219,6 +226,31 @@ function body_joint_spokes(sys)
 end
 
 """
+    beam_elements(sys) -> Vector{Tuple{Point3f, Point3f, Float32}}
+
+World endpoints and plot radius of every beam element whose joint has a `radius`
+set — each elastic or Timoshenko joint, from its body-A anchor to its body-B
+anchor. Joints with `radius === nothing` are skipped (not drawn). Used to draw
+the see-through beam tubes.
+"""
+function beam_elements(sys)
+    elements = Tuple{Point3f, Point3f, Float32}[]
+    for joint in Iterators.flatten((sys.elastic_joints, sys.timoshenko_joints))
+        joint.radius === nothing && continue
+        body_a = sys.bodies[joint.body_a_idx]
+        body_b = sys.bodies[joint.body_b_idx]
+        R_a = SymbolicAWEModels.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
+        R_b = SymbolicAWEModels.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
+        anchor_a_w = body_a.pos_w .+ R_a * joint.anchor_a_b
+        anchor_b_w = body_b.pos_w .+ R_b * joint.anchor_b_b
+        norm(anchor_b_w .- anchor_a_w) < 1e-9 && continue
+        push!(elements, (Point3f(anchor_a_w), Point3f(anchor_b_w),
+                         Float32(joint.radius)))
+    end
+    return elements
+end
+
+"""
     spoke_body_indices(sys) -> Vector{Int}
 
 Body index owning each spoke, in the same order as `body_joint_spokes` emits them
@@ -262,8 +294,10 @@ function Makie.plot!(ax, sys::SystemStructure;
                      point_color = :darkred, segment_color = :black,
                      wing_colors = Makie.wong_colors(), vector_scale = 1.0,
                      show_points = true, show_segments = true, show_orient = true,
+                     show_body_frame = false, show_wing_frame = true,
                      force_color = false,
-                     plot_vsm = true, plot_aero = true,
+                     plot_vsm = false, plot_aero = true, plot_airfoils = true,
+                     airfoil_color = :deepskyblue, airfoil_opacity = 0.2,
                      extra_points = nothing,
                      extra_groups = nothing,
                      mesh = nothing,
@@ -273,6 +307,8 @@ function Makie.plot!(ax, sys::SystemStructure;
                      facets::Int = 8,
                      linewidth = 2,
                      point_size = 9,
+                     beam_color = :blue,
+                     beam_opacity = 0.15,
                      # Optional observable for real-time updates
                      geometry_obs = nothing)
 
@@ -357,15 +393,37 @@ function Makie.plot!(ax, sys::SystemStructure;
             plots[:body_chain_colors_obs] = spoke_colors
         end
 
+        # See-through tube per beam element (elastic + Timoshenko joints).
+        if !isempty(sys.elastic_joints) || !isempty(sys.timoshenko_joints)
+            tube_color = (beam_color, beam_opacity)
+            plots[:beam_tubes] = []
+            if isnothing(geometry_obs)
+                for (anchor_a, anchor_b, radius) in beam_elements(sys)
+                    push!(plots[:beam_tubes], mesh!(ax, Cylinder(anchor_a, anchor_b,
+                        radius); color=tube_color, transparency=true))
+                end
+            else
+                elements_obs = @lift begin
+                    $geometry_obs  # Trigger dependency
+                    beam_elements(PLOT_SYSTEM_STRUCTURE[])
+                end
+                for element_i in eachindex(beam_elements(sys))
+                    cylinder = @lift Cylinder($elements_obs[element_i]...)
+                    push!(plots[:beam_tubes], mesh!(ax, cylinder;
+                        color=tube_color, transparency=true))
+                end
+            end
+        end
+
         # RGB body-frame axes per body, from the orientation quaternion.
-        if show_orient
+        if show_body_frame
             plot_frame_axes!(ax, plots, :bodies, sys, length(sys.bodies),
                              rigid_body_frames, vector_scale, geometry_obs; facets)
         end
     end
 
     # === Plot Wings (RGB body-frame axes from the orientation quaternion) ===
-    if show_orient
+    if show_wing_frame
         plot_frame_axes!(ax, plots, :wings, sys, length(sys.wings),
                          wing_frames, vector_scale, geometry_obs; facets)
     end
@@ -379,6 +437,20 @@ function Makie.plot!(ax, sys::SystemStructure;
             p = SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, wing.aero;
                 use_observables=use_obs, geometry_obs)
             isnothing(p) || push!(plots[:vsm], p)
+        end
+    end
+
+    # === Plot lofted airfoil skin (one see-through wing mesh + rib per section) ===
+    if plot_airfoils && !isempty(sys.wings)
+        plots[:airfoils] = []
+        use_obs = !isnothing(geometry_obs)
+        for wing in sys.wings
+            mode = wing.aero
+            mode isa SymbolicAWEModels.AbstractVSMAero || continue
+            p = plot!(ax, mode.vsm_aero; airfoils=true, R_b_w=wing.R_b_to_w,
+                T_b_w=aero_plot_translation(wing), use_observables=use_obs,
+                airfoil_color, airfoil_opacity)
+            isnothing(p) || append!(plots[:airfoils], p)
         end
     end
 
@@ -2123,20 +2195,32 @@ function apply_zoom_mode!(scene, relevant_plots, stored_sys; mode_changed::Bool)
         end
     end
 
-    if PLOT_BODY_FRAME[]
-        wing_pos = isempty(stored_sys.wings) ? nothing :
-                   Vec3f(stored_sys.wings[1].pos_w)
-        if mode_changed || isnothing(PLOT_BODY_PREV_WING_POS[])
+    if PLOT_BODY_FRAME[] && !isempty(stored_sys.wings)
+        wing = stored_sys.wings[1]
+        wing_pos = Vec3f(wing.pos_w)
+        R_now = SMatrix{3, 3, Float32}(wing.R_b_to_w)
+        if mode_changed || isnothing(PLOT_BODY_PREV_WING_POS[]) ||
+                isnothing(PLOT_BODY_PREV_R[])
             dist = zoom_body_frame!(scene, cam, stored_sys, PLOT_BODY_DISTANCE[])
+            PLOT_BODY_DISTANCE[] = dist
         else
-            # Track the live eye→target distance (pan-invariant) across frames.
+            # Re-anchor the live camera (with any mouse pan/zoom/orbit) from the
+            # previous wing pose onto the current one, so body tracking follows
+            # the wing without discarding user input (issue #256).
             cc = Makie.cameracontrols(scene)
-            current_dist = norm(Vec3f(cc.eyeposition[]) - Vec3f(cc.lookat[]))
-            dist = zoom_body_frame!(scene, cam, stored_sys, current_dist)
+            prev_pos = PLOT_BODY_PREV_WING_POS[]
+            R_prev = PLOT_BODY_PREV_R[]
+            rel_eye = R_prev' * (Vec3f(cc.eyeposition[]) - prev_pos)
+            rel_lookat = R_prev' * (Vec3f(cc.lookat[]) - prev_pos)
+            rel_up = R_prev' * Vec3f(cc.upvector[])
+            new_eye = wing_pos + R_now * rel_eye
+            new_lookat = wing_pos + R_now * rel_lookat
+            update_cam!(scene, new_eye, new_lookat, R_now * rel_up)
+            PLOT_BODY_DISTANCE[] = norm(new_eye - new_lookat)
         end
-        PLOT_BODY_DISTANCE[] = dist
-        PLOT_CAMERA_DISTANCE[] = dist
+        PLOT_CAMERA_DISTANCE[] = PLOT_BODY_DISTANCE[]
         PLOT_BODY_PREV_WING_POS[] = wing_pos
+        PLOT_BODY_PREV_R[] = R_now
     elseif PLOT_ZOOMED_IN[] && PLOT_ZOOM_SEGMENT_IDX[] > 0
         PLOT_CAMERA_DISTANCE[] = zoom_in!(scene, cam, stored_sys,
                                           PLOT_ZOOM_SEGMENT_IDX[], PLOT_CAMERA_DISTANCE[])
@@ -2520,6 +2604,13 @@ function plot_with_panes(sys::SystemStructure;
     # Standalone rigid bodies (so the camera frames a body-only scene, e.g. a beam)
     haskey(plots, :body_chain) && push!(relevant_plots, plots[:body_chain])
     haskey(plots, :bodies) && push!(relevant_plots, plots[:bodies])
+    # Beam tubes and airfoil skin, so a beam-only or airfoil-only scene still frames.
+    for key in (:beam_tubes, :airfoils)
+        haskey(plots, key) || continue
+        for layer_plot in plots[key]
+            layer_plot isa AbstractPlot && push!(relevant_plots, layer_plot)
+        end
+    end
 
     # --- Event Handling for Segments (using extracted reusable function) ---
     if haskey(plots, :segments)
@@ -2596,6 +2687,7 @@ function Makie.plot(sys::SystemStructure;
     PLOT_SEGMENT_COLORS_OBS[] = segment_colors_obs
     PLOT_SCENE[] = scene
     PLOT_RELEVANT_PLOTS[] = relevant_plots
+    PLOT_LAYERS[] = plots
     # SystemStructure and settings already stored above before plot creation
     PLOT_ZOOMED_IN[] = false  # Initialize zoom state (not zoomed in)
     PLOT_ZOOM_RELMARGIN[] = relmargin  # Store relmargin for auto-updates
@@ -2604,6 +2696,7 @@ function Makie.plot(sys::SystemStructure;
     PLOT_CAMERA_DISTANCE[] = initial_distance  # Preserve initial zoom during replay
     PLOT_BODY_DISTANCE[] = body_frame ? initial_distance : nothing
     PLOT_BODY_PREV_WING_POS[] = nothing
+    PLOT_BODY_PREV_R[] = nothing
     # Reset mode tracking so the first frame keeps the just-set camera.
     PLOT_PREV_BODY_FRAME[] = body_frame
     PLOT_PREV_ZOOMED_IN[] = false
@@ -3002,6 +3095,37 @@ function SymbolicAWEModels.record(
 end
 
 """
+    set_layer_visible!(layer, visible::Bool)
+
+Set the visibility of a stored plot layer — a single Makie plot or a (possibly
+nested) vector of them. Non-plot entries (colour observables, `nothing`) are
+skipped. Used by the replay show/hide checkboxes.
+"""
+function set_layer_visible!(layer, visible::Bool)
+    if layer isa AbstractVector
+        for element in layer
+            set_layer_visible!(element, visible)
+        end
+    elseif layer isa Makie.AbstractPlot
+        layer.visible[] = visible
+    end
+    return nothing
+end
+
+"""
+    wait_until(target_ns)
+
+Busy-wait until `time_ns()` reaches `target_ns` (nanoseconds). `sleep` oversleeps
+by an unpredictable amount at short intervals, so this spins instead and calls
+`yield()` each turn to let the scheduler run Makie's rendering and event handling.
+"""
+function wait_until(target_ns)
+    while Float64(time_ns()) < target_ns
+        yield()
+    end
+end
+
+"""
     setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
                            replay_speed=1.0, autoplay=false, loop=false)
 
@@ -3024,7 +3148,8 @@ This is a reusable function that can be used by both single and multi-system rep
 - `(ui_scene, frame_idx, is_playing)`: UI scene and observables for external control
 """
 function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
-                                 replay_speed=1.0, autoplay=false, loop=false)
+                                 replay_speed=1.0, autoplay=false, loop=false,
+                                 toggles=Tuple{String, Symbol, Bool}[])
     # Create pixel-space subscene for UI controls overlay
     ui_scene = Scene(scene, viewport=scene.viewport, clear=false, camera=campixel!)
 
@@ -3061,6 +3186,47 @@ function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt
     slider_thumb_x = @lift(slider_x_start + ($(frame_idx) - 1) / max(1, n_frames - 1) * $(slider_width_obs))
     slider_thumb_pos = @lift(Point2f($(slider_thumb_x), slider_y + slider_height / 2))
     scatter!(ui_scene, slider_thumb_pos, color=:white, markersize=15)
+
+    # --- Show/hide layer checkboxes (legend-style, top-right corner) ---
+    checkbox_size = 16
+    checkbox_row = 24
+    checkbox_states = Observable{Bool}[]
+    checkbox_rects = Observable{Rect2f}[]
+    for (row, (label, key, init_visible)) in enumerate(toggles)
+        state = Observable(init_visible)
+        push!(checkbox_states, state)
+        box_x = @lift($(scene_width) - ui_margin - checkbox_size)
+        box_y = @lift($(scene_height) - ui_margin - row * checkbox_row)
+        box_rect = @lift(Rect2f($box_x, $box_y, checkbox_size, checkbox_size))
+        push!(checkbox_rects, box_rect)
+        box_color = @lift($(state) ? RGBAf(0.3, 0.6, 0.8, 0.95) : RGBAf(0.5, 0.5, 0.5, 0.6))
+        poly!(ui_scene, box_rect; color=box_color, strokecolor=:black, strokewidth=1)
+        text!(ui_scene, label;
+              position=@lift(Point2f($box_x - 6, $box_y + checkbox_size / 2)),
+              align=(:right, :center), fontsize=14, color=:white,
+              strokecolor=:black, strokewidth=1.5)
+        if !isnothing(PLOT_LAYERS[])
+            set_layer_visible!(get(PLOT_LAYERS[], key, nothing), init_visible)
+        end
+    end
+
+    on(events(ui_scene).mousebutton, priority=3) do event
+        (event.button == Mouse.left && event.action == Mouse.press) || return Consume(false)
+        mp = events(ui_scene).mouseposition[]
+        for (i, box_rect) in enumerate(checkbox_rects)
+            rect = box_rect[]
+            if mp[1] >= rect.origin[1] && mp[1] <= rect.origin[1] + rect.widths[1] &&
+               mp[2] >= rect.origin[2] && mp[2] <= rect.origin[2] + rect.widths[2]
+                new_visible = !checkbox_states[i][]
+                checkbox_states[i][] = new_visible
+                if !isnothing(PLOT_LAYERS[])
+                    set_layer_visible!(get(PLOT_LAYERS[], toggles[i][2], nothing), new_visible)
+                end
+                return Consume(true)
+            end
+        end
+        return Consume(false)
+    end
 
     # --- Button Implementation ---
     button_y = ui_margin
@@ -3212,25 +3378,38 @@ function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt
         end
     end
 
-    # Animation loop with replay speed
+    # Animation loop anchored to the wall clock: each frame is shown at its log
+    # time (scaled by replay_speed), so a slow wait on one frame is corrected on
+    # the next instead of accumulating into drift. Re-anchored on pause, loop,
+    # and when the slider or step buttons move the frame externally.
     @async begin
+        anchor_ns = Float64(time_ns())
+        anchor_time = get_time(frame_idx[])
+        expected_idx = frame_idx[]
         while true
-            if is_playing[]
-                if frame_idx[] < n_frames
-                    new_idx = frame_idx[] + 1
-                    frame_idx[] = new_idx
-                    update_frame!(new_idx)
-                    # Calculate sleep time based on actual time difference and replay speed
-                    dt = get_dt(frame_idx[])
-                    sleep(max(0.01, dt / replay_speed))
-                elseif loop
-                    frame_idx[] = 1
-                    update_frame!(1)
-                else
-                    is_playing[] = false  # Stop at end
-                end
+            if frame_idx[] != expected_idx
+                anchor_ns = Float64(time_ns())
+                anchor_time = get_time(frame_idx[])
+                expected_idx = frame_idx[]
             end
-            sleep(0.02)  # Check state frequently
+            if is_playing[] && frame_idx[] < n_frames
+                new_idx = frame_idx[] + 1
+                frame_idx[] = new_idx
+                expected_idx = new_idx
+                update_frame!(new_idx)
+                target_ns = anchor_ns +
+                    (get_time(new_idx) - anchor_time) / replay_speed * 1e9
+                wait_until(target_ns)
+            elseif is_playing[] && loop
+                frame_idx[] = 1
+                expected_idx = 1
+                update_frame!(1)
+                anchor_ns = Float64(time_ns())
+                anchor_time = get_time(1)
+            else
+                is_playing[] && (is_playing[] = false)  # stop at the end
+                sleep(0.03)
+            end
         end
     end
 
@@ -3285,6 +3464,11 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
                       loop=false,
                       vector_scale=1.0,
                       show_panes::Bool=true,
+                      show_body_frame=false,
+                      show_wing_frame=true,
+                      show_beam=true,
+                      show_panels=false,
+                      show_airfoils=true,
                       kwargs...)
 
     n_frames = length(lg.syslog)
@@ -3293,8 +3477,12 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     # Initialize with first state
     update_from_sysstate!(sys, lg.syslog[1])
 
-    # Create initial plot which sets up observables and scene
-    scene = plot(sys; vector_scale, kwargs...)
+    # Create every toggleable layer up front (so the checkboxes can show any of
+    # them); their initial visibility is set from the `show_*` flags below.
+    passthrough = filter(pair -> !(pair.first in
+        (:plot_vsm, :plot_airfoils, :show_body_frame, :show_wing_frame)), kwargs)
+    scene = plot(sys; vector_scale, plot_vsm=true, plot_airfoils=true,
+                 show_body_frame=true, show_wing_frame=true, passthrough...)
 
     # Define callbacks for UI controls
     function update_frame!(idx)
@@ -3305,9 +3493,17 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     get_time(idx) = lg.syslog[idx].time
     get_dt(idx) = idx > 1 ? lg.syslog[idx].time - lg.syslog[idx - 1].time : 0.05
 
+    layers = something(PLOT_LAYERS[], Dict{Symbol, Any}())
+    toggles = [t for t in (("Wing frame", :wings, show_wing_frame),
+                           ("Body frame", :bodies, show_body_frame),
+                           ("Beam", :beam_tubes, show_beam),
+                           ("Panels", :vsm, show_panels),
+                           ("Airfoil", :airfoils, show_airfoils))
+               if haskey(layers, t[2])]
+
     # Setup replay controls using shared function
     setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
-                           replay_speed, autoplay, loop)
+                           replay_speed, autoplay, loop, toggles)
 
     return scene
 end

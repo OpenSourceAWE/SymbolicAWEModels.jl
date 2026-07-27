@@ -7,6 +7,7 @@ authors = ["Bart van de Lint <bart@vandelint.net> and contributors"]
 projects = ["docs", "examples", "scripts", "test"]
 
 [deps]
+ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 AtmosphericModels = "c59cac55-771d-4f45-b14d-1c681463a295"
 CodecZlib = "944b1d66-785c-5afd-91f1-9de20f533193"
 ControlSystemsBase = "aaaaaaaa-a6ca-5380-bf3e-84a91bcd477e"
@@ -53,6 +54,7 @@ Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 SymbolicAWEModelsMakieExt = ["GeometryBasics", "Makie"]
 
 [compat]
+ADTypes = "1"
 AtmosphericModels = "0.3.2"
 CodecZlib = "0.7.8"
 ControlSystemsBase = "1.18.1"
