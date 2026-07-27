@@ -35,15 +35,15 @@ using LinearAlgebra
     vsm_set = VortexStepMethod.VSMSettings(
         vsm_set_path; data_prefix=false)
 
-    # ── PARTICLE_DYNAMICS: should have 0 twist_surfaces ──────────────
+    # ── PARTICLE_DYNAMICS: 3 explicit twist_surfaces (LE/TE membership) ──
     sys_refine = load_sys_struct_from_yaml(
         refine_yaml;
         system_name="2plate_refine", set, vsm_set)
 
     @test length(sys_refine.wings) == 1
     @test sys_refine.wings[1].dynamics_type == PARTICLE_DYNAMICS
-    @test length(sys_refine.twist_surfaces) == 0
-    @test length(sys_refine.wings[1].twist_surface_idxs) == 0
+    @test length(sys_refine.twist_surfaces) == 3
+    @test length(sys_refine.wings[1].twist_surface_idxs) == 3
 
     # ── RIGID_DYNAMICS with YAML-defined twist_surfaces ───────
     # rigid_structural_geometry.yaml has 3 explicit twist_surfaces
@@ -66,15 +66,5 @@ using LinearAlgebra
         @test !iszero(twist_surface.y_airf)
     end
 
-    # ── RIGID_DYNAMICS without explicit twist_surfaces errors ──
-    # Section-coupled aero on a RIGID wing requires explicit
-    # twist_surfaces (auto-creation was removed as a black box).
-    # Loading the PARTICLE_DYNAMICS YAML (6 LE/TE WING points, no
-    # twist_surfaces) as RIGID_DYNAMICS must raise rather than
-    # silently invent them.
-    @test_throws "explicit twist_surfaces" load_sys_struct_from_yaml(
-        refine_yaml;
-        system_name="2plate_auto", set, vsm_set,
-        dynamics_type=RIGID_DYNAMICS)
 end
 nothing
