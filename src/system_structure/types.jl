@@ -332,13 +332,16 @@ Base.getproperty(point::Point, sym::Symbol) =
 Constructs a `Point` object, which can be of three different [`DynamicsType`](@ref)s:
 - `STATIC`: The point does not move. ``\\ddot{\\mathbf{r}} = \\mathbf{0}``
 - `DYNAMIC`: The point moves according to Newton's second law. ``\\ddot{\\mathbf{r}} = \\mathbf{F}/m``
-- `BODY_STATIC`: The point is static in a [`Body`](@ref)'s body frame
-  (pass `body`); it rides the body and feeds its net force and moment into it.
+- `BODY_STATIC`: The point is static in a [`Body`](@ref)'s body frame; it rides
+  the body and feeds its net force and moment into it. Anchor it with `body`,
+  `joint`, or `wing` (a wing is a body, so `wing` rides that wing's own body).
+  `body` and `wing` may both be set only when `body` is a non-wing body; a `body`
+  naming a different wing errors during resolution.
 
 A wing's aerodynamic-surface structural points are ordinary `DYNAMIC` (particle
-wing) or `BODY_STATIC` (rigid wing, `body` = the wing) points that are members
-of one of the wing's twist surfaces; their `is_wing_node` flag is then set from
-that membership and drives the per-point aero and wing-frame fitting.
+wing) or `BODY_STATIC` (rigid wing) points that are members of one of the wing's
+twist surfaces; their `is_wing_node` flag is then set from that membership and
+drives the per-point aero and wing-frame fitting.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the point (e.g., `:kcu`, `:le_1`, or `1` for legacy).
@@ -372,8 +375,9 @@ function Point(name, pos_cad, type;
     fix_sphere=false, fix_static=false
 )
     if type == BODY_STATIC
-        (isnothing(body) && isnothing(joint)) && error(
-            "Point $name: BODY_STATIC requires a `body` or a `joint` reference.")
+        (isnothing(body) && isnothing(joint) && isnothing(wing)) && error(
+            "Point $name: BODY_STATIC requires a `body`, a `joint`, or a `wing` " *
+            "reference (a wing is a body, so `wing` rides that wing's body).")
     elseif !isnothing(body)
         error("Point $name: `body` is only valid with type BODY_STATIC.")
     end

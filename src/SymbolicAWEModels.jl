@@ -64,6 +64,7 @@ export SymbolicAWEModel
 export SystemStructure, Point, TwistSurface, Segment, Pulley, Tether, Winch, Wing, Transform
 export Body, ElasticJoint, TimoshenkoJoint
 export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
+export ObjAdapter
 export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints
 # Enums
@@ -179,6 +180,7 @@ function __init__()
     end
 end
 
+include("obj_adapter.jl")
 include("system_structure/system_structure.jl")
 include("vsm_refine.jl")
 include("symbolic_awe_model.jl")

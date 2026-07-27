@@ -459,6 +459,24 @@ wing_frame_member(point, wing_idx) =
     (point.is_wing_node || point.type == BODY_STATIC) && point.wing_idx == wing_idx
 
 """
+    distribute_mass_over_points!(points, point_idxs, wing, total_mass)
+
+Split `total_mass` equally across the wing's `point_idxs` (writing each point's
+`extra_mass`) and record it as `wing.mass`. Used for a PARTICLE wing given a
+lumped `set.mass` rather than per-point masses.
+"""
+function distribute_mass_over_points!(points, point_idxs, wing, total_mass)
+    if !isempty(point_idxs)
+        per_point = total_mass / length(point_idxs)
+        for idx in point_idxs
+            points[idx].extra_mass = per_point
+        end
+    end
+    wing.mass = total_mass
+    return nothing
+end
+
+"""
     assign_indices_and_resolve!(components, name_dicts)
 
 Assign indices to all components based on their position in the vectors,
@@ -919,23 +937,27 @@ function SystemStructure(name, set;
             point.extra_mass for point in points
             if wing_frame_member(point, wing.idx); init=0.0)
         set_mass = hasproperty(set, :mass) ? set.mass : 0.0
+        user_mass = wing.mass
 
-        if set_mass > 0 && point_mass_sum > 0
-            @warn "Both set.mass ($set_mass) and wing point masses " *
-                  "($point_mass_sum) specified for wing $(wing.idx). " *
-                  "Using wing point masses (sys_struct priority)."
-            wing.mass = point_mass_sum
+        if wing.dynamics_type == PARTICLE_DYNAMICS
+            user_mass > 0 && @warn "Wing $(wing.idx) (PARTICLE_DYNAMICS): " *
+                "`mass=$user_mass` is ignored — particle wings carry mass on " *
+                "their points, not a rigid body."
+            point_mass_sum == 0 && set_mass == 0 && @warn "Wing $(wing.idx) " *
+                "(PARTICLE_DYNAMICS) has zero point mass — the wing is massless."
+            point_mass_sum > 0 ? (wing.mass = point_mass_sum) :
+                set_mass > 0 ?
+                    distribute_mass_over_points!(
+                        points, wing_point_idxs, wing, set_mass) :
+                    (wing.mass = 0.0)
+        elseif user_mass > 0
+            point_mass_sum > 0 && @warn "Wing $(wing.idx) (RIGID_DYNAMICS): both " *
+                "`mass=$user_mass` and point masses ($point_mass_sum) are set — " *
+                "gravity is counted twice (COM + points); zero the point extra_mass."
         elseif point_mass_sum > 0
             wing.mass = point_mass_sum
         elseif set_mass > 0
-            nwing_points = length(wing_point_idxs)
-            if nwing_points > 0
-                mass_per_point = set_mass / nwing_points
-                for point_idx in wing_point_idxs
-                    points[point_idx].extra_mass = mass_per_point
-                end
-            end
-            wing.mass = set_mass
+            distribute_mass_over_points!(points, wing_point_idxs, wing, set_mass)
         else
             wing.mass = 0.0
         end
@@ -970,6 +992,15 @@ function SystemStructure(name, set;
     for point in points
         point.body_idx = resolve_ref(
             point.body_ref, rigid_body_names_dict, "rigid_body")
+        # A BODY_STATIC point given only a `wing` rides that wing's own body.
+        if point.type == BODY_STATIC && point.body_idx == 0 && point.wing_idx > 0
+            point.body_idx = point.wing_idx
+        elseif point.body_idx > 0 && point.wing_idx > 0 &&
+               is_wing(bodies[point.body_idx]) && point.body_idx != point.wing_idx
+            error("Point $(point.name): `body` and `wing` name different wings " *
+                "(body $(point.body_idx) vs wing $(point.wing_idx)); a wing is a " *
+                "body, so they must reference the same one.")
+        end
         if point.body_idx > 0 && iszero(point.anchor_b)
             body = bodies[point.body_idx]
             point.anchor_b = KVec3(body.R_b_to_c' * (point.pos_cad - body.pos_cad))

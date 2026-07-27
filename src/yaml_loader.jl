@@ -353,7 +353,8 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
     # aero_z_offset only applies to RIGID wings.
     kwargs_spec = [:transform, :y_damping, :angular_damping, :dynamics_type,
         :aero, :z_ref_points, :y_ref_points, :origin, :pos_cad,
-        :aero_scale_chord, :n_unrefined_sections, :principal_frame_method]
+        :aero_scale_chord, :n_unrefined_sections, :principal_frame_method,
+        :mass, :com, :unit_inertia]
     wing_type == RIGID_DYNAMICS && push!(kwargs_spec, :aero_z_offset)
     return call_yaml_constructor(VSMWing, row,
         [:name, :set, :twist_surfaces, :vsm_set], kwargs_spec;
@@ -380,7 +381,13 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                 hasfield(typeof(row), :principal_frame_method) &&
                 !isnothing(row.principal_frame_method) ?
                     parse_principal_frame_method(String(row.principal_frame_method)) :
-                    EIGEN_DECOMP
+                    EIGEN_DECOMP,
+            :mass => row -> yaml_float(row, :mass),
+            :com => row -> yaml_vec3(row, :com),
+            :unit_inertia => row -> begin
+                value = yaml_field(row, :unit_inertia)
+                isnothing(value) ? nothing : Float64.(value)
+            end
         ))
 end
 
