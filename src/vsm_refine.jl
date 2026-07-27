@@ -125,7 +125,7 @@ function match_aero_sections_to_structure!(
 )
     wing_points = [
         p for p in points if
-        p.type == WING && p.wing_idx == wing.idx
+        p.is_wing_node && p.wing_idx == wing.idx
     ]
 
     if wing.dynamics_type == RIGID_DYNAMICS
@@ -415,7 +415,7 @@ function distribute_panel_forces_to_points!(wing::Body, points::AbstractVector{P
 
     # Initialize all WING point forces to zero
     for point in points
-        if point.type == WING && point.wing_idx == wing.idx
+        if point.is_wing_node && point.wing_idx == wing.idx
             point.aero_force_b .= 0.0
         end
     end
@@ -584,7 +584,7 @@ LE/TE `wing_segments` if not already set. Errors if the required body-frame
 function setup_particle_point_mapping!(wing, points, twist_surfaces)
     if isnothing(wing.point_to_vsm_point)
         wing_point_idxs = findall(
-            point -> point.type == WING && point.wing_idx == wing.idx, points)
+            point -> point.is_wing_node && point.wing_idx == wing.idx, points)
         wing_pts = [points[idx] for idx in wing_point_idxs]
         wing.point_to_vsm_point =
             build_point_to_vsm_point_mapping(wing_pts, wing)

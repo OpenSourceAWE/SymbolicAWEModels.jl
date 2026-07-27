@@ -131,7 +131,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
         ]
 
         # Apparent velocity for ALL points (PARTICLE_DYNAMICS wings need body frame).
-        wing_idx_for_transform = if point.type == WING
+        wing_idx_for_transform = if point.is_wing_node
             point.wing_idx
         elseif length(wings) > 0
             # Use first wing for non-wing points
@@ -165,7 +165,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                 point_drag_force[:, point.idx] + seg_drag
         ]
 
-        if point.type == BODY_STATIC
+        if point.type == BODY_STATIC && !point.is_wing_node
             eqs = [
                 eqs
                 point_force[:, point.idx] ~
@@ -232,7 +232,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     params; pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
                     body_com_vel, body_ω_b, body_force, body_moment)]
             end
-        elseif point.type == WING
+        elseif point.is_wing_node
             # The wing is a body (looked up in the full bodies, incl. AeroNone wings).
             wing = s.sys_struct.bodies[point.wing_idx]
 

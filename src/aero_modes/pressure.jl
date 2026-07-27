@@ -288,7 +288,7 @@ Stored in `mode.station_point`; errors on a missing `section_aero` or a mesh tha
 sits farther than `frame_tol_frac` chords from the points.
 """
 function build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
-    wing_pts = [p for p in points if p.type == WING && p.wing_idx == wing.idx]
+    wing_pts = [p for p in points if p.is_wing_node && p.wing_idx == wing.idx]
     isempty(wing_pts) && error(
         "AeroPressure wing $(wing.name): no WING points to receive forces.")
     rot_cad_to_body = wing.R_b_to_c'

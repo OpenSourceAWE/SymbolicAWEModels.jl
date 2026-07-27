@@ -266,7 +266,10 @@ function parse_dynamics_type(text::String)
     text_upper = uppercase(text)
     text_upper == "STATIC" && return STATIC
     text_upper == "DYNAMIC" && return DYNAMIC
-    text_upper == "WING" && return WING
+    text_upper == "WING" && error(
+        "DynamicsType `WING` was removed: use `BODY_STATIC` (rigid wing, with " *
+        "`body_idx` = the wing) or `DYNAMIC` (particle wing), and make the point " *
+        "a member of one of the wing's twist_surfaces.")
     text_upper == "BODY_STATIC" && return BODY_STATIC
     text_upper == "KINEMATIC" && return KINEMATIC
     error("Unknown DynamicsType: $text")

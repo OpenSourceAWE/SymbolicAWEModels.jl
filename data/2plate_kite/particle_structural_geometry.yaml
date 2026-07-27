@@ -21,13 +21,14 @@ materials:
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
   data:
-    # Wing points - leading edge (LE) and trailing edge (TE)
-    - [le_left,    [-0.5, 1.0, 2.0], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [te_left,    [0.5,  1.0, 2.3], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [le_center,  [-0.5, 0.0, 2.5], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [te_center,  [0.5,  0.0, 2.8], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [le_right,   [-0.5,-1.0, 2.0], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
-    - [te_right,   [0.5, -1.0, 2.3], WING, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
+    # Wing points - leading edge (LE) and trailing edge (TE). Particle wing
+    # nodes are DYNAMIC; their wing membership is carried by twist_surfaces.
+    - [le_left,    [-0.5, 1.0, 2.0], DYNAMIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [te_left,    [0.5,  1.0, 2.3], DYNAMIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [le_center,  [-0.5, 0.0, 2.5], DYNAMIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [te_center,  [0.5,  0.0, 2.8], DYNAMIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [le_right,   [-0.5,-1.0, 2.0], DYNAMIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
+    - [te_right,   [0.5, -1.0, 2.3], DYNAMIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
 
     # Bridle points
     - [steering_left, [0.0, 0.5, 0.5], DYNAMIC, main_wing, main_transform, 0.1, 10.0, 0.0, 0.0, 0.0]
@@ -104,12 +105,25 @@ winches:
     - [main_winch, [main_tether], ground]
 
 ###########################
+## Twist surfaces #########
+###########################
+# LE/TE pairs define the wing's aerodynamic surface; membership marks the
+# structural nodes as wing points.
+twist_surfaces:
+  headers: [name, point_idxs, type, moment_frac, damping]
+  data:
+    - [left,   [le_left, te_left],     STATIC, 0.75, 50.0]
+    - [center, [le_center, te_center], STATIC, 0.75, 50.0]
+    - [right,  [le_right, te_right],   STATIC, 0.75, 50.0]
+
+###########################
 ## Wings ##################
 ###########################
 wings:
   data:
     - name: main_wing
       dynamics_type: PARTICLE_DYNAMICS
+      twist_surfaces: [left, center, right]
       origin_idx: kcu
       z_ref_points: [kcu, le_center]
       y_ref_points: [le_right, le_left]

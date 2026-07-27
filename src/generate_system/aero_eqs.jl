@@ -30,7 +30,7 @@ function aero_eqs!(
 
         if wing.dynamics_type == PARTICLE_DYNAMICS
             wing_points = [point for point in points
-                           if point.type == WING && point.wing_idx == wing_idx]
+                           if point.is_wing_node && point.wing_idx == wing_idx]
             Rbw = R_b_to_w[:, :, wing_idx]
             aero_force_point = aero_force_point_b::AbstractArray
 

@@ -132,8 +132,7 @@ end
                 @test haskey(sys.points, :steering_left)
                 @test haskey(sys.points, :steering_right)
 
-                @test sys.points[:le_left].type ==
-                    SymbolicAWEModels.WING
+                @test sys.points[:le_left].is_wing_node
 
                 @test length(sys.transforms) == 1
                 @test haskey(sys.transforms, :main_transform)
@@ -332,9 +331,8 @@ end
                 end
                 test_init!(sam; prn=false)
 
-                # RIGID_DYNAMICS: kcu is a WING point (derived
-                # from com_w + R * pos_b), not a DYNAMIC
-                # point, so fix_static has no effect on it.
+                # RIGID_DYNAMICS: kcu rides the wing body (BODY_STATIC),
+                # not a DYNAMIC point, so fix_static has no effect on it.
                 check_names = if expected_dynamics_type ==
                         SymbolicAWEModels.RIGID_DYNAMICS
                     [:steering_left, :steering_right]
@@ -444,8 +442,7 @@ end
                     sol_force .*= scale
                     total_force = zeros(3)
                     for p in sam.sys_struct.points
-                        if p.type ==
-                                SymbolicAWEModels.WING &&
+                        if p.is_wing_node &&
                                 p.wing_idx == wing.idx
                             total_force .+= p.aero_force_b
                         end

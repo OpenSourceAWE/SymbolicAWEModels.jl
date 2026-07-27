@@ -134,7 +134,7 @@ the unweighted centroid and `inertia` is `nothing`.
 """
 function normalized_point_inertia(wing, points)
     wing_points = [point for point in points
-                   if point.type == WING && point.wing_idx == wing.idx]
+                   if point.is_wing_node && point.wing_idx == wing.idx]
     masses = [point.extra_mass for point in wing_points]
     total_mass = sum(masses)
     com_cad = total_mass > 0 ?
@@ -230,7 +230,7 @@ end
 
 function wing_points(sys_struct, wing)
     return [point for point in sys_struct.points
-            if point.type == WING && point.wing_idx == wing.idx]
+            if point.is_wing_node && point.wing_idx == wing.idx]
 end
 
 """
@@ -576,7 +576,7 @@ function validate_aero_structure(::AbstractVSMAero, wing, points; prn=false)
     wing.dynamics_type == PARTICLE_DYNAMICS || return nothing
     @assert !isnothing(wing.point_to_vsm_point) "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping"
 
-    wing_point_idxs = [p.idx for p in points if p.type == WING && p.wing_idx == wing.idx]
+    wing_point_idxs = [p.idx for p in points if p.is_wing_node && p.wing_idx == wing.idx]
     for point_idx in wing_point_idxs
         @assert haskey(wing.point_to_vsm_point, point_idx) "PARTICLE_DYNAMICS wing $(wing.idx) missing mapping for point $(point_idx)"
     end
@@ -661,7 +661,6 @@ function setup_aero!(mode::AbstractVSMAero, wing, points, twist_surfaces;
         isnothing(wing.origin) || transform_vsm_sections_to_body!(wing)
         couples_to_sections(mode) &&
             match_aero_sections_to_structure!(wing, points; twist_surfaces)
-        isempty(wing.twist_surface_idxs) || empty!(wing.twist_surface_idxs)
         setup_particle_point_mapping!(wing, points, twist_surfaces)
     end
     return nothing
