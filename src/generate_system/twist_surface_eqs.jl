@@ -13,8 +13,10 @@ and its point count. Errors loudly on an inconsistent combination:
   a bridle couple, so it requires a `RIGID_DYNAMICS` body and ≥2 points.
 - A 1-point twist_surface has no bridle couple to oppose a twist moment, so its only
   coherent twist is prescribed → must be `STATIC`.
-- `STATIC` twist on a `PARTICLE_DYNAMICS` body cannot move free particles, so it is
-  only coherent for a single point.
+- `STATIC` twist is prescribed (default 0). On a rigid wing it imposes the
+  section twist; on a `PARTICLE_DYNAMICS` wing the free points carry the
+  deformation, so a multi-point `STATIC` surface is an inert aero-section
+  membership marker.
 """
 function validate_twist_surface_modes(twist_surfaces, bodies)
     for twist_surface in twist_surfaces

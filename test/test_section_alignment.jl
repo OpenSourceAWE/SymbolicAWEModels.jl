@@ -12,7 +12,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, VortexStepMethod, WING,
+using SymbolicAWEModels: KVec3, VortexStepMethod,
     RIGID_DYNAMICS
 using KiteUtils
 using LinearAlgebra
@@ -45,7 +45,7 @@ twist_surface_point_ids = reduce(vcat,
     [sys.twist_surfaces[g].point_idxs for g in wing.twist_surface_idxs];
     init=Int[])
 wing_pts = filter(
-    p -> p.type == WING && p.wing_idx == wing.idx &&
+    p -> p.is_wing_node && p.wing_idx == wing.idx &&
          p.idx in twist_surface_point_ids,
     points)
 sort!(wing_pts; by=p -> p.pos_cad[2], rev=true)

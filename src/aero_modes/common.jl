@@ -134,7 +134,7 @@ the unweighted centroid and `inertia` is `nothing`.
 """
 function normalized_point_inertia(wing, points)
     wing_points = [point for point in points
-                   if point.is_wing_node && point.wing_idx == wing.idx]
+                   if wing_frame_member(point, wing.idx)]
     masses = [point.extra_mass for point in wing_points]
     total_mass = sum(masses)
     com_cad = total_mass > 0 ?

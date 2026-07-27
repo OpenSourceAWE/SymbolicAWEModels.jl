@@ -20,7 +20,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, RIGID_DYNAMICS, WING,
+using SymbolicAWEModels: KVec3, RIGID_DYNAMICS,
     VortexStepMethod
 using LinearAlgebra
 
@@ -76,7 +76,7 @@ using LinearAlgebra
     # ---- Test 2: Rigid body constraint ---- #
     @testset "pos_w = com_w + R_b_to_w * pos_b" begin
         wing_pts = [p for p in sys.points
-            if p.type == WING &&
+            if p.is_wing_node &&
                p.wing_idx == wing.idx]
         @test !isempty(wing_pts)
 
@@ -97,7 +97,7 @@ using LinearAlgebra
     # ---- Test 3: TwistSurface geometry in principal frame ---- #
     @testset "TwistSurface geometry frame" begin
         wing_pts = [p for p in sys.points
-            if p.type == WING &&
+            if p.is_wing_node &&
                p.wing_idx == wing.idx]
 
         for twist_surface in sys.twist_surfaces

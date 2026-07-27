@@ -14,7 +14,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, MVec3, WING, PARTICLE_DYNAMICS,
+using SymbolicAWEModels: KVec3, MVec3, PARTICLE_DYNAMICS,
     VortexStepMethod
 using KiteUtils
 using LinearAlgebra
@@ -175,7 +175,7 @@ system:
         sam_fresh = build_refine(; remake=true)    # builds + caches
         sam_cached = build_refine(; remake=false)  # loads from .bin
 
-        wpts(sam) = [p for p in sam.sys_struct.points if p.type == WING]
+        wpts(sam) = [p for p in sam.sys_struct.points if p.is_wing_node]
         fresh, cached = wpts(sam_fresh), wpts(sam_cached)
 
         # wind is on → aero is non-trivial (test is meaningful)

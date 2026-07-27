@@ -20,7 +20,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, WING
+using SymbolicAWEModels: VortexStepMethod
 using KiteUtils
 using LinearAlgebra
 

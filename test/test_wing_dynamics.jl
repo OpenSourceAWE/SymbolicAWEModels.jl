@@ -30,28 +30,36 @@ WING_FREEFALL_YAML = """
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx,
             extra_mass, body_frame_damping,
-            world_frame_damping, area, drag_coeff]
+            world_frame_damping, area, drag_coeff, body_idx]
   data:
-    - [le_left,   [-0.5, 1.0, 2.0], WING, main_wing,
-       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
-    - [te_left,   [0.5,  1.0, 2.2], WING, main_wing,
-       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
-    - [le_center, [-0.5, 0.0, 2.5], WING, main_wing,
-       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
-    - [te_center, [0.5,  0.0, 2.7], WING, main_wing,
-       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
-    - [le_right,  [-0.5,-1.0, 2.0], WING, main_wing,
-       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
-    - [te_right,  [0.5, -1.0, 2.2], WING, main_wing,
-       ~, 0.5, 0.0, 0.0, 0.0, 0.0]
+    - [le_left,   [-0.5, 1.0, 2.0], BODY_STATIC, main_wing,
+       ~, 0.5, 0.0, 0.0, 0.0, 0.0, main_wing]
+    - [te_left,   [0.5,  1.0, 2.2], BODY_STATIC, main_wing,
+       ~, 0.5, 0.0, 0.0, 0.0, 0.0, main_wing]
+    - [le_center, [-0.5, 0.0, 2.5], BODY_STATIC, main_wing,
+       ~, 0.5, 0.0, 0.0, 0.0, 0.0, main_wing]
+    - [te_center, [0.5,  0.0, 2.7], BODY_STATIC, main_wing,
+       ~, 0.5, 0.0, 0.0, 0.0, 0.0, main_wing]
+    - [le_right,  [-0.5,-1.0, 2.0], BODY_STATIC, main_wing,
+       ~, 0.5, 0.0, 0.0, 0.0, 0.0, main_wing]
+    - [te_right,  [0.5, -1.0, 2.2], BODY_STATIC, main_wing,
+       ~, 0.5, 0.0, 0.0, 0.0, 0.0, main_wing]
     - [ground,    [0.0, 0.0, 0.0],  STATIC, ~,
-       ~, 0.0, 0.0, 0.0, 0.0, 0.0]
+       ~, 0.0, 0.0, 0.0, 0.0, 0.0, ~]
+
+twist_surfaces:
+  headers: [name, point_idxs, type, moment_frac, damping]
+  data:
+    - [left,   [le_left, te_left],     STATIC, 0.75, 50.0]
+    - [center, [le_center, te_center], STATIC, 0.75, 50.0]
+    - [right,  [le_right, te_right],   STATIC, 0.75, 50.0]
 
 wings:
   data:
     - name: main_wing
       dynamics_type: RIGID_DYNAMICS
       aero_mode: AERO_NONE
+      twist_surfaces: [left, center, right]
       transform_idx: 0
       y_damping: 0.0
       aero_z_offset: 0.0

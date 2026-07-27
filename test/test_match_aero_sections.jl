@@ -14,7 +14,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3, VortexStepMethod, WING,
+using SymbolicAWEModels: KVec3, VortexStepMethod,
     PARTICLE_DYNAMICS, RIGID_DYNAMICS, SimFloat,
     match_aero_sections_to_structure!
 using KiteUtils
@@ -51,7 +51,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         vsm_w = wing.vsm_wing
 
         n_struct = count(
-            p -> p.type == WING &&
+            p -> p.is_wing_node &&
                  p.wing_idx == wing.idx,
             points) ÷ 2
 
@@ -108,7 +108,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         ]
 
         n_struct = count(
-            p -> p.type == WING &&
+            p -> p.is_wing_node &&
                  p.wing_idx == wing.idx,
             points) ÷ 2
 

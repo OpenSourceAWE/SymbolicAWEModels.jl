@@ -392,13 +392,13 @@ using LinearAlgebra
             Point(:nose, pos_nose, DYNAMIC;
                 extra_mass=k_nose,
                 transform=:main_tf),
-            Point(:top, pos_top, WING;
+            Point(:top, pos_top, DYNAMIC;
                 extra_mass=k_top, wing=:plate_wing,
                 transform=:kite_tilt),
-            Point(:right, pos_right, WING;
+            Point(:right, pos_right, DYNAMIC;
                 extra_mass=k_side, wing=:plate_wing,
                 transform=:kite_tilt),
-            Point(:left, pos_left, WING;
+            Point(:left, pos_left, DYNAMIC;
                 extra_mass=k_side, wing=:plate_wing,
                 transform=:kite_tilt),
         ]
