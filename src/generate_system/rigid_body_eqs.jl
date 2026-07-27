@@ -62,18 +62,22 @@ function rigid_body_eqs!(
 
     com_off_b = collect(com_offset_b)
 
+    # Baumgarte gain pulling the quaternion back onto the unit sphere.
+    quat_norm_gain = 10.0
+    quat_norm_error = 1 - sum(Q_p_to_w[j, idx]^2 for j = 1:4)
+
     eqs = [
         eqs
         # === Quaternion kinematics ===
         [D(Q_p_to_w[i, idx]) ~ Q_p_vel[i, idx] for i = 1:4]
         [Q_p_vel[i, idx] ~ 0.5 * sum(
-            Ω(ω_kin)[i, j] * Q_p_to_w[j, idx] for j = 1:4)
+            Ω(ω_kin)[i, j] * Q_p_to_w[j, idx] for j = 1:4) +
+            quat_norm_gain * quat_norm_error * Q_p_to_w[i, idx]
             for i = 1:4]
 
         # === Angular acceleration integration ===
         D(ω_p[:, idx]) ~ d_ω
 
-        # R_p_to_w from Q_p_to_w
         [R_p_to_w[:, i, idx] ~
             quaternion_to_rotation_matrix(
                 Q_p_to_w[:, idx])[:, i] for i = 1:3]

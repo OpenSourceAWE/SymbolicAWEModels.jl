@@ -203,6 +203,15 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         pulley_len, tether_len
     )
 
+    # A single-segment tether aliases l0 to tether_len; bind l0 too since
+    # mtkcompile may keep it as the surviving unknown.
+    for tether in tethers
+        length(tether.segment_idxs) == 1 || continue
+        segidx = only(tether.segment_idxs)
+        defaults = [defaults;
+            bind_initial!(initial.segments[segidx].l0, l0[segidx])]
+    end
+
     # 4. Pulley equations (rope distribution)
     eqs, defaults = pulley_eqs!(
         eqs, defaults, pulleys, segments, params, initial;
