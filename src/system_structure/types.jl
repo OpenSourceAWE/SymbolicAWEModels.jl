@@ -530,7 +530,8 @@ using the closest VSM panel to the twist_surface's mean point position.
 - `flap_axis=[0,1,0]`: Flap-hinge axis (unit) in the main body's frame.
 - `flap_chord_refs=[]`: Reference chord directions `[main, flap]`; auto-derived
   (each body's x-axis) at build when omitted.
-- `flap_rest_delta=0.0`: Rest deflection [rad]; captured at build when omitted.
+- `flap_rest_delta=0.0`: Rest deflection [rad]; auto-captured at build so the
+  as-placed pose is δ=0. Internal — not a YAML field (YAML angles are degrees).
 
 # Returns
 - `TwistSurface`: A new `TwistSurface` object. The `idx` and `point_idxs` are resolved by SystemStructure.

@@ -538,8 +538,7 @@ function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, points,
         "remake_aero!: VSM wing $(wing.idx) needs a VSMSettings, " *
         "got $(typeof(vsm_set)).")
     wing.vsm_wing = create_vsm_wing(set, vsm_set;
-        prn=false, sort_sections=false,
-        n_unrefined_sections=length(wing.twist_surface_idxs))
+        prn=false, sort_sections=false)
     wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
     wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero, vsm_set)
 

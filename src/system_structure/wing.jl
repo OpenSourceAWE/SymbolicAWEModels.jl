@@ -237,21 +237,23 @@ end
 
 """
     create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
-                    prn=true, sort_sections=true, n_unrefined_sections=nothing)
+                    prn=true, sort_sections=true)
 
 Create a `VortexStepMethod.Wing` geometry object from the settings provided.
 
 This function checks for a `.obj` file in the model directory. If present it uses
 `VortexStepMethod.ObjWing(obj_path; …)` to generate the aero geometry (airfoils
-are extracted from the mesh; no `.dat` is needed), passing `n_unrefined_sections`
-through as `n_sections` (`nothing` leaves the choice to `ObjWing`, one unrefined
-section per panel boundary). The generated `geometry.yaml` is cached under
-`<model_dir>/obj_geometry` and reused on later runs. When no `.obj` is present it
-falls back to `vsm_set`'s `geometry_file`. Aero only — mass properties are handled
-separately (see [`VSMWing`](@ref) and [`ObjAdapter`](@ref)).
+are extracted from the mesh; no `.dat` is needed). The mesh is sliced at panel
+resolution — `ObjWing` defaults to one unrefined section per panel boundary
+(`n_panels + 1`) — independent of the wing's twist-surface count; the twist
+surfaces map onto the refined panels by distance later. The generated
+`geometry.yaml` is cached under `<model_dir>/obj_geometry` and reused on later
+runs. When no `.obj` is present it falls back to `vsm_set`'s `geometry_file`. Aero
+only — mass properties are handled separately (see [`VSMWing`](@ref) and
+[`ObjAdapter`](@ref)).
 """
 function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
-                         prn=true, sort_sections=true, n_unrefined_sections=nothing)
+                         prn=true, sort_sections=true)
     model_dir = get_data_path()
     obj_path = joinpath(model_dir, set.model)
 
@@ -259,8 +261,7 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
         prn && @info "Generating wing aero geometry from .obj file"
         n_panels = isempty(vsm_set.wings) ? 56 : vsm_set.wings[1].n_panels
         return VortexStepMethod.ObjWing(obj_path;
-            n_panels, n_sections=n_unrefined_sections,
-            crease_frac=set.crease_frac,
+            n_panels, crease_frac=set.crease_frac,
             output_dir=joinpath(model_dir, "obj_geometry"), verbose=prn)
     end
 
@@ -278,29 +279,23 @@ end
 
 """
     build_vsm_engine(set, vsm_set, dynamics_type; point_to_vsm_point=nothing,
-                     wing_segments=nothing, aero_scale_chord=0.0, aero_z_offset=0.0,
-                     n_unrefined_sections=nothing)
+                     wing_segments=nothing, aero_scale_chord=0.0, aero_z_offset=0.0)
 
 Build a [`VSMEngine`](@ref): create the VortexStepMethod `vsm_wing`/`vsm_aero`/
 `vsm_solver` and size the linearization state vectors. Aero-state sizes are
-placeholders for `RIGID_DYNAMICS` (using `n_unrefined_sections` as the
+placeholders for `RIGID_DYNAMICS` (using the mesh's `n_unrefined_sections` as the
 twist_surface-count proxy) and resized by `SystemStructure` once twist_surfaces
 are resolved.
 
 # Keywords
 - `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
 - `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
-- `n_unrefined_sections`: Forwarded to [`create_vsm_wing`](@ref). When `nothing`
-  (default), `ObjWing` picks its own default (one unrefined section per panel
-  boundary).
 """
 function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
                           dynamics_type::WingType;
                           point_to_vsm_point=nothing, wing_segments=nothing,
-                          aero_scale_chord=0.0, aero_z_offset=0.0,
-                          n_unrefined_sections=nothing)
-    vsm_wing = create_vsm_wing(set, vsm_set; prn=false, sort_sections=false,
-        n_unrefined_sections)
+                          aero_scale_chord=0.0, aero_z_offset=0.0)
+    vsm_wing = create_vsm_wing(set, vsm_set; prn=false, sort_sections=false)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
     vsm_solver = VortexStepMethod.Solver(vsm_aero, vsm_set)
 
@@ -347,14 +342,6 @@ it to the wing.
 - `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
 - `z_ref_points`, `y_ref_points`, `origin`: Body-frame references.
 - `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
-- `n_unrefined_sections=nothing`: Number of coarse (unrefined) spanwise
-  sections used for twist/deformation control, before mesh refinement into
-  the full VSM panel mesh; also sizes the linearized aero I/O in
-  [`build_vsm_engine`](@ref) (twist_surface-count proxy). Only used for
-  `.obj`/`.dat`-based wings ([`create_vsm_wing`](@ref)); ignored when loading
-  from `aero_geometry.yaml`, where it is inferred from the geometry file's
-  sections instead. When `nothing`, `ObjWing` picks its own default (one
-  unrefined section per panel boundary).
 """
 function VSMWing(name, set::Settings,
                  twist_surfaces::AbstractVector,
@@ -378,7 +365,6 @@ function VSMWing(name, set::Settings,
                  origin=nothing,
                  aero_scale_chord::SimFloat=0.0,
                  aero_z_offset::SimFloat=0.0,
-                 n_unrefined_sections=nothing,
                  principal_frame_method::PrincipalFrameMethod=EIGEN_DECOMP)
 
     # Handle deprecated wing_type keyword
@@ -414,8 +400,7 @@ function VSMWing(name, set::Settings,
             "Wing '$name': aero mode $(typeof(aero)) needs VSM geometry " *
             "but no vsm_set was provided.")
         aero = attach_engine!(aero, build_vsm_engine(set, vsm_set, dynamics_type;
-            point_to_vsm_point, wing_segments, aero_scale_chord, aero_z_offset,
-            n_unrefined_sections))
+            point_to_vsm_point, wing_segments, aero_scale_chord, aero_z_offset))
         seed_wing_inertia!(aero.engine.vsm_wing, set, com, unit_inertia)
     end
 
@@ -548,6 +533,18 @@ end
 # ==================== HELPER FUNCTIONS ==================== #
 
 """
+    frame_sections(vsm_wing)
+
+Every VSM section whose LE/TE are stored in the wing frame — `refined_sections`,
+`non_deformed_sections` and `unrefined_sections` — as one iterator so a frame
+transform reaches all three. The lists hold independent `Section` objects (VSM
+copies on refine), so each is moved exactly once.
+"""
+frame_sections(vsm_wing) = Iterators.flatten((
+    vsm_wing.refined_sections, vsm_wing.non_deformed_sections,
+    vsm_wing.unrefined_sections))
+
+"""
     adjust_vsm_panels_to_origin!(vsm_wing, origin_offset)
 
 Adjust VSM panel positions when body frame origin changes.
@@ -562,15 +559,7 @@ to be relative to the new origin by subtracting the offset.
 - `origin_offset`: Vector [x, y, z] to subtract from panel positions
 """
 function adjust_vsm_panels_to_origin!(vsm_wing, origin_offset)
-    for section in vsm_wing.refined_sections
-        section.LE_point .-= origin_offset
-        section.TE_point .-= origin_offset
-    end
-    for section in vsm_wing.non_deformed_sections
-        section.LE_point .-= origin_offset
-        section.TE_point .-= origin_offset
-    end
-    for section in vsm_wing.unrefined_sections
+    for section in frame_sections(vsm_wing)
         section.LE_point .-= origin_offset
         section.TE_point .-= origin_offset
     end
@@ -586,15 +575,7 @@ frame to body frame. After the first step, `refresh_aero!()`
 updates positions from `pos_b` (already in body frame).
 """
 function rotate_vsm_sections!(vsm_wing, R)
-    for section in vsm_wing.refined_sections
-        section.LE_point .= R * section.LE_point
-        section.TE_point .= R * section.TE_point
-    end
-    for section in vsm_wing.non_deformed_sections
-        section.LE_point .= R * section.LE_point
-        section.TE_point .= R * section.TE_point
-    end
-    for section in vsm_wing.unrefined_sections
+    for section in frame_sections(vsm_wing)
         section.LE_point .= R * section.LE_point
         section.TE_point .= R * section.TE_point
     end
@@ -614,21 +595,13 @@ This is applied AFTER the COM adjustment.
 - `aero_z_offset`: Distance to shift panels in +z direction [m]
 """
 function apply_aero_z_offset!(vsm_wing, aero_z_offset)
-    if abs(aero_z_offset) > 1e-10
-        offset_vec = [0.0, 0.0, aero_z_offset]
-        for section in vsm_wing.refined_sections
-            section.LE_point .+= offset_vec
-            section.TE_point .+= offset_vec
-        end
-        for section in vsm_wing.non_deformed_sections
-            section.LE_point .+= offset_vec
-            section.TE_point .+= offset_vec
-        end
-        for section in vsm_wing.unrefined_sections
-            section.LE_point .+= offset_vec
-            section.TE_point .+= offset_vec
-        end
+    abs(aero_z_offset) > 1e-10 || return nothing
+    offset_vec = [0.0, 0.0, aero_z_offset]
+    for section in frame_sections(vsm_wing)
+        section.LE_point .+= offset_vec
+        section.TE_point .+= offset_vec
     end
+    return nothing
 end
 
 """
