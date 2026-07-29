@@ -317,24 +317,6 @@ function parse_aero_mode(text::String)
 end
 
 """
-    yaml_n_unrefined_sections(row)
-
-Number of unrefined VSM sections for a wing `row`: the explicit
-`n_unrefined_sections` field when given, else the number of listed
-`twist_surfaces`, else `nothing` (`ObjWing` then picks its own default).
-"""
-function yaml_n_unrefined_sections(row)
-    if hasfield(typeof(row), :n_unrefined_sections) &&
-       !isnothing(row.n_unrefined_sections)
-        return Int(row.n_unrefined_sections)
-    end
-    if hasfield(typeof(row), :twist_surfaces) && !isnothing(row.twist_surfaces)
-        return length(row.twist_surfaces)
-    end
-    return nothing
-end
-
-"""
     load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type, vsm_set,
               yaml_to_ref, yaml_parse_ref_points, yaml_parse_origin, twist_surfaces)
 
@@ -353,7 +335,7 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
     # aero_z_offset only applies to RIGID wings.
     kwargs_spec = [:transform, :y_damping, :angular_damping, :dynamics_type,
         :aero, :z_ref_points, :y_ref_points, :origin, :pos_cad,
-        :aero_scale_chord, :n_unrefined_sections, :principal_frame_method,
+        :aero_scale_chord, :principal_frame_method,
         :mass, :com, :unit_inertia]
     wing_type == RIGID_DYNAMICS && push!(kwargs_spec, :aero_z_offset)
     return call_yaml_constructor(VSMWing, row,
@@ -365,7 +347,6 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                 !isnothing(row.twist_surfaces) ?
                 [yaml_to_ref(ref) for ref in row.twist_surfaces] : [],
             :vsm_set => row -> vsm_set,
-            :n_unrefined_sections => yaml_n_unrefined_sections,
             :dynamics_type => row -> wing_type,
             :name => row -> yaml_row_name(row, idx),
             :transform => row -> yaml_ref_field(row, :transform_idx, yaml_to_ref),
@@ -777,7 +758,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             twist_surface = call_yaml_constructor(TwistSurface, row,
                 [:name, :points, :type, :moment_frac],
                 [:damping, :stiffness, :wing, :bodies, :flap_bodies,
-                 :flap_axis, :flap_rest_delta];
+                 :flap_axis];
                 mappings=Dict(
                     :points => row -> haskey(row, :points) ?
                         [yaml_to_ref(p) for p in row.points] :
