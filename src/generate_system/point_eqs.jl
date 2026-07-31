@@ -56,6 +56,66 @@ function body_ride_eqs(point, body, force_on_body, params;
 end
 
 """
+    beam_hermite_ride_eqs(point, force_on_point, s, params; kwargs...)
+
+Kinematics of a `point` that rides its `TimoshenkoJoint`'s corotational cubic-Hermite
+centerline at `beam_frac` (transverse deflection from the two end slopes, plus a
+frame-carried `beam_offset_b`), and the load it feeds to the two end bodies split by
+axial fraction. Mutates `body_force`/`body_moment` in place; returns the point's
+pos/vel/acc equations. Shared by beam-anchored bridle points and beam-anchored
+wing-node aero receivers, so both track the deformed beam identically.
+"""
+function beam_hermite_ride_eqs(point, force_on_point, s, params;
+                               pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
+                               body_com_vel, body_ω_b, body_force, body_moment)
+    joint = s.sys_struct.timoshenko_joints[point.joint_idx]
+    a = joint.body_a_idx
+    b = joint.body_b_idx
+    R_a = collect(body_R_b_to_w[:, :, a])
+    R_b = collect(body_R_b_to_w[:, :, b])
+    jp = params.timoshenko_joints[joint.idx]
+    x_a = collect(body_pos_w[:, a]) .+ R_a * collect(jp.anchor_a_b)
+    x_b = collect(body_pos_w[:, b]) .+ R_b * collect(jp.anchor_b_b)
+    e1, e2, e3, beam_len = timoshenko_element_frame(x_a, x_b, R_a)
+    element_frame = [e1[1] e2[1] e3[1];
+                     e1[2] e2[2] e3[2];
+                     e1[3] e2[3] e3[3]]
+    Da = (element_frame' * R_a) * collect(jp.R_a_rel0)'
+    Db = (element_frame' * R_b) * collect(jp.R_b_rel0)'
+    θ_a = [0.5 * (Da[3, 2] - Da[2, 3]),
+           0.5 * (Da[1, 3] - Da[3, 1]),
+           0.5 * (Da[2, 1] - Da[1, 2])]
+    θ_b = [0.5 * (Db[3, 2] - Db[2, 3]),
+           0.5 * (Db[1, 3] - Db[3, 1]),
+           0.5 * (Db[2, 1] - Db[1, 2])]
+    sfrac = params.points[point.idx].beam_frac
+    N2 = beam_len * (sfrac - 2sfrac^2 + sfrac^3)
+    N4 = beam_len * (-sfrac^2 + sfrac^3)
+    v_defl = N2 * θ_a[3] + N4 * θ_b[3]
+    w_defl = -(N2 * θ_a[2] + N4 * θ_b[2])
+    x_center = x_a .+ (sfrac * beam_len) .* e1 .+ v_defl .* e2 .+ w_defl .* e3
+    offset = collect(params.points[point.idx].beam_offset_b)
+    pos_point = x_center .+ element_frame * offset
+    ω_a_w = R_a * collect(body_ω_b[:, a])
+    ω_b_w = R_b * collect(body_ω_b[:, b])
+    vel_a = collect(body_com_vel[:, a]) .+
+        (ω_a_w × (pos_point .- collect(body_com_w[:, a])))
+    vel_b = collect(body_com_vel[:, b]) .+
+        (ω_b_w × (pos_point .- collect(body_com_w[:, b])))
+    force_a = (1 - sfrac) .* force_on_point
+    force_b = sfrac .* force_on_point
+    body_force[:, a] .+= force_a
+    body_force[:, b] .+= force_b
+    body_moment[:, a] .+= (pos_point .- collect(body_com_w[:, a])) × force_a
+    body_moment[:, b] .+= (pos_point .- collect(body_com_w[:, b])) × force_b
+    return [
+        pos[:, point.idx] ~ pos_point
+        vel[:, point.idx] ~ (1 - sfrac) .* vel_a .+ sfrac .* vel_b
+        acc[:, point.idx] ~ zeros(3)
+    ]
+end
+
+"""
     point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, params, initial;
                R_b_to_w, wing_vel, wind_vec_gnd, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -181,57 +241,9 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
             ]
             force_on_point = collect(point_force[:, point.idx])
             if point.joint_idx > 0
-                # Rides the joint's corotational-Hermite centerline; load split by axial fraction to both bodies.
-                joint = s.sys_struct.timoshenko_joints[point.joint_idx]
-                a = joint.body_a_idx
-                b = joint.body_b_idx
-                R_a = collect(body_R_b_to_w[:, :, a])
-                R_b = collect(body_R_b_to_w[:, :, b])
-                jp = params.timoshenko_joints[joint.idx]
-                x_a = collect(body_pos_w[:, a]) .+ R_a * collect(jp.anchor_a_b)
-                x_b = collect(body_pos_w[:, b]) .+ R_b * collect(jp.anchor_b_b)
-                e1, e2, e3, beam_len = timoshenko_element_frame(x_a, x_b, R_a)
-                element_frame = [e1[1] e2[1] e3[1];
-                                 e1[2] e2[2] e3[2];
-                                 e1[3] e2[3] e3[3]]
-                Da = (element_frame' * R_a) * collect(jp.R_a_rel0)'
-                Db = (element_frame' * R_b) * collect(jp.R_b_rel0)'
-                θ_a = [0.5 * (Da[3, 2] - Da[2, 3]),
-                       0.5 * (Da[1, 3] - Da[3, 1]),
-                       0.5 * (Da[2, 1] - Da[1, 2])]
-                θ_b = [0.5 * (Db[3, 2] - Db[2, 3]),
-                       0.5 * (Db[1, 3] - Db[3, 1]),
-                       0.5 * (Db[2, 1] - Db[1, 2])]
-                sfrac = params.points[point.idx].beam_frac
-                # Cubic-Hermite transverse deflection from the two end slopes.
-                N2 = beam_len * (sfrac - 2sfrac^2 + sfrac^3)
-                N4 = beam_len * (-sfrac^2 + sfrac^3)
-                v_defl = N2 * θ_a[3] + N4 * θ_b[3]
-                w_defl = -(N2 * θ_a[2] + N4 * θ_b[2])
-                x_center = x_a .+ (sfrac * beam_len) .* e1 .+
-                    v_defl .* e2 .+ w_defl .* e3
-                offset = collect(params.points[point.idx].beam_offset_b)
-                pos_point = x_center .+ element_frame * offset
-                ω_a_w = R_a * collect(body_ω_b[:, a])
-                ω_b_w = R_b * collect(body_ω_b[:, b])
-                vel_a = collect(body_com_vel[:, a]) .+
-                    (ω_a_w × (pos_point .- collect(body_com_w[:, a])))
-                vel_b = collect(body_com_vel[:, b]) .+
-                    (ω_b_w × (pos_point .- collect(body_com_w[:, b])))
-                eqs = [
-                    eqs
-                    pos[:, point.idx] ~ pos_point
-                    vel[:, point.idx] ~ (1 - sfrac) .* vel_a .+ sfrac .* vel_b
-                    acc[:, point.idx] ~ zeros(3)
-                ]
-                force_a = (1 - sfrac) .* force_on_point
-                force_b = sfrac .* force_on_point
-                body_force[:, a] .+= force_a
-                body_force[:, b] .+= force_b
-                body_moment[:, a] .+=
-                    (pos_point .- collect(body_com_w[:, a])) × force_a
-                body_moment[:, b] .+=
-                    (pos_point .- collect(body_com_w[:, b])) × force_b
+                eqs = [eqs; beam_hermite_ride_eqs(point, force_on_point, s, params;
+                    pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
+                    body_com_vel, body_ω_b, body_force, body_moment)]
             else
                 # Rides a Body kinematically; feeds its force and COM moment to the body.
                 eqs = [eqs; body_ride_eqs(point, point.body_idx, force_on_point,
@@ -253,6 +265,16 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     point_force[:, point.idx] ~
                         spring_sum_force[:, point.idx] + aero_force_w + Num[0, 0, -params.set.g_earth * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
                 ]
+
+                if point.joint_idx > 0
+                    # Beam-anchored receiver: rides the joint's corotational-Hermite
+                    # centerline (incl. aero), loads split to both end bodies.
+                    eqs = [eqs; beam_hermite_ride_eqs(point,
+                        collect(point_force[:, point.idx]), s, params;
+                        pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
+                        body_com_vel, body_ω_b, body_force, body_moment)]
+                    continue
+                end
 
                 if point.body_idx > 0
                     # Rides a Body (beam-node coupling): kinematic pose, loads to body.

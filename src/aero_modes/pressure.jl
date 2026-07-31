@@ -395,16 +395,14 @@ end
     remake_aero!(mode::AeroPressure, wing, set, vsm_set, points, twist_surfaces)
 
 Rebuild the VSM objects from edited settings, re-transform to the body frame, and
-rebuild the surface→point map and frozen buffers/polars (preserving the current
-unrefined-section count).
+rebuild the surface→point map and frozen buffers/polars.
 """
 function remake_aero!(mode::AeroPressure, wing, set, vsm_set, points,
                       twist_surfaces)
     vsm_set isa VortexStepMethod.VSMSettings || error(
         "remake_aero!: AeroPressure wing $(wing.idx) needs a VSMSettings, " *
         "got $(typeof(vsm_set)).")
-    wing.vsm_wing = create_vsm_wing(set, vsm_set; prn=false, sort_sections=false,
-        n_unrefined_sections=Int(wing.vsm_wing.n_unrefined_sections))
+    wing.vsm_wing = create_vsm_wing(set, vsm_set; prn=false, sort_sections=false)
     wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
     wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero, vsm_set)
     isnothing(wing.origin) || transform_vsm_sections_to_body!(wing)
