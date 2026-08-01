@@ -53,6 +53,57 @@ node_state(node) = ([node.pos1, node.pos2, node.pos3],
                     [node.force1, node.force2, node.force3])
 
 """
+    point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
+                       world_damping, wind_gnd)
+
+World-frame acceleration of a point mass: the structural force gathered from its
+segments plus its own aerodynamic drag and gravity, per unit `mass`, minus
+world-frame damping. `structural_force` is the physical net force on the point
+(positive sign). Shared by the connector [`DynamicPoint`](@ref) (monolith) and the
+network vertex (ext) so the point physics lives in one place (D2); each backend
+supplies `structural_force` in its own aggregation convention.
+"""
+function point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
+                            world_damping, wind_gnd)
+    wind = WindFactor(s.am, s.set.profile_law)
+    rho = calc_rho(s.am, max(0.0, pos[3]))
+    va = wind(pos[3]) .* wind_gnd .- vel
+    drag = point_drag_force(va, rho, drag_coeff, area)
+    gravity = [0.0, 0.0, -s.set.g_earth * mass]
+    return (structural_force .+ drag .+ gravity) ./ mass .- world_damping .* vel
+end
+
+"""
+    segment_endpoint_loads(s, src_pos, src_vel, dst_pos, dst_vel, unit_stiffness,
+                           unit_damping, compression_frac, l0, diameter, density,
+                           cd_tether, wind_gnd)
+
+Physical loads a segment exerts: `(force_on_src, force_on_dst, half_mass)`, with
+forces in the *positive* (force-on-point) sign convention and `half_mass` the mass
+each endpoint carries. Spring acts along the axis (opposite signs at the ends),
+tether drag is split equally. Shared by the connector [`SpringDamperSegment`](@ref)
+(monolith, which negates for `Flow`) and the network edge (ext, which uses these
+signs directly).
+"""
+function segment_endpoint_loads(s, src_pos, src_vel, dst_pos, dst_vel,
+                                unit_stiffness, unit_damping, compression_frac,
+                                l0, diameter, density, cd_tether, wind_gnd)
+    wind = WindFactor(s.am, s.set.profile_law)
+    _, len, unit_vec, spring_vel =
+        segment_geometry(src_pos, dst_pos, src_vel, dst_vel)
+    spring = segment_spring_force(len, l0, spring_vel, unit_stiffness,
+                                  unit_damping, compression_frac)
+    spring_vec = spring .* unit_vec
+    seg_pos_z = 0.5 * (src_pos[3] + dst_pos[3])
+    rho = calc_rho(s.am, max(0.0, seg_pos_z))
+    seg_vel = 0.5 .* (src_vel .+ dst_vel)
+    va = wind(seg_pos_z) .* wind_gnd .- seg_vel
+    drag = segment_perp_drag(va, unit_vec, rho, cd_tether, len * diameter)
+    half_mass = segment_half_mass(l0, diameter, density)
+    return spring_vec .+ 0.5 .* drag, -spring_vec .+ 0.5 .* drag, half_mass
+end
+
+"""
     DynamicPoint(s; name)
 
 Particle vertex: a point mass integrating `pos`/`vel` under the net force gathered
@@ -71,15 +122,10 @@ function DynamicPoint(s; name)
         world_damping[1:3] = zeros(3)
         wind_gnd[1:3] = zeros(3)
     end
-    g_earth = s.set.g_earth
-    wind = WindFactor(s.am, s.set.profile_law)
     pos, vel, force = node_state(node)
-    rho = calc_rho(s.am, max(0.0, pos[3]))
-    va = wind(pos[3]) .* collect(wind_gnd) .- vel
-    drag = point_drag_force(va, rho, drag_coeff, area)
     mass = extra_mass + node.mass
-    gravity = [0.0, 0.0, -g_earth * mass]
-    accel = (force .+ drag .+ gravity) ./ mass .- collect(world_damping) .* vel
+    accel = point_acceleration(s, pos, vel, force, mass, drag_coeff, area,
+                               collect(world_damping), collect(wind_gnd))
     eqs = [
         D.(pos) .~ vel
         D.(vel) .~ accel
@@ -128,28 +174,18 @@ function SpringDamperSegment(s; name)
         cd_tether = 1.0
         wind_gnd[1:3] = zeros(3)
     end
-    wind = WindFactor(s.am, s.set.profile_law)
     src_pos, src_vel, src_force = node_state(src)
     dst_pos, dst_vel, dst_force = node_state(dst)
-    _, len, unit_vec, spring_vel =
-        segment_geometry(src_pos, dst_pos, src_vel, dst_vel)
-    spring = segment_spring_force(len, l0, spring_vel, unit_stiffness,
-                                  unit_damping, compression_frac)
-    spring_vec = spring .* unit_vec
-    seg_pos_z = 0.5 * (src_pos[3] + dst_pos[3])
-    rho = calc_rho(s.am, max(0.0, seg_pos_z))
-    seg_vel = 0.5 .* (src_vel .+ dst_vel)
-    va = wind(seg_pos_z) .* collect(wind_gnd) .- seg_vel
-    drag = segment_perp_drag(va, unit_vec, rho, cd_tether, len * diameter)
-    half_mass = segment_half_mass(l0, diameter, density)
+    force_on_src, force_on_dst, half_mass = segment_endpoint_loads(
+        s, src_pos, src_vel, dst_pos, dst_vel, unit_stiffness, unit_damping,
+        compression_frac, l0, diameter, density, cd_tether, collect(wind_gnd))
     # `Flow` variables sum to zero at a `connect`, so a point gathers −Σ(edge flow).
-    # The edge therefore contributes the *negative* of the force on / half-mass at
-    # each endpoint, leaving the point with +force and +mass. (The network backend
-    # aggregates edge outputs into the vertex input directly, so its wrapper applies
-    # the opposite sign — the shared physics lives in the kernels, D2.)
+    # The edge contributes the *negative* of each endpoint load, leaving the point
+    # with +force and +mass. (The network backend sums edge outputs into the vertex
+    # input directly, so its wrapper uses the positive loads — shared physics, D2.)
     eqs = [
-        src_force .~ -spring_vec .- 0.5 .* drag
-        dst_force .~ spring_vec .- 0.5 .* drag
+        src_force .~ -force_on_src
+        dst_force .~ -force_on_dst
         src.mass ~ -half_mass
         dst.mass ~ -half_mass
     ]

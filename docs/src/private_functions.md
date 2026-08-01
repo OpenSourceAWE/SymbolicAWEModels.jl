@@ -71,6 +71,8 @@ SymbolicAWEModels.segment_half_mass
 ```@docs
 SymbolicAWEModels.Node
 SymbolicAWEModels.node_state
+SymbolicAWEModels.point_acceleration
+SymbolicAWEModels.segment_endpoint_loads
 SymbolicAWEModels.DynamicPoint
 SymbolicAWEModels.StaticPoint
 SymbolicAWEModels.SpringDamperSegment
