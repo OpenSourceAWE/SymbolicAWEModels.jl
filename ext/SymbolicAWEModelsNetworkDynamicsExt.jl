@@ -171,13 +171,14 @@ const EDGE_DST_OUT = [:dst_force1, :dst_force2, :dst_force3, :dst_mass]
 """
     ground_wind(sam)
 
-Ground-level wind vector `[vx, vy, vz]` from settings, matching the monolith's
-`wind_vec_gnd`: magnitude `set.v_wind` along the `set.upwind_dir` heading.
+Ground-level wind vector, matching the monolith's `wind_vec_gnd` (`scalar_eqs!`):
+`set.wind_vec` verbatim, with a tiny +x fallback when it is exactly zero (avoids
+a normalize-by-zero in the apparent-wind direction).
 """
 function ground_wind(sam)
-    set = sam.set
-    dir = deg2rad(set.upwind_dir)
-    return [set.v_wind * cos(dir), set.v_wind * sin(dir), 0.0]
+    wind_vec = collect(Float64, sam.set.wind_vec)
+    sum(abs2, wind_vec) < 1e-20 && return [1e-10, 0.0, 0.0]
+    return wind_vec
 end
 
 """
@@ -279,13 +280,17 @@ function build_network(sam)
 
     for (j, e) in enumerate(edgelist)
         seg = seg_of[minmax(src(e), dst(e))]
+        # Wing-structural segments (both endpoints are aero-surface nodes) carry no
+        # tether drag — those loads come from the aero model (`segment_eqs!`).
+        wing_structural = points[seg.point_idxs[1]].is_wing_node &&
+                          points[seg.point_idxs[2]].is_wing_node
         param.e[j, :unit_stiffness] = segment_stiffness(seg)
         param.e[j, :unit_damping] = seg.unit_damping
         param.e[j, :compression_frac] = seg.compression_frac
         param.e[j, :l0] = seg.l0
         param.e[j, :diameter] = seg.diameter
         param.e[j, :density] = seg.density
-        param.e[j, :cd_tether] = sam.set.cd_tether
+        param.e[j, :cd_tether] = wing_structural ? 0.0 : sam.set.cd_tether
         param.e[j, :wind_gnd1] = wind[1]
         param.e[j, :wind_gnd2] = wind[2]
         param.e[j, :wind_gnd3] = wind[3]
