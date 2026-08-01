@@ -78,12 +78,14 @@ end
                            unit_damping, compression_frac, l0, diameter, density,
                            cd_tether, wind_gnd)
 
-Physical loads a segment exerts: `(force_on_src, force_on_dst, half_mass)`, with
-forces in the *positive* (force-on-point) sign convention and `half_mass` the mass
-each endpoint carries. Spring acts along the axis (opposite signs at the ends),
-tether drag is split equally. Shared by the connector [`SpringDamperSegment`](@ref)
-(monolith, which negates for `Flow`) and the network edge (ext, which uses these
-signs directly).
+Physical loads a segment exerts: `(force_on_src, force_on_dst, half_mass, spring)`,
+with forces in the *positive* (force-on-point) sign convention, `half_mass` the mass
+each endpoint carries, and `spring` the signed scalar spring-damper tension along
+the axis (positive in tension). Spring acts along the axis (opposite signs at the
+ends), tether drag is split equally. Shared by the connector
+[`SpringDamperSegment`](@ref) (monolith, which negates for `Flow`) and the network
+edge (ext, which uses these signs directly and the scalar `spring` for pulley/winch
+tension aggregation).
 """
 function segment_endpoint_loads(s, src_pos, src_vel, dst_pos, dst_vel,
                                 unit_stiffness, unit_damping, compression_frac,
@@ -100,7 +102,7 @@ function segment_endpoint_loads(s, src_pos, src_vel, dst_pos, dst_vel,
     va = wind(seg_pos_z) .* wind_gnd .- seg_vel
     drag = segment_perp_drag(va, unit_vec, rho, cd_tether, len * diameter)
     half_mass = segment_half_mass(l0, diameter, density)
-    return spring_vec .+ 0.5 .* drag, -spring_vec .+ 0.5 .* drag, half_mass
+    return spring_vec .+ 0.5 .* drag, -spring_vec .+ 0.5 .* drag, half_mass, spring
 end
 
 """
@@ -176,7 +178,7 @@ function SpringDamperSegment(s; name)
     end
     src_pos, src_vel, src_force = node_state(src)
     dst_pos, dst_vel, dst_force = node_state(dst)
-    force_on_src, force_on_dst, half_mass = segment_endpoint_loads(
+    force_on_src, force_on_dst, half_mass, _ = segment_endpoint_loads(
         s, src_pos, src_vel, dst_pos, dst_vel, unit_stiffness, unit_damping,
         compression_frac, l0, diameter, density, cd_tether, collect(wind_gnd))
     # `Flow` variables sum to zero at a `connect`, so a point gathers −Σ(edge flow).
