@@ -359,7 +359,8 @@ function build_prob!(::MonolithBackend, sam; prn=true)
 
     dt = SimFloat(1/sam.set.sample_freq)
     # skip MTK's DAE init system; reinit! already sets consistent ICs
-    time = @elapsed prob = ODEProblem(sys, sam.defaults, (0.0, dt);
+    fill_defaults = missing_param_defaults(sys, sam.defaults)
+    time = @elapsed prob = ODEProblem(sys, [sam.defaults; fill_defaults], (0.0, dt);
         build_initializeprob=false)
     prn && println("\tCreated the ODEProblem in $time seconds.")
 
@@ -373,6 +374,20 @@ end
 
 function build_prob!(backend::ModelBackend, sam; prn=true)
     throw(BackendUnsupportedError("build_prob!", backend))
+end
+
+"""
+    init_backend!(backend, sam, solver; kwargs...)
+
+Full `init!` path for a non-[`MonolithBackend`](@ref). The monolith uses the
+`init!` body directly; other backends (currently [`NetworkBackend`](@ref), from
+the NetworkDynamics extension) implement their own assembly + integrator build
+here and return the fresh `ODEIntegrator`. The extension method refreshes the
+`SystemStructure` (positions, rest lengths), assembles the `Network`, and stores
+`sam.prob`/`sam.integrator`.
+"""
+function init_backend!(backend::ModelBackend, sam, solver; kwargs...)
+    throw(BackendUnsupportedError("init!", backend))
 end
 
 """
@@ -524,6 +539,15 @@ function init!(sam::SymbolicAWEModel;
                 end
                 solver = FBDF(; autodiff)
             end
+        end
+
+        if !(sam.backend isa MonolithBackend)
+            integrator = init_backend!(sam.backend, sam, solver;
+                adaptive, prn, reinit_sys, reset_vel, ignore_l0,
+                apply_tether_lengths, remake_vsm, reset_integrator, vsm_min_wind)
+            prn && @info "$(sam.sys_struct.name) model initialized " *
+                "($(nameof(typeof(sam.backend))))."
+            return integrator
         end
 
         if isnothing(outputs)

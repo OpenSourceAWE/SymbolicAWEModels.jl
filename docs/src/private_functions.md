@@ -105,6 +105,8 @@ SymbolicAWEModels.load_serialized_model!
 SymbolicAWEModels.maybe_create_lin_prob!
 SymbolicAWEModels.maybe_create_control_functions!
 SymbolicAWEModels.maybe_create_prob!
+SymbolicAWEModels.build_prob!
+SymbolicAWEModels.init_backend!
 SymbolicAWEModels.has_custom_component
 SymbolicAWEModels.generate_control_funcs
 SymbolicAWEModels.generate_lin_getters
@@ -367,6 +369,8 @@ SymbolicAWEModels.ElementReader
 SymbolicAWEModels.InitialSync
 SymbolicAWEModels.build_initial_sync
 SymbolicAWEModels.sync_initial!
+SymbolicAWEModels.normalize_param_name
+SymbolicAWEModels.missing_param_defaults
 ```
 
 ## Other internals
