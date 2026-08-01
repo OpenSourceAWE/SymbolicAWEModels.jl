@@ -60,6 +60,7 @@ export load_settings
 
 # --- Types: Core Model ---
 export SymbolicAWEModel
+export ModelBackend, MonolithBackend, NetworkBackend, BackendUnsupportedError
 # System Structure Components
 export SystemStructure, Point, TwistSurface, Segment, Pulley, Tether, Winch, Wing, Transform
 export Body, ElasticJoint, TimoshenkoJoint
@@ -180,6 +181,7 @@ function __init__()
     end
 end
 
+include("backends.jl")
 include("obj_adapter.jl")
 include("system_structure/system_structure.jl")
 include("vsm_refine.jl")

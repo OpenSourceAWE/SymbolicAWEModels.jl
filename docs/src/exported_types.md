@@ -50,6 +50,15 @@ SymbolicAWEModel
 SymbolicAWEModel(set::Settings, sys_struct::SystemStructure; kwargs...)
 ```
 
+## Backends
+
+```@docs
+ModelBackend
+MonolithBackend
+NetworkBackend
+BackendUnsupportedError
+```
+
 ## System structure and components
 
 ```@docs

@@ -337,26 +337,43 @@ the necessary getter/setter functions.
 """
 function maybe_create_prob!(sam; create_prob=true, prn=true)
     if create_prob && isnothing(sam.prob)
-        isnothing(sam.full_sys) && return false
-        full_sys = something(sam.full_sys)
-        local sys
-        time = @elapsed @suppress_err sys = mtkcompile(full_sys; inputs=sam.inputs)
-        prn && println("\tSimplified the System for ODEProblem in $time seconds.")
-
-        dt = SimFloat(1/sam.set.sample_freq)
-        # skip MTK's DAE init system; reinit! already sets consistent ICs
-        time = @elapsed prob = ODEProblem(sys, sam.defaults, (0.0, dt);
-            build_initializeprob=false)
-        prn && println("\tCreated the ODEProblem in $time seconds.")
-
-        time = @elapsed getters = generate_prob_getters(sam.sys_struct, sys,
-            sam.param_registry, sam.initial_registry)
-        prn && println("\tCreated state getters and setters in $time seconds.")
-
-        sam.prob = ProbWithAttributes(; prob, getters...)
-        return true
+        return build_prob!(sam.backend, sam; prn)
     end
     return false
+end
+
+"""
+    build_prob!(backend, sam; prn=true)
+
+Assemble `sam.prob` for the given [`ModelBackend`](@ref). The
+[`MonolithBackend`](@ref) method `mtkcompile`s the flattened `full_sys` into one
+`ODEProblem`; the [`NetworkBackend`](@ref) method is provided by the
+NetworkDynamics package extension. Returns `true` when a problem was built.
+"""
+function build_prob!(::MonolithBackend, sam; prn=true)
+    isnothing(sam.full_sys) && return false
+    full_sys = something(sam.full_sys)
+    local sys
+    time = @elapsed @suppress_err sys = mtkcompile(full_sys; inputs=sam.inputs)
+    prn && println("\tSimplified the System for ODEProblem in $time seconds.")
+
+    dt = SimFloat(1/sam.set.sample_freq)
+    # skip MTK's DAE init system; reinit! already sets consistent ICs
+    time = @elapsed prob = ODEProblem(sys, sam.defaults, (0.0, dt);
+        build_initializeprob=false)
+    prn && println("\tCreated the ODEProblem in $time seconds.")
+
+    time = @elapsed getters = generate_prob_getters(sam.sys_struct, sys,
+        sam.param_registry, sam.initial_registry)
+    prn && println("\tCreated state getters and setters in $time seconds.")
+
+    sam.prob = ProbWithAttributes(; prob, getters...)
+    return true
+end
+
+function build_prob!(backend::NetworkBackend, sam; prn=true)
+    error("NetworkBackend requires NetworkDynamics.jl to be loaded first " *
+          "(`using NetworkDynamics`).")
 end
 
 """

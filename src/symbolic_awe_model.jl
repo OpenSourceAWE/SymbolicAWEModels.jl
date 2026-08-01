@@ -227,6 +227,8 @@ $(TYPEDFIELDS)
     param_registry::Any = nothing
     "Build-time initial-condition registry (transient, never serialized)."
     initial_registry::Any = nothing
+    "Assembly/feature backend; defaults to [`MonolithBackend`](@ref)."
+    backend::ModelBackend = MonolithBackend()
 end
 
 """
@@ -236,7 +238,7 @@ Tuple of field names that are direct fields of `SymbolicAWEModel` (as opposed to
 delegated to the nested `serialized_model`). Used by `getproperty` and `setproperty!`
 to dispatch field access correctly.
 """
-const SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :param_registry, :initial_registry)
+const SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :param_registry, :initial_registry, :backend)
 
 """
     Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
