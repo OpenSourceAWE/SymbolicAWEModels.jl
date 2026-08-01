@@ -371,9 +371,8 @@ function build_prob!(::MonolithBackend, sam; prn=true)
     return true
 end
 
-function build_prob!(backend::NetworkBackend, sam; prn=true)
-    error("NetworkBackend requires NetworkDynamics.jl to be loaded first " *
-          "(`using NetworkDynamics`).")
+function build_prob!(backend::ModelBackend, sam; prn=true)
+    throw(BackendUnsupportedError("build_prob!", backend))
 end
 
 """
