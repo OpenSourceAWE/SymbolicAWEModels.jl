@@ -182,6 +182,8 @@ function __init__()
 end
 
 include("backends.jl")
+include("components/kernels.jl")
+include("components/components.jl")
 include("obj_adapter.jl")
 include("system_structure/system_structure.jl")
 include("vsm_refine.jl")

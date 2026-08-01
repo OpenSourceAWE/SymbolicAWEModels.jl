@@ -56,6 +56,26 @@ SymbolicAWEModels.get_base_pos
 SymbolicAWEModels.calc_aoa
 ```
 
+## Shared component force-law kernels
+
+```@docs
+SymbolicAWEModels.segment_geometry
+SymbolicAWEModels.segment_spring_force
+SymbolicAWEModels.segment_perp_drag
+SymbolicAWEModels.point_drag_force
+SymbolicAWEModels.segment_half_mass
+```
+
+## Point/Segment component Systems
+
+```@docs
+SymbolicAWEModels.Node
+SymbolicAWEModels.node_state
+SymbolicAWEModels.DynamicPoint
+SymbolicAWEModels.StaticPoint
+SymbolicAWEModels.SpringDamperSegment
+```
+
 ## Equations and system management
 
 ```@docs
