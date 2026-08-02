@@ -326,57 +326,74 @@ function body_damp_inputs()
 end
 
 """
-    body_frame_damp_accel(vel, body_damp, zp1, zp2, yp1, yp2, ovel)
+    wing_frame_rotation(zp1, zp2, yp1, yp2)
+
+The body→world rotation matrix `R_b_to_w` fitted from the four ref points, its
+columns given by [`wing_frame_columns`](@ref). Shared by the wing-node body-frame
+damping and the aero-force rotation.
+"""
+function wing_frame_rotation(zp1, zp2, yp1, yp2)
+    xaxis, yaxis, zaxis = wing_frame_columns(zp1, zp2, yp1, yp2)
+    return [xaxis[1] yaxis[1] zaxis[1];
+            xaxis[2] yaxis[2] zaxis[2];
+            xaxis[3] yaxis[3] zaxis[3]]
+end
+
+"""
+    body_frame_damp_accel(vel, body_damp, rot, ovel)
 
 The body-frame damping acceleration `R·(coeff ⊙ (Rᵀ·(vel − wing_vel)))`, with the
-wing frame `R` fitted from the ref points ([`wing_frame_columns`](@ref)) and the
-wing velocity taken as the origin velocity `ovel`.
+wing frame `R = rot` ([`wing_frame_rotation`](@ref)) and the wing velocity taken
+as the origin velocity `ovel`.
 """
-function body_frame_damp_accel(vel, body_damp, zp1, zp2, yp1, yp2, ovel)
-    xaxis, yaxis, zaxis = wing_frame_columns(zp1, zp2, yp1, yp2)
-    rot = [xaxis[1] yaxis[1] zaxis[1];
-           xaxis[2] yaxis[2] zaxis[2];
-           xaxis[3] yaxis[3] zaxis[3]]
+function body_frame_damp_accel(vel, body_damp, rot, ovel)
     return rot * (collect(body_damp) .* (rot' * (collect(vel) .- ovel)))
 end
 
 """
-    network_body_damped_point(s; name)
+    network_wing_node_point(s; name)
 
-A DYNAMIC particle that additionally carries `body_frame_damping` — a damping of
-its velocity *relative to its wing*, expressed in the fitted wing frame
-(`point_eqs.jl`'s `point_damping_accel`). The wing frame and wing velocity are read
-through NetworkDynamics external inputs from the wing's ref points
-([`BODY_DAMP_EXTIN`]); the damping acceleration is subtracted from the shared
-`point_acceleration`.
+A DYNAMIC particle belonging to a `KINEMATIC` wing (`is_wing_node`). It carries the
+wing's frozen per-point aero force `aero_force_b` (body frame, refreshed each VSM
+step) rotated to world by the fitted wing frame, plus an optional body-frame damping
+`body_frame_damping` of its velocity relative to the wing (`point_eqs.jl`'s
+`point_damping_accel`). The wing frame and wing velocity are read through
+NetworkDynamics external inputs from the wing's ref points ([`BODY_DAMP_EXTIN`]);
+the aero acceleration is added to and the damping subtracted from the shared
+`point_acceleration`. `body_frame_damping` defaults to zero for wing nodes without
+damping, so the same kernel serves aero-only nodes.
 """
-function network_body_damped_point(s; name)
+function network_wing_node_point(s; name)
     vars, pos, vel, force, mass_in, _, pulley_len_out = vertex_io()
     ext, zp1, zp2, yp1, yp2, ovel = body_damp_inputs()
     append!(vars, ext)
     pars, named = particle_params()
     body_damp = SAM.make_array_param(:body_damp, zeros(3))
+    aero_force_b = SAM.make_array_param(:aero_force_b, zeros(3))
+    mass = named.extra_mass + mass_in
     accel = SAM.point_acceleration(s, collect(pos), collect(vel), collect(force),
-        named.extra_mass + mass_in, named.drag_coeff, named.area,
+        mass, named.drag_coeff, named.area,
         collect(named.world_damping), collect(named.wind_gnd))
-    damp = body_frame_damp_accel(vel, body_damp, zp1, zp2, yp1, yp2, ovel)
+    rot = wing_frame_rotation(zp1, zp2, yp1, yp2)
+    damp = body_frame_damp_accel(vel, body_damp, rot, ovel)
+    aero = (rot * collect(aero_force_b)) ./ mass
     eqs = [
         D.(collect(pos)) .~ collect(vel);
-        D.(collect(vel)) .~ accel .- damp;
+        D.(collect(vel)) .~ accel .+ aero .- damp;
         pulley_len_out ~ 0.0;
     ]
-    return System(eqs, t, vars, [pars; body_damp]; name)
+    return System(eqs, t, vars, [pars; body_damp; aero_force_b]; name)
 end
 
 """
-    network_body_damped_pulley_point(s; name)
+    network_wing_node_pulley_point(s; name)
 
-A dynamic pulley vertex (as [`network_pulley_point`](@ref)) whose particle motion
-also carries `body_frame_damping`, read from the wing ref points through
-[`BODY_DAMP_EXTIN`] like [`network_body_damped_point`](@ref). Used for pulley
-points that belong to a wing (e.g. steering points).
+A dynamic pulley vertex (as [`network_pulley_point`](@ref)) that also belongs to a
+wing, carrying the frozen aero force and body-frame damping of
+[`network_wing_node_point`](@ref) read through [`BODY_DAMP_EXTIN`]. Used for pulley
+points that are also wing nodes.
 """
-function network_body_damped_pulley_point(s; name)
+function network_wing_node_pulley_point(s; name)
     vars, pos, vel, force, mass_in, tension_in, pulley_len_out = vertex_io()
     extra = @variables pulley_len(t) pulley_vel(t)
     ext, zp1, zp2, yp1, yp2, ovel = body_damp_inputs()
@@ -385,18 +402,23 @@ function network_body_damped_pulley_point(s; name)
     pulley_mass = SAM.make_param(:pulley_mass, 1.0)
     pulley_damp = SAM.make_param(:pulley_damp, 5.0)
     body_damp = SAM.make_array_param(:body_damp, zeros(3))
+    aero_force_b = SAM.make_array_param(:aero_force_b, zeros(3))
+    mass = named.extra_mass + mass_in
     accel = SAM.point_acceleration(s, collect(pos), collect(vel), collect(force),
-        named.extra_mass + mass_in, named.drag_coeff, named.area,
+        mass, named.drag_coeff, named.area,
         collect(named.world_damping), collect(named.wind_gnd))
-    damp = body_frame_damp_accel(vel, body_damp, zp1, zp2, yp1, yp2, ovel)
+    rot = wing_frame_rotation(zp1, zp2, yp1, yp2)
+    damp = body_frame_damp_accel(vel, body_damp, rot, ovel)
+    aero = (rot * collect(aero_force_b)) ./ mass
     eqs = [
         D.(collect(pos)) .~ collect(vel);
-        D.(collect(vel)) .~ accel .- damp;
+        D.(collect(vel)) .~ accel .+ aero .- damp;
         D(pulley_len) ~ pulley_vel;
         D(pulley_vel) ~ tension_in / pulley_mass - pulley_damp * pulley_vel;
         pulley_len_out ~ pulley_len;
     ]
-    return System(eqs, t, vars, [pars; pulley_mass; pulley_damp; body_damp]; name)
+    return System(eqs, t, vars,
+        [pars; pulley_mass; pulley_damp; body_damp; aero_force_b]; name)
 end
 
 """
@@ -727,17 +749,34 @@ function ref_single_id(ref_points)
 end
 
 """
+    network_wing_node(ss, point)
+
+The point's `KINEMATIC` wing body if the point needs that wing's frame through
+`extin`, else `nothing`. A DYNAMIC point needs the wing frame when it is a wing node
+(`is_wing_node` — carries the frozen aero force) **or** it has a nonzero
+`body_frame_damping` (`point_eqs.jl`'s `point_damping_accel` damps *any* DYNAMIC
+point relative to its wing frame, not only wing nodes — e.g. steering/pulley points).
+Selects the wing-node vertex kernel.
+"""
+function network_wing_node(ss, point)
+    (point.type == SAM.DYNAMIC && 0 < point.wing_idx <= length(ss.bodies)) ||
+        return nothing
+    ss.bodies[point.wing_idx].type == SAM.KINEMATIC || return nothing
+    bd = point.body_frame_damping
+    needs_damp = bd !== nothing && !all(iszero, bd)
+    (point.is_wing_node || needs_damp) || return nothing
+    return ss.bodies[point.wing_idx]
+end
+
+"""
     point_body_damp(ss, point)
 
-The point's `body_frame_damping` coefficients if it is a DYNAMIC wing node on a
-`KINEMATIC` wing with a nonzero coefficient, else `nothing`. Gated on
-`is_wing_node` to match the monolith, which only damps twist-surface members;
-steering/pulley points carry a `body_frame_damping` field but are not wing nodes.
+The point's `body_frame_damping` coefficients if it is a wing node
+([`network_wing_node`](@ref)) with a nonzero coefficient, else `nothing`. Used to
+decide whether the `body_damp` parameter reads the struct field or is held at zero.
 """
 function point_body_damp(ss, point)
-    (point.type == SAM.DYNAMIC && point.is_wing_node &&
-        0 < point.wing_idx <= length(ss.bodies)) || return nothing
-    ss.bodies[point.wing_idx].type == SAM.KINEMATIC || return nothing
+    network_wing_node(ss, point) === nothing && return nothing
     bd = point.body_frame_damping
     (bd === nothing || all(iszero, bd)) && return nothing
     return bd
@@ -823,12 +862,12 @@ function build_network(sam)
             VERTEX_INPUTS, VERTEX_OUTPUTS; mtkcompile = true, name = :wch)
     end
 
-    bd_vmodel_of = build_body_damped_vmodels(sam, ss, pulley_of_point)
+    wing_node_vmodel_of = build_wing_node_vmodels(sam, ss, pulley_of_point)
 
     vmodels = Vector{VertexModel}(undef, n)
     for i in 1:n
-        if haskey(bd_vmodel_of, i)
-            vmodels[i] = bd_vmodel_of[i]
+        if haskey(wing_node_vmodel_of, i)
+            vmodels[i] = wing_node_vmodel_of[i]
         elseif haskey(winch_of_point, i)
             vmodels[i] = winch_v[i]
         elseif haskey(pulley_of_point, i)
@@ -914,35 +953,37 @@ function build_tether_edges(sam, ss, winch_of_point)
 end
 
 """
-    build_body_damped_vmodels(sam, ss, pulley_of_point)
+    build_wing_node_vmodels(sam, ss, pulley_of_point)
 
-One `VertexModel` per DYNAMIC point carrying `body_frame_damping` on a KINEMATIC
-wing (selected by [`point_body_damp`](@ref)), reading its wing's ref-point frame
-through `extin`. The dynamic and pulley kernels are each compiled once and rebound
-per point with `VertexModel(base; extin=…)`, so only the wing's ref-point indices
-differ. Returns a `point_idx => VertexModel` map (empty when no point is damped).
+One `VertexModel` per DYNAMIC wing node on a KINEMATIC wing (selected by
+[`network_wing_node`](@ref)), reading its wing's ref-point frame through `extin` for
+the frozen aero force and body-frame damping. The dynamic and pulley kernels are
+each compiled once and rebound per point with `VertexModel(base; extin=…)`, so only
+the wing's ref-point indices differ. Returns a `point_idx => VertexModel` map (empty
+when no point is a wing node).
 """
-function build_body_damped_vmodels(sam, ss, pulley_of_point)
+function build_wing_node_vmodels(sam, ss, pulley_of_point)
     vmodel_of = Dict{Int, Any}()
     dyn_base = nothing
     pulley_base = nothing
     for (i, point) in enumerate(ss.points)
-        point_body_damp(ss, point) === nothing && continue
-        extin = body_damp_extin(ss, ss.bodies[point.wing_idx])
+        wing = network_wing_node(ss, point)
+        wing === nothing && continue
+        extin = body_damp_extin(ss, wing)
         if haskey(pulley_of_point, i)
             if pulley_base === nothing
                 pulley_base = VertexModel(
-                    network_body_damped_pulley_point(sam; name = :bdpul),
+                    network_wing_node_pulley_point(sam; name = :wnpul),
                     VERTEX_INPUTS, VERTEX_OUTPUTS; extin, mtkcompile = true,
-                    name = :bdpul)
+                    name = :wnpul)
                 vmodel_of[i] = pulley_base
             else
                 vmodel_of[i] = VertexModel(pulley_base; extin = last.(extin))
             end
         elseif dyn_base === nothing
-            dyn_base = VertexModel(network_body_damped_point(sam; name = :bdyn),
+            dyn_base = VertexModel(network_wing_node_point(sam; name = :wnode),
                 VERTEX_INPUTS, VERTEX_OUTPUTS; extin, mtkcompile = true,
-                name = :bdyn)
+                name = :wnode)
             vmodel_of[i] = dyn_base
         else
             vmodel_of[i] = VertexModel(dyn_base; extin = last.(extin))
@@ -1029,27 +1070,37 @@ function record_vertex_params!(builder, ss, winch_of_point, pulley_of_point)
             record_particle_params!(builder, i)
             add_param!(builder, VIndex(i, :pulley_mass),
                        PulleyLineMassReader(pulley_of_point[i]))
-            point_body_damp(ss, point) === nothing || record_body_damp_params!(builder, i)
+            network_wing_node(ss, point) === nothing ||
+                record_wing_node_params!(builder, ss, i, point)
         elseif point.type == SAM.STATIC
             record_pos_w_params!(builder, i)
         else
             record_particle_params!(builder, i)
-            point_body_damp(ss, point) === nothing || record_body_damp_params!(builder, i)
+            network_wing_node(ss, point) === nothing ||
+                record_wing_node_params!(builder, ss, i, point)
         end
     end
     return nothing
 end
 
 """
-    record_body_damp_params!(builder, i)
+    record_wing_node_params!(builder, ss, i, point)
 
-Record the `body_damp_k` coefficients for a body-damped vertex `i`, read live from
-the point's `body_frame_damping`.
+Record a wing-node vertex `i`'s frozen aero force `aero_force_b_k` (read live from
+the point's `aero_force_b`, refreshed each VSM step) and its `body_damp_k`
+coefficients — read from `body_frame_damping` when present, else held at zero for an
+aero-only wing node.
 """
-function record_body_damp_params!(builder, i)
+function record_wing_node_params!(builder, ss, i, point)
     for k in 1:3
-        add_param!(builder, VIndex(i, Symbol(:body_damp_, k)),
-                   SAM.PathReader((:points, i, :body_frame_damping, k)))
+        add_param!(builder, VIndex(i, Symbol(:aero_force_b_, k)),
+                   SAM.PathReader((:points, i, :aero_force_b, k)))
+    end
+    bd = point_body_damp(ss, point)
+    for k in 1:3
+        reader = bd === nothing ? ConstReader(0.0) :
+            SAM.PathReader((:points, i, :body_frame_damping, k))
+        add_param!(builder, VIndex(i, Symbol(:body_damp_, k)), reader)
     end
     return nothing
 end
