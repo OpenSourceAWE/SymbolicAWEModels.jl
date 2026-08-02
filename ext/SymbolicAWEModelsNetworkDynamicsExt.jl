@@ -50,6 +50,7 @@ using Graphs
 using ModelingToolkit
 using ModelingToolkit: t_nounits as t, D_nounits as D
 using SymbolicIndexingInterface: setp
+using LinearAlgebra: cross
 
 const SAM = SymbolicAWEModels
 
@@ -820,9 +821,13 @@ function build_network(sam)
             VERTEX_INPUTS, VERTEX_OUTPUTS; mtkcompile = true, name = :wch)
     end
 
+    bd_vmodel_of = build_body_damped_vmodels(sam, ss, pulley_of_point)
+
     vmodels = Vector{VertexModel}(undef, n)
     for i in 1:n
-        if haskey(winch_of_point, i)
+        if haskey(bd_vmodel_of, i)
+            vmodels[i] = bd_vmodel_of[i]
+        elseif haskey(winch_of_point, i)
             vmodels[i] = winch_v[i]
         elseif haskey(pulley_of_point, i)
             vmodels[i] = pulley_v
@@ -907,6 +912,44 @@ function build_tether_edges(sam, ss, winch_of_point)
 end
 
 """
+    build_body_damped_vmodels(sam, ss, pulley_of_point)
+
+One `VertexModel` per DYNAMIC point carrying `body_frame_damping` on a KINEMATIC
+wing (selected by [`point_body_damp`](@ref)), reading its wing's ref-point frame
+through `extin`. The dynamic and pulley kernels are each compiled once and rebound
+per point with `VertexModel(base; extin=…)`, so only the wing's ref-point indices
+differ. Returns a `point_idx => VertexModel` map (empty when no point is damped).
+"""
+function build_body_damped_vmodels(sam, ss, pulley_of_point)
+    vmodel_of = Dict{Int, Any}()
+    dyn_base = nothing
+    pulley_base = nothing
+    for (i, point) in enumerate(ss.points)
+        point_body_damp(ss, point) === nothing && continue
+        extin = body_damp_extin(ss, ss.bodies[point.wing_idx])
+        if haskey(pulley_of_point, i)
+            if pulley_base === nothing
+                pulley_base = VertexModel(
+                    network_body_damped_pulley_point(sam; name = :bdpul),
+                    VERTEX_INPUTS, VERTEX_OUTPUTS; extin, mtkcompile = true,
+                    name = :bdpul)
+                vmodel_of[i] = pulley_base
+            else
+                vmodel_of[i] = VertexModel(pulley_base; extin = last.(extin))
+            end
+        elseif dyn_base === nothing
+            dyn_base = VertexModel(network_body_damped_point(sam; name = :bdyn),
+                VERTEX_INPUTS, VERTEX_OUTPUTS; extin, mtkcompile = true,
+                name = :bdyn)
+            vmodel_of[i] = dyn_base
+        else
+            vmodel_of[i] = VertexModel(dyn_base; extin = last.(extin))
+        end
+    end
+    return vmodel_of
+end
+
+"""
     write_total_mass!(ss)
 
 Effective translational mass per point (`extra_mass` + incident half-masses),
@@ -984,11 +1027,27 @@ function record_vertex_params!(builder, ss, winch_of_point, pulley_of_point)
             record_particle_params!(builder, i)
             add_param!(builder, VIndex(i, :pulley_mass),
                        PulleyLineMassReader(pulley_of_point[i]))
+            point_body_damp(ss, point) === nothing || record_body_damp_params!(builder, i)
         elseif point.type == SAM.STATIC
             record_pos_w_params!(builder, i)
         else
             record_particle_params!(builder, i)
+            point_body_damp(ss, point) === nothing || record_body_damp_params!(builder, i)
         end
+    end
+    return nothing
+end
+
+"""
+    record_body_damp_params!(builder, i)
+
+Record the `body_damp_k` coefficients for a body-damped vertex `i`, read live from
+the point's `body_frame_damping`.
+"""
+function record_body_damp_params!(builder, i)
+    for k in 1:3
+        add_param!(builder, VIndex(i, Symbol(:body_damp_, k)),
+                   SAM.PathReader((:points, i, :body_frame_damping, k)))
     end
     return nothing
 end
