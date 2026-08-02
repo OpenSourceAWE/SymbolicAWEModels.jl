@@ -69,10 +69,12 @@ SymbolicAWEModels.segment_half_mass
 ## Point/Segment component Systems
 
 ```@docs
-SymbolicAWEModels.Node
-SymbolicAWEModels.node_state
+SymbolicAWEModels.point_io
+SymbolicAWEModels.segment_io
 SymbolicAWEModels.point_acceleration
+SymbolicAWEModels.wing_structural_segment
 SymbolicAWEModels.segment_endpoint_loads
+SymbolicAWEModels.ground_wind_vec
 SymbolicAWEModels.DynamicPoint
 SymbolicAWEModels.StaticPoint
 SymbolicAWEModels.SpringDamperSegment
@@ -343,11 +345,16 @@ SymbolicAWEModels.ParamRegistry
 SymbolicAWEModels.make_param
 SymbolicAWEModels.make_array_param
 SymbolicAWEModels.make_callable_param
+SymbolicAWEModels.register_leaf!
 SymbolicAWEModels.leaf_param!
+SymbolicAWEModels.leaf_symbol
+SymbolicAWEModels.param_symbol_name
+SymbolicAWEModels.param_cache_key
 SymbolicAWEModels.param_computed!
 SymbolicAWEModels.param_descend
 SymbolicAWEModels.ParamView
 SymbolicAWEModels.PathView
+SymbolicAWEModels.param_unknowns
 SymbolicAWEModels.ParamGroup
 SymbolicAWEModels.ParamSync
 SymbolicAWEModels.survivor_index

@@ -29,12 +29,15 @@ end
     ParamEntry
 
 One flattened parameter: the symbolic `param`, a `read(sys_struct)` callable that
-returns its live value, and a `kind` (`:scalar`, `:array`, or `:callable`).
+returns its live value, a `kind` (`:scalar`, `:array`, or `:callable`), and the
+`path` it was read from (a `(name,)` tuple for computed leaves). The `path` lets a
+backend resolve a runtime address per instance (see `ParamView`).
 """
 struct ParamEntry
     param::Any
     read::Any
     kind::Symbol
+    path::Any
 end
 
 """
@@ -76,14 +79,15 @@ function make_callable_param(name::Symbol, value)
 end
 
 """
-    leaf_param!(reg, key, name, reader, value)
+    register_leaf!(reg, key, name, reader, value, path)
 
 Create (once, memoised on `key`) and record the flat parameter for a leaf
-`value`. Numeric scalars/arrays become data params; any other (callable) leaf —
-an interpolation or polar — becomes a callable param applied as `name(x)`.
-`reader` reads the live value from a `sys_struct` at sync time.
+`value` under symbol `name`. Numeric scalars/arrays become data params; any other
+(callable) leaf — an interpolation or polar — becomes a callable param applied as
+`name(x)`. `reader` reads the live value from a `sys_struct` at sync time; `path`
+is stored on the entry for per-instance address resolution.
 """
-function leaf_param!(reg::ParamRegistry, key, name::Symbol, reader, value)
+function register_leaf!(reg::ParamRegistry, key, name::Symbol, reader, value, path)
     cached = get(reg.cache, key, nothing)
     cached === nothing || return cached
     if value isa Real
@@ -93,10 +97,44 @@ function leaf_param!(reg::ParamRegistry, key, name::Symbol, reader, value)
     else
         param, kind = make_callable_param(name, value), :callable
     end
-    push!(reg.entries, ParamEntry(param, reader, kind))
+    push!(reg.entries, ParamEntry(param, reader, kind, path))
     reg.cache[key] = param
     return param
 end
+
+"""Last `Symbol` in `path` (the struct field name), ignoring trailing indices."""
+function leaf_symbol(path::Tuple)
+    for key in Iterators.reverse(path)
+        key isa Symbol && return key
+    end
+    error("param path $path has no symbol leaf")
+end
+
+"""
+Symbolic name for a leaf `path` under backend `B`. The monolith bakes the full
+per-instance path into the name (distinct symbol per instance); the network uses
+the bare field name (one generic symbol per component *type*).
+"""
+param_symbol_name(::Type{<:ModelBackend}, path::Tuple) = param_name(path)
+param_symbol_name(::Type{NetworkBackend}, path::Tuple) = leaf_symbol(path)
+
+"""
+Memoisation key for a leaf `path` under backend `B`: the full path for the
+monolith, the bare field name for the network (so one generic symbol is reused
+across a kernel's equations).
+"""
+param_cache_key(::Type{<:ModelBackend}, path::Tuple) = path
+param_cache_key(::Type{NetworkBackend}, path::Tuple) = leaf_symbol(path)
+
+"""
+    leaf_param!(B, reg, path, reader, value)
+
+Record the flat parameter for a leaf read at `path`, naming and memoising it per
+the backend `B` policy ([`param_symbol_name`](@ref), [`param_cache_key`](@ref)).
+"""
+leaf_param!(::Type{B}, reg::ParamRegistry, path::Tuple, reader, value) where {B} =
+    register_leaf!(reg, param_cache_key(B, path), param_symbol_name(B, path),
+                   reader, value, path)
 
 """
     param_computed!(reg, name, reader)
@@ -107,7 +145,7 @@ from the atmospheric model). `reader` must be a named struct (serialisable), not
 a closure over `sys_struct`.
 """
 param_computed!(reg::ParamRegistry, name::Symbol, reader) =
-    leaf_param!(reg, name, name, reader, reader(reg.sys_struct))
+    register_leaf!(reg, name, name, reader, reader(reg.sys_struct), (name,))
 
 # ==================== BUILD-TIME VIEW ==================== #
 
@@ -118,32 +156,44 @@ param_descend(x) = x isa NamedCollection || x isa AbstractAeroModel ||
 param_name(path::Tuple) = Symbol("p_", join(path, "_"))
 
 """
-Top-level `params` view wrapping a [`ParamRegistry`](@ref).
-`params.segments[i].l0` mirrors `sys_struct.segments[i].l0` (build-time only).
+Top-level `params` view wrapping a [`ParamRegistry`](@ref), tagged with the
+[`ModelBackend`](@ref) type `B` so leaf resolution dispatches on it.
+`params.segments[i].l0` mirrors `sys_struct.segments[i].l0` (build-time only). The
+default `ParamView(reg)` is a [`MonolithBackend`](@ref) view.
 """
-struct ParamView
+struct ParamView{B<:ModelBackend}
     reg::ParamRegistry
 end
+ParamView(reg::ParamRegistry) = ParamView{MonolithBackend}(reg)
 
-"""A partial path into `sys_struct` being resolved to a parameter."""
-struct PathView
+"""A partial path into `sys_struct` being resolved to a parameter under backend `B`."""
+struct PathView{B<:ModelBackend}
     reg::ParamRegistry
     path::Tuple
 end
 
-Base.getproperty(view::ParamView, sym::Symbol) =
-    sym === :reg ? getfield(view, :reg) : PathView(getfield(view, :reg), (sym,))
+Base.getproperty(view::ParamView{B}, sym::Symbol) where {B} =
+    sym === :reg ? getfield(view, :reg) : PathView{B}(getfield(view, :reg), (sym,))
 
-Base.getindex(view::PathView, idx::Integer) =
-    PathView(getfield(view, :reg), (getfield(view, :path)..., Int(idx)))
+Base.getindex(view::PathView{B}, idx::Integer) where {B} =
+    PathView{B}(getfield(view, :reg), (getfield(view, :path)..., Int(idx)))
 
-function Base.getproperty(view::PathView, sym::Symbol)
+"""
+    param_unknowns(params)
+
+The symbolic parameters a `params` view recorded so far, in insertion order — passed
+as the parameter list of an `@named` component `System` so every `params.…` read it
+made is declared. Used by both backends' component assembly.
+"""
+param_unknowns(params::ParamView) = Any[entry.param for entry in params.reg.entries]
+
+function Base.getproperty(view::PathView{B}, sym::Symbol) where {B}
     (sym === :reg || sym === :path) && return getfield(view, sym)
     reg = getfield(view, :reg)
     path = (getfield(view, :path)..., sym)
     value = read_path(reg.sys_struct, path)
-    param_descend(value) && return PathView(reg, path)
-    return leaf_param!(reg, path, param_name(path), PathReader(path), value)
+    param_descend(value) && return PathView{B}(reg, path)
+    return leaf_param!(B, reg, path, PathReader(path), value)
 end
 
 # ==================== SYNC ==================== #

@@ -61,72 +61,63 @@ const SAM = SymbolicAWEModels
 # parameter buffer is re-read from the struct every step by the monolith's own
 # `SAM.ParamGroup`/`sync_group!`, using the same `PathReader` (getproperty) primitive
 # and `setp` (setproperty) setter — only the setter indexes `VIndex`/`EIndex` onto the
-# `Network` instead of bare symbols. Values that are not a plain field read
-# (ground wind, tether drag, pulley rope mass, structural constants) get a small
-# named reader below; each reader maps a `SystemStructure` to one scalar.
-
-"""
-    ground_wind(ss)
-
-Ground-level wind vector, matching the monolith's `wind_vec_gnd` (`scalar_eqs!`):
-`set.wind_vec` verbatim, with a tiny +x fallback when it is exactly zero (avoids
-a normalize-by-zero in the apparent-wind direction).
-"""
-function ground_wind(ss)
-    wind_vec = collect(Float64, ss.set.wind_vec)
-    sum(abs2, wind_vec) < 1e-20 && return [1e-10, 0.0, 0.0]
-    return wind_vec
-end
-
-"""
-    GroundWindReader(index)
-
-Reader returning component `index` of [`ground_wind`](@ref).
-"""
-struct GroundWindReader
-    index::Int
-end
-(reader::GroundWindReader)(ss) = ground_wind(ss)[reader.index]
-
-"""
-    TetherDragReader(wing_structural)
-
-Reader for a segment's tether drag coefficient: `0` for a wing-structural segment
-(the wing's aero owns those loads), else `set.cd_tether`.
-"""
-struct TetherDragReader
-    wing_structural::Bool
-end
-(reader::TetherDragReader)(ss) = reader.wing_structural ? 0.0 : ss.set.cd_tether
-
-"""
-    PulleyLineMassReader(pulley_idx)
-
-Reader for a pulley's rope mass `sum_len · ρ · π (d/2)²` (its first segment),
-matching `pulley_eqs!`.
-"""
-struct PulleyLineMassReader
-    pulley_idx::Int
-end
-function (reader::PulleyLineMassReader)(ss)
-    pulley = ss.pulleys[reader.pulley_idx]
-    seg = ss.segments[pulley.segment_idxs[1]]
-    return pulley.sum_len * seg.density * π * (seg.diameter / 2)^2
-end
-
-"""
-    ConstReader(value)
-
-Reader returning a fixed structural constant (pulley side, segment count, tension
-sign) that never changes after assembly.
-"""
-struct ConstReader
-    value::SAM.SimFloat
-end
-(reader::ConstReader)(ss) = reader.value
+# `Network` instead of bare symbols. Every synced parameter is a plain field read
+# (`PathReader`); wind, tether drag and pulley rope mass are computed *in-equation*
+# from such reads (`ground_wind_vec`, `set.cd_tether`, `pulley_rope_mass`). The
+# assembly-fixed structural constants (pulley side/sign, segment count, tension sign,
+# body-damp fallback) are topology, not struct data, so they are written into the
+# parameter vector once by [`set_const_params!`](@ref) and never re-read.
 
 SAM.sync_params!(g::SAM.ParamGroup, target, ss::SAM.SystemStructure) =
     SAM.sync_group!(g, target, ss)
+
+"""
+    network_view(ss)
+
+A build-time [`SAM.ParamView`](@ref) tagged with [`SAM.NetworkBackend`](@ref):
+component equations read `params.points[idx].field` (etc.), minting one *generic*
+symbol per struct field (one kernel per component type) and recording each as a
+`SAM.ParamEntry` whose `path` drives per-instance sync ([`replay_fields!`](@ref)).
+"""
+network_view(ss) = SAM.ParamView{SAM.NetworkBackend}(SAM.ParamRegistry(ss))
+
+"""Alias for [`SAM.param_unknowns`](@ref): a kernel's recorded `System` param list."""
+param_unknowns(params) = SAM.param_unknowns(params)
+
+"""Runtime address of a scalarized parameter `sym`: `EIndex` on an edge, else
+`VIndex` on a vertex, at network index `index`."""
+param_addr(edge::Bool, index, sym) = edge ? EIndex(index, sym) : VIndex(index, sym)
+
+"""
+    replay_fields!(builder, reg, container, addr_index, cont_index, ss; edge=false, skip=())
+
+Bind, for one real instance, every plain struct-field parameter a kernel's `reg`
+recorded under `container` (`:points`/`:segments`). Each entry's `path` is
+re-pointed to `cont_index` for the live reader and addressed at `addr_index`
+([`param_addr`](@ref)); array fields expand to one scalar `field_k` per component,
+matching NetworkDynamics' parameter scalarization. Computed entries (non-`PathReader`,
+e.g. `wind_gnd`) and any field in `skip` are left for the caller to bind explicitly.
+"""
+function replay_fields!(builder, reg, container::Symbol, addr_index, cont_index, ss;
+                        edge=false, skip=())
+    for entry in reg.entries
+        entry.read isa SAM.PathReader || continue
+        path = entry.read.path
+        (length(path) >= 3 && path[1] === container) || continue
+        field = path[3]
+        field in skip && continue
+        if entry.kind === :scalar
+            add_param!(builder, param_addr(edge, addr_index, field),
+                       SAM.PathReader((container, cont_index, field)))
+        elseif entry.kind === :array
+            for k in 1:length(entry.read(ss))
+                add_param!(builder, param_addr(edge, addr_index, Symbol(field, :_, k)),
+                           SAM.PathReader((container, cont_index, field, k)))
+            end
+        end
+    end
+    return nothing
+end
 
 """
     ParamBuilder
@@ -171,21 +162,18 @@ end
 # ======================= vertex Systems ======================= #
 
 """
-    particle_params()
+    point_particle_params(params, idx)
 
-The shared DYNAMIC-particle parameters (mass/drag/damping/wind). Returns the flat
-parameter vector (with `world_damping`/`wind_gnd` as `[1:3]` array parameters) and
-a named tuple of the same symbols.
+The shared DYNAMIC-particle parameters read from `params.points[idx]` — mass, drag,
+area and world-frame damping as the point's own struct fields — plus the computed
+ground wind `wind_gnd`. Returns a named tuple consumed by
+[`dynamic_point_dynamics`](@ref); each read registers the parameter on `params`.
 """
-function particle_params()
-    extra_mass = SAM.make_param(:extra_mass, 0.0)
-    drag_coeff = SAM.make_param(:drag_coeff, 0.0)
-    area = SAM.make_param(:area, 0.0)
-    world_damping = SAM.make_array_param(:world_damping, zeros(3))
-    wind_gnd = SAM.make_array_param(:wind_gnd, zeros(3))
-    pars = [extra_mass, drag_coeff, area, world_damping, wind_gnd]
-    named = (; extra_mass, drag_coeff, area, world_damping, wind_gnd)
-    return pars, named
+function point_particle_params(params, idx)
+    point = params.points[idx]
+    wind_gnd = SAM.ground_wind_vec(params)
+    return (; extra_mass = point.extra_mass, drag_coeff = point.drag_coeff,
+            area = point.area, world_damping = point.world_frame_damping, wind_gnd)
 end
 
 """
@@ -193,7 +181,7 @@ end
 
 Shared body of the DYNAMIC point/pulley vertices: `D(pos)=vel` and
 `D(vel)=point_acceleration(...)` from the shared kernel, reading the vertex's
-drag/damping/wind parameters `pars` (a [`particle_params`](@ref) named tuple).
+drag/damping/wind parameters `pars` (a [`point_particle_params`](@ref) named tuple).
 """
 function dynamic_point_dynamics(s, pos, vel, force, mass, pars)
     accel = SAM.point_acceleration(s, collect(pos), collect(vel), collect(force),
@@ -224,38 +212,55 @@ function vertex_io()
 end
 
 """
-    network_dynamic_point(s; name)
+    network_dynamic_point(s, params, idx; name)
 
 Particle vertex `System`: states `pos`/`vel`, aggregated edge inputs, and
 `pulley_len_out = 0`. `D(vel)` comes from the shared `point_acceleration`.
 """
-function network_dynamic_point(s; name)
+function network_dynamic_point(s, params, idx; name)
     vars, pos, vel, force, mass_in, _, pulley_len_out = vertex_io()
-    pars, named = particle_params()
-    eqs = [dynamic_point_dynamics(s, pos, vel, force, named.extra_mass + mass_in, named);
+    pars = point_particle_params(params, idx)
+    eqs = [dynamic_point_dynamics(s, pos, vel, force, pars.extra_mass + mass_in, pars);
            pulley_len_out ~ 0.0]
-    return System(eqs, t, vars, pars; name)
+    return System(eqs, t, vars, param_unknowns(params); name)
 end
 
 """
-    network_static_point(s; name)
+    network_static_point(s, params, idx; name)
 
 Ground-anchored vertex `System`: `pos = pos_w`, `vel = 0`, `pulley_len_out = 0`.
 Declares (and ignores) the aggregated edge inputs so edges may deliver to it.
 """
-function network_static_point(s; name)
+function network_static_point(s, params, idx; name)
     vars, pos, vel, _, _, _, pulley_len_out = vertex_io()
-    pos_w = SAM.make_array_param(:pos_w, zeros(3))
+    pos_w = params.points[idx].pos_w
     eqs = [
         collect(pos) .~ collect(pos_w);
         collect(vel) .~ zeros(3);
         pulley_len_out ~ 0.0;
     ]
-    return System(eqs, t, vars, [pos_w]; name)
+    return System(eqs, t, vars, param_unknowns(params); name)
 end
 
 """
-    network_pulley_point(s; name)
+    pulley_rope_mass(params, idx)
+
+The rope mass `sum_len · ρ · π (d/2)²` of the pulley at vertex `idx`, built
+*in-equation* from the struct-field parameters `params.pulleys[…].sum_len` and its
+first segment's `density`/`diameter` (a `pulley_mass` reader is thus unneeded). The
+mass is a per-pulley constant but varies between pulleys, so it is read live rather
+than baked into the shared kernel default.
+"""
+function pulley_rope_mass(params, idx)
+    ss = params.reg.sys_struct
+    pulley_idx = findfirst(p -> pulley_point_idx(ss, p) == idx, ss.pulleys)
+    seg = params.segments[ss.pulleys[pulley_idx].segment_idxs[1]]
+    return params.pulleys[pulley_idx].sum_len * seg.density *
+           π * (seg.diameter / 2)^2
+end
+
+"""
+    network_pulley_point(s, params, idx; name)
 
 Dynamic pulley vertex: a particle (`pos`/`vel`) that additionally owns the pulley
 rope split `pulley_len`/`pulley_vel`. The aggregated `tension_in` is the imbalance
@@ -263,20 +268,20 @@ rope split `pulley_len`/`pulley_vel`. The aggregated `tension_in` is the imbalan
 role-signed spring force), driving `D(pulley_vel) = tension_in/mass − damp·vel`.
 `pulley_len_out` exposes the split so the incident segments read it as their `l0`.
 """
-function network_pulley_point(s; name)
+function network_pulley_point(s, params, idx; name)
     vars, pos, vel, force, mass_in, tension_in, pulley_len_out = vertex_io()
     extra = @variables pulley_len(t) pulley_vel(t)
     append!(vars, extra)
-    pars, named = particle_params()
-    pulley_mass = SAM.make_param(:pulley_mass, 1.0)
+    pars = point_particle_params(params, idx)
+    pulley_mass = pulley_rope_mass(params, idx)
     pulley_damp = SAM.make_param(:pulley_damp, 5.0)
     eqs = [
-        dynamic_point_dynamics(s, pos, vel, force, named.extra_mass + mass_in, named);
+        dynamic_point_dynamics(s, pos, vel, force, pars.extra_mass + mass_in, pars);
         D(pulley_len) ~ pulley_vel;
         D(pulley_vel) ~ tension_in / pulley_mass - pulley_damp * pulley_vel;
         pulley_len_out ~ pulley_len;
     ]
-    return System(eqs, t, vars, [pars; pulley_mass; pulley_damp]; name)
+    return System(eqs, t, vars, [param_unknowns(params); pulley_damp]; name)
 end
 
 """
@@ -351,7 +356,7 @@ function body_frame_damp_accel(vel, body_damp, rot, ovel)
 end
 
 """
-    network_wing_node_point(s; name)
+    network_wing_node_point(s, params, idx; name)
 
 A DYNAMIC particle belonging to a `KINEMATIC` wing (`is_wing_node`). It carries the
 wing's frozen per-point aero force `aero_force_b` (body frame, refreshed each VSM
@@ -363,53 +368,51 @@ the aero acceleration is added to and the damping subtracted from the shared
 `point_acceleration`. `body_frame_damping` defaults to zero for wing nodes without
 damping, so the same kernel serves aero-only nodes.
 """
-function network_wing_node_point(s; name)
+function network_wing_node_point(s, params, idx; name)
     vars, pos, vel, force, mass_in, _, pulley_len_out = vertex_io()
     ext, zp1, zp2, yp1, yp2, ovel = body_damp_inputs()
     append!(vars, ext)
-    pars, named = particle_params()
-    body_damp = SAM.make_array_param(:body_damp, zeros(3))
-    aero_force_b = SAM.make_array_param(:aero_force_b, zeros(3))
-    mass = named.extra_mass + mass_in
+    pars = point_particle_params(params, idx)
+    point = params.points[idx]
+    mass = pars.extra_mass + mass_in
     accel = SAM.point_acceleration(s, collect(pos), collect(vel), collect(force),
-        mass, named.drag_coeff, named.area,
-        collect(named.world_damping), collect(named.wind_gnd))
+        mass, pars.drag_coeff, pars.area,
+        collect(pars.world_damping), collect(pars.wind_gnd))
     rot = wing_frame_rotation(zp1, zp2, yp1, yp2)
-    damp = body_frame_damp_accel(vel, body_damp, rot, ovel)
-    aero = (rot * collect(aero_force_b)) ./ mass
+    damp = body_frame_damp_accel(vel, point.body_frame_damping, rot, ovel)
+    aero = (rot * collect(point.aero_force_b)) ./ mass
     eqs = [
         D.(collect(pos)) .~ collect(vel);
         D.(collect(vel)) .~ accel .+ aero .- damp;
         pulley_len_out ~ 0.0;
     ]
-    return System(eqs, t, vars, [pars; body_damp; aero_force_b]; name)
+    return System(eqs, t, vars, param_unknowns(params); name)
 end
 
 """
-    network_wing_node_pulley_point(s; name)
+    network_wing_node_pulley_point(s, params, idx; name)
 
 A dynamic pulley vertex (as [`network_pulley_point`](@ref)) that also belongs to a
 wing, carrying the frozen aero force and body-frame damping of
 [`network_wing_node_point`](@ref) read through [`BODY_DAMP_EXTIN`]. Used for pulley
 points that are also wing nodes.
 """
-function network_wing_node_pulley_point(s; name)
+function network_wing_node_pulley_point(s, params, idx; name)
     vars, pos, vel, force, mass_in, tension_in, pulley_len_out = vertex_io()
     extra = @variables pulley_len(t) pulley_vel(t)
     ext, zp1, zp2, yp1, yp2, ovel = body_damp_inputs()
     append!(vars, extra); append!(vars, ext)
-    pars, named = particle_params()
-    pulley_mass = SAM.make_param(:pulley_mass, 1.0)
+    pars = point_particle_params(params, idx)
+    point = params.points[idx]
+    pulley_mass = pulley_rope_mass(params, idx)
     pulley_damp = SAM.make_param(:pulley_damp, 5.0)
-    body_damp = SAM.make_array_param(:body_damp, zeros(3))
-    aero_force_b = SAM.make_array_param(:aero_force_b, zeros(3))
-    mass = named.extra_mass + mass_in
+    mass = pars.extra_mass + mass_in
     accel = SAM.point_acceleration(s, collect(pos), collect(vel), collect(force),
-        mass, named.drag_coeff, named.area,
-        collect(named.world_damping), collect(named.wind_gnd))
+        mass, pars.drag_coeff, pars.area,
+        collect(pars.world_damping), collect(pars.wind_gnd))
     rot = wing_frame_rotation(zp1, zp2, yp1, yp2)
-    damp = body_frame_damp_accel(vel, body_damp, rot, ovel)
-    aero = (rot * collect(aero_force_b)) ./ mass
+    damp = body_frame_damp_accel(vel, point.body_frame_damping, rot, ovel)
+    aero = (rot * collect(point.aero_force_b)) ./ mass
     eqs = [
         D.(collect(pos)) .~ collect(vel);
         D.(collect(vel)) .~ accel .+ aero .- damp;
@@ -418,7 +421,7 @@ function network_wing_node_pulley_point(s; name)
         pulley_len_out ~ pulley_len;
     ]
     return System(eqs, t, vars,
-        [pars; pulley_mass; pulley_damp; body_damp; aero_force_b]; name)
+        [param_unknowns(params); pulley_damp]; name)
 end
 
 """
@@ -508,24 +511,23 @@ function edge_io()
 end
 
 """
-    spring_parameters()
+    segment_spring_params(params, idx)
 
-The spring-damper + tether-drag parameters common to all edge types, plus the
-ground wind (a `[1:3]` array parameter). Returns `(pars, spring_named, wind_gnd)`.
+The spring-damper parameters read from `params.segments[idx]` (stiffness, damping,
+compression fraction, diameter, density as the segment's own struct fields), plus
+the global tether drag `cd_tether` (`params.set.cd_tether`) and ground wind
+`wind_gnd`. With `with_drag=false` (the [`SAM.wing_structural_segment`](@ref) edge)
+`cd_tether` is a literal `0` and unused. Returns `(spring_named, wind_gnd)`; each
+read registers the parameter on `params`.
 """
-function spring_parameters()
-    unit_stiffness = SAM.make_param(:unit_stiffness, 0.0)
-    unit_damping = SAM.make_param(:unit_damping, 0.0)
-    compression_frac = SAM.make_param(:compression_frac, 0.1)
-    diameter = SAM.make_param(:diameter, 0.0)
-    density = SAM.make_param(:density, 0.0)
-    cd_tether = SAM.make_param(:cd_tether, 1.0)
-    wind_gnd = SAM.make_array_param(:wind_gnd, zeros(3))
-    pars = [unit_stiffness, unit_damping, compression_frac, diameter, density,
-            cd_tether, wind_gnd]
-    spring = (; unit_stiffness, unit_damping, compression_frac, diameter, density,
-              cd_tether)
-    return pars, spring, wind_gnd
+function segment_spring_params(params, idx; with_drag = true)
+    seg = params.segments[idx]
+    cd_tether = with_drag ? params.set.cd_tether : 0.0
+    wind_gnd = SAM.ground_wind_vec(params)
+    spring = (; unit_stiffness = seg.unit_stiffness, unit_damping = seg.unit_damping,
+              compression_frac = seg.compression_frac, diameter = seg.diameter,
+              density = seg.density, cd_tether)
+    return spring, wind_gnd
 end
 
 """
@@ -535,12 +537,12 @@ Compute the positive endpoint forces, half-mass and scalar spring tension from t
 shared `segment_endpoint_loads`, reading the array-valued endpoint states out of
 `io`. Returns `(fsrc, fdst, half, spring_scalar)`.
 """
-function segment_loads(s, io, l0, spring, wind)
+function segment_loads(s, io, l0, spring, wind; with_drag = true)
     (_, src_pos, src_vel, _, dst_pos, dst_vel, _) = io
     return SAM.segment_endpoint_loads(
         s, collect(src_pos), collect(src_vel), collect(dst_pos), collect(dst_vel),
         spring.unit_stiffness, spring.unit_damping, spring.compression_frac, l0,
-        spring.diameter, spring.density, spring.cd_tether, collect(wind))
+        spring.diameter, spring.density, spring.cd_tether, collect(wind); with_drag)
 end
 
 """
@@ -561,23 +563,26 @@ function endpoint_load_eqs(io, fsrc, fdst, half, src_tension_val, dst_tension_va
 end
 
 """
-    network_segment(s; name)
+    network_segment(s, params, idx; name)
 
 Plain spring-damper edge with a frozen rest length `l0` (parameter). Emits zero
-tension (neither endpoint is a pulley/winch reader).
+tension (neither endpoint is a pulley/winch reader). A
+[`SAM.wing_structural_segment`](@ref) representative drops the drag term, giving the
+`:structural` edge kind its own drag-free compiled kernel (no `cd_tether`).
 """
-function network_segment(s; name)
+function network_segment(s, params, idx; name)
     io = edge_io()
     vars = io[1]
-    spars, spring, wind = spring_parameters()
-    l0 = SAM.make_param(:l0, 1.0)
-    fsrc, fdst, half, _ = segment_loads(s, io, l0, spring, wind)
+    with_drag = !SAM.wing_structural_segment(params.reg.sys_struct, idx)
+    spring, wind = segment_spring_params(params, idx; with_drag)
+    l0 = params.segments[idx].l0
+    fsrc, fdst, half, _ = segment_loads(s, io, l0, spring, wind; with_drag)
     eqs = endpoint_load_eqs(io, fsrc, fdst, half, 0.0, 0.0)
-    return System(eqs, t, vars, [spars; l0]; name)
+    return System(eqs, t, vars, param_unknowns(params); name)
 end
 
 """
-    network_pulley_segment(s; name)
+    network_pulley_segment(s, params, idx; name)
 
 Pulley spring-damper edge. `l0` is driven by the pulley vertex's `pulley_len`
 output (read from whichever endpoint is the pulley, `pulley_at_src`): the first
@@ -585,10 +590,10 @@ pulley segment gets `l0 = pulley_len`, the second `l0 = sum_len − pulley_len`
 (`pulley_side = ±1`). It emits its role-signed spring tension `pulley_side·spring`
 to the pulley endpoint so the pulley aggregates `spring[seg1] − spring[seg2]`.
 """
-function network_pulley_segment(s; name)
+function network_pulley_segment(s, params, idx; name)
     io = edge_io()
     vars, _, _, src_pulley_len, _, _, dst_pulley_len = io
-    spars, spring, wind = spring_parameters()
+    spring, wind = segment_spring_params(params, idx)
     pulley_sum_len = SAM.make_param(:pulley_sum_len, 1.0)
     pulley_side = SAM.make_param(:pulley_side, 1.0)
     pulley_at_src = SAM.make_param(:pulley_at_src, 0.0)
@@ -598,12 +603,12 @@ function network_pulley_segment(s; name)
     src_tension_val = ifelse(pulley_at_src > 0.5, pulley_side * spring_scalar, 0.0)
     dst_tension_val = ifelse(pulley_at_src > 0.5, 0.0, pulley_side * spring_scalar)
     eqs = endpoint_load_eqs(io, fsrc, fdst, half, src_tension_val, dst_tension_val)
-    return System(eqs, t, vars, [spars; pulley_sum_len; pulley_side; pulley_at_src];
-                  name)
+    return System(eqs, t, vars,
+        [param_unknowns(params); pulley_sum_len; pulley_side; pulley_at_src]; name)
 end
 
 """
-    network_tether_segment(s; name)
+    network_tether_segment(s, params, idx; name)
 
 Winched-tether spring-damper edge. Its rest length is `l0 = tether_len / n_segs`,
 where `tether_len` arrives as a NetworkDynamics external input (`tether_len_ext`)
@@ -611,12 +616,12 @@ read from the winch vertex. The tether segment incident to the winch point emits
 `+spring` there (`tension_sign_src`/`tension_sign_dst = 1`) so the winch reads the
 tension; every other tether segment emits zero.
 """
-function network_tether_segment(s; name)
+function network_tether_segment(s, params, idx; name)
     io = edge_io()
     vars = io[1]
     tether_len_ext = only(@variables tether_len_ext(t) [input = true])
     push!(vars, tether_len_ext)
-    spars, spring, wind = spring_parameters()
+    spring, wind = segment_spring_params(params, idx)
     n_segs = SAM.make_param(:n_segs, 1.0)
     tension_sign_src = SAM.make_param(:tension_sign_src, 0.0)
     tension_sign_dst = SAM.make_param(:tension_sign_dst, 0.0)
@@ -624,8 +629,8 @@ function network_tether_segment(s; name)
     fsrc, fdst, half, spring_scalar = segment_loads(s, io, l0, spring, wind)
     eqs = endpoint_load_eqs(io, fsrc, fdst, half,
         tension_sign_src * spring_scalar, tension_sign_dst * spring_scalar)
-    return System(eqs, t, vars, [spars; n_segs; tension_sign_src; tension_sign_dst];
-                  name)
+    return System(eqs, t, vars,
+        [param_unknowns(params); n_segs; tension_sign_src; tension_sign_dst]; name)
 end
 
 # ======================= I/O symbol lists ======================= #
@@ -658,8 +663,9 @@ end
     SegmentRoles
 
 Per-segment classification the network build derives once: `kind` is `:plain`,
-`:pulley` or `:tether`; the remaining fields carry the pulley split / winched-tether
-data an edge needs (`0`/`nothing` when not applicable).
+`:structural` (drag-free wing link), `:pulley` or `:tether`; the remaining fields
+carry the pulley split / winched-tether data an edge needs (`0`/`nothing` when not
+applicable).
 """
 struct SegmentRoles
     kind::Symbol
@@ -676,8 +682,9 @@ end
     classify_segments(ss)
 
 Return a `SegmentRoles` per segment. A segment is `:pulley` if it is one of a
-pulley's two segments, `:tether` if it belongs to a winched tether, else `:plain`.
-The tether segment incident to the winch point is marked to emit `+spring` there.
+pulley's two segments, `:tether` if it belongs to a winched tether, `:structural`
+if both endpoints are wing nodes (drag-free), else `:plain`. The tether segment
+incident to the winch point is marked to emit `+spring` there.
 """
 function classify_segments(ss)
     winch_of_tether = Dict{Int, Int}()
@@ -714,7 +721,8 @@ function classify_segments(ss)
             push!(roles, SegmentRoles(:tether, 0, 0.0, false, tidx, n_segs,
                                       sign_src, sign_dst))
         else
-            push!(roles, SegmentRoles(:plain, 0, 0.0, false, 0, 0, 0.0, 0.0))
+            kind = SAM.wing_structural_segment(ss, seg.idx) ? :structural : :plain
+            push!(roles, SegmentRoles(kind, 0, 0.0, false, 0, 0, 0.0, 0.0))
         end
     end
     return roles
@@ -847,13 +855,25 @@ function build_network(sam)
         seg_of[key] = seg
     end
 
-    dyn = VertexModel(network_dynamic_point(sam; name = :dyn),
-        VERTEX_INPUTS, VERTEX_OUTPUTS; mtkcompile = true, name = :dyn)
-    stat = VertexModel(network_static_point(sam; name = :stat),
-        VERTEX_INPUTS, VERTEX_OUTPUTS; mtkcompile = true, name = :stat)
-    pulley_v = isempty(ss.pulleys) ? nothing :
-        VertexModel(network_pulley_point(sam; name = :pul),
-            VERTEX_INPUTS, VERTEX_OUTPUTS; mtkcompile = true, name = :pul)
+    wing_node_vmodel_of, wing_kind_of, kregs =
+        build_wing_node_vmodels(sam, ss, pulley_of_point)
+
+    kind_of = Vector{Symbol}(undef, n)
+    for i in 1:n
+        if haskey(wing_node_vmodel_of, i)
+            kind_of[i] = wing_kind_of[i]
+        elseif haskey(winch_of_point, i)
+            kind_of[i] = :winch
+        elseif haskey(pulley_of_point, i)
+            kind_of[i] = :pul
+        else
+            kind_of[i] = points[i].type == SAM.STATIC ? :stat : :dyn
+        end
+    end
+
+    dyn = build_vertex_kernel!(kregs, sam, ss, :dyn, kind_of, network_dynamic_point)
+    stat = build_vertex_kernel!(kregs, sam, ss, :stat, kind_of, network_static_point)
+    pulley_v = build_vertex_kernel!(kregs, sam, ss, :pul, kind_of, network_pulley_point)
     winch_v = Dict{Int, Any}()
     for winch in ss.winches
         winch_v[winch.winch_point_idx] = VertexModel(
@@ -862,33 +882,24 @@ function build_network(sam)
             VERTEX_INPUTS, VERTEX_OUTPUTS; mtkcompile = true, name = :wch)
     end
 
-    wing_node_vmodel_of = build_wing_node_vmodels(sam, ss, pulley_of_point)
-
     vmodels = Vector{VertexModel}(undef, n)
     for i in 1:n
-        if haskey(wing_node_vmodel_of, i)
-            vmodels[i] = wing_node_vmodel_of[i]
-        elseif haskey(winch_of_point, i)
-            vmodels[i] = winch_v[i]
-        elseif haskey(pulley_of_point, i)
-            vmodels[i] = pulley_v
-        elseif points[i].type == SAM.STATIC
-            vmodels[i] = stat
-        else
-            vmodels[i] = dyn
-        end
+        vmodels[i] = kind_of[i] === :winch ? winch_v[i] :
+            haskey(wing_node_vmodel_of, i) ? wing_node_vmodel_of[i] :
+            kind_of[i] === :pul ? pulley_v :
+            kind_of[i] === :stat ? stat : dyn
     end
 
     roles = classify_segments(ss)
     role_of_seg = Dict(segments[k].idx => roles[k] for k in eachindex(segments))
-    plain_edge = EdgeModel(network_segment(sam; name = :seg),
-        EDGE_SRC_IN, EDGE_DST_IN, EDGE_SRC_OUT, EDGE_DST_OUT;
-        mtkcompile = true, name = :seg)
-    pulley_edge = isempty(ss.pulleys) ? nothing :
-        EdgeModel(network_pulley_segment(sam; name = :pseg),
-            EDGE_SRC_IN, EDGE_DST_IN, EDGE_SRC_OUT, EDGE_DST_OUT;
-            mtkcompile = true, name = :pseg)
-    tether_edge_of_tether = build_tether_edges(sam, ss, winch_of_point)
+    plain_edge = build_edge_kernel!(kregs, sam, ss, :seg, :plain, segments, role_of_seg,
+        network_segment)
+    structural_edge = build_edge_kernel!(kregs, sam, ss, :sseg, :structural, segments,
+        role_of_seg, network_segment)
+    pulley_edge = build_edge_kernel!(kregs, sam, ss, :pseg, :pulley, segments,
+        role_of_seg, network_pulley_segment)
+    tether_edge_of_tether = build_tether_edges(sam, ss, winch_of_point, kregs,
+        segments, role_of_seg)
 
     edgelist = collect(edges(graph))
     emodels = Vector{EdgeModel}(undef, length(edgelist))
@@ -899,6 +910,8 @@ function build_network(sam)
             emodels[j] = pulley_edge
         elseif role.kind == :tether
             emodels[j] = tether_edge_of_tether[role.tether_idx]
+        elseif role.kind == :structural
+            emodels[j] = structural_edge
         else
             emodels[j] = plain_edge
         end
@@ -909,8 +922,9 @@ function build_network(sam)
     param, state = NWParameter(nw), NWState(nw)
     set_states!(ss, state, winch_of_point, pulley_of_point)
     builder = ParamBuilder()
-    record_vertex_params!(builder, ss, winch_of_point, pulley_of_point)
-    record_edge_params!(builder, ss, edgelist, seg_of, role_of_seg)
+    record_vertex_params!(builder, ss, winch_of_point, pulley_of_point, kind_of, kregs)
+    record_edge_params!(builder, ss, edgelist, seg_of, role_of_seg, kregs)
+    set_const_params!(nw, param, ss, edgelist, seg_of, role_of_seg, kind_of)
     param_sync = build_network_param_sync(nw, builder)
 
     meta = (; param_sync, winch_of_point, pulley_of_point,
@@ -920,16 +934,18 @@ function build_network(sam)
 end
 
 """
-    build_tether_edges(sam, ss, winch_of_point)
+    build_tether_edges(sam, ss, winch_of_point, kregs, segments, role_of_seg)
 
 One `network_tether_segment` `EdgeModel` per winched tether, its rest length wired
 to the winch vertex's matching `tether_len_k` state via `extin`. The kernel is
-compiled once and rebound per tether with `EdgeModel(base; extin=…)` so only the
-external-input index differs.
+compiled once (with the first tether segment as representative, its `params`
+registry stashed in `kregs[:tseg]`) and rebound per tether with
+`EdgeModel(base; extin=…)` so only the external-input index differs.
 """
-function build_tether_edges(sam, ss, winch_of_point)
+function build_tether_edges(sam, ss, winch_of_point, kregs, segments, role_of_seg)
     edges_of = Dict{Int, Any}()
     isempty(ss.winches) && return edges_of
+    repr = role_representative(segments, role_of_seg, :tether)
     winch_tether_pos = Dict{Tuple{Int, Int}, Int}()
     for winch in ss.winches, (pos, tidx) in enumerate(winch.tether_idxs)
         winch_tether_pos[(winch.winch_point_idx, tidx)] = pos
@@ -940,9 +956,11 @@ function build_tether_edges(sam, ss, winch_of_point)
         sym = Symbol(:tether_len_, pos)
         extin = [:tether_len_ext => VIndex(winch.winch_point_idx, sym)]
         if base === nothing
-            base = EdgeModel(network_tether_segment(sam; name = :tseg),
+            pv = network_view(ss)
+            base = EdgeModel(network_tether_segment(sam, pv, repr; name = :tseg),
                 EDGE_SRC_IN, EDGE_DST_IN, EDGE_SRC_OUT, EDGE_DST_OUT;
                 extin, mtkcompile = true, name = :tseg)
+            kregs[:tseg] = pv.reg
             edges_of[tidx] = base
         else
             edges_of[tidx] = EdgeModel(base;
@@ -950,6 +968,58 @@ function build_tether_edges(sam, ss, winch_of_point)
         end
     end
     return edges_of
+end
+
+"""
+    build_vertex_kernel!(kregs, sam, ss, kind, kind_of, kernelfn)
+
+Compile the vertex `System` for one non-winch `kind` (`:dyn`/`:stat`/`:pul`) into a
+`VertexModel`, using the first vertex of that kind as the representative index for
+`kernelfn(sam, params, idx)` and stashing the fresh `params` registry in `kregs` for
+per-instance sync. Returns `nothing` when no vertex has that kind.
+"""
+function build_vertex_kernel!(kregs, sam, ss, kind::Symbol, kind_of, kernelfn)
+    repr = findfirst(==(kind), kind_of)
+    repr === nothing && return nothing
+    pv = network_view(ss)
+    vm = VertexModel(kernelfn(sam, pv, repr; name = kind),
+        VERTEX_INPUTS, VERTEX_OUTPUTS; mtkcompile = true, name = kind)
+    kregs[kind] = pv.reg
+    return vm
+end
+
+"""
+    role_representative(segments, role_of_seg, role_kind)
+
+The `idx` of the first segment whose role is `role_kind` (`:plain`/`:pulley`/
+`:tether`), used as the representative index for that edge kernel; `nothing` when no
+segment has that role.
+"""
+function role_representative(segments, role_of_seg, role_kind::Symbol)
+    for seg in segments
+        role_of_seg[seg.idx].kind === role_kind && return seg.idx
+    end
+    return nothing
+end
+
+"""
+    build_edge_kernel!(kregs, sam, ss, name, role_kind, segments, role_of_seg, kernelfn)
+
+Compile the edge `System` for one `role_kind` into an `EdgeModel`, using the first
+segment of that role as the representative index for `kernelfn(sam, params, idx)` and
+stashing the fresh `params` registry in `kregs[name]` for per-instance sync. Returns
+`nothing` when no segment has that role.
+"""
+function build_edge_kernel!(kregs, sam, ss, name::Symbol, role_kind::Symbol,
+                            segments, role_of_seg, kernelfn)
+    repr = role_representative(segments, role_of_seg, role_kind)
+    repr === nothing && return nothing
+    pv = network_view(ss)
+    em = EdgeModel(kernelfn(sam, pv, repr; name),
+        EDGE_SRC_IN, EDGE_DST_IN, EDGE_SRC_OUT, EDGE_DST_OUT;
+        mtkcompile = true, name)
+    kregs[name] = pv.reg
+    return em
 end
 
 """
@@ -964,6 +1034,8 @@ when no point is a wing node).
 """
 function build_wing_node_vmodels(sam, ss, pulley_of_point)
     vmodel_of = Dict{Int, Any}()
+    kind_of = Dict{Int, Symbol}()
+    kregs = Dict{Symbol, Any}()
     dyn_base = nothing
     pulley_base = nothing
     for (i, point) in enumerate(ss.points)
@@ -971,25 +1043,33 @@ function build_wing_node_vmodels(sam, ss, pulley_of_point)
         wing === nothing && continue
         extin = body_damp_extin(ss, wing)
         if haskey(pulley_of_point, i)
+            kind_of[i] = :wnpul
             if pulley_base === nothing
+                pv = network_view(ss)
                 pulley_base = VertexModel(
-                    network_wing_node_pulley_point(sam; name = :wnpul),
+                    network_wing_node_pulley_point(sam, pv, i; name = :wnpul),
                     VERTEX_INPUTS, VERTEX_OUTPUTS; extin, mtkcompile = true,
                     name = :wnpul)
+                kregs[:wnpul] = pv.reg
                 vmodel_of[i] = pulley_base
             else
                 vmodel_of[i] = VertexModel(pulley_base; extin = last.(extin))
             end
-        elseif dyn_base === nothing
-            dyn_base = VertexModel(network_wing_node_point(sam; name = :wnode),
-                VERTEX_INPUTS, VERTEX_OUTPUTS; extin, mtkcompile = true,
-                name = :wnode)
-            vmodel_of[i] = dyn_base
         else
-            vmodel_of[i] = VertexModel(dyn_base; extin = last.(extin))
+            kind_of[i] = :wnode
+            if dyn_base === nothing
+                pv = network_view(ss)
+                dyn_base = VertexModel(network_wing_node_point(sam, pv, i; name = :wnode),
+                    VERTEX_INPUTS, VERTEX_OUTPUTS; extin, mtkcompile = true,
+                    name = :wnode)
+                kregs[:wnode] = pv.reg
+                vmodel_of[i] = dyn_base
+            else
+                vmodel_of[i] = VertexModel(dyn_base; extin = last.(extin))
+            end
         end
     end
-    return vmodel_of
+    return vmodel_of, kind_of, kregs
 end
 
 """
@@ -1057,68 +1137,79 @@ end
 # ======================= parameter recording ======================= #
 
 """
-    record_vertex_params!(builder, ss, winch_of_point, pulley_of_point)
+    record_vertex_params!(builder, ss, winch_of_point, pulley_of_point, kind_of, kregs)
 
 Record every vertex's per-instance parameters (index + live reader) into `builder`,
-dispatched on the vertex type (winch, pulley, static, particle).
+dispatched on `kind_of[i]`. Struct fields are replayed generically from the kernel's
+registry (`kregs`); the `set.wind_vec` ground wind, the pulley rope-mass fields, the
+winch controls and the `body_frame_damping` `nothing`-fallback are bound explicitly.
 """
-function record_vertex_params!(builder, ss, winch_of_point, pulley_of_point)
+function record_vertex_params!(builder, ss, winch_of_point, pulley_of_point,
+                               kind_of, kregs)
     for (i, point) in enumerate(ss.points)
-        if haskey(winch_of_point, i)
+        kind = kind_of[i]
+        if kind === :winch
             record_winch_params!(builder, i, winch_of_point[i])
-        elseif haskey(pulley_of_point, i)
-            record_particle_params!(builder, i)
-            add_param!(builder, VIndex(i, :pulley_mass),
-                       PulleyLineMassReader(pulley_of_point[i]))
-            network_wing_node(ss, point) === nothing ||
-                record_wing_node_params!(builder, ss, i, point)
-        elseif point.type == SAM.STATIC
-            record_pos_w_params!(builder, i)
-        else
-            record_particle_params!(builder, i)
-            network_wing_node(ss, point) === nothing ||
-                record_wing_node_params!(builder, ss, i, point)
+            continue
         end
+        if kind === :stat
+            replay_fields!(builder, kregs[:stat], :points, i, i, ss)
+            continue
+        end
+        replay_fields!(builder, kregs[kind], :points, i, i, ss;
+                       skip = (:body_frame_damping,))
+        record_wind_params!(builder, i)
+        (kind === :wnode || kind === :wnpul) && bind_body_damp!(builder, ss, i, point)
+        (kind === :pul || kind === :wnpul) &&
+            record_pulley_mass_params!(builder, ss, i, pulley_of_point[i])
     end
     return nothing
 end
 
 """
-    record_wing_node_params!(builder, ss, i, point)
+    record_wind_params!(builder, addr; edge=false)
 
-Record a wing-node vertex `i`'s frozen aero force `aero_force_b_k` (read live from
-the point's `aero_force_b`, refreshed each VSM step) and its `body_damp_k`
-coefficients — read from `body_frame_damping` when present, else held at zero for an
-aero-only wing node.
+Bind the ground wind `set.wind_vec` (scalarized `wind_vec_1..3`) that
+[`SAM.ground_wind_vec`](@ref) reads, on vertex (`edge=false`) or edge (`edge=true`)
+`addr`.
 """
-function record_wing_node_params!(builder, ss, i, point)
+function record_wind_params!(builder, addr; edge = false)
     for k in 1:3
-        add_param!(builder, VIndex(i, Symbol(:aero_force_b_, k)),
-                   SAM.PathReader((:points, i, :aero_force_b, k)))
-    end
-    bd = point_body_damp(ss, point)
-    for k in 1:3
-        reader = bd === nothing ? ConstReader(0.0) :
-            SAM.PathReader((:points, i, :body_frame_damping, k))
-        add_param!(builder, VIndex(i, Symbol(:body_damp_, k)), reader)
+        add_param!(builder, param_addr(edge, addr, Symbol(:wind_vec_, k)),
+                   SAM.PathReader((:set, :wind_vec, k)))
     end
     return nothing
 end
 
 """
-    record_particle_params!(builder, i)
+    record_pulley_mass_params!(builder, ss, i, pulley_idx)
 
-Record the shared DYNAMIC-particle parameters for vertex `i`: mass, drag, area, the
-world-frame damping (`world_damping_k`) and the ground wind (`wind_gnd_k`).
+Bind vertex `i`'s rope-mass parameters — the pulley `sum_len` and its first segment's
+`density`/`diameter` — that [`pulley_rope_mass`](@ref) multiplies in-equation.
 """
-function record_particle_params!(builder, i)
-    add_param!(builder, VIndex(i, :extra_mass), SAM.PathReader((:points, i, :extra_mass)))
-    add_param!(builder, VIndex(i, :drag_coeff), SAM.PathReader((:points, i, :drag_coeff)))
-    add_param!(builder, VIndex(i, :area), SAM.PathReader((:points, i, :area)))
+function record_pulley_mass_params!(builder, ss, i, pulley_idx)
+    seg1 = ss.pulleys[pulley_idx].segment_idxs[1]
+    add_param!(builder, VIndex(i, :sum_len),
+               SAM.PathReader((:pulleys, pulley_idx, :sum_len)))
+    add_param!(builder, VIndex(i, :density),
+               SAM.PathReader((:segments, seg1, :density)))
+    add_param!(builder, VIndex(i, :diameter),
+               SAM.PathReader((:segments, seg1, :diameter)))
+    return nothing
+end
+
+"""
+    bind_body_damp!(builder, ss, i, point)
+
+Bind a wing-node vertex `i`'s body-frame damping `body_frame_damping_k` as a live
+struct read from the point's `body_frame_damping`. An aero-only wing node (damping
+`nothing`) is skipped here and zeroed once by [`set_const_params!`](@ref).
+"""
+function bind_body_damp!(builder, ss, i, point)
+    point_body_damp(ss, point) === nothing && return nothing
     for k in 1:3
-        add_param!(builder, VIndex(i, Symbol(:world_damping_, k)),
-                   SAM.PathReader((:points, i, :world_frame_damping, k)))
-        add_param!(builder, VIndex(i, Symbol(:wind_gnd_, k)), GroundWindReader(k))
+        add_param!(builder, VIndex(i, Symbol(:body_frame_damping_, k)),
+                   SAM.PathReader((:points, i, :body_frame_damping, k)))
     end
     return nothing
 end
@@ -1155,47 +1246,63 @@ end
 """
     record_edge_params!(builder, ss, edgelist, seg_of, role_of_seg)
 
-Record every edge's spring/drag parameters and role-specific data (frozen `l0`,
-pulley split, or winched-tether `n_segs`/tension signs) into `builder`.
+Record every edge's live spring/drag parameters (struct-field reads) into `builder`.
+The pulley `sum_len` is a struct read; the assembly-fixed pulley/tether constants
+(side, at-source flag, segment count, tension signs) are written once by
+[`set_const_params!`](@ref), not synced.
 """
-function record_edge_params!(builder, ss, edgelist, seg_of, role_of_seg)
-    points = ss.points
+function record_edge_params!(builder, ss, edgelist, seg_of, role_of_seg, kregs)
+    reg_of_role = Dict(:plain => :seg, :structural => :sseg,
+                       :pulley => :pseg, :tether => :tseg)
     for (j, e) in enumerate(edgelist)
         seg = seg_of[minmax(src(e), dst(e))]
         role = role_of_seg[seg.idx]
-        wing_structural = points[seg.point_idxs[1]].is_wing_node &&
-                          points[seg.point_idxs[2]].is_wing_node
         segment_stiffness(seg)  # validate linear stiffness up front
-        add_param!(builder, EIndex(j, :unit_stiffness),
-                   SAM.PathReader((:segments, seg.idx, :unit_stiffness)))
-        add_param!(builder, EIndex(j, :unit_damping),
-                   SAM.PathReader((:segments, seg.idx, :unit_damping)))
-        add_param!(builder, EIndex(j, :compression_frac),
-                   SAM.PathReader((:segments, seg.idx, :compression_frac)))
-        add_param!(builder, EIndex(j, :diameter),
-                   SAM.PathReader((:segments, seg.idx, :diameter)))
-        add_param!(builder, EIndex(j, :density),
-                   SAM.PathReader((:segments, seg.idx, :density)))
-        add_param!(builder, EIndex(j, :cd_tether), TetherDragReader(wing_structural))
-        for k in 1:3
-            add_param!(builder, EIndex(j, Symbol(:wind_gnd_, k)), GroundWindReader(k))
+        replay_fields!(builder, kregs[reg_of_role[role.kind]], :segments, j, seg.idx, ss;
+                       edge = true)
+        if role.kind !== :structural
+            add_param!(builder, EIndex(j, :cd_tether), SAM.PathReader((:set, :cd_tether)))
         end
+        record_wind_params!(builder, j; edge = true)
+        role.kind == :pulley && add_param!(builder, EIndex(j, :pulley_sum_len),
+            SAM.PathReader((:pulleys, role.pulley_idx, :sum_len)))
+    end
+    return nothing
+end
+
+"""
+    set_const_params!(nw, param, ss, edgelist, seg_of, role_of_seg, kind_of)
+
+Write the assembly-fixed structural constants straight into `param` once — no reader,
+no per-step sync. Each pulley edge gets its `pulley_side`/`pulley_at_src`, each
+winched-tether edge its `n_segs`/`tension_sign_src`/`tension_sign_dst`, and every
+aero-only wing node (body damping `nothing`) a zero `body_frame_damping`. These are
+topology, fixed at assembly, so they are set here rather than re-read every step.
+"""
+function set_const_params!(nw, param, ss, edgelist, seg_of, role_of_seg, kind_of)
+    indices = Any[]
+    values = SAM.SimFloat[]
+    for (j, e) in enumerate(edgelist)
+        role = role_of_seg[seg_of[minmax(src(e), dst(e))].idx]
         if role.kind == :pulley
-            add_param!(builder, EIndex(j, :pulley_sum_len),
-                       SAM.PathReader((:pulleys, role.pulley_idx, :sum_len)))
-            add_param!(builder, EIndex(j, :pulley_side), ConstReader(role.pulley_side))
-            add_param!(builder, EIndex(j, :pulley_at_src),
-                       ConstReader(role.pulley_at_src ? 1.0 : 0.0))
+            append!(indices, [EIndex(j, :pulley_side), EIndex(j, :pulley_at_src)])
+            append!(values, [role.pulley_side, role.pulley_at_src ? 1.0 : 0.0])
         elseif role.kind == :tether
-            add_param!(builder, EIndex(j, :n_segs), ConstReader(Float64(role.n_segs)))
-            add_param!(builder, EIndex(j, :tension_sign_src),
-                       ConstReader(role.tension_sign_src))
-            add_param!(builder, EIndex(j, :tension_sign_dst),
-                       ConstReader(role.tension_sign_dst))
-        else
-            add_param!(builder, EIndex(j, :l0), SAM.PathReader((:segments, seg.idx, :l0)))
+            append!(indices, [EIndex(j, :n_segs), EIndex(j, :tension_sign_src),
+                              EIndex(j, :tension_sign_dst)])
+            append!(values, SAM.SimFloat[role.n_segs, role.tension_sign_src,
+                                         role.tension_sign_dst])
         end
     end
+    for (i, point) in enumerate(ss.points)
+        (kind_of[i] === :wnode || kind_of[i] === :wnpul) || continue
+        point_body_damp(ss, point) === nothing || continue
+        for k in 1:3
+            push!(indices, VIndex(i, Symbol(:body_frame_damping_, k)))
+            push!(values, 0.0)
+        end
+    end
+    isempty(indices) || setp(nw, indices)(param, values)
     return nothing
 end
 
