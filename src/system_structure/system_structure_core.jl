@@ -477,6 +477,109 @@ function distribute_mass_over_points!(points, point_idxs, wing, total_mass)
 end
 
 """
+    connected_body_groups(n_bodies, joint_collections...) -> Vector{Int64}
+
+Union-find over body indices `1:n_bodies`, uniting the two bodies of every joint
+in each collection (each joint exposes `body_a_idx`/`body_b_idx`). Returns a
+`root` vector mapping each body to its component representative, so all bodies
+tied into one continuous beam share a root.
+"""
+function connected_body_groups(n_bodies, joint_collections...)
+    root = collect(1:n_bodies)
+    find(x) = root[x] == x ? x : (root[x] = find(root[x]))
+    for joints in joint_collections, joint in joints
+        a, b = joint.body_a_idx, joint.body_b_idx
+        (a == 0 || b == 0) && continue
+        root[find(a)] = find(b)
+    end
+    for b in 1:n_bodies
+        root[b] = find(b)
+    end
+    return root
+end
+
+"""
+    particle_wing_masses(wing, twist_surfaces, points, bodies, root)
+        -> (point_mass, body_mass)
+
+Mass associated with a PARTICLE_DYNAMICS `wing`, split by source. `point_mass`
+sums the `extra_mass` of the wing's member points; `body_mass` sums the mass of
+every non-wing body sharing a beam component (`root`, from
+[`connected_body_groups`](@ref)) with the wing's structure. A particle wing
+carries its mass on its section bodies — most of which are beam-internal and ride
+no point — so `body_mass` is the usual source; both being nonzero means gravity
+is counted twice (points and bodies).
+
+The wing's components are seeded from its twist_surfaces' member/flap bodies and
+the bodies its member points ride, then expanded over the joint graph. Members
+are the union of the wing's twist_surface points, falling back to
+`wing_frame_member` points when the wing has no twist_surfaces.
+"""
+function particle_wing_masses(wing, twist_surfaces, points, bodies, root)
+    seed_roots = Set{Int64}()
+    point_idxs = Set{Int64}()
+    for twist_surface_idx in wing.twist_surface_idxs
+        twist_surface = twist_surfaces[twist_surface_idx]
+        union!(point_idxs, twist_surface.point_idxs)
+        for body_idx in Iterators.flatten(
+                (twist_surface.body_idxs, twist_surface.flap_body_idxs))
+            body_idx != 0 && body_idx != wing.idx && push!(seed_roots, root[body_idx])
+        end
+    end
+    if isempty(point_idxs)
+        for point in points
+            wing_frame_member(point, wing.idx) && push!(point_idxs, point.idx)
+        end
+    end
+    point_mass = 0.0
+    for idx in point_idxs
+        point = points[idx]
+        point_mass += point.extra_mass
+        point.body_idx != 0 && point.body_idx != wing.idx &&
+            push!(seed_roots, root[point.body_idx])
+    end
+    body_mass = 0.0
+    for (body_idx, body) in enumerate(bodies)
+        (is_wing(body) || !(root[body_idx] in seed_roots)) && continue
+        body_mass += body.mass
+    end
+    return point_mass, body_mass
+end
+
+"""
+    finalize_particle_wing_mass!(wing, twist_surfaces, points, bodies, set, root)
+
+Set a PARTICLE_DYNAMICS `wing`'s bookkeeping mass from its member points and the
+section bodies of its beam component (see [`particle_wing_masses`](@ref)), warning
+when the wing is massless or when mass is counted twice (points and bodies). Falls
+back to distributing `set.mass` over the member points when neither source carries
+mass. Deferred until point/twist_surface→body and joint→body references resolve.
+"""
+function finalize_particle_wing_mass!(wing, twist_surfaces, points, bodies, set, root)
+    point_mass, body_mass =
+        particle_wing_masses(wing, twist_surfaces, points, bodies, root)
+    point_mass > 0 && body_mass > 0 && @warn "Wing $(wing.idx) " *
+        "(PARTICLE_DYNAMICS): member points carry both extra_mass ($point_mass kg) " *
+        "and ride bodies with mass ($body_mass kg) — gravity is counted twice."
+    total = point_mass + body_mass
+    if total > 0
+        wing.mass = total
+    else
+        set_mass = hasproperty(set, :mass) ? set.mass : 0.0
+        if set_mass > 0
+            wing_point_idxs = [point.idx for point in points
+                if wing_frame_member(point, wing.idx)]
+            distribute_mass_over_points!(points, wing_point_idxs, wing, set_mass)
+        else
+            wing.mass = 0.0
+            @warn "Wing $(wing.idx) (PARTICLE_DYNAMICS) has zero mass — no member " *
+                "point extra_mass and no connected body mass."
+        end
+    end
+    return nothing
+end
+
+"""
     assign_indices_and_resolve!(components, name_dicts)
 
 Assign indices to all components based on their position in the vectors,
@@ -941,15 +1044,9 @@ function SystemStructure(name, set;
 
         if wing.dynamics_type == PARTICLE_DYNAMICS
             user_mass > 0 && @warn "Wing $(wing.idx) (PARTICLE_DYNAMICS): " *
-                "`mass=$user_mass` is ignored — particle wings carry mass on " *
-                "their points, not a rigid body."
-            point_mass_sum == 0 && set_mass == 0 && @warn "Wing $(wing.idx) " *
-                "(PARTICLE_DYNAMICS) has zero point mass — the wing is massless."
-            point_mass_sum > 0 ? (wing.mass = point_mass_sum) :
-                set_mass > 0 ?
-                    distribute_mass_over_points!(
-                        points, wing_point_idxs, wing, set_mass) :
-                    (wing.mass = 0.0)
+                "`mass=$user_mass` is ignored — particle wings carry mass on their " *
+                "points and section bodies, not on the wing body."
+            # Mass is set by finalize_particle_wing_mass! once body refs resolve.
         elseif user_mass > 0
             point_mass_sum > 0 && @warn "Wing $(wing.idx) (RIGID_DYNAMICS): both " *
                 "`mass=$user_mass` and point masses ($point_mass_sum) are set — " *
@@ -1044,6 +1141,15 @@ function SystemStructure(name, set;
         point.joint_idx == 0 && continue
         derive_point_beam_anchor!(
             point, timoshenko_joints[point.joint_idx], bodies)
+    end
+
+    # Particle wings carry mass on their (joint-connected) section bodies.
+    body_groups = connected_body_groups(
+        length(bodies), elastic_joints, timoshenko_joints)
+    for wing in wings
+        wing.dynamics_type == PARTICLE_DYNAMICS &&
+            finalize_particle_wing_mass!(
+                wing, twist_surfaces, points, bodies, set, body_groups)
     end
 
     # Name dictionaries were already built by assign_indices_and_resolve!

@@ -23,12 +23,13 @@ between solves. The frozen traction only sets the distribution *shape*; each WIN
 point's force is its frozen traction plus an equal share of `(live panel force − frozen
 pattern net)`, so per panel the point forces sum to the **live** total exactly.
 
-Unlike the other VSM modes the mesh geometry is **fixed** (the loaded mesh in the body
-frame — no structure→VSM deformation, no LE/TE strut bijection); `couples_to_sections`
-is `false`. `frame_tol_frac` is the frame-alignment guard: construction errors if any
-surface node maps to a point farther than `frame_tol_frac ×` the local chord. Carries a
-[`VSMEngine`](@ref); the no-arg form is the engine-less marker filled in during wing
-construction.
+Like [`ContinuousAero`](@ref) the mesh **deforms with the structure**: its unrefined
+sections are rebuilt onto the structural LE/TE stations and refined (polars and Cp
+contours spanwise-interpolated onto the refined panels), and each refined section's
+LE/TE is a live function of the station points' `pos_w`. `frame_tol_frac` is the
+frame-alignment guard: construction errors if any surface node maps to a point farther
+than `frame_tol_frac ×` the local chord. Carries a [`VSMEngine`](@ref); the no-arg form
+is the engine-less marker filled in during wing construction.
 """
 mutable struct AeroPressure{E} <: AbstractVSMAero
     engine::Union{Nothing, E}
@@ -48,20 +49,32 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
     cm::Any
     "Per-panel flap twist_surface index (global), or 0 for no flap. Structural (enters the cache hash)."
     panel_twist_surface::Vector{Int64}
+    "Left unrefined strut of each refined section (n_panels + 1)."
+    section_left_strut::Vector{Int64}
+    "Left-strut weight: section = w·strut[left] + (1−w)·strut[left+1]."
+    section_left_weight::Vector{SimFloat}
+    "Frozen body-frame LE billow offset off the strut line (3 × n_sections)."
+    section_le_offset::Matrix{SimFloat}
+    "Frozen body-frame TE billow offset off the strut line (3 × n_sections)."
+    section_te_offset::Matrix{SimFloat}
     AeroPressure{E}(engine, station_point, frame_tol_frac, v_ind, traction,
-        traction_net, cl, cd, cm, panel_twist_surface) where {E} =
+        traction_net, cl, cd, cm, panel_twist_surface, section_left_strut,
+        section_left_weight, section_le_offset, section_te_offset) where {E} =
         new{E}(engine, station_point, frame_tol_frac, v_ind, traction,
-               traction_net, cl, cd, cm, panel_twist_surface)
+               traction_net, cl, cd, cm, panel_twist_surface, section_left_strut,
+               section_left_weight, section_le_offset, section_te_offset)
 end
 
 AeroPressure(; frame_tol_frac=2.0) =
     AeroPressure{VSMEngine}(nothing, Vector{Vector{Int64}}(),
         SimFloat(frame_tol_frac), zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0),
-        zeros(SimFloat, 3, 0), nothing, nothing, nothing, Int64[])
+        zeros(SimFloat, 3, 0), nothing, nothing, nothing, Int64[],
+        Int64[], SimFloat[], zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0))
 attach_engine!(mode::AeroPressure, engine::VSMEngine) =
     AeroPressure{typeof(engine)}(engine, mode.station_point, mode.frame_tol_frac,
         mode.v_ind, mode.traction, mode.traction_net, mode.cl, mode.cd, mode.cm,
-        mode.panel_twist_surface)
+        mode.panel_twist_surface, mode.section_left_strut,
+        mode.section_left_weight, mode.section_le_offset, mode.section_te_offset)
 
 is_builtin_aero(::AeroPressure) = true
 aero_mode_tag(::AeroPressure) = "press"
@@ -74,16 +87,10 @@ structural and enters the model-cache hash (distinguishing it from any stale
 frozen-force build that used the default empty id). The panel→flap-twist_surface
 map is likewise baked into the δ wiring.
 """
-aero_hash_id(mode::AeroPressure) = (mode.station_point, mode.panel_twist_surface)
-
-"""
-    couples_to_sections(::AeroPressure) -> false
-
-`AeroPressure` maps surface panels to arbitrary points and holds the loaded mesh
-fixed; it needs neither the per-section twist surfaces nor the LE/TE bijection the
-other VSM modes build.
-"""
-couples_to_sections(::AeroPressure) = false
+aero_hash_id(mode::AeroPressure) = (mode.station_point, mode.panel_twist_surface,
+    mode.section_left_strut, round.(mode.section_left_weight; digits=8),
+    round.(mode.section_le_offset; digits=8),
+    round.(mode.section_te_offset; digits=8))
 
 # ==================== equation builder ==================== #
 
@@ -123,18 +130,13 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
     connectors = particle_aero_connectors(num_points;
         n_delta=has_flap_coupling ? n_panels : 0)
 
-    # Fixed-mesh geometry: section boundaries from the loaded panels (constants).
-    sec_le = Vector{Any}(undef, n_panels + 1)
-    sec_te = Vector{Any}(undef, n_panels + 1)
-    for i in 1:n_panels
-        sec_le[i]     = Vector(panels[i].LE_point_1)
-        sec_le[i + 1] = Vector(panels[i].LE_point_2)
-        sec_te[i]     = Vector(panels[i].TE_point_1)
-        sec_te[i + 1] = Vector(panels[i].TE_point_2)
-    end
+    # Live geometry: refined-section LE/TE from the structural stations' pos_w.
+    column = aero_section_columns(wing, points)
+    sec_le, sec_te =
+        reconstruct_sections_sym(mode, wing, points, connectors, column)
 
     # Live wing-level apparent wind & density: mean over the WING points (v1
-    # uniform inflow — the mesh is not deformed from the structure).
+    # uniform inflow).
     va_wing = [sum(connectors.va[c, k] for k in 1:num_points) / num_points
                for c in 1:3]
     rho_wing = sum(connectors.rho[k] for k in 1:num_points) / num_points
@@ -263,6 +265,19 @@ function apply_flap_delta!(mode::AeroPressure, wing, sys_struct)
     return nothing
 end
 
+function restore_flap_delta!(mode::AeroPressure, wing, sys_state)
+    isempty(sys_state.flap_angle) && return nothing
+    wing.dynamics_type == PARTICLE_DYNAMICS || return nothing
+    panels = mode.vsm_aero.panels
+    length(mode.panel_twist_surface) == length(panels) || return nothing
+    for (panel_idx, panel) in enumerate(panels)
+        ts_idx = mode.panel_twist_surface[panel_idx]
+        (ts_idx == 0 || ts_idx > length(sys_state.flap_angle)) && continue
+        panel.delta = sys_state.flap_angle[ts_idx]
+    end
+    return nothing
+end
+
 # ==================== build-time panel→point map ==================== #
 
 """
@@ -362,17 +377,21 @@ end
 """
     setup_aero!(mode::AeroPressure, wing, points, twist_surfaces; prn=false)
 
-Transform the VSM mesh into the body frame, build the static surface→point map
-([`build_station_point_map!`](@ref)) and size the frozen buffers/polars
-([`init_pressure_buffers!`](@ref)). `PARTICLE_DYNAMICS` only; the mesh is held fixed
-(no twist surfaces, no LE/TE point bijection).
+Run the generic particle VSM setup (rebuild the unrefined sections onto the
+structural LE/TE stations, refine, build `point_to_vsm_point`), freeze the
+strut-interpolation caches ([`build_section_interp`](@ref)), then build the
+surface→point traction map ([`build_station_point_map!`](@ref)) and size the frozen
+buffers/polars ([`init_pressure_buffers!`](@ref)). `PARTICLE_DYNAMICS` only.
 """
 function setup_aero!(mode::AeroPressure, wing, points, twist_surfaces; prn=false)
     wing.dynamics_type == PARTICLE_DYNAMICS || error(
         "AeroPressure supports PARTICLE_DYNAMICS wings only; wing " *
         "$(wing.name) is $(wing.dynamics_type).")
-    require_vsm_engine(mode, wing)
-    isnothing(wing.origin) || transform_vsm_sections_to_body!(wing)
+    invoke(setup_aero!, Tuple{AbstractVSMAero, Any, Any, Any},
+           mode, wing, points, twist_surfaces; prn)
+    mode.section_left_strut, mode.section_left_weight,
+        mode.section_le_offset, mode.section_te_offset =
+        build_section_interp(wing.vsm_wing)
     build_station_point_map!(mode, wing, points; prn)
     init_pressure_buffers!(mode, wing)
     return nothing
@@ -381,9 +400,11 @@ end
 """
     validate_aero_structure(mode::AeroPressure, wing, points; prn=false)
 
-Check the surface→point map was built (i.e. [`setup_aero!`](@ref) ran).
+Check the generic section↔point mapping plus the surface→point traction map.
 """
 function validate_aero_structure(mode::AeroPressure, wing, points; prn=false)
+    invoke(validate_aero_structure, Tuple{AbstractVSMAero, Any, Any},
+           mode, wing, points; prn)
     isempty(mode.station_point) && error(
         "AeroPressure wing $(wing.idx): surface→point map not built.")
     prn && println("✓ AeroPressure wing $(wing.idx): " *
@@ -394,18 +415,17 @@ end
 """
     remake_aero!(mode::AeroPressure, wing, set, vsm_set, points, twist_surfaces)
 
-Rebuild the VSM objects from edited settings, re-transform to the body frame, and
-rebuild the surface→point map and frozen buffers/polars.
+Rebuild the VSM objects from edited settings via the generic particle remake
+(coarsen onto the structural stations, refine, rebuild `point_to_vsm_point`), then
+rebuild the strut-interpolation caches, surface→point map and frozen buffers/polars.
 """
 function remake_aero!(mode::AeroPressure, wing, set, vsm_set, points,
                       twist_surfaces)
-    vsm_set isa VortexStepMethod.VSMSettings || error(
-        "remake_aero!: AeroPressure wing $(wing.idx) needs a VSMSettings, " *
-        "got $(typeof(vsm_set)).")
-    wing.vsm_wing = create_vsm_wing(set, vsm_set; prn=false, sort_sections=false)
-    wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
-    wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero, vsm_set)
-    isnothing(wing.origin) || transform_vsm_sections_to_body!(wing)
+    invoke(remake_aero!, Tuple{AbstractVSMAero, Any, Any, Any, Any, Any},
+           mode, wing, set, vsm_set, points, twist_surfaces)
+    mode.section_left_strut, mode.section_left_weight,
+        mode.section_le_offset, mode.section_te_offset =
+        build_section_interp(wing.vsm_wing)
     build_station_point_map!(mode, wing, points)
     init_pressure_buffers!(mode, wing)
     return nothing
@@ -432,6 +452,7 @@ function refresh_particle_aero!(mode::AeroPressure, wing, points,
         fill!(mode.traction_net, 0.0)
         return nothing
     end
+    update_vsm_wing_from_structure!(wing, points)
     set_va!(wing.vsm_aero, wing.va_b, wing.ω_b)
     if !safe_vsm_solve!(wing.vsm_solver, wing.vsm_aero)
         throw(AssertionError("AeroPressure VSM solve failed (non-converged or " *
@@ -491,3 +512,8 @@ function freeze_traction_pattern!(mode::AeroPressure, wing)
     end
     return nothing
 end
+
+write_aero_log_points!(mode::AeroPressure, wing, sys_struct, sys_state,
+                       point_idx, zoom) =
+    write_live_aero_log_points!(mode, wing, sys_struct, sys_state,
+                                point_idx, zoom)

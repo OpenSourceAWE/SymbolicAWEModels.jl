@@ -1047,6 +1047,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
     for wing in wings
         corner_idx = read_aero_log_points!(wing.aero, wing, sys,
                                            sys_state, corner_idx)
+        restore_flap_delta!(wing.aero, wing, sys_state)
     end
 
     # Update global wind vector (only if wind_vec mode is active)

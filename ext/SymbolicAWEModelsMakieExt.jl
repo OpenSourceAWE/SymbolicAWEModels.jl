@@ -28,7 +28,7 @@ const PLOT_LAYERS = Ref{Union{Nothing, Dict{Symbol, Any}}}(nothing)
 const PLOT_SYSTEM_STRUCTURE = Ref{Union{Nothing, SystemStructure}}(nothing)
 const PLOT_VECTOR_SCALE = Ref{Float64}(1.0)
 const PLOT_FORCE_COLOR = Ref{Bool}(false)
-const PLOT_SEGMENT_COLOR = Ref{Symbol}(:black)
+const PLOT_SEGMENT_COLOR = Ref{RGBAf}(to_color(:black))
 const PLOT_ZOOMED_IN = Ref{Bool}(false)
 const PLOT_ZOOM_RELMARGIN = Ref{Float64}(0.2)
 const PLOT_ZOOM_SEGMENT_IDX = Ref{Int}(-1)  # Which segment we're zoomed into (-1 = none)
@@ -54,7 +54,7 @@ const PLOT_BODY_PREV_R = Ref{Union{Nothing, SMatrix{3, 3, Float32, 9}}}(nothing)
 World position of `wing` at log frame `k`, read from its dedicated
 slot appended after the structural points and panel corners in the
 `SysLog`. Older logs lack that slot; in that case fall back to the
-mean of the wing's `WING`-type structural points (or all points).
+mean of the wing's wing-node structural points (or all points).
 """
 function wing_log_pos(sl, sys, wing, k)
     i = SymbolicAWEModels.position_slots(sys).wings[wing.idx]
@@ -63,7 +63,7 @@ function wing_log_pos(sl, sys, wing, k)
             sl.X[k][i], sl.Y[k][i], sl.Z[k][i])
     end
     idxs = [p.idx for p in sys.points
-            if p.type == WING && p.wing_idx == wing.idx]
+            if p.is_wing_node && p.wing_idx == wing.idx]
     isempty(idxs) && (idxs = eachindex(sl.X[k]))
     return SVector{3, Float64}(
         mean(@view sl.X[k][idxs]),
@@ -107,19 +107,19 @@ end
 
 function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing,
         mode::SymbolicAWEModels.AbstractAeroModel;
-        use_observables=false, geometry_obs=nothing)
+        use_observables=false, geometry_obs=nothing, border_linewidth=1.5)
     return nothing
 end
 
 function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing,
         mode::SymbolicAWEModels.AbstractVSMAero;
-        use_observables=false, geometry_obs=nothing)
+        use_observables=false, geometry_obs=nothing, border_linewidth=1.5)
     return plot!(ax, mode.vsm_aero; R_b_w=wing.R_b_to_w,
-                 T_b_w=aero_plot_translation(wing), use_observables)
+                 T_b_w=aero_plot_translation(wing), use_observables, border_linewidth)
 end
 
 function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
-        use_observables=false, geometry_obs=nothing)
+        use_observables=false, geometry_obs=nothing, border_linewidth=1.5)
     quad_vertices() = [Point3f(corner)
         for twist_surface_idx in wing.twist_surface_idxs
         for corner in SymbolicAWEModels.plate_corners(
@@ -149,7 +149,7 @@ function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
     p = mesh!(ax, vertices, faces; color=(:red, 0.2), transparency=true)
     borders = animate ?
         @lift(quad_borders($vertices)) : quad_borders(initial)
-    lines!(ax, borders; color=:black, transparency=true)
+    lines!(ax, borders; color=:black, linewidth=border_linewidth, transparency=true)
     return p
 end
 
@@ -225,29 +225,213 @@ function body_joint_spokes(sys)
     return points
 end
 
+# Sub-cylinders per Timoshenko beam element, so its curved centerline reads as
+# a smooth tube. Elastic joints stay a single straight cylinder.
+const BEAM_CURVE_SEGMENTS = 12
+
+"""
+    beam_centerline(joint, sys) -> Vector{Point3f}
+
+World samples (`BEAM_CURVE_SEGMENTS + 1`) of a Timoshenko joint's deformed
+corotational cubic-Hermite centerline, so the drawn tube bends with the beam.
+Mirrors the `x_center` construction in `beam_hermite_ride_eqs`.
+"""
+function beam_centerline(joint, sys)
+    body_a = sys.bodies[joint.body_a_idx]
+    body_b = sys.bodies[joint.body_b_idx]
+    R_a = SymbolicAWEModels.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
+    R_b = SymbolicAWEModels.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
+    x_a = body_a.pos_w .+ R_a * joint.anchor_a_b
+    x_b = body_b.pos_w .+ R_b * joint.anchor_b_b
+    e1, e2, e3, beam_len =
+        SymbolicAWEModels.timoshenko_element_frame(x_a, x_b, R_a)
+    element_frame = [e1[1] e2[1] e3[1];
+                     e1[2] e2[2] e3[2];
+                     e1[3] e2[3] e3[3]]
+    Da = (element_frame' * R_a) * joint.R_a_rel0'
+    Db = (element_frame' * R_b) * joint.R_b_rel0'
+    θ_a = [0.5 * (Da[3, 2] - Da[2, 3]), 0.5 * (Da[1, 3] - Da[3, 1]),
+           0.5 * (Da[2, 1] - Da[1, 2])]
+    θ_b = [0.5 * (Db[3, 2] - Db[2, 3]), 0.5 * (Db[1, 3] - Db[3, 1]),
+           0.5 * (Db[2, 1] - Db[1, 2])]
+    samples = Point3f[]
+    for k in 0:BEAM_CURVE_SEGMENTS
+        sfrac = k / BEAM_CURVE_SEGMENTS
+        N2 = beam_len * (sfrac - 2sfrac^2 + sfrac^3)
+        N4 = beam_len * (-sfrac^2 + sfrac^3)
+        v_defl = N2 * θ_a[3] + N4 * θ_b[3]
+        w_defl = -(N2 * θ_a[2] + N4 * θ_b[2])
+        x_center = x_a .+ (sfrac * beam_len) .* e1 .+ v_defl .* e2 .+ w_defl .* e3
+        push!(samples, Point3f(x_center))
+    end
+    return samples
+end
+
 """
     beam_elements(sys) -> Vector{Tuple{Point3f, Point3f, Float32}}
 
-World endpoints and plot radius of every beam element whose joint has a `radius`
-set — each elastic or Timoshenko joint, from its body-A anchor to its body-B
-anchor. Joints with `radius === nothing` are skipped (not drawn). Used to draw
-the see-through beam tubes.
+World endpoints and plot radius of every drawn cylinder segment. An elastic joint
+is a pivot, so it contributes two straight segments meeting at the joint point
+(body-A origin → pivot → body-B origin), which kink as the bodies rotate about it.
+Timoshenko joints contribute `BEAM_CURVE_SEGMENTS` segments tracing their deformed
+Hermite centerline. Joints with `radius === nothing` are skipped. The segment
+count is fixed by the joint set, so observable-driven redraws keep a stable
+indexing.
 """
 function beam_elements(sys)
     elements = Tuple{Point3f, Point3f, Float32}[]
-    for joint in Iterators.flatten((sys.elastic_joints, sys.timoshenko_joints))
+    for joint in sys.elastic_joints
         joint.radius === nothing && continue
         body_a = sys.bodies[joint.body_a_idx]
         body_b = sys.bodies[joint.body_b_idx]
         R_a = SymbolicAWEModels.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
         R_b = SymbolicAWEModels.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
+        norm(body_b.pos_w .- body_a.pos_w) < 1e-9 && continue
         anchor_a_w = body_a.pos_w .+ R_a * joint.anchor_a_b
         anchor_b_w = body_b.pos_w .+ R_b * joint.anchor_b_b
-        norm(anchor_b_w .- anchor_a_w) < 1e-9 && continue
-        push!(elements, (Point3f(anchor_a_w), Point3f(anchor_b_w),
-                         Float32(joint.radius)))
+        pivot = Point3f(0.5 .* (anchor_a_w .+ anchor_b_w))
+        radius = Float32(joint.radius)
+        push!(elements, (Point3f(body_a.pos_w), pivot, radius))
+        push!(elements, (pivot, Point3f(body_b.pos_w), radius))
+    end
+    for joint in sys.timoshenko_joints
+        joint.radius === nothing && continue
+        radius = Float32(joint.radius)
+        samples = beam_centerline(joint, sys)
+        norm(samples[end] .- samples[1]) < 1e-9 && continue
+        for k in 1:length(samples) - 1
+            push!(elements, (samples[k], samples[k + 1], radius))
+        end
     end
     return elements
+end
+
+"""
+    segment_midpoints(sys) -> Vector{Point3f}
+
+World-frame midpoint of every segment, in `sys.segments` order.
+"""
+segment_midpoints(sys) = [Point3f(0.5 .* (sys.points[seg.point_idxs[1]].pos_w .+
+                                          sys.points[seg.point_idxs[2]].pos_w))
+                          for seg in sys.segments]
+
+"""
+    point_positions(sys) -> Vector{Point3f}
+
+World-frame position of every point, in `sys.points` order.
+"""
+point_positions(sys) = [Point3f(p.pos_w) for p in sys.points]
+
+"""
+    taper_reference(ax, sys, eye) -> Float32
+
+Reference distance for the depth taper: the camera's focal distance (eye → lookat),
+i.e. how far the camera is from what it is aimed at. Elements at that distance keep
+their base size while nearer ones thicken and farther ones thin, so the taper reads
+as true camera depth regardless of how the points are clustered. Falls back to the
+median point distance when no orbit camera exposes a `lookat`.
+"""
+function taper_reference(ax, sys, eye)
+    eye === nothing && return 1.0f0
+    try
+        lookat = Vec3f(Makie.cameracontrols(ax).lookat[])
+        focal = Float32(norm(eye .- lookat))
+        focal > 0 && return focal
+    catch
+    end
+    isempty(sys.points) && return 1.0f0
+    ref = Float32(median([norm(Point3f(p.pos_w) .- eye) for p in sys.points]))
+    return ref > 0 ? ref : 1.0f0
+end
+
+"""
+    camera_view_obs(ax) -> Observable
+
+The 3D camera's view-matrix observable for `ax`, which fires on every orbit / pan /
+zoom. Tapered-size observables depend on it so widths re-track the camera live, not
+only on playback frames. Returns an inert `Observable(nothing)` when `ax` has no
+such camera (e.g. a static `Axis3`).
+"""
+function camera_view_obs(ax)
+    try
+        return ax.camera.view
+    catch
+        return Observable(nothing)
+    end
+end
+
+"""
+    taper_sizes(positions, eye, ref, base, strength) -> Vector{Float32}
+
+Per-position draw size that shrinks with distance from the camera `eye` — further
+things render smaller. Size is `base · clamp((ref / dist)^strength, 0.15, 4.0)` with
+`ref` the shared scene reference from `taper_reference`, so `strength = 0` gives a
+constant `base`, `1` an inverse-distance falloff, and larger values a stronger
+taper. Falls back to a constant `base` when `eye === nothing` (camera not yet
+initialised). Shared by segment line widths, point marker sizes and panel widths.
+"""
+function taper_sizes(positions, eye, ref, base, strength)
+    isempty(positions) && return Float32[]
+    eye === nothing && return fill(Float32(base), length(positions))
+    return Float32[base * clamp((ref / norm(pos .- eye))^strength, 0.15, 4.0)
+                   for pos in positions]
+end
+
+"""
+    segment_taper_widths(midpoints, eye, ref, base, strength) -> Vector{Float32}
+
+`taper_sizes` for segments, each width duplicated to the two vertices a
+`linesegments!` list uses per segment.
+"""
+segment_taper_widths(midpoints, eye, ref, base, strength) =
+    repeat(taper_sizes(midpoints, eye, ref, base, strength); inner=2)
+
+"""
+    taper_width(pos, eye, ref, base, strength) -> Float32
+
+Scalar tapered size for a single world position `pos` (e.g. a whole wing's panel
+lines sized by the wing distance). Constant `base` when `eye === nothing`.
+"""
+taper_width(pos, eye, ref, base, strength) =
+    eye === nothing ? Float32(base) :
+    Float32(base * clamp((ref / norm(Point3f(pos) .- eye))^strength, 0.15, 4.0))
+
+"""
+    plot_eye(ax) -> Union{Vec3f, Nothing}
+
+Current camera eye position for `ax`, read live from its 3D camera controls so the
+depth taper follows playback from the first frame. Falls back to the stored
+`PLOT_WORLD_EYEPOS` (then `nothing`) when `ax` has no orbit camera (e.g. a static
+`Axis3`), in which case tapered elements render at their constant base size.
+"""
+function plot_eye(ax)
+    try
+        return Vec3f(Makie.cameracontrols(ax).eyeposition[])
+    catch
+        return PLOT_WORLD_EYEPOS[]
+    end
+end
+
+"""
+    wing_border_linewidth(ax, sys, wing, geometry_obs, base, strength)
+
+Depth-tapered line width for a wing's VSM panel borders and airfoil ribs, sized by
+the whole wing's camera distance so the panels thin with the rest of the scene.
+Returns the constant `base` when `strength == 0`, an observable that re-tapers each
+frame when `geometry_obs` is set, else a scalar.
+"""
+function wing_border_linewidth(ax, sys, wing, geometry_obs, base, strength)
+    iszero(strength) && return base
+    view_obs = camera_view_obs(ax)
+    isnothing(geometry_obs) || return @lift begin
+        $geometry_obs  # Trigger dependency
+        $view_obs  # Re-taper on camera move
+        sys_ref = PLOT_SYSTEM_STRUCTURE[]
+        eye = plot_eye(ax)
+        taper_width(wing.pos_w, eye, taper_reference(ax, sys_ref, eye), base, strength)
+    end
+    eye = plot_eye(ax)
+    return taper_width(wing.pos_w, eye, taper_reference(ax, sys, eye), base, strength)
 end
 
 """
@@ -291,7 +475,7 @@ function plot_frame_axes!(ax, plots, key, sys, n, frames_of, scale, geometry_obs
 end
 
 function Makie.plot!(ax, sys::SystemStructure;
-                     point_color = :darkred, segment_color = :black,
+                     point_color = :darkred, segment_color = RGBf(0.25, 0.25, 0.25),
                      wing_colors = Makie.wong_colors(), vector_scale = 1.0,
                      show_points = true, show_segments = true, show_orient = true,
                      show_body_frame = false, show_wing_frame = true,
@@ -307,12 +491,19 @@ function Makie.plot!(ax, sys::SystemStructure;
                      facets::Int = 8,
                      linewidth = 2,
                      point_size = 9,
+                     point_opacity = 1.0,
+                     segment_opacity = 1.0,
+                     segment_linewidth = linewidth,
+                     taper = 1.0,
                      beam_color = :blue,
                      beam_opacity = 0.15,
                      # Optional observable for real-time updates
                      geometry_obs = nothing)
 
     plots = Dict{Symbol, Any}()
+    # Camera view observable: taper widths re-track the camera on orbit, not only
+    # on playback frames.
+    taper_view_obs = camera_view_obs(ax)
 
     # === Plot Segments ===
     if show_segments && !isempty(sys.segments)
@@ -350,27 +541,58 @@ function Makie.plot!(ax, sys::SystemStructure;
             seg_colors = Observable(fill(to_color(segment_color), num_segments))
         end
 
+        if iszero(taper)
+            seg_linewidth = segment_linewidth
+        elseif isnothing(geometry_obs)
+            eye = plot_eye(ax)
+            seg_linewidth = segment_taper_widths(segment_midpoints(sys), eye,
+                taper_reference(ax, sys, eye), segment_linewidth, taper)
+        else
+            seg_linewidth = @lift begin
+                $geometry_obs  # Trigger dependency
+                $taper_view_obs  # Re-taper on camera move
+                sys_ref = PLOT_SYSTEM_STRUCTURE[]
+                eye = plot_eye(ax)
+                segment_taper_widths(segment_midpoints(sys_ref), eye,
+                    taper_reference(ax, sys_ref, eye), segment_linewidth, taper)
+            end
+        end
+
         plots[:segments] = linesegments!(ax, lineseg_points; color=seg_colors,
-                                         linewidth, transparency=true,
-                                         label="Segments")
+                                         linewidth=seg_linewidth, alpha=segment_opacity,
+                                         transparency=true, label="Segments")
         plots[:segment_colors_obs] = seg_colors
     end
 
     # === Plot Points ===
     if show_points
         if isnothing(geometry_obs)
-            # Static plotting
-            point_positions = [Point3f(p.pos_w) for p in sys.points]
+            point_pos = point_positions(sys)
         else
-            # Dynamic plotting: compute from PLOT_SYSTEM_STRUCTURE when triggered
-            point_positions = @lift begin
+            point_pos = @lift begin
                 $geometry_obs  # Trigger dependency
-                [Point3f(p.pos_w) for p in PLOT_SYSTEM_STRUCTURE[].points]
+                point_positions(PLOT_SYSTEM_STRUCTURE[])
             end
         end
-        plots[:points] = scatter!(ax, point_positions, color=point_color,
-                                  markersize=point_size, label="Points",
-                                  transparency=true)
+        if iszero(taper)
+            markersize = point_size
+        elseif isnothing(geometry_obs)
+            eye = plot_eye(ax)
+            markersize = taper_sizes(point_pos, eye, taper_reference(ax, sys, eye),
+                point_size, taper)
+        else
+            markersize = @lift begin
+                $geometry_obs  # Trigger dependency
+                $taper_view_obs  # Re-taper on camera move
+                sys_ref = PLOT_SYSTEM_STRUCTURE[]
+                eye = plot_eye(ax)
+                taper_sizes(point_positions(sys_ref), eye,
+                    taper_reference(ax, sys_ref, eye), point_size, taper)
+            end
+        end
+        plots[:points] = scatter!(ax, point_pos; color=point_color,
+                                  markersize=markersize, alpha=point_opacity,
+                                  label="Points", transparency=true)
     end
 
     # === Plot Rigid Bodies (standalone, e.g. a beam) ===
@@ -388,8 +610,25 @@ function Makie.plot!(ax, sys::SystemStructure;
             end
             spoke_colors = Observable(fill(to_color(RGBf(0.32, 0.32, 0.32)),
                                            length(spoke_body_indices(sys))))
+            if iszero(taper)
+                spoke_linewidth = linewidth
+            elseif isnothing(geometry_obs)
+                eye = plot_eye(ax)
+                spoke_linewidth = taper_sizes(spoke_points, eye,
+                    taper_reference(ax, sys, eye), linewidth, taper)
+            else
+                spoke_linewidth = @lift begin
+                    $geometry_obs  # Trigger dependency
+                    $taper_view_obs  # Re-taper on camera move
+                    sys_ref = PLOT_SYSTEM_STRUCTURE[]
+                    eye = plot_eye(ax)
+                    taper_sizes(body_joint_spokes(sys_ref), eye,
+                        taper_reference(ax, sys_ref, eye), linewidth, taper)
+                end
+            end
             plots[:body_chain] = linesegments!(ax, spoke_points; color=spoke_colors,
-                                               linewidth, label="Rigid bodies")
+                                               linewidth=spoke_linewidth,
+                                               label="Rigid bodies")
             plots[:body_chain_colors_obs] = spoke_colors
         end
 
@@ -434,8 +673,10 @@ function Makie.plot!(ax, sys::SystemStructure;
         plots[:vsm] = []
         use_obs = !isnothing(geometry_obs)
         for wing in sys.wings
+            border_lw = wing_border_linewidth(ax, sys, wing, geometry_obs,
+                segment_linewidth, taper)
             p = SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, wing.aero;
-                use_observables=use_obs, geometry_obs)
+                use_observables=use_obs, geometry_obs, border_linewidth=border_lw)
             isnothing(p) || push!(plots[:vsm], p)
         end
     end
@@ -447,9 +688,11 @@ function Makie.plot!(ax, sys::SystemStructure;
         for wing in sys.wings
             mode = wing.aero
             mode isa SymbolicAWEModels.AbstractVSMAero || continue
+            border_lw = wing_border_linewidth(ax, sys, wing, geometry_obs,
+                segment_linewidth, taper)
             p = plot!(ax, mode.vsm_aero; airfoils=true, R_b_w=wing.R_b_to_w,
                 T_b_w=aero_plot_translation(wing), use_observables=use_obs,
-                airfoil_color, airfoil_opacity)
+                airfoil_color, airfoil_opacity, border_linewidth=border_lw)
             isnothing(p) || append!(plots[:airfoils], p)
         end
     end
@@ -473,7 +716,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                     # For PARTICLE_DYNAMICS wings, plot both point forces and total wing force
                     # Plot individual point forces
                     for point in sys.points
-                        if point.type == WING && point.wing_idx == wing.idx
+                        if point.is_wing_node && point.wing_idx == wing.idx
                             if !iszero(point.aero_force_b)
                                 aero_force_w = wing.R_b_to_w * point.aero_force_b
                                 push!(aero_origins, Point3f(point.pos_w))
@@ -519,7 +762,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                         end
                     elseif wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS
                         for point in sys_ref.points
-                            if point.type == WING && point.wing_idx == wing.idx
+                            if point.is_wing_node && point.wing_idx == wing.idx
                                 if !iszero(point.aero_force_b)
                                     aero_force_w = wing.R_b_to_w * point.aero_force_b
                                     push!(origins, Point3f(point.pos_w))
@@ -2573,7 +2816,7 @@ end
 function plot_with_panes(sys::SystemStructure;
                     size = (1200, 800),
                     relmargin = 0.2,
-                    segment_color = :black,
+                    segment_color = RGBf(0.25, 0.25, 0.25),
                     highlight_color = :red,
                     force_color = false,
                     body_frame = false,
@@ -2640,7 +2883,7 @@ end
 function Makie.plot(sys::SystemStructure;
                     vector_scale=1.0,
                     force_color=false,
-                    segment_color=:black,
+                    segment_color=RGBf(0.25, 0.25, 0.25),
                     plot_aero=true,
                     relmargin=0.2,
                     body_frame=false,
@@ -2656,7 +2899,7 @@ function Makie.plot(sys::SystemStructure;
     PLOT_SYSTEM_STRUCTURE[] = sys
     PLOT_VECTOR_SCALE[] = vector_scale
     PLOT_FORCE_COLOR[] = force_color
-    PLOT_SEGMENT_COLOR[] = segment_color
+    PLOT_SEGMENT_COLOR[] = to_color(segment_color)
     PLOT_BODY_FRAME[] = body_frame
 
     # Create single geometry trigger observable
@@ -3677,7 +3920,7 @@ end
     plot_body_frame(sys_struct; extra_points=nothing, dir=:side)
 
 Plot wing points in 2D body frame coordinates.
-Updates pos_b for PARTICLE_DYNAMICS wing points and shows all WING-type points.
+Updates pos_b for PARTICLE_DYNAMICS wing points and shows all wing-node points.
 
 # Arguments
 - `sys_struct::SystemStructure`: System structure to plot
@@ -3707,8 +3950,8 @@ function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
         end
     end
 
-    # Collect WING points
-    wing_points = [p for p in points if p.type == SymbolicAWEModels.WING]
+    # Collect wing-node points
+    wing_points = [p for p in points if p.is_wing_node]
 
     # Extract coordinates and depth based on viewing direction
     # :front = looking in +x direction (shows y-z plane)
@@ -3865,7 +4108,7 @@ function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
                  marker=:cross)
     end
 
-    # Auto-zoom to fit all WING points with margin for labels
+    # Auto-zoom to fit all wing-node points with margin for labels
     if !isempty(x_vals)
         x_min, x_max = extrema(x_vals)
         y_min, y_max = extrema(y_vals)

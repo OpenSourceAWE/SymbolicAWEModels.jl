@@ -553,11 +553,9 @@ function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, points,
         compute_spatial_twist_surface_mapping!(wing, twist_surfaces, points)
     end
     if wing.dynamics_type == PARTICLE_DYNAMICS &&
-       !isnothing(wing.point_to_vsm_point)
-        wing_point_idxs = collect(keys(something(wing.point_to_vsm_point)))
-        wing_pts = [points[idx] for idx in wing_point_idxs]
+       !isnothing(wing.wing_segments)
         wing.point_to_vsm_point =
-            build_point_to_vsm_point_mapping(wing_pts, wing)
+            build_point_to_vsm_point_mapping(wing.wing_segments)
     end
     return nothing
 end
@@ -566,8 +564,9 @@ end
     validate_aero_structure(mode, wing, points; prn=false)
 
 Check structural invariants the mode's compiled equations rely on (run at build).
-Default no-op; VSM `PARTICLE_DYNAMICS` wings verify the structural↔panel point
-mapping exists, covers every WING point, and matches `2 × n_sections` points.
+Default no-op; VSM `PARTICLE_DYNAMICS` wings verify each unrefined section has its
+LE and TE structural point mapped (interior chord control points are allowed and
+need no mapping).
 """
 validate_aero_structure(::AbstractAeroModel, wing, points; prn=false) = nothing
 
@@ -575,15 +574,14 @@ function validate_aero_structure(::AbstractVSMAero, wing, points; prn=false)
     wing.dynamics_type == PARTICLE_DYNAMICS || return nothing
     @assert !isnothing(wing.point_to_vsm_point) "PARTICLE_DYNAMICS wing $(wing.idx) missing point_to_vsm_point mapping"
 
-    wing_point_idxs = [p.idx for p in points if p.is_wing_node && p.wing_idx == wing.idx]
-    for point_idx in wing_point_idxs
-        @assert haskey(wing.point_to_vsm_point, point_idx) "PARTICLE_DYNAMICS wing $(wing.idx) missing mapping for point $(point_idx)"
+    n_sections = length(wing.vsm_wing.unrefined_sections)
+    mapped = values(wing.point_to_vsm_point)
+    for section_idx in 1:n_sections, le_or_te in (:LE, :TE)
+        @assert (section_idx, le_or_te) in mapped "PARTICLE_DYNAMICS wing $(wing.idx): section $(section_idx) missing its $(le_or_te) point"
     end
 
-    n_sections = length(wing.vsm_wing.unrefined_sections)
-    @assert length(wing_point_idxs) == 2 * n_sections "PARTICLE_DYNAMICS wing $(wing.idx): expected $(2*n_sections) points for $(n_sections) sections, got $(length(wing_point_idxs))"
-
-    prn && println("✓ PARTICLE_DYNAMICS wing $(wing.idx) validated: $(length(wing_point_idxs)) points, $(n_sections) sections, $(length(wing.vsm_aero.panels)) panels")
+    n_wing_points = count(p -> p.is_wing_node && p.wing_idx == wing.idx, points)
+    prn && println("✓ PARTICLE_DYNAMICS wing $(wing.idx) validated: $(n_wing_points) points, $(n_sections) sections, $(length(wing.vsm_aero.panels)) panels")
     return nothing
 end
 
@@ -709,6 +707,174 @@ function init_aero_state!(mode::AbstractVSMAero, wing, va_b_init)
     return nothing
 end
 
+# ============ live refined-section geometry (shared by continuous modes) ========
+
+"""
+    build_section_interp(vsm_wing) -> (left, weight, le_offset, te_offset)
+
+Freeze the refined-section → unrefined-strut interpolation of `vsm_wing`: refined
+section `s` sits at `weight[s]·strut[left[s]] + (1−weight[s])·strut[left[s]+1]`.
+`le_offset`/`te_offset` (3 × n_sections) are each refined section's body-frame
+displacement off that straight strut line (nonzero only for `BILLOWING`). All are
+constants of the mesh, baked into the generated equations, so they enter the
+model-cache hash via each mode's `aero_hash_id`.
+"""
+function build_section_interp(vsm_wing)
+    n_panels = Int(vsm_wing.n_panels)
+    n_sections = n_panels + 1
+    n_struts = Int(vsm_wing.n_unrefined_sections)
+    n_struts >= 2 || error(
+        "continuous aero: need at least 2 unrefined sections, got $n_struts.")
+    left_raw = vsm_wing.refined_section_left_idx
+    weight_raw = vsm_wing.refined_section_weight
+    if length(left_raw) == n_sections && length(weight_raw) == n_sections
+        left = Int64.(left_raw)
+        weight = SimFloat.(weight_raw)
+    elseif n_struts == n_sections
+        left = [min(Int64(s), Int64(n_struts - 1)) for s in 1:n_sections]
+        weight = [s < n_sections ? 1.0 : 0.0 for s in 1:n_sections]
+    else
+        error("continuous aero: VSM wing has no refined-section interpolation " *
+              "cache ($(length(left_raw)) entries for $n_sections sections).")
+    end
+    le_offset = zeros(SimFloat, 3, n_sections)
+    te_offset = zeros(SimFloat, 3, n_sections)
+    refined = vsm_wing.refined_sections
+    unrefined = vsm_wing.unrefined_sections
+    if length(refined) == n_sections
+        for s in 1:n_sections
+            strut = left[s]
+            w = weight[s]
+            line_le = w .* unrefined[strut].LE_point .+
+                (1.0 - w) .* unrefined[strut + 1].LE_point
+            line_te = w .* unrefined[strut].TE_point .+
+                (1.0 - w) .* unrefined[strut + 1].TE_point
+            le_offset[:, s] .= refined[s].LE_point .- line_le
+            te_offset[:, s] .= refined[s].TE_point .- line_te
+        end
+    end
+    return left, weight, le_offset, te_offset
+end
+
+"""
+    section_interp_caches(mode) -> (left, weight, le_offset, te_offset)
+
+The frozen strut-interpolation caches a continuous mode stored via
+[`build_section_interp`](@ref).
+"""
+section_interp_caches(mode::AbstractVSMAero) =
+    (mode.section_left_strut, mode.section_left_weight,
+     mode.section_le_offset, mode.section_te_offset)
+
+"""
+    aero_section_columns(wing, points) -> Dict{Tuple{Int64,Symbol},Int}
+
+Map `(unrefined_section, :LE/:TE)` to the connector column (position in `points`)
+of the structural station point there, via `wing.point_to_vsm_point`. Interior
+chord control points (absent from the map) are skipped.
+"""
+function aero_section_columns(wing, points)
+    point_to_vsm = wing.point_to_vsm_point
+    isnothing(point_to_vsm) && error(
+        "continuous aero: wing $(wing.name) missing point_to_vsm_point mapping.")
+    column = Dict{Tuple{Int64, Symbol}, Int}()
+    for (k, point) in enumerate(points)
+        entry = get(point_to_vsm, point.idx, nothing)
+        entry === nothing && continue
+        column[entry] = k
+    end
+    return column
+end
+
+"""
+    interp_strut(values, left, weight, s)
+
+Refined section `s` from its two bounding struts:
+`weight[s]·values[left[s]] + (1−weight[s])·values[left[s]+1]`.
+"""
+interp_strut(values, left, weight, s) =
+    weight[s] .* values[left[s]] .+ (1.0 - weight[s]) .* values[left[s] + 1]
+
+"""
+    interp_sections(strut_le, strut_te, left, weight, le_offset, te_offset)
+        -> (sec_le, sec_te)
+
+Interpolate per-strut LE/TE positions to every refined section and add the frozen
+billow offset. Works on symbolic (from live connectors) or numeric (from `pos_w`)
+per-strut vectors alike.
+"""
+function interp_sections(strut_le, strut_te, left, weight, le_offset, te_offset)
+    n_sections = length(left)
+    sec_le = [interp_strut(strut_le, left, weight, s) .+ le_offset[:, s]
+              for s in 1:n_sections]
+    sec_te = [interp_strut(strut_te, left, weight, s) .+ te_offset[:, s]
+              for s in 1:n_sections]
+    return sec_le, sec_te
+end
+
+"""
+    reconstruct_sections_sym(mode, wing, points, connectors, column)
+        -> (sec_le, sec_te)
+
+Live symbolic body-frame LE/TE of every refined section: the strut LE/TE connector
+positions (`connectors.point_pos`, derived from world `pos`) interpolated by the
+frozen mesh weights plus the frozen billow offset. Shared by all continuous VSM
+modes so the force model and the plot use identical geometry.
+"""
+function reconstruct_sections_sym(mode, wing, points, connectors, column)
+    n_struts = Int(wing.vsm_wing.n_unrefined_sections)
+    strut_le = [collect(connectors.point_pos[:, column[(s, :LE)]])
+                for s in 1:n_struts]
+    strut_te = [collect(connectors.point_pos[:, column[(s, :TE)]])
+                for s in 1:n_struts]
+    left, weight, le_offset, te_offset = section_interp_caches(mode)
+    return interp_sections(strut_le, strut_te, left, weight, le_offset, te_offset)
+end
+
+"""
+    reconstruct_sections_b(mode, wing, points) -> (sec_le, sec_te)
+
+Numeric body-frame refined-section LE/TE from the live structural `pos_w`, exactly
+as [`reconstruct_sections_sym`](@ref) builds them symbolically. For plotting and
+logging so the drawn panels are the ones the dynamics use.
+"""
+function reconstruct_sections_b(mode, wing, points)
+    column = aero_section_columns(wing, points)
+    n_struts = Int(wing.vsm_wing.n_unrefined_sections)
+    rot_w_to_b = (wing.R_b_to_w::Matrix{SimFloat})'
+    strut_le = [rot_w_to_b * (points[column[(s, :LE)]].pos_w - wing.pos_w)
+                for s in 1:n_struts]
+    strut_te = [rot_w_to_b * (points[column[(s, :TE)]].pos_w - wing.pos_w)
+                for s in 1:n_struts]
+    left, weight, le_offset, te_offset = section_interp_caches(mode)
+    return interp_sections(strut_le, strut_te, left, weight, le_offset, te_offset)
+end
+
+"""
+    write_live_aero_log_points!(mode, wing, sys_struct, sys_state, point_idx, zoom)
+
+Log the panel corners the force model reconstructs (strut interpolation + frozen
+billow offset), not the raw VSM mesh, so the plot shows the deforming geometry the
+dynamics use. Shared by the continuous VSM modes.
+"""
+function write_live_aero_log_points!(mode, wing, sys_struct, sys_state,
+                                     point_idx, zoom)
+    points = wing_points(sys_struct, wing)
+    sec_le, sec_te = reconstruct_sections_b(mode, wing, points)
+    rot_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
+    n_panels = length(sec_le) - 1
+    for i in 1:n_panels
+        for corner_b in (sec_le[i], sec_te[i], sec_te[i + 1], sec_le[i + 1])
+            point_idx += 1
+            corner_w = wing.pos_w + rot_b_to_w * corner_b
+            sys_state.X[point_idx] = corner_w[1] * zoom
+            sys_state.Y[point_idx] = corner_w[2] * zoom
+            sys_state.Z[point_idx] = corner_w[3] * zoom
+        end
+    end
+    return point_idx
+end
+
 # ==================== logging / visualization hooks ==================== #
 
 """
@@ -729,7 +895,8 @@ n_aero_log_points(mode::AbstractVSMAero, wing) =
 Write the mode's log points (world frame, scaled by `zoom`) into
 `sys_state.X/Y/Z` starting after `point_idx`; return the last index written.
 Default writes nothing; VSM modes write the panel corners, [`AeroPlate`](@ref)
-writes each section's display quad.
+writes each section's display quad. Flap deflections are logged separately, per
+aero segment, into `sys_state.flap_angle` (see [`write_flap_deflections!`](@ref)).
 """
 write_aero_log_points!(::AbstractAeroModel, wing, sys_struct, sys_state,
                        point_idx, zoom) = point_idx
@@ -756,7 +923,8 @@ Inverse of [`write_aero_log_points!`](@ref): restore the mode's state from the
 logged points starting after `point_idx`; return the last index consumed (the
 slots must be skipped even when unused). Default consumes nothing; VSM
 `PARTICLE_DYNAMICS` modes read the panel corners back (rigid wings recompute
-panels from twist instead and only skip their slots).
+panels from twist instead and only skip their slots). Flap deflections are
+restored separately from `sys_state.flap_angle` (see [`restore_flap_delta!`](@ref)).
 """
 read_aero_log_points!(::AbstractAeroModel, wing, sys_struct, sys_state,
                       point_idx) = point_idx
@@ -802,6 +970,37 @@ function restore_aero_twist!(mode::AbstractVSMAero, wing, twist_surfaces)
     VortexStepMethod.reinit!(mode.vsm_aero; init_aero=false)
     return nothing
 end
+
+"""
+    n_flap_deflections(sys_struct) -> Int
+
+Number of aero segments logged in `SysState.flap_angle`: one flap deflection δ
+per twist_surface. Sets the `D` type parameter of the model's `SysState`.
+"""
+n_flap_deflections(sys_struct) = length(sys_struct.twist_surfaces)
+
+"""
+    write_flap_deflections!(sys_state, sys_struct)
+
+Write each twist_surface's flap deflection δ [rad] into `sys_state.flap_angle`
+(indexed by twist_surface `idx`, via [`twist_surface_deltas`](@ref)). No-op when
+the state carries no flap slots (`D == 0`).
+"""
+function write_flap_deflections!(sys_state, sys_struct)
+    isempty(sys_state.flap_angle) && return nothing
+    sys_state.flap_angle .= twist_surface_deltas(sys_struct)
+    return nothing
+end
+
+"""
+    restore_flap_delta!(mode, wing, sys_state)
+
+Restore each VSM panel's flap deflection `δ` from `sys_state.flap_angle` (mapped
+through the panel→twist_surface index) when loading a `SysState` frame, so a
+replayed frame shows the logged flap state. Default no-op; [`AeroPressure`](@ref)
+restores its `PARTICLE_DYNAMICS` panels.
+"""
+restore_flap_delta!(::AbstractAeroModel, wing, sys_state) = nothing
 
 # ==================== shared VSM numerics ==================== #
 
