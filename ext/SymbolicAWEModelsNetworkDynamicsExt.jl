@@ -729,12 +729,14 @@ end
 """
     point_body_damp(ss, point)
 
-The point's `body_frame_damping` coefficients if it is a DYNAMIC point on a
-`KINEMATIC` wing with a nonzero coefficient, else `nothing`.
+The point's `body_frame_damping` coefficients if it is a DYNAMIC wing node on a
+`KINEMATIC` wing with a nonzero coefficient, else `nothing`. Gated on
+`is_wing_node` to match the monolith, which only damps twist-surface members;
+steering/pulley points carry a `body_frame_damping` field but are not wing nodes.
 """
 function point_body_damp(ss, point)
-    (point.type == SAM.DYNAMIC && 0 < point.wing_idx <= length(ss.bodies)) ||
-        return nothing
+    (point.type == SAM.DYNAMIC && point.is_wing_node &&
+        0 < point.wing_idx <= length(ss.bodies)) || return nothing
     ss.bodies[point.wing_idx].type == SAM.KINEMATIC || return nothing
     bd = point.body_frame_damping
     (bd === nothing || all(iszero, bd)) && return nothing
