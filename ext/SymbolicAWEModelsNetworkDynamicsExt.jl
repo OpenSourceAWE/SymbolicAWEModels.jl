@@ -50,7 +50,6 @@ using Graphs
 using ModelingToolkit
 using ModelingToolkit: t_nounits as t, D_nounits as D
 using SymbolicIndexingInterface: setp
-using LinearAlgebra: cross
 
 const SAM = SymbolicAWEModels
 
@@ -198,222 +197,53 @@ end
 """
     network_pulley_point(s, params, idx; name)
 
-Dynamic pulley vertex: a particle (`pos`/`vel`) that additionally owns the pulley
-rope split `pulley_len`/`pulley_vel`. The aggregated `tension_in` is the imbalance
-`spring[seg1] − spring[seg2]` between its two incident segments (each emits its
-role-signed spring force), driving `D(pulley_vel) = tension_in/mass − damp·vel`.
-`pulley_len_out` exposes the split so the incident segments read it as their `l0`.
+Dynamic pulley vertex: the shared [`SAM.PulleyPoint`](@ref) wrapped as a network
+vertex, with the rope mass supplied by [`pulley_rope_mass`](@ref). The aggregated
+`tension_in` is the imbalance `spring[seg1] − spring[seg2]` between its two incident
+segments; `pulley_len_out` exposes the split so the incident segments read it as `l0`.
 """
-function network_pulley_point(s, params, idx; name)
-    vars, pos, vel, force, mass_in, tension_in, pulley_len_out = SAM.point_io()
-    extra = @variables pulley_len(t) pulley_vel(t)
-    append!(vars, extra)
-    pars = SAM.point_particle_params(params, idx)
-    pulley_mass = pulley_rope_mass(params, idx)
-    pulley_damp = SAM.make_param(:pulley_damp, 5.0)
-    eqs = [
-        SAM.dynamic_point_dynamics(s, pos, vel, force, pars.extra_mass + mass_in, pars);
-        D(pulley_len) ~ pulley_vel;
-        D(pulley_vel) ~ tension_in / pulley_mass - pulley_damp * pulley_vel;
-        pulley_len_out ~ pulley_len;
-    ]
-    return System(eqs, t, vars, [param_unknowns(params); pulley_damp]; name)
-end
-
-"""
-    wing_frame_columns(zp1, zp2, yp1, yp2)
-
-The particle-wing body→world rotation columns fitted from the four structural ref
-points, matching `wing_eqs.jl`: `z = normalize(zp2−zp1)`,
-`x = normalize(normalize(yp2−yp1) × z)`, `y = z × x`. Returns `(xaxis, yaxis,
-zaxis)`, each a 3-vector (the columns of `R_b_to_w`).
-"""
-function wing_frame_columns(zp1, zp2, yp1, yp2)
-    zaxis = SAM.smooth_normalize(zp2 .- zp1)
-    xaxis = SAM.smooth_normalize(cross(SAM.smooth_normalize(yp2 .- yp1), zaxis))
-    yaxis = cross(zaxis, xaxis)
-    return xaxis, yaxis, zaxis
-end
+network_pulley_point(s, params, idx; name) =
+    SAM.PulleyPoint(s, params, idx, pulley_rope_mass(params, idx); name)
 
 """
     BODY_DAMP_EXTIN
 
-The 15 external-input symbols a body-damped point reads: the four ref-point
-positions `zp1/zp2/yp1/yp2` (12) and the wing origin velocity `ovel` (3).
+The 15 external-input symbols a wing node reads: the four ref-point positions
+`zp1/zp2/yp1/yp2` (12) and the wing origin velocity `ovel` (3). Matches the input
+variable names of [`SAM.wing_node_inputs`](@ref); used to wire the NetworkDynamics
+`extin` for each wing node.
 """
 const BODY_DAMP_EXTIN = [
     :zp1x, :zp1y, :zp1z, :zp2x, :zp2y, :zp2z,
     :yp1x, :yp1y, :yp1z, :yp2x, :yp2y, :yp2z, :ovx, :ovy, :ovz]
 
 """
-    body_damp_inputs()
-
-The 15 scalar external-input variables ([`BODY_DAMP_EXTIN`]) a body-damped point
-reads from its wing's ref points. Returns `(ext, zp1, zp2, yp1, yp2, ovel)` with
-each ref point as a 3-vector of the input variables.
-"""
-function body_damp_inputs()
-    ext = @variables begin
-        zp1x(t), [input = true]; zp1y(t), [input = true]; zp1z(t), [input = true]
-        zp2x(t), [input = true]; zp2y(t), [input = true]; zp2z(t), [input = true]
-        yp1x(t), [input = true]; yp1y(t), [input = true]; yp1z(t), [input = true]
-        yp2x(t), [input = true]; yp2y(t), [input = true]; yp2z(t), [input = true]
-        ovx(t), [input = true]; ovy(t), [input = true]; ovz(t), [input = true]
-    end
-    (zp1x, zp1y, zp1z, zp2x, zp2y, zp2z, yp1x, yp1y, yp1z,
-     yp2x, yp2y, yp2z, ovx, ovy, ovz) = ext
-    return ext, [zp1x, zp1y, zp1z], [zp2x, zp2y, zp2z], [yp1x, yp1y, yp1z],
-           [yp2x, yp2y, yp2z], [ovx, ovy, ovz]
-end
-
-"""
-    wing_frame_rotation(zp1, zp2, yp1, yp2)
-
-The body→world rotation matrix `R_b_to_w` fitted from the four ref points, its
-columns given by [`wing_frame_columns`](@ref). Shared by the wing-node body-frame
-damping and the aero-force rotation.
-"""
-function wing_frame_rotation(zp1, zp2, yp1, yp2)
-    xaxis, yaxis, zaxis = wing_frame_columns(zp1, zp2, yp1, yp2)
-    return [xaxis[1] yaxis[1] zaxis[1];
-            xaxis[2] yaxis[2] zaxis[2];
-            xaxis[3] yaxis[3] zaxis[3]]
-end
-
-"""
-    body_frame_damp_accel(vel, body_damp, rot, ovel)
-
-The body-frame damping acceleration `R·(coeff ⊙ (Rᵀ·(vel − wing_vel)))`, with the
-wing frame `R = rot` ([`wing_frame_rotation`](@ref)) and the wing velocity taken
-as the origin velocity `ovel`.
-"""
-function body_frame_damp_accel(vel, body_damp, rot, ovel)
-    return rot * (collect(body_damp) .* (rot' * (collect(vel) .- ovel)))
-end
-
-"""
     network_wing_node_point(s, params, idx; name)
 
-A DYNAMIC particle belonging to a `KINEMATIC` wing (`is_wing_node`). It carries the
-wing's frozen per-point aero force `aero_force_b` (body frame, refreshed each VSM
-step) rotated to world by the fitted wing frame, plus an optional body-frame damping
-`body_frame_damping` of its velocity relative to the wing (`point_eqs.jl`'s
-`point_damping_accel`). The wing frame and wing velocity are read through
-NetworkDynamics external inputs from the wing's ref points ([`BODY_DAMP_EXTIN`]);
-the aero acceleration is added to and the damping subtracted from the shared
-`point_acceleration`. `body_frame_damping` defaults to zero for wing nodes without
-damping, so the same kernel serves aero-only nodes.
+A KINEMATIC wing node: the shared [`SAM.WingNodePoint`](@ref) wrapped as a network
+vertex. The wing frame and wing velocity it reads through [`SAM.wing_node_inputs`](@ref)
+are supplied via NetworkDynamics `extin` from the wing's ref points ([`BODY_DAMP_EXTIN`]).
 """
-function network_wing_node_point(s, params, idx; name)
-    vars, pos, vel, force, mass_in, _, pulley_len_out = SAM.point_io()
-    ext, zp1, zp2, yp1, yp2, ovel = body_damp_inputs()
-    append!(vars, ext)
-    pars = SAM.point_particle_params(params, idx)
-    point = params.points[idx]
-    mass = pars.extra_mass + mass_in
-    accel = SAM.point_acceleration(s, collect(pos), collect(vel), collect(force),
-        mass, pars.drag_coeff, pars.area,
-        collect(pars.world_damping), collect(pars.wind_gnd))
-    rot = wing_frame_rotation(zp1, zp2, yp1, yp2)
-    damp = body_frame_damp_accel(vel, point.body_frame_damping, rot, ovel)
-    aero = (rot * collect(point.aero_force_b)) ./ mass
-    eqs = [
-        D.(collect(pos)) .~ collect(vel);
-        D.(collect(vel)) .~ accel .+ aero .- damp;
-        pulley_len_out ~ 0.0;
-    ]
-    return System(eqs, t, vars, param_unknowns(params); name)
-end
+network_wing_node_point(s, params, idx; name) =
+    SAM.WingNodePoint(s, params, idx; name)
 
 """
     network_wing_node_pulley_point(s, params, idx; name)
 
-A dynamic pulley vertex (as [`network_pulley_point`](@ref)) that also belongs to a
-wing, carrying the frozen aero force and body-frame damping of
-[`network_wing_node_point`](@ref) read through [`BODY_DAMP_EXTIN`]. Used for pulley
-points that are also wing nodes.
+A pulley vertex that is also a wing node: the shared [`SAM.WingNodePulleyPoint`](@ref)
+wrapped as a network vertex, with the rope mass from [`pulley_rope_mass`](@ref).
 """
-function network_wing_node_pulley_point(s, params, idx; name)
-    vars, pos, vel, force, mass_in, tension_in, pulley_len_out = SAM.point_io()
-    extra = @variables pulley_len(t) pulley_vel(t)
-    ext, zp1, zp2, yp1, yp2, ovel = body_damp_inputs()
-    append!(vars, extra); append!(vars, ext)
-    pars = SAM.point_particle_params(params, idx)
-    point = params.points[idx]
-    pulley_mass = pulley_rope_mass(params, idx)
-    pulley_damp = SAM.make_param(:pulley_damp, 5.0)
-    mass = pars.extra_mass + mass_in
-    accel = SAM.point_acceleration(s, collect(pos), collect(vel), collect(force),
-        mass, pars.drag_coeff, pars.area,
-        collect(pars.world_damping), collect(pars.wind_gnd))
-    rot = wing_frame_rotation(zp1, zp2, yp1, yp2)
-    damp = body_frame_damp_accel(vel, point.body_frame_damping, rot, ovel)
-    aero = (rot * collect(point.aero_force_b)) ./ mass
-    eqs = [
-        D.(collect(pos)) .~ collect(vel);
-        D.(collect(vel)) .~ accel .+ aero .- damp;
-        D(pulley_len) ~ pulley_vel;
-        D(pulley_vel) ~ tension_in / pulley_mass - pulley_damp * pulley_vel;
-        pulley_len_out ~ pulley_len;
-    ]
-    return System(eqs, t, vars,
-        [param_unknowns(params); pulley_damp]; name)
-end
+network_wing_node_pulley_point(s, params, idx; name) =
+    SAM.WingNodePulleyPoint(s, params, idx, pulley_rope_mass(params, idx); name)
 
 """
     network_winch_point(s, winch, winch_point; name)
 
-Reeling winch vertex at a `STATIC` winch point. Owns the motor speed `winch_vel`
-and one `tether_len` state per connected tether (`tether_len_1`, …). The winch
-motor law is `winch_component(winch.model, …)` reused verbatim with a fresh
-`ParamView` (drum parameters baked as defaults); it reads the summed tether
-tension `smooth_norm(tension_in)`, the mean tether length, the control `set_value`
-and the `brake`, and returns the drum acceleration `acc`. Integrates
-`D(winch_vel) = brake·0 + acc` and `D(tether_len_k) = brake·0 + winch_vel`; each
-`tether_len_k` is read by that tether's segments through an `extin`.
+Reeling winch vertex: the shared [`SAM.WinchPoint`](@ref) wrapped as a network vertex.
+Each `tether_len_k` state is read by that tether's segments through an `extin`.
 """
-function network_winch_point(s, winch, winch_point; name)
-    winch_point.type == SAM.STATIC || error(
-        "NetworkBackend: winch $(winch.name) is at a non-STATIC point; only " *
-        "STATIC winch points are supported so far.")
-    n_tethers = length(winch.tether_idxs)
-    vars, pos, vel, _, _, tension_in, pulley_len_out = SAM.point_io()
-    winch_vel, winch_force = @variables winch_vel(t) winch_force(t)
-    tether_lens = map(1:n_tethers) do k
-        nm = Symbol(:tether_len_, k)
-        only(@variables $nm(t))
-    end
-    append!(vars, [winch_vel, winch_force])
-    append!(vars, tether_lens)
-    pos_w = SAM.make_array_param(:pos_w, zeros(3))
-    set_value = SAM.make_param(:set_value, 0.0)
-    brake = SAM.make_param(:brake, 0.0)
-    speed_controlled = SAM.make_param(:speed_controlled, 0.0)
-    pars = [pos_w, set_value, brake, speed_controlled]
-
-    view = SAM.ParamView(SAM.ParamRegistry(s.sys_struct))
-    motor = SAM.winch_component(winch.model, s.sys_struct, winch.idx;
-                                name = :motor, params = view)
-    SAM.validate_winch_component(motor, winch)
-    winch_acc = ifelse(speed_controlled > 0.5, 0.0, motor.acc)
-
-    eqs = [
-        collect(pos) .~ collect(pos_w);
-        collect(vel) .~ zeros(3);
-        pulley_len_out ~ 0.0;
-        winch_force ~ SAM.smooth_norm(tension_in);
-        motor.vel ~ winch_vel;
-        motor.len ~ sum(tether_lens) / n_tethers;
-        motor.force ~ winch_force;
-        motor.set_value ~ set_value;
-        motor.brake ~ brake;
-        D(winch_vel) ~ ifelse(brake > 0.5, 0.0, winch_acc);
-    ]
-    for tl in tether_lens
-        push!(eqs, D(tl) ~ ifelse(brake > 0.5, 0.0, winch_vel))
-    end
-    return System(eqs, t, vars, pars; name, systems = [motor])
-end
+network_winch_point(s, winch, winch_point; name) =
+    SAM.WinchPoint(s, winch, winch_point; name)
 
 # ======================= edge Systems ======================= #
 

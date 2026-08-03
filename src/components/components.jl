@@ -300,3 +300,235 @@ function SpringDamperSegment(s, params, idx; name)
     eqs = endpoint_load_eqs(io, force_on_src, force_on_dst, half_mass, 0.0, 0.0)
     return System(eqs, t, vars, param_unknowns(params); name)
 end
+
+"""
+    pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley_damp,
+                     pulley_len_out)
+
+The rope-split dynamics a pulley vertex owns on top of its particle motion:
+`D(pulley_len)=pulley_vel`, `D(pulley_vel)=tension_in/pulley_mass − pulley_damp·vel`
+(the aggregated `tension_in` being `spring[seg1] − spring[seg2]`), and
+`pulley_len_out=pulley_len` exposed so the incident segments read it as their `l0`.
+Shared by [`PulleyPoint`](@ref) and [`WingNodePulleyPoint`](@ref).
+"""
+function pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley_damp,
+                          pulley_len_out)
+    return [
+        D(pulley_len) ~ pulley_vel;
+        D(pulley_vel) ~ tension_in / pulley_mass - pulley_damp * pulley_vel;
+        pulley_len_out ~ pulley_len;
+    ]
+end
+
+"""
+    PulleyPoint(s, params, idx, pulley_mass; name)
+
+Dynamic pulley vertex: a particle ([`DynamicPoint`](@ref) motion) that additionally
+owns the pulley rope split ([`pulley_split_eqs`](@ref)). `pulley_mass` is the rope
+mass driving the split acceleration (supplied by the assembly, which knows the pulley
+topology). Its `pulley_damp` is a fixed default parameter.
+"""
+function PulleyPoint(s, params, idx, pulley_mass; name)
+    vars, pos, vel, force_in, mass_in, tension_in, pulley_len_out = point_io()
+    extra = @variables pulley_len(t) pulley_vel(t)
+    append!(vars, extra)
+    pars = point_particle_params(params, idx)
+    pulley_damp = make_param(:pulley_damp, 5.0)
+    eqs = [
+        dynamic_point_dynamics(s, pos, vel, force_in, pars.extra_mass + mass_in, pars);
+        pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley_damp,
+                         pulley_len_out);
+    ]
+    return System(eqs, t, vars, [param_unknowns(params); pulley_damp]; name)
+end
+
+"""
+    wing_frame_columns(zp1, zp2, yp1, yp2)
+
+The particle-wing body→world rotation columns fitted from the four structural ref
+points, matching `wing_eqs.jl`: `z = normalize(zp2−zp1)`,
+`x = normalize(normalize(yp2−yp1) × z)`, `y = z × x`. Returns `(xaxis, yaxis,
+zaxis)`, each a 3-vector (the columns of `R_b_to_w`).
+"""
+function wing_frame_columns(zp1, zp2, yp1, yp2)
+    zaxis = smooth_normalize(zp2 .- zp1)
+    xaxis = smooth_normalize(smooth_normalize(yp2 .- yp1) × zaxis)
+    yaxis = zaxis × xaxis
+    return xaxis, yaxis, zaxis
+end
+
+"""
+    wing_frame_rotation(zp1, zp2, yp1, yp2)
+
+The body→world rotation matrix `R_b_to_w` fitted from the four ref points, its columns
+given by [`wing_frame_columns`](@ref). Shared by the wing-node body-frame damping and
+the frozen aero-force rotation.
+"""
+function wing_frame_rotation(zp1, zp2, yp1, yp2)
+    xaxis, yaxis, zaxis = wing_frame_columns(zp1, zp2, yp1, yp2)
+    return [xaxis[1] yaxis[1] zaxis[1];
+            xaxis[2] yaxis[2] zaxis[2];
+            xaxis[3] yaxis[3] zaxis[3]]
+end
+
+"""
+    body_frame_damp_accel(vel, body_damp, rot, ovel)
+
+The body-frame damping acceleration `R·(coeff ⊙ (Rᵀ·(vel − wing_vel)))`, with the
+wing frame `R = rot` ([`wing_frame_rotation`](@ref)) and the wing velocity taken as
+the origin velocity `ovel`.
+"""
+function body_frame_damp_accel(vel, body_damp, rot, ovel)
+    return rot * (collect(body_damp) .* (rot' * (collect(vel) .- ovel)))
+end
+
+"""
+    wing_node_inputs()
+
+The 15 external-input variables a wing node reads from its wing's ref points: the four
+ref-point positions `zp1/zp2/yp1/yp2` (12) and the wing origin velocity `ovel` (3),
+all as scalar `[input = true]` variables. Both backends supply them — the network
+through NetworkDynamics `extin`, the monolith through equations wired to the wing
+frame. Returns `(ext, zp1, zp2, yp1, yp2, ovel)` with each ref point a 3-vector.
+"""
+function wing_node_inputs()
+    ext = @variables begin
+        zp1x(t), [input = true]; zp1y(t), [input = true]; zp1z(t), [input = true]
+        zp2x(t), [input = true]; zp2y(t), [input = true]; zp2z(t), [input = true]
+        yp1x(t), [input = true]; yp1y(t), [input = true]; yp1z(t), [input = true]
+        yp2x(t), [input = true]; yp2y(t), [input = true]; yp2z(t), [input = true]
+        ovx(t), [input = true]; ovy(t), [input = true]; ovz(t), [input = true]
+    end
+    (zp1x, zp1y, zp1z, zp2x, zp2y, zp2z, yp1x, yp1y, yp1z,
+     yp2x, yp2y, yp2z, ovx, ovy, ovz) = ext
+    return ext, [zp1x, zp1y, zp1z], [zp2x, zp2y, zp2z], [yp1x, yp1y, yp1z],
+           [yp2x, yp2y, yp2z], [ovx, ovy, ovz]
+end
+
+"""
+    wing_node_extra_accel(point, rot, ovel, vel, mass)
+
+The extra acceleration a KINEMATIC wing node adds on top of the shared
+[`point_acceleration`](@ref): its frozen per-point aero force `aero_force_b` (body
+frame, refreshed each VSM step) rotated to world by the fitted wing frame `rot`, minus
+the body-frame damping ([`body_frame_damp_accel`](@ref)). Returns the world-frame
+acceleration vector `aero − damp`.
+"""
+function wing_node_extra_accel(point, rot, ovel, vel, mass)
+    damp = body_frame_damp_accel(vel, point.body_frame_damping, rot, ovel)
+    aero = (rot * collect(point.aero_force_b)) ./ mass
+    return aero .- damp
+end
+
+"""
+    WingNodePoint(s, params, idx; name)
+
+A DYNAMIC particle belonging to a `KINEMATIC` wing (`is_wing_node`): the shared
+[`DynamicPoint`](@ref) motion plus [`wing_node_extra_accel`](@ref) (frozen aero +
+body-frame damping). The wing frame and wing velocity are read through the shared
+[`wing_node_inputs`](@ref) (the network supplies them via `extin`). The same kernel
+serves aero-only nodes, whose `body_frame_damping` defaults to zero.
+"""
+function WingNodePoint(s, params, idx; name)
+    vars, pos, vel, force_in, mass_in, _, pulley_len_out = point_io()
+    ext, zp1, zp2, yp1, yp2, ovel = wing_node_inputs()
+    append!(vars, ext)
+    pars = point_particle_params(params, idx)
+    point = params.points[idx]
+    mass = pars.extra_mass + mass_in
+    accel = point_acceleration(s, collect(pos), collect(vel), collect(force_in),
+        mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
+        collect(pars.wind_gnd))
+    rot = wing_frame_rotation(zp1, zp2, yp1, yp2)
+    eqs = [
+        D.(collect(pos)) .~ collect(vel);
+        D.(collect(vel)) .~ accel .+ wing_node_extra_accel(point, rot, ovel, vel, mass);
+        pulley_len_out ~ 0.0;
+    ]
+    return System(eqs, t, vars, param_unknowns(params); name)
+end
+
+"""
+    WingNodePulleyPoint(s, params, idx, pulley_mass; name)
+
+A dynamic pulley vertex ([`PulleyPoint`](@ref)) that also belongs to a `KINEMATIC`
+wing, carrying the frozen aero force and body-frame damping of [`WingNodePoint`](@ref).
+Used for pulley points that are also wing nodes.
+"""
+function WingNodePulleyPoint(s, params, idx, pulley_mass; name)
+    vars, pos, vel, force_in, mass_in, tension_in, pulley_len_out = point_io()
+    extra = @variables pulley_len(t) pulley_vel(t)
+    ext, zp1, zp2, yp1, yp2, ovel = wing_node_inputs()
+    append!(vars, extra); append!(vars, ext)
+    pars = point_particle_params(params, idx)
+    point = params.points[idx]
+    pulley_damp = make_param(:pulley_damp, 5.0)
+    mass = pars.extra_mass + mass_in
+    accel = point_acceleration(s, collect(pos), collect(vel), collect(force_in),
+        mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
+        collect(pars.wind_gnd))
+    rot = wing_frame_rotation(zp1, zp2, yp1, yp2)
+    eqs = [
+        D.(collect(pos)) .~ collect(vel);
+        D.(collect(vel)) .~ accel .+ wing_node_extra_accel(point, rot, ovel, vel, mass);
+        pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley_damp,
+                         pulley_len_out);
+    ]
+    return System(eqs, t, vars, [param_unknowns(params); pulley_damp]; name)
+end
+
+"""
+    WinchPoint(s, winch, winch_point; name)
+
+Reeling winch vertex at a `STATIC` winch point. Owns the motor speed `winch_vel` and
+one `tether_len` state per connected tether (`tether_len_1`, …). The winch motor law
+is `winch_component(winch.model, …)` reused verbatim with a fresh `ParamView` (drum
+parameters baked as defaults); it reads the summed tether tension
+`smooth_norm(tension_in)`, the mean tether length, the control `set_value` and the
+`brake`, and returns the drum acceleration `acc`. Integrates
+`D(winch_vel) = brake·0 + acc` and `D(tether_len_k) = brake·0 + winch_vel`; each
+`tether_len_k` is read by that tether's segments (the network wires it through an
+`extin`).
+"""
+function WinchPoint(s, winch, winch_point; name)
+    winch_point.type == STATIC || error(
+        "NetworkBackend: winch $(winch.name) is at a non-STATIC point; only " *
+        "STATIC winch points are supported so far.")
+    n_tethers = length(winch.tether_idxs)
+    vars, pos, vel, _, _, tension_in, pulley_len_out = point_io()
+    winch_vel, winch_force = @variables winch_vel(t) winch_force(t)
+    tether_lens = map(1:n_tethers) do k
+        nm = Symbol(:tether_len_, k)
+        only(@variables $nm(t))
+    end
+    append!(vars, [winch_vel, winch_force])
+    append!(vars, tether_lens)
+    pos_w = make_array_param(:pos_w, zeros(3))
+    set_value = make_param(:set_value, 0.0)
+    brake = make_param(:brake, 0.0)
+    speed_controlled = make_param(:speed_controlled, 0.0)
+    pars = [pos_w, set_value, brake, speed_controlled]
+
+    view = ParamView(ParamRegistry(s.sys_struct))
+    motor = winch_component(winch.model, s.sys_struct, winch.idx;
+                            name = :motor, params = view)
+    validate_winch_component(motor, winch)
+    winch_acc = ifelse(speed_controlled > 0.5, 0.0, motor.acc)
+
+    eqs = [
+        collect(pos) .~ collect(pos_w);
+        collect(vel) .~ zeros(3);
+        pulley_len_out ~ 0.0;
+        winch_force ~ smooth_norm(tension_in);
+        motor.vel ~ winch_vel;
+        motor.len ~ sum(tether_lens) / n_tethers;
+        motor.force ~ winch_force;
+        motor.set_value ~ set_value;
+        motor.brake ~ brake;
+        D(winch_vel) ~ ifelse(brake > 0.5, 0.0, winch_acc);
+    ]
+    for tl in tether_lens
+        push!(eqs, D(tl) ~ ifelse(brake > 0.5, 0.0, winch_vel))
+    end
+    return System(eqs, t, vars, pars; name, systems = [motor])
+end

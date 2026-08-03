@@ -83,6 +83,16 @@ SymbolicAWEModels.ground_wind_vec
 SymbolicAWEModels.DynamicPoint
 SymbolicAWEModels.StaticPoint
 SymbolicAWEModels.SpringDamperSegment
+SymbolicAWEModels.pulley_split_eqs
+SymbolicAWEModels.PulleyPoint
+SymbolicAWEModels.wing_frame_columns
+SymbolicAWEModels.wing_frame_rotation
+SymbolicAWEModels.body_frame_damp_accel
+SymbolicAWEModels.wing_node_inputs
+SymbolicAWEModels.wing_node_extra_accel
+SymbolicAWEModels.WingNodePoint
+SymbolicAWEModels.WingNodePulleyPoint
+SymbolicAWEModels.WinchPoint
 ```
 
 ## Equations and system management
