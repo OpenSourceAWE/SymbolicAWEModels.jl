@@ -162,85 +162,21 @@ end
 # ======================= vertex Systems ======================= #
 
 """
-    point_particle_params(params, idx)
-
-The shared DYNAMIC-particle parameters read from `params.points[idx]` — mass, drag,
-area and world-frame damping as the point's own struct fields — plus the computed
-ground wind `wind_gnd`. Returns a named tuple consumed by
-[`dynamic_point_dynamics`](@ref); each read registers the parameter on `params`.
-"""
-function point_particle_params(params, idx)
-    point = params.points[idx]
-    wind_gnd = SAM.ground_wind_vec(params)
-    return (; extra_mass = point.extra_mass, drag_coeff = point.drag_coeff,
-            area = point.area, world_damping = point.world_frame_damping, wind_gnd)
-end
-
-"""
-    dynamic_point_dynamics(s, pos, vel, force, mass, pars)
-
-Shared body of the DYNAMIC point/pulley vertices: `D(pos)=vel` and
-`D(vel)=point_acceleration(...)` from the shared kernel, reading the vertex's
-drag/damping/wind parameters `pars` (a [`point_particle_params`](@ref) named tuple).
-"""
-function dynamic_point_dynamics(s, pos, vel, force, mass, pars)
-    accel = SAM.point_acceleration(s, collect(pos), collect(vel), collect(force),
-        mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
-        collect(pars.wind_gnd))
-    return [D.(collect(pos)) .~ collect(vel);
-            D.(collect(vel)) .~ accel]
-end
-
-"""
-    vertex_io()
-
-The uniform vertex input/output variables (states `pos`/`vel`, aggregated edge
-inputs `force_in`/`mass_in`/`tension_in`, and the `pulley_len_out` output), all as
-array-valued variables where they are 3-vectors. Returns `(vars, pos, vel,
-force_in, mass_in, tension_in, pulley_len_out)`.
-"""
-function vertex_io()
-    vars = @variables begin
-        pos(t)[1:3]
-        vel(t)[1:3]
-        pulley_len_out(t)
-        force_in(t)[1:3], [input = true]
-        mass_in(t), [input = true]
-        tension_in(t), [input = true]
-    end
-    return vars, pos, vel, force_in, mass_in, tension_in, pulley_len_out
-end
-
-"""
     network_dynamic_point(s, params, idx; name)
 
-Particle vertex `System`: states `pos`/`vel`, aggregated edge inputs, and
-`pulley_len_out = 0`. `D(vel)` comes from the shared `point_acceleration`.
+Particle vertex: the shared [`SAM.DynamicPoint`](@ref) component wrapped as a network
+vertex. Both backends assemble the identical component; the network wraps it as a
+`VertexModel`, the monolith `@named`-instantiates it.
 """
-function network_dynamic_point(s, params, idx; name)
-    vars, pos, vel, force, mass_in, _, pulley_len_out = vertex_io()
-    pars = point_particle_params(params, idx)
-    eqs = [dynamic_point_dynamics(s, pos, vel, force, pars.extra_mass + mass_in, pars);
-           pulley_len_out ~ 0.0]
-    return System(eqs, t, vars, param_unknowns(params); name)
-end
+network_dynamic_point(s, params, idx; name) = SAM.DynamicPoint(s, params, idx; name)
 
 """
     network_static_point(s, params, idx; name)
 
-Ground-anchored vertex `System`: `pos = pos_w`, `vel = 0`, `pulley_len_out = 0`.
-Declares (and ignores) the aggregated edge inputs so edges may deliver to it.
+Ground-anchored vertex: the shared [`SAM.StaticPoint`](@ref) component wrapped as a
+network vertex.
 """
-function network_static_point(s, params, idx; name)
-    vars, pos, vel, _, _, _, pulley_len_out = vertex_io()
-    pos_w = params.points[idx].pos_w
-    eqs = [
-        collect(pos) .~ collect(pos_w);
-        collect(vel) .~ zeros(3);
-        pulley_len_out ~ 0.0;
-    ]
-    return System(eqs, t, vars, param_unknowns(params); name)
-end
+network_static_point(s, params, idx; name) = SAM.StaticPoint(s, params, idx; name)
 
 """
     pulley_rope_mass(params, idx)
@@ -269,14 +205,14 @@ role-signed spring force), driving `D(pulley_vel) = tension_in/mass − damp·ve
 `pulley_len_out` exposes the split so the incident segments read it as their `l0`.
 """
 function network_pulley_point(s, params, idx; name)
-    vars, pos, vel, force, mass_in, tension_in, pulley_len_out = vertex_io()
+    vars, pos, vel, force, mass_in, tension_in, pulley_len_out = SAM.point_io()
     extra = @variables pulley_len(t) pulley_vel(t)
     append!(vars, extra)
-    pars = point_particle_params(params, idx)
+    pars = SAM.point_particle_params(params, idx)
     pulley_mass = pulley_rope_mass(params, idx)
     pulley_damp = SAM.make_param(:pulley_damp, 5.0)
     eqs = [
-        dynamic_point_dynamics(s, pos, vel, force, pars.extra_mass + mass_in, pars);
+        SAM.dynamic_point_dynamics(s, pos, vel, force, pars.extra_mass + mass_in, pars);
         D(pulley_len) ~ pulley_vel;
         D(pulley_vel) ~ tension_in / pulley_mass - pulley_damp * pulley_vel;
         pulley_len_out ~ pulley_len;
@@ -369,10 +305,10 @@ the aero acceleration is added to and the damping subtracted from the shared
 damping, so the same kernel serves aero-only nodes.
 """
 function network_wing_node_point(s, params, idx; name)
-    vars, pos, vel, force, mass_in, _, pulley_len_out = vertex_io()
+    vars, pos, vel, force, mass_in, _, pulley_len_out = SAM.point_io()
     ext, zp1, zp2, yp1, yp2, ovel = body_damp_inputs()
     append!(vars, ext)
-    pars = point_particle_params(params, idx)
+    pars = SAM.point_particle_params(params, idx)
     point = params.points[idx]
     mass = pars.extra_mass + mass_in
     accel = SAM.point_acceleration(s, collect(pos), collect(vel), collect(force),
@@ -398,11 +334,11 @@ wing, carrying the frozen aero force and body-frame damping of
 points that are also wing nodes.
 """
 function network_wing_node_pulley_point(s, params, idx; name)
-    vars, pos, vel, force, mass_in, tension_in, pulley_len_out = vertex_io()
+    vars, pos, vel, force, mass_in, tension_in, pulley_len_out = SAM.point_io()
     extra = @variables pulley_len(t) pulley_vel(t)
     ext, zp1, zp2, yp1, yp2, ovel = body_damp_inputs()
     append!(vars, extra); append!(vars, ext)
-    pars = point_particle_params(params, idx)
+    pars = SAM.point_particle_params(params, idx)
     point = params.points[idx]
     pulley_mass = pulley_rope_mass(params, idx)
     pulley_damp = SAM.make_param(:pulley_damp, 5.0)
@@ -441,7 +377,7 @@ function network_winch_point(s, winch, winch_point; name)
         "NetworkBackend: winch $(winch.name) is at a non-STATIC point; only " *
         "STATIC winch points are supported so far.")
     n_tethers = length(winch.tether_idxs)
-    vars, pos, vel, _, _, tension_in, pulley_len_out = vertex_io()
+    vars, pos, vel, _, _, tension_in, pulley_len_out = SAM.point_io()
     winch_vel, winch_force = @variables winch_vel(t) winch_force(t)
     tether_lens = map(1:n_tethers) do k
         nm = Symbol(:tether_len_, k)
@@ -482,104 +418,14 @@ end
 # ======================= edge Systems ======================= #
 
 """
-    edge_io()
-
-The uniform edge input/output variables: the src/dst vertex outputs read as inputs
-(`src_pos`/`src_vel`/`src_pulley_len`, likewise `dst_…`) and the endpoint loads
-written as outputs (`src_force`/`src_mass`/`src_tension`, likewise `dst_…`), all as
-array-valued variables where they are 3-vectors. Returns `(vars, src_pos, src_vel,
-src_pulley_len, dst_pos, dst_vel, dst_pulley_len, src_force, src_mass, src_tension,
-dst_force, dst_mass, dst_tension)`.
-"""
-function edge_io()
-    vars = @variables begin
-        src_pos(t)[1:3], [input = true]
-        src_vel(t)[1:3], [input = true]
-        src_pulley_len(t), [input = true]
-        dst_pos(t)[1:3], [input = true]
-        dst_vel(t)[1:3], [input = true]
-        dst_pulley_len(t), [input = true]
-        src_force(t)[1:3], [output = true]
-        src_mass(t), [output = true]
-        src_tension(t), [output = true]
-        dst_force(t)[1:3], [output = true]
-        dst_mass(t), [output = true]
-        dst_tension(t), [output = true]
-    end
-    return vars, src_pos, src_vel, src_pulley_len, dst_pos, dst_vel, dst_pulley_len,
-           src_force, src_mass, src_tension, dst_force, dst_mass, dst_tension
-end
-
-"""
-    segment_spring_params(params, idx)
-
-The spring-damper parameters read from `params.segments[idx]` (stiffness, damping,
-compression fraction, diameter, density as the segment's own struct fields), plus
-the global tether drag `cd_tether` (`params.set.cd_tether`) and ground wind
-`wind_gnd`. With `with_drag=false` (the [`SAM.wing_structural_segment`](@ref) edge)
-`cd_tether` is a literal `0` and unused. Returns `(spring_named, wind_gnd)`; each
-read registers the parameter on `params`.
-"""
-function segment_spring_params(params, idx; with_drag = true)
-    seg = params.segments[idx]
-    cd_tether = with_drag ? params.set.cd_tether : 0.0
-    wind_gnd = SAM.ground_wind_vec(params)
-    spring = (; unit_stiffness = seg.unit_stiffness, unit_damping = seg.unit_damping,
-              compression_frac = seg.compression_frac, diameter = seg.diameter,
-              density = seg.density, cd_tether)
-    return spring, wind_gnd
-end
-
-"""
-    segment_loads(s, io, l0, spring, wind)
-
-Compute the positive endpoint forces, half-mass and scalar spring tension from the
-shared `segment_endpoint_loads`, reading the array-valued endpoint states out of
-`io`. Returns `(fsrc, fdst, half, spring_scalar)`.
-"""
-function segment_loads(s, io, l0, spring, wind; with_drag = true)
-    (_, src_pos, src_vel, _, dst_pos, dst_vel, _) = io
-    return SAM.segment_endpoint_loads(
-        s, collect(src_pos), collect(src_vel), collect(dst_pos), collect(dst_vel),
-        spring.unit_stiffness, spring.unit_damping, spring.compression_frac, l0,
-        spring.diameter, spring.density, spring.cd_tether, collect(wind); with_drag)
-end
-
-"""
-    endpoint_load_eqs(io, fsrc, fdst, half, src_tension_val, dst_tension_val)
-
-Bind the edge output variables (`src_force`/`src_mass`/`src_tension`, `dst_…`) from
-the computed endpoint loads and the role-signed tensions to emit to each endpoint.
-"""
-function endpoint_load_eqs(io, fsrc, fdst, half, src_tension_val, dst_tension_val)
-    (_, _, _, _, _, _, _, src_force, src_mass, src_tension,
-     dst_force, dst_mass, dst_tension) = io
-    return [
-        collect(src_force) .~ fsrc;
-        src_mass ~ half; src_tension ~ src_tension_val;
-        collect(dst_force) .~ fdst;
-        dst_mass ~ half; dst_tension ~ dst_tension_val;
-    ]
-end
-
-"""
     network_segment(s, params, idx; name)
 
-Plain spring-damper edge with a frozen rest length `l0` (parameter). Emits zero
-tension (neither endpoint is a pulley/winch reader). A
-[`SAM.wing_structural_segment`](@ref) representative drops the drag term, giving the
-`:structural` edge kind its own drag-free compiled kernel (no `cd_tether`).
+Plain/structural spring-damper edge: the shared [`SAM.SpringDamperSegment`](@ref)
+component wrapped as a network edge. Emits zero tension (neither endpoint is a
+pulley/winch reader); a [`SAM.wing_structural_segment`](@ref) representative drops the
+drag term, giving the `:structural` edge kind its own drag-free compiled kernel.
 """
-function network_segment(s, params, idx; name)
-    io = edge_io()
-    vars = io[1]
-    with_drag = !SAM.wing_structural_segment(params.reg.sys_struct, idx)
-    spring, wind = segment_spring_params(params, idx; with_drag)
-    l0 = params.segments[idx].l0
-    fsrc, fdst, half, _ = segment_loads(s, io, l0, spring, wind; with_drag)
-    eqs = endpoint_load_eqs(io, fsrc, fdst, half, 0.0, 0.0)
-    return System(eqs, t, vars, param_unknowns(params); name)
-end
+network_segment(s, params, idx; name) = SAM.SpringDamperSegment(s, params, idx; name)
 
 """
     network_pulley_segment(s, params, idx; name)
@@ -591,18 +437,18 @@ pulley segment gets `l0 = pulley_len`, the second `l0 = sum_len − pulley_len`
 to the pulley endpoint so the pulley aggregates `spring[seg1] − spring[seg2]`.
 """
 function network_pulley_segment(s, params, idx; name)
-    io = edge_io()
+    io = SAM.segment_io()
     vars, _, _, src_pulley_len, _, _, dst_pulley_len = io
-    spring, wind = segment_spring_params(params, idx)
+    spring, wind = SAM.segment_spring_params(params, idx)
     pulley_sum_len = SAM.make_param(:pulley_sum_len, 1.0)
     pulley_side = SAM.make_param(:pulley_side, 1.0)
     pulley_at_src = SAM.make_param(:pulley_at_src, 0.0)
     endpoint_len = ifelse(pulley_at_src > 0.5, src_pulley_len, dst_pulley_len)
     l0 = ifelse(pulley_side > 0.0, endpoint_len, pulley_sum_len - endpoint_len)
-    fsrc, fdst, half, spring_scalar = segment_loads(s, io, l0, spring, wind)
+    fsrc, fdst, half, spring_scalar = SAM.segment_loads(s, io, l0, spring, wind)
     src_tension_val = ifelse(pulley_at_src > 0.5, pulley_side * spring_scalar, 0.0)
     dst_tension_val = ifelse(pulley_at_src > 0.5, 0.0, pulley_side * spring_scalar)
-    eqs = endpoint_load_eqs(io, fsrc, fdst, half, src_tension_val, dst_tension_val)
+    eqs = SAM.endpoint_load_eqs(io, fsrc, fdst, half, src_tension_val, dst_tension_val)
     return System(eqs, t, vars,
         [param_unknowns(params); pulley_sum_len; pulley_side; pulley_at_src]; name)
 end
@@ -617,17 +463,17 @@ read from the winch vertex. The tether segment incident to the winch point emits
 tension; every other tether segment emits zero.
 """
 function network_tether_segment(s, params, idx; name)
-    io = edge_io()
+    io = SAM.segment_io()
     vars = io[1]
     tether_len_ext = only(@variables tether_len_ext(t) [input = true])
     push!(vars, tether_len_ext)
-    spring, wind = segment_spring_params(params, idx)
+    spring, wind = SAM.segment_spring_params(params, idx)
     n_segs = SAM.make_param(:n_segs, 1.0)
     tension_sign_src = SAM.make_param(:tension_sign_src, 0.0)
     tension_sign_dst = SAM.make_param(:tension_sign_dst, 0.0)
     l0 = tether_len_ext / n_segs
-    fsrc, fdst, half, spring_scalar = segment_loads(s, io, l0, spring, wind)
-    eqs = endpoint_load_eqs(io, fsrc, fdst, half,
+    fsrc, fdst, half, spring_scalar = SAM.segment_loads(s, io, l0, spring, wind)
+    eqs = SAM.endpoint_load_eqs(io, fsrc, fdst, half,
         tension_sign_src * spring_scalar, tension_sign_dst * spring_scalar)
     return System(eqs, t, vars,
         [param_unknowns(params); n_segs; tension_sign_src; tension_sign_dst]; name)

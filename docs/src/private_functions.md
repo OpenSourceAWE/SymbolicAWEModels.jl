@@ -72,8 +72,13 @@ SymbolicAWEModels.segment_half_mass
 SymbolicAWEModels.point_io
 SymbolicAWEModels.segment_io
 SymbolicAWEModels.point_acceleration
+SymbolicAWEModels.point_particle_params
+SymbolicAWEModels.dynamic_point_dynamics
 SymbolicAWEModels.wing_structural_segment
 SymbolicAWEModels.segment_endpoint_loads
+SymbolicAWEModels.segment_spring_params
+SymbolicAWEModels.segment_loads
+SymbolicAWEModels.endpoint_load_eqs
 SymbolicAWEModels.ground_wind_vec
 SymbolicAWEModels.DynamicPoint
 SymbolicAWEModels.StaticPoint
