@@ -544,7 +544,8 @@ function init!(sam::SymbolicAWEModel;
         if !(sam.backend isa MonolithBackend)
             integrator = init_backend!(sam.backend, sam, solver;
                 adaptive, prn, reinit_sys, reset_vel, ignore_l0,
-                apply_tether_lengths, remake_vsm, reset_integrator, vsm_min_wind)
+                apply_tether_lengths, remake_vsm, reset_integrator, vsm_min_wind,
+                lin_vsm)
             prn && @info "$(sam.sys_struct.name) model initialized " *
                 "($(nameof(typeof(sam.backend))))."
             return integrator

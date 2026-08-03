@@ -985,12 +985,49 @@ end
 # ======================= state scatter ======================= #
 
 """
+    NetworkWingGeom
+
+The ref-point indices a PARTICLE_DYNAMICS wing needs so the state getter can
+reconstruct its kinematic state from the struct points (a KINEMATIC wing is fitted,
+not integrated): the four frame ref points (`zp1`/`zp2`/`yp1`/`yp2`), the origin, and
+the aero points that need per-point `va_b`.
+"""
+struct NetworkWingGeom
+    wing::Any
+    zp1::Int; zp2::Int; yp1::Int; yp2::Int; origin::Int
+    aero_points::Vector{Int}
+end
+
+"""
+    network_wing_geoms(ss)
+
+One [`NetworkWingGeom`](@ref) per PARTICLE_DYNAMICS wing, resolving its ref-point
+indices ([`ref_single_id`](@ref)) and aero points (its `is_wing_node` points) once at
+build so the state getter can call [`SAM.wing_kinematics_from_points!`](@ref).
+"""
+function network_wing_geoms(ss)
+    geoms = NetworkWingGeom[]
+    for wing in ss.wings
+        wing.dynamics_type == SAM.PARTICLE_DYNAMICS || continue
+        aero_pts = [i for (i, p) in enumerate(ss.points)
+                    if p.is_wing_node && p.wing_idx == wing.idx]
+        push!(geoms, NetworkWingGeom(wing,
+            ref_single_id(wing.z_ref_points[1]), ref_single_id(wing.z_ref_points[2]),
+            ref_single_id(wing.y_ref_points[1]), ref_single_id(wing.y_ref_points[2]),
+            ref_single_id(wing.origin), aero_pts))
+    end
+    return geoms
+end
+
+"""
     NetworkStateGetter(nw, sys_struct, meta)
 
 Callable that scatters the ND integrator state back into the `SystemStructure`,
 mirroring the monolith's `get_all_state`: each `DYNAMIC` point's `pos_w`/`vel_w`,
-each pulley's `len`/`vel`, and each winch's `vel`/`force`/`set_value` and its
-tethers' `len`.
+each pulley's `len`/`vel`, each winch's `vel`/`force`/`set_value` and its tethers'
+`len`, and each PARTICLE_DYNAMICS wing's reconstructed kinematics
+([`SAM.wing_kinematics_from_points!`](@ref)) so `refresh_aero!` sees fresh apparent
+wind — the network's stand-in for the monolith's symbolic `va_point_b`.
 """
 struct NetworkStateGetter{NW}
     nw::NW
@@ -998,6 +1035,7 @@ struct NetworkStateGetter{NW}
     pulley_idxs::Vector{Tuple{Int, Int}}
     winch_idxs::Vector{Tuple{Int, Int}}
     winch_tethers::Dict{Int, Vector{Int}}
+    wing_geoms::Vector{NetworkWingGeom}
 end
 
 function NetworkStateGetter(nw, ss, meta)
@@ -1005,7 +1043,7 @@ function NetworkStateGetter(nw, ss, meta)
     pulley_idxs = [(pulley_point_idx(ss, p), p.idx) for p in ss.pulleys]
     winch_idxs = [(w.winch_point_idx, w.idx) for w in ss.winches]
     return NetworkStateGetter(nw, dyn_idxs, pulley_idxs, winch_idxs,
-                              meta.winch_tethers)
+                              meta.winch_tethers, network_wing_geoms(ss))
 end
 
 function (g::NetworkStateGetter)(integ, ss)
@@ -1017,6 +1055,11 @@ function (g::NetworkStateGetter)(integ, ss)
             point.pos_w[k] = s.v[i, Symbol(:pos_, k)]
             point.vel_w[k] = s.v[i, Symbol(:vel_, k)]
         end
+    end
+    for wg in g.wing_geoms
+        SAM.wing_kinematics_from_points!(wg.wing, points, ss.set, ss.am;
+            zp1 = wg.zp1, zp2 = wg.zp2, yp1 = wg.yp1, yp2 = wg.yp2,
+            origin = wg.origin, aero_points = wg.aero_points)
     end
     for (vi, pidx) in g.pulley_idxs
         pulley = ss.pulleys[pidx]
@@ -1081,14 +1124,14 @@ end
 function SAM.init_backend!(::SAM.NetworkBackend, sam, solver;
         adaptive = true, prn = true, reinit_sys = true, reset_vel = true,
         ignore_l0 = false, apply_tether_lengths = true, remake_vsm = true,
-        reset_integrator = true, vsm_min_wind = 0.5)
+        reset_integrator = true, vsm_min_wind = 0.5, lin_vsm = true)
     if reinit_sys
         SAM.reinit!(sam.sys_struct, sam.set;
             ignore_l0, remake_vsm, reset_vel, apply_tether_lengths, prn)
     end
     SAM.build_prob!(SAM.NetworkBackend(), sam; prn)
     integrator, _ = SAM.reinit!(sam, sam.prob, solver;
-        adaptive, reset_integrator, lin_vsm = false, vsm_min_wind, prn)
+        adaptive, reset_integrator, lin_vsm, vsm_min_wind, prn)
     return integrator
 end
 

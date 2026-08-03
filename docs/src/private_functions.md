@@ -116,6 +116,7 @@ SymbolicAWEModels.aero_eqs!
 SymbolicAWEModels.point_eqs!
 SymbolicAWEModels.segment_eqs!
 SymbolicAWEModels.refresh_aero!
+SymbolicAWEModels.wing_kinematics_from_points!
 SymbolicAWEModels.sync_aero_density!
 SymbolicAWEModels.jacobian
 SymbolicAWEModels.load_serialized_model!
