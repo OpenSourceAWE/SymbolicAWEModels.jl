@@ -679,8 +679,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
-    isempty(points) &&
-        error("No points found in YAML file $(yaml_path).")
+    isempty(points) && !haskey(data, "bodies") &&
+        error("No points or bodies found in YAML file $(yaml_path).")
 
     # Build property tables for reference resolution: materials, old-style
     # `elements`, and `segment_properties` (kept for backward compatibility).

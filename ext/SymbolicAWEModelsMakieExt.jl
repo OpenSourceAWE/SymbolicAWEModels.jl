@@ -36,6 +36,7 @@ const PLOT_ZOOM_BODY_IDX = Ref{Int}(-1)     # Which rigid body we're zoomed into
 const PLOT_BODY_FRAME = Ref{Bool}(false)  # Whether body frame tracking is active
 const PLOT_CAMERA_DISTANCE = Ref{Union{Nothing, Float64}}(nothing)  # Stored camera distance
 const PLOT_CAMERA_PAN = Ref{NTuple{3, Float64}}((1.0, 0.0, 0.0))  # (zoom, pan_horizontal, pan_vertical)
+const PLOT_CAMERA_TILT = Ref{NTuple{2, Float64}}((0.0, 0.0))  # body-frame view tilt (horizontal, vertical) in degrees
 const PLOT_PREV_BODY_FRAME = Ref{Bool}(false)  # Previous body frame state
 const PLOT_PREV_ZOOMED_IN = Ref{Bool}(false)  # Previous zoomed state
 const PLOT_PREV_SEGMENT_IDX = Ref{Int}(-1)  # Previous segment index
@@ -107,19 +108,23 @@ end
 
 function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing,
         mode::SymbolicAWEModels.AbstractAeroModel;
-        use_observables=false, geometry_obs=nothing, border_linewidth=1.5)
+        use_observables=false, geometry_obs=nothing, border_linewidth=1.5,
+        transparency=true)
     return nothing
 end
 
 function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing,
         mode::SymbolicAWEModels.AbstractVSMAero;
-        use_observables=false, geometry_obs=nothing, border_linewidth=1.5)
+        use_observables=false, geometry_obs=nothing, border_linewidth=1.5,
+        transparency=true)
     return plot!(ax, mode.vsm_aero; R_b_w=wing.R_b_to_w,
-                 T_b_w=aero_plot_translation(wing), use_observables, border_linewidth)
+                 T_b_w=aero_plot_translation(wing), use_observables, border_linewidth,
+                 transparency)
 end
 
 function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
-        use_observables=false, geometry_obs=nothing, border_linewidth=1.5)
+        use_observables=false, geometry_obs=nothing, border_linewidth=1.5,
+        transparency=true)
     quad_vertices() = [Point3f(corner)
         for twist_surface_idx in wing.twist_surface_idxs
         for corner in SymbolicAWEModels.plate_corners(
@@ -146,10 +151,10 @@ function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
     animate = use_observables && !isnothing(geometry_obs)
     vertices = animate ?
         @lift(begin; $geometry_obs; quad_vertices(); end) : initial
-    p = mesh!(ax, vertices, faces; color=(:red, 0.2), transparency=true)
+    p = mesh!(ax, vertices, faces; color=(:red, 0.2), transparency)
     borders = animate ?
         @lift(quad_borders($vertices)) : quad_borders(initial)
-    lines!(ax, borders; color=:black, linewidth=border_linewidth, transparency=true)
+    lines!(ax, borders; color=:black, linewidth=border_linewidth, transparency)
     return p
 end
 
@@ -170,6 +175,91 @@ aero pose.
 """
 aero_plot_translation(wing) =
     wing.pos_w .- wing.R_b_to_w * [0.0, 0.0, wing.aero_z_offset]
+
+"""
+    aero_mapping_segments(sys) -> (segments, receivers, line_groups, receiver_ids)
+
+World-frame geometry of the `AeroPressure` build-time coupling map: one
+`(surface_node, receiver_point)` pair per mapped airfoil contour node — the contour
+node lofted from `loft_contour_node` and transformed with the same pose as the drawn
+panels ([`aero_plot_translation`](@ref)) — plus the unique structural `WING` receiver
+positions. `segments` is a flat `Point3f` vector (endpoint pairs, for
+`linesegments!`); `line_groups` is the receiver point index each line maps to (one per
+line, for per-group coloring) and `receiver_ids` the sorted unique receiver indices
+matching `receivers`. Empty when no wing uses `AeroPressure`.
+"""
+function aero_mapping_segments(sys)
+    segments = Point3f[]
+    line_groups = Int[]
+    point_by_idx = Dict(p.idx => p for p in sys.points)
+    for wing in sys.wings
+        mode = wing.aero
+        mode isa SymbolicAWEModels.AeroPressure || continue
+        isempty(mode.station_point) && continue
+        translation = aero_plot_translation(wing)
+        for (i, panel) in enumerate(wing.vsm_aero.panels)
+            panel.section_aero === nothing && continue
+            xc, yc, _, _ = VortexStepMethod.section_surface(
+                panel.section_aero, 0.0, panel.delta)
+            assigned = mode.station_point[i]
+            for k in eachindex(xc)
+                node_b = SymbolicAWEModels.loft_contour_node(panel, xc, yc, k)
+                node_w = translation .+ wing.R_b_to_w * node_b
+                receiver = point_by_idx[assigned[k]]
+                push!(segments, Point3f(node_w...))
+                push!(segments, Point3f(receiver.pos_w...))
+                push!(line_groups, assigned[k])
+            end
+        end
+    end
+    receiver_ids = sort!(unique(line_groups))
+    receivers = [Point3f(point_by_idx[i].pos_w...) for i in receiver_ids]
+    return segments, receivers, line_groups, receiver_ids
+end
+
+"""
+    aero_mapping_overlay!(ax, sys; colormap, alpha, linewidth, receiver_color,
+                          receiver_size, show, transparency) -> plots
+
+Draw the `AeroPressure` surface→receiver mapping onto `ax`: a line from each airfoil
+surface node to its matched `WING` receiver (colored per receiver node from
+`colormap`, `alpha`), and the receiver points. `show` sets initial visibility; press
+`m` in an interactive window to toggle. Returns `(lines, receivers)` plots, or
+`nothing` when the model has no `AeroPressure` wing. Used by `plot(sys; aero_mapping=true)`.
+"""
+function aero_mapping_overlay!(ax, sys; colormap=:turbo, alpha=0.7, linewidth=1.0,
+                               receiver_color=:red, receiver_size=10, show=true,
+                               transparency=true)
+    segments, receivers, line_groups, receiver_ids = aero_mapping_segments(sys)
+    if isempty(segments)
+        @warn "aero_mapping=true but the model has no AeroPressure wing " *
+              "(build with aero_mode=AeroPressure()); overlay skipped."
+        return nothing
+    end
+    group_of = Dict(id => k for (k, id) in enumerate(receiver_ids))
+    palette = Makie.resample_cmap(colormap, max(length(receiver_ids), 2))
+    ## linesegments! colors are per-vertex, so each line's color is pushed twice.
+    vertex_colors = RGBAf[]
+    for g in line_groups
+        c = palette[group_of[g]]
+        col = RGBAf(c.r, c.g, c.b, alpha)
+        push!(vertex_colors, col, col)
+    end
+    map_lines = linesegments!(ax, segments; color=vertex_colors, linewidth, transparency)
+    map_pts = scatter!(ax, receivers; color=receiver_color, markersize=receiver_size,
+                       transparency)
+    map_lines.visible[] = show
+    map_pts.visible[] = show
+    on(events(ax).keyboardbutton) do event
+        if event.action == Keyboard.press && event.key == Keyboard.m
+            vis = !map_lines.visible[]
+            map_lines.visible[] = vis
+            map_pts.visible[] = vis
+        end
+        return Consume(false)
+    end
+    return (lines=map_lines, receivers=map_pts)
+end
 
 """
     body_frame_arrows(frames, scale)
@@ -304,6 +394,50 @@ function beam_elements(sys)
         end
     end
     return elements
+end
+
+"""
+    tube_rotation(dir) -> Quaternionf
+
+Quaternion rotating local +z onto `normalize(dir)`, for orienting a unit-cylinder
+`meshscatter` marker. Identity when `dir` is near-zero or already +z; a 180° flip
+about x when anti-parallel. Roll is irrelevant since the marker is axisymmetric.
+"""
+function tube_rotation(dir)
+    len = norm(dir)
+    len < 1f-9 && return Quaternionf(0, 0, 0, 1)
+    v = dir ./ len
+    axis = cross(Vec3f(0, 0, 1), Vec3f(v))
+    s = norm(axis)
+    c = clamp(Float32(v[3]), -1f0, 1f0)
+    s < 1f-9 && return c > 0 ? Quaternionf(0, 0, 0, 1) : Quaternionf(1, 0, 0, 0)
+    axis = axis ./ s
+    half = atan(s, c) / 2
+    return Quaternionf(axis[1] * sin(half), axis[2] * sin(half),
+                       axis[3] * sin(half), cos(half))
+end
+
+"""
+    beam_tube_instances(elements) -> (positions, rotations, sizes)
+
+Instance attributes for drawing every beam element as one instanced
+`meshscatter` of a unit cylinder (local +z, radius 1, length 1): base anchor as
+`positions`, `tube_rotation` of the axis as `rotations`, and `Vec3f(r, r, length)`
+as `sizes`. Reproduces the old per-element `Cylinder(a, b, r)` geometry exactly.
+"""
+function beam_tube_instances(elements)
+    n = length(elements)
+    positions = Vector{Point3f}(undef, n)
+    rotations = Vector{Quaternionf}(undef, n)
+    sizes = Vector{Vec3f}(undef, n)
+    for i in 1:n
+        a, b, radius = elements[i]
+        axis = b .- a
+        positions[i] = a
+        rotations[i] = tube_rotation(axis)
+        sizes[i] = Vec3f(radius, radius, norm(axis))
+    end
+    return positions, rotations, sizes
 end
 
 """
@@ -479,9 +613,14 @@ function Makie.plot!(ax, sys::SystemStructure;
                      wing_colors = Makie.wong_colors(), vector_scale = 1.0,
                      show_points = true, show_segments = true, show_orient = true,
                      show_body_frame = false, show_wing_frame = true,
+                     show_beams = true,
                      force_color = false,
                      plot_vsm = false, plot_aero = true, plot_airfoils = true,
                      airfoil_color = :deepskyblue, airfoil_opacity = 0.2,
+                     aero_mapping = false,
+                     aero_mapping_colormap = :turbo, aero_mapping_alpha = 0.7,
+                     aero_mapping_linewidth = 1.0, show_aero_mapping = true,
+                     receiver_color = :red, receiver_size = 10,
                      extra_points = nothing,
                      extra_groups = nothing,
                      mesh = nothing,
@@ -497,6 +636,9 @@ function Makie.plot!(ax, sys::SystemStructure;
                      taper = 1.0,
                      beam_color = :blue,
                      beam_opacity = 0.15,
+                     # Single lever to switch order-independent transparency (OIT)
+                     # on/off across every layer at once; `false` is much faster.
+                     transparency = true,
                      # Optional observable for real-time updates
                      geometry_obs = nothing)
 
@@ -560,7 +702,7 @@ function Makie.plot!(ax, sys::SystemStructure;
 
         plots[:segments] = linesegments!(ax, lineseg_points; color=seg_colors,
                                          linewidth=seg_linewidth, alpha=segment_opacity,
-                                         transparency=true, label="Segments")
+                                         transparency, label="Segments")
         plots[:segment_colors_obs] = seg_colors
     end
 
@@ -592,7 +734,7 @@ function Makie.plot!(ax, sys::SystemStructure;
         end
         plots[:points] = scatter!(ax, point_pos; color=point_color,
                                   markersize=markersize, alpha=point_opacity,
-                                  label="Points", transparency=true)
+                                  label="Points", transparency)
     end
 
     # === Plot Rigid Bodies (standalone, e.g. a beam) ===
@@ -632,25 +774,24 @@ function Makie.plot!(ax, sys::SystemStructure;
             plots[:body_chain_colors_obs] = spoke_colors
         end
 
-        # See-through tube per beam element (elastic + Timoshenko joints).
-        if !isempty(sys.elastic_joints) || !isempty(sys.timoshenko_joints)
+        # See-through tube per beam element (elastic + Timoshenko joints), drawn as
+        # one instanced meshscatter of a unit cylinder so the whole beam is a single
+        # GPU-instanced draw call instead of one re-tessellated mesh per element.
+        if show_beams && (!isempty(sys.elastic_joints) || !isempty(sys.timoshenko_joints))
             tube_color = (beam_color, beam_opacity)
-            plots[:beam_tubes] = []
+            tube_marker = Cylinder(Point3f(0, 0, 0), Point3f(0, 0, 1), 1f0)
             if isnothing(geometry_obs)
-                for (anchor_a, anchor_b, radius) in beam_elements(sys)
-                    push!(plots[:beam_tubes], mesh!(ax, Cylinder(anchor_a, anchor_b,
-                        radius); color=tube_color, transparency=true))
-                end
+                positions, rotations, sizes = beam_tube_instances(beam_elements(sys))
+                plots[:beam_tubes] = meshscatter!(ax, positions; marker=tube_marker,
+                    markersize=sizes, rotation=rotations, color=tube_color, transparency)
             else
-                elements_obs = @lift begin
+                instances = @lift begin
                     $geometry_obs  # Trigger dependency
-                    beam_elements(PLOT_SYSTEM_STRUCTURE[])
+                    beam_tube_instances(beam_elements(PLOT_SYSTEM_STRUCTURE[]))
                 end
-                for element_i in eachindex(beam_elements(sys))
-                    cylinder = @lift Cylinder($elements_obs[element_i]...)
-                    push!(plots[:beam_tubes], mesh!(ax, cylinder;
-                        color=tube_color, transparency=true))
-                end
+                plots[:beam_tubes] = meshscatter!(ax, (@lift $instances[1]);
+                    marker=tube_marker, markersize=(@lift $instances[3]),
+                    rotation=(@lift $instances[2]), color=tube_color, transparency)
             end
         end
 
@@ -676,7 +817,8 @@ function Makie.plot!(ax, sys::SystemStructure;
             border_lw = wing_border_linewidth(ax, sys, wing, geometry_obs,
                 segment_linewidth, taper)
             p = SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, wing.aero;
-                use_observables=use_obs, geometry_obs, border_linewidth=border_lw)
+                use_observables=use_obs, geometry_obs, border_linewidth=border_lw,
+                transparency)
             isnothing(p) || push!(plots[:vsm], p)
         end
     end
@@ -692,7 +834,8 @@ function Makie.plot!(ax, sys::SystemStructure;
                 segment_linewidth, taper)
             p = plot!(ax, mode.vsm_aero; airfoils=true, R_b_w=wing.R_b_to_w,
                 T_b_w=aero_plot_translation(wing), use_observables=use_obs,
-                airfoil_color, airfoil_opacity, border_linewidth=border_lw)
+                airfoil_color, airfoil_opacity, border_linewidth=border_lw,
+                transparency)
             isnothing(p) || append!(plots[:airfoils], p)
         end
     end
@@ -847,7 +990,7 @@ function Makie.plot!(ax, sys::SystemStructure;
         end
         plots[:mesh] = mesh!(ax, transformed_mesh;
                             color=(:lightblue, 0.3),
-                            transparency=true)
+                            transparency)
     end
 
     # === Plot Extra Points (e.g., from external CSV) ===
@@ -861,14 +1004,24 @@ function Makie.plot!(ax, sys::SystemStructure;
                     p1 = extra_positions[indices[i]]
                     p2 = extra_positions[indices[i+1]]
                     lines!(ax, [p1[1], p2[1]], [p1[2], p2[2]], [p1[3], p2[3]];
-                           color=(:blue, 0.6), linewidth=2, transparency=true)
+                           color=(:blue, 0.6), linewidth=2, transparency)
                 end
             end
         end
 
         plots[:extra_points] = scatter!(ax, extra_positions, color=:blue,
                                         markersize=10, label="Extra Points",
-                                        transparency=true)
+                                        transparency)
+    end
+
+    if aero_mapping
+        overlay = aero_mapping_overlay!(ax, sys; colormap=aero_mapping_colormap,
+            alpha=aero_mapping_alpha, linewidth=aero_mapping_linewidth,
+            receiver_color, receiver_size, show=show_aero_mapping, transparency)
+        if overlay !== nothing
+            plots[:aero_mapping_lines] = overlay.lines
+            plots[:aero_mapping_receivers] = overlay.receivers
+        end
     end
 
     return plots
@@ -2383,12 +2536,41 @@ function zoom_body_frame!(scene, cam, sys, distance=nothing)
     # cam_dir is the target->eye direction: in front of the kite (−body x).
     cam_dir = Vec3f(-R_b_w[:, 1])
     up = Vec3f(R_b_w[:, 3])
+    cam_dir, up = tilt_body_view(cam_dir, up, Vec3f(R_b_w[:, 2]), PLOT_CAMERA_TILT[])
     offset = pan_world_offset(cam_dir, up)
     kite = Vec3f(kite_pos)
 
     update_cam!(scene, kite + cam_dir * distance + offset, kite + offset, up)
 
     return distance
+end
+
+"""
+    rotate_about(v, axis, angle) -> Vec3f
+
+Rotate `v` about the unit `axis` by `angle` radians (Rodrigues formula).
+"""
+function rotate_about(v, axis, angle)
+    c, s = cos(angle), sin(angle)
+    return Vec3f(v .* c .+ cross(axis, v) .* s .+ axis .* (dot(axis, v) * (1 - c)))
+end
+
+"""
+    tilt_body_view(cam_dir, up, right, (tilt_h, tilt_v)) -> (cam_dir, up)
+
+Rotate the body-frame view direction by `tilt_h` degrees about the up axis
+(horizontal orbit) and `tilt_v` degrees about the tilted right axis (vertical
+orbit), so a saved body-frame figure can be shown from any angle. Returns the
+unchanged inputs when both tilts are zero.
+"""
+function tilt_body_view(cam_dir, up, right, tilt)
+    tilt_h, tilt_v = tilt
+    (tilt_h == 0 && tilt_v == 0) && return cam_dir, up
+    th, tv = deg2rad(tilt_h), deg2rad(tilt_v)
+    right_h = rotate_about(right, up, th)
+    cam_dir = rotate_about(rotate_about(cam_dir, up, th), right_h, tv)
+    up = rotate_about(up, right_h, tv)
+    return normalize(cam_dir), normalize(up)
 end
 
 function get_cam_eyepos(cam)
@@ -2847,11 +3029,17 @@ function plot_with_panes(sys::SystemStructure;
     # Standalone rigid bodies (so the camera frames a body-only scene, e.g. a beam)
     haskey(plots, :body_chain) && push!(relevant_plots, plots[:body_chain])
     haskey(plots, :bodies) && push!(relevant_plots, plots[:bodies])
-    # Beam tubes and airfoil skin, so a beam-only or airfoil-only scene still frames.
+    # Beam tubes (single instanced plot) and airfoil skin (vector), so a beam-only
+    # or airfoil-only scene still frames.
     for key in (:beam_tubes, :airfoils)
         haskey(plots, key) || continue
-        for layer_plot in plots[key]
-            layer_plot isa AbstractPlot && push!(relevant_plots, layer_plot)
+        layer = plots[key]
+        if layer isa AbstractArray
+            for layer_plot in layer
+                layer_plot isa AbstractPlot && push!(relevant_plots, layer_plot)
+            end
+        elseif layer isa AbstractPlot
+            push!(relevant_plots, layer)
         end
     end
 
@@ -2886,15 +3074,21 @@ function Makie.plot(sys::SystemStructure;
                     segment_color=RGBf(0.25, 0.25, 0.25),
                     plot_aero=true,
                     relmargin=0.2,
-                    body_frame=false,
+                    body_frame=nothing,
                     zoom=1.0,
                     pan_horizontal=0.0,
                     pan_vertical=0.0,
+                    tilt_horizontal=0.0,
+                    tilt_vertical=0.0,
                     extra_points=nothing,
                     extra_groups=nothing,
                     mesh=nothing,
                     kwargs...)
+    ## aero_mapping defaults the camera to the wing body frame.
+    aero_mapping = get(kwargs, :aero_mapping, false)
+    body_frame = body_frame === nothing ? aero_mapping : body_frame
     PLOT_CAMERA_PAN[] = (Float64(zoom), Float64(pan_horizontal), Float64(pan_vertical))
+    PLOT_CAMERA_TILT[] = (Float64(tilt_horizontal), Float64(tilt_vertical))
     # Store SystemStructure globally FIRST so @lift expressions can access it
     PLOT_SYSTEM_STRUCTURE[] = sys
     PLOT_VECTOR_SCALE[] = vector_scale
@@ -2946,6 +3140,11 @@ function Makie.plot(sys::SystemStructure;
     PLOT_PREV_SEGMENT_IDX[] = -1
     PLOT_WORLD_EYEPOS[] = nothing
     PLOT_WORLD_LOOKAT[] = nothing
+
+    ## A saved figure needs the body-frame camera applied now, not on first event.
+    if aero_mapping && body_frame
+        apply_zoom_mode!(scene, relevant_plots, sys; mode_changed=true)
+    end
 
     return scene
 end
@@ -3712,6 +3911,7 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
                       show_beam=true,
                       show_panels=false,
                       show_airfoils=true,
+                      transparency=true,
                       kwargs...)
 
     n_frames = length(lg.syslog)
@@ -3725,7 +3925,8 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     passthrough = filter(pair -> !(pair.first in
         (:plot_vsm, :plot_airfoils, :show_body_frame, :show_wing_frame)), kwargs)
     scene = plot(sys; vector_scale, plot_vsm=true, plot_airfoils=true,
-                 show_body_frame=true, show_wing_frame=true, passthrough...)
+                 show_body_frame=true, show_wing_frame=true, transparency,
+                 passthrough...)
 
     # Define callbacks for UI controls
     function update_frame!(idx)
