@@ -5,7 +5,7 @@ using PackageCompiler
 
 # --- Julia Standard Library & General Utilities ---
 using Pkg, TOML, DocStringExtensions, LinearAlgebra, Parameters, Printf, Serialization, SHA,
-      CodecZlib, Tar, Statistics, Suppressor, Timers, GLMakie
+      CodecZlib, Tar, Statistics, Suppressor, Timers, GLMakie, MakieControlPlots
 
 # --- Numerical, Modeling & Scientific Computing ---
 using ModelingToolkit, ControlSystemsBase, RecipesBase, StaticArrays, SymbolicIndexingInterface
@@ -71,7 +71,7 @@ end
 
 @info "Creating sysimage ..."
 PackageCompiler.create_sysimage(
-    [:Pkg, :TOML, :DocStringExtensions, :LinearAlgebra, :Parameters, :Printf, :Serialization, :SHA, :CodecZlib, :Tar, :Statistics, :Suppressor, :Timers, :GLMakie, :ModelingToolkit, :ControlSystemsBase, :RecipesBase, :StaticArrays, :SymbolicIndexingInterface, :NonlinearSolve, :OrdinaryDiffEqBDF, :OrdinaryDiffEqCore, :OrdinaryDiffEqNonlinearSolve, :SteadyStateDiffEq, :AtmosphericModels, :KiteUtils, :VortexStepMethod];
+    [:Pkg, :TOML, :DocStringExtensions, :LinearAlgebra, :Parameters, :Printf, :Serialization, :SHA, :CodecZlib, :Tar, :Statistics, :Suppressor, :Timers, :GLMakie, :MakieControlPlots, :ModelingToolkit, :ControlSystemsBase, :RecipesBase, :StaticArrays, :SymbolicIndexingInterface, :NonlinearSolve, :OrdinaryDiffEqBDF, :OrdinaryDiffEqCore, :OrdinaryDiffEqNonlinearSolve, :SteadyStateDiffEq, :AtmosphericModels, :KiteUtils, :VortexStepMethod];
     sysimage_path="kps-image_tmp.so",
     precompile_execution_file=joinpath("test", "test_for_precompile.jl")
 )

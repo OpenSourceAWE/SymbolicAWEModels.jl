@@ -37,6 +37,7 @@ using SymbolicAWEModels
 using SymbolicAWEModels: Point
 using KiteUtils
 using GLMakie
+using MakieControlPlots
 
 # ----- tube geometry and fabric (the only required measured inputs) -----
 pressure_bar = 0.3               # internal gauge pressure [bar]
