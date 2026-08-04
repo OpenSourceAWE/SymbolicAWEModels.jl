@@ -49,7 +49,7 @@ using NetworkDynamics
 using Graphs
 using ModelingToolkit
 using ModelingToolkit: t_nounits as t, D_nounits as D
-using SymbolicIndexingInterface: setp
+using SymbolicIndexingInterface: setp, getu
 
 const SAM = SymbolicAWEModels
 
@@ -1224,6 +1224,7 @@ struct NetworkWingGeom
     wing::Any
     zp1::Int; zp2::Int; yp1::Int; yp2::Int; origin::Int
     aero_points::Vector{Int}
+    live_vertex::Int
 end
 
 """
@@ -1239,10 +1240,11 @@ function network_wing_geoms(ss)
         wing.dynamics_type == SAM.PARTICLE_DYNAMICS || continue
         aero_pts = [i for (i, p) in enumerate(ss.points)
                     if p.is_wing_node && p.wing_idx == wing.idx]
+        live_vertex = needs_live_aero(wing) && !isempty(aero_pts) ? aero_pts[1] : 0
         push!(geoms, NetworkWingGeom(wing,
             ref_single_id(wing.z_ref_points[1]), ref_single_id(wing.z_ref_points[2]),
             ref_single_id(wing.y_ref_points[1]), ref_single_id(wing.y_ref_points[2]),
-            ref_single_id(wing.origin), aero_pts))
+            ref_single_id(wing.origin), aero_pts, live_vertex))
     end
     return geoms
 end
@@ -1264,14 +1266,31 @@ struct NetworkStateGetter{NW}
     winch_idxs::Vector{Tuple{Int, Int}}
     winch_tethers::Dict{Int, Vector{Int}}
     wing_geoms::Vector{NetworkWingGeom}
+    wing_aero_readers::Vector{Any}
+end
+
+"""
+    wing_aero_reader(nw, wing, vertex)
+
+Build the observed-variable getter tuple `(wing, force_getu, moment_getu)` that reads
+a live wing's aggregate body-frame aero force/moment (`wing_aero_force_b_1..3`,
+`wing_aero_moment_b_1..3`, exposed by [`SAM.LiveAeroWingNodePoint`](@ref)) off `vertex`.
+"""
+function wing_aero_reader(nw, wing, vertex)
+    fsyms = [VIndex(vertex, Symbol(:wing_aero_force_b_, c)) for c in 1:3]
+    msyms = [VIndex(vertex, Symbol(:wing_aero_moment_b_, c)) for c in 1:3]
+    return (wing, getu(nw, fsyms), getu(nw, msyms))
 end
 
 function NetworkStateGetter(nw, ss, meta)
     dyn_idxs = [i for (i, p) in enumerate(ss.points) if p.type == SAM.DYNAMIC]
     pulley_idxs = [(pulley_point_idx(ss, p), p.idx) for p in ss.pulleys]
     winch_idxs = [(w.winch_point_idx, w.idx) for w in ss.winches]
+    geoms = network_wing_geoms(ss)
+    readers = Any[wing_aero_reader(nw, wg.wing, wg.live_vertex)
+                  for wg in geoms if wg.live_vertex != 0]
     return NetworkStateGetter(nw, dyn_idxs, pulley_idxs, winch_idxs,
-                              meta.winch_tethers, network_wing_geoms(ss))
+                              meta.winch_tethers, geoms, readers)
 end
 
 function (g::NetworkStateGetter)(integ, ss)
@@ -1288,6 +1307,10 @@ function (g::NetworkStateGetter)(integ, ss)
         SAM.wing_kinematics_from_points!(wg.wing, points, ss.set, ss.am;
             zp1 = wg.zp1, zp2 = wg.zp2, yp1 = wg.yp1, yp2 = wg.yp2,
             origin = wg.origin, aero_points = wg.aero_points)
+    end
+    for (wing, force_getu, moment_getu) in g.wing_aero_readers
+        wing.aero_force_b .= force_getu(integ)
+        wing.aero_moment_b .= moment_getu(integ)
     end
     for (vi, pidx) in g.pulley_idxs
         pulley = ss.pulleys[pidx]

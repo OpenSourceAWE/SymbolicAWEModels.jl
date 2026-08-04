@@ -238,6 +238,75 @@ function ground_wind_vec(params)
 end
 
 """
+    rigid_body_pose_expressions(force_w, moment_w, inertia_p, mass, R_b_to_p,
+                                com_offset_b, com_w, com_vel, Q_p_to_w, ω_p;
+                                ω_kinematic, d_ω_p, d_com_w, d_com_vel)
+
+Pure 6-DOF rigid-body derivative and body-frame output expressions (principal frame)
+— the single math source both the monolith ([`rigid_body_eqs!`](@ref)) and the
+network body vertex assemble from. Given the world-frame load at / about the COM
+(`force_w`, `moment_w`) and the principal state (`com_w`, `com_vel`, `Q_p_to_w`,
+`ω_p` as length-3/4 `Num` vectors), returns a named tuple of expressions: the state
+derivatives `d_com_w`/`d_com_vel`/`d_Q`/`d_ω`, the Euler angular accel `α_p`, the
+quaternion rate `Q_p_vel`, the COM accel `com_acc`, the principal moment `moment_p`,
+and the body-frame outputs `R_p_to_w`, `R_b_to_w`, `pos_w`, `vel_w`, `acc_w`, `ω_b`,
+`α_b`, `Q_b_to_w`. The optional integration overrides (`ω_kinematic`, `d_ω_p`,
+`d_com_w`, `d_com_vel`) reproduce `fix_sphere`/`STATIC`; left `nothing` the body
+integrates freely.
+"""
+function rigid_body_pose_expressions(force_w, moment_w, inertia_p, mass, R_b_to_p,
+                                     com_offset_b, com_w, com_vel, Q_p_to_w, ω_p;
+                                     ω_kinematic = nothing, d_ω_p = nothing,
+                                     d_com_w = nothing, d_com_vel = nothing)
+    skew4(ω) = [
+        0 -ω[1] -ω[2] -ω[3]
+        ω[1] 0 ω[3] -ω[2]
+        ω[2] -ω[3] 0 ω[1]
+        ω[3] ω[2] -ω[1] 0
+    ]
+    quaternion = collect(Q_p_to_w)
+    ω = collect(ω_p)
+    com = collect(com_w)
+    com_velocity = collect(com_vel)
+    R_body_to_principal = collect(R_b_to_p)
+    com_off = collect(com_offset_b)
+    inertia = collect(inertia_p)
+
+    ω_kin = ω_kinematic === nothing ? ω : collect(ω_kinematic)
+    quat_norm_gain = 10.0
+    quat_norm_error = 1 - sum(quaternion[j]^2 for j in 1:4)
+    Q_p_vel = [0.5 * sum(skew4(ω_kin)[i, j] * quaternion[j] for j in 1:4) +
+               quat_norm_gain * quat_norm_error * quaternion[i] for i in 1:4]
+
+    R_p_to_w = quaternion_to_rotation_matrix(quaternion)
+    moment_p = R_p_to_w' * collect(moment_w)
+    α_p = [
+        (moment_p[1] + (inertia[2] - inertia[3]) * ω[2] * ω[3]) / inertia[1],
+        (moment_p[2] + (inertia[3] - inertia[1]) * ω[3] * ω[1]) / inertia[2],
+        (moment_p[3] + (inertia[1] - inertia[2]) * ω[1] * ω[2]) / inertia[3],
+    ]
+    com_acc = collect(force_w) ./ mass
+
+    R_b_to_w = R_p_to_w * R_body_to_principal
+    arm_w = -(R_b_to_w * com_off)
+    ω_w = R_p_to_w * ω
+    pos_w = com .+ arm_w
+    vel_w = com_velocity .+ (ω_w × arm_w)
+    acc_w = com_acc .+ ((R_p_to_w * α_p) × arm_w) .+ (ω_w × (ω_w × arm_w))
+    ω_b = R_body_to_principal' * ω
+    α_b = R_body_to_principal' * α_p
+    Q_b_to_w = rotation_matrix_to_quaternion(R_b_to_w)
+
+    return (;
+        d_com_w = d_com_w === nothing ? com_velocity : collect(d_com_w),
+        d_com_vel = d_com_vel === nothing ? com_acc : collect(d_com_vel),
+        d_Q = Q_p_vel,
+        d_ω = d_ω_p === nothing ? α_p : collect(d_ω_p),
+        α_p, Q_p_vel, com_acc, moment_p,
+        R_p_to_w, R_b_to_w, pos_w, vel_w, acc_w, ω_b, α_b, Q_b_to_w)
+end
+
+"""
     DynamicPoint(s, params, idx; name)
 
 Particle vertex: a point mass integrating `pos`/`vel` under the net force gathered
@@ -540,6 +609,27 @@ function live_aero_connector_eqs(subsys, s, rot, wing_pos, wind_gnd, pos_list, v
 end
 
 """
+    wing_aero_aggregate_vars()
+
+Declare the six scalar observed variables (`wing_aero_force_b_1..3`,
+`wing_aero_moment_b_1..3`) that a [`LiveAeroWingNodePoint`](@ref) exposes so the
+network state getter can read the wing-level body-frame aero force and moment,
+mirroring the monolith's `aero_force_b`/`aero_moment_b` observables. Returns the
+force and moment component vectors.
+"""
+function wing_aero_aggregate_vars()
+    force = Num[]
+    moment = Num[]
+    for c in 1:3
+        fnm = Symbol(:wing_aero_force_b_, c)
+        mnm = Symbol(:wing_aero_moment_b_, c)
+        push!(force, only(@variables $fnm(t)))
+        push!(moment, only(@variables $mnm(t)))
+    end
+    return force, moment
+end
+
+"""
     LiveAeroWingNodePoint(s, params, aero_params, idx, wing, slot, num_points; name)
 
 A DYNAMIC particle wing node whose aero force is computed **live** (not frozen): the
@@ -582,9 +672,16 @@ function LiveAeroWingNodePoint(s, params, aero_params, idx, wing, slot, num_poin
     end
     damp = body_frame_damp_accel(vel, point.body_frame_damping, rot, ovel)
     aero = (rot * my_force_b) ./ mass
+    wing_force, wing_moment = wing_aero_aggregate_vars()
+    append!(vars, [wing_force; wing_moment])
+    agg_force = sum(collect(subsys.point_force[:, k]) for k in 1:num_points)
+    agg_moment = sum(cross(collect(subsys.point_pos[:, k]),
+                           collect(subsys.point_force[:, k])) for k in 1:num_points)
     eqs = [eqs
            D.(collect(pos)) .~ collect(vel)
            D.(collect(vel)) .~ base .+ aero .- damp
+           wing_force .~ agg_force
+           wing_moment .~ agg_moment
            pulley_len_out ~ 0.0]
     return System(eqs, t, vars, [param_unknowns(params); aero_slot];
                   name, systems = [subsys])

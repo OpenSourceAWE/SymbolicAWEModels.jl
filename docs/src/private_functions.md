@@ -79,6 +79,7 @@ SymbolicAWEModels.segment_endpoint_loads
 SymbolicAWEModels.segment_spring_params
 SymbolicAWEModels.segment_loads
 SymbolicAWEModels.endpoint_load_eqs
+SymbolicAWEModels.rigid_body_pose_expressions
 SymbolicAWEModels.ground_wind_vec
 SymbolicAWEModels.DynamicPoint
 SymbolicAWEModels.StaticPoint
@@ -94,6 +95,7 @@ SymbolicAWEModels.WingNodePoint
 SymbolicAWEModels.WingNodePulleyPoint
 SymbolicAWEModels.live_aero_node_inputs
 SymbolicAWEModels.live_aero_connector_eqs
+SymbolicAWEModels.wing_aero_aggregate_vars
 SymbolicAWEModels.LiveAeroWingNodePoint
 SymbolicAWEModels.WinchPoint
 ```
