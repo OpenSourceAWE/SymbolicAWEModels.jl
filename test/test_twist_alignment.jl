@@ -39,9 +39,16 @@ dt = 0.05
 init!(sam; prn=false, remake=false, remake_vsm=false)
 SymbolicAWEModels.find_steady_state!(sam)
 
-# Distance between each twist_surface's structural strut TE (body frame, under
-# the current twist) and the matching deformed VSM panel TE.
-function twist_te_diffs(sam)
+"""
+Compare each twist_surface's structural strut chord (body frame, under the
+current twist) with the matching deformed VSM panel chord.
+
+Reports the angle between the two chord vectors and their relative length
+difference rather than the TE-point distance: both endpoints share the wing
+frame, so subtracting the LE cancels the rigid-body constraint drift that
+otherwise dominates the raw distance during fast transients.
+"""
+function twist_chord_diffs(sam)
     wing = sam.sys_struct.wings[1]
     points = sam.sys_struct.points
     twist_surfaces = sam.sys_struct.twist_surfaces
@@ -67,10 +74,16 @@ function twist_te_diffs(sam)
         te_b = R' * (points[te_idx].pos_w - origin)
         k = argmin([norm(Vector(s.LE_point) - le_b)
                     for s in refined])
+        sec_le = Vector(refined[k].LE_point)
         sec_te = Vector(refined[k].TE_point)
+        chord_struct = te_b - le_b
+        chord_vsm = sec_te - sec_le
+        cos_angle = dot(chord_struct, chord_vsm) /
+                    (norm(chord_struct) * norm(chord_vsm))
         push!(rows, (name=g.name, twist=g.twist,
-            struct_te=te_b, vsm_te=sec_te,
-            diff=norm(sec_te - te_b)))
+            angle=rad2deg(acos(clamp(cos_angle, -1, 1))),
+            length_err=abs(norm(chord_vsm) - norm(chord_struct)) /
+                       norm(chord_struct)))
     end
     VortexStepMethod.unrefined_deform!(vsm, zeros(Float64, n_unref))
     return rows
@@ -80,7 +93,20 @@ function report(label, rows)
     for r in rows
         println("[$label] twist_surface $(r.name): twist=",
             round(r.twist; digits=5),
-            "  diff=", round(r.diff; digits=7))
+            "  angle=", round(r.angle; digits=7),
+            " deg  length_err=", round(r.length_err; digits=9))
+    end
+end
+
+# At the settled state the coupling is exact to solver precision, so this is the
+# sharp check; the steered case below only has to survive constraint drift.
+static_rows = twist_chord_diffs(sam)
+report("static", static_rows)
+
+@testset "twist chord alignment at rest" begin
+    for r in static_rows
+        @test r.angle < 1e-3
+        @test r.length_err < 1e-5
     end
 end
 
@@ -96,12 +122,16 @@ for step in 1:60
         l0_right + steer
     next_step!(sam; dt, vsm_interval=1)
 end
-dyn_rows = twist_te_diffs(sam)
+dyn_rows = twist_chord_diffs(sam)
 report("dynamic", dyn_rows)
 
-@testset "twist TE alignment" begin
+# Where the trajectory lands is not reproducible across platforms, so the
+# thresholds are set by what a broken coupling looks like (degrees of chord
+# misalignment at ~40 deg of twist), not by the observed spread.
+@testset "twist chord alignment under steering" begin
     @test any(r -> abs(r.twist) > 0.1, dyn_rows)
     for r in dyn_rows
-        @test r.diff < 1e-3
+        @test r.angle < 0.5
+        @test r.length_err < 0.01
     end
 end
