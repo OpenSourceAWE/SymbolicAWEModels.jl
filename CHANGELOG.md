@@ -46,9 +46,32 @@
   when unset.
 - Twist-surface restoring `stiffness` [N·m/rad] for the twist DOF; the
   number of unrefined VSM sections can be read from the YAML.
+- `SymbolicAWEModels.ObjAdapter`: mesh mass properties (`center_of_mass`,
+  `calculate_inertia_tensor`, `unit_inertia_from_obj`) computed in this
+  package instead of VortexStepMethod, plus per-wing `mass`, `com` and
+  `unit_inertia` (symmetric per-unit-mass 6-vector `[Ixx,Iyy,Izz,Ixy,Ixz,Iyz]`
+  in [m²], scaled by `wing.mass`) as YAML columns and `VSMWing` kwargs. When
+  omitted they auto-compute from an `.obj` if one is supplied, else fall back
+  to point-mass inertia. `create_vsm_wing` generates the aero YAML from an
+  `.obj` at panel resolution and caches it under `<model_dir>/obj_geometry`.
+- `PrincipalFrameMethod` (`EIGEN_DECOMP`, `Y_ROTATION`) is exported, selecting
+  how a wing's inertia tensor is diagonalized.
 - Replay camera pan and zoom controls (#250).
 
 ### Changed
+- BREAKING: winch motor dynamics are a type, not a builder function.
+  `Winch.model` is now an `AbstractWinchModel` (`TorqueWinch`, the default, or
+  `CascadedLengthWinch`) instead of a `Function`, and the builder hook is
+  `winch_component(model, sys_struct, winch_idx; name, params)` rather than
+  `default_winch_component`. *How to migrate:* wrap a custom builder in a new
+  `AbstractWinchModel` subtype with a `winch_component` method; a custom model
+  also wants `is_builtin_winch` left at its `false` default so `init!`
+  rebuilds the cached model.
+- BREAKING: `Wing` and `RigidBody` are one `Body{A, D}` type. A wing is a
+  `Body` that carries aero, so `sys.wings` is a filtered view of `sys.bodies`.
+  The exported concrete types are `RigidWing{A} = Body{A, RigidDynamics}`
+  (6-DOF pose) and `ParticleWing{A} = Body{A, ParticleDynamics}` (pose fitted
+  from structural points), replacing direct use of the old wing struct.
 - The dependency stack was widened to the newer MTK/Symbolics generation
   (Symbolics 7→8, SymbolicUtils 4→5, OrdinaryDiffEqBDF 1→2/3,
   NonlinearSolve 4→5/6; added SteadyStateDiffEq / SymbolicIndexingInterface).
@@ -74,6 +97,14 @@
   models shifts slightly.
 
 ### Removed
+- BREAKING: the `WING`, `QUASI_STATIC` and `FIXED` `DynamicsType`s.
+  `DynamicsType` is now `{DYNAMIC, STATIC, BODY_STATIC, KINEMATIC}`.
+  *How to migrate:* a `WING` point becomes `DYNAMIC` on a particle wing, or
+  `BODY_STATIC` on a rigid/beam wing (riding a body via `body=`/`wing=`, or a
+  beam element via `joint=`); `QUASI_STATIC` becomes `DYNAMIC`; a `FIXED`
+  twist surface becomes `KINEMATIC`. Wing↔point membership is no longer a
+  point type: it is carried by `twist_surface.point_idxs`, exposed as
+  `point.is_wing_node`, and queried with `wing_frame_member(point, wing_idx)`.
 - BREAKING: `auto_create_twist_surfaces!`. A section-coupled (VSM) RIGID
   wing that declared no `twist_surfaces` used to have one `DYNAMIC`
   `TwistSurface` invented per LE/TE section; this silent black box is gone
