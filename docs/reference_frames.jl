@@ -6,6 +6,7 @@
 # at a single time point.
 
 using GLMakie
+using MakieControlPlots
 using CairoMakie
 using Makie: NoShading
 using LinearAlgebra

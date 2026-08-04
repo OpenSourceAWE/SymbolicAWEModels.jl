@@ -14,6 +14,7 @@ end
 using Timers; tic()
 
 using GLMakie
+using MakieControlPlots
 using KiteUtils: init!, next_step!, update_sys_state!
 using SymbolicAWEModels
 import SymbolicAWEModels: Point  # resolve ambiguity with GLMakie

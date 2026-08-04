@@ -21,6 +21,7 @@ if Base.active_project() != joinpath(@__DIR__, "Project.toml")
 end
 
 using GLMakie
+using MakieControlPlots
 using KiteUtils: init!, next_step!, update_sys_state!
 using SymbolicAWEModels
 import SymbolicAWEModels: Point   # resolve ambiguity with GLMakie

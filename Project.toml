@@ -48,10 +48,10 @@ YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
 [weakdeps]
 GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
-Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
+MakieControlPlots = "6d616b69-6563-4f6e-8472-6f6c706c6f74"
 
 [extensions]
-SymbolicAWEModelsMakieExt = ["GeometryBasics", "Makie"]
+SymbolicAWEModelsMakieExt = ["GeometryBasics", "MakieControlPlots"]
 
 [compat]
 ADTypes = "1"
@@ -67,7 +67,7 @@ KiteUtils = "0.11.9"
 LaTeXStrings = "1.4.0"
 LinearAlgebra = "1"
 Logging = "1"
-Makie = "0.24.6"
+MakieControlPlots = "0.1.5"
 ModelingToolkit = "11"
 NonlinearSolve = "4.14, 5, 6"
 NonlinearSolveQuasiNewton = "1.12, 2"
@@ -92,6 +92,6 @@ TOML = "1"
 Tar = "1.10.0"
 Timers = "0.1.5"
 UnPack = "1.0.2"
-VortexStepMethod = "3.3.6"
+VortexStepMethod = "4"
 YAML = "0.4"
 julia = "1.11, 1.12"

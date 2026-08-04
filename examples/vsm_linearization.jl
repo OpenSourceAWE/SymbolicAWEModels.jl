@@ -26,6 +26,7 @@ if Base.active_project() != joinpath(@__DIR__, "Project.toml")
 end
 
 using GLMakie
+using MakieControlPlots
 using LinearAlgebra
 using Printf
 using ForwardDiff

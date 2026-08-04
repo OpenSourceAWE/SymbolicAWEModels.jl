@@ -7,6 +7,7 @@ if Base.active_project() != joinpath(@__DIR__, "Project.toml")
 end
 
 using GLMakie
+using MakieControlPlots
 using SymbolicAWEModels
 using REPL.TerminalMenus
 

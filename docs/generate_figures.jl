@@ -9,6 +9,7 @@
 #   2. generating standalone figures for non-Literate pages
 
 import GLMakie
+import MakieControlPlots
 GLMakie.activate!(; visible=false)
 
 using KiteUtils: init!, next_step!, update_sys_state!

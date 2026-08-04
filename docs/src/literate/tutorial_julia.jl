@@ -39,6 +39,7 @@
 
 using SymbolicAWEModels, VortexStepMethod
 using GLMakie
+using MakieControlPlots
 GLMakie.activate!(; visible=false)                                #hide
 ASSETS = joinpath(@__DIR__, "..", "assets")                        #hide
 pkg_root = joinpath(@__DIR__, "..", "..", "..")                    #hide

@@ -11,7 +11,7 @@ if ! ("GLMakie" ∈ keys(Pkg.project().dependencies))
     Pkg.add("GLMakie")
 end
 @info "Loading packages ..."
-using KiteUtils, KitePodModels, SymbolicAWEModels, GLMakie
+using KiteUtils, KitePodModels, SymbolicAWEModels, GLMakie, MakieControlPlots
 using PackageCompiler
 
 @info "Creating sysimage ..."

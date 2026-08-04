@@ -3,7 +3,8 @@
 
 module SymbolicAWEModelsMakieExt
 
-using Makie
+using MakieControlPlots.Makie
+import MakieControlPlots
 using UnPack
 using LinearAlgebra
 using StaticArrays
@@ -1267,6 +1268,9 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 - `plot_set_values::Bool=false`: Show the panel with the set torque values.
 - `suffix::String=" - " * sys.name`: Suffix to append to plot labels.
 - `size::Tuple=(1200, 800)`: Figure size in pixels.
+- `label_fontsize::Int=16`: Axis (x/y) label font size.
+- `ticklabelsize::Int=12`: Tick label font size.
+- `legendsize::Int=10`: Legend label font size.
 
 # Example
 ```julia
@@ -1347,6 +1351,7 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                    size=(1200, 800),
                    show_legend=true,
                    ticklabelsize=12,
+                   label_fontsize=16,
                    compact_labels=false,
                    legend_position=:rt,
                    legendsize=10)
@@ -2341,7 +2346,6 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
     fig = Figure(size=size)
 
     axes = []
-    label_fontsize = 16
     for (i, panel) in enumerate(panels)
         # Share x-axis with first subplot
         if i == 1
@@ -3142,7 +3146,7 @@ function Makie.plot(sys::SystemStructure;
     PLOT_WORLD_LOOKAT[] = nothing
 
     ## A saved figure needs the body-frame camera applied now, not on first event.
-    if aero_mapping && body_frame
+    if body_frame
         apply_zoom_mode!(scene, relevant_plots, sys; mode_changed=true)
     end
 

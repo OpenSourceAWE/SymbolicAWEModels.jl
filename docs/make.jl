@@ -5,6 +5,7 @@ using Pkg
 Pkg.activate(@__DIR__)
 
 using Makie, VortexStepMethod
+using MakieControlPlots
 using SymbolicAWEModels
 using Documenter
 using Literate

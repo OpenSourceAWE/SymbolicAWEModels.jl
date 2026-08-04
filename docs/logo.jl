@@ -14,6 +14,7 @@ Usage:
 """
 
 using CairoMakie
+using MakieControlPlots
 using FileIO
 using GeometryBasics
 using LinearAlgebra

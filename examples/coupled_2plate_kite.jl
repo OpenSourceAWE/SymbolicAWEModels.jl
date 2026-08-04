@@ -13,6 +13,7 @@ if Base.active_project() != joinpath(@__DIR__, "Project.toml")
 end
 
 using GLMakie
+using MakieControlPlots
 using LinearAlgebra
 using KiteUtils: init!, next_step!, update_sys_state!
 using SymbolicAWEModels, VortexStepMethod
