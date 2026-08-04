@@ -147,6 +147,48 @@ function build_initial_sync(sys, registry::InitialRegistry)
 end
 
 """
+    normalize_param_name(x) -> String
+
+Canonical name of a symbolic variable/parameter for matching a compiled
+parameter back to a `defaults` entry: strips the `(t)` time argument, the
+`var"…"` wrapper, an aliasing `#N` suffix, and whitespace, so
+`var"tether_len[1]#0"(t)` and `(tether_len(t))[1]` both become `tether_len[1]`.
+"""
+function normalize_param_name(x)
+    s = string(x)
+    s = replace(s, "var\"" => "", "\"" => "")
+    s = replace(s, r"#\d+" => "")
+    s = replace(s, "(t)" => "")
+    return replace(s, " " => "", "(" => "", ")" => "")
+end
+
+"""
+    missing_param_defaults(sys, defaults) -> Vector{Pair}
+
+Operating-point pairs for every compiled parameter of `sys` that has no default,
+matched by [`normalize_param_name`](@ref) to a value in `defaults`. Restores
+values for the aliasing artefacts (e.g. `tether_len[1]#0`, from a single-segment
+tether's `l0`↔`tether_len` alias) that ModelingToolkitBase ≥ 1.58 leaves
+`missing` at eager `MTKParameters` construction — the old raw-variable default no
+longer reaches the renamed parameter. `sync_params!`/`sync_initial!` overwrite
+these each `reinit!`, so the value only needs to be a consistent placeholder.
+"""
+function missing_param_defaults(sys, defaults)
+    valmap = Dict{String, Any}()
+    for pair in defaults
+        valmap[normalize_param_name(pair.first)] = pair.second
+    end
+    pairs = Pair{Any, Any}[]
+    for p in parameters(sys)
+        (try ModelingToolkit.getdefault(p); true catch; false end) && continue
+        value = get(valmap, normalize_param_name(p), nothing)
+        value === nothing && continue
+        push!(pairs, p => value)
+    end
+    return pairs
+end
+
+"""
     sync_initial!(sync, prob, sys_struct)
 
 Copy every bound initial condition from the live `sys_struct` onto `prob` — both

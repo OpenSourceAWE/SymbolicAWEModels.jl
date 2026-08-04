@@ -353,6 +353,8 @@ SymbolicAWEModels.bind_initial!
 SymbolicAWEModels.ElementReader
 SymbolicAWEModels.InitialSync
 SymbolicAWEModels.build_initial_sync
+SymbolicAWEModels.normalize_param_name
+SymbolicAWEModels.missing_param_defaults
 SymbolicAWEModels.sync_initial!
 ```
 

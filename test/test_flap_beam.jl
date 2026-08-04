@@ -147,22 +147,26 @@ end
     EI = 100.0; GA = 1500.0; EA = 1.0e4; GJ = 50.0; kshear = 5 / 6
     inertia = [0.01, 0.01, 0.01]
 
-    nodeA = Body(:nodeA; mass=1.0, inertia_principal=inertia,
-                 pos=[0.0, 0.0, 0.0], type=STATIC)
-    nodeB = Body(:nodeB; mass=1.0, inertia_principal=inertia,
-                 pos=[beam_length, 0.0, 0.0])
-    joint = TimoshenkoJoint(:joint, :nodeA, :nodeB;
-        EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
-        damping_trans=200.0, damping_rot=3.0)
-    # KINEMATIC flap twist_surface: δ = the hinge angle nodeA→nodeB.
-    flap = TwistSurface(:flap, Int[], KINEMATIC, 0.0;
-        wing=:nodeA, flap_bodies=[:nodeA, :nodeB], flap_axis=[0.0, 1.0, 0.0])
-    # Beam-anchored point at midspan, offset 0.1 in +z off the centerline.
-    bridle = Point(:bridle, [0.5, 0.0, 0.1], BODY_STATIC; joint=:joint)
+    # Fresh components per call: `SystemStructure` resolves indices in place.
+    function build_beam_sys(name; with_flap=true)
+        nodeA = Body(:nodeA; mass=1.0, inertia_principal=inertia,
+                     pos=[0.0, 0.0, 0.0], type=STATIC)
+        nodeB = Body(:nodeB; mass=1.0, inertia_principal=inertia,
+                     pos=[beam_length, 0.0, 0.0])
+        joint = TimoshenkoJoint(:joint, :nodeA, :nodeB;
+            EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
+            damping_trans=200.0, damping_rot=3.0)
+        # KINEMATIC flap twist_surface: δ = the hinge angle nodeA→nodeB.
+        flap = TwistSurface(:flap, Int[], KINEMATIC, 0.0;
+            wing=:nodeA, flap_bodies=[:nodeA, :nodeB], flap_axis=[0.0, 1.0, 0.0])
+        # Beam-anchored point at midspan, offset 0.1 in +z off the centerline.
+        bridle = Point(:bridle, [0.5, 0.0, 0.1], BODY_STATIC; joint=:joint)
+        return SystemStructure(name, set;
+            points=[bridle], bodies=[nodeA, nodeB], timoshenko_joints=[joint],
+            twist_surfaces=with_flap ? [flap] : TwistSurface[])
+    end
 
-    sys = SystemStructure("flap_beam_test", set;
-        points=[bridle], bodies=[nodeA, nodeB],
-        timoshenko_joints=[joint], twist_surfaces=[flap])
+    sys = build_beam_sys("flap_beam_test")
 
     @testset "structural resolution" begin
         @test sys.twist_surfaces[:flap].flap_body_idxs == [1, 2]
@@ -184,8 +188,12 @@ end
     end
 
     @testset "KINEMATIC flap adds no ODE state" begin
-        # Two rigid bodies = 26 states (13 each). A DYNAMIC twist DOF would add 2.
-        @test length(sam.integrator.u) == 26
+        # Absolute counts shift with MTK's alias elimination, so compare against
+        # the same beam without the twist_surface: a DYNAMIC DOF would add 2.
+        bare = SymbolicAWEModel(set, build_beam_sys("flap_beam_bare";
+                                                    with_flap=false))
+        test_init!(bare; prn=false)
+        @test length(sam.integrator.u) == length(bare.integrator.u)
         @test all(isfinite, rb.pos_w)
     end
 
