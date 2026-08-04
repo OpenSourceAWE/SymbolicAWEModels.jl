@@ -58,15 +58,18 @@ smooth_norm(v, eps=1e-12) = sqrt(sum(abs2, v) + eps^2)
     quaternion_to_rotation_matrix(q)
 
 Convert a quaternion `q` (scalar-first format [w, x, y, z]) to a 3x3 rotation
-matrix.
+matrix. `q` need not be normalized: dividing each product by `sum(abs2, q)`
+folds the normalization into the leading factor, giving an orthonormal result
+for any nonzero `q` without a `sqrt`.
 """
 function quaternion_to_rotation_matrix(q::AbstractVector)
     w, x, y, z = q[1], q[2], q[3], q[4]
+    s = 2 / (w * w + x * x + y * y + z * z)
 
     return [
-        1-2*(y*y+z*z) 2*(x*y-z*w) 2*(x*z+y*w)
-        2*(x*y+z*w) 1-2*(x*x+z*z) 2*(y*z-x*w)
-        2*(x*z-y*w) 2*(y*z+x*w) 1-2*(x*x+y*y)
+        1-s*(y*y+z*z) s*(x*y-z*w) s*(x*z+y*w)
+        s*(x*y+z*w) 1-s*(x*x+z*z) s*(y*z-x*w)
+        s*(x*z-y*w) s*(y*z+x*w) 1-s*(x*x+y*y)
     ]
 end
 

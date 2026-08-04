@@ -142,5 +142,21 @@ using Rotations
             @test match_pos || match_neg
         end
     end
+
+    @testset "Non-unit quaternions" begin
+        # The integrated attitude quaternion only holds its unit norm to solver
+        # tolerance, so the conversion must normalize internally.
+        for scale in (0.5, 0.999, 1.0001, 2.0)
+            for _ in 1:5
+                q_unit = normalize(randn(4))
+                R_unit = SymbolicAWEModels.quaternion_to_rotation_matrix(q_unit)
+                R_scaled =
+                    SymbolicAWEModels.quaternion_to_rotation_matrix(scale * q_unit)
+                @test R_scaled ≈ R_unit atol=1e-14
+                @test R_scaled' * R_scaled ≈ I(3) atol=1e-14
+                @test det(R_scaled) ≈ 1.0 atol=1e-14
+            end
+        end
+    end
 end
 nothing

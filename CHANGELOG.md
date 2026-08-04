@@ -85,6 +85,18 @@
   winch refactor dropped it.
 
 ### Fixed
+- `quaternion_to_rotation_matrix` now normalizes internally, dividing each
+  product by `sum(abs2, q)` so the result is orthonormal for any nonzero `q`
+  (no `sqrt`, no measurable cost). The integrated attitude quaternion only
+  meets its unit-norm constraint to solver tolerance — the Baumgarte term in
+  `rigid_body_eqs.jl` bounds the drift but, with a time constant of
+  `1/(2*quat_norm_gain) = 0.05 s`, cannot remove it within a step. At the
+  default `abs_tol = rel_tol = 0.01` this left `R_b_to_w` off orthonormal by
+  up to 3e-4 during fast transients, a scale error in every body-to-world
+  transform feeding `moment_p`, `wing_pos`, `wing_vel` and `wing_acc`.
+  Orthonormality error is now at machine precision (9e-16 worst case over a
+  steering ramp, from 3.3e-4). Regenerates the model equations, so cached
+  `model_*.bin` files from earlier commits must be rebuilt (`remake=true`).
 - Wing principal frame restores the Y-axis-constrained inertia
   diagonalization (`calc_inertia_y_rotation`) instead of the generic
   eigendecomposition, fixing an axis-assignment flip (~90°) for near-equal
