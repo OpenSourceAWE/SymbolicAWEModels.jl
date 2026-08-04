@@ -1,0 +1,6 @@
+#!/bin/bash -eu
+# SPDX-FileCopyrightText: 2026 Bart van de Lint
+# SPDX-License-Identifier: LGPL-3.0-only
+
+./bin/install --update --no-precompile --version 1.11
+./bin/install --update --no-precompile --version 1.12
