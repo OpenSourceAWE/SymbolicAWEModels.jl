@@ -345,7 +345,8 @@ function maybe_create_prob!(sam; create_prob=true, prn=true)
 
         dt = SimFloat(1/sam.set.sample_freq)
         # skip MTK's DAE init system; reinit! already sets consistent ICs
-        time = @elapsed prob = ODEProblem(sys, sam.defaults, (0.0, dt);
+        fill_defaults = missing_param_defaults(sys, sam.defaults)
+        time = @elapsed prob = ODEProblem(sys, [sam.defaults; fill_defaults], (0.0, dt);
             build_initializeprob=false)
         prn && println("\tCreated the ODEProblem in $time seconds.")
 
