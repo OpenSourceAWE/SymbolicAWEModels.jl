@@ -3206,110 +3206,92 @@ function build_geometry_observables(sys::SystemStructure, trigger::Observable)
 end
 
 """
-    Makie.plot(syss::Vector{<:SystemStructure}; colors=Makie.wong_colors(), ...)
+    Makie.plot(syss::Vector{<:SystemStructure}; ghost_color=..., ghost_alpha=0.5, ...)
 
-Plot multiple SystemStructures in a single scene with different colors.
+Plot several SystemStructures in one 3D scene: the first as the fully-featured
+primary, the rest as flat grey, non-interactive "ghost" outlines behind it.
+
+`syss[1]` is drawn through the full single-system [`plot`](@ref) (aero, beam
+tubes, wing/body frames, layer toggles, selectable segments) and the camera fits
+to it. Every other system is drawn as grey segments + points only, so it reads as
+a reference shape. The ghost geometry observables are stored in
+`PLOT_MULTI_GEOMETRY_OBS` so `replay`/`record` can animate them.
 
 # Arguments
-- `syss::Vector{<:SystemStructure}`: Vector of system structures to plot
+- `syss::Vector{<:SystemStructure}`: `syss[1]` is the primary; the rest ghosts.
 
 # Keyword Arguments
-- `colors`: Color palette for systems (default: wong_colors())
-- `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
-- `relmargin::Real=0.2`: Relative margin for camera zoom
-- `zoom::Real=1.0`: Camera zoom; `1.0` fits the scene exactly, larger is closer
-- `pan_horizontal::Real=0.0`, `pan_vertical::Real=0.0`: Camera pan in meters
-- `use_observables::Bool=false`: If true, create observables for dynamic updates (used by replay)
-- All other kwargs passed to plot!
+- `ghost_color`, `ghost_alpha`: colour/opacity of the ghost systems.
+- `vector_scale::Real=1.0`: wing orientation arrow scale (primary only).
+- Remaining keywords are forwarded to the primary's single-system plot.
 
 # Returns
-- Scene with all systems plotted
+- Scene with the primary plus grey ghosts.
 
 # Example
 ```julia
-scene = plot([sys1, sys2])  # Plot two systems with different colors
+scene = plot([sys_full, sys_collapsed])  # full model, collapsed as grey ghost
 ```
 """
 function Makie.plot(syss::Vector{<:SystemStructure};
-                    colors=Makie.wong_colors(),
+                    ghost_color=RGBf(0.6, 0.6, 0.6),
+                    ghost_alpha=0.5,
                     vector_scale=1.0,
-                    relmargin=0.2,
-                    use_observables=false,
-                    highlight_color=:yellow,
-                    force_color=false,
-                    zoom=1.0,
-                    pan_horizontal=0.0,
-                    pan_vertical=0.0,
+                    colors=nothing,
+                    use_observables=nothing,
+                    highlight_color=nothing,
                     kwargs...)
-    PLOT_CAMERA_PAN[] = (Float64(zoom), Float64(pan_horizontal), Float64(pan_vertical))
-    scene = Scene(; camera=cam3d!, show_axis=false, size=(1200, 800))
-
+    isempty(syss) && error("No systems provided for plot")
+    primary_sys = syss[1]
+    scene = plot(primary_sys; vector_scale, kwargs...)
     PLOT_MULTI_SYSTEMS[] = syss
-    all_plots = AbstractPlot[]
-    segment_color_obs = Observable[]  # Per-segment color obs per system, for hover
-    segment_colors_list = Any[]       # Track base colors for hover reset
 
-    if use_observables
-        # Create trigger observables for each system
-        triggers = [Observable(0.0) for _ in syss]
-        PLOT_MULTI_GEOMETRY_OBS[] = triggers
-
-        for (i, sys) in enumerate(syss)
-            color = colors[mod1(i, length(colors))]
-            push!(segment_colors_list, color)
-            obs = build_geometry_observables(sys, triggers[i])
-
-            # Observable per-segment colors so the hover handler can highlight
-            # (setup_segment_hover_events! writes Vector{RGBA} into this obs).
-            seg_colors = Observable(fill(to_color(color), length(sys.segments)))
-            seg_plot = linesegments!(scene, obs[:segment_points];
-                                     color=seg_colors, linewidth=2,
-                                     transparency=true)
-            push!(all_plots, seg_plot)
-            push!(segment_color_obs, seg_colors)
-
-            pt_plot = scatter!(scene, obs[:point_positions];
-                              color=color, transparency=true)
-            push!(all_plots, pt_plot)
-
-            # Wing arrows
-            if !isempty(sys.wings)
-                arrows3d!(scene,
-                          @lift($(obs[:wing_data])[1]),
-                          @lift($(obs[:wing_data])[2] .* $vector_scale);
-                          color=repeat([:red, :green, :blue], length(sys.wings)))
-            end
-        end
-    else
-        # Static mode: reuse existing plot!
-        for (i, sys) in enumerate(syss)
-            color = colors[mod1(i, length(colors))]
-            push!(segment_colors_list, color)
-            plots = plot!(scene, sys;
-                          segment_color=color,
-                          point_color=color,
-                          vector_scale,
-                          geometry_obs=nothing,
-                          kwargs...)
-            if haskey(plots, :segments)
-                push!(all_plots, plots[:segments])
-            end
-            # One obs per system (aligned with `systems`); empty for segment-less.
-            push!(segment_color_obs, get(plots, :segment_colors_obs,
-                                         Observable(RGBAf[])))
-            haskey(plots, :points) && push!(all_plots, plots[:points])
-        end
+    base = to_color(ghost_color)
+    gcol = RGBAf(base.r, base.g, base.b, ghost_alpha)
+    triggers = Observable{Float64}[]
+    for sys in @view syss[2:end]
+        trig = Observable(0.0)
+        push!(triggers, trig)
+        obs = build_geometry_observables(sys, trig)
+        linesegments!(scene, obs[:segment_points]; color=gcol, linewidth=1.5,
+                      transparency=true)
+        scatter!(scene, obs[:point_positions]; color=gcol, markersize=6,
+                 transparency=true)
     end
-
-    # Add hover/click events for segments
-    if !isempty(segment_color_obs)
-        setup_segment_hover_events!(scene, syss, segment_color_obs, all_plots;
-                                    segment_colors=segment_colors_list,
-                                    highlight_color, force_color, relmargin)
-    end
-
-    PLOT_CAMERA_DISTANCE[] = zoom_out!(scene, scene.camera, all_plots; relmargin)
+    PLOT_MULTI_GEOMETRY_OBS[] = isempty(triggers) ? nothing : triggers
     return scene
+end
+
+"""
+    update_multi_states!(syss, logs, idx)
+
+Advance every system in a multi-system replay/record to frame `idx` (clamped to
+each log's length).
+"""
+function update_multi_states!(syss, logs, idx)
+    for (sys, lg) in zip(syss, logs)
+        update_from_sysstate!(sys, lg.syslog[min(idx, length(lg.syslog))])
+    end
+    return nothing
+end
+
+"""
+    refresh_multi_frame!(primary_sys; vector_scale=1.0)
+
+Redraw a multi-system scene after states are set: refresh the primary through its
+observables and trigger every ghost geometry observable in `PLOT_MULTI_GEOMETRY_OBS`.
+
+Uses the lower-level `update_plot_observables!` rather than `plot!` so it also
+works while recording headless (where no interactive window is open).
+"""
+function refresh_multi_frame!(primary_sys; vector_scale=1.0)
+    PLOT_VECTOR_SCALE[] = vector_scale
+    SymbolicAWEModels.update_plot_observables!(primary_sys)
+    isnothing(PLOT_MULTI_GEOMETRY_OBS[]) && return nothing
+    for obs in PLOT_MULTI_GEOMETRY_OBS[]
+        obs[] = time()
+    end
+    return nothing
 end
 
 """
@@ -3450,35 +3432,30 @@ end
 
 """
     record(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure},
-           filename::String; framerate=30, colors=Makie.wong_colors(),
-           vector_scale=0.2, kwargs...)
+           filename::String; framerate=30, ghost_color=..., vector_scale=0.2, kwargs...)
 
-Record a multi-system SysLog animation to a video or GIF file.
+Record a multi-system SysLog animation to a video or GIF file, with `syss[1]` as
+the primary and the rest as grey ghosts (see [`plot`](@ref plot(::Vector))).
 The output format is determined by the file extension
 (`.mp4`, `.gif`, `.mkv`, `.webm`).
 
 # Arguments
-- `logs::Vector{<:SysLog}`: Simulation logs (one per system)
-- `syss::Vector{<:SystemStructure}`: System structures
-    (must match logs length)
-- `filename::String`: Output filename
-    (e.g., `"sim.mp4"`, `"sim.gif"`)
+- `logs::Vector{<:SysLog}`: Simulation logs; `logs[1]` is the primary.
+- `syss::Vector{<:SystemStructure}`: System structures (must match logs length).
+- `filename::String`: Output filename (e.g., `"sim.mp4"`, `"sim.gif"`).
 
 # Keyword Arguments
-- `framerate::Int=30`: Framerate (frames per second)
-- `colors`: Color palette for distinguishing systems
-    (default: wong_colors())
-- `vector_scale::Real=0.2`: Scale factor for wing arrows
-- All other keyword arguments are passed through to `plot`
+- `framerate::Int=30`: Framerate (frames per second).
+- `ghost_color`, `ghost_alpha`: colour/opacity of the ghost systems.
+- `vector_scale::Real=0.2`: Scale factor for wing arrows.
+- All other keyword arguments are passed through to `plot`.
 
 # Returns
 - The Scene object used for recording
 
 # Example
 ```julia
-record([log1, log2], [sys1, sys2], "output.mp4")
-record([log1, log2], [sys1, sys2], "output.mp4";
-       framerate=60, colors=[:red, :blue])
+record([log_full, log_collapsed], [sys_full, sys_collapsed], "output.mp4")
 ```
 """
 function SymbolicAWEModels.record(
@@ -3486,53 +3463,33 @@ function SymbolicAWEModels.record(
         syss::Vector{<:SystemStructure},
         filename::String;
         framerate::Int=30,
-        colors=Makie.wong_colors(),
+        ghost_color=RGBf(0.6, 0.6, 0.6),
+        ghost_alpha=0.5,
         vector_scale::Real=0.2,
         kwargs...)
     length(logs) == length(syss) ||
         error("logs and systems must have same length")
+    isempty(syss) && error("No systems provided for recording")
     n_frames = minimum(length(lg.syslog) for lg in logs)
     n_frames == 0 &&
         error("Empty SysLog provided for recording")
+    primary_sys = syss[1]
 
     println("Recording multi-system video to: $filename")
     println("Framerate: $framerate fps")
     println("Total frames: $n_frames")
-    println("Systems: $(length(syss))")
+    println("Systems: $(length(syss)) (1 primary + $(length(syss) - 1) ghost)")
 
-    # Initialize all systems with first state
-    for (sys, lg) in zip(syss, logs)
-        update_from_sysstate!(sys, lg.syslog[1])
-    end
+    update_multi_states!(syss, logs, 1)
+    scene = plot(syss; ghost_color, ghost_alpha, vector_scale, kwargs...)
 
-    # Create plot with observables for dynamic updates
-    scene = plot(syss; colors, vector_scale,
-                 use_observables=true, kwargs...)
-
-    # Record video by stepping through all frames
-    Makie.record(scene, filename, 1:n_frames;
-                 framerate=framerate) do frame_num
-        # Update each system's state
-        for (sys, lg) in zip(syss, logs)
-            frame = min(frame_num, length(lg.syslog))
-            update_from_sysstate!(sys, lg.syslog[frame])
-        end
-        # Trigger all geometry observables
-        if !isnothing(PLOT_MULTI_GEOMETRY_OBS[])
-            for obs in PLOT_MULTI_GEOMETRY_OBS[]
-                obs[] = time()
-            end
-        end
-
-        # Yield to render thread for observable updates
-        sleep(0.001)
-
-        # Print progress every 10% or at the end
-        if frame_num % max(1, div(n_frames, 10)) == 0 ||
-                frame_num == n_frames
+    Makie.record(scene, filename, 1:n_frames; framerate) do frame_num
+        update_multi_states!(syss, logs, frame_num)
+        refresh_multi_frame!(primary_sys; vector_scale)
+        sleep(0.001)  # yield to the render thread for observable updates
+        if frame_num % max(1, div(n_frames, 10)) == 0 || frame_num == n_frames
             pct = round(100 * frame_num / n_frames, digits=1)
-            println("  Progress: $pct% " *
-                    "($frame_num/$n_frames frames)")
+            println("  Progress: $pct% ($frame_num/$n_frames frames)")
         end
     end
 
@@ -3957,83 +3914,90 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
 end
 
 """
-    replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure}; colors=Makie.wong_colors(), ...)
+    replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure}; ghost_color=..., ...)
 
-Replay multiple SysLogs with their corresponding SystemStructures simultaneously.
+Replay several SysLogs together, with the first one as the primary system and the
+rest overlaid as grey ghosts.
+
+`logs[1]`/`syss[1]` is the primary: it is drawn with the full single-system
+visualization (aero, beam tubes, wing/body frames, layer toggles and selectable
+segments) exactly like [`replay(::SysLog, ::SystemStructure)`](@ref). Every other
+system is drawn as flat grey, non-interactive geometry (segments + points) on the
+same scene so it reads as a reference outline behind the primary. The camera is
+fitted to the primary only.
 
 # Arguments
-- `logs::Vector{<:SysLog}`: Vector of simulation logs to replay
-- `syss::Vector{<:SystemStructure}`: Vector of system structures (must match logs length)
+- `logs::Vector{<:SysLog}`: simulation logs; `logs[1]` is the primary.
+- `syss::Vector{<:SystemStructure}`: matching structures (same length as `logs`).
 
 # Keyword Arguments
-- `colors`: Color palette for distinguishing systems (default: wong_colors())
-- `replay_speed::Real=1.0`: Replay speed factor
-- `autoplay::Bool=false`: Start playing automatically
-- `loop::Bool=false`: Loop playback continuously
-- `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
+- `ghost_color`: colour of the ghost systems (default: grey).
+- `ghost_alpha::Real=0.5`: opacity of the ghost systems.
+- `replay_speed::Real=1.0`: Replay speed factor.
+- `autoplay::Bool=false`: Start playing automatically.
+- `loop::Bool=false`: Loop playback continuously.
+- `vector_scale::Real=1.0`: Scale factor for wing orientation arrows.
+- Remaining keywords (e.g. `show_beam`, `show_panels`) are forwarded to the
+  primary's single-system plot.
 
 # Returns
-- A Scene with interactive controls overlaid on the 3D visualization
+- A Scene with interactive controls overlaid on the 3D visualization.
 
 # Example
 ```julia
-# Replay two simulations side by side
-scene = replay([log1, log2], [sys1, sys2])
-
-# With custom colors
-scene = replay([log1, log2], [sys1, sys2], colors=[:red, :blue])
+# Full model as primary, collapsed model as grey ghost behind it
+scene = replay([log_full, log_collapsed], [sys_full, sys_collapsed])
 ```
 """
 function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure};
-                      colors=Makie.wong_colors(),
+                      colors=nothing,
+                      ghost_color=RGBf(0.6, 0.6, 0.6),
+                      ghost_alpha=0.5,
                       replay_speed=1.0,
                       autoplay=false,
                       loop=false,
                       vector_scale=1.0,
+                      transparency=true,
+                      show_body_frame=false,
+                      show_wing_frame=true,
+                      show_beam=true,
+                      show_panels=false,
+                      show_airfoils=true,
                       kwargs...)
 
     length(logs) == length(syss) || error("logs and systems must have same length")
+    isempty(syss) && error("No systems provided for replay")
     n_frames = minimum(length(lg.syslog) for lg in logs)
     n_frames == 0 && error("Empty SysLog provided for replay")
+    primary_sys, primary_log = syss[1], logs[1]
 
-    # Initialize all systems with first state
-    for (sys, lg) in zip(syss, logs)
-        update_from_sysstate!(sys, lg.syslog[1])
-    end
+    update_multi_states!(syss, logs, 1)
 
-    # Create plot with observables enabled for dynamic updates
-    scene = plot(syss; colors, vector_scale, use_observables=true, kwargs...)
+    # Build the primary with every toggleable layer so the checkboxes can show any.
+    passthrough = filter(pair -> !(pair.first in
+        (:plot_vsm, :plot_airfoils, :show_body_frame, :show_wing_frame)), kwargs)
+    scene = plot(syss; ghost_color, ghost_alpha, vector_scale, transparency,
+                 plot_vsm=true, plot_airfoils=true,
+                 show_body_frame=true, show_wing_frame=true, passthrough...)
 
-    # Define callbacks for UI controls
-    function update_frame!(idx)
-        # Update each system's state
-        for (sys, lg) in zip(syss, logs)
-            frame = min(idx, length(lg.syslog))
-            update_from_sysstate!(sys, lg.syslog[frame])
-        end
-        # Trigger all geometry observables
-        if !isnothing(PLOT_MULTI_GEOMETRY_OBS[])
-            for obs in PLOT_MULTI_GEOMETRY_OBS[]
-                obs[] = time()
-            end
-        end
-    end
+    update_frame!(idx) = (update_multi_states!(syss, logs, idx);
+                          refresh_multi_frame!(primary_sys; vector_scale))
 
-    # Use first log for timing
-    get_time(idx) = logs[1].syslog[min(idx, length(logs[1].syslog))].time
-    function get_dt(idx)
-        if idx > 1
-            lg = logs[1]
-            i1 = min(idx, length(lg.syslog))
-            i0 = min(idx - 1, length(lg.syslog))
-            return lg.syslog[i1].time - lg.syslog[i0].time
-        end
-        return 0.05
-    end
+    get_time(idx) = primary_log.syslog[min(idx, length(primary_log.syslog))].time
+    get_dt(idx) = idx > 1 ?
+        get_time(idx) - primary_log.syslog[min(idx - 1, length(primary_log.syslog))].time :
+        0.05
 
-    # Setup replay controls using shared function
+    layers = something(PLOT_LAYERS[], Dict{Symbol, Any}())
+    toggles = [t for t in (("Wing frame", :wings, show_wing_frame),
+                           ("Body frame", :bodies, show_body_frame),
+                           ("Beam", :beam_tubes, show_beam),
+                           ("Panels", :vsm, show_panels),
+                           ("Airfoil", :airfoils, show_airfoils))
+               if haskey(layers, t[2])]
+
     setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
-                           replay_speed, autoplay, loop)
+                           replay_speed, autoplay, loop, toggles)
 
     return scene
 end
