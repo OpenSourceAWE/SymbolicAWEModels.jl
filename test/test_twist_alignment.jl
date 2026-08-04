@@ -98,15 +98,13 @@ function report(label, rows)
     end
 end
 
-# At the settled state the coupling is exact to solver precision, so this is the
-# sharp check; the steered case below only has to survive constraint drift.
 static_rows = twist_chord_diffs(sam)
 report("static", static_rows)
 
 @testset "twist chord alignment at rest" begin
     for r in static_rows
-        @test r.angle < 1e-3
-        @test r.length_err < 1e-5
+        @test r.angle < 1e-6
+        @test r.length_err < 1e-12
     end
 end
 
@@ -125,13 +123,14 @@ end
 dyn_rows = twist_chord_diffs(sam)
 report("dynamic", dyn_rows)
 
-# Where the trajectory lands is not reproducible across platforms, so the
-# thresholds are set by what a broken coupling looks like (degrees of chord
-# misalignment at ~40 deg of twist), not by the observed spread.
+# The residual left here is the difference between this package's twist axis
+# (y_airf) and the curvature-averaged spanwise axis VSM rotates about, which
+# grows with twist; the chord length is invariant under both, so its tolerance
+# can stay at machine precision.
 @testset "twist chord alignment under steering" begin
     @test any(r -> abs(r.twist) > 0.1, dyn_rows)
     for r in dyn_rows
-        @test r.angle < 0.5
-        @test r.length_err < 0.01
+        @test r.angle < 1e-2
+        @test r.length_err < 1e-10
     end
 end
