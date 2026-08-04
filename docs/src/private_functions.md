@@ -92,6 +92,9 @@ SymbolicAWEModels.wing_node_inputs
 SymbolicAWEModels.wing_node_extra_accel
 SymbolicAWEModels.WingNodePoint
 SymbolicAWEModels.WingNodePulleyPoint
+SymbolicAWEModels.live_aero_node_inputs
+SymbolicAWEModels.live_aero_connector_eqs
+SymbolicAWEModels.LiveAeroWingNodePoint
 SymbolicAWEModels.WinchPoint
 ```
 

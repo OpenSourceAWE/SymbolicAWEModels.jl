@@ -478,6 +478,119 @@ function WingNodePulleyPoint(s, params, idx, pulley_mass; name)
 end
 
 """
+    live_aero_node_inputs(num_points)
+
+The extra external inputs a live-aero wing node reads beyond the ref-point frame
+([`wing_node_inputs`](@ref)): the wing origin position (`opx/opy/opz`, 3) and every
+wing point's world position and velocity (`wpos_k_c`/`wvel_k_c`, `6·num_points`), all
+`[input = true]`. The network supplies them via NetworkDynamics `extin`. Returns
+`(extra_vars, wing_pos, pos_list, vel_list)` where `pos_list[k]`/`vel_list[k]` are the
+3-vectors for wing point `k` (in the `wing_points` order the aero component expects).
+"""
+function live_aero_node_inputs(num_points)
+    opos = @variables opx(t), [input = true]
+    append!(opos, @variables opy(t), [input = true])
+    append!(opos, @variables opz(t), [input = true])
+    wing_pos = collect(opos)
+    extra = Any[opos...]
+    pos_list = Vector{Vector{Num}}(undef, num_points)
+    vel_list = Vector{Vector{Num}}(undef, num_points)
+    for k in 1:num_points
+        pk = Num[]
+        vk = Num[]
+        for c in 1:3
+            pnm = Symbol(:wpos_, k, :_, c)
+            vnm = Symbol(:wvel_, k, :_, c)
+            push!(pk, only(@variables $pnm(t), [input = true]))
+            push!(vk, only(@variables $vnm(t), [input = true]))
+        end
+        append!(extra, pk)
+        append!(extra, vk)
+        pos_list[k] = pk
+        vel_list[k] = vk
+    end
+    return extra, wing_pos, pos_list, vel_list
+end
+
+"""
+    live_aero_connector_eqs(subsys, s, rot, wing_pos, wind_gnd, pos_list, vel_list)
+
+Wire the shared aero component `subsys`'s particle connectors from the per-point world
+positions/velocities (`pos_list`/`vel_list`, read via `extin`), transforming them into
+the wing body frame by the fitted rotation `rot` and origin `wing_pos`. Mirrors the
+particle wiring of `aero_eqs!` so the network forms the identical body-frame
+`point_pos`/`point_vel`/`va`/`rho` the monolith does (apparent wind
+`wind(z)·wind_gnd − vel`, density at the clamped height).
+"""
+function live_aero_connector_eqs(subsys, s, rot, wing_pos, wind_gnd, pos_list, vel_list)
+    wind = WindFactor(s.am, s.set.profile_law)
+    eqs = Equation[]
+    for k in eachindex(pos_list)
+        pos_k = pos_list[k]
+        vel_k = vel_list[k]
+        z_k = pos_k[3]
+        va_w = wind(z_k) .* wind_gnd .- vel_k
+        eqs = [eqs
+               collect(subsys.point_pos[:, k]) .~ rot' * (pos_k .- wing_pos)
+               collect(subsys.point_vel[:, k]) .~ rot' * vel_k
+               collect(subsys.va[:, k]) .~ rot' * va_w
+               subsys.rho[k] ~ calc_rho(s.am, max(0.0, z_k))]
+    end
+    return eqs
+end
+
+"""
+    LiveAeroWingNodePoint(s, params, aero_params, idx, wing, slot, num_points; name)
+
+A DYNAMIC particle wing node whose aero force is computed **live** (not frozen): the
+shared [`DynamicPoint`](@ref) motion plus body-frame damping, plus the live per-point
+aero force from the shared [`aero_component`](@ref) nested as the `aero` subsystem. The
+wing frame is fitted from the ref points ([`wing_node_inputs`](@ref)) and the aero
+component reads every wing point's world state ([`live_aero_node_inputs`](@ref)), all
+via `extin`; the connectors are wired by [`live_aero_connector_eqs`](@ref). Because
+NetworkDynamics computes a vertex force in the f-pass (the only place `extin` is
+available) the whole wing's aero is evaluated in each wing-node kernel, which selects
+its own point force by the per-instance `aero_slot` (so one kernel serves the whole
+wing). Reuses `aero_component` unchanged (the same source both backends assemble), with
+`aero_params` a separate registry so the namespaced aero parameters do not collide with
+the point parameters. Covers every live particle mode ([`ContinuousAero`](@ref),
+[`AeroPressure`](@ref) without flap, [`AeroPlate`](@ref)); the frozen
+[`AeroDirect`](@ref) and force-free [`AeroNone`](@ref) keep [`WingNodePoint`](@ref).
+"""
+function LiveAeroWingNodePoint(s, params, aero_params, idx, wing, slot, num_points; name)
+    vars, pos, vel, force_in, mass_in, _, pulley_len_out = point_io()
+    ext, zp1, zp2, yp1, yp2, ovel = wing_node_inputs()
+    append!(vars, ext)
+    aero_ext, wing_pos, pos_list, vel_list = live_aero_node_inputs(num_points)
+    append!(vars, aero_ext)
+    pars = point_particle_params(params, idx)
+    point = params.points[idx]
+    mass = pars.extra_mass + mass_in
+    base = point_acceleration(s, collect(pos), collect(vel), collect(force_in),
+        mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
+        collect(pars.wind_gnd))
+    rot = wing_frame_rotation(zp1, zp2, yp1, yp2)
+    wind_gnd = ground_wind_vec(params)
+    subsys = aero_component(wing.aero, wing, params.reg.sys_struct;
+                            name = :aero, params = aero_params)
+    eqs = live_aero_connector_eqs(subsys, s, rot, wing_pos, wind_gnd, pos_list, vel_list)
+    aero_slot = make_param(:aero_slot, Float64(slot))
+    my_force_b = zeros(Num, 3)
+    for k in 1:num_points
+        pick = ifelse(abs(aero_slot - k) < 0.5, 1.0, 0.0)
+        my_force_b = my_force_b .+ pick .* collect(subsys.point_force[:, k])
+    end
+    damp = body_frame_damp_accel(vel, point.body_frame_damping, rot, ovel)
+    aero = (rot * my_force_b) ./ mass
+    eqs = [eqs
+           D.(collect(pos)) .~ collect(vel)
+           D.(collect(vel)) .~ base .+ aero .- damp
+           pulley_len_out ~ 0.0]
+    return System(eqs, t, vars, [param_unknowns(params); aero_slot];
+                  name, systems = [subsys])
+end
+
+"""
     WinchPoint(s, winch, winch_point; name)
 
 Reeling winch vertex at a `STATIC` winch point. Owns the motor speed `winch_vel` and

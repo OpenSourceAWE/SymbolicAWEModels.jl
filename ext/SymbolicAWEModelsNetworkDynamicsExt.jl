@@ -67,9 +67,6 @@ const SAM = SymbolicAWEModels
 # body-damp fallback) are topology, not struct data, so they are written into the
 # parameter vector once by [`set_const_params!`](@ref) and never re-read.
 
-SAM.sync_params!(g::SAM.ParamGroup, target, ss::SAM.SystemStructure) =
-    SAM.sync_group!(g, target, ss)
-
 """
     network_view(ss)
 
@@ -143,19 +140,76 @@ function add_param!(builder::ParamBuilder, index, reader)
 end
 
 """
-    build_network_param_sync(nw, builder)
+    CallableBuilder
 
-Turn the recorded parameters into a `SAM.ParamGroup` (a `setp` over all recorded
-indices plus the readers), or `nothing` when empty. It is the same group type the
-monolith syncs, only with a `VIndex`/`EIndex` setter; applied to the problem in
-`build_prob!` and re-applied every step through the shared `ProbWithAttributes`
-machinery.
+Accumulates callable (nonnumeric) parameters — the `ContinuousPolar` cl/cd/cm the live
+aero modes carry. Each is set through the ND fork's uniform SII callable route
+(`setp(nw, VIndex(i, sym))`), one setter per parameter because a batched `setp` over a
+vector does not route element-wise through the nonnumeric path. Distinct from
+[`ParamBuilder`](@ref), whose values live in the flat `Float64` buffer.
 """
-function build_network_param_sync(nw, builder::ParamBuilder)
-    isempty(builder.indices) && return nothing
-    setter = setp(nw, builder.indices)
-    buffer = Vector{SAM.SimFloat}(undef, length(builder.indices))
-    return SAM.ParamGroup(setter, builder.readers, buffer)
+struct CallableBuilder
+    indices::Vector{Any}
+    readers::Vector{Any}
+end
+CallableBuilder() = CallableBuilder(Any[], Any[])
+
+"""
+    add_callable!(builder, index, reader)
+
+Record one callable parameter: written to `index` (a `VIndex` onto a nonnumeric
+symbol), read as `reader(sys_struct)` (the live polar object).
+"""
+function add_callable!(builder::CallableBuilder, index, reader)
+    push!(builder.indices, index)
+    push!(builder.readers, reader)
+    return nothing
+end
+
+"""
+    MultiCallableSetter(setters)
+
+A [`SAM.ParamGroup`](@ref) setter over several callable parameters: applies each
+single-index `setp(nw, VIndex(...))` (which routes through the ND fork's nonnumeric
+store) to the matching buffer entry. Mirrors the batched-`setp` interface
+`(target, buffer)` the shared `sync_group!` calls, but element-wise so each callable
+takes the nonnumeric path.
+"""
+struct MultiCallableSetter{S}
+    setters::S
+end
+function (m::MultiCallableSetter)(target, buffer)
+    @inbounds for k in eachindex(m.setters)
+        m.setters[k](target, buffer[k])
+    end
+    return nothing
+end
+
+"""
+    build_network_param_sync(nw, builder, callables)
+
+Turn the recorded parameters into a `SAM.ParamSync` — a `Float64` scalar group (all
+scalar + scalarized-array-element params, via a batched `setp`) and a callable group
+(the polar callables, via a [`MultiCallableSetter`](@ref)). Either may be `nothing`;
+returns `nothing` when both are empty. It is the same `ParamSync` the monolith syncs,
+only with `VIndex`/`EIndex` setters, applied through the shared `ProbWithAttributes`
+machinery every step (and after every VSM refresh).
+"""
+function build_network_param_sync(nw, builder::ParamBuilder, callables::CallableBuilder)
+    scalar = nothing
+    if !isempty(builder.indices)
+        setter = setp(nw, builder.indices)
+        buffer = Vector{SAM.SimFloat}(undef, length(builder.indices))
+        scalar = SAM.ParamGroup(setter, builder.readers, buffer)
+    end
+    callable = nothing
+    if !isempty(callables.indices)
+        setters = [setp(nw, idx) for idx in callables.indices]
+        buffer = Vector{Any}(undef, length(callables.indices))
+        callable = SAM.ParamGroup(MultiCallableSetter(setters), callables.readers, buffer)
+    end
+    (scalar === nothing && callable === nothing) && return nothing
+    return SAM.ParamSync(scalar, nothing, callable)
 end
 
 # ======================= vertex Systems ======================= #
@@ -488,6 +542,87 @@ function body_damp_extin(ss, wing)
     ]
 end
 
+"""
+    needs_live_aero(wing)
+
+Whether a PARTICLE wing computes its per-point aero force **live** in the RHS (so its
+wing nodes need [`SAM.LiveAeroWingNodePoint`](@ref)) rather than reading a frozen
+per-point force. True for every real-aero mode except the frozen-override
+[`SAM.AeroDirect`](@ref); false for [`SAM.AeroNone`](@ref) (no force, `is_wing` false).
+"""
+needs_live_aero(wing) = SAM.is_wing(wing) && !SAM.provides_aero_override(wing.aero)
+
+"""
+    wing_node_points(ss, wing)
+
+The wing's aero points in the order [`SAM.wing_points`](@ref) uses — the order the aero
+component's `point_pos`/`point_force` connectors are indexed by, so a live wing node's
+`aero_slot` is its position in this list.
+"""
+wing_node_points(ss, wing) =
+    [p.idx for p in ss.points if p.is_wing_node && p.wing_idx == wing.idx]
+
+"""
+    live_aero_extin(ss, wing, point_idxs)
+
+The `extin` pair list a live-aero wing node reads: the ref-point frame and origin
+velocity ([`body_damp_extin`](@ref)), the wing origin position (`opx/opy/opz`), and
+every wing point's position/velocity (`wpos_k_c`/`wvel_k_c`, matching
+[`SAM.live_aero_node_inputs`](@ref)). Every live-aero node of the wing reads the same
+list, so they share one compiled kernel (only the `aero_slot` parameter differs).
+"""
+function live_aero_extin(ss, wing, point_idxs)
+    origin = ref_single_id(wing.origin)
+    pairs = body_damp_extin(ss, wing)
+    push!(pairs, :opx => VIndex(origin, :pos_1))
+    push!(pairs, :opy => VIndex(origin, :pos_2))
+    push!(pairs, :opz => VIndex(origin, :pos_3))
+    for (k, pidx) in enumerate(point_idxs)
+        for c in 1:3
+            push!(pairs, Symbol(:wpos_, k, :_, c) => VIndex(pidx, Symbol(:pos_, c)))
+            push!(pairs, Symbol(:wvel_, k, :_, c) => VIndex(pidx, Symbol(:vel_, c)))
+        end
+    end
+    return pairs
+end
+
+"""
+    build_live_aero_vmodels(sam, ss)
+
+One `VertexModel` per PARTICLE wing that computes live aero ([`needs_live_aero`](@ref)),
+shared by all that wing's aero nodes (they differ only in the `aero_slot` parameter).
+Returns `(vmodel_of, info_of, regs_of)`: `vmodel_of[point_idx]` the shared model,
+`info_of[point_idx] = (wing, slot)`, and `regs_of[wing_idx] = (point_reg, aero_reg,
+wing, point_idxs)` for per-instance sync. Empty when no wing computes live aero.
+"""
+function build_live_aero_vmodels(sam, ss)
+    vmodel_of = Dict{Int, Any}()
+    info_of = Dict{Int, Any}()
+    regs_of = Dict{Int, Any}()
+    for wing in ss.wings
+        (wing.dynamics_type == SAM.PARTICLE_DYNAMICS && needs_live_aero(wing)) ||
+            continue
+        point_idxs = wing_node_points(ss, wing)
+        npts = length(point_idxs)
+        repr = point_idxs[1]
+        preg = network_view(ss)
+        # Full-path (monolith-style) names for the aero subsystem: a live mode may read
+        # several twist-surfaces in one kernel, whose leaf names would collide under the
+        # network's per-field memoization (AeroPlate's `chord`/`area`), so name by path.
+        areg = SAM.ParamView(SAM.ParamRegistry(ss))
+        extin = live_aero_extin(ss, wing, point_idxs)
+        base = VertexModel(
+            SAM.LiveAeroWingNodePoint(sam, preg, areg, repr, wing, 1, npts; name = :live),
+            VERTEX_INPUTS, VERTEX_OUTPUTS; extin, mtkcompile = true, name = :live)
+        regs_of[wing.idx] = (preg.reg, areg.reg, wing, point_idxs)
+        for (slot, pidx) in enumerate(point_idxs)
+            vmodel_of[pidx] = base
+            info_of[pidx] = (wing, slot)
+        end
+    end
+    return vmodel_of, info_of, regs_of
+end
+
 # ======================= network assembly ======================= #
 
 """
@@ -533,10 +668,13 @@ function build_network(sam)
 
     wing_node_vmodel_of, wing_kind_of, kregs =
         build_wing_node_vmodels(sam, ss, pulley_of_point)
+    live_vmodel_of, live_info_of, live_regs = build_live_aero_vmodels(sam, ss)
 
     kind_of = Vector{Symbol}(undef, n)
     for i in 1:n
-        if haskey(wing_node_vmodel_of, i)
+        if haskey(live_vmodel_of, i)
+            kind_of[i] = :live
+        elseif haskey(wing_node_vmodel_of, i)
             kind_of[i] = wing_kind_of[i]
         elseif haskey(winch_of_point, i)
             kind_of[i] = :winch
@@ -560,7 +698,8 @@ function build_network(sam)
 
     vmodels = Vector{VertexModel}(undef, n)
     for i in 1:n
-        vmodels[i] = kind_of[i] === :winch ? winch_v[i] :
+        vmodels[i] = kind_of[i] === :live ? live_vmodel_of[i] :
+            kind_of[i] === :winch ? winch_v[i] :
             haskey(wing_node_vmodel_of, i) ? wing_node_vmodel_of[i] :
             kind_of[i] === :pul ? pulley_v :
             kind_of[i] === :stat ? stat : dyn
@@ -598,10 +737,13 @@ function build_network(sam)
     param, state = NWParameter(nw), NWState(nw)
     set_states!(ss, state, winch_of_point, pulley_of_point)
     builder = ParamBuilder()
+    callables = CallableBuilder()
     record_vertex_params!(builder, ss, winch_of_point, pulley_of_point, kind_of, kregs)
+    record_live_aero_params!(builder, callables, ss, live_info_of, live_regs)
     record_edge_params!(builder, ss, edgelist, seg_of, role_of_seg, kregs)
     set_const_params!(nw, param, ss, edgelist, seg_of, role_of_seg, kind_of)
-    param_sync = build_network_param_sync(nw, builder)
+    set_live_aero_slots!(nw, param, live_info_of)
+    param_sync = build_network_param_sync(nw, builder, callables)
 
     meta = (; param_sync, winch_of_point, pulley_of_point,
             winch_tethers = Dict(w.winch_point_idx => collect(w.tether_idxs)
@@ -717,6 +859,9 @@ function build_wing_node_vmodels(sam, ss, pulley_of_point)
     for (i, point) in enumerate(ss.points)
         wing = network_wing_node(ss, point)
         wing === nothing && continue
+        # Live-aero wing nodes get the live kernel (build_live_aero_vmodels), not the
+        # frozen wing-node kernel; other damped nodes on a live wing stay frozen.
+        (point.is_wing_node && needs_live_aero(wing)) && continue
         extin = body_damp_extin(ss, wing)
         if haskey(pulley_of_point, i)
             kind_of[i] = :wnpul
@@ -746,6 +891,87 @@ function build_wing_node_vmodels(sam, ss, pulley_of_point)
         end
     end
     return vmodel_of, kind_of, kregs
+end
+
+"""
+    record_aero_params!(builder, callables, ss, vertex, wing, areg)
+
+Record a live-aero node's aero-component parameters (namespaced `aero₊…` after nesting)
+for per-instance sync: the frozen induced velocity `v_ind` (a `3×n_panels` matrix,
+scalarized column-major to `aero₊v_ind_c_i` with a linear reader index), any scalar/
+vector aero params, and the `cl/cd/cm` polar callables (routed to `callables`, the
+nonnumeric SII path). Every entry reads live from `ss.wings[wing.idx].aero`.
+"""
+function record_aero_params!(builder, callables, ss, vertex, wing, areg)
+    for entry in areg.entries
+        entry.read isa SAM.PathReader || continue
+        path = entry.read.path
+        field = SAM.param_name(path)  # full-path name (matches the monolith-style areg)
+        if entry.kind === :callable
+            add_callable!(callables, VIndex(vertex, Symbol("aero₊", field)),
+                          SAM.PathReader(path))
+        elseif entry.kind === :scalar
+            add_param!(builder, VIndex(vertex, Symbol("aero₊", field)),
+                       SAM.PathReader(path))
+        elseif entry.kind === :array
+            value = entry.read(ss)
+            if ndims(value) == 2
+                rows, cols = size(value)
+                for col in 1:cols, row in 1:rows
+                    add_param!(builder,
+                        VIndex(vertex, Symbol("aero₊", field, "_", row, "_", col)),
+                        SAM.PathReader((path..., (col - 1) * rows + row)))
+                end
+            else
+                for k in 1:length(value)
+                    add_param!(builder,
+                        VIndex(vertex, Symbol("aero₊", field, "_", k)),
+                        SAM.PathReader((path..., k)))
+                end
+            end
+        end
+    end
+    return nothing
+end
+
+"""
+    record_live_aero_params!(builder, callables, ss, live_info_of, live_regs)
+
+Record every live-aero wing node's per-instance parameters: its point mass/drag/damping
+(replayed from the point registry, plus the ground wind and body-frame damping like a
+frozen wing node) and its aero-component parameters ([`record_aero_params!`](@ref)). The
+`aero_slot` selecting this node's own force is a topology constant set by
+[`set_live_aero_slots!`](@ref).
+"""
+function record_live_aero_params!(builder, callables, ss, live_info_of, live_regs)
+    for (i, (wing, _)) in live_info_of
+        preg, areg, _, _ = live_regs[wing.idx]
+        replay_fields!(builder, preg, :points, i, i, ss;
+                       skip = (:body_frame_damping,))
+        record_wind_params!(builder, i)
+        bind_body_damp!(builder, ss, i, ss.points[i])
+        record_aero_params!(builder, callables, ss, i, wing, areg)
+    end
+    return nothing
+end
+
+"""
+    set_live_aero_slots!(nw, param, live_info_of)
+
+Write each live-aero node's `aero_slot` — its position in the wing's aero-point list, so
+one shared kernel selects the right per-point force — straight into `param` once (a fixed
+assembly constant, not re-synced).
+"""
+function set_live_aero_slots!(nw, param, live_info_of)
+    isempty(live_info_of) && return nothing
+    indices = Any[]
+    values = SAM.SimFloat[]
+    for (i, (_, slot)) in live_info_of
+        push!(indices, VIndex(i, :aero_slot))
+        push!(values, SAM.SimFloat(slot))
+    end
+    setp(nw, indices)(param, values)
+    return nothing
 end
 
 """
@@ -824,6 +1050,7 @@ function record_vertex_params!(builder, ss, winch_of_point, pulley_of_point,
                                kind_of, kregs)
     for (i, point) in enumerate(ss.points)
         kind = kind_of[i]
+        kind === :live && continue  # recorded by record_live_aero_params!
         if kind === :winch
             record_winch_params!(builder, i, winch_of_point[i])
             continue
@@ -971,7 +1198,8 @@ function set_const_params!(nw, param, ss, edgelist, seg_of, role_of_seg, kind_of
         end
     end
     for (i, point) in enumerate(ss.points)
-        (kind_of[i] === :wnode || kind_of[i] === :wnpul) || continue
+        (kind_of[i] === :wnode || kind_of[i] === :wnpul || kind_of[i] === :live) ||
+            continue
         point_body_damp(ss, point) === nothing || continue
         for k in 1:3
             push!(indices, VIndex(i, Symbol(:body_frame_damping_, k)))
