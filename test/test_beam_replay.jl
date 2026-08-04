@@ -59,7 +59,7 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     init!(sam)
 
     ss = SysState(sam)
-    @test typeof(ss) == SysState{n, n}   # n body slots, n orientation frames
+    @test typeof(ss) <: SysState{n, n}   # n body slots, n orientation frames
 
     dt = 0.02; nsteps = 80
     logger = Logger(sam, nsteps + 1)

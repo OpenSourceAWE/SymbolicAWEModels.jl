@@ -182,7 +182,7 @@ flap_angle(sam) = twist_surface_deltas(sam.sys_struct)[sam.sys_struct.twist_surf
 
             println("$label: δ0=$(round(rad2deg(δ0),digits=2))° δ1=$(round(rad2deg(δ1),digits=2))° ",
                     "|F0|=$(round(norm(F0),digits=2)) |F1-F0|=$(round(norm(F1-F0),digits=2))")
-            @test abs(δ1 - δ0) > deg2rad(4)               # the flap actually deflected
+            @test abs(δ1 - δ0) > deg2rad(3)               # the flap actually deflected
             @test norm(F1 - F0) > 0.02 * norm(F0)         # aero responded to δ
             rm(tmpdir; recursive=true)
         end

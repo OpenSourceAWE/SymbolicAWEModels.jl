@@ -58,18 +58,11 @@ function identify_wing_segments(
                 "TwistSurface $(twist_surface.name): need at least " *
                 "2 point_idxs (LE/TE), got " *
                 "$(length(twist_surface.point_idxs))")
-            le_idx = twist_surface.point_idxs[1]
-            te_idx = twist_surface.point_idxs[end]
-            le_point = wing_points[findfirst(
-                p -> p.idx == le_idx, wing_points)]
-            te_point = wing_points[findfirst(
-                p -> p.idx == te_idx, wing_points)]
-            # Safety: swap if LE actually has larger x
-            if le_point.pos_cad[1] < te_point.pos_cad[1]
-                push!(segments, (le_idx, te_idx))
-            else
-                push!(segments, (te_idx, le_idx))
-            end
+            station = [wing_points[findfirst(p -> p.idx == idx, wing_points)]
+                       for idx in twist_surface.point_idxs]
+            le_point = argmin(p -> p.pos_cad[1], station)
+            te_point = argmax(p -> p.pos_cad[1], station)
+            push!(segments, (le_point.idx, te_point.idx))
         end
         return segments
     end
@@ -143,10 +136,10 @@ function match_aero_sections_to_structure!(
         n_struct_sections = length(wing_twist_surface_idxs)
         for g_idx in wing_twist_surface_idxs
             twist_surface = twist_surfaces[g_idx]
-            length(twist_surface.point_idxs) == 2 || error(
+            length(twist_surface.point_idxs) >= 2 || error(
                 "PARTICLE_DYNAMICS wing $(wing.idx): twist_surface " *
-                "$(twist_surface.name) must have exactly 2 " *
-                "points (LE/TE pair), got " *
+                "$(twist_surface.name) needs at least 2 points " *
+                "(LE = point_idxs[1], TE = point_idxs[end]), got " *
                 "$(length(twist_surface.point_idxs))")
         end
     else
@@ -220,18 +213,12 @@ function match_aero_sections_to_structure!(
             (points[te_idx].pos_cad - origin_cad)
 
         section = VortexStepMethod.Section()
-        if isnothing(source_section.aero_data)
-            VortexStepMethod.reinit!(
-                section, le_body, te_body,
-                source_section.aero_model
-            )
-        else
-            VortexStepMethod.reinit!(
-                section, le_body, te_body,
-                source_section.aero_model,
-                source_section.aero_data
-            )
-        end
+        VortexStepMethod.reinit!(
+            section, le_body, te_body,
+            source_section.aero_model,
+            source_section.aero_data,
+            source_section.section_aero
+        )
         new_sections[i] = section
     end
 
@@ -247,73 +234,24 @@ function match_aero_sections_to_structure!(
 end
 
 """
-    build_point_to_vsm_point_mapping(wing_points::AbstractVector{Point}, wing::Body)
+    build_point_to_vsm_point_mapping(wing_segments)
 
-Build 1:1 mapping from structural WING points to VSM wing section points (LE/TE) using closest-point distance.
+Invert the twist-surface-derived `wing_segments` — `(le_point_idx, te_point_idx)`
+per unrefined section — into the `structural point → (section_idx, :LE/:TE)` map.
 
-For each VSM section point (LE/TE), finds the closest structural point. Distances are computed
-in body frame: structural `pos_cad` is transformed via `wing.R_b_to_c'` and `wing.pos_cad` before
-being compared against section LE/TE points (which already live in body frame after
-`match_aero_sections_to_structure!`).
-
-# Constraint
-Requires: `length(wing_points) == 2 * length(wing.vsm_wing.unrefined_sections)`
+Each unrefined section contributes exactly its LE and TE structural points. Any
+interior points on the same station (chord control points on the beam) are not
+aero station points and are simply absent from the map; there is no constraint on
+the total WING-point count.
 """
 function build_point_to_vsm_point_mapping(
-    wing_points::AbstractVector{Point},
-    wing::Body,
+    wing_segments::AbstractVector{Tuple{Int64, Int64}},
 )
-    vsm_wing = wing.vsm_wing
-    n_points = length(wing_points)
-    n_sections = length(vsm_wing.unrefined_sections)
-
-    if n_points != 2 * n_sections
-        error("PARTICLE_DYNAMICS wing requires n_structural_points ($(n_points)) == " *
-              "2 * n_vsm_sections ($(n_sections))")
-    end
-
-    R_c_to_b = wing.R_b_to_c'
-    origin_cad = wing.pos_cad
-
-    point_pos_b = Dict{Int64, SVector{3, SimFloat}}()
-    for point in wing_points
-        point_pos_b[point.idx] =
-            SVector{3, SimFloat}(R_c_to_b * (point.pos_cad - origin_cad))
-    end
-
     point_to_vsm_point = Dict{Int64, Tuple{Int64, Symbol}}()
-    used_points = Set{Int64}()
-
-    for (section_idx, section) in enumerate(vsm_wing.unrefined_sections)
-        le_pos = SVector{3, SimFloat}(section.LE_point)
-        min_dist = Inf
-        closest_le_idx = wing_points[1].idx
-        for point in wing_points
-            point.idx in used_points && continue
-            dist = norm(point_pos_b[point.idx] - le_pos)
-            if dist < min_dist
-                min_dist = dist
-                closest_le_idx = point.idx
-            end
-        end
-        point_to_vsm_point[closest_le_idx] = (Int64(section_idx), :LE)
-        push!(used_points, closest_le_idx)
-
-        te_pos = SVector{3, SimFloat}(section.TE_point)
-        min_dist = Inf
-        closest_te_idx = wing_points[1].idx
-        for point in wing_points
-            point.idx in used_points && continue
-            dist = norm(point_pos_b[point.idx] - te_pos)
-            if dist < min_dist
-                min_dist = dist
-                closest_te_idx = point.idx
-            end
-        end
-        point_to_vsm_point[closest_te_idx] = (Int64(section_idx), :TE)
-        push!(used_points, closest_te_idx)
+    for (section_idx, (le_idx, te_idx)) in enumerate(wing_segments)
+        point_to_vsm_point[le_idx] = (Int64(section_idx), :LE)
+        point_to_vsm_point[te_idx] = (Int64(section_idx), :TE)
     end
-
     return point_to_vsm_point
 end
 
@@ -582,19 +520,17 @@ LE/TE `wing_segments` if not already set. Errors if the required body-frame
 `z_ref_points`/`y_ref_points` are missing.
 """
 function setup_particle_point_mapping!(wing, points, twist_surfaces)
-    if isnothing(wing.point_to_vsm_point)
-        wing_point_idxs = findall(
-            point -> point.is_wing_node && point.wing_idx == wing.idx, points)
-        wing_pts = [points[idx] for idx in wing_point_idxs]
-        wing.point_to_vsm_point =
-            build_point_to_vsm_point_mapping(wing_pts, wing)
-    end
-    wing_point_idxs = collect(keys(something(wing.point_to_vsm_point)))
+    wing_point_idxs = findall(
+        point -> point.is_wing_node && point.wing_idx == wing.idx, points)
     wing_pts = [points[idx] for idx in wing_point_idxs]
     if isnothing(wing.wing_segments)
         wing.wing_segments = identify_wing_segments(wing_pts;
             twist_surfaces=twist_surfaces,
             wing_twist_surface_idxs=wing.twist_surface_idxs)
+    end
+    if isnothing(wing.point_to_vsm_point)
+        wing.point_to_vsm_point =
+            build_point_to_vsm_point_mapping(wing.wing_segments)
     end
     isnothing(wing.z_ref_points) && error(
         "PARTICLE_DYNAMICS wing '$(wing.name)': z_ref_points must be specified")

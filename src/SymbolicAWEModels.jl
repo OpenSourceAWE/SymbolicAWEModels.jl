@@ -147,6 +147,7 @@ function record end
 function plot_sphere_trajectory end
 function plot_body_frame end
 function plot_aoa end
+
 """
     plot_wing_aero!(ax, sys, wing, mode::AbstractAeroModel;
                     use_observables=false, geometry_obs=nothing)

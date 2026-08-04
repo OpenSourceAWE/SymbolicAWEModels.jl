@@ -22,6 +22,7 @@ using Test
 # GLMakie requires OpenGL — skip tests on CI runners without GPU drivers
 const GLMAKIE_AVAILABLE = try
     @eval using GLMakie
+    @eval using MakieControlPlots
     GLMakie.activate!(; visible=false)
     true
 catch e
@@ -154,7 +155,7 @@ end
     # Test 1: Multi-system plot creates vector-typed colors
     # ================================================================
     @testset "Multi-system plot vector colors" begin
-        scene = plot([sys1, sys2]; use_observables=true)
+        scene = GLMakie.plot([sys1, sys2]; use_observables=true)
         @test scene isa GLMakie.Scene
     end
 

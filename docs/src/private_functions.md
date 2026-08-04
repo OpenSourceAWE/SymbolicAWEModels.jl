@@ -212,6 +212,9 @@ SymbolicAWEModels.resolve_ref_spec
 SymbolicAWEModels.validate_sys_struct
 SymbolicAWEModels.build_name_dict
 SymbolicAWEModels.setup_wing_frame!
+SymbolicAWEModels.connected_body_groups
+SymbolicAWEModels.particle_wing_masses
+SymbolicAWEModels.finalize_particle_wing_mass!
 SymbolicAWEModels.compute_twist_surface_geometry!
 SymbolicAWEModels.setup_particle_point_mapping!
 SymbolicAWEModels.identify_wing_segments
@@ -238,6 +241,9 @@ SymbolicAWEModels.WeightedRefPoints
 SymbolicAWEModels.resolve!
 SymbolicAWEModels.validate_weights!
 SymbolicAWEModels.SegmentType
+SymbolicAWEModels.mark_wing_nodes!
+SymbolicAWEModels.wing_frame_member
+SymbolicAWEModels.distribute_mass_over_points!
 ```
 
 ## NamedCollection internals
@@ -261,6 +267,9 @@ SymbolicAWEModels.pulley_eqs!
 SymbolicAWEModels.winch_eqs!
 SymbolicAWEModels.twist_surface_eqs!
 SymbolicAWEModels.validate_twist_surface_modes
+SymbolicAWEModels.body_ride_eqs
+SymbolicAWEModels.beam_hermite_ride_eqs
+SymbolicAWEModels.point_damping_accel
 ```
 
 ## Plate aerodynamics internals
@@ -298,7 +307,9 @@ SymbolicAWEModels.restore_aero_twist!
 SymbolicAWEModels.plot_wing_aero!
 SymbolicAWEModels.update_wing_aero_plot!
 SymbolicAWEModels.load_wing
-SymbolicAWEModels.yaml_n_unrefined_sections
+SymbolicAWEModels.restore_flap_delta!
+SymbolicAWEModels.write_flap_deflections!
+SymbolicAWEModels.n_flap_deflections
 ```
 
 ## VSM and aerodynamics internals
@@ -318,9 +329,15 @@ SymbolicAWEModels.safe_vsm_solve!
 SymbolicAWEModels.finite_full
 SymbolicAWEModels.set_particle_panel_va!
 SymbolicAWEModels.build_mesh_maps!
-SymbolicAWEModels.store_billow_offsets!
 SymbolicAWEModels.store_induced_velocity!
+SymbolicAWEModels.build_section_interp
+SymbolicAWEModels.section_interp_caches
+SymbolicAWEModels.aero_section_columns
+SymbolicAWEModels.interp_strut
+SymbolicAWEModels.interp_sections
+SymbolicAWEModels.reconstruct_sections_sym
 SymbolicAWEModels.reconstruct_sections_b
+SymbolicAWEModels.write_live_aero_log_points!
 SymbolicAWEModels.ContinuousPolar
 SymbolicAWEModels.transform_vsm_sections_to_body!
 SymbolicAWEModels.frozen_point_force_component
@@ -332,6 +349,20 @@ SymbolicAWEModels.twist_surface_deltas
 SymbolicAWEModels.apply_flap_delta!
 SymbolicAWEModels.init_pressure_buffers!
 SymbolicAWEModels.freeze_traction_pattern!
+SymbolicAWEModels.panel_span_signs
+SymbolicAWEModels.frame_sections
+SymbolicAWEModels.seed_wing_inertia!
+```
+
+## OBJ mesh mass properties
+
+```@docs
+SymbolicAWEModels.ObjAdapter
+SymbolicAWEModels.ObjAdapter.center_of_mass
+SymbolicAWEModels.ObjAdapter.calculate_inertia_tensor
+SymbolicAWEModels.ObjAdapter.unit_inertia_from_obj
+SymbolicAWEModels.ObjAdapter.unit_inertia_matrix
+SymbolicAWEModels.ObjAdapter.unit_inertia_vector
 ```
 
 ## Heading and geometry
@@ -341,6 +372,7 @@ SymbolicAWEModels.solve_heading_rotation
 SymbolicAWEModels.get_ref_position_from_points
 SymbolicAWEModels.sym_calc_R_t_to_w
 SymbolicAWEModels.wrap_to_pi
+SymbolicAWEModels.heading_reference_body
 ```
 
 ## Transform internals
@@ -349,6 +381,7 @@ SymbolicAWEModels.wrap_to_pi
 SymbolicAWEModels.apply_azimuth_elevation!
 SymbolicAWEModels.apply_heading!
 SymbolicAWEModels.finalize_transforms!
+SymbolicAWEModels.min_rotation
 ```
 
 ## Flat parameters
@@ -391,6 +424,8 @@ SymbolicAWEModels.bind_initial!
 SymbolicAWEModels.ElementReader
 SymbolicAWEModels.InitialSync
 SymbolicAWEModels.build_initial_sync
+SymbolicAWEModels.normalize_param_name
+SymbolicAWEModels.missing_param_defaults
 SymbolicAWEModels.sync_initial!
 SymbolicAWEModels.normalize_param_name
 SymbolicAWEModels.missing_param_defaults

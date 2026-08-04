@@ -784,6 +784,20 @@ strain returning force [N]; a callable propagates to every auto-generated segmen
 `unit_stiffness` is typed `Any` (not a type parameter) to keep `Tether` concrete,
 since `SystemStructure.tethers` is read every step.
 
+# Initial length
+Two distinct lengths, set independently at `reinit!`:
+- `init_stretched_len` — the *placed* (stretched) standoff; `reinit!` scales the
+  free end's world position so the geometry spans this length.
+- `len` — the *unstretched* rest length and the reeled ODE state (what a `Winch`
+  holds/reels). It is not set directly; `reinit!` **derives** it from the placed
+  length via either `init_stretch_frac` (`len = frac · stretched`) or
+  `init_tether_force` (`len = stretched · (1 − force/stiffness)`, default 0 → no
+  tension → `len = stretched`).
+
+To command a specific initial unstretched length `L` (e.g. winch steering/depower),
+place at a known `init_stretched_len = S` and set `init_stretch_frac = L / S`.
+Setting `len` directly does not survive `reinit!`.
+
 $(TYPEDFIELDS)
 """
 mutable struct Tether
@@ -977,6 +991,12 @@ abstract type AbstractWinchModel end
     mutable struct Winch
 
 A set of tethers (or a single tether) connected to a winch mechanism.
+
+The winch has no length field of its own: its length is the mean of its tethers'
+unstretched lengths (`winch.len ~ mean(tether.len for tether in tethers)`) and
+`D(tether.len) ~ winch_vel`. To set the initial reeled length, set the initial
+unstretched `len` of each connected tether (see [`Tether`](@ref) "Initial
+length"); `brake > 0.5` then freezes it.
 
 $(TYPEDFIELDS)
 """

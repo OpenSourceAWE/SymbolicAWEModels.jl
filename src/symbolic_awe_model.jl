@@ -395,6 +395,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         corner_idx = write_aero_log_points!(wing.aero, wing, sam.sys_struct,
                                             ss, corner_idx, zoom)
     end
+    write_flap_deflections!(ss, sam.sys_struct)
 
     # Orientation frames are ordered wings-first, then bodies (slots after corners).
     slots = position_slots(sam.sys_struct)
@@ -468,7 +469,8 @@ with the current state of the provided model.
 """
 function SysState(s::SymbolicAWEModel, zoom=1.0)
     slots = position_slots(s.sys_struct)
-    ss = SysState{slots.total, n_orient_frames(s.sys_struct)}()
+    ss = SysState{slots.total, n_orient_frames(s.sys_struct),
+                  n_flap_deflections(s.sys_struct)}()
     update_sys_state!(ss, s, zoom)
     ss
 end
@@ -496,7 +498,8 @@ logger = Logger(sam, 1000)  # Instead of Logger(length(sam.sys_struct.points), 1
 """
 function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
     slots = position_slots(sam.sys_struct)
-    return Logger(slots.total, n_orient_frames(sam.sys_struct), steps)
+    return Logger(slots.total, n_orient_frames(sam.sys_struct),
+                  n_flap_deflections(sam.sys_struct), steps)
 end
 
 """

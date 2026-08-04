@@ -750,10 +750,14 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("winch", winch.idx, winch.tether_idxs))
     end
     for wing in wings
+        # Polar format sets the panel interpolant dimensionality baked into the bin.
+        polar_format = wing.aero isa AbstractVSMAero &&
+                       !isempty(wing.aero.vsm_aero.panels) ?
+            wing.aero.vsm_aero.panels[1].aero_model : nothing
         wing_data = ("wing", wing.idx, wing.twist_surface_idxs,
                      Int(wing.dynamics_type),
                      nameof(typeof(wing.aero)),
-                     aero_hash_id(wing.aero))
+                     aero_hash_id(wing.aero), polar_format)
 
         # Include wing reference points in hash
         ref_hash(ref) = (ref.ids, ref.weights)

@@ -5,6 +5,7 @@ using Pkg
 Pkg.activate(@__DIR__)
 
 using Makie, VortexStepMethod
+using MakieControlPlots
 using SymbolicAWEModels
 using Documenter
 using Literate
@@ -50,7 +51,7 @@ makedocs(;
         prettyurls=get(ENV, "CI", "false") == "true",
         canonical="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl",
         assets=String[],
-        size_threshold=300 * 1024,
+        size_threshold=500 * 1024,
     ),
     pages=[
         "Home" => "index.md",

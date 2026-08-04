@@ -225,205 +225,124 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                 point_drag_force[:, point.idx] + seg_drag
         ]
 
-        if point.type == BODY_STATIC && !point.is_wing_node
-            # Skip point gravity when the ridden body already counts this point's
-            # mass (a rigid wing's own attachment points), so it is not applied
-            # twice — once here and once at the body COM via `body.mass`.
-            rides_own_wing = point.body_idx > 0 &&
-                wing_frame_member(point, point.body_idx)
-            gravity = rides_own_wing ? zeros(Num, 3) :
-                Num[0, 0, -params.set.g_earth * mass]
+        # EXCEPTION to the anchor rule: a wing node on a RIGID_DYNAMICS wing is
+        # placed by a twist-deformed offset in the wing body frame — the wing is
+        # itself the rigid body, so there is no node body or beam to ride, and the
+        # section-twist DOF deforms the offset. Every other point follows the
+        # anchor rule below (joint → beam, body → rigid ride, STATIC → fixed,
+        # else → free particle).
+        if point.is_wing_node &&
+           s.sys_struct.bodies[point.wing_idx].dynamics_type == RIGID_DYNAMICS
             eqs = [
                 eqs
                 point_force[:, point.idx] ~
-                    spring_sum_force[:, point.idx] + gravity +
-                    disturb_force[:, point.idx] + point_drag_force[:, point.idx]
+                    spring_sum_force[:, point.idx] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
             ]
-            force_on_point = collect(point_force[:, point.idx])
-            if point.joint_idx > 0
-                eqs = [eqs; beam_hermite_ride_eqs(point, force_on_point, s, params;
-                    pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
-                    body_com_vel, body_ω_b, body_force, body_moment)]
-            else
-                # Rides a Body kinematically; feeds its force and COM moment to the body.
-                eqs = [eqs; body_ride_eqs(point, point.body_idx, force_on_point,
-                    params; pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
-                    body_com_vel, body_ω_b, body_force, body_moment)]
+            found = 0
+            twist_surface = nothing
+            for twist_surface_ in twist_surfaces
+                if point.idx in twist_surface_.point_idxs
+                    twist_surface = twist_surface_
+                    found += 1
+                end
             end
-        elseif point.is_wing_node
-            # The wing is a body (looked up in the full bodies, incl. AeroNone wings).
-            wing = s.sys_struct.bodies[point.wing_idx]
-
-            if wing.dynamics_type == PARTICLE_DYNAMICS
-                # AeroNone particle wings have no per-point aero array, so zero force.
-                aero_force_w = is_wing(wing) ?
-                    R_b_to_w[:, :, wing.idx] * aero_force_point_b[:, point.idx] :
-                    zeros(Num, 3)
-
-                eqs = [
-                    eqs
-                    point_force[:, point.idx] ~
-                        spring_sum_force[:, point.idx] + aero_force_w + Num[0, 0, -params.set.g_earth * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
-                ]
-
-                if point.joint_idx > 0
-                    # Beam-anchored receiver: rides the joint's corotational-Hermite
-                    # centerline (incl. aero), loads split to both end bodies.
-                    eqs = [eqs; beam_hermite_ride_eqs(point,
-                        collect(point_force[:, point.idx]), s, params;
-                        pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
-                        body_com_vel, body_ω_b, body_force, body_moment)]
-                    continue
-                end
-
-                if point.body_idx > 0
-                    # Rides a Body (beam-node coupling): kinematic pose, loads to body.
-                    eqs = [eqs; body_ride_eqs(point, point.body_idx,
-                        collect(point_force[:, point.idx]), params;
-                        pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
-                        body_com_vel, body_ω_b, body_force, body_moment)]
-                    continue
-                end
-
-                damp_accel = point_damping_accel(
-                    point, params, R_b_to_w, wing.idx, vel[:, point.idx],
-                    vel[:, point.idx] - wing_vel[:, point.wing_idx])
-
-                # DYNAMIC point equations
-                axis = smooth_normalize(pos[:, point.idx])
-                eqs = [
-                    eqs
-                    fix_point_sphere[point.idx] ~ params.points[point.idx].fix_sphere
-                    fix_static[point.idx] ~ params.points[point.idx].fix_static
-                    D(pos[:, point.idx]) ~ ifelse.(
-                        fix_static[point.idx] == true,
-                        zeros(3),
-                        ifelse.(fix_point_sphere[point.idx]==true,
-                                vel[:, point.idx] ⋅ axis * axis,
-                                vel[:, point.idx]
-                        )
-                    )
-                    D(vel[:, point.idx]) ~ ifelse.(
-                        fix_static[point.idx] == true,
-                        zeros(3),
-                        ifelse.(fix_point_sphere[point.idx]==true,
-                                acc[:, point.idx] ⋅ axis * axis,
-                                acc[:, point.idx]
-                        )
-                    )
-                    acc[:, point.idx] ~ point_force[:, point.idx] ./ mass - damp_accel
-                ]
-                defaults = [
-                    defaults
-                    bind_initial!(initial.points[point.idx].pos_w, collect(pos[:, point.idx]))
-                    bind_initial!(initial.points[point.idx].vel_w, collect(vel[:, point.idx]))
-                ]
-
-            elseif wing.dynamics_type == RIGID_DYNAMICS
-                # RIGID_DYNAMICS point feeds force to body accumulator; gravity at COM.
-                eqs = [
-                    eqs
-                    point_force[:, point.idx] ~
-                        spring_sum_force[:, point.idx] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
-                ]
-
+            in_group = found == 1
+            !(found in [0, 1]) && error(
+                "Kite point number $(point.idx) is part of $found twist_surfaces, " *
+                "and should be part of exactly 0 or 1 twist_surfaces.",
+            )
+            if found == 1
                 found = 0
-                twist_surface = nothing
-                for twist_surface_ in twist_surfaces
-                    if point.idx in twist_surface_.point_idxs
-                        twist_surface = twist_surface_
+                for wing_ in s.sys_struct.bodies
+                    if twist_surface.idx in wing_.twist_surface_idxs
                         found += 1
                     end
                 end
-                in_group = found == 1
-                !(found in [0, 1]) && error(
-                    "Kite point number $(point.idx) is part of $found twist_surfaces, " *
-                    "and should be part of exactly 0 or 1 twist_surfaces.",
+                !(found == 1) && error(
+                    "Kite twist_surface number $(twist_surface.idx) is part of $found bodies, " *
+                    "and should be part of exactly 1 body.",
                 )
-
-                if found == 1
-                    found = 0
-                    for wing_ in s.sys_struct.bodies
-                        if twist_surface.idx in wing_.twist_surface_idxs
-                            found += 1
-                        end
-                    end
-                    !(found == 1) && error(
-                        "Kite twist_surface number $(twist_surface.idx) is part of $found bodies, " *
-                        "and should be part of exactly 1 body.",
-                    )
-
-                    eqs = [
-                        eqs
-                        fixed_pos[:, point.idx] ~ params.twist_surfaces[twist_surface.idx].le_pos
-                        chord_b[:, point.idx] ~
-                            params.points[point.idx].pos_b .- fixed_pos[:, point.idx]
-                        normal[:, point.idx] ~ chord_b[:, point.idx] × twist_surface_y_airf[:, twist_surface.idx]
-                        pos_b[:, point.idx] ~
-                            fixed_pos[:, point.idx] .+
-                            cos(twist_angle[twist_surface.idx]) * chord_b[:, point.idx] -
-                            sin(twist_angle[twist_surface.idx]) * normal[:, point.idx]
-                    ]
-                elseif found == 0
-                    eqs = [eqs; pos_b[:, point.idx] ~ params.points[point.idx].pos_b]
-                end
-                # Moment arm about COM (world frame)
                 eqs = [
                     eqs
-                    tether_r[:, point.idx] ~
-                        pos[:, point.idx] -
-                        com_w[:, point.wing_idx]
+                    fixed_pos[:, point.idx] ~ params.twist_surfaces[twist_surface.idx].le_pos
+                    chord_b[:, point.idx] ~
+                        params.points[point.idx].pos_b .- fixed_pos[:, point.idx]
+                    normal[:, point.idx] ~ chord_b[:, point.idx] × twist_surface_y_airf[:, twist_surface.idx]
+                    pos_b[:, point.idx] ~
+                        fixed_pos[:, point.idx] .+
+                        cos(twist_angle[twist_surface.idx]) * chord_b[:, point.idx] -
+                        sin(twist_angle[twist_surface.idx]) * normal[:, point.idx]
                 ]
-                # group_points_moment may exclude in-group points from the wing moment.
-                point_moment = tether_r[:, point.idx] ×
-                    point_force[:, point.idx]
-                if in_group
-                    point_moment = ifelse.(
-                        params.bodies[point.wing_idx].group_points_moment == true,
-                        point_moment, zeros(3))
-                end
-                # Feed the body load accumulator (read by body_eqs!).
-                body_force[:, point.wing_idx] .+= point_force[:, point.idx]
-                body_moment[:, point.wing_idx] .+= point_moment
-
-                # pos_b is the offset from COM in the body frame.
-                eqs = [
-                    eqs
-                    pos[:, point.idx] ~
-                        com_w[:, point.wing_idx] +
-                        R_b_to_w[:, :, point.wing_idx] *
-                        pos_b[:, point.idx]
-                    vel[:, point.idx] ~ zeros(3)
-                    acc[:, point.idx] ~ zeros(3)
-                ]
-            else
-                error("Unsupported dynamics_type $(wing.dynamics_type) " *
-                      "for WING point $(point.idx)")
+            elseif found == 0
+                eqs = [eqs; pos_b[:, point.idx] ~ params.points[point.idx].pos_b]
             end
-        elseif point.type == STATIC
-            # Define point_force for STATIC points
             eqs = [
                 eqs
-                point_force[:, point.idx] ~
-                    spring_sum_force[:, point.idx] + Num[0, 0, -params.set.g_earth * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
+                tether_r[:, point.idx] ~
+                    pos[:, point.idx] - com_w[:, point.wing_idx]
+            ]
+            point_moment = tether_r[:, point.idx] × point_force[:, point.idx]
+            if in_group
+                point_moment = ifelse.(
+                    params.bodies[point.wing_idx].group_points_moment == true,
+                    point_moment, zeros(3))
+            end
+            body_force[:, point.wing_idx] .+= point_force[:, point.idx]
+            body_moment[:, point.wing_idx] .+= point_moment
+            eqs = [
+                eqs
+                pos[:, point.idx] ~
+                    com_w[:, point.wing_idx] +
+                    R_b_to_w[:, :, point.wing_idx] * pos_b[:, point.idx]
+                vel[:, point.idx] ~ zeros(3)
+                acc[:, point.idx] ~ zeros(3)
+            ]
+            continue
+        end
+
+        # Force = segment/spring loads + aero (surface nodes only) + gravity +
+        # disturbance + point drag. Gravity is dropped when the point rides its own
+        # wing body (its mass is already counted at that body's COM).
+        aero_force_w = (point.is_wing_node &&
+                        is_wing(s.sys_struct.bodies[point.wing_idx])) ?
+            R_b_to_w[:, :, point.wing_idx] * aero_force_point_b[:, point.idx] :
+            zeros(Num, 3)
+        rides_own_wing = point.body_idx > 0 &&
+            wing_frame_member(point, point.body_idx)
+        gravity = rides_own_wing ? zeros(Num, 3) :
+            Num[0, 0, -params.set.g_earth * mass]
+        eqs = [
+            eqs
+            point_force[:, point.idx] ~ spring_sum_force[:, point.idx] +
+                aero_force_w + gravity + disturb_force[:, point.idx] +
+                point_drag_force[:, point.idx]
+        ]
+
+        # Placement by anchor — the single rule for every non-rigid-wing point.
+        force_on_point = collect(point_force[:, point.idx])
+        if point.joint_idx > 0
+            eqs = [eqs; beam_hermite_ride_eqs(point, force_on_point, s, params;
+                pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
+                body_com_vel, body_ω_b, body_force, body_moment)]
+        elseif point.body_idx > 0
+            eqs = [eqs; body_ride_eqs(point, point.body_idx, force_on_point,
+                params; pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
+                body_com_vel, body_ω_b, body_force, body_moment)]
+        elseif point.type == STATIC
+            eqs = [
+                eqs
                 pos[:, point.idx] ~ params.points[point.idx].pos_w
                 vel[:, point.idx] ~ zeros(3)
                 acc[:, point.idx] ~ zeros(3)
             ]
-        elseif point.type == DYNAMIC
-            # Define point_force for DYNAMIC points
-            eqs = [
-                eqs
-                point_force[:, point.idx] ~
-                    spring_sum_force[:, point.idx] + Num[0, 0, -params.set.g_earth * mass] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
-            ]
-
-            wing_idx = length(wings) > 0 ? point.wing_idx : 0
+        else
+            # Free particle: integrated position/velocity (DYNAMIC point or an
+            # unanchored surface node).
+            wing_idx_damp = length(wings) > 0 ? point.wing_idx : 0
             vel_diff_w = length(wings) > 0 ?
                 vel[:, point.idx] - wing_vel[:, point.wing_idx] : nothing
             damp_accel = point_damping_accel(
-                point, params, R_b_to_w, wing_idx, vel[:, point.idx], vel_diff_w)
-
+                point, params, R_b_to_w, wing_idx_damp, vel[:, point.idx], vel_diff_w)
             axis = smooth_normalize(pos[:, point.idx])
             eqs = [
                 eqs
@@ -445,15 +364,13 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                             acc[:, point.idx]
                     )
                 )
-                acc[:, point.idx]    ~ point_force[:, point.idx] ./ mass - damp_accel
+                acc[:, point.idx] ~ point_force[:, point.idx] ./ mass - damp_accel
             ]
             defaults = [
                 defaults
                 bind_initial!(initial.points[point.idx].pos_w, collect(pos[:, point.idx]))
                 bind_initial!(initial.points[point.idx].vel_w, collect(vel[:, point.idx]))
             ]
-        else
-            error("Unknown point type: $(typeof(point))")
         end
     end
 

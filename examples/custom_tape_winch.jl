@@ -20,6 +20,7 @@ if Base.active_project() != joinpath(@__DIR__, "Project.toml")
 end
 
 using GLMakie
+using MakieControlPlots
 using KiteUtils: init!, next_step!
 using ModelingToolkit
 using ModelingToolkit: t_nounits as t, D_nounits as D
