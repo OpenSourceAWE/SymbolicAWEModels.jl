@@ -18,7 +18,7 @@ Like [`ContinuousAero`](@ref) this is a **continuous** mode: the VSM solve runs 
 `vsm_interval` (the full `solve!`), freezing the circulation-derived induced velocity
 `v_ind` and the per-node surface traction pattern; but the per-panel **total** force is
 re-derived symbolically every RHS step from `v_ind` and the live apparent wind (shared
-[`build_panel_force_eqs!`](@ref)), so the force responds to apparent-wind changes
+[`build_panel_force_eqs`](@ref)), so the force responds to apparent-wind changes
 between solves. The frozen traction only sets the distribution *shape*; each WING
 point's force is its frozen traction plus an equal share of `(live panel force − frozen
 pattern net)`, so per panel the point forces sum to the **live** total exactly.
@@ -97,7 +97,7 @@ aero_hash_id(mode::AeroPressure) = (mode.station_point, mode.panel_twist_surface
 """
     aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct; name, params)
 
-Live per-refined-panel VSM force (shared [`build_panel_force_eqs!`](@ref) on the
+Live per-refined-panel VSM force (shared [`build_panel_force_eqs`](@ref) on the
 fixed loaded mesh + live apparent wind) scattered over the frozen surface traction
 pattern. Each WING point's force is `Σ over mapped (panel, node) of
 traction[node] + (panel_force[panel] − traction_net[panel]) / n_nodes`, so per panel
