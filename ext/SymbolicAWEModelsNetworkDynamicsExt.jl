@@ -50,6 +50,7 @@ using Graphs
 using ModelingToolkit
 using ModelingToolkit: t_nounits as t, D_nounits as D
 using SymbolicIndexingInterface: setp, getu
+using LinearAlgebra: cross, ×
 
 const SAM = SymbolicAWEModels
 
@@ -234,7 +235,8 @@ Particle vertex: the shared [`SAM.DynamicPoint`](@ref) component wrapped as a ne
 vertex. Both backends assemble the identical component; the network wraps it as a
 `VertexModel`, the monolith `@named`-instantiates it.
 """
-network_dynamic_point(s, params, idx; name) = SAM.DynamicPoint(s, params, idx; name)
+network_dynamic_point(s, params, idx; name, wide = false) =
+    SAM.DynamicPoint(s, params, idx; name, wide)
 
 """
     network_static_point(s, params, idx; name)
@@ -242,7 +244,8 @@ network_dynamic_point(s, params, idx; name) = SAM.DynamicPoint(s, params, idx; n
 Ground-anchored vertex: the shared [`SAM.StaticPoint`](@ref) component wrapped as a
 network vertex.
 """
-network_static_point(s, params, idx; name) = SAM.StaticPoint(s, params, idx; name)
+network_static_point(s, params, idx; name, wide = false) =
+    SAM.StaticPoint(s, params, idx; name, wide)
 
 """
     pulley_rope_mass(params, idx)
@@ -351,6 +354,59 @@ function network_pulley_segment(s, params, idx; name)
 end
 
 """
+    network_wrench_segment(s, params, idx, ride_idx, body_at_src; name)
+
+Wide spring-damper edge between a free point and a rigid body's `BODY_STATIC` ride point
+(absorbed into the body vertex). It reads the body endpoint's pose (`pose_R`/`pose_com`/
+`pose_com_vel`/`pose_omega`), reconstructs the ride position `body_pos + R·anchor_b` and
+its rigid-motion velocity, computes the spring-damper load between the free point and
+that ride position (shared [`SAM.segment_endpoint_loads`](@ref)), and delivers the
+**wrench** to the body — the force at the anchor plus the moment `arm × force` about the
+body COM — while the free point receives the equal-and-opposite force. `anchor_b` is read
+live from the ride point's struct field; `body_at_src` (which endpoint is the body) is a
+build-time `Bool` **baked into the kernel** — no runtime `ifelse`, so the symbolic
+expressions stay small (an `ifelse`-selected pose blows up `mtkcompile`).
+"""
+function network_wrench_segment(s, params, idx, ride_idx, body_at_src::Bool; name)
+    io, extras = SAM.segment_io_wide()
+    vars = io[1]
+    (_, src_pos, src_vel, _, dst_pos, dst_vel, _,
+     src_force, src_mass, src_tension, dst_force, dst_mass, dst_tension) = io
+    anchor_b = collect(params.points[ride_idx].anchor_b)
+    body_pos, body_R, body_com, body_com_vel, body_omega, free_pos, free_vel =
+        body_at_src ?
+            (src_pos, extras.src_pose_R, extras.src_pose_com, extras.src_pose_com_vel,
+             extras.src_pose_omega, dst_pos, dst_vel) :
+            (dst_pos, extras.dst_pose_R, extras.dst_pose_com, extras.dst_pose_com_vel,
+             extras.dst_pose_omega, src_pos, src_vel)
+    R_mat = reshape(collect(body_R), 3, 3)
+    anchor_w = collect(body_pos) .+ R_mat * anchor_b
+    arm = anchor_w .- collect(body_com)
+    ride_vel = collect(body_com_vel) .+ (collect(body_omega) × arm)
+    spring, wind = SAM.segment_spring_params(params, idx; with_drag = true)
+    l0 = params.segments[idx].l0
+    force_on_free, force_on_ride, half_mass, _ = SAM.segment_endpoint_loads(
+        s, collect(free_pos), collect(free_vel), anchor_w, ride_vel,
+        spring.unit_stiffness, spring.unit_damping, spring.compression_frac, l0,
+        spring.diameter, spring.density, spring.cd_tether, collect(wind);
+        with_drag = true)
+    moment_on_body = arm × force_on_ride
+    body_force, free_force = force_on_ride, force_on_free
+    src_f, dst_f = body_at_src ? (body_force, free_force) : (free_force, body_force)
+    src_m = body_at_src ? moment_on_body : zeros(3)
+    dst_m = body_at_src ? zeros(3) : moment_on_body
+    eqs = [
+        collect(src_force) .~ src_f
+        src_mass ~ (body_at_src ? 0.0 : half_mass); src_tension ~ 0.0
+        collect(dst_force) .~ dst_f
+        dst_mass ~ (body_at_src ? half_mass : 0.0); dst_tension ~ 0.0
+        collect(extras.src_moment) .~ src_m
+        collect(extras.dst_moment) .~ dst_m
+    ]
+    return System(eqs, t, vars, param_unknowns(params); name)
+end
+
+"""
     network_tether_segment(s, params, idx; name)
 
 Winched-tether spring-damper edge. Its rest length is `l0 = tether_len / n_segs`,
@@ -382,8 +438,17 @@ end
 
 const VERTEX_INPUTS = [:force_in, :mass_in, :tension_in]
 const VERTEX_OUTPUTS = [:pos, :vel, :pulley_len_out]
-const BODY_INPUTS = [:force_in, :moment_in]
-const BODY_OUTPUTS = [:pos_w, :vel_w, :R_out, :omega_w, :com_out, :com_vel_out]
+# Wide superset interface (body-containing networks, §8.5): every vertex shares this
+# input/output width; a point zero-fills the pose slots, a body zero-fills pulley_len.
+const WIDE_VERTEX_INPUTS = [:force_in, :mass_in, :tension_in, :moment_in]
+const WIDE_VERTEX_OUTPUTS =
+    [:pos, :vel, :pulley_len_out, :pose_R, :pose_com, :pose_com_vel, :pose_omega]
+const WIDE_EDGE_SRC_IN = [:src_pos, :src_vel, :src_pulley_len, :src_pose_R,
+    :src_pose_com, :src_pose_com_vel, :src_pose_omega]
+const WIDE_EDGE_DST_IN = [:dst_pos, :dst_vel, :dst_pulley_len, :dst_pose_R,
+    :dst_pose_com, :dst_pose_com_vel, :dst_pose_omega]
+const WIDE_EDGE_SRC_OUT = [:src_force, :src_mass, :src_tension, :src_moment]
+const WIDE_EDGE_DST_OUT = [:dst_force, :dst_mass, :dst_tension, :dst_moment]
 const EDGE_SRC_IN = [:src_pos, :src_vel, :src_pulley_len]
 const EDGE_DST_IN = [:dst_pos, :dst_vel, :dst_pulley_len]
 const EDGE_SRC_OUT = [:src_force, :src_mass, :src_tension]
@@ -656,15 +721,12 @@ function build_network(sam)
 
     body_idxs = [b.idx for b in ss.bodies if b.type == SAM.DYNAMIC]
     if !isempty(body_idxs)
-        n == 0 || error("NetworkBackend: mixing points with integrated rigid " *
-            "bodies needs the uniform vertex-output widening; not supported yet " *
-            "($n points, $(length(body_idxs)) bodies).")
         for bidx in body_idxs
             SAM.is_wing(ss.bodies[bidx]) && error("NetworkBackend: rigid-wing " *
                 "aero on a body vertex is not supported yet (body " *
                 "$(ss.bodies[bidx].name)).")
         end
-        return build_body_only_network(sam, ss, body_idxs)
+        return build_body_mixed_network(sam, ss, body_idxs)
     end
 
     for point in points
@@ -782,49 +844,206 @@ function build_network(sam)
 end
 
 """
-    build_body_only_network(sam, ss, body_idxs)
+    MixedEdgeInfo
 
-Assemble a `Network` of only integrated rigid-body vertices (`type == DYNAMIC`) — the
-first backend step toward full rigid-body support. Each body is an isolated 13-state
-[`SAM.BodyVertex`](@ref) integrating free 6-DOF motion under gravity plus its
-`ext_force`/`ext_moment`; with no incident edges the aggregated wrench is zero. Ride
-points, wrench-carrying segments and rigid-wing aero arrive with the uniform
-vertex-output widening; until then [`build_network`](@ref) errors on a model that
-mixes bodies with points. Returns the same `(nw, u0, p0, meta)` tuple as
-[`build_network`](@ref).
+Per-edge data the mixed body/point assembly derives once: the `seg`, whether it is a
+`:plain` point↔point spring or a `:wrench` point↔body spring, the ride point idx
+(`BODY_STATIC` point absorbed into a body vertex; `0` when not applicable) and the
+`body_at_src` flag (the body vertex is the edge's `src` endpoint).
 """
-function build_body_only_network(sam, ss, body_idxs)
-    n = length(body_idxs)
-    graph = SimpleGraph(n)
-    pv = network_view(ss)
-    base = VertexModel(SAM.BodyVertex(sam, pv, body_idxs[1]; name = :body),
-        BODY_INPUTS, BODY_OUTPUTS; mtkcompile = true, name = :body)
-    vmodels = [base for _ in 1:n]
-    nw = Network(graph, vmodels, EdgeModel[])
+struct MixedEdgeInfo
+    seg::Any
+    kind::Symbol
+    ride_idx::Int
+    body_at_src::Bool
+end
 
-    param, state = NWParameter(nw), NWState(nw)
-    set_body_states!(ss, state, body_idxs)
-    builder = ParamBuilder()
-    for (vertex, bidx) in enumerate(body_idxs)
-        record_body_params!(builder, pv.reg, ss, vertex, bidx)
+"""
+    build_body_mixed_network(sam, ss, body_idxs)
+
+Assemble a `Network` of integrated rigid bodies (`type == DYNAMIC`) together with free
+points, using the wide vertex/edge superset (§8.5). Free `STATIC`/`DYNAMIC` points are
+vertices; `BODY_STATIC` points are **absorbed** into their body vertex (their motion is
+a body-pose function). A segment between two free points is a `:plain` wide
+[`SAM.SpringDamperSegment`](@ref); a segment touching a ride point is a `:wrench`
+[`network_wrench_segment`](@ref) delivering force+moment to the body. The bare-body case
+(no free points, no segments) is the empty-edge subcase. Pulleys, winches, wing nodes
+and rigid-wing aero are not yet supported here. Returns `(nw, u0, p0, meta)`.
+"""
+function build_body_mixed_network(sam, ss, body_idxs)
+    points = ss.points
+    (isempty(ss.pulleys) && isempty(ss.winches)) || error("NetworkBackend(body): " *
+        "pulleys/winches with rigid bodies not supported yet.")
+    free_idxs = Int[]
+    for (i, p) in enumerate(points)
+        p.type == SAM.BODY_STATIC && continue
+        (p.type == SAM.STATIC || p.type == SAM.DYNAMIC) || error(
+            "NetworkBackend(body): point $(p.name) type $(p.type) unsupported yet.")
+        (p.type == SAM.DYNAMIC && p.is_wing_node) && error(
+            "NetworkBackend(body): wing-node point $(p.name) not supported yet.")
+        push!(free_idxs, i)
     end
+    n_free = length(free_idxs)
+    vertex_of_point = Dict(i => v for (v, i) in enumerate(free_idxs))
+    vertex_of_body = Dict(bidx => n_free + k for (k, bidx) in enumerate(body_idxs))
+    nv = n_free + length(body_idxs)
+
+    endpoint(pidx) = points[pidx].type == SAM.BODY_STATIC ?
+        (vertex_of_body[points[pidx].body_idx], pidx) : (vertex_of_point[pidx], 0)
+
+    graph = SimpleGraph(nv)
+    edge_info = Dict{Tuple{Int, Int}, MixedEdgeInfo}()
+    for seg in ss.segments
+        va, ride_a = endpoint(seg.point_idxs[1])
+        vb, ride_b = endpoint(seg.point_idxs[2])
+        va == vb && error("NetworkBackend(body): segment $(seg.name) is a self-loop " *
+            "(both endpoints on vertex $va).")
+        key = minmax(va, vb)
+        haskey(edge_info, key) && error("NetworkBackend(body): parallel edges " *
+            "between vertices $key are not supported.")
+        ride_src, ride_dst = va < vb ? (ride_a, ride_b) : (ride_b, ride_a)
+        (ride_src > 0 && ride_dst > 0) && error("NetworkBackend(body): body-to-body " *
+            "segment $(seg.name) (both ends ride bodies) not supported yet.")
+        info = if ride_src == 0 && ride_dst == 0
+            MixedEdgeInfo(seg, :plain, 0, false)
+        else
+            MixedEdgeInfo(seg, :wrench, max(ride_src, ride_dst), ride_src > 0)
+        end
+        add_edge!(graph, va, vb)
+        edge_info[key] = info
+    end
+
+    dyn_vm, dyn_reg = build_wide_vertex(sam, ss, free_idxs, SAM.DYNAMIC,
+        network_dynamic_point)
+    stat_vm, stat_reg = build_wide_vertex(sam, ss, free_idxs, SAM.STATIC,
+        network_static_point)
+    body_pv = network_view(ss)
+    body_vm = VertexModel(SAM.BodyVertex(sam, body_pv, body_idxs[1]; name = :body),
+        WIDE_VERTEX_INPUTS, WIDE_VERTEX_OUTPUTS; mtkcompile = true, name = :body)
+
+    vmodels = Vector{VertexModel}(undef, nv)
+    for (v, i) in enumerate(free_idxs)
+        vmodels[v] = points[i].type == SAM.STATIC ? stat_vm : dyn_vm
+    end
+    for (k, _) in enumerate(body_idxs)
+        vmodels[n_free + k] = body_vm
+    end
+
+    plain_em, plain_reg = build_wide_plain_edge(sam, ss, edge_info)
+    wrench_of, wrench_reg_of = build_wrench_edges(sam, ss, edge_info)
+
+    edgelist = collect(edges(graph))
+    emodels = Vector{EdgeModel}(undef, length(edgelist))
+    for (j, e) in enumerate(edgelist)
+        info = edge_info[minmax(src(e), dst(e))]
+        emodels[j] = info.kind == :wrench ? wrench_of[info.body_at_src] : plain_em
+    end
+    nw = Network(graph, vmodels, emodels)
+
+    body_vertices = [(vertex_of_body[bidx], bidx) for bidx in body_idxs]
+    write_total_mass!(ss)
+    param, state = NWParameter(nw), NWState(nw)
+    set_body_states!(ss, state, body_vertices)
+    for (v, i) in enumerate(free_idxs)
+        points[i].type == SAM.DYNAMIC && set_particle_state!(state, v, points[i])
+    end
+
+    builder = ParamBuilder()
+    for (v, i) in enumerate(free_idxs)
+        if points[i].type == SAM.STATIC
+            replay_fields!(builder, stat_reg, :points, v, i, ss)
+        else
+            replay_fields!(builder, dyn_reg, :points, v, i, ss;
+                           skip = (:body_frame_damping,))
+            record_wind_params!(builder, v)
+        end
+    end
+    for (vertex, bidx) in body_vertices
+        record_body_params!(builder, body_pv.reg, ss, vertex, bidx)
+    end
+    record_mixed_edge_params!(builder, ss, edgelist, edge_info,
+                              plain_reg, wrench_reg_of)
     param_sync = build_network_param_sync(nw, builder, CallableBuilder())
 
+    body_static = [(i, points[i].body_idx) for i in eachindex(points)
+                   if points[i].type == SAM.BODY_STATIC]
     meta = (; param_sync, winch_of_point = Dict{Int, Int}(),
             pulley_of_point = Dict{Int, Int}(),
-            winch_tethers = Dict{Int, Vector{Int}}(), body_idxs)
+            winch_tethers = Dict{Int, Vector{Int}}(), body_idxs, body_vertices,
+            body_static, vertex_of_point)
     return nw, uflat(state), pflat(param), meta
 end
 
 """
-    set_body_states!(ss, state, body_idxs)
+    build_wide_vertex(sam, ss, free_idxs, ptype, kernelfn)
+
+Compile the wide `VertexModel` for one free-point `ptype` (`STATIC`/`DYNAMIC`) using the
+first such point as representative, or `(nothing, nothing)` when none. Returns
+`(vmodel, reg)` for per-instance sync.
+"""
+function build_wide_vertex(sam, ss, free_idxs, ptype, kernelfn)
+    repr = findfirst(i -> ss.points[i].type == ptype, free_idxs)
+    repr === nothing && return nothing, nothing
+    pv = network_view(ss)
+    vm = VertexModel(kernelfn(sam, pv, free_idxs[repr]; name = :pt, wide = true),
+        WIDE_VERTEX_INPUTS, WIDE_VERTEX_OUTPUTS; mtkcompile = true, name = :pt)
+    return vm, pv.reg
+end
+
+"""
+    build_wide_plain_edge(sam, ss, edge_info)
+
+Compile the wide plain point↔point `EdgeModel` (first `:plain` edge as representative),
+or `(nothing, nothing)` when none. Returns `(emodel, reg)`.
+"""
+function build_wide_plain_edge(sam, ss, edge_info)
+    repr = nothing
+    for info in values(edge_info)
+        info.kind == :plain && (repr = info.seg.idx; break)
+    end
+    repr === nothing && return nothing, nothing
+    pv = network_view(ss)
+    em = EdgeModel(SAM.SpringDamperSegment(sam, pv, repr; name = :seg, wide = true),
+        WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
+        mtkcompile = true, name = :seg)
+    return em, pv.reg
+end
+
+"""
+    build_wrench_edges(sam, ss, edge_info)
+
+Compile one wide point↔body wrench `EdgeModel` per distinct `body_at_src` orientation
+present (the flag is baked into the kernel, so the two orientations are separate
+kernels). Returns `(em_of, reg_of)` — `Dict{Bool,EdgeModel}` and `Dict{Bool,reg}` keyed
+by `body_at_src`, using the first wrench edge of each orientation as representative.
+"""
+function build_wrench_edges(sam, ss, edge_info)
+    em_of = Dict{Bool, EdgeModel}()
+    reg_of = Dict{Bool, Any}()
+    for info in values(edge_info)
+        info.kind == :wrench || continue
+        haskey(em_of, info.body_at_src) && continue
+        pv = network_view(ss)
+        em_of[info.body_at_src] = EdgeModel(
+            network_wrench_segment(sam, pv, info.seg.idx, info.ride_idx,
+                                   info.body_at_src; name = :wseg),
+            WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
+            mtkcompile = true, name = :wseg)
+        reg_of[info.body_at_src] = pv.reg
+    end
+    return em_of, reg_of
+end
+
+"""
+    set_body_states!(ss, state, body_vertices)
 
 Fill each body vertex's 13 principal-frame states (`com_w`, `com_vel`, `Q_p_to_w`,
 `omega_p`) from the struct fields `reinit!`/`init_principal_frame!` already populated,
-so the network starts from the same pose as the monolith.
+so the network starts from the same pose as the monolith. `body_vertices` is a list of
+`(graph_vertex, body_idx)` pairs (a body vertex sits after the free-point vertices).
 """
-function set_body_states!(ss, state, body_idxs)
-    for (vertex, bidx) in enumerate(body_idxs)
+function set_body_states!(ss, state, body_vertices)
+    for (vertex, bidx) in body_vertices
         body = ss.bodies[bidx]
         for k in 1:3
             state.v[vertex, Symbol(:com_w_, k)] = body.com_w[k]
@@ -849,6 +1068,34 @@ takes effect next step, as on the monolith.
 function record_body_params!(builder, reg, ss, vertex, bidx)
     replay_fields!(builder, reg, :bodies, vertex, bidx, ss)
     add_param!(builder, VIndex(vertex, :g_earth), SAM.PathReader((:set, :g_earth)))
+    return nothing
+end
+
+"""
+    record_mixed_edge_params!(builder, ss, edgelist, edge_info, plain_reg, wrench_reg_of)
+
+Record each mixed body/point edge's live parameters: the segment's spring/drag fields
+(replayed from the matching kernel registry — `wrench_reg_of[body_at_src]` for a wrench
+edge) and `cd_tether`/wind. A `:wrench` edge also binds its ride point's `anchor_b` as a
+live read. `body_at_src` is baked into the kernel, so nothing is set here for it.
+"""
+function record_mixed_edge_params!(builder, ss, edgelist, edge_info,
+                                   plain_reg, wrench_reg_of)
+    for (j, e) in enumerate(edgelist)
+        info = edge_info[minmax(src(e), dst(e))]
+        seg = info.seg
+        segment_stiffness(seg)
+        reg = info.kind == :wrench ? wrench_reg_of[info.body_at_src] : plain_reg
+        replay_fields!(builder, reg, :segments, j, seg.idx, ss; edge = true)
+        add_param!(builder, EIndex(j, :cd_tether), SAM.PathReader((:set, :cd_tether)))
+        record_wind_params!(builder, j; edge = true)
+        if info.kind == :wrench
+            for k in 1:3
+                add_param!(builder, EIndex(j, Symbol(:anchor_b_, k)),
+                           SAM.PathReader((:points, info.ride_idx, :anchor_b, k)))
+            end
+        end
+    end
     return nothing
 end
 
@@ -1369,21 +1616,22 @@ struct NetworkStateGetter{NW}
     wing_geoms::Vector{NetworkWingGeom}
     wing_aero_readers::Vector{Any}
     body_readers::Vector{Any}
+    body_static::Vector{Tuple{Int, Int}}
 end
 
 """
     body_output_reader(nw, body, vertex)
 
 Build the getter tuple `(body, vertex, pos, vel, R, omega, com, com_vel)` that reads a
-body vertex's pose outputs (`pos_w`, `vel_w`, `R_out`, `omega_w`, `com_out`,
-`com_vel_out`) off `vertex`, so [`NetworkStateGetter`](@ref) can scatter them back into
+body vertex's wide pose outputs (`pos`, `vel`, `pose_R`, `pose_omega`, `pose_com`,
+`pose_com_vel`) off `vertex`, so [`NetworkStateGetter`](@ref) can scatter them back into
 the struct.
 """
 function body_output_reader(nw, body, vertex)
     getvec(sym) = getu(nw, [VIndex(vertex, Symbol(sym, :_, c)) for c in 1:3])
-    R = getu(nw, [VIndex(vertex, Symbol(:R_out_, k)) for k in 1:9])
-    return (body, vertex, getvec(:pos_w), getvec(:vel_w), R, getvec(:omega_w),
-            getvec(:com_out), getvec(:com_vel_out))
+    R = getu(nw, [VIndex(vertex, Symbol(:pose_R_, k)) for k in 1:9])
+    return (body, vertex, getvec(:pos), getvec(:vel), R, getvec(:pose_omega),
+            getvec(:pose_com), getvec(:pose_com_vel))
 end
 
 """
@@ -1406,10 +1654,15 @@ function NetworkStateGetter(nw, ss, meta)
     geoms = network_wing_geoms(ss)
     readers = Any[wing_aero_reader(nw, wg.wing, wg.live_vertex)
                   for wg in geoms if wg.live_vertex != 0]
+    body_vertices = hasproperty(meta, :body_vertices) ? meta.body_vertices :
+        [(v, b) for (v, b) in enumerate(meta.body_idxs)]
     body_readers = Any[body_output_reader(nw, ss.bodies[bidx], vertex)
-                       for (vertex, bidx) in enumerate(meta.body_idxs)]
+                       for (vertex, bidx) in body_vertices]
+    body_static = hasproperty(meta, :body_static) ? meta.body_static :
+        Tuple{Int, Int}[]
     return NetworkStateGetter(nw, dyn_idxs, pulley_idxs, winch_idxs,
-                              meta.winch_tethers, geoms, readers, body_readers)
+                              meta.winch_tethers, geoms, readers, body_readers,
+                              body_static)
 end
 
 function (g::NetworkStateGetter)(integ, ss)
@@ -1445,6 +1698,15 @@ function (g::NetworkStateGetter)(integ, ss)
         for k in 1:3
             body.ω_p[k] = s.v[vertex, Symbol(:omega_p_, k)]
         end
+    end
+    for (ride_idx, body_idx) in g.body_static
+        point = points[ride_idx]
+        body = ss.bodies[body_idx]
+        R_b_to_w = SAM.quaternion_to_rotation_matrix(body.Q_b_to_w)
+        anchor_w = body.pos_w .+ R_b_to_w * point.anchor_b
+        ω_w = R_b_to_w * body.ω_b
+        point.pos_w .= anchor_w
+        point.vel_w .= body.com_vel .+ (ω_w × (anchor_w .- body.com_w))
     end
     for (vi, pidx) in g.pulley_idxs
         pulley = ss.pulleys[pidx]

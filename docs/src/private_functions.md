@@ -70,7 +70,10 @@ SymbolicAWEModels.segment_half_mass
 
 ```@docs
 SymbolicAWEModels.point_io
+SymbolicAWEModels.vertex_pose_io
+SymbolicAWEModels.finish_vertex
 SymbolicAWEModels.segment_io
+SymbolicAWEModels.segment_io_wide
 SymbolicAWEModels.point_acceleration
 SymbolicAWEModels.point_particle_params
 SymbolicAWEModels.dynamic_point_dynamics

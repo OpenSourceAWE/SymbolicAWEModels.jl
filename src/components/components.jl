@@ -36,6 +36,45 @@ function point_io()
 end
 
 """
+    vertex_pose_io()
+
+The extra wide-interface variables a non-body (point) vertex needs so it shares the
+body-containing network's uniform I/O width (§8.5): the pose outputs
+`pose_R`(9)/`pose_com`/`pose_com_vel`/`pose_omega` (zero for a point) and the unused
+`moment_in` input. Returns `(vars, pose_R, pose_com, pose_com_vel, pose_omega,
+moment_in)`.
+"""
+function vertex_pose_io()
+    vars = @variables begin
+        pose_R(t)[1:9]
+        pose_com(t)[1:3]
+        pose_com_vel(t)[1:3]
+        pose_omega(t)[1:3]
+        moment_in(t)[1:3], [input = true]
+    end
+    return vars, pose_R, pose_com, pose_com_vel, pose_omega, moment_in
+end
+
+"""
+    finish_vertex(vars, eqs, params; name, wide)
+
+Assemble a point vertex `System` from its narrow `vars`/`eqs`. When `wide`, append the
+zero-valued pose outputs and the unused `moment_in` input ([`vertex_pose_io`](@ref)) so
+the vertex matches the wide superset a body-containing network uses; otherwise build the
+narrow point vertex unchanged (no regression on point-only models).
+"""
+function finish_vertex(vars, eqs, params; name, wide)
+    if wide
+        pvars, pose_R, pose_com, pose_com_vel, pose_omega, _ = vertex_pose_io()
+        eqs = [eqs;
+               collect(pose_R) .~ 0; collect(pose_com) .~ 0;
+               collect(pose_com_vel) .~ 0; collect(pose_omega) .~ 0]
+        vars = [vars; pvars]
+    end
+    return System(eqs, t, vars, param_unknowns(params); name)
+end
+
+"""
     segment_io()
 
 The array-valued I/O variables of a segment component, the uniform edge interface
@@ -64,6 +103,42 @@ function segment_io()
     end
     return vars, src_pos, src_vel, src_pulley_len, dst_pos, dst_vel, dst_pulley_len,
            src_force, src_mass, src_tension, dst_force, dst_mass, dst_tension
+end
+
+"""
+    segment_io_wide()
+
+The **wide** edge I/O a body-containing network shares (§8.5): the narrow
+[`segment_io`](@ref) tuple (positions 1–13 unchanged, so [`segment_loads`](@ref)/
+[`endpoint_load_eqs`](@ref) read it directly), extended with each endpoint's pose
+inputs (`src_pose_R`(9)/`src_pose_com`/`src_pose_com_vel`/`src_pose_omega`, `dst_…`) a
+wrench edge reads off a body vertex, and the `src_moment`/`dst_moment` outputs (zero for
+a plain segment). The first tuple element holds *all* variables (base + extras) for the
+`System`. Returns `(io, extras)` where `io` is the 13-tuple and `extras` a NamedTuple of
+the added handles.
+"""
+function segment_io_wide()
+    base = segment_io()
+    extravars = @variables begin
+        src_pose_R(t)[1:9], [input = true]
+        src_pose_com(t)[1:3], [input = true]
+        src_pose_com_vel(t)[1:3], [input = true]
+        src_pose_omega(t)[1:3], [input = true]
+        dst_pose_R(t)[1:9], [input = true]
+        dst_pose_com(t)[1:3], [input = true]
+        dst_pose_com_vel(t)[1:3], [input = true]
+        dst_pose_omega(t)[1:3], [input = true]
+        src_moment(t)[1:3], [output = true]
+        dst_moment(t)[1:3], [output = true]
+    end
+    allvars = [base[1]; extravars]
+    io = (allvars, base[2:end]...)
+    extras = (; src_pose_R = extravars[1], src_pose_com = extravars[2],
+              src_pose_com_vel = extravars[3], src_pose_omega = extravars[4],
+              dst_pose_R = extravars[5], dst_pose_com = extravars[6],
+              dst_pose_com_vel = extravars[7], dst_pose_omega = extravars[8],
+              src_moment = extravars[9], dst_moment = extravars[10])
+    return io, extras
 end
 
 """
@@ -309,25 +384,30 @@ end
 """
     body_io()
 
-Declare the I/O of a rigid-body vertex. Outputs are the full pose an incident wrench
-edge needs to place any anchor and transport its moment: `pos_w` (body origin), its
-velocity `vel_w`, the orientation `R_b_to_w`, the world spin `omega_w`, and the COM
-`com_w`/`com_vel`. Inputs are the aggregated wrench `force_in`/`moment_in` its
-incident edges sum onto it (0 when isolated). Returns `(vars, pos_w, vel_w, R_out,
-omega_w, com_out, com_vel_out, force_in, moment_in)`.
+Declare the **wide** vertex I/O a body-containing network shares (§8.5): the uniform
+output superset `pos`/`vel` (body origin), `pulley_len_out`, and the pose
+`pose_R`(9)/`pose_com`/`pose_com_vel`/`pose_omega` an incident wrench edge reads to place
+any ride anchor and transport its moment; the input superset is the aggregated wrench
+`force_in`/`moment_in` plus the `mass_in`/`tension_in` a point vertex uses (declared but
+unused here, so every vertex shares one input width). Returns `(vars, pos, vel,
+pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega, force_in, moment_in)`.
 """
 function body_io()
     vars = @variables begin
-        pos_w(t)[1:3]
-        vel_w(t)[1:3]
-        R_out(t)[1:9]
-        omega_w(t)[1:3]
-        com_out(t)[1:3]
-        com_vel_out(t)[1:3]
+        pos(t)[1:3]
+        vel(t)[1:3]
+        pulley_len_out(t)
+        pose_R(t)[1:9]
+        pose_com(t)[1:3]
+        pose_com_vel(t)[1:3]
+        pose_omega(t)[1:3]
         force_in(t)[1:3], [input = true]
+        mass_in(t), [input = true]
+        tension_in(t), [input = true]
         moment_in(t)[1:3], [input = true]
     end
-    return vars, pos_w, vel_w, R_out, omega_w, com_out, com_vel_out, force_in, moment_in
+    return vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel,
+        pose_omega, force_in, moment_in
 end
 
 """
@@ -337,13 +417,13 @@ Free rigid-body vertex: integrates the 13-state principal pose (`com_w`, `com_ve
 `Q_p_to_w`, `ω_p`) under gravity, the aggregated wrench at `force_in`/`moment_in`,
 the external wrench (`ext_force_w`/`ext_force_b`/`ext_moment_b`), and per-axis
 angular `damping` — all read from `params.bodies[idx]`. Shares the 6-DOF math with
-the monolith through [`rigid_body_pose_expressions`](@ref); emits the pose via
-[`body_io`](@ref). `STATIC`/`fix_sphere` confinement is not built here (guarded by
-the assembly until supported).
+the monolith through [`rigid_body_pose_expressions`](@ref); emits the wide pose via
+[`body_io`](@ref) (`pulley_len_out = 0`; `mass_in`/`tension_in` unused). `STATIC`/
+`fix_sphere` confinement is not built here (guarded by the assembly until supported).
 """
 function BodyVertex(s, params, idx; name)
-    vars, pos_w, vel_w, R_out, omega_w, com_out, com_vel_out, force_in, moment_in =
-        body_io()
+    vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega,
+        force_in, moment_in = body_io()
     state = @variables com_w(t)[1:3] com_vel(t)[1:3] Q(t)[1:4] omega_p(t)[1:3]
     body = params.bodies[idx]
     R_b_to_w = quaternion_to_rotation_matrix(collect(Q)) * collect(body.R_b_to_p)
@@ -359,12 +439,13 @@ function BodyVertex(s, params, idx; name)
         [D(com_vel[i]) ~ ex.d_com_vel[i] for i in 1:3]
         [D(Q[i]) ~ ex.d_Q[i] for i in 1:4]
         [D(omega_p[i]) ~ ex.α_p[i] - damping[i] * omega_p[i] for i in 1:3]
-        pos_w ~ ex.pos_w
-        vel_w ~ ex.vel_w
-        [R_out[k] ~ vec(ex.R_b_to_w)[k] for k in 1:9]
-        omega_w ~ ex.R_b_to_w * ex.ω_b
-        com_out ~ com_w
-        com_vel_out ~ com_vel
+        pos ~ ex.pos_w
+        vel ~ ex.vel_w
+        pulley_len_out ~ 0.0
+        [pose_R[k] ~ vec(ex.R_b_to_w)[k] for k in 1:9]
+        pose_com ~ com_w
+        pose_com_vel ~ com_vel
+        pose_omega ~ ex.R_b_to_w * ex.ω_b
     ]
     return System(eqs, t, [vars; state], param_unknowns(params); name)
 end
@@ -381,13 +462,13 @@ incident segments' aggregated half-masses (`mass_in`). Its parameters are read f
 `params.points[idx]` ([`point_particle_params`](@ref)) — the same param+defaults
 source both backends assemble from.
 """
-function DynamicPoint(s, params, idx; name)
+function DynamicPoint(s, params, idx; name, wide = false)
     vars, pos, vel, force_in, mass_in, _, pulley_len_out = point_io()
     pars = point_particle_params(params, idx)
     eqs = [dynamic_point_dynamics(s, pos, vel, force_in, pars.extra_mass + mass_in,
                                   pars);
            pulley_len_out ~ 0.0]
-    return System(eqs, t, vars, param_unknowns(params); name)
+    return finish_vertex(vars, eqs, params; name, wide)
 end
 
 """
@@ -398,14 +479,14 @@ Ground-anchored vertex with no dynamic state: `pos` is pinned to `params.points[
 (so segments may deliver to it) but ignored — the point does not move — matching the
 STATIC branch of `point_eqs!`.
 """
-function StaticPoint(s, params, idx; name)
+function StaticPoint(s, params, idx; name, wide = false)
     vars, pos, vel, _, _, _, pulley_len_out = point_io()
     eqs = [
         collect(pos) .~ collect(params.points[idx].pos_w)
         collect(vel) .~ zeros(3)
         pulley_len_out ~ 0.0
     ]
-    return System(eqs, t, vars, param_unknowns(params); name)
+    return finish_vertex(vars, eqs, params; name, wide)
 end
 
 """
@@ -421,8 +502,8 @@ distinct compiled type) instead of reading `cd_tether`, so drag stays a single g
 setting. Its rest length is the frozen `params.segments[idx].l0`; spring/geometry
 parameters come from `params.segments[idx]`, `cd_tether` from `params.set`.
 """
-function SpringDamperSegment(s, params, idx; name)
-    io = segment_io()
+function SpringDamperSegment(s, params, idx; name, wide = false)
+    io, extras = wide ? segment_io_wide() : (segment_io(), nothing)
     vars = io[1]
     with_drag = !wing_structural_segment(params.reg.sys_struct, idx)
     spring, wind = segment_spring_params(params, idx; with_drag)
@@ -430,6 +511,9 @@ function SpringDamperSegment(s, params, idx; name)
     force_on_src, force_on_dst, half_mass, _ =
         segment_loads(s, io, l0, spring, wind; with_drag)
     eqs = endpoint_load_eqs(io, force_on_src, force_on_dst, half_mass, 0.0, 0.0)
+    if wide
+        eqs = [eqs; collect(extras.src_moment) .~ 0; collect(extras.dst_moment) .~ 0]
+    end
     return System(eqs, t, vars, param_unknowns(params); name)
 end
 
