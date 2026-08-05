@@ -39,6 +39,7 @@
 
 using SymbolicAWEModels, VortexStepMethod
 using GLMakie
+using MakieControlPlots
 GLMakie.activate!(; visible=false)                                #hide
 ASSETS = joinpath(@__DIR__, "..", "assets")                        #hide
 pkg_root = joinpath(@__DIR__, "..", "..", "..")                    #hide
@@ -108,8 +109,8 @@ transforms = [Transform(:tf, deg2rad(-80), 0.0, 0.0;
 sys_struct = SystemStructure("tether", set;
     points, segments, transforms)
 
-scene = plot(sys_struct)                                          #hide
-plot(sys_struct)
+scene = GLMakie.plot(sys_struct)                                          #hide
+GLMakie.plot(sys_struct)
 
 GLMakie.save(joinpath(ASSETS, "tether_sys_struct.png"), scene)    #hide
 
@@ -169,7 +170,7 @@ winches = [Winch(:winch, [:main],
 sys_struct = SystemStructure("winch", set;
     points, segments, tethers, winches, transforms)
 
-scene = plot(sys_struct)                                          #hide
+scene = GLMakie.plot(sys_struct)                                          #hide
 GLMakie.save(joinpath(ASSETS, "winch_sys_struct.png"), scene)     #hide
 
 #md # ![Winch system structure](assets/winch_sys_struct.png)
@@ -243,7 +244,7 @@ transforms = [Transform(:tf, deg2rad(0.0), 0.0, 0.0;
 sys_struct = SystemStructure("pulley", set;
     points, segments, pulleys, transforms)
 
-scene = plot(sys_struct)                                          #hide
+scene = GLMakie.plot(sys_struct)                                          #hide
 GLMakie.save(joinpath(ASSETS, "pulley_sys_struct.png"), scene)    #hide
 
 #md # ![Pulley system structure](assets/pulley_sys_struct.png)
