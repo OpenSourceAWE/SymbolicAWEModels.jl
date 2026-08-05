@@ -996,9 +996,11 @@ function build_body_mixed_network(sam, ss, body_idxs)
         push!(free_idxs, i)
     end
     n_free = length(free_idxs)
+    static_body_idxs = [b.idx for b in ss.bodies if b.type == SAM.STATIC]
+    all_body_idxs = [body_idxs; static_body_idxs]
     vertex_of_point = Dict(i => v for (v, i) in enumerate(free_idxs))
-    vertex_of_body = Dict(bidx => n_free + k for (k, bidx) in enumerate(body_idxs))
-    nv = n_free + length(body_idxs)
+    vertex_of_body = Dict(bidx => n_free + k for (k, bidx) in enumerate(all_body_idxs))
+    nv = n_free + length(all_body_idxs)
 
     endpoint(pidx) = points[pidx].type == SAM.BODY_STATIC ?
         (vertex_of_body[points[pidx].body_idx], pidx) : (vertex_of_point[pidx], 0)
@@ -1048,13 +1050,22 @@ function build_body_mixed_network(sam, ss, body_idxs)
     body_pv = network_view(ss)
     body_vm = VertexModel(SAM.BodyVertex(sam, body_pv, body_idxs[1]; name = :body),
         WIDE_VERTEX_INPUTS, WIDE_VERTEX_OUTPUTS; mtkcompile = true, name = :body)
+    static_body_pv = nothing
+    static_body_vm = nothing
+    if !isempty(static_body_idxs)
+        static_body_pv = network_view(ss)
+        static_body_vm = VertexModel(
+            SAM.StaticBody(sam, static_body_pv, static_body_idxs[1]; name = :sbody),
+            WIDE_VERTEX_INPUTS, WIDE_VERTEX_OUTPUTS; mtkcompile = true, name = :sbody)
+    end
 
     vmodels = Vector{VertexModel}(undef, nv)
     for (v, i) in enumerate(free_idxs)
         vmodels[v] = points[i].type == SAM.STATIC ? stat_vm : dyn_vm
     end
-    for (k, _) in enumerate(body_idxs)
-        vmodels[n_free + k] = body_vm
+    for (k, bidx) in enumerate(all_body_idxs)
+        vmodels[n_free + k] = ss.bodies[bidx].type == SAM.STATIC ?
+            static_body_vm : body_vm
     end
 
     plain_em, plain_reg = build_wide_plain_edge(sam, ss, edge_info)
@@ -1073,10 +1084,11 @@ function build_body_mixed_network(sam, ss, body_idxs)
     end
     nw = Network(graph, vmodels, emodels)
 
-    body_vertices = [(vertex_of_body[bidx], bidx) for bidx in body_idxs]
+    body_vertices = [(vertex_of_body[bidx], bidx) for bidx in all_body_idxs]
+    dyn_body_vertices = [(vertex_of_body[bidx], bidx) for bidx in body_idxs]
     write_total_mass!(ss)
     param, state = NWParameter(nw), NWState(nw)
-    set_body_states!(ss, state, body_vertices)
+    set_body_states!(ss, state, dyn_body_vertices)
     for (v, i) in enumerate(free_idxs)
         points[i].type == SAM.DYNAMIC && set_particle_state!(state, v, points[i])
     end
@@ -1092,7 +1104,9 @@ function build_body_mixed_network(sam, ss, body_idxs)
         end
     end
     for (vertex, bidx) in body_vertices
-        record_body_params!(builder, body_pv.reg, ss, vertex, bidx)
+        static = ss.bodies[bidx].type == SAM.STATIC
+        reg = static ? static_body_pv.reg : body_pv.reg
+        record_body_params!(builder, reg, ss, vertex, bidx; gravity = !static)
     end
     record_mixed_edge_params!(builder, ss, edgelist, edge_info,
                               plain_reg, wrench_reg_of, dual_reg, joint_reg_of)
@@ -1102,8 +1116,8 @@ function build_body_mixed_network(sam, ss, body_idxs)
                    if points[i].type == SAM.BODY_STATIC]
     meta = (; param_sync, winch_of_point = Dict{Int, Int}(),
             pulley_of_point = Dict{Int, Int}(),
-            winch_tethers = Dict{Int, Vector{Int}}(), body_idxs, body_vertices,
-            body_static, vertex_of_point)
+            winch_tethers = Dict{Int, Vector{Int}}(), body_idxs,
+            body_vertices = dyn_body_vertices, body_static, vertex_of_point)
     return nw, uflat(state), pflat(param), meta
 end
 
@@ -1258,11 +1272,11 @@ function build_joint_edges(sam, ss, edge_info)
                     :elastic_joint => network_elastic_joint_edge)
     for info in values(edge_info)
         (info.kind == :timo_joint || info.kind == :elastic_joint) || continue
-        key = (info.kind, info.body_at_src)
+        key = (info.kind, info.a_at_src)
         haskey(em_of, key) && continue
         pv = network_view(ss)
         em_of[key] = EdgeModel(
-            kernelfn[info.kind](sam, pv, info.joint_idx, info.body_at_src;
+            kernelfn[info.kind](sam, pv, info.joint_idx, info.a_at_src;
                                 name = :joint),
             WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
             mtkcompile = true, name = :joint)
@@ -1302,9 +1316,10 @@ kernel read from `bodies[bidx]` (replayed generically, matrix `R_b_to_p` include
 the world gravity `set.g_earth`, each bound as a live read so mutating the body struct
 takes effect next step, as on the monolith.
 """
-function record_body_params!(builder, reg, ss, vertex, bidx)
+function record_body_params!(builder, reg, ss, vertex, bidx; gravity = true)
     replay_fields!(builder, reg, :bodies, vertex, bidx, ss)
-    add_param!(builder, VIndex(vertex, :g_earth), SAM.PathReader((:set, :g_earth)))
+    gravity && add_param!(builder, VIndex(vertex, :g_earth),
+                          SAM.PathReader((:set, :g_earth)))
     return nothing
 end
 

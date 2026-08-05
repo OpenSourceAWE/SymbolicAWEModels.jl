@@ -578,8 +578,8 @@ Free rigid-body vertex: integrates the 13-state principal pose (`com_w`, `com_ve
 the external wrench (`ext_force_w`/`ext_force_b`/`ext_moment_b`), and per-axis
 angular `damping` — all read from `params.bodies[idx]`. Shares the 6-DOF math with
 the monolith through [`rigid_body_pose_expressions`](@ref); emits the wide pose via
-[`body_io`](@ref) (`pulley_len_out = 0`; `mass_in`/`tension_in` unused). `STATIC`/
-`fix_sphere` confinement is not built here (guarded by the assembly until supported).
+[`body_io`](@ref) (`pulley_len_out = 0`; `mass_in`/`tension_in` unused). `fix_sphere`
+confinement is not built here. A clamped (`STATIC`) body uses [`StaticBody`](@ref) instead.
 """
 function BodyVertex(s, params, idx; name)
     vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega,
@@ -608,6 +608,33 @@ function BodyVertex(s, params, idx; name)
         pose_omega ~ ex.R_b_to_w * ex.ω_b
     ]
     return System(eqs, t, [vars; state], param_unknowns(params); name)
+end
+
+"""
+    StaticBody(s, params, idx; name)
+
+Clamped (`STATIC`) rigid-body vertex: no dynamic state, a fixed wide pose emitted from
+`params.bodies[idx]` (`pos_w`, `com_w`, and `R_b_to_w` from the fixed `Q_b_to_w`), with
+zero velocity/spin. Matches the monolith's frozen `STATIC` body (whose 13 states are held
+at their initial pose) while staying stateless so the network needs no state for it. Its
+`force_in`/`moment_in` inputs are declared (so joints/segments may deliver to it) but
+ignored — the body does not move.
+"""
+function StaticBody(s, params, idx; name)
+    vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega,
+        force_in, moment_in = body_io()
+    body = params.bodies[idx]
+    R_b_to_w = quaternion_to_rotation_matrix(collect(body.Q_b_to_w))
+    eqs = [
+        pos ~ collect(body.pos_w)
+        vel ~ zeros(3)
+        pulley_len_out ~ 0.0
+        [pose_R[k] ~ vec(R_b_to_w)[k] for k in 1:9]
+        pose_com ~ collect(body.com_w)
+        pose_com_vel ~ zeros(3)
+        pose_omega ~ zeros(3)
+    ]
+    return System(eqs, t, vars, param_unknowns(params); name)
 end
 
 """

@@ -87,6 +87,7 @@ SymbolicAWEModels.timoshenko_element_wrench
 SymbolicAWEModels.elastic_joint_wrench
 SymbolicAWEModels.body_io
 SymbolicAWEModels.BodyVertex
+SymbolicAWEModels.StaticBody
 SymbolicAWEModels.ground_wind_vec
 SymbolicAWEModels.DynamicPoint
 SymbolicAWEModels.StaticPoint
