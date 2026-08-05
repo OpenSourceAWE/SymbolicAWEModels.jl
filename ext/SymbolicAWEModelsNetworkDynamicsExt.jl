@@ -130,6 +130,29 @@ function replay_fields!(builder, reg, container::Symbol, addr_index, cont_index,
 end
 
 """
+    record_edge_callables!(callables, reg, container, addr_index, cont_index, ss)
+
+Record every callable (nonnumeric) struct-field parameter a joint-edge kernel's `reg`
+recorded under `container` (`:timoshenko_joints`/`:elastic_joints`) — the nonlinear
+rigidity/stiffness laws (`EIy(κ)` etc.). Each is bound at `EIndex(addr_index, field)` with
+a live reader on `(container, cont_index, field)`, routed through the fork's nonnumeric
+SII path ([`add_callable!`](@ref)). Numeric fields are handled by [`replay_fields!`](@ref).
+"""
+function record_edge_callables!(callables, reg, container::Symbol, addr_index,
+                                cont_index, ss)
+    for entry in reg.entries
+        entry.read isa SAM.PathReader || continue
+        entry.kind === :callable || continue
+        path = entry.read.path
+        (length(path) >= 3 && path[1] === container) || continue
+        field = path[3]
+        add_callable!(callables, EIndex(addr_index, field),
+                      SAM.PathReader((container, cont_index, field)))
+    end
+    return nothing
+end
+
+"""
     ParamBuilder
 
 Accumulates `(index, reader)` pairs while the network is assembled, then builds a
@@ -459,9 +482,6 @@ supported so far.
 function network_timoshenko_joint_edge(s, params, jidx, a_at_src::Bool; name)
     io, extras = SAM.segment_io_wide()
     joint = params.reg.sys_struct.timoshenko_joints[jidx]
-    all(getfield(joint, f) isa Real for f in (:EA, :GA, :GJ, :EIy, :EIz)) || error(
-        "NetworkBackend(body): callable (nonlinear) Timoshenko rigidities on joint " *
-        "$(joint.name) not supported yet; only Real rigidities.")
     torn = @variables begin
         tj_frame(t)[1:3, 1:3]
         tj_theta_a(t)[1:3]
@@ -497,10 +517,6 @@ stiffnesses are supported so far.
 function network_elastic_joint_edge(s, params, jidx, a_at_src::Bool; name)
     io, extras = SAM.segment_io_wide()
     joint = params.reg.sys_struct.elastic_joints[jidx]
-    all(getfield(joint, f) isa Real for f in (:stiffness_axial, :stiffness_shear,
-        :stiffness_torsion, :stiffness_bending)) || error(
-        "NetworkBackend(body): callable (nonlinear) ElasticJoint stiffness on joint " *
-        "$(joint.name) not supported yet; only Real stiffnesses.")
     torn = @variables ej_force(t)[1:3] ej_torque(t)[1:3]
     (apos, aR, acom, acomvel, aomega), (bpos, bR, bcom, bcomvel, bomega) =
         joint_edge_ab_poses(io, extras, a_at_src)
@@ -1108,9 +1124,10 @@ function build_body_mixed_network(sam, ss, body_idxs)
         reg = static ? static_body_pv.reg : body_pv.reg
         record_body_params!(builder, reg, ss, vertex, bidx; gravity = !static)
     end
-    record_mixed_edge_params!(builder, ss, edgelist, edge_info,
+    callables = CallableBuilder()
+    record_mixed_edge_params!(builder, callables, ss, edgelist, edge_info,
                               plain_reg, wrench_reg_of, dual_reg, joint_reg_of)
-    param_sync = build_network_param_sync(nw, builder, CallableBuilder())
+    param_sync = build_network_param_sync(nw, builder, callables)
 
     body_static = [(i, points[i].body_idx) for i in eachindex(points)
                    if points[i].type == SAM.BODY_STATIC]
@@ -1331,14 +1348,15 @@ Record each mixed body/point edge's live parameters: the segment's spring/drag f
 edge) and `cd_tether`/wind. A `:wrench` edge also binds its ride point's `anchor_b` as a
 live read. `body_at_src` is baked into the kernel, so nothing is set here for it.
 """
-function record_mixed_edge_params!(builder, ss, edgelist, edge_info,
+function record_mixed_edge_params!(builder, callables, ss, edgelist, edge_info,
                                    plain_reg, wrench_reg_of, dual_reg, joint_reg_of)
     for (j, e) in enumerate(edgelist)
         info = edge_info[minmax(src(e), dst(e))]
         if info.kind == :timo_joint || info.kind == :elastic_joint
             container = info.kind == :timo_joint ? :timoshenko_joints : :elastic_joints
-            replay_fields!(builder, joint_reg_of[(info.kind, info.a_at_src)],
-                           container, j, info.joint_idx, ss; edge = true)
+            reg = joint_reg_of[(info.kind, info.a_at_src)]
+            replay_fields!(builder, reg, container, j, info.joint_idx, ss; edge = true)
+            record_edge_callables!(callables, reg, container, j, info.joint_idx, ss)
             continue
         end
         seg = info.seg
