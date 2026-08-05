@@ -407,6 +407,45 @@ function network_wrench_segment(s, params, idx, ride_idx, body_at_src::Bool; nam
 end
 
 """
+    joint_edge_ab_poses(io, extras, a_at_src)
+
+The `(a_pose, b_pose)` tuples a body↔body joint edge reads, each `(pos, pose_R, pose_com,
+pose_com_vel, pose_omega)`, mapping joint body A/B to the edge `src`/`dst` endpoints by the
+build-time `a_at_src` flag.
+"""
+function joint_edge_ab_poses(io, extras, a_at_src)
+    (_, src_pos, _, _, dst_pos, _, _) = io
+    src = (src_pos, extras.src_pose_R, extras.src_pose_com, extras.src_pose_com_vel,
+           extras.src_pose_omega)
+    dst = (dst_pos, extras.dst_pose_R, extras.dst_pose_com, extras.dst_pose_com_vel,
+           extras.dst_pose_omega)
+    return a_at_src ? (src, dst) : (dst, src)
+end
+
+"""
+    joint_edge_emit_eqs(io, extras, a_at_src, ex)
+
+The output equations a body↔body joint edge writes: the shared-helper wrench `ex`
+(`force_on_a`/`moment_on_a`/`force_on_b`/`moment_on_b`) mapped to the edge's `src`/`dst`
+force+moment outputs (`mass`/`tension` zero), following the `a_at_src` orientation.
+"""
+function joint_edge_emit_eqs(io, extras, a_at_src, ex)
+    (_, _, _, _, _, _, _, src_force, src_mass, src_tension,
+     dst_force, dst_mass, dst_tension) = io
+    src_f, src_m, dst_f, dst_m = a_at_src ?
+        (ex.force_on_a, ex.moment_on_a, ex.force_on_b, ex.moment_on_b) :
+        (ex.force_on_b, ex.moment_on_b, ex.force_on_a, ex.moment_on_a)
+    return [
+        collect(src_force) .~ src_f
+        src_mass ~ 0.0; src_tension ~ 0.0
+        collect(dst_force) .~ dst_f
+        dst_mass ~ 0.0; dst_tension ~ 0.0
+        collect(extras.src_moment) .~ src_m
+        collect(extras.dst_moment) .~ dst_m
+    ]
+end
+
+"""
     network_timoshenko_joint_edge(s, params, jidx, a_at_src; name)
 
 Wide body↔body edge for a `TimoshenkoJoint` (a corotational beam element). It reads both
@@ -419,8 +458,6 @@ supported so far.
 """
 function network_timoshenko_joint_edge(s, params, jidx, a_at_src::Bool; name)
     io, extras = SAM.segment_io_wide()
-    (_, src_pos, src_vel, _, dst_pos, dst_vel, _,
-     src_force, src_mass, src_tension, dst_force, dst_mass, dst_tension) = io
     joint = params.reg.sys_struct.timoshenko_joints[jidx]
     all(getfield(joint, f) isa Real for f in (:EA, :GA, :GJ, :EIy, :EIz)) || error(
         "NetworkBackend(body): callable (nonlinear) Timoshenko rigidities on joint " *
@@ -434,13 +471,8 @@ function network_timoshenko_joint_edge(s, params, jidx, a_at_src::Bool; name)
         tj_moment_a(t)[1:3]
         tj_moment_b(t)[1:3]
     end
-    apos, aR, acom, acomvel, aomega, bpos, bR, bcom, bcomvel, bomega = a_at_src ?
-        (src_pos, extras.src_pose_R, extras.src_pose_com, extras.src_pose_com_vel,
-         extras.src_pose_omega, dst_pos, extras.dst_pose_R, extras.dst_pose_com,
-         extras.dst_pose_com_vel, extras.dst_pose_omega) :
-        (dst_pos, extras.dst_pose_R, extras.dst_pose_com, extras.dst_pose_com_vel,
-         extras.dst_pose_omega, src_pos, extras.src_pose_R, extras.src_pose_com,
-         extras.src_pose_com_vel, extras.src_pose_omega)
+    (apos, aR, acom, acomvel, aomega), (bpos, bR, bcom, bcomvel, bomega) =
+        joint_edge_ab_poses(io, extras, a_at_src)
     ex = SAM.timoshenko_element_wrench(joint, params;
         frame = torn[1], theta_a = torn[2], theta_b = torn[3],
         force_a = torn[4], force_b = torn[5], moment_a = torn[6], moment_b = torn[7],
@@ -448,18 +480,37 @@ function network_timoshenko_joint_edge(s, params, jidx, a_at_src::Bool; name)
         com_vel_a = acomvel, omega_a_w = aomega,
         pos_b = bpos, R_b = reshape(collect(bR), 3, 3), com_b = bcom,
         com_vel_b = bcomvel, omega_b_w = bomega)
-    src_f, src_m, dst_f, dst_m = a_at_src ?
-        (ex.force_on_a, ex.moment_on_a, ex.force_on_b, ex.moment_on_b) :
-        (ex.force_on_b, ex.moment_on_b, ex.force_on_a, ex.moment_on_a)
-    eqs = [
-        ex.tear_eqs
-        collect(src_force) .~ src_f
-        src_mass ~ 0.0; src_tension ~ 0.0
-        collect(dst_force) .~ dst_f
-        dst_mass ~ 0.0; dst_tension ~ 0.0
-        collect(extras.src_moment) .~ src_m
-        collect(extras.dst_moment) .~ dst_m
-    ]
+    eqs = [ex.tear_eqs; joint_edge_emit_eqs(io, extras, a_at_src, ex)]
+    return System(eqs, t, [io[1]; torn], param_unknowns(params); name)
+end
+
+"""
+    network_elastic_joint_edge(s, params, jidx, a_at_src; name)
+
+Wide body↔body edge for a lumped 6-DOF `ElasticJoint`. It reads both bodies' poses,
+evaluates the shared [`SAM.elastic_joint_wrench`](@ref) (per-DOF axial/shear/torsion/
+bending stiffness + damping from the relative anchor pose) and delivers the equal-and-
+opposite restoring wrench to each body. `a_at_src` is baked in at build time; the
+world-frame force/torque torn variables are edge-internal. Only constant (`Real`)
+stiffnesses are supported so far.
+"""
+function network_elastic_joint_edge(s, params, jidx, a_at_src::Bool; name)
+    io, extras = SAM.segment_io_wide()
+    joint = params.reg.sys_struct.elastic_joints[jidx]
+    all(getfield(joint, f) isa Real for f in (:stiffness_axial, :stiffness_shear,
+        :stiffness_torsion, :stiffness_bending)) || error(
+        "NetworkBackend(body): callable (nonlinear) ElasticJoint stiffness on joint " *
+        "$(joint.name) not supported yet; only Real stiffnesses.")
+    torn = @variables ej_force(t)[1:3] ej_torque(t)[1:3]
+    (apos, aR, acom, acomvel, aomega), (bpos, bR, bcom, bcomvel, bomega) =
+        joint_edge_ab_poses(io, extras, a_at_src)
+    ex = SAM.elastic_joint_wrench(joint, params;
+        force_w = torn[1], torque_w = torn[2],
+        pos_a = apos, R_a = reshape(collect(aR), 3, 3), com_a = acom,
+        com_vel_a = acomvel, omega_a_w = aomega,
+        pos_b = bpos, R_b = reshape(collect(bR), 3, 3), com_b = bcom,
+        com_vel_b = bcomvel, omega_b_w = bomega)
+    eqs = [ex.tear_eqs; joint_edge_emit_eqs(io, extras, a_at_src, ex)]
     return System(eqs, t, [io[1]; torn], param_unknowns(params); name)
 end
 
@@ -974,20 +1025,24 @@ function build_body_mixed_network(sam, ss, body_idxs)
         end
         add_mixed_edge!(graph, edge_info, minmax(va, vb), info)
     end
-    for joint in ss.timoshenko_joints
+    add_joint_edge!(kind, joint) = begin
         haskey(vertex_of_body, joint.body_a_idx) &&
             haskey(vertex_of_body, joint.body_b_idx) || error(
-            "NetworkBackend(body): Timoshenko joint $(joint.name) connects a body " *
-            "that is not an integrated DYNAMIC body.")
+            "NetworkBackend(body): joint $(joint.name) connects a body that is not " *
+            "an integrated DYNAMIC body.")
         va = vertex_of_body[joint.body_a_idx]
         vb = vertex_of_body[joint.body_b_idx]
-        va == vb && error("NetworkBackend(body): Timoshenko joint $(joint.name) " *
-            "connects a body to itself.")
+        va == vb && error("NetworkBackend(body): joint $(joint.name) connects a " *
+            "body to itself.")
         add_mixed_edge!(graph, edge_info, minmax(va, vb),
-            MixedEdgeInfo(:timo_joint, nothing, 0, joint.idx, va < vb))
+            MixedEdgeInfo(kind, nothing, 0, joint.idx, va < vb))
     end
-    isempty(ss.elastic_joints) || error("NetworkBackend(body): ElasticJoint not " *
-        "supported with the network backend yet (TimoshenkoJoint is).")
+    for joint in ss.timoshenko_joints
+        add_joint_edge!(:timo_joint, joint)
+    end
+    for joint in ss.elastic_joints
+        add_joint_edge!(:elastic_joint, joint)
+    end
 
     dyn_vm, dyn_reg = build_wide_vertex(sam, ss, free_idxs, SAM.DYNAMIC,
         network_dynamic_point)
@@ -1013,7 +1068,8 @@ function build_body_mixed_network(sam, ss, body_idxs)
     emodels = Vector{EdgeModel}(undef, length(edgelist))
     for (j, e) in enumerate(edgelist)
         info = edge_info[minmax(src(e), dst(e))]
-        emodels[j] = info.kind == :timo_joint ? joint_of[info.body_at_src] :
+        emodels[j] = (info.kind == :timo_joint || info.kind == :elastic_joint) ?
+            joint_of[(info.kind, info.body_at_src)] :
             info.kind == :wrench ? wrench_of[info.body_at_src] : plain_em
     end
     nw = Network(graph, vmodels, emodels)
@@ -1115,23 +1171,27 @@ end
 """
     build_joint_edges(sam, ss, edge_info)
 
-Compile one wide body↔body Timoshenko `EdgeModel` per distinct `body_at_src` (= body A at
-`src`) orientation present ([`network_timoshenko_joint_edge`](@ref)). Returns
-`(em_of, reg_of)` keyed by that flag, first joint edge of each orientation representative.
+Compile one wide body↔body joint `EdgeModel` per distinct `(kind, body_at_src)` present —
+`:timo_joint` → [`network_timoshenko_joint_edge`](@ref), `:elastic_joint` →
+[`network_elastic_joint_edge`](@ref) — using the first edge of each key as representative.
+Returns `(em_of, reg_of)` keyed by `(kind, body_at_src)`.
 """
 function build_joint_edges(sam, ss, edge_info)
-    em_of = Dict{Bool, EdgeModel}()
-    reg_of = Dict{Bool, Any}()
+    em_of = Dict{Tuple{Symbol, Bool}, EdgeModel}()
+    reg_of = Dict{Tuple{Symbol, Bool}, Any}()
+    kernelfn = Dict(:timo_joint => network_timoshenko_joint_edge,
+                    :elastic_joint => network_elastic_joint_edge)
     for info in values(edge_info)
-        info.kind == :timo_joint || continue
-        haskey(em_of, info.body_at_src) && continue
+        (info.kind == :timo_joint || info.kind == :elastic_joint) || continue
+        key = (info.kind, info.body_at_src)
+        haskey(em_of, key) && continue
         pv = network_view(ss)
-        em_of[info.body_at_src] = EdgeModel(
-            network_timoshenko_joint_edge(sam, pv, info.joint_idx, info.body_at_src;
-                                          name = :tjoint),
+        em_of[key] = EdgeModel(
+            kernelfn[info.kind](sam, pv, info.joint_idx, info.body_at_src;
+                                name = :joint),
             WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
-            mtkcompile = true, name = :tjoint)
-        reg_of[info.body_at_src] = pv.reg
+            mtkcompile = true, name = :joint)
+        reg_of[key] = pv.reg
     end
     return em_of, reg_of
 end
@@ -1185,9 +1245,10 @@ function record_mixed_edge_params!(builder, ss, edgelist, edge_info,
                                    plain_reg, wrench_reg_of, joint_reg_of)
     for (j, e) in enumerate(edgelist)
         info = edge_info[minmax(src(e), dst(e))]
-        if info.kind == :timo_joint
-            replay_fields!(builder, joint_reg_of[info.body_at_src],
-                           :timoshenko_joints, j, info.joint_idx, ss; edge = true)
+        if info.kind == :timo_joint || info.kind == :elastic_joint
+            container = info.kind == :timo_joint ? :timoshenko_joints : :elastic_joints
+            replay_fields!(builder, joint_reg_of[(info.kind, info.body_at_src)],
+                           container, j, info.joint_idx, ss; edge = true)
             continue
         end
         seg = info.seg

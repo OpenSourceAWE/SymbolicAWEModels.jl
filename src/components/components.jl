@@ -414,6 +414,65 @@ function timoshenko_element_wrench(joint, params;
 end
 
 """
+    elastic_joint_wrench(joint, params; force_w, torque_w, pos_a, R_a, com_a, com_vel_a,
+        omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
+
+Lumped 6-DOF `ElasticJoint` restoring wrench shared by both backends (the monolith
+`joint_eqs!` loop body and the network elastic-joint edge). From the relative pose of the
+two anchors (in body A's frame) it builds the per-DOF restoring force/torque (axial,
+shear, torsion, bending stiffness + damping) and returns
+`(tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)` — the equal-and-opposite
+wrench transported to each COM. `force_w`/`torque_w` are the caller's **torn** world-frame
+wrench variables (array slices for the monolith, standalone vars for the edge).
+"""
+function elastic_joint_wrench(joint, params; force_w, torque_w,
+        pos_a, R_a, com_a, com_vel_a, omega_a_w,
+        pos_b, R_b, com_b, com_vel_b, omega_b_w)
+    j = joint.idx
+    jp = params.elastic_joints[j]
+    Ra = collect(R_a)
+    Rb = collect(R_b)
+    anchor_a = collect(jp.anchor_a_b)
+    anchor_b = collect(jp.anchor_b_b)
+    ca = collect(com_a)
+    cb = collect(com_b)
+    pos_anchor_a = collect(pos_a) .+ Ra * anchor_a
+    pos_anchor_b = collect(pos_b) .+ Rb * anchor_b
+    rest_offset = collect(jp.rest_offset_a)
+    R_rel0 = collect(jp.R_rel0)
+    Δr_a = Ra' * (pos_anchor_b .- pos_anchor_a) .- rest_offset
+    R_rel = R_rel0' * (Ra' * Rb)
+    Δθ_a = [0.5 * (R_rel[3, 2] - R_rel[2, 3]),
+            0.5 * (R_rel[1, 3] - R_rel[3, 1]),
+            0.5 * (R_rel[2, 1] - R_rel[1, 2])]
+    ω_a_w = collect(omega_a_w)
+    ω_b_w = collect(omega_b_w)
+    vel_anchor_a = collect(com_vel_a) .+ (ω_a_w × (pos_anchor_a .- ca))
+    vel_anchor_b = collect(com_vel_b) .+ (ω_b_w × (pos_anchor_b .- cb))
+    Δv_a = Ra' * (vel_anchor_b .- vel_anchor_a)
+    Δω_a = Ra' * (ω_b_w .- ω_a_w)
+    damp_trans = jp.damping_trans
+    damp_rot = jp.damping_rot
+    force_a = [
+        -joint_stiffness_term(joint, params, 1, Δr_a[1]) - damp_trans * Δv_a[1],
+        -joint_stiffness_term(joint, params, 2, Δr_a[2]) - damp_trans * Δv_a[2],
+        -joint_stiffness_term(joint, params, 2, Δr_a[3]) - damp_trans * Δv_a[3]]
+    torque_a = [
+        -joint_stiffness_term(joint, params, 3, Δθ_a[1]) - damp_rot * Δω_a[1],
+        -joint_stiffness_term(joint, params, 4, Δθ_a[2]) - damp_rot * Δω_a[2],
+        -joint_stiffness_term(joint, params, 4, Δθ_a[3]) - damp_rot * Δω_a[3]]
+    tear_eqs = [collect(force_w) ~ Ra * force_a; collect(torque_w) ~ Ra * torque_a]
+    force_on_b = collect(force_w)
+    torque_on_b = collect(torque_w)
+    arm_a = pos_anchor_a .- ca
+    arm_b = pos_anchor_b .- cb
+    force_on_a = .-force_on_b
+    moment_on_a = arm_a × force_on_a .- torque_on_b
+    moment_on_b = arm_b × force_on_b .+ torque_on_b
+    return (; tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)
+end
+
+"""
     rigid_body_pose_expressions(force_w, moment_w, inertia_p, mass, R_b_to_p,
                                 com_offset_b, com_w, com_vel, Q_p_to_w, ω_p;
                                 ω_kinematic, d_ω_p, d_com_w, d_com_vel)

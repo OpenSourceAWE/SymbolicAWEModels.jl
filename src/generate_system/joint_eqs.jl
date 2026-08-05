@@ -42,75 +42,17 @@ function joint_eqs!(
         b = joint.body_b_idx
         R_a = collect(body_R_b_to_w[:, :, a])
         R_b = collect(body_R_b_to_w[:, :, b])
-        anchor_a = collect(params.elastic_joints[j].anchor_a_b)
-        anchor_b = collect(params.elastic_joints[j].anchor_b_b)
-        pos_a = collect(body_pos_w[:, a])
-        pos_b = collect(body_pos_w[:, b])
-        com_a = collect(body_com_w[:, a])
-        com_b = collect(body_com_w[:, b])
-
-        # Anchor world positions (body_pos_w is the body origin).
-        pos_anchor_a = pos_a .+ R_a * anchor_a
-        pos_anchor_b = pos_b .+ R_b * anchor_b
-
-        # Rest references captured at init: the as-placed geometry is unstrained.
-        rest_offset = collect(params.elastic_joints[j].rest_offset_a)
-        R_rel0 = collect(params.elastic_joints[j].R_rel0)
-
-        # Relative displacement, body A frame: [axial, shear_y, shear_z].
-        Δr_a = R_a' * (pos_anchor_b .- pos_anchor_a) .- rest_offset
-
-        # Relative rotation, body A frame: [torsion, bend_y, bend_z].
-        R_rel = R_rel0' * (R_a' * R_b)
-        Δθ_a = [
-            0.5 * (R_rel[3, 2] - R_rel[2, 3]),
-            0.5 * (R_rel[1, 3] - R_rel[3, 1]),
-            0.5 * (R_rel[2, 1] - R_rel[1, 2]),
-        ]
-
-        # Anchor velocities: v = com_vel + ω_w × (anchor − com).
-        ω_a_w = R_a * collect(body_ω_b[:, a])
-        ω_b_w = R_b * collect(body_ω_b[:, b])
-        vel_anchor_a = collect(body_com_vel[:, a]) .+
-            (ω_a_w × (pos_anchor_a .- com_a))
-        vel_anchor_b = collect(body_com_vel[:, b]) .+
-            (ω_b_w × (pos_anchor_b .- com_b))
-        Δv_a = R_a' * (vel_anchor_b .- vel_anchor_a)
-        Δω_a = R_a' * (ω_b_w .- ω_a_w)
-
-        damp_trans = params.elastic_joints[j].damping_trans
-        damp_rot = params.elastic_joints[j].damping_rot
-
-        # Built element-wise: symbolic-array broadcasting is fragile here.
-        force_a = [
-            -joint_stiffness_term(joint, params, 1, Δr_a[1]) - damp_trans * Δv_a[1],
-            -joint_stiffness_term(joint, params, 2, Δr_a[2]) - damp_trans * Δv_a[2],
-            -joint_stiffness_term(joint, params, 2, Δr_a[3]) - damp_trans * Δv_a[3],
-        ]
-        torque_a = [
-            -joint_stiffness_term(joint, params, 3, Δθ_a[1]) - damp_rot * Δω_a[1],
-            -joint_stiffness_term(joint, params, 4, Δθ_a[2]) - damp_rot * Δω_a[2],
-            -joint_stiffness_term(joint, params, 4, Δθ_a[3]) - damp_rot * Δω_a[3],
-        ]
-
-        eqs = [
-            eqs
-            joint_force_w[:, j] ~ R_a * force_a
-            joint_torque_w[:, j] ~ R_a * torque_a
-        ]
-
-        force_on_b = collect(joint_force_w[:, j])
-        torque_on_b = collect(joint_torque_w[:, j])
-        arm_b = pos_anchor_b .- com_b
-        arm_a = pos_anchor_a .- com_a
-
-        # Equal-and-opposite wrench, moments transported to each COM.
-        moment_on_b = arm_b × force_on_b + torque_on_b
-        moment_on_a = arm_a × (-force_on_b) - torque_on_b
-        body_force[:, b] .+= force_on_b
-        body_force[:, a] .-= force_on_b
-        body_moment[:, b] .+= moment_on_b
-        body_moment[:, a] .+= moment_on_a
+        ex = elastic_joint_wrench(joint, params;
+            force_w = joint_force_w[:, j], torque_w = joint_torque_w[:, j],
+            pos_a = collect(body_pos_w[:, a]), R_a, com_a = collect(body_com_w[:, a]),
+            com_vel_a = collect(body_com_vel[:, a]), omega_a_w = R_a * collect(body_ω_b[:, a]),
+            pos_b = collect(body_pos_w[:, b]), R_b, com_b = collect(body_com_w[:, b]),
+            com_vel_b = collect(body_com_vel[:, b]), omega_b_w = R_b * collect(body_ω_b[:, b]))
+        eqs = [eqs; ex.tear_eqs]
+        body_force[:, a] .+= ex.force_on_a
+        body_force[:, b] .+= ex.force_on_b
+        body_moment[:, a] .+= ex.moment_on_a
+        body_moment[:, b] .+= ex.moment_on_b
     end
     return eqs
 end
