@@ -954,19 +954,20 @@ end
 """
     MixedEdgeInfo
 
-Per-edge data the mixed body/point assembly derives once. `kind` is `:plain` (point↔point
-spring), `:wrench` (point↔body spring) or `:timo_joint` (body↔body Timoshenko beam
-element). `seg` is the segment (`nothing` for a joint); `ride_idx` the `BODY_STATIC` point
-absorbed into a body vertex (`0` if none); `joint_idx` the Timoshenko joint (`0` for a
-segment); `body_at_src` marks that the body — or, for a joint, body A — is the edge's
-`src` endpoint (baked into the kernel).
+Per-edge data the mixed body/point assembly derives once. `kind`: `:plain` (point↔point
+spring), `:wrench` (point↔body spring), `:dual_wrench` (body↔body spring, both ends ride
+bodies), `:timo_joint`/`:elastic_joint` (body↔body joint). `seg` is the segment (`nothing`
+for a joint). `ride_src`/`ride_dst` are the `BODY_STATIC` points absorbed at the edge's src
+/dst endpoints (`0` where the endpoint is a free point). `joint_idx` is the joint (`0` for a
+segment). `a_at_src` marks joint body A at `src` (baked into the joint kernel).
 """
 struct MixedEdgeInfo
     kind::Symbol
     seg::Any
-    ride_idx::Int
+    ride_src::Int
+    ride_dst::Int
     joint_idx::Int
-    body_at_src::Bool
+    a_at_src::Bool
 end
 
 """
@@ -1016,14 +1017,10 @@ function build_body_mixed_network(sam, ss, body_idxs)
         va == vb && error("NetworkBackend(body): segment $(seg.name) is a self-loop " *
             "(both endpoints on vertex $va).")
         ride_src, ride_dst = va < vb ? (ride_a, ride_b) : (ride_b, ride_a)
-        (ride_src > 0 && ride_dst > 0) && error("NetworkBackend(body): body-to-body " *
-            "segment $(seg.name) (both ends ride bodies) not supported yet.")
-        info = if ride_src == 0 && ride_dst == 0
-            MixedEdgeInfo(:plain, seg, 0, 0, false)
-        else
-            MixedEdgeInfo(:wrench, seg, max(ride_src, ride_dst), 0, ride_src > 0)
-        end
-        add_mixed_edge!(graph, edge_info, minmax(va, vb), info)
+        kind = ride_src == 0 && ride_dst == 0 ? :plain :
+            ride_src > 0 && ride_dst > 0 ? :dual_wrench : :wrench
+        add_mixed_edge!(graph, edge_info, minmax(va, vb),
+            MixedEdgeInfo(kind, seg, ride_src, ride_dst, 0, false))
     end
     add_joint_edge!(kind, joint) = begin
         haskey(vertex_of_body, joint.body_a_idx) &&
@@ -1035,7 +1032,7 @@ function build_body_mixed_network(sam, ss, body_idxs)
         va == vb && error("NetworkBackend(body): joint $(joint.name) connects a " *
             "body to itself.")
         add_mixed_edge!(graph, edge_info, minmax(va, vb),
-            MixedEdgeInfo(kind, nothing, 0, joint.idx, va < vb))
+            MixedEdgeInfo(kind, nothing, 0, 0, joint.idx, va < vb))
     end
     for joint in ss.timoshenko_joints
         add_joint_edge!(:timo_joint, joint)
@@ -1062,6 +1059,7 @@ function build_body_mixed_network(sam, ss, body_idxs)
 
     plain_em, plain_reg = build_wide_plain_edge(sam, ss, edge_info)
     wrench_of, wrench_reg_of = build_wrench_edges(sam, ss, edge_info)
+    dual_em, dual_reg = build_dual_wrench_edges(sam, ss, edge_info)
     joint_of, joint_reg_of = build_joint_edges(sam, ss, edge_info)
 
     edgelist = collect(edges(graph))
@@ -1069,8 +1067,9 @@ function build_body_mixed_network(sam, ss, body_idxs)
     for (j, e) in enumerate(edgelist)
         info = edge_info[minmax(src(e), dst(e))]
         emodels[j] = (info.kind == :timo_joint || info.kind == :elastic_joint) ?
-            joint_of[(info.kind, info.body_at_src)] :
-            info.kind == :wrench ? wrench_of[info.body_at_src] : plain_em
+            joint_of[(info.kind, info.a_at_src)] :
+            info.kind == :dual_wrench ? dual_em :
+            info.kind == :wrench ? wrench_of[wrench_body_at_src(info)] : plain_em
     end
     nw = Network(graph, vmodels, emodels)
 
@@ -1096,7 +1095,7 @@ function build_body_mixed_network(sam, ss, body_idxs)
         record_body_params!(builder, body_pv.reg, ss, vertex, bidx)
     end
     record_mixed_edge_params!(builder, ss, edgelist, edge_info,
-                              plain_reg, wrench_reg_of, joint_reg_of)
+                              plain_reg, wrench_reg_of, dual_reg, joint_reg_of)
     param_sync = build_network_param_sync(nw, builder, CallableBuilder())
 
     body_static = [(i, points[i].body_idx) for i in eachindex(points)
@@ -1151,21 +1150,97 @@ present (the flag is baked into the kernel, so the two orientations are separate
 kernels). Returns `(em_of, reg_of)` — `Dict{Bool,EdgeModel}` and `Dict{Bool,reg}` keyed
 by `body_at_src`, using the first wrench edge of each orientation as representative.
 """
+wrench_body_at_src(info) = info.ride_src > 0
+wrench_ride_idx(info) = max(info.ride_src, info.ride_dst)
+
 function build_wrench_edges(sam, ss, edge_info)
     em_of = Dict{Bool, EdgeModel}()
     reg_of = Dict{Bool, Any}()
     for info in values(edge_info)
         info.kind == :wrench || continue
-        haskey(em_of, info.body_at_src) && continue
+        bas = wrench_body_at_src(info)
+        haskey(em_of, bas) && continue
         pv = network_view(ss)
-        em_of[info.body_at_src] = EdgeModel(
-            network_wrench_segment(sam, pv, info.seg.idx, info.ride_idx,
-                                   info.body_at_src; name = :wseg),
+        em_of[bas] = EdgeModel(
+            network_wrench_segment(sam, pv, info.seg.idx, wrench_ride_idx(info), bas;
+                                   name = :wseg),
             WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
             mtkcompile = true, name = :wseg)
-        reg_of[info.body_at_src] = pv.reg
+        reg_of[bas] = pv.reg
     end
     return em_of, reg_of
+end
+
+"""
+    network_dual_wrench_segment(s, params, idx, ride_src, ride_dst; name)
+
+Wide body↔body spring-damper edge: a segment whose **both** ends are `BODY_STATIC` ride
+points, on the `src` and `dst` body vertices. It reconstructs each ride position from that
+body's pose + its `anchor_b`, computes the spring-damper load between them (shared
+[`SAM.segment_endpoint_loads`](@ref)), and delivers the force + moment-about-COM to each
+body. The two anchors use explicitly-named params (`anchor_b_src`/`anchor_b_dst`) since the
+network's per-field param naming would otherwise alias two `anchor_b` reads.
+"""
+function network_dual_wrench_segment(s, params, idx, ride_src, ride_dst; name)
+    io, extras = SAM.segment_io_wide()
+    (_, src_pos, _, _, dst_pos, _, _,
+     src_force, src_mass, src_tension, dst_force, dst_mass, dst_tension) = io
+    anchor_src = [SAM.make_param(Symbol(:anchor_b_src_, k), 0.0) for k in 1:3]
+    anchor_dst = [SAM.make_param(Symbol(:anchor_b_dst_, k), 0.0) for k in 1:3]
+    torn = @variables dw_xsrc(t)[1:3] dw_xdst(t)[1:3] dw_fsrc(t)[1:3] dw_fdst(t)[1:3]
+    xsrc, xdst, fsrc, fdst = torn
+    R_src = reshape(collect(extras.src_pose_R), 3, 3)
+    R_dst = reshape(collect(extras.dst_pose_R), 3, 3)
+    com_src = collect(extras.src_pose_com)
+    com_dst = collect(extras.dst_pose_com)
+    xsrc_expr = collect(src_pos) .+ R_src * collect(anchor_src)
+    xdst_expr = collect(dst_pos) .+ R_dst * collect(anchor_dst)
+    vel_src = collect(extras.src_pose_com_vel) .+
+        (collect(extras.src_pose_omega) × (collect(xsrc) .- com_src))
+    vel_dst = collect(extras.dst_pose_com_vel) .+
+        (collect(extras.dst_pose_omega) × (collect(xdst) .- com_dst))
+    spring, wind = SAM.segment_spring_params(params, idx; with_drag = true)
+    l0 = params.segments[idx].l0
+    force_src, force_dst, half_mass, _ = SAM.segment_endpoint_loads(
+        s, collect(xsrc), vel_src, collect(xdst), vel_dst,
+        spring.unit_stiffness, spring.unit_damping, spring.compression_frac, l0,
+        spring.diameter, spring.density, spring.cd_tether, collect(wind);
+        with_drag = true)
+    eqs = [
+        collect(xsrc) .~ xsrc_expr
+        collect(xdst) .~ xdst_expr
+        collect(fsrc) .~ force_src
+        collect(fdst) .~ force_dst
+        collect(src_force) .~ collect(fsrc)
+        src_mass ~ 0.0; src_tension ~ 0.0
+        collect(dst_force) .~ collect(fdst)
+        dst_mass ~ 0.0; dst_tension ~ 0.0
+        collect(extras.src_moment) .~ (collect(xsrc) .- com_src) × collect(fsrc)
+        collect(extras.dst_moment) .~ (collect(xdst) .- com_dst) × collect(fdst)
+    ]
+    return System(eqs, t, [io[1]; torn],
+        [param_unknowns(params); anchor_src; anchor_dst]; name)
+end
+
+"""
+    build_dual_wrench_edges(sam, ss, edge_info)
+
+Compile the wide body↔body `:dual_wrench` `EdgeModel` (one kernel, first such edge
+representative), or `(nothing, nothing)` when none. Returns `(emodel, reg)`.
+"""
+function build_dual_wrench_edges(sam, ss, edge_info)
+    repr = nothing
+    for info in values(edge_info)
+        info.kind == :dual_wrench && (repr = info; break)
+    end
+    repr === nothing && return nothing, nothing
+    pv = network_view(ss)
+    em = EdgeModel(
+        network_dual_wrench_segment(sam, pv, repr.seg.idx, repr.ride_src, repr.ride_dst;
+                                    name = :dwseg),
+        WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
+        mtkcompile = true, name = :dwseg)
+    return em, pv.reg
 end
 
 """
@@ -1242,25 +1317,33 @@ edge) and `cd_tether`/wind. A `:wrench` edge also binds its ride point's `anchor
 live read. `body_at_src` is baked into the kernel, so nothing is set here for it.
 """
 function record_mixed_edge_params!(builder, ss, edgelist, edge_info,
-                                   plain_reg, wrench_reg_of, joint_reg_of)
+                                   plain_reg, wrench_reg_of, dual_reg, joint_reg_of)
     for (j, e) in enumerate(edgelist)
         info = edge_info[minmax(src(e), dst(e))]
         if info.kind == :timo_joint || info.kind == :elastic_joint
             container = info.kind == :timo_joint ? :timoshenko_joints : :elastic_joints
-            replay_fields!(builder, joint_reg_of[(info.kind, info.body_at_src)],
+            replay_fields!(builder, joint_reg_of[(info.kind, info.a_at_src)],
                            container, j, info.joint_idx, ss; edge = true)
             continue
         end
         seg = info.seg
         segment_stiffness(seg)
-        reg = info.kind == :wrench ? wrench_reg_of[info.body_at_src] : plain_reg
+        reg = info.kind == :dual_wrench ? dual_reg :
+            info.kind == :wrench ? wrench_reg_of[wrench_body_at_src(info)] : plain_reg
         replay_fields!(builder, reg, :segments, j, seg.idx, ss; edge = true)
         add_param!(builder, EIndex(j, :cd_tether), SAM.PathReader((:set, :cd_tether)))
         record_wind_params!(builder, j; edge = true)
         if info.kind == :wrench
             for k in 1:3
                 add_param!(builder, EIndex(j, Symbol(:anchor_b_, k)),
-                           SAM.PathReader((:points, info.ride_idx, :anchor_b, k)))
+                    SAM.PathReader((:points, wrench_ride_idx(info), :anchor_b, k)))
+            end
+        elseif info.kind == :dual_wrench
+            for k in 1:3
+                add_param!(builder, EIndex(j, Symbol(:anchor_b_src_, k)),
+                           SAM.PathReader((:points, info.ride_src, :anchor_b, k)))
+                add_param!(builder, EIndex(j, Symbol(:anchor_b_dst_, k)),
+                           SAM.PathReader((:points, info.ride_dst, :anchor_b, k)))
             end
         end
     end
