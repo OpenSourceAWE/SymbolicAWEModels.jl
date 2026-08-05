@@ -313,6 +313,107 @@ function ground_wind_vec(params)
 end
 
 """
+    timoshenko_element_wrench(joint, params; frame, theta_a, theta_b, force_a, force_b,
+        moment_a, moment_b, pos_a, R_a, com_a, com_vel_a, omega_a_w,
+        pos_b, R_b, com_b, com_vel_b, omega_b_w)
+
+Corotational Timoshenko element wrench shared by both backends (the monolith
+`timoshenko_joint_eqs!` loop body and the network joint edge), so the beam-element
+physics lives in one place. Given the two nodes' world poses (`pos`, `R_b_to_w`, `com`,
+`com_vel`, world spin `omega_w`) and the joint's rest geometry/rigidities, it builds the
+element frame and per-node deformations, evaluates the consistent Timoshenko stiffness
+(axial, torsion, two bending planes with shear reduction `Φ`) and damping, and returns
+`(tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)` — the restoring wrench on
+each node (world frame, transported to each COM). `frame`/`theta_a`/`theta_b`/`force_a`/
+`force_b`/`moment_a`/`moment_b` are caller-supplied **torn** variables (array slices for
+the monolith, standalone vars for the edge) so the reused frame/force subtrees are not
+re-embedded; `tear_eqs` binds them.
+"""
+function timoshenko_element_wrench(joint, params;
+        frame, theta_a, theta_b, force_a, force_b, moment_a, moment_b,
+        pos_a, R_a, com_a, com_vel_a, omega_a_w,
+        pos_b, R_b, com_b, com_vel_b, omega_b_w)
+    j = joint.idx
+    jp = params.timoshenko_joints[j]
+    anchor_a = collect(jp.anchor_a_b)
+    anchor_b = collect(jp.anchor_b_b)
+    Ra = collect(R_a)
+    Rb = collect(R_b)
+    x_a = collect(pos_a) .+ Ra * anchor_a
+    x_b = collect(pos_b) .+ Rb * anchor_b
+    e1, e2, e3, len = timoshenko_element_frame(x_a, x_b, Ra)
+    frame_expr = [e1[1] e2[1] e3[1];
+                  e1[2] e2[2] e3[2];
+                  e1[3] e2[3] e3[3]]
+    element_frame = collect(frame)
+    L0 = jp.rest_length
+    R_a_rel0 = collect(jp.R_a_rel0)
+    R_b_rel0 = collect(jp.R_b_rel0)
+    Da = (element_frame' * Ra) * R_a_rel0'
+    Db = (element_frame' * Rb) * R_b_rel0'
+    θ_a_expr = [0.5 * (Da[3, 2] - Da[2, 3]),
+                0.5 * (Da[1, 3] - Da[3, 1]),
+                0.5 * (Da[2, 1] - Da[1, 2])]
+    θ_b_expr = [0.5 * (Db[3, 2] - Db[2, 3]),
+                0.5 * (Db[1, 3] - Db[3, 1]),
+                0.5 * (Db[2, 1] - Db[1, 2])]
+    θ_a = collect(theta_a)
+    θ_b = collect(theta_b)
+    δ = len - L0
+    kshear = jp.shear_coeff
+    ε = δ / L0
+    κt = (θ_b[1] - θ_a[1]) / L0
+    κy = (θ_b[2] - θ_a[2]) / L0
+    κz = (θ_b[3] - θ_a[3]) / L0
+    γy = 0.5 * (θ_a[2] + θ_b[2])
+    γz = 0.5 * (θ_a[3] + θ_b[3])
+    EA_eff = timoshenko_rigidity(joint, params, :EA, ε)
+    GJ_eff = timoshenko_rigidity(joint, params, :GJ, κt)
+    EIy_eff = timoshenko_rigidity(joint, params, :EIy, κy)
+    EIz_eff = timoshenko_rigidity(joint, params, :EIz, κz)
+    GAy_eff = timoshenko_rigidity(joint, params, :GA, γy)
+    GAz_eff = timoshenko_rigidity(joint, params, :GA, γz)
+    Φy = 12 * EIy_eff / (kshear * GAy_eff * L0^2)
+    Φz = 12 * EIz_eff / (kshear * GAz_eff * L0^2)
+    by = EIy_eff / (L0 * (1 + Φy))
+    bz = EIz_eff / (L0 * (1 + Φz))
+    shy = 6 * EIy_eff / (L0^2 * (1 + Φy))
+    shz = 6 * EIz_eff / (L0^2 * (1 + Φz))
+    Mt = GJ_eff / L0
+    f_axial = EA_eff * δ / L0
+    F_a_local = [f_axial, -shz * (θ_a[3] + θ_b[3]), shy * (θ_a[2] + θ_b[2])]
+    M_a_local = [-Mt * (θ_a[1] - θ_b[1]),
+                 -by * ((4 + Φy) * θ_a[2] + (2 - Φy) * θ_b[2]),
+                 -bz * ((4 + Φz) * θ_a[3] + (2 - Φz) * θ_b[3])]
+    F_b_local = [-f_axial, shz * (θ_a[3] + θ_b[3]), -shy * (θ_a[2] + θ_b[2])]
+    M_b_local = [-Mt * (θ_b[1] - θ_a[1]),
+                 -by * ((2 - Φy) * θ_a[2] + (4 + Φy) * θ_b[2]),
+                 -bz * ((2 - Φz) * θ_a[3] + (4 + Φz) * θ_b[3])]
+    ω_a_w = collect(omega_a_w)
+    ω_b_w = collect(omega_b_w)
+    vel_a = collect(com_vel_a) .+ (ω_a_w × (x_a .- collect(com_a)))
+    vel_b = collect(com_vel_b) .+ (ω_b_w × (x_b .- collect(com_b)))
+    Δv = vel_b .- vel_a
+    Δω = ω_b_w .- ω_a_w
+    c_t = jp.damping_trans
+    c_r = jp.damping_rot
+    tear_eqs = [
+        vec(collect(frame)) ~ vec(frame_expr)
+        collect(theta_a) ~ θ_a_expr
+        collect(theta_b) ~ θ_b_expr
+        collect(force_a) ~ element_frame * F_a_local .+ c_t .* Δv
+        collect(force_b) ~ element_frame * F_b_local .- c_t .* Δv
+        collect(moment_a) ~ element_frame * M_a_local .+ c_r .* Δω
+        collect(moment_b) ~ element_frame * M_b_local .- c_r .* Δω
+    ]
+    force_on_a = collect(force_a)
+    force_on_b = collect(force_b)
+    moment_on_a = (x_a .- collect(com_a)) × force_on_a .+ collect(moment_a)
+    moment_on_b = (x_b .- collect(com_b)) × force_on_b .+ collect(moment_b)
+    return (; tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)
+end
+
+"""
     rigid_body_pose_expressions(force_w, moment_w, inertia_p, mass, R_b_to_p,
                                 com_offset_b, com_w, com_vel, Q_p_to_w, ω_p;
                                 ω_kinematic, d_ω_p, d_com_w, d_com_vel)

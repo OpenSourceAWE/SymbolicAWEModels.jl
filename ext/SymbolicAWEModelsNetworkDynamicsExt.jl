@@ -407,6 +407,63 @@ function network_wrench_segment(s, params, idx, ride_idx, body_at_src::Bool; nam
 end
 
 """
+    network_timoshenko_joint_edge(s, params, jidx, a_at_src; name)
+
+Wide body↔body edge for a `TimoshenkoJoint` (a corotational beam element). It reads both
+bodies' poses, evaluates the shared [`SAM.timoshenko_element_wrench`](@ref) (frame,
+per-node deformations, consistent Timoshenko stiffness + damping) and delivers the equal-
+and-opposite restoring wrench to each body. `a_at_src` (whether joint body A is the edge's
+`src`) is baked in at build time. The `frame`/`theta`/`force`/`moment` torn variables are
+edge-internal (mirroring the monolith's tearing). Only constant (`Real`) rigidities are
+supported so far.
+"""
+function network_timoshenko_joint_edge(s, params, jidx, a_at_src::Bool; name)
+    io, extras = SAM.segment_io_wide()
+    (_, src_pos, src_vel, _, dst_pos, dst_vel, _,
+     src_force, src_mass, src_tension, dst_force, dst_mass, dst_tension) = io
+    joint = params.reg.sys_struct.timoshenko_joints[jidx]
+    all(getfield(joint, f) isa Real for f in (:EA, :GA, :GJ, :EIy, :EIz)) || error(
+        "NetworkBackend(body): callable (nonlinear) Timoshenko rigidities on joint " *
+        "$(joint.name) not supported yet; only Real rigidities.")
+    torn = @variables begin
+        tj_frame(t)[1:3, 1:3]
+        tj_theta_a(t)[1:3]
+        tj_theta_b(t)[1:3]
+        tj_force_a(t)[1:3]
+        tj_force_b(t)[1:3]
+        tj_moment_a(t)[1:3]
+        tj_moment_b(t)[1:3]
+    end
+    apos, aR, acom, acomvel, aomega, bpos, bR, bcom, bcomvel, bomega = a_at_src ?
+        (src_pos, extras.src_pose_R, extras.src_pose_com, extras.src_pose_com_vel,
+         extras.src_pose_omega, dst_pos, extras.dst_pose_R, extras.dst_pose_com,
+         extras.dst_pose_com_vel, extras.dst_pose_omega) :
+        (dst_pos, extras.dst_pose_R, extras.dst_pose_com, extras.dst_pose_com_vel,
+         extras.dst_pose_omega, src_pos, extras.src_pose_R, extras.src_pose_com,
+         extras.src_pose_com_vel, extras.src_pose_omega)
+    ex = SAM.timoshenko_element_wrench(joint, params;
+        frame = torn[1], theta_a = torn[2], theta_b = torn[3],
+        force_a = torn[4], force_b = torn[5], moment_a = torn[6], moment_b = torn[7],
+        pos_a = apos, R_a = reshape(collect(aR), 3, 3), com_a = acom,
+        com_vel_a = acomvel, omega_a_w = aomega,
+        pos_b = bpos, R_b = reshape(collect(bR), 3, 3), com_b = bcom,
+        com_vel_b = bcomvel, omega_b_w = bomega)
+    src_f, src_m, dst_f, dst_m = a_at_src ?
+        (ex.force_on_a, ex.moment_on_a, ex.force_on_b, ex.moment_on_b) :
+        (ex.force_on_b, ex.moment_on_b, ex.force_on_a, ex.moment_on_a)
+    eqs = [
+        ex.tear_eqs
+        collect(src_force) .~ src_f
+        src_mass ~ 0.0; src_tension ~ 0.0
+        collect(dst_force) .~ dst_f
+        dst_mass ~ 0.0; dst_tension ~ 0.0
+        collect(extras.src_moment) .~ src_m
+        collect(extras.dst_moment) .~ dst_m
+    ]
+    return System(eqs, t, [io[1]; torn], param_unknowns(params); name)
+end
+
+"""
     network_tether_segment(s, params, idx; name)
 
 Winched-tether spring-damper edge. Its rest length is `l0 = tether_len / n_segs`,
@@ -846,15 +903,18 @@ end
 """
     MixedEdgeInfo
 
-Per-edge data the mixed body/point assembly derives once: the `seg`, whether it is a
-`:plain` point↔point spring or a `:wrench` point↔body spring, the ride point idx
-(`BODY_STATIC` point absorbed into a body vertex; `0` when not applicable) and the
-`body_at_src` flag (the body vertex is the edge's `src` endpoint).
+Per-edge data the mixed body/point assembly derives once. `kind` is `:plain` (point↔point
+spring), `:wrench` (point↔body spring) or `:timo_joint` (body↔body Timoshenko beam
+element). `seg` is the segment (`nothing` for a joint); `ride_idx` the `BODY_STATIC` point
+absorbed into a body vertex (`0` if none); `joint_idx` the Timoshenko joint (`0` for a
+segment); `body_at_src` marks that the body — or, for a joint, body A — is the edge's
+`src` endpoint (baked into the kernel).
 """
 struct MixedEdgeInfo
-    seg::Any
     kind::Symbol
+    seg::Any
     ride_idx::Int
+    joint_idx::Int
     body_at_src::Bool
 end
 
@@ -893,25 +953,41 @@ function build_body_mixed_network(sam, ss, body_idxs)
 
     graph = SimpleGraph(nv)
     edge_info = Dict{Tuple{Int, Int}, MixedEdgeInfo}()
+    add_mixed_edge!(graph, edge_info, key, info) = begin
+        haskey(edge_info, key) && error("NetworkBackend(body): parallel edges " *
+            "between vertices $key are not supported.")
+        add_edge!(graph, key[1], key[2])
+        edge_info[key] = info
+    end
     for seg in ss.segments
         va, ride_a = endpoint(seg.point_idxs[1])
         vb, ride_b = endpoint(seg.point_idxs[2])
         va == vb && error("NetworkBackend(body): segment $(seg.name) is a self-loop " *
             "(both endpoints on vertex $va).")
-        key = minmax(va, vb)
-        haskey(edge_info, key) && error("NetworkBackend(body): parallel edges " *
-            "between vertices $key are not supported.")
         ride_src, ride_dst = va < vb ? (ride_a, ride_b) : (ride_b, ride_a)
         (ride_src > 0 && ride_dst > 0) && error("NetworkBackend(body): body-to-body " *
             "segment $(seg.name) (both ends ride bodies) not supported yet.")
         info = if ride_src == 0 && ride_dst == 0
-            MixedEdgeInfo(seg, :plain, 0, false)
+            MixedEdgeInfo(:plain, seg, 0, 0, false)
         else
-            MixedEdgeInfo(seg, :wrench, max(ride_src, ride_dst), ride_src > 0)
+            MixedEdgeInfo(:wrench, seg, max(ride_src, ride_dst), 0, ride_src > 0)
         end
-        add_edge!(graph, va, vb)
-        edge_info[key] = info
+        add_mixed_edge!(graph, edge_info, minmax(va, vb), info)
     end
+    for joint in ss.timoshenko_joints
+        haskey(vertex_of_body, joint.body_a_idx) &&
+            haskey(vertex_of_body, joint.body_b_idx) || error(
+            "NetworkBackend(body): Timoshenko joint $(joint.name) connects a body " *
+            "that is not an integrated DYNAMIC body.")
+        va = vertex_of_body[joint.body_a_idx]
+        vb = vertex_of_body[joint.body_b_idx]
+        va == vb && error("NetworkBackend(body): Timoshenko joint $(joint.name) " *
+            "connects a body to itself.")
+        add_mixed_edge!(graph, edge_info, minmax(va, vb),
+            MixedEdgeInfo(:timo_joint, nothing, 0, joint.idx, va < vb))
+    end
+    isempty(ss.elastic_joints) || error("NetworkBackend(body): ElasticJoint not " *
+        "supported with the network backend yet (TimoshenkoJoint is).")
 
     dyn_vm, dyn_reg = build_wide_vertex(sam, ss, free_idxs, SAM.DYNAMIC,
         network_dynamic_point)
@@ -931,12 +1007,14 @@ function build_body_mixed_network(sam, ss, body_idxs)
 
     plain_em, plain_reg = build_wide_plain_edge(sam, ss, edge_info)
     wrench_of, wrench_reg_of = build_wrench_edges(sam, ss, edge_info)
+    joint_of, joint_reg_of = build_joint_edges(sam, ss, edge_info)
 
     edgelist = collect(edges(graph))
     emodels = Vector{EdgeModel}(undef, length(edgelist))
     for (j, e) in enumerate(edgelist)
         info = edge_info[minmax(src(e), dst(e))]
-        emodels[j] = info.kind == :wrench ? wrench_of[info.body_at_src] : plain_em
+        emodels[j] = info.kind == :timo_joint ? joint_of[info.body_at_src] :
+            info.kind == :wrench ? wrench_of[info.body_at_src] : plain_em
     end
     nw = Network(graph, vmodels, emodels)
 
@@ -962,7 +1040,7 @@ function build_body_mixed_network(sam, ss, body_idxs)
         record_body_params!(builder, body_pv.reg, ss, vertex, bidx)
     end
     record_mixed_edge_params!(builder, ss, edgelist, edge_info,
-                              plain_reg, wrench_reg_of)
+                              plain_reg, wrench_reg_of, joint_reg_of)
     param_sync = build_network_param_sync(nw, builder, CallableBuilder())
 
     body_static = [(i, points[i].body_idx) for i in eachindex(points)
@@ -1035,6 +1113,30 @@ function build_wrench_edges(sam, ss, edge_info)
 end
 
 """
+    build_joint_edges(sam, ss, edge_info)
+
+Compile one wide body↔body Timoshenko `EdgeModel` per distinct `body_at_src` (= body A at
+`src`) orientation present ([`network_timoshenko_joint_edge`](@ref)). Returns
+`(em_of, reg_of)` keyed by that flag, first joint edge of each orientation representative.
+"""
+function build_joint_edges(sam, ss, edge_info)
+    em_of = Dict{Bool, EdgeModel}()
+    reg_of = Dict{Bool, Any}()
+    for info in values(edge_info)
+        info.kind == :timo_joint || continue
+        haskey(em_of, info.body_at_src) && continue
+        pv = network_view(ss)
+        em_of[info.body_at_src] = EdgeModel(
+            network_timoshenko_joint_edge(sam, pv, info.joint_idx, info.body_at_src;
+                                          name = :tjoint),
+            WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
+            mtkcompile = true, name = :tjoint)
+        reg_of[info.body_at_src] = pv.reg
+    end
+    return em_of, reg_of
+end
+
+"""
     set_body_states!(ss, state, body_vertices)
 
 Fill each body vertex's 13 principal-frame states (`com_w`, `com_vel`, `Q_p_to_w`,
@@ -1080,9 +1182,14 @@ edge) and `cd_tether`/wind. A `:wrench` edge also binds its ride point's `anchor
 live read. `body_at_src` is baked into the kernel, so nothing is set here for it.
 """
 function record_mixed_edge_params!(builder, ss, edgelist, edge_info,
-                                   plain_reg, wrench_reg_of)
+                                   plain_reg, wrench_reg_of, joint_reg_of)
     for (j, e) in enumerate(edgelist)
         info = edge_info[minmax(src(e), dst(e))]
+        if info.kind == :timo_joint
+            replay_fields!(builder, joint_reg_of[info.body_at_src],
+                           :timoshenko_joints, j, info.joint_idx, ss; edge = true)
+            continue
+        end
         seg = info.seg
         segment_stiffness(seg)
         reg = info.kind == :wrench ? wrench_reg_of[info.body_at_src] : plain_reg

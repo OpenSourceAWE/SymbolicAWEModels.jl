@@ -83,6 +83,7 @@ SymbolicAWEModels.segment_spring_params
 SymbolicAWEModels.segment_loads
 SymbolicAWEModels.endpoint_load_eqs
 SymbolicAWEModels.rigid_body_pose_expressions
+SymbolicAWEModels.timoshenko_element_wrench
 SymbolicAWEModels.body_io
 SymbolicAWEModels.BodyVertex
 SymbolicAWEModels.ground_wind_vec
