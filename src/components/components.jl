@@ -307,6 +307,69 @@ function rigid_body_pose_expressions(force_w, moment_w, inertia_p, mass, R_b_to_
 end
 
 """
+    body_io()
+
+Declare the I/O of a rigid-body vertex. Outputs are the full pose an incident wrench
+edge needs to place any anchor and transport its moment: `pos_w` (body origin), its
+velocity `vel_w`, the orientation `R_b_to_w`, the world spin `omega_w`, and the COM
+`com_w`/`com_vel`. Inputs are the aggregated wrench `force_in`/`moment_in` its
+incident edges sum onto it (0 when isolated). Returns `(vars, pos_w, vel_w, R_out,
+omega_w, com_out, com_vel_out, force_in, moment_in)`.
+"""
+function body_io()
+    vars = @variables begin
+        pos_w(t)[1:3]
+        vel_w(t)[1:3]
+        R_out(t)[1:9]
+        omega_w(t)[1:3]
+        com_out(t)[1:3]
+        com_vel_out(t)[1:3]
+        force_in(t)[1:3], [input = true]
+        moment_in(t)[1:3], [input = true]
+    end
+    return vars, pos_w, vel_w, R_out, omega_w, com_out, com_vel_out, force_in, moment_in
+end
+
+"""
+    BodyVertex(s, params, idx; name)
+
+Free rigid-body vertex: integrates the 13-state principal pose (`com_w`, `com_vel`,
+`Q_p_to_w`, `ω_p`) under gravity, the aggregated wrench at `force_in`/`moment_in`,
+the external wrench (`ext_force_w`/`ext_force_b`/`ext_moment_b`), and per-axis
+angular `damping` — all read from `params.bodies[idx]`. Shares the 6-DOF math with
+the monolith through [`rigid_body_pose_expressions`](@ref); emits the pose via
+[`body_io`](@ref). `STATIC`/`fix_sphere` confinement is not built here (guarded by
+the assembly until supported).
+"""
+function BodyVertex(s, params, idx; name)
+    vars, pos_w, vel_w, R_out, omega_w, com_out, com_vel_out, force_in, moment_in =
+        body_io()
+    state = @variables com_w(t)[1:3] com_vel(t)[1:3] Q(t)[1:4] omega_p(t)[1:3]
+    body = params.bodies[idx]
+    R_b_to_w = quaternion_to_rotation_matrix(collect(Q)) * collect(body.R_b_to_p)
+    gravity_w = Num[0, 0, -params.set.g_earth * body.mass]
+    force_w = collect(force_in) .+ gravity_w .+ collect(body.ext_force_w) .+
+        R_b_to_w * collect(body.ext_force_b)
+    moment_w = collect(moment_in) .+ R_b_to_w * collect(body.ext_moment_b)
+    ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
+        body.mass, body.R_b_to_p, body.com_offset_b, com_w, com_vel, Q, omega_p)
+    damping = collect(body.damping)
+    eqs = [
+        [D(com_w[i]) ~ ex.d_com_w[i] for i in 1:3]
+        [D(com_vel[i]) ~ ex.d_com_vel[i] for i in 1:3]
+        [D(Q[i]) ~ ex.d_Q[i] for i in 1:4]
+        [D(omega_p[i]) ~ ex.α_p[i] - damping[i] * omega_p[i] for i in 1:3]
+        pos_w ~ ex.pos_w
+        vel_w ~ ex.vel_w
+        [R_out[k] ~ vec(ex.R_b_to_w)[k] for k in 1:9]
+        omega_w ~ ex.R_b_to_w * ex.ω_b
+        com_out ~ com_w
+        com_vel_out ~ com_vel
+    ]
+    return System(eqs, t, [vars; state], param_unknowns(params); name)
+end
+
+"""
     DynamicPoint(s, params, idx; name)
 
 Particle vertex: a point mass integrating `pos`/`vel` under the net force gathered

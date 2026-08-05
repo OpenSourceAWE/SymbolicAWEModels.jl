@@ -90,8 +90,9 @@ param_addr(edge::Bool, index, sym) = edge ? EIndex(index, sym) : VIndex(index, s
 Bind, for one real instance, every plain struct-field parameter a kernel's `reg`
 recorded under `container` (`:points`/`:segments`). Each entry's `path` is
 re-pointed to `cont_index` for the live reader and addressed at `addr_index`
-([`param_addr`](@ref)); array fields expand to one scalar `field_k` per component,
-matching NetworkDynamics' parameter scalarization. Computed entries (non-`PathReader`,
+([`param_addr`](@ref)); vector fields expand to one scalar `field_k` per component and
+matrix fields to `field_row_col` (column-major), matching NetworkDynamics' parameter
+scalarization. Computed entries (non-`PathReader`,
 e.g. `wind_gnd`) and any field in `skip` are left for the caller to bind explicitly.
 """
 function replay_fields!(builder, reg, container::Symbol, addr_index, cont_index, ss;
@@ -106,9 +107,21 @@ function replay_fields!(builder, reg, container::Symbol, addr_index, cont_index,
             add_param!(builder, param_addr(edge, addr_index, field),
                        SAM.PathReader((container, cont_index, field)))
         elseif entry.kind === :array
-            for k in 1:length(entry.read(ss))
-                add_param!(builder, param_addr(edge, addr_index, Symbol(field, :_, k)),
-                           SAM.PathReader((container, cont_index, field, k)))
+            value = entry.read(ss)
+            if ndims(value) == 2
+                rows, cols = size(value)
+                for col in 1:cols, row in 1:rows
+                    add_param!(builder,
+                        param_addr(edge, addr_index, Symbol(field, :_, row, :_, col)),
+                        SAM.PathReader((container, cont_index, field,
+                                        (col - 1) * rows + row)))
+                end
+            else
+                for k in 1:length(value)
+                    add_param!(builder,
+                        param_addr(edge, addr_index, Symbol(field, :_, k)),
+                        SAM.PathReader((container, cont_index, field, k)))
+                end
             end
         end
     end
@@ -369,6 +382,8 @@ end
 
 const VERTEX_INPUTS = [:force_in, :mass_in, :tension_in]
 const VERTEX_OUTPUTS = [:pos, :vel, :pulley_len_out]
+const BODY_INPUTS = [:force_in, :moment_in]
+const BODY_OUTPUTS = [:pos_w, :vel_w, :R_out, :omega_w, :com_out, :com_vel_out]
 const EDGE_SRC_IN = [:src_pos, :src_vel, :src_pulley_len]
 const EDGE_DST_IN = [:dst_pos, :dst_vel, :dst_pulley_len]
 const EDGE_SRC_OUT = [:src_force, :src_mass, :src_tension]
@@ -638,6 +653,20 @@ function build_network(sam)
     points = ss.points
     segments = ss.segments
     n = length(points)
+
+    body_idxs = [b.idx for b in ss.bodies if b.type == SAM.DYNAMIC]
+    if !isempty(body_idxs)
+        n == 0 || error("NetworkBackend: mixing points with integrated rigid " *
+            "bodies needs the uniform vertex-output widening; not supported yet " *
+            "($n points, $(length(body_idxs)) bodies).")
+        for bidx in body_idxs
+            SAM.is_wing(ss.bodies[bidx]) && error("NetworkBackend: rigid-wing " *
+                "aero on a body vertex is not supported yet (body " *
+                "$(ss.bodies[bidx].name)).")
+        end
+        return build_body_only_network(sam, ss, body_idxs)
+    end
+
     for point in points
         (point.type == SAM.STATIC || point.type == SAM.DYNAMIC) && continue
         error("NetworkBackend: point $(point.name) has unsupported type " *
@@ -747,8 +776,80 @@ function build_network(sam)
 
     meta = (; param_sync, winch_of_point, pulley_of_point,
             winch_tethers = Dict(w.winch_point_idx => collect(w.tether_idxs)
-                                 for w in ss.winches))
+                                 for w in ss.winches),
+            body_idxs = Int[])
     return nw, uflat(state), pflat(param), meta
+end
+
+"""
+    build_body_only_network(sam, ss, body_idxs)
+
+Assemble a `Network` of only integrated rigid-body vertices (`type == DYNAMIC`) — the
+first backend step toward full rigid-body support. Each body is an isolated 13-state
+[`SAM.BodyVertex`](@ref) integrating free 6-DOF motion under gravity plus its
+`ext_force`/`ext_moment`; with no incident edges the aggregated wrench is zero. Ride
+points, wrench-carrying segments and rigid-wing aero arrive with the uniform
+vertex-output widening; until then [`build_network`](@ref) errors on a model that
+mixes bodies with points. Returns the same `(nw, u0, p0, meta)` tuple as
+[`build_network`](@ref).
+"""
+function build_body_only_network(sam, ss, body_idxs)
+    n = length(body_idxs)
+    graph = SimpleGraph(n)
+    pv = network_view(ss)
+    base = VertexModel(SAM.BodyVertex(sam, pv, body_idxs[1]; name = :body),
+        BODY_INPUTS, BODY_OUTPUTS; mtkcompile = true, name = :body)
+    vmodels = [base for _ in 1:n]
+    nw = Network(graph, vmodels, EdgeModel[])
+
+    param, state = NWParameter(nw), NWState(nw)
+    set_body_states!(ss, state, body_idxs)
+    builder = ParamBuilder()
+    for (vertex, bidx) in enumerate(body_idxs)
+        record_body_params!(builder, pv.reg, ss, vertex, bidx)
+    end
+    param_sync = build_network_param_sync(nw, builder, CallableBuilder())
+
+    meta = (; param_sync, winch_of_point = Dict{Int, Int}(),
+            pulley_of_point = Dict{Int, Int}(),
+            winch_tethers = Dict{Int, Vector{Int}}(), body_idxs)
+    return nw, uflat(state), pflat(param), meta
+end
+
+"""
+    set_body_states!(ss, state, body_idxs)
+
+Fill each body vertex's 13 principal-frame states (`com_w`, `com_vel`, `Q_p_to_w`,
+`omega_p`) from the struct fields `reinit!`/`init_principal_frame!` already populated,
+so the network starts from the same pose as the monolith.
+"""
+function set_body_states!(ss, state, body_idxs)
+    for (vertex, bidx) in enumerate(body_idxs)
+        body = ss.bodies[bidx]
+        for k in 1:3
+            state.v[vertex, Symbol(:com_w_, k)] = body.com_w[k]
+            state.v[vertex, Symbol(:com_vel_, k)] = body.com_vel[k]
+            state.v[vertex, Symbol(:omega_p_, k)] = body.ω_p[k]
+        end
+        for k in 1:4
+            state.v[vertex, Symbol(:Q_, k)] = body.Q_p_to_w[k]
+        end
+    end
+    return nothing
+end
+
+"""
+    record_body_params!(builder, reg, ss, vertex, bidx)
+
+Record body vertex `vertex`'s per-instance parameters: every plain struct field the
+kernel read from `bodies[bidx]` (replayed generically, matrix `R_b_to_p` included) plus
+the world gravity `set.g_earth`, each bound as a live read so mutating the body struct
+takes effect next step, as on the monolith.
+"""
+function record_body_params!(builder, reg, ss, vertex, bidx)
+    replay_fields!(builder, reg, :bodies, vertex, bidx, ss)
+    add_param!(builder, VIndex(vertex, :g_earth), SAM.PathReader((:set, :g_earth)))
+    return nothing
 end
 
 """
@@ -1267,6 +1368,22 @@ struct NetworkStateGetter{NW}
     winch_tethers::Dict{Int, Vector{Int}}
     wing_geoms::Vector{NetworkWingGeom}
     wing_aero_readers::Vector{Any}
+    body_readers::Vector{Any}
+end
+
+"""
+    body_output_reader(nw, body, vertex)
+
+Build the getter tuple `(body, vertex, pos, vel, R, omega, com, com_vel)` that reads a
+body vertex's pose outputs (`pos_w`, `vel_w`, `R_out`, `omega_w`, `com_out`,
+`com_vel_out`) off `vertex`, so [`NetworkStateGetter`](@ref) can scatter them back into
+the struct.
+"""
+function body_output_reader(nw, body, vertex)
+    getvec(sym) = getu(nw, [VIndex(vertex, Symbol(sym, :_, c)) for c in 1:3])
+    R = getu(nw, [VIndex(vertex, Symbol(:R_out_, k)) for k in 1:9])
+    return (body, vertex, getvec(:pos_w), getvec(:vel_w), R, getvec(:omega_w),
+            getvec(:com_out), getvec(:com_vel_out))
 end
 
 """
@@ -1289,8 +1406,10 @@ function NetworkStateGetter(nw, ss, meta)
     geoms = network_wing_geoms(ss)
     readers = Any[wing_aero_reader(nw, wg.wing, wg.live_vertex)
                   for wg in geoms if wg.live_vertex != 0]
+    body_readers = Any[body_output_reader(nw, ss.bodies[bidx], vertex)
+                       for (vertex, bidx) in enumerate(meta.body_idxs)]
     return NetworkStateGetter(nw, dyn_idxs, pulley_idxs, winch_idxs,
-                              meta.winch_tethers, geoms, readers)
+                              meta.winch_tethers, geoms, readers, body_readers)
 end
 
 function (g::NetworkStateGetter)(integ, ss)
@@ -1311,6 +1430,21 @@ function (g::NetworkStateGetter)(integ, ss)
     for (wing, force_getu, moment_getu) in g.wing_aero_readers
         wing.aero_force_b .= force_getu(integ)
         wing.aero_moment_b .= moment_getu(integ)
+    end
+    for (body, vertex, pos_g, vel_g, R_g, omega_g, com_g, comvel_g) in g.body_readers
+        body.pos_w .= pos_g(integ)
+        body.vel_w .= vel_g(integ)
+        body.com_w .= com_g(integ)
+        body.com_vel .= comvel_g(integ)
+        R_b_to_w = reshape(collect(R_g(integ)), 3, 3)
+        body.Q_b_to_w .= SAM.rotation_matrix_to_quaternion(R_b_to_w)
+        body.ω_b .= R_b_to_w' * omega_g(integ)
+        for k in 1:4
+            body.Q_p_to_w[k] = s.v[vertex, Symbol(:Q_, k)]
+        end
+        for k in 1:3
+            body.ω_p[k] = s.v[vertex, Symbol(:omega_p_, k)]
+        end
     end
     for (vi, pidx) in g.pulley_idxs
         pulley = ss.pulleys[pidx]
