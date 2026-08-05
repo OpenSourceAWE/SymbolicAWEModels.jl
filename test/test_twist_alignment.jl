@@ -47,6 +47,10 @@ Reports the angle between the two chord vectors and their relative length
 difference rather than the TE-point distance: both endpoints share the wing
 frame, so subtracting the LE cancels the rigid-body constraint drift that
 otherwise dominates the raw distance during fast transients.
+
+The angle comes from `atan(|a × b|, a ⋅ b)` rather than `acos`, which near
+zero resolves no finer than `sqrt(eps)` rad (8.5e-7 deg per ULP of the
+cosine) and would quantize an exact match to a spurious ~1e-6 deg.
 """
 function twist_chord_diffs(sam)
     wing = sam.sys_struct.wings[1]
@@ -78,10 +82,9 @@ function twist_chord_diffs(sam)
         sec_te = Vector(refined[k].TE_point)
         chord_struct = te_b - le_b
         chord_vsm = sec_te - sec_le
-        cos_angle = dot(chord_struct, chord_vsm) /
-                    (norm(chord_struct) * norm(chord_vsm))
         push!(rows, (name=g.name, twist=g.twist,
-            angle=rad2deg(acos(clamp(cos_angle, -1, 1))),
+            angle=rad2deg(atan(norm(chord_struct × chord_vsm),
+                               dot(chord_struct, chord_vsm))),
             length_err=abs(norm(chord_vsm) - norm(chord_struct)) /
                        norm(chord_struct)))
     end
@@ -93,8 +96,7 @@ function report(label, rows)
     for r in rows
         println("[$label] twist_surface $(r.name): twist=",
             round(r.twist; digits=5),
-            "  angle=", round(r.angle; digits=7),
-            " deg  length_err=", round(r.length_err; digits=9))
+            "  angle=", r.angle, " deg  length_err=", r.length_err)
     end
 end
 
@@ -103,7 +105,7 @@ report("static", static_rows)
 
 @testset "twist chord alignment at rest" begin
     for r in static_rows
-        @test r.angle < 1e-6
+        @test r.angle < 1e-9
         @test r.length_err < 1e-12
     end
 end
@@ -123,14 +125,13 @@ end
 dyn_rows = twist_chord_diffs(sam)
 report("dynamic", dyn_rows)
 
-# The residual left here is the difference between this package's twist axis
-# (y_airf) and the curvature-averaged spanwise axis VSM rotates about, which
-# grows with twist; the chord length is invariant under both, so its tolerance
-# can stay at machine precision.
+# Both coupled paths agree to machine precision here too (~1e-13 deg), so the
+# bounds only need enough slack for the trajectory landing elsewhere on another
+# platform; a broken coupling misaligns the chord by degrees.
 @testset "twist chord alignment under steering" begin
     @test any(r -> abs(r.twist) > 0.1, dyn_rows)
     for r in dyn_rows
-        @test r.angle < 1e-2
+        @test r.angle < 1e-5
         @test r.length_err < 1e-10
     end
 end
