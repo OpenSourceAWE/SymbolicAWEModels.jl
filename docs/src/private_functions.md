@@ -89,6 +89,7 @@ SymbolicAWEModels.beam_hermite_ride_expressions
 SymbolicAWEModels.body_io
 SymbolicAWEModels.BodyVertex
 SymbolicAWEModels.WingBodyVertex
+SymbolicAWEModels.body_ride_drag_wrench
 SymbolicAWEModels.StaticBody
 SymbolicAWEModels.ground_wind_vec
 SymbolicAWEModels.DynamicPoint

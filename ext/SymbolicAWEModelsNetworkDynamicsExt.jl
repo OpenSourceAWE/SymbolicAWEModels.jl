@@ -1025,6 +1025,29 @@ function record_wing_twist_params!(builder, ss, vertex, wing)
 end
 
 """
+    record_wing_ride_drag!(builder, ss, vertex, body_idx)
+
+Bind a wing-body vertex's per-ride-point drag params (`drag_anchor_k_c`/`drag_area_k`/
+`drag_cd_k`) to live reads of each `BODY_STATIC` ride point (`area > 0`) that
+[`SAM.body_ride_drag_wrench`](@ref) drags, in the same filter order.
+"""
+function record_wing_ride_drag!(builder, ss, vertex, body_idx)
+    ride = [p for p in ss.points
+            if p.type == SAM.BODY_STATIC && p.body_idx == body_idx && p.area > 0]
+    for (k, point) in enumerate(ride)
+        for c in 1:3
+            add_param!(builder, VIndex(vertex, Symbol(:drag_anchor_, k, :_, c)),
+                       SAM.PathReader((:points, point.idx, :anchor_b, c)))
+        end
+        add_param!(builder, VIndex(vertex, Symbol(:drag_area_, k)),
+                   SAM.PathReader((:points, point.idx, :area)))
+        add_param!(builder, VIndex(vertex, Symbol(:drag_cd_, k)),
+                   SAM.PathReader((:points, point.idx, :drag_coeff)))
+    end
+    return nothing
+end
+
+"""
     build_body_mixed_network(sam, ss, body_idxs)
 
 Assemble a `Network` of integrated rigid bodies (`type == DYNAMIC`) together with free
@@ -1197,6 +1220,7 @@ function build_body_mixed_network(sam, ss, body_idxs)
             record_aero_params!(builder, callables, ss, vertex, ss.bodies[bidx],
                                 wing_areg_of[bidx])
             record_wing_twist_params!(builder, ss, vertex, ss.bodies[bidx])
+            record_wing_ride_drag!(builder, ss, vertex, bidx)
         else
             record_body_params!(builder, body_pv.reg, ss, vertex, bidx; gravity = true)
         end

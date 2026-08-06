@@ -702,6 +702,63 @@ function StaticBody(s, params, idx; name)
 end
 
 """
+    body_ride_drag_wrench(s, params, body_idx; origin_w, R_b_w, com_w, com_vel, omega_w)
+
+Aggregate aerodynamic drag of a body's `BODY_STATIC` ride points that carry an `area`, as
+a world-frame wrench on the body. Each such point is reconstructed from the body pose
+(`origin_w + R_b_w·anchor_b`, velocity `com_vel + omega_w × arm`), its drag is
+`0.5·ρ·drag_coeff·|va|·area·va` with `va = wind(z)·wind_gnd − vel` (matching `point_eqs!`),
+and its force + `arm × force` moment are summed. The per-point `arm`/`va`/`drag` are **torn**
+into internal variables (else the nested pose→√→force expression stalls `mtkcompile`), and
+each point's `anchor_b`/`area`/`drag_coeff` use distinct per-point params (the network
+aliases bare field names). Returns `(force_w, moment_w, drag_params, torn_vars, torn_eqs)`;
+`drag_params`/`torn_vars`/`torn_eqs` join the vertex's parameter/variable/equation lists.
+"""
+function body_ride_drag_wrench(s, params, body_idx; origin_w, R_b_w, com_w,
+                               com_vel, omega_w)
+    points = params.reg.sys_struct.points
+    ride = [p for p in points
+            if p.type == BODY_STATIC && p.body_idx == body_idx && p.area > 0]
+    force_w = zeros(Num, 3)
+    moment_w = zeros(Num, 3)
+    drag_params = Num[]
+    torn_vars = Any[]
+    torn_eqs = Equation[]
+    isempty(ride) && return (force_w, moment_w, drag_params, torn_vars, torn_eqs)
+    wind = WindFactor(s.am, s.set.profile_law)
+    wind_gnd = ground_wind_vec(params)
+    for (k, point) in enumerate(ride)
+        anchor = [make_param(Symbol(:drag_anchor_, k, :_, c), 0.0) for c in 1:3]
+        area = make_param(Symbol(:drag_area_, k), 0.0)
+        drag_coeff = make_param(Symbol(:drag_cd_, k), 0.0)
+        append!(drag_params, anchor)
+        push!(drag_params, area)
+        push!(drag_params, drag_coeff)
+        arm_nm = Symbol(:drag_arm_, k)
+        va_nm = Symbol(:drag_va_, k)
+        f_nm = Symbol(:drag_f_, k)
+        arm = only(@variables $arm_nm(t)[1:3])
+        va = only(@variables $va_nm(t)[1:3])
+        drag = only(@variables $f_nm(t)[1:3])
+        anchor_w = collect(origin_w) .+ collect(R_b_w) * anchor
+        arm_rhs = anchor_w .- collect(com_w)
+        vel_p = collect(com_vel) .+ (collect(omega_w) × collect(arm))
+        height = collect(arm)[3] + collect(com_w)[3]
+        va_rhs = wind(height) .* wind_gnd .- vel_p
+        drag_rhs = 0.5 * calc_rho(s.am, max(0.0, height)) * drag_coeff *
+            smooth_norm(collect(va)) * area .* collect(va)
+        append!(torn_vars, [arm, va, drag])
+        torn_eqs = [torn_eqs
+                    collect(arm) .~ arm_rhs
+                    collect(va) .~ va_rhs
+                    collect(drag) .~ drag_rhs]
+        force_w = force_w .+ collect(drag)
+        moment_w = moment_w .+ (collect(arm) × collect(drag))
+    end
+    return (force_w, moment_w, drag_params, torn_vars, torn_eqs)
+end
+
+"""
     WingBodyVertex(s, params, aero_params, idx; name)
 
 Free rigid-**wing** body vertex: [`BodyVertex`](@ref) plus the wing's VSM aero folded
@@ -758,16 +815,21 @@ function WingBodyVertex(s, params, aero_params, idx; name)
     moment_b = collect(subsys.moment)
     aero_force_w = R_b_to_w * force_b
     aero_moment_w = R_b_to_w * (moment_b .+ (force_b × com_off))
+    drag_force_w, drag_moment_w, drag_params, drag_vars, drag_eqs =
+        body_ride_drag_wrench(s, params, idx;
+            origin_w, R_b_w = R_b_to_w, com_w, com_vel, omega_w)
 
     gravity_w = Num[0, 0, -params.set.g_earth * body.mass]
     force_w = collect(force_in) .+ gravity_w .+ collect(body.ext_force_w) .+
-        R_b_to_w * collect(body.ext_force_b) .+ aero_force_w
-    moment_w = collect(moment_in) .+ R_b_to_w * collect(body.ext_moment_b) .+ aero_moment_w
+        R_b_to_w * collect(body.ext_force_b) .+ aero_force_w .+ drag_force_w
+    moment_w = collect(moment_in) .+ R_b_to_w * collect(body.ext_moment_b) .+
+        aero_moment_w .+ drag_moment_w
     ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
         body.mass, body.R_b_to_p, body.com_offset_b, com_w, com_vel, Q, omega_p)
     damping = collect(body.damping)
     eqs = [
         aero_eqs
+        drag_eqs
         [D(com_w[i]) ~ ex.d_com_w[i] for i in 1:3]
         [D(com_vel[i]) ~ ex.d_com_vel[i] for i in 1:3]
         [D(Q[i]) ~ ex.d_Q[i] for i in 1:4]
@@ -780,7 +842,8 @@ function WingBodyVertex(s, params, aero_params, idx; name)
         pose_com_vel ~ com_vel
         pose_omega ~ ex.R_b_to_w * ex.ω_b
     ]
-    return System(eqs, t, [vars; state], [param_unknowns(params); twist_params];
+    return System(eqs, t, [vars; state; drag_vars],
+                  [param_unknowns(params); twist_params; drag_params];
                   name, systems = [subsys])
 end
 
