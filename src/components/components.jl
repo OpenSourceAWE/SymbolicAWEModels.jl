@@ -473,6 +473,50 @@ function elastic_joint_wrench(joint, params; force_w, torque_w,
 end
 
 """
+    beam_hermite_ride_expressions(joint, params, point_idx; pos_a, R_a, com_a, com_vel_a,
+        omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
+
+Kinematics of a point riding `joint`'s corotational cubic-Hermite centerline at the
+point's `beam_frac`, shared by both backends. From the two end bodies' world poses it
+builds the element frame, the two nodes' chord-relative rotations, the transverse Hermite
+deflection (+ a frame-carried `beam_offset_b`) and returns `(pos_point, vel_point, sfrac)`
+— the ride position, its rigid-blend velocity, and the axial fraction that splits any
+force applied at the point onto the two end bodies (`(1−sfrac)` to A, `sfrac` to B).
+"""
+function beam_hermite_ride_expressions(joint, params, point_idx;
+        pos_a, R_a, com_a, com_vel_a, omega_a_w,
+        pos_b, R_b, com_b, com_vel_b, omega_b_w)
+    jp = params.timoshenko_joints[joint.idx]
+    Ra = collect(R_a)
+    Rb = collect(R_b)
+    x_a = collect(pos_a) .+ Ra * collect(jp.anchor_a_b)
+    x_b = collect(pos_b) .+ Rb * collect(jp.anchor_b_b)
+    e1, e2, e3, beam_len = timoshenko_element_frame(x_a, x_b, Ra)
+    element_frame = [e1[1] e2[1] e3[1];
+                     e1[2] e2[2] e3[2];
+                     e1[3] e2[3] e3[3]]
+    Da = (element_frame' * Ra) * collect(jp.R_a_rel0)'
+    Db = (element_frame' * Rb) * collect(jp.R_b_rel0)'
+    θ_a = [0.5 * (Da[3, 2] - Da[2, 3]), 0.5 * (Da[1, 3] - Da[3, 1]),
+           0.5 * (Da[2, 1] - Da[1, 2])]
+    θ_b = [0.5 * (Db[3, 2] - Db[2, 3]), 0.5 * (Db[1, 3] - Db[3, 1]),
+           0.5 * (Db[2, 1] - Db[1, 2])]
+    sfrac = params.points[point_idx].beam_frac
+    N2 = beam_len * (sfrac - 2sfrac^2 + sfrac^3)
+    N4 = beam_len * (-sfrac^2 + sfrac^3)
+    v_defl = N2 * θ_a[3] + N4 * θ_b[3]
+    w_defl = -(N2 * θ_a[2] + N4 * θ_b[2])
+    x_center = x_a .+ (sfrac * beam_len) .* e1 .+ v_defl .* e2 .+ w_defl .* e3
+    pos_point = x_center .+ element_frame * collect(params.points[point_idx].beam_offset_b)
+    ω_a_w = collect(omega_a_w)
+    ω_b_w = collect(omega_b_w)
+    vel_a = collect(com_vel_a) .+ (ω_a_w × (pos_point .- collect(com_a)))
+    vel_b = collect(com_vel_b) .+ (ω_b_w × (pos_point .- collect(com_b)))
+    vel_point = (1 - sfrac) .* vel_a .+ sfrac .* vel_b
+    return (; pos_point, vel_point, sfrac)
+end
+
+"""
     rigid_body_pose_expressions(force_w, moment_w, inertia_p, mass, R_b_to_p,
                                 com_offset_b, com_w, com_vel, Q_p_to_w, ω_p;
                                 ω_kinematic, d_ω_p, d_com_w, d_com_vel)

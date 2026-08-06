@@ -85,6 +85,7 @@ SymbolicAWEModels.endpoint_load_eqs
 SymbolicAWEModels.rigid_body_pose_expressions
 SymbolicAWEModels.timoshenko_element_wrench
 SymbolicAWEModels.elastic_joint_wrench
+SymbolicAWEModels.beam_hermite_ride_expressions
 SymbolicAWEModels.body_io
 SymbolicAWEModels.BodyVertex
 SymbolicAWEModels.StaticBody
