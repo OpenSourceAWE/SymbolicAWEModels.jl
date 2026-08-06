@@ -295,8 +295,8 @@ vertex, with the rope mass supplied by [`pulley_rope_mass`](@ref). The aggregate
 `tension_in` is the imbalance `spring[seg1] − spring[seg2]` between its two incident
 segments; `pulley_len_out` exposes the split so the incident segments read it as `l0`.
 """
-network_pulley_point(s, params, idx; name) =
-    SAM.PulleyPoint(s, params, idx, pulley_rope_mass(params, idx); name)
+network_pulley_point(s, params, idx; name, wide = false) =
+    SAM.PulleyPoint(s, params, idx, pulley_rope_mass(params, idx); name, wide)
 
 """
     BODY_DAMP_EXTIN
@@ -359,8 +359,8 @@ pulley segment gets `l0 = pulley_len`, the second `l0 = sum_len − pulley_len`
 (`pulley_side = ±1`). It emits its role-signed spring tension `pulley_side·spring`
 to the pulley endpoint so the pulley aggregates `spring[seg1] − spring[seg2]`.
 """
-function network_pulley_segment(s, params, idx; name)
-    io = SAM.segment_io()
+function network_pulley_segment(s, params, idx; name, wide = false)
+    io, extras = wide ? SAM.segment_io_wide() : (SAM.segment_io(), nothing)
     vars, _, _, src_pulley_len, _, _, dst_pulley_len = io
     spring, wind = SAM.segment_spring_params(params, idx)
     pulley_sum_len = SAM.make_param(:pulley_sum_len, 1.0)
@@ -372,6 +372,9 @@ function network_pulley_segment(s, params, idx; name)
     src_tension_val = ifelse(pulley_at_src > 0.5, pulley_side * spring_scalar, 0.0)
     dst_tension_val = ifelse(pulley_at_src > 0.5, 0.0, pulley_side * spring_scalar)
     eqs = SAM.endpoint_load_eqs(io, fsrc, fdst, half, src_tension_val, dst_tension_val)
+    if wide
+        eqs = [eqs; collect(extras.src_moment) .~ 0; collect(extras.dst_moment) .~ 0]
+    end
     return System(eqs, t, vars,
         [param_unknowns(params); pulley_sum_len; pulley_side; pulley_at_src]; name)
 end
@@ -539,8 +542,8 @@ read from the winch vertex. The tether segment incident to the winch point emits
 `+spring` there (`tension_sign_src`/`tension_sign_dst = 1`) so the winch reads the
 tension; every other tether segment emits zero.
 """
-function network_tether_segment(s, params, idx; name)
-    io = SAM.segment_io()
+function network_tether_segment(s, params, idx; name, wide = false)
+    io, extras = wide ? SAM.segment_io_wide() : (SAM.segment_io(), nothing)
     vars = io[1]
     tether_len_ext = only(@variables tether_len_ext(t) [input = true])
     push!(vars, tether_len_ext)
@@ -552,6 +555,9 @@ function network_tether_segment(s, params, idx; name)
     fsrc, fdst, half, spring_scalar = SAM.segment_loads(s, io, l0, spring, wind)
     eqs = SAM.endpoint_load_eqs(io, fsrc, fdst, half,
         tension_sign_src * spring_scalar, tension_sign_dst * spring_scalar)
+    if wide
+        eqs = [eqs; collect(extras.src_moment) .~ 0; collect(extras.dst_moment) .~ 0]
+    end
     return System(eqs, t, vars,
         [param_unknowns(params); n_segs; tension_sign_src; tension_sign_dst]; name)
 end
@@ -1061,8 +1067,14 @@ and rigid-wing aero are not yet supported here. Returns `(nw, u0, p0, meta)`.
 """
 function build_body_mixed_network(sam, ss, body_idxs)
     points = ss.points
-    (isempty(ss.pulleys) && isempty(ss.winches)) || error("NetworkBackend(body): " *
-        "pulleys/winches with rigid bodies not supported yet.")
+    pulley_of_point = Dict{Int, Int}()
+    for pulley in ss.pulleys
+        pulley_of_point[pulley_point_idx(ss, pulley)] = pulley.idx
+    end
+    winch_of_point = Dict{Int, Int}()
+    for winch in ss.winches
+        winch_of_point[winch.winch_point_idx] = winch.idx
+    end
     free_idxs = Int[]
     for (i, p) in enumerate(points)
         p.type == SAM.BODY_STATIC && continue
@@ -1072,6 +1084,8 @@ function build_body_mixed_network(sam, ss, body_idxs)
             "NetworkBackend(body): wing-node point $(p.name) not supported yet.")
         push!(free_idxs, i)
     end
+    roles = classify_segments(ss)
+    role_of_seg = Dict(ss.segments[k].idx => roles[k] for k in eachindex(ss.segments))
     n_free = length(free_idxs)
     static_body_idxs = [b.idx for b in ss.bodies if b.type == SAM.STATIC]
     all_body_idxs = [body_idxs; static_body_idxs]
@@ -1113,8 +1127,15 @@ function build_body_mixed_network(sam, ss, body_idxs)
         va == vb && error("NetworkBackend(body): segment $(seg.name) is a self-loop " *
             "(both endpoints on vertex $va).")
         ride_src, ride_dst = va < vb ? (ride_a, ride_b) : (ride_b, ride_a)
-        kind = ride_src == 0 && ride_dst == 0 ? :plain :
-            ride_src > 0 && ride_dst > 0 ? :dual_wrench : :wrench
+        role = role_of_seg[seg.idx]
+        if ride_src == 0 && ride_dst == 0
+            kind = role.kind
+        else
+            (role.kind == :plain || role.kind == :structural) || error(
+                "NetworkBackend(body): a $(role.kind) segment ($(seg.name)) touching a " *
+                "body ride point is not supported yet.")
+            kind = ride_src > 0 && ride_dst > 0 ? :dual_wrench : :wrench
+        end
         add_mixed_edge!(graph, edge_info, minmax(va, vb),
             MixedEdgeInfo(kind, seg, ride_src, ride_dst, 0, false))
     end
@@ -1137,10 +1158,13 @@ function build_body_mixed_network(sam, ss, body_idxs)
         add_joint_edge!(:elastic_joint, joint)
     end
 
+    free_special = union(keys(winch_of_point), keys(pulley_of_point))
     dyn_vm, dyn_reg = build_wide_vertex(sam, ss, free_idxs, SAM.DYNAMIC,
-        network_dynamic_point)
+        network_dynamic_point; exclude = free_special)
     stat_vm, stat_reg = build_wide_vertex(sam, ss, free_idxs, SAM.STATIC,
-        network_static_point)
+        network_static_point; exclude = free_special)
+    pulley_vm, pulley_reg = build_wide_pulley_vertex(sam, ss, free_idxs, pulley_of_point)
+    winch_vm_of = build_wide_winch_vertices(sam, ss, free_idxs, winch_of_point)
     wing_body_idxs = [b for b in body_idxs if SAM.is_wing(ss.bodies[b])]
     plain_body_idxs = [b for b in body_idxs if !SAM.is_wing(ss.bodies[b])]
     body_pv = nothing
@@ -1163,7 +1187,9 @@ function build_body_mixed_network(sam, ss, body_idxs)
 
     vmodels = Vector{VertexModel}(undef, nv)
     for (v, i) in enumerate(free_idxs)
-        vmodels[v] = points[i].type == SAM.STATIC ? stat_vm : dyn_vm
+        vmodels[v] = haskey(winch_of_point, i) ? winch_vm_of[i] :
+            haskey(pulley_of_point, i) ? pulley_vm :
+            points[i].type == SAM.STATIC ? stat_vm : dyn_vm
     end
     for (k, bidx) in enumerate(all_body_idxs)
         vmodels[n_free + k] = ss.bodies[bidx].type == SAM.STATIC ? static_body_vm :
@@ -1175,6 +1201,9 @@ function build_body_mixed_network(sam, ss, body_idxs)
     dual_em, dual_reg = build_dual_wrench_edges(sam, ss, edge_info)
     joint_of, joint_reg_of = build_joint_edges(sam, ss, edge_info)
     hermite_of, hermite_reg_of = build_hermite_edges(sam, ss, edge_info, vertex_of_body)
+    tether_of, tether_reg = build_wide_tether_edges(sam, ss, winch_of_point, edge_info,
+        vertex_of_point)
+    pulley_em, pulley_ereg = build_wide_pulley_edge(sam, ss, edge_info)
 
     edgelist = collect(edges(graph))
     emodels = Vector{EdgeModel}(undef, length(edgelist))
@@ -1185,7 +1214,9 @@ function build_body_mixed_network(sam, ss, body_idxs)
             joint_of[(info.kind, info.a_at_src)] :
             info.kind == :hermite ? hermite_of[key] :
             info.kind == :dual_wrench ? dual_em :
-            info.kind == :wrench ? wrench_of[wrench_body_at_src(info)] : plain_em
+            info.kind == :wrench ? wrench_of[wrench_body_at_src(info)] :
+            info.kind == :tether ? tether_of[role_of_seg[info.seg.idx].tether_idx] :
+            info.kind == :pulley ? pulley_em : plain_em
     end
     nw = Network(graph, vmodels, emodels)
 
@@ -1195,12 +1226,32 @@ function build_body_mixed_network(sam, ss, body_idxs)
     param, state = NWParameter(nw), NWState(nw)
     set_body_states!(ss, state, dyn_body_vertices)
     for (v, i) in enumerate(free_idxs)
-        points[i].type == SAM.DYNAMIC && set_particle_state!(state, v, points[i])
+        if haskey(winch_of_point, i)
+            winch = ss.winches[winch_of_point[i]]
+            state.v[v, :winch_vel] = winch.vel
+            for (pos, tidx) in enumerate(winch.tether_idxs)
+                state.v[v, Symbol(:tether_len_, pos)] = ss.tethers[tidx].len
+            end
+        elseif haskey(pulley_of_point, i)
+            pulley = ss.pulleys[pulley_of_point[i]]
+            set_particle_state!(state, v, points[i])
+            state.v[v, :pulley_len] = pulley.len
+            state.v[v, :pulley_vel] = pulley.vel
+        elseif points[i].type == SAM.DYNAMIC
+            set_particle_state!(state, v, points[i])
+        end
     end
 
     builder = ParamBuilder()
     for (v, i) in enumerate(free_idxs)
-        if points[i].type == SAM.STATIC
+        if haskey(winch_of_point, i)
+            record_winch_params!(builder, v, i, winch_of_point[i])
+        elseif haskey(pulley_of_point, i)
+            replay_fields!(builder, pulley_reg, :points, v, i, ss;
+                           skip = (:body_frame_damping,))
+            record_wind_params!(builder, v)
+            record_pulley_mass_params!(builder, ss, v, pulley_of_point[i])
+        elseif points[i].type == SAM.STATIC
             replay_fields!(builder, stat_reg, :points, v, i, ss)
         else
             replay_fields!(builder, dyn_reg, :points, v, i, ss;
@@ -1227,14 +1278,16 @@ function build_body_mixed_network(sam, ss, body_idxs)
     end
     record_mixed_edge_params!(builder, callables, ss, edgelist, edge_info,
                               plain_reg, wrench_reg_of, dual_reg, joint_reg_of,
-                              hermite_reg_of)
+                              hermite_reg_of, tether_reg, pulley_ereg, role_of_seg)
+    set_mixed_const_params!(nw, param, ss, edgelist, edge_info, role_of_seg)
     param_sync = build_network_param_sync(nw, builder, callables)
 
     body_static = [(i, points[i].body_idx) for i in eachindex(points)
                    if points[i].type == SAM.BODY_STATIC && points[i].joint_idx == 0]
-    meta = (; param_sync, winch_of_point = Dict{Int, Int}(),
-            pulley_of_point = Dict{Int, Int}(),
-            winch_tethers = Dict{Int, Vector{Int}}(), body_idxs,
+    winch_tethers = Dict(vertex_of_point[w.winch_point_idx] => collect(w.tether_idxs)
+                         for w in ss.winches)
+    meta = (; param_sync, winch_of_point, pulley_of_point,
+            winch_tethers, body_idxs,
             body_vertices = dyn_body_vertices, body_static, vertex_of_point)
     return nw, uflat(state), pflat(param), meta
 end
@@ -1246,13 +1299,48 @@ Compile the wide `VertexModel` for one free-point `ptype` (`STATIC`/`DYNAMIC`) u
 first such point as representative, or `(nothing, nothing)` when none. Returns
 `(vmodel, reg)` for per-instance sync.
 """
-function build_wide_vertex(sam, ss, free_idxs, ptype, kernelfn)
-    repr = findfirst(i -> ss.points[i].type == ptype, free_idxs)
+function build_wide_vertex(sam, ss, free_idxs, ptype, kernelfn; exclude = ())
+    repr = findfirst(i -> ss.points[i].type == ptype && !(i in exclude), free_idxs)
     repr === nothing && return nothing, nothing
     pv = network_view(ss)
     vm = VertexModel(kernelfn(sam, pv, free_idxs[repr]; name = :pt, wide = true),
         WIDE_VERTEX_INPUTS, WIDE_VERTEX_OUTPUTS; mtkcompile = true, name = :pt)
     return vm, pv.reg
+end
+
+"""
+    build_wide_pulley_vertex(sam, ss, free_idxs, pulley_of_point)
+
+Compile the wide pulley `VertexModel` (shared kernel, first pulley free point as
+representative) so pulleys coexist with rigid bodies in the mixed network, or
+`(nothing, nothing)` when the model has no pulley. Returns `(vmodel, reg)`.
+"""
+function build_wide_pulley_vertex(sam, ss, free_idxs, pulley_of_point)
+    repr = findfirst(i -> haskey(pulley_of_point, i), free_idxs)
+    repr === nothing && return nothing, nothing
+    pv = network_view(ss)
+    vm = VertexModel(
+        network_pulley_point(sam, pv, free_idxs[repr]; name = :pul, wide = true),
+        WIDE_VERTEX_INPUTS, WIDE_VERTEX_OUTPUTS; mtkcompile = true, name = :pul)
+    return vm, pv.reg
+end
+
+"""
+    build_wide_winch_vertices(sam, ss, free_idxs, winch_of_point)
+
+Compile one wide winch `VertexModel` per winch (each carries its own motor subsystem
+and tether-length states), keyed by the winch point index, so winches coexist with
+rigid bodies in the mixed network. Returns a `Dict{Int, VertexModel}` (empty if none).
+"""
+function build_wide_winch_vertices(sam, ss, free_idxs, winch_of_point)
+    vm_of = Dict{Int, Any}()
+    for winch in ss.winches
+        wp = winch.winch_point_idx
+        vm_of[wp] = VertexModel(
+            SAM.WinchPoint(sam, winch, ss.points[wp]; name = :wch, wide = true),
+            WIDE_VERTEX_INPUTS, WIDE_VERTEX_OUTPUTS; mtkcompile = true, name = :wch)
+    end
+    return vm_of
 end
 
 """
@@ -1272,6 +1360,69 @@ function build_wide_plain_edge(sam, ss, edge_info)
         WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
         mtkcompile = true, name = :seg)
     return em, pv.reg
+end
+
+"""
+    build_wide_pulley_edge(sam, ss, edge_info)
+
+Compile the wide pulley `EdgeModel` (first `:pulley` edge as representative; the shared
+kernel handles both pulley-at-src orientations by a scalar `pulley_at_src` param), or
+`(nothing, nothing)` when the model has no pulley. Returns `(emodel, reg)`.
+"""
+function build_wide_pulley_edge(sam, ss, edge_info)
+    repr = nothing
+    for info in values(edge_info)
+        info.kind == :pulley && (repr = info.seg.idx; break)
+    end
+    repr === nothing && return nothing, nothing
+    pv = network_view(ss)
+    em = EdgeModel(network_pulley_segment(sam, pv, repr; name = :pseg, wide = true),
+        WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
+        mtkcompile = true, name = :pseg)
+    return em, pv.reg
+end
+
+"""
+    build_wide_tether_edges(sam, ss, winch_of_point, edge_info, vertex_of_point)
+
+Compile one wide winched-tether `EdgeModel` per tether, rest length wired to the winch
+vertex's `tether_len_k` state through `extin` (the winch **vertex** index, mapped via
+`vertex_of_point`). The kernel is compiled once (first `:tether` edge as representative)
+and rebound per tether with `EdgeModel(base; extin=…)`. Returns `(edges_of, reg)` keyed
+by tether index (empty `Dict`, `nothing` reg when the model has no winch).
+"""
+function build_wide_tether_edges(sam, ss, winch_of_point, edge_info, vertex_of_point)
+    edges_of = Dict{Int, Any}()
+    isempty(ss.winches) && return edges_of, nothing
+    repr = nothing
+    for info in values(edge_info)
+        info.kind == :tether && (repr = info.seg.idx; break)
+    end
+    repr === nothing && return edges_of, nothing
+    winch_tether_pos = Dict{Tuple{Int, Int}, Int}()
+    for winch in ss.winches, (pos, tidx) in enumerate(winch.tether_idxs)
+        winch_tether_pos[(winch.winch_point_idx, tidx)] = pos
+    end
+    base = nothing
+    reg = nothing
+    for winch in ss.winches, tidx in winch.tether_idxs
+        pos = winch_tether_pos[(winch.winch_point_idx, tidx)]
+        sym = Symbol(:tether_len_, pos)
+        wv = vertex_of_point[winch.winch_point_idx]
+        if base === nothing
+            pv = network_view(ss)
+            base = EdgeModel(
+                network_tether_segment(sam, pv, repr; name = :tseg, wide = true),
+                WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
+                extin = [:tether_len_ext => VIndex(wv, sym)], mtkcompile = true,
+                name = :tseg)
+            reg = pv.reg
+            edges_of[tidx] = base
+        else
+            edges_of[tidx] = EdgeModel(base; extin = [VIndex(wv, sym)])
+        end
+    end
+    return edges_of, reg
 end
 
 """
@@ -1579,18 +1730,41 @@ function record_body_params!(builder, reg, ss, vertex, bidx; gravity = true)
 end
 
 """
-    record_mixed_edge_params!(builder, ss, edgelist, edge_info, plain_reg, wrench_reg_of)
+    record_mixed_edge_params!(builder, callables, ss, edgelist, edge_info, plain_reg,
+                              wrench_reg_of, dual_reg, joint_reg_of, hermite_reg_of,
+                              tether_reg, pulley_reg, role_of_seg)
 
 Record each mixed body/point edge's live parameters: the segment's spring/drag fields
 (replayed from the matching kernel registry — `wrench_reg_of[body_at_src]` for a wrench
-edge) and `cd_tether`/wind. A `:wrench` edge also binds its ride point's `anchor_b` as a
-live read. `body_at_src` is baked into the kernel, so nothing is set here for it.
+edge) and `cd_tether`/wind. A `:wrench` edge also binds its ride point's `anchor_b`; a
+`:tether`/`:pulley` edge replays from its own registry (`pulley` also binds the pulley
+`sum_len`). `body_at_src` and the pulley/tether topology constants are baked/const, so
+nothing is set here for them.
 """
 function record_mixed_edge_params!(builder, callables, ss, edgelist, edge_info,
                                    plain_reg, wrench_reg_of, dual_reg, joint_reg_of,
-                                   hermite_reg_of)
+                                   hermite_reg_of, tether_reg, pulley_reg, role_of_seg)
     for (j, e) in enumerate(edgelist)
         info = edge_info[minmax(src(e), dst(e))]
+        if info.kind == :tether
+            replay_fields!(builder, tether_reg, :segments, j, info.seg.idx, ss;
+                           edge = true)
+            add_param!(builder, EIndex(j, :cd_tether),
+                       SAM.PathReader((:set, :cd_tether)))
+            record_wind_params!(builder, j; edge = true)
+            continue
+        end
+        if info.kind == :pulley
+            replay_fields!(builder, pulley_reg, :segments, j, info.seg.idx, ss;
+                           edge = true)
+            add_param!(builder, EIndex(j, :cd_tether),
+                       SAM.PathReader((:set, :cd_tether)))
+            record_wind_params!(builder, j; edge = true)
+            add_param!(builder, EIndex(j, :pulley_sum_len),
+                SAM.PathReader((:pulleys, role_of_seg[info.seg.idx].pulley_idx,
+                               :sum_len)))
+            continue
+        end
         if info.kind == :timo_joint || info.kind == :elastic_joint
             container = info.kind == :timo_joint ? :timoshenko_joints : :elastic_joints
             reg = joint_reg_of[(info.kind, info.a_at_src)]
@@ -1936,7 +2110,7 @@ function record_vertex_params!(builder, ss, winch_of_point, pulley_of_point,
         kind = kind_of[i]
         kind === :live && continue  # recorded by record_live_aero_params!
         if kind === :winch
-            record_winch_params!(builder, i, winch_of_point[i])
+            record_winch_params!(builder, i, i, winch_of_point[i])
             continue
         end
         if kind === :stat
@@ -2002,30 +2176,32 @@ function bind_body_damp!(builder, ss, i, point)
 end
 
 """
-    record_pos_w_params!(builder, i)
+    record_pos_w_params!(builder, vertex, point_idx)
 
-Record the anchored position `pos_w_k` for a static/winch vertex `i`.
+Record the anchored position `pos_w_k` for a static/winch `vertex`, reading the struct
+field of point `point_idx` (which may differ from the vertex index in a body network).
 """
-function record_pos_w_params!(builder, i)
+function record_pos_w_params!(builder, vertex, point_idx)
     for k in 1:3
-        add_param!(builder, VIndex(i, Symbol(:pos_w_, k)),
-                   SAM.PathReader((:points, i, :pos_w, k)))
+        add_param!(builder, VIndex(vertex, Symbol(:pos_w_, k)),
+                   SAM.PathReader((:points, point_idx, :pos_w, k)))
     end
     return nothing
 end
 
 """
-    record_winch_params!(builder, i, widx)
+    record_winch_params!(builder, vertex, point_idx, widx)
 
-Record the winch vertex parameters for vertex `i` (winch `widx`): anchored position
-plus `brake` and `speed_controlled`. `set_value` is deliberately excluded — it is a
-control input owned by `set_set_values`/`get_set_values`, and syncing it here would
+Record the winch vertex parameters for `vertex` (winch `widx` at `point_idx`): anchored
+position plus `brake` and `speed_controlled`. `set_value` is deliberately excluded — it
+is a control input owned by `set_set_values`/`get_set_values`, and syncing it here would
 clobber the setpoint the control setter writes each step.
 """
-function record_winch_params!(builder, i, widx)
-    record_pos_w_params!(builder, i)
-    add_param!(builder, VIndex(i, :brake), SAM.PathReader((:winches, widx, :brake)))
-    add_param!(builder, VIndex(i, :speed_controlled),
+function record_winch_params!(builder, vertex, point_idx, widx)
+    record_pos_w_params!(builder, vertex, point_idx)
+    add_param!(builder, VIndex(vertex, :brake),
+               SAM.PathReader((:winches, widx, :brake)))
+    add_param!(builder, VIndex(vertex, :speed_controlled),
                SAM.PathReader((:winches, widx, :speed_controlled)))
     return nothing
 end
@@ -2094,6 +2270,35 @@ function set_const_params!(nw, param, ss, edgelist, seg_of, role_of_seg, kind_of
     return nothing
 end
 
+"""
+    set_mixed_const_params!(nw, param, ss, edgelist, edge_info, role_of_seg)
+
+Write the assembly-fixed pulley/tether constants into a mixed body network's `param`
+once (no reader): each `:pulley` edge its `pulley_side`/`pulley_at_src`, each `:tether`
+edge its `n_segs`/`tension_sign_src`/`tension_sign_dst`. Mirrors the edge portion of
+[`set_const_params!`](@ref), keyed by the mixed-edge `edge_info`.
+"""
+function set_mixed_const_params!(nw, param, ss, edgelist, edge_info, role_of_seg)
+    indices = Any[]
+    values = SAM.SimFloat[]
+    for (j, e) in enumerate(edgelist)
+        info = edge_info[minmax(src(e), dst(e))]
+        (info.kind == :pulley || info.kind == :tether) || continue
+        role = role_of_seg[info.seg.idx]
+        if info.kind == :pulley
+            append!(indices, [EIndex(j, :pulley_side), EIndex(j, :pulley_at_src)])
+            append!(values, [role.pulley_side, role.pulley_at_src ? 1.0 : 0.0])
+        else
+            append!(indices, [EIndex(j, :n_segs), EIndex(j, :tension_sign_src),
+                              EIndex(j, :tension_sign_dst)])
+            append!(values, SAM.SimFloat[role.n_segs, role.tension_sign_src,
+                                         role.tension_sign_dst])
+        end
+    end
+    isempty(indices) || setp(nw, indices)(param, values)
+    return nothing
+end
+
 # ======================= state scatter ======================= #
 
 """
@@ -2145,7 +2350,7 @@ wind — the network's stand-in for the monolith's symbolic `va_point_b`.
 """
 struct NetworkStateGetter{NW}
     nw::NW
-    dyn_idxs::Vector{Int}
+    dyn_idxs::Vector{Tuple{Int, Int}}
     pulley_idxs::Vector{Tuple{Int, Int}}
     winch_idxs::Vector{Tuple{Int, Int}}
     winch_tethers::Dict{Int, Vector{Int}}
@@ -2184,9 +2389,11 @@ function wing_aero_reader(nw, wing, vertex)
 end
 
 function NetworkStateGetter(nw, ss, meta)
-    dyn_idxs = [i for (i, p) in enumerate(ss.points) if p.type == SAM.DYNAMIC]
-    pulley_idxs = [(pulley_point_idx(ss, p), p.idx) for p in ss.pulleys]
-    winch_idxs = [(w.winch_point_idx, w.idx) for w in ss.winches]
+    vop = hasproperty(meta, :vertex_of_point) ? meta.vertex_of_point : nothing
+    vmap = i -> vop === nothing ? i : vop[i]
+    dyn_idxs = [(vmap(i), i) for (i, p) in enumerate(ss.points) if p.type == SAM.DYNAMIC]
+    pulley_idxs = [(vmap(pulley_point_idx(ss, p)), p.idx) for p in ss.pulleys]
+    winch_idxs = [(vmap(w.winch_point_idx), w.idx) for w in ss.winches]
     geoms = network_wing_geoms(ss)
     readers = Any[wing_aero_reader(nw, wg.wing, wg.live_vertex)
                   for wg in geoms if wg.live_vertex != 0]
@@ -2204,11 +2411,11 @@ end
 function (g::NetworkStateGetter)(integ, ss)
     s = NWState(g.nw, integ.u, integ.p)
     points = ss.points
-    for i in g.dyn_idxs
+    for (vi, i) in g.dyn_idxs
         point = points[i]
         for k in 1:3
-            point.pos_w[k] = s.v[i, Symbol(:pos_, k)]
-            point.vel_w[k] = s.v[i, Symbol(:vel_, k)]
+            point.pos_w[k] = s.v[vi, Symbol(:pos_, k)]
+            point.vel_w[k] = s.v[vi, Symbol(:vel_, k)]
         end
     end
     for wg in g.wing_geoms
@@ -2271,20 +2478,23 @@ end
 # ======================= control setter ======================= #
 
 """
-    NetworkControlSetter(nw, ss)
+    NetworkControlSetter(nw, ss, meta)
 
 Callable `(integ, values)` writing each winch's control `set_value` into the ND
 parameter vector, mirroring the monolith `set_set_values`. `values[winch.idx]` is
-the setpoint for the winch at vertex `winch_idxs[k]`.
+the setpoint for the winch; the winch vertex index is mapped through
+`meta.vertex_of_point` (identity in a point-only network).
 """
 struct NetworkControlSetter{S}
     setter::S
     order::Vector{Int}
 end
 
-function NetworkControlSetter(nw, ss)
+function NetworkControlSetter(nw, ss, meta)
     isempty(ss.winches) && return nothing
-    idxs = [VIndex(w.winch_point_idx, :set_value) for w in ss.winches]
+    vop = hasproperty(meta, :vertex_of_point) ? meta.vertex_of_point : nothing
+    vmap = i -> vop === nothing ? i : vop[i]
+    idxs = [VIndex(vmap(w.winch_point_idx), :set_value) for w in ss.winches]
     order = [w.idx for w in ss.winches]
     return NetworkControlSetter(setp(nw, idxs), order)
 end
@@ -2302,7 +2512,7 @@ function SAM.build_prob!(::SAM.NetworkBackend, sam; prn = true)
     prob = ODEProblem(nw, u0, (0.0, dt), p0)
     SAM.sync_params!(meta.param_sync, prob, sam.sys_struct)
     getter = NetworkStateGetter(nw, sam.sys_struct, meta)
-    setter = NetworkControlSetter(nw, sam.sys_struct)
+    setter = NetworkControlSetter(nw, sam.sys_struct, meta)
     sam.prob = SAM.ProbWithAttributes(; prob,
         param_sync = meta.param_sync, initial_sync = nothing,
         set_set_values = setter, get_set_values = nothing,

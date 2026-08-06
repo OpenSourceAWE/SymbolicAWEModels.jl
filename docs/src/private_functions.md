@@ -71,6 +71,7 @@ SymbolicAWEModels.segment_half_mass
 ```@docs
 SymbolicAWEModels.point_io
 SymbolicAWEModels.vertex_pose_io
+SymbolicAWEModels.wide_pose_appendix
 SymbolicAWEModels.finish_vertex
 SymbolicAWEModels.segment_io
 SymbolicAWEModels.segment_io_wide

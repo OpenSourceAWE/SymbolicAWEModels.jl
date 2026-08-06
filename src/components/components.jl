@@ -56,22 +56,38 @@ function vertex_pose_io()
 end
 
 """
-    finish_vertex(vars, eqs, params; name, wide)
+    wide_pose_appendix()
+
+The extra variables and zero-valued equations a point/winch/pulley vertex appends to
+match the wide superset of a body-containing network (§8.5): the pose outputs
+([`vertex_pose_io`](@ref)) all pinned to zero. Returns `(pvars, poseeqs)`.
+"""
+function wide_pose_appendix()
+    pvars, pose_R, pose_com, pose_com_vel, pose_omega, _ = vertex_pose_io()
+    poseeqs = [collect(pose_R) .~ 0; collect(pose_com) .~ 0;
+               collect(pose_com_vel) .~ 0; collect(pose_omega) .~ 0]
+    return pvars, poseeqs
+end
+
+"""
+    finish_vertex(vars, eqs, params; name, wide, extra_params, systems)
 
 Assemble a point vertex `System` from its narrow `vars`/`eqs`. When `wide`, append the
-zero-valued pose outputs and the unused `moment_in` input ([`vertex_pose_io`](@ref)) so
-the vertex matches the wide superset a body-containing network uses; otherwise build the
-narrow point vertex unchanged (no regression on point-only models).
+zero-valued pose outputs and the unused `moment_in` input ([`wide_pose_appendix`](@ref))
+so the vertex matches the wide superset a body-containing network uses; otherwise build
+the narrow point vertex unchanged (no regression on point-only models). `extra_params`
+are appended to the parameter list (e.g. a pulley's `pulley_damp`) and `systems` are
+nested subsystems.
 """
-function finish_vertex(vars, eqs, params; name, wide)
+function finish_vertex(vars, eqs, params; name, wide, extra_params = (), systems = ())
     if wide
-        pvars, pose_R, pose_com, pose_com_vel, pose_omega, _ = vertex_pose_io()
-        eqs = [eqs;
-               collect(pose_R) .~ 0; collect(pose_com) .~ 0;
-               collect(pose_com_vel) .~ 0; collect(pose_omega) .~ 0]
+        pvars, poseeqs = wide_pose_appendix()
+        eqs = [eqs; poseeqs]
         vars = [vars; pvars]
     end
-    return System(eqs, t, vars, param_unknowns(params); name)
+    allpars = [param_unknowns(params); collect(extra_params)]
+    return isempty(systems) ? System(eqs, t, vars, allpars; name) :
+        System(eqs, t, vars, allpars; name, systems = collect(systems))
 end
 
 """
@@ -939,9 +955,10 @@ end
 Dynamic pulley vertex: a particle ([`DynamicPoint`](@ref) motion) that additionally
 owns the pulley rope split ([`pulley_split_eqs`](@ref)). `pulley_mass` is the rope
 mass driving the split acceleration (supplied by the assembly, which knows the pulley
-topology). Its `pulley_damp` is a fixed default parameter.
+topology). Its `pulley_damp` is a fixed default parameter. `wide` appends the zero pose
+outputs so it can coexist with rigid bodies in one network.
 """
-function PulleyPoint(s, params, idx, pulley_mass; name)
+function PulleyPoint(s, params, idx, pulley_mass; name, wide = false)
     vars, pos, vel, force_in, mass_in, tension_in, pulley_len_out = point_io()
     extra = @variables pulley_len(t) pulley_vel(t)
     append!(vars, extra)
@@ -952,7 +969,7 @@ function PulleyPoint(s, params, idx, pulley_mass; name)
         pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley_damp,
                          pulley_len_out);
     ]
-    return System(eqs, t, vars, [param_unknowns(params); pulley_damp]; name)
+    return finish_vertex(vars, eqs, params; name, wide, extra_params = (pulley_damp,))
 end
 
 """
@@ -1242,9 +1259,10 @@ parameters baked as defaults); it reads the summed tether tension
 `brake`, and returns the drum acceleration `acc`. Integrates
 `D(winch_vel) = brake·0 + acc` and `D(tether_len_k) = brake·0 + winch_vel`; each
 `tether_len_k` is read by that tether's segments (the network wires it through an
-`extin`).
+`extin`). `wide` appends the zero pose outputs so a winch can coexist with rigid
+bodies in one network.
 """
-function WinchPoint(s, winch, winch_point; name)
+function WinchPoint(s, winch, winch_point; name, wide = false)
     winch_point.type == STATIC || error(
         "NetworkBackend: winch $(winch.name) is at a non-STATIC point; only " *
         "STATIC winch points are supported so far.")
@@ -1283,6 +1301,11 @@ function WinchPoint(s, winch, winch_point; name)
     ]
     for tl in tether_lens
         push!(eqs, D(tl) ~ ifelse(brake > 0.5, 0.0, winch_vel))
+    end
+    if wide
+        pvars, poseeqs = wide_pose_appendix()
+        append!(vars, pvars)
+        append!(eqs, poseeqs)
     end
     return System(eqs, t, vars, pars; name, systems = [motor])
 end
