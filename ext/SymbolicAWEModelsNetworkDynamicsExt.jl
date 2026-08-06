@@ -1093,10 +1093,17 @@ surface's `twist`/`twist_ω`.
 """
 function record_wing_twist_params!(builder, ss, vertex, wing)
     for (k, gidx) in enumerate(wing.twist_surface_idxs)
-        add_param!(builder, VIndex(vertex, Symbol(:twist_, k)),
-                   SAM.PathReader((:twist_surfaces, gidx, :twist)))
-        add_param!(builder, VIndex(vertex, Symbol(:twist_vel_, k)),
-                   SAM.PathReader((:twist_surfaces, gidx, :twist_ω)))
+        if ss.twist_surfaces[gidx].type == SAM.DYNAMIC
+            add_param!(builder, VIndex(vertex, Symbol(:twist_stiffness_, k)),
+                       SAM.PathReader((:twist_surfaces, gidx, :stiffness)))
+            add_param!(builder, VIndex(vertex, Symbol(:twist_damping_, k)),
+                       SAM.PathReader((:twist_surfaces, gidx, :damping)))
+        else
+            add_param!(builder, VIndex(vertex, Symbol(:twist_, k)),
+                       SAM.PathReader((:twist_surfaces, gidx, :twist)))
+            add_param!(builder, VIndex(vertex, Symbol(:twist_vel_, k)),
+                       SAM.PathReader((:twist_surfaces, gidx, :twist_ω)))
+        end
     end
     return nothing
 end
@@ -1307,6 +1314,10 @@ function build_body_mixed_network(sam, ss, body_idxs)
     write_total_mass!(ss)
     param, state = NWParameter(nw), NWState(nw)
     set_body_states!(ss, state, dyn_body_vertices)
+    for (vertex, bidx) in dyn_body_vertices
+        SAM.is_wing(ss.bodies[bidx]) &&
+            set_wing_twist_states!(ss, state, vertex, ss.bodies[bidx])
+    end
     for (v, i) in enumerate(free_idxs)
         if haskey(winch_of_point, i)
             winch = ss.winches[winch_of_point[i]]
@@ -1868,6 +1879,22 @@ function set_body_states!(ss, state, body_vertices)
         for k in 1:4
             state.v[vertex, Symbol(:Q_, k)] = body.Q_p_to_w[k]
         end
+    end
+    return nothing
+end
+
+"""
+    set_wing_twist_states!(ss, state, vertex, wing)
+
+Fill a wing body vertex's `DYNAMIC` twist-surface states (`free_twist_k`/`twist_omega_k`)
+from each mapped surface's struct `twist`/`twist_ω`. `STATIC` surfaces carry no state.
+"""
+function set_wing_twist_states!(ss, state, vertex, wing)
+    for (k, gidx) in enumerate(wing.twist_surface_idxs)
+        surface = ss.twist_surfaces[gidx]
+        surface.type == SAM.DYNAMIC || continue
+        state.v[vertex, Symbol(:free_twist_, k)] = surface.twist
+        state.v[vertex, Symbol(:twist_omega_, k)] = surface.twist_ω
     end
     return nothing
 end
@@ -2621,6 +2648,13 @@ function (g::NetworkStateGetter)(integ, ss)
             body.R_b_to_w .= R_b_to_w
             body.v_wind .= wind_factor(body.pos_w[3]) .* ss.set.wind_vec
             body.va_b .= R_b_to_w' * (body.v_wind .- body.vel_w .+ body.wind_disturb)
+            for (k, gidx) in enumerate(body.twist_surface_idxs)
+                surface = ss.twist_surfaces[gidx]
+                surface.type == SAM.DYNAMIC || continue
+                free_twist = s.v[vertex, Symbol(:free_twist_, k)]
+                surface.twist = clamp(free_twist, -deg2rad(90), deg2rad(90))
+                surface.twist_ω = s.v[vertex, Symbol(:twist_omega_, k)]
+            end
         end
     end
     for (ride_idx, body_idx) in g.body_static

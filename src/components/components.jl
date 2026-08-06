@@ -782,11 +782,16 @@ into the body wrench. The rigid aero subsystem ([`aero_component`](@ref) on the
 `RigidWing` contract — `AeroDirect`/`AeroLinearized`) is nested as `aero`, its connectors
 driven from the body's **own** pose (no `extin`): body-frame apparent wind
 `va = R_b_w'·(wind(z)·wind_gnd − vel_w)`, density at the wing height, `R_b_w`, `omega = ω_b`,
-and each twist surface's prescribed `twist`/`twist_ω`. The subsystem's body-frame
-`force`/`moment` are transported to the COM (`moment_b + force_b × com_offset_b`), rotated
-to world, and added to gravity + externals + the aggregated wrench before the shared
-[`rigid_body_pose_expressions`](@ref) integrates the 13-state pose. Same wide `body_io`
-interface as [`BodyVertex`](@ref); the aero flat params sync per VSM refresh.
+and each twist surface's `twist`/`twist_ω`. A `STATIC` surface takes its `twist`/`twist_ω`
+as prescribed params; a `DYNAMIC` surface integrates them as states — `D(twist_ω) =
+aero_twist_moment/inertia − damping·twist_ω − stiffness·clamp(twist,±90°)/inertia`, with
+`inertia = mass·|chord|²/3` a build constant and `aero_twist_moment` the subsystem's
+per-surface `twist_moment` (the structural `tether_moment` is not yet included, so it is
+exact only where the surface's points carry no structural force). The subsystem's
+body-frame `force`/`moment` are transported to the COM (`moment_b + force_b × com_offset_b`),
+rotated to world, and added to gravity + externals + the aggregated wrench before the
+shared [`rigid_body_pose_expressions`](@ref) integrates the 13-state pose. Same wide
+`body_io` interface as [`BodyVertex`](@ref); the aero flat params sync per VSM refresh.
 """
 function WingBodyVertex(s, params, aero_params, idx; name)
     vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega,
@@ -817,15 +822,47 @@ function WingBodyVertex(s, params, aero_params, idx; name)
         collect(subsys.omega) .~ omega_b
     ]
     twist_params = Num[]
+    twist_states = Any[]
+    twist_dyn_eqs = Equation[]
     if length(wing.twist_surface_idxs) > 0
         n_ts = length(wing.twist_surface_idxs)
-        twist = [make_param(Symbol(:twist_, k), 0.0) for k in 1:n_ts]
-        twist_vel = [make_param(Symbol(:twist_vel_, k), 0.0) for k in 1:n_ts]
-        append!(twist_params, twist)
-        append!(twist_params, twist_vel)
+        ss = params.reg.sys_struct
+        max_twist = deg2rad(90)
+        aero_twist_moment = collect(subsys.twist_moment)
+        twist_in = Vector{Num}(undef, n_ts)
+        twist_vel_in = Vector{Num}(undef, n_ts)
+        for k in 1:n_ts
+            surface = ss.twist_surfaces[wing.twist_surface_idxs[k]]
+            if surface.type == DYNAMIC
+                ft_nm = Symbol(:free_twist_, k)
+                tw_nm = Symbol(:twist_omega_, k)
+                free_twist = only(@variables $ft_nm(t))
+                twist_omega = only(@variables $tw_nm(t))
+                append!(twist_states, [free_twist, twist_omega])
+                mass = sum(ss.points[p].extra_mass for p in surface.point_idxs)
+                inertia = mass * smooth_norm(collect(surface.chord))^2 / 3
+                stiffness = make_param(Symbol(:twist_stiffness_, k), 0.0)
+                damping = make_param(Symbol(:twist_damping_, k), 0.0)
+                append!(twist_params, [stiffness, damping])
+                twist_angle = clamp(free_twist, -max_twist, max_twist)
+                twist_alpha = aero_twist_moment[k] / inertia
+                twist_dyn_eqs = [twist_dyn_eqs
+                    D(free_twist) ~ twist_omega
+                    D(twist_omega) ~ twist_alpha - damping * twist_omega -
+                        stiffness * twist_angle / inertia]
+                twist_in[k] = twist_angle
+                twist_vel_in[k] = twist_omega
+            else
+                twist_p = make_param(Symbol(:twist_, k), 0.0)
+                twist_vel_p = make_param(Symbol(:twist_vel_, k), 0.0)
+                append!(twist_params, [twist_p, twist_vel_p])
+                twist_in[k] = twist_p
+                twist_vel_in[k] = twist_vel_p
+            end
+        end
         aero_eqs = [aero_eqs
-                    collect(subsys.twist) .~ twist
-                    collect(subsys.twist_vel) .~ twist_vel]
+                    collect(subsys.twist) .~ twist_in
+                    collect(subsys.twist_vel) .~ twist_vel_in]
     end
     force_b = collect(subsys.force)
     moment_b = collect(subsys.moment)
@@ -845,6 +882,7 @@ function WingBodyVertex(s, params, aero_params, idx; name)
     damping = collect(body.damping)
     eqs = [
         aero_eqs
+        twist_dyn_eqs
         drag_eqs
         [D(com_w[i]) ~ ex.d_com_w[i] for i in 1:3]
         [D(com_vel[i]) ~ ex.d_com_vel[i] for i in 1:3]
@@ -858,7 +896,7 @@ function WingBodyVertex(s, params, aero_params, idx; name)
         pose_com_vel ~ com_vel
         pose_omega ~ ex.R_b_to_w * ex.ω_b
     ]
-    return System(eqs, t, [vars; state; drag_vars],
+    return System(eqs, t, [vars; state; twist_states; drag_vars],
                   [param_unknowns(params); twist_params; drag_params];
                   name, systems = [subsys])
 end
