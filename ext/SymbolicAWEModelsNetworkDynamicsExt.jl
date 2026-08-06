@@ -2919,7 +2919,21 @@ function with_component_check_disabled(f)
     end
 end
 
+"""
+    enable_cse_default!()
+
+Turn on NetworkDynamics' global `cse` default (common-subexpression elimination in the
+generated kernels' `build_function`) so every network kernel is compiled with it. It only
+factors repeated subexpressions out of the RHS — numerically identical, faster to codegen
+and evaluate — so it is always wanted here. A no-op on fork versions predating `set_cse!`.
+"""
+function enable_cse_default!()
+    isdefined(NetworkDynamics, :set_cse!) && NetworkDynamics.set_cse!(true)
+    return nothing
+end
+
 function SAM.build_prob!(::SAM.NetworkBackend, sam; prn = true)
+    enable_cse_default!()
     nw, u0, p0, meta = with_component_check_disabled(() -> build_network(sam))
     dt = SAM.SimFloat(1 / sam.set.sample_freq)
     prob = ODEProblem(nw, u0, (0.0, dt), p0)
