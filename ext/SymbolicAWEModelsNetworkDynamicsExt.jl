@@ -380,24 +380,19 @@ function network_pulley_segment(s, params, idx; name, wide = false)
 end
 
 """
-    network_wrench_segment(s, params, idx, ride_idx, body_at_src; name)
+    wrench_edge_loads(s, params, idx, ride_idx, body_at_src, io, extras, l0)
 
-Wide spring-damper edge between a free point and a rigid body's `BODY_STATIC` ride point
-(absorbed into the body vertex). It reads the body endpoint's pose (`pose_R`/`pose_com`/
-`pose_com_vel`/`pose_omega`), reconstructs the ride position `body_pos + R·anchor_b` and
-its rigid-motion velocity, computes the spring-damper load between the free point and
-that ride position (shared [`SAM.segment_endpoint_loads`](@ref)), and delivers the
-**wrench** to the body — the force at the anchor plus the moment `arm × force` about the
-body COM — while the free point receives the equal-and-opposite force. `anchor_b` is read
-live from the ride point's struct field; `body_at_src` (which endpoint is the body) is a
-build-time `Bool` **baked into the kernel** — no runtime `ifelse`, so the symbolic
-expressions stay small (an `ifelse`-selected pose blows up `mtkcompile`).
+The shared spring-damper load a wrench-family edge (plain/tether/pulley) exerts between a
+free point and a rigid body's `BODY_STATIC` ride point. It reads the body endpoint's pose
+(`pose_R`/`pose_com`/`pose_com_vel`/`pose_omega`), reconstructs the ride position
+`body_pos + R·anchor_b` and its rigid-motion velocity, and computes the load at rest
+length `l0` (shared [`SAM.segment_endpoint_loads`](@ref)). `anchor_b` is read live from
+the ride point; `body_at_src` (which endpoint is the body) is baked in at build time — no
+runtime `ifelse` (an `ifelse`-selected pose blows up `mtkcompile`). Returns a named tuple
+`(force_on_free, force_on_ride, half_mass, spring_scalar, moment_on_body)`.
 """
-function network_wrench_segment(s, params, idx, ride_idx, body_at_src::Bool; name)
-    io, extras = SAM.segment_io_wide()
-    vars = io[1]
-    (_, src_pos, src_vel, _, dst_pos, dst_vel, _,
-     src_force, src_mass, src_tension, dst_force, dst_mass, dst_tension) = io
+function wrench_edge_loads(s, params, idx, ride_idx, body_at_src, io, extras, l0)
+    (_, src_pos, src_vel, _, dst_pos, dst_vel, _) = io
     anchor_b = collect(params.points[ride_idx].anchor_b)
     body_pos, body_R, body_com, body_com_vel, body_omega, free_pos, free_vel =
         body_at_src ?
@@ -410,26 +405,102 @@ function network_wrench_segment(s, params, idx, ride_idx, body_at_src::Bool; nam
     arm = anchor_w .- collect(body_com)
     ride_vel = collect(body_com_vel) .+ (collect(body_omega) × arm)
     spring, wind = SAM.segment_spring_params(params, idx; with_drag = true)
-    l0 = params.segments[idx].l0
-    force_on_free, force_on_ride, half_mass, _ = SAM.segment_endpoint_loads(
-        s, collect(free_pos), collect(free_vel), anchor_w, ride_vel,
-        spring.unit_stiffness, spring.unit_damping, spring.compression_frac, l0,
-        spring.diameter, spring.density, spring.cd_tether, collect(wind);
-        with_drag = true)
-    moment_on_body = arm × force_on_ride
-    body_force, free_force = force_on_ride, force_on_free
-    src_f, dst_f = body_at_src ? (body_force, free_force) : (free_force, body_force)
-    src_m = body_at_src ? moment_on_body : zeros(3)
-    dst_m = body_at_src ? zeros(3) : moment_on_body
-    eqs = [
+    force_on_free, force_on_ride, half_mass, spring_scalar =
+        SAM.segment_endpoint_loads(s, collect(free_pos), collect(free_vel), anchor_w,
+            ride_vel, spring.unit_stiffness, spring.unit_damping,
+            spring.compression_frac, l0, spring.diameter, spring.density,
+            spring.cd_tether, collect(wind); with_drag = true)
+    return (; force_on_free, force_on_ride, half_mass, spring_scalar,
+            moment_on_body = arm × force_on_ride)
+end
+
+"""
+    wrench_edge_emit_eqs(io, extras, body_at_src, ld; free_tension)
+
+The output equations a wrench-family edge writes from a [`wrench_edge_loads`](@ref) result
+`ld`: the force at the ride anchor plus `arm × force` about the body COM to the body
+endpoint, the equal-and-opposite force to the free endpoint, the segment half-mass to the
+free endpoint (the body reads its mass from the struct), and `free_tension` (default 0)
+to the free endpoint so a pulley aggregates its rope imbalance. Mapped to `src`/`dst` by
+the build-time `body_at_src`.
+"""
+function wrench_edge_emit_eqs(io, extras, body_at_src, ld; free_tension = 0.0)
+    (_, _, _, _, _, _, _, src_force, src_mass, src_tension,
+     dst_force, dst_mass, dst_tension) = io
+    src_f, dst_f = body_at_src ? (ld.force_on_ride, ld.force_on_free) :
+        (ld.force_on_free, ld.force_on_ride)
+    src_m = body_at_src ? ld.moment_on_body : zeros(3)
+    dst_m = body_at_src ? zeros(3) : ld.moment_on_body
+    return [
         collect(src_force) .~ src_f
-        src_mass ~ (body_at_src ? 0.0 : half_mass); src_tension ~ 0.0
+        src_mass ~ (body_at_src ? 0.0 : ld.half_mass)
+        src_tension ~ (body_at_src ? 0.0 : free_tension)
         collect(dst_force) .~ dst_f
-        dst_mass ~ (body_at_src ? half_mass : 0.0); dst_tension ~ 0.0
+        dst_mass ~ (body_at_src ? ld.half_mass : 0.0)
+        dst_tension ~ (body_at_src ? free_tension : 0.0)
         collect(extras.src_moment) .~ src_m
         collect(extras.dst_moment) .~ dst_m
     ]
-    return System(eqs, t, vars, param_unknowns(params); name)
+end
+
+"""
+    network_wrench_segment(s, params, idx, ride_idx, body_at_src; name)
+
+Wide spring-damper edge between a free point and a body ride point (frozen `l0`): delivers
+the wrench to the body and the equal-and-opposite force to the free point
+([`wrench_edge_loads`](@ref)/[`wrench_edge_emit_eqs`](@ref)).
+"""
+function network_wrench_segment(s, params, idx, ride_idx, body_at_src::Bool; name)
+    io, extras = SAM.segment_io_wide()
+    ld = wrench_edge_loads(s, params, idx, ride_idx, body_at_src, io, extras,
+                           params.segments[idx].l0)
+    eqs = wrench_edge_emit_eqs(io, extras, body_at_src, ld)
+    return System(eqs, t, io[1], param_unknowns(params); name)
+end
+
+"""
+    network_wrench_tether_segment(s, params, idx, ride_idx, body_at_src; name)
+
+Wide winched-tether edge between a body ride point and a free tether node: same wrench
+delivery as [`network_wrench_segment`](@ref) but the rest length is `tether_len_ext /
+n_segs` (the winch tether length read via `extin`). A body-touching tether segment is
+never the winch-incident one (a winch point is a free `STATIC` vertex), so it emits no
+tension.
+"""
+function network_wrench_tether_segment(s, params, idx, ride_idx, body_at_src::Bool; name)
+    io, extras = SAM.segment_io_wide()
+    vars = io[1]
+    tether_len_ext = only(@variables tether_len_ext(t) [input = true])
+    push!(vars, tether_len_ext)
+    n_segs = SAM.make_param(:n_segs, 1.0)
+    ld = wrench_edge_loads(s, params, idx, ride_idx, body_at_src, io, extras,
+                           tether_len_ext / n_segs)
+    eqs = wrench_edge_emit_eqs(io, extras, body_at_src, ld)
+    return System(eqs, t, vars, [param_unknowns(params); n_segs]; name)
+end
+
+"""
+    network_wrench_pulley_segment(s, params, idx, ride_idx, body_at_src; name)
+
+Wide pulley edge between a body ride point and the pulley's free point: same wrench
+delivery as [`network_wrench_segment`](@ref) but the rest length is the pulley split read
+from the free (pulley) endpoint's `pulley_len` (`pulley_side·len` or `sum_len − len`), and
+it emits the role-signed tension `pulley_side·spring` to that free endpoint so the pulley
+aggregates its rope imbalance. The pulley is always the free endpoint (a body ride point
+never owns a pulley), so no `pulley_at_src` selection is needed.
+"""
+function network_wrench_pulley_segment(s, params, idx, ride_idx, body_at_src::Bool; name)
+    io, extras = SAM.segment_io_wide()
+    (_, _, _, src_pulley_len, _, _, dst_pulley_len) = io
+    pulley_sum_len = SAM.make_param(:pulley_sum_len, 1.0)
+    pulley_side = SAM.make_param(:pulley_side, 1.0)
+    endpoint_len = body_at_src ? dst_pulley_len : src_pulley_len
+    l0 = ifelse(pulley_side > 0.0, endpoint_len, pulley_sum_len - endpoint_len)
+    ld = wrench_edge_loads(s, params, idx, ride_idx, body_at_src, io, extras, l0)
+    eqs = wrench_edge_emit_eqs(io, extras, body_at_src, ld;
+                               free_tension = pulley_side * ld.spring_scalar)
+    return System(eqs, t, io[1],
+        [param_unknowns(params); pulley_sum_len; pulley_side]; name)
 end
 
 """
@@ -1124,17 +1195,23 @@ function build_body_mixed_network(sam, ss, body_idxs)
         end
         va, ride_a = endpoint(p1)
         vb, ride_b = endpoint(p2)
-        va == vb && error("NetworkBackend(body): segment $(seg.name) is a self-loop " *
-            "(both endpoints on vertex $va).")
-        ride_src, ride_dst = va < vb ? (ride_a, ride_b) : (ride_b, ride_a)
         role = role_of_seg[seg.idx]
+        if va == vb
+            (ride_a > 0 && ride_b > 0) || error("NetworkBackend(body): segment " *
+                "$(seg.name) is a self-loop (both endpoints on vertex $va).")
+            continue
+        end
+        ride_src, ride_dst = va < vb ? (ride_a, ride_b) : (ride_b, ride_a)
         if ride_src == 0 && ride_dst == 0
             kind = role.kind
-        else
+        elseif ride_src > 0 && ride_dst > 0
             (role.kind == :plain || role.kind == :structural) || error(
-                "NetworkBackend(body): a $(role.kind) segment ($(seg.name)) touching a " *
-                "body ride point is not supported yet.")
-            kind = ride_src > 0 && ride_dst > 0 ? :dual_wrench : :wrench
+                "NetworkBackend(body): a $(role.kind) segment ($(seg.name)) between " *
+                "two body ride points is not supported yet.")
+            kind = :dual_wrench
+        else
+            kind = role.kind == :tether ? :wrench_tether :
+                   role.kind == :pulley ? :wrench_pulley : :wrench
         end
         add_mixed_edge!(graph, edge_info, minmax(va, vb),
             MixedEdgeInfo(kind, seg, ride_src, ride_dst, 0, false))
@@ -1204,6 +1281,9 @@ function build_body_mixed_network(sam, ss, body_idxs)
     tether_of, tether_reg = build_wide_tether_edges(sam, ss, winch_of_point, edge_info,
         vertex_of_point)
     pulley_em, pulley_ereg = build_wide_pulley_edge(sam, ss, edge_info)
+    wtether_of, wtether_reg_of = build_wrench_tether_edges(sam, ss, edge_info,
+        vertex_of_point)
+    wpulley_of, wpulley_reg_of = build_wrench_pulley_edges(sam, ss, edge_info)
 
     edgelist = collect(edges(graph))
     emodels = Vector{EdgeModel}(undef, length(edgelist))
@@ -1215,6 +1295,8 @@ function build_body_mixed_network(sam, ss, body_idxs)
             info.kind == :hermite ? hermite_of[key] :
             info.kind == :dual_wrench ? dual_em :
             info.kind == :wrench ? wrench_of[wrench_body_at_src(info)] :
+            info.kind == :wrench_tether ? wtether_of[key] :
+            info.kind == :wrench_pulley ? wpulley_of[wrench_body_at_src(info)] :
             info.kind == :tether ? tether_of[role_of_seg[info.seg.idx].tether_idx] :
             info.kind == :pulley ? pulley_em : plain_em
     end
@@ -1278,7 +1360,8 @@ function build_body_mixed_network(sam, ss, body_idxs)
     end
     record_mixed_edge_params!(builder, callables, ss, edgelist, edge_info,
                               plain_reg, wrench_reg_of, dual_reg, joint_reg_of,
-                              hermite_reg_of, tether_reg, pulley_ereg, role_of_seg)
+                              hermite_reg_of, tether_reg, pulley_ereg, role_of_seg,
+                              wtether_reg_of, wpulley_reg_of)
     set_mixed_const_params!(nw, param, ss, edgelist, edge_info, role_of_seg)
     param_sync = build_network_param_sync(nw, builder, callables)
 
@@ -1450,6 +1533,81 @@ function build_wrench_edges(sam, ss, edge_info)
             WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
             mtkcompile = true, name = :wseg)
         reg_of[bas] = pv.reg
+    end
+    return em_of, reg_of
+end
+
+"""
+    build_wrench_pulley_edges(sam, ss, edge_info)
+
+Compile one wide body↔pulley-point `:wrench_pulley` `EdgeModel` per distinct `body_at_src`
+orientation (a wing ride point steered through a free pulley point). Returns `(em_of,
+reg_of)` keyed by `body_at_src`.
+"""
+function build_wrench_pulley_edges(sam, ss, edge_info)
+    em_of = Dict{Bool, EdgeModel}()
+    reg_of = Dict{Bool, Any}()
+    for info in values(edge_info)
+        info.kind == :wrench_pulley || continue
+        bas = wrench_body_at_src(info)
+        haskey(em_of, bas) && continue
+        pv = network_view(ss)
+        em_of[bas] = EdgeModel(
+            network_wrench_pulley_segment(sam, pv, info.seg.idx, wrench_ride_idx(info),
+                                          bas; name = :wpseg),
+            WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
+            mtkcompile = true, name = :wpseg)
+        reg_of[bas] = pv.reg
+    end
+    return em_of, reg_of
+end
+
+"""
+    build_wrench_tether_edges(sam, ss, edge_info, vertex_of_point)
+
+Compile the wide body↔free-node `:wrench_tether` `EdgeModel`s (a winched tether attaching
+to a body ride point). One kernel per `body_at_src` orientation, its rest length wired to
+the winch vertex's `tether_len_k` state via `extin` (rebound per edge). Returns
+`(em_of, reg_of)` — `em_of` keyed by edge `key`, `reg_of` by `body_at_src`.
+"""
+function build_wrench_tether_edges(sam, ss, edge_info, vertex_of_point)
+    em_of = Dict{Tuple{Int, Int}, EdgeModel}()
+    reg_of = Dict{Bool, Any}()
+    base_of = Dict{Bool, Any}()
+    isempty(ss.winches) && return em_of, reg_of
+    winch_of_tether = Dict{Int, Int}()
+    for winch in ss.winches, tidx in winch.tether_idxs
+        winch_of_tether[tidx] = winch.winch_point_idx
+    end
+    winch_tether_pos = Dict{Tuple{Int, Int}, Int}()
+    for winch in ss.winches, (pos, tidx) in enumerate(winch.tether_idxs)
+        winch_tether_pos[(winch.winch_point_idx, tidx)] = pos
+    end
+    tether_of_segment = Dict{Int, Int}()
+    for tether in ss.tethers, sidx in tether.segment_idxs
+        tether_of_segment[sidx] = tether.idx
+    end
+    for (key, info) in edge_info
+        info.kind == :wrench_tether || continue
+        bas = wrench_body_at_src(info)
+        tidx = tether_of_segment[info.seg.idx]
+        wp = winch_of_tether[tidx]
+        sym = Symbol(:tether_len_, winch_tether_pos[(wp, tidx)])
+        wv = vertex_of_point[wp]
+        if !haskey(base_of, bas)
+            pv = network_view(ss)
+            base = EdgeModel(
+                network_wrench_tether_segment(sam, pv, info.seg.idx,
+                    wrench_ride_idx(info), bas; name = :wtseg),
+                WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
+                extin = [:tether_len_ext => VIndex(wv, sym)], mtkcompile = true,
+                name = :wtseg)
+            base_of[bas] = base
+            reg_of[bas] = pv.reg
+            em_of[key] = base
+        else
+            em_of[key] = EdgeModel(base_of[bas]; extin = [VIndex(wv, sym)])
+        end
     end
     return em_of, reg_of
 end
@@ -1732,18 +1890,21 @@ end
 """
     record_mixed_edge_params!(builder, callables, ss, edgelist, edge_info, plain_reg,
                               wrench_reg_of, dual_reg, joint_reg_of, hermite_reg_of,
-                              tether_reg, pulley_reg, role_of_seg)
+                              tether_reg, pulley_reg, role_of_seg, wtether_reg_of,
+                              wpulley_reg_of)
 
 Record each mixed body/point edge's live parameters: the segment's spring/drag fields
 (replayed from the matching kernel registry — `wrench_reg_of[body_at_src]` for a wrench
-edge) and `cd_tether`/wind. A `:wrench` edge also binds its ride point's `anchor_b`; a
-`:tether`/`:pulley` edge replays from its own registry (`pulley` also binds the pulley
-`sum_len`). `body_at_src` and the pulley/tether topology constants are baked/const, so
-nothing is set here for them.
+edge) and `cd_tether`/wind. A single-ride wrench edge (`:wrench`/`:wrench_tether`/
+`:wrench_pulley`) also binds its ride point's `anchor_b` (and `:wrench_pulley`/`:pulley`
+the pulley `sum_len`); a `:dual_wrench` binds both anchors; `:tether`/`:pulley` replay
+from their own registry. `body_at_src` and the pulley/tether topology constants are
+baked/const, so nothing is set here for them.
 """
 function record_mixed_edge_params!(builder, callables, ss, edgelist, edge_info,
                                    plain_reg, wrench_reg_of, dual_reg, joint_reg_of,
-                                   hermite_reg_of, tether_reg, pulley_reg, role_of_seg)
+                                   hermite_reg_of, tether_reg, pulley_reg, role_of_seg,
+                                   wtether_reg_of, wpulley_reg_of)
     for (j, e) in enumerate(edgelist)
         info = edge_info[minmax(src(e), dst(e))]
         if info.kind == :tether
@@ -1788,22 +1949,30 @@ function record_mixed_edge_params!(builder, callables, ss, edgelist, edge_info,
         seg = info.seg
         segment_stiffness(seg)
         reg = info.kind == :dual_wrench ? dual_reg :
-            info.kind == :wrench ? wrench_reg_of[wrench_body_at_src(info)] : plain_reg
+            info.kind == :wrench ? wrench_reg_of[wrench_body_at_src(info)] :
+            info.kind == :wrench_tether ? wtether_reg_of[wrench_body_at_src(info)] :
+            info.kind == :wrench_pulley ? wpulley_reg_of[wrench_body_at_src(info)] :
+            plain_reg
         replay_fields!(builder, reg, :segments, j, seg.idx, ss; edge = true)
         add_param!(builder, EIndex(j, :cd_tether), SAM.PathReader((:set, :cd_tether)))
         record_wind_params!(builder, j; edge = true)
-        if info.kind == :wrench
-            for k in 1:3
-                add_param!(builder, EIndex(j, Symbol(:anchor_b_, k)),
-                    SAM.PathReader((:points, wrench_ride_idx(info), :anchor_b, k)))
-            end
-        elseif info.kind == :dual_wrench
+        if info.kind == :dual_wrench
             for k in 1:3
                 add_param!(builder, EIndex(j, Symbol(:anchor_b_src_, k)),
                            SAM.PathReader((:points, info.ride_src, :anchor_b, k)))
                 add_param!(builder, EIndex(j, Symbol(:anchor_b_dst_, k)),
                            SAM.PathReader((:points, info.ride_dst, :anchor_b, k)))
             end
+        else
+            for k in 1:3
+                add_param!(builder, EIndex(j, Symbol(:anchor_b_, k)),
+                    SAM.PathReader((:points, wrench_ride_idx(info), :anchor_b, k)))
+            end
+        end
+        if info.kind == :wrench_pulley
+            add_param!(builder, EIndex(j, :pulley_sum_len),
+                SAM.PathReader((:pulleys, role_of_seg[info.seg.idx].pulley_idx,
+                               :sum_len)))
         end
     end
     return nothing
@@ -2283,16 +2452,22 @@ function set_mixed_const_params!(nw, param, ss, edgelist, edge_info, role_of_seg
     values = SAM.SimFloat[]
     for (j, e) in enumerate(edgelist)
         info = edge_info[minmax(src(e), dst(e))]
-        (info.kind == :pulley || info.kind == :tether) || continue
+        info.seg === nothing && continue
         role = role_of_seg[info.seg.idx]
         if info.kind == :pulley
             append!(indices, [EIndex(j, :pulley_side), EIndex(j, :pulley_at_src)])
             append!(values, [role.pulley_side, role.pulley_at_src ? 1.0 : 0.0])
-        else
+        elseif info.kind == :tether
             append!(indices, [EIndex(j, :n_segs), EIndex(j, :tension_sign_src),
                               EIndex(j, :tension_sign_dst)])
             append!(values, SAM.SimFloat[role.n_segs, role.tension_sign_src,
                                          role.tension_sign_dst])
+        elseif info.kind == :wrench_tether
+            push!(indices, EIndex(j, :n_segs))
+            push!(values, SAM.SimFloat(role.n_segs))
+        elseif info.kind == :wrench_pulley
+            push!(indices, EIndex(j, :pulley_side))
+            push!(values, SAM.SimFloat(role.pulley_side))
         end
     end
     isempty(indices) || setp(nw, indices)(param, values)
