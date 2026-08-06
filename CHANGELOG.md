@@ -1,5 +1,35 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+- New top-level YAML block `variables`: named values reused across the file.
+  A variable name written in any column is replaced by its value (numbers,
+  strings, lists), and variables may be defined in terms of each other:
+  ```yaml
+  variables:
+    bridle_comp: 0.01
+    dyneema: {unit_stiffness: 43196.9, unit_damping: 33.3, density: 724.0}
+  ```
+  A variable holding a mapping is a *multi-variable*: it fills the columns it
+  names at once, so the row carries one entry for the whole group
+  (`- [bridle, le_left, kcu, nothing, 1.0, dyneema, bridle_comp]`). The fields
+  must match the columns at that position; in a dict row they are merged in
+  instead, without overriding the row. Naming a variable after a component is
+  an error.
+
+### Breaking
+- The `materials`, `elements` and `segment_properties` YAML blocks were
+  removed, together with the `youngs_modulus` and `damping_per_stiffness`
+  columns they carried. Define the shared properties as a multi-variable with
+  `unit_stiffness` and `unit_damping` given directly —
+  `unit_stiffness = youngs_modulus * pi * (diameter_mm/2000)^2` and
+  `unit_damping = damping_per_stiffness * unit_stiffness`. Loading a file
+  with one of the removed blocks errors.
+- A segment whose `unit_damping` is missing or `nothing` now takes the
+  `Segment` constructor default (derived from the settings) instead of being
+  silently forced to zero by the loader.
+
 ## v0.13.0 06-08-2026
 
 ### Added

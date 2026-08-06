@@ -22,10 +22,10 @@ using LinearAlgebra
 # Route 2 tether: ground→[auto mid]→top, 2 segments, init_stretched_length in YAML
 # ================================================================
 const INIT_LEN_YAML_ROUTE2 = """
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [test_mat, 120000.0, 724, 0.001]
+variables:
+  test_mat:
+    unit_damping: 0.0
+    density: 724.0
 
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx,
@@ -38,7 +38,8 @@ points:
        1.0, 0.0, 0.0, 0.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material, init_stretched_length]
+  headers: [name, start_point, end_point, n_segments, unit_damping,
+            density, init_stretched_length]
   data:
     - [main_tether, ground, top, 2, test_mat, 200.0]
 
@@ -50,10 +51,10 @@ winches:
 
 # Route 1 tether (explicit segments) with init_stretched_length in YAML
 const INIT_LEN_YAML_ROUTE1 = """
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [test_mat, 120000.0, 724, 0.001]
+variables:
+  test_mat:
+    unit_damping: 0.0
+    density: 724.0
 
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx,
@@ -87,10 +88,10 @@ winches:
 
 # Route 2 with downstream point connected via bridle (non-tether segment)
 const INIT_LEN_DOWNSTREAM_ROUTE2 = """
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [test_mat, 120000.0, 724, 0.001]
+variables:
+  test_mat:
+    unit_damping: 0.0
+    density: 724.0
 
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx,
@@ -111,7 +112,8 @@ segments:
     - [bridle, top, downstream, 10.0, 4.0, 120000.0, 350.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material, init_stretched_length]
+  headers: [name, start_point, end_point, n_segments, unit_damping,
+            density, init_stretched_length]
   data:
     - [main_tether, ground, top, 2, test_mat, 200.0]
 
@@ -123,10 +125,10 @@ winches:
 
 # Route 2 with loop (non-tether segment from top back to ground)
 const INIT_LEN_LOOP_ROUTE2 = """
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [test_mat, 120000.0, 724, 0.001]
+variables:
+  test_mat:
+    unit_damping: 0.0
+    density: 724.0
 
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx,
@@ -145,7 +147,8 @@ segments:
     - [back_loop, top, ground, 100.0, 4.0, 120000.0, 350.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material, init_stretched_length]
+  headers: [name, start_point, end_point, n_segments, unit_damping,
+            density, init_stretched_length]
   data:
     - [main_tether, ground, top, 2, test_mat, 100.0]
 
@@ -297,10 +300,10 @@ environment:
     # ================================================================
     @testset "Multi-tether: static + winch anchors stay fixed" begin
         multi_yaml = """
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [test_mat, 120000.0, 724, 0.001]
+variables:
+  test_mat:
+    unit_damping: 0.0
+    density: 724.0
 
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx,
@@ -315,7 +318,7 @@ points:
        1.0, 0.0, 0.0, 0.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material]
+  headers: [name, start_point, end_point, n_segments, unit_damping, density]
   data:
     - [tether_static, ground_static, top, 2, test_mat]
     - [tether_winch, ground_winch, top, 2, test_mat]
@@ -357,10 +360,10 @@ winches:
     # ================================================================
     @testset "Error on non-root init_stretched_len" begin
         stacked_yaml = """
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [test_mat, 120000.0, 724, 0.001]
+variables:
+  test_mat:
+    unit_damping: 0.0
+    density: 724.0
 
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx,
@@ -375,8 +378,8 @@ points:
        1.0, 0.0, 0.0, 0.0, 0.0]
 
 tethers:
-  headers: [name, start_point, end_point, n_segments, material,
-            init_stretched_length]
+  headers: [name, start_point, end_point, n_segments, unit_damping,
+            density, init_stretched_length]
   data:
     - [lower, ground, mid, 2, test_mat, 100.0]
     - [upper, mid, top, 2, test_mat, 100.0]
@@ -492,10 +495,10 @@ winches:
     # ================================================================
     @testset "Placement moves a rigid wing (WING-point free end)" begin
         wing_yaml = """
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [test_mat, 120000.0, 724, 0.001]
+variables:
+  test_mat:
+    unit_damping: 0.0
+    density: 724.0
 
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx,

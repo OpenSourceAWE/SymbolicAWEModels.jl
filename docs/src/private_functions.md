@@ -131,8 +131,12 @@ Serialization.serialize(::Serialization.AbstractSerializer, ::SymbolicAWEModels.
 ```@docs
 SymbolicAWEModels.get_field_or_nothing
 SymbolicAWEModels.convert_to_type
-SymbolicAWEModels.resolve_references
-SymbolicAWEModels.calculate_derived_properties!
+SymbolicAWEModels.substitute_variables
+SymbolicAWEModels.resolve_variable!
+SymbolicAWEModels.check_variable_names
+SymbolicAWEModels.expand_multi_variable_row
+SymbolicAWEModels.expand_multi_variables
+SymbolicAWEModels.resolve_yaml_variables
 SymbolicAWEModels.extract_args
 SymbolicAWEModels.call_yaml_constructor
 SymbolicAWEModels.parse_tether_init
@@ -141,7 +145,7 @@ SymbolicAWEModels.yaml_block_empty
 SymbolicAWEModels.yaml_vec3
 SymbolicAWEModels.yaml_matrix3
 SymbolicAWEModels.yaml_ref_field
-SymbolicAWEModels.load_property_table
+SymbolicAWEModels.yaml_float_or_nan
 SymbolicAWEModels.load_yaml_bodies
 SymbolicAWEModels.load_yaml_joints
 ```

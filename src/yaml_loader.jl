@@ -44,79 +44,167 @@ function convert_to_type(
 end
 
 """
-    resolve_references(row::NamedTuple, property_tables::Dict{String, Dict{String, NamedTuple}})
+    substitute_variables(value, lookup)
 
-Resolve string references in a row by looking them up in property tables.
-If a field value is a String, check if it exists as a key in any property table.
-If found, merge those properties into the current row (current row takes precedence).
+Replace every string inside `value` (scalars, list entries and mapping values,
+recursively) by `lookup(string)`. The `headers` entry of a table is left alone,
+so a column may share its name with a variable.
 """
-function resolve_references(row::NamedTuple, property_tables::Dict{String, Dict{String, NamedTuple}})
-    resolved = Dict{Symbol, Any}(pairs(row))
+substitute_variables(value::AbstractString, lookup) = lookup(value)
+substitute_variables(value::AbstractVector, lookup) =
+    [substitute_variables(entry, lookup) for entry in value]
+substitute_variables(value::AbstractDict, lookup) =
+    Dict{Any, Any}(key => (key == "headers" ? entry :
+        substitute_variables(entry, lookup)) for (key, entry) in value)
+substitute_variables(value, lookup) = value
 
-    for (_, value) in pairs(row)
-        # Check if this is a string reference (unquoted strings in YAML)
-        if value isa String
-            # Try to find this reference in any property table
-            for (_, lookup_dict) in property_tables
-                if haskey(lookup_dict, value)
-                    # Found! Merge these properties (current row takes precedence)
-                    ref_props = lookup_dict[value]
-                    for (key, field_value) in pairs(ref_props)
-                        # Skip 'name': it identifies the referenced item, not a property.
-                        key === :name && continue
-                        if !haskey(resolved, key) || resolved[key] === nothing
-                            resolved[key] = field_value
-                        end
-                    end
-                    break
-                end
-            end
-        end
-    end
+"""
+    resolve_variable!(resolved, raw, name, pending) -> value
 
-    return NamedTuple(resolved)
+Value of variable `name`, substituting any variables it refers to first. Strings
+that are not variable names are returned unchanged; `pending` tracks the chain
+being resolved to report cycles.
+"""
+function resolve_variable!(resolved::Dict{String, Any}, raw, name::String,
+                           pending::Vector{String})
+    haskey(resolved, name) && return resolved[name]
+    haskey(raw, name) || return name
+    name in pending && error("Cyclic variable reference: " *
+        join([pending; name], " -> "))
+    push!(pending, name)
+    value = substitute_variables(raw[name],
+        other -> resolve_variable!(resolved, raw, other, pending))
+    pop!(pending)
+    resolved[name] = value
+    return value
 end
 
 """
-    calculate_derived_properties!(props::Dict{Symbol, Any})
+    check_variable_names(data, variables)
 
-Calculate derived properties like `unit_stiffness` and `unit_damping` from material properties.
-Modifies props in-place.
+Error when a variable name is also used as a component `name`, since references
+to that component would resolve to the variable instead.
 """
-function calculate_derived_properties!(props::Dict{Symbol, Any})
-    # Store EA; the spring k is computed later as EA / len in generate_system.jl.
-    if haskey(props, :youngs_modulus) && haskey(props, :diameter_mm)
-        # Check if we need to calculate (missing, nothing, or is a string reference)
-        need_calculation = !haskey(props, :unit_stiffness) ||
-                          props[:unit_stiffness] === nothing ||
-                          props[:unit_stiffness] isa String
-
-        if need_calculation
-            diameter_m = Float64(props[:diameter_mm]) / 1000.0  # mm to m
-            area = π * (diameter_m / 2)^2
-            youngs_modulus = Float64(props[:youngs_modulus])
-            props[:unit_stiffness] = youngs_modulus * area
+function check_variable_names(data, variables::Dict{String, Any})
+    for (key, table) in data
+        key == "variables" && continue
+        (table isa AbstractDict && haskey(table, "data")) || continue
+        for row in parse_table(table)
+            name = yaml_field(row, :name)
+            (name isa AbstractString && haskey(variables, name)) &&
+                error("Variable `$name` has the same name as a component in " *
+                      "block `$key`; rename one of them.")
         end
     end
+end
 
-    # Calculate unit_damping from damping coefficient if missing or is a string
-    if haskey(props, :damping_per_stiffness) && haskey(props, :unit_stiffness)
-        # Only calculate if unit_stiffness is now a number
-        if props[:unit_stiffness] isa Number
-            need_damping_calc = !haskey(props, :unit_damping) ||
-                               props[:unit_damping] === nothing ||
-                               props[:unit_damping] isa String
+"""
+    expand_multi_variable_row(row, headers, multi_variables) -> row
 
-            if need_damping_calc
-                props[:unit_damping] = Float64(props[:damping_per_stiffness]) * Float64(props[:unit_stiffness])
-            end
+Replace every cell of `row` naming a multi-variable by that variable's fields. In
+a `headers`/`data` row the fields fill the columns starting at the cell, written
+in header order, so the row carries one entry for the whole group. In a dict row
+they are merged in without overwriting fields the row states itself.
+"""
+function expand_multi_variable_row(row::AbstractVector, headers,
+                                   multi_variables::Dict{String, Any})
+    any(entry -> entry isa AbstractString && haskey(multi_variables, entry),
+        row) || return row
+    expanded = Any[]
+    for entry in row
+        if !(entry isa AbstractString) || !haskey(multi_variables, entry)
+            push!(expanded, entry)
+            continue
+        end
+        fields = multi_variables[entry]
+        first_column = length(expanded) + 1
+        last_column = first_column + length(fields) - 1
+        last_column <= length(headers) || error("Variable `$entry` fills " *
+            "$(length(fields)) columns, but only " *
+            "$(max(0, length(headers) - first_column + 1)) headers are left " *
+            "at that position.")
+        columns = headers[first_column:last_column]
+        issetequal(columns, keys(fields)) || error("Variable `$entry` defines " *
+            "$(join(sort!(collect(keys(fields))), ", ")), but the columns at " *
+            "that position are $(join(columns, ", ")).")
+        append!(expanded, (fields[column] for column in columns))
+    end
+    return expanded
+end
+
+function expand_multi_variable_row(row::AbstractDict, headers,
+                                   multi_variables::Dict{String, Any})
+    references = [(key, value) for (key, value) in row
+        if value isa AbstractString && haskey(multi_variables, value)]
+    isempty(references) && return row
+    expanded = Dict{Any, Any}(row)
+    for (key, value) in references
+        delete!(expanded, key)
+        for (field, item) in multi_variables[value]
+            haskey(expanded, field) || (expanded[field] = item)
         end
     end
+    return expanded
+end
 
-    # Set default unit_damping if still missing
-    if !haskey(props, :unit_damping) || props[:unit_damping] === nothing || props[:unit_damping] isa String
-        props[:unit_damping] = 0.0
+"""
+    expand_multi_variables(table, multi_variables) -> table
+
+Expand the multi-variables used in the rows of one YAML block. Blocks that hold
+no `data` rows are returned unchanged.
+"""
+function expand_multi_variables(table, multi_variables::Dict{String, Any})
+    (table isa AbstractDict && haskey(table, "data")) || return table
+    rows = table["data"]
+    (isnothing(rows) || isempty(rows)) && return table
+    headers = haskey(table, "headers") ? String.(table["headers"]) : String[]
+    expanded = Dict{Any, Any}(table)
+    expanded["data"] = [expand_multi_variable_row(row, headers, multi_variables)
+                        for row in rows]
+    return expanded
+end
+
+"""
+    resolve_yaml_variables(data) -> data
+
+Apply an optional top-level `variables` block to the rest of the YAML tree and
+drop the block. A variable holding a number, string or list replaces any cell
+written as its name; a variable holding a mapping is a multi-variable and fills
+the columns it names at once. Variables may refer to other variables.
+
+```yaml
+variables:
+  bridle_comp: 0.01
+  dyneema: {unit_stiffness: 43196.9, unit_damping: 33.3}
+```
+"""
+function resolve_yaml_variables(data)
+    haskey(data, "variables") || return data
+    raw = data["variables"]
+    raw isa AbstractDict || throw(ArgumentError(
+        "`variables` must be a mapping of name => value, got $(typeof(raw))."))
+
+    variables = Dict{String, Any}()
+    for name in keys(raw)
+        resolve_variable!(variables, raw, String(name), String[])
     end
+    check_variable_names(data, variables)
+
+    multi_variables = Dict{String, Any}()
+    scalars = Dict{String, Any}()
+    for (name, value) in variables
+        target = value isa AbstractDict ? multi_variables : scalars
+        target[name] = value
+    end
+
+    lookup = name -> get(scalars, name, name)
+    resolved = Dict{Any, Any}()
+    for (key, value) in data
+        key == "variables" && continue
+        resolved[key] = expand_multi_variables(
+            substitute_variables(value, lookup), multi_variables)
+    end
+    return resolved
 end
 
 function parse_table(table)::Vector{NamedTuple}
@@ -406,6 +494,13 @@ function yaml_float(row, field)
 end
 
 """
+    yaml_float_or_nan(row, field) -> Float64
+
+Optional numeric field as a `Float64`, `NaN` when it is absent or `nothing`.
+"""
+yaml_float_or_nan(row, field) = something(yaml_float(row, field), NaN)
+
+"""
     yaml_row_name(row, i)
 
 Name for a YAML row: its `name` field (as a `Symbol`) when present, else the
@@ -456,20 +551,6 @@ Resolve an optional reference column `field` (e.g. `:transform_idx`) through
 yaml_ref_field(row, field, to_ref) =
     (hasfield(typeof(row), field) && !isnothing(getfield(row, field))) ?
         to_ref(getfield(row, field)) : nothing
-
-"""
-    load_property_table(data, key) -> Dict{String, NamedTuple}
-
-Index a reference table (`materials`, `elements`, `segment_properties`) by its
-`name` column, so [`resolve_references`](@ref) can merge shared properties.
-"""
-function load_property_table(data, key)
-    table = Dict{String, NamedTuple}()
-    for row in parse_table(data[key])
-        table[String(row.name)] = row
-    end
-    return table
-end
 
 """
     load_yaml_bodies(data, yaml_to_ref) -> Vector{Body}
@@ -583,7 +664,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         @warn "Keyword argument `wing_type` is deprecated; use `dynamics_type` instead."
         dynamics_type = wing_type
     end
-    data = YAML.load_file(yaml_path)
+    data = resolve_yaml_variables(YAML.load_file(yaml_path))
+    for key in ("materials", "elements", "segment_properties")
+        haskey(data, key) && error("The `$key` block was removed; define the " *
+            "shared properties as a mapping under `variables` instead, with " *
+            "`unit_stiffness` and `unit_damping` given directly.")
+    end
 
     # Use provided settings or fall back to base settings
     local resolved_set = (set === nothing ? load_settings("base") : set)
@@ -682,30 +768,14 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     isempty(points) && !haskey(data, "bodies") &&
         error("No points or bodies found in YAML file $(yaml_path).")
 
-    # Build property tables for reference resolution: materials, old-style
-    # `elements`, and `segment_properties` (kept for backward compatibility).
-    property_tables = Dict{String, Dict{String, NamedTuple}}()
-    for key in ("materials", "elements", "segment_properties")
-        haskey(data, key) || continue
-        property_tables[key] = load_property_table(data, key)
-    end
-
     # Load segments - SystemStructure handles resolution
     segments = Segment[]
     if haskey(data, "segments")
         segment_rows = parse_table(data["segments"])
 
         for (i, row) in enumerate(segment_rows)
-            # Resolve material references and calculate derived properties
-            resolved_row = resolve_references(row, property_tables)
-            props = Dict{Symbol, Any}(pairs(resolved_row))
-            calculate_derived_properties!(props)
-
-            # Convert back to NamedTuple for constructor
-            resolved_row = NamedTuple(props)
-
             # Deprecation check: error if old `type` column present
-            if haskey(resolved_row, :type)
+            if haskey(row, :type)
                 error("Segment YAML `type` column " *
                     "(SegmentType) is removed. Delete " *
                     "the `type` header and column from " *
@@ -714,7 +784,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
             # Create Segment (name, set, point_i, point_j; kwargs)
             segment = call_yaml_constructor(
-                Segment, resolved_row,
+                Segment, row,
                 [:name, :set, :point_i, :point_j],
                 [:l0, :diameter_mm, :unit_stiffness,
                  :unit_damping, :compression_frac, :density];
@@ -808,21 +878,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 n_segments = Int(row.n_segments)
                 stretched_length, tether_force, stretch_frac =
                     parse_tether_init(row, tether_name)
-                # Resolve material reference if present
-                resolved = resolve_references(
-                    row, property_tables)
-                props = Dict{Symbol, Any}(
-                    pairs(resolved))
-                calculate_derived_properties!(props)
-                prop_float = key -> begin
-                    value = get(props, key, NaN)
-                    isnothing(value) ? NaN : Float64(value)
-                end
-                unit_stiffness = prop_float(:unit_stiffness)
-                unit_damping = prop_float(:unit_damping)
-                diameter_mm = prop_float(:diameter_mm)
+                unit_stiffness = yaml_float_or_nan(row, :unit_stiffness)
+                unit_damping = yaml_float_or_nan(row, :unit_damping)
+                diameter_mm = yaml_float_or_nan(row, :diameter_mm)
                 diameter = isnan(diameter_mm) ? NaN : diameter_mm * 0.001
-                density = prop_float(:density)
+                density = yaml_float_or_nan(row, :density)
                 tether = Tether(tether_name, stretched_length;
                     start_point=start_ref, end_point=end_ref,
                     n_segments,
