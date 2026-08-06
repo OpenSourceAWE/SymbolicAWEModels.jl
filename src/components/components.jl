@@ -479,41 +479,61 @@ end
 Kinematics of a point riding `joint`'s corotational cubic-Hermite centerline at the
 point's `beam_frac`, shared by both backends. From the two end bodies' world poses it
 builds the element frame, the two nodes' chord-relative rotations, the transverse Hermite
-deflection (+ a frame-carried `beam_offset_b`) and returns `(pos_point, vel_point, sfrac)`
-— the ride position, its rigid-blend velocity, and the axial fraction that splits any
-force applied at the point onto the two end bodies (`(1−sfrac)` to A, `sfrac` to B).
+deflection (+ a frame-carried `beam_offset_b`) and returns `(pos_point, vel_point, sfrac,
+ride_velocity)` — the ride position, its rigid-blend velocity, the axial fraction that
+splits any force at the point onto the two end bodies (`(1−sfrac)` to A, `sfrac` to B), and
+`ride_velocity(p)`: the rigid-blend velocity as a function of a (possibly **torn**) ride
+position `p`, so a backend can tear `pos_point` first and avoid re-embedding the heavy
+element-frame subtree in the velocity.
 """
 function beam_hermite_ride_expressions(joint, params, point_idx;
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
-        pos_b, R_b, com_b, com_vel_b, omega_b_w)
+        pos_b, R_b, com_b, com_vel_b, omega_b_w,
+        frame = nothing, theta_a = nothing, theta_b = nothing)
     jp = params.timoshenko_joints[joint.idx]
     Ra = collect(R_a)
     Rb = collect(R_b)
     x_a = collect(pos_a) .+ Ra * collect(jp.anchor_a_b)
     x_b = collect(pos_b) .+ Rb * collect(jp.anchor_b_b)
     e1, e2, e3, beam_len = timoshenko_element_frame(x_a, x_b, Ra)
-    element_frame = [e1[1] e2[1] e3[1];
-                     e1[2] e2[2] e3[2];
-                     e1[3] e2[3] e3[3]]
+    frame_expr = [e1[1] e2[1] e3[1];
+                  e1[2] e2[2] e3[2];
+                  e1[3] e2[3] e3[3]]
+    element_frame = frame === nothing ? frame_expr : collect(frame)
     Da = (element_frame' * Ra) * collect(jp.R_a_rel0)'
     Db = (element_frame' * Rb) * collect(jp.R_b_rel0)'
-    θ_a = [0.5 * (Da[3, 2] - Da[2, 3]), 0.5 * (Da[1, 3] - Da[3, 1]),
-           0.5 * (Da[2, 1] - Da[1, 2])]
-    θ_b = [0.5 * (Db[3, 2] - Db[2, 3]), 0.5 * (Db[1, 3] - Db[3, 1]),
-           0.5 * (Db[2, 1] - Db[1, 2])]
+    θ_a_expr = [0.5 * (Da[3, 2] - Da[2, 3]), 0.5 * (Da[1, 3] - Da[3, 1]),
+                0.5 * (Da[2, 1] - Da[1, 2])]
+    θ_b_expr = [0.5 * (Db[3, 2] - Db[2, 3]), 0.5 * (Db[1, 3] - Db[3, 1]),
+                0.5 * (Db[2, 1] - Db[1, 2])]
+    θ_a = theta_a === nothing ? θ_a_expr : collect(theta_a)
+    θ_b = theta_b === nothing ? θ_b_expr : collect(theta_b)
     sfrac = params.points[point_idx].beam_frac
+    ec1 = element_frame[:, 1]
+    ec2 = element_frame[:, 2]
+    ec3 = element_frame[:, 3]
     N2 = beam_len * (sfrac - 2sfrac^2 + sfrac^3)
     N4 = beam_len * (-sfrac^2 + sfrac^3)
     v_defl = N2 * θ_a[3] + N4 * θ_b[3]
     w_defl = -(N2 * θ_a[2] + N4 * θ_b[2])
-    x_center = x_a .+ (sfrac * beam_len) .* e1 .+ v_defl .* e2 .+ w_defl .* e3
+    x_center = x_a .+ (sfrac * beam_len) .* ec1 .+ v_defl .* ec2 .+ w_defl .* ec3
     pos_point = x_center .+ element_frame * collect(params.points[point_idx].beam_offset_b)
     ω_a_w = collect(omega_a_w)
     ω_b_w = collect(omega_b_w)
-    vel_a = collect(com_vel_a) .+ (ω_a_w × (pos_point .- collect(com_a)))
-    vel_b = collect(com_vel_b) .+ (ω_b_w × (pos_point .- collect(com_b)))
-    vel_point = (1 - sfrac) .* vel_a .+ sfrac .* vel_b
-    return (; pos_point, vel_point, sfrac)
+    cvel_a = collect(com_vel_a)
+    cvel_b = collect(com_vel_b)
+    ca = collect(com_a)
+    cb = collect(com_b)
+    ride_velocity(p) = (1 - sfrac) .* (cvel_a .+ (ω_a_w × (collect(p) .- ca))) .+
+        sfrac .* (cvel_b .+ (ω_b_w × (collect(p) .- cb)))
+    tear_eqs = Equation[]
+    if frame !== nothing
+        append!(tear_eqs, vec(collect(frame)) .~ vec(frame_expr))
+        append!(tear_eqs, collect(theta_a) .~ θ_a_expr)
+        append!(tear_eqs, collect(theta_b) .~ θ_b_expr)
+    end
+    return (; pos_point, vel_point = ride_velocity(pos_point), sfrac,
+            ride_velocity, tear_eqs)
 end
 
 """

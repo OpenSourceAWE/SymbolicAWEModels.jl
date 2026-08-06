@@ -1029,9 +1029,26 @@ function build_body_mixed_network(sam, ss, body_idxs)
         add_edge!(graph, key[1], key[2])
         edge_info[key] = info
     end
+    is_hermite(pidx) = points[pidx].type == SAM.BODY_STATIC && points[pidx].joint_idx > 0
     for seg in ss.segments
-        va, ride_a = endpoint(seg.point_idxs[1])
-        vb, ride_b = endpoint(seg.point_idxs[2])
+        p1, p2 = seg.point_idxs
+        if is_hermite(p1) || is_hermite(p2)
+            (is_hermite(p1) && is_hermite(p2)) && error("NetworkBackend(body): " *
+                "segment $(seg.name) between two Hermite ride points not supported.")
+            hpt = is_hermite(p1) ? p1 : p2
+            freept = is_hermite(p1) ? p2 : p1
+            points[freept].type == SAM.BODY_STATIC && error("NetworkBackend(body): " *
+                "Hermite segment $(seg.name)'s other end must be a free point.")
+            vfree = vertex_of_point[freept]
+            joint = ss.timoshenko_joints[points[hpt].joint_idx]
+            for (to_a, bidx) in ((true, joint.body_a_idx), (false, joint.body_b_idx))
+                add_mixed_edge!(graph, edge_info, minmax(vfree, vertex_of_body[bidx]),
+                    MixedEdgeInfo(:hermite, seg, hpt, 0, joint.idx, to_a))
+            end
+            continue
+        end
+        va, ride_a = endpoint(p1)
+        vb, ride_b = endpoint(p2)
         va == vb && error("NetworkBackend(body): segment $(seg.name) is a self-loop " *
             "(both endpoints on vertex $va).")
         ride_src, ride_dst = va < vb ? (ride_a, ride_b) : (ride_b, ride_a)
@@ -1088,13 +1105,16 @@ function build_body_mixed_network(sam, ss, body_idxs)
     wrench_of, wrench_reg_of = build_wrench_edges(sam, ss, edge_info)
     dual_em, dual_reg = build_dual_wrench_edges(sam, ss, edge_info)
     joint_of, joint_reg_of = build_joint_edges(sam, ss, edge_info)
+    hermite_of, hermite_reg_of = build_hermite_edges(sam, ss, edge_info, vertex_of_body)
 
     edgelist = collect(edges(graph))
     emodels = Vector{EdgeModel}(undef, length(edgelist))
     for (j, e) in enumerate(edgelist)
-        info = edge_info[minmax(src(e), dst(e))]
+        key = minmax(src(e), dst(e))
+        info = edge_info[key]
         emodels[j] = (info.kind == :timo_joint || info.kind == :elastic_joint) ?
             joint_of[(info.kind, info.a_at_src)] :
+            info.kind == :hermite ? hermite_of[key] :
             info.kind == :dual_wrench ? dual_em :
             info.kind == :wrench ? wrench_of[wrench_body_at_src(info)] : plain_em
     end
@@ -1126,11 +1146,12 @@ function build_body_mixed_network(sam, ss, body_idxs)
     end
     callables = CallableBuilder()
     record_mixed_edge_params!(builder, callables, ss, edgelist, edge_info,
-                              plain_reg, wrench_reg_of, dual_reg, joint_reg_of)
+                              plain_reg, wrench_reg_of, dual_reg, joint_reg_of,
+                              hermite_reg_of)
     param_sync = build_network_param_sync(nw, builder, callables)
 
     body_static = [(i, points[i].body_idx) for i in eachindex(points)
-                   if points[i].type == SAM.BODY_STATIC]
+                   if points[i].type == SAM.BODY_STATIC && points[i].joint_idx == 0]
     meta = (; param_sync, winch_of_point = Dict{Int, Int}(),
             pulley_of_point = Dict{Int, Int}(),
             winch_tethers = Dict{Int, Vector{Int}}(), body_idxs,
@@ -1275,6 +1296,143 @@ function build_dual_wrench_edges(sam, ss, edge_info)
 end
 
 """
+    hermite_extin(ss, other_body_idx, vertex_of_body)
+
+The `extin` pair list binding a Hermite-ride edge's `oth_*` inputs to the *other* beam
+body's wide pose outputs (`pos`, `pose_R`, `pose_com`, `pose_com_vel`, `pose_omega`) at
+that body's vertex.
+"""
+function hermite_extin(ss, other_body_idx, vertex_of_body)
+    v = vertex_of_body[other_body_idx]
+    xyz = ('x', 'y', 'z')
+    pairs = Pair{Symbol, Any}[]
+    for c in 1:3
+        push!(pairs, Symbol(:oth_p, xyz[c]) => VIndex(v, Symbol(:pos_, c)))
+        push!(pairs, Symbol(:oth_c, xyz[c]) => VIndex(v, Symbol(:pose_com_, c)))
+        push!(pairs, Symbol(:oth_v, xyz[c]) => VIndex(v, Symbol(:pose_com_vel_, c)))
+        push!(pairs, Symbol(:oth_w, xyz[c]) => VIndex(v, Symbol(:pose_omega_, c)))
+    end
+    for k in 1:9
+        push!(pairs, Symbol(:oth_R, k) => VIndex(v, Symbol(:pose_R_, k)))
+    end
+    return pairs
+end
+
+"""
+    network_hermite_wrench_segment(s, params, seg_idx, joint_idx, ride_idx, to_body_a; name)
+
+One of the **two** wide edges a segment touching a Hermite `BODY_STATIC` ride point spawns
+(the point rides `joint`'s deformed centerline, feedthrough on both end bodies). This edge
+runs from the free endpoint `K` (`src`) to one beam body (`dst`, body A if `to_body_a`);
+it reads the **other** body's pose via `extin` (`oth_*`), reconstructs the identical ride
+position via the shared [`SAM.beam_hermite_ride_expressions`](@ref), computes the spring
+load between `K` and the ride point, and delivers the axial-fraction share (`1−sfrac` to A,
+`sfrac` to B) of both the reaction on `K` and the force+moment on this body. The two edges
+together give `K` the full reaction and each body its beam-fraction split. `pos`/force
+torn internal; `to_body_a` baked at build time.
+"""
+function network_hermite_wrench_segment(s, params, seg_idx, joint_idx, ride_idx,
+                                        to_body_a::Bool; name)
+    io, extras = SAM.segment_io_wide()
+    (_, src_pos, src_vel, _, dst_pos, dst_vel, _,
+     src_force, src_mass, src_tension, dst_force, dst_mass, dst_tension) = io
+    ext = @variables begin
+        oth_px(t), [input = true]; oth_py(t), [input = true]; oth_pz(t), [input = true]
+        oth_cx(t), [input = true]; oth_cy(t), [input = true]; oth_cz(t), [input = true]
+        oth_vx(t), [input = true]; oth_vy(t), [input = true]; oth_vz(t), [input = true]
+        oth_wx(t), [input = true]; oth_wy(t), [input = true]; oth_wz(t), [input = true]
+        oth_R1(t), [input = true]; oth_R2(t), [input = true]; oth_R3(t), [input = true]
+        oth_R4(t), [input = true]; oth_R5(t), [input = true]; oth_R6(t), [input = true]
+        oth_R7(t), [input = true]; oth_R8(t), [input = true]; oth_R9(t), [input = true]
+    end
+    (oth_px, oth_py, oth_pz, oth_cx, oth_cy, oth_cz, oth_vx, oth_vy, oth_vz,
+     oth_wx, oth_wy, oth_wz, oth_R1, oth_R2, oth_R3, oth_R4, oth_R5, oth_R6,
+     oth_R7, oth_R8, oth_R9) = ext
+    oth_pos = [oth_px, oth_py, oth_pz]
+    oth_com = [oth_cx, oth_cy, oth_cz]
+    oth_comvel = [oth_vx, oth_vy, oth_vz]
+    oth_omega = [oth_wx, oth_wy, oth_wz]
+    oth_R = [oth_R1, oth_R2, oth_R3, oth_R4, oth_R5, oth_R6, oth_R7, oth_R8, oth_R9]
+    joint = params.reg.sys_struct.timoshenko_joints[joint_idx]
+    this_body = (dst_pos, extras.dst_pose_R, extras.dst_pose_com,
+                 extras.dst_pose_com_vel, extras.dst_pose_omega)
+    other_body = (oth_pos, oth_R, oth_com, oth_comvel, oth_omega)
+    (apos, aR, acom, acomvel, aomega), (bpos, bR, bcom, bcomvel, bomega) =
+        to_body_a ? (this_body, other_body) : (other_body, this_body)
+    torn = @variables hm_pos(t)[1:3] hm_fk(t)[1:3] hm_fp(t)[1:3] hm_frame(t)[1:3, 1:3] hm_ta(t)[1:3] hm_tb(t)[1:3]
+    hpos, hfk, hfp, hframe, hta, htb = torn
+    hk = SAM.beam_hermite_ride_expressions(joint, params, ride_idx;
+        pos_a = apos, R_a = reshape(collect(aR), 3, 3), com_a = acom,
+        com_vel_a = acomvel, omega_a_w = aomega,
+        pos_b = bpos, R_b = reshape(collect(bR), 3, 3), com_b = bcom,
+        com_vel_b = bcomvel, omega_b_w = bomega,
+        frame = hframe, theta_a = hta, theta_b = htb)
+    spring, wind = SAM.segment_spring_params(params, seg_idx; with_drag = true)
+    l0 = params.segments[seg_idx].l0
+    fk, fp, half_mass, _ = SAM.segment_endpoint_loads(
+        s, collect(src_pos), collect(src_vel), collect(hpos),
+        hk.ride_velocity(collect(hpos)),
+        spring.unit_stiffness, spring.unit_damping, spring.compression_frac, l0,
+        spring.diameter, spring.density, spring.cd_tether, collect(wind);
+        with_drag = true)
+    frac = to_body_a ? (1 - hk.sfrac) : hk.sfrac
+    knot_mass = params.points[ride_idx].extra_mass + half_mass
+    gravity_knot = [0.0, 0.0, -params.set.g_earth * knot_mass]
+    force_on_point = collect(hfp) .+ gravity_knot
+    force_body = frac .* force_on_point
+    moment_body = (collect(hpos) .- collect(extras.dst_pose_com)) × force_body
+    eqs = [
+        hk.tear_eqs
+        collect(hpos) .~ hk.pos_point
+        collect(hfk) .~ fk
+        collect(hfp) .~ fp
+        collect(src_force) .~ frac .* collect(hfk)
+        src_mass ~ frac * half_mass; src_tension ~ 0.0
+        collect(dst_force) .~ force_body
+        dst_mass ~ 0.0; dst_tension ~ 0.0
+        collect(extras.src_moment) .~ zeros(3)
+        collect(extras.dst_moment) .~ moment_body
+    ]
+    return System(eqs, t, [io[1]; ext; torn], param_unknowns(params); name)
+end
+
+"""
+    build_hermite_edges(sam, ss, edge_info, vertex_of_body)
+
+Compile the wide Hermite-ride `EdgeModel`s. Each `:hermite` edge is a free-point→beam-body
+edge that reads the *other* beam body via `extin`; the kernel is compiled once per
+`to_body_a` orientation and rebound per edge with `EdgeModel(base; extin=…)` (like the
+winched-tether edges), since only the other body's vertex differs. Returns
+`(em_of, reg_of)` — `em_of` keyed by the graph vertex-pair, `reg_of` by `to_body_a`.
+"""
+function build_hermite_edges(sam, ss, edge_info, vertex_of_body)
+    em_of = Dict{Tuple{Int, Int}, EdgeModel}()
+    reg_of = Dict{Bool, Any}()
+    base_of = Dict{Bool, Any}()
+    for (key, info) in edge_info
+        info.kind == :hermite || continue
+        to_a = info.a_at_src
+        joint = ss.timoshenko_joints[info.joint_idx]
+        other = to_a ? joint.body_b_idx : joint.body_a_idx
+        extin = hermite_extin(ss, other, vertex_of_body)
+        if haskey(base_of, to_a)
+            em_of[key] = EdgeModel(base_of[to_a]; extin = last.(extin))
+        else
+            pv = network_view(ss)
+            base = EdgeModel(
+                network_hermite_wrench_segment(sam, pv, info.seg.idx, info.joint_idx,
+                                               info.ride_src, to_a; name = :hmseg),
+                WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
+                extin, mtkcompile = true, name = :hmseg)
+            base_of[to_a] = base
+            reg_of[to_a] = pv.reg
+            em_of[key] = base
+        end
+    end
+    return em_of, reg_of
+end
+
+"""
     build_joint_edges(sam, ss, edge_info)
 
 Compile one wide body↔body joint `EdgeModel` per distinct `(kind, body_at_src)` present —
@@ -1349,7 +1507,8 @@ edge) and `cd_tether`/wind. A `:wrench` edge also binds its ride point's `anchor
 live read. `body_at_src` is baked into the kernel, so nothing is set here for it.
 """
 function record_mixed_edge_params!(builder, callables, ss, edgelist, edge_info,
-                                   plain_reg, wrench_reg_of, dual_reg, joint_reg_of)
+                                   plain_reg, wrench_reg_of, dual_reg, joint_reg_of,
+                                   hermite_reg_of)
     for (j, e) in enumerate(edgelist)
         info = edge_info[minmax(src(e), dst(e))]
         if info.kind == :timo_joint || info.kind == :elastic_joint
@@ -1357,6 +1516,19 @@ function record_mixed_edge_params!(builder, callables, ss, edgelist, edge_info,
             reg = joint_reg_of[(info.kind, info.a_at_src)]
             replay_fields!(builder, reg, container, j, info.joint_idx, ss; edge = true)
             record_edge_callables!(callables, reg, container, j, info.joint_idx, ss)
+            continue
+        end
+        if info.kind == :hermite
+            reg = hermite_reg_of[info.a_at_src]
+            replay_fields!(builder, reg, :segments, j, info.seg.idx, ss; edge = true)
+            replay_fields!(builder, reg, :points, j, info.ride_src, ss; edge = true)
+            replay_fields!(builder, reg, :timoshenko_joints, j, info.joint_idx, ss;
+                           edge = true)
+            add_param!(builder, EIndex(j, :cd_tether),
+                       SAM.PathReader((:set, :cd_tether)))
+            add_param!(builder, EIndex(j, :g_earth),
+                       SAM.PathReader((:set, :g_earth)))
+            record_wind_params!(builder, j; edge = true)
             continue
         end
         seg = info.seg
