@@ -40,14 +40,15 @@ structure and aerodynamics.
 
 #### Structural model
 
-- Wing structure consists of [`WING`](@ref DynamicsType)-type
+- Wing structure consists of ordinary [`DYNAMIC`](@ref DynamicsType)
   points organized in leading edge (LE) and trailing edge (TE)
-  pairs
+  pairs. Their wing membership comes from twist-surface membership
+  (`point.is_wing_node`), not from a dedicated point type
 - Each consecutive pair (point i, point i+1) forms a structural
   segment (strut)
 - Points can move independently — the wing can deform
   structurally
-- Number of structural segments = (number of WING points) / 2
+- Number of structural segments = (number of wing nodes) / 2
 
 #### VSM mapping
 
@@ -96,7 +97,7 @@ Per-panel forces are distributed to structural points:
 ### RIGID_DYNAMICS
 
 The `RIGID_DYNAMICS` wing type uses a rigid body representation with
-optional deformable groups.
+optional deformable twist surfaces.
 
 #### Structural model
 
@@ -127,14 +128,14 @@ builds the mapping automatically: each unrefined section is assigned
 to the nearest twist-surface centre (Voronoi partition in the body
 frame), and the surface's single twist DOF then drives every section
 it owns
-as a rigid unit. `n_groups > n_unrefined` is rejected — a twist
-DOF without a section to drive would be undefined.
+as a rigid unit. More twist surfaces than unrefined sections is
+rejected — a twist DOF without a section to drive would be undefined.
 
 #### Force distribution
 
 Integrated force and moment coefficients are applied to the rigid
-body, driving quaternion dynamics. Each group's aerodynamic moment
-is the sum of its unrefined section moments, driving the twist
+body, driving quaternion dynamics. Each twist surface's aerodynamic
+moment is the sum of its unrefined section moments, driving the twist
 DOF.
 
 ## Aero modes
@@ -142,11 +143,11 @@ DOF.
 [`AbstractAeroModel`](@ref) controls **how aerodynamic forces enter the
 ODE system** — orthogonal to the wing type choice.
 
-### AERO_DIRECT
+### `AeroDirect`
 
 A single VSM solve at the current operating point. The resulting
-forces are stored in the wing struct and read by registered
-symbolic functions during ODE evaluation:
+forces are stored in the wing struct and read back as flat
+parameters during ODE evaluation:
 
 1. `vsm_aero_coeffs` (Float64 path) sets the VSM body wind/ω
    from the live wing state and calls `VortexStepMethod.solve!`
@@ -158,12 +159,13 @@ symbolic functions during ODE evaluation:
 4. Between VSM updates (controlled by `vsm_interval`), forces
    are held constant
 
-For RIGID_DYNAMICS wings, the symbolic equations read the stored
-forces via `get_aero_force_override` / `get_aero_moment_override`.
-For PARTICLE_DYNAMICS wings, per-point forces are read via
-`get_point_aero_force`.
+The component reads those buffers through its `params` view —
+`params.wings[i].aero_force_b` / `.aero_moment_b` for a rigid wing,
+`params.points[j].aero_force_b` for a particle wing — so the values
+are synced from the live `SystemStructure` once per step without a
+registered-function call in the RHS.
 
-### AERO_LINEARIZED
+### `AeroLinearized`
 
 First-order Taylor expansion of the VSM solver around the last
 operating point, so the ODE RHS sees smooth force variations
@@ -190,20 +192,63 @@ The ODE then reconstructs forces in the wind-axis basis
 `side = lift × drag`) using
 `coef_i = aero_x_0[i] + Σ_j aero_jac[i,j] · Δaero_y[j]`.
 
-### AERO_NONE
+### `ContinuousAero`
+
+Frozen-circulation VSM with the force assembly in the symbolic RHS.
+The refresh runs only the circulation solve
+(`VortexStepMethod.solve_base!`) and freezes each refined panel's
+induced velocity; every RHS step re-derives panel geometry from the
+live strut points (frozen mesh-interpolation weights), the effective
+angle of attack, the polar coefficients and the lift/drag directions.
+Forces therefore respond to wing motion *between* VSM updates —
+aerodynamic damping through the changing angle of attack — unlike
+`AeroDirect`'s piecewise-constant forces. All per-panel quantities
+(`alpha`, `cl`, `q_dyn`, `panel_force`, …) are observable component
+variables.
+
+### `AeroPressure`
+
+Continuous like `ContinuousAero` — the per-panel *total* force is
+re-derived symbolically each RHS step from the frozen circulation —
+but the force is **scattered onto arbitrary structural surface
+points** rather than split LE/TE, using the airfoil surface traction
+(``-C_p \hat{n} + c_f \hat{s}``) as the placement pattern. VSM owns
+the totals; the traction pattern owns only placement and direction.
+Each point gets its frozen traction plus an equal share of
+(live panel force − frozen pattern net), so the point forces sum to
+the live total exactly.
+
+It also supports a live flap deflection ``\delta`` — the signed angle
+between two structural bodies about a hinge, modelled by a
+`KINEMATIC` [`TwistSurface`](@ref) — which feeds the ``(\alpha,
+\delta)`` polars each RHS step.
+
+### `AeroPlate`
+
+Flat-plate lift and drag from a polar table (CL/CD vs α) evaluated by
+registered symbolic interpolants, one 1-point `STATIC`
+[`TwistSurface`](@ref) per plate. No VSM engine.
+
+### `AeroNone`
 
 Returns zero forces. Useful for debugging rigid body dynamics
-without aerodynamic coupling.
+without aerodynamic coupling. No VSM engine, so no `vsm_set` or VSM
+geometry is needed.
 
 ### Compatibility
 
-| Wing type | Default aero model | Supported models |
-|-----------|--------------------|------------------|
-| **RIGID_DYNAMICS** | `AeroLinearized()` | `AeroLinearized`, `AeroDirect`, `AeroNone` |
-| **PARTICLE_DYNAMICS** | `AeroDirect()` | `AeroDirect`, `AeroNone` |
+A mode supports a wing dynamics exactly when it defines the matching
+[`aero_component`](@ref) method; anything else errors during the model
+build.
 
-`PARTICLE_DYNAMICS` + `AeroLinearized` is not yet implemented (raises an
-error during model build).
+| Aero mode | YAML `aero_mode` | `RIGID_DYNAMICS` | `PARTICLE_DYNAMICS` |
+|-----------|------------------|:----------------:|:-------------------:|
+| [`AeroLinearized`](@ref) | `linearized` | ✔ (default) | — |
+| [`AeroDirect`](@ref) | `direct` | ✔ | ✔ (default) |
+| [`ContinuousAero`](@ref) | `continuous` | — | ✔ |
+| [`AeroPressure`](@ref) | `pressure` | — | ✔ |
+| [`AeroPlate`](@ref) | `plate` | — | ✔ |
+| [`AeroNone`](@ref) | `none` | ✔ | ✔ |
 
 ## Swappable aero components (dispatch)
 
@@ -242,7 +287,7 @@ on the mode:
 - **Diagnostics**: [`calc_aoa`](@ref) (default `NaN`),
   [`normalized_inertia`](@ref) — per-unit-mass inertia [m²], scaled by the
   wing's mass at the single consumer (default: normalized point-mass inertia
-  from the WING points).
+  from the wing's structural points).
 - **Log-point visualization**: [`n_aero_log_points`](@ref) /
   [`write_aero_log_points!`](@ref) / [`read_aero_log_points!`](@ref) /
   [`restore_aero_twist!`](@ref) — extra `SysState` slots for the mode's
@@ -268,7 +313,7 @@ The returned `System`'s connectors are fixed by the wing's dynamics type
   - inputs: `va[1:3]`, `rho`, `R_b_w[1:3,1:3]`, `omega[1:3]`,
     and — when `ng > 0` — `twist[1:ng]`, `twist_vel[1:ng]`
   - outputs: `force[1:3]`, `moment[1:3]`, `twist_moment[1:ng]`
-- **`PARTICLE_DYNAMICS`** (`np` = number of `WING` points):
+- **`PARTICLE_DYNAMICS`** (`np` = number of wing nodes):
   - inputs: `point_pos[1:3,1:np]`, `point_vel[1:3,1:np]`,
     `va[1:3,1:np]`, `rho[1:np]`
   - outputs: `point_force[1:3,1:np]`
@@ -321,8 +366,8 @@ compile-time change (`init!(sam; remake=true)`) and belongs in
     `test_bench.jl`). A custom component is not tested in-package; to keep the
     RHS allocation-free, read data through the `params` view (flat params compile
     to direct buffer loads) rather than `@register_symbolic` getters, which box
-    array arguments/returns and allocate. Check with
-    `validate_rhs_allocs(sam; max_bytes=0, diagnose=true)`.
+    array arguments/returns and allocate. Check with the test helper
+    `validate_rhs_allocs(sam; max_bytes=0, diagnose=true)` from `test/util.jl`.
 
 ## Aligning aero sections to structure
 
@@ -335,7 +380,7 @@ structure. This applies to both wing types and requires
 The steps are:
 
 1. **Find structural LE/TE pairs**: `identify_wing_segments`
-   extracts pairs from groups (preferred) or uses a
+   extracts pairs from twist surfaces (preferred) or uses a
    consecutive-pair heuristic
 2. **Rebuild unrefined sections**: For each structural pair, a
    new `Section` is created with LE/TE positions from the
@@ -347,8 +392,8 @@ The steps are:
    and `n_panels` is unchanged, existing refined panel polars are
    preserved — only positions are re-interpolated
 4. **Resize linearization state**: For non-PARTICLE_DYNAMICS wings, `aero_y`,
-   `aero_x`, and `aero_jac` are resized to match the new group
-   count
+   `aero_x`, and `aero_jac` are resized to match the new
+   twist-surface count
 
 ## Refined panel mapping
 
@@ -363,9 +408,9 @@ unrefined section each refined panel belongs to.
 
 ### Computation
 
-After VSM refinement, `compute_refined_panel_mapping!` finds the
-closest unrefined section for each refined panel by comparing
-center positions:
+After VSM refinement, VortexStepMethod's
+`compute_refined_panel_mapping!` finds the closest unrefined section
+for each refined panel by comparing center positions:
 
 ```julia
 for each refined_panel in wing.refined_sections
@@ -384,18 +429,18 @@ The mapping enables:
    from twist surfaces to refined panels via their parent section
 2. **Force distribution (PARTICLE_DYNAMICS)**: Accumulating refined panel
    forces at the structural points of their parent section
-3. **Linearization (RIGID_DYNAMICS + AERO_LINEARIZED)**: Propagating
-   state perturbations through the correct sections
+3. **Linearization (RIGID_DYNAMICS + [`AeroLinearized`](@ref))**:
+   Propagating state perturbations through the correct sections
 
 ## Wing type summary
 
 | Aspect | PARTICLE_DYNAMICS | RIGID_DYNAMICS |
 |--------|--------|------------|
-| **Structural repr.** | Individual WING points | Rigid body + quaternion |
+| **Structural repr.** | Individual `DYNAMIC` wing nodes | Rigid body + quaternion |
 | **Section count** | = structural LE/TE pairs | Independent; optionally rebuilt via `use_prior_polar` |
 | **Force distribution** | Per-point moment-preserving LE/TE split | Integrated force/moment on body |
-| **Deformation** | Direct: point motion → VSM geometry | Indirect: group twists → sections |
-| **Default aero mode** | `AERO_DIRECT` | `AERO_LINEARIZED` |
+| **Deformation** | Direct: point motion → VSM geometry | Indirect: twist-surface twists → sections |
+| **Default aero mode** | [`AeroDirect`](@ref) | [`AeroLinearized`](@ref) |
 
 ## Implementation files
 
@@ -403,13 +448,17 @@ The mapping enables:
   types), PARTICLE_DYNAMICS force distribution, and geometry updates
 - `src/system_structure/types.jl`: Component type definitions
   including the `WingType` enum and `AbstractAeroModel` types
-- `src/system_structure/wing.jl`: Wing and VSMWing type
-  definitions, group-to-section mapping
-- `src/generate_system/aero_eqs.jl`: Symbolic VSM equation
-  generation (all wing type × aero mode combinations)
+- `src/system_structure/wing.jl`: Wing and VSMWing definitions,
+  twist-surface-to-section mapping
+- `src/aero_modes/`: one file per aero mode (`none.jl`, `direct.jl`,
+  `linearized.jl`, `continuous.jl`, `pressure.jl`, `plate.jl`), plus
+  `common.jl` with the dispatch interface, the connector scaffolding
+  and the shared VSM numerics
+- `src/generate_system/aero_eqs.jl`: mode-agnostic wiring of the aero
+  component into the rest of the system
+- `src/generate_system/twist_surface_eqs.jl`: twist DOF equations
 - `src/generate_system/wing_eqs.jl`: Wing dynamics equation
   generation
-- `src/linearize.jl`: VSM update dispatch — linearization
-  (RIGID_DYNAMICS) and nonlinear solve (PARTICLE_DYNAMICS)
+- `src/linearize.jl`: low-frequency refresh dispatch (`refresh_aero!`)
 - VortexStepMethod.jl `src/wing_geometry.jl`:
   `refined_panel_mapping` computation

@@ -287,7 +287,7 @@ sharing it, so downstream traversal moves them as one unit. A point rides a node
 continuous structure, so all points riding any body in a joint-connected chain
 are siblings. This is how the two halves of a beam wing — bridged only through
 the beam, not by inter-point segments — are recognised as one structure. Also
-covers `WING` points of a `RIGID_DYNAMICS` wing (grouped by `wing_idx`), which
+covers the wing nodes of a `RIGID_DYNAMICS` wing (grouped by `wing_idx`), which
 carry their body association there rather than in `body_idx`.
 """
 function rigid_point_siblings(points, wings, joints)
@@ -486,7 +486,7 @@ function apply_cluster_init_stretched_len!(
 
     # Move the body, not its points: the pos~anchor constraint would snap them
     # back. A point riding a node body uses body_idx; a RIGID_DYNAMICS wing's
-    # WING points carry the association in wing_idx (body_idx is 0) instead.
+    # wing nodes carry the association in wing_idx (body_idx is 0) instead.
     moved_bodies = Set{Int64}()
     for idx in moved
         point = points[idx]

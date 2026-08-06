@@ -17,6 +17,8 @@ See [Building a system using Julia](tutorial_julia.md) and
 ```@docs
 DynamicsType
 WingType
+SegmentType
+PrincipalFrameMethod
 ```
 
 ## Aerodynamic models
@@ -54,7 +56,7 @@ SymbolicAWEModel(set::Settings, sys_struct::SystemStructure; kwargs...)
 
 ```@docs
 SystemStructure
-SystemStructure(name, set; points, groups, segments, pulleys, tethers, winches, wings, transforms)
+SystemStructure(name, set; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms, bodies, elastic_joints, timoshenko_joints)
 Point
 Point(name, pos_cad, type; wing, transform, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
 TwistSurface
@@ -93,6 +95,7 @@ Transform(name, elevation, azimuth, heading; base_point, base_pos, base_transfor
 ```@docs
 NamedCollection
 NameRef
+WeightedRefPoints
 ```
 
 ## System state

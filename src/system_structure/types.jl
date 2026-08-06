@@ -61,13 +61,16 @@ end
 """
     WingType `RIGID_DYNAMICS` `PARTICLE_DYNAMICS`
 
-Enumeration for the aerodynamic model type of a wing.
+Enumeration for the structural representation of a wing.
 
 # Elements
-- `RIGID_DYNAMICS`: Wing uses quaternion-based rigid body dynamics with twist twist_surfaces.
-  Aerodynamic forces/moments are applied to the wing center of mass.
-- `PARTICLE_DYNAMICS`: Wing uses refined per-panel forces directly applied to structural points.
-  VSM panel forces are lumped to WING-type points with no rigid body constraint.
+- `RIGID_DYNAMICS`: Wing uses quaternion-based rigid body dynamics, with the
+  deformation confined to the twist degrees of freedom of its
+  [`TwistSurface`](@ref)s. Aerodynamic forces/moments are applied to the wing
+  center of mass; its structural points are `BODY_STATIC` and ride the body.
+- `PARTICLE_DYNAMICS`: Wing has no rigid body constraint. Its structural points
+  are ordinary `DYNAMIC` particles and the aerodynamic loads are applied to them
+  directly, so the wing deforms with the structure.
 """
 @enum WingType begin
     RIGID_DYNAMICS
@@ -126,7 +129,8 @@ wing_dynamics(dynamics_type::WingType) =
 Supertype for a wing's aerodynamic model. The concrete subtype selects, by
 dispatch, the [`aero_component`](@ref) builder that emits the wing's aero
 equations. Built-in subtypes: [`AeroNone`](@ref), [`AeroDirect`](@ref),
-[`AeroLinearized`](@ref), [`AeroPlate`](@ref). Subtype it and add an
+[`AeroLinearized`](@ref), [`ContinuousAero`](@ref), [`AeroPressure`](@ref),
+[`AeroPlate`](@ref). Subtype it and add an
 `aero_component` method to plug in custom aerodynamics; see the VSM coupling
 documentation for a worked example with a live-updating field.
 """
@@ -166,8 +170,8 @@ end
 
 Aero modes backed by a [`VSMEngine`](@ref) (stored in the `engine` field). VSM
 operations dispatch on this supertype; the engine's fields (`vsm_wing`, `aero_x`,
-…) are forwarded from the mode. Built-in subtypes: [`AeroDirect`](@ref) and
-[`AeroLinearized`](@ref).
+…) are forwarded from the mode. Built-in subtypes: [`AeroDirect`](@ref),
+[`AeroLinearized`](@ref), [`ContinuousAero`](@ref) and [`AeroPressure`](@ref).
 """
 abstract type AbstractVSMAero <: AbstractAeroModel end
 
@@ -283,7 +287,7 @@ mutable struct Point
     const ext_force_w::KVec3
     "Net force on the point [N] (updated during simulation)."
     const force::KVec3
-    "Aerodynamic force in body frame [N] (PARTICLE_DYNAMICS WING points)."
+    "Aerodynamic force in body frame [N] (PARTICLE_DYNAMICS wing nodes)."
     const aero_force_b::KVec3
     "Total drag force in world frame [N], including the point's own drag and any segment drag contributions assigned to it."
     const drag_force::KVec3

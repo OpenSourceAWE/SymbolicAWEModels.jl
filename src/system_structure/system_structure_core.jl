@@ -25,9 +25,12 @@ winches, and wings, forming a complete description of the kite system's structur
 - [`TwistSurface`](@ref): Collections of points for wing deformation.
 - [`Segment`](@ref): Spring-damper elements.
 - [`Pulley`](@ref): Elements that redistribute line lengths.
-- [`Tether`](@ref): TwistSurfaces of segments controlled by a winch.
+- [`Tether`](@ref): Collections of segments controlled by a winch.
 - [`Winch`](@ref): Ground-based winches.
-- [`Wing`](@ref): Rigid wing bodies.
+- [`Body`](@ref): Rigid bodies; a wing is a body that carries aero, so
+  `sys.wings` is a filtered view of `sys.bodies`.
+- [`ElasticJoint`](@ref), [`TimoshenkoJoint`](@ref): Two-body links; a chain of
+  the latter forms a beam.
 - [`Transform`](@ref): Spatial transformations for initial positioning.
 """
 mutable struct SystemStructure{J<:ElasticJoint}
@@ -850,7 +853,7 @@ end
     setup_wing_frame!(wing, points; prn=true)
 
 Compute a wing's body frame (`R_b_to_c`, `pos_cad`) and, for `RIGID_DYNAMICS`, its
-COM offset and principal inertia, from the WING points and ref points. This is
+COM offset and principal inertia, from the wing's structural points and ref points. This is
 dynamics/geometry only — independent of the aero mode, which does its own
 mode-specific setup afterwards in [`setup_aero!`](@ref).
 
@@ -910,20 +913,25 @@ function setup_wing_frame!(wing, points; prn=true)
 end
 
 """
-    SystemStructure(name, set; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms)
+    SystemStructure(name, set; points, twist_surfaces, segments, pulleys, tethers,
+                    winches, wings, transforms, bodies, elastic_joints,
+                    timoshenko_joints)
 
-Constructs a `SystemStructure` object representing a complete kite system.
+Constructs a `SystemStructure` object representing a complete mechanical system.
+Resolves every symbolic reference to a numeric index, fills in derived properties
+and validates the result.
 
-## Physical Models
-- **"ram"**: A model with 4 deformable wing twist_surfaces and a complex pulley bridle system.
-- **"simple_ram"**: A model with 4 deformable wing twist_surfaces and direct bridle connections.
+`name` is also the `system_name` that keys the compiled-model cache, so systems
+of the same structural shape should share one.
 
 # Arguments
-- `name::String`: Model identifier ("ram", "simple_ram", or a custom name).
+- `name::String`: Model identifier, free-form.
 - `set::Settings`: Configuration parameters from `KiteUtils.jl`.
 
 # Keyword Arguments
 - `points`, `twist_surfaces`, `segments`, etc.: Vectors of the system components.
+- `vsm_set`: `VSMSettings` for VSM wings; read from `vsm_settings.yaml` when omitted.
+- `ignore_l0::Bool=false`: Recompute every segment `l0` from the CAD geometry.
 - `prn::Bool=true`: If true, print info messages about auto-generated components.
 
 # Returns
@@ -976,12 +984,12 @@ function SystemStructure(name, set;
             points, twist_surfaces, segments, pulleys,
             tethers, winches, wings, transforms)
 
-    # If no wings defined, convert WING points to STATIC
+    # If no wings defined, convert wing nodes to STATIC
     if isempty(wings)
         wing_point_idxs = findall(point -> point.is_wing_node, points)
         if !isempty(wing_point_idxs)
             @warn "No wings provided but " *
-                  "$(length(wing_point_idxs)) WING type " *
+                  "$(length(wing_point_idxs)) wing-node " *
                   "points found. Converting to STATIC."
             for idx in wing_point_idxs
                 points[idx] = Point(

@@ -126,7 +126,7 @@ end
                aero_force_point_b,
                twist_surface_y_airf)
 
-Generate equations for all point types (STATIC, DYNAMIC, WING).
+Generate equations for all point types (STATIC, DYNAMIC, BODY_STATIC).
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
@@ -141,7 +141,7 @@ Generate equations for all point types (STATIC, DYNAMIC, WING).
 - `spring_force_vec`, `drag_force`, `l0`: Pre-declared segment force variables.
 - `spring_sum_force`: Pre-declared accumulated spring/drag forces variable.
 - Other variables: Various point-specific symbolic variables.
-- `body_force`, `body_moment`: Mutable arrays to accumulate WING-point loads onto bodies.
+- `body_force`, `body_moment`: Mutable arrays to accumulate wing-node loads onto bodies.
 
 # Returns
 - Tuple `(eqs, defaults)` with updated equation vectors.

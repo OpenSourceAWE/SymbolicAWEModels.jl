@@ -347,7 +347,7 @@ function init_principal_frame!(bodies, points)
     for body in bodies
         if body.dynamics_type == RIGID_DYNAMICS
             init_principal_state!(body)
-            # pos_b: WING points' offset from COM in body frame
+            # pos_b: wing nodes' offset from COM in body frame
             com_cad = body.pos_cad .+ body.R_b_to_c * body.com_offset_b
             for point in points
                 if point.is_wing_node && point.wing_idx == body.idx

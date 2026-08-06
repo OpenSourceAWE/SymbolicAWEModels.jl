@@ -86,7 +86,7 @@ end
 
 Flat-plate aero component. Uses the same `PARTICLE_DYNAMICS` connector contract as
 the other per-point modes; it is the only one that consumes the `va`/`rho` inputs
-(the VSM particle modes read frozen forces and ignore them). Each WING point is a
+(the VSM particle modes read frozen forces and ignore them). Each wing node is a
 1-point `STATIC` [`TwistSurface`](@ref) section; the per-point force is computed
 from the section's twisted body-frame axes, the point's apparent wind, and its
 air density.
@@ -113,7 +113,7 @@ function aero_component(::AeroPlate, wing::ParticleWing, sys_struct;
             end
         end
         ts_idx == 0 && error(
-            "Wing $wing_idx: WING point $(point.idx) is not a flat-plate " *
+            "Wing $wing_idx: wing node $(point.idx) is not a flat-plate " *
             "section point.")
 
         chord_p = params.twist_surfaces[ts_idx].chord

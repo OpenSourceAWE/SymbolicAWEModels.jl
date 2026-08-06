@@ -669,7 +669,7 @@ Calculates a SHA1 hash for the topology and structure of a `SystemStructure`.
 This is used to check if a cached compiled model is still valid.
 
 Includes all structural properties that affect the symbolic equations:
-- Point connectivity and types (STATIC, DYNAMIC, WING, BODY_STATIC), including the
+- Point connectivity and types (STATIC, DYNAMIC, BODY_STATIC), including the
   beam joint a BODY_STATIC point anchors to (selects which bodies enter its equations)
 - Segment connectivity
 - TwistSurface structure and types (STATIC, DYNAMIC)

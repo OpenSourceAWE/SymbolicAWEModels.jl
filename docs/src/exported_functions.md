@@ -71,25 +71,32 @@ segment_stretch_stats
 
 ## Visualization functions
 
-SymbolicAWEModels provides plotting functionality through a package extension that
-automatically loads when you import GLMakie.
+SymbolicAWEModels provides plotting functionality through a package extension
+that loads once a Makie backend and `MakieControlPlots` are both available.
 
 ### 3D system visualization
 
 Plot the 3D structure of the system with interactive features:
 ```julia
-using GLMakie
+using GLMakie, MakieControlPlots
 plot(sys::SystemStructure; kwargs...)
 ```
 
 **Keyword arguments:**
-- `size::Tuple=(1200, 800)`: Figure size in pixels
-- `margin::Float64=10.0`: Margin around the system in world units
-- `segment_color=:black`: Default color for segments
-- `highlight_color=:red`: Color for highlighted segments
-- `show_points::Bool=true`: Show point markers
-- `show_segments::Bool=true`: Show tether segments
-- `show_orient::Bool=true`: Show wing orientation axes
+- `vector_scale::Float64=1.0`: Length scale of the force/orientation arrows
+- `force_color::Bool=false`: Colour segments by tension instead of `segment_color`
+- `segment_color=RGBf(0.25, 0.25, 0.25)`: Default colour for segments
+- `relmargin::Float64=0.2`: Margin around the system, as a fraction of its extent
+- `body_frame`: Track a wing body frame with the camera (defaults on with `aero_mapping`)
+- `zoom`, `pan_horizontal`, `pan_vertical`, `tilt_horizontal`, `tilt_vertical`: Camera placement
+- `plot_aero::Bool=true`: Draw the aerodynamic geometry of each wing
+- `extra_points`, `extra_groups`, `mesh`: Extra geometry to overlay
+
+Remaining keywords are forwarded to `plot!`, including:
+- `show_points`, `show_segments`, `show_orient`, `show_beams`: Layer visibility
+- `transparency::Bool=true`: Order-independent transparency; `false` is much faster
+- `aero_mapping::Bool=false`: Overlay the [`AeroPressure`](@ref) station→point map
+- `linewidth`, `point_size`, `beam_color`, `airfoil_color`, …: Styling
 
 **Interactive features:**
 - Hover over segments to highlight them
@@ -104,26 +111,31 @@ Plot simulation results as multi-panel time-series:
 plot(sys::SystemStructure, log::SysLog; kwargs...)
 ```
 
-**Keyword arguments:**
-- `plot_default::Bool=true`: Enable default plot panels
-- `plot_reelout::Bool=plot_default`: Show reel-out velocities
-- `plot_aero_force::Bool=plot_default`: Show aerodynamic forces
-- `plot_twist::Bool=plot_default`: Show wing twist angles
-- `plot_aoa::Bool=plot_default`: Show angle of attack
-- `plot_heading::Bool=plot_default`: Show heading angle
-- `plot_winch_force::Bool=plot_default`: Show winch forces
-- `plot_aero_moment::Bool=false`: Show aerodynamic moments
-- `plot_turn_rates::Bool=false`: Show angular velocities
-- `plot_elevation::Bool=false`: Show elevation angle
-- `plot_azimuth::Bool=false`: Show azimuth angle
-- `plot_tether_moment::Bool=false`: Show tether-induced moments
-- `plot_set_values::Bool=false`: Show set torque values
-- `suffix::String=" - " * sys.name`: Suffix for plot labels
-- `size::Tuple=(1200, 800)`: Figure size in pixels
+**Keyword arguments** — `plot_default::Bool=true` switches the default panel
+set on or off as a group; the panels below default to `plot_default`:
 
-!!! note "Automatic extension loading"
-    Simply `using GLMakie` after loading SymbolicAWEModels to make
-    the `plot` functions available.
+- `plot_reelout`: Reel-out velocities of the steering winches
+- `plot_aero_force`: z-component of the aerodynamic force
+- `plot_aoa`: Angle of attack
+- `plot_heading`: Heading and course angles
+- `plot_winch_force`: Winch forces
+
+Opt-in panels (all default `false`): `plot_twist`, `plot_turn_rates`,
+`plot_turn_radius`, `plot_aero_moment`, `plot_tether_moment`, `plot_tether`,
+`plot_tether_actual`, `plot_v_app`, `plot_elevation`, `plot_azimuth`,
+`plot_distance`, `plot_yaw_rate`, `plot_cone_angle`, `plot_old_heading`,
+`plot_kiteutils_course`, `plot_set_values`.
+
+Appearance: `suffix::String=" - " * sys.name`, `size::Tuple=(1200, 800)`,
+`label_fontsize::Int=16`, `ticklabelsize::Int=12`, `legendsize::Int=10`, and
+the per-panel limits `aoa_ylims`, `gk_ylims`, `turn_radius_ylims`.
+
+Passing a `Vector{SysLog}` instead of a single log overlays several runs on the
+same panels for comparison.
+
+!!! note "Extension loading"
+    The `plot` functions become available once both a Makie backend and
+    `MakieControlPlots` are loaded — `using GLMakie` on its own is not enough.
 
 ## Utility and helper functions
 

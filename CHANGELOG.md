@@ -56,7 +56,17 @@
   `.obj` at panel resolution and caches it under `<model_dir>/obj_geometry`.
 - `PrincipalFrameMethod` (`EIGEN_DECOMP`, `Y_ROTATION`) is exported, selecting
   how a wing's inertia tensor is diagonalized.
+- `position_slots(sys_struct)` is exported: the index layout of a `SysState`'s
+  `X/Y/Z` arrays (`points`, `panel_corners`, `wings`, `bodies`, `total`), so a
+  log consumer no longer has to reconstruct the packing by hand.
 - Replay camera pan and zoom controls (#250).
+- Makie plotting: beam elements are drawn as instanced see-through tubes
+  (`show_beams`), every layer can be toggled from the replay window, and an
+  `aero_mapping=true` overlay draws the `AeroPressure` station→point scatter
+  map (`m` toggles it live).
+- `examples/inflated_beam_fit.jl`: fits a per-joint nonlinear bending law of a
+  pressurised tube from the Comer-Levy wrinkled-section theory and validates the
+  resulting `Body`/`ElasticJoint` chain as a cantilever.
 
 ### Changed
 - BREAKING: winch motor dynamics are a type, not a builder function.
@@ -73,8 +83,10 @@
   (6-DOF pose) and `ParticleWing{A} = Body{A, ParticleDynamics}` (pose fitted
   from structural points), replacing direct use of the old wing struct.
 - The dependency stack was widened to the newer MTK/Symbolics generation
-  (Symbolics 7→8, SymbolicUtils 4→5, OrdinaryDiffEqBDF 1→2/3,
-  NonlinearSolve 4→5/6; added SteadyStateDiffEq / SymbolicIndexingInterface).
+  (Symbolics 7→8, SymbolicUtils 4→5, SymbolicIndexingInterface 0.3→0.4,
+  OrdinaryDiffEqBDF 1→2/3, OrdinaryDiffEqCore 3→4, NonlinearSolve 4→5/6,
+  SteadyStateDiffEq 2.5→3/4; `ADTypes` added as a direct dependency).
+  `VortexStepMethod` compat is raised to `4` and `KiteUtils` to `0.11.9`.
   `mtkcompile` now keeps body-frame outputs (`body_pos_w`, `body_vel_w`,
   `body_R_b_to_w`) and pulley `l0` in the torn-out state set. Not breaking:
   the package version is part of the `.bin` cache filename, so upgrading
@@ -83,8 +95,20 @@
   (#234). Rigid-body / beam element handling improved with aero separated
   into its own component (#236); `winch.speed_controlled` restored after the
   winch refactor dropped it.
+- BREAKING: the Makie extension is triggered by `MakieControlPlots` instead of
+  `Makie`, so `using GLMakie` alone no longer enables `plot`/`replay`/`record`.
+  *How to migrate:* add `using MakieControlPlots` next to your Makie backend.
 
 ### Fixed
+- Rigid-body pose drift: the principal quaternion ODE had no norm constraint, so
+  `|Q_p|` drifted (~0.999) and `quaternion_to_rotation_matrix`, which assumes a
+  unit quaternion, produced a non-orthonormal `R_b_to_w` (`det = |Q|^6`). Points
+  were placed with that skewed `R` while the getters re-orthonormalised, giving a
+  ~0.02 pose mismatch under twist. `rigid_body_eqs.jl` now carries a Baumgarte
+  term `k(1 − ‖Q‖²)Q` that holds `|Q_p|` on the unit sphere.
+- `AeroLinearized`'s refresh writes the operating-point force via
+  `apply_direct_forces!` (as `AeroDirect` does), so `wing.aero_force_b` tracks
+  the VSM solve without a second state sync.
 - `quaternion_to_rotation_matrix` now normalizes internally, dividing each
   product by `sum(abs2, q)` so the result is orthonormal for any nonzero `q`
   (no `sqrt`, no measurable cost). The integrated attitude quaternion only
@@ -97,10 +121,16 @@
   Orthonormality error is now at machine precision (9e-16 worst case over a
   steering ramp, from 3.3e-4). Regenerates the model equations, so cached
   `model_*.bin` files from earlier commits must be rebuilt (`remake=true`).
-- Wing principal frame restores the Y-axis-constrained inertia
-  diagonalization (`calc_inertia_y_rotation`) instead of the generic
-  eigendecomposition, fixing an axis-assignment flip (~90°) for near-equal
-  principal moments that caused growing lift/drag oscillation (#245).
+- Wing body frame no longer inherits the principal frame (#245). A wing that
+  declares no `origin`/`z_ref_points`/`y_ref_points` used to get
+  `R_b_to_c = R_p_to_c`, so the eigendecomposition's ambiguous axis assignment
+  for near-equal principal moments leaked into the *body* frame and flipped it
+  ~90° relative to the VSM/CAD frame, causing growing lift/drag oscillation and
+  eventual VSM non-convergence during reel-out. The fallback now keeps the CAD
+  orientation (`R_b_to_c = I`, origin at the COM), leaving the principal choice
+  a pure gauge — asserted by `test_principal_frame_invariance.jl`. For wings
+  symmetric about the XZ-plane, `principal_frame_method=Y_ROTATION` selects the
+  unique closed-form diagonalization instead of the permutation search.
 - Transform placement (`apply_azimuth_elevation!`) is now roll-free and
   zenith/nadir-safe: the current radial is rotated onto the target with a
   minimal rotation (no dependence on the source frame, undefined at the
@@ -114,7 +144,8 @@
   *How to migrate:* a `WING` point becomes `DYNAMIC` on a particle wing, or
   `BODY_STATIC` on a rigid/beam wing (riding a body via `body=`/`wing=`, or a
   beam element via `joint=`); `QUASI_STATIC` becomes `DYNAMIC`; a `FIXED`
-  twist surface becomes `KINEMATIC`. Wing↔point membership is no longer a
+  twist surface becomes `STATIC` (`KINEMATIC` is the new geometry-prescribed
+  twist source, e.g. a flap hinge). Wing↔point membership is no longer a
   point type: it is carried by `twist_surface.point_idxs`, exposed as
   `point.is_wing_node`, and queried with `wing_frame_member(point, wing_idx)`.
 - BREAKING: `auto_create_twist_surfaces!`. A section-coupled (VSM) RIGID
@@ -127,6 +158,12 @@
 - The redundant wing-side `point_idxs` list in YAML (non-breaking: the loader
   never read it — wing↔point membership is the point row's `wing_idx`
   column). Drop it from your wing definitions.
+- BREAKING: `update_segment_forces!`. Segment forces are written by
+  `update_sys_struct!` every step, so the separate refresh call had no
+  remaining caller.
+- `src/tether_properties.jl` and its `calc_spring_props` / `calc_tether_props`
+  / `in_percent_band` helpers (unexported, unused — the one-segment equivalent
+  spring fit went away with `copy_to_simple!` in v0.6.0).
 
 ## v0.12.0 12-06-2026
 

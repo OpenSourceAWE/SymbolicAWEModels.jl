@@ -34,15 +34,17 @@ making subsequent runs fast (seconds).
 
 SymbolicAWEModels provides building blocks for flexible mechanical systems:
 
-- **Point** masses — static, dynamic, or quasi-static nodes
+- **Point** masses — static, dynamic, or body-fixed nodes
 - **Segment** spring-dampers — with per-unit-length stiffness, damping,
   and drag
 - **Tether**s — collections of segments controlled by a winch
 - **Winch**es — torque-controlled motors with Coulomb and viscous friction
 - **Pulley**s — equal-tension constraints between segments
-- **Wing**s — rigid body quaternion dynamics with aerodynamic forces from
+- **Wing**s — rigid-body or particle dynamics with aerodynamic forces from
   the [Vortex Step Method](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
-- **Group**s — twist degrees of freedom for aeroelastic coupling
+- **TwistSurface**s — twist degrees of freedom for aeroelastic coupling
+- **Bodies** — plain rigid bodies, linked by **ElasticJoint**s or
+  **TimoshenkoJoint** beam elements
 - **Transform**s — spherical coordinate positioning of components
 
 These components can be combined to model a wide range of systems, from
@@ -72,6 +74,7 @@ julia --project="."
 using Pkg
 pkg"add SymbolicAWEModels"
 pkg"add GLMakie"
+pkg"add MakieControlPlots"
 ```
 
 ### Minimal example — a pendulum
@@ -79,7 +82,7 @@ pkg"add GLMakie"
 ```julia
 using SymbolicAWEModels
 using SymbolicAWEModels: Point
-using GLMakie
+using GLMakie, MakieControlPlots
 using KiteUtils: init!, next_step!
 SymbolicAWEModels.copy_data()
 set_data_path("data/base")
@@ -135,7 +138,7 @@ packages:
 
 - **[RamAirKite.jl](https://github.com/OpenSourceAWE/RamAirKite.jl)** —
   Ram air kite with bridle system, 4-tether steering, and deformable wing
-  groups
+  sections
 - **[V3Kite.jl](https://github.com/OpenSourceAWE/V3Kite.jl)** — TU Delft
   V3 leading-edge-inflatable kite, YAML-based configuration
 
@@ -144,7 +147,7 @@ packages:
 A minimal coupled aero-structural model included in `data/2plate_kite/`:
 
 ```julia
-using SymbolicAWEModels, VortexStepMethod, GLMakie
+using SymbolicAWEModels, VortexStepMethod, GLMakie, MakieControlPlots
 using SymbolicAWEModels: Point
 using KiteUtils: init!, next_step!
 SymbolicAWEModels.copy_data()
@@ -190,13 +193,14 @@ Copy examples to your project and run the interactive menu:
 
 ```julia
 using SymbolicAWEModels
-using GLMakie
+using GLMakie, MakieControlPlots
 SymbolicAWEModels.copy_data()
 SymbolicAWEModels.copy_examples()
 include("examples/menu.jl")
 ```
 
-`using GLMakie` enables the built-in plotting extension.
+Loading a Makie backend together with `MakieControlPlots` enables the
+built-in plotting extension.
 See the [Examples](https://OpenSourceAWE.github.io/SymbolicAWEModels.jl/dev/examples/)
 page for details.
 
@@ -221,16 +225,20 @@ julia --project=test test/test_point.jl
 
 | Test file | What it verifies |
 | ----------- | ------------------ |
-| `test_point` | Gravity free-fall, damping, quasi-static equilibrium |
+| `test_point` | Gravity free-fall, damping, drag terminal velocity |
 | `test_segment` | Spring-damper forces, stiffness, drag |
 | `test_wing` | RIGID_DYNAMICS and PARTICLE_DYNAMICS wing construction, VSM coupling |
 | `test_wing_dynamics` | Rigid body torque response, precession, angular momentum |
+| `test_rigid_body` | Free rigid-body motion, gravity, damping |
+| `test_joint`, `test_timoshenko_joint` | Joint and beam elements vs closed-form solutions |
 | `test_tether_winch` | Reel-out, Coulomb/viscous friction, terminal velocity |
 | `test_pulley` | Equal-tension constraints, multi-segment pulleys |
 | `test_transform` | Spherical coordinate positioning |
 | `test_quaternion_conversions` | Quaternion ↔ rotation matrix |
-| `test_quaternion_auto_groups` | Auto-generated twist DOFs |
+| `test_quaternion_auto_groups`, `test_static_twist` | Twist degrees of freedom |
 | `test_principal_body_frame` | Principal vs body frame separation |
+| `test_aero_modes` | Aero-mode dispatch and connector contract |
+| `test_continuous_aero`, `test_pressure_aero` | Live symbolic force assembly and surface-traction scatter |
 | `test_heading_calculation` | Kite heading from tether geometry |
 | `test_section_alignment` | VSM section ↔ structural point mapping |
 | `test_match_aero_sections` | Asymmetric aero/structural section matching, polar interpolation |
@@ -260,9 +268,9 @@ Key related packages:
 - [KiteControllers.jl](https://github.com/aenarete/KiteControllers.jl) —
   control algorithms
 
-Visualisation uses the built-in GLMakie extension
-(`ext/SymbolicAWEModelsMakieExt.jl`) — just `using GLMakie` to enable
-plotting.
+Visualisation uses the built-in Makie extension
+(`ext/SymbolicAWEModelsMakieExt.jl`) — load a Makie backend together with
+`MakieControlPlots` to enable plotting.
 
 - [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true)
   — scientific background for winches and tethers

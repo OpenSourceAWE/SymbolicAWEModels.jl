@@ -551,7 +551,7 @@ Adjust VSM panel positions when body frame origin changes.
 
 When RIGID_DYNAMICS wings are loaded from YAML, the panel positions in aero_geometry.yaml
 are specified in an absolute body frame. However, the body frame origin is adjusted
-to the mean position of all WING points. This function updates all panel positions
+to the mean position of all wing-nodes. This function updates all panel positions
 to be relative to the new origin by subtracting the offset.
 
 # Arguments

@@ -13,7 +13,11 @@ the file `data/system.yaml`.
     [Building a system using YAML](tutorial_yaml.md) for details.
 
 ## Parameters
-The following parameters are used by this package:
+The blocks below are the `KiteUtils.Settings` schema. This package reads a
+subset of it — notably `solver`, `tether`, `winch` and `environment`, plus
+`kite.mass`, `kite.physical_model` and `kite.crease_frac`. The remaining fields
+are consumed by other packages in the ecosystem (viewers, controllers, kite
+model packages) and are listed here so a shared `settings.yaml` validates.
 ```yaml
 system:
     log_file: "data/2plate_kite"   # filename without extension  [replay only]
@@ -35,14 +39,10 @@ solver:
 kite:
     model: ""                               # 3D model of the kite
     foil_file: ""                           # filename for the foil shape
-    physical_model: "2plate"         # name of the kite model to use
-    top_bridle_points:                      # top bridle points that are not on the kite body in CAD frame
-        - [0.290199, 0.784697, -2.61305]
-        - [0.392683, 0.785271, -2.61201]
-        - [0.498202, 0.786175, -2.62148]
-        - [0.535543, 0.786175, -2.62148]
+    physical_model: "2plate"                # system_name; feeds the model cache key
+    struc_geometry_path: "particle_structural_geometry.yaml"  # structural YAML
+    aero_geometry_path: "aero_geometry.yaml"                  # aerodynamic YAML
     crease_frac: 0.82                       # distance along normalized foil chord for the trailing edge deformation crease
-    bridle_fracs: [0.088, 0.31, 0.58, 0.93] # distances along normalized foil chord for bridle attachment points
     mass: 0.9                               # kite mass [kg]
 
 tether:
@@ -60,7 +60,8 @@ tether:
                            # SK75: 109 to 132 GPa according to datasheet
 
 winch:
-    winch_model: "TorqueControlledMachine" # or AsynchMachine
+    winch_model: "TorqueControlledMachine" # cache key only; select the motor model
+                                           # with `Winch(...; model=TorqueWinch())`
     max_force: 4000        # maximal (nominal) tether force; short overload allowed [N]
     v_ro_max:  8.0         # maximal reel-out speed                          [m/s]
     v_ro_min: -8.0         # minimal reel-out speed (=max reel-in speed)     [m/s]

@@ -56,7 +56,7 @@ pkg"add SymbolicAWEModels"
 
 ```julia
 using SymbolicAWEModels
-using GLMakie
+using GLMakie, MakieControlPlots
 using KiteUtils: init!, next_step!, update_sys_state!
 
 set = Settings("system.yaml")
@@ -93,14 +93,16 @@ For YAML-based model definition, see [Building a System using YAML](tutorial_yam
 
 SymbolicAWEModels provides building blocks for flexible mechanical systems:
 
-- [`Point`](@ref) **masses** — static, dynamic, or wing-fixed nodes
+- [`Point`](@ref) **masses** — static, dynamic, or body-fixed nodes
 - [`Segment`](@ref) **spring-dampers** — with per-unit-length stiffness, damping, and drag
 - [`Tether`](@ref)s — collections of segments controlled by a winch
 - [`Winch`](@ref)es — torque-controlled motors with Coulomb and viscous friction
 - [`Pulley`](@ref)s — equal-tension constraints between segments
-- [`Wing`](@ref AbstractWing)s — rigid body quaternion dynamics with aerodynamic forces from the
+- [`Wing`](@ref AbstractWing)s — rigid-body or particle dynamics with aerodynamic forces from the
   [Vortex Step Method](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
 - [`TwistSurface`](@ref)s — twist degrees of freedom for aeroelastic coupling
+- [`Body`](@ref)s — plain rigid bodies, linked by [`ElasticJoint`](@ref)s or
+  [`TimoshenkoJoint`](@ref) beam elements
 - [`Transform`](@ref)s — spherical coordinate positioning of components
 
 These components can be combined to model a wide range of systems, from simple
@@ -119,9 +121,9 @@ Key related packages:
 - [KiteSimulators.jl](https://github.com/aenarete/KiteSimulators.jl) — meta-package
 - [KiteControllers.jl](https://github.com/aenarete/KiteControllers.jl) — control algorithms
 
-Visualisation uses the built-in GLMakie extension
-(`ext/SymbolicAWEModelsMakieExt.jl`) — just `using GLMakie` to enable
-plotting.
+Visualisation uses the built-in Makie extension
+(`ext/SymbolicAWEModelsMakieExt.jl`) — load a Makie backend together with
+`MakieControlPlots` to enable plotting.
 
 ## See also
 - [Research Fechner](https://research.tudelft.nl/en/publications/?search=Fechner+wind&pageSize=50&ordering=rating&descending=true) for the scientific background of the winches and tethers
