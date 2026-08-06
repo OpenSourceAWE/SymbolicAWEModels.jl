@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Unreleased
+## v0.13.0 06-08-2026
 
 ### Added
 - New aero mode `ContinuousAero` (`PARTICLE_DYNAMICS`, YAML
