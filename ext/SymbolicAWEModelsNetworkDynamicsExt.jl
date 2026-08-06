@@ -845,11 +845,6 @@ function build_network(sam)
 
     body_idxs = [b.idx for b in ss.bodies if b.type == SAM.DYNAMIC]
     if !isempty(body_idxs)
-        for bidx in body_idxs
-            SAM.is_wing(ss.bodies[bidx]) && error("NetworkBackend: rigid-wing " *
-                "aero on a body vertex is not supported yet (body " *
-                "$(ss.bodies[bidx].name)).")
-        end
         return build_body_mixed_network(sam, ss, body_idxs)
     end
 
@@ -987,6 +982,49 @@ struct MixedEdgeInfo
 end
 
 """
+    build_wing_body_vertices(sam, ss, wing_body_idxs)
+
+One wide `VertexModel` per rigid-WING body (`is_wing`): the shared
+[`SAM.WingBodyVertex`](@ref) (rigid body + VSM aero) with its own body param registry and
+a separate monolith-style aero registry (full-path names, so a multi-twist-surface aero's
+leaf names do not collide). Returns `(vm_of, pv_of, areg_of)` keyed by body index, all
+empty when no wing body exists.
+"""
+function build_wing_body_vertices(sam, ss, wing_body_idxs)
+    vm_of = Dict{Int, Any}()
+    pv_of = Dict{Int, Any}()
+    areg_of = Dict{Int, Any}()
+    for bidx in wing_body_idxs
+        bpv = network_view(ss)
+        apv = SAM.ParamView(SAM.ParamRegistry(ss))
+        nm = Symbol(:wbody_, bidx)
+        vm_of[bidx] = VertexModel(
+            SAM.WingBodyVertex(sam, bpv, apv, bidx; name = nm),
+            WIDE_VERTEX_INPUTS, WIDE_VERTEX_OUTPUTS; mtkcompile = true, name = nm)
+        pv_of[bidx] = bpv
+        areg_of[bidx] = apv.reg
+    end
+    return vm_of, pv_of, areg_of
+end
+
+"""
+    record_wing_twist_params!(builder, ss, vertex, wing)
+
+Bind a wing-body vertex's per-twist-surface `twist_k`/`twist_vel_k` params (distinct names
+per surface, so multiple surfaces do not alias) to live reads of each mapped twist
+surface's `twist`/`twist_ω`.
+"""
+function record_wing_twist_params!(builder, ss, vertex, wing)
+    for (k, gidx) in enumerate(wing.twist_surface_idxs)
+        add_param!(builder, VIndex(vertex, Symbol(:twist_, k)),
+                   SAM.PathReader((:twist_surfaces, gidx, :twist)))
+        add_param!(builder, VIndex(vertex, Symbol(:twist_vel_, k)),
+                   SAM.PathReader((:twist_surfaces, gidx, :twist_ω)))
+    end
+    return nothing
+end
+
+"""
     build_body_mixed_network(sam, ss, body_idxs)
 
 Assemble a `Network` of integrated rigid bodies (`type == DYNAMIC`) together with free
@@ -1080,9 +1118,17 @@ function build_body_mixed_network(sam, ss, body_idxs)
         network_dynamic_point)
     stat_vm, stat_reg = build_wide_vertex(sam, ss, free_idxs, SAM.STATIC,
         network_static_point)
-    body_pv = network_view(ss)
-    body_vm = VertexModel(SAM.BodyVertex(sam, body_pv, body_idxs[1]; name = :body),
-        WIDE_VERTEX_INPUTS, WIDE_VERTEX_OUTPUTS; mtkcompile = true, name = :body)
+    wing_body_idxs = [b for b in body_idxs if SAM.is_wing(ss.bodies[b])]
+    plain_body_idxs = [b for b in body_idxs if !SAM.is_wing(ss.bodies[b])]
+    body_pv = nothing
+    body_vm = nothing
+    if !isempty(plain_body_idxs)
+        body_pv = network_view(ss)
+        body_vm = VertexModel(
+            SAM.BodyVertex(sam, body_pv, plain_body_idxs[1]; name = :body),
+            WIDE_VERTEX_INPUTS, WIDE_VERTEX_OUTPUTS; mtkcompile = true, name = :body)
+    end
+    wing_vm_of, wing_pv_of, wing_areg_of = build_wing_body_vertices(sam, ss, wing_body_idxs)
     static_body_pv = nothing
     static_body_vm = nothing
     if !isempty(static_body_idxs)
@@ -1097,8 +1143,8 @@ function build_body_mixed_network(sam, ss, body_idxs)
         vmodels[v] = points[i].type == SAM.STATIC ? stat_vm : dyn_vm
     end
     for (k, bidx) in enumerate(all_body_idxs)
-        vmodels[n_free + k] = ss.bodies[bidx].type == SAM.STATIC ?
-            static_body_vm : body_vm
+        vmodels[n_free + k] = ss.bodies[bidx].type == SAM.STATIC ? static_body_vm :
+            haskey(wing_vm_of, bidx) ? wing_vm_of[bidx] : body_vm
     end
 
     plain_em, plain_reg = build_wide_plain_edge(sam, ss, edge_info)
@@ -1139,12 +1185,22 @@ function build_body_mixed_network(sam, ss, body_idxs)
             record_wind_params!(builder, v)
         end
     end
-    for (vertex, bidx) in body_vertices
-        static = ss.bodies[bidx].type == SAM.STATIC
-        reg = static ? static_body_pv.reg : body_pv.reg
-        record_body_params!(builder, reg, ss, vertex, bidx; gravity = !static)
-    end
     callables = CallableBuilder()
+    for (vertex, bidx) in body_vertices
+        if ss.bodies[bidx].type == SAM.STATIC
+            record_body_params!(builder, static_body_pv.reg, ss, vertex, bidx;
+                                gravity = false)
+        elseif haskey(wing_vm_of, bidx)
+            record_body_params!(builder, wing_pv_of[bidx].reg, ss, vertex, bidx;
+                                gravity = true)
+            record_wind_params!(builder, vertex)
+            record_aero_params!(builder, callables, ss, vertex, ss.bodies[bidx],
+                                wing_areg_of[bidx])
+            record_wing_twist_params!(builder, ss, vertex, ss.bodies[bidx])
+        else
+            record_body_params!(builder, body_pv.reg, ss, vertex, bidx; gravity = true)
+        end
+    end
     record_mixed_edge_params!(builder, callables, ss, edgelist, edge_info,
                               plain_reg, wrench_reg_of, dual_reg, joint_reg_of,
                               hermite_reg_of)
@@ -2140,6 +2196,7 @@ function (g::NetworkStateGetter)(integ, ss)
         wing.aero_force_b .= force_getu(integ)
         wing.aero_moment_b .= moment_getu(integ)
     end
+    wind_factor = SAM.WindFactor(ss.am, ss.set.profile_law)
     for (body, vertex, pos_g, vel_g, R_g, omega_g, com_g, comvel_g) in g.body_readers
         body.pos_w .= pos_g(integ)
         body.vel_w .= vel_g(integ)
@@ -2153,6 +2210,11 @@ function (g::NetworkStateGetter)(integ, ss)
         end
         for k in 1:3
             body.ω_p[k] = s.v[vertex, Symbol(:omega_p_, k)]
+        end
+        if SAM.is_wing(body)
+            body.R_b_to_w .= R_b_to_w
+            body.v_wind .= wind_factor(body.pos_w[3]) .* ss.set.wind_vec
+            body.va_b .= R_b_to_w' * (body.v_wind .- body.vel_w .+ body.wind_disturb)
         end
     end
     for (ride_idx, body_idx) in g.body_static

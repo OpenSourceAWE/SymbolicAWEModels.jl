@@ -88,6 +88,7 @@ SymbolicAWEModels.elastic_joint_wrench
 SymbolicAWEModels.beam_hermite_ride_expressions
 SymbolicAWEModels.body_io
 SymbolicAWEModels.BodyVertex
+SymbolicAWEModels.WingBodyVertex
 SymbolicAWEModels.StaticBody
 SymbolicAWEModels.ground_wind_vec
 SymbolicAWEModels.DynamicPoint

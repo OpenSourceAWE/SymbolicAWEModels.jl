@@ -702,6 +702,89 @@ function StaticBody(s, params, idx; name)
 end
 
 """
+    WingBodyVertex(s, params, aero_params, idx; name)
+
+Free rigid-**wing** body vertex: [`BodyVertex`](@ref) plus the wing's VSM aero folded
+into the body wrench. The rigid aero subsystem ([`aero_component`](@ref) on the
+`RigidWing` contract — `AeroDirect`/`AeroLinearized`) is nested as `aero`, its connectors
+driven from the body's **own** pose (no `extin`): body-frame apparent wind
+`va = R_b_w'·(wind(z)·wind_gnd − vel_w)`, density at the wing height, `R_b_w`, `omega = ω_b`,
+and each twist surface's prescribed `twist`/`twist_ω`. The subsystem's body-frame
+`force`/`moment` are transported to the COM (`moment_b + force_b × com_offset_b`), rotated
+to world, and added to gravity + externals + the aggregated wrench before the shared
+[`rigid_body_pose_expressions`](@ref) integrates the 13-state pose. Same wide `body_io`
+interface as [`BodyVertex`](@ref); the aero flat params sync per VSM refresh.
+"""
+function WingBodyVertex(s, params, aero_params, idx; name)
+    vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega,
+        force_in, moment_in = body_io()
+    state = @variables com_w(t)[1:3] com_vel(t)[1:3] Q(t)[1:4] omega_p(t)[1:3]
+    body = params.bodies[idx]
+    wing = params.reg.sys_struct.bodies[idx]
+    R_p_to_w = quaternion_to_rotation_matrix(collect(Q))
+    R_b_to_w = R_p_to_w * collect(body.R_b_to_p)
+    com_off = collect(body.com_offset_b)
+    arm_w = -(R_b_to_w * com_off)
+    origin_w = collect(com_w) .+ arm_w
+    omega_w = R_p_to_w * collect(omega_p)
+    origin_vel = collect(com_vel) .+ (omega_w × arm_w)
+    omega_b = collect(body.R_b_to_p)' * collect(omega_p)
+
+    wind = WindFactor(s.am, s.set.profile_law)
+    wind_gnd = ground_wind_vec(params)
+    height = origin_w[3]
+    va_w = wind(height) .* wind_gnd .- origin_vel
+    va_b = R_b_to_w' * va_w
+    subsys = aero_component(wing.aero, wing, params.reg.sys_struct;
+                            name = :aero, params = aero_params)
+    aero_eqs = [
+        collect(subsys.va) .~ va_b
+        subsys.rho ~ calc_rho(s.am, max(0.0, height))
+        vec(collect(subsys.R_b_w)) .~ vec(R_b_to_w)
+        collect(subsys.omega) .~ omega_b
+    ]
+    twist_params = Num[]
+    if length(wing.twist_surface_idxs) > 0
+        n_ts = length(wing.twist_surface_idxs)
+        twist = [make_param(Symbol(:twist_, k), 0.0) for k in 1:n_ts]
+        twist_vel = [make_param(Symbol(:twist_vel_, k), 0.0) for k in 1:n_ts]
+        append!(twist_params, twist)
+        append!(twist_params, twist_vel)
+        aero_eqs = [aero_eqs
+                    collect(subsys.twist) .~ twist
+                    collect(subsys.twist_vel) .~ twist_vel]
+    end
+    force_b = collect(subsys.force)
+    moment_b = collect(subsys.moment)
+    aero_force_w = R_b_to_w * force_b
+    aero_moment_w = R_b_to_w * (moment_b .+ (force_b × com_off))
+
+    gravity_w = Num[0, 0, -params.set.g_earth * body.mass]
+    force_w = collect(force_in) .+ gravity_w .+ collect(body.ext_force_w) .+
+        R_b_to_w * collect(body.ext_force_b) .+ aero_force_w
+    moment_w = collect(moment_in) .+ R_b_to_w * collect(body.ext_moment_b) .+ aero_moment_w
+    ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
+        body.mass, body.R_b_to_p, body.com_offset_b, com_w, com_vel, Q, omega_p)
+    damping = collect(body.damping)
+    eqs = [
+        aero_eqs
+        [D(com_w[i]) ~ ex.d_com_w[i] for i in 1:3]
+        [D(com_vel[i]) ~ ex.d_com_vel[i] for i in 1:3]
+        [D(Q[i]) ~ ex.d_Q[i] for i in 1:4]
+        [D(omega_p[i]) ~ ex.α_p[i] - damping[i] * omega_p[i] for i in 1:3]
+        pos ~ ex.pos_w
+        vel ~ ex.vel_w
+        pulley_len_out ~ 0.0
+        [pose_R[k] ~ vec(ex.R_b_to_w)[k] for k in 1:9]
+        pose_com ~ com_w
+        pose_com_vel ~ com_vel
+        pose_omega ~ ex.R_b_to_w * ex.ω_b
+    ]
+    return System(eqs, t, [vars; state], [param_unknowns(params); twist_params];
+                  name, systems = [subsys])
+end
+
+"""
     DynamicPoint(s, params, idx; name)
 
 Particle vertex: a point mass integrating `pos`/`vel` under the net force gathered
