@@ -2897,8 +2897,30 @@ end
 
 # ======================= backend hooks ======================= #
 
+"""
+    with_component_check_disabled(f)
+
+Run `f` with NetworkDynamics' `CHECK_COMPONENT` diagnostic off, restoring it after. That
+check re-runs each freshly generated kernel once through an `AccessTracker` (an
+`AbstractArray` that logs every index touched) to catch out-of-bounds/uninitialised
+accesses. Its cost is `O(kernel size)` in compilation: on our large generated kernels (the
+Timoshenko wrench flattens to ~45k expression nodes) Julia type-infers and codegens the
+whole tree specialised for `AccessTracker`, only to throw it away — tens of seconds to
+minutes per kernel. The kernels are validated by backend-swap parity instead, so the check
+is redundant here.
+"""
+function with_component_check_disabled(f)
+    prev = NetworkDynamics.CHECK_COMPONENT[]
+    NetworkDynamics.CHECK_COMPONENT[] = false
+    try
+        return f()
+    finally
+        NetworkDynamics.CHECK_COMPONENT[] = prev
+    end
+end
+
 function SAM.build_prob!(::SAM.NetworkBackend, sam; prn = true)
-    nw, u0, p0, meta = build_network(sam)
+    nw, u0, p0, meta = with_component_check_disabled(() -> build_network(sam))
     dt = SAM.SimFloat(1 / sam.set.sample_freq)
     prob = ODEProblem(nw, u0, (0.0, dt), p0)
     SAM.sync_params!(meta.param_sync, prob, sam.sys_struct)
