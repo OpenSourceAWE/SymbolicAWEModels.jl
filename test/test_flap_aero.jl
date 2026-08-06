@@ -71,10 +71,11 @@ end
 
 function struct_yaml(joint_block)
     """
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [dyneema, 55000000000.0, 724, 0.00077]
+variables:
+  dyneema:
+    unit_stiffness: 43196.898986859655
+    unit_damping: 33.26161221988193
+    density: 724.0
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx, body, extra_mass, area, drag_coeff]
   data:
@@ -87,12 +88,13 @@ points:
     - [kcu,       [0.0,  0.0, 0.0],   DYNAMIC, main_wing, main_transform, nothing, 1.0, 0.1, 1.0]
     - [ground,    [0.0,  0.0,-20.0],  STATIC,  main_wing, main_transform, nothing, 0.0, 0.0, 0.0]
 segments:
-  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, density, compression_frac]
   data:
-    - [bridle_le, le_center, kcu, nothing, 1.0, dyneema, nothing, 0.010]
-    - [bridle_te, te_center, kcu, nothing, 1.0, dyneema, nothing, 0.010]
+    - [bridle_le, le_center, kcu, nothing, 1.0, dyneema, 0.010]
+    - [bridle_te, te_center, kcu, nothing, 1.0, dyneema, 0.010]
 tethers:
-  headers: [name, start_point, end_point, n_segments, material, diameter_mm, init_stretched_length]
+  headers: [name, start_point, end_point, n_segments, unit_stiffness,
+            unit_damping, density, diameter_mm, init_stretched_length]
   data:
     - [main_tether, kcu, ground, 4, dyneema, 1.0, 20.0]
 winches:

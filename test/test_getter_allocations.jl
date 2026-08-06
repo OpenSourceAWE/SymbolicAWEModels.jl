@@ -19,11 +19,6 @@ using SymbolicAWEModels
 using KiteUtils
 
 const GETTER_ALLOC_YAML = """
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [test_material, 55000000000.0, 724, 0.00077]
-
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
   data:
