@@ -71,11 +71,15 @@ for i in 1:n_segments
     end
 end
 
-# There are four [`DynamicsType`](@ref)s:
-# - `STATIC` — the point does not move
+# Three of the four [`DynamicsType`](@ref)s apply to a point:
+# - `STATIC` — the point is welded in the world frame
 # - `DYNAMIC` — the point moves according to
 #   ``\ddot{\mathbf{r}} = \mathbf{F}/m``
-# - `WING` — the point is rigidly attached to a wing body
+# - `BODY_STATIC` — the point rides a [`Body`](@ref) (or a beam
+#   element) rigidly and feeds its net force into that body
+#
+# The fourth, `KINEMATIC`, applies to a [`TwistSurface`](@ref) whose
+# deflection is prescribed by geometry, not to a point.
 #
 # Next, connect the points with [`Segment`](@ref)s. Each segment is
 # a spring-damper element with explicit stiffness and damping per
@@ -325,6 +329,9 @@ SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
 # | [`Winch`](@ref) | `Winch(name, tethers, n, r, Fc, cv, I; ...)` | Torque-controlled motor |
 # | [`Pulley`](@ref) | `Pulley(name, seg_i, seg_j, type)` | Equal-tension constraint |
 # | [`TwistSurface`](@ref) | `TwistSurface(name, points, type, frac; ...)` | Wing twist section |
+# | [`Body`](@ref) | `Body(name; mass, inertia_principal, pos)` | Rigid body |
+# | [`ElasticJoint`](@ref) | `ElasticJoint(name, body_a, body_b; ...)` | Lumped 6-DOF spring between bodies |
+# | [`TimoshenkoJoint`](@ref) | `TimoshenkoJoint(name, body_a, body_b; ...)` | Beam element between bodies |
 # | [`Transform`](@ref) | `Transform(name, el, az, hdg; ...)` | Spherical positioning |
 #
 # See the [Types](exported_types.md) page for full constructor
