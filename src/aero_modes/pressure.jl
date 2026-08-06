@@ -19,8 +19,8 @@ Like [`ContinuousAero`](@ref) this is a **continuous** mode: the VSM solve runs 
 `v_ind` and the per-node surface traction pattern; but the per-panel **total** force is
 re-derived symbolically every RHS step from `v_ind` and the live apparent wind (shared
 [`build_panel_force_eqs`](@ref)), so the force responds to apparent-wind changes
-between solves. The frozen traction only sets the distribution *shape*; each WING
-point's force is its frozen traction plus an equal share of `(live panel force − frozen
+between solves. The frozen traction only sets the distribution *shape*; each wing
+node's force is its frozen traction plus an equal share of `(live panel force − frozen
 pattern net)`, so per panel the point forces sum to the **live** total exactly.
 
 Like [`ContinuousAero`](@ref) the mesh **deforms with the structure**: its unrefined
@@ -33,7 +33,7 @@ is the engine-less marker filled in during wing construction.
 """
 mutable struct AeroPressure{E} <: AbstractVSMAero
     engine::Union{Nothing, E}
-    "Nearest WING-point index for every (panel, contour node): `station_point[panel][node]`."
+    "Nearest wing-node index for every (panel, contour node): `station_point[panel][node]`."
     station_point::Vector{Vector{Int64}}
     "Frame-guard tolerance: max node→point distance as a multiple of local chord."
     frame_tol_frac::SimFloat
@@ -99,10 +99,10 @@ aero_hash_id(mode::AeroPressure) = (mode.station_point, mode.panel_twist_surface
 
 Live per-refined-panel VSM force (shared [`build_panel_force_eqs`](@ref) on the
 fixed loaded mesh + live apparent wind) scattered over the frozen surface traction
-pattern. Each WING point's force is `Σ over mapped (panel, node) of
+pattern. Each wing node's force is `Σ over mapped (panel, node) of
 traction[node] + (panel_force[panel] − traction_net[panel]) / n_nodes`, so per panel
 the point forces sum to the live `panel_force` exactly. The apparent wind is the mean
-of the WING points' body-frame apparent wind (v1 uniform inflow); `v_ind`,
+of the wing's structural points' body-frame apparent wind (v1 uniform inflow); `v_ind`,
 `traction`, `traction_net` and the `cl/cd/cm` polars are flat params refreshed every
 `vsm_interval`.
 """
@@ -135,7 +135,7 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
     sec_le, sec_te =
         reconstruct_sections_sym(mode, wing, points, connectors, column)
 
-    # Live wing-level apparent wind & density: mean over the WING points (v1
+    # Live wing-level apparent wind & density: mean over the wing's structural points (v1
     # uniform inflow).
     va_wing = [sum(connectors.va[c, k] for k in 1:num_points) / num_points
                for c in 1:3]
@@ -298,14 +298,14 @@ end
     build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
 
 Build the static map from each refined panel's surface contour nodes to their
-nearest WING structural point (body frame), and apply the frame-alignment guard.
+nearest wing-node structural point (body frame), and apply the frame-alignment guard.
 Stored in `mode.station_point`; errors on a missing `section_aero` or a mesh that
 sits farther than `frame_tol_frac` chords from the points.
 """
 function build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
     wing_pts = [p for p in points if p.is_wing_node && p.wing_idx == wing.idx]
     isempty(wing_pts) && error(
-        "AeroPressure wing $(wing.name): no WING points to receive forces.")
+        "AeroPressure wing $(wing.name): no wing nodes to receive forces.")
     rot_cad_to_body = wing.R_b_to_c'
     origin_cad = wing.pos_cad
     point_idx = [p.idx for p in wing_pts]

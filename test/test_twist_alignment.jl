@@ -39,9 +39,20 @@ dt = 0.05
 init!(sam; prn=false, remake=false, remake_vsm=false)
 SymbolicAWEModels.find_steady_state!(sam)
 
-# Distance between each twist_surface's structural strut TE (body frame, under
-# the current twist) and the matching deformed VSM panel TE.
-function twist_te_diffs(sam)
+"""
+Compare each twist_surface's structural strut chord (body frame, under the
+current twist) with the matching deformed VSM panel chord.
+
+Reports the angle between the two chord vectors and their relative length
+difference rather than the TE-point distance: both endpoints share the wing
+frame, so subtracting the LE cancels the rigid-body constraint drift that
+otherwise dominates the raw distance during fast transients.
+
+The angle comes from `atan(|a × b|, a ⋅ b)` rather than `acos`, which near
+zero resolves no finer than `sqrt(eps)` rad (8.5e-7 deg per ULP of the
+cosine) and would quantize an exact match to a spurious ~1e-6 deg.
+"""
+function twist_chord_diffs(sam)
     wing = sam.sys_struct.wings[1]
     points = sam.sys_struct.points
     twist_surfaces = sam.sys_struct.twist_surfaces
@@ -67,10 +78,15 @@ function twist_te_diffs(sam)
         te_b = R' * (points[te_idx].pos_w - origin)
         k = argmin([norm(Vector(s.LE_point) - le_b)
                     for s in refined])
+        sec_le = Vector(refined[k].LE_point)
         sec_te = Vector(refined[k].TE_point)
+        chord_struct = te_b - le_b
+        chord_vsm = sec_te - sec_le
         push!(rows, (name=g.name, twist=g.twist,
-            struct_te=te_b, vsm_te=sec_te,
-            diff=norm(sec_te - te_b)))
+            angle=rad2deg(atan(norm(chord_struct × chord_vsm),
+                               dot(chord_struct, chord_vsm))),
+            length_err=abs(norm(chord_vsm) - norm(chord_struct)) /
+                       norm(chord_struct)))
     end
     VortexStepMethod.unrefined_deform!(vsm, zeros(Float64, n_unref))
     return rows
@@ -80,7 +96,17 @@ function report(label, rows)
     for r in rows
         println("[$label] twist_surface $(r.name): twist=",
             round(r.twist; digits=5),
-            "  diff=", round(r.diff; digits=7))
+            "  angle=", r.angle, " deg  length_err=", r.length_err)
+    end
+end
+
+static_rows = twist_chord_diffs(sam)
+report("static", static_rows)
+
+@testset "twist chord alignment at rest" begin
+    for r in static_rows
+        @test r.angle < 1e-9
+        @test r.length_err < 1e-12
     end
 end
 
@@ -96,12 +122,16 @@ for step in 1:60
         l0_right + steer
     next_step!(sam; dt, vsm_interval=1)
 end
-dyn_rows = twist_te_diffs(sam)
+dyn_rows = twist_chord_diffs(sam)
 report("dynamic", dyn_rows)
 
-@testset "twist TE alignment" begin
+# Both coupled paths agree to machine precision here too (~1e-13 deg), so the
+# bounds only need enough slack for the trajectory landing elsewhere on another
+# platform; a broken coupling misaligns the chord by degrees.
+@testset "twist chord alignment under steering" begin
     @test any(r -> abs(r.twist) > 0.1, dyn_rows)
     for r in dyn_rows
-        @test r.diff < 1e-3
+        @test r.angle < 1e-5
+        @test r.length_err < 1e-10
     end
 end

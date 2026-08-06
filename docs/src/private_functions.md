@@ -243,7 +243,6 @@ SymbolicAWEModels.apply_aero_z_offset!
 SymbolicAWEModels.calc_particle_dynamics_wing_frame
 SymbolicAWEModels.principal_frame
 SymbolicAWEModels.calc_inertia_y_rotation
-SymbolicAWEModels.PrincipalFrameMethod
 SymbolicAWEModels.init_principal_state!
 SymbolicAWEModels.is_wing
 SymbolicAWEModels.wing_dynamics
@@ -254,7 +253,6 @@ SymbolicAWEModels.rotate_vsm_sections!
 SymbolicAWEModels.AERO_SCALE_CHORD
 SymbolicAWEModels.body_vsm_engine
 SymbolicAWEModels.expand_auto_tethers!
-SymbolicAWEModels.WeightedRefPoints
 SymbolicAWEModels.resolve!
 SymbolicAWEModels.validate_weights!
 SymbolicAWEModels.SegmentType

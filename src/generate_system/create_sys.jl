@@ -173,7 +173,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # ==================== CALL COMPONENT FUNCTIONS ==================== #
 
-    # 1. Point equations (also accumulate WING-point loads into body_force/moment).
+    # 1. Point equations (also accumulate wing-node loads into body_force/moment).
     eqs, defaults = point_eqs!(
         s, eqs, defaults, points, segments, twist_surfaces, wings, params, initial;
         R_b_to_w, com_w,

@@ -6,13 +6,13 @@ CurrentModule = SymbolicAWEModels
 
 ## Visualization with GLMakie
 
-SymbolicAWEModels provides plotting functionality through a package extension that
-automatically loads when you use GLMakie. Simply `using GLMakie` after loading
-SymbolicAWEModels to enable all plotting functions.
+SymbolicAWEModels provides plotting functionality through a package extension.
+It loads once both a Makie backend and `MakieControlPlots` are available:
 
 ```julia
 using SymbolicAWEModels
-using GLMakie  # Automatically loads the plotting extension
+using GLMakie
+using MakieControlPlots  # together these load the plotting extension
 ```
 
 **3D system structure** — interactive visualization with clickable segments:
@@ -47,7 +47,7 @@ See the [Functions](exported_functions.md) page for plotting keyword arguments.
 **Registry users** — copy examples and data to your project:
 ```julia
 using SymbolicAWEModels
-using GLMakie
+using GLMakie, MakieControlPlots
 SymbolicAWEModels.copy_data()
 SymbolicAWEModels.copy_examples()
 include("examples/menu.jl")  # Interactive menu
@@ -70,10 +70,11 @@ These examples demonstrate the building blocks without aerodynamics:
 |---------|-------------|
 | `hanging_mass.jl` | Simplest possible system: a mass on a spring |
 | `catenary_line.jl` | Multi-segment tether hanging under gravity |
-| `simple_pulley.jl` | Two segments with a pulley constraint |
 | `pulley.jl` | Pulley system with winch control |
 | `saddle_form.jl` | Complex mesh demonstrating 3D structures |
 | `airbag.jl` | Pressurized square membrane inflating under internal gauge pressure |
+| `inflated_beam_fit.jl` | Fits a nonlinear bending law for a pressurised tube and validates the [`Body`](@ref)/[`ElasticJoint`](@ref) chain as a cantilever |
+| `custom_tape_winch.jl` | Plugging in a custom [`AbstractWinchModel`](@ref) |
 
 ## Coupled examples
 
@@ -119,28 +120,47 @@ end
 
 See `coupled_2plate_kite.jl` for the full example with logging and replay.
 
+### Other coupled examples
+
+| Example | Description |
+|---------|-------------|
+| `coupled_2plate_kite_linear_vsm.jl` | The same kite with [`AeroLinearized`](@ref) aerodynamics |
+| `coupled_tether_deflection.jl` | Tether deflection under aerodynamic load |
+| `coupled_linearize.jl` | State-space linearization of a coupled model |
+| `cosine_steering_trajectory.jl` | Prescribed cosine steering input |
+| `heading_gate.jl` | Heading tracking through a gate |
+| `kps4_comparison.jl` | [`PlateWing`](@ref) kite against the KiteModels kps4 reference |
+| `vsm_linearization.jl` | Plots the VSM linearisation tangents around the operating point |
+| `sam_tutorial.jl` | Step-by-step model build, mirroring the Julia tutorial |
+
 ### External kite models
 
 Full kite models with bridle systems, detailed aerodynamics, and validation
 have been moved to dedicated packages:
 
 - **[RamAirKite.jl](https://github.com/OpenSourceAWE/RamAirKite.jl)** —
-  Ram air kite with 4-tether steering and deformable wing groups
+  Ram air kite with 4-tether steering and deformable wing sections
 - **[V3Kite.jl](https://github.com/OpenSourceAWE/V3Kite.jl)** —
   TU Delft V3 leading-edge-inflatable kite (YAML-based)
 
 ## Real-time visualization
 
-The `coupled_realtime_visualization.jl` example demonstrates a custom simulation loop with
-real-time 3D visualization using Makie observables. Key concepts:
+To watch a simulation live, call `plot(sam.sys_struct)` once to build the scene
+and then `plot!(sam.sys_struct)` inside the loop. `plot!` pushes new positions
+into the existing Makie observables rather than rebuilding the scene, so the
+cost per frame is a redraw, not a re-plot:
 
-- Create `Observable` objects for dynamic data (positions, orientations)
-- Update observables in the simulation loop at a configurable interval
-- Use sleep timing to maintain real-time pacing
+```julia
+plot(sam.sys_struct)
+dt = 0.05
+for _ in 1:500
+    t_start = time()
+    next_step!(sam; dt)
+    plot!(sam.sys_struct)
+    sleep(max(0, dt - (time() - t_start)))
+end
+```
 
-Configuration:
-- `realtime_factor`: Speed multiplier (2.0 = 2x speed)
-- `plot_interval`: Update plot every N steps
-- `dt`: Simulation time step
-
-See `examples/coupled_realtime_visualization.jl` for the full implementation.
+Update only every few steps if the physics runs faster than the display. To
+review a finished run instead, log it and use `replay` (see
+`coupled_2plate_kite.jl`).

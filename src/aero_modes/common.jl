@@ -57,7 +57,7 @@ provides_aero_override(::AbstractAeroModel) = false
 """
     stores_point_force(mode::AbstractAeroModel) -> Bool
 
-`true` if a WING point's `aero_force_b` is meaningful for this mode.
+`true` if a wing node's `aero_force_b` is meaningful for this mode.
 [`AeroNone`](@ref) returns `false` (it produces no force).
 """
 stores_point_force(::AbstractAeroModel) = true
@@ -70,7 +70,7 @@ stores_point_force(::AbstractAeroModel) = true
 Short identifier for the mode in the compiled-model cache filename. Required: the
 `AbstractAeroModel` fallback errors, so every aero mode must declare its own tag
 (no silent default that could collide two distinct modes on one cache file).
-Built-ins: `"lin"`, `"dir"`, `"none"`, `"plate"`.
+Built-ins: `"lin"`, `"dir"`, `"cont"`, `"press"`, `"none"`, `"plate"`.
 """
 aero_mode_tag(mode::AbstractAeroModel) = error(
     "aero_mode_tag is not defined for aero mode $(typeof(mode)); " *
@@ -108,7 +108,7 @@ calc_side_slip(wing) =
 Normalized (per-unit-mass) inertia of the wing body about its COM in the CAD
 frame, with `inertia` in [m²] — multiply by the wing's mass for the physical
 tensor [kg·m²]. `inertia` is `nothing` when there is no mass to normalize
-by. The default normalizes the WING-point point-mass inertia
+by. The default normalizes the wing nodes' point-mass inertia
 ([`normalized_point_inertia`](@ref)); VSM modes with an `ObjWing` mesh
 return the per-unit-mass mesh tensor as-is (its COM is `-T_cad_body`) and
 fall back to the point masses otherwise.
@@ -126,9 +126,9 @@ end
 """
     normalized_point_inertia(wing, points) -> (com_cad, inertia)
 
-Per-unit-mass inertia of the wing's WING points treated as point masses
+Per-unit-mass inertia of the wing's wing nodes treated as point masses
 (`extra_mass`), normalized by their total mass. Exact under the construction
-invariant `wing.mass == sum of WING-point masses` (the constructor
+invariant `wing.mass == sum of wing-node masses` (the constructor
 distributes `set.mass` onto the points). With zero total mass, `com_cad` is
 the unweighted centroid and `inertia` is `nothing`.
 """
@@ -208,7 +208,7 @@ end
 """
     frozen_point_force_component(wing::AbstractWing, sys_struct; name, params) -> System
 
-Particle aero component binding each WING point's connector force to its frozen
+Particle aero component binding each wing node's connector force to its frozen
 `point.aero_force_b` flat parameter (synced every refresh). Shared by the modes
 that store a precomputed per-point force ([`AeroDirect`](@ref),
 [`AeroPressure`](@ref)); the difference between those modes is only how the
@@ -383,7 +383,7 @@ outputs; connectors a mode ignores still exist for binding):
 - `RIGID_DYNAMICS` (`num = length(wing.twist_surface_idxs)`): in `va[1:3]`,
   `rho`, `R_b_w[1:3,1:3]`, `omega[1:3]`, `twist[1:num]`, `twist_vel[1:num]`;
   out `force[1:3]`, `moment[1:3]`, `twist_moment[1:num]`.
-- `PARTICLE_DYNAMICS` (`np = number of WING points`): in `point_pos[1:3,1:np]`,
+- `PARTICLE_DYNAMICS` (`np = number of wing nodes`): in `point_pos[1:3,1:np]`,
   `point_vel[1:3,1:np]`, `va[1:3,1:np]`, `rho[1:np]`; out `point_force[1:3,1:np]`.
 
 A mode supports a dynamics type by defining the matching method (rigid,

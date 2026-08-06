@@ -33,11 +33,17 @@ A YAML file can contain any of these top-level blocks:
 | `points` | Point masses (nodes in the system) |
 | `segments` | Spring-damper connections |
 | `pulleys` | Equal-tension constraints |
-| `groups` | Deformable wing sections |
+| `twist_surfaces` | Deformable wing sections (twist DOF) |
 | `tethers` | Winch-controlled segment groups |
 | `winches` | Torque-controlled motors |
 | `wings` | Aerodynamic bodies |
+| `bodies` | Plain rigid bodies |
+| `elastic_joints` | Lumped 6-DOF springs between two bodies |
+| `timoshenko_joints` | Beam elements between two bodies |
 | `transforms` | Spherical coordinate positioning |
+
+A file needs at least a `points` or a `bodies` block; everything else is
+optional.
 
 Each block uses a **headers + data** format:
 
@@ -137,29 +143,41 @@ When a material is referenced, derived properties are calculated automatically:
 - **`unit_stiffness`** = `youngs_modulus * pi * (diameter_mm/2000)^2`
 - **`unit_damping`** = `damping_per_stiffness * unit_stiffness`
 
+The material's `density` [kg/m³] is carried onto the segment and used for its
+mass, so different tethers can use different materials. Without one, the global
+`set.rho_tether` applies.
+
 ## Component reference
 
 ### Points
 
 ```yaml
 points:
-  headers: [idx, pos_cad, type, wing_idx, transform_idx,
-            extra_mass, body_frame_damping, world_frame_damping,
-            area, drag_coeff]
+  headers: [name, pos_cad, type, wing_idx, transform_idx, body, joint,
+            vel_w, extra_mass, body_frame_damping, world_frame_damping,
+            area, drag_coeff, fix_sphere, fix_static]
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `idx` | Int | required | Point identifier |
+| `name` | String/Int | required | Point identifier (`idx` also accepted) |
 | `pos_cad` | [x,y,z] | required | Position in CAD frame [m] |
-| `type` | String | required | `STATIC`, `DYNAMIC`, or `WING` |
+| `type` | String | required | `STATIC`, `DYNAMIC`, or `BODY_STATIC` |
 | `wing_idx` | Int/nothing | 1 | Wing this point belongs to |
 | `transform_idx` | Int/nothing | nothing | Transform for initial positioning |
+| `body` | Ref/nothing | nothing | `BODY_STATIC`: body the point rides |
+| `joint` | Ref/nothing | nothing | `BODY_STATIC`: beam element the point rides |
+| `vel_w` | [x,y,z] | zeros | Initial world-frame velocity [m/s] |
 | `extra_mass` | Float | 0.0 | Additional mass [kg] |
 | `body_frame_damping` | Float | 0.0 | Damping in body frame [Ns/m] |
 | `world_frame_damping` | Float | 0.0 | Damping in world frame [Ns/m] |
 | `area` | Float | 0.0 | Cross-sectional area for drag [m^2] |
 | `drag_coeff` | Float | 0.0 | Drag coefficient |
+| `fix_sphere` | Bool | false | Constrain the point to a sphere |
+| `fix_static` | Bool | false | Dynamically freeze the point position |
+
+A `BODY_STATIC` point rides a rigid body (`body:`, or `wing:` for a wing body)
+or a beam element (`joint:`); its body-frame offset is derived from `pos_cad`.
 
 ### Segments
 
@@ -192,6 +210,7 @@ segments:
 | `unit_stiffness` | Float/String | Per-unit-length stiffness [N], or material name |
 | `unit_damping` | Float/nothing | Per-unit-length damping [Ns], or nothing for auto |
 | `compression_frac` | Float | Compressive/tensile stiffness ratio (0-1) |
+| `density` | Float/nothing | Material density [kg/m³]; falls back to `set.rho_tether` |
 
 ### Pulleys
 
@@ -228,6 +247,71 @@ winches:
   data:
     - [1, [1], ground]
 ```
+
+### Twist surfaces
+
+A [`TwistSurface`](@ref) is a wing section with a twist degree of freedom.
+`point_idxs` (or `points`) lists its structural points; `type` is `DYNAMIC`
+(twist solves its equilibrium), `STATIC` (twist is a prescribed control input)
+or `KINEMATIC` (a flap hinge whose deflection follows two bodies).
+
+```yaml
+twist_surfaces:
+  headers: [name, point_idxs, type, moment_frac, damping, stiffness]
+  data:
+    - [left,   [le_left, te_left],     DYNAMIC, 0.25, 100.0, 0.0]
+    - [center, [le_center, te_center], DYNAMIC, 0.25, 100.0, 0.0]
+```
+
+### Wings
+
+```yaml
+wings:
+  data:
+    - name: main_wing
+      dynamics_type: RIGID_DYNAMICS   # or PARTICLE_DYNAMICS
+      aero_mode: linearized           # direct | continuous | pressure | plate | none
+      twist_surfaces: [left, center, right]
+      origin_idx: kcu
+      z_ref_points: [kcu, le_center]
+      y_ref_points: [le_right, le_left]
+      aero_z_offset: 0.0
+```
+
+Mass properties (`mass`, `com`, `unit_inertia`) are optional columns; when
+omitted they are computed from the wing's `.obj` mesh if one is supplied, and
+otherwise fall back to point-mass inertia.
+
+### Bodies and joints
+
+A [`Body`](@ref) is a plain rigid body — no aerodynamics, no structural points
+of its own. Bodies are linked by [`ElasticJoint`](@ref)s (a lumped 6-DOF
+spring) or [`TimoshenkoJoint`](@ref)s (a 2-node beam element); a chain of the
+latter forms a beam. `BODY_STATIC` points ride a body (`body_idx`) or a beam
+element (`joint`).
+
+```yaml
+bodies:
+  headers: [name, mass, inertia_principal, pos, type]
+  data:
+    - [nodeA, 1.0, [0.01, 0.01, 0.01], [0.0, 0.0, 0.0], STATIC]
+    - [nodeB, 1.0, [0.01, 0.01, 0.01], [1.0, 0.0, 0.0], DYNAMIC]
+
+timoshenko_joints:
+  headers: [name, body_a, body_b, EA, GA, GJ, EIy, EIz, shear_coeff,
+            damping_trans, damping_rot]
+  data:
+    - [joint, nodeA, nodeB, 10000.0, 1500.0, 50.0, 100.0, 100.0, 0.8333,
+       200.0, 3.0]
+
+points:
+  headers: [name, pos_cad, type, body_idx]
+  data:
+    - [tip_anchor, [1.0, 0.0, 0.0], BODY_STATIC, nodeB]
+```
+
+Scalar joint columns are linear laws; nonlinear (callable) stiffness laws are
+supplied programmatically, not from YAML.
 
 ### Transforms
 
@@ -266,7 +350,7 @@ init!(sam)
 
 After compilation, a cache file (`model_*.bin`) is saved. Subsequent loads skip the
 expensive symbolic compilation and deserialize the cached model instead. Force a
-rebuild with `remake_cache=true`.
+rebuild with `init!(sam; remake=true)`.
 
 ## YAML vs Julia
 

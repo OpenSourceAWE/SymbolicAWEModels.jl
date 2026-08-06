@@ -20,7 +20,7 @@ const AERO_SCALE_CHORD = 0.0
 """
     identify_wing_segments(wing_points; twist_surfaces=nothing, wing_twist_surface_idxs=nothing)
 
-Identify wing segments (LE/TE pairs) from WING-type points.
+Identify wing segments (LE/TE pairs) from wing nodes.
 
 When `twist_surfaces` and `wing_twist_surface_idxs` are provided, uses twist_surface `point_idxs`
 to determine LE (`point_idxs[1]`) and TE (`point_idxs[end]`) for each
@@ -31,7 +31,7 @@ In both paths an x-coordinate check swaps LE/TE if needed (LE has
 smaller `pos_cad[1]`).
 
 # Arguments
-- `wing_points::AbstractVector{Point}`: WING-type points for a wing.
+- `wing_points::AbstractVector{Point}`: wing nodes for a wing.
 
 # Keyword Arguments
 - `twist_surfaces::Union{Nothing, AbstractVector{TwistSurface}}`: All twist_surfaces in the
@@ -146,7 +146,7 @@ function match_aero_sections_to_structure!(
         n_points = length(wing_points)
         n_points % 2 == 0 || error(
             "Wing $(wing.idx): no twist_surfaces and odd " *
-            "number of WING points " *
+            "number of wing nodes " *
             "($(n_points)). Define twist_surfaces to " *
             "specify LE/TE pairs.")
         n_struct_sections = n_points ÷ 2
@@ -242,7 +242,7 @@ per unrefined section — into the `structural point → (section_idx, :LE/:TE)`
 Each unrefined section contributes exactly its LE and TE structural points. Any
 interior points on the same station (chord control points on the beam) are not
 aero station points and are simply absent from the map; there is no constraint on
-the total WING-point count.
+the total wing-node count.
 """
 function build_point_to_vsm_point_mapping(
     wing_segments::AbstractVector{Tuple{Int64, Int64}},
@@ -330,7 +330,7 @@ forces (moment-preserving about the chosen reference) and then aggregated to
 the structural LE/TE points of the parent section (1:1 mapping).
 
 # Algorithm
-1. Initialize all WING point aero_forces to zero
+1. Initialize all wing-node aero_forces to zero
 2. Build inverse mapping from section → LE/TE structural point indices
 3. For each refined panel of this wing:
    - Get panel force/moment from solver solution (body frame)
@@ -340,7 +340,7 @@ the structural LE/TE points of the parent section (1:1 mapping).
 
 # Arguments
 - `wing::Body`: Wing with PARTICLE_DYNAMICS type and solved VSM state
-- `points::AbstractVector{Point}`: All structural points (will filter for WING type)
+- `points::AbstractVector{Point}`: All structural points (filtered to this wing's nodes)
 """
 function distribute_panel_forces_to_points!(wing::Body, points::AbstractVector{Point})
     @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only distribute forces for PARTICLE_DYNAMICS wings"
@@ -351,7 +351,7 @@ function distribute_panel_forces_to_points!(wing::Body, points::AbstractVector{P
     f_body = sol.f_body_3D
     m_body = sol.m_body_3D
 
-    # Initialize all WING point forces to zero
+    # Initialize all wing-node forces to zero
     for point in points
         if point.is_wing_node && point.wing_idx == wing.idx
             point.aero_force_b .= 0.0
@@ -418,7 +418,7 @@ This creates two-way coupling: structural deformation → VSM sections → aero 
 
 # Algorithm
 Uses direct 1:1 correspondence between structural points and VSM section points:
-1. For each structural WING point:
+1. For each structural wing node:
    - Calculate current position in body frame: pos_b = R_b_to_w' * (pos_w - origin)
    - Find corresponding VSM section point (LE or TE) via wing.point_to_vsm_point
    - Set VSM section point directly: section.LE_point = pos_b (or TE_point)
@@ -430,7 +430,7 @@ Uses direct 1:1 correspondence between structural points and VSM section points:
 
 # Arguments
 - `wing::Body`: Wing with PARTICLE_DYNAMICS type
-- `points::AbstractVector{Point}`: All structural points (will filter for WING type)
+- `points::AbstractVector{Point}`: All structural points (filtered to this wing's nodes)
 """
 function update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Point})
     @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only update wing geometry for PARTICLE_DYNAMICS wings"

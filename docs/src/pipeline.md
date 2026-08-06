@@ -20,11 +20,11 @@ This page explains each stage.
 │ Segment()    │   │ validate     │   │ segment_eqs!()   │   │ cache to .bin│
 │ Wing()       │   │ compute COM  │   │ wing_eqs!()      │   │              │
 │ Winch()      │   │              │   │ winch_eqs!()     │   │              │
-│ ...          │   │              │   │ aero_eqs!()       │   │              │
+│ ...          │   │              │   │ aero_eqs!()      │   │              │
 └──────────────┘   └──────────────┘   └──────────────────┘   └──────────────┘
                                             │
                                             ▼
-                                  structural_simplify()
+                                        mtkcompile
 ```
 
 ## Stage 1: component definition
@@ -56,8 +56,9 @@ The [`SystemStructure`](@ref) constructor takes the component vectors and:
    `assign_indices_and_resolve!()`
 3. **Computes derived properties**:
    - Segment `l0` from point positions (if zero)
-   - Wing center of mass from mass-weighted point centroids
-   - Inertia tensor from point masses
+   - Wing center of mass and inertia tensor — from the `.obj` mesh when one is
+     supplied, otherwise from the mass-weighted point masses
+   - Body and principal frames ([`PrincipalFrameMethod`](@ref))
    - VSM panel geometry adjustments
 4. **Validates** — checks for NaN masses, zero stiffness, invalid pulley constraints,
    etc. via `validate_sys_struct()`
@@ -81,11 +82,15 @@ using ModelingToolkit.jl. It calls specialized equation builders for each subsys
 | `tether_eqs!()` | `src/generate_system/tether_eqs.jl` | Tether length kinematics |
 | `pulley_eqs!()` | `src/generate_system/pulley_eqs.jl` | Equal-tension constraints |
 | `twist_surface_eqs!()` | `src/generate_system/twist_surface_eqs.jl` | Twist deformation dynamics |
+| `rigid_body_eqs!()` | `src/generate_system/rigid_body_eqs.jl` | 6-DOF body dynamics in the principal frame |
+| `body_eqs!()` | `src/generate_system/body_eqs.jl` | Body-frame pose outputs |
+| `joint_eqs!()` | `src/generate_system/joint_eqs.jl` | [`ElasticJoint`](@ref) 6-DOF springs |
+| `timoshenko_joint_eqs!()` | `src/generate_system/timoshenko_joint_eqs.jl` | Corotational beam elements |
 | `scalar_eqs!()` | `src/generate_system/scalar_eqs.jl` | Winch dynamics, kinematics |
-| `aero_eqs!()` | `src/generate_system/aero_eqs.jl` | Linearized aerodynamics from VSM |
+| `aero_eqs!()` | `src/generate_system/aero_eqs.jl` | Wires each wing's aero component (mode-agnostic) |
 
-After generating all equations, `structural_simplify()` from ModelingToolkit reduces
-the DAE system by eliminating algebraic constraints and identifying the minimal set
+After generating all equations, `mtkcompile` from ModelingToolkit reduces the
+DAE system by eliminating algebraic constraints and identifying the minimal set
 of independent variables.
 
 ## Stage 4: compilation and caching
@@ -95,11 +100,14 @@ initializes the ODE integrator. This stage is expensive on first run because Jul
 JIT-compiles the generated code.
 
 The compiled system is serialized to a binary cache file
-(`model_<julia_ver>_<name>_<dynamics_type>_...bin`) in the data directory. On subsequent
-runs, the cached model is deserialized instead of recompiled, reducing startup from
-minutes to seconds.
+(`model_<pkg_ver>_<julia_ver>_<name>_<dynamics_type>_<aero_tag>_...bin`) in the data
+directory. On subsequent runs, the cached model is deserialized instead of
+recompiled, reducing startup from minutes to seconds. The package version is part
+of the filename, so upgrading invalidates stale caches automatically.
 
-Force a rebuild by deleting the cache file or passing `remake_cache=true`.
+Force a rebuild by deleting the cache file or passing `init!(sam; remake=true)`.
+A model carrying a custom aero or winch component rebuilds by default — its
+equations are not captured by the model hash.
 
 ## Stage 5: time-stepping
 
@@ -123,21 +131,24 @@ end
 
 ## Runtime parameter changes
 
-The symbolic system uses **registered functions** (`@register_symbolic`) that read
-from the mutable component structs at ODE evaluation time. This means many parameters
+Numeric fields of the component structs are emitted as **flat MTK parameters** and
+synced from the live [`SystemStructure`](@ref) once per step, so many parameters
 can be changed at runtime without recompiling:
 
 - Winch parameters: `inertia_total`, `f_coulomb`, `c_vf`, `gear_ratio`
 - Segment properties: `l0` (via tether/winch control)
-- Wing damping: `body_frame_damping`, `world_frame_damping`
-- VSM state: `aero_jac`, `aero_x`, `aero_y` (updated by `refresh_aero!()`)
+- Point damping: `body_frame_damping`, `world_frame_damping`
+- Aero state: `aero_jac`, `aero_x`, `aero_y`, `aero_force_b` (updated by
+  `refresh_aero!()`)
 
-Since registered functions read directly from the structs, changes take effect
-instantly on the next ODE evaluation — no `init!` or `remake` call is needed.
+Mutate the struct field between steps and it is picked up at the next sync — no
+`init!` or `remake` call is needed. Flat parameters compile to direct buffer
+loads, which is why the generated RHS is allocation-free.
 
 Changes that **do** require recompilation (rebuilding the symbolic system):
-- Adding or removing components (points, segments, wings)
+- Adding or removing components (points, segments, wings, bodies, joints)
 - Changing the system topology (which points connect to which)
 - Changing dynamics types (STATIC ↔ DYNAMIC)
+- Changing an aero mode, or any structural field it reports via `aero_hash_id`
 
 These require creating a new [`SystemStructure`](@ref) and [`SymbolicAWEModel`](@ref).

@@ -38,11 +38,13 @@ This is the recommended approach for most users who want to use SymbolicAWEModel
    julia --project=.
    ```
 
-3. **Add SymbolicAWEModels and GLMakie**:
+3. **Add SymbolicAWEModels, GLMakie and MakieControlPlots** (the plotting
+   extension needs both a Makie backend and `MakieControlPlots`):
    ```julia
    using Pkg
    pkg"add SymbolicAWEModels"
    pkg"add GLMakie"
+   pkg"add MakieControlPlots"
    ```
 
    **Alternatively**, use the package manager mode (press `]` to enter, backspace to exit):
@@ -50,6 +52,7 @@ This is the recommended approach for most users who want to use SymbolicAWEModel
    ]  # Press ] to enter Pkg mode - prompt changes to (my_kite_project) pkg>
    add SymbolicAWEModels
    add GLMakie
+   add MakieControlPlots
    ```
 
    **Common Pkg commands:**

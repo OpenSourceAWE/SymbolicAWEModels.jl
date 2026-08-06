@@ -2,11 +2,13 @@
 
 ## Overview
 
-SymbolicAWEModels uses three coordinate frames to describe geometry
+SymbolicAWEModels uses four coordinate frames to describe geometry
 and dynamics:
 
 - **CAD frame (c)**: where geometry is originally defined
 - **Body frame (b)**: attached to the wing, used for aerodynamics
+- **Principal frame (p)**: diagonal-inertia frame carrying the
+  rigid-body ODE state; a constant rotation off the body frame
 - **World frame (w)**: the simulation frame
 
 The transformation chain is:
@@ -94,14 +96,16 @@ vector are expressed in the world frame.
 
 ## Body Frame — RIGID_DYNAMICS
 
-For `RIGID_DYNAMICS` wings, the body frame is **auto-computed**
-as the principal-axis frame of the wing's point masses. This
-diagonalizes the XZ-block of the inertia tensor, which simplifies
-the rotational equations of motion.
+For `RIGID_DYNAMICS` wings the body frame is built the same way as
+for `PARTICLE_DYNAMICS` — from user-chosen reference points (see
+below) — but it is frozen at construction as a constant
+``R_{b \to c}`` instead of being refitted every step, since the wing
+body is rigid. If a wing declares no `origin`/`z_ref_points`/
+`y_ref_points`, the body frame keeps the CAD orientation
+(``R_{b \to c} = I``) with its origin at the COM.
 
-### Algorithm
-
-Given the set of `WING`-type points assigned to this wing:
+Given the wing's structural points (its wing nodes) and, for a wing
+loaded from an `.obj` mesh, the mesh mass properties:
 
 1. **COM**: mass-weighted centroid in CAD frame
    ``\text{com} = \frac{\sum m_i \, \mathbf{p}_i}{\sum m_i}``
@@ -110,24 +114,39 @@ Given the set of `WING`-type points assigned to this wing:
        (\mathbf{r}_i \cdot \mathbf{r}_i)\, \mathbf{I}_3
        - \mathbf{r}_i \mathbf{r}_i^\top \right]``
    where ``\mathbf{r}_i = \mathbf{p}_i - \text{com}``
-3. **Y-rotation** ``R_y`` diagonalizes the XZ block:
-   ``\theta = \tfrac{1}{2}\arctan\!\left(
-       \frac{2\,I_{13}}{I_{11} - I_{33}}\right)``
-4. **Body-to-CAD rotation**: ``R_{b \to c} = R_y^\top``
-5. **Principal inertia**: ``I_\text{diag} = \text{diag}(
-       R_y \, I_\text{cad} \, R_y^\top)``
+3. **Origin**: `wing.pos_cad` is the weighted `origin` reference
+   position, and ``\text{com\_offset}_b = R_{b \to c}^\top
+   (\text{com} - \text{origin})``
 
-Point positions in the body frame are:
-``\mathbf{p}_b = R_{b \to c}^\top \,
-    (\mathbf{p}_\text{cad} - \text{com})``
+At runtime, the quaternion state gives ``R_{b \to w}``, and world
+positions are recovered as
+``\mathbf{p}_w = \mathbf{wing.pos}_w + R_{b \to w} \, \mathbf{p}_b``.
 
-At runtime, the quaternion state ``Q_{b \to w}`` gives
-``R_{b \to w}``, and world positions are recovered as:
-``\mathbf{p}_w = \mathbf{wing.pos}_w +
-    R_{b \to w} \, \mathbf{p}_b``
+See `setup_wing_frame!` in `system_structure_core.jl`.
 
-See `principal_frame` and the RIGID_DYNAMICS setup block in
-`system_structure_core.jl`.
+## Principal Frame — RIGID_DYNAMICS
+
+The rigid-body ODE state (`com_w`, `com_vel`, `Q_p_to_w`,
+``\omega_p``) lives in the **principal frame (p)**, where the inertia
+tensor is diagonal so the Euler equations have no product-of-inertia
+terms. It is a constant rotation off the body frame,
+``R_{b \to p} = R_{p \to c}^\top R_{b \to c}``.
+
+[`PrincipalFrameMethod`](@ref) selects how ``R_{p \to c}`` is found
+from ``I_\text{cad}``:
+
+- `EIGEN_DECOMP` (`principal_frame`) — full 3-axis eigendecomposition
+  with a permutation search. General-purpose, correct for any body.
+- `Y_ROTATION` (`calc_inertia_y_rotation`) — closed-form rotation
+  about Y only, diagonalizing the XZ block:
+  ``\theta = \tfrac{1}{2}\arctan\!\left(
+      \frac{2\,I_{13}}{I_{11} - I_{33}}\right)``.
+  Use it for wings symmetric about the XZ-plane, where the generic
+  permutation search is ambiguous when two principal moments are
+  close.
+
+The choice is a gauge: it changes the state representation, not the
+physics.
 
 ## Body Frame — PARTICLE_DYNAMICS
 

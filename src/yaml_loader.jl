@@ -666,7 +666,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     # Pass raw references - constructor handles defaults
                     :wing => row -> yaml_ref_field(row, :wing_idx, yaml_to_ref),
                     :transform => row -> yaml_ref_field(row, :transform_idx, yaml_to_ref),
-                    # A BODY_STATIC/WING point rides a Body; anchor_b is its body-frame offset.
+                    # A BODY_STATIC/wing node rides a Body; anchor_b is its body-frame offset.
                     :body => row -> haskey(row, :body_idx) ? yaml_to_ref(row.body_idx) :
                         yaml_ref_field(row, :body, yaml_to_ref),
                     :joint => row -> yaml_ref_field(row, :joint, yaml_to_ref),
