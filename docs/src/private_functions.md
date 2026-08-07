@@ -340,6 +340,9 @@ SymbolicAWEModels.twist_surface_deltas
 SymbolicAWEModels.apply_flap_delta!
 SymbolicAWEModels.init_pressure_buffers!
 SymbolicAWEModels.freeze_traction_pattern!
+SymbolicAWEModels.accumulate_point_traction!
+SymbolicAWEModels.PanelAeroList
+SymbolicAWEModels.PanelAero
 SymbolicAWEModels.panel_span_signs
 SymbolicAWEModels.frame_sections
 SymbolicAWEModels.seed_wing_inertia!
