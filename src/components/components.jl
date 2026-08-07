@@ -19,6 +19,12 @@
 # that sum its own way — the scheduled runtime gathers it from the wiring, the
 # monolith writes it as an explicit equation.
 
+"""`vector` with its component along the unit `axis` removed."""
+remove_along(vector, axis) = vector .- (vector ⋅ axis) .* axis
+
+"""Only `vector`'s component along the unit `axis`."""
+keep_along(vector, axis) = (vector ⋅ axis) .* axis
+
 """
     point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
                        world_damping, wind_gnd)
@@ -52,7 +58,25 @@ function point_particle_params(params, idx)
     point = params.points[idx]
     wind_gnd = ground_wind_vec(params)
     return (; extra_mass = point.extra_mass, drag_coeff = point.drag_coeff,
-            area = point.area, world_damping = point.world_frame_damping, wind_gnd)
+            area = point.area, world_damping = point.world_frame_damping,
+            fix_sphere = point.fix_sphere, fix_static = point.fix_static, wind_gnd)
+end
+
+"""
+    confined_derivatives(pos, vel, accel, pars)
+
+`(D(pos), D(vel))` for a point that may be pinned: `fix_static` freezes it where it
+is, and `fix_sphere` confines it to a sphere about the world origin by keeping only
+the radial part of its velocity and acceleration. Matches the pair of `ifelse`s in
+`point_eqs!`.
+"""
+function confined_derivatives(pos, vel, accel, pars)
+    axis = collect(smooth_normalize(collect(pos)))
+    velocity = ifelse.(pars.fix_sphere == true, keep_along(collect(vel), axis),
+                       collect(vel))
+    acceleration = ifelse.(pars.fix_sphere == true, keep_along(accel, axis), accel)
+    frozen = pars.fix_static == true
+    return ifelse.(frozen, zeros(3), velocity), ifelse.(frozen, zeros(3), acceleration)
 end
 
 """
@@ -66,8 +90,8 @@ function dynamic_point_dynamics(s, pos, vel, force, mass, pars)
     accel = point_acceleration(s, collect(pos), collect(vel), collect(force),
         mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
         collect(pars.wind_gnd))
-    return [D.(collect(pos)) .~ collect(vel);
-            D.(collect(vel)) .~ accel]
+    velocity, acceleration = confined_derivatives(pos, vel, accel, pars)
+    return [D.(collect(pos)) .~ velocity; D.(collect(vel)) .~ acceleration]
 end
 
 """
@@ -806,12 +830,6 @@ function body_variables()
             omega_b = vars[11], all = vars)
 end
 
-"""`vector` with its component along the unit `axis` removed."""
-remove_along(vector, axis) = vector .- (vector ⋅ axis) .* axis
-
-"""Only `vector`'s component along the unit `axis`."""
-keep_along(vector, axis) = (vector ⋅ axis) .* axis
-
 """
     body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
                      orientation_p)
@@ -1202,9 +1220,10 @@ function WingNodePoint(s, params, idx; name, with_aero = true, with_damping = tr
     with_aero && (accel = accel .+ (orientation * collect(point.aero_force_b)) ./ mass)
     with_damping && (accel = accel .- body_frame_damp_accel(io.vel,
         point.body_frame_damping, orientation, collect(extra[2])))
+    velocity, acceleration = confined_derivatives(io.pos, io.vel, accel, pars)
     eqs = [
-        D.(collect(io.pos)) .~ collect(io.vel)
-        D.(collect(io.vel)) .~ accel
+        D.(collect(io.pos)) .~ velocity
+        D.(collect(io.vel)) .~ acceleration
         total_drag_eq(s, params, idx, io)
     ]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,

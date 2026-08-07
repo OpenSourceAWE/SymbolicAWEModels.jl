@@ -70,6 +70,7 @@ SymbolicAWEModels.segment_half_mass
 
 ```@docs
 SymbolicAWEModels.point_acceleration
+SymbolicAWEModels.confined_derivatives
 SymbolicAWEModels.point_particle_params
 SymbolicAWEModels.dynamic_point_dynamics
 SymbolicAWEModels.wing_structural_segment
