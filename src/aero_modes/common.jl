@@ -296,56 +296,109 @@ function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
         panel_couple(t)[1:3, 1:n_panels]
     end
 
+    slots = (; x_airf, y_airf, z_airf, v_eff, chord, width, alpha, q_dyn,
+             dir_lift, dir_drag, panel_force, panel_couple)
     eqs = Equation[]
     for i in 1:n_panels
-        le_1, te_1 = sec_le[i], sec_te[i]
-        le_2, te_2 = sec_le[i + 1], sec_te[i + 1]
-
-        chord_vec = 0.5 * (te_1 + te_2) - 0.5 * (le_1 + le_2)
-        x_unit = chord_vec ./ smooth_norm(chord_vec)
-        span_vec = (0.75 * le_1 + 0.25 * te_1) - (0.75 * le_2 + 0.25 * te_2)
-        y_unit = orient[i] .* (span_vec ./ smooth_norm(span_vec))
-        z_cross = x_unit × (le_1 - le_2)
-        z_unit = orient[i] .* (z_cross ./ smooth_norm(z_cross))
-
-        va_panel = 0.5 * (sec_va[i] + sec_va[i + 1])
-        v_eff_panel = va_panel + [vind_p[c, i] for c in 1:3]
-        rho_panel = 0.5 * (sec_rho[i] + sec_rho[i + 1])
-        v_eff_crossy = v_eff_panel × y_unit
-
-        coeff(polar) = delta === nothing ? polar(i, alpha[i]) :
-                                           polar(i, alpha[i], delta[i])
-        lift = coeff(cl) * q_dyn[i] * chord[i]
-        drag = coeff(cd) * q_dyn[i] * chord[i]
-        panel_moment = coeff(cm) * q_dyn[i] * chord[i]^2
-
-        dir_iva = cos(alpha[i]) .* x_unit .+ sin(alpha[i]) .* z_unit
-        lift_cross = dir_iva × y_unit
-        drag_cross = spanwise × (lift_cross ./ smooth_norm(lift_cross))
-
-        eqs = [eqs;
-            chord[i] ~ 0.5 * (smooth_norm(te_1 - le_1) +
-                              smooth_norm(te_2 - le_2));
-            width[i] ~ smooth_norm(span_vec);
-            x_airf[:, i] ~ x_unit;
-            y_airf[:, i] ~ y_unit;
-            z_airf[:, i] ~ z_unit;
-            v_eff[:, i] ~ v_eff_panel;
-            alpha[i] ~ atan(v_eff_panel ⋅ z_unit, v_eff_panel ⋅ x_unit);
-            q_dyn[i] ~ 0.5 * rho_panel * (v_eff_crossy ⋅ v_eff_crossy);
-            dir_lift[:, i] ~ lift_cross ./ smooth_norm(lift_cross);
-            dir_drag[:, i] ~ drag_cross ./ smooth_norm(drag_cross);
-            panel_force[:, i] ~ (scale * width[i]) .*
-                (lift .* collect(dir_lift[:, i]) .+
-                 drag .* collect(dir_drag[:, i]));
-            panel_couple[:, i] ~
-                (scale * width[i] * panel_moment / chord[i]) .* z_unit]
+        append!(eqs, panel_force_eqs(slots, i,
+            (sec_le[i], sec_te[i], sec_le[i + 1], sec_te[i + 1]),
+            (sec_va[i], sec_va[i + 1], sec_rho[i], sec_rho[i + 1],
+             [vind_p[c, i] for c in 1:3]),
+            (PanelPolar(cl, i), PanelPolar(cd, i), PanelPolar(cm, i)),
+            spanwise, scale, orient[i],
+            delta === nothing ? nothing : delta[i]))
     end
 
     vars = Any[x_airf, y_airf, z_airf, v_eff, chord, width, alpha,
                q_dyn, dir_lift, dir_drag, panel_force, panel_couple]
     return eqs, vars, panel_force, panel_couple
 end
+
+"""
+    panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale, orient, delta)
+
+One panel's aerodynamic equations, writing into column `i` of the symbolic arrays
+in `slots`. `sections` is `(le_1, te_1, le_2, te_2)` in body frame, `flow` is
+`(va_1, va_2, rho_1, rho_2, v_ind)` and `polars` the `(cl, cd, cm)` callables,
+indexed by the panel number the polar tables were built for. `delta` is the flap
+deflection or `nothing` for the 2-argument polars.
+
+Every quantity it reads belongs to this panel alone, so the same equations serve a
+whole-wing system (looped by [`build_panel_force_eqs`](@ref)) and a per-panel
+component compiled once and instantiated for each panel.
+"""
+function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
+                         orient, delta)
+    (; x_airf, y_airf, z_airf, v_eff, chord, width, alpha, q_dyn,
+       dir_lift, dir_drag, panel_force, panel_couple) = slots
+    le_1, te_1, le_2, te_2 = sections
+    va_1, va_2, rho_1, rho_2, vind = flow
+    cl, cd, cm = polars
+
+    chord_vec = 0.5 * (te_1 + te_2) - 0.5 * (le_1 + le_2)
+    x_unit = chord_vec ./ smooth_norm(chord_vec)
+    span_vec = (0.75 * le_1 + 0.25 * te_1) - (0.75 * le_2 + 0.25 * te_2)
+    y_unit = orient .* (span_vec ./ smooth_norm(span_vec))
+    z_cross = x_unit × (le_1 - le_2)
+    z_unit = orient .* (z_cross ./ smooth_norm(z_cross))
+
+    va_panel = 0.5 * (va_1 + va_2)
+    v_eff_panel = va_panel + vind
+    rho_panel = 0.5 * (rho_1 + rho_2)
+    v_eff_crossy = v_eff_panel × y_unit
+
+    lift = evaluate_polar(cl, alpha[i], delta) * q_dyn[i] * chord[i]
+    drag = evaluate_polar(cd, alpha[i], delta) * q_dyn[i] * chord[i]
+    panel_moment = evaluate_polar(cm, alpha[i], delta) * q_dyn[i] * chord[i]^2
+
+    dir_iva = cos(alpha[i]) .* x_unit .+ sin(alpha[i]) .* z_unit
+    lift_cross = dir_iva × y_unit
+    drag_cross = spanwise × (lift_cross ./ smooth_norm(lift_cross))
+
+    return [
+        chord[i] ~ 0.5 * (smooth_norm(te_1 - le_1) +
+                          smooth_norm(te_2 - le_2));
+        width[i] ~ smooth_norm(span_vec);
+        x_airf[:, i] ~ x_unit;
+        y_airf[:, i] ~ y_unit;
+        z_airf[:, i] ~ z_unit;
+        v_eff[:, i] ~ v_eff_panel;
+        alpha[i] ~ atan(v_eff_panel ⋅ z_unit, v_eff_panel ⋅ x_unit);
+        q_dyn[i] ~ 0.5 * rho_panel * (v_eff_crossy ⋅ v_eff_crossy);
+        dir_lift[:, i] ~ lift_cross ./ smooth_norm(lift_cross);
+        dir_drag[:, i] ~ drag_cross ./ smooth_norm(drag_cross);
+        panel_force[:, i] ~ (scale * width[i]) .*
+            (lift .* collect(dir_lift[:, i]) .+
+             drag .* collect(dir_drag[:, i]));
+        panel_couple[:, i] ~
+            (scale * width[i] * panel_moment / chord[i]) .* z_unit]
+end
+
+"""
+    evaluate_polar(polar, alpha, delta)
+
+The polar's coefficient at `alpha`, with the flap deflection when the tables carry
+one. Keeps [`panel_force_eqs`](@ref) blind to whether its caller bound the panel
+index into the polar ([`PanelPolar`](@ref)) or handed it a per-panel callable.
+"""
+evaluate_polar(polar, alpha, delta) =
+    delta === nothing ? polar(alpha) : polar(alpha, delta)
+
+"""
+    PanelPolar(polar, panel)
+
+`polar` with its panel index bound, so it is called as `p(alpha)` or
+`p(alpha, delta)`. A whole-wing system holds one polar addressed by panel number;
+a per-panel component holds a callable that is already only about its own panel.
+Applied while the equations are built, so both produce the same expression.
+"""
+struct PanelPolar{P}
+    polar::P
+    panel::Int
+end
+
+(p::PanelPolar)(alpha) = p.polar(p.panel, alpha)
+(p::PanelPolar)(alpha, delta) = p.polar(p.panel, alpha, delta)
 
 """
     store_induced_velocity!(v_ind, body_aero, gamma)

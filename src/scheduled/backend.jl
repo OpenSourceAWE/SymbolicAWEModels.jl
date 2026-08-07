@@ -11,9 +11,12 @@ Assemble `sam.sys_struct` into a scheduled model and wrap its right-hand side as
 callable store, so `sync_params!` writes struct fields straight into it.
 """
 function build_prob!(::ScheduledBackend, sam; prn = true)
-    time = @elapsed model = assemble(sam)
-    prn && println("\tAssembled $(length(model.system.kernels)) kernels over " *
-                   "$(length(model.system.instances)) instances in $time seconds.")
+    time = @elapsed model = assemble(sam; verbose = prn)
+    if prn
+        println("\tAssembled $(length(model.system.kernels)) kernels over " *
+                "$(length(model.system.instances)) instances in $time seconds.")
+        print_kernel_times(model.system)
+    end
     write_total_mass!(sam.sys_struct)
     rhs = ScheduledRHS(model.system)
     step = SimFloat(1 / sam.set.sample_freq)
@@ -29,6 +32,26 @@ function build_prob!(::ScheduledBackend, sam; prn = true)
         get_set_values = nothing, get_aero_input = nothing,
         get_all_state = ScheduledStateGetter(model, rhs, sam.sys_struct))
     return true
+end
+
+"""
+    print_kernel_times(system)
+
+List what each kernel cost to compile, dearest first, with how many instances share
+it. Compilation is per kernel, so this is where a slow build has to be read: a large
+model with few kernel types is cheap, a small one with many types is not.
+"""
+function print_kernel_times(system::ScheduledSystem)
+    counts = zeros(Int, length(system.kernels))
+    for instance in system.instances
+        counts[instance.kernel] += 1
+    end
+    order = sortperm(system.compile_seconds; rev = true)
+    for k in order
+        @printf("\t  %-28s %7.2f s  ×%d\n", system.kernels[k].name,
+                system.compile_seconds[k], counts[k])
+    end
+    return nothing
 end
 
 """

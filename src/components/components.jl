@@ -1274,15 +1274,13 @@ it carries no twist DOF of its own — and the wing's aero component reads it pe
 panel.
 """
 function FlapDelta(s, params, idx; name)
-    vars = @variables begin
-        main_frame(t)[1:9], [input = true]
-        flap_frame(t)[1:9], [input = true]
-        delta(t), [output = true]
-    end
+    main = indexed_scalar_variables(:main_frame, 9; input = true)
+    flap = indexed_scalar_variables(:flap_frame, 9; input = true)
+    delta = scalar_output(:delta)
     twist_surface = params.reg.sys_struct.twist_surfaces[idx]
-    eqs = [vars[3] ~ flap_delta_expression(twist_surface,
-        reshape(collect(vars[1]), 3, 3), reshape(collect(vars[2]), 3, 3))]
-    return System(eqs, t, vars, param_unknowns(params); name)
+    eqs = [delta ~ flap_delta_expression(twist_surface, reshape(main, 3, 3),
+                                         reshape(flap, 3, 3))]
+    return System(eqs, t, [main; flap; delta], param_unknowns(params); name)
 end
 
 """
@@ -1298,6 +1296,24 @@ function indexed_vector_variables(base::Symbol, count::Int; input = false)
         name = Symbol(base, :_, k)
         input ? only(@variables $name(t)[1:3], [input = true]) :
                 only(@variables $name(t)[1:3], [output = true])
+    end
+end
+
+"""
+    indexed_scalar_variables(base, count; input=false)
+
+`count` scalar variables named `base_1 … base_count`, declared as inputs or as
+outputs. A slot map groups them under `base` exactly as it groups a scalarized
+vector, so the wiring still addresses them as one vector — but each is a variable in
+its own right, so `mtkcompile` may drop any one nothing reads. A declared *array* is
+all-or-nothing to it, and a component that reads only part of a matrix it is handed
+needs this: a flap hinge about `[0, 1, 0]` reads six of its nine frame entries.
+"""
+function indexed_scalar_variables(base::Symbol, count::Int; input = false)
+    return map(1:count) do k
+        name = Symbol(base, :_, k)
+        input ? only(@variables $name(t), [input = true]) :
+                only(@variables $name(t), [output = true])
     end
 end
 
@@ -1477,23 +1493,38 @@ function TwistSurfaceDOF(s, params, idx; name)
     vars = @variables begin
         aero_moment_in(t), [input = true]
         node_moment_in(t), [input = true]
+        node_force_in(t), [input = true]
         node_mass_in(t), [input = true]
         twist_angle(t), [output = true]
         twist_vel(t), [output = true]
     end
+    report = twist_surface_diagnostics()
     state = @variables free_twist_angle(t) twist_omega(t)
     surface = params.twist_surfaces[idx]
-    inertia = 1 / 3 * vars[3] * smooth_norm(collect(surface.chord))^2
+    inertia = 1 / 3 * vars[4] * smooth_norm(collect(surface.chord))^2
     angle = clamp(state[1], -deg2rad(90), deg2rad(90))
     eqs = [
-        vars[4] ~ angle
-        vars[5] ~ state[2]
+        vars[5] ~ angle
+        vars[6] ~ state[2]
         D(state[1]) ~ state[2]
         D(state[2]) ~ (vars[1] + vars[2]) / inertia - surface.damping * state[2] -
                       surface.stiffness * angle / inertia
+        report[1] ~ vars[3]
+        report[2] ~ vars[2]
+        report[3] ~ vars[1]
     ]
-    return System(eqs, t, [vars; state], param_unknowns(params); name)
+    return System(eqs, t, [vars; report; state], param_unknowns(params); name)
 end
+
+"""
+    twist_surface_diagnostics()
+
+The three quantities `get_all_state` copies out of a twist surface beyond its twist:
+the bridle couple's `tether_force` and `tether_moment` about the hinge, and the
+`aero_moment` its wing's aero returns. Observed, never read by any equation.
+"""
+twist_surface_diagnostics() =
+    @variables tether_force(t) tether_moment(t) aero_moment(t)
 
 """
     PrescribedTwist(s, params, idx; name)
@@ -1504,12 +1535,17 @@ whether its surface twists dynamically ([`TwistSurfaceDOF`](@ref)) or not.
 """
 function PrescribedTwist(s, params, idx; name)
     vars = @variables begin
+        aero_moment_in(t), [input = true]
         twist_angle(t), [output = true]
         twist_vel(t), [output = true]
     end
-    eqs = [vars[1] ~ params.twist_surfaces[idx].twist
-           vars[2] ~ 0]
-    return System(eqs, t, vars, param_unknowns(params); name)
+    report = twist_surface_diagnostics()
+    eqs = [vars[2] ~ params.twist_surfaces[idx].twist
+           vars[3] ~ 0
+           report[1] ~ 0
+           report[2] ~ 0
+           report[3] ~ vars[1]]
+    return System(eqs, t, [vars; report], param_unknowns(params); name)
 end
 
 """
@@ -1593,6 +1629,7 @@ function TwistNodeWrench(s, params, idx; name, surface_idx = 0, gated = false)
     extra = Any[twist]
     if surface_idx > 0
         surface = params.twist_surfaces[surface_idx]
+        node_force = scalar_output(:node_force)
         node_moment = scalar_output(:node_moment)
         node_mass = scalar_output(:node_mass)
         chord = collect(surface.chord)
@@ -1603,9 +1640,10 @@ function TwistNodeWrench(s, params, idx; name, surface_idx = 0, gated = false)
         offset = collect(point.pos_b) .- (collect(surface.le_pos) .+
                                           surface.moment_frac .* chord)
         eqs = [eqs
-               node_moment ~ (offset ⋅ axis) * (load ⋅ direction)
+               node_force ~ load ⋅ direction
+               node_moment ~ (offset ⋅ axis) * node_force
                node_mass ~ point.extra_mass]
-        append!(extra, Any[node_moment, node_mass])
+        append!(extra, Any[node_force, node_moment, node_mass])
     end
     return System(eqs, t, [io.all; vars; extra], param_unknowns(params); name)
 end

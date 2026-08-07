@@ -113,6 +113,7 @@ SymbolicAWEModels.maybe_create_lin_prob!
 SymbolicAWEModels.maybe_create_control_functions!
 SymbolicAWEModels.maybe_create_prob!
 SymbolicAWEModels.build_prob!
+SymbolicAWEModels.print_kernel_times
 SymbolicAWEModels.init_backend!
 SymbolicAWEModels.has_custom_component
 SymbolicAWEModels.generate_control_funcs
@@ -329,6 +330,9 @@ SymbolicAWEModels.ContinuousPolar
 SymbolicAWEModels.transform_vsm_sections_to_body!
 SymbolicAWEModels.frozen_point_force_component
 SymbolicAWEModels.build_panel_force_eqs
+SymbolicAWEModels.panel_force_eqs
+SymbolicAWEModels.evaluate_polar
+SymbolicAWEModels.PanelPolar
 SymbolicAWEModels.loft_contour_node
 SymbolicAWEModels.build_station_point_map!
 SymbolicAWEModels.build_panel_twist_surface_map!
@@ -520,6 +524,7 @@ SymbolicAWEModels.WingNodePoint
 SymbolicAWEModels.ParticleWingAero
 SymbolicAWEModels.WingAero
 SymbolicAWEModels.TwistSurfaceDOF
+SymbolicAWEModels.twist_surface_diagnostics
 SymbolicAWEModels.PrescribedTwist
 SymbolicAWEModels.TwistNodePoint
 SymbolicAWEModels.TwistNodeWrench
@@ -531,6 +536,7 @@ SymbolicAWEModels.flap_delta_expression
 SymbolicAWEModels.flap_delta_inputs
 SymbolicAWEModels.wing_flap_surfaces
 SymbolicAWEModels.indexed_vector_variables
+SymbolicAWEModels.indexed_scalar_variables
 SymbolicAWEModels.scalar_input
 SymbolicAWEModels.body_pose_variables
 SymbolicAWEModels.RidePoint
@@ -572,6 +578,7 @@ SymbolicAWEModels.twist_surface_of
 SymbolicAWEModels.add_flap_deltas!
 SymbolicAWEModels.add_joint!
 SymbolicAWEModels.wire_segment!
+SymbolicAWEModels.load_target
 SymbolicAWEModels.buffer_slots
 SymbolicAWEModels.bind_params
 SymbolicAWEModels.callable_store
@@ -589,7 +596,9 @@ SymbolicAWEModels.winch_readouts
 SymbolicAWEModels.body_readouts
 SymbolicAWEModels.fitted_wing_readouts
 SymbolicAWEModels.WingAeroReadout
+SymbolicAWEModels.TwistSurfaceReadout
 SymbolicAWEModels.wing_aero_readouts
+SymbolicAWEModels.twist_surface_readouts
 SymbolicAWEModels.observed_slots
 SymbolicAWEModels.drag_source
 SymbolicAWEModels.write_stretched_lengths!

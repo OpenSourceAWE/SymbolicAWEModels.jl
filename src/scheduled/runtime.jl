@@ -85,6 +85,7 @@ struct ScheduledSystem{K <: Tuple, N, M}
     n_observables::Int
     n_params::Int
     mass_matrix::M
+    compile_seconds::Vector{Float64}
 end
 
 # ======================= assembly ======================= #
@@ -108,19 +109,24 @@ mutable struct SystemBuilder
     n_outputs::Int
     n_observables::Int
     n_params::Int
+    compile_seconds::Vector{Float64}
+    verbose::Bool
 end
 
-SystemBuilder() = SystemBuilder(ComponentKernel[], Int[], ComponentInstance[],
-                                Int[], Int[], SimFloat[], 0, 0, 0, 0, 0)
+SystemBuilder(; verbose = false) =
+    SystemBuilder(ComponentKernel[], Int[], ComponentInstance[], Int[], Int[],
+                  SimFloat[], 0, 0, 0, 0, 0, Float64[], verbose)
 
 """
-    add_kernel!(builder, kernel) -> Int
+    add_kernel!(builder, kernel, seconds) -> Int
 
 Register a compiled component type and return its index in the kernel table.
+`seconds` is what compiling it cost, kept for the build-time breakdown.
 """
-function add_kernel!(builder::SystemBuilder, kernel::ComponentKernel)
+function add_kernel!(builder::SystemBuilder, kernel::ComponentKernel, seconds)
     push!(builder.kernels, kernel)
     push!(builder.counts, 0)
+    push!(builder.compile_seconds, seconds)
     return length(builder.kernels)
 end
 
@@ -191,7 +197,8 @@ function build_system(builder::SystemBuilder)
     return ScheduledSystem(Tuple(builder.kernels), builder.instances, layers,
         batch_by_kernel(builder, stateful), batch_by_kernel(builder, observed),
         wiring, builder.n_states, builder.n_inputs, builder.n_outputs,
-        builder.n_observables, builder.n_params, global_mass_matrix(builder))
+        builder.n_observables, builder.n_params, global_mass_matrix(builder),
+        builder.compile_seconds)
 end
 
 """

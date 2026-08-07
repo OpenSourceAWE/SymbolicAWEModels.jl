@@ -98,6 +98,22 @@ struct FittedWingReadout
 end
 
 """
+    TwistSurfaceReadout(surface, angle, rate, tether_force, tether_moment, aero_moment)
+
+Where one twist surface's results live: its twist and rate in the output buffer, and
+the bridle couple and aerodynamic hinge moment in the observable buffer. A surface
+whose twist is prescribed reports the same names, with the couple bound to zero.
+"""
+struct TwistSurfaceReadout
+    surface::Int
+    angle::Int
+    rate::Int
+    tether_force::Int
+    tether_moment::Int
+    aero_moment::Int
+end
+
+"""
     WingAeroReadout(wing, force, moment, apparent, wind)
 
 Where one wing's aero component observes the quantities the struct carries: its
@@ -131,6 +147,7 @@ struct ScheduledStateGetter{R}
     bodies::Vector{BodyReadout}
     fitted::Vector{FittedWingReadout}
     aero::Vector{WingAeroReadout}
+    twist::Vector{TwistSurfaceReadout}
 end
 
 function ScheduledStateGetter(model::ScheduledModel, rhs, sys_struct)
@@ -158,7 +175,8 @@ function ScheduledStateGetter(model::ScheduledModel, rhs, sys_struct)
                                 winch_readouts(model, sys_struct),
                                 body_readouts(model, sys_struct),
                                 fitted_wing_readouts(sys_struct),
-                                wing_aero_readouts(model, sys_struct))
+                                wing_aero_readouts(model, sys_struct),
+                                twist_surface_readouts(model))
 end
 
 """
@@ -177,6 +195,26 @@ function fitted_wing_readouts(sys_struct)
         push!(readouts, FittedWingReadout(idx, body.z_ref_points[1].ids[1],
             body.z_ref_points[2].ids[1], body.y_ref_points[1].ids[1],
             body.y_ref_points[2].ids[1], body.origin.ids[1], aero))
+    end
+    return readouts
+end
+
+"""
+    twist_surface_readouts(model) -> Vector{TwistSurfaceReadout}
+
+One [`TwistSurfaceReadout`](@ref) per twist surface that has a twist instance. A
+`KINEMATIC` surface has none — its deflection is a [`FlapDelta`](@ref), which the
+aero reads directly and the struct does not carry.
+"""
+function twist_surface_readouts(model::ScheduledModel)
+    readouts = TwistSurfaceReadout[]
+    for (idx, instance) in enumerate(model.twist_instances)
+        instance == 0 && continue
+        output(name) = only(buffer_slots(model.system, instance, :outputs, name))
+        observed(name) = only(buffer_slots(model.system, instance, :observables, name))
+        push!(readouts, TwistSurfaceReadout(idx, output(:twist_angle),
+            output(:twist_vel), observed(:tether_force), observed(:tether_moment),
+            observed(:aero_moment)))
     end
     return readouts
 end
@@ -296,6 +334,14 @@ function (getter::ScheduledStateGetter)(integrator, sys_struct::SystemStructure)
         copy_slots!(body.ω_b, scratch.observable, readout.omega_b)
         copy_slots!(body.Q_p_to_w, integrator.u, readout.principal)
         copy_slots!(body.ω_p, integrator.u, readout.spin_p)
+    end
+    for readout in getter.twist
+        surface = sys_struct.twist_surfaces[readout.surface]
+        surface.twist = scratch.output[readout.angle]
+        surface.twist_ω = scratch.output[readout.rate]
+        surface.tether_force = scratch.observable[readout.tether_force]
+        surface.tether_moment = scratch.observable[readout.tether_moment]
+        surface.aero_moment = scratch.observable[readout.aero_moment]
     end
     for readout in getter.aero
         wing = sys_struct.wings[readout.wing]
