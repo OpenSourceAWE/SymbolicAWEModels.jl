@@ -120,7 +120,7 @@ function ScheduledStateGetter(model::ScheduledModel, rhs, sys_struct)
     end
     return ScheduledStateGetter(rhs, points, segments, pulleys,
                                 winch_readouts(model, sys_struct),
-                                body_readouts(model))
+                                body_readouts(model, sys_struct))
 end
 
 """The instance that observes point `idx`'s `total_drag`: its own, or its wrench
@@ -129,10 +129,13 @@ drag_source(model::ScheduledModel, idx) =
     model.wrench_instances[idx] == 0 ? model.point_instances[idx] :
     model.wrench_instances[idx]
 
-"""One [`BodyReadout`](@ref) per body. A frozen body keeps its 13 states — their
-derivatives are zero — so its principal attitude and spin are read the same way."""
-function body_readouts(model::ScheduledModel)
+"""One [`BodyReadout`](@ref) per body. A clamped body has no state, so its
+principal attitude and spin keep whatever the struct already holds."""
+function body_readouts(model::ScheduledModel, sys_struct)
     system = model.system
+    principal(instance, idx, name) =
+        sys_struct.bodies[idx].type == STATIC ? Int[] :
+        buffer_slots(system, instance, :states, name)
     return [BodyReadout(idx,
                 buffer_slots(system, instance, :outputs, :pos),
                 buffer_slots(system, instance, :outputs, :vel),
@@ -141,8 +144,8 @@ function body_readouts(model::ScheduledModel)
                 buffer_slots(system, instance, :outputs, :com_velocity),
                 buffer_slots(system, instance, :observables, :orientation),
                 buffer_slots(system, instance, :observables, :omega_b),
-                buffer_slots(system, instance, :states, :Q),
-                buffer_slots(system, instance, :states, :omega_p))
+                principal(instance, idx, :Q),
+                principal(instance, idx, :omega_p))
             for (idx, instance) in enumerate(model.body_instances)]
 end
 

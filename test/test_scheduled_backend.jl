@@ -30,6 +30,9 @@ SCHEDULED_PARITY_FILES = [
     "test_pulley.jl",
     "test_tether_init.jl",
     "test_tether_winch.jl",
+    "test_rigid_body.jl",
+    "test_joint.jl",
+    "test_timoshenko_joint.jl",
 ]
 
 @testset verbose = true "ScheduledBackend parity" begin

@@ -814,19 +814,17 @@ keep_along(vector, axis) = (vector ⋅ axis) .* axis
 
 """
     body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
-                     orientation_p; frozen)
+                     orientation_p)
 
 The four integration overrides `rigid_body_pose_expressions` takes, matching
-`body_eqs!`: a `frozen` (`STATIC`) body holds still, and `fix_sphere` confines it to
-a sphere about the world origin by keeping only the radial part of its COM velocity
-and acceleration and dropping the radial part of its spin. `alpha_p`/`com_acc` are
-the caller's torn variables, so the overrides can name the accelerations they
-correct without a cycle. Angular damping is folded in here, as the monolith does.
+`body_eqs!`: `fix_sphere` confines the body to a sphere about the world origin by
+keeping only the radial part of its COM velocity and acceleration and dropping the
+radial part of its spin. `alpha_p`/`com_acc` are the caller's torn variables, so the
+overrides can name the accelerations they correct without a cycle. Angular damping
+is folded in here, as the monolith does.
 """
 function body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
-                          orientation_p; frozen)
-    frozen && return (; ω_kinematic = zeros(Num, 3), d_ω_p = zeros(Num, 3),
-                      d_com_w = zeros(Num, 3), d_com_vel = zeros(Num, 3))
+                          orientation_p)
     body = params.bodies[idx]
     sphere = body.fix_sphere
     spin = collect(omega_p)
@@ -842,17 +840,16 @@ function body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc
 end
 
 """
-    RigidBody(s, params, idx; name, frozen=false)
+    RigidBody(s, params, idx; name)
 
 Free 6-DOF rigid body: integrates the 13-state principal pose (`com_w`, `com_vel`,
 `Q_p_to_w`, `ω_p`) under gravity, the wrench gathered at `force_in`/`moment_in`, the
 external wrench (`ext_force_w`/`ext_force_b`/`ext_moment_b`) and per-axis angular
 `damping`. Shares its whole 6-DOF math with the monolith through
-[`rigid_body_pose_expressions`](@ref). `frozen` is the `STATIC` body and gets its own
-compiled type, being clamped being topology; `fix_sphere` stays a parameter, as in
-`body_eqs!`.
+[`rigid_body_pose_expressions`](@ref); `fix_sphere` stays a parameter, as in
+`body_eqs!`. A clamped body is [`StaticBody`](@ref) instead.
 """
-function RigidBody(s, params, idx; name, frozen = false)
+function RigidBody(s, params, idx; name)
     io = body_variables()
     state = @variables com_w(t)[1:3] com_vel(t)[1:3] Q(t)[1:4] omega_p(t)[1:3]
     torn = @variables alpha_p(t)[1:3] com_acc(t)[1:3]
@@ -867,8 +864,8 @@ function RigidBody(s, params, idx; name, frozen = false)
     moment_w = collect(io.moment_in) .+ orientation * collect(body.ext_moment_b)
     ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
         body.mass, body.R_b_to_p, body.com_offset_b, com_w, com_vel, Q, omega_p;
-        body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
-                         orientation_p; frozen)...)
+        body_integration(params, idx, com_w, com_vel, omega_p, alpha_p,
+                         com_acc, orientation_p)...)
     eqs = [
         collect(alpha_p) .~ ex.α_p
         collect(com_acc) .~ ex.com_acc
@@ -887,6 +884,33 @@ function RigidBody(s, params, idx; name, frozen = false)
         collect(io.omega_b) .~ ex.ω_b
     ]
     return System(eqs, t, [io.all; state; torn], param_unknowns(params); name)
+end
+
+"""
+    StaticBody(s, params, idx; name)
+
+Clamped (`STATIC`) rigid body: no state at all, just the fixed pose
+`params.bodies[idx]` already holds, with zero velocity and spin. The monolith
+freezes such a body by holding its thirteen states at their initial values; here
+there is nothing to hold, so the pose is emitted directly. Its `force_in`/`moment_in`
+are declared, so joints and ride points may deliver to it, and ignored.
+"""
+function StaticBody(s, params, idx; name)
+    io = body_variables()
+    body = params.bodies[idx]
+    orientation = quaternion_to_rotation_matrix(collect(body.Q_b_to_w))
+    eqs = [
+        collect(io.pos) .~ collect(body.pos_w)
+        collect(io.vel) .~ zeros(3)
+        collect(io.frame) .~ vec(orientation)
+        collect(io.com) .~ collect(body.com_w)
+        collect(io.com_velocity) .~ zeros(3)
+        collect(io.omega_w) .~ zeros(3)
+        collect(io.acc) .~ zeros(3)
+        collect(io.orientation) .~ collect(body.Q_b_to_w)
+        collect(io.omega_b) .~ zeros(3)
+    ]
+    return System(eqs, t, io.all, param_unknowns(params); name)
 end
 
 """
@@ -978,4 +1002,112 @@ function RideWrench(s, params, idx; name, with_gravity = true)
         collect(vars[9]) .~ drag .+ collect(vars[6])
     ]
     return System(eqs, t, vars, param_unknowns(params); name)
+end
+
+"""
+    joint_variables()
+
+The variables a body-to-body joint component declares, as a named tuple: the two
+bodies' poses as inputs (`a_pos`/`a_frame`/`a_com`/`a_com_velocity`/`a_omega` and
+the `b_…` set), and the restoring wrench on each as outputs.
+"""
+function joint_variables()
+    vars = @variables begin
+        a_pos(t)[1:3], [input = true]
+        a_frame(t)[1:9], [input = true]
+        a_com(t)[1:3], [input = true]
+        a_com_velocity(t)[1:3], [input = true]
+        a_omega(t)[1:3], [input = true]
+        b_pos(t)[1:3], [input = true]
+        b_frame(t)[1:9], [input = true]
+        b_com(t)[1:3], [input = true]
+        b_com_velocity(t)[1:3], [input = true]
+        b_omega(t)[1:3], [input = true]
+        force_a(t)[1:3], [output = true]
+        moment_a(t)[1:3], [output = true]
+        force_b(t)[1:3], [output = true]
+        moment_b(t)[1:3], [output = true]
+    end
+    return (; a_pos = vars[1], a_frame = vars[2], a_com = vars[3],
+            a_com_velocity = vars[4], a_omega = vars[5], b_pos = vars[6],
+            b_frame = vars[7], b_com = vars[8], b_com_velocity = vars[9],
+            b_omega = vars[10], force_a = vars[11], moment_a = vars[12],
+            force_b = vars[13], moment_b = vars[14], all = vars)
+end
+
+"""
+    joint_poses(io)
+
+The two end bodies' poses in the argument form the shared joint wrench builders
+take, reading them off a [`joint_variables`](@ref) tuple. The world spin arrives
+directly as `a_omega`/`b_omega`, so unlike the monolith — which carries `ω_b` and
+rotates it — there is nothing to rotate here.
+"""
+function joint_poses(io)
+    return (; pos_a = collect(io.a_pos), R_a = reshape(collect(io.a_frame), 3, 3),
+            com_a = collect(io.a_com), com_vel_a = collect(io.a_com_velocity),
+            omega_a_w = collect(io.a_omega),
+            pos_b = collect(io.b_pos), R_b = reshape(collect(io.b_frame), 3, 3),
+            com_b = collect(io.b_com), com_vel_b = collect(io.b_com_velocity),
+            omega_b_w = collect(io.b_omega))
+end
+
+"""
+    joint_wrench_eqs(io, ex)
+
+Bind a joint component's four wrench outputs from a shared wrench builder's result
+`ex`, together with the torn equations it needs.
+"""
+joint_wrench_eqs(io, ex) = [
+    ex.tear_eqs
+    collect(io.force_a) .~ ex.force_on_a
+    collect(io.moment_a) .~ ex.moment_on_a
+    collect(io.force_b) .~ ex.force_on_b
+    collect(io.moment_b) .~ ex.moment_on_b
+]
+
+"""
+    ElasticJointComponent(s, params, idx; name)
+
+Lumped 6-DOF elastic joint between two bodies: reads both poses and emits the
+restoring wrench on each, through the shared [`elastic_joint_wrench`](@ref) that
+also sources the monolith's `joint_eqs!`.
+"""
+function ElasticJointComponent(s, params, idx; name)
+    io = joint_variables()
+    torn = @variables joint_force(t)[1:3] joint_torque(t)[1:3]
+    joint = params.reg.sys_struct.elastic_joints[idx]
+    ex = elastic_joint_wrench(joint, params; force_w = torn[1],
+                              torque_w = torn[2], joint_poses(io)...)
+    return System(joint_wrench_eqs(io, ex), t, [io.all; torn],
+                  param_unknowns(params); name)
+end
+
+"""
+    TimoshenkoJointComponent(s, params, idx; name)
+
+Corotational Timoshenko beam element between two bodies: reads both poses and emits
+the restoring wrench on each, through the shared
+[`timoshenko_element_wrench`](@ref) that also sources the monolith's
+`timoshenko_joint_eqs!`. The element frame, the two nodes' chord-relative rotations
+and the element forces are torn, so the shared frame subtree is built once.
+"""
+function TimoshenkoJointComponent(s, params, idx; name)
+    io = joint_variables()
+    torn = @variables begin
+        element_frame(t)[1:3, 1:3]
+        theta_a(t)[1:3]
+        theta_b(t)[1:3]
+        element_force_a(t)[1:3]
+        element_force_b(t)[1:3]
+        element_moment_a(t)[1:3]
+        element_moment_b(t)[1:3]
+    end
+    joint = params.reg.sys_struct.timoshenko_joints[idx]
+    ex = timoshenko_element_wrench(joint, params; frame = torn[1],
+        theta_a = torn[2], theta_b = torn[3], force_a = torn[4],
+        force_b = torn[5], moment_a = torn[6], moment_b = torn[7],
+        joint_poses(io)...)
+    return System(joint_wrench_eqs(io, ex), t, [io.all; torn],
+                  param_unknowns(params); name)
 end

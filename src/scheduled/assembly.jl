@@ -22,6 +22,9 @@ const RIDE_INPUTS = [:pose_pos, :pose_frame, :pose_com, :pose_com_velocity,
 const RIDE_OUTPUTS = [:pos, :vel, :arm, :height]
 const WRENCH_INPUTS = [:height, :vel, :arm, :force_in, :mass_in, :drag_in]
 const WRENCH_OUTPUTS = [:force_out, :moment_out]
+const JOINT_INPUTS = [:a_pos, :a_frame, :a_com, :a_com_velocity, :a_omega,
+                      :b_pos, :b_frame, :b_com, :b_com_velocity, :b_omega]
+const JOINT_OUTPUTS = [:force_a, :moment_a, :force_b, :moment_b]
 
 """
     PointRole(kind, pulley_idx, segment_idx, winch_idx, body_idx)
@@ -236,6 +239,14 @@ function assemble(sam)
         wire_segment!(builder, sys_struct, i, segment_roles[i], point_roles,
                       point_instances, segment_instances, wrench_instances)
     end
+    for joint in sys_struct.elastic_joints
+        add_joint!(builder, table, bindings, sam, joint, body_instances,
+                   :elastic_joints, ElasticJointComponent)
+    end
+    for joint in sys_struct.timoshenko_joints
+        add_joint!(builder, table, bindings, sam, joint, body_instances,
+                   :timoshenko_joints, TimoshenkoJointComponent)
+    end
 
     system = build_system(builder)
     params, sync = bind_params(system, sys_struct, bindings, segment_roles,
@@ -259,10 +270,10 @@ function add_body!(builder, table, bindings, sam, idx)
     body.type in (DYNAMIC, STATIC) || error(
         "ScheduledBackend: body $(body.name) has type $(body.type); only DYNAMIC " *
         "and STATIC are supported so far.")
-    frozen = body.type == STATIC
-    key = frozen ? :static_body : :rigid_body
+    make = body.type == STATIC ? StaticBody : RigidBody
+    key = body.type == STATIC ? :static_body : :rigid_body
     entry = kernel!(builder, table, sam, key, idx,
-                    params -> RigidBody(sam, params, idx; name = key, frozen),
+                    params -> make(sam, params, idx; name = key),
                     BODY_INPUTS, BODY_OUTPUTS)
     instance = add_instance!(builder, entry.index)
     push!(bindings, (instance, entry, Dict(:bodies => idx)))
@@ -350,6 +361,33 @@ function add_ride_point!(builder, table, bindings, sam, idx, role, bodies, wrenc
     connect!(builder, wrench, :force_out, body, :force_in)
     connect!(builder, wrench, :moment_out, body, :moment_in)
     return ride
+end
+
+"""
+    add_joint!(builder, table, bindings, sam, joint, bodies, container, make)
+
+Add one body-to-body joint and wire it: both end bodies' poses in, the restoring
+wrench on each back out. `container` names the joint collection its parameters are
+remapped over and `make` builds the component.
+"""
+function add_joint!(builder, table, bindings, sam, joint, bodies, container, make)
+    entry = kernel!(builder, table, sam, container, joint.idx,
+                    params -> make(sam, params, joint.idx; name = container),
+                    JOINT_INPUTS, JOINT_OUTPUTS)
+    instance = add_instance!(builder, entry.index)
+    push!(bindings, (instance, entry, Dict(container => joint.idx)))
+    for (prefix, body) in ((:a, joint.body_a_idx), (:b, joint.body_b_idx))
+        for (source, target) in ((:pos, :pos), (:frame, :frame), (:com, :com),
+                                 (:com_velocity, :com_velocity),
+                                 (:omega_w, :omega))
+            connect!(builder, bodies[body], source, instance,
+                     Symbol(prefix, :_, target))
+        end
+        connect!(builder, instance, Symbol(:force_, prefix), bodies[body], :force_in)
+        connect!(builder, instance, Symbol(:moment_, prefix), bodies[body],
+                 :moment_in)
+    end
+    return instance
 end
 
 """
@@ -555,6 +593,7 @@ function initial_state(system, sys_struct, point_roles, point_instances,
     u0 = zeros(SimFloat, system.n_states)
     for (idx, instance) in enumerate(body_instances)
         body = sys_struct.bodies[idx]
+        body.type == STATIC && continue
         u0[buffer_slots(system, instance, :states, :com_w)] .= body.com_w
         u0[buffer_slots(system, instance, :states, :com_vel)] .= body.com_vel
         u0[buffer_slots(system, instance, :states, :Q)] .= body.Q_p_to_w

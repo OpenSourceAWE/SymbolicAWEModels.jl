@@ -506,9 +506,15 @@ SymbolicAWEModels.remove_along
 SymbolicAWEModels.keep_along
 SymbolicAWEModels.body_integration
 SymbolicAWEModels.RigidBody
+SymbolicAWEModels.StaticBody
 SymbolicAWEModels.body_pose_variables
 SymbolicAWEModels.RidePoint
 SymbolicAWEModels.RideWrench
+SymbolicAWEModels.joint_variables
+SymbolicAWEModels.joint_poses
+SymbolicAWEModels.joint_wrench_eqs
+SymbolicAWEModels.ElasticJointComponent
+SymbolicAWEModels.TimoshenkoJointComponent
 SymbolicAWEModels.PointRole
 SymbolicAWEModels.classify_points
 SymbolicAWEModels.pulley_point_index
@@ -522,6 +528,7 @@ SymbolicAWEModels.add_point!
 SymbolicAWEModels.add_segment!
 SymbolicAWEModels.add_body!
 SymbolicAWEModels.add_ride_point!
+SymbolicAWEModels.add_joint!
 SymbolicAWEModels.wire_segment!
 SymbolicAWEModels.buffer_slots
 SymbolicAWEModels.bind_params
