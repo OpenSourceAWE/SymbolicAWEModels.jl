@@ -33,6 +33,18 @@ SCHEDULED_PARITY_FILES = [
     "test_rigid_body.jl",
     "test_joint.jl",
     "test_timoshenko_joint.jl",
+    "test_getter_allocations.jl",
+    "test_heading_calculation.jl",
+    "test_match_aero_sections.jl",
+    "test_multi_section_group.jl",
+    "test_principal_body_frame.jl",
+    "test_quaternion_auto_groups.jl",
+    "test_quaternion_conversions.jl",
+    "test_section_alignment.jl",
+    "test_static_twist.jl",
+    "test_weighted_ref_points.jl",
+    "test_wing_dynamics.jl",
+    "test_yaml_bodies.jl",
 ]
 
 @testset verbose = true "ScheduledBackend parity" begin
