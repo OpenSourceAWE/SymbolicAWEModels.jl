@@ -25,18 +25,22 @@ const WRENCH_OUTPUTS = [:force_out, :moment_out]
 const JOINT_INPUTS = [:a_pos, :a_frame, :a_com, :a_com_velocity, :a_omega,
                       :b_pos, :b_frame, :b_com, :b_com_velocity, :b_omega]
 const JOINT_OUTPUTS = [:force_a, :moment_a, :force_b, :moment_b]
+const HERMITE_RIDE_OUTPUTS = [:pos, :vel, :arm_a, :arm_b, :height]
+const HERMITE_WRENCH_INPUTS = [:height, :vel, :arm_a, :arm_b, :force_in,
+                               :mass_in, :drag_in]
 const FITTED_INPUTS = [:z1_pos, :z2_pos, :y1_pos, :y2_pos, :origin_pos,
                        :origin_vel]
 const WING_NODE_INPUTS = [:force_in, :mass_in, :drag_in, :wing_frame,
                           :wing_velocity]
 
 """
-    PointRole(kind, pulley_idx, segment_idx, winch_idx, body_idx)
+    PointRole(kind, pulley_idx, segment_idx, winch_idx, body_idx, joint_idx)
 
-How one point is realised: `kind` is `:particle`, `:anchor`, `:pulley`, `:winch` or
-`:ride`. A `:pulley` point carries the pulley it splits and one of that pulley's
-segments (whose material gives the rope mass); a `:winch` point carries its winch;
-a `:ride` point carries the body it is anchored to.
+How one point is realised: `kind` is `:particle`, `:anchor`, `:pulley`, `:winch`,
+`:wing_node`, `:ride` or `:hermite`. A `:pulley` point carries the pulley it splits
+and one of that pulley's segments (whose material gives the rope mass); a `:winch`
+point carries its winch; a `:ride` point carries the body it is anchored to and a
+`:hermite` point the Timoshenko joint whose beam it rides.
 """
 struct PointRole
     kind::Symbol
@@ -44,24 +48,29 @@ struct PointRole
     segment_idx::Int
     winch_idx::Int
     body_idx::Int
+    joint_idx::Int
 end
 
 """
     classify_points(sys_struct) -> Vector{PointRole}
 
-Decide each point's component type. A point that splits a pulley is a pulley
-particle, a point carrying a winch is a winch anchor, a `BODY_STATIC` point rides
-its body, and the rest follow their `DynamicsType`. `KINEMATIC` points belong to
-the aero layer and are rejected here.
+Decide each point's component type, following `point_eqs!`'s anchor rule: a point
+anchored to a beam rides its Timoshenko element, one anchored to a body rides that
+body, a point that splits a pulley is a pulley particle, a point carrying a winch is
+a winch anchor, and the rest follow their `DynamicsType`.
 """
 function classify_points(sys_struct)
-    roles = [PointRole(:none, 0, 0, 0, 0) for _ in sys_struct.points]
+    roles = [PointRole(:none, 0, 0, 0, 0, 0) for _ in sys_struct.points]
     for (i, point) in enumerate(sys_struct.points)
+        if point.joint_idx > 0
+            roles[i] = PointRole(:hermite, 0, 0, 0, 0, point.joint_idx)
+            continue
+        end
         if point.type == BODY_STATIC
             point.body_idx > 0 || error(
-                "ScheduledBackend: BODY_STATIC point $(point.name) has no body; " *
-                "beam-anchored points are not supported yet.")
-            roles[i] = PointRole(:ride, 0, 0, 0, point.body_idx)
+                "ScheduledBackend: BODY_STATIC point $(point.name) is anchored to " *
+                "neither a body nor a beam.")
+            roles[i] = PointRole(:ride, 0, 0, 0, point.body_idx, 0)
             continue
         end
         point.type in (STATIC, DYNAMIC) || error(
@@ -69,7 +78,7 @@ function classify_points(sys_struct)
             "STATIC, DYNAMIC and BODY_STATIC are supported so far.")
         wing = fitted_wing_of(sys_struct, point)
         kind = point.type == STATIC ? :anchor : wing == 0 ? :particle : :wing_node
-        roles[i] = PointRole(kind, 0, 0, 0, wing)
+        roles[i] = PointRole(kind, 0, 0, 0, wing, 0)
     end
     for pulley in sys_struct.pulleys
         pulley.type == DYNAMIC || error(
@@ -77,13 +86,13 @@ function classify_points(sys_struct)
             "only DYNAMIC pulleys exist.")
         index = pulley_point_index(sys_struct, pulley)
         roles[index] = PointRole(:pulley, pulley.idx, pulley.segment_idxs[1],
-                                 0, 0)
+                                 0, 0, 0)
     end
     for winch in sys_struct.winches
         index = winch.winch_point_idx
         sys_struct.points[index].type == STATIC || error(
             "ScheduledBackend: winch $(winch.name) is at a non-STATIC point.")
-        roles[index] = PointRole(:winch, 0, 0, winch.idx, 0)
+        roles[index] = PointRole(:winch, 0, 0, 0, winch.idx, 0)
     end
     return roles
 end
@@ -370,6 +379,9 @@ function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches)
     index_map = Dict(:points => idx)
     role.kind === :ride && return add_ride_point!(builder, table, bindings, sam, idx,
                                                   role, bodies, wrenches)
+    role.kind === :hermite && return add_hermite_ride_point!(builder, table, bindings,
+                                                             sam, idx, role, bodies,
+                                                             wrenches)
     entry = if role.kind === :wing_node
         point = sys_struct.points[idx]
         with_aero = point.is_wing_node && is_wing(sys_struct.bodies[point.wing_idx])
@@ -447,6 +459,46 @@ function add_ride_point!(builder, table, bindings, sam, idx, role, bodies, wrenc
     connect!(builder, ride, :arm, wrench, :arm)
     connect!(builder, wrench, :force_out, body, :force_in)
     connect!(builder, wrench, :moment_out, body, :moment_in)
+    return ride
+end
+
+"""
+    add_hermite_ride_point!(builder, table, bindings, sam, idx, role, bodies, wrenches)
+
+Add the two instances a beam-anchored point needs and wire them to the two end
+bodies of the Timoshenko element it rides: the [`HermiteRidePoint`](@ref) reads both
+poses, the [`HermiteRideWrench`](@ref) reads the ride point's `pos`/`vel` and two
+moment arms and delivers a share of its load to each body. Returns the ride point,
+which is what the incident segments connect to.
+"""
+function add_hermite_ride_point!(builder, table, bindings, sam, idx, role, bodies,
+                                 wrenches)
+    joint = sam.sys_struct.timoshenko_joints[role.joint_idx]
+    index_map = Dict(:points => idx, :timoshenko_joints => role.joint_idx)
+    kinematics = kernel!(builder, table, sam, :hermite_ride_point, idx,
+                         params -> HermiteRidePoint(sam, params, idx;
+                                                    name = :hermite_ride_point),
+                         JOINT_INPUTS, HERMITE_RIDE_OUTPUTS)
+    statics = kernel!(builder, table, sam, :hermite_ride_wrench, idx,
+                      params -> HermiteRideWrench(sam, params, idx;
+                                                  name = :hermite_ride_wrench),
+                      HERMITE_WRENCH_INPUTS, JOINT_OUTPUTS)
+    ride = add_instance!(builder, kinematics.index)
+    wrench = add_instance!(builder, statics.index)
+    push!(bindings, (ride, kinematics, index_map))
+    push!(bindings, (wrench, statics, index_map))
+    wrenches[idx] = wrench
+    for (prefix, body) in ((:a, joint.body_a_idx), (:b, joint.body_b_idx))
+        for source in (:pos, :frame, :com, :com_velocity)
+            connect!(builder, bodies[body], source, ride, Symbol(prefix, :_, source))
+        end
+        connect!(builder, bodies[body], :omega_w, ride, Symbol(prefix, :_omega))
+        connect!(builder, ride, Symbol(:arm_, prefix), wrench, Symbol(:arm_, prefix))
+        connect!(builder, wrench, Symbol(:force_, prefix), bodies[body], :force_in)
+        connect!(builder, wrench, Symbol(:moment_, prefix), bodies[body], :moment_in)
+    end
+    connect!(builder, ride, :height, wrench, :height)
+    connect!(builder, ride, :vel, wrench, :vel)
     return ride
 end
 
@@ -529,7 +581,8 @@ function wire_segment!(builder, sys_struct, idx, role, point_roles, point_instan
         loaded = point_roles[endpoint].kind === :ride ?
             wrench_instances[endpoint] : point
         connect!(builder, segment, :half_drag, loaded, :drag_in)
-        if point_roles[endpoint].kind in (:particle, :pulley, :ride, :wing_node)
+        if point_roles[endpoint].kind in (:particle, :pulley, :ride, :hermite,
+                                          :wing_node)
             connect!(builder, segment, Symbol(prefix, :_force), loaded, :force_in)
             connect!(builder, segment, :half_mass, loaded, :mass_in)
         end

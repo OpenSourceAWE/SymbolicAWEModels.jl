@@ -516,7 +516,13 @@ SymbolicAWEModels.WingNodePoint
 SymbolicAWEModels.body_pose_variables
 SymbolicAWEModels.RidePoint
 SymbolicAWEModels.RideWrench
+SymbolicAWEModels.HermiteRidePoint
+SymbolicAWEModels.HermiteRideWrench
+SymbolicAWEModels.ride_wrench_variables
+SymbolicAWEModels.ride_load
 SymbolicAWEModels.joint_variables
+SymbolicAWEModels.joint_pose_variables
+SymbolicAWEModels.joint_wrench_variables
 SymbolicAWEModels.joint_poses
 SymbolicAWEModels.joint_wrench_eqs
 SymbolicAWEModels.ElasticJointComponent
@@ -537,6 +543,7 @@ SymbolicAWEModels.add_fitted_body!
 SymbolicAWEModels.wire_fitted_body!
 SymbolicAWEModels.fitted_wing_of
 SymbolicAWEModels.add_ride_point!
+SymbolicAWEModels.add_hermite_ride_point!
 SymbolicAWEModels.add_joint!
 SymbolicAWEModels.wire_segment!
 SymbolicAWEModels.buffer_slots

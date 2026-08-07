@@ -984,52 +984,144 @@ function RidePoint(s, params, idx; name)
 end
 
 """
-    RideWrench(s, params, idx; name, with_gravity=true)
+    ride_wrench_variables()
 
-The *statics* of a `BODY_STATIC` point: everything that flows back to its body. It
-takes the point's own `height`/`vel`/`arm` from [`RidePoint`](@ref) and the force
-and mass its segments deliver, adds the point's gravity, its external force and its own
-aerodynamic drag, and emits `force_out` and `moment_out = arm × force_out` into the
-body's `force_in`/`moment_in`. `with_gravity = false` is the point that rides its
-own wing body, whose mass is already counted at that body's COM (`rides_own_wing` in
-`point_eqs!`). `total_drag` is observed, as for any other point.
+The variables shared by every anchored point's *statics* half, as a named tuple:
+its own `height` and `vel` from the kinematics half, the `force_in`/`mass_in`/
+`drag_in` its segments deliver, and the observed `total_drag`. The moment arms
+differ per anchor kind and are declared by the component itself.
 """
-function RideWrench(s, params, idx; name, with_gravity = true)
+function ride_wrench_variables()
     vars = @variables begin
         height(t), [input = true]
         vel(t)[1:3], [input = true]
-        arm(t)[1:3], [input = true]
         force_in(t)[1:3], [input = true]
         mass_in(t), [input = true]
         drag_in(t)[1:3], [input = true]
-        force_out(t)[1:3], [output = true]
-        moment_out(t)[1:3], [output = true]
         total_drag(t)[1:3]
     end
-    point = params.points[idx]
-    wind = WindFactor(s.am, s.set.profile_law)
-    apparent = wind(vars[1]) .* ground_wind_vec(params) .- collect(vars[2])
-    drag = point_drag_force(apparent, calc_rho(s.am, max(0.0, vars[1])),
-                            point.drag_coeff, point.area)
-    mass = point.extra_mass + vars[5]
-    gravity = with_gravity ? Num[0, 0, -params.set.g_earth * mass] : zeros(Num, 3)
-    load = collect(vars[4]) .+ drag .+ gravity .+ collect(point.ext_force_w)
-    eqs = [
-        collect(vars[7]) .~ load
-        collect(vars[8]) .~ collect(vars[3]) × load
-        collect(vars[9]) .~ drag .+ collect(vars[6])
-    ]
-    return System(eqs, t, vars, param_unknowns(params); name)
+    return (; height = vars[1], vel = vars[2], force_in = vars[3],
+            mass_in = vars[4], drag_in = vars[5], total_drag = vars[6],
+            all = vars)
 end
 
 """
-    joint_variables()
+    ride_load(s, params, idx, io; with_gravity) -> (load, drag)
 
-The variables a body-to-body joint component declares, as a named tuple: the two
-bodies' poses as inputs (`a_pos`/`a_frame`/`a_com`/`a_com_velocity`/`a_omega` and
-the `b_…` set), and the restoring wrench on each as outputs.
+The world load an anchored point delivers to whatever carries it: the force its
+segments deliver, its own aerodynamic drag at its height, its gravity and its
+external force. `with_gravity = false` is the point that rides its own wing body,
+whose mass is already counted at that body's COM (`rides_own_wing` in
+`point_eqs!`). The drag is returned separately because it is also half of the
+point's observed `total_drag`.
 """
-function joint_variables()
+function ride_load(s, params, idx, io; with_gravity)
+    point = params.points[idx]
+    wind = WindFactor(s.am, s.set.profile_law)
+    apparent = wind(io.height) .* ground_wind_vec(params) .- collect(io.vel)
+    drag = point_drag_force(apparent, calc_rho(s.am, max(0.0, io.height)),
+                            point.drag_coeff, point.area)
+    mass = point.extra_mass + io.mass_in
+    gravity = with_gravity ? Num[0, 0, -params.set.g_earth * mass] : zeros(Num, 3)
+    load = collect(io.force_in) .+ drag .+ gravity .+ collect(point.ext_force_w)
+    return load, drag
+end
+
+"""
+    RideWrench(s, params, idx; name, with_gravity=true)
+
+The *statics* of a `BODY_STATIC` point: everything that flows back to its body. It
+takes the point's own `height`/`vel`/`arm` from [`RidePoint`](@ref) and the load
+[`ride_load`](@ref) builds, and emits `force_out` and `moment_out = arm ×
+force_out` into the body's `force_in`/`moment_in`. `total_drag` is observed, as for
+any other point.
+"""
+function RideWrench(s, params, idx; name, with_gravity = true)
+    io = ride_wrench_variables()
+    vars = @variables begin
+        arm(t)[1:3], [input = true]
+        force_out(t)[1:3], [output = true]
+        moment_out(t)[1:3], [output = true]
+    end
+    load, drag = ride_load(s, params, idx, io; with_gravity)
+    eqs = [
+        collect(vars[2]) .~ load
+        collect(vars[3]) .~ collect(vars[1]) × load
+        collect(io.total_drag) .~ drag .+ collect(io.drag_in)
+    ]
+    return System(eqs, t, [io.all; vars], param_unknowns(params); name)
+end
+
+"""
+    HermiteRidePoint(s, params, idx; name)
+
+The *kinematics* of a point riding a Timoshenko beam's deflected centerline: both
+end bodies' poses in, and the point's world `pos`/`vel`, its two moment arms
+(`arm_a`/`arm_b`, the offsets from each end body's COM) and its `height` out. The
+beam-anchored counterpart of [`RidePoint`](@ref), and split for the same reason;
+the placement itself is the shared [`beam_hermite_ride_expressions`](@ref) that also
+sources the monolith's `beam_hermite_ride_eqs`. The velocity is evaluated at the
+already-bound `pos` output, so the heavy element-frame subtree is built once.
+"""
+function HermiteRidePoint(s, params, idx; name)
+    io = joint_pose_variables()
+    vars = @variables begin
+        pos(t)[1:3], [output = true]
+        vel(t)[1:3], [output = true]
+        arm_a(t)[1:3], [output = true]
+        arm_b(t)[1:3], [output = true]
+        height(t), [output = true]
+    end
+    sys_struct = params.reg.sys_struct
+    joint = sys_struct.timoshenko_joints[sys_struct.points[idx].joint_idx]
+    ex = beam_hermite_ride_expressions(joint, params, idx; joint_poses(io)...)
+    eqs = [
+        collect(vars[1]) .~ ex.pos_point
+        collect(vars[2]) .~ ex.ride_velocity(vars[1])
+        collect(vars[3]) .~ collect(vars[1]) .- collect(io.a_com)
+        collect(vars[4]) .~ collect(vars[1]) .- collect(io.b_com)
+        vars[5] ~ vars[1][3]
+    ]
+    return System(eqs, t, [io.all; vars], param_unknowns(params); name)
+end
+
+"""
+    HermiteRideWrench(s, params, idx; name)
+
+The *statics* of a point riding a Timoshenko beam: the load [`ride_load`](@ref)
+builds, split along the element by the point's axial fraction `beam_frac` — `(1 −
+s)` onto the first end body and `s` onto the second — with each half's moment about
+that body's COM. The beam-anchored counterpart of [`RideWrench`](@ref).
+"""
+function HermiteRideWrench(s, params, idx; name)
+    io = ride_wrench_variables()
+    out = joint_wrench_variables()
+    vars = @variables begin
+        arm_a(t)[1:3], [input = true]
+        arm_b(t)[1:3], [input = true]
+    end
+    load, drag = ride_load(s, params, idx, io; with_gravity = true)
+    frac = params.points[idx].beam_frac
+    force_a = (1 - frac) .* load
+    force_b = frac .* load
+    eqs = [
+        collect(out.force_a) .~ force_a
+        collect(out.moment_a) .~ collect(vars[1]) × force_a
+        collect(out.force_b) .~ force_b
+        collect(out.moment_b) .~ collect(vars[2]) × force_b
+        collect(io.total_drag) .~ drag .+ collect(io.drag_in)
+    ]
+    return System(eqs, t, [io.all; out.all; vars], param_unknowns(params); name)
+end
+
+"""
+    joint_pose_variables()
+
+The two end bodies' poses as inputs (`a_pos`/`a_frame`/`a_com`/`a_com_velocity`/
+`a_omega` and the `b_…` set), as a named tuple. Declared by everything that spans
+an element: the joints themselves and a point riding one.
+"""
+function joint_pose_variables()
     vars = @variables begin
         a_pos(t)[1:3], [input = true]
         a_frame(t)[1:9], [input = true]
@@ -1041,16 +1133,40 @@ function joint_variables()
         b_com(t)[1:3], [input = true]
         b_com_velocity(t)[1:3], [input = true]
         b_omega(t)[1:3], [input = true]
+    end
+    return (; a_pos = vars[1], a_frame = vars[2], a_com = vars[3],
+            a_com_velocity = vars[4], a_omega = vars[5], b_pos = vars[6],
+            b_frame = vars[7], b_com = vars[8], b_com_velocity = vars[9],
+            b_omega = vars[10], all = vars)
+end
+
+"""
+    joint_wrench_variables()
+
+The wrench an element delivers to each of its two end bodies, as outputs.
+"""
+function joint_wrench_variables()
+    vars = @variables begin
         force_a(t)[1:3], [output = true]
         moment_a(t)[1:3], [output = true]
         force_b(t)[1:3], [output = true]
         moment_b(t)[1:3], [output = true]
     end
-    return (; a_pos = vars[1], a_frame = vars[2], a_com = vars[3],
-            a_com_velocity = vars[4], a_omega = vars[5], b_pos = vars[6],
-            b_frame = vars[7], b_com = vars[8], b_com_velocity = vars[9],
-            b_omega = vars[10], force_a = vars[11], moment_a = vars[12],
-            force_b = vars[13], moment_b = vars[14], all = vars)
+    return (; force_a = vars[1], moment_a = vars[2], force_b = vars[3],
+            moment_b = vars[4], all = vars)
+end
+
+"""
+    joint_variables()
+
+Everything a body-to-body joint component declares: both end bodies' poses in
+([`joint_pose_variables`](@ref)) and the restoring wrench on each out
+([`joint_wrench_variables`](@ref)).
+"""
+function joint_variables()
+    poses = joint_pose_variables()
+    wrench = joint_wrench_variables()
+    return merge(poses, wrench, (; all = [poses.all; wrench.all]))
 end
 
 """
