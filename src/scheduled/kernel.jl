@@ -98,6 +98,18 @@ struct ComponentKernel{F, G, O, M}
 end
 
 """
+    required_default(kernel, param, value)
+
+`value` as a `SimFloat`, or an error naming the parameter that has none. Every
+parameter needs a build-time default: the kernel's buffer is seeded from them and
+only then overwritten per instance, so a missing one would leave a silent zero.
+"""
+function required_default(kernel, param, value)
+    value === nothing && error("kernel $kernel: parameter $param has no default")
+    return SimFloat(value)
+end
+
+"""
     compile_kernel(system, inputs, outputs; name, verbose=false)
 
 Compile one component `System` into a [`ComponentKernel`](@ref). `inputs` and
@@ -109,10 +121,8 @@ those defaults and only then overwritten per instance.
 function compile_kernel(system, inputs, outputs; name = nameof(system),
                         verbose = false)
     gen = KernelCodegen.generate_io_function(system, inputs, outputs; verbose)
-    defaults = map(zip(gen.params, gen.param_defaults)) do (param, value)
-        value === nothing && error("kernel $name: parameter $param has no default")
-        SimFloat(value)
-    end
+    defaults = SimFloat[required_default(name, param, value)
+                        for (param, value) in zip(gen.params, gen.param_defaults)]
     return ComponentKernel(name, gen.f, gen.g, gen.obs, gen.mass_matrix,
         SlotMap(gen.states), SlotMap(gen.inputs), SlotMap(gen.outputs),
         SlotMap(gen.obsstates), SlotMap(gen.params), SlotMap(gen.callable_params),

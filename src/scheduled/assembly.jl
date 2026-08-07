@@ -25,6 +25,10 @@ const WRENCH_OUTPUTS = [:force_out, :moment_out]
 const JOINT_INPUTS = [:a_pos, :a_frame, :a_com, :a_com_velocity, :a_omega,
                       :b_pos, :b_frame, :b_com, :b_com_velocity, :b_omega]
 const JOINT_OUTPUTS = [:force_a, :moment_a, :force_b, :moment_b]
+const FITTED_INPUTS = [:z1_pos, :z2_pos, :y1_pos, :y2_pos, :origin_pos,
+                       :origin_vel]
+const WING_NODE_INPUTS = [:force_in, :mass_in, :drag_in, :wing_frame,
+                          :wing_velocity]
 
 """
     PointRole(kind, pulley_idx, segment_idx, winch_idx, body_idx)
@@ -63,7 +67,9 @@ function classify_points(sys_struct)
         point.type in (STATIC, DYNAMIC) || error(
             "ScheduledBackend: point $(point.name) has type $(point.type); only " *
             "STATIC, DYNAMIC and BODY_STATIC are supported so far.")
-        roles[i] = PointRole(point.type == STATIC ? :anchor : :particle, 0, 0, 0, 0)
+        wing = fitted_wing_of(sys_struct, point)
+        kind = point.type == STATIC ? :anchor : wing == 0 ? :particle : :wing_node
+        roles[i] = PointRole(kind, 0, 0, 0, wing)
     end
     for pulley in sys_struct.pulleys
         pulley.type == DYNAMIC || error(
@@ -80,6 +86,21 @@ function classify_points(sys_struct)
         roles[index] = PointRole(:winch, 0, 0, winch.idx, 0)
     end
     return roles
+end
+
+"""
+    fitted_wing_of(sys_struct, point) -> Int
+
+The fitted (`KINEMATIC`) wing whose frame `point` needs, or `0`. `point_eqs!` damps
+*any* DYNAMIC point against its wing's frame, not only aerodynamic surface nodes, so
+a steering or pulley point with `body_frame_damping` needs it too.
+"""
+function fitted_wing_of(sys_struct, point)
+    idx = point.wing_idx
+    (idx > 0 && idx <= length(sys_struct.bodies)) || return 0
+    sys_struct.bodies[idx].type == KINEMATIC || return 0
+    needs = point.is_wing_node || point.body_frame_damping !== nothing
+    return needs ? idx : 0
 end
 
 """
@@ -239,6 +260,18 @@ function assemble(sam)
         wire_segment!(builder, sys_struct, i, segment_roles[i], point_roles,
                       point_instances, segment_instances, wrench_instances)
     end
+    for (idx, body) in enumerate(sys_struct.bodies)
+        body.type == KINEMATIC || continue
+        wire_fitted_body!(builder, sys_struct, idx, body_instances[idx],
+                          point_instances)
+    end
+    for (idx, role) in enumerate(point_roles)
+        role.kind === :wing_node || continue
+        connect!(builder, body_instances[role.body_idx], :frame,
+                 point_instances[idx], :wing_frame)
+        connect!(builder, body_instances[role.body_idx], :vel,
+                 point_instances[idx], :wing_velocity)
+    end
     for joint in sys_struct.elastic_joints
         add_joint!(builder, table, bindings, sam, joint, body_instances,
                    :elastic_joints, ElasticJointComponent)
@@ -262,14 +295,17 @@ end
 """
     add_body!(builder, table, bindings, sam, idx) -> Int
 
-Add the instance for body `idx`. A `STATIC` body is clamped, which is topology, so
-it gets its own compiled type rather than a runtime branch.
+Add the instance for body `idx`. Each of the three kinds is its own compiled type,
+because which one a body is, is topology: a `DYNAMIC` body integrates, a `STATIC`
+one is clamped, and a `KINEMATIC` one is fitted from reference points.
 """
 function add_body!(builder, table, bindings, sam, idx)
     body = sam.sys_struct.bodies[idx]
+    body.type == KINEMATIC && return add_fitted_body!(builder, table, bindings,
+                                                      sam, idx)
     body.type in (DYNAMIC, STATIC) || error(
-        "ScheduledBackend: body $(body.name) has type $(body.type); only DYNAMIC " *
-        "and STATIC are supported so far.")
+        "ScheduledBackend: body $(body.name) has type $(body.type); only DYNAMIC, " *
+        "STATIC and KINEMATIC are supported so far.")
     make = body.type == STATIC ? StaticBody : RigidBody
     key = body.type == STATIC ? :static_body : :rigid_body
     entry = kernel!(builder, table, sam, key, idx,
@@ -278,6 +314,47 @@ function add_body!(builder, table, bindings, sam, idx)
     instance = add_instance!(builder, entry.index)
     push!(bindings, (instance, entry, Dict(:bodies => idx)))
     return instance
+end
+
+"""
+    add_fitted_body!(builder, table, bindings, sam, idx) -> Int
+
+Add a `KINEMATIC` wing body. It has no state: its frame is fitted from four
+structural reference points and its origin pose read from a fifth, so the whole
+component is wiring. Each reference is a weighted blend of real points, delivered by
+the weights in the [`Wiring`](@ref).
+"""
+function add_fitted_body!(builder, table, bindings, sam, idx)
+    entry = kernel!(builder, table, sam, :fitted_body, idx,
+                    params -> KinematicBody(sam, params, idx; name = :fitted_body),
+                    FITTED_INPUTS, BODY_OUTPUTS)
+    instance = add_instance!(builder, entry.index)
+    push!(bindings, (instance, entry, Dict(:bodies => idx)))
+    return instance
+end
+
+"""
+    wire_fitted_body!(builder, sys_struct, idx, body_instance, point_instances)
+
+Wire a fitted wing's reference points into it: the four frame references and the
+origin's position and velocity, each a weighted blend of point outputs.
+"""
+function wire_fitted_body!(builder, sys_struct, idx, body_instance, point_instances)
+    wing = sys_struct.bodies[idx]
+    references = ((wing.z_ref_points[1], :z1_pos, :pos),
+                  (wing.z_ref_points[2], :z2_pos, :pos),
+                  (wing.y_ref_points[1], :y1_pos, :pos),
+                  (wing.y_ref_points[2], :y2_pos, :pos),
+                  (wing.origin, :origin_pos, :pos),
+                  (wing.origin, :origin_vel, :vel))
+    for (reference, target, source) in references
+        for (position, point) in enumerate(reference.ids)
+            weight = length(reference.ids) == 1 ? 1.0 : reference.weights[position]
+            connect!(builder, point_instances[point], source, body_instance, target;
+                     weight)
+        end
+    end
+    return nothing
 end
 
 """
@@ -293,7 +370,17 @@ function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches)
     index_map = Dict(:points => idx)
     role.kind === :ride && return add_ride_point!(builder, table, bindings, sam, idx,
                                                   role, bodies, wrenches)
-    entry = if role.kind === :particle
+    entry = if role.kind === :wing_node
+        point = sys_struct.points[idx]
+        with_aero = point.is_wing_node && is_wing(sys_struct.bodies[point.wing_idx])
+        with_damping = point.body_frame_damping !== nothing
+        key = Symbol(:wing_node, with_aero ? "" : "_free",
+                     with_damping ? "" : "_undamped")
+        kernel!(builder, table, sam, key, idx,
+                params -> WingNodePoint(sam, params, idx; name = key, with_aero,
+                                        with_damping),
+                WING_NODE_INPUTS, PARTICLE_OUTPUTS)
+    elseif role.kind === :particle
         kernel!(builder, table, sam, :particle, idx,
                 params -> Particle(sam, params, idx; name = :particle),
                 PARTICLE_INPUTS, PARTICLE_OUTPUTS)
@@ -442,7 +529,7 @@ function wire_segment!(builder, sys_struct, idx, role, point_roles, point_instan
         loaded = point_roles[endpoint].kind === :ride ?
             wrench_instances[endpoint] : point
         connect!(builder, segment, :half_drag, loaded, :drag_in)
-        if point_roles[endpoint].kind in (:particle, :pulley, :ride)
+        if point_roles[endpoint].kind in (:particle, :pulley, :ride, :wing_node)
             connect!(builder, segment, Symbol(prefix, :_force), loaded, :force_in)
             connect!(builder, segment, :half_mass, loaded, :mass_in)
         end
@@ -593,7 +680,8 @@ function initial_state(system, sys_struct, point_roles, point_instances,
     u0 = zeros(SimFloat, system.n_states)
     for (idx, instance) in enumerate(body_instances)
         body = sys_struct.bodies[idx]
-        body.type == STATIC && continue
+        # Only a DYNAMIC body integrates; a clamped or fitted one has no state.
+        body.type == DYNAMIC || continue
         u0[buffer_slots(system, instance, :states, :com_w)] .= body.com_w
         u0[buffer_slots(system, instance, :states, :com_vel)] .= body.com_vel
         u0[buffer_slots(system, instance, :states, :Q)] .= body.Q_p_to_w
@@ -602,7 +690,7 @@ function initial_state(system, sys_struct, point_roles, point_instances,
     for (idx, role) in enumerate(point_roles)
         instance = point_instances[idx]
         point = sys_struct.points[idx]
-        if role.kind in (:particle, :pulley)
+        if role.kind in (:particle, :pulley, :wing_node)
             u0[buffer_slots(system, instance, :states, :pos)] .= point.pos_w
             u0[buffer_slots(system, instance, :states, :vel)] .= point.vel_w
         end

@@ -45,6 +45,8 @@ SCHEDULED_PARITY_FILES = [
     "test_weighted_ref_points.jl",
     "test_wing_dynamics.jl",
     "test_yaml_bodies.jl",
+    "test_transform.jl",
+    "test_yaml_weighted_ref.jl",
 ]
 
 @testset verbose = true "ScheduledBackend parity" begin

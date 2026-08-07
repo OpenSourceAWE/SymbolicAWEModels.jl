@@ -454,6 +454,7 @@ SymbolicAWEModels.slots
 SymbolicAWEModels.has_slot
 SymbolicAWEModels.ComponentKernel
 SymbolicAWEModels.compile_kernel
+SymbolicAWEModels.required_default
 SymbolicAWEModels.ComponentInstance
 SymbolicAWEModels.Wiring
 SymbolicAWEModels.gather!
@@ -507,6 +508,10 @@ SymbolicAWEModels.keep_along
 SymbolicAWEModels.body_integration
 SymbolicAWEModels.RigidBody
 SymbolicAWEModels.StaticBody
+SymbolicAWEModels.wing_frame_variables
+SymbolicAWEModels.KinematicBody
+SymbolicAWEModels.body_frame_damp_accel
+SymbolicAWEModels.WingNodePoint
 SymbolicAWEModels.body_pose_variables
 SymbolicAWEModels.RidePoint
 SymbolicAWEModels.RideWrench
@@ -527,6 +532,9 @@ SymbolicAWEModels.assemble
 SymbolicAWEModels.add_point!
 SymbolicAWEModels.add_segment!
 SymbolicAWEModels.add_body!
+SymbolicAWEModels.add_fitted_body!
+SymbolicAWEModels.wire_fitted_body!
+SymbolicAWEModels.fitted_wing_of
 SymbolicAWEModels.add_ride_point!
 SymbolicAWEModels.add_joint!
 SymbolicAWEModels.wire_segment!
@@ -541,9 +549,11 @@ SymbolicAWEModels.SegmentReadout
 SymbolicAWEModels.PulleyReadout
 SymbolicAWEModels.WinchReadout
 SymbolicAWEModels.BodyReadout
+SymbolicAWEModels.FittedWingReadout
 SymbolicAWEModels.ScheduledStateGetter
 SymbolicAWEModels.winch_readouts
 SymbolicAWEModels.body_readouts
+SymbolicAWEModels.fitted_wing_readouts
 SymbolicAWEModels.drag_source
 SymbolicAWEModels.write_stretched_lengths!
 SymbolicAWEModels.copy_slots!

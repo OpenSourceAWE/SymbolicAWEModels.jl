@@ -1111,3 +1111,103 @@ function TimoshenkoJointComponent(s, params, idx; name)
     return System(joint_wrench_eqs(io, ex), t, [io.all; torn],
                   param_unknowns(params); name)
 end
+
+"""
+    wing_frame_variables()
+
+The reference-point inputs a fitted (`KINEMATIC`) wing body reads: the two z-axis
+and two y-axis structural reference positions its frame is built from, plus the
+origin's position and velocity. Each is a weighted blend of real points, which the
+wiring supplies — see [`Wiring`](@ref).
+"""
+function wing_frame_variables()
+    vars = @variables begin
+        z1_pos(t)[1:3], [input = true]
+        z2_pos(t)[1:3], [input = true]
+        y1_pos(t)[1:3], [input = true]
+        y2_pos(t)[1:3], [input = true]
+        origin_pos(t)[1:3], [input = true]
+        origin_vel(t)[1:3], [input = true]
+    end
+    return (; z1_pos = vars[1], z2_pos = vars[2], y1_pos = vars[3],
+            y2_pos = vars[4], origin_pos = vars[5], origin_vel = vars[6],
+            all = vars)
+end
+
+"""
+    KinematicBody(s, params, idx; name)
+
+A `KINEMATIC` (particle-wing) body: no state at all. Its orientation is *fitted*
+from four structural reference points through the shared
+[`wing_frame_columns`](@ref), and its origin pose is read from its origin reference
+point, exactly as the `KINEMATIC` branch of `wing_eqs!` does. The principal frame
+is aliased to the body frame and the spin is zero, because such a wing has no rigid
+rotation of its own — the particles carry the motion.
+"""
+function KinematicBody(s, params, idx; name)
+    frame = wing_frame_variables()
+    io = body_variables()
+    columns = wing_frame_columns(collect(frame.z1_pos), collect(frame.z2_pos),
+                                collect(frame.y1_pos), collect(frame.y2_pos))
+    orientation = [columns[1][1] columns[2][1] columns[3][1];
+                   columns[1][2] columns[2][2] columns[3][2];
+                   columns[1][3] columns[2][3] columns[3][3]]
+    eqs = [
+        collect(io.pos) .~ collect(frame.origin_pos)
+        collect(io.vel) .~ collect(frame.origin_vel)
+        collect(io.frame) .~ vec(orientation)
+        collect(io.com) .~ collect(frame.origin_pos)
+        collect(io.com_velocity) .~ collect(frame.origin_vel)
+        collect(io.omega_w) .~ zeros(3)
+        collect(io.acc) .~ zeros(3)
+        collect(io.orientation) .~ rotation_matrix_to_quaternion(orientation)
+        collect(io.omega_b) .~ zeros(3)
+    ]
+    return System(eqs, t, [io.all; frame.all], param_unknowns(params); name)
+end
+
+"""
+    body_frame_damp_accel(vel, body_damp, orientation, wing_vel)
+
+Body-frame damping acceleration `R·(coeff ⊙ (Rᵀ·(vel − wing_vel)))`, the term
+`point_damping_accel` adds for a point that damps against its wing's frame rather
+than the world.
+"""
+body_frame_damp_accel(vel, body_damp, orientation, wing_vel) =
+    orientation * (collect(body_damp) .* (orientation' * (collect(vel) .- wing_vel)))
+
+"""
+    WingNodePoint(s, params, idx; name, with_aero=true, with_damping=true)
+
+A particle belonging to a fitted wing: the shared [`Particle`](@ref) motion plus the
+two terms `point_eqs!` adds for a wing node — its frozen per-point `aero_force_b`
+rotated into the world by the wing frame, and body-frame damping relative to the
+wing's velocity. Both read the wing's `wing_frame`/`wing_velocity`, which the fitted
+body supplies. `with_aero`/`with_damping` drop a term whose coefficient the struct
+leaves unset, so no zero-valued parameter is generated, matching the monolith.
+"""
+function WingNodePoint(s, params, idx; name, with_aero = true, with_damping = true)
+    io = point_variables()
+    extra = @variables begin
+        wing_frame(t)[1:9], [input = true]
+        wing_velocity(t)[1:3], [input = true]
+    end
+    orientation = reshape(collect(extra[1]), 3, 3)
+    point = params.points[idx]
+    pars = point_particle_params(params, idx)
+    mass = pars.extra_mass + io.mass_in
+    accel = point_acceleration(s, collect(io.pos), collect(io.vel),
+        collect(io.force_in), mass, pars.drag_coeff, pars.area,
+        collect(pars.world_damping), collect(pars.wind_gnd))
+    with_aero && (accel = accel .+ (orientation * collect(point.aero_force_b)) ./ mass)
+    with_damping && (accel = accel .- body_frame_damp_accel(io.vel,
+        point.body_frame_damping, orientation, collect(extra[2])))
+    eqs = [
+        D.(collect(io.pos)) .~ collect(io.vel)
+        D.(collect(io.vel)) .~ accel
+        total_drag_eq(s, params, idx, io)
+    ]
+    vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
+            extra...]
+    return System(eqs, t, vars, param_unknowns(params); name)
+end

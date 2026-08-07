@@ -27,15 +27,18 @@ struct ComponentInstance
 end
 
 """
-    Wiring(sources, offsets)
+    Wiring(sources, weights, offsets)
 
 Flattened compressed-row map from output slots to input slots: input slot `k` is
-the sum of the output-buffer slots `sources[offsets[k]:offsets[k + 1] - 1]`. An
-input with no sources reads zero, which is how an unconnected slot (a plain
-segment's `pulley_len`, say) gets its value without anyone writing it.
+the weighted sum of the output-buffer slots `sources[offsets[k]:offsets[k + 1] - 1]`.
+Most weights are `1`; a weighted reference point — a wing frame fitted from a
+blend of structural points — is the reason they exist at all, and having them here
+is why such a point needs no component of its own. An input with no sources reads
+zero, which is how an unconnected slot gets its value without anyone writing it.
 """
 struct Wiring
     sources::Vector{Int}
+    weights::Vector{SimFloat}
     offsets::Vector{Int}
 end
 
@@ -49,11 +52,12 @@ by slot there is no uniform I/O width to pad to.
 """
 function gather!(input, output, wiring::Wiring)
     sources = wiring.sources
+    weights = wiring.weights
     offsets = wiring.offsets
     @inbounds for k in eachindex(input)
         total = zero(eltype(input))
         for j in offsets[k]:(offsets[k + 1] - 1)
-            total += output[sources[j]]
+            total += weights[j] * output[sources[j]]
         end
         input[k] = total
     end
@@ -98,6 +102,7 @@ mutable struct SystemBuilder
     instances::Vector{ComponentInstance}
     targets::Vector{Int}
     sources::Vector{Int}
+    weights::Vector{SimFloat}
     n_states::Int
     n_inputs::Int
     n_outputs::Int
@@ -106,7 +111,7 @@ mutable struct SystemBuilder
 end
 
 SystemBuilder() = SystemBuilder(ComponentKernel[], Int[], ComponentInstance[],
-                                Int[], Int[], 0, 0, 0, 0, 0)
+                                Int[], Int[], SimFloat[], 0, 0, 0, 0, 0)
 
 """
     add_kernel!(builder, kernel) -> Int
@@ -146,14 +151,15 @@ function reserve!(builder::SystemBuilder, field::Symbol, count::Int)
 end
 
 """
-    connect!(builder, source, out_name, target, in_name)
+    connect!(builder, source, out_name, target, in_name; weight=1)
 
-Add instance `source`'s output `out_name` to instance `target`'s input `in_name`,
-slot by slot. Both names may be whole vectors (`:pos` covering `pos_1 … pos_3`) and
-must then have the same width. Several sources may feed one input; they sum.
+Add `weight` times instance `source`'s output `out_name` to instance `target`'s
+input `in_name`, slot by slot. Both names may be whole vectors (`:pos` covering
+`pos_1 … pos_3`) and must then have the same width. Several sources may feed one
+input; they sum.
 """
 function connect!(builder::SystemBuilder, source::Int, out_name::Symbol,
-                  target::Int, in_name::Symbol)
+                  target::Int, in_name::Symbol; weight = 1.0)
     from = builder.instances[source]
     into = builder.instances[target]
     out_slots = slots(builder.kernels[from.kernel].outputs, out_name)
@@ -164,6 +170,7 @@ function connect!(builder::SystemBuilder, source::Int, out_name::Symbol,
     for (out_slot, in_slot) in zip(out_slots, in_slots)
         push!(builder.sources, first(from.outputs) - 1 + out_slot)
         push!(builder.targets, first(into.inputs) - 1 + in_slot)
+        push!(builder.weights, weight)
     end
     return nothing
 end
@@ -174,7 +181,8 @@ end
 Turn the recorded connections into a [`Wiring`](@ref) and a layered schedule.
 """
 function build_system(builder::SystemBuilder)
-    wiring = build_wiring(builder.targets, builder.sources, builder.n_inputs)
+    wiring = build_wiring(builder.targets, builder.sources, builder.weights,
+                          builder.n_inputs)
     layers = build_schedule(builder, wiring)
     stateful = [i for (i, inst) in enumerate(builder.instances)
                 if builder.kernels[inst.kernel].rhs! !== nothing]
@@ -187,12 +195,12 @@ function build_system(builder::SystemBuilder)
 end
 
 """
-    build_wiring(targets, sources, n_inputs) -> Wiring
+    build_wiring(targets, sources, weights, n_inputs) -> Wiring
 
-Invert the recorded `(target input slot, source output slot)` pairs into the
-compressed-row form [`gather!`](@ref) walks.
+Invert the recorded `(target input slot, source output slot, weight)` triples into
+the compressed-row form [`gather!`](@ref) walks.
 """
-function build_wiring(targets, sources, n_inputs)
+function build_wiring(targets, sources, weights, n_inputs)
     counts = zeros(Int, n_inputs + 1)
     for target in targets
         counts[target + 1] += 1
@@ -200,11 +208,13 @@ function build_wiring(targets, sources, n_inputs)
     offsets = cumsum(counts) .+ 1
     cursor = copy(offsets)
     ordered = Vector{Int}(undef, length(sources))
-    for (target, source) in zip(targets, sources)
+    scale = Vector{SimFloat}(undef, length(sources))
+    for (target, source, weight) in zip(targets, sources, weights)
         ordered[cursor[target]] = source
+        scale[cursor[target]] = weight
         cursor[target] += 1
     end
-    return Wiring(ordered, offsets)
+    return Wiring(ordered, scale, offsets)
 end
 
 """

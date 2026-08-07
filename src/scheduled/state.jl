@@ -80,6 +80,24 @@ struct BodyReadout
 end
 
 """
+    FittedWingReadout(body, z1, z2, y1, y2, origin, aero_points)
+
+The reference points a fitted (`KINEMATIC`) wing's kinematics are rebuilt from after
+a step. Such a wing has no state of its own — its frame, apparent wind and per-point
+apparent wind are functions of where its points ended up, which is what
+[`wing_kinematics_from_points!`](@ref) computes.
+"""
+struct FittedWingReadout
+    body::Int
+    z1::Int
+    z2::Int
+    y1::Int
+    y2::Int
+    origin::Int
+    aero_points::Vector{Int}
+end
+
+"""
     ScheduledStateGetter(model)
 
 Callable `(integrator, sys_struct)` that scatters the runtime's results back into
@@ -95,6 +113,7 @@ struct ScheduledStateGetter{R}
     pulleys::Vector{PulleyReadout}
     winches::Vector{WinchReadout}
     bodies::Vector{BodyReadout}
+    fitted::Vector{FittedWingReadout}
 end
 
 function ScheduledStateGetter(model::ScheduledModel, rhs, sys_struct)
@@ -120,7 +139,28 @@ function ScheduledStateGetter(model::ScheduledModel, rhs, sys_struct)
     end
     return ScheduledStateGetter(rhs, points, segments, pulleys,
                                 winch_readouts(model, sys_struct),
-                                body_readouts(model, sys_struct))
+                                body_readouts(model, sys_struct),
+                                fitted_wing_readouts(sys_struct))
+end
+
+"""
+    fitted_wing_readouts(sys_struct)
+
+One [`FittedWingReadout`](@ref) per `KINEMATIC` body, resolving its reference points
+and its aerodynamic surface points once. A weighted reference collapses to its first
+point here, which is what the reconstruction reads.
+"""
+function fitted_wing_readouts(sys_struct)
+    readouts = FittedWingReadout[]
+    for (idx, body) in enumerate(sys_struct.bodies)
+        body.type == KINEMATIC || continue
+        aero = [i for (i, point) in enumerate(sys_struct.points)
+                if point.is_wing_node && point.wing_idx == idx]
+        push!(readouts, FittedWingReadout(idx, body.z_ref_points[1].ids[1],
+            body.z_ref_points[2].ids[1], body.y_ref_points[1].ids[1],
+            body.y_ref_points[2].ids[1], body.origin.ids[1], aero))
+    end
+    return readouts
 end
 
 """The instance that observes point `idx`'s `total_drag`: its own, or its wrench
@@ -129,13 +169,14 @@ drag_source(model::ScheduledModel, idx) =
     model.wrench_instances[idx] == 0 ? model.point_instances[idx] :
     model.wrench_instances[idx]
 
-"""One [`BodyReadout`](@ref) per body. A clamped body has no state, so its
-principal attitude and spin keep whatever the struct already holds."""
+"""One [`BodyReadout`](@ref) per body. Only a `DYNAMIC` body integrates, so a
+clamped or fitted one keeps whatever principal attitude and spin the struct holds —
+which for a fitted wing is what its own pose output already implies."""
 function body_readouts(model::ScheduledModel, sys_struct)
     system = model.system
     principal(instance, idx, name) =
-        sys_struct.bodies[idx].type == STATIC ? Int[] :
-        buffer_slots(system, instance, :states, name)
+        sys_struct.bodies[idx].type == DYNAMIC ?
+        buffer_slots(system, instance, :states, name) : Int[]
     return [BodyReadout(idx,
                 buffer_slots(system, instance, :outputs, :pos),
                 buffer_slots(system, instance, :outputs, :vel),
@@ -212,6 +253,13 @@ function (getter::ScheduledStateGetter)(integrator, sys_struct::SystemStructure)
         copy_slots!(body.ω_b, scratch.observable, readout.omega_b)
         copy_slots!(body.Q_p_to_w, integrator.u, readout.principal)
         copy_slots!(body.ω_p, integrator.u, readout.spin_p)
+    end
+    for readout in getter.fitted
+        wing_kinematics_from_points!(sys_struct.bodies[readout.body],
+            sys_struct.points, sys_struct.set, sys_struct.am;
+            zp1 = readout.z1, zp2 = readout.z2, yp1 = readout.y1,
+            yp2 = readout.y2, origin = readout.origin,
+            aero_points = readout.aero_points)
     end
     write_stretched_lengths!(sys_struct)
     return nothing
