@@ -40,8 +40,8 @@ const PULLEY_TEST_YAML = """
 ###########################
 variables:
   dyneema:
-    unit_stiffness: 1079922.4746714914
-    unit_damping: 831.5403054970484
+    youngs_modulus: 55.0e9
+    damping_per_stiffness: 0.00077
     density: 724.0
 
 ###########################
@@ -63,7 +63,7 @@ points:
 # Dyneema tethers: very stiff (E=55 GPa) with low damping
 # l0 = nothing -> auto-calculated from point positions
 segments:
-  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, density, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, youngs_modulus, damping_per_stiffness, density, compression_frac]
   data:
     - [left_leg, attach_left, pulley_point, nothing, 5.0, dyneema, 0.01]
     - [right_leg, attach_right, pulley_point, nothing, 5.0, dyneema, 0.01]
@@ -93,8 +93,8 @@ const PULLEY_SYMMETRIC_YAML = """
 ###########################
 variables:
   dyneema:
-    unit_stiffness: 1079922.4746714914
-    unit_damping: 831.5403054970484
+    youngs_modulus: 55.0e9
+    damping_per_stiffness: 0.00077
     density: 724.0
 
 ###########################
@@ -114,7 +114,7 @@ points:
 ###########################
 # l0 = nothing -> auto-calculated from point positions
 segments:
-  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, density, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, youngs_modulus, damping_per_stiffness, density, compression_frac]
   data:
     - [left_leg, attach_left, pulley_point, nothing, 5.0, dyneema, 0.01]
     - [right_leg, attach_right, pulley_point, nothing, 5.0, dyneema, 0.01]

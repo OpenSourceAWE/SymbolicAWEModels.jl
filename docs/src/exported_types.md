@@ -62,7 +62,7 @@ Point(name, pos_cad, type; wing, transform, extra_mass, body_frame_damping, worl
 TwistSurface
 TwistSurface(name, points, type, moment_frac; damping=50.0)
 Segment
-Segment(name, set, point_i, point_j; l0, compression_frac, diameter_mm, unit_stiffness, unit_damping)
+Segment(name, set, point_i, point_j; l0, compression_frac, diameter_mm, unit_stiffness, unit_damping, density, youngs_modulus, damping_per_stiffness)
 Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, compression_frac)
 Pulley
 Pulley(name, segment_i, segment_j, type)

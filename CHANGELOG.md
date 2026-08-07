@@ -9,7 +9,8 @@
   ```yaml
   variables:
     bridle_comp: 0.01
-    dyneema: {unit_stiffness: 43196.9, unit_damping: 33.3, density: 724.0}
+    dyneema: {youngs_modulus: 55.0e9, damping_per_stiffness: 0.00077,
+              density: 724.0}
   ```
   A variable holding a mapping is a *multi-variable*: it fills the columns it
   names at once, so the row carries one entry for the whole group
@@ -17,15 +18,19 @@
   must match the columns at that position; in a dict row they are merged in
   instead, without overriding the row. Naming a variable after a component is
   an error.
+- `youngs_modulus` [Pa] and `damping_per_stiffness` [s] are now ordinary
+  `Segment` and `Tether` inputs (YAML columns and constructor keywords). They
+  are the diameter-independent forms of `unit_stiffness` and `unit_damping`,
+  so one material can be shared by elements of different diameter:
+  `unit_stiffness = youngs_modulus * pi * (diameter_mm/2000)^2` and
+  `unit_damping = damping_per_stiffness * unit_stiffness`. Giving both forms
+  of the same quantity is an error.
 
 ### Breaking
 - The `materials`, `elements` and `segment_properties` YAML blocks were
-  removed, together with the `youngs_modulus` and `damping_per_stiffness`
-  columns they carried. Define the shared properties as a multi-variable with
-  `unit_stiffness` and `unit_damping` given directly —
-  `unit_stiffness = youngs_modulus * pi * (diameter_mm/2000)^2` and
-  `unit_damping = damping_per_stiffness * unit_stiffness`. Loading a file
-  with one of the removed blocks errors.
+  removed. A material is now a multi-variable listing `youngs_modulus`,
+  `damping_per_stiffness` and `density`, and those are ordinary columns.
+  Loading a file with one of the removed blocks errors.
 - A segment whose `unit_damping` is missing or `nothing` now takes the
   `Segment` constructor default (derived from the settings) instead of being
   silently forced to zero by the loader.

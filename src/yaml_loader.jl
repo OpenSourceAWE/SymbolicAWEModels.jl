@@ -175,7 +175,8 @@ the columns it names at once. Variables may refer to other variables.
 ```yaml
 variables:
   bridle_comp: 0.01
-  dyneema: {unit_stiffness: 43196.9, unit_damping: 33.3}
+  dyneema: {youngs_modulus: 55.0e9, damping_per_stiffness: 0.00077,
+            density: 724.0}
 ```
 """
 function resolve_yaml_variables(data)
@@ -667,8 +668,9 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     data = resolve_yaml_variables(YAML.load_file(yaml_path))
     for key in ("materials", "elements", "segment_properties")
         haskey(data, key) && error("The `$key` block was removed; define the " *
-            "shared properties as a mapping under `variables` instead, with " *
-            "`unit_stiffness` and `unit_damping` given directly.")
+            "shared properties as a mapping under `variables` instead, and " *
+            "name its fields (`youngs_modulus`, `damping_per_stiffness`, " *
+            "`density`) as columns.")
     end
 
     # Use provided settings or fall back to base settings
@@ -787,7 +789,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 Segment, row,
                 [:name, :set, :point_i, :point_j],
                 [:l0, :diameter_mm, :unit_stiffness,
-                 :unit_damping, :compression_frac, :density];
+                 :unit_damping, :compression_frac, :density,
+                 :youngs_modulus, :damping_per_stiffness];
                 mappings=Dict(
                     :set => row -> resolved_set,
                     :point_i => row -> yaml_to_ref(row.point_i),
@@ -883,11 +886,15 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 diameter_mm = yaml_float_or_nan(row, :diameter_mm)
                 diameter = isnan(diameter_mm) ? NaN : diameter_mm * 0.001
                 density = yaml_float_or_nan(row, :density)
+                youngs_modulus = yaml_float_or_nan(row, :youngs_modulus)
+                damping_per_stiffness =
+                    yaml_float_or_nan(row, :damping_per_stiffness)
                 tether = Tether(tether_name, stretched_length;
                     start_point=start_ref, end_point=end_ref,
                     n_segments,
                     unit_stiffness, unit_damping,
-                    diameter, density, tether_force, stretch_frac)
+                    diameter, density, youngs_modulus,
+                    damping_per_stiffness, tether_force, stretch_frac)
             end
             push!(tethers, tether)
         end

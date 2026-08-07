@@ -12,12 +12,12 @@
 variables:
   bridle_comp: 0.010
   dyneema:
-    unit_stiffness: 43196.898986859655
-    unit_damping: 33.26161221988193
+    youngs_modulus: 55.0e9
+    damping_per_stiffness: 0.00077
     density: 724.0
   wing_element:
-    unit_stiffness: 5000.0
-    unit_damping: 10.0
+    youngs_modulus: 6.3661977236758134e9
+    damping_per_stiffness: 0.002
     density: 724.0
 
 ###########################
@@ -52,7 +52,7 @@ points:
 # References use symbolic names (e.g., te_left) instead of numeric indices
 
 segments:
-  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping, density, compression_frac]
+  headers: [name, point_i, point_j, l0, diameter_mm, youngs_modulus, damping_per_stiffness, density, compression_frac]
   data:
     # Wing structural elements - leading edge tubes
     - [le_tube_left,  te_left, te_center, nothing, 1.0, wing_element, 1.0]
@@ -100,7 +100,7 @@ pulleys:
 ## Tethers ################
 ###########################
 tethers:
-  headers: [name, start_point, end_point, n_segments, unit_stiffness, unit_damping, density, diameter_mm, init_stretched_length]
+  headers: [name, start_point, end_point, n_segments, youngs_modulus, damping_per_stiffness, density, diameter_mm, init_stretched_length]
   data:
     - [main_tether, kcu, ground, 6, dyneema, 1.0, 20.0]
 
