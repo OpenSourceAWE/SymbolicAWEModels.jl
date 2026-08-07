@@ -31,8 +31,8 @@
 # `fix_metadata!` reports its residue only under `verbose`: a scalarized array
 # element never resolves by name, so upstream warns on every kernel we build.
 # `drop_unused_inputs` replaces upstream's element-wise drop of inputs that no
-# equation reads: `mtkcompile` rejects a *partial* array input, and our components
-# do read single components of a declared vector.
+# equation reads, and `mtkcompile_inputs` passes a partially-read array whole,
+# because `mtkcompile` accepts neither part of an array nor an absent input.
 
 """
     KernelCodegen
@@ -507,14 +507,39 @@ end
     drop_unused_inputs(inputs, used) -> Set
 
 The inputs to hide from `mtkcompile` because no equation reads them. An array is
-all-in or all-out: `mtkcompile` rejects a partial array input, and a component may
-legitimately read only one component of a vector — a ride point's wrench reads only
-`pos[3]`, for the air density at its height.
+all-in or all-out here: an array *some* of whose components are read stays, and
+[`mtkcompile_inputs`](@ref) then passes it whole.
 """
 function drop_unused_inputs(inputs, used)
     unused = setdiff(inputs, used)
     kept = Set(io_array_base(v) for v in setdiff(inputs, unused))
     return Set(v for v in unused if io_array_base(v) ∉ kept)
+end
+
+"""
+    mtkcompile_inputs(inputs, used) -> Vector
+
+The input list `mtkcompile` accepts, given the inputs left after
+[`drop_unused_inputs`](@ref) and the set of variables the equations actually read.
+`mtkcompile` refuses *part* of a declared array — "the entire array must be an
+input" — and equally refuses an input that appears in no equation, so an array only
+some of whose components are read is passed as the whole array symbolic and
+everything else element by element. Our components read parts of vectors routinely:
+a wrench reads `pos[3]` for the air density at its height, and a flap hinge about
+`[0, 1, 0]` leaves six of its nine frame entries unread.
+"""
+function mtkcompile_inputs(inputs, used)
+    split_bases = Set(io_array_base(sym) for sym in inputs if sym ∉ used)
+    result = Any[]
+    for sym in inputs
+        base = io_array_base(sym)
+        if !isequal(base, sym) && base ∈ split_bases
+            any(isequal(base), result) || push!(result, base)
+        else
+            push!(result, sym)
+        end
+    end
+    return result
 end
 
 """
@@ -545,7 +570,8 @@ function simplify_with_mtkcompile(_sys, allinputs, alloutputs; verbose)
         end
 
         verbose && @info "Simplifying system with $(length(_openinputs)) inputs and $(length(alloutputs)) outputs"
-        mtkcompile(_sys; inputs=_openinputs, outputs=alloutputs, simplify=false)
+        mtkcompile(_sys; inputs=mtkcompile_inputs(_openinputs, all_eq_vars),
+                   outputs=alloutputs, simplify=false)
     end
 
     # extract the main equations and observed equations, scalarizing any array

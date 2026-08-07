@@ -976,8 +976,7 @@ function RidePoint(s, params, idx; name)
     eqs = [
         collect(io[1]) .~ anchor
         collect(io[3]) .~ lever
-        collect(io[2]) .~ collect(pose.pose_com_velocity) .+
-                          (collect(pose.pose_omega) × lever)
+        collect(io[2]) .~ rigid_body_point_velocity(pose, lever)
         io[4] ~ anchor[3]
     ]
     return System(eqs, t, [pose.all; io], param_unknowns(params); name)
@@ -1247,6 +1246,371 @@ function TimoshenkoJointComponent(s, params, idx; name)
 end
 
 """
+    flap_delta_expression(twist_surface, R_main, R_flap)
+
+The signed live deflection δ of a flapped twist surface: the angle between its two
+flap bodies' reference chords about the world hinge axis, referenced to rest. The
+axis, the reference chords and the rest angle are frozen rest geometry, so δ is a
+function of the two bodies' orientations alone. Sources both the monolith's
+`twist_surface_delta_eqs!` and the [`FlapDelta`](@ref) component.
+"""
+function flap_delta_expression(twist_surface, R_main, R_flap)
+    main_w = collect(R_main) * collect(twist_surface.flap_chord_refs[1])
+    flap_w = collect(R_flap) * collect(twist_surface.flap_chord_refs[2])
+    normal = collect(R_main) * collect(twist_surface.flap_axis)
+    projected_main = main_w .- (main_w ⋅ normal) .* normal
+    projected_flap = flap_w .- (flap_w ⋅ normal) .* normal
+    return atan(normal ⋅ (projected_main × projected_flap),
+                projected_main ⋅ projected_flap) - twist_surface.flap_rest_delta
+end
+
+"""
+    FlapDelta(s, params, idx; name)
+
+The live flap deflection of a flapped `KINEMATIC` twist surface: its two flap
+bodies' orientations in, δ out, through the shared
+[`flap_delta_expression`](@ref). Deflection is all such a surface contributes —
+it carries no twist DOF of its own — and the wing's aero component reads it per
+panel.
+"""
+function FlapDelta(s, params, idx; name)
+    vars = @variables begin
+        main_frame(t)[1:9], [input = true]
+        flap_frame(t)[1:9], [input = true]
+        delta(t), [output = true]
+    end
+    twist_surface = params.reg.sys_struct.twist_surfaces[idx]
+    eqs = [vars[3] ~ flap_delta_expression(twist_surface,
+        reshape(collect(vars[1]), 3, 3), reshape(collect(vars[2]), 3, 3))]
+    return System(eqs, t, vars, param_unknowns(params); name)
+end
+
+"""
+    indexed_vector_variables(base, count; input=false) -> Vector
+
+`count` three-component variables named `base_1 … base_count`, declared as inputs or
+as outputs. A component whose I/O width follows the model — a wing's aero reads one
+position per structural point — needs them named individually, because the wiring
+addresses `base_k` as one vector.
+"""
+function indexed_vector_variables(base::Symbol, count::Int; input = false)
+    return map(1:count) do k
+        name = Symbol(base, :_, k)
+        input ? only(@variables $name(t)[1:3], [input = true]) :
+                only(@variables $name(t)[1:3], [output = true])
+    end
+end
+
+"""
+    flap_delta_inputs(wing, subsys) -> (; vars, eqs)
+
+One `flap_delta_g` input per twist surface some panel of `wing` maps to, and the
+equations binding the aero component's per-panel `delta` connector to them, exactly
+as the `PARTICLE_DYNAMICS` branch of `aero_eqs!` wires it. Empty when the wing's
+aero exposes no `delta` connector.
+"""
+function flap_delta_inputs(wing, subsys)
+    surfaces = wing_flap_surfaces(wing)
+    isempty(surfaces) && return (; vars = Any[], eqs = Equation[])
+    inputs = Dict(surface => scalar_input(Symbol(:flap_delta_, surface))
+                  for surface in surfaces)
+    panel_map = wing.aero.panel_twist_surface
+    eqs = [subsys.delta[i] ~ inputs[panel_map[i]] for i in eachindex(panel_map)]
+    return (; vars = Any[inputs[surface] for surface in surfaces], eqs)
+end
+
+"""
+    wing_flap_surfaces(wing) -> Vector{Int}
+
+The twist surfaces `wing`'s aero panels deflect with, sorted and unique, or empty
+when its aero mode has no per-panel flap coupling. One `flap_delta` input and one
+[`FlapDelta`](@ref) instance exist per entry.
+"""
+function wing_flap_surfaces(wing)
+    hasproperty(wing.aero, :panel_twist_surface) || return Int[]
+    panel_map = wing.aero.panel_twist_surface
+    (length(panel_map) == length(wing.vsm_aero.panels) &&
+     any(!=(0), panel_map)) || return Int[]
+    return sort!(unique(panel_map))
+end
+
+"""A scalar input variable named `name`."""
+scalar_input(name::Symbol) = only(@variables $name(t), [input = true])
+
+"""
+    ParticleWingAero(s, params, idx; name)
+
+The live aerodynamic force on a fitted wing's structural points: every point's world
+`pos`/`vel` and the wing's own pose in, the world force on each point out. It
+rebuilds each point's body-frame position, velocity, apparent wind and air density
+exactly as the `PARTICLE_DYNAMICS` branch of `aero_eqs!` does, hands them to the
+wing's aero component and rotates the per-point force it returns back into the
+world. A frozen mode compiles down to one parameter read per point; a live mode
+solves in place. The wing's lumped `aero_force_b`/`aero_moment_b` are observed, as
+the monolith emits them.
+"""
+function ParticleWingAero(s, params, idx; name)
+    sys_struct = params.reg.sys_struct
+    wing = sys_struct.wings[idx]
+    points = wing_points(sys_struct, wing)
+    count = length(points)
+    pose = @variables begin
+        wing_pos(t)[1:3], [input = true]
+        wing_frame(t)[1:9], [input = true]
+        aero_force_b(t)[1:3]
+        aero_moment_b(t)[1:3]
+    end
+    positions = indexed_vector_variables(:point_pos, count; input = true)
+    velocities = indexed_vector_variables(:point_vel, count; input = true)
+    forces = indexed_vector_variables(:point_force, count)
+    subsys = aero_component(wing.aero, wing, sys_struct; name = :aero, params)
+    validate_aero_component(subsys, wing)
+    orientation = reshape(collect(pose[2]), 3, 3)
+    origin = collect(pose[1])
+    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
+    wind_gnd = ground_wind_vec(params)
+    eqs = Equation[]
+    for k in 1:count
+        position = collect(positions[k])
+        velocity = collect(velocities[k])
+        apparent = wind_factor(position[3]) .* wind_gnd .- velocity
+        append!(eqs, collect(subsys.point_pos[:, k]) .~
+                     orientation' * (position .- origin))
+        append!(eqs, collect(subsys.point_vel[:, k]) .~ orientation' * velocity)
+        append!(eqs, collect(subsys.va[:, k]) .~ orientation' * apparent)
+        push!(eqs, subsys.rho[k] ~ calc_rho(s.am, max(0.0, position[3])))
+        append!(eqs, collect(forces[k]) .~
+                     orientation * collect(subsys.point_force[:, k]))
+    end
+    append!(eqs, collect(pose[3]) .~
+                 sum(collect(subsys.point_force[:, k]) for k in 1:count))
+    append!(eqs, collect(pose[4]) .~
+                 sum(collect(subsys.point_pos[:, k]) ×
+                     collect(subsys.point_force[:, k]) for k in 1:count))
+    flaps = flap_delta_inputs(wing, subsys)
+    append!(eqs, flaps.eqs)
+    vars = [pose; positions; velocities; forces; flaps.vars]
+    return System(eqs, t, vars, param_unknowns(params); name, systems = [subsys])
+end
+
+"""
+    rigid_body_point_velocity(pose, lever)
+
+World velocity of a point rigidly attached to a body: `com_velocity + ω × lever`,
+where `lever` is the point's offset from that body's COM.
+"""
+rigid_body_point_velocity(pose, lever) =
+    collect(pose.pose_com_velocity) .+ (collect(pose.pose_omega) × collect(lever))
+
+"""A scalar output variable named `name`."""
+scalar_output(name::Symbol) = only(@variables $name(t), [output = true])
+
+"""
+    WingAero(s, params, idx; name)
+
+The aerodynamic wrench of a `RIGID_DYNAMICS` wing: its body's pose in, the world
+force and the moment about its COM out, plus one twist moment per twist surface it
+carries. It rebuilds the wing's apparent wind and air density from that pose exactly
+as `scalar_eqs!` and `aero_eqs!` do, hands them to the wing's aero component, and
+transports the returned body-frame wrench to the COM as `create_sys` does. Like
+[`ParticleWingAero`](@ref) it is a component of its own: a body's pose does not
+depend on the force it receives, so aero after pose and before the body's derivative
+is just another schedule layer.
+"""
+function WingAero(s, params, idx; name)
+    sys_struct = params.reg.sys_struct
+    wing = sys_struct.wings[idx]
+    pose = body_pose_variables()
+    io = @variables begin
+        force_out(t)[1:3], [output = true]
+        moment_out(t)[1:3], [output = true]
+        aero_force_b(t)[1:3]
+        aero_moment_b(t)[1:3]
+        va_b(t)[1:3]
+        wind_vel(t)[1:3]
+    end
+    surfaces = wing.twist_surface_idxs
+    twists = [scalar_input(Symbol(:twist_angle_, surface)) for surface in surfaces]
+    rates = [scalar_input(Symbol(:twist_vel_, surface)) for surface in surfaces]
+    moments = [scalar_output(Symbol(:twist_moment_, surface)) for surface in surfaces]
+    subsys = aero_component(wing.aero, wing, sys_struct; name = :aero, params)
+    validate_aero_component(subsys, wing)
+    orientation = reshape(collect(pose.pose_frame), 3, 3)
+    origin = collect(pose.pose_pos)
+    velocity = rigid_body_point_velocity(pose, origin .- collect(pose.pose_com))
+    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
+    eqs = [
+        collect(io[6]) .~ wind_factor(origin[3]) .* ground_wind_vec(params)
+        collect(io[5]) .~ orientation' * (collect(io[6]) .- velocity .+
+                                          collect(params.wings[idx].wind_disturb))
+        collect(subsys.va) .~ collect(io[5])
+        subsys.rho ~ calc_rho(s.am, origin[3])
+        vec(collect(subsys.R_b_w)) .~ collect(pose.pose_frame)
+        collect(subsys.omega) .~ orientation' * collect(pose.pose_omega)
+        collect(io[3]) .~ collect(subsys.force)
+        collect(io[4]) .~ collect(subsys.moment)
+        collect(io[1]) .~ orientation * collect(io[3])
+        collect(io[2]) .~ orientation * (collect(io[4]) .+
+            (collect(io[3]) × collect(params.bodies[idx].com_offset_b)))
+    ]
+    if !isempty(surfaces)
+        append!(eqs, collect(subsys.twist) .~ twists)
+        append!(eqs, collect(subsys.twist_vel) .~ rates)
+        append!(eqs, [moments[j] ~ subsys.twist_moment[j]
+                      for j in eachindex(surfaces)])
+    end
+    vars = [pose.all; io; twists; rates; moments]
+    return System(eqs, t, vars, param_unknowns(params); name, systems = [subsys])
+end
+
+"""
+    TwistSurfaceDOF(s, params, idx; name)
+
+The added twist degree of freedom of a `DYNAMIC` twist surface: a thin plate hinged
+at its leading edge, driven by the aerodynamic moment its wing's aero returns and
+the bridle couple its points deliver, restrained by the surface's own stiffness and
+damping. Its inertia `⅓·m·L²` takes the mass from those same points as an input, so
+the component reads only its own surface's parameters. The monolith's `fix_wing`
+freeze is not carried over: it is a parameter nothing ever sets.
+"""
+function TwistSurfaceDOF(s, params, idx; name)
+    vars = @variables begin
+        aero_moment_in(t), [input = true]
+        node_moment_in(t), [input = true]
+        node_mass_in(t), [input = true]
+        twist_angle(t), [output = true]
+        twist_vel(t), [output = true]
+    end
+    state = @variables free_twist_angle(t) twist_omega(t)
+    surface = params.twist_surfaces[idx]
+    inertia = 1 / 3 * vars[3] * smooth_norm(collect(surface.chord))^2
+    angle = clamp(state[1], -deg2rad(90), deg2rad(90))
+    eqs = [
+        vars[4] ~ angle
+        vars[5] ~ state[2]
+        D(state[1]) ~ state[2]
+        D(state[2]) ~ (vars[1] + vars[2]) / inertia - surface.damping * state[2] -
+                      surface.stiffness * angle / inertia
+    ]
+    return System(eqs, t, [vars; state], param_unknowns(params); name)
+end
+
+"""
+    PrescribedTwist(s, params, idx; name)
+
+A `STATIC` twist surface's prescribed section twist: no state and no inputs, just
+the `twist` its parameters hold. It exists so a node reading a twist angle reads one
+whether its surface twists dynamically ([`TwistSurfaceDOF`](@ref)) or not.
+"""
+function PrescribedTwist(s, params, idx; name)
+    vars = @variables begin
+        twist_angle(t), [output = true]
+        twist_vel(t), [output = true]
+    end
+    eqs = [vars[1] ~ params.twist_surfaces[idx].twist
+           vars[2] ~ 0]
+    return System(eqs, t, vars, param_unknowns(params); name)
+end
+
+"""
+    twist_deformed_offset(params, idx, surface_idx, angle)
+
+The body-frame offset of a rigid wing's structural node, rotated about its surface's
+leading edge by the section twist `angle` — the placement `point_eqs!` gives a wing
+node whose surface twists. Without a surface (`surface_idx == 0`) it is the node's
+own `pos_b`.
+"""
+function twist_deformed_offset(params, idx, surface_idx, angle)
+    surface_idx == 0 && return collect(params.points[idx].pos_b)
+    surface = params.twist_surfaces[surface_idx]
+    leading_edge = collect(surface.le_pos)
+    chord = collect(params.points[idx].pos_b) .- leading_edge
+    normal = chord × collect(surface.y_airf)
+    return leading_edge .+ cos(angle) .* chord .- sin(angle) .* normal
+end
+
+"""
+    TwistNodePoint(s, params, idx; name, surface_idx=0)
+
+The *kinematics* of a structural node on a `RIGID_DYNAMICS` wing: its body's pose
+and its surface's twist in, its world `pos`, its moment `arm` about the body COM and
+its `height` out. Such a node is placed from the body's COM by a twist-deformed
+body-frame offset ([`twist_deformed_offset`](@ref)) rather than by a fixed anchor,
+and `point_eqs!` gives it no velocity of its own, which is why it is not a
+[`RidePoint`](@ref).
+"""
+function TwistNodePoint(s, params, idx; name, surface_idx = 0)
+    pose = body_pose_variables()
+    io = @variables begin
+        pos(t)[1:3], [output = true]
+        vel(t)[1:3], [output = true]
+        arm(t)[1:3], [output = true]
+        height(t), [output = true]
+    end
+    twist = scalar_input(:twist_angle)
+    orientation = reshape(collect(pose.pose_frame), 3, 3)
+    lever = orientation * twist_deformed_offset(params, idx, surface_idx, twist)
+    anchor = collect(pose.pose_com) .+ lever
+    eqs = [
+        collect(io[1]) .~ anchor
+        collect(io[2]) .~ zeros(3)
+        collect(io[3]) .~ lever
+        io[4] ~ anchor[3]
+    ]
+    return System(eqs, t, [pose.all; io; twist], param_unknowns(params); name)
+end
+
+"""
+    TwistNodeWrench(s, params, idx; name, surface_idx=0, gated=false)
+
+The *statics* of a structural node on a `RIGID_DYNAMICS` wing: the load its
+segments, its own drag and its external force deliver — no gravity, because the wing
+body already carries the node's mass — the moment that load makes about the body COM
+and, when the node belongs to a twist surface, the bridle couple it exerts on that
+surface's hinge and the mass it lends to the surface's inertia. `gated` is the wing's
+`group_points_moment = false`, which drops an in-surface node's moment on the body.
+"""
+function TwistNodeWrench(s, params, idx; name, surface_idx = 0, gated = false)
+    io = ride_wrench_variables()
+    vars = @variables begin
+        arm(t)[1:3], [input = true]
+        frame(t)[1:9], [input = true]
+        force_out(t)[1:3], [output = true]
+        moment_out(t)[1:3], [output = true]
+    end
+    twist = scalar_input(:twist_angle)
+    point = params.points[idx]
+    wind = WindFactor(s.am, s.set.profile_law)
+    apparent = wind(io.height) .* ground_wind_vec(params) .- collect(io.vel)
+    drag = point_drag_force(apparent, calc_rho(s.am, max(0.0, io.height)),
+                            point.drag_coeff, point.area)
+    load = collect(io.force_in) .+ drag .+ collect(point.ext_force_w)
+    eqs = [
+        collect(vars[3]) .~ load
+        collect(vars[4]) .~ (gated ? zeros(Num, 3) : collect(vars[1]) × load)
+        collect(io.total_drag) .~ drag .+ collect(io.drag_in)
+    ]
+    extra = Any[twist]
+    if surface_idx > 0
+        surface = params.twist_surfaces[surface_idx]
+        node_moment = scalar_output(:node_moment)
+        node_mass = scalar_output(:node_mass)
+        chord = collect(surface.chord)
+        axis = collect(smooth_normalize(chord))
+        section_normal = sin(twist) .* axis .+
+                         cos(twist) .* (axis × collect(surface.y_airf))
+        direction = reshape(collect(vars[2]), 3, 3) * (-1 .* section_normal)
+        offset = collect(point.pos_b) .- (collect(surface.le_pos) .+
+                                          surface.moment_frac .* chord)
+        eqs = [eqs
+               node_moment ~ (offset ⋅ axis) * (load ⋅ direction)
+               node_mass ~ point.extra_mass]
+        append!(extra, Any[node_moment, node_mass])
+    end
+    return System(eqs, t, [io.all; vars; extra], param_unknowns(params); name)
+end
+
+"""
     wing_frame_variables()
 
 The reference-point inputs a fitted (`KINEMATIC`) wing body reads: the two z-axis
@@ -1311,16 +1675,17 @@ body_frame_damp_accel(vel, body_damp, orientation, wing_vel) =
     orientation * (collect(body_damp) .* (orientation' * (collect(vel) .- wing_vel)))
 
 """
-    WingNodePoint(s, params, idx; name, with_aero=true, with_damping=true)
+    WingNodePoint(s, params, idx; name, with_damping=true)
 
 A particle belonging to a fitted wing: the shared [`Particle`](@ref) motion plus the
-two terms `point_eqs!` adds for a wing node — its frozen per-point `aero_force_b`
-rotated into the world by the wing frame, and body-frame damping relative to the
-wing's velocity. Both read the wing's `wing_frame`/`wing_velocity`, which the fitted
-body supplies. `with_aero`/`with_damping` drop a term whose coefficient the struct
-leaves unset, so no zero-valued parameter is generated, matching the monolith.
+body-frame damping `point_eqs!` adds for a point that damps against its wing's frame
+rather than the world, which reads the `wing_frame`/`wing_velocity` the fitted body
+supplies. Its aerodynamic force arrives at `force_in` from
+[`ParticleWingAero`](@ref), like any other load. `with_damping = false` drops the
+damping term whose coefficient the struct leaves unset, so no zero-valued parameter
+is generated, matching the monolith.
 """
-function WingNodePoint(s, params, idx; name, with_aero = true, with_damping = true)
+function WingNodePoint(s, params, idx; name, with_damping = true)
     io = point_variables()
     extra = @variables begin
         wing_frame(t)[1:9], [input = true]
@@ -1333,7 +1698,6 @@ function WingNodePoint(s, params, idx; name, with_aero = true, with_damping = tr
     accel = point_acceleration(s, collect(io.pos), collect(io.vel),
         collect(io.force_in), mass, pars.drag_coeff, pars.area,
         collect(pars.world_damping), collect(pars.wind_gnd))
-    with_aero && (accel = accel .+ (orientation * collect(point.aero_force_b)) ./ mass)
     with_damping && (accel = accel .- body_frame_damp_accel(io.vel,
         point.body_frame_damping, orientation, collect(extra[2])))
     velocity, acceleration = confined_derivatives(io.pos, io.vel, accel, pars)

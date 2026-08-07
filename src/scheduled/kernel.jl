@@ -93,8 +93,6 @@ struct ComponentKernel{F, G, O, M}
     param_defaults::Vector{SimFloat}
     callable_defaults::Vector{Any}
     input_feeds_output::Vector{Bool}
-    param_syms::Vector{Any}
-    callable_syms::Vector{Any}
 end
 
 """
@@ -126,6 +124,5 @@ function compile_kernel(system, inputs, outputs; name = nameof(system),
     return ComponentKernel(name, gen.f, gen.g, gen.obs, gen.mass_matrix,
         SlotMap(gen.states), SlotMap(gen.inputs), SlotMap(gen.outputs),
         SlotMap(gen.obsstates), SlotMap(gen.params), SlotMap(gen.callable_params),
-        defaults, Vector{Any}(gen.callable_defaults), gen.input_feeds_output,
-        collect(gen.params), collect(gen.callable_params))
+        defaults, Vector{Any}(gen.callable_defaults), gen.input_feeds_output)
 end

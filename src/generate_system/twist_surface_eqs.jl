@@ -272,16 +272,9 @@ function twist_surface_delta_eqs!(eqs, twist_surfaces;
         end
         R_main = collect(body_R_b_to_w[:, :, twist_surface.flap_body_idxs[1]])
         R_flap = collect(body_R_b_to_w[:, :, twist_surface.flap_body_idxs[2]])
-        chord_main = collect(twist_surface.flap_chord_refs[1])
-        chord_flap = collect(twist_surface.flap_chord_refs[2])
-        axis_main = collect(twist_surface.flap_axis)
-        main_w = R_main * chord_main
-        flap_w = R_flap * chord_flap
-        n_w = R_main * axis_main
-        mp = main_w .- (main_w ⋅ n_w) .* n_w
-        fp = flap_w .- (flap_w ⋅ n_w) .* n_w
-        delta_expr = atan(n_w ⋅ (mp × fp), mp ⋅ fp) - twist_surface.flap_rest_delta
-        eqs = [eqs; twist_surface_delta[j] ~ delta_expr]
+        eqs = [eqs
+               twist_surface_delta[j] ~
+                   flap_delta_expression(twist_surface, R_main, R_flap)]
     end
     return eqs
 end

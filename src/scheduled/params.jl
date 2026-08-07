@@ -73,25 +73,57 @@ end
 (reader::ScaledReader)(sys_struct) = reader.reader(sys_struct) * reader.factor
 
 """
-    kernel_param_slots(kernel) -> Dict{Any, Int}
+    kernel_param_slots(kernel) -> Dict{Symbol, Vector{Int}}
 
-Map each of `kernel`'s numeric parameter symbolics to its slot in the kernel's
-parameter buffer, so a registry entry can be matched to the slot it survived as.
+Map each of `kernel`'s numeric parameter *names* to every slot it occupies, so a
+registry entry can be matched to the slots it survived as. Names, not symbolics: a
+parameter a nested component declared comes back namespaced
+(`aero₊p_wings_1_aero_v_ind_1_2`) while the registry holds the bare symbol it was
+created under, so the two are different objects for the same field.
 """
-function kernel_param_slots(kernel::ComponentKernel)
-    return Dict{Any, Int}(ModelingToolkit.unwrap(sym) => k
-                          for (k, sym) in enumerate(kernel.param_syms))
+kernel_param_slots(kernel::ComponentKernel) = name_slots(kernel.params.names)
+
+"""
+    name_slots(names) -> Dict{Symbol, Vector{Int}}
+
+`name => slots` for one buffer's names, where a namespaced name is registered under
+its leaf (the part after the last `₊`) as well as in full. One field can occupy
+several slots: a component that both reads a field itself and passes it to a nested
+subsystem declares it twice, once bare and once namespaced, and only the namespaced
+copy is the one the subsystem's equations read. Writing every match is right rather
+than lucky — the names agree because the *field* is the same, so the value is too.
+"""
+function name_slots(names)
+    slots = Dict{Symbol, Vector{Int}}()
+    for (k, name) in enumerate(names)
+        push!(get!(Vector{Int}, slots, name), k)
+        leaf = leaf_name(name)
+        leaf === name || push!(get!(Vector{Int}, slots, leaf), k)
+    end
+    return slots
+end
+
+"""The slots a parameter symbolic occupies in a [`name_slots`](@ref) map, by the
+name it scalarizes to; empty when the kernel does not carry it."""
+matched_slots(slots, param) =
+    get(slots, KernelCodegen.scalar_name(param), EMPTY_SLOTS)
+
+"""No slots — the shared empty result of [`matched_slots`](@ref)."""
+const EMPTY_SLOTS = Int[]
+
+"""The part of a namespaced name after the last `₊`, or the name itself."""
+function leaf_name(name::Symbol)
+    text = string(name)
+    cut = findlast('₊', text)
+    return cut === nothing ? name : Symbol(text[nextind(text, cut):end])
 end
 
 """
-    kernel_callable_slots(kernel) -> Dict{Any, Int}
+    kernel_callable_slots(kernel) -> Dict{Symbol, Vector{Int}}
 
 As [`kernel_param_slots`](@ref), for the kernel's callable parameters.
 """
-function kernel_callable_slots(kernel::ComponentKernel)
-    return Dict{Any, Int}(ModelingToolkit.unwrap(sym) => k
-                          for (k, sym) in enumerate(kernel.callable_syms))
-end
+kernel_callable_slots(kernel::ComponentKernel) = name_slots(kernel.callables.names)
 
 """
     instance_readers(kernel, registry, index_map)
@@ -113,16 +145,18 @@ function instance_readers(kernel::ComponentKernel, registry::ParamRegistry, inde
         record_build_index!(built_from, entry, index_map)
         if entry.kind === :array
             for (k, element) in enumerate(vec(collect(Symbolics.scalarize(entry.param))))
-                slot = get(numeric_slots, ModelingToolkit.unwrap(element), nothing)
-                slot === nothing && continue
-                push!(numeric, (slot, entry_reader(entry, index_map, k)))
+                reader = entry_reader(entry, index_map, k)
+                for slot in matched_slots(numeric_slots, element)
+                    push!(numeric, (slot, reader))
+                end
             end
         else
             target = entry.kind === :callable ? callable_slots : numeric_slots
-            slot = get(target, ModelingToolkit.unwrap(entry.param), nothing)
-            slot === nothing && continue
-            push!(entry.kind === :callable ? callable : numeric,
-                  (slot, entry_reader(entry, index_map, nothing)))
+            bound = entry.kind === :callable ? callable : numeric
+            reader = entry_reader(entry, index_map, nothing)
+            for slot in matched_slots(target, entry.param)
+                push!(bound, (slot, reader))
+            end
         end
     end
     return numeric, callable

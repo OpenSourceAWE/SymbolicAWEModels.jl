@@ -527,3 +527,78 @@ missing — the same two-part split as the body ride, over
 and no hand-minted parameter names. The runtime is still four concepts, and the
 domain boundary at `params.jl` still holds: `kernel.jl` and `runtime.jl` mention no
 `SystemStructure`, `Point` or `Body`.
+
+---
+
+## D23 — a point anchored to a beam is a ride point, not a special case
+
+**Decision.** `point.joint_idx > 0` gets the same two-component split as
+`point.body_idx > 0`: `HermiteRidePoint` places it on the Timoshenko element's
+deflected centerline from both end bodies' poses, `HermiteRideWrench` sends
+`(1−s)` of its load to the first end body and `s` to the second. Both go through the
+shared `beam_hermite_ride_expressions`, so there is one placement law, not two.
+
+**Why.** This is the component the ND extension could not have: it is a
+*feedthrough* vertex reading *two* body poses, which is exactly what ND's depth-2
+schedule and its single-source-per-input model forbid (the ND notes call it "the
+last structural blocker"). Under a depth-N schedule it needed no new machinery at
+all — only the two halves and six `connect!` calls.
+
+**Cost.** Two instances per beam-anchored point. SK100 has 268 of them, so 536
+instances of two kernels.
+
+## D24 — aero is a component, not a term inside the points
+
+**Decision.** A wing's aerodynamics is its own component — `ParticleWingAero` for a
+`PARTICLE_DYNAMICS` wing (every structural point's pose in, a world force per point
+out) and `WingAero` for a `RIGID_DYNAMICS` one (the body's pose in, one wrench about
+its COM out). `WingNodePoint` lost its `with_aero` branch; the force now arrives at
+`force_in` like any other load.
+
+**Why.** It looks like a cycle and is not: a point's position and a body's pose are
+functions of state alone, never of the force they receive, so `input_feeds_output`
+is false for `force_in` and the schedule simply gains a layer — structure, wing
+frame, aero, derivatives. The monolith always routes particle aero through the aero
+subsystem too (`aero_force_point_b` is a *variable* there, bound to a parameter only
+when the mode is frozen), so this is the faithful translation and the frozen modes
+collapse to one parameter read per point.
+
+This is where ND's design forced `LiveAeroWingNodePoint`: with only two passes, aero
+had to be computed *inside* the wing node's f-pass, because `extin` is illegal
+anywhere else. Here it is just another vertex.
+
+## D25 — a twist surface's mass arrives as an input
+
+**Decision.** `TwistSurfaceDOF` takes the mass for its `⅓mL²` inertia as
+`node_mass_in`, gathered from its own nodes, rather than reading
+`points[i].extra_mass` for each of them.
+
+**Why.** A kernel may read only *one* component of a container it is instanced over
+— `record_build_index!` enforces it, and it is what makes per-instance parameter
+remapping sound. Summing over several points would have broken that rule and needed
+either a per-surface kernel (no batching) or a bespoke summing reader. Gathering the
+masses through the wiring keeps the rule and costs one constant output per node.
+
+## D26 — `fix_wing` is not carried over
+
+**Decision.** `TwistSurfaceDOF` omits the monolith's `ifelse(fix_wing == true, 0,
+…)` freeze on the twist derivatives.
+
+**Why.** `fix_wing` is a parameter nothing sets: `create_sys.jl` declares it
+`false`, `SystemStructure` has an unrelated `fix_wing::Bool` field that is never
+wired to it, and no code path anywhere writes the symbolic parameter. Carrying dead
+branches into a new backend is how they become permanent.
+
+## D27 — `drop_unused_inputs` drops single components
+
+**Decision.** The vendored codegen hides *every* declared input no equation reads,
+including one component of a declared vector, instead of keeping a whole vector any
+of whose components is read.
+
+**Why.** The original rule was written for a wrench that reads only `pos[3]`, and it
+held until `FlapDelta`: a hinge axis of `[0,1,0]` leaves six of a frame's nine
+entries unread, and `mtkcompile` then rejected them as "not found in the system".
+The system is scalarized before compilation, so a vector's components are already
+independent variables and dropping one on its own is well defined. The input *slot*
+survives either way — `allinputs` still sizes the buffer — so the wiring is
+unaffected and a dropped input simply has no effect, which is exactly true of it.

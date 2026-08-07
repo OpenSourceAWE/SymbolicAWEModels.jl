@@ -32,6 +32,13 @@ const FITTED_INPUTS = [:z1_pos, :z2_pos, :y1_pos, :y2_pos, :origin_pos,
                        :origin_vel]
 const WING_NODE_INPUTS = [:force_in, :mass_in, :drag_in, :wing_frame,
                           :wing_velocity]
+const FLAP_INPUTS = [:main_frame, :flap_frame]
+const WING_AERO_POSE_INPUTS = [:wing_pos, :wing_frame]
+const TWIST_NODE_INPUTS = [RIDE_INPUTS; :twist_angle]
+const TWIST_WRENCH_INPUTS = [:height, :vel, :arm, :frame, :twist_angle, :force_in,
+                             :mass_in, :drag_in]
+const TWIST_OUTPUTS = [:twist_angle, :twist_vel]
+const TWIST_SURFACE_INPUTS = [:aero_moment_in, :node_moment_in, :node_mass_in]
 
 """
     PointRole(kind, pulley_idx, segment_idx, winch_idx, body_idx, joint_idx)
@@ -62,6 +69,11 @@ a winch anchor, and the rest follow their `DynamicsType`.
 function classify_points(sys_struct)
     roles = [PointRole(:none, 0, 0, 0, 0, 0) for _ in sys_struct.points]
     for (i, point) in enumerate(sys_struct.points)
+        if rigid_wing_node(sys_struct, point)
+            roles[i] = PointRole(:twist_node, 0, 0, 0, point.wing_idx,
+                                 twist_surface_of(sys_struct, point.idx))
+            continue
+        end
         if point.joint_idx > 0
             roles[i] = PointRole(:hermite, 0, 0, 0, 0, point.joint_idx)
             continue
@@ -92,9 +104,36 @@ function classify_points(sys_struct)
         index = winch.winch_point_idx
         sys_struct.points[index].type == STATIC || error(
             "ScheduledBackend: winch $(winch.name) is at a non-STATIC point.")
-        roles[index] = PointRole(:winch, 0, 0, 0, winch.idx, 0)
+        roles[index] = PointRole(:winch, 0, 0, winch.idx, 0, 0)
     end
     return roles
+end
+
+"""
+    rigid_wing_node(sys_struct, point) -> Bool
+
+Whether `point` is a structural node of a `RIGID_DYNAMICS` wing. `point_eqs!` takes
+such a node out of the anchor rule entirely — the wing *is* the rigid body, so the
+node is placed by a twist-deformed body-frame offset instead of riding anything —
+and so does [`classify_points`](@ref).
+"""
+rigid_wing_node(sys_struct, point) =
+    point.is_wing_node && point.wing_idx > 0 &&
+    sys_struct.bodies[point.wing_idx].dynamics_type == RIGID_DYNAMICS
+
+"""
+    twist_surface_of(sys_struct, idx) -> Int
+
+The one twist surface point `idx` belongs to, or `0`. Two would make its section
+twist ambiguous, which `point_eqs!` also rejects.
+"""
+function twist_surface_of(sys_struct, idx)
+    found = [surface.idx for surface in sys_struct.twist_surfaces
+             if idx in surface.point_idxs]
+    length(found) <= 1 || error(
+        "ScheduledBackend: point $(sys_struct.points[idx].name) is in " *
+        "$(length(found)) twist surfaces; expected 0 or 1.")
+    return isempty(found) ? 0 : only(found)
 end
 
 """
@@ -226,6 +265,7 @@ parameter sync, and the instance index of every point, segment and body, which i
 all the state getter and the control setter need to find their values. A
 `BODY_STATIC` point has two: `point_instances` holds its kinematics and
 `wrench_instances` the load it feeds back (`0` for every other point).
+`aero_instances` holds each wing's aero instance, or `0` for a wing without one.
 """
 struct ScheduledModel{S, P}
     system::S
@@ -238,6 +278,7 @@ struct ScheduledModel{S, P}
     body_instances::Vector{Int}
     point_roles::Vector{PointRole}
     segment_roles::Vector{SegmentRole}
+    aero_instances::Vector{Int}
 end
 
 """
@@ -258,9 +299,10 @@ function assemble(sam)
 
     body_instances = [add_body!(builder, table, bindings, sam, i)
                       for i in eachindex(sys_struct.bodies)]
+    twist_instances = add_twist_surfaces!(builder, table, bindings, sam)
     wrench_instances = zeros(Int, length(sys_struct.points))
     point_instances = [add_point!(builder, table, bindings, sam, i, point_roles[i],
-                                  body_instances, wrench_instances)
+                                  body_instances, wrench_instances, twist_instances)
                        for i in eachindex(sys_struct.points)]
     segment_instances = [add_segment!(builder, table, bindings, sam, i,
                                       segment_roles[i])
@@ -289,16 +331,136 @@ function assemble(sam)
         add_joint!(builder, table, bindings, sam, joint, body_instances,
                    :timoshenko_joints, TimoshenkoJointComponent)
     end
+    flap_instances = add_flap_deltas!(builder, table, bindings, sam, body_instances)
+    aero_instances = [add_wing_aero!(builder, table, bindings, sam, wing,
+                                     body_instances, point_instances, flap_instances,
+                                     twist_instances)
+                      for wing in sys_struct.wings]
 
     system = build_system(builder)
     params, sync = bind_params(system, sys_struct, bindings, segment_roles,
                                segment_instances)
     apply_constants!(params, system, segment_roles, segment_instances)
     u0 = initial_state(system, sys_struct, point_roles, point_instances,
-                       body_instances)
+                       body_instances, twist_instances)
     return ScheduledModel(system, u0, params, sync, point_instances,
                           wrench_instances, segment_instances, body_instances,
-                          point_roles, segment_roles)
+                          point_roles, segment_roles, aero_instances)
+end
+
+"""
+    add_flap_deltas!(builder, table, bindings, sam, bodies) -> Dict{Int, Int}
+
+Add one [`FlapDelta`](@ref) per flapped twist surface and wire its two flap bodies'
+orientations in. Returns the instance of each such surface; a surface with no flap
+is absent, and the aero input it would feed stays unconnected and so reads the zero
+`twist_surface_delta_eqs!` binds it to.
+"""
+function add_flap_deltas!(builder, table, bindings, sam, bodies)
+    instances = Dict{Int, Int}()
+    for surface in sam.sys_struct.twist_surfaces
+        has_flap(surface) || continue
+        entry = kernel!(builder, table, sam, :flap_delta, surface.idx,
+                        params -> FlapDelta(sam, params, surface.idx;
+                                            name = :flap_delta),
+                        FLAP_INPUTS, [:delta])
+        instance = add_instance!(builder, entry.index)
+        push!(bindings, (instance, entry, Dict(:twist_surfaces => surface.idx)))
+        main, flap = surface.flap_body_idxs
+        connect!(builder, bodies[main], :frame, instance, :main_frame)
+        connect!(builder, bodies[flap], :frame, instance, :flap_frame)
+        instances[surface.idx] = instance
+    end
+    return instances
+end
+
+"""
+    add_wing_aero!(builder, table, bindings, sam, wing, bodies, points, flaps,
+                   twists) -> Int
+
+Add a wing's aero instance and wire it, dispatching on how the wing carries its
+loads: a `PARTICLE_DYNAMICS` wing's aero delivers a force to each structural point
+([`ParticleWingAero`](@ref)), a `RIGID_DYNAMICS` wing's delivers one wrench to its
+body ([`add_rigid_wing_aero!`](@ref)).
+
+Either way the aero is a component of its own, not a term inside the points or the
+body, because nothing about it is a cycle: neither a point's position nor a body's
+pose depends on the force it receives, so the schedule simply runs the structure,
+then the wing frame, then the aero, then the derivatives.
+"""
+function add_wing_aero!(builder, table, bindings, sam, wing, bodies, points, flaps,
+                        twists)
+    wing.dynamics_type == PARTICLE_DYNAMICS || return add_rigid_wing_aero!(
+        builder, table, bindings, sam, wing, bodies, twists)
+    sys_struct = sam.sys_struct
+    nodes = wing_points(sys_struct, wing)
+    surfaces = wing_flap_surfaces(wing)
+    key = Symbol(:wing_aero_, wing.idx)
+    inputs = [WING_AERO_POSE_INPUTS
+              [Symbol(:point_pos_, k) for k in eachindex(nodes)]
+              [Symbol(:point_vel_, k) for k in eachindex(nodes)]
+              [Symbol(:flap_delta_, surface) for surface in surfaces]]
+    outputs = [Symbol(:point_force_, k) for k in eachindex(nodes)]
+    entry = kernel!(builder, table, sam, key, wing.idx,
+                    params -> ParticleWingAero(sam, params, wing.idx; name = key),
+                    inputs, outputs)
+    instance = add_instance!(builder, entry.index)
+    push!(bindings, (instance, entry, Dict{Symbol, Int}()))
+    connect!(builder, bodies[wing.idx], :pos, instance, :wing_pos)
+    connect!(builder, bodies[wing.idx], :frame, instance, :wing_frame)
+    for (k, node) in enumerate(nodes)
+        connect!(builder, points[node.idx], :pos, instance, Symbol(:point_pos_, k))
+        connect!(builder, points[node.idx], :vel, instance, Symbol(:point_vel_, k))
+        connect!(builder, instance, Symbol(:point_force_, k), points[node.idx],
+                 :force_in)
+    end
+    for surface in surfaces
+        haskey(flaps, surface) || continue
+        connect!(builder, flaps[surface], :delta, instance,
+                 Symbol(:flap_delta_, surface))
+    end
+    return instance
+end
+
+"""
+    add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twists) -> Int
+
+Add a `RIGID_DYNAMICS` wing's [`WingAero`](@ref) and wire it: the wing body's pose
+and each of its twist surfaces' angle and rate in, the world wrench about the body
+COM back into the body, and each surface's aerodynamic hinge moment on to that
+surface. Returns the instance.
+"""
+function add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twists)
+    surfaces = wing.twist_surface_idxs
+    key = Symbol(:wing_aero_, wing.idx)
+    inputs = [RIDE_INPUTS
+              [Symbol(:twist_angle_, surface) for surface in surfaces]
+              [Symbol(:twist_vel_, surface) for surface in surfaces]]
+    outputs = [WRENCH_OUTPUTS
+               [Symbol(:twist_moment_, surface) for surface in surfaces]]
+    entry = kernel!(builder, table, sam, key, wing.idx,
+                    params -> WingAero(sam, params, wing.idx; name = key),
+                    inputs, outputs)
+    instance = add_instance!(builder, entry.index)
+    push!(bindings, (instance, entry, Dict{Symbol, Int}()))
+    for (source, target) in ((:pos, :pose_pos), (:frame, :pose_frame),
+                             (:com, :pose_com), (:com_velocity, :pose_com_velocity),
+                             (:omega_w, :pose_omega))
+        connect!(builder, bodies[wing.idx], source, instance, target)
+    end
+    connect!(builder, instance, :force_out, bodies[wing.idx], :force_in)
+    connect!(builder, instance, :moment_out, bodies[wing.idx], :moment_in)
+    for surface in surfaces
+        twists[surface] == 0 && continue
+        connect!(builder, twists[surface], :twist_angle, instance,
+                 Symbol(:twist_angle_, surface))
+        connect!(builder, twists[surface], :twist_vel, instance,
+                 Symbol(:twist_vel_, surface))
+        sam.sys_struct.twist_surfaces[surface].type == DYNAMIC &&
+            connect!(builder, instance, Symbol(:twist_moment_, surface),
+                     twists[surface], :aero_moment_in)
+    end
+    return instance
 end
 
 """
@@ -367,30 +529,31 @@ function wire_fitted_body!(builder, sys_struct, idx, body_instance, point_instan
 end
 
 """
-    add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches) -> Int
+    add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches, twists)
+        -> Int
 
 Add the instance for point `idx` and record which container indices its parameters
 must be remapped to. A `:ride` point becomes two instances — the kinematics, whose
 index is returned so segments wire to it, and the wrench, recorded in `wrenches` and
 wired to its body here.
 """
-function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches)
+function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches,
+                    twists)
     sys_struct = sam.sys_struct
     index_map = Dict(:points => idx)
     role.kind === :ride && return add_ride_point!(builder, table, bindings, sam, idx,
                                                   role, bodies, wrenches)
+    role.kind === :twist_node && return add_twist_node!(builder, table, bindings, sam,
+                                                        idx, role, bodies, wrenches,
+                                                        twists)
     role.kind === :hermite && return add_hermite_ride_point!(builder, table, bindings,
                                                              sam, idx, role, bodies,
                                                              wrenches)
     entry = if role.kind === :wing_node
-        point = sys_struct.points[idx]
-        with_aero = point.is_wing_node && is_wing(sys_struct.bodies[point.wing_idx])
-        with_damping = point.body_frame_damping !== nothing
-        key = Symbol(:wing_node, with_aero ? "" : "_free",
-                     with_damping ? "" : "_undamped")
+        with_damping = sys_struct.points[idx].body_frame_damping !== nothing
+        key = with_damping ? :wing_node : :wing_node_undamped
         kernel!(builder, table, sam, key, idx,
-                params -> WingNodePoint(sam, params, idx; name = key, with_aero,
-                                        with_damping),
+                params -> WingNodePoint(sam, params, idx; name = key, with_damping),
                 WING_NODE_INPUTS, PARTICLE_OUTPUTS)
     elseif role.kind === :particle
         kernel!(builder, table, sam, :particle, idx,
@@ -407,7 +570,7 @@ function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches)
                 params -> PulleyParticle(sam, params, idx, role.pulley_idx,
                                          role.segment_idx; name = :pulley_point),
                 PULLEY_POINT_INPUTS, PULLEY_POINT_OUTPUTS)
-    else
+    elseif role.kind === :winch
         winch = sys_struct.winches[role.winch_idx]
         index_map[:winches] = role.winch_idx
         key = Symbol(:winch_, role.winch_idx)
@@ -416,6 +579,9 @@ function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches)
         kernel!(builder, table, sam, key, idx,
                 params -> WinchAnchor(sam, params, winch, idx; name = key),
                 WINCH_INPUTS, outputs)
+    else
+        error("ScheduledBackend: point $(sys_struct.points[idx].name) has no " *
+              "component for role $(role.kind)")
     end
     instance = add_instance!(builder, entry.index)
     push!(bindings, (instance, entry, index_map))
@@ -460,6 +626,90 @@ function add_ride_point!(builder, table, bindings, sam, idx, role, bodies, wrenc
     connect!(builder, wrench, :force_out, body, :force_in)
     connect!(builder, wrench, :moment_out, body, :moment_in)
     return ride
+end
+
+"""
+    add_twist_surfaces!(builder, table, bindings, sam) -> Vector{Int}
+
+Add one twist instance per twist surface that has a section twist to report: a
+[`TwistSurfaceDOF`](@ref) for a `DYNAMIC` surface, whose twist is a state, and a
+[`PrescribedTwist`](@ref) for a `STATIC` one, whose twist is a parameter. A
+`KINEMATIC` surface has neither and gets `0`; its deflection is a
+[`FlapDelta`](@ref) instead.
+"""
+function add_twist_surfaces!(builder, table, bindings, sam)
+    instances = zeros(Int, length(sam.sys_struct.twist_surfaces))
+    for surface in sam.sys_struct.twist_surfaces
+        surface.type in (DYNAMIC, STATIC) || continue
+        dynamic = surface.type == DYNAMIC
+        key = dynamic ? :twist_surface : :prescribed_twist
+        make = dynamic ? TwistSurfaceDOF : PrescribedTwist
+        entry = kernel!(builder, table, sam, key, surface.idx,
+                        params -> make(sam, params, surface.idx; name = key),
+                        dynamic ? TWIST_SURFACE_INPUTS : Symbol[], TWIST_OUTPUTS)
+        instance = add_instance!(builder, entry.index)
+        push!(bindings, (instance, entry, Dict(:twist_surfaces => surface.idx)))
+        instances[surface.idx] = instance
+    end
+    return instances
+end
+
+"""
+    add_twist_node!(builder, table, bindings, sam, idx, role, bodies, wrenches, twists)
+
+Add the two instances a `RIGID_DYNAMICS` wing's structural node needs and wire them:
+the [`TwistNodePoint`](@ref) places it from the wing body's pose and its surface's
+twist, the [`TwistNodeWrench`](@ref) sends its load and moment back to the body and
+its bridle couple and mass on to the surface. Returns the node, which is what the
+incident segments connect to.
+"""
+function add_twist_node!(builder, table, bindings, sam, idx, role, bodies, wrenches,
+                         twists)
+    body = bodies[role.body_idx]
+    surface = role.joint_idx
+    gated = surface > 0 && !sam.sys_struct.bodies[role.body_idx].group_points_moment
+    index_map = Dict(:points => idx)
+    surface > 0 && (index_map[:twist_surfaces] = surface)
+    suffix = surface > 0 ? "" : "_free"
+    kinematics = kernel!(builder, table, sam, Symbol(:twist_node, suffix), idx,
+                         params -> TwistNodePoint(sam, params, idx;
+                                                  name = :twist_node,
+                                                  surface_idx = surface),
+                         TWIST_NODE_INPUTS, RIDE_OUTPUTS)
+    outputs = surface > 0 ? [WRENCH_OUTPUTS; :node_moment; :node_mass] :
+              WRENCH_OUTPUTS
+    key = Symbol(:twist_wrench, suffix, gated ? "_ungated" : "")
+    statics = kernel!(builder, table, sam, key, idx,
+                      params -> TwistNodeWrench(sam, params, idx; name = key,
+                                                surface_idx = surface, gated),
+                      TWIST_WRENCH_INPUTS, outputs)
+    node = add_instance!(builder, kinematics.index)
+    wrench = add_instance!(builder, statics.index)
+    push!(bindings, (node, kinematics, index_map))
+    push!(bindings, (wrench, statics, index_map))
+    wrenches[idx] = wrench
+    for (source, target) in ((:pos, :pose_pos), (:frame, :pose_frame),
+                             (:com, :pose_com), (:com_velocity, :pose_com_velocity),
+                             (:omega_w, :pose_omega))
+        connect!(builder, body, source, node, target)
+    end
+    connect!(builder, body, :frame, wrench, :frame)
+    connect!(builder, node, :height, wrench, :height)
+    connect!(builder, node, :vel, wrench, :vel)
+    connect!(builder, node, :arm, wrench, :arm)
+    connect!(builder, wrench, :force_out, body, :force_in)
+    connect!(builder, wrench, :moment_out, body, :moment_in)
+    if surface > 0 && twists[surface] != 0
+        connect!(builder, twists[surface], :twist_angle, node, :twist_angle)
+        connect!(builder, twists[surface], :twist_angle, wrench, :twist_angle)
+        # Only a DYNAMIC surface has a hinge to take the couple; a prescribed one
+        # holds its twist whatever the nodes pull.
+        if sam.sys_struct.twist_surfaces[surface].type == DYNAMIC
+            connect!(builder, wrench, :node_moment, twists[surface], :node_moment_in)
+            connect!(builder, wrench, :node_mass, twists[surface], :node_mass_in)
+        end
+    end
+    return node
 end
 
 """
@@ -578,11 +828,11 @@ function wire_segment!(builder, sys_struct, idx, role, point_roles, point_instan
         point = point_instances[endpoint]
         connect!(builder, point, :pos, segment, Symbol(prefix, :_pos))
         connect!(builder, point, :vel, segment, Symbol(prefix, :_vel))
-        loaded = point_roles[endpoint].kind === :ride ?
-            wrench_instances[endpoint] : point
+        # An anchored point takes its loads on its wrench half, whatever it rides.
+        loaded = wrench_instances[endpoint] == 0 ? point : wrench_instances[endpoint]
         connect!(builder, segment, :half_drag, loaded, :drag_in)
-        if point_roles[endpoint].kind in (:particle, :pulley, :ride, :hermite,
-                                          :wing_node)
+        # A clamped endpoint takes no load: an anchor is fixed and a winch reels.
+        if point_roles[endpoint].kind ∉ (:anchor, :winch)
             connect!(builder, segment, Symbol(prefix, :_force), loaded, :force_in)
             connect!(builder, segment, :half_mass, loaded, :mass_in)
         end
@@ -724,13 +974,23 @@ end
 """
     initial_state(system, sys_struct, point_roles, point_instances)
 
-The initial state vector: each body's principal pose, each particle's
-`pos`/`vel`, each pulley's split `pulley_len`/`pulley_vel` and each winch's
-`winch_vel` and per-tether lengths, read from the struct.
+The initial state vector: each `DYNAMIC` twist surface's twist and rate, each
+body's principal pose, each particle's `pos`/`vel`, each pulley's split
+`pulley_len`/`pulley_vel` and each winch's `winch_vel` and per-tether lengths, read
+from the struct.
 """
 function initial_state(system, sys_struct, point_roles, point_instances,
-                       body_instances)
+                       body_instances, twist_instances)
     u0 = zeros(SimFloat, system.n_states)
+    for (idx, instance) in enumerate(twist_instances)
+        instance == 0 && continue
+        surface = sys_struct.twist_surfaces[idx]
+        surface.type == DYNAMIC || continue
+        u0[only(buffer_slots(system, instance, :states, :free_twist_angle))] =
+            surface.twist
+        u0[only(buffer_slots(system, instance, :states, :twist_omega))] =
+            surface.twist_ω
+    end
     for (idx, instance) in enumerate(body_instances)
         body = sys_struct.bodies[idx]
         # Only a DYNAMIC body integrates; a clamped or fitted one has no state.

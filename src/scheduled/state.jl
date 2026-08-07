@@ -98,6 +98,22 @@ struct FittedWingReadout
 end
 
 """
+    WingAeroReadout(wing, force, moment, apparent, wind)
+
+Where one wing's aero component observes the quantities the struct carries: its
+lumped body-frame `aero_force_b`/`aero_moment_b`, and — for a rigid wing, whose
+apparent wind the component computes rather than the getter — its `va_b` and
+`v_wind`. A name the component does not observe gets no slots and is left alone.
+"""
+struct WingAeroReadout
+    wing::Int
+    force::Vector{Int}
+    moment::Vector{Int}
+    apparent::Vector{Int}
+    wind::Vector{Int}
+end
+
+"""
     ScheduledStateGetter(model)
 
 Callable `(integrator, sys_struct)` that scatters the runtime's results back into
@@ -114,6 +130,7 @@ struct ScheduledStateGetter{R}
     winches::Vector{WinchReadout}
     bodies::Vector{BodyReadout}
     fitted::Vector{FittedWingReadout}
+    aero::Vector{WingAeroReadout}
 end
 
 function ScheduledStateGetter(model::ScheduledModel, rhs, sys_struct)
@@ -140,7 +157,8 @@ function ScheduledStateGetter(model::ScheduledModel, rhs, sys_struct)
     return ScheduledStateGetter(rhs, points, segments, pulleys,
                                 winch_readouts(model, sys_struct),
                                 body_readouts(model, sys_struct),
-                                fitted_wing_readouts(sys_struct))
+                                fitted_wing_readouts(sys_struct),
+                                wing_aero_readouts(model, sys_struct))
 end
 
 """
@@ -161,6 +179,31 @@ function fitted_wing_readouts(sys_struct)
             body.y_ref_points[2].ids[1], body.origin.ids[1], aero))
     end
     return readouts
+end
+
+"""
+    wing_aero_readouts(model, sys_struct) -> Vector{WingAeroReadout}
+
+One [`WingAeroReadout`](@ref) per wing that has an aero instance, resolving whichever
+of the four names that instance observes.
+"""
+function wing_aero_readouts(model::ScheduledModel, sys_struct)
+    readouts = WingAeroReadout[]
+    for (idx, instance) in enumerate(model.aero_instances)
+        instance == 0 && continue
+        observed(name) = observed_slots(model.system, instance, name)
+        push!(readouts, WingAeroReadout(idx, observed(:aero_force_b),
+            observed(:aero_moment_b), observed(:va_b), observed(:wind_vel)))
+    end
+    return readouts
+end
+
+"""The slots `name` occupies in `instance`'s observables, or none if it has no such
+observable."""
+function observed_slots(system, instance::Int, name::Symbol)
+    kernel = system.kernels[system.instances[instance].kernel]
+    has_slot(kernel.observables, name) || return Int[]
+    return buffer_slots(system, instance, :observables, name)
 end
 
 """The instance that observes point `idx`'s `total_drag`: its own, or its wrench
@@ -253,6 +296,13 @@ function (getter::ScheduledStateGetter)(integrator, sys_struct::SystemStructure)
         copy_slots!(body.ω_b, scratch.observable, readout.omega_b)
         copy_slots!(body.Q_p_to_w, integrator.u, readout.principal)
         copy_slots!(body.ω_p, integrator.u, readout.spin_p)
+    end
+    for readout in getter.aero
+        wing = sys_struct.wings[readout.wing]
+        copy_slots!(wing.aero_force_b, scratch.observable, readout.force)
+        copy_slots!(wing.aero_moment_b, scratch.observable, readout.moment)
+        copy_slots!(wing.va_b, scratch.observable, readout.apparent)
+        copy_slots!(wing.v_wind, scratch.observable, readout.wind)
     end
     for readout in getter.fitted
         wing_kinematics_from_points!(sys_struct.bodies[readout.body],

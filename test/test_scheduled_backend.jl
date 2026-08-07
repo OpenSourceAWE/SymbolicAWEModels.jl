@@ -34,6 +34,7 @@ SCHEDULED_PARITY_FILES = [
     "test_joint.jl",
     "test_timoshenko_joint.jl",
     "test_flap_beam.jl",
+    "test_wing.jl",
     "test_getter_allocations.jl",
     "test_heading_calculation.jl",
     "test_match_aero_sections.jl",
