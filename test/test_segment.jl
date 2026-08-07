@@ -137,12 +137,12 @@ const SEGMENT_MATERIAL_DENSITY_YAML = """
 
 variables:
   dyneema:
-    unit_stiffness: 1079922.4746714914
-    unit_damping: 831.5403054970484
+    youngs_modulus: 55.0e9
+    damping_per_stiffness: 0.00077
     density: 724.0
   steel:
-    unit_stiffness: 3926990.8169872416
-    unit_damping: 3023.782929080176
+    youngs_modulus: 200.0e9
+    damping_per_stiffness: 0.00077
     density: 7800.0
 
 points:
@@ -153,7 +153,7 @@ points:
     - [mass_steel, [10.0, 0.0, -10.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, unit_stiffness, unit_damping, density,
+  headers: [name, point_i, point_j, youngs_modulus, damping_per_stiffness, density,
             l0, diameter_mm, compression_frac]
   data:
     - [seg_dyneema, anchor, mass_dyneema, dyneema, 10.0, 5.0, 0.1]

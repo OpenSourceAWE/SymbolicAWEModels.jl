@@ -148,18 +148,19 @@ columns it names, so the row is written with one entry for the whole group.
 ```yaml
 variables:
   dyneema:
-    unit_stiffness: 1079922.5
-    unit_damping: 831.5
+    youngs_modulus: 55.0e9
+    damping_per_stiffness: 0.00077
     density: 724.0
 
 segments:
   headers: [name, point_i, point_j, l0, diameter_mm,
-            unit_stiffness, unit_damping, density, compression_frac]
+            youngs_modulus, damping_per_stiffness, density, compression_frac]
   data:
-    # 'dyneema' fills unit_stiffness, unit_damping and density
+    # 'dyneema' fills youngs_modulus, damping_per_stiffness and density
     - [bridle, 1, 2, 5.0, 5.0, dyneema, 0.01]
+    - [thin_bridle, 1, 3, 5.0, 1.0, dyneema, 0.01]
     # Written out (no multi-variable)
-    - [strut, 2, 3, 5.0, 1.0, 100000, 50.0, 724.0, 0.01]
+    - [strut, 2, 3, 5.0, 1.0, 6.4e9, 0.002, 724.0, 0.01]
 ```
 
 The fields must match the columns starting at that position, in any order — a
@@ -167,24 +168,38 @@ mismatch is an error naming both sides. This replaces the old `materials` table:
 each material defines only the fields it needs, with no shared `headers` row to
 keep in sync, and no `nothing` padding for the columns it fills.
 
-In a dict row the fields are merged instead, and the row wins:
+In a dict row the fields are merged instead, and the row wins — override a
+field by naming it:
 
 ```yaml
 segments:
   data:
     - {name: bridle, point_i: 1, point_j: 2, l0: 5.0, diameter_mm: 5.0,
-       material: dyneema, unit_damping: 900.0}
+       material: dyneema, damping_per_stiffness: 0.001}
 ```
 
 A segment's `density` [kg/m³] is used for its mass, so different tethers can use
 different materials. Without one, the global `set.rho_tether` applies.
 
+### Material properties versus element properties
+
+`unit_stiffness` [N] and `unit_damping` [Ns] describe one element: both scale
+with its cross section, so a material shared by segments of different diameter
+must not fix them. Use the diameter-independent form instead:
+
+| Material | Element | Relation |
+|----------|---------|----------|
+| `youngs_modulus` [Pa] | `unit_stiffness` [N] | `unit_stiffness = youngs_modulus * pi * (diameter_mm/2000)^2` |
+| `damping_per_stiffness` [s] | `unit_damping` [Ns] | `unit_damping = damping_per_stiffness * unit_stiffness` |
+
+Either form may be given per row; giving both forms of the same quantity is an
+error. What is left out comes from the settings (`e_tether`, `rel_damping`,
+`d_tether`, `rho_tether`).
+
 !!! note "Removed in v0.14"
-    The `materials`, `elements` and `segment_properties` tables were removed,
-    together with the `youngs_modulus` and `damping_per_stiffness` columns
-    derived from them. Give `unit_stiffness` and `unit_damping` directly:
-    `unit_stiffness = youngs_modulus * pi * (diameter_mm/2000)^2` and
-    `unit_damping = damping_per_stiffness * unit_stiffness`.
+    The `materials`, `elements` and `segment_properties` tables were removed.
+    A material is now a multi-variable, and its `youngs_modulus`,
+    `damping_per_stiffness` and `density` are ordinary columns.
 
 ## Component reference
 
@@ -239,6 +254,8 @@ The material columns can also come from a multi-variable, see
 | `diameter_mm` | Float | Diameter [mm] |
 | `unit_stiffness` | Float | Per-unit-length stiffness [N] |
 | `unit_damping` | Float/nothing | Per-unit-length damping [Ns], or nothing for the settings default |
+| `youngs_modulus` | Float/nothing | Diameter-independent alternative to `unit_stiffness` [Pa] |
+| `damping_per_stiffness` | Float/nothing | Diameter-independent alternative to `unit_damping` [s] |
 | `compression_frac` | Float | Compressive/tensile stiffness ratio (0-1) |
 | `density` | Float/nothing | Material density [kg/m³]; falls back to `set.rho_tether` |
 

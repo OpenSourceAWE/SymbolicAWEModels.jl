@@ -153,6 +153,7 @@ SymbolicAWEModels.load_yaml_joints
 ## SystemStructure internals
 
 ```@docs
+SymbolicAWEModels.resolve_material
 SymbolicAWEModels.segment_cad_length
 SymbolicAWEModels.segment_world_length
 SymbolicAWEModels.tether_ordered_point_idxs
