@@ -59,6 +59,27 @@ struct WinchReadout
 end
 
 """
+    BodyReadout(body, pos, vel, acc, com, com_velocity, orientation, omega_b,
+                principal, spin_p)
+
+Where one body's results live: its pose in the output buffer, its acceleration,
+body-frame orientation and spin in the observable buffer, and its principal
+attitude/spin in the state vector.
+"""
+struct BodyReadout
+    body::Int
+    pos::Vector{Int}
+    vel::Vector{Int}
+    acc::Vector{Int}
+    com::Vector{Int}
+    com_velocity::Vector{Int}
+    orientation::Vector{Int}
+    omega_b::Vector{Int}
+    principal::Vector{Int}
+    spin_p::Vector{Int}
+end
+
+"""
     ScheduledStateGetter(model)
 
 Callable `(integrator, sys_struct)` that scatters the runtime's results back into
@@ -73,6 +94,7 @@ struct ScheduledStateGetter{R}
     segments::Vector{SegmentReadout}
     pulleys::Vector{PulleyReadout}
     winches::Vector{WinchReadout}
+    bodies::Vector{BodyReadout}
 end
 
 function ScheduledStateGetter(model::ScheduledModel, rhs, sys_struct)
@@ -96,7 +118,25 @@ function ScheduledStateGetter(model::ScheduledModel, rhs, sys_struct)
             only(buffer_slots(system, instance, :states, :pulley_vel))))
     end
     return ScheduledStateGetter(rhs, points, segments, pulleys,
-                                winch_readouts(model, sys_struct))
+                                winch_readouts(model, sys_struct),
+                                body_readouts(model))
+end
+
+"""One [`BodyReadout`](@ref) per body. A frozen body keeps its 13 states — their
+derivatives are zero — so its principal attitude and spin are read the same way."""
+function body_readouts(model::ScheduledModel)
+    system = model.system
+    return [BodyReadout(idx,
+                buffer_slots(system, instance, :outputs, :pos),
+                buffer_slots(system, instance, :outputs, :vel),
+                buffer_slots(system, instance, :observables, :acc),
+                buffer_slots(system, instance, :outputs, :com),
+                buffer_slots(system, instance, :outputs, :com_velocity),
+                buffer_slots(system, instance, :observables, :orientation),
+                buffer_slots(system, instance, :observables, :omega_b),
+                buffer_slots(system, instance, :states, :Q),
+                buffer_slots(system, instance, :states, :omega_p))
+            for (idx, instance) in enumerate(model.body_instances)]
 end
 
 """One [`WinchReadout`](@ref) per winch, resolving its per-tether length slots."""
@@ -150,6 +190,18 @@ function (getter::ScheduledStateGetter)(integrator, sys_struct::SystemStructure)
         for (tether, slot) in readout.tether_lengths
             sys_struct.tethers[tether].len = integrator.u[slot]
         end
+    end
+    for readout in getter.bodies
+        body = sys_struct.bodies[readout.body]
+        copy_slots!(body.pos_w, scratch.output, readout.pos)
+        copy_slots!(body.vel_w, scratch.output, readout.vel)
+        copy_slots!(body.com_w, scratch.output, readout.com)
+        copy_slots!(body.com_vel, scratch.output, readout.com_velocity)
+        copy_slots!(body.acc_w, scratch.observable, readout.acc)
+        copy_slots!(body.Q_b_to_w, scratch.observable, readout.orientation)
+        copy_slots!(body.ω_b, scratch.observable, readout.omega_b)
+        copy_slots!(body.Q_p_to_w, integrator.u, readout.principal)
+        copy_slots!(body.ω_p, integrator.u, readout.spin_p)
     end
     write_stretched_lengths!(sys_struct)
     return nothing

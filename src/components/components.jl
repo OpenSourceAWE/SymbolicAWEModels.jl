@@ -776,3 +776,115 @@ function TetherSegment(s, params, idx; name)
            collect(extra[3]) .~ .-loads.spring_vec]
     return System(eqs, t, [io.all; extra], [param_unknowns(params); count]; name)
 end
+
+"""
+    body_variables()
+
+The variables a rigid-body component declares, as a named tuple: the aggregated
+`force_in`/`moment_in` at and about its COM, the pose outputs a point riding the
+body reads (`pos`, `vel`, `frame` — `R_b_to_w` column-major — `com`, `com_velocity`,
+`omega_w`), and the observed `acc`/`orientation`/`omega_b` the state getter scatters
+into the struct.
+"""
+function body_variables()
+    vars = @variables begin
+        pos(t)[1:3], [output = true]
+        vel(t)[1:3], [output = true]
+        frame(t)[1:9], [output = true]
+        com(t)[1:3], [output = true]
+        com_velocity(t)[1:3], [output = true]
+        omega_w(t)[1:3], [output = true]
+        force_in(t)[1:3], [input = true]
+        moment_in(t)[1:3], [input = true]
+        acc(t)[1:3]
+        orientation(t)[1:4]
+        omega_b(t)[1:3]
+    end
+    return (; pos = vars[1], vel = vars[2], frame = vars[3], com = vars[4],
+            com_velocity = vars[5], omega_w = vars[6], force_in = vars[7],
+            moment_in = vars[8], acc = vars[9], orientation = vars[10],
+            omega_b = vars[11], all = vars)
+end
+
+"""`vector` with its component along the unit `axis` removed."""
+remove_along(vector, axis) = vector .- (vector ⋅ axis) .* axis
+
+"""Only `vector`'s component along the unit `axis`."""
+keep_along(vector, axis) = (vector ⋅ axis) .* axis
+
+"""
+    body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
+                     orientation_p; frozen)
+
+The four integration overrides `rigid_body_pose_expressions` takes, matching
+`body_eqs!`: a `frozen` (`STATIC`) body holds still, and `fix_sphere` confines it to
+a sphere about the world origin by keeping only the radial part of its COM velocity
+and acceleration and dropping the radial part of its spin. `alpha_p`/`com_acc` are
+the caller's torn variables, so the overrides can name the accelerations they
+correct without a cycle. Angular damping is folded in here, as the monolith does.
+"""
+function body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
+                          orientation_p; frozen)
+    frozen && return (; ω_kinematic = zeros(Num, 3), d_ω_p = zeros(Num, 3),
+                      d_com_w = zeros(Num, 3), d_com_vel = zeros(Num, 3))
+    body = params.bodies[idx]
+    sphere = body.fix_sphere
+    spin = collect(omega_p)
+    damped = collect(alpha_p) .- collect(body.damping) .* spin
+    axis = collect(smooth_normalize(collect(com_w)))
+    axis_p = orientation_p' * axis
+    return (; ω_kinematic = ifelse.(sphere == true, remove_along(spin, axis_p), spin),
+            d_ω_p = ifelse.(sphere == true, remove_along(damped, axis_p), damped),
+            d_com_w = ifelse.(sphere == true, keep_along(collect(com_vel), axis),
+                              collect(com_vel)),
+            d_com_vel = ifelse.(sphere == true, keep_along(collect(com_acc), axis),
+                                collect(com_acc)))
+end
+
+"""
+    RigidBody(s, params, idx; name, frozen=false)
+
+Free 6-DOF rigid body: integrates the 13-state principal pose (`com_w`, `com_vel`,
+`Q_p_to_w`, `ω_p`) under gravity, the wrench gathered at `force_in`/`moment_in`, the
+external wrench (`ext_force_w`/`ext_force_b`/`ext_moment_b`) and per-axis angular
+`damping`. Shares its whole 6-DOF math with the monolith through
+[`rigid_body_pose_expressions`](@ref). `frozen` is the `STATIC` body and gets its own
+compiled type, being clamped being topology; `fix_sphere` stays a parameter, as in
+`body_eqs!`.
+"""
+function RigidBody(s, params, idx; name, frozen = false)
+    io = body_variables()
+    state = @variables com_w(t)[1:3] com_vel(t)[1:3] Q(t)[1:4] omega_p(t)[1:3]
+    torn = @variables alpha_p(t)[1:3] com_acc(t)[1:3]
+    com_w, com_vel, Q, omega_p = state
+    alpha_p, com_acc = torn
+    body = params.bodies[idx]
+    orientation_p = quaternion_to_rotation_matrix(collect(Q))
+    orientation = orientation_p * collect(body.R_b_to_p)
+    gravity = Num[0, 0, -params.set.g_earth * body.mass]
+    force_w = collect(io.force_in) .+ gravity .+ collect(body.ext_force_w) .+
+        orientation * collect(body.ext_force_b)
+    moment_w = collect(io.moment_in) .+ orientation * collect(body.ext_moment_b)
+    ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
+        body.mass, body.R_b_to_p, body.com_offset_b, com_w, com_vel, Q, omega_p;
+        body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
+                         orientation_p; frozen)...)
+    eqs = [
+        collect(alpha_p) .~ ex.α_p
+        collect(com_acc) .~ ex.com_acc
+        [D(com_w[i]) ~ ex.d_com_w[i] for i in 1:3]
+        [D(com_vel[i]) ~ ex.d_com_vel[i] for i in 1:3]
+        [D(Q[i]) ~ ex.d_Q[i] for i in 1:4]
+        [D(omega_p[i]) ~ ex.d_ω[i] for i in 1:3]
+        collect(io.pos) .~ ex.pos_w
+        collect(io.vel) .~ ex.vel_w
+        collect(io.frame) .~ vec(ex.R_b_to_w)
+        collect(io.com) .~ collect(com_w)
+        collect(io.com_velocity) .~ collect(com_vel)
+        collect(io.omega_w) .~ ex.R_b_to_w * ex.ω_b
+        collect(io.acc) .~ ex.acc_w
+        collect(io.orientation) .~ ex.Q_b_to_w
+        collect(io.omega_b) .~ ex.ω_b
+    ]
+    return System(eqs, t, [io.all; state; torn], param_unknowns(params); name)
+end

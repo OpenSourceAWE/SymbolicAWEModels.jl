@@ -499,6 +499,11 @@ SymbolicAWEModels.segment_eqs
 SymbolicAWEModels.SpringSegment
 SymbolicAWEModels.PulleySegment
 SymbolicAWEModels.TetherSegment
+SymbolicAWEModels.body_variables
+SymbolicAWEModels.remove_along
+SymbolicAWEModels.keep_along
+SymbolicAWEModels.body_integration
+SymbolicAWEModels.RigidBody
 SymbolicAWEModels.PointRole
 SymbolicAWEModels.classify_points
 SymbolicAWEModels.pulley_point_index
@@ -510,6 +515,7 @@ SymbolicAWEModels.ScheduledModel
 SymbolicAWEModels.assemble
 SymbolicAWEModels.add_point!
 SymbolicAWEModels.add_segment!
+SymbolicAWEModels.add_body!
 SymbolicAWEModels.wire_segment!
 SymbolicAWEModels.buffer_slots
 SymbolicAWEModels.bind_params
@@ -521,8 +527,10 @@ SymbolicAWEModels.PointReadout
 SymbolicAWEModels.SegmentReadout
 SymbolicAWEModels.PulleyReadout
 SymbolicAWEModels.WinchReadout
+SymbolicAWEModels.BodyReadout
 SymbolicAWEModels.ScheduledStateGetter
 SymbolicAWEModels.winch_readouts
+SymbolicAWEModels.body_readouts
 SymbolicAWEModels.write_stretched_lengths!
 SymbolicAWEModels.copy_slots!
 SymbolicAWEModels.ScheduledControlSetter

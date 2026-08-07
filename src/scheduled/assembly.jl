@@ -15,6 +15,8 @@ const PULLEY_POINT_OUTPUTS = [:pos, :vel, :pulley_len_out]
 const WINCH_INPUTS = [:drag_in, :tension_in]
 const SEGMENT_INPUTS = [:src_pos, :src_vel, :dst_pos, :dst_vel]
 const SEGMENT_OUTPUTS = [:src_force, :dst_force, :half_mass, :half_drag]
+const BODY_INPUTS = [:force_in, :moment_in]
+const BODY_OUTPUTS = [:pos, :vel, :frame, :com, :com_velocity, :omega_w]
 
 """
     PointRole(kind, pulley_idx, segment_idx, winch_idx)
@@ -172,7 +174,7 @@ end
     ScheduledModel
 
 An assembled model: the runtime `system`, its initial state and parameters, the
-parameter sync, and the instance index of every point, segment and winch, which is
+parameter sync, and the instance index of every point, segment and body, which is
 all the state getter and the control setter need to find their values.
 """
 struct ScheduledModel{S, P}
@@ -182,6 +184,7 @@ struct ScheduledModel{S, P}
     param_sync::ScheduledParamSync
     point_instances::Vector{Int}
     segment_instances::Vector{Int}
+    body_instances::Vector{Int}
     point_roles::Vector{PointRole}
     segment_roles::Vector{SegmentRole}
 end
@@ -202,6 +205,8 @@ function assemble(sam)
     table = Dict{Symbol, KernelEntry}()
     bindings = Tuple{Int, KernelEntry, Dict{Symbol, Int}}[]
 
+    body_instances = [add_body!(builder, table, bindings, sam, i)
+                      for i in eachindex(sys_struct.bodies)]
     point_instances = [add_point!(builder, table, bindings, sam, i, point_roles[i])
                        for i in eachindex(sys_struct.points)]
     segment_instances = [add_segment!(builder, table, bindings, sam, i,
@@ -216,9 +221,32 @@ function assemble(sam)
     params, sync = bind_params(system, sys_struct, bindings, segment_roles,
                                segment_instances)
     apply_constants!(params, system, segment_roles, segment_instances)
-    u0 = initial_state(system, sys_struct, point_roles, point_instances)
+    u0 = initial_state(system, sys_struct, point_roles, point_instances,
+                       body_instances)
     return ScheduledModel(system, u0, params, sync, point_instances,
-                          segment_instances, point_roles, segment_roles)
+                          segment_instances, body_instances, point_roles,
+                          segment_roles)
+end
+
+"""
+    add_body!(builder, table, bindings, sam, idx) -> Int
+
+Add the instance for body `idx`. A `STATIC` body is clamped, which is topology, so
+it gets its own compiled type rather than a runtime branch.
+"""
+function add_body!(builder, table, bindings, sam, idx)
+    body = sam.sys_struct.bodies[idx]
+    body.type in (DYNAMIC, STATIC) || error(
+        "ScheduledBackend: body $(body.name) has type $(body.type); only DYNAMIC " *
+        "and STATIC are supported so far.")
+    frozen = body.type == STATIC
+    key = frozen ? :static_body : :rigid_body
+    entry = kernel!(builder, table, sam, key, idx,
+                    params -> RigidBody(sam, params, idx; name = key, frozen),
+                    BODY_INPUTS, BODY_OUTPUTS)
+    instance = add_instance!(builder, entry.index)
+    push!(bindings, (instance, entry, Dict(:bodies => idx)))
+    return instance
 end
 
 """
@@ -452,12 +480,20 @@ end
 """
     initial_state(system, sys_struct, point_roles, point_instances)
 
-The initial state vector: each particle's `pos`/`vel`, each pulley's split
-`pulley_len`/`pulley_vel` and each winch's `winch_vel` and per-tether lengths, read
-from the struct.
+The initial state vector: each body's principal pose, each particle's
+`pos`/`vel`, each pulley's split `pulley_len`/`pulley_vel` and each winch's
+`winch_vel` and per-tether lengths, read from the struct.
 """
-function initial_state(system, sys_struct, point_roles, point_instances)
+function initial_state(system, sys_struct, point_roles, point_instances,
+                       body_instances)
     u0 = zeros(SimFloat, system.n_states)
+    for (idx, instance) in enumerate(body_instances)
+        body = sys_struct.bodies[idx]
+        u0[buffer_slots(system, instance, :states, :com_w)] .= body.com_w
+        u0[buffer_slots(system, instance, :states, :com_vel)] .= body.com_vel
+        u0[buffer_slots(system, instance, :states, :Q)] .= body.Q_p_to_w
+        u0[buffer_slots(system, instance, :states, :omega_p)] .= body.ω_p
+    end
     for (idx, role) in enumerate(point_roles)
         instance = point_instances[idx]
         point = sys_struct.points[idx]
