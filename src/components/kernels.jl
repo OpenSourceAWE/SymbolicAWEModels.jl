@@ -1,11 +1,11 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Shared force-law kernels — the single source of truth (D2) that every backend's
-# Point/Segment component consumes. Pure functions: geometry and material
-# properties in, forces out. The environment (air density, apparent wind) is
-# injected by the caller, so these never read the atmosphere or wind profile
-# themselves and stay identical between the monolith and network backends.
+# Shared force-law kernels — the single source of truth every backend's point and
+# segment physics consumes. Pure functions: geometry and material properties in,
+# forces out. The environment (air density, apparent wind) is injected by the
+# caller, so these never read the atmosphere or wind profile themselves and stay
+# identical between the monolith and the scheduled backend.
 
 """
     segment_geometry(pos_src, pos_dst, vel_src, vel_dst)
@@ -39,6 +39,18 @@ function segment_spring_force(len, l0, spring_vel, unit_stiffness, unit_damping,
     stiffness = ifelse(len > l0, unit_stiffness / len,
                        compression_frac * unit_stiffness / len)
     return stiffness * (len - l0) - damping * spring_vel
+end
+
+"""
+    segment_nonlinear_force(len, l0, spring_vel, force_law, unit_damping)
+
+Scalar force along a segment whose `unit_stiffness` is a callable force law of the
+strain `(len − l0) / l0` (the callable branch of `segment_eqs!`). The law owns the
+whole curve, slack and compression included, so there is no `compression_frac`; the
+damping term `(unit_damping / len) · spring_vel` is the same as in the linear case.
+"""
+function segment_nonlinear_force(len, l0, spring_vel, force_law, unit_damping)
+    return force_law((len - l0) / l0) - (unit_damping / len) * spring_vel
 end
 
 """

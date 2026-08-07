@@ -1,161 +1,23 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Point/Segment component Systems — the single source of truth both backends
-# assemble from. Each is a small MTK `System` with array-valued I/O whose force law
-# is the shared kernels (`kernels.jl`); air density and wind enter through the same
-# env functions, so no physics is duplicated. Environment is captured from `s` at
-# build time; parameters + defaults come from `params.<kind>[idx]` (flat_params.jl).
+# The component physics — the single source of truth both backends assemble from.
+# The force laws themselves are the shared kernels (`kernels.jl`); this file adds the
+# symbolic layer over them: the parameter reads (`params.<kind>[idx]`,
+# flat_params.jl), the environment (captured from `s` at build time, so air density
+# and wind enter identically everywhere), and the per-component expression bundles.
 #
-# Aggregation uses explicit force *inputs* (not an MTK `Flow`/`connect` connector),
-# so array-valued I/O (`pos(t)[1:3]`) is preserved: a point receives the summed
-# force of its incident segments through `force_in`, and each backend supplies that
-# sum its own way — NetworkDynamics sums each edge output into the vertex input; the
-# monolith writes the sum as an explicit equation over the `@named` subsystems. This
-# is the one interface both an ND-graph and an MTK-`connect`-free assembly can share.
-
-"""
-    point_io()
-
-The array-valued I/O variables of a point component: state `pos`/`vel`, the
-aggregated `force_in`/`mass_in` a point receives from its incident segments (summed
-by the assembly), plus `tension_in`/`pulley_len_out` used only by pulley/winch
-assembly (0 for a plain point). Returns `(vars, pos, vel, force_in, mass_in,
-tension_in, pulley_len_out)`.
-"""
-function point_io()
-    vars = @variables begin
-        pos(t)[1:3]
-        vel(t)[1:3]
-        force_in(t)[1:3], [input = true]
-        mass_in(t), [input = true]
-        tension_in(t), [input = true]
-        pulley_len_out(t), [output = true]
-    end
-    return vars, pos, vel, force_in, mass_in, tension_in, pulley_len_out
-end
-
-"""
-    vertex_pose_io()
-
-The extra wide-interface variables a non-body (point) vertex needs so it shares the
-body-containing network's uniform I/O width (§8.5): the pose outputs
-`pose_R`(9)/`pose_com`/`pose_com_vel`/`pose_omega` (zero for a point) and the unused
-`moment_in` input. Returns `(vars, pose_R, pose_com, pose_com_vel, pose_omega,
-moment_in)`.
-"""
-function vertex_pose_io()
-    vars = @variables begin
-        pose_R(t)[1:9]
-        pose_com(t)[1:3]
-        pose_com_vel(t)[1:3]
-        pose_omega(t)[1:3]
-        moment_in(t)[1:3], [input = true]
-    end
-    return vars, pose_R, pose_com, pose_com_vel, pose_omega, moment_in
-end
-
-"""
-    wide_pose_appendix()
-
-The extra variables and zero-valued equations a point/winch/pulley vertex appends to
-match the wide superset of a body-containing network (§8.5): the pose outputs
-([`vertex_pose_io`](@ref)) all pinned to zero. Returns `(pvars, poseeqs)`.
-"""
-function wide_pose_appendix()
-    pvars, pose_R, pose_com, pose_com_vel, pose_omega, _ = vertex_pose_io()
-    poseeqs = [collect(pose_R) .~ 0; collect(pose_com) .~ 0;
-               collect(pose_com_vel) .~ 0; collect(pose_omega) .~ 0]
-    return pvars, poseeqs
-end
-
-"""
-    finish_vertex(vars, eqs, params; name, wide, extra_params, systems)
-
-Assemble a point vertex `System` from its narrow `vars`/`eqs`. When `wide`, append the
-zero-valued pose outputs and the unused `moment_in` input ([`wide_pose_appendix`](@ref))
-so the vertex matches the wide superset a body-containing network uses; otherwise build
-the narrow point vertex unchanged (no regression on point-only models). `extra_params`
-are appended to the parameter list (e.g. a pulley's `pulley_damp`) and `systems` are
-nested subsystems.
-"""
-function finish_vertex(vars, eqs, params; name, wide, extra_params = (), systems = ())
-    if wide
-        pvars, poseeqs = wide_pose_appendix()
-        eqs = [eqs; poseeqs]
-        vars = [vars; pvars]
-    end
-    allpars = [param_unknowns(params); collect(extra_params)]
-    return isempty(systems) ? System(eqs, t, vars, allpars; name) :
-        System(eqs, t, vars, allpars; name, systems = collect(systems))
-end
-
-"""
-    segment_io()
-
-The array-valued I/O variables of a segment component, the uniform edge interface
-both backends share: the two endpoints' `pos`/`vel`/`pulley_len` read as inputs and
-the endpoint loads written as outputs (`src_force`/`src_mass`/`src_tension`,
-`dst_…`, positive force-on-point sign). `pulley_len` inputs and `tension` outputs
-are used only by pulley/winch assembly (a plain segment ignores the inputs and emits
-zero tension), but every edge declares them so the graph has one edge width. Returns
-`(vars, src_pos, src_vel, src_pulley_len, dst_pos, dst_vel, dst_pulley_len,
-src_force, src_mass, src_tension, dst_force, dst_mass, dst_tension)`.
-"""
-function segment_io()
-    vars = @variables begin
-        src_pos(t)[1:3], [input = true]
-        src_vel(t)[1:3], [input = true]
-        src_pulley_len(t), [input = true]
-        dst_pos(t)[1:3], [input = true]
-        dst_vel(t)[1:3], [input = true]
-        dst_pulley_len(t), [input = true]
-        src_force(t)[1:3], [output = true]
-        src_mass(t), [output = true]
-        src_tension(t), [output = true]
-        dst_force(t)[1:3], [output = true]
-        dst_mass(t), [output = true]
-        dst_tension(t), [output = true]
-    end
-    return vars, src_pos, src_vel, src_pulley_len, dst_pos, dst_vel, dst_pulley_len,
-           src_force, src_mass, src_tension, dst_force, dst_mass, dst_tension
-end
-
-"""
-    segment_io_wide()
-
-The **wide** edge I/O a body-containing network shares (§8.5): the narrow
-[`segment_io`](@ref) tuple (positions 1–13 unchanged, so [`segment_loads`](@ref)/
-[`endpoint_load_eqs`](@ref) read it directly), extended with each endpoint's pose
-inputs (`src_pose_R`(9)/`src_pose_com`/`src_pose_com_vel`/`src_pose_omega`, `dst_…`) a
-wrench edge reads off a body vertex, and the `src_moment`/`dst_moment` outputs (zero for
-a plain segment). The first tuple element holds *all* variables (base + extras) for the
-`System`. Returns `(io, extras)` where `io` is the 13-tuple and `extras` a NamedTuple of
-the added handles.
-"""
-function segment_io_wide()
-    base = segment_io()
-    extravars = @variables begin
-        src_pose_R(t)[1:9], [input = true]
-        src_pose_com(t)[1:3], [input = true]
-        src_pose_com_vel(t)[1:3], [input = true]
-        src_pose_omega(t)[1:3], [input = true]
-        dst_pose_R(t)[1:9], [input = true]
-        dst_pose_com(t)[1:3], [input = true]
-        dst_pose_com_vel(t)[1:3], [input = true]
-        dst_pose_omega(t)[1:3], [input = true]
-        src_moment(t)[1:3], [output = true]
-        dst_moment(t)[1:3], [output = true]
-    end
-    allvars = [base[1]; extravars]
-    io = (allvars, base[2:end]...)
-    extras = (; src_pose_R = extravars[1], src_pose_com = extravars[2],
-              src_pose_com_vel = extravars[3], src_pose_omega = extravars[4],
-              dst_pose_R = extravars[5], dst_pose_com = extravars[6],
-              dst_pose_com_vel = extravars[7], dst_pose_omega = extravars[8],
-              src_moment = extravars[9], dst_moment = extravars[10])
-    return io, extras
-end
+# The first half is pure expression builders that the monolith's equation generators
+# in `src/generate_system/` call directly. The second half wraps them into the small
+# MTK `System`s the `ScheduledBackend` compiles one kernel from, each declaring
+# exactly the inputs it reads and the outputs someone wires — no uniform width to pad
+# to and nothing baked per endpoint orientation.
+#
+# Aggregation is by explicit force *inputs*, not an MTK `Flow`/`connect` connector,
+# which is what keeps array-valued I/O (`pos(t)[1:3]`) intact: a point receives the
+# summed force of its incident segments through `force_in`, and each backend supplies
+# that sum its own way — the scheduled runtime gathers it from the wiring, the
+# monolith writes it as an explicit equation.
 
 """
     point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
@@ -164,9 +26,9 @@ end
 World-frame acceleration of a point mass: the structural force gathered from its
 segments plus its own aerodynamic drag and gravity, per unit `mass`, minus
 world-frame damping. `structural_force` is the physical net force on the point
-(positive sign). Shared by the connector [`DynamicPoint`](@ref) (monolith) and the
-network vertex (ext) so the point physics lives in one place (D2); each backend
-supplies `structural_force` in its own aggregation convention.
+(positive sign). Shared by the monolith's `point_eqs!` and the [`Particle`](@ref)
+component, so the point physics lives in one place; each backend supplies
+`structural_force` in its own aggregation convention.
 """
 function point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
                             world_damping, wind_gnd)
@@ -197,9 +59,8 @@ end
     dynamic_point_dynamics(s, pos, vel, force, mass, pars)
 
 Shared body of the DYNAMIC point/pulley vertices: `D(pos)=vel` and
-`D(vel)=point_acceleration(...)` from the shared kernel, reading the vertex's
+`D(vel)=point_acceleration(...)` from the shared kernel, reading the point's
 drag/damping/wind parameters `pars` (a [`point_particle_params`](@ref) named tuple).
-Both backends build their particle vertices on this so the integrator lives once.
 """
 function dynamic_point_dynamics(s, pos, vel, force, mass, pars)
     accel = point_acceleration(s, collect(pos), collect(vel), collect(force),
@@ -224,40 +85,6 @@ function wing_structural_segment(sys_struct, idx)
 end
 
 """
-    segment_endpoint_loads(s, src_pos, src_vel, dst_pos, dst_vel, unit_stiffness,
-                           unit_damping, compression_frac, l0, diameter, density,
-                           cd_tether, wind_gnd; with_drag=true)
-
-Physical loads a segment exerts: `(force_on_src, force_on_dst, half_mass, spring)`,
-with forces in the *positive* (force-on-point) sign convention, `half_mass` the mass
-each endpoint carries, and `spring` the signed scalar spring-damper tension along
-the axis (positive in tension). Spring acts along the axis (opposite signs at the
-ends); tether drag is split equally and omitted entirely when `with_drag=false` (the
-drag-free wing-structural segment type, so `cd_tether`/`wind_gnd` are then unused).
-Shared by [`SpringDamperSegment`](@ref) (monolith) and the network edge (ext), which
-uses these signs directly and the scalar `spring` for pulley/winch tension aggregation.
-"""
-function segment_endpoint_loads(s, src_pos, src_vel, dst_pos, dst_vel,
-                                unit_stiffness, unit_damping, compression_frac,
-                                l0, diameter, density, cd_tether, wind_gnd;
-                                with_drag = true)
-    _, len, unit_vec, spring_vel =
-        segment_geometry(src_pos, dst_pos, src_vel, dst_vel)
-    spring = segment_spring_force(len, l0, spring_vel, unit_stiffness,
-                                  unit_damping, compression_frac)
-    spring_vec = spring .* unit_vec
-    half_mass = segment_half_mass(l0, diameter, density)
-    with_drag || return spring_vec, -spring_vec, half_mass, spring
-    wind = WindFactor(s.am, s.set.profile_law)
-    seg_pos_z = 0.5 * (src_pos[3] + dst_pos[3])
-    rho = calc_rho(s.am, max(0.0, seg_pos_z))
-    seg_vel = 0.5 .* (src_vel .+ dst_vel)
-    va = wind(seg_pos_z) .* wind_gnd .- seg_vel
-    drag = segment_perp_drag(va, unit_vec, rho, cd_tether, len * diameter)
-    return spring_vec .+ 0.5 .* drag, -spring_vec .+ 0.5 .* drag, half_mass, spring
-end
-
-"""
     segment_spring_params(params, idx; with_drag=true)
 
 The spring-damper parameters read from `params.segments[idx]` (stiffness, damping,
@@ -265,53 +92,59 @@ compression fraction, diameter, density as the segment's own struct fields), plu
 the global tether drag `cd_tether` (`params.set.cd_tether`) and the ground wind
 `wind_gnd` ([`ground_wind_vec`](@ref)). With `with_drag=false` (the
 [`wing_structural_segment`](@ref) edge) `cd_tether` is a literal `0` and unused.
-Returns `(spring_named_tuple, wind_gnd)`; each read registers the parameter on
-`params`.
+`nonlinear` marks a callable `unit_stiffness` force law. Returns
+`(spring_named_tuple, wind_gnd)`; each read registers the parameter on `params`.
 """
 function segment_spring_params(params, idx; with_drag = true)
     seg = params.segments[idx]
     cd_tether = with_drag ? params.set.cd_tether : 0.0
     wind_gnd = ground_wind_vec(params)
+    nonlinear = !(params.reg.sys_struct.segments[idx].unit_stiffness isa Real)
     spring = (; unit_stiffness = seg.unit_stiffness, unit_damping = seg.unit_damping,
               compression_frac = seg.compression_frac, diameter = seg.diameter,
-              density = seg.density, cd_tether)
+              density = seg.density, cd_tether, nonlinear)
     return spring, wind_gnd
 end
 
 """
-    segment_loads(s, io, l0, spring, wind; with_drag=true)
+    segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel, unit_stiffness,
+                       unit_damping, compression_frac, l0, diameter, density,
+                       cd_tether, wind_gnd; with_drag=true, nonlinear=false)
 
-Compute the positive endpoint forces, half-mass and scalar spring tension from the
-shared [`segment_endpoint_loads`](@ref), reading the array-valued endpoint states out
-of the [`segment_io`](@ref) tuple `io`. Returns `(force_on_src, force_on_dst,
-half_mass, spring)`.
+Every load term a segment produces, as a named tuple: the geometry (`len`,
+`unit_vec`), the signed scalar spring-damper tension `spring` and its vector
+`spring_vec`, the `half_mass` and `half_drag` each endpoint carries, and the total
+`force_on_src`/`force_on_dst` in the positive force-on-point sign. With `nonlinear`
+the `unit_stiffness` is a callable force law of strain
+([`segment_nonlinear_force`](@ref)) rather than a linear rate; with
+`with_drag = false` the tether drag is dropped entirely, so `cd_tether`/`wind_gnd`
+are unused.
 """
-function segment_loads(s, io, l0, spring, wind; with_drag = true)
-    (_, src_pos, src_vel, _, dst_pos, dst_vel, _) = io
-    return segment_endpoint_loads(
-        s, collect(src_pos), collect(src_vel), collect(dst_pos), collect(dst_vel),
-        spring.unit_stiffness, spring.unit_damping, spring.compression_frac, l0,
-        spring.diameter, spring.density, spring.cd_tether, collect(wind); with_drag)
-end
-
-"""
-    endpoint_load_eqs(io, force_on_src, force_on_dst, half_mass,
-                      src_tension_val, dst_tension_val)
-
-Bind the edge output variables (`src_force`/`src_mass`/`src_tension`, `dst_…`) of the
-[`segment_io`](@ref) tuple `io` from the computed endpoint loads and the role-signed
-tensions each endpoint reads. A plain segment passes `0` for both tensions.
-"""
-function endpoint_load_eqs(io, force_on_src, force_on_dst, half_mass,
-                           src_tension_val, dst_tension_val)
-    (_, _, _, _, _, _, _, src_force, src_mass, src_tension,
-     dst_force, dst_mass, dst_tension) = io
-    return [
-        collect(src_force) .~ force_on_src;
-        src_mass ~ half_mass; src_tension ~ src_tension_val;
-        collect(dst_force) .~ force_on_dst;
-        dst_mass ~ half_mass; dst_tension ~ dst_tension_val;
-    ]
+function segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel,
+                            unit_stiffness, unit_damping, compression_frac,
+                            l0, diameter, density, cd_tether, wind_gnd;
+                            with_drag = true, nonlinear = false)
+    _, len, unit_vec, spring_vel =
+        segment_geometry(src_pos, dst_pos, src_vel, dst_vel)
+    spring = nonlinear ?
+        segment_nonlinear_force(len, l0, spring_vel, unit_stiffness, unit_damping) :
+        segment_spring_force(len, l0, spring_vel, unit_stiffness, unit_damping,
+                             compression_frac)
+    spring_vec = spring .* unit_vec
+    half_mass = segment_half_mass(l0, diameter, density)
+    half_drag = zeros(Num, 3)
+    if with_drag
+        wind = WindFactor(s.am, s.set.profile_law)
+        seg_pos_z = 0.5 * (src_pos[3] + dst_pos[3])
+        rho = calc_rho(s.am, max(0.0, seg_pos_z))
+        seg_vel = 0.5 .* (src_vel .+ dst_vel)
+        va = wind(seg_pos_z) .* wind_gnd .- seg_vel
+        half_drag = 0.5 .*
+            segment_perp_drag(va, unit_vec, rho, cd_tether, len * diameter)
+    end
+    return (; len, unit_vec, spring, spring_vec, half_mass, half_drag,
+            force_on_src = spring_vec .+ half_drag,
+            force_on_dst = .-spring_vec .+ half_drag)
 end
 
 """
@@ -334,9 +167,10 @@ end
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
 Corotational Timoshenko element wrench shared by both backends (the monolith
-`timoshenko_joint_eqs!` loop body and the network joint edge), so the beam-element
-physics lives in one place. Given the two nodes' world poses (`pos`, `R_b_to_w`, `com`,
-`com_vel`, world spin `omega_w`) and the joint's rest geometry/rigidities, it builds the
+`timoshenko_joint_eqs!` loop body and the scheduled joint component), so the
+beam-element physics lives in one place. Given the two nodes' world poses (`pos`,
+`R_b_to_w`, `com`, `com_vel`, world spin `omega_w`) and the joint's rest
+geometry/rigidities, it builds the
 element frame and per-node deformations, evaluates the consistent Timoshenko stiffness
 (axial, torsion, two bending planes with shear reduction `Φ`) and damping, and returns
 `(tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)` — the restoring wrench on
@@ -434,8 +268,9 @@ end
         omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
 Lumped 6-DOF `ElasticJoint` restoring wrench shared by both backends (the monolith
-`joint_eqs!` loop body and the network elastic-joint edge). From the relative pose of the
-two anchors (in body A's frame) it builds the per-DOF restoring force/torque (axial,
+`joint_eqs!` loop body and the scheduled elastic-joint component). From the relative
+pose of the two anchors (in body A's frame) it builds the per-DOF restoring
+force/torque (axial,
 shear, torsion, bending stiffness + damping) and returns
 `(tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)` — the equal-and-opposite
 wrench transported to each COM. `force_w`/`torque_w` are the caller's **torn** world-frame
@@ -559,7 +394,7 @@ end
 
 Pure 6-DOF rigid-body derivative and body-frame output expressions (principal frame)
 — the single math source both the monolith ([`rigid_body_eqs!`](@ref)) and the
-network body vertex assemble from. Given the world-frame load at / about the COM
+scheduled body component assemble from. Given the world-frame load at / about the COM
 (`force_w`, `moment_w`) and the principal state (`com_w`, `com_vel`, `Q_p_to_w`,
 `ω_p` as length-3/4 `Num` vectors), returns a named tuple of expressions: the state
 derivatives `d_com_w`/`d_com_vel`/`d_Q`/`d_ω`, the Euler angular accel `α_p`, the
@@ -622,357 +457,10 @@ function rigid_body_pose_expressions(force_w, moment_w, inertia_p, mass, R_b_to_
 end
 
 """
-    body_io()
-
-Declare the **wide** vertex I/O a body-containing network shares (§8.5): the uniform
-output superset `pos`/`vel` (body origin), `pulley_len_out`, and the pose
-`pose_R`(9)/`pose_com`/`pose_com_vel`/`pose_omega` an incident wrench edge reads to place
-any ride anchor and transport its moment; the input superset is the aggregated wrench
-`force_in`/`moment_in` plus the `mass_in`/`tension_in` a point vertex uses (declared but
-unused here, so every vertex shares one input width). Returns `(vars, pos, vel,
-pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega, force_in, moment_in)`.
-"""
-function body_io()
-    vars = @variables begin
-        pos(t)[1:3]
-        vel(t)[1:3]
-        pulley_len_out(t)
-        pose_R(t)[1:9]
-        pose_com(t)[1:3]
-        pose_com_vel(t)[1:3]
-        pose_omega(t)[1:3]
-        force_in(t)[1:3], [input = true]
-        mass_in(t), [input = true]
-        tension_in(t), [input = true]
-        moment_in(t)[1:3], [input = true]
-    end
-    return vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel,
-        pose_omega, force_in, moment_in
-end
-
-"""
-    BodyVertex(s, params, idx; name)
-
-Free rigid-body vertex: integrates the 13-state principal pose (`com_w`, `com_vel`,
-`Q_p_to_w`, `ω_p`) under gravity, the aggregated wrench at `force_in`/`moment_in`,
-the external wrench (`ext_force_w`/`ext_force_b`/`ext_moment_b`), and per-axis
-angular `damping` — all read from `params.bodies[idx]`. Shares the 6-DOF math with
-the monolith through [`rigid_body_pose_expressions`](@ref); emits the wide pose via
-[`body_io`](@ref) (`pulley_len_out = 0`; `mass_in`/`tension_in` unused). `fix_sphere`
-confinement is not built here. A clamped (`STATIC`) body uses [`StaticBody`](@ref) instead.
-"""
-function BodyVertex(s, params, idx; name)
-    vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega,
-        force_in, moment_in = body_io()
-    state = @variables com_w(t)[1:3] com_vel(t)[1:3] Q(t)[1:4] omega_p(t)[1:3]
-    body = params.bodies[idx]
-    R_b_to_w = quaternion_to_rotation_matrix(collect(Q)) * collect(body.R_b_to_p)
-    gravity_w = Num[0, 0, -params.set.g_earth * body.mass]
-    force_w = collect(force_in) .+ gravity_w .+ collect(body.ext_force_w) .+
-        R_b_to_w * collect(body.ext_force_b)
-    moment_w = collect(moment_in) .+ R_b_to_w * collect(body.ext_moment_b)
-    ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
-        body.mass, body.R_b_to_p, body.com_offset_b, com_w, com_vel, Q, omega_p)
-    damping = collect(body.damping)
-    eqs = [
-        [D(com_w[i]) ~ ex.d_com_w[i] for i in 1:3]
-        [D(com_vel[i]) ~ ex.d_com_vel[i] for i in 1:3]
-        [D(Q[i]) ~ ex.d_Q[i] for i in 1:4]
-        [D(omega_p[i]) ~ ex.α_p[i] - damping[i] * omega_p[i] for i in 1:3]
-        pos ~ ex.pos_w
-        vel ~ ex.vel_w
-        pulley_len_out ~ 0.0
-        [pose_R[k] ~ vec(ex.R_b_to_w)[k] for k in 1:9]
-        pose_com ~ com_w
-        pose_com_vel ~ com_vel
-        pose_omega ~ ex.R_b_to_w * ex.ω_b
-    ]
-    return System(eqs, t, [vars; state], param_unknowns(params); name)
-end
-
-"""
-    StaticBody(s, params, idx; name)
-
-Clamped (`STATIC`) rigid-body vertex: no dynamic state, a fixed wide pose emitted from
-`params.bodies[idx]` (`pos_w`, `com_w`, and `R_b_to_w` from the fixed `Q_b_to_w`), with
-zero velocity/spin. Matches the monolith's frozen `STATIC` body (whose 13 states are held
-at their initial pose) while staying stateless so the network needs no state for it. Its
-`force_in`/`moment_in` inputs are declared (so joints/segments may deliver to it) but
-ignored — the body does not move.
-"""
-function StaticBody(s, params, idx; name)
-    vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega,
-        force_in, moment_in = body_io()
-    body = params.bodies[idx]
-    R_b_to_w = quaternion_to_rotation_matrix(collect(body.Q_b_to_w))
-    eqs = [
-        pos ~ collect(body.pos_w)
-        vel ~ zeros(3)
-        pulley_len_out ~ 0.0
-        [pose_R[k] ~ vec(R_b_to_w)[k] for k in 1:9]
-        pose_com ~ collect(body.com_w)
-        pose_com_vel ~ zeros(3)
-        pose_omega ~ zeros(3)
-    ]
-    return System(eqs, t, vars, param_unknowns(params); name)
-end
-
-"""
-    body_ride_drag_wrench(s, params, body_idx; origin_w, R_b_w, com_w, com_vel, omega_w)
-
-Aggregate aerodynamic drag of a body's `BODY_STATIC` ride points that carry an `area`, as
-a world-frame wrench on the body. Each such point is reconstructed from the body pose
-(`origin_w + R_b_w·anchor_b`, velocity `com_vel + omega_w × arm`), its drag is
-`0.5·ρ·drag_coeff·|va|·area·va` with `va = wind(z)·wind_gnd − vel` (matching `point_eqs!`),
-and its force + `arm × force` moment are summed. The per-point `arm`/`va`/`drag` are **torn**
-into internal variables (else the nested pose→√→force expression stalls `mtkcompile`), and
-each point's `anchor_b`/`area`/`drag_coeff` use distinct per-point params (the network
-aliases bare field names). Returns `(force_w, moment_w, drag_params, torn_vars, torn_eqs)`;
-`drag_params`/`torn_vars`/`torn_eqs` join the vertex's parameter/variable/equation lists.
-"""
-function body_ride_drag_wrench(s, params, body_idx; origin_w, R_b_w, com_w,
-                               com_vel, omega_w)
-    points = params.reg.sys_struct.points
-    ride = [p for p in points
-            if p.type == BODY_STATIC && p.body_idx == body_idx && p.area > 0]
-    force_w = zeros(Num, 3)
-    moment_w = zeros(Num, 3)
-    drag_params = Num[]
-    torn_vars = Any[]
-    torn_eqs = Equation[]
-    isempty(ride) && return (force_w, moment_w, drag_params, torn_vars, torn_eqs)
-    wind = WindFactor(s.am, s.set.profile_law)
-    wind_gnd = ground_wind_vec(params)
-    for (k, point) in enumerate(ride)
-        anchor = [make_param(Symbol(:drag_anchor_, k, :_, c), 0.0) for c in 1:3]
-        area = make_param(Symbol(:drag_area_, k), 0.0)
-        drag_coeff = make_param(Symbol(:drag_cd_, k), 0.0)
-        append!(drag_params, anchor)
-        push!(drag_params, area)
-        push!(drag_params, drag_coeff)
-        arm_nm = Symbol(:drag_arm_, k)
-        va_nm = Symbol(:drag_va_, k)
-        f_nm = Symbol(:drag_f_, k)
-        arm = only(@variables $arm_nm(t)[1:3])
-        va = only(@variables $va_nm(t)[1:3])
-        drag = only(@variables $f_nm(t)[1:3])
-        anchor_w = collect(origin_w) .+ collect(R_b_w) * anchor
-        arm_rhs = anchor_w .- collect(com_w)
-        vel_p = collect(com_vel) .+ (collect(omega_w) × collect(arm))
-        height = collect(arm)[3] + collect(com_w)[3]
-        va_rhs = wind(height) .* wind_gnd .- vel_p
-        drag_rhs = 0.5 * calc_rho(s.am, max(0.0, height)) * drag_coeff *
-            smooth_norm(collect(va)) * area .* collect(va)
-        append!(torn_vars, [arm, va, drag])
-        torn_eqs = [torn_eqs
-                    collect(arm) .~ arm_rhs
-                    collect(va) .~ va_rhs
-                    collect(drag) .~ drag_rhs]
-        force_w = force_w .+ collect(drag)
-        moment_w = moment_w .+ (collect(arm) × collect(drag))
-    end
-    return (force_w, moment_w, drag_params, torn_vars, torn_eqs)
-end
-
-"""
-    WingBodyVertex(s, params, aero_params, idx; name)
-
-Free rigid-**wing** body vertex: [`BodyVertex`](@ref) plus the wing's VSM aero folded
-into the body wrench. The rigid aero subsystem ([`aero_component`](@ref) on the
-`RigidWing` contract — `AeroDirect`/`AeroLinearized`) is nested as `aero`, its connectors
-driven from the body's **own** pose (no `extin`): body-frame apparent wind
-`va = R_b_w'·(wind(z)·wind_gnd − vel_w)`, density at the wing height, `R_b_w`, `omega = ω_b`,
-and each twist surface's `twist`/`twist_ω`. A `STATIC` surface takes its `twist`/`twist_ω`
-as prescribed params; a `DYNAMIC` surface integrates them as states — `D(twist_ω) =
-aero_twist_moment/inertia − damping·twist_ω − stiffness·clamp(twist,±90°)/inertia`, with
-`inertia = mass·|chord|²/3` a build constant and `aero_twist_moment` the subsystem's
-per-surface `twist_moment` (the structural `tether_moment` is not yet included, so it is
-exact only where the surface's points carry no structural force). The subsystem's
-body-frame `force`/`moment` are transported to the COM (`moment_b + force_b × com_offset_b`),
-rotated to world, and added to gravity + externals + the aggregated wrench before the
-shared [`rigid_body_pose_expressions`](@ref) integrates the 13-state pose. Same wide
-`body_io` interface as [`BodyVertex`](@ref); the aero flat params sync per VSM refresh.
-"""
-function WingBodyVertex(s, params, aero_params, idx; name)
-    vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega,
-        force_in, moment_in = body_io()
-    state = @variables com_w(t)[1:3] com_vel(t)[1:3] Q(t)[1:4] omega_p(t)[1:3]
-    body = params.bodies[idx]
-    wing = params.reg.sys_struct.bodies[idx]
-    R_p_to_w = quaternion_to_rotation_matrix(collect(Q))
-    R_b_to_w = R_p_to_w * collect(body.R_b_to_p)
-    com_off = collect(body.com_offset_b)
-    arm_w = -(R_b_to_w * com_off)
-    origin_w = collect(com_w) .+ arm_w
-    omega_w = R_p_to_w * collect(omega_p)
-    origin_vel = collect(com_vel) .+ (omega_w × arm_w)
-    omega_b = collect(body.R_b_to_p)' * collect(omega_p)
-
-    wind = WindFactor(s.am, s.set.profile_law)
-    wind_gnd = ground_wind_vec(params)
-    height = origin_w[3]
-    va_w = wind(height) .* wind_gnd .- origin_vel
-    va_b = R_b_to_w' * va_w
-    subsys = aero_component(wing.aero, wing, params.reg.sys_struct;
-                            name = :aero, params = aero_params)
-    aero_eqs = [
-        collect(subsys.va) .~ va_b
-        subsys.rho ~ calc_rho(s.am, max(0.0, height))
-        vec(collect(subsys.R_b_w)) .~ vec(R_b_to_w)
-        collect(subsys.omega) .~ omega_b
-    ]
-    twist_params = Num[]
-    twist_states = Any[]
-    twist_dyn_eqs = Equation[]
-    if length(wing.twist_surface_idxs) > 0
-        n_ts = length(wing.twist_surface_idxs)
-        ss = params.reg.sys_struct
-        max_twist = deg2rad(90)
-        aero_twist_moment = collect(subsys.twist_moment)
-        twist_in = Vector{Num}(undef, n_ts)
-        twist_vel_in = Vector{Num}(undef, n_ts)
-        for k in 1:n_ts
-            surface = ss.twist_surfaces[wing.twist_surface_idxs[k]]
-            if surface.type == DYNAMIC
-                ft_nm = Symbol(:free_twist_, k)
-                tw_nm = Symbol(:twist_omega_, k)
-                free_twist = only(@variables $ft_nm(t))
-                twist_omega = only(@variables $tw_nm(t))
-                append!(twist_states, [free_twist, twist_omega])
-                mass = sum(ss.points[p].extra_mass for p in surface.point_idxs)
-                inertia = mass * smooth_norm(collect(surface.chord))^2 / 3
-                stiffness = make_param(Symbol(:twist_stiffness_, k), 0.0)
-                damping = make_param(Symbol(:twist_damping_, k), 0.0)
-                append!(twist_params, [stiffness, damping])
-                twist_angle = clamp(free_twist, -max_twist, max_twist)
-                twist_alpha = aero_twist_moment[k] / inertia
-                twist_dyn_eqs = [twist_dyn_eqs
-                    D(free_twist) ~ twist_omega
-                    D(twist_omega) ~ twist_alpha - damping * twist_omega -
-                        stiffness * twist_angle / inertia]
-                twist_in[k] = twist_angle
-                twist_vel_in[k] = twist_omega
-            else
-                twist_p = make_param(Symbol(:twist_, k), 0.0)
-                twist_vel_p = make_param(Symbol(:twist_vel_, k), 0.0)
-                append!(twist_params, [twist_p, twist_vel_p])
-                twist_in[k] = twist_p
-                twist_vel_in[k] = twist_vel_p
-            end
-        end
-        aero_eqs = [aero_eqs
-                    collect(subsys.twist) .~ twist_in
-                    collect(subsys.twist_vel) .~ twist_vel_in]
-    end
-    force_b = collect(subsys.force)
-    moment_b = collect(subsys.moment)
-    aero_force_w = R_b_to_w * force_b
-    aero_moment_w = R_b_to_w * (moment_b .+ (force_b × com_off))
-    drag_force_w, drag_moment_w, drag_params, drag_vars, drag_eqs =
-        body_ride_drag_wrench(s, params, idx;
-            origin_w, R_b_w = R_b_to_w, com_w, com_vel, omega_w)
-
-    gravity_w = Num[0, 0, -params.set.g_earth * body.mass]
-    force_w = collect(force_in) .+ gravity_w .+ collect(body.ext_force_w) .+
-        R_b_to_w * collect(body.ext_force_b) .+ aero_force_w .+ drag_force_w
-    moment_w = collect(moment_in) .+ R_b_to_w * collect(body.ext_moment_b) .+
-        aero_moment_w .+ drag_moment_w
-    ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
-        body.mass, body.R_b_to_p, body.com_offset_b, com_w, com_vel, Q, omega_p)
-    damping = collect(body.damping)
-    eqs = [
-        aero_eqs
-        twist_dyn_eqs
-        drag_eqs
-        [D(com_w[i]) ~ ex.d_com_w[i] for i in 1:3]
-        [D(com_vel[i]) ~ ex.d_com_vel[i] for i in 1:3]
-        [D(Q[i]) ~ ex.d_Q[i] for i in 1:4]
-        [D(omega_p[i]) ~ ex.α_p[i] - damping[i] * omega_p[i] for i in 1:3]
-        pos ~ ex.pos_w
-        vel ~ ex.vel_w
-        pulley_len_out ~ 0.0
-        [pose_R[k] ~ vec(ex.R_b_to_w)[k] for k in 1:9]
-        pose_com ~ com_w
-        pose_com_vel ~ com_vel
-        pose_omega ~ ex.R_b_to_w * ex.ω_b
-    ]
-    return System(eqs, t, [vars; state; twist_states; drag_vars],
-                  [param_unknowns(params); twist_params; drag_params];
-                  name, systems = [subsys])
-end
-
-"""
-    DynamicPoint(s, params, idx; name)
-
-Particle vertex: a point mass integrating `pos`/`vel` under the net force gathered
-at its `force_in`, its own aerodynamic drag, gravity, and world-frame damping. This
-is the free-tether particle and the base for PARTICLE_DYNAMICS wing nodes; the wing
-case adds an aero-force input on top of this same integrator (added with wing-node
-wiring) rather than duplicating it. Translational mass is `extra_mass` plus the
-incident segments' aggregated half-masses (`mass_in`). Its parameters are read from
-`params.points[idx]` ([`point_particle_params`](@ref)) — the same param+defaults
-source both backends assemble from.
-"""
-function DynamicPoint(s, params, idx; name, wide = false)
-    vars, pos, vel, force_in, mass_in, _, pulley_len_out = point_io()
-    pars = point_particle_params(params, idx)
-    eqs = [dynamic_point_dynamics(s, pos, vel, force_in, pars.extra_mass + mass_in,
-                                  pars);
-           pulley_len_out ~ 0.0]
-    return finish_vertex(vars, eqs, params; name, wide)
-end
-
-"""
-    StaticPoint(s, params, idx; name)
-
-Ground-anchored vertex with no dynamic state: `pos` is pinned to `params.points[idx]`'s
-`pos_w` and `vel` is zero. Its `force_in`/`mass_in`/`tension_in` inputs are declared
-(so segments may deliver to it) but ignored — the point does not move — matching the
-STATIC branch of `point_eqs!`.
-"""
-function StaticPoint(s, params, idx; name, wide = false)
-    vars, pos, vel, _, _, _, pulley_len_out = point_io()
-    eqs = [
-        collect(pos) .~ collect(params.points[idx].pos_w)
-        collect(vel) .~ zeros(3)
-        pulley_len_out ~ 0.0
-    ]
-    return finish_vertex(vars, eqs, params; name, wide)
-end
-
-"""
-    SpringDamperSegment(s, params, idx; name)
-
-Stateless edge reading its two endpoints' `pos`/`vel` and writing the spring-damper
-force + tether drag on each (`src_force`/`dst_force`) and each endpoint's half-mass
-(`src_mass`/`dst_mass`), in the **positive** force-on-point sign — the assembly sums
-these into each point's `force_in`/`mass_in` (ND edge→vertex, or the monolith's
-explicit sum). Emits zero tension (a plain/structural segment feeds no pulley/winch).
-A [`wing_structural_segment`](@ref) has no tether drag: it drops the drag term (a
-distinct compiled type) instead of reading `cd_tether`, so drag stays a single global
-setting. Its rest length is the frozen `params.segments[idx].l0`; spring/geometry
-parameters come from `params.segments[idx]`, `cd_tether` from `params.set`.
-"""
-function SpringDamperSegment(s, params, idx; name, wide = false)
-    io, extras = wide ? segment_io_wide() : (segment_io(), nothing)
-    vars = io[1]
-    with_drag = !wing_structural_segment(params.reg.sys_struct, idx)
-    spring, wind = segment_spring_params(params, idx; with_drag)
-    l0 = params.segments[idx].l0
-    force_on_src, force_on_dst, half_mass, _ =
-        segment_loads(s, io, l0, spring, wind; with_drag)
-    eqs = endpoint_load_eqs(io, force_on_src, force_on_dst, half_mass, 0.0, 0.0)
-    if wide
-        eqs = [eqs; collect(extras.src_moment) .~ 0; collect(extras.dst_moment) .~ 0]
-    end
-    return System(eqs, t, vars, param_unknowns(params); name)
-end
-
-"""
     pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley_damp,
                      pulley_len_out)
 
-The rope-split dynamics a pulley vertex owns on top of its particle motion:
+The rope-split dynamics a pulley point owns on top of its particle motion:
 `D(pulley_len)=pulley_vel`, `D(pulley_vel)=tension_in/pulley_mass − pulley_damp·vel`
 (the aggregated `tension_in` being `spring[seg1] − spring[seg2]`), and
 `pulley_len_out=pulley_len` exposed so the incident segments read it as their `l0`.
@@ -985,29 +473,6 @@ function pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulle
         D(pulley_vel) ~ tension_in / pulley_mass - pulley_damp * pulley_vel;
         pulley_len_out ~ pulley_len;
     ]
-end
-
-"""
-    PulleyPoint(s, params, idx, pulley_mass; name)
-
-Dynamic pulley vertex: a particle ([`DynamicPoint`](@ref) motion) that additionally
-owns the pulley rope split ([`pulley_split_eqs`](@ref)). `pulley_mass` is the rope
-mass driving the split acceleration (supplied by the assembly, which knows the pulley
-topology). Its `pulley_damp` is a fixed default parameter. `wide` appends the zero pose
-outputs so it can coexist with rigid bodies in one network.
-"""
-function PulleyPoint(s, params, idx, pulley_mass; name, wide = false)
-    vars, pos, vel, force_in, mass_in, tension_in, pulley_len_out = point_io()
-    extra = @variables pulley_len(t) pulley_vel(t)
-    append!(vars, extra)
-    pars = point_particle_params(params, idx)
-    pulley_damp = make_param(:pulley_damp, 5.0)
-    eqs = [
-        dynamic_point_dynamics(s, pos, vel, force_in, pars.extra_mass + mass_in, pars);
-        pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley_damp,
-                         pulley_len_out);
-    ]
-    return finish_vertex(vars, eqs, params; name, wide, extra_params = (pulley_damp,))
 end
 
 """
@@ -1025,325 +490,289 @@ function wing_frame_columns(zp1, zp2, yp1, yp2)
     return xaxis, yaxis, zaxis
 end
 
-"""
-    wing_frame_rotation(zp1, zp2, yp1, yp2)
-
-The body→world rotation matrix `R_b_to_w` fitted from the four ref points, its columns
-given by [`wing_frame_columns`](@ref). Shared by the wing-node body-frame damping and
-the frozen aero-force rotation.
-"""
-function wing_frame_rotation(zp1, zp2, yp1, yp2)
-    xaxis, yaxis, zaxis = wing_frame_columns(zp1, zp2, yp1, yp2)
-    return [xaxis[1] yaxis[1] zaxis[1];
-            xaxis[2] yaxis[2] zaxis[2];
-            xaxis[3] yaxis[3] zaxis[3]]
-end
+# ==================== component `System`s ==================== #
+# One per component type; the `ScheduledBackend` compiles a kernel from each and
+# instances it per component. Everything above is the physics they share.
 
 """
-    body_frame_damp_accel(vel, body_damp, rot, ovel)
+    point_variables()
 
-The body-frame damping acceleration `R·(coeff ⊙ (Rᵀ·(vel − wing_vel)))`, with the
-wing frame `R = rot` ([`wing_frame_rotation`](@ref)) and the wing velocity taken as
-the origin velocity `ovel`.
+The variables a point component may declare, as a named tuple: its world `pos`/`vel`
+outputs, the summed `force_in`/`mass_in` of its incident segments, their `drag_in`
+share, and the observed `total_drag`. Each component lists only the ones it uses.
 """
-function body_frame_damp_accel(vel, body_damp, rot, ovel)
-    return rot * (collect(body_damp) .* (rot' * (collect(vel) .- ovel)))
-end
-
-"""
-    wing_node_inputs()
-
-The 15 external-input variables a wing node reads from its wing's ref points: the four
-ref-point positions `zp1/zp2/yp1/yp2` (12) and the wing origin velocity `ovel` (3),
-all as scalar `[input = true]` variables. Both backends supply them — the network
-through NetworkDynamics `extin`, the monolith through equations wired to the wing
-frame. Returns `(ext, zp1, zp2, yp1, yp2, ovel)` with each ref point a 3-vector.
-"""
-function wing_node_inputs()
-    ext = @variables begin
-        zp1x(t), [input = true]; zp1y(t), [input = true]; zp1z(t), [input = true]
-        zp2x(t), [input = true]; zp2y(t), [input = true]; zp2z(t), [input = true]
-        yp1x(t), [input = true]; yp1y(t), [input = true]; yp1z(t), [input = true]
-        yp2x(t), [input = true]; yp2y(t), [input = true]; yp2z(t), [input = true]
-        ovx(t), [input = true]; ovy(t), [input = true]; ovz(t), [input = true]
+function point_variables()
+    vars = @variables begin
+        pos(t)[1:3], [output = true]
+        vel(t)[1:3], [output = true]
+        force_in(t)[1:3], [input = true]
+        mass_in(t), [input = true]
+        drag_in(t)[1:3], [input = true]
+        total_drag(t)[1:3]
     end
-    (zp1x, zp1y, zp1z, zp2x, zp2y, zp2z, yp1x, yp1y, yp1z,
-     yp2x, yp2y, yp2z, ovx, ovy, ovz) = ext
-    return ext, [zp1x, zp1y, zp1z], [zp2x, zp2y, zp2z], [yp1x, yp1y, yp1z],
-           [yp2x, yp2y, yp2z], [ovx, ovy, ovz]
+    return (; pos = vars[1], vel = vars[2], force_in = vars[3], mass_in = vars[4],
+            drag_in = vars[5], total_drag = vars[6])
 end
 
 """
-    wing_node_extra_accel(point, rot, ovel, vel, mass)
+    total_drag_eq(s, params, idx, io)
 
-The extra acceleration a KINEMATIC wing node adds on top of the shared
-[`point_acceleration`](@ref): its frozen per-point aero force `aero_force_b` (body
-frame, refreshed each VSM step) rotated to world by the fitted wing frame `rot`, minus
-the body-frame damping ([`body_frame_damp_accel`](@ref)). Returns the world-frame
-acceleration vector `aero − damp`.
+Bind `total_drag` to the point's own aerodynamic drag plus the share its segments
+deliver — the monolith's `total_drag`, which the state getter scatters into
+`point.drag_force`.
 """
-function wing_node_extra_accel(point, rot, ovel, vel, mass)
-    damp = body_frame_damp_accel(vel, point.body_frame_damping, rot, ovel)
-    aero = (rot * collect(point.aero_force_b)) ./ mass
-    return aero .- damp
-end
-
-"""
-    WingNodePoint(s, params, idx; name)
-
-A DYNAMIC particle belonging to a `KINEMATIC` wing (`is_wing_node`): the shared
-[`DynamicPoint`](@ref) motion plus [`wing_node_extra_accel`](@ref) (frozen aero +
-body-frame damping). The wing frame and wing velocity are read through the shared
-[`wing_node_inputs`](@ref) (the network supplies them via `extin`). The same kernel
-serves aero-only nodes, whose `body_frame_damping` defaults to zero.
-"""
-function WingNodePoint(s, params, idx; name)
-    vars, pos, vel, force_in, mass_in, _, pulley_len_out = point_io()
-    ext, zp1, zp2, yp1, yp2, ovel = wing_node_inputs()
-    append!(vars, ext)
-    pars = point_particle_params(params, idx)
+function total_drag_eq(s, params, idx, io)
     point = params.points[idx]
-    mass = pars.extra_mass + mass_in
-    accel = point_acceleration(s, collect(pos), collect(vel), collect(force_in),
-        mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
-        collect(pars.wind_gnd))
-    rot = wing_frame_rotation(zp1, zp2, yp1, yp2)
-    eqs = [
-        D.(collect(pos)) .~ collect(vel);
-        D.(collect(vel)) .~ accel .+ wing_node_extra_accel(point, rot, ovel, vel, mass);
-        pulley_len_out ~ 0.0;
-    ]
+    wind = WindFactor(s.am, s.set.profile_law)
+    height = collect(io.pos)[3]
+    apparent = wind(height) .* ground_wind_vec(params) .- collect(io.vel)
+    own = point_drag_force(apparent, calc_rho(s.am, max(0.0, height)),
+                           point.drag_coeff, point.area)
+    return collect(io.total_drag) .~ own .+ collect(io.drag_in)
+end
+
+"""
+    Particle(s, params, idx; name)
+
+A free point mass: integrates `pos`/`vel` under the force gathered from its incident
+segments, its own drag, gravity and world-frame damping, through the shared
+[`point_acceleration`](@ref). Its translational mass is `extra_mass` plus the
+incident segments' half-masses (`mass_in`).
+"""
+function Particle(s, params, idx; name)
+    io = point_variables()
+    pars = point_particle_params(params, idx)
+    eqs = [dynamic_point_dynamics(s, io.pos, io.vel, io.force_in,
+                                  pars.extra_mass + io.mass_in, pars);
+           total_drag_eq(s, params, idx, io)]
+    vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag]
     return System(eqs, t, vars, param_unknowns(params); name)
 end
 
 """
-    WingNodePulleyPoint(s, params, idx, pulley_mass; name)
+    Anchor(s, params, idx; name)
 
-A dynamic pulley vertex ([`PulleyPoint`](@ref)) that also belongs to a `KINEMATIC`
-wing, carrying the frozen aero force and body-frame damping of [`WingNodePoint`](@ref).
-Used for pulley points that are also wing nodes.
+A ground-anchored point: `pos` is pinned to `params.points[idx].pos_w` and `vel` is
+zero, matching the STATIC branch of `point_eqs!`. It carries no force or mass input
+— it does not move and its mass is not integrated — but still observes `total_drag`.
 """
-function WingNodePulleyPoint(s, params, idx, pulley_mass; name)
-    vars, pos, vel, force_in, mass_in, tension_in, pulley_len_out = point_io()
-    extra = @variables pulley_len(t) pulley_vel(t)
-    ext, zp1, zp2, yp1, yp2, ovel = wing_node_inputs()
-    append!(vars, extra); append!(vars, ext)
-    pars = point_particle_params(params, idx)
-    point = params.points[idx]
-    pulley_damp = make_param(:pulley_damp, 5.0)
-    mass = pars.extra_mass + mass_in
-    accel = point_acceleration(s, collect(pos), collect(vel), collect(force_in),
-        mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
-        collect(pars.wind_gnd))
-    rot = wing_frame_rotation(zp1, zp2, yp1, yp2)
+function Anchor(s, params, idx; name)
+    io = point_variables()
     eqs = [
-        D.(collect(pos)) .~ collect(vel);
-        D.(collect(vel)) .~ accel .+ wing_node_extra_accel(point, rot, ovel, vel, mass);
-        pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley_damp,
-                         pulley_len_out);
+        collect(io.pos) .~ collect(params.points[idx].pos_w)
+        collect(io.vel) .~ zeros(3)
+        total_drag_eq(s, params, idx, io)
     ]
-    return System(eqs, t, vars, [param_unknowns(params); pulley_damp]; name)
+    vars = [io.pos, io.vel, io.drag_in, io.total_drag]
+    return System(eqs, t, vars, param_unknowns(params); name)
 end
 
 """
-    live_aero_node_inputs(num_points)
+    pulley_rope_mass(params, pulley_idx, segment_idx)
 
-The extra external inputs a live-aero wing node reads beyond the ref-point frame
-([`wing_node_inputs`](@ref)): the wing origin position (`opx/opy/opz`, 3) and every
-wing point's world position and velocity (`wpos_k_c`/`wvel_k_c`, `6·num_points`), all
-`[input = true]`. The network supplies them via NetworkDynamics `extin`. Returns
-`(extra_vars, wing_pos, pos_list, vel_list)` where `pos_list[k]`/`vel_list[k]` are the
-3-vectors for wing point `k` (in the `wing_points` order the aero component expects).
+The rope mass `sum_len · ρ · π (d/2)²` driving a pulley's rope split, built in
+equation from the pulley's `sum_len` and one of its segments' material, so it
+follows the struct live.
 """
-function live_aero_node_inputs(num_points)
-    opos = @variables opx(t), [input = true]
-    append!(opos, @variables opy(t), [input = true])
-    append!(opos, @variables opz(t), [input = true])
-    wing_pos = collect(opos)
-    extra = Any[opos...]
-    pos_list = Vector{Vector{Num}}(undef, num_points)
-    vel_list = Vector{Vector{Num}}(undef, num_points)
-    for k in 1:num_points
-        pk = Num[]
-        vk = Num[]
-        for c in 1:3
-            pnm = Symbol(:wpos_, k, :_, c)
-            vnm = Symbol(:wvel_, k, :_, c)
-            push!(pk, only(@variables $pnm(t), [input = true]))
-            push!(vk, only(@variables $vnm(t), [input = true]))
-        end
-        append!(extra, pk)
-        append!(extra, vk)
-        pos_list[k] = pk
-        vel_list[k] = vk
+function pulley_rope_mass(params, pulley_idx, segment_idx)
+    segment = params.segments[segment_idx]
+    return params.pulleys[pulley_idx].sum_len * segment.density *
+           π * (segment.diameter / 2)^2
+end
+
+"""
+    PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
+
+A [`Particle`](@ref) that also owns a pulley's rope split: `D(pulley_len) =
+pulley_vel` and `D(pulley_vel) = tension_in / rope_mass − damping · pulley_vel`,
+with `tension_in` the imbalance `spring[seg1] − spring[seg2]` its two segments
+deliver. `pulley_len_out` exposes the split so those segments read it as their rest
+length.
+"""
+function PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
+    io = point_variables()
+    extra = @variables begin
+        tension_in(t), [input = true]
+        pulley_len_out(t), [output = true]
+        pulley_len(t)
+        pulley_vel(t)
     end
-    return extra, wing_pos, pos_list, vel_list
-end
-
-"""
-    live_aero_connector_eqs(subsys, s, rot, wing_pos, wind_gnd, pos_list, vel_list)
-
-Wire the shared aero component `subsys`'s particle connectors from the per-point world
-positions/velocities (`pos_list`/`vel_list`, read via `extin`), transforming them into
-the wing body frame by the fitted rotation `rot` and origin `wing_pos`. Mirrors the
-particle wiring of `aero_eqs!` so the network forms the identical body-frame
-`point_pos`/`point_vel`/`va`/`rho` the monolith does (apparent wind
-`wind(z)·wind_gnd − vel`, density at the clamped height).
-"""
-function live_aero_connector_eqs(subsys, s, rot, wing_pos, wind_gnd, pos_list, vel_list)
-    wind = WindFactor(s.am, s.set.profile_law)
-    eqs = Equation[]
-    for k in eachindex(pos_list)
-        pos_k = pos_list[k]
-        vel_k = vel_list[k]
-        z_k = pos_k[3]
-        va_w = wind(z_k) .* wind_gnd .- vel_k
-        eqs = [eqs
-               collect(subsys.point_pos[:, k]) .~ rot' * (pos_k .- wing_pos)
-               collect(subsys.point_vel[:, k]) .~ rot' * vel_k
-               collect(subsys.va[:, k]) .~ rot' * va_w
-               subsys.rho[k] ~ calc_rho(s.am, max(0.0, z_k))]
-    end
-    return eqs
-end
-
-"""
-    wing_aero_aggregate_vars()
-
-Declare the six scalar observed variables (`wing_aero_force_b_1..3`,
-`wing_aero_moment_b_1..3`) that a [`LiveAeroWingNodePoint`](@ref) exposes so the
-network state getter can read the wing-level body-frame aero force and moment,
-mirroring the monolith's `aero_force_b`/`aero_moment_b` observables. Returns the
-force and moment component vectors.
-"""
-function wing_aero_aggregate_vars()
-    force = Num[]
-    moment = Num[]
-    for c in 1:3
-        fnm = Symbol(:wing_aero_force_b_, c)
-        mnm = Symbol(:wing_aero_moment_b_, c)
-        push!(force, only(@variables $fnm(t)))
-        push!(moment, only(@variables $mnm(t)))
-    end
-    return force, moment
-end
-
-"""
-    LiveAeroWingNodePoint(s, params, aero_params, idx, wing, slot, num_points; name)
-
-A DYNAMIC particle wing node whose aero force is computed **live** (not frozen): the
-shared [`DynamicPoint`](@ref) motion plus body-frame damping, plus the live per-point
-aero force from the shared [`aero_component`](@ref) nested as the `aero` subsystem. The
-wing frame is fitted from the ref points ([`wing_node_inputs`](@ref)) and the aero
-component reads every wing point's world state ([`live_aero_node_inputs`](@ref)), all
-via `extin`; the connectors are wired by [`live_aero_connector_eqs`](@ref). Because
-NetworkDynamics computes a vertex force in the f-pass (the only place `extin` is
-available) the whole wing's aero is evaluated in each wing-node kernel, which selects
-its own point force by the per-instance `aero_slot` (so one kernel serves the whole
-wing). Reuses `aero_component` unchanged (the same source both backends assemble), with
-`aero_params` a separate registry so the namespaced aero parameters do not collide with
-the point parameters. Covers every live particle mode ([`ContinuousAero`](@ref),
-[`AeroPressure`](@ref) without flap, [`AeroPlate`](@ref)); the frozen
-[`AeroDirect`](@ref) and force-free [`AeroNone`](@ref) keep [`WingNodePoint`](@ref).
-"""
-function LiveAeroWingNodePoint(s, params, aero_params, idx, wing, slot, num_points; name)
-    vars, pos, vel, force_in, mass_in, _, pulley_len_out = point_io()
-    ext, zp1, zp2, yp1, yp2, ovel = wing_node_inputs()
-    append!(vars, ext)
-    aero_ext, wing_pos, pos_list, vel_list = live_aero_node_inputs(num_points)
-    append!(vars, aero_ext)
     pars = point_particle_params(params, idx)
-    point = params.points[idx]
-    mass = pars.extra_mass + mass_in
-    base = point_acceleration(s, collect(pos), collect(vel), collect(force_in),
-        mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
-        collect(pars.wind_gnd))
-    rot = wing_frame_rotation(zp1, zp2, yp1, yp2)
-    wind_gnd = ground_wind_vec(params)
-    subsys = aero_component(wing.aero, wing, params.reg.sys_struct;
-                            name = :aero, params = aero_params)
-    eqs = live_aero_connector_eqs(subsys, s, rot, wing_pos, wind_gnd, pos_list, vel_list)
-    aero_slot = make_param(:aero_slot, Float64(slot))
-    my_force_b = zeros(Num, 3)
-    for k in 1:num_points
-        pick = ifelse(abs(aero_slot - k) < 0.5, 1.0, 0.0)
-        my_force_b = my_force_b .+ pick .* collect(subsys.point_force[:, k])
-    end
-    damp = body_frame_damp_accel(vel, point.body_frame_damping, rot, ovel)
-    aero = (rot * my_force_b) ./ mass
-    wing_force, wing_moment = wing_aero_aggregate_vars()
-    append!(vars, [wing_force; wing_moment])
-    agg_force = sum(collect(subsys.point_force[:, k]) for k in 1:num_points)
-    agg_moment = sum(cross(collect(subsys.point_pos[:, k]),
-                           collect(subsys.point_force[:, k])) for k in 1:num_points)
-    eqs = [eqs
-           D.(collect(pos)) .~ collect(vel)
-           D.(collect(vel)) .~ base .+ aero .- damp
-           wing_force .~ agg_force
-           wing_moment .~ agg_moment
-           pulley_len_out ~ 0.0]
-    return System(eqs, t, vars, [param_unknowns(params); aero_slot];
-                  name, systems = [subsys])
+    damping = make_param(:pulley_damp, 5.0)
+    eqs = [
+        dynamic_point_dynamics(s, io.pos, io.vel, io.force_in,
+                               pars.extra_mass + io.mass_in, pars)
+        total_drag_eq(s, params, idx, io)
+        pulley_split_eqs(extra[3], extra[4], extra[1],
+                         pulley_rope_mass(params, pulley_idx, segment_idx),
+                         damping, extra[2])
+    ]
+    vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
+            extra...]
+    return System(eqs, t, vars, [param_unknowns(params); damping]; name)
 end
 
 """
-    WinchPoint(s, winch, winch_point; name)
+    WinchAnchor(s, params, winch, idx; name)
 
-Reeling winch vertex at a `STATIC` winch point. Owns the motor speed `winch_vel` and
-one `tether_len` state per connected tether (`tether_len_1`, …). The winch motor law
-is `winch_component(winch.model, …)` reused verbatim with a fresh `ParamView` (drum
-parameters baked as defaults); it reads the summed tether tension
-`smooth_norm(tension_in)`, the mean tether length, the control `set_value` and the
-`brake`, and returns the drum acceleration `acc`. Integrates
-`D(winch_vel) = brake·0 + acc` and `D(tether_len_k) = brake·0 + winch_vel`; each
-`tether_len_k` is read by that tether's segments (the network wires it through an
-`extin`). `wide` appends the zero pose outputs so a winch can coexist with rigid
-bodies in one network.
+A reeling winch at the STATIC point `idx`. It owns the motor speed `winch_vel` and
+one `tether_len_k` state per connected tether, each an output its tether's segments
+read as their rest length. The motor law is [`winch_component`](@ref) reused
+verbatim; it reads the tension gathered at the winch point (the vector sum of the
+spring forces there, as `winch_eqs!` forms it), the mean tether length, the control
+`set_value` and the `brake`, and returns the drum acceleration.
 """
-function WinchPoint(s, winch, winch_point; name, wide = false)
-    winch_point.type == STATIC || error(
-        "NetworkBackend: winch $(winch.name) is at a non-STATIC point; only " *
-        "STATIC winch points are supported so far.")
-    n_tethers = length(winch.tether_idxs)
-    vars, pos, vel, _, _, tension_in, pulley_len_out = point_io()
-    winch_vel, winch_force = @variables winch_vel(t) winch_force(t)
-    tether_lens = map(1:n_tethers) do k
-        nm = Symbol(:tether_len_, k)
-        only(@variables $nm(t))
+function WinchAnchor(s, params, winch, idx; name)
+    count = length(winch.tether_idxs)
+    io = point_variables()
+    extra = @variables begin
+        tension_in(t)[1:3], [input = true]
+        winch_vel(t)
+        winch_force(t)
+        winch_acc(t)
+        winch_friction(t)
     end
-    append!(vars, [winch_vel, winch_force])
-    append!(vars, tether_lens)
-    pos_w = make_array_param(:pos_w, zeros(3))
+    lengths = map(1:count) do k
+        len_name = Symbol(:tether_len_, k)
+        only(@variables $len_name(t), [output = true])
+    end
     set_value = make_param(:set_value, 0.0)
-    brake = make_param(:brake, 0.0)
-    speed_controlled = make_param(:speed_controlled, 0.0)
-    pars = [pos_w, set_value, brake, speed_controlled]
-
-    view = ParamView(ParamRegistry(s.sys_struct))
+    brake = params.winches[winch.idx].brake
     motor = winch_component(winch.model, s.sys_struct, winch.idx;
-                            name = :motor, params = view)
+                            name = :motor, params)
     validate_winch_component(motor, winch)
-    winch_acc = ifelse(speed_controlled > 0.5, 0.0, motor.acc)
-
     eqs = [
-        collect(pos) .~ collect(pos_w);
-        collect(vel) .~ zeros(3);
-        pulley_len_out ~ 0.0;
-        winch_force ~ smooth_norm(tension_in);
-        motor.vel ~ winch_vel;
-        motor.len ~ sum(tether_lens) / n_tethers;
-        motor.force ~ winch_force;
-        motor.set_value ~ set_value;
-        motor.brake ~ brake;
-        D(winch_vel) ~ ifelse(brake > 0.5, 0.0, winch_acc);
+        collect(io.pos) .~ collect(params.points[idx].pos_w)
+        collect(io.vel) .~ zeros(3)
+        total_drag_eq(s, params, idx, io)
+        extra[3] ~ smooth_norm(collect(extra[1]))
+        motor.vel ~ extra[2]
+        motor.len ~ sum(lengths) / count
+        motor.force ~ extra[3]
+        motor.set_value ~ set_value
+        motor.brake ~ brake
+        extra[5] ~ motor.friction
+        extra[4] ~ ifelse(params.winches[winch.idx].speed_controlled == true,
+                          0.0, motor.acc)
+        D(extra[2]) ~ ifelse(brake > 0.5, 0.0, extra[4])
+        [D(len) ~ ifelse(brake > 0.5, 0.0, extra[2]) for len in lengths]
     ]
-    for tl in tether_lens
-        push!(eqs, D(tl) ~ ifelse(brake > 0.5, 0.0, winch_vel))
+    vars = [io.pos, io.vel, io.drag_in, io.total_drag, extra..., lengths...]
+    return System(eqs, t, vars, [param_unknowns(params); set_value];
+                  name, systems = [motor])
+end
+
+"""
+    segment_variables()
+
+The variables every segment kernel declares, as a named tuple: the two endpoints'
+`pos`/`vel` inputs, the force on each endpoint (positive force-on-point sign), the
+`half_mass` and `half_drag` each endpoint carries, and the `spring_force`/`len`/`l0`
+diagnostics. Mass and drag are one output each because both endpoints receive the
+same value; the wiring delivers it twice.
+"""
+function segment_variables()
+    vars = @variables begin
+        src_pos(t)[1:3], [input = true]
+        src_vel(t)[1:3], [input = true]
+        dst_pos(t)[1:3], [input = true]
+        dst_vel(t)[1:3], [input = true]
+        src_force(t)[1:3], [output = true]
+        dst_force(t)[1:3], [output = true]
+        half_mass(t), [output = true]
+        half_drag(t)[1:3], [output = true]
+        spring_force(t)
+        len(t)
+        l0(t)
     end
-    if wide
-        pvars, poseeqs = wide_pose_appendix()
-        append!(vars, pvars)
-        append!(eqs, poseeqs)
+    return (; src_pos = vars[1], src_vel = vars[2], dst_pos = vars[3],
+            dst_vel = vars[4], src_force = vars[5], dst_force = vars[6],
+            half_mass = vars[7], half_drag = vars[8], spring_force = vars[9],
+            len = vars[10], l0 = vars[11], all = vars)
+end
+
+"""
+    segment_eqs(s, params, idx, io, rest_len; with_drag=true)
+
+The equations every segment kernel shares: the shared [`segment_load_terms`](@ref)
+evaluated at `rest_len`, bound to the [`segment_variables`](@ref) outputs and diagnostics.
+Returns `(eqs, loads)`; `loads` carries the scalar and vector spring tension a
+pulley or tether segment emits on top of these.
+"""
+function segment_eqs(s, params, idx, io, rest_len; with_drag = true)
+    spring, wind = segment_spring_params(params, idx; with_drag)
+    loads = segment_load_terms(s, collect(io.src_pos), collect(io.src_vel),
+        collect(io.dst_pos), collect(io.dst_vel), spring.unit_stiffness,
+        spring.unit_damping, spring.compression_frac, rest_len, spring.diameter,
+        spring.density, spring.cd_tether, collect(wind);
+        with_drag, nonlinear = spring.nonlinear)
+    eqs = [
+        collect(io.src_force) .~ loads.force_on_src
+        collect(io.dst_force) .~ loads.force_on_dst
+        io.half_mass ~ loads.half_mass
+        collect(io.half_drag) .~ loads.half_drag
+        io.spring_force ~ loads.spring
+        io.len ~ loads.len
+        io.l0 ~ rest_len
+    ]
+    return eqs, loads
+end
+
+"""
+    SpringSegment(s, params, idx; name, with_drag=true)
+
+A spring-damper segment at a fixed rest length (`params.segments[idx].l0`). With
+`with_drag = false` it is the drag-free wing-structural link — a distinct compiled
+type rather than a zeroed drag coefficient.
+"""
+function SpringSegment(s, params, idx; name, with_drag = true)
+    io = segment_variables()
+    eqs, _ = segment_eqs(s, params, idx, io, params.segments[idx].l0; with_drag)
+    return System(eqs, t, io.all, param_unknowns(params); name)
+end
+
+"""
+    PulleySegment(s, params, idx, pulley_idx; name)
+
+One of a pulley's two segments. Its rest length comes from the pulley point's
+`pulley_len_out`, read as `rest_len`: the first segment takes it directly, the
+second `sum_len − rest_len`, selected by the assembly-set `pulley_side` (`±1`). It
+emits `pulley_side · spring` as `tension`, so the pulley point aggregates
+`spring[seg1] − spring[seg2]`.
+"""
+function PulleySegment(s, params, idx, pulley_idx; name)
+    io = segment_variables()
+    extra = @variables begin
+        rest_len(t), [input = true]
+        tension(t), [output = true]
     end
-    return System(eqs, t, vars, pars; name, systems = [motor])
+    side = make_param(:pulley_side, 1.0)
+    sum_len = params.pulleys[pulley_idx].sum_len
+    eqs, loads = segment_eqs(s, params, idx, io,
+                             ifelse(side > 0.0, extra[1], sum_len - extra[1]))
+    push!(eqs, extra[2] ~ side * loads.spring)
+    return System(eqs, t, [io.all; extra], [param_unknowns(params); side]; name)
+end
+
+"""
+    TetherSegment(s, params, idx; name)
+
+A segment of a winched tether. Its rest length is the winch's `tether_len_k` output
+divided by the assembly-set `segment_count`. Both endpoints' spring force are
+emitted as `src_tension`/`dst_tension`; the assembly wires only the one at the winch
+point, which is how the winch sees the force `winch_eqs!` sums there.
+"""
+function TetherSegment(s, params, idx; name)
+    io = segment_variables()
+    extra = @variables begin
+        rest_len(t), [input = true]
+        src_tension(t)[1:3], [output = true]
+        dst_tension(t)[1:3], [output = true]
+    end
+    count = make_param(:segment_count, 1.0)
+    eqs, loads = segment_eqs(s, params, idx, io, extra[1] / count)
+    eqs = [eqs
+           collect(extra[2]) .~ loads.spring_vec
+           collect(extra[3]) .~ .-loads.spring_vec]
+    return System(eqs, t, [io.all; extra], [param_unknowns(params); count]; name)
 end

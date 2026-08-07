@@ -6,7 +6,7 @@
 
 Abstract supertype selecting how a [`SymbolicAWEModel`](@ref) is assembled and
 which features it supports. Concrete backends: [`MonolithBackend`](@ref) (the
-default) and [`NetworkBackend`](@ref). The backend is a field of the model and is
+default) and [`ScheduledBackend`](@ref). The backend is a field of the model and is
 the dispatch axis for all backend-varying behaviour (problem assembly,
 linearization, control-function generation).
 """
@@ -22,21 +22,35 @@ control functions). Compile time grows with the total node count.
 struct MonolithBackend <: ModelBackend end
 
 """
-    NetworkBackend()
+    ScheduledBackend()
 
-Optional backend that assembles the model as a NetworkDynamics `Network`,
-compiling one kernel per component *type* (flat in node count). The assembly
-methods live in the NetworkDynamics package extension, so `using NetworkDynamics`
-is required before building a model with this backend. Features without a network
-implementation throw [`BackendUnsupportedError`](@ref).
+Backend that compiles one kernel per component *type* and runs them from a
+build-time schedule over gather/scatter buffers. Compile time is flat in node
+count, because refining a model adds instances of kernels that already exist.
+Features without an implementation throw [`BackendUnsupportedError`](@ref).
 """
-struct NetworkBackend <: ModelBackend end
+struct ScheduledBackend <: ModelBackend end
+
+const DEFAULT_BACKEND = Ref{ModelBackend}(MonolithBackend())
+
+"""
+    default_backend()
+    default_backend!(backend)
+
+The [`ModelBackend`](@ref) a [`SymbolicAWEModel`](@ref) is built with when its
+constructor is not given one; [`MonolithBackend`](@ref) unless changed. Setting it
+runs a whole model — or a whole test suite — on another backend without touching
+the call sites.
+"""
+default_backend() = DEFAULT_BACKEND[]
+
+default_backend!(backend::ModelBackend) = (DEFAULT_BACKEND[] = backend; backend)
 
 """
     BackendUnsupportedError(feature, backend)
 
 Thrown when `feature` (a name string) has no implementation for `backend` — for
-example control-function generation on a [`NetworkBackend`](@ref). The message
+example control-function generation on a [`ScheduledBackend`](@ref). The message
 points at the backend that does support the feature.
 """
 struct BackendUnsupportedError <: Exception

@@ -347,8 +347,8 @@ end
 
 Assemble `sam.prob` for the given [`ModelBackend`](@ref). The
 [`MonolithBackend`](@ref) method `mtkcompile`s the flattened `full_sys` into one
-`ODEProblem`; the [`NetworkBackend`](@ref) method is provided by the
-NetworkDynamics package extension. Returns `true` when a problem was built.
+`ODEProblem`; the [`ScheduledBackend`](@ref) assembles one kernel per component
+type and schedules them. Returns `true` when a problem was built.
 """
 function build_prob!(::MonolithBackend, sam; prn=true)
     isnothing(sam.full_sys) && return false
@@ -380,11 +380,10 @@ end
     init_backend!(backend, sam, solver; kwargs...)
 
 Full `init!` path for a non-[`MonolithBackend`](@ref). The monolith uses the
-`init!` body directly; other backends (currently [`NetworkBackend`](@ref), from
-the NetworkDynamics extension) implement their own assembly + integrator build
-here and return the fresh `ODEIntegrator`. The extension method refreshes the
-`SystemStructure` (positions, rest lengths), assembles the `Network`, and stores
-`sam.prob`/`sam.integrator`.
+`init!` body directly; other backends (currently [`ScheduledBackend`](@ref))
+implement their own assembly + integrator build here and return the fresh
+`ODEIntegrator`: refresh the `SystemStructure` (positions, rest lengths), assemble
+the problem from it, and store `sam.prob`/`sam.integrator`.
 """
 function init_backend!(backend::ModelBackend, sam, solver; kwargs...)
     throw(BackendUnsupportedError("init!", backend))

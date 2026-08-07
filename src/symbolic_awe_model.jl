@@ -228,7 +228,7 @@ $(TYPEDFIELDS)
     "Build-time initial-condition registry (transient, never serialized)."
     initial_registry::Any = nothing
     "Assembly/feature backend; defaults to [`MonolithBackend`](@ref)."
-    backend::ModelBackend = MonolithBackend()
+    backend::ModelBackend = default_backend()
 end
 
 """

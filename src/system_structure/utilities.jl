@@ -1218,3 +1218,24 @@ function segment_stretch_stats(sys::SystemStructure)
 
     return (max_stretch, mean_stretch, max_idx)
 end
+
+"""
+    write_total_mass!(sys_struct)
+
+Write each point's effective translational mass — `extra_mass` plus the half-mass
+of every incident segment — into `point.total_mass`, so `validate_sys_struct` and
+the diagnostics see it. The monolith gets the same value from its `point_mass`
+observable; the batched backends compute it here because no single component owns
+it.
+"""
+function write_total_mass!(sys_struct::SystemStructure)
+    for point in sys_struct.points
+        point.total_mass = point.extra_mass
+    end
+    for segment in sys_struct.segments
+        half = segment_half_mass(segment.l0, segment.diameter, segment.density)
+        sys_struct.points[segment.point_idxs[1]].total_mass += half
+        sys_struct.points[segment.point_idxs[2]].total_mass += half
+    end
+    return nothing
+end

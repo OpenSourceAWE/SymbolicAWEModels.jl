@@ -22,6 +22,7 @@ Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 ModelingToolkit = "961ee093-0014-501f-94e3-6117800e7a78"
 NonlinearSolve = "8913a72c-1f9b-4ce2-8d82-65094dcecaec"
 NonlinearSolveQuasiNewton = "9a2c21bd-3a47-402d-9113-8faf9a0ee114"
+OrderedCollections = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
 OrdinaryDiffEqBDF = "6ad6398a-0878-4a85-9266-38940aa047c8"
 OrdinaryDiffEqCore = "bbf590c4-e513-4bbe-9b18-05decba2e5d8"
 OrdinaryDiffEqNonlinearSolve = "127b3ac7-2247-4354-8eb6-78cf4e7c58e8"
@@ -48,13 +49,10 @@ YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
 [weakdeps]
 GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
-Graphs = "86223c79-3864-5bf0-83f7-82e725a168b6"
 MakieControlPlots = "6d616b69-6563-4f6e-8472-6f6c706c6f74"
-NetworkDynamics = "22e9dc34-2a0d-11e9-0de0-8588d035468b"
 
 [extensions]
 SymbolicAWEModelsMakieExt = ["GeometryBasics", "MakieControlPlots"]
-SymbolicAWEModelsNetworkDynamicsExt = ["NetworkDynamics", "Graphs"]
 
 [compat]
 ADTypes = "1"
@@ -66,16 +64,15 @@ Dates = "1"
 DocStringExtensions = "0.9.4"
 ForwardDiff = "1, 2"
 GeometryBasics = "0.5.10"
-Graphs = "1.12, 1"
 KiteUtils = "0.11.9"
 LaTeXStrings = "1.4.0"
 LinearAlgebra = "1"
 Logging = "1"
 MakieControlPlots = "0.1.5"
 ModelingToolkit = "11"
-NetworkDynamics = "1.1"
 NonlinearSolve = "4.14, 5, 6"
 NonlinearSolveQuasiNewton = "1.12, 2"
+OrderedCollections = "1.8"
 OrdinaryDiffEqBDF = "1.16, 2, 3"
 OrdinaryDiffEqCore = "3, 4"
 OrdinaryDiffEqNonlinearSolve = "1.6, 2, 3"

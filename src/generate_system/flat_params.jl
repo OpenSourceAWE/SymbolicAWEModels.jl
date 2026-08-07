@@ -102,39 +102,16 @@ function register_leaf!(reg::ParamRegistry, key, name::Symbol, reader, value, pa
     return param
 end
 
-"""Last `Symbol` in `path` (the struct field name), ignoring trailing indices."""
-function leaf_symbol(path::Tuple)
-    for key in Iterators.reverse(path)
-        key isa Symbol && return key
-    end
-    error("param path $path has no symbol leaf")
-end
+"""
+    leaf_param!(reg, path, reader, value)
 
+Record the flat parameter for a leaf read at `path`, named and memoised by the full
+path. Two reads of the same field on different components are therefore different
+symbols, which is what lets one kernel read both endpoints of a joint without them
+collapsing onto one parameter.
 """
-Symbolic name for a leaf `path` under backend `B`. The monolith bakes the full
-per-instance path into the name (distinct symbol per instance); the network uses
-the bare field name (one generic symbol per component *type*).
-"""
-param_symbol_name(::Type{<:ModelBackend}, path::Tuple) = param_name(path)
-param_symbol_name(::Type{NetworkBackend}, path::Tuple) = leaf_symbol(path)
-
-"""
-Memoisation key for a leaf `path` under backend `B`: the full path for the
-monolith, the bare field name for the network (so one generic symbol is reused
-across a kernel's equations).
-"""
-param_cache_key(::Type{<:ModelBackend}, path::Tuple) = path
-param_cache_key(::Type{NetworkBackend}, path::Tuple) = leaf_symbol(path)
-
-"""
-    leaf_param!(B, reg, path, reader, value)
-
-Record the flat parameter for a leaf read at `path`, naming and memoising it per
-the backend `B` policy ([`param_symbol_name`](@ref), [`param_cache_key`](@ref)).
-"""
-leaf_param!(::Type{B}, reg::ParamRegistry, path::Tuple, reader, value) where {B} =
-    register_leaf!(reg, param_cache_key(B, path), param_symbol_name(B, path),
-                   reader, value, path)
+leaf_param!(reg::ParamRegistry, path::Tuple, reader, value) =
+    register_leaf!(reg, path, param_name(path), reader, value, path)
 
 """
     param_computed!(reg, name, reader)
@@ -156,44 +133,42 @@ param_descend(x) = x isa NamedCollection || x isa AbstractAeroModel ||
 param_name(path::Tuple) = Symbol("p_", join(path, "_"))
 
 """
-Top-level `params` view wrapping a [`ParamRegistry`](@ref), tagged with the
-[`ModelBackend`](@ref) type `B` so leaf resolution dispatches on it.
-`params.segments[i].l0` mirrors `sys_struct.segments[i].l0` (build-time only). The
-default `ParamView(reg)` is a [`MonolithBackend`](@ref) view.
+Top-level `params` view wrapping a [`ParamRegistry`](@ref): `params.segments[i].l0`
+mirrors `sys_struct.segments[i].l0` and records the parameter that stands for it
+(build-time only).
 """
-struct ParamView{B<:ModelBackend}
+struct ParamView
     reg::ParamRegistry
 end
-ParamView(reg::ParamRegistry) = ParamView{MonolithBackend}(reg)
 
-"""A partial path into `sys_struct` being resolved to a parameter under backend `B`."""
-struct PathView{B<:ModelBackend}
+"""A partial path into `sys_struct` on its way to a parameter."""
+struct PathView
     reg::ParamRegistry
     path::Tuple
 end
 
-Base.getproperty(view::ParamView{B}, sym::Symbol) where {B} =
-    sym === :reg ? getfield(view, :reg) : PathView{B}(getfield(view, :reg), (sym,))
+Base.getproperty(view::ParamView, sym::Symbol) =
+    sym === :reg ? getfield(view, :reg) : PathView(getfield(view, :reg), (sym,))
 
-Base.getindex(view::PathView{B}, idx::Integer) where {B} =
-    PathView{B}(getfield(view, :reg), (getfield(view, :path)..., Int(idx)))
+Base.getindex(view::PathView, idx::Integer) =
+    PathView(getfield(view, :reg), (getfield(view, :path)..., Int(idx)))
 
 """
     param_unknowns(params)
 
 The symbolic parameters a `params` view recorded so far, in insertion order — passed
-as the parameter list of an `@named` component `System` so every `params.…` read it
-made is declared. Used by both backends' component assembly.
+as the parameter list of a component `System` so every `params.…` read it made is
+declared.
 """
 param_unknowns(params::ParamView) = Any[entry.param for entry in params.reg.entries]
 
-function Base.getproperty(view::PathView{B}, sym::Symbol) where {B}
+function Base.getproperty(view::PathView, sym::Symbol)
     (sym === :reg || sym === :path) && return getfield(view, sym)
     reg = getfield(view, :reg)
     path = (getfield(view, :path)..., sym)
     value = read_path(reg.sys_struct, path)
-    param_descend(value) && return PathView{B}(reg, path)
-    return leaf_param!(B, reg, path, PathReader(path), value)
+    param_descend(value) && return PathView(reg, path)
+    return leaf_param!(reg, path, PathReader(path), value)
 end
 
 # ==================== SYNC ==================== #

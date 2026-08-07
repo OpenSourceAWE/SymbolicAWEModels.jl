@@ -47,6 +47,7 @@ using ForwardDiff
 
 import KiteUtils: init!, next_step!, update_sys_state!, SysState
 import ModelingToolkit: t_nounits as t, D_nounits as D
+import ModelingToolkit: SciMLBase
 import ModelingToolkit.SciMLBase: successful_retcode, init
 
 # ===== Exports (the public API of this module) ===== #
@@ -60,7 +61,8 @@ export load_settings
 
 # --- Types: Core Model ---
 export SymbolicAWEModel
-export ModelBackend, MonolithBackend, NetworkBackend, BackendUnsupportedError
+export ModelBackend, MonolithBackend, ScheduledBackend,
+       BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
 export SystemStructure, Point, TwistSurface, Segment, Pulley, Tether, Winch, Wing, Transform
 export Body, ElasticJoint, TimoshenkoJoint
@@ -183,6 +185,7 @@ function __init__()
 end
 
 include("backends.jl")
+include("scheduled/codegen/mtk_codegen.jl")
 include("components/kernels.jl")
 include("components/components.jl")
 include("obj_adapter.jl")
@@ -205,6 +208,14 @@ include("aero_modes/plate.jl")
 include("winch_models/common.jl")
 include("winch_models/torque.jl")
 include("winch_models/cascaded_length.jl")
+# Scheduled backend; loaded last because its assembler consumes the components,
+# the aero modes and the winch models.
+include("scheduled/kernel.jl")
+include("scheduled/runtime.jl")
+include("scheduled/params.jl")
+include("scheduled/assembly.jl")
+include("scheduled/state.jl")
+include("scheduled/backend.jl")
 include("simulate.jl")
 
 # rotate a 3d vector around the x axis in the yz plane - following the right hand rule
