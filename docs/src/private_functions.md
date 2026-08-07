@@ -493,6 +493,7 @@ SymbolicAWEModels.leaf_name
 SymbolicAWEModels.kernel_callable_slots
 SymbolicAWEModels.instance_readers
 SymbolicAWEModels.entry_reader
+SymbolicAWEModels.remap_path
 SymbolicAWEModels.record_build_index!
 ```
 

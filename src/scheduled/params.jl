@@ -174,10 +174,27 @@ function entry_reader(entry::ParamEntry, index_map, element)
     if !(entry.read isa PathReader)
         return element === nothing ? entry.read : ElementReader(entry.read, element)
     end
-    path = entry.read.path
-    index = get(index_map, first(path), nothing)
-    remapped = index === nothing ? path : (first(path), index, path[3:end]...)
+    remapped = remap_path(entry.read.path, index_map)
     return PathReader(element === nothing ? remapped : (remapped..., element))
+end
+
+"""
+    remap_path(path, index_map) -> Tuple
+
+`path` with the index following each container named in `index_map` swapped for that
+instance's. The container may sit at any depth, so a panel addressed as
+`wings[1].aero.panels[3].v_ind` is remapped on `panels` while `wings` stays put.
+"""
+function remap_path(path::Tuple, index_map)
+    isempty(index_map) && return path
+    remapped = collect(Any, path)
+    for k in 1:(length(remapped) - 1)
+        index = get(index_map, remapped[k], nothing)
+        index === nothing && continue
+        remapped[k + 1] isa Int || continue
+        remapped[k + 1] = index
+    end
+    return Tuple(remapped)
 end
 
 """
@@ -191,11 +208,12 @@ components are written so this cannot happen, and this says so if that changes.
 function record_build_index!(built_from, entry::ParamEntry, index_map)
     entry.read isa PathReader || return nothing
     path = entry.read.path
-    (length(path) >= 2 && path[2] isa Int && haskey(index_map, first(path))) ||
-        return nothing
-    previous = get!(built_from, first(path), path[2])
-    previous == path[2] || error(
-        "kernel reads $(first(path))[$(path[2])] and $(first(path))[$previous]; a " *
-        "kernel may read only one component of a container it is instanced over")
+    for k in 1:(length(path) - 1)
+        haskey(index_map, path[k]) && path[k + 1] isa Int || continue
+        previous = get!(built_from, path[k], path[k + 1])
+        previous == path[k + 1] || error(
+            "kernel reads $(path[k])[$(path[k + 1])] and $(path[k])[$previous]; a " *
+            "kernel may read only one component of a container it is instanced over")
+    end
     return nothing
 end
