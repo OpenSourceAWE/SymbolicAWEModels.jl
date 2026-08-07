@@ -428,6 +428,8 @@ KiteUtils.Logger(::SymbolicAWEModel, ::Int64)
 SymbolicAWEModels.KernelCodegen
 SymbolicAWEModels.KernelCodegen.generate_io_function
 SymbolicAWEModels.KernelCodegen.simplify_with_mtkcompile
+SymbolicAWEModels.KernelCodegen.drop_unused_inputs
+SymbolicAWEModels.KernelCodegen.io_array_base
 SymbolicAWEModels.KernelCodegen.pick_best_alias_names
 SymbolicAWEModels.KernelCodegen._alias_connected_components
 SymbolicAWEModels.KernelCodegen._scalarize_eqs
@@ -504,6 +506,9 @@ SymbolicAWEModels.remove_along
 SymbolicAWEModels.keep_along
 SymbolicAWEModels.body_integration
 SymbolicAWEModels.RigidBody
+SymbolicAWEModels.body_pose_variables
+SymbolicAWEModels.RidePoint
+SymbolicAWEModels.RideWrench
 SymbolicAWEModels.PointRole
 SymbolicAWEModels.classify_points
 SymbolicAWEModels.pulley_point_index
@@ -516,6 +521,7 @@ SymbolicAWEModels.assemble
 SymbolicAWEModels.add_point!
 SymbolicAWEModels.add_segment!
 SymbolicAWEModels.add_body!
+SymbolicAWEModels.add_ride_point!
 SymbolicAWEModels.wire_segment!
 SymbolicAWEModels.buffer_slots
 SymbolicAWEModels.bind_params
@@ -531,6 +537,7 @@ SymbolicAWEModels.BodyReadout
 SymbolicAWEModels.ScheduledStateGetter
 SymbolicAWEModels.winch_readouts
 SymbolicAWEModels.body_readouts
+SymbolicAWEModels.drag_source
 SymbolicAWEModels.write_stretched_lengths!
 SymbolicAWEModels.copy_slots!
 SymbolicAWEModels.ScheduledControlSetter

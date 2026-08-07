@@ -888,3 +888,94 @@ function RigidBody(s, params, idx; name, frozen = false)
     ]
     return System(eqs, t, [io.all; state; torn], param_unknowns(params); name)
 end
+
+"""
+    body_pose_variables()
+
+The pose inputs a component riding a rigid body reads off that body's outputs:
+the body origin `pose_pos`, its orientation `pose_frame` (`R_b_to_w`, column-major),
+its `pose_com`/`pose_com_velocity` and its world spin `pose_omega`.
+"""
+function body_pose_variables()
+    vars = @variables begin
+        pose_pos(t)[1:3], [input = true]
+        pose_frame(t)[1:9], [input = true]
+        pose_com(t)[1:3], [input = true]
+        pose_com_velocity(t)[1:3], [input = true]
+        pose_omega(t)[1:3], [input = true]
+    end
+    return (; pose_pos = vars[1], pose_frame = vars[2], pose_com = vars[3],
+            pose_com_velocity = vars[4], pose_omega = vars[5], all = vars)
+end
+
+"""
+    RidePoint(s, params, idx; name)
+
+The *kinematics* of a `BODY_STATIC` point: its body's pose in, and its world
+`pos`/`vel`, its moment `arm` (`pos − com`) and its `height` out, exactly as
+`body_ride_eqs` places it. It is deliberately only half of a ride point — the load
+it feeds back to the body is [`RideWrench`](@ref) — because the two halves sit on
+opposite sides of
+the same dependency chain: the position must be known before the incident segments
+can compute their forces, and the force is only known after. One component holding
+both would be a cycle; two are a four-layer schedule.
+"""
+function RidePoint(s, params, idx; name)
+    pose = body_pose_variables()
+    io = @variables begin
+        pos(t)[1:3], [output = true]
+        vel(t)[1:3], [output = true]
+        arm(t)[1:3], [output = true]
+        height(t), [output = true]
+    end
+    orientation = reshape(collect(pose.pose_frame), 3, 3)
+    anchor = collect(pose.pose_pos) .+ orientation * collect(params.points[idx].anchor_b)
+    lever = anchor .- collect(pose.pose_com)
+    eqs = [
+        collect(io[1]) .~ anchor
+        collect(io[3]) .~ lever
+        collect(io[2]) .~ collect(pose.pose_com_velocity) .+
+                          (collect(pose.pose_omega) × lever)
+        io[4] ~ anchor[3]
+    ]
+    return System(eqs, t, [pose.all; io], param_unknowns(params); name)
+end
+
+"""
+    RideWrench(s, params, idx; name, with_gravity=true)
+
+The *statics* of a `BODY_STATIC` point: everything that flows back to its body. It
+takes the point's own `height`/`vel`/`arm` from [`RidePoint`](@ref) and the force
+and mass its segments deliver, adds the point's gravity, its external force and its own
+aerodynamic drag, and emits `force_out` and `moment_out = arm × force_out` into the
+body's `force_in`/`moment_in`. `with_gravity = false` is the point that rides its
+own wing body, whose mass is already counted at that body's COM (`rides_own_wing` in
+`point_eqs!`). `total_drag` is observed, as for any other point.
+"""
+function RideWrench(s, params, idx; name, with_gravity = true)
+    vars = @variables begin
+        height(t), [input = true]
+        vel(t)[1:3], [input = true]
+        arm(t)[1:3], [input = true]
+        force_in(t)[1:3], [input = true]
+        mass_in(t), [input = true]
+        drag_in(t)[1:3], [input = true]
+        force_out(t)[1:3], [output = true]
+        moment_out(t)[1:3], [output = true]
+        total_drag(t)[1:3]
+    end
+    point = params.points[idx]
+    wind = WindFactor(s.am, s.set.profile_law)
+    apparent = wind(vars[1]) .* ground_wind_vec(params) .- collect(vars[2])
+    drag = point_drag_force(apparent, calc_rho(s.am, max(0.0, vars[1])),
+                            point.drag_coeff, point.area)
+    mass = point.extra_mass + vars[5]
+    gravity = with_gravity ? Num[0, 0, -params.set.g_earth * mass] : zeros(Num, 3)
+    load = collect(vars[4]) .+ drag .+ gravity .+ collect(point.ext_force_w)
+    eqs = [
+        collect(vars[7]) .~ load
+        collect(vars[8]) .~ collect(vars[3]) × load
+        collect(vars[9]) .~ drag .+ collect(vars[6])
+    ]
+    return System(eqs, t, vars, param_unknowns(params); name)
+end

@@ -30,6 +30,9 @@
 # compile and 3.8-9.8x runtime on these kernels, agreeing to <=8e-15).
 # `fix_metadata!` reports its residue only under `verbose`: a scalarized array
 # element never resolves by name, so upstream warns on every kernel we build.
+# `drop_unused_inputs` replaces upstream's element-wise drop of inputs that no
+# equation reads: `mtkcompile` rejects a *partial* array input, and our components
+# do read single components of a declared vector.
 
 """
     KernelCodegen
@@ -489,6 +492,32 @@ function pick_best_alias_names(eqs, obseqs, states, outputs, inputs; verbose)
 end
 
 """
+    io_array_base(sym)
+
+The array a scalarized element belongs to (`pos[2]` → `pos`), or the symbol itself
+when it is not an array element.
+"""
+function io_array_base(sym)
+    u = unwrap(sym)
+    (iscall(u) && operation(u) === getindex) || return u
+    return arguments(u)[1]
+end
+
+"""
+    drop_unused_inputs(inputs, used) -> Set
+
+The inputs to hide from `mtkcompile` because no equation reads them. An array is
+all-in or all-out: `mtkcompile` rejects a partial array input, and a component may
+legitimately read only one component of a vector — a ride point's wrench reads only
+`pos[3]`, for the air density at its height.
+"""
+function drop_unused_inputs(inputs, used)
+    unused = setdiff(inputs, used)
+    kept = Set(io_array_base(v) for v in setdiff(inputs, unused))
+    return Set(v for v in unused if io_array_base(v) ∉ kept)
+end
+
+"""
     simplify_with_mtkcompile(sys, allinputs, alloutputs; verbose)
 
 Run `mtkcompile` with the declared inputs left unbound and the declared outputs
@@ -504,7 +533,7 @@ function simplify_with_mtkcompile(_sys, allinputs, alloutputs; verbose)
         _openinputs = setdiff(allinputs, Set(parameters(_sys)))
         all_eq_vars = mapreduce(get_variables_deriv, union, full_equations(_sys), init=Set{ST}())
         if !(_openinputs ⊆ all_eq_vars)
-            missing_inputs = setdiff(_openinputs, all_eq_vars)
+            missing_inputs = drop_unused_inputs(_openinputs, all_eq_vars)
             verbose && @warn "The specified inputs ($missing_inputs) do not appear in the equations of the system!"
             _openinputs = setdiff(_openinputs, missing_inputs)
         end

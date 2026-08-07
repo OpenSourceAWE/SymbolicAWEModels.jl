@@ -102,7 +102,8 @@ function ScheduledStateGetter(model::ScheduledModel, rhs, sys_struct)
     points = [PointReadout(idx,
                   buffer_slots(system, instance, :outputs, :pos),
                   buffer_slots(system, instance, :outputs, :vel),
-                  buffer_slots(system, instance, :observables, :total_drag))
+                  buffer_slots(system, drag_source(model, idx), :observables,
+                               :total_drag))
               for (idx, instance) in enumerate(model.point_instances)]
     segments = [SegmentReadout(idx,
                     only(buffer_slots(system, instance, :observables, :spring_force)),
@@ -121,6 +122,12 @@ function ScheduledStateGetter(model::ScheduledModel, rhs, sys_struct)
                                 winch_readouts(model, sys_struct),
                                 body_readouts(model))
 end
+
+"""The instance that observes point `idx`'s `total_drag`: its own, or its wrench
+half when the point rides a body."""
+drag_source(model::ScheduledModel, idx) =
+    model.wrench_instances[idx] == 0 ? model.point_instances[idx] :
+    model.wrench_instances[idx]
 
 """One [`BodyReadout`](@ref) per body. A frozen body keeps its 13 states — their
 derivatives are zero — so its principal attitude and spin are read the same way."""

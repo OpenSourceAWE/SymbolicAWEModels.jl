@@ -17,49 +17,64 @@ const SEGMENT_INPUTS = [:src_pos, :src_vel, :dst_pos, :dst_vel]
 const SEGMENT_OUTPUTS = [:src_force, :dst_force, :half_mass, :half_drag]
 const BODY_INPUTS = [:force_in, :moment_in]
 const BODY_OUTPUTS = [:pos, :vel, :frame, :com, :com_velocity, :omega_w]
+const RIDE_INPUTS = [:pose_pos, :pose_frame, :pose_com, :pose_com_velocity,
+                     :pose_omega]
+const RIDE_OUTPUTS = [:pos, :vel, :arm, :height]
+const WRENCH_INPUTS = [:height, :vel, :arm, :force_in, :mass_in, :drag_in]
+const WRENCH_OUTPUTS = [:force_out, :moment_out]
 
 """
-    PointRole(kind, pulley_idx, segment_idx, winch_idx)
+    PointRole(kind, pulley_idx, segment_idx, winch_idx, body_idx)
 
-How one point is realised: `kind` is `:particle`, `:anchor`, `:pulley` or `:winch`.
-A `:pulley` point carries the pulley it splits and one of that pulley's segments
-(whose material gives the rope mass); a `:winch` point carries its winch.
+How one point is realised: `kind` is `:particle`, `:anchor`, `:pulley`, `:winch` or
+`:ride`. A `:pulley` point carries the pulley it splits and one of that pulley's
+segments (whose material gives the rope mass); a `:winch` point carries its winch;
+a `:ride` point carries the body it is anchored to.
 """
 struct PointRole
     kind::Symbol
     pulley_idx::Int
     segment_idx::Int
     winch_idx::Int
+    body_idx::Int
 end
 
 """
     classify_points(sys_struct) -> Vector{PointRole}
 
 Decide each point's component type. A point that splits a pulley is a pulley
-particle, a point carrying a winch is a winch anchor, and the rest follow their
-`DynamicsType`. `BODY_STATIC` and `KINEMATIC` points belong to the structural and
-aero layers and are rejected here.
+particle, a point carrying a winch is a winch anchor, a `BODY_STATIC` point rides
+its body, and the rest follow their `DynamicsType`. `KINEMATIC` points belong to
+the aero layer and are rejected here.
 """
 function classify_points(sys_struct)
-    roles = [PointRole(:none, 0, 0, 0) for _ in sys_struct.points]
+    roles = [PointRole(:none, 0, 0, 0, 0) for _ in sys_struct.points]
     for (i, point) in enumerate(sys_struct.points)
+        if point.type == BODY_STATIC
+            point.body_idx > 0 || error(
+                "ScheduledBackend: BODY_STATIC point $(point.name) has no body; " *
+                "beam-anchored points are not supported yet.")
+            roles[i] = PointRole(:ride, 0, 0, 0, point.body_idx)
+            continue
+        end
         point.type in (STATIC, DYNAMIC) || error(
             "ScheduledBackend: point $(point.name) has type $(point.type); only " *
-            "STATIC and DYNAMIC are supported so far.")
-        roles[i] = PointRole(point.type == STATIC ? :anchor : :particle, 0, 0, 0)
+            "STATIC, DYNAMIC and BODY_STATIC are supported so far.")
+        roles[i] = PointRole(point.type == STATIC ? :anchor : :particle, 0, 0, 0, 0)
     end
     for pulley in sys_struct.pulleys
         pulley.type == DYNAMIC || error(
             "ScheduledBackend: pulley $(pulley.name) has type $(pulley.type); " *
             "only DYNAMIC pulleys exist.")
         index = pulley_point_index(sys_struct, pulley)
-        roles[index] = PointRole(:pulley, pulley.idx, pulley.segment_idxs[1], 0)
+        roles[index] = PointRole(:pulley, pulley.idx, pulley.segment_idxs[1],
+                                 0, 0)
     end
     for winch in sys_struct.winches
         index = winch.winch_point_idx
         sys_struct.points[index].type == STATIC || error(
             "ScheduledBackend: winch $(winch.name) is at a non-STATIC point.")
-        roles[index] = PointRole(:winch, 0, 0, winch.idx)
+        roles[index] = PointRole(:winch, 0, 0, winch.idx, 0)
     end
     return roles
 end
@@ -175,7 +190,9 @@ end
 
 An assembled model: the runtime `system`, its initial state and parameters, the
 parameter sync, and the instance index of every point, segment and body, which is
-all the state getter and the control setter need to find their values.
+all the state getter and the control setter need to find their values. A
+`BODY_STATIC` point has two: `point_instances` holds its kinematics and
+`wrench_instances` the load it feeds back (`0` for every other point).
 """
 struct ScheduledModel{S, P}
     system::S
@@ -183,6 +200,7 @@ struct ScheduledModel{S, P}
     params::P
     param_sync::ScheduledParamSync
     point_instances::Vector{Int}
+    wrench_instances::Vector{Int}
     segment_instances::Vector{Int}
     body_instances::Vector{Int}
     point_roles::Vector{PointRole}
@@ -207,14 +225,16 @@ function assemble(sam)
 
     body_instances = [add_body!(builder, table, bindings, sam, i)
                       for i in eachindex(sys_struct.bodies)]
-    point_instances = [add_point!(builder, table, bindings, sam, i, point_roles[i])
+    wrench_instances = zeros(Int, length(sys_struct.points))
+    point_instances = [add_point!(builder, table, bindings, sam, i, point_roles[i],
+                                  body_instances, wrench_instances)
                        for i in eachindex(sys_struct.points)]
     segment_instances = [add_segment!(builder, table, bindings, sam, i,
                                       segment_roles[i])
                          for i in eachindex(sys_struct.segments)]
     for i in eachindex(sys_struct.segments)
         wire_segment!(builder, sys_struct, i, segment_roles[i], point_roles,
-                      point_instances, segment_instances)
+                      point_instances, segment_instances, wrench_instances)
     end
 
     system = build_system(builder)
@@ -224,8 +244,8 @@ function assemble(sam)
     u0 = initial_state(system, sys_struct, point_roles, point_instances,
                        body_instances)
     return ScheduledModel(system, u0, params, sync, point_instances,
-                          segment_instances, body_instances, point_roles,
-                          segment_roles)
+                          wrench_instances, segment_instances, body_instances,
+                          point_roles, segment_roles)
 end
 
 """
@@ -250,14 +270,18 @@ function add_body!(builder, table, bindings, sam, idx)
 end
 
 """
-    add_point!(builder, table, bindings, sam, idx, role) -> Int
+    add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches) -> Int
 
 Add the instance for point `idx` and record which container indices its parameters
-must be remapped to.
+must be remapped to. A `:ride` point becomes two instances — the kinematics, whose
+index is returned so segments wire to it, and the wrench, recorded in `wrenches` and
+wired to its body here.
 """
-function add_point!(builder, table, bindings, sam, idx, role)
+function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches)
     sys_struct = sam.sys_struct
     index_map = Dict(:points => idx)
+    role.kind === :ride && return add_ride_point!(builder, table, bindings, sam, idx,
+                                                  role, bodies, wrenches)
     entry = if role.kind === :particle
         kernel!(builder, table, sam, :particle, idx,
                 params -> Particle(sam, params, idx; name = :particle),
@@ -286,6 +310,46 @@ function add_point!(builder, table, bindings, sam, idx, role)
     instance = add_instance!(builder, entry.index)
     push!(bindings, (instance, entry, index_map))
     return instance
+end
+
+"""
+    add_ride_point!(builder, table, bindings, sam, idx, role, bodies, wrenches)
+
+Add the two instances a `BODY_STATIC` point needs and wire them to its body: the
+[`RidePoint`](@ref) reads the body's pose, the [`RideWrench`](@ref) reads the ride
+point's `pos`/`vel`/`arm` and delivers force and moment back. Returns the ride
+point, which is what the incident segments connect to.
+"""
+function add_ride_point!(builder, table, bindings, sam, idx, role, bodies, wrenches)
+    body = bodies[role.body_idx]
+    point = sam.sys_struct.points[idx]
+    kinematics = kernel!(builder, table, sam, :ride_point, idx,
+                         params -> RidePoint(sam, params, idx; name = :ride_point),
+                         RIDE_INPUTS, RIDE_OUTPUTS)
+    gravity = !wing_frame_member(point, point.body_idx)
+    key = gravity ? :ride_wrench : :riding_wrench
+    statics = kernel!(builder, table, sam, key, idx,
+                      params -> RideWrench(sam, params, idx; name = key,
+                                           with_gravity = gravity),
+                      WRENCH_INPUTS, WRENCH_OUTPUTS)
+    ride = add_instance!(builder, kinematics.index)
+    wrench = add_instance!(builder, statics.index)
+    push!(bindings, (ride, kinematics, Dict(:points => idx)))
+    push!(bindings, (wrench, statics, Dict(:points => idx)))
+    wrenches[idx] = wrench
+    for (source, target) in ((:pos, :pose_pos), (:vel, :pose_pos),
+                             (:frame, :pose_frame), (:com, :pose_com),
+                             (:com_velocity, :pose_com_velocity),
+                             (:omega_w, :pose_omega))
+        source === :vel && continue
+        connect!(builder, body, source, ride, target)
+    end
+    connect!(builder, ride, :height, wrench, :height)
+    connect!(builder, ride, :vel, wrench, :vel)
+    connect!(builder, ride, :arm, wrench, :arm)
+    connect!(builder, wrench, :force_out, body, :force_in)
+    connect!(builder, wrench, :moment_out, body, :moment_in)
+    return ride
 end
 
 """
@@ -327,7 +391,7 @@ exchanges the rope split and its tension with the pulley point; a tether segment
 takes its rest length from the winch and delivers its tension there.
 """
 function wire_segment!(builder, sys_struct, idx, role, point_roles, point_instances,
-                       segment_instances)
+                       segment_instances, wrench_instances)
     segment = segment_instances[idx]
     source, target = sys_struct.segments[idx].point_idxs
     source == target && error(
@@ -337,10 +401,12 @@ function wire_segment!(builder, sys_struct, idx, role, point_roles, point_instan
         point = point_instances[endpoint]
         connect!(builder, point, :pos, segment, Symbol(prefix, :_pos))
         connect!(builder, point, :vel, segment, Symbol(prefix, :_vel))
-        connect!(builder, segment, :half_drag, point, :drag_in)
-        if point_roles[endpoint].kind in (:particle, :pulley)
-            connect!(builder, segment, Symbol(prefix, :_force), point, :force_in)
-            connect!(builder, segment, :half_mass, point, :mass_in)
+        loaded = point_roles[endpoint].kind === :ride ?
+            wrench_instances[endpoint] : point
+        connect!(builder, segment, :half_drag, loaded, :drag_in)
+        if point_roles[endpoint].kind in (:particle, :pulley, :ride)
+            connect!(builder, segment, Symbol(prefix, :_force), loaded, :force_in)
+            connect!(builder, segment, :half_mass, loaded, :mass_in)
         end
     end
     if role.kind === :pulley
