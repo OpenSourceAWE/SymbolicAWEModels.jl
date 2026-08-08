@@ -41,8 +41,8 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
     v_ind::Matrix{SimFloat}
     "Frozen body-frame traction per contour node, panel-major (3 × Σ nodes)."
     traction::Matrix{SimFloat}
-    "Each wing point's share of `traction`, summed over the nodes assigned to it."
-    point_traction::Dict{Int64, Vector{SimFloat}}
+    "Each wing point's constant force: its nodes' `traction` less its share of `traction_net`."
+    point_offset::Dict{Int64, Vector{SimFloat}}
     "Frozen per-panel net traction `Σ_nodes` (3 × n_panels)."
     traction_net::Matrix{SimFloat}
     "Polar callables `(panel_idx, α[, δ])` for cl/cd/cm, read as callable flat params."
@@ -60,11 +60,11 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
     "Frozen body-frame TE billow offset off the strut line (3 × n_sections)."
     section_te_offset::Matrix{SimFloat}
     AeroPressure{E}(engine, station_point, frame_tol_frac, v_ind, traction,
-        point_traction, traction_net, cl, cd, cm, panel_twist_surface,
+        point_offset, traction_net, cl, cd, cm, panel_twist_surface,
         section_left_strut, section_left_weight, section_le_offset,
         section_te_offset) where {E} =
         new{E}(engine, station_point, frame_tol_frac, v_ind, traction,
-               point_traction, traction_net, cl, cd, cm, panel_twist_surface,
+               point_offset, traction_net, cl, cd, cm, panel_twist_surface,
                section_left_strut, section_left_weight, section_le_offset,
                section_te_offset)
 end
@@ -77,62 +77,13 @@ AeroPressure(; frame_tol_frac=2.0) =
         Int64[], SimFloat[], zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0))
 attach_engine!(mode::AeroPressure, engine::VSMEngine) =
     AeroPressure{typeof(engine)}(engine, mode.station_point, mode.frame_tol_frac,
-        mode.v_ind, mode.traction, mode.point_traction, mode.traction_net,
+        mode.v_ind, mode.traction, mode.point_offset, mode.traction_net,
         mode.cl, mode.cd, mode.cm,
         mode.panel_twist_surface, mode.section_left_strut,
         mode.section_left_weight, mode.section_le_offset, mode.section_te_offset)
 
 is_builtin_aero(::AeroPressure) = true
 aero_mode_tag(::AeroPressure) = "press"
-
-"""
-    PanelAeroList(mode)
-
-`mode`'s panels addressed one at a time, reached as `wings[w].aero.panels[i]`. It
-holds the mode rather than its matrices, so a VSM refresh that reallocates them is
-still seen, and nothing is copied.
-"""
-struct PanelAeroList{M}
-    mode::M
-end
-
-"""
-    PanelAero(mode, idx)
-
-One refined panel's frozen aerodynamic data. A per-panel component reads its
-parameters through this, so the [`remap_path`](@ref) index swap lands on the panel
-rather than on the wing, and every read goes to the parent's live matrices.
-"""
-struct PanelAero{M}
-    mode::M
-    idx::Int
-end
-
-Base.getindex(list::PanelAeroList, idx::Integer) =
-    PanelAero(getfield(list, :mode), Int(idx))
-Base.length(list::PanelAeroList) = size(getfield(list, :mode).v_ind, 2)
-
-# `panels` is an address into the frozen data rather than a field of the mode.
-path_step(mode::AeroPressure, key::Symbol) =
-    key === :panels ? PanelAeroList(mode) : getproperty(mode, key)
-
-function Base.getproperty(panel::PanelAero, sym::Symbol)
-    mode = getfield(panel, :mode)
-    i = getfield(panel, :idx)
-    sym === :v_ind && return mode.v_ind[:, i]
-    sym === :traction_net && return mode.traction_net[:, i]
-    sym === :node_count && return SimFloat(length(mode.station_point[i]))
-    sym === :weight_a && return mode.section_left_weight[i]
-    sym === :weight_b && return mode.section_left_weight[i + 1]
-    sym === :le_offset_a && return mode.section_le_offset[:, i]
-    sym === :te_offset_a && return mode.section_te_offset[:, i]
-    sym === :le_offset_b && return mode.section_le_offset[:, i + 1]
-    sym === :te_offset_b && return mode.section_te_offset[:, i + 1]
-    sym === :cl && return PanelPolar(mode.cl, i)
-    sym === :cd && return PanelPolar(mode.cd, i)
-    sym === :cm && return PanelPolar(mode.cm, i)
-    return error("panel has no aerodynamic field $sym")
-end
 
 """
     aero_hash_id(mode::AeroPressure)
@@ -565,32 +516,79 @@ function freeze_traction_pattern!(mode::AeroPressure, wing)
         end
         @views mode.traction_net[:, panel_idx] .= net
     end
-    accumulate_point_traction!(mode)
+    accumulate_point_offset!(mode)
     return nothing
 end
 
 """
-    accumulate_point_traction!(mode)
+    accumulate_point_offset!(mode)
 
-Sum each wing point's assigned node tractions into `mode.point_traction`, keyed by
-global point index. The per-panel scatter hands a point one column per node it owns,
-which a per-point component cannot address as a range; this gives it one parameter
-instead. Derived wholly from `traction` and `station_point`, and refreshed with them.
+Reduce the frozen pattern to one constant force per wing point, keyed by global point
+index: the tractions of the nodes it owns, less the share of each panel's frozen net
+that [`aero_scatter_entries`](@ref) re-adds through the live panel force. The scatter
+is then a pure weighted sum of panel forces, which is what the wiring layer carries.
+Derived wholly from `traction`, `traction_net` and `station_point`, and refreshed with
+them.
 """
-function accumulate_point_traction!(mode::AeroPressure)
-    for total in values(mode.point_traction)
+function accumulate_point_offset!(mode::AeroPressure)
+    for total in values(mode.point_offset)
         fill!(total, 0.0)
     end
     column = 0
-    for assigned in mode.station_point
+    for (panel, assigned) in enumerate(mode.station_point)
+        share = 1 / length(assigned)
         for point_idx in assigned
             column += 1
-            total = get!(() -> zeros(SimFloat, 3), mode.point_traction, point_idx)
-            @views total .+= mode.traction[:, column]
+            total = get!(zero_aero_force, mode.point_offset, point_idx)
+            @views total .+= mode.traction[:, column] .-
+                             share .* mode.traction_net[:, panel]
         end
     end
     return nothing
 end
+
+"""A fresh zero body-frame force, the accumulator [`accumulate_point_offset!`](@ref)
+starts each point from."""
+zero_aero_force() = zeros(SimFloat, 3)
+
+# ==================== per-panel decomposition ==================== #
+
+supports_panel_decomposition(::AeroPressure) = true
+
+"""
+    aero_inflow_groups(mode::AeroPressure, wing, points)
+
+One group for the whole wing: under the v1 uniform-inflow assumption every refined
+section reads the same mean over the wing's structural points, so one
+[`AeroInflow`](@ref) averages it and every panel reads that.
+"""
+function aero_inflow_groups(mode::AeroPressure, wing, points)
+    share = SimFloat(1 / length(points))
+    group = [(k, share) for k in eachindex(points)]
+    return [group], ones(Int, length(mode.section_left_strut))
+end
+
+"""
+    aero_scatter_entries(mode::AeroPressure, wing, points)
+
+The surface pattern: a point takes an equal share of its panel's live force for each
+contour node of that panel assigned to it. The frozen traction itself is constant and
+lives in [`aero_point_offset`](@ref), so only the share remains here.
+"""
+function aero_scatter_entries(mode::AeroPressure, wing, points)
+    point_num = Dict(point.idx => k for (k, point) in enumerate(points))
+    totals = Dict{Tuple{Int, Int}, Vector{SimFloat}}()
+    for (panel, assigned) in enumerate(mode.station_point)
+        share = SimFloat(1 / length(assigned))
+        for point_idx in assigned
+            scatter_totals!(totals, panel, point_num[point_idx], share, 0.0)
+        end
+    end
+    return scatter_entry_list(totals)
+end
+
+aero_point_offset(::AeroPressure, params, wing_idx, point_idx) =
+    params.wings[wing_idx].aero.points[point_idx].offset
 
 write_aero_log_points!(mode::AeroPressure, wing, sys_struct, sys_state,
                        point_idx, zoom) =

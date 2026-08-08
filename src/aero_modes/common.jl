@@ -281,6 +281,29 @@ function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
                                vind_p, cl, cd, cm, spanwise, scale, orient;
                                delta=nothing)
     n_panels = length(sec_le) - 1
+    slots = panel_force_slots(n_panels)
+    eqs = Equation[]
+    for i in 1:n_panels
+        append!(eqs, panel_force_eqs(slots, i,
+            (sec_le[i], sec_te[i], sec_le[i + 1], sec_te[i + 1]),
+            (sec_va[i], sec_va[i + 1], sec_rho[i], sec_rho[i + 1],
+             [vind_p[c, i] for c in 1:3]),
+            (PanelPolar(cl, i), PanelPolar(cd, i), PanelPolar(cm, i)),
+            spanwise, scale, orient[i],
+            delta === nothing ? nothing : delta[i]))
+    end
+
+    return eqs, panel_force_vars(slots), slots.panel_force, slots.panel_couple
+end
+
+"""
+    panel_force_slots(n_panels)
+
+The symbolic intermediates [`panel_force_eqs`](@ref) writes into, as `n_panels`
+columns. A whole wing's system builds every column and an [`AeroPanel`](@ref)
+component builds one, so the two emit identical expressions per panel.
+"""
+function panel_force_slots(n_panels::Int)
     @variables begin
         x_airf(t)[1:3, 1:n_panels]
         y_airf(t)[1:3, 1:n_panels]
@@ -295,24 +318,12 @@ function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
         panel_force(t)[1:3, 1:n_panels]
         panel_couple(t)[1:3, 1:n_panels]
     end
-
-    slots = (; x_airf, y_airf, z_airf, v_eff, chord, width, alpha, q_dyn,
-             dir_lift, dir_drag, panel_force, panel_couple)
-    eqs = Equation[]
-    for i in 1:n_panels
-        append!(eqs, panel_force_eqs(slots, i,
-            (sec_le[i], sec_te[i], sec_le[i + 1], sec_te[i + 1]),
-            (sec_va[i], sec_va[i + 1], sec_rho[i], sec_rho[i + 1],
-             [vind_p[c, i] for c in 1:3]),
-            (PanelPolar(cl, i), PanelPolar(cd, i), PanelPolar(cm, i)),
-            spanwise, scale, orient[i],
-            delta === nothing ? nothing : delta[i]))
-    end
-
-    vars = Any[x_airf, y_airf, z_airf, v_eff, chord, width, alpha,
-               q_dyn, dir_lift, dir_drag, panel_force, panel_couple]
-    return eqs, vars, panel_force, panel_couple
+    return (; x_airf, y_airf, z_airf, v_eff, chord, width, alpha, q_dyn,
+            dir_lift, dir_drag, panel_force, panel_couple)
 end
+
+"""The slots of [`panel_force_slots`](@ref) as the variable list a `System` declares."""
+panel_force_vars(slots) = Any[values(slots)...]
 
 """
     panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale, orient, delta)
@@ -399,6 +410,198 @@ end
 
 (p::PanelPolar)(alpha) = p.polar(p.panel, alpha)
 (p::PanelPolar)(alpha, delta) = p.polar(p.panel, alpha, delta)
+
+# ============ per-panel / per-point parameter addressing ============ #
+
+"""
+    PanelAeroList(mode)
+
+`mode`'s panels addressed one at a time, reached as `wings[w].aero.panels[i]`. It
+holds the mode rather than its matrices, so a VSM refresh that reallocates them is
+still seen, and nothing is copied.
+"""
+struct PanelAeroList{M}
+    mode::M
+end
+
+"""
+    PanelAero(mode, idx)
+
+One refined panel's frozen aerodynamic data. [`AeroPanel`](@ref) reads its parameters
+through this, so the [`remap_path`](@ref) index swap lands on the panel rather than on
+the wing, and every read goes to the parent mode's live matrices.
+"""
+struct PanelAero{M}
+    mode::M
+    idx::Int
+end
+
+"""
+    PointAeroList(mode)
+
+`mode`'s wing points addressed one at a time, reached as `wings[w].aero.points[i]`,
+where `i` is the global point index. The panel counterpart of [`PanelAeroList`](@ref).
+"""
+struct PointAeroList{M}
+    mode::M
+end
+
+"""
+    PointAero(mode, idx)
+
+One wing point's frozen aerodynamic data, addressed by its global point index so
+[`remap_path`](@ref) can swap it for each [`AeroPointForce`](@ref) instance.
+"""
+struct PointAero{M}
+    mode::M
+    idx::Int
+end
+
+Base.getindex(list::PanelAeroList, idx::Integer) =
+    PanelAero(getfield(list, :mode), Int(idx))
+Base.length(list::PanelAeroList) = size(getfield(list, :mode).v_ind, 2)
+Base.getindex(list::PointAeroList, idx::Integer) =
+    PointAero(getfield(list, :mode), Int(idx))
+
+param_descend(::PanelAeroList) = true
+param_descend(::PointAeroList) = true
+
+# `panels` and `points` are addresses into the frozen data, not fields of the mode.
+path_step(mode::AbstractVSMAero, key::Symbol) =
+    key === :panels ? PanelAeroList(mode) :
+    key === :points ? PointAeroList(mode) : getproperty(mode, key)
+
+function Base.getproperty(panel::PanelAero, sym::Symbol)
+    mode = getfield(panel, :mode)
+    i = getfield(panel, :idx)
+    sym === :v_ind && return mode.v_ind[:, i]
+    sym === :le_offset_a && return mode.section_le_offset[:, i]
+    sym === :te_offset_a && return mode.section_te_offset[:, i]
+    sym === :le_offset_b && return mode.section_le_offset[:, i + 1]
+    sym === :te_offset_b && return mode.section_te_offset[:, i + 1]
+    sym === :cl && return PanelPolar(mode.cl, i)
+    sym === :cd && return PanelPolar(mode.cd, i)
+    sym === :cm && return PanelPolar(mode.cm, i)
+    return error("panel has no aerodynamic field $sym")
+end
+
+"""The force a point receives from a mode that stores none — read as a zero of the
+right shape while the frozen pattern is still empty."""
+const NO_AERO_FORCE = zeros(SimFloat, 3)
+
+function Base.getproperty(point::PointAero, sym::Symbol)
+    mode = getfield(point, :mode)
+    sym === :offset &&
+        return get(mode.point_offset, getfield(point, :idx), NO_AERO_FORCE)
+    return error("wing point has no aerodynamic field $sym")
+end
+
+# ==================== per-panel decomposition ==================== #
+
+"""
+    supports_panel_decomposition(mode) -> Bool
+
+Whether the mode's `PARTICLE_DYNAMICS` aerodynamics can be built as one component per
+panel and per point instead of one per wing. A mode opts in by defining
+[`aero_inflow_groups`](@ref) and [`aero_scatter_entries`](@ref); everything else about
+it — the panel equations, the strut geometry, the wrench — is already shared.
+"""
+supports_panel_decomposition(::AbstractAeroModel) = false
+
+"""
+    aero_inflow_groups(mode, wing, points) -> (groups, section_group)
+
+How each refined section's apparent wind and density are averaged over the wing's
+structural points. `groups[g]` is a list of `(point column, weight)` whose weights sum
+to one, and `section_group[s]` names the group refined section `s` reads. Sections
+sharing a group share the one [`AeroInflow`](@ref) that averages it, so a mode with a
+single uniform inflow builds a single averaging component rather than one per section.
+"""
+function aero_inflow_groups end
+
+"""
+    aero_scatter_entries(mode, wing, points) -> Vector
+
+The linear map from panel loads to point forces as `(panel, point column, force
+weight, couple weight)`: point `k`'s body-frame force gains `force weight ·
+panel_force + couple weight · panel_couple`. The weights are constants of the mesh, so
+the wiring layer carries the whole scatter and no component holds it.
+"""
+function aero_scatter_entries end
+
+"""
+    aero_point_offset(mode, params, wing_idx, point_idx)
+
+The constant body-frame force a wing point receives on top of the scattered panel
+loads, or `nothing`. [`AeroPressure`](@ref) puts its frozen surface traction here, net
+of the share of each panel's frozen total that the scatter already re-adds.
+"""
+aero_point_offset(::AbstractAeroModel, params, wing_idx, point_idx) = nothing
+
+"""
+    aero_geometry_entries(mode, wing, points) -> Vector
+
+Where each panel's four section corners come from, as `(panel, corner, point column,
+weight)` with `corner` one of `:le_a`, `:te_a`, `:le_b`, `:te_b`. This is
+[`interp_sections`](@ref) split in two: the strut weights the wiring gathers, and the
+frozen billow offset the panel adds as a parameter. Mode-independent — every
+continuous mode reconstructs its sections the same way.
+"""
+function aero_geometry_entries(mode, wing, points)
+    column = aero_section_columns(wing, points)
+    left, weight, _, _ = section_interp_caches(mode)
+    entries = Tuple{Int, Symbol, Int, SimFloat}[]
+    for panel in 1:(length(left) - 1), (side, section) in ((:a, panel), (:b, panel + 1))
+        for (strut, share) in ((left[section], weight[section]),
+                               (left[section] + 1, 1.0 - weight[section]))
+            share == 0.0 && continue
+            push!(entries, (panel, Symbol(:le_, side), column[(strut, :LE)], share))
+            push!(entries, (panel, Symbol(:te_, side), column[(strut, :TE)], share))
+        end
+    end
+    return entries
+end
+
+"""
+    strut_inflow_weights(mode, section, column) -> Vector{Tuple{Int, SimFloat}}
+
+The `(point column, weight)` pairs averaging refined section `section`'s inflow over
+its two bounding struts, each strut being the mean of its LE and TE station.
+"""
+function strut_inflow_weights(mode, section::Int, column)
+    left, weight, _, _ = section_interp_caches(mode)
+    pairs = Tuple{Int, SimFloat}[]
+    for (strut, share) in ((left[section], weight[section]),
+                           (left[section] + 1, 1.0 - weight[section]))
+        share == 0.0 && continue
+        push!(pairs, (column[(strut, :LE)], 0.5 * share))
+        push!(pairs, (column[(strut, :TE)], 0.5 * share))
+    end
+    return pairs
+end
+
+"""
+    scatter_totals!(totals, panel, point, force_weight, couple_weight)
+
+Accumulate one contribution into the `(panel, point) → [force weight, couple weight]`
+map [`aero_scatter_entries`](@ref) builds, so a panel that reaches the same point
+twice becomes one wiring edge instead of two.
+"""
+function scatter_totals!(totals, panel::Int, point::Int, force_weight, couple_weight)
+    total = get!(zero_weight_pair, totals, (panel, point))
+    total[1] += force_weight
+    total[2] += couple_weight
+    return nothing
+end
+
+"""A fresh `[force weight, couple weight]` accumulator."""
+zero_weight_pair() = zeros(SimFloat, 2)
+
+"""The `(panel, point, force weight, couple weight)` list of a
+[`scatter_totals!`](@ref) map, ordered so the wiring is reproducible."""
+scatter_entry_list(totals) =
+    sort!([(panel, point, total[1], total[2])
+           for ((panel, point), total) in totals])
 
 """
     store_induced_velocity!(v_ind, body_aero, gamma)

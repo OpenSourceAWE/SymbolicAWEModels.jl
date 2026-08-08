@@ -1410,6 +1410,153 @@ function ParticleWingAero(s, params, idx; name)
 end
 
 """
+    AeroInflowPoint(s, params; name)
+
+What one structural point contributes to its wing's aerodynamics: its world `pos` and
+`vel` and the wing's pose in; its body-frame position, apparent wind and air density
+out. These are exactly the per-point quantities the `PARTICLE_DYNAMICS` branch of
+`aero_eqs!` builds, and none of them depends on which wing or which point it is — so
+one compiled kernel serves every aerodynamic point of every wing.
+"""
+function AeroInflowPoint(s, params; name)
+    io = @variables begin
+        pos(t)[1:3], [input = true]
+        vel(t)[1:3], [input = true]
+        wing_pos(t)[1:3], [input = true]
+        wing_frame(t)[1:9], [input = true]
+        pos_b(t)[1:3], [output = true]
+        va_b(t)[1:3], [output = true]
+        rho(t), [output = true]
+    end
+    position = collect(io[1])
+    orientation = reshape(collect(io[4]), 3, 3)
+    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
+    apparent = wind_factor(position[3]) .* ground_wind_vec(params) .- collect(io[2])
+    eqs = [
+        collect(io[5]) .~ orientation' * (position .- collect(io[3]))
+        collect(io[6]) .~ orientation' * apparent
+        io[7] ~ calc_rho(s.am, max(0.0, position[3]))
+    ]
+    return System(eqs, t, io, param_unknowns(params); name)
+end
+
+"""
+    AeroInflow(; name)
+
+The mean apparent wind and density of one group of aerodynamic points, materialized so
+the panels that share it can read it as an output. The averaging itself is the weighted
+gather in the [`Wiring`](@ref) — this only turns the gathered input into an output,
+which is what lets a wing-wide mean be summed once rather than once per panel.
+"""
+function AeroInflow(; name)
+    io = @variables begin
+        va_in(t)[1:3], [input = true]
+        rho_in(t), [input = true]
+        va(t)[1:3], [output = true]
+        rho(t), [output = true]
+    end
+    eqs = [collect(io[3]) .~ collect(io[1]); io[4] ~ io[2]]
+    return System(eqs, t, io, Any[]; name)
+end
+
+"""
+    AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
+
+One refined VSM panel's aerodynamic load: its two sections' leading and trailing edges
+(each already the gathered strut interpolation), their apparent wind and density, and
+its flap deflection in; its body-frame force and pitching couple out. The physics is
+the shared [`panel_force_eqs`](@ref) on a single column, so the expressions are those a
+whole-wing system emits for this panel. `orient` is the panel's `±1` span sign, baked
+in because it costs a second kernel and saves a parameter on every instance;
+`with_flap` selects the `(α, δ)` polars.
+"""
+function AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
+    wing = params.reg.sys_struct.wings[wing_idx]
+    panel = params.wings[wing_idx].aero.panels[panel_idx]
+    io = @variables begin
+        le_a(t)[1:3], [input = true]
+        te_a(t)[1:3], [input = true]
+        le_b(t)[1:3], [input = true]
+        te_b(t)[1:3], [input = true]
+        va_a(t)[1:3], [input = true]
+        va_b(t)[1:3], [input = true]
+        rho_a(t), [input = true]
+        rho_b(t), [input = true]
+        force_out(t)[1:3], [output = true]
+        couple_out(t)[1:3], [output = true]
+    end
+    delta = with_flap ? scalar_input(:flap_delta) : nothing
+    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
+    scale = 1.0 + (isfinite(wing.aero_scale_chord) ?
+        wing.aero_scale_chord : AERO_SCALE_CHORD)
+    slots = panel_force_slots(1)
+    sections = (collect(io[1]) .+ collect(panel.le_offset_a),
+                collect(io[2]) .+ collect(panel.te_offset_a),
+                collect(io[3]) .+ collect(panel.le_offset_b),
+                collect(io[4]) .+ collect(panel.te_offset_b))
+    flow = (collect(io[5]), collect(io[6]), io[7], io[8], collect(panel.v_ind))
+    eqs = panel_force_eqs(slots, 1, sections, flow,
+                          (panel.cl, panel.cd, panel.cm),
+                          spanwise, scale, orient, delta)
+    append!(eqs, collect(io[9]) .~ collect(slots.panel_force[:, 1]))
+    append!(eqs, collect(io[10]) .~ collect(slots.panel_couple[:, 1]))
+    vars = [io; panel_force_vars(slots)]
+    delta === nothing || push!(vars, delta)
+    return System(eqs, t, vars, param_unknowns(params); name)
+end
+
+"""
+    AeroPointForce(s, params, wing_idx, point_idx; name)
+
+The aerodynamic force on one wing point: its body-frame position, the wing's frame and
+the panels' gathered body-frame load in; the world force it delivers to the point out,
+plus the body-frame force and its moment about the wing origin for the wing's lumped
+wrench. Whatever constant the mode adds on top of the panels — a frozen surface
+traction — enters here as [`aero_point_offset`](@ref).
+"""
+function AeroPointForce(s, params, wing_idx, point_idx; name)
+    io = @variables begin
+        pos_b(t)[1:3], [input = true]
+        wing_frame(t)[1:9], [input = true]
+        force_b_in(t)[1:3], [input = true]
+        force(t)[1:3], [output = true]
+        force_b(t)[1:3], [output = true]
+        moment_b(t)[1:3], [output = true]
+    end
+    mode = params.reg.sys_struct.wings[wing_idx].aero
+    offset = aero_point_offset(mode, params, wing_idx, point_idx)
+    load = offset === nothing ? collect(io[3]) :
+           collect(io[3]) .+ collect(offset)
+    orientation = reshape(collect(io[2]), 3, 3)
+    eqs = [
+        collect(io[5]) .~ load
+        collect(io[4]) .~ orientation * collect(io[5])
+        collect(io[6]) .~ collect(io[1]) × collect(io[5])
+    ]
+    return System(eqs, t, io, param_unknowns(params); name)
+end
+
+"""
+    WingAeroSum(; name)
+
+A wing's lumped aerodynamic wrench: the body-frame force and moment its points deliver,
+gathered and observed as `aero_force_b` and `aero_moment_b`. It carries nothing else —
+a `PARTICLE_DYNAMICS` wing's loads act on its points, so the wrench is a readout, and
+summing it over points rather than panels is what keeps it comparable with
+[`ParticleWingAero`](@ref).
+"""
+function WingAeroSum(; name)
+    io = @variables begin
+        force_b_in(t)[1:3], [input = true]
+        moment_b_in(t)[1:3], [input = true]
+        aero_force_b(t)[1:3]
+        aero_moment_b(t)[1:3]
+    end
+    eqs = [collect(io[3]) .~ collect(io[1]); collect(io[4]) .~ collect(io[2])]
+    return System(eqs, t, io, Any[]; name)
+end
+
+"""
     rigid_body_point_velocity(pose, lever)
 
 World velocity of a point rigidly attached to a body: `com_velocity + ω × lever`,

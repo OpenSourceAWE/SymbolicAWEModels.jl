@@ -37,6 +37,16 @@ const WING_NODE_INPUTS = [:force_in, :mass_in, :drag_in, :wing_frame,
 const FLAP_INPUTS = [[Symbol(:main_frame_, k) for k in 1:9];
                      [Symbol(:flap_frame_, k) for k in 1:9]]
 const WING_AERO_POSE_INPUTS = [:wing_pos, :wing_frame]
+const AERO_INFLOW_POINT_INPUTS = [:pos, :vel, :wing_pos, :wing_frame]
+const AERO_INFLOW_POINT_OUTPUTS = [:pos_b, :va_b, :rho]
+const AERO_INFLOW_INPUTS = [:va_in, :rho_in]
+const AERO_INFLOW_OUTPUTS = [:va, :rho]
+const AERO_PANEL_INPUTS = [:le_a, :te_a, :le_b, :te_b,
+                           :va_a, :va_b, :rho_a, :rho_b]
+const AERO_PANEL_OUTPUTS = [:force_out, :couple_out]
+const AERO_POINT_FORCE_INPUTS = [:pos_b, :wing_frame, :force_b_in]
+const AERO_POINT_FORCE_OUTPUTS = [:force, :force_b, :moment_b]
+const WING_AERO_SUM_INPUTS = [:force_b_in, :moment_b_in]
 const TWIST_NODE_INPUTS = [RIDE_INPUTS; :twist_angle]
 const TWIST_WRENCH_INPUTS = [:height, :vel, :arm, :frame, :twist_angle, :force_in,
                              :mass_in, :drag_in]
@@ -401,6 +411,8 @@ function add_wing_aero!(builder, table, bindings, sam, wing, bodies, points, fla
                         twists, wrenches)
     wing.dynamics_type == PARTICLE_DYNAMICS || return add_rigid_wing_aero!(
         builder, table, bindings, sam, wing, bodies, twists)
+    supports_panel_decomposition(wing.aero) && return add_panel_wing_aero!(
+        builder, table, bindings, sam, wing, bodies, points, flaps, wrenches)
     sys_struct = sam.sys_struct
     nodes = wing_points(sys_struct, wing)
     surfaces = wing_flap_surfaces(wing)
@@ -427,6 +439,191 @@ function add_wing_aero!(builder, table, bindings, sam, wing, bodies, points, fla
         haskey(flaps, surface) || continue
         connect!(builder, flaps[surface], :delta, instance,
                  Symbol(:flap_delta_, surface))
+    end
+    return instance
+end
+
+"""
+    add_panel_wing_aero!(builder, table, bindings, sam, wing, bodies, points, flaps,
+                         wrenches) -> Int
+
+Add a `PARTICLE_DYNAMICS` wing's aerodynamics as small repeated components: one
+[`AeroInflowPoint`](@ref) per structural point, one [`AeroInflow`](@ref) per inflow
+group, one [`AeroPanel`](@ref) per refined panel, one [`AeroPointForce`](@ref) per
+point again, and one [`WingAeroSum`](@ref) for the readouts. Everything between them —
+the strut interpolation, the inflow average, the load scatter — is a constant weight,
+so it is wiring rather than equations. Returns the sum's instance, which is where the
+wing's readouts hang.
+
+This is what [`ParticleWingAero`](@ref) does in one component. One is superlinear in
+the wing's size and the other is not, which on a wing of any real size is the whole
+difference between a build that finishes and one that does not.
+"""
+function add_panel_wing_aero!(builder, table, bindings, sam, wing, bodies, points,
+                              flaps, wrenches)
+    nodes = wing_points(sam.sys_struct, wing)
+    body = bodies[wing.idx]
+    inflow_points = add_aero_inflow_points!(builder, table, bindings, sam, nodes,
+                                            points, body)
+    groups, section_group = aero_inflow_groups(wing.aero, wing, nodes)
+    inflows = add_aero_inflows!(builder, table, bindings, sam, groups, inflow_points)
+    panels = add_aero_panels!(builder, table, bindings, sam, wing, nodes,
+                              inflow_points, inflows, section_group, flaps)
+    forces = add_aero_point_forces!(builder, table, bindings, sam, wing, nodes,
+                                    inflow_points, body, points, wrenches)
+    for (panel, node, force_weight, couple_weight) in
+            aero_scatter_entries(wing.aero, wing, nodes)
+        force_weight == 0 || connect!(builder, panels[panel], :force_out,
+                                      forces[node], :force_b_in; weight = force_weight)
+        couple_weight == 0 || connect!(builder, panels[panel], :couple_out,
+                                       forces[node], :force_b_in;
+                                       weight = couple_weight)
+    end
+    return add_wing_aero_sum!(builder, table, bindings, sam, forces)
+end
+
+"""
+    add_aero_inflow_points!(builder, table, bindings, sam, nodes, points, body) -> Vector{Int}
+
+One [`AeroInflowPoint`](@ref) per structural point of a wing, wired from that point's
+kinematics and its wing body's pose. The kernel reads no per-component field, so every
+point of every wing shares it. Returns the instances, indexed as `nodes` is.
+"""
+function add_aero_inflow_points!(builder, table, bindings, sam, nodes, points, body)
+    entry = kernel!(builder, table, sam, :aero_inflow_point, 0,
+                    params -> AeroInflowPoint(sam, params; name = :aero_inflow_point),
+                    AERO_INFLOW_POINT_INPUTS, AERO_INFLOW_POINT_OUTPUTS)
+    instances = Int[]
+    for node in nodes
+        instance = add_instance!(builder, entry.index)
+        push!(bindings, (instance, entry, Dict{Symbol, Int}()))
+        connect!(builder, points[node.idx], :pos, instance, :pos)
+        connect!(builder, points[node.idx], :vel, instance, :vel)
+        connect!(builder, body, :pos, instance, :wing_pos)
+        connect!(builder, body, :frame, instance, :wing_frame)
+        push!(instances, instance)
+    end
+    return instances
+end
+
+"""
+    add_aero_inflows!(builder, table, bindings, sam, groups, inflow_points) -> Vector{Int}
+
+One [`AeroInflow`](@ref) per group of [`aero_inflow_groups`](@ref), gathering its
+points' apparent wind and density at the group's weights.
+"""
+function add_aero_inflows!(builder, table, bindings, sam, groups, inflow_points)
+    entry = kernel!(builder, table, sam, :aero_inflow, 0,
+                    params -> AeroInflow(; name = :aero_inflow),
+                    AERO_INFLOW_INPUTS, AERO_INFLOW_OUTPUTS)
+    instances = Int[]
+    for group in groups
+        instance = add_instance!(builder, entry.index)
+        push!(bindings, (instance, entry, Dict{Symbol, Int}()))
+        for (node, weight) in group
+            connect!(builder, inflow_points[node], :va_b, instance, :va_in; weight)
+            connect!(builder, inflow_points[node], :rho, instance, :rho_in; weight)
+        end
+        push!(instances, instance)
+    end
+    return instances
+end
+
+"""
+    add_aero_panels!(builder, table, bindings, sam, wing, nodes, inflow_points,
+                     inflows, section_group, flaps) -> Vector{Int}
+
+One [`AeroPanel`](@ref) per refined panel, reading its two sections' corners from the
+strut interpolation ([`aero_geometry_entries`](@ref)), their inflow from the group they
+belong to, and its flap deflection from the twist surface it deflects with. Panels
+differ only in their `±1` span sign, so a wing needs at most two kernels.
+"""
+function add_aero_panels!(builder, table, bindings, sam, wing, nodes, inflow_points,
+                          inflows, section_group, flaps)
+    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
+    with_flap = !isempty(wing_flap_surfaces(wing))
+    inputs = with_flap ? [AERO_PANEL_INPUTS; :flap_delta] : AERO_PANEL_INPUTS
+    instances = Int[]
+    for (panel_idx, orient) in enumerate(panel_span_signs(wing, spanwise))
+        key = Symbol(:aero_panel_, wing.idx, orient > 0 ? :_up : :_down)
+        entry = kernel!(builder, table, sam, key, panel_idx,
+                        params -> AeroPanel(sam, params, wing.idx, panel_idx, orient;
+                                            name = key, with_flap),
+                        inputs, AERO_PANEL_OUTPUTS)
+        instance = add_instance!(builder, entry.index)
+        push!(bindings, (instance, entry, Dict(:panels => panel_idx)))
+        for (side, section) in ((:a, panel_idx), (:b, panel_idx + 1))
+            inflow = inflows[section_group[section]]
+            connect!(builder, inflow, :va, instance, Symbol(:va_, side))
+            connect!(builder, inflow, :rho, instance, Symbol(:rho_, side))
+        end
+        push!(instances, instance)
+    end
+    for (panel, corner, node, weight) in aero_geometry_entries(wing.aero, wing, nodes)
+        connect!(builder, inflow_points[node], :pos_b, instances[panel], corner; weight)
+    end
+    with_flap && wire_panel_flaps!(builder, wing.aero, instances, flaps)
+    return instances
+end
+
+"""
+    wire_panel_flaps!(builder, mode, panels, flaps)
+
+Connect each panel's flap deflection to the [`FlapDelta`](@ref) of the twist surface it
+deflects with. A panel mapped to no surface keeps its input unconnected, which reads
+zero — the same deflection `flap_delta_inputs` gives it.
+"""
+function wire_panel_flaps!(builder, mode, panels, flaps)
+    for (panel, surface) in enumerate(mode.panel_twist_surface)
+        haskey(flaps, surface) || continue
+        connect!(builder, flaps[surface], :delta, panels[panel], :flap_delta)
+    end
+    return nothing
+end
+
+"""
+    add_aero_point_forces!(builder, table, bindings, sam, wing, nodes, inflow_points,
+                           body, points, wrenches) -> Vector{Int}
+
+One [`AeroPointForce`](@ref) per structural point, gathering the panels' scattered
+body-frame load and delivering the world force to the point (or to its wrench half,
+when the point rides a body).
+"""
+function add_aero_point_forces!(builder, table, bindings, sam, wing, nodes,
+                                inflow_points, body, points, wrenches)
+    key = Symbol(:aero_point_force_, wing.idx)
+    instances = Int[]
+    for (k, node) in enumerate(nodes)
+        entry = kernel!(builder, table, sam, key, node.idx,
+                        params -> AeroPointForce(sam, params, wing.idx, node.idx;
+                                                 name = key),
+                        AERO_POINT_FORCE_INPUTS, AERO_POINT_FORCE_OUTPUTS)
+        instance = add_instance!(builder, entry.index)
+        push!(bindings, (instance, entry, Dict(:points => node.idx)))
+        connect!(builder, inflow_points[k], :pos_b, instance, :pos_b)
+        connect!(builder, body, :frame, instance, :wing_frame)
+        connect!(builder, instance, :force, load_target(points, wrenches, node.idx),
+                 :force_in)
+        push!(instances, instance)
+    end
+    return instances
+end
+
+"""
+    add_wing_aero_sum!(builder, table, bindings, sam, forces) -> Int
+
+The [`WingAeroSum`](@ref) gathering every point's body-frame force and moment, whose
+observables are the wing's `aero_force_b` and `aero_moment_b` readouts.
+"""
+function add_wing_aero_sum!(builder, table, bindings, sam, forces)
+    entry = kernel!(builder, table, sam, :wing_aero_sum, 0,
+                    params -> WingAeroSum(; name = :wing_aero_sum),
+                    WING_AERO_SUM_INPUTS, Symbol[])
+    instance = add_instance!(builder, entry.index)
+    push!(bindings, (instance, entry, Dict{Symbol, Int}()))
+    for force in forces
+        connect!(builder, force, :force_b, instance, :force_b_in)
+        connect!(builder, force, :moment_b, instance, :moment_b_in)
     end
     return instance
 end

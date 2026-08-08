@@ -217,6 +217,48 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
     return System(eqs, t, vars, [vind_p, cl, cd, cm]; name)
 end
 
+# ==================== per-panel decomposition ==================== #
+
+supports_panel_decomposition(::ContinuousAero) = true
+
+"""
+    aero_inflow_groups(mode::ContinuousAero, wing, points)
+
+One group per refined section: its inflow is the strut interpolation of the bounding
+struts' LE/TE station values, which is what `aero_component` interpolates inline.
+"""
+function aero_inflow_groups(mode::ContinuousAero, wing, points)
+    column = aero_section_columns(wing, points)
+    sections = eachindex(mode.section_left_strut)
+    groups = [strut_inflow_weights(mode, section, column) for section in sections]
+    return groups, collect(sections)
+end
+
+"""
+    aero_scatter_entries(mode::ContinuousAero, wing, points)
+
+The strut couple: each panel's force acts on the quarter-chord line, so its bounding
+sections' struts take `0.75·force + couple` at the LE station and `0.25·force −
+couple` at the TE station, halved between the two sections and split by the mesh
+weights.
+"""
+function aero_scatter_entries(mode::ContinuousAero, wing, points)
+    column = aero_section_columns(wing, points)
+    left, weight, _, _ = section_interp_caches(mode)
+    totals = Dict{Tuple{Int, Int}, Vector{SimFloat}}()
+    for panel in 1:(length(left) - 1), section in (panel, panel + 1)
+        for (strut, share) in ((left[section], weight[section]),
+                               (left[section] + 1, 1.0 - weight[section]))
+            share == 0.0 && continue
+            scatter_totals!(totals, panel, column[(strut, :LE)],
+                            0.375 * share, 0.5 * share)
+            scatter_totals!(totals, panel, column[(strut, :TE)],
+                            0.125 * share, -0.5 * share)
+        end
+    end
+    return scatter_entry_list(totals)
+end
+
 # ==================== refresh ==================== #
 
 """
