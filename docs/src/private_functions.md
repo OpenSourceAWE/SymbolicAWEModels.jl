@@ -486,6 +486,8 @@ SymbolicAWEModels.compile_kernel
 SymbolicAWEModels.required_default
 SymbolicAWEModels.ComponentInstance
 SymbolicAWEModels.Wiring
+SymbolicAWEModels.GatherPlan
+SymbolicAWEModels.gather_plan
 SymbolicAWEModels.gather!
 SymbolicAWEModels.KernelSystem
 SymbolicAWEModels.SystemBuilder
@@ -508,6 +510,9 @@ SymbolicAWEModels.KernelParamSync
 SymbolicAWEModels.KernelInitialSync
 SymbolicAWEModels.KernelBuffers
 SymbolicAWEModels.KernelRHS
+SymbolicAWEModels.settled_slots
+SymbolicAWEModels.layer_gather_slots
+SymbolicAWEModels.output_read_slots
 SymbolicAWEModels.read_slots
 SymbolicAWEModels.run_layers!
 SymbolicAWEModels.run_batches!

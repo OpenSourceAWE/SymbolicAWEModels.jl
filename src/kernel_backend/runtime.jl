@@ -43,21 +43,67 @@ struct Wiring
 end
 
 """
-    gather!(input, output, wiring, slots)
+    GatherPlan(copy_targets, copy_sources, general)
 
-Sum every wired output slot into the input slots in `slots`. This is the whole
+One gather pass, split by how much work each slot needs. A slot fed by a single
+unit-weighted source is a plain copy, which nearly all of them are — on a replicated
+four-kite model the wiring averages 1.45 sources per slot, so the loop setup guarding
+the sum costs more than the sum. The rest keep the weighted form in `general`. A slot
+with no source appears in neither list: only a gather writes an input, so it keeps the
+zero its buffer was built with and never needs touching.
+"""
+struct GatherPlan
+    copy_targets::Vector{Int}
+    copy_sources::Vector{Int}
+    general::Vector{Int}
+end
+
+"""
+    gather_plan(wiring, slots) -> GatherPlan
+
+Sort `slots` into the copies, the weighted sums and the untouched, once, so that
+[`gather!`](@ref) does not rediscover the shape of the wiring on every call.
+"""
+function gather_plan(wiring::Wiring, slots)
+    copy_targets = Int[]
+    copy_sources = Int[]
+    general = Int[]
+    for k in slots
+        first_edge = wiring.offsets[k]
+        edges = wiring.offsets[k + 1] - first_edge
+        if edges == 0
+            continue
+        elseif edges == 1 && isone(wiring.weights[first_edge])
+            push!(copy_targets, k)
+            push!(copy_sources, wiring.sources[first_edge])
+        else
+            push!(general, k)
+        end
+    end
+    return GatherPlan(copy_targets, copy_sources, general)
+end
+
+"""
+    gather!(input, output, wiring, plan)
+
+Sum every wired output slot into the input slots `plan` covers. This is the whole
 coupling model: a segment writing force into a point, a ride point forwarding a
 moment into its body and a winch driving a tether length all go through it, and
-because it indexes by slot there is no uniform I/O width to pad to. `slots` is what
-the next pass is about to read rather than the whole buffer — the schedule runs the
-gather once per layer, and on a large model refreshing all of it each time costs
-more than every kernel put together.
+because it indexes by slot there is no uniform I/O width to pad to. A plan holds what
+the next pass is about to read rather than the whole buffer, and each slot belongs to
+exactly one plan — the schedule orders every producer before the earliest consumer, so
+a slot that two layers read is already final when the first of them runs.
 """
-function gather!(input, output, wiring::Wiring, slots)
+function gather!(input, output, wiring::Wiring, plan::GatherPlan)
+    targets = plan.copy_targets
+    from = plan.copy_sources
+    @inbounds for i in eachindex(targets, from)
+        input[targets[i]] = output[from[i]]
+    end
     sources = wiring.sources
     weights = wiring.weights
     offsets = wiring.offsets
-    @inbounds for k in slots
+    @inbounds for k in plan.general
         total = zero(eltype(input))
         for j in offsets[k]:(offsets[k + 1] - 1)
             total += weights[j] * output[sources[j]]
@@ -73,10 +119,10 @@ end
 An assembled model. `kernels` is a tuple so the evaluation loop unrolls over it and
 every kernel call is statically dispatched. A *batch* is the instance list of one
 kernel: `layers[l][k]` are the instances of kernel `k` whose outputs run in layer
-`l`, and `state_batches[k]` the stateful instances of kernel `k`. `layer_inputs[l]`
-are the input slots that layer's instances read and `final_inputs` those the
-derivative and observable passes read, so each [`gather!`](@ref) touches only the
-slots about to be used. The `_active` lists hold the positions of the non-empty
+`l`, and `state_batches[k]` the stateful instances of kernel `k`. `layer_inputs[l]` is
+the [`GatherPlan`](@ref) that layer needs and `final_inputs` what the derivative and
+observable passes still need on top, so each [`gather!`](@ref) touches only the slots
+about to be used and no slot is gathered twice in a call. The `_active` lists hold the positions of the non-empty
 batches of each pass, which is what [`run_batches!`](@ref) walks — most kernels are
 idle in any one layer and a pass over the whole tuple charged for them.
 """
@@ -85,8 +131,8 @@ struct KernelSystem{K <: Tuple, N, M}
     instances::Vector{ComponentInstance}
     layers::Vector{NTuple{N, Vector{Int}}}
     layer_active::Vector{Vector{Int}}
-    layer_inputs::Vector{Vector{Int}}
-    final_inputs::Vector{Int}
+    layer_inputs::Vector{GatherPlan}
+    final_inputs::GatherPlan
     state_batches::NTuple{N, Vector{Int}}
     state_active::Vector{Int}
     observable_batches::NTuple{N, Vector{Int}}
@@ -199,6 +245,12 @@ end
     build_system(builder) -> KernelSystem
 
 Turn the recorded connections into a [`Wiring`](@ref) and a layered schedule.
+
+A slot a layer gathers is left out of `final_inputs`: the schedule puts every
+producer of a feeding input before the layer that reads it, so such a slot is
+already final when its layer gathered it and the derivative pass can read it as is.
+What remains for the final gather is the inputs no output map reads — a point's
+aggregated force and its like — which is where the coupling comes back down.
 """
 function build_system(builder::SystemBuilder)
     wiring = build_wiring(builder.targets, builder.sources, builder.weights,
@@ -208,8 +260,13 @@ function build_system(builder::SystemBuilder)
                 if builder.kernels[inst.kernel].rhs! !== nothing]
     observed = [i for (i, inst) in enumerate(builder.instances)
                 if builder.kernels[inst.kernel].obs! !== nothing]
-    layer_inputs = [read_slots(builder, Iterators.flatten(layer)) for layer in layers]
-    final_inputs = read_slots(builder, Iterators.flatten((stateful, observed)))
+    layer_slots = layer_gather_slots(builder, layers)
+    layer_inputs = [gather_plan(wiring, slots) for slots in layer_slots]
+    settled = settled_slots(builder, wiring, layers, layer_slots)
+    final_inputs = gather_plan(wiring,
+        [slot for slot in read_slots(builder,
+                                     Iterators.flatten((stateful, observed)))
+         if !(slot in settled)])
     state_batches = batch_by_kernel(builder, stateful)
     observable_batches = batch_by_kernel(builder, observed)
     return KernelSystem(Tuple(builder.kernels), builder.instances, layers,
@@ -228,6 +285,80 @@ The positions of the batches that hold an instance, in order, so a pass skips th
 kernels with no work in it instead of calling into each of them to find none.
 """
 active_batches(batches) = [k for k in eachindex(batches) if !isempty(batches[k])]
+
+"""
+    settled_slots(builder, wiring, layers, layer_slots) -> Set{Int}
+
+The slots a layer gathered whose value cannot change afterwards, so the final gather
+can leave them alone. Almost every feeding input qualifies — the schedule orders a
+producer before the layer that reads its output. The exception is an instance whose
+own output feeds its own input, which [`build_schedule`](@ref) deliberately does not
+order against itself; that slot is only complete once its layer has run, so it stays
+in `final_inputs`.
+"""
+function settled_slots(builder::SystemBuilder, wiring::Wiring, layers, layer_slots)
+    owner = Vector{Int}(undef, builder.n_outputs)
+    for (i, inst) in enumerate(builder.instances)
+        owner[inst.outputs] .= i
+    end
+    layer_of = zeros(Int, length(builder.instances))
+    for (index, layer) in enumerate(layers), batch in layer, i in batch
+        layer_of[i] = index
+    end
+    settled = Set{Int}()
+    for (index, slots) in enumerate(layer_slots), slot in slots
+        complete = true
+        for j in wiring.offsets[slot]:(wiring.offsets[slot + 1] - 1)
+            layer_of[owner[wiring.sources[j]]] < index || (complete = false; break)
+        end
+        complete && push!(settled, slot)
+    end
+    return settled
+end
+
+"""
+    layer_gather_slots(builder, layers) -> Vector{Vector{Int}}
+
+The input slots each layer has to gather before its output maps run: those the maps
+actually read, minus the ones an earlier layer already gathered. Both restrictions
+are what the schedule earns. An input its instance's outputs ignore — a point's
+aggregated force, say — is no use to the output pass and is left to `final_inputs`;
+and since every producer is ordered before the earliest consumer, a slot two layers
+read is already final when the first of them runs, so gathering it twice would
+recompute the same sum.
+"""
+function layer_gather_slots(builder::SystemBuilder, layers)
+    gathered = Set{Int}()
+    per_layer = Vector{Int}[]
+    for layer in layers
+        fresh = Int[]
+        for slot in output_read_slots(builder, Iterators.flatten(layer))
+            slot in gathered && continue
+            push!(gathered, slot)
+            push!(fresh, slot)
+        end
+        push!(per_layer, fresh)
+    end
+    return per_layer
+end
+
+"""
+    output_read_slots(builder, instances) -> Vector{Int}
+
+The input slots `instances` read *in their output maps*, ascending. `read_slots` is
+the same question for the instance as a whole.
+"""
+function output_read_slots(builder::SystemBuilder, instances)
+    slots = Int[]
+    for i in instances
+        inst = builder.instances[i]
+        feeds = builder.kernels[inst.kernel].input_feeds_output
+        for (local_slot, input_slot) in enumerate(inst.inputs)
+            feeds[local_slot] && push!(slots, input_slot)
+        end
+    end
+    return sort!(unique!(slots))
+end
 
 """
     read_slots(builder, instances) -> Vector{Int}

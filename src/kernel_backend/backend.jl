@@ -12,7 +12,9 @@ callable store, so `sync_params!` writes struct fields straight into it. `sparse
 hands the solver [`state_sparsity`](@ref) as the Jacobian prototype; without it the
 Jacobian is dense, as the monolith's is. `FullSpecialize` because the right-hand
 side is one concrete type, so `SciMLBase`'s function wrappers would only add
-indirection and allocate.
+indirection and allocate — it goes on the `ODEFunction` as well as the problem,
+since a bare `ODEFunction` is `AutoSpecialize` and the problem's parameter does
+not reach a function that is already built.
 """
 function build_prob!(::KernelBackend, sam; sparse = false, prn = true)
     time = @elapsed model = assemble(sam; verbose = prn)
@@ -25,8 +27,9 @@ function build_prob!(::KernelBackend, sam; sparse = false, prn = true)
     step = SimFloat(1 / sam.set.sample_freq)
     prototype = sparse ? SimFloat.(model.system.sparsity) : nothing
     problem = ODEProblem{true, SciMLBase.FullSpecialize}(
-        ODEFunction(rhs; mass_matrix = model.system.mass_matrix,
-                    jac_prototype = prototype),
+        ODEFunction{true, SciMLBase.FullSpecialize}(
+            rhs; mass_matrix = model.system.mass_matrix,
+            jac_prototype = prototype),
         model.u0, (0.0, step), model.params)
     sync_params!(model.param_sync, problem, sam.sys_struct)
     sam.prob = ProbWithAttributes(; prob = problem,
