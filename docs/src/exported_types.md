@@ -57,7 +57,7 @@ SymbolicAWEModel(set::Settings, sys_struct::SystemStructure; kwargs...)
 ```@docs
 ModelBackend
 MonolithBackend
-ScheduledBackend
+KernelBackend
 BackendUnsupportedError
 default_backend
 default_backend!

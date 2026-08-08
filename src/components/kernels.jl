@@ -5,7 +5,7 @@
 # segment physics consumes. Pure functions: geometry and material properties in,
 # forces out. The environment (air density, apparent wind) is injected by the
 # caller, so these never read the atmosphere or wind profile themselves and stay
-# identical between the monolith and the scheduled backend.
+# identical between the monolith and the `KernelBackend`.
 
 """
     segment_geometry(pos_src, pos_dst, vel_src, vel_dst)

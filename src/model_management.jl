@@ -347,7 +347,7 @@ end
 
 Assemble `sam.prob` for the given [`ModelBackend`](@ref). The
 [`MonolithBackend`](@ref) method `mtkcompile`s the flattened `full_sys` into one
-`ODEProblem`; the [`ScheduledBackend`](@ref) assembles one kernel per component
+`ODEProblem`; the [`KernelBackend`](@ref) assembles one kernel per component
 type and schedules them. Returns `true` when a problem was built.
 """
 function build_prob!(::MonolithBackend, sam; prn=true)
@@ -380,7 +380,7 @@ end
     init_backend!(backend, sam, solver; kwargs...)
 
 Full `init!` path for a non-[`MonolithBackend`](@ref). The monolith uses the
-`init!` body directly; other backends (currently [`ScheduledBackend`](@ref))
+`init!` body directly; other backends (currently [`KernelBackend`](@ref))
 implement their own assembly + integrator build here and return the fresh
 `ODEIntegrator`: refresh the `SystemStructure` (positions, rest lengths), assemble
 the problem from it, and store `sam.prob`/`sam.integrator`.

@@ -13,7 +13,7 @@
 # sees only integers and buffers, and only ever reads `p.numeric` / `p.callables`.
 
 """
-    ScheduledParams(numeric, callables)
+    KernelParams(numeric, callables)
 
 The parameter object the assembled `ODEProblem` carries. `numeric` is the flat
 buffer the generated kernels index — its layout is ours, `(instance, slot) → flat
@@ -22,23 +22,23 @@ holds the polars and rigidity laws, which cannot live in a numeric buffer: one
 entry per kernel, each a vector of that kernel's instances' callables, so the
 element type stays concrete and calling a polar dispatches statically.
 """
-struct ScheduledParams{C <: Tuple}
+struct KernelParams{C <: Tuple}
     numeric::Vector{SimFloat}
     callables::C
 end
 
 """
-    ScheduledParamSync(slots, readers, callable_targets, callable_slots,
+    KernelParamSync(slots, readers, callable_targets, callable_slots,
                        callable_readers)
 
-Copies live `SystemStructure` fields into a [`ScheduledParams`](@ref):
+Copies live `SystemStructure` fields into a [`KernelParams`](@ref):
 `readers[k](sys_struct)` supplies `numeric[slots[k]]`, and a callable is written
 into `callable_targets[k][callable_slots[k]]` — the instance's own callable vector,
-held directly so the write needs no index arithmetic. This is the scheduled
-backend's parameter sync, applied every step through the same
+held directly so the write needs no index arithmetic. This is the
+[`KernelBackend`](@ref)'s parameter sync, applied every step through the same
 `ProbWithAttributes` machinery as the monolith's.
 """
-struct ScheduledParamSync
+struct KernelParamSync
     slots::Vector{Int}
     readers::Vector{Any}
     callable_targets::Vector{Any}
@@ -46,7 +46,7 @@ struct ScheduledParamSync
     callable_readers::Vector{Any}
 end
 
-function sync_params!(sync::ScheduledParamSync, target, sys_struct::SystemStructure)
+function sync_params!(sync::KernelParamSync, target, sys_struct::SystemStructure)
     numeric = target.p.numeric
     @inbounds for k in eachindex(sync.slots)
         numeric[sync.slots[k]] = sync.readers[k](sys_struct)

@@ -9,14 +9,14 @@
 #
 # The first half is pure expression builders that the monolith's equation generators
 # in `src/generate_system/` call directly. The second half wraps them into the small
-# MTK `System`s the `ScheduledBackend` compiles one kernel from, each declaring
+# MTK `System`s the `KernelBackend` compiles one kernel from, each declaring
 # exactly the inputs it reads and the outputs someone wires — no uniform width to pad
 # to and nothing baked per endpoint orientation.
 #
 # Aggregation is by explicit force *inputs*, not an MTK `Flow`/`connect` connector,
 # which is what keeps array-valued I/O (`pos(t)[1:3]`) intact: a point receives the
 # summed force of its incident segments through `force_in`, and each backend supplies
-# that sum its own way — the scheduled runtime gathers it from the wiring, the
+# that sum its own way — the `KernelBackend` gathers it from the wiring, the
 # monolith writes it as an explicit equation.
 
 """`vector` with its component along the unit `axis` removed."""
@@ -191,7 +191,7 @@ end
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
 Corotational Timoshenko element wrench shared by both backends (the monolith
-`timoshenko_joint_eqs!` loop body and the scheduled joint component), so the
+`timoshenko_joint_eqs!` loop body and the `KernelBackend` joint component), so the
 beam-element physics lives in one place. Given the two nodes' world poses (`pos`,
 `R_b_to_w`, `com`, `com_vel`, world spin `omega_w`) and the joint's rest
 geometry/rigidities, it builds the
@@ -292,7 +292,7 @@ end
         omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
 Lumped 6-DOF `ElasticJoint` restoring wrench shared by both backends (the monolith
-`joint_eqs!` loop body and the scheduled elastic-joint component). From the relative
+`joint_eqs!` loop body and the `KernelBackend` elastic-joint component). From the relative
 pose of the two anchors (in body A's frame) it builds the per-DOF restoring
 force/torque (axial,
 shear, torsion, bending stiffness + damping) and returns
@@ -418,7 +418,7 @@ end
 
 Pure 6-DOF rigid-body derivative and body-frame output expressions (principal frame)
 — the single math source both the monolith ([`rigid_body_eqs!`](@ref)) and the
-scheduled body component assemble from. Given the world-frame load at / about the COM
+`KernelBackend` body component assemble from. Given the world-frame load at / about the COM
 (`force_w`, `moment_w`) and the principal state (`com_w`, `com_vel`, `Q_p_to_w`,
 `ω_p` as length-3/4 `Num` vectors), returns a named tuple of expressions: the state
 derivatives `d_com_w`/`d_com_vel`/`d_Q`/`d_ω`, the Euler angular accel `α_p`, the
@@ -515,7 +515,7 @@ function wing_frame_columns(zp1, zp2, yp1, yp2)
 end
 
 # ==================== component `System`s ==================== #
-# One per component type; the `ScheduledBackend` compiles a kernel from each and
+# One per component type; the `KernelBackend` compiles a kernel from each and
 # instances it per component. Everything above is the physics they share.
 
 """

@@ -94,13 +94,13 @@ function classify_points(sys_struct)
         end
         if point.type == BODY_STATIC
             point.body_idx > 0 || error(
-                "ScheduledBackend: BODY_STATIC point $(point.name) is anchored to " *
+                "KernelBackend: BODY_STATIC point $(point.name) is anchored to " *
                 "neither a body nor a beam.")
             roles[i] = PointRole(:ride, 0, 0, 0, point.body_idx, 0)
             continue
         end
         point.type in (STATIC, DYNAMIC) || error(
-            "ScheduledBackend: point $(point.name) has type $(point.type); only " *
+            "KernelBackend: point $(point.name) has type $(point.type); only " *
             "STATIC, DYNAMIC and BODY_STATIC are supported so far.")
         wing = fitted_wing_of(sys_struct, point)
         kind = point.type == STATIC ? :anchor : wing == 0 ? :particle : :wing_node
@@ -108,7 +108,7 @@ function classify_points(sys_struct)
     end
     for pulley in sys_struct.pulleys
         pulley.type == DYNAMIC || error(
-            "ScheduledBackend: pulley $(pulley.name) has type $(pulley.type); " *
+            "KernelBackend: pulley $(pulley.name) has type $(pulley.type); " *
             "only DYNAMIC pulleys exist.")
         index = pulley_point_index(sys_struct, pulley)
         roles[index] = PointRole(:pulley, pulley.idx, pulley.segment_idxs[1],
@@ -117,7 +117,7 @@ function classify_points(sys_struct)
     for winch in sys_struct.winches
         index = winch.winch_point_idx
         sys_struct.points[index].type == STATIC || error(
-            "ScheduledBackend: winch $(winch.name) is at a non-STATIC point.")
+            "KernelBackend: winch $(winch.name) is at a non-STATIC point.")
         roles[index] = PointRole(:winch, 0, 0, winch.idx, 0, 0)
     end
     return roles
@@ -145,7 +145,7 @@ function twist_surface_of(sys_struct, idx)
     found = [surface.idx for surface in sys_struct.twist_surfaces
              if idx in surface.point_idxs]
     length(found) <= 1 || error(
-        "ScheduledBackend: point $(sys_struct.points[idx].name) is in " *
+        "KernelBackend: point $(sys_struct.points[idx].name) is in " *
         "$(length(found)) twist surfaces; expected 0 or 1.")
     return isempty(found) ? 0 : only(found)
 end
@@ -175,7 +175,7 @@ function pulley_point_index(sys_struct, pulley)
     second_points = sys_struct.segments[pulley.segment_idxs[2]].point_idxs
     shared = intersect(first_points, second_points)
     length(shared) == 1 || error(
-        "ScheduledBackend: pulley $(pulley.name) segments share $(length(shared)) " *
+        "KernelBackend: pulley $(pulley.name) segments share $(length(shared)) " *
         "points; expected exactly 1.")
     return only(shared)
 end
@@ -274,7 +274,7 @@ function kernel!(builder, table, sam, key, source, make, inputs, outputs)
 end
 
 """
-    ScheduledModel
+    KernelModel
 
 An assembled model: the runtime `system`, its initial state and parameters, the
 parameter sync, and the instance index of every point, segment and body, which is
@@ -284,11 +284,11 @@ all the state getter and the control setter need to find their values. A
 `aero_instances` holds each wing's aero instance and `twist_instances` each twist
 surface's, `0` where there is none.
 """
-struct ScheduledModel{S, P}
+struct KernelModel{S, P}
     system::S
     u0::Vector{SimFloat}
     params::P
-    param_sync::ScheduledParamSync
+    param_sync::KernelParamSync
     point_instances::Vector{Int}
     wrench_instances::Vector{Int}
     segment_instances::Vector{Int}
@@ -300,9 +300,9 @@ struct ScheduledModel{S, P}
 end
 
 """
-    assemble(sam) -> ScheduledModel
+    assemble(sam) -> KernelModel
 
-Translate `sam.sys_struct` into a scheduled model. Kernels are compiled once per
+Translate `sam.sys_struct` into a [`KernelModel`](@ref). Kernels are compiled once per
 component type, one instance is added per component, the wiring is recorded, and
 the parameters and initial state are bound from the struct afterwards, when every
 instance's buffer slice is final.
@@ -361,7 +361,7 @@ function assemble(sam; verbose = false)
     apply_constants!(params, system, segment_roles, segment_instances)
     u0 = initial_state(system, sys_struct, point_roles, point_instances,
                        body_instances, twist_instances)
-    return ScheduledModel(system, u0, params, sync, point_instances,
+    return KernelModel(system, u0, params, sync, point_instances,
                           wrench_instances, segment_instances, body_instances,
                           point_roles, segment_roles, aero_instances,
                           twist_instances)
@@ -684,7 +684,7 @@ function add_body!(builder, table, bindings, sam, idx)
     body.type == KINEMATIC && return add_fitted_body!(builder, table, bindings,
                                                       sam, idx)
     body.type in (DYNAMIC, STATIC) || error(
-        "ScheduledBackend: body $(body.name) has type $(body.type); only DYNAMIC, " *
+        "KernelBackend: body $(body.name) has type $(body.type); only DYNAMIC, " *
         "STATIC and KINEMATIC are supported so far.")
     make = body.type == STATIC ? StaticBody : RigidBody
     key = body.type == STATIC ? :static_body : :rigid_body
@@ -789,7 +789,7 @@ function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches,
                 params -> WinchAnchor(sam, params, winch, idx; name = key),
                 WINCH_INPUTS, outputs)
     else
-        error("ScheduledBackend: point $(sys_struct.points[idx].name) has no " *
+        error("KernelBackend: point $(sys_struct.points[idx].name) has no " *
               "component for role $(role.kind)")
     end
     instance = add_instance!(builder, entry.index)
@@ -1034,7 +1034,7 @@ function wire_segment!(builder, sys_struct, idx, role, point_roles, point_instan
     segment = segment_instances[idx]
     source, target = sys_struct.segments[idx].point_idxs
     source == target && error(
-        "ScheduledBackend: segment $(sys_struct.segments[idx].name) has both " *
+        "KernelBackend: segment $(sys_struct.segments[idx].name) has both " *
         "endpoints at point $source.")
     for (endpoint, prefix) in ((source, :src), (target, :dst))
         point = point_instances[endpoint]
@@ -1097,7 +1097,7 @@ end
 
 Fill the parameter buffer with every kernel's build-time defaults, then record the
 live reader for each parameter that is a struct field read, remapped to its own
-instance. Returns `(ScheduledParams, ScheduledParamSync)`.
+instance. Returns `(KernelParams, KernelParamSync)`.
 """
 function bind_params(system, sys_struct, bindings, segment_roles, segment_instances)
     numeric = zeros(SimFloat, system.n_params)
@@ -1124,9 +1124,9 @@ function bind_params(system, sys_struct, bindings, segment_roles, segment_instan
         end
     end
     retarget_tether_rest_lengths!(readers, segment_roles)
-    sync = ScheduledParamSync(slots, readers, callable_targets, callable_slots,
+    sync = KernelParamSync(slots, readers, callable_targets, callable_slots,
                               callable_readers)
-    return ScheduledParams(numeric, callables), sync
+    return KernelParams(numeric, callables), sync
 end
 
 """
@@ -1163,7 +1163,7 @@ function retarget_tether_rest_lengths!(readers, segment_roles)
         position = findfirst(reader -> reader isa PathReader && reader.path == path,
                              readers)
         position === nothing && error(
-            "ScheduledBackend: segment $idx has no rest-length parameter to retarget")
+            "KernelBackend: segment $idx has no rest-length parameter to retarget")
         readers[position] = ScaledReader(
             PathReader((:tethers, role.tether_idx, :len)), 1 / role.segment_count)
     end

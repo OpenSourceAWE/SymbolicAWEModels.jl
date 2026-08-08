@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# The scheduled runtime: four concepts and nothing else — a *kernel* (one compiled
+# The runtime: four concepts and nothing else — a *kernel* (one compiled
 # component type, kernel.jl), an *instance* (one occurrence of a kernel, with its
 # slice of every buffer), the *wiring* (which output slots sum into which input
 # slot) and the *schedule* (the layered order the output maps run in). Nothing
@@ -65,14 +65,14 @@ function gather!(input, output, wiring::Wiring)
 end
 
 """
-    ScheduledSystem
+    KernelSystem
 
 An assembled model. `kernels` is a tuple so the evaluation loop unrolls over it and
 every kernel call is statically dispatched. A *batch* is the instance list of one
 kernel: `layers[l][k]` are the instances of kernel `k` whose outputs run in layer
 `l`, and `state_batches[k]` the stateful instances of kernel `k`.
 """
-struct ScheduledSystem{K <: Tuple, N, M}
+struct KernelSystem{K <: Tuple, N, M}
     kernels::K
     instances::Vector{ComponentInstance}
     layers::Vector{NTuple{N, Vector{Int}}}
@@ -94,7 +94,7 @@ end
     SystemBuilder()
 
 Accumulates kernels, instances and connections, then [`build_system`](@ref)s them
-into a [`ScheduledSystem`](@ref). Buffer slices are handed out as instances are
+into a [`KernelSystem`](@ref). Buffer slices are handed out as instances are
 added, so a connection can be recorded as soon as both endpoints exist.
 """
 mutable struct SystemBuilder
@@ -182,7 +182,7 @@ function connect!(builder::SystemBuilder, source::Int, out_name::Symbol,
 end
 
 """
-    build_system(builder) -> ScheduledSystem
+    build_system(builder) -> KernelSystem
 
 Turn the recorded connections into a [`Wiring`](@ref) and a layered schedule.
 """
@@ -194,7 +194,7 @@ function build_system(builder::SystemBuilder)
                 if builder.kernels[inst.kernel].rhs! !== nothing]
     observed = [i for (i, inst) in enumerate(builder.instances)
                 if builder.kernels[inst.kernel].obs! !== nothing]
-    return ScheduledSystem(Tuple(builder.kernels), builder.instances, layers,
+    return KernelSystem(Tuple(builder.kernels), builder.instances, layers,
         batch_by_kernel(builder, stateful), batch_by_kernel(builder, observed),
         wiring, builder.n_states, builder.n_inputs, builder.n_outputs,
         builder.n_observables, builder.n_params, global_mass_matrix(builder),
@@ -315,50 +315,50 @@ end
 # ======================= evaluation ======================= #
 
 """
-    ScheduledBuffers(input, output, observable)
+    KernelBuffers(input, output, observable)
 
 The scratch buffers one evaluation needs, at one element type. Cached per
 `eltype(u)` so a ForwardDiff dual pass gets its own set.
 """
-struct ScheduledBuffers{T}
+struct KernelBuffers{T}
     input::Vector{T}
     output::Vector{T}
     observable::Vector{T}
 end
 
-ScheduledBuffers{T}(system::ScheduledSystem) where {T} = ScheduledBuffers(
+KernelBuffers{T}(system::KernelSystem) where {T} = KernelBuffers(
     zeros(T, system.n_inputs), zeros(T, system.n_outputs),
     zeros(T, system.n_observables))
 
 """
-    ScheduledRHS(system)
+    KernelRHS(system)
 
 The callable `(du, u, p, t)` an `ODEProblem` integrates. Each schedule layer
 gathers the inputs and runs its batches' output maps; once every layer has run the
 inputs are complete and the stateful kernels write their derivatives.
 """
-struct ScheduledRHS{S}
+struct KernelRHS{S}
     system::S
-    scratch::ScheduledBuffers{SimFloat}
+    scratch::KernelBuffers{SimFloat}
     others::Dict{DataType, Any}
 end
 
-ScheduledRHS(system::ScheduledSystem) = ScheduledRHS(system,
-    ScheduledBuffers{SimFloat}(system), Dict{DataType, Any}())
+KernelRHS(system::KernelSystem) = KernelRHS(system,
+    KernelBuffers{SimFloat}(system), Dict{DataType, Any}())
 
 """Scratch buffers for element type `T`, allocated on first use. The solver's own
 element type is a field rather than a lookup, so the hot path allocates nothing."""
-buffers(rhs::ScheduledRHS, ::Type{SimFloat}) = rhs.scratch
+buffers(rhs::KernelRHS, ::Type{SimFloat}) = rhs.scratch
 
-function buffers(rhs::ScheduledRHS, ::Type{T}) where {T}
+function buffers(rhs::KernelRHS, ::Type{T}) where {T}
     cached = get(rhs.others, T, nothing)
-    cached === nothing || return cached::ScheduledBuffers{T}
-    fresh = ScheduledBuffers{T}(rhs.system)
+    cached === nothing || return cached::KernelBuffers{T}
+    fresh = KernelBuffers{T}(rhs.system)
     rhs.others[T] = fresh
     return fresh
 end
 
-function (rhs::ScheduledRHS)(du, u, p, t)
+function (rhs::KernelRHS)(du, u, p, t)
     system = rhs.system
     scratch = buffers(rhs, eltype(u))
     run_layers!(system, scratch, u, p, t)
@@ -368,7 +368,7 @@ function (rhs::ScheduledRHS)(du, u, p, t)
 end
 
 """Gather and run every schedule layer, leaving the input buffer complete."""
-function run_layers!(system::ScheduledSystem, scratch, u, p, t)
+function run_layers!(system::KernelSystem, scratch, u, p, t)
     for layer in system.layers
         gather!(scratch.input, scratch.output, system.wiring)
         run_batches!(output_call, system.kernels, layer, p.callables, system,
@@ -429,13 +429,13 @@ function observable_call(kernel::ComponentKernel, callables, inst, scratch, targ
 end
 
 """
-    refresh_outputs!(rhs, u, p, t) -> ScheduledBuffers
+    refresh_outputs!(rhs, u, p, t) -> KernelBuffers
 
 Re-run every output map and every observed map for the state `u`, and return the
 buffers. The state getter reads component results out of these after a step, where
 the integrator's last RHS evaluation need not correspond to `u`.
 """
-function refresh_outputs!(rhs::ScheduledRHS, u, p, t)
+function refresh_outputs!(rhs::KernelRHS, u, p, t)
     system = rhs.system
     scratch = buffers(rhs, eltype(u))
     run_layers!(system, scratch, u, p, t)

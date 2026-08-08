@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Scattering the scheduled runtime's buffers back into the `SystemStructure`, and
+# Scattering the runtime's buffers back into the `SystemStructure`, and
 # writing the control setpoints into the parameter buffer. Every value has a fixed
 # global slot, resolved once at assembly, so both are plain indexed loops.
 
@@ -130,7 +130,7 @@ struct WingAeroReadout
 end
 
 """
-    ScheduledStateGetter(model)
+    KernelStateGetter(model)
 
 Callable `(integrator, sys_struct)` that scatters the runtime's results back into
 the struct, mirroring the monolith's `get_all_state`: point positions, velocities
@@ -138,7 +138,7 @@ and drag, segment tension/length/rest length, pulley splits, winch state and tet
 lengths. It re-runs the output and observable maps for the integrator's current
 state first, since the last RHS evaluation need not correspond to it.
 """
-struct ScheduledStateGetter{R}
+struct KernelStateGetter{R}
     rhs::R
     points::Vector{PointReadout}
     segments::Vector{SegmentReadout}
@@ -150,7 +150,7 @@ struct ScheduledStateGetter{R}
     twist::Vector{TwistSurfaceReadout}
 end
 
-function ScheduledStateGetter(model::ScheduledModel, rhs, sys_struct)
+function KernelStateGetter(model::KernelModel, rhs, sys_struct)
     system = model.system
     points = [PointReadout(idx,
                   buffer_slots(system, instance, :outputs, :pos),
@@ -171,7 +171,7 @@ function ScheduledStateGetter(model::ScheduledModel, rhs, sys_struct)
             only(buffer_slots(system, instance, :states, :pulley_len)),
             only(buffer_slots(system, instance, :states, :pulley_vel))))
     end
-    return ScheduledStateGetter(rhs, points, segments, pulleys,
+    return KernelStateGetter(rhs, points, segments, pulleys,
                                 winch_readouts(model, sys_struct),
                                 body_readouts(model, sys_struct),
                                 fitted_wing_readouts(sys_struct),
@@ -206,7 +206,7 @@ One [`TwistSurfaceReadout`](@ref) per twist surface that has a twist instance. A
 `KINEMATIC` surface has none — its deflection is a [`FlapDelta`](@ref), which the
 aero reads directly and the struct does not carry.
 """
-function twist_surface_readouts(model::ScheduledModel)
+function twist_surface_readouts(model::KernelModel)
     readouts = TwistSurfaceReadout[]
     for (idx, instance) in enumerate(model.twist_instances)
         instance == 0 && continue
@@ -225,7 +225,7 @@ end
 One [`WingAeroReadout`](@ref) per wing that has an aero instance, resolving whichever
 of the four names that instance observes.
 """
-function wing_aero_readouts(model::ScheduledModel, sys_struct)
+function wing_aero_readouts(model::KernelModel, sys_struct)
     readouts = WingAeroReadout[]
     for (idx, instance) in enumerate(model.aero_instances)
         instance == 0 && continue
@@ -246,14 +246,14 @@ end
 
 """The instance that observes point `idx`'s `total_drag`: its own, or its wrench
 half when the point rides a body."""
-drag_source(model::ScheduledModel, idx) =
+drag_source(model::KernelModel, idx) =
     model.wrench_instances[idx] == 0 ? model.point_instances[idx] :
     model.wrench_instances[idx]
 
 """One [`BodyReadout`](@ref) per body. Only a `DYNAMIC` body integrates, so a
 clamped or fitted one keeps whatever principal attitude and spin the struct holds —
 which for a fitted wing is what its own pose output already implies."""
-function body_readouts(model::ScheduledModel, sys_struct)
+function body_readouts(model::KernelModel, sys_struct)
     system = model.system
     principal(instance, idx, name) =
         sys_struct.bodies[idx].type == DYNAMIC ?
@@ -272,7 +272,7 @@ function body_readouts(model::ScheduledModel, sys_struct)
 end
 
 """One [`WinchReadout`](@ref) per winch, resolving its per-tether length slots."""
-function winch_readouts(model::ScheduledModel, sys_struct)
+function winch_readouts(model::KernelModel, sys_struct)
     system = model.system
     readouts = WinchReadout[]
     for (idx, role) in enumerate(model.point_roles)
@@ -292,7 +292,7 @@ function winch_readouts(model::ScheduledModel, sys_struct)
     return readouts
 end
 
-function (getter::ScheduledStateGetter)(integrator, sys_struct::SystemStructure)
+function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
     scratch = refresh_outputs!(getter.rhs, integrator.u, integrator.p, integrator.t)
     for readout in getter.points
         point = sys_struct.points[readout.point]
@@ -384,23 +384,23 @@ function write_stretched_lengths!(sys_struct)
 end
 
 """
-    ScheduledControlSetter(model)
+    KernelControlSetter(model)
 
 Callable `(target, values)` writing each winch's control setpoint into the
 parameter buffer, mirroring the monolith's `set_set_values`. `values[winch.idx]` is
 the setpoint for that winch.
 """
-struct ScheduledControlSetter
+struct KernelControlSetter
     slots::Vector{Tuple{Int, Int}}
 end
 
-function ScheduledControlSetter(model::ScheduledModel, sys_struct)
+function KernelControlSetter(model::KernelModel, sys_struct)
     slots = [(readout.winch, readout.set_value)
              for readout in winch_readouts(model, sys_struct)]
-    return isempty(slots) ? nothing : ScheduledControlSetter(slots)
+    return isempty(slots) ? nothing : KernelControlSetter(slots)
 end
 
-function (setter::ScheduledControlSetter)(target, values)
+function (setter::KernelControlSetter)(target, values)
     for (winch, slot) in setter.slots
         target.p.numeric[slot] = values[winch]
     end

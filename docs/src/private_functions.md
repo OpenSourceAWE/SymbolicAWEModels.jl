@@ -445,7 +445,7 @@ SymbolicAWEModels.init_body_frame_from_ref_points!
 SymbolicAWEModels.get_rot_pos_cad
 KiteUtils.Logger(::SymbolicAWEModel, ::Int64)
 ```
-## Scheduled backend — vendored codegen
+## Kernel backend — vendored codegen
 
 ```@docs
 SymbolicAWEModels.KernelCodegen
@@ -469,7 +469,7 @@ SymbolicAWEModels.KernelCodegen.match_diff_states
 SymbolicAWEModels.KernelCodegen.getproperty_symbolic
 ```
 
-## Scheduled backend — runtime
+## Kernel backend — runtime
 
 ```@docs
 SymbolicAWEModels.SlotMap
@@ -482,7 +482,7 @@ SymbolicAWEModels.required_default
 SymbolicAWEModels.ComponentInstance
 SymbolicAWEModels.Wiring
 SymbolicAWEModels.gather!
-SymbolicAWEModels.ScheduledSystem
+SymbolicAWEModels.KernelSystem
 SymbolicAWEModels.SystemBuilder
 SymbolicAWEModels.add_kernel!
 SymbolicAWEModels.add_instance!
@@ -492,10 +492,10 @@ SymbolicAWEModels.build_wiring
 SymbolicAWEModels.build_schedule
 SymbolicAWEModels.ScheduleCycleError
 SymbolicAWEModels.global_mass_matrix
-SymbolicAWEModels.ScheduledParams
-SymbolicAWEModels.ScheduledParamSync
-SymbolicAWEModels.ScheduledBuffers
-SymbolicAWEModels.ScheduledRHS
+SymbolicAWEModels.KernelParams
+SymbolicAWEModels.KernelParamSync
+SymbolicAWEModels.KernelBuffers
+SymbolicAWEModels.KernelRHS
 SymbolicAWEModels.run_layers!
 SymbolicAWEModels.run_batches!
 SymbolicAWEModels.batch_by_kernel
@@ -515,7 +515,7 @@ SymbolicAWEModels.remap_path
 SymbolicAWEModels.record_build_index!
 ```
 
-## Scheduled backend — components and assembly
+## Kernel backend — components and assembly
 
 ```@docs
 SymbolicAWEModels.point_variables
@@ -583,7 +583,7 @@ SymbolicAWEModels.SegmentRole
 SymbolicAWEModels.classify_segments
 SymbolicAWEModels.KernelEntry
 SymbolicAWEModels.kernel!
-SymbolicAWEModels.ScheduledModel
+SymbolicAWEModels.KernelModel
 SymbolicAWEModels.assemble
 SymbolicAWEModels.add_point!
 SymbolicAWEModels.add_segment!
@@ -622,7 +622,7 @@ SymbolicAWEModels.PulleyReadout
 SymbolicAWEModels.WinchReadout
 SymbolicAWEModels.BodyReadout
 SymbolicAWEModels.FittedWingReadout
-SymbolicAWEModels.ScheduledStateGetter
+SymbolicAWEModels.KernelStateGetter
 SymbolicAWEModels.winch_readouts
 SymbolicAWEModels.body_readouts
 SymbolicAWEModels.fitted_wing_readouts
@@ -634,7 +634,7 @@ SymbolicAWEModels.observed_slots
 SymbolicAWEModels.drag_source
 SymbolicAWEModels.write_stretched_lengths!
 SymbolicAWEModels.copy_slots!
-SymbolicAWEModels.ScheduledControlSetter
+SymbolicAWEModels.KernelControlSetter
 SymbolicAWEModels.write_total_mass!
 SymbolicAWEModels.segment_load_terms
 SymbolicAWEModels.segment_nonlinear_force

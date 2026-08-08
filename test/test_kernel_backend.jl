@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Runs the monolith's own test files against the `ScheduledBackend`, with nothing
+# Runs the monolith's own test files against the `KernelBackend`, with nothing
 # swapped but the backend. `default_backend!` changes what `SymbolicAWEModel`
 # builds when its constructor is not given one, so each file runs unmodified and
 # the assertions stay the monolith's.
@@ -19,7 +19,7 @@ using SymbolicAWEModels
 """
     SCHEDULED_PARITY_FILES
 
-The test files the `ScheduledBackend` currently covers. It grows as the backend
+The test files the `KernelBackend` currently covers. It grows as the backend
 does; the goal is every file `runtests.jl` runs except the monolith-only ones
 (linearization and control-function generation).
 """
@@ -51,12 +51,12 @@ SCHEDULED_PARITY_FILES = [
     "test_yaml_weighted_ref.jl",
 ]
 
-@testset verbose = true "ScheduledBackend parity" begin
+@testset verbose = true "KernelBackend parity" begin
     previous = default_backend()
-    default_backend!(ScheduledBackend())
+    default_backend!(KernelBackend())
     try
         for file in SCHEDULED_PARITY_FILES
-            println("--> [scheduled] $file")
+            println("--> [kernel] $file")
             @testset "$file" begin
                 include(joinpath(@__DIR__, file))
             end

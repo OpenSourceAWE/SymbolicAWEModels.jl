@@ -6,7 +6,7 @@
 
 Abstract supertype selecting how a [`SymbolicAWEModel`](@ref) is assembled and
 which features it supports. Concrete backends: [`MonolithBackend`](@ref) (the
-default) and [`ScheduledBackend`](@ref). The backend is a field of the model and is
+default) and [`KernelBackend`](@ref). The backend is a field of the model and is
 the dispatch axis for all backend-varying behaviour (problem assembly,
 linearization, control-function generation).
 """
@@ -22,14 +22,14 @@ control functions). Compile time grows with the total node count.
 struct MonolithBackend <: ModelBackend end
 
 """
-    ScheduledBackend()
+    KernelBackend()
 
 Backend that compiles one kernel per component *type* and runs them from a
 build-time schedule over gather/scatter buffers. Compile time is flat in node
 count, because refining a model adds instances of kernels that already exist.
 Features without an implementation throw [`BackendUnsupportedError`](@ref).
 """
-struct ScheduledBackend <: ModelBackend end
+struct KernelBackend <: ModelBackend end
 
 const DEFAULT_BACKEND = Ref{ModelBackend}(MonolithBackend())
 
@@ -50,7 +50,7 @@ default_backend!(backend::ModelBackend) = (DEFAULT_BACKEND[] = backend; backend)
     BackendUnsupportedError(feature, backend)
 
 Thrown when `feature` (a name string) has no implementation for `backend` — for
-example control-function generation on a [`ScheduledBackend`](@ref). The message
+example control-function generation on a [`KernelBackend`](@ref). The message
 points at the backend that does support the feature.
 """
 struct BackendUnsupportedError <: Exception
