@@ -31,6 +31,17 @@ Features without an implementation throw [`BackendUnsupportedError`](@ref).
 """
 struct KernelBackend <: ModelBackend end
 
+"""
+    backend_tag(backend) -> String
+
+The backend's mark in a serialized model's filename. Two backends assemble the
+same `SystemStructure` into different artefacts, so they need separate cache
+entries; the [`MonolithBackend`](@ref) tag is empty so its existing bins keep
+loading.
+"""
+backend_tag(::ModelBackend) = ""
+backend_tag(::KernelBackend) = "_kernel"
+
 const DEFAULT_BACKEND = Ref{ModelBackend}(MonolithBackend())
 
 """

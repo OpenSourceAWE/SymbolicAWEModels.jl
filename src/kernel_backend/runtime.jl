@@ -43,18 +43,21 @@ struct Wiring
 end
 
 """
-    gather!(input, output, wiring)
+    gather!(input, output, wiring, slots)
 
-Sum every wired output slot into its input slot. This is the whole coupling model:
-a segment writing force into a point, a ride point forwarding a moment into its
-body and a winch driving a tether length all go through it, and because it indexes
-by slot there is no uniform I/O width to pad to.
+Sum every wired output slot into the input slots in `slots`. This is the whole
+coupling model: a segment writing force into a point, a ride point forwarding a
+moment into its body and a winch driving a tether length all go through it, and
+because it indexes by slot there is no uniform I/O width to pad to. `slots` is what
+the next pass is about to read rather than the whole buffer — the schedule runs the
+gather once per layer, and on a large model refreshing all of it each time costs
+more than every kernel put together.
 """
-function gather!(input, output, wiring::Wiring)
+function gather!(input, output, wiring::Wiring, slots)
     sources = wiring.sources
     weights = wiring.weights
     offsets = wiring.offsets
-    @inbounds for k in eachindex(input)
+    @inbounds for k in slots
         total = zero(eltype(input))
         for j in offsets[k]:(offsets[k + 1] - 1)
             total += weights[j] * output[sources[j]]
@@ -70,14 +73,24 @@ end
 An assembled model. `kernels` is a tuple so the evaluation loop unrolls over it and
 every kernel call is statically dispatched. A *batch* is the instance list of one
 kernel: `layers[l][k]` are the instances of kernel `k` whose outputs run in layer
-`l`, and `state_batches[k]` the stateful instances of kernel `k`.
+`l`, and `state_batches[k]` the stateful instances of kernel `k`. `layer_inputs[l]`
+are the input slots that layer's instances read and `final_inputs` those the
+derivative and observable passes read, so each [`gather!`](@ref) touches only the
+slots about to be used. The `_active` lists hold the positions of the non-empty
+batches of each pass, which is what [`run_batches!`](@ref) walks — most kernels are
+idle in any one layer and a pass over the whole tuple charged for them.
 """
 struct KernelSystem{K <: Tuple, N, M}
     kernels::K
     instances::Vector{ComponentInstance}
     layers::Vector{NTuple{N, Vector{Int}}}
+    layer_active::Vector{Vector{Int}}
+    layer_inputs::Vector{Vector{Int}}
+    final_inputs::Vector{Int}
     state_batches::NTuple{N, Vector{Int}}
+    state_active::Vector{Int}
     observable_batches::NTuple{N, Vector{Int}}
+    observable_active::Vector{Int}
     wiring::Wiring
     n_states::Int
     n_inputs::Int
@@ -85,6 +98,7 @@ struct KernelSystem{K <: Tuple, N, M}
     n_observables::Int
     n_params::Int
     mass_matrix::M
+    sparsity::SparseMatrixCSC{Bool, Int}
     compile_seconds::Vector{Float64}
 end
 
@@ -194,11 +208,39 @@ function build_system(builder::SystemBuilder)
                 if builder.kernels[inst.kernel].rhs! !== nothing]
     observed = [i for (i, inst) in enumerate(builder.instances)
                 if builder.kernels[inst.kernel].obs! !== nothing]
+    layer_inputs = [read_slots(builder, Iterators.flatten(layer)) for layer in layers]
+    final_inputs = read_slots(builder, Iterators.flatten((stateful, observed)))
+    state_batches = batch_by_kernel(builder, stateful)
+    observable_batches = batch_by_kernel(builder, observed)
     return KernelSystem(Tuple(builder.kernels), builder.instances, layers,
-        batch_by_kernel(builder, stateful), batch_by_kernel(builder, observed),
+        [active_batches(layer) for layer in layers], layer_inputs, final_inputs,
+        state_batches, active_batches(state_batches),
+        observable_batches, active_batches(observable_batches),
         wiring, builder.n_states, builder.n_inputs, builder.n_outputs,
         builder.n_observables, builder.n_params, global_mass_matrix(builder),
-        builder.compile_seconds)
+        state_sparsity(builder, wiring, layers), builder.compile_seconds)
+end
+
+"""
+    active_batches(batches) -> Vector{Int}
+
+The positions of the batches that hold an instance, in order, so a pass skips the
+kernels with no work in it instead of calling into each of them to find none.
+"""
+active_batches(batches) = [k for k in eachindex(batches) if !isempty(batches[k])]
+
+"""
+    read_slots(builder, instances) -> Vector{Int}
+
+The input slots `instances` read, in ascending order so the gather walks the buffer
+and the wiring forwards.
+"""
+function read_slots(builder::SystemBuilder, instances)
+    slots = Int[]
+    for i in instances
+        append!(slots, builder.instances[i].inputs)
+    end
+    return sort!(unique!(slots))
 end
 
 """
@@ -297,6 +339,86 @@ function batch_by_kernel(builder::SystemBuilder, instances)
 end
 
 """
+    state_sparsity(builder, wiring, layers) -> SparseMatrixCSC{Bool, Int}
+
+The Jacobian's nonzero pattern: entry `(i, j)` is set when `du[i]` reads `u[j]`.
+Handing it to the integrator turns a dense finite-difference Jacobian — O(n) right-
+hand side evaluations and a dense factorization — into a coloured sparse one. The
+diagonal is always stored, read or not, because the solver's `W = M/γ - J` writes
+there and can only write where the pattern has room.
+"""
+function state_sparsity(builder::SystemBuilder, wiring::Wiring, layers)
+    rows = state_dependencies(builder, wiring, layers)
+    reading = collect(1:(builder.n_states))
+    read = copy(reading)
+    for (state, sources) in enumerate(rows), source in sources
+        source == state && continue
+        push!(reading, state)
+        push!(read, source)
+    end
+    return sparse(reading, read, true, builder.n_states, builder.n_states)
+end
+
+"""
+    state_dependencies(builder, wiring, layers) -> Vector{Vector{Int}}
+
+For each state, the states its derivative reads. An output reaches its instance's
+own states plus everything reaching the outputs wired into the inputs it reads, so
+one sweep in schedule order resolves the model; the sweep repeats until nothing
+grows, which costs one confirming pass and converges an instance that feeds itself.
+"""
+function state_dependencies(builder::SystemBuilder, wiring::Wiring, layers)
+    reach = [BitSet() for _ in 1:builder.n_outputs]
+    grew = true
+    while grew
+        grew = false
+        for layer in layers, batch in layer, instance in batch
+            grew |= expand_reach!(reach, builder, wiring, instance)
+        end
+    end
+    rows = [Int[] for _ in 1:builder.n_states]
+    for inst in builder.instances
+        reads = builder.kernels[inst.kernel].reads
+        for (slot, state) in enumerate(inst.states)
+            row = BitSet()
+            collect_reach!(row, reach, wiring, inst, reads.dstate_state[slot],
+                           reads.dstate_input[slot])
+            rows[state] = collect(row)
+        end
+    end
+    return rows
+end
+
+"""Grow one instance's outputs' reachable states; `true` if any of them grew."""
+function expand_reach!(reach, builder::SystemBuilder, wiring::Wiring, instance::Int)
+    inst = builder.instances[instance]
+    reads = builder.kernels[inst.kernel].reads
+    grew = false
+    for (slot, output) in enumerate(inst.outputs)
+        before = length(reach[output])
+        collect_reach!(reach[output], reach, wiring, inst, reads.output_state[slot],
+                       reads.output_input[slot])
+        grew |= length(reach[output]) != before
+    end
+    return grew
+end
+
+"""Union into `into` the states `inst` reads directly, plus those its inputs reach."""
+function collect_reach!(into::BitSet, reach, wiring::Wiring, inst::ComponentInstance,
+                        state_slots, input_slots)
+    for slot in state_slots
+        push!(into, inst.states[slot])
+    end
+    for slot in input_slots
+        input = inst.inputs[slot]
+        for j in wiring.offsets[input]:(wiring.offsets[input + 1] - 1)
+            union!(into, reach[wiring.sources[j]])
+        end
+    end
+    return into
+end
+
+"""
     global_mass_matrix(builder)
 
 Assemble the state mass matrix from the kernels' own. Returns `I` when every
@@ -362,44 +484,81 @@ function (rhs::KernelRHS)(du, u, p, t)
     system = rhs.system
     scratch = buffers(rhs, eltype(u))
     run_layers!(system, scratch, u, p, t)
-    run_batches!(derivative_call, system.kernels, system.state_batches, p.callables,
-                 system, scratch, du, u, p, t)
+    run_batches!(derivative_call, system.kernels, system.state_active,
+                 system.state_batches, p.callables, system, scratch, du, u, p, t)
     return nothing
 end
 
-"""Gather and run every schedule layer, leaving the input buffer complete."""
+"""Gather and run every schedule layer, leaving the inputs the derivative and
+observable passes read complete."""
 function run_layers!(system::KernelSystem, scratch, u, p, t)
-    for layer in system.layers
-        gather!(scratch.input, scratch.output, system.wiring)
-        run_batches!(output_call, system.kernels, layer, p.callables, system,
-                     scratch, scratch.output, u, p, t)
+    for (index, layer) in enumerate(system.layers)
+        gather!(scratch.input, scratch.output, system.wiring,
+                system.layer_inputs[index])
+        run_batches!(output_call, system.kernels, system.layer_active[index], layer,
+                     p.callables, system, scratch, scratch.output, u, p, t)
     end
-    gather!(scratch.input, scratch.output, system.wiring)
+    gather!(scratch.input, scratch.output, system.wiring, system.final_inputs)
     return nothing
 end
 
 """
-    run_batches!(call, kernels, batches, callables, system, scratch, target, u, p, t)
+    run_batches!(call, kernels, active, batches, callables, system, scratch, target,
+                 u, p, t)
 
-Apply `call` to every instance of every kernel, recursing over the kernel tuple so
-each call site is statically dispatched and neither the argument views nor the
-callables escape. `callables` is walked in step with `kernels`, so each call gets
-its own kernel's concretely typed callable store. `target` is the buffer `call`
-writes into, sliced per instance.
+Apply `call` to every instance of every kernel that has work, one batch at a time.
+`active` holds the positions of the non-empty batches, so a kernel idle in this
+pass costs nothing; walking the kernel tuple instead cost a call frame per kernel
+per pass, which on a real model was most of the right-hand side.
 """
-function run_batches!(call::C, kernels::Tuple, batches::Tuple, callables::Tuple,
-                      system, scratch, target, u, p, t) where {C}
-    kernel = first(kernels)
-    values = first(callables)
-    for i in first(batches)
+function run_batches!(call::C, kernels::Tuple, active::Vector{Int}, batches,
+                      callables::Tuple, system, scratch, target, u, p,
+                      t) where {C}
+    for k in active
+        dispatch_batch!(call, kernels, callables, batches, k, system, scratch,
+                        target, u, p, t)
+    end
+    return nothing
+end
+
+"""
+    dispatch_batch!(call, kernels, callables, batches, k, system, scratch, target,
+                    u, p, t)
+
+Run batch `k` with the types its entries have. The kernels differ in type, so
+indexing the tuple at a position only known at run time would erase that type and
+copy the entry into a box; a ladder of comparisons against literal positions keeps
+every call to [`run_batch!`](@ref) concrete instead, at a handful of integer
+compares per batch.
+"""
+@generated function dispatch_batch!(call, kernels::NTuple{N, Any}, callables,
+                                    batches, k::Int, system, scratch, target, u, p,
+                                    t) where {N}
+    body = :(return nothing)
+    for i in N:-1:1
+        body = Expr(:if, :(k == $i),
+                    :(return run_batch!(call, kernels[$i], callables[$i],
+                                        batches[$i], system, scratch, target,
+                                        u, p, t)),
+                    body)
+    end
+    return body
+end
+
+"""
+    run_batch!(call, kernel, values, instances, system, scratch, target, u, p, t)
+
+Apply `call` to one kernel's `instances`, with the per-instance calls statically
+dispatched. `@noinline` so that one body is shared by every batch of this kernel
+rather than copied into each caller.
+"""
+@noinline function run_batch!(call::C, kernel::ComponentKernel, values, instances,
+                              system, scratch, target, u, p, t) where {C}
+    for i in instances
         call(kernel, values, system.instances[i], scratch, target, u, p, t)
     end
-    run_batches!(call, Base.tail(kernels), Base.tail(batches), Base.tail(callables),
-                 system, scratch, target, u, p, t)
     return nothing
 end
-
-run_batches!(::C, ::Tuple{}, ::Tuple{}, ::Tuple{}, args...) where {C} = nothing
 
 """Write one instance's declared outputs into `target`."""
 function output_call(kernel::ComponentKernel, callables, inst, scratch, target,
@@ -439,7 +598,8 @@ function refresh_outputs!(rhs::KernelRHS, u, p, t)
     system = rhs.system
     scratch = buffers(rhs, eltype(u))
     run_layers!(system, scratch, u, p, t)
-    run_batches!(observable_call, system.kernels, system.observable_batches,
-                 p.callables, system, scratch, scratch.observable, u, p, t)
+    run_batches!(observable_call, system.kernels, system.observable_active,
+                 system.observable_batches, p.callables, system, scratch,
+                 scratch.observable, u, p, t)
     return scratch
 end

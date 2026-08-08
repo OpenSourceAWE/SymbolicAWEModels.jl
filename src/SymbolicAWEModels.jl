@@ -10,6 +10,7 @@ using Pkg
 using TOML
 using DocStringExtensions
 using LinearAlgebra
+using SparseArrays
 using Parameters
 using Printf
 using Serialization

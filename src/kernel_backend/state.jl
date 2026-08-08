@@ -80,14 +80,14 @@ struct BodyReadout
 end
 
 """
-    FittedWingReadout(body, z1, z2, y1, y2, origin, aero_points)
+    KinematicWingReadout(body, z1, z2, y1, y2, origin, aero_points)
 
 The reference points a fitted (`KINEMATIC`) wing's kinematics are rebuilt from after
 a step. Such a wing has no state of its own — its frame, apparent wind and per-point
 apparent wind are functions of where its points ended up, which is what
 [`wing_kinematics_from_points!`](@ref) computes.
 """
-struct FittedWingReadout
+struct KinematicWingReadout
     body::Int
     z1::Int
     z2::Int
@@ -145,7 +145,7 @@ struct KernelStateGetter{R}
     pulleys::Vector{PulleyReadout}
     winches::Vector{WinchReadout}
     bodies::Vector{BodyReadout}
-    fitted::Vector{FittedWingReadout}
+    kinematic::Vector{KinematicWingReadout}
     aero::Vector{WingAeroReadout}
     twist::Vector{TwistSurfaceReadout}
 end
@@ -174,25 +174,25 @@ function KernelStateGetter(model::KernelModel, rhs, sys_struct)
     return KernelStateGetter(rhs, points, segments, pulleys,
                                 winch_readouts(model, sys_struct),
                                 body_readouts(model, sys_struct),
-                                fitted_wing_readouts(sys_struct),
+                                kinematic_wing_readouts(sys_struct),
                                 wing_aero_readouts(model, sys_struct),
                                 twist_surface_readouts(model))
 end
 
 """
-    fitted_wing_readouts(sys_struct)
+    kinematic_wing_readouts(sys_struct)
 
-One [`FittedWingReadout`](@ref) per `KINEMATIC` body, resolving its reference points
+One [`KinematicWingReadout`](@ref) per `KINEMATIC` body, resolving its reference points
 and its aerodynamic surface points once. A weighted reference collapses to its first
 point here, which is what the reconstruction reads.
 """
-function fitted_wing_readouts(sys_struct)
-    readouts = FittedWingReadout[]
+function kinematic_wing_readouts(sys_struct)
+    readouts = KinematicWingReadout[]
     for (idx, body) in enumerate(sys_struct.bodies)
         body.type == KINEMATIC || continue
         aero = [i for (i, point) in enumerate(sys_struct.points)
                 if point.is_wing_node && point.wing_idx == idx]
-        push!(readouts, FittedWingReadout(idx, body.z_ref_points[1].ids[1],
+        push!(readouts, KinematicWingReadout(idx, body.z_ref_points[1].ids[1],
             body.z_ref_points[2].ids[1], body.y_ref_points[1].ids[1],
             body.y_ref_points[2].ids[1], body.origin.ids[1], aero))
     end
@@ -350,7 +350,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
         copy_slots!(wing.va_b, scratch.observable, readout.apparent)
         copy_slots!(wing.v_wind, scratch.observable, readout.wind)
     end
-    for readout in getter.fitted
+    for readout in getter.kinematic
         wing_kinematics_from_points!(sys_struct.bodies[readout.body],
             sys_struct.points, sys_struct.set, sys_struct.am;
             zp1 = readout.z1, zp2 = readout.z2, yp1 = readout.y1,

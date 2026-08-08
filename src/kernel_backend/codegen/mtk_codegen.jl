@@ -660,6 +660,38 @@ function _recursive_collect_dependencies!(deps, term, dict)
     deps
 end
 
+"""
+    dependency_indices(eqs, obs_subs, symbols) -> Vector{Vector{Int}}
+
+For each equation, the positions in `symbols` its right-hand side reads once every
+observed substitution is resolved. `obs_subs` is in definition-before-use order, so
+each observed variable is resolved once and reused, where `_all_dependencies`
+re-descends the whole chain per call.
+"""
+function dependency_indices(eqs, obs_subs, symbols)
+    position = Dict{ST, Int}(sym => k for (k, sym) in enumerate(symbols))
+    resolved = Dict{ST, Set{Int}}()
+    for (lhs, rhs) in obs_subs
+        resolved[lhs] = _resolved_reads(rhs, position, resolved)
+    end
+    return [sort!(collect(_resolved_reads(eq.rhs, position, resolved))) for eq in eqs]
+end
+
+"The positions `term` reads, taking an already-resolved observed variable's own."
+function _resolved_reads(term, position, resolved)
+    reads = Set{Int}()
+    for sym in get_variables_deriv(term)
+        known = get(resolved, sym, nothing)
+        if known === nothing
+            index = get(position, sym, nothing)
+            index === nothing || push!(reads, index)
+        else
+            union!(reads, known)
+        end
+    end
+    return reads
+end
+
 "Build the `build_function` argument list for `eqs`: one `Let` block holding every
 observed assignment `eqs` needs plus the equation assignments, returning the first
 output, then the remaining outputs."
@@ -743,6 +775,8 @@ name variables of `sys` (array-valued ones are scalarized). Returns a named tupl
   variable, `nothing` when there are none
 - `mass_matrix`, and the symbolic `states`, `inputs`, `outputs`, `obsstates`,
   `params`, `callable_params` in the order the buffers use
+- `reads`, which inputs and states each output and each state derivative depends
+  on, as [`dependency_indices`](@ref) lists
 
 All three callables take the same argument list — unlike upstream, where the
 argument list varies with the feedforward type, because scheduling here is the
@@ -794,10 +828,10 @@ function generate_io_function(sys, inputs, outputs; verbose=false, cse=true)
     mass_matrix = generate_massmatrix(eqs)
     verbose && @info "Generated mass matrix" mass_matrix
 
-    # Which inputs the outputs actually read — the only thing the caller's schedule
-    # needs from what upstream calls the feedforward type.
-    out_deps = _all_dependencies(outeqs, obs_subs)
-    input_feeds_output = [inp ∈ out_deps for inp in allinputs]
+    reads = (output_input = dependency_indices(outeqs, obs_subs, allinputs),
+             output_state = dependency_indices(outeqs, obs_subs, states),
+             dstate_input = dependency_indices(eqs, obs_subs, allinputs),
+             dstate_state = dependency_indices(eqs, obs_subs, states))
 
     # Nonnumeric (callable) params can't live in the flat Float64 buffer; they are
     # a separate argument after `p`, always present so the signature is uniform.
@@ -814,7 +848,7 @@ function generate_io_function(sys, inputs, outputs; verbose=false, cse=true)
         compile(_get_formulas([s ~ s for s in obsstates], obs_subs))
 
     return (; f, g, obs, mass_matrix, states, inputs = allinputs,
-            outputs = alloutputs, obsstates, input_feeds_output,
+            outputs = alloutputs, obsstates, reads,
             params = numeric_params,
             callable_params, simplified,
             param_defaults = [param_default_value(defaults, p) for p in numeric_params],

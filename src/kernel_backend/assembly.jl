@@ -28,12 +28,13 @@ const JOINT_OUTPUTS = [:force_a, :moment_a, :force_b, :moment_b]
 const HERMITE_RIDE_OUTPUTS = [:pos, :vel, :arm_a, :arm_b, :height]
 const HERMITE_WRENCH_INPUTS = [:height, :vel, :arm_a, :arm_b, :force_in,
                                :mass_in, :drag_in]
-const FITTED_INPUTS = [:z1_pos, :z2_pos, :y1_pos, :y2_pos, :origin_pos,
-                       :origin_vel]
+const KINEMATIC_INPUTS = [:z1_pos, :z2_pos, :y1_pos, :y2_pos, :origin_pos,
+                          :origin_vel]
 const WING_NODE_INPUTS = [:force_in, :mass_in, :drag_in, :wing_frame,
                           :wing_velocity]
-# A flap's two frames are nine scalars each, not two vectors: a hinge axis leaves
-# some entries unread, and `mtkcompile` will not take part of a declared array.
+"""A flap's two frames, nine scalars each rather than two vectors: a hinge axis
+leaves some entries unread, and `mtkcompile` will not take part of a declared
+array."""
 const FLAP_INPUTS = [[Symbol(:main_frame_, k) for k in 1:9];
                      [Symbol(:flap_frame_, k) for k in 1:9]]
 const WING_AERO_POSE_INPUTS = [:wing_pos, :wing_frame]
@@ -102,7 +103,7 @@ function classify_points(sys_struct)
         point.type in (STATIC, DYNAMIC) || error(
             "KernelBackend: point $(point.name) has type $(point.type); only " *
             "STATIC, DYNAMIC and BODY_STATIC are supported so far.")
-        wing = fitted_wing_of(sys_struct, point)
+        wing = kinematic_wing_of(sys_struct, point)
         kind = point.type == STATIC ? :anchor : wing == 0 ? :particle : :wing_node
         roles[i] = PointRole(kind, 0, 0, 0, wing, 0)
     end
@@ -151,13 +152,13 @@ function twist_surface_of(sys_struct, idx)
 end
 
 """
-    fitted_wing_of(sys_struct, point) -> Int
+    kinematic_wing_of(sys_struct, point) -> Int
 
 The fitted (`KINEMATIC`) wing whose frame `point` needs, or `0`. `point_eqs!` damps
 *any* DYNAMIC point against its wing's frame, not only aerodynamic surface nodes, so
 a steering or pulley point with `body_frame_damping` needs it too.
 """
-function fitted_wing_of(sys_struct, point)
+function kinematic_wing_of(sys_struct, point)
     idx = point.wing_idx
     (idx > 0 && idx <= length(sys_struct.bodies)) || return 0
     sys_struct.bodies[idx].type == KINEMATIC || return 0
@@ -331,7 +332,7 @@ function assemble(sam; verbose = false)
     end
     for (idx, body) in enumerate(sys_struct.bodies)
         body.type == KINEMATIC || continue
-        wire_fitted_body!(builder, sys_struct, idx, body_instances[idx],
+        wire_kinematic_body!(builder, sys_struct, idx, body_instances[idx],
                           point_instances)
     end
     for (idx, role) in enumerate(point_roles)
@@ -359,8 +360,9 @@ function assemble(sam; verbose = false)
     params, sync = bind_params(system, sys_struct, bindings, segment_roles,
                                segment_instances)
     apply_constants!(params, system, segment_roles, segment_instances)
-    u0 = initial_state(system, sys_struct, point_roles, point_instances,
-                       body_instances, twist_instances)
+    u0 = zeros(SimFloat, system.n_states)
+    initial_state!(u0, system, sys_struct, point_roles, point_instances,
+                   body_instances, twist_instances)
     return KernelModel(system, u0, params, sync, point_instances,
                           wrench_instances, segment_instances, body_instances,
                           point_roles, segment_roles, aero_instances,
@@ -483,7 +485,7 @@ function add_panel_wing_aero!(builder, table, bindings, sam, wing, bodies, point
 end
 
 """
-    add_aero_inflow_points!(builder, table, bindings, sam, nodes, points, body) -> Vector{Int}
+    add_aero_inflow_points!(builder, table, bindings, sam, nodes, points, body)
 
 One [`AeroInflowPoint`](@ref) per structural point of a wing, wired from that point's
 kinematics and its wing body's pose. The kernel reads no per-component field, so every
@@ -634,7 +636,8 @@ end
 Add a `RIGID_DYNAMICS` wing's [`WingAero`](@ref) and wire it: the wing body's pose
 and each of its twist surfaces' angle and rate in, the world wrench about the body
 COM back into the body, and each surface's aerodynamic hinge moment on to that
-surface. Returns the instance.
+surface. Returns the instance. `aero_eqs!` drives every surface's hinge moment
+except a prescribed one with no aero sections, which has nothing to drive it with.
 """
 function add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twists)
     surfaces = wing.twist_surface_idxs
@@ -662,8 +665,6 @@ function add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twist
                  Symbol(:twist_angle_, surface))
         connect!(builder, twists[surface], :twist_vel, instance,
                  Symbol(:twist_vel_, surface))
-        # `aero_eqs!` drives every surface's hinge moment except a prescribed one
-        # with no aero sections, which has nothing to drive it with.
         driven = !(sam.sys_struct.twist_surfaces[surface].type == STATIC &&
                    isempty(sam.sys_struct.twist_surfaces[surface].unrefined_section_idxs))
         driven && connect!(builder, instance, Symbol(:twist_moment_, surface),
@@ -681,7 +682,7 @@ one is clamped, and a `KINEMATIC` one is fitted from reference points.
 """
 function add_body!(builder, table, bindings, sam, idx)
     body = sam.sys_struct.bodies[idx]
-    body.type == KINEMATIC && return add_fitted_body!(builder, table, bindings,
+    body.type == KINEMATIC && return add_kinematic_body!(builder, table, bindings,
                                                       sam, idx)
     body.type in (DYNAMIC, STATIC) || error(
         "KernelBackend: body $(body.name) has type $(body.type); only DYNAMIC, " *
@@ -697,29 +698,29 @@ function add_body!(builder, table, bindings, sam, idx)
 end
 
 """
-    add_fitted_body!(builder, table, bindings, sam, idx) -> Int
+    add_kinematic_body!(builder, table, bindings, sam, idx) -> Int
 
 Add a `KINEMATIC` wing body. It has no state: its frame is fitted from four
 structural reference points and its origin pose read from a fifth, so the whole
 component is wiring. Each reference is a weighted blend of real points, delivered by
 the weights in the [`Wiring`](@ref).
 """
-function add_fitted_body!(builder, table, bindings, sam, idx)
-    entry = kernel!(builder, table, sam, :fitted_body, idx,
-                    params -> KinematicBody(sam, params, idx; name = :fitted_body),
-                    FITTED_INPUTS, BODY_OUTPUTS)
+function add_kinematic_body!(builder, table, bindings, sam, idx)
+    entry = kernel!(builder, table, sam, :kinematic_body, idx,
+                    params -> KinematicBody(sam, params, idx; name = :kinematic_body),
+                    KINEMATIC_INPUTS, BODY_OUTPUTS)
     instance = add_instance!(builder, entry.index)
     push!(bindings, (instance, entry, Dict(:bodies => idx)))
     return instance
 end
 
 """
-    wire_fitted_body!(builder, sys_struct, idx, body_instance, point_instances)
+    wire_kinematic_body!(builder, sys_struct, idx, body_instance, point_instances)
 
 Wire a fitted wing's reference points into it: the four frame references and the
 origin's position and velocity, each a weighted blend of point outputs.
 """
-function wire_fitted_body!(builder, sys_struct, idx, body_instance, point_instances)
+function wire_kinematic_body!(builder, sys_struct, idx, body_instance, point_instances)
     wing = sys_struct.bodies[idx]
     references = ((wing.z_ref_points[1], :z1_pos, :pos),
                   (wing.z_ref_points[2], :z2_pos, :pos),
@@ -871,7 +872,8 @@ Add the two instances a `RIGID_DYNAMICS` wing's structural node needs and wire t
 the [`TwistNodePoint`](@ref) places it from the wing body's pose and its surface's
 twist, the [`TwistNodeWrench`](@ref) sends its load and moment back to the body and
 its bridle couple and mass on to the surface. Returns the node, which is what the
-incident segments connect to.
+incident segments connect to. Only a `DYNAMIC` surface takes the couple; a
+prescribed one holds its twist whatever the nodes pull.
 """
 function add_twist_node!(builder, table, bindings, sam, idx, role, bodies, wrenches,
                          twists)
@@ -913,8 +915,6 @@ function add_twist_node!(builder, table, bindings, sam, idx, role, bodies, wrenc
     if surface > 0 && twists[surface] != 0
         connect!(builder, twists[surface], :twist_angle, node, :twist_angle)
         connect!(builder, twists[surface], :twist_angle, wrench, :twist_angle)
-        # Only a DYNAMIC surface has a hinge to take the couple; a prescribed one
-        # holds its twist whatever the nodes pull.
         if sam.sys_struct.twist_surfaces[surface].type == DYNAMIC
             connect!(builder, wrench, :node_force, twists[surface], :node_force_in)
             connect!(builder, wrench, :node_moment, twists[surface], :node_moment_in)
@@ -1105,7 +1105,6 @@ function bind_params(system, sys_struct, bindings, segment_roles, segment_instan
     slots = Int[]
     readers = Any[]
     callable_targets = Any[]
-    callable_slots = Int[]
     callable_readers = Any[]
     for (instance, entry, index_map) in bindings
         inst = system.instances[instance]
@@ -1118,14 +1117,13 @@ function bind_params(system, sys_struct, bindings, segment_roles, segment_instan
             push!(readers, reader)
         end
         for (slot, reader) in callable_bound
-            push!(callable_targets, callables[inst.kernel][inst.position])
-            push!(callable_slots, slot)
+            push!(callable_targets,
+                  CallableSlot(callables[inst.kernel], inst.position, slot))
             push!(callable_readers, reader)
         end
     end
     retarget_tether_rest_lengths!(readers, segment_roles)
-    sync = KernelParamSync(slots, readers, callable_targets, callable_slots,
-                              callable_readers)
+    sync = KernelParamSync(slots, readers, callable_targets, callable_readers)
     return KernelParams(numeric, callables), sync
 end
 
@@ -1133,9 +1131,10 @@ end
     callable_store(system) -> Tuple
 
 The callable parameters, seeded from each kernel's build-time defaults: one entry
-per kernel, holding one vector per instance of that kernel. Narrowing each vector
-to the defaults' own element type is what keeps a polar call inside a generated
-kernel statically dispatched.
+per kernel, holding one *tuple* per instance of that kernel. The tuple is what
+keeps a polar call inside a generated kernel statically dispatched — a vector would
+widen to the join of the slots' types, and a wing panel's `cl`, `cd` and `cm` are
+three different types, so every coefficient lookup would become a dynamic dispatch.
 """
 function callable_store(system)
     counts = zeros(Int, length(system.kernels))
@@ -1143,8 +1142,8 @@ function callable_store(system)
         counts[inst.kernel] += 1
     end
     return ntuple(length(system.kernels)) do k
-        defaults = identity.(system.kernels[k].callable_defaults)
-        [copy(defaults) for _ in 1:counts[k]]
+        defaults = Tuple(system.kernels[k].callable_defaults)
+        fill(defaults, counts[k])
     end
 end
 
@@ -1192,16 +1191,18 @@ function apply_constants!(params, system, segment_roles, segment_instances)
 end
 
 """
-    initial_state(system, sys_struct, point_roles, point_instances)
+    initial_state!(u0, system, sys_struct, point_roles, point_instances,
+                   body_instances, twist_instances)
 
-The initial state vector: each `DYNAMIC` twist surface's twist and rate, each
-body's principal pose, each particle's `pos`/`vel`, each pulley's split
+Fill `u0` with the initial state: each `DYNAMIC` twist surface's twist and rate,
+each body's principal pose, each particle's `pos`/`vel`, each pulley's split
 `pulley_len`/`pulley_vel` and each winch's `winch_vel` and per-tether lengths, read
-from the struct.
+from the struct. Called again by [`KernelInitialSync`](@ref) whenever a problem is
+reused, so a slot the struct does not reach has to be zeroed here.
 """
-function initial_state(system, sys_struct, point_roles, point_instances,
-                       body_instances, twist_instances)
-    u0 = zeros(SimFloat, system.n_states)
+function initial_state!(u0, system, sys_struct, point_roles, point_instances,
+                        body_instances, twist_instances)
+    fill!(u0, zero(SimFloat))
     for (idx, instance) in enumerate(twist_instances)
         instance == 0 && continue
         surface = sys_struct.twist_surfaces[idx]

@@ -62,22 +62,54 @@ aero_hash_id(mode::ContinuousAero) =
 
 # ==================== polar callable ==================== #
 """
+    AeroHandle(body_aero)
+
+Mutable holder for the live `BodyAerodynamics` a polar reads, and the reason a
+serialized model does not carry one. A polar is a callable parameter, so its
+concrete type is baked into the parameter store and into what the solver
+specialized on and has to survive a round trip — but its contents are dead weight,
+because `sync_params!` rebinds every polar from the `SystemStructure` before the
+problem is evaluated. Serializing the holder empty keeps the type and drops the
+wing's whole Cp/cf surface tables, which were 2.4 GB of bin on SK100. It is
+undefined between `deserialize` and that sync, and reading it there is a bug.
+"""
+mutable struct AeroHandle{BA}
+    body_aero::BA
+    AeroHandle{BA}() where {BA} = new{BA}()
+    AeroHandle(body_aero::BA) where {BA} = new{BA}(body_aero)
+end
+
+function Serialization.serialize(s::Serialization.AbstractSerializer,
+                                 handle::AeroHandle)
+    Serialization.serialize_type(s, typeof(handle))
+    return nothing
+end
+
+Serialization.deserialize(s::Serialization.AbstractSerializer,
+                          ::Type{AeroHandle{BA}}) where {BA} = AeroHandle{BA}()
+
+"""
     ContinuousPolar(body_aero, coef)
 
 Callable polar for [`ContinuousAero`](@ref), used as a callable flat parameter
 `p(panel_idx, α)`: looks up refined panel `panel_idx` and evaluates the VSM
 coefficient function `coef` (`calculate_cl`/`calculate_cd`/`calculate_cm`) at
 angle of attack `α`. The panel is typeasserted concrete so the polar dispatches
-statically with no boxing in the compiled RHS; `ForwardDiff.Dual`-safe in `α`.
+statically with no boxing in the compiled RHS; `ForwardDiff.Dual`-safe in `α`. The
+aerodynamics is held through an [`AeroHandle`](@ref) so that serializing the polar
+does not serialize the wing.
 """
 struct ContinuousPolar{BA, F}
-    body_aero::BA
+    handle::AeroHandle{BA}
     coef::F
 end
+ContinuousPolar(body_aero, coef) = ContinuousPolar(AeroHandle(body_aero), coef)
+
 (p::ContinuousPolar)(panel_idx, alpha) = p.coef(
-    p.body_aero.panels[round(Int, panel_idx)]::VortexStepMethod.Panel{SimFloat}, alpha)
+    p.handle.body_aero.panels[round(Int, panel_idx)]::VortexStepMethod.Panel{SimFloat},
+    alpha)
 (p::ContinuousPolar)(panel_idx, alpha, delta) = p.coef(
-    p.body_aero.panels[round(Int, panel_idx)]::VortexStepMethod.Panel{SimFloat},
+    p.handle.body_aero.panels[round(Int, panel_idx)]::VortexStepMethod.Panel{SimFloat},
     alpha, delta)
 
 # ==================== mesh maps ==================== #

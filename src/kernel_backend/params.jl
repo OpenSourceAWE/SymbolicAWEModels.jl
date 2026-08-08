@@ -19,8 +19,8 @@ The parameter object the assembled `ODEProblem` carries. `numeric` is the flat
 buffer the generated kernels index — its layout is ours, `(instance, slot) → flat
 index`, so the same field read on two instances can never collide. `callables`
 holds the polars and rigidity laws, which cannot live in a numeric buffer: one
-entry per kernel, each a vector of that kernel's instances' callables, so the
-element type stays concrete and calling a polar dispatches statically.
+entry per kernel, each a vector holding one instance's callables per element as a
+tuple, so every slot keeps its own type and calling a polar dispatches statically.
 """
 struct KernelParams{C <: Tuple}
     numeric::Vector{SimFloat}
@@ -28,13 +28,32 @@ struct KernelParams{C <: Tuple}
 end
 
 """
-    KernelParamSync(slots, readers, callable_targets, callable_slots,
-                       callable_readers)
+    CallableSlot(store, position, slot)
+
+One instance's callable at `slot`, as an address that can be written. `store` is
+its kernel's per-instance callable tuples and `position` the instance's index among
+them. The write goes through `Base.setindex` because the tuple is immutable — and
+it is a tuple rather than a vector so that each slot keeps its own concrete type.
+"""
+struct CallableSlot{S}
+    store::S
+    position::Int
+    slot::Int
+end
+
+"""Put `value` in the slot `target` addresses."""
+function write_callable!(target::CallableSlot, value)
+    target.store[target.position] =
+        Base.setindex(target.store[target.position], value, target.slot)
+    return nothing
+end
+
+"""
+    KernelParamSync(slots, readers, callable_targets, callable_readers)
 
 Copies live `SystemStructure` fields into a [`KernelParams`](@ref):
-`readers[k](sys_struct)` supplies `numeric[slots[k]]`, and a callable is written
-into `callable_targets[k][callable_slots[k]]` — the instance's own callable vector,
-held directly so the write needs no index arithmetic. This is the
+`readers[k](sys_struct)` supplies `numeric[slots[k]]`, and `callable_readers[k]`
+supplies the callable at the address `callable_targets[k]`. This is the
 [`KernelBackend`](@ref)'s parameter sync, applied every step through the same
 `ProbWithAttributes` machinery as the monolith's.
 """
@@ -42,7 +61,6 @@ struct KernelParamSync
     slots::Vector{Int}
     readers::Vector{Any}
     callable_targets::Vector{Any}
-    callable_slots::Vector{Int}
     callable_readers::Vector{Any}
 end
 
@@ -51,10 +69,30 @@ function sync_params!(sync::KernelParamSync, target, sys_struct::SystemStructure
     @inbounds for k in eachindex(sync.slots)
         numeric[sync.slots[k]] = sync.readers[k](sys_struct)
     end
-    for k in eachindex(sync.callable_slots)
-        sync.callable_targets[k][sync.callable_slots[k]] =
-            sync.callable_readers[k](sys_struct)
+    for k in eachindex(sync.callable_targets)
+        write_callable!(sync.callable_targets[k],
+                        sync.callable_readers[k](sys_struct))
     end
+    return nothing
+end
+
+"""
+    KernelInitialSync(model)
+
+Pushes the struct's initial conditions onto a problem's `u0`, the
+[`KernelBackend`](@ref)'s counterpart of the monolith's `InitialSync`. It exists for
+the same reason: a serialized problem carries the state its build-time struct had,
+and the model hash is structural, so the same bin is reused for another set of
+positions and rest lengths.
+"""
+struct KernelInitialSync{M}
+    model::M
+end
+
+function sync_initial!(sync::KernelInitialSync, prob, sys_struct::SystemStructure)
+    model = sync.model
+    initial_state!(prob.u0, model.system, sys_struct, model.point_roles,
+                   model.point_instances, model.body_instances, model.twist_instances)
     return nothing
 end
 

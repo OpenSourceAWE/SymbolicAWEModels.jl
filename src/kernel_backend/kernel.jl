@@ -8,7 +8,8 @@ Name → position map for one of a kernel's buffers. Array-valued symbolics are
 scalarized before codegen, so `pos(t)[2]` is stored under `:pos_2`; the *group*
 `:pos` additionally resolves to all of `pos_1 … pos_n` in order, which is how a
 whole vector is wired in one call. A name that carries no trailing index is its
-own one-element group.
+own one-element group. A group is ordered by the element index its name carries,
+never by buffer position, because simplification reorders variables freely.
 """
 struct SlotMap
     names::Vector{Symbol}
@@ -24,8 +25,6 @@ function SlotMap(symbols)
         base, component = group_name(name)
         base === name || push!(get!(members, base, Tuple{Int, Int}[]), (component, k))
     end
-    # Simplification reorders a component's variables freely, so a group is sorted
-    # by the element index its name carries, never by buffer position.
     groups = Dict(base => [slot for (_, slot) in sort!(entries)]
                   for (base, entries) in members)
     return SlotMap(names, index, groups)
@@ -69,14 +68,39 @@ has_slot(map::SlotMap, name::Symbol) =
     haskey(map.index, name) || haskey(map.groups, name)
 
 """
+    KernelReads(output_input, output_state, dstate_input, dstate_state)
+
+Which of a kernel's inputs and states each of its outputs, and each of its state
+derivatives, actually reads, as slot lists. This is the component's own Jacobian
+sparsity; walked out through the wiring it gives the model's
+([`state_dependencies`](@ref)), and collapsed to one bool per input it gives the
+[`ComponentKernel`](@ref)'s `input_feeds_output`.
+"""
+struct KernelReads
+    output_input::Vector{Vector{Int}}
+    output_state::Vector{Vector{Int}}
+    dstate_input::Vector{Vector{Int}}
+    dstate_state::Vector{Vector{Int}}
+end
+
+"""Whether each of `count` inputs is read by any output of a kernel with `reads`."""
+function feeds_output(reads::KernelReads, count::Int)
+    feeds = zeros(Bool, count)
+    for slots in reads.output_input
+        feeds[slots] .= true
+    end
+    return feeds
+end
+
+"""
     ComponentKernel
 
 One compiled component *type*. `rhs!(dstate, state, input, param, callable, t)`
 integrates the component's own states and is `nothing` for a stateless component;
 `out!` writes its declared outputs and `obs!` its remaining observed variables, both
-with the same argument list. The `SlotMap`s name each buffer's positions, and
-`input_feeds_output` marks the inputs `out!` actually reads — the only thing the
-schedule needs to know about the component's internal dependencies.
+with the same argument list. The `SlotMap`s name each buffer's positions,
+`input_feeds_output` marks the inputs `out!` reads — all the schedule needs to know
+about the component's internal dependencies — and `reads` resolves that per slot.
 """
 struct ComponentKernel{F, G, O, M}
     name::Symbol
@@ -93,6 +117,7 @@ struct ComponentKernel{F, G, O, M}
     param_defaults::Vector{SimFloat}
     callable_defaults::Vector{Any}
     input_feeds_output::Vector{Bool}
+    reads::KernelReads
 end
 
 """
@@ -121,8 +146,11 @@ function compile_kernel(system, inputs, outputs; name = nameof(system),
     gen = KernelCodegen.generate_io_function(system, inputs, outputs; verbose)
     defaults = SimFloat[required_default(name, param, value)
                         for (param, value) in zip(gen.params, gen.param_defaults)]
+    reads = KernelReads(gen.reads.output_input, gen.reads.output_state,
+                        gen.reads.dstate_input, gen.reads.dstate_state)
     return ComponentKernel(name, gen.f, gen.g, gen.obs, gen.mass_matrix,
         SlotMap(gen.states), SlotMap(gen.inputs), SlotMap(gen.outputs),
         SlotMap(gen.obsstates), SlotMap(gen.params), SlotMap(gen.callable_params),
-        defaults, Vector{Any}(gen.callable_defaults), gen.input_feeds_output)
+        defaults, Vector{Any}(gen.callable_defaults),
+        feeds_output(reads, length(gen.inputs)), reads)
 end
