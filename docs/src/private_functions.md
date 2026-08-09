@@ -472,6 +472,7 @@ KiteUtils.Logger(::SymbolicAWEModel, ::Int64)
 ```@docs
 SymbolicAWEModels.KernelCodegen
 SymbolicAWEModels.KernelCodegen.generate_io_function
+SymbolicAWEModels.KernelCodegen.compile_batched
 SymbolicAWEModels.KernelCodegen.simplify_with_mtkcompile
 SymbolicAWEModels.KernelCodegen.drop_unused_inputs
 SymbolicAWEModels.KernelCodegen.io_array_base
@@ -536,13 +537,12 @@ SymbolicAWEModels.read_slots
 SymbolicAWEModels.run_layers!
 SymbolicAWEModels.run_batches!
 SymbolicAWEModels.dispatch_batch!
-SymbolicAWEModels.run_batch!
 SymbolicAWEModels.produces_output
 SymbolicAWEModels.batch_by_kernel
 SymbolicAWEModels.active_batches
-SymbolicAWEModels.output_call
-SymbolicAWEModels.derivative_call
-SymbolicAWEModels.observable_call
+SymbolicAWEModels.output_map
+SymbolicAWEModels.derivative_map
+SymbolicAWEModels.observable_map
 SymbolicAWEModels.refresh_outputs!
 SymbolicAWEModels.ScaledReader
 SymbolicAWEModels.kernel_param_slots

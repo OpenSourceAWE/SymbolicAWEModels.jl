@@ -763,24 +763,65 @@ function param_default_value(defaults, p)
 end
 
 """
+    compile_batched(func_expr, target_field) -> RuntimeGeneratedFunction
+
+Wrap a `build_function` expression in a loop over component instances, giving
+
+    (target, u, input, numeric, callables, instances, batch, t)
+
+which writes `target[inst.target_field]` for every instance named in `batch`.
+`target_field` is `:states` for a state-derivative map, `:outputs` for an output map
+and `:observables` for an observed map.
+
+The body appears once, so what is compiled grows with the number of component
+*types*, not with the number of instances. Calling the scalar body once per instance
+instead leaves a call boundary the compiler declines to remove — kernel bodies are
+too large for it to inline, and the argument views are then built on the far side of
+a real call.
+"""
+function compile_batched(func_expr, target_field::Symbol)
+    out, state, input, param, callable, iv = func_expr.args[1].args
+    body = func_expr.args[2]
+    target, u, buffer, numeric, callables, instances, batch, index, inst =
+        gensym.((:target, :u, :input, :numeric, :callables, :instances, :batch,
+                 :index, :instance))
+    loop = quote
+        Base.@inbounds for $index in $batch
+            $inst = $instances[$index]
+            $out = Base.view($target, $inst.$target_field)
+            $state = Base.view($u, $inst.states)
+            $input = Base.view($buffer, $inst.inputs)
+            $param = Base.view($numeric, $inst.params)
+            $callable = $callables[$inst.position]
+            $body
+        end
+        nothing
+    end
+    signature = Expr(:tuple, target, u, buffer, numeric, callables, instances,
+                     batch, iv)
+    return Symbolics._build_and_inject_function(Symbolics,
+                                                Expr(:function, signature, loop))
+end
+
+"""
     generate_io_function(sys, inputs, outputs; verbose=false, cse=true)
 
 Compile `sys` into the callables one component type needs. `inputs` and `outputs`
 name variables of `sys` (array-valued ones are scalarized). Returns a named tuple:
 
-- `f(dstate, state, input, param, callables, t)` — state derivatives, `nothing`
-  when the component has no state
-- `g(output, state, input, param, callables, t)` — the declared outputs
-- `obs(buffer, state, input, param, callables, t)` — every remaining observed
-  variable, `nothing` when there are none
+- `f` — state derivatives, `nothing` when the component has no state
+- `g` — the declared outputs
+- `obs` — every remaining observed variable, `nothing` when there are none
 - `mass_matrix`, and the symbolic `states`, `inputs`, `outputs`, `obsstates`,
   `params`, `callable_params` in the order the buffers use
 - `reads`, which inputs and states each output and each state derivative depends
   on, as [`dependency_indices`](@ref) lists
 
-All three callables take the same argument list — unlike upstream, where the
-argument list varies with the feedforward type, because scheduling here is the
-caller's job.
+All three callables take the same argument list,
+`(target, u, input, numeric, callables, instances, batch, t)`, and run over every
+instance named in `batch`, as [`compile_batched`](@ref) wraps them — unlike upstream,
+where the argument list varies with the feedforward type, because scheduling here is
+the caller's job.
 """
 function generate_io_function(sys, inputs, outputs; verbose=false, cse=true)
     allinputs = convert(Vector{ST},
@@ -839,13 +880,15 @@ function generate_io_function(sys, inputs, outputs; verbose=false, cse=true)
     numeric_params = filter(!is_nonnumeric_param, params)
     args = (states, allinputs, numeric_params, callable_params, iv)
 
-    compile(formulas) = last(build_function(formulas, args...;
-                                            cse, expression = Val{false}))
-    f = isempty(eqs) ? nothing : compile(_get_formulas(eqs, obs_subs))
-    g = compile(_get_formulas(outeqs, obs_subs))
+    compile(formulas, target_field) =
+        compile_batched(last(build_function(formulas, args...;
+                                            cse, expression = Val{true})),
+                        target_field)
+    f = isempty(eqs) ? nothing : compile(_get_formulas(eqs, obs_subs), :states)
+    g = compile(_get_formulas(outeqs, obs_subs), :outputs)
     obsstates = [eq.lhs for eq in obseqs_sorted]
     obs = isempty(obsstates) ? nothing :
-        compile(_get_formulas([s ~ s for s in obsstates], obs_subs))
+        compile(_get_formulas([s ~ s for s in obsstates], obs_subs), :observables)
 
     return (; f, g, obs, mass_matrix, states, inputs = allinputs,
             outputs = alloutputs, obsstates, reads,

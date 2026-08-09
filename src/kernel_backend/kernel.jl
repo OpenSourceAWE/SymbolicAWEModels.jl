@@ -95,10 +95,11 @@ end
 """
     ComponentKernel
 
-One compiled component *type*. `rhs!(dstate, state, input, param, callable, t)`
-integrates the component's own states and is `nothing` for a stateless component;
-`out!` writes its declared outputs and `obs!` its remaining observed variables, both
-with the same argument list. The `SlotMap`s name each buffer's positions,
+One compiled component *type*. All three maps take
+`(target, u, input, numeric, callables, instances, batch, t)` and run over every
+instance named in `batch`: `rhs!` integrates the component's own states and is
+`nothing` for a stateless component, `out!` writes its declared outputs and `obs!`
+its remaining observed variables. The `SlotMap`s name each buffer's positions,
 `input_feeds_output` marks the inputs `out!` reads — all the schedule needs to know
 about the component's internal dependencies — and `reads` resolves that per slot.
 """

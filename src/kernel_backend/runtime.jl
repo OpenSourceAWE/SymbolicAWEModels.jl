@@ -626,7 +626,7 @@ function (rhs::KernelRHS)(du, u, p, t)
     system = rhs.system
     scratch = buffers(rhs, eltype(u))
     run_layers!(system, scratch, u, p, t)
-    run_batches!(derivative_call, system.kernels, system.state_active,
+    run_batches!(derivative_map, system.kernels, system.state_active,
                  system.state_batches, p.callables, system.instances, scratch.input,
                  du, u, p.numeric, t)
     return nothing
@@ -641,7 +641,7 @@ function run_layers!(system::KernelSystem, scratch, u, p, t)
     numeric = p.numeric
     for (index, layer) in enumerate(system.layers)
         gather!(input, output, system.wiring, system.layer_inputs[index])
-        run_batches!(output_call, system.kernels, system.layer_active[index], layer,
+        run_batches!(output_map, system.kernels, system.layer_active[index], layer,
                      p.callables, instances, input, output, u, numeric, t)
     end
     gather!(input, output, system.wiring, system.final_inputs)
@@ -649,10 +649,10 @@ function run_layers!(system::KernelSystem, scratch, u, p, t)
 end
 
 """
-    run_batches!(call, kernels, active, batches, callables, instances, input, target,
-                 u, numeric, t)
+    run_batches!(select, kernels, active, batches, callables, instances, input,
+                 target, u, numeric, t)
 
-Apply `call` to every instance of every kernel that has work, one batch at a time.
+Run the map `select` picks out of every kernel that has work, one batch at a time.
 `active` holds the positions of the non-empty batches, so a kernel idle in this
 pass costs nothing; walking the kernel tuple instead cost a call frame per kernel
 per pass, which on a real model was most of the right-hand side.
@@ -664,82 +664,47 @@ and it put a 7751-character type on a call the compiler then declined to inline 
 6640 bytes of tuple copied per call. Passing the arrays made the same work 2.9×
 cheaper.
 """
-function run_batches!(call::C, kernels::Tuple, active::Vector{Int}, batches,
+function run_batches!(select::C, kernels::Tuple, active::Vector{Int}, batches,
                       callables::Tuple, instances::Vector{ComponentInstance}, input,
                       target, u, numeric, t) where {C}
     for k in active
-        dispatch_batch!(call, kernels, callables, batches, k, instances, input,
+        dispatch_batch!(select, kernels, callables, batches, k, instances, input,
                         target, u, numeric, t)
     end
     return nothing
 end
 
 """
-    dispatch_batch!(call, kernels, callables, batches, k, instances, input, target,
+    dispatch_batch!(select, kernels, callables, batches, k, instances, input, target,
                     u, numeric, t)
 
 Run batch `k` with the types its entries have. The kernels differ in type, so
 indexing the tuple at a position only known at run time would erase that type and
 copy the entry into a box; a ladder of comparisons against literal positions keeps
-every call to [`run_batch!`](@ref) concrete instead, at a handful of integer
-compares per batch.
+every call concrete instead, at a handful of integer compares per batch.
 """
-@generated function dispatch_batch!(call, kernels::NTuple{N, Any}, callables,
+@generated function dispatch_batch!(select, kernels::NTuple{N, Any}, callables,
                                     batches, k::Int, instances, input, target, u,
                                     numeric, t) where {N}
     body = :(return nothing)
     for i in N:-1:1
         body = Expr(:if, :(k == $i),
-                    :(return run_batch!(call, kernels[$i], callables[$i],
-                                        batches[$i], instances, input, target,
-                                        u, numeric, t)),
+                    :(return select(kernels[$i])(target, u, input, numeric,
+                                                 callables[$i], instances,
+                                                 batches[$i], t)),
                     body)
     end
     return body
 end
 
-"""
-    run_batch!(call, kernel, values, batch, instances, input, target, u, numeric, t)
+"""The map writing a kernel's declared outputs."""
+output_map(kernel::ComponentKernel) = kernel.out!
 
-Apply `call` to one kernel's instances, with the per-instance calls statically
-dispatched. `@noinline` so that one body is shared by every batch of this kernel
-rather than copied into each caller.
-"""
-@noinline function run_batch!(call::C, kernel::ComponentKernel, values, batch,
-                              instances::Vector{ComponentInstance}, input, target, u,
-                              numeric, t) where {C}
-    @inbounds for i in batch
-        call(kernel, values, instances[i], input, target, u, numeric, t)
-    end
-    return nothing
-end
+"""The map writing a kernel's state derivatives."""
+derivative_map(kernel::ComponentKernel) = kernel.rhs!
 
-"""Write one instance's declared outputs into `target`."""
-function output_call(kernel::ComponentKernel, callables, inst, input, target, u,
-                     numeric, t)
-    kernel.out!(view(target, inst.outputs), view(u, inst.states),
-                view(input, inst.inputs), view(numeric, inst.params),
-                callables[inst.position], t)
-    return nothing
-end
-
-"""Write one instance's state derivatives into `target`."""
-function derivative_call(kernel::ComponentKernel, callables, inst, input, target, u,
-                         numeric, t)
-    kernel.rhs!(view(target, inst.states), view(u, inst.states),
-                view(input, inst.inputs), view(numeric, inst.params),
-                callables[inst.position], t)
-    return nothing
-end
-
-"""Write one instance's remaining observed variables into `target`."""
-function observable_call(kernel::ComponentKernel, callables, inst, input, target, u,
-                         numeric, t)
-    kernel.obs!(view(target, inst.observables), view(u, inst.states),
-                view(input, inst.inputs), view(numeric, inst.params),
-                callables[inst.position], t)
-    return nothing
-end
+"""The map writing a kernel's remaining observed variables."""
+observable_map(kernel::ComponentKernel) = kernel.obs!
 
 """
     refresh_outputs!(rhs, u, p, t) -> KernelBuffers
@@ -752,7 +717,7 @@ function refresh_outputs!(rhs::KernelRHS, u, p, t)
     system = rhs.system
     scratch = buffers(rhs, eltype(u))
     run_layers!(system, scratch, u, p, t)
-    run_batches!(observable_call, system.kernels, system.observable_active,
+    run_batches!(observable_map, system.kernels, system.observable_active,
                  system.observable_batches, p.callables, system.instances,
                  scratch.input, scratch.observable, u, p.numeric, t)
     return scratch
