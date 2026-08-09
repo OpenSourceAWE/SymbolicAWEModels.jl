@@ -53,9 +53,11 @@ at the first `init!` than it saves.
 
 The [`KernelBackend`](@ref) takes `AutoForwardDiff()`. Its right-hand side is small
 per-kernel functions and `buffers` already keeps a scratch set per element type, so
-the second compilation is cheap — and on SK100 a dense finite-difference Jacobian over
-1305 states is 1306 evaluations against forward mode's ~126, which measured 1.42× on
-the wall clock of a step.
+the `Dual` specialization is one more compilation of each kernel rather than of one
+enormous function. It is not free, but the first solve repays it: on SK100 a dense
+finite-difference Jacobian over 1305 states is 1306 evaluations against forward
+mode's ~126, which measured 87.8 s against 212.4 s for `init!` and 1.42× on the wall
+clock of a step.
 """
 default_autodiff(::ModelBackend) = AutoFiniteDiff()
 default_autodiff(::KernelBackend) = AutoForwardDiff()
