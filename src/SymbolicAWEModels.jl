@@ -30,7 +30,7 @@ using SymbolicIndexingInterface
 using SymbolicIndexingInterface: AbstractIndexer
 
 # --- Solvers (Nonlinear, Differential Equations) ---
-using ADTypes: AutoFiniteDiff
+using ADTypes: AutoFiniteDiff, AutoForwardDiff
 using NonlinearSolve
 using OrdinaryDiffEqBDF
 using OrdinaryDiffEqCore

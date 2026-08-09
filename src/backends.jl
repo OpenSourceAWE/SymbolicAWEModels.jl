@@ -42,6 +42,24 @@ loading.
 backend_tag(::ModelBackend) = ""
 backend_tag(::KernelBackend) = "_kernel"
 
+"""
+    default_autodiff(backend)
+
+How [`init!`](@ref) differentiates the right-hand side for the solver's Jacobian.
+
+The [`MonolithBackend`](@ref) takes `AutoFiniteDiff()`: forward mode would compile its
+single enormous right-hand side a second time, at `ForwardDiff.Dual`, which costs more
+at the first `init!` than it saves.
+
+The [`KernelBackend`](@ref) takes `AutoForwardDiff()`. Its right-hand side is small
+per-kernel functions and `buffers` already keeps a scratch set per element type, so
+the second compilation is cheap — and on SK100 a dense finite-difference Jacobian over
+1305 states is 1306 evaluations against forward mode's ~126, which measured 1.42× on
+the wall clock of a step.
+"""
+default_autodiff(::ModelBackend) = AutoFiniteDiff()
+default_autodiff(::KernelBackend) = AutoForwardDiff()
+
 const DEFAULT_BACKEND = Ref{ModelBackend}(MonolithBackend())
 
 """

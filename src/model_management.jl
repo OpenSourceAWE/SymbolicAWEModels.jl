@@ -502,9 +502,8 @@ return a freshly initialized `ODEIntegrator`.
 - `solver`, `adaptive`: ODE solver and time-stepping mode. `solver=nothing` picks
   a default from `sam.set.solver`.
 - `autodiff`: automatic-differentiation choice for the default solver's Jacobian.
-  Defaults to `AutoFiniteDiff()`, which skips re-compiling the (large) RHS at
-  `ForwardDiff.Dual` types — a big first-`init!` compile saving with negligible
-  runtime cost on these stiff systems. Ignored when `solver` is passed explicitly.
+  Defaults to [`default_autodiff`](@ref) of the backend. Ignored when `solver` is
+  passed explicitly.
 - `prn`: print progress messages.
 - `remake`: force a full rebuild, ignoring any cached compiled model. Defaults to
   `nothing`, which rebuilds automatically when a custom winch/aero component is
@@ -532,7 +531,7 @@ return a freshly initialized `ODEIntegrator`.
   dense builds are cached separately rather than shadowing each other.
 """
 function init!(sam::SymbolicAWEModel;
-    solver=nothing, autodiff=AutoFiniteDiff(), adaptive=true, prn=true,
+    solver=nothing, autodiff=default_autodiff(sam.backend), adaptive=true, prn=true,
     remake=nothing, reload=false,
     outputs=nothing,
     create_prob::Bool=true,
