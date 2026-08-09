@@ -165,8 +165,12 @@ Serialization.serialize(::Serialization.AbstractSerializer, ::SymbolicAWEModels.
 ```@docs
 SymbolicAWEModels.get_field_or_nothing
 SymbolicAWEModels.convert_to_type
-SymbolicAWEModels.resolve_references
-SymbolicAWEModels.calculate_derived_properties!
+SymbolicAWEModels.substitute_variables
+SymbolicAWEModels.resolve_variable!
+SymbolicAWEModels.check_variable_names
+SymbolicAWEModels.expand_multi_variable_row
+SymbolicAWEModels.expand_multi_variables
+SymbolicAWEModels.resolve_yaml_variables
 SymbolicAWEModels.extract_args
 SymbolicAWEModels.call_yaml_constructor
 SymbolicAWEModels.parse_tether_init
@@ -175,7 +179,7 @@ SymbolicAWEModels.yaml_block_empty
 SymbolicAWEModels.yaml_vec3
 SymbolicAWEModels.yaml_matrix3
 SymbolicAWEModels.yaml_ref_field
-SymbolicAWEModels.load_property_table
+SymbolicAWEModels.yaml_float_or_nan
 SymbolicAWEModels.load_yaml_bodies
 SymbolicAWEModels.load_yaml_joints
 ```
@@ -183,6 +187,7 @@ SymbolicAWEModels.load_yaml_joints
 ## SystemStructure internals
 
 ```@docs
+SymbolicAWEModels.resolve_material
 SymbolicAWEModels.segment_cad_length
 SymbolicAWEModels.segment_world_length
 SymbolicAWEModels.tether_ordered_point_idxs
@@ -438,6 +443,19 @@ SymbolicAWEModels.missing_param_defaults
 SymbolicAWEModels.sync_initial!
 SymbolicAWEModels.normalize_param_name
 SymbolicAWEModels.missing_param_defaults
+```
+
+## Inflated-tube rigidity internals
+
+```@docs
+SymbolicAWEModels.BREUKELS_BENDING
+SymbolicAWEModels.BREUKELS_COLLAPSE
+SymbolicAWEModels.BREUKELS_TORSION
+SymbolicAWEModels.comer_levy_h
+SymbolicAWEModels.comer_levy_n
+SymbolicAWEModels.comer_levy_point
+SymbolicAWEModels.comer_levy_sample_curve
+SymbolicAWEModels.fit_bending_law
 ```
 
 ## Other internals

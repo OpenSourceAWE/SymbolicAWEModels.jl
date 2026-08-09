@@ -1239,3 +1239,34 @@ function write_total_mass!(sys_struct::SystemStructure)
     end
     return nothing
 end
+
+"""
+    frame_quaternion(x_dir, ref) -> Vector{Float64}
+
+Quaternion of the right-handed frame with `x̂` along `x_dir` and `ẑ` along the
+component of `ref` orthogonal to `x̂` (`ref` must not be parallel to `x_dir`).
+"""
+function frame_quaternion(x_dir, ref)
+    x_axis = normalize(Vector{Float64}(x_dir))
+    ref_vec = Vector{Float64}(ref)
+    z_axis = normalize(ref_vec - (ref_vec ⋅ x_axis) * x_axis)
+    y_axis = z_axis × x_axis
+    return rotation_matrix_to_quaternion(hcat(x_axis, y_axis, z_axis))
+end
+
+"""
+    frame_quaternion_xy(x_dir, y_ref) -> Vector{Float64}
+
+Quaternion of the right-handed frame with `x̂` along `x_dir` (kept exact) and `ŷ`
+along the component of `y_ref` orthogonal to `x̂`, so `ẑ = x̂ × ŷ`. Use when the
+primary axis is `x` — e.g. a node body whose `x̂` is the strut/chord direction and
+`ŷ` the in-plane span, matching `flap_axis=[0,1,0]`. `y_ref` must not be parallel
+to `x_dir`.
+"""
+function frame_quaternion_xy(x_dir, y_ref)
+    x_axis = normalize(Vector{Float64}(x_dir))
+    y_vec = Vector{Float64}(y_ref)
+    y_axis = normalize(y_vec - (y_vec ⋅ x_axis) * x_axis)
+    z_axis = x_axis × y_axis
+    return rotation_matrix_to_quaternion(hcat(x_axis, y_axis, z_axis))
+end

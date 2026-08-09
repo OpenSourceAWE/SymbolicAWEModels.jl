@@ -71,6 +71,14 @@ export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, Abs
 export ObjAdapter
 export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints
+# Inflated-tube rigidity laws for beam joints
+export TubeRigidityLaw, TUBE_SHEAR_COEFF, TUBE_POISSON_RATIO
+export tube_torsion_law, tube_linear_rigidities, tube_bending_law, tube_mass
+export breukels_tip_force, breukels_collapse_deflection, breukels_membrane_stiffness
+export comer_levy_bending_law, comer_levy_bending_stiffness,
+       comer_levy_wrinkling_moment, comer_levy_collapse_moment
+export membrane_linear_rigidities
+export frame_quaternion, frame_quaternion_xy
 # Enums
 export DynamicsType, DYNAMIC, STATIC, BODY_STATIC, KINEMATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE

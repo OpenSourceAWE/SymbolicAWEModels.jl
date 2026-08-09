@@ -641,8 +641,75 @@ function Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter;
 end
 
 """
-    Segment(name, set, point_i, point_j; l0, compression_frac,
-            diameter_mm, unit_stiffness, unit_damping)
+    resolve_material(label, set; diameter_m, unit_stiffness, unit_damping,
+                     density, youngs_modulus, damping_per_stiffness)
+
+Complete the elastic properties of a spring element, returning
+`(diameter_m, unit_stiffness, unit_damping, density)`.
+
+`unit_stiffness` [N] and `unit_damping` [N·s] scale with the cross section, so
+they describe one element rather than a material. A material shared by elements
+of different diameter is given as `youngs_modulus` [Pa] and
+`damping_per_stiffness` [s] instead:
+`unit_stiffness = youngs_modulus·π(d/2)²` and
+`unit_damping = damping_per_stiffness·unit_stiffness`. Giving both forms of the
+same quantity is an error. What is left `NaN` comes from `set` (`d_tether`,
+`rho_tether`, `e_tether`, `rel_damping`). A callable `unit_stiffness`
+(nonlinear force law) needs an explicit `unit_damping`.
+"""
+function resolve_material(label, set; diameter_m=NaN, unit_stiffness=NaN,
+    unit_damping=NaN, density=NaN, youngs_modulus=NaN,
+    damping_per_stiffness=NaN
+)
+    isnan(diameter_m) && (diameter_m = 0.001 * set.d_tether)
+    isnan(density) && (density = set.rho_tether)
+    area = π * (diameter_m / 2)^2
+
+    if !isnan(youngs_modulus)
+        (!(unit_stiffness isa Real) || !isnan(unit_stiffness)) &&
+            error("$label: give either `unit_stiffness` or " *
+                  "`youngs_modulus`, not both.")
+        unit_stiffness = youngs_modulus * area
+    elseif unit_stiffness isa Real && isnan(unit_stiffness)
+        unit_stiffness = set.e_tether * area
+    end
+
+    if !isnan(damping_per_stiffness)
+        isnan(unit_damping) ||
+            error("$label: give either `unit_damping` or " *
+                  "`damping_per_stiffness`, not both.")
+        unit_stiffness isa Real ||
+            error("$label: `damping_per_stiffness` needs a linear " *
+                  "`unit_stiffness`.")
+        unit_damping = damping_per_stiffness * unit_stiffness
+    elseif isnan(unit_damping)
+        if !(unit_stiffness isa Real)
+            error("$label: unit_damping must be given explicitly " *
+                  "when unit_stiffness is a nonlinear force law.")
+        elseif hasproperty(set, :rel_damping) &&
+                set.rel_damping != 0.0
+            unit_damping = set.rel_damping * unit_stiffness
+        elseif hasproperty(set, :unit_damping) &&
+                hasproperty(set, :unit_stiffness) &&
+                set.unit_damping != 0.0
+            unit_damping = (set.unit_damping /
+                set.unit_stiffness) * unit_stiffness
+        else
+            @warn "$label: unit_damping is zero " *
+                "(no rel_damping or unit_damping in settings)."
+            unit_damping = 0.0
+        end
+    end
+
+    stiff = unit_stiffness isa Real ? SimFloat(unit_stiffness) : unit_stiffness
+    return SimFloat(diameter_m), stiff, SimFloat(unit_damping),
+        SimFloat(density)
+end
+
+"""
+    Segment(name, set, point_i, point_j; l0, compression_frac, diameter_mm,
+            unit_stiffness, unit_damping, density, youngs_modulus,
+            damping_per_stiffness)
 
 Constructs a `Segment` using settings for material properties.
 
@@ -665,55 +732,29 @@ Constructs a `Segment` using settings for material properties.
   Effective c = unit_damping/length.
 - `density::Float64=NaN`: Material density [kg/m³]. If `NaN`,
   uses `set.rho_tether`.
+- `youngs_modulus::Float64=NaN`: Diameter-independent alternative to
+  `unit_stiffness` [Pa]. See [`resolve_material`](@ref).
+- `damping_per_stiffness::Float64=NaN`: Diameter-independent alternative
+  to `unit_damping` [s].
 """
 function Segment(name, set, point_i, point_j;
     l0=zero(SimFloat), compression_frac=0.0,
     diameter_mm=NaN, unit_stiffness=NaN,
-    unit_damping=NaN, density=NaN
+    unit_damping=NaN, density=NaN, youngs_modulus=NaN,
+    damping_per_stiffness=NaN
 )
     p1 = point_i isa Integer ? Int(point_i) : Symbol(point_i)
     p2 = point_j isa Integer ? Int(point_j) : Symbol(point_j)
 
-    # Set default diameter from settings if not specified
-    if isnan(diameter_mm)
-        diameter_mm = set.d_tether
-    end
-    # Convert diameter from mm to m
-    diameter_m = 0.001 * diameter_mm
+    diameter_m, unit_stiffness, unit_damping, density = resolve_material(
+        "Segment $(name)", set;
+        diameter_m = isnan(diameter_mm) ? NaN : 0.001 * diameter_mm,
+        unit_stiffness, unit_damping, density, youngs_modulus,
+        damping_per_stiffness)
 
-    # Compute unit_stiffness if not provided (only meaningful for a Real).
-    if unit_stiffness isa Real && isnan(unit_stiffness)
-        unit_stiffness = set.e_tether * (diameter_m/2)^2 * π
-    end
-
-    # Compute unit_damping if not provided
-    if isnan(unit_damping)
-        if !(unit_stiffness isa Real)
-            error("Segment $(name): unit_damping must be given explicitly " *
-                  "when unit_stiffness is a nonlinear force law.")
-        elseif hasproperty(set, :rel_damping) &&
-                set.rel_damping != 0.0
-            unit_damping = set.rel_damping * unit_stiffness
-        elseif hasproperty(set, :unit_damping) &&
-                hasproperty(set, :unit_stiffness) &&
-                set.unit_damping != 0.0
-            unit_damping = (set.unit_damping /
-                set.unit_stiffness) * unit_stiffness
-        else
-            @warn "Segment $(name): unit_damping is zero " *
-                "(no rel_damping or unit_damping in settings)."
-            unit_damping = 0.0
-        end
-    end
-
-    if isnan(density)
-        density = set.rho_tether
-    end
-
-    stiff = unit_stiffness isa Real ? SimFloat(unit_stiffness) : unit_stiffness
     Segment(0, name, (0, 0), (p1, p2),
-        stiff, SimFloat(unit_damping), l0,
-        compression_frac, diameter_m, SimFloat(density),
+        unit_stiffness, unit_damping, l0,
+        compression_frac, diameter_m, density,
         zero(SimFloat), zero(SimFloat))
 end
 
@@ -831,6 +872,10 @@ mutable struct Tether
     const diameter::SimFloat
     "Material density [kg/m³]. NaN = derive from Settings."
     const density::SimFloat
+    "Young's modulus [Pa]. Diameter-independent form of `unit_stiffness`."
+    const youngs_modulus::SimFloat
+    "Damping per unit stiffness [s]. Diameter-independent form of `unit_damping`."
+    const damping_per_stiffness::SimFloat
     "Current stretched length [m] (updated during simulation)."
     stretched_len::SimFloat
     """Unstretched tether length [m] (sum of segment l0).
@@ -903,7 +948,7 @@ function Tether(name, segments::AbstractVector, stretched_length=nothing;
     return Tether(0, name, Int64[], segment_refs,
                   0, name_ref(start_point), 0, name_ref(end_point),
                   length(segments),
-                  NaN, NaN, NaN, NaN, 0.0,
+                  NaN, NaN, NaN, NaN, NaN, NaN, 0.0,
                   0.0, init_stretched, init_force, init_frac)
 end
 
@@ -951,6 +996,10 @@ points and segments by `expand_auto_tethers!`.
   NaN = derive from Settings during auto-expansion.
 - `density::Float64=NaN`: Material density [kg/m³].
   NaN = derive from Settings during auto-expansion.
+- `youngs_modulus::Float64=NaN`: Diameter-independent alternative to
+  `unit_stiffness` [Pa]. See [`resolve_material`](@ref).
+- `damping_per_stiffness::Float64=NaN`: Diameter-independent alternative
+  to `unit_damping` [s].
 - `tether_force=nothing`: Target initial spring force [N], default 0.
 - `stretch_frac=nothing`: Initial `len/stretched` fraction. Mutually
   exclusive with `tether_force`.
@@ -958,7 +1007,8 @@ points and segments by `expand_auto_tethers!`.
 function Tether(name, stretched_length=nothing;
                 start_point, end_point, n_segments,
                 unit_stiffness=NaN, unit_damping=NaN,
-                diameter=NaN, density=NaN, tether_force=nothing,
+                diameter=NaN, density=NaN, youngs_modulus=NaN,
+                damping_per_stiffness=NaN, tether_force=nothing,
                 stretch_frac=nothing)
     init_force, init_frac =
         resolve_tether_init(name, tether_force, stretch_frac)
@@ -972,7 +1022,9 @@ function Tether(name, stretched_length=nothing;
                   Int64(n_segments),
                   stiff,
                   Float64(unit_damping),
-                  Float64(diameter), Float64(density), 0.0,
+                  Float64(diameter), Float64(density),
+                  Float64(youngs_modulus),
+                  Float64(damping_per_stiffness), 0.0,
                   0.0, init_stretched, init_force, init_frac)
 end
 

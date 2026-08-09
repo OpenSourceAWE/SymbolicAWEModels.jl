@@ -12,16 +12,16 @@ separates geometry data from simulation code.
 
 The YAML workflow has three steps:
 
-1. **Write a YAML file** — define materials, points, segments, and other components in
+1. **Write a YAML file** — define points, segments, and other components in
    a structured text file
 2. **Load with [`load_sys_struct_from_yaml`](@ref)** — parses the YAML and calls the
    same Julia constructors used in the [Julia tutorial](tutorial_julia.md)
 3. **Compile and simulate** — same as the Julia path: [`SymbolicAWEModel`](@ref) →
    [`init!`](@ref) → [`next_step!`](@ref)
 
-The YAML loader does as little as possible: it parses YAML, converts string enum values,
-resolves material references, and calls constructors. All defaults and derived
-calculations happen in the component constructors.
+The YAML loader does as little as possible: it parses YAML, applies the
+`variables` block, converts string enum values, and calls constructors. All
+defaults and derived calculations happen in the component constructors.
 
 ## YAML file structure
 
@@ -29,7 +29,7 @@ A YAML file can contain any of these top-level blocks:
 
 | Block | Purpose |
 |-------|---------|
-| `materials` | Material property lookup table |
+| `variables` | Named values and property sets reused across the file |
 | `points` | Point masses (nodes in the system) |
 | `segments` | Spring-damper connections |
 | `pulleys` | Equal-tension constraints |
@@ -116,36 +116,90 @@ end
     Transform elevation and azimuth values in YAML are specified in **degrees**
     (converted automatically), unlike the Julia constructor which takes radians.
 
-## Materials and references
+## Variables and materials
 
-Materials allow you to define physical properties once and reference them across
-segments. When a segment's `unit_stiffness` column contains a string instead of a
-number, it is treated as a material reference.
+The `variables` block gives names to values that are reused across the file. A
+name written in any column of any block is replaced by its value:
 
 ```yaml
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [dyneema, 55e9, 724, 0.00077]
+variables:
+  bridle_comp: 0.01
+  bridle_diameter: 2.5
 
 segments:
-  headers: [idx, point_i, point_j, l0, diameter_mm,
+  headers: [name, point_i, point_j, l0, diameter_mm,
             unit_stiffness, unit_damping, compression_frac]
   data:
-    # 'dyneema' in unit_stiffness triggers material lookup
-    - [1, 1, 2, 5.0, 5.0, dyneema, nothing, 0.01]
-    # Explicit stiffness (no material lookup)
-    - [2, 2, 3, 5.0, 1.0, 100000, 50.0, 0.01]
+    - [bridle_left, 1, 2, 5.0, bridle_diameter, 100000, 50.0, bridle_comp]
+    - [bridle_right, 1, 3, 5.0, bridle_diameter, 100000, 50.0, bridle_comp]
 ```
 
-When a material is referenced, derived properties are calculated automatically:
+A variable may hold a number, a string or a list (`kcu_pos: [0.0, 0.0, 12.0]`),
+and may be written in terms of another variable. Column names in `headers` are
+never substituted, but a variable may not share its name with a component —
+that is an error, since references to the component would resolve to the
+variable.
 
-- **`unit_stiffness`** = `youngs_modulus * pi * (diameter_mm/2000)^2`
-- **`unit_damping`** = `damping_per_stiffness * unit_stiffness`
+### Multi-variables and materials
 
-The material's `density` [kg/m³] is carried onto the segment and used for its
-mass, so different tethers can use different materials. Without one, the global
-`set.rho_tether` applies.
+A variable holding a **mapping** fills several columns at once: it stands for the
+columns it names, so the row is written with one entry for the whole group.
+
+```yaml
+variables:
+  dyneema:
+    youngs_modulus: 55.0e9
+    damping_per_stiffness: 0.00077
+    density: 724.0
+
+segments:
+  headers: [name, point_i, point_j, l0, diameter_mm,
+            youngs_modulus, damping_per_stiffness, density, compression_frac]
+  data:
+    # 'dyneema' fills youngs_modulus, damping_per_stiffness and density
+    - [bridle, 1, 2, 5.0, 5.0, dyneema, 0.01]
+    - [thin_bridle, 1, 3, 5.0, 1.0, dyneema, 0.01]
+    # Written out (no multi-variable)
+    - [strut, 2, 3, 5.0, 1.0, 6.4e9, 0.002, 724.0, 0.01]
+```
+
+The fields must match the columns starting at that position, in any order — a
+mismatch is an error naming both sides. This replaces the old `materials` table:
+each material defines only the fields it needs, with no shared `headers` row to
+keep in sync, and no `nothing` padding for the columns it fills.
+
+In a dict row the fields are merged instead, and the row wins — override a
+field by naming it:
+
+```yaml
+segments:
+  data:
+    - {name: bridle, point_i: 1, point_j: 2, l0: 5.0, diameter_mm: 5.0,
+       material: dyneema, damping_per_stiffness: 0.001}
+```
+
+A segment's `density` [kg/m³] is used for its mass, so different tethers can use
+different materials. Without one, the global `set.rho_tether` applies.
+
+### Material properties versus element properties
+
+`unit_stiffness` [N] and `unit_damping` [Ns] describe one element: both scale
+with its cross section, so a material shared by segments of different diameter
+must not fix them. Use the diameter-independent form instead:
+
+| Material | Element | Relation |
+|----------|---------|----------|
+| `youngs_modulus` [Pa] | `unit_stiffness` [N] | `unit_stiffness = youngs_modulus * pi * (diameter_mm/2000)^2` |
+| `damping_per_stiffness` [s] | `unit_damping` [Ns] | `unit_damping = damping_per_stiffness * unit_stiffness` |
+
+Either form may be given per row; giving both forms of the same quantity is an
+error. What is left out comes from the settings (`e_tether`, `rel_damping`,
+`d_tether`, `rho_tether`).
+
+!!! note "Removed in v0.14"
+    The `materials`, `elements` and `segment_properties` tables were removed.
+    A material is now a multi-variable, and its `youngs_modulus`,
+    `damping_per_stiffness` and `density` are ordinary columns.
 
 ## Component reference
 
@@ -181,9 +235,6 @@ or a beam element (`joint:`); its body-frame offset is derived from `pos_cad`.
 
 ### Segments
 
-Two formats are supported:
-
-**With explicit stiffness:**
 ```yaml
 segments:
   headers: [idx, point_i, point_j, l0, diameter_mm,
@@ -192,14 +243,8 @@ segments:
     - [1, 1, 2, 5.0, 5.0, 100000, 50.0, 0.01]
 ```
 
-**With material reference:**
-```yaml
-segments:
-  headers: [idx, point_i, point_j, l0, diameter_mm,
-            unit_stiffness, unit_damping, compression_frac]
-  data:
-    - [1, 1, 2, 5.0, 5.0, dyneema, nothing, 0.01]
-```
+The material columns can also come from a multi-variable, see
+[Variables and materials](#Variables-and-materials).
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -207,8 +252,10 @@ segments:
 | `point_i`, `point_j` | Int | Endpoint point indices |
 | `l0` | Float | Unstretched length [m] (0 = calculate from points) |
 | `diameter_mm` | Float | Diameter [mm] |
-| `unit_stiffness` | Float/String | Per-unit-length stiffness [N], or material name |
-| `unit_damping` | Float/nothing | Per-unit-length damping [Ns], or nothing for auto |
+| `unit_stiffness` | Float | Per-unit-length stiffness [N] |
+| `unit_damping` | Float/nothing | Per-unit-length damping [Ns], or nothing for the settings default |
+| `youngs_modulus` | Float/nothing | Diameter-independent alternative to `unit_stiffness` [Pa] |
+| `damping_per_stiffness` | Float/nothing | Diameter-independent alternative to `unit_damping` [s] |
 | `compression_frac` | Float | Compressive/tensile stiffness ratio (0-1) |
 | `density` | Float/nothing | Material density [kg/m³]; falls back to `set.rho_tether` |
 

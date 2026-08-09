@@ -35,14 +35,6 @@ const SEGMENT_TEST_YAML = """
 ##############################
 
 ###########################
-## Materials ##############
-###########################
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [test_material, 55000000000.0, 724, 0.00077]
-
-###########################
 ## Points #################
 ###########################
 points:
@@ -69,11 +61,6 @@ const SEGMENT_LOW_DAMP_YAML = """
 ##############################
 ## Segment Test - Oscillation #
 ##############################
-
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [test_material, 55000000000.0, 724, 0.00077]
 
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
@@ -148,11 +135,15 @@ const SEGMENT_MATERIAL_DENSITY_YAML = """
 ## Per-material Density ######
 ##############################
 
-materials:
-  headers: [name, youngs_modulus, density, damping_per_stiffness]
-  data:
-    - [dyneema, 55000000000.0, 724.0, 0.00077]
-    - [steel, 200000000000.0, 7800.0, 0.00077]
+variables:
+  dyneema:
+    youngs_modulus: 55.0e9
+    damping_per_stiffness: 0.00077
+    density: 724.0
+  steel:
+    youngs_modulus: 200.0e9
+    damping_per_stiffness: 0.00077
+    density: 7800.0
 
 points:
   headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass, body_frame_damping, world_frame_damping, area, drag_coeff]
@@ -162,7 +153,8 @@ points:
     - [mass_steel, [10.0, 0.0, -10.0], DYNAMIC, nothing, nothing, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 segments:
-  headers: [name, point_i, point_j, material, l0, diameter_mm, compression_frac]
+  headers: [name, point_i, point_j, youngs_modulus, damping_per_stiffness, density,
+            l0, diameter_mm, compression_frac]
   data:
     - [seg_dyneema, anchor, mass_dyneema, dyneema, 10.0, 5.0, 0.1]
     - [seg_steel, anchor, mass_steel, steel, 10.0, 5.0, 0.1]

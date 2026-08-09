@@ -359,31 +359,12 @@ function expand_auto_tethers!(
 
         n = tether.n_segments
 
-        # Derive segment properties from settings if NaN
-        unit_stiffness = tether.unit_stiffness
-        unit_damping = tether.unit_damping
-        diameter = tether.diameter
-        density = tether.density
-        if isnan(diameter)
-            diameter = set.d_tether * 0.001  # mm → m
-        end
-        if isnan(density)
-            density = set.rho_tether
-        end
-        if unit_stiffness isa Real && isnan(unit_stiffness)
-            unit_stiffness = set.e_tether * (diameter / 2)^2 * π
-        end
-        if isnan(unit_damping)
-            if !(unit_stiffness isa Real)
-                error("Tether $(tether.name): unit_damping must be given " *
-                      "explicitly when unit_stiffness is a nonlinear force law.")
-            elseif hasproperty(set, :rel_damping) &&
-               set.rel_damping != 0.0
-                unit_damping = set.rel_damping * unit_stiffness
-            else
-                unit_damping = 0.0
-            end
-        end
+        diameter, unit_stiffness, unit_damping, density = resolve_material(
+            "Tether $(tether.name)", set; diameter_m=tether.diameter,
+            unit_stiffness=tether.unit_stiffness,
+            unit_damping=tether.unit_damping, density=tether.density,
+            youngs_modulus=tether.youngs_modulus,
+            damping_per_stiffness=tether.damping_per_stiffness)
 
         rope_len = isnothing(tether.init_stretched_len) ?
             norm(end_pos - start_pos) : tether.init_stretched_len
