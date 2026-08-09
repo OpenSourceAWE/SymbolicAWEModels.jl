@@ -536,6 +536,7 @@ SymbolicAWEModels.run_layers!
 SymbolicAWEModels.run_batches!
 SymbolicAWEModels.dispatch_batch!
 SymbolicAWEModels.run_batch!
+SymbolicAWEModels.produces_output
 SymbolicAWEModels.batch_by_kernel
 SymbolicAWEModels.active_batches
 SymbolicAWEModels.output_call
