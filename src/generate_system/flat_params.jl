@@ -132,9 +132,16 @@ param_cache_key(::Type{NetworkBackend}, path::Tuple) = leaf_symbol(path)
 Record the flat parameter for a leaf read at `path`, naming and memoising it per
 the backend `B` policy ([`param_symbol_name`](@ref), [`param_cache_key`](@ref)).
 """
-leaf_param!(::Type{B}, reg::ParamRegistry, path::Tuple, reader, value) where {B} =
-    register_leaf!(reg, param_cache_key(B, path), param_symbol_name(B, path),
-                   reader, value, path)
+function leaf_param!(::Type{B}, reg::ParamRegistry, path::Tuple, reader, value,
+                     suffix::Symbol = Symbol("")) where {B}
+    key = param_cache_key(B, path)
+    name = param_symbol_name(B, path)
+    if suffix !== Symbol("")
+        key = Symbol(key, suffix)
+        name = Symbol(name, suffix)
+    end
+    return register_leaf!(reg, key, name, reader, value, path)
+end
 
 """
     param_computed!(reg, name, reader)
@@ -163,20 +170,37 @@ default `ParamView(reg)` is a [`MonolithBackend`](@ref) view.
 """
 struct ParamView{B<:ModelBackend}
     reg::ParamRegistry
+    suffix::Symbol
 end
-ParamView(reg::ParamRegistry) = ParamView{MonolithBackend}(reg)
+ParamView{B}(reg::ParamRegistry) where {B<:ModelBackend} =
+    ParamView{B}(reg, Symbol(""))
+ParamView(reg::ParamRegistry) = ParamView{MonolithBackend}(reg, Symbol(""))
+
+"""
+    suffixed(view::ParamView{B}, suffix) -> ParamView{B}
+
+A view sharing `view`'s registry but tagging every leaf it resolves with `suffix`, so
+otherwise-aliasing bare field names (the `NetworkBackend` naming) become distinct params.
+Used to disambiguate repeated reads of the same field across members of one combined edge.
+"""
+suffixed(view::ParamView{B}, suffix::Symbol) where {B} =
+    ParamView{B}(getfield(view, :reg), suffix)
 
 """A partial path into `sys_struct` being resolved to a parameter under backend `B`."""
 struct PathView{B<:ModelBackend}
     reg::ParamRegistry
     path::Tuple
+    suffix::Symbol
 end
 
 Base.getproperty(view::ParamView{B}, sym::Symbol) where {B} =
-    sym === :reg ? getfield(view, :reg) : PathView{B}(getfield(view, :reg), (sym,))
+    sym === :reg ? getfield(view, :reg) :
+    sym === :suffix ? getfield(view, :suffix) :
+    PathView{B}(getfield(view, :reg), (sym,), getfield(view, :suffix))
 
 Base.getindex(view::PathView{B}, idx::Integer) where {B} =
-    PathView{B}(getfield(view, :reg), (getfield(view, :path)..., Int(idx)))
+    PathView{B}(getfield(view, :reg), (getfield(view, :path)..., Int(idx)),
+                getfield(view, :suffix))
 
 """
     param_unknowns(params)
@@ -188,12 +212,13 @@ made is declared. Used by both backends' component assembly.
 param_unknowns(params::ParamView) = Any[entry.param for entry in params.reg.entries]
 
 function Base.getproperty(view::PathView{B}, sym::Symbol) where {B}
-    (sym === :reg || sym === :path) && return getfield(view, sym)
+    (sym === :reg || sym === :path || sym === :suffix) && return getfield(view, sym)
     reg = getfield(view, :reg)
+    suffix = getfield(view, :suffix)
     path = (getfield(view, :path)..., sym)
     value = read_path(reg.sys_struct, path)
-    param_descend(value) && return PathView{B}(reg, path)
-    return leaf_param!(B, reg, path, PathReader(path), value)
+    param_descend(value) && return PathView{B}(reg, path, suffix)
+    return leaf_param!(B, reg, path, PathReader(path), value, suffix)
 end
 
 # ==================== SYNC ==================== #

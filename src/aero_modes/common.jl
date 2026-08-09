@@ -433,25 +433,29 @@ end
 
 """
     wing_kinematics_from_points!(wing, points, set, am;
-                                 zp1, zp2, yp1, yp2, origin, aero_points)
+                                 z_ref_points, y_ref_points, origin, aero_points)
 
 Recompute a KINEMATIC/PARTICLE wing's kinematic state directly from the current point
 positions/velocities. A KINEMATIC wing is fitted from its ref points rather than
 integrated, so a backend that does not carry these quantities as state (the network)
-reconstructs them here from the struct. Writes the body frame `R_b_to_w`
-([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the wing apparent
-wind `va_b`, and each aero point's `va_b = R'·(wind(z)·wind_gnd − vel)`. Mirrors what
-the monolith's `get_all_state` copies out of the integrator, so `refresh_aero!` sees
-fresh apparent wind on either backend.
+reconstructs them here from the struct. `z_ref_points`/`y_ref_points`/`origin` are the
+wing's [`WeightedRefPoints`](@ref) (a single-point ref is just weight `1`), resolved to
+world positions via [`get_ref_position_from_points`](@ref). Writes the body frame
+`R_b_to_w` ([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the wing
+apparent wind `va_b`, and each aero point's `va_b = R'·(wind(z)·wind_gnd − vel)`. Mirrors
+what the monolith's `get_all_state` copies out of the integrator.
 """
 function wing_kinematics_from_points!(wing, points, set, am;
-        zp1, zp2, yp1, yp2, origin, aero_points)
-    x, y, z = wing_frame_columns(points[zp1].pos_w, points[zp2].pos_w,
-                                 points[yp1].pos_w, points[yp2].pos_w)
+        z_ref_points, y_ref_points, origin, aero_points)
+    x, y, z = wing_frame_columns(
+        get_ref_position_from_points(points, z_ref_points[1]),
+        get_ref_position_from_points(points, z_ref_points[2]),
+        get_ref_position_from_points(points, y_ref_points[1]),
+        get_ref_position_from_points(points, y_ref_points[2]))
     R = hcat(x, y, z)
     wing.R_b_to_w .= R
-    wing.pos_w .= points[origin].pos_w
-    wing.vel_w .= points[origin].vel_w
+    wing.pos_w .= get_ref_position_from_points(points, origin)
+    wing.vel_w .= get_ref_position_from_points(points, origin; field = :vel_w)
     wind_factor = WindFactor(am, set.profile_law)
     wing.v_wind .= wind_factor(wing.pos_w[3]) .* set.wind_vec
     wing.va_b .= R' * (wing.v_wind .- wing.vel_w .+ wing.wind_disturb)

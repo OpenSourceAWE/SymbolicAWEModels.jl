@@ -391,6 +391,15 @@ function init_backend!(backend::ModelBackend, sam, solver; kwargs...)
 end
 
 """
+    dae_brown_init()
+
+The `BrownFullBasicInit` DAE consistent-initialization algorithm, exposed so the
+NetworkDynamics extension can request it for its ride-point algebraic states without
+depending on OrdinaryDiffEq directly.
+"""
+dae_brown_init() = OrdinaryDiffEqCore.BrownFullBasicInit()
+
+"""
     maybe_create_lin_prob!(sam, outputs; ...)
 
 Create and cache the `LinearizationProblem` if it does not exist or if the outputs have changed.
@@ -650,9 +659,11 @@ function reinit!(
         seed_set_values!(prob.prob)
         prn && @info "JIT-compiling the RHS and building the integrator (first " *
             "solve; this is the slow step on large beams)…"
+        ialg = prob.initializealg
+        init_kw = ialg === nothing ? (;) : (; initializealg = ialg)
         jit_time = @elapsed integrator = init(prob.prob, solver;
             adaptive, dt, tspan=(0.0, dt), abstol=sam.set.abs_tol, reltol=sam.set.rel_tol,
-            save_on=false, save_everystep=false)
+            save_on=false, save_everystep=false, init_kw...)
         prn && @info "RHS compiled & integrator built in $(round(jit_time; digits=1)) s."
         sam.integrator = integrator
     else

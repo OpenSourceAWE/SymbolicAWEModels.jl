@@ -95,6 +95,10 @@ associated getter and setter functions for the full, nonlinear physical state.
     get_aero_input::GetAeroInput
     "One monolithic zero-alloc getter for all per-step component state."
     get_all_state::GetAllState
+    "DAE consistent-initialization algorithm (`nothing` → the solver default). The
+    NetworkBackend sets `BrownFullBasicInit` so its ride-point algebraic states are
+    solved to consistency at t=0 instead of merely checked."
+    initializealg = nothing
 end
 
 """

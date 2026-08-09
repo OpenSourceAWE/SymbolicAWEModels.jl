@@ -50,9 +50,10 @@ function vertex_pose_io()
         pose_com(t)[1:3]
         pose_com_vel(t)[1:3]
         pose_omega(t)[1:3]
+        force_out(t)[1:3], [output = true]
         moment_in(t)[1:3], [input = true]
     end
-    return vars, pose_R, pose_com, pose_com_vel, pose_omega, moment_in
+    return vars, pose_R, pose_com, pose_com_vel, pose_omega, force_out, moment_in
 end
 
 """
@@ -63,9 +64,10 @@ match the wide superset of a body-containing network (§8.5): the pose outputs
 ([`vertex_pose_io`](@ref)) all pinned to zero. Returns `(pvars, poseeqs)`.
 """
 function wide_pose_appendix()
-    pvars, pose_R, pose_com, pose_com_vel, pose_omega, _ = vertex_pose_io()
+    pvars, pose_R, pose_com, pose_com_vel, pose_omega, force_out, _ = vertex_pose_io()
     poseeqs = [collect(pose_R) .~ 0; collect(pose_com) .~ 0;
-               collect(pose_com_vel) .~ 0; collect(pose_omega) .~ 0]
+               collect(pose_com_vel) .~ 0; collect(pose_omega) .~ 0;
+               collect(force_out) .~ 0]
     return pvars, poseeqs
 end
 
@@ -144,6 +146,8 @@ function segment_io_wide()
         dst_pose_com(t)[1:3], [input = true]
         dst_pose_com_vel(t)[1:3], [input = true]
         dst_pose_omega(t)[1:3], [input = true]
+        src_force_out(t)[1:3], [input = true]
+        dst_force_out(t)[1:3], [input = true]
         src_moment(t)[1:3], [output = true]
         dst_moment(t)[1:3], [output = true]
     end
@@ -153,7 +157,8 @@ function segment_io_wide()
               src_pose_com_vel = extravars[3], src_pose_omega = extravars[4],
               dst_pose_R = extravars[5], dst_pose_com = extravars[6],
               dst_pose_com_vel = extravars[7], dst_pose_omega = extravars[8],
-              src_moment = extravars[9], dst_moment = extravars[10])
+              src_force_out = extravars[9], dst_force_out = extravars[10],
+              src_moment = extravars[11], dst_moment = extravars[12])
     return io, extras
 end
 
@@ -641,13 +646,14 @@ function body_io()
         pose_com(t)[1:3]
         pose_com_vel(t)[1:3]
         pose_omega(t)[1:3]
+        force_out(t)[1:3], [output = true]
         force_in(t)[1:3], [input = true]
         mass_in(t), [input = true]
         tension_in(t), [input = true]
         moment_in(t)[1:3], [input = true]
     end
     return vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel,
-        pose_omega, force_in, moment_in
+        pose_omega, force_out, force_in, mass_in, moment_in
 end
 
 """
@@ -663,7 +669,7 @@ confinement is not built here. A clamped (`STATIC`) body uses [`StaticBody`](@re
 """
 function BodyVertex(s, params, idx; name)
     vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega,
-        force_in, moment_in = body_io()
+        force_out, force_in, mass_in, moment_in = body_io()
     state = @variables com_w(t)[1:3] com_vel(t)[1:3] Q(t)[1:4] omega_p(t)[1:3]
     body = params.bodies[idx]
     R_b_to_w = quaternion_to_rotation_matrix(collect(Q)) * collect(body.R_b_to_p)
@@ -686,6 +692,7 @@ function BodyVertex(s, params, idx; name)
         pose_com ~ com_w
         pose_com_vel ~ com_vel
         pose_omega ~ ex.R_b_to_w * ex.ω_b
+        collect(force_out) .~ 0.0
     ]
     return System(eqs, t, [vars; state], param_unknowns(params); name)
 end
@@ -702,7 +709,7 @@ ignored — the body does not move.
 """
 function StaticBody(s, params, idx; name)
     vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega,
-        force_in, moment_in = body_io()
+        force_out, force_in, mass_in, moment_in = body_io()
     body = params.bodies[idx]
     R_b_to_w = quaternion_to_rotation_matrix(collect(body.Q_b_to_w))
     eqs = [
@@ -713,6 +720,7 @@ function StaticBody(s, params, idx; name)
         pose_com ~ collect(body.com_w)
         pose_com_vel ~ zeros(3)
         pose_omega ~ zeros(3)
+        collect(force_out) .~ 0.0
     ]
     return System(eqs, t, vars, param_unknowns(params); name)
 end
@@ -795,7 +803,7 @@ shared [`rigid_body_pose_expressions`](@ref) integrates the 13-state pose. Same 
 """
 function WingBodyVertex(s, params, aero_params, idx; name)
     vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega,
-        force_in, moment_in = body_io()
+        force_out, force_in, mass_in, moment_in = body_io()
     state = @variables com_w(t)[1:3] com_vel(t)[1:3] Q(t)[1:4] omega_p(t)[1:3]
     body = params.bodies[idx]
     wing = params.reg.sys_struct.bodies[idx]
@@ -868,22 +876,18 @@ function WingBodyVertex(s, params, aero_params, idx; name)
     moment_b = collect(subsys.moment)
     aero_force_w = R_b_to_w * force_b
     aero_moment_w = R_b_to_w * (moment_b .+ (force_b × com_off))
-    drag_force_w, drag_moment_w, drag_params, drag_vars, drag_eqs =
-        body_ride_drag_wrench(s, params, idx;
-            origin_w, R_b_w = R_b_to_w, com_w, com_vel, omega_w)
 
     gravity_w = Num[0, 0, -params.set.g_earth * body.mass]
     force_w = collect(force_in) .+ gravity_w .+ collect(body.ext_force_w) .+
-        R_b_to_w * collect(body.ext_force_b) .+ aero_force_w .+ drag_force_w
+        R_b_to_w * collect(body.ext_force_b) .+ aero_force_w
     moment_w = collect(moment_in) .+ R_b_to_w * collect(body.ext_moment_b) .+
-        aero_moment_w .+ drag_moment_w
+        aero_moment_w
     ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
         body.mass, body.R_b_to_p, body.com_offset_b, com_w, com_vel, Q, omega_p)
     damping = collect(body.damping)
     eqs = [
         aero_eqs
         twist_dyn_eqs
-        drag_eqs
         [D(com_w[i]) ~ ex.d_com_w[i] for i in 1:3]
         [D(com_vel[i]) ~ ex.d_com_vel[i] for i in 1:3]
         [D(Q[i]) ~ ex.d_Q[i] for i in 1:4]
@@ -895,9 +899,10 @@ function WingBodyVertex(s, params, aero_params, idx; name)
         pose_com ~ com_w
         pose_com_vel ~ com_vel
         pose_omega ~ ex.R_b_to_w * ex.ω_b
+        collect(force_out) .~ 0.0
     ]
-    return System(eqs, t, [vars; state; twist_states; drag_vars],
-                  [param_unknowns(params); twist_params; drag_params];
+    return System(eqs, t, [vars; state; twist_states],
+                  [param_unknowns(params); twist_params];
                   name, systems = [subsys])
 end
 
@@ -1229,61 +1234,74 @@ function wing_aero_aggregate_vars()
 end
 
 """
-    LiveAeroWingNodePoint(s, params, aero_params, idx, wing, slot, num_points; name)
+    live_aero_force_terms(s, params, aero_params, wing, slot, num_points)
 
-A DYNAMIC particle wing node whose aero force is computed **live** (not frozen): the
-shared [`DynamicPoint`](@ref) motion plus body-frame damping, plus the live per-point
-aero force from the shared [`aero_component`](@ref) nested as the `aero` subsystem. The
-wing frame is fitted from the ref points ([`wing_node_inputs`](@ref)) and the aero
-component reads every wing point's world state ([`live_aero_node_inputs`](@ref)), all
-via `extin`; the connectors are wired by [`live_aero_connector_eqs`](@ref). Because
-NetworkDynamics computes a vertex force in the f-pass (the only place `extin` is
-available) the whole wing's aero is evaluated in each wing-node kernel, which selects
-its own point force by the per-instance `aero_slot` (so one kernel serves the whole
-wing). Reuses `aero_component` unchanged (the same source both backends assemble), with
-`aero_params` a separate registry so the namespaced aero parameters do not collide with
-the point parameters. Covers every live particle mode ([`ContinuousAero`](@ref),
-[`AeroPressure`](@ref) without flap, [`AeroPlate`](@ref)); the frozen
-[`AeroDirect`](@ref) and force-free [`AeroNone`](@ref) keep [`WingNodePoint`](@ref).
+Shared live-aero wiring for one wing node (a DYNAMIC [`LiveAeroWingNodePoint`](@ref) or a
+BODY_STATIC ride): declares the ref-frame + all-wing-point `extin` inputs, nests the shared
+[`aero_component`](@ref) as `:aero`, wires its connectors ([`live_aero_connector_eqs`](@ref))
+and slot-selects this node's own body-frame force by the per-instance `aero_slot`. Because
+NetworkDynamics evaluates a vertex force only in the f-pass (the only place `extin` is
+available), the whole wing's aero is computed in each node kernel and slot-selected, so one
+kernel serves the whole wing. `aero_params` is a separate registry so the namespaced aero
+parameters do not collide with the node's own. Returns a NamedTuple with `ext_vars` (all the
+declared `extin` variables), the nested `subsys`, the `aero_slot` param, the connector
+`conn_eqs`, the fitted `rot` and origin angular-velocity `ovel`, the body→world node force
+`aero_force_w`, and the wing-aggregate `wing_force`/`wing_moment` observable vars with their
+`agg_force`/`agg_moment` bindings.
 """
-function LiveAeroWingNodePoint(s, params, aero_params, idx, wing, slot, num_points; name)
-    vars, pos, vel, force_in, mass_in, _, pulley_len_out = point_io()
+function live_aero_force_terms(s, params, aero_params, wing, slot, num_points)
     ext, zp1, zp2, yp1, yp2, ovel = wing_node_inputs()
-    append!(vars, ext)
     aero_ext, wing_pos, pos_list, vel_list = live_aero_node_inputs(num_points)
-    append!(vars, aero_ext)
-    pars = point_particle_params(params, idx)
-    point = params.points[idx]
-    mass = pars.extra_mass + mass_in
-    base = point_acceleration(s, collect(pos), collect(vel), collect(force_in),
-        mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
-        collect(pars.wind_gnd))
     rot = wing_frame_rotation(zp1, zp2, yp1, yp2)
     wind_gnd = ground_wind_vec(params)
     subsys = aero_component(wing.aero, wing, params.reg.sys_struct;
                             name = :aero, params = aero_params)
-    eqs = live_aero_connector_eqs(subsys, s, rot, wing_pos, wind_gnd, pos_list, vel_list)
+    conn_eqs = live_aero_connector_eqs(subsys, s, rot, wing_pos, wind_gnd,
+                                       pos_list, vel_list)
     aero_slot = make_param(:aero_slot, Float64(slot))
     my_force_b = zeros(Num, 3)
     for k in 1:num_points
         pick = ifelse(abs(aero_slot - k) < 0.5, 1.0, 0.0)
         my_force_b = my_force_b .+ pick .* collect(subsys.point_force[:, k])
     end
-    damp = body_frame_damp_accel(vel, point.body_frame_damping, rot, ovel)
-    aero = (rot * my_force_b) ./ mass
     wing_force, wing_moment = wing_aero_aggregate_vars()
-    append!(vars, [wing_force; wing_moment])
     agg_force = sum(collect(subsys.point_force[:, k]) for k in 1:num_points)
     agg_moment = sum(cross(collect(subsys.point_pos[:, k]),
                            collect(subsys.point_force[:, k])) for k in 1:num_points)
-    eqs = [eqs
+    return (; ext_vars = [ext; aero_ext], subsys, aero_slot, conn_eqs, rot, ovel,
+            aero_force_w = rot * my_force_b, wing_force, wing_moment,
+            agg_force, agg_moment)
+end
+
+"""
+    LiveAeroWingNodePoint(s, params, aero_params, idx, wing, slot, num_points; name)
+
+A DYNAMIC particle wing node whose aero force is computed **live** (not frozen): the
+shared [`DynamicPoint`](@ref) motion plus body-frame damping, plus the live per-point
+aero force from [`live_aero_force_terms`](@ref). Covers every live particle mode
+([`ContinuousAero`](@ref), [`AeroPressure`](@ref) without flap, [`AeroPlate`](@ref)); the
+frozen [`AeroDirect`](@ref) and force-free [`AeroNone`](@ref) keep [`WingNodePoint`](@ref).
+"""
+function LiveAeroWingNodePoint(s, params, aero_params, idx, wing, slot, num_points; name)
+    vars, pos, vel, force_in, mass_in, _, pulley_len_out = point_io()
+    aero = live_aero_force_terms(s, params, aero_params, wing, slot, num_points)
+    append!(vars, aero.ext_vars)
+    append!(vars, [aero.wing_force; aero.wing_moment])
+    pars = point_particle_params(params, idx)
+    point = params.points[idx]
+    mass = pars.extra_mass + mass_in
+    base = point_acceleration(s, collect(pos), collect(vel), collect(force_in),
+        mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
+        collect(pars.wind_gnd))
+    damp = body_frame_damp_accel(vel, point.body_frame_damping, aero.rot, aero.ovel)
+    eqs = [aero.conn_eqs
            D.(collect(pos)) .~ collect(vel)
-           D.(collect(vel)) .~ base .+ aero .- damp
-           wing_force .~ agg_force
-           wing_moment .~ agg_moment
+           D.(collect(vel)) .~ base .+ aero.aero_force_w ./ mass .- damp
+           aero.wing_force .~ aero.agg_force
+           aero.wing_moment .~ aero.agg_moment
            pulley_len_out ~ 0.0]
-    return System(eqs, t, vars, [param_unknowns(params); aero_slot];
-                  name, systems = [subsys])
+    return System(eqs, t, vars, [param_unknowns(params); aero.aero_slot];
+                  name, systems = [aero.subsys])
 end
 
 """

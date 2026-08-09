@@ -49,7 +49,7 @@ using NetworkDynamics
 using Graphs
 using ModelingToolkit
 using ModelingToolkit: t_nounits as t, D_nounits as D
-using SymbolicIndexingInterface: setp, getu
+using SymbolicIndexingInterface: setp, getu, is_parameter
 using LinearAlgebra: cross, ×
 
 const SAM = SymbolicAWEModels
@@ -230,14 +230,18 @@ scalar + scalarized-array-element params, via a batched `setp`) and a callable g
 (the polar callables, via a [`MultiCallableSetter`](@ref)). Either may be `nothing`;
 returns `nothing` when both are empty. It is the same `ParamSync` the monolith syncs,
 only with `VIndex`/`EIndex` setters, applied through the shared `ProbWithAttributes`
-machinery every step (and after every VSM refresh).
+machinery every step (and after every VSM refresh). Recorded params `mtkcompile` pruned
+(e.g. `cd_tether`/wind on a drag-free structural edge) are dropped via `is_parameter`.
 """
 function build_network_param_sync(nw, builder::ParamBuilder, callables::CallableBuilder)
+    keep = [is_parameter(nw, idx) for idx in builder.indices]
+    indices = builder.indices[keep]
+    readers = builder.readers[keep]
     scalar = nothing
-    if !isempty(builder.indices)
-        setter = setp(nw, builder.indices)
-        buffer = Vector{SAM.SimFloat}(undef, length(builder.indices))
-        scalar = SAM.ParamGroup(setter, builder.readers, buffer)
+    if !isempty(indices)
+        setter = setp(nw, indices)
+        buffer = Vector{SAM.SimFloat}(undef, length(indices))
+        scalar = SAM.ParamGroup(setter, readers, buffer)
     end
     callable = nothing
     if !isempty(callables.indices)
@@ -337,6 +341,148 @@ Each `tether_len_k` state is read by that tether's segments through an `extin`.
 """
 network_winch_point(s, winch, winch_point; name) =
     SAM.WinchPoint(s, winch, winch_point; name)
+
+"""
+    ride_pose_extin!(pairs, tag, vertex)
+
+Append the pose-`extin` bindings for one body: the local scalar inputs `<tag>_p_c`
+(origin), `<tag>_c_c` (COM), `<tag>_v_c` (COM velocity), `<tag>_w_c` (world ω) and
+`<tag>_R_k` (rotation) bound to `vertex`'s wide pose outputs. A ride-point vertex reads
+its body's pose this way to place its own algebraic position/velocity.
+"""
+function ride_pose_extin!(pairs, tag, vertex)
+    for c in 1:3
+        push!(pairs, Symbol(tag, :_p_, c) => VIndex(vertex, Symbol(:pos_, c)))
+        push!(pairs, Symbol(tag, :_c_, c) => VIndex(vertex, Symbol(:pose_com_, c)))
+        push!(pairs, Symbol(tag, :_v_, c) => VIndex(vertex, Symbol(:pose_com_vel_, c)))
+        push!(pairs, Symbol(tag, :_w_, c) => VIndex(vertex, Symbol(:pose_omega_, c)))
+    end
+    for k in 1:9
+        push!(pairs, Symbol(tag, :_R_, k) => VIndex(vertex, Symbol(:pose_R_, k)))
+    end
+    return pairs
+end
+
+"""
+    ride_body_pose_vars(tag)
+
+Declare the pose-`extin` input variables for one body under `tag` (matching
+[`ride_pose_extin!`](@ref)): `<tag>_p`(3), `<tag>_c`(3), `<tag>_v`(3), `<tag>_w`(3),
+`<tag>_R`(9). Returns `(vars, pos, com, com_vel, omega_w, R)`.
+"""
+function ride_body_pose_vars(tag)
+    scal(sfx, n) = [only(@variables ($(Symbol(tag, sfx, :_, k)))(t), [input = true])
+                    for k in 1:n]
+    p, c = scal(:_p, 3), scal(:_c, 3)
+    v, w, R = scal(:_v, 3), scal(:_w, 3), scal(:_R, 9)
+    return [p; c; v; w; R], p, c, v, w, reshape(R, 3, 3)
+end
+
+"""
+    ride_drag_force(s, params, ride_idx, pos, vel)
+
+The tether-style aerodynamic drag on a `BODY_STATIC` ride point (positive force-on-point),
+from its own `drag_coeff`/`area` and the wind at its algebraic `pos`/`vel`. Zero when the
+point has no area. Shared by both ride-point vertex kernels.
+"""
+function ride_drag_force(s, params, ride_idx, pos, vel)
+    point = params.points[ride_idx]
+    wind = SAM.WindFactor(s.am, s.set.profile_law)
+    wind_gnd = SAM.ground_wind_vec(params)
+    rho = SAM.calc_rho(s.am, max(0.0, pos[3]))
+    va = wind(pos[3]) .* collect(wind_gnd) .- collect(vel)
+    return SAM.point_drag_force(va, rho, point.drag_coeff, point.area)
+end
+
+"""
+    ride_force_out_eq(s, params, ride_idx, force_out, force_in, pos, vel; gravity_mass)
+
+The ride point's exposed aggregated load: the summed incident-segment force `force_in`
+(spring + tether drag) plus the point's own aerodynamic drag ([`ride_drag_force`](@ref)),
+and — only for a Hermite ride (`gravity_mass` given) — its `-g·gravity_mass` weight. A
+**rigid** ride adds no gravity: the body already carries its `extra_mass` in its combined
+`mass`. A **Hermite** ride rides the joint between two bodies and is absent from either
+body's mass, so its own gravity (`extra_mass + mass_in` half-masses) must be delivered.
+`extra_force` (world-frame, e.g. a live wing-node aero force) is added when given. A mount
+edge reads `force_out` and delivers its beam fraction (with moment) to the body.
+"""
+function ride_force_out_eq(s, params, ride_idx, force_out, force_in, pos, vel;
+                           gravity_mass = nothing, extra_force = nothing)
+    drag = ride_drag_force(s, params, ride_idx, pos, vel)
+    load = collect(force_in) .+ drag
+    gravity_mass === nothing ||
+        (load = load .+ [0.0, 0.0, -s.set.g_earth * gravity_mass])
+    extra_force === nothing || (load = load .+ collect(extra_force))
+    return collect(force_out) .~ load
+end
+
+"""
+    zero_ride_pose_eqs(pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega)
+
+The wide-superset pose outputs a ride-point vertex does not drive (it is not a body),
+all pinned to zero, so every vertex shares one output width.
+"""
+zero_ride_pose_eqs(pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega) = [
+    pulley_len_out ~ 0.0
+    collect(pose_R) .~ 0.0
+    collect(pose_com) .~ 0.0
+    collect(pose_com_vel) .~ 0.0
+    collect(pose_omega) .~ 0.0]
+
+"""
+    network_rigid_ride_point(s, params, ride_idx; name)
+
+A `BODY_STATIC` ride point rigidly fixed to one body (`joint_idx == 0`), as a first-class
+vertex. It reads the body's pose through `extin` (bound by [`ride_pose_extin!`](@ref)) and
+emits its world position/velocity as **feed-forward outputs** — `ff_to_constraint=true`
+turns them into algebraic states, so incident segments read the ride position directly
+instead of any edge reconstructing it. `force_out` re-exposes the aggregated segment force
+plus gravity/drag for the mount edge to transport to the body.
+"""
+function network_rigid_ride_point(s, params, ride_idx; name)
+    vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega,
+        force_out, force_in, mass_in, moment_in = SAM.body_io()
+    ext, oth_pos, oth_com, oth_vel, oth_omega, oth_R = ride_body_pose_vars(:oth)
+    anchor_b = collect(params.points[ride_idx].anchor_b)
+    anchor_w = oth_pos .+ oth_R * anchor_b
+    ride_vel = oth_vel .+ (oth_omega × (anchor_w .- oth_com))
+    eqs = [
+        collect(pos) .~ anchor_w
+        collect(vel) .~ ride_vel
+        ride_force_out_eq(s, params, ride_idx, force_out, force_in, pos, vel)
+        zero_ride_pose_eqs(pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega)
+    ]
+    return System(eqs, t, [vars; ext], param_unknowns(params); name)
+end
+
+"""
+    network_hermite_ride_point(s, params, ride_idx, joint_idx; name)
+
+A `BODY_STATIC` ride point riding a Timoshenko joint's deformed Hermite centerline
+(`joint_idx > 0`), as a first-class vertex. It reads **both** beam bodies' poses through
+`extin` (tags `:a`/`:b`) and places its position/velocity via the shared
+[`SAM.beam_hermite_ride_expressions`](@ref); `ff_to_constraint=true` promotes them to
+algebraic states. A spanwise segment between two such ride points is then an ordinary
+edge — no four-body kernel. The two mount edges split `force_out` by the beam fraction.
+"""
+function network_hermite_ride_point(s, params, ride_idx, joint_idx; name)
+    vars, pos, vel, pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega,
+        force_out, force_in, mass_in, moment_in = SAM.body_io()
+    exta, a_pos, a_com, a_vel, a_omega, a_R = ride_body_pose_vars(:a)
+    extb, b_pos, b_com, b_vel, b_omega, b_R = ride_body_pose_vars(:b)
+    joint = params.reg.sys_struct.timoshenko_joints[joint_idx]
+    hk = SAM.beam_hermite_ride_expressions(joint, params, ride_idx;
+        pos_a = a_pos, R_a = a_R, com_a = a_com, com_vel_a = a_vel, omega_a_w = a_omega,
+        pos_b = b_pos, R_b = b_R, com_b = b_com, com_vel_b = b_vel, omega_b_w = b_omega)
+    eqs = [
+        collect(pos) .~ hk.pos_point
+        collect(vel) .~ hk.vel_point
+        ride_force_out_eq(s, params, ride_idx, force_out, force_in, pos, vel;
+            gravity_mass = params.points[ride_idx].extra_mass + mass_in)
+        zero_ride_pose_eqs(pulley_len_out, pose_R, pose_com, pose_com_vel, pose_omega)
+    ]
+    return System(eqs, t, [vars; exta; extb], param_unknowns(params); name)
+end
 
 # ======================= edge Systems ======================= #
 
@@ -603,6 +749,221 @@ function network_combined_wrench_segment(s, params, members, role_of_seg; name)
 end
 
 """
+    combined_body_far_bodies(members, ss) -> Vector{Int}
+
+Sorted distinct body indices that a body↔body combined edge's `:hermite_span` members read
+via `extin` — the two bodies of each span member's *far* joint (the joint the segment's
+other Hermite ride point rides). Empty when the edge carries no span member.
+"""
+function combined_body_far_bodies(members, ss)
+    far = Int[]
+    for m in members
+        m.kind == :hermite_span || continue
+        fj = ss.timoshenko_joints[ss.points[m.ride_dst].joint_idx]
+        push!(far, fj.body_a_idx, fj.body_b_idx)
+    end
+    return sort!(unique!(far))
+end
+
+"""
+    far_body_pose_inputs(far_bodies) -> (ext_vars, farpose)
+
+Declare the `extin` scalar input variables for every far body a combined body edge reads
+(`fb<b>_p*/_c*/_v*/_w*/_R*` for pos, COM, COM-velocity, angular velocity and the 3×3
+rotation, column-major), returning the flat `ext_vars` list and a `Dict` mapping each body
+index to its `(pos, R, com, com_vel, omega)` component tuple (matching
+[`beam_hermite_ride_expressions`](@ref)'s pose arguments).
+"""
+function far_body_pose_inputs(far_bodies)
+    ext_vars = Num[]
+    farpose = Dict{Int, NTuple{5, Any}}()
+    for b in far_bodies
+        mk(tag, n) = [only(@variables $(Symbol(:fb, b, :_, tag, k))(t) [input = true])
+                      for k in 1:n]
+        pos = mk(:p, 3); com = mk(:c, 3); comvel = mk(:v, 3)
+        omega = mk(:w, 3); Rvec = mk(:R, 9)
+        append!(ext_vars, pos); append!(ext_vars, com); append!(ext_vars, comvel)
+        append!(ext_vars, omega); append!(ext_vars, Rvec)
+        farpose[b] = (pos, Rvec, com, comvel, omega)
+    end
+    return ext_vars, farpose
+end
+
+"""
+    combined_body_extin(ss, far_bodies, vertex_of_body) -> Vector{Pair}
+
+The `extin` pair list binding a combined body edge's far-body pose inputs
+([`far_body_pose_inputs`](@ref)) to each far body vertex's wide pose outputs, in the same
+component order the kernel declares them.
+"""
+function combined_body_extin(ss, far_bodies, vertex_of_body)
+    pairs = Pair{Symbol, Any}[]
+    for b in far_bodies
+        v = vertex_of_body[b]
+        for k in 1:3
+            push!(pairs, Symbol(:fb, b, :_p, k) => VIndex(v, Symbol(:pos_, k)))
+            push!(pairs, Symbol(:fb, b, :_c, k) => VIndex(v, Symbol(:pose_com_, k)))
+            push!(pairs, Symbol(:fb, b, :_v, k) => VIndex(v, Symbol(:pose_com_vel_, k)))
+            push!(pairs, Symbol(:fb, b, :_w, k) => VIndex(v, Symbol(:pose_omega_, k)))
+        end
+        for k in 1:9
+            push!(pairs, Symbol(:fb, b, :_R, k) => VIndex(v, Symbol(:pose_R_, k)))
+        end
+    end
+    return pairs
+end
+
+"""
+    network_combined_body_edge(s, params, members, far_bodies; name)
+
+Wide body↔body edge bundling the members that all land on one pair of rigid-body vertices:
+the pair's own `TimoshenkoJoint`/`ElasticJoint` and any `:hermite_span` spring segments
+whose near Hermite ride point rides that joint. `SimpleGraph` forbids the parallel edges
+these would otherwise be, so their wrenches are summed into one kernel. A span member
+reconstructs its near ride position from the two pair bodies' poses and its far ride
+position from the far joint's bodies (read via `extin`, [`far_body_pose_inputs`](@ref)),
+computes the spring/drag load + the ride point's half-mass gravity, and delivers the
+`beam_frac` split (force + moment-about-COM) to each near body. Each span member reads its
+struct params through a per-member [`SAM.suffixed`](@ref) view (near/far/segment suffixes)
+so the network's bare field names do not alias across members; geometry and forces are torn
+per member (mirroring [`network_combined_wrench_segment`](@ref)) so the deep pose→√→force
+chain never enters a summed term.
+"""
+function network_combined_body_edge(s, params, members, far_bodies; name)
+    io, extras = SAM.segment_io_wide()
+    (_, src_pos, src_vel, _, dst_pos, dst_vel, _,
+     src_force, src_mass, src_tension, dst_force, dst_mass, dst_tension) = io
+    ss = params.reg.sys_struct
+    src_body = (src_pos, extras.src_pose_R, extras.src_pose_com,
+                extras.src_pose_com_vel, extras.src_pose_omega)
+    dst_body = (dst_pos, extras.dst_pose_R, extras.dst_pose_com,
+                extras.dst_pose_com_vel, extras.dst_pose_omega)
+    ext_vars, farpose = far_body_pose_inputs(far_bodies)
+    wind = SAM.ground_wind_vec(params)
+    cd_tether = params.set.cd_tether
+    g_earth = params.set.g_earth
+    src_f = zeros(Num, 3); dst_f = zeros(Num, 3)
+    src_m = zeros(Num, 3); dst_m = zeros(Num, 3)
+    tear_vars = Num[]; tear_eqs = Equation[]
+    reshape3(v) = reshape(collect(v), 3, 3)
+    for (mi, m) in enumerate(members)
+        near = m.a_at_src ? src_body : dst_body
+        far = m.a_at_src ? dst_body : src_body
+        if m.kind == :timo_joint || m.kind == :elastic_joint
+            if m.kind == :timo_joint
+                joint = ss.timoshenko_joints[m.joint_idx]
+                tjf = only(@variables $(Symbol(:tjf_, mi))(t)[1:3, 1:3])
+                tjta = only(@variables $(Symbol(:tjta_, mi))(t)[1:3])
+                tjtb = only(@variables $(Symbol(:tjtb_, mi))(t)[1:3])
+                tjfa = only(@variables $(Symbol(:tjfa_, mi))(t)[1:3])
+                tjfb = only(@variables $(Symbol(:tjfb_, mi))(t)[1:3])
+                tjma = only(@variables $(Symbol(:tjma_, mi))(t)[1:3])
+                tjmb = only(@variables $(Symbol(:tjmb_, mi))(t)[1:3])
+                ex = SAM.timoshenko_element_wrench(joint, params;
+                    frame = tjf, theta_a = tjta, theta_b = tjtb,
+                    force_a = tjfa, force_b = tjfb, moment_a = tjma, moment_b = tjmb,
+                    pos_a = near[1], R_a = reshape3(near[2]), com_a = near[3],
+                    com_vel_a = near[4], omega_a_w = near[5],
+                    pos_b = far[1], R_b = reshape3(far[2]), com_b = far[3],
+                    com_vel_b = far[4], omega_b_w = far[5])
+                append!(tear_vars, vcat(collect(tjf), collect(tjta), collect(tjtb),
+                    collect(tjfa), collect(tjfb), collect(tjma), collect(tjmb)))
+            else
+                joint = ss.elastic_joints[m.joint_idx]
+                ejf = only(@variables $(Symbol(:ejf_, mi))(t)[1:3])
+                ejt = only(@variables $(Symbol(:ejt_, mi))(t)[1:3])
+                ex = SAM.elastic_joint_wrench(joint, params;
+                    force_w = ejf, torque_w = ejt,
+                    pos_a = near[1], R_a = reshape3(near[2]), com_a = near[3],
+                    com_vel_a = near[4], omega_a_w = near[5],
+                    pos_b = far[1], R_b = reshape3(far[2]), com_b = far[3],
+                    com_vel_b = far[4], omega_b_w = far[5])
+                append!(tear_vars, vcat(collect(ejf), collect(ejt)))
+            end
+            append!(tear_eqs, ex.tear_eqs)
+            fa, ma, fb, mb = ex.force_on_a, ex.moment_on_a, ex.force_on_b, ex.moment_on_b
+            if m.a_at_src
+                src_f = src_f .+ fa; src_m = src_m .+ ma
+                dst_f = dst_f .+ fb; dst_m = dst_m .+ mb
+            else
+                dst_f = dst_f .+ fa; dst_m = dst_m .+ ma
+                src_f = src_f .+ fb; src_m = src_m .+ mb
+            end
+            continue
+        end
+        seg = m.seg
+        segment_stiffness(seg)
+        near_joint = ss.timoshenko_joints[m.joint_idx]
+        far_joint = ss.timoshenko_joints[ss.points[m.ride_dst].joint_idx]
+        fa_pose = farpose[far_joint.body_a_idx]
+        fb_pose = farpose[far_joint.body_b_idx]
+        pn = SAM.suffixed(params, Symbol(:_hs, mi, :n))
+        pf = SAM.suffixed(params, Symbol(:_hs, mi, :f))
+        psv = SAM.suffixed(params, Symbol(:_hs, mi, :s))
+        nf = only(@variables $(Symbol(:hsnf_, mi))(t)[1:3, 1:3])
+        nta = only(@variables $(Symbol(:hsnta_, mi))(t)[1:3])
+        ntb = only(@variables $(Symbol(:hsntb_, mi))(t)[1:3])
+        ff = only(@variables $(Symbol(:hsff_, mi))(t)[1:3, 1:3])
+        fta = only(@variables $(Symbol(:hsfta_, mi))(t)[1:3])
+        ftb = only(@variables $(Symbol(:hsftb_, mi))(t)[1:3])
+        near_hk = SAM.beam_hermite_ride_expressions(near_joint, pn, m.ride_src;
+            pos_a = near[1], R_a = reshape3(near[2]), com_a = near[3],
+            com_vel_a = near[4], omega_a_w = near[5],
+            pos_b = far[1], R_b = reshape3(far[2]), com_b = far[3],
+            com_vel_b = far[4], omega_b_w = far[5],
+            frame = nf, theta_a = nta, theta_b = ntb)
+        far_hk = SAM.beam_hermite_ride_expressions(far_joint, pf, m.ride_dst;
+            pos_a = fa_pose[1], R_a = reshape3(fa_pose[2]), com_a = fa_pose[3],
+            com_vel_a = fa_pose[4], omega_a_w = fa_pose[5],
+            pos_b = fb_pose[1], R_b = reshape3(fb_pose[2]), com_b = fb_pose[3],
+            com_vel_b = fb_pose[4], omega_b_w = fb_pose[5],
+            frame = ff, theta_a = fta, theta_b = ftb)
+        near_pos = [only(@variables $(Symbol(:hsnp_, mi, :_, k))(t)) for k in 1:3]
+        far_pos = [only(@variables $(Symbol(:hsfp_, mi, :_, k))(t)) for k in 1:3]
+        fop = [only(@variables $(Symbol(:hsfo_, mi, :_, k))(t)) for k in 1:3]
+        append!(tear_vars, vcat(collect(nf), collect(nta), collect(ntb)))
+        append!(tear_vars, vcat(collect(ff), collect(fta), collect(ftb)))
+        append!(tear_vars, near_pos); append!(tear_vars, far_pos); append!(tear_vars, fop)
+        append!(tear_eqs, near_hk.tear_eqs); append!(tear_eqs, far_hk.tear_eqs)
+        append!(tear_eqs, collect(near_pos) .~ near_hk.pos_point)
+        append!(tear_eqs, collect(far_pos) .~ far_hk.pos_point)
+        segp = psv.segments[seg.idx]
+        force_near, _, half, _ = SAM.segment_endpoint_loads(s,
+            collect(near_pos), near_hk.ride_velocity(collect(near_pos)),
+            collect(far_pos), far_hk.ride_velocity(collect(far_pos)),
+            segp.unit_stiffness, segp.unit_damping, segp.compression_frac, segp.l0,
+            segp.diameter, segp.density, cd_tether, collect(wind); with_drag = true)
+        knot_mass = pn.points[m.ride_src].extra_mass + half
+        force_point = collect(force_near) .+ [0.0, 0.0, -g_earth * knot_mass]
+        append!(tear_eqs, collect(fop) .~ force_point)
+        frac_a = 1 - near_hk.sfrac
+        force_a = frac_a .* collect(fop)
+        force_b = near_hk.sfrac .* collect(fop)
+        arm_a = collect(near_pos) .- collect(near[3])
+        arm_b = collect(near_pos) .- collect(far[3])
+        moment_a = arm_a × force_a
+        moment_b = arm_b × force_b
+        if m.a_at_src
+            src_f = src_f .+ force_a; src_m = src_m .+ moment_a
+            dst_f = dst_f .+ force_b; dst_m = dst_m .+ moment_b
+        else
+            dst_f = dst_f .+ force_a; dst_m = dst_m .+ moment_a
+            src_f = src_f .+ force_b; src_m = src_m .+ moment_b
+        end
+    end
+    eqs = [
+        tear_eqs
+        collect(src_force) .~ src_f
+        src_mass ~ 0.0; src_tension ~ 0.0
+        collect(dst_force) .~ dst_f
+        dst_mass ~ 0.0; dst_tension ~ 0.0
+        collect(extras.src_moment) .~ src_m
+        collect(extras.dst_moment) .~ dst_m
+    ]
+    return System(eqs, t, [io[1]; ext_vars; tear_vars], param_unknowns(params); name)
+end
+
+"""
     joint_edge_ab_poses(io, extras, a_at_src)
 
 The `(a_pose, b_pose)` tuples a body↔body joint edge reads, each `(pos, pose_R, pose_com,
@@ -742,11 +1103,12 @@ const VERTEX_OUTPUTS = [:pos, :vel, :pulley_len_out]
 # input/output width; a point zero-fills the pose slots, a body zero-fills pulley_len.
 const WIDE_VERTEX_INPUTS = [:force_in, :mass_in, :tension_in, :moment_in]
 const WIDE_VERTEX_OUTPUTS =
-    [:pos, :vel, :pulley_len_out, :pose_R, :pose_com, :pose_com_vel, :pose_omega]
+    [:pos, :vel, :pulley_len_out, :pose_R, :pose_com, :pose_com_vel, :pose_omega,
+     :force_out]
 const WIDE_EDGE_SRC_IN = [:src_pos, :src_vel, :src_pulley_len, :src_pose_R,
-    :src_pose_com, :src_pose_com_vel, :src_pose_omega]
+    :src_pose_com, :src_pose_com_vel, :src_pose_omega, :src_force_out]
 const WIDE_EDGE_DST_IN = [:dst_pos, :dst_vel, :dst_pulley_len, :dst_pose_R,
-    :dst_pose_com, :dst_pose_com_vel, :dst_pose_omega]
+    :dst_pose_com, :dst_pose_com_vel, :dst_pose_omega, :dst_force_out]
 const WIDE_EDGE_SRC_OUT = [:src_force, :src_mass, :src_tension, :src_moment]
 const WIDE_EDGE_DST_OUT = [:dst_force, :dst_mass, :dst_tension, :dst_moment]
 const EDGE_SRC_IN = [:src_pos, :src_vel, :src_pulley_len]
@@ -1231,19 +1593,171 @@ function record_wing_ride_drag!(builder, ss, vertex, body_idx)
 end
 
 """
+    network_mount_edge(; name)
+
+The body↔ride mount edge (src = the ride-point vertex, dst = its body vertex): it reads
+the ride point's algebraic position and aggregated `force_out` and the body's COM, and
+delivers the ride point's `mount_frac` share of the force plus its moment about the COM to
+the body. It exerts nothing on the ride point (segments already load it). For a rigid ride
+`mount_frac = 1`; a Hermite ride mounts to both beam bodies with `mount_frac = 1 − sfrac`
+and `sfrac`. This slim edge is what replaces the whole wrench/dual/hermite reconstruction
+family once the ride point owns its own position (via `ff_to_constraint`).
+"""
+function network_mount_edge(; name)
+    io, extras = SAM.segment_io_wide()
+    (_, src_pos, _, _, _, _, _, src_force, src_mass, src_tension,
+     dst_force, dst_mass, dst_tension) = io
+    frac = SAM.make_param(:mount_frac, 1.0)
+    force_body = frac .* collect(extras.src_force_out)
+    moment_body = (collect(src_pos) .- collect(extras.dst_pose_com)) × force_body
+    eqs = [
+        collect(src_force) .~ 0.0
+        src_mass ~ 0.0
+        src_tension ~ 0.0
+        collect(dst_force) .~ force_body
+        dst_mass ~ 0.0
+        dst_tension ~ 0.0
+        collect(extras.src_moment) .~ 0.0
+        collect(extras.dst_moment) .~ moment_body
+    ]
+    return System(eqs, t, io[1], [frac]; name)
+end
+
+"""
+    build_mount_edge(sam, ss)
+
+Compile the one shared mount `EdgeModel` ([`network_mount_edge`](@ref)); every body↔ride
+edge reuses it with a per-edge `mount_frac` constant. Returns the `EdgeModel`.
+"""
+build_mount_edge(sam, ss) =
+    EdgeModel(network_mount_edge(; name = :mount),
+        WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
+        mtkcompile = true, name = :mount)
+
+"""
+    build_wide_structural_edge(sam, ss, edge_info)
+
+Compile the wide drag-free wing-structural `EdgeModel` (first `:structural` edge as
+representative), or `(nothing, nothing)` when none. Mirrors [`build_wide_plain_edge`](@ref)
+but its representative is a wing-structural segment, so [`SAM.SpringDamperSegment`](@ref)
+bakes the drag-free variant.
+"""
+function build_wide_structural_edge(sam, ss, edge_info)
+    repr = nothing
+    for info in values(edge_info)
+        info.kind == :structural && (repr = info.seg.idx; break)
+    end
+    repr === nothing && return nothing, nothing
+    pv = network_view(ss)
+    em = EdgeModel(SAM.SpringDamperSegment(sam, pv, repr; name = :sseg, wide = true),
+        WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
+        mtkcompile = true, name = :sseg)
+    return em, pv.reg
+end
+
+"""
+    rigid_ride_extin(ride_idx, ss, vertex_of_body)
+
+`extin` pairs binding a rigid ride point's `:oth_*` pose inputs to its body vertex's pose
+outputs (via [`ride_pose_extin!`](@ref)).
+"""
+function rigid_ride_extin(ride_idx, ss, vertex_of_body)
+    v = vertex_of_body[ss.points[ride_idx].body_idx]
+    return ride_pose_extin!(Pair{Symbol, Any}[], :oth, v)
+end
+
+"""
+    hermite_ride_extin(ride_idx, ss, vertex_of_body)
+
+`extin` pairs binding a Hermite ride point's `:a_*`/`:b_*` pose inputs to its joint's two
+body vertices' pose outputs.
+"""
+function hermite_ride_extin(ride_idx, ss, vertex_of_body)
+    joint = ss.timoshenko_joints[ss.points[ride_idx].joint_idx]
+    pairs = Pair{Symbol, Any}[]
+    ride_pose_extin!(pairs, :a, vertex_of_body[joint.body_a_idx])
+    ride_pose_extin!(pairs, :b, vertex_of_body[joint.body_b_idx])
+    return pairs
+end
+
+"""
+    build_rigid_ride_vertex(sam, ss, rigid_rides, vertex_of_body)
+
+Compile the shared rigid ride-point `VertexModel` (first rigid ride as representative,
+`ff_to_constraint=true` so its position/velocity/force become algebraic states), or
+`(nothing, nothing)` when none. Returns `(base, reg)`; each ride reuses `base` rebound to
+its own body via `extin`.
+"""
+function build_rigid_ride_vertex(sam, ss, rigid_rides, vertex_of_body)
+    isempty(rigid_rides) && return nothing, nothing
+    pv = network_view(ss)
+    vm = VertexModel(network_rigid_ride_point(sam, pv, rigid_rides[1]; name = :rride),
+        WIDE_VERTEX_INPUTS, WIDE_VERTEX_OUTPUTS;
+        extin = rigid_ride_extin(rigid_rides[1], ss, vertex_of_body),
+        ff_to_constraint = true, mtkcompile = true, name = :rride)
+    return vm, pv.reg
+end
+
+"""
+    build_hermite_ride_vertex(sam, ss, hermite_rides, vertex_of_body)
+
+Compile the shared Hermite ride-point `VertexModel` (first Hermite ride as representative,
+`ff_to_constraint=true`), or `(nothing, nothing)` when none. Returns `(base, reg)`.
+"""
+function build_hermite_ride_vertex(sam, ss, hermite_rides, vertex_of_body)
+    isempty(hermite_rides) && return nothing, nothing
+    pv = network_view(ss)
+    repr = hermite_rides[1]
+    vm = VertexModel(
+        network_hermite_ride_point(sam, pv, repr, ss.points[repr].joint_idx;
+                                   name = :hride),
+        WIDE_VERTEX_INPUTS, WIDE_VERTEX_OUTPUTS;
+        extin = hermite_ride_extin(repr, ss, vertex_of_body),
+        ff_to_constraint = true, mtkcompile = true, name = :hride)
+    return vm, pv.reg
+end
+
+"""
+    record_ride_params!(builder, ss, vertex, ride_idx, reg, rigid)
+
+Bind a ride-point vertex's live struct params: its `:points` fields (anchor, mass, drag)
+and, for a Hermite ride, its joint's `:timoshenko_joints` fields, plus the wind params.
+"""
+function record_ride_params!(builder, ss, vertex, ride_idx, reg, rigid)
+    replay_fields!(builder, reg, :points, vertex, ride_idx, ss)
+    rigid || replay_fields!(builder, reg, :timoshenko_joints, vertex,
+                            ss.points[ride_idx].joint_idx, ss)
+    record_wind_params!(builder, vertex)
+    return nothing
+end
+
+"""
+    mount_frac(ss, ride_idx, kind)
+
+The force fraction a mount edge carries to its body: `1` for a rigid ride (`:full`),
+`1 − beam_frac` toward beam body A (`:one_minus`) and `beam_frac` toward body B (`:sfrac`)
+for a Hermite ride.
+"""
+mount_frac(ss, ride_idx, kind) = kind === :full ? 1.0 :
+    kind === :one_minus ? 1.0 - ss.points[ride_idx].beam_frac :
+    ss.points[ride_idx].beam_frac
+
+"""
     build_body_mixed_network(sam, ss, body_idxs)
 
-Assemble a `Network` of integrated rigid bodies (`type == DYNAMIC`) together with free
-points, using the wide vertex/edge superset (§8.5). Free `STATIC`/`DYNAMIC` points are
-vertices; `BODY_STATIC` points are **absorbed** into their body vertex (their motion is
-a body-pose function). A segment between two free points is a `:plain` wide
-[`SAM.SpringDamperSegment`](@ref); a segment touching a ride point is a `:wrench`
-[`network_wrench_segment`](@ref) delivering force+moment to the body. The bare-body case
-(no free points, no segments) is the empty-edge subcase. Pulleys, winches, wing nodes
-and rigid-wing aero are not yet supported here. Returns `(nw, u0, p0, meta)`.
+Assemble a `Network` of integrated rigid bodies together with free points and `BODY_STATIC`
+ride points, using the wide vertex/edge superset (§8.5). Every point is a vertex: free
+`STATIC`/`DYNAMIC`/pulley/winch points, and each `BODY_STATIC` ride point as a first-class
+[`network_rigid_ride_point`](@ref)/[`network_hermite_ride_point`](@ref) vertex whose
+position/velocity are algebraic states (`ff_to_constraint`). Bodies are appended as
+vertices. Every structural segment is an ordinary wide spring/tether/pulley edge between
+its two point-vertices (a spanwise beam segment is just a `ride↔ride` edge); each joint is
+a body↔body edge; each ride point mounts its aggregated load to its body via one
+[`network_mount_edge`](@ref) per beam body. Returns `(nw, u0, p0, meta)`.
 """
 function build_body_mixed_network(sam, ss, body_idxs)
     points = ss.points
+    n_points = length(points)
     pulley_of_point = Dict{Int, Int}()
     for pulley in ss.pulleys
         pulley_of_point[pulley_point_idx(ss, pulley)] = pulley.idx
@@ -1252,109 +1766,78 @@ function build_body_mixed_network(sam, ss, body_idxs)
     for winch in ss.winches
         winch_of_point[winch.winch_point_idx] = winch.idx
     end
+    rigid_rides = Int[]
+    hermite_rides = Int[]
     free_idxs = Int[]
     for (i, p) in enumerate(points)
-        p.type == SAM.BODY_STATIC && continue
-        (p.type == SAM.STATIC || p.type == SAM.DYNAMIC) || error(
-            "NetworkBackend(body): point $(p.name) type $(p.type) unsupported yet.")
-        (p.type == SAM.DYNAMIC && p.is_wing_node) && error(
-            "NetworkBackend(body): wing-node point $(p.name) not supported yet.")
-        push!(free_idxs, i)
+        if p.type == SAM.BODY_STATIC
+            push!(p.joint_idx > 0 ? hermite_rides : rigid_rides, i)
+        else
+            (p.type == SAM.STATIC || p.type == SAM.DYNAMIC) || error(
+                "NetworkBackend(body): point $(p.name) type $(p.type) unsupported yet.")
+            (p.type == SAM.DYNAMIC && p.is_wing_node) && error(
+                "NetworkBackend(body): wing-node point $(p.name) not supported yet.")
+            push!(free_idxs, i)
+        end
     end
     roles = classify_segments(ss)
     role_of_seg = Dict(ss.segments[k].idx => roles[k] for k in eachindex(ss.segments))
-    n_free = length(free_idxs)
     static_body_idxs = [b.idx for b in ss.bodies if b.type == SAM.STATIC]
     all_body_idxs = [body_idxs; static_body_idxs]
-    vertex_of_point = Dict(i => v for (v, i) in enumerate(free_idxs))
-    vertex_of_body = Dict(bidx => n_free + k for (k, bidx) in enumerate(all_body_idxs))
-    nv = n_free + length(all_body_idxs)
-
-    endpoint(pidx) = points[pidx].type == SAM.BODY_STATIC ?
-        (vertex_of_body[points[pidx].body_idx], pidx) : (vertex_of_point[pidx], 0)
+    vertex_of_point = Dict(i => i for i in 1:n_points)
+    vertex_of_body = Dict(bidx => n_points + k for (k, bidx) in enumerate(all_body_idxs))
+    nv = n_points + length(all_body_idxs)
 
     graph = SimpleGraph(nv)
     edge_info = Dict{Tuple{Int, Int}, MixedEdgeInfo}()
-    combo_info = Dict{Tuple{Int, Int}, Vector{MixedEdgeInfo}}()
-    seg_pairs = Dict{Tuple{Int, Int}, Vector{MixedEdgeInfo}}()
-    add_mixed_edge!(graph, edge_info, key, info) = begin
-        haskey(edge_info, key) && error("NetworkBackend(body): parallel edges " *
-            "between vertices $key are not supported.")
-        add_edge!(graph, key[1], key[2])
-        edge_info[key] = info
-    end
-    is_hermite(pidx) = points[pidx].type == SAM.BODY_STATIC && points[pidx].joint_idx > 0
+    merged_springs = Dict{Tuple{Int, Int}, Vector{Any}}()
+    mount_info = Dict{Tuple{Int, Int}, NamedTuple}()
+    intra_rigid(p1, p2) = points[p1].type == SAM.BODY_STATIC &&
+        points[p2].type == SAM.BODY_STATIC && points[p1].joint_idx == 0 &&
+        points[p2].joint_idx == 0 && points[p1].body_idx == points[p2].body_idx
     for seg in ss.segments
         p1, p2 = seg.point_idxs
-        if is_hermite(p1) || is_hermite(p2)
-            (is_hermite(p1) && is_hermite(p2)) && error("NetworkBackend(body): " *
-                "segment $(seg.name) between two Hermite ride points not supported.")
-            hpt = is_hermite(p1) ? p1 : p2
-            freept = is_hermite(p1) ? p2 : p1
-            points[freept].type == SAM.BODY_STATIC && error("NetworkBackend(body): " *
-                "Hermite segment $(seg.name)'s other end must be a free point.")
-            vfree = vertex_of_point[freept]
-            joint = ss.timoshenko_joints[points[hpt].joint_idx]
-            for (to_a, bidx) in ((true, joint.body_a_idx), (false, joint.body_b_idx))
-                add_mixed_edge!(graph, edge_info, minmax(vfree, vertex_of_body[bidx]),
-                    MixedEdgeInfo(:hermite, seg, hpt, 0, joint.idx, to_a))
-            end
+        intra_rigid(p1, p2) && continue
+        p1 == p2 && error("NetworkBackend(body): segment $(seg.name) is a self-loop.")
+        kind = role_of_seg[seg.idx].kind
+        key = minmax(p1, p2)
+        if haskey(edge_info, key)
+            merge_parallel_spring!(merged_springs, edge_info[key], seg, kind, key)
             continue
         end
-        va, ride_a = endpoint(p1)
-        vb, ride_b = endpoint(p2)
-        role = role_of_seg[seg.idx]
-        if va == vb
-            (ride_a > 0 && ride_b > 0) || error("NetworkBackend(body): segment " *
-                "$(seg.name) is a self-loop (both endpoints on vertex $va).")
-            continue
-        end
-        ride_src, ride_dst = va < vb ? (ride_a, ride_b) : (ride_b, ride_a)
-        if ride_src == 0 && ride_dst == 0
-            kind = role.kind
-        elseif ride_src > 0 && ride_dst > 0
-            (role.kind == :plain || role.kind == :structural) || error(
-                "NetworkBackend(body): a $(role.kind) segment ($(seg.name)) between " *
-                "two body ride points is not supported yet.")
-            kind = :dual_wrench
-        else
-            kind = role.kind == :tether ? :wrench_tether :
-                   role.kind == :pulley ? :wrench_pulley : :wrench
-        end
-        push!(get!(seg_pairs, minmax(va, vb), MixedEdgeInfo[]),
-              MixedEdgeInfo(kind, seg, ride_src, ride_dst, 0, false))
+        add_edge!(graph, p1, p2)
+        edge_info[key] = MixedEdgeInfo(kind, seg, 0, 0, 0, false)
     end
-    for (key, members) in seg_pairs
-        if length(members) == 1
-            add_mixed_edge!(graph, edge_info, key, members[1])
-        else
-            all(m -> m.kind in (:wrench, :wrench_pulley), members) || error(
-                "NetworkBackend(body): combined edge $key mixes unsupported kinds " *
-                "$(unique(getfield.(members, :kind))); only a body↔free bundle of " *
-                "wrench/wrench_pulley segments is supported.")
-            haskey(edge_info, key) && error("NetworkBackend(body): parallel edges " *
-                "between vertices $key are not supported.")
-            add_edge!(graph, key[1], key[2])
-            combo_info[key] = members
-        end
-    end
-    add_joint_edge!(kind, joint) = begin
-        haskey(vertex_of_body, joint.body_a_idx) &&
-            haskey(vertex_of_body, joint.body_b_idx) || error(
-            "NetworkBackend(body): joint $(joint.name) connects a body that is not " *
-            "an integrated DYNAMIC body.")
-        va = vertex_of_body[joint.body_a_idx]
-        vb = vertex_of_body[joint.body_b_idx]
-        va == vb && error("NetworkBackend(body): joint $(joint.name) connects a " *
-            "body to itself.")
-        add_mixed_edge!(graph, edge_info, minmax(va, vb),
-            MixedEdgeInfo(kind, nothing, 0, 0, joint.idx, va < vb))
+    push_joint!(kind, joint) = begin
+        va = get(vertex_of_body, joint.body_a_idx, 0)
+        vb = get(vertex_of_body, joint.body_b_idx, 0)
+        (va > 0 && vb > 0) || error("NetworkBackend(body): joint $(joint.name) connects " *
+            "a body that is not an integrated body.")
+        va == vb && error("NetworkBackend(body): joint $(joint.name) is a self-loop.")
+        key = minmax(va, vb)
+        haskey(edge_info, key) && error("NetworkBackend(body): body pair $key is joined " *
+            "by more than one joint.")
+        add_edge!(graph, va, vb)
+        edge_info[key] = MixedEdgeInfo(kind, nothing, 0, 0, joint.idx, va < vb)
     end
     for joint in ss.timoshenko_joints
-        add_joint_edge!(:timo_joint, joint)
+        push_joint!(:timo_joint, joint)
     end
     for joint in ss.elastic_joints
-        add_joint_edge!(:elastic_joint, joint)
+        push_joint!(:elastic_joint, joint)
+    end
+    add_mount!(ride_idx, body_idx, frac_kind) = begin
+        vb = vertex_of_body[body_idx]
+        add_edge!(graph, ride_idx, vb)
+        mount_info[minmax(ride_idx, vb)] = (; ride_idx, frac_kind)
+    end
+    for i in rigid_rides
+        add_mount!(i, points[i].body_idx, :full)
+    end
+    for i in hermite_rides
+        joint = ss.timoshenko_joints[points[i].joint_idx]
+        add_mount!(i, joint.body_a_idx, :one_minus)
+        add_mount!(i, joint.body_b_idx, :sfrac)
     end
 
     free_special = union(keys(winch_of_point), keys(pulley_of_point))
@@ -1364,6 +1847,21 @@ function build_body_mixed_network(sam, ss, body_idxs)
         network_static_point; exclude = free_special)
     pulley_vm, pulley_reg = build_wide_pulley_vertex(sam, ss, free_idxs, pulley_of_point)
     winch_vm_of = build_wide_winch_vertices(sam, ss, free_idxs, winch_of_point)
+    rigid_ride_base, rigid_ride_reg =
+        build_rigid_ride_vertex(sam, ss, rigid_rides, vertex_of_body)
+    hermite_ride_base, hermite_ride_reg =
+        build_hermite_ride_vertex(sam, ss, hermite_rides, vertex_of_body)
+    ride_vm_of = Dict{Int, Any}()
+    for i in rigid_rides
+        ride_vm_of[i] = i == rigid_rides[1] ? rigid_ride_base :
+            VertexModel(rigid_ride_base;
+                        extin = last.(rigid_ride_extin(i, ss, vertex_of_body)))
+    end
+    for i in hermite_rides
+        ride_vm_of[i] = i == hermite_rides[1] ? hermite_ride_base :
+            VertexModel(hermite_ride_base;
+                        extin = last.(hermite_ride_extin(i, ss, vertex_of_body)))
+    end
     wing_body_idxs = [b for b in body_idxs if SAM.is_wing(ss.bodies[b])]
     plain_body_idxs = [b for b in body_idxs if !SAM.is_wing(ss.bodies[b])]
     body_pv = nothing
@@ -1385,47 +1883,39 @@ function build_body_mixed_network(sam, ss, body_idxs)
     end
 
     vmodels = Vector{VertexModel}(undef, nv)
-    for (v, i) in enumerate(free_idxs)
-        vmodels[v] = haskey(winch_of_point, i) ? winch_vm_of[i] :
+    for i in 1:n_points
+        vmodels[i] = haskey(ride_vm_of, i) ? ride_vm_of[i] :
+            haskey(winch_of_point, i) ? winch_vm_of[i] :
             haskey(pulley_of_point, i) ? pulley_vm :
             points[i].type == SAM.STATIC ? stat_vm : dyn_vm
     end
     for (k, bidx) in enumerate(all_body_idxs)
-        vmodels[n_free + k] = ss.bodies[bidx].type == SAM.STATIC ? static_body_vm :
+        vmodels[n_points + k] = ss.bodies[bidx].type == SAM.STATIC ? static_body_vm :
             haskey(wing_vm_of, bidx) ? wing_vm_of[bidx] : body_vm
     end
 
     plain_em, plain_reg = build_wide_plain_edge(sam, ss, edge_info)
-    wrench_of, wrench_reg_of = build_wrench_edges(sam, ss, edge_info)
-    dual_em, dual_reg = build_dual_wrench_edges(sam, ss, edge_info)
+    structural_em, structural_reg = build_wide_structural_edge(sam, ss, edge_info)
     joint_of, joint_reg_of = build_joint_edges(sam, ss, edge_info)
-    hermite_of, hermite_reg_of = build_hermite_edges(sam, ss, edge_info, vertex_of_body)
     tether_of, tether_reg = build_wide_tether_edges(sam, ss, winch_of_point, edge_info,
         vertex_of_point)
     pulley_em, pulley_ereg = build_wide_pulley_edge(sam, ss, edge_info)
-    wtether_of, wtether_reg_of = build_wrench_tether_edges(sam, ss, edge_info,
-        vertex_of_point)
-    wpulley_of, wpulley_reg_of = build_wrench_pulley_edges(sam, ss, edge_info)
-    combined_of = build_combined_edges(sam, ss, combo_info, role_of_seg)
+    mount_em = isempty(mount_info) ? nothing : build_mount_edge(sam, ss)
 
     edgelist = collect(edges(graph))
     emodels = Vector{EdgeModel}(undef, length(edgelist))
     for (j, e) in enumerate(edgelist)
         key = minmax(src(e), dst(e))
-        if haskey(combined_of, key)
-            emodels[j] = combined_of[key]
+        if haskey(mount_info, key)
+            emodels[j] = mount_em
             continue
         end
         info = edge_info[key]
         emodels[j] = (info.kind == :timo_joint || info.kind == :elastic_joint) ?
             joint_of[(info.kind, info.a_at_src)] :
-            info.kind == :hermite ? hermite_of[key] :
-            info.kind == :dual_wrench ? dual_em :
-            info.kind == :wrench ? wrench_of[wrench_body_at_src(info)] :
-            info.kind == :wrench_tether ? wtether_of[key] :
-            info.kind == :wrench_pulley ? wpulley_of[wrench_body_at_src(info)] :
             info.kind == :tether ? tether_of[role_of_seg[info.seg.idx].tether_idx] :
-            info.kind == :pulley ? pulley_em : plain_em
+            info.kind == :pulley ? pulley_em :
+            info.kind == :structural ? structural_em : plain_em
     end
     nw = Network(graph, vmodels, emodels)
 
@@ -1438,38 +1928,48 @@ function build_body_mixed_network(sam, ss, body_idxs)
         SAM.is_wing(ss.bodies[bidx]) &&
             set_wing_twist_states!(ss, state, vertex, ss.bodies[bidx])
     end
-    for (v, i) in enumerate(free_idxs)
-        if haskey(winch_of_point, i)
+    for i in 1:n_points
+        if haskey(ride_vm_of, i)
+            for k in 1:3
+                state.v[i, Symbol(:pos_, k)] = points[i].pos_w[k]
+                state.v[i, Symbol(:vel_, k)] = points[i].vel_w[k]
+                state.v[i, Symbol(:force_out_, k)] = 0.0
+            end
+        elseif haskey(winch_of_point, i)
             winch = ss.winches[winch_of_point[i]]
-            state.v[v, :winch_vel] = winch.vel
+            state.v[i, :winch_vel] = winch.vel
             for (pos, tidx) in enumerate(winch.tether_idxs)
-                state.v[v, Symbol(:tether_len_, pos)] = ss.tethers[tidx].len
+                state.v[i, Symbol(:tether_len_, pos)] = ss.tethers[tidx].len
             end
         elseif haskey(pulley_of_point, i)
             pulley = ss.pulleys[pulley_of_point[i]]
-            set_particle_state!(state, v, points[i])
-            state.v[v, :pulley_len] = pulley.len
-            state.v[v, :pulley_vel] = pulley.vel
+            set_particle_state!(state, i, points[i])
+            state.v[i, :pulley_len] = pulley.len
+            state.v[i, :pulley_vel] = pulley.vel
         elseif points[i].type == SAM.DYNAMIC
-            set_particle_state!(state, v, points[i])
+            set_particle_state!(state, i, points[i])
         end
     end
 
     builder = ParamBuilder()
-    for (v, i) in enumerate(free_idxs)
-        if haskey(winch_of_point, i)
-            record_winch_params!(builder, v, i, winch_of_point[i])
+    for i in 1:n_points
+        if haskey(ride_vm_of, i)
+            rigid = points[i].joint_idx == 0
+            record_ride_params!(builder, ss, i, i,
+                rigid ? rigid_ride_reg : hermite_ride_reg, rigid)
+        elseif haskey(winch_of_point, i)
+            record_winch_params!(builder, i, i, winch_of_point[i])
         elseif haskey(pulley_of_point, i)
-            replay_fields!(builder, pulley_reg, :points, v, i, ss;
+            replay_fields!(builder, pulley_reg, :points, i, i, ss;
                            skip = (:body_frame_damping,))
-            record_wind_params!(builder, v)
-            record_pulley_mass_params!(builder, ss, v, pulley_of_point[i])
+            record_wind_params!(builder, i)
+            record_pulley_mass_params!(builder, ss, i, pulley_of_point[i])
         elseif points[i].type == SAM.STATIC
-            replay_fields!(builder, stat_reg, :points, v, i, ss)
+            replay_fields!(builder, stat_reg, :points, i, i, ss)
         else
-            replay_fields!(builder, dyn_reg, :points, v, i, ss;
+            replay_fields!(builder, dyn_reg, :points, i, i, ss;
                            skip = (:body_frame_damping,))
-            record_wind_params!(builder, v)
+            record_wind_params!(builder, i)
         end
     end
     callables = CallableBuilder()
@@ -1484,30 +1984,21 @@ function build_body_mixed_network(sam, ss, body_idxs)
             record_aero_params!(builder, callables, ss, vertex, ss.bodies[bidx],
                                 wing_areg_of[bidx])
             record_wing_twist_params!(builder, ss, vertex, ss.bodies[bidx])
-            record_wing_ride_drag!(builder, ss, vertex, bidx)
         else
             record_body_params!(builder, body_pv.reg, ss, vertex, bidx; gravity = true)
         end
     end
-    record_mixed_edge_params!(builder, callables, ss, edgelist, edge_info,
-                              plain_reg, wrench_reg_of, dual_reg, joint_reg_of,
-                              hermite_reg_of, tether_reg, pulley_ereg, role_of_seg,
-                              wtether_reg_of, wpulley_reg_of)
-    for (j, e) in enumerate(edgelist)
-        key = minmax(src(e), dst(e))
-        haskey(combo_info, key) &&
-            record_combined_edge_params!(builder, ss, j, combo_info[key], role_of_seg)
-    end
+    record_body_edge_params!(builder, callables, ss, edgelist, edge_info,
+                             plain_reg, structural_reg, joint_reg_of, tether_reg,
+                             pulley_ereg, role_of_seg, merged_springs)
     set_mixed_const_params!(nw, param, ss, edgelist, edge_info, role_of_seg)
+    set_mount_const_params!(nw, param, ss, edgelist, mount_info)
     param_sync = build_network_param_sync(nw, builder, callables)
 
-    body_static = [(i, points[i].body_idx) for i in eachindex(points)
-                   if points[i].type == SAM.BODY_STATIC && points[i].joint_idx == 0]
-    winch_tethers = Dict(vertex_of_point[w.winch_point_idx] => collect(w.tether_idxs)
-                         for w in ss.winches)
-    meta = (; param_sync, winch_of_point, pulley_of_point,
-            winch_tethers, body_idxs,
-            body_vertices = dyn_body_vertices, body_static, vertex_of_point)
+    winch_tethers = Dict(w.winch_point_idx => collect(w.tether_idxs) for w in ss.winches)
+    meta = (; param_sync, winch_of_point, pulley_of_point, winch_tethers, body_idxs,
+            body_vertices = dyn_body_vertices, ride_idxs = sort!(collect(keys(ride_vm_of))),
+            vertex_of_point)
     return nw, uflat(state), pflat(param), meta
 end
 
@@ -1716,6 +2207,69 @@ function build_combined_edges(sam, ss, combo_info, role_of_seg)
             mtkcompile = true, name = :cseg)
     end
     return em_of
+end
+
+"""
+    build_combined_body_edges(sam, ss, combo_body_info, vertex_of_body)
+
+Compile one [`network_combined_body_edge`](@ref) `EdgeModel` per body↔body vertex pair in
+`combo_body_info` (each a joint plus its `:hermite_span` spring members). Every span
+member's far beam bodies are bound via `extin` ([`combined_body_extin`](@ref)). Returns
+`(em_of, reg_of)` — the `EdgeModel` and its per-key registry (for parameter sync), both
+keyed by vertex-pair `key`.
+"""
+function build_combined_body_edges(sam, ss, combo_body_info, vertex_of_body)
+    em_of = Dict{Tuple{Int, Int}, EdgeModel}()
+    reg_of = Dict{Tuple{Int, Int}, Any}()
+    for (key, members) in combo_body_info
+        pv = network_view(ss)
+        far_bodies = combined_body_far_bodies(members, ss)
+        extin = combined_body_extin(ss, far_bodies, vertex_of_body)
+        em_of[key] = EdgeModel(
+            network_combined_body_edge(sam, pv, members, far_bodies; name = :cbedge),
+            WIDE_EDGE_SRC_IN, WIDE_EDGE_DST_IN, WIDE_EDGE_SRC_OUT, WIDE_EDGE_DST_OUT;
+            extin, mtkcompile = true, name = :cbedge)
+        reg_of[key] = pv.reg
+    end
+    return em_of, reg_of
+end
+
+"""
+    record_combined_body_params!(builder, callables, reg, j, ss)
+
+Bind every struct-field parameter a [`network_combined_body_edge`](@ref) recorded in its
+per-key registry `reg` at network edge index `j`, addressing each by its own (possibly
+`suffixed`) parameter name — unlike [`replay_fields!`](@ref), which keys by the bare leaf
+and so cannot disambiguate the per-member suffixed reads. Scalars bind directly; array
+fields expand to `name_k` (vectors) / `name_row_col` (matrices, column-major); callable
+rigidity laws route through the nonnumeric path.
+"""
+function record_combined_body_params!(builder, callables, reg, j, ss)
+    for entry in reg.entries
+        entry.read isa SAM.PathReader || continue
+        name = Symbol(entry_name(entry.param))
+        path = entry.read.path
+        if entry.kind === :callable
+            add_callable!(callables, EIndex(j, name), SAM.PathReader(path))
+        elseif entry.kind === :scalar
+            add_param!(builder, EIndex(j, name), SAM.PathReader(path))
+        elseif entry.kind === :array
+            value = entry.read(ss)
+            if ndims(value) == 2
+                rows, cols = size(value)
+                for col in 1:cols, row in 1:rows
+                    add_param!(builder, EIndex(j, Symbol(name, :_, row, :_, col)),
+                               SAM.PathReader((path..., (col - 1) * rows + row)))
+                end
+            else
+                for k in 1:length(value)
+                    add_param!(builder, EIndex(j, Symbol(name, :_, k)),
+                               SAM.PathReader((path..., k)))
+                end
+            end
+        end
+    end
+    return nothing
 end
 
 """
@@ -2683,6 +3237,122 @@ function set_mixed_const_params!(nw, param, ss, edgelist, edge_info, role_of_seg
     return nothing
 end
 
+"""
+    merge_parallel_spring!(merged, prev, seg, kind, key)
+
+Record a second coincident spring `seg` on the already-edged point pair `key` so its force
+adds to the existing edge (ND's `SimpleGraph` cannot hold parallel edges). Only drag-free
+`:structural` springs whose rest length, diameter and compression match may merge — summing
+just `unit_stiffness`/`unit_damping` is exact there; a drag-bearing `:plain` parallel would
+lose its second member's drag, so it (and tether/pulley/joint or mismatched geometry) is an
+error. The list seeds with `prev.seg` so it holds every coincident member, in `ss.segments`
+order.
+"""
+function merge_parallel_spring!(merged, prev, seg, kind, key)
+    (kind === :structural && prev.kind === :structural) || error(
+        "NetworkBackend(body): points $key are joined by more than one segment; " *
+        "parallel edges are only supported for coincident drag-free wing springs.")
+    (isapprox(prev.seg.l0, seg.l0) && isapprox(prev.seg.diameter, seg.diameter) &&
+        isapprox(prev.seg.compression_frac, seg.compression_frac)) || error(
+        "NetworkBackend(body): parallel segments $(prev.seg.name)/$(seg.name) on $key " *
+        "differ in geometry; cannot sum into one edge.")
+    push!(get!(merged, key, Any[prev.seg]), seg)
+    return nothing
+end
+
+"""
+    SumSegmentField(seg_idxs, field)
+
+Live reader summing one numeric `field` across several coincident segments, so a single ND
+edge reproduces the total spring/damper coefficient of parallel members that `SimpleGraph`
+cannot represent separately (mass still counts every member via `write_total_mass!`).
+"""
+struct SumSegmentField
+    seg_idxs::Vector{Int}
+    field::Symbol
+end
+(reader::SumSegmentField)(sys_struct) =
+    sum(getproperty(sys_struct.segments[i], reader.field) for i in reader.seg_idxs)
+
+"""
+    record_body_edge_params!(builder, callables, ss, edgelist, edge_info,
+                             plain_reg, structural_reg, joint_reg_of, tether_reg,
+                             pulley_reg, role_of_seg, merged_springs)
+
+Bind the live struct params of every body-network edge: `:plain`/`:structural` spring
+segments (from their own registry — the drag-free structural kernel reads fewer fields),
+`:tether`/`:pulley` segments, and `:timo_joint`/`:elastic_joint` joints (numeric fields +
+nonlinear callables). Coincident parallel springs listed in `merged_springs` sum their
+`unit_stiffness`/`unit_damping` into the one representative edge. Mount edges carry only a
+build-time `mount_frac` const (see [`set_mount_const_params!`](@ref)), so they are skipped.
+"""
+function record_body_edge_params!(builder, callables, ss, edgelist, edge_info,
+                                  plain_reg, structural_reg, joint_reg_of, tether_reg,
+                                  pulley_reg, role_of_seg, merged_springs)
+    for (j, e) in enumerate(edgelist)
+        info = get(edge_info, minmax(src(e), dst(e)), nothing)
+        info === nothing && continue
+        if info.kind == :timo_joint || info.kind == :elastic_joint
+            container = info.kind == :timo_joint ? :timoshenko_joints : :elastic_joints
+            reg = joint_reg_of[(info.kind, info.a_at_src)]
+            replay_fields!(builder, reg, container, j, info.joint_idx, ss; edge = true)
+            record_edge_callables!(callables, reg, container, j, info.joint_idx, ss)
+            continue
+        end
+        if info.kind == :tether
+            replay_fields!(builder, tether_reg, :segments, j, info.seg.idx, ss;
+                           edge = true)
+            add_param!(builder, EIndex(j, :cd_tether), SAM.PathReader((:set, :cd_tether)))
+            record_wind_params!(builder, j; edge = true)
+            continue
+        end
+        if info.kind == :pulley
+            replay_fields!(builder, pulley_reg, :segments, j, info.seg.idx, ss;
+                           edge = true)
+            add_param!(builder, EIndex(j, :cd_tether), SAM.PathReader((:set, :cd_tether)))
+            record_wind_params!(builder, j; edge = true)
+            add_param!(builder, EIndex(j, :pulley_sum_len),
+                SAM.PathReader((:pulleys, role_of_seg[info.seg.idx].pulley_idx, :sum_len)))
+            continue
+        end
+        reg = info.kind == :structural ? structural_reg : plain_reg
+        merged = get(merged_springs, minmax(src(e), dst(e)), nothing)
+        segs = merged === nothing ? (info.seg,) : merged
+        foreach(segment_stiffness, segs)
+        skip = merged === nothing ? () : (:unit_stiffness, :unit_damping)
+        replay_fields!(builder, reg, :segments, j, info.seg.idx, ss; edge = true, skip)
+        if merged !== nothing
+            idxs = [s.idx for s in merged]
+            for field in (:unit_stiffness, :unit_damping)
+                add_param!(builder, param_addr(true, j, field),
+                           SumSegmentField(idxs, field))
+            end
+        end
+        add_param!(builder, EIndex(j, :cd_tether), SAM.PathReader((:set, :cd_tether)))
+        record_wind_params!(builder, j; edge = true)
+    end
+    return nothing
+end
+
+"""
+    set_mount_const_params!(nw, param, ss, edgelist, mount_info)
+
+Set each mount edge's build-time `mount_frac` constant ([`mount_frac`](@ref)): `1` for a
+rigid ride, `1 − beam_frac`/`beam_frac` for the two Hermite-ride mounts.
+"""
+function set_mount_const_params!(nw, param, ss, edgelist, mount_info)
+    indices = Any[]
+    values = SAM.SimFloat[]
+    for (j, e) in enumerate(edgelist)
+        info = get(mount_info, minmax(src(e), dst(e)), nothing)
+        info === nothing && continue
+        push!(indices, EIndex(j, :mount_frac))
+        push!(values, mount_frac(ss, info.ride_idx, info.frac_kind))
+    end
+    isempty(indices) || setp(nw, indices)(param, values)
+    return nothing
+end
+
 # ======================= state scatter ======================= #
 
 """
@@ -2695,7 +3365,6 @@ the aero points that need per-point `va_b`.
 """
 struct NetworkWingGeom
     wing::Any
-    zp1::Int; zp2::Int; yp1::Int; yp2::Int; origin::Int
     aero_points::Vector{Int}
     live_vertex::Int
 end
@@ -2703,9 +3372,9 @@ end
 """
     network_wing_geoms(ss)
 
-One [`NetworkWingGeom`](@ref) per PARTICLE_DYNAMICS wing, resolving its ref-point
-indices ([`ref_single_id`](@ref)) and aero points (its `is_wing_node` points) once at
-build so the state getter can call [`SAM.wing_kinematics_from_points!`](@ref).
+One [`NetworkWingGeom`](@ref) per PARTICLE_DYNAMICS wing, collecting its aero points (its
+`is_wing_node` points) once at build so the state getter can call
+[`SAM.wing_kinematics_from_points!`](@ref) with the wing's own weighted ref points.
 """
 function network_wing_geoms(ss)
     geoms = NetworkWingGeom[]
@@ -2714,10 +3383,7 @@ function network_wing_geoms(ss)
         aero_pts = [i for (i, p) in enumerate(ss.points)
                     if p.is_wing_node && p.wing_idx == wing.idx]
         live_vertex = needs_live_aero(wing) && !isempty(aero_pts) ? aero_pts[1] : 0
-        push!(geoms, NetworkWingGeom(wing,
-            ref_single_id(wing.z_ref_points[1]), ref_single_id(wing.z_ref_points[2]),
-            ref_single_id(wing.y_ref_points[1]), ref_single_id(wing.y_ref_points[2]),
-            ref_single_id(wing.origin), aero_pts, live_vertex))
+        push!(geoms, NetworkWingGeom(wing, aero_pts, live_vertex))
     end
     return geoms
 end
@@ -2741,7 +3407,6 @@ struct NetworkStateGetter{NW}
     wing_geoms::Vector{NetworkWingGeom}
     wing_aero_readers::Vector{Any}
     body_readers::Vector{Any}
-    body_static::Vector{Tuple{Int, Int}}
 end
 
 """
@@ -2776,6 +3441,8 @@ function NetworkStateGetter(nw, ss, meta)
     vop = hasproperty(meta, :vertex_of_point) ? meta.vertex_of_point : nothing
     vmap = i -> vop === nothing ? i : vop[i]
     dyn_idxs = [(vmap(i), i) for (i, p) in enumerate(ss.points) if p.type == SAM.DYNAMIC]
+    ride_idxs = hasproperty(meta, :ride_idxs) ? meta.ride_idxs : Int[]
+    append!(dyn_idxs, [(vmap(i), i) for i in ride_idxs])
     pulley_idxs = [(vmap(pulley_point_idx(ss, p)), p.idx) for p in ss.pulleys]
     winch_idxs = [(vmap(w.winch_point_idx), w.idx) for w in ss.winches]
     geoms = network_wing_geoms(ss)
@@ -2785,11 +3452,8 @@ function NetworkStateGetter(nw, ss, meta)
         [(v, b) for (v, b) in enumerate(meta.body_idxs)]
     body_readers = Any[body_output_reader(nw, ss.bodies[bidx], vertex)
                        for (vertex, bidx) in body_vertices]
-    body_static = hasproperty(meta, :body_static) ? meta.body_static :
-        Tuple{Int, Int}[]
     return NetworkStateGetter(nw, dyn_idxs, pulley_idxs, winch_idxs,
-                              meta.winch_tethers, geoms, readers, body_readers,
-                              body_static)
+                              meta.winch_tethers, geoms, readers, body_readers)
 end
 
 function (g::NetworkStateGetter)(integ, ss)
@@ -2804,8 +3468,8 @@ function (g::NetworkStateGetter)(integ, ss)
     end
     for wg in g.wing_geoms
         SAM.wing_kinematics_from_points!(wg.wing, points, ss.set, ss.am;
-            zp1 = wg.zp1, zp2 = wg.zp2, yp1 = wg.yp1, yp2 = wg.yp2,
-            origin = wg.origin, aero_points = wg.aero_points)
+            z_ref_points = wg.wing.z_ref_points, y_ref_points = wg.wing.y_ref_points,
+            origin = wg.wing.origin, aero_points = wg.aero_points)
     end
     for (wing, force_getu, moment_getu) in g.wing_aero_readers
         wing.aero_force_b .= force_getu(integ)
@@ -2838,15 +3502,6 @@ function (g::NetworkStateGetter)(integ, ss)
                 surface.twist_ω = s.v[vertex, Symbol(:twist_omega_, k)]
             end
         end
-    end
-    for (ride_idx, body_idx) in g.body_static
-        point = points[ride_idx]
-        body = ss.bodies[body_idx]
-        R_b_to_w = SAM.quaternion_to_rotation_matrix(body.Q_b_to_w)
-        anchor_w = body.pos_w .+ R_b_to_w * point.anchor_b
-        ω_w = R_b_to_w * body.ω_b
-        point.pos_w .= anchor_w
-        point.vel_w .= body.com_vel .+ (ω_w × (anchor_w .- body.com_w))
     end
     for (vi, pidx) in g.pulley_idxs
         pulley = ss.pulleys[pidx]
@@ -2943,7 +3598,8 @@ function SAM.build_prob!(::SAM.NetworkBackend, sam; prn = true)
     sam.prob = SAM.ProbWithAttributes(; prob,
         param_sync = meta.param_sync, initial_sync = nothing,
         set_set_values = setter, get_set_values = nothing,
-        get_aero_input = nothing, get_all_state = getter)
+        get_aero_input = nothing, get_all_state = getter,
+        initializealg = SAM.dae_brown_init())
     return true
 end
 
