@@ -15,10 +15,12 @@ Files are organized as:
 - system_structure_core.jl: SystemStructure type and constructor
 - transforms.jl: Heading/rotation functions, reinit!/reposition!
 - utilities.jl: Helper functions and state management
+- tube_laws.jl: Inflated-tube rigidity laws for beam joints
 """
 
 # Include files in dependency order
 include("types.jl")         # Enums, Point, TwistSurface, Segment, Pulley, Tether, Winch, Transform
+include("tube_laws.jl")     # Breukels/Comer-Levy tube rigidities for TimoshenkoJoint
 include("rigid_body.jl")    # Body (embedded in Wing and standalone)
 include("wing.jl")          # AbstractWing, Wing (embeds a Body)
 include("named_collection.jl")  # NamedCollection wrapper for symbol-based indexing

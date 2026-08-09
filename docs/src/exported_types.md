@@ -98,6 +98,12 @@ NameRef
 WeightedRefPoints
 ```
 
+## Inflated-tube rigidity
+
+```@docs
+TubeRigidityLaw
+```
+
 ## System state
 
 ```@docs

@@ -384,6 +384,19 @@ SymbolicAWEModels.missing_param_defaults
 SymbolicAWEModels.sync_initial!
 ```
 
+## Inflated-tube rigidity internals
+
+```@docs
+SymbolicAWEModels.BREUKELS_BENDING
+SymbolicAWEModels.BREUKELS_COLLAPSE
+SymbolicAWEModels.BREUKELS_TORSION
+SymbolicAWEModels.comer_levy_h
+SymbolicAWEModels.comer_levy_n
+SymbolicAWEModels.comer_levy_point
+SymbolicAWEModels.comer_levy_sample_curve
+SymbolicAWEModels.fit_bending_law
+```
+
 ## Other internals
 
 ```@docs
