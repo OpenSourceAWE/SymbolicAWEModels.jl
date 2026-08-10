@@ -778,13 +778,20 @@ The body appears once, so what is compiled grows with the number of component
 instead leaves a call boundary the compiler declines to remove — kernel bodies are
 too large for it to inline, and the argument views are then built on the far side of
 a real call.
+
+The loop's own names are fixed rather than `gensym`ed, which is what makes two
+compiles of the same component give the same type: a `RuntimeGeneratedFunction`'s
+type is a hash of its argument names and body, so a fresh `gensym` counter per call
+gave every build a new type and no specialization of a kernel map was ever reused.
+The `#` in each name is what keeps it from colliding with the body's own variables.
 """
 function compile_batched(func_expr, target_field::Symbol)
     out, state, input, param, callable, iv = func_expr.args[1].args
     body = func_expr.args[2]
     target, u, buffer, numeric, callables, instances, batch, index, inst =
-        gensym.((:target, :u, :input, :numeric, :callables, :instances, :batch,
-                 :index, :instance))
+        map(name -> Symbol("#batched#", name),
+            (:target, :u, :input, :numeric, :callables, :instances, :batch,
+             :index, :instance))
     loop = quote
         Base.@inbounds for $index in $batch
             $inst = $instances[$index]
