@@ -66,15 +66,20 @@ const DEFAULT_BACKEND = Ref{ModelBackend}(MonolithBackend())
 
 """
     default_backend()
-    default_backend!(backend)
 
 The [`ModelBackend`](@ref) a [`SymbolicAWEModel`](@ref) is built with when its
-constructor is not given one; [`MonolithBackend`](@ref) unless changed. Setting it
-runs a whole model — or a whole test suite — on another backend without touching
-the call sites.
+constructor is not given one; [`MonolithBackend`](@ref) unless changed with
+[`default_backend!`](@ref).
 """
 default_backend() = DEFAULT_BACKEND[]
 
+"""
+    default_backend!(backend)
+
+Set the [`ModelBackend`](@ref) new [`SymbolicAWEModel`](@ref)s default to, and
+return it. Runs a whole model — or a whole test suite — on another backend without
+touching the call sites.
+"""
 default_backend!(backend::ModelBackend) = (DEFAULT_BACKEND[] = backend; backend)
 
 """

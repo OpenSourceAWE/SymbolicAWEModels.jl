@@ -168,13 +168,23 @@ if [[ $julia_major != "1.11" ]] && [[ $julia_major != "1.12" ]]; then
     exit 1
 fi
 
-# Copy LocalPreferences if not present
-if [ ! -f "LocalPreferences.toml" ]; then
-    if [ -f "LocalPreferences.toml.default" ]; then
-        cp LocalPreferences.toml.default LocalPreferences.toml
-        echo "Copied LocalPreferences.toml.default to LocalPreferences.toml"
+# Seed each project's LocalPreferences.toml from its .default, never overwriting
+# one that is already there. The docs project is not listed: its
+# LocalPreferences.toml is version-controlled, so it is always present.
+for _project in . examples test; do
+    _default="${_project}/LocalPreferences.toml.default"
+    _prefs="${_project}/LocalPreferences.toml"
+    [ -f "$_default" ] || continue
+    if [ ! -f "$_prefs" ]; then
+        cp "$_default" "$_prefs"
+        echo "Copied $_default to $_prefs"
+    elif ! cmp -s "$_prefs" "$_default"; then
+        echo -e "${_red}Warning:${_reset} $_prefs already exists and differs from" \
+                "the default. Leaving it unchanged; review it to make sure it is" \
+                "configured correctly."
     fi
-fi
+done
+unset _project _default _prefs
 
 # Delete any generic Manifest.toml and stale 0-byte versioned manifests so
 # Pkg resolves from an existing versioned manifest or writes a fresh one.

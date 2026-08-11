@@ -113,6 +113,8 @@ WeightedRefPoints
 
 ```@docs
 TubeRigidityLaw
+TUBE_SHEAR_COEFF
+TUBE_POISSON_RATIO
 ```
 
 ## System state

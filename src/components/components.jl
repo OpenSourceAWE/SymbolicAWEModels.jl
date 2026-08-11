@@ -488,7 +488,7 @@ The rope-split dynamics a pulley point owns on top of its particle motion:
 `D(pulley_len)=pulley_vel`, `D(pulley_vel)=tension_in/pulley_mass − pulley_damp·vel`
 (the aggregated `tension_in` being `spring[seg1] − spring[seg2]`), and
 `pulley_len_out=pulley_len` exposed so the incident segments read it as their `l0`.
-Shared by [`PulleyPoint`](@ref) and [`WingNodePulleyPoint`](@ref).
+Used by [`PulleyParticle`](@ref).
 """
 function pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley_damp,
                           pulley_len_out)

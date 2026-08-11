@@ -362,7 +362,15 @@ jl -e 'using Pkg; Pkg.test()'
 # Run a single test file
 jl test/test_point.jl
 jl test/test_segment.jl
+
+# Run the suite on the KernelBackend instead of the MonolithBackend.
+# Only the files the kernel backend already covers are run.
+SYMAWE_TEST_BACKEND=kernel jl -e 'using Pkg; Pkg.test()'
 ```
+
+`SYMAWE_TEST_BACKEND` selects the [`ModelBackend`](@ref) the suite builds its
+models with: `monolith` (the default) or `kernel`. CI runs both, the kernel one as
+its own job on Ubuntu with Julia 1.12.
 
 ### Test files
 

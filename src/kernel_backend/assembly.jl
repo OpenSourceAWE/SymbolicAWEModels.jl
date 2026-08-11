@@ -25,6 +25,11 @@ const WRENCH_OUTPUTS = [:force_out, :moment_out]
 const JOINT_INPUTS = [:a_pos, :a_frame, :a_com, :a_com_velocity, :a_omega,
                       :b_pos, :b_frame, :b_com, :b_com_velocity, :b_omega]
 const JOINT_OUTPUTS = [:force_a, :moment_a, :force_b, :moment_b]
+"""The joint fields whose equations differ between a `Real` and a callable, so a
+kernel is shared only by joints that agree on them ([`callable_field_key`](@ref))."""
+const ELASTIC_RIGIDITIES = [:stiffness_axial, :stiffness_shear,
+                            :stiffness_torsion, :stiffness_bending]
+const TIMOSHENKO_RIGIDITIES = [:EA, :GA, :GJ, :EIy, :EIz]
 const HERMITE_RIDE_OUTPUTS = [:pos, :vel, :arm_a, :arm_b, :height]
 const HERMITE_WRENCH_INPUTS = [:height, :vel, :arm_a, :arm_b, :force_in,
                                :mass_in, :drag_in]
@@ -275,6 +280,21 @@ function kernel!(builder, table, sam, key, source, make, inputs, outputs)
 end
 
 """
+    callable_field_key(key, component, fields) -> Symbol
+
+`key` narrowed by which of `fields` the component holds a callable in rather than a
+`Real`. A component's equations branch on that when they are built — a `Real`
+rigidity becomes a numeric parameter and a callable one a callable slot — so two
+components that differ there cannot share a kernel even though they are the same
+kind, and writing one's law into the other's slot fails on type.
+"""
+function callable_field_key(key::Symbol, component, fields)
+    callable = filter(field -> !(getfield(component, field) isa Real), fields)
+    isempty(callable) && return key
+    return Symbol(key, :_, join(callable, '_'))
+end
+
+"""
     KernelModel
 
 An assembled model: the runtime `system`, its initial state and parameters, the
@@ -344,11 +364,12 @@ function assemble(sam; verbose = false)
     end
     for joint in sys_struct.elastic_joints
         add_joint!(builder, table, bindings, sam, joint, body_instances,
-                   :elastic_joints, ElasticJointComponent)
+                   :elastic_joints, ElasticJointComponent, ELASTIC_RIGIDITIES)
     end
     for joint in sys_struct.timoshenko_joints
         add_joint!(builder, table, bindings, sam, joint, body_instances,
-                   :timoshenko_joints, TimoshenkoJointComponent)
+                   :timoshenko_joints, TimoshenkoJointComponent,
+                   TIMOSHENKO_RIGIDITIES)
     end
     flap_instances = add_flap_deltas!(builder, table, bindings, sam, body_instances)
     aero_instances = [add_wing_aero!(builder, table, bindings, sam, wing,
@@ -971,8 +992,10 @@ Add one body-to-body joint and wire it: both end bodies' poses in, the restoring
 wrench on each back out. `container` names the joint collection its parameters are
 remapped over and `make` builds the component.
 """
-function add_joint!(builder, table, bindings, sam, joint, bodies, container, make)
-    entry = kernel!(builder, table, sam, container, joint.idx,
+function add_joint!(builder, table, bindings, sam, joint, bodies, container, make,
+                    rigidity_fields)
+    key = callable_field_key(container, joint, rigidity_fields)
+    entry = kernel!(builder, table, sam, key, joint.idx,
                     params -> make(sam, params, joint.idx; name = container),
                     JOINT_INPUTS, JOINT_OUTPUTS)
     instance = add_instance!(builder, entry.index)
@@ -998,22 +1021,26 @@ Add the instance for segment `idx` and record its parameter remapping.
 """
 function add_segment!(builder, table, bindings, sam, idx, role)
     index_map = Dict(:segments => idx)
+    stiffness = (:unit_stiffness,)
+    segment = sam.sys_struct.segments[idx]
     entry = if role.kind === :pulley
         index_map[:pulleys] = role.pulley_idx
-        kernel!(builder, table, sam, :pulley_segment, idx,
+        kernel!(builder, table, sam,
+                callable_field_key(:pulley_segment, segment, stiffness), idx,
                 params -> PulleySegment(sam, params, idx, role.pulley_idx;
                                         name = :pulley_segment),
                 [SEGMENT_INPUTS; :rest_len], [SEGMENT_OUTPUTS; :tension])
     elseif role.kind === :tether
-        kernel!(builder, table, sam, :tether_segment, idx,
+        kernel!(builder, table, sam,
+                callable_field_key(:tether_segment, segment, stiffness), idx,
                 params -> TetherSegment(sam, params, idx; name = :tether_segment),
                 [SEGMENT_INPUTS; :rest_len],
                 [SEGMENT_OUTPUTS; :src_tension; :dst_tension])
     else
         with_drag = role.kind === :spring
         key = with_drag ? :spring_segment : :structural_segment
-        kernel!(builder, table, sam, key, idx,
-                params -> SpringSegment(sam, params, idx; name = key, with_drag),
+        kernel!(builder, table, sam, callable_field_key(key, segment, stiffness),
+                idx, params -> SpringSegment(sam, params, idx; name = key, with_drag),
                 SEGMENT_INPUTS, SEGMENT_OUTPUTS)
     end
     instance = add_instance!(builder, entry.index)
