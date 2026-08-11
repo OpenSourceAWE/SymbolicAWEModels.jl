@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Added
+- `save_sys_struct_to_yaml(sys, path)` writes a `SystemStructure` back to the
+  component-based YAML `load_sys_struct_from_yaml` reads, so a structure built or
+  edited in Julia can be handed on as a file. Floats are written at full
+  precision, so rest lengths, stiffnesses, masses, pulley `sum_len`, damping and
+  joint properties reload bit for bit. Positions are written as `pos_cad`: that
+  is the frame the aero sections are matched in and the frame `reinit!` derives
+  `pos_w` from, so a settled configuration has to be mapped back into it by the
+  caller rather than written straight out. A rigid wing placed by a `transforms`
+  block does not reload yet.
+- The YAML loader reads back state that previously had no column: point `vel_w`
+  (it was zeroed unconditionally, discarding the column it already accepted),
+  pulley `sum_len`/`len`/`vel`, twist_surface `twist`/`twist_vel`, tether `len`,
+  winch `vel`/`set_value`, and body `vel`/`Q_b_to_w`/`omega_b`.
 - `init!(sam; analytic_jacobian)` gives the solver a Jacobian instead of leaving
   it to differentiate the right-hand side numerically. On the `KernelBackend` it
   is on by default: the right-hand side is a layered composition of small

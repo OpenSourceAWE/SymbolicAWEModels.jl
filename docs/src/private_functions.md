@@ -188,6 +188,32 @@ SymbolicAWEModels.yaml_ref_field
 SymbolicAWEModels.yaml_float_or_nan
 SymbolicAWEModels.load_yaml_bodies
 SymbolicAWEModels.load_yaml_joints
+SymbolicAWEModels.load_body_state!
+```
+
+## YAML writing internals
+
+```@docs
+SymbolicAWEModels.yaml_float_cell
+SymbolicAWEModels.yaml_cell
+SymbolicAWEModels.yaml_ref
+SymbolicAWEModels.dynamics_type_string
+SymbolicAWEModels.wing_type_string
+SymbolicAWEModels.principal_frame_method_string
+SymbolicAWEModels.aero_mode_string
+SymbolicAWEModels.ref_points_cell
+SymbolicAWEModels.write_yaml_table
+SymbolicAWEModels.write_yaml_mappings
+SymbolicAWEModels.write_yaml_title
+SymbolicAWEModels.point_rows
+SymbolicAWEModels.segment_rows
+SymbolicAWEModels.pulley_rows
+SymbolicAWEModels.twist_surface_rows
+SymbolicAWEModels.tether_rows
+SymbolicAWEModels.winch_rows
+SymbolicAWEModels.body_mappings
+SymbolicAWEModels.joint_rows
+SymbolicAWEModels.transform_rows
 ```
 
 ## SystemStructure internals

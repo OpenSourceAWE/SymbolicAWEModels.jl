@@ -28,10 +28,11 @@ linearize!
 position_slots
 ```
 
-## YAML loading
+## YAML loading and saving
 
 ```@docs
 load_sys_struct_from_yaml
+save_sys_struct_to_yaml
 ```
 
 ## System configuration
