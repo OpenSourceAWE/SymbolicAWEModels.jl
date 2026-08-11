@@ -792,11 +792,13 @@ mutable struct Pulley
     const segment_refs::Tuple{NameRef, NameRef}
     "Dynamics type (DYNAMIC)."
     const type::DynamicsType
-    "Coulomb friction force opposing rope travel over the pulley [N]."
-    coulomb_friction::SimFloat
-    "Viscous friction coefficient opposing rope travel [N·s/m]."
-    viscous_coefficient::SimFloat
-    "Coulomb-friction smoothing width [m/s]: the speed below which it ramps in."
+    "Fraction of line tension the sheave passes on (0-1); the rest opposes travel."
+    efficiency::SimFloat
+    "Artificial damping on rope travel [N·s/m], for debugging. Not a sheave property."
+    damping::SimFloat
+    "Freeze the rope split where it is, for debugging. Not a sheave property."
+    brake::Bool
+    "Friction smoothing width [m/s]: the rope speed below which the sign ramps in."
     friction_epsilon::SimFloat
     "Sum of connected segment lengths [m]."
     sum_len::SimFloat
@@ -815,27 +817,35 @@ Constructs a `Pulley` object that enforces length redistribution between two seg
 - `name::Union{Int, Symbol}`: Name/identifier for the pulley.
 - `segment_i`, `segment_j`: References to the two segments (names or indices).
 - `type::DynamicsType`: Dynamics type (`DYNAMIC`).
-- `coulomb_friction`: Coulomb friction force opposing rope travel over the pulley [N].
-- `viscous_coefficient`: Viscous friction coefficient opposing rope travel [N·s/m].
-- `friction_epsilon`: Coulomb-friction smoothing width [m/s].
+- `efficiency`: Fraction of line tension the sheave passes on (0-1).
+- `damping`: Artificial damping on rope travel [N·s/m], for debugging.
+- `brake`: Freeze the rope split where it is, for debugging.
+- `friction_epsilon`: Friction smoothing width [m/s].
 
-`coulomb_friction` defaults to zero — an ideal pulley has no stiction — while
-`viscous_coefficient` defaults to the loss of rope deforming as it bends around the
-sheave, which grows with how fast the rope travels. Without it the rope split is
-undamped: it redistributes length by moving `l0`, which no segment damper opposes,
-since `spring_vel` tracks the distance between the endpoints instead. Both mirror
-the [`Winch`](@ref) fields of the same names and share its friction law
-([`coulomb_viscous_friction`](@ref)). `friction_epsilon` is the rope speed below
-which the Coulomb term is ramped in; it linearises to
-`coulomb_friction / friction_epsilon` around zero, so a narrow width makes a stiff
-system out of a small force and wants raising rather than lowering.
+`efficiency` is the whole friction model, because it is what a sheave is specified
+by and what its losses scale with: bearing drag rises with the load on the axle and
+the rope's bending hysteresis with the tension being bent, neither with how fast the
+rope travels. The friction is `(1 − efficiency) · line_tension`, the mean of the two
+leg tensions, so it grows with load rather than being a fixed force. It defaults to
+0.95, a sealed ball-bearing sheave; published ranges are 0.94–0.97 for those,
+0.88–0.92 for a bronze bushing and lower still for a bushing running synthetic rope.
+Set 1.0 for an ideal pulley.
+
+`damping` and `brake` are not sheave properties. `damping` defaults to zero and
+exists to settle a ringing rope split while debugging a model; `brake` defaults to
+`false` and holds the split at its current length, which isolates whether a problem
+comes from the rope redistributing at all. `friction_epsilon` is the rope speed
+below which the friction's sign is ramped in ([`smooth_sign`](@ref)); the friction
+linearises to `(1 − efficiency) · line_tension / friction_epsilon` around zero, so a
+narrow width makes a stiff system out of a small force and wants raising rather than
+lowering.
 """
 function Pulley(name, segment_i, segment_j, type;
-                coulomb_friction = 0.0, viscous_coefficient = 0.1,
+                efficiency = 0.95, damping = 0.0, brake = false,
                 friction_epsilon = 0.1)
     s1 = segment_i isa Integer ? Int(segment_i) : Symbol(segment_i)
     s2 = segment_j isa Integer ? Int(segment_j) : Symbol(segment_j)
-    return Pulley(0, name, (0, 0), (s1, s2), type, coulomb_friction, viscous_coefficient,
+    return Pulley(0, name, (0, 0), (s1, s2), type, efficiency, damping, brake,
                   friction_epsilon, 0.0, 0.0, 0.0)
 end
 

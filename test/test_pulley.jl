@@ -74,9 +74,9 @@ segments:
 ###########################
 # Pulley constraint: left_leg + right_leg = constant
 pulleys:
-  headers: [name, segment_i, segment_j, type, coulomb_friction, viscous_coefficient]
+  headers: [name, segment_i, segment_j, type, efficiency, damping]
   data:
-    - [main_pulley, left_leg, right_leg, DYNAMIC, 0.0, 0.8]
+    - [main_pulley, left_leg, right_leg, DYNAMIC, 0.95, 0.0]
 """
 
 # ============================================================================
@@ -124,9 +124,9 @@ segments:
 ## Pulleys ################
 ###########################
 pulleys:
-  headers: [name, segment_i, segment_j, type, coulomb_friction, viscous_coefficient]
+  headers: [name, segment_i, segment_j, type, efficiency, damping]
   data:
-    - [main_pulley, left_leg, right_leg, DYNAMIC, 0.0, 0.8]
+    - [main_pulley, left_leg, right_leg, DYNAMIC, 0.95, 0.0]
 """
 
 @testset "Pulley Tests" begin
@@ -487,9 +487,9 @@ system:
         pulley = sam.sys_struct.pulleys[:main_pulley]
 
         """Peak rope speed over 0.5 s from the off-centre start, at this friction."""
-        function peak_rope_speed(coulomb_friction, viscous_coefficient, friction_epsilon)
-            pulley.coulomb_friction = coulomb_friction
-            pulley.viscous_coefficient = viscous_coefficient
+        function peak_rope_speed(efficiency, damping, friction_epsilon)
+            pulley.efficiency = efficiency
+            pulley.damping = damping
             pulley.friction_epsilon = friction_epsilon
             init!(sam; prn=false)
             peak = 0.0
@@ -500,26 +500,45 @@ system:
             return peak
         end
 
-        free = peak_rope_speed(0.0, 0.0, 0.5)
-        viscous = peak_rope_speed(0.0, 5.0, 0.5)
-        coulomb = peak_rope_speed(2.0, 0.0, 0.5)
+        free = peak_rope_speed(1.0, 0.0, 0.5)
+        damped = peak_rope_speed(1.0, 5.0, 0.5)
+        lossy = peak_rope_speed(0.9, 0.0, 0.5)
 
         @test free > 0.0
-        @test viscous < free
-        @test coulomb < free
+        @test damped < free
+        @test lossy < free
 
-        # The same law as the winch, over the pulley's own fields.
-        pulley.coulomb_friction = 2.0
-        pulley.viscous_coefficient = 5.0
+        # A braked pulley holds its split, whatever the legs pull.
+        pulley.efficiency, pulley.damping, pulley.brake = 1.0, 0.0, true
+        init!(sam; prn=false)
+        held = pulley.len
+        for _ in 1:500
+            next_step!(sam; dt=0.001, vsm_interval=0)
+        end
+        @test pulley.len ≈ held atol=1e-9
+        pulley.brake = false
+
+        # A sheave passing on `efficiency` of the line tension loses the rest to it.
+        pulley.efficiency = 0.95
+        pulley.damping = 0.0
         pulley.friction_epsilon = 0.5
-        expected = SymbolicAWEModels.coulomb_viscous_friction(0.3, 2.0, 5.0, 0.5)
-        @test SymbolicAWEModels.pulley_friction_force(pulley, 0.3) ≈ expected
+        @test SymbolicAWEModels.pulley_friction_force(pulley, 0.3, 100.0) ≈
+              5.0 * SymbolicAWEModels.smooth_sign(0.3, 0.5)
         # Friction opposes the motion, whichever way the rope runs.
-        @test SymbolicAWEModels.pulley_friction_force(pulley, -0.3) ≈ -expected
+        @test SymbolicAWEModels.pulley_friction_force(pulley, -0.3, 100.0) ≈
+              -SymbolicAWEModels.pulley_friction_force(pulley, 0.3, 100.0)
+        # Slack rope, no loss to take; and the loss is linear in the tension.
+        @test SymbolicAWEModels.pulley_friction_force(pulley, 0.3, 0.0) ≈ 0.0
+        @test SymbolicAWEModels.pulley_friction_force(pulley, 0.3, 200.0) ≈
+              2 * SymbolicAWEModels.pulley_friction_force(pulley, 0.3, 100.0)
+        # `damping` is artificial and adds on top, proportional to speed alone.
+        pulley.damping = 5.0
+        @test SymbolicAWEModels.pulley_friction_force(pulley, 0.3, 0.0) ≈ 1.5
+        pulley.damping = 0.0
 
         println("\n  ====== Peak rope speed: free=$(round(free*1000, digits=1))mm/s, " *
-                "viscous=$(round(viscous*1000, digits=1))mm/s, " *
-                "coulomb=$(round(coulomb*1000, digits=1))mm/s ======\n")
+                "damped=$(round(damped*1000, digits=1))mm/s, " *
+                "lossy=$(round(lossy*1000, digits=1))mm/s ======\n")
     end
 
     # Cleanup

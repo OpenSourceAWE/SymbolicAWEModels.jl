@@ -9,7 +9,7 @@
 
 const PARTICLE_INPUTS = [:force_in, :mass_in, :drag_in]
 const PARTICLE_OUTPUTS = [:pos, :vel]
-const PULLEY_POINT_INPUTS = [PARTICLE_INPUTS; :tension_in]
+const PULLEY_POINT_INPUTS = [PARTICLE_INPUTS; :tension_in; :line_in]
 const PULLEY_POINT_OUTPUTS = [:pos, :vel, :pulley_len_out]
 const WINCH_INPUTS = [PARTICLE_INPUTS; :tension_in]
 const SEGMENT_INPUTS = [:src_pos, :src_vel, :dst_pos, :dst_vel]
@@ -1028,7 +1028,7 @@ function add_segment!(builder, table, bindings, sam, idx, role)
                 callable_field_key(:pulley_segment, segment, stiffness), idx,
                 params -> PulleySegment(sam, params, idx, role.pulley_idx;
                                         name = :pulley_segment),
-                [SEGMENT_INPUTS; :rest_len], [SEGMENT_OUTPUTS; :tension])
+                [SEGMENT_INPUTS; :rest_len], [SEGMENT_OUTPUTS; :tension; :line])
     elseif role.kind === :tether
         kernel!(builder, table, sam,
                 callable_field_key(:tether_segment, segment, stiffness), idx,
@@ -1078,6 +1078,7 @@ function wire_segment!(builder, sys_struct, idx, role, point_instances,
         pulley_point = point_instances[pulley_point_index(sys_struct, pulley)]
         connect!(builder, pulley_point, :pulley_len_out, segment, :rest_len)
         connect!(builder, segment, :tension, pulley_point, :tension_in)
+        connect!(builder, segment, :line, pulley_point, :line_in)
     elseif role.kind === :tether
         winch_point = point_instances[role.winch_point]
         winch = sys_struct.winches[find_winch(sys_struct, role.winch_point)]

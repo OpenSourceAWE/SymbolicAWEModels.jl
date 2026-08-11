@@ -499,37 +499,50 @@ function rigid_body_pose_expressions(force_w, moment_w, inertia_p, mass, R_b_to_
 end
 
 """
-    pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley,
-                     pulley_len_out)
+    pulley_split_eqs(pulley_len, pulley_vel, tension_in, line_tension, pulley_mass,
+                     pulley, pulley_len_out)
 
 The rope-split dynamics a pulley point owns on top of its particle motion:
 `D(pulley_len)=pulley_vel`, `D(pulley_vel)=(tension_in −
 [`pulley_friction_force`](@ref))/pulley_mass` (the aggregated `tension_in` being
-`spring[seg1] − spring[seg2]`), and `pulley_len_out=pulley_len` exposed so the
-incident segments read it as their `l0`. Used by [`PulleyParticle`](@ref).
+`spring[seg1] − spring[seg2]` and `line_tension` their mean), and
+`pulley_len_out=pulley_len` exposed so the incident segments read it as their `l0`.
+A braked pulley holds both derivatives at zero, freezing the split where it is.
+Used by [`PulleyParticle`](@ref).
 """
-function pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley,
-                          pulley_len_out)
+function pulley_split_eqs(pulley_len, pulley_vel, tension_in, line_tension,
+                          pulley_mass, pulley, pulley_len_out)
+    braked = pulley.brake > 0.5
+    accel = (tension_in -
+             pulley_friction_force(pulley, pulley_vel, line_tension)) / pulley_mass
     return [
-        D(pulley_len) ~ pulley_vel;
-        D(pulley_vel) ~ (tension_in - pulley_friction_force(pulley, pulley_vel)) /
-                        pulley_mass;
+        D(pulley_len) ~ ifelse(braked, zero(accel), pulley_vel);
+        D(pulley_vel) ~ ifelse(braked, zero(accel), accel);
         pulley_len_out ~ pulley_len;
     ]
 end
 
 """
-    pulley_friction_force(pulley, vel)
+    pulley_friction_force(pulley, vel, line_tension)
 
 The friction force opposing rope travel `vel` over `pulley` (a `params.pulleys[idx]`
-view): [`coulomb_viscous_friction`](@ref) over its `coulomb_friction`,
-`viscous_coefficient` and `friction_epsilon`, the same law and the same field names
-a [`Winch`](@ref) uses. Both backends read the fields through here, so the pulley's
-friction lives in one place.
+view): `(1 − efficiency) · line_tension`, carrying the sign of the motion through
+[`smooth_sign`](@ref) over `friction_epsilon`. Both backends read the fields through
+here, so the pulley's friction lives in one place.
+
+A sheave is specified by its efficiency because that is what its losses scale with:
+bearing drag rises with the load on the axle and the rope's bending hysteresis with
+the tension being bent, neither with how fast the rope travels. `line_tension` is
+the mean of the two leg tensions, so with both legs equally loaded this is the
+`efficiency` definition `T_out = efficiency · T_in` exactly. A slack pulley is
+frictionless, and coasts — but it has no tension driving its split either.
+
+`damping · vel` is added on top. It is not a sheave property and defaults to zero;
+it is there to settle a ringing rope split while debugging a model.
 """
-pulley_friction_force(pulley, vel) =
-    coulomb_viscous_friction(vel, pulley.coulomb_friction, pulley.viscous_coefficient,
-                             pulley.friction_epsilon)
+pulley_friction_force(pulley, vel, line_tension) =
+    smooth_sign(vel, pulley.friction_epsilon) *
+    (1 - pulley.efficiency) * line_tension + pulley.damping * vel
 
 """
     wing_frame_columns(zp1, zp2, yp1, yp2)
@@ -656,13 +669,14 @@ end
 A [`Particle`](@ref) that also owns a pulley's rope split: `D(pulley_len) =
 pulley_vel` and `D(pulley_vel) = tension_in / rope_mass − damping · pulley_vel`,
 with `tension_in` the imbalance `spring[seg1] − spring[seg2]` its two segments
-deliver. `pulley_len_out` exposes the split so those segments read it as their rest
-length.
+deliver and `line_in` their mean, which the friction scales with. `pulley_len_out`
+exposes the split so those segments read it as their rest length.
 """
 function PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
     io = point_variables()
     extra = @variables begin
         tension_in(t), [input = true]
+        line_in(t), [input = true]
         pulley_len_out(t), [output = true]
         pulley_len(t)
         pulley_vel(t)
@@ -672,9 +686,9 @@ function PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
         dynamic_point_dynamics(s, io.pos, io.vel, io.force_in,
                                pars.extra_mass + io.mass_in, pars, io.net_force)
         point_wind_eqs(s, params, idx, io)
-        pulley_split_eqs(extra[3], extra[4], extra[1],
+        pulley_split_eqs(extra[4], extra[5], extra[1], extra[2],
                          pulley_rope_mass(params, pulley_idx, segment_idx),
-                         params.pulleys[pulley_idx], extra[2])
+                         params.pulleys[pulley_idx], extra[3])
     ]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
             io.wind_vec, io.net_force, extra...]
@@ -812,19 +826,22 @@ One of a pulley's two segments. Its rest length comes from the pulley point's
 `pulley_len_out`, read as `rest_len`: the first segment takes it directly, the
 second `sum_len − rest_len`, selected by the assembly-set `pulley_side` (`±1`). It
 emits `pulley_side · spring` as `tension`, so the pulley point aggregates
-`spring[seg1] − spring[seg2]`.
+`spring[seg1] − spring[seg2]`, and half its spring force as `line`, so the same
+point aggregates the mean of the two leg tensions for the friction to scale with.
 """
 function PulleySegment(s, params, idx, pulley_idx; name)
     io = segment_variables()
     extra = @variables begin
         rest_len(t), [input = true]
         tension(t), [output = true]
+        line(t), [output = true]
     end
     side = make_param(:pulley_side, 1.0)
     sum_len = params.pulleys[pulley_idx].sum_len
     eqs, loads = segment_eqs(s, params, idx, io,
                              ifelse(side > 0.0, extra[1], sum_len - extra[1]))
     push!(eqs, extra[2] ~ side * loads.spring)
+    push!(eqs, extra[3] ~ 0.5 * loads.spring)
     return System(eqs, t, [io.all; extra], [param_unknowns(params); side]; name)
 end
 

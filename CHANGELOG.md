@@ -55,19 +55,28 @@
   non-positive radius or pressure is rejected as well.
 
 ### Breaking
-- A `Pulley` resists rope travel by the same friction law as a `Winch`:
-  `coulomb_friction` [N] carrying the sign of the motion plus `viscous_coefficient`
-  [N·s/m] growing with it, smoothed over `friction_epsilon` [m/s]. The three
-  fields are settable from the constructor and from YAML columns of the same
-  names, and replace the hidden `pulley_damp` parameter, which was fixed at 5.0
-  and could be neither read nor set from the `SystemStructure`.
-  `coulomb_friction` defaults to zero; `viscous_coefficient` defaults to
-  0.1 N·s/m, standing for the loss of rope deforming as it bends around the
-  sheave. Note that these are absolute, whereas `pulley_damp` was a rate, so
-  there is no default that reproduces it on every model: the equivalent is
-  `5.0 * rope_mass`, which is ~0.04 N·s/m on a few metres of 2 mm line and
-  ~0.8 N·s/m on a bridle pulley carrying ~0.15 kg. Expect to retune models
-  that relied on the hidden damping to settle.
+- A `Pulley` resists rope travel by its `efficiency`, the fraction of line
+  tension its sheave passes on. The friction is `(1 − efficiency) ·
+  line_tension` carrying the sign of the motion, smoothed over
+  `friction_epsilon` [m/s], with `line_tension` the mean of the two leg
+  tensions — so the default is the textbook `T_out = 0.95 · T_in`. It replaces
+  the hidden `pulley_damp` parameter, which was fixed at 5.0 and could be
+  neither read nor set from the `SystemStructure`. `efficiency` defaults to
+  0.95, a sealed ball-bearing sheave; published ranges are 0.94–0.97 for those
+  and 0.88–0.92 for a bronze bushing. Set 1.0 for an ideal pulley.
+
+  A sheave's losses scale with load, not speed: bearing drag rises with the
+  force on the axle and the rope's bending hysteresis with the tension being
+  bent. `pulley_damp` was proportional to rope travel and to rope mass, so no
+  fixed coefficient reproduces it across models — expect to retune ones that
+  leaned on it to settle. A slack pulley is now frictionless, and coasts, but
+  it has no tension driving its split either.
+- `Pulley` also takes `damping` [N·s/m] and `brake`, both defaulting to off and
+  neither a sheave property: `damping` opposes rope travel proportionally to
+  speed, to settle a ringing split while debugging, and `brake` freezes the
+  split where it is, to isolate whether a problem comes from the rope
+  redistributing at all. All the fields above are settable from the constructor
+  and from YAML columns of the same names.
 - `Winch.f_coulomb` and `Winch.c_vf` are renamed to `Winch.coulomb_friction` and
   `Winch.viscous_coefficient`, matching the `Pulley` fields above and saying
   which of the two is a force [N] and which a coefficient [N·s/m]. The
