@@ -339,6 +339,7 @@ SymbolicAWEModels.aero_section_columns
 SymbolicAWEModels.interp_strut
 SymbolicAWEModels.interp_sections
 SymbolicAWEModels.reconstruct_sections_sym
+SymbolicAWEModels.reconstruct_inflow_sym
 SymbolicAWEModels.reconstruct_sections_b
 SymbolicAWEModels.write_live_aero_log_points!
 SymbolicAWEModels.AeroHandle

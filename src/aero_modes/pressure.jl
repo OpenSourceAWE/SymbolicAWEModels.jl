@@ -107,9 +107,9 @@ Live per-refined-panel VSM force (shared [`build_panel_force_eqs`](@ref) on the
 fixed loaded mesh + live apparent wind) scattered over the frozen surface traction
 pattern. Each wing node's force is `Σ over mapped (panel, node) of
 traction[node] + (panel_force[panel] − traction_net[panel]) / n_nodes`, so per panel
-the point forces sum to the live `panel_force` exactly. The apparent wind is the mean
-of the wing's structural points' body-frame apparent wind (v1 uniform inflow); `v_ind`,
-`traction`, `traction_net` and the `cl/cd/cm` polars are flat params refreshed every
+the point forces sum to the live `panel_force` exactly. Apparent wind and density are
+per refined section ([`reconstruct_inflow_sym`](@ref)); `v_ind`, `traction`,
+`traction_net` and the `cl/cd/cm` polars are flat params refreshed every
 `vsm_interval`.
 """
 function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
@@ -141,13 +141,7 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
     sec_le, sec_te =
         reconstruct_sections_sym(mode, wing, points, connectors, column)
 
-    # Live wing-level apparent wind & density: mean over the wing's structural points (v1
-    # uniform inflow).
-    va_wing = [sum(connectors.va[c, k] for k in 1:num_points) / num_points
-               for c in 1:3]
-    rho_wing = sum(connectors.rho[k] for k in 1:num_points) / num_points
-    sec_va = [va_wing for _ in 1:(n_panels + 1)]
-    sec_rho = [rho_wing for _ in 1:(n_panels + 1)]
+    sec_va, sec_rho = reconstruct_inflow_sym(mode, wing, connectors, column)
 
     spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     scale = 1.0 + (isfinite(wing.aero_scale_chord) ?
@@ -554,19 +548,6 @@ zero_aero_force() = zeros(SimFloat, 3)
 # ==================== per-panel decomposition ==================== #
 
 supports_panel_decomposition(::AeroPressure) = true
-
-"""
-    aero_inflow_groups(mode::AeroPressure, wing, points)
-
-One group for the whole wing: under the v1 uniform-inflow assumption every refined
-section reads the same mean over the wing's structural points, so one
-[`AeroInflow`](@ref) averages it and every panel reads that.
-"""
-function aero_inflow_groups(mode::AeroPressure, wing, points)
-    share = SimFloat(1 / length(points))
-    group = [(k, share) for k in eachindex(points)]
-    return [group], ones(Int, length(mode.section_left_strut))
-end
 
 """
     aero_scatter_entries(mode::AeroPressure, wing, points)
