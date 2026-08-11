@@ -424,26 +424,31 @@ system:
 
         @test length(peaks_t) >= 3  # Should have at least 3 peaks
 
-        # Estimate damped frequency from peak spacing
-        periods = diff(peaks_t)
+        # The envelope decays ~4x per period, so late maxima are solver noise
+        amps = abs.(peaks_z .- z_final)
+        physical = findall(>(0.001), amps)
+        @test length(physical) >= 3
+        @test amps[end] < amps[1]  # Amplitude should decrease
+
+        # Estimate damped frequency from the spacing of the physical peaks
+        periods = diff(peaks_t[physical])
         avg_period = mean(periods)
         omega_d_measured = 2π / avg_period
         @test omega_d_measured ≈ omega_d_expected rtol=0.1  # Within 10%
 
         # Estimate damping ratio from logarithmic decrement
-        # δ = ln(A₁/A₂) = 2πζ/√(1-ζ²)
-        # Solving for ζ: ζ = δ/√(4π² + δ²)
-        # Use actual equilibrium (z_final) for amplitude calculation, not theoretical
-        amps = abs.(peaks_z .- z_final)
-        @test amps[end] < amps[1]  # Amplitude should decrease
-
-        # Average multiple log decrements for robustness
-        log_decrements = [log(amps[i] / amps[i+1]) for i in 1:min(5, length(amps)-1) if amps[i+1] > 0.001]
+        # δ = ln(A₁/A₂) = 2πζ/√(1-ζ²), so ζ = δ/√(4π² + δ²)
+        log_decrements = [log(amps[i] / amps[i+1]) for i in physical[1:end-1]]
         log_decrement = mean(log_decrements)
         zeta_measured = log_decrement / sqrt(4π^2 + log_decrement^2)
 
-        println("\n  ====== Damping ratio: measured=$(round(zeta_measured, digits=3)), expected=$(round(zeta_expected, digits=3))")
-        println("  ====== Stiffness: measured=$(round(k_measured, digits=1)) N/m, expected=$(round(k, digits=1)) N/m ======\n")
+        println("\n  ====== Frequency: measured=$(round(omega_d_measured, digits=3)), " *
+                "expected=$(round(omega_d_expected, digits=3)) rad/s " *
+                "over $(length(physical)) peaks ======")
+        println("  ====== Damping ratio: measured=$(round(zeta_measured, digits=3)), " *
+                "expected=$(round(zeta_expected, digits=3)) ======")
+        println("  ====== Stiffness: measured=$(round(k_measured, digits=1)) N/m, " *
+                "expected=$(round(k, digits=1)) N/m ======\n")
         @test zeta_measured ≈ zeta_expected rtol=0.2  # Within 20%
     end
 
