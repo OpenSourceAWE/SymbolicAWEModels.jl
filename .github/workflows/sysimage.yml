@@ -85,8 +85,9 @@ jobs:
         with:
           cache-name: sysimage-${{ github.event.inputs.julia_version || '1.12' }}
 
+      # Precompiling GLMakie runs its __init__, which needs a display
       - name: Instantiate projects from the default manifest
-        run: ./bin/install --version "${JULIA_VERSION}"
+        run: xvfb-run -a ./bin/install --version "${JULIA_VERSION}"
 
       - name: Build sysimage
         env:
@@ -99,7 +100,7 @@ jobs:
 
       - name: Check SymbolicAWEModels stayed out of the image
         run: |
-          julia "+${JULIA_VERSION}" --startup-file=no \
+          xvfb-run -a julia "+${JULIA_VERSION}" --startup-file=no \
             -J "bin/kps-image-${JULIA_VERSION}.so" -e '
               any(p -> p.name == "SymbolicAWEModels", keys(Base.loaded_modules)) &&
                   error("SymbolicAWEModels was baked in; Revise would not work")
