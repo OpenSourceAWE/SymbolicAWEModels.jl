@@ -74,6 +74,7 @@ SymbolicAWEModels.build_schedule
 SymbolicAWEModels.ScheduleCycleError
 SymbolicAWEModels.state_sparsity
 SymbolicAWEModels.state_dependencies
+SymbolicAWEModels.output_reach
 SymbolicAWEModels.expand_reach!
 SymbolicAWEModels.collect_reach!
 SymbolicAWEModels.global_mass_matrix
@@ -110,6 +111,29 @@ SymbolicAWEModels.instance_readers
 SymbolicAWEModels.entry_reader
 SymbolicAWEModels.remap_path
 SymbolicAWEModels.record_build_index!
+```
+
+## Kernel backend — analytical Jacobian
+
+```@docs
+SymbolicAWEModels.KernelJacobian
+SymbolicAWEModels.build_jacobian
+SymbolicAWEModels.KernelDuals
+SymbolicAWEModels.packed_slice
+SymbolicAWEModels.fill_blocks!
+SymbolicAWEModels.InputGather
+SymbolicAWEModels.self_feeding_instances
+SymbolicAWEModels.output_owners
+SymbolicAWEModels.instance_gather
+SymbolicAWEModels.instance_columns
+SymbolicAWEModels.nonzero_indices
+SymbolicAWEModels.settle_outputs!
+SymbolicAWEModels.block_product!
+SymbolicAWEModels.compose_derivatives!
+SymbolicAWEModels.gather_blocks!
+SymbolicAWEModels.clear_columns!
+SymbolicAWEModels.store_jacobian!
+SymbolicAWEModels.scatter_jacobian!
 ```
 
 ## Kernel backend — components and assembly

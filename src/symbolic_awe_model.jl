@@ -604,18 +604,19 @@ end
 
 """
     get_model_name(set::Settings, sys_struct::SystemStructure; precompile=false,
-                   sparse=false, backend=MonolithBackend())
+                   sparse=false, analytic_jacobian=false, backend=MonolithBackend())
 
 Constructs a unique filename for the serialized model based on its configuration.
 The filename includes the SymbolicAWEModels version, Julia version, physical model,
 wing type, dynamics type, and component counts to ensure that the correct cached
-model is loaded. `sparse` and `backend` are part of the name because the cached
-`ODEProblem` carries its Jacobian prototype and its backend's assembly, so those
-builds are different artefacts; naming them apart keeps all of them on disk rather
-than invalidating one with the other.
+model is loaded. `sparse`, `analytic_jacobian` and `backend` are part of the name
+because the cached `ODEProblem` carries its Jacobian prototype, its Jacobian and its
+backend's assembly, so those builds are different artefacts; naming them apart keeps
+all of them on disk rather than invalidating one with the other.
 """
 function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=false,
-                        sparse=false, backend=MonolithBackend())
+                        sparse=false, analytic_jacobian=false,
+                        backend=MonolithBackend())
     suffix = ""
     pkg_ver = pkgversion(SymbolicAWEModels)
     ver = "$(VERSION.major).$(VERSION.minor)"
@@ -655,8 +656,9 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     n_bodies = length(sys_struct.bodies)
     body_tag = n_bodies > 0 ? "_$(n_bodies)bdy" : ""
     sparse_tag = sparse ? "_sparse" : ""
+    jacobian_tag = analytic_jacobian ? "_analytic" : ""
 
-    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_twist_surfaces)grp_$(n_wings)wng_$(n_winches)wch$(body_tag)$(sparse_tag)$(backend_tag(backend)).bin$suffix"
+    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_twist_surfaces)grp_$(n_wings)wng_$(n_winches)wch$(body_tag)$(sparse_tag)$(jacobian_tag)$(backend_tag(backend)).bin$suffix"
 end
 
 """

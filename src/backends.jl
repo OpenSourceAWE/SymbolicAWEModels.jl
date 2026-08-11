@@ -62,6 +62,27 @@ clock of a step.
 default_autodiff(::ModelBackend) = AutoFiniteDiff()
 default_autodiff(::KernelBackend) = AutoForwardDiff()
 
+"""
+    default_analytic_jacobian(backend) -> Bool
+
+Whether [`init!`](@ref) gives the solver an analytical Jacobian rather than letting
+it differentiate the right-hand side numerically.
+
+The [`KernelBackend`](@ref) does, and it is the whole reason its structure is worth
+keeping: the model is a layered composition of small components, so
+[`build_jacobian`](@ref) differentiates each component at its own width and composes
+the result through the constant wiring. On SK100 that is one pass per kernel against
+109 chunk-12 passes over 1305 states.
+
+The [`MonolithBackend`](@ref) does not. Its route is MTK's `jac=true`, which
+differentiates the flattened right-hand side *symbolically*: on the smallest model in
+the repo that costs 25.5 s against 3.3 s to build, and it does not run, because a
+registered numerical leaf — the wind profile, an aerodynamic polar — has no symbolic
+derivative and leaves a `Differential` in the generated matrix.
+"""
+default_analytic_jacobian(::ModelBackend) = false
+default_analytic_jacobian(::KernelBackend) = true
+
 const DEFAULT_BACKEND = Ref{ModelBackend}(MonolithBackend())
 
 """

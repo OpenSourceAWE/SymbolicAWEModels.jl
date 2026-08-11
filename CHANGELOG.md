@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Added
+- `init!(sam; analytic_jacobian)` gives the solver a Jacobian instead of leaving
+  it to differentiate the right-hand side numerically. On the `KernelBackend` it
+  is on by default: the right-hand side is a layered composition of small
+  components, so each kernel is differentiated once at its own width and the
+  results are composed through the constant wiring, rather than differentiating
+  the whole model `n_states / chunk` times. On the `MonolithBackend` it is off by
+  default and selects MTK's symbolic `jac=true`, which is expensive to build and
+  has no derivative for a registered numerical leaf such as the wind profile.
+  `nothing` (the default) takes the backend's `default_analytic_jacobian`. The
+  choice is part of the serialized model's name, so the two builds are cached
+  apart.
 - New top-level YAML block `variables`: named values reused across the file.
   A variable name written in any column is replaced by its value (numbers,
   strings, lists), and variables may be defined in terms of each other:

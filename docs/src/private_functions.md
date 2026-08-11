@@ -112,6 +112,7 @@ SymbolicAWEModels.load_serialized_model!
 SymbolicAWEModels.in_memory
 SymbolicAWEModels.backend_tag
 SymbolicAWEModels.default_autodiff
+SymbolicAWEModels.default_analytic_jacobian
 SymbolicAWEModels.maybe_create_lin_prob!
 SymbolicAWEModels.maybe_create_control_functions!
 SymbolicAWEModels.maybe_create_prob!
