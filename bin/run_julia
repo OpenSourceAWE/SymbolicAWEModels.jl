@@ -7,6 +7,7 @@ if [[ $(basename $(pwd)) == "bin" ]]; then
 fi
 
 export JULIA_PKG_SERVER_REGISTRY_PREFERENCE=eager
+export JULIA_NUM_THREADS="${JULIA_NUM_THREADS:-auto}"
 
 . ./bin/setup_env
 
