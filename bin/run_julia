@@ -67,9 +67,10 @@ else
     JULIA_ARGS=(-i -e "menu() = include(\"examples/menu.jl\"); $julia_init")
 fi
 
-if test -f "bin/kps-image-${julia_major}.so"; then
+if ./bin/install_sysimage --check --version "$julia_major"; then
     echo "Found system image!"
     julia --project -J "bin/kps-image-${julia_major}.so" "${JULIA_ARGS[@]}"
 else
+    echo "Starting without a system image. Fetch a matching one with ./bin/install_sysimage"
     julia --project "${JULIA_ARGS[@]}"
 fi

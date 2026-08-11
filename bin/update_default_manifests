@@ -2,5 +2,60 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
+_green='\033[32m'
+_reset='\033[0m'
+
+if [[ $(basename "$(pwd)") == "bin" ]]; then
+    cd ..
+fi
+
 ./bin/install --update --no-precompile --version 1.11
 ./bin/install --update --no-precompile --version 1.12
+
+git add Manifest-v1.11.toml.default Manifest-v1.12.toml.default
+if git diff --cached --quiet; then
+    echo "Default manifests unchanged, nothing to commit."
+    exit 0
+fi
+
+_branch=$(git rev-parse --abbrev-ref HEAD)
+_message="Update default manifests for Julia 1.11 and 1.12"
+
+echo
+git diff --cached --stat
+echo
+echo "Branch:  $_branch"
+echo "Message: $_message"
+echo
+
+if [[ ! -t 0 ]]; then
+    echo "Not interactive, leaving the changes staged."
+    exit 0
+fi
+
+read -p "Commit and push? This starts a new system image build. [Y/n] " _reply
+case "${_reply:-y}" in
+    [Yy]*) ;;
+    *)
+        echo "Left staged. To do it yourself:"
+        echo "  git commit -m \"$_message\" && git push"
+        exit 0
+        ;;
+esac
+
+read -p "Message (Enter to accept the default): " _custom
+if [[ -n "$_custom" ]]; then
+    _message="$_custom"
+fi
+
+git commit -m "$_message"
+if git rev-parse --abbrev-ref --symbolic-full-name "@{u}" &> /dev/null; then
+    git push
+else
+    git push -u origin "$_branch"
+fi
+
+echo
+echo -e "${_green}Pushed.${_reset} The system image build has started."
+echo "There is no system image until it finishes; install it then with:"
+echo "  ./bin/install_sysimage"

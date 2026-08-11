@@ -9,10 +9,13 @@ julia_major="1.12"
 branch=""
 run_id=""
 force=false
+check_only=false
 
 print_usage() {
     echo "Usage: ./bin/install_sysimage [options]"
     echo "Options:"
+    echo "  --check         Only report whether the installed image matches this"
+    echo "                  checkout; makes no network calls and installs nothing"
     echo "  --version X.Y   Julia minor version to install for (default: 1.12)"
     echo "  --branch NAME   Branch whose latest successful build to use"
     echo "                  (default: the current branch, then main)"
@@ -24,6 +27,7 @@ print_usage() {
 while [[ $# -gt 0 ]]; do
     case $1 in
         -h|--help) print_usage; exit 0 ;;
+        --check) check_only=true; shift ;;
         --version) julia_major="$2"; shift 2 ;;
         --branch) branch="$2"; shift 2 ;;
         --run-id) run_id="$2"; shift 2 ;;
@@ -36,12 +40,52 @@ if [[ $(basename "$(pwd)") == "bin" ]]; then
     cd ..
 fi
 
+manifest="Manifest-v${julia_major}.toml.default"
+test -f "$manifest" || { echo "Error: $manifest not found."; exit 1; }
+
+# A baked package always wins over the manifest, so a mismatched image silently
+# runs versions this checkout does not specify. Refuse it rather than warn.
+verify_pair() {
+    local buildinfo="$1"
+    local built_julia built_manifest local_julia local_manifest ok=true
+
+    built_julia=$(grep '^julia_version=' "$buildinfo" | cut -d'=' -f2)
+    built_manifest=$(grep '^manifest_sha256=' "$buildinfo" | cut -d'=' -f2)
+    local_julia=$(julia "+${julia_major}" --version | awk '{print $3}')
+    local_manifest=$(sha256sum "$manifest" | cut -d' ' -f1)
+
+    if [[ "$built_julia" != "$local_julia" ]]; then
+        echo "Mismatch: image was built with Julia $built_julia, you have $local_julia."
+        echo "  A system image only loads on the exact Julia build that created it."
+        ok=false
+    fi
+    if [[ "$built_manifest" != "$local_manifest" ]]; then
+        echo "Mismatch: image was built against a different $manifest."
+        echo "  Packages baked into the image override the manifest, so this would"
+        echo "  silently run versions this checkout does not specify."
+        ok=false
+    fi
+    [[ "$ok" == true ]]
+}
+
+target="bin/kps-image-${julia_major}.so"
+
+if [[ $check_only == true ]]; then
+    if [[ ! -f "$target" ]]; then
+        echo "No system image installed at $target."
+        exit 1
+    fi
+    if [[ ! -f "${target}.buildinfo" ]]; then
+        echo "$target has no build info; cannot tell which manifest it was built from."
+        exit 1
+    fi
+    verify_pair "${target}.buildinfo" || exit 1
+    exit 0
+fi
+
 for tool in gh julia sha256sum; do
     command -v "$tool" &> /dev/null || { echo "Error: $tool is not installed."; exit 1; }
 done
-
-manifest="Manifest-v${julia_major}.toml.default"
-test -f "$manifest" || { echo "Error: $manifest not found."; exit 1; }
 
 if [[ -z "$run_id" ]]; then
     [[ -n "$branch" ]] || branch=$(git rev-parse --abbrev-ref HEAD)
@@ -71,25 +115,7 @@ buildinfo="${sofile}.buildinfo"
 test -f "$sofile" || { echo "Error: artifact did not contain the system image."; exit 1; }
 test -f "$buildinfo" || { echo "Error: artifact did not contain the build info."; exit 1; }
 
-built_julia=$(grep '^julia_version=' "$buildinfo" | cut -d'=' -f2)
-built_manifest=$(grep '^manifest_sha256=' "$buildinfo" | cut -d'=' -f2)
-local_julia=$(julia "+${julia_major}" --version | awk '{print $3}')
-local_manifest=$(sha256sum "$manifest" | cut -d' ' -f1)
-
-ok=true
-if [[ "$built_julia" != "$local_julia" ]]; then
-    echo "Mismatch: image was built with Julia $built_julia, you have $local_julia."
-    echo "  A system image only loads on the exact Julia build that created it."
-    ok=false
-fi
-if [[ "$built_manifest" != "$local_manifest" ]]; then
-    echo "Mismatch: image was built against a different $manifest."
-    echo "  Julia would silently load those packages from the depot instead,"
-    echo "  losing the startup benefit. Pull the matching commit or rebuild."
-    ok=false
-fi
-
-if [[ "$ok" != true ]]; then
+if ! verify_pair "$buildinfo"; then
     if [[ "$force" != true ]]; then
         echo "Refusing to install. Re-run with --force to override."
         exit 1
@@ -97,7 +123,6 @@ if [[ "$ok" != true ]]; then
     echo "Installing anyway (--force)."
 fi
 
-target="bin/kps-image-${julia_major}.so"
 mv -f "$sofile" "$target"
 mv -f "$buildinfo" "${target}.buildinfo"
 
