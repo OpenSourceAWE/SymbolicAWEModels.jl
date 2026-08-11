@@ -631,12 +631,12 @@ Basic constructor for a `Segment` object.
 - `diameter`: Segment diameter [m].
 
 # Keyword Arguments
-- `compression_frac::SimFloat=0.01`: Compressive/tensile stiffness ratio (0-1);
+- `compression_frac::SimFloat=0.1`: Compressive/tensile stiffness ratio (0-1);
   damping is not scaled with it. 0 = a slack segment carries no spring force.
 - `density::SimFloat=NaN`: Material density [kg/m³] used for mass.
 """
 function Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter;
-    l0=zero(SimFloat), compression_frac=0.01, density=NaN
+    l0=zero(SimFloat), compression_frac=0.1, density=NaN
 )
     p1 = point_i isa Integer ? Int(point_i) : Symbol(point_i)
     p2 = point_j isa Integer ? Int(point_j) : Symbol(point_j)
@@ -728,7 +728,7 @@ Constructs a `Segment` using settings for material properties.
 # Keyword Arguments
 - `l0::SimFloat=zero(SimFloat)`: Unstretched length [m].
   Calculated from point positions if zero.
-- `compression_frac::SimFloat=0.01`: Compressive/tensile stiffness ratio (0-1);
+- `compression_frac::SimFloat=0.1`: Compressive/tensile stiffness ratio (0-1);
   damping is not scaled with it. 0 = a slack segment carries no spring force.
 - `diameter_mm::Float64=NaN`: Tether diameter [mm]. If `NaN`,
   uses `set.d_tether`.
@@ -744,7 +744,7 @@ Constructs a `Segment` using settings for material properties.
   to `unit_damping` [s].
 """
 function Segment(name, set, point_i, point_j;
-    l0=zero(SimFloat), compression_frac=0.01,
+    l0=zero(SimFloat), compression_frac=0.1,
     diameter_mm=NaN, unit_stiffness=NaN,
     unit_damping=NaN, density=NaN, youngs_modulus=NaN,
     damping_per_stiffness=NaN
@@ -820,19 +820,19 @@ Constructs a `Pulley` object that enforces length redistribution between two seg
 - `friction_epsilon`: Coulomb-friction smoothing width [m/s].
 
 `coulomb_friction` defaults to zero — an ideal pulley has no stiction — while
-`viscous_coefficient`
-defaults to a small viscous term, without which a bridle pulley is undamped and
-rings. They mirror the [`Winch`](@ref) fields of the same names and share its
-friction law ([`coulomb_viscous_friction`](@ref)). Both are absolute, not per unit
-rope mass, so a pulley carrying much more rope than a bridle's needs a larger
-`viscous_coefficient` to be damped as strongly. `friction_epsilon` is the rope speed
-below which
-the Coulomb term is ramped in; it linearises to `coulomb_friction / friction_epsilon`
-around zero, so a narrow width makes a stiff system out of a small force and wants
-raising rather than lowering.
+`viscous_coefficient` defaults to the loss of rope deforming as it bends around the
+sheave, which grows with how fast the rope travels. Without it the rope split is
+undamped: it redistributes length by moving `l0`, which no segment damper opposes,
+since `spring_vel` tracks the distance between the endpoints instead. Both mirror
+the [`Winch`](@ref) fields of the same names and share its friction law
+([`coulomb_viscous_friction`](@ref)). `friction_epsilon` is the rope speed below
+which the Coulomb term is ramped in; it linearises to
+`coulomb_friction / friction_epsilon` around zero, so a narrow width makes a stiff
+system out of a small force and wants raising rather than lowering.
 """
 function Pulley(name, segment_i, segment_j, type;
-                coulomb_friction = 0.0, viscous_coefficient = 0.006, friction_epsilon = 0.1)
+                coulomb_friction = 0.0, viscous_coefficient = 0.1,
+                friction_epsilon = 0.1)
     s1 = segment_i isa Integer ? Int(segment_i) : Symbol(segment_i)
     s2 = segment_j isa Integer ? Int(segment_j) : Symbol(segment_j)
     return Pulley(0, name, (0, 0), (s1, s2), type, coulomb_friction, viscous_coefficient,

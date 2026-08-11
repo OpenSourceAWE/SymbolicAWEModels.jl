@@ -62,20 +62,22 @@
   names, and replace the hidden `pulley_damp` parameter, which was fixed at 5.0
   and could be neither read nor set from the `SystemStructure`.
   `coulomb_friction` defaults to zero; `viscous_coefficient` defaults to
-  0.006 N·s/m. Note that these are absolute, whereas `pulley_damp` was a rate:
-  the equivalent `viscous_coefficient` is `5.0 * rope_mass`, so on a bridle
-  pulley carrying ~0.15 kg of rope the old behaviour is ~0.8 N·s/m and the new
-  default is over a hundred times weaker. Models that relied on the hidden
-  damping to settle should set the field explicitly.
+  0.1 N·s/m, standing for the loss of rope deforming as it bends around the
+  sheave. Note that these are absolute, whereas `pulley_damp` was a rate, so
+  there is no default that reproduces it on every model: the equivalent is
+  `5.0 * rope_mass`, which is ~0.04 N·s/m on a few metres of 2 mm line and
+  ~0.8 N·s/m on a bridle pulley carrying ~0.15 kg. Expect to retune models
+  that relied on the hidden damping to settle.
 - `Winch.f_coulomb` and `Winch.c_vf` are renamed to `Winch.coulomb_friction` and
   `Winch.viscous_coefficient`, matching the `Pulley` fields above and saying
   which of the two is a force [N] and which a coefficient [N·s/m]. The
   `settings.yaml` keys are owned by `KiteUtils` and keep their old names.
-- `compression_frac` now defaults to 0.01 in both `Segment` constructors. They
+- `compression_frac` now defaults to 0.1 in both `Segment` constructors. They
   disagreed — 0.0 from the settings-based one, 0.1 from the direct one — which
   was an oversight rather than a choice. 0.1 lets a rope push back with a tenth
-  of its tensile stiffness, and 0.0 leaves a slack segment with damping but no
-  stiffness at all; 0.01 is a weak restoring term that keeps neither extreme.
+  of its tensile stiffness, and is the value models have actually been built
+  against; 0.0 leaves a slack segment with damping but no stiffness at all,
+  which a pulley model does not survive.
 - The `materials`, `elements` and `segment_properties` YAML blocks were
   removed. A material is now a multi-variable listing `youngs_modulus`,
   `damping_per_stiffness` and `density`, and those are ordinary columns.
