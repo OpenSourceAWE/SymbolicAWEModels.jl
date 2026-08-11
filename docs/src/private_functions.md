@@ -455,6 +455,8 @@ SymbolicAWEModels.missing_param_defaults
 SymbolicAWEModels.BREUKELS_BENDING
 SymbolicAWEModels.BREUKELS_COLLAPSE
 SymbolicAWEModels.BREUKELS_TORSION
+SymbolicAWEModels.check_tube_geometry
+SymbolicAWEModels.breukels_tip_force_coefficients
 SymbolicAWEModels.comer_levy_h
 SymbolicAWEModels.comer_levy_n
 SymbolicAWEModels.comer_levy_point

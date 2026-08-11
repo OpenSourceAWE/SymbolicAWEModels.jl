@@ -36,6 +36,12 @@
   through the beam graph now translate too — including bodies that carry no
   point of their own — stopping at `STATIC` bodies, since a beam with a clamped
   end deforms rather than translating.
+- The Breukels inflated-tube correlations now error instead of quietly
+  returning a negative rigidity when evaluated outside the range they were
+  fitted in. The bending slope changes sign below a radius of roughly 38 mm at
+  0.25 bar (a 20 mm tube at 0.1 bar gave `EI0 = -94 N·m²` and a negative `EA`),
+  and the torsion factor `c2` changes sign for a fat tube above 1 bar. A
+  non-positive radius or pressure is rejected as well.
 
 ### Breaking
 - The `materials`, `elements` and `segment_properties` YAML blocks were
