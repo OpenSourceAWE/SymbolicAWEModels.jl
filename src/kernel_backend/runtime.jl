@@ -116,18 +116,24 @@ end
 """
     KernelSystem
 
-An assembled model. `kernels` is a tuple so the evaluation loop unrolls over it and
-every kernel call is statically dispatched. A *batch* is the instance list of one
-kernel: `layers[l][k]` are the instances of kernel `k` whose outputs run in layer
-`l`, and `state_batches[k]` the stateful instances of kernel `k`. `layer_inputs[l]` is
-the [`GatherPlan`](@ref) that layer needs and `final_inputs` what the derivative and
-observable passes still need on top, so each [`gather!`](@ref) touches only the slots
-about to be used and no slot is gathered twice in a call. The `_active` lists hold the positions of the non-empty
+An assembled model. `kernels` is a vector, not a tuple: a concrete tuple names every
+kernel type in the model, and carrying that type on a field of this struct made
+inference of the code reaching a `KernelSystem` grow explosively in the number of
+kernel types — 0.02 s at nine of them, 2.3 s at fourteen, 853 s at SK100's
+twenty-one, which is what a loaded Makie turns from cached into paid. The evaluation
+loop still needs the tuple to unroll over, and gets it from [`KernelRHS`](@ref).
+
+A *batch* is the instance list of one kernel: `layers[l][k]` are the instances of
+kernel `k` whose outputs run in layer `l`, and `state_batches[k]` the stateful
+instances of kernel `k`. `layer_inputs[l]` is the [`GatherPlan`](@ref) that layer
+needs and `final_inputs` what the derivative and observable passes still need on top,
+so each [`gather!`](@ref) touches only the slots about to be used and no slot is
+gathered twice in a call. The `_active` lists hold the positions of the non-empty
 batches of each pass, which is what [`run_batches!`](@ref) walks — most kernels are
 idle in any one layer and a pass over the whole tuple charged for them.
 """
-struct KernelSystem{K <: Tuple, N, M}
-    kernels::K
+struct KernelSystem{N, M}
+    kernels::Vector{ComponentKernel}
     instances::Vector{ComponentInstance}
     layers::Vector{NTuple{N, Vector{Int}}}
     layer_active::Vector{Vector{Int}}
@@ -269,7 +275,7 @@ function build_system(builder::SystemBuilder)
          if !(slot in settled)])
     state_batches = batch_by_kernel(builder, stateful)
     observable_batches = batch_by_kernel(builder, observed)
-    return KernelSystem(Tuple(builder.kernels), builder.instances, layers,
+    return KernelSystem(builder.kernels, builder.instances, layers,
         [active_batches(layer) for layer in layers], layer_inputs, final_inputs,
         state_batches, active_batches(state_batches),
         observable_batches, active_batches(observable_batches),
@@ -600,14 +606,21 @@ KernelBuffers{T}(system::KernelSystem) where {T} = KernelBuffers(
 The callable `(du, u, p, t)` an `ODEProblem` integrates. Each schedule layer
 gathers the inputs and runs its batches' output maps; once every layer has run the
 inputs are complete and the stateful kernels write their derivatives.
+
+`kernels` is the system's kernels as a tuple, so the loop unrolls over them and every
+kernel call is statically dispatched. It lives here rather than on the
+[`KernelSystem`](@ref) because only this type is on the evaluation path; the system
+is what assembly, parameter binding and the state getter all carry, and the tuple's
+type on it is what made their inference explode.
 """
-struct KernelRHS{S}
+struct KernelRHS{S, K <: Tuple}
     system::S
+    kernels::K
     scratch::KernelBuffers{SimFloat}
     others::Dict{DataType, Any}
 end
 
-KernelRHS(system::KernelSystem) = KernelRHS(system,
+KernelRHS(system::KernelSystem) = KernelRHS(system, Tuple(system.kernels),
     KernelBuffers{SimFloat}(system), Dict{DataType, Any}())
 
 """Scratch buffers for element type `T`, allocated on first use. The solver's own
@@ -624,9 +637,10 @@ end
 
 function (rhs::KernelRHS)(du, u, p, t)
     system = rhs.system
+    kernels = rhs.kernels
     scratch = buffers(rhs, eltype(u))
-    run_layers!(system, scratch, u, p, t)
-    run_batches!(derivative_map, system.kernels, system.state_active,
+    run_layers!(kernels, system, scratch, u, p, t)
+    run_batches!(derivative_map, kernels, system.state_active,
                  system.state_batches, p.callables, system.instances, scratch.input,
                  du, u, p.numeric, t)
     return nothing
@@ -634,14 +648,14 @@ end
 
 """Gather and run every schedule layer, leaving the inputs the derivative and
 observable passes read complete."""
-function run_layers!(system::KernelSystem, scratch, u, p, t)
+function run_layers!(kernels::Tuple, system::KernelSystem, scratch, u, p, t)
     input = scratch.input
     output = scratch.output
     instances = system.instances
     numeric = p.numeric
     for (index, layer) in enumerate(system.layers)
         gather!(input, output, system.wiring, system.layer_inputs[index])
-        run_batches!(output_map, system.kernels, system.layer_active[index], layer,
+        run_batches!(output_map, kernels, system.layer_active[index], layer,
                      p.callables, instances, input, output, u, numeric, t)
     end
     gather!(input, output, system.wiring, system.final_inputs)
@@ -715,9 +729,10 @@ the integrator's last RHS evaluation need not correspond to `u`.
 """
 function refresh_outputs!(rhs::KernelRHS, u, p, t)
     system = rhs.system
+    kernels = rhs.kernels
     scratch = buffers(rhs, eltype(u))
-    run_layers!(system, scratch, u, p, t)
-    run_batches!(observable_map, system.kernels, system.observable_active,
+    run_layers!(kernels, system, scratch, u, p, t)
+    run_batches!(observable_map, kernels, system.observable_active,
                  system.observable_batches, p.callables, system.instances,
                  scratch.input, scratch.observable, u, p.numeric, t)
     return scratch

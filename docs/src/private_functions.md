@@ -679,4 +679,7 @@ SymbolicAWEModels.KernelControlSetter
 SymbolicAWEModels.write_total_mass!
 SymbolicAWEModels.segment_load_terms
 SymbolicAWEModels.segment_nonlinear_force
+SymbolicAWEModels.workload_fixture
+SymbolicAWEModels.workload_model
+SymbolicAWEModels.run_workload
 ```
