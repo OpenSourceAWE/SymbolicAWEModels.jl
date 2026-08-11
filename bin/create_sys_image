@@ -83,16 +83,6 @@ restore_preferences() {
 }
 trap restore_preferences EXIT
 
-# Peak memory scales with the thread count, so cap it on small machines
-totalmem=$(grep MemTotal /proc/meminfo | awk '{printf "%i", $2 / 1024}')
-if [[ -n "${JULIA_IMAGE_THREADS:-}" ]]; then
-    echo "Using JULIA_IMAGE_THREADS=$JULIA_IMAGE_THREADS from the environment."
-elif [[ $totalmem -lt 27000 ]]; then
-    echo "Warning: Less than 27GB of memory detected. Using only one thread for sysimage compilation."
-    echo "Set JULIA_IMAGE_THREADS to override this."
-    export JULIA_IMAGE_THREADS=1
-fi
-
 # --- 3. Update or Instantiate Packages ---
 if [ "$update" = true ]; then
     echo "--- Updating packages via ./bin/install --update --no-precompile ---"
@@ -119,8 +109,9 @@ fi
 echo "--- Creating system image ---"
 rm -f data/model_*jl"${julia_major}"*.bin data/model_*jl"${julia_major}"*.bin.xz
 
-# Run the Julia script that builds the system image
-$JULIA_CMD --startup-file=no --project=test -e "include(\"test/create_sys_image.jl\");"
+# Build from an isolated environment so PackageCompiler cannot constrain the examples
+$JULIA_CMD --startup-file=no --project=sysimage -e 'using Pkg; Pkg.instantiate()'
+$JULIA_CMD --startup-file=no --project=sysimage sysimage/create_sys_image.jl
 
 # Determine final system image path
 SOFILE="bin/kps-image-${julia_major}.so"

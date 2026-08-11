@@ -12,15 +12,15 @@ on:
         required: false
         default: 'x86-64;sandybridge,-xsaveopt,clone_all;haswell,-rdrnd,base(1)'
       image_threads:
-        description: 'JULIA_IMAGE_THREADS; higher is faster but needs more memory'
+        description: 'JULIA_IMAGE_THREADS; leave empty to let Julia choose'
         required: false
-        default: '4'
+        default: ''
   push:
     paths:
       - 'Manifest-v1.12.toml.default'
       - 'Project.toml'
-      - 'test/Project.toml'
-      - 'test/create_sys_image.jl'
+      - 'examples/Project.toml'
+      - 'sysimage/**'
       - 'test/test_for_precompile.jl'
       - '.github/workflows/sysimage.yml'
 
@@ -34,7 +34,6 @@ permissions:
 env:
   JULIA_VERSION: ${{ github.event.inputs.julia_version || '1.12' }}
   SYSIMAGE_CPU_TARGET: ${{ github.event.inputs.cpu_target || 'x86-64;sandybridge,-xsaveopt,clone_all;haswell,-rdrnd,base(1)' }}
-  JULIA_IMAGE_THREADS: ${{ github.event.inputs.image_threads || '4' }}
   JULIA_PKG_SERVER_REGISTRY_PREFERENCE: eager
   LIBGL_ALWAYS_SOFTWARE: 1
 
@@ -42,7 +41,7 @@ jobs:
   build:
     name: Sysimage — Julia ${{ github.event.inputs.julia_version || '1.12' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 360
 
     steps:
       - uses: actions/checkout@v4
@@ -90,7 +89,21 @@ jobs:
         run: ./bin/install --version "${JULIA_VERSION}"
 
       - name: Build sysimage
-        run: xvfb-run -a ./bin/create_sys_image --version "${JULIA_VERSION}"
+        env:
+          IMAGE_THREADS: ${{ github.event.inputs.image_threads }}
+        run: |
+          if [ -n "$IMAGE_THREADS" ]; then
+            export JULIA_IMAGE_THREADS="$IMAGE_THREADS"
+          fi
+          xvfb-run -a ./bin/create_sys_image --version "${JULIA_VERSION}"
+
+      - name: Check SymbolicAWEModels stayed out of the image
+        run: |
+          julia "+${JULIA_VERSION}" --startup-file=no \
+            -J "bin/kps-image-${JULIA_VERSION}.so" -e '
+              any(p -> p.name == "SymbolicAWEModels", keys(Base.loaded_modules)) &&
+                  error("SymbolicAWEModels was baked in; Revise would not work")
+              println("OK: the package under development is not in the image")'
 
       - name: Write build info
         run: |
