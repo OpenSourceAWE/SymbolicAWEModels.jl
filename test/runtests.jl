@@ -18,39 +18,20 @@ cp(src_data_path, data_path; force=true)
 set_data_path(data_path)
 
 """
-    KERNEL_PARITY_FILES
+    KERNEL_SKIP_FILES
 
-The test files the [`KernelBackend`](@ref) currently covers, run instead of the
-whole suite when `SYMAWE_TEST_BACKEND=kernel`. It grows as the backend does; the
-files it leaves out are listed at startup.
+Why each test file is left out when `SYMAWE_TEST_BACKEND=kernel`; every other
+file in the suite runs. Entries are printed with their reason at startup, so a
+gap in the [`KernelBackend`](@ref) has to be named here to be tolerated rather
+than going unnoticed.
 """
-KERNEL_PARITY_FILES = [
-    "test_point.jl",
-    "test_segment.jl",
-    "test_segment_nonlinear.jl",
-    "test_pulley.jl",
-    "test_tether_init.jl",
-    "test_tether_winch.jl",
-    "test_rigid_body.jl",
-    "test_joint.jl",
-    "test_timoshenko_joint.jl",
-    "test_flap_beam.jl",
-    "test_wing.jl",
-    "test_getter_allocations.jl",
-    "test_heading_calculation.jl",
-    "test_match_aero_sections.jl",
-    "test_multi_section_group.jl",
-    "test_principal_body_frame.jl",
-    "test_quaternion_auto_groups.jl",
-    "test_quaternion_conversions.jl",
-    "test_section_alignment.jl",
-    "test_static_twist.jl",
-    "test_weighted_ref_points.jl",
-    "test_wing_dynamics.jl",
-    "test_yaml_bodies.jl",
-    "test_transform.jl",
-    "test_yaml_weighted_ref.jl",
-]
+KERNEL_SKIP_FILES = Dict(
+    "test_aqua.jl" => "package-quality checks, backend-independent",
+    "test_helpers.jl" => "covers the test helpers themselves, builds no model",
+    "test_yaml_variables.jl" => "YAML loader only, builds no model",
+    "test_bench.jl" => "benchmarks; every file here already asserts a " *
+                       "zero-allocation RHS through test_init!",
+)
 
 backend_name = lowercase(strip(get(ENV, "SYMAWE_TEST_BACKEND", "")))
 exclude = ["test_for_precompile.jl", "test_menu.jl"]
@@ -58,24 +39,26 @@ all_files = sort(filter(readdir(@__DIR__)) do f
     startswith(f, "test_") && endswith(f, ".jl") && f ∉ exclude
 end)
 
+skip_reasons = Dict{String, String}()
 if backend_name in ("", "monolith")
-    test_files = all_files
 elseif backend_name == "kernel"
     default_backend!(KernelBackend())
-    test_files = sort(KERNEL_PARITY_FILES)
-    unknown = filter(!in(all_files), test_files)
+    skip_reasons = KERNEL_SKIP_FILES
+    unknown = sort(filter(!in(all_files), collect(keys(skip_reasons))))
     isempty(unknown) ||
-        error("KERNEL_PARITY_FILES names files the suite does not have: $unknown")
+        error("KERNEL_SKIP_FILES names files the suite does not have: $unknown")
 else
     error("Unknown SYMAWE_TEST_BACKEND=\"$backend_name\"; " *
           "expected \"monolith\" or \"kernel\".")
 end
-println("Running the test suite on the $(nameof(typeof(default_backend()))).")
+test_files = filter(!in(keys(skip_reasons)), all_files)
 
-skipped = filter(!in(test_files), all_files)
-if !isempty(skipped)
-    println("Skipping $(length(skipped)) file(s) this backend does not cover yet:")
-    foreach(f -> println("    $f"), skipped)
+println("Running the test suite on the $(nameof(typeof(default_backend()))).")
+if !isempty(skip_reasons)
+    println("Skipping $(length(skip_reasons)) of $(length(all_files)) file(s):")
+    foreach(sort(collect(keys(skip_reasons)))) do f
+        println("    $f — $(skip_reasons[f])")
+    end
 end
 
 # Filter by test_args if provided, e.g.:
