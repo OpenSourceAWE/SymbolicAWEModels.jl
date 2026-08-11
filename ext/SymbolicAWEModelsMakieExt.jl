@@ -4352,4 +4352,13 @@ function SymbolicAWEModels.plot_aoa(sys_struct::SystemStructure;
     return fig
 end
 
+using PrecompileTools: @setup_workload, @compile_workload
+
+@setup_workload begin
+    fixture = SymbolicAWEModels.workload_fixture()
+    @compile_workload begin
+        SymbolicAWEModels.run_workload(fixture)
+    end
+end
+
 end

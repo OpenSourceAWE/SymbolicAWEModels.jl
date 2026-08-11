@@ -366,5 +366,6 @@ function init_module(; force=false, add_pkg=true)
 end
 
 include("precompile.jl")
+include("precompile_workload.jl")
 
 end
