@@ -24,7 +24,6 @@ using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
-using SymbolicIndexingInterface: getu
 
 # ============================================================================
 # YAML Configuration - Static probes at different heights
@@ -144,21 +143,12 @@ system:
         println("\n  ====== Loaded 5 static probes at heights: 10m, 50m, 100m, 200m, 500m ======\n")
     end
 
-    # Helper to get wind speed at a point
-    function get_wind_speed_at_point(sam, point_name)
-        point = sam.sys_struct.points[point_name]
-        # Create getter for wind_at_point for this specific point
-        wind_getter = getu(sam.prob.sys, sam.prob.sys.wind_at_point[:, point.idx])
-        wind_vec = wind_getter(sam.integrator)
-        return norm(wind_vec)
-    end
+    # Helpers reading the point's own wind, which both backends scatter back.
+    get_wind_speed_at_point(sam, point_name) =
+        norm(get_wind_vector_at_point(sam, point_name))
 
-    # Helper to get wind vector at a point
-    function get_wind_vector_at_point(sam, point_name)
-        point = sam.sys_struct.points[point_name]
-        wind_getter = getu(sam.prob.sys, sam.prob.sys.wind_at_point[:, point.idx])
-        return wind_getter(sam.integrator)
-    end
+    get_wind_vector_at_point(sam, point_name) =
+        copy(sam.sys_struct.points[point_name].wind_vec)
 
     # ========================================================================
     # Test 1: Profile law 0 (CONST) - uniform wind at all heights

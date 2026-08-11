@@ -27,23 +27,35 @@ keep_along(vector, axis) = (vector ⋅ axis) .* axis
 
 """
     point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
-                       world_damping, wind_gnd)
+                       world_damping, wind_gnd, wind_factor)
 
-World-frame acceleration of a point mass: the structural force gathered from its
-segments plus its own aerodynamic drag and gravity, per unit `mass`, minus
-world-frame damping. `structural_force` is the physical net force on the point
-(positive sign). Shared by the monolith's `point_eqs!` and the [`Particle`](@ref)
-component, so the point physics lives in one place; each backend supplies
-`structural_force` in its own aggregation convention.
+`(; net_force, accel)` for a point mass: [`point_net_force`](@ref) and that per unit
+`mass`, minus world-frame damping.
 """
 function point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
-                            world_damping, wind_gnd)
-    wind = WindFactor(s.am, s.set.profile_law)
+                            world_damping, wind_gnd, wind_factor)
+    net_force = point_net_force(s, pos, vel, structural_force, mass, drag_coeff,
+                                area, wind_gnd, wind_factor)
+    return (; net_force, accel = net_force ./ mass .- world_damping .* vel)
+end
+
+"""
+    point_net_force(s, pos, vel, structural_force, mass, drag_coeff, area, wind_gnd,
+                    wind_factor)
+
+The physical force on a point: the structural force gathered from its segments plus
+its own aerodynamic drag against the wind at its height and gravity — the monolith's
+`point_force`. `structural_force` is the net force on the point (positive sign); each
+backend supplies it in its own aggregation convention. A clamped point reads it
+without moving, which is how an anchor's or a winch's load is read off.
+"""
+function point_net_force(s, pos, vel, structural_force, mass, drag_coeff, area,
+                         wind_gnd, wind_factor)
     rho = calc_rho(s.am, max(0.0, pos[3]))
-    va = wind(pos[3]) .* wind_gnd .- vel
+    va = wind_factor(pos[3]) .* wind_gnd .- vel
     drag = point_drag_force(va, rho, drag_coeff, area)
     gravity = [0.0, 0.0, -s.set.g_earth * mass]
-    return (structural_force .+ drag .+ gravity) ./ mass .- world_damping .* vel
+    return structural_force .+ drag .+ gravity
 end
 
 """
@@ -59,7 +71,9 @@ function point_particle_params(params, idx)
     wind_gnd = ground_wind_vec(params)
     return (; extra_mass = point.extra_mass, drag_coeff = point.drag_coeff,
             area = point.area, world_damping = point.world_frame_damping,
-            fix_sphere = point.fix_sphere, fix_static = point.fix_static, wind_gnd)
+            fix_sphere = point.fix_sphere, fix_static = point.fix_static, wind_gnd,
+            wind_factor = param_computed!(params.reg, :wind_factor,
+                                          WindFactorReader()))
 end
 
 """
@@ -80,18 +94,20 @@ function confined_derivatives(pos, vel, accel, pars)
 end
 
 """
-    dynamic_point_dynamics(s, pos, vel, force, mass, pars)
+    dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force)
 
-Shared body of the DYNAMIC point/pulley vertices: `D(pos)=vel` and
-`D(vel)=point_acceleration(...)` from the shared kernel, reading the point's
-drag/damping/wind parameters `pars` (a [`point_particle_params`](@ref) named tuple).
+Shared body of the DYNAMIC point/pulley vertices: `D(pos)=vel`,
+`D(vel)=point_acceleration(...)` from the shared kernel, and the point's observed
+`net_force`, reading its drag/damping/wind parameters `pars` (a
+[`point_particle_params`](@ref) named tuple).
 """
-function dynamic_point_dynamics(s, pos, vel, force, mass, pars)
-    accel = point_acceleration(s, collect(pos), collect(vel), collect(force),
+function dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force)
+    motion = point_acceleration(s, collect(pos), collect(vel), collect(force),
         mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
-        collect(pars.wind_gnd))
-    velocity, acceleration = confined_derivatives(pos, vel, accel, pars)
-    return [D.(collect(pos)) .~ velocity; D.(collect(vel)) .~ acceleration]
+        collect(pars.wind_gnd), pars.wind_factor)
+    velocity, acceleration = confined_derivatives(pos, vel, motion.accel, pars)
+    return [D.(collect(pos)) .~ velocity; D.(collect(vel)) .~ acceleration;
+            collect(net_force) .~ motion.net_force]
 end
 
 """
@@ -114,10 +130,11 @@ end
 The spring-damper parameters read from `params.segments[idx]` (stiffness, damping,
 compression fraction, diameter, density as the segment's own struct fields), plus
 the global tether drag `cd_tether` (`params.set.cd_tether`) and the ground wind
-`wind_gnd` ([`ground_wind_vec`](@ref)). With `with_drag=false` (the
-[`wing_structural_segment`](@ref) edge) `cd_tether` is a literal `0` and unused.
-`nonlinear` marks a callable `unit_stiffness` force law. Returns
-`(spring_named_tuple, wind_gnd)`; each read registers the parameter on `params`.
+`wind_gnd` ([`ground_wind_vec`](@ref)) and the live `wind_factor`. With
+`with_drag=false` (the [`wing_structural_segment`](@ref) edge) `cd_tether` is a
+literal `0` and unused. `nonlinear` marks a callable `unit_stiffness` force law.
+Returns `(spring_named_tuple, wind_gnd, wind_factor)`; each read registers the
+parameter on `params`.
 """
 function segment_spring_params(params, idx; with_drag = true)
     seg = params.segments[idx]
@@ -127,13 +144,15 @@ function segment_spring_params(params, idx; with_drag = true)
     spring = (; unit_stiffness = seg.unit_stiffness, unit_damping = seg.unit_damping,
               compression_frac = seg.compression_frac, diameter = seg.diameter,
               density = seg.density, cd_tether, nonlinear)
-    return spring, wind_gnd
+    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
+    return spring, wind_gnd, wind_factor
 end
 
 """
     segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel, unit_stiffness,
                        unit_damping, compression_frac, l0, diameter, density,
-                       cd_tether, wind_gnd; with_drag=true, nonlinear=false)
+                       cd_tether, wind_gnd, wind_factor; with_drag=true,
+                       nonlinear=false)
 
 Every load term a segment produces, as a named tuple: the geometry (`len`,
 `unit_vec`), the signed scalar spring-damper tension `spring` and its vector
@@ -146,7 +165,7 @@ are unused.
 """
 function segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel,
                             unit_stiffness, unit_damping, compression_frac,
-                            l0, diameter, density, cd_tether, wind_gnd;
+                            l0, diameter, density, cd_tether, wind_gnd, wind_factor;
                             with_drag = true, nonlinear = false)
     _, len, unit_vec, spring_vel =
         segment_geometry(src_pos, dst_pos, src_vel, dst_vel)
@@ -158,11 +177,10 @@ function segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel,
     half_mass = segment_half_mass(l0, diameter, density)
     half_drag = zeros(Num, 3)
     if with_drag
-        wind = WindFactor(s.am, s.set.profile_law)
         seg_pos_z = 0.5 * (src_pos[3] + dst_pos[3])
         rho = calc_rho(s.am, max(0.0, seg_pos_z))
         seg_vel = 0.5 .* (src_vel .+ dst_vel)
-        va = wind(seg_pos_z) .* wind_gnd .- seg_vel
+        va = wind_factor(seg_pos_z) .* wind_gnd .- seg_vel
         half_drag = 0.5 .*
             segment_perp_drag(va, unit_vec, rho, cd_tether, len * diameter)
     end
@@ -481,23 +499,37 @@ function rigid_body_pose_expressions(force_w, moment_w, inertia_p, mass, R_b_to_
 end
 
 """
-    pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley_damp,
+    pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley,
                      pulley_len_out)
 
 The rope-split dynamics a pulley point owns on top of its particle motion:
-`D(pulley_len)=pulley_vel`, `D(pulley_vel)=tension_in/pulley_mass − pulley_damp·vel`
-(the aggregated `tension_in` being `spring[seg1] − spring[seg2]`), and
-`pulley_len_out=pulley_len` exposed so the incident segments read it as their `l0`.
-Used by [`PulleyParticle`](@ref).
+`D(pulley_len)=pulley_vel`, `D(pulley_vel)=(tension_in −
+[`pulley_friction_force`](@ref))/pulley_mass` (the aggregated `tension_in` being
+`spring[seg1] − spring[seg2]`), and `pulley_len_out=pulley_len` exposed so the
+incident segments read it as their `l0`. Used by [`PulleyParticle`](@ref).
 """
-function pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley_damp,
+function pulley_split_eqs(pulley_len, pulley_vel, tension_in, pulley_mass, pulley,
                           pulley_len_out)
     return [
         D(pulley_len) ~ pulley_vel;
-        D(pulley_vel) ~ tension_in / pulley_mass - pulley_damp * pulley_vel;
+        D(pulley_vel) ~ (tension_in - pulley_friction_force(pulley, pulley_vel)) /
+                        pulley_mass;
         pulley_len_out ~ pulley_len;
     ]
 end
+
+"""
+    pulley_friction_force(pulley, vel)
+
+The friction force opposing rope travel `vel` over `pulley` (a `params.pulleys[idx]`
+view): [`coulomb_viscous_friction`](@ref) over its `coulomb_friction`,
+`viscous_coefficient` and `friction_epsilon`, the same law and the same field names
+a [`Winch`](@ref) uses. Both backends read the fields through here, so the pulley's
+friction lives in one place.
+"""
+pulley_friction_force(pulley, vel) =
+    coulomb_viscous_friction(vel, pulley.coulomb_friction, pulley.viscous_coefficient,
+                             pulley.friction_epsilon)
 
 """
     wing_frame_columns(zp1, zp2, yp1, yp2)
@@ -523,7 +555,9 @@ end
 
 The variables a point component may declare, as a named tuple: its world `pos`/`vel`
 outputs, the summed `force_in`/`mass_in` of its incident segments, their `drag_in`
-share, and the observed `total_drag`. Each component lists only the ones it uses.
+share, and the observed `total_drag`, `wind_vec` and `net_force`. Each component
+lists only the ones it uses — a static point has no `net_force`, carrying no force
+input to build one from.
 """
 function point_variables()
     vars = @variables begin
@@ -533,26 +567,31 @@ function point_variables()
         mass_in(t), [input = true]
         drag_in(t)[1:3], [input = true]
         total_drag(t)[1:3]
+        wind_vec(t)[1:3]
+        net_force(t)[1:3]
     end
     return (; pos = vars[1], vel = vars[2], force_in = vars[3], mass_in = vars[4],
-            drag_in = vars[5], total_drag = vars[6])
+            drag_in = vars[5], total_drag = vars[6], wind_vec = vars[7],
+            net_force = vars[8])
 end
 
 """
-    total_drag_eq(s, params, idx, io)
+    point_wind_eqs(s, params, idx, io)
 
-Bind `total_drag` to the point's own aerodynamic drag plus the share its segments
-deliver — the monolith's `total_drag`, which the state getter scatters into
-`point.drag_force`.
+Bind `wind_vec` to the profile law's wind at the point's own height — the monolith's
+`wind_at_point`, scattered into `point.wind_vec` — and `total_drag` to the point's
+own aerodynamic drag against it plus the share its segments deliver, which the state
+getter scatters into `point.drag_force`.
 """
-function total_drag_eq(s, params, idx, io)
+function point_wind_eqs(s, params, idx, io)
     point = params.points[idx]
-    wind = WindFactor(s.am, s.set.profile_law)
+    wind = param_computed!(params.reg, :wind_factor, WindFactorReader())
     height = collect(io.pos)[3]
-    apparent = wind(height) .* ground_wind_vec(params) .- collect(io.vel)
+    apparent = collect(io.wind_vec) .- collect(io.vel)
     own = point_drag_force(apparent, calc_rho(s.am, max(0.0, height)),
                            point.drag_coeff, point.area)
-    return collect(io.total_drag) .~ own .+ collect(io.drag_in)
+    return [collect(io.wind_vec) .~ wind(height) .* ground_wind_vec(params);
+            collect(io.total_drag) .~ own .+ collect(io.drag_in)]
 end
 
 """
@@ -567,9 +606,10 @@ function Particle(s, params, idx; name)
     io = point_variables()
     pars = point_particle_params(params, idx)
     eqs = [dynamic_point_dynamics(s, io.pos, io.vel, io.force_in,
-                                  pars.extra_mass + io.mass_in, pars);
-           total_drag_eq(s, params, idx, io)]
-    vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag]
+                                  pars.extra_mass + io.mass_in, pars, io.net_force);
+           point_wind_eqs(s, params, idx, io)]
+    vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
+            io.wind_vec, io.net_force]
     return System(eqs, t, vars, param_unknowns(params); name)
 end
 
@@ -577,17 +617,23 @@ end
     Anchor(s, params, idx; name)
 
 A ground-anchored point: `pos` is pinned to `params.points[idx].pos_w` and `vel` is
-zero, matching the STATIC branch of `point_eqs!`. It carries no force or mass input
-— it does not move and its mass is not integrated — but still observes `total_drag`.
+zero, matching the STATIC branch of `point_eqs!`. Its segments' force and mass still
+arrive and are still summed into the observed `net_force` — nothing moves in
+response, but that is how the load the anchor carries is read off.
 """
 function Anchor(s, params, idx; name)
     io = point_variables()
+    pars = point_particle_params(params, idx)
     eqs = [
         collect(io.pos) .~ collect(params.points[idx].pos_w)
         collect(io.vel) .~ zeros(3)
-        total_drag_eq(s, params, idx, io)
+        collect(io.net_force) .~ point_net_force(s, collect(io.pos), collect(io.vel),
+            collect(io.force_in), pars.extra_mass + io.mass_in, pars.drag_coeff,
+            pars.area, collect(pars.wind_gnd), pars.wind_factor)
+        point_wind_eqs(s, params, idx, io)
     ]
-    vars = [io.pos, io.vel, io.drag_in, io.total_drag]
+    vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
+            io.wind_vec, io.net_force]
     return System(eqs, t, vars, param_unknowns(params); name)
 end
 
@@ -622,18 +668,17 @@ function PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
         pulley_vel(t)
     end
     pars = point_particle_params(params, idx)
-    damping = make_param(:pulley_damp, 5.0)
     eqs = [
         dynamic_point_dynamics(s, io.pos, io.vel, io.force_in,
-                               pars.extra_mass + io.mass_in, pars)
-        total_drag_eq(s, params, idx, io)
+                               pars.extra_mass + io.mass_in, pars, io.net_force)
+        point_wind_eqs(s, params, idx, io)
         pulley_split_eqs(extra[3], extra[4], extra[1],
                          pulley_rope_mass(params, pulley_idx, segment_idx),
-                         damping, extra[2])
+                         params.pulleys[pulley_idx], extra[2])
     ]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
-            extra...]
-    return System(eqs, t, vars, [param_unknowns(params); damping]; name)
+            io.wind_vec, io.net_force, extra...]
+    return System(eqs, t, vars, param_unknowns(params); name)
 end
 
 """
@@ -665,10 +710,14 @@ function WinchAnchor(s, params, winch, idx; name)
     motor = winch_component(winch.model, s.sys_struct, winch.idx;
                             name = :motor, params)
     validate_winch_component(motor, winch)
+    pars = point_particle_params(params, idx)
     eqs = [
         collect(io.pos) .~ collect(params.points[idx].pos_w)
         collect(io.vel) .~ zeros(3)
-        total_drag_eq(s, params, idx, io)
+        collect(io.net_force) .~ point_net_force(s, collect(io.pos), collect(io.vel),
+            collect(io.force_in), pars.extra_mass + io.mass_in, pars.drag_coeff,
+            pars.area, collect(pars.wind_gnd), pars.wind_factor)
+        point_wind_eqs(s, params, idx, io)
         extra[3] ~ smooth_norm(collect(extra[1]))
         motor.vel ~ extra[2]
         motor.len ~ sum(lengths) / count
@@ -681,7 +730,8 @@ function WinchAnchor(s, params, winch, idx; name)
         D(extra[2]) ~ ifelse(brake > 0.5, 0.0, extra[4])
         [D(len) ~ ifelse(brake > 0.5, 0.0, extra[2]) for len in lengths]
     ]
-    vars = [io.pos, io.vel, io.drag_in, io.total_drag, extra..., lengths...]
+    vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
+            io.wind_vec, io.net_force, extra..., lengths...]
     return System(eqs, t, vars, [param_unknowns(params); set_value];
                   name, systems = [motor])
 end
@@ -724,11 +774,11 @@ Returns `(eqs, loads)`; `loads` carries the scalar and vector spring tension a
 pulley or tether segment emits on top of these.
 """
 function segment_eqs(s, params, idx, io, rest_len; with_drag = true)
-    spring, wind = segment_spring_params(params, idx; with_drag)
+    spring, wind, wind_factor = segment_spring_params(params, idx; with_drag)
     loads = segment_load_terms(s, collect(io.src_pos), collect(io.src_vel),
         collect(io.dst_pos), collect(io.dst_vel), spring.unit_stiffness,
         spring.unit_damping, spring.compression_frac, rest_len, spring.diameter,
-        spring.density, spring.cd_tether, collect(wind);
+        spring.density, spring.cd_tether, collect(wind), wind_factor;
         with_drag, nonlinear = spring.nonlinear)
     eqs = [
         collect(io.src_force) .~ loads.force_on_src
@@ -1016,7 +1066,7 @@ point's observed `total_drag`.
 """
 function ride_load(s, params, idx, io; with_gravity)
     point = params.points[idx]
-    wind = WindFactor(s.am, s.set.profile_law)
+    wind = param_computed!(params.reg, :wind_factor, WindFactorReader())
     apparent = wind(io.height) .* ground_wind_vec(params) .- collect(io.vel)
     drag = point_drag_force(apparent, calc_rho(s.am, max(0.0, io.height)),
                             point.drag_coeff, point.area)
@@ -1763,7 +1813,7 @@ function TwistNodeWrench(s, params, idx; name, surface_idx = 0, gated = false)
     end
     twist = scalar_input(:twist_angle)
     point = params.points[idx]
-    wind = WindFactor(s.am, s.set.profile_law)
+    wind = param_computed!(params.reg, :wind_factor, WindFactorReader())
     apparent = wind(io.height) .* ground_wind_vec(params) .- collect(io.vel)
     drag = point_drag_force(apparent, calc_rho(s.am, max(0.0, io.height)),
                             point.drag_coeff, point.area)
@@ -1880,18 +1930,20 @@ function WingNodePoint(s, params, idx; name, with_damping = true)
     point = params.points[idx]
     pars = point_particle_params(params, idx)
     mass = pars.extra_mass + io.mass_in
-    accel = point_acceleration(s, collect(io.pos), collect(io.vel),
+    motion = point_acceleration(s, collect(io.pos), collect(io.vel),
         collect(io.force_in), mass, pars.drag_coeff, pars.area,
-        collect(pars.world_damping), collect(pars.wind_gnd))
+        collect(pars.world_damping), collect(pars.wind_gnd), pars.wind_factor)
+    accel = motion.accel
     with_damping && (accel = accel .- body_frame_damp_accel(io.vel,
         point.body_frame_damping, orientation, collect(extra[2])))
     velocity, acceleration = confined_derivatives(io.pos, io.vel, accel, pars)
     eqs = [
         D.(collect(io.pos)) .~ velocity
         D.(collect(io.vel)) .~ acceleration
-        total_drag_eq(s, params, idx, io)
+        collect(io.net_force) .~ motion.net_force
+        point_wind_eqs(s, params, idx, io)
     ]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
-            extra...]
+            io.wind_vec, io.net_force, extra...]
     return System(eqs, t, vars, param_unknowns(params); name)
 end

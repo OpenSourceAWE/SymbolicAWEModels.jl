@@ -6,16 +6,20 @@
 # global slot, resolved once at assembly, so both are plain indexed loops.
 
 """
-    PointReadout(point, pos, vel, drag)
+    PointReadout(point, pos, vel, drag, wind, force)
 
 Where one point's results live: its `pos`/`vel` in the output buffer and its
-`total_drag` in the observable buffer.
+`total_drag`, `wind_vec` and `net_force` in the observable buffer — all three from
+the instance that owns its loads, which for a point riding a body is its wrench
+half. A name that instance does not observe gets no slots and is left alone.
 """
 struct PointReadout
     point::Int
     pos::Vector{Int}
     vel::Vector{Int}
     drag::Vector{Int}
+    wind::Vector{Int}
+    force::Vector{Int}
 end
 
 """
@@ -156,7 +160,9 @@ function KernelStateGetter(model::KernelModel, rhs, sys_struct)
                   buffer_slots(system, instance, :outputs, :pos),
                   buffer_slots(system, instance, :outputs, :vel),
                   buffer_slots(system, drag_source(model, idx), :observables,
-                               :total_drag))
+                               :total_drag),
+                  observed_slots(system, drag_source(model, idx), :wind_vec),
+                  observed_slots(system, drag_source(model, idx), :net_force))
               for (idx, instance) in enumerate(model.point_instances)]
     segments = [SegmentReadout(idx,
                     only(buffer_slots(system, instance, :observables, :spring_force)),
@@ -299,6 +305,8 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
         copy_slots!(point.pos_w, scratch.output, readout.pos)
         copy_slots!(point.vel_w, scratch.output, readout.vel)
         copy_slots!(point.drag_force, scratch.observable, readout.drag)
+        copy_slots!(point.wind_vec, scratch.observable, readout.wind)
+        copy_slots!(point.force, scratch.observable, readout.force)
     end
     for readout in getter.segments
         segment = sys_struct.segments[readout.segment]

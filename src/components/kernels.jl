@@ -30,8 +30,11 @@ end
 Scalar spring-damper force along a segment (the Real-`unit_stiffness` branch of
 `segment_eqs!`). Stiffness is `unit_stiffness / len` in tension and softens to
 `compression_frac` of that under compression; the damping term
-`(unit_damping / len) · spring_vel` opposes the closing speed. Multiply by the
-segment `unit_vec` for the force vector on the source endpoint.
+`(unit_damping / len) · spring_vel` opposes the closing speed and is deliberately
+left out of that softening. Softening it would make the force jump at `len == l0`,
+where the stiffness term crosses continuously only because `len - l0` vanishes
+there; a taut tether sits on that crossing, so the jump diverges the solver.
+Multiply by the segment `unit_vec` for the force vector on the source endpoint.
 """
 function segment_spring_force(len, l0, spring_vel, unit_stiffness, unit_damping,
                               compression_frac)

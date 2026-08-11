@@ -74,9 +74,9 @@ segments:
 ###########################
 # Pulley constraint: left_leg + right_leg = constant
 pulleys:
-  headers: [name, segment_i, segment_j, type]
+  headers: [name, segment_i, segment_j, type, coulomb_friction, viscous_coefficient]
   data:
-    - [main_pulley, left_leg, right_leg, DYNAMIC]
+    - [main_pulley, left_leg, right_leg, DYNAMIC, 0.0, 0.8]
 """
 
 # ============================================================================
@@ -124,9 +124,9 @@ segments:
 ## Pulleys ################
 ###########################
 pulleys:
-  headers: [name, segment_i, segment_j, type]
+  headers: [name, segment_i, segment_j, type, coulomb_friction, viscous_coefficient]
   data:
-    - [main_pulley, left_leg, right_leg, DYNAMIC]
+    - [main_pulley, left_leg, right_leg, DYNAMIC, 0.0, 0.8]
 """
 
 @testset "Pulley Tests" begin
@@ -470,6 +470,56 @@ system:
 
         println("\n  ====== Tension balance: pulley_vel=$(round(norm(pulley_vel)*1000, digits=1))mm/s, weight_vel=$(round(norm(weight_vel)*1000, digits=1))mm/s")
         println("  ====== Weight pos: z=$(round(weight_pos[3], digits=2))m (below pulley at z=$(round(pulley_pos[3], digits=2))m) ======\n")
+    end
+
+    # ========================================================================
+    # Physics Test 5: Friction opposes rope travel and is read live
+    # Both terms are struct fields on the Pulley, so changing one and calling
+    # init! again must change the dynamics without rebuilding the model.
+    # ========================================================================
+    @testset "Friction opposes rope travel" begin
+        set.g_earth = 9.81
+        set.v_wind = 0.0
+
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="pulley_test", set=set)
+        sam = SymbolicAWEModel(set, sys)
+        test_init!(sam)
+        pulley = sam.sys_struct.pulleys[:main_pulley]
+
+        """Peak rope speed over 0.5 s from the off-centre start, at this friction."""
+        function peak_rope_speed(coulomb_friction, viscous_coefficient, friction_epsilon)
+            pulley.coulomb_friction = coulomb_friction
+            pulley.viscous_coefficient = viscous_coefficient
+            pulley.friction_epsilon = friction_epsilon
+            init!(sam; prn=false)
+            peak = 0.0
+            for _ in 1:500
+                next_step!(sam; dt=0.001, vsm_interval=0)
+                peak = max(peak, abs(pulley.vel))
+            end
+            return peak
+        end
+
+        free = peak_rope_speed(0.0, 0.0, 0.5)
+        viscous = peak_rope_speed(0.0, 5.0, 0.5)
+        coulomb = peak_rope_speed(2.0, 0.0, 0.5)
+
+        @test free > 0.0
+        @test viscous < free
+        @test coulomb < free
+
+        # The same law as the winch, over the pulley's own fields.
+        pulley.coulomb_friction = 2.0
+        pulley.viscous_coefficient = 5.0
+        pulley.friction_epsilon = 0.5
+        expected = SymbolicAWEModels.coulomb_viscous_friction(0.3, 2.0, 5.0, 0.5)
+        @test SymbolicAWEModels.pulley_friction_force(pulley, 0.3) ≈ expected
+        # Friction opposes the motion, whichever way the rope runs.
+        @test SymbolicAWEModels.pulley_friction_force(pulley, -0.3) ≈ -expected
+
+        println("\n  ====== Peak rope speed: free=$(round(free*1000, digits=1))mm/s, " *
+                "viscous=$(round(viscous*1000, digits=1))mm/s, " *
+                "coulomb=$(round(coulomb*1000, digits=1))mm/s ======\n")
     end
 
     # Cleanup

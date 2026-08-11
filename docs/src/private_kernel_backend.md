@@ -116,7 +116,7 @@ SymbolicAWEModels.record_build_index!
 
 ```@docs
 SymbolicAWEModels.point_variables
-SymbolicAWEModels.total_drag_eq
+SymbolicAWEModels.point_wind_eqs
 SymbolicAWEModels.Particle
 SymbolicAWEModels.Anchor
 SymbolicAWEModels.pulley_rope_mass

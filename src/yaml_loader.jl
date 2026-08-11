@@ -812,7 +812,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Create Pulley using new constructor (name, segment_i, segment_j, type)
             pulley = call_yaml_constructor(Pulley, row,
                 [:name, :segment_i, :segment_j, :type],
-                Vector{Union{}}();
+                [:coulomb_friction, :viscous_coefficient, :friction_epsilon];
                 mappings=Dict(
                     :segment_i => row -> yaml_to_ref(row.segment_i),
                     :segment_j => row -> yaml_to_ref(row.segment_j),

@@ -135,7 +135,7 @@ Numeric fields of the component structs are emitted as **flat MTK parameters** a
 synced from the live [`SystemStructure`](@ref) once per step, so many parameters
 can be changed at runtime without recompiling:
 
-- Winch parameters: `inertia_total`, `f_coulomb`, `c_vf`, `gear_ratio`
+- Winch parameters: `inertia_total`, `coulomb_friction`, `viscous_coefficient`, `gear_ratio`
 - Segment properties: `l0` (via tether/winch control)
 - Point damping: `body_frame_damping`, `world_frame_damping`
 - Aero state: `aero_jac`, `aero_x`, `aero_y`, `aero_force_b` (updated by

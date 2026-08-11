@@ -28,6 +28,7 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             sys.vel         => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
             sys.point_force => (c, v) -> copy_vec!(c.force, v, c.idx),
             sys.va_point_b  => (c, v) -> copy_vec!(c.va_b, v, c.idx),
+            sys.wind_at_point => (c, v) -> copy_vec!(c.wind_vec, v, c.idx),
             sys.point_mass  => (c, v) -> (c.total_mass = v[c.idx]; nothing),
             sys.total_drag  => (c, v) -> copy_vec!(c.drag_force, v, c.idx)))
     end

@@ -26,8 +26,6 @@ function pulley_eqs!(eqs, defaults, pulleys, segments, params, initial;
         pulley_force(t)[eachindex(pulleys)]
         pulley_acc(t)[eachindex(pulleys)]
     end
-    @parameters pulley_damp = 5.0
-
     for pulley in pulleys
         segment = segments[pulley.segment_idxs[1]]
         mass_per_meter =
@@ -45,7 +43,9 @@ function pulley_eqs!(eqs, defaults, pulleys, segments, params, initial;
                 eqs
                 D(pulley_len[pulley.idx]) ~ pulley_vel[pulley.idx]
                 D(pulley_vel[pulley.idx]) ~
-                    pulley_acc[pulley.idx] - pulley_damp * pulley_vel[pulley.idx]
+                    pulley_acc[pulley.idx] -
+                    pulley_friction_force(params.pulleys[pulley.idx],
+                                          pulley_vel[pulley.idx]) / mass
             ]
             defaults = [
                 defaults

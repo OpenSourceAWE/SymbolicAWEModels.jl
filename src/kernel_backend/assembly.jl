@@ -9,10 +9,9 @@
 
 const PARTICLE_INPUTS = [:force_in, :mass_in, :drag_in]
 const PARTICLE_OUTPUTS = [:pos, :vel]
-const ANCHOR_INPUTS = [:drag_in]
-const PULLEY_POINT_INPUTS = [:force_in, :mass_in, :drag_in, :tension_in]
+const PULLEY_POINT_INPUTS = [PARTICLE_INPUTS; :tension_in]
 const PULLEY_POINT_OUTPUTS = [:pos, :vel, :pulley_len_out]
-const WINCH_INPUTS = [:drag_in, :tension_in]
+const WINCH_INPUTS = [PARTICLE_INPUTS; :tension_in]
 const SEGMENT_INPUTS = [:src_pos, :src_vel, :dst_pos, :dst_vel]
 const SEGMENT_OUTPUTS = [:src_force, :dst_force, :half_mass, :half_drag]
 const BODY_INPUTS = [:force_in, :moment_in]
@@ -347,7 +346,7 @@ function assemble(sam; verbose = false)
                                       segment_roles[i])
                          for i in eachindex(sys_struct.segments)]
     for i in eachindex(sys_struct.segments)
-        wire_segment!(builder, sys_struct, i, segment_roles[i], point_roles,
+        wire_segment!(builder, sys_struct, i, segment_roles[i],
                       point_instances, segment_instances, wrench_instances)
     end
     for (idx, body) in enumerate(sys_struct.bodies)
@@ -793,7 +792,7 @@ function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches,
     elseif role.kind === :anchor
         kernel!(builder, table, sam, :anchor, idx,
                 params -> Anchor(sam, params, idx; name = :anchor),
-                ANCHOR_INPUTS, PARTICLE_OUTPUTS)
+                PARTICLE_INPUTS, PARTICLE_OUTPUTS)
     elseif role.kind === :pulley
         index_map[:pulleys] = role.pulley_idx
         index_map[:segments] = role.segment_idx
@@ -1049,14 +1048,16 @@ function add_segment!(builder, table, bindings, sam, idx, role)
 end
 
 """
-    wire_segment!(builder, sys_struct, idx, role, point_roles, points, segments)
+    wire_segment!(builder, sys_struct, idx, role, points, segments)
 
 Connect segment `idx` to its two endpoints: their pose into its inputs, its
-endpoint force, mass share and drag share back into theirs. A pulley segment also
-exchanges the rope split and its tension with the pulley point; a tether segment
-takes its rest length from the winch and delivers its tension there.
+endpoint force, mass share and drag share back into theirs — a clamped endpoint
+included, which does not move in response but does report the load it carries. A
+pulley segment also exchanges the rope split and its tension with the pulley point;
+a tether segment takes its rest length from the winch and delivers its tension
+there.
 """
-function wire_segment!(builder, sys_struct, idx, role, point_roles, point_instances,
+function wire_segment!(builder, sys_struct, idx, role, point_instances,
                        segment_instances, wrench_instances)
     segment = segment_instances[idx]
     source, target = sys_struct.segments[idx].point_idxs
@@ -1069,11 +1070,8 @@ function wire_segment!(builder, sys_struct, idx, role, point_roles, point_instan
         connect!(builder, point, :vel, segment, Symbol(prefix, :_vel))
         loaded = load_target(point_instances, wrench_instances, endpoint)
         connect!(builder, segment, :half_drag, loaded, :drag_in)
-        # A clamped endpoint takes no load: an anchor is fixed and a winch reels.
-        if point_roles[endpoint].kind ∉ (:anchor, :winch)
-            connect!(builder, segment, Symbol(prefix, :_force), loaded, :force_in)
-            connect!(builder, segment, :half_mass, loaded, :mass_in)
-        end
+        connect!(builder, segment, Symbol(prefix, :_force), loaded, :force_in)
+        connect!(builder, segment, :half_mass, loaded, :mass_in)
     end
     if role.kind === :pulley
         pulley = sys_struct.pulleys[role.pulley_idx]

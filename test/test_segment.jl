@@ -278,6 +278,36 @@ system:
         println("\n  ====== Loaded segment: l0=$(segment.l0)m, unit_stiffness=$(segment.unit_stiffness)N, unit_damping=$(segment.unit_damping)N·s ======\n")
     end
 
+    @testset "Compression softens stiffness but not damping" begin
+        l0, unit_stiffness, unit_damping, compression_frac = 10.0, 1000.0, 10.0, 0.1
+        force(len, spring_vel) = SymbolicAWEModels.segment_spring_force(
+            len, l0, spring_vel, unit_stiffness, unit_damping, compression_frac)
+        # At spring_vel 0 only the spring acts; the drop to 1 is the damper alone.
+        stiffness_of(len) = force(len, 0.0) * len / (len - l0)
+        damping_of(len) = (force(len, 0.0) - force(len, 1.0)) * len
+
+        @test stiffness_of(10.5) ≈ unit_stiffness
+        @test stiffness_of(9.5) ≈ compression_frac * unit_stiffness
+        @test damping_of(10.5) ≈ unit_damping
+        @test damping_of(9.5) ≈ unit_damping
+
+        # Softening damping too would jump the force here and diverge the solver.
+        step = abs(force(nextfloat(l0), 1.0) - force(prevfloat(l0), 1.0))
+        @test step < 1e-9
+        @test force(l0, 1.0) ≈ -unit_damping / l0
+
+        # compression_frac 0 still leaves a slack segment its damping.
+        slack_free(len, spring_vel) = SymbolicAWEModels.segment_spring_force(
+            len, l0, spring_vel, unit_stiffness, unit_damping, 0.0)
+        @test slack_free(9.5, 0.0) == 0.0
+        @test slack_free(9.5, 1.0) ≈ -unit_damping / 9.5
+
+        println("\n  ====== stiffness taut $(round(stiffness_of(10.5); sigdigits=4)), " *
+                "slack $(round(stiffness_of(9.5); sigdigits=4)); damping " *
+                "$(round(damping_of(10.5); sigdigits=4)) either side; force step " *
+                "at l0 $(round(step; sigdigits=4)) ======\n")
+    end
+
     # ========================================================================
     # Physics Test 1: No gravity, no wind - point stays still
     # ========================================================================

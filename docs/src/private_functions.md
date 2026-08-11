@@ -49,6 +49,8 @@ SymbolicAWEModels.quaternion_to_rotation_matrix
 SymbolicAWEModels.rotation_matrix_to_quaternion
 SymbolicAWEModels.rotate_v_around_k
 SymbolicAWEModels.smooth_norm
+SymbolicAWEModels.smooth_sign
+SymbolicAWEModels.coulomb_viscous_friction
 SymbolicAWEModels.smooth_normalize
 SymbolicAWEModels.apply_heading
 SymbolicAWEModels.get_rot_pos
@@ -70,6 +72,7 @@ SymbolicAWEModels.segment_half_mass
 
 ```@docs
 SymbolicAWEModels.point_acceleration
+SymbolicAWEModels.point_net_force
 SymbolicAWEModels.confined_derivatives
 SymbolicAWEModels.point_particle_params
 SymbolicAWEModels.dynamic_point_dynamics
@@ -81,6 +84,7 @@ SymbolicAWEModels.elastic_joint_wrench
 SymbolicAWEModels.beam_hermite_ride_expressions
 SymbolicAWEModels.ground_wind_vec
 SymbolicAWEModels.pulley_split_eqs
+SymbolicAWEModels.pulley_friction_force
 SymbolicAWEModels.wing_frame_columns
 ```
 

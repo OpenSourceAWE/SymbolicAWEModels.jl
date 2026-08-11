@@ -43,27 +43,30 @@ if !@isdefined(LengthTrackWinch)
             brake(tt); acc(tt); friction(tt)
             ω_motor(tt); err(tt); tau_cmd(tt); tau_net(tt)
         end
-        r  = params.winches[winch_idx].drum_radius
-        n  = params.winches[winch_idx].gear_ratio
-        fc = params.winches[winch_idx].f_coulomb
-        cv = params.winches[winch_idx].c_vf
-        I_ = params.winches[winch_idx].inertia_total
-        fe = params.winches[winch_idx].model.friction_epsilon
+        drum_radius         = params.winches[winch_idx].drum_radius
+        gear_ratio          = params.winches[winch_idx].gear_ratio
+        coulomb_friction    = params.winches[winch_idx].coulomb_friction
+        viscous_coefficient = params.winches[winch_idx].viscous_coefficient
+        inertia_total       = params.winches[winch_idx].inertia_total
+        friction_eps        = params.winches[winch_idx].model.friction_epsilon
         smooth_sign(x, e) = x / sqrt(x * x + e * e)
-        ratio = r / n
+        ratio = drum_radius / gear_ratio
         eqs = [
             ω_motor  ~ vel / ratio
-            friction ~ smooth_sign(ω_motor, fe) * fc * ratio +
-                       cv * ω_motor * ratio^2
+            friction ~ smooth_sign(ω_motor, friction_eps) *
+                       coulomb_friction * ratio +
+                       viscous_coefficient * ω_motor * ratio^2
             err      ~ set_value - len
             tau_cmd  ~ model.K_p * err - model.K_d * vel
             tau_net  ~ tau_cmd + ratio * force - friction
-            acc      ~ ifelse(brake > 0.5, 0.0, ratio * tau_net / I_)
+            acc      ~ ifelse(brake > 0.5, 0.0,
+                              ratio * tau_net / inertia_total)
         ]
         return System(eqs, tt,
             [vel, len, force, set_value, brake, acc, friction,
              ω_motor, err, tau_cmd, tau_net],
-            [r, n, fc, cv, I_, fe]; name)
+            [drum_radius, gear_ratio, coulomb_friction, viscous_coefficient,
+             inertia_total, friction_eps]; name)
     end
 end
 
@@ -178,8 +181,8 @@ environment:
     # ============================================================
     @testset "Brake holds" begin
         winch.brake = true
-        winch.f_coulomb = 0.0
-        winch.c_vf = 0.0
+        winch.coulomb_friction = 0.0
+        winch.viscous_coefficient = 0.0
         winch.inertia_total = 0.1
         seg.unit_stiffness = 0.0
         seg.unit_damping = 0.0
@@ -200,8 +203,8 @@ environment:
     # ============================================================
     @testset "Acceleration vs inertia" begin
         winch.brake = false
-        winch.f_coulomb = 0.0
-        winch.c_vf = 0.0
+        winch.coulomb_friction = 0.0
+        winch.viscous_coefficient = 0.0
         seg.unit_stiffness = 0.0
         seg.unit_damping = 0.0
         tau_motor = 1.0
@@ -229,11 +232,11 @@ environment:
     # Test 3: Acceleration vs Coulomb friction
     # Zero stiffness, zero viscous friction, small epsilon.
     # After spin-up (so smooth_sign ≈ 1):
-    #   a = (r/n)/I * (tau_motor - f_coulomb * r/n)
+    #   a = (r/n)/I * (tau_motor - coulomb_friction * r/n)
     # ============================================================
     @testset "Acceleration vs Coulomb friction" begin
         winch.brake = false
-        winch.c_vf = 0.0
+        winch.viscous_coefficient = 0.0
         winch.model.friction_epsilon = 0.01
         winch.inertia_total = 0.1
         seg.unit_stiffness = 0.0
@@ -242,7 +245,7 @@ environment:
         I = winch.inertia_total
 
         for f_c in [0.5, 2.0, 5.0]
-            winch.f_coulomb = f_c
+            winch.coulomb_friction = f_c
             test_init!(sam; prn=false)
 
             dt = 0.001
@@ -273,11 +276,11 @@ environment:
     # Test 4: Terminal velocity vs viscous friction
     # Zero stiffness, zero Coulomb. Motor torque balanced by
     # viscous friction at terminal velocity.
-    # Expected: v_term = tau_motor * n / (c_vf * r)
+    # Expected: v_term = tau_motor * n / (viscous_coefficient * r)
     # ============================================================
     @testset "Terminal velocity vs viscous friction" begin
         winch.brake = false
-        winch.f_coulomb = 0.0
+        winch.coulomb_friction = 0.0
         winch.model.friction_epsilon = 6.0
         winch.inertia_total = 0.01  # Small I for fast settling
         seg.unit_stiffness = 0.0
@@ -285,12 +288,12 @@ environment:
         tau_motor = 1.0
         I = winch.inertia_total
 
-        for c_vf_test in [50.0, 100.0, 200.0]
-            winch.c_vf = c_vf_test
+        for viscous_test in [50.0, 100.0, 200.0]
+            winch.viscous_coefficient = viscous_test
             test_init!(sam; prn=false)
 
-            # Time constant: I / (c_vf * (r/n)^2)
-            tau = I / (c_vf_test * (r / n)^2)
+            # Time constant: I / (viscous_coefficient * (r/n)^2)
+            tau = I / (viscous_test * (r / n)^2)
             t_settle = 10 * tau
             dt = 0.001
             n_steps = Int(ceil(t_settle / dt))
@@ -300,7 +303,7 @@ environment:
                            dt=dt, vsm_interval=0)
             end
 
-            v_expected = tau_motor * n / (c_vf_test * r)
+            v_expected = tau_motor * n / (viscous_test * r)
             @test winch.vel ≈ v_expected rtol=0.05
         end
     end
@@ -313,8 +316,8 @@ environment:
     # ============================================================
     @testset "Steady-state tether stretch" begin
         winch.brake = true
-        winch.f_coulomb = 1.0
-        winch.c_vf = 0.5
+        winch.coulomb_friction = 1.0
+        winch.viscous_coefficient = 0.5
         winch.model.friction_epsilon = 6.0
         winch.inertia_total = 0.1
 
@@ -357,10 +360,10 @@ environment:
     # ============================================================
     @testset "calc_steady_torque at terminal velocity" begin
         winch.brake = false
-        winch.f_coulomb = 0.0
+        winch.coulomb_friction = 0.0
         winch.model.friction_epsilon = 6.0
         winch.inertia_total = 0.01
-        winch.c_vf = 100.0
+        winch.viscous_coefficient = 100.0
 
         # Stiff tether to transmit gravity force
         seg.unit_stiffness = 120000.0
@@ -369,9 +372,9 @@ environment:
 
         tau_motor = 0.5
 
-        # Time constant: I / (c_vf * (r/n)^2)
+        # Time constant: I / (viscous_coefficient * (r/n)^2)
         tau_tc = winch.inertia_total /
-            (winch.c_vf * (r / n)^2)
+            (winch.viscous_coefficient * (r / n)^2)
         t_settle = 100 * tau_tc
         dt = 0.1
         n_steps = Int(ceil(t_settle / dt))

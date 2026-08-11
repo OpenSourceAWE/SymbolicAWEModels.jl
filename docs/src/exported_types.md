@@ -82,7 +82,7 @@ Tether(name, segments::AbstractVector, stretched_length; start_point, end_point,
 Tether(name, stretched_length; start_point, end_point, n_segments, unit_stiffness, unit_damping, diameter, tether_force, stretch_frac)
 Winch
 Winch(name, set::Settings, tethers; winch_point, init_vel, brake)
-Winch(name, tethers, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; winch_point, init_vel, brake)
+Winch(name, tethers, gear_ratio, drum_radius, coulomb_friction, viscous_coefficient, inertia_total; winch_point, init_vel, brake)
 AbstractWing
 RigidWing
 ParticleWing
