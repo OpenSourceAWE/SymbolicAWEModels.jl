@@ -160,13 +160,13 @@ tethers = [Tether(:main, seg_names)]
 
 ## Create a winch connected to the tether
 gear_ratio = 1.0
-drum_radius = 0.11       # [m]
-f_coulomb = 122.0        # [N]
-c_vf = 30.6              # [Ns/m]
-inertia_total = 0.024    # [kgm²]
+drum_radius = 0.11          # [m]
+coulomb_friction = 122.0    # [N]
+viscous_coefficient = 30.6  # [Ns/m]
+inertia_total = 0.024       # [kgm²]
 
 winches = [Winch(:winch, [:main],
-    gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total;
+    gear_ratio, drum_radius, coulomb_friction, viscous_coefficient, inertia_total;
     winch_point=:anchor)]
 
 # Build and simulate with a constant torque of -20 Nm:

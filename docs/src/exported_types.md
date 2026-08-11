@@ -52,6 +52,17 @@ SymbolicAWEModel
 SymbolicAWEModel(set::Settings, sys_struct::SystemStructure; kwargs...)
 ```
 
+## Backends
+
+```@docs
+ModelBackend
+MonolithBackend
+KernelBackend
+BackendUnsupportedError
+default_backend
+default_backend!
+```
+
 ## System structure and components
 
 ```@docs
@@ -65,13 +76,13 @@ Segment
 Segment(name, set, point_i, point_j; l0, compression_frac, diameter_mm, unit_stiffness, unit_damping, density, youngs_modulus, damping_per_stiffness)
 Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, compression_frac)
 Pulley
-Pulley(name, segment_i, segment_j, type)
+Pulley(name, segment_i, segment_j, type; efficiency, damping, brake, friction_epsilon)
 Tether
 Tether(name, segments::AbstractVector, stretched_length; start_point, end_point, tether_force, stretch_frac)
 Tether(name, stretched_length; start_point, end_point, n_segments, unit_stiffness, unit_damping, diameter, tether_force, stretch_frac)
 Winch
 Winch(name, set::Settings, tethers; winch_point, init_vel, brake)
-Winch(name, tethers, gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total; winch_point, init_vel, brake)
+Winch(name, tethers, gear_ratio, drum_radius, coulomb_friction, viscous_coefficient, inertia_total; winch_point, init_vel, brake)
 AbstractWing
 RigidWing
 ParticleWing
@@ -96,6 +107,14 @@ Transform(name, elevation, azimuth, heading; base_point, base_pos, base_transfor
 NamedCollection
 NameRef
 WeightedRefPoints
+```
+
+## Inflated-tube rigidity
+
+```@docs
+TubeRigidityLaw
+TUBE_SHEAR_COEFF
+TUBE_POISSON_RATIO
 ```
 
 ## System state

@@ -263,10 +263,20 @@ The material columns can also come from a multi-variable, see
 
 ```yaml
 pulleys:
-  headers: [idx, segment_i, segment_j, type]
+  headers: [idx, segment_i, segment_j, type, efficiency]
   data:
-    - [1, 3, 4, DYNAMIC]
+    - [1, 3, 4, DYNAMIC, 0.95]
 ```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `idx` | Int | — | Pulley identifier |
+| `segment_i`, `segment_j` | Int | — | The two segments sharing the pulley point |
+| `type` | Enum | — | `DYNAMIC` |
+| `efficiency` | Float | 0.95 | Fraction of line tension the sheave passes on (1.0 = ideal) |
+| `damping` | Float | 0.0 | Artificial damping on rope travel [Ns/m], for debugging |
+| `brake` | Bool | false | Freeze the rope split where it is, for debugging |
+| `friction_epsilon` | Float | 0.1 | Friction smoothing width [m/s] |
 
 ### Tethers
 

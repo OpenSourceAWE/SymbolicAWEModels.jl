@@ -26,8 +26,6 @@ function pulley_eqs!(eqs, defaults, pulleys, segments, params, initial;
         pulley_force(t)[eachindex(pulleys)]
         pulley_acc(t)[eachindex(pulleys)]
     end
-    @parameters pulley_damp = 5.0
-
     for pulley in pulleys
         segment = segments[pulley.segment_idxs[1]]
         mass_per_meter =
@@ -41,11 +39,18 @@ function pulley_eqs!(eqs, defaults, pulleys, segments, params, initial;
             pulley_acc[pulley.idx] ~ pulley_force[pulley.idx] / mass
         ]
         if pulley.type == DYNAMIC
+            braked = params.pulleys[pulley.idx].brake > 0.5
+            accel = pulley_acc[pulley.idx] -
+                    pulley_friction_force(params.pulleys[pulley.idx],
+                                          pulley_vel[pulley.idx],
+                                          0.5 * (spring_force[pulley.segment_idxs[1]] +
+                                                 spring_force[pulley.segment_idxs[2]])) /
+                    mass
             eqs = [
                 eqs
-                D(pulley_len[pulley.idx]) ~ pulley_vel[pulley.idx]
-                D(pulley_vel[pulley.idx]) ~
-                    pulley_acc[pulley.idx] - pulley_damp * pulley_vel[pulley.idx]
+                D(pulley_len[pulley.idx]) ~
+                    ifelse(braked, zero(accel), pulley_vel[pulley.idx])
+                D(pulley_vel[pulley.idx]) ~ ifelse(braked, zero(accel), accel)
             ]
             defaults = [
                 defaults

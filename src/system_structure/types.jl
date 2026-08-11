@@ -293,6 +293,8 @@ mutable struct Point
     const drag_force::KVec3
     "Apparent velocity in body frame [m/s] (VSM per-point)."
     const va_b::KVec3
+    "Wind velocity at the point's own height, world frame [m/s]."
+    const wind_vec::KVec3
     "Dynamics type (DYNAMIC, STATIC, BODY_STATIC, KINEMATIC)."
     const type::DynamicsType
     "User-provided mass [kg]."
@@ -418,6 +420,7 @@ function Point(name, pos_cad, type;
     Point(0, name, 0, 0, 0, transform_ref, wing_ref, body_ref,
         KVec3(pos_cad...), zeros(KVec3), anchor, zeros(KVec3),
         vel, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        zeros(KVec3),
         type, extra_mass, 0.0,
         bf_damp, wf_damp, area, drag_coeff,
         fix_sphere, fix_static, false,
@@ -602,7 +605,8 @@ mutable struct Segment
     unit_damping::SimFloat
     "Rest (unstretched) length [m]."
     l0::SimFloat
-    "Compressive/tensile stiffness ratio (0-1). 0 = no compression stiffness."
+    "Compressive/tensile stiffness ratio (0-1) under compression; damping is not
+    scaled with it. 0 = a slack segment carries no spring force."
     compression_frac::SimFloat
     "Segment diameter [m]."
     diameter::SimFloat
@@ -627,6 +631,8 @@ Basic constructor for a `Segment` object.
 - `diameter`: Segment diameter [m].
 
 # Keyword Arguments
+- `compression_frac::SimFloat=0.1`: Compressive/tensile stiffness ratio (0-1);
+  damping is not scaled with it. 0 = a slack segment carries no spring force.
 - `density::SimFloat=NaN`: Material density [kg/m³] used for mass.
 """
 function Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter;
@@ -722,8 +728,8 @@ Constructs a `Segment` using settings for material properties.
 # Keyword Arguments
 - `l0::SimFloat=zero(SimFloat)`: Unstretched length [m].
   Calculated from point positions if zero.
-- `compression_frac::SimFloat=0.0`: Compressive/tensile stiffness
-  ratio (0-1). 0 = no compression stiffness.
+- `compression_frac::SimFloat=0.1`: Compressive/tensile stiffness ratio (0-1);
+  damping is not scaled with it. 0 = a slack segment carries no spring force.
 - `diameter_mm::Float64=NaN`: Tether diameter [mm]. If `NaN`,
   uses `set.d_tether`.
 - `unit_stiffness::Float64=NaN`: Stiffness per unit length [N].
@@ -738,7 +744,7 @@ Constructs a `Segment` using settings for material properties.
   to `unit_damping` [s].
 """
 function Segment(name, set, point_i, point_j;
-    l0=zero(SimFloat), compression_frac=0.0,
+    l0=zero(SimFloat), compression_frac=0.1,
     diameter_mm=NaN, unit_stiffness=NaN,
     unit_damping=NaN, density=NaN, youngs_modulus=NaN,
     damping_per_stiffness=NaN
@@ -786,6 +792,14 @@ mutable struct Pulley
     const segment_refs::Tuple{NameRef, NameRef}
     "Dynamics type (DYNAMIC)."
     const type::DynamicsType
+    "Fraction of line tension the sheave passes on (0-1); the rest opposes travel."
+    efficiency::SimFloat
+    "Artificial damping on rope travel [N·s/m], for debugging. Not a sheave property."
+    damping::SimFloat
+    "Freeze the rope split where it is, for debugging. Not a sheave property."
+    brake::Bool
+    "Friction smoothing width [m/s]: the rope speed below which the sign ramps in."
+    friction_epsilon::SimFloat
     "Sum of connected segment lengths [m]."
     sum_len::SimFloat
     "Current pulley length [m] (updated during simulation)."
@@ -795,7 +809,7 @@ mutable struct Pulley
 end
 
 """
-    Pulley(name, segment_i, segment_j, type)
+    Pulley(name, segment_i, segment_j, type; efficiency, damping, brake, friction_epsilon)
 
 Constructs a `Pulley` object that enforces length redistribution between two segments.
 
@@ -803,11 +817,36 @@ Constructs a `Pulley` object that enforces length redistribution between two seg
 - `name::Union{Int, Symbol}`: Name/identifier for the pulley.
 - `segment_i`, `segment_j`: References to the two segments (names or indices).
 - `type::DynamicsType`: Dynamics type (`DYNAMIC`).
+- `efficiency`: Fraction of line tension the sheave passes on (0-1).
+- `damping`: Artificial damping on rope travel [N·s/m], for debugging.
+- `brake`: Freeze the rope split where it is, for debugging.
+- `friction_epsilon`: Friction smoothing width [m/s].
+
+`efficiency` is the whole friction model, because it is what a sheave is specified
+by and what its losses scale with: bearing drag rises with the load on the axle and
+the rope's bending hysteresis with the tension being bent, neither with how fast the
+rope travels. The friction is `(1 − efficiency) · line_tension`, the mean of the two
+leg tensions, so it grows with load rather than being a fixed force. It defaults to
+0.95, a sealed ball-bearing sheave; published ranges are 0.94–0.97 for those,
+0.88–0.92 for a bronze bushing and lower still for a bushing running synthetic rope.
+Set 1.0 for an ideal pulley.
+
+`damping` and `brake` are not sheave properties. `damping` defaults to zero and
+exists to settle a ringing rope split while debugging a model; `brake` defaults to
+`false` and holds the split at its current length, which isolates whether a problem
+comes from the rope redistributing at all. `friction_epsilon` is the rope speed
+below which the friction's sign is ramped in ([`smooth_sign`](@ref)); the friction
+linearises to `(1 − efficiency) · line_tension / friction_epsilon` around zero, so a
+narrow width makes a stiff system out of a small force and wants raising rather than
+lowering.
 """
-function Pulley(name, segment_i, segment_j, type)
+function Pulley(name, segment_i, segment_j, type;
+                efficiency = 0.95, damping = 0.0, brake = false,
+                friction_epsilon = 0.1)
     s1 = segment_i isa Integer ? Int(segment_i) : Symbol(segment_i)
     s2 = segment_j isa Integer ? Int(segment_j) : Symbol(segment_j)
-    return Pulley(0, name, (0, 0), (s1, s2), type, 0.0, 0.0, 0.0)
+    return Pulley(0, name, (0, 0), (s1, s2), type, efficiency, damping, brake,
+                  friction_epsilon, 0.0, 0.0, 0.0)
 end
 
 # ==================== TETHER ==================== #
@@ -1037,7 +1076,8 @@ Selects the winch motor dynamics. Each concrete model carries its own
 parameter fields and adds a `winch_component(model, sys_struct, idx; name,
 params)` method building the MTK subsystem (mirrors [`AbstractAeroModel`](@ref)).
 The model lives in [`Winch`](@ref)`.model`; common drum parameters
-(`gear_ratio`, `drum_radius`, `f_coulomb`, `c_vf`, `inertia_total`) stay on
+(`gear_ratio`, `drum_radius`, `coulomb_friction`, `viscous_coefficient`,
+`inertia_total`) stay on
 the `Winch` struct. New models = new struct + a few methods; see
 [`TorqueWinch`](@ref).
 """
@@ -1095,9 +1135,9 @@ mutable struct Winch
     "Drum radius [m]."
     drum_radius::SimFloat
     "Coulomb friction force [N]."
-    f_coulomb::SimFloat
+    coulomb_friction::SimFloat
     "Viscous friction coefficient [N·s/m]."
-    c_vf::SimFloat
+    viscous_coefficient::SimFloat
     "Total rotational inertia [kg·m²]."
     inertia_total::SimFloat
     "Current friction force [N] (updated during simulation)."
@@ -1154,15 +1194,15 @@ function Winch(name, set::Settings, tethers;
 end
 
 """
-    Winch(name, tethers, gear_ratio, drum_radius, f_coulomb,
-          c_vf, inertia_total; winch_point, ...)
+    Winch(name, tethers, gear_ratio, drum_radius, coulomb_friction,
+          viscous_coefficient, inertia_total; winch_point, ...)
 
 Constructs a `Winch` by directly providing physical parameters.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the winch.
 - `tethers::Vector`: References to tethers (names or indices).
-- `gear_ratio`, `drum_radius`, `f_coulomb`, `c_vf`,
+- `gear_ratio`, `drum_radius`, `coulomb_friction`, `viscous_coefficient`,
   `inertia_total`: Physical parameters.
 
 # Keyword Arguments
@@ -1170,7 +1210,7 @@ Constructs a `Winch` by directly providing physical parameters.
 - `init_vel::SimFloat=0.0`: Initial reel-out rate [m/s].
 """
 function Winch(name, tethers, gear_ratio, drum_radius,
-               f_coulomb, c_vf, inertia_total;
+               coulomb_friction, viscous_coefficient, inertia_total;
                winch_point,
                init_vel=0.0, brake=0.0, speed_controlled=false,
                friction_epsilon=6.0,
@@ -1183,8 +1223,8 @@ function Winch(name, tethers, gear_ratio, drum_radius,
                  init_vel, 0.0,
                  0.0, 0.0,
                  SimFloat(brake), speed_controlled, zeros(KVec3),
-                 gear_ratio, drum_radius, f_coulomb,
-                 c_vf, inertia_total, zero(SimFloat),
+                 gear_ratio, drum_radius, coulomb_friction,
+                 viscous_coefficient, inertia_total, zero(SimFloat),
                  model)
 end
 

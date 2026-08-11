@@ -10,6 +10,7 @@ using Pkg
 using TOML
 using DocStringExtensions
 using LinearAlgebra
+using SparseArrays
 using Parameters
 using Printf
 using Serialization
@@ -29,7 +30,7 @@ using SymbolicIndexingInterface
 using SymbolicIndexingInterface: AbstractIndexer
 
 # --- Solvers (Nonlinear, Differential Equations) ---
-using ADTypes: AutoFiniteDiff
+using ADTypes: AutoFiniteDiff, AutoForwardDiff
 using NonlinearSolve
 using OrdinaryDiffEqBDF
 using OrdinaryDiffEqCore
@@ -47,6 +48,7 @@ using ForwardDiff
 
 import KiteUtils: init!, next_step!, update_sys_state!, SysState
 import ModelingToolkit: t_nounits as t, D_nounits as D
+import ModelingToolkit: SciMLBase
 import ModelingToolkit.SciMLBase: successful_retcode, init
 
 # ===== Exports (the public API of this module) ===== #
@@ -60,6 +62,8 @@ export load_settings
 
 # --- Types: Core Model ---
 export SymbolicAWEModel
+export ModelBackend, MonolithBackend, KernelBackend,
+       BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
 export SystemStructure, Point, TwistSurface, Segment, Pulley, Tether, Winch, Wing, Transform
 export Body, ElasticJoint, TimoshenkoJoint
@@ -67,6 +71,14 @@ export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, Abs
 export ObjAdapter
 export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints
+# Inflated-tube rigidity laws for beam joints
+export TubeRigidityLaw, TUBE_SHEAR_COEFF, TUBE_POISSON_RATIO
+export tube_torsion_law, tube_linear_rigidities, tube_bending_law, tube_mass
+export breukels_tip_force, breukels_collapse_deflection, breukels_membrane_stiffness
+export comer_levy_bending_law, comer_levy_bending_stiffness,
+       comer_levy_wrinkling_moment, comer_levy_collapse_moment
+export membrane_linear_rigidities
+export frame_quaternion, frame_quaternion_xy
 # Enums
 export DynamicsType, DYNAMIC, STATIC, BODY_STATIC, KINEMATIC
 export SegmentType, POWER_LINE, STEERING_LINE, BRIDLE
@@ -181,6 +193,10 @@ function __init__()
     end
 end
 
+include("backends.jl")
+include("kernel_backend/codegen/mtk_codegen.jl")
+include("components/kernels.jl")
+include("components/components.jl")
 include("obj_adapter.jl")
 include("system_structure/system_structure.jl")
 include("vsm_refine.jl")
@@ -201,6 +217,15 @@ include("aero_modes/plate.jl")
 include("winch_models/common.jl")
 include("winch_models/torque.jl")
 include("winch_models/cascaded_length.jl")
+# Kernel backend; loaded last because its assembler consumes the components,
+# the aero modes and the winch models.
+include("kernel_backend/kernel.jl")
+include("kernel_backend/runtime.jl")
+include("kernel_backend/params.jl")
+include("kernel_backend/assembly.jl")
+include("kernel_backend/state.jl")
+include("kernel_backend/jacobian.jl")
+include("kernel_backend/backend.jl")
 include("simulate.jl")
 
 # rotate a 3d vector around the x axis in the yz plane - following the right hand rule
@@ -342,5 +367,6 @@ function init_module(; force=false, add_pkg=true)
 end
 
 include("precompile.jl")
+include("precompile_workload.jl")
 
 end

@@ -62,22 +62,54 @@ aero_hash_id(mode::ContinuousAero) =
 
 # ==================== polar callable ==================== #
 """
+    AeroHandle(body_aero)
+
+Mutable holder for the live `BodyAerodynamics` a polar reads, and the reason a
+serialized model does not carry one. A polar is a callable parameter, so its
+concrete type is baked into the parameter store and into what the solver
+specialized on and has to survive a round trip — but its contents are dead weight,
+because `sync_params!` rebinds every polar from the `SystemStructure` before the
+problem is evaluated. Serializing the holder empty keeps the type and drops the
+wing's whole Cp/cf surface tables, which were 2.4 GB of bin on SK100. It is
+undefined between `deserialize` and that sync, and reading it there is a bug.
+"""
+mutable struct AeroHandle{BA}
+    body_aero::BA
+    AeroHandle{BA}() where {BA} = new{BA}()
+    AeroHandle(body_aero::BA) where {BA} = new{BA}(body_aero)
+end
+
+function Serialization.serialize(s::Serialization.AbstractSerializer,
+                                 handle::AeroHandle)
+    Serialization.serialize_type(s, typeof(handle))
+    return nothing
+end
+
+Serialization.deserialize(s::Serialization.AbstractSerializer,
+                          ::Type{AeroHandle{BA}}) where {BA} = AeroHandle{BA}()
+
+"""
     ContinuousPolar(body_aero, coef)
 
 Callable polar for [`ContinuousAero`](@ref), used as a callable flat parameter
 `p(panel_idx, α)`: looks up refined panel `panel_idx` and evaluates the VSM
 coefficient function `coef` (`calculate_cl`/`calculate_cd`/`calculate_cm`) at
 angle of attack `α`. The panel is typeasserted concrete so the polar dispatches
-statically with no boxing in the compiled RHS; `ForwardDiff.Dual`-safe in `α`.
+statically with no boxing in the compiled RHS; `ForwardDiff.Dual`-safe in `α`. The
+aerodynamics is held through an [`AeroHandle`](@ref) so that serializing the polar
+does not serialize the wing.
 """
 struct ContinuousPolar{BA, F}
-    body_aero::BA
+    handle::AeroHandle{BA}
     coef::F
 end
+ContinuousPolar(body_aero, coef) = ContinuousPolar(AeroHandle(body_aero), coef)
+
 (p::ContinuousPolar)(panel_idx, alpha) = p.coef(
-    p.body_aero.panels[round(Int, panel_idx)]::VortexStepMethod.Panel{SimFloat}, alpha)
+    p.handle.body_aero.panels[round(Int, panel_idx)]::VortexStepMethod.Panel{SimFloat},
+    alpha)
 (p::ContinuousPolar)(panel_idx, alpha, delta) = p.coef(
-    p.body_aero.panels[round(Int, panel_idx)]::VortexStepMethod.Panel{SimFloat},
+    p.handle.body_aero.panels[round(Int, panel_idx)]::VortexStepMethod.Panel{SimFloat},
     alpha, delta)
 
 # ==================== mesh maps ==================== #
@@ -215,6 +247,48 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
         eqs = [eqs; connectors.point_force[:, k] ~ point_force[k]]
     end
     return System(eqs, t, vars, [vind_p, cl, cd, cm]; name)
+end
+
+# ==================== per-panel decomposition ==================== #
+
+supports_panel_decomposition(::ContinuousAero) = true
+
+"""
+    aero_inflow_groups(mode::ContinuousAero, wing, points)
+
+One group per refined section: its inflow is the strut interpolation of the bounding
+struts' LE/TE station values, which is what `aero_component` interpolates inline.
+"""
+function aero_inflow_groups(mode::ContinuousAero, wing, points)
+    column = aero_section_columns(wing, points)
+    sections = eachindex(mode.section_left_strut)
+    groups = [strut_inflow_weights(mode, section, column) for section in sections]
+    return groups, collect(sections)
+end
+
+"""
+    aero_scatter_entries(mode::ContinuousAero, wing, points)
+
+The strut couple: each panel's force acts on the quarter-chord line, so its bounding
+sections' struts take `0.75·force + couple` at the LE station and `0.25·force −
+couple` at the TE station, halved between the two sections and split by the mesh
+weights.
+"""
+function aero_scatter_entries(mode::ContinuousAero, wing, points)
+    column = aero_section_columns(wing, points)
+    left, weight, _, _ = section_interp_caches(mode)
+    totals = Dict{Tuple{Int, Int}, Vector{SimFloat}}()
+    for panel in 1:(length(left) - 1), section in (panel, panel + 1)
+        for (strut, share) in ((left[section], weight[section]),
+                               (left[section] + 1, 1.0 - weight[section]))
+            share == 0.0 && continue
+            scatter_totals!(totals, panel, column[(strut, :LE)],
+                            0.375 * share, 0.5 * share)
+            scatter_totals!(totals, panel, column[(strut, :TE)],
+                            0.125 * share, -0.5 * share)
+        end
+    end
+    return scatter_entry_list(totals)
 end
 
 # ==================== refresh ==================== #

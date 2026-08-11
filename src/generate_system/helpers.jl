@@ -48,6 +48,31 @@ Differentiable normalization: `vec / smooth_norm(vec)`.
 smooth_normalize(vec) = vec / smooth_norm(vec)
 
 """
+    smooth_sign(x, eps)
+
+Differentiable sign: `x / sqrt(x^2 + eps^2)`. `eps` is the half-width of the
+transition through zero, in the units of `x`; below it the result is proportional to
+`x` rather than `±1`, which is what keeps a Coulomb friction law solvable.
+"""
+smooth_sign(x, eps) = x / sqrt(x * x + eps * eps)
+
+"""
+    coulomb_viscous_friction(rate, coulomb_friction, viscous_coefficient, epsilon,
+                             ratio = 1.0)
+
+Friction opposing `rate`: a constant `coulomb_friction` term carrying the sign of
+the motion ([`smooth_sign`](@ref) over `epsilon`) plus a viscous
+`viscous_coefficient` term growing with it. `ratio` transmits a tether-level
+`coulomb_friction` [N] and `viscous_coefficient` [N·s/m] onto another shaft — a
+winch passes `drum_radius / gear_ratio`, so the result is a torque [N·m]; at the
+default `1.0` the result is a force [N] in `rate`'s own frame.
+"""
+coulomb_viscous_friction(rate, coulomb_friction, viscous_coefficient, epsilon,
+                         ratio = 1.0) =
+    smooth_sign(rate, epsilon) * coulomb_friction * ratio +
+    viscous_coefficient * rate * ratio^2
+
+"""
     smooth_norm(v, eps=1e-12)
 
 Differentiable norm: `sqrt(sum(abs2, v) + eps^2)`.

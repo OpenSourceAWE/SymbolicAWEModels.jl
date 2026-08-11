@@ -73,44 +73,21 @@ function beam_hermite_ride_eqs(point, force_on_point, s, params;
     b = joint.body_b_idx
     R_a = collect(body_R_b_to_w[:, :, a])
     R_b = collect(body_R_b_to_w[:, :, b])
-    jp = params.timoshenko_joints[joint.idx]
-    x_a = collect(body_pos_w[:, a]) .+ R_a * collect(jp.anchor_a_b)
-    x_b = collect(body_pos_w[:, b]) .+ R_b * collect(jp.anchor_b_b)
-    e1, e2, e3, beam_len = timoshenko_element_frame(x_a, x_b, R_a)
-    element_frame = [e1[1] e2[1] e3[1];
-                     e1[2] e2[2] e3[2];
-                     e1[3] e2[3] e3[3]]
-    Da = (element_frame' * R_a) * collect(jp.R_a_rel0)'
-    Db = (element_frame' * R_b) * collect(jp.R_b_rel0)'
-    θ_a = [0.5 * (Da[3, 2] - Da[2, 3]),
-           0.5 * (Da[1, 3] - Da[3, 1]),
-           0.5 * (Da[2, 1] - Da[1, 2])]
-    θ_b = [0.5 * (Db[3, 2] - Db[2, 3]),
-           0.5 * (Db[1, 3] - Db[3, 1]),
-           0.5 * (Db[2, 1] - Db[1, 2])]
-    sfrac = params.points[point.idx].beam_frac
-    N2 = beam_len * (sfrac - 2sfrac^2 + sfrac^3)
-    N4 = beam_len * (-sfrac^2 + sfrac^3)
-    v_defl = N2 * θ_a[3] + N4 * θ_b[3]
-    w_defl = -(N2 * θ_a[2] + N4 * θ_b[2])
-    x_center = x_a .+ (sfrac * beam_len) .* e1 .+ v_defl .* e2 .+ w_defl .* e3
-    offset = collect(params.points[point.idx].beam_offset_b)
-    pos_point = x_center .+ element_frame * offset
-    ω_a_w = R_a * collect(body_ω_b[:, a])
-    ω_b_w = R_b * collect(body_ω_b[:, b])
-    vel_a = collect(body_com_vel[:, a]) .+
-        (ω_a_w × (pos_point .- collect(body_com_w[:, a])))
-    vel_b = collect(body_com_vel[:, b]) .+
-        (ω_b_w × (pos_point .- collect(body_com_w[:, b])))
-    force_a = (1 - sfrac) .* force_on_point
-    force_b = sfrac .* force_on_point
+    ex = beam_hermite_ride_expressions(joint, params, point.idx;
+        pos_a = collect(body_pos_w[:, a]), R_a, com_a = collect(body_com_w[:, a]),
+        com_vel_a = collect(body_com_vel[:, a]), omega_a_w = R_a * collect(body_ω_b[:, a]),
+        pos_b = collect(body_pos_w[:, b]), R_b, com_b = collect(body_com_w[:, b]),
+        com_vel_b = collect(body_com_vel[:, b]), omega_b_w = R_b * collect(body_ω_b[:, b]))
+    pos_point = ex.pos_point
+    force_a = (1 - ex.sfrac) .* force_on_point
+    force_b = ex.sfrac .* force_on_point
     body_force[:, a] .+= force_a
     body_force[:, b] .+= force_b
     body_moment[:, a] .+= (pos_point .- collect(body_com_w[:, a])) × force_a
     body_moment[:, b] .+= (pos_point .- collect(body_com_w[:, b])) × force_b
     return [
         pos[:, point.idx] ~ pos_point
-        vel[:, point.idx] ~ (1 - sfrac) .* vel_a .+ sfrac .* vel_b
+        vel[:, point.idx] ~ ex.vel_point
         acc[:, point.idx] ~ zeros(3)
     ]
 end

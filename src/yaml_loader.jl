@@ -656,8 +656,10 @@ end
 
 Build a `SystemStructure` from a component-based structural
 YAML file. See source for full documentation of expected blocks.
+`prn=false` silences the transform, wing-frame and aero-setup messages loading a
+structure prints.
 """
-function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, dynamics_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AbstractAeroModel}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing, wing_type::Union{Nothing,WingType}=nothing)
+function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, dynamics_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AbstractAeroModel}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing, wing_type::Union{Nothing,WingType}=nothing, prn::Bool=true)
     if !isnothing(wing_type)
         if !isnothing(dynamics_type)
             error("Cannot specify both `wing_type` and `dynamics_type`; `wing_type` is deprecated, use `dynamics_type`.")
@@ -810,7 +812,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Create Pulley using new constructor (name, segment_i, segment_j, type)
             pulley = call_yaml_constructor(Pulley, row,
                 [:name, :segment_i, :segment_j, :type],
-                Vector{Union{}}();
+                [:efficiency, :damping, :brake, :friction_epsilon];
                 mappings=Dict(
                     :segment_i => row -> yaml_to_ref(row.segment_i),
                     :segment_j => row -> yaml_to_ref(row.segment_j),
@@ -1006,7 +1008,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             if turn_rate_deg != 0.0
                 info_msg *= ", turn_rate=$(turn_rate_deg)°/s"
             end
-            @info info_msg
+            prn && @info info_msg
         end
     end
 
@@ -1025,5 +1027,5 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     return SystemStructure(system_name, resolved_set; points, twist_surfaces,
         segments, pulleys, tethers, winches, wings,
         transforms, bodies, elastic_joints, timoshenko_joints,
-        ignore_l0, vsm_set)
+        ignore_l0, vsm_set, prn)
 end

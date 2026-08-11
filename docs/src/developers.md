@@ -362,7 +362,15 @@ jl -e 'using Pkg; Pkg.test()'
 # Run a single test file
 jl test/test_point.jl
 jl test/test_segment.jl
+
+# Run the suite on the KernelBackend instead of the MonolithBackend.
+# Only the files the kernel backend already covers are run.
+SYMAWE_TEST_BACKEND=kernel jl -e 'using Pkg; Pkg.test()'
 ```
+
+`SYMAWE_TEST_BACKEND` selects the [`ModelBackend`](@ref) the suite builds its
+models with: `monolith` (the default) or `kernel`. CI runs both, the kernel one as
+its own job on Ubuntu with Julia 1.12.
 
 ### Test files
 
@@ -383,6 +391,7 @@ jl test/test_segment.jl
 | `test_rigid_body` | [`Body`](@ref) | Free rigid-body motion, gravity, damping |
 | `test_joint` | [`ElasticJoint`](@ref) | Lumped 6-DOF spring between bodies |
 | `test_timoshenko_joint` | [`TimoshenkoJoint`](@ref) | Beam bending, shear, axial, torsion vs closed form |
+| `test_tube_laws` | — | Breukels inflated-tube correlations and their fitted range |
 | `test_aero_modes` | [`AbstractAeroModel`](@ref) | Mode dispatch and connector contract |
 | `test_continuous_aero` | [`ContinuousAero`](@ref) | Live symbolic force assembly |
 | `test_pressure_aero` | [`AeroPressure`](@ref) | Surface-traction scatter onto points |
@@ -391,6 +400,7 @@ jl test/test_segment.jl
 | `test_heading_calculation` | — | Kite heading from tether geometry |
 | `test_section_alignment` | [`Wing`](@ref AbstractWing) | VSM section ↔ structural point mapping |
 | `test_profile_law` | — | Atmospheric wind profile verification |
+| `test_analytic_jacobian` | [`KernelBackend`](@ref) | Composed Jacobian vs global forward mode |
 | `test_getter_allocations` | — | State getters stay allocation-free |
 | `test_bench` | — | Performance regression tracking |
 

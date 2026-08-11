@@ -63,20 +63,20 @@ function SymbolicAWEModels.winch_component(model::CascadedLengthWinch,
         tau_net(t)
     end
 
-    gear_ratio    = params.winches[winch_idx].gear_ratio
-    drum_radius   = params.winches[winch_idx].drum_radius
-    f_coulomb     = params.winches[winch_idx].f_coulomb
-    c_vf          = params.winches[winch_idx].c_vf
-    inertia_total = params.winches[winch_idx].inertia_total
-    friction_eps  = params.winches[winch_idx].model.friction_epsilon
+    gear_ratio          = params.winches[winch_idx].gear_ratio
+    drum_radius         = params.winches[winch_idx].drum_radius
+    coulomb_friction    = params.winches[winch_idx].coulomb_friction
+    viscous_coefficient = params.winches[winch_idx].viscous_coefficient
+    inertia_total       = params.winches[winch_idx].inertia_total
+    friction_eps        = params.winches[winch_idx].model.friction_epsilon
     smooth_sign(x, eps) = x / sqrt(x * x + eps * eps)
     ratio = drum_radius / gear_ratio
 
     eqs = [
         ω_motor       ~ vel / ratio
         friction      ~ smooth_sign(ω_motor, friction_eps) *
-                        f_coulomb * ratio +
-                        c_vf * ω_motor * ratio^2
+                        coulomb_friction * ratio +
+                        viscous_coefficient * ω_motor * ratio^2
         vel_unclamped ~ model.K_pos * (set_value - len)
         vel_ref       ~ max(-model.v_max, min(model.v_max, vel_unclamped))
         tau_cmd       ~ model.K_p * (vel_ref - vel) + friction - ratio * force
@@ -87,8 +87,8 @@ function SymbolicAWEModels.winch_component(model::CascadedLengthWinch,
     return System(eqs, t,
                   [vel, len, force, set_value, brake, acc, friction,
                    ω_motor, vel_unclamped, vel_ref, tau_cmd, tau_net],
-                  [gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total,
-                   friction_eps]; name)
+                  [gear_ratio, drum_radius, coulomb_friction, viscous_coefficient,
+                   inertia_total, friction_eps]; name)
 end
 
 points = [

@@ -278,6 +278,36 @@ system:
         println("\n  ====== Loaded segment: l0=$(segment.l0)m, unit_stiffness=$(segment.unit_stiffness)N, unit_damping=$(segment.unit_damping)N·s ======\n")
     end
 
+    @testset "Compression softens stiffness but not damping" begin
+        l0, unit_stiffness, unit_damping, compression_frac = 10.0, 1000.0, 10.0, 0.1
+        force(len, spring_vel) = SymbolicAWEModels.segment_spring_force(
+            len, l0, spring_vel, unit_stiffness, unit_damping, compression_frac)
+        # At spring_vel 0 only the spring acts; the drop to 1 is the damper alone.
+        stiffness_of(len) = force(len, 0.0) * len / (len - l0)
+        damping_of(len) = (force(len, 0.0) - force(len, 1.0)) * len
+
+        @test stiffness_of(10.5) ≈ unit_stiffness
+        @test stiffness_of(9.5) ≈ compression_frac * unit_stiffness
+        @test damping_of(10.5) ≈ unit_damping
+        @test damping_of(9.5) ≈ unit_damping
+
+        # Softening damping too would jump the force here and diverge the solver.
+        step = abs(force(nextfloat(l0), 1.0) - force(prevfloat(l0), 1.0))
+        @test step < 1e-9
+        @test force(l0, 1.0) ≈ -unit_damping / l0
+
+        # compression_frac 0 still leaves a slack segment its damping.
+        slack_free(len, spring_vel) = SymbolicAWEModels.segment_spring_force(
+            len, l0, spring_vel, unit_stiffness, unit_damping, 0.0)
+        @test slack_free(9.5, 0.0) == 0.0
+        @test slack_free(9.5, 1.0) ≈ -unit_damping / 9.5
+
+        println("\n  ====== stiffness taut $(round(stiffness_of(10.5); sigdigits=4)), " *
+                "slack $(round(stiffness_of(9.5); sigdigits=4)); damping " *
+                "$(round(damping_of(10.5); sigdigits=4)) either side; force step " *
+                "at l0 $(round(step; sigdigits=4)) ======\n")
+    end
+
     # ========================================================================
     # Physics Test 1: No gravity, no wind - point stays still
     # ========================================================================
@@ -394,26 +424,31 @@ system:
 
         @test length(peaks_t) >= 3  # Should have at least 3 peaks
 
-        # Estimate damped frequency from peak spacing
-        periods = diff(peaks_t)
+        # The envelope decays ~4x per period, so late maxima are solver noise
+        amps = abs.(peaks_z .- z_final)
+        physical = findall(>(0.001), amps)
+        @test length(physical) >= 3
+        @test amps[end] < amps[1]  # Amplitude should decrease
+
+        # Estimate damped frequency from the spacing of the physical peaks
+        periods = diff(peaks_t[physical])
         avg_period = mean(periods)
         omega_d_measured = 2π / avg_period
         @test omega_d_measured ≈ omega_d_expected rtol=0.1  # Within 10%
 
         # Estimate damping ratio from logarithmic decrement
-        # δ = ln(A₁/A₂) = 2πζ/√(1-ζ²)
-        # Solving for ζ: ζ = δ/√(4π² + δ²)
-        # Use actual equilibrium (z_final) for amplitude calculation, not theoretical
-        amps = abs.(peaks_z .- z_final)
-        @test amps[end] < amps[1]  # Amplitude should decrease
-
-        # Average multiple log decrements for robustness
-        log_decrements = [log(amps[i] / amps[i+1]) for i in 1:min(5, length(amps)-1) if amps[i+1] > 0.001]
+        # δ = ln(A₁/A₂) = 2πζ/√(1-ζ²), so ζ = δ/√(4π² + δ²)
+        log_decrements = [log(amps[i] / amps[i+1]) for i in physical[1:end-1]]
         log_decrement = mean(log_decrements)
         zeta_measured = log_decrement / sqrt(4π^2 + log_decrement^2)
 
-        println("\n  ====== Damping ratio: measured=$(round(zeta_measured, digits=3)), expected=$(round(zeta_expected, digits=3))")
-        println("  ====== Stiffness: measured=$(round(k_measured, digits=1)) N/m, expected=$(round(k, digits=1)) N/m ======\n")
+        println("\n  ====== Frequency: measured=$(round(omega_d_measured, digits=3)), " *
+                "expected=$(round(omega_d_expected, digits=3)) rad/s " *
+                "over $(length(physical)) peaks ======")
+        println("  ====== Damping ratio: measured=$(round(zeta_measured, digits=3)), " *
+                "expected=$(round(zeta_expected, digits=3)) ======")
+        println("  ====== Stiffness: measured=$(round(k_measured, digits=1)) N/m, " *
+                "expected=$(round(k, digits=1)) N/m ======\n")
         @test zeta_measured ≈ zeta_expected rtol=0.2  # Within 20%
     end
 

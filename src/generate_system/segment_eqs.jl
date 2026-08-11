@@ -55,7 +55,8 @@ function segment_eqs!(s, eqs, points, segments,
         # WING-WING segments: rigid wings skip spring+drag, particle wings skip drag.
         p1_obj = points[p1]
         p2_obj = points[p2]
-        is_wing_structural_segment = (p1_obj.is_wing_node && p2_obj.is_wing_node)
+        is_wing_structural_segment =
+            wing_structural_segment(params.reg.sys_struct, segment.idx)
 
         # Check if this is a RIGID_DYNAMICS wing structural segment
         is_rigid_dynamics_wing_segment = false

@@ -9,15 +9,15 @@
 Torque-controlled winch motor (the default winch model). `set_value` is the
 motor torque [N·m]. Coulomb friction is smoothed by `friction_epsilon` (the
 `smooth_sign` transition width). The drum parameters (`gear_ratio`,
-`drum_radius`, `f_coulomb`, `c_vf`, `inertia_total`) live on the [`Winch`](@ref)
-struct; `friction_epsilon` is a numerical property of this model and lives here
-(mutable, live-tunable).
+`drum_radius`, `coulomb_friction`, `viscous_coefficient`, `inertia_total`) live
+on the [`Winch`](@ref) struct; `friction_epsilon` is a numerical property of this
+model and lives here (mutable, live-tunable).
 
 # Equations
 ```
 ω_motor   = vel / ratio,   ratio = drum_radius / gear_ratio
-friction  = smooth_sign(ω_motor, friction_epsilon) * f_coulomb * ratio +
-            c_vf * ω_motor * ratio^2
+friction  = smooth_sign(ω_motor, friction_epsilon) * coulomb_friction * ratio +
+            viscous_coefficient * ω_motor * ratio^2
 tau_total = set_value + ratio * force - friction
 acc       = ifelse(brake > 0.5, 0, ratio * tau_total / inertia_total)
 ```
@@ -45,19 +45,19 @@ function winch_component(::TorqueWinch, sys_struct, winch_idx; name, params)
         α_motor(t)
     end
 
-    gear_ratio    = params.winches[winch_idx].gear_ratio
-    drum_radius   = params.winches[winch_idx].drum_radius
-    f_coulomb     = params.winches[winch_idx].f_coulomb
-    c_vf          = params.winches[winch_idx].c_vf
-    inertia_total = params.winches[winch_idx].inertia_total
-    friction_eps  = params.winches[winch_idx].model.friction_epsilon
-    smooth_sign(x, eps) = x / sqrt(x * x + eps * eps)
+    gear_ratio          = params.winches[winch_idx].gear_ratio
+    drum_radius         = params.winches[winch_idx].drum_radius
+    coulomb_friction    = params.winches[winch_idx].coulomb_friction
+    viscous_coefficient = params.winches[winch_idx].viscous_coefficient
+    inertia_total       = params.winches[winch_idx].inertia_total
+    friction_eps        = params.winches[winch_idx].model.friction_epsilon
     ratio = drum_radius / gear_ratio
 
     eqs = [
         ω_motor   ~ vel / ratio
-        friction  ~ smooth_sign(ω_motor, friction_eps) * f_coulomb * ratio +
-                    c_vf * ω_motor * ratio^2
+        friction  ~ coulomb_viscous_friction(ω_motor, coulomb_friction,
+                                             viscous_coefficient, friction_eps,
+                                             ratio)
         tau_total ~ set_value + ratio * force - friction
         α_motor   ~ tau_total / inertia_total
         acc       ~ ifelse(brake > 0.5, 0.0, ratio * α_motor)
@@ -65,6 +65,6 @@ function winch_component(::TorqueWinch, sys_struct, winch_idx; name, params)
     return System(eqs, t,
                   [vel, len, force, set_value, brake, acc, friction,
                    ω_motor, tau_total, α_motor],
-                  [gear_ratio, drum_radius, f_coulomb, c_vf, inertia_total,
-                   friction_eps]; name)
+                  [gear_ratio, drum_radius, coulomb_friction, viscous_coefficient,
+                   inertia_total, friction_eps]; name)
 end

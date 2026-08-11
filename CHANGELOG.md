@@ -3,6 +3,17 @@
 ## Unreleased
 
 ### Added
+- `init!(sam; analytic_jacobian)` gives the solver a Jacobian instead of leaving
+  it to differentiate the right-hand side numerically. On the `KernelBackend` it
+  is on by default: the right-hand side is a layered composition of small
+  components, so each kernel is differentiated once at its own width and the
+  results are composed through the constant wiring, rather than differentiating
+  the whole model `n_states / chunk` times. On the `MonolithBackend` it is off by
+  default and selects MTK's symbolic `jac=true`, which is expensive to build and
+  has no derivative for a registered numerical leaf such as the wind profile.
+  `nothing` (the default) takes the backend's `default_analytic_jacobian`. The
+  choice is part of the serialized model's name, so the two builds are cached
+  apart.
 - New top-level YAML block `variables`: named values reused across the file.
   A variable name written in any column is replaced by its value (numbers,
   strings, lists), and variables may be defined in terms of each other:
@@ -26,7 +37,56 @@
   `unit_damping = damping_per_stiffness * unit_stiffness`. Giving both forms
   of the same quantity is an error.
 
+### Fixed
+- `init_stretched_length` placement now carries a beam wing. A `BODY_STATIC`
+  point riding a Timoshenko element has `body_idx == 0` and holds its
+  association in `joint_idx`, so collecting the bodies to translate by
+  `body_idx` alone left every beam body behind while the tether's free end
+  moved. The ride constraint then snapped the points back, and the only symptom
+  was a non-converged VSM solve much later. Bodies reachable from the moved ones
+  through the beam graph now translate too — including bodies that carry no
+  point of their own — stopping at `STATIC` bodies, since a beam with a clamped
+  end deforms rather than translating.
+- The Breukels inflated-tube correlations now error instead of quietly
+  returning a negative rigidity when evaluated outside the range they were
+  fitted in. The bending slope changes sign below a radius of roughly 38 mm at
+  0.25 bar (a 20 mm tube at 0.1 bar gave `EI0 = -94 N·m²` and a negative `EA`),
+  and the torsion factor `c2` changes sign for a fat tube above 1 bar. A
+  non-positive radius or pressure is rejected as well.
+
 ### Breaking
+- A `Pulley` resists rope travel by its `efficiency`, the fraction of line
+  tension its sheave passes on. The friction is `(1 − efficiency) ·
+  line_tension` carrying the sign of the motion, smoothed over
+  `friction_epsilon` [m/s], with `line_tension` the mean of the two leg
+  tensions — so the default is the textbook `T_out = 0.95 · T_in`. It replaces
+  the hidden `pulley_damp` parameter, which was fixed at 5.0 and could be
+  neither read nor set from the `SystemStructure`. `efficiency` defaults to
+  0.95, a sealed ball-bearing sheave; published ranges are 0.94–0.97 for those
+  and 0.88–0.92 for a bronze bushing. Set 1.0 for an ideal pulley.
+
+  A sheave's losses scale with load, not speed: bearing drag rises with the
+  force on the axle and the rope's bending hysteresis with the tension being
+  bent. `pulley_damp` was proportional to rope travel and to rope mass, so no
+  fixed coefficient reproduces it across models — expect to retune ones that
+  leaned on it to settle. A slack pulley is now frictionless, and coasts, but
+  it has no tension driving its split either.
+- `Pulley` also takes `damping` [N·s/m] and `brake`, both defaulting to off and
+  neither a sheave property: `damping` opposes rope travel proportionally to
+  speed, to settle a ringing split while debugging, and `brake` freezes the
+  split where it is, to isolate whether a problem comes from the rope
+  redistributing at all. All the fields above are settable from the constructor
+  and from YAML columns of the same names.
+- `Winch.f_coulomb` and `Winch.c_vf` are renamed to `Winch.coulomb_friction` and
+  `Winch.viscous_coefficient`, matching the `Pulley` fields above and saying
+  which of the two is a force [N] and which a coefficient [N·s/m]. The
+  `settings.yaml` keys are owned by `KiteUtils` and keep their old names.
+- `compression_frac` now defaults to 0.1 in both `Segment` constructors. They
+  disagreed — 0.0 from the settings-based one, 0.1 from the direct one — which
+  was an oversight rather than a choice. 0.1 lets a rope push back with a tenth
+  of its tensile stiffness, and is the value models have actually been built
+  against; 0.0 leaves a slack segment with damping but no stiffness at all,
+  which a pulley model does not survive.
 - The `materials`, `elements` and `segment_properties` YAML blocks were
   removed. A material is now a multi-variable listing `youngs_modulus`,
   `damping_per_stiffness` and `density`, and those are ordinary columns.

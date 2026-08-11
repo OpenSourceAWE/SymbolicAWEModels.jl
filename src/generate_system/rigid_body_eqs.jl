@@ -47,93 +47,39 @@ function rigid_body_eqs!(
     initial_com_w, initial_com_vel, initial_Q_p_to_w, initial_ω_p,
     ω_kinematic=nothing, d_ω_p=nothing, d_com_w=nothing, d_com_vel=nothing,
 )
-    # Skew-symmetric matrix for quaternion kinematics
-    Ω(ω) = [
-        0 -ω[1] -ω[2] -ω[3]
-        ω[1] 0 ω[3] -ω[2]
-        ω[2] -ω[3] 0 ω[1]
-        ω[3] ω[2] -ω[1] 0
-    ]
-
-    ω_kin = ω_kinematic === nothing ? ω_p[:, idx] : ω_kinematic
-    d_ω = d_ω_p === nothing ? α_p[:, idx] : d_ω_p
-    d_cw = d_com_w === nothing ? com_vel[:, idx] : d_com_w
-    d_cv = d_com_vel === nothing ? com_acc[:, idx] : d_com_vel
-
-    com_off_b = collect(com_offset_b)
-
-    # Baumgarte gain pulling the quaternion back onto the unit sphere.
-    quat_norm_gain = 10.0
-    quat_norm_error = 1 - sum(Q_p_to_w[j, idx]^2 for j = 1:4)
+    ex = rigid_body_pose_expressions(
+        force_w, moment_w, inertia_p, mass, R_b_to_p, com_offset_b,
+        com_w[:, idx], com_vel[:, idx], Q_p_to_w[:, idx], ω_p[:, idx];
+        ω_kinematic, d_ω_p, d_com_w, d_com_vel)
 
     eqs = [
         eqs
         # === Quaternion kinematics ===
         [D(Q_p_to_w[i, idx]) ~ Q_p_vel[i, idx] for i = 1:4]
-        [Q_p_vel[i, idx] ~ 0.5 * sum(
-            Ω(ω_kin)[i, j] * Q_p_to_w[j, idx] for j = 1:4) +
-            quat_norm_gain * quat_norm_error * Q_p_to_w[i, idx]
-            for i = 1:4]
+        [Q_p_vel[i, idx] ~ ex.Q_p_vel[i] for i = 1:4]
 
         # === Angular acceleration integration ===
-        D(ω_p[:, idx]) ~ d_ω
+        D(ω_p[:, idx]) ~ ex.d_ω
 
-        [R_p_to_w[:, i, idx] ~
-            quaternion_to_rotation_matrix(
-                Q_p_to_w[:, idx])[:, i] for i = 1:3]
+        [R_p_to_w[:, i, idx] ~ ex.R_p_to_w[:, i] for i = 1:3]
 
         # === Euler equations (principal frame, diagonal inertia) ===
-        α_p[1, idx] ~ (moment_p[1, idx] +
-            (inertia_p[2] - inertia_p[3]) *
-            ω_p[2, idx] * ω_p[3, idx]) / inertia_p[1]
-        α_p[2, idx] ~ (moment_p[2, idx] +
-            (inertia_p[3] - inertia_p[1]) *
-            ω_p[3, idx] * ω_p[1, idx]) / inertia_p[2]
-        α_p[3, idx] ~ (moment_p[3, idx] +
-            (inertia_p[1] - inertia_p[2]) *
-            ω_p[1, idx] * ω_p[2, idx]) / inertia_p[3]
-
-        # Total moment rotated to principal frame
-        moment_p[:, idx] ~
-            collect(R_p_to_w[:, :, idx])' * moment_w
+        [α_p[k, idx] ~ ex.α_p[k] for k = 1:3]
+        moment_p[:, idx] ~ ex.moment_p
 
         # === Translational dynamics ===
-        D(com_w[:, idx]) ~ d_cw
-        D(com_vel[:, idx]) ~ d_cv
-        com_acc[:, idx] ~ force_w / mass
-    ]
+        D(com_w[:, idx]) ~ ex.d_com_w
+        D(com_vel[:, idx]) ~ ex.d_com_vel
+        com_acc[:, idx] ~ ex.com_acc
 
-    # === Body frame output ===
-    R_p_to_w_mat = collect(R_p_to_w[:, :, idx])
-    R_b_to_w_mat = R_p_to_w_mat * R_b_to_p
-    r_w = -(R_b_to_w_mat * com_off_b)              # COM→origin, world
-    ω_w = R_p_to_w_mat * ω_p[:, idx]
-
-    eqs = [
-        eqs
-        [R_b_to_w[:, i, idx] ~ R_b_to_w_mat[:, i] for i = 1:3]
-
-        # Rigid body kinematics for origin pos/vel/acc
-        wing_pos[:, idx] ~ com_w[:, idx] .+ r_w
-        wing_vel[:, idx] ~ com_vel[:, idx] .+ (ω_w × r_w)
-        wing_acc[:, idx] ~ com_acc[:, idx] .+
-            ((R_p_to_w_mat * α_p[:, idx]) × r_w) .+
-            (ω_w × (ω_w × r_w))
-
-        # ω_b = R_b_to_p' * ω_p (constant rotation)
-        ω_b[:, idx] ~ R_b_to_p' * ω_p[:, idx]
-        α_b[:, idx] ~ R_b_to_p' * α_p[:, idx]
-    ]
-
-    # Q_b_to_w from R_b_to_w (one symbolic conversion, CSE-shared)
-    R_body = R_b_to_w[:, :, idx]
-    q_body = rotation_matrix_to_quaternion(R_body)
-    eqs = [
-        eqs
-        Q_b_to_w[1, idx] ~ q_body[1]
-        Q_b_to_w[2, idx] ~ q_body[2]
-        Q_b_to_w[3, idx] ~ q_body[3]
-        Q_b_to_w[4, idx] ~ q_body[4]
+        # === Body frame output ===
+        [R_b_to_w[:, i, idx] ~ ex.R_b_to_w[:, i] for i = 1:3]
+        wing_pos[:, idx] ~ ex.pos_w
+        wing_vel[:, idx] ~ ex.vel_w
+        wing_acc[:, idx] ~ ex.acc_w
+        ω_b[:, idx] ~ ex.ω_b
+        α_b[:, idx] ~ ex.α_b
+        [Q_b_to_w[k, idx] ~ ex.Q_b_to_w[k] for k = 1:4]
     ]
 
     defaults = [

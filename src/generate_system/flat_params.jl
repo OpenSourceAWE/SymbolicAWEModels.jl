@@ -29,12 +29,15 @@ end
     ParamEntry
 
 One flattened parameter: the symbolic `param`, a `read(sys_struct)` callable that
-returns its live value, and a `kind` (`:scalar`, `:array`, or `:callable`).
+returns its live value, a `kind` (`:scalar`, `:array`, or `:callable`), and the
+`path` it was read from (a `(name,)` tuple for computed leaves). The `path` lets a
+backend resolve a runtime address per instance (see `ParamView`).
 """
 struct ParamEntry
     param::Any
     read::Any
     kind::Symbol
+    path::Any
 end
 
 """
@@ -76,14 +79,15 @@ function make_callable_param(name::Symbol, value)
 end
 
 """
-    leaf_param!(reg, key, name, reader, value)
+    register_leaf!(reg, key, name, reader, value, path)
 
 Create (once, memoised on `key`) and record the flat parameter for a leaf
-`value`. Numeric scalars/arrays become data params; any other (callable) leaf —
-an interpolation or polar — becomes a callable param applied as `name(x)`.
-`reader` reads the live value from a `sys_struct` at sync time.
+`value` under symbol `name`. Numeric scalars/arrays become data params; any other
+(callable) leaf — an interpolation or polar — becomes a callable param applied as
+`name(x)`. `reader` reads the live value from a `sys_struct` at sync time; `path`
+is stored on the entry for per-instance address resolution.
 """
-function leaf_param!(reg::ParamRegistry, key, name::Symbol, reader, value)
+function register_leaf!(reg::ParamRegistry, key, name::Symbol, reader, value, path)
     cached = get(reg.cache, key, nothing)
     cached === nothing || return cached
     if value isa Real
@@ -93,10 +97,21 @@ function leaf_param!(reg::ParamRegistry, key, name::Symbol, reader, value)
     else
         param, kind = make_callable_param(name, value), :callable
     end
-    push!(reg.entries, ParamEntry(param, reader, kind))
+    push!(reg.entries, ParamEntry(param, reader, kind, path))
     reg.cache[key] = param
     return param
 end
+
+"""
+    leaf_param!(reg, path, reader, value)
+
+Record the flat parameter for a leaf read at `path`, named and memoised by the full
+path. Two reads of the same field on different components are therefore different
+symbols, which is what lets one kernel read both endpoints of a joint without them
+collapsing onto one parameter.
+"""
+leaf_param!(reg::ParamRegistry, path::Tuple, reader, value) =
+    register_leaf!(reg, path, param_name(path), reader, value, path)
 
 """
     param_computed!(reg, name, reader)
@@ -107,7 +122,7 @@ from the atmospheric model). `reader` must be a named struct (serialisable), not
 a closure over `sys_struct`.
 """
 param_computed!(reg::ParamRegistry, name::Symbol, reader) =
-    leaf_param!(reg, name, name, reader, reader(reg.sys_struct))
+    register_leaf!(reg, name, name, reader, reader(reg.sys_struct), (name,))
 
 # ==================== BUILD-TIME VIEW ==================== #
 
@@ -118,14 +133,15 @@ param_descend(x) = x isa NamedCollection || x isa AbstractAeroModel ||
 param_name(path::Tuple) = Symbol("p_", join(path, "_"))
 
 """
-Top-level `params` view wrapping a [`ParamRegistry`](@ref).
-`params.segments[i].l0` mirrors `sys_struct.segments[i].l0` (build-time only).
+Top-level `params` view wrapping a [`ParamRegistry`](@ref): `params.segments[i].l0`
+mirrors `sys_struct.segments[i].l0` and records the parameter that stands for it
+(build-time only).
 """
 struct ParamView
     reg::ParamRegistry
 end
 
-"""A partial path into `sys_struct` being resolved to a parameter."""
+"""A partial path into `sys_struct` on its way to a parameter."""
 struct PathView
     reg::ParamRegistry
     path::Tuple
@@ -137,13 +153,22 @@ Base.getproperty(view::ParamView, sym::Symbol) =
 Base.getindex(view::PathView, idx::Integer) =
     PathView(getfield(view, :reg), (getfield(view, :path)..., Int(idx)))
 
+"""
+    param_unknowns(params)
+
+The symbolic parameters a `params` view recorded so far, in insertion order — passed
+as the parameter list of a component `System` so every `params.…` read it made is
+declared.
+"""
+param_unknowns(params::ParamView) = Any[entry.param for entry in params.reg.entries]
+
 function Base.getproperty(view::PathView, sym::Symbol)
     (sym === :reg || sym === :path) && return getfield(view, sym)
     reg = getfield(view, :reg)
     path = (getfield(view, :path)..., sym)
     value = read_path(reg.sys_struct, path)
     param_descend(value) && return PathView(reg, path)
-    return leaf_param!(reg, path, param_name(path), PathReader(path), value)
+    return leaf_param!(reg, path, PathReader(path), value)
 end
 
 # ==================== SYNC ==================== #

@@ -28,6 +28,7 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             sys.vel         => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
             sys.point_force => (c, v) -> copy_vec!(c.force, v, c.idx),
             sys.va_point_b  => (c, v) -> copy_vec!(c.va_b, v, c.idx),
+            sys.wind_at_point => (c, v) -> copy_vec!(c.wind_vec, v, c.idx),
             sys.point_mass  => (c, v) -> (c.total_mass = v[c.idx]; nothing),
             sys.total_drag  => (c, v) -> copy_vec!(c.drag_force, v, c.idx)))
     end
@@ -266,6 +267,17 @@ function generate_control_funcs(model, inputs, outputs)
 end
 
 """
+    in_memory(serialized_model) -> Bool
+
+Whether the model already carries a build, so a valid bin on disk need not be read
+back. The [`MonolithBackend`](@ref) leaves its `full_sys` behind and the
+[`KernelBackend`](@ref) only its assembled problem, so either one counts.
+"""
+function in_memory(serialized_model::SerializedModel)
+    return !isnothing(serialized_model.full_sys) || !isnothing(serialized_model.prob)
+end
+
+"""
     load_serialized_model!(sam, model_path; remake=false, reload=false)
 
 Load a serialized model from disk if it is valid.
@@ -278,28 +290,39 @@ current ones in the `SymbolicAWEModel` object (`sam`).
 - `model_path::String`: The path to the serialized model file.
 - `remake::Bool`: If true, forces the model to be considered invalid, triggering a rebuild.
 - `reload::Bool`: If true, forces reloading from disk even if the model is already in memory.
+- `prn::Bool`: If true, say what happened — kept in memory, read back from disk, or
+  rejected — since from the outside a cache hit and a rebuild look the same.
 
 # Returns
 - `true` if a valid model was successfully loaded into `sam.serialized_model`, `false` otherwise.
 """
-function load_serialized_model!(sam, model_path; remake=false, reload=false)
+function load_serialized_model!(sam, model_path; remake=false, reload=false,
+                                prn=true)
     set_hash = get_set_hash(sam.set)
     sys_struct_hash = get_sys_struct_hash(sam.sys_struct)
     
     if ispath(model_path) && !remake
         if set_hash != sam.serialized_model.set_hash || sys_struct_hash != sam.serialized_model.sys_struct_hash
+            prn && @info "The settings or the structure changed since this model " *
+                         "was built; rebuilding."
             sam.serialized_model = SerializedModel(; set_hash, sys_struct_hash)
             return false
         end
-        if !isnothing(sam.serialized_model.full_sys) && !reload
+        if in_memory(sam.serialized_model) && !reload
+            prn && @info "Model already in memory; not reading the bin."
             return true
         end
         try
-            serialized_model = deserialize(model_path)
+            read_time = @elapsed serialized_model = deserialize(model_path)
             if set_hash == serialized_model.set_hash && sys_struct_hash == serialized_model.sys_struct_hash
+                size = @sprintf("%.2f s, %.1f MB", read_time,
+                                filesize(model_path) / 2^20)
+                prn && @info "Read the model back ($size) from: \n\t$model_path"
                 sam.serialized_model = serialized_model
                 return true
             end
+            prn && @info "The bin was built for other settings or another " *
+                         "structure; rebuilding."
         catch exception
             backtrace = catch_backtrace()
             log_path = model_path * ".error.log"
@@ -320,7 +343,8 @@ function load_serialized_model!(sam, model_path; remake=false, reload=false)
 end
 
 """
-    maybe_create_prob!(sam; create_prob=true, prn=true)
+    maybe_create_prob!(sam; create_prob=true, sparse=false,
+                       analytic_jacobian=false, prn=true)
 
 Create and cache the `ODEProblem` if it does not already exist.
 
@@ -330,34 +354,75 @@ the necessary getter/setter functions.
 # Arguments
 - `sam::SymbolicAWEModel`: The main model object.
 - `create_prob::Bool`: A flag to enable or disable the creation of the problem.
+- `sparse::Bool`: Give the solver a Jacobian sparsity pattern (see [`init!`](@ref)).
+- `analytic_jacobian::Bool`: Give the solver an analytical Jacobian (see
+  [`init!`](@ref)).
 - `prn::Bool`: A flag to enable or disable printing of progress messages.
 
 # Returns
 - `true` if a new problem was created, `false` otherwise.
 """
-function maybe_create_prob!(sam; create_prob=true, prn=true)
+function maybe_create_prob!(sam; create_prob=true, sparse=false,
+                            analytic_jacobian=false, prn=true)
     if create_prob && isnothing(sam.prob)
-        isnothing(sam.full_sys) && return false
-        full_sys = something(sam.full_sys)
-        local sys
-        time = @elapsed @suppress_err sys = mtkcompile(full_sys; inputs=sam.inputs)
-        prn && println("\tSimplified the System for ODEProblem in $time seconds.")
-
-        dt = SimFloat(1/sam.set.sample_freq)
-        # skip MTK's DAE init system; reinit! already sets consistent ICs
-        fill_defaults = missing_param_defaults(sys, sam.defaults)
-        time = @elapsed prob = ODEProblem(sys, [sam.defaults; fill_defaults], (0.0, dt);
-            build_initializeprob=false)
-        prn && println("\tCreated the ODEProblem in $time seconds.")
-
-        time = @elapsed getters = generate_prob_getters(sam.sys_struct, sys,
-            sam.param_registry, sam.initial_registry)
-        prn && println("\tCreated state getters and setters in $time seconds.")
-
-        sam.prob = ProbWithAttributes(; prob, getters...)
-        return true
+        return build_prob!(sam.backend, sam; sparse, analytic_jacobian, prn)
     end
     return false
+end
+
+"""
+    build_prob!(backend, sam; sparse=false, analytic_jacobian=false, prn=true)
+
+Assemble `sam.prob` for the given [`ModelBackend`](@ref). The
+[`MonolithBackend`](@ref) method `mtkcompile`s the flattened `full_sys` into one
+`ODEProblem`; the [`KernelBackend`](@ref) assembles one kernel per component
+type and schedules them. `sparse` gives the solver a Jacobian sparsity pattern and
+`analytic_jacobian` a Jacobian, both of which each backend derives its own way — the
+monolith's is MTK's symbolic one, which is why it is off by default
+([`default_analytic_jacobian`](@ref)). Returns `true` when a problem was built.
+"""
+function build_prob!(::MonolithBackend, sam; sparse=false, analytic_jacobian=false,
+                     prn=true)
+    isnothing(sam.full_sys) && return false
+    analytic_jacobian && prn && @warn "`analytic_jacobian` on the MonolithBackend " *
+        "is MTK's symbolic Jacobian, which is expensive to build and throws on its " *
+        "first call for any model reaching a registered numerical leaf (the wind " *
+        "profile, an aerodynamic polar), because those have no symbolic derivative."
+    full_sys = something(sam.full_sys)
+    local sys
+    time = @elapsed @suppress_err sys = mtkcompile(full_sys; inputs=sam.inputs)
+    prn && println("\tSimplified the System for ODEProblem in $time seconds.")
+
+    dt = SimFloat(1/sam.set.sample_freq)
+    # skip MTK's DAE init system; reinit! already sets consistent ICs
+    fill_defaults = missing_param_defaults(sys, sam.defaults)
+    time = @elapsed prob = ODEProblem(sys, [sam.defaults; fill_defaults], (0.0, dt);
+        build_initializeprob=false, sparse, jac=analytic_jacobian)
+    prn && println("\tCreated the ODEProblem in $time seconds.")
+
+    time = @elapsed getters = generate_prob_getters(sam.sys_struct, sys,
+        sam.param_registry, sam.initial_registry)
+    prn && println("\tCreated state getters and setters in $time seconds.")
+
+    sam.prob = ProbWithAttributes(; prob, getters...)
+    return true
+end
+
+function build_prob!(backend::ModelBackend, sam; prn=true)
+    throw(BackendUnsupportedError("build_prob!", backend))
+end
+
+"""
+    init_backend!(backend, sam, solver; kwargs...)
+
+Full `init!` path for a non-[`MonolithBackend`](@ref). The monolith uses the
+`init!` body directly; other backends (currently [`KernelBackend`](@ref))
+implement their own assembly + integrator build here and return the fresh
+`ODEIntegrator`: refresh the `SystemStructure` (positions, rest lengths), assemble
+the problem from it, and store `sam.prob`/`sam.integrator`.
+"""
+function init_backend!(backend::ModelBackend, sam, solver; kwargs...)
+    throw(BackendUnsupportedError("init!", backend))
 end
 
 """
@@ -449,9 +514,8 @@ return a freshly initialized `ODEIntegrator`.
 - `solver`, `adaptive`: ODE solver and time-stepping mode. `solver=nothing` picks
   a default from `sam.set.solver`.
 - `autodiff`: automatic-differentiation choice for the default solver's Jacobian.
-  Defaults to `AutoFiniteDiff()`, which skips re-compiling the (large) RHS at
-  `ForwardDiff.Dual` types — a big first-`init!` compile saving with negligible
-  runtime cost on these stiff systems. Ignored when `solver` is passed explicitly.
+  Defaults to [`default_autodiff`](@ref) of the backend. Ignored when `solver` is
+  passed explicitly.
 - `prn`: print progress messages.
 - `remake`: force a full rebuild, ignoring any cached compiled model. Defaults to
   `nothing`, which rebuilds automatically when a custom winch/aero component is
@@ -471,9 +535,21 @@ return a freshly initialized `ODEIntegrator`.
 - `vsm_min_wind=0.5`: minimum |va| [m/s] for the initial VSM solve. Below this the
   solve is skipped and the wing's aero outputs are zeroed (the solver fails to
   converge / the Jacobian blows up as 1/|va|).
+- `sparse=false`: give the solver a Jacobian sparsity pattern, so the
+  finite-difference Jacobian is coloured and its factorization sparse instead of
+  both being dense. The [`MonolithBackend`](@ref) takes MTK's structural pattern,
+  the [`KernelBackend`](@ref) derives its own from the wiring
+  ([`state_sparsity`](@ref)). Part of the serialized model's name, so the sparse and
+  dense builds are cached separately rather than shadowing each other.
+- `analytic_jacobian=nothing`: give the solver a Jacobian instead of letting it
+  differentiate the right-hand side numerically. `nothing` takes the backend's
+  [`default_analytic_jacobian`](@ref) — on for the [`KernelBackend`](@ref), whose
+  [`KernelJacobian`](@ref) composes one from per-kernel local Jacobians, off for the
+  [`MonolithBackend`](@ref), whose only route is MTK's symbolic one. Part of the
+  serialized model's name, as `sparse` is.
 """
 function init!(sam::SymbolicAWEModel;
-    solver=nothing, autodiff=AutoFiniteDiff(), adaptive=true, prn=true,
+    solver=nothing, autodiff=default_autodiff(sam.backend), adaptive=true, prn=true,
     remake=nothing, reload=false,
     outputs=nothing,
     create_prob::Bool=true,
@@ -486,8 +562,12 @@ function init!(sam::SymbolicAWEModel;
     reset_integrator::Bool=true,
     reinit_sys::Bool=true,
     apply_tether_lengths::Bool=true,
-    vsm_min_wind=0.5
+    vsm_min_wind=0.5,
+    sparse::Bool=false,
+    analytic_jacobian::Union{Bool, Nothing}=nothing
 )
+    analytic_jacobian = something(analytic_jacobian,
+                                  default_analytic_jacobian(sam.backend))
     prn && @info "Initializing $(sam.sys_struct.name) model..."
     sam.sys_struct isa SystemStructure || error(
         "Equation generation requires SystemStructure, " *
@@ -511,6 +591,16 @@ function init!(sam::SymbolicAWEModel;
             end
         end
 
+        if !(sam.backend isa MonolithBackend)
+            integrator = init_backend!(sam.backend, sam, solver;
+                adaptive, prn, reinit_sys, reset_vel, ignore_l0,
+                apply_tether_lengths, remake_vsm, reset_integrator, vsm_min_wind,
+                lin_vsm, sparse, analytic_jacobian, remake, reload)
+            prn && @info "$(sam.sys_struct.name) model initialized " *
+                "($(nameof(typeof(sam.backend))))."
+            return integrator
+        end
+
         if isnothing(outputs)
             @variables begin
                 heading(t)[1:1]
@@ -527,10 +617,11 @@ function init!(sam::SymbolicAWEModel;
             end
         end
 
-        model_name = get_model_name(sam.set, sam.sys_struct)
+        model_name = get_model_name(sam.set, sam.sys_struct; sparse,
+                                    analytic_jacobian, backend = sam.backend)
         model_path = joinpath(KiteUtils.get_data_path(), model_name)
         prn && @info "Model bin name: $model_name"
-        loaded = load_serialized_model!(sam, model_path; remake, reload)
+        loaded = load_serialized_model!(sam, model_path; remake, reload, prn)
         changed = false
         if !loaded
             sam.inputs = create_sys!(sam, sam.sys_struct; prn)
@@ -546,7 +637,7 @@ function init!(sam::SymbolicAWEModel;
         sam.outputs = outputs
         
         changed |= outputs_changed
-        changed |= maybe_create_prob!(sam; create_prob, prn)
+        changed |= maybe_create_prob!(sam; create_prob, sparse, analytic_jacobian, prn)
         changed |= maybe_create_lin_prob!(sam, outputs; create_lin_prob, prn)
         changed |= maybe_create_control_functions!(sam, outputs;
             create_control_func, prn)
@@ -645,14 +736,23 @@ This is used to check if a cached compiled model is still valid.
 - `:foil_file`: Airfoil data file (affects VSM setup)
 - `:physical_model`: Model type (ram, simple_ram, 4_attach_ram)
 - `:winch_model`: Winch dynamics model (affects winch equations)
+- `:g_earth`: Folded into the gravity term as a literal, not a parameter
+- `:wind_vec`: Folded into the ground wind equation as a literal
+- `:cd_tether`: Folded into the segment drag term as a literal
+
+The last three are constants of the generated equations, so a model built with one
+value is wrong for another and the cache has to tell the two apart. Anything read
+back from a struct at sync time — `:v_wind`, `:profile_law`, initial conditions —
+stays out, so one build still serves a sweep over them.
 
 # Runtime Fields (don't affect compilation, excluded from hash):
 - `:profile_law`: Wind profile law (evaluated at runtime via symbolic function)
-- `:wind_vec`, `:elevation`: Initial conditions
+- `:elevation`: Initial conditions
 - Other runtime parameters
 """
 function get_set_hash(set::Settings;
-        fields=[:segments, :model, :foil_file, :physical_model, :winch_model]
+        fields=[:segments, :model, :foil_file, :physical_model, :winch_model,
+                :g_earth, :wind_vec, :cd_tether]
     )
     hash_acc = zeros(UInt8, 1)
     for field in fields

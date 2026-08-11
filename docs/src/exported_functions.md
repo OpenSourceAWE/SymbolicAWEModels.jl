@@ -137,6 +137,32 @@ same panels for comparison.
     The `plot` functions become available once both a Makie backend and
     `MakieControlPlots` are loaded — `using GLMakie` on its own is not enough.
 
+## Inflated-tube rigidity laws
+
+Rigidities for the [`TimoshenkoJoint`](@ref)s of a beam wing whose leading edge
+and struts are pressurised fabric tubes. [`tube_bending_law`](@ref) and
+[`tube_torsion_law`](@ref) come from the empirical Breukels correlations;
+[`comer_levy_bending_law`](@ref) is the analytical alternative that stays valid
+past collapse but needs the fabric membrane stiffness `E·t`, which
+[`breukels_membrane_stiffness`](@ref) can supply.
+
+```@docs
+tube_linear_rigidities
+tube_bending_law
+tube_torsion_law
+tube_mass
+breukels_tip_force
+breukels_collapse_deflection
+breukels_membrane_stiffness
+comer_levy_bending_stiffness
+comer_levy_wrinkling_moment
+comer_levy_collapse_moment
+comer_levy_bending_law
+membrane_linear_rigidities
+frame_quaternion
+frame_quaternion_xy
+```
+
 ## Utility and helper functions
 
 ```@docs

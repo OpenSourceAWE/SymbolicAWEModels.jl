@@ -67,6 +67,7 @@ makedocs(;
         "Parameters" => "parameters.md",
         "Developer guide" => "developers.md",
         "Private API" => "private_functions.md",
+        "Private API — kernel backend" => "private_kernel_backend.md",
     ],
 )
 
