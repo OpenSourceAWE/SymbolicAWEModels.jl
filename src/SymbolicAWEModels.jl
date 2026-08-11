@@ -224,6 +224,7 @@ include("kernel_backend/runtime.jl")
 include("kernel_backend/params.jl")
 include("kernel_backend/assembly.jl")
 include("kernel_backend/state.jl")
+include("kernel_backend/jacobian.jl")
 include("kernel_backend/backend.jl")
 include("simulate.jl")
 

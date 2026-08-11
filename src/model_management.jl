@@ -343,7 +343,8 @@ function load_serialized_model!(sam, model_path; remake=false, reload=false,
 end
 
 """
-    maybe_create_prob!(sam; create_prob=true, sparse=false, prn=true)
+    maybe_create_prob!(sam; create_prob=true, sparse=false,
+                       analytic_jacobian=false, prn=true)
 
 Create and cache the `ODEProblem` if it does not already exist.
 
@@ -354,29 +355,39 @@ the necessary getter/setter functions.
 - `sam::SymbolicAWEModel`: The main model object.
 - `create_prob::Bool`: A flag to enable or disable the creation of the problem.
 - `sparse::Bool`: Give the solver a Jacobian sparsity pattern (see [`init!`](@ref)).
+- `analytic_jacobian::Bool`: Give the solver an analytical Jacobian (see
+  [`init!`](@ref)).
 - `prn::Bool`: A flag to enable or disable printing of progress messages.
 
 # Returns
 - `true` if a new problem was created, `false` otherwise.
 """
-function maybe_create_prob!(sam; create_prob=true, sparse=false, prn=true)
+function maybe_create_prob!(sam; create_prob=true, sparse=false,
+                            analytic_jacobian=false, prn=true)
     if create_prob && isnothing(sam.prob)
-        return build_prob!(sam.backend, sam; sparse, prn)
+        return build_prob!(sam.backend, sam; sparse, analytic_jacobian, prn)
     end
     return false
 end
 
 """
-    build_prob!(backend, sam; sparse=false, prn=true)
+    build_prob!(backend, sam; sparse=false, analytic_jacobian=false, prn=true)
 
 Assemble `sam.prob` for the given [`ModelBackend`](@ref). The
 [`MonolithBackend`](@ref) method `mtkcompile`s the flattened `full_sys` into one
 `ODEProblem`; the [`KernelBackend`](@ref) assembles one kernel per component
-type and schedules them. `sparse` gives the solver a Jacobian sparsity pattern,
-which each backend derives its own way. Returns `true` when a problem was built.
+type and schedules them. `sparse` gives the solver a Jacobian sparsity pattern and
+`analytic_jacobian` a Jacobian, both of which each backend derives its own way — the
+monolith's is MTK's symbolic one, which is why it is off by default
+([`default_analytic_jacobian`](@ref)). Returns `true` when a problem was built.
 """
-function build_prob!(::MonolithBackend, sam; sparse=false, prn=true)
+function build_prob!(::MonolithBackend, sam; sparse=false, analytic_jacobian=false,
+                     prn=true)
     isnothing(sam.full_sys) && return false
+    analytic_jacobian && prn && @warn "`analytic_jacobian` on the MonolithBackend " *
+        "is MTK's symbolic Jacobian, which is expensive to build and throws on its " *
+        "first call for any model reaching a registered numerical leaf (the wind " *
+        "profile, an aerodynamic polar), because those have no symbolic derivative."
     full_sys = something(sam.full_sys)
     local sys
     time = @elapsed @suppress_err sys = mtkcompile(full_sys; inputs=sam.inputs)
@@ -386,7 +397,7 @@ function build_prob!(::MonolithBackend, sam; sparse=false, prn=true)
     # skip MTK's DAE init system; reinit! already sets consistent ICs
     fill_defaults = missing_param_defaults(sys, sam.defaults)
     time = @elapsed prob = ODEProblem(sys, [sam.defaults; fill_defaults], (0.0, dt);
-        build_initializeprob=false, sparse)
+        build_initializeprob=false, sparse, jac=analytic_jacobian)
     prn && println("\tCreated the ODEProblem in $time seconds.")
 
     time = @elapsed getters = generate_prob_getters(sam.sys_struct, sys,
@@ -530,6 +541,12 @@ return a freshly initialized `ODEIntegrator`.
   the [`KernelBackend`](@ref) derives its own from the wiring
   ([`state_sparsity`](@ref)). Part of the serialized model's name, so the sparse and
   dense builds are cached separately rather than shadowing each other.
+- `analytic_jacobian=nothing`: give the solver a Jacobian instead of letting it
+  differentiate the right-hand side numerically. `nothing` takes the backend's
+  [`default_analytic_jacobian`](@ref) — on for the [`KernelBackend`](@ref), whose
+  [`KernelJacobian`](@ref) composes one from per-kernel local Jacobians, off for the
+  [`MonolithBackend`](@ref), whose only route is MTK's symbolic one. Part of the
+  serialized model's name, as `sparse` is.
 """
 function init!(sam::SymbolicAWEModel;
     solver=nothing, autodiff=default_autodiff(sam.backend), adaptive=true, prn=true,
@@ -546,8 +563,11 @@ function init!(sam::SymbolicAWEModel;
     reinit_sys::Bool=true,
     apply_tether_lengths::Bool=true,
     vsm_min_wind=0.5,
-    sparse::Bool=false
+    sparse::Bool=false,
+    analytic_jacobian::Union{Bool, Nothing}=nothing
 )
+    analytic_jacobian = something(analytic_jacobian,
+                                  default_analytic_jacobian(sam.backend))
     prn && @info "Initializing $(sam.sys_struct.name) model..."
     sam.sys_struct isa SystemStructure || error(
         "Equation generation requires SystemStructure, " *
@@ -575,7 +595,7 @@ function init!(sam::SymbolicAWEModel;
             integrator = init_backend!(sam.backend, sam, solver;
                 adaptive, prn, reinit_sys, reset_vel, ignore_l0,
                 apply_tether_lengths, remake_vsm, reset_integrator, vsm_min_wind,
-                lin_vsm, sparse, remake, reload)
+                lin_vsm, sparse, analytic_jacobian, remake, reload)
             prn && @info "$(sam.sys_struct.name) model initialized " *
                 "($(nameof(typeof(sam.backend))))."
             return integrator
@@ -598,7 +618,7 @@ function init!(sam::SymbolicAWEModel;
         end
 
         model_name = get_model_name(sam.set, sam.sys_struct; sparse,
-                                    backend = sam.backend)
+                                    analytic_jacobian, backend = sam.backend)
         model_path = joinpath(KiteUtils.get_data_path(), model_name)
         prn && @info "Model bin name: $model_name"
         loaded = load_serialized_model!(sam, model_path; remake, reload, prn)
@@ -617,7 +637,7 @@ function init!(sam::SymbolicAWEModel;
         sam.outputs = outputs
         
         changed |= outputs_changed
-        changed |= maybe_create_prob!(sam; create_prob, sparse, prn)
+        changed |= maybe_create_prob!(sam; create_prob, sparse, analytic_jacobian, prn)
         changed |= maybe_create_lin_prob!(sam, outputs; create_lin_prob, prn)
         changed |= maybe_create_control_functions!(sam, outputs;
             create_control_func, prn)

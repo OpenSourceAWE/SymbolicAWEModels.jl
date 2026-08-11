@@ -508,22 +508,36 @@ function state_sparsity(builder::SystemBuilder, wiring::Wiring, layers)
 end
 
 """
-    state_dependencies(builder, wiring, layers) -> Vector{Vector{Int}}
+    output_reach(model, wiring, layers) -> Vector{BitSet}
 
-For each state, the states its derivative reads. An output reaches its instance's
-own states plus everything reaching the outputs wired into the inputs it reads, so
-one sweep in schedule order resolves the model; the sweep repeats until nothing
-grows, which costs one confirming pass and converges an instance that feeds itself.
+For each output slot, the states it depends on. An output reaches its instance's own
+states plus everything reaching the outputs wired into the inputs it reads, so one
+sweep in schedule order resolves the model; the sweep repeats until nothing grows,
+which costs one confirming pass and converges an instance that feeds itself. `model`
+is a [`SystemBuilder`](@ref) while assembling and a [`KernelSystem`](@ref) after, and
+only its instances and kernels are read.
 """
-function state_dependencies(builder::SystemBuilder, wiring::Wiring, layers)
-    reach = [BitSet() for _ in 1:builder.n_outputs]
+function output_reach(model, wiring::Wiring, layers)
+    reach = [BitSet() for _ in 1:model.n_outputs]
     grew = true
     while grew
         grew = false
         for layer in layers, batch in layer, instance in batch
-            grew |= expand_reach!(reach, builder, wiring, instance)
+            grew |= expand_reach!(reach, model, wiring, instance)
         end
     end
+    return reach
+end
+
+"""
+    state_dependencies(builder, wiring, layers) -> Vector{Vector{Int}}
+
+For each state, the states its derivative reads: what its own instance reads
+directly, plus the [`output_reach`](@ref) of everything wired into the inputs it
+reads.
+"""
+function state_dependencies(builder::SystemBuilder, wiring::Wiring, layers)
+    reach = output_reach(builder, wiring, layers)
     rows = [Int[] for _ in 1:builder.n_states]
     for inst in builder.instances
         reads = builder.kernels[inst.kernel].reads
@@ -538,9 +552,9 @@ function state_dependencies(builder::SystemBuilder, wiring::Wiring, layers)
 end
 
 """Grow one instance's outputs' reachable states; `true` if any of them grew."""
-function expand_reach!(reach, builder::SystemBuilder, wiring::Wiring, instance::Int)
-    inst = builder.instances[instance]
-    reads = builder.kernels[inst.kernel].reads
+function expand_reach!(reach, model, wiring::Wiring, instance::Int)
+    inst = model.instances[instance]
+    reads = model.kernels[inst.kernel].reads
     grew = false
     for (slot, output) in enumerate(inst.outputs)
         before = length(reach[output])

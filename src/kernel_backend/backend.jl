@@ -4,19 +4,22 @@
 # The two hooks the package's `init!`/`next_step!` path needs from a backend.
 
 """
-    build_prob!(::KernelBackend, sam; sparse=false, prn=true)
+    build_prob!(::KernelBackend, sam; sparse=false, analytic_jacobian=true, prn=true)
 
 Assemble `sam.sys_struct` into a [`KernelModel`](@ref) and wrap its right-hand side as an
 `ODEProblem`. The problem's parameter object is our own flat buffer plus the
 callable store, so `sync_params!` writes struct fields straight into it. `sparse`
 hands the solver [`state_sparsity`](@ref) as the Jacobian prototype; without it the
-Jacobian is dense, as the monolith's is. `FullSpecialize` because the right-hand
+Jacobian is dense, as the monolith's is. `analytic_jacobian` hands it a
+[`KernelJacobian`](@ref) rather than leaving it to differentiate the right-hand side
+numerically. `FullSpecialize` because the right-hand
 side is one concrete type, so `SciMLBase`'s function wrappers would only add
 indirection and allocate — it goes on the `ODEFunction` as well as the problem,
 since a bare `ODEFunction` is `AutoSpecialize` and the problem's parameter does
 not reach a function that is already built.
 """
-function build_prob!(::KernelBackend, sam; sparse = false, prn = true)
+function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = true,
+                     prn = true)
     time = @elapsed model = assemble(sam; verbose = prn)
     if prn
         println("\tAssembled $(length(model.system.kernels)) kernels over " *
@@ -26,10 +29,15 @@ function build_prob!(::KernelBackend, sam; sparse = false, prn = true)
     rhs = KernelRHS(model.system)
     step = SimFloat(1 / sam.set.sample_freq)
     prototype = sparse ? SimFloat.(model.system.sparsity) : nothing
+    jacobian = nothing
+    if analytic_jacobian
+        time = @elapsed jacobian = build_jacobian(rhs; prn)
+        prn && println("\tPlanned the analytical Jacobian in $time seconds.")
+    end
     problem = ODEProblem{true, SciMLBase.FullSpecialize}(
         ODEFunction{true, SciMLBase.FullSpecialize}(
             rhs; mass_matrix = model.system.mass_matrix,
-            jac_prototype = prototype),
+            jac_prototype = prototype, jac = jacobian),
         model.u0, (0.0, step), model.params)
     sync_params!(model.param_sync, problem, sam.sys_struct)
     sam.prob = ProbWithAttributes(; prob = problem,
@@ -77,8 +85,8 @@ function init_backend!(::KernelBackend, sam, solver;
         adaptive = true, prn = true, reinit_sys = true, reset_vel = true,
         ignore_l0 = false, apply_tether_lengths = true, remake_vsm = true,
         reset_integrator = true, vsm_min_wind = 0.5, lin_vsm = true,
-        sparse = false, remake = false, reload = false)
-    model_name = get_model_name(sam.set, sam.sys_struct; sparse,
+        sparse = false, analytic_jacobian = true, remake = false, reload = false)
+    model_name = get_model_name(sam.set, sam.sys_struct; sparse, analytic_jacobian,
                                 backend = KernelBackend())
     model_path = joinpath(KiteUtils.get_data_path(), model_name)
     prn && @info "Model bin name: $model_name"
@@ -92,7 +100,7 @@ function init_backend!(::KernelBackend, sam, solver;
         prn && @info "Reusing the assembled model, so no kernel is compiled here."
     else
         prn && @info "No model to reuse; assembling and compiling the kernels."
-        build_prob!(KernelBackend(), sam; sparse, prn)
+        build_prob!(KernelBackend(), sam; sparse, analytic_jacobian, prn)
         write_time = @elapsed serialize(model_path, sam.serialized_model)
         size = @sprintf("%.2f s, %.1f MB", write_time,
                         filesize(model_path) / 2^20)
