@@ -26,6 +26,23 @@
   `unit_damping = damping_per_stiffness * unit_stiffness`. Giving both forms
   of the same quantity is an error.
 
+### Fixed
+- `init_stretched_length` placement now carries a beam wing. A `BODY_STATIC`
+  point riding a Timoshenko element has `body_idx == 0` and holds its
+  association in `joint_idx`, so collecting the bodies to translate by
+  `body_idx` alone left every beam body behind while the tether's free end
+  moved. The ride constraint then snapped the points back, and the only symptom
+  was a non-converged VSM solve much later. Bodies reachable from the moved ones
+  through the beam graph now translate too — including bodies that carry no
+  point of their own — stopping at `STATIC` bodies, since a beam with a clamped
+  end deforms rather than translating.
+- The Breukels inflated-tube correlations now error instead of quietly
+  returning a negative rigidity when evaluated outside the range they were
+  fitted in. The bending slope changes sign below a radius of roughly 38 mm at
+  0.25 bar (a 20 mm tube at 0.1 bar gave `EI0 = -94 N·m²` and a negative `EA`),
+  and the torsion factor `c2` changes sign for a fat tube above 1 bar. A
+  non-positive radius or pressure is rejected as well.
+
 ### Breaking
 - The `materials`, `elements` and `segment_properties` YAML blocks were
   removed. A material is now a multi-variable listing `youngs_modulus`,

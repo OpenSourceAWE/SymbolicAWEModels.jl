@@ -563,5 +563,54 @@ winches:
               sys.points[:le_center].pos_cad .- pos_cad
     end
 
+    # ================================================================
+    # Test 11: placement translates a free-floating beam anchored only through
+    # joint-riding BODY_STATIC points. Such a point has body_idx 0 and carries
+    # its association in joint_idx, so collecting moved bodies via body_idx
+    # alone leaves the whole beam behind while the tether's free end moves —
+    # the ride constraint then snaps the point back, silently.
+    # ================================================================
+    @testset "Placement moves a beam (joint-anchored points)" begin
+        inertia = [0.01, 0.01, 0.01]
+        bodies = [Body(Symbol(:node, i); mass=1.0, inertia_principal=inertia,
+                       pos=[Float64(i - 1), 0.0, 0.0], type=DYNAMIC)
+                  for i in 1:4]
+        joints = [TimoshenkoJoint(Symbol(:j, i), Symbol(:node, i),
+                      Symbol(:node, i + 1); EA=1.0e4, GA=1500.0, GJ=50.0,
+                      EIy=100.0, EIz=100.0, shear_coeff=5/6,
+                      damping_trans=200.0, damping_rot=3.0) for i in 1:3]
+        points = [
+            Point(:ground, [0.5, 0.0, -5.0], STATIC),
+            Point(:beam_anchor, [0.5, 0.0, 0.0], BODY_STATIC; joint=:j1),
+            Point(:tip_anchor, [1.5, 0.0, 0.0], BODY_STATIC; joint=:j2),
+            Point(:tail, [1.5, 0.0, -1.0], DYNAMIC; extra_mass=1.0),
+        ]
+        segments = [Segment(:tether_seg, :ground, :beam_anchor, 1e4, 10.0, 0.01;
+                            l0=5.0),
+                    Segment(:tail_seg, :tip_anchor, :tail, 1e4, 10.0, 0.01;
+                            l0=1.0)]
+        tethers = [Tether(:tether, [:tether_seg], 6.0)]
+        winches = [Winch(:winch, set, [:tether]; winch_point=:ground)]
+        sys = SystemStructure("init_stretched_length_beam", set; points,
+            segments, tethers, winches, bodies=bodies,
+            timoshenko_joints=joints)
+
+        delta = KVec3(0.0, 0.0, 1.0)
+        SymbolicAWEModels.reinit!(sys, set)
+
+        @test norm(sys.points[:beam_anchor].pos_w -
+                   sys.points[:ground].pos_w) ≈ 6.0
+        # Every beam body translates, including node4, which no point rides and
+        # which is reachable only through the joint graph.
+        for (i, body) in enumerate(sys.bodies)
+            @test body.pos_w ≈ KVec3(Float64(i - 1), 0.0, 0.0) .+ delta
+        end
+        # tail hangs off the far end of the beam, reachable from the tether's
+        # free end only through the rigid-sibling hop across the beam.
+        @test sys.points[:tail].pos_w ≈ KVec3(1.5, 0.0, -1.0) .+ delta
+        @test SymbolicAWEModels.segment_world_length(
+            sys.segments[:tail_seg], sys.points) ≈ 1.0
+    end
+
 end
 nothing

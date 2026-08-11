@@ -82,16 +82,53 @@ function (law::TubeRigidityLaw)(curvature)
 end
 
 """
+    check_tube_geometry(radius, pressure)
+
+Error when `radius` [m] or `pressure` [bar] is not positive. Both Breukels
+correlations describe a real tube, and the torsion factor `c2` takes
+`log(pressure)`.
+"""
+function check_tube_geometry(radius, pressure)
+    radius > 0 || error("Tube radius must be positive, got $radius m.")
+    pressure > 0 || error("Tube pressure must be positive, got $pressure bar.")
+    return nothing
+end
+
+"""
+    breukels_tip_force_coefficients(radius, pressure) -> (asymptote, slope)
+
+Saturation force [N] and initial slope [N] of the Breukels 1 m cantilever curve
+`P(δ) = asymptote·(1 - exp(-(slope/asymptote)·δ))` (`radius` [m], `pressure`
+[bar]). Both are errors when non-positive: that is how the empirical fit
+announces it is outside the range it was made in, and letting it through gives a
+negative bending rigidity. The slope changes sign below a radius of roughly
+`-(C8 + C6·pressure)/C7`, about 38 mm at 0.25 bar and 34 mm at 0.5 bar.
+"""
+function breukels_tip_force_coefficients(radius, pressure)
+    check_tube_geometry(radius, pressure)
+    (; C1, C2, C3, C4, C5, C6, C7, C8) = BREUKELS_BENDING
+    asymptote = (C1 * radius + C2) * pressure^2 + (C3 * radius^3 + C4)
+    slope = (C5 * radius^5 + C6) * pressure + (C7 * radius + C8)
+    if asymptote <= 0 || slope <= 0
+        radius_min = -(C8 + C6 * pressure) / C7
+        error("Breukels bending correlation is outside its fitted range at " *
+              "radius $radius m, pressure $pressure bar: saturation force " *
+              "$asymptote N, initial slope $slope N, one of which is " *
+              "non-positive. The slope alone needs a radius above about " *
+              "$(round(radius_min; digits=4)) m at this pressure.")
+    end
+    return asymptote, slope
+end
+
+"""
     breukels_tip_force(deflection, radius, pressure) -> Float64
 
 Tip force [N] of a 1 m inflated-tube cantilever at normalized tip `deflection`,
 per the Breukels correlation (`radius` [m], `pressure` [bar]).
 """
 function breukels_tip_force(deflection, radius, pressure)
-    (; C1, C2, C3, C4, C5, C6, C7, C8) = BREUKELS_BENDING
-    denom = (C1 * radius + C2) * pressure^2 + (C3 * radius^3 + C4)
-    numer = (C5 * radius^5 + C6) * pressure + (C7 * radius + C8)
-    return denom * (1 - exp(-(numer / denom) * deflection))
+    asymptote, slope = breukels_tip_force_coefficients(radius, pressure)
+    return asymptote * (1 - exp(-(slope / asymptote) * deflection))
 end
 
 """
@@ -101,6 +138,7 @@ Normalized tip deflection at which the Breukels 1 m cantilever of `radius` [m] a
 `pressure` [bar] collapses.
 """
 function breukels_collapse_deflection(radius, pressure)
+    check_tube_geometry(radius, pressure)
     (; C9, C10, C11, C12) = BREUKELS_COLLAPSE
     return (C9 * radius^4 + C10) * pressure + C11 * radius^2 + C12
 end
@@ -109,12 +147,22 @@ end
     tube_torsion_law(radius, pressure) -> TubeRigidityLaw
 
 Breukels torsional rigidity law `GJ(κ)` of an inflated tube (`radius` [m],
-`pressure` [bar]).
+`pressure` [bar]). Errors when the correlation leaves its fitted range and
+returns a non-positive `c1` or `c2`; `c2` does so for a large radius above
+1 bar, where `log(pressure)` changes sign.
 """
 function tube_torsion_law(radius, pressure)
+    check_tube_geometry(radius, pressure)
     (; C13, C14, C15, C16, C17, C18, C19) = BREUKELS_TORSION
     c1 = (C13 * radius + C14) * pressure + (C15 * radius + C16)
     c2 = C17 * radius^4 * log(pressure) + C18 * radius^3 + C19
+    if c1 <= 0 || c2 <= 0
+        error("Breukels torsion correlation is outside its fitted range at " *
+              "radius $radius m, pressure $pressure bar: c1 = $c1 N·m, " *
+              "c2 = $c2 m, one of which is non-positive. `c2` turns negative " *
+              "for a large radius above 1 bar, where `log(pressure)` flips " *
+              "sign.")
+    end
     return TubeRigidityLaw(:torsion, 0.0, 0.0, 0.0, 0.0, 0.0, c1, c2)
 end
 
@@ -133,12 +181,11 @@ function tube_linear_rigidities(radius, pressure)
     torsion = tube_torsion_law(radius, pressure)
     GJ0 = torsion.c1 * torsion.c2
     GA = GJ0 / torsion_constant * area
-    (; C5, C6, C7, C8) = BREUKELS_BENDING
-    numer = (C5 * radius^5 + C6) * pressure + (C7 * radius + C8)
-    shear_frac = numer / (TUBE_SHEAR_COEFF * GA)
+    _, slope = breukels_tip_force_coefficients(radius, pressure)
+    shear_frac = slope / (TUBE_SHEAR_COEFF * GA)
     shear_frac < 1 || error(
         "Breukels shear share ≥ 1 for radius $radius, pressure $pressure")
-    EI0 = numer / (3 * (1 - shear_frac))
+    EI0 = slope / (3 * (1 - shear_frac))
     EA = EI0 * area / inertia
     return EA, GA, EI0, GJ0
 end

@@ -193,6 +193,9 @@ SymbolicAWEModels.segment_cad_length
 SymbolicAWEModels.segment_world_length
 SymbolicAWEModels.tether_ordered_point_idxs
 SymbolicAWEModels.tether_anchor_free
+SymbolicAWEModels.anchor_body_idxs
+SymbolicAWEModels.beam_body_neighbors
+SymbolicAWEModels.translated_body_idxs
 SymbolicAWEModels.rigid_point_siblings
 SymbolicAWEModels.tether_downstream_idxs
 SymbolicAWEModels.twist_surface_tethers_by_overlap
@@ -449,6 +452,8 @@ SymbolicAWEModels.sync_initial!
 SymbolicAWEModels.BREUKELS_BENDING
 SymbolicAWEModels.BREUKELS_COLLAPSE
 SymbolicAWEModels.BREUKELS_TORSION
+SymbolicAWEModels.check_tube_geometry
+SymbolicAWEModels.breukels_tip_force_coefficients
 SymbolicAWEModels.comer_levy_h
 SymbolicAWEModels.comer_levy_n
 SymbolicAWEModels.comer_levy_point

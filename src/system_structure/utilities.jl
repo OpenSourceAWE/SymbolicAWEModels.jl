@@ -279,18 +279,81 @@ function tether_anchor_free(tether, boundary)
 end
 
 """
-    rigid_point_siblings(points, wings, joints)
+    anchor_body_idxs(point, timoshenko_joints) -> Tuple
+
+Body indices whose placement carries `point`: the node `Body` it rides
+(`body_idx`), both ends of the beam element it rides (`joint_idx`, a
+`BODY_STATIC` point on a Timoshenko centerline), or the body of the
+`RIGID_DYNAMICS` wing it is a node of (`wing_idx`, since wings are bodies).
+Empty for a point that stands free.
+"""
+function anchor_body_idxs(point, timoshenko_joints)
+    point.body_idx != 0 && return (point.body_idx,)
+    if point.joint_idx != 0
+        joint = timoshenko_joints[point.joint_idx]
+        return (joint.body_a_idx, joint.body_b_idx)
+    end
+    (point.is_wing_node && point.wing_idx != 0) && return (point.wing_idx,)
+    return ()
+end
+
+"""
+    beam_body_neighbors(joint_collections...) -> Dict{Int64, Vector{Int64}}
+
+Adjacency of the beam graph: each body index mapped to the bodies it shares a
+joint with, over every joint in each collection.
+"""
+function beam_body_neighbors(joint_collections...)
+    neighbors = Dict{Int64, Vector{Int64}}()
+    for joints in joint_collections, joint in joints
+        body_a, body_b = joint.body_a_idx, joint.body_b_idx
+        (body_a == 0 || body_b == 0) && continue
+        push!(get!(neighbors, body_a, Int64[]), body_b)
+        push!(get!(neighbors, body_b, Int64[]), body_a)
+    end
+    return neighbors
+end
+
+"""
+    translated_body_idxs(seeds, bodies, body_neighbors) -> Set{Int64}
+
+Bodies that translate rigidly with `seeds` (the bodies the repositioned points
+ride): the seeds plus everything reachable from them through `body_neighbors`.
+This is what carries beam bodies no point rides at all. Expansion stops at
+`STATIC` bodies, which are clamped to the world — a beam with a clamped end
+deforms rather than translating, so only its free part moves.
+"""
+function translated_body_idxs(seeds, bodies, body_neighbors)
+    moved = Set{Int64}()
+    queue = Int64[]
+    for seed in seeds
+        (seed in moved || bodies[seed].type == STATIC) && continue
+        push!(moved, seed)
+        push!(queue, seed)
+    end
+    while !isempty(queue)
+        current = pop!(queue)
+        for neighbor in get(body_neighbors, current, Int64[])
+            (neighbor in moved || bodies[neighbor].type == STATIC) && continue
+            push!(moved, neighbor)
+            push!(queue, neighbor)
+        end
+    end
+    return moved
+end
+
+"""
+    rigid_point_siblings(points, wings, timoshenko_joints, root)
 
 Map each point index that rides a rigid structure to the set of all points
-sharing it, so downstream traversal moves them as one unit. A point rides a node
-`Body` via its `body_idx`; bodies tied together by beam `joints` form one
-continuous structure, so all points riding any body in a joint-connected chain
-are siblings. This is how the two halves of a beam wing — bridged only through
-the beam, not by inter-point segments — are recognised as one structure. Also
-covers the wing nodes of a `RIGID_DYNAMICS` wing (grouped by `wing_idx`), which
-carry their body association there rather than in `body_idx`.
+sharing it, so downstream traversal moves them as one unit. Which bodies carry a
+point comes from [`anchor_body_idxs`](@ref); `root` (from
+[`connected_body_groups`](@ref)) collapses bodies tied by beam joints into one
+component, so all points riding any body in a joint-connected chain are
+siblings. This is how the two halves of a beam wing — bridged only through the
+beam, not by inter-point segments — are recognised as one structure.
 """
-function rigid_point_siblings(points, wings, joints)
+function rigid_point_siblings(points, wings, timoshenko_joints, root)
     siblings = Dict{Int64, Set{Int64}}()
     for wing in wings
         wing.dynamics_type == RIGID_DYNAMICS || continue
@@ -301,19 +364,12 @@ function rigid_point_siblings(points, wings, joints)
         end
     end
 
-    # Union-find over body indices tied by beam joints.
-    root = Dict{Int64, Int64}()
-    find_root(x) = (get!(root, x, x); root[x] == x ? x : (root[x] = find_root(root[x])))
-    unite(a, b) = (root[find_root(a)] = find_root(b))
-    for joint in joints
-        unite(joint.body_a_idx, joint.body_b_idx)
-    end
-
     body_members = Dict{Int64, Set{Int64}}()
     for point in points
         (point.type == BODY_STATIC || point.is_wing_node) || continue
-        point.body_idx == 0 && continue
-        push!(get!(body_members, find_root(point.body_idx), Set{Int64}()), point.idx)
+        for body_idx in anchor_body_idxs(point, timoshenko_joints)
+            push!(get!(body_members, root[body_idx], Set{Int64}()), point.idx)
+        end
     end
     for members in values(body_members)
         for member in members
@@ -430,7 +486,8 @@ function tether_unit_stiffness(tether, segments)
 end
 
 """
-    apply_cluster_init_stretched_len!(cluster, points, segments,
+    apply_cluster_init_stretched_len!(cluster, points, segments, bodies,
+                                      timoshenko_joints, body_neighbors,
                                       downstream, boundary; prn=true)
 
 Reposition one cluster of root tethers so each sits at its
@@ -440,9 +497,14 @@ along the anchor→free direction; the free end and everything
 downstream of it are translated by the mean of those displacements,
 then interior points are redistributed proportionally along each
 tether. For a multi-tether cluster, logs an `@info` when `prn`.
+
+The bodies the moved points ride are translated too, expanded over the beam graph
+by [`translated_body_idxs`](@ref) so bodies that carry no point of their own do
+not stay behind.
 """
 function apply_cluster_init_stretched_len!(
-    cluster, points, segments, bodies, downstream, boundary; prn=true)
+    cluster, points, segments, bodies, timoshenko_joints, body_neighbors,
+    downstream, boundary; prn=true)
     snaps = map(cluster) do tether
         anchor_idx, free_idx = tether_anchor_free(tether, boundary)
         anchor_pos = copy(points[anchor_idx].pos_w)
@@ -484,19 +546,12 @@ function apply_cluster_init_stretched_len!(
         end
     end
 
-    # Move the body, not its points: the pos~anchor constraint would snap them
-    # back. A point riding a node body uses body_idx; a RIGID_DYNAMICS wing's
-    # wing nodes carry the association in wing_idx (body_idx is 0) instead.
-    moved_bodies = Set{Int64}()
+    # Move the body, not its points: the pos~anchor constraint would snap them back.
+    seeds = Set{Int64}()
     for idx in moved
-        point = points[idx]
-        if point.body_idx != 0
-            push!(moved_bodies, point.body_idx)
-        elseif point.is_wing_node && point.wing_idx != 0
-            push!(moved_bodies, point.wing_idx)
-        end
+        union!(seeds, anchor_body_idxs(points[idx], timoshenko_joints))
     end
-    for body_idx in moved_bodies
+    for body_idx in translated_body_idxs(seeds, bodies, body_neighbors)
         bodies[body_idx].pos_w .+= delta
         bodies[body_idx].com_w .+= delta
     end
@@ -537,16 +592,24 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
                  if !isnothing(tether.init_stretched_len)]
     isempty(specified) && return
 
-    rigid_siblings = rigid_point_siblings(points, wings,
-        Iterators.flatten((sys_struct.elastic_joints, sys_struct.timoshenko_joints)))
-
-    # Boundary = externally world-fixed points: STATIC, winch, and BODY_STATIC on a STATIC body.
     bodies = sys_struct.bodies
+    timoshenko_joints = sys_struct.timoshenko_joints
+    body_neighbors = beam_body_neighbors(sys_struct.elastic_joints,
+                                         timoshenko_joints)
+    root = connected_body_groups(length(bodies), sys_struct.elastic_joints,
+                                 timoshenko_joints)
+    rigid_siblings = rigid_point_siblings(points, wings, timoshenko_joints, root)
+
+    # Boundary = externally world-fixed points: STATIC, winch, and BODY_STATIC carried
+    # only by STATIC bodies.
     boundary = Set{Int64}(w.winch_point_idx for w in winches)
     for point in points
         point.type == STATIC && push!(boundary, point.idx)
-        point.type == BODY_STATIC && point.body_idx > 0 &&
-            bodies[point.body_idx].type == STATIC && push!(boundary, point.idx)
+        point.type == BODY_STATIC || continue
+        carriers = anchor_body_idxs(point, timoshenko_joints)
+        isempty(carriers) && continue
+        all(bodies[body_idx].type == STATIC for body_idx in carriers) &&
+            push!(boundary, point.idx)
     end
 
     # Both-fixed tethers (both endpoints on a boundary) are warned and skipped.
@@ -581,8 +644,8 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
         downstream[tether.idx]) for tether in specified)
 
     for cluster in twist_surface_tethers_by_overlap(specified, reach)
-        apply_cluster_init_stretched_len!(cluster, points, segments,
-                                          sys_struct.bodies,
+        apply_cluster_init_stretched_len!(cluster, points, segments, bodies,
+                                          timoshenko_joints, body_neighbors,
                                           downstream, boundary; prn)
     end
 end
