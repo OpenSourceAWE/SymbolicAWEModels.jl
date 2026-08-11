@@ -111,9 +111,13 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # A failing suite still covers most of the source, and dropping its report
+      # leaves the backend it exercises reading as 0% against the other jobs.
       - uses: julia-actions/julia-processcoverage@v1
+        if: ${{ !cancelled() }}
 
       - uses: codecov/codecov-action@v7
+        if: ${{ !cancelled() }}
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
