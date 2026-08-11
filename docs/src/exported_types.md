@@ -65,7 +65,7 @@ Segment
 Segment(name, set, point_i, point_j; l0, compression_frac, diameter_mm, unit_stiffness, unit_damping)
 Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, compression_frac)
 Pulley
-Pulley(name, segment_i, segment_j, type)
+Pulley(name, segment_i, segment_j, type; damping)
 Tether
 Tether(name, segments::AbstractVector, stretched_length; start_point, end_point, tether_force, stretch_frac)
 Tether(name, stretched_length; start_point, end_point, n_segments, unit_stiffness, unit_damping, diameter, tether_force, stretch_frac)

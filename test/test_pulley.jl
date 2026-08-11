@@ -257,6 +257,14 @@ system:
         pulley = sys.pulleys[:main_pulley]
         @test pulley.type == SymbolicAWEModels.DYNAMIC
 
+        # The YAML has no `damping` column, so the pulley keeps the default
+        @test pulley.damping == DEFAULT_PULLEY_DAMPING
+        set_pulley_damping(sys, 12.0)
+        @test pulley.damping == 12.0
+        set_pulley_damping(sys, DEFAULT_PULLEY_DAMPING)
+        @test Pulley(:p, :left_leg, :right_leg, SymbolicAWEModels.DYNAMIC;
+                     damping=3.0).damping == 3.0
+
         println("\n  ====== Loaded pulley system: $(length(sys.points)) points, $(length(sys.segments)) segments, $(length(sys.pulleys)) pulley ======\n")
     end
 

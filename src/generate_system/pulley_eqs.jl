@@ -9,6 +9,10 @@
 
 Generate equations for pulley dynamics (rope distribution over pulleys).
 
+The pulley velocity is damped with `pulley.damping` [1/s], a flattened parameter
+read from the live `SystemStructure` on every step, so
+[`set_pulley_damping`](@ref) takes effect without rebuilding the model.
+
 # Arguments
 - `eqs`, `defaults`: Accumulating vectors for the MTK system.
 - `pulleys`: Collection of Pulley objects.
@@ -26,7 +30,6 @@ function pulley_eqs!(eqs, defaults, pulleys, segments, params, initial;
         pulley_force(t)[eachindex(pulleys)]
         pulley_acc(t)[eachindex(pulleys)]
     end
-    @parameters pulley_damp = 5.0
 
     for pulley in pulleys
         segment = segments[pulley.segment_idxs[1]]
@@ -45,7 +48,8 @@ function pulley_eqs!(eqs, defaults, pulleys, segments, params, initial;
                 eqs
                 D(pulley_len[pulley.idx]) ~ pulley_vel[pulley.idx]
                 D(pulley_vel[pulley.idx]) ~
-                    pulley_acc[pulley.idx] - pulley_damp * pulley_vel[pulley.idx]
+                    pulley_acc[pulley.idx] -
+                    params.pulleys[pulley.idx].damping * pulley_vel[pulley.idx]
             ]
             defaults = [
                 defaults

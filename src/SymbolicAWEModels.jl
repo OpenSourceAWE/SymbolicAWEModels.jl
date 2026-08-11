@@ -84,6 +84,7 @@ export find_steady_state!
 export linearize!
 export set_world_frame_damping
 export set_body_frame_damping
+export set_pulley_damping, DEFAULT_PULLEY_DAMPING
 export segment_stretch_stats
 export calc_steady_torque
 

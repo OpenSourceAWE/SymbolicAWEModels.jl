@@ -1152,6 +1152,48 @@ function set_body_frame_damping(sys::SystemStructure, damping::Union{Real, Abstr
     set_body_frame_damping(sys, damping, eachindex(sys.points))
 end
 
+"""
+    set_pulley_damping(sys::SystemStructure, damping, pulley_idxs)
+
+Set the damping of the pulley velocity for the pulleys `pulley_idxs`.
+
+Pulley damping acts on the rate at which line length is redistributed over a
+pulley: ``\\dot{v}_p = a_p - c_{damp} \\, v_p``, with `damping` the coefficient
+``c_{damp}`` [1/s]. It damps the pulley oscillation only and vanishes at
+equilibrium, so it does not change the settled geometry.
+
+The value is a field of the `SystemStructure`, flattened into an MTK parameter
+that is re-synced from it on every step — changing it on a running model takes
+effect on the next step, without rebuilding the model.
+
+# Arguments
+- `sys::SystemStructure`: The system structure to modify.
+- `damping::Real`: Damping coefficient [1/s] (default [`DEFAULT_PULLEY_DAMPING`](@ref)).
+- `pulley_idxs`: Indices of the pulleys to apply the damping to.
+
+# Returns
+- `nothing`
+"""
+function set_pulley_damping(sys::SystemStructure, damping::Real, pulley_idxs)
+    for idx in pulley_idxs
+        sys.pulleys[idx].damping = damping
+    end
+    return nothing
+end
+
+"""
+    set_pulley_damping(sys::SystemStructure, damping)
+
+Set the damping of the pulley velocity [1/s] for all pulleys of `sys`; see
+[`set_pulley_damping`](@ref).
+
+# Returns
+- `nothing`
+"""
+function set_pulley_damping(sys::SystemStructure, damping::Real)
+    set_pulley_damping(sys, damping, eachindex(sys.pulleys))
+end
+
 # ==================== SEGMENT STATISTICS ==================== #
 
 """

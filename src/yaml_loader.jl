@@ -734,10 +734,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     if haskey(data, "pulleys")
         pulley_rows = parse_table(data["pulleys"])
         for (i, row) in enumerate(pulley_rows)
-            # Create Pulley using new constructor (name, segment_i, segment_j, type)
+            # Create Pulley using new constructor (name, segment_i, segment_j, type);
+            # the optional `damping` column falls back to DEFAULT_PULLEY_DAMPING.
             pulley = call_yaml_constructor(Pulley, row,
                 [:name, :segment_i, :segment_j, :type],
-                Vector{Union{}}();
+                [:damping];
                 mappings=Dict(
                     :segment_i => row -> yaml_to_ref(row.segment_i),
                     :segment_j => row -> yaml_to_ref(row.segment_j),

@@ -751,10 +751,18 @@ mutable struct Pulley
     len::SimFloat
     "Current pulley velocity [m/s] (updated during simulation)."
     vel::SimFloat
+    "Damping of the pulley velocity [1/s]; see [`set_pulley_damping`](@ref)."
+    damping::SimFloat
 end
 
 """
-    Pulley(name, segment_i, segment_j, type)
+Default damping of the pulley velocity [1/s], used when a `Pulley` is created
+without an explicit `damping`.
+"""
+const DEFAULT_PULLEY_DAMPING = 5.0
+
+"""
+    Pulley(name, segment_i, segment_j, type; damping=DEFAULT_PULLEY_DAMPING)
 
 Constructs a `Pulley` object that enforces length redistribution between two segments.
 
@@ -762,11 +770,14 @@ Constructs a `Pulley` object that enforces length redistribution between two seg
 - `name::Union{Int, Symbol}`: Name/identifier for the pulley.
 - `segment_i`, `segment_j`: References to the two segments (names or indices).
 - `type::DynamicsType`: Dynamics type (`DYNAMIC`).
+
+# Keyword arguments
+- `damping`: Damping of the pulley velocity [1/s], see [`set_pulley_damping`](@ref).
 """
-function Pulley(name, segment_i, segment_j, type)
+function Pulley(name, segment_i, segment_j, type; damping=DEFAULT_PULLEY_DAMPING)
     s1 = segment_i isa Integer ? Int(segment_i) : Symbol(segment_i)
     s2 = segment_j isa Integer ? Int(segment_j) : Symbol(segment_j)
-    return Pulley(0, name, (0, 0), (s1, s2), type, 0.0, 0.0, 0.0)
+    return Pulley(0, name, (0, 0), (s1, s2), type, 0.0, 0.0, 0.0, damping)
 end
 
 # ==================== TETHER ==================== #

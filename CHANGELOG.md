@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+- Per-pulley `damping` [1/s]: the damping of the pulley velocity is a field of
+  `Pulley` (default `DEFAULT_PULLEY_DAMPING = 5.0`, the previously hardcoded
+  value), settable per pulley with the new `set_pulley_damping(sys, damping
+  [, pulley_idxs])`, as a `damping` keyword of the `Pulley` constructor, or as
+  an optional `damping` column of the YAML `pulleys` table. It is a flattened
+  parameter re-synced from the `SystemStructure` on every step, so changing it
+  on a running model needs no rebuild. Adding the field changes the serialized
+  layout of `Pulley`, hence the patch version bump: caches keyed on the package
+  version (model binaries, and the settled structures of dependent packages)
+  miss cleanly instead of failing to deserialize.
+
 ## v0.13.0 06-08-2026
 
 ### Added

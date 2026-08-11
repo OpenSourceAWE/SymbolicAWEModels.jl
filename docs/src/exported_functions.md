@@ -39,6 +39,7 @@ load_sys_struct_from_yaml
 ```@docs
 set_world_frame_damping
 set_body_frame_damping
+set_pulley_damping
 calc_steady_torque
 ```
 
