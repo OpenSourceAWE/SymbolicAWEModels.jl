@@ -1,0 +1,117 @@
+name: Sysimage
+
+on:
+  workflow_dispatch:
+    inputs:
+      julia_version:
+        description: 'Julia minor version to build for'
+        required: false
+        default: '1.12'
+      cpu_target:
+        description: 'PackageCompiler cpu_target (must not be "native")'
+        required: false
+        default: 'x86-64;sandybridge,-xsaveopt,clone_all;haswell,-rdrnd,base(1)'
+      image_threads:
+        description: 'JULIA_IMAGE_THREADS; higher is faster but needs more memory'
+        required: false
+        default: '4'
+  push:
+    paths:
+      - 'Manifest-v1.12.toml.default'
+      - 'Project.toml'
+      - 'test/Project.toml'
+      - 'test/create_sys_image.jl'
+      - 'test/test_for_precompile.jl'
+      - '.github/workflows/sysimage.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  JULIA_VERSION: ${{ github.event.inputs.julia_version || '1.12' }}
+  SYSIMAGE_CPU_TARGET: ${{ github.event.inputs.cpu_target || 'x86-64;sandybridge,-xsaveopt,clone_all;haswell,-rdrnd,base(1)' }}
+  JULIA_IMAGE_THREADS: ${{ github.event.inputs.image_threads || '4' }}
+  JULIA_PKG_SERVER_REGISTRY_PREFERENCE: eager
+  LIBGL_ALWAYS_SOFTWARE: 1
+
+jobs:
+  build:
+    name: Sysimage — Julia ${{ github.event.inputs.julia_version || '1.12' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # PackageCompiler needs far more memory than the 16 GB a runner provides.
+      - name: Add swap
+        run: |
+          sudo fallocate -l 24G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -g
+
+      - name: Install GLMakie system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xorg-dev mesa-utils libgl1 freeglut3-dev \
+            libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
+            xsettingsd x11-xserver-utils
+
+      - name: Install juliaup
+        run: |
+          curl -fsSL https://install.julialang.org \
+            | sh -s -- --yes --default-channel "${JULIA_VERSION}"
+          echo "$HOME/.juliaup/bin" >> "$GITHUB_PATH"
+
+      - name: Check Julia patch version against manifest
+        run: |
+          manifest="Manifest-v${JULIA_VERSION}.toml.default"
+          test -f "$manifest" || { echo "::error::$manifest not found"; exit 1; }
+          pinned=$(grep -m1 '^julia_version' "$manifest" | cut -d'"' -f2)
+          actual=$(julia "+${JULIA_VERSION}" --version | awk '{print $3}')
+          echo "manifest=$pinned runner=$actual"
+          if [ "$pinned" != "$actual" ]; then
+            echo "::warning::Manifest pins Julia $pinned but the runner has $actual." \
+                 "The sysimage will only load on $actual — bin/install_sysimage will refuse it."
+          fi
+          echo "JULIA_PATCH=$actual" >> "$GITHUB_ENV"
+
+      - uses: julia-actions/cache@v2
+        with:
+          cache-name: sysimage-${{ github.event.inputs.julia_version || '1.12' }}
+
+      - name: Instantiate projects from the default manifest
+        run: ./bin/install --version "${JULIA_VERSION}"
+
+      - name: Build sysimage
+        run: xvfb-run -a ./bin/create_sys_image --version "${JULIA_VERSION}"
+
+      - name: Write build info
+        run: |
+          sofile="bin/kps-image-${JULIA_VERSION}.so"
+          test -f "$sofile" || { echo "::error::$sofile was not produced"; exit 1; }
+          manifest_sha=$(sha256sum "Manifest-v${JULIA_VERSION}.toml.default" | cut -d' ' -f1)
+          {
+            echo "julia_version=${JULIA_PATCH}"
+            echo "manifest_sha256=${manifest_sha}"
+            echo "cpu_target=${SYSIMAGE_CPU_TARGET}"
+            echo "git_sha=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+          } > "${sofile}.buildinfo"
+          ls -lh "$sofile" "${sofile}.buildinfo"
+          cat "${sofile}.buildinfo"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kps-image-${{ github.event.inputs.julia_version || '1.12' }}
+          path: |
+            bin/kps-image-*.so
+            bin/kps-image-*.so.buildinfo
+          retention-days: 90
+          compression-level: 1

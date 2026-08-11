@@ -68,16 +68,28 @@ if ! command -v juliaup &> /dev/null; then
     exit 1
 fi
 
-# Disable user precompilation preferences to ensure a clean build
-if test -f "LocalPreferences.toml"; then
+# Disable user precompilation preferences to ensure a clean build.
+# Never overwrite an existing backup: it is the original from an interrupted run.
+if test -f "LocalPreferences.toml" && ! test -f "LocalPreferences.toml.bak"; then
     mv LocalPreferences.toml LocalPreferences.toml.bak
 fi
 cp LocalPreferences.toml.default LocalPreferences.toml
+restore_preferences() {
+    if test -f "LocalPreferences.toml.bak"; then
+        mv -f LocalPreferences.toml.bak LocalPreferences.toml
+    else
+        rm -f LocalPreferences.toml
+    fi
+}
+trap restore_preferences EXIT
 
-# Check available memory to set thread count for compilation
+# Peak memory scales with the thread count, so cap it on small machines
 totalmem=$(grep MemTotal /proc/meminfo | awk '{printf "%i", $2 / 1024}')
-if [[ $totalmem -lt 27000 ]]; then
+if [[ -n "${JULIA_IMAGE_THREADS:-}" ]]; then
+    echo "Using JULIA_IMAGE_THREADS=$JULIA_IMAGE_THREADS from the environment."
+elif [[ $totalmem -lt 27000 ]]; then
     echo "Warning: Less than 27GB of memory detected. Using only one thread for sysimage compilation."
+    echo "Set JULIA_IMAGE_THREADS to override this."
     export JULIA_IMAGE_THREADS=1
 fi
 
@@ -120,7 +132,11 @@ fi
 mv -f kps-image_tmp.so "$SOFILE"
 echo "System image created at $SOFILE"
 
-# --- 5. Precompile Project with New Image ---
+# --- 5. Restore Environment & Precompile Project with New Image ---
+# Restore first, so the cache is built against the user's own preferences
+restore_preferences
+trap - EXIT
+
 echo "--- Precompiling project with new system image ---"
 # Touch source files to ensure they are recompiled
 if [ -d src ]; then
@@ -130,13 +146,6 @@ fi
 $JULIA_CMD --startup-file=no --project -J "$SOFILE" -e '
     using SymbolicAWEModels, KiteUtils, VortexStepMethod
 '
-
-# --- 6. Restore Environment ---
-if test -f "LocalPreferences.toml.bak"; then
-    mv LocalPreferences.toml.bak LocalPreferences.toml
-else
-    rm LocalPreferences.toml
-fi
 
 echo "✅ System image creation and precompilation complete!"
 # 14:57 minutes on laptop with 7840U and 32GB RAM and 32 GB swap file.

@@ -8,7 +8,8 @@ using Pkg, TOML, DocStringExtensions, LinearAlgebra, Parameters, Printf, Seriali
       CodecZlib, Tar, Statistics, Suppressor, Timers, GLMakie, MakieControlPlots
 
 # --- Numerical, Modeling & Scientific Computing ---
-using ModelingToolkit, ControlSystemsBase, RecipesBase, StaticArrays, SymbolicIndexingInterface
+using ModelingToolkit, ControlSystemsBase, RecipesBase, StaticArrays, SymbolicIndexingInterface,
+      Rotations, Interpolations
 
 # --- Solvers (Nonlinear, Differential Equations) ---
 using NonlinearSolve, OrdinaryDiffEqBDF, OrdinaryDiffEqCore, OrdinaryDiffEqNonlinearSolve, SteadyStateDiffEq
@@ -71,7 +72,9 @@ end
 
 @info "Creating sysimage ..."
 PackageCompiler.create_sysimage(
-    [:Pkg, :TOML, :DocStringExtensions, :LinearAlgebra, :Parameters, :Printf, :Serialization, :SHA, :CodecZlib, :Tar, :Statistics, :Suppressor, :Timers, :GLMakie, :MakieControlPlots, :ModelingToolkit, :ControlSystemsBase, :RecipesBase, :StaticArrays, :SymbolicIndexingInterface, :NonlinearSolve, :OrdinaryDiffEqBDF, :OrdinaryDiffEqCore, :OrdinaryDiffEqNonlinearSolve, :SteadyStateDiffEq, :AtmosphericModels, :KiteUtils, :VortexStepMethod];
+    [:Pkg, :TOML, :DocStringExtensions, :LinearAlgebra, :Parameters, :Printf, :Serialization, :SHA, :CodecZlib, :Tar, :Statistics, :Suppressor, :Timers, :GLMakie, :MakieControlPlots, :ModelingToolkit, :ControlSystemsBase, :RecipesBase, :StaticArrays, :SymbolicIndexingInterface, :NonlinearSolve, :OrdinaryDiffEqBDF, :OrdinaryDiffEqCore, :OrdinaryDiffEqNonlinearSolve, :SteadyStateDiffEq, :AtmosphericModels, :KiteUtils, :VortexStepMethod, :Rotations, :Interpolations];
     sysimage_path="kps-image_tmp.so",
-    precompile_execution_file=joinpath("test", "test_for_precompile.jl")
+    precompile_execution_file=joinpath("test", "test_for_precompile.jl"),
+    # "native" targets the building machine, so CI must override this
+    cpu_target=get(ENV, "SYSIMAGE_CPU_TARGET", "native")
 )

@@ -1,0 +1,105 @@
+#!/bin/bash -eu
+# SPDX-FileCopyrightText: 2026 Bart van de Lint
+# SPDX-License-Identifier: LGPL-3.0-only
+
+# Download the system image built by .github/workflows/sysimage.yml and install
+# it as bin/kps-image-<version>.so, where bin/run_julia picks it up.
+
+julia_major="1.12"
+branch=""
+run_id=""
+force=false
+
+print_usage() {
+    echo "Usage: ./bin/install_sysimage [options]"
+    echo "Options:"
+    echo "  --version X.Y   Julia minor version to install for (default: 1.12)"
+    echo "  --branch NAME   Branch whose latest successful build to use"
+    echo "                  (default: the current branch, then main)"
+    echo "  --run-id ID     Download from a specific workflow run instead"
+    echo "  --force         Install even if the Julia version or manifest differ"
+    echo "  -h, --help      Show this help message and exit"
+}
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help) print_usage; exit 0 ;;
+        --version) julia_major="$2"; shift 2 ;;
+        --branch) branch="$2"; shift 2 ;;
+        --run-id) run_id="$2"; shift 2 ;;
+        --force) force=true; shift ;;
+        *) echo "Invalid parameter: $1"; print_usage; exit 1 ;;
+    esac
+done
+
+if [[ $(basename "$(pwd)") == "bin" ]]; then
+    cd ..
+fi
+
+for tool in gh julia sha256sum; do
+    command -v "$tool" &> /dev/null || { echo "Error: $tool is not installed."; exit 1; }
+done
+
+manifest="Manifest-v${julia_major}.toml.default"
+test -f "$manifest" || { echo "Error: $manifest not found."; exit 1; }
+
+if [[ -z "$run_id" ]]; then
+    [[ -n "$branch" ]] || branch=$(git rev-parse --abbrev-ref HEAD)
+    echo "Looking for the latest successful sysimage build on '$branch'..."
+    run_id=$(gh run list --workflow sysimage.yml --branch "$branch" --status success \
+                         --limit 1 --json databaseId --jq '.[0].databaseId')
+    if [[ -z "$run_id" && "$branch" != "main" ]]; then
+        echo "None found on '$branch', falling back to main..."
+        run_id=$(gh run list --workflow sysimage.yml --branch main --status success \
+                             --limit 1 --json databaseId --jq '.[0].databaseId')
+    fi
+    if [[ -z "$run_id" ]]; then
+        echo "Error: no successful sysimage build found."
+        echo "Trigger one with: gh workflow run sysimage.yml"
+        exit 1
+    fi
+fi
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
+echo "Downloading artifact from run $run_id..."
+gh run download "$run_id" --name "kps-image-${julia_major}" --dir "$tmpdir"
+
+sofile="$tmpdir/kps-image-${julia_major}.so"
+buildinfo="${sofile}.buildinfo"
+test -f "$sofile" || { echo "Error: artifact did not contain the system image."; exit 1; }
+test -f "$buildinfo" || { echo "Error: artifact did not contain the build info."; exit 1; }
+
+built_julia=$(grep '^julia_version=' "$buildinfo" | cut -d'=' -f2)
+built_manifest=$(grep '^manifest_sha256=' "$buildinfo" | cut -d'=' -f2)
+local_julia=$(julia "+${julia_major}" --version | awk '{print $3}')
+local_manifest=$(sha256sum "$manifest" | cut -d' ' -f1)
+
+ok=true
+if [[ "$built_julia" != "$local_julia" ]]; then
+    echo "Mismatch: image was built with Julia $built_julia, you have $local_julia."
+    echo "  A system image only loads on the exact Julia build that created it."
+    ok=false
+fi
+if [[ "$built_manifest" != "$local_manifest" ]]; then
+    echo "Mismatch: image was built against a different $manifest."
+    echo "  Julia would silently load those packages from the depot instead,"
+    echo "  losing the startup benefit. Pull the matching commit or rebuild."
+    ok=false
+fi
+
+if [[ "$ok" != true ]]; then
+    if [[ "$force" != true ]]; then
+        echo "Refusing to install. Re-run with --force to override."
+        exit 1
+    fi
+    echo "Installing anyway (--force)."
+fi
+
+target="bin/kps-image-${julia_major}.so"
+mv -f "$sofile" "$target"
+mv -f "$buildinfo" "${target}.buildinfo"
+
+echo "System image installed at $target"
+echo "Start Julia with it by running ./bin/run_julia"

@@ -5,6 +5,7 @@
 _update=false
 _skip_subprojects=false
 _no_precompile=false
+_no_sysimage=false
 _desired_julia=""
 _version_specified=false
 
@@ -18,6 +19,7 @@ print_usage() {
     echo "./install --update"
     echo "./install --skip-subprojects"
     echo "./install --no-precompile"
+    echo "./install --no-sysimage"
     echo "./install +1.11 | +1.12"
     echo "./install --version 1.11 | --version 1.12"
     echo "./install -h"
@@ -27,6 +29,7 @@ print_usage() {
     echo "                        then copy the resulting main manifest back to *.toml.default."
     echo "  --skip-subprojects    Skip setup/update of examples, test, and docs sub-projects."
     echo "  --no-precompile       Skip all Pkg.precompile() steps; just resolve manifests."
+    echo "  --no-sysimage         Skip the check for a prebuilt system image on GitHub."
     echo "  +X.Y, --version X.Y   Use Julia channel X.Y for this run (juliaup default unchanged)."
     echo "                        Without this, a menu will ask you to choose 1.11 or 1.12"
     echo "                        (with the currently active Julia version as default)."
@@ -50,6 +53,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-precompile)
             _no_precompile=true
+            shift
+            ;;
+        --no-sysimage)
+            _no_sysimage=true
             shift
             ;;
         --version)
@@ -267,6 +274,19 @@ else
                 echo "Removed subproject manifests for Julia 1.12"
             fi
     done
+fi
+
+# Install a prebuilt system image from GitHub Actions if one matches this setup
+if [[ $_no_sysimage == true ]]; then
+    echo "Skipping system image download (--no-sysimage)."
+elif ! command -v gh &> /dev/null; then
+    echo "Skipping system image download: the GitHub CLI 'gh' is not installed."
+else
+    echo "Checking GitHub for a prebuilt system image..."
+    if ! ./bin/install_sysimage --version "$julia_major"; then
+        echo -e "${_red}No matching system image installed.${_reset} Build one locally" \
+                "with ./bin/create_sys_image if you want faster startup."
+    fi
 fi
 
 # Copy .JETLSConfig.toml.default to .JETLSConfig.toml if it doesn't exist
