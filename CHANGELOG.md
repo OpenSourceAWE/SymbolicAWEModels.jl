@@ -26,6 +26,17 @@
   `unit_damping = damping_per_stiffness * unit_stiffness`. Giving both forms
   of the same quantity is an error.
 
+### Fixed
+- `init_stretched_length` placement now carries a beam wing. A `BODY_STATIC`
+  point riding a Timoshenko element has `body_idx == 0` and holds its
+  association in `joint_idx`, so collecting the bodies to translate by
+  `body_idx` alone left every beam body behind while the tether's free end
+  moved. The ride constraint then snapped the points back, and the only symptom
+  was a non-converged VSM solve much later. Bodies reachable from the moved ones
+  through the beam graph now translate too — including bodies that carry no
+  point of their own — stopping at `STATIC` bodies, since a beam with a clamped
+  end deforms rather than translating.
+
 ### Breaking
 - The `materials`, `elements` and `segment_properties` YAML blocks were
   removed. A material is now a multi-variable listing `youngs_modulus`,
