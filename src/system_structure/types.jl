@@ -809,7 +809,7 @@ mutable struct Pulley
 end
 
 """
-    Pulley(name, segment_i, segment_j, type)
+    Pulley(name, segment_i, segment_j, type; efficiency, damping, brake, friction_epsilon)
 
 Constructs a `Pulley` object that enforces length redistribution between two segments.
 
