@@ -201,7 +201,6 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
 
     column = aero_section_columns(wing, points)
     n_panels = Int(wing.vsm_wing.n_panels)
-    n_struts = Int(wing.vsm_wing.n_unrefined_sections)
     left = mode.section_left_strut
     lweight = mode.section_left_weight
     length(left) == n_panels + 1 || error(
@@ -212,14 +211,7 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
 
     sec_le, sec_te =
         reconstruct_sections_sym(mode, wing, points, connectors, column)
-    strut_va = [0.5 * (collect(connectors.va[:, column[(s, :LE)]]) +
-                       collect(connectors.va[:, column[(s, :TE)]]))
-                for s in 1:n_struts]
-    strut_rho = [0.5 * (connectors.rho[column[(s, :LE)]] +
-                        connectors.rho[column[(s, :TE)]])
-                 for s in 1:n_struts]
-    sec_va = [interp_strut(strut_va, left, lweight, s) for s in 1:(n_panels + 1)]
-    sec_rho = [interp_strut(strut_rho, left, lweight, s) for s in 1:(n_panels + 1)]
+    sec_va, sec_rho = reconstruct_inflow_sym(mode, wing, connectors, column)
 
     orient = panel_span_signs(wing, spanwise)
     eqs, panel_vars, panel_force, panel_couple = build_panel_force_eqs(
@@ -252,19 +244,6 @@ end
 # ==================== per-panel decomposition ==================== #
 
 supports_panel_decomposition(::ContinuousAero) = true
-
-"""
-    aero_inflow_groups(mode::ContinuousAero, wing, points)
-
-One group per refined section: its inflow is the strut interpolation of the bounding
-struts' LE/TE station values, which is what `aero_component` interpolates inline.
-"""
-function aero_inflow_groups(mode::ContinuousAero, wing, points)
-    column = aero_section_columns(wing, points)
-    sections = eachindex(mode.section_left_strut)
-    groups = [strut_inflow_weights(mode, section, column) for section in sections]
-    return groups, collect(sections)
-end
 
 """
     aero_scatter_entries(mode::ContinuousAero, wing, points)

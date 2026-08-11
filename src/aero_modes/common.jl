@@ -514,10 +514,20 @@ supports_panel_decomposition(::AbstractAeroModel) = false
 How each refined section's apparent wind and density are averaged over the wing's
 structural points. `groups[g]` is a list of `(point column, weight)` whose weights sum
 to one, and `section_group[s]` names the group refined section `s` reads. Sections
-sharing a group share the one [`AeroInflow`](@ref) that averages it, so a mode with a
-single uniform inflow builds a single averaging component rather than one per section.
+sharing a group share the one [`AeroInflow`](@ref) that averages it.
+
+The default is one group per refined section, gathered from the same bounding struts
+[`aero_geometry_entries`](@ref) reconstructs that section's corners from, so a
+section's inflow and its geometry read the same points. Overriding this with a
+wing-wide mean drops the rotational part of the velocity field — a rigid rotation
+about the point centroid averages to zero — leaving the panels without rate damping.
 """
-function aero_inflow_groups end
+function aero_inflow_groups(mode, wing, points)
+    column = aero_section_columns(wing, points)
+    sections = eachindex(section_interp_caches(mode)[1])
+    groups = [strut_inflow_weights(mode, section, column) for section in sections]
+    return groups, collect(sections)
+end
 
 """
     aero_scatter_entries(mode, wing, points) -> Vector
@@ -1117,6 +1127,29 @@ function reconstruct_sections_sym(mode, wing, points, connectors, column)
                 for s in 1:n_struts]
     left, weight, le_offset, te_offset = section_interp_caches(mode)
     return interp_sections(strut_le, strut_te, left, weight, le_offset, te_offset)
+end
+
+"""
+    reconstruct_inflow_sym(mode, wing, connectors, column) -> (sec_va, sec_rho)
+
+Live symbolic body-frame apparent wind and density of every refined section: each
+strut's LE/TE connector values averaged into one strut value, then interpolated by the
+frozen mesh weights — the same struts and weights [`reconstruct_sections_sym`](@ref)
+builds that section's corners from, so a section's inflow and its geometry read the
+same points. Shared by all continuous VSM modes.
+"""
+function reconstruct_inflow_sym(mode, wing, connectors, column)
+    n_struts = Int(wing.vsm_wing.n_unrefined_sections)
+    strut_va = [0.5 * (collect(connectors.va[:, column[(s, :LE)]]) +
+                       collect(connectors.va[:, column[(s, :TE)]]))
+                for s in 1:n_struts]
+    strut_rho = [0.5 * (connectors.rho[column[(s, :LE)]] +
+                        connectors.rho[column[(s, :TE)]])
+                 for s in 1:n_struts]
+    left, weight, _, _ = section_interp_caches(mode)
+    sec_va = [interp_strut(strut_va, left, weight, s) for s in eachindex(left)]
+    sec_rho = [interp_strut(strut_rho, left, weight, s) for s in eachindex(left)]
+    return sec_va, sec_rho
 end
 
 """
