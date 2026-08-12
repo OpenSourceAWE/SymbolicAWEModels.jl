@@ -297,6 +297,19 @@ tethers:
     - [main, kite, ground, 5]
 ```
 
+The generated points are `DYNAMIC` and the generated segments take the tether's
+material columns, which are the [Segments](#Segments) ones (`diameter_mm`,
+`unit_stiffness`, `unit_damping`, `youngs_modulus`, `damping_per_stiffness`,
+`density`, `compression_frac`, `compression_damping_frac`) and may equally come
+from a multi-variable. A tether without a winch keeps its length fixed, which is
+how a plain line is split into several segments.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `init_stretched_length` | Float/nothing | Placed (stretched) standoff [m]; `reinit!` moves the free end to span it. `nothing` = keep the point geometry |
+| `init_tether_force` | Float/nothing | Target initial spring force [N], default 0 |
+| `init_stretch_frac` | Float/nothing | Initial unstretched/stretched ratio; 1.0 is untensioned, `> 1` slack. Excludes `init_tether_force` |
+
 ### Winches
 
 ```yaml

@@ -877,6 +877,10 @@ strain returning force [N]; a callable propagates to every auto-generated segmen
 `unit_stiffness` is typed `Any` (not a type parameter) to keep `Tether` concrete,
 since `SystemStructure.tethers` is read every step.
 
+The material fields (`unit_stiffness` through `compression_damping_frac`) describe
+the segments Route 2 generates; a Route 1 tether reads them off its own segments and
+leaves these at their defaults.
+
 # Initial length
 Two distinct lengths, set independently at `reinit!`:
 - `init_stretched_len` — the *placed* (stretched) standoff; `reinit!` scales the
@@ -924,6 +928,10 @@ mutable struct Tether
     const youngs_modulus::SimFloat
     "Damping per unit stiffness [s]. Diameter-independent form of `unit_damping`."
     const damping_per_stiffness::SimFloat
+    "Compressive/tensile stiffness ratio (0-1) given to every generated segment."
+    const compression_frac::SimFloat
+    "Fraction of `unit_damping` still acting under compression (0-1), per segment."
+    const compression_damping_frac::SimFloat
     "Current stretched length [m] (updated during simulation)."
     stretched_len::SimFloat
     """Unstretched tether length [m] (sum of segment l0).
@@ -996,7 +1004,7 @@ function Tether(name, segments::AbstractVector, stretched_length=nothing;
     return Tether(0, name, Int64[], segment_refs,
                   0, name_ref(start_point), 0, name_ref(end_point),
                   length(segments),
-                  NaN, NaN, NaN, NaN, NaN, NaN, 0.0,
+                  NaN, NaN, NaN, NaN, NaN, NaN, 0.1, 1.0, 0.0,
                   0.0, init_stretched, init_force, init_frac)
 end
 
@@ -1020,8 +1028,9 @@ end
 """
     Tether(name, stretched_length=nothing;
            start_point, end_point, n_segments,
-           unit_stiffness=NaN, unit_damping=NaN,
-           diameter=NaN, tether_force=nothing, stretch_frac=nothing)
+           unit_stiffness=NaN, unit_damping=NaN, diameter=NaN,
+           compression_frac=0.1, compression_damping_frac=1.0,
+           tether_force=nothing, stretch_frac=nothing)
 
 Route 2: Construct a `Tether` for auto-generation of intermediate
 points and segments by `expand_auto_tethers!`.
@@ -1048,6 +1057,10 @@ points and segments by `expand_auto_tethers!`.
   `unit_stiffness` [Pa]. See [`resolve_material`](@ref).
 - `damping_per_stiffness::Float64=NaN`: Diameter-independent alternative
   to `unit_damping` [s].
+- `compression_frac::Float64=0.1`: Compressive/tensile stiffness ratio
+  (0-1) of every generated segment. See [`Segment`](@ref).
+- `compression_damping_frac::Float64=1.0`: Fraction of `unit_damping`
+  still acting under compression (0-1). See [`Segment`](@ref).
 - `tether_force=nothing`: Target initial spring force [N], default 0.
 - `stretch_frac=nothing`: Initial `len/stretched` fraction. Mutually
   exclusive with `tether_force`.
@@ -1056,7 +1069,8 @@ function Tether(name, stretched_length=nothing;
                 start_point, end_point, n_segments,
                 unit_stiffness=NaN, unit_damping=NaN,
                 diameter=NaN, density=NaN, youngs_modulus=NaN,
-                damping_per_stiffness=NaN, tether_force=nothing,
+                damping_per_stiffness=NaN, compression_frac=0.1,
+                compression_damping_frac=1.0, tether_force=nothing,
                 stretch_frac=nothing)
     init_force, init_frac =
         resolve_tether_init(name, tether_force, stretch_frac)
@@ -1072,7 +1086,9 @@ function Tether(name, stretched_length=nothing;
                   Float64(unit_damping),
                   Float64(diameter), Float64(density),
                   Float64(youngs_modulus),
-                  Float64(damping_per_stiffness), 0.0,
+                  Float64(damping_per_stiffness),
+                  Float64(compression_frac),
+                  Float64(compression_damping_frac), 0.0,
                   0.0, init_stretched, init_force, init_frac)
 end
 
