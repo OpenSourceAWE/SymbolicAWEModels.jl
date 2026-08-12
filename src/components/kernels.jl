@@ -25,21 +25,31 @@ end
 
 """
     segment_spring_force(len, l0, spring_vel, unit_stiffness, unit_damping,
-                         compression_frac)
+                         compression_frac, compression_damping_frac=1.0)
 
 Scalar spring-damper force along a segment (the Real-`unit_stiffness` branch of
 `segment_eqs!`). Stiffness is `unit_stiffness / len` in tension and softens to
 `compression_frac` of that under compression; the damping term
-`(unit_damping / len) · spring_vel` opposes the closing speed and is deliberately
-left out of that softening. Softening it would make the force jump at `len == l0`,
-where the stiffness term crosses continuously only because `len - l0` vanishes
-there; a taut tether sits on that crossing, so the jump diverges the solver.
+`(unit_damping / len) · spring_vel` opposes the closing speed and softens to
+`compression_damping_frac` of itself over the same branch.
+
+With the default `compression_damping_frac = 1.0` the damping is unaffected, so the
+force is continuous at `len == l0` (the stiffness term crosses there only because
+`len - l0` vanishes), but the damping ratio jumps by `1/sqrt(compression_frac)` as a
+segment goes slack. Setting `compression_damping_frac = compression_frac` keeps one
+damping ratio on both branches instead, and `0.0` with `compression_frac = 0.0`
+makes a slack segment carry no force at all — at the cost of a force step of
+`(1 - compression_damping_frac) · unit_damping / l0 · spring_vel` at the crossing,
+which a taut tether sits on.
+
 Multiply by the segment `unit_vec` for the force vector on the source endpoint.
 """
 function segment_spring_force(len, l0, spring_vel, unit_stiffness, unit_damping,
-                              compression_frac)
-    damping = unit_damping / len
-    stiffness = ifelse(len > l0, unit_stiffness / len,
+                              compression_frac, compression_damping_frac=1.0)
+    taut = len > l0
+    damping = ifelse(taut, unit_damping,
+                     compression_damping_frac * unit_damping) / len
+    stiffness = ifelse(taut, unit_stiffness / len,
                        compression_frac * unit_stiffness / len)
     return stiffness * (len - l0) - damping * spring_vel
 end

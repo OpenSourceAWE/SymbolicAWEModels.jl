@@ -257,6 +257,7 @@ The material columns can also come from a multi-variable, see
 | `youngs_modulus` | Float/nothing | Diameter-independent alternative to `unit_stiffness` [Pa] |
 | `damping_per_stiffness` | Float/nothing | Diameter-independent alternative to `unit_damping` [s] |
 | `compression_frac` | Float | Compressive/tensile stiffness ratio (0-1) |
+| `compression_damping_frac` | Float | Fraction of `unit_damping` still acting under compression (0-1, default 1) |
 | `density` | Float/nothing | Material density [kg/m³]; falls back to `set.rho_tether` |
 
 ### Pulleys
