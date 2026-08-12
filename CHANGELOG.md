@@ -22,6 +22,12 @@
   no force at all, at the cost of a force step of
   `unit_damping / l0 · spring_vel` at the crossing. Also readable as a
   `segments` YAML column.
+- `Tether(...; compression_frac, compression_damping_frac)` hands both to every
+  segment a Route 2 tether generates, so an auto-generated line is no longer
+  stuck at the `Segment` default of `compression_frac = 0.1`. Also readable as
+  `tethers` YAML columns. A tether without a winch holds its length fixed, so
+  this is the way to split one line into several segments without writing every
+  segment and intermediate point out by hand.
 - A `SysLog` now carries the whole differential state, so a simulation can be
   restarted from any logged step. `update_sys_state!` writes point velocities,
   per-frame body turn rates, twist_surface twist and rate, and pulley length and

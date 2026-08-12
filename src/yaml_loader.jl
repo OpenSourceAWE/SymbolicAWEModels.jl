@@ -923,12 +923,17 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 youngs_modulus = yaml_float_or_nan(row, :youngs_modulus)
                 damping_per_stiffness =
                     yaml_float_or_nan(row, :damping_per_stiffness)
+                compression_frac =
+                    something(yaml_float(row, :compression_frac), 0.1)
+                compression_damping_frac =
+                    something(yaml_float(row, :compression_damping_frac), 1.0)
                 tether = Tether(tether_name, stretched_length;
                     start_point=start_ref, end_point=end_ref,
                     n_segments,
                     unit_stiffness, unit_damping,
                     diameter, density, youngs_modulus,
-                    damping_per_stiffness, tether_force, stretch_frac)
+                    damping_per_stiffness, compression_frac,
+                    compression_damping_frac, tether_force, stretch_frac)
             end
             saved_len = yaml_float(row, :len)
             isnothing(saved_len) || (tether.len = SimFloat(saved_len))
