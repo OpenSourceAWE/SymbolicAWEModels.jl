@@ -37,7 +37,7 @@ function aero_eqs!(
                 positions = [pos[:, node.idx] for node in nodes],
                 velocities = [vel[:, node.idx] for node in nodes],
                 apparent_winds = [va_point_b[:, node.idx] for node in nodes],
-                heights = [height[node.idx] for node in nodes])
+                heights = [pos[3, node.idx] for node in nodes])
             eqs = [eqs
                    wiring.eqs
                    flap_delta_eqs(wing, subsys,

@@ -80,6 +80,16 @@ function segment_perp_drag(va, unit_vec, rho, cd_tether, area)
 end
 
 """
+    air_density(am, height)
+
+Air density [kg/m³] at `height` above the ground, clamped at zero so a component that
+dips below `z = 0` keeps sea-level density instead of extrapolating the atmospheric
+model backwards. Every consumer — points, segments and wings, in both backends — reads
+density through here, so the clamp cannot differ between them.
+"""
+air_density(am, height) = calc_rho(am, max(0.0, height))
+
+"""
     point_drag_force(va, rho, drag_coeff, area)
 
 Aerodynamic drag on a point mass from apparent wind `va`:

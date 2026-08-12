@@ -54,7 +54,7 @@ so gravity stays settable after construction.
 """
 function point_net_force(s, pos, vel, structural_force, mass, drag_coeff, area,
                          wind_gnd, wind_factor; g_earth = s.set.g_earth)
-    rho = calc_rho(s.am, max(0.0, pos[3]))
+    rho = air_density(s.am, pos[3])
     va = wind_factor(pos[3]) .* wind_gnd .- vel
     drag = point_drag_force(va, rho, drag_coeff, area)
     gravity = [0.0, 0.0, -g_earth * mass]
@@ -186,7 +186,7 @@ function segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel,
     half_drag = zeros(Num, 3)
     if with_drag
         seg_pos_z = 0.5 * (src_pos[3] + dst_pos[3])
-        rho = calc_rho(s.am, max(0.0, seg_pos_z))
+        rho = air_density(s.am, seg_pos_z)
         seg_vel = 0.5 .* (src_vel .+ dst_vel)
         va = wind_factor(seg_pos_z) .* wind_gnd .- seg_vel
         half_drag = 0.5 .*
@@ -618,7 +618,7 @@ function point_wind_eqs(s, params, idx, io)
     wind = param_computed!(params.reg, :wind_factor, WindFactorReader())
     height = collect(io.pos)[3]
     apparent = collect(io.wind_vec) .- collect(io.vel)
-    own = point_drag_force(apparent, calc_rho(s.am, max(0.0, height)),
+    own = point_drag_force(apparent, air_density(s.am, height),
                            point.drag_coeff, point.area)
     return [collect(io.wind_vec) .~ wind(height) .* ground_wind_vec(params);
             collect(io.total_drag) .~ own .+ collect(io.drag_in)]
@@ -1112,7 +1112,7 @@ function ride_load(s, params, idx, io; with_gravity)
     point = params.points[idx]
     wind = param_computed!(params.reg, :wind_factor, WindFactorReader())
     apparent = wind(io.height) .* ground_wind_vec(params) .- collect(io.vel)
-    drag = point_drag_force(apparent, calc_rho(s.am, max(0.0, io.height)),
+    drag = point_drag_force(apparent, air_density(s.am, io.height),
                             point.drag_coeff, point.area)
     mass = point.extra_mass + io.mass_in
     gravity = with_gravity ? Num[0, 0, -params.set.g_earth * mass] : zeros(Num, 3)
@@ -1476,10 +1476,11 @@ twist_surface_aero_driven(twist_surface) =
 
 Feed a `PARTICLE_DYNAMICS` wing's aero component: each point's world position and
 velocity rotated into the wing frame `orientation` about `origin`, its body-frame
-apparent wind, and the air density at its height. `force_b` and `moment_b` are the
-body-frame wrench the component's per-point forces sum to, the moment taken about
-`origin`. `apparent_winds` and `heights` are supplied by the caller so each backend
-passes the variables it already carries rather than the expressions behind them.
+apparent wind, and the [`air_density`](@ref) at its height. `force_b` and `moment_b`
+are the body-frame wrench the component's per-point forces sum to, the moment taken
+about `origin`. `apparent_winds` and `heights` are supplied by the caller so each
+backend passes the variables it already carries rather than the expressions behind
+them; `heights` are raw world `z`, since `air_density` applies the ground clamp.
 """
 function particle_wing_aero_wiring(s, subsys; orientation, origin, positions,
                                    velocities, apparent_winds, heights)
@@ -1490,7 +1491,7 @@ function particle_wing_aero_wiring(s, subsys; orientation, origin, positions,
         append!(eqs, collect(subsys.point_vel[:, k]) .~
                      collect(orientation' * collect(velocities[k])))
         append!(eqs, collect(subsys.va[:, k]) .~ collect(apparent_winds[k]))
-        push!(eqs, subsys.rho[k] ~ calc_rho(s.am, heights[k]))
+        push!(eqs, subsys.rho[k] ~ air_density(s.am, heights[k]))
     end
     force_b = sum(collect(subsys.point_force[:, k]) for k in eachindex(positions))
     moment_b = sum(collect(subsys.point_pos[:, k]) ×
@@ -1503,8 +1504,9 @@ end
                            omega_b, twist_angles, twist_rates)
         -> (; eqs, force_b, moment_b, twist_moments)
 
-Feed a `RIGID_DYNAMICS` wing's aero component: its body-frame apparent wind, the air
-density at `height`, its body-to-world `frame` as a column-major nine-vector, its
+Feed a `RIGID_DYNAMICS` wing's aero component: its body-frame apparent wind, the
+[`air_density`](@ref) at `height`, its body-to-world `frame` as a column-major
+nine-vector, its
 body-frame angular velocity, and one twist angle and rate per twist surface it
 carries. Returns the body-frame wrench and one hinge moment per twist surface, in
 the order of `wing.twist_surface_idxs`; which of those a backend binds is its own
@@ -1513,7 +1515,7 @@ choice ([`twist_surface_aero_driven`](@ref)).
 function rigid_wing_aero_wiring(s, subsys, wing; apparent_wind_b, height, frame,
                                 omega_b, twist_angles, twist_rates)
     eqs = [collect(subsys.va) .~ collect(apparent_wind_b)
-           subsys.rho ~ calc_rho(s.am, height)
+           subsys.rho ~ air_density(s.am, height)
            vec(collect(subsys.R_b_w)) .~ collect(frame)
            collect(subsys.omega) .~ collect(omega_b)]
     surfaces = wing.twist_surface_idxs
@@ -1561,7 +1563,7 @@ function ParticleWingAero(s, params, idx; name)
     origin = collect(pose[1])
     wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
     wind_gnd = ground_wind_vec(params)
-    heights = [max(0.0, collect(positions[k])[3]) for k in 1:count]
+    heights = [collect(positions[k])[3] for k in 1:count]
     apparent_winds = [orientation' * (wind_factor(collect(positions[k])[3]) .*
                                       wind_gnd .- collect(velocities[k]))
                       for k in 1:count]
@@ -1606,7 +1608,7 @@ function AeroInflowPoint(s, params; name)
     eqs = [
         collect(io[5]) .~ orientation' * (position .- collect(io[3]))
         collect(io[6]) .~ orientation' * apparent
-        io[7] ~ calc_rho(s.am, max(0.0, position[3]))
+        io[7] ~ air_density(s.am, position[3])
     ]
     return System(eqs, t, io, param_unknowns(params); name)
 end
@@ -1955,7 +1957,7 @@ function TwistNodeWrench(s, params, idx; name, surface_idx = 0, gated = false)
     point = params.points[idx]
     wind = param_computed!(params.reg, :wind_factor, WindFactorReader())
     apparent = wind(io.height) .* ground_wind_vec(params) .- collect(io.vel)
-    drag = point_drag_force(apparent, calc_rho(s.am, max(0.0, io.height)),
+    drag = point_drag_force(apparent, air_density(s.am, io.height),
                             point.drag_coeff, point.area)
     load = collect(io.force_in) .+ drag .+ collect(point.ext_force_w)
     eqs = [

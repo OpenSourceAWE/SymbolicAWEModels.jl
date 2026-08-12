@@ -64,6 +64,7 @@ SymbolicAWEModels.calc_aoa
 SymbolicAWEModels.segment_geometry
 SymbolicAWEModels.segment_spring_force
 SymbolicAWEModels.segment_perp_drag
+SymbolicAWEModels.air_density
 SymbolicAWEModels.point_drag_force
 SymbolicAWEModels.segment_half_mass
 ```

@@ -76,6 +76,11 @@
   of the same quantity is an error.
 
 ### Fixed
+- Air density is now clamped at ground level on every path. A rigid wing read
+  `calc_rho` at its raw world `z`, so a wing that dipped below `z = 0`
+  extrapolated the atmospheric model backwards, while points and segments
+  clamped. The clamp now lives in one place, `air_density`, which every
+  consumer in both backends reads through.
 - `init_stretched_length` placement now carries a beam wing. A `BODY_STATIC`
   point riding a Timoshenko element has `body_idx == 0` and holds its
   association in `joint_idx`, so collecting the bodies to translate by

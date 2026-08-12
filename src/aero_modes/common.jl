@@ -686,14 +686,14 @@ end
 """
     sync_aero_density!(wing, am)
 
-Set the wing's VSM solver air density to `calc_rho(am, wing.pos_w[3])`, the same
+Set the wing's VSM solver air density to `air_density(am, wing.pos_w[3])`, the same
 altitude-dependent density the symbolic RHS uses to dimensionalize aero forces
 (see `aero_eqs.jl`). Keeps the VSM solve and the model consistent on dynamic
 pressure. No-op for non-VSM aero modes.
 """
 function sync_aero_density!(wing, am)
     wing.aero isa AbstractVSMAero || return nothing
-    wing.vsm_solver.density = calc_rho(am, wing.pos_w[3])
+    wing.vsm_solver.density = air_density(am, wing.pos_w[3])
     return nothing
 end
 

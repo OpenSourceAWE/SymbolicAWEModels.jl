@@ -189,7 +189,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
         drag_coeff = params.points[point.idx].drag_coeff
         area = params.points[point.idx].area
         drag_rhs = point_drag_force(collect(va_point_w[:, point.idx]),
-            calc_rho(s.am, height[point.idx]), drag_coeff, area)
+            air_density(s.am, height[point.idx]), drag_coeff, area)
         va_point_b_rhs = isnothing(wing_idx_for_transform) ? zeros(3) :
             R_b_to_w[:, :, wing_idx_for_transform]' * va_point_w[:, point.idx]
         eqs = [
