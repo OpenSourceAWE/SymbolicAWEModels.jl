@@ -274,6 +274,7 @@ SymbolicAWEModels.validate_twist_surface_modes
 SymbolicAWEModels.body_ride_eqs
 SymbolicAWEModels.beam_hermite_ride_eqs
 SymbolicAWEModels.point_damping_accel
+SymbolicAWEModels.segment_rest_length_eqs
 ```
 
 ## Plate aerodynamics internals

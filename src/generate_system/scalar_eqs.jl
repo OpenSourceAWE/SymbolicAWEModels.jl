@@ -37,15 +37,7 @@ function scalar_eqs!(
         wind_disturb(t)[1:3, eachindex(wings)]
         va_wing(t)[1:3, eachindex(wings)]
     end
-    # Tiny x-axis fallback for exactly-zero wind avoids normalize-by-zero.
-    wind_vec_raw = collect(params.set.wind_vec)
-    near_zero = sum(abs2, wind_vec_raw) < 1e-20
-    fallback = (1e-10, 0.0, 0.0)
-    eqs = [
-        eqs
-        [wind_vec_gnd[k] ~ ifelse(near_zero, fallback[k], wind_vec_raw[k])
-         for k in 1:3]
-    ]
+    eqs = [eqs; collect(wind_vec_gnd) .~ ground_wind_vec(params)]
     for wing in wings
         eqs = [
             eqs

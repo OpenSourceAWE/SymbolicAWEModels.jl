@@ -685,10 +685,9 @@ function add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twist
                  Symbol(:twist_angle_, surface))
         connect!(builder, twists[surface], :twist_vel, instance,
                  Symbol(:twist_vel_, surface))
-        driven = !(sam.sys_struct.twist_surfaces[surface].type == STATIC &&
-                   isempty(sam.sys_struct.twist_surfaces[surface].unrefined_section_idxs))
-        driven && connect!(builder, instance, Symbol(:twist_moment_, surface),
-                           twists[surface], :aero_moment_in)
+        twist_surface_aero_driven(sam.sys_struct.twist_surfaces[surface]) &&
+            connect!(builder, instance, Symbol(:twist_moment_, surface),
+                     twists[surface], :aero_moment_in)
     end
     return instance
 end

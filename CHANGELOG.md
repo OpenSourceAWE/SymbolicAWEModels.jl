@@ -91,8 +91,34 @@
   0.25 bar (a 20 mm tube at 0.1 bar gave `EI0 = -94 N·m²` and a negative `EA`),
   and the torsion factor `c2` changes sign for a fat tube above 1 bar. A
   non-positive radius or pressure is rejected as well.
+- `set.g_earth` is settable after construction on the `KernelBackend` too. A
+  particle point baked the value in while a rigid body and a ride point read the
+  registered parameter, so changing gravity on an existing model moved the bodies
+  and left the tether points falling at the old rate.
+- An aero panel that maps to no twist surface reads a zero deflection on both
+  backends. The `KernelBackend` already did; the monolith indexed the
+  `twist_surface_delta` array at `0`. Unreachable today, because every panel is
+  assigned a nearest flap whenever a wing has one, but live for any mode that
+  emits a partially-zero map.
+
+### Changed
+- The monolith and the `KernelBackend` evaluate one shared definition of every
+  equation, instead of a copy each. Points, segments, pulleys, rigid bodies,
+  ref-point wing frames, twist deformation, the ground wind fallback and the aero
+  wiring now route through the helpers in `src/components/`, which previously had
+  the `KernelBackend` as their only caller. A backend still chooses how equations
+  are assembled; it no longer chooses what they are.
 
 ### Breaking
+- The segment observables `stiffness`, `damping`, `segment_height`,
+  `segment_vel`, `segment_rho`, `wind_vel`, `va`, `area` and `app_perp_vel` are
+  gone. They were intermediates of the monolith's own copy of the spring and drag
+  law; keeping them would have meant re-deriving the force. `len`,
+  `spring_force`, `spring_force_vec`, `spring_vel`, `unit_vec`, `segment_vec`,
+  `rel_vel` and `l0` are unchanged.
+- The point observable `point_drag_force` is renamed `point_aero_drag`. It
+  shadowed the shared function of the same name. `total_drag`, which sums it with
+  the point's share of segment drag, is unchanged.
 - A `Pulley` resists rope travel by its `efficiency`, the fraction of line
   tension its sheave passes on. The friction is `(1 − efficiency) ·
   line_tension` carrying the sign of the motion, smoothed over

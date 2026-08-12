@@ -51,23 +51,11 @@ function body_eqs!(
         moment_w = collect(body_moment[:, idx]) .+
             R_b_to_w * collect(params.bodies[idx].ext_moment_b)
 
-        # fix_sphere also drops the radial spin component of ω_p.
-        frozen = rigid_body.type == STATIC
-        sphere = params.bodies[idx].fix_sphere
-        ω = collect(body_ω_p[:, idx])
-        cv = collect(body_com_vel[:, idx])
-        ca = collect(body_com_acc[:, idx])
-        α_damped = collect(body_α_p[:, idx]) .- collect(params.bodies[idx].damping) .* ω
-        com_axis = collect(smooth_normalize(body_com_w[:, idx]))
-        com_axis_p = collect(body_R_p_to_w[:, :, idx]' * com_axis)
-        ω_kinematic = ifelse.(frozen == true, zeros(3),
-            ifelse.(sphere == true, ω .- (ω ⋅ com_axis_p) .* com_axis_p, ω))
-        d_ω_p = ifelse.(frozen == true, zeros(3),
-            ifelse.(sphere == true, α_damped .- (α_damped ⋅ com_axis_p) .* com_axis_p, α_damped))
-        d_com_w = ifelse.(frozen == true, zeros(3),
-            ifelse.(sphere == true, (cv ⋅ com_axis) .* com_axis, cv))
-        d_com_vel = ifelse.(frozen == true, zeros(3),
-            ifelse.(sphere == true, (ca ⋅ com_axis) .* com_axis, ca))
+        (; ω_kinematic, d_ω_p, d_com_w, d_com_vel) = body_integration(
+            params, idx, body_com_w[:, idx], body_com_vel[:, idx],
+            body_ω_p[:, idx], body_α_p[:, idx], body_com_acc[:, idx],
+            collect(body_R_p_to_w[:, :, idx]);
+            frozen=(rigid_body.type == STATIC))
 
         eqs, defaults = rigid_body_eqs!(
             eqs, defaults, idx;

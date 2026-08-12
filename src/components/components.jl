@@ -27,34 +27,37 @@ keep_along(vector, axis) = (vector ⋅ axis) .* axis
 
 """
     point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
-                       world_damping, wind_gnd, wind_factor)
+                       world_damping, wind_gnd, wind_factor; g_earth=s.set.g_earth)
 
 `(; net_force, accel)` for a point mass: [`point_net_force`](@ref) and that per unit
 `mass`, minus world-frame damping.
 """
 function point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
-                            world_damping, wind_gnd, wind_factor)
+                            world_damping, wind_gnd, wind_factor;
+                            g_earth = s.set.g_earth)
     net_force = point_net_force(s, pos, vel, structural_force, mass, drag_coeff,
-                                area, wind_gnd, wind_factor)
+                                area, wind_gnd, wind_factor; g_earth)
     return (; net_force, accel = net_force ./ mass .- world_damping .* vel)
 end
 
 """
     point_net_force(s, pos, vel, structural_force, mass, drag_coeff, area, wind_gnd,
-                    wind_factor)
+                    wind_factor; g_earth=s.set.g_earth)
 
 The physical force on a point: the structural force gathered from its segments plus
 its own aerodynamic drag against the wind at its height and gravity — the monolith's
 `point_force`. `structural_force` is the net force on the point (positive sign); each
 backend supplies it in its own aggregation convention. A clamped point reads it
-without moving, which is how an anchor's or a winch's load is read off.
+without moving, which is how an anchor's or a winch's load is read off. `g_earth`
+defaults to the baked setting; both backends pass the registered `params.set.g_earth`
+so gravity stays settable after construction.
 """
 function point_net_force(s, pos, vel, structural_force, mass, drag_coeff, area,
-                         wind_gnd, wind_factor)
+                         wind_gnd, wind_factor; g_earth = s.set.g_earth)
     rho = calc_rho(s.am, max(0.0, pos[3]))
     va = wind_factor(pos[3]) .* wind_gnd .- vel
     drag = point_drag_force(va, rho, drag_coeff, area)
-    gravity = [0.0, 0.0, -s.set.g_earth * mass]
+    gravity = [0.0, 0.0, -g_earth * mass]
     return structural_force .+ drag .+ gravity
 end
 
@@ -62,9 +65,10 @@ end
     point_particle_params(params, idx)
 
 The shared DYNAMIC-particle parameters read from `params.points[idx]` — mass, drag,
-area and world-frame damping as the point's own struct fields — plus the computed
-ground wind `wind_gnd` ([`ground_wind_vec`](@ref)). Returns a named tuple consumed by
-[`dynamic_point_dynamics`](@ref); each read registers the parameter on `params`.
+area and world-frame damping as the point's own struct fields — plus the registered
+gravity `g_earth` and the computed ground wind `wind_gnd` ([`ground_wind_vec`](@ref)).
+Returns a named tuple consumed by [`dynamic_point_dynamics`](@ref); each read
+registers the parameter on `params`, so gravity stays settable after construction.
 """
 function point_particle_params(params, idx)
     point = params.points[idx]
@@ -72,6 +76,7 @@ function point_particle_params(params, idx)
     return (; extra_mass = point.extra_mass, drag_coeff = point.drag_coeff,
             area = point.area, world_damping = point.world_frame_damping,
             fix_sphere = point.fix_sphere, fix_static = point.fix_static, wind_gnd,
+            g_earth = params.set.g_earth,
             wind_factor = param_computed!(params.reg, :wind_factor,
                                           WindFactorReader()))
 end
@@ -104,7 +109,7 @@ Shared body of the DYNAMIC point/pulley vertices: `D(pos)=vel`,
 function dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force)
     motion = point_acceleration(s, collect(pos), collect(vel), collect(force),
         mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
-        collect(pars.wind_gnd), pars.wind_factor)
+        collect(pars.wind_gnd), pars.wind_factor; g_earth = pars.g_earth)
     velocity, acceleration = confined_derivatives(pos, vel, motion.accel, pars)
     return [D.(collect(pos)) .~ velocity; D.(collect(vel)) .~ acceleration;
             collect(net_force) .~ motion.net_force]
@@ -156,11 +161,11 @@ end
                        l0, diameter, density, cd_tether, wind_gnd, wind_factor;
                        with_drag=true, nonlinear=false)
 
-Every load term a segment produces, as a named tuple: the geometry (`len`,
-`unit_vec`), the signed scalar spring-damper tension `spring` and its vector
-`spring_vec`, the `half_mass` and `half_drag` each endpoint carries, and the total
-`force_on_src`/`force_on_dst` in the positive force-on-point sign. With `nonlinear`
-the `unit_stiffness` is a callable force law of strain
+Every load term a segment produces, as a named tuple: the geometry (`segment_vec`,
+`len`, `unit_vec`, `spring_vel`), the signed scalar spring-damper tension `spring`
+and its vector `spring_vec`, the `half_mass` and `half_drag` each endpoint carries,
+and the total `force_on_src`/`force_on_dst` in the positive force-on-point sign.
+With `nonlinear` the `unit_stiffness` is a callable force law of strain
 ([`segment_nonlinear_force`](@ref)) rather than a linear rate; with
 `with_drag = false` the tether drag is dropped entirely, so `cd_tether`/`wind_gnd`
 are unused.
@@ -170,7 +175,7 @@ function segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel,
                             compression_damping_frac,
                             l0, diameter, density, cd_tether, wind_gnd, wind_factor;
                             with_drag = true, nonlinear = false)
-    _, len, unit_vec, spring_vel =
+    segment_vec, len, unit_vec, spring_vel =
         segment_geometry(src_pos, dst_pos, src_vel, dst_vel)
     spring = nonlinear ?
         segment_nonlinear_force(len, l0, spring_vel, unit_stiffness, unit_damping) :
@@ -187,8 +192,8 @@ function segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel,
         half_drag = 0.5 .*
             segment_perp_drag(va, unit_vec, rho, cd_tether, len * diameter)
     end
-    return (; len, unit_vec, spring, spring_vec, half_mass, half_drag,
-            force_on_src = spring_vec .+ half_drag,
+    return (; segment_vec, len, unit_vec, spring_vel, spring, spring_vec, half_mass,
+            half_drag, force_on_src = spring_vec .+ half_drag,
             force_on_dst = .-spring_vec .+ half_drag)
 end
 
@@ -503,26 +508,28 @@ end
 
 """
     pulley_split_eqs(pulley_len, pulley_vel, tension_in, line_tension, pulley_mass,
-                     pulley, pulley_len_out)
+                     pulley, pulley_len_out=nothing)
 
-The rope-split dynamics a pulley point owns on top of its particle motion:
-`D(pulley_len)=pulley_vel`, `D(pulley_vel)=(tension_in −
-[`pulley_friction_force`](@ref))/pulley_mass` (the aggregated `tension_in` being
-`spring[seg1] − spring[seg2]` and `line_tension` their mean), and
-`pulley_len_out=pulley_len` exposed so the incident segments read it as their `l0`.
-A braked pulley holds both derivatives at zero, freezing the split where it is.
-Used by [`PulleyParticle`](@ref).
+The rope-split dynamics of a pulley: `D(pulley_len)=pulley_vel`,
+`D(pulley_vel)=(tension_in − [`pulley_friction_force`](@ref))/pulley_mass` (the
+aggregated `tension_in` being `spring[seg1] − spring[seg2]` and `line_tension`
+their mean). A braked pulley holds both derivatives at zero, freezing the split
+where it is. Given a `pulley_len_out` variable, `pulley_len` is also exposed
+through it so the incident segments read it as their `l0`; the monolith reads the
+split state directly and passes none. Used by [`PulleyParticle`](@ref) and
+[`pulley_eqs!`](@ref).
 """
 function pulley_split_eqs(pulley_len, pulley_vel, tension_in, line_tension,
-                          pulley_mass, pulley, pulley_len_out)
+                          pulley_mass, pulley, pulley_len_out = nothing)
     braked = pulley.brake > 0.5
     accel = (tension_in -
              pulley_friction_force(pulley, pulley_vel, line_tension)) / pulley_mass
-    return [
+    eqs = [
         D(pulley_len) ~ ifelse(braked, zero(accel), pulley_vel);
         D(pulley_vel) ~ ifelse(braked, zero(accel), accel);
-        pulley_len_out ~ pulley_len;
     ]
+    isnothing(pulley_len_out) || push!(eqs, pulley_len_out ~ pulley_len)
+    return eqs
 end
 
 """
@@ -548,17 +555,24 @@ pulley_friction_force(pulley, vel, line_tension) =
     (1 - pulley.efficiency) * line_tension + pulley.damping * vel
 
 """
-    wing_frame_columns(zp1, zp2, yp1, yp2)
+    wing_frame_columns(zp1, zp2, yp1, yp2; torn_frame=nothing)
 
 The particle-wing body→world rotation columns fitted from the four structural ref
-points, matching `wing_eqs.jl`: `z = normalize(zp2−zp1)`,
-`x = normalize(normalize(yp2−yp1) × z)`, `y = z × x`. Returns `(xaxis, yaxis,
-zaxis)`, each a 3-vector (the columns of `R_b_to_w`).
+points: `z = normalize(zp2−zp1)`, `x = normalize(normalize(yp2−yp1) × z)`,
+`y = z × x`. Returns `(xaxis, yaxis, zaxis)`, each a 3-vector (the columns of
+`R_b_to_w`).
+
+A caller that binds each column to its own equation passes the declared 3×3
+rotation variable as `torn_frame`; the `x` and `y` expressions then read its `z`
+and `x` columns instead of re-embedding those subtrees.
 """
-function wing_frame_columns(zp1, zp2, yp1, yp2)
+function wing_frame_columns(zp1, zp2, yp1, yp2; torn_frame=nothing)
     zaxis = smooth_normalize(zp2 .- zp1)
-    xaxis = smooth_normalize(smooth_normalize(yp2 .- yp1) × zaxis)
-    yaxis = zaxis × xaxis
+    frame = isnothing(torn_frame) ? nothing : collect(torn_frame)
+    zref = isnothing(frame) ? zaxis : frame[:, 3]
+    xaxis = smooth_normalize(smooth_normalize(yp2 .- yp1) × zref)
+    xref = isnothing(frame) ? xaxis : frame[:, 1]
+    yaxis = zref × xref
     return xaxis, yaxis, zaxis
 end
 
@@ -645,7 +659,8 @@ function Anchor(s, params, idx; name)
         collect(io.vel) .~ zeros(3)
         collect(io.net_force) .~ point_net_force(s, collect(io.pos), collect(io.vel),
             collect(io.force_in), pars.extra_mass + io.mass_in, pars.drag_coeff,
-            pars.area, collect(pars.wind_gnd), pars.wind_factor)
+            pars.area, collect(pars.wind_gnd), pars.wind_factor;
+            g_earth = pars.g_earth)
         point_wind_eqs(s, params, idx, io)
     ]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
@@ -733,7 +748,8 @@ function WinchAnchor(s, params, winch, idx; name)
         collect(io.vel) .~ zeros(3)
         collect(io.net_force) .~ point_net_force(s, collect(io.pos), collect(io.vel),
             collect(io.force_in), pars.extra_mass + io.mass_in, pars.drag_coeff,
-            pars.area, collect(pars.wind_gnd), pars.wind_factor)
+            pars.area, collect(pars.wind_gnd), pars.wind_factor;
+            g_earth = pars.g_earth)
         point_wind_eqs(s, params, idx, io)
         extra[3] ~ smooth_norm(collect(extra[1]))
         motor.vel ~ extra[2]
@@ -903,29 +919,36 @@ end
 
 """
     body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
-                     orientation_p)
+                     orientation_p; frozen=false)
 
-The four integration overrides `rigid_body_pose_expressions` takes, matching
-`body_eqs!`: `fix_sphere` confines the body to a sphere about the world origin by
-keeping only the radial part of its COM velocity and acceleration and dropping the
-radial part of its spin. `alpha_p`/`com_acc` are the caller's torn variables, so the
-overrides can name the accelerations they correct without a cycle. Angular damping
-is folded in here, as the monolith does.
+The four integration overrides `rigid_body_pose_expressions` takes: `fix_sphere`
+confines the body to a sphere about the world origin by keeping only the radial part
+of its COM velocity and acceleration and dropping the radial part of its spin.
+`alpha_p`/`com_acc` are the caller's torn variables, so the overrides can name the
+accelerations they correct without a cycle. Angular damping is folded in here.
+
+`frozen` holds all four derivatives at zero, clamping a body that is integrated but
+must not move; a backend that gives such a body no state at all leaves it `false`.
 """
 function body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
-                          orientation_p)
+                          orientation_p; frozen=false)
     body = params.bodies[idx]
     sphere = body.fix_sphere
     spin = collect(omega_p)
     damped = collect(alpha_p) .- collect(body.damping) .* spin
     axis = collect(smooth_normalize(collect(com_w)))
     axis_p = orientation_p' * axis
-    return (; ω_kinematic = ifelse.(sphere == true, remove_along(spin, axis_p), spin),
-            d_ω_p = ifelse.(sphere == true, remove_along(damped, axis_p), damped),
-            d_com_w = ifelse.(sphere == true, keep_along(collect(com_vel), axis),
-                              collect(com_vel)),
-            d_com_vel = ifelse.(sphere == true, keep_along(collect(com_acc), axis),
-                                collect(com_acc)))
+    spin_kinematic = ifelse.(sphere == true, remove_along(spin, axis_p), spin)
+    spin_rate = ifelse.(sphere == true, remove_along(damped, axis_p), damped)
+    com_rate = ifelse.(sphere == true, keep_along(collect(com_vel), axis),
+                       collect(com_vel))
+    com_vel_rate = ifelse.(sphere == true, keep_along(collect(com_acc), axis),
+                           collect(com_acc))
+    held = zeros(3)
+    return (; ω_kinematic = ifelse.(frozen == true, held, spin_kinematic),
+            d_ω_p = ifelse.(frozen == true, held, spin_rate),
+            d_com_w = ifelse.(frozen == true, held, com_rate),
+            d_com_vel = ifelse.(frozen == true, held, com_vel_rate))
 end
 
 """
@@ -1389,20 +1412,33 @@ function indexed_scalar_variables(base::Symbol, count::Int; input = false)
 end
 
 """
+    flap_delta_eqs(wing, subsys, delta_of) -> Vector{Equation}
+
+Bind every per-panel `delta` connector of `wing`'s aero component to the deflection
+`delta_of` returns for the twist surface that panel deflects with. A panel mapped to
+no surface is bound to zero. Empty when the aero exposes no `delta` connector.
+"""
+function flap_delta_eqs(wing, subsys, delta_of)
+    (hasproperty(subsys, :delta) && subsys.delta !== nothing) ||
+        return Equation[]
+    panel_map = wing.aero.panel_twist_surface
+    return [subsys.delta[i] ~ (panel_map[i] == 0 ? 0 : delta_of(panel_map[i]))
+            for i in eachindex(panel_map)]
+end
+
+"""
     flap_delta_inputs(wing, subsys) -> (; vars, eqs)
 
 One `flap_delta_g` input per twist surface some panel of `wing` maps to, and the
-equations binding the aero component's per-panel `delta` connector to them, exactly
-as the `PARTICLE_DYNAMICS` branch of `aero_eqs!` wires it. Empty when the wing's
-aero exposes no `delta` connector.
+[`flap_delta_eqs`](@ref) binding the aero component's per-panel `delta` connector to
+them. Empty when the wing's aero exposes no `delta` connector.
 """
 function flap_delta_inputs(wing, subsys)
     surfaces = wing_flap_surfaces(wing)
     isempty(surfaces) && return (; vars = Any[], eqs = Equation[])
     inputs = Dict(surface => scalar_input(Symbol(:flap_delta_, surface))
                   for surface in surfaces)
-    panel_map = wing.aero.panel_twist_surface
-    eqs = [subsys.delta[i] ~ inputs[panel_map[i]] for i in eachindex(panel_map)]
+    eqs = flap_delta_eqs(wing, subsys, surface -> inputs[surface])
     return (; vars = Any[inputs[surface] for surface in surfaces], eqs)
 end
 
@@ -1411,14 +1447,84 @@ end
 
 The twist surfaces `wing`'s aero panels deflect with, sorted and unique, or empty
 when its aero mode has no per-panel flap coupling. One `flap_delta` input and one
-[`FlapDelta`](@ref) instance exist per entry.
+[`FlapDelta`](@ref) instance exist per entry. The `0` of an unmapped panel is not a
+surface and is left out.
 """
 function wing_flap_surfaces(wing)
     hasproperty(wing.aero, :panel_twist_surface) || return Int[]
     panel_map = wing.aero.panel_twist_surface
     (length(panel_map) == length(wing.vsm_aero.panels) &&
      any(!=(0), panel_map)) || return Int[]
-    return sort!(unique(panel_map))
+    return sort!(unique(filter(!=(0), panel_map)))
+end
+
+"""
+    twist_surface_aero_driven(twist_surface) -> Bool
+
+Whether a wing's aero drives this twist surface's hinge moment. A `STATIC` surface
+with no aero sections has nothing to drive it with, and `twist_surface_eqs!` binds
+its moment to zero instead.
+"""
+twist_surface_aero_driven(twist_surface) =
+    !(twist_surface.type == STATIC &&
+      isempty(twist_surface.unrefined_section_idxs))
+
+"""
+    particle_wing_aero_wiring(s, subsys; orientation, origin, positions,
+                              velocities, apparent_winds, heights)
+        -> (; eqs, force_b, moment_b)
+
+Feed a `PARTICLE_DYNAMICS` wing's aero component: each point's world position and
+velocity rotated into the wing frame `orientation` about `origin`, its body-frame
+apparent wind, and the air density at its height. `force_b` and `moment_b` are the
+body-frame wrench the component's per-point forces sum to, the moment taken about
+`origin`. `apparent_winds` and `heights` are supplied by the caller so each backend
+passes the variables it already carries rather than the expressions behind them.
+"""
+function particle_wing_aero_wiring(s, subsys; orientation, origin, positions,
+                                   velocities, apparent_winds, heights)
+    eqs = Equation[]
+    for k in eachindex(positions)
+        append!(eqs, collect(subsys.point_pos[:, k]) .~
+                     collect(orientation' * (collect(positions[k]) .- origin)))
+        append!(eqs, collect(subsys.point_vel[:, k]) .~
+                     collect(orientation' * collect(velocities[k])))
+        append!(eqs, collect(subsys.va[:, k]) .~ collect(apparent_winds[k]))
+        push!(eqs, subsys.rho[k] ~ calc_rho(s.am, heights[k]))
+    end
+    force_b = sum(collect(subsys.point_force[:, k]) for k in eachindex(positions))
+    moment_b = sum(collect(subsys.point_pos[:, k]) ×
+                   collect(subsys.point_force[:, k]) for k in eachindex(positions))
+    return (; eqs, force_b, moment_b)
+end
+
+"""
+    rigid_wing_aero_wiring(s, subsys, wing; apparent_wind_b, height, frame,
+                           omega_b, twist_angles, twist_rates)
+        -> (; eqs, force_b, moment_b, twist_moments)
+
+Feed a `RIGID_DYNAMICS` wing's aero component: its body-frame apparent wind, the air
+density at `height`, its body-to-world `frame` as a column-major nine-vector, its
+body-frame angular velocity, and one twist angle and rate per twist surface it
+carries. Returns the body-frame wrench and one hinge moment per twist surface, in
+the order of `wing.twist_surface_idxs`; which of those a backend binds is its own
+choice ([`twist_surface_aero_driven`](@ref)).
+"""
+function rigid_wing_aero_wiring(s, subsys, wing; apparent_wind_b, height, frame,
+                                omega_b, twist_angles, twist_rates)
+    eqs = [collect(subsys.va) .~ collect(apparent_wind_b)
+           subsys.rho ~ calc_rho(s.am, height)
+           vec(collect(subsys.R_b_w)) .~ collect(frame)
+           collect(subsys.omega) .~ collect(omega_b)]
+    surfaces = wing.twist_surface_idxs
+    if !isempty(surfaces)
+        eqs = [eqs
+               collect(subsys.twist) .~ twist_angles
+               collect(subsys.twist_vel) .~ twist_rates]
+    end
+    twist_moments = [subsys.twist_moment[j] for j in eachindex(surfaces)]
+    return (; eqs, force_b = collect(subsys.force),
+            moment_b = collect(subsys.moment), twist_moments)
 end
 
 """A scalar input variable named `name`."""
@@ -1428,13 +1534,12 @@ scalar_input(name::Symbol) = only(@variables $name(t), [input = true])
     ParticleWingAero(s, params, idx; name)
 
 The live aerodynamic force on a fitted wing's structural points: every point's world
-`pos`/`vel` and the wing's own pose in, the world force on each point out. It
-rebuilds each point's body-frame position, velocity, apparent wind and air density
-exactly as the `PARTICLE_DYNAMICS` branch of `aero_eqs!` does, hands them to the
-wing's aero component and rotates the per-point force it returns back into the
-world. A frozen mode compiles down to one parameter read per point; a live mode
-solves in place. The wing's lumped `aero_force_b`/`aero_moment_b` are observed, as
-the monolith emits them.
+`pos`/`vel` and the wing's own pose in, the world force on each point out. It builds
+each point's apparent wind and height from the pose, feeds the wing's aero component
+through [`particle_wing_aero_wiring`](@ref) and rotates the per-point force it
+returns back into the world. A frozen mode compiles down to one parameter read per
+point; a live mode solves in place. The wing's lumped `aero_force_b`/`aero_moment_b`
+are observed.
 """
 function ParticleWingAero(s, params, idx; name)
     sys_struct = params.reg.sys_struct
@@ -1456,24 +1561,19 @@ function ParticleWingAero(s, params, idx; name)
     origin = collect(pose[1])
     wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
     wind_gnd = ground_wind_vec(params)
-    eqs = Equation[]
+    heights = [max(0.0, collect(positions[k])[3]) for k in 1:count]
+    apparent_winds = [orientation' * (wind_factor(collect(positions[k])[3]) .*
+                                      wind_gnd .- collect(velocities[k]))
+                      for k in 1:count]
+    wiring = particle_wing_aero_wiring(s, subsys; orientation, origin, positions,
+                                       velocities, apparent_winds, heights)
+    eqs = wiring.eqs
     for k in 1:count
-        position = collect(positions[k])
-        velocity = collect(velocities[k])
-        apparent = wind_factor(position[3]) .* wind_gnd .- velocity
-        append!(eqs, collect(subsys.point_pos[:, k]) .~
-                     orientation' * (position .- origin))
-        append!(eqs, collect(subsys.point_vel[:, k]) .~ orientation' * velocity)
-        append!(eqs, collect(subsys.va[:, k]) .~ orientation' * apparent)
-        push!(eqs, subsys.rho[k] ~ calc_rho(s.am, max(0.0, position[3])))
         append!(eqs, collect(forces[k]) .~
                      orientation * collect(subsys.point_force[:, k]))
     end
-    append!(eqs, collect(pose[3]) .~
-                 sum(collect(subsys.point_force[:, k]) for k in 1:count))
-    append!(eqs, collect(pose[4]) .~
-                 sum(collect(subsys.point_pos[:, k]) ×
-                     collect(subsys.point_force[:, k]) for k in 1:count))
+    append!(eqs, collect(pose[3]) .~ wiring.force_b)
+    append!(eqs, collect(pose[4]) .~ wiring.moment_b)
     flaps = flap_delta_inputs(wing, subsys)
     append!(eqs, flaps.eqs)
     vars = [pose; positions; velocities; forces; flaps.vars]
@@ -1644,9 +1744,9 @@ scalar_output(name::Symbol) = only(@variables $name(t), [output = true])
 
 The aerodynamic wrench of a `RIGID_DYNAMICS` wing: its body's pose in, the world
 force and the moment about its COM out, plus one twist moment per twist surface it
-carries. It rebuilds the wing's apparent wind and air density from that pose exactly
-as `scalar_eqs!` and `aero_eqs!` do, hands them to the wing's aero component, and
-transports the returned body-frame wrench to the COM as `create_sys` does. Like
+carries. It builds the wing's apparent wind from that pose, feeds the wing's aero
+component through [`rigid_wing_aero_wiring`](@ref), and transports the returned
+body-frame wrench to the COM as `create_sys` does. Like
 [`ParticleWingAero`](@ref) it is a component of its own: a body's pose does not
 depend on the force it receives, so aero after pose and before the body's derivative
 is just another schedule layer.
@@ -1673,26 +1773,23 @@ function WingAero(s, params, idx; name)
     origin = collect(pose.pose_pos)
     velocity = rigid_body_point_velocity(pose, origin .- collect(pose.pose_com))
     wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
+    wiring = rigid_wing_aero_wiring(s, subsys, wing;
+        apparent_wind_b = collect(io[5]), height = origin[3],
+        frame = collect(pose.pose_frame),
+        omega_b = orientation' * collect(pose.pose_omega),
+        twist_angles = twists, twist_rates = rates)
     eqs = [
         collect(io[6]) .~ wind_factor(origin[3]) .* ground_wind_vec(params)
         collect(io[5]) .~ orientation' * (collect(io[6]) .- velocity .+
                                           collect(params.wings[idx].wind_disturb))
-        collect(subsys.va) .~ collect(io[5])
-        subsys.rho ~ calc_rho(s.am, origin[3])
-        vec(collect(subsys.R_b_w)) .~ collect(pose.pose_frame)
-        collect(subsys.omega) .~ orientation' * collect(pose.pose_omega)
-        collect(io[3]) .~ collect(subsys.force)
-        collect(io[4]) .~ collect(subsys.moment)
+        wiring.eqs
+        collect(io[3]) .~ wiring.force_b
+        collect(io[4]) .~ wiring.moment_b
         collect(io[1]) .~ orientation * collect(io[3])
         collect(io[2]) .~ orientation * (collect(io[4]) .+
             (collect(io[3]) × collect(params.bodies[idx].com_offset_b)))
     ]
-    if !isempty(surfaces)
-        append!(eqs, collect(subsys.twist) .~ twists)
-        append!(eqs, collect(subsys.twist_vel) .~ rates)
-        append!(eqs, [moments[j] ~ subsys.twist_moment[j]
-                      for j in eachindex(surfaces)])
-    end
+    append!(eqs, [moments[j] ~ wiring.twist_moments[j] for j in eachindex(surfaces)])
     vars = [pose.all; io; twists; rates; moments]
     return System(eqs, t, vars, param_unknowns(params); name, systems = [subsys])
 end
@@ -1815,6 +1912,28 @@ function TwistNodePoint(s, params, idx; name, surface_idx = 0)
 end
 
 """
+    twist_bridle_couple(surface, pos_b, twist, orientation)
+
+The geometry of the couple a structural node at the body-frame offset `pos_b` exerts
+on its twist `surface`'s hinge, at section twist `twist` and body orientation
+`orientation` (`R_b_to_w`). Returns `(; axis, offset, arm, direction)`: `axis` along
+the surface chord, `offset` from the moment reference `le_pos + moment_frac·chord` to
+the node, its chordwise `arm = offset ⋅ axis`, and the world `direction` the twisted
+section normal points against. The node's load projected on `direction`, times `arm`,
+is the hinge moment it delivers. Used by [`TwistNodeWrench`](@ref) and
+[`twist_surface_eqs!`](@ref).
+"""
+function twist_bridle_couple(surface, pos_b, twist, orientation)
+    chord = collect(surface.chord)
+    axis = collect(smooth_normalize(chord))
+    section_normal = sin(twist) .* axis .+
+                     cos(twist) .* (axis × collect(surface.y_airf))
+    offset = collect(pos_b) .- (collect(surface.le_pos) .+ surface.moment_frac .* chord)
+    return (; axis, offset, arm = offset ⋅ axis,
+            direction = orientation * (-1 .* section_normal))
+end
+
+"""
     TwistNodeWrench(s, params, idx; name, surface_idx=0, gated=false)
 
 The *statics* of a structural node on a `RIGID_DYNAMICS` wing: the load its
@@ -1850,16 +1969,11 @@ function TwistNodeWrench(s, params, idx; name, surface_idx = 0, gated = false)
         node_force = scalar_output(:node_force)
         node_moment = scalar_output(:node_moment)
         node_mass = scalar_output(:node_mass)
-        chord = collect(surface.chord)
-        axis = collect(smooth_normalize(chord))
-        section_normal = sin(twist) .* axis .+
-                         cos(twist) .* (axis × collect(surface.y_airf))
-        direction = reshape(collect(vars[2]), 3, 3) * (-1 .* section_normal)
-        offset = collect(point.pos_b) .- (collect(surface.le_pos) .+
-                                          surface.moment_frac .* chord)
+        couple = twist_bridle_couple(surface, point.pos_b, twist,
+                                     reshape(collect(vars[2]), 3, 3))
         eqs = [eqs
-               node_force ~ load ⋅ direction
-               node_moment ~ (offset ⋅ axis) * node_force
+               node_force ~ load ⋅ couple.direction
+               node_moment ~ couple.arm * node_force
                node_mass ~ point.extra_mass]
         append!(extra, Any[node_force, node_moment, node_mass])
     end
