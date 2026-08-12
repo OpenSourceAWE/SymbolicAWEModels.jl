@@ -119,7 +119,7 @@ end
 An assembled model. `kernels` is a vector, not a tuple: a concrete tuple names every
 kernel type in the model, and carrying that type on a field of this struct made
 inference of the code reaching a `KernelSystem` grow explosively in the number of
-kernel types — 0.02 s at nine of them, 2.3 s at fourteen, 853 s at SK100's
+kernel types — 0.02 s at nine of them, 2.3 s at fourteen, 853 s at a large kite's
 twenty-one, which is what a loaded Makie turns from cached into paid. The evaluation
 loop still needs the tuple to unroll over, and gets it from [`KernelRHS`](@ref).
 
