@@ -2,16 +2,31 @@
 
 ## Unreleased
 
+### Removed
+- `save_sys_struct_to_yaml(sys, path)`, added earlier in this unreleased cycle,
+  in favour of the `SysLog` round trip below. Writing a whole structure back to
+  YAML had to guess at the CAD/world frame boundary: positions were written as
+  `pos_cad`, because that is the frame aero sections are matched in and the frame
+  `reinit!` derives `pos_w` from, which left a settled configuration needing a
+  manual mapping, and a rigid wing placed by a `transforms` block never
+  reloaded. Saving state alone has no such boundary.
+
 ### Added
-- `save_sys_struct_to_yaml(sys, path)` writes a `SystemStructure` back to the
-  component-based YAML `load_sys_struct_from_yaml` reads, so a structure built or
-  edited in Julia can be handed on as a file. Floats are written at full
-  precision, so rest lengths, stiffnesses, masses, pulley `sum_len`, damping and
-  joint properties reload bit for bit. Positions are written as `pos_cad`: that
-  is the frame the aero sections are matched in and the frame `reinit!` derives
-  `pos_w` from, so a settled configuration has to be mapped back into it by the
-  caller rather than written straight out. A rigid wing placed by a `transforms`
-  block does not reload yet.
+- A `SysLog` now carries the whole differential state, so a simulation can be
+  restarted from any logged step. `update_sys_state!` writes point velocities,
+  per-frame body turn rates, twist_surface twist and rate, and pulley length and
+  rate alongside the positions and orientations it already wrote, and
+  `update_from_sysstate!` reads all of them back — including the body rates,
+  which it rebuilds into the principal frame the ODE actually integrates. It no
+  longer zeroes point velocities or caps twist surfaces at four. Pass
+  `precision=Float64` to `SysState(sam)` or `Logger(sam, steps)` to log a state
+  that reproduces `integrator.u`; the default stays `Float32`, so ordinary
+  telemetry logs keep their size. Restart with
+  `init!(sam; remake=false, reinit_sys=false)`, which seeds the integrator from
+  the structure instead of resetting it from the CAD frame.
+- `test_init!` round-trips every model the suite builds through a `SysLog` on
+  disk and checks `integrator.u` is unchanged, which covers the `DynamicsType`
+  combinations that decide whether a component is part of the state at all.
 - The YAML loader reads back state that previously had no column: point `vel_w`
   (it was zeroed unconditionally, discarding the column it already accepted),
   pulley `sum_len`/`len`/`vel`, twist_surface `twist`/`twist_vel`, tether `len`,
