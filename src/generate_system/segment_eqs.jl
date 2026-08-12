@@ -137,11 +137,14 @@ function segment_eqs!(s, eqs, points, segments,
             ]
         else
             idx = segment.idx
-            damp_eq = damping[idx] ~
-                params.segments[idx].unit_damping / len[idx]
+            unit_damp = params.segments[idx].unit_damping
             if segment.unit_stiffness isa Real
                 k = params.segments[idx].unit_stiffness
                 stiff_eqs = [
+                    damping[idx] ~ ifelse(
+                        len[idx] > l0[idx], unit_damp,
+                        params.segments[idx].compression_damping_frac *
+                            unit_damp) / len[idx]
                     stiffness[idx] ~ ifelse(
                         len[idx] > l0[idx], k / len[idx],
                         params.segments[idx].compression_frac * k / len[idx])
@@ -154,6 +157,7 @@ function segment_eqs!(s, eqs, points, segments,
                 force_law = params.segments[idx].unit_stiffness
                 strain = (len[idx] - l0[idx]) / l0[idx]
                 stiff_eqs = [
+                    damping[idx] ~ unit_damp / len[idx]
                     stiffness[idx] ~ 0.0
                     spring_force[idx] ~ force_law(strain) -
                         damping[idx] * spring_vel[idx]
@@ -161,7 +165,6 @@ function segment_eqs!(s, eqs, points, segments,
             end
             eqs = [
                 eqs
-                damp_eq
                 stiff_eqs
                 spring_force_vec[:, idx] ~ spring_force[idx] * unit_vec[:, idx]
             ]

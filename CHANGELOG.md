@@ -12,6 +12,16 @@
   reloaded. Saving state alone has no such boundary.
 
 ### Added
+- `Segment(...; compression_damping_frac)` scales the damping term of a segment
+  the way `compression_frac` scales the stiffness, live in the right-hand side.
+  The default `1.0` is the previous behaviour, where damping is unaffected by
+  compression and the force is continuous at `len == l0`, but the damping ratio
+  jumps by `1/sqrt(compression_frac)` as the segment goes slack. Setting it equal
+  to `compression_frac` gives one damping ratio on both branches, and
+  `compression_damping_frac = compression_frac = 0` makes a slack segment carry
+  no force at all, at the cost of a force step of
+  `unit_damping / l0 · spring_vel` at the crossing. Also readable as a
+  `segments` YAML column.
 - A `SysLog` now carries the whole differential state, so a simulation can be
   restarted from any logged step. `update_sys_state!` writes point velocities,
   per-frame body turn rates, twist_surface twist and rate, and pulley length and

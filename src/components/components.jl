@@ -142,7 +142,9 @@ function segment_spring_params(params, idx; with_drag = true)
     wind_gnd = ground_wind_vec(params)
     nonlinear = !(params.reg.sys_struct.segments[idx].unit_stiffness isa Real)
     spring = (; unit_stiffness = seg.unit_stiffness, unit_damping = seg.unit_damping,
-              compression_frac = seg.compression_frac, diameter = seg.diameter,
+              compression_frac = seg.compression_frac,
+              compression_damping_frac = seg.compression_damping_frac,
+              diameter = seg.diameter,
               density = seg.density, cd_tether, nonlinear)
     wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
     return spring, wind_gnd, wind_factor
@@ -150,9 +152,9 @@ end
 
 """
     segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel, unit_stiffness,
-                       unit_damping, compression_frac, l0, diameter, density,
-                       cd_tether, wind_gnd, wind_factor; with_drag=true,
-                       nonlinear=false)
+                       unit_damping, compression_frac, compression_damping_frac,
+                       l0, diameter, density, cd_tether, wind_gnd, wind_factor;
+                       with_drag=true, nonlinear=false)
 
 Every load term a segment produces, as a named tuple: the geometry (`len`,
 `unit_vec`), the signed scalar spring-damper tension `spring` and its vector
@@ -165,6 +167,7 @@ are unused.
 """
 function segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel,
                             unit_stiffness, unit_damping, compression_frac,
+                            compression_damping_frac,
                             l0, diameter, density, cd_tether, wind_gnd, wind_factor;
                             with_drag = true, nonlinear = false)
     _, len, unit_vec, spring_vel =
@@ -172,7 +175,7 @@ function segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel,
     spring = nonlinear ?
         segment_nonlinear_force(len, l0, spring_vel, unit_stiffness, unit_damping) :
         segment_spring_force(len, l0, spring_vel, unit_stiffness, unit_damping,
-                             compression_frac)
+                             compression_frac, compression_damping_frac)
     spring_vec = spring .* unit_vec
     half_mass = segment_half_mass(l0, diameter, density)
     half_drag = zeros(Num, 3)
@@ -791,7 +794,8 @@ function segment_eqs(s, params, idx, io, rest_len; with_drag = true)
     spring, wind, wind_factor = segment_spring_params(params, idx; with_drag)
     loads = segment_load_terms(s, collect(io.src_pos), collect(io.src_vel),
         collect(io.dst_pos), collect(io.dst_vel), spring.unit_stiffness,
-        spring.unit_damping, spring.compression_frac, rest_len, spring.diameter,
+        spring.unit_damping, spring.compression_frac,
+        spring.compression_damping_frac, rest_len, spring.diameter,
         spring.density, spring.cd_tether, collect(wind), wind_factor;
         with_drag, nonlinear = spring.nonlinear)
     eqs = [

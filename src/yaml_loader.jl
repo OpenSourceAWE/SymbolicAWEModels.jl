@@ -811,7 +811,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 Segment, row,
                 [:name, :set, :point_i, :point_j],
                 [:l0, :diameter_mm, :unit_stiffness,
-                 :unit_damping, :compression_frac, :density,
+                 :unit_damping, :compression_frac,
+                 :compression_damping_frac, :density,
                  :youngs_modulus, :damping_per_stiffness];
                 mappings=Dict(
                     :set => row -> resolved_set,
