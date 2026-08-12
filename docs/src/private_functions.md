@@ -185,6 +185,7 @@ SymbolicAWEModels.yaml_block_empty
 SymbolicAWEModels.yaml_vec3
 SymbolicAWEModels.yaml_matrix3
 SymbolicAWEModels.yaml_ref_field
+SymbolicAWEModels.yaml_unset
 SymbolicAWEModels.yaml_field
 SymbolicAWEModels.yaml_float_or_nan
 SymbolicAWEModels.load_yaml_bodies

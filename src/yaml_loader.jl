@@ -23,7 +23,7 @@ get_field_or_nothing(Tuple{Int64,Int64}, row, :pair)
 """
 function get_field_or_nothing(::Type{T}, row::NamedTuple,
                                field::Symbol) where T
-    if !haskey(row, field) || isnothing(row[field])
+    if !haskey(row, field) || yaml_unset(row[field])
         return nothing
     end
     return convert_to_type(T, row[field])
@@ -337,10 +337,7 @@ function call_yaml_constructor(
             kwargs[kwarg_name] = mappings[kwarg_name](row)
         elseif haskey(row, kwarg_name)
             val = row[kwarg_name]
-            # Skip nothing values (Julia nothing or YAML "nothing" string)
-            if !isnothing(val) && val != "nothing"
-                kwargs[kwarg_name] = val
-            end
+            yaml_unset(val) || (kwargs[kwarg_name] = val)
         end
     end
 
@@ -485,16 +482,22 @@ function parse_tether_init(row, tether_name)
 end
 
 """
+    yaml_unset(value) -> Bool
+
+Whether a cell is unset: `nothing`, or the `nothing` placeholder a written table
+uses to leave one row's cell empty in a column the other rows fill.
+"""
+yaml_unset(value) = isnothing(value) || value == "nothing" || value === :nothing
+
+"""
     yaml_field(row, field)
 
-Optional row field, `nothing` when the column is absent or holds the `nothing`
-placeholder a written table uses for an unset cell in a column other rows fill.
+Optional row field, `nothing` when the column is absent or [`yaml_unset`](@ref).
 """
 function yaml_field(row, field)
     hasfield(typeof(row), field) || return nothing
     value = getfield(row, field)
-    (value == "nothing" || value === :nothing) && return nothing
-    return value
+    return yaml_unset(value) ? nothing : value
 end
 
 function yaml_float(row, field)
@@ -708,14 +711,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     # Helper to convert raw reference to proper type (Int or Symbol).
     yaml_to_ref = function (val)
-        isnothing(val) && return nothing
+        yaml_unset(val) && return nothing
         if val isa Integer
             return Int(val)
         elseif val isa String
-            val == "nothing" && return nothing
             return Symbol(val)
         elseif val isa Symbol
-            val === :nothing && return nothing
             return val
         else
             return Int(val)
