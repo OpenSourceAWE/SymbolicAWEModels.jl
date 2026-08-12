@@ -119,6 +119,14 @@
   wiring now route through the helpers in `src/components/`, which previously had
   the `KernelBackend` as their only caller. A backend still chooses how equations
   are assembled; it no longer chooses what they are.
+- The aero tests are layered, so a new mode inherits its contracts by being
+  added to a table rather than by someone remembering to write tests.
+  `test_aero_modes.jl` holds what every mode owes and now enrolls
+  `AeroPressure`; the new `test_continuous_modes.jl` holds what the continuous
+  modes owe — including that per-section inflow is gathered per section and
+  never as a wing-wide mean, which is the bug fixed above; and
+  `test_continuous_aero.jl` and `test_pressure_aero.jl` keep only what is
+  specific to one mode. `AeroPressure` previously sat in none of these layers.
 
 ### Breaking
 - The segment observables `stiffness`, `damping`, `segment_height`,
