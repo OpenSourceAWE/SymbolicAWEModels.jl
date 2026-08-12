@@ -484,9 +484,17 @@ function parse_tether_init(row, tether_name)
     return stretched_length, tether_force, stretch_frac
 end
 
+"""
+    yaml_field(row, field)
+
+Optional row field, `nothing` when the column is absent or holds the `nothing`
+placeholder a written table uses for an unset cell in a column other rows fill.
+"""
 function yaml_field(row, field)
     hasfield(typeof(row), field) || return nothing
-    getfield(row, field)
+    value = getfield(row, field)
+    (value == "nothing" || value === :nothing) && return nothing
+    return value
 end
 
 function yaml_float(row, field)
