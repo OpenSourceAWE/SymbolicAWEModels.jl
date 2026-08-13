@@ -2,15 +2,6 @@
 
 ## Unreleased
 
-### Removed
-- `save_sys_struct_to_yaml(sys, path)`, added earlier in this unreleased cycle,
-  in favour of the `SysLog` round trip below. Writing a whole structure back to
-  YAML had to guess at the CAD/world frame boundary: positions were written as
-  `pos_cad`, because that is the frame aero sections are matched in and the frame
-  `reinit!` derives `pos_w` from, which left a settled configuration needing a
-  manual mapping, and a rigid wing placed by a `transforms` block never
-  reloaded. Saving state alone has no such boundary.
-
 ### Added
 - `Segment(...; compression_damping_frac)` scales the damping term of a segment
   the way `compression_frac` scales the stiffness, live in the right-hand side.
@@ -154,8 +145,7 @@
   at all, while the legs' dampers still drove it: a one-way velocity coupling
   that could feed the split rather than settle it, growing with
   `damping_per_stiffness`, so raising the damping could make such a model
-  *less* stable. The split now carries `c_left + c_right` and the sheave's
-  `efficiency` is no longer the only thing damping it. Reeling likewise no
+  *less* stable. The split now carries `c_left + c_right`. Reeling likewise no
   longer charges a tether a damper force proportional to reel speed, so a
   reel-out loop is genuinely less damped than the old model made it look —
   expect controllers tuned against it to need retuning.
