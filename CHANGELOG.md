@@ -121,6 +121,11 @@
   backends; the monolith indexed `twist_surface_delta` at `0`. Unreachable
   today, since every panel is assigned a nearest flap whenever a wing has one,
   but live for any mode that emits a partially-zero map.
+- `plot` handles a system with fewer than three winches. The reel-out,
+  winch-force and set-torque panels pulled three channels out of every logged
+  sample no matter how many the log held, so a one-winch log threw a
+  `BoundsError` before the figure was drawn. Each panel now takes its channel
+  count from the log.
 
 ### Changed
 - BREAKING: the `materials`, `elements` and `segment_properties` YAML blocks
