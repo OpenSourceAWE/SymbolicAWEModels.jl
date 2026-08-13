@@ -24,7 +24,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, refresh_particle_aero!, SimFloat,
-                         loft_contour_node
+                         loft_contour_node, aero_inflow_groups, wing_points
 using KiteUtils
 using LinearAlgebra
 
@@ -68,6 +68,14 @@ end
         @test all(idx -> idx in [p.idx for p in wing_pts],
                   reduce(vcat, mode.station_point))
         @test all(p.section_aero !== nothing for p in wing.vsm_aero.panels)
+    end
+
+    @testset "per-section inflow groups" begin
+        groups, section_group = aero_inflow_groups(mode, wing, wing_points(sys, wing))
+        @test length(groups) == length(mode.section_left_strut)
+        @test length(unique(section_group)) == length(groups)
+        @test length(unique(groups)) > 1
+        @test all(g -> isapprox(sum(last, g), 1.0; atol=1e-10), groups)
     end
 
     @testset "frame guard rejects misalignment" begin
