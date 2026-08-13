@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Unreleased
+## v0.14.0 13-08-2026
 
 ### Added
 - `Pulley` gains `efficiency`, the fraction of line tension its sheave passes
