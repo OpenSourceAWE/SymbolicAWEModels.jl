@@ -174,10 +174,12 @@ aero_poses = [
             yaml=particle_yaml, data=data_path, vsm_set=vsm_set_billow,
             dynamics=PARTICLE_DYNAMICS, reference=:vsm,
             force_rtol=0.006, moment_rtol=0.06, moment_lever=0.04),
-        # Twice the particle moment budget: "moment placement" in
-        # test_pressure_aero.jl measures the residual as 0.06 traction pattern
-        # (values right) plus 0.12 nearest-node lumping at up to 0.37 chord,
-        # which lands on the moment as AeroPressure reconstructs no couple.
+        # Twice the particle moment budget because AeroPressure anchors the force
+        # to VSM but no couple: the moment follows the Cp distribution, and this
+        # fixture's synthetic Cp implies a load centre ~0.13 chord from the Cm in
+        # polars/1.csv. That fixture disagreement, not the nearest-node lumping
+        # (~0.01 chord, bounded by "moment placement" in test_pressure_aero.jl),
+        # is what the budget pays for.
         (name="pressure particle", make=() -> AeroPressure(),
             yaml=surface_yaml, data=surface_path, vsm_set=vsm_set_surface,
             dynamics=PARTICLE_DYNAMICS, reference=:vsm,

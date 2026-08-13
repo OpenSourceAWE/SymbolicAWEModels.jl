@@ -76,8 +76,9 @@ end
     end
 
     # Exercise the refresh directly (no ODE compile): set the operating point the
-    # way update_sys_struct!/sync_aero_density! would, then distribute.
-    wing.va_b .= SimFloat[15.0, 0.0, 1.5]
+    # way update_sys_struct!/sync_aero_density! would, then distribute. Alpha is
+    # 13°, clear of the α ≈ 8° sign change of the body-origin moment.
+    wing.va_b .= SimFloat[15.0, 0.0, 3.5]
     wing.ω_b .= SimFloat[0.0, 0.0, 0.0]
     wing.vsm_solver.density = 1.225
     va_vals = zeros(SimFloat, 3, length(sys.points))
@@ -132,7 +133,10 @@ end
     # Force sums survive a placement error untouched, moments do not. Comparing
     # each panel's scattered loads about the body origin at the point they are
     # applied to against the same loads at the surface node they came from
-    # separates the nearest-node lumping from a wrong distribution.
+    # separates the nearest-node lumping from a wrong distribution. Both
+    # residuals are load-centre offsets in chords, ‖ΔM‖/(‖F‖·c): ‖M‖ about the
+    # body origin passes through zero inside the flight range, so normalising by
+    # it would divide by a vanishing quantity.
     @testset "moment placement (per VSM panel and total)" begin
         sol = wing.vsm_solver.sol
         panels = wing.vsm_aero.panels
@@ -165,20 +169,23 @@ end
                 norm(applied - pattern) / (norm(f_vsm) * panel.chord))
         end
         moment_vsm = Vector(sol.moment)
-        @test norm(moment_vsm) > 0.0
-        lumping = norm(applied_total - pattern_total) / norm(moment_vsm)
-        pattern_error = norm(pattern_total - moment_vsm) / norm(moment_vsm)
+        mean_chord = sum(p.chord for p in panels) / length(panels)
+        lever_scale = norm(vec(sum(sol.f_body_3D, dims=2))) * mean_chord
+        @test lever_scale > 0.0
+        lumping = norm(applied_total - pattern_total) / lever_scale
+        pattern_error = norm(pattern_total - moment_vsm) / lever_scale
         println("  [AeroPressure] moment placement: worst per-panel arm ",
             "$(round(worst_arm; sigdigits=3)) chord; traction pattern vs VSM ",
-            "$(round(pattern_error; sigdigits=3)); lumping ",
-            "$(round(lumping; sigdigits=3))")
+            "$(round(pattern_error; sigdigits=3)) chord; lumping ",
+            "$(round(lumping; sigdigits=3)) chord")
         # The scatter may not move a load farther than the frame guard admits.
         @test worst_arm <= mode.frame_tol_frac
-        # The traction values are independent of where they are applied, so this
-        # bound is what a genuine distribution error would break; a sign flip or
-        # a scrambled contour puts it near 1 rather than near 0.06.
-        @test pattern_error < 0.15
-        # Placement quantization: expected and bounded, not a defect.
-        @test lumping < 0.30
+        # Where the traction pattern puts the load centre against where VSM's own
+        # Cm does. The fixture's Cp and polars/1.csv are unrelated datasets, so
+        # 0.13 chord is their disagreement; negating the traction while keeping
+        # the anchored force scores 0.27, which is the margin this bound has.
+        @test pattern_error < 0.20
+        # Nearest-node quantization, the only part the scatter itself controls.
+        @test lumping < 0.05
     end
 end
