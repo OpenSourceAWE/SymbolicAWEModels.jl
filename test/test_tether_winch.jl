@@ -606,8 +606,10 @@ environment:
         end
         @test tether_l.len ≈ 45.0 atol=0.2
 
-        # Step 3: target = 55 for 2s, expect settle
-        for _ in 1:400
+        # Step 3: target = 55 for 6s, expect settle. The 10 m of reel-out rings
+        # the loop longer than the 5 m step above does; the P law's load droop
+        # leaves the same ~0.1 m offset the other two steps settle at.
+        for _ in 1:1200
             next_step!(sam_l; set_values=[55.0],
                        dt=0.005, vsm_interval=0)
         end

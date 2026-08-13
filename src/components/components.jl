@@ -159,7 +159,7 @@ end
     segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel, unit_stiffness,
                        unit_damping, compression_frac, compression_damping_frac,
                        l0, diameter, density, cd_tether, wind_gnd, wind_factor;
-                       with_drag=true, nonlinear=false)
+                       with_drag=true, nonlinear=false, rest_len_rate=0.0)
 
 Every load term a segment produces, as a named tuple: the geometry (`segment_vec`,
 `len`, `unit_vec`, `spring_vel`), the signed scalar spring-damper tension `spring`
@@ -169,14 +169,24 @@ With `nonlinear` the `unit_stiffness` is a callable force law of strain
 ([`segment_nonlinear_force`](@ref)) rather than a linear rate; with
 `with_drag = false` the tether drag is dropped entirely, so `cd_tether`/`wind_gnd`
 are unused.
+
+`rest_len_rate` is `d(l0)/dt` for a segment whose rest length is a state — a pulley
+leg or a winched tether member. The damper resists the rate of change of the
+extension `len - l0`, so the returned `spring_vel` is the endpoint closing speed
+plus `rest_len_rate`, not the closing speed alone: feeding rope into a leg relaxes
+it just as bringing its endpoints together does. Leaving it at zero would give the
+rest-length degree of freedom no damping while still letting its segments' dampers
+drive it, which makes the damping non-reciprocal and lets it inject energy.
 """
 function segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel,
                             unit_stiffness, unit_damping, compression_frac,
                             compression_damping_frac,
                             l0, diameter, density, cd_tether, wind_gnd, wind_factor;
-                            with_drag = true, nonlinear = false)
-    segment_vec, len, unit_vec, spring_vel =
+                            with_drag = true, nonlinear = false,
+                            rest_len_rate = 0.0)
+    segment_vec, len, unit_vec, closing_vel =
         segment_geometry(src_pos, dst_pos, src_vel, dst_vel)
+    spring_vel = closing_vel + rest_len_rate
     spring = nonlinear ?
         segment_nonlinear_force(len, l0, spring_vel, unit_stiffness, unit_damping) :
         segment_spring_force(len, l0, spring_vel, unit_stiffness, unit_damping,
@@ -507,6 +517,17 @@ function rigid_body_pose_expressions(force_w, moment_w, inertia_p, mass, R_b_to_
 end
 
 """
+    pulley_len_rate(pulley, pulley_vel)
+
+The rate the rope split travels at: `pulley_vel`, or zero while the pulley is
+braked. Both the split's own kinematic equation and the `rest_len_rate` its two
+segments feed to [`segment_load_terms`](@ref) read it here, so the rest length a
+damper sees moving is exactly the one the split integrates.
+"""
+pulley_len_rate(pulley, pulley_vel) =
+    ifelse(pulley.brake > 0.5, zero(pulley_vel), pulley_vel)
+
+"""
     pulley_split_eqs(pulley_len, pulley_vel, tension_in, line_tension, pulley_mass,
                      pulley, pulley_len_out=nothing)
 
@@ -525,7 +546,7 @@ function pulley_split_eqs(pulley_len, pulley_vel, tension_in, line_tension,
     accel = (tension_in -
              pulley_friction_force(pulley, pulley_vel, line_tension)) / pulley_mass
     eqs = [
-        D(pulley_len) ~ ifelse(braked, zero(accel), pulley_vel);
+        D(pulley_len) ~ pulley_len_rate(pulley, pulley_vel);
         D(pulley_vel) ~ ifelse(braked, zero(accel), accel);
     ]
     isnothing(pulley_len_out) || push!(eqs, pulley_len_out ~ pulley_len)
@@ -696,6 +717,7 @@ function PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
         tension_in(t), [input = true]
         line_in(t), [input = true]
         pulley_len_out(t), [output = true]
+        pulley_vel_out(t), [output = true]
         pulley_len(t)
         pulley_vel(t)
     end
@@ -704,9 +726,10 @@ function PulleyParticle(s, params, idx, pulley_idx, segment_idx; name)
         dynamic_point_dynamics(s, io.pos, io.vel, io.force_in,
                                pars.extra_mass + io.mass_in, pars, io.net_force)
         point_wind_eqs(s, params, idx, io)
-        pulley_split_eqs(extra[4], extra[5], extra[1], extra[2],
+        pulley_split_eqs(extra[5], extra[6], extra[1], extra[2],
                          pulley_rope_mass(params, pulley_idx, segment_idx),
                          params.pulleys[pulley_idx], extra[3])
+        extra[4] ~ pulley_len_rate(params.pulleys[pulley_idx], extra[6])
     ]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
             io.wind_vec, io.net_force, extra...]
@@ -718,7 +741,8 @@ end
 
 A reeling winch at the STATIC point `idx`. It owns the motor speed `winch_vel` and
 one `tether_len_k` state per connected tether, each an output its tether's segments
-read as their rest length. The motor law is [`winch_component`](@ref) reused
+read as their rest length, alongside a `tether_vel_k` output carrying that length's
+rate for their dampers. The motor law is [`winch_component`](@ref) reused
 verbatim; it reads the tension gathered at the winch point (the vector sum of the
 spring forces there, as `winch_eqs!` forms it), the mean tether length, the control
 `set_value` and the `brake`, and returns the drum acceleration.
@@ -737,8 +761,13 @@ function WinchAnchor(s, params, winch, idx; name)
         len_name = Symbol(:tether_len_, k)
         only(@variables $len_name(t), [output = true])
     end
+    rates = map(1:count) do k
+        vel_name = Symbol(:tether_vel_, k)
+        only(@variables $vel_name(t), [output = true])
+    end
     set_value = make_param(:set_value, 0.0)
     brake = params.winches[winch.idx].brake
+    reel = ifelse(brake > 0.5, 0.0, extra[2])
     motor = winch_component(winch.model, s.sys_struct, winch.idx;
                             name = :motor, params)
     validate_winch_component(motor, winch)
@@ -761,10 +790,11 @@ function WinchAnchor(s, params, winch, idx; name)
         extra[4] ~ ifelse(params.winches[winch.idx].speed_controlled == true,
                           0.0, motor.acc)
         D(extra[2]) ~ ifelse(brake > 0.5, 0.0, extra[4])
-        [D(len) ~ ifelse(brake > 0.5, 0.0, extra[2]) for len in lengths]
+        [rate ~ reel for rate in rates]
+        [D(len) ~ reel for len in lengths]
     ]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
-            io.wind_vec, io.net_force, extra..., lengths...]
+            io.wind_vec, io.net_force, extra..., lengths..., rates...]
     return System(eqs, t, vars, [param_unknowns(params); set_value];
                   name, systems = [motor])
 end
@@ -799,21 +829,23 @@ function segment_variables()
 end
 
 """
-    segment_eqs(s, params, idx, io, rest_len; with_drag=true)
+    segment_eqs(s, params, idx, io, rest_len; with_drag=true, rest_len_rate=0.0)
 
 The equations every segment kernel shares: the shared [`segment_load_terms`](@ref)
 evaluated at `rest_len`, bound to the [`segment_variables`](@ref) outputs and diagnostics.
 Returns `(eqs, loads)`; `loads` carries the scalar and vector spring tension a
-pulley or tether segment emits on top of these.
+pulley or tether segment emits on top of these. `rest_len_rate` is `d(rest_len)/dt`
+for the kernels whose rest length is driven by another component's state.
 """
-function segment_eqs(s, params, idx, io, rest_len; with_drag = true)
+function segment_eqs(s, params, idx, io, rest_len; with_drag = true,
+                     rest_len_rate = 0.0)
     spring, wind, wind_factor = segment_spring_params(params, idx; with_drag)
     loads = segment_load_terms(s, collect(io.src_pos), collect(io.src_vel),
         collect(io.dst_pos), collect(io.dst_vel), spring.unit_stiffness,
         spring.unit_damping, spring.compression_frac,
         spring.compression_damping_frac, rest_len, spring.diameter,
         spring.density, spring.cd_tether, collect(wind), wind_factor;
-        with_drag, nonlinear = spring.nonlinear)
+        with_drag, nonlinear = spring.nonlinear, rest_len_rate)
     eqs = [
         collect(io.src_force) .~ loads.force_on_src
         collect(io.dst_force) .~ loads.force_on_dst
@@ -844,24 +876,28 @@ end
 
 One of a pulley's two segments. Its rest length comes from the pulley point's
 `pulley_len_out`, read as `rest_len`: the first segment takes it directly, the
-second `sum_len − rest_len`, selected by the assembly-set `pulley_side` (`±1`). It
-emits `pulley_side · spring` as `tension`, so the pulley point aggregates
-`spring[seg1] − spring[seg2]`, and half its spring force as `line`, so the same
-point aggregates the mean of the two leg tensions for the friction to scale with.
+second `sum_len − rest_len`, selected by the assembly-set `pulley_side` (`±1`). The
+matching `pulley_vel_out` arrives as `rest_vel` and gives the damper the same sign,
+so the split it drives also damps it. It emits `pulley_side · spring` as `tension`,
+so the pulley point aggregates `spring[seg1] − spring[seg2]`, and half its spring
+force as `line`, so the same point aggregates the mean of the two leg tensions for
+the friction to scale with.
 """
 function PulleySegment(s, params, idx, pulley_idx; name)
     io = segment_variables()
     extra = @variables begin
         rest_len(t), [input = true]
+        rest_vel(t), [input = true]
         tension(t), [output = true]
         line(t), [output = true]
     end
     side = make_param(:pulley_side, 1.0)
     sum_len = params.pulleys[pulley_idx].sum_len
     eqs, loads = segment_eqs(s, params, idx, io,
-                             ifelse(side > 0.0, extra[1], sum_len - extra[1]))
-    push!(eqs, extra[2] ~ side * loads.spring)
-    push!(eqs, extra[3] ~ 0.5 * loads.spring)
+        ifelse(side > 0.0, extra[1], sum_len - extra[1]);
+        rest_len_rate = ifelse(side > 0.0, extra[2], -extra[2]))
+    push!(eqs, extra[3] ~ side * loads.spring)
+    push!(eqs, extra[4] ~ 0.5 * loads.spring)
     return System(eqs, t, [io.all; extra], [param_unknowns(params); side]; name)
 end
 
@@ -869,22 +905,26 @@ end
     TetherSegment(s, params, idx; name)
 
 A segment of a winched tether. Its rest length is the winch's `tether_len_k` output
-divided by the assembly-set `segment_count`. Both endpoints' spring force are
-emitted as `src_tension`/`dst_tension`; the assembly wires only the one at the winch
-point, which is how the winch sees the force `winch_eqs!` sums there.
+divided by the assembly-set `segment_count`, and its rate the matching
+`tether_vel_k` over the same count, so reeling relaxes the segment instead of
+straining it. Both endpoints' spring force are emitted as
+`src_tension`/`dst_tension`; the assembly wires only the one at the winch point,
+which is how the winch sees the force `winch_eqs!` sums there.
 """
 function TetherSegment(s, params, idx; name)
     io = segment_variables()
     extra = @variables begin
         rest_len(t), [input = true]
+        rest_vel(t), [input = true]
         src_tension(t)[1:3], [output = true]
         dst_tension(t)[1:3], [output = true]
     end
     count = make_param(:segment_count, 1.0)
-    eqs, loads = segment_eqs(s, params, idx, io, extra[1] / count)
+    eqs, loads = segment_eqs(s, params, idx, io, extra[1] / count;
+                             rest_len_rate = extra[2] / count)
     eqs = [eqs
-           collect(extra[2]) .~ loads.spring_vec
-           collect(extra[3]) .~ .-loads.spring_vec]
+           collect(extra[3]) .~ loads.spring_vec
+           collect(extra[4]) .~ .-loads.spring_vec]
     return System(eqs, t, [io.all; extra], [param_unknowns(params); count]; name)
 end
 

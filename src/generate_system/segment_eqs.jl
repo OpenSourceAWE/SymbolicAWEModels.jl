@@ -5,33 +5,42 @@
 
 """
     segment_rest_length_eqs(segment, pulleys, tethers, params;
-                            l0, pulley_len, tether_len)
+                            l0, pulley_len, pulley_vel, tether_len, tether_vel)
 
-Rest-length equations for one segment. A pulley member takes either the pulley
-state `pulley_len` or the remainder `sum_len - pulley_len`, a tether member takes
-`tether_len / n_segments`, and any other segment keeps its fixed `l0` parameter.
-Errors when a segment belongs to more than one pulley or more than one tether.
+Rest-length equations for one segment, and the rate that rest length moves at.
+A pulley member takes either the pulley state `pulley_len` or the remainder
+`sum_len - pulley_len`, a tether member takes `tether_len / n_segments`, and any
+other segment keeps its fixed `l0` parameter. Returns `(eqs, rest_len_rate)`, the
+rate carrying the sign of the state it follows and being zero for a fixed rest
+length; [`segment_load_terms`](@ref) needs it to damp the extension rather than the
+endpoint separation. Errors when a segment belongs to more than one pulley or more
+than one tether.
 """
 function segment_rest_length_eqs(segment, pulleys, tethers, params;
-                                 l0, pulley_len, tether_len)
+                                 l0, pulley_len, pulley_vel, tether_len, tether_vel)
     idx = segment.idx
     eqs = Equation[]
+    rate = Num(0.0)
     in_pulley = 0
     for pulley in pulleys
+        split_rate = pulley_len_rate(params.pulleys[pulley.idx],
+                                     pulley_vel[pulley.idx])
         if idx == pulley.segment_idxs[1]
             push!(eqs, l0[idx] ~ pulley_len[pulley.idx])
+            rate = split_rate
             in_pulley += 1
         end
         if idx == pulley.segment_idxs[2]
             push!(eqs, l0[idx] ~
                 params.pulleys[pulley.idx].sum_len - pulley_len[pulley.idx])
+            rate = -split_rate
             in_pulley += 1
         end
     end
     (in_pulley > 1) && error(
         "Bridle segment $idx is in $in_pulley pulleys; should be in 0 or 1.",
     )
-    in_pulley == 1 && return eqs
+    in_pulley == 1 && return eqs, rate
 
     in_tether = 0
     tether_idx = 0
@@ -47,16 +56,17 @@ function segment_rest_length_eqs(segment, pulleys, tethers, params;
     if in_tether == 1
         n_segments = length(tethers[tether_idx].segment_idxs)
         push!(eqs, l0[idx] ~ tether_len[tether_idx] / n_segments)
+        rate = tether_vel[tether_idx] / n_segments
     else
         push!(eqs, l0[idx] ~ params.segments[idx].l0)
     end
-    return eqs
+    return eqs, rate
 end
 
 """
     segment_eqs!(s, eqs, points, segments, pulleys, tethers, bodies, params;
                  pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
-                 pulley_len, tether_len)
+                 pulley_len, pulley_vel, tether_len, tether_vel)
 
 Generate equations for segment spring-damper forces and aerodynamic drag.
 
@@ -75,6 +85,8 @@ as well, keeping only the geometry.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
 - `spring_force_vec`, `drag_force`, `l0`: Pre-declared segment force variables.
 - `pulley_len`, `tether_len`: Symbolic state variables for pulley and tether lengths.
+- `pulley_vel`, `tether_vel`: Their rates, which a moving rest length's damper reads
+  through [`segment_rest_length_eqs`](@ref).
 
 # Returns
 - Tuple `(eqs, len, spring_force)` with updated equation vector
@@ -84,7 +96,7 @@ function segment_eqs!(s, eqs, points, segments,
                       pulleys, tethers, bodies,
                       params; pos, vel, wind_vec_gnd,
                       spring_force_vec, drag_force, l0,
-                      pulley_len, tether_len)
+                      pulley_len, pulley_vel, tether_len, tether_vel)
     @variables begin
         segment_vec(t)[1:3, eachindex(segments)]
         unit_vec(t)[1:3, eachindex(segments)]
@@ -101,10 +113,12 @@ function segment_eqs!(s, eqs, points, segments,
         src_pos, src_vel = collect(pos[:, src]), collect(vel[:, src])
         dst_pos, dst_vel = collect(pos[:, dst]), collect(vel[:, dst])
 
+        rest_eqs, rest_len_rate = segment_rest_length_eqs(
+            segment, pulleys, tethers, params;
+            l0, pulley_len, pulley_vel, tether_len, tether_vel)
         eqs = [
             eqs
-            segment_rest_length_eqs(segment, pulleys, tethers, params;
-                                    l0, pulley_len, tether_len)
+            rest_eqs
             rel_vel[:, idx] ~ src_vel - dst_vel
         ]
 
@@ -132,7 +146,7 @@ function segment_eqs!(s, eqs, points, segments,
             spring.unit_stiffness, spring.unit_damping, spring.compression_frac,
             spring.compression_damping_frac, l0[idx], spring.diameter,
             spring.density, spring.cd_tether, wind_gnd, wind_factor;
-            with_drag, nonlinear = spring.nonlinear)
+            with_drag, nonlinear = spring.nonlinear, rest_len_rate)
         eqs = [
             eqs
             segment_vec[:, idx] ~ loads.segment_vec

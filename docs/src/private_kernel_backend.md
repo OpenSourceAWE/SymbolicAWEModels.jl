@@ -241,6 +241,7 @@ SymbolicAWEModels.wire_segment!
 SymbolicAWEModels.find_winch
 SymbolicAWEModels.load_target
 SymbolicAWEModels.buffer_slots
+SymbolicAWEModels.winch_state_slots
 SymbolicAWEModels.bind_params
 SymbolicAWEModels.callable_store
 SymbolicAWEModels.retarget_tether_rest_lengths!

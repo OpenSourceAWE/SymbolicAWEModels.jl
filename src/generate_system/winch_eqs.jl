@@ -6,7 +6,7 @@
 """
     winch_eqs!(eqs, defaults, winches, tethers, segments, points,
                sys_struct, params;
-               spring_force_vec, set_values, tether_len,
+               spring_force_vec, set_values, tether_len, tether_vel,
                winch_vel, winch_acc, winch_force_vec, winch_friction)
 
 Generate equations for winch motor dynamics and per-tether length
@@ -25,13 +25,15 @@ For each winch:
    When `winch.speed_controlled` is true, `winch_acc` is forced to 0
    (ignoring `subsys.acc`) so velocity is prescribed via `winch.vel`.
 
-For each tether:
-- With winch:    `D(tether_len) = ifelse(brake > 0.5, 0, winch_vel)`.
-- Without winch: `D(tether_len) = 0`.
+For each tether, `tether_vel` is the reeling speed its length follows and its
+segments' dampers read as a rest-length rate:
+- With winch:    `tether_vel = ifelse(brake > 0.5, 0, winch_vel)`.
+- Without winch: `tether_vel = 0`.
+In both cases `D(tether_len) = tether_vel`.
 """
 function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
                     sys_struct, params, initial;
-                    spring_force_vec, set_values, tether_len,
+                    spring_force_vec, set_values, tether_len, tether_vel,
                     winch_vel, winch_acc, winch_force_vec, winch_force,
                     winch_friction)
     tether_winch = Dict{Int, Int}()
@@ -46,15 +48,16 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
     end
 
     for tether in tethers
-        if haskey(tether_winch, tether.idx)
+        reel = if haskey(tether_winch, tether.idx)
             winch_idx = tether_winch[tether.idx]
-            eqs = [eqs
-                   D(tether_len[tether.idx]) ~
-                       ifelse(params.winches[winch_idx].brake > 0.5,
-                              0, winch_vel[winch_idx])]
+            ifelse(params.winches[winch_idx].brake > 0.5, 0,
+                   winch_vel[winch_idx])
         else
-            eqs = [eqs; D(tether_len[tether.idx]) ~ 0]
+            0
         end
+        eqs = [eqs
+               tether_vel[tether.idx] ~ reel
+               D(tether_len[tether.idx]) ~ reel]
         defaults = [defaults
                     bind_initial!(initial.tethers[tether.idx].len,
                                   tether_len[tether.idx])]

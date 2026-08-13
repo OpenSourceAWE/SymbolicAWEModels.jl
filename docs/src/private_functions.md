@@ -85,6 +85,7 @@ SymbolicAWEModels.elastic_joint_wrench
 SymbolicAWEModels.beam_hermite_ride_expressions
 SymbolicAWEModels.ground_wind_vec
 SymbolicAWEModels.pulley_split_eqs
+SymbolicAWEModels.pulley_len_rate
 SymbolicAWEModels.pulley_friction_force
 SymbolicAWEModels.wing_frame_columns
 ```
