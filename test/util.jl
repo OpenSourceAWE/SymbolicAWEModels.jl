@@ -63,25 +63,25 @@ holds the right values.
 `rtol` is not zero because bodies are logged in the body frame
 and rebuilt into the principal frame, which costs a few ULP in
 the quaternion/matrix conversions.
+
+The temporary directory is left to Julia's exit-time cleanup:
+`load_log` memory-maps the Arrow file, and on Windows a mapped
+file cannot be deleted while the mapping is alive.
 """
 function validate_sysstate_roundtrip(sam; rtol = 1e-10)
     sys = sam.sys_struct
     expected = copy(sam.integrator.u)
     isempty(expected) && return nothing
     path = mktempdir()
-    try
-        logger = Logger(sam, 1; precision = Float64)
-        log!(logger, SysState(sam; precision = Float64))
-        save_log(logger, "roundtrip", false; path)
-        reloaded = load_log("roundtrip"; path)
-        sys.diff_vars = 1.5 .* vec(sys.diff_vars) .+ 0.25
-        update_from_sysstate!(sys, reloaded.syslog[1])
-        init!(sam; remake = false, reinit_sys = false, prn = false)
-        @test length(sam.integrator.u) == length(expected)
-        @test isapprox(sam.integrator.u, expected; rtol)
-    finally
-        rm(path; recursive = true, force = true)
-    end
+    logger = Logger(sam, 1; precision = Float64)
+    log!(logger, SysState(sam; precision = Float64))
+    save_log(logger, "roundtrip", false; path)
+    reloaded = load_log("roundtrip"; path)
+    sys.diff_vars = 1.5 .* vec(sys.diff_vars) .+ 0.25
+    update_from_sysstate!(sys, reloaded.syslog[1])
+    init!(sam; remake = false, reinit_sys = false, prn = false)
+    @test length(sam.integrator.u) == length(expected)
+    @test isapprox(sam.integrator.u, expected; rtol)
     return nothing
 end
 
