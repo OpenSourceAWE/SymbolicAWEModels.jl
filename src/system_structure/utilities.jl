@@ -1083,17 +1083,14 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         end
     end
 
-    # twist_surface_angle/vel carry one entry per surface; twist_angles is the
-    # legacy 4-slot column, used only for logs written before they existed.
-    has_twist = length(sys_state.twist_surface_angle) == length(twist_surfaces)
+    # Logs written before twist_vel existed restart the surfaces at rest.
+    has_twist_vel = length(sys_state.twist_vel) == length(twist_surfaces)
     for twist_surface in twist_surfaces
         i = twist_surface.idx
-        if has_twist
-            twist_surface.twist = Float64(sys_state.twist_surface_angle[i])
-            twist_surface.twist_ω = Float64(sys_state.twist_surface_vel[i])
-        elseif i <= length(sys_state.twist_angles)
+        if i <= length(sys_state.twist_angles)
             twist_surface.twist = Float64(sys_state.twist_angles[i])
-            twist_surface.twist_ω = 0.0
+            twist_surface.twist_ω = has_twist_vel ?
+                Float64(sys_state.twist_vel[i]) : 0.0
         end
         twist_surface.tether_force = NaN
         twist_surface.tether_moment = NaN
@@ -1111,16 +1108,16 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
 
     # Update tether lengths from SysState (per-tether)
     for (tether_idx, tether) in enumerate(tethers)
-        tether_idx > 4 && break
+        tether_idx > length(sys_state.l_tether) && break
         tether.len = Float64(sys_state.l_tether[tether_idx])
     end
 
     # Update winch state from SysState (per-winch)
-    n_winches = min(length(winches), 4)
-    for i in 1:n_winches
+    for i in eachindex(winches)
         winches[i].force .= NaN
         winches[i].friction = NaN
         winches[i].acc = 0.0
+        i > length(sys_state.v_reelout) && continue
         winches[i].vel = Float64(sys_state.v_reelout[i])
         winches[i].set_value = Float64(sys_state.set_torque[i])
     end

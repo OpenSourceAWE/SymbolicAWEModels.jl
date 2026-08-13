@@ -329,7 +329,6 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
        bodies) = sam.sys_struct
 
     for (ti, tether) in enumerate(tethers)
-        ti > 4 && break
         ss.l_tether[ti] = tether.len
     end
     for winch in winches
@@ -338,14 +337,15 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.winch_force[winch.idx] = norm(winch.force)
         ss.set_torque[winch.idx] = winch.set_value
     end
+    # Unlike flap_angle, these are the integrated state itself.
+    for twist_surface in twist_surfaces
+        ss.twist_angles[twist_surface.idx] = twist_surface.twist
+        ss.twist_vel[twist_surface.idx] = twist_surface.twist_ω
+    end
     if length(twist_surfaces) > 0
-        # Only fill up to the size of ss.twist_angles (typically 4)
-        max_twist_surfaces = min(length(twist_surfaces), length(ss.twist_angles))
-        for twist_surface in twist_surfaces[1:max_twist_surfaces]
-            ss.twist_angles[twist_surface.idx] = twist_surface.twist
-        end
-        ss.depower = rad2deg(mean(ss.twist_angles[1:max_twist_surfaces])) # Average twist for depower
-        ss.steering = rad2deg(ss.twist_angles[max_twist_surfaces] - ss.twist_angles[1])
+        outer = length(twist_surfaces)
+        ss.depower = rad2deg(mean(ss.twist_angles))
+        ss.steering = rad2deg(ss.twist_angles[outer] - ss.twist_angles[1])
     end
     if length(wings) > 0
         wing = wings[1]
@@ -410,12 +410,6 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     for rigid_body in bodies
         write_body_state!(ss, rigid_body, slots.bodies[rigid_body.idx],
                           n_wings + rigid_body.idx, zoom)
-    end
-    # Unlike flap_angle, which is a deflection derived from the flap bodies,
-    # these are the integrated state itself.
-    for twist_surface in twist_surfaces
-        ss.twist_surface_angle[twist_surface.idx] = twist_surface.twist
-        ss.twist_surface_vel[twist_surface.idx] = twist_surface.twist_ω
     end
     for pulley in sam.sys_struct.pulleys
         ss.pulley_len[pulley.idx] = pulley.len
@@ -497,7 +491,9 @@ function SysState(s::SymbolicAWEModel, zoom=1.0; precision=KiteUtils.MyFloat)
     slots = position_slots(s.sys_struct)
     ss = SysState{slots.total, n_orient_frames(s.sys_struct),
                   n_flap_deflections(s.sys_struct),
-                  length(s.sys_struct.pulleys), precision}()
+                  length(s.sys_struct.pulleys),
+                  length(s.sys_struct.winches),
+                  length(s.sys_struct.tethers), precision}()
     update_sys_state!(ss, s, zoom)
     ss
 end
@@ -526,9 +522,13 @@ logger = Logger(sam, 1000)  # Instead of Logger(length(sam.sys_struct.points), 1
 function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int;
                           precision=KiteUtils.MyFloat)
     slots = position_slots(sam.sys_struct)
-    return Logger(slots.total, n_orient_frames(sam.sys_struct),
-                  n_flap_deflections(sam.sys_struct),
-                  length(sam.sys_struct.pulleys), steps; precision)
+    return Logger(slots.total, steps;
+                  orients = n_orient_frames(sam.sys_struct),
+                  deflections = n_flap_deflections(sam.sys_struct),
+                  pulleys = length(sam.sys_struct.pulleys),
+                  winches = length(sam.sys_struct.winches),
+                  tethers = length(sam.sys_struct.tethers),
+                  precision)
 end
 
 """
