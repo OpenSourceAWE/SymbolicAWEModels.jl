@@ -51,21 +51,20 @@ function wing_eqs!(
         wing.type == KINEMATIC || continue
         z_p1, z_p2 = wing.z_ref_points
         y_p1, y_p2 = wing.y_ref_points
-        pos_z1 = get_ref_position(pos, z_p1)
-        pos_z2 = get_ref_position(pos, z_p2)
-        pos_y1 = get_ref_position(pos, y_p1)
-        pos_y2 = get_ref_position(pos, y_p2)
+        pos_z1 = collect(get_ref_position(pos, z_p1))
+        pos_z2 = collect(get_ref_position(pos, z_p2))
+        pos_y1 = collect(get_ref_position(pos, y_p1))
+        pos_y2 = collect(get_ref_position(pos, y_p2))
 
         R_wing = R_b_to_w[:, :, wing.idx]
         q_wing = rotation_matrix_to_quaternion(R_wing)
+        xaxis, yaxis, zaxis = wing_frame_columns(pos_z1, pos_z2, pos_y1, pos_y2;
+            torn_frame=R_wing)
         eqs = [
             eqs
-            # R_b_to_w from structural ref points
-            R_b_to_w[:, 3, wing.idx] ~ smooth_normalize(pos_z2 - pos_z1)
-            R_b_to_w[:, 1, wing.idx] ~ smooth_normalize(
-                smooth_normalize(pos_y2 - pos_y1) × R_b_to_w[:, 3, wing.idx])
-            R_b_to_w[:, 2, wing.idx] ~
-                R_b_to_w[:, 3, wing.idx] × R_b_to_w[:, 1, wing.idx]
+            R_b_to_w[:, 3, wing.idx] ~ zaxis
+            R_b_to_w[:, 1, wing.idx] ~ xaxis
+            R_b_to_w[:, 2, wing.idx] ~ yaxis
             # Body frame output from origin ref points
             wing_pos[:, wing.idx] ~ get_ref_position(pos, wing.origin)
             wing_vel[:, wing.idx] ~ get_ref_position(vel, wing.origin)

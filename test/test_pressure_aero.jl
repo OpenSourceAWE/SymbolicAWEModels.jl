@@ -2,14 +2,17 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 # test_pressure_aero.jl
-# AeroPressure: distribute VSM's per-section load onto structural points using the
-# airfoil surface traction (−Cp·n̂ + cf·ŝ) as the pattern, anchored to VSM's
-# f_body_3D. Uses the particle 2plate kite with a synthetic section_aero fixture
-# (the human-readable .dat/Cp/cf "files-provided" route, no NeuralFoil):
+# What is AeroPressure's alone: distributing VSM's per-section load onto structural
+# points using the airfoil surface traction (−Cp·n̂ + cf·ŝ) as the pattern, anchored
+# to VSM's f_body_3D. Uses the particle 2plate kite with a synthetic section_aero
+# fixture (the human-readable .dat/Cp/cf "files-provided" route, no NeuralFoil):
 # - construction builds the static surface→point map and passes the frame guard
 # - a too-tight frame tolerance errors (misalignment guard)
 # - the distributed point forces sum exactly to VSM's total (anchoring)
-# - the mode integrates with the compiled RHS (init! + step stay finite)
+#
+# The contract AeroPressure shares with ContinuousAero is in
+# test_continuous_modes.jl, and the one it shares with every aero mode (including
+# that it compiles, steps and stays bounded) in test_aero_modes.jl.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -21,12 +24,19 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, refresh_particle_aero!, SimFloat,
-                         aero_inflow_groups, wing_points
+                         loft_contour_node, aero_inflow_groups, wing_points
 using KiteUtils
 using LinearAlgebra
 
-include(joinpath(@__DIR__, "pressure_fixture.jl"))
+@isdefined(write_pressure_fixture) ||
+    include(joinpath(@__DIR__, "pressure_fixture.jl"))
 
+"""
+    load_pressure_sys(data_path, aero_mode)
+
+`Settings` and `SystemStructure` for the particle 2plate kite carrying
+`aero_mode`, reading the fixture-patched geometry under `data_path`.
+"""
 function load_pressure_sys(data_path, aero_mode)
     set_data_path(data_path)
     set = Settings("system.yaml")
@@ -74,8 +84,9 @@ end
     end
 
     # Exercise the refresh directly (no ODE compile): set the operating point the
-    # way update_sys_struct!/sync_aero_density! would, then distribute.
-    wing.va_b .= SimFloat[15.0, 0.0, 1.5]
+    # way update_sys_struct!/sync_aero_density! would, then distribute. Alpha is
+    # 13°, clear of the α ≈ 8° sign change of the body-origin moment.
+    wing.va_b .= SimFloat[15.0, 0.0, 3.5]
     wing.ω_b .= SimFloat[0.0, 0.0, 0.0]
     wing.vsm_solver.density = 1.225
     va_vals = zeros(SimFloat, 3, length(sys.points))
@@ -83,6 +94,16 @@ end
         @views va_vals[:, p.idx] .= wing.va_b
     end
     refresh_particle_aero!(mode, wing, sys.points, va_vals)
+
+    @testset "frozen traction pattern" begin
+        n_panels = length(wing.vsm_aero.panels)
+        @test size(mode.traction, 2) == sum(length, mode.station_point)
+        @test size(mode.traction_net) == (3, n_panels)
+        @test all(isfinite, mode.traction)
+        @test all(isfinite, mode.traction_net)
+        @test norm(mode.traction) > 0.0
+        @test all(offset -> all(isfinite, offset), values(mode.point_offset))
+    end
 
     # Reconstruct the symbolic scatter numerically from the frozen params (same
     # (panel, node) column order as `aero_component`), using VSM `f_body_3D` as the
@@ -117,14 +138,62 @@ end
         @test norm(total_pts - total_vsm) / norm(total_vsm) < 1e-10
     end
 
-    @testset "compiled RHS stays finite" begin
-        sam = SymbolicAWEModel(set, sys)
-        test_init!(sam)
-        for _ in 1:5
-            next_step!(sam; dt=0.01, vsm_interval=1)
+    # Force sums survive a placement error untouched, moments do not. Comparing
+    # each panel's scattered loads about the body origin at the point they are
+    # applied to against the same loads at the surface node they came from
+    # separates the nearest-node lumping from a wrong distribution. Both
+    # residuals are load-centre offsets in chords, ‖ΔM‖/(‖F‖·c): ‖M‖ about the
+    # body origin passes through zero inside the flight range, so normalising by
+    # it would divide by a vanishing quantity.
+    @testset "moment placement (per VSM panel and total)" begin
+        sol = wing.vsm_solver.sol
+        panels = wing.vsm_aero.panels
+        rot_cad_to_body = wing.R_b_to_c'
+        point_pos_b = Dict(p.idx => rot_cad_to_body * (p.pos_cad - wing.pos_cad)
+                           for p in wing_pts)
+        applied_total = zeros(SimFloat, 3)
+        pattern_total = zeros(SimFloat, 3)
+        worst_arm = 0.0
+        column = 0
+        for (i, panel) in enumerate(panels)
+            xc, yc, _, _ = VortexStepMethod.section_surface(
+                panel.section_aero, 0.0, panel.delta)
+            assigned = mode.station_point[i]
+            n_nodes = length(assigned)
+            f_vsm = Vector(sol.f_body_3D[:, i])
+            residual = (f_vsm .- mode.traction_net[:, i]) ./ n_nodes
+            applied = zeros(SimFloat, 3)
+            pattern = zeros(SimFloat, 3)
+            for node in 1:n_nodes
+                column += 1
+                node_force = mode.traction[:, column] .+ residual
+                applied .+= cross(point_pos_b[assigned[node]], node_force)
+                pattern .+= cross(loft_contour_node(panel, xc, yc, node),
+                                  node_force)
+            end
+            applied_total .+= applied
+            pattern_total .+= pattern
+            worst_arm = max(worst_arm,
+                norm(applied - pattern) / (norm(f_vsm) * panel.chord))
         end
-        @test all(isfinite, wing.aero_force_b)
-        @test all(isfinite, wing.va_b)
-        @test all(isfinite, mode.traction)
+        moment_vsm = Vector(sol.moment)
+        mean_chord = sum(p.chord for p in panels) / length(panels)
+        lever_scale = norm(vec(sum(sol.f_body_3D, dims=2))) * mean_chord
+        @test lever_scale > 0.0
+        lumping = norm(applied_total - pattern_total) / lever_scale
+        pattern_error = norm(pattern_total - moment_vsm) / lever_scale
+        println("  [AeroPressure] moment placement: worst per-panel arm ",
+            "$(round(worst_arm; sigdigits=3)) chord; traction pattern vs VSM ",
+            "$(round(pattern_error; sigdigits=3)) chord; lumping ",
+            "$(round(lumping; sigdigits=3)) chord")
+        # The scatter may not move a load farther than the frame guard admits.
+        @test worst_arm <= mode.frame_tol_frac
+        # Where the traction pattern puts the load centre against where VSM's own
+        # Cm does. The fixture's Cp and polars/1.csv are unrelated datasets, so
+        # 0.13 chord is their disagreement; negating the traction while keeping
+        # the anchored force scores 0.27, which is the margin this bound has.
+        @test pattern_error < 0.20
+        # Nearest-node quantization, the only part the scatter itself controls.
+        @test lumping < 0.05
     end
 end

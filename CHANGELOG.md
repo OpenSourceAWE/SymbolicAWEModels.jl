@@ -3,20 +3,44 @@
 ## Unreleased
 
 ### Added
-- `init!(sam; analytic_jacobian)` gives the solver a Jacobian instead of leaving
-  it to differentiate the right-hand side numerically. On the `KernelBackend` it
-  is on by default: the right-hand side is a layered composition of small
-  components, so each kernel is differentiated once at its own width and the
-  results are composed through the constant wiring, rather than differentiating
-  the whole model `n_states / chunk` times. On the `MonolithBackend` it is off by
-  default and selects MTK's symbolic `jac=true`, which is expensive to build and
-  has no derivative for a registered numerical leaf such as the wind profile.
-  `nothing` (the default) takes the backend's `default_analytic_jacobian`. The
-  choice is part of the serialized model's name, so the two builds are cached
-  apart.
-- New top-level YAML block `variables`: named values reused across the file.
-  A variable name written in any column is replaced by its value (numbers,
-  strings, lists), and variables may be defined in terms of each other:
+- `Pulley` gains `efficiency`, the fraction of line tension its sheave passes
+  on. Friction is `(1 − efficiency) · line_tension`, carrying the sign of the
+  motion, smoothed over `friction_epsilon` [m/s], with `line_tension` the mean
+  of the two leg tensions — so the default is the textbook `T_out = 0.95·T_in`.
+  It replaces the hidden `pulley_damp`, fixed at 5.0 and neither readable nor
+  settable from the `SystemStructure`. A sheave's losses scale with load, not
+  speed, and `pulley_damp` scaled with rope travel and rope mass, so no fixed
+  coefficient reproduces it — expect to retune models that leaned on it to
+  settle. 0.95 is a sealed ball bearing (published 0.94–0.97; 0.88–0.92 for a
+  bronze bushing); 1.0 is ideal. A slack pulley is now frictionless and coasts,
+  but has no tension driving its split either.
+- `Pulley` also takes `damping` [N·s/m] and `brake`, both off by default and
+  neither a sheave property: `damping` settles a ringing split while debugging,
+  `brake` freezes the split to isolate whether a problem comes from the rope
+  redistributing at all. Constructor keywords and YAML columns.
+- `Segment(...; compression_damping_frac)` scales the damping term the way
+  `compression_frac` scales the stiffness, live in the right-hand side. The
+  default `1.0` is the previous behaviour: damping unaffected by compression
+  and the force continuous at `len == l0`, but the damping ratio jumping by
+  `1/sqrt(compression_frac)` as the segment goes slack. Set it equal to
+  `compression_frac` for one damping ratio on both branches;
+  `compression_damping_frac = compression_frac = 0` makes a slack segment carry
+  no force at all, at the cost of a force step of `unit_damping / l0 ·
+  spring_vel` at the crossing. Also a `segments` YAML column.
+- `Tether(...; compression_frac, compression_damping_frac)` hands both to every
+  segment a Route 2 tether generates, so an auto-generated line is no longer
+  stuck at the `Segment` default of 0.1. Also `tethers` YAML columns. A tether
+  without a winch holds its length fixed, so this is how to split one line into
+  several segments without writing out every segment and intermediate point.
+- `youngs_modulus` [Pa] and `damping_per_stiffness` [s] are ordinary `Segment`
+  and `Tether` inputs (YAML columns and constructor keywords) — the
+  diameter-independent forms of `unit_stiffness` and `unit_damping`, so one
+  material can be shared across diameters: `unit_stiffness = youngs_modulus ·
+  pi · (diameter_mm/2000)^2`, `unit_damping = damping_per_stiffness ·
+  unit_stiffness`. Giving both forms of the same quantity is an error.
+- New top-level YAML block `variables`: named values reused across the file. A
+  variable name in any column is replaced by its value (numbers, strings,
+  lists), and variables may be defined in terms of each other:
   ```yaml
   variables:
     bridle_comp: 0.01
@@ -24,76 +48,122 @@
               density: 724.0}
   ```
   A variable holding a mapping is a *multi-variable*: it fills the columns it
-  names at once, so the row carries one entry for the whole group
-  (`- [bridle, le_left, kcu, nothing, 1.0, dyneema, bridle_comp]`). The fields
+  names at once, so the row carries one entry for the group
+  (`- [bridle, le_left, kcu, nothing, 1.0, dyneema, bridle_comp]`). Its fields
   must match the columns at that position; in a dict row they are merged in
-  instead, without overriding the row. Naming a variable after a component is
-  an error.
-- `youngs_modulus` [Pa] and `damping_per_stiffness` [s] are now ordinary
-  `Segment` and `Tether` inputs (YAML columns and constructor keywords). They
-  are the diameter-independent forms of `unit_stiffness` and `unit_damping`,
-  so one material can be shared by elements of different diameter:
-  `unit_stiffness = youngs_modulus * pi * (diameter_mm/2000)^2` and
-  `unit_damping = damping_per_stiffness * unit_stiffness`. Giving both forms
-  of the same quantity is an error.
+  without overriding the row. Naming a variable after a component is an error.
+- A `SysLog` now carries the whole differential state, so a simulation can be
+  restarted from any logged step. `update_sys_state!` writes point velocities,
+  per-frame body turn rates, twist-surface twist and rate, and pulley length and
+  rate alongside what it already wrote; `update_from_sysstate!` reads them back,
+  rebuilding the body rates into the principal frame the ODE integrates. It no
+  longer zeroes point velocities or caps twist surfaces at four. Pass
+  `precision=Float64` to `SysState(sam)` or `Logger(sam, steps)` for a state
+  that reproduces `integrator.u`; the default stays `Float32` so telemetry logs
+  keep their size. Restart with `init!(sam; remake=false, reinit_sys=false)`,
+  which seeds the integrator from the structure instead of the CAD frame.
+- The YAML loader reads back state that previously had no column: point `vel_w`
+  (zeroed unconditionally, discarding the column it already accepted), pulley
+  `sum_len`/`len`/`vel`, twist-surface `twist`/`twist_vel`, tether `len`, winch
+  `vel`/`set_value`, and body `vel`/`Q_b_to_w`/`omega_b`.
+- `init!(sam; analytic_jacobian)` gives the solver a Jacobian instead of
+  differentiating the right-hand side numerically. On by default on the
+  `KernelBackend`, where each kernel is differentiated once at its own width and
+  composed through the constant wiring, rather than differentiating the whole
+  model `n_states / chunk` times. Off by default on the `MonolithBackend`, where
+  it selects MTK's symbolic `jac=true` — expensive to build, and with no
+  derivative for a registered numerical leaf such as the wind profile.
+  `nothing` (the default) takes the backend's `default_analytic_jacobian`. The
+  choice is part of the serialized model's name, so the builds cache apart.
+- `test_init!` round-trips every model the suite builds through a `SysLog` on
+  disk and checks `integrator.u` is unchanged, covering the `DynamicsType`
+  combinations that decide whether a component is part of the state at all.
 
 ### Fixed
-- `init_stretched_length` placement now carries a beam wing. A `BODY_STATIC`
-  point riding a Timoshenko element has `body_idx == 0` and holds its
-  association in `joint_idx`, so collecting the bodies to translate by
-  `body_idx` alone left every beam body behind while the tether's free end
-  moved. The ride constraint then snapped the points back, and the only symptom
-  was a non-converged VSM solve much later. Bodies reachable from the moved ones
-  through the beam graph now translate too — including bodies that carry no
-  point of their own — stopping at `STATIC` bodies, since a beam with a clamped
-  end deforms rather than translating.
-- The Breukels inflated-tube correlations now error instead of quietly
-  returning a negative rigidity when evaluated outside the range they were
-  fitted in. The bending slope changes sign below a radius of roughly 38 mm at
-  0.25 bar (a 20 mm tube at 0.1 bar gave `EI0 = -94 N·m²` and a negative `EA`),
-  and the torsion factor `c2` changes sign for a fat tube above 1 bar. A
-  non-positive radius or pressure is rejected as well.
+- A segment's damper resists the rate of change of its extension `len - l0`,
+  not the rate its endpoints separate. The two agree wherever `l0` is a fixed
+  parameter, so an ordinary segment is unchanged — but a pulley leg and a
+  winched tether member carry `l0` as a state, and the difference is that
+  state's own rate. A pulley's rope split therefore appeared in no damper at
+  all while the legs' dampers still drove it: a one-way velocity coupling that
+  could feed the split rather than settle it, growing with
+  `damping_per_stiffness`, so raising the damping could make a model *less*
+  stable. The split now carries `c_left + c_right`. Reeling likewise no longer
+  charges a tether a damper force proportional to reel speed, so a reel-out
+  loop is genuinely less damped than the old model made it look — expect
+  controllers tuned against it to need retuning.
+- A segment whose `unit_damping` is missing or `nothing` takes the `Segment`
+  constructor default (derived from the settings) instead of being silently
+  forced to zero by the loader.
+- Air density is clamped at ground level on every path. A rigid wing read
+  `calc_rho` at its raw world `z`, extrapolating the atmospheric model backwards
+  below `z = 0` while points and segments clamped. The clamp now lives in
+  `air_density`, which every consumer in both backends reads through.
+- `init_stretched_length` placement carries a beam wing. A `BODY_STATIC` point
+  riding a Timoshenko element has `body_idx == 0` and holds its association in
+  `joint_idx`, so collecting bodies by `body_idx` alone left every beam body
+  behind while the tether's free end moved; the ride constraint then snapped the
+  points back, and the only symptom was a non-converged VSM solve much later.
+  Bodies reachable through the beam graph now translate too — including bodies
+  carrying no point of their own — stopping at `STATIC` bodies, since a beam
+  with a clamped end deforms rather than translates.
+- The Breukels inflated-tube correlations error instead of quietly returning a
+  negative rigidity outside the range they were fitted in. The bending slope
+  changes sign below roughly 38 mm radius at 0.25 bar (a 20 mm tube at 0.1 bar
+  gave `EI0 = -94 N·m²` and a negative `EA`), and the torsion factor `c2`
+  changes sign for a fat tube above 1 bar. Non-positive radius or pressure is
+  rejected too.
+- `set.g_earth` is settable after construction on the `KernelBackend` too. A
+  particle point baked the value in while a rigid body and a ride point read the
+  registered parameter, so changing gravity moved the bodies and left the tether
+  points falling at the old rate.
+- An aero panel that maps to no twist surface reads a zero deflection on both
+  backends; the monolith indexed `twist_surface_delta` at `0`. Unreachable
+  today, since every panel is assigned a nearest flap whenever a wing has one,
+  but live for any mode that emits a partially-zero map.
+- `plot` handles a system with fewer than three winches. The reel-out,
+  winch-force and set-torque panels pulled three channels out of every logged
+  sample no matter how many the log held, so a one-winch log threw a
+  `BoundsError` before the figure was drawn. Each panel now takes its channel
+  count from the log.
 
-### Breaking
-- A `Pulley` resists rope travel by its `efficiency`, the fraction of line
-  tension its sheave passes on. The friction is `(1 − efficiency) ·
-  line_tension` carrying the sign of the motion, smoothed over
-  `friction_epsilon` [m/s], with `line_tension` the mean of the two leg
-  tensions — so the default is the textbook `T_out = 0.95 · T_in`. It replaces
-  the hidden `pulley_damp` parameter, which was fixed at 5.0 and could be
-  neither read nor set from the `SystemStructure`. `efficiency` defaults to
-  0.95, a sealed ball-bearing sheave; published ranges are 0.94–0.97 for those
-  and 0.88–0.92 for a bronze bushing. Set 1.0 for an ideal pulley.
-
-  A sheave's losses scale with load, not speed: bearing drag rises with the
-  force on the axle and the rope's bending hysteresis with the tension being
-  bent. `pulley_damp` was proportional to rope travel and to rope mass, so no
-  fixed coefficient reproduces it across models — expect to retune ones that
-  leaned on it to settle. A slack pulley is now frictionless, and coasts, but
-  it has no tension driving its split either.
-- `Pulley` also takes `damping` [N·s/m] and `brake`, both defaulting to off and
-  neither a sheave property: `damping` opposes rope travel proportionally to
-  speed, to settle a ringing split while debugging, and `brake` freezes the
-  split where it is, to isolate whether a problem comes from the rope
-  redistributing at all. All the fields above are settable from the constructor
-  and from YAML columns of the same names.
-- `Winch.f_coulomb` and `Winch.c_vf` are renamed to `Winch.coulomb_friction` and
-  `Winch.viscous_coefficient`, matching the `Pulley` fields above and saying
-  which of the two is a force [N] and which a coefficient [N·s/m]. The
-  `settings.yaml` keys are owned by `KiteUtils` and keep their old names.
-- `compression_frac` now defaults to 0.1 in both `Segment` constructors. They
+### Changed
+- BREAKING: the `materials`, `elements` and `segment_properties` YAML blocks
+  are removed, and loading a file with one errors. A material is now a
+  multi-variable listing `youngs_modulus`, `damping_per_stiffness` and
+  `density`, all ordinary columns.
+- BREAKING: `Winch.f_coulomb` and `Winch.c_vf` are renamed to
+  `Winch.coulomb_friction` and `Winch.viscous_coefficient`, matching the
+  `Pulley` fields and saying which is a force [N] and which a coefficient
+  [N·s/m]. The `settings.yaml` keys are owned by `KiteUtils` and keep their old
+  names.
+- The monolith and the `KernelBackend` evaluate one shared definition of every
+  equation instead of a copy each. Points, segments, pulleys, rigid bodies,
+  ref-point wing frames, twist deformation, the ground wind fallback and the
+  aero wiring route through the helpers in `src/components/`, which previously
+  had the `KernelBackend` as their only caller. A backend still chooses how
+  equations are assembled; it no longer chooses what they are.
+- `compression_frac` defaults to 0.1 in both `Segment` constructors. They
   disagreed — 0.0 from the settings-based one, 0.1 from the direct one — which
-  was an oversight rather than a choice. 0.1 lets a rope push back with a tenth
-  of its tensile stiffness, and is the value models have actually been built
-  against; 0.0 leaves a slack segment with damping but no stiffness at all,
-  which a pulley model does not survive.
-- The `materials`, `elements` and `segment_properties` YAML blocks were
-  removed. A material is now a multi-variable listing `youngs_modulus`,
-  `damping_per_stiffness` and `density`, and those are ordinary columns.
-  Loading a file with one of the removed blocks errors.
-- A segment whose `unit_damping` is missing or `nothing` now takes the
-  `Segment` constructor default (derived from the settings) instead of being
-  silently forced to zero by the loader.
+  was an oversight. 0.1 lets a rope push back with a tenth of its tensile
+  stiffness and is what models were built against; 0.0 leaves a slack segment
+  with damping but no stiffness, which a pulley model does not survive.
+- Nine segment observables (`stiffness`, `damping`, `segment_height`,
+  `segment_vel`, `segment_rho`, `wind_vel`, `va`, `area`, `app_perp_vel`) are
+  gone and the point observable `point_drag_force` is renamed `point_aero_drag`,
+  where it shadowed the shared function of that name. They were intermediates of
+  the monolith's own copy of the force law, which no longer exists. Nothing in
+  the package, examples or docs reads them and no exported accessor returns a
+  symbolic variable by name, so only code indexing the generated system directly
+  is affected. `len`, `spring_force`, `spring_force_vec`, `spring_vel`,
+  `unit_vec`, `segment_vec`, `rel_vel`, `l0` and `total_drag` are unchanged.
+- The aero tests are layered, so a new mode inherits its contracts by being
+  added to a table rather than by someone remembering to write tests.
+  `test_aero_modes.jl` holds what every mode owes and now enrolls
+  `AeroPressure`; the new `test_continuous_modes.jl` holds what the continuous
+  modes owe — including that per-section inflow is gathered per section and
+  never as a wing-wide mean; `test_continuous_aero.jl` and
+  `test_pressure_aero.jl` keep only what is specific to one mode.
 
 ## v0.13.0 06-08-2026
 

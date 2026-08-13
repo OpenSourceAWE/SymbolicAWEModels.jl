@@ -329,7 +329,6 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
        bodies) = sam.sys_struct
 
     for (ti, tether) in enumerate(tethers)
-        ti > 4 && break
         ss.l_tether[ti] = tether.len
     end
     for winch in winches
@@ -338,14 +337,15 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.winch_force[winch.idx] = norm(winch.force)
         ss.set_torque[winch.idx] = winch.set_value
     end
+    # Unlike flap_angle, these are the integrated state itself.
+    for twist_surface in twist_surfaces
+        ss.twist_angles[twist_surface.idx] = twist_surface.twist
+        ss.twist_vel[twist_surface.idx] = twist_surface.twist_ω
+    end
     if length(twist_surfaces) > 0
-        # Only fill up to the size of ss.twist_angles (typically 4)
-        max_twist_surfaces = min(length(twist_surfaces), length(ss.twist_angles))
-        for twist_surface in twist_surfaces[1:max_twist_surfaces]
-            ss.twist_angles[twist_surface.idx] = twist_surface.twist
-        end
-        ss.depower = rad2deg(mean(ss.twist_angles[1:max_twist_surfaces])) # Average twist for depower
-        ss.steering = rad2deg(ss.twist_angles[max_twist_surfaces] - ss.twist_angles[1])
+        outer = length(twist_surfaces)
+        ss.depower = rad2deg(mean(ss.twist_angles))
+        ss.steering = rad2deg(ss.twist_angles[outer] - ss.twist_angles[1])
     end
     if length(wings) > 0
         wing = wings[1]
@@ -387,6 +387,9 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.X[point.idx] = point.pos_w[1] * zoom
         ss.Y[point.idx] = point.pos_w[2] * zoom
         ss.Z[point.idx] = point.pos_w[3] * zoom
+        ss.VX[point.idx] = point.vel_w[1]
+        ss.VY[point.idx] = point.vel_w[2]
+        ss.VZ[point.idx] = point.vel_w[3]
     end
 
     # Store per-mode aero log points (e.g. VSM panel corners) in world frame
@@ -401,22 +404,39 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     slots = position_slots(sam.sys_struct)
     n_wings = length(wings)
     for wing in wings
-        slot = slots.wings[wing.idx]
-        ss.X[slot] = wing.pos_w[1] * zoom
-        ss.Y[slot] = wing.pos_w[2] * zoom
-        ss.Z[slot] = wing.pos_w[3] * zoom
-        ss.orients[wing.idx] .= wing.Q_b_to_w   # frame 1 == legacy `orient`
+        # frame 1 == legacy `orient`
+        write_body_state!(ss, wing, slots.wings[wing.idx], wing.idx, zoom)
     end
     for rigid_body in bodies
-        slot = slots.bodies[rigid_body.idx]
-        ss.X[slot] = rigid_body.pos_w[1] * zoom
-        ss.Y[slot] = rigid_body.pos_w[2] * zoom
-        ss.Z[slot] = rigid_body.pos_w[3] * zoom
-        ss.orients[n_wings + rigid_body.idx] .= rigid_body.Q_b_to_w
+        write_body_state!(ss, rigid_body, slots.bodies[rigid_body.idx],
+                          n_wings + rigid_body.idx, zoom)
+    end
+    for pulley in sam.sys_struct.pulleys
+        ss.pulley_len[pulley.idx] = pulley.len
+        ss.pulley_vel[pulley.idx] = pulley.vel
     end
 
     ss.v_wind_gnd .= sam.set.wind_vec
     nothing
+end
+
+"""
+    write_body_state!(ss, body, slot, frame, zoom)
+
+Store a body's pose and rates: position and velocity in `X/Y/Z` and `VX/VY/VZ`
+at `slot`, orientation and turn rate in `orients` and `turn_rate_x/y/z` at
+`frame`. Wings occupy both a wing slot and a body slot, so both are written.
+"""
+function write_body_state!(ss, body, slot, frame, zoom)
+    ss.X[slot] = body.pos_w[1] * zoom
+    ss.Y[slot] = body.pos_w[2] * zoom
+    ss.Z[slot] = body.pos_w[3] * zoom
+    ss.VX[slot], ss.VY[slot], ss.VZ[slot] = body.vel_w
+    ss.orients[frame] .= body.Q_b_to_w
+    ss.turn_rate_x[frame] = body.ω_b[1]
+    ss.turn_rate_y[frame] = body.ω_b[2]
+    ss.turn_rate_z[frame] = body.ω_b[3]
+    return nothing
 end
 
 """
@@ -467,10 +487,13 @@ with the current state of the provided model.
 # Returns
 - `SysState`: A new state struct representing the current model state.
 """
-function SysState(s::SymbolicAWEModel, zoom=1.0)
+function SysState(s::SymbolicAWEModel, zoom=1.0; precision=KiteUtils.MyFloat)
     slots = position_slots(s.sys_struct)
     ss = SysState{slots.total, n_orient_frames(s.sys_struct),
-                  n_flap_deflections(s.sys_struct)}()
+                  n_flap_deflections(s.sys_struct),
+                  length(s.sys_struct.pulleys),
+                  length(s.sys_struct.winches),
+                  length(s.sys_struct.tethers), precision}()
     update_sys_state!(ss, s, zoom)
     ss
 end
@@ -496,10 +519,16 @@ appropriate size.
 logger = Logger(sam, 1000)  # Instead of Logger(length(sam.sys_struct.points), 1000)
 ```
 """
-function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int)
+function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int;
+                          precision=KiteUtils.MyFloat)
     slots = position_slots(sam.sys_struct)
-    return Logger(slots.total, n_orient_frames(sam.sys_struct),
-                  n_flap_deflections(sam.sys_struct), steps)
+    return Logger(slots.total, steps;
+                  orients = n_orient_frames(sam.sys_struct),
+                  deflections = n_flap_deflections(sam.sys_struct),
+                  pulleys = length(sam.sys_struct.pulleys),
+                  winches = length(sam.sys_struct.winches),
+                  tethers = length(sam.sys_struct.tethers),
+                  precision)
 end
 
 """

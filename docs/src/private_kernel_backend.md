@@ -174,13 +174,18 @@ SymbolicAWEModels.PrescribedTwist
 SymbolicAWEModels.TwistNodePoint
 SymbolicAWEModels.TwistNodeWrench
 SymbolicAWEModels.twist_deformed_offset
+SymbolicAWEModels.twist_bridle_couple
 SymbolicAWEModels.rigid_body_point_velocity
 SymbolicAWEModels.scalar_output
 SymbolicAWEModels.FlapDelta
 SymbolicAWEModels.FLAP_INPUTS
 SymbolicAWEModels.flap_delta_expression
+SymbolicAWEModels.flap_delta_eqs
 SymbolicAWEModels.flap_delta_inputs
 SymbolicAWEModels.wing_flap_surfaces
+SymbolicAWEModels.twist_surface_aero_driven
+SymbolicAWEModels.particle_wing_aero_wiring
+SymbolicAWEModels.rigid_wing_aero_wiring
 SymbolicAWEModels.indexed_vector_variables
 SymbolicAWEModels.indexed_scalar_variables
 SymbolicAWEModels.scalar_input
@@ -236,6 +241,7 @@ SymbolicAWEModels.wire_segment!
 SymbolicAWEModels.find_winch
 SymbolicAWEModels.load_target
 SymbolicAWEModels.buffer_slots
+SymbolicAWEModels.winch_state_slots
 SymbolicAWEModels.bind_params
 SymbolicAWEModels.callable_store
 SymbolicAWEModels.retarget_tether_rest_lengths!

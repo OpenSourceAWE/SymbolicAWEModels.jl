@@ -61,7 +61,9 @@ end
                R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
                point_force, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos)
 
-Generate equations for deformable wing twist_surface twist dynamics.
+Generate equations for deformable wing twist_surface twist dynamics. The couple each
+of a surface's points delivers to its hinge is built from the shared
+[`twist_bridle_couple`](@ref).
 
 # Arguments
 - `eqs`, `defaults`: Accumulating vectors for the MTK system.
@@ -166,29 +168,23 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, bodies, params, initi
             continue
         end
 
-        gc = collect(twist_surface_chord[:, twist_surface.idx])
-        x_airf = smooth_normalize(gc)
-        gy = collect(twist_surface_y_airf[:, twist_surface.idx])
-        init_z_airf = x_airf × gy
-        z_airf = sin(twist_angle[twist_surface.idx]) * x_airf + cos(twist_angle[twist_surface.idx]) * init_z_airf
-        Rbw = collect(R_b_to_w[:, :, wing.idx])
-        Rz = Rbw * (-1 * z_airf)  # Note: -z_airf has a bug, use -1 * z_airf instead
-        gl = collect(twist_surface_le_pos[:, twist_surface.idx])
+        orientation = collect(R_b_to_w[:, :, wing.idx])
+        surface_params = params.twist_surfaces[twist_surface.idx]
 
         for (i, point_idx) in enumerate(twist_surface.point_idxs)
-            pf = collect(point_force[:, point_idx])
-            rv = collect(r_vec[:, i, twist_surface.idx])
-            pos_offset = collect(
-                params.points[point_idx].pos_b .-
-                (gl + params.twist_surfaces[twist_surface.idx].moment_frac * gc)
-            )
+            couple = twist_bridle_couple(surface_params,
+                                         params.points[point_idx].pos_b,
+                                         twist_angle[twist_surface.idx], orientation)
+            point_load = collect(point_force[:, point_idx])
             eqs = [
                 eqs
-                [r_vec[j, i, twist_surface.idx] ~ pos_offset[j]
+                [r_vec[j, i, twist_surface.idx] ~ couple.offset[j]
                  for j in 1:3]
-                r_twist_surface[i, twist_surface.idx] ~ rv ⋅ smooth_normalize(gc)
-                tether_force[i, twist_surface.idx] ~ pf ⋅ Rz
-                tether_moment[i, twist_surface.idx] ~ r_twist_surface[i, twist_surface.idx] * tether_force[i, twist_surface.idx]
+                r_twist_surface[i, twist_surface.idx] ~ couple.arm
+                tether_force[i, twist_surface.idx] ~ point_load ⋅ couple.direction
+                tether_moment[i, twist_surface.idx] ~
+                    r_twist_surface[i, twist_surface.idx] *
+                    tether_force[i, twist_surface.idx]
             ]
         end
 

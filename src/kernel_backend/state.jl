@@ -285,11 +285,13 @@ function winch_readouts(model::KernelModel, sys_struct)
         role.kind === :winch || continue
         instance = model.point_instances[idx]
         winch = sys_struct.winches[role.winch_idx]
-        lengths = [(tether, only(buffer_slots(system, instance, :states,
-                                              Symbol(:tether_len_, k))))
+        alias = length(winch.tether_idxs) == 1 ? Symbol("motor₊len") : nothing
+        lengths = [(tether, only(winch_state_slots(system, instance,
+                                                   Symbol(:tether_len_, k), alias)))
                    for (k, tether) in enumerate(winch.tether_idxs)]
         push!(readouts, WinchReadout(role.winch_idx,
-            only(buffer_slots(system, instance, :states, :winch_vel)),
+            only(winch_state_slots(system, instance, :winch_vel,
+                                   Symbol("motor₊vel"))),
             only(buffer_slots(system, instance, :observables, :winch_force)),
             only(buffer_slots(system, instance, :observables, :winch_acc)),
             only(buffer_slots(system, instance, :observables, :winch_friction)),

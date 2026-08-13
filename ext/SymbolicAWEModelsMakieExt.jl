@@ -1314,6 +1314,17 @@ function Makie.plot(sys::SystemStructure, logs::Vector{<:SysLog}; kwargs...)
     return Makie.plot(syss, logs; kwargs...)
 end
 
+"""
+    per_winch_series(samples)
+
+Transpose a logged time series of per-winch vectors into one series per winch,
+taking the winch count from the log.
+"""
+function per_winch_series(samples)
+    n_winch = isempty(samples) ? 0 : minimum(length, samples)
+    return [[samples[k][j] for k in eachindex(samples)] for j in 1:n_winch]
+end
+
 function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                    plot_default=true,
                    plot_reelout=plot_default,
@@ -1567,9 +1578,8 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
-            v_ro = [[sl.v_reelout[i][j] for i in eachindex(sl.v_reelout)] for j in 1:3]
-            for j in 1:3
-                # Only plot if non-zero or if it's index 1
+            v_ro = per_winch_series(sl.v_reelout)
+            for j in eachindex(v_ro)
                 if j == 1 || !all(iszero, v_ro[j])
                     push!(all_data, v_ro[j])
                     push!(all_labels, lbl(L"v_{ro,%$j}", suffix))
@@ -2280,8 +2290,8 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
-            winch_force = [[sl.winch_force[i][j] for i in eachindex(sl.winch_force)] for j in 1:3]
-            for j in 1:3
+            winch_force = per_winch_series(sl.winch_force)
+            for j in eachindex(winch_force)
                 if j == 1 || !all(iszero, winch_force[j])
                     push!(all_data, winch_force[j])
                     if compact_labels
@@ -2293,11 +2303,13 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                     push!(all_linestyles, :solid)
                 end
             end
-            # Add setpoint only for first winch (use winch_force[1] for error)
-            setpoint_label = compact_labels ? "Ref. winch force" : "F_winch ref"
-            add_setpoint!(all_data, all_labels, all_times, all_linestyles,
-                         sp, sl.time, setpoint_label, suffix;
-                         actual_data=winch_force[1], error_info=all_errors, skip_ref_suffix=compact_labels)
+            if !isempty(winch_force)
+                setpoint_label = compact_labels ? "Ref. winch force" : "F_winch ref"
+                add_setpoint!(all_data, all_labels, all_times, all_linestyles,
+                             sp, sl.time, setpoint_label, suffix;
+                             actual_data=winch_force[1], error_info=all_errors,
+                             skip_ref_suffix=compact_labels)
+            end
         end
         if !isempty(all_data)
             ylabel_winch = compact_labels ? L"[N]" : L"F_t \; [N]"
@@ -2316,9 +2328,8 @@ function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
-            set_values = [[sl.set_torque[i][j] for i in eachindex(sl.set_torque)] for j in 1:3]
-            for j in 1:3
-                # Only plot if non-zero or if it's index 1
+            set_values = per_winch_series(sl.set_torque)
+            for j in eachindex(set_values)
                 if j == 1 || !all(iszero, set_values[j])
                     push!(all_data, set_values[j])
                     push!(all_labels, lbl(L"\tau_%$j", suffix))

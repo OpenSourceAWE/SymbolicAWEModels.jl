@@ -10,7 +10,7 @@
 const PARTICLE_INPUTS = [:force_in, :mass_in, :drag_in]
 const PARTICLE_OUTPUTS = [:pos, :vel]
 const PULLEY_POINT_INPUTS = [PARTICLE_INPUTS; :tension_in; :line_in]
-const PULLEY_POINT_OUTPUTS = [:pos, :vel, :pulley_len_out]
+const PULLEY_POINT_OUTPUTS = [:pos, :vel, :pulley_len_out, :pulley_vel_out]
 const WINCH_INPUTS = [PARTICLE_INPUTS; :tension_in]
 const SEGMENT_INPUTS = [:src_pos, :src_vel, :dst_pos, :dst_vel]
 const SEGMENT_OUTPUTS = [:src_force, :dst_force, :half_mass, :half_drag]
@@ -685,10 +685,9 @@ function add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twist
                  Symbol(:twist_angle_, surface))
         connect!(builder, twists[surface], :twist_vel, instance,
                  Symbol(:twist_vel_, surface))
-        driven = !(sam.sys_struct.twist_surfaces[surface].type == STATIC &&
-                   isempty(sam.sys_struct.twist_surfaces[surface].unrefined_section_idxs))
-        driven && connect!(builder, instance, Symbol(:twist_moment_, surface),
-                           twists[surface], :aero_moment_in)
+        twist_surface_aero_driven(sam.sys_struct.twist_surfaces[surface]) &&
+            connect!(builder, instance, Symbol(:twist_moment_, surface),
+                     twists[surface], :aero_moment_in)
     end
     return instance
 end
@@ -805,7 +804,8 @@ function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches,
         index_map[:winches] = role.winch_idx
         key = Symbol(:winch_, role.winch_idx)
         outputs = [PARTICLE_OUTPUTS;
-                   [Symbol(:tether_len_, k) for k in eachindex(winch.tether_idxs)]]
+                   [Symbol(:tether_len_, k) for k in eachindex(winch.tether_idxs)];
+                   [Symbol(:tether_vel_, k) for k in eachindex(winch.tether_idxs)]]
         kernel!(builder, table, sam, key, idx,
                 params -> WinchAnchor(sam, params, winch, idx; name = key),
                 WINCH_INPUTS, outputs)
@@ -1028,12 +1028,13 @@ function add_segment!(builder, table, bindings, sam, idx, role)
                 callable_field_key(:pulley_segment, segment, stiffness), idx,
                 params -> PulleySegment(sam, params, idx, role.pulley_idx;
                                         name = :pulley_segment),
-                [SEGMENT_INPUTS; :rest_len], [SEGMENT_OUTPUTS; :tension; :line])
+                [SEGMENT_INPUTS; :rest_len; :rest_vel],
+                [SEGMENT_OUTPUTS; :tension; :line])
     elseif role.kind === :tether
         kernel!(builder, table, sam,
                 callable_field_key(:tether_segment, segment, stiffness), idx,
                 params -> TetherSegment(sam, params, idx; name = :tether_segment),
-                [SEGMENT_INPUTS; :rest_len],
+                [SEGMENT_INPUTS; :rest_len; :rest_vel],
                 [SEGMENT_OUTPUTS; :src_tension; :dst_tension])
     else
         with_drag = role.kind === :spring
@@ -1077,6 +1078,7 @@ function wire_segment!(builder, sys_struct, idx, role, point_instances,
         pulley = sys_struct.pulleys[role.pulley_idx]
         pulley_point = point_instances[pulley_point_index(sys_struct, pulley)]
         connect!(builder, pulley_point, :pulley_len_out, segment, :rest_len)
+        connect!(builder, pulley_point, :pulley_vel_out, segment, :rest_vel)
         connect!(builder, segment, :tension, pulley_point, :tension_in)
         connect!(builder, segment, :line, pulley_point, :line_in)
     elseif role.kind === :tether
@@ -1085,6 +1087,8 @@ function wire_segment!(builder, sys_struct, idx, role, point_instances,
         position = findfirst(==(role.tether_idx), winch.tether_idxs)
         connect!(builder, winch_point, Symbol(:tether_len_, position), segment,
                  :rest_len)
+        connect!(builder, winch_point, Symbol(:tether_vel_, position), segment,
+                 :rest_vel)
         source == role.winch_point &&
             connect!(builder, segment, :src_tension, winch_point, :tension_in)
         target == role.winch_point &&
@@ -1116,6 +1120,21 @@ function buffer_slots(system, instance::Int, buffer::Symbol, name::Symbol)
     inst = system.instances[instance]
     kernel = system.kernels[inst.kernel]
     return first(getfield(inst, buffer)) .- 1 .+ slots(getfield(kernel, buffer), name)
+end
+
+"""
+    winch_state_slots(system, instance, name, alias) -> Vector{Int}
+
+The state slots of `name` on a winch anchor, taking `alias` when `name` is not the
+unknown that survived. [`WinchAnchor`](@ref) binds `motor.vel` to its own
+`winch_vel` and, for a single tether, `motor.len` to `tether_len_1`; either member
+of such a pair can be the one `mtkcompile` keeps, so the reader may not assume.
+`alias` is `nothing` where no pair exists.
+"""
+function winch_state_slots(system, instance::Int, name::Symbol, alias)
+    kernel = system.kernels[system.instances[instance].kernel]
+    key = alias === nothing || has_slot(kernel.states, name) ? name : alias
+    return buffer_slots(system, instance, :states, key)
 end
 
 """
@@ -1260,10 +1279,13 @@ function initial_state!(u0, system, sys_struct, point_roles, point_instances,
             u0[only(buffer_slots(system, instance, :states, :pulley_vel))] = pulley.vel
         elseif role.kind === :winch
             winch = sys_struct.winches[role.winch_idx]
-            u0[only(buffer_slots(system, instance, :states, :winch_vel))] = winch.vel
+            single = length(winch.tether_idxs) == 1
+            u0[only(winch_state_slots(system, instance, :winch_vel,
+                                      Symbol("motor₊vel")))] = winch.vel
             for (k, tether_idx) in enumerate(winch.tether_idxs)
-                slot = only(buffer_slots(system, instance, :states,
-                                         Symbol(:tether_len_, k)))
+                alias = single ? Symbol("motor₊len") : nothing
+                slot = only(winch_state_slots(system, instance,
+                                              Symbol(:tether_len_, k), alias))
                 u0[slot] = sys_struct.tethers[tether_idx].len
             end
         end

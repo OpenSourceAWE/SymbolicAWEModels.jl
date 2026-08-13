@@ -124,7 +124,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         acc(t)[1:3, eachindex(points)]
         # Point forces and geometry
         point_force(t)[1:3, eachindex(points)]
-        point_drag_force(t)[1:3, eachindex(points)]
+        point_aero_drag(t)[1:3, eachindex(points)]
         total_drag(t)[1:3, eachindex(points)]
         spring_sum_force(t)[1:3, eachindex(points)]  # Accumulated spring/drag forces
         disturb_force(t)[1:3, eachindex(points)]
@@ -164,6 +164,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         pulley_len(t)[eachindex(pulleys)]
         pulley_vel(t)[eachindex(pulleys)]
         tether_len(t)[eachindex(tethers)]
+        tether_vel(t)[eachindex(tethers)]
         winch_vel(t)[eachindex(winches)]
         winch_acc(t)[eachindex(winches)]
         winch_force_vec(t)[1:3, eachindex(winches)]
@@ -179,7 +180,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         R_b_to_w, com_w,
         wing_vel, wind_vec_gnd, twist_angle,
         pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
-        spring_sum_force, point_drag_force, total_drag,
+        spring_sum_force, point_aero_drag, total_drag,
         disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
         fix_point_sphere, fix_static,
         va_point_b, va_point_w, wind_at_point, height,
@@ -200,7 +201,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     eqs, len, spring_force = segment_eqs!(
         s, eqs, points, segments, pulleys, tethers, bodies, params;
         pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
-        pulley_len, tether_len
+        pulley_len, pulley_vel, tether_len, tether_vel
     )
 
     # A single-segment tether aliases l0 to tether_len; bind l0 too since
@@ -222,7 +223,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     eqs, defaults, winch_subsystems = winch_eqs!(
         eqs, defaults, winches, tethers, segments, points,
         system, params, initial;
-        spring_force_vec, set_values, tether_len,
+        spring_force_vec, set_values, tether_len, tether_vel,
         winch_vel, winch_acc, winch_force_vec, winch_force,
         winch_friction
     )

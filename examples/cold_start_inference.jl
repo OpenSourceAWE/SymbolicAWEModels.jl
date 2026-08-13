@@ -7,11 +7,11 @@ side costs once it is warm.
 
 A cold start is almost entirely Julia compiling code for this model's kernel
 types, and the danger is a type whose inference grows faster than the model does.
-One such type cost SK100 853 s of a 943 s `init!` once GLMakie was loaded, because
+One such type cost a large kite 853 s of a 943 s `init!` once GLMakie was loaded, because
 loading Makie invalidates the cached result and the kernels were held in a
 heterogeneous tuple that `Base.deepcopy_internal(::Tuple, …)` types through a
 closure capturing the whole tuple. This reproduces that class of problem on the
-14-kernel `AeroPressure` 2-plate kite in a few minutes instead of the SK100 hour.
+14-kernel `AeroPressure` 2-plate kite in a few minutes instead of the large kite's hour.
 
 Reports the inference total, then the dearest inferred instances whose signature
 names a kernel, then the right-hand side's bytes and time per call. Naming a kernel

@@ -64,6 +64,7 @@ SymbolicAWEModels.calc_aoa
 SymbolicAWEModels.segment_geometry
 SymbolicAWEModels.segment_spring_force
 SymbolicAWEModels.segment_perp_drag
+SymbolicAWEModels.air_density
 SymbolicAWEModels.point_drag_force
 SymbolicAWEModels.segment_half_mass
 ```
@@ -84,6 +85,7 @@ SymbolicAWEModels.elastic_joint_wrench
 SymbolicAWEModels.beam_hermite_ride_expressions
 SymbolicAWEModels.ground_wind_vec
 SymbolicAWEModels.pulley_split_eqs
+SymbolicAWEModels.pulley_len_rate
 SymbolicAWEModels.pulley_friction_force
 SymbolicAWEModels.wing_frame_columns
 ```
@@ -185,9 +187,12 @@ SymbolicAWEModels.yaml_block_empty
 SymbolicAWEModels.yaml_vec3
 SymbolicAWEModels.yaml_matrix3
 SymbolicAWEModels.yaml_ref_field
+SymbolicAWEModels.yaml_unset
+SymbolicAWEModels.yaml_field
 SymbolicAWEModels.yaml_float_or_nan
 SymbolicAWEModels.load_yaml_bodies
 SymbolicAWEModels.load_yaml_joints
+SymbolicAWEModels.load_body_state!
 ```
 
 ## SystemStructure internals
@@ -273,6 +278,7 @@ SymbolicAWEModels.validate_twist_surface_modes
 SymbolicAWEModels.body_ride_eqs
 SymbolicAWEModels.beam_hermite_ride_eqs
 SymbolicAWEModels.point_damping_accel
+SymbolicAWEModels.segment_rest_length_eqs
 ```
 
 ## Plate aerodynamics internals
@@ -305,6 +311,7 @@ SymbolicAWEModels.normalized_inertia
 SymbolicAWEModels.normalized_point_inertia
 SymbolicAWEModels.n_aero_log_points
 SymbolicAWEModels.write_aero_log_points!
+SymbolicAWEModels.write_body_state!
 SymbolicAWEModels.read_aero_log_points!
 SymbolicAWEModels.restore_aero_twist!
 SymbolicAWEModels.plot_wing_aero!

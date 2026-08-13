@@ -96,7 +96,7 @@ end
     point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, params, initial;
                R_b_to_w, wing_vel, wind_vec_gnd, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
-               spring_sum_force, point_drag_force, total_drag,
+               spring_sum_force, point_aero_drag, total_drag,
                disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
                fix_point_sphere, fix_static,
                va_point_b, va_point_w, wind_at_point, height,
@@ -104,6 +104,15 @@ end
                twist_surface_y_airf)
 
 Generate equations for all point types (STATIC, DYNAMIC, BODY_STATIC).
+
+Each point's net force is the shared [`point_net_force`](@ref): the structural load
+gathered from its incident segments (their spring force with the endpoint sign and
+half their drag), plus per-node aero, its own drag and gravity. The gravitational
+mass is zero for a point that rides a rigid body — a rigid wing node or a point on
+its own wing body — because that mass is carried at the body's COM. Free particles
+integrate through [`confined_derivatives`](@ref), which applies `fix_static` and
+`fix_sphere`; a rigid wing node is placed instead by
+[`twist_deformed_offset`](@ref) from its body's COM.
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
@@ -128,7 +137,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     R_b_to_w, com_w,
                     wing_vel, wind_vec_gnd, twist_angle,
                     pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
-                    spring_sum_force, point_drag_force, total_drag,
+                    spring_sum_force, point_aero_drag, total_drag,
                     disturb_force, tether_r, chord_b, fixed_pos, normal, pos_b,
                     fix_point_sphere, fix_static,
                     va_point_b, va_point_w, wind_at_point, height,
@@ -138,22 +147,22 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     body_com_vel, body_ω_b)
 
     wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
+    wind_gnd = collect(wind_vec_gnd)
     for point in points
         F::Vector{Num} = zeros(Num, 3)
         seg_drag::Vector{Num} = zeros(Num, 3)
         mass = params.points[point.idx].extra_mass
         for segment in segments
             if point.idx in segment.point_idxs
-                mass_per_meter =
-                    params.segments[segment.idx].density * π *
-                    (params.segments[segment.idx].diameter / 2)^2
                 inverted = segment.point_idxs[2] == point.idx
                 if inverted
                     F .-= spring_force_vec[:, segment.idx]
                 else
                     F .+= spring_force_vec[:, segment.idx]
                 end
-                mass += mass_per_meter * l0[segment.idx] / 2
+                mass += segment_half_mass(l0[segment.idx],
+                    params.segments[segment.idx].diameter,
+                    params.segments[segment.idx].density)
                 half_seg_drag = 0.5 * drag_force[:, segment.idx]
                 F .+= half_seg_drag
                 seg_drag .+= half_seg_drag
@@ -177,11 +186,10 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
             nothing
         end
 
-        drag_rhs = 0.5 * calc_rho(s.am, height[point.idx]) *
-            params.points[point.idx].drag_coeff *
-            smooth_norm(va_point_w[:, point.idx]) *
-            params.points[point.idx].area *
-            va_point_w[:, point.idx]
+        drag_coeff = params.points[point.idx].drag_coeff
+        area = params.points[point.idx].area
+        drag_rhs = point_drag_force(collect(va_point_w[:, point.idx]),
+            air_density(s.am, height[point.idx]), drag_coeff, area)
         va_point_b_rhs = isnothing(wing_idx_for_transform) ? zeros(3) :
             R_b_to_w[:, :, wing_idx_for_transform]' * va_point_w[:, point.idx]
         eqs = [
@@ -192,14 +200,35 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
             va_point_w[:, point.idx] ~
                 wind_at_point[:, point.idx] - vel[:, point.idx]
             va_point_b[:, point.idx] ~ va_point_b_rhs
-            point_drag_force[:, point.idx] ~ drag_rhs
+            point_aero_drag[:, point.idx] ~ drag_rhs
         ]
 
         # Total drag: point aero drag + share of segment drag
         eqs = [
             eqs
             total_drag[:, point.idx] ~
-                point_drag_force[:, point.idx] + seg_drag
+                point_aero_drag[:, point.idx] + seg_drag
+        ]
+
+        # A rigid wing's own VSM wrench replaces the per-node aero force.
+        rigid_wing_node = point.is_wing_node &&
+            s.sys_struct.bodies[point.wing_idx].dynamics_type == RIGID_DYNAMICS
+        aero_force_w = (!rigid_wing_node && point.is_wing_node &&
+                        is_wing(s.sys_struct.bodies[point.wing_idx])) ?
+            collect(R_b_to_w[:, :, point.wing_idx] *
+                    aero_force_point_b[:, point.idx]) : zeros(Num, 3)
+        rides_own_wing = point.body_idx > 0 &&
+            wing_frame_member(point, point.body_idx)
+        carries_gravity = !(rigid_wing_node || rides_own_wing)
+        eqs = [
+            eqs
+            point_force[:, point.idx] ~ point_net_force(s,
+                collect(pos[:, point.idx]), collect(vel[:, point.idx]),
+                collect(spring_sum_force[:, point.idx]) .+ aero_force_w .+
+                    collect(disturb_force[:, point.idx]),
+                carries_gravity ? mass : 0.0, drag_coeff, area, wind_gnd,
+                wind_factor;
+                g_earth = carries_gravity ? params.set.g_earth : 0.0)
         ]
 
         # EXCEPTION to the anchor rule: a wing node on a RIGID_DYNAMICS wing is
@@ -208,13 +237,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
         # section-twist DOF deforms the offset. Every other point follows the
         # anchor rule below (joint → beam, body → rigid ride, STATIC → fixed,
         # else → free particle).
-        if point.is_wing_node &&
-           s.sys_struct.bodies[point.wing_idx].dynamics_type == RIGID_DYNAMICS
-            eqs = [
-                eqs
-                point_force[:, point.idx] ~
-                    spring_sum_force[:, point.idx] + disturb_force[:, point.idx] + point_drag_force[:, point.idx]
-            ]
+        if rigid_wing_node
             found = 0
             twist_surface = nothing
             for twist_surface_ in twist_surfaces
@@ -228,7 +251,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                 "Kite point number $(point.idx) is part of $found twist_surfaces, " *
                 "and should be part of exactly 0 or 1 twist_surfaces.",
             )
-            if found == 1
+            if in_group
                 found = 0
                 for wing_ in s.sys_struct.bodies
                     if twist_surface.idx in wing_.twist_surface_idxs
@@ -241,18 +264,18 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                 )
                 eqs = [
                     eqs
-                    fixed_pos[:, point.idx] ~ params.twist_surfaces[twist_surface.idx].le_pos
+                    fixed_pos[:, point.idx] ~
+                        params.twist_surfaces[twist_surface.idx].le_pos
                     chord_b[:, point.idx] ~
                         params.points[point.idx].pos_b .- fixed_pos[:, point.idx]
-                    normal[:, point.idx] ~ chord_b[:, point.idx] × twist_surface_y_airf[:, twist_surface.idx]
-                    pos_b[:, point.idx] ~
-                        fixed_pos[:, point.idx] .+
-                        cos(twist_angle[twist_surface.idx]) * chord_b[:, point.idx] -
-                        sin(twist_angle[twist_surface.idx]) * normal[:, point.idx]
+                    normal[:, point.idx] ~ chord_b[:, point.idx] ×
+                        twist_surface_y_airf[:, twist_surface.idx]
                 ]
-            elseif found == 0
-                eqs = [eqs; pos_b[:, point.idx] ~ params.points[point.idx].pos_b]
             end
+            surface_idx = in_group ? twist_surface.idx : 0
+            eqs = [eqs; pos_b[:, point.idx] ~ twist_deformed_offset(
+                params, point.idx, surface_idx,
+                in_group ? twist_angle[twist_surface.idx] : 0.0)]
             eqs = [
                 eqs
                 tether_r[:, point.idx] ~
@@ -277,24 +300,6 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
             continue
         end
 
-        # Force = segment/spring loads + aero (surface nodes only) + gravity +
-        # disturbance + point drag. Gravity is dropped when the point rides its own
-        # wing body (its mass is already counted at that body's COM).
-        aero_force_w = (point.is_wing_node &&
-                        is_wing(s.sys_struct.bodies[point.wing_idx])) ?
-            R_b_to_w[:, :, point.wing_idx] * aero_force_point_b[:, point.idx] :
-            zeros(Num, 3)
-        rides_own_wing = point.body_idx > 0 &&
-            wing_frame_member(point, point.body_idx)
-        gravity = rides_own_wing ? zeros(Num, 3) :
-            Num[0, 0, -params.set.g_earth * mass]
-        eqs = [
-            eqs
-            point_force[:, point.idx] ~ spring_sum_force[:, point.idx] +
-                aero_force_w + gravity + disturb_force[:, point.idx] +
-                point_drag_force[:, point.idx]
-        ]
-
         # Placement by anchor — the single rule for every non-rigid-wing point.
         force_on_point = collect(point_force[:, point.idx])
         if point.joint_idx > 0
@@ -315,32 +320,22 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
         else
             # Free particle: integrated position/velocity (DYNAMIC point or an
             # unanchored surface node).
+            pars = point_particle_params(params, point.idx)
             wing_idx_damp = length(wings) > 0 ? point.wing_idx : 0
             vel_diff_w = length(wings) > 0 ?
                 vel[:, point.idx] - wing_vel[:, point.wing_idx] : nothing
             damp_accel = point_damping_accel(
                 point, params, R_b_to_w, wing_idx_damp, vel[:, point.idx], vel_diff_w)
-            axis = smooth_normalize(pos[:, point.idx])
+            velocity, acceleration = confined_derivatives(
+                pos[:, point.idx], vel[:, point.idx], collect(acc[:, point.idx]),
+                (; fix_sphere = fix_point_sphere[point.idx],
+                   fix_static = fix_static[point.idx]))
             eqs = [
                 eqs
-                fix_point_sphere[point.idx] ~ params.points[point.idx].fix_sphere
-                fix_static[point.idx] ~ params.points[point.idx].fix_static
-                D(pos[:, point.idx]) ~ ifelse.(
-                    fix_static[point.idx] == true,
-                    zeros(3),
-                    ifelse.(fix_point_sphere[point.idx]==true,
-                            vel[:, point.idx] ⋅ axis * axis,
-                            vel[:, point.idx]
-                    )
-                )
-                D(vel[:, point.idx]) ~ ifelse.(
-                    fix_static[point.idx] == true,
-                    zeros(3),
-                    ifelse.(fix_point_sphere[point.idx]==true,
-                            acc[:, point.idx] ⋅ axis * axis,
-                            acc[:, point.idx]
-                    )
-                )
+                fix_point_sphere[point.idx] ~ pars.fix_sphere
+                fix_static[point.idx] ~ pars.fix_static
+                D(pos[:, point.idx]) ~ velocity
+                D(vel[:, point.idx]) ~ acceleration
                 acc[:, point.idx] ~ point_force[:, point.idx] ./ mass - damp_accel
             ]
             defaults = [

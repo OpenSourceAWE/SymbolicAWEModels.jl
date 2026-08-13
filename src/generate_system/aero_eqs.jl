@@ -17,7 +17,7 @@ function aero_eqs!(
     pos, vel, va_point_b, height, aero_force_point_b=nothing,
     twist_surface_delta=nothing
 )
-    (; twist_surfaces, wings, points) = s.sys_struct
+    (; twist_surfaces, wings) = s.sys_struct
     aero_subsystems = Any[]
     length(wings) == 0 && return eqs, aero_subsystems
 
@@ -29,73 +29,49 @@ function aero_eqs!(
         validate_aero_component(subsys, wing)
 
         if wing.dynamics_type == PARTICLE_DYNAMICS
-            wing_points = [point for point in points
-                           if point.is_wing_node && point.wing_idx == wing_idx]
-            Rbw = R_b_to_w[:, :, wing_idx]
+            nodes = wing_points(s.sys_struct, wing)
             aero_force_point = aero_force_point_b::AbstractArray
-
-            # Wire each panel's δ connector to its mapped twist_surface's deflection.
-            if hasproperty(subsys, :delta) && subsys.delta !== nothing
-                panel_map = wing.aero.panel_twist_surface
-                for i in eachindex(panel_map)
-                    eqs = [eqs
-                           subsys.delta[i] ~ twist_surface_delta[panel_map[i]]]
-                end
-            end
-            for (k, point) in enumerate(wing_points)
+            wiring = particle_wing_aero_wiring(s, subsys;
+                orientation = R_b_to_w[:, :, wing_idx],
+                origin = collect(wing_pos[:, wing_idx]),
+                positions = [pos[:, node.idx] for node in nodes],
+                velocities = [vel[:, node.idx] for node in nodes],
+                apparent_winds = [va_point_b[:, node.idx] for node in nodes],
+                heights = [pos[3, node.idx] for node in nodes])
+            eqs = [eqs
+                   wiring.eqs
+                   flap_delta_eqs(wing, subsys,
+                                  surface -> twist_surface_delta[surface])
+                   collect(aero_force_b[:, wing_idx]) .~ wiring.force_b
+                   collect(aero_moment_b[:, wing_idx]) .~ wiring.moment_b]
+            for (k, node) in enumerate(nodes)
                 eqs = [eqs
-                       collect(subsys.point_pos[:, k]) .~
-                           collect(Rbw' * collect(pos[:, point.idx] -
-                                                  wing_pos[:, wing_idx]))
-                       collect(subsys.point_vel[:, k]) .~
-                           collect(Rbw' * collect(vel[:, point.idx]))
-                       collect(subsys.va[:, k]) .~
-                           collect(va_point_b[:, point.idx])
-                       subsys.rho[k] ~ calc_rho(s.am, height[point.idx])
-                       collect(aero_force_point[:, point.idx]) .~
+                       collect(aero_force_point[:, node.idx]) .~
                            collect(subsys.point_force[:, k])]
             end
-            eqs = [eqs
-                   collect(aero_force_b[:, wing_idx]) .~
-                       sum(collect(aero_force_point[:, point.idx])
-                           for point in wing_points)
-                   collect(aero_moment_b[:, wing_idx]) .~
-                       sum(collect(cross(
-                               collect(subsys.point_pos[:, k]),
-                               collect(aero_force_point[:, wing_points[k].idx])))
-                           for k in eachindex(wing_points))]
             continue
         end
 
         # RIGID_DYNAMICS
-        num_twist_surfaces = length(wing.twist_surface_idxs)
-        rho = calc_rho(s.am, wing_pos[3, wing_idx])
+        wiring = rigid_wing_aero_wiring(s, subsys, wing;
+            apparent_wind_b = va_wing_b[:, wing_idx],
+            height = wing_pos[3, wing_idx],
+            frame = vec(R_b_to_w[:, :, wing_idx]),
+            omega_b = ω_b[:, wing_idx],
+            twist_angles = [twist_angle[twist_surfaces[gidx].idx]
+                            for gidx in wing.twist_surface_idxs],
+            twist_rates = [twist_ω[twist_surfaces[gidx].idx]
+                           for gidx in wing.twist_surface_idxs])
         eqs = [eqs
-               collect(subsys.va) .~ collect(va_wing_b[:, wing_idx])
-               subsys.rho ~ rho
-               vec(collect(subsys.R_b_w)) .~ vec(R_b_to_w[:, :, wing_idx])
-               collect(subsys.omega) .~ collect(ω_b[:, wing_idx])]
-        if num_twist_surfaces > 0
-            eqs = [eqs
-                   collect(subsys.twist) .~
-                       [twist_angle[twist_surfaces[gidx].idx]
-                        for gidx in wing.twist_surface_idxs]
-                   collect(subsys.twist_vel) .~
-                       [twist_ω[twist_surfaces[gidx].idx]
-                        for gidx in wing.twist_surface_idxs]]
-        end
-
-        eqs = [eqs
-               collect(aero_force_b[:, wing_idx]) .~ collect(subsys.force)
-               collect(aero_moment_b[:, wing_idx]) .~ collect(subsys.moment)]
+               wiring.eqs
+               collect(aero_force_b[:, wing_idx]) .~ wiring.force_b
+               collect(aero_moment_b[:, wing_idx]) .~ wiring.moment_b]
         for (twist_surface_pos, gidx) in enumerate(wing.twist_surface_idxs)
             twist_surface = twist_surfaces[gidx]
-            # STATIC surfaces without aero sections are zero-bound by twist_surface_eqs!.
-            twist_surface.type == STATIC &&
-                isempty(twist_surface.unrefined_section_idxs) && continue
+            twist_surface_aero_driven(twist_surface) || continue
             eqs = [eqs
                    twist_surface_aero_moment[twist_surface.idx] ~
-                       subsys.twist_moment[twist_surface_pos]]
+                       wiring.twist_moments[twist_surface_pos]]
         end
 
     end

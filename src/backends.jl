@@ -54,7 +54,7 @@ at the first `init!` than it saves.
 The [`KernelBackend`](@ref) takes `AutoForwardDiff()`. Its right-hand side is small
 per-kernel functions and `buffers` already keeps a scratch set per element type, so
 the `Dual` specialization is one more compilation of each kernel rather than of one
-enormous function. It is not free, but the first solve repays it: on SK100 a dense
+enormous function. It is not free, but the first solve repays it: on a large kite a dense
 finite-difference Jacobian over 1305 states is 1306 evaluations against forward
 mode's ~126, which measured 87.8 s against 212.4 s for `init!` and 1.42× on the wall
 clock of a step.
@@ -71,7 +71,7 @@ it differentiate the right-hand side numerically.
 The [`KernelBackend`](@ref) does, and it is the whole reason its structure is worth
 keeping: the model is a layered composition of small components, so
 [`build_jacobian`](@ref) differentiates each component at its own width and composes
-the result through the constant wiring. On SK100 that is one pass per kernel against
+the result through the constant wiring. On a large kite that is one pass per kernel against
 109 chunk-12 passes over 1305 states.
 
 The [`MonolithBackend`](@ref) does not. Its route is MTK's `jac=true`, which

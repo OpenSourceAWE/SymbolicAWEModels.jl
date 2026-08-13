@@ -70,7 +70,7 @@ concrete type is baked into the parameter store and into what the solver
 specialized on and has to survive a round trip — but its contents are dead weight,
 because `sync_params!` rebinds every polar from the `SystemStructure` before the
 problem is evaluated. Serializing the holder empty keeps the type and drops the
-wing's whole Cp/cf surface tables, which were 2.4 GB of bin on SK100. It is
+wing's whole Cp/cf surface tables, which were 2.4 GB of bin on a large kite. It is
 undefined between `deserialize` and that sync, and reading it there is a bug.
 """
 mutable struct AeroHandle{BA}

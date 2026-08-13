@@ -3,8 +3,8 @@
 
 # test_aero_modes.jl
 # Unified tests for the VSM-family aero modes (AeroNone, AeroDirect,
-# ContinuousAero, AeroLinearized) on the 2plate kite, for every supported
-# (aero mode x dynamics type) combination. Two drivers per case:
+# ContinuousAero, AeroPressure, AeroLinearized) on the 2plate kite, for every
+# supported (aero mode x dynamics type) combination. Two drivers per case:
 #
 #   (A) strict pose sweep — init! at a grid of transform poses + wind speeds
 #       (no ODE integration, so no solver residual noise), then compare the
@@ -29,6 +29,8 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
 end
 
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
+@isdefined(write_pressure_fixture) ||
+    include(joinpath(@__DIR__, "pressure_fixture.jl"))
 
 using Test
 using SymbolicAWEModels
@@ -134,6 +136,18 @@ aero_poses = [
     particle_yaml = joinpath(data_path, "particle_structural_geometry.yaml")
     rigid_yaml = joinpath(data_path, "rigid_structural_geometry.yaml")
 
+    # AeroPressure needs a per-node surface aero fixture. It is written into its
+    # own copy of the data so every other mode reads the unpatched geometry, and
+    # it gets its own VSMSettings because `create_vsm_wing` rewrites the geometry
+    # path into whichever data directory is active.
+    surface_path = joinpath(tmpdir, "surface", "2plate_kite")
+    mkpath(dirname(surface_path))
+    cp(src_data_path, surface_path; force=true)
+    write_pressure_fixture(surface_path)
+    surface_yaml = joinpath(surface_path, "particle_structural_geometry.yaml")
+    vsm_set_surface = VortexStepMethod.VSMSettings(
+        joinpath(surface_path, "vsm_settings.yaml"); data_prefix=false)
+
     # The moment tolerance is `moment_rtol * |M_ref| + moment_lever * |F_ref|`:
     # the relative term plus a small force-proportional floor. The floor
     # accounts for PARTICLE point-distribution representing a distributed load
@@ -141,28 +155,44 @@ aero_poses = [
     # residual scales with force times a fraction of the chord.
     cases = [
         (name="none particle", make=() -> AeroNone(), yaml=particle_yaml,
-            vsm_set=vsm_set, dynamics=PARTICLE_DYNAMICS, reference=:zero,
+            data=data_path, vsm_set=vsm_set, dynamics=PARTICLE_DYNAMICS,
+            reference=:zero,
             force_rtol=1e-6, moment_rtol=1e-6, moment_lever=0.0),
         (name="none rigid", make=() -> AeroNone(), yaml=rigid_yaml,
-            vsm_set=vsm_set, dynamics=RIGID_DYNAMICS, reference=:zero,
+            data=data_path, vsm_set=vsm_set, dynamics=RIGID_DYNAMICS,
+            reference=:zero,
             force_rtol=1e-6, moment_rtol=1e-6, moment_lever=0.0),
         (name="direct particle", make=() -> AeroDirect(), yaml=particle_yaml,
-            vsm_set=vsm_set, dynamics=PARTICLE_DYNAMICS, reference=:vsm,
+            data=data_path, vsm_set=vsm_set, dynamics=PARTICLE_DYNAMICS,
+            reference=:vsm,
             force_rtol=0.006, moment_rtol=0.10, moment_lever=0.06),
         (name="direct rigid", make=() -> AeroDirect(), yaml=rigid_yaml,
-            vsm_set=vsm_set, dynamics=RIGID_DYNAMICS, reference=:vsm,
+            data=data_path, vsm_set=vsm_set, dynamics=RIGID_DYNAMICS,
+            reference=:vsm,
             force_rtol=0.001, moment_rtol=0.001, moment_lever=0.0),
         (name="continuous particle", make=() -> ContinuousAero(),
-            yaml=particle_yaml, vsm_set=vsm_set_billow,
+            yaml=particle_yaml, data=data_path, vsm_set=vsm_set_billow,
             dynamics=PARTICLE_DYNAMICS, reference=:vsm,
             force_rtol=0.006, moment_rtol=0.06, moment_lever=0.04),
+        # Twice the particle moment budget because AeroPressure anchors the force
+        # to VSM but no couple: the moment follows the Cp distribution, and this
+        # fixture's synthetic Cp implies a load centre ~0.13 chord from the Cm in
+        # polars/1.csv. That fixture disagreement, not the nearest-node lumping
+        # (~0.01 chord, bounded by "moment placement" in test_pressure_aero.jl),
+        # is what the budget pays for.
+        (name="pressure particle", make=() -> AeroPressure(),
+            yaml=surface_yaml, data=surface_path, vsm_set=vsm_set_surface,
+            dynamics=PARTICLE_DYNAMICS, reference=:vsm,
+            force_rtol=0.006, moment_rtol=0.20, moment_lever=0.12),
         (name="linearized rigid", make=() -> AeroLinearized(), yaml=rigid_yaml,
-            vsm_set=vsm_set, dynamics=RIGID_DYNAMICS, reference=:vsm,
+            data=data_path, vsm_set=vsm_set, dynamics=RIGID_DYNAMICS,
+            reference=:vsm,
             force_rtol=0.001, moment_rtol=0.001, moment_lever=0.0),
     ]
 
     for (idx, case) in enumerate(cases)
         @testset "$(case.name)" begin
+            set_data_path(case.data)
             sys = load_sys_struct_from_yaml(case.yaml;
                 system_name="aero_modes_$(idx)", set, vsm_set=case.vsm_set,
                 aero_mode=case.make())

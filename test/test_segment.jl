@@ -278,7 +278,7 @@ system:
         println("\n  ====== Loaded segment: l0=$(segment.l0)m, unit_stiffness=$(segment.unit_stiffness)N, unit_damping=$(segment.unit_damping)N·s ======\n")
     end
 
-    @testset "Compression softens stiffness but not damping" begin
+    @testset "Compression softens stiffness, and damping on request" begin
         l0, unit_stiffness, unit_damping, compression_frac = 10.0, 1000.0, 10.0, 0.1
         force(len, spring_vel) = SymbolicAWEModels.segment_spring_force(
             len, l0, spring_vel, unit_stiffness, unit_damping, compression_frac)
@@ -291,7 +291,7 @@ system:
         @test damping_of(10.5) ≈ unit_damping
         @test damping_of(9.5) ≈ unit_damping
 
-        # Softening damping too would jump the force here and diverge the solver.
+        # The default leaves damping unsoftened, so the force is continuous at l0.
         step = abs(force(nextfloat(l0), 1.0) - force(prevfloat(l0), 1.0))
         @test step < 1e-9
         @test force(l0, 1.0) ≈ -unit_damping / l0
@@ -301,6 +301,19 @@ system:
             len, l0, spring_vel, unit_stiffness, unit_damping, 0.0)
         @test slack_free(9.5, 0.0) == 0.0
         @test slack_free(9.5, 1.0) ≈ -unit_damping / 9.5
+
+        # compression_damping_frac softens the damper over the same branch.
+        half(len, spring_vel) = SymbolicAWEModels.segment_spring_force(
+            len, l0, spring_vel, unit_stiffness, unit_damping,
+            compression_frac, 0.5)
+        @test (half(10.5, 0.0) - half(10.5, 1.0)) * 10.5 ≈ unit_damping
+        @test (half(9.5, 0.0) - half(9.5, 1.0)) * 9.5 ≈ 0.5unit_damping
+
+        # Both fracs 0 → a slack segment carries no force at all.
+        dead(len, spring_vel) = SymbolicAWEModels.segment_spring_force(
+            len, l0, spring_vel, unit_stiffness, unit_damping, 0.0, 0.0)
+        @test dead(9.5, 1.0) == 0.0
+        @test dead(10.5, 1.0) ≈ unit_stiffness * 0.5 / 10.5 - unit_damping / 10.5
 
         println("\n  ====== stiffness taut $(round(stiffness_of(10.5); sigdigits=4)), " *
                 "slack $(round(stiffness_of(9.5); sigdigits=4)); damping " *

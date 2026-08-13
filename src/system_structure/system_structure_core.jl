@@ -284,7 +284,9 @@ end
     expand_auto_tethers!(points, segments, tethers, set)
 
 For Route 2 tethers (auto-generation), create intermediate DYNAMIC
-points and segments. Must be called before `assign_indices_and_resolve!`.
+points and segments, each carrying the tether's material and its
+`compression_frac`/`compression_damping_frac`. Must be called before
+`assign_indices_and_resolve!`.
 
 Detects Route 2 tethers by checking `start_point_ref !== nothing`
 and `segment_refs` names not yet present in `segments`.
@@ -404,7 +406,9 @@ function expand_auto_tethers!(
             push!(segments, Segment(
                 seg_sym, start_ref, end_ref,
                 unit_stiffness, unit_damping, diameter;
-                l0=seg_l0, density))
+                l0=seg_l0, density,
+                compression_frac=tether.compression_frac,
+                compression_damping_frac=tether.compression_damping_frac))
             push!(seg_names, seg_sym)
         end
     end

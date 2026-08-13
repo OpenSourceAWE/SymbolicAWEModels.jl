@@ -23,7 +23,7 @@ get_field_or_nothing(Tuple{Int64,Int64}, row, :pair)
 """
 function get_field_or_nothing(::Type{T}, row::NamedTuple,
                                field::Symbol) where T
-    if !haskey(row, field) || isnothing(row[field])
+    if !haskey(row, field) || yaml_unset(row[field])
         return nothing
     end
     return convert_to_type(T, row[field])
@@ -337,10 +337,7 @@ function call_yaml_constructor(
             kwargs[kwarg_name] = mappings[kwarg_name](row)
         elseif haskey(row, kwarg_name)
             val = row[kwarg_name]
-            # Skip nothing values (Julia nothing or YAML "nothing" string)
-            if !isnothing(val) && val != "nothing"
-                kwargs[kwarg_name] = val
-            end
+            yaml_unset(val) || (kwargs[kwarg_name] = val)
         end
     end
 
@@ -484,9 +481,23 @@ function parse_tether_init(row, tether_name)
     return stretched_length, tether_force, stretch_frac
 end
 
+"""
+    yaml_unset(value) -> Bool
+
+Whether a cell is unset: `nothing`, or the `nothing` placeholder a written table
+uses to leave one row's cell empty in a column the other rows fill.
+"""
+yaml_unset(value) = isnothing(value) || value == "nothing" || value === :nothing
+
+"""
+    yaml_field(row, field)
+
+Optional row field, `nothing` when the column is absent or [`yaml_unset`](@ref).
+"""
 function yaml_field(row, field)
     hasfield(typeof(row), field) || return nothing
-    getfield(row, field)
+    value = getfield(row, field)
+    return yaml_unset(value) ? nothing : value
 end
 
 function yaml_float(row, field)
@@ -552,6 +563,24 @@ Resolve an optional reference column `field` (e.g. `:transform_idx`) through
 yaml_ref_field(row, field, to_ref) =
     (hasfield(typeof(row), field) && !isnothing(getfield(row, field))) ?
         to_ref(getfield(row, field)) : nothing
+
+"""
+    load_body_state!(body, row)
+
+Overwrite a freshly constructed body's rigid state from the `vel`, `Q_b_to_w` and
+`omega_b` columns of its YAML row, leaving each untouched when its column is
+absent. The wing constructors take no state keywords, so a saved orientation or
+velocity is restored here instead.
+"""
+function load_body_state!(body, row)
+    vel = yaml_vec3(row, :vel)
+    isnothing(vel) || (body.vel_w .= vel)
+    quat = yaml_field(row, :Q_b_to_w)
+    isnothing(quat) || (body.Q_b_to_w .= Vector{SimFloat}(quat))
+    omega = yaml_vec3(row, :omega_b)
+    isnothing(omega) || (body.ω_b .= omega)
+    return body
+end
 
 """
     load_yaml_bodies(data, yaml_to_ref) -> Vector{Body}
@@ -682,11 +711,10 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
     # Helper to convert raw reference to proper type (Int or Symbol).
     yaml_to_ref = function (val)
-        isnothing(val) && return nothing
+        yaml_unset(val) && return nothing
         if val isa Integer
             return Int(val)
         elseif val isa String
-            val == "nothing" && return nothing
             return Symbol(val)
         elseif val isa Symbol
             return val
@@ -764,7 +792,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 ))
 
             point.pos_w .= point.pos_cad
-            point.vel_w .= 0.0
+            saved_vel = yaml_vec3(row, :vel_w)
+            point.vel_w .= isnothing(saved_vel) ? 0.0 : saved_vel
             push!(points, point)
         end
     end
@@ -791,7 +820,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 Segment, row,
                 [:name, :set, :point_i, :point_j],
                 [:l0, :diameter_mm, :unit_stiffness,
-                 :unit_damping, :compression_frac, :density,
+                 :unit_damping, :compression_frac,
+                 :compression_damping_frac, :density,
                  :youngs_modulus, :damping_per_stiffness];
                 mappings=Dict(
                     :set => row -> resolved_set,
@@ -819,6 +849,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     :name => row -> yaml_row_name(row, i),
                     :type => row -> parse_dynamics_type(String(row.type))
                 ))
+            for (field, value) in ((:sum_len, yaml_float(row, :sum_len)),
+                                   (:len, yaml_float(row, :len)),
+                                   (:vel, yaml_float(row, :vel)))
+                isnothing(value) || setfield!(pulley, field, SimFloat(value))
+            end
             push!(pulleys, pulley)
         end
     end
@@ -851,6 +886,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         !isnothing(row.flap_bodies) ?
                         [yaml_to_ref(b) for b in row.flap_bodies] : NameRef[]
                 ))
+            saved_twist = yaml_float(row, :twist)
+            isnothing(saved_twist) ||
+                (twist_surface.twist = SimFloat(saved_twist))
+            saved_twist_vel = yaml_float(row, :twist_vel)
+            isnothing(saved_twist_vel) ||
+                (twist_surface.twist_ω = SimFloat(saved_twist_vel))
             push!(twist_surfaces, twist_surface)
         end
     end
@@ -891,13 +932,20 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 youngs_modulus = yaml_float_or_nan(row, :youngs_modulus)
                 damping_per_stiffness =
                     yaml_float_or_nan(row, :damping_per_stiffness)
+                compression_frac =
+                    something(yaml_float(row, :compression_frac), 0.1)
+                compression_damping_frac =
+                    something(yaml_float(row, :compression_damping_frac), 1.0)
                 tether = Tether(tether_name, stretched_length;
                     start_point=start_ref, end_point=end_ref,
                     n_segments,
                     unit_stiffness, unit_damping,
                     diameter, density, youngs_modulus,
-                    damping_per_stiffness, tether_force, stretch_frac)
+                    damping_per_stiffness, compression_frac,
+                    compression_damping_frac, tether_force, stretch_frac)
             end
+            saved_len = yaml_float(row, :len)
+            isnothing(saved_len) || (tether.len = SimFloat(saved_len))
             push!(tethers, tether)
         end
     end
@@ -919,6 +967,10 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     :winch_point => row -> yaml_to_ref(row.winch_point),
                     :name => row -> yaml_row_name(row, i)
                 ))
+            for (field, value) in ((:vel, yaml_float(row, :vel)),
+                                   (:set_value, yaml_float(row, :set_value)))
+                isnothing(value) || setfield!(winch, field, SimFloat(value))
+            end
             push!(winches, winch)
         end
     end
@@ -958,6 +1010,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             wing = load_wing(resolved_aero_mode, row, i, data,
                 resolved_set, resolved_wing_type, vsm_set, yaml_to_ref,
                 yaml_parse_ref_points, yaml_parse_origin, twist_surfaces)
+            load_body_state!(wing, row)
             push!(wings, wing)
         end
     end

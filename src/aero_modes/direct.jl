@@ -127,7 +127,7 @@ function apply_direct_forces!(wing, am, x0)
         throw(AssertionError("AeroDirect: non-finite input on wing $(wing.idx)"))
     end
     va_sq = dot(va_b, va_b)
-    rho = calc_rho(am, wing.pos_w[3])
+    rho = air_density(am, wing.pos_w[3])
     q_inf = 0.5 * rho * va_sq
     area = wing.vsm_aero.projected_area
     c_ref = wing.vsm_aero.c_ref

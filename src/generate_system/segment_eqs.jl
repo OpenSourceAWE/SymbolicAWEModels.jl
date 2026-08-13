@@ -4,11 +4,78 @@
 # Segment spring-damper equation generation
 
 """
+    segment_rest_length_eqs(segment, pulleys, tethers, params;
+                            l0, pulley_len, pulley_vel, tether_len, tether_vel)
+
+Rest-length equations for one segment, and the rate that rest length moves at.
+A pulley member takes either the pulley state `pulley_len` or the remainder
+`sum_len - pulley_len`, a tether member takes `tether_len / n_segments`, and any
+other segment keeps its fixed `l0` parameter. Returns `(eqs, rest_len_rate)`, the
+rate carrying the sign of the state it follows and being zero for a fixed rest
+length; [`segment_load_terms`](@ref) needs it to damp the extension rather than the
+endpoint separation. Errors when a segment belongs to more than one pulley or more
+than one tether.
+"""
+function segment_rest_length_eqs(segment, pulleys, tethers, params;
+                                 l0, pulley_len, pulley_vel, tether_len, tether_vel)
+    idx = segment.idx
+    eqs = Equation[]
+    rate = Num(0.0)
+    in_pulley = 0
+    for pulley in pulleys
+        split_rate = pulley_len_rate(params.pulleys[pulley.idx],
+                                     pulley_vel[pulley.idx])
+        if idx == pulley.segment_idxs[1]
+            push!(eqs, l0[idx] ~ pulley_len[pulley.idx])
+            rate = split_rate
+            in_pulley += 1
+        end
+        if idx == pulley.segment_idxs[2]
+            push!(eqs, l0[idx] ~
+                params.pulleys[pulley.idx].sum_len - pulley_len[pulley.idx])
+            rate = -split_rate
+            in_pulley += 1
+        end
+    end
+    (in_pulley > 1) && error(
+        "Bridle segment $idx is in $in_pulley pulleys; should be in 0 or 1.",
+    )
+    in_pulley == 1 && return eqs, rate
+
+    in_tether = 0
+    tether_idx = 0
+    for tether in tethers
+        if idx in tether.segment_idxs
+            tether_idx = tether.idx
+            in_tether += 1
+        end
+    end
+    !(in_tether in [0, 1]) && error(
+        "Segment $idx is in $in_tether tethers; should be 0 or 1.",
+    )
+    if in_tether == 1
+        n_segments = length(tethers[tether_idx].segment_idxs)
+        push!(eqs, l0[idx] ~ tether_len[tether_idx] / n_segments)
+        rate = tether_vel[tether_idx] / n_segments
+    else
+        push!(eqs, l0[idx] ~ params.segments[idx].l0)
+    end
+    return eqs, rate
+end
+
+"""
     segment_eqs!(s, eqs, points, segments, pulleys, tethers, bodies, params;
                  pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
-                 pulley_len, tether_len)
+                 pulley_len, pulley_vel, tether_len, tether_vel)
 
 Generate equations for segment spring-damper forces and aerodynamic drag.
+
+Every load term comes from the shared [`segment_load_terms`](@ref) with the
+parameters read by [`segment_spring_params`](@ref), so the monolith and the
+`KernelBackend` evaluate the same force law. A
+[`wing_structural_segment`](@ref) gets `with_drag = false` (its aerodynamic load is
+owned by the wing's VSM), and one whose wing has `RIGID_DYNAMICS` skips the spring
+as well, keeping only the geometry.
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
@@ -18,6 +85,8 @@ Generate equations for segment spring-damper forces and aerodynamic drag.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
 - `spring_force_vec`, `drag_force`, `l0`: Pre-declared segment force variables.
 - `pulley_len`, `tether_len`: Symbolic state variables for pulley and tether lengths.
+- `pulley_vel`, `tether_vel`: Their rates, which a moving rest length's damper reads
+  through [`segment_rest_length_eqs`](@ref).
 
 # Returns
 - Tuple `(eqs, len, spring_force)` with updated equation vector
@@ -27,178 +96,67 @@ function segment_eqs!(s, eqs, points, segments,
                       pulleys, tethers, bodies,
                       params; pos, vel, wind_vec_gnd,
                       spring_force_vec, drag_force, l0,
-                      pulley_len, tether_len)
-    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
+                      pulley_len, pulley_vel, tether_len, tether_vel)
     @variables begin
-        # Spring-damper model
         segment_vec(t)[1:3, eachindex(segments)]
         unit_vec(t)[1:3, eachindex(segments)]
         len(t)[eachindex(segments)]
         rel_vel(t)[1:3, eachindex(segments)]
         spring_vel(t)[eachindex(segments)]
         spring_force(t)[eachindex(segments)]
-        stiffness(t)[eachindex(segments)]
-        damping(t)[eachindex(segments)]
-        # Aerodynamic drag model
-        segment_height(t)[eachindex(segments)]
-        segment_vel(t)[1:3, eachindex(segments)]
-        segment_rho(t)[eachindex(segments)]
-        wind_vel(t)[1:3, eachindex(segments)]
-        va(t)[1:3, eachindex(segments)]
-        area(t)[eachindex(segments)]
-        app_perp_vel(t)[1:3, eachindex(segments)]
     end
+    wind_gnd = collect(wind_vec_gnd)
 
     for segment in segments
-        p1, p2 = segment.point_idxs[1], segment.point_idxs[2]
+        idx = segment.idx
+        src, dst = segment.point_idxs[1], segment.point_idxs[2]
+        src_pos, src_vel = collect(pos[:, src]), collect(vel[:, src])
+        dst_pos, dst_vel = collect(pos[:, dst]), collect(vel[:, dst])
 
-        # WING-WING segments: rigid wings skip spring+drag, particle wings skip drag.
-        p1_obj = points[p1]
-        p2_obj = points[p2]
-        is_wing_structural_segment =
-            wing_structural_segment(params.reg.sys_struct, segment.idx)
-
-        # Check if this is a RIGID_DYNAMICS wing structural segment
-        is_rigid_dynamics_wing_segment = false
-        if is_wing_structural_segment
-            # Both points should belong to the same wing
-            wing = bodies[p1_obj.wing_idx]
-            is_rigid_dynamics_wing_segment = (wing.dynamics_type == RIGID_DYNAMICS)
-        end
-
-        in_pulley = 0
-        for pulley in pulleys
-            if segment.idx == pulley.segment_idxs[1]
-                eqs = [eqs; l0[segment.idx] ~ pulley_len[pulley.idx]]
-                in_pulley += 1
-            end
-            if segment.idx == pulley.segment_idxs[2]
-                eqs = [
-                    eqs
-                    l0[segment.idx] ~
-                        params.pulleys[pulley.idx].sum_len - pulley_len[pulley.idx]
-                ]
-                in_pulley += 1
-            end
-        end
-        (in_pulley > 1) && error(
-            "Bridle segment $(segment.idx) is in $in_pulley pulleys; " *
-            "should be in 0 or 1.",
-        )
-
-        if in_pulley == 0
-            in_tether = 0
-            tether_idx = 0
-            for tether in tethers
-                if segment.idx in tether.segment_idxs
-                    tether_idx = tether.idx
-                    in_tether += 1
-                end
-            end
-            !(in_tether in [0, 1]) && error(
-                "Segment $(segment.idx) is in " *
-                "$in_tether tethers; should be 0 or 1.",
-            )
-
-            if in_tether == 1
-                # l0 = tether_len / n_segments (winched and winchless alike).
-                n_segs = length(
-                    tethers[tether_idx].segment_idxs)
-                eqs = [
-                    eqs
-                    l0[segment.idx] ~
-                        tether_len[tether_idx] / n_segs
-                ]
-            else
-                eqs = [eqs;
-                    l0[segment.idx] ~
-                        params.segments[segment.idx].l0]
-            end
-        end
-
-        # Geometric quantities (always needed)
+        rest_eqs, rest_len_rate = segment_rest_length_eqs(
+            segment, pulleys, tethers, params;
+            l0, pulley_len, pulley_vel, tether_len, tether_vel)
         eqs = [
             eqs
-            segment_vec[:, segment.idx] ~ pos[:, p2] - pos[:, p1]
-            len[segment.idx] ~ smooth_norm(segment_vec[:, segment.idx])
-            unit_vec[:, segment.idx] ~ segment_vec[:, segment.idx] / len[segment.idx]
-            rel_vel[:, segment.idx] ~ vel[:, p1] - vel[:, p2]
-            spring_vel[segment.idx] ~ rel_vel[:, segment.idx] ⋅ unit_vec[:, segment.idx]
+            rest_eqs
+            rel_vel[:, idx] ~ src_vel - dst_vel
         ]
 
-        # Spring force: zero for RIGID_DYNAMICS wing segments (rigid body), computed otherwise
-        if is_rigid_dynamics_wing_segment
+        with_drag = !wing_structural_segment(params.reg.sys_struct, idx)
+        rigid_link = !with_drag &&
+            bodies[points[src].wing_idx].dynamics_type == RIGID_DYNAMICS
+        if rigid_link
+            seg_vec, seg_len, axis, closing_vel =
+                segment_geometry(src_pos, dst_pos, src_vel, dst_vel)
             eqs = [
                 eqs
-                damping[segment.idx] ~ 0.0
-                stiffness[segment.idx] ~ 0.0
-                spring_force[segment.idx] ~ 0.0
-                spring_force_vec[:, segment.idx] ~ zeros(3)
+                segment_vec[:, idx] ~ seg_vec
+                len[idx] ~ seg_len
+                unit_vec[:, idx] ~ axis
+                spring_vel[idx] ~ closing_vel
+                spring_force[idx] ~ 0.0
+                spring_force_vec[:, idx] ~ zeros(3)
+                drag_force[:, idx] ~ zeros(3)
             ]
-        else
-            idx = segment.idx
-            damp_eq = damping[idx] ~
-                params.segments[idx].unit_damping / len[idx]
-            if segment.unit_stiffness isa Real
-                k = params.segments[idx].unit_stiffness
-                stiff_eqs = [
-                    stiffness[idx] ~ ifelse(
-                        len[idx] > l0[idx], k / len[idx],
-                        params.segments[idx].compression_frac * k / len[idx])
-                    spring_force[idx] ~ stiffness[idx] * (len[idx] - l0[idx]) -
-                        damping[idx] * spring_vel[idx]
-                ]
-            else
-                # Callable force law F(ε) of strain ε = (len − l0)/l0; it owns the
-                # full law (slack/compression included), so `compression_frac` is unused.
-                force_law = params.segments[idx].unit_stiffness
-                strain = (len[idx] - l0[idx]) / l0[idx]
-                stiff_eqs = [
-                    stiffness[idx] ~ 0.0
-                    spring_force[idx] ~ force_law(strain) -
-                        damping[idx] * spring_vel[idx]
-                ]
-            end
-            eqs = [
-                eqs
-                damp_eq
-                stiff_eqs
-                spring_force_vec[:, idx] ~ spring_force[idx] * unit_vec[:, idx]
-            ]
+            continue
         end
 
-        # Aerodynamic properties for all segments
-        segment_pos_z = 0.5 * (pos[3, p1] + pos[3, p2])
+        spring, _, wind_factor = segment_spring_params(params, idx; with_drag)
+        loads = segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel,
+            spring.unit_stiffness, spring.unit_damping, spring.compression_frac,
+            spring.compression_damping_frac, l0[idx], spring.diameter,
+            spring.density, spring.cd_tether, wind_gnd, wind_factor;
+            with_drag, nonlinear = spring.nonlinear, rest_len_rate)
         eqs = [
             eqs
-            segment_height[segment.idx] ~ max(0.0, segment_pos_z)
-            segment_vel[:, segment.idx] ~ 0.5 * (vel[:, p1] + vel[:, p2])
-            segment_rho[segment.idx] ~ calc_rho(s.am, segment_height[segment.idx])
-            wind_vel[:, segment.idx] ~
-                wind_factor(segment_pos_z) * wind_vec_gnd
-            va[:, segment.idx] ~
-                wind_vel[:, segment.idx] - segment_vel[:, segment.idx]
-            area[segment.idx] ~
-                len[segment.idx] * params.segments[segment.idx].diameter
-            app_perp_vel[:, segment.idx] ~
-                va[:, segment.idx] -
-                (va[:, segment.idx] ⋅ unit_vec[:, segment.idx]) *
-                unit_vec[:, segment.idx]
+            segment_vec[:, idx] ~ loads.segment_vec
+            len[idx] ~ loads.len
+            unit_vec[:, idx] ~ loads.unit_vec
+            spring_vel[idx] ~ loads.spring_vel
+            spring_force[idx] ~ loads.spring
+            spring_force_vec[:, idx] ~ loads.spring_vec
+            drag_force[:, idx] ~ 2 .* loads.half_drag
         ]
-
-        # Drag force: zero for wing structural segments (forces from VSM), otherwise computed
-        if is_wing_structural_segment
-            eqs = [eqs; drag_force[:, segment.idx] ~ zeros(3)]
-        else
-            eqs = [
-                eqs
-                drag_force[:, segment.idx] ~
-                    (
-                        0.5 * segment_rho[segment.idx] * params.set.cd_tether *
-                        smooth_norm(va[:, segment.idx]) * area[segment.idx]
-                    ) * app_perp_vel[:, segment.idx]
-            ]
-        end
     end
 
     return eqs, len, spring_force

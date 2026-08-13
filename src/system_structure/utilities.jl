@@ -993,7 +993,7 @@ plot(sys)
 - The number of points in `sys` must match the parametric type `P` of `SysState{P}`.
 """
 function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) where P
-    (; points, twist_surfaces, tethers, winches, wings, bodies) = sys
+    (; points, twist_surfaces, pulleys, tethers, winches, wings, bodies) = sys
 
     # Position slot layout (points, panel corners, wing origins, body origins).
     slots = position_slots(sys)
@@ -1010,13 +1010,15 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
               "$total_without_wings without wing slots, but SysState has $P points")
     end
 
-    # Update point positions (X, Y, Z from SysState)
+    # Logs written before the velocity columns existed restart from rest.
+    has_velocity = length(sys_state.VX) == length(sys_state.X)
     for point in points
         point.pos_w[1] = sys_state.X[point.idx]
         point.pos_w[2] = sys_state.Y[point.idx]
         point.pos_w[3] = sys_state.Z[point.idx]
-        # Set velocity to zero (not available in basic SysState)
-        point.vel_w .= 0.0
+        point.vel_w .= has_velocity ?
+            (sys_state.VX[point.idx], sys_state.VY[point.idx],
+             sys_state.VZ[point.idx]) : (0.0, 0.0, 0.0)
         # Set forces to NaN (not available in SysState)
         point.force .= NaN
     end
@@ -1066,24 +1068,38 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
     if has_wing_slots
         for rigid_body in bodies
             slot = slots.bodies[rigid_body.idx]
+            frame = n_wings + rigid_body.idx
             rigid_body.pos_w[1] = sys_state.X[slot]
             rigid_body.pos_w[2] = sys_state.Y[slot]
             rigid_body.pos_w[3] = sys_state.Z[slot]
-            rigid_body.Q_b_to_w .= sys_state.orients[n_wings + rigid_body.idx]
+            has_velocity && (rigid_body.vel_w .= (sys_state.VX[slot],
+                sys_state.VY[slot], sys_state.VZ[slot]))
+            rigid_body.Q_b_to_w .= sys_state.orients[frame]
+            frame <= length(sys_state.turn_rate_x) &&
+                (rigid_body.ω_b .= (sys_state.turn_rate_x[frame],
+                    sys_state.turn_rate_y[frame], sys_state.turn_rate_z[frame]))
+            # The ODE integrates the principal frame; the log stores the body one.
+            rigid_body.type == KINEMATIC || init_principal_state!(rigid_body)
         end
     end
 
-    # Update twist_surface twist angles
-    n_twist_surfaces = min(length(twist_surfaces), 4)  # SysState stores up to 4 twist angles
-    for i in 1:n_twist_surfaces
-        if i <= length(twist_surfaces)
-            twist_surfaces[i].twist = Float64(sys_state.twist_angles[i])
-            twist_surfaces[i].twist_ω = 0.0  # Not available in SysState
-            # Set forces/moments to NaN
-            twist_surfaces[i].tether_force = NaN
-            twist_surfaces[i].tether_moment = NaN
-            twist_surfaces[i].aero_moment = NaN
+    # Logs written before twist_vel existed restart the surfaces at rest.
+    has_twist_vel = length(sys_state.twist_vel) == length(twist_surfaces)
+    for twist_surface in twist_surfaces
+        i = twist_surface.idx
+        if i <= length(sys_state.twist_angles)
+            twist_surface.twist = Float64(sys_state.twist_angles[i])
+            twist_surface.twist_ω = has_twist_vel ?
+                Float64(sys_state.twist_vel[i]) : 0.0
         end
+        twist_surface.tether_force = NaN
+        twist_surface.tether_moment = NaN
+        twist_surface.aero_moment = NaN
+    end
+    for pulley in pulleys
+        pulley.idx > length(sys_state.pulley_len) && break
+        pulley.len = Float64(sys_state.pulley_len[pulley.idx])
+        pulley.vel = Float64(sys_state.pulley_vel[pulley.idx])
     end
 
     for wing in wings
@@ -1092,16 +1108,16 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
 
     # Update tether lengths from SysState (per-tether)
     for (tether_idx, tether) in enumerate(tethers)
-        tether_idx > 4 && break
+        tether_idx > length(sys_state.l_tether) && break
         tether.len = Float64(sys_state.l_tether[tether_idx])
     end
 
     # Update winch state from SysState (per-winch)
-    n_winches = min(length(winches), 4)
-    for i in 1:n_winches
+    for i in eachindex(winches)
         winches[i].force .= NaN
         winches[i].friction = NaN
         winches[i].acc = 0.0
+        i > length(sys_state.v_reelout) && continue
         winches[i].vel = Float64(sys_state.v_reelout[i])
         winches[i].set_value = Float64(sys_state.set_torque[i])
     end

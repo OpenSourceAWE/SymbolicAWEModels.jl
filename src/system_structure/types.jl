@@ -605,9 +605,12 @@ mutable struct Segment
     unit_damping::SimFloat
     "Rest (unstretched) length [m]."
     l0::SimFloat
-    "Compressive/tensile stiffness ratio (0-1) under compression; damping is not
-    scaled with it. 0 = a slack segment carries no spring force."
+    "Compressive/tensile stiffness ratio (0-1) under compression.
+    0 = a slack segment carries no spring force."
     compression_frac::SimFloat
+    "Fraction of `unit_damping` that still acts under compression (0-1).
+    1 = damping is unaffected by compression; 0 = a slack segment is undamped."
+    compression_damping_frac::SimFloat
     "Segment diameter [m]."
     diameter::SimFloat
     "Material density [kg/m³]."
@@ -619,7 +622,7 @@ mutable struct Segment
 end
 
 """
-    Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, compression_frac)
+    Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, compression_frac, compression_damping_frac)
 
 Basic constructor for a `Segment` object.
 
@@ -631,19 +634,23 @@ Basic constructor for a `Segment` object.
 - `diameter`: Segment diameter [m].
 
 # Keyword Arguments
-- `compression_frac::SimFloat=0.1`: Compressive/tensile stiffness ratio (0-1);
-  damping is not scaled with it. 0 = a slack segment carries no spring force.
+- `compression_frac::SimFloat=0.1`: Compressive/tensile stiffness ratio (0-1).
+  0 = a slack segment carries no spring force.
+- `compression_damping_frac::SimFloat=1.0`: Fraction of `unit_damping` still
+  acting under compression (0-1). See [`segment_spring_force`](@ref).
 - `density::SimFloat=NaN`: Material density [kg/m³] used for mass.
 """
 function Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter;
-    l0=zero(SimFloat), compression_frac=0.1, density=NaN
+    l0=zero(SimFloat), compression_frac=0.1, compression_damping_frac=1.0,
+    density=NaN
 )
     p1 = point_i isa Integer ? Int(point_i) : Symbol(point_i)
     p2 = point_j isa Integer ? Int(point_j) : Symbol(point_j)
     # Real → SimFloat; a callable force law F(ε) is kept as-is.
     stiff = unit_stiffness isa Real ? SimFloat(unit_stiffness) : unit_stiffness
     Segment(0, name, (0, 0), (p1, p2), stiff, SimFloat(unit_damping), l0,
-        compression_frac, diameter, SimFloat(density), zero(SimFloat), zero(SimFloat))
+        compression_frac, compression_damping_frac, diameter, SimFloat(density),
+        zero(SimFloat), zero(SimFloat))
 end
 
 """
@@ -713,9 +720,9 @@ function resolve_material(label, set; diameter_m=NaN, unit_stiffness=NaN,
 end
 
 """
-    Segment(name, set, point_i, point_j; l0, compression_frac, diameter_mm,
-            unit_stiffness, unit_damping, density, youngs_modulus,
-            damping_per_stiffness)
+    Segment(name, set, point_i, point_j; l0, compression_frac,
+            compression_damping_frac, diameter_mm, unit_stiffness, unit_damping,
+            density, youngs_modulus, damping_per_stiffness)
 
 Constructs a `Segment` using settings for material properties.
 
@@ -728,8 +735,10 @@ Constructs a `Segment` using settings for material properties.
 # Keyword Arguments
 - `l0::SimFloat=zero(SimFloat)`: Unstretched length [m].
   Calculated from point positions if zero.
-- `compression_frac::SimFloat=0.1`: Compressive/tensile stiffness ratio (0-1);
-  damping is not scaled with it. 0 = a slack segment carries no spring force.
+- `compression_frac::SimFloat=0.1`: Compressive/tensile stiffness ratio (0-1).
+  0 = a slack segment carries no spring force.
+- `compression_damping_frac::SimFloat=1.0`: Fraction of `unit_damping` still
+  acting under compression (0-1). See [`segment_spring_force`](@ref).
 - `diameter_mm::Float64=NaN`: Tether diameter [mm]. If `NaN`,
   uses `set.d_tether`.
 - `unit_stiffness::Float64=NaN`: Stiffness per unit length [N].
@@ -744,7 +753,7 @@ Constructs a `Segment` using settings for material properties.
   to `unit_damping` [s].
 """
 function Segment(name, set, point_i, point_j;
-    l0=zero(SimFloat), compression_frac=0.1,
+    l0=zero(SimFloat), compression_frac=0.1, compression_damping_frac=1.0,
     diameter_mm=NaN, unit_stiffness=NaN,
     unit_damping=NaN, density=NaN, youngs_modulus=NaN,
     damping_per_stiffness=NaN
@@ -760,7 +769,7 @@ function Segment(name, set, point_i, point_j;
 
     Segment(0, name, (0, 0), (p1, p2),
         unit_stiffness, unit_damping, l0,
-        compression_frac, diameter_m, density,
+        compression_frac, compression_damping_frac, diameter_m, density,
         zero(SimFloat), zero(SimFloat))
 end
 
@@ -868,6 +877,10 @@ strain returning force [N]; a callable propagates to every auto-generated segmen
 `unit_stiffness` is typed `Any` (not a type parameter) to keep `Tether` concrete,
 since `SystemStructure.tethers` is read every step.
 
+The material fields (`unit_stiffness` through `compression_damping_frac`) describe
+the segments Route 2 generates; a Route 1 tether reads them off its own segments and
+leaves these at their defaults.
+
 # Initial length
 Two distinct lengths, set independently at `reinit!`:
 - `init_stretched_len` — the *placed* (stretched) standoff; `reinit!` scales the
@@ -915,6 +928,10 @@ mutable struct Tether
     const youngs_modulus::SimFloat
     "Damping per unit stiffness [s]. Diameter-independent form of `unit_damping`."
     const damping_per_stiffness::SimFloat
+    "Compressive/tensile stiffness ratio (0-1) given to every generated segment."
+    const compression_frac::SimFloat
+    "Fraction of `unit_damping` still acting under compression (0-1), per segment."
+    const compression_damping_frac::SimFloat
     "Current stretched length [m] (updated during simulation)."
     stretched_len::SimFloat
     """Unstretched tether length [m] (sum of segment l0).
@@ -987,7 +1004,7 @@ function Tether(name, segments::AbstractVector, stretched_length=nothing;
     return Tether(0, name, Int64[], segment_refs,
                   0, name_ref(start_point), 0, name_ref(end_point),
                   length(segments),
-                  NaN, NaN, NaN, NaN, NaN, NaN, 0.0,
+                  NaN, NaN, NaN, NaN, NaN, NaN, 0.1, 1.0, 0.0,
                   0.0, init_stretched, init_force, init_frac)
 end
 
@@ -1011,8 +1028,9 @@ end
 """
     Tether(name, stretched_length=nothing;
            start_point, end_point, n_segments,
-           unit_stiffness=NaN, unit_damping=NaN,
-           diameter=NaN, tether_force=nothing, stretch_frac=nothing)
+           unit_stiffness=NaN, unit_damping=NaN, diameter=NaN,
+           compression_frac=0.1, compression_damping_frac=1.0,
+           tether_force=nothing, stretch_frac=nothing)
 
 Route 2: Construct a `Tether` for auto-generation of intermediate
 points and segments by `expand_auto_tethers!`.
@@ -1039,6 +1057,10 @@ points and segments by `expand_auto_tethers!`.
   `unit_stiffness` [Pa]. See [`resolve_material`](@ref).
 - `damping_per_stiffness::Float64=NaN`: Diameter-independent alternative
   to `unit_damping` [s].
+- `compression_frac::Float64=0.1`: Compressive/tensile stiffness ratio
+  (0-1) of every generated segment. See [`Segment`](@ref).
+- `compression_damping_frac::Float64=1.0`: Fraction of `unit_damping`
+  still acting under compression (0-1). See [`Segment`](@ref).
 - `tether_force=nothing`: Target initial spring force [N], default 0.
 - `stretch_frac=nothing`: Initial `len/stretched` fraction. Mutually
   exclusive with `tether_force`.
@@ -1047,7 +1069,8 @@ function Tether(name, stretched_length=nothing;
                 start_point, end_point, n_segments,
                 unit_stiffness=NaN, unit_damping=NaN,
                 diameter=NaN, density=NaN, youngs_modulus=NaN,
-                damping_per_stiffness=NaN, tether_force=nothing,
+                damping_per_stiffness=NaN, compression_frac=0.1,
+                compression_damping_frac=1.0, tether_force=nothing,
                 stretch_frac=nothing)
     init_force, init_frac =
         resolve_tether_init(name, tether_force, stretch_frac)
@@ -1063,7 +1086,9 @@ function Tether(name, stretched_length=nothing;
                   Float64(unit_damping),
                   Float64(diameter), Float64(density),
                   Float64(youngs_modulus),
-                  Float64(damping_per_stiffness), 0.0,
+                  Float64(damping_per_stiffness),
+                  Float64(compression_frac),
+                  Float64(compression_damping_frac), 0.0,
                   0.0, init_stretched, init_force, init_frac)
 end
 

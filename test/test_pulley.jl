@@ -541,6 +541,126 @@ system:
                 "lossy=$(round(lossy*1000, digits=1))mm/s ======\n")
     end
 
+    # ========================================================================
+    # Physics Test 6: A moving rest length is damped like a moving endpoint
+    # The damper resists the rate of change of the extension `len - l0`, so
+    # paying rope into a leg must relax it exactly as much as bringing its
+    # endpoints together at the same speed does. Reading the endpoints alone
+    # leaves the rope split undamped while still letting the legs' dampers
+    # drive it, which is a damping that can inject energy rather than remove it.
+    # ========================================================================
+    @testset "Rest-length rate enters the damper" begin
+        unit_stiffness, unit_damping, l0, len = 1000.0, 40.0, 10.0, 10.5
+        src, dst = KVec3(0.0, 0.0, 0.0), KVec3(0.0, 0.0, len)
+        still = KVec3(0.0, 0.0, 0.0)
+
+        """Tension and damper speed at this endpoint separation and rest-length rate."""
+        function leg(separation_speed, rest_len_rate)
+            loads = SymbolicAWEModels.segment_load_terms(
+                nothing, src, still, dst, KVec3(0.0, 0.0, separation_speed),
+                unit_stiffness, unit_damping, 0.1, 1.0, l0, 0.005, 724.0,
+                0.0, still, nothing; with_drag=false, rest_len_rate)
+            return loads.spring, loads.spring_vel
+        end
+
+        elastic, _ = leg(0.0, 0.0)
+        @test elastic ≈ unit_stiffness / len * (len - l0)
+
+        # `spring_vel` is the closing speed of the extension, not of the endpoints.
+        @test leg(-0.4, 0.0)[2] ≈ 0.4
+        @test leg(-0.4, 0.25)[2] ≈ 0.4 + 0.25
+
+        # Paying rope in relaxes the segment exactly as approaching endpoints do,
+        # and hauling it out strains it, symmetrically.
+        @test leg(0.0, 0.3)[1] ≈ leg(-0.3, 0.0)[1]
+        @test leg(0.0, 0.3)[1] ≈ elastic - unit_damping / len * 0.3
+        @test leg(0.0, -0.3)[1] ≈ elastic + unit_damping / len * 0.3
+
+        # A still segment at a fixed rest length is the untouched force law.
+        @test leg(0.0, 0.0)[1] ≈ SymbolicAWEModels.segment_spring_force(
+            len, l0, 0.0, unit_stiffness, unit_damping, 0.1)
+
+        # A split running at `speed` pays rope into one leg and hauls it out of
+        # the other, so the imbalance driving it opposes it with c_left + c_right.
+        speed = 0.2
+        imbalance = leg(0.0, speed)[1] - leg(0.0, -speed)[1]
+        @test imbalance ≈ -2 * (unit_damping / len) * speed
+
+        # The rate the segments see is the one the split integrates, brake included.
+        pulley = sys.pulleys[:main_pulley]
+        @test SymbolicAWEModels.pulley_len_rate(pulley, 0.4) ≈ 0.4
+        pulley.brake = true
+        @test SymbolicAWEModels.pulley_len_rate(pulley, 0.4) ≈ 0.0
+        pulley.brake = false
+    end
+
+    # ========================================================================
+    # Physics Test 7: The legs' dampers are what settle the rope split
+    # With a frictionless sheave, no artificial pulley damping and the point
+    # and main tether dampers removed, the two legs carry the only damping the
+    # split has. Its ring then decays only in proportion to their `unit_damping`,
+    # and undamped legs leave it ringing on undiminished.
+    # ========================================================================
+    @testset "Leg damping settles the rope split" begin
+        set.g_earth = 9.81
+        set.v_wind = 0.0
+        set.abs_tol = 1e-10
+        set.rel_tol = 1e-10
+
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="pulley_test", set=set)
+        sam = SymbolicAWEModel(set, sys)
+        test_init!(sam)
+
+        pulley = sam.sys_struct.pulleys[:main_pulley]
+        left = sam.sys_struct.segments[:left_leg]
+        right = sam.sys_struct.segments[:right_leg]
+        nominal = left.unit_damping
+
+        """Split speed over the first 30 ms of the transient, at this leg damping."""
+        function transient(factor; dt=1e-5, n=3000)
+            left.unit_damping = factor * nominal
+            right.unit_damping = factor * nominal
+            pulley.efficiency, pulley.damping, pulley.brake = 1.0, 0.0, false
+            sam.sys_struct.points[:pulley_point].body_frame_damping .= 0.0
+            sam.sys_struct.points[:weight].body_frame_damping .= 0.0
+            sam.sys_struct.segments[:main_tether].unit_damping = 0.0
+            init!(sam; prn=false)
+            speeds = Float64[]
+            for _ in 1:n
+                next_step!(sam; dt, vsm_interval=0)
+                push!(speeds, pulley.vel)
+            end
+            return speeds
+        end
+
+        """Peak of the fast ripple: `x` minus a centred one-period moving average."""
+        function ripple(x, half)
+            out = 0.0
+            for i in (half+1):(length(x)-half)
+                mean = sum(@view x[i-half:i+half]) / (2half + 1)
+                out = max(out, abs(x[i] - mean))
+            end
+            return out
+        end
+
+        half = 195  # half a period of the ~257 Hz split mode at dt = 1e-5
+        late = map((0.0, 0.25, 1.0, 4.0)) do factor
+            ripple(transient(factor)[2001:3000], half)
+        end
+
+        # More leg damping, less ring left after 20 ms — monotonically.
+        @test issorted(late; rev=true)
+        @test late[1] > 3 * late[4]
+        # Undamped legs leave the split ringing at its starting amplitude.
+        undamped = transient(0.0)
+        @test ripple(undamped[2001:3000], half) > 0.8 * ripple(undamped[1:1000], half)
+
+        println("\n  ====== Split ring left after 20 ms, by leg damping factor: " *
+                join(("$(f)x=$(round(r, sigdigits=3))"
+                      for (f, r) in zip((0.0, 0.25, 1.0, 4.0), late)), ", ") *
+                " ======\n")
+    end
+
     # Cleanup
     rm(tmpdir; recursive=true)
 end
