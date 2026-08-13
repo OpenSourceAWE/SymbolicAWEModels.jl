@@ -80,6 +80,12 @@
   `unit_stiffness = youngs_modulus * pi * (diameter_mm/2000)^2` and
   `unit_damping = damping_per_stiffness * unit_stiffness`. Giving both forms
   of the same quantity is an error.
+- `Pulley` also takes `damping` [N·s/m] and `brake`, both defaulting to off and
+  neither a sheave property: `damping` opposes rope travel proportionally to
+  speed, to settle a ringing split while debugging, and `brake` freezes the
+  split where it is, to isolate whether a problem comes from the rope
+  redistributing at all. Both are settable from the constructor and from YAML
+  columns of the same names.
 
 ### Fixed
 - Air density is now clamped at ground level on every path. A rigid wing read
@@ -127,17 +133,32 @@
   never as a wing-wide mean, which is the bug fixed above; and
   `test_continuous_aero.jl` and `test_pressure_aero.jl` keep only what is
   specific to one mode. `AeroPressure` previously sat in none of these layers.
+- Nine segment observables (`stiffness`, `damping`, `segment_height`,
+  `segment_vel`, `segment_rho`, `wind_vel`, `va`, `area`, `app_perp_vel`) are
+  gone, and the point observable `point_drag_force` is renamed
+  `point_aero_drag`, where it shadowed the shared function of that name. They
+  were intermediates of the monolith's own copy of the spring and drag law,
+  which no longer exists; keeping them would have meant re-deriving the force.
+  Nothing in the package, the examples or the docs reads them and no exported
+  accessor returns a symbolic variable by name, so only code indexing the
+  generated system directly is affected. `len`, `spring_force`,
+  `spring_force_vec`, `spring_vel`, `unit_vec`, `segment_vec`, `rel_vel`, `l0`
+  and `total_drag` are unchanged.
 
 ### Breaking
-- The segment observables `stiffness`, `damping`, `segment_height`,
-  `segment_vel`, `segment_rho`, `wind_vel`, `va`, `area` and `app_perp_vel` are
-  gone. They were intermediates of the monolith's own copy of the spring and drag
-  law; keeping them would have meant re-deriving the force. `len`,
-  `spring_force`, `spring_force_vec`, `spring_vel`, `unit_vec`, `segment_vec`,
-  `rel_vel` and `l0` are unchanged.
-- The point observable `point_drag_force` is renamed `point_aero_drag`. It
-  shadowed the shared function of the same name. `total_drag`, which sums it with
-  the point's share of segment drag, is unchanged.
+- A segment's damper now resists the rate of change of its extension
+  `len - l0`, not the rate its two endpoints separate. The two agree wherever
+  `l0` is a fixed parameter, so an ordinary segment is unchanged — but a pulley
+  leg and a winched tether member carry `l0` as a state, and the difference is
+  that state's own rate. A pulley's rope split therefore appeared in no damper
+  at all, while the legs' dampers still drove it: a one-way velocity coupling
+  that could feed the split rather than settle it, growing with
+  `damping_per_stiffness`, so raising the damping could make such a model
+  *less* stable. The split now carries `c_left + c_right` and the sheave's
+  `efficiency` is no longer the only thing damping it. Reeling likewise no
+  longer charges a tether a damper force proportional to reel speed, so a
+  reel-out loop is genuinely less damped than the old model made it look —
+  expect controllers tuned against it to need retuning.
 - A `Pulley` resists rope travel by its `efficiency`, the fraction of line
   tension its sheave passes on. The friction is `(1 − efficiency) ·
   line_tension` carrying the sign of the motion, smoothed over
@@ -154,12 +175,6 @@
   fixed coefficient reproduces it across models — expect to retune ones that
   leaned on it to settle. A slack pulley is now frictionless, and coasts, but
   it has no tension driving its split either.
-- `Pulley` also takes `damping` [N·s/m] and `brake`, both defaulting to off and
-  neither a sheave property: `damping` opposes rope travel proportionally to
-  speed, to settle a ringing split while debugging, and `brake` freezes the
-  split where it is, to isolate whether a problem comes from the rope
-  redistributing at all. All the fields above are settable from the constructor
-  and from YAML columns of the same names.
 - `Winch.f_coulomb` and `Winch.c_vf` are renamed to `Winch.coulomb_friction` and
   `Winch.viscous_coefficient`, matching the `Pulley` fields above and saying
   which of the two is a force [N] and which a coefficient [N·s/m]. The
