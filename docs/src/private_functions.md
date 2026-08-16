@@ -80,6 +80,8 @@ SymbolicAWEModels.dynamic_point_dynamics
 SymbolicAWEModels.wing_structural_segment
 SymbolicAWEModels.segment_spring_params
 SymbolicAWEModels.rigid_body_pose_expressions
+SymbolicAWEModels.joint_rayleigh_term
+SymbolicAWEModels.timoshenko_local_wrench
 SymbolicAWEModels.timoshenko_element_wrench
 SymbolicAWEModels.elastic_joint_wrench
 SymbolicAWEModels.beam_hermite_ride_expressions
@@ -91,6 +93,9 @@ SymbolicAWEModels.pulley_split_eqs
 SymbolicAWEModels.pulley_len_rate
 SymbolicAWEModels.pulley_friction_force
 SymbolicAWEModels.wing_frame_columns
+SymbolicAWEModels.wing_frame_rates
+SymbolicAWEModels.unit_vector_rate
+SymbolicAWEModels.body_frame_omega
 ```
 
 ## Equations and system management
@@ -115,6 +120,7 @@ SymbolicAWEModels.point_eqs!
 SymbolicAWEModels.segment_eqs!
 SymbolicAWEModels.refresh_aero!
 SymbolicAWEModels.wing_kinematics_from_points!
+SymbolicAWEModels.write_wing_scalars!
 SymbolicAWEModels.sync_aero_density!
 SymbolicAWEModels.jacobian
 SymbolicAWEModels.load_serialized_model!
@@ -339,8 +345,11 @@ SymbolicAWEModels.apply_direct_forces!
 SymbolicAWEModels.vsm_aero_coeffs
 SymbolicAWEModels.vsm_solve_objects
 SymbolicAWEModels.safe_vsm_solve!
+SymbolicAWEModels.solve_and_freeze_circulation!
 SymbolicAWEModels.finite_full
 SymbolicAWEModels.set_particle_panel_va!
+SymbolicAWEModels.set_refined_panel_va!
+SymbolicAWEModels.surface_node_forces
 SymbolicAWEModels.build_mesh_maps!
 SymbolicAWEModels.store_induced_velocity!
 SymbolicAWEModels.build_section_interp
@@ -417,6 +426,7 @@ SymbolicAWEModels.heading_reference_body
 SymbolicAWEModels.apply_azimuth_elevation!
 SymbolicAWEModels.apply_heading!
 SymbolicAWEModels.finalize_transforms!
+SymbolicAWEModels.refresh_deformed_positions!
 SymbolicAWEModels.min_rotation
 ```
 
