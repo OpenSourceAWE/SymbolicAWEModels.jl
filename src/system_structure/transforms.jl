@@ -325,11 +325,38 @@ function finalize_transforms!(points, bodies)
         body.pos_w .= origin
         for point in points
             if point.is_wing_node && point.wing_idx == body.idx
-                point.pos_b .= R_b_to_w' * (point.pos_w - origin)
+                point.pos_undeformed_b .= R_b_to_w' * (point.pos_w - origin)
+                point.pos_b .= point.pos_undeformed_b
             end
         end
     end
     init_principal_frame!(bodies, points)
+end
+
+"""
+    refresh_deformed_positions!(points, bodies) -> nothing
+
+Update every PARTICLE_DYNAMICS wing node's `pos_b` from its live world
+position, measured in its wing's current frame about the wing origin — the same
+reference `finalize_transforms!` builds `pos_undeformed_b` against, so the two
+differ only by the deformation the points have picked up.
+
+Called once per state sync, so both backends report it from one definition. A
+RIGID_DYNAMICS wing's nodes keep the offset they were constructed with, that
+being what places them.
+"""
+function refresh_deformed_positions!(points, bodies)
+    for body in bodies
+        body.dynamics_type == PARTICLE_DYNAMICS || continue
+        isnothing(body.origin) && continue
+        frame = body.R_b_to_w'
+        for point in points
+            if point.is_wing_node && point.wing_idx == body.idx
+                point.pos_b .= frame * (point.pos_w - body.pos_w)
+            end
+        end
+    end
+    return nothing
 end
 
 """
@@ -351,7 +378,9 @@ function init_principal_frame!(bodies, points)
             com_cad = body.pos_cad .+ body.R_b_to_c * body.com_offset_b
             for point in points
                 if point.is_wing_node && point.wing_idx == body.idx
-                    point.pos_b .= body.R_b_to_c' * (point.pos_cad - com_cad)
+                    point.pos_undeformed_b .=
+                        body.R_b_to_c' * (point.pos_cad - com_cad)
+                    point.pos_b .= point.pos_undeformed_b
                 end
             end
         else

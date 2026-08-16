@@ -287,6 +287,36 @@ function wing_scalar_kinematics(; rel_pos, e_x, R_t_to_w, R_v_to_w, R_b_to_w, ve
 end
 
 """
+    timoshenko_local_wrench(rigidities, L0, kshear, δ, θ_a, θ_b)
+
+Consistent Timoshenko end wrench `(F_a, M_a, F_b, M_b)` in element-frame
+coordinates for one set of generalized deformations. `rigidities` is
+`(EA, GAy, GAz, GJ, EIy, EIz)`, already evaluated at the current strain. Linear in
+`(δ, θ_a, θ_b)`, so passing β times the deformation *rates* yields the Rayleigh
+stiffness-proportional damping wrench from the same assembly.
+"""
+function timoshenko_local_wrench(rigidities, L0, kshear, δ, θ_a, θ_b)
+    EA_eff, GAy_eff, GAz_eff, GJ_eff, EIy_eff, EIz_eff = rigidities
+    Φy = 12 * EIy_eff / (kshear * GAy_eff * L0^2)
+    Φz = 12 * EIz_eff / (kshear * GAz_eff * L0^2)
+    by = EIy_eff / (L0 * (1 + Φy))
+    bz = EIz_eff / (L0 * (1 + Φz))
+    shy = 6 * EIy_eff / (L0^2 * (1 + Φy))
+    shz = 6 * EIz_eff / (L0^2 * (1 + Φz))
+    Mt = GJ_eff / L0
+    f_axial = EA_eff * δ / L0
+    F_a = [f_axial, -shz * (θ_a[3] + θ_b[3]), shy * (θ_a[2] + θ_b[2])]
+    M_a = [-Mt * (θ_a[1] - θ_b[1]),
+           -by * ((4 + Φy) * θ_a[2] + (2 - Φy) * θ_b[2]),
+           -bz * ((4 + Φz) * θ_a[3] + (2 - Φz) * θ_b[3])]
+    F_b = [-f_axial, shz * (θ_a[3] + θ_b[3]), -shy * (θ_a[2] + θ_b[2])]
+    M_b = [-Mt * (θ_b[1] - θ_a[1]),
+           -by * ((2 - Φy) * θ_a[2] + (4 + Φy) * θ_b[2]),
+           -bz * ((2 - Φz) * θ_a[3] + (4 + Φz) * θ_b[3])]
+    return (F_a, M_a, F_b, M_b)
+end
+
+"""
     timoshenko_element_wrench(joint, params; frame, theta_a, theta_b, force_a, force_b,
         moment_a, moment_b, pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
@@ -340,44 +370,36 @@ function timoshenko_element_wrench(joint, params;
     κz = (θ_b[3] - θ_a[3]) / L0
     γy = 0.5 * (θ_a[2] + θ_b[2])
     γz = 0.5 * (θ_a[3] + θ_b[3])
-    EA_eff = timoshenko_rigidity(joint, params, :EA, ε)
-    GJ_eff = timoshenko_rigidity(joint, params, :GJ, κt)
-    EIy_eff = timoshenko_rigidity(joint, params, :EIy, κy)
-    EIz_eff = timoshenko_rigidity(joint, params, :EIz, κz)
-    GAy_eff = timoshenko_rigidity(joint, params, :GA, γy)
-    GAz_eff = timoshenko_rigidity(joint, params, :GA, γz)
-    Φy = 12 * EIy_eff / (kshear * GAy_eff * L0^2)
-    Φz = 12 * EIz_eff / (kshear * GAz_eff * L0^2)
-    by = EIy_eff / (L0 * (1 + Φy))
-    bz = EIz_eff / (L0 * (1 + Φz))
-    shy = 6 * EIy_eff / (L0^2 * (1 + Φy))
-    shz = 6 * EIz_eff / (L0^2 * (1 + Φz))
-    Mt = GJ_eff / L0
-    f_axial = EA_eff * δ / L0
-    F_a_local = [f_axial, -shz * (θ_a[3] + θ_b[3]), shy * (θ_a[2] + θ_b[2])]
-    M_a_local = [-Mt * (θ_a[1] - θ_b[1]),
-                 -by * ((4 + Φy) * θ_a[2] + (2 - Φy) * θ_b[2]),
-                 -bz * ((4 + Φz) * θ_a[3] + (2 - Φz) * θ_b[3])]
-    F_b_local = [-f_axial, shz * (θ_a[3] + θ_b[3]), -shy * (θ_a[2] + θ_b[2])]
-    M_b_local = [-Mt * (θ_b[1] - θ_a[1]),
-                 -by * ((2 - Φy) * θ_a[2] + (4 + Φy) * θ_b[2]),
-                 -bz * ((2 - Φz) * θ_a[3] + (4 + Φz) * θ_b[3])]
+    rigidities = (timoshenko_rigidity(joint, params, :EA, ε),
+                  timoshenko_rigidity(joint, params, :GA, γy),
+                  timoshenko_rigidity(joint, params, :GA, γz),
+                  timoshenko_rigidity(joint, params, :GJ, κt),
+                  timoshenko_rigidity(joint, params, :EIy, κy),
+                  timoshenko_rigidity(joint, params, :EIz, κz))
+    stiff = timoshenko_local_wrench(rigidities, L0, kshear, δ, θ_a, θ_b)
     ω_a_w = collect(omega_a_w)
     ω_b_w = collect(omega_b_w)
     vel_a = collect(com_vel_a) .+ (ω_a_w × (x_a .- collect(com_a)))
     vel_b = collect(com_vel_b) .+ (ω_b_w × (x_b .- collect(com_b)))
     Δv = vel_b .- vel_a
-    Δω = ω_b_w .- ω_a_w
-    c_t = jp.damping_trans
-    c_r = jp.damping_rot
+    axis = element_frame[:, 1]
+    stretch_vel = Δv ⋅ axis
+    # Element-frame spin: roll follows node A, tilt is the chord's own rotation
+    # rate. Subtracting it leaves deformation rate only, so rigid motion is mute.
+    frame_spin = (axis ⋅ ω_a_w) .* axis .+ (axis × Δv) ./ len
+    beta = jp.damping
+    rate_a = element_frame' * (ω_a_w .- frame_spin)
+    rate_b = element_frame' * (ω_b_w .- frame_spin)
+    damp = timoshenko_local_wrench(rigidities, L0, kshear, beta * stretch_vel,
+                                   beta .* rate_a, beta .* rate_b)
     tear_eqs = [
         vec(collect(frame)) ~ vec(frame_expr)
         collect(theta_a) ~ θ_a_expr
         collect(theta_b) ~ θ_b_expr
-        collect(force_a) ~ element_frame * F_a_local .+ c_t .* Δv
-        collect(force_b) ~ element_frame * F_b_local .- c_t .* Δv
-        collect(moment_a) ~ element_frame * M_a_local .+ c_r .* Δω
-        collect(moment_b) ~ element_frame * M_b_local .- c_r .* Δω
+        collect(force_a) ~ element_frame * (stiff[1] .+ damp[1])
+        collect(force_b) ~ element_frame * (stiff[3] .+ damp[3])
+        collect(moment_a) ~ element_frame * (stiff[2] .+ damp[2])
+        collect(moment_b) ~ element_frame * (stiff[4] .+ damp[4])
     ]
     force_on_a = collect(force_a)
     force_on_b = collect(force_b)
@@ -422,25 +444,31 @@ function elastic_joint_wrench(joint, params; force_w, torque_w,
     ω_b_w = collect(omega_b_w)
     vel_anchor_a = collect(com_vel_a) .+ (ω_a_w × (pos_anchor_a .- ca))
     vel_anchor_b = collect(com_vel_b) .+ (ω_b_w × (pos_anchor_b .- cb))
-    Δv_a = Ra' * (vel_anchor_b .- vel_anchor_a)
+    # Corotational rate of Δr_a: subtracting body A's spin keeps a rigid rotation
+    # of the pair from registering as a relative anchor velocity.
+    Δv_a = Ra' * ((vel_anchor_b .- vel_anchor_a) .-
+                  (ω_a_w × (pos_anchor_b .- pos_anchor_a)))
     Δω_a = Ra' * (ω_b_w .- ω_a_w)
-    damp_trans = jp.damping_trans
-    damp_rot = jp.damping_rot
-    force_a = [
-        -joint_stiffness_term(joint, params, 1, Δr_a[1]) - damp_trans * Δv_a[1],
-        -joint_stiffness_term(joint, params, 2, Δr_a[2]) - damp_trans * Δv_a[2],
-        -joint_stiffness_term(joint, params, 2, Δr_a[3]) - damp_trans * Δv_a[3]]
-    torque_a = [
-        -joint_stiffness_term(joint, params, 3, Δθ_a[1]) - damp_rot * Δω_a[1],
-        -joint_stiffness_term(joint, params, 4, Δθ_a[2]) - damp_rot * Δω_a[2],
-        -joint_stiffness_term(joint, params, 4, Δθ_a[3]) - damp_rot * Δω_a[3]]
+    beta = jp.damping
+    elastic(kind, Δ, rate) =
+        -joint_stiffness_term(joint, params, kind, Δ) -
+        joint_rayleigh_term(joint, params, kind, Δ, rate, beta)
+    force_a = [elastic(1, Δr_a[1], Δv_a[1]),
+               elastic(2, Δr_a[2], Δv_a[2]),
+               elastic(2, Δr_a[3], Δv_a[3])]
+    torque_a = [elastic(3, Δθ_a[1], Δω_a[1]),
+                elastic(4, Δθ_a[2], Δω_a[2]),
+                elastic(4, Δθ_a[3], Δω_a[3])]
     tear_eqs = [collect(force_w) ~ Ra * force_a; collect(torque_w) ~ Ra * torque_a]
     force_on_b = collect(force_w)
     torque_on_b = collect(torque_w)
     arm_a = pos_anchor_a .- ca
     arm_b = pos_anchor_b .- cb
     force_on_a = .-force_on_b
-    moment_on_a = arm_a × force_on_a .- torque_on_b
+    # The massless element spans the anchor offset, so body A also carries the
+    # transport couple of the transmitted force; without it the pair is a net torque.
+    moment_on_a = arm_a × force_on_a .- torque_on_b .-
+                  (pos_anchor_b .- pos_anchor_a) × force_on_b
     moment_on_b = arm_b × force_on_b .+ torque_on_b
     return (; tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)
 end
@@ -656,6 +684,51 @@ function wing_frame_columns(zp1, zp2, yp1, yp2; torn_frame=nothing)
     xref = isnothing(frame) ? xaxis : frame[:, 1]
     yaxis = zref × xref
     return xaxis, yaxis, zaxis
+end
+
+"""
+    wing_frame_rates(zp1, zp2, yp1, yp2, rates, axes)
+
+Time derivatives of the [`wing_frame_columns`](@ref) axes from the reference
+points' velocities `rates = (vz1, vz2, vy1, vy2)`. Differentiating the
+construction here keeps the frame's angular velocity an observable of `pos`/`vel`,
+rather than forcing MTK to differentiate the frame's algebraic equations.
+"""
+function wing_frame_rates(zp1, zp2, yp1, yp2, rates, axes)
+    vz1, vz2, vy1, vy2 = rates
+    xaxis, _, zaxis = axes
+    z_vec = zp2 .- zp1
+    z_rate = unit_vector_rate(z_vec, vz2 .- vz1, zaxis)
+    span_vec = yp2 .- yp1
+    span_unit = collect(smooth_normalize(span_vec))
+    span_rate = unit_vector_rate(span_vec, vy2 .- vy1, span_unit)
+    cross_vec = span_unit × zaxis
+    cross_rate = span_rate × zaxis .+ span_unit × z_rate
+    x_rate = unit_vector_rate(cross_vec, cross_rate, xaxis)
+    return x_rate, z_rate × xaxis .+ zaxis × x_rate, z_rate
+end
+
+"""
+    unit_vector_rate(vec, rate, unit)
+
+`d/dt (vec/|vec|)` given `vec`, its rate and its unit vector: the component of
+`rate` perpendicular to `unit`, over `|vec|`.
+"""
+unit_vector_rate(vec, rate, unit) =
+    (collect(rate) .- unit .* (unit ⋅ rate)) ./ smooth_norm(vec)
+
+"""
+    body_frame_omega(axes, rates)
+
+Body-frame angular velocity `vee(Rᵀ·Ṙ) = [z·ẏ, x·ż, y·ẋ]` of a frame from its
+axes and their rates, antisymmetrised so a non-orthonormal drift cannot bias it.
+"""
+function body_frame_omega(axes, rates)
+    xaxis, yaxis, zaxis = axes
+    x_rate, y_rate, z_rate = rates
+    return [0.5 * (zaxis ⋅ y_rate - yaxis ⋅ z_rate),
+            0.5 * (xaxis ⋅ z_rate - zaxis ⋅ x_rate),
+            0.5 * (yaxis ⋅ x_rate - xaxis ⋅ y_rate)]
 end
 
 # ==================== component `System`s ==================== #
@@ -1967,18 +2040,24 @@ end
 """
     twist_deformed_offset(params, idx, surface_idx, angle)
 
-The body-frame offset of a rigid wing's structural node, rotated about its surface's
+The body-frame offset of a wing's structural node, rotated about its surface's
 leading edge by the section twist `angle` — the placement `point_eqs!` gives a wing
 node whose surface twists. Without a surface (`surface_idx == 0`) it is the node's
-own `pos_b`.
+own `pos_undeformed_b`.
+
+A full rotation about the (unit) spanwise axis, so a node offset along the span
+keeps that offset: a twist surface's nodes need not share one chordwise line, and
+dropping the axial term would shrink their spanwise spread by `cos(angle)`.
 """
 function twist_deformed_offset(params, idx, surface_idx, angle)
-    surface_idx == 0 && return collect(params.points[idx].pos_b)
+    surface_idx == 0 && return collect(params.points[idx].pos_undeformed_b)
     surface = params.twist_surfaces[surface_idx]
     leading_edge = collect(surface.le_pos)
-    chord = collect(params.points[idx].pos_b) .- leading_edge
-    normal = chord × collect(surface.y_airf)
-    return leading_edge .+ cos(angle) .* chord .- sin(angle) .* normal
+    axis = collect(surface.y_airf)
+    offset = collect(params.points[idx].pos_undeformed_b) .- leading_edge
+    return leading_edge .+ cos(angle) .* offset .+
+           sin(angle) .* (axis × offset) .+
+           (1 - cos(angle)) * (axis ⋅ offset) .* axis
 end
 
 """
@@ -2070,7 +2149,7 @@ function TwistNodeWrench(s, params, idx; name, surface_idx = 0, gated = false)
         node_force = scalar_output(:node_force)
         node_moment = scalar_output(:node_moment)
         node_mass = scalar_output(:node_mass)
-        couple = twist_bridle_couple(surface, point.pos_b, twist,
+        couple = twist_bridle_couple(surface, point.pos_undeformed_b, twist,
                                      reshape(collect(vars[2]), 3, 3))
         eqs = [eqs
                node_force ~ load ⋅ couple.direction

@@ -31,7 +31,7 @@ and two bending planes with the shear reduction `Φ = 12·EI/(k·GA·L²)`) — 
 rigidity either constant or a callable of its strain/curvature ([`timoshenko_rigidity`](@ref)) — and
 accumulate the restoring wrench — equal and opposite, transported to each COM —
 into `body_force`/`body_moment` (the same accumulators `body_eqs!` reads).
-Damping resists the relative node velocity and spin.
+Damping resists the axial stretch rate and the relative node spin.
 """
 function timoshenko_joint_eqs!(
     eqs, timoshenko_joints, params;

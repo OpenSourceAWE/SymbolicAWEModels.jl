@@ -628,6 +628,7 @@ function update_sys_struct!(prob::ProbWithAttributes,
                             integ::OrdinaryDiffEqCore.ODEIntegrator,
                             sys_struct::SystemStructure)
     prob.get_all_state(integ, sys_struct)
+    refresh_deformed_positions!(sys_struct.points, sys_struct.bodies)
     return nothing
 end
 

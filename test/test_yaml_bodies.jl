@@ -64,10 +64,10 @@ bodies:
 
 timoshenko_joints:
   headers: [name, body_a, body_b, EA, GA, GJ, EIy, EIz, shear_coeff,
-            damping_trans, damping_rot]
+            damping]
   data:
     - [joint, nodeA, nodeB, 10000.0, 1500.0, 50.0, 100.0, 100.0, 0.8333,
-       200.0, 3.0]
+       0.05]
 
 points:
   headers: [name, pos_cad, type, body_idx, anchor_b]

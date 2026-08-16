@@ -82,7 +82,7 @@ using LinearAlgebra
 
         for pt in wing_pts
             pos_reconstructed = wing.com_w .+
-                wing.R_b_to_w * pt.pos_b
+                wing.R_b_to_w * pt.pos_undeformed_b
             err = norm(pt.pos_w - pos_reconstructed)
             @test err < 1e-10
             if err > 1e-10
@@ -116,8 +116,8 @@ using LinearAlgebra
             isnothing(le_pt) && continue
             isnothing(te_pt) && continue
 
-            # chord_b = pos_b - le_pos (from point_eqs)
-            chord_from_pos = te_pt.pos_b -
+            # chord_b = pos_undeformed_b - le_pos (from point_eqs)
+            chord_from_pos = te_pt.pos_undeformed_b -
                 twist_surface.le_pos
             # chord_from_pos should be parallel to
             # twist_surface.chord (same direction, maybe
@@ -132,10 +132,10 @@ using LinearAlgebra
             end
 
             # le_pos should be close to the LE point's
-            # pos_b (since LE is at the leading edge)
-            le_err = norm(le_pt.pos_b - twist_surface.le_pos)
+            # pos_undeformed_b (since LE is at the leading edge)
+            le_err = norm(le_pt.pos_undeformed_b - twist_surface.le_pos)
             # LE point may not exactly match le_pos
-            # (le_pos comes from panel center, pos_b
+            # (le_pos comes from panel center, pos_undeformed_b
             # from point mass position) but should be
             # in the same ballpark
             @test le_err < 1.0
