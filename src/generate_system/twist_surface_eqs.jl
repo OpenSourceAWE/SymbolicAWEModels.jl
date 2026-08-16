@@ -202,35 +202,32 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, bodies, params, initi
             ]
         end
 
-        # Thin-plate inertia about one edge: I = 1/3·m·L² (m = twist_surface mass).
         twist_surface_chord = collect(twist_surface_chord)
         twist_surface_mass = sum(params.points[point_idx].extra_mass for point_idx in twist_surface.point_idxs)
-        inertia = 1 / 3 * twist_surface_mass * smooth_norm(twist_surface_chord[:, twist_surface.idx])^2
-        max_twist = deg2rad(90)
+        twist = twist_surface_dynamics(;
+            free_angle = free_twist_angle[twist_surface.idx],
+            twist_vel = twist_ω[twist_surface.idx],
+            aero_moment = twist_surface_aero_moment[twist_surface.idx],
+            node_moment = twist_surface_tether_moment[twist_surface.idx],
+            mass = twist_surface_mass,
+            chord = twist_surface_chord[:, twist_surface.idx],
+            damping = params.twist_surfaces[twist_surface.idx].damping,
+            stiffness = params.twist_surfaces[twist_surface.idx].stiffness)
 
         eqs = [
             eqs
             twist_surface_tether_force[twist_surface.idx] ~ sum(tether_force[:, twist_surface.idx])
             twist_surface_tether_moment[twist_surface.idx] ~ sum(tether_moment[:, twist_surface.idx])
-            twist_α[twist_surface.idx] ~
-                (twist_surface_aero_moment[twist_surface.idx] + twist_surface_tether_moment[twist_surface.idx]) /
-                inertia
-            twist_angle[twist_surface.idx] ~
-                clamp(free_twist_angle[twist_surface.idx], -max_twist, max_twist)
+            twist_α[twist_surface.idx] ~ twist.twist_acc
+            twist_angle[twist_surface.idx] ~ twist.angle
         ]
         if twist_surface.type == DYNAMIC
             eqs = [
                 eqs
                 D(free_twist_angle[twist_surface.idx]) ~
                     ifelse(fix_wing == true, 0, twist_ω[twist_surface.idx])
-                D(twist_ω[twist_surface.idx]) ~ ifelse(
-                    fix_wing == true,
-                    0,
-                    twist_α[twist_surface.idx] -
-                    params.twist_surfaces[twist_surface.idx].damping * twist_ω[twist_surface.idx] -
-                    params.twist_surfaces[twist_surface.idx].stiffness * twist_angle[twist_surface.idx] /
-                    inertia,
-                )
+                D(twist_ω[twist_surface.idx]) ~
+                    ifelse(fix_wing == true, 0, twist.twist_vel_rate)
             ]
             defaults = [
                 defaults

@@ -85,79 +85,45 @@ function scalar_eqs!(
             rel_pos = wing_pos[:, wing.idx]
         end
 
-        x, y, _ = rel_pos
         has_twist_surfaces = !isempty(wing.twist_surface_idxs)
-        half_len = 0
-        if has_twist_surfaces
-            half_len = wing.twist_surface_idxs[1] +
-                length(wing.twist_surface_idxs) ÷ 2 - 1
-        end
+        half_len = has_twist_surfaces ?
+            wing.twist_surface_idxs[1] +
+            length(wing.twist_surface_idxs) ÷ 2 - 1 : 0
+        twist_offset = has_twist_surfaces ?
+            0.5 * twist_angle[half_len] + 0.5 * twist_angle[half_len + 1] : 0
 
-        # heading = 0 when e_x aligns with R_t_to_w x-axis (elevation dir, nose to GS).
-        heading_t_1 = e_x[:, wing.idx] ⋅
-            R_t_to_w[:, 1, wing.idx]
-        heading_t_2 = e_x[:, wing.idx] ⋅
-            R_t_to_w[:, 2, wing.idx]
-        # Course: velocity direction in same tangential frame.
-        course_t_1 = wing_vel[:, wing.idx] ⋅
-            R_t_to_w[:, 1, wing.idx]
-        course_t_2 = wing_vel[:, wing.idx] ⋅
-            R_t_to_w[:, 2, wing.idx]
+        scalars = wing_scalar_kinematics(;
+            rel_pos,
+            e_x = e_x[:, wing.idx],
+            R_t_to_w = R_t_to_w[:, :, wing.idx],
+            R_v_to_w = R_v_to_w[:, :, wing.idx],
+            R_b_to_w = R_b_to_w[:, :, wing.idx],
+            vel = wing_vel[:, wing.idx],
+            acc = wing_acc[:, wing.idx],
+            omega_b = ω_b[:, wing.idx],
+            alpha_b = α_b[:, wing.idx],
+            va_b = va_wing_b[:, wing.idx],
+            twist_offset)
 
-        # PARTICLE_DYNAMICS wings have ω_b=α_b=0, so turn_rate/turn_acc are zero.
         eqs = [
             eqs
             vec(R_v_to_w[:, :, wing.idx]) ~
-                vec(calc_R_v_to_w(
-                    rel_pos, e_x[:, wing.idx]))
-            vec(R_t_to_w[:, :, wing.idx]) ~
-                vec(sym_calc_R_t_to_w(rel_pos))
-            heading[wing.idx] ~
-                atan(heading_t_2, heading_t_1)
-            turn_rate[:, wing.idx] ~
-                R_v_to_w[:, :, wing.idx]' *
-                (R_b_to_w[:, :, wing.idx] *
-                    ω_b[:, wing.idx])
-            turn_acc[:, wing.idx] ~
-                R_v_to_w[:, :, wing.idx]' *
-                (R_b_to_w[:, :, wing.idx] *
-                    α_b[:, wing.idx])
-            distance[wing.idx] ~ smooth_norm(rel_pos)
-            distance_vel[wing.idx] ~
-                wing_vel[:, wing.idx] ⋅
-                    R_t_to_w[:, 3, wing.idx]
-            distance_acc[wing.idx] ~
-                wing_acc[:, wing.idx] ⋅
-                    R_t_to_w[:, 3, wing.idx]
-            elevation[wing.idx] ~
-                KiteUtils.calc_elevation(rel_pos)
-            elevation_vel[wing.idx] ~
-                dot(wing_vel[:, wing.idx],
-                    -R_t_to_w[:, 1, wing.idx]) /
-                distance[wing.idx]
-            elevation_acc[wing.idx] ~
-                dot(wing_acc[:, wing.idx],
-                    -R_t_to_w[:, 1, wing.idx]) /
-                distance[wing.idx]
-            azimuth[wing.idx] ~
-                KiteUtils.azimuth_east(rel_pos)
-            azimuth_vel[wing.idx] ~
-                dot(wing_vel[:, wing.idx],
-                    -R_t_to_w[:, 2, wing.idx]) /
-                smooth_norm([x, y])
-            azimuth_acc[wing.idx] ~
-                dot(wing_acc[:, wing.idx],
-                    -R_t_to_w[:, 2, wing.idx]) /
-                smooth_norm([x, y])
-            course[wing.idx] ~
-                atan(course_t_2, course_t_1)
-            angle_of_attack[wing.idx] ~
-                calc_angle_of_attack(
-                    va_wing_b[:, wing.idx]) +
-                (has_twist_surfaces ?
-                    0.5 * twist_angle[half_len] +
-                    0.5 * twist_angle[half_len + 1] :
-                    0)
+                vec(calc_R_v_to_w(rel_pos, e_x[:, wing.idx]))
+            vec(R_t_to_w[:, :, wing.idx]) ~ vec(sym_calc_R_t_to_w(rel_pos))
+            heading[wing.idx] ~ scalars.heading
+            turn_rate[:, wing.idx] ~ scalars.turn_rate
+            turn_acc[:, wing.idx] ~ scalars.turn_acc
+            distance[wing.idx] ~ scalars.distance
+            distance_vel[wing.idx] ~ scalars.distance_vel
+            distance_acc[wing.idx] ~ scalars.distance_acc
+            elevation[wing.idx] ~ scalars.elevation
+            elevation_vel[wing.idx] ~ scalars.elevation_vel
+            elevation_acc[wing.idx] ~ scalars.elevation_acc
+            azimuth[wing.idx] ~ scalars.azimuth
+            azimuth_vel[wing.idx] ~ scalars.azimuth_vel
+            azimuth_acc[wing.idx] ~ scalars.azimuth_acc
+            course[wing.idx] ~ scalars.course
+            angle_of_attack[wing.idx] ~ scalars.angle_of_attack
         ]
     end
     return eqs
