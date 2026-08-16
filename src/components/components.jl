@@ -221,22 +221,85 @@ function ground_wind_vec(params)
     return [ifelse(near_zero, fallback[k], raw[k]) for k in 1:3]
 end
 
+"""Largest twist a surface may reach either way [rad]; beyond it the plate is folded."""
+MAX_TWIST_ANGLE = deg2rad(90)
+
+"""
+    twist_surface_dynamics(; free_angle, twist_vel, aero_moment, node_moment, mass,
+                           chord, damping, stiffness)
+
+The hinged thin-plate twist degree of freedom.
+
+Inertia about the hinged leading edge is `⅓·m·L²` with `L` the surface chord, the
+angle is clamped to ±[`MAX_TWIST_ANGLE`](@ref), and the driving moment is the wing
+aero's plus the one its points deliver, restrained by the surface's own stiffness and
+damping.
+
+Returns `(; inertia, angle, twist_acc, twist_vel_rate)`, where `twist_acc` is the
+unrestrained angular acceleration and `twist_vel_rate` the full right-hand side.
+"""
+function twist_surface_dynamics(; free_angle, twist_vel, aero_moment, node_moment,
+                                mass, chord, damping, stiffness)
+    inertia = 1 / 3 * mass * smooth_norm(collect(chord))^2
+    angle = clamp(free_angle, -MAX_TWIST_ANGLE, MAX_TWIST_ANGLE)
+    twist_acc = (aero_moment + node_moment) / inertia
+    return (; inertia, angle, twist_acc,
+            twist_vel_rate = twist_acc - damping * twist_vel -
+                             stiffness * angle / inertia)
+end
+
+"""
+    wing_scalar_kinematics(; rel_pos, e_x, R_t_to_w, R_v_to_w, R_b_to_w, vel, acc,
+                           omega_b, alpha_b, va_b, twist_offset)
+
+The derived scalar kinematics of one wing.
+
+`rel_pos` is the wing origin relative to its transform base point, so the spherical
+angles are centred there rather than on the world origin. The frames come in already
+built ([`calc_R_v_to_w`](@ref), [`sym_calc_R_t_to_w`](@ref)) so a caller may pass
+bound variables instead of expressions. `twist_offset` is added to the angle of
+attack, carrying the mid-span twist of a wing that has twist surfaces.
+
+Returns `(; heading, turn_rate, turn_acc, distance, distance_vel, distance_acc,
+elevation, elevation_vel, elevation_acc, azimuth, azimuth_vel, azimuth_acc, course,
+angle_of_attack)`. `turn_rate`/`turn_acc` vanish for a wing whose `omega_b` and
+`alpha_b` are zero, which is every `PARTICLE_DYNAMICS` wing.
+"""
+function wing_scalar_kinematics(; rel_pos, e_x, R_t_to_w, R_v_to_w, R_b_to_w, vel,
+                                acc, omega_b, alpha_b, va_b, twist_offset)
+    ground_radius = smooth_norm([rel_pos[1], rel_pos[2]])
+    distance = smooth_norm(rel_pos)
+    return (;
+        heading = atan(e_x ⋅ R_t_to_w[:, 2], e_x ⋅ R_t_to_w[:, 1]),
+        turn_rate = R_v_to_w' * (R_b_to_w * omega_b),
+        turn_acc = R_v_to_w' * (R_b_to_w * alpha_b),
+        distance,
+        distance_vel = vel ⋅ R_t_to_w[:, 3],
+        distance_acc = acc ⋅ R_t_to_w[:, 3],
+        elevation = KiteUtils.calc_elevation(rel_pos),
+        elevation_vel = dot(vel, -R_t_to_w[:, 1]) / distance,
+        elevation_acc = dot(acc, -R_t_to_w[:, 1]) / distance,
+        azimuth = KiteUtils.azimuth_east(rel_pos),
+        azimuth_vel = dot(vel, -R_t_to_w[:, 2]) / ground_radius,
+        azimuth_acc = dot(acc, -R_t_to_w[:, 2]) / ground_radius,
+        course = atan(vel ⋅ R_t_to_w[:, 2], vel ⋅ R_t_to_w[:, 1]),
+        angle_of_attack = calc_angle_of_attack(va_b) + twist_offset)
+end
+
 """
     timoshenko_element_wrench(joint, params; frame, theta_a, theta_b, force_a, force_b,
         moment_a, moment_b, pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
-Corotational Timoshenko element wrench shared by both backends (the monolith
-`timoshenko_joint_eqs!` loop body and the `KernelBackend` joint component), so the
-beam-element physics lives in one place. Given the two nodes' world poses (`pos`,
+Corotational Timoshenko element wrench. Given the two nodes' world poses (`pos`,
 `R_b_to_w`, `com`, `com_vel`, world spin `omega_w`) and the joint's rest
 geometry/rigidities, it builds the
 element frame and per-node deformations, evaluates the consistent Timoshenko stiffness
 (axial, torsion, two bending planes with shear reduction `Φ`) and damping, and returns
 `(tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)` — the restoring wrench on
 each node (world frame, transported to each COM). `frame`/`theta_a`/`theta_b`/`force_a`/
-`force_b`/`moment_a`/`moment_b` are caller-supplied **torn** variables (array slices for
-the monolith, standalone vars for the edge) so the reused frame/force subtrees are not
+`force_b`/`moment_a`/`moment_b` are caller-supplied **torn** variables, array slices or
+standalone ones as the caller binds them, so the reused frame/force subtrees are not
 re-embedded; `tear_eqs` binds them.
 """
 function timoshenko_element_wrench(joint, params;
@@ -327,14 +390,13 @@ end
     elastic_joint_wrench(joint, params; force_w, torque_w, pos_a, R_a, com_a, com_vel_a,
         omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
-Lumped 6-DOF `ElasticJoint` restoring wrench shared by both backends (the monolith
-`joint_eqs!` loop body and the `KernelBackend` elastic-joint component). From the relative
+Lumped 6-DOF `ElasticJoint` restoring wrench. From the relative
 pose of the two anchors (in body A's frame) it builds the per-DOF restoring
 force/torque (axial,
 shear, torsion, bending stiffness + damping) and returns
 `(tear_eqs, force_on_a, moment_on_a, force_on_b, moment_on_b)` — the equal-and-opposite
 wrench transported to each COM. `force_w`/`torque_w` are the caller's **torn** world-frame
-wrench variables (array slices for the monolith, standalone vars for the edge).
+wrench variables, array slices or standalone ones as the caller binds them.
 """
 function elastic_joint_wrench(joint, params; force_w, torque_w,
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
@@ -388,7 +450,7 @@ end
         omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
 Kinematics of a point riding `joint`'s corotational cubic-Hermite centerline at the
-point's `beam_frac`, shared by both backends. From the two end bodies' world poses it
+point's `beam_frac`. From the two end bodies' world poses it
 builds the element frame, the two nodes' chord-relative rotations, the transverse Hermite
 deflection (+ a frame-carried `beam_offset_b`) and returns `(pos_point, vel_point, sfrac,
 ride_velocity)` — the ride position, its rigid-blend velocity, the axial fraction that
@@ -452,9 +514,8 @@ end
                                 com_offset_b, com_w, com_vel, Q_p_to_w, ω_p;
                                 ω_kinematic, d_ω_p, d_com_w, d_com_vel)
 
-Pure 6-DOF rigid-body derivative and body-frame output expressions (principal frame)
-— the single math source both the monolith ([`rigid_body_eqs!`](@ref)) and the
-`KernelBackend` body component assemble from. Given the world-frame load at / about the COM
+Pure 6-DOF rigid-body derivative and body-frame output expressions (principal
+frame). Given the world-frame load at / about the COM
 (`force_w`, `moment_w`) and the principal state (`com_w`, `com_vel`, `Q_p_to_w`,
 `ω_p` as length-3/4 `Num` vectors), returns a named tuple of expressions: the state
 derivatives `d_com_w`/`d_com_vel`/`d_Q`/`d_ω`, the Euler angular accel `α_p`, the
@@ -997,9 +1058,8 @@ end
 Free 6-DOF rigid body: integrates the 13-state principal pose (`com_w`, `com_vel`,
 `Q_p_to_w`, `ω_p`) under gravity, the wrench gathered at `force_in`/`moment_in`, the
 external wrench (`ext_force_w`/`ext_force_b`/`ext_moment_b`) and per-axis angular
-`damping`. Shares its whole 6-DOF math with the monolith through
-[`rigid_body_pose_expressions`](@ref); `fix_sphere` stays a parameter, as in
-`body_eqs!`. A clamped body is [`StaticBody`](@ref) instead.
+`damping`, through [`rigid_body_pose_expressions`](@ref). `fix_sphere` stays a
+parameter. A clamped body is [`StaticBody`](@ref) instead.
 """
 function RigidBody(s, params, idx; name)
     io = body_variables()
@@ -1192,8 +1252,8 @@ The *kinematics* of a point riding a Timoshenko beam's deflected centerline: bot
 end bodies' poses in, and the point's world `pos`/`vel`, its two moment arms
 (`arm_a`/`arm_b`, the offsets from each end body's COM) and its `height` out. The
 beam-anchored counterpart of [`RidePoint`](@ref), and split for the same reason;
-the placement itself is the shared [`beam_hermite_ride_expressions`](@ref) that also
-sources the monolith's `beam_hermite_ride_eqs`. The velocity is evaluated at the
+the placement itself is [`beam_hermite_ride_expressions`](@ref). The velocity is
+evaluated at the
 already-bound `pos` output, so the heavy element-frame subtree is built once.
 """
 function HermiteRidePoint(s, params, idx; name)
@@ -1337,8 +1397,7 @@ joint_wrench_eqs(io, ex) = [
     ElasticJointComponent(s, params, idx; name)
 
 Lumped 6-DOF elastic joint between two bodies: reads both poses and emits the
-restoring wrench on each, through the shared [`elastic_joint_wrench`](@ref) that
-also sources the monolith's `joint_eqs!`.
+restoring wrench on each, through [`elastic_joint_wrench`](@ref).
 """
 function ElasticJointComponent(s, params, idx; name)
     io = joint_variables()
@@ -1354,9 +1413,8 @@ end
     TimoshenkoJointComponent(s, params, idx; name)
 
 Corotational Timoshenko beam element between two bodies: reads both poses and emits
-the restoring wrench on each, through the shared
-[`timoshenko_element_wrench`](@ref) that also sources the monolith's
-`timoshenko_joint_eqs!`. The element frame, the two nodes' chord-relative rotations
+the restoring wrench on each, through [`timoshenko_element_wrench`](@ref). The
+element frame, the two nodes' chord-relative rotations
 and the element forces are torn, so the shared frame subtree is built once.
 """
 function TimoshenkoJointComponent(s, params, idx; name)
@@ -1385,8 +1443,7 @@ end
 The signed live deflection δ of a flapped twist surface: the angle between its two
 flap bodies' reference chords about the world hinge axis, referenced to rest. The
 axis, the reference chords and the rest angle are frozen rest geometry, so δ is a
-function of the two bodies' orientations alone. Sources both the monolith's
-`twist_surface_delta_eqs!` and the [`FlapDelta`](@ref) component.
+function of the two bodies' orientations alone.
 """
 function flap_delta_expression(twist_surface, R_main, R_flap)
     main_w = collect(R_main) * collect(twist_surface.flap_chord_refs[1])
@@ -1858,14 +1915,16 @@ function TwistSurfaceDOF(s, params, idx; name)
     report = twist_surface_diagnostics()
     state = @variables free_twist_angle(t) twist_omega(t)
     surface = params.twist_surfaces[idx]
-    inertia = 1 / 3 * vars[4] * smooth_norm(collect(surface.chord))^2
-    angle = clamp(state[1], -deg2rad(90), deg2rad(90))
+    twist = twist_surface_dynamics(; free_angle = state[1], twist_vel = state[2],
+                                   aero_moment = vars[1], node_moment = vars[2],
+                                   mass = vars[4], chord = surface.chord,
+                                   damping = surface.damping,
+                                   stiffness = surface.stiffness)
     eqs = [
-        vars[5] ~ angle
+        vars[5] ~ twist.angle
         vars[6] ~ state[2]
         D(state[1]) ~ state[2]
-        D(state[2]) ~ (vars[1] + vars[2]) / inertia - surface.damping * state[2] -
-                      surface.stiffness * angle / inertia
+        D(state[2]) ~ twist.twist_vel_rate
         report[1] ~ vars[3]
         report[2] ~ vars[2]
         report[3] ~ vars[1]

@@ -9,6 +9,12 @@ which features it supports. Concrete backends: [`MonolithBackend`](@ref) (the
 default) and [`KernelBackend`](@ref). The backend is a field of the model and is
 the dispatch axis for all backend-varying behaviour (problem assembly,
 linearization, control-function generation).
+
+Backends differ at assembly only. Every equation is written once, in
+`components.jl`, and both backends build from that one definition — the monolith
+through the generators in `generate_system/`, the kernel by wrapping it in a
+component. A quantity one backend reports and the other does not is a missing
+assembly or readout, never a licence to restate the math on the other side.
 """
 abstract type ModelBackend end
 
