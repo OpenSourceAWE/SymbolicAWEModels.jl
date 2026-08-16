@@ -50,7 +50,7 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     joints = [ElasticJoint(Symbol("j_$i"), Symbol("seg_$i"), Symbol("seg_$(i+1)");
         anchor_a=[L/2,0.0,0.0], anchor_b=[-L/2,0.0,0.0],
         stiffness_axial=1e5, stiffness_shear=1e5, stiffness_torsion=5e3,
-        stiffness_bending=5e3, damping_trans=50.0, damping_rot=20.0)
+        stiffness_bending=5e3, damping=0.05)
         for i in 1:(n-1)]
 
     sys = SystemStructure("beam_replay", set;

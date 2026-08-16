@@ -155,7 +155,7 @@ end
                      pos=[beam_length, 0.0, 0.0])
         joint = TimoshenkoJoint(:joint, :nodeA, :nodeB;
             EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
-            damping_trans=200.0, damping_rot=3.0)
+            damping=0.05)
         # KINEMATIC flap twist_surface: δ = the hinge angle nodeA→nodeB.
         flap = TwistSurface(:flap, Int[], KINEMATIC, 0.0;
             wing=:nodeA, flap_bodies=[:nodeA, :nodeB], flap_axis=[0.0, 1.0, 0.0])

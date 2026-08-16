@@ -267,7 +267,8 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     fixed_pos[:, point.idx] ~
                         params.twist_surfaces[twist_surface.idx].le_pos
                     chord_b[:, point.idx] ~
-                        params.points[point.idx].pos_b .- fixed_pos[:, point.idx]
+                        params.points[point.idx].pos_undeformed_b .-
+                            fixed_pos[:, point.idx]
                     normal[:, point.idx] ~ chord_b[:, point.idx] ×
                         twist_surface_y_airf[:, twist_surface.idx]
                 ]

@@ -340,10 +340,9 @@ mutable struct ElasticJoint{S}
     stiffness_torsion::S
     "Bending stiffness: `Real` EI [N·m/rad], or interpolation moment(Δθ) (transverse)."
     stiffness_bending::S
-    "Translational damping [N·s/m]."
-    damping_trans::SimFloat
-    "Rotational damping [N·m·s/rad]."
-    damping_rot::SimFloat
+    "Rayleigh damping β [s]: each DOF is damped in proportion to its own
+    stiffness (C = βK), so rigid motion stays undamped by construction."
+    damping::SimFloat
     "Rest anchor offset (body A frame), set at `reinit!` so the as-placed geometry is unstrained."
     const rest_offset_a::KVec3
     "Rest relative rotation `R_a' R_b`, set at `reinit!` so the as-placed orientation is unstrained."
@@ -355,7 +354,7 @@ end
 """
     ElasticJoint(name, body_a, body_b; anchor_a=zeros, anchor_b=zeros,
                  stiffness_axial, stiffness_shear, stiffness_torsion,
-                 stiffness_bending, damping_trans=0, damping_rot=0, radius=nothing)
+                 stiffness_bending, damping=0, radius=nothing)
 
 Connect `body_a` to `body_b` (names or indices) with a 6-DOF elastic joint.
 `anchor_a`/`anchor_b` are the connection points in each body's frame. Each
@@ -370,8 +369,7 @@ function ElasticJoint(name, body_a, body_b;
         stiffness_shear,
         stiffness_torsion,
         stiffness_bending,
-        damping_trans::Real = 0.0,
-        damping_rot::Real = 0.0,
+        damping::Real = 0.0,
         radius::Union{Nothing, Real} = nothing,
     )
     # Reals → SimFloat; interpolations kept as-is. All interps must share a type.
@@ -387,7 +385,7 @@ function ElasticJoint(name, body_a, body_b;
     body_b_ref = body_b isa Integer ? Int(body_b) : Symbol(body_b)
     return ElasticJoint{S}(0, name, 0, 0, body_a_ref, body_b_ref,
         KVec3(anchor_a), KVec3(anchor_b), stiffs...,
-        SimFloat(damping_trans), SimFloat(damping_rot),
+        SimFloat(damping),
         KVec3(0.0, 0.0, 0.0), Matrix{SimFloat}(I, 3, 3),
         radius === nothing ? nothing : SimFloat(radius))
 end
@@ -458,10 +456,10 @@ mutable struct TimoshenkoJoint{S}
     EIz::S
     "Shear correction factor k (e.g. 5/6 solid, 8/9 inflated tube)."
     shear_coeff::SimFloat
-    "Translational damping [N·s/m] on relative node velocity."
-    damping_trans::SimFloat
-    "Rotational damping [N·m·s/rad] on relative node spin."
-    damping_rot::SimFloat
+    "Rayleigh damping β [s]: the element wrench is also evaluated at β times the
+    deformation rate (C = βK), so every mode is damped in proportion to its
+    rigidity and rigid motion stays undamped by construction."
+    damping::SimFloat
     "Rest (unstrained) chord length [m]; 0 ⇒ taken from initial geometry."
     rest_length::SimFloat
     "Rest orientation of node A in the element frame (set at reinit!)."
@@ -475,13 +473,14 @@ end
 """
     TimoshenkoJoint(name, body_a, body_b; anchor_a=zeros, anchor_b=zeros,
                    EA, GA, GJ, EIy, EIz, shear_coeff=5/6,
-                   damping_trans=0, damping_rot=0, rest_length=0, radius=nothing)
+                   damping=0, rest_length=0, radius=nothing)
 
 Connect `body_a` to `body_b` (names or indices) with a Timoshenko beam element.
 `anchor_a`/`anchor_b` are the node points in each body's frame. Each rigidity is a
 `Real` (linear) or a callable of its strain/curvature returning the effective
 rigidity (nonlinear); callables must all be the same type. `rest_length=0` takes
-the unstrained length from the initial geometry. `radius` sets the beam cylinder
+the unstrained length from the initial geometry. `damping` is the Rayleigh β in
+seconds, giving modal ratio ζ = βω/2 per mode. `radius` sets the beam cylinder
 radius when visualising (`nothing` ⇒ not drawn); no effect on dynamics.
 """
 function TimoshenkoJoint(name, body_a, body_b;
@@ -489,8 +488,7 @@ function TimoshenkoJoint(name, body_a, body_b;
         anchor_b = zeros(SimFloat, 3),
         EA, GA, GJ, EIy, EIz,
         shear_coeff::Real = 5 / 6,
-        damping_trans::Real = 0.0,
-        damping_rot::Real = 0.0,
+        damping::Real = 0.0,
         rest_length::Real = 0.0,
         radius::Union{Nothing, Real} = nothing,
     )
@@ -506,8 +504,7 @@ function TimoshenkoJoint(name, body_a, body_b;
     body_b_ref = body_b isa Integer ? Int(body_b) : Symbol(body_b)
     return TimoshenkoJoint{S}(0, name, 0, 0, body_a_ref, body_b_ref,
         KVec3(anchor_a), KVec3(anchor_b), rigidities...,
-        SimFloat(shear_coeff), SimFloat(damping_trans), SimFloat(damping_rot),
-        SimFloat(rest_length),
+        SimFloat(shear_coeff), SimFloat(damping), SimFloat(rest_length),
         Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3),
         radius === nothing ? nothing : SimFloat(radius))
 end

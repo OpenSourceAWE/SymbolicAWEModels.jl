@@ -1069,11 +1069,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
     bodies = load_yaml_bodies(data, yaml_to_ref)
     timoshenko_joints = load_yaml_joints(TimoshenkoJoint, data,
         "timoshenko_joints", (:EA, :GA, :GJ, :EIy, :EIz),
-        (:shear_coeff, :damping_trans, :damping_rot, :rest_length, :radius);
+        (:shear_coeff, :damping, :rest_length, :radius);
         yaml_to_ref)
     elastic_joints = load_yaml_joints(ElasticJoint, data, "elastic_joints",
         (:stiffness_axial, :stiffness_shear, :stiffness_torsion,
-         :stiffness_bending), (:damping_trans, :damping_rot, :radius);
+         :stiffness_bending), (:damping, :radius);
         yaml_to_ref)
 
     # The SystemStructure constructor handles WING->STATIC when no wings exist.

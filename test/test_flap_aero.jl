@@ -131,14 +131,14 @@ transforms:
 end
 
 ELASTIC_JOINT = """elastic_joints:
-  headers: [name, body_a, body_b, anchor_a, anchor_b, stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping_trans, damping_rot]
+  headers: [name, body_a, body_b, anchor_a, anchor_b, stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping]
   data:
-    - [flap_hinge, le_body, te_body, [0.5, 0.0, 0.15], [-0.5, 0.0, -0.15], 100000.0, 100000.0, 20.0, 6.0, 50.0, 8.0]
+    - [flap_hinge, le_body, te_body, [0.5, 0.0, 0.15], [-0.5, 0.0, -0.15], 100000.0, 100000.0, 20.0, 6.0, 0.05]
 """
 TIMO_JOINT = """timoshenko_joints:
-  headers: [name, body_a, body_b, anchor_a, anchor_b, EA, GA, GJ, EIy, EIz, damping_trans, damping_rot]
+  headers: [name, body_a, body_b, anchor_a, anchor_b, EA, GA, GJ, EIy, EIz, damping]
   data:
-    - [flap_beam, le_body, te_body, [0.45, 0.0, 0.135], [-0.45, 0.0, -0.135], 100000.0, 50000.0, 20.0, 6.0, 6.0, 50.0, 8.0]
+    - [flap_beam, le_body, te_body, [0.45, 0.0, 0.135], [-0.45, 0.0, -0.135], 100000.0, 50000.0, 20.0, 6.0, 6.0, 0.05]
 """
 
 function build_flap_model(data_path, joint_block)

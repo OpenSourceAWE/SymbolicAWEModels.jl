@@ -248,7 +248,7 @@ end
         joint_r = ElasticJoint(:j1, :b1, :b2;
             stiffness_axial=1000.0, stiffness_shear=1000.0,
             stiffness_torsion=1000.0, stiffness_bending=1000.0,
-            damping_trans=10.0, damping_rot=10.0)
+            damping=0.05)
         sys_r = SystemStructure("joint_test", set;
             bodies=[bodyA, bodyB], elastic_joints=[joint_r])
         sam_r = SymbolicAWEModel(set, sys_r)

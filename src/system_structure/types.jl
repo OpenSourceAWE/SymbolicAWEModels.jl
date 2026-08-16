@@ -275,7 +275,13 @@ mutable struct Point
     const body_ref::Union{Int, Symbol}
     "Position in CAD frame [m]."
     const pos_cad::KVec3
-    "Position relative to wing COM in principal frame [m]."
+    "Undeformed position relative to wing COM in principal frame [m]. Reference
+    geometry the equations take as a parameter and `twist_deformed_offset`
+    rotates by the live twist angle; overwriting it with a deformed position
+    would twist an already-twisted station on the next model build."
+    const pos_undeformed_b::KVec3
+    "Position relative to wing COM in principal frame [m]: `pos_undeformed_b`
+    carried by the live twist angle (updated during simulation)."
     const pos_b::KVec3
     "Anchor offset in the rigid body's body frame [m] (body-anchored points). Auto-derived from `pos_cad` by SystemStructure when left at zero."
     anchor_b::KVec3
@@ -418,7 +424,7 @@ function Point(name, pos_cad, type;
 
     # idx, transform_idx, wing_idx, body_idx are placeholders - resolved by SystemStructure
     Point(0, name, 0, 0, 0, transform_ref, wing_ref, body_ref,
-        KVec3(pos_cad...), zeros(KVec3), anchor, zeros(KVec3),
+        KVec3(pos_cad...), zeros(KVec3), zeros(KVec3), anchor, zeros(KVec3),
         vel, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         zeros(KVec3),
         type, extra_mass, 0.0,

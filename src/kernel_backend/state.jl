@@ -361,11 +361,17 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
         copy_slots!(wing.v_wind, scratch.observable, readout.wind)
     end
     for readout in getter.kinematic
-        wing_kinematics_from_points!(sys_struct.bodies[readout.body],
+        wing = sys_struct.bodies[readout.body]
+        transforms = sys_struct.transforms
+        base_point = (wing.transform_idx != 0 &&
+                      wing.transform_idx <= length(transforms)) ?
+            transforms[wing.transform_idx].base_point_idx : 0
+        wing_kinematics_from_points!(wing,
             sys_struct.points, sys_struct.set, sys_struct.am;
             zp1 = readout.z1, zp2 = readout.z2, yp1 = readout.y1,
             yp2 = readout.y2, origin = readout.origin,
-            aero_points = readout.aero_points)
+            aero_points = readout.aero_points, base_point,
+            twist_surfaces = sys_struct.twist_surfaces)
     end
     write_stretched_lengths!(sys_struct)
     return nothing

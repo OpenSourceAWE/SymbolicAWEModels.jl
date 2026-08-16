@@ -705,19 +705,28 @@ Recompute a KINEMATIC/PARTICLE wing's kinematic state directly from the current 
 positions/velocities. A KINEMATIC wing is fitted from its ref points rather than
 integrated, so a backend that does not carry these quantities as state (the network)
 reconstructs them here from the struct. Writes the body frame `R_b_to_w`
-([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the wing apparent
+([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the frame's own
+`ω_b` ([`body_frame_omega`](@ref)), the reported scalars
+([`write_wing_scalars!`](@ref)), the wing apparent
 wind `va_b`, and each aero point's `va_b = R'·(wind(z)·wind_gnd − vel)`. Mirrors what
 the monolith's `get_all_state` copies out of the integrator, so `refresh_aero!` sees
 fresh apparent wind on either backend.
 """
 function wing_kinematics_from_points!(wing, points, set, am;
-        zp1, zp2, yp1, yp2, origin, aero_points)
+        zp1, zp2, yp1, yp2, origin, aero_points,
+        base_point = 0, twist_surfaces = nothing)
     x, y, z = wing_frame_columns(points[zp1].pos_w, points[zp2].pos_w,
                                  points[yp1].pos_w, points[yp2].pos_w)
     R = hcat(x, y, z)
     wing.R_b_to_w .= R
     wing.pos_w .= points[origin].pos_w
     wing.vel_w .= points[origin].vel_w
+    axes = (collect(x), collect(y), collect(z))
+    wing.ω_b .= body_frame_omega(axes,
+        wing_frame_rates(points[zp1].pos_w, points[zp2].pos_w,
+            points[yp1].pos_w, points[yp2].pos_w,
+            (points[zp1].vel_w, points[zp2].vel_w,
+             points[yp1].vel_w, points[yp2].vel_w), axes))
     wind_factor = WindFactor(am, set.profile_law)
     wing.v_wind .= wind_factor(wing.pos_w[3]) .* set.wind_vec
     wing.va_b .= R' * (wing.v_wind .- wing.vel_w .+ wing.wind_disturb)
@@ -726,6 +735,50 @@ function wing_kinematics_from_points!(wing, points, set, am;
         va_w = wind_factor(point.pos_w[3]) .* set.wind_vec .- point.vel_w
         point.va_b .= R' * va_w
     end
+    write_wing_scalars!(wing, points; base_point, twist_surfaces)
+    return nothing
+end
+
+"""
+    write_wing_scalars!(wing, points; base_point, twist_surfaces) -> nothing
+
+Fill a fitted wing's reported scalars — heading, course, elevation, azimuth,
+distance and angle of attack with their rates — from its freshly rebuilt pose,
+via the one definition in [`wing_scalar_kinematics`](@ref).
+
+`turn_rate` follows the `ω_b` the caller fitted from the frame's own ref points.
+`turn_acc` and the `_acc` scalars stay zero: they need `alpha_b` and `wing.acc_w`,
+which a fitted wing has only if something else wrote them.
+"""
+function write_wing_scalars!(wing, points; base_point = 0, twist_surfaces = nothing)
+    rel_pos = base_point == 0 ? collect(wing.pos_w) :
+        collect(wing.pos_w) .- collect(points[base_point].pos_w)
+    idxs = wing.twist_surface_idxs
+    twist_offset = if isnothing(twist_surfaces) || isempty(idxs)
+        0.0
+    else
+        half = idxs[1] + length(idxs) ÷ 2 - 1
+        0.5 * twist_surfaces[half].twist + 0.5 * twist_surfaces[half + 1].twist
+    end
+    R_b_to_w = collect(wing.R_b_to_w)
+    e_x = R_b_to_w[:, 1]
+    scalars = wing_scalar_kinematics(; rel_pos, e_x,
+        R_t_to_w = sym_calc_R_t_to_w(rel_pos),
+        R_v_to_w = calc_R_v_to_w(rel_pos, e_x),
+        R_b_to_w, vel = collect(wing.vel_w), acc = collect(wing.acc_w),
+        omega_b = collect(wing.ω_b), alpha_b = zeros(3),
+        va_b = collect(wing.va_b), twist_offset)
+    wing.heading = scalars.heading
+    wing.turn_rate .= scalars.turn_rate
+    wing.turn_acc .= scalars.turn_acc
+    wing.elevation = scalars.elevation
+    wing.elevation_vel = scalars.elevation_vel
+    wing.elevation_acc = scalars.elevation_acc
+    wing.azimuth = scalars.azimuth
+    wing.azimuth_vel = scalars.azimuth_vel
+    wing.azimuth_acc = scalars.azimuth_acc
+    wing.course = scalars.course
+    wing.aoa = scalars.angle_of_attack
     return nothing
 end
 
@@ -1364,6 +1417,24 @@ function safe_vsm_solve!(solver, body_aero,
 end
 
 """
+    solve_and_freeze_circulation!(mode, wing)
+
+Solve and freeze the per-refined-panel induced velocity into `mode.v_ind`, shared by
+the continuous VSM modes. Warm starting is `VortexStepMethod.solve!`'s own, gated by
+`use_gamma_prev`. Errors on a non-converged or non-finite solve.
+"""
+function solve_and_freeze_circulation!(mode, wing)
+    solver = wing.vsm_solver
+    body_aero = wing.vsm_aero
+    if !safe_vsm_solve!(solver, body_aero)
+        throw(AssertionError("$(nameof(typeof(mode))) VSM solve failed " *
+            "(non-converged or non-finite) on wing $(wing.idx)"))
+    end
+    store_induced_velocity!(mode.v_ind, body_aero, solver.lr.gamma_new)
+    return nothing
+end
+
+"""
     set_particle_panel_va!(wing, va_point_b_vals)
 
 Set the per-panel apparent wind on the wing's VSM `BodyAerodynamics` from the
@@ -1401,6 +1472,35 @@ function set_particle_panel_va!(wing, va_point_b_vals)
     mapping = wing.vsm_wing.refined_panel_mapping
     for rpi in 1:n_panels
         va_dist[rpi, :] .= section_va[mapping[rpi]]
+    end
+    set_va!(wing.vsm_aero, va_dist)
+    return nothing
+end
+
+"""
+    set_refined_panel_va!(mode, wing, points, va_point_b_vals)
+
+Per-panel apparent wind for the continuous VSM modes: refined sections from
+[`strut_inflow_weights`](@ref) (numeric twin of [`reconstruct_inflow_sym`](@ref)),
+each panel the mean of its two bounding sections. Matches the inflow the symbolic
+RHS uses, so the frozen circulation belongs to it. Falls back to `va_b` without a
+structural↔panel mapping.
+"""
+function set_refined_panel_va!(mode, wing, points, va_point_b_vals)
+    if isnothing(wing.point_to_vsm_point)
+        set_va!(wing.vsm_aero, wing.va_b)
+        return nothing
+    end
+    column = aero_section_columns(wing, points)
+    section_va = [
+        sum(weight .* view(va_point_b_vals, :, points[col].idx)
+            for (col, weight) in strut_inflow_weights(mode, section, column))
+        for section in eachindex(section_interp_caches(mode)[1])
+    ]
+    n_panels = length(wing.vsm_aero.panels)
+    va_dist = zeros(SimFloat, n_panels, 3)
+    for panel in 1:n_panels
+        va_dist[panel, :] .= 0.5 .* (section_va[panel] .+ section_va[panel + 1])
     end
     set_va!(wing.vsm_aero, va_dist)
     return nothing

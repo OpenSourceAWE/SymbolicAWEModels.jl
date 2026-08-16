@@ -3,6 +3,41 @@
 ## Unreleased
 
 ### Fixed
+- `TimoshenkoJoint` no longer brakes rigid rotation of the bodies it connects.
+  Damping resisted the raw relative node velocity `Δv`, whose transverse part is
+  by construction the corotational frame's own spin and carries no strain, so a
+  chain of elements assembled a spurious rotational damping tensor
+  `Σ c_t(|d|²I − ddᵀ)`. On the V3 beam kite that was 15332 N·m·s/rad about yaw,
+  giving the wing a 6 ms rotational decay constant and cutting steering
+  authority by three orders of magnitude.
+- `elastic_joint_wrench` differentiated its deformation measure in the wrong
+  frame: the spring uses `Ra'(x_b − x_a)` but the damper used `Ra'(v_b − v_a)`,
+  missing the transport term `ω_a × (x_b − x_a)`, so a rigid rotation registered
+  as relative anchor velocity whenever the anchors were separated.
+- `elastic_joint_wrench`'s wrench pair was not self-equilibrated with separated
+  anchors — it injected a net torque `(x_b − x_a) × F`, so angular momentum was
+  not conserved. Body A now also carries the transport couple of the
+  transmitted force.
+
+### Added
+- `TimoshenkoJoint` and `ElasticJoint` take `damping`, the Rayleigh
+  stiffness-proportional coefficient β in seconds (`C = βK`), giving modal ratio
+  `ζ = βω/2` per mode. Being built from `K` it inherits the rigid-body null
+  space, so it damps every deformation mode — axial, shear, bending, torsion —
+  and rigid motion by construction not at all.
+- `test_joint_invariance.jl` runs every joint type through the same invariants:
+  rigid motion conserves linear and angular momentum, and the logarithmic
+  decrement `exp(−2πζ/√(1−ζ²))` pins β to `K`. New joint types inherit the
+  check by being added to `joint_cases`.
+
+### Changed
+- BREAKING: `TimoshenkoJoint` and `ElasticJoint` no longer accept
+  `damping_trans`/`damping_rot`; use `damping` (Rayleigh β, seconds). A dashpot
+  on relative node velocity has no rigid-body null space, which is what made the
+  bug above possible. YAML `timoshenko_joints`/`elastic_joints` tables must
+  rename those two columns to a single `damping`.
+
+### Fixed
 - `update_from_sysstate!` now rebuilds the principal-frame state of every body,
   where it skipped `KINEMATIC` ones. Their `com_w`/`com_vel` are not logged, but
   the wing origin point's position alias-eliminates onto `com_w`, so restoring a

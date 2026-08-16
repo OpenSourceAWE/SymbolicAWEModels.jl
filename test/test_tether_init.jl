@@ -458,7 +458,7 @@ winches:
         joints = [ElasticJoint(:j, :root, :tip; anchor_a=[seg_len/2, 0, 0],
             anchor_b=[-seg_len/2, 0, 0], stiffness_axial=1e4,
             stiffness_shear=1e4, stiffness_torsion=1e3, stiffness_bending=1e3,
-            damping_trans=10.0, damping_rot=5.0)]
+            damping=0.05)]
         # Ground 5 m below the tip; standoff 6 m forces the tip body up ~1 m.
         points = [
             Point(:ground, [2.0seg_len, 0.0, -5.0], STATIC),
@@ -578,7 +578,7 @@ winches:
         joints = [TimoshenkoJoint(Symbol(:j, i), Symbol(:node, i),
                       Symbol(:node, i + 1); EA=1.0e4, GA=1500.0, GJ=50.0,
                       EIy=100.0, EIz=100.0, shear_coeff=5/6,
-                      damping_trans=200.0, damping_rot=3.0) for i in 1:3]
+                      damping=0.05) for i in 1:3]
         points = [
             Point(:ground, [0.5, 0.0, -5.0], STATIC),
             Point(:beam_anchor, [0.5, 0.0, 0.0], BODY_STATIC; joint=:j1),

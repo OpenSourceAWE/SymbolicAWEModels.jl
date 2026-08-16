@@ -18,6 +18,19 @@ function joint_stiffness_term(joint, params, kind::Int, Δ)
 end
 
 """
+    joint_rayleigh_term(joint, params, kind, Δ, rate, beta)
+
+Rayleigh stiffness-proportional damping for one joint DOF: the restoring map
+evaluated at `Δ + beta*rate` minus at `Δ`. That is `beta·K_tangent·rate` to first
+order and exact `beta·k·rate` for a `Real` stiffness, and it vanishes identically
+when `rate` is zero, so rigid motion stays undamped whatever the stiffness law.
+"""
+function joint_rayleigh_term(joint, params, kind::Int, Δ, rate, beta)
+    return joint_stiffness_term(joint, params, kind, Δ + beta * rate) -
+           joint_stiffness_term(joint, params, kind, Δ)
+end
+
+"""
     joint_eqs!(eqs, elastic_joints, params; kwargs...)
 
 For each `ElasticJoint`, compute the restoring wrench from the relative pose of

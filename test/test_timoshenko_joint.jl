@@ -93,7 +93,7 @@ end
                  pos=[beam_length, 0.0, 0.0])
     joint = TimoshenkoJoint(:joint, :nodeA, :nodeB;
         EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
-        damping_trans=200.0, damping_rot=3.0)
+        damping=0.05)
     sys = SystemStructure("timoshenko_test", set;
         bodies=[nodeA, nodeB], timoshenko_joints=[joint])
 
@@ -168,7 +168,7 @@ end
                   pos=[beam_length, 0.0, 0.0])
     joint_nl = TimoshenkoJoint(:joint, :nodeA, :nodeB;
         EA=EA_law, GA, GJ, EIy=EIy_law, EIz=EI, shear_coeff=kshear,
-        damping_trans=200.0, damping_rot=3.0)
+        damping=0.05)
     sys_nl = SystemStructure("timoshenko_test", set;
         bodies=[nodeA2, nodeB2], timoshenko_joints=[joint_nl])
     sam_nl = SymbolicAWEModel(set, sys_nl)

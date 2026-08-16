@@ -173,7 +173,7 @@ function twist_surface_eqs!(eqs, defaults, twist_surfaces, bodies, params, initi
 
         for (i, point_idx) in enumerate(twist_surface.point_idxs)
             couple = twist_bridle_couple(surface_params,
-                                         params.points[point_idx].pos_b,
+                                         params.points[point_idx].pos_undeformed_b,
                                          twist_angle[twist_surface.idx], orientation)
             point_load = collect(point_force[:, point_idx])
             eqs = [
