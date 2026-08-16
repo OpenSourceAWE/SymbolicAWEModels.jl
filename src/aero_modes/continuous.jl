@@ -276,14 +276,11 @@ end
     refresh_particle_aero!(::ContinuousAero, wing, points, va_point_b_vals;
                            vsm_min_wind=0.5)
 
-Refresh: update the VSM geometry from the structure, set the per-panel apparent
-wind, run the full `VortexStepMethod.solve!` (via [`safe_vsm_solve!`](@ref)), and
-freeze the per-refined-panel induced velocity ([`store_induced_velocity!`](@ref)).
-The forces themselves are re-derived symbolically each RHS step, so `calc_forces!`
-is only run so the shared solve path also populates `sol` (`alpha_dist`,
-`f_body_3D`) rather than leaving it stale. Below `vsm_min_wind` the induced
-velocity is zeroed; the symbolic forces remain live (and vanish with the dynamic
-pressure).
+Refresh: update the VSM geometry from the structure, set the per-panel apparent wind
+([`set_refined_panel_va!`](@ref)), solve and freeze the induced velocity. The forces
+are re-derived symbolically each RHS step; `calc_forces!` runs only so `sol`
+(`alpha_dist`, `f_body_3D`) is not left stale. Below `vsm_min_wind` the induced
+velocity is zeroed.
 """
 function refresh_particle_aero!(mode::ContinuousAero, wing, points,
                                 va_point_b_vals; vsm_min_wind=0.5)
@@ -293,22 +290,8 @@ function refresh_particle_aero!(mode::ContinuousAero, wing, points,
     end
 
     update_vsm_wing_from_structure!(wing, points)
-    set_particle_panel_va!(wing, va_point_b_vals)
-
-    solver = wing.vsm_solver
-    body_aero = wing.vsm_aero
-    if !safe_vsm_solve!(solver, body_aero, solver.sol.gamma_distribution)
-        throw(AssertionError(
-            "ContinuousAero VSM solve failed (non-converged or non-finite) " *
-            "on wing $(wing.idx)"))
-    end
-    gamma = solver.lr.gamma_new
-    if isnothing(solver.sol.gamma_distribution)
-        solver.sol.gamma_distribution = copy(gamma)
-    else
-        solver.sol.gamma_distribution .= gamma
-    end
-    store_induced_velocity!(mode.v_ind, body_aero, gamma)
+    set_refined_panel_va!(mode, wing, points, va_point_b_vals)
+    solve_and_freeze_circulation!(mode, wing)
     return nothing
 end
 

@@ -96,10 +96,12 @@ group_means(groups, values) =
         # moment response 0.29/0.22 against 0 for a wing-wide mean inflow.
         (name="ContinuousAero", system_name="continuous_test",
             make=() -> ContinuousAero(), billowing=true, surface_fixture=false,
-            parity_rtol=0.04, parity_deg=1.0, roll_response=0.10),
+            parity_rtol=0.04, parity_deg=1.0, roll_response=0.10,
+            geometry_rtol=0.05, alpha_atol_deg=1.0, panel_rtol=0.10),
         (name="AeroPressure", system_name="pressure_test",
             make=() -> AeroPressure(), billowing=false, surface_fixture=true,
-            parity_rtol=0.04, parity_deg=1.0, roll_response=0.10),
+            parity_rtol=0.04, parity_deg=1.0, roll_response=0.10,
+            geometry_rtol=0.05, alpha_atol_deg=1.0, panel_rtol=0.10),
     ]
 
     for case in cases
@@ -145,6 +147,44 @@ group_means(groups, values) =
             # init refresh) into the struct with a near-zero step.
             next_step!(sam; dt=1e-4, vsm_interval=0)
             force_symbolic = copy(wing.aero_force_b)
+
+            # Every per-panel intermediate must match VSM, not just the span
+            # sum: a per-panel error that cancels spanwise is invisible in the
+            # total. Values are read out of the compiled model, so the assertion
+            # cannot drift from the equations it is checking — a reimplementation
+            # of panel_force_eqs here would only test its own transcription.
+            @testset "per-panel reconstruction matches VSM" begin
+                VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero)
+                sol = wing.vsm_solver.sol
+                panels = wing.vsm_aero.panels
+                aero = getproperty(sam.prob.sys, Symbol("aero_$(wing.idx)"))
+                chord_model = sam.integrator[collect(aero.chord)]
+                width_model = sam.integrator[collect(aero.width)]
+                alpha_model = sam.integrator[collect(aero.alpha)]
+                force_scale = maximum(norm(Vector(sol.f_body_3D[:, i]))
+                                      for i in eachindex(panels))
+                @test force_scale > 0.1
+                chord_err = maximum(abs(chord_model[i] - panels[i].chord) /
+                                    panels[i].chord for i in eachindex(panels))
+                width_err = maximum(abs(width_model[i] - panels[i].width) /
+                                    panels[i].width for i in eachindex(panels))
+                # Pins which of VSM's two alphas the reconstruction reproduces.
+                alpha_err = maximum(abs(alpha_model[i] - sol.alpha_dist[i])
+                                    for i in eachindex(panels))
+                force_err = maximum(
+                    norm(sam.integrator[collect(aero.panel_force[:, i])] .-
+                         Vector(sol.f_body_3D[:, i])) / force_scale
+                    for i in eachindex(panels))
+                println("  [$(case.name)] per-panel: chord=",
+                    "$(round(chord_err; sigdigits=3)), ",
+                    "width=$(round(width_err; sigdigits=3)), ",
+                    "alpha=$(round(rad2deg(alpha_err); sigdigits=3))°, ",
+                    "force=$(round(force_err; sigdigits=3))")
+                @test chord_err < case.geometry_rtol
+                @test width_err < case.geometry_rtol
+                @test alpha_err < deg2rad(case.alpha_atol_deg)
+                @test force_err < case.panel_rtol
+            end
 
             @testset "solve-point parity with full VSM" begin
                 # Reference: full nonlinear solve + calc_forces! on the same panel

@@ -86,13 +86,16 @@ Relative Euclidean error `|value - reference| / |reference|`.
 rel_error(value, reference) = norm(value .- reference) / norm(reference)
 
 """
-    apply_pose!(sam, set, pose)
+    apply_pose!(sam, set, pose; twist=nothing)
 
 Set the main transform (elevation, azimuth, heading) and wind speed from a
 `(elevation, azimuth, heading, v_wind)` tuple, then re-init the model. Used to
-drive a controlled rigid pose without running the ODE.
+drive a controlled rigid pose without running the ODE. `twist` prescribes the
+twist-surface angles, so the pose is held in a deformed state. It is applied
+*before* `init!`: `update_sys_struct!` writes `twist` back from the model every
+step, so a value set afterwards is overwritten and never reaches the dynamics.
 """
-function apply_pose!(sam, set, pose)
+function apply_pose!(sam, set, pose; twist=nothing)
     elevation, azimuth, heading, v_wind = pose
     transform = sam.sys_struct.transforms[:main_transform]
     transform.elevation = elevation
@@ -101,10 +104,21 @@ function apply_pose!(sam, set, pose)
     transform.elevation_vel = 0.0
     transform.azimuth_vel = 0.0
     set.v_wind = v_wind
+    isnothing(twist) || set_twist!(sam.sys_struct, twist)
     init!(sam; prn=false)
     next_step!(sam; dt=1e-5, vsm_interval=1)
     return nothing
 end
+
+"""
+    component_moment_tol(case, moment_ref, force_ref)
+
+Per-component moment budget: the case's relative term on `|M_ref|` plus the
+force-proportional floor that pays for a distributed load being represented by a
+few structural-point forces.
+"""
+component_moment_tol(case, moment_ref, force_ref) =
+    case.moment_rtol * norm(moment_ref) + case.moment_lever * norm(force_ref)
 
 aero_poses = [
     (deg2rad(60), 0.0,           0.0,           15.0),
@@ -157,23 +171,33 @@ aero_poses = [
         (name="none particle", make=() -> AeroNone(), yaml=particle_yaml,
             data=data_path, vsm_set=vsm_set, dynamics=PARTICLE_DYNAMICS,
             reference=:zero,
-            force_rtol=1e-6, moment_rtol=1e-6, moment_lever=0.0),
+            force_rtol=1e-6, moment_rtol=1e-6, moment_lever=0.0,
+            drag_rtol=1e-6, lift_rtol=1e-6, side_atol=1e-6,
+            yaw_rtol=0.0, motion_rtol=0.0, motion_drag_rtol=0.0),
         (name="none rigid", make=() -> AeroNone(), yaml=rigid_yaml,
             data=data_path, vsm_set=vsm_set, dynamics=RIGID_DYNAMICS,
             reference=:zero,
-            force_rtol=1e-6, moment_rtol=1e-6, moment_lever=0.0),
+            force_rtol=1e-6, moment_rtol=1e-6, moment_lever=0.0,
+            drag_rtol=1e-6, lift_rtol=1e-6, side_atol=1e-6,
+            yaw_rtol=0.0, motion_rtol=0.0, motion_drag_rtol=0.0),
         (name="direct particle", make=() -> AeroDirect(), yaml=particle_yaml,
             data=data_path, vsm_set=vsm_set, dynamics=PARTICLE_DYNAMICS,
             reference=:vsm,
-            force_rtol=0.006, moment_rtol=0.10, moment_lever=0.06),
+            force_rtol=0.006, moment_rtol=0.10, moment_lever=0.06,
+            drag_rtol=0.005, lift_rtol=0.05, side_atol=0.02,
+            yaw_rtol=0.08, motion_rtol=0.001, motion_drag_rtol=0.001),
         (name="direct rigid", make=() -> AeroDirect(), yaml=rigid_yaml,
             data=data_path, vsm_set=vsm_set, dynamics=RIGID_DYNAMICS,
             reference=:vsm,
-            force_rtol=0.001, moment_rtol=0.001, moment_lever=0.0),
+            force_rtol=0.001, moment_rtol=0.001, moment_lever=0.0,
+            drag_rtol=0.001, lift_rtol=0.01, side_atol=0.01,
+            yaw_rtol=0.08, motion_rtol=0.01, motion_drag_rtol=0.01),
         (name="continuous particle", make=() -> ContinuousAero(),
             yaml=particle_yaml, data=data_path, vsm_set=vsm_set_billow,
             dynamics=PARTICLE_DYNAMICS, reference=:vsm,
-            force_rtol=0.006, moment_rtol=0.06, moment_lever=0.04),
+            force_rtol=0.006, moment_rtol=0.06, moment_lever=0.04,
+            drag_rtol=0.005, lift_rtol=0.05, side_atol=0.02,
+            yaw_rtol=0.08, motion_rtol=0.08, motion_drag_rtol=0.002),
         # Twice the particle moment budget because AeroPressure anchors the force
         # to VSM but no couple: the moment follows the Cp distribution, and this
         # fixture's synthetic Cp implies a load centre ~0.13 chord from the Cm in
@@ -183,11 +207,15 @@ aero_poses = [
         (name="pressure particle", make=() -> AeroPressure(),
             yaml=surface_yaml, data=surface_path, vsm_set=vsm_set_surface,
             dynamics=PARTICLE_DYNAMICS, reference=:vsm,
-            force_rtol=0.006, moment_rtol=0.20, moment_lever=0.12),
+            force_rtol=0.006, moment_rtol=0.20, moment_lever=0.12,
+            drag_rtol=0.005, lift_rtol=0.05, side_atol=0.02,
+            yaw_rtol=0.08, motion_rtol=0.005, motion_drag_rtol=0.005),
         (name="linearized rigid", make=() -> AeroLinearized(), yaml=rigid_yaml,
             data=data_path, vsm_set=vsm_set, dynamics=RIGID_DYNAMICS,
             reference=:vsm,
-            force_rtol=0.001, moment_rtol=0.001, moment_lever=0.0),
+            force_rtol=0.001, moment_rtol=0.001, moment_lever=0.0,
+            drag_rtol=0.001, lift_rtol=0.01, side_atol=0.01,
+            yaw_rtol=0.08, motion_rtol=0.05, motion_drag_rtol=0.05),
     ]
 
     for (idx, case) in enumerate(cases)
@@ -206,6 +234,7 @@ aero_poses = [
                 max_relF = 0.0; max_dir = 0.0
                 max_relM = 0.0; max_mom_use = 0.0
                 max_zeroF = 0.0; max_zeroM = 0.0
+                max_drag = 0.0; max_lift = 0.0; max_side = 0.0
                 for pose in aero_poses
                     apply_pose!(sam, set, pose)
                     force, moment = model_force_moment(sam, wing)
@@ -231,13 +260,36 @@ aero_poses = [
                         rad2deg(acos(clamp(cos_force, -1.0, 1.0))))
                     @test cos_force > cos(deg2rad(1))
 
-                    moment_tol = case.moment_rtol * norm(moment_ref) +
-                        case.moment_lever * norm(force_ref)
+                    # Drag, lift and side each within their own budget: |F| is
+                    # lift-dominated, so its norm cannot see a drag error.
+                    split = wind_frame_force(force, wing.va_b)
+                    split_ref = wind_frame_force(force_ref, wing.va_b)
+                    drag_err = abs(split.drag - split_ref.drag) /
+                        abs(split_ref.drag)
+                    lift_err = abs(split.lift - split_ref.lift) /
+                        abs(split_ref.lift)
+                    side_err = abs(split.side - split_ref.side) /
+                        norm(force_ref)
+                    max_drag = max(max_drag, drag_err)
+                    max_lift = max(max_lift, lift_err)
+                    max_side = max(max_side, side_err)
+                    @test drag_err < case.drag_rtol
+                    @test lift_err < case.lift_rtol
+                    @test side_err < case.side_atol
+
+                    # Positive drag and a physical L/D, reference or not.
+                    @test split.drag > 0
+                    @test 1.0 < abs(split.lift / split.drag) < 30.0
+
+                    # Componentwise, so a wrong Mz cannot hide inside |M|.
+                    moment_tol = component_moment_tol(case, moment_ref, force_ref)
+                    for axis in 1:3
+                        @test abs(moment[axis] - moment_ref[axis]) <= moment_tol
+                    end
                     max_relM = max(max_relM,
                         norm(moment .- moment_ref) / norm(moment_ref))
                     max_mom_use = max(max_mom_use,
-                        norm(moment .- moment_ref) / moment_tol)
-                    @test norm(moment .- moment_ref) <= moment_tol
+                        maximum(abs.(moment .- moment_ref)) / moment_tol)
                 end
                 pct(use) = "$(round(100 * use; digits=1))% of budget"
                 if case.reference == :zero
@@ -249,6 +301,12 @@ aero_poses = [
                     println("  [$(case.name)] ",
                         "rel_F=$(round(max_relF; sigdigits=3)) ",
                         "(tol $(case.force_rtol), $(pct(max_relF/case.force_rtol))); ",
+                        "drag=$(round(max_drag; sigdigits=3)) ",
+                        "(tol $(case.drag_rtol)); ",
+                        "lift=$(round(max_lift; sigdigits=3)) ",
+                        "(tol $(case.lift_rtol)); ",
+                        "side=$(round(max_side; sigdigits=3)) ",
+                        "(tol $(case.side_atol)); ",
                         "dir=$(round(max_dir; digits=3))° (tol 1°); ",
                         "rel_M=$(round(max_relM; sigdigits=3)), ",
                         "moment $(pct(max_mom_use))")
@@ -267,6 +325,94 @@ aero_poses = [
                     @test all(isfinite, moment)
                     @test norm(force) < bound
                 end
+            end
+
+            # A KINEMATIC wing's body frame is fitted from reference points, so
+            # its angular velocity is the rate of that fit — not zero, which is
+            # what it used to be hardcoded to. Diagnostic only, but
+            # sys_state.turn_rates reads it.
+            if case.dynamics == PARTICLE_DYNAMICS
+                @testset "particle wing ω_b" begin
+                    apply_pose!(sam, set, aero_poses[1])
+                    settle_aero!(sam; steps=10)
+                    rot_before = copy(wing.R_b_to_w)
+                    next_step!(sam; dt=1e-4, vsm_interval=1)
+                    rot_after = copy(wing.R_b_to_w)
+                    spin = ((rot_after .- rot_before) ./ 1e-4) * rot_after'
+                    omega_w = 0.5 .* [spin[3, 2] - spin[2, 3],
+                                      spin[1, 3] - spin[3, 1],
+                                      spin[2, 1] - spin[1, 2]]
+                    omega_measured = rot_after' * omega_w
+                    @test norm(omega_measured) > 1e-3
+                    @test norm(wing.ω_b) > 1e-3
+                    @test isapprox(wing.ω_b, omega_measured;
+                        atol=0.05 * norm(omega_measured) + 1e-4)
+                    println("  [$(case.name)] ω_b=",
+                        "$(round(norm(wing.ω_b); sigdigits=3)) vs measured ",
+                        "$(round(norm(omega_measured); sigdigits=3)) rad/s")
+                end
+            end
+
+            case.reference == :zero && continue
+
+            # The yaw contract, stated as a symmetry so it needs no VSM
+            # reference: mirroring an antisymmetric deformation must mirror Mz, a
+            # symmetric wing must barely yaw, and the deformation must excite yaw
+            # at all. Deformation is a trailing-edge displacement with the nodes
+            # pinned (`fix_static`), because prescribed twist is inert on a
+            # PARTICLE_DYNAMICS wing — there the free points carry it.
+            # Particle only: a RIGID_DYNAMICS wing takes its aero from the body
+            # pose and has no shape DOF, so displacing its nodes cannot deform it.
+            case.dynamics == PARTICLE_DYNAMICS &&
+            @testset "yaw antisymmetry" begin
+                apply_pose!(sam, set, aero_poses[1])
+                pin_wing_nodes!(sys, wing)
+                base_pos = wing_node_positions(sys, wing)
+                @test !isempty(base_pos)
+
+                function held(delta)
+                    deform_trailing_edge!(sys, wing, base_pos, delta)
+                    init!(sam; reinit_sys=false, prn=false)
+                    next_step!(sam; dt=1e-5, vsm_interval=1)
+                    return model_force_moment(sam, wing)
+                end
+                force_pos, moment_pos = held(0.05)
+                _, moment_neg = held(-0.05)
+                _, moment_flat = held(0.0)
+                pin_wing_nodes!(sys, wing, false)
+
+                @test abs(moment_pos[3]) > 1e-3 * norm(force_pos)
+                @test abs(moment_flat[3]) < 0.25 * abs(moment_pos[3])
+                @test isapprox(moment_pos[3], -moment_neg[3]; rtol=case.yaw_rtol)
+                println("  [$(case.name)] yaw: Mz(+d)=",
+                    "$(round(moment_pos[3]; sigdigits=3)), ",
+                    "Mz(-d)=$(round(moment_neg[3]; sigdigits=3)), ",
+                    "Mz(flat)=$(round(moment_flat[3]; sigdigits=3))")
+            end
+
+            # Parity in a moved, deformed state. The pose sweep calls init!
+            # before every measurement, so it only ever samples a pristine
+            # zero-velocity wing; this is the driver that exercises the frozen
+            # state, which is where a 14% AeroPressure error once hid behind a
+            # green 0.6% budget.
+            @testset "under-motion parity" begin
+                apply_pose!(sam, set, aero_poses[1])
+                settle_aero!(sam)
+                force, moment = model_force_moment(sam, wing)
+                @test all(isfinite, force)
+                # The refresh set the per-panel inflow, so this is matched.
+                force_ref, moment_ref = vsm_reference_force_moment(wing)
+                relF = rel_error(force, force_ref)
+                split = wind_frame_force(force, wing.va_b)
+                split_ref = wind_frame_force(force_ref, wing.va_b)
+                drag_err = abs(split.drag - split_ref.drag) / abs(split_ref.drag)
+                @test relF < case.motion_rtol
+                @test drag_err < case.motion_drag_rtol
+                println("  [$(case.name)] under motion: ",
+                    "rel_F=$(round(relF; sigdigits=3)) ",
+                    "(tol $(case.motion_rtol)); ",
+                    "drag=$(round(drag_err; sigdigits=3)) ",
+                    "(tol $(case.motion_drag_rtol))")
             end
         end
     end

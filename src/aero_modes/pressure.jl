@@ -160,14 +160,12 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
     column = 0
     for i in 1:n_panels
         assigned = mode.station_point[i]
-        n_nodes = length(assigned)
-        residual = (collect(panel_force[:, i]) .-
-                    [traction_net_p[c, i] for c in 1:3]) ./ n_nodes
-        for node in 1:n_nodes
+        node_forces = surface_node_forces(traction_p, column + 1, length(assigned),
+            panel_force[:, i], [traction_net_p[c, i] for c in 1:3])
+        for node in eachindex(assigned)
             column += 1
             k = point_num[assigned[node]]
-            point_force[k] = point_force[k] .+
-                [traction_p[c, column] for c in 1:3] .+ residual
+            point_force[k] = point_force[k] .+ node_forces[node]
         end
     end
 
@@ -437,12 +435,11 @@ end
     refresh_particle_aero!(mode::AeroPressure, wing, points, va_point_b_vals;
                            vsm_min_wind=0.5)
 
-Run the full VSM `solve!` at the current apparent wind (via [`safe_vsm_solve!`](@ref),
-so `sol.alpha_dist`/`f_body_3D` are populated), freeze the per-panel induced velocity
-([`store_induced_velocity!`](@ref)) and the per-node surface traction pattern sampled
-at the effective sectional α ([`freeze_traction_pattern!`](@ref)). The applied point
-forces are then re-derived symbolically each RHS step. Below `vsm_min_wind` all frozen
-buffers are zeroed (the symbolic forces vanish with the dynamic pressure).
+Solve at the per-panel apparent wind the symbolic RHS uses
+([`set_refined_panel_va!`](@ref)), freezing the induced velocity and the per-node
+surface traction pattern ([`freeze_traction_pattern!`](@ref)). Point forces are
+re-derived symbolically each RHS step. Below `vsm_min_wind` all frozen buffers are
+zeroed, the per-point offsets included, so no stale constant force survives.
 """
 function refresh_particle_aero!(mode::AeroPressure, wing, points,
                                 va_point_b_vals; vsm_min_wind=0.5)
@@ -450,15 +447,12 @@ function refresh_particle_aero!(mode::AeroPressure, wing, points,
         fill!(mode.v_ind, 0.0)
         fill!(mode.traction, 0.0)
         fill!(mode.traction_net, 0.0)
+        accumulate_point_offset!(mode)
         return nothing
     end
     update_vsm_wing_from_structure!(wing, points)
-    set_va!(wing.vsm_aero, wing.va_b, wing.ω_b)
-    if !safe_vsm_solve!(wing.vsm_solver, wing.vsm_aero)
-        throw(AssertionError("AeroPressure VSM solve failed (non-converged or " *
-            "non-finite) on wing $(wing.idx)"))
-    end
-    store_induced_velocity!(mode.v_ind, wing.vsm_aero, wing.vsm_solver.lr.gamma_new)
+    set_refined_panel_va!(mode, wing, points, va_point_b_vals)
+    solve_and_freeze_circulation!(mode, wing)
     freeze_traction_pattern!(mode, wing)
     any(!isfinite, mode.traction) && throw(AssertionError(
         "AeroPressure: non-finite traction pattern on wing $(wing.idx)"))
@@ -512,6 +506,22 @@ function freeze_traction_pattern!(mode::AeroPressure, wing)
     end
     accumulate_point_offset!(mode)
     return nothing
+end
+
+"""
+    surface_node_forces(traction, first_column, n_nodes, panel_force, panel_net)
+
+Force on each contour node of one panel: its frozen traction plus an equal share of
+`panel_force - panel_net`. Sums to `panel_force` over the panel, the frozen part
+cancelling. `traction` is column-indexed panel-major as
+[`freeze_traction_pattern!`](@ref) fills it, `first_column` being this panel's
+first. Works on the symbolic params and on the numeric buffers alike, so the
+scatter has one definition.
+"""
+function surface_node_forces(traction, first_column, n_nodes, panel_force, panel_net)
+    residual = (collect(panel_force) .- collect(panel_net)) ./ n_nodes
+    return [[traction[c, first_column + node - 1] for c in 1:3] .+ residual
+            for node in 1:n_nodes]
 end
 
 """
