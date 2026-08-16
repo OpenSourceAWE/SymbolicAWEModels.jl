@@ -8,6 +8,113 @@
 using Test
 using SymbolicAWEModels
 using Profile
+using LinearAlgebra
+
+"""
+    wind_frame_force(force_b, va_b; span_b=[0,1,0]) -> (; drag, lift, side)
+
+Signed projections of a body-frame aero force onto the wind-axis triad, the same
+basis the force reconstruction uses: `drag` along the apparent wind, `lift` along
+`va × span`, `side` completing the triad. Comparing these separately is what keeps
+a drag error visible — `|F|` is lift-dominated, so a norm budget tight enough to
+look strict still hides several percent of drag.
+"""
+function wind_frame_force(force_b, va_b; span_b = [0.0, 1.0, 0.0])
+    drag_dir = normalize(collect(va_b))
+    lift_dir = normalize(cross(drag_dir, collect(span_b)))
+    side_dir = cross(lift_dir, drag_dir)
+    return (; drag = dot(force_b, drag_dir),
+            lift = dot(force_b, lift_dir),
+            side = dot(force_b, side_dir))
+end
+
+"""
+    pin_wing_nodes!(sys, wing, pinned)
+
+Freeze (or release) every node of `wing` via `fix_static`, so a deformed shape can
+be held against the aero without the structure relaxing into it. Read live from
+the struct, so it needs no rebuild.
+"""
+function pin_wing_nodes!(sys, wing, pinned::Bool = true)
+    for point in sys.points
+        point.is_wing_node && point.wing_idx == wing.idx &&
+            (point.fix_static = pinned)
+    end
+    return nothing
+end
+
+"""
+    wing_node_positions(sys, wing)
+
+`point idx => copy(pos_w)` for every node of `wing`, the baseline a deformation is
+applied from.
+"""
+wing_node_positions(sys, wing) = Dict(point.idx => copy(point.pos_w)
+    for point in sys.points
+    if point.is_wing_node && point.wing_idx == wing.idx)
+
+"""
+    deform_trailing_edge!(sys, wing, base_pos, delta)
+
+Mirror-antisymmetric deformation from `base_pos`: each twist surface's trailing
+edge moves `±delta` along the wing's body z, signed by its span station. Prescribed
+twist cannot do this on a `PARTICLE_DYNAMICS` wing — there a multi-point `STATIC`
+surface is an inert aero-section marker (`twist_surface_eqs.jl`) and the free
+points carry the deformation.
+"""
+function deform_trailing_edge!(sys, wing, base_pos, delta)
+    normal_w = (wing.R_b_to_w::Matrix{Float64})[:, 3]
+    for point in sys.points
+        haskey(base_pos, point.idx) && (point.pos_w .= base_pos[point.idx])
+    end
+    for surface in sys.twist_surfaces
+        length(surface.point_idxs) >= 2 || continue
+        trailing = sys.points[surface.point_idxs[2]]
+        side = sign(trailing.pos_cad[2])
+        side == 0 && continue
+        trailing.pos_w .+= (side * delta) .* normal_w
+    end
+    return nothing
+end
+
+"""
+    set_twist!(sys, twists)
+
+Prescribe `twist` per twist-surface name, e.g. `(; left=0.06, right=-0.06)`.
+Surfaces not named keep their value. Only meaningful for `STATIC` twist surfaces,
+where the angle is held rather than integrated.
+"""
+function set_twist!(sys, twists)
+    for surface in sys.twist_surfaces
+        haskey(twists, surface.name) && (surface.twist = twists[surface.name])
+    end
+    return nothing
+end
+
+"""
+    asymmetric_twist(delta=0.06)
+
+Mirror-antisymmetric twist: `+delta` on the left surface, `-delta` on the right,
+centre flat. Passing `-delta` gives the mirrored configuration.
+"""
+asymmetric_twist(delta = 0.06) =
+    Dict(:left => delta, :center => 0.0, :right => -delta)
+
+"""
+    settle_aero!(sam; steps=25, dt=0.02)
+
+Run the model forward, then take one `dt=1e-5` refresh step so the model and a VSM
+reference see the same geometry. Deliberately does **not** call `init!`: the whole
+point is to measure aero in a moved, deformed state, and re-initialising would
+discard exactly the motion the contract is about.
+"""
+function settle_aero!(sam; steps::Integer = 25, dt = 0.02)
+    for _ in 1:steps
+        next_step!(sam; dt, vsm_interval = 1)
+    end
+    next_step!(sam; dt = 1e-5, vsm_interval = 1)
+    return nothing
+end
 
 """
     validate_rhs_allocs(sam; max_bytes=0, diagnose=true)

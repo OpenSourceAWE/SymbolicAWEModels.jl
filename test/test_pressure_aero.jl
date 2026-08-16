@@ -24,7 +24,8 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, refresh_particle_aero!, SimFloat,
-                         loft_contour_node, aero_inflow_groups, wing_points
+                         loft_contour_node, aero_inflow_groups, wing_points,
+                         aero_scatter_entries, surface_node_forces
 using KiteUtils
 using LinearAlgebra
 
@@ -105,33 +106,30 @@ end
         @test all(offset -> all(isfinite, offset), values(mode.point_offset))
     end
 
-    # Reconstruct the symbolic scatter numerically from the frozen params (same
-    # (panel, node) column order as `aero_component`), using VSM `f_body_3D` as the
-    # per-panel total (= the live `panel_force` at the solve operating point).
+    # The distributed point forces sum to VSM's total, per panel and overall.
+    # Built from `aero_scatter_entries` and `mode.point_offset` — the same map and
+    # the same constants `aero_component` wires up — so this cannot drift from the
+    # scatter it checks the way a re-derivation of the residual algebra would.
     @testset "correct total force (per VSM panel and total)" begin
         sol = wing.vsm_solver.sol
-        n_panels = length(wing.vsm_aero.panels)
-        point_force = Dict(p.idx => zeros(SimFloat, 3) for p in wing_pts)
-        panel_sum = [zeros(SimFloat, 3) for _ in 1:n_panels]
-        column = 0
-        for i in 1:n_panels
-            assigned = mode.station_point[i]
-            n_nodes = length(assigned)
-            residual = (Vector(sol.f_body_3D[:, i]) .-
-                        mode.traction_net[:, i]) ./ n_nodes
-            for node in 1:n_nodes
-                column += 1
-                node_force = mode.traction[:, column] .+ residual
-                point_force[assigned[node]] .+= node_force
-                panel_sum[i] .+= node_force
-            end
+        nodes = wing_points(sys, wing)
+        entries = aero_scatter_entries(mode, wing, nodes)
+        point_force = Dict(p.idx => zeros(SimFloat, 3) for p in nodes)
+        panel_sum = [zeros(SimFloat, 3) for _ in eachindex(wing.vsm_aero.panels)]
+        for (panel, column, force_weight, _) in entries
+            share = force_weight .* Vector(sol.f_body_3D[:, panel])
+            point_force[nodes[column].idx] .+= share
+            panel_sum[panel] .+= share
         end
-        # Per VSM panel: scattered node forces sum to that panel's VSM force.
-        for i in 1:n_panels
+        for (point_idx, offset) in mode.point_offset
+            point_force[point_idx] .+= offset
+        end
+        # Per panel the scattered share is the whole panel force: the frozen
+        # offsets cancel across a panel by construction.
+        for (i, total) in enumerate(panel_sum)
             f_vsm = Vector(sol.f_body_3D[:, i])
-            @test norm(panel_sum[i] - f_vsm) <= 1e-9 * (norm(f_vsm) + 1)
+            @test norm(total - f_vsm) <= 1e-9 * (norm(f_vsm) + 1)
         end
-        # Total: distributed point forces sum to the VSM total force.
         total_pts = sum(values(point_force))
         total_vsm = vec(sum(sol.f_body_3D, dims=2))
         @test norm(total_vsm) > 1.0
@@ -139,19 +137,31 @@ end
     end
 
     # Force sums survive a placement error untouched, moments do not. Comparing
-    # each panel's scattered loads about the body origin at the point they are
-    # applied to against the same loads at the surface node they came from
-    # separates the nearest-node lumping from a wrong distribution. Both
-    # residuals are load-centre offsets in chords, ‖ΔM‖/(‖F‖·c): ‖M‖ about the
-    # body origin passes through zero inside the flight range, so normalising by
-    # it would divide by a vanishing quantity.
+    # each panel's loads about the body origin where they are applied against the
+    # same loads at the surface node they came from separates nearest-node lumping
+    # from a wrong distribution. Both residuals are load-centre offsets in chords,
+    # ‖ΔM‖/(‖F‖·c): ‖M‖ about the body origin passes through zero inside the flight
+    # range, so normalising by it would divide by a vanishing quantity. Both sides
+    # use src (`aero_scatter_entries`, `surface_node_forces`), not a re-derivation.
     @testset "moment placement (per VSM panel and total)" begin
         sol = wing.vsm_solver.sol
         panels = wing.vsm_aero.panels
+        nodes = wing_points(sys, wing)
         rot_cad_to_body = wing.R_b_to_c'
         point_pos_b = Dict(p.idx => rot_cad_to_body * (p.pos_cad - wing.pos_cad)
-                           for p in wing_pts)
+                           for p in nodes)
+
         applied_total = zeros(SimFloat, 3)
+        for (panel, column, force_weight, _) in aero_scatter_entries(mode, wing, nodes)
+            applied_total .+= cross(point_pos_b[nodes[column].idx],
+                force_weight .* Vector(sol.f_body_3D[:, panel]))
+        end
+        for (point_idx, offset) in mode.point_offset
+            applied_total .+= cross(point_pos_b[point_idx], offset)
+        end
+
+        # The same loads at the contour node each one was sampled at, which is the
+        # placement the frozen pattern intends.
         pattern_total = zeros(SimFloat, 3)
         worst_arm = 0.0
         column = 0
@@ -159,23 +169,22 @@ end
             xc, yc, _, _ = VortexStepMethod.section_surface(
                 panel.section_aero, 0.0, panel.delta)
             assigned = mode.station_point[i]
-            n_nodes = length(assigned)
             f_vsm = Vector(sol.f_body_3D[:, i])
-            residual = (f_vsm .- mode.traction_net[:, i]) ./ n_nodes
+            node_forces = surface_node_forces(mode.traction, column + 1,
+                length(assigned), f_vsm, mode.traction_net[:, i])
             applied = zeros(SimFloat, 3)
             pattern = zeros(SimFloat, 3)
-            for node in 1:n_nodes
+            for node in eachindex(assigned)
                 column += 1
-                node_force = mode.traction[:, column] .+ residual
-                applied .+= cross(point_pos_b[assigned[node]], node_force)
+                applied .+= cross(point_pos_b[assigned[node]], node_forces[node])
                 pattern .+= cross(loft_contour_node(panel, xc, yc, node),
-                                  node_force)
+                                  node_forces[node])
             end
-            applied_total .+= applied
             pattern_total .+= pattern
             worst_arm = max(worst_arm,
                 norm(applied - pattern) / (norm(f_vsm) * panel.chord))
         end
+
         moment_vsm = Vector(sol.moment)
         mean_chord = sum(p.chord for p in panels) / length(panels)
         lever_scale = norm(vec(sum(sol.f_body_3D, dims=2))) * mean_chord
@@ -195,5 +204,54 @@ end
         @test pattern_error < 0.20
         # Nearest-node quantization, the only part the scatter itself controls.
         @test lumping < 0.05
+        # Mz on its own, so a yaw-placement error cannot hide inside the norm.
+        @test abs(applied_total[3] - pattern_total[3]) / lever_scale < 0.05
+    end
+
+    # The scatter's identities are arithmetic on the frozen params, so they hold
+    # exactly rather than approximately: each panel's nodes sum to its net, the
+    # pattern pushes the same way as the panel's VSM force (a flipped Cp/cf sign
+    # would invert it while leaving the anchored total untouched), and the whole
+    # pattern scales with dynamic pressure and nothing else.
+    @testset "traction pattern algebra" begin
+        sol = wing.vsm_solver.sol
+        n_panels = length(wing.vsm_aero.panels)
+        column = 0
+        for i in 1:n_panels
+            node_sum = zeros(SimFloat, 3)
+            for _ in eachindex(mode.station_point[i])
+                column += 1
+                node_sum .+= mode.traction[:, column]
+            end
+            @test norm(node_sum .- mode.traction_net[:, i]) <=
+                1e-12 * (norm(mode.traction_net[:, i]) + 1)
+        end
+
+        # Each panel's frozen pattern pushes the same way as its VSM force.
+        for i in 1:n_panels
+            @test dot(mode.traction_net[:, i], Vector(sol.f_body_3D[:, i])) > 0
+        end
+
+        # The pattern scales with dynamic pressure and nothing else.
+        traction_before = copy(mode.traction)
+        wing.va_b .*= 2.0
+        refresh_particle_aero!(mode, wing, sys.points, 2.0 .* va_vals)
+        @test isapprox(mode.traction, 4.0 .* traction_before; rtol=1e-6)
+
+        wing.va_b ./= 2.0
+        refresh_particle_aero!(mode, wing, sys.points, va_vals)
+        @test isapprox(mode.traction, traction_before; rtol=1e-5)
+    end
+
+    # Below the cutoff the aero vanishes completely, the constant per-point
+    # offsets included — those are what the symbolic scatter adds on top of the
+    # live panel force, so leaving them stale keeps applying a load.
+    @testset "no stale load below vsm_min_wind" begin
+        wing.va_b .= SimFloat[0.1, 0.0, 0.0]
+        refresh_particle_aero!(mode, wing, sys.points, 0.0 .* va_vals)
+        @test all(iszero, mode.v_ind)
+        @test all(iszero, mode.traction)
+        @test all(iszero, mode.traction_net)
+        @test all(offset -> all(iszero, offset), values(mode.point_offset))
     end
 end

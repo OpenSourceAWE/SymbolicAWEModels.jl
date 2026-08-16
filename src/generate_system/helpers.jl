@@ -43,9 +43,12 @@ end
 """
     smooth_normalize(vec)
 
-Differentiable normalization: `vec / smooth_norm(vec)`.
+Differentiable normalization: `vec ./ smooth_norm(vec)`. Broadcast, not `/`: on a
+`Vector{Num}` the latter returns an unscalarised symbolic array, and a later
+`smooth_norm`/`⋅` on it stays an opaque `mapreduce`/`dot` term that rebuilds the
+vector at runtime.
 """
-smooth_normalize(vec) = vec / smooth_norm(vec)
+smooth_normalize(vec) = vec ./ smooth_norm(vec)
 
 """
     smooth_sign(x, eps)
