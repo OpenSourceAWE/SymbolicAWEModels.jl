@@ -46,11 +46,11 @@ end
 `@test` that this model survives a round trip through a
 `SysLog` on disk: log the state, scramble the structure, load
 it back, re-seed the integrator, and check `integrator.u` is
-unchanged. That is the proof that everything the ODE
-integrates is covered, without needing to know which fields
-those are — and whether a component is part of the state at
-all depends on its `DynamicsType`, so running this for every
-model the suite builds is what covers the combinations.
+unchanged. That is the proof that everything reaching `u0` is
+covered, without needing to know which fields those are — and
+which they are depends on the model and on what the compiler
+tears, so running this for every model the suite builds is what
+covers the combinations.
 
 `reinit_sys=false` keeps `init!` from calling
 `reinit!(sys_struct, set)`, which would reset positions from
@@ -58,7 +58,10 @@ the CAD frame and discard the loaded state.
 
 Scrambling matters: without it an `update_from_sysstate!` that
 restored nothing would still pass, since the structure already
-holds the right values.
+holds the right values. `sys.state_vars` scrambles every field a
+component can carry state in, with no `DynamicsType` filter — a
+field that never reaches `u0` is invisible to the assertion
+anyway, so filtering can only lose coverage.
 
 `rtol` is not zero because bodies are logged in the body frame
 and rebuilt into the principal frame, which costs a few ULP in
@@ -77,7 +80,7 @@ function validate_sysstate_roundtrip(sam; rtol = 1e-10)
     log!(logger, SysState(sam; precision = Float64))
     save_log(logger, "roundtrip", false; path)
     reloaded = load_log("roundtrip"; path)
-    sys.diff_vars = 1.5 .* vec(sys.diff_vars) .+ 0.25
+    sys.state_vars = 1.5 .* vec(sys.state_vars) .+ 0.25
     update_from_sysstate!(sys, reloaded.syslog[1])
     init!(sam; remake = false, reinit_sys = false, prn = false)
     @test length(sam.integrator.u) == length(expected)
