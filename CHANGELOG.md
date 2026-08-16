@@ -1,5 +1,26 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+- `update_from_sysstate!` now rebuilds the principal-frame state of every body,
+  where it skipped `KINEMATIC` ones. Their `com_w`/`com_vel` are not logged, but
+  the wing origin point's position alias-eliminates onto `com_w`, so restoring a
+  state left that one point at the geometry-file position while every other
+  point moved to the logged one. The body frame fitted from those points came
+  out tens of degrees off and `init!` then failed DAE initialization
+  (`your u0 did not satisfy the initialization requirements`) — on the V3 at
+  250 m tether the origin was stranded 148 m from the rest of the kite.
+
+### Changed
+- `SystemStructure`'s `diff_vars` property is now `state_vars`, and covers
+  every component regardless of `DynamicsType` rather than only the ones
+  the ODE integrates. Whether a field is integrated, torn as an iteration
+  variable or eliminated is the compiler's choice and has changed across
+  stacks, so a `DynamicsType` filter was a standing bet on that choice. It is
+  what `validate_sysstate_roundtrip` scrambles, and the bet losing is what let
+  the `KINEMATIC` restore above go unnoticed.
+
 ## v0.14.0 13-08-2026
 
 ### Added

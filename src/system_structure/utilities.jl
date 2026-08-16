@@ -991,6 +991,13 @@ plot(sys)
   simulation that generated the `SysLog`.
 - Aerodynamic and force fields are set to `NaN` and will not be plotted.
 - The number of points in `sys` must match the parametric type `P` of `SysState{P}`.
+- Every field the log can reach is written, whether or not the compiler ends up
+  integrating it, because a derived field can still seed `u0` as a torn variable.
+  A `KINEMATIC` body is no exception: its centre of mass is not logged, but
+  `init_principal_state!` rebuilds it from the restored origin, which is exact
+  there (`com_offset_b` is zero for a body whose pose `wing_eqs!` fits from
+  points). Skipping it strands the origin point at the geometry-file position
+  while every other point moves to the logged one.
 """
 function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) where P
     (; points, twist_surfaces, pulleys, tethers, winches, wings, bodies) = sys
@@ -1079,7 +1086,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
                 (rigid_body.ω_b .= (sys_state.turn_rate_x[frame],
                     sys_state.turn_rate_y[frame], sys_state.turn_rate_z[frame]))
             # The ODE integrates the principal frame; the log stores the body one.
-            rigid_body.type == KINEMATIC || init_principal_state!(rigid_body)
+            init_principal_state!(rigid_body)
         end
     end
 

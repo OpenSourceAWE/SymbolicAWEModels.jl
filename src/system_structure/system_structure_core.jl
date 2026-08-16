@@ -70,40 +70,29 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
             end
         end
         return total
-    elseif sym == :diff_vars
+    elseif sym == :state_vars
         vars = SimFloat[]
-        # points
         points = getfield(sys, :points)
         for point in points
-            if point.type == DYNAMIC
-                append!(vars, point.pos_w)
-                append!(vars, point.vel_w)
-            end
+            append!(vars, point.pos_w)
+            append!(vars, point.vel_w)
         end
-        # KINEMATIC bodies are skipped: principal state is algebraic, not integrated.
         bodies = getfield(sys, :bodies)
         for rigid_body in bodies
-            rigid_body.type == KINEMATIC && continue
             append!(vars, rigid_body.com_w)
             append!(vars, rigid_body.com_vel)
             append!(vars, rigid_body.Q_p_to_w)
             append!(vars, rigid_body.ω_p)
         end
-        # twist_surfaces
         twist_surfaces = getfield(sys, :twist_surfaces)
         for twist_surface in twist_surfaces
-            if twist_surface.type == DYNAMIC
-                push!(vars, twist_surface.twist)
-                push!(vars, twist_surface.twist_ω)
-            end
+            push!(vars, twist_surface.twist)
+            push!(vars, twist_surface.twist_ω)
         end
-        # pulleys
         pulleys = getfield(sys, :pulleys)
         for pulley in pulleys
-            if pulley.type == DYNAMIC
-                push!(vars, pulley.len)
-                push!(vars, pulley.vel)
-            end
+            push!(vars, pulley.len)
+            push!(vars, pulley.vel)
         end
         # tethers
         tethers = getfield(sys, :tethers)
@@ -122,23 +111,18 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
 end
 
 function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
-    if sym == :diff_vars
+    if sym == :state_vars
         flat_value = vec(value) # Ensure value is a flat vector
         offset = 1
-        # points
         points = getfield(sys, :points)
         for point in points
-            if point.type == DYNAMIC
-                point.pos_w .= @view flat_value[offset:offset+2]
-                offset += 3
-                point.vel_w .= @view flat_value[offset:offset+2]
-                offset += 3
-            end
+            point.pos_w .= @view flat_value[offset:offset+2]
+            offset += 3
+            point.vel_w .= @view flat_value[offset:offset+2]
+            offset += 3
         end
-        # bodies (principal frame ODE state); skip KINEMATIC (particle) bodies.
         bodies = getfield(sys, :bodies)
         for rigid_body in bodies
-            rigid_body.type == KINEMATIC && continue
             rigid_body.com_w .= @view flat_value[offset:offset+2]
             offset += 3
             rigid_body.com_vel .= @view flat_value[offset:offset+2]
@@ -148,25 +132,19 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
             rigid_body.ω_p .= @view flat_value[offset:offset+2]
             offset += 3
         end
-        # twist_surfaces
         twist_surfaces = getfield(sys, :twist_surfaces)
         for twist_surface in twist_surfaces
-            if twist_surface.type == DYNAMIC
-                twist_surface.twist = flat_value[offset]
-                offset += 1
-                twist_surface.twist_ω = flat_value[offset]
-                offset += 1
-            end
+            twist_surface.twist = flat_value[offset]
+            offset += 1
+            twist_surface.twist_ω = flat_value[offset]
+            offset += 1
         end
-        # pulleys
         pulleys = getfield(sys, :pulleys)
         for pulley in pulleys
-            if pulley.type == DYNAMIC
-                pulley.len = flat_value[offset]
-                offset += 1
-                pulley.vel = flat_value[offset]
-                offset += 1
-            end
+            pulley.len = flat_value[offset]
+            offset += 1
+            pulley.vel = flat_value[offset]
+            offset += 1
         end
         # tethers
         tethers = getfield(sys, :tethers)
