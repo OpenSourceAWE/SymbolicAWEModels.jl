@@ -155,7 +155,7 @@ function Wing end
 
 """
     Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_principal;
-         transform=nothing, y_damping=150.0, angular_damping=0.0,
+         transform=nothing, angular_damping=[0.0, 150.0, 0.0],
          dynamics_type=RIGID_DYNAMICS, aero=nothing,
          z_ref_points=nothing, y_ref_points=nothing, origin=nothing, vsm=nothing)
 
@@ -171,7 +171,8 @@ are resolved by `SystemStructure`.
 
 # Keyword Arguments
 - `transform`: Reference to the transform (name or index). Defaults to 1.
-- `y_damping`, `angular_damping`: Angular damping coefficients.
+- `angular_damping`: Per-axis spin damping [1/s] about the body axes, `dω/dt -=
+  c .* ω`. A scalar is broadcast to all three axes.
 - `world_frame_damping`, `body_frame_damping`: Per-mass translational damping
   [1/s] of the COM velocity, resolved on the world and body axes.
 - `dynamics_type::WingType`: `RIGID_DYNAMICS` (default) or `PARTICLE_DYNAMICS`.
@@ -183,8 +184,7 @@ are resolved by `SystemStructure`.
 """
 function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
               pos_cad, inertia_principal;
-              transform=nothing, y_damping=150.0,
-              angular_damping=0.0,
+              transform=nothing, angular_damping=[0.0, 150.0, 0.0],
               world_frame_damping=0.0, body_frame_damping=0.0,
               dynamics_type::Union{Nothing,WingType}=nothing,
               aero::Union{Nothing,AbstractAeroModel}=nothing,
@@ -216,7 +216,7 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
 
     # mass, R_b_to_p, R_p_to_c, com_offset_b are placeholders filled by SystemStructure.
     body_type = dynamics_type == RIGID_DYNAMICS ? DYNAMIC : KINEMATIC
-    damping_vec = KVec3(angular_damping, angular_damping + y_damping, angular_damping)
+    damping_vec = broadcast_damping(angular_damping)
     return Body{typeof(aero), wing_dynamics(dynamics_type)}(
         0, name, 0, transform_ref,
         zero(SimFloat), KVec3(inertia_principal),
@@ -321,7 +321,8 @@ function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
 end
 
 """
-    VSMWing(name, set, twist_surfaces, vsm_set; transform=nothing, y_damping=150.0, ...)
+    VSMWing(name, set, twist_surfaces, vsm_set; transform=nothing,
+            angular_damping=[0.0, 150.0, 0.0], ...)
 
 Construct a [`Wing`](@ref) with Vortex Step Method aerodynamics. Builds the
 [`VSMEngine`](@ref) (`vsm_wing`/`vsm_aero`/`vsm_solver`) internally and attaches
@@ -338,7 +339,7 @@ it to the wing.
 # Keyword Arguments
 - `transform=nothing`: Reference to the transform. Defaults to 1.
 - `R_b_to_c`, `pos_cad`, `inertia_diag`: Geometry placeholders (resolved later).
-- `y_damping`, `angular_damping`: Damping coefficients.
+- `angular_damping`: Per-axis spin damping [1/s]; a scalar is broadcast.
 - `dynamics_type::WingType=RIGID_DYNAMICS`: Aerodynamic model type.
 - `aero::AbstractAeroModel`: Aerodynamic model (defaults by `dynamics_type`).
 - `group_points_moment::Bool=true`: When `false`, in-group (twist_surface) points
@@ -352,8 +353,7 @@ function VSMWing(name, set::Settings,
                  vsm_set::Union{Nothing, VortexStepMethod.VSMSettings};
                  R_b_to_c::Union{Nothing,AbstractMatrix}=nothing,
                  pos_cad::Union{Nothing,AbstractVector}=nothing,
-                 transform=nothing, y_damping=150.0,
-                 angular_damping=0.0,
+                 transform=nothing, angular_damping=[0.0, 150.0, 0.0],
                  inertia_diag=nothing,
                  mass=nothing,
                  com=nothing,
@@ -415,7 +415,7 @@ function VSMWing(name, set::Settings,
         ones(MVector{3, SimFloat}) : inertia_diag
 
     wing = Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_vec;
-        transform, y_damping, angular_damping, dynamics_type, aero,
+        transform, angular_damping, dynamics_type, aero,
         group_points_moment, z_ref_points, y_ref_points, origin,
         principal_frame_method)
     isnothing(mass) || (wing.mass = SimFloat(mass))
@@ -494,7 +494,7 @@ end
 """
     PlateWing(name, twist_surfaces, calc_cl, calc_cd;
               dynamics_type=PARTICLE_DYNAMICS, transform=nothing,
-              y_damping=150.0, angular_damping=0.0, drag_corr=0.93,
+              angular_damping=[0.0, 150.0, 0.0], drag_corr=0.93,
               z_ref_points=nothing, y_ref_points=nothing, origin=nothing)
 
 Construct a flat-plate [`Wing`](@ref) (no VSM engine; `vsm === nothing`). Each
@@ -513,7 +513,7 @@ polar lookups live on the wing's [`AeroPlate`](@ref) `aero` model. Supports both
 # Keyword Arguments
 - `dynamics_type`: `RIGID_DYNAMICS` or `PARTICLE_DYNAMICS` (default).
 - `transform`: Reference to transform (name or index).
-- `y_damping`, `angular_damping`: Damping coefficients.
+- `angular_damping`: Per-axis spin damping [1/s]; a scalar is broadcast.
 - `drag_corr`: Drag correction factor (stored on the `AeroPlate` model).
 - `z_ref_points`, `y_ref_points`, `origin`: Body-frame references.
 """
@@ -521,15 +521,14 @@ function PlateWing(name, twist_surfaces::AbstractVector,
                    calc_cl, calc_cd;
                    dynamics_type::WingType=PARTICLE_DYNAMICS,
                    transform=nothing,
-                   y_damping=150.0,
-                   angular_damping=0.0,
+                   angular_damping=[0.0, 150.0, 0.0],
                    drag_corr=0.93,
                    z_ref_points=nothing,
                    y_ref_points=nothing,
                    origin=nothing)
     return Wing(name, twist_surfaces, Matrix{SimFloat}(I, 3, 3),
                 zeros(KVec3), ones(MVector{3, SimFloat});
-                transform, y_damping, angular_damping, dynamics_type,
+                transform, angular_damping, dynamics_type,
                 aero=AeroPlate(calc_cl, calc_cd; drag_corr),
                 z_ref_points, y_ref_points, origin)
 end

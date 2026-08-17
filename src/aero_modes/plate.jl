@@ -249,9 +249,9 @@ function load_plate_wing(row, idx, data, set, wing_type, aero_mode,
 
     drag_corr = hasfield(typeof(row), :drag_corr) &&
         !isnothing(row.drag_corr) ? float(row.drag_corr) : 0.93
-    y_damping = hasfield(typeof(row), :y_damping) &&
-        !isnothing(row.y_damping) ?
-        float(row.y_damping) : 150.0
+    angular_damping = hasfield(typeof(row), :angular_damping) &&
+        !isnothing(row.angular_damping) ?
+        broadcast_damping(row.angular_damping) : KVec3(0.0, 150.0, 0.0)
 
     z_ref = yaml_parse_ref_points(row, :z_ref_points)
     y_ref = yaml_parse_ref_points(row, :y_ref_points)
@@ -286,7 +286,7 @@ function load_plate_wing(row, idx, data, set, wing_type, aero_mode,
     end
 
     PlateWing(name, section_refs, cl_interp, cd_interp;
-              dynamics_type=wing_type, transform, y_damping,
+              dynamics_type=wing_type, transform, angular_damping,
               drag_corr, z_ref_points=z_ref, y_ref_points=y_ref,
               origin)
 end

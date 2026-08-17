@@ -1213,6 +1213,21 @@ set_body_frame_damping(components::AbstractVector, damping::Union{Real, Abstract
                        idxs=eachindex(components)) =
     assign_damping!(components, :body_frame_damping, damping, idxs)
 
+"""
+    set_angular_damping(bodies::AbstractVector, damping[, idxs])
+
+Set the angular damping coefficient of rigid bodies: the spin is resolved on the
+body's own axes and damped per axis, `dω/dt -= c .* ω`, so `[0, 20, 0]` resists
+rotation about the body `y` axis alone. Coefficients are [1/s]; a scalar applies
+to all three axes.
+
+Unlike the joint Rayleigh damping this resists the body's *absolute* spin, so it
+brakes rigid rotation of whatever the body belongs to as well as deformation.
+"""
+set_angular_damping(bodies::AbstractVector, damping::Union{Real, AbstractVector},
+                    idxs=eachindex(bodies)) =
+    assign_damping!(bodies, :angular_damping, damping, idxs)
+
 # ==================== SEGMENT STATISTICS ==================== #
 
 """

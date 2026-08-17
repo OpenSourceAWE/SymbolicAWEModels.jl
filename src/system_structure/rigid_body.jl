@@ -64,8 +64,8 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     const ext_force_b::KVec3
     "External moment applied about the COM, body frame [N·m] (settable)."
     const ext_moment_b::KVec3
-    "Angular damping `[d_x, d_y, d_z]` [N·m·s] along the body-frame axes."
-    damping::KVec3
+    "Angular damping `[d_x, d_y, d_z]` [1/s] about the body-frame axes."
+    angular_damping::KVec3
     "Per-mass translational damping `[d_x, d_y, d_z]` [1/s] on the world axes."
     world_frame_damping::KVec3
     "Per-mass translational damping `[d_x, d_y, d_z]` [1/s] on the body axes."
@@ -201,7 +201,7 @@ broadcast_damping(damping) = damping isa Real ?
 """
     Body(name; mass, inertia_principal | inertia, pos, vel=zeros,
               Q_b_to_w=[1,0,0,0], ω_b=zeros, com_offset_b=zeros, R_b_to_p=I,
-              damping=0, world_frame_damping=0, body_frame_damping=0,
+              angular_damping=0, world_frame_damping=0, body_frame_damping=0,
               fix_sphere=false, type=DYNAMIC, transform=nothing,
               ext_force_w=zeros, ext_moment_b=zeros)
 
@@ -214,7 +214,7 @@ pose — e.g. a cantilever root). `transform` optionally references a
 [`Transform`](@ref) that repositions/rotates the body's initial pose (azimuth,
 elevation, heading), like a wing.
 
-`damping` is a scalar (isotropic) or length-3 per-axis angular damping.
+`angular_damping` is a scalar (isotropic) or length-3 per-axis spin damping [1/s].
 `world_frame_damping` and `body_frame_damping` damp the COM velocity resolved on
 the world and body axes respectively; both are per-mass [1/s], like a `Point`'s.
 `fix_sphere=true` confines COM motion to a sphere about the world origin (radial
@@ -235,7 +235,7 @@ function Body(name;
         ω_b = zeros(SimFloat, 3),
         com_offset_b = zeros(SimFloat, 3),
         R_b_to_p = Matrix{SimFloat}(I, 3, 3),
-        damping = 0.0,
+        angular_damping = 0.0,
         world_frame_damping = 0.0,
         body_frame_damping = 0.0,
         fix_sphere::Bool = false,
@@ -246,7 +246,7 @@ function Body(name;
         ext_moment_b = zeros(SimFloat, 3),
         principal_frame_method::PrincipalFrameMethod = EIGEN_DECOMP,
     )
-    damping_vec = broadcast_damping(damping)
+    damping_vec = broadcast_damping(angular_damping)
     world_damping_vec = broadcast_damping(world_frame_damping)
     body_damping_vec = broadcast_damping(body_frame_damping)
     type in (DYNAMIC, STATIC) || error(

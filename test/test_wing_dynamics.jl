@@ -61,7 +61,7 @@ wings:
       aero_mode: AERO_NONE
       twist_surfaces: [left, center, right]
       transform_idx: 0
-      y_damping: 0.0
+      angular_damping: [0.0, 0.0, 0.0]
       aero_z_offset: 0.0
 """
 

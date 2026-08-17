@@ -1111,7 +1111,7 @@ function body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc
     body = params.bodies[idx]
     sphere = body.fix_sphere
     spin = collect(omega_p)
-    damped = collect(alpha_p) .- collect(body.damping) .* spin
+    damped = collect(alpha_p) .- collect(body.angular_damping) .* spin
     velocity = collect(com_vel)
     R_b_to_w = orientation_p * collect(body.R_b_to_p)
     damped_acc = collect(com_acc) .-
