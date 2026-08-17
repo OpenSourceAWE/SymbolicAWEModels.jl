@@ -254,6 +254,7 @@ SymbolicAWEModels.RigidDynamics
 SymbolicAWEModels.ParticleDynamics
 SymbolicAWEModels.rotate_vsm_sections!
 SymbolicAWEModels.AERO_SCALE_CHORD
+SymbolicAWEModels.COLLOCATION_CHORD_FRAC
 SymbolicAWEModels.body_vsm_engine
 SymbolicAWEModels.expand_auto_tethers!
 SymbolicAWEModels.resolve!

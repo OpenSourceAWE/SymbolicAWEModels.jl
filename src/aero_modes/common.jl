@@ -573,10 +573,23 @@ function aero_geometry_entries(mode, wing, points)
 end
 
 """
+    const COLLOCATION_CHORD_FRAC = 0.75
+
+Chordwise station, as a fraction from LE to TE, that a section's inflow is sampled
+at. Thin-airfoil theory enforces flow tangency at the 3/4-chord point, so sampling
+there lets a chord twist rate reach `alpha` as downwash and be damped. Sampling at
+mid-chord instead leaves the twist rate invisible to the aero, or, for a chord
+pivoting between mid- and 3/4-chord, damped with the wrong sign.
+"""
+const COLLOCATION_CHORD_FRAC = 0.75
+
+"""
     strut_inflow_weights(mode, section, column) -> Vector{Tuple{Int, SimFloat}}
 
 The `(point column, weight)` pairs averaging refined section `section`'s inflow over
-its two bounding struts, each strut being the mean of its LE and TE station.
+its two bounding struts, each strut blending its LE and TE station at
+[`COLLOCATION_CHORD_FRAC`](@ref). With no chord twist rate the two stations share a
+velocity, so the blend is inert in steady flight whatever the fraction.
 """
 function strut_inflow_weights(mode, section::Int, column)
     left, weight, _, _ = section_interp_caches(mode)
@@ -584,8 +597,9 @@ function strut_inflow_weights(mode, section::Int, column)
     for (strut, share) in ((left[section], weight[section]),
                            (left[section] + 1, 1.0 - weight[section]))
         share == 0.0 && continue
-        push!(pairs, (column[(strut, :LE)], 0.5 * share))
-        push!(pairs, (column[(strut, :TE)], 0.5 * share))
+        push!(pairs, (column[(strut, :LE)],
+                      (1 - COLLOCATION_CHORD_FRAC) * share))
+        push!(pairs, (column[(strut, :TE)], COLLOCATION_CHORD_FRAC * share))
     end
     return pairs
 end
@@ -626,11 +640,11 @@ function store_induced_velocity!(v_ind, body_aero, gamma)
         "induced-velocity buffer is stale ($(size(v_ind)) for $n_panels " *
         "panels); reinitialize the model.")
     aic = body_aero.AIC
-    for i in 1:n_panels
-        for component in 1:3
+    for component in 1:3
+        for i in 1:n_panels
             acc = 0.0
             for j in 1:n_panels
-                acc += aic[component, i, j] * gamma[j]
+                acc += aic[i, j, component] * gamma[j]
             end
             v_ind[component, i] = acc
         end
@@ -1186,18 +1200,21 @@ end
     reconstruct_inflow_sym(mode, wing, connectors, column) -> (sec_va, sec_rho)
 
 Live symbolic body-frame apparent wind and density of every refined section: each
-strut's LE/TE connector values averaged into one strut value, then interpolated by the
-frozen mesh weights — the same struts and weights [`reconstruct_sections_sym`](@ref)
-builds that section's corners from, so a section's inflow and its geometry read the
-same points. Shared by all continuous VSM modes.
+strut's LE/TE connector values blended at [`COLLOCATION_CHORD_FRAC`](@ref) into one
+strut value, then interpolated by the frozen mesh weights — the same struts and
+weights [`reconstruct_sections_sym`](@ref) builds that section's corners from, so a
+section's inflow and its geometry read the same points. Symbolic twin of
+[`strut_inflow_weights`](@ref). Shared by all continuous VSM modes.
 """
 function reconstruct_inflow_sym(mode, wing, connectors, column)
     n_struts = Int(wing.vsm_wing.n_unrefined_sections)
-    strut_va = [0.5 * (collect(connectors.va[:, column[(s, :LE)]]) +
-                       collect(connectors.va[:, column[(s, :TE)]]))
+    nose = 1 - COLLOCATION_CHORD_FRAC
+    strut_va = [nose * collect(connectors.va[:, column[(s, :LE)]]) +
+                COLLOCATION_CHORD_FRAC *
+                    collect(connectors.va[:, column[(s, :TE)]])
                 for s in 1:n_struts]
-    strut_rho = [0.5 * (connectors.rho[column[(s, :LE)]] +
-                        connectors.rho[column[(s, :TE)]])
+    strut_rho = [nose * connectors.rho[column[(s, :LE)]] +
+                 COLLOCATION_CHORD_FRAC * connectors.rho[column[(s, :TE)]]
                  for s in 1:n_struts]
     left, weight, _, _ = section_interp_caches(mode)
     sec_va = [interp_strut(strut_va, left, weight, s) for s in eachindex(left)]
