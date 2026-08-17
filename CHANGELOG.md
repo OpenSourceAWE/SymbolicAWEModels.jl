@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Fixed
+- `store_induced_velocity!` reads `BodyAerodynamics.AIC` as `(panel, panel,
+  component)`, the layout VortexStepMethod uses so each `AIC[:, :, k]` slice is
+  a contiguous BLAS matrix. It still indexed the old `(component, panel, panel)`
+  order, so every continuous VSM mode threw a `BoundsError` on the first aero
+  refresh.
+- The continuous VSM modes sample each section's inflow at the 3/4-chord
+  collocation point of thin-airfoil theory instead of at mid-chord. The
+  mid-chord average kept a chord twist rate almost entirely out of `alpha`, so
+  the aero gave no pitch damping to a chord pivoting near mid-chord and damping
+  of the wrong sign to one pivoting between mid- and 3/4-chord. A wing whose
+  chord is structurally flexible had no aerodynamic resistance to flapping.
+  Inert in steady flight: with no twist rate the LE and TE stations share a
+  velocity, so every chordwise fraction gives the same inflow.
 - `setproperty!(::Body, ...)` converts to the field type, as Julia's default
   does. Its custom method called `setfield!` raw, so assigning an `SVector` to
   any `KVec3` field of a body threw a `TypeError` where the same assignment on a
