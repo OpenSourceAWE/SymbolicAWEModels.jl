@@ -1099,7 +1099,9 @@ The four integration overrides `rigid_body_pose_expressions` takes: `fix_sphere`
 confines the body to a sphere about the world origin by keeping only the radial part
 of its COM velocity and acceleration and dropping the radial part of its spin.
 `alpha_p`/`com_acc` are the caller's torn variables, so the overrides can name the
-accelerations they correct without a cycle. Angular damping is folded in here.
+accelerations they correct without a cycle. Damping is folded in here: angular
+`damping` on the spin, and per-mass `world_frame_damping`/`body_frame_damping` on
+the COM velocity resolved on the world and body axes.
 
 `frozen` holds all four derivatives at zero, clamping a body that is integrated but
 must not move; a backend that gives such a body no state at all leaves it `false`.
@@ -1110,14 +1112,18 @@ function body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc
     sphere = body.fix_sphere
     spin = collect(omega_p)
     damped = collect(alpha_p) .- collect(body.damping) .* spin
+    velocity = collect(com_vel)
+    R_b_to_w = orientation_p * collect(body.R_b_to_p)
+    damped_acc = collect(com_acc) .-
+        collect(body.world_frame_damping) .* velocity .-
+        R_b_to_w * (collect(body.body_frame_damping) .* (R_b_to_w' * velocity))
     axis = collect(smooth_normalize(collect(com_w)))
     axis_p = orientation_p' * axis
     spin_kinematic = ifelse.(sphere == true, remove_along(spin, axis_p), spin)
     spin_rate = ifelse.(sphere == true, remove_along(damped, axis_p), damped)
-    com_rate = ifelse.(sphere == true, keep_along(collect(com_vel), axis),
-                       collect(com_vel))
-    com_vel_rate = ifelse.(sphere == true, keep_along(collect(com_acc), axis),
-                           collect(com_acc))
+    com_rate = ifelse.(sphere == true, keep_along(velocity, axis), velocity)
+    com_vel_rate = ifelse.(sphere == true, keep_along(damped_acc, axis),
+                           damped_acc)
     held = zeros(3)
     return (; ω_kinematic = ifelse.(frozen == true, held, spin_kinematic),
             d_ω_p = ifelse.(frozen == true, held, spin_rate),

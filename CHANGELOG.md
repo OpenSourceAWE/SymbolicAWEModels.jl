@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Fixed
+- `setproperty!(::Body, ...)` converts to the field type, as Julia's default
+  does. Its custom method called `setfield!` raw, so assigning an `SVector` to
+  any `KVec3` field of a body threw a `TypeError` where the same assignment on a
+  `Point` worked.
 - `TimoshenkoJoint` no longer brakes rigid rotation of the bodies it connects.
   Damping resisted the raw relative node velocity `Δv`, whose transverse part is
   by construction the corotational frame's own spin and carries no strain, so a
@@ -29,6 +33,15 @@
   rigid motion conserves linear and angular momentum, and the logarithmic
   decrement `exp(−2πζ/√(1−ζ²))` pins β to `K`. New joint types inherit the
   check by being added to `joint_cases`.
+- `Body` takes `world_frame_damping` and `body_frame_damping`, per-mass [1/s]
+  translational damping of the COM velocity resolved on the world and body axes,
+  next to the angular `damping` it already had. A beam wing carries most of its
+  mass in bodies, and nothing else damps their rigid motion; a per-axis body-frame
+  coefficient such as `[0, 0, 20]` resists flapping normal to the wing without
+  slowing flight along it. Settable from the `bodies` YAML table.
+- `set_world_frame_damping` and `set_body_frame_damping` take a component vector,
+  so `set_body_frame_damping(sys.bodies, damping)` reaches the bodies. The
+  `SystemStructure` methods still mean the points.
 
 ### Changed
 - BREAKING: `TimoshenkoJoint` and `ElasticJoint` no longer accept

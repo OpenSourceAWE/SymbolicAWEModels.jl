@@ -66,6 +66,10 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     const ext_moment_b::KVec3
     "Angular damping `[d_x, d_y, d_z]` [N·m·s] along the body-frame axes."
     damping::KVec3
+    "Per-mass translational damping `[d_x, d_y, d_z]` [1/s] on the world axes."
+    world_frame_damping::KVec3
+    "Per-mass translational damping `[d_x, d_y, d_z]` [1/s] on the body axes."
+    body_frame_damping::KVec3
     "If true, COM motion is confined to a sphere about the world origin."
     fix_sphere::Bool
     "Dynamics type: DYNAMIC (free 6-DOF), KINEMATIC (fitted) or STATIC (frozen)."
@@ -186,9 +190,19 @@ function calc_inertia_y_rotation(I_tensor)
 end
 
 """
+    broadcast_damping(damping) -> KVec3
+
+Widen a scalar damping coefficient to an isotropic per-axis vector, or pass a
+length-3 one through.
+"""
+broadcast_damping(damping) = damping isa Real ?
+    KVec3(damping, damping, damping) : KVec3(damping)
+
+"""
     Body(name; mass, inertia_principal | inertia, pos, vel=zeros,
               Q_b_to_w=[1,0,0,0], ω_b=zeros, com_offset_b=zeros, R_b_to_p=I,
-              angular_damping=0, fix_sphere=false, type=DYNAMIC, transform=nothing,
+              damping=0, world_frame_damping=0, body_frame_damping=0,
+              fix_sphere=false, type=DYNAMIC, transform=nothing,
               ext_force_w=zeros, ext_moment_b=zeros)
 
 Construct a standalone rigid body. `pos`/`vel` are the body origin's initial
@@ -200,9 +214,11 @@ pose — e.g. a cantilever root). `transform` optionally references a
 [`Transform`](@ref) that repositions/rotates the body's initial pose (azimuth,
 elevation, heading), like a wing.
 
-`angular_damping` is a scalar (isotropic) or length-3 per-axis principal-frame
-damping. `fix_sphere=true` confines COM motion to a sphere about the world
-origin (radial DOF frozen), like a `RIGID_DYNAMICS` wing's `fix_sphere`.
+`damping` is a scalar (isotropic) or length-3 per-axis angular damping.
+`world_frame_damping` and `body_frame_damping` damp the COM velocity resolved on
+the world and body axes respectively; both are per-mass [1/s], like a `Point`'s.
+`fix_sphere=true` confines COM motion to a sphere about the world origin (radial
+DOF frozen), like a `RIGID_DYNAMICS` wing's `fix_sphere`.
 
 Supply the inertia in one of two ways: `inertia_principal` (a length-3 diagonal
 principal inertia, with `R_b_to_p` giving the body→principal rotation), or
@@ -220,6 +236,8 @@ function Body(name;
         com_offset_b = zeros(SimFloat, 3),
         R_b_to_p = Matrix{SimFloat}(I, 3, 3),
         damping = 0.0,
+        world_frame_damping = 0.0,
+        body_frame_damping = 0.0,
         fix_sphere::Bool = false,
         type::DynamicsType = DYNAMIC,
         transform = nothing,
@@ -228,8 +246,9 @@ function Body(name;
         ext_moment_b = zeros(SimFloat, 3),
         principal_frame_method::PrincipalFrameMethod = EIGEN_DECOMP,
     )
-    # Scalar damping broadcasts to an isotropic per-axis vector.
-    damping_vec = damping isa Real ? KVec3(damping, damping, damping) : KVec3(damping)
+    damping_vec = broadcast_damping(damping)
+    world_damping_vec = broadcast_damping(world_frame_damping)
+    body_damping_vec = broadcast_damping(body_frame_damping)
     type in (DYNAMIC, STATIC) || error(
         "Body $name: type must be DYNAMIC or STATIC, got $type.")
     transform_ref = isnothing(transform) ? 0 : transform
@@ -248,7 +267,7 @@ function Body(name;
         SimFloat(mass), KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p),
         Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b), principal_frame_method,
         KVec3(ext_force_w), KVec3(ext_force_b), KVec3(ext_moment_b),
-        damping_vec, fix_sphere, type,
+        damping_vec, world_damping_vec, body_damping_vec, fix_sphere, type,
         KVec3(pos), Matrix{SimFloat}(R_b_to_c),
         Vector{SimFloat}(Q_b_to_w), KVec3(ω_b),
         KVec3(pos), KVec3(vel), zeros(KVec3),

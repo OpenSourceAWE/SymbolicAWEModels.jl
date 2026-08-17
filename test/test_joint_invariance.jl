@@ -259,6 +259,36 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         @test node_b.vel_w[1] ≈ expected rtol=1e-2
     end
 
+    @testset "$label: analytic Jacobian matches forward mode" for (label, build) in
+            joint_cases
+        sam = SymbolicAWEModel(set, build())
+        test_init!(sam; prn=false)
+        integ = sam.integrator
+        isnothing(integ.f.jac) && continue
+        u = copy(integ.u); p = integ.p; t = integ.t
+        analytic = zeros(length(u), length(u))
+        integ.f.jac(analytic, u, p, t)
+        forward = SymbolicAWEModels.ForwardDiff.jacobian(
+            (du, x) -> integ.f(du, x, p, t), similar(u), u)
+        scale = max(maximum(abs, forward), eps())
+        @info "$label: Jacobian" maxdiff=maximum(abs, analytic .- forward) scale
+        @test maximum(abs, analytic .- forward) < 1e-6 * scale
+    end
+
+    # The damping terms are the ones that carry velocity into the Jacobian, so a
+    # rigidity law with a slope discontinuity shows up here and nowhere else.
+    @testset "TubeRigidityLaw is C1 across the knee" begin
+        law = comer_levy_bending_law(0.06, 0.3e5, 5.0e5)
+        knee = law.curvature_knee
+        step = 1e-7 * max(knee, 1.0)
+        below = (law(knee - step) - law(knee - 2step)) / step
+        above = (law(knee + 2step) - law(knee + step)) / step
+        @info "Bending law slope across the knee" knee below above
+        @test isapprox(law(knee - step), law(knee + step);
+                       rtol=1e-4)                       # C0: values match
+        @test isapprox(below, above; atol=1e-3 * max(abs(above), 1.0))
+    end
+
     rm(tmpdir; recursive=true)
 end
 nothing

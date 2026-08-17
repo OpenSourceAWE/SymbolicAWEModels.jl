@@ -98,7 +98,7 @@ function Base.setproperty!(body::Body, sym::Symbol, value)
     elseif sym in VSM_ENGINE_FIELDS
         setproperty!(body_vsm_engine(body, sym), sym, value)
     else
-        setfield!(body, sym, value)
+        setfield!(body, sym, convert(fieldtype(typeof(body), sym), value))
     end
 end
 
@@ -171,7 +171,9 @@ are resolved by `SystemStructure`.
 
 # Keyword Arguments
 - `transform`: Reference to the transform (name or index). Defaults to 1.
-- `y_damping`, `angular_damping`: Damping coefficients.
+- `y_damping`, `angular_damping`: Angular damping coefficients.
+- `world_frame_damping`, `body_frame_damping`: Per-mass translational damping
+  [1/s] of the COM velocity, resolved on the world and body axes.
 - `dynamics_type::WingType`: `RIGID_DYNAMICS` (default) or `PARTICLE_DYNAMICS`.
 - `aero::AbstractAeroModel`: Aerodynamic model (defaults by `dynamics_type`).
 - `group_points_moment::Bool=true`: When `false`, in-group (twist_surface) points
@@ -183,6 +185,7 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
               pos_cad, inertia_principal;
               transform=nothing, y_damping=150.0,
               angular_damping=0.0,
+              world_frame_damping=0.0, body_frame_damping=0.0,
               dynamics_type::Union{Nothing,WingType}=nothing,
               aero::Union{Nothing,AbstractAeroModel}=nothing,
               wing_type::Union{Nothing,WingType}=nothing,
@@ -220,7 +223,8 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
         Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3), zeros(KVec3),
         principal_frame_method,
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
-        damping_vec, false, body_type,
+        damping_vec, broadcast_damping(world_frame_damping),
+        broadcast_damping(body_frame_damping), false, body_type,
         KVec3(pos_cad), Matrix{SimFloat}(R_b_to_c),
         zeros(SimFloat, 4), zeros(KVec3),
         KVec3(pos_cad), zeros(KVec3), zeros(KVec3),

@@ -117,8 +117,7 @@ end
     plate_force_moment(sam, wing, sys, base, delta)
 
 Re-init with the given tip twist and read the wing's total body-frame aero force
-and moment. The twist is set before `init!` because `update_sys_struct!` writes
-it back from the model every step.
+and moment.
 """
 function plate_force_moment(sam, wing, sys, base, delta)
     tip_twist!(sys, base, delta)

@@ -1149,94 +1149,69 @@ end
 # ==================== DAMPING SETTERS ==================== #
 
 """
-    set_world_frame_damping(sys::SystemStructure, damping, point_idxs)
+    assign_damping!(components, field, damping, idxs)
 
-Set the world frame damping coefficient for specified points in the system structure.
-
-World frame damping applies a velocity-dependent drag force in the global
-reference frame: ``\\mathbf{F}_{damp} = -c_{damp} \\odot \\mathbf{v}``, where
-``c_{damp}`` is the damping vector and ``\\odot`` is element-wise multiplication.
-
-# Arguments
-- `sys::SystemStructure`: The system structure to modify.
-- `damping::Union{Real, AbstractVector}`: Damping coefficient(s) [N·s/m].
-  Scalar applies same value to all 3 axes. Vector must have 3 elements for [x,y,z] damping.
-- `point_idxs`: Indices of points to apply damping to.
-
-# Returns
-- `nothing`
+Write `damping` (scalar or 3-vector) into `field` of `components[idx]` for every
+`idx` in `idxs`. A fresh vector reaches each component, so later edits to one
+never leak into the others.
 """
-function set_world_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector},
-                                 point_idxs)
-    damp_vec = damping isa Real ? SVector{3,SimFloat}(damping, damping, damping) : SVector{3,SimFloat}(damping)
-    @assert length(damp_vec) == 3 "Damping must be scalar or 3-element vector"
-    for idx in point_idxs
-        sys.points[idx].world_frame_damping = damp_vec
+function assign_damping!(components, field::Symbol,
+                         damping::Union{Real, AbstractVector}, idxs)
+    damp_vec = damping isa Real ?
+        SVector{3,SimFloat}(damping, damping, damping) : SVector{3,SimFloat}(damping)
+    for idx in idxs
+        setproperty!(components[idx], field, damp_vec)
     end
     return nothing
 end
 
 """
-    set_world_frame_damping(sys::SystemStructure, damping)
+    set_world_frame_damping(sys::SystemStructure, damping[, point_idxs])
+    set_world_frame_damping(components::AbstractVector, damping[, idxs])
 
-Set the world frame damping coefficient for all points in the system structure.
+Set the world-frame damping coefficient, on `sys.points` by default or on any
+component vector given directly — pass `sys.bodies` to damp the rigid bodies of a
+beam wing.
 
-World frame damping applies a velocity-dependent drag force in the global
-reference frame: ``\\mathbf{F}_{damp} = -c_{damp} \\odot \\mathbf{v}``, where
-``c_{damp}`` is the damping vector and ``\\odot`` is element-wise multiplication.
-
-# Arguments
-- `sys::SystemStructure`: The system structure to modify.
-- `damping::Union{Real, AbstractVector}`: Damping coefficient(s) [N·s/m].
-  Scalar applies same value to all 3 axes. Vector must have 3 elements for [x,y,z] damping.
-
-# Returns
-- `nothing`
+World-frame damping applies a velocity-dependent drag in the global reference
+frame: ``\\mathbf{a}_{damp} = -c_{damp} \\odot \\mathbf{v}``, where ``c_{damp}``
+is the per-mass damping vector [1/s] and ``\\odot`` is element-wise
+multiplication. A scalar `damping` applies to all three axes.
 """
-function set_world_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector})
+set_world_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector},
+                        point_idxs) =
+    assign_damping!(sys.points, :world_frame_damping, damping, point_idxs)
+
+set_world_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector}) =
     set_world_frame_damping(sys, damping, eachindex(sys.points))
-end
+
+set_world_frame_damping(components::AbstractVector, damping::Union{Real, AbstractVector},
+                        idxs=eachindex(components)) =
+    assign_damping!(components, :world_frame_damping, damping, idxs)
 
 """
-    set_body_frame_damping(sys::SystemStructure, damping, point_idxs)
+    set_body_frame_damping(sys::SystemStructure, damping[, point_idxs])
+    set_body_frame_damping(components::AbstractVector, damping[, idxs])
 
-Set the body frame damping coefficient for specified points in the system structure.
+Set the body-frame damping coefficient, on `sys.points` by default or on any
+component vector given directly — pass `sys.bodies` to damp the rigid bodies of a
+beam wing.
 
-# Arguments
-- `sys::SystemStructure`: The system structure to modify.
-- `damping::Union{Real, AbstractVector}`: Damping coefficient(s) [N·s/m].
-  Scalar applies same value to all 3 axes. Vector must have 3 elements for [x,y,z] damping.
-- `point_idxs`: Indices of points to apply damping to.
-
-# Returns
-- `nothing`
+The velocity is resolved on the body axes before damping, so a per-axis
+coefficient damps selectively: `[0, 0, 20]` on a wing body resists motion normal
+to the wing without slowing flight along it. Coefficients are per-mass [1/s]; a
+scalar applies to all three axes.
 """
-function set_body_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector},
-                                point_idxs)
-    damp_vec = damping isa Real ? SVector{3,SimFloat}(damping, damping, damping) : SVector{3,SimFloat}(damping)
-    @assert length(damp_vec) == 3 "Damping must be scalar or 3-element vector"
-    for idx in point_idxs
-        sys.points[idx].body_frame_damping = damp_vec
-    end
-    return nothing
-end
+set_body_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector},
+                       point_idxs) =
+    assign_damping!(sys.points, :body_frame_damping, damping, point_idxs)
 
-"""
-    set_body_frame_damping(sys::SystemStructure, damping)
-
-Set the body frame damping coefficient for all points in the system structure.
-
-# Arguments
-- `sys::SystemStructure`: The system structure to modify.
-- `damping::Union{Real, AbstractVector}`: Damping coefficient(s) [N·s/m].
-  Scalar applies same value to all 3 axes. Vector must have 3 elements for [x,y,z] damping.
-
-# Returns
-- `nothing`
-"""
-function set_body_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector})
+set_body_frame_damping(sys::SystemStructure, damping::Union{Real, AbstractVector}) =
     set_body_frame_damping(sys, damping, eachindex(sys.points))
-end
+
+set_body_frame_damping(components::AbstractVector, damping::Union{Real, AbstractVector},
+                       idxs=eachindex(components)) =
+    assign_damping!(components, :body_frame_damping, damping, idxs)
 
 # ==================== SEGMENT STATISTICS ==================== #
 

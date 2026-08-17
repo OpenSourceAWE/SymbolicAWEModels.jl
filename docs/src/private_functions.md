@@ -287,6 +287,8 @@ SymbolicAWEModels.validate_twist_surface_modes
 SymbolicAWEModels.body_ride_eqs
 SymbolicAWEModels.beam_hermite_ride_eqs
 SymbolicAWEModels.point_damping_accel
+SymbolicAWEModels.broadcast_damping
+SymbolicAWEModels.assign_damping!
 SymbolicAWEModels.segment_rest_length_eqs
 ```
 
