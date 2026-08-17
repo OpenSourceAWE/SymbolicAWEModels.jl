@@ -96,6 +96,7 @@ export find_steady_state!
 export linearize!
 export set_world_frame_damping
 export set_body_frame_damping
+export set_angular_damping
 export segment_stretch_stats
 export calc_steady_torque
 

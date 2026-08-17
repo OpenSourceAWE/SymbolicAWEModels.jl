@@ -419,7 +419,7 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
     pos_cad = wing_type == PARTICLE_DYNAMICS ? (row -> nothing) :
         (row -> yaml_vec3(row, :pos_cad))
     # aero_z_offset only applies to RIGID wings.
-    kwargs_spec = [:transform, :y_damping, :angular_damping, :dynamics_type,
+    kwargs_spec = [:transform, :angular_damping, :dynamics_type,
         :aero, :z_ref_points, :y_ref_points, :origin, :pos_cad,
         :aero_scale_chord, :principal_frame_method,
         :mass, :com, :unit_inertia]
@@ -589,7 +589,7 @@ Build the plain rigid [`Body`](@ref)s from a `bodies` YAML block (empty when the
 block is absent). Field names mirror the [`Body`](@ref) constructor: required
 `name`, `mass`, `pos`, and one of `inertia_principal` (3-vector) or `inertia`
 (3×3); optional `type` (`DYNAMIC`/`STATIC`), `transform_idx`, `vel`, `Q_b_to_w`
-(4-vector), `omega_b`, `com_offset_b`, `damping`, `world_frame_damping`,
+(4-vector), `omega_b`, `com_offset_b`, `angular_damping`, `world_frame_damping`,
 `body_frame_damping` (each scalar or 3-vector), `fix_sphere`, `ext_force_w`,
 `ext_force_b`, `ext_moment_b`, `principal_frame_method`.
 """
@@ -615,7 +615,7 @@ function load_yaml_bodies(data, yaml_to_ref)
         isnothing(omega) || (kwargs[:ω_b] = omega)
         com_offset = yaml_vec3(row, :com_offset_b)
         isnothing(com_offset) || (kwargs[:com_offset_b] = com_offset)
-        for key in (:damping, :world_frame_damping, :body_frame_damping)
+        for key in (:angular_damping, :world_frame_damping, :body_frame_damping)
             value = yaml_field(row, key)
             isnothing(value) ||
                 (kwargs[key] = value isa Real ? SimFloat(value) : KVec3(value...))

@@ -55,8 +55,24 @@
 - `set_world_frame_damping` and `set_body_frame_damping` take a component vector,
   so `set_body_frame_damping(sys.bodies, damping)` reaches the bodies. The
   `SystemStructure` methods still mean the points.
+- `set_angular_damping(bodies, damping)` sets the per-axis spin damping the
+  `Body` already carried but nothing exposed: `dω/dt -= c .* ω` on the body's own
+  axes, so `[0, 20, 0]` resists rotation about `y` alone. It damps *absolute*
+  spin, unlike the joints' Rayleigh `damping`, which has no rigid-body effect.
+  Its docstring said N·m·s; the coefficient is applied to angular acceleration,
+  so the unit is 1/s.
 
 ### Changed
+- BREAKING: `Body.damping` is now `Body.angular_damping`, as its `Wing`
+  constructor kwarg already called it, and the `bodies` YAML key follows. A body
+  carries three damping fields and the bare name said nothing about which one it
+  was; the other two are `world_frame_damping` and `body_frame_damping`, and the
+  joints' Rayleigh β keeps the name `damping`.
+- BREAKING: the wing constructors (`Wing`, `VSMWing`, `PlateWing`) and the
+  `wings` YAML block drop `y_damping`; `angular_damping` is now the whole
+  per-axis vector and defaults to `[0, 150, 0]`, which is what the pair used to
+  produce. It was assembled as `[a, a + y_damping, a]`, so one axis was special
+  cased and the two knobs summed on it. A scalar is still broadcast to all three.
 - BREAKING: `TimoshenkoJoint` and `ElasticJoint` no longer accept
   `damping_trans`/`damping_rot`; use `damping` (Rayleigh β, seconds). A dashpot
   on relative node velocity has no rigid-body null space, which is what made the

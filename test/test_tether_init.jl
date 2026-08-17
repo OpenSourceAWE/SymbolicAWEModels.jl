@@ -525,7 +525,7 @@ wings:
       dynamics_type: RIGID_DYNAMICS
       aero_mode: AERO_NONE
       transform_idx: 0
-      y_damping: 0.0
+      angular_damping: [0.0, 0.0, 0.0]
 
 tethers:
   headers: [name, segment_idxs, init_stretched_length]
