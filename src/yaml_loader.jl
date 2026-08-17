@@ -589,9 +589,9 @@ Build the plain rigid [`Body`](@ref)s from a `bodies` YAML block (empty when the
 block is absent). Field names mirror the [`Body`](@ref) constructor: required
 `name`, `mass`, `pos`, and one of `inertia_principal` (3-vector) or `inertia`
 (3×3); optional `type` (`DYNAMIC`/`STATIC`), `transform_idx`, `vel`, `Q_b_to_w`
-(4-vector), `omega_b`, `com_offset_b`, `damping` (scalar or 3-vector),
-`fix_sphere`, `ext_force_w`, `ext_force_b`, `ext_moment_b`,
-`principal_frame_method`.
+(4-vector), `omega_b`, `com_offset_b`, `damping`, `world_frame_damping`,
+`body_frame_damping` (each scalar or 3-vector), `fix_sphere`, `ext_force_w`,
+`ext_force_b`, `ext_moment_b`, `principal_frame_method`.
 """
 function load_yaml_bodies(data, yaml_to_ref)
     bodies = Body[]
@@ -615,10 +615,11 @@ function load_yaml_bodies(data, yaml_to_ref)
         isnothing(omega) || (kwargs[:ω_b] = omega)
         com_offset = yaml_vec3(row, :com_offset_b)
         isnothing(com_offset) || (kwargs[:com_offset_b] = com_offset)
-        damping = yaml_field(row, :damping)
-        isnothing(damping) ||
-            (kwargs[:damping] = damping isa Real ? SimFloat(damping) :
-                KVec3(damping...))
+        for key in (:damping, :world_frame_damping, :body_frame_damping)
+            value = yaml_field(row, key)
+            isnothing(value) ||
+                (kwargs[key] = value isa Real ? SimFloat(value) : KVec3(value...))
+        end
         fix_sphere = yaml_field(row, :fix_sphere)
         isnothing(fix_sphere) || (kwargs[:fix_sphere] = Bool(fix_sphere))
         body_type = yaml_field(row, :type)

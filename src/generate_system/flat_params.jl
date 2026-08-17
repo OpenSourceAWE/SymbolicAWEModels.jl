@@ -193,19 +193,26 @@ struct ParamSync{S, A, C}
 end
 
 """
-    survivor_index(sys) -> Dict{String, param}
+    survivor_index(sys) -> Dict{String, Vector{param}}
 
-Map each parameter surviving `mtkcompile` to its name, keyed by both the full name
-and the leaf name (after the last `₊` namespace separator) so a registry's bare
-param matches its namespaced counterpart from a subsystem.
+Map each name to *every* parameter surviving `mtkcompile` under it, keyed by both the
+full name and the leaf name (after the last `₊` namespace separator) so a registry's
+bare param matches its namespaced counterparts from subsystems.
+
+A field read by both the parent equations and a subsystem is memoised to one registry
+entry but compiles to one parameter per reader, all sharing a leaf name. Keeping only
+the last would leave the others frozen at their build-time value, and whichever
+observed equation reads a frozen one then writes it back over the struct in
+`update_sys_struct!`.
 """
 function survivor_index(sys)
-    index = Dict{String, Any}()
+    index = Dict{String, Vector{Any}}()
+    record(key, param) = push!(get!(() -> Any[], index, key), param)
     for p in parameters(sys)
         name = string(ModelingToolkit.getname(ModelingToolkit.unwrap(p)))
-        index[name] = p
+        record(name, p)
         sep = findlast('₊', name)
-        sep === nothing || (index[name[nextind(name, sep):end]] = p)
+        sep === nothing || record(name[nextind(name, sep):end], p)
     end
     return index
 end
@@ -226,9 +233,9 @@ function build_param_sync(sys, registry::ParamRegistry)
     grp(entries, ::Type{Buf}) where {Buf} = begin
         survivors, readers = Any[], Any[]
         for entry in entries
-            survivor = get(index, entry_name(entry.param), nothing)
-            survivor === nothing && continue
-            push!(survivors, survivor); push!(readers, entry.read)
+            for survivor in get(index, entry_name(entry.param), ())
+                push!(survivors, survivor); push!(readers, entry.read)
+            end
         end
         isempty(survivors) ? nothing :
             ParamGroup(setp(sys, survivors), readers, Buf(undef, length(survivors)))
