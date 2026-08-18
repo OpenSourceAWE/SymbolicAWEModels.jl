@@ -122,7 +122,7 @@ visualize it:
 sys_struct = SystemStructure("tether", set;
     points, segments, transforms)
 
-GLMakie.plot(sys_struct)
+plot(sys_struct)
 
 ```
 

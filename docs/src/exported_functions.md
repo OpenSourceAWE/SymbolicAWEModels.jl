@@ -137,6 +137,8 @@ same panels for comparison.
 !!! note "Extension loading"
     The `plot` functions become available once both a Makie backend and
     `MakieControlPlots` are loaded — `using GLMakie` on its own is not enough.
+    `plot` extends `MakieControlPlots.plot`, the generic of the figure-returning
+    plot commands; the scene-mutating `plot!` extends `Makie.plot!`.
 
 ## Inflated-tube rigidity laws
 

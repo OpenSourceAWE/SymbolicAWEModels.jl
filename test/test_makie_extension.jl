@@ -155,7 +155,7 @@ end
     # Test 1: Multi-system plot creates vector-typed colors
     # ================================================================
     @testset "Multi-system plot vector colors" begin
-        scene = GLMakie.plot([sys1, sys2]; use_observables=true)
+        scene = MakieControlPlots.plot([sys1, sys2]; use_observables=true)
         @test scene isa GLMakie.Scene
     end
 

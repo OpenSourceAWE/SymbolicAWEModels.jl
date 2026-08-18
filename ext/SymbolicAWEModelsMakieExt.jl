@@ -5,6 +5,7 @@ module SymbolicAWEModelsMakieExt
 
 using MakieControlPlots.Makie
 import MakieControlPlots
+import MakieControlPlots: plot
 using UnPack
 using LinearAlgebra
 using StaticArrays
@@ -1232,7 +1233,7 @@ end
 
 
 """
-    Makie.plot(sys::SystemStructure, lg::SysLog; kwargs...)
+    MakieControlPlots.plot(sys::SystemStructure, lg::SysLog; kwargs...)
 
 Create a multi-panel plot of key simulation results from a `SysLog`.
 
@@ -1278,13 +1279,13 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 plot(model.sys_struct, log, plot_reelout=false, plot_aero_force=false, plot_twist=false, plot_winch_force=false)
 ```
 """
-function Makie.plot(sys::SystemStructure, lg::SysLog{N}; kwargs...) where N
+function MakieControlPlots.plot(sys::SystemStructure, lg::SysLog{N}; kwargs...) where N
     # Wrapper that uses the vector version
-    return Makie.plot([sys], [lg]; kwargs...)
+    return MakieControlPlots.plot([sys], [lg]; kwargs...)
 end
 
 """
-    Makie.plot(sys::SystemStructure, logs::Vector{SysLog}; kwargs...)
+    MakieControlPlots.plot(sys::SystemStructure, logs::Vector{SysLog}; kwargs...)
 
 Create a multi-panel plot comparing multiple simulation logs on the same figure.
 
@@ -1297,7 +1298,7 @@ corresponding system name.
 - `logs::Vector{SysLog}`: Vector of simulation logs to compare.
 
 # Keyword Arguments
-Same as the single-syslog version. See `Makie.plot(sys::SystemStructure, lg::SysLog)` for details.
+Same as the single-syslog version. See `MakieControlPlots.plot(sys::SystemStructure, lg::SysLog)` for details.
 
 # Example
 ```julia
@@ -1308,10 +1309,10 @@ plot(sys_struct, [syslog_refine, syslog_quat];
      plot_default=false, plot_aero_force=false)
 ```
 """
-function Makie.plot(sys::SystemStructure, logs::Vector{<:SysLog}; kwargs...)
+function MakieControlPlots.plot(sys::SystemStructure, logs::Vector{<:SysLog}; kwargs...)
     # Wrapper that creates a vector of SystemStructure with the same sys for each log
     syss = [sys for _ in logs]
-    return Makie.plot(syss, logs; kwargs...)
+    return MakieControlPlots.plot(syss, logs; kwargs...)
 end
 
 """
@@ -1325,7 +1326,7 @@ function per_winch_series(samples)
     return [[samples[k][j] for k in eachindex(samples)] for j in 1:n_winch]
 end
 
-function Makie.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
+function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
                    plot_default=true,
                    plot_reelout=plot_default,
                    plot_aero_force=plot_default,
@@ -3083,7 +3084,7 @@ function plot_with_panes(sys::SystemStructure;
 end
 
 # Public API function - creates scene with observables for dynamic updates
-function Makie.plot(sys::SystemStructure;
+function MakieControlPlots.plot(sys::SystemStructure;
                     vector_scale=1.0,
                     force_color=false,
                     segment_color=RGBf(0.25, 0.25, 0.25),
@@ -3217,7 +3218,7 @@ function build_geometry_observables(sys::SystemStructure, trigger::Observable)
 end
 
 """
-    Makie.plot(syss::Vector{<:SystemStructure}; ghost_color=..., ghost_alpha=0.5, ...)
+    MakieControlPlots.plot(syss::Vector{<:SystemStructure}; ghost_color=..., ghost_alpha=0.5, ...)
 
 Plot several SystemStructures in one 3D scene: the first as the fully-featured
 primary, the rest as flat grey, non-interactive "ghost" outlines behind it.
@@ -3244,7 +3245,7 @@ a reference shape. The ghost geometry observables are stored in
 scene = plot([sys_full, sys_collapsed])  # full model, collapsed as grey ghost
 ```
 """
-function Makie.plot(syss::Vector{<:SystemStructure};
+function MakieControlPlots.plot(syss::Vector{<:SystemStructure};
                     ghost_color=RGBf(0.6, 0.6, 0.6),
                     ghost_alpha=0.5,
                     vector_scale=1.0,
