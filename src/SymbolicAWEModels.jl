@@ -148,10 +148,6 @@ Basic 3-dimensional vector, stack allocated, immutable.
 """
 const SVec3    = SVector{3, SimFloat}  
 
-# Defined in ext/SymbolicAWEModelsMakieExt.jl
-function plot end
-# Defined in ext/SymbolicAWEModelsMakieExt.jl
-function plot! end
 function update_plot_observables! end
 function animate end
 function replay end

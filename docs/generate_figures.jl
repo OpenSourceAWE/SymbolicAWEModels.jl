@@ -36,7 +36,7 @@ vsm_set_2p = VortexStepMethod.VSMSettings(
 
 sys_2p = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite", set=set_2p, vsm_set=vsm_set_2p)
-scene = GLMakie.plot(sys_2p)
+scene = MakieControlPlots.plot(sys_2p)
 GLMakie.save(joinpath(ASSETS, "2plate_kite_structure.png"), scene)
 
 println("All figures generated in $ASSETS")

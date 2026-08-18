@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+- BREAKING: the Makie extension adds its `plot(::SystemStructure, ...)` methods
+  to `MakieControlPlots.plot` instead of `Makie.plot`. `MakieControlPlots`
+  defines its own `plot` that shadows Makie's, and it is the one exported into
+  your session, so `plot(sys_struct)` used to hit a `MethodError` while the
+  methods sat on the unexported `Makie.plot`. Call sites that qualify as
+  `Makie.plot(sys_struct, ...)` or `GLMakie.plot(sys_struct, ...)` must drop the
+  qualifier or use `MakieControlPlots.plot`. The scene-mutating `plot!` stays on
+  `Makie.plot!`.
+
 ### Fixed
 - A `Body`'s `body_frame_damping` damps its velocity *relative to its parent
   wing*, resolved on the wing's axes, through the same `body_frame_damp_accel` a
