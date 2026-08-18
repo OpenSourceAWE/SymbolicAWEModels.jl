@@ -82,6 +82,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb libgl1-mesa-dri
 
+      # macOS runners have no OpenGL and no xvfb equivalent, so GLMakie cannot
+      # precompile there and takes MakieControlPlots down with it. Dropping both
+      # keeps the plotting tests skipping, which is what they already do without
+      # a display; Makie itself stays, so VortexStepMethodMakieExt still builds.
+      - name: Drop GLMakie from the macOS test environment
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          grep -v -E '^(GLMakie|MakieControlPlots) = ' test/Project.toml \
+            > test/Project.toml.tmp
+          mv test/Project.toml.tmp test/Project.toml
+
       - uses: julia-actions/cache@v3
 
       - name: Prepare version-specific manifest
