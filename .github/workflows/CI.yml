@@ -104,6 +104,12 @@ jobs:
             echo "Copied $DEFAULT to $TARGET"
           fi
 
+      # A cached registry is never refreshed by buildpkg; it just reports that
+      # General already exists, so a manifest pin newer than the cache cannot resolve.
+      - name: Update the package registry
+        shell: bash
+        run: julia -e 'using Pkg; Pkg.Registry.update()'
+
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
         with:
