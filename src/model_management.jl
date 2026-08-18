@@ -836,7 +836,8 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
                         transform.base_point_idx, transform.base_transform_idx))
     end
     for rigid_body in bodies
-        push!(data_parts, ("rigid_body", rigid_body.idx, Int(rigid_body.type)))
+        push!(data_parts, ("rigid_body", rigid_body.idx, Int(rigid_body.type),
+                           rigid_body.wing_idx))
     end
     for joint in elastic_joints
         # Stiffness type selects the generated law (scalar `k·Δ` vs callable `k(Δ)`).

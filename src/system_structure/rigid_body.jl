@@ -44,6 +44,10 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     transform_idx::Int64
     "Raw transform reference (name or idx). 0 = no transform."
     const transform_ref::Union{Int, Symbol}
+    "Resolved parent wing index (filled by SystemStructure). 0 = no parent wing."
+    wing_idx::Int64
+    "Raw parent-wing reference (name or idx). 0 = no parent wing."
+    const wing_ref::Union{Int, Symbol}
 
     # ---- rigid-body core ----
     "Total mass [kg]."
@@ -202,7 +206,7 @@ broadcast_damping(damping) = damping isa Real ?
     Body(name; mass, inertia_principal | inertia, pos, vel=zeros,
               Q_b_to_w=[1,0,0,0], ω_b=zeros, com_offset_b=zeros, R_b_to_p=I,
               angular_damping=0, world_frame_damping=0, body_frame_damping=0,
-              fix_sphere=false, type=DYNAMIC, transform=nothing,
+              fix_sphere=false, type=DYNAMIC, transform=nothing, wing=nothing,
               ext_force_w=zeros, ext_moment_b=zeros)
 
 Construct a standalone rigid body. `pos`/`vel` are the body origin's initial
@@ -212,7 +216,8 @@ The principal-frame ODE state is derived from these by `init_rigid_body!`.
 `type` is `DYNAMIC` (free 6-DOF, default) or `STATIC` (clamped to its initial
 pose — e.g. a cantilever root). `transform` optionally references a
 [`Transform`](@ref) that repositions/rotates the body's initial pose (azimuth,
-elevation, heading), like a wing.
+elevation, heading), like a wing. `wing` names the parent wing whose frame and
+motion the body-frame damping resolves against, as a `Point`'s `wing` does.
 
 `angular_damping` is a scalar (isotropic) or length-3 per-axis spin damping [1/s].
 `world_frame_damping` and `body_frame_damping` damp the COM velocity resolved on
@@ -241,6 +246,7 @@ function Body(name;
         fix_sphere::Bool = false,
         type::DynamicsType = DYNAMIC,
         transform = nothing,
+        wing = nothing,
         ext_force_w = zeros(SimFloat, 3),
         ext_force_b = zeros(SimFloat, 3),
         ext_moment_b = zeros(SimFloat, 3),
@@ -252,6 +258,7 @@ function Body(name;
     type in (DYNAMIC, STATIC) || error(
         "Body $name: type must be DYNAMIC or STATIC, got $type.")
     transform_ref = isnothing(transform) ? 0 : transform
+    wing_ref = isnothing(wing) ? 0 : wing
     if !isnothing(inertia)
         isnothing(inertia_principal) || error(
             "Body $name: give `inertia` or `inertia_principal`, not both.")
@@ -263,7 +270,7 @@ function Body(name;
     R_b_to_c = quaternion_to_rotation_matrix(Vector{SimFloat}(Q_b_to_w))
     # Plain body: no aero (AeroNone), rigid dynamics, inert aero/wing fields.
     return Body{AeroNone, RigidDynamics}(
-        0, name, 0, transform_ref,
+        0, name, 0, transform_ref, 0, wing_ref,
         SimFloat(mass), KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p),
         Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b), principal_frame_method,
         KVec3(ext_force_w), KVec3(ext_force_b), KVec3(ext_moment_b),

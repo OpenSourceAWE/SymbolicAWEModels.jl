@@ -1093,30 +1093,41 @@ end
 
 """
     body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
-                     orientation_p; frozen=false)
+                     orientation_p; frozen=false, wing_frame=nothing,
+                     wing_vel=nothing)
 
 The four integration overrides `rigid_body_pose_expressions` takes: `fix_sphere`
 confines the body to a sphere about the world origin by keeping only the radial part
 of its COM velocity and acceleration and dropping the radial part of its spin.
 `alpha_p`/`com_acc` are the caller's torn variables, so the overrides can name the
-accelerations they correct without a cycle. Damping is folded in here: angular
-`damping` on the spin, and per-mass `world_frame_damping`/`body_frame_damping` on
-the COM velocity resolved on the world and body axes.
+accelerations they correct without a cycle.
+
+Damping is folded in here, so both backends share one definition: `angular_damping`
+on the absolute spin, `world_frame_damping` on the COM velocity on the world axes,
+and `body_frame_damping` through the same [`body_frame_damp_accel`](@ref) a wing
+node uses — the velocity *relative to the parent wing*, resolved on the wing's axes,
+so it damps deformation and not rigid flight. `wing_frame`/`wing_vel` carry that
+parent's frame and velocity; a body with no parent wing (`wing_idx == 0`) gets its
+own frame and a resting parent, which is plain body-axis damping of its own velocity.
 
 `frozen` holds all four derivatives at zero, clamping a body that is integrated but
 must not move; a backend that gives such a body no state at all leaves it `false`.
 """
 function body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
-                          orientation_p; frozen=false)
+                          orientation_p; frozen=false, wing_frame=nothing,
+                          wing_vel=nothing)
     body = params.bodies[idx]
     sphere = body.fix_sphere
     spin = collect(omega_p)
     damped = collect(alpha_p) .- collect(body.angular_damping) .* spin
     velocity = collect(com_vel)
     R_b_to_w = orientation_p * collect(body.R_b_to_p)
+    parent_frame = isnothing(wing_frame) ? R_b_to_w : wing_frame
+    parent_vel = isnothing(wing_vel) ? zeros(3) : collect(wing_vel)
     damped_acc = collect(com_acc) .-
         collect(body.world_frame_damping) .* velocity .-
-        R_b_to_w * (collect(body.body_frame_damping) .* (R_b_to_w' * velocity))
+        body_frame_damp_accel(velocity, body.body_frame_damping,
+                              parent_frame, parent_vel)
     axis = collect(smooth_normalize(collect(com_w)))
     axis_p = orientation_p' * axis
     spin_kinematic = ifelse.(sphere == true, remove_along(spin, axis_p), spin)
@@ -1136,14 +1147,22 @@ end
 
 Free 6-DOF rigid body: integrates the 13-state principal pose (`com_w`, `com_vel`,
 `Q_p_to_w`, `ω_p`) under gravity, the wrench gathered at `force_in`/`moment_in`, the
-external wrench (`ext_force_w`/`ext_force_b`/`ext_moment_b`) and per-axis angular
-`damping`, through [`rigid_body_pose_expressions`](@ref). `fix_sphere` stays a
-parameter. A clamped body is [`StaticBody`](@ref) instead.
+external wrench (`ext_force_w`/`ext_force_b`/`ext_moment_b`) and its damping,
+through [`rigid_body_pose_expressions`](@ref). `fix_sphere` stays a parameter. A
+clamped body is [`StaticBody`](@ref) instead.
+
+`parented` declares the `wing_frame`/`wing_velocity` inputs a body with a parent
+wing needs, so its `body_frame_damping` resists motion relative to that wing
+rather than absolute motion; the assembly connects them from the parent instance.
 """
-function RigidBody(s, params, idx; name)
+function RigidBody(s, params, idx; name, parented = false)
     io = body_variables()
     state = @variables com_w(t)[1:3] com_vel(t)[1:3] Q(t)[1:4] omega_p(t)[1:3]
     torn = @variables alpha_p(t)[1:3] com_acc(t)[1:3]
+    parent = @variables begin
+        wing_frame(t)[1:9], [input = true]
+        wing_velocity(t)[1:3], [input = true]
+    end
     com_w, com_vel, Q, omega_p = state
     alpha_p, com_acc = torn
     body = params.bodies[idx]
@@ -1156,7 +1175,10 @@ function RigidBody(s, params, idx; name)
     ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
         body.mass, body.R_b_to_p, body.com_offset_b, com_w, com_vel, Q, omega_p;
         body_integration(params, idx, com_w, com_vel, omega_p, alpha_p,
-                         com_acc, orientation_p)...)
+                         com_acc, orientation_p;
+                         wing_frame = parented ?
+                             reshape(collect(parent[1]), 3, 3) : nothing,
+                         wing_vel = parented ? collect(parent[2]) : nothing)...)
     eqs = [
         collect(alpha_p) .~ ex.α_p
         collect(com_acc) .~ ex.com_acc
@@ -1174,7 +1196,8 @@ function RigidBody(s, params, idx; name)
         collect(io.orientation) .~ ex.Q_b_to_w
         collect(io.omega_b) .~ ex.ω_b
     ]
-    return System(eqs, t, [io.all; state; torn], param_unknowns(params); name)
+    vars = parented ? [io.all; parent; state; torn] : [io.all; state; torn]
+    return System(eqs, t, vars, param_unknowns(params); name)
 end
 
 """

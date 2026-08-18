@@ -15,6 +15,7 @@ const WINCH_INPUTS = [PARTICLE_INPUTS; :tension_in]
 const SEGMENT_INPUTS = [:src_pos, :src_vel, :dst_pos, :dst_vel]
 const SEGMENT_OUTPUTS = [:src_force, :dst_force, :half_mass, :half_drag]
 const BODY_INPUTS = [:force_in, :moment_in]
+const PARENTED_BODY_INPUTS = [BODY_INPUTS; :wing_frame; :wing_velocity]
 const BODY_OUTPUTS = [:pos, :vel, :frame, :com, :com_velocity, :omega_w]
 const RIDE_INPUTS = [:pose_pos, :pose_frame, :pose_com, :pose_com_velocity,
                      :pose_omega]
@@ -361,6 +362,13 @@ function assemble(sam; verbose = false)
         connect!(builder, body_instances[role.body_idx], :vel,
                  point_instances[idx], :wing_velocity)
     end
+    for (idx, body) in enumerate(sys_struct.bodies)
+        (body.type == DYNAMIC && body.wing_idx != 0) || continue
+        connect!(builder, body_instances[body.wing_idx], :frame,
+                 body_instances[idx], :wing_frame)
+        connect!(builder, body_instances[body.wing_idx], :vel,
+                 body_instances[idx], :wing_velocity)
+    end
     for joint in sys_struct.elastic_joints
         add_joint!(builder, table, bindings, sam, joint, body_instances,
                    :elastic_joints, ElasticJointComponent, ELASTIC_RIGIDITIES)
@@ -706,11 +714,14 @@ function add_body!(builder, table, bindings, sam, idx)
     body.type in (DYNAMIC, STATIC) || error(
         "KernelBackend: body $(body.name) has type $(body.type); only DYNAMIC, " *
         "STATIC and KINEMATIC are supported so far.")
-    make = body.type == STATIC ? StaticBody : RigidBody
-    key = body.type == STATIC ? :static_body : :rigid_body
-    entry = kernel!(builder, table, sam, key, idx,
-                    params -> make(sam, params, idx; name = key),
-                    BODY_INPUTS, BODY_OUTPUTS)
+    parented = body.type != STATIC && body.wing_idx != 0
+    key = body.type == STATIC ? :static_body :
+        parented ? :parented_rigid_body : :rigid_body
+    make = body.type == STATIC ?
+        (params -> StaticBody(sam, params, idx; name = key)) :
+        (params -> RigidBody(sam, params, idx; name = key, parented))
+    entry = kernel!(builder, table, sam, key, idx, make,
+                    parented ? PARENTED_BODY_INPUTS : BODY_INPUTS, BODY_OUTPUTS)
     instance = add_instance!(builder, entry.index)
     push!(bindings, (instance, entry, Dict(:bodies => idx)))
     return instance

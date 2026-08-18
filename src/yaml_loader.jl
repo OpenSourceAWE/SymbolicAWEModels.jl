@@ -589,7 +589,8 @@ Build the plain rigid [`Body`](@ref)s from a `bodies` YAML block (empty when the
 block is absent). Field names mirror the [`Body`](@ref) constructor: required
 `name`, `mass`, `pos`, and one of `inertia_principal` (3-vector) or `inertia`
 (3×3); optional `type` (`DYNAMIC`/`STATIC`), `transform_idx`, `vel`, `Q_b_to_w`
-(4-vector), `omega_b`, `com_offset_b`, `angular_damping`, `world_frame_damping`,
+(4-vector), `omega_b`, `com_offset_b`, `wing` (the parent wing a body-frame
+damping resolves against), `angular_damping`, `world_frame_damping`,
 `body_frame_damping` (each scalar or 3-vector), `fix_sphere`, `ext_force_w`,
 `ext_force_b`, `ext_moment_b`, `principal_frame_method`.
 """
@@ -627,6 +628,8 @@ function load_yaml_bodies(data, yaml_to_ref)
             (kwargs[:type] = parse_dynamics_type(String(body_type)))
         transform = yaml_ref_field(row, :transform_idx, yaml_to_ref)
         isnothing(transform) || (kwargs[:transform] = transform)
+        wing = yaml_ref_field(row, :wing, yaml_to_ref)
+        isnothing(wing) || (kwargs[:wing] = wing)
         for (field, key) in ((:ext_force_w, :ext_force_w),
                              (:ext_force_b, :ext_force_b),
                              (:ext_moment_b, :ext_moment_b))

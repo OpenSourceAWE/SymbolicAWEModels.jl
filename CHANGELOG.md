@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Fixed
+- A `Body`'s `body_frame_damping` damps its velocity *relative to its parent
+  wing*, resolved on the wing's axes, through the same `body_frame_damp_accel` a
+  wing node uses — so it damps deformation and leaves rigid flight alone, and it
+  means on a body what it already meant on a point. It damped absolute velocity
+  on the body's own axes, which for an isotropic coefficient is the same operator
+  as `world_frame_damping`. Both backends reach it through the one
+  `body_integration`, the kernel declaring `wing_frame`/`wing_velocity` inputs
+  for a parented body.
 - `store_induced_velocity!` reads `BodyAerodynamics.AIC` as `(panel, panel,
   component)`, the layout VortexStepMethod uses so each `AIC[:, :, k]` slice is
   a contiguous BLAS matrix. It still indexed the old `(component, panel, panel)`
@@ -55,6 +63,9 @@
 - `set_world_frame_damping` and `set_body_frame_damping` take a component vector,
   so `set_body_frame_damping(sys.bodies, damping)` reaches the bodies. The
   `SystemStructure` methods still mean the points.
+- `Body` takes `wing`, resolved to `wing_idx`/`wing_ref` like a `Point`'s, naming
+  the parent wing its `body_frame_damping` resolves against. A body without one
+  damps its own velocity on its own axes, as before.
 - `set_angular_damping(bodies, damping)` sets the per-axis spin damping the
   `Body` already carried but nothing exposed: `dω/dt -= c .* ω` on the body's own
   axes, so `[0, 20, 0]` resists rotation about `y` alone. It damps *absolute*

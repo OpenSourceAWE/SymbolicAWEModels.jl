@@ -1049,10 +1049,12 @@ function SystemStructure(name, set;
 
     # Wings are bodies, placed first so idx stays 1..n_wings (wing arrays index by idx).
     prepend!(bodies, wings)
+    wing_names_dict = build_name_dict(wings)
     for (i, body) in enumerate(bodies)
         body.idx = i
         body.transform_idx = resolve_ref(
             body.transform_ref, transform_names_dict, "transform")
+        body.wing_idx = resolve_ref(body.wing_ref, wing_names_dict, "wing")
     end
     rigid_body_names_dict = build_name_dict(bodies)
 

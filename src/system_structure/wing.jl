@@ -218,7 +218,7 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
     body_type = dynamics_type == RIGID_DYNAMICS ? DYNAMIC : KINEMATIC
     damping_vec = broadcast_damping(angular_damping)
     return Body{typeof(aero), wing_dynamics(dynamics_type)}(
-        0, name, 0, transform_ref,
+        0, name, 0, transform_ref, 0, 0,
         zero(SimFloat), KVec3(inertia_principal),
         Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3), zeros(KVec3),
         principal_frame_method,
