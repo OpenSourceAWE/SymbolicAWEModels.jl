@@ -1793,9 +1793,9 @@ version = "0.24.13"
 
 [[deps.MakieControlPlots]]
 deps = ["CairoMakie", "GLMakie", "GridLayoutBase", "JLD2", "LaTeXStrings", "Makie", "Pkg", "PrecompileTools", "Printf", "StaticArraysCore"]
-git-tree-sha1 = "cadab346083c6c924cc896f3d631719feb37f853"
+git-tree-sha1 = "7e914cb1dfacb155855b9743aff17f78cd487d53"
 uuid = "6d616b69-6563-4f6e-8472-6f6c706c6f74"
-version = "0.1.12"
+version = "0.1.14"
 weakdeps = ["ControlSystemsBase"]
 
     [deps.MakieControlPlots.extensions]
@@ -3281,7 +3281,7 @@ version = "1.28.0"
 
 [[deps.VortexStepMethod]]
 deps = ["Arrow", "Colors", "DefaultApplication", "DelimitedFiles", "DifferentiationInterface", "FiniteDiff", "ForwardDiff", "Interpolations", "LaTeXStrings", "LinearAlgebra", "Logging", "Measures", "NPZ", "NonlinearSolve", "Parameters", "Pkg", "PreallocationTools", "PrecompileTools", "Printf", "RecursiveArrayTools", "SciMLBase", "Serialization", "StaticArrays", "Statistics", "StructMapping", "Timers", "Xfoil", "YAML"]
-path = "/home/newbart/Code/Kite/VortexStepMethod.jl"
+git-tree-sha1 = "dc3e6a57d5cd371e1a292524679a60e552a8e2cb"
 uuid = "ed3cd733-9f0f-46a9-93e0-89b8d4998dd9"
 version = "4.1.0"
 weakdeps = ["MakieControlPlots"]
