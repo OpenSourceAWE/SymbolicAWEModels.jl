@@ -79,7 +79,8 @@ that loads once a Makie backend and `MakieControlPlots` are both available.
 
 Plot the 3D structure of the system with interactive features:
 ```julia
-using GLMakie, MakieControlPlots
+import GLMakie
+using MakieControlPlots
 plot(sys::SystemStructure; kwargs...)
 ```
 
@@ -138,7 +139,9 @@ same panels for comparison.
     The `plot` functions become available once both a Makie backend and
     `MakieControlPlots` are loaded — `using GLMakie` on its own is not enough.
     `plot` extends `MakieControlPlots.plot`, the generic of the figure-returning
-    plot commands; the scene-mutating `plot!` extends `Makie.plot!`.
+    plot commands; the scene-mutating `plot!` extends `Makie.plot!`. A Makie
+    backend exports a `plot` of its own, so load the backend with `import
+    GLMakie` rather than `using GLMakie` to keep the name unambiguous.
 
 ## Inflated-tube rigidity laws
 

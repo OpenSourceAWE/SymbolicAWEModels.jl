@@ -11,7 +11,7 @@ It loads once both a Makie backend and `MakieControlPlots` are available:
 
 ```julia
 using SymbolicAWEModels
-using GLMakie
+import GLMakie
 using MakieControlPlots  # together these load the plotting extension
 ```
 
@@ -47,7 +47,8 @@ See the [Functions](exported_functions.md) page for plotting keyword arguments.
 **Registry users** — copy examples and data to your project:
 ```julia
 using SymbolicAWEModels
-using GLMakie, MakieControlPlots
+import GLMakie
+using MakieControlPlots
 SymbolicAWEModels.copy_data()
 SymbolicAWEModels.copy_examples()
 include("examples/menu.jl")  # Interactive menu

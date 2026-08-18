@@ -38,7 +38,7 @@
 # connected by spring-damper segments, hanging under gravity.
 
 using SymbolicAWEModels, VortexStepMethod
-using GLMakie
+import GLMakie
 using MakieControlPlots
 GLMakie.activate!(; visible=false)                                #hide
 ASSETS = joinpath(@__DIR__, "..", "assets")                        #hide

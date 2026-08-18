@@ -43,7 +43,7 @@ connected by spring-damper segments, hanging under gravity.
 
 ```julia
 using SymbolicAWEModels, VortexStepMethod
-using GLMakie
+import GLMakie
 using MakieControlPlots
 
 set = Settings("system.yaml")

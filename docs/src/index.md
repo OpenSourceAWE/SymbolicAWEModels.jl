@@ -56,7 +56,8 @@ pkg"add SymbolicAWEModels"
 
 ```julia
 using SymbolicAWEModels
-using GLMakie, MakieControlPlots
+import GLMakie
+using MakieControlPlots
 using KiteUtils: init!, next_step!, update_sys_state!
 
 set = Settings("system.yaml")
