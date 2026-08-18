@@ -396,7 +396,8 @@ function build_prob!(::MonolithBackend, sam; sparse=false, analytic_jacobian=fal
     dt = SimFloat(1/sam.set.sample_freq)
     # skip MTK's DAE init system; reinit! already sets consistent ICs
     fill_defaults = missing_param_defaults(sys, sam.defaults)
-    time = @elapsed prob = ODEProblem(sys, [sam.defaults; fill_defaults], (0.0, dt);
+    time = @elapsed prob = ODEProblem{true, SciMLBase.FullSpecialize}(sys,
+        [sam.defaults; fill_defaults], (0.0, dt);
         build_initializeprob=false, sparse, jac=analytic_jacobian)
     prn && println("\tCreated the ODEProblem in $time seconds.")
 
