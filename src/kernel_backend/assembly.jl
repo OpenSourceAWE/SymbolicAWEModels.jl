@@ -49,6 +49,7 @@ const AERO_INFLOW_INPUTS = [:va_in, :rho_in]
 const AERO_INFLOW_OUTPUTS = [:va, :rho]
 const AERO_PANEL_INPUTS = [:le_a, :te_a, :le_b, :te_b,
                            :va_a, :va_b, :rho_a, :rho_b]
+const AERO_PANEL_PITCH_INPUTS = [:dva_a, :dva_b]
 const AERO_PANEL_OUTPUTS = [:force_out, :couple_out]
 const AERO_POINT_FORCE_INPUTS = [:pos_b, :wing_frame, :force_b_in]
 const AERO_POINT_FORCE_OUTPUTS = [:force, :force_b, :moment_b]
@@ -506,8 +507,14 @@ function add_panel_wing_aero!(builder, table, bindings, sam, wing, bodies, point
     end
     groups, section_group = aero_inflow_groups(wing.aero, wing, nodes)
     inflows = add_aero_inflows!(builder, table, bindings, sam, groups, inflow_points)
+    pitches = if flow_curvature_enabled(wing)
+        add_aero_inflows!(builder, table, bindings, sam,
+                          aero_pitch_groups(wing.aero, wing, nodes)[1], inflow_points)
+    else
+        nothing
+    end
     panels = add_aero_panels!(builder, table, bindings, sam, wing, nodes,
-                              inflow_points, inflows, section_group, flaps)
+                              inflow_points, inflows, pitches, section_group, flaps)
     forces = add_aero_point_forces!(builder, table, bindings, sam, wing, nodes,
                                     inflow_points, body, points, wrenches)
     for (panel, node, force_weight, couple_weight) in
@@ -570,18 +577,23 @@ end
 
 """
     add_aero_panels!(builder, table, bindings, sam, wing, nodes, inflow_points,
-                     inflows, section_group, flaps) -> Vector{Int}
+                     inflows, pitches, section_group, flaps) -> Vector{Int}
 
 One [`AeroPanel`](@ref) per refined panel, reading its two sections' corners from the
 strut interpolation ([`aero_geometry_entries`](@ref)), their inflow from the group they
 belong to, and its flap deflection from the twist surface it deflects with. Panels
 differ only in their `±1` span sign, so a wing needs at most two kernels.
+
+`pitches` are the [`aero_pitch_groups`](@ref) gathers, or `nothing` on a wing without
+[`flow_curvature_enabled`](@ref), which then has no such inputs to connect.
 """
 function add_aero_panels!(builder, table, bindings, sam, wing, nodes, inflow_points,
-                          inflows, section_group, flaps)
+                          inflows, pitches, section_group, flaps)
     spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     with_flap = !isempty(wing_flap_surfaces(wing))
-    inputs = with_flap ? [AERO_PANEL_INPUTS; :flap_delta] : AERO_PANEL_INPUTS
+    inputs = isnothing(pitches) ? AERO_PANEL_INPUTS :
+        [AERO_PANEL_INPUTS; AERO_PANEL_PITCH_INPUTS]
+    with_flap && (inputs = [inputs; :flap_delta])
     instances = Int[]
     for (panel_idx, orient) in enumerate(panel_span_signs(wing, spanwise))
         key = Symbol(:aero_panel_, wing.idx, orient > 0 ? :_up : :_down)
@@ -595,6 +607,8 @@ function add_aero_panels!(builder, table, bindings, sam, wing, nodes, inflow_poi
             inflow = inflows[section_group[section]]
             connect!(builder, inflow, :va, instance, Symbol(:va_, side))
             connect!(builder, inflow, :rho, instance, Symbol(:rho_, side))
+            isnothing(pitches) || connect!(builder, pitches[section_group[section]],
+                                           :va, instance, Symbol(:dva_, side))
         end
         push!(instances, instance)
     end

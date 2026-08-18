@@ -217,12 +217,15 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
 
     sec_le, sec_te =
         reconstruct_sections_sym(mode, wing, points, connectors, column)
-    sec_va, sec_rho = reconstruct_inflow_sym(mode, wing, connectors, column)
+    sec_va, sec_rho, sec_dva =
+        reconstruct_inflow_sym(mode, wing, connectors, column)
+    flow_curvature_enabled(wing) || (sec_dva = nothing)
 
     orient = panel_span_signs(wing, spanwise)
-    eqs, panel_vars, panel_force, panel_couple = build_panel_force_eqs(
-        sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w, cl, cd, cm, spanwise,
-        scale, orient)
+    eqs, panel_vars, panel_force, panel_couple, curvature_couple =
+        build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
+            cl, cd, cm, spanwise, scale, orient; sec_dva)
+    panel_couple = scatter_couple(mode, panel_couple, curvature_couple)
     vars = particle_unknowns(connectors)
     append!(vars, panel_vars)
 

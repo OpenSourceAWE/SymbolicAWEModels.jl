@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+- The continuous VSM modes carry VortexStepMethod's `flow_curvature` moment
+  increment, the thin-airfoil `Δcm = -(π/4)·q̂` of a section rotating about its
+  own spanwise axis. They re-derive the panel force symbolically instead of
+  reading `solve!`'s output, so the term was absent from them while `AeroDirect`
+  and `AeroLinearized` had it, and enabling the solver flag silently meant two
+  different models. Each panel's rate comes from its sections' own trailing
+  minus leading edge apparent wind, so a deforming wing gets the true per-section
+  rate — twist and flapping included — rather than a projection of one body rate.
+  Off by default, and read from the wing's solver, so no mode can have the term
+  while another does not.
+
 ## v0.15.1 22-08-2026
 
 ### Changed
