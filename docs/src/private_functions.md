@@ -356,6 +356,7 @@ SymbolicAWEModels.finite_full
 SymbolicAWEModels.set_particle_panel_va!
 SymbolicAWEModels.set_refined_panel_va!
 SymbolicAWEModels.surface_node_forces
+SymbolicAWEModels.couple_shape
 SymbolicAWEModels.build_mesh_maps!
 SymbolicAWEModels.store_induced_velocity!
 SymbolicAWEModels.store_chord_weights!
