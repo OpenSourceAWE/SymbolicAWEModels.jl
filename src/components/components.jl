@@ -1755,6 +1755,9 @@ end
 """A scalar input variable named `name`."""
 scalar_input(name::Symbol) = only(@variables $name(t), [input = true])
 
+"""A length-`n` input variable named `name`."""
+vector_input(name::Symbol, n::Int) = only(@variables $name(t)[1:n], [input = true])
+
 """
     ParticleWingAero(s, params, idx; name)
 
@@ -1860,12 +1863,16 @@ end
 
 One refined VSM panel's aerodynamic load: its two sections' leading and trailing edges
 (each already the gathered strut interpolation), their apparent wind and density, and
-its flap deflection in; its body-frame force and pitching couple out. The physics is
+its flap deflection in; its body-frame force and the couple its mode's scatter places
+([`scatter_couple`](@ref)) out. The physics is
 the shared [`panel_force_eqs`](@ref) on a single column, so the expressions are those a
 whole-wing system emits for this panel. `orient` is the panel's `±1` span sign, baked
 in because it costs a second kernel and saves a parameter on every instance; the
 chord blend weight cannot be, because it differs per panel and would cost a kernel
 each. `with_flap` selects the `(α, δ)` polars.
+
+A wing with [`flow_curvature_enabled`](@ref) takes two more inputs, its sections'
+trailing minus leading edge apparent wind, gathered at [`strut_pitch_weights`](@ref).
 """
 function AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
     wing = params.reg.sys_struct.wings[wing_idx]
@@ -1882,6 +1889,8 @@ function AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
         force_out(t)[1:3], [output = true]
         couple_out(t)[1:3], [output = true]
     end
+    dva = flow_curvature_enabled(wing) ?
+        (vector_input(:dva_a, 3), vector_input(:dva_b, 3)) : (nothing, nothing)
     delta = with_flap ? scalar_input(:flap_delta) : nothing
     spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     scale = 1.0 + (isfinite(wing.aero_scale_chord) ?
@@ -1891,13 +1900,17 @@ function AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
                 collect(io[2]) .+ collect(panel.te_offset_a),
                 collect(io[3]) .+ collect(panel.le_offset_b),
                 collect(io[4]) .+ collect(panel.te_offset_b))
-    flow = (collect(io[5]), collect(io[6]), io[7], io[8], collect(panel.v_ind))
+    flow = (collect(io[5]), collect(io[6]), io[7], io[8], collect(panel.v_ind),
+            dva[1] === nothing ? nothing : collect(dva[1]),
+            dva[2] === nothing ? nothing : collect(dva[2]))
     eqs = panel_force_eqs(slots, 1, sections, flow,
                           (panel.cl, panel.cd, panel.cm),
                           spanwise, scale, orient, panel.chord_weight, delta)
+    couple = scatter_couple(wing.aero, slots.panel_couple, slots.curvature_couple)
     append!(eqs, collect(io[9]) .~ collect(slots.panel_force[:, 1]))
-    append!(eqs, collect(io[10]) .~ collect(slots.panel_couple[:, 1]))
+    append!(eqs, collect(io[10]) .~ collect(couple[:, 1]))
     vars = [io; panel_force_vars(slots)]
+    dva[1] === nothing || append!(vars, dva)
     delta === nothing || push!(vars, delta)
     return System(eqs, t, vars, param_unknowns(params); name)
 end

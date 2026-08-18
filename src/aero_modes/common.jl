@@ -243,8 +243,8 @@ end
 
 """
     build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
-                          cl, cd, cm, spanwise, scale,
-                          orient) -> (eqs, vars, panel_force, panel_couple)
+                          cl, cd, cm, spanwise, scale, orient)
+        -> (eqs, vars, panel_force, panel_couple, curvature_couple)
 
 Shared per-refined-panel VSM force assembly for the live particle aero modes
 ([`ContinuousAero`](@ref), [`AeroPressure`](@ref)). Re-expresses
@@ -255,7 +255,9 @@ axes, chord, width, effective angle of attack (live apparent wind
 callable params), and the lift/drag directions, and emits the panel force and
 the pitching-moment couple. Returns the panel equations, the intermediate
 variables to register, and the `panel_force`/`panel_couple` symbolic arrays for
-the caller's scatter (strut couple or surface pattern).
+the caller's scatter (strut couple or surface pattern). `curvature_couple` is the
+[`flow_curvature_cm`](@ref) part of `panel_couple` alone, for a mode whose scatter
+already places the polar moment and needs only the increment.
 
 `sec_le`/`sec_te`/`sec_va` are length-`n_panels+1` vectors of body-frame
 3-vectors (positions and apparent wind at the section boundaries), `sec_rho`
@@ -269,10 +271,13 @@ chord-scale factor. `orient` is the per-panel `±1` span/normal sign from
 deflections δ. When given the polars are evaluated as `cl(i, alpha[i], delta[i])`
 (the `(α, δ)` tables); when `nothing` the 2-arg `cl(i, alpha[i])` is used, so a
 mode without a flap ([`ContinuousAero`](@ref)) is untouched.
+
+`sec_dva` is the matching per-section trailing minus leading edge apparent wind that
+carries the [`flow_curvature_cm`](@ref) increment, or `nothing` to leave it out.
 """
 function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
                                vind_p, chord_w, cl, cd, cm, spanwise, scale,
-                               orient; delta=nothing)
+                               orient; delta=nothing, sec_dva=nothing)
     n_panels = length(sec_le) - 1
     slots = panel_force_slots(n_panels)
     eqs = Equation[]
@@ -280,13 +285,16 @@ function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
         append!(eqs, panel_force_eqs(slots, i,
             (sec_le[i], sec_te[i], sec_le[i + 1], sec_te[i + 1]),
             (sec_va[i], sec_va[i + 1], sec_rho[i], sec_rho[i + 1],
-             [vind_p[c, i] for c in 1:3]),
+             [vind_p[c, i] for c in 1:3],
+             sec_dva === nothing ? nothing : sec_dva[i],
+             sec_dva === nothing ? nothing : sec_dva[i + 1]),
             (PanelPolar(cl, i), PanelPolar(cd, i), PanelPolar(cm, i)),
             spanwise, scale, orient[i], chord_w[i],
             delta === nothing ? nothing : delta[i]))
     end
 
-    return eqs, panel_force_vars(slots), slots.panel_force, slots.panel_couple
+    return eqs, panel_force_vars(slots), slots.panel_force, slots.panel_couple,
+           slots.curvature_couple
 end
 
 """
@@ -306,13 +314,16 @@ function panel_force_slots(n_panels::Int)
         width(t)[1:n_panels]
         alpha(t)[1:n_panels]
         q_dyn(t)[1:n_panels]
+        pitch_rate(t)[1:n_panels]
         dir_lift(t)[1:3, 1:n_panels]
         dir_drag(t)[1:3, 1:n_panels]
         panel_force(t)[1:3, 1:n_panels]
         panel_couple(t)[1:3, 1:n_panels]
+        curvature_couple(t)[1:3, 1:n_panels]
     end
     return (; x_airf, y_airf, z_airf, v_eff, chord, width, alpha, q_dyn,
-            dir_lift, dir_drag, panel_force, panel_couple)
+            pitch_rate, dir_lift, dir_drag, panel_force, panel_couple,
+            curvature_couple)
 end
 
 """The slots of [`panel_force_slots`](@ref) as the variable list a `System` declares."""
@@ -324,13 +335,19 @@ panel_force_vars(slots) = Any[values(slots)...]
 
 One panel's aerodynamic equations, writing into column `i` of the symbolic arrays
 in `slots`. `sections` is `(le_1, te_1, le_2, te_2)` in body frame, `flow` is
-`(va_1, va_2, rho_1, rho_2, v_ind)` and `polars` the `(cl, cd, cm)` callables,
-indexed by the panel number the polar tables were built for. `chord_weight` is the
-section-1 share of the chord-direction blend ([`store_chord_weights!`](@ref)),
-entering as an offset from the midpoint: the equivalent
-`chord_weight * te_1 + (1 - chord_weight) * te_2` form leaves no constant term to
-fold, which makes a continuous-mode wing 3.7x slower to build symbolically.
+`(va_1, va_2, rho_1, rho_2, v_ind, dva_1, dva_2)` and `polars` the `(cl, cd, cm)`
+callables, indexed by the panel number the polar tables were built for.
+`chord_weight` is the section-1 share of the chord-direction blend
+([`store_chord_weights!`](@ref)), entering as an offset from the midpoint: the
+equivalent `chord_weight * te_1 + (1 - chord_weight) * te_2` form leaves no constant
+term to fold, which makes a continuous-mode wing 3.7x slower to build symbolically.
 `delta` is the flap deflection or `nothing` for the 2-argument polars.
+
+`dva_1`/`dva_2` are the sections' trailing minus leading edge apparent wind, which
+gives the panel its [`section_pitch_rate`](@ref) and hence the
+[`flow_curvature_cm`](@ref) moment increment. They are `nothing` when the wing's
+solver has the term disabled ([`flow_curvature_enabled`](@ref)), and the rate is
+then bound to zero rather than dropped, so the slot means the same thing either way.
 
 Every quantity it reads belongs to this panel alone, so the same equations serve a
 whole-wing system (looped by [`build_panel_force_eqs`](@ref)) and a per-panel
@@ -339,9 +356,10 @@ component compiled once and instantiated for each panel.
 function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
                          orient, chord_weight, delta)
     (; x_airf, y_airf, z_airf, v_eff, chord, width, alpha, q_dyn,
-       dir_lift, dir_drag, panel_force, panel_couple) = slots
+       pitch_rate, dir_lift, dir_drag, panel_force, panel_couple,
+       curvature_couple) = slots
     le_1, te_1, le_2, te_2 = sections
-    va_1, va_2, rho_1, rho_2, vind = flow
+    va_1, va_2, rho_1, rho_2, vind, dva_1, dva_2 = flow
     cl, cd, cm = polars
 
     lean = chord_weight - 0.5
@@ -358,9 +376,15 @@ function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
     rho_panel = 0.5 * (rho_1 + rho_2)
     v_eff_crossy = v_eff_panel × y_unit
 
+    curvature = dva_1 === nothing ? 0.0 :
+        flow_curvature_cm(pitch_rate[i], chord[i], smooth_norm(v_eff_crossy))
+    pitch_rate_rhs = dva_1 === nothing ? 0.0 :
+        section_pitch_rate(0.5 * (dva_1 + dva_2), z_unit, chord[i])
+
     lift = evaluate_polar(cl, alpha[i], delta) * q_dyn[i] * chord[i]
     drag = evaluate_polar(cd, alpha[i], delta) * q_dyn[i] * chord[i]
-    panel_moment = evaluate_polar(cm, alpha[i], delta) * q_dyn[i] * chord[i]^2
+    panel_moment = (evaluate_polar(cm, alpha[i], delta) + curvature) *
+        q_dyn[i] * chord[i]^2
 
     dir_iva = cos(alpha[i]) .* x_unit .+ sin(alpha[i]) .* z_unit
     lift_cross = dir_iva × y_unit
@@ -376,13 +400,67 @@ function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
         v_eff[:, i] ~ v_eff_panel;
         alpha[i] ~ atan(v_eff_panel ⋅ z_unit, v_eff_panel ⋅ x_unit);
         q_dyn[i] ~ 0.5 * rho_panel * (v_eff_crossy ⋅ v_eff_crossy);
+        pitch_rate[i] ~ pitch_rate_rhs;
         dir_lift[:, i] ~ lift_cross ./ smooth_norm(lift_cross);
         dir_drag[:, i] ~ drag_cross ./ smooth_norm(drag_cross);
         panel_force[:, i] ~ (scale * width[i]) .*
             (lift .* collect(dir_lift[:, i]) .+
              drag .* collect(dir_drag[:, i]));
         panel_couple[:, i] ~
-            (scale * width[i] * panel_moment / chord[i]) .* z_unit]
+            (scale * width[i] * panel_moment / chord[i]) .* z_unit;
+        curvature_couple[:, i] ~
+            (scale * width[i] * curvature * q_dyn[i] * chord[i]) .* z_unit]
+end
+
+"""
+    section_pitch_rate(delta_va, z_unit, chord)
+
+Rate at which a section rotates about its own spanwise axis, positive nose-up, from
+`delta_va`, the trailing minus leading edge apparent wind. Apparent wind is
+`wind - velocity`, so the difference is the leading minus trailing edge velocity and
+the sign of `VortexStepMethod.section_pitch_rate` flips with it. A wind that varies
+over the chord bends the flow the same way a rotation does and enters here too.
+"""
+section_pitch_rate(delta_va, z_unit, chord) = (delta_va ⋅ z_unit) / chord
+
+"""
+    flow_curvature_cm(pitch_rate, chord, v_rel)
+
+Quarter-chord moment increment `-(π/4)·q̂` of a section rotating about its own
+spanwise axis, with `q̂ = pitch_rate·chord/(2·v_rel)`. Symbolic twin of
+`VortexStepMethod.flow_curvature_cm`; see it for the thin-airfoil derivation. The
+lift response needs no such increment because the inflow is already sampled at
+[`COLLOCATION_CHORD_FRAC`](@ref).
+
+`v_rel` reaches zero only through [`smooth_norm`](@ref), which floors it, and the
+increment is used multiplied by a dynamic pressure `∝ v_rel²`, so the product stays
+regular as the wing stops.
+"""
+flow_curvature_cm(pitch_rate, chord, v_rel) =
+    -0.25π * pitch_rate * chord / (2 * v_rel)
+
+"""
+    scatter_couple(mode, panel_couple, curvature_couple)
+
+The couple array a mode's scatter applies. The default is the whole
+`panel_couple`, the polar moment included. [`AeroPressure`](@ref) already places the
+polar moment with its frozen surface traction, so it takes `curvature_couple` — the
+[`flow_curvature_cm`](@ref) increment on its own — and adding the whole couple there
+would count the polar moment twice.
+"""
+scatter_couple(::AbstractAeroModel, panel_couple, curvature_couple) = panel_couple
+
+"""
+    flow_curvature_enabled(wing) -> Bool
+
+Whether this wing's VSM solver adds the [`flow_curvature_cm`](@ref) increment. The
+aero modes all read the one flag, so a model cannot carry the term through
+`AeroDirect` and lose it in [`ContinuousAero`](@ref). A wing without a VSM engine
+(`PlateWing`) has no flag and no increment.
+"""
+function flow_curvature_enabled(wing)
+    engine = vsm_engine(wing.aero)
+    return !isnothing(engine) && engine.vsm_solver.flow_curvature
 end
 
 """
@@ -523,10 +601,31 @@ section's inflow and its geometry read the same points. Overriding this with a
 wing-wide mean drops the rotational part of the velocity field — a rigid rotation
 about the point centroid averages to zero — leaving the panels without rate damping.
 """
-function aero_inflow_groups(mode, wing, points)
+aero_inflow_groups(mode, wing, points) =
+    aero_station_groups(mode, wing, points, strut_inflow_weights)
+
+"""
+    aero_pitch_groups(mode, wing, points) -> (groups, section_group)
+
+[`aero_inflow_groups`](@ref) with the trailing minus leading edge weights instead of
+the chordwise blend, so the same gather yields each section's pitch-rate input
+([`strut_pitch_weights`](@ref)). Only built for a wing with
+[`flow_curvature_enabled`](@ref).
+"""
+aero_pitch_groups(mode, wing, points) =
+    aero_station_groups(mode, wing, points, strut_pitch_weights)
+
+"""
+    aero_station_groups(mode, wing, points, station_weights) -> (groups, section_group)
+
+One group per refined section, each gathered by `station_weights`. Shared by
+[`aero_inflow_groups`](@ref) and [`aero_pitch_groups`](@ref), which differ only in the
+chordwise weights they ask for.
+"""
+function aero_station_groups(mode, wing, points, station_weights)
     column = aero_section_columns(wing, points)
     sections = eachindex(section_interp_caches(mode)[1])
-    groups = [strut_inflow_weights(mode, section, column) for section in sections]
+    groups = [station_weights(mode, section, column) for section in sections]
     return groups, collect(sections)
 end
 
@@ -585,6 +684,28 @@ pivoting between mid- and 3/4-chord, damped with the wrong sign.
 const COLLOCATION_CHORD_FRAC = 0.75
 
 """
+    strut_station_weights(mode, section, column, le_weight, te_weight)
+        -> Vector{Tuple{Int, SimFloat}}
+
+The `(point column, weight)` pairs that combine refined section `section`'s two
+bounding struts, each strut weighting its LE station by `le_weight` and its TE
+station by `te_weight`. The strut shares are the section's own interpolation
+weights, so whatever chordwise combination the caller asks for is taken at the
+same struts [`aero_geometry_entries`](@ref) builds that section's corners from.
+"""
+function strut_station_weights(mode, section::Int, column, le_weight, te_weight)
+    left, weight, _, _ = section_interp_caches(mode)
+    pairs = Tuple{Int, SimFloat}[]
+    for (strut, share) in ((left[section], weight[section]),
+                           (left[section] + 1, 1.0 - weight[section]))
+        share == 0.0 && continue
+        push!(pairs, (column[(strut, :LE)], le_weight * share))
+        push!(pairs, (column[(strut, :TE)], te_weight * share))
+    end
+    return pairs
+end
+
+"""
     strut_inflow_weights(mode, section, column) -> Vector{Tuple{Int, SimFloat}}
 
 The `(point column, weight)` pairs averaging refined section `section`'s inflow over
@@ -592,18 +713,20 @@ its two bounding struts, each strut blending its LE and TE station at
 [`COLLOCATION_CHORD_FRAC`](@ref). With no chord twist rate the two stations share a
 velocity, so the blend is inert in steady flight whatever the fraction.
 """
-function strut_inflow_weights(mode, section::Int, column)
-    left, weight, _, _ = section_interp_caches(mode)
-    pairs = Tuple{Int, SimFloat}[]
-    for (strut, share) in ((left[section], weight[section]),
-                           (left[section] + 1, 1.0 - weight[section]))
-        share == 0.0 && continue
-        push!(pairs, (column[(strut, :LE)],
-                      (1 - COLLOCATION_CHORD_FRAC) * share))
-        push!(pairs, (column[(strut, :TE)], COLLOCATION_CHORD_FRAC * share))
-    end
-    return pairs
-end
+strut_inflow_weights(mode, section::Int, column) =
+    strut_station_weights(mode, section, column,
+                          1 - COLLOCATION_CHORD_FRAC, COLLOCATION_CHORD_FRAC)
+
+"""
+    strut_pitch_weights(mode, section, column) -> Vector{Tuple{Int, SimFloat}}
+
+The `(point column, weight)` pairs taking refined section `section`'s trailing minus
+leading edge apparent wind, which [`section_pitch_rate`](@ref) turns into the
+section's rotation rate about its own spanwise axis. Weights sum to zero, so a wing
+in uniform translation contributes nothing.
+"""
+strut_pitch_weights(mode, section::Int, column) =
+    strut_station_weights(mode, section, column, -1.0, 1.0)
 
 """
     scatter_totals!(totals, panel, point, force_weight, couple_weight)
@@ -1286,14 +1409,17 @@ function reconstruct_sections_sym(mode, wing, points, connectors, column)
 end
 
 """
-    reconstruct_inflow_sym(mode, wing, connectors, column) -> (sec_va, sec_rho)
+    reconstruct_inflow_sym(mode, wing, connectors, column) -> (sec_va, sec_rho, sec_dva)
 
 Live symbolic body-frame apparent wind and density of every refined section: each
 strut's LE/TE connector values blended at [`COLLOCATION_CHORD_FRAC`](@ref) into one
 strut value, then interpolated by the frozen mesh weights — the same struts and
 weights [`reconstruct_sections_sym`](@ref) builds that section's corners from, so a
-section's inflow and its geometry read the same points. Symbolic twin of
-[`strut_inflow_weights`](@ref). Shared by all continuous VSM modes.
+section's inflow and its geometry read the same points. `sec_dva` is the same
+interpolation of each strut's trailing minus leading edge apparent wind, the
+pitch-rate input of [`panel_force_eqs`](@ref). Symbolic twin of
+[`strut_inflow_weights`](@ref) and [`strut_pitch_weights`](@ref). Shared by all
+continuous VSM modes.
 """
 function reconstruct_inflow_sym(mode, wing, connectors, column)
     n_struts = Int(wing.vsm_wing.n_unrefined_sections)
@@ -1305,10 +1431,14 @@ function reconstruct_inflow_sym(mode, wing, connectors, column)
     strut_rho = [nose * connectors.rho[column[(s, :LE)]] +
                  COLLOCATION_CHORD_FRAC * connectors.rho[column[(s, :TE)]]
                  for s in 1:n_struts]
+    strut_dva = [collect(connectors.va[:, column[(s, :TE)]]) -
+                 collect(connectors.va[:, column[(s, :LE)]])
+                 for s in 1:n_struts]
     left, weight, _, _ = section_interp_caches(mode)
     sec_va = [interp_strut(strut_va, left, weight, s) for s in eachindex(left)]
     sec_rho = [interp_strut(strut_rho, left, weight, s) for s in eachindex(left)]
-    return sec_va, sec_rho
+    sec_dva = [interp_strut(strut_dva, left, weight, s) for s in eachindex(left)]
+    return sec_va, sec_rho, sec_dva
 end
 
 """
