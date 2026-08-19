@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+- `Body.fix_static` freezes a body where it is, like a `Point`'s. A parameter,
+  not a `type`, so it can be toggled on a built model. Also a `fix_static` column
+  of the `bodies` YAML table.
+
 ### Changed
 - BREAKING: the Makie extension adds its `plot(::SystemStructure, ...)` methods
   to `MakieControlPlots.plot` instead of `Makie.plot`. `MakieControlPlots`

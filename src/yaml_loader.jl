@@ -591,7 +591,8 @@ block is absent). Field names mirror the [`Body`](@ref) constructor: required
 (3×3); optional `type` (`DYNAMIC`/`STATIC`), `transform_idx`, `vel`, `Q_b_to_w`
 (4-vector), `omega_b`, `com_offset_b`, `wing` (the parent wing a body-frame
 damping resolves against), `angular_damping`, `world_frame_damping`,
-`body_frame_damping` (each scalar or 3-vector), `fix_sphere`, `ext_force_w`,
+`body_frame_damping` (each scalar or 3-vector), `fix_sphere`, `fix_static`,
+`ext_force_w`,
 `ext_force_b`, `ext_moment_b`, `principal_frame_method`.
 """
 function load_yaml_bodies(data, yaml_to_ref)
@@ -621,8 +622,10 @@ function load_yaml_bodies(data, yaml_to_ref)
             isnothing(value) ||
                 (kwargs[key] = value isa Real ? SimFloat(value) : KVec3(value...))
         end
-        fix_sphere = yaml_field(row, :fix_sphere)
-        isnothing(fix_sphere) || (kwargs[:fix_sphere] = Bool(fix_sphere))
+        for key in (:fix_sphere, :fix_static)
+            value = yaml_field(row, key)
+            isnothing(value) || (kwargs[key] = Bool(value))
+        end
         body_type = yaml_field(row, :type)
         isnothing(body_type) ||
             (kwargs[:type] = parse_dynamics_type(String(body_type)))

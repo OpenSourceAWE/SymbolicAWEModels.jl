@@ -76,6 +76,8 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     body_frame_damping::KVec3
     "If true, COM motion is confined to a sphere about the world origin."
     fix_sphere::Bool
+    "If true, dynamically freezes the body where it is, without rebuilding."
+    fix_static::Bool
     "Dynamics type: DYNAMIC (free 6-DOF), KINEMATIC (fitted) or STATIC (frozen)."
     type::DynamicsType
     "Initial body-origin position [m]; `pos_w` is reset to this each `reinit!`."
@@ -206,7 +208,8 @@ broadcast_damping(damping) = damping isa Real ?
     Body(name; mass, inertia_principal | inertia, pos, vel=zeros,
               Q_b_to_w=[1,0,0,0], ω_b=zeros, com_offset_b=zeros, R_b_to_p=I,
               angular_damping=0, world_frame_damping=0, body_frame_damping=0,
-              fix_sphere=false, type=DYNAMIC, transform=nothing, wing=nothing,
+              fix_sphere=false, fix_static=false, type=DYNAMIC,
+              transform=nothing, wing=nothing,
               ext_force_w=zeros, ext_moment_b=zeros)
 
 Construct a standalone rigid body. `pos`/`vel` are the body origin's initial
@@ -223,7 +226,9 @@ motion the body-frame damping resolves against, as a `Point`'s `wing` does.
 `world_frame_damping` and `body_frame_damping` damp the COM velocity resolved on
 the world and body axes respectively; both are per-mass [1/s], like a `Point`'s.
 `fix_sphere=true` confines COM motion to a sphere about the world origin (radial
-DOF frozen), like a `RIGID_DYNAMICS` wing's `fix_sphere`.
+DOF frozen), like a `RIGID_DYNAMICS` wing's `fix_sphere`. `fix_static=true` holds
+the body where it is; unlike `type=STATIC` it is a parameter, so it can be
+toggled on a built model.
 
 Supply the inertia in one of two ways: `inertia_principal` (a length-3 diagonal
 principal inertia, with `R_b_to_p` giving the body→principal rotation), or
@@ -244,6 +249,7 @@ function Body(name;
         world_frame_damping = 0.0,
         body_frame_damping = 0.0,
         fix_sphere::Bool = false,
+        fix_static::Bool = false,
         type::DynamicsType = DYNAMIC,
         transform = nothing,
         wing = nothing,
@@ -274,7 +280,8 @@ function Body(name;
         SimFloat(mass), KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p),
         Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b), principal_frame_method,
         KVec3(ext_force_w), KVec3(ext_force_b), KVec3(ext_moment_b),
-        damping_vec, world_damping_vec, body_damping_vec, fix_sphere, type,
+        damping_vec, world_damping_vec, body_damping_vec, fix_sphere, fix_static,
+        type,
         KVec3(pos), Matrix{SimFloat}(R_b_to_c),
         Vector{SimFloat}(Q_b_to_w), KVec3(ω_b),
         KVec3(pos), KVec3(vel), zeros(KVec3),
