@@ -19,10 +19,6 @@
   scene-mutating `plot!` stays on `Makie.plot!`.
 
 ### Fixed
-- Requires VortexStepMethod 4.1.1, whose section twist rotates the chord fully
-  about the spanwise axis. A swept or dihedral section had its along-span chord
-  component scaled by `cos(twist)`, so the deformed VSM chord drifted from the
-  structural chord it tracks — 0.065° at 7.7° of twist and 2.4° at 48°, now 1e-13°.
 - The `TubeRigidityLaw` bending branch is C1 across its knee. Knee and tail were
   fitted independently, so `dEI/dκ` jumped from 0 to 29% of `EI0/κ_knee` there and
   the beam Jacobian was discontinuous. The post-knee deficit now leaves the knee at
