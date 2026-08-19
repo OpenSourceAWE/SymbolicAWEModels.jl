@@ -1112,6 +1112,8 @@ own frame and a resting parent, which is plain body-axis damping of its own velo
 
 `frozen` holds all four derivatives at zero, clamping a body that is integrated but
 must not move; a backend that gives such a body no state at all leaves it `false`.
+A body not frozen at build time reads the `fix_static` parameter instead, which is
+the same clamp under runtime control.
 """
 function body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
                           orientation_p; frozen=false, wing_frame=nothing,
@@ -1136,10 +1138,11 @@ function body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc
     com_vel_rate = ifelse.(sphere == true, keep_along(damped_acc, axis),
                            damped_acc)
     held = zeros(3)
-    return (; ω_kinematic = ifelse.(frozen == true, held, spin_kinematic),
-            d_ω_p = ifelse.(frozen == true, held, spin_rate),
-            d_com_w = ifelse.(frozen == true, held, com_rate),
-            d_com_vel = ifelse.(frozen == true, held, com_vel_rate))
+    held_flag = frozen == true ? true : body.fix_static
+    return (; ω_kinematic = ifelse.(held_flag == true, held, spin_kinematic),
+            d_ω_p = ifelse.(held_flag == true, held, spin_rate),
+            d_com_w = ifelse.(held_flag == true, held, com_rate),
+            d_com_vel = ifelse.(held_flag == true, held, com_vel_rate))
 end
 
 """
