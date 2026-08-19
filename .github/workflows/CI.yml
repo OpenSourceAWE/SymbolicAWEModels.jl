@@ -50,6 +50,10 @@ jobs:
         exclude:
           - os: macOS-latest
             arch: x64
+        # `coverage` marks the one job per backend that reports to Codecov.
+        # Everywhere else it stays off: instrumented code runs slower, and
+        # `Pkg.test` precompiles the whole tree again under the coverage
+        # configuration because Julia keys its caches by that configuration.
         include:
           - os: ubuntu-latest
             version: '1.11'
@@ -59,6 +63,7 @@ jobs:
             version: '1.12'
             arch: x64
             prefix: xvfb-run -a
+            coverage: true
           - os: macOS-latest
             version: '1.12'
             arch: aarch64
@@ -67,6 +72,7 @@ jobs:
             arch: x64
             prefix: xvfb-run -a
             backend: kernel
+            coverage: true
 
     steps:
       - uses: actions/checkout@v7
@@ -112,6 +118,7 @@ jobs:
       - uses: julia-actions/julia-runtest@v1
         with:
           prefix: ${{ matrix.prefix }}
+          coverage: ${{ matrix.coverage == true }}
         env:
           SYMAWE_TEST_BACKEND: ${{ matrix.backend }}
 
@@ -127,10 +134,10 @@ jobs:
       # A failing suite still covers most of the source, and dropping its report
       # leaves the backend it exercises reading as 0% against the other jobs.
       - uses: julia-actions/julia-processcoverage@v1
-        if: ${{ !cancelled() }}
+        if: ${{ matrix.coverage == true && !cancelled() }}
 
       - uses: codecov/codecov-action@v7
-        if: ${{ !cancelled() }}
+        if: ${{ matrix.coverage == true && !cancelled() }}
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
