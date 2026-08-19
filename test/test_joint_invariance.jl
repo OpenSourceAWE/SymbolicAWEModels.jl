@@ -277,16 +277,20 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
 
     # The damping terms are the ones that carry velocity into the Jacobian, so a
     # rigidity law with a slope discontinuity shows up here and nowhere else.
-    @testset "TubeRigidityLaw is C1 across the knee" begin
-        law = comer_levy_bending_law(0.06, 0.3e5, 5.0e5)
+    @testset "$label bending law is C1 across the knee" for (label, law) in (
+            ("comer_levy", comer_levy_bending_law(0.06, 0.3e5, 5.0e5)),
+            ("breukels", tube_bending_law(0.06, 0.3)))
         knee = law.curvature_knee
         step = 1e-7 * max(knee, 1.0)
         below = (law(knee - step) - law(knee - 2step)) / step
         above = (law(knee + 2step) - law(knee + step)) / step
-        @info "Bending law slope across the knee" knee below above
+        # dEI/dκ runs on EI0/κ_knee, so a kink is a finite fraction of that and
+        # the law's own curvature over the offset step is many orders below it.
+        scale = law.EI0 / knee
+        @info "Bending law slope across the knee" label knee below above scale
         @test isapprox(law(knee - step), law(knee + step);
                        rtol=1e-4)                       # C0: values match
-        @test isapprox(below, above; atol=1e-3 * max(abs(above), 1.0))
+        @test isapprox(below, above; atol=1e-3 * scale)
     end
 
     rm(tmpdir; recursive=true)

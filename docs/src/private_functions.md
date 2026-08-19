@@ -488,6 +488,10 @@ SymbolicAWEModels.comer_levy_n
 SymbolicAWEModels.comer_levy_point
 SymbolicAWEModels.comer_levy_sample_curve
 SymbolicAWEModels.fit_bending_law
+SymbolicAWEModels.SOFTENING_EXPONENT_RANGE
+SymbolicAWEModels.knee_slope
+SymbolicAWEModels.bending_softening
+SymbolicAWEModels.fit_softening_exponent
 ```
 
 ## Other internals

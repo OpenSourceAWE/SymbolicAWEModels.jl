@@ -36,7 +36,8 @@ function apply_principal_frame!(wing, S)
     @assert norm(inertia_new - Diagonal(diag(inertia_new))) <
         1e-9 * norm(diag(inertia_new))
     wing.inertia_principal .= diag(inertia_new)
-    wing.damping .= diag(S' * Diagonal(collect(wing.damping)) * S)
+    wing.angular_damping .=
+        diag(S' * Diagonal(collect(wing.angular_damping)) * S)
     wing.R_p_to_c .= wing.R_p_to_c * S
     wing.R_b_to_p .= S' * wing.R_b_to_p
     return nothing
