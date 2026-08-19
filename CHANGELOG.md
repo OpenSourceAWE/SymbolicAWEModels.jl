@@ -13,9 +13,10 @@
   defines its own `plot` that shadows Makie's, and it is the one exported into
   your session, so `plot(sys_struct)` used to hit a `MethodError` while the
   methods sat on the unexported `Makie.plot`. Call sites that qualify as
-  `Makie.plot(sys_struct, ...)` or `GLMakie.plot(sys_struct, ...)` must drop the
-  qualifier or use `MakieControlPlots.plot`. The scene-mutating `plot!` stays on
-  `Makie.plot!`.
+  `Makie.plot(sys_struct, ...)` or `GLMakie.plot(sys_struct, ...)` must call
+  `MakieControlPlots.plot` instead — or load the backend with `import GLMakie`
+  rather than `using GLMakie`, which leaves the bare `plot` unambiguous. The
+  scene-mutating `plot!` stays on `Makie.plot!`.
 
 ### Fixed
 - The `TubeRigidityLaw` bending branch is C1 across its knee. Knee and tail were
