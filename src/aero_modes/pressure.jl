@@ -460,6 +460,44 @@ function refresh_particle_aero!(mode::AeroPressure, wing, points,
 end
 
 """
+    aero_point_forces(mode::AeroPressure, wing, sys_struct)
+
+Each wing point's body-frame aero force: its share of every panel that scatters
+onto it, plus its constant offset. Rebuilt from the same scatter the equations
+use, since the traction reaches the points symbolically and never lands in a
+point's `aero_force_b`.
+"""
+function aero_point_forces(mode::AeroPressure, wing, sys_struct)
+    sol = wing.vsm_solver.sol
+    points = wing_points(sys_struct, wing)
+    forces = Dict{Int, Vector{SimFloat}}()
+    for (panel, column, weight, _) in aero_scatter_entries(mode, wing, points)
+        total = get!(() -> zeros(SimFloat, 3), forces, points[column].idx)
+        total .+= weight .* Vector(sol.f_body_3D[:, panel])
+    end
+    for (idx, offset) in mode.point_offset
+        total = get!(() -> zeros(SimFloat, 3), forces, idx)
+        total .+= offset
+    end
+    return forces
+end
+
+"""
+    contour_winding(section) -> Float64
+
+`+1` when the closed contour `section` of `(chordwise, normal)` pairs runs
+counter-clockwise, `-1` when it runs clockwise, by the shoelace area. Orienting a
+normal off the loop itself works on a cambered canopy, where both surfaces can lie
+on one side of the chord line and "away from the chord" points inward.
+"""
+function contour_winding(section)
+    n = length(section)
+    area = sum(section[k][1] * section[mod1(k + 1, n)][2] -
+               section[mod1(k + 1, n)][1] * section[k][2] for k in 1:n)
+    return area >= 0 ? 1.0 : -1.0
+end
+
+"""
     freeze_traction_pattern!(mode::AeroPressure, wing)
 
 Fill the frozen traction params from the converged VSM solve: for each refined panel
@@ -479,9 +517,12 @@ function freeze_traction_pattern!(mode::AeroPressure, wing)
             panel.section_aero, sol.alpha_dist[panel_idx], panel.delta)
         n_nodes = length(xc)
         chord_axis = Vector(panel.x_airf)
-        span_axis = Vector(panel.y_airf)
+        normal_axis = Vector(panel.z_airf)
         pos = [loft_contour_node(panel, xc, yc, k) for k in 1:n_nodes]
         le_mid = 0.5 .* (Vector(panel.LE_point_1) .+ Vector(panel.LE_point_2))
+        section = [(dot(p .- le_mid, chord_axis), dot(p .- le_mid, normal_axis))
+                   for p in pos]
+        winding = contour_winding(section)
         net = zeros(SimFloat, 3)
         for k in 1:n_nodes
             column += 1
@@ -493,9 +534,9 @@ function freeze_traction_pattern!(mode::AeroPressure, wing)
             end
             tangent = edge ./ edge_len
             surface_dir = dot(tangent, chord_axis) >= 0 ? tangent : -tangent
-            normal = normalize(cross(tangent, span_axis))
-            chord_pt = le_mid .+ chord_axis .* (xc[k] * panel.chord)
-            dot(normal, pos[k] - chord_pt) < 0 && (normal = -normal)
+            normal = normalize(winding .*
+                (dot(tangent, normal_axis) .* chord_axis .-
+                 dot(tangent, chord_axis) .* normal_axis))
             segment_area = 0.5 * edge_len * panel.width
             traction = (-cp[k] .* normal .+ cf[k] .* surface_dir) .*
                        (dynamic_pressure * segment_area)
