@@ -310,6 +310,29 @@ function SymbolicAWEModel(
 end
 
 """
+    write_aero_forces!(ss, sys_struct) -> ss
+
+Fill `ss.aero_force_x/y/z` with the aerodynamic force each point carries, world
+frame. A point's own `aero_force_b` holds it only for `PARTICLE_DYNAMICS` wing
+nodes, so a scattering mode is asked for its own distribution instead.
+"""
+function write_aero_forces!(ss::SysState, sys_struct::SystemStructure)
+    fill!(ss.aero_force_x, 0.0)
+    fill!(ss.aero_force_y, 0.0)
+    fill!(ss.aero_force_z, 0.0)
+    for wing in sys_struct.wings
+        rot = quaternion_to_rotation_matrix(wing.Q_b_to_w)
+        for (idx, force_b) in aero_point_forces(wing.aero, wing, sys_struct)
+            force = rot * force_b
+            ss.aero_force_x[idx] += force[1]
+            ss.aero_force_y[idx] += force[2]
+            ss.aero_force_z[idx] += force[3]
+        end
+    end
+    return ss
+end
+
+"""
     update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
 
 Updates a `SysState` object with the current state values from the `SymbolicAWEModel`.
@@ -390,7 +413,14 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.VX[point.idx] = point.vel_w[1]
         ss.VY[point.idx] = point.vel_w[2]
         ss.VZ[point.idx] = point.vel_w[3]
+        ss.drag_force_x[point.idx] = point.drag_force[1]
+        ss.drag_force_y[point.idx] = point.drag_force[2]
+        ss.drag_force_z[point.idx] = point.drag_force[3]
     end
+    for segment in sam.sys_struct.segments
+        ss.spring_force[segment.idx] = segment.force
+    end
+    write_aero_forces!(ss, sam.sys_struct)
 
     # Store per-mode aero log points (e.g. VSM panel corners) in world frame
     corner_idx = length(points)
@@ -488,12 +518,13 @@ with the current state of the provided model.
 - `SysState`: A new state struct representing the current model state.
 """
 function SysState(s::SymbolicAWEModel, zoom=1.0; precision=KiteUtils.MyFloat)
-    slots = position_slots(s.sys_struct)
-    ss = SysState{slots.total, n_orient_frames(s.sys_struct),
-                  n_flap_deflections(s.sys_struct),
-                  length(s.sys_struct.pulleys),
-                  length(s.sys_struct.winches),
-                  length(s.sys_struct.tethers), precision}()
+    ss = SysState(position_slots(s.sys_struct).total;
+                  orients = n_orient_frames(s.sys_struct),
+                  deflections = n_flap_deflections(s.sys_struct),
+                  pulleys = length(s.sys_struct.pulleys),
+                  winches = length(s.sys_struct.winches),
+                  tethers = length(s.sys_struct.tethers),
+                  segments = length(s.sys_struct.segments), precision)
     update_sys_state!(ss, s, zoom)
     ss
 end
@@ -528,6 +559,7 @@ function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int;
                   pulleys = length(sam.sys_struct.pulleys),
                   winches = length(sam.sys_struct.winches),
                   tethers = length(sam.sys_struct.tethers),
+                  segments = length(sam.sys_struct.segments),
                   precision)
 end
 

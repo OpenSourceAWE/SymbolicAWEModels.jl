@@ -65,6 +65,8 @@ struct TubeRigidityLaw
     curvature_knee::Float64
     "Exponent of the post-knee power-law approach to `moment_collapse`."
     exponent::Float64
+    "Slope the moment deficit leaves the knee at. `M_w/(M_c − M_w)` is C1 there, `exponent` is the plain power law."
+    knee_slope::Float64
     "Torsion coefficient `c1` [N·m]."
     c1::Float64
     "Torsion coefficient `c2` [m]."
@@ -81,27 +83,15 @@ function (law::TubeRigidityLaw)(curvature)
     moment = law.moment_collapse -
         (law.moment_collapse - law.moment_knee) *
         bending_softening(κ / law.curvature_knee - 1, law.exponent,
-                          knee_slope(law))
+                          law.knee_slope)
     return moment / κ
 end
-
-"""
-    knee_slope(law) -> Float64
-
-`M_w/(M_c − M_w)`, the moment scale that ties a `:bending` law's post-knee slope
-to its linear rigidity.
-"""
-knee_slope(law::TubeRigidityLaw) =
-    law.moment_knee / (law.moment_collapse - law.moment_knee)
 
 """
     bending_softening(excess_curvature, exponent, knee_slope) -> Float64
 
 Post-knee moment deficit `(M_c − M)/(M_c − M_w)` at `excess_curvature = κ/κ_w − 1`.
-`knee_slope` sets the curvature scale so the deficit leaves the knee at slope
-`−knee_slope`, which is what makes `dM/dκ = EI0` on both sides and `EI(κ)`
-continuously differentiable there; `exponent` still sets the far-field `κ^-exponent`
-approach to collapse.
+Leaves the knee at slope `−knee_slope` and decays as `κ^-exponent`.
 """
 bending_softening(excess_curvature, exponent, knee_slope) =
     (1 + excess_curvature * knee_slope / exponent)^(-exponent)
@@ -111,10 +101,8 @@ bending_softening(excess_curvature, exponent, knee_slope) =
                            moment_collapse) -> Float64
 
 Decay exponent of [`bending_softening`](@ref) minimising the relative moment error
-over sampled post-knee `(curvature, moment)`. The exponent sets the curvature scale
-as well as the power, so the residual is not linear in it and a golden-section
-search over `SOFTENING_EXPONENT_RANGE` replaces a backslash. The upper end is the
-exponential limit, which a curve that never runs at the linear rigidity settles on.
+over sampled post-knee `(curvature, moment)`. Golden-section search over
+`SOFTENING_EXPONENT_RANGE`, since the exponent enters the curvature scale too.
 """
 function fit_softening_exponent(curvature, moment, curvature_knee, moment_knee,
                                 moment_collapse)
@@ -224,7 +212,7 @@ function tube_torsion_law(radius, pressure)
               "for a large radius above 1 bar, where `log(pressure)` flips " *
               "sign.")
     end
-    return TubeRigidityLaw(:torsion, 0.0, 0.0, 0.0, 0.0, 0.0, c1, c2)
+    return TubeRigidityLaw(:torsion, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, c1, c2)
 end
 
 """
@@ -257,8 +245,10 @@ end
 Breukels bending rigidity law `EI(κ)` of an inflated tube (`radius` [m],
 `pressure` [bar]): moment-curvature samples from the tip-force curve (curvature
 `κ = 3·(δ - δ_shear)` of the 1 m cantilever), knee seeded at half the collapse
-moment, and the post-knee exponent from [`fit_softening_exponent`](@ref) on the
-sampled tail.
+moment, and the post-knee exponent from a least-squares fit of
+`M_c - M = (M_c - M_knee)·(κ_knee/κ)^a` on the sampled tail. The knee is a fitting
+anchor, not a tangency — the Breukels curve never runs at `EI0` — so the law is C0
+there, not C1.
 """
 function tube_bending_law(radius, pressure; n_samples=120)
     _, GA, EI0, _ = tube_linear_rigidities(radius, pressure)
@@ -267,19 +257,20 @@ function tube_bending_law(radius, pressure; n_samples=120)
     moment_knee = 0.5 * moment_collapse
     curvature_knee = moment_knee / EI0
     deflections = range(0.0, collapse; length=n_samples)[2:end]
-    curvatures = Float64[]
-    moments = Float64[]
+    x = Float64[]
+    y = Float64[]
     for δ in deflections
         moment = breukels_tip_force(δ, radius, pressure)
         moment_knee < moment < 0.999 * moment_collapse || continue
         δ_shear = moment / (TUBE_SHEAR_COEFF * GA)
-        push!(curvatures, 3 * (δ - δ_shear))
-        push!(moments, moment)
+        κ = 3 * (δ - δ_shear)
+        push!(x, log(curvature_knee / κ))
+        push!(y, log((moment_collapse - moment) /
+                     (moment_collapse - moment_knee)))
     end
-    exponent = fit_softening_exponent(curvatures, moments, curvature_knee,
-        moment_knee, moment_collapse)
+    exponent = isempty(x) ? 1.0 : x \ y
     return TubeRigidityLaw(:bending, EI0, moment_knee, moment_collapse,
-        curvature_knee, exponent, 0.0, 0.0)
+        curvature_knee, exponent, exponent, 0.0, 0.0)
 end
 
 # ---- Comer-Levy analytical inflated-cylinder bending (post-collapse capable) ----
@@ -392,7 +383,8 @@ knee, then the smooth power-law approach to the collapse moment `M_c = p·π·r�
 fitted from the closed-form section curve. The returned
 [`TubeRigidityLaw`](@ref) `:bending` callable is the drop-in replacement for
 [`tube_bending_law`](@ref) and, unlike it, stays valid past collapse (moment
-saturates at `M_c`, rigidity → 0).
+saturates at `M_c`, rigidity → 0). C1 across the knee, where the section itself has
+`dM/dκ → EI0`.
 """
 function comer_levy_bending_law(radius, pressure, membrane_stiffness; n_samples=60)
     κ, M = comer_levy_sample_curve(radius, pressure, membrane_stiffness; n=n_samples)
@@ -400,7 +392,8 @@ function comer_levy_bending_law(radius, pressure, membrane_stiffness; n_samples=
     moment_collapse = comer_levy_collapse_moment(radius, pressure)
     EI0, curvature_knee, exponent = fit_bending_law(κ, M, moment_knee, moment_collapse)
     return TubeRigidityLaw(:bending, EI0, moment_knee, moment_collapse,
-        curvature_knee, exponent, 0.0, 0.0)
+        curvature_knee, exponent,
+        moment_knee / (moment_collapse - moment_knee), 0.0, 0.0)
 end
 
 """

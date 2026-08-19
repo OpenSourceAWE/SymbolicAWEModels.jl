@@ -259,3 +259,38 @@ end
         @test all(offset -> all(iszero, offset), values(mode.point_offset))
     end
 end
+
+# A cambered section is what a canopy is, and what the symmetric fixture above
+# cannot exercise: with enough camber both surfaces lie on one side of the chord
+# line, so orienting a normal "away from the chord" turns half of them inward.
+# Uniform pressure over a closed contour must produce no net force, whatever the
+# shape, so the net is a shape-independent check on the normals alone.
+@testset "AeroPressure cambered contour closure" begin
+    pkg_root = dirname(@__DIR__)
+    for camber in (0.0, 0.10)
+        tmpdir = mktempdir()
+        data_path = joinpath(tmpdir, "2plate_kite")
+        cp(joinpath(pkg_root, "data", "2plate_kite"), data_path; force=true)
+        write_pressure_fixture(data_path; camber, uniform_cp=1.0)
+
+        set, sys = load_pressure_sys(data_path, AeroPressure())
+        wing = sys.wings[1]
+        mode = wing.aero
+        wing.va_b .= SimFloat[15.0, 0.0, 3.5]
+        wing.ω_b .= SimFloat[0.0, 0.0, 0.0]
+        wing.vsm_solver.density = 1.225
+        va_vals = zeros(SimFloat, 3, length(sys.points))
+        for p in sys.points
+            @views va_vals[:, p.idx] .= wing.va_b
+        end
+        refresh_particle_aero!(mode, wing, sys.points, va_vals)
+
+        # Scale by what one surface alone would contribute, so the tolerance is a
+        # fraction of the force a flipped half would leave behind.
+        dynamic_pressure = 0.5 * wing.vsm_solver.density * dot(wing.va_b, wing.va_b)
+        for (i, panel) in enumerate(wing.vsm_aero.panels)
+            scale = dynamic_pressure * panel.chord * panel.width
+            @test norm(mode.traction_net[:, i]) / scale < 0.05
+        end
+    end
+end

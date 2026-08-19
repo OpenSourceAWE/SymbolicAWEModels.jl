@@ -540,6 +540,17 @@ the wiring layer carries the whole scatter and no component holds it.
 function aero_scatter_entries end
 
 """
+    aero_point_forces(mode, wing, sys_struct) -> iterable of (point_idx, force_b)
+
+The body-frame aerodynamic force on each of `wing`'s points, for logging and
+plotting. The fallback reads each point's own `aero_force_b`, which a mode that
+scatters panel loads overrides because it never writes that field.
+"""
+aero_point_forces(::AbstractAeroModel, wing, sys_struct) =
+    ((point.idx, collect(point.aero_force_b))
+     for point in wing_points(sys_struct, wing))
+
+"""
     aero_point_offset(mode, params, wing_idx, point_idx)
 
 The constant body-frame force a wing point receives on top of the scattered panel
