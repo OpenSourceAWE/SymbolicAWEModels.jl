@@ -153,37 +153,41 @@ group_means(groups, values) =
             # total. Values are read out of the compiled model, so the assertion
             # cannot drift from the equations it is checking — a reimplementation
             # of panel_force_eqs here would only test its own transcription.
-            @testset "per-panel reconstruction matches VSM" begin
-                VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero)
-                sol = wing.vsm_solver.sol
-                panels = wing.vsm_aero.panels
-                aero = getproperty(sam.prob.sys, Symbol("aero_$(wing.idx)"))
-                chord_model = sam.integrator[collect(aero.chord)]
-                width_model = sam.integrator[collect(aero.width)]
-                alpha_model = sam.integrator[collect(aero.alpha)]
-                force_scale = maximum(norm(Vector(sol.f_body_3D[:, i]))
-                                      for i in eachindex(panels))
-                @test force_scale > 0.1
-                chord_err = maximum(abs(chord_model[i] - panels[i].chord) /
-                                    panels[i].chord for i in eachindex(panels))
-                width_err = maximum(abs(width_model[i] - panels[i].width) /
-                                    panels[i].width for i in eachindex(panels))
-                # Pins which of VSM's two alphas the reconstruction reproduces.
-                alpha_err = maximum(abs(alpha_model[i] - sol.alpha_dist[i])
-                                    for i in eachindex(panels))
-                force_err = maximum(
-                    norm(sam.integrator[collect(aero.panel_force[:, i])] .-
-                         Vector(sol.f_body_3D[:, i])) / force_scale
-                    for i in eachindex(panels))
-                println("  [$(case.name)] per-panel: chord=",
-                    "$(round(chord_err; sigdigits=3)), ",
-                    "width=$(round(width_err; sigdigits=3)), ",
-                    "alpha=$(round(rad2deg(alpha_err); sigdigits=3))°, ",
-                    "force=$(round(force_err; sigdigits=3))")
-                @test chord_err < case.geometry_rtol
-                @test width_err < case.geometry_rtol
-                @test alpha_err < deg2rad(case.alpha_atol_deg)
-                @test force_err < case.panel_rtol
+            # Named symbolic variables of the compiled model, which only the
+            # MonolithBackend builds; a KernelBackend problem carries no system.
+            if sam.backend isa MonolithBackend
+                @testset "per-panel reconstruction matches VSM" begin
+                    VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero)
+                    sol = wing.vsm_solver.sol
+                    panels = wing.vsm_aero.panels
+                    aero = getproperty(sam.prob.sys, Symbol("aero_$(wing.idx)"))
+                    chord_model = sam.integrator[collect(aero.chord)]
+                    width_model = sam.integrator[collect(aero.width)]
+                    alpha_model = sam.integrator[collect(aero.alpha)]
+                    force_scale = maximum(norm(Vector(sol.f_body_3D[:, i]))
+                                          for i in eachindex(panels))
+                    @test force_scale > 0.1
+                    chord_err = maximum(abs(chord_model[i] - panels[i].chord) /
+                                        panels[i].chord for i in eachindex(panels))
+                    width_err = maximum(abs(width_model[i] - panels[i].width) /
+                                        panels[i].width for i in eachindex(panels))
+                    # Pins which of VSM's two alphas the reconstruction reproduces.
+                    alpha_err = maximum(abs(alpha_model[i] - sol.alpha_dist[i])
+                                        for i in eachindex(panels))
+                    force_err = maximum(
+                        norm(sam.integrator[collect(aero.panel_force[:, i])] .-
+                             Vector(sol.f_body_3D[:, i])) / force_scale
+                        for i in eachindex(panels))
+                    println("  [$(case.name)] per-panel: chord=",
+                        "$(round(chord_err; sigdigits=3)), ",
+                        "width=$(round(width_err; sigdigits=3)), ",
+                        "alpha=$(round(rad2deg(alpha_err); sigdigits=3))°, ",
+                        "force=$(round(force_err; sigdigits=3))")
+                    @test chord_err < case.geometry_rtol
+                    @test width_err < case.geometry_rtol
+                    @test alpha_err < deg2rad(case.alpha_atol_deg)
+                    @test force_err < case.panel_rtol
+                end
             end
 
             @testset "solve-point parity with full VSM" begin
