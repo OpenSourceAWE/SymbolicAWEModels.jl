@@ -379,6 +379,9 @@ SymbolicAWEModels.twist_surface_deltas
 SymbolicAWEModels.apply_flap_delta!
 SymbolicAWEModels.init_pressure_buffers!
 SymbolicAWEModels.freeze_traction_pattern!
+SymbolicAWEModels.contour_winding
+SymbolicAWEModels.aero_point_forces
+SymbolicAWEModels.write_aero_forces!
 SymbolicAWEModels.accumulate_point_offset!
 SymbolicAWEModels.zero_aero_force
 SymbolicAWEModels.PanelAeroList
