@@ -547,16 +547,27 @@ environment:
         sam3 = SymbolicAWEModel(set, sys3)
         test_init!(sam3)
 
-        # Simulate: mass settles under gravity with stiff
-        # constant-l0 tether
-        for _ in 1:2000
-            next_step!(sam3; dt=0.001, vsm_interval=0)
+        # Settle under gravity. k = unit_stiffness/l0 = 1000 N/m against 5 kg
+        # damped by c = unit_damping/l0 = 10 Ns/m, so the transient decays with
+        # a 1 s envelope over a 0.45 s period. 5 s leaves under a percent of it,
+        # and FBDF picks its own substeps, so dt only has to resolve the period.
+        for _ in 1:250
+            next_step!(sam3; dt=0.02, vsm_interval=0)
         end
 
         # Should reach equilibrium (not diverge)
         top_z = sam3.sys_struct.points[:top].pos_w[3]
         @test isfinite(top_z)
         @test top_z < -49.0  # stretched slightly by gravity
+
+        # Its length is a parameter, so retrimming it mid-run takes effect on
+        # the next step, with no reinit! to push the change onto the problem.
+        sys3.tethers[:free_tether].len = 48.0
+        for _ in 1:250
+            next_step!(sam3; dt=0.02, vsm_interval=0)
+        end
+        @test sam3.sys_struct.segments[:seg].l0 ≈ 48.0 rtol=1e-6
+        @test sam3.sys_struct.points[:top].pos_w[3] > top_z
     end
 
     # ============================================================

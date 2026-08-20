@@ -205,9 +205,13 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     )
 
     # A single-segment tether aliases l0 to tether_len; bind l0 too since
-    # mtkcompile may keep it as the surviving unknown.
+    # mtkcompile may keep it as the surviving unknown. An unwinched tether's
+    # length is a parameter, so that l0 is already determined and takes no
+    # initial value.
+    winched_tethers = Set(idx for winch in winches for idx in winch.tether_idxs)
     for tether in tethers
-        length(tether.segment_idxs) == 1 || continue
+        (length(tether.segment_idxs) == 1 && tether.idx in winched_tethers) ||
+            continue
         segidx = only(tether.segment_idxs)
         defaults = [defaults;
             bind_initial!(initial.segments[segidx].l0, l0[segidx])]

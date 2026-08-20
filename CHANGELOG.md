@@ -19,6 +19,12 @@
   scene-mutating `plot!` stays on `Makie.plot!`.
 
 ### Fixed
+- A tether with no winch takes its rest length from `params.tethers[i].len`
+  instead of an integrated `tether_len` whose derivative is zero, so writing
+  `tether.len` retrims a running simulation and no longer needs a `reinit!` to
+  take effect. `MonolithBackend` only: `KernelBackend` already read it as a
+  parameter, so the two backends disagreed on whether a mid-run rest-length
+  change did anything.
 - The Comer-Levy `TubeRigidityLaw` bending branch is C1 across its knee. Knee and
   tail were fitted independently, so `dEI/dκ` jumped from 0 to 29% of `EI0/κ_knee`
   there and the beam Jacobian was discontinuous. The post-knee deficit now leaves

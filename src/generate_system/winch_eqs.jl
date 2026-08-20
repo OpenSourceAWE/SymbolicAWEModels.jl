@@ -27,9 +27,12 @@ For each winch:
 
 For each tether, `tether_vel` is the reeling speed its length follows and its
 segments' dampers read as a rest-length rate:
-- With winch:    `tether_vel = ifelse(brake > 0.5, 0, winch_vel)`.
-- Without winch: `tether_vel = 0`.
-In both cases `D(tether_len) = tether_vel`.
+- With winch: `tether_vel = ifelse(brake > 0.5, 0, winch_vel)` and
+  `D(tether_len) = tether_vel`, so the length is integrator state.
+- Without winch: `tether_vel = 0` and `tether_len ~ params.tethers[i].len`, a
+  parameter, so writing `tether.len` retrims a running simulation without a
+  `reinit!`. This is what `KernelBackend` already does via
+  `retarget_tether_rest_lengths!`.
 """
 function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
                     sys_struct, params, initial;
@@ -48,13 +51,15 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
     end
 
     for tether in tethers
-        reel = if haskey(tether_winch, tether.idx)
-            winch_idx = tether_winch[tether.idx]
-            ifelse(params.winches[winch_idx].brake > 0.5, 0,
-                   winch_vel[winch_idx])
-        else
-            0
+        if !haskey(tether_winch, tether.idx)
+            eqs = [eqs
+                   tether_vel[tether.idx] ~ 0
+                   tether_len[tether.idx] ~ params.tethers[tether.idx].len]
+            continue
         end
+        winch_idx = tether_winch[tether.idx]
+        reel = ifelse(params.winches[winch_idx].brake > 0.5, 0,
+                      winch_vel[winch_idx])
         eqs = [eqs
                tether_vel[tether.idx] ~ reel
                D(tether_len[tether.idx]) ~ reel]
