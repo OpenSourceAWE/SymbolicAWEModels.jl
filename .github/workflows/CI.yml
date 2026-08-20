@@ -164,9 +164,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb libgl1-mesa-dri
 
+      # Under xvfb because instantiate precompiles GLMakie, whose __init__ opens
+      # a window; without a display it fails and the later steps redo the work.
       - name: Instantiate docs project
         run: |
-          julia --project=docs -e '
+          xvfb-run -a julia --project=docs -e '
             using Pkg
             Pkg.develop(PackageSpec(path=pwd()))
             Pkg.instantiate()'
