@@ -19,12 +19,12 @@
   scene-mutating `plot!` stays on `Makie.plot!`.
 
 ### Fixed
-- The `TubeRigidityLaw` bending branch is C1 across its knee. Knee and tail were
-  fitted independently, so `dEI/dκ` jumped from 0 to 29% of `EI0/κ_knee` there and
-  the beam Jacobian was discontinuous. The post-knee deficit now leaves the knee at
-  the slope the linear branch sets, and the exponent is fitted on relative moment
-  error rather than the log deficit — which also fits better: Comer-Levy rms 1.15%
-  → 1.10%, Breukels 15.6% → 8.8%.
+- The Comer-Levy `TubeRigidityLaw` bending branch is C1 across its knee. Knee and
+  tail were fitted independently, so `dEI/dκ` jumped from 0 to 29% of `EI0/κ_knee`
+  there and the beam Jacobian was discontinuous. The post-knee deficit now leaves
+  the knee at the slope the linear branch sets, and its exponent is fitted on
+  relative moment error rather than the log deficit (rms 1.15% → 1.10%). The
+  Breukels fit is unchanged — its knee is a fitting anchor, not a tangency.
 - A `Body`'s `body_frame_damping` damps its velocity *relative to its parent
   wing*, resolved on the wing's axes, through the same `body_frame_damp_accel` a
   wing node uses — so it damps deformation and leaves rigid flight alone, and it
