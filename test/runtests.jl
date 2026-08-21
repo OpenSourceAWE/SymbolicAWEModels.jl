@@ -31,6 +31,8 @@ KERNEL_SKIP_FILES = Dict(
     "test_yaml_variables.jl" => "YAML loader only, builds no model",
     "test_bench.jl" => "benchmarks; every file here already asserts a " *
                        "zero-allocation RHS through test_init!",
+    "test_backend_parity.jl" => "builds both backends itself, so the " *
+                                "monolith run already covers it",
 )
 
 backend_name = lowercase(strip(get(ENV, "SYMAWE_TEST_BACKEND", "")))

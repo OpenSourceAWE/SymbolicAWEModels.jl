@@ -25,12 +25,29 @@
   AoA of −0.25° against +5.64°, and an L/D of 70-or-`NaN` against 9.5. The refit
   stays as the fallback for a wing with no aero instance.
 - A `RIGID_DYNAMICS` wing gets its reported scalars on the `KernelBackend`:
-  `heading`, `elevation`, `azimuth`, `course`, `aoa` and `turn_rate` were only
-  filled for a fitted wing, so on a rigid one they held whatever the struct was
-  built with. Read from the body's `frame` output through the same
-  `wing_scalar_kinematics` the monolith's equations use. `turn_acc` and the
-  `_acc` scalars still differ: they need `alpha_b`, which the body kernel does
-  not output.
+  `heading`, `elevation`, `azimuth`, `course`, `aoa`, `turn_rate` and `turn_acc`
+  were only filled for a fitted wing, so on a rigid one they held whatever the
+  struct was built with. Read from the body's `frame` output and its angular
+  acceleration `alpha_b`, now observed by every body kernel, through the same
+  `wing_scalar_kinematics` the monolith's equations use.
+- Every anchored (`BODY_STATIC`) point on the `KernelBackend` reports the wind at
+  its own height and its net force. `ride_wrench_variables` declared only
+  `total_drag`, where `point_eqs!` writes all three for every point, so on a
+  `RIGID_DYNAMICS` wing every structural node read back a zero `wind_vec` — the
+  full 15.5 m/s of the test case — and a `force` left at whatever the struct was
+  built with. Bound once in `ride_wrench_eqs`, so `RideWrench`, `HermiteRideWrench`
+  and `TwistNodeWrench` all report them; the last of these had `ride_load`'s body
+  inlined and now shares it.
+- The `KernelBackend` fills the read-backs a fitted (`KINEMATIC`) wing and its
+  points were missing, so both backends scatter the same `SystemStructure` out of
+  a solved model: `acc_w` and the `elevation_acc`/`azimuth_acc`/`distance_acc`
+  that follow from it — a fitted body reports no acceleration of its own, so it is
+  blended from the origin reference points, as `wing_eqs!` blends it — `Q_p_to_w`
+  and `ω_p`, aliased to the body frame the same way `wing_eqs!` binds them, each
+  point's `total_mass` as its segments' rest lengths move, and `va_b` for the
+  points off the wing. `test_backend_parity.jl` diffs every real-valued field of
+  every component across the two backends, at `init!` and after stepping, so a
+  read-back added to one and not the other fails there.
 
 ## v0.15.0 21-08-2026
 

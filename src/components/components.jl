@@ -1068,8 +1068,8 @@ end
 The variables a rigid-body component declares, as a named tuple: the aggregated
 `force_in`/`moment_in` at and about its COM, the pose outputs a point riding the
 body reads (`pos`, `vel`, `frame` — `R_b_to_w` column-major — `com`, `com_velocity`,
-`omega_w`), and the observed `acc`/`orientation`/`omega_b` the state getter scatters
-into the struct.
+`omega_w`), and the observed `acc`/`orientation`/`omega_b`/`alpha_b` the state getter
+scatters into the struct or feeds to the reported scalars.
 """
 function body_variables()
     vars = @variables begin
@@ -1084,11 +1084,12 @@ function body_variables()
         acc(t)[1:3]
         orientation(t)[1:4]
         omega_b(t)[1:3]
+        alpha_b(t)[1:3]
     end
     return (; pos = vars[1], vel = vars[2], frame = vars[3], com = vars[4],
             com_velocity = vars[5], omega_w = vars[6], force_in = vars[7],
             moment_in = vars[8], acc = vars[9], orientation = vars[10],
-            omega_b = vars[11], all = vars)
+            omega_b = vars[11], alpha_b = vars[12], all = vars)
 end
 
 """
@@ -1198,6 +1199,7 @@ function RigidBody(s, params, idx; name, parented = false)
         collect(io.acc) .~ ex.acc_w
         collect(io.orientation) .~ ex.Q_b_to_w
         collect(io.omega_b) .~ ex.ω_b
+        collect(io.alpha_b) .~ ex.α_b
     ]
     vars = parented ? [io.all; parent; state; torn] : [io.all; state; torn]
     return System(eqs, t, vars, param_unknowns(params); name)
@@ -1226,6 +1228,7 @@ function StaticBody(s, params, idx; name)
         collect(io.acc) .~ zeros(3)
         collect(io.orientation) .~ collect(body.Q_b_to_w)
         collect(io.omega_b) .~ zeros(3)
+        collect(io.alpha_b) .~ zeros(3)
     ]
     return System(eqs, t, io.all, param_unknowns(params); name)
 end
@@ -1286,8 +1289,10 @@ end
 
 The variables shared by every anchored point's *statics* half, as a named tuple:
 its own `height` and `vel` from the kinematics half, the `force_in`/`mass_in`/
-`drag_in` its segments deliver, and the observed `total_drag`. The moment arms
-differ per anchor kind and are declared by the component itself.
+`drag_in` its segments deliver, and the observed `total_drag`/`wind_vec`/`net_force`
+— the same three [`point_variables`](@ref) declares, so the struct reads the same
+fields back whether a point rides something or flies free. The moment arms differ
+per anchor kind and are declared by the component itself.
 """
 function ride_wrench_variables()
     vars = @variables begin
@@ -1297,33 +1302,52 @@ function ride_wrench_variables()
         mass_in(t), [input = true]
         drag_in(t)[1:3], [input = true]
         total_drag(t)[1:3]
+        wind_vec(t)[1:3]
+        net_force(t)[1:3]
     end
     return (; height = vars[1], vel = vars[2], force_in = vars[3],
             mass_in = vars[4], drag_in = vars[5], total_drag = vars[6],
-            all = vars)
+            wind_vec = vars[7], net_force = vars[8], all = vars)
 end
 
 """
-    ride_load(s, params, idx, io; with_gravity) -> (load, drag)
+    ride_load(s, params, idx, io; with_gravity) -> (; load, drag, wind)
 
 The world load an anchored point delivers to whatever carries it: the force its
 segments deliver, its own aerodynamic drag at its height, its gravity and its
-external force. `with_gravity = false` is the point that rides its own wing body,
-whose mass is already counted at that body's COM (`rides_own_wing` in
-`point_eqs!`). The drag is returned separately because it is also half of the
-point's observed `total_drag`.
+external force — the monolith's `point_force`. `with_gravity = false` is the point
+that rides its own wing body, whose mass is already counted at that body's COM
+(`rides_own_wing` in `point_eqs!`). The drag and the wind at the point's own height
+come back separately because they are the other two quantities
+[`ride_wrench_eqs`](@ref) reports.
 """
 function ride_load(s, params, idx, io; with_gravity)
     point = params.points[idx]
-    wind = param_computed!(params.reg, :wind_factor, WindFactorReader())
-    apparent = wind(io.height) .* ground_wind_vec(params) .- collect(io.vel)
+    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
+    wind = wind_factor(io.height) .* ground_wind_vec(params)
+    apparent = wind .- collect(io.vel)
     drag = point_drag_force(apparent, air_density(s.am, io.height),
                             point.drag_coeff, point.area)
     mass = point.extra_mass + io.mass_in
     gravity = with_gravity ? Num[0, 0, -params.set.g_earth * mass] : zeros(Num, 3)
     load = collect(io.force_in) .+ drag .+ gravity .+ collect(point.ext_force_w)
-    return load, drag
+    return (; load, drag, wind)
 end
+
+"""
+    ride_wrench_eqs(io, ride) -> Vector{Equation}
+
+The three observables every anchored point's statics half reports, whatever it
+rides: its `total_drag` (its own plus its segments' share), the `wind_vec` at its
+own height and its `net_force`. `point_eqs!` writes all three for every point, so
+binding them here is what lets the struct read the same fields back on either
+backend.
+"""
+ride_wrench_eqs(io, ride) = [
+    collect(io.total_drag) .~ ride.drag .+ collect(io.drag_in)
+    collect(io.wind_vec) .~ ride.wind
+    collect(io.net_force) .~ ride.load
+]
 
 """
     RideWrench(s, params, idx; name, with_gravity=true)
@@ -1341,11 +1365,11 @@ function RideWrench(s, params, idx; name, with_gravity = true)
         force_out(t)[1:3], [output = true]
         moment_out(t)[1:3], [output = true]
     end
-    load, drag = ride_load(s, params, idx, io; with_gravity)
+    ride = ride_load(s, params, idx, io; with_gravity)
     eqs = [
-        collect(vars[2]) .~ load
-        collect(vars[3]) .~ collect(vars[1]) × load
-        collect(io.total_drag) .~ drag .+ collect(io.drag_in)
+        collect(vars[2]) .~ ride.load
+        collect(vars[3]) .~ collect(vars[1]) × ride.load
+        ride_wrench_eqs(io, ride)
     ]
     return System(eqs, t, [io.all; vars], param_unknowns(params); name)
 end
@@ -1398,16 +1422,16 @@ function HermiteRideWrench(s, params, idx; name)
         arm_a(t)[1:3], [input = true]
         arm_b(t)[1:3], [input = true]
     end
-    load, drag = ride_load(s, params, idx, io; with_gravity = true)
+    ride = ride_load(s, params, idx, io; with_gravity = true)
     frac = params.points[idx].beam_frac
-    force_a = (1 - frac) .* load
-    force_b = frac .* load
+    force_a = (1 - frac) .* ride.load
+    force_b = frac .* ride.load
     eqs = [
         collect(out.force_a) .~ force_a
         collect(out.moment_a) .~ collect(vars[1]) × force_a
         collect(out.force_b) .~ force_b
         collect(out.moment_b) .~ collect(vars[2]) × force_b
-        collect(io.total_drag) .~ drag .+ collect(io.drag_in)
+        ride_wrench_eqs(io, ride)
     ]
     return System(eqs, t, [io.all; out.all; vars], param_unknowns(params); name)
 end
@@ -2165,19 +2189,16 @@ function TwistNodeWrench(s, params, idx; name, surface_idx = 0, gated = false)
         moment_out(t)[1:3], [output = true]
     end
     twist = scalar_input(:twist_angle)
-    point = params.points[idx]
-    wind = param_computed!(params.reg, :wind_factor, WindFactorReader())
-    apparent = wind(io.height) .* ground_wind_vec(params) .- collect(io.vel)
-    drag = point_drag_force(apparent, air_density(s.am, io.height),
-                            point.drag_coeff, point.area)
-    load = collect(io.force_in) .+ drag .+ collect(point.ext_force_w)
+    ride = ride_load(s, params, idx, io; with_gravity = false)
     eqs = [
-        collect(vars[3]) .~ load
-        collect(vars[4]) .~ (gated ? zeros(Num, 3) : collect(vars[1]) × load)
-        collect(io.total_drag) .~ drag .+ collect(io.drag_in)
+        collect(vars[3]) .~ ride.load
+        collect(vars[4]) .~ (gated ? zeros(Num, 3) :
+                             collect(vars[1]) × ride.load)
+        ride_wrench_eqs(io, ride)
     ]
     extra = Any[twist]
     if surface_idx > 0
+        point = params.points[idx]
         surface = params.twist_surfaces[surface_idx]
         node_force = scalar_output(:node_force)
         node_moment = scalar_output(:node_moment)
@@ -2185,7 +2206,7 @@ function TwistNodeWrench(s, params, idx; name, surface_idx = 0, gated = false)
         couple = twist_bridle_couple(surface, point.pos_undeformed_b, twist,
                                      reshape(collect(vars[2]), 3, 3))
         eqs = [eqs
-               node_force ~ load ⋅ couple.direction
+               node_force ~ ride.load ⋅ couple.direction
                node_moment ~ couple.arm * node_force
                node_mass ~ point.extra_mass]
         append!(extra, Any[node_force, node_moment, node_mass])
@@ -2243,6 +2264,7 @@ function KinematicBody(s, params, idx; name)
         collect(io.acc) .~ zeros(3)
         collect(io.orientation) .~ rotation_matrix_to_quaternion(orientation)
         collect(io.omega_b) .~ zeros(3)
+        collect(io.alpha_b) .~ zeros(3)
     ]
     return System(eqs, t, [io.all; frame.all], param_unknowns(params); name)
 end

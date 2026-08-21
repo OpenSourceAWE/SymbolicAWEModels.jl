@@ -780,6 +780,21 @@ function sync_aero_density!(wing, am)
 end
 
 """
+    point_acceleration_w(point, wing_frame, wing_vel) -> KVec3
+
+A free particle's world-frame acceleration, rebuilt from what the struct already
+carries: its net force per unit mass less the world-frame and body-frame damping.
+The same expression `point_eqs!` binds to `acc`, which is where the monolith's
+fitted wing reads its own `acc_w` from.
+"""
+function point_acceleration_w(point, wing_frame, wing_vel)
+    damping = collect(point.world_frame_damping) .* collect(point.vel_w) .+
+        body_frame_damp_accel(point.vel_w, point.body_frame_damping, wing_frame,
+                              collect(wing_vel))
+    return collect(point.force) ./ point.total_mass .- damping
+end
+
+"""
     wing_kinematics_from_points!(wing, points, set, am;
                                  zp1, zp2, yp1, yp2, origin, aero_points)
 
@@ -790,7 +805,8 @@ reconstructs them here from the struct. `zp1`, `zp2`, `yp1`, `yp2` and `origin` 
 [`WeightedRefPoints`](@ref), so each reference is the weighted blend of its points,
 matching the monolith's `get_ref_position`. Writes the body frame `R_b_to_w`
 ([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the frame's own
-`ω_b` ([`body_frame_omega`](@ref)), the reported scalars
+`ω_b` ([`body_frame_omega`](@ref)), the origin's acceleration `acc_w`
+([`point_acceleration_w`](@ref)), the reported scalars
 ([`write_wing_scalars!`](@ref)), the wing apparent
 wind `va_b`, and each aero point's `va_b = R'·(wind(z)·wind_gnd − vel)`. Mirrors what
 the monolith's `get_all_state` copies out of the integrator, so `refresh_aero!` sees
@@ -816,6 +832,10 @@ function wing_kinematics_from_points!(wing, points, set, am;
     wing.ω_b .= body_frame_omega(axes,
         wing_frame_rates(pos_z1, pos_z2, pos_y1, pos_y2,
             (vel_z1, vel_z2, vel_y1, vel_y2), axes))
+    fill!(wing.acc_w, 0.0)
+    for (idx, weight) in zip(origin.ids, origin.weights)
+        wing.acc_w .+= weight .* point_acceleration_w(points[idx], R, wing.vel_w)
+    end
     wind_factor = WindFactor(am, set.profile_law)
     wing.v_wind .= wind_factor(wing.pos_w[3]) .* set.wind_vec
     wing.va_b .= R' * (wing.v_wind .- wing.vel_w .+ wing.wind_disturb)
@@ -829,17 +849,18 @@ function wing_kinematics_from_points!(wing, points, set, am;
 end
 
 """
-    write_wing_scalars!(wing, points; base_point, twist_surfaces) -> nothing
+    write_wing_scalars!(wing, points; base_point, alpha_b, twist_surfaces) -> nothing
 
 Fill a fitted wing's reported scalars — heading, course, elevation, azimuth,
 distance and angle of attack with their rates — from its freshly rebuilt pose,
 via the one definition in [`wing_scalar_kinematics`](@ref).
 
-`turn_rate` follows the `ω_b` the caller fitted from the frame's own ref points.
-`turn_acc` and the `_acc` scalars stay zero: they need `alpha_b` and `wing.acc_w`,
-which a fitted wing has only if something else wrote them.
+`turn_rate` follows the `ω_b` the caller fitted from the frame's own ref points, the
+`_acc` scalars the `wing.acc_w` it wrote, and `turn_acc` the `alpha_b` it passed.
+`alpha_b` defaults to zero, which is what the monolith binds a fitted wing's to.
 """
-function write_wing_scalars!(wing, points; base_point = 0, twist_surfaces = nothing)
+function write_wing_scalars!(wing, points; base_point = 0, alpha_b = zeros(3),
+                             twist_surfaces = nothing)
     rel_pos = base_point == 0 ? collect(wing.pos_w) :
         collect(wing.pos_w) .- collect(points[base_point].pos_w)
     idxs = wing.twist_surface_idxs
@@ -855,7 +876,7 @@ function write_wing_scalars!(wing, points; base_point = 0, twist_surfaces = noth
         R_t_to_w = sym_calc_R_t_to_w(rel_pos),
         R_v_to_w = calc_R_v_to_w(rel_pos, e_x),
         R_b_to_w, vel = collect(wing.vel_w), acc = collect(wing.acc_w),
-        omega_b = collect(wing.ω_b), alpha_b = zeros(3),
+        omega_b = collect(wing.ω_b), alpha_b = collect(alpha_b),
         va_b = collect(wing.va_b), twist_offset)
     wing.heading = scalars.heading
     wing.turn_rate .= scalars.turn_rate
