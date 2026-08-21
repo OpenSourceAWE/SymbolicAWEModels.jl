@@ -6,12 +6,15 @@
 # global slot, resolved once at assembly, so both are plain indexed loops.
 
 """
-    PointReadout(point, pos, vel, drag, wind, force)
+    PointReadout(point, pos, vel, drag, wind, force, va)
 
 Where one point's results live: its `pos`/`vel` in the output buffer and its
 `total_drag`, `wind_vec` and `net_force` in the observable buffer — all three from
 the instance that owns its loads, which for a point riding a body is its wrench
 half. A name that instance does not observe gets no slots and is left alone.
+
+`va` is the point's `va_b` from its [`AeroInflowPoint`](@ref), the apparent wind the
+aero is solved on, and is empty for a point that has no aero instance.
 """
 struct PointReadout
     point::Int
@@ -20,6 +23,7 @@ struct PointReadout
     drag::Vector{Int}
     wind::Vector{Int}
     force::Vector{Int}
+    va::Vector{Int}
 end
 
 """
@@ -134,13 +138,34 @@ struct WingAeroReadout
 end
 
 """
+    RigidWingReadout(wing, frame, base_point)
+
+`wing` is the body index, as `Body.idx` is. Where a `RIGID_DYNAMICS` wing's
+reported scalars come from: its body's `frame`
+output, plus the transform base point the elevation and azimuth are measured
+against. Its pose, spin and apparent wind are already scattered by the body and
+aero readouts, so the frame is all that is missing to fill the same scalars the
+monolith reads out of the integrator.
+"""
+struct RigidWingReadout
+    wing::Int
+    frame::Vector{Int}
+    base_point::Int
+end
+
+"""
     KernelStateGetter(model)
 
 Callable `(integrator, sys_struct)` that scatters the runtime's results back into
-the struct, mirroring the monolith's `get_all_state`: point positions, velocities
-and drag, segment tension/length/rest length, pulley splits, winch state and tether
-lengths. It re-runs the output and observable maps for the integrator's current
-state first, since the last RHS evaluation need not correspond to it.
+the struct, mirroring the monolith's `get_all_state`: point positions, velocities,
+apparent wind and drag, segment tension/length/rest length, pulley splits, winch
+state, tether lengths, and every wing's reported scalars. It re-runs the output and
+observable maps for the integrator's current state first, since the last RHS
+evaluation need not correspond to it.
+
+A point's `va_b` is copied from its [`AeroInflowPoint`](@ref) after the fitted-wing
+pass, so the value the aero is actually solved on is the compiled model's rather
+than a refit of it.
 """
 struct KernelStateGetter{R}
     rhs::R
@@ -150,6 +175,7 @@ struct KernelStateGetter{R}
     winches::Vector{WinchReadout}
     bodies::Vector{BodyReadout}
     kinematic::Vector{KinematicWingReadout}
+    rigid::Vector{RigidWingReadout}
     aero::Vector{WingAeroReadout}
     twist::Vector{TwistSurfaceReadout}
 end
@@ -162,7 +188,8 @@ function KernelStateGetter(model::KernelModel, rhs, sys_struct)
                   buffer_slots(system, drag_source(model, idx), :observables,
                                :total_drag),
                   observed_slots(system, drag_source(model, idx), :wind_vec),
-                  observed_slots(system, drag_source(model, idx), :net_force))
+                  observed_slots(system, drag_source(model, idx), :net_force),
+                  inflow_slots(model, idx))
               for (idx, instance) in enumerate(model.point_instances)]
     segments = [SegmentReadout(idx,
                     only(buffer_slots(system, instance, :observables, :spring_force)),
@@ -181,8 +208,31 @@ function KernelStateGetter(model::KernelModel, rhs, sys_struct)
                                 winch_readouts(model, sys_struct),
                                 body_readouts(model, sys_struct),
                                 kinematic_wing_readouts(sys_struct),
+                                rigid_wing_readouts(model, sys_struct),
                                 wing_aero_readouts(model, sys_struct),
                                 twist_surface_readouts(model))
+end
+
+"""
+    rigid_wing_readouts(model, sys_struct)
+
+One [`RigidWingReadout`](@ref) per `RIGID_DYNAMICS` wing. A fitted wing is covered
+by [`kinematic_wing_readouts`](@ref) instead.
+"""
+function rigid_wing_readouts(model::KernelModel, sys_struct)
+    readouts = RigidWingReadout[]
+    transforms = sys_struct.transforms
+    for wing in sys_struct.wings
+        wing.dynamics_type == RIGID_DYNAMICS || continue
+        instance = model.body_instances[wing.idx]
+        instance == 0 && continue
+        base_point = (wing.transform_idx != 0 &&
+                      wing.transform_idx <= length(transforms)) ?
+            transforms[wing.transform_idx].base_point_idx : 0
+        push!(readouts, RigidWingReadout(wing.idx,
+            buffer_slots(model.system, instance, :outputs, :frame), base_point))
+    end
+    return readouts
 end
 
 """
@@ -255,6 +305,15 @@ half when the point rides a body."""
 drag_source(model::KernelModel, idx) =
     model.wrench_instances[idx] == 0 ? model.point_instances[idx] :
     model.wrench_instances[idx]
+
+"""The output slots of point `idx`'s `va_b`, or none when it has no
+[`AeroInflowPoint`](@ref). This is the apparent wind the compiled model solves the
+aero on; reading it keeps the struct on the same value rather than a refit."""
+function inflow_slots(model::KernelModel, idx)
+    instance = model.inflow_instances[idx]
+    instance == 0 && return Int[]
+    return buffer_slots(model.system, instance, :outputs, :va_b)
+end
 
 """One [`BodyReadout`](@ref) per body. Only a `DYNAMIC` body integrates, so a
 clamped or fitted one keeps whatever principal attitude and spin the struct holds —
@@ -372,6 +431,18 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
             yp2 = readout.y2, origin = readout.origin,
             aero_points = readout.aero_points, base_point,
             twist_surfaces = sys_struct.twist_surfaces)
+    end
+    for readout in getter.rigid
+        wing = sys_struct.bodies[readout.wing]
+        copy_slots!(wing.R_b_to_w, scratch.output, readout.frame)
+        write_wing_scalars!(wing, sys_struct.points;
+            base_point = readout.base_point,
+            twist_surfaces = sys_struct.twist_surfaces)
+    end
+    for readout in getter.points
+        isempty(readout.va) && continue
+        copy_slots!(sys_struct.points[readout.point].va_b, scratch.output,
+                    readout.va)
     end
     write_stretched_lengths!(sys_struct)
     return nothing

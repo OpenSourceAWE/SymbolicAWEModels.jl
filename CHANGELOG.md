@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+- The `KernelBackend` reads each point's `va_b` out of its `AeroInflowPoint`
+  rather than refitting it in `wing_kinematics_from_points!`. The compiled model
+  already computed the apparent wind the aero is solved on; the refit overwrote it
+  from `set.wind_vec` and a frame fitted from the reference points, and disagreed:
+  on the parked V3 it gave `va_b` of 19.26 m/s against the monolith's 16.44, an
+  AoA of −0.25° against +5.64°, and an L/D of 70-or-`NaN` against 9.5. The refit
+  stays as the fallback for a wing with no aero instance.
+- A `RIGID_DYNAMICS` wing gets its reported scalars on the `KernelBackend`:
+  `heading`, `elevation`, `azimuth`, `course`, `aoa` and `turn_rate` were only
+  filled for a fitted wing, so on a rigid one they held whatever the struct was
+  built with. Read from the body's `frame` output through the same
+  `wing_scalar_kinematics` the monolith's equations use. `turn_acc` and the
+  `_acc` scalars still differ: they need `alpha_b`, which the body kernel does
+  not output.
+
 ## v0.15.0 21-08-2026
 
 ### Added
