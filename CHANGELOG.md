@@ -1,22 +1,67 @@
 # CHANGELOG
 
-## Unreleased
+## v0.15.0 21-08-2026
 
 ### Added
 - `Body.fix_static` freezes a body where it is, like a `Point`'s. A parameter,
   not a `type`, so it can be toggled on a built model. Also a `fix_static` column
   of the `bodies` YAML table.
+- `TimoshenkoJoint` and `ElasticJoint` take `damping`, the Rayleigh
+  stiffness-proportional coefficient β in seconds (`C = βK`), giving modal ratio
+  `ζ = βω/2` per mode. Being built from `K` it inherits the rigid-body null
+  space, so it damps every deformation mode — axial, shear, bending, torsion —
+  and rigid motion by construction not at all.
+- `test_joint_invariance.jl` runs every joint type through the same invariants:
+  rigid motion conserves linear and angular momentum, and the logarithmic
+  decrement `exp(−2πζ/√(1−ζ²))` pins β to `K`. New joint types inherit the
+  check by being added to `joint_cases`.
+- `Body` takes `world_frame_damping` and `body_frame_damping`, per-mass [1/s]
+  translational damping of the COM velocity resolved on the world and body axes,
+  next to the angular `damping` it already had. A beam wing carries most of its
+  mass in bodies, and nothing else damps their rigid motion; a per-axis body-frame
+  coefficient such as `[0, 0, 20]` resists flapping normal to the wing without
+  slowing flight along it. Settable from the `bodies` YAML table.
+- `set_world_frame_damping` and `set_body_frame_damping` take a component vector,
+  so `set_body_frame_damping(sys.bodies, damping)` reaches the bodies. The
+  `SystemStructure` methods still mean the points.
+- `Body` takes `wing`, resolved to `wing_idx`/`wing_ref` like a `Point`'s, naming
+  the parent wing its `body_frame_damping` resolves against. A body without one
+  damps its own velocity on its own axes, as before.
+- `set_angular_damping(bodies, damping)` sets the per-axis spin damping the
+  `Body` already carried but nothing exposed: `dω/dt -= c .* ω` on the body's own
+  axes, so `[0, 20, 0]` resists rotation about `y` alone. It damps *absolute*
+  spin, unlike the joints' Rayleigh `damping`, which has no rigid-body effect.
+  Its docstring said N·m·s; the coefficient is applied to angular acceleration,
+  so the unit is 1/s.
 
 ### Changed
-- BREAKING: the Makie extension adds its `plot(::SystemStructure, ...)` methods
-  to `MakieControlPlots.plot` instead of `Makie.plot`. `MakieControlPlots`
-  defines its own `plot` that shadows Makie's, and it is the one exported into
-  your session, so `plot(sys_struct)` used to hit a `MethodError` while the
-  methods sat on the unexported `Makie.plot`. Call sites that qualify as
-  `Makie.plot(sys_struct, ...)` or `GLMakie.plot(sys_struct, ...)` must call
-  `MakieControlPlots.plot` instead — or load the backend with `import GLMakie`
-  rather than `using GLMakie`, which leaves the bare `plot` unambiguous. The
-  scene-mutating `plot!` stays on `Makie.plot!`.
+- BREAKING: `plot(::SystemStructure, ...)` now extends `MakieControlPlots.plot`,
+  which is the `plot` exported into your session and shadows Makie's, so bare
+  `plot(sys_struct)` works instead of erroring. Replace qualified
+  `Makie.plot`/`GLMakie.plot` calls with `MakieControlPlots.plot`, or use
+  `import GLMakie` instead of `using GLMakie`. `plot!` is unchanged.
+- BREAKING: `Body.damping` is now `Body.angular_damping`, as its `Wing`
+  constructor kwarg already called it, and the `bodies` YAML key follows. A body
+  carries three damping fields and the bare name said nothing about which one it
+  was; the other two are `world_frame_damping` and `body_frame_damping`, and the
+  joints' Rayleigh β keeps the name `damping`.
+- BREAKING: the wing constructors (`Wing`, `VSMWing`, `PlateWing`) and the
+  `wings` YAML block drop `y_damping`; `angular_damping` is now the whole
+  per-axis vector and defaults to `[0, 150, 0]`, which is what the pair used to
+  produce. It was assembled as `[a, a + y_damping, a]`, so one axis was special
+  cased and the two knobs summed on it. A scalar is still broadcast to all three.
+- BREAKING: `TimoshenkoJoint` and `ElasticJoint` no longer accept
+  `damping_trans`/`damping_rot`; use `damping` (Rayleigh β, seconds). A dashpot
+  on relative node velocity has no rigid-body null space, which is what made the
+  bug below possible. YAML `timoshenko_joints`/`elastic_joints` tables must
+  rename those two columns to a single `damping`.
+- `SystemStructure`'s `diff_vars` property is now `state_vars`, and covers
+  every component regardless of `DynamicsType` rather than only the ones
+  the ODE integrates. Whether a field is integrated, torn as an iteration
+  variable or eliminated is the compiler's choice and has changed across
+  stacks, so a `DynamicsType` filter was a standing bet on that choice. It is
+  what `validate_sysstate_roundtrip` scrambles, and the bet losing is what let
+  the `KINEMATIC` restore below go unnoticed.
 
 ### Fixed
 - A tether with no winch takes its rest length from `params.tethers[i].len`
@@ -71,54 +116,6 @@
   anchors — it injected a net torque `(x_b − x_a) × F`, so angular momentum was
   not conserved. Body A now also carries the transport couple of the
   transmitted force.
-
-### Added
-- `TimoshenkoJoint` and `ElasticJoint` take `damping`, the Rayleigh
-  stiffness-proportional coefficient β in seconds (`C = βK`), giving modal ratio
-  `ζ = βω/2` per mode. Being built from `K` it inherits the rigid-body null
-  space, so it damps every deformation mode — axial, shear, bending, torsion —
-  and rigid motion by construction not at all.
-- `test_joint_invariance.jl` runs every joint type through the same invariants:
-  rigid motion conserves linear and angular momentum, and the logarithmic
-  decrement `exp(−2πζ/√(1−ζ²))` pins β to `K`. New joint types inherit the
-  check by being added to `joint_cases`.
-- `Body` takes `world_frame_damping` and `body_frame_damping`, per-mass [1/s]
-  translational damping of the COM velocity resolved on the world and body axes,
-  next to the angular `damping` it already had. A beam wing carries most of its
-  mass in bodies, and nothing else damps their rigid motion; a per-axis body-frame
-  coefficient such as `[0, 0, 20]` resists flapping normal to the wing without
-  slowing flight along it. Settable from the `bodies` YAML table.
-- `set_world_frame_damping` and `set_body_frame_damping` take a component vector,
-  so `set_body_frame_damping(sys.bodies, damping)` reaches the bodies. The
-  `SystemStructure` methods still mean the points.
-- `Body` takes `wing`, resolved to `wing_idx`/`wing_ref` like a `Point`'s, naming
-  the parent wing its `body_frame_damping` resolves against. A body without one
-  damps its own velocity on its own axes, as before.
-- `set_angular_damping(bodies, damping)` sets the per-axis spin damping the
-  `Body` already carried but nothing exposed: `dω/dt -= c .* ω` on the body's own
-  axes, so `[0, 20, 0]` resists rotation about `y` alone. It damps *absolute*
-  spin, unlike the joints' Rayleigh `damping`, which has no rigid-body effect.
-  Its docstring said N·m·s; the coefficient is applied to angular acceleration,
-  so the unit is 1/s.
-
-### Changed
-- BREAKING: `Body.damping` is now `Body.angular_damping`, as its `Wing`
-  constructor kwarg already called it, and the `bodies` YAML key follows. A body
-  carries three damping fields and the bare name said nothing about which one it
-  was; the other two are `world_frame_damping` and `body_frame_damping`, and the
-  joints' Rayleigh β keeps the name `damping`.
-- BREAKING: the wing constructors (`Wing`, `VSMWing`, `PlateWing`) and the
-  `wings` YAML block drop `y_damping`; `angular_damping` is now the whole
-  per-axis vector and defaults to `[0, 150, 0]`, which is what the pair used to
-  produce. It was assembled as `[a, a + y_damping, a]`, so one axis was special
-  cased and the two knobs summed on it. A scalar is still broadcast to all three.
-- BREAKING: `TimoshenkoJoint` and `ElasticJoint` no longer accept
-  `damping_trans`/`damping_rot`; use `damping` (Rayleigh β, seconds). A dashpot
-  on relative node velocity has no rigid-body null space, which is what made the
-  bug above possible. YAML `timoshenko_joints`/`elastic_joints` tables must
-  rename those two columns to a single `damping`.
-
-### Fixed
 - `update_from_sysstate!` now rebuilds the principal-frame state of every body,
   where it skipped `KINEMATIC` ones. Their `com_w`/`com_vel` are not logged, but
   the wing origin point's position alias-eliminates onto `com_w`, so restoring a
@@ -127,15 +124,6 @@
   out tens of degrees off and `init!` then failed DAE initialization
   (`your u0 did not satisfy the initialization requirements`) — on the V3 at
   250 m tether the origin was stranded 148 m from the rest of the kite.
-
-### Changed
-- `SystemStructure`'s `diff_vars` property is now `state_vars`, and covers
-  every component regardless of `DynamicsType` rather than only the ones
-  the ODE integrates. Whether a field is integrated, torn as an iteration
-  variable or eliminated is the compiler's choice and has changed across
-  stacks, so a `DynamicsType` filter was a standing bet on that choice. It is
-  what `validate_sysstate_roundtrip` scrambles, and the bet losing is what let
-  the `KINEMATIC` restore above go unnoticed.
 
 ## v0.14.0 13-08-2026
 
