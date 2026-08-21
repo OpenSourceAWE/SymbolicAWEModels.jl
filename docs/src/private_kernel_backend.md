@@ -81,6 +81,9 @@ SymbolicAWEModels.global_mass_matrix
 SymbolicAWEModels.KernelParams
 SymbolicAWEModels.CallableSlot
 SymbolicAWEModels.write_callable!
+SymbolicAWEModels.CallableGroup
+SymbolicAWEModels.group_callables
+SymbolicAWEModels.sync_callables!
 SymbolicAWEModels.KernelParamSync
 SymbolicAWEModels.KernelInitialSync
 SymbolicAWEModels.KernelBuffers
