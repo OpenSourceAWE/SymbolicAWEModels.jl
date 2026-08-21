@@ -717,7 +717,7 @@ function reinit!(
     update_sys_struct!(prob, integrator, sam.sys_struct)
     if lin_vsm && has_vsm_wing(sam.sys_struct)
         prn && @info "Running initial VSM aero solve…"
-        aero_time = @elapsed refresh_aero!(sam; vsm_min_wind)
+        aero_time = @elapsed refresh_aero!(sam; vsm_min_wind, cold_start=true)
         prn && @info "Initial aero solved in $(round(aero_time; digits=1)) s."
         sync_params!(prob.param_sync, integrator, sam.sys_struct)
     end

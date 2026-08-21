@@ -439,7 +439,7 @@ end
 
 """
     refresh_particle_aero!(mode::AeroPressure, wing, points, va_point_b_vals;
-                           vsm_min_wind=0.5)
+                           vsm_min_wind=0.5, cold_start=false)
 
 Solve at the per-panel apparent wind the symbolic RHS uses
 ([`set_refined_panel_va!`](@ref)), freezing the induced velocity and the per-node
@@ -448,7 +448,8 @@ re-derived symbolically each RHS step. Below `vsm_min_wind` all frozen buffers a
 zeroed, the per-point offsets included, so no stale constant force survives.
 """
 function refresh_particle_aero!(mode::AeroPressure, wing, points,
-                                va_point_b_vals; vsm_min_wind=0.5)
+                                va_point_b_vals; vsm_min_wind=0.5,
+                                cold_start=false)
     if norm(wing.va_b) < vsm_min_wind
         fill!(mode.v_ind, 0.0)
         fill!(mode.traction, 0.0)
@@ -458,7 +459,7 @@ function refresh_particle_aero!(mode::AeroPressure, wing, points,
     end
     update_vsm_wing_from_structure!(wing, points)
     set_refined_panel_va!(mode, wing, points, va_point_b_vals)
-    solve_and_freeze_circulation!(mode, wing)
+    solve_and_freeze_circulation!(mode, wing; cold_start)
     freeze_traction_pattern!(mode, wing)
     any(!isfinite, mode.traction) && throw(AssertionError(
         "AeroPressure: non-finite traction pattern on wing $(wing.idx)"))

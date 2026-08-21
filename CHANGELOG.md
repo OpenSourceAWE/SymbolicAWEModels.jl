@@ -73,6 +73,14 @@
   per-panel quantity now matches VSM to machine precision. The weights are
   refreshed with the frozen circulation, so they follow the deforming mesh. They
   are a new parameter, so a model cached before this needs `remake=true` once.
+- `reinit!` cold-starts the initial VSM solve, through a `cold_start` keyword on
+  `refresh_aero!` and the refresh chain below it. `VortexStepMethod.solve!`
+  warm-starts from the circulation left in `solver.sol`, and past stall the
+  iteration has more than one fixed point, so the frozen aero after a state
+  restore depended on what had run on that model before: restoring one `.arrow`
+  twice with a run in between moved the effective sectional α by 0.29° and the
+  frozen panel traction by 84 N. Per-step refreshes still warm-start, so
+  stepping costs the same.
 - A tether with no winch takes its rest length from `params.tethers[i].len`
   instead of an integrated `tether_len` whose derivative is zero, so writing
   `tether.len` retrims a running simulation and no longer needs a `reinit!` to
