@@ -49,29 +49,69 @@ function write_callable!(target::CallableSlot, value)
 end
 
 """
-    KernelParamSync(slots, readers, callable_targets, callable_readers)
+    CallableGroup(targets, readers)
 
-Copies live `SystemStructure` fields into a [`KernelParams`](@ref):
-`readers[k](sys_struct)` supplies `numeric[slots[k]]`, and `callable_readers[k]`
-supplies the callable at the address `callable_targets[k]`. This is the
-[`KernelBackend`](@ref)'s parameter sync, applied every step through the same
-`ProbWithAttributes` machinery as the monolith's.
+The callable readers sharing one concrete type with the [`CallableSlot`](@ref)s
+they fill, the callable counterpart of [`ReaderGroup`](@ref) and there for the
+same reason: one dispatch per group rather than one per slot.
+"""
+struct CallableGroup{T, R}
+    targets::Vector{T}
+    readers::Vector{R}
+end
+
+"""Write every callable of `group` into the slot it addresses."""
+function sync_callables!(group::CallableGroup, sys_struct)
+    targets, readers = group.targets, group.readers
+    for k in eachindex(targets)
+        write_callable!(targets[k], readers[k](sys_struct))
+    end
+    return nothing
+end
+
+"""
+    group_callables(targets, readers) -> Vector{CallableGroup}
+
+Split the parallel `targets`/`readers` vectors into one [`CallableGroup`](@ref)
+per `(target, reader)` type pair, keeping the original order within each group.
+"""
+function group_callables(targets, readers)
+    position = IdDict{Any, Int}()
+    groups = CallableGroup[]
+    for (target, reader) in zip(targets, readers)
+        key = (typeof(target), typeof(reader))
+        index = get(position, key, 0)
+        if index == 0
+            push!(groups, CallableGroup(Vector{key[1]}(), Vector{key[2]}()))
+            position[key] = index = length(groups)
+        end
+        push!(groups[index].targets, target)
+        push!(groups[index].readers, reader)
+    end
+    return groups
+end
+
+"""
+    KernelParamSync(groups, callable_groups)
+
+Copies live `SystemStructure` fields into a [`KernelParams`](@ref): the
+[`ReaderGroup`](@ref)s supply `numeric`, the [`CallableGroup`](@ref)s the
+callables. This is the [`KernelBackend`](@ref)'s parameter sync, applied every
+step through the same `ProbWithAttributes` machinery as the monolith's, so it is
+on the hot path twice per step and is grouped by type to stay allocation-free.
 """
 struct KernelParamSync
-    slots::Vector{Int}
-    readers::Vector{Any}
-    callable_targets::Vector{Any}
-    callable_readers::Vector{Any}
+    groups::Vector{ReaderGroup}
+    callable_groups::Vector{CallableGroup}
 end
 
 function sync_params!(sync::KernelParamSync, target, sys_struct::SystemStructure)
     numeric = target.p.numeric
-    @inbounds for k in eachindex(sync.slots)
-        numeric[sync.slots[k]] = sync.readers[k](sys_struct)
+    for group in sync.groups
+        sync_readers!(group, numeric, sys_struct)
     end
-    for k in eachindex(sync.callable_targets)
-        write_callable!(sync.callable_targets[k],
-                        sync.callable_readers[k](sys_struct))
+    for group in sync.callable_groups
+        sync_callables!(group, sys_struct)
     end
     return nothing
 end

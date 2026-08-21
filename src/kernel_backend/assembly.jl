@@ -1188,7 +1188,8 @@ function bind_params(system, sys_struct, bindings, segment_roles, segment_instan
         end
     end
     retarget_tether_rest_lengths!(readers, segment_roles)
-    sync = KernelParamSync(slots, readers, callable_targets, callable_readers)
+    sync = KernelParamSync(group_readers(slots, readers),
+                           group_callables(callable_targets, callable_readers))
     return KernelParams(numeric, callables), sync
 end
 
