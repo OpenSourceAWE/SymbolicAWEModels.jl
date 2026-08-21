@@ -129,6 +129,8 @@ SymbolicAWEModels.in_memory
 SymbolicAWEModels.backend_tag
 SymbolicAWEModels.default_autodiff
 SymbolicAWEModels.default_analytic_jacobian
+SymbolicAWEModels.default_sparse
+SymbolicAWEModels.default_linsolve
 SymbolicAWEModels.maybe_create_lin_prob!
 SymbolicAWEModels.maybe_create_control_functions!
 SymbolicAWEModels.maybe_create_prob!

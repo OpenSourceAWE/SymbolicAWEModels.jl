@@ -31,6 +31,7 @@ using SymbolicIndexingInterface: AbstractIndexer
 
 # --- Solvers (Nonlinear, Differential Equations) ---
 using ADTypes: AutoFiniteDiff, AutoForwardDiff
+using LinearSolve: KLUFactorization
 using NonlinearSolve
 using OrdinaryDiffEqBDF
 using OrdinaryDiffEqCore

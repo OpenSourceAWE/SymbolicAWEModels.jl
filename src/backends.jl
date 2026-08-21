@@ -89,6 +89,41 @@ derivative and leaves a `Differential` in the generated matrix.
 default_analytic_jacobian(::ModelBackend) = false
 default_analytic_jacobian(::KernelBackend) = true
 
+"""
+    default_sparse(backend) -> Bool
+
+Whether [`init!`](@ref) hands the solver the Jacobian's sparsity pattern rather
+than letting it factorize a dense matrix.
+
+The [`KernelBackend`](@ref) does. It knows the pattern already — [`state_sparsity`](@ref)
+walks it out of the wiring — and a structure is mostly zeros: on a 392-point beam the
+Jacobian is 1301 states square and 5.15% dense, where factorizing it dense is most of a
+step. That measured 35.5 ms a step against 50.2 ms. It also threads where the dense one
+does not: eight models stepping at once manage 48.4 steps/s against 4.8, because a dense
+factorization opens a BLAS thread pool per calling worker over the same cores.
+
+The [`MonolithBackend`](@ref) does not, so the bins it has already written keep loading.
+"""
+default_sparse(::ModelBackend) = false
+default_sparse(::KernelBackend) = true
+
+"""
+    default_linsolve(backend)
+
+Which factorization [`init!`](@ref)'s solver uses, or `nothing` to leave the choice to
+LinearSolve.
+
+The [`KernelBackend`](@ref) takes `KLUFactorization`. [`default_sparse`](@ref) gives it a
+sparse Jacobian, for which LinearSolve would otherwise pick UMFPACK; KLU refactorizes one
+pattern over and over, which is what a BDF integrator does with it, and measured 1.3x
+faster at every worker count on a large kite.
+
+The [`MonolithBackend`](@ref) takes `nothing`: its Jacobian is dense, so neither sparse
+factorization applies.
+"""
+default_linsolve(::ModelBackend) = nothing
+default_linsolve(::KernelBackend) = KLUFactorization()
+
 const DEFAULT_BACKEND = Ref{ModelBackend}(MonolithBackend())
 
 """
