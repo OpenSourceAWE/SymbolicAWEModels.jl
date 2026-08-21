@@ -93,15 +93,17 @@ end
 The reference points a fitted (`KINEMATIC`) wing's kinematics are rebuilt from after
 a step. Such a wing has no state of its own — its frame, apparent wind and per-point
 apparent wind are functions of where its points ended up, which is what
-[`wing_kinematics_from_points!`](@ref) computes.
+[`wing_kinematics_from_points!`](@ref) computes. Each reference is the wing's own
+[`WeightedRefPoints`](@ref), so a blend of several points is rebuilt at the same
+weights the [`Wiring`](@ref) feeds the kinematic body kernel.
 """
 struct KinematicWingReadout
     body::Int
-    z1::Int
-    z2::Int
-    y1::Int
-    y2::Int
-    origin::Int
+    z1::WeightedRefPoints
+    z2::WeightedRefPoints
+    y1::WeightedRefPoints
+    y2::WeightedRefPoints
+    origin::WeightedRefPoints
     aero_points::Vector{Int}
 end
 
@@ -238,9 +240,8 @@ end
 """
     kinematic_wing_readouts(sys_struct)
 
-One [`KinematicWingReadout`](@ref) per `KINEMATIC` body, resolving its reference points
-and its aerodynamic surface points once. A weighted reference collapses to its first
-point here, which is what the reconstruction reads.
+One [`KinematicWingReadout`](@ref) per `KINEMATIC` body, holding its weighted
+reference points and its aerodynamic surface points, resolved once.
 """
 function kinematic_wing_readouts(sys_struct)
     readouts = KinematicWingReadout[]
@@ -248,9 +249,9 @@ function kinematic_wing_readouts(sys_struct)
         body.type == KINEMATIC || continue
         aero = [i for (i, point) in enumerate(sys_struct.points)
                 if point.is_wing_node && point.wing_idx == idx]
-        push!(readouts, KinematicWingReadout(idx, body.z_ref_points[1].ids[1],
-            body.z_ref_points[2].ids[1], body.y_ref_points[1].ids[1],
-            body.y_ref_points[2].ids[1], body.origin.ids[1], aero))
+        push!(readouts, KinematicWingReadout(idx, body.z_ref_points[1],
+            body.z_ref_points[2], body.y_ref_points[1],
+            body.y_ref_points[2], body.origin, aero))
     end
     return readouts
 end
