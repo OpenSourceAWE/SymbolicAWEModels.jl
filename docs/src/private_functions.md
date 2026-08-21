@@ -444,6 +444,7 @@ SymbolicAWEModels.min_rotation
 ```@docs
 SymbolicAWEModels.read_path
 SymbolicAWEModels.PathReader
+SymbolicAWEModels.path_of
 SymbolicAWEModels.ParamEntry
 SymbolicAWEModels.ParamRegistry
 SymbolicAWEModels.make_param
@@ -456,6 +457,9 @@ SymbolicAWEModels.param_descend
 SymbolicAWEModels.ParamView
 SymbolicAWEModels.PathView
 SymbolicAWEModels.param_unknowns
+SymbolicAWEModels.ReaderGroup
+SymbolicAWEModels.group_readers
+SymbolicAWEModels.sync_readers!
 SymbolicAWEModels.ParamGroup
 SymbolicAWEModels.ParamSync
 SymbolicAWEModels.survivor_index
