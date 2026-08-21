@@ -39,6 +39,8 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
     frame_tol_frac::SimFloat
     "Frozen body-frame induced velocity per refined panel (3 × n_panels)."
     v_ind::Matrix{SimFloat}
+    "Frozen section-1 share of each refined panel's chord blend (n_panels)."
+    chord_weight::Vector{SimFloat}
     "Frozen body-frame traction per contour node, panel-major (3 × Σ nodes)."
     traction::Matrix{SimFloat}
     "Each wing point's constant force: its nodes' `traction` less its share of `traction_net`."
@@ -59,25 +61,28 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
     section_le_offset::Matrix{SimFloat}
     "Frozen body-frame TE billow offset off the strut line (3 × n_sections)."
     section_te_offset::Matrix{SimFloat}
-    AeroPressure{E}(engine, station_point, frame_tol_frac, v_ind, traction,
-        point_offset, traction_net, cl, cd, cm, panel_twist_surface,
+    AeroPressure{E}(engine, station_point, frame_tol_frac, v_ind, chord_weight,
+        traction, point_offset, traction_net, cl, cd, cm, panel_twist_surface,
         section_left_strut, section_left_weight, section_le_offset,
         section_te_offset) where {E} =
-        new{E}(engine, station_point, frame_tol_frac, v_ind, traction,
-               point_offset, traction_net, cl, cd, cm, panel_twist_surface,
+        new{E}(engine, station_point, frame_tol_frac, v_ind, chord_weight,
+               traction, point_offset, traction_net, cl, cd, cm,
+               panel_twist_surface,
                section_left_strut, section_left_weight, section_le_offset,
                section_te_offset)
 end
 
 AeroPressure(; frame_tol_frac=2.0) =
     AeroPressure{VSMEngine}(nothing, Vector{Vector{Int64}}(),
-        SimFloat(frame_tol_frac), zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0),
+        SimFloat(frame_tol_frac), zeros(SimFloat, 3, 0), SimFloat[],
+        zeros(SimFloat, 3, 0),
         Dict{Int64, Vector{SimFloat}}(), zeros(SimFloat, 3, 0),
         nothing, nothing, nothing, Int64[],
         Int64[], SimFloat[], zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0))
 attach_engine!(mode::AeroPressure, engine::VSMEngine) =
     AeroPressure{typeof(engine)}(engine, mode.station_point, mode.frame_tol_frac,
-        mode.v_ind, mode.traction, mode.point_offset, mode.traction_net,
+        mode.v_ind, mode.chord_weight,
+        mode.traction, mode.point_offset, mode.traction_net,
         mode.cl, mode.cd, mode.cm,
         mode.panel_twist_surface, mode.section_left_strut,
         mode.section_left_weight, mode.section_le_offset, mode.section_te_offset)
@@ -116,6 +121,7 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
                         name, params=nothing)
     wing_idx = wing.idx
     vind_p = params.wings[wing_idx].aero.v_ind
+    chord_w = params.wings[wing_idx].aero.chord_weight
     cl = params.wings[wing_idx].aero.cl
     cd = params.wings[wing_idx].aero.cd
     cm = params.wings[wing_idx].aero.cm
@@ -150,8 +156,8 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
     orient = panel_span_signs(wing, spanwise)
     delta = has_flap_coupling ? collect(connectors.delta) : nothing
     eqs, panel_vars, panel_force, _ = build_panel_force_eqs(
-        sec_le, sec_te, sec_va, sec_rho, vind_p, cl, cd, cm, spanwise, scale, orient;
-        delta)
+        sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w, cl, cd, cm, spanwise,
+        scale, orient; delta)
     vars = particle_unknowns(connectors)
     append!(vars, panel_vars)
 
@@ -173,7 +179,7 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
         eqs = [eqs; connectors.point_force[:, k] ~ point_force[k]]
     end
     return System(eqs, t, vars,
-        [vind_p, cl, cd, cm, traction_p, traction_net_p]; name)
+        [vind_p, chord_w, cl, cd, cm, traction_p, traction_net_p]; name)
 end
 
 # ==================== build-time panel→flap map + live δ ==================== #
@@ -352,7 +358,8 @@ end
 """
     init_pressure_buffers!(mode::AeroPressure, wing)
 
-Size the frozen state buffers (`v_ind`, `traction`, `traction_net`) to the current
+Size the frozen state buffers (`v_ind`, `chord_weight`, `traction`,
+`traction_net`) to the current
 mesh and set the `cl/cd/cm` polar callables. Run after
 [`build_station_point_map!`](@ref) (needs the per-panel node counts).
 """
@@ -360,8 +367,7 @@ function init_pressure_buffers!(mode::AeroPressure, wing)
     body_aero = wing.vsm_aero
     n_panels = length(body_aero.panels)
     total_nodes = sum(length, mode.station_point)
-    size(mode.v_ind) == (3, n_panels) ||
-        (mode.v_ind = zeros(SimFloat, 3, n_panels))
+    size_frozen_panel_buffers!(mode, n_panels)
     size(mode.traction) == (3, total_nodes) ||
         (mode.traction = zeros(SimFloat, 3, total_nodes))
     size(mode.traction_net) == (3, n_panels) ||

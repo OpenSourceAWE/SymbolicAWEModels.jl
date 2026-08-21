@@ -154,12 +154,6 @@ group_means(groups, values) =
             # reading a compiled model, whose variable names are codegen
             # artefacts and which the KernelBackend does not expose at all.
             #
-            # Everything independent of the chord direction is exact. VSM takes
-            # that direction between two section blends weighted by panel spacing
-            # where the equations use the midpoint; `blend` measures the gap, and
-            # bounds every axis-dependent error. It is zero on a uniformly
-            # panelled wing, where the whole reconstruction is then exact.
-            #
             # The frozen `mode.v_ind` is the reference circulation because VSM
             # builds its forces from the one its last iteration was handed;
             # `solver.lr.gamma_new` is already a step past it.
@@ -175,7 +169,7 @@ group_means(groups, values) =
                 force_scale = maximum(norm(Vector(solver.sol.f_body_3D[:, i]))
                                       for i in eachindex(panels))
                 @test force_scale > 0.1
-                names = (:blend, :chord, :width, :span_axis, :q_dyn, :chord_axis,
+                names = (:chord, :width, :span_axis, :q_dyn, :chord_axis,
                          :normal_axis, :alpha, :force, :couple)
                 worst = Dict(name => 0.0 for name in names)
                 record(name, value) = worst[name] = max(worst[name], value)
@@ -191,14 +185,10 @@ group_means(groups, values) =
                          mode.v_ind[:, i]),
                         alpha -> (VortexStepMethod.calculate_cl(panel, alpha),
                             VortexStepMethod.calculate_cd_cm(panel, alpha)...),
-                        spanwise, scale, orient[i])
+                        spanwise, scale, orient[i], mode.chord_weight[i])
                     reference_q = 0.5 * solver.density * solver.lr.v_a_dist[i]^2
                     reference_couple = solver.sol.panel_moment_dist[i] *
                         panel.width / panel.chord .* Vector(panel.z_airf)
-                    record(:blend, norm(
-                        normalize(Vector(panel.control_point) .-
-                                  Vector(panel.aero_center)) .-
-                        normalize(0.5 .* (te_1 .+ te_2) .- 0.5 .* (le_1 .+ le_2))))
                     record(:chord, abs(result.chord - panel.chord) / panel.chord)
                     record(:width, abs(result.width - panel.width) / panel.width)
                     record(:span_axis, norm(result.y_airf .- Vector(panel.y_airf)))
@@ -213,30 +203,23 @@ group_means(groups, values) =
                     record(:couple, norm(result.couple .- reference_couple) /
                                     force_scale)
                 end
-                println("  [$(case.name)] per-panel: blend=",
-                    "$(round(worst[:blend]; sigdigits=3)), ",
+                println("  [$(case.name)] per-panel: ",
                     join(("$name=$(round(worst[name]; sigdigits=3))"
-                          for name in names[2:end]), ", "))
-                # Independent of the chord direction, so exact either way.
-                @test worst[:chord] < 1e-14
-                @test worst[:width] < 1e-14
-                @test worst[:span_axis] < 1e-14
+                          for name in names), ", "))
+                for name in (:chord, :width, :span_axis, :chord_axis,
+                             :normal_axis, :alpha)
+                    @test worst[name] < 1e-14
+                end
                 @test worst[:q_dyn] < 1e-13
-                # Axis-dependent. The force picks up the lift-curve slope on top
-                # of the angle the tilted chord direction costs.
-                @test worst[:chord_axis] < 2 * worst[:blend] + 1e-13
-                @test worst[:normal_axis] < 2 * worst[:blend] + 1e-13
-                @test worst[:alpha] < 2 * worst[:blend] + 1e-13
-                @test worst[:force] < 10 * worst[:blend] + 1e-13
-                @test worst[:couple] < 10 * worst[:blend] + 1e-13
+                @test worst[:force] < 1e-13
+                @test worst[:couple] < 1e-13
             end
 
             @testset "solve-point parity with full VSM" begin
                 # Reference: full nonlinear solve + calc_forces! on the same panel
                 # apparent wind the refresh used. Remaining differences: the
-                # per-panel va assignment (nearest strut vs interpolated), the
-                # corrected-AoA direction triad, and VSM's spanwise aero-center
-                # weighting.
+                # per-panel va assignment (nearest strut vs interpolated) and the
+                # corrected-AoA direction triad.
                 VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero)
                 force_reference = vec(sum(wing.vsm_solver.sol.f_body_3D, dims=2))
                 @test all(isfinite, force_symbolic)
