@@ -7,6 +7,8 @@
 
 using Test
 using SymbolicAWEModels
+using SymbolicAWEModels: panel_force_slots, panel_force_eqs
+using SymbolicAWEModels.ModelingToolkit: Symbolics
 using Profile
 using LinearAlgebra
 
@@ -214,6 +216,62 @@ function test_init!(
     validate_rhs_allocs(sam; max_bytes, diagnose)
     roundtrip && validate_sysstate_roundtrip(sam)
     return integ
+end
+
+"""
+    scalar_equation_pairs(eq) -> Vector{Tuple}
+
+`eq` as scalar `(left, right)` pairs, splitting an array-valued equation into one
+pair per component.
+"""
+function scalar_equation_pairs(eq)
+    left = eq.lhs
+    is_array = left isa AbstractArray ||
+        Symbolics.symbolic_type(left) === Symbolics.ArraySymbolic()
+    is_array || return [(left, eq.rhs)]
+    return collect(zip(collect(Symbolics.scalarize(left)),
+                       collect(Symbolics.scalarize(eq.rhs))))
+end
+
+"""
+    evaluate_panel_equations(sections, flow, coefficients, spanwise, scale,
+                             orient) -> NamedTuple
+
+One panel of `panel_force_eqs` evaluated numerically. The equations are built on
+numeric `sections`/`flow` and substituted forward in the order they are emitted,
+so every returned quantity is the expression the model compiles rather than a
+reimplementation of it. `coefficients` maps the resulting angle of attack to
+`(cl, cd, cm)`, which are folded into `force` and `couple`.
+"""
+function evaluate_panel_equations(sections, flow, coefficients, spanwise, scale,
+                                  orient)
+    slots = panel_force_slots(1)
+    polar_symbols = [Symbolics.variable(name) for name in (:cl, :cd, :cm)]
+    polars = Tuple(_ -> symbol for symbol in polar_symbols)
+    values = Dict{Any, Any}()
+    for equation in panel_force_eqs(slots, 1, sections, flow, polars, spanwise,
+                                    scale, orient, nothing),
+        (left, right) in scalar_equation_pairs(equation)
+        values[Symbolics.value(left)] =
+            Symbolics.substitute(right, values; fold = Val(true))
+    end
+    readout(slot) = Symbolics.value(values[Symbolics.value(slot)])
+    angle_of_attack = Float64(readout(slots.alpha[1]))
+    polar_values = Dict(Symbolics.value(symbol) => value for (symbol, value) in
+                        zip(polar_symbols, coefficients(angle_of_attack)))
+    fold(slot) = Float64(Symbolics.value(Symbolics.substitute(
+        readout(slot), polar_values; fold = Val(true))))
+    triple(slot) = [Float64(readout(slot[k, 1])) for k in 1:3]
+    return (; chord = Float64(readout(slots.chord[1])),
+              width = Float64(readout(slots.width[1])),
+              q_dyn = Float64(readout(slots.q_dyn[1])),
+              alpha = angle_of_attack,
+              x_airf = triple(slots.x_airf), y_airf = triple(slots.y_airf),
+              z_airf = triple(slots.z_airf), v_eff = triple(slots.v_eff),
+              dir_lift = triple(slots.dir_lift),
+              dir_drag = triple(slots.dir_drag),
+              force = [fold(slots.panel_force[k, 1]) for k in 1:3],
+              couple = [fold(slots.panel_couple[k, 1]) for k in 1:3])
 end
 
 function diagnose_rhs(f, du, u, p, t)

@@ -29,7 +29,8 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, aero_inflow_groups, wing_points
+using SymbolicAWEModels: VortexStepMethod, aero_inflow_groups, wing_points,
+    panel_span_signs, AERO_SCALE_CHORD
 using KiteUtils
 using LinearAlgebra
 
@@ -96,12 +97,10 @@ group_means(groups, values) =
         # moment response 0.29/0.22 against 0 for a wing-wide mean inflow.
         (name="ContinuousAero", system_name="continuous_test",
             make=() -> ContinuousAero(), billowing=true, surface_fixture=false,
-            parity_rtol=0.04, parity_deg=1.0, roll_response=0.10,
-            geometry_rtol=0.05, alpha_atol_deg=1.0, panel_rtol=0.10),
+            parity_rtol=0.04, parity_deg=1.0, roll_response=0.10),
         (name="AeroPressure", system_name="pressure_test",
             make=() -> AeroPressure(), billowing=false, surface_fixture=true,
-            parity_rtol=0.04, parity_deg=1.0, roll_response=0.10,
-            geometry_rtol=0.05, alpha_atol_deg=1.0, panel_rtol=0.10),
+            parity_rtol=0.04, parity_deg=1.0, roll_response=0.10),
     ]
 
     for case in cases
@@ -148,46 +147,88 @@ group_means(groups, values) =
             next_step!(sam; dt=1e-4, vsm_interval=0)
             force_symbolic = copy(wing.aero_force_b)
 
-            # Every per-panel intermediate must match VSM, not just the span
-            # sum: a per-panel error that cancels spanwise is invisible in the
-            # total. Values are read out of the compiled model, so the assertion
-            # cannot drift from the equations it is checking — a reimplementation
-            # of panel_force_eqs here would only test its own transcription.
-            # Named symbolic variables of the compiled model, which only the
-            # MonolithBackend builds; a KernelBackend problem carries no system.
-            if sam.backend isa MonolithBackend
-                @testset "per-panel reconstruction matches VSM" begin
-                    VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero)
-                    sol = wing.vsm_solver.sol
-                    panels = wing.vsm_aero.panels
-                    aero = getproperty(sam.prob.sys, Symbol("aero_$(wing.idx)"))
-                    chord_model = sam.integrator[collect(aero.chord)]
-                    width_model = sam.integrator[collect(aero.width)]
-                    alpha_model = sam.integrator[collect(aero.alpha)]
-                    force_scale = maximum(norm(Vector(sol.f_body_3D[:, i]))
-                                          for i in eachindex(panels))
-                    @test force_scale > 0.1
-                    chord_err = maximum(abs(chord_model[i] - panels[i].chord) /
-                                        panels[i].chord for i in eachindex(panels))
-                    width_err = maximum(abs(width_model[i] - panels[i].width) /
-                                        panels[i].width for i in eachindex(panels))
-                    # Pins which of VSM's two alphas the reconstruction reproduces.
-                    alpha_err = maximum(abs(alpha_model[i] - sol.alpha_dist[i])
-                                        for i in eachindex(panels))
-                    force_err = maximum(
-                        norm(sam.integrator[collect(aero.panel_force[:, i])] .-
-                             Vector(sol.f_body_3D[:, i])) / force_scale
-                        for i in eachindex(panels))
-                    println("  [$(case.name)] per-panel: chord=",
-                        "$(round(chord_err; sigdigits=3)), ",
-                        "width=$(round(width_err; sigdigits=3)), ",
-                        "alpha=$(round(rad2deg(alpha_err); sigdigits=3))°, ",
-                        "force=$(round(force_err; sigdigits=3))")
-                    @test chord_err < case.geometry_rtol
-                    @test width_err < case.geometry_rtol
-                    @test alpha_err < deg2rad(case.alpha_atol_deg)
-                    @test force_err < case.panel_rtol
+            # Every per-panel intermediate must match VSM, not just the span sum:
+            # a per-panel error that cancels spanwise is invisible in the total.
+            # `panel_force_eqs` is evaluated on the panel's own geometry and
+            # inflow, so this checks the equations the model compiles without
+            # reading a compiled model, whose variable names are codegen
+            # artefacts and which the KernelBackend does not expose at all.
+            #
+            # Everything independent of the chord direction is exact. VSM takes
+            # that direction between two section blends weighted by panel spacing
+            # where the equations use the midpoint; `blend` measures the gap, and
+            # bounds every axis-dependent error. It is zero on a uniformly
+            # panelled wing, where the whole reconstruction is then exact.
+            #
+            # The frozen `mode.v_ind` is the reference circulation because VSM
+            # builds its forces from the one its last iteration was handed;
+            # `solver.lr.gamma_new` is already a step past it.
+            @testset "per-panel equations reproduce VSM" begin
+                solver = wing.vsm_solver
+                VortexStepMethod.solve!(solver, wing.vsm_aero)
+                panels = wing.vsm_aero.panels
+                spanwise = collect(Float64, wing.vsm_wing.spanwise_direction)
+                orient = panel_span_signs(wing, spanwise)
+                scale = 1.0 + (isfinite(wing.aero_scale_chord) ?
+                    wing.aero_scale_chord : AERO_SCALE_CHORD)
+                @test scale == 1.0
+                force_scale = maximum(norm(Vector(solver.sol.f_body_3D[:, i]))
+                                      for i in eachindex(panels))
+                @test force_scale > 0.1
+                names = (:blend, :chord, :width, :span_axis, :q_dyn, :chord_axis,
+                         :normal_axis, :alpha, :force, :couple)
+                worst = Dict(name => 0.0 for name in names)
+                record(name, value) = worst[name] = max(worst[name], value)
+                for (i, panel) in enumerate(panels)
+                    le_1 = collect(panel.LE_point_1)
+                    te_1 = collect(panel.TE_point_1)
+                    le_2 = collect(panel.LE_point_2)
+                    te_2 = collect(panel.TE_point_2)
+                    panel_va = collect(panel.va)
+                    result = evaluate_panel_equations(
+                        (le_1, te_1, le_2, te_2),
+                        (panel_va, panel_va, solver.density, solver.density,
+                         mode.v_ind[:, i]),
+                        alpha -> (VortexStepMethod.calculate_cl(panel, alpha),
+                            VortexStepMethod.calculate_cd_cm(panel, alpha)...),
+                        spanwise, scale, orient[i])
+                    reference_q = 0.5 * solver.density * solver.lr.v_a_dist[i]^2
+                    reference_couple = solver.sol.panel_moment_dist[i] *
+                        panel.width / panel.chord .* Vector(panel.z_airf)
+                    record(:blend, norm(
+                        normalize(Vector(panel.control_point) .-
+                                  Vector(panel.aero_center)) .-
+                        normalize(0.5 .* (te_1 .+ te_2) .- 0.5 .* (le_1 .+ le_2))))
+                    record(:chord, abs(result.chord - panel.chord) / panel.chord)
+                    record(:width, abs(result.width - panel.width) / panel.width)
+                    record(:span_axis, norm(result.y_airf .- Vector(panel.y_airf)))
+                    record(:q_dyn, abs(result.q_dyn - reference_q) / reference_q)
+                    record(:chord_axis, norm(result.x_airf .- Vector(panel.x_airf)))
+                    record(:normal_axis, norm(result.z_airf .- Vector(panel.z_airf)))
+                    # The forces use this one; the corrected AoA goes elsewhere.
+                    record(:alpha, abs(result.alpha - solver.lr.alpha_dist[i]))
+                    record(:force, norm(result.force .-
+                                        Vector(solver.sol.f_body_3D[:, i])) /
+                                   force_scale)
+                    record(:couple, norm(result.couple .- reference_couple) /
+                                    force_scale)
                 end
+                println("  [$(case.name)] per-panel: blend=",
+                    "$(round(worst[:blend]; sigdigits=3)), ",
+                    join(("$name=$(round(worst[name]; sigdigits=3))"
+                          for name in names[2:end]), ", "))
+                # Independent of the chord direction, so exact either way.
+                @test worst[:chord] < 1e-14
+                @test worst[:width] < 1e-14
+                @test worst[:span_axis] < 1e-14
+                @test worst[:q_dyn] < 1e-13
+                # Axis-dependent. The force picks up the lift-curve slope on top
+                # of the angle the tilted chord direction costs.
+                @test worst[:chord_axis] < 2 * worst[:blend] + 1e-13
+                @test worst[:normal_axis] < 2 * worst[:blend] + 1e-13
+                @test worst[:alpha] < 2 * worst[:blend] + 1e-13
+                @test worst[:force] < 10 * worst[:blend] + 1e-13
+                @test worst[:couple] < 10 * worst[:blend] + 1e-13
             end
 
             @testset "solve-point parity with full VSM" begin
