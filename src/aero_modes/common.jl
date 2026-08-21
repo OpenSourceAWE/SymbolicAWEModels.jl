@@ -251,8 +251,9 @@ function panel_span_signs(wing, spanwise)
 end
 
 """
-    build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, cl, cd, cm,
-                          spanwise, scale, orient) -> (eqs, vars, panel_force, panel_couple)
+    build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
+                          cl, cd, cm, spanwise, scale,
+                          orient) -> (eqs, vars, panel_force, panel_couple)
 
 Shared per-refined-panel VSM force assembly for the live particle aero modes
 ([`ContinuousAero`](@ref), [`AeroPressure`](@ref)). Re-expresses
@@ -270,7 +271,8 @@ the caller's scatter (strut couple or surface pattern).
 the matching air densities; they may be live (interpolated from structure) or
 constant (a fixed mesh). `spanwise` is the wing spanwise direction, `scale` the
 chord-scale factor. `orient` is the per-panel `±1` span/normal sign from
-[`panel_span_signs`](@ref).
+[`panel_span_signs`](@ref) and `chord_w` the per-panel chord blend weight from
+[`store_chord_weights!`](@ref).
 
 `delta` is an optional length-`n_panels` vector of symbolic per-panel flap
 deflections δ. When given the polars are evaluated as `cl(i, alpha[i], delta[i])`
@@ -278,8 +280,8 @@ deflections δ. When given the polars are evaluated as `cl(i, alpha[i], delta[i]
 mode without a flap ([`ContinuousAero`](@ref)) is untouched.
 """
 function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
-                               vind_p, cl, cd, cm, spanwise, scale, orient;
-                               delta=nothing)
+                               vind_p, chord_w, cl, cd, cm, spanwise, scale,
+                               orient; delta=nothing)
     n_panels = length(sec_le) - 1
     slots = panel_force_slots(n_panels)
     eqs = Equation[]
@@ -289,7 +291,7 @@ function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
             (sec_va[i], sec_va[i + 1], sec_rho[i], sec_rho[i + 1],
              [vind_p[c, i] for c in 1:3]),
             (PanelPolar(cl, i), PanelPolar(cd, i), PanelPolar(cm, i)),
-            spanwise, scale, orient[i],
+            spanwise, scale, orient[i], chord_w[i],
             delta === nothing ? nothing : delta[i]))
     end
 
@@ -326,27 +328,30 @@ end
 panel_force_vars(slots) = Any[values(slots)...]
 
 """
-    panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale, orient, delta)
+    panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale, orient,
+                    chord_weight, delta)
 
 One panel's aerodynamic equations, writing into column `i` of the symbolic arrays
 in `slots`. `sections` is `(le_1, te_1, le_2, te_2)` in body frame, `flow` is
 `(va_1, va_2, rho_1, rho_2, v_ind)` and `polars` the `(cl, cd, cm)` callables,
-indexed by the panel number the polar tables were built for. `delta` is the flap
-deflection or `nothing` for the 2-argument polars.
+indexed by the panel number the polar tables were built for. `chord_weight` is the
+section-1 share of the chord-direction blend ([`store_chord_weights!`](@ref)).
+`delta` is the flap deflection or `nothing` for the 2-argument polars.
 
 Every quantity it reads belongs to this panel alone, so the same equations serve a
 whole-wing system (looped by [`build_panel_force_eqs`](@ref)) and a per-panel
 component compiled once and instantiated for each panel.
 """
 function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
-                         orient, delta)
+                         orient, chord_weight, delta)
     (; x_airf, y_airf, z_airf, v_eff, chord, width, alpha, q_dyn,
        dir_lift, dir_drag, panel_force, panel_couple) = slots
     le_1, te_1, le_2, te_2 = sections
     va_1, va_2, rho_1, rho_2, vind = flow
     cl, cd, cm = polars
 
-    chord_vec = 0.5 * (te_1 + te_2) - 0.5 * (le_1 + le_2)
+    near, far = chord_weight, 1 - chord_weight
+    chord_vec = (near * te_1 + far * te_2) - (near * le_1 + far * le_2)
     x_unit = chord_vec ./ smooth_norm(chord_vec)
     span_vec = (0.75 * le_1 + 0.25 * te_1) - (0.75 * le_2 + 0.25 * te_2)
     y_unit = orient .* (span_vec ./ smooth_norm(span_vec))
@@ -475,6 +480,7 @@ function Base.getproperty(panel::PanelAero, sym::Symbol)
     mode = getfield(panel, :mode)
     i = getfield(panel, :idx)
     sym === :v_ind && return mode.v_ind[:, i]
+    sym === :chord_weight && return mode.chord_weight[i]
     sym === :le_offset_a && return mode.section_le_offset[:, i]
     sym === :te_offset_a && return mode.section_te_offset[:, i]
     sym === :le_offset_b && return mode.section_le_offset[:, i + 1]
@@ -637,6 +643,57 @@ zero_weight_pair() = zeros(SimFloat, 2)
 scatter_entry_list(totals) =
     sort!([(panel, point, total[1], total[2])
            for ((panel, point), total) in totals])
+
+"""
+    store_chord_weights!(chord_weight, body_aero)
+
+Freeze each refined panel's chord blend weight into `chord_weight` (n_panels): the
+share of section 1 in the leading- and trailing-edge blend whose difference gives
+the panel's chord direction. `VortexStepMethod` weights that blend by panel
+spacing rather than taking the midpoint, so a panel next to a narrower neighbour
+leans towards it, and the weight follows the mesh as the wing deforms. Written at
+the same refresh as [`store_induced_velocity!`](@ref).
+"""
+function store_chord_weights!(chord_weight, body_aero)
+    panels = body_aero.panels
+    n_panels = length(panels)
+    length(chord_weight) == n_panels || error(
+        "chord-weight buffer is stale ($(length(chord_weight)) for $n_panels " *
+        "panels); reinitialize the model.")
+    if n_panels < 2
+        fill!(chord_weight, 0.5)
+        return nothing
+    end
+    for i in 1:n_panels
+        own = panels[i].width
+        spacing_share = if i == 1
+            own / (own + panels[2].width)
+        elseif i == n_panels
+            panels[n_panels - 1].width / (panels[n_panels - 1].width + own)
+        else
+            0.25 * (panels[i - 1].width / (panels[i - 1].width + own) +
+                    own / (own + panels[i + 1].width) + 1)
+        end
+        chord_weight[i] = 1 - spacing_share
+    end
+    return nothing
+end
+
+"""
+    size_frozen_panel_buffers!(mode, n_panels)
+
+Size the per-panel buffers every live VSM mode freezes at a refresh — the induced
+velocity and the chord blend weight — reallocating only when the refined mesh
+changed. The chord weights start at the midpoint, which is what they are on a
+uniformly panelled wing.
+"""
+function size_frozen_panel_buffers!(mode, n_panels::Int)
+    size(mode.v_ind) == (3, n_panels) ||
+        (mode.v_ind = zeros(SimFloat, 3, n_panels))
+    length(mode.chord_weight) == n_panels ||
+        (mode.chord_weight = fill(SimFloat(0.5), n_panels))
+    return nothing
+end
 
 """
     store_induced_velocity!(v_ind, body_aero, gamma)
@@ -1447,8 +1504,9 @@ end
 """
     solve_and_freeze_circulation!(mode, wing)
 
-Solve and freeze the per-refined-panel induced velocity into `mode.v_ind`, shared by
-the continuous VSM modes. Warm starting is `VortexStepMethod.solve!`'s own, gated by
+Solve and freeze the per-refined-panel induced velocity into `mode.v_ind` and the
+chord blend weights into `mode.chord_weight`, shared by the continuous VSM modes.
+Warm starting is `VortexStepMethod.solve!`'s own, gated by
 `use_gamma_prev`. Errors on a non-converged or non-finite solve.
 """
 function solve_and_freeze_circulation!(mode, wing)
@@ -1459,6 +1517,7 @@ function solve_and_freeze_circulation!(mode, wing)
             "(non-converged or non-finite) on wing $(wing.idx)"))
     end
     store_induced_velocity!(mode.v_ind, body_aero, solver.lr.gamma_new)
+    store_chord_weights!(mode.chord_weight, body_aero)
     return nothing
 end
 

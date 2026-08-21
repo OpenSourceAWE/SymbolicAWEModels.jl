@@ -1842,8 +1842,9 @@ One refined VSM panel's aerodynamic load: its two sections' leading and trailing
 its flap deflection in; its body-frame force and pitching couple out. The physics is
 the shared [`panel_force_eqs`](@ref) on a single column, so the expressions are those a
 whole-wing system emits for this panel. `orient` is the panel's `±1` span sign, baked
-in because it costs a second kernel and saves a parameter on every instance;
-`with_flap` selects the `(α, δ)` polars.
+in because it costs a second kernel and saves a parameter on every instance; the
+chord blend weight cannot be, because it differs per panel and would cost a kernel
+each. `with_flap` selects the `(α, δ)` polars.
 """
 function AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
     wing = params.reg.sys_struct.wings[wing_idx]
@@ -1872,7 +1873,7 @@ function AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
     flow = (collect(io[5]), collect(io[6]), io[7], io[8], collect(panel.v_ind))
     eqs = panel_force_eqs(slots, 1, sections, flow,
                           (panel.cl, panel.cd, panel.cm),
-                          spanwise, scale, orient, delta)
+                          spanwise, scale, orient, panel.chord_weight, delta)
     append!(eqs, collect(io[9]) .~ collect(slots.panel_force[:, 1]))
     append!(eqs, collect(io[10]) .~ collect(slots.panel_couple[:, 1]))
     vars = [io; panel_force_vars(slots)]

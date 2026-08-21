@@ -355,6 +355,8 @@ SymbolicAWEModels.set_refined_panel_va!
 SymbolicAWEModels.surface_node_forces
 SymbolicAWEModels.build_mesh_maps!
 SymbolicAWEModels.store_induced_velocity!
+SymbolicAWEModels.store_chord_weights!
+SymbolicAWEModels.size_frozen_panel_buffers!
 SymbolicAWEModels.build_section_interp
 SymbolicAWEModels.section_interp_caches
 SymbolicAWEModels.aero_section_columns
