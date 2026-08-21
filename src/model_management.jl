@@ -517,6 +517,9 @@ return a freshly initialized `ODEIntegrator`.
 - `autodiff`: automatic-differentiation choice for the default solver's Jacobian.
   Defaults to [`default_autodiff`](@ref) of the backend. Ignored when `solver` is
   passed explicitly.
+- `linsolve`: factorization the default solver uses. Defaults to
+  [`default_linsolve`](@ref) of the backend. Ignored when `solver` is passed
+  explicitly.
 - `prn`: print progress messages.
 - `remake`: force a full rebuild, ignoring any cached compiled model. Defaults to
   `nothing`, which rebuilds automatically when a custom winch/aero component is
@@ -536,12 +539,13 @@ return a freshly initialized `ODEIntegrator`.
 - `vsm_min_wind=0.5`: minimum |va| [m/s] for the initial VSM solve. Below this the
   solve is skipped and the wing's aero outputs are zeroed (the solver fails to
   converge / the Jacobian blows up as 1/|va|).
-- `sparse=false`: give the solver a Jacobian sparsity pattern, so the
+- `sparse`: give the solver a Jacobian sparsity pattern, so the
   finite-difference Jacobian is coloured and its factorization sparse instead of
   both being dense. The [`MonolithBackend`](@ref) takes MTK's structural pattern,
   the [`KernelBackend`](@ref) derives its own from the wiring
   ([`state_sparsity`](@ref)). Part of the serialized model's name, so the sparse and
-  dense builds are cached separately rather than shadowing each other.
+  dense builds are cached separately rather than shadowing each other. `nothing`
+  takes the backend's [`default_sparse`](@ref).
 - `analytic_jacobian=nothing`: give the solver a Jacobian instead of letting it
   differentiate the right-hand side numerically. `nothing` takes the backend's
   [`default_analytic_jacobian`](@ref) — on for the [`KernelBackend`](@ref), whose
@@ -564,9 +568,11 @@ function init!(sam::SymbolicAWEModel;
     reinit_sys::Bool=true,
     apply_tether_lengths::Bool=true,
     vsm_min_wind=0.5,
-    sparse::Bool=false,
+    sparse::Union{Bool, Nothing}=nothing,
+    linsolve=default_linsolve(sam.backend),
     analytic_jacobian::Union{Bool, Nothing}=nothing
 )
+    sparse = something(sparse, default_sparse(sam.backend))
     analytic_jacobian = something(analytic_jacobian,
                                   default_analytic_jacobian(sam.backend))
     prn && @info "Initializing $(sam.sys_struct.name) model..."
@@ -583,12 +589,12 @@ function init!(sam::SymbolicAWEModel;
         if isnothing(solver)
             if sam.set.solver == "QNDF"
                 @warn "This solver is not tested."
-                solver = QNDF(; autodiff)
+                solver = QNDF(; autodiff, linsolve)
             else
                 if sam.set.solver != "FBDF"
                     @warn "Unavailable solver for SymbolicAWEModel: $(sam.set.solver). Falling back to FBDF."
                 end
-                solver = FBDF(; autodiff)
+                solver = FBDF(; autodiff, linsolve)
             end
         end
 

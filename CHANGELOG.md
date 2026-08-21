@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Changed
+- The `KernelBackend` now defaults to a sparse Jacobian and a `KLUFactorization`,
+  through the new `default_sparse` and `default_linsolve` dispatches; `init!` takes
+  `sparse=nothing` and a `linsolve` keyword to override either. On a 392-point beam
+  the Jacobian is 1301 states square and 5.15% dense, so the dense factorization was
+  most of a step: 35.5 ms against 50.2 ms, and 62.1 steps/s against 4.8 with eight
+  models stepping at once, because a dense factorization opens a BLAS thread pool per
+  worker over the same cores. `sparse` is part of the model bin's name, so a kernel
+  model builds once more. The `MonolithBackend` keeps a dense Jacobian and
+  LinearSolve's own choice.
+
 ### Fixed
 - `sync_params!` no longer allocates, and is 22.13 ms -> 0.41 ms a call on SK100.
   It ran twice a step and was ~90% of it. Its readers were held in a `Vector{Any}`,
