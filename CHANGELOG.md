@@ -3,6 +3,20 @@
 ## Unreleased
 
 ### Fixed
+- `reinit!` cold-starts the initial VSM solve, through a `cold_start` keyword on
+  `refresh_aero!` and the refresh chain below it. `VortexStepMethod.solve!`
+  warm-starts from the circulation left in `solver.sol`, and past stall the
+  iteration has more than one fixed point, so the frozen aero after a state
+  restore depended on what had run on that model before: restoring one `.arrow`
+  twice with a run in between moved the effective sectional α by 0.29° and the
+  frozen panel traction by 84 N. Per-step refreshes still warm-start, so
+  stepping costs the same.
+- `KernelBackend` reads a fitted (`KINEMATIC`) wing's pose back from the weighted
+  blend of its reference points, as `MonolithBackend` does. The read-back kept
+  only the first point of each `WeightedRefPoints`, so a wing whose `origin_idx`,
+  `z_ref_points` or `y_ref_points` name several points reported the wrong
+  `pos_w`/`vel_w`/`R_b_to_w` — and the apparent wind and reported scalars derived
+  from them. The dynamics were already correct; only the struct read-back was not.
 - The `KernelBackend` reads each point's `va_b` out of its `AeroInflowPoint`
   rather than refitting it in `wing_kinematics_from_points!`. The compiled model
   already computed the apparent wind the aero is solved on; the refit overwrote it
