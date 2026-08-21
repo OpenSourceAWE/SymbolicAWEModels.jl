@@ -18,12 +18,51 @@ path_step(obj, key::Int) = obj[key]
     PathReader(path)
 
 Serialisable closure reading a fixed `path` from a `sys_struct` at sync time
-(holds only the path tuple, never the struct).
+(holds only the path, never the struct).
+
+The field names live in the type and the container indices stay values. A name has
+to be a compile-time constant for the field read to resolve to an offset —
+otherwise every step of the walk is a dynamic call that boxes both its argument
+and its result — while keeping the indices out of the type lets all components of
+one kind share a single compiled reader instead of one per index.
 """
-struct PathReader{P<:Tuple}
-    path::P
+struct PathReader{Fields, I <: Tuple}
+    indices::I
 end
-(reader::PathReader)(sys_struct) = read_path(sys_struct, reader.path)
+
+function PathReader(path::Tuple)
+    fields = map(step -> step isa Symbol ? step : nothing, path)
+    indices = Tuple(step for step in path if !(step isa Symbol))
+    return PathReader{fields, typeof(indices)}(indices)
+end
+
+"""The `(name, index, …)` tuple `reader` was built from."""
+function path_of(reader::PathReader{Fields}) where {Fields}
+    indices = getfield(reader, :indices)
+    taken = 0
+    steps = Vector{Any}(undef, length(Fields))
+    for (k, field) in enumerate(Fields)
+        steps[k] = field === nothing ? indices[taken += 1] : field
+    end
+    return Tuple(steps)
+end
+
+Base.getproperty(reader::PathReader, name::Symbol) =
+    name === :path ? path_of(reader) : getfield(reader, name)
+
+@generated function (reader::PathReader{Fields})(sys_struct) where {Fields}
+    walk = :sys_struct
+    taken = 0
+    for field in Fields
+        if field === nothing
+            taken += 1
+            walk = :(path_step($walk, getfield(reader, :indices)[$taken]))
+        else
+            walk = :(path_step($walk, $(QuoteNode(field))))
+        end
+    end
+    return walk
+end
 
 """
     ParamEntry
@@ -174,14 +213,67 @@ end
 # ==================== SYNC ==================== #
 
 """
+    ReaderGroup(targets, readers)
+
+The readers sharing one concrete type, with the index each fills in the vector it
+writes to.
+
+Readers are closures of many types, so a `Vector{Any}` of them costs a dynamic
+dispatch and a boxed return per element. Grouping by type lets
+[`sync_readers!`](@ref) take one dispatch per group and then run a fully inferred
+loop: at SK100 scale that is a dozen dispatches instead of 22756, twice a step.
+"""
+struct ReaderGroup{R}
+    targets::Vector{Int}
+    readers::Vector{R}
+end
+
+"""
+    group_readers(targets, readers) -> Vector{ReaderGroup}
+
+Split the parallel `targets`/`readers` vectors into one [`ReaderGroup`](@ref) per
+concrete reader type, keeping the original order within each group.
+"""
+function group_readers(targets, readers)
+    position = IdDict{Any, Int}()
+    groups = ReaderGroup[]
+    for (target, reader) in zip(targets, readers)
+        key = typeof(reader)
+        index = get(position, key, 0)
+        if index == 0
+            push!(groups, ReaderGroup(Int[], Vector{key}()))
+            position[key] = index = length(groups)
+        end
+        push!(groups[index].targets, target)
+        push!(groups[index].readers, reader)
+    end
+    return groups
+end
+
+"""
+    sync_readers!(group::ReaderGroup, destination, sys_struct)
+
+Write every reader of `group` into `destination` at its target index. Called with
+a concretely typed `group`, which is the function barrier the grouping exists for.
+"""
+function sync_readers!(group::ReaderGroup, destination, sys_struct)
+    targets, readers = group.targets, group.readers
+    @inbounds for k in eachindex(targets)
+        destination[targets[k]] = readers[k](sys_struct)
+    end
+    return nothing
+end
+
+"""
     ParamGroup
 
-A `setp` setter plus the readers and preallocated value buffer for one parameter
-kind. `eltype` is `SimFloat` for numeric scalars, `Any` for arrays/callables.
+A `setp` setter plus the type-grouped readers and preallocated value buffer for
+one parameter kind. `eltype` is `SimFloat` for numeric scalars, `Any` for
+arrays/callables.
 """
 struct ParamGroup{Setter, Buf}
     setter::Setter
-    readers::Vector{Any}
+    groups::Vector{ReaderGroup}
     buffer::Buf
 end
 
@@ -238,7 +330,8 @@ function build_param_sync(sys, registry::ParamRegistry)
             end
         end
         isempty(survivors) ? nothing :
-            ParamGroup(setp(sys, survivors), readers, Buf(undef, length(survivors)))
+            ParamGroup(setp(sys, survivors), group_readers(eachindex(readers), readers),
+                       Buf(undef, length(survivors)))
     end
     scalar = grp(by_kind(:scalar), Vector{SimFloat})
     array = grp(by_kind(:array), Vector{Any})
@@ -264,10 +357,9 @@ end
 
 sync_group!(::Nothing, target, sys_struct) = nothing
 function sync_group!(group::ParamGroup, target, sys_struct::SystemStructure)
-    readers = group.readers
     buffer = group.buffer
-    @inbounds for k in eachindex(readers)
-        buffer[k] = readers[k](sys_struct)
+    for reader_group in group.groups
+        sync_readers!(reader_group, buffer, sys_struct)
     end
     group.setter(target, buffer)
     return nothing

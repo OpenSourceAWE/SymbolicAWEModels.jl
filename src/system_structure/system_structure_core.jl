@@ -28,7 +28,7 @@ winches, and wings, forming a complete description of the kite system's structur
 - [`Tether`](@ref): Collections of segments controlled by a winch.
 - [`Winch`](@ref): Ground-based winches.
 - [`Body`](@ref): Rigid bodies; a wing is a body that carries aero, so
-  `sys.wings` is a filtered view of `sys.bodies`.
+  `sys.wings` holds the subset of `sys.bodies` that does.
 - [`ElasticJoint`](@ref), [`TimoshenkoJoint`](@ref): Two-body links; a chain of
   the latter forms a beam.
 - [`Transform`](@ref): Spatial transformations for initial positioning.
@@ -43,8 +43,11 @@ mutable struct SystemStructure{J<:ElasticJoint}
     const tethers::NamedCollection{Tether}
     const winches::NamedCollection{Winch}
     const transforms::NamedCollection{Transform}
-    "All bodies (plain bodies + wings). `sys.wings` is a filtered view of those with aero."
+    "All bodies (plain bodies + wings). `wings` holds those of them that carry aero."
     const bodies::NamedCollection{Body}
+    "The `bodies` that carry aero, which are prepended to `bodies`, so a wing's
+    position here equals its `idx`. The same objects, not copies."
+    const wings::NamedCollection{Body}
     const elastic_joints::NamedCollection{J}
     const timoshenko_joints::NamedCollection{TimoshenkoJoint}
 
@@ -55,11 +58,7 @@ mutable struct SystemStructure{J<:ElasticJoint}
 end
 
 function Base.getproperty(sys::SystemStructure, sym::Symbol)
-    if sym == :wings
-        # Wing bodies are registered first, so position == idx in this view.
-        wing_bodies = filter(is_wing, getfield(sys, :bodies))
-        return NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies))
-    elseif sym == :total_mass
+    if sym == :total_mass
         # Falls back to extra_mass for points whose total_mass is not yet computed.
         total = 0.0
         for point in getfield(sys, :points)
@@ -1126,6 +1125,7 @@ function SystemStructure(name, set;
     end
 
     # Name dictionaries were already built by assign_indices_and_resolve!
+    wing_bodies = filter(is_wing, bodies)
     sys_struct = SystemStructure(name, set,
         NamedCollection{Point}(points, point_names_dict),
         NamedCollection{TwistSurface}(twist_surfaces, twist_surface_names_dict),
@@ -1135,6 +1135,7 @@ function SystemStructure(name, set;
         NamedCollection{Winch}(winches, winch_names_dict),
         NamedCollection{Transform}(transforms, transform_names_dict),
         NamedCollection{Body}(bodies, rigid_body_names_dict),
+        NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
         NamedCollection{eltype(elastic_joints)}(elastic_joints, elastic_joint_names_dict),
         NamedCollection{TimoshenkoJoint}(timoshenko_joints, timoshenko_joint_names_dict),
         AtmosphericModel(set), false, false, vsm_set)

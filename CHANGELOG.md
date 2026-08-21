@@ -3,6 +3,22 @@
 ## Unreleased
 
 ### Fixed
+- `sync_params!` no longer allocates, and is 22.13 ms -> 0.41 ms a call on SK100.
+  It ran twice a step and was ~90% of it. Its readers were held in a `Vector{Any}`,
+  so each of the 22756 parameters cost a dynamic dispatch, and `PathReader` walked
+  its path as values, so a field name was never a compile-time constant and every
+  step of the walk boxed both its argument and its result. Readers are now grouped
+  by concrete type behind a function barrier (`ReaderGroup`) and `PathReader`
+  carries its field names in the type, keeping container indices as values so
+  components of one kind still share a compiled reader. The remaining allocation is
+  the MTK `setp` setter and the `Any` buffers of the monolith's array and callable
+  kinds, a fixed 256 B that does not grow with the model.
+- `SystemStructure.wings` is a stored field instead of a `getproperty` that ran
+  `filter(is_wing, bodies)` and rebuilt a `NamedCollection` on every access. Same
+  objects as `bodies`, not copies.
+- `test_getter_allocations.jl` covers both backends and asserts `sync_params!`
+  against `SYNC_ALLOC_BUDGET`. It previously ran only the default backend, so the
+  `KernelBackend` sync paths had no allocation coverage at all.
 - `reinit!` cold-starts the initial VSM solve, through a `cold_start` keyword on
   `refresh_aero!` and the refresh chain below it. `VortexStepMethod.solve!`
   warm-starts from the circulation left in `solver.sol`, and past stall the

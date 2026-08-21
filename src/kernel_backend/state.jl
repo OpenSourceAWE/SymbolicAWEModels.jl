@@ -319,8 +319,8 @@ end
 """The body whose frame point `idx`'s `va_b` is expressed in when the point has no
 [`AeroInflowPoint`](@ref) to read it from: its own wing, or the first body if it is
 not a wing node, which is the fallback `point_eqs!` uses. 0 for a model with no wing,
-where the monolith leaves `va_b` at zero. Resolved here rather than per read-back
-because `sys_struct.wings` rebuilds its filtered view on every access."""
+where the monolith leaves `va_b` at zero. Resolved once here because the choice is
+fixed for the life of the model."""
 function va_frame_body(sys_struct, idx)
     isempty(sys_struct.wings) && return 0
     point = sys_struct.points[idx]
