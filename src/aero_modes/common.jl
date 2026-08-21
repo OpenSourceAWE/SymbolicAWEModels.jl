@@ -335,7 +335,10 @@ One panel's aerodynamic equations, writing into column `i` of the symbolic array
 in `slots`. `sections` is `(le_1, te_1, le_2, te_2)` in body frame, `flow` is
 `(va_1, va_2, rho_1, rho_2, v_ind)` and `polars` the `(cl, cd, cm)` callables,
 indexed by the panel number the polar tables were built for. `chord_weight` is the
-section-1 share of the chord-direction blend ([`store_chord_weights!`](@ref)).
+section-1 share of the chord-direction blend ([`store_chord_weights!`](@ref)),
+entering as an offset from the midpoint: the equivalent
+`chord_weight * te_1 + (1 - chord_weight) * te_2` form leaves no constant term to
+fold, which makes a continuous-mode wing 3.7x slower to build symbolically.
 `delta` is the flap deflection or `nothing` for the 2-argument polars.
 
 Every quantity it reads belongs to this panel alone, so the same equations serve a
@@ -350,8 +353,9 @@ function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
     va_1, va_2, rho_1, rho_2, vind = flow
     cl, cd, cm = polars
 
-    near, far = chord_weight, 1 - chord_weight
-    chord_vec = (near * te_1 + far * te_2) - (near * le_1 + far * le_2)
+    lean = chord_weight - 0.5
+    chord_vec = (0.5 * (te_1 + te_2) - 0.5 * (le_1 + le_2)) +
+        lean * ((te_1 - te_2) - (le_1 - le_2))
     x_unit = chord_vec ./ smooth_norm(chord_vec)
     span_vec = (0.75 * le_1 + 0.25 * te_1) - (0.75 * le_2 + 0.25 * te_2)
     y_unit = orient .* (span_vec ./ smooth_norm(span_vec))
