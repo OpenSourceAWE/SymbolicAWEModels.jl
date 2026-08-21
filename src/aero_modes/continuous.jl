@@ -19,6 +19,8 @@ mutable struct ContinuousAero{E} <: AbstractVSMAero
     engine::Union{Nothing, E}
     "Frozen body-frame induced velocity per refined panel (3 × n_panels)."
     v_ind::Matrix{SimFloat}
+    "Frozen section-1 share of each refined panel's chord blend (n_panels)."
+    chord_weight::Vector{SimFloat}
     "Left strut (unrefined section) of each refined section (n_panels + 1)."
     section_left_strut::Vector{Int64}
     "Left-strut weight: section = w·strut[left] + (1−w)·strut[left+1]."
@@ -31,18 +33,22 @@ mutable struct ContinuousAero{E} <: AbstractVSMAero
     cl::Any
     cd::Any
     cm::Any
-    ContinuousAero{E}(engine, v_ind, section_left_strut, section_left_weight,
-        section_le_offset, section_te_offset, cl, cd, cm) where {E} =
-        new{E}(engine, v_ind, section_left_strut, section_left_weight,
-            section_le_offset, section_te_offset, cl, cd, cm)
+    ContinuousAero{E}(engine, v_ind, chord_weight, section_left_strut,
+        section_left_weight, section_le_offset, section_te_offset,
+        cl, cd, cm) where {E} =
+        new{E}(engine, v_ind, chord_weight, section_left_strut,
+            section_left_weight, section_le_offset, section_te_offset,
+            cl, cd, cm)
 end
 
 ContinuousAero() =
-    ContinuousAero{VSMEngine}(nothing, zeros(SimFloat, 3, 0), Int64[], SimFloat[],
+    ContinuousAero{VSMEngine}(nothing, zeros(SimFloat, 3, 0), SimFloat[],
+                   Int64[], SimFloat[],
                    zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0),
                    nothing, nothing, nothing)
 attach_engine!(mode::ContinuousAero, engine::VSMEngine) =
-    ContinuousAero{typeof(engine)}(engine, mode.v_ind, mode.section_left_strut,
+    ContinuousAero{typeof(engine)}(engine, mode.v_ind, mode.chord_weight,
+        mode.section_left_strut,
         mode.section_left_weight, mode.section_le_offset, mode.section_te_offset,
         mode.cl, mode.cd, mode.cm)
 
@@ -117,7 +123,7 @@ ContinuousPolar(body_aero, coef) = ContinuousPolar(AeroHandle(body_aero), coef)
 """
     build_mesh_maps!(mode::ContinuousAero)
 
-Size the frozen induced-velocity buffer, set the polar callables, and freeze the
+Size the frozen per-panel buffers, set the polar callables, and freeze the
 refined-section → strut interpolation caches via [`build_section_interp`](@ref).
 """
 function build_mesh_maps!(mode::ContinuousAero)
@@ -126,8 +132,7 @@ function build_mesh_maps!(mode::ContinuousAero)
     mode.section_left_strut, mode.section_left_weight,
         mode.section_le_offset, mode.section_te_offset =
         build_section_interp(vsm_wing)
-    size(mode.v_ind) == (3, n_panels) ||
-        (mode.v_ind = zeros(SimFloat, 3, n_panels))
+    size_frozen_panel_buffers!(mode, n_panels)
     body_aero = mode.vsm_aero
     mode.cl = ContinuousPolar(body_aero, VortexStepMethod.calculate_cl)
     mode.cd = ContinuousPolar(body_aero, VortexStepMethod.calculate_cd)
@@ -191,6 +196,7 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
                         name, params=nothing)
     wing_idx = wing.idx
     vind_p = params.wings[wing_idx].aero.v_ind
+    chord_w = params.wings[wing_idx].aero.chord_weight
     cl = params.wings[wing_idx].aero.cl   # callable flat params: `cl(panel_idx, α)`
     cd = params.wings[wing_idx].aero.cd
     cm = params.wings[wing_idx].aero.cm
@@ -215,7 +221,8 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
 
     orient = panel_span_signs(wing, spanwise)
     eqs, panel_vars, panel_force, panel_couple = build_panel_force_eqs(
-        sec_le, sec_te, sec_va, sec_rho, vind_p, cl, cd, cm, spanwise, scale, orient)
+        sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w, cl, cd, cm, spanwise,
+        scale, orient)
     vars = particle_unknowns(connectors)
     append!(vars, panel_vars)
 
@@ -238,7 +245,7 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
     for k in 1:num_points
         eqs = [eqs; connectors.point_force[:, k] ~ point_force[k]]
     end
-    return System(eqs, t, vars, [vind_p, cl, cd, cm]; name)
+    return System(eqs, t, vars, [vind_p, chord_w, cl, cd, cm]; name)
 end
 
 # ==================== per-panel decomposition ==================== #
