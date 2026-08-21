@@ -19,6 +19,12 @@
   scene-mutating `plot!` stays on `Makie.plot!`.
 
 ### Fixed
+- `KernelBackend` reads a fitted (`KINEMATIC`) wing's pose back from the weighted
+  blend of its reference points, as `MonolithBackend` does. The read-back kept
+  only the first point of each `WeightedRefPoints`, so a wing whose `origin_idx`,
+  `z_ref_points` or `y_ref_points` name several points reported the wrong
+  `pos_w`/`vel_w`/`R_b_to_w` — and the apparent wind and reported scalars derived
+  from them. The dynamics were already correct; only the struct read-back was not.
 - A tether with no winch takes its rest length from `params.tethers[i].len`
   instead of an integrated `tether_len` whose derivative is zero, so writing
   `tether.len` retrims a running simulation and no longer needs a `reinit!` to

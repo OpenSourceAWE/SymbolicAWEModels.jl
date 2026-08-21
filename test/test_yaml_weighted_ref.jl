@@ -14,6 +14,7 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
 end
 
 using Test
+using LinearAlgebra
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, WeightedRefPoints,
     VortexStepMethod
@@ -155,5 +156,19 @@ transforms:
     sam = SymbolicAWEModel(set, sys)
     integ = init!(sam; prn=false)
     @test integ !== nothing
+
+    # The fitted pose read back after a step must use the
+    # weights, not just the first point of each reference.
+    next_step!(sam)
+    points = sam.sys_struct.points
+    wing = sam.sys_struct.bodies[1]
+    blend(ref) = sum(w * points[i].pos_w
+                     for (i, w) in zip(ref.ids, ref.weights))
+    @test wing.pos_w ≈ blend(wing.origin)
+    @test wing.vel_w ≈ sum(w * points[i].vel_w
+        for (i, w) in zip(wing.origin.ids, wing.origin.weights))
+    z_axis = normalize(blend(wing.z_ref_points[2]) -
+                       blend(wing.z_ref_points[1]))
+    @test wing.R_b_to_w[:, 3] ≈ z_axis
 end
 nothing
