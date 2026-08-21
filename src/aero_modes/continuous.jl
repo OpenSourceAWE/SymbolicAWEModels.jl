@@ -281,7 +281,7 @@ end
 
 """
     refresh_particle_aero!(::ContinuousAero, wing, points, va_point_b_vals;
-                           vsm_min_wind=0.5)
+                           vsm_min_wind=0.5, cold_start=false)
 
 Refresh: update the VSM geometry from the structure, set the per-panel apparent wind
 ([`set_refined_panel_va!`](@ref)), solve and freeze the induced velocity. The forces
@@ -290,7 +290,8 @@ are re-derived symbolically each RHS step; `calc_forces!` runs only so `sol`
 velocity is zeroed.
 """
 function refresh_particle_aero!(mode::ContinuousAero, wing, points,
-                                va_point_b_vals; vsm_min_wind=0.5)
+                                va_point_b_vals; vsm_min_wind=0.5,
+                                cold_start=false)
     if norm(wing.va_b) < vsm_min_wind
         fill!(mode.v_ind, 0.0)
         return nothing
@@ -298,7 +299,7 @@ function refresh_particle_aero!(mode::ContinuousAero, wing, points,
 
     update_vsm_wing_from_structure!(wing, points)
     set_refined_panel_va!(mode, wing, points, va_point_b_vals)
-    solve_and_freeze_circulation!(mode, wing)
+    solve_and_freeze_circulation!(mode, wing; cold_start)
     return nothing
 end
 

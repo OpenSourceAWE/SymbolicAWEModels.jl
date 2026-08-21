@@ -112,11 +112,12 @@ function refresh_rigid_aero!(::AeroLinearized, wing, am, twist_surfaces;
 end
 
 """
-    refresh_particle_aero!(::AeroLinearized, wing, points, va_point_b_vals; vsm_min_wind=0.5)
+    refresh_particle_aero!(::AeroLinearized, wing, points, va_point_b_vals;
+                           vsm_min_wind=0.5, cold_start=false)
 
 Unsupported: `AeroLinearized` is not implemented for `PARTICLE_DYNAMICS` wings and
 errors. Use `AeroDirect` (per-point nonlinear VSM) for particle wings.
 """
 refresh_particle_aero!(::AeroLinearized, wing, points, va_point_b_vals;
-                       vsm_min_wind=0.5) = error(
+                       vsm_min_wind=0.5, cold_start=false) = error(
     "PARTICLE_DYNAMICS + AeroLinearized not yet implemented")

@@ -865,7 +865,7 @@ function write_wing_scalars!(wing, points; base_point = 0, twist_surfaces = noth
 end
 
 """
-    refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5)
+    refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5, cold_start=false)
 
 Refresh each wing's aerodynamic state, dispatching on the wing's aero mode
 ([`refresh_rigid_aero!`](@ref) / [`refresh_particle_aero!`](@ref)). Runs on the
@@ -880,8 +880,14 @@ at the operating point, plus the `ForwardDiff` Jacobian over `[α, β, ω₁, ω
 **PARTICLE_DYNAMICS VSM modes:** full nonlinear VSM solve with per-point force
 distribution. Non-VSM modes (`AeroNone`/`AeroPlate`) are no-ops, so callers
 should gate this on [`has_vsm_wing`](@ref).
+
+`cold_start` discards the previous solve's circulation as the warm start
+([`safe_vsm_solve!`](@ref)), making the result a function of the current state
+alone. The per-step refresh wants the warm start; the first solve after a
+[`reinit!`](@ref) must not have it, or it inherits whatever ran on this model
+before.
 """
-function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5)
+function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5, cold_start=false)
     wings = sam.sys_struct.wings
     twist_surfaces = sam.sys_struct.twist_surfaces
     points = sam.sys_struct.points
@@ -908,7 +914,7 @@ function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5)
         wing.dynamics_type == PARTICLE_DYNAMICS || continue
         apply_flap_delta!(wing.aero, wing, sam.sys_struct)
         refresh_particle_aero!(wing.aero, wing, points, va_point_b_vals;
-                               vsm_min_wind)
+                               vsm_min_wind, cold_start)
     end
 
     nothing
@@ -928,7 +934,8 @@ refresh_rigid_aero!(::AbstractAeroModel, wing, am, twist_surfaces;
                     vsm_min_wind=0.5) = nothing
 
 """
-    refresh_particle_aero!(mode, wing, points, va_point_b_vals; vsm_min_wind=0.5)
+    refresh_particle_aero!(mode, wing, points, va_point_b_vals;
+                           vsm_min_wind=0.5, cold_start=false)
 
 Refresh a `PARTICLE_DYNAMICS` wing's aero state, dispatched on its aero `mode`:
 - `AeroNone` / any non-VSM mode → no-op (fallback).
@@ -937,9 +944,11 @@ Refresh a `PARTICLE_DYNAMICS` wing's aero state, dispatched on its aero `mode`:
   ([`distribute_panel_forces_to_points!`](@ref)); below `vsm_min_wind` the point
   forces are zeroed.
 - `AeroLinearized` → unsupported (errors).
+
+`cold_start` forwards to [`safe_vsm_solve!`](@ref).
 """
 refresh_particle_aero!(::AbstractAeroModel, wing, points, va_point_b_vals;
-                       vsm_min_wind=0.5) = nothing
+                       vsm_min_wind=0.5, cold_start=false) = nothing
 
 # ==================== per-wing lifecycle ==================== #
 
@@ -1478,10 +1487,19 @@ finite_full(x::ForwardDiff.Dual) =
 """
 NaN/Inf-guarded `solve!`. Checks both Dual value and partials. On
 non-finite or non-converged result, zero gamma and return `false`.
+
+Without `gamma_init`, `solve!` warm-starts from the circulation it left in
+`solver.sol` last time. `cold_start` starts from the solver's configured initial
+distribution instead: past stall the iteration has more than one fixed point, so
+a warm start makes the answer a function of what ran before rather than of the
+current state.
 """
 function safe_vsm_solve!(solver, body_aero,
-                          gamma_init=nothing; moment_frac=0.1)
-    if isnothing(gamma_init)
+                          gamma_init=nothing; moment_frac=0.1, cold_start=false)
+    if cold_start
+        VortexStepMethod.solve!(solver, body_aero, nothing;
+            moment_frac, log=false)
+    elseif isnothing(gamma_init)
         VortexStepMethod.solve!(solver, body_aero;
             moment_frac, log=false)
     else
@@ -1502,17 +1520,18 @@ function safe_vsm_solve!(solver, body_aero,
 end
 
 """
-    solve_and_freeze_circulation!(mode, wing)
+    solve_and_freeze_circulation!(mode, wing; cold_start=false)
 
 Solve and freeze the per-refined-panel induced velocity into `mode.v_ind` and the
 chord blend weights into `mode.chord_weight`, shared by the continuous VSM modes.
-Warm starting is `VortexStepMethod.solve!`'s own, gated by
-`use_gamma_prev`. Errors on a non-converged or non-finite solve.
+Warm starting is `VortexStepMethod.solve!`'s own, gated by `use_gamma_prev` and by
+`cold_start` ([`safe_vsm_solve!`](@ref)). Errors on a non-converged or non-finite
+solve.
 """
-function solve_and_freeze_circulation!(mode, wing)
+function solve_and_freeze_circulation!(mode, wing; cold_start=false)
     solver = wing.vsm_solver
     body_aero = wing.vsm_aero
-    if !safe_vsm_solve!(solver, body_aero)
+    if !safe_vsm_solve!(solver, body_aero; cold_start)
         throw(AssertionError("$(nameof(typeof(mode))) VSM solve failed " *
             "(non-converged or non-finite) on wing $(wing.idx)"))
     end
