@@ -303,7 +303,9 @@ all the state getter and the control setter need to find their values. A
 `BODY_STATIC` point has two: `point_instances` holds its kinematics and
 `wrench_instances` the load it feeds back (`0` for every other point).
 `aero_instances` holds each wing's aero instance and `twist_instances` each twist
-surface's, `0` where there is none.
+surface's, `0` where there is none. `inflow_instances` holds each point's
+[`AeroInflowPoint`](@ref), whose `va_b` output is the apparent wind the aero is
+solved on, and `0` for a point that has none.
 """
 struct KernelModel{S, P}
     system::S
@@ -318,6 +320,7 @@ struct KernelModel{S, P}
     segment_roles::Vector{SegmentRole}
     aero_instances::Vector{Int}
     twist_instances::Vector{Int}
+    inflow_instances::Vector{Int}
 end
 
 """
@@ -379,9 +382,11 @@ function assemble(sam; verbose = false)
                    TIMOSHENKO_RIGIDITIES)
     end
     flap_instances = add_flap_deltas!(builder, table, bindings, sam, body_instances)
+    inflow_instances = zeros(Int, length(sys_struct.points))
     aero_instances = [add_wing_aero!(builder, table, bindings, sam, wing,
                                      body_instances, point_instances, flap_instances,
-                                     twist_instances, wrench_instances)
+                                     twist_instances, wrench_instances,
+                                     inflow_instances)
                       for wing in sys_struct.wings]
 
     system = build_system(builder)
@@ -394,7 +399,7 @@ function assemble(sam; verbose = false)
     return KernelModel(system, u0, params, sync, point_instances,
                           wrench_instances, segment_instances, body_instances,
                           point_roles, segment_roles, aero_instances,
-                          twist_instances)
+                          twist_instances, inflow_instances)
 end
 
 """
@@ -438,11 +443,12 @@ pose depends on the force it receives, so the schedule simply runs the structure
 then the wing frame, then the aero, then the derivatives.
 """
 function add_wing_aero!(builder, table, bindings, sam, wing, bodies, points, flaps,
-                        twists, wrenches)
+                        twists, wrenches, inflow_instances)
     wing.dynamics_type == PARTICLE_DYNAMICS || return add_rigid_wing_aero!(
         builder, table, bindings, sam, wing, bodies, twists)
     supports_panel_decomposition(wing.aero) && return add_panel_wing_aero!(
-        builder, table, bindings, sam, wing, bodies, points, flaps, wrenches)
+        builder, table, bindings, sam, wing, bodies, points, flaps, wrenches,
+        inflow_instances)
     sys_struct = sam.sys_struct
     nodes = wing_points(sys_struct, wing)
     surfaces = wing_flap_surfaces(wing)
@@ -490,11 +496,14 @@ the wing's size and the other is not, which on a wing of any real size is the wh
 difference between a build that finishes and one that does not.
 """
 function add_panel_wing_aero!(builder, table, bindings, sam, wing, bodies, points,
-                              flaps, wrenches)
+                              flaps, wrenches, inflow_instances)
     nodes = wing_points(sam.sys_struct, wing)
     body = bodies[wing.idx]
     inflow_points = add_aero_inflow_points!(builder, table, bindings, sam, nodes,
                                             points, body)
+    for (node, instance) in zip(nodes, inflow_points)
+        inflow_instances[node.idx] = instance
+    end
     groups, section_group = aero_inflow_groups(wing.aero, wing, nodes)
     inflows = add_aero_inflows!(builder, table, bindings, sam, groups, inflow_points)
     panels = add_aero_panels!(builder, table, bindings, sam, wing, nodes,
