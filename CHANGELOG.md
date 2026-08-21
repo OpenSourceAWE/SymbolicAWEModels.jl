@@ -64,6 +64,15 @@
   the `KINEMATIC` restore below go unnoticed.
 
 ### Fixed
+- The live aero modes (`ContinuousAero`, `AeroPressure`) take a panel's chord
+  direction between the two bounding sections blended by panel spacing, as
+  `VortexStepMethod` does, instead of at their midpoint. On a non-uniformly
+  panelled wing that midpoint tilted the whole airfoil frame: the angle of attack
+  was off by 1.9e-4 rad and the per-panel force by 0.1%, a systematic bias that
+  partly cancels spanwise and so never showed up in the wing total. Every
+  per-panel quantity now matches VSM to machine precision. The weights are
+  refreshed with the frozen circulation, so they follow the deforming mesh. They
+  are a new parameter, so a model cached before this needs `remake=true` once.
 - A tether with no winch takes its rest length from `params.tethers[i].len`
   instead of an integrated `tether_len` whose derivative is zero, so writing
   `tether.len` retrims a running simulation and no longer needs a `reinit!` to
