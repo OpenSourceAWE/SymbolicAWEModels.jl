@@ -743,14 +743,11 @@ This is used to check if a cached compiled model is still valid.
 - `:foil_file`: Airfoil data file (affects VSM setup)
 - `:physical_model`: Model type (ram, simple_ram, 4_attach_ram)
 - `:winch_model`: Winch dynamics model (affects winch equations)
-- `:g_earth`: Folded into the gravity term as a literal, not a parameter
-- `:wind_vec`: Folded into the ground wind equation as a literal
-- `:cd_tether`: Folded into the segment drag term as a literal
 
-The last three are constants of the generated equations, so a model built with one
-value is wrong for another and the cache has to tell the two apart. Anything read
-back from a struct at sync time — `:v_wind`, `:profile_law`, initial conditions —
-stays out, so one build still serves a sweep over them.
+Anything read back from a struct at sync time stays out, so one build serves a sweep
+over it. That is every numeric setting the equations use — `:g_earth`, `:wind_vec`,
+`:cd_tether`, `:v_wind`, `:profile_law`, initial conditions — since each enters as a
+flat parameter `sync_params!` refreshes from `sys_struct.set`, not as a literal.
 
 # Runtime Fields (don't affect compilation, excluded from hash):
 - `:profile_law`: Wind profile law (evaluated at runtime via symbolic function)
@@ -758,8 +755,7 @@ stays out, so one build still serves a sweep over them.
 - Other runtime parameters
 """
 function get_set_hash(set::Settings;
-        fields=[:segments, :model, :foil_file, :physical_model, :winch_model,
-                :g_earth, :wind_vec, :cd_tether]
+        fields=[:segments, :model, :foil_file, :physical_model, :winch_model]
     )
     hash_acc = zeros(UInt8, 1)
     for field in fields
