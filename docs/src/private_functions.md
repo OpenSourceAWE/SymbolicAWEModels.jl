@@ -312,7 +312,6 @@ SymbolicAWEModels.require_vsm_engine
 SymbolicAWEModels.couples_to_sections
 SymbolicAWEModels.has_vsm_wing
 SymbolicAWEModels.provides_aero_override
-SymbolicAWEModels.stores_point_force
 SymbolicAWEModels.aero_mode_tag
 SymbolicAWEModels.calc_side_slip
 SymbolicAWEModels.validate_aero_component
@@ -385,9 +384,12 @@ SymbolicAWEModels.apply_flap_delta!
 SymbolicAWEModels.init_pressure_buffers!
 SymbolicAWEModels.freeze_traction_pattern!
 SymbolicAWEModels.contour_winding
-SymbolicAWEModels.aero_point_forces
 SymbolicAWEModels.write_aero_forces!
 SymbolicAWEModels.accumulate_point_offset!
+SymbolicAWEModels.write_point_forces!
+SymbolicAWEModels.restore_point_aero_forces!
+SymbolicAWEModels.wing_nodes_of
+SymbolicAWEModels.zero_point_forces!
 SymbolicAWEModels.zero_aero_force
 SymbolicAWEModels.PanelAeroList
 SymbolicAWEModels.PanelAero

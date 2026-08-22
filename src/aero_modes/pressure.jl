@@ -444,8 +444,10 @@ end
 Solve at the per-panel apparent wind the symbolic RHS uses
 ([`set_refined_panel_va!`](@ref)), freezing the induced velocity and the per-node
 surface traction pattern ([`freeze_traction_pattern!`](@ref)). Point forces are
-re-derived symbolically each RHS step. Below `vsm_min_wind` all frozen buffers are
-zeroed, the per-point offsets included, so no stale constant force survives.
+re-derived symbolically each RHS step; [`write_point_forces!`](@ref) additionally
+stores the frozen pattern's per-point load for logging and plotting. Below
+`vsm_min_wind` all frozen buffers are zeroed, the per-point offsets and the stored
+point forces included, so no stale constant force survives.
 """
 function refresh_particle_aero!(mode::AeroPressure, wing, points,
                                 va_point_b_vals; vsm_min_wind=0.5,
@@ -455,6 +457,7 @@ function refresh_particle_aero!(mode::AeroPressure, wing, points,
         fill!(mode.traction, 0.0)
         fill!(mode.traction_net, 0.0)
         accumulate_point_offset!(mode)
+        zero_point_forces!(wing, points)
         return nothing
     end
     update_vsm_wing_from_structure!(wing, points)
@@ -463,30 +466,33 @@ function refresh_particle_aero!(mode::AeroPressure, wing, points,
     freeze_traction_pattern!(mode, wing)
     any(!isfinite, mode.traction) && throw(AssertionError(
         "AeroPressure: non-finite traction pattern on wing $(wing.idx)"))
+    write_point_forces!(mode, wing, points)
     return nothing
 end
 
 """
-    aero_point_forces(mode::AeroPressure, wing, sys_struct)
+    write_point_forces!(mode::AeroPressure, wing, points)
 
-Each wing point's body-frame aero force: its share of every panel that scatters
-onto it, plus its constant offset. Rebuilt from the same scatter the equations
-use, since the traction reaches the points symbolically and never lands in a
-point's `aero_force_b`.
+Store each wing node's body-frame aero force in its `point.aero_force_b`: its share
+of every panel that scatters onto it, plus its constant offset. Rebuilt from the same
+scatter the equations carry, which reaches the points symbolically and so computes no
+per-point force of its own. This is the frozen pattern at the last refresh, not the
+live load the RHS re-derives from current geometry.
 """
-function aero_point_forces(mode::AeroPressure, wing, sys_struct)
+function write_point_forces!(mode::AeroPressure, wing, points)
+    nodes = wing_nodes_of(wing, points)
+    for node in nodes
+        fill!(node.aero_force_b, 0.0)
+    end
     sol = wing.vsm_solver.sol
-    points = wing_points(sys_struct, wing)
-    forces = Dict{Int, Vector{SimFloat}}()
-    for (panel, column, weight, _) in aero_scatter_entries(mode, wing, points)
-        total = get!(() -> zeros(SimFloat, 3), forces, points[column].idx)
-        total .+= weight .* Vector(sol.f_body_3D[:, panel])
+    for (panel, column, weight, _) in aero_scatter_entries(mode, wing, nodes)
+        @views nodes[column].aero_force_b .+= weight .* sol.f_body_3D[:, panel]
     end
+    by_idx = Dict(node.idx => node for node in nodes)
     for (idx, offset) in mode.point_offset
-        total = get!(() -> zeros(SimFloat, 3), forces, idx)
-        total .+= offset
+        haskey(by_idx, idx) && (by_idx[idx].aero_force_b .+= offset)
     end
-    return forces
+    return nothing
 end
 
 """

@@ -14,6 +14,25 @@
   rebuilding one and dropping its `linsolve`, which on the `KernelBackend` swapped
   the `KLUFactorization` for a dense one and rebuilt the integrator each
   reposition.
+- Every wing node's `aero_force_b`, and with it the `aero_force_x/y/z` log
+  channels, stayed zero under `AeroPressure`: the mode reaches the points
+  symbolically and wrote no per-point force, so `plot` drew no aero arrows at all
+  on a particle wing. The refresh now stores the frozen pattern's per-point load,
+  which sums to the panel forces exactly.
+- `update_from_sysstate!` set the wing's aero and tether loads to `NaN` to keep
+  them from being plotted, but `plot` skips a load with `iszero`, so the `NaN` was
+  drawn — and one `NaN` made the shared adaptive arrow scale `NaN`, blanking every
+  aero arrow in a replay. All four loads are restored from the log instead, and the
+  per-point forces with them, so a replay shows the loads of the frame it is on.
+- `plot` drops non-finite loads before scaling the rest, so a load a mode leaves
+  unset can no longer blank the whole layer.
+
+### Changed
+- `point.aero_force_b` is the one place a per-point aerodynamic load is read from,
+  filled at refresh by the modes that compute one (`AeroDirect`, `AeroPressure`;
+  `ContinuousAero` still stores none). The private `aero_point_forces` and
+  `stores_point_force` are removed, and `write_aero_forces!` and the Makie
+  extension read the field.
 
 ## v0.15.1 22-08-2026
 

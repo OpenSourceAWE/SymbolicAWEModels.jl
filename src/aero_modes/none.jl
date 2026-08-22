@@ -17,7 +17,6 @@ is_wing(::Body) = true
 
 is_builtin_aero(::AeroNone) = true
 aero_mode_tag(::AeroNone) = "none"
-stores_point_force(::AeroNone) = false
 
 """
     aero_component(::AeroNone, wing::ParticleWing, sys_struct; name)
