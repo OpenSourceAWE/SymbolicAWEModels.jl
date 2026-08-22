@@ -107,10 +107,14 @@ jobs:
           fi
 
       - uses: julia-actions/julia-buildpkg@v1
+      # `check_bounds: yes` is a different precompile configuration from the one
+      # `julia-buildpkg` fills the depot with, so the whole dependency tree gets
+      # precompiled a second time inside the test sandbox.
       - uses: julia-actions/julia-runtest@v1
         with:
           prefix: ${{ matrix.prefix }}
           coverage: ${{ matrix.coverage == true }}
+          check_bounds: auto
           test_args: ${{ matrix.files }}
         env:
           SYMAWE_TEST_BACKEND: ${{ matrix.backend }}
