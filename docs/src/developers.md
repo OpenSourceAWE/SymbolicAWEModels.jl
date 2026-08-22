@@ -363,6 +363,9 @@ jl -e 'using Pkg; Pkg.test()'
 jl test/test_point.jl
 jl test/test_segment.jl
 
+# Run a few files through the suite, with its setup and reporting
+jl -e 'using Pkg; Pkg.test(; test_args=["test_point", "test_segment"])'
+
 # Run the suite on the KernelBackend instead of the MonolithBackend.
 # Only the files the kernel backend already covers are run.
 SYMAWE_TEST_BACKEND=kernel jl -e 'using Pkg; Pkg.test()'
@@ -370,7 +373,26 @@ SYMAWE_TEST_BACKEND=kernel jl -e 'using Pkg; Pkg.test()'
 
 `SYMAWE_TEST_BACKEND` selects the [`ModelBackend`](@ref) the suite builds its
 models with: `monolith` (the default) or `kernel`. CI runs both, the kernel one as
-its own job on Ubuntu with Julia 1.12.
+its own set of jobs on Ubuntu with Julia 1.12.
+
+### Test groups in CI
+
+Each CI configuration runs the suite as several jobs in parallel, each taking a
+group of test files. `test/suite_groups.jl` owns the file inventory and splits it
+into groups of roughly equal measured runtime; `test/ci_matrix.jl` crosses those
+groups with the runner configurations and prints the workflow matrix, so a job's
+file list arrives as `test_args`.
+
+A runner spends around 23 minutes precompiling the package before the first test
+runs, against 36 minutes of tests in total, which is what sets the group count:
+splitting finer adds that fixed cost per job faster than it removes test time.
+`SYMAWE_TEST_GROUPS` overrides the count for an experiment — a number, or `file`
+for one job per file. Only the matrix job reads it, so setting it in the
+workflow's `env:` block is enough.
+
+A new test file needs no change beyond adding it: unlisted files are assumed
+slow and land in a group accordingly. Adding its measured runtime to
+`FILE_DURATIONS` keeps the groups balanced.
 
 ### Test files
 

@@ -29,50 +29,37 @@ jobs:
       - name: Run REUSE lint
         run: docker run --rm --volume ${{ github.workspace }}:/data fsfe/reuse lint
 
+  # The matrix is one entry per runner configuration and test group, so that the
+  # runner configurations and the split live in `test/ci_matrix.jl` next to the
+  # suite instead of being duplicated here.
+  test-matrix:
+    name: Compute the test matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.compute.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+
+      - name: Compute the test matrix
+        id: compute
+        run: |
+          MATRIX=$(julia test/ci_matrix.jl)
+          echo "Matrix: $MATRIX"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
   test-with-code-coverage:
-    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ matrix.backend || 'monolith' }} - ${{ github.event_name }}
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ matrix.backend }} - group ${{ matrix.group }}/${{ matrix.groups }}
+    needs: test-matrix
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        version:
-          - '1.12'
-        os:
-          - ubuntu-latest
-          - windows-latest
-        arch:
-          - x64
-        # A distinct `backend` keeps the kernel-backend entry below from being
-        # merged into the ubuntu/1.12 combination; it becomes its own job.
-        backend:
-          - monolith
-        exclude:
-          - os: macOS-latest
-            arch: x64
-        # `coverage` marks the one job per backend that reports to Codecov.
-        # Everywhere else it stays off: instrumented code runs slower, and
-        # `Pkg.test` precompiles the whole tree again under the coverage
-        # configuration because Julia keys its caches by that configuration.
-        include:
-          - os: ubuntu-latest
-            version: '1.11'
-            arch: x64
-            prefix: xvfb-run -a
-          - os: ubuntu-latest
-            version: '1.12'
-            arch: x64
-            prefix: xvfb-run -a
-            coverage: true
-          - os: macOS-latest
-            version: '1.12'
-            arch: aarch64
-          - os: ubuntu-latest
-            version: '1.12'
-            arch: x64
-            prefix: xvfb-run -a
-            backend: kernel
-            coverage: true
+        include: ${{ fromJson(needs.test-matrix.outputs.matrix) }}
 
     steps:
       - uses: actions/checkout@v7
@@ -99,9 +86,14 @@ jobs:
 
       # A restored registry is a git clone Pkg refuses to update once it goes
       # dirty, pinning resolution to whatever the cache holds (Pkg.jl#4557).
+      # The key names the depot the job needs rather than the whole matrix row,
+      # so the groups of one configuration share a single cache entry instead of
+      # each saving its own multi-gigabyte copy of the same depot.
       - uses: julia-actions/cache@v3
         with:
           cache-registries: 'false'
+          include-matrix: 'false'
+          cache-name: julia-cache;workflow=${{ github.workflow }};version=${{ matrix.version }};arch=${{ matrix.arch }}
 
       - name: Prepare version-specific manifest
         shell: bash
@@ -119,6 +111,7 @@ jobs:
         with:
           prefix: ${{ matrix.prefix }}
           coverage: ${{ matrix.coverage == true }}
+          test_args: ${{ matrix.files }}
         env:
           SYMAWE_TEST_BACKEND: ${{ matrix.backend }}
 
@@ -126,7 +119,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: test-plots-${{ matrix.os }}-julia${{ matrix.version }}-${{ matrix.arch }}-${{ matrix.backend || 'monolith' }}
+          name: test-plots-${{ matrix.os }}-julia${{ matrix.version }}-${{ matrix.arch }}-${{ matrix.backend }}-group${{ matrix.group }}
           path: data/*.png
           if-no-files-found: ignore
           retention-days: 7
