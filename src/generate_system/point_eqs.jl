@@ -227,8 +227,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                 collect(spring_sum_force[:, point.idx]) .+ aero_force_w .+
                     collect(disturb_force[:, point.idx]),
                 carries_gravity ? mass : 0.0, drag_coeff, area, wind_gnd,
-                wind_factor;
-                g_earth = carries_gravity ? params.set.g_earth : 0.0)
+                wind_factor, carries_gravity ? params.set.g_earth : 0.0)
         ]
 
         # EXCEPTION to the anchor rule: a wing node on a RIGID_DYNAMICS wing is
