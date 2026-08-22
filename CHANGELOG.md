@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Unreleased
+## v0.15.1 22-08-2026
 
 ### Changed
 - The `KernelBackend` now defaults to a sparse Jacobian and a `KLUFactorization`,
@@ -12,6 +12,10 @@
   worker over the same cores. `sparse` is part of the model bin's name, so a kernel
   model builds once more. The `MonolithBackend` keeps a dense Jacobian and
   LinearSolve's own choice.
+- Changing `g_earth`, `wind_vec` or `cd_tether` no longer misses the model cache
+  and rebuilds. `get_set_hash` drops the three: each enters the equations as a flat
+  parameter that `sync_params!` refreshes from `set`, not as a literal, so one build
+  serves a sweep over them.
 
 ### Fixed
 - `sync_params!` no longer allocates, and is 22.13 ms -> 0.41 ms a call on SK100.
@@ -75,6 +79,27 @@
   points off the wing. `test_backend_parity.jl` diffs every real-valued field of
   every component across the two backends, at `init!` and after stepping, so a
   read-back added to one and not the other fails there.
+- The live aero modes (`ContinuousAero`, `AeroPressure`) take a panel's chord
+  direction between the two bounding sections blended by panel spacing, as
+  `VortexStepMethod` does, instead of at their midpoint. On a non-uniformly
+  panelled wing that midpoint tilted the whole airfoil frame: the angle of attack
+  was off by 1.9e-4 rad and the per-panel force by 0.1%, a systematic bias that
+  partly cancels spanwise and so never showed up in the wing total. Every
+  per-panel quantity now matches VSM to machine precision. The weights are
+  refreshed with the frozen circulation, so they follow the deforming mesh. They
+  are a new parameter, so a model cached before this needs `remake=true` once.
+- `set.g_earth` reaches a `PARTICLE_DYNAMICS` wing's points. `WingNodePoint` called
+  `point_acceleration` without it, so the default keyword baked 9.81 into the
+  generated equations while the parameter it registered went unread: gravity was
+  frozen at whatever the model was built with. `g_earth` is now a positional
+  argument of `point_acceleration` and `point_net_force`, so a caller that omits it
+  is a `MethodError` at build. It was only reachable once gravity left the set hash;
+  before that a changed `g_earth` rebuilt the model and re-baked the literal.
+- `test_continuous_modes.jl` checks the per-panel equations by evaluating
+  `panel_force_eqs` on the panel's own geometry and inflow, instead of reading
+  `aero_N.chord`/`.alpha`/`.panel_force` out of the compiled system. Only the
+  `MonolithBackend` builds one, so the testset was skipped on the `KernelBackend`,
+  and the names it reached for were codegen artefacts a rename would break.
 
 ## v0.15.0 21-08-2026
 
@@ -140,23 +165,6 @@
   the `KINEMATIC` restore below go unnoticed.
 
 ### Fixed
-- The live aero modes (`ContinuousAero`, `AeroPressure`) take a panel's chord
-  direction between the two bounding sections blended by panel spacing, as
-  `VortexStepMethod` does, instead of at their midpoint. On a non-uniformly
-  panelled wing that midpoint tilted the whole airfoil frame: the angle of attack
-  was off by 1.9e-4 rad and the per-panel force by 0.1%, a systematic bias that
-  partly cancels spanwise and so never showed up in the wing total. Every
-  per-panel quantity now matches VSM to machine precision. The weights are
-  refreshed with the frozen circulation, so they follow the deforming mesh. They
-  are a new parameter, so a model cached before this needs `remake=true` once.
-- `reinit!` cold-starts the initial VSM solve, through a `cold_start` keyword on
-  `refresh_aero!` and the refresh chain below it. `VortexStepMethod.solve!`
-  warm-starts from the circulation left in `solver.sol`, and past stall the
-  iteration has more than one fixed point, so the frozen aero after a state
-  restore depended on what had run on that model before: restoring one `.arrow`
-  twice with a run in between moved the effective sectional α by 0.29° and the
-  frozen panel traction by 84 N. Per-step refreshes still warm-start, so
-  stepping costs the same.
 - A tether with no winch takes its rest length from `params.tethers[i].len`
   instead of an integrated `tether_len` whose derivative is zero, so writing
   `tether.len` retrims a running simulation and no longer needs a `reinit!` to
