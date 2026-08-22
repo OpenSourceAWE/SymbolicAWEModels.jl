@@ -6,12 +6,9 @@
 """
     create_sys!(s::SymbolicAWEModel, system::SystemStructure; prn=true)
 
-Create the full `ModelingToolkit.ODESystem` for the AWE model.
-
-This is the main top-level function that orchestrates the generation of the entire
-set of differential-algebraic equations (DAEs). It calls specialized sub-functions
-to build the equations for each part of the system (forces, wing dynamics, scalar
-kinematics, linearized aerodynamics) and assembles them into a single `System`.
+Create the full `ModelingToolkit.ODESystem` for the AWE model: calls the per-part
+equation generators (forces, wing dynamics, scalar kinematics, aerodynamics) and
+assembles their equations into a single `System`.
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object to be populated with the system.

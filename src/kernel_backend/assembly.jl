@@ -441,9 +441,8 @@ loads: a `PARTICLE_DYNAMICS` wing's aero delivers a force to each structural poi
 body ([`add_rigid_wing_aero!`](@ref)).
 
 Either way the aero is a component of its own, not a term inside the points or the
-body, because nothing about it is a cycle: neither a point's position nor a body's
-pose depends on the force it receives, so the schedule simply runs the structure,
-then the wing frame, then the aero, then the derivatives.
+body: nothing about it is a cycle, so the schedule runs the structure, then the wing
+frame, then the aero, then the derivatives.
 """
 function add_wing_aero!(builder, table, bindings, sam, wing, bodies, points, flaps,
                         twists, wrenches, inflow_instances, aero_force_instances)
@@ -494,9 +493,8 @@ the strut interpolation, the inflow average, the load scatter — is a constant 
 so it is wiring rather than equations. Returns the sum's instance, which is where the
 wing's readouts hang.
 
-This is what [`ParticleWingAero`](@ref) does in one component. One is superlinear in
-the wing's size and the other is not, which on a wing of any real size is the whole
-difference between a build that finishes and one that does not.
+The one-component equivalent, [`ParticleWingAero`](@ref), is superlinear in the wing's
+size; this decomposition is not, which is what makes a large wing buildable.
 """
 function add_panel_wing_aero!(builder, table, bindings, sam, wing, bodies, points,
                               flaps, wrenches, inflow_instances,

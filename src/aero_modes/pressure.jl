@@ -14,22 +14,22 @@ points (a chord-line skeleton, a strut, or a double-skin membrane of point masse
 by the airfoil **surface traction** pattern (`PARTICLE_DYNAMICS` only). VSM owns the
 totals; the traction pattern owns only placement and direction.
 
-Like [`ContinuousAero`](@ref) this is a **continuous** mode: the VSM solve runs every
-`vsm_interval` (the full `solve!`), freezing the circulation-derived induced velocity
-`v_ind` and the per-node surface traction pattern; but the per-panel **total** force is
-re-derived symbolically every RHS step from `v_ind` and the live apparent wind (shared
-[`build_panel_force_eqs`](@ref)), so the force responds to apparent-wind changes
-between solves. The frozen traction only sets the distribution *shape*; each wing
-node's force is its frozen traction plus an equal share of `(live panel force − frozen
-pattern net)`, so per panel the point forces sum to the **live** total exactly.
+Like [`ContinuousAero`](@ref) this is a **continuous** mode: the full VSM `solve!` runs
+every `vsm_interval`, freezing the circulation-derived induced velocity `v_ind` and the
+per-node surface traction pattern, while the per-panel total force is re-derived
+symbolically every RHS step from `v_ind` and the live apparent wind (shared
+[`build_panel_force_eqs`](@ref)). The frozen traction sets only the distribution
+*shape*: each wing node's force is its frozen traction plus an equal share of
+`(live panel force − frozen pattern net)`, so per panel the point forces sum to the
+live total exactly.
 
-Like [`ContinuousAero`](@ref) the mesh **deforms with the structure**: its unrefined
-sections are rebuilt onto the structural LE/TE stations and refined (polars and Cp
-contours spanwise-interpolated onto the refined panels), and each refined section's
-LE/TE is a live function of the station points' `pos_w`. `frame_tol_frac` is the
-frame-alignment guard: construction errors if any surface node maps to a point farther
-than `frame_tol_frac ×` the local chord. Carries a [`VSMEngine`](@ref); the no-arg form
-is the engine-less marker filled in during wing construction.
+Its mesh also **deforms with the structure**: the unrefined sections are rebuilt onto
+the structural LE/TE stations and refined (polars and Cp contours spanwise-interpolated
+onto the refined panels), each refined section's LE/TE a live function of the station
+points' `pos_w`. `frame_tol_frac` is the frame-alignment guard: construction errors if
+any surface node maps to a point farther than `frame_tol_frac ×` the local chord.
+Carries a [`VSMEngine`](@ref); the no-arg form is the engine-less marker filled in
+during wing construction.
 """
 mutable struct AeroPressure{E} <: AbstractVSMAero
     engine::Union{Nothing, E}

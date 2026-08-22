@@ -325,18 +325,10 @@ end
 
 Distribute VSM forces to structural points using refined panel forces.
 
-After VSM solve, each refined panel force/moment is split into corner-node
-forces (moment-preserving about the chosen reference) and then aggregated to
-the structural LE/TE points of the parent section (1:1 mapping).
-
-# Algorithm
-1. Initialize all wing-node aero_forces to zero
-2. Build inverse mapping from section → LE/TE structural point indices
-3. For each refined panel of this wing:
-   - Get panel force/moment from solver solution (body frame)
-   - Map panel to its parent section using `refined_panel_mapping`
-   - Split to LE/TE forces with `compute_aerostruc_loads`
-   - Accumulate forces at the corresponding structural points
+After the VSM solve, each refined panel's body-frame force/moment is split into
+corner-node forces ([`compute_aerostruc_loads`](@ref), moment-preserving about the
+chosen reference) and accumulated on the structural LE/TE points of its parent
+section, which `refined_panel_mapping` names (1:1).
 
 # Arguments
 - `wing::Body`: Wing with PARTICLE_DYNAMICS type and solved VSM state
@@ -412,16 +404,12 @@ end
 """
     update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Point})
 
-Update VSM section points (LE/TE) directly from structural point positions using 1:1 mapping.
+Update VSM section points (LE/TE) directly from structural point positions, closing
+the two-way coupling structural deformation → VSM sections → aero forces.
 
-This creates two-way coupling: structural deformation → VSM sections → aero forces.
-
-# Algorithm
-Uses direct 1:1 correspondence between structural points and VSM section points:
-1. For each structural wing node:
-   - Calculate current position in body frame: pos_b = R_b_to_w' * (pos_w - origin)
-   - Find corresponding VSM section point (LE or TE) via wing.point_to_vsm_point
-   - Set VSM section point directly: section.LE_point = pos_b (or TE_point)
+Each structural wing node maps 1:1 onto a VSM section point through
+`wing.point_to_vsm_point`, and writes it its body-frame position
+`pos_b = R_b_to_w' * (pos_w - origin)`.
 
 # Notes
 - Section points are stored in body frame coordinates

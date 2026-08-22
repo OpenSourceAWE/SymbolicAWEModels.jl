@@ -334,14 +334,12 @@ optional translational/rotational damping. The equal-and-opposite wrench is adde
 to both bodies' load accumulators.
 
 Each stiffness is either a `Real` (linear law, force `= k·Δ`) or a callable
-interpolation `f` (nonlinear law, force `= f(Δ)`, e.g. a wrinkling/saturating
-inflatable beam). They may be mixed per DOF; the type parameter `S` keeps the
-fields concrete (`Real`s share one type, interpolations share one type) so the
-ODE right-hand side stays allocation-free. The symbolic equations are identical
-for `Real` or interpolation stiffnesses (the choice is resolved at runtime in the
-registered force function), but the stiffness types are part of the
-`SystemStructure` type parameter, so a float vs an interpolation is a distinct
-compiled model with its own cache entry.
+interpolation `f` (nonlinear law, force `= f(Δ)`, e.g. a wrinkling inflatable
+beam), mixable per DOF; the type parameter `S` keeps the fields concrete so the ODE
+right-hand side stays allocation-free. The symbolic equations are the same either
+way (resolved at runtime in the registered force function), but the stiffness types
+enter the `SystemStructure` type parameter, so a float and an interpolation are
+distinct compiled models with their own cache entries.
 
 $(TYPEDFIELDS)
 """
@@ -426,34 +424,23 @@ end
 """
     TimoshenkoJoint
 
-A consistent-stiffness Timoshenko connection between two `Body`s — the
-distributed-compliance counterpart of the lumped [`ElasticJoint`](@ref). Like
-that joint it connects two bodies and applies a restoring wrench; a chain of
-bodies joined by `TimoshenkoJoint`s forms a beam. The "element" of the underlying
-2-node beam finite element is exactly this body-A–to–body-B connection.
+A 2-node Timoshenko beam element between two `Body`s — the distributed-compliance
+counterpart of the lumped [`ElasticJoint`](@ref); a chain of them forms a beam. The
+stiffness couples each node's transverse displacement to its rotation, so transverse
+shear is represented.
 
-Unlike the hinge, the stiffness couples each node's transverse displacement to its
-rotation, so transverse shear (cross-sections rotating while the centerline stays
-straight) is represented — the defining Timoshenko ingredient. Fewer segments
-match a given beam fidelity than a hinge chain.
+Corotational: an element frame follows the chord and node A's orientation, small
+deformations are measured relative to it, and the restoring wrench is accumulated
+equal-and-opposite into both bodies' `body_force`/`body_moment`. Damping resists the
+relative node velocity/spin.
 
-The element wraps the linear stiffness corotationally: an element frame follows
-the chord and node A's orientation, small deformations are measured relative to
-it, and the restoring wrench is accumulated equal-and-opposite into both bodies'
-load accumulators (the same `body_force`/`body_moment` that [`ElasticJoint`](@ref)
-and `body_eqs!` use). Damping resists the relative node velocity/spin.
-
-Each rigidity (`EA` axial, `GA` shear with `shear_coeff` correction factor `k`,
+Each rigidity (`EA` axial, `GA` shear with correction factor `shear_coeff`,
 `Φ = 12·EI/(k·GA·L²)`, `GJ` torsion, `EIy`/`EIz` bending about the two transverse
 axes) is either a `Real` (linear) or a callable of that mode's strain/curvature
-returning the *effective rigidity* at the current deformation — the
-distributed-beam analogue of [`ElasticJoint`](@ref)'s nonlinear stiffness. Unlike
-the hinge, whose callable returns a force, here it returns a rigidity, because the
-consistent element couples bending to shear and no single force suffices; a
-curvature-softening `EIy(κ)` is how inflated-tube wrinkling enters (Breukels). All
-callables must share one type. `rest_length` (0 ⇒ taken from the initial geometry)
-and the per-node rest orientations `R_a_rel0`/`R_b_rel0` (set at `reinit!`) define
-the unstrained configuration.
+returning the effective rigidity there, e.g. a curvature-softening `EIy(κ)` for
+inflated-tube wrinkling (Breukels). All callables must share one type. `rest_length`
+(0 ⇒ initial geometry) and the per-node rest orientations `R_a_rel0`/`R_b_rel0` (set
+at `reinit!`) define the unstrained configuration.
 
 $(TYPEDFIELDS)
 """

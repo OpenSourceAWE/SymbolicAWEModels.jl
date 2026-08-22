@@ -29,14 +29,11 @@ end
     DynamicsType `DYNAMIC` `STATIC` `BODY_STATIC` `KINEMATIC`
 
 Enumeration for the dynamic model governing a point's motion, a rigid body's
-motion, or a twist_surface's twist. The shared idea: `DYNAMIC` quantities carry
-differential state and are solved by the dynamics; the others are *prescribed* —
-no state, held constant within a step, but mutable between steps.
-
-A wing's aerodynamic-surface structural points are ordinary `DYNAMIC` (particle
-wing) or `BODY_STATIC` (rigid wing, riding the wing body) points; their wing
-membership is carried by twist-surface membership (`point.is_wing_node`), not by
-a dedicated dynamics type.
+motion, or a twist_surface's twist. `DYNAMIC` quantities carry differential state
+and are solved by the dynamics; the others are *prescribed* — no state, held
+constant within a step, but mutable between steps. A wing's aerodynamic-surface
+points are ordinary `DYNAMIC` (particle wing) or `BODY_STATIC` (rigid wing) points;
+their wing membership comes from twist-surface membership (`point.is_wing_node`).
 
 # Elements
 - `DYNAMIC`: Solved by the dynamics. A point moves by Newton's second law; a
@@ -240,10 +237,7 @@ result in the corresponding `_idx` fields (e.g. `point_idxs`,
 `wing_idx`).
 
 Each component has a `name` field (`const`, set once at
-construction) that identifies it for lookup. The type includes
-`Nothing` for forward-compatibility but no public constructor
-produces `name=nothing`; a nothing-named component would simply
-be unreferenceable by name (only by vector index).
+construction) that identifies it for lookup.
 """
 const NameRef = Union{Int, Symbol}
 
@@ -525,8 +519,7 @@ using the closest VSM panel to the twist_surface's mean point position.
 - `damping::SimFloat=50.0`: Damping coefficient for twist dynamics.
 - `stiffness::SimFloat=0.0`: Torsional restoring stiffness [N·m/rad]. Adds a
   `-stiffness * twist_angle / inertia` term to the twist angular acceleration,
-  independent of the bridle-tension restoring moment. `0.0` reproduces prior
-  behaviour exactly.
+  independent of the bridle-tension restoring moment.
 - `x_airf=nothing`: Chord-direction reference (body frame). When given, stored as
   the `chord` field — twist is measured relative to it. Defaults to auto-derived
   from the closest VSM panel during SystemStructure construction.
@@ -837,23 +830,17 @@ Constructs a `Pulley` object that enforces length redistribution between two seg
 - `brake`: Freeze the rope split where it is, for debugging.
 - `friction_epsilon`: Friction smoothing width [m/s].
 
-`efficiency` is the whole friction model, because it is what a sheave is specified
-by and what its losses scale with: bearing drag rises with the load on the axle and
-the rope's bending hysteresis with the tension being bent, neither with how fast the
-rope travels. The friction is `(1 − efficiency) · line_tension`, the mean of the two
-leg tensions, so it grows with load rather than being a fixed force. It defaults to
-0.95, a sealed ball-bearing sheave; published ranges are 0.94–0.97 for those,
-0.88–0.92 for a bronze bushing and lower still for a bushing running synthetic rope.
-Set 1.0 for an ideal pulley.
+`efficiency` is the whole friction model: the friction is
+`(1 − efficiency) · line_tension` (the mean of the two leg tensions), so it scales
+with load, not rope speed. Defaults to 0.95 (sealed ball-bearing sheave; 0.88–0.92
+for a bronze bushing); 1.0 is an ideal pulley.
 
-`damping` and `brake` are not sheave properties. `damping` defaults to zero and
-exists to settle a ringing rope split while debugging a model; `brake` defaults to
-`false` and holds the split at its current length, which isolates whether a problem
-comes from the rope redistributing at all. `friction_epsilon` is the rope speed
-below which the friction's sign is ramped in ([`smooth_sign`](@ref)); the friction
-linearises to `(1 − efficiency) · line_tension / friction_epsilon` around zero, so a
-narrow width makes a stiff system out of a small force and wants raising rather than
-lowering.
+`damping` (default 0) and `brake` (default `false`) are debugging aids, not sheave
+properties: they settle or freeze a ringing rope split. `friction_epsilon` is the
+rope speed below which the friction's sign is ramped in ([`smooth_sign`](@ref)); the
+friction linearises to `(1 − efficiency) · line_tension / friction_epsilon` around
+zero, so a narrow width makes a stiff system out of a small force and wants raising
+rather than lowering.
 """
 function Pulley(name, segment_i, segment_j, type;
                 efficiency = 0.95, damping = 0.0, brake = false,
@@ -881,25 +868,22 @@ strain returning force [N]; a callable propagates to every auto-generated segmen
 (Route 2), making the whole line nonlinear.
 
 `unit_stiffness` is typed `Any` (not a type parameter) to keep `Tether` concrete,
-since `SystemStructure.tethers` is read every step.
-
-The material fields (`unit_stiffness` through `compression_damping_frac`) describe
-the segments Route 2 generates; a Route 1 tether reads them off its own segments and
-leaves these at their defaults.
+since `SystemStructure.tethers` is read every step. The material fields
+(`unit_stiffness` through `compression_damping_frac`) describe the segments Route 2
+generates; a Route 1 tether reads them off its own segments.
 
 # Initial length
 Two distinct lengths, set independently at `reinit!`:
 - `init_stretched_len` — the *placed* (stretched) standoff; `reinit!` scales the
   free end's world position so the geometry spans this length.
-- `len` — the *unstretched* rest length and the reeled ODE state (what a `Winch`
-  holds/reels). It is not set directly; `reinit!` **derives** it from the placed
-  length via either `init_stretch_frac` (`len = frac · stretched`) or
-  `init_tether_force` (`len = stretched · (1 − force/stiffness)`, default 0 → no
-  tension → `len = stretched`).
+- `len` — the *unstretched* rest length and the reeled ODE state. Not set directly;
+  `reinit!` derives it from the placed length via either `init_stretch_frac`
+  (`len = frac · stretched`) or `init_tether_force`
+  (`len = stretched · (1 − force/stiffness)`, default 0 → `len = stretched`).
 
-To command a specific initial unstretched length `L` (e.g. winch steering/depower),
-place at a known `init_stretched_len = S` and set `init_stretch_frac = L / S`.
-Setting `len` directly does not survive `reinit!`.
+For a specific initial unstretched length `L`, place at a known
+`init_stretched_len = S` and set `init_stretch_frac = L / S`; setting `len` directly
+does not survive `reinit!`.
 
 $(TYPEDFIELDS)
 """

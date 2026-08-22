@@ -4,24 +4,15 @@
 """
 NamedCollection - A wrapper that enables both numeric and symbolic indexing.
 
-This file provides the `NamedCollection` type that wraps a vector of items
-and provides lookup by symbolic name via a dictionary mapping.
+Wraps a vector of named items and adds lookup by symbolic name via a name → index
+dictionary.
 
-# Examples
 ```julia
-# Create collection with items that have names
 points = [Point(1, ...; name=:kcu), Point(2, ...; name=:le_1)]
 nc = NamedCollection(points)
-
-# Access by index (unchanged behavior)
-nc[1]  # -> Point 1
-
-# Access by name (new capability)
-nc[:kcu]  # -> Point 1
-nc[:le_1]  # -> Point 2
-
-# Check if name exists
-haskey(nc, :kcu)  # -> true
+nc[1]              # -> Point 1
+nc[:le_1]          # -> Point 2
+haskey(nc, :kcu)   # -> true
 ```
 """
 

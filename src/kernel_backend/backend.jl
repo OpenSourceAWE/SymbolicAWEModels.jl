@@ -12,11 +12,10 @@ callable store, so `sync_params!` writes struct fields straight into it. `sparse
 hands the solver [`state_sparsity`](@ref) as the Jacobian prototype; without it the
 Jacobian is dense, as the monolith's is. `analytic_jacobian` hands it a
 [`KernelJacobian`](@ref) rather than leaving it to differentiate the right-hand side
-numerically. `FullSpecialize` because the right-hand
-side is one concrete type, so `SciMLBase`'s function wrappers would only add
-indirection and allocate — it goes on the `ODEFunction` as well as the problem,
-since a bare `ODEFunction` is `AutoSpecialize` and the problem's parameter does
-not reach a function that is already built.
+numerically. `FullSpecialize` because the right-hand side is one concrete type, so
+`SciMLBase`'s function wrappers would only add indirection and allocate; it goes on
+the `ODEFunction` as well as the problem, a bare `ODEFunction` being
+`AutoSpecialize`.
 """
 function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = true,
                      prn = true)

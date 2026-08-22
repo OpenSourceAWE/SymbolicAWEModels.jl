@@ -248,14 +248,13 @@ end
 
 Shared per-refined-panel VSM force assembly for the live particle aero modes
 ([`ContinuousAero`](@ref), [`AeroPressure`](@ref)). Re-expresses
-`VortexStepMethod.calc_forces!` symbolically from the frozen circulation:
-per panel `i` (between section boundaries `i` and `i+1`) it builds the airfoil
-axes, chord, width, effective angle of attack (live apparent wind
-`sec_va` + frozen induced velocity `vind_p`), polar coefficients (`cl/cd/cm`
-callable params), and the lift/drag directions, and emits the panel force and
-the pitching-moment couple. Returns the panel equations, the intermediate
-variables to register, and the `panel_force`/`panel_couple` symbolic arrays for
-the caller's scatter (strut couple or surface pattern).
+`VortexStepMethod.calc_forces!` symbolically from the frozen circulation: per panel
+`i` (between section boundaries `i` and `i+1`) it builds the airfoil axes, chord,
+width, effective angle of attack (live apparent wind `sec_va` + frozen induced
+velocity `vind_p`), polar coefficients (`cl/cd/cm` callable params) and the lift/drag
+directions, and emits the panel force and pitching-moment couple. Returns the panel
+equations, the intermediate variables to register, and the
+`panel_force`/`panel_couple` arrays for the caller's scatter.
 
 `sec_le`/`sec_te`/`sec_va` are length-`n_panels+1` vectors of body-frame
 3-vectors (positions and apparent wind at the section boundaries), `sec_rho`
@@ -783,18 +782,15 @@ end
                                  zp1, zp2, yp1, yp2, origin, aero_points)
 
 Recompute a KINEMATIC/PARTICLE wing's kinematic state directly from the current point
-positions/velocities. A KINEMATIC wing is fitted from its ref points rather than
-integrated, so a backend that does not carry these quantities as state (the network)
-reconstructs them here from the struct. `zp1`, `zp2`, `yp1`, `yp2` and `origin` are
-[`WeightedRefPoints`](@ref), so each reference is the weighted blend of its points,
-matching the monolith's `get_ref_position`. Writes the body frame `R_b_to_w`
+positions/velocities, for a backend that does not carry these quantities as state.
+`zp1`, `zp2`, `yp1`, `yp2` and `origin` are [`WeightedRefPoints`](@ref), so each
+reference is the weighted blend of its points. Writes the body frame `R_b_to_w`
 ([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the frame's own
 `ω_b` ([`body_frame_omega`](@ref)), the origin's acceleration `acc_w`
 ([`point_acceleration_w`](@ref)), the reported scalars
-([`write_wing_scalars!`](@ref)), the wing apparent
-wind `va_b`, and each aero point's `va_b = R'·(wind(z)·wind_gnd − vel)`. Mirrors what
-the monolith's `get_all_state` copies out of the integrator, so `refresh_aero!` sees
-fresh apparent wind on either backend.
+([`write_wing_scalars!`](@ref)), the wing apparent wind `va_b`, and each aero point's
+`va_b = R'·(wind(z)·wind_gnd − vel)` — the same quantities the monolith's
+`get_all_state` copies out of the integrator.
 """
 function wing_kinematics_from_points!(wing, points, set, am;
         zp1, zp2, yp1, yp2, origin, aero_points,
