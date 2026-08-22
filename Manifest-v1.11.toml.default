@@ -2,7 +2,7 @@
 
 julia_version = "1.11.9"
 manifest_format = "2.0"
-project_hash = "6af0d422e0c14ae7f3cb220305343c0bc43fae10"
+project_hash = "e78205b5275e9a742e07e42037e628f41a2605aa"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "5970c86505ae9c07bf5bc521ef2bbbb3849e8b7b"
@@ -1150,9 +1150,9 @@ version = "1.11.0"
 
 [[deps.MatrixEquations]]
 deps = ["LinearAlgebra", "LinearMaps"]
-git-tree-sha1 = "e357e9f4cf3b1306ba6119e49e4d94cd57816835"
+git-tree-sha1 = "43d6e9672a6502922c27f79026d7d5317ba53b0e"
 uuid = "99c1a7ee-ab34-5fd5-8076-27c950a045f4"
-version = "2.6.3"
+version = "2.6.4"
 
 [[deps.MatrixPencils]]
 deps = ["LinearAlgebra", "MatrixEquations", "Polynomials", "Random"]
