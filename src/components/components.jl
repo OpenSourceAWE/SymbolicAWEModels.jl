@@ -170,12 +170,10 @@ With `nonlinear` the `unit_stiffness` is a callable force law of strain
 are unused.
 
 `rest_len_rate` is `d(l0)/dt` for a segment whose rest length is a state — a pulley
-leg or a winched tether member. The damper resists the rate of change of the
-extension `len - l0`, so the returned `spring_vel` is the endpoint closing speed
-plus `rest_len_rate`, not the closing speed alone: feeding rope into a leg relaxes
-it just as bringing its endpoints together does. Leaving it at zero would give the
-rest-length degree of freedom no damping while still letting its segments' dampers
-drive it, which makes the damping non-reciprocal and lets it inject energy.
+leg or a winched tether member. The damper resists the rate of change of the extension
+`len - l0`, so `spring_vel` is the endpoint closing speed plus `rest_len_rate`; zero
+there would leave the rest-length degree of freedom undamped while its segments'
+dampers still drive it, which lets the damping inject energy.
 """
 function segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel,
                             unit_stiffness, unit_damping, compression_frac,
@@ -649,15 +647,12 @@ view): `(1 − efficiency) · line_tension`, carrying the sign of the motion thr
 [`smooth_sign`](@ref) over `friction_epsilon`. Both backends read the fields through
 here, so the pulley's friction lives in one place.
 
-A sheave is specified by its efficiency because that is what its losses scale with:
-bearing drag rises with the load on the axle and the rope's bending hysteresis with
-the tension being bent, neither with how fast the rope travels. `line_tension` is
-the mean of the two leg tensions, so with both legs equally loaded this is the
-`efficiency` definition `T_out = efficiency · T_in` exactly. A slack pulley is
-frictionless, and coasts — but it has no tension driving its split either.
+`line_tension` is the mean of the two leg tensions, so with both legs equally loaded
+this is the `efficiency` definition `T_out = efficiency · T_in` exactly. A slack
+pulley is frictionless, and has no tension driving its split either.
 
-`damping · vel` is added on top. It is not a sheave property and defaults to zero;
-it is there to settle a ringing rope split while debugging a model.
+`damping · vel` is added on top: not a sheave property, defaults to zero, there to
+settle a ringing rope split while debugging.
 """
 pulley_friction_force(pulley, vel, line_tension) =
     smooth_sign(vel, pulley.friction_epsilon) *
@@ -1094,24 +1089,24 @@ end
                      orientation_p; frozen=false, wing_frame=nothing,
                      wing_vel=nothing)
 
-The four integration overrides `rigid_body_pose_expressions` takes: `fix_sphere`
+The four integration overrides `rigid_body_pose_expressions` takes. `fix_sphere`
 confines the body to a sphere about the world origin by keeping only the radial part
 of its COM velocity and acceleration and dropping the radial part of its spin.
 `alpha_p`/`com_acc` are the caller's torn variables, so the overrides can name the
 accelerations they correct without a cycle.
 
-Damping is folded in here, so both backends share one definition: `angular_damping`
-on the absolute spin, `world_frame_damping` on the COM velocity on the world axes,
-and `body_frame_damping` through the same [`body_frame_damp_accel`](@ref) a wing
-node uses — the velocity *relative to the parent wing*, resolved on the wing's axes,
-so it damps deformation and not rigid flight. `wing_frame`/`wing_vel` carry that
-parent's frame and velocity; a body with no parent wing (`wing_idx == 0`) gets its
-own frame and a resting parent, which is plain body-axis damping of its own velocity.
+Damping is folded in here so both backends share one definition: `angular_damping` on
+the absolute spin, `world_frame_damping` on the COM velocity on the world axes, and
+`body_frame_damping` through the same [`body_frame_damp_accel`](@ref) a wing node uses
+— the velocity relative to the parent wing, resolved on the wing's axes, so it damps
+deformation and not rigid flight. `wing_frame`/`wing_vel` carry that parent's frame
+and velocity; a body with no parent wing (`wing_idx == 0`) gets its own frame and a
+resting parent.
 
 `frozen` holds all four derivatives at zero, clamping a body that is integrated but
-must not move; a backend that gives such a body no state at all leaves it `false`.
-A body not frozen at build time reads the `fix_static` parameter instead, which is
-the same clamp under runtime control.
+must not move; a backend that gives such a body no state leaves it `false`. A body not
+frozen at build time reads the `fix_static` parameter instead, the same clamp under
+runtime control.
 """
 function body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
                           orientation_p; frozen=false, wing_frame=nothing,

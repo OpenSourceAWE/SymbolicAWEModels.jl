@@ -15,10 +15,8 @@ This file contains:
 """
     struct SystemStructure
 
-A discrete mass-spring-damper representation of a kite system.
-
-This struct holds all components of the physical model, including points, segments,
-winches, and wings, forming a complete description of the kite system's structure.
+A discrete mass-spring-damper representation of a kite system: all components of the
+physical model, from points and segments to winches and wings.
 
 # Components
 - [`Point`](@ref): Point masses.
@@ -728,12 +726,10 @@ twist_surfaces by spatial proximity: each unrefined section is
 assigned to the single closest twist_surface (by distance between
 section centre and twist_surface centre, both in body frame).
 
-When `n_twist_surfaces == n_unrefined` this is the same 1:1
-mapping as before. When `n_twist_surfaces < n_unrefined` a twist_surface
-may own several adjacent sections; its single twist DOF
-then drives all of them as a rigid unit. The case
-`n_twist_surfaces > n_unrefined` is rejected — a twist DOF without
-a section to drive would be undefined.
+`n_twist_surfaces == n_unrefined` gives a 1:1 mapping; with
+fewer twist_surfaces one may own several adjacent sections and
+drive them all as a rigid unit with its single twist DOF. More
+twist_surfaces than sections is rejected.
 """
 function compute_spatial_twist_surface_mapping!(
     the_wing::Body,

@@ -31,10 +31,9 @@ end
 
 Flattened compressed-row map from output slots to input slots: input slot `k` is
 the weighted sum of the output-buffer slots `sources[offsets[k]:offsets[k + 1] - 1]`.
-Most weights are `1`; a weighted reference point — a wing frame fitted from a
-blend of structural points — is the reason they exist at all, and having them here
-is why such a point needs no component of its own. An input with no sources reads
-zero, which is how an unconnected slot gets its value without anyone writing it.
+Most weights are `1`; the exception is a weighted reference point — a wing frame
+fitted from a blend of structural points — which therefore needs no component of its
+own. An input with no sources reads zero.
 """
 struct Wiring
     sources::Vector{Int}
@@ -117,20 +116,19 @@ end
     KernelSystem
 
 An assembled model. `kernels` is a vector, not a tuple: a concrete tuple names every
-kernel type in the model, and carrying that type on a field of this struct made
-inference of the code reaching a `KernelSystem` grow explosively in the number of
-kernel types — 0.02 s at nine of them, 2.3 s at fourteen, 853 s at a large kite's
-twenty-one, which is what a loaded Makie turns from cached into paid. The evaluation
-loop still needs the tuple to unroll over, and gets it from [`KernelRHS`](@ref).
+kernel type in the model, and carrying that type on a field here makes inference of
+the code reaching a `KernelSystem` grow explosively in the number of kernel types. The
+evaluation loop still needs a tuple to unroll over, and gets it from
+[`KernelRHS`](@ref).
 
 A *batch* is the instance list of one kernel: `layers[l][k]` are the instances of
 kernel `k` whose outputs run in layer `l`, and `state_batches[k]` the stateful
 instances of kernel `k`. `layer_inputs[l]` is the [`GatherPlan`](@ref) that layer
-needs and `final_inputs` what the derivative and observable passes still need on top,
-so each [`gather!`](@ref) touches only the slots about to be used and no slot is
-gathered twice in a call. The `_active` lists hold the positions of the non-empty
-batches of each pass, which is what [`run_batches!`](@ref) walks — most kernels are
-idle in any one layer and a pass over the whole tuple charged for them.
+needs and `final_inputs` what the derivative and observable passes need on top, so
+each [`gather!`](@ref) touches only the slots about to be used and no slot is gathered
+twice in a call. The `_active` lists hold the positions of the non-empty batches of
+each pass, which is what [`run_batches!`](@ref) walks, skipping the kernels idle in
+that layer.
 """
 struct KernelSystem{N, M}
     kernels::Vector{ComponentKernel}
@@ -326,12 +324,10 @@ end
     layer_gather_slots(builder, layers) -> Vector{Vector{Int}}
 
 The input slots each layer has to gather before its output maps run: those the maps
-actually read, minus the ones an earlier layer already gathered. Both restrictions
-are what the schedule earns. An input its instance's outputs ignore — a point's
-aggregated force, say — is no use to the output pass and is left to `final_inputs`;
-and since every producer is ordered before the earliest consumer, a slot two layers
-read is already final when the first of them runs, so gathering it twice would
-recompute the same sum.
+actually read, minus the ones an earlier layer already gathered. An input its
+instance's outputs ignore — a point's aggregated force, say — is left to
+`final_inputs`; and since every producer is ordered before the earliest consumer, a
+slot two layers read is already final when the first of them runs.
 """
 function layer_gather_slots(builder::SystemBuilder, layers)
     gathered = Set{Int}()
@@ -681,16 +677,14 @@ end
                  target, u, numeric, t)
 
 Run the map `select` picks out of every kernel that has work, one batch at a time.
-`active` holds the positions of the non-empty batches, so a kernel idle in this
-pass costs nothing; walking the kernel tuple instead cost a call frame per kernel
-per pass, which on a real model was most of the right-hand side.
+`active` holds the positions of the non-empty batches, so a kernel idle in this pass
+costs nothing; walking the whole kernel tuple instead costs a call frame per kernel
+per pass.
 
 The buffers arrive as arrays rather than as the `KernelSystem`, `KernelBuffers` and
-`KernelParams` holding them. Reaching through those structs inside the loop made
-every instance reload the field, because a store into `target` may alias the struct,
-and it put a 7751-character type on a call the compiler then declined to inline —
-6640 bytes of tuple copied per call. Passing the arrays made the same work 2.9×
-cheaper.
+`KernelParams` holding them: reaching through those structs inside the loop makes
+every instance reload the field (a store into `target` may alias the struct) and puts
+a huge type on a call the compiler then declines to inline.
 """
 function run_batches!(select::C, kernels::Tuple, active::Vector{Int}, batches,
                       callables::Tuple, instances::Vector{ComponentInstance}, input,

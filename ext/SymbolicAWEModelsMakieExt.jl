@@ -1036,22 +1036,16 @@ end
 """
     SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
 
-Trigger plot updates by updating the geometry observable.
+Trigger plot updates by notifying the geometry observable, which makes Makie
+recompute all geometry from `PLOT_SYSTEM_STRUCTURE[]` through its `@lift`
+expressions. `sys` should already carry the new state (e.g. from
+`update_from_sysstate!`).
 
-The SystemStructure should already be updated via `update_from_sysstate!`.
-This function simply triggers the observable which causes Makie to recompute
-all geometry from `PLOT_SYSTEM_STRUCTURE[]` via `@lift` expressions.
-
-# Example
 ```julia
-# Create initial plot
 scene = plot(sys_struct)
-
-# In simulation loop:
 for step in 1:steps
     next_step!(sam; ...)
     update_plot_observables!(sam.sys_struct)
-    sleep(0.001)  # Allow Makie to process updates
 end
 ```
 """
@@ -1291,11 +1285,9 @@ end
 """
     MakieControlPlots.plot(sys::SystemStructure, logs::Vector{SysLog}; kwargs...)
 
-Create a multi-panel plot comparing multiple simulation logs on the same figure.
-
-This method allows plotting multiple syslogs (e.g., from PARTICLE_DYNAMICS and RIGID_DYNAMICS models)
-on the same panels for direct comparison. Each log's traces are labeled with its
-corresponding system name.
+Create a multi-panel plot comparing several simulation logs (e.g. from
+PARTICLE_DYNAMICS and RIGID_DYNAMICS models) on the same panels. Each log's traces are
+labeled with its system name.
 
 # Arguments
 - `sys::SystemStructure`: The system structure (can be from any of the models).
@@ -3313,31 +3305,18 @@ end
 """
     Makie.plot!(sys::SystemStructure; vector_scale=1.0)
 
-Update the currently displayed SystemStructure plot with new data from `sys`.
-
-This function follows standard Makie conventions: `plot!` with `!` mutates the existing
-scene by updating its observables. Must be called after an initial `plot(sys)` has created
-the scene and observables.
-
-# Arguments
-- `sys::SystemStructure`: The system structure with updated state to display
+Update the displayed SystemStructure plot with new data from `sys`, by writing the
+scene's observables. Requires an earlier `plot(sys)` to have created them; returns
+`nothing`.
 
 # Keyword Arguments
 - `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
 
-# Returns
-- `nothing` (mutates existing scene via observables)
-
-# Example
 ```julia
-# Create initial plot
 scene = plot(sys_struct)
-
-# In simulation loop, update the plot
 for i in 1:100
     next_step!(sam)
-    plot!(sys_struct)  # Updates observables
-    sleep(0.01)
+    plot!(sys_struct)
 end
 ```
 
