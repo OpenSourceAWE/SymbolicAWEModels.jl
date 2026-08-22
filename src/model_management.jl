@@ -678,6 +678,23 @@ end
 
 
 """
+    reinit!(sam, integrator; solver=integrator.alg, kwargs...) -> (ODEIntegrator, Bool)
+
+Reset `integrator`, which is `sam`'s own, from the current `SystemStructure`.
+`solver` defaults to the one `integrator` was built with, so the reset stays on the
+right-hand side that is already compiled rather than forcing a second compilation
+at another Jacobian's element type. `kwargs` are those of
+[`reinit!`](@ref)`(sam, prob, solver; …)`.
+"""
+function reinit!(sam::SymbolicAWEModel,
+        integrator::OrdinaryDiffEqCore.ODEIntegrator;
+        solver = integrator.alg, kwargs...)
+    isnothing(sam.prob) && error("reinit!: $(sam.sys_struct.name) has no " *
+        "ODEProblem; call init! first.")
+    return reinit!(sam, sam.prob, solver; kwargs...)
+end
+
+"""
     reinit!(sam, prob, solver; kwargs...) -> (ODEIntegrator, Bool)
 
 Reset the ODE integrator from new initial conditions without rebuilding the

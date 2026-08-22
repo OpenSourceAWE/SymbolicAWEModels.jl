@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## v0.15.2 22-08-2026
+
+### Added
+- `reinit!(sam, integrator; solver=integrator.alg, kwargs...)`, which names the
+  integrator it resets and defaults the solver to the one that integrator was
+  built with. The three-argument method takes `solver` as a required argument, and
+  a caller passing a bare `FBDF()` made the monolith backend compile its whole
+  right-hand side a second time at `ForwardDiff.Dual`.
+
+### Fixed
+- `sim_reposition!` reinitializes with the solver `init!` built rather than
+  rebuilding one and dropping its `linsolve`, which on the `KernelBackend` swapped
+  the `KLUFactorization` for a dense one and rebuilt the integrator each
+  reposition.
+
 ## v0.15.1 22-08-2026
 
 ### Changed
