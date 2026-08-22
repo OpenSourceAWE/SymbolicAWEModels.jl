@@ -79,6 +79,21 @@ const PLOT_MULTI_SYSTEMS = Ref{Union{Nothing, Vector{<:SystemStructure}}}(nothin
 const PLOT_MULTI_GEOMETRY_OBS = Ref{Union{Nothing, Vector{Observable}}}(nothing)
 
 """
+    finite_force_arrows(origins, forces, scale) -> (origins, directions)
+
+Arrows for the loads that have one, scaled so the largest is `scale` long. Forces
+that are not finite are dropped before the rest are sized, so a single unset load
+cannot blank the whole layer through the shared adaptive scale.
+"""
+function finite_force_arrows(origins, forces, scale)
+    keep = [i for i in eachindex(forces) if all(isfinite, forces[i])]
+    isempty(keep) && return (Point3f[], Vec3f[])
+    max_force = maximum(norm(forces[i]) for i in keep)
+    max_force > 0 || return (Point3f[], Vec3f[])
+    return (origins[keep], [forces[i] * (scale / max_force) for i in keep])
+end
+
+"""
     calculate_segment_force_colors(segments, segment_color)
 
 Calculate segment colors based on their force values.
@@ -878,13 +893,9 @@ function Makie.plot!(ax, sys::SystemStructure;
                 end
             end
 
+            aero_origins, aero_directions =
+                finite_force_arrows(aero_origins, aero_forces_raw, vector_scale)
             if !isempty(aero_origins)
-                # Calculate adaptive force scale
-                max_force = maximum(norm.(aero_forces_raw))
-                # Scale forces to be similar size as vector_scale
-                force_scale = vector_scale / max_force
-                aero_directions = [f * force_scale for f in aero_forces_raw]
-
                 plots[:aero_forces] = arrows3d!(ax, aero_origins, aero_directions,
                                                color=:magenta,
                                                label="Aero Forces")
@@ -923,14 +934,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                     end
                 end
 
-                # Calculate adaptive force scale
-                directions = Vec3f[]
-                if !isempty(forces_raw)
-                    max_force = maximum(norm.(forces_raw))
-                    force_scale = scale / max_force
-                    directions = [f * force_scale for f in forces_raw]
-                end
-                (origins, directions)
+                finite_force_arrows(origins, forces_raw, scale)
             end
 
             plots[:aero_forces] = arrows3d!(ax, @lift($aero_origins_dirs[1]), @lift($aero_origins_dirs[2]),

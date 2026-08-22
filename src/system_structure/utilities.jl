@@ -955,6 +955,25 @@ end
 # ==================== SYSSTATE INTEROP ==================== #
 
 """
+    restore_point_aero_forces!(sys, wing, sys_state)
+
+Put each of `wing`'s nodes back to the body-frame aero force the log holds for it,
+rotating the logged world-frame `aero_force_x/y/z` by the frame just restored. A log
+written before those channels existed carries zeros and restores zeros.
+"""
+function restore_point_aero_forces!(sys, wing, sys_state)
+    length(sys_state.aero_force_x) == length(sys_state.X) || return nothing
+    rot = quaternion_to_rotation_matrix(wing.Q_b_to_w)
+    for point in sys.points
+        (point.is_wing_node && point.wing_idx == wing.idx) || continue
+        point.aero_force_b .= rot' * [sys_state.aero_force_x[point.idx],
+                                      sys_state.aero_force_y[point.idx],
+                                      sys_state.aero_force_z[point.idx]]
+    end
+    return nothing
+end
+
+"""
     update_from_sysstate!(sys::SystemStructure, sys_state::SysState)
 
 Update the dynamic state of a `SystemStructure` from a `SysState` snapshot.
@@ -1057,12 +1076,12 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         # Set angular velocity to NaN (turn_rates in SysState, but need conversion)
         wing.ω_b .= sys_state.turn_rates
 
-        # Set aerodynamic quantities to NaN (to prevent plotting)
-        wing.aero_force_b .= NaN
-        wing.aero_moment_b .= NaN
-        wing.tether_force .= NaN
-        wing.tether_moment .= NaN
+        wing.aero_force_b .= sys_state.aero_force_b
+        wing.aero_moment_b .= sys_state.aero_moment_b
+        wing.tether_force .= sys_state.tether_induced_force
+        wing.tether_moment .= sys_state.tether_induced_moment
         wing.va_b .= NaN
+        restore_point_aero_forces!(sys, wing, sys_state)
         wing.v_wind .= sys_state.v_wind_kite
         wing.aoa = Float64(sys_state.AoA)
         wing.course = Float64(sys_state.course)

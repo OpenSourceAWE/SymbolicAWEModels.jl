@@ -54,14 +54,6 @@ compiled RHS (the stored-force path of [`AeroDirect`](@ref)).
 """
 provides_aero_override(::AbstractAeroModel) = false
 
-"""
-    stores_point_force(mode::AbstractAeroModel) -> Bool
-
-`true` if a wing node's `aero_force_b` is meaningful for this mode.
-[`AeroNone`](@ref) returns `false` (it produces no force).
-"""
-stores_point_force(::AbstractAeroModel) = true
-
 # ==================== interface: required cache tag ==================== #
 
 """
@@ -209,10 +201,10 @@ end
     frozen_point_force_component(wing::AbstractWing, sys_struct; name, params) -> System
 
 Particle aero component binding each wing node's connector force to its frozen
-`point.aero_force_b` flat parameter (synced every refresh). Shared by the modes
-that store a precomputed per-point force ([`AeroDirect`](@ref),
-[`AeroPressure`](@ref)); the difference between those modes is only how the
-refresh fills `aero_force_b`, not the (identical) symbolic binding.
+`point.aero_force_b` flat parameter (synced every refresh). Used by
+[`AeroDirect`](@ref), the mode whose refresh precomputes a per-point force the
+equations can read back unchanged. Touching the parameter here is what registers
+it, so a mode that does not use this component never gets one.
 """
 function frozen_point_force_component(wing, sys_struct; name, params=nothing)
     points = wing_points(sys_struct, wing)
@@ -228,9 +220,29 @@ function frozen_point_force_component(wing, sys_struct; name, params=nothing)
     return System(eqs, t, particle_unknowns(connectors), flat_ps; name)
 end
 
-function wing_points(sys_struct, wing)
-    return [point for point in sys_struct.points
-            if point.is_wing_node && point.wing_idx == wing.idx]
+wing_points(sys_struct, wing) = wing_nodes_of(wing, sys_struct.points)
+
+"""
+    wing_nodes_of(wing, points) -> Vector{Point}
+
+`wing`'s own nodes out of `points`, in order. The refresh hooks are handed every
+point of the system, so they select with this rather than with `sys_struct`.
+"""
+wing_nodes_of(wing, points) =
+    [point for point in points
+     if point.is_wing_node && point.wing_idx == wing.idx]
+
+"""
+    zero_point_forces!(wing, points)
+
+Clear the body-frame aero force of every one of `wing`'s nodes, so no stale load
+survives a refresh that produces none.
+"""
+function zero_point_forces!(wing, points)
+    for point in wing_nodes_of(wing, points)
+        fill!(point.aero_force_b, 0.0)
+    end
+    return nothing
 end
 
 """
@@ -548,17 +560,6 @@ panel_force + couple weight · panel_couple`. The weights are constants of the m
 the wiring layer carries the whole scatter and no component holds it.
 """
 function aero_scatter_entries end
-
-"""
-    aero_point_forces(mode, wing, sys_struct) -> iterable of (point_idx, force_b)
-
-The body-frame aerodynamic force on each of `wing`'s points, for logging and
-plotting. The fallback reads each point's own `aero_force_b`, which a mode that
-scatters panel loads overrides because it never writes that field.
-"""
-aero_point_forces(::AbstractAeroModel, wing, sys_struct) =
-    ((point.idx, collect(point.aero_force_b))
-     for point in wing_points(sys_struct, wing))
 
 """
     aero_point_offset(mode, params, wing_idx, point_idx)

@@ -312,9 +312,9 @@ end
 """
     write_aero_forces!(ss, sys_struct) -> ss
 
-Fill `ss.aero_force_x/y/z` with the aerodynamic force each point carries, world
-frame. A point's own `aero_force_b` holds it only for `PARTICLE_DYNAMICS` wing
-nodes, so a scattering mode is asked for its own distribution instead.
+Fill `ss.aero_force_x/y/z` with the aerodynamic force each wing node carries, world
+frame, from the `point.aero_force_b` each particle mode fills at refresh. A mode that
+stores none leaves its nodes at zero.
 """
 function write_aero_forces!(ss::SysState, sys_struct::SystemStructure)
     fill!(ss.aero_force_x, 0.0)
@@ -322,11 +322,11 @@ function write_aero_forces!(ss::SysState, sys_struct::SystemStructure)
     fill!(ss.aero_force_z, 0.0)
     for wing in sys_struct.wings
         rot = quaternion_to_rotation_matrix(wing.Q_b_to_w)
-        for (idx, force_b) in aero_point_forces(wing.aero, wing, sys_struct)
-            force = rot * force_b
-            ss.aero_force_x[idx] += force[1]
-            ss.aero_force_y[idx] += force[2]
-            ss.aero_force_z[idx] += force[3]
+        for point in wing_points(sys_struct, wing)
+            force = rot * point.aero_force_b
+            ss.aero_force_x[point.idx] += force[1]
+            ss.aero_force_y[point.idx] += force[2]
+            ss.aero_force_z[point.idx] += force[3]
         end
     end
     return ss
