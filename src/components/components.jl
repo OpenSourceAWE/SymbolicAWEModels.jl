@@ -27,33 +27,32 @@ keep_along(vector, axis) = (vector ⋅ axis) .* axis
 
 """
     point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
-                       world_damping, wind_gnd, wind_factor; g_earth=s.set.g_earth)
+                       world_damping, wind_gnd, wind_factor, g_earth)
 
 `(; net_force, accel)` for a point mass: [`point_net_force`](@ref) and that per unit
 `mass`, minus world-frame damping.
 """
 function point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
-                            world_damping, wind_gnd, wind_factor;
-                            g_earth = s.set.g_earth)
+                            world_damping, wind_gnd, wind_factor, g_earth)
     net_force = point_net_force(s, pos, vel, structural_force, mass, drag_coeff,
-                                area, wind_gnd, wind_factor; g_earth)
+                                area, wind_gnd, wind_factor, g_earth)
     return (; net_force, accel = net_force ./ mass .- world_damping .* vel)
 end
 
 """
     point_net_force(s, pos, vel, structural_force, mass, drag_coeff, area, wind_gnd,
-                    wind_factor; g_earth=s.set.g_earth)
+                    wind_factor, g_earth)
 
 The physical force on a point: the structural force gathered from its segments plus
 its own aerodynamic drag against the wind at its height and gravity — the monolith's
 `point_force`. `structural_force` is the net force on the point (positive sign); each
 backend supplies it in its own aggregation convention. A clamped point reads it
-without moving, which is how an anchor's or a winch's load is read off. `g_earth`
-defaults to the baked setting; both backends pass the registered `params.set.g_earth`
-so gravity stays settable after construction.
+without moving, which is how an anchor's or a winch's load is read off. Both backends
+pass the registered `params.set.g_earth` as `g_earth` so gravity stays settable after
+construction; reading the setting here instead would bake it in at build time.
 """
 function point_net_force(s, pos, vel, structural_force, mass, drag_coeff, area,
-                         wind_gnd, wind_factor; g_earth = s.set.g_earth)
+                         wind_gnd, wind_factor, g_earth)
     rho = air_density(s.am, pos[3])
     va = wind_factor(pos[3]) .* wind_gnd .- vel
     drag = point_drag_force(va, rho, drag_coeff, area)
@@ -109,7 +108,7 @@ Shared body of the DYNAMIC point/pulley vertices: `D(pos)=vel`,
 function dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force)
     motion = point_acceleration(s, collect(pos), collect(vel), collect(force),
         mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
-        collect(pars.wind_gnd), pars.wind_factor; g_earth = pars.g_earth)
+        collect(pars.wind_gnd), pars.wind_factor, pars.g_earth)
     velocity, acceleration = confined_derivatives(pos, vel, motion.accel, pars)
     return [D.(collect(pos)) .~ velocity; D.(collect(vel)) .~ acceleration;
             collect(net_force) .~ motion.net_force]
@@ -814,8 +813,7 @@ function Anchor(s, params, idx; name)
         collect(io.vel) .~ zeros(3)
         collect(io.net_force) .~ point_net_force(s, collect(io.pos), collect(io.vel),
             collect(io.force_in), pars.extra_mass + io.mass_in, pars.drag_coeff,
-            pars.area, collect(pars.wind_gnd), pars.wind_factor;
-            g_earth = pars.g_earth)
+            pars.area, collect(pars.wind_gnd), pars.wind_factor, pars.g_earth)
         point_wind_eqs(s, params, idx, io)
     ]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
@@ -911,8 +909,7 @@ function WinchAnchor(s, params, winch, idx; name)
         collect(io.vel) .~ zeros(3)
         collect(io.net_force) .~ point_net_force(s, collect(io.pos), collect(io.vel),
             collect(io.force_in), pars.extra_mass + io.mass_in, pars.drag_coeff,
-            pars.area, collect(pars.wind_gnd), pars.wind_factor;
-            g_earth = pars.g_earth)
+            pars.area, collect(pars.wind_gnd), pars.wind_factor, pars.g_earth)
         point_wind_eqs(s, params, idx, io)
         extra[3] ~ smooth_norm(collect(extra[1]))
         motor.vel ~ extra[2]
@@ -2302,7 +2299,8 @@ function WingNodePoint(s, params, idx; name, with_damping = true)
     mass = pars.extra_mass + io.mass_in
     motion = point_acceleration(s, collect(io.pos), collect(io.vel),
         collect(io.force_in), mass, pars.drag_coeff, pars.area,
-        collect(pars.world_damping), collect(pars.wind_gnd), pars.wind_factor)
+        collect(pars.world_damping), collect(pars.wind_gnd), pars.wind_factor,
+        pars.g_earth)
     accel = motion.accel
     with_damping && (accel = accel .- body_frame_damp_accel(io.vel,
         point.body_frame_damping, orientation, collect(extra[2])))
