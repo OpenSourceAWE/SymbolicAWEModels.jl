@@ -386,10 +386,9 @@ SymbolicAWEModels.freeze_traction_pattern!
 SymbolicAWEModels.contour_winding
 SymbolicAWEModels.write_aero_forces!
 SymbolicAWEModels.accumulate_point_offset!
-SymbolicAWEModels.write_point_forces!
 SymbolicAWEModels.restore_point_aero_forces!
-SymbolicAWEModels.wing_nodes_of
-SymbolicAWEModels.zero_point_forces!
+SymbolicAWEModels.carries_point_aero
+SymbolicAWEModels.point_aero_force_array
 SymbolicAWEModels.zero_aero_force
 SymbolicAWEModels.PanelAeroList
 SymbolicAWEModels.PanelAero

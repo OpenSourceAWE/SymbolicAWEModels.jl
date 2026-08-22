@@ -220,29 +220,9 @@ function frozen_point_force_component(wing, sys_struct; name, params=nothing)
     return System(eqs, t, particle_unknowns(connectors), flat_ps; name)
 end
 
-wing_points(sys_struct, wing) = wing_nodes_of(wing, sys_struct.points)
-
-"""
-    wing_nodes_of(wing, points) -> Vector{Point}
-
-`wing`'s own nodes out of `points`, in order. The refresh hooks are handed every
-point of the system, so they select with this rather than with `sys_struct`.
-"""
-wing_nodes_of(wing, points) =
-    [point for point in points
-     if point.is_wing_node && point.wing_idx == wing.idx]
-
-"""
-    zero_point_forces!(wing, points)
-
-Clear the body-frame aero force of every one of `wing`'s nodes, so no stale load
-survives a refresh that produces none.
-"""
-function zero_point_forces!(wing, points)
-    for point in wing_nodes_of(wing, points)
-        fill!(point.aero_force_b, 0.0)
-    end
-    return nothing
+function wing_points(sys_struct, wing)
+    return [point for point in sys_struct.points
+            if point.is_wing_node && point.wing_idx == wing.idx]
 end
 
 """
