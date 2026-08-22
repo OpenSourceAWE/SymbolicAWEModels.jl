@@ -97,7 +97,11 @@ structural points ([`distribute_panel_forces_to_points!`](@ref)). Below
 function refresh_particle_aero!(::AeroDirect, wing, points, va_point_b_vals;
                                 vsm_min_wind=0.5, cold_start=false)
     if norm(wing.va_b) < vsm_min_wind
-        zero_point_forces!(wing, points)
+        for point in points
+            if point.is_wing_node && point.wing_idx == wing.idx
+                fill!(point.aero_force_b, 0.0)
+            end
+        end
         return nothing
     end
 

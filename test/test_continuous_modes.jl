@@ -147,6 +147,17 @@ group_means(groups, values) =
             next_step!(sam; dt=1e-4, vsm_interval=0)
             force_symbolic = copy(wing.aero_force_b)
 
+            # The per-node load lives only in the equations for these modes — no
+            # refresh computes it — so it reaches the struct by being read back out
+            # of the solved model. Summing it has to give the wing's own readout,
+            # which is that same sum taken inside the model.
+            @testset "per-node force reaches the struct" begin
+                @test norm(force_symbolic) > 0.1
+                @test count(node -> !iszero(node.aero_force_b), nodes) > 0
+                @test isapprox(sum(node.aero_force_b for node in nodes),
+                               force_symbolic; rtol=1e-8)
+            end
+
             # Every per-panel intermediate must match VSM, not just the span sum:
             # a per-panel error that cancels spanwise is invisible in the total.
             # `panel_force_eqs` is evaluated on the panel's own geometry and

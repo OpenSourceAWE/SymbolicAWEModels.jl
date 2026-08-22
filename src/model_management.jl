@@ -2,6 +2,43 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 """
+    carries_point_aero(sys_struct, point) -> Bool
+
+Whether `point`'s per-node aerodynamic force has to be read back out of the model: it
+is a node of a `PARTICLE_DYNAMICS` wing whose mode scatters panel loads, so the load
+exists only in the equations. A rigid wing's nodes carry the wing's own wrench
+instead, and a mode that precomputes the load ([`AeroDirect`](@ref)) already holds it
+in `aero_force_b` as the parameter the equations read — which is also the wing the
+`KernelBackend` builds no [`AeroPointForce`](@ref) for, so both backends cover the
+same nodes.
+"""
+function carries_point_aero(sys_struct, point)
+    point.is_wing_node || return false
+    body = sys_struct.bodies[point.wing_idx]
+    return is_wing(body) && body.dynamics_type == PARTICLE_DYNAMICS &&
+        supports_panel_decomposition(body.aero)
+end
+
+"""
+    point_aero_force_array(sys_struct, sys) -> Matrix{Num} or nothing
+
+The body-frame aerodynamic force of every point as one `3 x n_points` array to fetch,
+holding `aero_force_point_b` for the nodes that have one and a literal zero for the
+rest, so the whole thing scatters on the point index like the other per-point arrays.
+`nothing` when no wing writes per-node forces, which is when the variable does not
+exist. The zeros are constants in the generated function rather than equations in the
+system, so the points that carry no aero cost nothing to fetch.
+"""
+function point_aero_force_array(sys_struct, sys)
+    hasproperty(sys, :aero_force_point_b) || return nothing
+    any(carries_point_aero(sys_struct, point) for point in sys_struct.points) ||
+        return nothing
+    field = getproperty(sys, :aero_force_point_b)
+    return [carries_point_aero(sys_struct, point) ? Num(field[i, point.idx]) : Num(0)
+            for i in 1:3, point in sys_struct.points]
+end
+
+"""
     generate_prob_getters(sys_struct, sys)
 
 Generate getter and setter functions for the state variables of the full system model.
@@ -23,14 +60,17 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
 
     specs = NamedTuple[]
     if length(points) > 0
-        push!(specs, scatter_spec(ss -> ss.points,
-            sys.pos         => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
-            sys.vel         => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
-            sys.point_force => (c, v) -> copy_vec!(c.force, v, c.idx),
-            sys.va_point_b  => (c, v) -> copy_vec!(c.va_b, v, c.idx),
-            sys.wind_at_point => (c, v) -> copy_vec!(c.wind_vec, v, c.idx),
-            sys.point_mass  => (c, v) -> (c.total_mass = v[c.idx]; nothing),
-            sys.total_drag  => (c, v) -> copy_vec!(c.drag_force, v, c.idx)))
+        pairs = Pair[sys.pos         => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
+                     sys.vel         => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
+                     sys.point_force => (c, v) -> copy_vec!(c.force, v, c.idx),
+                     sys.va_point_b  => (c, v) -> copy_vec!(c.va_b, v, c.idx),
+                     sys.wind_at_point => (c, v) -> copy_vec!(c.wind_vec, v, c.idx),
+                     sys.point_mass  => (c, v) -> (c.total_mass = v[c.idx]; nothing),
+                     sys.total_drag  => (c, v) -> copy_vec!(c.drag_force, v, c.idx)]
+        aero_force = point_aero_force_array(sys_struct, sys)
+        isnothing(aero_force) || push!(pairs,
+            aero_force => (c, v) -> copy_vec!(c.aero_force_b, v, c.idx))
+        push!(specs, scatter_spec(ss -> ss.points, pairs...))
     end
     if length(pulleys) > 0
         push!(specs, scatter_spec(ss -> ss.pulleys,

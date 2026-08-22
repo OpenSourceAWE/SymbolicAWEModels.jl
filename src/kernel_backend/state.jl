@@ -6,7 +6,7 @@
 # global slot, resolved once at assembly, so both are plain indexed loops.
 
 """
-    PointReadout(point, pos, vel, drag, wind, force, mass, va, va_frame)
+    PointReadout(point, pos, vel, drag, wind, force, mass, va, va_frame, aero)
 
 Where one point's results live: its `pos`/`vel` in the output buffer and its
 `total_drag`, `wind_vec` and `net_force` in the observable buffer — all three from
@@ -30,6 +30,7 @@ struct PointReadout
     mass::Int
     va::Vector{Int}
     va_frame::Int
+    aero::Vector{Int}
 end
 
 """
@@ -204,7 +205,8 @@ function KernelStateGetter(model::KernelModel, rhs, sys_struct)
                   observed_slots(system, drag_source(model, idx), :wind_vec),
                   observed_slots(system, drag_source(model, idx), :net_force),
                   mass_slot(system, drag_source(model, idx)),
-                  inflow_slots(model, idx), va_frame_body(sys_struct, idx))
+                  inflow_slots(model, idx), va_frame_body(sys_struct, idx),
+                  aero_force_slots(model, idx))
               for (idx, instance) in enumerate(model.point_instances)]
     segments = [SegmentReadout(idx,
                     only(buffer_slots(system, instance, :observables, :spring_force)),
@@ -342,6 +344,15 @@ drag_source(model::KernelModel, idx) =
     model.wrench_instances[idx] == 0 ? model.point_instances[idx] :
     model.wrench_instances[idx]
 
+"""The output slots of point `idx`'s body-frame aerodynamic force, or none when it
+has no [`AeroPointForce`](@ref) — a point outside a panel-decomposed wing. This is
+the same load the wing's `aero_force_b` readout is the sum of."""
+function aero_force_slots(model::KernelModel, idx)
+    instance = model.aero_force_instances[idx]
+    instance == 0 && return Int[]
+    return buffer_slots(model.system, instance, :outputs, :force_b)
+end
+
 """The output slots of point `idx`'s `va_b`, or none when it has no
 [`AeroInflowPoint`](@ref). This is the apparent wind the compiled model solves the
 aero on; reading it keeps the struct on the same value rather than a refit."""
@@ -404,6 +415,8 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
         copy_slots!(point.drag_force, scratch.observable, readout.drag)
         copy_slots!(point.wind_vec, scratch.observable, readout.wind)
         copy_slots!(point.force, scratch.observable, readout.force)
+        isempty(readout.aero) ||
+            copy_slots!(point.aero_force_b, scratch.output, readout.aero)
         readout.mass == 0 || (point.total_mass =
             point.extra_mass + scratch.input[readout.mass])
     end

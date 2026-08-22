@@ -444,10 +444,10 @@ end
 Solve at the per-panel apparent wind the symbolic RHS uses
 ([`set_refined_panel_va!`](@ref)), freezing the induced velocity and the per-node
 surface traction pattern ([`freeze_traction_pattern!`](@ref)). Point forces are
-re-derived symbolically each RHS step; [`write_point_forces!`](@ref) additionally
-stores the frozen pattern's per-point load for logging and plotting. Below
-`vsm_min_wind` all frozen buffers are zeroed, the per-point offsets and the stored
-point forces included, so no stale constant force survives.
+re-derived symbolically each RHS step and read back from the model into each node's
+`aero_force_b`, so nothing here recomputes them. Below `vsm_min_wind` all frozen
+buffers are zeroed, the per-point offsets included, so no stale constant force
+survives — the point forces then follow, being a scatter of what was zeroed.
 """
 function refresh_particle_aero!(mode::AeroPressure, wing, points,
                                 va_point_b_vals; vsm_min_wind=0.5,
@@ -457,7 +457,6 @@ function refresh_particle_aero!(mode::AeroPressure, wing, points,
         fill!(mode.traction, 0.0)
         fill!(mode.traction_net, 0.0)
         accumulate_point_offset!(mode)
-        zero_point_forces!(wing, points)
         return nothing
     end
     update_vsm_wing_from_structure!(wing, points)
@@ -466,34 +465,9 @@ function refresh_particle_aero!(mode::AeroPressure, wing, points,
     freeze_traction_pattern!(mode, wing)
     any(!isfinite, mode.traction) && throw(AssertionError(
         "AeroPressure: non-finite traction pattern on wing $(wing.idx)"))
-    write_point_forces!(mode, wing, points)
     return nothing
 end
 
-"""
-    write_point_forces!(mode::AeroPressure, wing, points)
-
-Store each wing node's body-frame aero force in its `point.aero_force_b`: its share
-of every panel that scatters onto it, plus its constant offset. Rebuilt from the same
-scatter the equations carry, which reaches the points symbolically and so computes no
-per-point force of its own. This is the frozen pattern at the last refresh, not the
-live load the RHS re-derives from current geometry.
-"""
-function write_point_forces!(mode::AeroPressure, wing, points)
-    nodes = wing_nodes_of(wing, points)
-    for node in nodes
-        fill!(node.aero_force_b, 0.0)
-    end
-    sol = wing.vsm_solver.sol
-    for (panel, column, weight, _) in aero_scatter_entries(mode, wing, nodes)
-        @views nodes[column].aero_force_b .+= weight .* sol.f_body_3D[:, panel]
-    end
-    by_idx = Dict(node.idx => node for node in nodes)
-    for (idx, offset) in mode.point_offset
-        haskey(by_idx, idx) && (by_idx[idx].aero_force_b .+= offset)
-    end
-    return nothing
-end
 
 """
     contour_winding(section) -> Float64

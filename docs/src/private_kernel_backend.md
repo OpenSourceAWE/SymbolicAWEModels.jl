@@ -233,6 +233,7 @@ SymbolicAWEModels.add_aero_inflows!
 SymbolicAWEModels.add_aero_panels!
 SymbolicAWEModels.wire_panel_flaps!
 SymbolicAWEModels.add_aero_point_forces!
+SymbolicAWEModels.aero_force_slots
 SymbolicAWEModels.add_wing_aero_sum!
 SymbolicAWEModels.add_rigid_wing_aero!
 SymbolicAWEModels.add_twist_surfaces!

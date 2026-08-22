@@ -15,10 +15,11 @@
   the `KLUFactorization` for a dense one and rebuilt the integrator each
   reposition.
 - Every wing node's `aero_force_b`, and with it the `aero_force_x/y/z` log
-  channels, stayed zero under `AeroPressure`: the mode reaches the points
-  symbolically and wrote no per-point force, so `plot` drew no aero arrows at all
-  on a particle wing. The refresh now stores the frozen pattern's per-point load,
-  which sums to the panel forces exactly.
+  channels, stayed zero under the modes that scatter panel loads (`AeroPressure`,
+  `ContinuousAero`), so `plot` drew no aero arrows at all on such a wing. The load
+  is a quantity the model already computes — the monolith's `aero_force_point_b`,
+  the kernel's `AeroPointForce` — and is now read back into the struct each step
+  by both backends, so it is the live per-node force rather than a refit of it.
 - `update_from_sysstate!` set the wing's aero and tether loads to `NaN` to keep
   them from being plotted, but `plot` skips a load with `iszero`, so the `NaN` was
   drawn — and one `NaN` made the shared adaptive arrow scale `NaN`, blanking every
@@ -28,11 +29,11 @@
   unset can no longer blank the whole layer.
 
 ### Changed
-- `point.aero_force_b` is the one place a per-point aerodynamic load is read from,
-  filled at refresh by the modes that compute one (`AeroDirect`, `AeroPressure`;
-  `ContinuousAero` still stores none). The private `aero_point_forces` and
-  `stores_point_force` are removed, and `write_aero_forces!` and the Makie
-  extension read the field.
+- `point.aero_force_b` is the one place a per-point aerodynamic load is read from.
+  A mode that scatters panel loads has it read back out of the model; `AeroDirect`
+  keeps writing it at refresh, that field being the parameter its equations read.
+  The private `aero_point_forces` and `stores_point_force` are removed, and
+  `write_aero_forces!` and the Makie extension read the field.
 
 ## v0.15.1 22-08-2026
 
