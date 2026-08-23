@@ -50,6 +50,9 @@ const AERO_INFLOW_OUTPUTS = [:va, :rho]
 const AERO_PANEL_INPUTS = [:le_a, :te_a, :le_b, :te_b,
                            :va_a, :va_b, :rho_a, :rho_b]
 const AERO_PANEL_PITCH_INPUTS = [:dva_a, :dva_b]
+const AERO_PANEL_WAGNER_INPUTS = [:wagner_deficiency]
+const WAGNER_LAG_INPUTS = [:va_in]
+const WAGNER_LAG_OUTPUTS = [:deficiency]
 const AERO_PANEL_OUTPUTS = [:force_out, :couple_out]
 const AERO_POINT_FORCE_INPUTS = [:pos_b, :wing_frame, :force_b_in]
 const AERO_POINT_FORCE_OUTPUTS = [:force, :force_b, :moment_b]
@@ -517,8 +520,11 @@ function add_panel_wing_aero!(builder, table, bindings, sam, wing, bodies, point
     else
         nothing
     end
+    wagner = wagner_enabled(wing) ?
+        add_wagner_lag!(builder, table, bindings, sam, wing, inflow_points) : nothing
     panels = add_aero_panels!(builder, table, bindings, sam, wing, nodes,
-                              inflow_points, inflows, pitches, section_group, flaps)
+                              inflow_points, inflows, pitches, section_group, flaps,
+                              wagner)
     forces = add_aero_point_forces!(builder, table, bindings, sam, wing, nodes,
                                     inflow_points, body, points, wrenches)
     for (node, instance) in zip(nodes, forces)
@@ -592,14 +598,16 @@ belong to, and its flap deflection from the twist surface it deflects with. Pane
 differ only in their `±1` span sign, so a wing needs at most two kernels.
 
 `pitches` are the [`aero_pitch_groups`](@ref) gathers, or `nothing` on a wing without
-[`flow_curvature_enabled`](@ref), which then has no such inputs to connect.
+[`flow_curvature_enabled`](@ref), which then has no such inputs to connect. `wagner`
+is the wing's [`add_wagner_lag!`](@ref) instance, or `nothing` in the same way.
 """
 function add_aero_panels!(builder, table, bindings, sam, wing, nodes, inflow_points,
-                          inflows, pitches, section_group, flaps)
+                          inflows, pitches, section_group, flaps, wagner=nothing)
     spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     with_flap = !isempty(wing_flap_surfaces(wing))
     inputs = isnothing(pitches) ? AERO_PANEL_INPUTS :
         [AERO_PANEL_INPUTS; AERO_PANEL_PITCH_INPUTS]
+    isnothing(wagner) || (inputs = [inputs; AERO_PANEL_WAGNER_INPUTS])
     with_flap && (inputs = [inputs; :flap_delta])
     instances = Int[]
     for (panel_idx, orient) in enumerate(panel_span_signs(wing, spanwise))
@@ -617,6 +625,8 @@ function add_aero_panels!(builder, table, bindings, sam, wing, nodes, inflow_poi
             isnothing(pitches) || connect!(builder, pitches[section_group[section]],
                                            :va, instance, Symbol(:dva_, side))
         end
+        isnothing(wagner) || connect!(builder, wagner, :deficiency, instance,
+                                      :wagner_deficiency)
         push!(instances, instance)
     end
     for (panel, corner, node, weight) in aero_geometry_entries(wing.aero, wing, nodes)
@@ -624,6 +634,27 @@ function add_aero_panels!(builder, table, bindings, sam, wing, nodes, inflow_poi
     end
     with_flap && wire_panel_flaps!(builder, wing.aero, instances, flaps)
     return instances
+end
+
+"""
+    add_wagner_lag!(builder, table, bindings, sam, wing, inflow_points) -> Int
+
+The wing's one [`WagnerLag`](@ref) instance, its `va_in` gathered at equal weight
+over every node of the wing so the lag rides the wing's mean apparent wind. Returns
+the instance the panels read their deficiency from.
+"""
+function add_wagner_lag!(builder, table, bindings, sam, wing, inflow_points)
+    key = Symbol(:wagner_lag_, wing.idx)
+    entry = kernel!(builder, table, sam, key, 0,
+                    params -> WagnerLag(sam, params, wing.idx; name = key),
+                    WAGNER_LAG_INPUTS, WAGNER_LAG_OUTPUTS)
+    instance = add_instance!(builder, entry.index)
+    push!(bindings, (instance, entry, Dict{Symbol, Int}()))
+    weight = 1.0 / length(inflow_points)
+    for point in inflow_points
+        connect!(builder, point, :va_b, instance, :va_in; weight)
+    end
+    return instance
 end
 
 """

@@ -219,7 +219,7 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
     damping_vec = broadcast_damping(angular_damping)
     return Body{typeof(aero), wing_dynamics(dynamics_type)}(
         0, name, 0, transform_ref, 0, 0,
-        zero(SimFloat), KVec3(inertia_principal),
+        zero(SimFloat), zero(SimFloat), KVec3(inertia_principal),
         Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3), zeros(KVec3),
         principal_frame_method,
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
@@ -294,11 +294,13 @@ are resolved.
 # Keywords
 - `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
 - `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
+- `unsteady`: the wing's [`UnsteadyAero`](@ref) corrections; `nothing` takes the
+  defaults, which are all off.
 """
 function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
                           dynamics_type::WingType;
                           point_to_vsm_point=nothing, wing_segments=nothing,
-                          aero_scale_chord=0.0, aero_z_offset=0.0)
+                          aero_scale_chord=0.0, aero_z_offset=0.0, unsteady=nothing)
     vsm_wing = create_vsm_wing(set, vsm_set; prn=false, sort_sections=false)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
     vsm_solver = VortexStepMethod.Solver(vsm_aero, vsm_set)
@@ -317,7 +319,8 @@ function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
         zeros(SimFloat, num_aero_outputs),
         zeros(SimFloat, num_aero_outputs, num_aero_inputs),
         point_to_vsm_point, wing_segments,
-        SimFloat(aero_scale_chord), SimFloat(aero_z_offset))
+        SimFloat(aero_scale_chord), SimFloat(aero_z_offset),
+        isnothing(unsteady) ? UnsteadyAero() : unsteady)
 end
 
 """
@@ -473,7 +476,7 @@ function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, num_aero_inputs),
         zeros(SimFloat, num_aero_outputs),
         zeros(SimFloat, num_aero_outputs, num_aero_inputs),
-        nothing, nothing, SimFloat(0.0), SimFloat(0.0))
+        nothing, nothing, SimFloat(0.0), SimFloat(0.0), UnsteadyAero())
     return Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_vec;
         transform, aero=AeroLinearized(engine))
 end

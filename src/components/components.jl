@@ -27,16 +27,21 @@ keep_along(vector, axis) = (vector ⋅ axis) .* axis
 
 """
     point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
-                       world_damping, wind_gnd, wind_factor, g_earth)
+                       world_damping, wind_gnd, wind_factor, g_earth;
+                       apparent_mass=0.0)
 
 `(; net_force, accel)` for a point mass: [`point_net_force`](@ref) and that per unit
-`mass`, minus world-frame damping.
+inertia, minus world-frame damping. `apparent_mass` is the entrained air the point
+accelerates ([`apply_apparent_mass!`](@ref)); it resists acceleration but has no
+weight, so it divides the net force without entering the gravity that built it.
 """
 function point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
-                            world_damping, wind_gnd, wind_factor, g_earth)
+                            world_damping, wind_gnd, wind_factor, g_earth;
+                            apparent_mass=0.0)
     net_force = point_net_force(s, pos, vel, structural_force, mass, drag_coeff,
                                 area, wind_gnd, wind_factor, g_earth)
-    return (; net_force, accel = net_force ./ mass .- world_damping .* vel)
+    return (; net_force,
+            accel = net_force ./ (mass .+ apparent_mass) .- world_damping .* vel)
 end
 
 """
@@ -72,7 +77,8 @@ registers the parameter on `params`, so gravity stays settable after constructio
 function point_particle_params(params, idx)
     point = params.points[idx]
     wind_gnd = ground_wind_vec(params)
-    return (; extra_mass = point.extra_mass, drag_coeff = point.drag_coeff,
+    return (; extra_mass = point.extra_mass, apparent_mass = point.apparent_mass,
+            drag_coeff = point.drag_coeff,
             area = point.area, world_damping = point.world_frame_damping,
             fix_sphere = point.fix_sphere, fix_static = point.fix_static, wind_gnd,
             g_earth = params.set.g_earth,
@@ -108,7 +114,8 @@ Shared body of the DYNAMIC point/pulley vertices: `D(pos)=vel`,
 function dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force)
     motion = point_acceleration(s, collect(pos), collect(vel), collect(force),
         mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
-        collect(pars.wind_gnd), pars.wind_factor, pars.g_earth)
+        collect(pars.wind_gnd), pars.wind_factor, pars.g_earth;
+        pars.apparent_mass)
     velocity, acceleration = confined_derivatives(pos, vel, motion.accel, pars)
     return [D.(collect(pos)) .~ velocity; D.(collect(vel)) .~ acceleration;
             collect(net_force) .~ motion.net_force]
@@ -538,6 +545,7 @@ end
 
 """
     rigid_body_pose_expressions(force_w, moment_w, inertia_p, mass, R_b_to_p,
+                                apparent_mass,
                                 com_offset_b, com_w, com_vel, Q_p_to_w, ω_p;
                                 ω_kinematic, d_ω_p, d_com_w, d_com_vel)
 
@@ -550,9 +558,12 @@ quaternion rate `Q_p_vel`, the COM accel `com_acc`, the principal moment `moment
 and the body-frame outputs `R_p_to_w`, `R_b_to_w`, `pos_w`, `vel_w`, `acc_w`, `ω_b`,
 `α_b`, `Q_b_to_w`. The optional integration overrides (`ω_kinematic`, `d_ω_p`,
 `d_com_w`, `d_com_vel`) reproduce `fix_sphere`/`STATIC`; left `nothing` the body
-integrates freely.
+integrates freely. `apparent_mass` is the entrained air the body accelerates
+([`apply_apparent_mass!`](@ref)): it resists acceleration but has no weight, so it
+divides the net force without entering the gravity the caller put into `force_w`.
 """
 function rigid_body_pose_expressions(force_w, moment_w, inertia_p, mass, R_b_to_p,
+                                     apparent_mass,
                                      com_offset_b, com_w, com_vel, Q_p_to_w, ω_p;
                                      ω_kinematic = nothing, d_ω_p = nothing,
                                      d_com_w = nothing, d_com_vel = nothing)
@@ -583,7 +594,7 @@ function rigid_body_pose_expressions(force_w, moment_w, inertia_p, mass, R_b_to_
         (moment_p[2] + (inertia[3] - inertia[1]) * ω[3] * ω[1]) / inertia[2],
         (moment_p[3] + (inertia[1] - inertia[2]) * ω[1] * ω[2]) / inertia[3],
     ]
-    com_acc = collect(force_w) ./ mass
+    com_acc = collect(force_w) ./ (mass + apparent_mass)
 
     R_b_to_w = R_p_to_w * R_body_to_principal
     arm_w = -(R_b_to_w * com_off)
@@ -1174,7 +1185,8 @@ function RigidBody(s, params, idx; name, parented = false)
         orientation * collect(body.ext_force_b)
     moment_w = collect(io.moment_in) .+ orientation * collect(body.ext_moment_b)
     ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
-        body.mass, body.R_b_to_p, body.com_offset_b, com_w, com_vel, Q, omega_p;
+        body.mass, body.R_b_to_p, body.apparent_mass,
+        body.com_offset_b, com_w, com_vel, Q, omega_p;
         body_integration(params, idx, com_w, com_vel, omega_p, alpha_p,
                          com_acc, orientation_p;
                          wing_frame = parented ?
@@ -1859,6 +1871,31 @@ function AeroInflow(; name)
 end
 
 """
+    WagnerLag(s, params, wing_idx; name)
+
+The wing's two-state Wagner lift lag as one component, holding the states the whole
+wing shares and handing every panel the angle-of-attack deficiency to subtract. Its
+`va_in` is the wing's mean body-frame apparent wind, gathered over the wing's nodes
+by the [`Wiring`](@ref) exactly as [`AeroInflow`](@ref) gathers a panel group's. The
+physics is the shared [`wagner_lag_eqs`](@ref), so this emits what a whole-wing
+system emits.
+"""
+function WagnerLag(s, params, wing_idx; name)
+    wing = params.reg.sys_struct.wings[wing_idx]
+    io = @variables begin
+        va_in(t)[1:3], [input = true]
+        deficiency(t), [output = true]
+    end
+    x_ref, z_ref, chord_ref = wagner_reference_frame(wing)
+    eqs, vars, lag, defaults = wagner_lag_eqs(
+        wagner_gain_params(params, wing_idx), wagner_rate_params(params, wing_idx),
+        collect(io[1]), x_ref, z_ref, chord_ref)
+    push!(eqs, io[2] ~ lag)
+    return System(eqs, t, [io; vars], param_unknowns(params);
+                  name, initial_conditions=defaults)
+end
+
+"""
     AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
 
 One refined VSM panel's aerodynamic load: its two sections' leading and trailing edges
@@ -1873,6 +1910,8 @@ each. `with_flap` selects the `(α, δ)` polars.
 
 A wing with [`flow_curvature_enabled`](@ref) takes two more inputs, its sections'
 trailing minus leading edge apparent wind, gathered at [`strut_pitch_weights`](@ref).
+A wing with [`wagner_enabled`](@ref) takes one more, the lag deficiency its
+[`WagnerLag`](@ref) hands to every panel.
 """
 function AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
     wing = params.reg.sys_struct.wings[wing_idx]
@@ -1892,6 +1931,7 @@ function AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
     dva = flow_curvature_enabled(wing) ?
         (vector_input(:dva_a, 3), vector_input(:dva_b, 3)) : (nothing, nothing)
     delta = with_flap ? scalar_input(:flap_delta) : nothing
+    lag = wagner_enabled(wing) ? scalar_input(:wagner_deficiency) : nothing
     spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     scale = 1.0 + (isfinite(wing.aero_scale_chord) ?
         wing.aero_scale_chord : AERO_SCALE_CHORD)
@@ -1905,13 +1945,15 @@ function AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
             dva[2] === nothing ? nothing : collect(dva[2]))
     eqs = panel_force_eqs(slots, 1, sections, flow,
                           (panel.cl, panel.cd, panel.cm),
-                          spanwise, scale, orient, panel.chord_weight, delta)
+                          spanwise, scale, orient, panel.chord_weight, delta,
+                          lag === nothing ? 0.0 : lag)
     couple = scatter_couple(wing.aero, slots.panel_couple, slots.curvature_couple)
     append!(eqs, collect(io[9]) .~ collect(slots.panel_force[:, 1]))
     append!(eqs, collect(io[10]) .~ collect(couple[:, 1]))
     vars = [io; panel_force_vars(slots)]
     dva[1] === nothing || append!(vars, dva)
     delta === nothing || push!(vars, delta)
+    lag === nothing || push!(vars, lag)
     return System(eqs, t, vars, param_unknowns(params); name)
 end
 
@@ -2313,7 +2355,7 @@ function WingNodePoint(s, params, idx; name, with_damping = true)
     motion = point_acceleration(s, collect(io.pos), collect(io.vel),
         collect(io.force_in), mass, pars.drag_coeff, pars.area,
         collect(pars.world_damping), collect(pars.wind_gnd), pars.wind_factor,
-        pars.g_earth)
+        pars.g_earth; pars.apparent_mass)
     accel = motion.accel
     with_damping && (accel = accel .- body_frame_damp_accel(io.vel,
         point.body_frame_damping, orientation, collect(extra[2])))

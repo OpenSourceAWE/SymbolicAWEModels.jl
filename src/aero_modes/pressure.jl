@@ -158,12 +158,16 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
 
     orient = panel_span_signs(wing, spanwise)
     delta = has_flap_coupling ? collect(connectors.delta) : nothing
+    wagner_eqs, wagner_vars, deficiency, wagner_defaults =
+        wagner_wing_eqs(wing, sec_va, params)
     eqs, panel_vars, panel_force, panel_couple, curvature_couple =
         build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
-            cl, cd, cm, spanwise, scale, orient; delta, sec_dva)
+            cl, cd, cm, spanwise, scale, orient; delta, sec_dva, deficiency)
+    append!(eqs, wagner_eqs)
     couple = scatter_couple(mode, panel_couple, curvature_couple)
     vars = particle_unknowns(connectors)
     append!(vars, panel_vars)
+    append!(vars, wagner_vars)
 
     point_num = Dict(point.idx => k for (k, point) in enumerate(points))
     point_force = [zeros(Num, 3) for _ in 1:num_points]
@@ -184,7 +188,9 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
         eqs = [eqs; connectors.point_force[:, k] ~ point_force[k]]
     end
     return System(eqs, t, vars,
-        [vind_p, chord_w, cl, cd, cm, traction_p, traction_net_p]; name)
+        [Any[vind_p, chord_w, cl, cd, cm, traction_p, traction_net_p];
+         wagner_params(wing, params)];
+        name, initial_conditions=wagner_defaults)
 end
 
 # ==================== build-time panel→flap map + live δ ==================== #

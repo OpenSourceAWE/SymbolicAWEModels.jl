@@ -169,6 +169,13 @@ frame_quaternion
 frame_quaternion_xy
 ```
 
+## Unsteady aerodynamics
+
+```@docs
+unsteady_aero
+apply_apparent_mass!
+```
+
 ## Utility and helper functions
 
 ```@docs

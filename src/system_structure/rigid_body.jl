@@ -52,6 +52,8 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     # ---- rigid-body core ----
     "Total mass [kg]."
     mass::SimFloat
+    "Entrained-air mass [kg] resisting acceleration without adding weight."
+    apparent_mass::SimFloat
     "Principal moments of inertia `[Ixx, Iyy, Izz]` [kg·m²]."
     const inertia_principal::KVec3
     "Constant body→principal rotation."
@@ -277,7 +279,8 @@ function Body(name;
     # Plain body: no aero (AeroNone), rigid dynamics, inert aero/wing fields.
     return Body{AeroNone, RigidDynamics}(
         0, name, 0, transform_ref, 0, wing_ref,
-        SimFloat(mass), KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p),
+        SimFloat(mass), zero(SimFloat),
+        KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p),
         Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b), principal_frame_method,
         KVec3(ext_force_w), KVec3(ext_force_b), KVec3(ext_moment_b),
         damping_vec, world_damping_vec, body_damping_vec, fix_sphere, fix_static,

@@ -870,12 +870,13 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         polar_format = wing.aero isa AbstractVSMAero &&
                        !isempty(wing.aero.vsm_aero.panels) ?
             wing.aero.vsm_aero.panels[1].aero_model : nothing
-        # flow_curvature adds a term to the panel moment, so it is structure.
+        # flow_curvature adds a moment term and the lag adds states, so both are
+        # structure; their constants are parameters, as is the apparent mass.
         wing_data = ("wing", wing.idx, wing.twist_surface_idxs,
                      Int(wing.dynamics_type),
                      nameof(typeof(wing.aero)),
                      aero_hash_id(wing.aero), polar_format,
-                     flow_curvature_enabled(wing))
+                     flow_curvature_enabled(wing), wagner_enabled(wing))
 
         # Include wing reference points in hash
         ref_hash(ref) = (ref.ids, ref.weights)

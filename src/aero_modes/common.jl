@@ -274,10 +274,14 @@ mode without a flap ([`ContinuousAero`](@ref)) is untouched.
 
 `sec_dva` is the matching per-section trailing minus leading edge apparent wind that
 carries the [`flow_curvature_cm`](@ref) increment, or `nothing` to leave it out.
+
+`deficiency` is the wing's Wagner lag ([`wagner_lag_eqs`](@ref)), subtracted from
+every panel's angle of attack before the polars are read; `0.0` leaves them steady.
 """
 function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
                                vind_p, chord_w, cl, cd, cm, spanwise, scale,
-                               orient; delta=nothing, sec_dva=nothing)
+                               orient; delta=nothing, sec_dva=nothing,
+                               deficiency=0.0)
     n_panels = length(sec_le) - 1
     slots = panel_force_slots(n_panels)
     eqs = Equation[]
@@ -290,7 +294,7 @@ function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
              sec_dva === nothing ? nothing : sec_dva[i + 1]),
             (PanelPolar(cl, i), PanelPolar(cd, i), PanelPolar(cm, i)),
             spanwise, scale, orient[i], chord_w[i],
-            delta === nothing ? nothing : delta[i]))
+            delta === nothing ? nothing : delta[i], deficiency))
     end
 
     return eqs, panel_force_vars(slots), slots.panel_force, slots.panel_couple,
@@ -313,6 +317,7 @@ function panel_force_slots(n_panels::Int)
         chord(t)[1:n_panels]
         width(t)[1:n_panels]
         alpha(t)[1:n_panels]
+        alpha_eff(t)[1:n_panels]
         q_dyn(t)[1:n_panels]
         pitch_rate(t)[1:n_panels]
         dir_lift(t)[1:3, 1:n_panels]
@@ -321,7 +326,7 @@ function panel_force_slots(n_panels::Int)
         panel_couple(t)[1:3, 1:n_panels]
         curvature_couple(t)[1:3, 1:n_panels]
     end
-    return (; x_airf, y_airf, z_airf, v_eff, chord, width, alpha, q_dyn,
+    return (; x_airf, y_airf, z_airf, v_eff, chord, width, alpha, alpha_eff, q_dyn,
             pitch_rate, dir_lift, dir_drag, panel_force, panel_couple,
             curvature_couple)
 end
@@ -342,6 +347,8 @@ callables, indexed by the panel number the polar tables were built for.
 equivalent `chord_weight * te_1 + (1 - chord_weight) * te_2` form leaves no constant
 term to fold, which makes a continuous-mode wing 3.7x slower to build symbolically.
 `delta` is the flap deflection or `nothing` for the 2-argument polars.
+`deficiency` is the wing-wide Wagner lag subtracted from `alpha` to give the
+`alpha_eff` the polars read; the geometric `alpha` still sets the force directions.
 
 `dva_1`/`dva_2` are the sections' trailing minus leading edge apparent wind, which
 gives the panel its [`section_pitch_rate`](@ref) and hence the
@@ -354,8 +361,8 @@ whole-wing system (looped by [`build_panel_force_eqs`](@ref)) and a per-panel
 component compiled once and instantiated for each panel.
 """
 function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
-                         orient, chord_weight, delta)
-    (; x_airf, y_airf, z_airf, v_eff, chord, width, alpha, q_dyn,
+                         orient, chord_weight, delta, deficiency=0.0)
+    (; x_airf, y_airf, z_airf, v_eff, chord, width, alpha, alpha_eff, q_dyn,
        pitch_rate, dir_lift, dir_drag, panel_force, panel_couple,
        curvature_couple) = slots
     le_1, te_1, le_2, te_2 = sections
@@ -381,9 +388,9 @@ function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
     pitch_rate_rhs = dva_1 === nothing ? 0.0 :
         section_pitch_rate(0.5 * (dva_1 + dva_2), z_unit, chord[i])
 
-    lift = evaluate_polar(cl, alpha[i], delta) * q_dyn[i] * chord[i]
-    drag = evaluate_polar(cd, alpha[i], delta) * q_dyn[i] * chord[i]
-    panel_moment = (evaluate_polar(cm, alpha[i], delta) + curvature) *
+    lift = evaluate_polar(cl, alpha_eff[i], delta) * q_dyn[i] * chord[i]
+    drag = evaluate_polar(cd, alpha_eff[i], delta) * q_dyn[i] * chord[i]
+    panel_moment = (evaluate_polar(cm, alpha_eff[i], delta) + curvature) *
         q_dyn[i] * chord[i]^2
 
     dir_iva = cos(alpha[i]) .* x_unit .+ sin(alpha[i]) .* z_unit
@@ -399,6 +406,7 @@ function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
         z_airf[:, i] ~ z_unit;
         v_eff[:, i] ~ v_eff_panel;
         alpha[i] ~ atan(v_eff_panel ⋅ z_unit, v_eff_panel ⋅ x_unit);
+        alpha_eff[i] ~ alpha[i] - deficiency;
         q_dyn[i] ~ 0.5 * rho_panel * (v_eff_crossy ⋅ v_eff_crossy);
         pitch_rate[i] ~ pitch_rate_rhs;
         dir_lift[:, i] ~ lift_cross ./ smooth_norm(lift_cross);
@@ -461,6 +469,242 @@ aero modes all read the one flag, so a model cannot carry the term through
 function flow_curvature_enabled(wing)
     engine = vsm_engine(wing.aero)
     return !isnothing(engine) && engine.vsm_solver.flow_curvature
+end
+
+# ==================== unsteady corrections ==================== #
+
+"""
+    unsteady_aero(wing) -> UnsteadyAero
+
+The wing's [`UnsteadyAero`](@ref) corrections, or an all-off default for a wing
+whose aero mode carries no VSM engine.
+"""
+function unsteady_aero(wing)
+    engine = vsm_engine(wing.aero)
+    return isnothing(engine) ? UnsteadyAero() : engine.unsteady
+end
+
+"""
+    wagner_enabled(wing) -> Bool
+
+Whether this wing carries the two-state Wagner lift lag ([`wagner_lag_eqs`](@ref)).
+"""
+wagner_enabled(wing) = unsteady_aero(wing).wagner
+
+"""
+    panel_chord_width(wing) -> (chord, width)
+
+Each refined panel's mean chord and quarter-chord width [m] read off the frozen VSM
+mesh: the build-time twins of the `chord` and `width` equations in
+[`panel_force_eqs`](@ref).
+"""
+function panel_chord_width(wing)
+    refined = wing.vsm_wing.refined_sections
+    n = Int(wing.vsm_wing.n_panels)
+    chord = zeros(SimFloat, n)
+    width = zeros(SimFloat, n)
+    for i in 1:n
+        left, right = refined[i], refined[i + 1]
+        chord[i] = 0.5 * (norm(left.TE_point .- left.LE_point) +
+                          norm(right.TE_point .- right.LE_point))
+        width[i] = norm((0.75 .* left.LE_point .+ 0.25 .* left.TE_point) .-
+                        (0.75 .* right.LE_point .+ 0.25 .* right.TE_point))
+    end
+    return chord, width
+end
+
+"""
+    panel_apparent_mass(wing, rho) -> Vector{SimFloat}
+
+The entrained air [kg] of each refined panel: the thin-plate added mass per unit
+span `ρ·π·(c/2)²` taken over the panel's width, which is the fluid a flat plate
+carries with it when it accelerates normal to itself.
+"""
+function panel_apparent_mass(wing, rho)
+    chord, width = panel_chord_width(wing)
+    return @. rho * π * chord^2 * width / 4
+end
+
+"""
+    apply_apparent_mass!(sys_struct, wing, rho)
+
+Give the wing's nodes the air they entrain, scaled by the wing's
+[`UnsteadyAero`](@ref) `apparent_mass`. Each panel's
+[`panel_apparent_mass`](@ref) is spread over the nodes by the weights that already
+carry its force ([`aero_scatter_entries`](@ref)), so the air lands where the lift
+does. It resists acceleration without weighing anything, which is why it is a
+field of its own and not `extra_mass`. Always clears the carriers first, so turning
+the correction off and rebuilding leaves no stale inertia behind.
+
+The air goes to whatever actually integrates the node's translation
+([`apparent_mass_carriers`](@ref)): the node itself when it is a free particle, and
+the body or pair of beam bodies that place it when it is not — which is every node of
+a beam wing, whose mass and motion live in those bodies.
+"""
+function apply_apparent_mass!(sys_struct, wing, rho)
+    points = wing_points(sys_struct, wing)
+    for point in points
+        for (carrier, _) in apparent_mass_carriers(sys_struct, point)
+            carrier.apparent_mass = 0.0
+        end
+    end
+    scale = unsteady_aero(wing).apparent_mass
+    scale == 0 && return nothing
+    wing.dynamics_type == PARTICLE_DYNAMICS || error(
+        "Wing $(wing.name): apparent_mass acts on the nodes' own acceleration, " *
+        "which a RIGID_DYNAMICS wing does not integrate.")
+    supports_panel_decomposition(wing.aero) || error(
+        "Wing $(wing.name): apparent_mass needs an aero mode that scatters per " *
+        "panel; $(typeof(wing.aero)) does not.")
+    mass = panel_apparent_mass(wing, rho)
+    for (panel, node, force_weight, _) in
+            aero_scatter_entries(wing.aero, wing, points)
+        node_mass = (scale * force_weight) * mass[panel]
+        for (carrier, share) in apparent_mass_carriers(sys_struct, points[node])
+            carrier.apparent_mass += share * node_mass
+        end
+    end
+    return nothing
+end
+
+"""
+    apparent_mass_carriers(sys_struct, point) -> Vector{Tuple{Any, SimFloat}}
+
+Whatever integrates `point`'s translation, with each one's share — the only things
+the air it entrains can slow down. Three cases, and a beam wing has the last two:
+
+- a free `DYNAMIC` node integrates itself and takes all of it;
+- a node anchored to a rigid body is placed by that body, which takes all of it;
+- a node riding a `TimoshenkoJoint`'s deformed centerline is placed by the two
+  bodies the joint spans, which split it by where along the element it sits
+  (`beam_frac`).
+
+Mass left on a node that integrates nothing would never be felt, so a carrier that
+is not the node itself is the whole reason this lookup exists.
+"""
+function apparent_mass_carriers(sys_struct, point)
+    if point.joint_idx > 0
+        joint = sys_struct.timoshenko_joints[point.joint_idx]
+        frac = clamp(point.beam_frac, 0.0, 1.0)
+        return [(sys_struct.bodies[joint.body_a_idx], 1.0 - frac),
+                (sys_struct.bodies[joint.body_b_idx], frac)]
+    end
+    point.body_idx > 0 && return [(sys_struct.bodies[point.body_idx], 1.0)]
+    return [(point, 1.0)]
+end
+
+"""
+    wagner_reference_frame(wing) -> (x_ref, z_ref, chord_ref)
+
+The wing's mean chordwise and normal directions in body frame and its mean chord
+[m], averaged over the frozen VSM mesh. [`wagner_lag_eqs`](@ref) reads its one
+angle of attack against these, so the lag follows the whole wing rather than any
+one panel. Built the way [`panel_force_eqs`](@ref) builds a panel's axes, down to
+the [`panel_span_signs`](@ref) orientation, so the wing angle and the panel angles
+it shifts have the same sign.
+"""
+function wagner_reference_frame(wing)
+    refined = wing.vsm_wing.refined_sections
+    n = Int(wing.vsm_wing.n_panels)
+    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
+    orient = panel_span_signs(wing, spanwise)
+    chord, _ = panel_chord_width(wing)
+    x_ref = zeros(SimFloat, 3)
+    z_ref = zeros(SimFloat, 3)
+    for i in 1:n
+        left, right = refined[i], refined[i + 1]
+        chord_vec = 0.5 .* ((right.TE_point .+ left.TE_point) .-
+                            (right.LE_point .+ left.LE_point))
+        x_unit = chord_vec ./ norm(chord_vec)
+        z_vec = x_unit × (left.LE_point .- right.LE_point)
+        x_ref .+= x_unit
+        z_ref .+= orient[i] .* (z_vec ./ norm(z_vec))
+    end
+    return x_ref ./ norm(x_ref), z_ref ./ norm(z_ref), sum(chord) / n
+end
+
+"""
+    wagner_wing_eqs(wing, sec_va, params) -> (eqs, vars, deficiency, initial)
+
+The wing's Wagner lag from its live section inflow, or an empty set when the wing
+carries no lag. Wraps [`wagner_lag_eqs`](@ref) with the mean of `sec_va` as the
+wing's apparent wind and the frozen [`wagner_reference_frame`](@ref) as the angle
+it is measured against, so both particle aero modes build the lag the same way.
+"""
+function wagner_wing_eqs(wing, sec_va, params)
+    wagner_enabled(wing) || return (Equation[], Any[], 0.0, Dict())
+    x_ref, z_ref, chord_ref = wagner_reference_frame(wing)
+    va_ref = sum(sec_va) ./ length(sec_va)
+    return wagner_lag_eqs(wagner_gain_params(params, wing.idx),
+                          wagner_rate_params(params, wing.idx),
+                          va_ref, x_ref, z_ref, chord_ref)
+end
+
+"""
+    wagner_gain_params(params, wing_idx)
+    wagner_rate_params(params, wing_idx)
+
+The wing's registered Wagner `(A₁, A₂)` and `(b₁, b₂)`. They are ordinary parameters
+like every other tunable scalar, which is what keeps a change of lag out of the model
+cache key.
+"""
+wagner_gain_params(params, wing_idx) =
+    params.wings[wing_idx].aero.unsteady.wagner_gains
+wagner_rate_params(params, wing_idx) =
+    params.wings[wing_idx].aero.unsteady.wagner_rates
+
+"""
+    wagner_params(wing, params) -> Vector{Any}
+
+The lag's parameters for a component's declared parameter list, empty for a wing
+without one. A whole-wing aero component names its parameters explicitly, so reading
+these in [`wagner_wing_eqs`](@ref) is not enough to declare them.
+"""
+wagner_params(wing, params) =
+    wagner_enabled(wing) ?
+        Any[wagner_gain_params(params, wing.idx),
+            wagner_rate_params(params, wing.idx)] : Any[]
+
+"""
+    wagner_lag_eqs(gains, rates, va_ref, x_ref, z_ref, chord_ref)
+        -> (eqs, vars, deficiency, initial)
+
+The wing's two-state Wagner lift lag. A step in angle of attack does not build its
+full circulatory lift at once; Wagner's indicial function
+`φ(s) = 1 - A₁·exp(-b₁·s) - A₂·exp(-b₂·s)` gives the fraction reached after `s`
+semi-chords of travel, and starts at `φ(0) = 1 - A₁ - A₂ = 0.5`.
+
+Driving two states with `dxᵢ/ds = α - bᵢ·xᵢ` and reading the deficiency
+`d = Σ Aᵢ·(α - bᵢ·xᵢ)` reproduces `α_E = α - d = α·φ(s)` after a step while leaving
+`d = 0` in steady flow, and needs no `dα/dt` on the right-hand side. Converting to
+time with `s = ∫2·v/c·dt` gives the emitted `D(xᵢ)`.
+
+Steady flow puts `xᵢ` at `α/bᵢ`, which is what the returned defaults set, so a model
+starts trimmed instead of building its lift up from `φ(0) = 0.5`.
+
+`gains` and `rates` are the wing's registered `(A₁, A₂)` and `(b₁, b₂)`
+parameters, so retuning the lag syncs rather than rebuilds. `va_ref` is the wing's
+mean body-frame apparent wind, measured against `x_ref`/`z_ref`/`chord_ref` from
+[`wagner_reference_frame`](@ref). It carries no induced velocity, unlike a panel's
+`v_eff`, so this angle sits a downwash off the panels'; only changes in it drive
+the lag, which leaves a steady offset at zero deficiency. The one `deficiency`
+shifts every panel's angle of attack in [`panel_force_eqs`](@ref), so the whole
+wing lags together and the spanwise shape of the loading is untouched.
+"""
+function wagner_lag_eqs(gains, rates, va_ref, x_ref, z_ref, chord_ref)
+    vars = @variables(wagner_state(t)[1:2], wagner_alpha(t), wagner_speed(t),
+                      wagner_deficiency(t))
+    state, alpha_ref, speed, deficiency = vars
+    alpha_rhs = atan(dot(va_ref, z_ref), dot(va_ref, x_ref))
+    eqs = [
+        alpha_ref ~ alpha_rhs;
+        speed ~ smooth_norm(collect(va_ref));
+        [D(state[i]) ~ (2 * speed / chord_ref) *
+            (alpha_ref - rates[i] * state[i]) for i in 1:2];
+        deficiency ~ sum(gains[i] * (alpha_ref - rates[i] * state[i])
+                         for i in 1:2)]
+    defaults = Dict(state => [alpha_rhs / rates[i] for i in 1:2])
+    return eqs, Any[state, alpha_ref, speed, deficiency], deficiency, defaults
 end
 
 """
@@ -1003,7 +1247,9 @@ end
     refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5, cold_start=false)
 
 Refresh each wing's aerodynamic state, dispatching on the wing's aero mode
-([`refresh_rigid_aero!`](@ref) / [`refresh_particle_aero!`](@ref)). Runs on the
+([`refresh_rigid_aero!`](@ref) / [`refresh_particle_aero!`](@ref)), and re-spread
+the entrained air ([`apply_apparent_mass!`](@ref)) at the density it just read. Runs
+on the
 low-frequency VSM-update schedule (`vsm_interval`), not the compiled RHS. Reads
 per-point apparent wind from the `points` (populated by `update_sys_struct!`,
 which always runs first), so it does not re-extract integrator state.
@@ -1031,6 +1277,8 @@ function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5, cold_start=false
 
     for wing in wings
         sync_aero_density!(wing, sam.am)
+        apply_apparent_mass!(sam.sys_struct, wing,
+                             air_density(sam.am, wing.pos_w[3]))
     end
 
     for wing in wings

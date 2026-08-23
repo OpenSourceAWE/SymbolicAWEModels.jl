@@ -137,6 +137,38 @@ documentation for a worked example with a live-updating field.
 abstract type AbstractAeroModel end
 
 """
+    UnsteadyAero(; apparent_mass=0.0, wagner=false, wagner_gains=(0.165, 0.335),
+                 wagner_rates=(0.0455, 0.3))
+
+Unsteady corrections a wing adds on top of its frozen-circulation VSM forces, held
+by the wing's [`VSMEngine`](@ref) and off by default. `apparent_mass` scales the
+entrained-air inertia [`apply_apparent_mass!`](@ref) puts on the wing nodes, `1`
+being the thin-plate value and `0` disabling it. `wagner` enables the two-state
+Wagner lift lag, whose indicial response is `1 - A1·exp(-b1·s) - A2·exp(-b2·s)` in
+semi-chords travelled, with gains `(A1, A2)` and rates `(b1, b2)`; the defaults are
+R. T. Jones' fit to Wagner's function. The four lag constants are registered
+parameters, so retuning them is a sync and not a rebuild; only `wagner` itself is
+structural, because it is what adds or removes the two states.
+
+$(TYPEDFIELDS)
+"""
+mutable struct UnsteadyAero
+    "Scale on the thin-plate entrained-air mass; 0 leaves the nodes' inertia alone."
+    apparent_mass::SimFloat
+    "Whether the wing carries the two-state Wagner lift lag."
+    wagner::Bool
+    "Wagner indicial gains `(A1, A2)`, the share of lift each lag state withholds."
+    wagner_gains::KVec2
+    "Wagner indicial rates `(b1, b2)`, per semi-chord travelled."
+    wagner_rates::KVec2
+end
+
+UnsteadyAero(; apparent_mass=0.0, wagner=false,
+             wagner_gains=(0.165, 0.335), wagner_rates=(0.0455, 0.3)) =
+    UnsteadyAero(SimFloat(apparent_mass), wagner,
+                 KVec2(wagner_gains...), KVec2(wagner_rates...))
+
+"""
     mutable struct VSMEngine{BA, W, SL}
 
 Vortex Step Method aerodynamic engine carried by a VSM aero mode
@@ -151,6 +183,7 @@ the linearization state, and the structural↔panel mapping.
 - `point_to_vsm_point`, `wing_segments`: PARTICLE_DYNAMICS structural↔panel maps.
 - `aero_scale_chord`: force scale compensating chord-length error (PARTICLE).
 - `aero_z_offset`: body-frame z-shift of VSM panels (RIGID).
+- `unsteady`: the wing's [`UnsteadyAero`](@ref) corrections.
 """
 mutable struct VSMEngine{BA, W, SL}
     vsm_aero::BA
@@ -163,6 +196,7 @@ mutable struct VSMEngine{BA, W, SL}
     wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}
     aero_scale_chord::SimFloat
     aero_z_offset::SimFloat
+    unsteady::UnsteadyAero
 end
 
 """
@@ -178,7 +212,8 @@ abstract type AbstractVSMAero <: AbstractAeroModel end
 # VSM engine fields forwarded from a VSM aero mode to its `engine`.
 const VSM_ENGINE_FIELDS = (
     :vsm_aero, :vsm_wing, :vsm_solver, :aero_y, :aero_x, :aero_jac,
-    :point_to_vsm_point, :wing_segments, :aero_scale_chord, :aero_z_offset)
+    :point_to_vsm_point, :wing_segments, :aero_scale_chord, :aero_z_offset,
+    :unsteady)
 
 function Base.getproperty(mode::AbstractVSMAero, sym::Symbol)
     sym === :engine && return getfield(mode, :engine)
@@ -307,6 +342,8 @@ mutable struct Point
     extra_mass::SimFloat
     "Total mass [kg]: extra_mass + segment contributions (computed during simulation)."
     total_mass::SimFloat
+    "Entrained-air mass [kg] resisting acceleration without adding weight."
+    apparent_mass::SimFloat
     "Per-axis damping in body frame [N·s/m]."
     body_frame_damping::KVec3
     "Per-axis damping in world frame [N·s/m]."
@@ -371,6 +408,8 @@ drives the per-point aero and wing-frame fitting.
 - `anchor_b::KVec3`: Anchor offset in the body frame [m] (used with `body`).
 - `vel_w::KVec3=zeros(KVec3)`: Initial velocity of the point in world frame.
 - `extra_mass::Float64=0.0`: User-provided mass of the point [kg].
+- `apparent_mass::Float64=0.0`: Entrained-air mass of the point [kg], which resists
+  acceleration but carries no weight.
 - `body_frame_damping::Union{Float64,KVec3}=zeros(KVec3)`: Per-axis damping for body frame.
 - `world_frame_damping::Union{Float64,KVec3}=zeros(KVec3)`: Per-axis damping for world frame.
 - `fix_sphere::Bool=false`: If true, constrains the point to a sphere.
@@ -382,7 +421,8 @@ drives the per-point aero and wing-frame fitting.
 function Point(name, pos_cad, type;
     wing=nothing, transform=nothing, vel_w=nothing,
     body=nothing, anchor_b=nothing, joint=nothing,
-    extra_mass=0.0, body_frame_damping=nothing, world_frame_damping=nothing,
+    extra_mass=0.0, apparent_mass=0.0,
+    body_frame_damping=nothing, world_frame_damping=nothing,
     area=0.0, drag_coeff=0.0,
     fix_sphere=false, fix_static=false
 )
@@ -427,7 +467,7 @@ function Point(name, pos_cad, type;
         KVec3(pos_cad...), zeros(KVec3), zeros(KVec3), anchor, zeros(KVec3),
         vel, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         zeros(KVec3),
-        type, extra_mass, 0.0,
+        type, extra_mass, 0.0, apparent_mass,
         bf_damp, wf_damp, area, drag_coeff,
         fix_sphere, fix_static, false,
         0, joint_ref, 0.0, zeros(KVec3))

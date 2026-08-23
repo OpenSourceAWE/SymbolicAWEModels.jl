@@ -336,7 +336,9 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                 fix_static[point.idx] ~ pars.fix_static
                 D(pos[:, point.idx]) ~ velocity
                 D(vel[:, point.idx]) ~ acceleration
-                acc[:, point.idx] ~ point_force[:, point.idx] ./ mass - damp_accel
+                acc[:, point.idx] ~
+                    point_force[:, point.idx] ./ (mass + pars.apparent_mass) -
+                    damp_accel
             ]
             defaults = [
                 defaults
