@@ -88,6 +88,7 @@ export PrincipalFrameMethod, EIGEN_DECOMP, Y_ROTATION
 export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate,
        ContinuousAero, AeroPressure
 export aero_component
+export UnsteadyAero, unsteady_aero, apply_apparent_mass!
 
 # --- High-Level Simulation Functions (Workers) ---
 export sim!, sim_reposition!
@@ -135,10 +136,12 @@ const SimFloat = Float64
 
 """
    const KVec3    = MVector{3, SimFloat}
+   const KVec2    = MVector{2, SimFloat}
 
 Basic 3-dimensional vector, stack allocated, mutable.
 """
 const KVec3    = MVector{3, SimFloat}
+const KVec2    = MVector{2, SimFloat}
 const KVec4    = MVector{4, SimFloat}
 const MVec3    = MVector{3, Float64}  # Used by VortexStepMethod functions
 

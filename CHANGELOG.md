@@ -13,6 +13,23 @@
   rate — twist and flapping included — rather than a projection of one body rate.
   Off by default, and read from the wing's solver, so no mode can have the term
   while another does not.
+- Unsteady aerodynamics on the particle VSM modes, carried by the wing's new
+  `UnsteadyAero` (`wing.unsteady`) and off by default. See the "Unsteady
+  aerodynamics" docs page.
+  - `apparent_mass` gives the wing's nodes the air they entrain, the thin-plate
+    `ρ·π·c²/4` per unit span, spread over them by the weights that carry each
+    panel's force. It sits in a new `Point`/`Body` field rather than `extra_mass`,
+    because entrained air resists acceleration but has no weight, and it lands on
+    whatever integrates the node's translation — the node itself, the body that
+    places it, or the two beam bodies its joint spans. It is a scale, `1` being
+    the thin-plate value, translational and isotropic.
+  - `wagner` adds the two-state Wagner lift lag: circulation reaches its steady
+    value over `φ(s) = 1 - A₁·exp(-b₁·s) - A₂·exp(-b₂·s)` semi-chords rather than
+    at once. Two states serve the whole wing, driven by its mean apparent wind,
+    and the one deficiency shifts every panel's angle of attack before the polars
+    are read. `wagner_gains` and `wagner_rates` are registered parameters, so
+    retuning a lag syncs instead of rebuilding; only the on/off switch is
+    structural.
 
 ## v0.15.1 22-08-2026
 

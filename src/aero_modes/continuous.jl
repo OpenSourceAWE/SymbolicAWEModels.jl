@@ -222,12 +222,16 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
     flow_curvature_enabled(wing) || (sec_dva = nothing)
 
     orient = panel_span_signs(wing, spanwise)
+    wagner_eqs, wagner_vars, deficiency, wagner_defaults =
+        wagner_wing_eqs(wing, sec_va, params)
     eqs, panel_vars, panel_force, panel_couple, curvature_couple =
         build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
-            cl, cd, cm, spanwise, scale, orient; sec_dva)
+            cl, cd, cm, spanwise, scale, orient; sec_dva, deficiency)
+    append!(eqs, wagner_eqs)
     panel_couple = scatter_couple(mode, panel_couple, curvature_couple)
     vars = particle_unknowns(connectors)
     append!(vars, panel_vars)
+    append!(vars, wagner_vars)
 
     point_force = [zeros(Num, 3) for _ in 1:num_points]
     for i in 1:n_panels
@@ -248,7 +252,10 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
     for k in 1:num_points
         eqs = [eqs; connectors.point_force[:, k] ~ point_force[k]]
     end
-    return System(eqs, t, vars, [vind_p, chord_w, cl, cd, cm]; name)
+    return System(eqs, t, vars,
+                  [Any[vind_p, chord_w, cl, cd, cm];
+                   wagner_params(wing, params)];
+                  name, initial_conditions=wagner_defaults)
 end
 
 # ==================== per-panel decomposition ==================== #
