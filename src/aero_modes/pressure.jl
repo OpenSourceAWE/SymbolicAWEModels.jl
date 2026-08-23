@@ -444,10 +444,9 @@ end
 Solve at the per-panel apparent wind the symbolic RHS uses
 ([`set_refined_panel_va!`](@ref)), freezing the induced velocity and the per-node
 surface traction pattern ([`freeze_traction_pattern!`](@ref)). Point forces are
-re-derived symbolically each RHS step and read back from the model into each node's
-`aero_force_b`, so nothing here recomputes them. Below `vsm_min_wind` all frozen
-buffers are zeroed, the per-point offsets included, so no stale constant force
-survives — the point forces then follow, being a scatter of what was zeroed.
+re-derived symbolically each RHS step and read back into each node's
+`aero_force_b`. Below `vsm_min_wind` all frozen buffers are zeroed, the per-point
+offsets included, so no stale constant force survives.
 """
 function refresh_particle_aero!(mode::AeroPressure, wing, points,
                                 va_point_b_vals; vsm_min_wind=0.5,
@@ -467,7 +466,6 @@ function refresh_particle_aero!(mode::AeroPressure, wing, points,
         "AeroPressure: non-finite traction pattern on wing $(wing.idx)"))
     return nothing
 end
-
 
 """
     contour_winding(section) -> Float64

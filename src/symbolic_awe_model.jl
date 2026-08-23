@@ -312,9 +312,9 @@ end
 """
     write_aero_forces!(ss, sys_struct) -> ss
 
-Fill `ss.aero_force_x/y/z` with the aerodynamic force each wing node carries, world
-frame, from the `point.aero_force_b` each particle mode fills at refresh. A mode that
-stores none leaves its nodes at zero.
+Fill `ss.aero_force_x/y/z` with the world-frame aerodynamic force each wing node
+carries, from its `point.aero_force_b`. A mode that stores none leaves its nodes at
+zero.
 """
 function write_aero_forces!(ss::SysState, sys_struct::SystemStructure)
     fill!(ss.aero_force_x, 0.0)

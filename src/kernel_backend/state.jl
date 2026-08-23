@@ -345,8 +345,7 @@ drag_source(model::KernelModel, idx) =
     model.wrench_instances[idx]
 
 """The output slots of point `idx`'s body-frame aerodynamic force, or none when it
-has no [`AeroPointForce`](@ref) — a point outside a panel-decomposed wing. This is
-the same load the wing's `aero_force_b` readout is the sum of."""
+has no [`AeroPointForce`](@ref) — a point outside a panel-decomposed wing."""
 function aero_force_slots(model::KernelModel, idx)
     instance = model.aero_force_instances[idx]
     instance == 0 && return Int[]

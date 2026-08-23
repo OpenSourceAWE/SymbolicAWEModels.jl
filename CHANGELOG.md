@@ -3,37 +3,28 @@
 ## v0.15.2 22-08-2026
 
 ### Added
-- `reinit!(sam, integrator; solver=integrator.alg, kwargs...)`, which names the
-  integrator it resets and defaults the solver to the one that integrator was
-  built with. The three-argument method takes `solver` as a required argument, and
-  a caller passing a bare `FBDF()` made the monolith backend compile its whole
-  right-hand side a second time at `ForwardDiff.Dual`.
+- `reinit!(sam, integrator; solver=integrator.alg, kwargs...)`, which defaults the
+  solver to the one the integrator was built with. The three-argument method takes
+  it as a required argument, and a caller passing a bare `FBDF()` made the monolith
+  backend compile its whole right-hand side again at `ForwardDiff.Dual`.
 
 ### Fixed
-- `sim_reposition!` reinitializes with the solver `init!` built rather than
-  rebuilding one and dropping its `linsolve`, which on the `KernelBackend` swapped
-  the `KLUFactorization` for a dense one and rebuilt the integrator each
-  reposition.
-- Every wing node's `aero_force_b`, and with it the `aero_force_x/y/z` log
-  channels, stayed zero under the modes that scatter panel loads (`AeroPressure`,
-  `ContinuousAero`), so `plot` drew no aero arrows at all on such a wing. The load
-  is a quantity the model already computes — the monolith's `aero_force_point_b`,
-  the kernel's `AeroPointForce` — and is now read back into the struct each step
-  by both backends, so it is the live per-node force rather than a refit of it.
-- `update_from_sysstate!` set the wing's aero and tether loads to `NaN` to keep
-  them from being plotted, but `plot` skips a load with `iszero`, so the `NaN` was
-  drawn — and one `NaN` made the shared adaptive arrow scale `NaN`, blanking every
-  aero arrow in a replay. All four loads are restored from the log instead, and the
-  per-point forces with them, so a replay shows the loads of the frame it is on.
-- `plot` drops non-finite loads before scaling the rest, so a load a mode leaves
-  unset can no longer blank the whole layer.
+- `sim_reposition!` reinitializes with the solver `init!` built, rather than
+  rebuilding one and dropping its `linsolve`.
+- Every wing node's `aero_force_b`, and the `aero_force_x/y/z` log channels with it,
+  stayed zero under the modes that scatter panel loads (`AeroPressure`,
+  `ContinuousAero`), so `plot` drew no aero arrows on such a wing. Both backends now
+  read the load back out of the model, where it already existed.
+- `update_from_sysstate!` set the wing's aero and tether loads to `NaN` to keep them
+  unplotted, but `plot` skips a load only with `iszero`, so one `NaN` blanked every
+  aero arrow in a replay through the shared adaptive scale. All four loads and the
+  per-point forces are restored from the log instead.
+- `plot` drops non-finite loads before scaling the rest.
 
 ### Changed
-- `point.aero_force_b` is the one place a per-point aerodynamic load is read from.
-  A mode that scatters panel loads has it read back out of the model; `AeroDirect`
-  keeps writing it at refresh, that field being the parameter its equations read.
-  The private `aero_point_forces` and `stores_point_force` are removed, and
-  `write_aero_forces!` and the Makie extension read the field.
+- `point.aero_force_b` is the one place a per-point aerodynamic load is read from,
+  filled by refresh (`AeroDirect`) or read back out of the model. The private
+  `aero_point_forces` and `stores_point_force` are removed.
 
 ## v0.15.1 22-08-2026
 

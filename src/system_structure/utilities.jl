@@ -959,7 +959,7 @@ end
 
 Put each of `wing`'s nodes back to the body-frame aero force the log holds for it,
 rotating the logged world-frame `aero_force_x/y/z` by the frame just restored. A log
-written before those channels existed carries zeros and restores zeros.
+without those channels restores zeros.
 """
 function restore_point_aero_forces!(sys, wing, sys_state)
     length(sys_state.aero_force_x) == length(sys_state.X) || return nothing

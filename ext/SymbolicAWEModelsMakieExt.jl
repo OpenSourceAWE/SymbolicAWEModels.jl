@@ -81,9 +81,9 @@ const PLOT_MULTI_GEOMETRY_OBS = Ref{Union{Nothing, Vector{Observable}}}(nothing)
 """
     finite_force_arrows(origins, forces, scale) -> (origins, directions)
 
-Arrows for the loads that have one, scaled so the largest is `scale` long. Forces
-that are not finite are dropped before the rest are sized, so a single unset load
-cannot blank the whole layer through the shared adaptive scale.
+Arrows for `forces`, scaled so the largest is `scale` long. Non-finite forces are
+dropped before the rest are sized, so one unset load cannot blank the layer through
+the shared scale.
 """
 function finite_force_arrows(origins, forces, scale)
     keep = [i for i in eachindex(forces) if all(isfinite, forces[i])]

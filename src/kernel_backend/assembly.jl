@@ -304,9 +304,9 @@ all the state getter and the control setter need to find their values. A
 `wrench_instances` the load it feeds back (`0` for every other point).
 `aero_instances` holds each wing's aero instance and `twist_instances` each twist
 surface's, `0` where there is none. `aero_force_instances` holds each point's
-[`AeroPointForce`](@ref), `0` for a point with none. `inflow_instances` holds each point's
-[`AeroInflowPoint`](@ref), whose `va_b` output is the apparent wind the aero is
-solved on, and `0` for a point that has none.
+[`AeroPointForce`](@ref) and `inflow_instances` its [`AeroInflowPoint`](@ref), whose
+`va_b` output is the apparent wind the aero is solved on; `0` for a point with
+neither.
 """
 struct KernelModel{S, P}
     system::S

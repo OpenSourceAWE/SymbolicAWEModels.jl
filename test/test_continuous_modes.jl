@@ -147,10 +147,7 @@ group_means(groups, values) =
             next_step!(sam; dt=1e-4, vsm_interval=0)
             force_symbolic = copy(wing.aero_force_b)
 
-            # The per-node load lives only in the equations for these modes — no
-            # refresh computes it — so it reaches the struct by being read back out
-            # of the solved model. Summing it has to give the wing's own readout,
-            # which is that same sum taken inside the model.
+            # These modes leave the load in the equations; the struct reads it back.
             @testset "per-node force reaches the struct" begin
                 @test norm(force_symbolic) > 0.1
                 @test count(node -> !iszero(node.aero_force_b), nodes) > 0

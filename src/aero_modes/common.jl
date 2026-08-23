@@ -202,9 +202,8 @@ end
 
 Particle aero component binding each wing node's connector force to its frozen
 `point.aero_force_b` flat parameter (synced every refresh). Used by
-[`AeroDirect`](@ref), the mode whose refresh precomputes a per-point force the
-equations can read back unchanged. Touching the parameter here is what registers
-it, so a mode that does not use this component never gets one.
+[`AeroDirect`](@ref), whose refresh precomputes that force. Touching the parameter
+here is what registers it.
 """
 function frozen_point_force_component(wing, sys_struct; name, params=nothing)
     points = wing_points(sys_struct, wing)
