@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+- Wind can be set per point. A `SystemStructure` now carries a `wind_mode`: the
+  default `ProfileWind()` is the height profile `set.profile_law` as before, and
+  `PerPointWind()` makes every `point.wind_vec` a parameter, settable between steps
+  (`load_sys_struct_from_yaml(path; wind_mode=PerPointWind())`, or the
+  `SystemStructure` keyword of the same name). Point drag and apparent wind read
+  their point's vector, a segment's tether drag the mean of its two endpoints, and a
+  wing its own `wing.wind_vec`; VSM panels keep interpolating their inflow from the
+  points, so a per-point wind reaches them unchanged. `init!` seeds every point and
+  wing with `set.wind_vec`, so a model that is never written to flies in a uniform
+  wind. `set.profile_law` keeps its `AtmosphericModels` meaning and is unused in this
+  mode. Only `PerPointWind` enters the model-cache hash, so existing models keep
+  their cached builds.
+
+### Changed
+- BREAKING: a wing's wind vector is `wing.wind_vec`, renamed from `wing.v_wind` to
+  match `point.wind_vec` and to stop reading as the scalar `set.v_wind`.
+
 ## v0.15.2 22-08-2026
 
 ### Added

@@ -530,17 +530,20 @@ end
     add_aero_inflow_points!(builder, table, bindings, sam, nodes, points, body)
 
 One [`AeroInflowPoint`](@ref) per structural point of a wing, wired from that point's
-kinematics and its wing body's pose. The kernel reads no per-component field, so every
-point of every wing shares it. Returns the instances, indexed as `nodes` is.
+kinematics and its wing body's pose. The only per-component field the kernel reads is
+the point's prescribed wind, remapped per instance, so every point of every wing
+shares it. Returns the instances, indexed as `nodes` is.
 """
 function add_aero_inflow_points!(builder, table, bindings, sam, nodes, points, body)
-    entry = kernel!(builder, table, sam, :aero_inflow_point, 0,
-                    params -> AeroInflowPoint(sam, params; name = :aero_inflow_point),
+    source = first(nodes).idx
+    entry = kernel!(builder, table, sam, :aero_inflow_point, source,
+                    params -> AeroInflowPoint(sam, params, source;
+                                              name = :aero_inflow_point),
                     AERO_INFLOW_POINT_INPUTS, AERO_INFLOW_POINT_OUTPUTS)
     instances = Int[]
     for node in nodes
         instance = add_instance!(builder, entry.index)
-        push!(bindings, (instance, entry, Dict{Symbol, Int}()))
+        push!(bindings, (instance, entry, Dict(:points => node.idx)))
         connect!(builder, points[node.idx], :pos, instance, :pos)
         connect!(builder, points[node.idx], :vel, instance, :vel)
         connect!(builder, body, :pos, instance, :wing_pos)
@@ -1193,6 +1196,7 @@ function bind_params(system, sys_struct, bindings, segment_roles, segment_instan
         end
     end
     retarget_tether_rest_lengths!(readers, segment_roles)
+    bind_segment_winds!(slots, readers, system, sys_struct, segment_instances)
     sync = KernelParamSync(group_readers(slots, readers),
                            group_callables(callable_targets, callable_readers))
     return KernelParams(numeric, callables), sync
@@ -1216,6 +1220,32 @@ function callable_store(system)
         defaults = Tuple(system.kernels[k].callable_defaults)
         fill(defaults, counts[k])
     end
+end
+
+"""
+    bind_segment_winds!(slots, readers, system, sys_struct, segment_instances)
+
+Point each segment's `src_wind`/`dst_wind` parameters at its two endpoints'
+`point.wind_vec`, which is how a [`PerPointWind`](@ref) segment reads the wind of the
+points it spans: a segment kernel is instanced over `:segments`, so its endpoints
+cannot both be reached through the registry's per-instance index remapping.
+[`segment_wind_params`](@ref) mints these parameters, so nothing else binds them; a
+segment without tether drag has none.
+"""
+function bind_segment_winds!(slots, readers, system, sys_struct, segment_instances)
+    per_point_wind(sys_struct) || return nothing
+    for (idx, instance) in enumerate(segment_instances)
+        kernel = system.kernels[system.instances[instance].kernel]
+        has_slot(kernel.params, :src_wind) || continue
+        endpoints = sys_struct.segments[idx].point_idxs
+        for (endpoint, name) in zip(endpoints, (:src_wind, :dst_wind))
+            for (k, slot) in enumerate(buffer_slots(system, instance, :params, name))
+                push!(slots, slot)
+                push!(readers, PathReader((:points, endpoint, :wind_vec, k)))
+            end
+        end
+    end
+    return nothing
 end
 
 """

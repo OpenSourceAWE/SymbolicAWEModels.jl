@@ -778,7 +778,7 @@ function point_acceleration_w(point, wing_frame, wing_vel)
 end
 
 """
-    wing_kinematics_from_points!(wing, points, set, am;
+    wing_kinematics_from_points!(wing, points, set, am, wind_mode;
                                  zp1, zp2, yp1, yp2, origin, aero_points)
 
 Recompute a KINEMATIC/PARTICLE wing's kinematic state directly from the current point
@@ -789,10 +789,11 @@ reference is the weighted blend of its points. Writes the body frame `R_b_to_w`
 `ω_b` ([`body_frame_omega`](@ref)), the origin's acceleration `acc_w`
 ([`point_acceleration_w`](@ref)), the reported scalars
 ([`write_wing_scalars!`](@ref)), the wing apparent wind `va_b`, and each aero point's
-`va_b = R'·(wind(z)·wind_gnd − vel)` — the same quantities the monolith's
-`get_all_state` copies out of the integrator.
+`va_b = R'·(wind − vel)`, the wind coming from the height profile or, under
+[`PerPointWind`](@ref), from `point.wind_vec` and `wing.wind_vec`, which the caller
+owns — the same quantities the monolith's `get_all_state` copies out of the integrator.
 """
-function wing_kinematics_from_points!(wing, points, set, am;
+function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode;
         zp1, zp2, yp1, yp2, origin, aero_points,
         base_point = 0, twist_surfaces = nothing)
     pos_z1 = get_ref_position_from_points(points, zp1)
@@ -816,13 +817,14 @@ function wing_kinematics_from_points!(wing, points, set, am;
     for (idx, weight) in zip(origin.ids, origin.weights)
         wing.acc_w .+= weight .* point_acceleration_w(points[idx], R, wing.vel_w)
     end
-    wind_factor = WindFactor(am, set.profile_law)
-    wing.v_wind .= wind_factor(wing.pos_w[3]) .* set.wind_vec
-    wing.va_b .= R' * (wing.v_wind .- wing.vel_w .+ wing.wind_disturb)
+    profile = wind_mode isa PerPointWind ? nothing : WindFactor(am, set.profile_law)
+    isnothing(profile) || (wing.wind_vec .= profile(wing.pos_w[3]) .* set.wind_vec)
+    wing.va_b .= R' * (wing.wind_vec .- wing.vel_w .+ wing.wind_disturb)
     for point_idx in aero_points
         point = points[point_idx]
-        va_w = wind_factor(point.pos_w[3]) .* set.wind_vec .- point.vel_w
-        point.va_b .= R' * va_w
+        wind = isnothing(profile) ? point.wind_vec :
+            profile(point.pos_w[3]) .* set.wind_vec
+        point.va_b .= R' * (wind .- point.vel_w)
     end
     write_wing_scalars!(wing, points; base_point, twist_surfaces)
     return nothing
