@@ -88,6 +88,7 @@ export PrincipalFrameMethod, EIGEN_DECOMP, Y_ROTATION
 export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate,
        ContinuousAero, AeroPressure
 export aero_component
+export WindMode, ProfileWind, PerPointWind, per_point_wind
 
 # --- High-Level Simulation Functions (Workers) ---
 export sim!, sim_reposition!

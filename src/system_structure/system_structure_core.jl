@@ -53,6 +53,8 @@ mutable struct SystemStructure{J<:ElasticJoint}
     stabilize::Bool
     fix_wing::Bool
     vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
+    "Where the wind comes from: [`ProfileWind`](@ref) or [`PerPointWind`](@ref)."
+    wind_mode::WindMode
 end
 
 function Base.getproperty(sys::SystemStructure, sym::Symbol)
@@ -889,6 +891,8 @@ of the same structural shape should share one.
 # Keyword Arguments
 - `points`, `twist_surfaces`, `segments`, etc.: Vectors of the system components.
 - `vsm_set`: `VSMSettings` for VSM wings; read from `vsm_settings.yaml` when omitted.
+- `wind_mode::WindMode=ProfileWind()`: [`PerPointWind`](@ref) makes every point's
+  `wind_vec` a settable parameter instead of a height-profile output.
 - `ignore_l0::Bool=false`: Recompute every segment `l0` from the CAD geometry.
 - `prn::Bool=true`: If true, print info messages about auto-generated components.
 
@@ -909,6 +913,7 @@ function SystemStructure(name, set;
         timoshenko_joints=TimoshenkoJoint[],
         ignore_l0::Bool=false,
         vsm_set=nothing,
+        wind_mode::WindMode=ProfileWind(),
         prn::Bool=true,
     )
     # Load VSMSettings if not provided and VSM wings exist
@@ -1134,7 +1139,7 @@ function SystemStructure(name, set;
         NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
         NamedCollection{eltype(elastic_joints)}(elastic_joints, elastic_joint_names_dict),
         NamedCollection{TimoshenkoJoint}(timoshenko_joints, timoshenko_joint_names_dict),
-        AtmosphericModel(set), false, false, vsm_set)
+        AtmosphericModel(set), false, false, vsm_set, wind_mode)
     reinit!(sys_struct, set; prn)
 
     # Panel→flap twist_surface map (structural; needs placed bodies + built panels).

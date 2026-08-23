@@ -145,7 +145,6 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     body_force, body_moment, body_pos_w, body_com_w, body_R_b_to_w,
                     body_com_vel, body_ω_b)
 
-    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
     wind_gnd = collect(wind_vec_gnd)
     for point in points
         F::Vector{Num} = zeros(Num, 3)
@@ -187,6 +186,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
 
         drag_coeff = params.points[point.idx].drag_coeff
         area = params.points[point.idx].area
+        wind_source = point_wind_source(params, point.idx, wind_gnd)
         drag_rhs = point_drag_force(collect(va_point_w[:, point.idx]),
             air_density(s.am, height[point.idx]), drag_coeff, area)
         va_point_b_rhs = isnothing(wing_idx_for_transform) ? zeros(3) :
@@ -194,8 +194,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
         eqs = [
             eqs
             height[point.idx] ~ max(0.0, pos[3, point.idx])
-            wind_at_point[:, point.idx] ~
-                wind_factor(pos[3, point.idx]) * wind_vec_gnd
+            wind_at_point[:, point.idx] ~ wind_source(pos[3, point.idx])
             va_point_w[:, point.idx] ~
                 wind_at_point[:, point.idx] - vel[:, point.idx]
             va_point_b[:, point.idx] ~ va_point_b_rhs
@@ -225,8 +224,8 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                 collect(pos[:, point.idx]), collect(vel[:, point.idx]),
                 collect(spring_sum_force[:, point.idx]) .+ aero_force_w .+
                     collect(disturb_force[:, point.idx]),
-                carries_gravity ? mass : 0.0, drag_coeff, area, wind_gnd,
-                wind_factor, carries_gravity ? params.set.g_earth : 0.0)
+                carries_gravity ? mass : 0.0, drag_coeff, area, wind_source,
+                carries_gravity ? params.set.g_earth : 0.0)
         ]
 
         # EXCEPTION to the anchor rule: a wing node on a RIGID_DYNAMICS wing is
