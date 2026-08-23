@@ -115,12 +115,7 @@ end
 @testset "Backend read-back parity" begin
     data_path_before = get_data_path()
     root = mktempdir()
-    # `AeroPressure` is here as well as the default `AeroDirect` because the two
-    # reach `point.aero_force_b` by different routes: a mode that precomputes the
-    # load holds it as the parameter the equations read, while a panel-scattering
-    # mode leaves it in the equations and each backend has to read it back — the
-    # monolith through an observed array, the kernel through `AeroPointForce`
-    # slots. Only a scattering wing exercises that pair.
+    # Only `AeroPressure` scatters panel loads, exercising the read-back path.
     geometries = (("particle", "particle_structural_geometry.yaml", nothing, false),
                   ("rigid", "rigid_structural_geometry.yaml", nothing, false),
                   ("particle pressure", "particle_structural_geometry.yaml",

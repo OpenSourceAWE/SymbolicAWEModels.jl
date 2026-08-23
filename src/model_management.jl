@@ -4,13 +4,10 @@
 """
     carries_point_aero(sys_struct, point) -> Bool
 
-Whether `point`'s per-node aerodynamic force has to be read back out of the model: it
-is a node of a `PARTICLE_DYNAMICS` wing whose mode scatters panel loads, so the load
-exists only in the equations. A rigid wing's nodes carry the wing's own wrench
-instead, and a mode that precomputes the load ([`AeroDirect`](@ref)) already holds it
-in `aero_force_b` as the parameter the equations read — which is also the wing the
-`KernelBackend` builds no [`AeroPointForce`](@ref) for, so both backends cover the
-same nodes.
+Whether `point`'s per-node aerodynamic force has to be read back out of the model:
+it is a node of a `PARTICLE_DYNAMICS` wing whose mode scatters panel loads, so the
+load exists only in the equations. This selects the same nodes the `KernelBackend`
+builds an [`AeroPointForce`](@ref) for.
 """
 function carries_point_aero(sys_struct, point)
     point.is_wing_node || return false
@@ -22,12 +19,11 @@ end
 """
     point_aero_force_array(sys_struct, sys) -> Matrix{Num} or nothing
 
-The body-frame aerodynamic force of every point as one `3 x n_points` array to fetch,
-holding `aero_force_point_b` for the nodes that have one and a literal zero for the
-rest, so the whole thing scatters on the point index like the other per-point arrays.
-`nothing` when no wing writes per-node forces, which is when the variable does not
-exist. The zeros are constants in the generated function rather than equations in the
-system, so the points that carry no aero cost nothing to fetch.
+The body-frame aerodynamic force of every point as one `3 x n_points` array to
+fetch, holding `aero_force_point_b` where a node has one and a literal zero
+elsewhere, so it scatters on the point index like the other per-point arrays.
+`nothing` when no wing writes per-node forces. The zeros are constants in the
+generated function, so a point carrying no aero costs nothing to fetch.
 """
 function point_aero_force_array(sys_struct, sys)
     hasproperty(sys, :aero_force_point_b) || return nothing
@@ -722,8 +718,8 @@ end
 
 Reset `integrator`, which is `sam`'s own, from the current `SystemStructure`.
 `solver` defaults to the one `integrator` was built with, so the reset stays on the
-right-hand side that is already compiled rather than forcing a second compilation
-at another Jacobian's element type. `kwargs` are those of
+compiled right-hand side instead of forcing a second compilation at another
+Jacobian's element type. `kwargs` are those of
 [`reinit!`](@ref)`(sam, prob, solver; …)`.
 """
 function reinit!(sam::SymbolicAWEModel,
