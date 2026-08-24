@@ -361,12 +361,18 @@ end
 
                 # y_airf runs against VSM's on the panels the mode orients the
                 # other way; z_airf flips with it, so the couple is the same
-                # vector either way and only the rate differs in sign.
+                # vector either way and only the rate differs in sign. The model
+                # builds the axis from the live structure and the panels hold the
+                # last refresh's, so a little drift is expected; a different
+                # convention would leave O(1) behind.
                 orientation = [sign(dot(state.y_airf[i], panels[i].y_airf))
                                for i in eachindex(panels)]
-                @test all(i -> norm(state.y_airf[i] -
-                                    orientation[i] .* panels[i].y_airf) < 1e-6,
-                          eachindex(panels))
+                axis_error = maximum(norm(state.y_airf[i] -
+                                          orientation[i] .* panels[i].y_airf)
+                                     for i in eachindex(panels))
+                println("  [$(case.name)] vs VSM: y_airf error=",
+                    "$(round(axis_error; sigdigits=3))")
+                @test axis_error < 1e-4
 
                 # VSM's own increment, on the panel state the equations feed it.
                 expected = [VortexStepMethod.flow_curvature_cm(
