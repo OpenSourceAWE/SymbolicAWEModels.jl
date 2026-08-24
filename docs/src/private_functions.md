@@ -377,8 +377,6 @@ SymbolicAWEModels.frozen_point_force_component
 SymbolicAWEModels.build_panel_force_eqs
 SymbolicAWEModels.panel_force_eqs
 SymbolicAWEModels.evaluate_polar
-SymbolicAWEModels.section_pitch_rate
-SymbolicAWEModels.flow_curvature_cm
 SymbolicAWEModels.flow_curvature_enabled
 SymbolicAWEModels.wagner_enabled
 SymbolicAWEModels.wagner_wing_eqs

@@ -244,9 +244,10 @@ function panel_span_signs(wing, spanwise)
     refined = wing.vsm_wing.refined_sections
     n = Int(wing.vsm_wing.n_panels)
     map(1:n) do i
-        qc1 = 0.75 .* refined[i].LE_point .+ 0.25 .* refined[i].TE_point
-        qc2 = 0.75 .* refined[i + 1].LE_point .+ 0.25 .* refined[i + 1].TE_point
-        dot(qc1 .- qc2, spanwise) < 0 ? -1.0 : 1.0
+        span_vec = VortexStepMethod.panel_span_vector(
+            refined[i].LE_point, refined[i].TE_point,
+            refined[i + 1].LE_point, refined[i + 1].TE_point)
+        dot(span_vec, spanwise) < 0 ? -1.0 : 1.0
     end
 end
 
@@ -256,8 +257,8 @@ end
         -> (eqs, vars, panel_force, panel_couple, curvature_couple)
 
 Shared per-refined-panel VSM force assembly for the live particle aero modes
-([`ContinuousAero`](@ref), [`AeroPressure`](@ref)). Re-expresses
-`VortexStepMethod.calc_forces!` symbolically from the frozen circulation:
+([`ContinuousAero`](@ref), [`AeroPressure`](@ref)). Traces the `VortexStepMethod`
+panel kernel symbolically from the frozen circulation:
 per panel `i` (between section boundaries `i` and `i+1`) it builds the airfoil
 axes, chord, width, effective angle of attack (live apparent wind
 `sec_va` + frozen induced velocity `vind_p`), polar coefficients (`cl/cd/cm`
@@ -265,8 +266,8 @@ callable params), and the lift/drag directions, and emits the panel force and
 the pitching-moment couple. Returns the panel equations, the intermediate
 variables to register, and the `panel_force`/`panel_couple` symbolic arrays for
 the caller's scatter (strut couple or surface pattern). `curvature_couple` is the
-[`flow_curvature_cm`](@ref) part of `panel_couple` alone, for a mode whose scatter
-already places the polar moment and needs only the increment.
+`VortexStepMethod.flow_curvature_cm` part of `panel_couple` alone, for a mode
+whose scatter already places the polar moment and needs only the increment.
 
 `sec_le`/`sec_te`/`sec_va` are length-`n_panels+1` vectors of body-frame
 3-vectors (positions and apparent wind at the section boundaries), `sec_rho`
@@ -282,7 +283,8 @@ deflections δ. When given the polars are evaluated as `cl(i, alpha[i], delta[i]
 mode without a flap ([`ContinuousAero`](@ref)) is untouched.
 
 `sec_dva` is the matching per-section trailing minus leading edge apparent wind that
-carries the [`flow_curvature_cm`](@ref) increment, or `nothing` to leave it out.
+carries the `VortexStepMethod.flow_curvature_cm` increment, or `nothing` to leave
+it out.
 
 `deficiency` is the wing's Wagner lag ([`wagner_lag_eqs`](@ref)), subtracted from
 every panel's angle of attack before the polars are read; `0.0` leaves them steady.
@@ -351,19 +353,24 @@ One panel's aerodynamic equations, writing into column `i` of the symbolic array
 in `slots`. `sections` is `(le_1, te_1, le_2, te_2)` in body frame, `flow` is
 `(va_1, va_2, rho_1, rho_2, v_ind, dva_1, dva_2)` and `polars` the `(cl, cd, cm)`
 callables, indexed by the panel number the polar tables were built for.
+The physics is not written here: every expression comes from tracing the
+`VortexStepMethod` panel kernel (`panel_axes`, `panel_inflow`,
+`panel_force_directions`, `panel_loads` and friends) with symbolic arguments, so
+the equations are the ones the numeric solver evaluates. This function only
+chooses where to tear the expression graph, binding each stage to a slot before
+feeding it to the next.
+
 `chord_weight` is the section-1 share of the chord-direction blend
-([`store_chord_weights!`](@ref)), entering as an offset from the midpoint: the
-equivalent `chord_weight * te_1 + (1 - chord_weight) * te_2` form leaves no constant
-term to fold, which makes a continuous-mode wing 3.7x slower to build symbolically.
-`delta` is the flap deflection or `nothing` for the 2-argument polars.
-`deficiency` is the wing-wide Wagner lag subtracted from `alpha` to give the
-`alpha_eff` the polars read; the geometric `alpha` still sets the force directions.
+([`store_chord_weights!`](@ref)). `delta` is the flap deflection or `nothing` for
+the 2-argument polars. `deficiency` is the wing-wide Wagner lag subtracted from
+`alpha` to give the `alpha_eff` the polars read; the geometric `alpha` still sets
+the force directions.
 
 `dva_1`/`dva_2` are the sections' trailing minus leading edge apparent wind, which
-gives the panel its [`section_pitch_rate`](@ref) and hence the
-[`flow_curvature_cm`](@ref) moment increment. They are `nothing` when the wing's
-solver has the term disabled ([`flow_curvature_enabled`](@ref)), and the rate is
-then bound to zero rather than dropped, so the slot means the same thing either way.
+gives the panel its pitch rate and hence the flow-curvature moment increment. They
+are `nothing` when the wing's solver has the term disabled
+([`flow_curvature_enabled`](@ref)), and the rate is then bound to zero rather than
+dropped, so the slot means the same thing either way.
 
 Every quantity it reads belongs to this panel alone, so the same equations serve a
 whole-wing system (looped by [`build_panel_force_eqs`](@ref)) and a per-panel
@@ -378,83 +385,47 @@ function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
     va_1, va_2, rho_1, rho_2, vind, dva_1, dva_2 = flow
     cl, cd, cm = polars
 
-    lean = chord_weight - 0.5
-    chord_vec = (0.5 * (te_1 + te_2) - 0.5 * (le_1 + le_2)) +
-        lean * ((te_1 - te_2) - (le_1 - le_2))
-    x_unit = chord_vec ./ smooth_norm(chord_vec)
-    span_vec = (0.75 * le_1 + 0.25 * te_1) - (0.75 * le_2 + 0.25 * te_2)
-    y_unit = orient .* (span_vec ./ smooth_norm(span_vec))
-    z_cross = x_unit × (le_1 - le_2)
-    z_unit = orient .* (z_cross ./ smooth_norm(z_cross))
+    axes = VortexStepMethod.panel_axes(le_1, te_1, le_2, te_2, chord_weight,
+                                       orient)
+    inflow = VortexStepMethod.panel_inflow(
+        (; axes.x_airf, axes.y_airf, axes.z_airf, chord=chord[i]),
+        va_1, va_2, vind, dva_1, dva_2)
+    dirs = VortexStepMethod.panel_force_directions(axes, alpha[i], spanwise)
 
-    va_panel = 0.5 * (va_1 + va_2)
-    v_eff_panel = va_panel + vind
-    rho_panel = 0.5 * (rho_1 + rho_2)
-    v_eff_crossy = v_eff_panel × y_unit
+    bound_axes = (x_airf=collect(x_airf[:, i]), y_airf=collect(y_airf[:, i]),
+                  z_airf=collect(z_airf[:, i]), chord=chord[i], width=width[i])
+    bound_dirs = (dir_lift=collect(dir_lift[:, i]),
+                  dir_drag=collect(dir_drag[:, i]))
 
     curvature = dva_1 === nothing ? 0.0 :
-        flow_curvature_cm(pitch_rate[i], chord[i], smooth_norm(v_eff_crossy))
-    pitch_rate_rhs = dva_1 === nothing ? 0.0 :
-        section_pitch_rate(0.5 * (dva_1 + dva_2), z_unit, chord[i])
-
-    lift = evaluate_polar(cl, alpha_eff[i], delta) * q_dyn[i] * chord[i]
-    drag = evaluate_polar(cd, alpha_eff[i], delta) * q_dyn[i] * chord[i]
-    panel_moment = (evaluate_polar(cm, alpha_eff[i], delta) + curvature) *
-        q_dyn[i] * chord[i]^2
-
-    dir_iva = cos(alpha[i]) .* x_unit .+ sin(alpha[i]) .* z_unit
-    lift_cross = dir_iva × y_unit
-    drag_cross = spanwise × (lift_cross ./ smooth_norm(lift_cross))
+        VortexStepMethod.flow_curvature_cm(pitch_rate[i], chord[i],
+            VortexStepMethod.smooth_norm(inflow.v_span))
+    loads = VortexStepMethod.panel_loads(bound_axes, bound_dirs, q_dyn[i],
+        evaluate_polar(cl, alpha_eff[i], delta),
+        evaluate_polar(cd, alpha_eff[i], delta),
+        evaluate_polar(cm, alpha_eff[i], delta) + curvature, scale)
+    couple_force(coefficient) = VortexStepMethod.panel_couple_force(
+        coefficient, q_dyn[i], chord[i], width[i], scale)
 
     return [
-        chord[i] ~ 0.5 * (smooth_norm(te_1 - le_1) +
-                          smooth_norm(te_2 - le_2));
-        width[i] ~ smooth_norm(span_vec);
-        x_airf[:, i] ~ x_unit;
-        y_airf[:, i] ~ y_unit;
-        z_airf[:, i] ~ z_unit;
-        v_eff[:, i] ~ v_eff_panel;
-        alpha[i] ~ atan(v_eff_panel ⋅ z_unit, v_eff_panel ⋅ x_unit);
-        alpha_eff[i] ~ alpha[i] - deficiency;
-        q_dyn[i] ~ 0.5 * rho_panel * (v_eff_crossy ⋅ v_eff_crossy);
-        pitch_rate[i] ~ pitch_rate_rhs;
-        dir_lift[:, i] ~ lift_cross ./ smooth_norm(lift_cross);
-        dir_drag[:, i] ~ drag_cross ./ smooth_norm(drag_cross);
-        panel_force[:, i] ~ (scale * width[i]) .*
-            (lift .* collect(dir_lift[:, i]) .+
-             drag .* collect(dir_drag[:, i]));
-        panel_couple[:, i] ~
-            (scale * width[i] * panel_moment / chord[i]) .* z_unit;
-        curvature_couple[:, i] ~
-            (scale * width[i] * curvature * q_dyn[i] * chord[i]) .* z_unit]
+        chord[i] ~ axes.chord;
+        width[i] ~ axes.width;
+        x_airf[:, i] ~ axes.x_airf;
+        y_airf[:, i] ~ axes.y_airf;
+        z_airf[:, i] ~ axes.z_airf;
+        v_eff[:, i] ~ inflow.v_eff;
+        alpha[i] ~ inflow.alpha;
+        alpha_eff[i] ~ VortexStepMethod.effective_alpha(alpha[i], deficiency);
+        q_dyn[i] ~ VortexStepMethod.dynamic_pressure(rho_1, rho_2, inflow.v_span);
+        pitch_rate[i] ~ inflow.pitch_rate;
+        dir_lift[:, i] ~ dirs.dir_lift;
+        dir_drag[:, i] ~ dirs.dir_drag;
+        panel_force[:, i] ~ loads.force;
+        panel_couple[:, i] ~ couple_force(
+            evaluate_polar(cm, alpha_eff[i], delta) + curvature) .*
+            bound_axes.z_airf;
+        curvature_couple[:, i] ~ couple_force(curvature) .* bound_axes.z_airf]
 end
-
-"""
-    section_pitch_rate(delta_va, z_unit, chord)
-
-Rate at which a section rotates about its own spanwise axis, positive nose-up, from
-`delta_va`, the trailing minus leading edge apparent wind. Apparent wind is
-`wind - velocity`, so the difference is the leading minus trailing edge velocity and
-the sign of `VortexStepMethod.section_pitch_rate` flips with it. A wind that varies
-over the chord bends the flow the same way a rotation does and enters here too.
-"""
-section_pitch_rate(delta_va, z_unit, chord) = (delta_va ⋅ z_unit) / chord
-
-"""
-    flow_curvature_cm(pitch_rate, chord, v_rel)
-
-Quarter-chord moment increment `-(π/4)·q̂` of a section rotating about its own
-spanwise axis, with `q̂ = pitch_rate·chord/(2·v_rel)`. Symbolic twin of
-`VortexStepMethod.flow_curvature_cm`; see it for the thin-airfoil derivation. The
-lift response needs no such increment because the inflow is already sampled at
-[`COLLOCATION_CHORD_FRAC`](@ref).
-
-`v_rel` reaches zero only through [`smooth_norm`](@ref), which floors it, and the
-increment is used multiplied by a dynamic pressure `∝ v_rel²`, so the product stays
-regular as the wing stops.
-"""
-flow_curvature_cm(pitch_rate, chord, v_rel) =
-    -0.25π * pitch_rate * chord / (2 * v_rel)
 
 """
     scatter_couple(mode, panel_couple, curvature_couple)
@@ -462,15 +433,16 @@ flow_curvature_cm(pitch_rate, chord, v_rel) =
 The couple array a mode's scatter applies. The default is the whole
 `panel_couple`, the polar moment included. [`AeroPressure`](@ref) already places the
 polar moment with its frozen surface traction, so it takes `curvature_couple` — the
-[`flow_curvature_cm`](@ref) increment on its own — and adding the whole couple there
-would count the polar moment twice.
+`VortexStepMethod.flow_curvature_cm` increment on its own — and adding the whole
+couple there would count the polar moment twice.
 """
 scatter_couple(::AbstractAeroModel, panel_couple, curvature_couple) = panel_couple
 
 """
     flow_curvature_enabled(wing) -> Bool
 
-Whether this wing's VSM solver adds the [`flow_curvature_cm`](@ref) increment. The
+Whether this wing's VSM solver adds the `VortexStepMethod.flow_curvature_cm`
+increment. The
 aero modes all read the one flag, so a model cannot carry the term through
 `AeroDirect` and lose it in [`ContinuousAero`](@ref). A wing without a VSM engine
 (`PlateWing`) has no flag and no increment.
@@ -985,7 +957,7 @@ strut_inflow_weights(mode, section::Int, column) =
     strut_pitch_weights(mode, section, column) -> Vector{Tuple{Int, SimFloat}}
 
 The `(point column, weight)` pairs taking refined section `section`'s trailing minus
-leading edge apparent wind, which [`section_pitch_rate`](@ref) turns into the
+leading edge apparent wind, which `VortexStepMethod.section_pitch_rate` turns into the
 section's rotation rate about its own spanwise axis. Weights sum to zero, so a wing
 in uniform translation contributes nothing.
 """
@@ -1018,12 +990,9 @@ scatter_entry_list(totals) =
 """
     store_chord_weights!(chord_weight, body_aero)
 
-Freeze each refined panel's chord blend weight into `chord_weight` (n_panels): the
-share of section 1 in the leading- and trailing-edge blend whose difference gives
-the panel's chord direction. `VortexStepMethod` weights that blend by panel
-spacing rather than taking the midpoint, so a panel next to a narrower neighbour
-leans towards it, and the weight follows the mesh as the wing deforms. Written at
-the same refresh as [`store_induced_velocity!`](@ref).
+Freeze each refined panel's chord blend weight into `chord_weight` (n_panels)
+via `VortexStepMethod.panel_chord_weight`, so the weight follows the mesh as the
+wing deforms. Written at the same refresh as [`store_induced_velocity!`](@ref).
 """
 function store_chord_weights!(chord_weight, body_aero)
     panels = body_aero.panels
@@ -1031,21 +1000,10 @@ function store_chord_weights!(chord_weight, body_aero)
     length(chord_weight) == n_panels || error(
         "chord-weight buffer is stale ($(length(chord_weight)) for $n_panels " *
         "panels); reinitialize the model.")
-    if n_panels < 2
-        fill!(chord_weight, 0.5)
-        return nothing
-    end
     for i in 1:n_panels
-        own = panels[i].width
-        spacing_share = if i == 1
-            own / (own + panels[2].width)
-        elseif i == n_panels
-            panels[n_panels - 1].width / (panels[n_panels - 1].width + own)
-        else
-            0.25 * (panels[i - 1].width / (panels[i - 1].width + own) +
-                    own / (own + panels[i + 1].width) + 1)
-        end
-        chord_weight[i] = 1 - spacing_share
+        chord_weight[i] = VortexStepMethod.panel_chord_weight(
+            i == 1 ? nothing : panels[i - 1].width, panels[i].width,
+            i == n_panels ? nothing : panels[i + 1].width)
     end
     return nothing
 end

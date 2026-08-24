@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Changed
+- `panel_force_eqs` no longer restates the VSM panel aerodynamics symbolically.
+  It traces VortexStepMethod's panel kernel (`panel_axes`, `panel_inflow`,
+  `panel_force_directions`, `panel_loads`) with symbolic arguments, so the
+  equations both backends compile are the ones the numeric solver evaluates and
+  the two packages cannot drift apart. All this function still decides is where
+  to tear the expression graph. `smooth_norm`, `panel_span_signs` and
+  `store_chord_weights!` now go through the same kernel, and the local
+  `section_pitch_rate` and `flow_curvature_cm` twins are gone. Requires
+  VortexStepMethod with the panel kernel.
+
 ### Added
 - The continuous VSM modes carry VortexStepMethod's `flow_curvature` moment
   increment, the thin-airfoil `Δcm = -(π/4)·q̂` of a section rotating about its
