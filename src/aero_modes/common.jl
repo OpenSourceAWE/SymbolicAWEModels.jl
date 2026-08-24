@@ -235,9 +235,10 @@ function panel_span_signs(wing, spanwise)
     refined = wing.vsm_wing.refined_sections
     n = Int(wing.vsm_wing.n_panels)
     map(1:n) do i
-        qc1 = 0.75 .* refined[i].LE_point .+ 0.25 .* refined[i].TE_point
-        qc2 = 0.75 .* refined[i + 1].LE_point .+ 0.25 .* refined[i + 1].TE_point
-        dot(qc1 .- qc2, spanwise) < 0 ? -1.0 : 1.0
+        span_vec = VortexStepMethod.panel_span_vector(
+            refined[i].LE_point, refined[i].TE_point,
+            refined[i + 1].LE_point, refined[i + 1].TE_point)
+        dot(span_vec, spanwise) < 0 ? -1.0 : 1.0
     end
 end
 
@@ -247,8 +248,8 @@ end
                           orient) -> (eqs, vars, panel_force, panel_couple)
 
 Shared per-refined-panel VSM force assembly for the live particle aero modes
-([`ContinuousAero`](@ref), [`AeroPressure`](@ref)). Re-expresses
-`VortexStepMethod.calc_forces!` symbolically from the frozen circulation: per panel
+([`ContinuousAero`](@ref), [`AeroPressure`](@ref)). Traces the `VortexStepMethod`
+panel aerodynamics symbolically from the frozen circulation: per panel
 `i` (between section boundaries `i` and `i+1`) it builds the airfoil axes, chord,
 width, effective angle of attack (live apparent wind `sec_va` + frozen induced
 velocity `vind_p`), polar coefficients (`cl/cd/cm` callable params) and the lift/drag
@@ -324,12 +325,18 @@ panel_force_vars(slots) = Any[values(slots)...]
 One panel's aerodynamic equations, writing into column `i` of the symbolic arrays
 in `slots`. `sections` is `(le_1, te_1, le_2, te_2)` in body frame, `flow` is
 `(va_1, va_2, rho_1, rho_2, v_ind)` and `polars` the `(cl, cd, cm)` callables,
-indexed by the panel number the polar tables were built for. `chord_weight` is the
-section-1 share of the chord-direction blend ([`store_chord_weights!`](@ref)),
-entering as an offset from the midpoint: the equivalent
-`chord_weight * te_1 + (1 - chord_weight) * te_2` form leaves no constant term to
-fold, which makes a continuous-mode wing 3.7x slower to build symbolically.
-`delta` is the flap deflection or `nothing` for the 2-argument polars.
+indexed by the panel number the polar tables were built for.
+
+The physics is not written here: every expression comes from tracing the
+`VortexStepMethod` panel aerodynamics (`panel_axes`, `panel_inflow`,
+`panel_force_directions`, `panel_loads` and friends) with symbolic arguments, so
+the equations are the ones the numeric solver evaluates. All this function
+decides is where to tear the expression graph, binding each stage to a slot
+before feeding it to the next.
+
+`chord_weight` is the section-1 share of the chord-direction blend
+([`store_chord_weights!`](@ref)). `delta` is the flap deflection or `nothing` for
+the 2-argument polars.
 
 Every quantity it reads belongs to this panel alone, so the same equations serve a
 whole-wing system (looped by [`build_panel_force_eqs`](@ref)) and a per-panel
@@ -343,45 +350,35 @@ function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
     va_1, va_2, rho_1, rho_2, vind = flow
     cl, cd, cm = polars
 
-    lean = chord_weight - 0.5
-    chord_vec = (0.5 * (te_1 + te_2) - 0.5 * (le_1 + le_2)) +
-        lean * ((te_1 - te_2) - (le_1 - le_2))
-    x_unit = chord_vec ./ smooth_norm(chord_vec)
-    span_vec = (0.75 * le_1 + 0.25 * te_1) - (0.75 * le_2 + 0.25 * te_2)
-    y_unit = orient .* (span_vec ./ smooth_norm(span_vec))
-    z_cross = x_unit × (le_1 - le_2)
-    z_unit = orient .* (z_cross ./ smooth_norm(z_cross))
+    axes = VortexStepMethod.panel_axes(le_1, te_1, le_2, te_2, chord_weight,
+                                       orient)
+    inflow = VortexStepMethod.panel_inflow(axes, va_1, va_2, vind)
+    dirs = VortexStepMethod.panel_force_directions(axes, alpha[i], spanwise)
 
-    va_panel = 0.5 * (va_1 + va_2)
-    v_eff_panel = va_panel + vind
-    rho_panel = 0.5 * (rho_1 + rho_2)
-    v_eff_crossy = v_eff_panel × y_unit
-
-    lift = evaluate_polar(cl, alpha[i], delta) * q_dyn[i] * chord[i]
-    drag = evaluate_polar(cd, alpha[i], delta) * q_dyn[i] * chord[i]
-    panel_moment = evaluate_polar(cm, alpha[i], delta) * q_dyn[i] * chord[i]^2
-
-    dir_iva = cos(alpha[i]) .* x_unit .+ sin(alpha[i]) .* z_unit
-    lift_cross = dir_iva × y_unit
-    drag_cross = spanwise × (lift_cross ./ smooth_norm(lift_cross))
+    bound_axes = (x_airf=collect(x_airf[:, i]), y_airf=collect(y_airf[:, i]),
+                  z_airf=collect(z_airf[:, i]), chord=chord[i], width=width[i])
+    bound_dirs = (dir_lift=collect(dir_lift[:, i]),
+                  dir_drag=collect(dir_drag[:, i]))
+    loads = VortexStepMethod.panel_loads(bound_axes, bound_dirs, q_dyn[i],
+        evaluate_polar(cl, alpha[i], delta),
+        evaluate_polar(cd, alpha[i], delta),
+        evaluate_polar(cm, alpha[i], delta), scale)
 
     return [
-        chord[i] ~ 0.5 * (smooth_norm(te_1 - le_1) +
-                          smooth_norm(te_2 - le_2));
-        width[i] ~ smooth_norm(span_vec);
-        x_airf[:, i] ~ x_unit;
-        y_airf[:, i] ~ y_unit;
-        z_airf[:, i] ~ z_unit;
-        v_eff[:, i] ~ v_eff_panel;
-        alpha[i] ~ atan(v_eff_panel ⋅ z_unit, v_eff_panel ⋅ x_unit);
-        q_dyn[i] ~ 0.5 * rho_panel * (v_eff_crossy ⋅ v_eff_crossy);
-        dir_lift[:, i] ~ lift_cross ./ smooth_norm(lift_cross);
-        dir_drag[:, i] ~ drag_cross ./ smooth_norm(drag_cross);
-        panel_force[:, i] ~ (scale * width[i]) .*
-            (lift .* collect(dir_lift[:, i]) .+
-             drag .* collect(dir_drag[:, i]));
-        panel_couple[:, i] ~
-            (scale * width[i] * panel_moment / chord[i]) .* z_unit]
+        chord[i] ~ axes.chord;
+        width[i] ~ axes.width;
+        x_airf[:, i] ~ axes.x_airf;
+        y_airf[:, i] ~ axes.y_airf;
+        z_airf[:, i] ~ axes.z_airf;
+        v_eff[:, i] ~ inflow.v_eff;
+        alpha[i] ~ inflow.alpha;
+        q_dyn[i] ~ VortexStepMethod.dynamic_pressure(rho_1, rho_2, inflow.v_span);
+        dir_lift[:, i] ~ dirs.dir_lift;
+        dir_drag[:, i] ~ dirs.dir_drag;
+        panel_force[:, i] ~ loads.force;
+        panel_couple[:, i] ~ VortexStepMethod.panel_couple_force(
+            evaluate_polar(cm, alpha[i], delta), q_dyn[i], chord[i], width[i],
+            scale) .* bound_axes.z_airf]
 end
 
 """
@@ -630,12 +627,9 @@ scatter_entry_list(totals) =
 """
     store_chord_weights!(chord_weight, body_aero)
 
-Freeze each refined panel's chord blend weight into `chord_weight` (n_panels): the
-share of section 1 in the leading- and trailing-edge blend whose difference gives
-the panel's chord direction. `VortexStepMethod` weights that blend by panel
-spacing rather than taking the midpoint, so a panel next to a narrower neighbour
-leans towards it, and the weight follows the mesh as the wing deforms. Written at
-the same refresh as [`store_induced_velocity!`](@ref).
+Freeze each refined panel's chord blend weight into `chord_weight` (n_panels)
+via `VortexStepMethod.panel_chord_weight`, so the weight follows the mesh as the
+wing deforms. Written at the same refresh as [`store_induced_velocity!`](@ref).
 """
 function store_chord_weights!(chord_weight, body_aero)
     panels = body_aero.panels
@@ -643,21 +637,10 @@ function store_chord_weights!(chord_weight, body_aero)
     length(chord_weight) == n_panels || error(
         "chord-weight buffer is stale ($(length(chord_weight)) for $n_panels " *
         "panels); reinitialize the model.")
-    if n_panels < 2
-        fill!(chord_weight, 0.5)
-        return nothing
-    end
     for i in 1:n_panels
-        own = panels[i].width
-        spacing_share = if i == 1
-            own / (own + panels[2].width)
-        elseif i == n_panels
-            panels[n_panels - 1].width / (panels[n_panels - 1].width + own)
-        else
-            0.25 * (panels[i - 1].width / (panels[i - 1].width + own) +
-                    own / (own + panels[i + 1].width) + 1)
-        end
-        chord_weight[i] = 1 - spacing_share
+        chord_weight[i] = VortexStepMethod.panel_chord_weight(
+            i == 1 ? nothing : panels[i - 1].width, panels[i].width,
+            i == n_panels ? nothing : panels[i + 1].width)
     end
     return nothing
 end
