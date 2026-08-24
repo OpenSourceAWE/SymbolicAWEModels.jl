@@ -17,6 +17,14 @@
   their cached builds.
 
 ### Changed
+- `panel_force_eqs` no longer restates the VSM panel aerodynamics symbolically.
+  It traces VortexStepMethod's panel kernel (`panel_axes`, `panel_inflow`,
+  `panel_force_directions`, `panel_loads`) with symbolic arguments, so the
+  equations both backends compile are the ones the numeric solver evaluates and
+  the two packages cannot drift apart. All this function still decides is where
+  to tear the expression graph. `smooth_norm`, `panel_span_signs` and
+  `store_chord_weights!` go through the same kernel. Requires VortexStepMethod
+  4.2.
 - BREAKING: a wing's wind vector is `wing.wind_vec`, renamed from `wing.v_wind` to
   match `point.wind_vec` and to stop reading as the scalar `set.v_wind`.
 
