@@ -190,7 +190,7 @@ group_means(groups, values) =
                     result = evaluate_panel_equations(
                         (le_1, te_1, le_2, te_2),
                         (panel_va, panel_va, solver.density, solver.density,
-                         mode.v_ind[:, i]),
+                         mode.v_ind[:, i], nothing, nothing),
                         alpha -> (VortexStepMethod.calculate_cl(panel, alpha),
                             VortexStepMethod.calculate_cd_cm(panel, alpha)...),
                         spanwise, scale, orient[i], mode.chord_weight[i])

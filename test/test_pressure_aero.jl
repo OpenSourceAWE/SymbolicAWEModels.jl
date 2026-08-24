@@ -171,7 +171,8 @@ end
             assigned = mode.station_point[i]
             f_vsm = Vector(sol.f_body_3D[:, i])
             node_forces = surface_node_forces(mode.traction, column + 1,
-                length(assigned), f_vsm, mode.traction_net[:, i])
+                length(assigned), f_vsm, mode.traction_net[:, i],
+                zeros(SimFloat, 3), mode.node_couple_shape[i])
             applied = zeros(SimFloat, 3)
             pattern = zeros(SimFloat, 3)
             for node in eachindex(assigned)
