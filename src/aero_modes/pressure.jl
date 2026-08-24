@@ -37,6 +37,8 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
     station_point::Vector{Vector{Int64}}
     "Pure-moment chordwise share of every (panel, contour node), see [`couple_shape`](@ref)."
     node_couple_shape::Vector{Vector{SimFloat}}
+    "Residual share of every (panel, contour node), see [`node_residual_shares`](@ref)."
+    node_residual_share::Vector{Vector{SimFloat}}
     "Frame-guard tolerance: max node→point distance as a multiple of local chord."
     frame_tol_frac::SimFloat
     "Frozen body-frame induced velocity per refined panel (3 × n_panels)."
@@ -63,26 +65,28 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
     section_le_offset::Matrix{SimFloat}
     "Frozen body-frame TE billow offset off the strut line (3 × n_sections)."
     section_te_offset::Matrix{SimFloat}
-    AeroPressure{E}(engine, station_point, node_couple_shape, frame_tol_frac,
-        v_ind, chord_weight, traction, point_offset, traction_net, cl, cd, cm,
-        panel_twist_surface, section_left_strut, section_left_weight,
+    AeroPressure{E}(engine, station_point, node_couple_shape, node_residual_share,
+        frame_tol_frac, v_ind, chord_weight, traction, point_offset, traction_net,
+        cl, cd, cm, panel_twist_surface, section_left_strut, section_left_weight,
         section_le_offset, section_te_offset) where {E} =
-        new{E}(engine, station_point, node_couple_shape, frame_tol_frac, v_ind,
-               chord_weight, traction, point_offset, traction_net, cl, cd, cm,
-               panel_twist_surface, section_left_strut, section_left_weight,
-               section_le_offset, section_te_offset)
+        new{E}(engine, station_point, node_couple_shape, node_residual_share,
+               frame_tol_frac, v_ind, chord_weight, traction, point_offset,
+               traction_net, cl, cd, cm, panel_twist_surface, section_left_strut,
+               section_left_weight, section_le_offset, section_te_offset)
 end
 
 AeroPressure(; frame_tol_frac=2.0) =
     AeroPressure{VSMEngine}(nothing, Vector{Vector{Int64}}(),
-        Vector{Vector{SimFloat}}(), SimFloat(frame_tol_frac),
+        Vector{Vector{SimFloat}}(), Vector{Vector{SimFloat}}(),
+        SimFloat(frame_tol_frac),
         zeros(SimFloat, 3, 0), SimFloat[], zeros(SimFloat, 3, 0),
         Dict{Int64, Vector{SimFloat}}(), zeros(SimFloat, 3, 0),
         nothing, nothing, nothing, Int64[],
         Int64[], SimFloat[], zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0))
 attach_engine!(mode::AeroPressure, engine::VSMEngine) =
     AeroPressure{typeof(engine)}(engine, mode.station_point,
-        mode.node_couple_shape, mode.frame_tol_frac, mode.v_ind,
+        mode.node_couple_shape, mode.node_residual_share, mode.frame_tol_frac,
+        mode.v_ind,
         mode.chord_weight, mode.traction, mode.point_offset, mode.traction_net,
         mode.cl, mode.cd, mode.cm,
         mode.panel_twist_surface, mode.section_left_strut,
@@ -112,8 +116,9 @@ aero_hash_id(mode::AeroPressure) = (mode.station_point, mode.panel_twist_surface
 Live per-refined-panel VSM force (shared [`build_panel_force_eqs`](@ref) on the
 fixed loaded mesh + live apparent wind) scattered over the frozen surface traction
 pattern. Each wing node's force is `Σ over mapped (panel, node) of
-traction[node] + (panel_force[panel] − traction_net[panel]) / n_nodes`, so per panel
-the point forces sum to the live `panel_force` exactly. Apparent wind and density are
+traction[node] + share[node]·(panel_force[panel] − traction_net[panel])`, its share
+from [`node_residual_shares`](@ref), so per panel the point forces sum to the live
+`panel_force` exactly. Apparent wind and density are
 per refined section ([`reconstruct_inflow_sym`](@ref)); `v_ind`, `traction`,
 `traction_net` and the `cl/cd/cm` polars are flat params refreshed every
 `vsm_interval`.
@@ -176,7 +181,7 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
         assigned = mode.station_point[i]
         node_forces = surface_node_forces(traction_p, column + 1, length(assigned),
             panel_force[:, i], [traction_net_p[c, i] for c in 1:3],
-            couple[:, i], mode.node_couple_shape[i])
+            couple[:, i], mode.node_couple_shape[i], mode.node_residual_share[i])
         for node in eachindex(assigned)
             column += 1
             k = point_num[assigned[node]]
@@ -259,37 +264,53 @@ function twist_surface_deltas(sys_struct)
 end
 
 """
+    set_panel_deltas!(mode, wing, deltas) -> Bool
+
+Put one flap deflection [rad] per panel onto `wing`'s VSM mesh, `deltas` indexed by
+twist_surface. `false` when the wing carries no panel-to-surface map to write
+through.
+
+Both the panels and the wing's `delta_dist` are written, and the wing's is the one
+that matters: a panel's `delta` is derived, and `VortexStepMethod.reinit!` re-seeds
+every panel from `delta_dist` whenever the mesh is rebuilt — which
+[`refresh_particle_aero!`](@ref) does from the deformed structure before each
+solve. Writing the panels alone therefore lasts until the next refresh and no
+longer, leaving the solve and the traction contour at δ = 0 on a wing whose flaps
+are deflected.
+"""
+function set_panel_deltas!(mode, wing, deltas)
+    panels = wing.vsm_aero.panels
+    surfaces = mode.panel_twist_surface
+    (length(surfaces) == length(panels) && any(!=(0), surfaces)) || return false
+    distribution = wing.vsm_wing.delta_dist
+    for (panel_idx, panel) in enumerate(panels)
+        ts_idx = surfaces[panel_idx]
+        (ts_idx == 0 || ts_idx > length(deltas)) && continue
+        panel.delta = deltas[ts_idx]
+        panel_idx <= length(distribution) &&
+            (distribution[panel_idx] = deltas[ts_idx])
+    end
+    return true
+end
+
+"""
     apply_flap_delta!(mode, wing, sys_struct)
 
-Set each VSM panel's `delta` from the live flap deflection of its mapped
+Set the VSM mesh's flap deflection from the live deflection of each mapped
 twist_surface ([`twist_surface_deltas`](@ref)), before the VSM solve, so the
 converged forces and the frozen traction contour track the flap at refresh
 cadence. No-op for modes/wings without flap coupling.
 """
 apply_flap_delta!(::AbstractAeroModel, wing, sys_struct) = nothing
 function apply_flap_delta!(mode::AeroPressure, wing, sys_struct)
-    panels = wing.vsm_aero.panels
-    (length(mode.panel_twist_surface) == length(panels) &&
-     any(!=(0), mode.panel_twist_surface)) || return nothing
-    deltas = twist_surface_deltas(sys_struct)
-    for (panel_idx, panel) in enumerate(panels)
-        ts_idx = mode.panel_twist_surface[panel_idx]
-        ts_idx == 0 && continue
-        panel.delta = deltas[ts_idx]
-    end
+    set_panel_deltas!(mode, wing, twist_surface_deltas(sys_struct))
     return nothing
 end
 
 function restore_flap_delta!(mode::AeroPressure, wing, sys_state)
     isempty(sys_state.flap_angle) && return nothing
     wing.dynamics_type == PARTICLE_DYNAMICS || return nothing
-    panels = mode.vsm_aero.panels
-    length(mode.panel_twist_surface) == length(panels) || return nothing
-    for (panel_idx, panel) in enumerate(panels)
-        ts_idx = mode.panel_twist_surface[panel_idx]
-        (ts_idx == 0 || ts_idx > length(sys_state.flap_angle)) && continue
-        panel.delta = sys_state.flap_angle[ts_idx]
-    end
+    set_panel_deltas!(mode, wing, sys_state.flap_angle)
     return nothing
 end
 
@@ -341,6 +362,38 @@ function couple_shape(chord_fracs)
 end
 
 """
+    node_residual_shares(xc, yc) -> Vector{SimFloat}
+
+Share of its panel's residual every contour node carries, summing to one over the
+panel: the node's area times the chordwise shape an added section force takes.
+
+The residual is the panel force the VSM converged on less what the frozen `Cp`
+pattern integrates to, and it has to go somewhere. An equal split per node is the
+one choice that cannot be right, because it is a property of the mesh rather than
+of the flow: the contour is clustered where the airfoil turns, so the trailing edge
+owns two fifths of a section's nodes while the Kutta condition leaves it almost
+none of the load, and an equal split hands it two fifths of the correction — a
+download on the trailing edge of a lifting wing, which folds the flap the way the
+flap is already going.
+
+Area alone is mesh-independent but still spreads the correction evenly along the
+chord. What an *added* section force actually looks like is thin-airfoil theory's
+additional load, `sqrt((1-ξ)/ξ)`: largest at the leading edge, zero at the trailing
+edge. That puts the correction where a two-dimensional pattern goes wrong — the
+nose — and leaves the trailing edge at the zero load its sharp edge demands.
+"""
+function node_residual_shares(xc, yc)
+    n = length(xc)
+    n > 0 || return SimFloat[]
+    frac = clamp.(SimFloat.(xc), 0.0, 1.0)
+    span(k) = 0.5 * hypot(xc[mod1(k + 1, n)] - xc[mod1(k - 1, n)],
+                          yc[mod1(k + 1, n)] - yc[mod1(k - 1, n)])
+    weights = [span(k) * sqrt((1 - frac[k]) / max(frac[k], 1.0e-3)) for k in 1:n]
+    total = sum(weights)
+    return total > 0 ? SimFloat.(weights ./ total) : fill(SimFloat(1 / n), n)
+end
+
+"""
     build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
 
 Build the static map from each refined panel's surface contour nodes to their
@@ -360,6 +413,7 @@ function build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
     panels = wing.vsm_aero.panels
     station_point = Vector{Vector{Int64}}(undef, length(panels))
     node_couple_shape = Vector{Vector{SimFloat}}(undef, length(panels))
+    node_residual_share = Vector{Vector{SimFloat}}(undef, length(panels))
     max_chord_ratio = 0.0
     for (panel_idx_local, panel) in enumerate(panels)
         panel.section_aero === nothing && error(
@@ -385,6 +439,7 @@ function build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
         end
         station_point[panel_idx_local] = assigned
         node_couple_shape[panel_idx_local] = couple_shape(xc)
+        node_residual_share[panel_idx_local] = node_residual_shares(xc, yc)
     end
     max_chord_ratio > mode.frame_tol_frac && error(
         "AeroPressure wing $(wing.name): max surface-node→point distance is " *
@@ -393,6 +448,7 @@ function build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
         "points are likely misaligned (frame mismatch).")
     mode.station_point = station_point
     mode.node_couple_shape = node_couple_shape
+    mode.node_residual_share = node_residual_share
     prn && println("✓ AeroPressure wing $(wing.name): mapped " *
         "$(sum(length, station_point)) surface nodes across $(length(panels)) " *
         "panels to $(length(wing_pts)) points " *
@@ -583,20 +639,21 @@ end
     surface_node_forces(traction, first_column, n_nodes, panel_force, panel_net,
                         couple, shape)
 
-Force on each contour node of one panel: its frozen traction, an equal share of
-`panel_force - panel_net`, and `shape[node] · couple`. Sums to `panel_force` over the
-panel — the frozen part cancels and [`couple_shape`](@ref) sums to zero — while the
+Force on each contour node of one panel: its frozen traction, its
+[`node_residual_shares`](@ref) share of `panel_force - panel_net`, and
+`shape[node] · couple`. Sums to `panel_force` over the panel — the frozen part
+cancels, `share` sums to one and [`couple_shape`](@ref) sums to zero — while the
 couple adds the pitching moment the shape is normalised to. `traction` is
 column-indexed panel-major as [`freeze_traction_pattern!`](@ref) fills it,
 `first_column` being this panel's first. Works on the symbolic params and on the
 numeric buffers alike, so the scatter has one definition.
 """
 function surface_node_forces(traction, first_column, n_nodes, panel_force, panel_net,
-                             couple, shape)
-    residual = (collect(panel_force) .- collect(panel_net)) ./ n_nodes
+                             couple, shape, share)
+    residual = collect(panel_force) .- collect(panel_net)
     moment = collect(couple)
-    return [[traction[c, first_column + node - 1] for c in 1:3] .+ residual .+
-            shape[node] .* moment
+    return [[traction[c, first_column + node - 1] for c in 1:3] .+
+            share[node] .* residual .+ shape[node] .* moment
             for node in 1:n_nodes]
 end
 
@@ -616,12 +673,12 @@ function accumulate_point_offset!(mode::AeroPressure)
     end
     column = 0
     for (panel, assigned) in enumerate(mode.station_point)
-        share = 1 / length(assigned)
-        for point_idx in assigned
+        share = mode.node_residual_share[panel]
+        for (node, point_idx) in enumerate(assigned)
             column += 1
             total = get!(zero_aero_force, mode.point_offset, point_idx)
             @views total .+= mode.traction[:, column] .-
-                             share .* mode.traction_net[:, panel]
+                             share[node] .* mode.traction_net[:, panel]
         end
     end
     return nothing
@@ -640,19 +697,20 @@ scatter_couple(::AeroPressure, panel_couple, curvature_couple) = curvature_coupl
 """
     aero_scatter_entries(mode::AeroPressure, wing, points)
 
-The surface pattern: a point takes an equal share of its panel's live force for each
-contour node of that panel assigned to it, and that node's [`couple_shape`](@ref)
-share of the panel's couple. The frozen traction itself is constant and lives in
-[`aero_point_offset`](@ref), so only the shares remain here.
+The surface pattern: a point takes each of its contour nodes'
+[`node_residual_shares`](@ref) share of the panel's live force, and that node's
+[`couple_shape`](@ref) share of the panel's couple. The frozen traction itself is
+constant and lives in [`aero_point_offset`](@ref), so only the shares remain here.
 """
 function aero_scatter_entries(mode::AeroPressure, wing, points)
     point_num = Dict(point.idx => k for (k, point) in enumerate(points))
     totals = Dict{Tuple{Int, Int}, Vector{SimFloat}}()
     for (panel, assigned) in enumerate(mode.station_point)
-        share = SimFloat(1 / length(assigned))
+        share = mode.node_residual_share[panel]
         shape = mode.node_couple_shape[panel]
         for (node, point_idx) in enumerate(assigned)
-            scatter_totals!(totals, panel, point_num[point_idx], share, shape[node])
+            scatter_totals!(totals, panel, point_num[point_idx], share[node],
+                            shape[node])
         end
     end
     return scatter_entry_list(totals)
