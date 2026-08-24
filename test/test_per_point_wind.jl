@@ -47,8 +47,9 @@ system:
 
 solver:
     solver: "FBDF"
-    abs_tol: 0.0001
-    rel_tol: 0.0001
+    # below the 1e-6 parity checked here: the two wind paths take different solver steps
+    abs_tol: 1e-9
+    rel_tol: 1e-9
     relaxation: 0.6
 
 kite:
