@@ -430,11 +430,10 @@ end
 """
     scatter_couple(mode, panel_couple, curvature_couple)
 
-The couple array a mode's scatter applies. The default is the whole
-`panel_couple`, the polar moment included. [`AeroPressure`](@ref) already places the
-polar moment with its frozen surface traction, so it takes `curvature_couple` — the
-`VortexStepMethod.flow_curvature_cm` increment on its own — and adding the whole
-couple there would count the polar moment twice.
+The couple array a mode's scatter applies: the whole `panel_couple`, the polar moment
+included, for every mode. The hook is where a mode whose own placement already carries
+part of the moment drops that part; none does today, [`AeroPressure`](@ref) having
+moved to crediting its frozen traction instead ([`anchored_couple`](@ref)).
 """
 scatter_couple(::AbstractAeroModel, panel_couple, curvature_couple) = panel_couple
 

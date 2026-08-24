@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fixed
+- `AeroPressure` now anchors each panel's pitching moment the way it already
+  anchored the force. The frozen surface traction placed whatever moment its Cp
+  pattern happened to carry and nothing corrected it, so a pattern that misplaces
+  load chordwise fed the structure a wrong panel moment. `freeze_traction_pattern!`
+  stores the traction's chordwise first moment and `anchored_couple` credits both
+  it and the equal-per-node residual against `panel_couple`, leaving the delivered
+  moment equal to the VSM one for any Cp. On an SK100 mid-span section the
+  delivered moment was 37-43% short of the polar `Cm` with NeuralFoil tables (1%
+  with XFoil ones); it is now exact either way. Both backends: the monolith adds
+  the term symbolically, the kernel folds the live half into the scatter's force
+  weight and the frozen half into the point offset.
+
 ### Changed
 - `panel_force_eqs` no longer restates the VSM panel aerodynamics symbolically.
   It traces VortexStepMethod's panel kernel (`panel_axes`, `panel_inflow`,

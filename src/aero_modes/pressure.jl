@@ -49,6 +49,10 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
     point_offset::Dict{Int64, Vector{SimFloat}}
     "Frozen per-panel net traction `Σ_nodes` (3 × n_panels)."
     traction_net::Matrix{SimFloat}
+    "Frozen chordwise first moment `Σ x·traction` of each panel (3 × n_panels)."
+    traction_couple::Matrix{SimFloat}
+    "Mean chord fraction of each panel's contour nodes (n_panels)."
+    node_chord_mean::Vector{SimFloat}
     "Polar callables `(panel_idx, α[, δ])` for cl/cd/cm, read as callable flat params."
     cl::Any
     cd::Any
@@ -64,11 +68,13 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
     "Frozen body-frame TE billow offset off the strut line (3 × n_sections)."
     section_te_offset::Matrix{SimFloat}
     AeroPressure{E}(engine, station_point, node_couple_shape, frame_tol_frac,
-        v_ind, chord_weight, traction, point_offset, traction_net, cl, cd, cm,
+        v_ind, chord_weight, traction, point_offset, traction_net,
+        traction_couple, node_chord_mean, cl, cd, cm,
         panel_twist_surface, section_left_strut, section_left_weight,
         section_le_offset, section_te_offset) where {E} =
         new{E}(engine, station_point, node_couple_shape, frame_tol_frac, v_ind,
-               chord_weight, traction, point_offset, traction_net, cl, cd, cm,
+               chord_weight, traction, point_offset, traction_net,
+               traction_couple, node_chord_mean, cl, cd, cm,
                panel_twist_surface, section_left_strut, section_left_weight,
                section_le_offset, section_te_offset)
 end
@@ -78,13 +84,14 @@ AeroPressure(; frame_tol_frac=2.0) =
         Vector{Vector{SimFloat}}(), SimFloat(frame_tol_frac),
         zeros(SimFloat, 3, 0), SimFloat[], zeros(SimFloat, 3, 0),
         Dict{Int64, Vector{SimFloat}}(), zeros(SimFloat, 3, 0),
+        zeros(SimFloat, 3, 0), SimFloat[],
         nothing, nothing, nothing, Int64[],
         Int64[], SimFloat[], zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0))
 attach_engine!(mode::AeroPressure, engine::VSMEngine) =
     AeroPressure{typeof(engine)}(engine, mode.station_point,
         mode.node_couple_shape, mode.frame_tol_frac, mode.v_ind,
         mode.chord_weight, mode.traction, mode.point_offset, mode.traction_net,
-        mode.cl, mode.cd, mode.cm,
+        mode.traction_couple, mode.node_chord_mean, mode.cl, mode.cd, mode.cm,
         mode.panel_twist_surface, mode.section_left_strut,
         mode.section_left_weight, mode.section_le_offset, mode.section_te_offset)
 
@@ -115,8 +122,9 @@ pattern. Each wing node's force is `Σ over mapped (panel, node) of
 traction[node] + (panel_force[panel] − traction_net[panel]) / n_nodes`, so per panel
 the point forces sum to the live `panel_force` exactly. Apparent wind and density are
 per refined section ([`reconstruct_inflow_sym`](@ref)); `v_ind`, `traction`,
-`traction_net` and the `cl/cd/cm` polars are flat params refreshed every
-`vsm_interval`.
+`traction_net`, `traction_couple` and the `cl/cd/cm` polars are flat params refreshed
+every `vsm_interval`. The couple each panel scatters is anchored the same way its force
+is, see [`anchored_couple`](@ref).
 """
 function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
                         name, params=nothing)
@@ -128,6 +136,7 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
     cm = params.wings[wing_idx].aero.cm
     traction_p = params.wings[wing_idx].aero.traction
     traction_net_p = params.wings[wing_idx].aero.traction_net
+    traction_couple_p = params.wings[wing_idx].aero.traction_couple
 
     points = wing_points(sys_struct, wing)
     num_points = length(points)
@@ -160,11 +169,10 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
     delta = has_flap_coupling ? collect(connectors.delta) : nothing
     wagner_eqs, wagner_vars, deficiency, wagner_defaults =
         wagner_wing_eqs(wing, sec_va, params)
-    eqs, panel_vars, panel_force, panel_couple, curvature_couple =
+    eqs, panel_vars, panel_force, panel_couple, _ =
         build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
             cl, cd, cm, spanwise, scale, orient; delta, sec_dva, deficiency)
     append!(eqs, wagner_eqs)
-    couple = scatter_couple(mode, panel_couple, curvature_couple)
     vars = particle_unknowns(connectors)
     append!(vars, panel_vars)
     append!(vars, wagner_vars)
@@ -174,9 +182,12 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
     column = 0
     for i in 1:n_panels
         assigned = mode.station_point[i]
+        net = [traction_net_p[c, i] for c in 1:3]
         node_forces = surface_node_forces(traction_p, column + 1, length(assigned),
-            panel_force[:, i], [traction_net_p[c, i] for c in 1:3],
-            couple[:, i], mode.node_couple_shape[i])
+            panel_force[:, i], net,
+            anchored_couple(panel_couple[:, i], [traction_couple_p[c, i] for c in 1:3],
+                panel_force[:, i], net, mode.node_chord_mean[i]),
+            mode.node_couple_shape[i])
         for node in eachindex(assigned)
             column += 1
             k = point_num[assigned[node]]
@@ -188,7 +199,8 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
         eqs = [eqs; connectors.point_force[:, k] ~ point_force[k]]
     end
     return System(eqs, t, vars,
-        [Any[vind_p, chord_w, cl, cd, cm, traction_p, traction_net_p];
+        [Any[vind_p, chord_w, cl, cd, cm, traction_p, traction_net_p,
+             traction_couple_p];
          wagner_params(wing, params)];
         name, initial_conditions=wagner_defaults)
 end
@@ -360,6 +372,7 @@ function build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
     panels = wing.vsm_aero.panels
     station_point = Vector{Vector{Int64}}(undef, length(panels))
     node_couple_shape = Vector{Vector{SimFloat}}(undef, length(panels))
+    node_chord_mean = Vector{SimFloat}(undef, length(panels))
     max_chord_ratio = 0.0
     for (panel_idx_local, panel) in enumerate(panels)
         panel.section_aero === nothing && error(
@@ -385,6 +398,7 @@ function build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
         end
         station_point[panel_idx_local] = assigned
         node_couple_shape[panel_idx_local] = couple_shape(xc)
+        node_chord_mean[panel_idx_local] = sum(xc) / length(xc)
     end
     max_chord_ratio > mode.frame_tol_frac && error(
         "AeroPressure wing $(wing.name): max surface-node→point distance is " *
@@ -393,6 +407,7 @@ function build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
         "points are likely misaligned (frame mismatch).")
     mode.station_point = station_point
     mode.node_couple_shape = node_couple_shape
+    mode.node_chord_mean = node_chord_mean
     prn && println("✓ AeroPressure wing $(wing.name): mapped " *
         "$(sum(length, station_point)) surface nodes across $(length(panels)) " *
         "panels to $(length(wing_pts)) points " *
@@ -404,7 +419,7 @@ end
     init_pressure_buffers!(mode::AeroPressure, wing)
 
 Size the frozen state buffers (`v_ind`, `chord_weight`, `traction`,
-`traction_net`) to the current
+`traction_net`, `traction_couple`) to the current
 mesh and set the `cl/cd/cm` polar callables. Run after
 [`build_station_point_map!`](@ref) (needs the per-panel node counts).
 """
@@ -417,6 +432,8 @@ function init_pressure_buffers!(mode::AeroPressure, wing)
         (mode.traction = zeros(SimFloat, 3, total_nodes))
     size(mode.traction_net) == (3, n_panels) ||
         (mode.traction_net = zeros(SimFloat, 3, n_panels))
+    size(mode.traction_couple) == (3, n_panels) ||
+        (mode.traction_couple = zeros(SimFloat, 3, n_panels))
     mode.cl = ContinuousPolar(body_aero, VortexStepMethod.calculate_cl)
     mode.cd = ContinuousPolar(body_aero, VortexStepMethod.calculate_cd)
     mode.cm = ContinuousPolar(body_aero, VortexStepMethod.calculate_cm)
@@ -499,6 +516,7 @@ function refresh_particle_aero!(mode::AeroPressure, wing, points,
         fill!(mode.v_ind, 0.0)
         fill!(mode.traction, 0.0)
         fill!(mode.traction_net, 0.0)
+        fill!(mode.traction_couple, 0.0)
         accumulate_point_offset!(mode)
         return nothing
     end
@@ -556,8 +574,10 @@ Fill the frozen traction params from the converged VSM solve: for each refined p
 loft the airfoil surface contour at the effective sectional α (`sol.alpha_dist`), build
 the per-segment traction `(−Cp·n̂ + cf·ŝ)·q·dA` (`n̂` outward, `ŝ` along the chord) into
 `mode.traction` (panel-major node order, matching [`aero_component`](@ref)), and store
-the per-panel net in `mode.traction_net`. The net anchors the symbolic scatter so each
-panel's point forces sum to the live VSM total.
+the per-panel net in `mode.traction_net` and its chordwise first moment `Σ x·traction`
+in `mode.traction_couple`. The net anchors the symbolic scatter so each panel's point
+forces sum to the live VSM total; the first moment does the same for the moment, see
+[`anchored_couple`](@ref).
 """
 function freeze_traction_pattern!(mode::AeroPressure, wing)
     sol = wing.vsm_solver.sol
@@ -576,6 +596,7 @@ function freeze_traction_pattern!(mode::AeroPressure, wing)
                    for p in pos]
         winding = contour_winding(section)
         net = zeros(SimFloat, 3)
+        first_moment = zeros(SimFloat, 3)
         for k in 1:n_nodes
             column += 1
             edge = pos[mod1(k + 1, n_nodes)] - pos[mod1(k - 1, n_nodes)]
@@ -594,12 +615,29 @@ function freeze_traction_pattern!(mode::AeroPressure, wing)
                        (dynamic_pressure * segment_area)
             @views mode.traction[:, column] .= traction
             net .+= traction
+            first_moment .+= xc[k] .* traction
         end
         @views mode.traction_net[:, panel_idx] .= net
+        @views mode.traction_couple[:, panel_idx] .= first_moment
     end
     accumulate_point_offset!(mode)
     return nothing
 end
+
+"""
+    anchored_couple(panel_couple, traction_couple, panel_force, panel_net, chord_mean)
+
+The couple left for [`couple_shape`](@ref) to place, once the frozen traction and the
+equal-per-node residual are credited with the moment they already carry.
+`couple_shape` is normalised to a chordwise first moment of `-1`, so node forces whose
+first moment is `Σ x·f` are already worth a couple of `-Σ x·f`: the traction's is the
+frozen `traction_couple` and the residual's is `chord_mean·(panel_force - panel_net)`.
+Adding both back makes the panel's delivered moment the VSM one whatever the surface
+pressure pattern does, the same way the residual already fixes the force.
+"""
+anchored_couple(panel_couple, traction_couple, panel_force, panel_net, chord_mean) =
+    collect(panel_couple) .+ collect(traction_couple) .+
+    chord_mean .* (collect(panel_force) .- collect(panel_net))
 
 """
     surface_node_forces(traction, first_column, n_nodes, panel_force, panel_net,
@@ -639,11 +677,15 @@ function accumulate_point_offset!(mode::AeroPressure)
     column = 0
     for (panel, assigned) in enumerate(mode.station_point)
         share = 1 / length(assigned)
-        for point_idx in assigned
+        shape = mode.node_couple_shape[panel]
+        chord_mean = mode.node_chord_mean[panel]
+        for (node, point_idx) in enumerate(assigned)
             column += 1
             total = get!(zero_aero_force, mode.point_offset, point_idx)
             @views total .+= mode.traction[:, column] .-
-                             share .* mode.traction_net[:, panel]
+                             share .* mode.traction_net[:, panel] .+
+                             shape[node] .* (mode.traction_couple[:, panel] .-
+                                 chord_mean .* mode.traction_net[:, panel])
         end
     end
     return nothing
@@ -656,8 +698,6 @@ zero_aero_force() = zeros(SimFloat, 3)
 # ==================== per-panel decomposition ==================== #
 
 supports_panel_decomposition(::AeroPressure) = true
-
-scatter_couple(::AeroPressure, panel_couple, curvature_couple) = curvature_couple
 
 """
     aero_scatter_entries(mode::AeroPressure, wing, points)
@@ -673,8 +713,10 @@ function aero_scatter_entries(mode::AeroPressure, wing, points)
     for (panel, assigned) in enumerate(mode.station_point)
         share = SimFloat(1 / length(assigned))
         shape = mode.node_couple_shape[panel]
+        chord_mean = mode.node_chord_mean[panel]
         for (node, point_idx) in enumerate(assigned)
-            scatter_totals!(totals, panel, point_num[point_idx], share, shape[node])
+            scatter_totals!(totals, panel, point_num[point_idx],
+                share + shape[node] * chord_mean, shape[node])
         end
     end
     return scatter_entry_list(totals)

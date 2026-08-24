@@ -355,6 +355,7 @@ SymbolicAWEModels.solve_and_freeze_circulation!
 SymbolicAWEModels.finite_full
 SymbolicAWEModels.set_particle_panel_va!
 SymbolicAWEModels.set_refined_panel_va!
+SymbolicAWEModels.anchored_couple
 SymbolicAWEModels.surface_node_forces
 SymbolicAWEModels.couple_shape
 SymbolicAWEModels.build_mesh_maps!
