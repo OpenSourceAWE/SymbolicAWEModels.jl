@@ -106,6 +106,51 @@ function panel_spanwise_axes(sam, wing)
 end
 
 """
+    panel_columns(matrix)
+
+The columns of a `3 x n_panels` readout as plain vectors, one per panel.
+"""
+panel_columns(matrix) = [Vector(matrix[:, i]) for i in axes(matrix, 2)]
+
+"""
+    panel_curvature_state(sam, wing)
+
+Everything the moment increment is built from, read out of the compiled model per
+refined panel: the scalars `chord`, `width`, `q_dyn` and `pitch_rate`, the body
+frame `y_airf`/`z_airf`, the effective inflow `v_eff`, and the `curvature_couple`
+the increment alone contributes.
+"""
+function panel_curvature_state(sam, wing)
+    aero = aero_subsystem(sam, wing)
+    return (; chord = sam.integrator[collect(aero.chord)],
+            width = sam.integrator[collect(aero.width)],
+            q_dyn = sam.integrator[collect(aero.q_dyn)],
+            pitch_rate = sam.integrator[collect(aero.pitch_rate)],
+            y_airf = panel_columns(sam.integrator[collect(aero.y_airf)]),
+            z_airf = panel_columns(sam.integrator[collect(aero.z_airf)]),
+            v_eff = panel_columns(sam.integrator[collect(aero.v_eff)]),
+            couple = panel_columns(sam.integrator[collect(aero.curvature_couple)]))
+end
+
+"""
+    panel_force_scale(wing)
+
+The chord-error compensation every panel force and couple carries, so a couple read
+out of the model can be turned back into the moment coefficient it came from.
+"""
+panel_force_scale(wing) =
+    1.0 + (isfinite(wing.aero_scale_chord) ? wing.aero_scale_chord :
+           SymbolicAWEModels.AERO_SCALE_CHORD)
+
+"""
+    vsm_panels(wing)
+
+The wing's VortexStepMethod panels, the geometry its own solver would apply the
+increment on.
+"""
+vsm_panels(wing) = SymbolicAWEModels.vsm_engine(wing.aero).vsm_aero.panels
+
+"""
     settle!(sam)
 
 Sync the symbolic aero into the struct without re-solving the circulation, so a
@@ -293,6 +338,61 @@ end
                 # agrees with the panel's own axis only to the mesh resolution.
                 @test rel_error < 0.15
                 @test residual < 0.15
+                inject_velocity!(sam_on, nodes_on, [-v for v in field])
+                end
+            end
+
+            @testset "the increment is VortexStepMethod's" begin
+                has_panel_readout(sam_on) || @test_skip false
+                if has_panel_readout(sam_on)
+                # The modes re-derive the increment instead of running solve!
+                # every step, so what they owe VSM is the formula, the chord it
+                # divides by, the speed it divides by, and the axis of the rate.
+                panels = vsm_panels(wing_on)
+                before = panel_pitch_rates(sam_on, wing_on)
+                omega_body = [0.0, pitch_rate, 0.0]
+                field = rigid_rotation_field(nodes_on,
+                                             wing_on.R_b_to_w * omega_body)
+                injected = inject_velocity!(sam_on, nodes_on, field)
+                @test injected < 1e-3
+                state = panel_curvature_state(sam_on, wing_on)
+                @test length(panels) == length(state.chord)
+                @test state.chord ≈ [panel.chord for panel in panels] rtol=1e-3
+
+                # y_airf runs against VSM's on the panels the mode orients the
+                # other way; z_airf flips with it, so the couple is the same
+                # vector either way and only the rate differs in sign.
+                orientation = [sign(dot(state.y_airf[i], panels[i].y_airf))
+                               for i in eachindex(panels)]
+                @test all(i -> norm(state.y_airf[i] -
+                                    orientation[i] .* panels[i].y_airf) < 1e-6,
+                          eachindex(panels))
+
+                # VSM's own increment, on the panel state the equations feed it.
+                expected = [VortexStepMethod.flow_curvature_cm(
+                                state.pitch_rate[i], state.chord[i],
+                                norm(cross(state.v_eff[i], state.y_airf[i])))
+                            for i in eachindex(panels)]
+                scale = panel_force_scale(wing_on)
+                measured = [dot(state.couple[i], state.z_airf[i]) /
+                            (scale * state.width[i] * state.q_dyn[i] *
+                             state.chord[i]) for i in eachindex(panels)]
+                @test maximum(abs, expected) > 1e-4
+                println("  [$(case.name)] vs VSM: max|dcm|=",
+                    "$(round(maximum(abs, expected); sigdigits=3)), rel_error=",
+                    "$(round(norm(measured - expected) / norm(expected);
+                             sigdigits=3))")
+                @test measured ≈ expected rtol=1e-8
+
+                # And the rate is the one VSM builds from a body rate, up to the
+                # mesh the modes gather it on.
+                body_aero = SymbolicAWEModels.vsm_engine(wing_on.aero).vsm_aero
+                saved = copy(body_aero.pitch_rate_dist)
+                VortexStepMethod.set_pitch_rate_dist!(body_aero, omega_body)
+                vsm_rates = orientation .* Vector(body_aero.pitch_rate_dist)
+                body_aero.pitch_rate_dist .= saved
+                @test norm(state.pitch_rate - before - vsm_rates) /
+                      norm(vsm_rates) < 0.15
                 inject_velocity!(sam_on, nodes_on, [-v for v in field])
                 end
             end

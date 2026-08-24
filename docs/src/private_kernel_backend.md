@@ -165,6 +165,7 @@ SymbolicAWEModels.KinematicBody
 SymbolicAWEModels.body_frame_damp_accel
 SymbolicAWEModels.WingNodePoint
 SymbolicAWEModels.ParticleWingAero
+SymbolicAWEModels.WagnerLag
 SymbolicAWEModels.AeroInflowPoint
 SymbolicAWEModels.AeroInflow
 SymbolicAWEModels.AeroPanel
@@ -192,6 +193,7 @@ SymbolicAWEModels.rigid_wing_aero_wiring
 SymbolicAWEModels.indexed_vector_variables
 SymbolicAWEModels.indexed_scalar_variables
 SymbolicAWEModels.scalar_input
+SymbolicAWEModels.vector_input
 SymbolicAWEModels.body_pose_variables
 SymbolicAWEModels.RidePoint
 SymbolicAWEModels.RideWrench
@@ -231,6 +233,7 @@ SymbolicAWEModels.add_panel_wing_aero!
 SymbolicAWEModels.add_aero_inflow_points!
 SymbolicAWEModels.add_aero_inflows!
 SymbolicAWEModels.add_aero_panels!
+SymbolicAWEModels.add_wagner_lag!
 SymbolicAWEModels.wire_panel_flaps!
 SymbolicAWEModels.add_aero_point_forces!
 SymbolicAWEModels.aero_force_slots

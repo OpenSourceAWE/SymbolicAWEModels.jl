@@ -642,14 +642,19 @@ end
 
 """
     wagner_gain_params(params, wing_idx)
-    wagner_rate_params(params, wing_idx)
 
-The wing's registered Wagner `(A₁, A₂)` and `(b₁, b₂)`. They are ordinary parameters
-like every other tunable scalar, which is what keeps a change of lag out of the model
-cache key.
+The wing's registered Wagner gains `(A₁, A₂)`. An ordinary parameter like every other
+tunable scalar, which is what keeps a change of lag out of the model cache key.
 """
 wagner_gain_params(params, wing_idx) =
     params.wings[wing_idx].aero.unsteady.wagner_gains
+
+"""
+    wagner_rate_params(params, wing_idx)
+
+The wing's registered Wagner rates `(b₁, b₂)`, tunable in the same way as
+[`wagner_gain_params`](@ref).
+"""
 wagner_rate_params(params, wing_idx) =
     params.wings[wing_idx].aero.unsteady.wagner_rates
 
