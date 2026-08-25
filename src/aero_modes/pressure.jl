@@ -38,6 +38,14 @@ own angle of attack, and the result becomes a local `TAYLOR` expansion. The flap
 δ then carries no information and is dropped from the equations entirely, so the RHS
 has no live deflection left in it — only α stays live. Use it where the chord bends
 into a shape a single hinge angle cannot stand for.
+
+A local fit is only answerable near the angle of attack it was built about, so
+bring-up has to be damped enough to keep it there. Releasing the SK100 from its
+placed geometry at `start_world_damping = 20` accelerates the wing to 20 m/s in
+10 ms, slewing α some 20° out of the window inside one 0.05 s step; the solve is
+lost and the mode says so rather than answering. At `300` the same settle runs to
+convergence. A tabulated polar spans the whole range and does not care, which is
+the trade this makes.
 """
 mutable struct AeroPressure{E} <: AbstractVSMAero
     engine::Union{Nothing, E}

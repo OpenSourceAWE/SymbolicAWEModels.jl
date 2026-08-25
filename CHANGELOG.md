@@ -13,6 +13,14 @@
   that bends into a shape no single hinge angle stands for — the flap angle δ then
   carries nothing, so it is dropped from the generated equations entirely and only
   α stays live in the RHS. Requires VortexStepMethod 4.2.
+
+  A local fit answers only near the angle of attack it was built about, so bring-up
+  has to be damped enough to keep it there — on the SK100, `start_world_damping`
+  300 rather than 20, which is what the placed geometry needs before the wing
+  reaches 20 m/s in 10 ms and slews α out of the window in a single step. Settled
+  at 12 m/s the two agree; at 20 m/s the live polars settle to a peak tube bending
+  margin of 1.02 against the tabulated 4.71, with 3 of 49 joints past the collapse
+  knee rather than 10.
 - The continuous VSM modes carry VortexStepMethod's `flow_curvature` moment
   increment, the thin-airfoil `Δcm = -(π/4)·q̂` of a section rotating about its
   own spanwise axis. They re-derive the panel force symbolically instead of
