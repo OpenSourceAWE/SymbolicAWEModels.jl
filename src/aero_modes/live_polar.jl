@@ -151,20 +151,36 @@ function refit_live_polars!(mode::AeroPressure, wing, alpha)
 end
 
 """
+    live_polar_alpha(wing) -> Vector{SimFloat}
+
+The angles of attack [rad] to fit each panel's polar about: the previous solve's
+converged `lr.alpha_dist`, or, before there is one, each panel's geometric angle from
+its own apparent wind. Fitting the first solve of a run about zero would hand it
+polars extrapolated the whole way to the real angle.
+"""
+function live_polar_alpha(wing)
+    alpha = collect(SimFloat, wing.vsm_solver.lr.alpha_dist)
+    all(iszero, alpha) || return alpha
+    return [SimFloat(VortexStepMethod.calculate_relative_alpha_and_relative_velocity(
+                panel, zeros(SimFloat, 3))[1])
+            for panel in wing.vsm_aero.panels]
+end
+
+"""
     solve_with_live_polars!(mode::AeroPressure, wing, points; cold_start=false,
                             max_refits=3)
 
 Solve the wing with polars regenerated from its current shape. The fit is built about
-the previous solve's angles of attack, which the first solve of a run does not have, so
-the solve is repeated while any panel has converged outside the fit window — a local
-expansion says nothing there, and its arms diverge fast. Errors if the window is still
-not held after `max_refits` fits.
+[`live_polar_alpha`](@ref), and the solve repeated while any panel converged outside
+the fit window — a local expansion is only continued linearly there, so the answer is
+an extrapolation until the fit is moved to where the solve went. Errors if the window
+is still not held after `max_refits` fits.
 """
 function solve_with_live_polars!(mode::AeroPressure, wing, points;
                                  cold_start=false, max_refits=3)
     state = mode.live::LivePolarState
     update_live_deflection!(mode, wing, points)
-    alpha = collect(SimFloat, wing.vsm_solver.lr.alpha_dist)
+    alpha = live_polar_alpha(wing)
     for _ in 1:max_refits
         refit_live_polars!(mode, wing, alpha)
         solve_and_freeze_circulation!(mode, wing; cold_start)
