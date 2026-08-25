@@ -7,7 +7,7 @@
 # ContinuousAero; only the scatter differs (surface pattern vs strut couple).
 
 """
-    AeroPressure(; frame_tol_frac=2.0)
+    AeroPressure(; frame_tol_frac=2.0, live_polars=false)
 
 VSM aerodynamics whose per-section force is distributed onto arbitrary structural
 points (a chord-line skeleton, a strut, or a double-skin membrane of point masses)
@@ -30,6 +30,14 @@ LE/TE is a live function of the station points' `pos_w`. `frame_tol_frac` is the
 frame-alignment guard: construction errors if any surface node maps to a point farther
 than `frame_tol_frac ×` the local chord. Carries a [`VSMEngine`](@ref); the no-arg form
 is the engine-less marker filled in during wing construction.
+
+`live_polars` replaces the tabulated `(α, δ)` polars with polars regenerated from the
+deformed shape every solve (see [`solve_with_live_polars!`](@ref)): each panel's
+chordwise deformation deforms its Kulfan fit, NeuralFoil is evaluated about the panel's
+own angle of attack, and the result becomes a local `TAYLOR` expansion. The flap angle
+δ then carries no information and is dropped from the equations entirely, so the RHS
+has no live deflection left in it — only α stays live. Use it where the chord bends
+into a shape a single hinge angle cannot stand for.
 """
 mutable struct AeroPressure{E} <: AbstractVSMAero
     engine::Union{Nothing, E}
@@ -65,24 +73,30 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
     section_le_offset::Matrix{SimFloat}
     "Frozen body-frame TE billow offset off the strut line (3 × n_sections)."
     section_te_offset::Matrix{SimFloat}
+    "Regenerate the polars from the deformed shape each solve instead of reading δ tables."
+    live_polars::Bool
+    "Live polar source and control-point map, `nothing` unless `live_polars`."
+    live::Any
     AeroPressure{E}(engine, station_point, node_couple_shape, node_residual_share,
         frame_tol_frac, v_ind, chord_weight, traction, point_offset, traction_net,
         cl, cd, cm, panel_twist_surface, section_left_strut, section_left_weight,
-        section_le_offset, section_te_offset) where {E} =
+        section_le_offset, section_te_offset, live_polars, live) where {E} =
         new{E}(engine, station_point, node_couple_shape, node_residual_share,
                frame_tol_frac, v_ind, chord_weight, traction, point_offset,
                traction_net, cl, cd, cm, panel_twist_surface, section_left_strut,
-               section_left_weight, section_le_offset, section_te_offset)
+               section_left_weight, section_le_offset, section_te_offset,
+               live_polars, live)
 end
 
-AeroPressure(; frame_tol_frac=2.0) =
+AeroPressure(; frame_tol_frac=2.0, live_polars=false) =
     AeroPressure{VSMEngine}(nothing, Vector{Vector{Int64}}(),
         Vector{Vector{SimFloat}}(), Vector{Vector{SimFloat}}(),
         SimFloat(frame_tol_frac),
         zeros(SimFloat, 3, 0), SimFloat[], zeros(SimFloat, 3, 0),
         Dict{Int64, Vector{SimFloat}}(), zeros(SimFloat, 3, 0),
         nothing, nothing, nothing, Int64[],
-        Int64[], SimFloat[], zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0))
+        Int64[], SimFloat[], zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0),
+        live_polars, nothing)
 attach_engine!(mode::AeroPressure, engine::VSMEngine) =
     AeroPressure{typeof(engine)}(engine, mode.station_point,
         mode.node_couple_shape, mode.node_residual_share, mode.frame_tol_frac,
@@ -90,7 +104,8 @@ attach_engine!(mode::AeroPressure, engine::VSMEngine) =
         mode.chord_weight, mode.traction, mode.point_offset, mode.traction_net,
         mode.cl, mode.cd, mode.cm,
         mode.panel_twist_surface, mode.section_left_strut,
-        mode.section_left_weight, mode.section_le_offset, mode.section_te_offset)
+        mode.section_left_weight, mode.section_le_offset, mode.section_te_offset,
+        mode.live_polars, mode.live)
 
 is_builtin_aero(::AeroPressure) = true
 aero_mode_tag(::AeroPressure) = "press"
@@ -104,6 +119,7 @@ frozen-force build that used the default empty id). The panel→flap-twist_surfa
 map is likewise baked into the δ wiring.
 """
 aero_hash_id(mode::AeroPressure) = (mode.station_point, mode.panel_twist_surface,
+    mode.live_polars,
     mode.section_left_strut, round.(mode.section_left_weight; digits=8),
     round.(mode.section_le_offset; digits=8),
     round.(mode.section_te_offset; digits=8))
@@ -214,6 +230,10 @@ build_panel_twist_surface_map!(::AbstractAeroModel, wing, sys_struct) = nothing
 function build_panel_twist_surface_map!(mode::AeroPressure, wing, sys_struct)
     panels = wing.vsm_aero.panels
     n_panels = length(panels)
+    if mode.live_polars
+        mode.panel_twist_surface = zeros(Int64, n_panels)
+        return nothing
+    end
     flaps = [ts for ts in sys_struct.twist_surfaces
              if ts.type == KINEMATIC && has_flap(ts) && ts.wing_idx == wing.idx]
     if isempty(flaps)
@@ -499,6 +519,7 @@ function setup_aero!(mode::AeroPressure, wing, points, twist_surfaces; prn=false
         build_section_interp(wing.vsm_wing)
     build_station_point_map!(mode, wing, points; prn)
     init_pressure_buffers!(mode, wing)
+    mode.live_polars && build_live_polars!(mode, wing, points)
     return nothing
 end
 
@@ -533,6 +554,7 @@ function remake_aero!(mode::AeroPressure, wing, set, vsm_set, points,
         build_section_interp(wing.vsm_wing)
     build_station_point_map!(mode, wing, points)
     init_pressure_buffers!(mode, wing)
+    mode.live_polars && build_live_polars!(mode, wing, points)
     return nothing
 end
 
@@ -561,7 +583,11 @@ function refresh_particle_aero!(mode::AeroPressure, wing, points,
     end
     update_vsm_wing_from_structure!(wing, points)
     set_refined_panel_va!(mode, wing, points, va_point_b_vals)
-    solve_and_freeze_circulation!(mode, wing; cold_start)
+    if mode.live_polars
+        solve_with_live_polars!(mode, wing, points; cold_start)
+    else
+        solve_and_freeze_circulation!(mode, wing; cold_start)
+    end
     freeze_traction_pattern!(mode, wing)
     any(!isfinite, mode.traction) && throw(AssertionError(
         "AeroPressure: non-finite traction pattern on wing $(wing.idx)"))

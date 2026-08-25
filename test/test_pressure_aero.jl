@@ -32,23 +32,6 @@ using LinearAlgebra
 @isdefined(write_pressure_fixture) ||
     include(joinpath(@__DIR__, "pressure_fixture.jl"))
 
-"""
-    load_pressure_sys(data_path, aero_mode)
-
-`Settings` and `SystemStructure` for the particle 2plate kite carrying
-`aero_mode`, reading the fixture-patched geometry under `data_path`.
-"""
-function load_pressure_sys(data_path, aero_mode)
-    set_data_path(data_path)
-    set = Settings("system.yaml")
-    vsm_set = VortexStepMethod.VSMSettings(
-        joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    particle_yaml = joinpath(data_path, "particle_structural_geometry.yaml")
-    sys = load_sys_struct_from_yaml(particle_yaml; system_name="pressure_test",
-        set, vsm_set, aero_mode)
-    return set, sys
-end
-
 @testset "AeroPressure" begin
     pkg_root = dirname(@__DIR__)
     tmpdir = mktempdir()
@@ -172,7 +155,8 @@ end
             f_vsm = Vector(sol.f_body_3D[:, i])
             node_forces = surface_node_forces(mode.traction, column + 1,
                 length(assigned), f_vsm, mode.traction_net[:, i],
-                zeros(SimFloat, 3), mode.node_couple_shape[i])
+                zeros(SimFloat, 3), mode.node_couple_shape[i],
+                mode.node_residual_share[i])
             applied = zeros(SimFloat, 3)
             pattern = zeros(SimFloat, 3)
             for node in eachindex(assigned)

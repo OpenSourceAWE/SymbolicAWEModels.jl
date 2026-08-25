@@ -397,6 +397,12 @@ SymbolicAWEModels.twist_surface_deltas
 SymbolicAWEModels.apply_flap_delta!
 SymbolicAWEModels.init_pressure_buffers!
 SymbolicAWEModels.freeze_traction_pattern!
+SymbolicAWEModels.LivePolarState
+SymbolicAWEModels.chord_frame_coordinates
+SymbolicAWEModels.build_live_polars!
+SymbolicAWEModels.update_live_deflection!
+SymbolicAWEModels.refit_live_polars!
+SymbolicAWEModels.solve_with_live_polars!
 SymbolicAWEModels.contour_winding
 SymbolicAWEModels.write_aero_forces!
 SymbolicAWEModels.accumulate_point_offset!

@@ -213,6 +213,7 @@ include("aero_modes/direct.jl")
 include("aero_modes/linearized.jl")
 include("aero_modes/continuous.jl")
 include("aero_modes/pressure.jl")
+include("aero_modes/live_polar.jl")
 include("aero_modes/plate.jl")
 # Winch models; loaded after generate_system for the MTK/flat-params it uses.
 include("winch_models/common.jl")

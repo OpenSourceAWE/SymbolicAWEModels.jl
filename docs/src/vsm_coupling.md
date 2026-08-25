@@ -223,6 +223,31 @@ between two structural bodies about a hinge, modelled by a
 `KINEMATIC` [`TwistSurface`](@ref) — which feeds the ``(\alpha,
 \delta)`` polars each RHS step.
 
+#### Live polars
+
+`AeroPressure(; live_polars=true)` drops the ``\delta`` axis and
+regenerates each panel's polar from its **deformed shape** every VSM
+solve instead. The structural points a panel already scatters its load
+onto are read as control points; their offset off the deformed chord
+line deforms the panel's Kulfan fit analytically (a matvec against a
+constant CST basis — the fit itself is never rebuilt, since it is
+non-unique), NeuralFoil is evaluated a few angles either side of the
+panel's own ``\alpha``, and the least-squares result becomes a local
+`TAYLOR` expansion valid over that window. A drift guard refits and
+re-solves whenever the solve leaves it.
+
+Use it where the chord bends into a shape a single hinge angle cannot
+stand for — a chordwise Timoshenko beam, and later a membrane whose
+upper and lower control points move apart. The wing must carry
+chordwise stations for it to see anything: with only leading- and
+trailing-edge points the chord frame is built on the control points
+themselves and the deflection is identically zero, which the build
+warns about.
+
+Because ``\delta`` then carries no information, no panel is wired to a
+flap surface and the deflection leaves the generated equations
+entirely — only ``\alpha`` stays live in the RHS.
+
 ### `AeroPlate`
 
 Flat-plate lift and drag from a polar table (CL/CD vs α) evaluated by
@@ -247,6 +272,7 @@ build.
 | [`AeroDirect`](@ref) | `direct` | ✔ | ✔ (default) |
 | [`ContinuousAero`](@ref) | `continuous` | — | ✔ |
 | [`AeroPressure`](@ref) | `pressure` | — | ✔ |
+| [`AeroPressure`](@ref) live polars | `pressure` + `live_polars` | — | ✔ |
 | [`AeroPlate`](@ref) | `plate` | — | ✔ |
 | [`AeroNone`](@ref) | `none` | ✔ | ✔ |
 

@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Added
+- `AeroPressure(; live_polars=true)`: instead of reading a tabulated `(α, δ)`
+  polar, every panel's polar is regenerated from its deformed shape at each VSM
+  solve. The structural points a panel already scatters its load onto are read as
+  control points, their offset off the deformed chord line deforms the panel's
+  Kulfan fit analytically, NeuralFoil is evaluated a few angles either side of the
+  panel's own α, and the result becomes a local `TAYLOR` expansion. A drift guard
+  refits and re-solves if the solve leaves the fit window. This is for a chord
+  that bends into a shape no single hinge angle stands for — the flap angle δ then
+  carries nothing, so it is dropped from the generated equations entirely and only
+  α stays live in the RHS. Requires VortexStepMethod 4.2.
 - The continuous VSM modes carry VortexStepMethod's `flow_curvature` moment
   increment, the thin-airfoil `Δcm = -(π/4)·q̂` of a section rotating about its
   own spanwise axis. They re-derive the panel force symbolically instead of
