@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+- `roll`, `pitch` and `yaw` came from a NED Euler formula applied to `Q_b_to_w`, which
+  is ENU, so the angles were not the ones any sensor or controller reports; yaw was out
+  by 90 degrees at zenith. They now come from `KiteUtils.euler_ks`, which converts the
+  `KA` attitude to `KS` first. `ss.orient` needs no conversion: KiteUtils 0.13 stores
+  `KA`, which is what `Q_b_to_w` already is.
+
+### Changed
+- compat bound on KiteUtils raised to `0.13`.
+
 ## v0.15.1 22-08-2026
 
 ### Changed

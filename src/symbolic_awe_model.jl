@@ -395,16 +395,8 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.tether_induced_force .= wing.tether_force
         ss.tether_induced_moment .= wing.tether_moment
         ss.vel_kite .= wing.vel_w
-        # Calculate Roll, Pitch, Yaw from Quaternion
-        q = wing.Q_b_to_w
-        sinr_cosp = 2 * (q[1] * q[2] + q[3] * q[4])
-        cosr_cosp = 1 - 2 * (q[2] * q[2] + q[3] * q[3])
-        ss.roll = atan(sinr_cosp, cosr_cosp)
-        sinp = 2 * (q[1] * q[3] - q[4] * q[2])
-        ss.pitch = abs(sinp) >= 1 ? copysign(pi / 2, sinp) : asin(sinp)
-        siny_cosp = 2 * (q[1] * q[4] + q[2] * q[3])
-        cosy_cosp = 1 - 2 * (q[3] * q[3] + q[4] * q[4])
-        ss.yaw = atan(siny_cosp, cosy_cosp)
+        # Q_b_to_w is KA; roll, pitch and yaw are KS, measured against NED.
+        ss.roll, ss.pitch, ss.yaw = euler_ks(wing.Q_b_to_w, KA)
     end
     for point in points
         ss.X[point.idx] = point.pos_w[1] * zoom
