@@ -45,11 +45,11 @@ the one [`freeze_traction_pattern!`](@ref) lofts the surface in, so a control po
 the traction pattern cannot disagree about which way is up.
 """
 function chord_frame_coordinates(panel, pos_b)
-    le_mid = 0.5 .* (Vector(panel.LE_point_1) .+ Vector(panel.LE_point_2))
-    offset = pos_b .- le_mid
+    le_mid = 0.5 .* (SVector{3}(panel.LE_point_1) .+ SVector{3}(panel.LE_point_2))
+    offset = SVector{3}(pos_b) .- le_mid
     chord = max(panel.chord, eps())
-    return (dot(offset, Vector(panel.x_airf)) / chord,
-            dot(offset, Vector(panel.z_airf)) / chord)
+    return (dot(offset, SVector{3}(panel.x_airf)) / chord,
+            dot(offset, SVector{3}(panel.z_airf)) / chord)
 end
 
 """
