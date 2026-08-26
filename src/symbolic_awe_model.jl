@@ -395,8 +395,6 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.tether_induced_force .= wing.tether_force
         ss.tether_induced_moment .= wing.tether_moment
         ss.vel_kite .= wing.vel_w
-        # Q_b_to_w is KA; roll, pitch and yaw are KS, measured against NED.
-        ss.roll, ss.pitch, ss.yaw = euler_ks(wing.Q_b_to_w, KA)
     end
     for point in points
         ss.X[point.idx] = point.pos_w[1] * zoom
