@@ -33,19 +33,18 @@ is the engine-less marker filled in during wing construction.
 
 `live_polars` replaces the tabulated `(α, δ)` polars with polars regenerated from the
 deformed shape every solve (see [`solve_with_live_polars!`](@ref)): each panel's
-chordwise deformation deforms its Kulfan fit, NeuralFoil is evaluated about the panel's
-own angle of attack, and the result becomes a local `TAYLOR` expansion. The flap angle
-δ then carries no information and is dropped from the equations entirely, so the RHS
-has no live deflection left in it — only α stays live. Use it where the chord bends
-into a shape a single hinge angle cannot stand for.
+chordwise deformation deforms its Kulfan fit, NeuralFoil is evaluated on a grid of
+angles about the panel's own angle of attack, and those values become its `SAMPLED`
+polar. The flap angle δ then carries no information and is dropped from the equations
+entirely, so the RHS has no live deflection left in it — only α stays live. Use it
+where the chord bends into a shape a single hinge angle cannot stand for.
 
-A local fit is only answerable near the angle of attack it was built about, so
-bring-up has to be damped enough to keep it there. Releasing the SK100 from its
-placed geometry at `start_world_damping = 20` accelerates the wing to 20 m/s in
-10 ms, slewing α some 20° out of the window inside one 0.05 s step; the solve is
-lost and the mode says so rather than answering. At `300` the same settle runs to
-convergence. A tabulated polar spans the whole range and does not care, which is
-the trade this makes.
+A live polar spans only the angles it was sampled over and is held flat past them, so
+bring-up still wants damping enough to keep the solve inside that range — releasing the
+SK100 from its placed geometry at `start_world_damping = 20` accelerates the wing to
+20 m/s in 10 ms and slews α some 20° inside one 0.05 s step, where `300` settles. Past
+the range the answer is bounded rather than lost, which is the difference from a
+tabulated polar spanning the whole range: stale, not wrong-signed.
 """
 mutable struct AeroPressure{E} <: AbstractVSMAero
     engine::Union{Nothing, E}
@@ -422,6 +421,41 @@ function node_residual_shares(xc, yc)
 end
 
 """
+    panel_station_candidates(mode, panels, twist_surfaces, points, wing,
+                             point_idx, point_pos_b)
+        -> Vector{Vector{Tuple{Int64, KVec3}}}
+
+The structural points each panel is allowed to map onto: those of the one spanwise
+station it sits closest to, rather than every point on the wing.
+
+Which strut a panel sits on comes from the refined-section interpolation the loft
+carries, not from measuring the panel's position, so it holds for a swept or dihedral
+wing as well as a flat one. A panel is a slice of one airfoil, and it has to stay on one
+strut. Left to search the
+whole wing, the nodes near a station boundary defect to the neighbouring strut, so half
+an airfoil hangs off one station and half off the next — the panel then spans two
+spanwise planes, and a chordwise profile read off it has a step in it that no airfoil
+basis can represent. Choosing the station first and mapping within it keeps each panel
+whole. Returns `nothing` when the wing declares no twist surfaces, which leaves
+the caller on the plain nearest-point search: matching by chord fraction alone is only
+safe once the candidates are confined to one station, since the same fraction occurs at
+every station across the span.
+"""
+function panel_station_candidates(mode, panels, twist_surfaces, points, wing,
+                                  point_idx, point_pos_b)
+    stations = control_point_stations(twist_surfaces, points, wing)
+    length(stations) >= 2 || return nothing
+    lookup = Dict(zip(point_idx, point_pos_b))
+    grouped = [[(idx, lookup[idx]) for idx in group if haskey(lookup, idx)]
+               for group in stations]
+    any(isempty, grouped) && return nothing
+    strut, blend = panel_strut_blend(mode, length(stations), length(panels))
+    return [grouped[blend[i] < 0.5 ? strut[i] :
+                    min(strut[i] + 1, length(stations))]
+            for i in eachindex(panels)]
+end
+
+"""
     build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
 
 Build the static map from each refined panel's surface contour nodes to their
@@ -429,7 +463,8 @@ nearest wing-node structural point (body frame), and apply the frame-alignment g
 Stored in `mode.station_point`; errors on a missing `section_aero` or a mesh that
 sits farther than `frame_tol_frac` chords from the points.
 """
-function build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
+function build_station_point_map!(mode::AeroPressure, wing, points, twist_surfaces;
+                                  prn=false)
     wing_pts = [p for p in points if p.is_wing_node && p.wing_idx == wing.idx]
     isempty(wing_pts) && error(
         "AeroPressure wing $(wing.name): no wing nodes to receive forces.")
@@ -439,6 +474,8 @@ function build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
     point_pos_b = [rot_cad_to_body * (p.pos_cad - origin_cad) for p in wing_pts]
 
     panels = wing.vsm_aero.panels
+    candidates = panel_station_candidates(mode, panels, twist_surfaces, points,
+                                          wing, point_idx, point_pos_b)
     station_point = Vector{Vector{Int64}}(undef, length(panels))
     node_couple_shape = Vector{Vector{SimFloat}}(undef, length(panels))
     node_residual_share = Vector{Vector{SimFloat}}(undef, length(panels))
@@ -450,20 +487,27 @@ function build_station_point_map!(mode::AeroPressure, wing, points; prn=false)
         xc, yc, _, _ = VortexStepMethod.section_surface(
             panel.section_aero, 0.0, panel.delta)
         assigned = Vector{Int64}(undef, length(xc))
+        near = isnothing(candidates) ? nothing : candidates[panel_idx_local]
+        near_fraction = isnothing(near) ? nothing :
+            [chord_frame_coordinates(panel, pos_b)[1] for (_, pos_b) in near]
         for k in eachindex(xc)
             node = loft_contour_node(panel, xc, yc, k)
-            min_dist = Inf
-            best = point_idx[1]
-            for (m, pos_b) in enumerate(point_pos_b)
-                dist = norm(node - pos_b)
-                if dist < min_dist
-                    min_dist = dist
-                    best = point_idx[m]
+            if isnothing(near)
+                min_dist = Inf
+                best = point_idx[1]
+                for (m, pos_b) in enumerate(point_pos_b)
+                    dist = norm(node - pos_b)
+                    dist < min_dist && (min_dist = dist; best = point_idx[m])
                 end
+                assigned[k] = best
+                max_chord_ratio = max(max_chord_ratio,
+                                      min_dist / max(panel.chord, eps()))
+            else
+                pick = argmin(abs.(near_fraction .- xc[k]))
+                assigned[k] = near[pick][1]
+                max_chord_ratio = max(max_chord_ratio,
+                    norm(node - near[pick][2]) / max(panel.chord, eps()))
             end
-            assigned[k] = best
-            max_chord_ratio = max(max_chord_ratio,
-                                  min_dist / max(panel.chord, eps()))
         end
         station_point[panel_idx_local] = assigned
         node_couple_shape[panel_idx_local] = couple_shape(xc)
@@ -525,9 +569,9 @@ function setup_aero!(mode::AeroPressure, wing, points, twist_surfaces; prn=false
     mode.section_left_strut, mode.section_left_weight,
         mode.section_le_offset, mode.section_te_offset =
         build_section_interp(wing.vsm_wing)
-    build_station_point_map!(mode, wing, points; prn)
+    build_station_point_map!(mode, wing, points, twist_surfaces; prn)
     init_pressure_buffers!(mode, wing)
-    mode.live_polars && build_live_polars!(mode, wing, points)
+    mode.live_polars && build_live_polars!(mode, wing, points, twist_surfaces)
     return nothing
 end
 
@@ -560,9 +604,9 @@ function remake_aero!(mode::AeroPressure, wing, set, vsm_set, points,
     mode.section_left_strut, mode.section_left_weight,
         mode.section_le_offset, mode.section_te_offset =
         build_section_interp(wing.vsm_wing)
-    build_station_point_map!(mode, wing, points)
+    build_station_point_map!(mode, wing, points, twist_surfaces)
     init_pressure_buffers!(mode, wing)
-    mode.live_polars && build_live_polars!(mode, wing, points)
+    mode.live_polars && build_live_polars!(mode, wing, points, twist_surfaces)
     return nothing
 end
 
@@ -621,7 +665,9 @@ end
     freeze_traction_pattern!(mode::AeroPressure, wing)
 
 Fill the frozen traction params from the converged VSM solve: for each refined panel
-loft the airfoil surface contour at the effective sectional α (`sol.alpha_dist`), build
+loft the airfoil surface contour and take its traction pattern from
+[`surface_pattern`](@ref) — the section's own tables at the effective sectional α
+(`sol.alpha_dist`), or, on live polars, the deformed shape's — build
 the per-segment traction `(−Cp·n̂ + cf·ŝ)·q·dA` (`n̂` outward, `ŝ` along the chord) into
 `mode.traction` (panel-major node order, matching [`aero_component`](@ref)), and store
 the per-panel net in `mode.traction_net`. The net anchors the symbolic scatter so each
@@ -633,8 +679,8 @@ function freeze_traction_pattern!(mode::AeroPressure, wing)
     dynamic_pressure = 0.5 * wing.vsm_solver.density * dot(wing.va_b, wing.va_b)
     column = 0
     for (panel_idx, panel) in enumerate(panels)
-        xc, yc, cp, cf = VortexStepMethod.section_surface(
-            panel.section_aero, sol.alpha_dist[panel_idx], panel.delta)
+        xc, yc, cp, cf = surface_pattern(mode, panel, panel_idx,
+                                         sol.alpha_dist[panel_idx])
         n_nodes = length(xc)
         chord_axis = Vector(panel.x_airf)
         normal_axis = Vector(panel.z_airf)

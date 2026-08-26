@@ -332,6 +332,7 @@ SymbolicAWEModels.plot_wing_aero!
 SymbolicAWEModels.update_wing_aero_plot!
 SymbolicAWEModels.load_wing
 SymbolicAWEModels.restore_flap_delta!
+SymbolicAWEModels.restore_live_shape!
 SymbolicAWEModels.write_flap_deflections!
 SymbolicAWEModels.n_flap_deflections
 ```
@@ -400,8 +401,14 @@ SymbolicAWEModels.freeze_traction_pattern!
 SymbolicAWEModels.LivePolarState
 SymbolicAWEModels.chord_frame_coordinates
 SymbolicAWEModels.build_live_polars!
+SymbolicAWEModels.control_point_stations
+SymbolicAWEModels.panel_station_candidates
+SymbolicAWEModels.panel_strut_blend
 SymbolicAWEModels.update_live_deflection!
 SymbolicAWEModels.refit_live_polars!
+SymbolicAWEModels.refresh_live_pressure!
+SymbolicAWEModels.surface_pattern
+SymbolicAWEModels.panel_reynolds
 SymbolicAWEModels.live_polar_alpha
 SymbolicAWEModels.solve_with_live_polars!
 SymbolicAWEModels.contour_winding

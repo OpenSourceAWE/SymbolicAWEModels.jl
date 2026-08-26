@@ -1865,6 +1865,14 @@ restores its `PARTICLE_DYNAMICS` panels.
 """
 restore_flap_delta!(::AbstractAeroModel, wing, sys_state) = nothing
 
+"""
+    restore_live_shape!(mode, wing, points)
+
+Re-derive the mode's live airfoil shapes from a replayed log frame's structure.
+Default no-op; [`AeroPressure`](@ref) rebuilds them when it is on live polars.
+"""
+restore_live_shape!(::AbstractAeroModel, wing, points) = nothing
+
 # ==================== shared VSM numerics ==================== #
 
 """

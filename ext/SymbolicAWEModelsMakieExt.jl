@@ -1027,6 +1027,7 @@ function Makie.plot!(ax, sys::SystemStructure;
         if overlay !== nothing
             plots[:aero_mapping_lines] = overlay.lines
             plots[:aero_mapping_receivers] = overlay.receivers
+            plots[:aero_mapping] = [overlay.lines, overlay.receivers]
         end
     end
 
@@ -3850,6 +3851,7 @@ Replay a SysLog with interactive 3D visualization and playback controls.
 # - `loop::Bool=false`: Loop playback continuously
 # - `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
 # - `show_panes::Bool=true`: Show gray background reference panes (set `false` for white-only background)
+# - `show_aero_mapping::Bool=false`: Draw which structural point each panel's surface nodes map to; off by default, toggle it with the "Aero map" checkbox
 # - All other keyword arguments are passed through to the SystemStructure plot function
 
 # Returns
@@ -3888,6 +3890,7 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
                       show_beam=true,
                       show_panels=false,
                       show_airfoils=true,
+                      show_aero_mapping=false,
                       transparency=true,
                       kwargs...)
 
@@ -3900,9 +3903,11 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     # Create every toggleable layer up front (so the checkboxes can show any of
     # them); their initial visibility is set from the `show_*` flags below.
     passthrough = filter(pair -> !(pair.first in
-        (:plot_vsm, :plot_airfoils, :show_body_frame, :show_wing_frame)), kwargs)
+        (:plot_vsm, :plot_airfoils, :show_body_frame, :show_wing_frame,
+         :aero_mapping, :show_aero_mapping)), kwargs)
     scene = plot(sys; vector_scale, plot_vsm=true, plot_airfoils=true,
-                 show_body_frame=true, show_wing_frame=true, transparency,
+                 show_body_frame=true, show_wing_frame=true,
+                 aero_mapping=true, show_aero_mapping, transparency,
                  passthrough...)
 
     # Define callbacks for UI controls
@@ -3919,7 +3924,8 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
                            ("Body frame", :bodies, show_body_frame),
                            ("Beam", :beam_tubes, show_beam),
                            ("Panels", :vsm, show_panels),
-                           ("Airfoil", :airfoils, show_airfoils))
+                           ("Airfoil", :airfoils, show_airfoils),
+                           ("Aero map", :aero_mapping, show_aero_mapping))
                if haskey(layers, t[2])]
 
     # Setup replay controls using shared function
@@ -3979,6 +3985,7 @@ function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemS
                       show_beam=true,
                       show_panels=false,
                       show_airfoils=true,
+                      show_aero_mapping=false,
                       kwargs...)
 
     length(logs) == length(syss) || error("logs and systems must have same length")
@@ -3991,10 +3998,12 @@ function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemS
 
     # Build the primary with every toggleable layer so the checkboxes can show any.
     passthrough = filter(pair -> !(pair.first in
-        (:plot_vsm, :plot_airfoils, :show_body_frame, :show_wing_frame)), kwargs)
+        (:plot_vsm, :plot_airfoils, :show_body_frame, :show_wing_frame,
+         :aero_mapping, :show_aero_mapping)), kwargs)
     scene = plot(syss; ghost_color, ghost_alpha, vector_scale, transparency,
                  plot_vsm=true, plot_airfoils=true,
-                 show_body_frame=true, show_wing_frame=true, passthrough...)
+                 show_body_frame=true, show_wing_frame=true,
+                 aero_mapping=true, show_aero_mapping, passthrough...)
 
     update_frame!(idx) = (update_multi_states!(syss, logs, idx);
                           refresh_multi_frame!(primary_sys; vector_scale))
@@ -4009,7 +4018,8 @@ function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemS
                            ("Body frame", :bodies, show_body_frame),
                            ("Beam", :beam_tubes, show_beam),
                            ("Panels", :vsm, show_panels),
-                           ("Airfoil", :airfoils, show_airfoils))
+                           ("Airfoil", :airfoils, show_airfoils),
+                           ("Aero map", :aero_mapping, show_aero_mapping))
                if haskey(layers, t[2])]
 
     setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;

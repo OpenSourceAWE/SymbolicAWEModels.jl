@@ -6,11 +6,11 @@
 # shape each solve instead of read off a flap angle.
 # - construction fits a base airfoil per panel and records the control-point frame
 # - the flap axis is gone: no panel carries a twist_surface, so the RHS has no δ
-# - a refresh leaves every panel on a TAYLOR polar fitted about its own α
+# - a refresh leaves every panel on a SAMPLED polar centred on its own α
 # - a chordwise deformation moves the polar, and the frame maths that produces it
 #   agrees with a hand-computed chord frame
 # - against the tabulated mode: the scatter is bit-identical, only the polar source
-#   differs, and an undeformed panel's fitted polar is the network's own answer
+#   differs, and an undeformed panel's polar is the network's own answer
 #
 # What AeroPressure's scatter does with the resulting forces is in
 # test_pressure_aero.jl and is unchanged by the polar source.
@@ -27,7 +27,7 @@ using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, refresh_particle_aero!, SimFloat,
                          chord_frame_coordinates, update_live_deflection!,
                          LivePolarState
-using VortexStepMethod: AirfoilAero, TAYLOR, calculate_cl, calculate_cm
+using VortexStepMethod: AirfoilAero, SAMPLED, calculate_cl, calculate_cm
 using KiteUtils
 using LinearAlgebra
 
@@ -50,8 +50,31 @@ using LinearAlgebra
         @test mode.live_polars
         @test mode.live isa LivePolarState
         state = mode.live
-        @test length(state.control_point) == length(panels)
+        stations = SymbolicAWEModels.control_point_stations(
+            sys.twist_surfaces, sys.points, wing)
+        # Stations are read off the twist surfaces, not inferred from geometry.
+        @test length(state.control_point) == length(stations)
+        @test all(sort(a) == sort(b) for (a, b) in zip(state.control_point, stations))
         @test all(length(pts) >= 2 for pts in state.control_point)
+        @test length(state.station_deflection) == length(state.control_point)
+        @test length(state.panel_blend) == length(panels)
+        # No panel may draw its load from more than one station: a panel straddling
+        # two spanwise planes gets a chordwise profile with a step no basis can hold.
+        for i in eachindex(panels)
+            used = unique(mode.station_point[i])
+            @test count(group -> any(in(group), used), stations) == 1
+        end
+        # A station may not name the same node twice: a twist surface lists its
+        # chord ends alongside control points that often sit on them, and a fit
+        # handed one chord fraction twice has no answer.
+        for group in stations
+            @test length(unique(group)) == length(group)
+            @test length(unique(round.(sys.points[i].pos_cad; digits=9)
+                                for i in group)) == length(group)
+        end
+        # Every panel blends between two neighbouring stations, in range.
+        @test all(1 <= lo <= hi <= length(stations) && hi - lo <= 1 && 0 <= w <= 1
+                  for (lo, hi, w) in state.panel_blend)
         @test length(state.source.base) == length(panels)
         @test all(length(d) == length(state.source.basis.x) for d in state.deflection)
         # The δ axis is gone, so no panel is wired to a flap surface.
@@ -67,17 +90,20 @@ using LinearAlgebra
     end
     refresh_particle_aero!(mode, wing, sys.points, va_vals)
 
-    @testset "refresh fits every panel" begin
-        @test all(p -> p.aero_model == TAYLOR, panels)
+    @testset "refresh samples every panel" begin
+        @test all(p -> p.aero_model == SAMPLED, panels)
         @test all(p -> all(isfinite, p.cl_coeffs), panels)
         @test all(isfinite, mode.traction)
         @test norm(mode.traction) > 0.0
-        # Every panel converged inside the window its own fit was built on.
+        # Every panel converged inside the range its own polar was sampled over.
         @test AirfoilAero.polar_drift(mode.live.source,
             collect(wing.vsm_solver.lr.alpha_dist)) <= 1.0
-        # The fit is a local expansion: at its own centre it is the network's answer.
+        # A sample is the polar: at the reference angle it is the middle sample.
+        offsets = mode.live.source.settings.offsets
+        middle = (length(offsets) + 1) ÷ 2
         for (i, panel) in enumerate(panels)
-            @test calculate_cl(panel, mode.live.source.alpha_ref[i]) ≈ panel.cl_coeffs[1]
+            @test calculate_cl(panel, mode.live.source.alpha_ref[i]) ≈
+                  panel.cl_coeffs[middle]
         end
     end
 
@@ -95,8 +121,8 @@ using LinearAlgebra
     @testset "a chordwise deformation moves the polar" begin
         state = mode.live
         alpha = collect(SimFloat, wing.vsm_solver.lr.alpha_dist)
-        # Fit about the angles the comparison reads, so the two answers differ only
-        # in the shape and not in where the expansion was centred.
+        # Sample about the angles the comparison reads, so the two answers differ
+        # only in the shape and not in where the grid was centred.
         SymbolicAWEModels.refit_live_polars!(mode, wing, alpha)
         flat = [calculate_cl(panels[i], alpha[i]) for i in eachindex(panels)]
 
@@ -118,46 +144,73 @@ using LinearAlgebra
         @test [calculate_cl(panels[i], alpha[i]) for i in eachindex(panels)] ≈ flat
     end
 
-    # Two separate claims, kept apart so neither hides the other. First, exactly:
-    # the coefficients the pipeline installs are the least-squares fit of the
-    # network's own samples, so nothing between deforming the shape and writing the
-    # polar has altered them. Second, loosely: how far that fit sits from the network
-    # across its window, which is the order's residual and not the pipeline's.
-    @testset "an undeformed fit is the network's own answer" begin
+    # The values the pipeline installs are the network's own answers at the panel's
+    # own sample angles, so nothing between deforming the shape and writing the polar
+    # has altered them. There is no fit residual left to bound separately: between
+    # two samples the polar is the straight line between two exact points.
+    @testset "an undeformed polar is the network's own answer" begin
         state = mode.live
         settings = state.source.settings
         solver = wing.vsm_solver
         alpha = collect(SimFloat, solver.lr.alpha_dist)
-        window = settings.half_window
-        offsets = collect(range(-window, window, settings.n_samples))
-        design = [d^(k - 1) for d in offsets, k in 1:(settings.order + 1)]
-        worst = (cl = 0.0, cm = 0.0)
+        offsets = settings.offsets
         for (i, panel) in enumerate(panels)
             reynolds = solver.density * norm(panel.va) * panel.chord / solver.mu
-            network(at) = AirfoilAero.neuralfoil_aero(state.source.base[i],
-                rad2deg.(alpha[i] .+ at), reynolds;
+            samples = AirfoilAero.neuralfoil_aero(state.source.base[i],
+                rad2deg.(alpha[i] .+ offsets), reynolds;
                 model_size=settings.model_size, n_crit=settings.n_crit)
-            samples = network(offsets)
-            @test panel.cl_coeffs ≈ design \ samples.CL rtol = 1e-8
-            @test panel.cd_coeffs ≈ design \ samples.CD rtol = 1e-8
-            @test panel.cm_coeffs ≈ design \ samples.CM rtol = 1e-8
+            @test panel.cl_coeffs ≈ samples.CL rtol = 1e-8
+            @test panel.cd_coeffs ≈ samples.CD rtol = 1e-8
+            @test panel.cm_coeffs ≈ samples.CM rtol = 1e-8
+            @test panel.alpha_knots ≈ alpha[i] .+ offsets
             @test panel.alpha_ref ≈ alpha[i]
-            @test panel.alpha_window ≈ window
-
-            probes = collect(range(-window, window, 13))
-            truth = network(probes)
-            worst = (cl = max(worst.cl, maximum(abs,
-                         [calculate_cl(panel, alpha[i] + d) for d in probes] .-
-                         truth.CL)),
-                     cm = max(worst.cm, maximum(abs,
-                         [calculate_cm(panel, alpha[i] + d) for d in probes] .-
-                         truth.CM)))
+            @test panel.alpha_window ≈ maximum(abs, offsets)
         end
-        # Order 2 over ±4° holds Cl to a few hundredths through the stall knee, which
-        # is where this fixture sits at α ≈ 13°; an order past that is a regression.
-        @test worst.cl < 0.05
-        @test worst.cm < 0.02
-        @info "live polar fit vs network" order=settings.order worst.cl worst.cm
+    end
+
+    # The forces follow the deformed shape; so must the pattern that places them.
+    # Before this, a deformation changed how hard a panel pulled but not where.
+    @testset "the traction pattern follows the deformed shape" begin
+        state = mode.live
+        @test all(p -> all(isfinite, p), state.contour_cp)
+        @test all(p -> all(>(0.0), p), state.contour_cf)
+        # The contour is the one the surface→point map was built on, held at δ = 0.
+        for (i, panel) in enumerate(panels)
+            @test length(state.contour_cp[i]) == length(mode.station_point[i])
+            @test state.contour_x[i] ≈
+                  VortexStepMethod.section_surface(panel.section_aero, 0.0, 0.0)[1]
+        end
+
+        # Undeformed, the contour is the reference one and nothing has moved.
+        @test all(i -> state.contour_y[i] ≈ state.contour_y_ref[i],
+                  eachindex(panels))
+
+        flat = copy(mode.traction)
+        alpha = collect(SimFloat, wing.vsm_solver.lr.alpha_dist)
+        for i in eachindex(panels)
+            state.deflection[i] .= @. 0.08 * state.source.basis.x *
+                                      (1 - state.source.basis.x)
+        end
+        SymbolicAWEModels.refit_live_polars!(mode, wing, alpha)
+        SymbolicAWEModels.refresh_live_pressure!(mode, wing)
+        SymbolicAWEModels.freeze_traction_pattern!(mode, wing)
+        @test all(isfinite, mode.traction)
+        @test !(mode.traction ≈ flat)
+        # The contour moved with the deformation, so the normals and the segment
+        # areas the traction is built on are the deformed section's.
+        @test !(state.contour_y[1] ≈ state.contour_y_ref[1])
+        @test state.contour_x[1] ≈
+              VortexStepMethod.section_surface(panels[1].section_aero, 0.0, 0.0)[1]
+        # And it is a different distribution, not the same one scaled up.
+        scale = norm(mode.traction) / norm(flat)
+        @test !(mode.traction ≈ scale .* flat)
+
+        update_live_deflection!(mode, wing, sys.points)
+        SymbolicAWEModels.refit_live_polars!(mode, wing, alpha)
+        SymbolicAWEModels.refresh_live_pressure!(mode, wing)
+        SymbolicAWEModels.freeze_traction_pattern!(mode, wing)
+        @test mode.traction ≈ flat
+        @test state.contour_y[1] ≈ state.contour_y_ref[1]
     end
 
     # Live polars change where cl/cd/cm come from and nothing else. The surface→point
