@@ -224,11 +224,10 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
     orient = panel_span_signs(wing, spanwise)
     wagner_eqs, wagner_vars, deficiency, wagner_defaults =
         wagner_wing_eqs(wing, sec_va, params)
-    eqs, panel_vars, panel_force, panel_couple, curvature_couple =
+    eqs, panel_vars, panel_force, panel_couple, curvature_couple, slots =
         build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
             cl, cd, cm, spanwise, scale, orient; sec_dva, deficiency)
     append!(eqs, wagner_eqs)
-    panel_couple = scatter_couple(mode, panel_couple, curvature_couple)
     vars = particle_unknowns(connectors)
     append!(vars, panel_vars)
     append!(vars, wagner_vars)
@@ -236,7 +235,7 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
     point_force = [zeros(Num, 3) for _ in 1:num_points]
     for i in 1:n_panels
         force = collect(panel_force[:, i])
-        couple = collect(panel_couple[:, i])
+        couple = scatter_couple(mode, slots, i, nothing)
         force_le = 0.75 * force + couple
         force_te = 0.25 * force - couple
         for s in (i, i + 1), (strut, w) in

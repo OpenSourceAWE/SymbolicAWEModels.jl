@@ -244,7 +244,7 @@ end
 """
     build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
                           cl, cd, cm, spanwise, scale, orient)
-        -> (eqs, vars, panel_force, panel_couple, curvature_couple)
+        -> (eqs, vars, panel_force, panel_couple, curvature_couple, slots)
 
 Shared per-refined-panel VSM force assembly for the live particle aero modes
 ([`ContinuousAero`](@ref), [`AeroPressure`](@ref)). Re-expresses
@@ -255,9 +255,9 @@ axes, chord, width, effective angle of attack (live apparent wind
 callable params), and the lift/drag directions, and emits the panel force and
 the pitching-moment couple. Returns the panel equations, the intermediate
 variables to register, and the `panel_force`/`panel_couple` symbolic arrays for
-the caller's scatter (strut couple or surface pattern). `curvature_couple` is the
-[`flow_curvature_cm`](@ref) part of `panel_couple` alone, for a mode whose scatter
-already places the polar moment and needs only the increment.
+the caller's scatter (strut couple or surface pattern), and the whole
+[`panel_force_slots`](@ref) named tuple for a scatter that needs the panel axes too.
+`curvature_couple` is the [`flow_curvature_cm`](@ref) part of `panel_couple` alone.
 
 `sec_le`/`sec_te`/`sec_va` are length-`n_panels+1` vectors of body-frame
 3-vectors (positions and apparent wind at the section boundaries), `sec_rho`
@@ -298,7 +298,7 @@ function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
     end
 
     return eqs, panel_force_vars(slots), slots.panel_force, slots.panel_couple,
-           slots.curvature_couple
+           slots.curvature_couple, slots
 end
 
 """
@@ -448,15 +448,17 @@ flow_curvature_cm(pitch_rate, chord, v_rel) =
     -0.25π * pitch_rate * chord / (2 * v_rel)
 
 """
-    scatter_couple(mode, panel_couple, curvature_couple)
+    scatter_couple(mode, slots, i, panel) -> Vector
 
-The couple array a mode's scatter applies. The default is the whole
-`panel_couple`, the polar moment included. [`AeroPressure`](@ref) already places the
-polar moment with its frozen surface traction, so it takes `curvature_couple` — the
-[`flow_curvature_cm`](@ref) increment on its own — and adding the whole couple there
-would count the polar moment twice.
+The couple panel `i`'s scatter places, from the [`panel_force_slots`](@ref) the panel
+equations wrote. The default is the whole `panel_couple`, which is what a scatter that
+carries no moment of its own needs. [`AeroPressure`](@ref) overrides it: its frozen
+traction already carries most of the moment, so it places only the deficit, see
+[`pressure_couple`](@ref). `panel` addresses that mode's frozen per-panel params and is
+`nothing` for a mode that has none.
 """
-scatter_couple(::AbstractAeroModel, panel_couple, curvature_couple) = panel_couple
+scatter_couple(::AbstractAeroModel, slots, i, panel) =
+    collect(slots.panel_couple[:, i])
 
 """
     flow_curvature_enabled(wing) -> Bool
@@ -807,6 +809,9 @@ function Base.getproperty(panel::PanelAero, sym::Symbol)
     sym === :te_offset_a && return mode.section_te_offset[:, i]
     sym === :le_offset_b && return mode.section_le_offset[:, i + 1]
     sym === :te_offset_b && return mode.section_te_offset[:, i + 1]
+    sym === :traction_net && return mode.traction_net[:, i]
+    sym === :traction_moment && return mode.traction_moment[:, i]
+    sym === :residual_arm && return mode.residual_arm[:, i]
     sym === :cl && return PanelPolar(mode.cl, i)
     sym === :cd && return PanelPolar(mode.cd, i)
     sym === :cm && return PanelPolar(mode.cm, i)

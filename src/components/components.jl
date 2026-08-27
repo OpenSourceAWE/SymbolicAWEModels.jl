@@ -1947,9 +1947,9 @@ function AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
                           (panel.cl, panel.cd, panel.cm),
                           spanwise, scale, orient, panel.chord_weight, delta,
                           lag === nothing ? 0.0 : lag)
-    couple = scatter_couple(wing.aero, slots.panel_couple, slots.curvature_couple)
+    couple = scatter_couple(wing.aero, slots, 1, panel)
     append!(eqs, collect(io[9]) .~ collect(slots.panel_force[:, 1]))
-    append!(eqs, collect(io[10]) .~ collect(couple[:, 1]))
+    append!(eqs, collect(io[10]) .~ couple)
     vars = [io; panel_force_vars(slots)]
     dva[1] === nothing || append!(vars, dva)
     delta === nothing || push!(vars, delta)
