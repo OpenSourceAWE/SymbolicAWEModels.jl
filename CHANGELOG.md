@@ -2,8 +2,28 @@
 
 ## Unreleased
 
+### Fixed
+
+- `AeroPressure` now places each panel's pitching moment, not only its force.
+  The scatter anchored the force to the VSM panel force and left the moment to
+  whatever the frozen `Cp` pattern happened to integrate to, so the polar's `Cm`
+  never reached the structure; the couple it did place was the flow-curvature
+  increment alone. `pressure_couple` now places the deficit between the moment
+  the pattern already carries — its own, plus the residual's on its
+  share-weighted arm — and the moment `ContinuousAero` would place for the same
+  panel, its force at the quarter chord plus `panel_couple`. Both the force and
+  the moment now come out exact rather than approximate. The divisor carries the
+  airfoil frame's own triple product, the axes not being quite orthogonal on a
+  billowed panel.
+
 ### Added
 
+- `check_live_polar(mode, wing; panel_idx)` runs one XFoil solve against the
+  live polar a panel is flying, on the state the model is in now. It defaults to
+  the panel NeuralFoil is least confident about.
+  `Live polar off the trained shape
+  range` says the network is extrapolating;
+  this says whether the extrapolation is any good, which a confidence cannot.
 - `AeroPressure(; live_polars=true)`: instead of reading a tabulated `(α, δ)`
   polar, every panel's polar is regenerated from its deformed shape at each VSM
   solve. The structural points a panel already scatters its load onto are read

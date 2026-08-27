@@ -26,6 +26,7 @@ next_step!
 find_steady_state!
 linearize!
 position_slots
+check_live_polar
 ```
 
 ## YAML loading

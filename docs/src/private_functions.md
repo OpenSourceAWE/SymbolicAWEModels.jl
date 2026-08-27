@@ -427,6 +427,7 @@ SymbolicAWEModels.panel_force_slots
 SymbolicAWEModels.panel_force_vars
 SymbolicAWEModels.supports_panel_decomposition
 SymbolicAWEModels.scatter_couple
+SymbolicAWEModels.pressure_couple
 SymbolicAWEModels.aero_inflow_groups
 SymbolicAWEModels.aero_pitch_groups
 SymbolicAWEModels.aero_station_groups

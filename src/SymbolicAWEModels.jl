@@ -87,6 +87,7 @@ export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
 export PrincipalFrameMethod, EIGEN_DECOMP, Y_ROTATION
 export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate,
        ContinuousAero, AeroPressure
+export check_live_polar
 export aero_component
 export UnsteadyAero, unsteady_aero, apply_apparent_mass!
 

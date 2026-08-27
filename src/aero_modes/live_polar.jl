@@ -278,6 +278,29 @@ function live_polar_alpha(wing)
 end
 
 """
+    check_live_polar(mode::AeroPressure, wing; panel_idx=nothing) -> NamedTuple
+
+XFoil against the live polar one panel is flying, at the state the model is in now: the
+panel's own deformed shape, its converged angle of attack and its Reynolds. `panel_idx`
+defaults to the panel NeuralFoil is least confident about, which is the one worth
+asking about. See [`compare_live_polar`](@ref VortexStepMethod.AirfoilAero.compare_live_polar)
+for what comes back.
+
+The `Live polar off the trained shape range` warning says the network is extrapolating.
+This says whether the extrapolation is any good, which the confidence cannot: it scores
+the input shape, not the answer. One viscous solve, so it is cheap enough to call from
+the REPL mid-run and far too slow to call every step.
+"""
+function check_live_polar(mode::AeroPressure, wing; panel_idx=nothing)
+    mode.live_polars || error(
+        "check_live_polar: wing $(wing.idx) is not flying live polars.")
+    state = mode.live::LivePolarState
+    idx = isnothing(panel_idx) ? argmin(state.source.confidence) : panel_idx
+    return AirfoilAero.compare_live_polar(state.source, wing.vsm_aero.panels[idx], idx,
+        wing.vsm_solver.lr.alpha_dist[idx], panel_reynolds(wing)[idx])
+end
+
+"""
     refresh_live_pressure!(mode::AeroPressure, wing)
 
 Regenerate the surface traction pattern from the deformed shape at the converged angle
@@ -305,7 +328,7 @@ function refresh_live_pressure!(mode::AeroPressure, wing)
         state.contour_y[i] .+= state.contour_y_ref[i]
     end
     AirfoilAero.refresh_live_pressure!(state.contour_cp, state.source,
-        state.contour_x, state.leading_edge,
+        state.contour_x, state.contour_y, state.leading_edge,
         collect(SimFloat, wing.vsm_solver.lr.alpha_dist), reynolds)
     AirfoilAero.live_surface_friction!(state.contour_cf, state.contour_x, reynolds)
     return nothing
