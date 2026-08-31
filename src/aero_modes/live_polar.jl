@@ -246,8 +246,8 @@ panel_reynolds(wing) = [wing.vsm_solver.density * norm(panel.va) * panel.chord /
 """
     refit_live_polars!(mode::AeroPressure, wing, alpha) -> Float64
 
-Regenerate every panel's polar at the stored deformation and write it in as a
-`SAMPLED` polar about `alpha` [rad] per panel. Reynolds is per panel from the
+Regenerate every panel's polar at the stored deformation and write it into the
+panel's own table about `alpha` [rad] per panel. Reynolds is per panel from the
 solver's air properties and the panel's own apparent wind and chord. Returns the
 lowest NeuralFoil analysis confidence over the wing; warns once below `0.5`, which
 means a deformed section has left the region the network was trained on.

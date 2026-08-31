@@ -34,7 +34,7 @@ is the engine-less marker filled in during wing construction.
 `live_polars` replaces the tabulated `(α, δ)` polars with polars regenerated from the
 deformed shape every solve (see [`solve_with_live_polars!`](@ref)): each panel's
 chordwise deformation deforms its Kulfan fit, NeuralFoil is evaluated on a grid of
-angles about the panel's own angle of attack, and those values become its `SAMPLED`
+angles about the panel's own angle of attack, and those values become its rewritten
 polar. The flap angle δ then carries no information and is dropped from the equations
 entirely, so the RHS has no live deflection left in it — only α stays live. Use it
 where the chord bends into a shape a single hinge angle cannot stand for.

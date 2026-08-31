@@ -6,7 +6,7 @@
 # shape each solve instead of read off a flap angle.
 # - construction fits a base airfoil per panel and records the control-point frame
 # - the flap axis is gone: no panel carries a twist_surface, so the RHS has no δ
-# - a refresh leaves every panel on a SAMPLED polar centred on its own α
+# - a refresh leaves every panel on a rewritten polar centred on its own α
 # - a chordwise deformation moves the polar, and the frame maths that produces it
 #   agrees with a hand-computed chord frame
 # - against the tabulated mode: the scatter is bit-identical, only the polar source
@@ -27,7 +27,7 @@ using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, refresh_particle_aero!, SimFloat,
                          chord_frame_coordinates, update_live_deflection!,
                          LivePolarState
-using VortexStepMethod: AirfoilAero, SAMPLED, calculate_cl, calculate_cm
+using VortexStepMethod: AirfoilAero, POLAR_VECTORS, calculate_cl, calculate_cm
 using KiteUtils
 using LinearAlgebra
 
@@ -91,7 +91,10 @@ using LinearAlgebra
     refresh_particle_aero!(mode, wing, sys.points, va_vals)
 
     @testset "refresh samples every panel" begin
-        @test all(p -> p.aero_model == SAMPLED, panels)
+        # A rewritten table keeps the shape the panel was built with; this wing's
+        # polars carry no delta axis, and a live window is what marks it as live.
+        @test all(p -> p.aero_model == POLAR_VECTORS, panels)
+        @test all(p -> p.alpha_window > 0, panels)
         @test all(p -> all(isfinite, p.cl_coeffs), panels)
         @test all(isfinite, mode.traction)
         @test norm(mode.traction) > 0.0

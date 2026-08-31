@@ -214,7 +214,7 @@ structural points a panel already scatters its load onto are read as control
 points; their offset off the deformed chord line deforms the panel's Kulfan fit
 analytically (a matvec against a constant CST basis — the fit itself is never
 rebuilt, since it is non-unique), NeuralFoil is evaluated on a grid of angles
-about the panel's own `\alpha`, and those values become its `SAMPLED` polar —
+about the panel's own `\alpha`, and those values become its polar table —
 linear between the samples, held flat past either end, so a stall knee inside
 the range is represented and a solve stepping outside it reads a bounded value
 rather than an extrapolation.
