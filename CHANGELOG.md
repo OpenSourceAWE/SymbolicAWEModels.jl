@@ -21,19 +21,18 @@
 - `check_live_polar(mode, wing; panel_idx)` runs one XFoil solve against the
   live polar a panel is flying, on the state the model is in now. It defaults to
   the panel NeuralFoil is least confident about.
-  `Live polar off the trained shape
-  range` says the network is extrapolating;
+  `Live polar off the trained shape range` says the network is extrapolating;
   this says whether the extrapolation is any good, which a confidence cannot.
 - `AeroPressure(; live_polars=true)`: instead of reading a tabulated `(α, δ)`
   polar, every panel's polar is regenerated from its deformed shape at each VSM
   solve. The structural points a panel already scatters its load onto are read
   as control points, their offset off the deformed chord line deforms the
   panel's Kulfan fit analytically, NeuralFoil is evaluated on a grid of angles
-  about the panel's own α, and those values become its `SAMPLED` polar. This is
-  for a chord that bends into a shape no single hinge angle stands for — the
-  flap angle δ then carries nothing, so it is dropped from the generated
-  equations entirely and only α stays live in the RHS. Requires VortexStepMethod
-  4.2.
+  about the panel's own α, and those values are written into the panel's own
+  polar table. This is for a chord that bends into a shape no single hinge angle
+  stands for — the flap angle δ then carries nothing, so it is dropped from the
+  generated equations entirely and only α stays live in the RHS. Requires
+  VortexStepMethod 4.3.
 
   The surface traction pattern is regenerated from the same deformed shapes once
   the solve has converged: the contour offset by the deformation's own camber
@@ -64,8 +63,9 @@
   one body rate. Off by default, and read from the wing's solver, so no mode can
   have the term while another does not.
 - Unsteady aerodynamics on the particle VSM modes, carried by the wing's new
-  `UnsteadyAero` (`wing.unsteady`) and off by default. See the "Unsteady
-  aerodynamics" docs page.
+  `UnsteadyAero` (`wing.unsteady`) and off by default. `unsteady_aero(wing)`
+  reads a wing's settings back and `apply_apparent_mass!` puts the entrained air
+  on the structure. See the "Unsteady aerodynamics" docs page.
   - `apparent_mass` gives the wing's nodes the air they entrain, the thin-plate
     `ρ·π·c²/4` per unit span, spread over them by the weights that carry each
     panel's force. It sits in a new `Point`/`Body` field rather than
