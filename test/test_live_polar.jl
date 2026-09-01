@@ -151,6 +151,11 @@ using LinearAlgebra
     # own sample angles, so nothing between deforming the shape and writing the polar
     # has altered them. There is no fit residual left to bound separately: between
     # two samples the polar is the straight line between two exact points.
+    #
+    # The agreement is the network's own reproducibility rather than bitwise: it runs
+    # in Float32, and the pipeline evaluates every panel in one batch where this
+    # re-evaluates a single panel, which rounds differently. A real alteration — the
+    # wrong shape, the wrong angle, a fit — is orders of magnitude above this.
     @testset "an undeformed polar is the network's own answer" begin
         state = mode.live
         settings = state.source.settings
@@ -162,9 +167,9 @@ using LinearAlgebra
             samples = AirfoilAero.neuralfoil_aero(state.source.base[i],
                 rad2deg.(alpha[i] .+ offsets), reynolds;
                 model_size=settings.model_size, n_crit=settings.n_crit)
-            @test panel.cl_coeffs ≈ samples.CL rtol = 1e-8
-            @test panel.cd_coeffs ≈ samples.CD rtol = 1e-8
-            @test panel.cm_coeffs ≈ samples.CM rtol = 1e-8
+            @test panel.cl_coeffs ≈ samples.CL rtol = 1e-5
+            @test panel.cd_coeffs ≈ samples.CD rtol = 1e-5
+            @test panel.cm_coeffs ≈ samples.CM rtol = 1e-5
             @test panel.alpha_knots ≈ alpha[i] .+ offsets
             @test panel.alpha_ref ≈ alpha[i]
             @test panel.alpha_window ≈ maximum(abs, offsets)
