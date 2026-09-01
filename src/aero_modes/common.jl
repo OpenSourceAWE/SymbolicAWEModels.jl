@@ -248,16 +248,15 @@ end
 
 Shared per-refined-panel VSM force assembly for the live particle aero modes
 ([`ContinuousAero`](@ref), [`AeroPressure`](@ref)). Re-expresses
-`VortexStepMethod.calc_forces!` symbolically from the frozen circulation:
-per panel `i` (between section boundaries `i` and `i+1`) it builds the airfoil
-axes, chord, width, effective angle of attack (live apparent wind
-`sec_va` + frozen induced velocity `vind_p`), polar coefficients (`cl/cd/cm`
-callable params), and the lift/drag directions, and emits the panel force and
-the pitching-moment couple. Returns the panel equations, the intermediate
-variables to register, and the `panel_force`/`panel_couple` symbolic arrays for
-the caller's scatter (strut couple or surface pattern), and the whole
-[`panel_force_slots`](@ref) named tuple for a scatter that needs the panel axes too.
-`curvature_couple` is the [`flow_curvature_cm`](@ref) part of `panel_couple` alone.
+`VortexStepMethod.calc_forces!` symbolically from the frozen circulation: per panel
+`i` (between section boundaries `i` and `i+1`) it builds the airfoil axes, chord,
+width, effective angle of attack (live apparent wind `sec_va` + frozen induced
+velocity `vind_p`), polar coefficients (`cl/cd/cm` callable params) and the lift/drag
+directions, and emits the panel force and pitching-moment couple. Returns the panel
+equations, the intermediate variables to register, the `panel_force`/`panel_couple`
+arrays for the caller's scatter, and the whole [`panel_force_slots`](@ref) named
+tuple for a scatter that needs the panel axes too. `curvature_couple` is the
+[`flow_curvature_cm`](@ref) part of `panel_couple` alone.
 
 `sec_le`/`sec_te`/`sec_va` are length-`n_panels+1` vectors of body-frame
 3-vectors (positions and apparent wind at the section boundaries), `sec_rho`
@@ -1160,18 +1159,15 @@ end
                                  zp1, zp2, yp1, yp2, origin, aero_points)
 
 Recompute a KINEMATIC/PARTICLE wing's kinematic state directly from the current point
-positions/velocities. A KINEMATIC wing is fitted from its ref points rather than
-integrated, so a backend that does not carry these quantities as state (the network)
-reconstructs them here from the struct. `zp1`, `zp2`, `yp1`, `yp2` and `origin` are
-[`WeightedRefPoints`](@ref), so each reference is the weighted blend of its points,
-matching the monolith's `get_ref_position`. Writes the body frame `R_b_to_w`
+positions/velocities, for a backend that does not carry these quantities as state.
+`zp1`, `zp2`, `yp1`, `yp2` and `origin` are [`WeightedRefPoints`](@ref), so each
+reference is the weighted blend of its points. Writes the body frame `R_b_to_w`
 ([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the frame's own
 `ω_b` ([`body_frame_omega`](@ref)), the origin's acceleration `acc_w`
 ([`point_acceleration_w`](@ref)), the reported scalars
-([`write_wing_scalars!`](@ref)), the wing apparent
-wind `va_b`, and each aero point's `va_b = R'·(wind(z)·wind_gnd − vel)`. Mirrors what
-the monolith's `get_all_state` copies out of the integrator, so `refresh_aero!` sees
-fresh apparent wind on either backend.
+([`write_wing_scalars!`](@ref)), the wing apparent wind `va_b`, and each aero point's
+`va_b = R'·(wind(z)·wind_gnd − vel)` — the same quantities the monolith's
+`get_all_state` copies out of the integrator.
 """
 function wing_kinematics_from_points!(wing, points, set, am;
         zp1, zp2, yp1, yp2, origin, aero_points,
@@ -1351,7 +1347,7 @@ refresh_particle_aero!(::AbstractAeroModel, wing, points, va_point_b_vals;
 Rebuild the mode's aero engine from `set`/`vsm_set` (the `remake_vsm` path in
 `reinit!`, used after editing settings). Default no-op; VSM modes recreate the
 VSM wing/aero/solver, re-transform sections to the body frame, re-match aero
-sections to structure, and rebuild the twist-surface / point mappings.
+sections to structure, and rebuild the station / point mappings.
 """
 remake_aero!(::AbstractAeroModel, wing, set, vsm_set, points, stations) =
     nothing
@@ -1426,7 +1422,7 @@ end
 Construction-time aero setup for `wing`, dispatched on its aero `mode` (default
 no-op). VSM modes transform the VSM panels into the body frame and, for
 section-coupled wings, auto-create stations, match aero sections to
-structure, and build the twist-surface / structural↔panel mappings. A custom mode
+structure, and build the station / structural↔panel mappings. A custom mode
 adds a method to participate in construction without editing the SystemStructure
 constructor. Runs after [`setup_wing_frame!`](@ref) (which sets the body frame).
 """
@@ -1502,7 +1498,7 @@ end
     resize_aero_state!(mode, wing)
 
 Resize the mode's per-wing aero state after `wing.station_idxs` is
-resolved (name resolution can change the twist-surface count the initial
+resolved (name resolution can change the station count the initial
 sizing estimated from `n_unrefined`). Default no-op; VSM modes resize
 `aero_y`/`aero_x`/`aero_jac` for `RIGID_DYNAMICS` wings.
 """
@@ -1819,7 +1815,7 @@ end
 """
     restore_aero_twist!(mode, wing, stations)
 
-Re-apply the (already restored) twist-surface angles to the mode's geometry
+Re-apply the (already restored) station angles to the mode's geometry
 when loading a `SysState` log frame. Default no-op; VSM `RIGID_DYNAMICS`
 modes deform the unrefined sections and reinit the panels.
 """

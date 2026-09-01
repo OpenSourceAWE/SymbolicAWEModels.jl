@@ -6,11 +6,9 @@
 """
     scalar_eqs!(s, eqs, params; kwargs...)
 
-Generate equations for derived scalar kinematic quantities useful for control and
-analysis.
-
-This includes elevation, azimuth, heading, course, angle of attack, and their time
-derivatives, as well as apparent wind calculations.
+Generate equations for the derived scalar kinematics used in control and analysis:
+elevation, azimuth, heading, course, angle of attack, their time derivatives, and the
+apparent wind.
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object.

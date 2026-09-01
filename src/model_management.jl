@@ -274,11 +274,9 @@ end
 """
     generate_control_funcs(model, inputs, outputs)
 
-Generate in-place and out-of-place control functions from a ModelingToolkit system.
-
-This function wraps `ModelingToolkit.generate_control_function` and
-`ModelingToolkit.build_explicit_observed_function` to create the necessary functions
-for simulation and analysis.
+Generate in-place and out-of-place control functions from a ModelingToolkit system,
+wrapping `ModelingToolkit.generate_control_function` and
+`ModelingToolkit.build_explicit_observed_function`.
 
 # Arguments
 - `model`: The full `ODESystem`.
@@ -382,10 +380,8 @@ end
     maybe_create_prob!(sam; create_prob=true, sparse=false,
                        analytic_jacobian=false, prn=true)
 
-Create and cache the `ODEProblem` if it does not already exist.
-
-This function compiles the full system, creates the `ODEProblem`, and generates
-the necessary getter/setter functions.
+Compile the full system, create the `ODEProblem` and its getter/setter functions, if
+they do not already exist.
 
 # Arguments
 - `sam::SymbolicAWEModel`: The main model object.
@@ -557,9 +553,9 @@ return a freshly initialized `ODEIntegrator`.
   [`default_linsolve`](@ref) of the backend. Ignored when `solver` is passed
   explicitly.
 - `prn`: print progress messages.
-- `remake`: force a full rebuild, ignoring any cached compiled model. Defaults to
-  `nothing`, which rebuilds automatically when a custom winch/aero component is
-  present (see [`has_custom_component`](@ref)) and reuses the cache otherwise.
+- `remake`: force a full rebuild, ignoring any cached compiled model. `nothing`
+  rebuilds when a custom winch/aero component is present (see
+  [`has_custom_component`](@ref)) and reuses the cache otherwise.
 - `reload`: force reloading the serialized model from disk.
 - `outputs`: vector of output variables (used by linearization / control funcs).
 - `create_prob`, `create_lin_prob`, `create_control_func`: which artefacts to build.
@@ -568,26 +564,22 @@ return a freshly initialized `ODEIntegrator`.
   `aero_geometry.yaml` etc.).
 - `reset_vel`, `ignore_l0`: forwarded to `reinit!(sys_struct, set)`.
 - `reinit_sys`: run `reinit!(sys_struct, set)` to refresh positions, lengths, and
-  transforms. Set to `false` to preserve manual adjustments to the
-  `SystemStructure` (or after calling `reinit!(sys_struct, set; …)` yourself).
-- `reset_integrator`: discard the existing integrator and build a fresh one. Use
-  when stale BDF history would taint the next run.
+  transforms. `false` preserves manual adjustments to the `SystemStructure`.
+- `reset_integrator`: discard the existing integrator and build a fresh one, so no
+  stale BDF history taints the next run.
 - `vsm_min_wind=0.5`: minimum |va| [m/s] for the initial VSM solve. Below this the
-  solve is skipped and the wing's aero outputs are zeroed (the solver fails to
-  converge / the Jacobian blows up as 1/|va|).
+  solve is skipped and the wing's aero outputs are zeroed.
 - `sparse`: give the solver a Jacobian sparsity pattern, so the
-  finite-difference Jacobian is coloured and its factorization sparse instead of
-  both being dense. The [`MonolithBackend`](@ref) takes MTK's structural pattern,
-  the [`KernelBackend`](@ref) derives its own from the wiring
-  ([`state_sparsity`](@ref)). Part of the serialized model's name, so the sparse and
-  dense builds are cached separately rather than shadowing each other. `nothing`
-  takes the backend's [`default_sparse`](@ref).
+  finite-difference Jacobian is coloured and its factorization sparse. The
+  [`MonolithBackend`](@ref) takes MTK's structural pattern, the
+  [`KernelBackend`](@ref) derives its own from the wiring
+  ([`state_sparsity`](@ref)). Part of the serialized model's name, so sparse and
+  dense builds are cached separately. `nothing` takes the backend's
+  [`default_sparse`](@ref).
 - `analytic_jacobian=nothing`: give the solver a Jacobian instead of letting it
   differentiate the right-hand side numerically. `nothing` takes the backend's
-  [`default_analytic_jacobian`](@ref) — on for the [`KernelBackend`](@ref), whose
-  [`KernelJacobian`](@ref) composes one from per-kernel local Jacobians, off for the
-  [`MonolithBackend`](@ref), whose only route is MTK's symbolic one. Part of the
-  serialized model's name, as `sparse` is.
+  [`default_analytic_jacobian`](@ref). Part of the serialized model's name, as
+  `sparse` is.
 """
 function init!(sam::SymbolicAWEModel;
     solver=nothing, autodiff=default_autodiff(sam.backend), adaptive=true, prn=true,

@@ -44,45 +44,20 @@ end
 """
     validate_sys_struct(sys_struct::SystemStructure)
 
-Validate a `SystemStructure` for common configuration errors.
-
-This function checks for issues that can cause initialization failures or
-numerical problems during simulation. It emits warnings for suspicious
-configurations and throws assertions for definite errors.
+Check a `SystemStructure` for configurations that cause initialization failures or
+numerical problems: warnings for suspicious values, assertions for definite errors.
 
 # Validations Performed
-
-## Point Validations
-- NaN extra_mass (error)
-- Negative extra_mass (warning)
-- Non-positive total_mass for DYNAMIC points (error) - checked before NaN position
-- NaN position (error) - often caused by zero mass
-
-## Wing Validations
-- Non-positive mass (error) - checked before NaN position
-- Zero or near-zero principal inertia components on RIGID_DYNAMICS wings (error/warning)
-- NaN inertia values (error)
-- Empty station list for RIGID_DYNAMICS wings (warning)
-- NaN position (error) - often caused by zero mass/inertia
-
-## Winch Validations
-- Zero or negative inertia_total (error)
-- Very small inertia_total (warning)
-- NaN inertia_total (error)
-- Non-positive drum_radius (error)
-- Non-positive gear_ratio (error)
-
-## Segment Validations
-- Unusual diameter outside (0, 1) m range (warning)
-- Non-positive rest length l0 (error)
-- Zero or negative stiffness (warning)
-- Negative damping (warning)
-
-## Pulley Validations
-- Zero total length constraint (error)
-
-## Station Validations
-- Inconsistent moment_frac across stations (error)
+- **Points**: NaN or negative `extra_mass`, non-positive `total_mass` on DYNAMIC
+  points, NaN position (usually a consequence of zero mass).
+- **Wings**: non-positive mass, zero/near-zero or NaN principal inertia on
+  RIGID_DYNAMICS wings, empty station list, NaN position.
+- **Winches**: non-positive, tiny or NaN `inertia_total`, non-positive `drum_radius`
+  or `gear_ratio`.
+- **Segments**: diameter outside (0, 1) m, non-positive rest length `l0`,
+  non-positive stiffness, negative damping.
+- **Pulleys**: zero total length constraint.
+- **Stations**: inconsistent `moment_frac`.
 """
 function validate_sys_struct(sys_struct::SystemStructure)
     (; points, stations, segments, pulleys, wings, winches) = sys_struct
@@ -469,7 +444,7 @@ end
 
 Return the common per-unit-length stiffness `[N]` of the tether's
 segments. Errors if the segments are not uniform, since the spring
-inversion in `apply_tether_init_forces!` assumes a single stiffnesys_state.
+inversion in `apply_tether_init_forces!` assumes a single stiffness.
 """
 function tether_unit_stiffness(tether, segments)
     any(!(segments[i].unit_stiffness isa Real) for i in tether.segment_idxs) &&
@@ -710,11 +685,8 @@ end
 """
     reinit!(sys_struct::SystemStructure, set::Settings; kwargs...)
 
-Re-initialize a `SystemStructure` from a `Settings` object.
-
-This function resets various component states (e.g., winch lengths, station twists,
-pulley positions) to their initial values as defined in the `Settings` object. It
-is typically called before starting a new simulation run.
+Reset the component states (winch lengths, station twists, pulley positions, …)
+to the initial values defined in `set`, before a new simulation run.
 
 Pulley lengths are initialized proportionally based on current segment lengths:
 `pulley.len = segment1.len / (segment1.len+segment2.len) * pulley.sum_len`
@@ -854,18 +826,14 @@ end
 """
     copy!(sys1::SystemStructure, sys2::SystemStructure)
 
-Copy the dynamic state from one `SystemStructure` (`sys1`) to another (`sys2`).
+Copy the dynamic state (positions, velocities, …) from one `SystemStructure` to
+another, which may be of a different fidelity — e.g. from a multi-segment tether model
+to a single-segment one.
 
-This function is designed to transfer the state (positions, velocities, etc.) between
-two system models, which can have different levels of fidelity. For example, it can
-copy the state from a detailed multi-segment tether model (`sys1`) to a simplified
-single-segment model (`sys2`).
-
-The function handles several cases:
-- If `sys1` and `sys2` have the same structure, it performs a direct copy of all point states.
-- If `sys2` is a simplified (1-segment per tether) version of `sys1`, it copies the
-  positions and velocities of the tether endpoints.
-- It also copies the state of wings, stations, winches, and pulleys where applicable.
+- Same structure: direct copy of all point states.
+- `sys2` a 1-segment-per-tether version of `sys1`: the tether endpoints' positions and
+  velocities are copied.
+- Wing, station, winch and pulley states are copied where applicable.
 """
 function copy!(sys1::SystemStructure, sys2::SystemStructure)
 
@@ -976,47 +944,16 @@ end
 """
     update_from_sysstate!(sys::SystemStructure, sys_state::SysState)
 
-Update the dynamic state of a `SystemStructure` from a `SysState` snapshot.
+Copy the state a `SysState` carries (point positions, wing orientations, winch
+lengths, twist angles) into an existing `SystemStructure`, e.g. to plot one snapshot
+of a `SysLog` with the Makie extension. Fields `SysState` cannot supply (aerodynamic
+forces and moments, segment forces) are set to `NaN` so they are not plotted.
 
-This function copies the state variables that are present in `SysState` (such as point
-positions, wing orientations, winch lengths, and twist angles) into an existing `SystemStructure`.
-Fields that cannot be populated from `SysState` (such as aerodynamic forces, moments, and
-segment forces) are set to `NaN` to prevent them from being plotted.
+`sys` must have been created with the same model configuration as the simulation that
+produced the log; its point count must match the parametric type `P` of `SysState{P}`.
 
-This is useful for visualizing a `SysLog` by extracting individual `SysState` snapshots
-and applying them to a `SystemStructure` for plotting with the Makie extension.
-
-# Arguments
-- `sys::SystemStructure`: The system structure to update (must already exist with correct topology).
-- `sys_state::SysState`: The state snapshot to copy from.
-
-# Example
-```julia
-# Load a system log
-sim_log = load_log(...)
-
-# Create a SystemStructure with the same topology
-sys = SystemStructure(se(), "ram")
-
-# Update from a specific time step
-update_from_sysstate!(sys, sim_log.syslog[100])
-
-# Plot the system at that time step
-plot(sys)
-```
-
-# Notes
-- The `SystemStructure` must have been created with the same model configuration as the
-  simulation that generated the `SysLog`.
-- Aerodynamic and force fields are set to `NaN` and will not be plotted.
-- The number of points in `sys` must match the parametric type `P` of `SysState{P}`.
-- Every field the log can reach is written, whether or not the compiler ends up
-  integrating it, because a derived field can still seed `u0` as a torn variable.
-  A `KINEMATIC` body is no exception: its centre of mass is not logged, but
-  `init_principal_state!` rebuilds it from the restored origin, which is exact
-  there (`com_offset_b` is zero for a body whose pose `wing_eqs!` fits from
-  points). Skipping it strands the origin point at the geometry-file position
-  while every other point moves to the logged one.
+Every field the log can reach is written, whether or not the compiler integrates it,
+because a derived field can still seed `u0` as a torn variable.
 """
 function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) where P
     (; points, stations, pulleys, tethers, winches, wings, bodies) = sys
@@ -1253,15 +1190,11 @@ set_angular_damping(bodies::AbstractVector, damping::Union{Real, AbstractVector}
 """
     segment_stretch_stats(sys::SystemStructure)
 
-Calculate segment stretch statistics for segments in tension.
+Maximum and mean relative stretch `(len - l0) / l0` over the segments in tension
+(`len > l0`), plus the index of the most stretched one.
 
-Returns the maximum and mean relative stretch of segments where len > l0,
-along with the index of the segment with maximum stretch.
-Relative stretch is defined as (current_length - l0) / l0.
-Only segments in tension (stretched) are included in the statistics.
-
-For pulley segments, the combined length of both segments is used against
-the pulley's sum_l0, since the pulley constraint distributes length between them.
+For pulley segments, the combined length of both legs is used against the pulley's
+`sum_l0`, since the pulley constraint distributes length between them.
 
 # Arguments
 - `sys::SystemStructure`: System structure with current segment states

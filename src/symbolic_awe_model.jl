@@ -162,11 +162,9 @@ end
 """
     @with_kw mutable struct SerializedModel{...}
 
-A type-stable container for the compiled and serialized components of a `SymbolicAWEModel`.
-
-This struct holds the products of the `ModelingToolkit.jl` compilation process,
-now organized into nested attribute structs (`ProbWithAttributes`, etc.).
-This simplifies the structure and improves serialization robustness.
+A type-stable container for the compiled and serialized components of a
+`SymbolicAWEModel`: the products of the `ModelingToolkit.jl` compilation, grouped
+into nested attribute structs (`ProbWithAttributes`, etc.).
 
 $(TYPEDFIELDS)
 """
@@ -194,12 +192,9 @@ end
 
 The main state container for a kite power system model, built using `ModelingToolkit.jl`.
 
-This struct holds the complete state of the simulation, including the physical
-structure (`SystemStructure`), the compiled model (`SerializedModel`), the atmospheric
-model, and the ODE integrator.
-
-Users typically interact with this model through high-level functions like
-[`init!`](@ref) and [`next_step!`](@ref) rather than accessing its fields directly.
+Holds the physical structure (`SystemStructure`), the compiled model
+(`SerializedModel`), the atmospheric model, and the ODE integrator. Interact with it
+through [`init!`](@ref) and [`next_step!`](@ref) rather than through its fields.
 
 # Type Parameters
 - `S`: Scalar type, typically `SimFloat`.
@@ -335,11 +330,8 @@ end
 """
     update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
 
-Updates a `SysState` object with the current state values from the `SymbolicAWEModel`.
-
-This function takes the raw data from the model's internal integrator and populates
-the fields of the user-friendly `SysState` struct, converting units (e.g., radians
-to degrees) and calculating derived values like AoA and roll/pitch/yaw angles.
+Update a `SysState` from the model's integrator: converts units (e.g. radians to
+degrees) and computes derived values like AoA and roll/pitch/yaw angles.
 
 # Arguments
 - `ss::SysState`: The state struct to be updated.
@@ -505,10 +497,7 @@ n_orient_frames(sys_struct) = max(1,
 """
     SysState(s::SymbolicAWEModel, zoom=1.0)
 
-Constructs a `SysState` object from a `SymbolicAWEModel`.
-
-This is a convenience constructor that creates a new `SysState` object and populates it
-with the current state of the provided model.
+Construct a `SysState` holding the current state of the model.
 
 # Arguments
 - `s::SymbolicAWEModel`: The source model.
@@ -567,8 +556,6 @@ end
     next_step!(s::SymbolicAWEModel, integrator::ODEIntegrator; set_values, dt, vsm_interval)
 
 Take a simulation step, using the provided integrator.
-
-This is a convenience method that calls the main `next_step!` function.
 """
 function next_step!(
     s::SymbolicAWEModel,
@@ -586,13 +573,10 @@ end
     next_step!(s::SymbolicAWEModel; set_values, dt,
                vsm_interval, vsm_min_wind)
 
-Take a simulation step forward in time.
-
-Advances the simulation by one time step, optionally
+Advance the simulation by one time step, optionally
 updating control inputs and re-linearizing the VSM
-model. Then updates the `SystemStructure` with the new
-state from the ODE integrator. Throws an error if the
-solver returns an unstable retcode.
+model, then update the `SystemStructure` from the ODE
+integrator. Errors on an unstable solver retcode.
 
 # Keyword Arguments
 - `set_values=nothing`: Control input values.
@@ -601,10 +585,8 @@ solver returns an unstable retcode.
 - `vsm_interval=1`: Steps between VSM
     re-linearization. 0 disables re-linearization.
 - `vsm_min_wind=0.5`: Minimum apparent wind [m/s] for
-    a VSM solve. Below this the solver is skipped and
-    the wing's aero outputs are zeroed, since the
-    solver fails to converge or returns a Jacobian
-    whose norm grows as 1/|va|.
+    a VSM solve. Below this the solve is skipped and
+    the wing's aero outputs are zeroed.
 """
 function next_step!(sam::SymbolicAWEModel;
     set_values=nothing, dt=1/sam.set.sample_freq,
@@ -650,11 +632,8 @@ end
 """
     update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, integ=s.integrator)
 
-Updates the high-level `SystemStructure` from the low-level integrator state vector.
-
-This function reads the raw state vector from the ODE integrator and uses the generated
-getter functions to populate the human-readable fields in the `SystemStructure`. This
-synchronization step is crucial for making the simulation results accessible.
+Update the high-level `SystemStructure` from the integrator state vector, through the
+generated getter functions.
 """
 function update_sys_struct!(prob::ProbWithAttributes,
                             integ::OrdinaryDiffEqCore.ODEIntegrator,

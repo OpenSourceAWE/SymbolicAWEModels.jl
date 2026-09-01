@@ -107,11 +107,10 @@ Generate equations for all point types (STATIC, DYNAMIC, BODY_STATIC).
 
 Each point's net force is the shared [`point_net_force`](@ref): the structural load
 gathered from its incident segments (their spring force with the endpoint sign and
-half their drag), plus per-node aero, its own drag and gravity. The gravitational
-mass is zero for a point that rides a rigid body — a rigid wing node or a point on
-its own wing body — because that mass is carried at the body's COM. Free particles
-integrate through [`confined_derivatives`](@ref), which applies `fix_static` and
-`fix_sphere`; a rigid wing node is placed instead by
+half their drag), plus per-node aero, its own drag and gravity. A point that rides a
+rigid body has zero gravitational mass here, since that mass is carried at the body's
+COM. Free particles integrate through [`confined_derivatives`](@ref), which applies
+`fix_static` and `fix_sphere`; a rigid wing node is placed instead by
 [`twist_deformed_offset`](@ref) from its body's COM.
 
 # Arguments

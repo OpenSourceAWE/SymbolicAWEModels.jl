@@ -15,10 +15,8 @@ This file contains:
 """
     struct SystemStructure
 
-A discrete mass-spring-damper representation of a kite system.
-
-This struct holds all components of the physical model, including points, segments,
-winches, and wings, forming a complete description of the kite system's structure.
+A discrete mass-spring-damper representation of a kite system: all components of the
+physical model, from points and segments to winches and wings.
 
 # Components
 - [`Point`](@ref): Point masses.
@@ -396,7 +394,7 @@ end
 
 Set `point.is_wing_node` for every point that is a member of some station.
 A wing's aerodynamic-surface structural points carry their wing membership
-through twist-surface membership (there is no `WING` dynamics type); this flag,
+through station membership (there is no `WING` dynamics type); this flag,
 derived once here, drives the per-point aero and wing-frame equations. Requires
 `station.point_idxs` to be resolved first.
 """
@@ -728,12 +726,10 @@ stations by spatial proximity: each unrefined section is
 assigned to the single closest station (by distance between
 section centre and station centre, both in body frame).
 
-When `n_stations == n_unrefined` this is the same 1:1
-mapping as before. When `n_stations < n_unrefined` a station
-may own several adjacent sections; its single twist DOF
-then drives all of them as a rigid unit. The case
-`n_stations > n_unrefined` is rejected — a twist DOF without
-a section to drive would be undefined.
+`n_stations == n_unrefined` gives a 1:1 mapping; with
+fewer stations one may own several adjacent sections and
+drive them all as a rigid unit with its single twist DOF. More
+stations than sections is rejected.
 """
 function compute_spatial_station_mapping!(
     the_wing::Body,

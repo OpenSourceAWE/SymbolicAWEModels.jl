@@ -11,10 +11,9 @@ initial-condition `defaults`. Given a total `force_w` at the center of mass and
 `moment_w` about it (both world frame), integrate quaternion attitude and COM
 translation, and emit the body-frame output.
 
-This generator knows nothing about aerodynamics, pinning constraints, or
-damping. Those are the caller's concern: a caller imposes them by passing the
-`ω_kinematic`/`d_ω_p`/`d_com_w`/`d_com_vel` integration overrides. With the
-overrides left at their defaults the body integrates freely.
+Aerodynamics, pinning constraints and damping are the caller's concern, imposed
+through the `ω_kinematic`/`d_ω_p`/`d_com_w`/`d_com_vel` integration overrides; at
+their defaults the body integrates freely.
 
 # State (principal frame, integrated)
 `com_w`, `com_vel`, `Q_p_to_w`, `ω_p`.

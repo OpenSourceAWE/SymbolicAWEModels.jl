@@ -6,19 +6,15 @@
 """
     CascadedLengthWinch(; v_max, position_gain, velocity_gain, friction_epsilon=6.0)
 
-Length-controlled winch motor. `set_value` is the target tether length [m]. An
-outer proportional law turns the length error into a velocity reference, hard-
-clamped at `±v_max`; an inner proportional law with load feedforward tracks it.
-The feedforward (`+friction − ratio·force`) cancels the load disturbance so
-tether spring-mass bouncing does not perturb the reel speed. No integrator, so
-there is no windup at the `v_max` clamp and no overshoot; the closed-loop speed
-response is first-order.
+Length-controlled winch motor. `set_value` is the target tether length [m]. An outer
+proportional law turns the length error into a velocity reference, hard-clamped at
+`±v_max`; an inner proportional law with load feedforward (`+friction − ratio·force`)
+tracks it. No integrator, so no windup at the clamp; the closed-loop speed response is
+first-order.
 
 Drum parameters (`gear_ratio`, `drum_radius`, `coulomb_friction`,
-`viscous_coefficient`, `inertia_total`) live on the [`Winch`](@ref); the gains
-and `friction_epsilon` are this model's own fields (mutable, live-tunable). A low
-`v_max` gives a slow quasi-static reel-in, useful for displacement-controlled
-load sweeps.
+`viscous_coefficient`, `inertia_total`) live on the [`Winch`](@ref); the gains and
+`friction_epsilon` are this model's own fields (mutable, live-tunable).
 
 # Equations
 ```
