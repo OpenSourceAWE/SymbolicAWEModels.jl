@@ -65,7 +65,7 @@ end
 Direct rigid-wing refresh. Computes the baseline coefficients and applies the
 resulting frozen body-frame force/moment ([`apply_direct_forces!`](@ref)), which
 the RHS holds constant until the next refresh. Below `vsm_min_wind` the
-coefficients, Jacobian, force, moment, and per-twist-surface moments are zeroed.
+coefficients, Jacobian, force, moment, and per-station moments are zeroed.
 """
 function refresh_rigid_aero!(::AeroDirect, wing, am, stations;
                              vsm_min_wind=0.5)

@@ -249,7 +249,7 @@ This function checks for a `.obj` file in the model directory. If present it use
 `VortexStepMethod.ObjWing(obj_path; …)` to generate the aero geometry (airfoils
 are extracted from the mesh; no `.dat` is needed). The mesh is sliced at panel
 resolution — `ObjWing` defaults to one unrefined section per panel boundary
-(`n_panels + 1`) — independent of the wing's twist-surface count; the twist
+(`n_panels + 1`) — independent of the wing's station count; the twist
 surfaces map onto the refined panels by distance later. The generated
 `geometry.yaml` is cached under `<model_dir>/obj_geometry` and reused on later
 runs. When no `.obj` is present it falls back to `vsm_set`'s `geometry_file`. Aero

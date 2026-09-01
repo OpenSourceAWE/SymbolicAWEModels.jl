@@ -1680,9 +1680,8 @@ continuous VSM modes.
 function reconstruct_inflow_sym(mode, wing, connectors, column)
     n_struts = Int(wing.vsm_wing.n_unrefined_sections)
     nose = 1 - COLLOCATION_CHORD_FRAC
-    strut_va = [nose * collect(connectors.va[:, column[(s, :LE)]]) +
-                COLLOCATION_CHORD_FRAC *
-                    collect(connectors.va[:, column[(s, :TE)]])
+    va_at(s, edge) = collect(connectors.va[:, column[(s, edge)]])
+    strut_va = [nose * va_at(s, :LE) + COLLOCATION_CHORD_FRAC * va_at(s, :TE)
                 for s in 1:n_struts]
     strut_rho = [nose * connectors.rho[column[(s, :LE)]] +
                  COLLOCATION_CHORD_FRAC * connectors.rho[column[(s, :TE)]]
@@ -1691,9 +1690,7 @@ function reconstruct_inflow_sym(mode, wing, connectors, column)
     sec_va = [interp_strut(strut_va, left, weight, s) for s in eachindex(left)]
     sec_rho = [interp_strut(strut_rho, left, weight, s) for s in eachindex(left)]
     flow_curvature_enabled(wing) || return sec_va, sec_rho, nothing
-    strut_dva = [collect(connectors.va[:, column[(s, :TE)]]) -
-                 collect(connectors.va[:, column[(s, :LE)]])
-                 for s in 1:n_struts]
+    strut_dva = [va_at(s, :TE) - va_at(s, :LE) for s in 1:n_struts]
     sec_dva = [interp_strut(strut_dva, left, weight, s) for s in eachindex(left)]
     return sec_va, sec_rho, sec_dva
 end

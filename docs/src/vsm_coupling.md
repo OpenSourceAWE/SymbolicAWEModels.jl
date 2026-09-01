@@ -39,7 +39,7 @@ structure and aerodynamics.
 
 - Wing structure consists of ordinary [`DYNAMIC`](@ref DynamicsType) points
   organized in leading edge (LE) and trailing edge (TE) pairs. Their wing
-  membership comes from twist-surface membership (`point.is_wing_node`), not
+  membership comes from station membership (`point.is_wing_node`), not
   from a dedicated point type
 - Each consecutive pair (point i, point i+1) forms a structural segment (strut)
 - Points can move independently — the wing can deform structurally
@@ -114,7 +114,7 @@ Stations:      [─ Surf₁ ─]    [─ Surf₂ ─]
 
 Multiple unrefined sections can be combined into a single station for
 twist control. `compute_spatial_station_mapping!` builds the mapping
-automatically: each unrefined section is assigned to the nearest twist-surface
+automatically: each unrefined section is assigned to the nearest station
 centre (Voronoi partition in the body frame), and the surface's single twist DOF
 then drives every section it owns as a rigid unit. More stations than
 unrefined sections is rejected — a twist DOF without a section to drive would be
@@ -399,7 +399,7 @@ The steps are:
    unchanged, existing refined panel polars are preserved — only positions are
    re-interpolated
 4. **Resize linearization state**: For non-PARTICLE_DYNAMICS wings, `aero_y`,
-   `aero_x`, and `aero_jac` are resized to match the new twist-surface count
+   `aero_x`, and `aero_jac` are resized to match the new station count
 
 ## Refined panel mapping
 
@@ -430,8 +430,8 @@ end
 
 The mapping enables:
 
-1. **Twist-surface twist angles**: Applying the correct twist angle from twist
-   surfaces to refined panels via their parent section
+1. **Station twist angles**: Applying the correct twist angle from stations
+   to refined panels via their parent section
 2. **Force distribution (PARTICLE_DYNAMICS)**: Accumulating refined panel forces
    at the structural points of their parent section
 3. **Linearization (RIGID_DYNAMICS + [`AeroLinearized`](@ref))**: Propagating
@@ -444,7 +444,7 @@ The mapping enables:
 | **Structural repr.**   | Individual `DYNAMIC` wing nodes         | Rigid body + quaternion                               |
 | **Section count**      | = structural LE/TE pairs                | Independent; optionally rebuilt via `use_prior_polar` |
 | **Force distribution** | Per-point moment-preserving LE/TE split | Integrated force/moment on body                       |
-| **Deformation**        | Direct: point motion → VSM geometry     | Indirect: twist-surface twists → sections             |
+| **Deformation**        | Direct: point motion → VSM geometry     | Indirect: station twists → sections             |
 | **Default aero mode**  | [`AeroDirect`](@ref)                    | [`AeroLinearized`](@ref)                              |
 
 ## Implementation files
@@ -454,7 +454,7 @@ The mapping enables:
 - `src/system_structure/types.jl`: Component type definitions including the
   `WingType` enum and `AbstractAeroModel` types
 - `src/system_structure/wing.jl`: Wing and VSMWing definitions,
-  twist-surface-to-section mapping
+  station-to-section mapping
 - `src/aero_modes/`: one file per aero mode (`none.jl`, `direct.jl`,
   `linearized.jl`, `continuous.jl`, `pressure.jl`, `plate.jl`), plus `common.jl`
   with the dispatch interface, the connector scaffolding and the shared VSM

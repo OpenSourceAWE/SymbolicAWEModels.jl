@@ -236,7 +236,7 @@ end
 """
     build_point_to_vsm_point_mapping(wing_segments)
 
-Invert the twist-surface-derived `wing_segments` — `(le_point_idx, te_point_idx)`
+Invert the station-derived `wing_segments` — `(le_point_idx, te_point_idx)`
 per unrefined section — into the `structural point → (section_idx, :LE/:TE)` map.
 
 Each unrefined section contributes exactly its LE and TE structural points. Any

@@ -91,7 +91,7 @@ rel_error(value, reference) = norm(value .- reference) / norm(reference)
 Set the main transform (elevation, azimuth, heading) and wind speed from a
 `(elevation, azimuth, heading, v_wind)` tuple, then re-init the model. Used to
 drive a controlled rigid pose without running the ODE. `twist` prescribes the
-twist-surface angles, so the pose is held in a deformed state. It is applied
+station angles, so the pose is held in a deformed state. It is applied
 *before* `init!`: `update_sys_struct!` writes `twist` back from the model every
 step, so a value set afterwards is overwritten and never reaches the dynamics.
 """

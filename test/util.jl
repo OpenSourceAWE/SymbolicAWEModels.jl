@@ -82,7 +82,7 @@ end
 """
     set_twist!(sys, twists)
 
-Prescribe `twist` per twist-surface name, e.g. `(; left=0.06, right=-0.06)`.
+Prescribe `twist` per station name, e.g. `(; left=0.06, right=-0.06)`.
 Surfaces not named keep their value. Only meaningful for `STATIC` stations,
 where the angle is held rather than integrated.
 """
