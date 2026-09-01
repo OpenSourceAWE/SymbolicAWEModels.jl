@@ -143,11 +143,11 @@ function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
         use_observables=false, geometry_obs=nothing, border_linewidth=1.5,
         transparency=true)
     quad_vertices() = [Point3f(corner)
-        for twist_surface_idx in wing.twist_surface_idxs
+        for station_idx in wing.station_idxs
         for corner in SymbolicAWEModels.plate_corners(
-            sys.twist_surfaces[twist_surface_idx],
+            sys.stations[station_idx],
             sys.points[
-                sys.twist_surfaces[twist_surface_idx].point_idxs[1]].pos_w,
+                sys.stations[station_idx].point_idxs[1]].pos_w,
             wing.R_b_to_w)]
     initial = quad_vertices()
     isempty(initial) && return nothing
