@@ -22,7 +22,7 @@ winches, and wings, forming a complete description of the kite system's structur
 
 # Components
 - [`Point`](@ref): Point masses.
-- [`TwistSurface`](@ref): Collections of points for wing deformation.
+- [`Station`](@ref): Collections of points for wing deformation.
 - [`Segment`](@ref): Spring-damper elements.
 - [`Pulley`](@ref): Elements that redistribute line lengths.
 - [`Tether`](@ref): Collections of segments controlled by a winch.
@@ -37,7 +37,7 @@ mutable struct SystemStructure{J<:ElasticJoint}
     const name::String
     set::Settings
     const points::NamedCollection{Point}
-    const twist_surfaces::NamedCollection{TwistSurface}
+    const stations::NamedCollection{Station}
     const segments::NamedCollection{Segment}
     const pulleys::NamedCollection{Pulley}
     const tethers::NamedCollection{Tether}
@@ -83,10 +83,10 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
             append!(vars, rigid_body.Q_p_to_w)
             append!(vars, rigid_body.ω_p)
         end
-        twist_surfaces = getfield(sys, :twist_surfaces)
-        for twist_surface in twist_surfaces
-            push!(vars, twist_surface.twist)
-            push!(vars, twist_surface.twist_ω)
+        stations = getfield(sys, :stations)
+        for station in stations
+            push!(vars, station.twist)
+            push!(vars, station.twist_ω)
         end
         pulleys = getfield(sys, :pulleys)
         for pulley in pulleys
@@ -131,11 +131,11 @@ function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
             rigid_body.ω_p .= @view flat_value[offset:offset+2]
             offset += 3
         end
-        twist_surfaces = getfield(sys, :twist_surfaces)
-        for twist_surface in twist_surfaces
-            twist_surface.twist = flat_value[offset]
+        stations = getfield(sys, :stations)
+        for station in stations
+            station.twist = flat_value[offset]
             offset += 1
-            twist_surface.twist_ω = flat_value[offset]
+            station.twist_ω = flat_value[offset]
             offset += 1
         end
         pulleys = getfield(sys, :pulleys)
@@ -392,17 +392,17 @@ function expand_auto_tethers!(
 end
 
 """
-    mark_wing_nodes!(points, twist_surfaces)
+    mark_wing_nodes!(points, stations)
 
-Set `point.is_wing_node` for every point that is a member of some twist surface.
+Set `point.is_wing_node` for every point that is a member of some station.
 A wing's aerodynamic-surface structural points carry their wing membership
 through twist-surface membership (there is no `WING` dynamics type); this flag,
 derived once here, drives the per-point aero and wing-frame equations. Requires
-`twist_surface.point_idxs` to be resolved first.
+`station.point_idxs` to be resolved first.
 """
-function mark_wing_nodes!(points, twist_surfaces)
+function mark_wing_nodes!(points, stations)
     members = Set{Int64}()
-    for twist_surface in twist_surfaces, point_idx in twist_surface.point_idxs
+    for station in stations, point_idx in station.point_idxs
         push!(members, point_idx)
     end
     for point in points
@@ -464,7 +464,7 @@ function connected_body_groups(n_bodies, joint_collections...)
 end
 
 """
-    particle_wing_masses(wing, twist_surfaces, points, bodies, root)
+    particle_wing_masses(wing, stations, points, bodies, root)
         -> (point_mass, body_mass)
 
 Mass associated with a PARTICLE_DYNAMICS `wing`, split by source. `point_mass`
@@ -475,19 +475,19 @@ carries its mass on its section bodies — most of which are beam-internal and r
 no point — so `body_mass` is the usual source; both being nonzero means gravity
 is counted twice (points and bodies).
 
-The wing's components are seeded from its twist_surfaces' member/flap bodies and
+The wing's components are seeded from its stations' member/flap bodies and
 the bodies its member points ride, then expanded over the joint graph. Members
-are the union of the wing's twist_surface points, falling back to
-`wing_frame_member` points when the wing has no twist_surfaces.
+are the union of the wing's station points, falling back to
+`wing_frame_member` points when the wing has no stations.
 """
-function particle_wing_masses(wing, twist_surfaces, points, bodies, root)
+function particle_wing_masses(wing, stations, points, bodies, root)
     seed_roots = Set{Int64}()
     point_idxs = Set{Int64}()
-    for twist_surface_idx in wing.twist_surface_idxs
-        twist_surface = twist_surfaces[twist_surface_idx]
-        union!(point_idxs, twist_surface.point_idxs)
+    for station_idx in wing.station_idxs
+        station = stations[station_idx]
+        union!(point_idxs, station.point_idxs)
         for body_idx in Iterators.flatten(
-                (twist_surface.body_idxs, twist_surface.flap_body_idxs))
+                (station.body_idxs, station.flap_body_idxs))
             body_idx != 0 && body_idx != wing.idx && push!(seed_roots, root[body_idx])
         end
     end
@@ -512,17 +512,17 @@ function particle_wing_masses(wing, twist_surfaces, points, bodies, root)
 end
 
 """
-    finalize_particle_wing_mass!(wing, twist_surfaces, points, bodies, set, root)
+    finalize_particle_wing_mass!(wing, stations, points, bodies, set, root)
 
 Set a PARTICLE_DYNAMICS `wing`'s bookkeeping mass from its member points and the
 section bodies of its beam component (see [`particle_wing_masses`](@ref)), warning
 when the wing is massless or when mass is counted twice (points and bodies). Falls
 back to distributing `set.mass` over the member points when neither source carries
-mass. Deferred until point/twist_surface→body and joint→body references resolve.
+mass. Deferred until point/station→body and joint→body references resolve.
 """
-function finalize_particle_wing_mass!(wing, twist_surfaces, points, bodies, set, root)
+function finalize_particle_wing_mass!(wing, stations, points, bodies, set, root)
     point_mass, body_mass =
-        particle_wing_masses(wing, twist_surfaces, points, bodies, root)
+        particle_wing_masses(wing, stations, points, bodies, root)
     point_mass > 0 && body_mass > 0 && @warn "Wing $(wing.idx) " *
         "(PARTICLE_DYNAMICS): member points carry both extra_mass ($point_mass kg) " *
         "and ride bodies with mass ($body_mass kg) — gravity is counted twice."
@@ -552,7 +552,7 @@ and resolve all references to indices.
 """
 function assign_indices_and_resolve!(
     points::Vector{Point},
-    twist_surfaces::Vector{TwistSurface},
+    stations::Vector{Station},
     segments::Vector{Segment},
     pulleys::Vector{Pulley},
     tethers::Vector{Tether},
@@ -564,8 +564,8 @@ function assign_indices_and_resolve!(
     for (i, point) in enumerate(points)
         point.idx = i
     end
-    for (i, twist_surface) in enumerate(twist_surfaces)
-        twist_surface.idx = i
+    for (i, station) in enumerate(stations)
+        station.idx = i
     end
     for (i, segment) in enumerate(segments)
         segment.idx = i
@@ -588,7 +588,7 @@ function assign_indices_and_resolve!(
 
     # Build name lookup dictionaries
     point_names = build_name_dict(points)
-    twist_surface_names = build_name_dict(twist_surfaces)
+    station_names = build_name_dict(stations)
     segment_names = build_name_dict(segments)
     pulley_names = build_name_dict(pulleys)
     tether_names = build_name_dict(tethers)
@@ -602,11 +602,11 @@ function assign_indices_and_resolve!(
         point.transform_idx = resolve_ref(point.transform_ref, transform_names, "transform")
     end
 
-    # TwistSurfaces: resolve point_refs
-    for twist_surface in twist_surfaces
-        twist_surface.point_idxs = Int64[resolve_ref(ref, point_names, "point") for ref in twist_surface.point_refs]
+    # Stations: resolve point_refs
+    for station in stations
+        station.point_idxs = Int64[resolve_ref(ref, point_names, "point") for ref in station.point_refs]
     end
-    mark_wing_nodes!(points, twist_surfaces)
+    mark_wing_nodes!(points, stations)
 
     # Segments: resolve point_refs
     for segment in segments
@@ -654,10 +654,10 @@ function assign_indices_and_resolve!(
         transform.base_transform_idx = resolve_ref_spec(transform.base_transform_ref, transform_names, "transform")
     end
 
-    # Wings: resolve twist_surface_refs, transform_ref, and PARTICLE_DYNAMICS-specific refs
+    # Wings: resolve station_refs, transform_ref, and PARTICLE_DYNAMICS-specific refs
     for wing in wings
         # BaseWing fields
-        wing.twist_surface_idxs = Int64[resolve_ref(ref, twist_surface_names, "twist_surface") for ref in wing.twist_surface_refs]
+        wing.station_idxs = Int64[resolve_ref(ref, station_names, "station") for ref in wing.station_refs]
         wing.transform_idx = resolve_ref(wing.transform_ref, transform_names, "transform")
 
         # Body-frame reference points (any wing may carry them)
@@ -677,11 +677,11 @@ function assign_indices_and_resolve!(
                 point_names, "point")
         end
 
-        # Resize per-mode aero state now that twist_surface_idxs are resolved.
+        # Resize per-mode aero state now that station_idxs are resolved.
         resize_aero_state!(wing.aero, wing)
     end
 
-    return (point_names, twist_surface_names, segment_names, pulley_names,
+    return (point_names, station_names, segment_names, pulley_names,
             tether_names, winch_names, wing_names, transform_names)
 end
 
@@ -721,48 +721,48 @@ function init_body_frame_from_ref_points!(
 end
 
 """
-    compute_spatial_twist_surface_mapping!(the_wing, twist_surfaces, points)
+    compute_spatial_station_mapping!(the_wing, stations, points)
 
 Partition the wing's unrefined VSM sections among its
-twist_surfaces by spatial proximity: each unrefined section is
-assigned to the single closest twist_surface (by distance between
-section centre and twist_surface centre, both in body frame).
+stations by spatial proximity: each unrefined section is
+assigned to the single closest station (by distance between
+section centre and station centre, both in body frame).
 
-When `n_twist_surfaces == n_unrefined` this is the same 1:1
-mapping as before. When `n_twist_surfaces < n_unrefined` a twist_surface
+When `n_stations == n_unrefined` this is the same 1:1
+mapping as before. When `n_stations < n_unrefined` a station
 may own several adjacent sections; its single twist DOF
 then drives all of them as a rigid unit. The case
-`n_twist_surfaces > n_unrefined` is rejected — a twist DOF without
+`n_stations > n_unrefined` is rejected — a twist DOF without
 a section to drive would be undefined.
 """
-function compute_spatial_twist_surface_mapping!(
+function compute_spatial_station_mapping!(
     the_wing::Body,
-    twist_surfaces::AbstractVector{TwistSurface},
+    stations::AbstractVector{Station},
     points::AbstractVector{Point}
 )
     the_vsm_wing = the_wing.vsm_wing
     n_unrefined = the_vsm_wing.n_unrefined_sections
-    n_twist_surfaces = length(the_wing.twist_surface_idxs)
+    n_stations = length(the_wing.station_idxs)
 
-    n_twist_surfaces <= n_unrefined || error(
-        "Wing $(the_wing.idx): n_twist_surfaces " *
-        "($n_twist_surfaces) > n_unrefined sections " *
-        "($n_unrefined). Reduce twist_surfaces or increase " *
+    n_stations <= n_unrefined || error(
+        "Wing $(the_wing.idx): n_stations " *
+        "($n_stations) > n_unrefined sections " *
+        "($n_unrefined). Reduce stations or increase " *
         "aero resolution.")
 
-    # Compute twist_surface centers in body frame
-    twist_surface_centers = Vector{MVec3}(undef, n_twist_surfaces)
-    for (local_idx, twist_surface_idx) in
-            enumerate(the_wing.twist_surface_idxs)
-        twist_surface = twist_surfaces[twist_surface_idx]
+    # Compute station centers in body frame
+    station_centers = Vector{MVec3}(undef, n_stations)
+    for (local_idx, station_idx) in
+            enumerate(the_wing.station_idxs)
+        station = stations[station_idx]
         center = zeros(3)
-        for pt_idx in twist_surface.point_idxs
+        for pt_idx in station.point_idxs
             center += the_wing.R_b_to_c' *
                 (points[pt_idx].pos_cad -
                  the_wing.pos_cad)
         end
-        twist_surface_centers[local_idx] =
-            center / length(twist_surface.point_idxs)
+        station_centers[local_idx] =
+            center / length(station.point_idxs)
     end
 
     offset_vec = [0.0, 0.0, the_wing.aero_z_offset]
@@ -778,34 +778,34 @@ function compute_spatial_twist_surface_mapping!(
     end
 
     # Reset section lists (we rebuild the partition)
-    for twist_surface_idx in the_wing.twist_surface_idxs
-        empty!(twist_surfaces[twist_surface_idx].unrefined_section_idxs)
+    for station_idx in the_wing.station_idxs
+        empty!(stations[station_idx].unrefined_section_idxs)
     end
 
-    # Assign each unrefined section to nearest twist_surface
+    # Assign each unrefined section to nearest station
     for section_idx in 1:n_unrefined
         min_dist = Inf
         closest_local = 1
-        for local_idx in 1:n_twist_surfaces
+        for local_idx in 1:n_stations
             dist = norm(unrefined_centers[section_idx] -
-                     twist_surface_centers[local_idx])
+                     station_centers[local_idx])
             if dist < min_dist
                 min_dist = dist
                 closest_local = local_idx
             end
         end
-        g_idx = the_wing.twist_surface_idxs[closest_local]
-        push!(twist_surfaces[g_idx].unrefined_section_idxs,
+        g_idx = the_wing.station_idxs[closest_local]
+        push!(stations[g_idx].unrefined_section_idxs,
               Int64(section_idx))
     end
 
-    # Every twist_surface must claim at least one section
-    for twist_surface_idx in the_wing.twist_surface_idxs
-        twist_surface = twist_surfaces[twist_surface_idx]
-        isempty(twist_surface.unrefined_section_idxs) && error(
-            "Wing $(the_wing.idx): twist_surface " *
-            "$(twist_surface.name) claims no unrefined " *
-            "sections (likely coincident twist_surface centres).")
+    # Every station must claim at least one section
+    for station_idx in the_wing.station_idxs
+        station = stations[station_idx]
+        isempty(station.unrefined_section_idxs) && error(
+            "Wing $(the_wing.idx): station " *
+            "$(station.name) claims no unrefined " *
+            "sections (likely coincident station centres).")
     end
 end
 
@@ -875,7 +875,7 @@ function setup_wing_frame!(wing, points; prn=true)
 end
 
 """
-    SystemStructure(name, set; points, twist_surfaces, segments, pulleys, tethers,
+    SystemStructure(name, set; points, stations, segments, pulleys, tethers,
                     winches, wings, transforms, bodies, elastic_joints,
                     timoshenko_joints)
 
@@ -891,7 +891,7 @@ of the same structural shape should share one.
 - `set::Settings`: Configuration parameters from `KiteUtils.jl`.
 
 # Keyword Arguments
-- `points`, `twist_surfaces`, `segments`, etc.: Vectors of the system components.
+- `points`, `stations`, `segments`, etc.: Vectors of the system components.
 - `vsm_set`: `VSMSettings` for VSM wings; read from `vsm_settings.yaml` when omitted.
 - `ignore_l0::Bool=false`: Recompute every segment `l0` from the CAD geometry.
 - `prn::Bool=true`: If true, print info messages about auto-generated components.
@@ -901,7 +901,7 @@ of the same structural shape should share one.
 """
 function SystemStructure(name, set;
         points=Point[],
-        twist_surfaces=TwistSurface[],
+        stations=Station[],
         segments=Segment[],
         pulleys=Pulley[],
         tethers=Tether[],
@@ -938,12 +938,12 @@ function SystemStructure(name, set;
     expand_auto_tethers!(points, segments, tethers, set)
 
     # Assign indices and resolve all symbolic references to numeric indices.
-    (point_names_dict, twist_surface_names_dict,
+    (point_names_dict, station_names_dict,
      segment_names_dict, pulley_names_dict,
      tether_names_dict, winch_names_dict,
      _, transform_names_dict) =
         assign_indices_and_resolve!(
-            points, twist_surfaces, segments, pulleys,
+            points, stations, segments, pulleys,
             tethers, winches, wings, transforms)
 
     # If no wings defined, convert wing nodes to STATIC
@@ -979,8 +979,8 @@ function SystemStructure(name, set;
         @assert point.transform_idx == 0 ||
                 point.transform_idx <= length(transforms)
     end
-    for (i, twist_surface) in enumerate(twist_surfaces)
-        @assert twist_surface.idx == i
+    for (i, station) in enumerate(stations)
+        @assert station.idx == i
     end
     for (i, segment) in enumerate(segments)
         @assert segment.idx == i
@@ -1038,7 +1038,7 @@ function SystemStructure(name, set;
     # Per-mode aero construction (dispatched; no-op for modes without an engine).
     for (i, wing) in enumerate(wings)
         @assert wing.idx == i
-        setup_aero!(wing.aero, wing, points, twist_surfaces; prn)
+        setup_aero!(wing.aero, wing, points, stations; prn)
     end
 
     for (i, transform) in enumerate(transforms)
@@ -1096,14 +1096,14 @@ function SystemStructure(name, set;
     end
     timoshenko_joint_names_dict = build_name_dict(timoshenko_joints)
 
-    # TwistSurfaces: resolve owning-wing and (member + flap) body references.
-    for twist_surface in twist_surfaces
-        twist_surface.wing_idx = resolve_ref(
-            twist_surface.wing_ref, rigid_body_names_dict, "rigid_body")
-        twist_surface.body_idxs = Int64[resolve_ref(ref, rigid_body_names_dict,
-            "rigid_body") for ref in twist_surface.body_refs]
-        twist_surface.flap_body_idxs = Int64[resolve_ref(ref, rigid_body_names_dict,
-            "rigid_body") for ref in twist_surface.flap_body_refs]
+    # Stations: resolve owning-wing and (member + flap) body references.
+    for station in stations
+        station.wing_idx = resolve_ref(
+            station.wing_ref, rigid_body_names_dict, "rigid_body")
+        station.body_idxs = Int64[resolve_ref(ref, rigid_body_names_dict,
+            "rigid_body") for ref in station.body_refs]
+        station.flap_body_idxs = Int64[resolve_ref(ref, rigid_body_names_dict,
+            "rigid_body") for ref in station.flap_body_refs]
     end
 
     # Beam-anchored points: resolve the joint ref, derive beam_frac + offset.
@@ -1121,14 +1121,14 @@ function SystemStructure(name, set;
     for wing in wings
         wing.dynamics_type == PARTICLE_DYNAMICS &&
             finalize_particle_wing_mass!(
-                wing, twist_surfaces, points, bodies, set, body_groups)
+                wing, stations, points, bodies, set, body_groups)
     end
 
     # Name dictionaries were already built by assign_indices_and_resolve!
     wing_bodies = filter(is_wing, bodies)
     sys_struct = SystemStructure(name, set,
         NamedCollection{Point}(points, point_names_dict),
-        NamedCollection{TwistSurface}(twist_surfaces, twist_surface_names_dict),
+        NamedCollection{Station}(stations, station_names_dict),
         NamedCollection{Segment}(segments, segment_names_dict),
         NamedCollection{Pulley}(pulleys, pulley_names_dict),
         NamedCollection{Tether}(tethers, tether_names_dict),
@@ -1141,9 +1141,9 @@ function SystemStructure(name, set;
         AtmosphericModel(set), false, false, vsm_set)
     reinit!(sys_struct, set; prn)
 
-    # Panel→flap twist_surface map (structural; needs placed bodies + built panels).
+    # Panel→flap station map (structural; needs placed bodies + built panels).
     for wing in sys_struct.wings
-        build_panel_twist_surface_map!(wing.aero, wing, sys_struct)
+        build_panel_station_map!(wing.aero, wing, sys_struct)
     end
 
     # Recalculate segment rest lengths from current positions if requested

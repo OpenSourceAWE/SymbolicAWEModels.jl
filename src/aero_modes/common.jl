@@ -30,7 +30,7 @@ has_vsm_engine(mode::AbstractAeroModel) = vsm_engine(mode) !== nothing
 """
     couples_to_sections(mode::AbstractAeroModel) -> Bool
 
-`true` if the mode needs per-section twist surfaces (auto-creation and
+`true` if the mode needs per-section stations (auto-creation and
 aero-section matching). VSM modes ([`AbstractVSMAero`](@ref)) do.
 """
 couples_to_sections(::AbstractAeroModel) = false
@@ -144,7 +144,7 @@ end
 
 # ==================== connector scaffolding ==================== #
 
-function rigid_aero_connectors(num_twist_surfaces::Int)
+function rigid_aero_connectors(num_stations::Int)
     @variables begin
         va(t)[1:3]
         rho(t)
@@ -153,8 +153,8 @@ function rigid_aero_connectors(num_twist_surfaces::Int)
         force(t)[1:3]
         moment(t)[1:3]
     end
-    if num_twist_surfaces > 0
-        @variables twist(t)[1:num_twist_surfaces] twist_vel(t)[1:num_twist_surfaces] twist_moment(t)[1:num_twist_surfaces]
+    if num_stations > 0
+        @variables twist(t)[1:num_stations] twist_vel(t)[1:num_stations] twist_moment(t)[1:num_stations]
     else
         twist = nothing
         twist_vel = nothing
@@ -1089,7 +1089,7 @@ Build the aero subsystem for `wing`, selected by dispatch on both the wing's
 Returns a `System` exposing the connectors fixed by the dynamics type, all in
 the wing body frame (the wiring layer `aero_eqs!` drives inputs and reads
 outputs; connectors a mode ignores still exist for binding):
-- `RIGID_DYNAMICS` (`num = length(wing.twist_surface_idxs)`): in `va[1:3]`,
+- `RIGID_DYNAMICS` (`num = length(wing.station_idxs)`): in `va[1:3]`,
   `rho`, `R_b_w[1:3,1:3]`, `omega[1:3]`, `twist[1:num]`, `twist_vel[1:num]`;
   out `force[1:3]`, `moment[1:3]`, `twist_moment[1:num]`.
 - `PARTICLE_DYNAMICS` (`np = number of wing nodes`): in `point_pos[1:3,1:np]`,
@@ -1110,7 +1110,7 @@ the wing's `dynamics_type`; error naming the missing connector otherwise.
 function validate_aero_component(subsys, wing)
     if wing.dynamics_type == RIGID_DYNAMICS
         required = Symbol[:va, :rho, :R_b_w, :omega, :force, :moment]
-        length(wing.twist_surface_idxs) > 0 &&
+        length(wing.station_idxs) > 0 &&
             append!(required, [:twist, :twist_vel, :twist_moment])
     else
         required = Symbol[:point_pos, :point_vel, :va, :rho, :point_force]
@@ -1175,7 +1175,7 @@ fresh apparent wind on either backend.
 """
 function wing_kinematics_from_points!(wing, points, set, am;
         zp1, zp2, yp1, yp2, origin, aero_points,
-        base_point = 0, twist_surfaces = nothing)
+        base_point = 0, stations = nothing)
     pos_z1 = get_ref_position_from_points(points, zp1)
     pos_z2 = get_ref_position_from_points(points, zp2)
     pos_y1 = get_ref_position_from_points(points, yp1)
@@ -1205,12 +1205,12 @@ function wing_kinematics_from_points!(wing, points, set, am;
         va_w = wind_factor(point.pos_w[3]) .* set.wind_vec .- point.vel_w
         point.va_b .= R' * va_w
     end
-    write_wing_scalars!(wing, points; base_point, twist_surfaces)
+    write_wing_scalars!(wing, points; base_point, stations)
     return nothing
 end
 
 """
-    write_wing_scalars!(wing, points; base_point, alpha_b, twist_surfaces) -> nothing
+    write_wing_scalars!(wing, points; base_point, alpha_b, stations) -> nothing
 
 Fill a fitted wing's reported scalars — heading, course, elevation, azimuth,
 distance and angle of attack with their rates — from its freshly rebuilt pose,
@@ -1221,15 +1221,15 @@ via the one definition in [`wing_scalar_kinematics`](@ref).
 `alpha_b` defaults to zero, which is what the monolith binds a fitted wing's to.
 """
 function write_wing_scalars!(wing, points; base_point = 0, alpha_b = zeros(3),
-                             twist_surfaces = nothing)
+                             stations = nothing)
     rel_pos = base_point == 0 ? collect(wing.pos_w) :
         collect(wing.pos_w) .- collect(points[base_point].pos_w)
-    idxs = wing.twist_surface_idxs
-    twist_offset = if isnothing(twist_surfaces) || isempty(idxs)
+    idxs = wing.station_idxs
+    twist_offset = if isnothing(stations) || isempty(idxs)
         0.0
     else
         half = idxs[1] + length(idxs) ÷ 2 - 1
-        0.5 * twist_surfaces[half].twist + 0.5 * twist_surfaces[half + 1].twist
+        0.5 * stations[half].twist + 0.5 * stations[half + 1].twist
     end
     R_b_to_w = collect(wing.R_b_to_w)
     e_x = R_b_to_w[:, 1]
@@ -1280,7 +1280,7 @@ before.
 """
 function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5, cold_start=false)
     wings = sam.sys_struct.wings
-    twist_surfaces = sam.sys_struct.twist_surfaces
+    stations = sam.sys_struct.stations
     points = sam.sys_struct.points
 
     length(wings) == 0 && return nothing
@@ -1293,7 +1293,7 @@ function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5, cold_start=false
 
     for wing in wings
         wing.dynamics_type == RIGID_DYNAMICS || continue
-        refresh_rigid_aero!(wing.aero, wing, sam.am, twist_surfaces;
+        refresh_rigid_aero!(wing.aero, wing, sam.am, stations;
                             vsm_min_wind)
     end
 
@@ -1314,7 +1314,7 @@ function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5, cold_start=false
 end
 
 """
-    refresh_rigid_aero!(mode, wing, am, twist_surfaces; vsm_min_wind=0.5)
+    refresh_rigid_aero!(mode, wing, am, stations; vsm_min_wind=0.5)
 
 Refresh a `RIGID_DYNAMICS` wing's aero state, dispatched on its aero `mode`:
 - `AeroNone` / any non-VSM mode → no-op (fallback).
@@ -1323,7 +1323,7 @@ Refresh a `RIGID_DYNAMICS` wing's aero state, dispatched on its aero `mode`:
 - `AeroDirect` → compute the baseline coefficients and apply the frozen body-frame
   force/moment; below `vsm_min_wind` everything is zeroed.
 """
-refresh_rigid_aero!(::AbstractAeroModel, wing, am, twist_surfaces;
+refresh_rigid_aero!(::AbstractAeroModel, wing, am, stations;
                     vsm_min_wind=0.5) = nothing
 
 """
@@ -1346,14 +1346,14 @@ refresh_particle_aero!(::AbstractAeroModel, wing, points, va_point_b_vals;
 # ==================== per-wing lifecycle ==================== #
 
 """
-    remake_aero!(mode, wing, set, vsm_set, points, twist_surfaces)
+    remake_aero!(mode, wing, set, vsm_set, points, stations)
 
 Rebuild the mode's aero engine from `set`/`vsm_set` (the `remake_vsm` path in
 `reinit!`, used after editing settings). Default no-op; VSM modes recreate the
 VSM wing/aero/solver, re-transform sections to the body frame, re-match aero
 sections to structure, and rebuild the twist-surface / point mappings.
 """
-remake_aero!(::AbstractAeroModel, wing, set, vsm_set, points, twist_surfaces) =
+remake_aero!(::AbstractAeroModel, wing, set, vsm_set, points, stations) =
     nothing
 
 """
@@ -1368,7 +1368,7 @@ attach_engine!(mode::AbstractVSMAero, engine::VSMEngine) =
     (setfield!(mode, :engine, engine); mode)
 
 function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, points,
-                      twist_surfaces)
+                      stations)
     vsm_set isa VortexStepMethod.VSMSettings || error(
         "remake_aero!: VSM wing $(wing.idx) needs a VSMSettings, " *
         "got $(typeof(vsm_set)).")
@@ -1382,10 +1382,10 @@ function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, points,
         aero_z_offset=(wing.dynamics_type == PARTICLE_DYNAMICS ? nothing :
                        wing.aero_z_offset))
 
-    match_aero_sections_to_structure!(wing, points; twist_surfaces)
+    match_aero_sections_to_structure!(wing, points; stations)
 
-    if wing.dynamics_type == RIGID_DYNAMICS && !isempty(wing.twist_surface_idxs)
-        compute_spatial_twist_surface_mapping!(wing, twist_surfaces, points)
+    if wing.dynamics_type == RIGID_DYNAMICS && !isempty(wing.station_idxs)
+        compute_spatial_station_mapping!(wing, stations, points)
     end
     if wing.dynamics_type == PARTICLE_DYNAMICS &&
        !isnothing(wing.wing_segments)
@@ -1421,16 +1421,16 @@ function validate_aero_structure(::AbstractVSMAero, wing, points; prn=false)
 end
 
 """
-    setup_aero!(mode, wing, points, twist_surfaces; prn=false)
+    setup_aero!(mode, wing, points, stations; prn=false)
 
 Construction-time aero setup for `wing`, dispatched on its aero `mode` (default
 no-op). VSM modes transform the VSM panels into the body frame and, for
-section-coupled wings, auto-create twist surfaces, match aero sections to
+section-coupled wings, auto-create stations, match aero sections to
 structure, and build the twist-surface / structural↔panel mappings. A custom mode
 adds a method to participate in construction without editing the SystemStructure
 constructor. Runs after [`setup_wing_frame!`](@ref) (which sets the body frame).
 """
-setup_aero!(::AbstractAeroModel, wing, points, twist_surfaces; prn=false) =
+setup_aero!(::AbstractAeroModel, wing, points, stations; prn=false) =
     nothing
 
 """
@@ -1470,30 +1470,30 @@ function transform_vsm_sections_to_body!(wing; aero_z_offset=nothing)
     return nothing
 end
 
-function setup_aero!(mode::AbstractVSMAero, wing, points, twist_surfaces;
+function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
                      prn=false)
     require_vsm_engine(mode, wing)
     if wing.dynamics_type == RIGID_DYNAMICS
         transform_vsm_sections_to_body!(wing; aero_z_offset=wing.aero_z_offset)
 
-        if couples_to_sections(mode) && isempty(wing.twist_surface_idxs)
+        if couples_to_sections(mode) && isempty(wing.station_idxs)
             error("Section-coupled aero on RIGID wing $(wing.idx) requires " *
-                  "explicit twist_surfaces covering its LE/TE structural " *
+                  "explicit stations covering its LE/TE structural " *
                   "sections; none were declared. Add them to the wing.")
         end
         couples_to_sections(mode) &&
-            match_aero_sections_to_structure!(wing, points; twist_surfaces)
-        isempty(wing.twist_surface_idxs) ||
-            compute_spatial_twist_surface_mapping!(wing, twist_surfaces, points)
-        compute_twist_surface_geometry!(wing, twist_surfaces, points)
-        for twist_surface_idx in wing.twist_surface_idxs
-            twist_surfaces[twist_surface_idx].le_pos .-= wing.com_offset_b
+            match_aero_sections_to_structure!(wing, points; stations)
+        isempty(wing.station_idxs) ||
+            compute_spatial_station_mapping!(wing, stations, points)
+        compute_station_geometry!(wing, stations, points)
+        for station_idx in wing.station_idxs
+            stations[station_idx].le_pos .-= wing.com_offset_b
         end
     else  # PARTICLE_DYNAMICS
         isnothing(wing.origin) || transform_vsm_sections_to_body!(wing)
         couples_to_sections(mode) &&
-            match_aero_sections_to_structure!(wing, points; twist_surfaces)
-        setup_particle_point_mapping!(wing, points, twist_surfaces)
+            match_aero_sections_to_structure!(wing, points; stations)
+        setup_particle_point_mapping!(wing, points, stations)
     end
     return nothing
 end
@@ -1501,7 +1501,7 @@ end
 """
     resize_aero_state!(mode, wing)
 
-Resize the mode's per-wing aero state after `wing.twist_surface_idxs` is
+Resize the mode's per-wing aero state after `wing.station_idxs` is
 resolved (name resolution can change the twist-surface count the initial
 sizing estimated from `n_unrefined`). Default no-op; VSM modes resize
 `aero_y`/`aero_x`/`aero_jac` for `RIGID_DYNAMICS` wings.
@@ -1510,9 +1510,9 @@ resize_aero_state!(::AbstractAeroModel, wing) = nothing
 
 function resize_aero_state!(mode::AbstractVSMAero, wing)
     wing.dynamics_type == RIGID_DYNAMICS || return nothing
-    n_twist_surfaces = length(wing.twist_surface_idxs)
-    num_aero_outputs = 6 + n_twist_surfaces
-    num_aero_inputs = 5 + n_twist_surfaces
+    n_stations = length(wing.station_idxs)
+    num_aero_outputs = 6 + n_stations
+    num_aero_inputs = 5 + n_stations
     if length(mode.aero_x) != num_aero_outputs ||
             length(mode.aero_y) != num_aero_inputs
         mode.aero_y = zeros(SimFloat, num_aero_inputs)
@@ -1814,24 +1814,24 @@ function read_aero_log_points!(mode::AbstractVSMAero, wing, sys_struct,
 end
 
 """
-    restore_aero_twist!(mode, wing, twist_surfaces)
+    restore_aero_twist!(mode, wing, stations)
 
 Re-apply the (already restored) twist-surface angles to the mode's geometry
 when loading a `SysState` log frame. Default no-op; VSM `RIGID_DYNAMICS`
 modes deform the unrefined sections and reinit the panels.
 """
-restore_aero_twist!(::AbstractAeroModel, wing, twist_surfaces) = nothing
+restore_aero_twist!(::AbstractAeroModel, wing, stations) = nothing
 
-function restore_aero_twist!(mode::AbstractVSMAero, wing, twist_surfaces)
+function restore_aero_twist!(mode::AbstractVSMAero, wing, stations)
     wing.dynamics_type == RIGID_DYNAMICS || return nothing
-    isempty(wing.twist_surface_idxs) && return nothing
+    isempty(wing.station_idxs) && return nothing
     vsm = mode.vsm_wing
     isempty(vsm.non_deformed_sections) && return nothing
     theta = zeros(Float64, vsm.n_unrefined_sections)
-    for twist_surface_idx in wing.twist_surface_idxs
+    for station_idx in wing.station_idxs
         for section_idx in
-                twist_surfaces[twist_surface_idx].unrefined_section_idxs
-            theta[section_idx] = twist_surfaces[twist_surface_idx].twist
+                stations[station_idx].unrefined_section_idxs
+            theta[section_idx] = stations[station_idx].twist
         end
     end
     VortexStepMethod.unrefined_deform!(vsm, theta)
@@ -1843,20 +1843,20 @@ end
     n_flap_deflections(sys_struct) -> Int
 
 Number of aero segments logged in `SysState.flap_angle`: one flap deflection δ
-per twist_surface. Sets the `D` type parameter of the model's `SysState`.
+per station. Sets the `D` type parameter of the model's `SysState`.
 """
-n_flap_deflections(sys_struct) = length(sys_struct.twist_surfaces)
+n_flap_deflections(sys_struct) = length(sys_struct.stations)
 
 """
     write_flap_deflections!(sys_state, sys_struct)
 
-Write each twist_surface's flap deflection δ [rad] into `sys_state.flap_angle`
-(indexed by twist_surface `idx`, via [`twist_surface_deltas`](@ref)). No-op when
+Write each station's flap deflection δ [rad] into `sys_state.flap_angle`
+(indexed by station `idx`, via [`station_deltas`](@ref)). No-op when
 the state carries no flap slots (`D == 0`).
 """
 function write_flap_deflections!(sys_state, sys_struct)
     isempty(sys_state.flap_angle) && return nothing
-    sys_state.flap_angle .= twist_surface_deltas(sys_struct)
+    sys_state.flap_angle .= station_deltas(sys_struct)
     return nothing
 end
 
@@ -1864,7 +1864,7 @@ end
     restore_flap_delta!(mode, wing, sys_state)
 
 Restore each VSM panel's flap deflection `δ` from `sys_state.flap_angle` (mapped
-through the panel→twist_surface index) when loading a `SysState` frame, so a
+through the panel→station index) when loading a `SysState` frame, so a
 replayed frame shows the logged flap state. Default no-op; [`AeroPressure`](@ref)
 restores its `PARTICLE_DYNAMICS` panels.
 """
@@ -2048,8 +2048,8 @@ function vsm_solve_objects(wing, ::Type{T}, shadow_ref) where {T}
 end
 
 """
-    vsm_aero_coeffs(wing, y, va_mag, n_unrefined, n_twist_surfaces,
-                     twist_surface_idxs, twist_surfaces, moment_frac, shadow_ref;
+    vsm_aero_coeffs(wing, y, va_mag, n_unrefined, n_stations,
+                     station_idxs, stations, moment_frac, shadow_ref;
                      gamma_init=nothing) -> Vector
 
 Run one VSM solve at operating-point input `y = [α, β, ω₁, ω₂, ω₃, θ_twist…]` and
@@ -2059,8 +2059,8 @@ cached dual shadow of the VSM solver, so the same routine yields the Jacobian
 under AD.
 """
 function vsm_aero_coeffs(wing, y::AbstractVector{T},
-        va_mag, n_unrefined, n_twist_surfaces,
-        twist_surface_idxs, twist_surfaces, moment_frac,
+        va_mag, n_unrefined, n_stations,
+        station_idxs, stations, moment_frac,
         shadow_ref::Ref;
         gamma_init=nothing) where {T}
 
@@ -2077,11 +2077,11 @@ function vsm_aero_coeffs(wing, y::AbstractVector{T},
                                va_mag * sβ,
                                va_mag * sα * cβ)
 
-    # Per-twist_surface → per-section twist
+    # Per-station → per-section twist
     theta = zeros(T, n_unrefined)
-    for (twist_surface_index, gidx) in enumerate(twist_surface_idxs)
-        for unrefined_index in twist_surfaces[gidx].unrefined_section_idxs
-            theta[unrefined_index] = y[5 + twist_surface_index]
+    for (station_index, gidx) in enumerate(station_idxs)
+        for unrefined_index in stations[gidx].unrefined_section_idxs
+            theta[unrefined_index] = y[5 + station_index]
         end
     end
 
@@ -2108,43 +2108,43 @@ function vsm_aero_coeffs(wing, y::AbstractVector{T},
     lift_dir = smooth_normalize(cross(drag_dir, span))
     side_dir = cross(lift_dir, drag_dir)
 
-    x = zeros(T, 6 + n_twist_surfaces)
+    x = zeros(T, 6 + n_stations)
     x[1] = dot(force_coeffs, lift_dir)
     x[2] = dot(force_coeffs, drag_dir)
     x[3] = dot(force_coeffs, side_dir)
     x[4] = cm_body[1]
     x[5] = cm_body[2]
     x[6] = cm_body[3]
-    for (twist_surface_index, gidx) in enumerate(twist_surface_idxs)
-        x[6 + twist_surface_index] = sum(
+    for (station_index, gidx) in enumerate(station_idxs)
+        x[6 + station_index] = sum(
             moment_coeff_unrefined[unrefined_index]
             for unrefined_index in
-                twist_surfaces[gidx].unrefined_section_idxs;
+                stations[gidx].unrefined_section_idxs;
             init = zero(T))
     end
     return x
 end
 
 """
-    rigid_aero_baseline!(wing, twist_surfaces; vsm_min_wind=0.5)
+    rigid_aero_baseline!(wing, stations; vsm_min_wind=0.5)
 
 Compute the operating point and baseline wind-axis coefficients for one wing:
-writes `wing.aero_y` / `wing.aero_x` and updates `twist_surfaces[gidx].aero_moment`.
+writes `wing.aero_y` / `wing.aero_x` and updates `stations[gidx].aero_moment`.
 Returns the context (`va_mag`, section counts, `moment_frac`, `shadow_ref`, `y0`)
 the mode-specific reduction (`refresh_rigid_aero!`) needs for the Jacobian.
 """
-function rigid_aero_baseline!(wing, twist_surfaces;
+function rigid_aero_baseline!(wing, stations;
                               vsm_min_wind=0.5)
     va_b = wing.va_b
     va_mag_actual = norm(va_b)
     omega_b = wing.ω_b
 
-    twist_surface_idxs = wing.twist_surface_idxs
-    n_twist_surfaces = length(twist_surface_idxs)
+    station_idxs = wing.station_idxs
+    n_stations = length(station_idxs)
     n_unrefined = wing.vsm_wing.n_unrefined_sections
 
-    moment_frac = isempty(twist_surface_idxs) ? 0.25 :
-        twist_surfaces[first(twist_surface_idxs)].moment_frac
+    moment_frac = isempty(station_idxs) ? 0.25 :
+        stations[first(station_idxs)].moment_frac
 
     va_mag = max(va_mag_actual, vsm_min_wind)
     alpha_0 = atan(va_b[3], va_b[1])
@@ -2156,27 +2156,27 @@ function rigid_aero_baseline!(wing, twist_surfaces;
         beta_0 = 0.0
     end
 
-    # Operating-point input vector y₀ = [α, β, ω, θ_twist_surface]
+    # Operating-point input vector y₀ = [α, β, ω, θ_station]
     y0 = wing.aero_y
     y0[1] = alpha_0
     y0[2] = beta_0
     y0[3] = omega_b[1]
     y0[4] = omega_b[2]
     y0[5] = omega_b[3]
-    for (twist_surface_index, gidx) in enumerate(twist_surface_idxs)
-        y0[5 + twist_surface_index] = twist_surfaces[gidx].twist
+    for (station_index, gidx) in enumerate(station_idxs)
+        y0[5 + station_index] = stations[gidx].twist
     end
 
     shadow_ref = Ref{Any}(nothing)
     f_baseline = y -> vsm_aero_coeffs(wing, y, va_mag,
-        n_unrefined, n_twist_surfaces, twist_surface_idxs, twist_surfaces,
+        n_unrefined, n_stations, station_idxs, stations,
         moment_frac, shadow_ref)
 
     wing.aero_x .= f_baseline(y0)
-    for (twist_surface_index, gidx) in enumerate(twist_surface_idxs)
-        twist_surfaces[gidx].aero_moment = wing.aero_x[6 + twist_surface_index]
+    for (station_index, gidx) in enumerate(station_idxs)
+        stations[gidx].aero_moment = wing.aero_x[6 + station_index]
     end
 
-    return (; va_mag, n_unrefined, n_twist_surfaces,
-            twist_surface_idxs, moment_frac, shadow_ref, y0)
+    return (; va_mag, n_unrefined, n_stations,
+            station_idxs, moment_frac, shadow_ref, y0)
 end

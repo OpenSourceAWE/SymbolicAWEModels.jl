@@ -62,7 +62,7 @@ configurations and throws assertions for definite errors.
 - Non-positive mass (error) - checked before NaN position
 - Zero or near-zero principal inertia components on RIGID_DYNAMICS wings (error/warning)
 - NaN inertia values (error)
-- Empty twist_surface list for RIGID_DYNAMICS wings (warning)
+- Empty station list for RIGID_DYNAMICS wings (warning)
 - NaN position (error) - often caused by zero mass/inertia
 
 ## Winch Validations
@@ -81,11 +81,11 @@ configurations and throws assertions for definite errors.
 ## Pulley Validations
 - Zero total length constraint (error)
 
-## TwistSurface Validations
-- Inconsistent moment_frac across twist_surfaces (error)
+## Station Validations
+- Inconsistent moment_frac across stations (error)
 """
 function validate_sys_struct(sys_struct::SystemStructure)
-    (; points, twist_surfaces, segments, pulleys, wings, winches) = sys_struct
+    (; points, stations, segments, pulleys, wings, winches) = sys_struct
 
     # ==================== POINT VALIDATIONS ==================== #
     for point in points
@@ -140,11 +140,11 @@ function validate_sys_struct(sys_struct::SystemStructure)
                 error("Wing $(wing.name) has NaN inertia: I_b = $I_b")
             end
 
-            # AeroNone does not couple to sections, so missing twist_surfaces is fine.
-            if isempty(wing.twist_surface_idxs) &&
+            # AeroNone does not couple to sections, so missing stations is fine.
+            if isempty(wing.station_idxs) &&
                couples_to_sections(wing.aero)
                 @warn "Wing $(wing.name) (RIGID_DYNAMICS)" *
-                    " has no twist_surfaces"
+                    " has no stations"
             end
         end
 
@@ -226,14 +226,14 @@ function validate_sys_struct(sys_struct::SystemStructure)
         end
     end
 
-    # ==================== TWIST_SURFACE VALIDATIONS ==================== #
-    if length(twist_surfaces) > 0
-        first_moment_frac = twist_surfaces[1].moment_frac
-        for twist_surface in twist_surfaces
-            if !(twist_surface.moment_frac ≈ first_moment_frac)
-                error("TwistSurface $(twist_surface.name) has moment_frac = " *
-                      "$(twist_surface.moment_frac), but all twist_surfaces must have the " *
-                      "same moment_frac (first twist_surface has $(first_moment_frac))")
+    # ==================== STATION VALIDATIONS ==================== #
+    if length(stations) > 0
+        first_moment_frac = stations[1].moment_frac
+        for station in stations
+            if !(station.moment_frac ≈ first_moment_frac)
+                error("Station $(station.name) has moment_frac = " *
+                      "$(station.moment_frac), but all stations must have the " *
+                      "same moment_frac (first station has $(first_moment_frac))")
             end
         end
     end
@@ -430,14 +430,14 @@ function tether_downstream_idxs(tether, segments, boundary,
 end
 
 """
-    twist_surface_tethers_by_overlap(specified, reach)
+    station_tethers_by_overlap(specified, reach)
 
 Cluster the `specified` tethers with a union-find over `reach`
 (point indices each tether touches): tethers whose reaches intersect
 share structure and land in the same cluster. Returns a vector of
 tether vectors, one per cluster.
 """
-function twist_surface_tethers_by_overlap(specified, reach)
+function station_tethers_by_overlap(specified, reach)
     n = length(specified)
     parent = collect(1:n)
     function find_root(i)
@@ -457,11 +457,11 @@ function twist_surface_tethers_by_overlap(specified, reach)
             parent[root_i] = root_j
         end
     end
-    twist_surfaces = Dict{Int64, Vector{Tether}}()
+    stations = Dict{Int64, Vector{Tether}}()
     for i in 1:n
-        push!(get!(() -> Tether[], twist_surfaces, find_root(i)), specified[i])
+        push!(get!(() -> Tether[], stations, find_root(i)), specified[i])
     end
-    return collect(values(twist_surfaces))
+    return collect(values(stations))
 end
 
 """
@@ -643,7 +643,7 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
                 boundary),
         downstream[tether.idx]) for tether in specified)
 
-    for cluster in twist_surface_tethers_by_overlap(specified, reach)
+    for cluster in station_tethers_by_overlap(specified, reach)
         apply_cluster_init_stretched_len!(cluster, points, segments, bodies,
                                           timoshenko_joints, body_neighbors,
                                           downstream, boundary; prn)
@@ -712,7 +712,7 @@ end
 
 Re-initialize a `SystemStructure` from a `Settings` object.
 
-This function resets various component states (e.g., winch lengths, twist_surface twists,
+This function resets various component states (e.g., winch lengths, station twists,
 pulley positions) to their initial values as defined in the `Settings` object. It
 is typically called before starting a new simulation run.
 
@@ -735,7 +735,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                  ignore_l0::Bool=false, remake_vsm::Bool=false,
                  reset_vel::Bool=true, apply_transforms::Bool=true,
                  apply_tether_lengths::Bool=true, prn::Bool=true)
-    (; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
+    (; points, stations, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
 
     for winch in winches
         winch.vel = winch.init_vel
@@ -752,10 +752,10 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         init_rigid_body!(rigid_body)
     end
 
-    for twist_surface in twist_surfaces
-        twist_surface.type == STATIC && continue
-        twist_surface.twist = 0.0
-        twist_surface.twist_ω = 0.0
+    for station in stations
+        station.type == STATIC && continue
+        station.twist = 0.0
+        station.twist_ω = 0.0
     end
 
     # Transforms are not updated from Settings; YAML structure geometry has priority.
@@ -807,7 +807,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     if remake_vsm
         for wing in wings
             remake_aero!(wing.aero, wing, set, sys_struct.vsm_set,
-                         points, twist_surfaces)
+                         points, stations)
         end
     end
 
@@ -843,8 +843,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     # Joint rest geometry, from the final placed body poses (as-placed = unstrained).
     init_joint_rest!.(sys_struct.elastic_joints, Ref(sys_struct.bodies))
     init_joint_rest!.(sys_struct.timoshenko_joints, Ref(sys_struct.bodies))
-    # Flap KINEMATIC twist_surfaces: capture rest deflection from the placed bodies.
-    init_twist_surface_flap!.(sys_struct.twist_surfaces, Ref(sys_struct.bodies))
+    # Flap KINEMATIC stations: capture rest deflection from the placed bodies.
+    init_station_flap!.(sys_struct.stations, Ref(sys_struct.bodies))
 
     return nothing
 end
@@ -865,7 +865,7 @@ The function handles several cases:
 - If `sys1` and `sys2` have the same structure, it performs a direct copy of all point states.
 - If `sys2` is a simplified (1-segment per tether) version of `sys1`, it copies the
   positions and velocities of the tether endpoints.
-- It also copies the state of wings, twist_surfaces, winches, and pulleys where applicable.
+- It also copies the state of wings, stations, winches, and pulleys where applicable.
 """
 function copy!(sys1::SystemStructure, sys2::SystemStructure)
 
@@ -907,11 +907,11 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
         end
     end
 
-    # copy twist and twist_ω of twist_surfaces
-    if length(sys1.twist_surfaces) > 0 && length(sys1.twist_surfaces) == length(sys2.twist_surfaces)
-        for (twist_surface1, twist_surface2) in zip(sys1.twist_surfaces, sys2.twist_surfaces)
-            twist_surface2.twist = twist_surface1.twist
-            twist_surface2.twist_ω = twist_surface1.twist_ω
+    # copy twist and twist_ω of stations
+    if length(sys1.stations) > 0 && length(sys1.stations) == length(sys2.stations)
+        for (station1, station2) in zip(sys1.stations, sys2.stations)
+            station2.twist = station1.twist
+            station2.twist_ω = station1.twist_ω
         end
     end
 
@@ -1019,7 +1019,7 @@ plot(sys)
   while every other point moves to the logged one.
 """
 function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) where P
-    (; points, twist_surfaces, pulleys, tethers, winches, wings, bodies) = sys
+    (; points, stations, pulleys, tethers, winches, wings, bodies) = sys
 
     # Position slot layout (points, panel corners, wing origins, body origins).
     slots = position_slots(sys)
@@ -1110,17 +1110,17 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
     end
 
     # Logs written before twist_vel existed restart the surfaces at rest.
-    has_twist_vel = length(sys_state.twist_vel) == length(twist_surfaces)
-    for twist_surface in twist_surfaces
-        i = twist_surface.idx
+    has_twist_vel = length(sys_state.twist_vel) == length(stations)
+    for station in stations
+        i = station.idx
         if i <= length(sys_state.twist_angles)
-            twist_surface.twist = Float64(sys_state.twist_angles[i])
-            twist_surface.twist_ω = has_twist_vel ?
+            station.twist = Float64(sys_state.twist_angles[i])
+            station.twist_ω = has_twist_vel ?
                 Float64(sys_state.twist_vel[i]) : 0.0
         end
-        twist_surface.tether_force = NaN
-        twist_surface.tether_moment = NaN
-        twist_surface.aero_moment = NaN
+        station.tether_force = NaN
+        station.tether_moment = NaN
+        station.aero_moment = NaN
     end
     for pulley in pulleys
         pulley.idx > length(sys_state.pulley_len) && break
@@ -1129,7 +1129,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
     end
 
     for wing in wings
-        restore_aero_twist!(wing.aero, wing, twist_surfaces)
+        restore_aero_twist!(wing.aero, wing, stations)
     end
 
     # Update tether lengths from SysState (per-tether)

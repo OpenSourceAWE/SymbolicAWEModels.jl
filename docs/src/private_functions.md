@@ -87,7 +87,7 @@ SymbolicAWEModels.elastic_joint_wrench
 SymbolicAWEModels.beam_hermite_ride_expressions
 SymbolicAWEModels.ground_wind_vec
 SymbolicAWEModels.wing_scalar_kinematics
-SymbolicAWEModels.twist_surface_dynamics
+SymbolicAWEModels.station_dynamics
 SymbolicAWEModels.MAX_TWIST_ANGLE
 SymbolicAWEModels.pulley_split_eqs
 SymbolicAWEModels.pulley_len_rate
@@ -108,10 +108,10 @@ SymbolicAWEModels.rigid_body_eqs!
 SymbolicAWEModels.body_eqs!
 SymbolicAWEModels.joint_eqs!
 SymbolicAWEModels.timoshenko_joint_eqs!
-SymbolicAWEModels.twist_surface_delta_eqs!
+SymbolicAWEModels.station_delta_eqs!
 SymbolicAWEModels.has_flap
 SymbolicAWEModels.flap_delta
-SymbolicAWEModels.init_twist_surface_flap!
+SymbolicAWEModels.init_station_flap!
 SymbolicAWEModels.derive_point_beam_anchor!
 SymbolicAWEModels.init_rigid_body!
 SymbolicAWEModels.n_orient_frames
@@ -220,7 +220,7 @@ SymbolicAWEModels.beam_body_neighbors
 SymbolicAWEModels.translated_body_idxs
 SymbolicAWEModels.rigid_point_siblings
 SymbolicAWEModels.tether_downstream_idxs
-SymbolicAWEModels.twist_surface_tethers_by_overlap
+SymbolicAWEModels.station_tethers_by_overlap
 SymbolicAWEModels.tether_unit_stiffness
 SymbolicAWEModels.apply_cluster_init_stretched_len!
 SymbolicAWEModels.apply_tether_init_stretched_lens!
@@ -238,11 +238,11 @@ SymbolicAWEModels.setup_wing_frame!
 SymbolicAWEModels.connected_body_groups
 SymbolicAWEModels.particle_wing_masses
 SymbolicAWEModels.finalize_particle_wing_mass!
-SymbolicAWEModels.compute_twist_surface_geometry!
+SymbolicAWEModels.compute_station_geometry!
 SymbolicAWEModels.setup_particle_point_mapping!
 SymbolicAWEModels.identify_wing_segments
 SymbolicAWEModels.match_aero_sections_to_structure!
-SymbolicAWEModels.compute_spatial_twist_surface_mapping!
+SymbolicAWEModels.compute_spatial_station_mapping!
 SymbolicAWEModels.copy_cad_to_world!
 SymbolicAWEModels.adjust_vsm_panels_to_origin!
 SymbolicAWEModels.apply_aero_z_offset!
@@ -286,8 +286,8 @@ Base.setindex!(::NamedCollection, ::Any, ::Symbol)
 SymbolicAWEModels.tether_eqs!
 SymbolicAWEModels.pulley_eqs!
 SymbolicAWEModels.winch_eqs!
-SymbolicAWEModels.twist_surface_eqs!
-SymbolicAWEModels.validate_twist_surface_modes
+SymbolicAWEModels.station_eqs!
+SymbolicAWEModels.validate_station_modes
 SymbolicAWEModels.body_ride_eqs
 SymbolicAWEModels.beam_hermite_ride_eqs
 SymbolicAWEModels.point_damping_accel
@@ -393,8 +393,8 @@ SymbolicAWEModels.apparent_mass_carriers
 SymbolicAWEModels.PanelPolar
 SymbolicAWEModels.loft_contour_node
 SymbolicAWEModels.build_station_point_map!
-SymbolicAWEModels.build_panel_twist_surface_map!
-SymbolicAWEModels.twist_surface_deltas
+SymbolicAWEModels.build_panel_station_map!
+SymbolicAWEModels.station_deltas
 SymbolicAWEModels.apply_flap_delta!
 SymbolicAWEModels.init_pressure_buffers!
 SymbolicAWEModels.freeze_traction_pattern!

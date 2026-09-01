@@ -5,7 +5,7 @@
 System Structure
 
 Defines the physical structure of the kite system, including:
-- Basic types: Point, TwistSurface, Segment, Pulley, Tether, Winch, Transform
+- Basic types: Point, Station, Segment, Pulley, Tether, Winch, Transform
 - Wing types: BaseWing, VSMWing with VSM aerodynamics coupling
 - SystemStructure container and initialization
 
@@ -19,7 +19,7 @@ Files are organized as:
 """
 
 # Include files in dependency order
-include("types.jl")         # Enums, Point, TwistSurface, Segment, Pulley, Tether, Winch, Transform
+include("types.jl")         # Enums, Point, Station, Segment, Pulley, Tether, Winch, Transform
 include("tube_laws.jl")     # Breukels/Comer-Levy tube rigidities for TimoshenkoJoint
 include("rigid_body.jl")    # Body (embedded in Wing and standalone)
 include("wing.jl")          # AbstractWing, Wing (embeds a Body)

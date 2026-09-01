@@ -78,8 +78,8 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
     cl::Any
     cd::Any
     cm::Any
-    "Per-panel flap twist_surface index (global), or 0 for no flap. Structural (enters the cache hash)."
-    panel_twist_surface::Vector{Int64}
+    "Per-panel flap station index (global), or 0 for no flap. Structural (enters the cache hash)."
+    panel_station::Vector{Int64}
     "Left unrefined strut of each refined section (n_panels + 1)."
     section_left_strut::Vector{Int64}
     "Left-strut weight: section = w·strut[left] + (1−w)·strut[left+1]."
@@ -96,13 +96,13 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
         node_couple_shape, node_residual_share,
         frame_tol_frac, v_ind, chord_weight, traction, point_offset, traction_net,
         traction_moment, residual_arm,
-        cl, cd, cm, panel_twist_surface, section_left_strut, section_left_weight,
+        cl, cd, cm, panel_station, section_left_strut, section_left_weight,
         section_le_offset, section_te_offset, live_polars, live) where {E} =
         new{E}(engine, station_point, blend_point, panel_blend,
                node_couple_shape, node_residual_share,
                frame_tol_frac, v_ind, chord_weight, traction, point_offset,
                traction_net, traction_moment, residual_arm,
-               cl, cd, cm, panel_twist_surface, section_left_strut,
+               cl, cd, cm, panel_station, section_left_strut,
                section_left_weight, section_le_offset, section_te_offset,
                live_polars, live)
 end
@@ -125,7 +125,7 @@ attach_engine!(mode::AeroPressure, engine::VSMEngine) =
         mode.v_ind,
         mode.chord_weight, mode.traction, mode.point_offset, mode.traction_net,
         mode.traction_moment, mode.residual_arm, mode.cl, mode.cd, mode.cm,
-        mode.panel_twist_surface, mode.section_left_strut,
+        mode.panel_station, mode.section_left_strut,
         mode.section_left_weight, mode.section_le_offset, mode.section_te_offset,
         mode.live_polars, mode.live)
 
@@ -137,11 +137,11 @@ aero_mode_tag(::AeroPressure) = "press"
 
 The surface-node→point map is baked into the generated scatter equations, so it is
 structural and enters the model-cache hash (distinguishing it from any stale
-frozen-force build that used the default empty id). The panel→flap-twist_surface
+frozen-force build that used the default empty id). The panel→flap-station
 map is likewise baked into the δ wiring.
 """
 aero_hash_id(mode::AeroPressure) = (mode.station_point, mode.blend_point,
-    [round(w; digits=8) for (_, _, w) in mode.panel_blend], mode.panel_twist_surface,
+    [round(w; digits=8) for (_, _, w) in mode.panel_blend], mode.panel_station,
     mode.live_polars,
     mode.section_left_strut, round.(mode.section_left_weight; digits=8),
     round.(mode.section_le_offset; digits=8),
@@ -184,8 +184,8 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
         "($(length(mode.station_point)) entries for $n_panels panels).")
 
     # Add a live per-panel flap deflection connector only when this wing has a flap.
-    has_flap_coupling = length(mode.panel_twist_surface) == n_panels &&
-        any(!=(0), mode.panel_twist_surface)
+    has_flap_coupling = length(mode.panel_station) == n_panels &&
+        any(!=(0), mode.panel_station)
     connectors = particle_aero_connectors(num_points;
         n_delta=has_flap_coupling ? n_panels : 0)
 
@@ -253,27 +253,27 @@ end
 # ==================== build-time panel→flap map + live δ ==================== #
 
 """
-    build_panel_twist_surface_map!(mode, wing, sys_struct)
+    build_panel_station_map!(mode, wing, sys_struct)
 
-Map each refined VSM panel to the flap `KINEMATIC` twist_surface of `wing` whose
+Map each refined VSM panel to the flap `KINEMATIC` station of `wing` whose
 spanwise station (midpoint of its two flap bodies) is nearest the panel's — the
 nearest-station philosophy of [`build_station_point_map!`](@ref). Stored in
-`mode.panel_twist_surface` (global twist_surface idx, `0` = no flap); structural,
+`mode.panel_station` (global station idx, `0` = no flap); structural,
 so it enters [`aero_hash_id`](@ref). All-zeros (no coupling) when the wing has no
 flap surface. Generic modes are a no-op.
 """
-build_panel_twist_surface_map!(::AbstractAeroModel, wing, sys_struct) = nothing
-function build_panel_twist_surface_map!(mode::AeroPressure, wing, sys_struct)
+build_panel_station_map!(::AbstractAeroModel, wing, sys_struct) = nothing
+function build_panel_station_map!(mode::AeroPressure, wing, sys_struct)
     panels = wing.vsm_aero.panels
     n_panels = length(panels)
     if mode.live_polars
-        mode.panel_twist_surface = zeros(Int64, n_panels)
+        mode.panel_station = zeros(Int64, n_panels)
         return nothing
     end
-    flaps = [ts for ts in sys_struct.twist_surfaces
+    flaps = [ts for ts in sys_struct.stations
              if ts.type == KINEMATIC && has_flap(ts) && ts.wing_idx == wing.idx]
     if isempty(flaps)
-        mode.panel_twist_surface = zeros(Int64, n_panels)
+        mode.panel_station = zeros(Int64, n_panels)
         return nothing
     end
     rot_cad_to_body = wing.R_b_to_c'
@@ -292,29 +292,29 @@ function build_panel_twist_surface_map!(mode::AeroPressure, wing, sys_struct)
         best = argmin(abs.(flap_station .- station))
         assignment[panel_idx] = flaps[best].idx
     end
-    mode.panel_twist_surface = assignment
+    mode.panel_station = assignment
     return nothing
 end
 
 """
-    twist_surface_deltas(sys_struct) -> Vector{SimFloat}
+    station_deltas(sys_struct) -> Vector{SimFloat}
 
-Live flap deflection δ [rad] per twist_surface (indexed by `twist_surface.idx`;
+Live flap deflection δ [rad] per station (indexed by `station.idx`;
 `0` for non-flap surfaces), from the current flap-body orientations via
 [`flap_delta`](@ref). The Julia ground truth mirroring the symbolic
-`twist_surface_delta_eqs!`, used to drive `panel.delta` at refresh and by tests.
+`station_delta_eqs!`, used to drive `panel.delta` at refresh and by tests.
 """
-function twist_surface_deltas(sys_struct)
-    twist_surfaces = sys_struct.twist_surfaces
+function station_deltas(sys_struct)
+    stations = sys_struct.stations
     bodies = sys_struct.bodies
-    deltas = zeros(SimFloat, length(twist_surfaces))
-    for twist_surface in twist_surfaces
-        has_flap(twist_surface) || continue
+    deltas = zeros(SimFloat, length(stations))
+    for station in stations
+        has_flap(station) || continue
         R_main = quaternion_to_rotation_matrix(
-            bodies[twist_surface.flap_body_idxs[1]].Q_b_to_w)
+            bodies[station.flap_body_idxs[1]].Q_b_to_w)
         R_flap = quaternion_to_rotation_matrix(
-            bodies[twist_surface.flap_body_idxs[2]].Q_b_to_w)
-        deltas[twist_surface.idx] = flap_delta(twist_surface, R_main, R_flap)
+            bodies[station.flap_body_idxs[2]].Q_b_to_w)
+        deltas[station.idx] = flap_delta(station, R_main, R_flap)
     end
     return deltas
 end
@@ -323,7 +323,7 @@ end
     set_panel_deltas!(mode, wing, deltas) -> Bool
 
 Put one flap deflection [rad] per panel onto `wing`'s VSM mesh, `deltas` indexed by
-twist_surface. `false` when the wing carries no panel-to-surface map to write
+station. `false` when the wing carries no panel-to-surface map to write
 through.
 
 Both the panels and the wing's `delta_dist` are written, and the wing's is the one
@@ -336,7 +336,7 @@ are deflected.
 """
 function set_panel_deltas!(mode, wing, deltas)
     panels = wing.vsm_aero.panels
-    surfaces = mode.panel_twist_surface
+    surfaces = mode.panel_station
     (length(surfaces) == length(panels) && any(!=(0), surfaces)) || return false
     distribution = wing.vsm_wing.delta_dist
     for (panel_idx, panel) in enumerate(panels)
@@ -353,13 +353,13 @@ end
     apply_flap_delta!(mode, wing, sys_struct)
 
 Set the VSM mesh's flap deflection from the live deflection of each mapped
-twist_surface ([`twist_surface_deltas`](@ref)), before the VSM solve, so the
+station ([`station_deltas`](@ref)), before the VSM solve, so the
 converged forces and the frozen traction contour track the flap at refresh
 cadence. No-op for modes/wings without flap coupling.
 """
 apply_flap_delta!(::AbstractAeroModel, wing, sys_struct) = nothing
 function apply_flap_delta!(mode::AeroPressure, wing, sys_struct)
-    set_panel_deltas!(mode, wing, twist_surface_deltas(sys_struct))
+    set_panel_deltas!(mode, wing, station_deltas(sys_struct))
     return nothing
 end
 
@@ -450,7 +450,7 @@ function node_residual_shares(xc, yc)
 end
 
 """
-    panel_station_candidates(mode, panels, twist_surfaces, points, wing,
+    panel_station_candidates(mode, panels, stations, points, wing,
                              point_idx, point_pos_b)
         -> Vector{Vector{Tuple{Int64, KVec3}}}
 
@@ -470,18 +470,18 @@ whole wing, the nodes near a station boundary defect to the neighbouring strut, 
 an airfoil hangs off one station and half off the next — the panel then spans two
 spanwise planes, and a chordwise profile read off it has a step in it that no airfoil
 basis can represent. Choosing the station first and mapping within it keeps each panel
-whole. Returns `nothing` when the wing declares no twist surfaces, which leaves
+whole. Returns `nothing` when the wing declares no stations, which leaves
 the caller on the plain nearest-point search: matching by chord fraction alone is only
 safe once the candidates are confined to one station, since the same fraction occurs at
 every station across the span.
 """
-function panel_station_candidates(mode, panels, twist_surfaces, points, wing,
+function panel_station_candidates(mode, panels, stations, points, wing,
                                   point_idx, point_pos_b)
-    stations = control_point_stations(twist_surfaces, points, wing)
-    length(stations) >= 2 || return nothing
+    control = station_control_points(stations, points, wing)
+    length(control) >= 2 || return nothing
     lookup = Dict(zip(point_idx, point_pos_b))
     grouped = [[(idx, lookup[idx]) for idx in group if haskey(lookup, idx)]
-               for group in stations]
+               for group in control]
     any(isempty, grouped) && return nothing
     return [(grouped[lo], grouped[hi], lo == hi ? 0.0 : weight)
             for (lo, hi, weight) in mode.panel_blend]
@@ -495,7 +495,7 @@ nearest wing-node structural point (body frame), and apply the frame-alignment g
 Stored in `mode.station_point`; errors on a missing `section_aero` or a mesh that
 sits farther than `frame_tol_frac` chords from the points.
 """
-function build_station_point_map!(mode::AeroPressure, wing, points, twist_surfaces;
+function build_station_point_map!(mode::AeroPressure, wing, points, stations;
                                   prn=false)
     wing_pts = [p for p in points if p.is_wing_node && p.wing_idx == wing.idx]
     isempty(wing_pts) && error(
@@ -506,11 +506,11 @@ function build_station_point_map!(mode::AeroPressure, wing, points, twist_surfac
     point_pos_b = [rot_cad_to_body * (p.pos_cad - origin_cad) for p in wing_pts]
 
     panels = wing.vsm_aero.panels
-    stations_declared = control_point_stations(twist_surfaces, points, wing)
-    mode.panel_blend = length(stations_declared) >= 2 ?
-        panel_strut_blend(mode, length(stations_declared), length(panels)) :
+    control = station_control_points(stations, points, wing)
+    mode.panel_blend = length(control) >= 2 ?
+        panel_strut_blend(mode, length(control), length(panels)) :
         [(1, 1, 0.0) for _ in eachindex(panels)]
-    candidates = panel_station_candidates(mode, panels, twist_surfaces, points,
+    candidates = panel_station_candidates(mode, panels, stations, points,
                                           wing, point_idx, point_pos_b)
     station_point = Vector{Vector{Int64}}(undef, length(panels))
     blend_point = Vector{Vector{Int64}}(undef, length(panels))
@@ -605,7 +605,7 @@ function init_pressure_buffers!(mode::AeroPressure, wing)
 end
 
 """
-    setup_aero!(mode::AeroPressure, wing, points, twist_surfaces; prn=false)
+    setup_aero!(mode::AeroPressure, wing, points, stations; prn=false)
 
 Run the generic particle VSM setup (rebuild the unrefined sections onto the
 structural LE/TE stations, refine, build `point_to_vsm_point`), freeze the
@@ -613,18 +613,18 @@ strut-interpolation caches ([`build_section_interp`](@ref)), then build the
 surface→point traction map ([`build_station_point_map!`](@ref)) and size the frozen
 buffers/polars ([`init_pressure_buffers!`](@ref)). `PARTICLE_DYNAMICS` only.
 """
-function setup_aero!(mode::AeroPressure, wing, points, twist_surfaces; prn=false)
+function setup_aero!(mode::AeroPressure, wing, points, stations; prn=false)
     wing.dynamics_type == PARTICLE_DYNAMICS || error(
         "AeroPressure supports PARTICLE_DYNAMICS wings only; wing " *
         "$(wing.name) is $(wing.dynamics_type).")
     invoke(setup_aero!, Tuple{AbstractVSMAero, Any, Any, Any},
-           mode, wing, points, twist_surfaces; prn)
+           mode, wing, points, stations; prn)
     mode.section_left_strut, mode.section_left_weight,
         mode.section_le_offset, mode.section_te_offset =
         build_section_interp(wing.vsm_wing)
-    build_station_point_map!(mode, wing, points, twist_surfaces; prn)
+    build_station_point_map!(mode, wing, points, stations; prn)
     init_pressure_buffers!(mode, wing)
-    mode.live_polars && build_live_polars!(mode, wing, points, twist_surfaces)
+    mode.live_polars && build_live_polars!(mode, wing, points, stations)
     return nothing
 end
 
@@ -644,22 +644,22 @@ function validate_aero_structure(mode::AeroPressure, wing, points; prn=false)
 end
 
 """
-    remake_aero!(mode::AeroPressure, wing, set, vsm_set, points, twist_surfaces)
+    remake_aero!(mode::AeroPressure, wing, set, vsm_set, points, stations)
 
 Rebuild the VSM objects from edited settings via the generic particle remake
 (coarsen onto the structural stations, refine, rebuild `point_to_vsm_point`), then
 rebuild the strut-interpolation caches, surface→point map and frozen buffers/polars.
 """
 function remake_aero!(mode::AeroPressure, wing, set, vsm_set, points,
-                      twist_surfaces)
+                      stations)
     invoke(remake_aero!, Tuple{AbstractVSMAero, Any, Any, Any, Any, Any},
-           mode, wing, set, vsm_set, points, twist_surfaces)
+           mode, wing, set, vsm_set, points, stations)
     mode.section_left_strut, mode.section_left_weight,
         mode.section_le_offset, mode.section_te_offset =
         build_section_interp(wing.vsm_wing)
-    build_station_point_map!(mode, wing, points, twist_surfaces)
+    build_station_point_map!(mode, wing, points, stations)
     init_pressure_buffers!(mode, wing)
-    mode.live_polars && build_live_polars!(mode, wing, points, twist_surfaces)
+    mode.live_polars && build_live_polars!(mode, wing, points, stations)
     return nothing
 end
 

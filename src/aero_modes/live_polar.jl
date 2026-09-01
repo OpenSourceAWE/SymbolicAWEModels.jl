@@ -86,10 +86,10 @@ function chord_frame_coordinates(panel, pos_b)
 end
 
 """
-    control_point_stations(twist_surfaces, points, wing) -> Vector{Vector{Int64}}
+    station_control_points(stations, points, wing) -> Vector{Vector{Int64}}
 
 The wing's control points grouped into the spanwise stations the structure declares.
-A twist surface already names the points of one station — its leading edge, its trailing
+A station already names the points of one station — its leading edge, its trailing
 edge and the control points between them — so the grouping is read rather than inferred
 from geometry or from the beam graph, and it holds for a wing with no beam joints at all.
 
@@ -99,8 +99,8 @@ trailing edge as well as the control points running between them, and the first 
 of those often sit on the very same nodes, so coincident points are kept once: they are
 one place on the chord, and a fit handed the same station twice has no answer.
 """
-function control_point_stations(twist_surfaces, points, wing)
-    owned = [surface.point_idxs for surface in twist_surfaces
+function station_control_points(stations, points, wing)
+    owned = [surface.point_idxs for surface in stations
              if length(surface.point_idxs) >= 2 &&
                 all(points[i].wing_idx == wing.idx for i in surface.point_idxs)]
     return [unique(idx -> round.(points[idx].pos_cad; digits = 9), group)
@@ -128,7 +128,7 @@ function panel_strut_blend(mode::AeroPressure, n_stations, n_panels)
         "for $(n_panels + 1) sections; the loft and the mesh disagree.")
     maximum(left) <= n_stations || error(
         "AeroPressure: the loft names strut $(maximum(left)) but the wing declares " *
-        "only $n_stations twist surfaces; sections and stations do not correspond.")
+        "only $n_stations stations; sections and stations do not correspond.")
     place(i) = left[i] + (1 - weight[i])
     centre = [0.5 * (place(i) + place(i + 1)) for i in 1:n_panels]
     return map(centre) do c
@@ -138,7 +138,7 @@ function panel_strut_blend(mode::AeroPressure, n_stations, n_panels)
 end
 
 """
-    build_live_polars!(mode::AeroPressure, wing, points, twist_surfaces; settings)
+    build_live_polars!(mode::AeroPressure, wing, points, stations; settings)
 
 Build the wing's [`LivePolarState`](@ref) from the reference geometry: fit each panel's
 undeformed Kulfan parameters off its surface contour, take the spanwise stations from the twist
@@ -153,7 +153,7 @@ panels is what keeps the deformation smooth across the span: a panel between two
 has no structural points of its own, and binding it to a single station would make the
 deformation a staircase.
 """
-function build_live_polars!(mode::AeroPressure, wing, points, twist_surfaces;
+function build_live_polars!(mode::AeroPressure, wing, points, stations;
                             settings=AirfoilAero.LivePolarSettings())
     panels = wing.vsm_aero.panels
     rot_cad_to_body = wing.R_b_to_c'
@@ -163,11 +163,11 @@ function build_live_polars!(mode::AeroPressure, wing, points, twist_surfaces;
     n_panels = length(panels)
     body_of(idx) = rot_cad_to_body * (points[idx].pos_cad - origin_cad)
 
-    stations = control_point_stations(twist_surfaces, points, wing)
-    n_stations = length(stations)
+    control = station_control_points(stations, points, wing)
+    n_stations = length(control)
     n_stations >= 2 || error(
         "AeroPressure wing $(wing.name): live polars need at least two spanwise " *
-        "stations declared by twist surfaces; this wing declares $n_stations.")
+        "stations; this wing declares $n_stations.")
     panel_blend = mode.panel_blend
     length(panel_blend) == n_panels || error(
         "AeroPressure wing $(wing.name): the station blend has $(length(panel_blend)) " *
@@ -175,9 +175,9 @@ function build_live_polars!(mode::AeroPressure, wing, points, twist_surfaces;
     centre = [lo + weight for (lo, _, weight) in panel_blend]
     station_panel = [argmin(abs.(centre .- s)) for s in 1:n_stations]
 
-    control_fraction = Vector{Vector{SimFloat}}(undef, length(stations))
-    control_offset = Vector{Vector{SimFloat}}(undef, length(stations))
-    for (s, group) in enumerate(stations)
+    control_fraction = Vector{Vector{SimFloat}}(undef, n_stations)
+    control_offset = Vector{Vector{SimFloat}}(undef, n_stations)
+    for (s, group) in enumerate(control)
         frames = [chord_frame_coordinates(panels[station_panel[s]], body_of(i))
                   for i in group]
         control_fraction[s] = SimFloat[f[1] for f in frames]
@@ -195,9 +195,9 @@ function build_live_polars!(mode::AeroPressure, wing, points, twist_surfaces;
     contour_x = [collect(SimFloat, c[1]) for c in contour]
     contour_y = [collect(SimFloat, c[2]) for c in contour]
     node_buffer() = [zeros(SimFloat, length(x)) for x in contour_x]
-    mode.live = LivePolarState(source, stations, control_fraction, control_offset,
+    mode.live = LivePolarState(source, control, control_fraction, control_offset,
         station_panel, panel_blend,
-        [zeros(SimFloat, n_basis) for _ in 1:length(stations)],
+        [zeros(SimFloat, n_basis) for _ in 1:n_stations],
         [zeros(SimFloat, n_basis) for _ in 1:n_panels],
         contour_x, contour_y, deepcopy(contour_y),
         [AirfoilAero.contour_shape_matrix(x, source.basis.n_weights)

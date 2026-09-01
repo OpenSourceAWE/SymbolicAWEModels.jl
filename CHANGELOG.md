@@ -2,7 +2,30 @@
 
 ## Unreleased
 
+### Changed
+
+- BREAKING: a wing's `twist_surface` is now a `station`, in the code and in the
+  structural geometry YAML: the `twist_surfaces:` key and the per-wing
+  `twist_surfaces: [...]` list are both `stations:`. The entity is the
+  structural points lying in one chordwise plane, and twist is one of the things
+  it carries, alongside the spanwise stations the aero load and the live polars
+  are read on. It had grown three names — `twist_surface`, `station` and `strut`
+  — which is how the load path and the deformation path came to compute the same
+  blend twice without anyone noticing they were the same quantity.
+  `TwistSurface` is `Station`, `station_control_points` says what it returns,
+  and the file is `station_eqs.jl`.
+
 ### Fixed
+
+- A panel's aerodynamic load is shared between the two stations it lies between
+  rather than rounded onto the nearer one. Rounding is a discontinuity, and two
+  panels mirroring each other across the wing land on spanwise places that agree
+  to within a few ulps but not exactly, so the nearer station could be a
+  different one for each and a whole panel's load moved a station across the
+  span. A symmetric wing at a symmetric pose carried yaw and roll that nothing
+  cancelled; both are now identically zero. A panel straddling a station also
+  took the mean of two weights measured against different station pairs, which
+  means nothing averaged.
 
 - `AeroPressure` now places each panel's pitching moment, not only its force.
   The scatter anchored the force to the VSM panel force and left the moment to

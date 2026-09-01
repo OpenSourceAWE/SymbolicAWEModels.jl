@@ -26,10 +26,10 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     eqs = Equation[]
     defaults = Pair{Num, Any}[]
 
-    (; points, twist_surfaces, segments, pulleys, tethers, winches, wings,
+    (; points, stations, segments, pulleys, tethers, winches, wings,
        bodies, elastic_joints, timoshenko_joints) = system
 
-    validate_twist_surface_modes(twist_surfaces, bodies)
+    validate_station_modes(stations, bodies)
 
     # Per-mode structural validation (e.g. VSM particle point↔panel mapping)
     for wing in wings
@@ -57,10 +57,10 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         # Aerodynamic forces and moments
         aero_force_b(t)[1:3, eachindex(wings)]
         aero_moment_b(t)[1:3, eachindex(wings)]
-        twist_surface_aero_moment(t)[eachindex(twist_surfaces)]
+        station_aero_moment(t)[eachindex(stations)]
         # Wing deformation states
-        twist_angle(t)[eachindex(twist_surfaces)]
-        twist_ω(t)[eachindex(twist_surfaces)]
+        twist_angle(t)[eachindex(stations)]
+        twist_ω(t)[eachindex(stations)]
         # Wind and apparent velocity
         wind_vec_gnd(t)[1:3]
         va_wing_b(t)[1:3, eachindex(wings)]
@@ -99,19 +99,19 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # ==================== INLINED FORCE_EQS! CONTENT ==================== #
 
-    # Declare twist_surface geometry symbolic variables
-    if length(twist_surfaces) > 0
+    # Declare station geometry symbolic variables
+    if length(stations) > 0
         @variables begin
-            twist_surface_y_airf(t)[1:3, eachindex(twist_surfaces)]
-            twist_surface_chord(t)[1:3, eachindex(twist_surfaces)]
-            twist_surface_le_pos(t)[1:3, eachindex(twist_surfaces)]
-            twist_surface_delta(t)[eachindex(twist_surfaces)]
+            station_y_airf(t)[1:3, eachindex(stations)]
+            station_chord(t)[1:3, eachindex(stations)]
+            station_le_pos(t)[1:3, eachindex(stations)]
+            station_delta(t)[eachindex(stations)]
         end
     else
-        twist_surface_y_airf = nothing
-        twist_surface_chord = nothing
-        twist_surface_le_pos = nothing
-        twist_surface_delta = nothing
+        station_y_airf = nothing
+        station_chord = nothing
+        station_le_pos = nothing
+        station_delta = nothing
     end
 
     # Check if we have any PARTICLE_DYNAMICS wings (need aero force per point)
@@ -176,7 +176,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # 1. Point equations (also accumulate wing-node loads into body_force/moment).
     eqs, defaults = point_eqs!(
-        s, eqs, defaults, points, segments, twist_surfaces, wings, params, initial;
+        s, eqs, defaults, points, segments, stations, wings, params, initial;
         R_b_to_w, com_w,
         wing_vel, wind_vec_gnd, twist_angle,
         pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -185,16 +185,16 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         fix_point_sphere, fix_static,
         va_point_b, va_point_w, wind_at_point, height,
         aero_force_point_b,
-        twist_surface_y_airf,
+        station_y_airf,
         body_force, body_moment, body_pos_w, body_com_w, body_R_b_to_w,
         body_com_vel, body_ω_b
     )
 
-    # 2. TwistSurface equations (deformable wing sections with twist dynamics)
-    eqs, defaults = twist_surface_eqs!(
-        eqs, defaults, twist_surfaces, bodies, params, initial;
-        R_b_to_w, fix_wing, twist_angle, twist_ω, twist_surface_aero_moment,
-        point_force, twist_surface_y_airf, twist_surface_chord, twist_surface_le_pos
+    # 2. Station equations (deformable wing sections with twist dynamics)
+    eqs, defaults = station_eqs!(
+        eqs, defaults, stations, bodies, params, initial;
+        R_b_to_w, fix_wing, twist_angle, twist_ω, station_aero_moment,
+        point_force, station_y_airf, station_chord, station_le_pos
     )
 
     # 3. Segment equations (spring-damper forces, returns len and spring_force)
@@ -237,19 +237,19 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
 
     # ==================== END INLINED FORCE_EQS! CONTENT ==================== #
 
-    # Live flap deflection δ per twist_surface (derived from body orientations).
-    if length(twist_surfaces) > 0
-        eqs = twist_surface_delta_eqs!(
-            eqs, twist_surfaces; twist_surface_delta, body_R_b_to_w)
+    # Live flap deflection δ per station (derived from body orientations).
+    if length(stations) > 0
+        eqs = station_delta_eqs!(
+            eqs, stations; station_delta, body_R_b_to_w)
     end
 
     # Aero: each wing's aero component is wired winch-style as a subsystem.
     eqs, aero_subsystems = aero_eqs!(
         s, eqs, params;
-        aero_force_b, aero_moment_b, twist_surface_aero_moment,
+        aero_force_b, aero_moment_b, station_aero_moment,
         twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
         pos, vel, va_point_b, height, aero_force_point_b,
-        twist_surface_delta
+        station_delta
     )
 
     # Wing frame: KINEMATIC wings fitted here; DYNAMIC wings via body_eqs!.

@@ -346,7 +346,7 @@ using LinearAlgebra
     # ================================================================
     @testset "Chained Transforms" begin
         using SymbolicAWEModels: Point, Segment, Tether, Winch,
-            PlateWing, TwistSurface, Transform,
+            PlateWing, Station, Transform,
             SystemStructure,
             create_plate_interpolations, get_rot_pos,
             get_rot_pos_cad, get_base_pos, reinit!
@@ -443,15 +443,15 @@ using LinearAlgebra
 
         rel_side = set_c.rel_side_area / 100.0
         K = 1.0 - rel_side
-        twist_surfaces_c = [
-            TwistSurface(:main, [:top], STATIC, 0.0;
+        stations_c = [
+            Station(:main, [:top], STATIC, 0.0;
                 x_airf=[1,0,0], y_airf=[0,1,0],
                 area=set_c.area, twist=deg2rad(set_c.alpha_zero)),
-            TwistSurface(:right_tip, [:right], STATIC, 0.0;
+            Station(:right_tip, [:right], STATIC, 0.0;
                 x_airf=[1,0,0], y_airf=[0,0,-1],
                 area=set_c.area * rel_side,
                 twist=deg2rad(set_c.alpha_ztip)),
-            TwistSurface(:left_tip, [:left], STATIC, 0.0;
+            Station(:left_tip, [:left], STATIC, 0.0;
                 x_airf=[1,0,0], y_airf=[0,0,1],
                 area=set_c.area * rel_side,
                 twist=deg2rad(set_c.alpha_ztip)),
@@ -484,7 +484,7 @@ using LinearAlgebra
         ]
 
         sys_c = SystemStructure("chained_test", set_c;
-            points=points_c, twist_surfaces=twist_surfaces_c,
+            points=points_c, stations=stations_c,
             segments=segments_c,
             tethers=tethers_c, winches=winches_c,
             wings=[wing_c], transforms=transforms_c)

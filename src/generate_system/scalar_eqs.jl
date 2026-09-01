@@ -85,11 +85,11 @@ function scalar_eqs!(
             rel_pos = wing_pos[:, wing.idx]
         end
 
-        has_twist_surfaces = !isempty(wing.twist_surface_idxs)
-        half_len = has_twist_surfaces ?
-            wing.twist_surface_idxs[1] +
-            length(wing.twist_surface_idxs) ÷ 2 - 1 : 0
-        twist_offset = has_twist_surfaces ?
+        has_stations = !isempty(wing.station_idxs)
+        half_len = has_stations ?
+            wing.station_idxs[1] +
+            length(wing.station_idxs) ÷ 2 - 1 : 0
+        twist_offset = has_stations ?
             0.5 * twist_angle[half_len] + 0.5 * twist_angle[half_len + 1] : 0
 
         scalars = wing_scalar_kinematics(;

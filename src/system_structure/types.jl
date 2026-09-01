@@ -6,7 +6,7 @@ Basic type definitions for the system structure components.
 
 This file contains enums and struct definitions for:
 - DynamicsType, WingType, SegmentType (deprecated) enums; AbstractAeroModel types
-- Point, TwistSurface, Segment, Pulley, Tether, Winch structs
+- Point, Station, Segment, Pulley, Tether, Winch structs
 """
 
 # ==================== ENUMS ==================== #
@@ -29,7 +29,7 @@ end
     DynamicsType `DYNAMIC` `STATIC` `BODY_STATIC` `KINEMATIC`
 
 Enumeration for the dynamic model governing a point's motion, a rigid body's
-motion, or a twist_surface's twist. The shared idea: `DYNAMIC` quantities carry
+motion, or a station's twist. The shared idea: `DYNAMIC` quantities carry
 differential state and are solved by the dynamics; the others are *prescribed* —
 no state, held constant within a step, but mutable between steps.
 
@@ -40,10 +40,10 @@ a dedicated dynamics type.
 
 # Elements
 - `DYNAMIC`: Solved by the dynamics. A point moves by Newton's second law; a
-  rigid body integrates its 6-DOF state; a twist_surface twist solves its
+  rigid body integrates its 6-DOF state; a station twist solves its
   equilibrium.
 - `STATIC`: Prescribed, no state. A point's position is welded in the **world**
-  frame; a rigid body is clamped to the world; a twist_surface twist is a
+  frame; a rigid body is clamped to the world; a station twist is a
   prescribed control input read live via the registered getter.
 - `BODY_STATIC`: A point rides a [`Body`](@ref) — static in the rigid
   body's body frame; it feeds its net force (and the moment about the body COM)
@@ -66,7 +66,7 @@ Enumeration for the structural representation of a wing.
 # Elements
 - `RIGID_DYNAMICS`: Wing uses quaternion-based rigid body dynamics, with the
   deformation confined to the twist degrees of freedom of its
-  [`TwistSurface`](@ref)s. Aerodynamic forces/moments are applied to the wing
+  [`Station`](@ref)s. Aerodynamic forces/moments are applied to the wing
   center of mass; its structural points are `BODY_STATIC` and ride the body.
 - `PARTICLE_DYNAMICS`: Wing has no rigid body constraint. Its structural points
   are ordinary `DYNAMIC` particles and the aerodynamic loads are applied to them
@@ -357,7 +357,7 @@ mutable struct Point
     "If true, dynamically freeze point position."
     fix_static::Bool
     "Derived: true when the point is an aerodynamic-surface structural node of a
-    wing (a member of one of the wing's twist surfaces). Set by SystemStructure
+    wing (a member of one of the wing's stations). Set by SystemStructure
     from twist-surface membership; drives the wing-node equations."
     is_wing_node::Bool
     # ---- beam-curvature anchoring (rides a TimoshenkoJoint's deformed centerline) ----
@@ -389,7 +389,7 @@ Constructs a `Point` object, which can be of three different [`DynamicsType`](@r
 
 A wing's aerodynamic-surface structural points are ordinary `DYNAMIC` (particle
 wing) or `BODY_STATIC` (rigid wing) points that are members of one of the wing's
-twist surfaces; their `is_wing_node` flag is then set from that membership and
+stations; their `is_wing_node` flag is then set from that membership and
 drives the per-point aero and wing-frame fitting.
 
 # Arguments
@@ -473,17 +473,17 @@ function Point(name, pos_cad, type;
         0, joint_ref, 0.0, zeros(KVec3))
 end
 
-# ==================== TWIST_SURFACE ==================== #
+# ==================== STATION ==================== #
 
 """
-    mutable struct TwistSurface
+    mutable struct Station
 
 A set of bridle lines that share the same twist angle and trailing edge angle.
 
 $(TYPEDFIELDS)
 """
-mutable struct TwistSurface
-    "Index in the twist_surfaces vector (assigned by SystemStructure)."
+mutable struct Station
+    "Index in the stations vector (assigned by SystemStructure)."
     idx::Int64
     "Name used for lookup by other components' `_ref` fields."
     const name::Union{Int, Symbol, Nothing}
@@ -504,7 +504,7 @@ mutable struct TwistSurface
     "Damping coefficient for twist dynamics [N·m·s/rad]."
     damping::SimFloat
     "Torsional restoring stiffness for twist dynamics [N·m/rad]. The resulting
-    moment (`stiffness * twist_angle`) is divided by the twist_surface's
+    moment (`stiffness * twist_angle`) is divided by the station's
     inertia, same as the aero/tether moments, before being applied to the
     twist angular acceleration. Models the panel's own structural resistance
     to twisting, independent of any restoring moment from bridle tension
@@ -521,7 +521,7 @@ mutable struct TwistSurface
     tether_moment::SimFloat
     "Aerodynamic moment [N·m]."
     aero_moment::SimFloat
-    "Indices of VSM unrefined sections in this twist_surface."
+    "Indices of VSM unrefined sections in this station."
     unrefined_section_idxs::Vector{Int64}
     "Surface area [m²] (flat-plate sections; `NaN` when unused)."
     area::SimFloat
@@ -547,16 +547,16 @@ mutable struct TwistSurface
 end
 
 """
-    TwistSurface(name, points, type, moment_frac; damping=50.0)
+    Station(name, points, type, moment_frac; damping=50.0)
 
-Constructs a `TwistSurface` object representing a collection of points on a
+Constructs a `Station` object representing a collection of points on a
 kite body that share a common twist deformation.
 
-TwistSurface geometry (le_pos, chord, y_airf) is computed later by SystemStructure
-using the closest VSM panel to the twist_surface's mean point position.
+Station geometry (le_pos, chord, y_airf) is computed later by SystemStructure
+using the closest VSM panel to the station's mean point position.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the twist_surface.
+- `name::Union{Int, Symbol}`: Name/identifier for the station.
 - `points::Vector`: References to points (names or indices).
 - `type::DynamicsType`: DYNAMIC or STATIC.
 - `moment_frac::SimFloat`: Chordwise rotation point (0=LE, 1=TE).
@@ -587,11 +587,11 @@ using the closest VSM panel to the twist_surface's mean point position.
   as-placed pose is δ=0. Internal — not a YAML field (YAML angles are degrees).
 
 # Returns
-- `TwistSurface`: A new `TwistSurface` object. The `idx` and `point_idxs` are resolved by SystemStructure.
+- `Station`: A new `Station` object. The `idx` and `point_idxs` are resolved by SystemStructure.
   When `x_airf`/`y_airf` are omitted the geometry fields (le_pos, chord, y_airf) are
   computed during SystemStructure construction from the closest VSM panel.
 """
-function TwistSurface(name, points, type, moment_frac;
+function Station(name, points, type, moment_frac;
                       damping=50.0, stiffness=0.0, x_airf=nothing, y_airf=nothing,
                       area=NaN, twist=0.0,
                       wing=0, bodies=NameRef[], flap_bodies=NameRef[],
@@ -604,7 +604,7 @@ function TwistSurface(name, points, type, moment_frac;
     body_refs = Vector{NameRef}([b isa Integer ? Int(b) : Symbol(b) for b in bodies])
     flap_body_refs = Vector{NameRef}([b isa Integer ? Int(b) : Symbol(b)
                                       for b in flap_bodies])
-    TwistSurface(0, name, Int64[], point_refs,
+    Station(0, name, Int64[], point_refs,
           zeros(KVec3), chord_vec, y_vec,
           type, moment_frac, damping, stiffness,
           SimFloat(twist), 0.0, 0.0, 0.0, 0.0,

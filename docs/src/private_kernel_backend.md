@@ -172,8 +172,8 @@ SymbolicAWEModels.AeroPanel
 SymbolicAWEModels.AeroPointForce
 SymbolicAWEModels.WingAeroSum
 SymbolicAWEModels.WingAero
-SymbolicAWEModels.TwistSurfaceDOF
-SymbolicAWEModels.twist_surface_diagnostics
+SymbolicAWEModels.StationDOF
+SymbolicAWEModels.station_diagnostics
 SymbolicAWEModels.PrescribedTwist
 SymbolicAWEModels.TwistNodePoint
 SymbolicAWEModels.TwistNodeWrench
@@ -187,7 +187,7 @@ SymbolicAWEModels.flap_delta_expression
 SymbolicAWEModels.flap_delta_eqs
 SymbolicAWEModels.flap_delta_inputs
 SymbolicAWEModels.wing_flap_surfaces
-SymbolicAWEModels.twist_surface_aero_driven
+SymbolicAWEModels.station_aero_driven
 SymbolicAWEModels.particle_wing_aero_wiring
 SymbolicAWEModels.rigid_wing_aero_wiring
 SymbolicAWEModels.indexed_vector_variables
@@ -239,10 +239,10 @@ SymbolicAWEModels.add_aero_point_forces!
 SymbolicAWEModels.aero_force_slots
 SymbolicAWEModels.add_wing_aero_sum!
 SymbolicAWEModels.add_rigid_wing_aero!
-SymbolicAWEModels.add_twist_surfaces!
+SymbolicAWEModels.add_stations!
 SymbolicAWEModels.add_twist_node!
 SymbolicAWEModels.rigid_wing_node
-SymbolicAWEModels.twist_surface_of
+SymbolicAWEModels.station_of
 SymbolicAWEModels.add_flap_deltas!
 SymbolicAWEModels.add_joint!
 SymbolicAWEModels.wire_segment!
@@ -268,9 +268,9 @@ SymbolicAWEModels.body_readouts
 SymbolicAWEModels.kinematic_wing_readouts
 SymbolicAWEModels.rigid_wing_readouts
 SymbolicAWEModels.WingAeroReadout
-SymbolicAWEModels.TwistSurfaceReadout
+SymbolicAWEModels.StationReadout
 SymbolicAWEModels.wing_aero_readouts
-SymbolicAWEModels.twist_surface_readouts
+SymbolicAWEModels.station_readouts
 SymbolicAWEModels.observed_slots
 SymbolicAWEModels.inflow_slots
 SymbolicAWEModels.mass_slot

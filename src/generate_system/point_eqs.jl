@@ -93,7 +93,7 @@ function beam_hermite_ride_eqs(point, force_on_point, s, params;
 end
 
 """
-    point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, params, initial;
+    point_eqs!(s, eqs, defaults, points, segments, stations, wings, params, initial;
                R_b_to_w, wing_vel, wind_vec_gnd, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                spring_sum_force, point_aero_drag, total_drag,
@@ -101,7 +101,7 @@ end
                fix_point_sphere, fix_static,
                va_point_b, va_point_w, wind_at_point, height,
                aero_force_point_b,
-               twist_surface_y_airf)
+               station_y_airf)
 
 Generate equations for all point types (STATIC, DYNAMIC, BODY_STATIC).
 
@@ -117,11 +117,11 @@ integrate through [`confined_derivatives`](@ref), which applies `fix_static` and
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
 - `eqs`, `defaults`: Accumulating vectors for the MTK system.
-- `points`, `segments`, `twist_surfaces`, `wings`: System components.
+- `points`, `segments`, `stations`, `wings`: System components.
 - `R_b_to_w`: Symbolic rotation matrix (body to world).
 - `wing_vel`: Symbolic wing center of mass velocity.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
-- `twist_angle`: Symbolic twist_surface twist angle.
+- `twist_angle`: Symbolic station twist angle.
 - `pos`, `vel`, `acc`: Pre-declared point state variables.
 - `point_force`, `point_mass`: Pre-declared point force and mass variables.
 - `spring_force_vec`, `drag_force`, `l0`: Pre-declared segment force variables.
@@ -133,7 +133,7 @@ integrate through [`confined_derivatives`](@ref), which applies `fix_static` and
 - Tuple `(eqs, defaults)` with updated equation vectors.
   Note: `body_force` and `body_moment` are modified in-place.
 """
-function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, params, initial;
+function point_eqs!(s, eqs, defaults, points, segments, stations, wings, params, initial;
                     R_b_to_w, com_w,
                     wing_vel, wind_vec_gnd, twist_angle,
                     pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -142,7 +142,7 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
                     fix_point_sphere, fix_static,
                     va_point_b, va_point_w, wind_at_point, height,
                     aero_force_point_b,
-                    twist_surface_y_airf,
+                    station_y_airf,
                     body_force, body_moment, body_pos_w, body_com_w, body_R_b_to_w,
                     body_com_vel, body_ω_b)
 
@@ -238,44 +238,44 @@ function point_eqs!(s, eqs, defaults, points, segments, twist_surfaces, wings, p
         # else → free particle).
         if rigid_wing_node
             found = 0
-            twist_surface = nothing
-            for twist_surface_ in twist_surfaces
-                if point.idx in twist_surface_.point_idxs
-                    twist_surface = twist_surface_
+            station = nothing
+            for station_ in stations
+                if point.idx in station_.point_idxs
+                    station = station_
                     found += 1
                 end
             end
             in_group = found == 1
             !(found in [0, 1]) && error(
-                "Kite point number $(point.idx) is part of $found twist_surfaces, " *
-                "and should be part of exactly 0 or 1 twist_surfaces.",
+                "Kite point number $(point.idx) is part of $found stations, " *
+                "and should be part of exactly 0 or 1 stations.",
             )
             if in_group
                 found = 0
                 for wing_ in s.sys_struct.bodies
-                    if twist_surface.idx in wing_.twist_surface_idxs
+                    if station.idx in wing_.station_idxs
                         found += 1
                     end
                 end
                 !(found == 1) && error(
-                    "Kite twist_surface number $(twist_surface.idx) is part of $found bodies, " *
+                    "Kite station number $(station.idx) is part of $found bodies, " *
                     "and should be part of exactly 1 body.",
                 )
                 eqs = [
                     eqs
                     fixed_pos[:, point.idx] ~
-                        params.twist_surfaces[twist_surface.idx].le_pos
+                        params.stations[station.idx].le_pos
                     chord_b[:, point.idx] ~
                         params.points[point.idx].pos_undeformed_b .-
                             fixed_pos[:, point.idx]
                     normal[:, point.idx] ~ chord_b[:, point.idx] ×
-                        twist_surface_y_airf[:, twist_surface.idx]
+                        station_y_airf[:, station.idx]
                 ]
             end
-            surface_idx = in_group ? twist_surface.idx : 0
+            surface_idx = in_group ? station.idx : 0
             eqs = [eqs; pos_b[:, point.idx] ~ twist_deformed_offset(
                 params, point.idx, surface_idx,
-                in_group ? twist_angle[twist_surface.idx] : 0.0)]
+                in_group ? twist_angle[station.idx] : 0.0)]
             eqs = [
                 eqs
                 tether_r[:, point.idx] ~

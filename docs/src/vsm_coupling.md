@@ -88,16 +88,16 @@ Per-panel forces are distributed to structural points:
 ### RIGID_DYNAMICS
 
 The `RIGID_DYNAMICS` wing type uses a rigid body representation with optional
-deformable twist surfaces.
+deformable stations.
 
 #### Structural model
 
 - Wing treated as a rigid body with quaternion-based orientation
 - No per-point wing structure — aerodynamic forces applied to wing center of
   mass
-- Optional **twist surfaces** represent deformable sections with twist degrees
+- Optional **stations** represent deformable sections with twist degrees
   of freedom
-- Twist surfaces control segment twist angles. With `use_prior_polar=true`,
+- Stations control segment twist angles. With `use_prior_polar=true`,
   their LE/TE positions also define the aerodynamic section geometry
 
 #### VSM mapping
@@ -108,22 +108,22 @@ structural points:
 ```
 Unrefined sections: [Sec₁,  Sec₂,  Sec₃,  Sec₄,  Sec₅]
                         ╲       ╱       ╲       ╱
-Twist surfaces:      [─ Surf₁ ─]    [─ Surf₂ ─]
+Stations:      [─ Surf₁ ─]    [─ Surf₂ ─]
                      twist DOF θ₁    twist DOF θ₂
 ```
 
-Multiple unrefined sections can be combined into a single twist surface for
-twist control. `compute_spatial_twist_surface_mapping!` builds the mapping
+Multiple unrefined sections can be combined into a single station for
+twist control. `compute_spatial_station_mapping!` builds the mapping
 automatically: each unrefined section is assigned to the nearest twist-surface
 centre (Voronoi partition in the body frame), and the surface's single twist DOF
-then drives every section it owns as a rigid unit. More twist surfaces than
+then drives every section it owns as a rigid unit. More stations than
 unrefined sections is rejected — a twist DOF without a section to drive would be
 undefined.
 
 #### Force distribution
 
 Integrated force and moment coefficients are applied to the rigid body, driving
-quaternion dynamics. Each twist surface's aerodynamic moment is the sum of its
+quaternion dynamics. Each station's aerodynamic moment is the sum of its
 unrefined section moments, driving the twist DOF.
 
 ## Aero modes
@@ -202,7 +202,7 @@ exactly.
 
 It also supports a live flap deflection `\delta` — the signed angle between two
 structural bodies about a hinge, modelled by a `KINEMATIC`
-[`TwistSurface`](@ref) — which feeds the `(\alpha,
+[`Station`](@ref) — which feeds the `(\alpha,
 \delta)` polars each RHS
 step.
 
@@ -239,7 +239,7 @@ surface and the deflection leaves the generated equations entirely — only
 ### `AeroPlate`
 
 Flat-plate lift and drag from a polar table (CL/CD vs α) evaluated by registered
-symbolic interpolants, one 1-point `STATIC` [`TwistSurface`](@ref) per plate. No
+symbolic interpolants, one 1-point `STATIC` [`Station`](@ref) per plate. No
 VSM engine.
 
 ### `AeroNone`
@@ -282,7 +282,7 @@ function SymbolicAWEModels.aero_component(::MyAero, wing::RigidWing, sys_struct;
 end
 SymbolicAWEModels.aero_mode_tag(::MyAero) = "myaero"
 
-Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia; aero = MyAero())
+Wing(name, stations, R_b_to_c, pos_cad, inertia; aero = MyAero())
 ```
 
 Everything else is an **optional hook with a working default**, dispatched on
@@ -306,7 +306,7 @@ the mode:
 - **Live Makie rendering**: [`plot_wing_aero!`](@ref) /
   [`update_wing_aero_plot!`](@ref) — methods live in the Makie extension, so a
   custom mode draws with full Makie access (default: draws nothing).
-- **Traits**: [`couples_to_sections`](@ref) (needs per-section twist surfaces;
+- **Traits**: [`couples_to_sections`](@ref) (needs per-section stations;
   default `false`), [`provides_aero_override`](@ref), and the cache controls
   [`is_builtin_aero`](@ref) / [`aero_hash_id`](@ref) (see below).
 
@@ -319,7 +319,7 @@ The returned `System`'s connectors are fixed by the wing's dynamics type
 ([`RigidWing`](@ref)/[`ParticleWing`](@ref); all quantities in the wing **body
 frame**):
 
-- **`RIGID_DYNAMICS`** (`ng = length(wing.twist_surface_idxs)`):
+- **`RIGID_DYNAMICS`** (`ng = length(wing.station_idxs)`):
   - inputs: `va[1:3]`, `rho`, `R_b_w[1:3,1:3]`, `omega[1:3]`, and — when
     `ng > 0` — `twist[1:ng]`, `twist_vel[1:ng]`
   - outputs: `force[1:3]`, `moment[1:3]`, `twist_moment[1:ng]`
@@ -389,7 +389,7 @@ requires `use_prior_polar=true` on the VortexStepMethod wing.
 The steps are:
 
 1. **Find structural LE/TE pairs**: `identify_wing_segments` extracts pairs from
-   twist surfaces (preferred) or uses a consecutive-pair heuristic
+   stations (preferred) or uses a consecutive-pair heuristic
 2. **Rebuild unrefined sections**: For each structural pair, a new `Section` is
    created with LE/TE positions from the structural points (in body frame). Its
    airfoil data (`aero_model`, `aero_data`) is copied from the nearest original
@@ -461,7 +461,7 @@ The mapping enables:
   numerics
 - `src/generate_system/aero_eqs.jl`: mode-agnostic wiring of the aero component
   into the rest of the system
-- `src/generate_system/twist_surface_eqs.jl`: twist DOF equations
+- `src/generate_system/station_eqs.jl`: twist DOF equations
 - `src/generate_system/wing_eqs.jl`: Wing dynamics equation generation
 - `src/linearize.jl`: low-frequency refresh dispatch (`refresh_aero!`)
 - VortexStepMethod.jl `src/wing_geometry.jl`: `refined_panel_mapping`

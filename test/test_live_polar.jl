@@ -5,7 +5,7 @@
 # AeroPressure with live polars: every panel's polar regenerated from its deformed
 # shape each solve instead of read off a flap angle.
 # - construction fits a base airfoil per panel and records the control-point frame
-# - the flap axis is gone: no panel carries a twist_surface, so the RHS has no δ
+# - the flap axis is gone: no panel carries a station, so the RHS has no δ
 # - a refresh leaves every panel on a rewritten polar centred on its own α
 # - a chordwise deformation moves the polar, and the frame maths that produces it
 #   agrees with a hand-computed chord frame
@@ -50,9 +50,9 @@ using LinearAlgebra
         @test mode.live_polars
         @test mode.live isa LivePolarState
         state = mode.live
-        stations = SymbolicAWEModels.control_point_stations(
-            sys.twist_surfaces, sys.points, wing)
-        # Stations are read off the twist surfaces, not inferred from geometry.
+        stations = SymbolicAWEModels.station_control_points(
+            sys.stations, sys.points, wing)
+        # Stations are read off the stations, not inferred from geometry.
         @test length(state.control_point) == length(stations)
         @test all(sort(a) == sort(b) for (a, b) in zip(state.control_point, stations))
         @test all(length(pts) >= 2 for pts in state.control_point)
@@ -64,7 +64,7 @@ using LinearAlgebra
             used = unique(mode.station_point[i])
             @test count(group -> any(in(group), used), stations) == 1
         end
-        # A station may not name the same node twice: a twist surface lists its
+        # A station may not name the same node twice: a station lists its
         # chord ends alongside control points that often sit on them, and a fit
         # handed one chord fraction twice has no answer.
         for group in stations
@@ -78,7 +78,7 @@ using LinearAlgebra
         @test length(state.source.base) == length(panels)
         @test all(length(d) == length(state.source.basis.x) for d in state.deflection)
         # The δ axis is gone, so no panel is wired to a flap surface.
-        @test all(iszero, mode.panel_twist_surface)
+        @test all(iszero, mode.panel_station)
     end
 
     wing.va_b .= SimFloat[15.0, 0.0, 3.5]

@@ -141,18 +141,18 @@ function build_mesh_maps!(mode::ContinuousAero)
 end
 
 """
-    setup_aero!(mode::ContinuousAero, wing, points, twist_surfaces; prn=false)
+    setup_aero!(mode::ContinuousAero, wing, points, stations; prn=false)
 
 The generic VSM particle setup plus the [`ContinuousAero`](@ref) mesh maps
 ([`build_mesh_maps!`](@ref)).
 """
-function setup_aero!(mode::ContinuousAero, wing, points, twist_surfaces;
+function setup_aero!(mode::ContinuousAero, wing, points, stations;
                      prn=false)
     wing.dynamics_type == PARTICLE_DYNAMICS || error(
         "ContinuousAero supports PARTICLE_DYNAMICS wings only; wing " *
         "$(wing.name) is $(wing.dynamics_type).")
     invoke(setup_aero!, Tuple{AbstractVSMAero, Any, Any, Any},
-           mode, wing, points, twist_surfaces; prn)
+           mode, wing, points, stations; prn)
     mode.vsm_wing.spanwise_distribution == VortexStepMethod.BILLOWING || error(
         "ContinuousAero requires the BILLOWING spanwise distribution so the " *
         "refined panels carry the canopy billow shape; wing $(wing.name) uses " *
@@ -164,15 +164,15 @@ end
 
 """
     remake_aero!(mode::ContinuousAero, wing, set, vsm_set, points,
-                 twist_surfaces)
+                 stations)
 
 The generic VSM remake plus a rebuild of the mesh maps (the VSM wing geometry
 objects are replaced, invalidating the panel indexing).
 """
 function remake_aero!(mode::ContinuousAero, wing, set, vsm_set, points,
-                      twist_surfaces)
+                      stations)
     invoke(remake_aero!, Tuple{AbstractVSMAero, Any, Any, Any, Any, Any},
-           mode, wing, set, vsm_set, points, twist_surfaces)
+           mode, wing, set, vsm_set, points, stations)
     build_mesh_maps!(mode)
     return nothing
 end
