@@ -48,8 +48,12 @@ tabulated polar spanning the whole range: stale, not wrong-signed.
 """
 mutable struct AeroPressure{E} <: AbstractVSMAero
     engine::Union{Nothing, E}
-    "Nearest wing-node index for every (panel, contour node): `station_point[panel][node]`."
+    "Near-station wing-node index for every (panel, contour node): `station_point[panel][node]`."
     station_point::Vector{Vector{Int64}}
+    "Far-station wing-node index for the same (panel, contour node)."
+    blend_point::Vector{Vector{Int64}}
+    "The two stations every panel lies between and its share of the second."
+    panel_blend::Vector{Tuple{Int64, Int64, SimFloat}}
     "Pure-moment chordwise share of every (panel, contour node), see [`couple_shape`](@ref)."
     node_couple_shape::Vector{Vector{SimFloat}}
     "Residual share of every (panel, contour node), see [`node_residual_shares`](@ref)."
@@ -88,12 +92,14 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
     live_polars::Bool
     "Live polar source and control-point map, `nothing` unless `live_polars`."
     live::Any
-    AeroPressure{E}(engine, station_point, node_couple_shape, node_residual_share,
+    AeroPressure{E}(engine, station_point, blend_point, panel_blend,
+        node_couple_shape, node_residual_share,
         frame_tol_frac, v_ind, chord_weight, traction, point_offset, traction_net,
         traction_moment, residual_arm,
         cl, cd, cm, panel_twist_surface, section_left_strut, section_left_weight,
         section_le_offset, section_te_offset, live_polars, live) where {E} =
-        new{E}(engine, station_point, node_couple_shape, node_residual_share,
+        new{E}(engine, station_point, blend_point, panel_blend,
+               node_couple_shape, node_residual_share,
                frame_tol_frac, v_ind, chord_weight, traction, point_offset,
                traction_net, traction_moment, residual_arm,
                cl, cd, cm, panel_twist_surface, section_left_strut,
@@ -103,6 +109,7 @@ end
 
 AeroPressure(; frame_tol_frac=2.0, live_polars=false) =
     AeroPressure{VSMEngine}(nothing, Vector{Vector{Int64}}(),
+        Vector{Vector{Int64}}(), Tuple{Int64, Int64, SimFloat}[],
         Vector{Vector{SimFloat}}(), Vector{Vector{SimFloat}}(),
         SimFloat(frame_tol_frac),
         zeros(SimFloat, 3, 0), SimFloat[], zeros(SimFloat, 3, 0),
@@ -112,7 +119,8 @@ AeroPressure(; frame_tol_frac=2.0, live_polars=false) =
         Int64[], SimFloat[], zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0),
         live_polars, nothing)
 attach_engine!(mode::AeroPressure, engine::VSMEngine) =
-    AeroPressure{typeof(engine)}(engine, mode.station_point,
+    AeroPressure{typeof(engine)}(engine, mode.station_point, mode.blend_point,
+        mode.panel_blend,
         mode.node_couple_shape, mode.node_residual_share, mode.frame_tol_frac,
         mode.v_ind,
         mode.chord_weight, mode.traction, mode.point_offset, mode.traction_net,
@@ -132,7 +140,8 @@ structural and enters the model-cache hash (distinguishing it from any stale
 frozen-force build that used the default empty id). The panel→flap-twist_surface
 map is likewise baked into the δ wiring.
 """
-aero_hash_id(mode::AeroPressure) = (mode.station_point, mode.panel_twist_surface,
+aero_hash_id(mode::AeroPressure) = (mode.station_point, mode.blend_point,
+    [round(w; digits=8) for (_, _, w) in mode.panel_blend], mode.panel_twist_surface,
     mode.live_polars,
     mode.section_left_strut, round.(mode.section_left_weight; digits=8),
     round.(mode.section_le_offset; digits=8),
@@ -219,10 +228,15 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
         node_forces = surface_node_forces(traction_p, column + 1, length(assigned),
             panel_force[:, i], column_of(traction_net_p, i),
             couple[i], mode.node_couple_shape[i], mode.node_residual_share[i])
+        share_far = mode.panel_blend[i][3]
         for node in eachindex(assigned)
             column += 1
             k = point_num[assigned[node]]
-            point_force[k] = point_force[k] .+ node_forces[node]
+            point_force[k] = point_force[k] .+ (1 - share_far) .* node_forces[node]
+            if share_far > 0
+                k_far = point_num[mode.blend_point[i][node]]
+                point_force[k_far] = point_force[k_far] .+ share_far .* node_forces[node]
+            end
         end
     end
 
@@ -440,12 +454,17 @@ end
                              point_idx, point_pos_b)
         -> Vector{Vector{Tuple{Int64, KVec3}}}
 
-The structural points each panel is allowed to map onto: those of the one spanwise
-station it sits closest to, rather than every point on the wing.
+The two spanwise stations each panel's load is shared between, and the far one's
+share: the station it sits on, the next one out, and how far between them it lies.
 
 Which strut a panel sits on comes from the refined-section interpolation the loft
 carries, not from measuring the panel's position, so it holds for a swept or dihedral
-wing as well as a flat one. A panel is a slice of one airfoil, and it has to stay on one
+wing as well as a flat one. A panel's load is split between its two neighbouring
+stations rather than rounded onto the nearer, because rounding is a discontinuity: two
+panels that mirror each other land on centres that agree to the last bit but not
+exactly, and the nearer station is then a different one for each, moving a whole
+panel's load a station across the span. Sharing it moves that disagreement back into
+the weights, where it stays the size it actually is. A panel is a slice of one airfoil, and it has to stay on one
 strut. Left to search the
 whole wing, the nodes near a station boundary defect to the neighbouring strut, so half
 an airfoil hangs off one station and half off the next — the panel then spans two
@@ -464,10 +483,8 @@ function panel_station_candidates(mode, panels, twist_surfaces, points, wing,
     grouped = [[(idx, lookup[idx]) for idx in group if haskey(lookup, idx)]
                for group in stations]
     any(isempty, grouped) && return nothing
-    strut, blend = panel_strut_blend(mode, length(stations), length(panels))
-    return [grouped[blend[i] < 0.5 ? strut[i] :
-                    min(strut[i] + 1, length(stations))]
-            for i in eachindex(panels)]
+    return [(grouped[lo], grouped[hi], lo == hi ? 0.0 : weight)
+            for (lo, hi, weight) in mode.panel_blend]
 end
 
 """
@@ -489,9 +506,14 @@ function build_station_point_map!(mode::AeroPressure, wing, points, twist_surfac
     point_pos_b = [rot_cad_to_body * (p.pos_cad - origin_cad) for p in wing_pts]
 
     panels = wing.vsm_aero.panels
+    stations_declared = control_point_stations(twist_surfaces, points, wing)
+    mode.panel_blend = length(stations_declared) >= 2 ?
+        panel_strut_blend(mode, length(stations_declared), length(panels)) :
+        [(1, 1, 0.0) for _ in eachindex(panels)]
     candidates = panel_station_candidates(mode, panels, twist_surfaces, points,
                                           wing, point_idx, point_pos_b)
     station_point = Vector{Vector{Int64}}(undef, length(panels))
+    blend_point = Vector{Vector{Int64}}(undef, length(panels))
     node_couple_shape = Vector{Vector{SimFloat}}(undef, length(panels))
     node_residual_share = Vector{Vector{SimFloat}}(undef, length(panels))
     max_chord_ratio = 0.0
@@ -502,9 +524,12 @@ function build_station_point_map!(mode::AeroPressure, wing, points, twist_surfac
         xc, yc, _, _ = VortexStepMethod.section_surface(
             panel.section_aero, 0.0, panel.delta)
         assigned = Vector{Int64}(undef, length(xc))
-        near = isnothing(candidates) ? nothing : candidates[panel_idx_local]
-        near_fraction = isnothing(near) ? nothing :
-            [chord_frame_coordinates(panel, pos_b)[1] for (_, pos_b) in near]
+        shared = Vector{Int64}(undef, length(xc))
+        near, far, weight = isnothing(candidates) ? (nothing, nothing, 0.0) :
+            candidates[panel_idx_local]
+        fractions(group) = isnothing(group) ? nothing :
+            [chord_frame_coordinates(panel, pos_b)[1] for (_, pos_b) in group]
+        near_fraction, far_fraction = fractions(near), fractions(far)
         for k in eachindex(xc)
             node = loft_contour_node(panel, xc, yc, k)
             if isnothing(near)
@@ -515,16 +540,24 @@ function build_station_point_map!(mode::AeroPressure, wing, points, twist_surfac
                     dist < min_dist && (min_dist = dist; best = point_idx[m])
                 end
                 assigned[k] = best
+                shared[k] = best
                 max_chord_ratio = max(max_chord_ratio,
                                       min_dist / max(panel.chord, eps()))
             else
                 pick = argmin(abs.(near_fraction .- xc[k]))
+                far_pick = argmin(abs.(far_fraction .- xc[k]))
                 assigned[k] = near[pick][1]
+                shared[k] = far[far_pick][1]
+                # The guard asks whether the mesh and the structure line up, so it
+                # measures the station actually carrying the panel, not the one that
+                # happens to come first.
+                held = weight < 0.5 ? near[pick][2] : far[far_pick][2]
                 max_chord_ratio = max(max_chord_ratio,
-                    norm(node - near[pick][2]) / max(panel.chord, eps()))
+                    norm(node - held) / max(panel.chord, eps()))
             end
         end
         station_point[panel_idx_local] = assigned
+        blend_point[panel_idx_local] = shared
         node_couple_shape[panel_idx_local] = couple_shape(xc)
         node_residual_share[panel_idx_local] = node_residual_shares(xc, yc)
     end
@@ -534,6 +567,7 @@ function build_station_point_map!(mode::AeroPressure, wing, points, twist_surfac
         "frame_tol_frac=$(mode.frame_tol_frac). The VSM mesh and structural " *
         "points are likely misaligned (frame mismatch).")
     mode.station_point = station_point
+    mode.blend_point = blend_point
     mode.node_couple_shape = node_couple_shape
     mode.node_residual_share = node_residual_share
     prn && println("✓ AeroPressure wing $(wing.name): mapped " *
@@ -787,11 +821,16 @@ function accumulate_point_offset!(mode::AeroPressure)
     column = 0
     for (panel, assigned) in enumerate(mode.station_point)
         share = mode.node_residual_share[panel]
+        far = mode.panel_blend[panel][3]
         for (node, point_idx) in enumerate(assigned)
             column += 1
-            total = get!(zero_aero_force, mode.point_offset, point_idx)
-            @views total .+= mode.traction[:, column] .-
-                             share[node] .* mode.traction_net[:, panel]
+            for (idx, w) in ((point_idx, 1 - far),
+                             (mode.blend_point[panel][node], far))
+                w > 0 || continue
+                total = get!(zero_aero_force, mode.point_offset, idx)
+                @views total .+= w .* (mode.traction[:, column] .-
+                                       share[node] .* mode.traction_net[:, panel])
+            end
         end
     end
     return nothing
@@ -858,9 +897,13 @@ function aero_scatter_entries(mode::AeroPressure, wing, points)
     for (panel, assigned) in enumerate(mode.station_point)
         share = mode.node_residual_share[panel]
         shape = mode.node_couple_shape[panel]
+        far = mode.panel_blend[panel][3]
         for (node, point_idx) in enumerate(assigned)
-            scatter_totals!(totals, panel, point_num[point_idx], share[node],
-                            shape[node])
+            scatter_totals!(totals, panel, point_num[point_idx],
+                            (1 - far) * share[node], (1 - far) * shape[node])
+            far > 0 && scatter_totals!(totals, panel,
+                point_num[mode.blend_point[panel][node]],
+                far * share[node], far * shape[node])
         end
     end
     return scatter_entry_list(totals)

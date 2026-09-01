@@ -108,11 +108,18 @@ function control_point_stations(twist_surfaces, points, wing)
 end
 
 """
-    panel_strut_blend(mode::AeroPressure, n_stations, n_panels) -> (Vector{Int}, Vector)
+    panel_strut_blend(mode::AeroPressure, n_stations, n_panels)
+        -> Vector{Tuple{Int64, Int64, SimFloat}}
 
-Which strut each panel sits on and how far it lies towards the next one, taken from the
-refined-section interpolation the loft carries rather than measured off the panel's
-position. A panel spans two refined sections, so it takes the mean of their weights.
+The two stations each panel lies between and how far it lies towards the second, taken
+from the refined-section interpolation the loft carries rather than measured off the
+panel's position. Load and deformation both read this one answer: a panel is deformed by
+the points it is loaded through, so the two cannot be allowed to disagree. A panel spans two refined sections, so it sits at the mean of their places.
+
+A section's weight is its share of `strut[left]`, which puts it at `left + (1 - w)` in
+strut units. Averaging the weights themselves only holds while both sections name the
+same left strut: across a strut the two are shares of different pairs, and their mean
+says nothing. A panel straddling a strut then lands on the far one.
 """
 function panel_strut_blend(mode::AeroPressure, n_stations, n_panels)
     left, weight = mode.section_left_strut, mode.section_left_weight
@@ -122,10 +129,12 @@ function panel_strut_blend(mode::AeroPressure, n_stations, n_panels)
     maximum(left) <= n_stations || error(
         "AeroPressure: the loft names strut $(maximum(left)) but the wing declares " *
         "only $n_stations twist surfaces; sections and stations do not correspond.")
-    strut = [clamp(min(left[i], left[i + 1]), 1, n_stations) for i in 1:n_panels]
-    blend = [clamp(1 - 0.5 * (weight[i] + weight[i + 1]), 0.0, 1.0)
-             for i in 1:n_panels]
-    return strut, blend
+    place(i) = left[i] + (1 - weight[i])
+    centre = [0.5 * (place(i) + place(i + 1)) for i in 1:n_panels]
+    return map(centre) do c
+        lo = clamp(floor(Int, c), 1, n_stations)
+        (lo, min(lo + 1, n_stations), clamp(c - lo, 0.0, 1.0))
+    end
 end
 
 """
@@ -159,8 +168,12 @@ function build_live_polars!(mode::AeroPressure, wing, points, twist_surfaces;
     n_stations >= 2 || error(
         "AeroPressure wing $(wing.name): live polars need at least two spanwise " *
         "stations declared by twist surfaces; this wing declares $n_stations.")
-    strut, blend = panel_strut_blend(mode, n_stations, n_panels)
-    station_panel = [argmin(abs.((strut .+ blend) .- s)) for s in 1:n_stations]
+    panel_blend = mode.panel_blend
+    length(panel_blend) == n_panels || error(
+        "AeroPressure wing $(wing.name): the station blend has $(length(panel_blend)) " *
+        "entries for $n_panels panels; run build_station_point_map! first.")
+    centre = [lo + weight for (lo, _, weight) in panel_blend]
+    station_panel = [argmin(abs.(centre .- s)) for s in 1:n_stations]
 
     control_fraction = Vector{Vector{SimFloat}}(undef, length(stations))
     control_offset = Vector{Vector{SimFloat}}(undef, length(stations))
@@ -170,9 +183,6 @@ function build_live_polars!(mode::AeroPressure, wing, points, twist_surfaces;
         control_fraction[s] = SimFloat[f[1] for f in frames]
         control_offset[s] = SimFloat[f[2] for f in frames]
     end
-
-    panel_blend = [(strut[i], min(strut[i] + 1, n_stations), blend[i])
-                   for i in 1:n_panels]
 
     maximum(length, control_fraction) <= 2 && @warn(
         "Live polars see no chordwise deformation: every station names at most two " *
