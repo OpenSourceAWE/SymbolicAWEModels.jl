@@ -396,12 +396,13 @@ SymbolicAWEModels.build_station_point_map!
 SymbolicAWEModels.build_panel_station_map!
 SymbolicAWEModels.station_deltas
 SymbolicAWEModels.apply_flap_delta!
+SymbolicAWEModels.set_panel_deltas!
 SymbolicAWEModels.init_pressure_buffers!
 SymbolicAWEModels.freeze_traction_pattern!
 SymbolicAWEModels.LivePolarState
 SymbolicAWEModels.chord_frame_coordinates
 SymbolicAWEModels.build_live_polars!
-SymbolicAWEModels.control_point_stations
+SymbolicAWEModels.station_control_points
 SymbolicAWEModels.panel_station_candidates
 SymbolicAWEModels.panel_strut_blend
 SymbolicAWEModels.update_live_deflection!
@@ -428,6 +429,7 @@ SymbolicAWEModels.panel_force_vars
 SymbolicAWEModels.supports_panel_decomposition
 SymbolicAWEModels.scatter_couple
 SymbolicAWEModels.pressure_couple
+SymbolicAWEModels.node_residual_shares
 SymbolicAWEModels.aero_inflow_groups
 SymbolicAWEModels.aero_pitch_groups
 SymbolicAWEModels.aero_station_groups

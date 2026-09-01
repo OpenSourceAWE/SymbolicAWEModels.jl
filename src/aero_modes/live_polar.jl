@@ -114,7 +114,8 @@ end
 The two stations each panel lies between and how far it lies towards the second, taken
 from the refined-section interpolation the loft carries rather than measured off the
 panel's position. Load and deformation both read this one answer: a panel is deformed by
-the points it is loaded through, so the two cannot be allowed to disagree. A panel spans two refined sections, so it sits at the mean of their places.
+the points it is loaded through, so the two cannot be allowed to disagree. A panel
+spans two refined sections, so it sits at the mean of their places.
 
 A section's weight is its share of `strut[left]`, which puts it at `left + (1 - w)` in
 strut units. Averaging the weights themselves only holds while both sections name the
@@ -141,11 +142,12 @@ end
     build_live_polars!(mode::AeroPressure, wing, points, stations; settings)
 
 Build the wing's [`LivePolarState`](@ref) from the reference geometry: fit each panel's
-undeformed Kulfan parameters off its surface contour, take the spanwise stations from the twist
-surfaces, and record where each of their control points sits in that station's chord
-frame. Run after [`build_station_point_map!`](@ref), which binds each panel to one of
-those same stations, and while the mesh still stands on the reference (CAD) structure — the offsets stored here are the zero the
-live deformation is measured against.
+undeformed Kulfan parameters off its surface contour, take the spanwise stations the
+wing declares, and record where each of their control points sits in that station's
+chord frame. Run after [`build_station_point_map!`](@ref), which binds each panel to
+one of those same stations, and while the mesh still stands on the reference (CAD)
+structure — the offsets stored here are the zero the live deformation is measured
+against.
 
 Deformation and load read the same declared stations, so the points a panel is deformed
 by are the ones it is loaded through. Measuring per station and interpolating onto the
@@ -293,8 +295,7 @@ end
 XFoil against the live polar one panel is flying, at the state the model is in now: the
 panel's own deformed shape, its converged angle of attack and its Reynolds. `panel_idx`
 defaults to the panel NeuralFoil is least confident about, which is the one worth
-asking about. See [`compare_live_polar`](@ref VortexStepMethod.AirfoilAero.compare_live_polar)
-for what comes back.
+asking about. See `AirfoilAero.compare_live_polar` for what comes back.
 
 The `Live polar off the trained shape range` warning says the network is extrapolating.
 This says whether the extrapolation is any good, which the confidence cannot: it scores
@@ -368,9 +369,8 @@ Solve the wing with polars regenerated from its current shape, sampled about
 [`live_polar_alpha`](@ref). One sampling and one solve: a sampled polar holds its
 last value past either end rather than extrapolating, so a solve landing outside the
 sampled range reads a bounded answer instead of a runaway one and needs no refit to
-be safe. How far it landed is reported by
-[`polar_drift`](@ref VortexStepMethod.AirfoilAero.polar_drift), which warns once past
-the range — there the panel's polar is flat and no longer tracks the shape.
+be safe. How far it landed is reported by `AirfoilAero.polar_drift`, which warns once
+past the range — there the panel's polar is flat and no longer tracks the shape.
 
 The traction pattern is regenerated from the same deformed shapes once the solve has
 converged, so the forces and their placement both follow the deformation.
