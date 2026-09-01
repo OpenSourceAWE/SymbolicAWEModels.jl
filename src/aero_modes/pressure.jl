@@ -196,7 +196,6 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
 
     sec_va, sec_rho, sec_dva =
         reconstruct_inflow_sym(mode, wing, connectors, column)
-    flow_curvature_enabled(wing) || (sec_dva = nothing)
 
     spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     scale = 1.0 + (isfinite(wing.aero_scale_chord) ?

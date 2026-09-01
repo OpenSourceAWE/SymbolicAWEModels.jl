@@ -1675,7 +1675,9 @@ strut value, then interpolated by the frozen mesh weights — the same struts an
 weights [`reconstruct_sections_sym`](@ref) builds that section's corners from, so a
 section's inflow and its geometry read the same points. `sec_dva` is the same
 interpolation of each strut's trailing minus leading edge apparent wind, the
-pitch-rate input of [`panel_force_eqs`](@ref). Symbolic twin of
+pitch-rate input of [`panel_force_eqs`](@ref); it is `nothing` unless the wing's
+solver asks for the flow curvature term, since building it for every section and
+discarding it is what the default path would otherwise pay. Symbolic twin of
 [`strut_inflow_weights`](@ref) and [`strut_pitch_weights`](@ref). Shared by all
 continuous VSM modes.
 """
@@ -1689,12 +1691,13 @@ function reconstruct_inflow_sym(mode, wing, connectors, column)
     strut_rho = [nose * connectors.rho[column[(s, :LE)]] +
                  COLLOCATION_CHORD_FRAC * connectors.rho[column[(s, :TE)]]
                  for s in 1:n_struts]
-    strut_dva = [collect(connectors.va[:, column[(s, :TE)]]) -
-                 collect(connectors.va[:, column[(s, :LE)]])
-                 for s in 1:n_struts]
     left, weight, _, _ = section_interp_caches(mode)
     sec_va = [interp_strut(strut_va, left, weight, s) for s in eachindex(left)]
     sec_rho = [interp_strut(strut_rho, left, weight, s) for s in eachindex(left)]
+    flow_curvature_enabled(wing) || return sec_va, sec_rho, nothing
+    strut_dva = [collect(connectors.va[:, column[(s, :TE)]]) -
+                 collect(connectors.va[:, column[(s, :LE)]])
+                 for s in 1:n_struts]
     sec_dva = [interp_strut(strut_dva, left, weight, s) for s in eachindex(left)]
     return sec_va, sec_rho, sec_dva
 end

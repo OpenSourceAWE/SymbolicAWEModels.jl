@@ -17,6 +17,11 @@
 
 ### Fixed
 
+- Building a wing model no longer constructs the per-section flow curvature rate
+  when the wing's solver has the term switched off, which is the default. The
+  symbolic inflow reconstruction built it for every refined section and dropped
+  it one line later, while the kernel backend already gated the same gather.
+
 - A panel's aerodynamic load is shared between the two stations it lies between
   rather than rounded onto the nearer one. Rounding is a discontinuity, and two
   panels mirroring each other across the wing land on spanwise places that agree

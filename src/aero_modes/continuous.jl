@@ -219,7 +219,6 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
         reconstruct_sections_sym(mode, wing, points, connectors, column)
     sec_va, sec_rho, sec_dva =
         reconstruct_inflow_sym(mode, wing, connectors, column)
-    flow_curvature_enabled(wing) || (sec_dva = nothing)
 
     orient = panel_span_signs(wing, spanwise)
     wagner_eqs, wagner_vars, deficiency, wagner_defaults =
