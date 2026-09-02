@@ -17,10 +17,33 @@
 
 ### Fixed
 
+- A panel's drag direction no longer re-derives its lift direction inside itself.
+  `drag_cross` inlined `lift_cross / |lift_cross|` where the `dir_lift` variable
+  already holds exactly that, so normalising `dir_drag` squared and summed three
+  copies of it: one panel's drag direction reached 199k expression nodes and a
+  wing's system 3.4M. Reading the variable halves the system the monolith backend
+  compiles, and leaves the value unchanged.
+
 - Building a wing model no longer constructs the per-section flow curvature rate
   when the wing's solver has the term switched off, which is the default. The
   symbolic inflow reconstruction built it for every refined section and dropped
   it one line later, while the kernel backend already gated the same gather.
+
+- A transform's `elevation_vel` and `azimuth_vel` now place the velocity they
+  describe. Both terms were wrong: the elevation term was never rotated by the
+  azimuth, so off the `azimuth = 0` meridian it pointed out of the sphere, and
+  the azimuth term had the sign the position convention does not have and was
+  missing its `cos(elevation)`, which at 70° elevation is a factor of three. The
+  field was also a per-component approximation — every component took the wing's
+  own spherical velocity scaled by its radius, so the structure was not moving
+  rigidly — and it was written before the heading step rotated the positions it
+  was measured against, so a placed heading left position and velocity
+  disagreeing by metres per second. It is now one rigid rotation about the base,
+  `spherical_spin(transform)` crossed into `pos_w - base_pos`, applied after the
+  heading; a rigid body takes the matching `ω_b` where it used to be zeroed.
+- `reposition!` takes `update_vel` (`false` as before), so a state can be moved
+  onto a pose and released already flying on it. Nothing applied the transform
+  velocity except `reinit!`, which resets from CAD.
 
 - A panel's aerodynamic load is shared between the two stations it lies between
   rather than rounded onto the nearer one. Rounding is a discontinuity, and two

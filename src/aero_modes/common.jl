@@ -394,7 +394,7 @@ function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
 
     dir_iva = cos(alpha[i]) .* x_unit .+ sin(alpha[i]) .* z_unit
     lift_cross = dir_iva × y_unit
-    drag_cross = spanwise × (lift_cross ./ smooth_norm(lift_cross))
+    drag_cross = spanwise × collect(dir_lift[:, i])
 
     return [
         chord[i] ~ 0.5 * (smooth_norm(te_1 - le_1) +
