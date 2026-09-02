@@ -106,7 +106,7 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
         # Wing rigid-body state is synced via the embedded body in the bodies spec below.
         push!(specs, scatter_spec(ss -> ss.wings,
             sys.va_wing_b        => (c, v) -> copy_vec!(c.va_b, v, c.idx),
-            sys.wind_vel_wing    => (c, v) -> copy_vec!(c.v_wind, v, c.idx),
+            sys.wind_vel_wing    => (c, v) -> copy_vec!(c.wind_vec, v, c.idx),
             sys.aero_force_b     => (c, v) -> copy_vec!(c.aero_force_b, v, c.idx),
             sys.aero_moment_b    => (c, v) -> copy_vec!(c.aero_moment_b, v, c.idx),
             sys.elevation        => (c, v) -> (c.elevation = v[c.idx]; nothing),
@@ -791,8 +791,8 @@ This is used to check if a cached compiled model is still valid.
 
 Anything read back from a struct at sync time stays out, so one build serves a sweep
 over it. That is every numeric setting the equations use — `:g_earth`, `:wind_vec`,
-`:cd_tether`, `:v_wind`, `:profile_law`, initial conditions — since each enters as a
-flat parameter `sync_params!` refreshes from `sys_struct.set`, not as a literal.
+`:cd_tether`, `:v_wind`, the profile law, initial conditions — since each enters
+as a flat parameter `sync_params!` refreshes from `sys_struct.set`, not as a literal.
 
 # Runtime Fields (don't affect compilation, excluded from hash):
 - `:profile_law`: Wind profile law (evaluated at runtime via symbolic function)
@@ -826,6 +826,9 @@ Includes all structural properties that affect the symbolic equations:
 - Winch configuration
 - Wing topology, connectivity, aerodynamic model type (RIGID_DYNAMICS vs PARTICLE_DYNAMICS), and aero mode
 - Transform hierarchy
+- The wind mode, which decides whether the wind is a height profile or a per-point
+  parameter. Only [`PerPointWind`](@ref) enters the hash, so structures on the
+  default [`ProfileWind`](@ref) keep the cached models they already have.
 
 Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
@@ -882,6 +885,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
             origin_hash(wing.origin))
         push!(data_parts, wing_data)
     end
+    per_point_wind(sys_struct) && push!(data_parts, ("wind_mode", :per_point))
     for transform in transforms
         push!(data_parts, ("transform", transform.idx, transform.wing_idx, transform.rot_point_idx,
                         transform.base_point_idx, transform.base_transform_idx))

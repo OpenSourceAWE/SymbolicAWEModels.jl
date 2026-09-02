@@ -38,6 +38,17 @@ SymbolicAWEModels.get_sys_struct_hash
 ```@docs
 SymbolicAWEModels.WindFactor
 SymbolicAWEModels.WindFactorReader
+SymbolicAWEModels.AbstractWindSource
+SymbolicAWEModels.ProfileWindSource
+SymbolicAWEModels.PrescribedWindSource
+SymbolicAWEModels.wind_mode
+SymbolicAWEModels.segment_wind_params
+SymbolicAWEModels.bind_segment_winds!
+SymbolicAWEModels.profile_wind_source
+SymbolicAWEModels.point_wind_source
+SymbolicAWEModels.segment_wind_source
+SymbolicAWEModels.wing_wind_source
+SymbolicAWEModels.seed_per_point_wind!
 SymbolicAWEModels.calc_angle_of_attack
 SymbolicAWEModels.calc_heading
 SymbolicAWEModels.calc_R_t_to_w

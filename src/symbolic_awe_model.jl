@@ -373,7 +373,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.course = wing.course
         # Apparent Wind and Aerodynamics
         ss.v_app = norm(wing.va_b)
-        ss.v_wind_kite .= wing.v_wind
+        ss.v_wind_kite .= wing.wind_vec
         # Calculate AoA and Side Slip from apparent wind in body frame
         if ss.v_app > 1e-6 # Avoid division by zero
             ss.AoA = calc_aoa(wing.aero, wing)

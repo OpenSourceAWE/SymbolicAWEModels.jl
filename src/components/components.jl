@@ -26,8 +26,153 @@ remove_along(vector, axis) = vector .- (vector ⋅ axis) .* axis
 keep_along(vector, axis) = (vector ⋅ axis) .* axis
 
 """
+    WindMode
+
+Where a model takes its wind from, chosen once per [`SystemStructure`](@ref) through
+its `wind_mode` field and baked into the equations: [`ProfileWind`](@ref) or
+[`PerPointWind`](@ref). A further mode adds a `wind_source` method per consumer
+rather than a branch inside one.
+"""
+abstract type WindMode end
+
+"""
+    ProfileWind()
+
+The default wind mode: the ground wind `set.wind_vec` scaled by the height profile
+`set.profile_law` of `AtmosphericModels`, evaluated at each consumer's own height.
+"""
+struct ProfileWind <: WindMode end
+
+"""
+    PerPointWind()
+
+Wind mode in which every point carries its own wind vector: `point.wind_vec` becomes
+a parameter, settable between steps, instead of an output of the height profile. A
+segment takes the mean of its two endpoints' winds and a wing reads its own
+`wing.wind_vec`; `set.profile_law` is unused. `reinit!` seeds every point and wing
+with `set.wind_vec`, so a model that is never written to flies in a uniform wind.
+"""
+struct PerPointWind <: WindMode end
+
+"""The [`WindMode`](@ref) of the structure a build-time `params` view reads."""
+wind_mode(params) = params.reg.sys_struct.wind_mode
+
+"""Whether `sys_struct` takes its wind per point ([`PerPointWind`](@ref))."""
+per_point_wind(sys_struct) = sys_struct.wind_mode isa PerPointWind
+
+"""
+    AbstractWindSource
+
+Build-time source of the wind vector at one component. `source(height)` returns the
+world-frame wind as a length-3 expression, either the profile law's wind at that
+height ([`ProfileWindSource`](@ref)) or a wind the caller prescribes
+([`PrescribedWindSource`](@ref)). Which one a component gets is decided once, by the
+model's [`WindMode`](@ref), so the equations carry no runtime branch.
+"""
+abstract type AbstractWindSource end
+
+"""
+    ProfileWindSource(factor, ground)
+
+The wind of a height profile law: the ground wind ([`ground_wind_vec`](@ref)) scaled
+by the callable `wind_factor` parameter at the caller's height.
+"""
+struct ProfileWindSource{F, V} <: AbstractWindSource
+    factor::F
+    ground::V
+end
+(source::ProfileWindSource)(height) = source.factor(height) .* source.ground
+
+"""
+    PrescribedWindSource(wind)
+
+A wind expression that does not depend on height — under [`PerPointWind`](@ref) the
+component's own wind parameter, or an expression in the winds of the points it spans.
+The height it is asked for is ignored.
+"""
+struct PrescribedWindSource{V} <: AbstractWindSource
+    wind::V
+end
+(source::PrescribedWindSource)(height) = source.wind
+
+"""
+    profile_wind_source(params, ground)
+
+The height-profile wind source, registering the ground wind and the live
+`wind_factor` on `params`. The monolith passes its own `wind_vec_gnd` variable as
+`ground` so the ground wind keeps being written once for the whole system; `nothing`
+registers it here.
+"""
+profile_wind_source(params, ground) =
+    ProfileWindSource(param_computed!(params.reg, :wind_factor, WindFactorReader()),
+                      collect(isnothing(ground) ? ground_wind_vec(params) : ground))
+
+"""
+    point_wind_source(params, idx, ground=nothing)
+
+The wind source of point `idx`: its own `wind_vec` parameter under
+[`PerPointWind`](@ref), else the height profile.
+"""
+point_wind_source(params, idx, ground = nothing) =
+    point_wind_source(wind_mode(params), params, idx, ground)
+point_wind_source(::ProfileWind, params, idx, ground) =
+    profile_wind_source(params, ground)
+point_wind_source(::PerPointWind, params, idx, ground) =
+    PrescribedWindSource(collect(params.points[idx].wind_vec))
+
+"""
+    wing_wind_source(params, idx, ground=nothing)
+
+The wind source of wing `idx`: its own `wind_vec` parameter under
+[`PerPointWind`](@ref), else the height profile. This is the wind a rigid wing's
+aerodynamics fly in; the per-point winds reach the VSM panels through
+[`AeroInflowPoint`](@ref) instead.
+"""
+wing_wind_source(params, idx, ground = nothing) =
+    wing_wind_source(wind_mode(params), params, idx, ground)
+wing_wind_source(::ProfileWind, params, idx, ground) =
+    profile_wind_source(params, ground)
+wing_wind_source(::PerPointWind, params, idx, ground) =
+    PrescribedWindSource(collect(params.wings[idx].wind_vec))
+
+"""
+    segment_wind_source(params, idx, src_wind, dst_wind, ground=nothing)
+
+The wind source of segment `idx`: the mean of the winds at its two endpoints under
+[`PerPointWind`](@ref) — the same averaging its drag already applies to their
+velocities — else the height profile at its midpoint. `src_wind`/`dst_wind` are the
+endpoint winds as each backend addresses them and are unused under
+[`ProfileWind`](@ref).
+"""
+segment_wind_source(params, idx, src_wind, dst_wind, ground = nothing) =
+    segment_wind_source(wind_mode(params), params, idx, src_wind, dst_wind, ground)
+segment_wind_source(::ProfileWind, params, idx, src_wind, dst_wind, ground) =
+    profile_wind_source(params, ground)
+segment_wind_source(::PerPointWind, params, idx, src_wind, dst_wind, ground) =
+    PrescribedWindSource(0.5 .* (collect(src_wind) .+ collect(dst_wind)))
+
+"""
+    segment_wind_params(params, idx, with_drag) -> (wind_source, minted)
+
+The wind source a segment kernel uses and the parameters it has to declare for it.
+Under [`PerPointWind`](@ref) a drag-carrying segment mints `src_wind`/`dst_wind`,
+which `bind_segment_winds!` points at its two endpoints' `point.wind_vec` — the
+kernel is instanced over `:segments`, so the endpoints cannot be reached through the
+registry's per-instance index remapping. The monolith reads its endpoints'
+`wind_at_point` directly and calls [`segment_wind_source`](@ref) itself.
+"""
+function segment_wind_params(params, idx, with_drag)
+    wind_mode(params) isa PerPointWind ||
+        return segment_wind_source(params, idx, nothing, nothing), []
+    with_drag || return PrescribedWindSource(zeros(3)), []
+    src_wind = make_array_param(:src_wind, zeros(3))
+    dst_wind = make_array_param(:dst_wind, zeros(3))
+    return segment_wind_source(params, idx, src_wind, dst_wind), [src_wind, dst_wind]
+end
+
+"""
     point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
-                       world_damping, wind_gnd, wind_factor, g_earth;
+                       world_damping, wind_source, g_earth;
                        apparent_mass=0.0)
 
 `(; net_force, accel)` for a point mass: [`point_net_force`](@ref) and that per unit
@@ -36,30 +181,31 @@ accelerates ([`apply_apparent_mass!`](@ref)); it resists acceleration but has no
 weight, so it divides the net force without entering the gravity that built it.
 """
 function point_acceleration(s, pos, vel, structural_force, mass, drag_coeff, area,
-                            world_damping, wind_gnd, wind_factor, g_earth;
+                            world_damping, wind_source, g_earth;
                             apparent_mass=0.0)
     net_force = point_net_force(s, pos, vel, structural_force, mass, drag_coeff,
-                                area, wind_gnd, wind_factor, g_earth)
+                                area, wind_source, g_earth)
     return (; net_force,
             accel = net_force ./ (mass .+ apparent_mass) .- world_damping .* vel)
 end
 
 """
-    point_net_force(s, pos, vel, structural_force, mass, drag_coeff, area, wind_gnd,
-                    wind_factor, g_earth)
+    point_net_force(s, pos, vel, structural_force, mass, drag_coeff, area,
+                    wind_source, g_earth)
 
 The physical force on a point: the structural force gathered from its segments plus
-its own aerodynamic drag against the wind at its height and gravity — the monolith's
-`point_force`. `structural_force` is the net force on the point (positive sign); each
-backend supplies it in its own aggregation convention. A clamped point reads it
-without moving, which is how an anchor's or a winch's load is read off. Both backends
-pass the registered `params.set.g_earth` as `g_earth` so gravity stays settable after
-construction; reading the setting here instead would bake it in at build time.
+its own aerodynamic drag against the wind its `wind_source` gives at its height and
+gravity — the monolith's `point_force`. `structural_force` is the net force on the
+point (positive sign); each backend supplies it in its own aggregation convention. A
+clamped point reads it without moving, which is how an anchor's or a winch's load is
+read off. Both backends pass the registered `params.set.g_earth` as `g_earth` so
+gravity stays settable after construction; reading the setting here instead would
+bake it in at build time.
 """
 function point_net_force(s, pos, vel, structural_force, mass, drag_coeff, area,
-                         wind_gnd, wind_factor, g_earth)
+                         wind_source::AbstractWindSource, g_earth)
     rho = air_density(s.am, pos[3])
-    va = wind_factor(pos[3]) .* wind_gnd .- vel
+    va = wind_source(pos[3]) .- vel
     drag = point_drag_force(va, rho, drag_coeff, area)
     gravity = [0.0, 0.0, -g_earth * mass]
     return structural_force .+ drag .+ gravity
@@ -70,20 +216,18 @@ end
 
 The shared DYNAMIC-particle parameters read from `params.points[idx]` — mass, drag,
 area and world-frame damping as the point's own struct fields — plus the registered
-gravity `g_earth` and the computed ground wind `wind_gnd` ([`ground_wind_vec`](@ref)).
-Returns a named tuple consumed by [`dynamic_point_dynamics`](@ref); each read
-registers the parameter on `params`, so gravity stays settable after construction.
+gravity `g_earth` and the point's [`point_wind_source`](@ref). Returns a named tuple
+consumed by [`dynamic_point_dynamics`](@ref); each read registers the parameter on
+`params`, so gravity stays settable after construction.
 """
 function point_particle_params(params, idx)
     point = params.points[idx]
-    wind_gnd = ground_wind_vec(params)
     return (; extra_mass = point.extra_mass, apparent_mass = point.apparent_mass,
             drag_coeff = point.drag_coeff,
             area = point.area, world_damping = point.world_frame_damping,
-            fix_sphere = point.fix_sphere, fix_static = point.fix_static, wind_gnd,
+            fix_sphere = point.fix_sphere, fix_static = point.fix_static,
             g_earth = params.set.g_earth,
-            wind_factor = param_computed!(params.reg, :wind_factor,
-                                          WindFactorReader()))
+            wind_source = point_wind_source(params, idx))
 end
 
 """
@@ -114,8 +258,7 @@ Shared body of the DYNAMIC point/pulley vertices: `D(pos)=vel`,
 function dynamic_point_dynamics(s, pos, vel, force, mass, pars, net_force)
     motion = point_acceleration(s, collect(pos), collect(vel), collect(force),
         mass, pars.drag_coeff, pars.area, collect(pars.world_damping),
-        collect(pars.wind_gnd), pars.wind_factor, pars.g_earth;
-        pars.apparent_mass)
+        pars.wind_source, pars.g_earth; pars.apparent_mass)
     velocity, acceleration = confined_derivatives(pos, vel, motion.accel, pars)
     return [D.(collect(pos)) .~ velocity; D.(collect(vel)) .~ acceleration;
             collect(net_force) .~ motion.net_force]
@@ -140,31 +283,26 @@ end
 
 The spring-damper parameters read from `params.segments[idx]` (stiffness, damping,
 compression fraction, diameter, density as the segment's own struct fields), plus
-the global tether drag `cd_tether` (`params.set.cd_tether`) and the ground wind
-`wind_gnd` ([`ground_wind_vec`](@ref)) and the live `wind_factor`. With
-`with_drag=false` (the [`wing_structural_segment`](@ref) edge) `cd_tether` is a
-literal `0` and unused. `nonlinear` marks a callable `unit_stiffness` force law.
-Returns `(spring_named_tuple, wind_gnd, wind_factor)`; each read registers the
+the global tether drag `cd_tether` (`params.set.cd_tether`). With `with_drag=false`
+(the [`wing_structural_segment`](@ref) edge) `cd_tether` is a literal `0` and unused.
+`nonlinear` marks a callable `unit_stiffness` force law. Each read registers the
 parameter on `params`.
 """
 function segment_spring_params(params, idx; with_drag = true)
     seg = params.segments[idx]
     cd_tether = with_drag ? params.set.cd_tether : 0.0
-    wind_gnd = ground_wind_vec(params)
     nonlinear = !(params.reg.sys_struct.segments[idx].unit_stiffness isa Real)
-    spring = (; unit_stiffness = seg.unit_stiffness, unit_damping = seg.unit_damping,
-              compression_frac = seg.compression_frac,
-              compression_damping_frac = seg.compression_damping_frac,
-              diameter = seg.diameter,
-              density = seg.density, cd_tether, nonlinear)
-    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
-    return spring, wind_gnd, wind_factor
+    return (; unit_stiffness = seg.unit_stiffness, unit_damping = seg.unit_damping,
+            compression_frac = seg.compression_frac,
+            compression_damping_frac = seg.compression_damping_frac,
+            diameter = seg.diameter,
+            density = seg.density, cd_tether, nonlinear)
 end
 
 """
     segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel, unit_stiffness,
                        unit_damping, compression_frac, compression_damping_frac,
-                       l0, diameter, density, cd_tether, wind_gnd, wind_factor;
+                       l0, diameter, density, cd_tether, wind_source;
                        with_drag=true, nonlinear=false, rest_len_rate=0.0)
 
 Every load term a segment produces, as a named tuple: the geometry (`segment_vec`,
@@ -173,8 +311,8 @@ and its vector `spring_vec`, the `half_mass` and `half_drag` each endpoint carri
 and the total `force_on_src`/`force_on_dst` in the positive force-on-point sign.
 With `nonlinear` the `unit_stiffness` is a callable force law of strain
 ([`segment_nonlinear_force`](@ref)) rather than a linear rate; with
-`with_drag = false` the tether drag is dropped entirely, so `cd_tether`/`wind_gnd`
-are unused.
+`with_drag = false` the tether drag is dropped entirely, so
+`cd_tether`/`wind_source` are unused.
 
 `rest_len_rate` is `d(l0)/dt` for a segment whose rest length is a state — a pulley
 leg or a winched tether member. The damper resists the rate of change of the extension
@@ -185,7 +323,8 @@ dampers still drive it, which lets the damping inject energy.
 function segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel,
                             unit_stiffness, unit_damping, compression_frac,
                             compression_damping_frac,
-                            l0, diameter, density, cd_tether, wind_gnd, wind_factor;
+                            l0, diameter, density, cd_tether,
+                            wind_source::AbstractWindSource;
                             with_drag = true, nonlinear = false,
                             rest_len_rate = 0.0)
     segment_vec, len, unit_vec, closing_vel =
@@ -202,7 +341,7 @@ function segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel,
         seg_pos_z = 0.5 * (src_pos[3] + dst_pos[3])
         rho = air_density(s.am, seg_pos_z)
         seg_vel = 0.5 .* (src_vel .+ dst_vel)
-        va = wind_factor(seg_pos_z) .* wind_gnd .- seg_vel
+        va = wind_source(seg_pos_z) .- seg_vel
         half_drag = 0.5 .*
             segment_perp_drag(va, unit_vec, rho, cd_tether, len * diameter)
     end
@@ -768,19 +907,18 @@ end
 """
     point_wind_eqs(s, params, idx, io)
 
-Bind `wind_vec` to the profile law's wind at the point's own height — the monolith's
-`wind_at_point`, scattered into `point.wind_vec` — and `total_drag` to the point's
-own aerodynamic drag against it plus the share its segments deliver, which the state
-getter scatters into `point.drag_force`.
+Bind `wind_vec` to the point's [`point_wind_source`](@ref) at its own height — the
+monolith's `wind_at_point`, scattered into `point.wind_vec` — and `total_drag` to the
+point's own aerodynamic drag against it plus the share its segments deliver, which
+the state getter scatters into `point.drag_force`.
 """
 function point_wind_eqs(s, params, idx, io)
     point = params.points[idx]
-    wind = param_computed!(params.reg, :wind_factor, WindFactorReader())
     height = collect(io.pos)[3]
     apparent = collect(io.wind_vec) .- collect(io.vel)
     own = point_drag_force(apparent, air_density(s.am, height),
                            point.drag_coeff, point.area)
-    return [collect(io.wind_vec) .~ wind(height) .* ground_wind_vec(params);
+    return [collect(io.wind_vec) .~ point_wind_source(params, idx)(height);
             collect(io.total_drag) .~ own .+ collect(io.drag_in)]
 end
 
@@ -819,7 +957,7 @@ function Anchor(s, params, idx; name)
         collect(io.vel) .~ zeros(3)
         collect(io.net_force) .~ point_net_force(s, collect(io.pos), collect(io.vel),
             collect(io.force_in), pars.extra_mass + io.mass_in, pars.drag_coeff,
-            pars.area, collect(pars.wind_gnd), pars.wind_factor, pars.g_earth)
+            pars.area, pars.wind_source, pars.g_earth)
         point_wind_eqs(s, params, idx, io)
     ]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
@@ -915,7 +1053,7 @@ function WinchAnchor(s, params, winch, idx; name)
         collect(io.vel) .~ zeros(3)
         collect(io.net_force) .~ point_net_force(s, collect(io.pos), collect(io.vel),
             collect(io.force_in), pars.extra_mass + io.mass_in, pars.drag_coeff,
-            pars.area, collect(pars.wind_gnd), pars.wind_factor, pars.g_earth)
+            pars.area, pars.wind_source, pars.g_earth)
         point_wind_eqs(s, params, idx, io)
         extra[3] ~ smooth_norm(collect(extra[1]))
         motor.vel ~ extra[2]
@@ -970,18 +1108,21 @@ end
 
 The equations every segment kernel shares: the shared [`segment_load_terms`](@ref)
 evaluated at `rest_len`, bound to the [`segment_variables`](@ref) outputs and diagnostics.
-Returns `(eqs, loads)`; `loads` carries the scalar and vector spring tension a
-pulley or tether segment emits on top of these. `rest_len_rate` is `d(rest_len)/dt`
-for the kernels whose rest length is driven by another component's state.
+Returns `(eqs, loads, wind_params)`; `loads` carries the scalar and vector spring
+tension a pulley or tether segment emits on top of these and `wind_params` the
+parameters [`segment_wind_params`](@ref) minted, which the kernel must declare.
+`rest_len_rate` is `d(rest_len)/dt` for the kernels whose rest length is driven by
+another component's state.
 """
 function segment_eqs(s, params, idx, io, rest_len; with_drag = true,
                      rest_len_rate = 0.0)
-    spring, wind, wind_factor = segment_spring_params(params, idx; with_drag)
+    spring = segment_spring_params(params, idx; with_drag)
+    wind_source, wind_params = segment_wind_params(params, idx, with_drag)
     loads = segment_load_terms(s, collect(io.src_pos), collect(io.src_vel),
         collect(io.dst_pos), collect(io.dst_vel), spring.unit_stiffness,
         spring.unit_damping, spring.compression_frac,
         spring.compression_damping_frac, rest_len, spring.diameter,
-        spring.density, spring.cd_tether, collect(wind), wind_factor;
+        spring.density, spring.cd_tether, wind_source;
         with_drag, nonlinear = spring.nonlinear, rest_len_rate)
     eqs = [
         collect(io.src_force) .~ loads.force_on_src
@@ -992,7 +1133,7 @@ function segment_eqs(s, params, idx, io, rest_len; with_drag = true,
         io.len ~ loads.len
         io.l0 ~ rest_len
     ]
-    return eqs, loads
+    return eqs, loads, wind_params
 end
 
 """
@@ -1004,8 +1145,9 @@ type rather than a zeroed drag coefficient.
 """
 function SpringSegment(s, params, idx; name, with_drag = true)
     io = segment_variables()
-    eqs, _ = segment_eqs(s, params, idx, io, params.segments[idx].l0; with_drag)
-    return System(eqs, t, io.all, param_unknowns(params); name)
+    eqs, _, wind = segment_eqs(s, params, idx, io, params.segments[idx].l0;
+                               with_drag)
+    return System(eqs, t, io.all, [param_unknowns(params); wind]; name)
 end
 
 """
@@ -1030,12 +1172,13 @@ function PulleySegment(s, params, idx, pulley_idx; name)
     end
     side = make_param(:pulley_side, 1.0)
     sum_len = params.pulleys[pulley_idx].sum_len
-    eqs, loads = segment_eqs(s, params, idx, io,
+    eqs, loads, wind = segment_eqs(s, params, idx, io,
         ifelse(side > 0.0, extra[1], sum_len - extra[1]);
         rest_len_rate = ifelse(side > 0.0, extra[2], -extra[2]))
     push!(eqs, extra[3] ~ side * loads.spring)
     push!(eqs, extra[4] ~ 0.5 * loads.spring)
-    return System(eqs, t, [io.all; extra], [param_unknowns(params); side]; name)
+    return System(eqs, t, [io.all; extra],
+                  [param_unknowns(params); side; wind]; name)
 end
 
 """
@@ -1057,12 +1200,13 @@ function TetherSegment(s, params, idx; name)
         dst_tension(t)[1:3], [output = true]
     end
     count = make_param(:segment_count, 1.0)
-    eqs, loads = segment_eqs(s, params, idx, io, extra[1] / count;
-                             rest_len_rate = extra[2] / count)
+    eqs, loads, wind = segment_eqs(s, params, idx, io, extra[1] / count;
+                                   rest_len_rate = extra[2] / count)
     eqs = [eqs
            collect(extra[3]) .~ loads.spring_vec
            collect(extra[4]) .~ .-loads.spring_vec]
-    return System(eqs, t, [io.all; extra], [param_unknowns(params); count]; name)
+    return System(eqs, t, [io.all; extra],
+                  [param_unknowns(params); count; wind]; name)
 end
 
 """
@@ -1327,8 +1471,7 @@ come back separately because they are the other two quantities
 """
 function ride_load(s, params, idx, io; with_gravity)
     point = params.points[idx]
-    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
-    wind = wind_factor(io.height) .* ground_wind_vec(params)
+    wind = point_wind_source(params, idx)(io.height)
     apparent = wind .- collect(io.vel)
     drag = point_drag_force(apparent, air_density(s.am, io.height),
                             point.drag_coeff, point.area)
@@ -1794,11 +1937,10 @@ function ParticleWingAero(s, params, idx; name)
     validate_aero_component(subsys, wing)
     orientation = reshape(collect(pose[2]), 3, 3)
     origin = collect(pose[1])
-    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
-    wind_gnd = ground_wind_vec(params)
     heights = [collect(positions[k])[3] for k in 1:count]
-    apparent_winds = [orientation' * (wind_factor(collect(positions[k])[3]) .*
-                                      wind_gnd .- collect(velocities[k]))
+    apparent_winds = [orientation' *
+                      (point_wind_source(params, points[k].idx)(heights[k]) .-
+                       collect(velocities[k]))
                       for k in 1:count]
     wiring = particle_wing_aero_wiring(s, subsys; orientation, origin, positions,
                                        velocities, apparent_winds, heights)
@@ -1816,15 +1958,16 @@ function ParticleWingAero(s, params, idx; name)
 end
 
 """
-    AeroInflowPoint(s, params; name)
+    AeroInflowPoint(s, params, idx; name)
 
 What one structural point contributes to its wing's aerodynamics: its world `pos` and
 `vel` and the wing's pose in; its body-frame position, apparent wind and air density
 out. These are exactly the per-point quantities the `PARTICLE_DYNAMICS` branch of
-`aero_eqs!` builds, and none of them depends on which wing or which point it is — so
+`aero_eqs!` builds, and the only thing that distinguishes point `idx` from any other
+is the parameter its [`point_wind_source`](@ref) reads — remapped per instance — so
 one compiled kernel serves every aerodynamic point of every wing.
 """
-function AeroInflowPoint(s, params; name)
+function AeroInflowPoint(s, params, idx; name)
     io = @variables begin
         pos(t)[1:3], [input = true]
         vel(t)[1:3], [input = true]
@@ -1836,8 +1979,7 @@ function AeroInflowPoint(s, params; name)
     end
     position = collect(io[1])
     orientation = reshape(collect(io[4]), 3, 3)
-    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
-    apparent = wind_factor(position[3]) .* ground_wind_vec(params) .- collect(io[2])
+    apparent = point_wind_source(params, idx)(position[3]) .- collect(io[2])
     eqs = [
         collect(io[5]) .~ orientation' * (position .- collect(io[3]))
         collect(io[6]) .~ orientation' * apparent
@@ -2048,14 +2190,13 @@ function WingAero(s, params, idx; name)
     orientation = reshape(collect(pose.pose_frame), 3, 3)
     origin = collect(pose.pose_pos)
     velocity = rigid_body_point_velocity(pose, origin .- collect(pose.pose_com))
-    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
     wiring = rigid_wing_aero_wiring(s, subsys, wing;
         apparent_wind_b = collect(io[5]), height = origin[3],
         frame = collect(pose.pose_frame),
         omega_b = orientation' * collect(pose.pose_omega),
         twist_angles = twists, twist_rates = rates)
     eqs = [
-        collect(io[6]) .~ wind_factor(origin[3]) .* ground_wind_vec(params)
+        collect(io[6]) .~ wing_wind_source(params, idx)(origin[3])
         collect(io[5]) .~ orientation' * (collect(io[6]) .- velocity .+
                                           collect(params.wings[idx].wind_disturb))
         wiring.eqs
@@ -2349,8 +2490,8 @@ function WingNodePoint(s, params, idx; name, with_damping = true)
     mass = pars.extra_mass + io.mass_in
     motion = point_acceleration(s, collect(io.pos), collect(io.vel),
         collect(io.force_in), mass, pars.drag_coeff, pars.area,
-        collect(pars.world_damping), collect(pars.wind_gnd), pars.wind_factor,
-        pars.g_earth; pars.apparent_mass)
+        collect(pars.world_damping), pars.wind_source, pars.g_earth;
+        pars.apparent_mass)
     accel = motion.accel
     with_damping && (accel = accel .- body_frame_damp_accel(io.vel,
         point.body_frame_damping, orientation, collect(extra[2])))

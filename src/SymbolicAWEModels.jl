@@ -90,6 +90,7 @@ export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate,
 export check_live_polar
 export aero_component
 export UnsteadyAero, unsteady_aero, apply_apparent_mass!
+export WindMode, ProfileWind, PerPointWind, per_point_wind
 
 # --- High-Level Simulation Functions (Workers) ---
 export sim!, sim_reposition!

@@ -328,7 +328,7 @@ mutable struct Point
     const drag_force::KVec3
     "Apparent velocity in body frame [m/s] (VSM per-point)."
     const va_b::KVec3
-    "Wind velocity at the point's own height, world frame [m/s]."
+    "Wind velocity at the point, world frame [m/s]: a height-profile output, or the settable input under `PerPointWind`."
     const wind_vec::KVec3
     "Dynamics type (DYNAMIC, STATIC, BODY_STATIC, KINEMATIC)."
     const type::DynamicsType
