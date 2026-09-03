@@ -32,8 +32,9 @@ jobs:
   test-with-code-coverage:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ matrix.backend || 'monolith' }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
-    # The kernel backend needs ~100 min of the budget and grows with the suite.
-    timeout-minutes: 180
+    # Temporarily wide so a monolith job runs to completion and prints its
+    # per-model build times; drop back to 180 once the slow build is found.
+    timeout-minutes: 1000
     strategy:
       fail-fast: false
       matrix:
