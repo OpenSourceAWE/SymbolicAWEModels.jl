@@ -20,13 +20,6 @@
 
 ### Fixed
 
-- The default manifests hold the dependency set VortexStepMethod 4.3 was taken
-  into, rather than the registry's latest. Building the 2plate `AeroPressure`
-  model on the newer set takes over 70 minutes in `ODEProblem` construction where
-  the held set takes 1.2 s, with `mtkcompile` unchanged at ~1.6 s either way, so
-  every monolith CI job ran into the 180 minute cap. The offending package inside
-  that set is not yet identified; only `VortexStepMethod` is moved forward.
-
 - A panel's drag direction no longer re-derives its lift direction inside itself.
   `drag_cross` inlined `lift_cross / |lift_cross|` where the `dir_lift` variable
   already holds exactly that, so normalising `dir_drag` squared and summed three
