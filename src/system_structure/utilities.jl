@@ -840,7 +840,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     init_joint_rest!.(sys_struct.elastic_joints, Ref(sys_struct.bodies))
     init_joint_rest!.(sys_struct.timoshenko_joints, Ref(sys_struct.bodies))
     # Flap KINEMATIC stations: capture rest deflection from the placed bodies.
-    init_station_flap!.(sys_struct.stations, Ref(sys_struct.bodies))
+    init_station_flap!.(sys_struct.stations, Ref(sys_struct))
 
     return nothing
 end

@@ -182,8 +182,11 @@ SymbolicAWEModels.twist_bridle_couple
 SymbolicAWEModels.rigid_body_point_velocity
 SymbolicAWEModels.scalar_output
 SymbolicAWEModels.FlapDelta
+SymbolicAWEModels.PointFlapDelta
 SymbolicAWEModels.FLAP_INPUTS
 SymbolicAWEModels.flap_delta_expression
+SymbolicAWEModels.point_flap_delta_expression
+SymbolicAWEModels.hinge_angle
 SymbolicAWEModels.flap_delta_eqs
 SymbolicAWEModels.flap_delta_inputs
 SymbolicAWEModels.wing_flap_surfaces

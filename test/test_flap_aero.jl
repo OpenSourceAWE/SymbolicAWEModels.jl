@@ -21,8 +21,8 @@ end
 using Test
 using SymbolicAWEModels
 const S = SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, SimFloat, has_flap,
-    station_deltas
+using SymbolicAWEModels: VortexStepMethod, SimFloat, has_flap, has_point_flap,
+    station_deltas, point_flap_delta_expression
 using KiteUtils, LinearAlgebra
 
 function write_delta_swept_fixture(data_path)
@@ -69,7 +69,18 @@ function write_delta_swept_fixture(data_path)
     write(geom, txt)
 end
 
-function struct_yaml(joint_block)
+function struct_yaml(joint_block; point_flap=false)
+    mid_row = point_flap ?
+        "    - [mid_center, [0.0,  0.0, 2.65], BODY_STATIC, main_wing, " *
+        "main_transform, le_body, 0.1, 0.0, 0.0]\n" : ""
+    station_block = point_flap ?
+        "  headers: [name, wing, type, points, flap_points, flap_axis]\n" *
+        "  data:\n    - [flap, main_wing, KINEMATIC, [le_left, te_left, le_center, " *
+        "te_center, le_right, te_right], [le_center, mid_center, te_center], " *
+        "[0.0, 1.0, 0.0]]" :
+        "  headers: [name, wing, type, points, flap_bodies, flap_axis]\n" *
+        "  data:\n    - [flap, main_wing, KINEMATIC, [le_left, te_left, le_center, " *
+        "te_center, le_right, te_right], [le_body, te_body], [0.0, 1.0, 0.0]]"
     """
 variables:
   dyneema:
@@ -85,7 +96,7 @@ points:
     - [te_center, [0.5,  0.0, 2.8], BODY_STATIC, main_wing, main_transform, te_body, 0.1, 0.0, 0.0]
     - [le_right,  [-0.5,-1.0, 2.0], BODY_STATIC, main_wing, main_transform, le_body, 0.1, 0.0, 0.0]
     - [te_right,  [0.5, -1.0, 2.3], BODY_STATIC, main_wing, main_transform, te_body, 0.1, 0.0, 0.0]
-    - [kcu,       [0.0,  0.0, 0.0],   DYNAMIC, main_wing, main_transform, nothing, 1.0, 0.1, 1.0]
+$(mid_row)    - [kcu,       [0.0,  0.0, 0.0],   DYNAMIC, main_wing, main_transform, nothing, 1.0, 0.1, 1.0]
     - [ground,    [0.0,  0.0,-20.0],  STATIC,  main_wing, main_transform, nothing, 0.0, 0.0, 0.0]
 segments:
   headers: [name, point_i, point_j, l0, diameter_mm, youngs_modulus, damping_per_stiffness, density, compression_frac]
@@ -108,9 +119,7 @@ bodies:
     - [le_body, [-0.5, 0.0, 2.17], STATIC,  main_transform, 0.5, [0.05, 0.05, 0.05]]
     - [te_body, [0.5,  0.0, 2.47], DYNAMIC, main_transform, 0.5, [0.05, 0.05, 0.05]]
 $(joint_block)stations:
-  headers: [name, wing, type, points, flap_bodies, flap_axis]
-  data:
-    - [flap, main_wing, KINEMATIC, [le_left, te_left, le_center, te_center, le_right, te_right], [le_body, te_body], [0.0, 1.0, 0.0]]
+$(station_block)
 wings:
   data:
     - name: main_wing
@@ -141,8 +150,9 @@ TIMO_JOINT = """timoshenko_joints:
     - [flap_beam, le_body, te_body, [0.45, 0.0, 0.135], [-0.45, 0.0, -0.135], 100000.0, 50000.0, 20.0, 6.0, 6.0, 0.05]
 """
 
-function build_flap_model(data_path, joint_block)
-    write(joinpath(data_path, "particle_flap_geometry.yaml"), struct_yaml(joint_block))
+function build_flap_model(data_path, joint_block; point_flap=false, kwargs...)
+    write(joinpath(data_path, "particle_flap_geometry.yaml"),
+          struct_yaml(joint_block; point_flap))
     set_data_path(data_path)
     set = Settings("system.yaml")
     vsm_set = VortexStepMethod.VSMSettings(
@@ -150,10 +160,34 @@ function build_flap_model(data_path, joint_block)
     sys = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_flap_geometry.yaml");
         system_name="flap_press_test", set, vsm_set, aero_mode=AeroPressure())
-    return SymbolicAWEModel(set, sys), sys
+    return SymbolicAWEModel(set, sys; kwargs...), sys
 end
 
 flap_angle(sam) = station_deltas(sam.sys_struct)[sam.sys_struct.stations[:flap].idx]
+
+@testset "point flap geometry" begin
+    station = S.Station(:s, Symbol[], KINEMATIC, 0.0;
+                        flap_points=[1, 2, 3], flap_axis=[0.0, 1.0, 0.0])
+    frame = Matrix{Float64}(LinearAlgebra.I, 3, 3)
+    fore = [0.0, 0.0, 0.0]
+    hinge = [0.5, 0.0, 0.0]
+    aft_at(angle) = hinge .+ 0.5 .* [cos(angle), 0.0, -sin(angle)]
+    for angle in (0.0, deg2rad(7.5), -deg2rad(12.0), deg2rad(35.0))
+        @test point_flap_delta_expression(station, fore, hinge, aft_at(angle),
+                                          frame) ≈ angle
+    end
+    # positive δ is a trailing edge deflected down, which is the polars' own sign
+    @test point_flap_delta_expression(station, fore, hinge,
+        hinge .+ [0.5, 0.0, -0.05], frame) > 0
+    # the rest angle is subtracted, so a cambered chord still reads zero at rest
+    station.flap_rest_delta = deg2rad(5.0)
+    @test point_flap_delta_expression(station, fore, hinge, aft_at(deg2rad(5.0)),
+                                      frame) ≈ 0 atol=1e-12
+    # a segment out of the airfoil plane is projected onto it, not refused
+    @test point_flap_delta_expression(station, fore, hinge,
+        aft_at(deg2rad(5.0)) .+ [0.0, 0.3, 0.0], frame) ≈ 0 atol=1e-12
+    println("point flap geometry: OK")
+end
 
 @testset "flap + continuous pressure aero" begin
     pkg_root = dirname(@__DIR__)
@@ -191,5 +225,41 @@ flap_angle(sam) = station_deltas(sam.sys_struct)[sam.sys_struct.stations[:flap].
         end
     end
     println("flap + continuous pressure aero: OK")
+end
+
+# The same hinge read off three chord points instead of two body orientations, on
+# the kernel backend — no flap bodies are named, so nothing but the points carries
+# δ into the polars. Kernel rather than monolith because that is the assembly the
+# point kernel wires, and the cases above already cover the monolith one.
+@testset "point flap drives the polars" begin
+    tmpdir = mktempdir()
+    data_path = joinpath(tmpdir, "2plate_kite")
+    cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path; force=true)
+    write_delta_swept_fixture(data_path)
+    sam, sys = build_flap_model(data_path, ELASTIC_JOINT;
+                                point_flap=true, backend=KernelBackend())
+    wing = sys.wings[1]
+    station = sys.stations[:flap]
+    @test has_point_flap(station)
+    @test isempty(station.flap_body_idxs)
+    @test any(!=(0), wing.aero.panel_station)
+
+    test_init!(sam; prn=false)
+    @test abs(flap_angle(sam)) < deg2rad(1)   # the as-placed pose is δ = 0
+    function settle_with_moment(moment)
+        sys.bodies[:te_body].ext_moment_b .= [0.0, moment, 0.0]
+        for _ in 1:700; next_step!(sam; dt=0.005, vsm_interval=1); end
+        return flap_angle(sam), copy(wing.aero_force_b)
+    end
+    δ0, F0 = settle_with_moment(0.0)
+    δ1, F1 = settle_with_moment(25.0)
+    @test all(isfinite, F0) && all(isfinite, F1)
+    println("point flap: δ0=$(round(rad2deg(δ0),digits=2))° ",
+            "δ1=$(round(rad2deg(δ1),digits=2))° ",
+            "|F1-F0|=$(round(norm(F1-F0),digits=2))")
+    @test abs(δ1 - δ0) > deg2rad(3)
+    @test norm(F1 - F0) > 0.02 * norm(F0)
+    rm(tmpdir; recursive=true)
+    println("point flap drives the polars: OK")
 end
 nothing

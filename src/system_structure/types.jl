@@ -532,7 +532,11 @@ mutable struct Station
     flap_body_idxs::Vector{Int64}
     "Raw flap-hinge body references, ordered `[main, flap]`. Empty = no flap."
     const flap_body_refs::Vector{NameRef}
-    "Flap-hinge axis (unit) in the main body's frame."
+    "Resolved flap-hinge point indices `[fore, hinge, aft]` (filled by SystemStructure). Empty = none."
+    flap_point_idxs::Vector{Int64}
+    "Raw flap-hinge point references, ordered `[fore, hinge, aft]`. Empty = no point flap."
+    const flap_point_refs::Vector{NameRef}
+    "Flap-hinge axis (unit); a body flap's main body frame, a point flap's wing frame."
     flap_axis::KVec3
     "Reference chord directions `[main, flap]` for δ (each body's frame; auto-derived at build)."
     flap_chord_refs::Vector{KVec3}
@@ -573,7 +577,14 @@ using the closest VSM panel to the station's mean point position.
 - `flap_bodies=[]`: Ordered `[main, flap]` body references of the flap hinge.
   When given (with `type=KINEMATIC`) the surface carries a live deflection δ, the
   signed angle between the two bodies about `flap_axis`; empty = no flap.
-- `flap_axis=[0,1,0]`: Flap-hinge axis (unit) in the main body's frame.
+- `flap_points=[]`: Ordered `[fore, hinge, aft]` point references of a point flap —
+  the alternative to `flap_bodies`. δ is the signed angle the aft segment
+  (`hinge`→`aft`) makes with the fore segment (`fore`→`hinge`) about `flap_axis`,
+  referenced to the CAD pose. A chord that bends rather than hinges needs no bodies
+  to read a deflection off, and the two segments are read from the structure the
+  polars are indexed on. Give both `flap_bodies` and `flap_points` and the points win.
+- `flap_axis=[0,1,0]`: Flap-hinge axis (unit), in the main flap body's frame, or the
+  owning wing's for a point flap.
 - `flap_chord_refs=[]`: Reference chord directions `[main, flap]`; auto-derived
   (each body's x-axis) at build when omitted.
 - `flap_rest_delta=0.0`: Rest deflection [rad]; auto-captured at build so the
@@ -588,6 +599,7 @@ function Station(name, points, type, moment_frac;
                       damping=50.0, stiffness=0.0, x_airf=nothing, y_airf=nothing,
                       area=NaN, twist=0.0,
                       wing=0, bodies=NameRef[], flap_bodies=NameRef[],
+                      flap_points=NameRef[],
                       flap_axis=[0.0, 1.0, 0.0], flap_chord_refs=KVec3[],
                       flap_rest_delta=0.0)
     point_refs = Vector{NameRef}([p isa Integer ? Int(p) : Symbol(p) for p in points])
@@ -597,13 +609,18 @@ function Station(name, points, type, moment_frac;
     body_refs = Vector{NameRef}([b isa Integer ? Int(b) : Symbol(b) for b in bodies])
     flap_body_refs = Vector{NameRef}([b isa Integer ? Int(b) : Symbol(b)
                                       for b in flap_bodies])
+    flap_point_refs = Vector{NameRef}([p isa Integer ? Int(p) : Symbol(p)
+                                       for p in flap_points])
+    isempty(flap_point_refs) || length(flap_point_refs) == 3 || error(
+        "Station $name: flap_points needs exactly three references " *
+        "[fore, hinge, aft]; got $(length(flap_point_refs)).")
     Station(0, name, Int64[], point_refs,
           zeros(KVec3), chord_vec, y_vec,
           type, moment_frac, damping, stiffness,
           SimFloat(twist), 0.0, 0.0, 0.0, 0.0,
           Int64[], SimFloat(area),
           0, wing_ref, Int64[], body_refs,
-          Int64[], flap_body_refs, KVec3(flap_axis),
+          Int64[], flap_body_refs, Int64[], flap_point_refs, KVec3(flap_axis),
           Vector{KVec3}(flap_chord_refs), SimFloat(flap_rest_delta))
 end
 
