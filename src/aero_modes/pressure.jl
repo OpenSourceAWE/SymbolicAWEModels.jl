@@ -210,33 +210,34 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
             cl, cd, cm, spanwise, scale, orient; delta, sec_dva, deficiency)
     append!(eqs, wagner_eqs)
     column_of(p, i) = [p[c, i] for c in 1:3]
-    couple = [pressure_couple(slots.panel_couple[:, i], slots.panel_force[:, i],
-                  column_of(traction_net_p, i), column_of(traction_moment_p, i),
-                  column_of(residual_arm_p, i), slots.x_airf[:, i],
-                  slots.y_airf[:, i], slots.z_airf[:, i], slots.chord[i])
-              for i in 1:n_panels]
+    @variables scatter_couple(t)[1:3, 1:n_panels]
+    append!(eqs, [scatter_couple[:, i] ~ pressure_couple(slots.panel_couple[:, i],
+                      slots.panel_force[:, i], column_of(traction_net_p, i),
+                      column_of(traction_moment_p, i), column_of(residual_arm_p, i),
+                      slots.x_airf[:, i], slots.y_airf[:, i], slots.z_airf[:, i],
+                      slots.chord[i])
+                  for i in 1:n_panels])
+    couple = [collect(scatter_couple[:, i]) for i in 1:n_panels]
     vars = particle_unknowns(connectors)
     append!(vars, panel_vars)
     append!(vars, wagner_vars)
+    append!(vars, collect(scatter_couple))
 
     point_num = Dict(point.idx => k for (k, point) in enumerate(points))
     point_force = [zeros(Num, 3) for _ in 1:num_points]
-    column = 0
-    for i in 1:n_panels
-        assigned = mode.station_point[i]
-        node_forces = surface_node_forces(traction_p, column + 1, length(assigned),
-            panel_force[:, i], column_of(traction_net_p, i),
-            couple[i], mode.node_couple_shape[i], mode.node_residual_share[i])
-        share_far = mode.panel_blend[i][3]
-        for node in eachindex(assigned)
-            column += 1
-            k = point_num[assigned[node]]
-            point_force[k] = point_force[k] .+ (1 - share_far) .* node_forces[node]
-            if share_far > 0
-                k_far = point_num[mode.blend_point[i][node]]
-                point_force[k_far] = point_force[k_far] .+ share_far .* node_forces[node]
-            end
-        end
+    residual = [collect(panel_force[:, i]) .- column_of(traction_net_p, i)
+                for i in 1:n_panels]
+    totals = Dict{Tuple{Int, Int}, Vector{SimFloat}}()
+    for (panel, node, k, weight, column) in scatter_node_weights(mode, point_num)
+        point_force[k] = point_force[k] .+
+            weight .* [traction_p[c, column] for c in 1:3]
+        scatter_totals!(totals, panel, k,
+            weight * mode.node_residual_share[panel][node],
+            weight * mode.node_couple_shape[panel][node])
+    end
+    for (panel, k, force_weight, couple_weight) in scatter_entry_list(totals)
+        point_force[k] = point_force[k] .+ force_weight .* residual[panel] .+
+                         couple_weight .* couple[panel]
     end
 
     for k in 1:num_points
@@ -791,8 +792,8 @@ Force on each contour node of one panel: its frozen traction, its
 cancels, `share` sums to one and [`couple_shape`](@ref) sums to zero — while the
 couple adds the pitching moment the shape is normalised to. `traction` is
 column-indexed panel-major as [`freeze_traction_pattern!`](@ref) fills it,
-`first_column` being this panel's first. Works on the symbolic params and on the
-numeric buffers alike, so the scatter has one definition.
+`first_column` being this panel's first. The component sums this over each point's
+nodes rather than building it, so this stays the per-node statement of the pattern.
 """
 function surface_node_forces(traction, first_column, n_nodes, panel_force, panel_net,
                              couple, shape, share)
@@ -893,19 +894,35 @@ constant and lives in [`aero_point_offset`](@ref), so only the shares remain her
 function aero_scatter_entries(mode::AeroPressure, wing, points)
     point_num = Dict(point.idx => k for (k, point) in enumerate(points))
     totals = Dict{Tuple{Int, Int}, Vector{SimFloat}}()
-    for (panel, assigned) in enumerate(mode.station_point)
-        share = mode.node_residual_share[panel]
-        shape = mode.node_couple_shape[panel]
-        far = mode.panel_blend[panel][3]
-        for (node, point_idx) in enumerate(assigned)
-            scatter_totals!(totals, panel, point_num[point_idx],
-                            (1 - far) * share[node], (1 - far) * shape[node])
-            far > 0 && scatter_totals!(totals, panel,
-                point_num[mode.blend_point[panel][node]],
-                far * share[node], far * shape[node])
-        end
+    for (panel, node, k, weight, _) in scatter_node_weights(mode, point_num)
+        scatter_totals!(totals, panel, k,
+            weight * mode.node_residual_share[panel][node],
+            weight * mode.node_couple_shape[panel][node])
     end
     return scatter_entry_list(totals)
+end
+
+"""
+    scatter_node_weights(mode, point_num)
+
+Every `(panel, node, point, weight, column)` one contour node is spread over: its
+near station takes `1 - far` and its far one `far`, `column` being the node's place
+in the panel-major traction pattern. The symbolic component and the kernel entries
+both walk this, so the surface pattern has a single definition.
+"""
+function scatter_node_weights(mode::AeroPressure, point_num)
+    spread = Tuple{Int, Int, Int, SimFloat, Int}[]
+    column = 0
+    for (panel, assigned) in enumerate(mode.station_point)
+        far = mode.panel_blend[panel][3]
+        for (node, point_idx) in enumerate(assigned)
+            column += 1
+            push!(spread, (panel, node, point_num[point_idx], 1 - far, column))
+            far > 0 && push!(spread, (panel, node,
+                point_num[mode.blend_point[panel][node]], far, column))
+        end
+    end
+    return spread
 end
 
 aero_point_offset(::AeroPressure, params, wing_idx, point_idx) =

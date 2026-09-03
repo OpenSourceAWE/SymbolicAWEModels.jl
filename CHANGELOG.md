@@ -20,6 +20,14 @@
 
 ### Fixed
 
+- `AeroPressure` no longer writes one copy of a panel's live load per contour
+  node. The symbolic component summed a separate `surface_node_forces` expression
+  for each of the 210 nodes, so the panel's force residual and its pitching couple
+  were spelled out a few hundred times where the kernel backend already reduced
+  the same pattern to two scalar weights per (panel, point). Both backends now
+  walk one `scatter_node_weights`, and the couple is bound to a variable instead
+  of being inlined. The model is unchanged; it interns 29% fewer symbolic terms.
+
 - A panel's drag direction no longer re-derives its lift direction inside itself.
   `drag_cross` inlined `lift_cross / |lift_cross|` where the `dir_lift` variable
   already holds exactly that, so normalising `dir_drag` squared and summed three

@@ -450,6 +450,7 @@ SymbolicAWEModels.aero_geometry_entries
 SymbolicAWEModels.strut_inflow_weights
 SymbolicAWEModels.strut_pitch_weights
 SymbolicAWEModels.strut_station_weights
+SymbolicAWEModels.scatter_node_weights
 SymbolicAWEModels.scatter_totals!
 SymbolicAWEModels.zero_weight_pair
 SymbolicAWEModels.scatter_entry_list
