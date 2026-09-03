@@ -1417,7 +1417,7 @@ function validate_aero_structure(::AbstractVSMAero, wing, points; prn=false)
 end
 
 """
-    setup_aero!(mode, wing, points, stations; prn=false)
+    setup_aero!(mode, wing, points, stations; prn=false, vsm_set=nothing)
 
 Construction-time aero setup for `wing`, dispatched on its aero `mode` (default
 no-op). VSM modes transform the VSM panels into the body frame and, for
@@ -1425,9 +1425,11 @@ section-coupled wings, auto-create stations, match aero sections to
 structure, and build the station / structural↔panel mappings. A custom mode
 adds a method to participate in construction without editing the SystemStructure
 constructor. Runs after [`setup_wing_frame!`](@ref) (which sets the body frame).
+`vsm_set` is the model's `VSMSettings`, for a mode that reads how its sections were
+generated rather than only the geometry they produced.
 """
-setup_aero!(::AbstractAeroModel, wing, points, stations; prn=false) =
-    nothing
+setup_aero!(::AbstractAeroModel, wing, points, stations; prn=false,
+            vsm_set=nothing) = nothing
 
 """
     require_vsm_engine(mode, wing) -> VSMEngine
@@ -1467,7 +1469,7 @@ function transform_vsm_sections_to_body!(wing; aero_z_offset=nothing)
 end
 
 function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
-                     prn=false)
+                     prn=false, vsm_set=nothing)
     require_vsm_engine(mode, wing)
     if wing.dynamics_type == RIGID_DYNAMICS
         transform_vsm_sections_to_body!(wing; aero_z_offset=wing.aero_z_offset)

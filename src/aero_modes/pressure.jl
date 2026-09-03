@@ -611,15 +611,20 @@ function init_pressure_buffers!(mode::AeroPressure, wing)
 end
 
 """
-    setup_aero!(mode::AeroPressure, wing, points, stations; prn=false)
+    setup_aero!(mode::AeroPressure, wing, points, stations; prn=false,
+                vsm_set=nothing)
 
 Run the generic particle VSM setup (rebuild the unrefined sections onto the
 structural LE/TE stations, refine, build `point_to_vsm_point`), freeze the
 strut-interpolation caches ([`build_section_interp`](@ref)), then build the
 surface→point traction map ([`build_station_point_map!`](@ref)) and size the frozen
 buffers/polars ([`init_pressure_buffers!`](@ref)). `PARTICLE_DYNAMICS` only.
+
+Live polars are sampled at the `airfoil:` settings `vsm_set` carries, so a deformed
+section is re-solved on the network its tables were generated with.
 """
-function setup_aero!(mode::AeroPressure, wing, points, stations; prn=false)
+function setup_aero!(mode::AeroPressure, wing, points, stations; prn=false,
+                     vsm_set=nothing)
     wing.dynamics_type == PARTICLE_DYNAMICS || error(
         "AeroPressure supports PARTICLE_DYNAMICS wings only; wing " *
         "$(wing.name) is $(wing.dynamics_type).")
@@ -630,7 +635,7 @@ function setup_aero!(mode::AeroPressure, wing, points, stations; prn=false)
         build_section_interp(wing.vsm_wing)
     build_station_point_map!(mode, wing, points, stations; prn)
     init_pressure_buffers!(mode, wing)
-    mode.live_polars && build_live_polars!(mode, wing, points, stations)
+    mode.live_polars && build_live_polars!(mode, wing, points, stations; vsm_set)
     return nothing
 end
 
@@ -665,7 +670,7 @@ function remake_aero!(mode::AeroPressure, wing, set, vsm_set, points,
         build_section_interp(wing.vsm_wing)
     build_station_point_map!(mode, wing, points, stations)
     init_pressure_buffers!(mode, wing)
-    mode.live_polars && build_live_polars!(mode, wing, points, stations)
+    mode.live_polars && build_live_polars!(mode, wing, points, stations; vsm_set)
     return nothing
 end
 

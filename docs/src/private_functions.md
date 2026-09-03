@@ -404,6 +404,7 @@ SymbolicAWEModels.init_pressure_buffers!
 SymbolicAWEModels.freeze_traction_pattern!
 SymbolicAWEModels.LivePolarState
 SymbolicAWEModels.chord_frame_coordinates
+SymbolicAWEModels.live_polar_settings
 SymbolicAWEModels.build_live_polars!
 SymbolicAWEModels.station_control_points
 SymbolicAWEModels.panel_station_candidates

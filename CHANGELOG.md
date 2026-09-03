@@ -14,6 +14,14 @@
 
 ### Changed
 
+- Live polars are sampled at the settings their tables were generated with. A
+  wing's `airfoil:` block in `vsm_settings.yaml` says which NeuralFoil network and
+  what transition criticality a section is solved on, and `build_live_polars!`
+  now reads it instead of taking the package defaults — which were a different
+  network size and a different `n_crit` than any tabulated dataset uses, so a
+  deformed section was re-solved against a curve its undeformed self was never
+  on. `setup_aero!` takes the model's `vsm_set` to reach it.
+
 - BREAKING: a wing's `twist_surface` is now a `station`, in the code and in the
   structural geometry YAML: the `twist_surfaces:` key and the per-wing
   `twist_surfaces: [...]` list are both `stations:`. The entity is the

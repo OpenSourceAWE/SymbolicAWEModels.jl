@@ -141,13 +141,14 @@ function build_mesh_maps!(mode::ContinuousAero)
 end
 
 """
-    setup_aero!(mode::ContinuousAero, wing, points, stations; prn=false)
+    setup_aero!(mode::ContinuousAero, wing, points, stations; prn=false,
+                vsm_set=nothing)
 
 The generic VSM particle setup plus the [`ContinuousAero`](@ref) mesh maps
 ([`build_mesh_maps!`](@ref)).
 """
 function setup_aero!(mode::ContinuousAero, wing, points, stations;
-                     prn=false)
+                     prn=false, vsm_set=nothing)
     wing.dynamics_type == PARTICLE_DYNAMICS || error(
         "ContinuousAero supports PARTICLE_DYNAMICS wings only; wing " *
         "$(wing.name) is $(wing.dynamics_type).")

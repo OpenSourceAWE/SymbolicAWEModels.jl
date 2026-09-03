@@ -139,7 +139,29 @@ function panel_strut_blend(mode::AeroPressure, n_stations, n_panels)
 end
 
 """
-    build_live_polars!(mode::AeroPressure, wing, points, stations; settings)
+    live_polar_settings(wing, vsm_set) -> LivePolarSettings
+
+The live-polar sampling `wing`'s VSM settings ask for: the `airfoil:` block of the
+`vsm_set` wing of the same name, or of the first wing when no name matches, which is
+the single-wing case every VSM-backed kite is built as. Without a `vsm_set` the
+package defaults stand.
+
+This is what keeps a live polar honest. The offline tables were generated off one
+network at one transition criticality, and a live re-solve that took its own defaults
+would answer a deformed section on a different network than the undeformed one was
+tabulated on — a step in the polars that no deformation caused.
+"""
+function live_polar_settings(wing, vsm_set)
+    isnothing(vsm_set) && return AirfoilAero.LivePolarSettings()
+    isempty(vsm_set.wings) && return AirfoilAero.LivePolarSettings()
+    match = findfirst(w -> w.name == wing.name, vsm_set.wings)
+    return AirfoilAero.LivePolarSettings(
+        vsm_set.wings[something(match, 1)].airfoil)
+end
+
+"""
+    build_live_polars!(mode::AeroPressure, wing, points, stations; vsm_set=nothing,
+                       settings=live_polar_settings(wing, vsm_set))
 
 Build the wing's [`LivePolarState`](@ref) from the reference geometry: fit each panel's
 undeformed Kulfan parameters off its surface contour, take the spanwise stations the
@@ -156,7 +178,8 @@ has no structural points of its own, and binding it to a single station would ma
 deformation a staircase.
 """
 function build_live_polars!(mode::AeroPressure, wing, points, stations;
-                            settings=AirfoilAero.LivePolarSettings())
+                            vsm_set=nothing,
+                            settings=live_polar_settings(wing, vsm_set))
     panels = wing.vsm_aero.panels
     rot_cad_to_body = wing.R_b_to_c'
     origin_cad = wing.pos_cad

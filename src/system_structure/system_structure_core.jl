@@ -1034,7 +1034,7 @@ function SystemStructure(name, set;
     # Per-mode aero construction (dispatched; no-op for modes without an engine).
     for (i, wing) in enumerate(wings)
         @assert wing.idx == i
-        setup_aero!(wing.aero, wing, points, stations; prn)
+        setup_aero!(wing.aero, wing, points, stations; prn, vsm_set)
     end
 
     for (i, transform) in enumerate(transforms)

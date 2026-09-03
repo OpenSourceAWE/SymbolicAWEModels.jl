@@ -5,6 +5,7 @@
 # AeroPressure with live polars: every panel's polar regenerated from its deformed
 # shape each solve instead of read off a flap angle.
 # - construction fits a base airfoil per panel and records the control-point frame
+# - the sampling comes off the wing's own `airfoil:` block, not the package defaults
 # - the flap axis is gone: no panel carries a station, so the RHS has no δ
 # - a refresh leaves every panel on a rewritten polar centred on its own α
 # - a chordwise deformation moves the polar, and the frame maths that produces it
@@ -89,6 +90,24 @@ using LinearAlgebra
         @views va_vals[:, p.idx] .= wing.va_b
     end
     refresh_particle_aero!(mode, wing, sys.points, va_vals)
+
+    @testset "sampled at the settings the tables were generated with" begin
+        airfoil = VortexStepMethod.VSMSettings(
+            joinpath(data_path, "vsm_settings.yaml");
+            data_prefix=false).wings[1].airfoil
+        settings = mode.live.source.settings
+        @test settings.model_size == airfoil.model_size
+        @test settings.n_crit == airfoil.n_crit
+        @test settings.offsets ≈ deg2rad.(airfoil.live_offsets)
+        # Not the package defaults, which are a different network at a different
+        # transition criticality than any tabulated dataset is generated at.
+        defaults = AirfoilAero.LivePolarSettings()
+        @test settings.model_size != defaults.model_size
+        @test settings.n_crit != defaults.n_crit
+        # Without settings to read, the defaults are what is left.
+        @test SymbolicAWEModels.live_polar_settings(wing, nothing).model_size ==
+              defaults.model_size
+    end
 
     @testset "refresh samples every panel" begin
         # A rewritten table keeps the shape the panel was built with; this wing's
