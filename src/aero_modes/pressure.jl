@@ -279,8 +279,10 @@ function build_panel_station_map!(mode::AeroPressure, wing, sys_struct)
     origin_cad = wing.pos_cad
     spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     flap_station = map(flaps) do ts
-        mid_cad = 0.5 .* (sys_struct.bodies[ts.flap_body_idxs[1]].pos_cad .+
-                          sys_struct.bodies[ts.flap_body_idxs[2]].pos_cad)
+        mid_cad = has_point_flap(ts) ?
+            sys_struct.points[ts.flap_point_idxs[2]].pos_cad :
+            0.5 .* (sys_struct.bodies[ts.flap_body_idxs[1]].pos_cad .+
+                    sys_struct.bodies[ts.flap_body_idxs[2]].pos_cad)
         dot(rot_cad_to_body * (mid_cad .- origin_cad), spanwise)
     end
     assignment = zeros(Int64, n_panels)
@@ -309,6 +311,11 @@ function station_deltas(sys_struct)
     deltas = zeros(SimFloat, length(stations))
     for station in stations
         has_flap(station) || continue
+        if has_point_flap(station)
+            deltas[station.idx] = point_flap_delta(station, sys_struct.points,
+                sys_struct.wings[station.wing_idx].R_b_to_w)
+            continue
+        end
         R_main = quaternion_to_rotation_matrix(
             bodies[station.flap_body_idxs[1]].Q_b_to_w)
         R_flap = quaternion_to_rotation_matrix(

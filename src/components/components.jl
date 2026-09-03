@@ -1581,11 +1581,44 @@ function of the two bodies' orientations alone.
 function flap_delta_expression(station, R_main, R_flap)
     main_w = collect(R_main) * collect(station.flap_chord_refs[1])
     flap_w = collect(R_flap) * collect(station.flap_chord_refs[2])
-    normal = collect(R_main) * collect(station.flap_axis)
-    projected_main = main_w .- (main_w ⋅ normal) .* normal
-    projected_flap = flap_w .- (flap_w ⋅ normal) .* normal
-    return atan(normal ⋅ (projected_main × projected_flap),
-                projected_main ⋅ projected_flap) - station.flap_rest_delta
+    return hinge_angle(main_w, flap_w,
+                       collect(R_main) * collect(station.flap_axis)) -
+        station.flap_rest_delta
+end
+
+"""
+    hinge_angle(vec_a, vec_b, axis)
+
+Signed angle [rad] from `vec_a` to `vec_b` about the unit `axis`, both projected onto
+the plane normal to it. An `atan`, so it holds over the full polar δ range rather than
+only near zero. Shared by every form of the flap deflection — body pair or point
+triple, Julia or symbolic — so they cannot drift apart.
+"""
+function hinge_angle(vec_a, vec_b, axis)
+    projected_a = vec_a .- (vec_a ⋅ axis) .* axis
+    projected_b = vec_b .- (vec_b ⋅ axis) .* axis
+    return atan(axis ⋅ (projected_a × projected_b), projected_a ⋅ projected_b)
+end
+
+"""
+    point_flap_delta_expression(station, fore, hinge, aft, R_wing)
+
+Deflection δ [rad] of a point flap from three structural positions: the signed angle
+the aft segment `hinge`→`aft` makes with the fore segment `fore`→`hinge` about the
+hinge axis, less the rest angle the CAD pose holds. Positive δ is a trailing edge
+deflected down, the sign the polars are tabulated on.
+
+`R_wing` takes the axis from the wing's frame to the frame the positions are in, so
+the same expression reads world positions at run time and CAD positions at build.
+Nothing here is a body: a chord bending over several beam elements still reads a
+deflection, and it is read off the very points the aerodynamics is built on rather
+than off a pair of orientations standing in for a hinge.
+"""
+function point_flap_delta_expression(station, fore, hinge, aft, R_wing)
+    return hinge_angle(collect(hinge) .- collect(fore),
+                       collect(aft) .- collect(hinge),
+                       collect(R_wing) * collect(station.flap_axis)) -
+        station.flap_rest_delta
 end
 
 """
@@ -1605,6 +1638,23 @@ function FlapDelta(s, params, idx; name)
     eqs = [delta ~ flap_delta_expression(station, reshape(main, 3, 3),
                                          reshape(flap, 3, 3))]
     return System(eqs, t, [main; flap; delta], param_unknowns(params); name)
+end
+
+"""
+    PointFlapDelta(s, params, idx; name)
+
+The live deflection of a point-flap `KINEMATIC` station: its three flap points'
+positions and the owning wing's frame in, δ out, through the shared
+[`point_flap_delta_expression`](@ref). The point counterpart of [`FlapDelta`](@ref).
+"""
+function PointFlapDelta(s, params, idx; name)
+    positions = indexed_vector_variables(:point_pos, 3; input = true)
+    frame = indexed_scalar_variables(:wing_frame, 9; input = true)
+    delta = scalar_output(:delta)
+    station = params.reg.sys_struct.stations[idx]
+    eqs = [delta ~ point_flap_delta_expression(station, positions[1], positions[2],
+                                               positions[3], reshape(frame, 3, 3))]
+    return System(eqs, t, [positions; frame; delta], param_unknowns(params); name)
 end
 
 """

@@ -1100,6 +1100,8 @@ function SystemStructure(name, set;
             "rigid_body") for ref in station.body_refs]
         station.flap_body_idxs = Int64[resolve_ref(ref, rigid_body_names_dict,
             "rigid_body") for ref in station.flap_body_refs]
+        station.flap_point_idxs = Int64[resolve_ref(ref, point_names_dict,
+            "point") for ref in station.flap_point_refs]
     end
 
     # Beam-anchored points: resolve the joint ref, derive beam_frac + offset.

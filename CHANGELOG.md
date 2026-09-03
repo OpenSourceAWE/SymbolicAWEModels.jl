@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- A station can read its flap deflection δ off three of its own chord points
+  instead of two flap bodies: `flap_points: [fore, hinge, aft]` on a `KINEMATIC`
+  station, and δ is the angle the aft segment makes with the fore one about the
+  wing-frame hinge axis, referenced to the CAD pose. A chord that bends over
+  several beam elements needs no hinge bodies to read a deflection off, and the
+  angle is read from the same points the aerodynamics is built on. Both backends
+  emit it; `flap_bodies` keeps working, and a station given both reads the points.
+
 ### Changed
 
 - BREAKING: a wing's `twist_surface` is now a `station`, in the code and in the
@@ -16,6 +26,11 @@
   and the file is `station_eqs.jl`.
 
 ### Fixed
+
+- The cached-model hash now covers a station's flap wiring, so changing which
+  bodies or points carry δ rebuilds the model instead of silently reusing one
+  whose deflection equations read the old ones. Every cached model bin is
+  invalidated once by the change.
 
 - A panel's drag direction no longer re-derives its lift direction inside itself.
   `drag_cross` inlined `lift_cross / |lift_cross|` where the `dir_lift` variable

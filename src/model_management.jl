@@ -846,7 +846,9 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("segment", segment.idx, segment.point_idxs, stiff_type))
     end
     for station in stations
-        push!(data_parts, ("station", station.idx, station.point_idxs, Int(station.type)))
+        push!(data_parts, ("station", station.idx, station.point_idxs,
+                           Int(station.type), station.flap_body_idxs,
+                           station.flap_point_idxs))
     end
     for pulley in pulleys
         push!(data_parts, ("pulley", pulley.idx, pulley.segment_idxs, Int(pulley.type)))
