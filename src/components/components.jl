@@ -1589,15 +1589,21 @@ end
 """
     hinge_angle(vec_a, vec_b, axis)
 
-Signed angle [rad] from `vec_a` to `vec_b` about the unit `axis`, both projected onto
-the plane normal to it. An `atan`, so it holds over the full polar δ range rather than
-only near zero. Shared by every form of the flap deflection — body pair or point
-triple, Julia or symbolic — so they cannot drift apart.
+Signed angle [rad] from `vec_a` to `vec_b` about the unit `axis`, measured between
+their components in the plane normal to it. An `atan`, so it holds over the full
+polar δ range rather than only near zero. Shared by every form of the flap
+deflection — body pair or point triple, Julia or symbolic — so they cannot drift
+apart.
+
+The projections are never built: the axial parts drop out of the cross product's
+own axial component, and out of the dot product once their product is subtracted.
+The two forms agree exactly, and this one is a third of the expression the RHS
+would otherwise carry per station.
 """
 function hinge_angle(vec_a, vec_b, axis)
-    projected_a = vec_a .- (vec_a ⋅ axis) .* axis
-    projected_b = vec_b .- (vec_b ⋅ axis) .* axis
-    return atan(axis ⋅ (projected_a × projected_b), projected_a ⋅ projected_b)
+    axial_a = vec_a ⋅ axis
+    axial_b = vec_b ⋅ axis
+    return atan(axis ⋅ (vec_a × vec_b), vec_a ⋅ vec_b - axial_a * axial_b)
 end
 
 """
