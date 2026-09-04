@@ -56,6 +56,13 @@ MakieControlPlots = "6d616b69-6563-4f6e-8472-6f6c706c6f74"
 [extensions]
 SymbolicAWEModelsMakieExt = ["GeometryBasics", "MakieControlPlots"]
 
+# Temporary: SymbolicUtils #1049 makes `isequal` exponential in nesting depth,
+# which puts the AeroPressure model's ODEProblem build past the CI budget once
+# other models have been built in the same process. Drop this once the fix in
+# JuliaSymbolics/SymbolicUtils.jl#1052 is released.
+[sources]
+SymbolicUtils = {url = "https://github.com/1-Bart-1/SymbolicUtils.jl", rev = "fix/isequal-dag-memo-v4.45"}
+
 [compat]
 ADTypes = "1"
 AtmosphericModels = "0.3.2"

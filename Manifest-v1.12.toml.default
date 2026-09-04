@@ -3097,7 +3097,9 @@ version = "1.2.1"
 
 [[deps.SymbolicUtils]]
 deps = ["AbstractTrees", "ArrayInterface", "Combinatorics", "ConstructionBase", "DataStructures", "DocStringExtensions", "DynamicPolynomials", "EnumX", "ExproniconLite", "Graphs", "LinearAlgebra", "MacroTools", "Moshi", "MultivariatePolynomials", "MutableArithmetics", "NaNMath", "PrecompileTools", "ReadOnlyArrays", "SciMLPublic", "Setfield", "SparseArrays", "SpecialFunctions", "StaticArraysCore", "SymbolicIndexingInterface", "TaskLocalValues", "TermInterface", "WeakCacheSets"]
-git-tree-sha1 = "3bfccb39a7de6ebb9c834cd46909f6a7a009a967"
+git-tree-sha1 = "aa8bd8bfd401ca5ea98a6697979f81fcb1693d1a"
+repo-rev = "fix/isequal-dag-memo-v4.45"
+repo-url = "https://github.com/1-Bart-1/SymbolicUtils.jl"
 uuid = "d1185830-fcd6-423d-90d6-eec64667417b"
 version = "4.45.0"
 

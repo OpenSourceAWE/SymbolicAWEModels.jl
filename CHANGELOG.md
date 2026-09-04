@@ -18,6 +18,16 @@
   `TwistSurface` is `Station`, `station_control_points` says what it returns,
   and the file is `station_eqs.jl`.
 
+### Changed
+
+- TEMPORARY: `SymbolicUtils` is taken from a fork
+  (`1-Bart-1/SymbolicUtils.jl#fix/isequal-dag-memo-v4.45`) through a `[sources]`
+  entry. `isequal` on two equal-but-distinct expressions is exponential in
+  nesting depth there, which is what made a second model build in one session
+  spend 320 s in `ODEProblem` against 2 s for the first. Upstream issue
+  JuliaSymbolics/SymbolicUtils.jl#1049, fix in #1052. Drop the `[sources]` entry
+  once that is released — a registered package cannot carry one.
+
 ### Fixed
 
 - `AeroPressure` no longer writes one copy of a panel's live load per contour
