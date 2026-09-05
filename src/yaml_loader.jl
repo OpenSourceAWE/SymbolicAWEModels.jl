@@ -355,7 +355,7 @@ function parse_dynamics_type(text::String)
     text_upper == "WING" && error(
         "DynamicsType `WING` was removed: use `BODY_STATIC` (rigid wing, with " *
         "`body_idx` = the wing) or `DYNAMIC` (particle wing), and make the point " *
-        "a member of one of the wing's twist_surfaces.")
+        "a member of one of the wing's stations.")
     text_upper == "BODY_STATIC" && return BODY_STATIC
     text_upper == "KINEMATIC" && return KINEMATIC
     error("Unknown DynamicsType: $text")
@@ -404,7 +404,7 @@ end
 
 """
     load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type, vsm_set,
-              yaml_to_ref, yaml_parse_ref_points, yaml_parse_origin, twist_surfaces)
+              yaml_to_ref, yaml_parse_ref_points, yaml_parse_origin, stations)
 
 Build a wing from a parsed YAML `row`, dispatched on its aero `mode`. The default
 (VSM-backed modes) builds a [`VSMWing`](@ref); [`AeroPlate`](@ref) builds a
@@ -413,7 +413,7 @@ custom aero mode.
 """
 function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                    vsm_set, yaml_to_ref, yaml_parse_ref_points,
-                   yaml_parse_origin, twist_surfaces)
+                   yaml_parse_origin, stations)
     # PARTICLE derives pos_cad from the origin point during resolution; RIGID
     # reads it from the row when given.
     pos_cad = wing_type == PARTICLE_DYNAMICS ? (row -> nothing) :
@@ -425,13 +425,13 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
         :mass, :com, :unit_inertia]
     wing_type == RIGID_DYNAMICS && push!(kwargs_spec, :aero_z_offset)
     return call_yaml_constructor(VSMWing, row,
-        [:name, :set, :twist_surfaces, :vsm_set], kwargs_spec;
+        [:name, :set, :stations, :vsm_set], kwargs_spec;
         mappings=Dict(
             :set => row -> set,
             :aero => row -> mode,
-            :twist_surfaces => row -> hasfield(typeof(row), :twist_surfaces) &&
-                !isnothing(row.twist_surfaces) ?
-                [yaml_to_ref(ref) for ref in row.twist_surfaces] : [],
+            :stations => row -> hasfield(typeof(row), :stations) &&
+                !isnothing(row.stations) ?
+                [yaml_to_ref(ref) for ref in row.stations] : [],
             :vsm_set => row -> vsm_set,
             :dynamics_type => row -> wing_type,
             :name => row -> yaml_row_name(row, idx),
@@ -866,14 +866,14 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
-    # Load twist_surfaces (optional, for deformable wings) - SystemStructure handles resolution
-    twist_surfaces = TwistSurface[]
-    if !yaml_block_empty(data, "twist_surfaces")
-        twist_surface_rows = parse_table(data["twist_surfaces"])
+    # Load stations (optional, for deformable wings) - SystemStructure handles resolution
+    stations = Station[]
+    if !yaml_block_empty(data, "stations")
+        station_rows = parse_table(data["stations"])
 
-        for (i, row) in enumerate(twist_surface_rows)
-            # Create TwistSurface using new constructor (name, points, type, moment_frac)
-            twist_surface = call_yaml_constructor(TwistSurface, row,
+        for (i, row) in enumerate(station_rows)
+            # Create Station using new constructor (name, points, type, moment_frac)
+            station = call_yaml_constructor(Station, row,
                 [:name, :points, :type, :moment_frac],
                 [:damping, :stiffness, :wing, :bodies, :flap_bodies,
                  :flap_axis];
@@ -896,11 +896,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 ))
             saved_twist = yaml_float(row, :twist)
             isnothing(saved_twist) ||
-                (twist_surface.twist = SimFloat(saved_twist))
+                (station.twist = SimFloat(saved_twist))
             saved_twist_vel = yaml_float(row, :twist_vel)
             isnothing(saved_twist_vel) ||
-                (twist_surface.twist_ω = SimFloat(saved_twist_vel))
-            push!(twist_surfaces, twist_surface)
+                (station.twist_ω = SimFloat(saved_twist_vel))
+            push!(stations, station)
         end
     end
 
@@ -1017,7 +1017,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
 
             wing = load_wing(resolved_aero_mode, row, i, data,
                 resolved_set, resolved_wing_type, vsm_set, yaml_to_ref,
-                yaml_parse_ref_points, yaml_parse_origin, twist_surfaces)
+                yaml_parse_ref_points, yaml_parse_origin, stations)
             load_body_state!(wing, row)
             push!(wings, wing)
         end
@@ -1085,7 +1085,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         yaml_to_ref)
 
     # The SystemStructure constructor handles WING->STATIC when no wings exist.
-    return SystemStructure(system_name, resolved_set; points, twist_surfaces,
+    return SystemStructure(system_name, resolved_set; points, stations,
         segments, pulleys, tethers, winches, wings,
         transforms, bodies, elastic_joints, timoshenko_joints,
         ignore_l0, vsm_set, wind_mode, prn)

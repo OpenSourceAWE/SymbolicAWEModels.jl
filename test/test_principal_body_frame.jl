@@ -9,7 +9,7 @@
 #
 # Key invariants:
 # 1. pos_w = com_w + R_b_to_w * pos_b  (rigid body)
-# 2. TwistSurface le_pos, chord, y_airf in body frame
+# 2. Station le_pos, chord, y_airf in body frame
 #    relative to COM (same frame as pos_b)
 # 3. R_b_to_p = R_p_to_c' * R_b_to_c (constant body→principal)
 
@@ -94,17 +94,17 @@ using LinearAlgebra
             "points satisfy rigid body constraint")
     end
 
-    # ---- Test 3: TwistSurface geometry in principal frame ---- #
-    @testset "TwistSurface geometry frame" begin
+    # ---- Test 3: Station geometry in principal frame ---- #
+    @testset "Station geometry frame" begin
         wing_pts = [p for p in sys.points
             if p.is_wing_node &&
                p.wing_idx == wing.idx]
 
-        for twist_surface in sys.twist_surfaces
-            # Find LE and TE points in this twist_surface
+        for station in sys.stations
+            # Find LE and TE points in this station
             le_pt = nothing
             te_pt = nothing
-            for pt_idx in twist_surface.point_idxs
+            for pt_idx in station.point_idxs
                 pt = sys.points[pt_idx]
                 name_str = string(pt.name)
                 if occursin("le", name_str)
@@ -118,29 +118,29 @@ using LinearAlgebra
 
             # chord_b = pos_undeformed_b - le_pos (from point_eqs)
             chord_from_pos = te_pt.pos_undeformed_b -
-                twist_surface.le_pos
+                station.le_pos
             # chord_from_pos should be parallel to
-            # twist_surface.chord (same direction, maybe
+            # station.chord (same direction, maybe
             # different magnitude)
-            chord_dir = normalize(twist_surface.chord)
+            chord_dir = normalize(station.chord)
             pos_dir = normalize(chord_from_pos)
             dot_val = abs(dot(chord_dir, pos_dir))
             @test dot_val > 0.99
             if dot_val < 0.99
-                println("  FAIL twist_surface $(twist_surface.idx): " *
+                println("  FAIL station $(station.idx): " *
                     "chord misaligned, dot=$dot_val")
             end
 
             # le_pos should be close to the LE point's
             # pos_undeformed_b (since LE is at the leading edge)
-            le_err = norm(le_pt.pos_undeformed_b - twist_surface.le_pos)
+            le_err = norm(le_pt.pos_undeformed_b - station.le_pos)
             # LE point may not exactly match le_pos
             # (le_pos comes from panel center, pos_undeformed_b
             # from point mass position) but should be
             # in the same ballpark
             @test le_err < 1.0
         end
-        println("  All $(length(sys.twist_surfaces)) twist_surfaces " *
+        println("  All $(length(sys.stations)) stations " *
             "have consistent geometry")
     end
 

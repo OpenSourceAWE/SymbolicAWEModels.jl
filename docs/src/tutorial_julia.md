@@ -82,7 +82,7 @@ Three of the four [`DynamicsType`](@ref)s apply to a point:
 - `BODY_STATIC` — the point rides a [`Body`](@ref) (or a beam
   element) rigidly and feeds its net force into that body
 
-The fourth, `KINEMATIC`, applies to a [`TwistSurface`](@ref) whose
+The fourth, `KINEMATIC`, applies to a [`Station`](@ref) whose
 deflection is prescribed by geometry, not to a point.
 
 Next, connect the points with [`Segment`](@ref)s. Each segment is
@@ -341,7 +341,7 @@ sys.winches[:winch]       # Access winch by name
 | [`Tether`](@ref) | `Tether(name, segments; ...)` | Winch-controlled segments |
 | [`Winch`](@ref) | `Winch(name, tethers, n, r, Fc, cv, I; ...)` | Torque-controlled motor |
 | [`Pulley`](@ref) | `Pulley(name, seg_i, seg_j, type)` | Equal-tension constraint |
-| [`TwistSurface`](@ref) | `TwistSurface(name, points, type, frac; ...)` | Wing twist section |
+| [`Station`](@ref) | `Station(name, points, type, frac; ...)` | Wing twist section |
 | [`Body`](@ref) | `Body(name; mass, inertia_principal, pos)` | Rigid body |
 | [`ElasticJoint`](@ref) | `ElasticJoint(name, body_a, body_b; ...)` | Lumped 6-DOF spring between bodies |
 | [`TimoshenkoJoint`](@ref) | `TimoshenkoJoint(name, body_a, body_b; ...)` | Beam element between bodies |

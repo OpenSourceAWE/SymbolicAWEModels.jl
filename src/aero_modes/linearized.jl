@@ -29,13 +29,13 @@ function aero_component(::AeroLinearized, wing::RigidWing, sys_struct; name, par
     aero_jac_p = params.wings[wing_idx].aero_jac
     drag_frac_p = params.wings[wing_idx].drag_frac
 
-    twist_surfaces = sys_struct.twist_surfaces
-    num_twist_surfaces = length(wing.twist_surface_idxs)
+    stations = sys_struct.stations
+    num_stations = length(wing.station_idxs)
     num_aero_inputs = length(wing.aero_y)
     area = wing.vsm_aero.projected_area
     c_ref = wing.vsm_aero.c_ref
 
-    connectors = rigid_aero_connectors(num_twist_surfaces)
+    connectors = rigid_aero_connectors(num_stations)
     @variables aero_input(t)[1:num_aero_inputs]
 
     apparent_wind = collect(connectors.va)
@@ -44,7 +44,7 @@ function aero_component(::AeroLinearized, wing::RigidWing, sys_struct; name, par
     alpha = atan(drag_dir[3], drag_dir[1])
     beta = atan(drag_dir[2], smooth_norm((drag_dir[1], drag_dir[3])))
 
-    twist_inputs = num_twist_surfaces > 0 ? collect(connectors.twist) : Num[]
+    twist_inputs = num_stations > 0 ? collect(connectors.twist) : Num[]
     input_rhs = [alpha; beta; omega[1]; omega[2]; omega[3]; twist_inputs]
 
     delta(input_idx) = aero_input[input_idx] - aero_y_p[input_idx]
@@ -70,11 +70,11 @@ function aero_component(::AeroLinearized, wing::RigidWing, sys_struct; name, par
     eqs = [collect(aero_input) .~ input_rhs
            collect(connectors.force) .~ force_rhs
            collect(connectors.moment) .~ moment_rhs]
-    for twist_surface_pos in 1:num_twist_surfaces
-        isempty(twist_surfaces[wing.twist_surface_idxs[twist_surface_pos]].unrefined_section_idxs) ?
-            (eqs = [eqs; connectors.twist_moment[twist_surface_pos] ~ 0]) :
-            (eqs = [eqs; connectors.twist_moment[twist_surface_pos] ~
-                qA * c_ref * coeff(6 + twist_surface_pos)])
+    for station_pos in 1:num_stations
+        isempty(stations[wing.station_idxs[station_pos]].unrefined_section_idxs) ?
+            (eqs = [eqs; connectors.twist_moment[station_pos] ~ 0]) :
+            (eqs = [eqs; connectors.twist_moment[station_pos] ~
+                qA * c_ref * coeff(6 + station_pos)])
     end
 
     vars = rigid_unknowns(connectors)
@@ -84,7 +84,7 @@ function aero_component(::AeroLinearized, wing::RigidWing, sys_struct; name, par
 end
 
 """
-    refresh_rigid_aero!(::AeroLinearized, wing, am, twist_surfaces; vsm_min_wind=0.5)
+    refresh_rigid_aero!(::AeroLinearized, wing, am, stations; vsm_min_wind=0.5)
 
 Linearized rigid-wing refresh. Computes the baseline wind-axis coefficients at the
 operating point ([`rigid_aero_baseline!`](@ref)), then the `ForwardDiff` Jacobian
@@ -94,12 +94,12 @@ operating point. `wing.aero_force_b`/`aero_moment_b` are set to the operating-po
 force so the reported value tracks the VSM solve; between refreshes `update_sys_struct!`
 overwrites it with the RHS-applied linearized force.
 """
-function refresh_rigid_aero!(::AeroLinearized, wing, am, twist_surfaces;
+function refresh_rigid_aero!(::AeroLinearized, wing, am, stations;
                              vsm_min_wind=0.5)
-    ctx = rigid_aero_baseline!(wing, twist_surfaces; vsm_min_wind)
+    ctx = rigid_aero_baseline!(wing, stations; vsm_min_wind)
     gamma0 = copy(wing.vsm_solver.sol.gamma_distribution)
     f_dual = y -> vsm_aero_coeffs(wing, y, ctx.va_mag, ctx.n_unrefined,
-        ctx.n_twist_surfaces, ctx.twist_surface_idxs, twist_surfaces,
+        ctx.n_stations, ctx.station_idxs, stations,
         ctx.moment_frac, ctx.shadow_ref; gamma_init=gamma0)
     ForwardDiff.jacobian!(wing.aero_jac, f_dual, ctx.y0)
     if norm(wing.va_b) < vsm_min_wind
