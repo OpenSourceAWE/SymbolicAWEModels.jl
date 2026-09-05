@@ -4,7 +4,7 @@
 # test_aero_modes.jl
 # Unified tests for the VSM-family aero modes (AeroNone, AeroDirect,
 # ContinuousAero, AeroPressure, AeroLinearized) on the 2plate kite, for every
-# supported (aero mode x dynamics type) combination. Two drivers per case:
+# supported (aero mode x dynamics type) combination. Three drivers per case:
 #
 #   (A) strict pose sweep — init! at a grid of transform poses + wind speeds
 #       (no ODE integration, so no solver residual noise), then compare the
@@ -13,6 +13,9 @@
 #   (B) loose dynamic run — a short next_step! loop; assert the force/moment
 #       stay finite and bounded every step (catches blow-ups and that each
 #       combination actually steps).
+#   (C) failed VSM solve — `next_step!(...; vsm_warn_on_fail=true)` warns and
+#       reuses the last converged solve rather than erroring, on every mode
+#       that solves.
 #
 # Reference point for the moment is the WING BODY ORIGIN (wing.pos_w), not the
 # COM: VSM's sol.moment is about reference_point=(0,0,0)=body origin, and the
@@ -35,7 +38,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, PARTICLE_DYNAMICS,
-    RIGID_DYNAMICS, AERO_SCALE_CHORD
+    RIGID_DYNAMICS, AERO_SCALE_CHORD, VSMSolveFailure
 using KiteUtils
 using LinearAlgebra
 
@@ -320,6 +323,37 @@ aero_poses = [
                     @test all(isfinite, moment)
                     @test norm(force) < bound
                 end
+            end
+
+            # Runs on the converged state the dynamic run leaves behind. The LOOP
+            # solver converges on `normalized_error < rtol`, so `rtol = 0` never
+            # converges and `max_iterations` bounds what the failure costs.
+            case.reference == :vsm &&
+            @testset "failed solve warns and is reused" begin
+                solver = wing.vsm_solver
+                rtol, max_iterations = solver.rtol, solver.max_iterations
+                gamma = copy(solver.sol.gamma_distribution)
+                alpha = copy(solver.lr.alpha_dist)
+                solver.rtol, solver.max_iterations = 0.0, 2
+
+                @test_throws VSMSolveFailure next_step!(sam; dt=0.05,
+                                                        vsm_interval=1)
+                logs, _ = Test.collect_test_logs() do
+                    for _ in 1:4
+                        next_step!(sam; dt=0.05, vsm_interval=2,
+                                   vsm_warn_on_fail=true)
+                    end
+                end
+                # One warning per scheduled update, so the schedule is intact.
+                @test count(record -> occursin("VSM solve failed",
+                                               record.message), logs) == 2
+                @test solver.lr.gamma_new != gamma
+                @test solver.sol.gamma_distribution == gamma
+                @test solver.lr.alpha_dist == alpha
+
+                solver.rtol, solver.max_iterations = rtol, max_iterations
+                next_step!(sam; dt=0.05, vsm_interval=1)
+                @test solver.sol.gamma_distribution != gamma
             end
 
             # A KINEMATIC wing's body frame is fitted from reference points, so

@@ -588,9 +588,10 @@ integrator. Errors on an unstable solver retcode.
     a VSM solve. Below this the solve is skipped and
     the wing's aero outputs are zeroed.
 - `vsm_warn_on_fail=false`: Warn instead of erroring
-    when a VSM solve fails, keeping the aero state and
-    the circulation of the last converged solve. The
-    next scheduled update solves again.
+    when a VSM solve fails, keeping the circulation, the
+    angles of attack and the frozen forces of the last
+    converged solve. The next scheduled update solves
+    again.
 """
 function next_step!(sam::SymbolicAWEModel;
     set_values=nothing, dt=1/sam.set.sample_freq,

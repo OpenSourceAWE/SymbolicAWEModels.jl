@@ -1277,8 +1277,8 @@ alone. The per-step refresh wants the warm start; the first solve after a
 [`reinit!`](@ref) must not have it, or it inherits whatever ran on this model
 before.
 
-`vsm_warn_on_fail` downgrades a [`VSMSolveFailure`](@ref) to a warning, leaving
-the failing wing at the aero state of its last converged solve.
+`vsm_warn_on_fail` downgrades a [`VSMSolveFailure`](@ref) to a warning
+([`warn_or_rethrow`](@ref)).
 """
 function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
                        cold_start=false, vsm_warn_on_fail=false)
@@ -1328,8 +1328,8 @@ end
     warn_or_rethrow(failure, vsm_warn_on_fail)
 
 Rethrow `failure`, unless it is a [`VSMSolveFailure`](@ref) and `vsm_warn_on_fail`
-is set: then warn instead, which leaves that wing's frozen aero state and
-circulation at its last converged solve.
+is set: then warn instead, and the wing flies on with the circulation, the angles
+of attack and the frozen forces of its last converged solve.
 """
 function warn_or_rethrow(failure, vsm_warn_on_fail)
     (vsm_warn_on_fail && failure isa VSMSolveFailure) || rethrow(failure)

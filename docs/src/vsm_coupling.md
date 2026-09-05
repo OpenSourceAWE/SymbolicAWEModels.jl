@@ -265,16 +265,22 @@ A mode supports a wing dynamics exactly when it defines the matching
 ### A failed solve
 
 `safe_vsm_solve!` rejects a solve that did not converge or that returned a
-non-finite value or `ForwardDiff` partial, and the mode's refresh throws
-[`VSMSolveFailure`](@ref) before writing any frozen state. The circulation of
-the last converged solve stays in `solver.sol.gamma_distribution` and remains
-the warm start of the next attempt.
+non-finite value or `ForwardDiff` partial. It restores the circulation and the
+two angle-of-attack distributions of the last converged solve, which `solve!`
+has already overwritten with the diverged ones, and the mode's refresh throws
+[`VSMSolveFailure`](@ref). The restored circulation is the warm start of the
+next attempt, and the restored angles are what a live polar re-centres its
+knots on.
 
-`next_step!(sam; vsm_warn_on_fail=true)` downgrades that to a warning: the wing
-keeps the aero state of its last converged solve and the simulation goes on.
-`vsm_interval` is untouched, so the next scheduled update solves again. The
-assertions on an already corrupted frozen state — a non-finite point force or
-traction pattern — are `AssertionError` and stay fatal.
+`next_step!(sam; vsm_warn_on_fail=true)` downgrades that to a warning and the
+simulation goes on. Each mode solves before it writes anything frozen, so the
+wing keeps the forces of its last converged solve; the one exception is
+[`AeroLinearized`](@ref), where a solve that fails during the Jacobian pass
+keeps the baseline coefficients of the operating point it just refreshed and
+the Jacobian columns the pass had not reached. `vsm_interval` is untouched, so
+the next scheduled update solves again. The assertions on an already corrupted
+frozen state — a non-finite point force or traction pattern — are
+`AssertionError` and stay fatal.
 
 ## Swappable aero components (dispatch)
 
