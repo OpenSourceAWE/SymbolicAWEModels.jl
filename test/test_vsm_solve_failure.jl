@@ -3,8 +3,9 @@
 
 # test_vsm_solve_failure.jl — a VSM solve that does not converge, on the particle
 # 2plate kite. Without `vsm_warn_on_fail` `next_step!` throws; with it, it warns,
-# keeps the circulation and the point forces of the last converged solve, holds
-# the `vsm_interval` schedule, and solves again as soon as the solve recovers.
+# keeps the circulation, the angle-of-attack distributions and the point forces of
+# the last converged solve, holds the `vsm_interval` schedule, and solves again as
+# soon as the solve recovers.
 #
 # Non-convergence is forced through the solver rather than through a pose: the
 # LOOP solver converges on `normalized_error < rtol`, so `rtol = 0` never
@@ -93,12 +94,15 @@ end
 
     next_step!(sam; dt, vsm_interval=1)
     gamma = copy(solver.sol.gamma_distribution)
+    alpha_dist = copy(solver.lr.alpha_dist)
+    alpha_corrected = copy(solver.sol.alpha_dist)
     point_forces = [copy(point.aero_force_b) for point in wing_points(sys, wing)]
 
     @testset "throws without the kwarg" begin
         break_solve!(solver)
         @test_throws VSMSolveFailure next_step!(sam; dt, vsm_interval=1)
         @test solver.sol.gamma_distribution == gamma
+        @test solver.lr.alpha_dist == alpha_dist
     end
 
     @testset "warns and reuses the last converged solve" begin
@@ -110,6 +114,9 @@ end
         # The failed solve moved the circulation; what is stored is the old one.
         @test solver.lr.gamma_new != gamma
         @test solver.sol.gamma_distribution == gamma
+        # A live polar re-centres its knots on these.
+        @test solver.lr.alpha_dist == alpha_dist
+        @test solver.sol.alpha_dist == alpha_corrected
         @test [copy(point.aero_force_b)
                for point in wing_points(sys, wing)] == point_forces
     end

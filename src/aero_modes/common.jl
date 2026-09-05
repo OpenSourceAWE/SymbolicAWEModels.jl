@@ -1536,8 +1536,9 @@ Base.showerror(io::IO, failure::VSMSolveFailure) = print(io, failure.msg)
 
 """
 NaN/Inf-guarded `solve!`. Checks both Dual value and partials. On a non-finite or
-non-converged result, restore the circulation of the last converged solve —
-`solve!` overwrites it with the diverged one — and return `false`.
+non-converged result, restore the aero state of the last converged solve — its
+circulation and its two angle-of-attack distributions, which `solve!` overwrites
+with the diverged ones — and return `false`.
 
 Without `gamma_init`, `solve!` warm-starts from the circulation it left in
 `solver.sol` last time. `cold_start` starts from the solver's configured initial
@@ -1549,6 +1550,8 @@ function safe_vsm_solve!(solver, body_aero,
                           gamma_init=nothing; moment_frac=0.1, cold_start=false)
     gamma_converged = isnothing(solver.sol.gamma_distribution) ? nothing :
         copy(solver.sol.gamma_distribution)
+    alpha_converged = copy(solver.lr.alpha_dist)
+    alpha_corrected_converged = copy(solver.sol.alpha_dist)
     if cold_start
         VortexStepMethod.solve!(solver, body_aero, nothing;
             moment_frac, log=false)
@@ -1566,6 +1569,8 @@ function safe_vsm_solve!(solver, body_aero,
             any(!finite_full, moment_coeffs)
         isnothing(gamma_converged) ||
             copyto!(solver.sol.gamma_distribution, gamma_converged)
+        copyto!(solver.lr.alpha_dist, alpha_converged)
+        copyto!(solver.sol.alpha_dist, alpha_corrected_converged)
         return false
     end
     return true
