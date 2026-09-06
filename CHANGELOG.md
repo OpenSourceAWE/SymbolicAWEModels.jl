@@ -2,31 +2,24 @@
 
 ## Unreleased
 
-### Changed
+### Added
 
-- BREAKING: a wing's wind vector is `wing.wind_vec`, renamed from `wing.v_wind` to
-  match `point.wind_vec` and to stop reading as the scalar `set.v_wind`.
-
-- BREAKING: a wing's `twist_surface` is now a `station`, in the code and in the
-  structural geometry YAML: the `twist_surfaces:` key and the per-wing
-  `twist_surfaces: [...]` list are both `stations:`. The entity is the
-  structural points lying in one chordwise plane, and twist is one of the things
-  it carries, alongside the spanwise stations the aero load and the live polars
-  are read on. It had grown three names — `twist_surface`, `station` and `strut`
-  — which is how the load path and the deformation path came to compute the same
-  blend twice without anyone noticing they were the same quantity.
-  `TwistSurface` is `Station`, `station_control_points` says what it returns,
-  and the file is `station_eqs.jl`.
-
-### Changed
-
-- TEMPORARY: `SymbolicUtils` is taken from a fork
-  (`1-Bart-1/SymbolicUtils.jl#fix/isequal-dag-memo-v4.45`) through a `[sources]`
-  entry. `isequal` on two equal-but-distinct expressions is exponential in
-  nesting depth there, which is what made a second model build in one session
-  spend 320 s in `ODEProblem` against 2 s for the first. Upstream issue
-  JuliaSymbolics/SymbolicUtils.jl#1049, fix in #1052. Drop the `[sources]` entry
-  once that is released — a registered package cannot carry one.
+- Wind can be set per point. A `SystemStructure` now carries a `wind_mode`: the
+  default `ProfileWind()` is the height profile `set.profile_law` as before, and
+  `PerPointWind()` makes every `point.wind_vec` a parameter, settable between steps
+  (`load_sys_struct_from_yaml(path; wind_mode=PerPointWind())`, or the
+  `SystemStructure` keyword of the same name). Point drag and apparent wind read
+  their point's vector, a segment's tether drag the mean of its two endpoints, and a
+  wing its own `wing.wind_vec`; VSM panels keep interpolating their inflow from the
+  points, so a per-point wind reaches them unchanged. `init!` seeds every point and
+  wing with `set.wind_vec`, so a model that is never written to flies in a uniform
+  wind. `set.profile_law` keeps its `AtmosphericModels` meaning and is unused in this
+  mode. Only `PerPointWind` enters the model-cache hash, so existing models keep
+  their cached builds.
+- `next_step!(sam; vsm_warn_on_fail=true)` warns instead of erroring when a VSM
+  solve does not converge. The wing keeps the circulation, the angles of attack and
+  the frozen forces of its last converged solve, and `vsm_interval` is untouched, so
+  the next scheduled update solves again.
 
 ### Fixed
 
@@ -88,26 +81,30 @@
   airfoil frame's own triple product, the axes not being quite orthogonal on a
   billowed panel.
 
-### Added
-
-- Wind can be set per point. A `SystemStructure` now carries a `wind_mode`: the
-  default `ProfileWind()` is the height profile `set.profile_law` as before, and
-  `PerPointWind()` makes every `point.wind_vec` a parameter, settable between steps
-  (`load_sys_struct_from_yaml(path; wind_mode=PerPointWind())`, or the
-  `SystemStructure` keyword of the same name). Point drag and apparent wind read
-  their point's vector, a segment's tether drag the mean of its two endpoints, and a
-  wing its own `wing.wind_vec`; VSM panels keep interpolating their inflow from the
-  points, so a per-point wind reaches them unchanged. `init!` seeds every point and
-  wing with `set.wind_vec`, so a model that is never written to flies in a uniform
-  wind. `set.profile_law` keeps its `AtmosphericModels` meaning and is unused in this
-  mode. Only `PerPointWind` enters the model-cache hash, so existing models keep
-  their cached builds.
-- `next_step!(sam; vsm_warn_on_fail=true)` warns instead of erroring when a VSM
-  solve does not converge. The wing keeps the circulation, the angles of attack and
-  the frozen forces of its last converged solve, and `vsm_interval` is untouched, so
-  the next scheduled update solves again.
-
 ### Changed
+
+- BREAKING: a wing's wind vector is `wing.wind_vec`, renamed from `wing.v_wind` to
+  match `point.wind_vec` and to stop reading as the scalar `set.v_wind`.
+
+- BREAKING: a wing's `twist_surface` is now a `station`, in the code and in the
+  structural geometry YAML: the `twist_surfaces:` key and the per-wing
+  `twist_surfaces: [...]` list are both `stations:`. The entity is the
+  structural points lying in one chordwise plane, and twist is one of the things
+  it carries, alongside the spanwise stations the aero load and the live polars
+  are read on. It had grown three names — `twist_surface`, `station` and `strut`
+  — which is how the load path and the deformation path came to compute the same
+  blend twice without anyone noticing they were the same quantity.
+  `TwistSurface` is `Station`, `station_control_points` says what it returns,
+  and the file is `station_eqs.jl`.
+
+- TEMPORARY: `SymbolicUtils` is taken from a fork
+  (`1-Bart-1/SymbolicUtils.jl#fix/isequal-dag-memo-v4.45`) through a `[sources]`
+  entry. `isequal` on two equal-but-distinct expressions is exponential in
+  nesting depth there, which is what made a second model build in one session
+  spend 320 s in `ODEProblem` against 2 s for the first. Upstream issue
+  JuliaSymbolics/SymbolicUtils.jl#1049, fix in #1052. Drop the `[sources]` entry
+  once that is released — a registered package cannot carry one.
+
 - `check_live_polar(mode, wing; panel_idx)` runs one XFoil solve against the
   live polar a panel is flying, on the state the model is in now. It defaults to
   the panel NeuralFoil is least confident about.
