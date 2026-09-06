@@ -340,7 +340,7 @@ degrees) and computes derived values like AoA and roll/pitch/yaw angles.
 """
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
-    (; points, twist_surfaces, winches, wings, tethers,
+    (; points, stations, winches, wings, tethers,
        bodies) = sam.sys_struct
 
     for (ti, tether) in enumerate(tethers)
@@ -353,12 +353,12 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.set_torque[winch.idx] = winch.set_value
     end
     # Unlike flap_angle, these are the integrated state itself.
-    for twist_surface in twist_surfaces
-        ss.twist_angles[twist_surface.idx] = twist_surface.twist
-        ss.twist_vel[twist_surface.idx] = twist_surface.twist_ω
+    for station in stations
+        ss.twist_angles[station.idx] = station.twist
+        ss.twist_vel[station.idx] = station.twist_ω
     end
-    if length(twist_surfaces) > 0
-        outer = length(twist_surfaces)
+    if length(stations) > 0
+        outer = length(stations)
         ss.depower = rad2deg(mean(ss.twist_angles))
         ss.steering = rad2deg(ss.twist_angles[outer] - ss.twist_angles[1])
     end
@@ -691,7 +691,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     # Count components
     n_points = length(sys_struct.points)
     n_segments = length(sys_struct.segments)
-    n_twist_surfaces = length(sys_struct.twist_surfaces)
+    n_stations = length(sys_struct.stations)
     n_wings = length(sys_struct.wings)
     n_winches = length(sys_struct.winches)
     n_bodies = length(sys_struct.bodies)
@@ -699,7 +699,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     sparse_tag = sparse ? "_sparse" : ""
     jacobian_tag = analytic_jacobian ? "_analytic" : ""
 
-    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_twist_surfaces)grp_$(n_wings)wng_$(n_winches)wch$(body_tag)$(sparse_tag)$(jacobian_tag)$(backend_tag(backend)).bin$suffix"
+    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_stations)grp_$(n_wings)wng_$(n_winches)wch$(body_tag)$(sparse_tag)$(jacobian_tag)$(backend_tag(backend)).bin$suffix"
 end
 
 """

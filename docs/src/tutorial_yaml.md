@@ -33,7 +33,7 @@ A YAML file can contain any of these top-level blocks:
 | `points` | Point masses (nodes in the system) |
 | `segments` | Spring-damper connections |
 | `pulleys` | Equal-tension constraints |
-| `twist_surfaces` | Deformable wing sections (twist DOF) |
+| `stations` | Deformable wing sections (twist DOF) |
 | `tethers` | Winch-controlled segment groups |
 | `winches` | Torque-controlled motors |
 | `wings` | Aerodynamic bodies |
@@ -319,15 +319,15 @@ winches:
     - [1, [1], ground]
 ```
 
-### Twist surfaces
+### Stations
 
-A [`TwistSurface`](@ref) is a wing section with a twist degree of freedom.
+A [`Station`](@ref) is a wing section with a twist degree of freedom.
 `point_idxs` (or `points`) lists its structural points; `type` is `DYNAMIC`
 (twist solves its equilibrium), `STATIC` (twist is a prescribed control input)
 or `KINEMATIC` (a flap hinge whose deflection follows two bodies).
 
 ```yaml
-twist_surfaces:
+stations:
   headers: [name, point_idxs, type, moment_frac, damping, stiffness]
   data:
     - [left,   [le_left, te_left],     DYNAMIC, 0.25, 100.0, 0.0]
@@ -342,7 +342,7 @@ wings:
     - name: main_wing
       dynamics_type: RIGID_DYNAMICS   # or PARTICLE_DYNAMICS
       aero_mode: linearized           # direct | continuous | pressure | plate | none
-      twist_surfaces: [left, center, right]
+      stations: [left, center, right]
       origin_idx: kcu
       z_ref_points: [kcu, le_center]
       y_ref_points: [le_right, le_left]

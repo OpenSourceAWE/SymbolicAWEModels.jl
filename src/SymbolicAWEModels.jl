@@ -66,7 +66,7 @@ export SymbolicAWEModel
 export ModelBackend, MonolithBackend, KernelBackend,
        BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
-export SystemStructure, Point, TwistSurface, Segment, Pulley, Tether, Winch, Wing, Transform
+export SystemStructure, Point, Station, Segment, Pulley, Tether, Winch, Wing, Transform
 export Body, ElasticJoint, TimoshenkoJoint
 export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
 export ObjAdapter
@@ -87,7 +87,9 @@ export WingType, RIGID_DYNAMICS, PARTICLE_DYNAMICS, QUATERNION, REFINE
 export PrincipalFrameMethod, EIGEN_DECOMP, Y_ROTATION
 export AbstractAeroModel, AeroNone, AeroDirect, AeroLinearized, AeroPlate,
        ContinuousAero, AeroPressure
+export check_live_polar
 export aero_component
+export UnsteadyAero, unsteady_aero, apply_apparent_mass!
 export WindMode, ProfileWind, PerPointWind, per_point_wind
 
 # --- High-Level Simulation Functions (Workers) ---
@@ -136,10 +138,12 @@ const SimFloat = Float64
 
 """
    const KVec3    = MVector{3, SimFloat}
+   const KVec2    = MVector{2, SimFloat}
 
 Basic 3-dimensional vector, stack allocated, mutable.
 """
 const KVec3    = MVector{3, SimFloat}
+const KVec2    = MVector{2, SimFloat}
 const KVec4    = MVector{4, SimFloat}
 const MVec3    = MVector{3, Float64}  # Used by VortexStepMethod functions
 
@@ -211,6 +215,7 @@ include("aero_modes/direct.jl")
 include("aero_modes/linearized.jl")
 include("aero_modes/continuous.jl")
 include("aero_modes/pressure.jl")
+include("aero_modes/live_polar.jl")
 include("aero_modes/plate.jl")
 # Winch models; loaded after generate_system for the MTK/flat-params it uses.
 include("winch_models/common.jl")

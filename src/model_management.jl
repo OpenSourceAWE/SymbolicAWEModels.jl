@@ -51,7 +51,7 @@ of the compiled `ODESystem` (`sys`).
 """
 function generate_prob_getters(sys_struct, sys, param_registry=nothing,
                                initial_registry=nothing)
-    (; points, wings, twist_surfaces, pulleys, winches, tethers, segments, bodies) = sys_struct
+    (; points, wings, stations, pulleys, winches, tethers, segments, bodies) = sys_struct
     get_aero_input, set_set_values, get_set_values = nothing, nothing, nothing
 
     specs = NamedTuple[]
@@ -79,13 +79,13 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             sys.len          => (c, v) -> (c.len = v[c.idx]; nothing),
             sys.l0           => (c, v) -> (c.l0 = v[c.idx]; nothing)))
     end
-    if length(twist_surfaces) > 0
-        push!(specs, scatter_spec(ss -> ss.twist_surfaces,
+    if length(stations) > 0
+        push!(specs, scatter_spec(ss -> ss.stations,
             sys.twist_angle                 => (c, v) -> (c.twist = v[c.idx]; nothing),
             sys.twist_ω                     => (c, v) -> (c.twist_ω = v[c.idx]; nothing),
-            sys.twist_surface_tether_force  => (c, v) -> (c.tether_force = v[c.idx]; nothing),
-            sys.twist_surface_tether_moment => (c, v) -> (c.tether_moment = v[c.idx]; nothing),
-            sys.twist_surface_aero_moment   => (c, v) -> (c.aero_moment = v[c.idx]; nothing)))
+            sys.station_tether_force  => (c, v) -> (c.tether_force = v[c.idx]; nothing),
+            sys.station_tether_moment => (c, v) -> (c.tether_moment = v[c.idx]; nothing),
+            sys.station_aero_moment   => (c, v) -> (c.aero_moment = v[c.idx]; nothing)))
     end
     if length(winches) > 0
         push!(specs, scatter_spec(ss -> ss.winches,
@@ -820,7 +820,7 @@ Includes all structural properties that affect the symbolic equations:
 - Point connectivity and types (STATIC, DYNAMIC, BODY_STATIC), including the
   beam joint a BODY_STATIC point anchors to (selects which bodies enter its equations)
 - Segment connectivity
-- TwistSurface structure and types (STATIC, DYNAMIC)
+- Station structure and types (STATIC, DYNAMIC)
 - Pulley constraints and types
 - Tether topology
 - Winch configuration
@@ -833,7 +833,7 @@ Includes all structural properties that affect the symbolic equations:
 Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
-    (; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms,
+    (; points, stations, segments, pulleys, tethers, winches, wings, transforms,
        bodies, elastic_joints, timoshenko_joints) = sys_struct
     data_parts = []
     for point in points
@@ -848,8 +848,8 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
                      string(typeof(segment.unit_stiffness))
         push!(data_parts, ("segment", segment.idx, segment.point_idxs, stiff_type))
     end
-    for twist_surface in twist_surfaces
-        push!(data_parts, ("twist_surface", twist_surface.idx, twist_surface.point_idxs, Int(twist_surface.type)))
+    for station in stations
+        push!(data_parts, ("station", station.idx, station.point_idxs, Int(station.type)))
     end
     for pulley in pulleys
         push!(data_parts, ("pulley", pulley.idx, pulley.segment_idxs, Int(pulley.type)))
@@ -865,10 +865,13 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         polar_format = wing.aero isa AbstractVSMAero &&
                        !isempty(wing.aero.vsm_aero.panels) ?
             wing.aero.vsm_aero.panels[1].aero_model : nothing
-        wing_data = ("wing", wing.idx, wing.twist_surface_idxs,
+        # flow_curvature adds a moment term and the lag adds states, so both are
+        # structure; their constants are parameters, as is the apparent mass.
+        wing_data = ("wing", wing.idx, wing.station_idxs,
                      Int(wing.dynamics_type),
                      nameof(typeof(wing.aero)),
-                     aero_hash_id(wing.aero), polar_format)
+                     aero_hash_id(wing.aero), polar_format,
+                     flow_curvature_enabled(wing), wagner_enabled(wing))
 
         # Include wing reference points in hash
         ref_hash(ref) = (ref.ids, ref.weights)

@@ -115,13 +115,13 @@ struct KinematicWingReadout
 end
 
 """
-    TwistSurfaceReadout(surface, angle, rate, tether_force, tether_moment, aero_moment)
+    StationReadout(surface, angle, rate, tether_force, tether_moment, aero_moment)
 
-Where one twist surface's results live: its twist and rate in the output buffer, and
+Where one station's results live: its twist and rate in the output buffer, and
 the bridle couple and aerodynamic hinge moment in the observable buffer. A surface
 whose twist is prescribed reports the same names, with the couple bound to zero.
 """
-struct TwistSurfaceReadout
+struct StationReadout
     surface::Int
     angle::Int
     rate::Int
@@ -191,7 +191,7 @@ struct KernelStateGetter{R}
     kinematic::Vector{KinematicWingReadout}
     rigid::Vector{RigidWingReadout}
     aero::Vector{WingAeroReadout}
-    twist::Vector{TwistSurfaceReadout}
+    twist::Vector{StationReadout}
     alpha_b::KVec3
 end
 
@@ -227,7 +227,7 @@ function KernelStateGetter(model::KernelModel, rhs, sys_struct)
                                 kinematic_wing_readouts(sys_struct),
                                 rigid_wing_readouts(model, sys_struct),
                                 wing_aero_readouts(model, sys_struct),
-                                twist_surface_readouts(model), zero(KVec3))
+                                station_readouts(model), zero(KVec3))
 end
 
 """
@@ -274,19 +274,19 @@ function kinematic_wing_readouts(sys_struct)
 end
 
 """
-    twist_surface_readouts(model) -> Vector{TwistSurfaceReadout}
+    station_readouts(model) -> Vector{StationReadout}
 
-One [`TwistSurfaceReadout`](@ref) per twist surface that has a twist instance. A
+One [`StationReadout`](@ref) per station that has a twist instance. A
 `KINEMATIC` surface has none — its deflection is a [`FlapDelta`](@ref), which the
 aero reads directly and the struct does not carry.
 """
-function twist_surface_readouts(model::KernelModel)
-    readouts = TwistSurfaceReadout[]
+function station_readouts(model::KernelModel)
+    readouts = StationReadout[]
     for (idx, instance) in enumerate(model.twist_instances)
         instance == 0 && continue
         output(name) = only(buffer_slots(model.system, instance, :outputs, name))
         observed(name) = only(buffer_slots(model.system, instance, :observables, name))
-        push!(readouts, TwistSurfaceReadout(idx, output(:twist_angle),
+        push!(readouts, StationReadout(idx, output(:twist_angle),
             output(:twist_vel), observed(:tether_force), observed(:tether_moment),
             observed(:aero_moment)))
     end
@@ -459,7 +459,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
         end
     end
     for readout in getter.twist
-        surface = sys_struct.twist_surfaces[readout.surface]
+        surface = sys_struct.stations[readout.surface]
         surface.twist = scratch.output[readout.angle]
         surface.twist_ω = scratch.output[readout.rate]
         surface.tether_force = scratch.observable[readout.tether_force]
@@ -484,7 +484,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
             zp1 = readout.z1, zp2 = readout.z2, yp1 = readout.y1,
             yp2 = readout.y2, origin = readout.origin,
             aero_points = readout.aero_points, base_point,
-            twist_surfaces = sys_struct.twist_surfaces)
+            stations = sys_struct.stations)
     end
     for readout in getter.rigid
         wing = sys_struct.bodies[readout.wing]
@@ -492,7 +492,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
         copy_slots!(getter.alpha_b, scratch.observable, readout.alpha_b)
         write_wing_scalars!(wing, sys_struct.points;
             base_point = readout.base_point, alpha_b = getter.alpha_b,
-            twist_surfaces = sys_struct.twist_surfaces)
+            stations = sys_struct.stations)
     end
     for readout in getter.points
         point = sys_struct.points[readout.point]

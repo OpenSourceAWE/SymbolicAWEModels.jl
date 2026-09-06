@@ -6,7 +6,7 @@
 #
 # A STATIC LE body and a DYNAMIC TE (flap) body are hinged at mid-chord; the
 # AeroPressure wing's LE/TE points ride the two bodies; a KINEMATIC flap
-# twist_surface carries δ = the LE→TE hinge angle into the (α, δ) polars. Putting a
+# station carries δ = the LE→TE hinge angle into the (α, δ) polars. Putting a
 # spanwise moment on the TE body deflects the flap — δ changes and the live RHS
 # per-panel force responds (δ enters cl/cd/cm every step). Runs both the lumped
 # `ElasticJoint` hinge and the distributed `TimoshenkoJoint` beam, with a δ-swept
@@ -22,7 +22,7 @@ using Test
 using SymbolicAWEModels
 const S = SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, SimFloat, has_flap,
-    twist_surface_deltas
+    station_deltas
 using KiteUtils, LinearAlgebra
 
 function write_delta_swept_fixture(data_path)
@@ -107,7 +107,7 @@ bodies:
   data:
     - [le_body, [-0.5, 0.0, 2.17], STATIC,  main_transform, 0.5, [0.05, 0.05, 0.05]]
     - [te_body, [0.5,  0.0, 2.47], DYNAMIC, main_transform, 0.5, [0.05, 0.05, 0.05]]
-$(joint_block)twist_surfaces:
+$(joint_block)stations:
   headers: [name, wing, type, points, flap_bodies, flap_axis]
   data:
     - [flap, main_wing, KINEMATIC, [le_left, te_left, le_center, te_center, le_right, te_right], [le_body, te_body], [0.0, 1.0, 0.0]]
@@ -153,7 +153,7 @@ function build_flap_model(data_path, joint_block)
     return SymbolicAWEModel(set, sys), sys
 end
 
-flap_angle(sam) = twist_surface_deltas(sam.sys_struct)[sam.sys_struct.twist_surfaces[:flap].idx]
+flap_angle(sam) = station_deltas(sam.sys_struct)[sam.sys_struct.stations[:flap].idx]
 
 @testset "flap + continuous pressure aero" begin
     pkg_root = dirname(@__DIR__)
@@ -167,8 +167,8 @@ flap_angle(sam) = twist_surface_deltas(sam.sys_struct)[sam.sys_struct.twist_surf
             wing = sys.wings[1]; mode = wing.aero
             te = sys.bodies[:te_body]
             @test mode isa AeroPressure
-            @test has_flap(sys.twist_surfaces[:flap])
-            @test any(!=(0), mode.panel_twist_surface)
+            @test has_flap(sys.stations[:flap])
+            @test any(!=(0), mode.panel_station)
 
             test_init!(sam; prn=false)
             # A spanwise moment on the TE body deflects the flap about the mid-chord

@@ -91,7 +91,7 @@ rel_error(value, reference) = norm(value .- reference) / norm(reference)
 Set the main transform (elevation, azimuth, heading) and wind speed from a
 `(elevation, azimuth, heading, v_wind)` tuple, then re-init the model. Used to
 drive a controlled rigid pose without running the ODE. `twist` prescribes the
-twist-surface angles, so the pose is held in a deformed state. It is applied
+station angles, so the pose is held in a deformed state. It is applied
 *before* `init!`: `update_sys_struct!` writes `twist` back from the model every
 step, so a value set afterwards is overwritten and never reaches the dynamics.
 """
@@ -150,17 +150,12 @@ aero_poses = [
     particle_yaml = joinpath(data_path, "particle_structural_geometry.yaml")
     rigid_yaml = joinpath(data_path, "rigid_structural_geometry.yaml")
 
-    # AeroPressure needs a per-node surface aero fixture. It is written into its
-    # own copy of the data so every other mode reads the unpatched geometry, and
-    # it gets its own VSMSettings because `create_vsm_wing` rewrites the geometry
-    # path into whichever data directory is active.
-    surface_path = joinpath(tmpdir, "surface", "2plate_kite")
-    mkpath(dirname(surface_path))
-    cp(src_data_path, surface_path; force=true)
-    write_pressure_fixture(surface_path)
-    surface_yaml = joinpath(surface_path, "particle_structural_geometry.yaml")
-    vsm_set_surface = VortexStepMethod.VSMSettings(
-        joinpath(surface_path, "vsm_settings.yaml"); data_prefix=false)
+    # Every mode reads the same patched geometry. AeroPressure is the only one that
+    # needs the per-node surface aero the patch adds, and the others ignore it, but
+    # sharing one fixture is what makes their numbers comparable: the yaw contract
+    # below is a symmetry with no VSM reference, so a mode failing it while the
+    # others pass says something only when all four fly the same wing.
+    write_pressure_fixture(data_path)
 
     # The moment tolerance is `moment_rtol * |M_ref| + moment_lever * |F_ref|`:
     # the relative term plus a small force-proportional floor. The floor
@@ -205,7 +200,7 @@ aero_poses = [
         # (~0.01 chord, bounded by "moment placement" in test_pressure_aero.jl),
         # is what the budget pays for.
         (name="pressure particle", make=() -> AeroPressure(),
-            yaml=surface_yaml, data=surface_path, vsm_set=vsm_set_surface,
+            yaml=particle_yaml, data=data_path, vsm_set=vsm_set,
             dynamics=PARTICLE_DYNAMICS, reference=:vsm,
             force_rtol=0.006, moment_rtol=0.20, moment_lever=0.12,
             drag_rtol=0.005, lift_rtol=0.05, side_atol=0.02,

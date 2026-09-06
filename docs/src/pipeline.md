@@ -81,7 +81,7 @@ using ModelingToolkit.jl. It calls specialized equation builders for each subsys
 | `winch_eqs!()` | `src/generate_system/winch_eqs.jl` | Motor dynamics, Coulomb/viscous friction |
 | `tether_eqs!()` | `src/generate_system/tether_eqs.jl` | Tether length kinematics |
 | `pulley_eqs!()` | `src/generate_system/pulley_eqs.jl` | Equal-tension constraints |
-| `twist_surface_eqs!()` | `src/generate_system/twist_surface_eqs.jl` | Twist deformation dynamics |
+| `station_eqs!()` | `src/generate_system/station_eqs.jl` | Twist deformation dynamics |
 | `rigid_body_eqs!()` | `src/generate_system/rigid_body_eqs.jl` | 6-DOF body dynamics in the principal frame |
 | `body_eqs!()` | `src/generate_system/body_eqs.jl` | Body-frame pose outputs |
 | `joint_eqs!()` | `src/generate_system/joint_eqs.jl` | [`ElasticJoint`](@ref) 6-DOF springs |

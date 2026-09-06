@@ -22,6 +22,7 @@ their defaults the body integrates freely.
 - `force_w`, `moment_w`: length-3 `Num` vectors, total force at / moment about
   the COM in world frame.
 - `inertia_p`: length-3 principal inertia; `mass`: scalar.
+- `apparent_mass`: entrained air resisting acceleration without weight (default 0).
 - `R_b_to_p`: constant body→principal rotation; `com_offset_b`: COM offset in
   the body frame (origin→COM).
 - State / output array variables (indexed `[.., idx]` internally): `com_w`,
@@ -40,6 +41,7 @@ their defaults the body integrates freely.
 function rigid_body_eqs!(
     eqs, defaults, idx;
     force_w, moment_w, inertia_p, mass, R_b_to_p, com_offset_b,
+    apparent_mass=0.0,
     com_w, com_vel, Q_p_to_w, ω_p,
     com_acc, α_p, R_p_to_w, moment_p, Q_p_vel,
     R_b_to_w, wing_pos, wing_vel, wing_acc, ω_b, α_b, Q_b_to_w,
@@ -47,7 +49,7 @@ function rigid_body_eqs!(
     ω_kinematic=nothing, d_ω_p=nothing, d_com_w=nothing, d_com_vel=nothing,
 )
     ex = rigid_body_pose_expressions(
-        force_w, moment_w, inertia_p, mass, R_b_to_p, com_offset_b,
+        force_w, moment_w, inertia_p, mass, R_b_to_p, apparent_mass, com_offset_b,
         com_w[:, idx], com_vel[:, idx], Q_p_to_w[:, idx], ω_p[:, idx];
         ω_kinematic, d_ω_p, d_com_w, d_com_vel)
 

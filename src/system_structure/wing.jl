@@ -19,7 +19,7 @@ This file contains:
 Abstract base type for all wing implementations.
 
 Concrete subtypes must implement rigid body dynamics and provide a reference frame
-for attached points and twist_surfaces.
+for attached points and stations.
 """
 abstract type AbstractWing end
 
@@ -154,17 +154,17 @@ end
 function Wing end
 
 """
-    Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_principal;
+    Wing(name, stations, R_b_to_c, pos_cad, inertia_principal;
          transform=nothing, angular_damping=[0.0, 150.0, 0.0],
          dynamics_type=RIGID_DYNAMICS, aero=nothing,
          z_ref_points=nothing, y_ref_points=nothing, origin=nothing, vsm=nothing)
 
-Low-level `Wing` constructor. The `idx`, `twist_surface_idxs`, and `transform_idx`
+Low-level `Wing` constructor. The `idx`, `station_idxs`, and `transform_idx`
 are resolved by `SystemStructure`.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier (e.g. `:main_wing`).
-- `twist_surfaces::Vector`: References to attached twist_surfaces (names or indices).
+- `stations::Vector`: References to attached stations (names or indices).
 - `R_b_to_c::Matrix{SimFloat}`: Rotation matrix from body frame to CAD frame.
 - `pos_cad::KVec3`: Position of wing body origin in CAD frame.
 - `inertia_principal::KVec3`: Principal moments of inertia `[Ixx, Iyy, Izz]`.
@@ -177,12 +177,12 @@ are resolved by `SystemStructure`.
   [1/s] of the COM velocity, resolved on the world and body axes.
 - `dynamics_type::WingType`: `RIGID_DYNAMICS` (default) or `PARTICLE_DYNAMICS`.
 - `aero::AbstractAeroModel`: Aerodynamic model (defaults by `dynamics_type`).
-- `group_points_moment::Bool=true`: When `false`, in-group (twist_surface) points
+- `group_points_moment::Bool=true`: When `false`, in-group (station) points
   add no moment to the wing body; their force still contributes. Runtime-switchable.
 - `z_ref_points`, `y_ref_points`, `origin`: Body-frame reference points (raw refs).
   A VSM engine, when needed, lives in the `aero` mode (built by the VSM constructors).
 """
-function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
+function Wing(name, stations::AbstractVector, R_b_to_c::AbstractMatrix,
               pos_cad, inertia_principal;
               transform=nothing, angular_damping=[0.0, 150.0, 0.0],
               world_frame_damping=0.0, body_frame_damping=0.0,
@@ -204,7 +204,7 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
     isnothing(dynamics_type) && (dynamics_type = RIGID_DYNAMICS)
     isnothing(aero) && (aero = dynamics_type == RIGID_DYNAMICS ?
         AeroLinearized() : AeroDirect())
-    twist_surface_refs = Vector{NameRef}([to_name_ref(twist_surface) for twist_surface in twist_surfaces])
+    station_refs = Vector{NameRef}([to_name_ref(station) for station in stations])
     transform_value = isnothing(transform) ? 1 : transform
     transform_ref = to_name_ref(transform_value)
 
@@ -219,7 +219,7 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
     damping_vec = broadcast_damping(angular_damping)
     return Body{typeof(aero), wing_dynamics(dynamics_type)}(
         0, name, 0, transform_ref, 0, 0,
-        zero(SimFloat), KVec3(inertia_principal),
+        zero(SimFloat), zero(SimFloat), KVec3(inertia_principal),
         Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3), zeros(KVec3),
         principal_frame_method,
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
@@ -230,7 +230,7 @@ function Wing(name, twist_surfaces::AbstractVector, R_b_to_c::AbstractMatrix,
         KVec3(pos_cad), zeros(KVec3), zeros(KVec3),
         zeros(KVec3), zeros(KVec3), zeros(SimFloat, 4), zeros(KVec3),
         # aero/wing fields
-        aero, Int64[], twist_surface_refs,
+        aero, Int64[], station_refs,
         zeros(KVec3), one(SimFloat),
         zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -249,7 +249,7 @@ This function checks for a `.obj` file in the model directory. If present it use
 `VortexStepMethod.ObjWing(obj_path; …)` to generate the aero geometry (airfoils
 are extracted from the mesh; no `.dat` is needed). The mesh is sliced at panel
 resolution — `ObjWing` defaults to one unrefined section per panel boundary
-(`n_panels + 1`) — independent of the wing's twist-surface count; the twist
+(`n_panels + 1`) — independent of the wing's station count; the twist
 surfaces map onto the refined panels by distance later. The generated
 `geometry.yaml` is cached under `<model_dir>/obj_geometry` and reused on later
 runs. When no `.obj` is present it falls back to `vsm_set`'s `geometry_file`. Aero
@@ -288,17 +288,19 @@ end
 Build a [`VSMEngine`](@ref): create the VortexStepMethod `vsm_wing`/`vsm_aero`/
 `vsm_solver` and size the linearization state vectors. Aero-state sizes are
 placeholders for `RIGID_DYNAMICS` (using the mesh's `n_unrefined_sections` as the
-twist_surface-count proxy) and resized by `SystemStructure` once twist_surfaces
+station-count proxy) and resized by `SystemStructure` once stations
 are resolved.
 
 # Keywords
 - `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
 - `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
+- `unsteady`: the wing's [`UnsteadyAero`](@ref) corrections; `nothing` takes the
+  defaults, which are all off.
 """
 function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
                           dynamics_type::WingType;
                           point_to_vsm_point=nothing, wing_segments=nothing,
-                          aero_scale_chord=0.0, aero_z_offset=0.0)
+                          aero_scale_chord=0.0, aero_z_offset=0.0, unsteady=nothing)
     vsm_wing = create_vsm_wing(set, vsm_set; prn=false, sort_sections=false)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
     vsm_solver = VortexStepMethod.Solver(vsm_aero, vsm_set)
@@ -307,9 +309,9 @@ function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
         num_aero_outputs = 0
         num_aero_inputs = 0
     else
-        n_twist_surfaces_est = vsm_wing.n_unrefined_sections
-        num_aero_outputs = 6 + n_twist_surfaces_est
-        num_aero_inputs = 5 + n_twist_surfaces_est
+        n_stations_est = vsm_wing.n_unrefined_sections
+        num_aero_outputs = 6 + n_stations_est
+        num_aero_inputs = 5 + n_stations_est
     end
 
     return VSMEngine(vsm_aero, vsm_wing, vsm_solver,
@@ -317,11 +319,12 @@ function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
         zeros(SimFloat, num_aero_outputs),
         zeros(SimFloat, num_aero_outputs, num_aero_inputs),
         point_to_vsm_point, wing_segments,
-        SimFloat(aero_scale_chord), SimFloat(aero_z_offset))
+        SimFloat(aero_scale_chord), SimFloat(aero_z_offset),
+        isnothing(unsteady) ? UnsteadyAero() : unsteady)
 end
 
 """
-    VSMWing(name, set, twist_surfaces, vsm_set; transform=nothing,
+    VSMWing(name, set, stations, vsm_set; transform=nothing,
             angular_damping=[0.0, 150.0, 0.0], ...)
 
 Construct a [`Wing`](@ref) with Vortex Step Method aerodynamics. Builds the
@@ -331,7 +334,7 @@ it to the wing.
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the wing.
 - `set::Settings`: Settings object for VSM configuration.
-- `twist_surfaces::Vector`: References to twist_surfaces (names or indices).
+- `stations::Vector`: References to stations (names or indices).
 - `vsm_set`: VSM settings for engine creation. Required for VSM-backed aero
   modes ([`AbstractVSMAero`](@ref)); may be `nothing` for engine-less modes
   like [`AeroNone`](@ref).
@@ -342,14 +345,14 @@ it to the wing.
 - `angular_damping`: Per-axis spin damping [1/s]; a scalar is broadcast.
 - `dynamics_type::WingType=RIGID_DYNAMICS`: Aerodynamic model type.
 - `aero::AbstractAeroModel`: Aerodynamic model (defaults by `dynamics_type`).
-- `group_points_moment::Bool=true`: When `false`, in-group (twist_surface) points
+- `group_points_moment::Bool=true`: When `false`, in-group (station) points
   add no moment to the wing body; their force still contributes. Runtime-switchable.
 - `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
 - `z_ref_points`, `y_ref_points`, `origin`: Body-frame references.
 - `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
 """
 function VSMWing(name, set::Settings,
-                 twist_surfaces::AbstractVector,
+                 stations::AbstractVector,
                  vsm_set::Union{Nothing, VortexStepMethod.VSMSettings};
                  R_b_to_c::Union{Nothing,AbstractMatrix}=nothing,
                  pos_cad::Union{Nothing,AbstractVector}=nothing,
@@ -414,7 +417,7 @@ function VSMWing(name, set::Settings,
     inertia_vec = isnothing(inertia_diag) ?
         ones(MVector{3, SimFloat}) : inertia_diag
 
-    wing = Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_vec;
+    wing = Wing(name, stations, R_b_to_c, pos_cad, inertia_vec;
         transform, angular_damping, dynamics_type, aero,
         group_points_moment, z_ref_points, y_ref_points, origin,
         principal_frame_method)
@@ -453,60 +456,60 @@ function seed_wing_inertia!(vsm_wing, set::Settings, com, unit_inertia)
 end
 
 """
-    VSMWing(name, vsm_aero, vsm_wing, vsm_solver, twist_surfaces, R_b_to_c, pos_cad; transform=nothing)
+    VSMWing(name, vsm_aero, vsm_wing, vsm_solver, stations, R_b_to_c, pos_cad; transform=nothing)
 
 Construct a `RIGID_DYNAMICS` [`Wing`](@ref) from pre-created VSM objects. Kept for
 backward compatibility with predefined structures.
 """
 function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
-                 twist_surfaces::AbstractVector,
+                 stations::AbstractVector,
                  R_b_to_c::AbstractMatrix,
                  pos_cad::AbstractVector;
                  transform=nothing,
                  n_unrefined_sections=nothing)
     inertia_vec = ones(MVector{3, SimFloat})
-    n_twist_surfaces_est = isnothing(n_unrefined_sections) ?
+    n_stations_est = isnothing(n_unrefined_sections) ?
         vsm_wing.n_unrefined_sections : n_unrefined_sections
-    num_aero_outputs = 6 + n_twist_surfaces_est
-    num_aero_inputs = 5 + n_twist_surfaces_est
+    num_aero_outputs = 6 + n_stations_est
+    num_aero_inputs = 5 + n_stations_est
     engine = VSMEngine(vsm_aero, vsm_wing, vsm_solver,
         zeros(SimFloat, num_aero_inputs),
         zeros(SimFloat, num_aero_outputs),
         zeros(SimFloat, num_aero_outputs, num_aero_inputs),
-        nothing, nothing, SimFloat(0.0), SimFloat(0.0))
-    return Wing(name, twist_surfaces, R_b_to_c, pos_cad, inertia_vec;
+        nothing, nothing, SimFloat(0.0), SimFloat(0.0), UnsteadyAero())
+    return Wing(name, stations, R_b_to_c, pos_cad, inertia_vec;
         transform, aero=AeroLinearized(engine))
 end
 
 """
-    Wing(name, vsm_aero, vsm_wing, vsm_solver, twist_surfaces, R_b_to_c, pos_cad; transform=1)
+    Wing(name, vsm_aero, vsm_wing, vsm_solver, stations, R_b_to_c, pos_cad; transform=1)
 
 Backward-compatibility constructor: builds a VSM [`Wing`](@ref) from pre-created
 VSM objects (delegates to [`VSMWing`](@ref)).
 """
-function Wing(name, vsm_aero, vsm_wing, vsm_solver, twist_surfaces, R_b_to_c,
+function Wing(name, vsm_aero, vsm_wing, vsm_solver, stations, R_b_to_c,
               pos_cad; kwargs...)
-    return VSMWing(name, vsm_aero, vsm_wing, vsm_solver, twist_surfaces, R_b_to_c, pos_cad; kwargs...)
+    return VSMWing(name, vsm_aero, vsm_wing, vsm_solver, stations, R_b_to_c, pos_cad; kwargs...)
 end
 
 # ==================== PLATE WING ==================== #
 
 """
-    PlateWing(name, twist_surfaces, calc_cl, calc_cd;
+    PlateWing(name, stations, calc_cl, calc_cd;
               dynamics_type=PARTICLE_DYNAMICS, transform=nothing,
               angular_damping=[0.0, 150.0, 0.0], drag_corr=0.93,
               z_ref_points=nothing, y_ref_points=nothing, origin=nothing)
 
 Construct a flat-plate [`Wing`](@ref) (no VSM engine; `vsm === nothing`). Each
-flat-plate section is a 1-point `STATIC` [`TwistSurface`](@ref) carrying the
+flat-plate section is a 1-point `STATIC` [`Station`](@ref) carrying the
 section's body-frame reference frame, area, and prescribed twist; the shared
 polar lookups live on the wing's [`AeroPlate`](@ref) `aero` model. Supports both
 `RIGID_DYNAMICS` and `PARTICLE_DYNAMICS`.
 
 # Arguments
 - `name`: Wing name/identifier.
-- `twist_surfaces`: References (names or indices) to the wing's flat-plate
-  sections — each a 1-point `STATIC` [`TwistSurface`](@ref).
+- `stations`: References (names or indices) to the wing's flat-plate
+  sections — each a 1-point `STATIC` [`Station`](@ref).
 - `calc_cl`: CL lookup callable(alpha_deg) → CL.
 - `calc_cd`: CD lookup callable(alpha_deg) → CD.
 
@@ -517,7 +520,7 @@ polar lookups live on the wing's [`AeroPlate`](@ref) `aero` model. Supports both
 - `drag_corr`: Drag correction factor (stored on the `AeroPlate` model).
 - `z_ref_points`, `y_ref_points`, `origin`: Body-frame references.
 """
-function PlateWing(name, twist_surfaces::AbstractVector,
+function PlateWing(name, stations::AbstractVector,
                    calc_cl, calc_cd;
                    dynamics_type::WingType=PARTICLE_DYNAMICS,
                    transform=nothing,
@@ -526,7 +529,7 @@ function PlateWing(name, twist_surfaces::AbstractVector,
                    z_ref_points=nothing,
                    y_ref_points=nothing,
                    origin=nothing)
-    return Wing(name, twist_surfaces, Matrix{SimFloat}(I, 3, 3),
+    return Wing(name, stations, Matrix{SimFloat}(I, 3, 3),
                 zeros(KVec3), ones(MVector{3, SimFloat});
                 transform, angular_damping, dynamics_type,
                 aero=AeroPlate(calc_cl, calc_cd; drag_corr),

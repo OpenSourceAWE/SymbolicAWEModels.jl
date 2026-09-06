@@ -141,18 +141,18 @@ function build_mesh_maps!(mode::ContinuousAero)
 end
 
 """
-    setup_aero!(mode::ContinuousAero, wing, points, twist_surfaces; prn=false)
+    setup_aero!(mode::ContinuousAero, wing, points, stations; prn=false)
 
 The generic VSM particle setup plus the [`ContinuousAero`](@ref) mesh maps
 ([`build_mesh_maps!`](@ref)).
 """
-function setup_aero!(mode::ContinuousAero, wing, points, twist_surfaces;
+function setup_aero!(mode::ContinuousAero, wing, points, stations;
                      prn=false)
     wing.dynamics_type == PARTICLE_DYNAMICS || error(
         "ContinuousAero supports PARTICLE_DYNAMICS wings only; wing " *
         "$(wing.name) is $(wing.dynamics_type).")
     invoke(setup_aero!, Tuple{AbstractVSMAero, Any, Any, Any},
-           mode, wing, points, twist_surfaces; prn)
+           mode, wing, points, stations; prn)
     mode.vsm_wing.spanwise_distribution == VortexStepMethod.BILLOWING || error(
         "ContinuousAero requires the BILLOWING spanwise distribution so the " *
         "refined panels carry the canopy billow shape; wing $(wing.name) uses " *
@@ -164,15 +164,15 @@ end
 
 """
     remake_aero!(mode::ContinuousAero, wing, set, vsm_set, points,
-                 twist_surfaces)
+                 stations)
 
 The generic VSM remake plus a rebuild of the mesh maps (the VSM wing geometry
 objects are replaced, invalidating the panel indexing).
 """
 function remake_aero!(mode::ContinuousAero, wing, set, vsm_set, points,
-                      twist_surfaces)
+                      stations)
     invoke(remake_aero!, Tuple{AbstractVSMAero, Any, Any, Any, Any, Any},
-           mode, wing, set, vsm_set, points, twist_surfaces)
+           mode, wing, set, vsm_set, points, stations)
     build_mesh_maps!(mode)
     return nothing
 end
@@ -217,19 +217,24 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
 
     sec_le, sec_te =
         reconstruct_sections_sym(mode, wing, points, connectors, column)
-    sec_va, sec_rho = reconstruct_inflow_sym(mode, wing, connectors, column)
+    sec_va, sec_rho, sec_dva =
+        reconstruct_inflow_sym(mode, wing, connectors, column)
 
     orient = panel_span_signs(wing, spanwise)
-    eqs, panel_vars, panel_force, panel_couple = build_panel_force_eqs(
-        sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w, cl, cd, cm, spanwise,
-        scale, orient)
+    wagner_eqs, wagner_vars, deficiency, wagner_defaults =
+        wagner_wing_eqs(wing, sec_va, params)
+    eqs, panel_vars, panel_force, panel_couple, curvature_couple, slots =
+        build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
+            cl, cd, cm, spanwise, scale, orient; sec_dva, deficiency)
+    append!(eqs, wagner_eqs)
     vars = particle_unknowns(connectors)
     append!(vars, panel_vars)
+    append!(vars, wagner_vars)
 
     point_force = [zeros(Num, 3) for _ in 1:num_points]
     for i in 1:n_panels
         force = collect(panel_force[:, i])
-        couple = collect(panel_couple[:, i])
+        couple = scatter_couple(mode, slots, i, nothing)
         force_le = 0.75 * force + couple
         force_te = 0.25 * force - couple
         for s in (i, i + 1), (strut, w) in
@@ -245,7 +250,10 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
     for k in 1:num_points
         eqs = [eqs; connectors.point_force[:, k] ~ point_force[k]]
     end
-    return System(eqs, t, vars, [vind_p, chord_w, cl, cd, cm]; name)
+    return System(eqs, t, vars,
+                  [Any[vind_p, chord_w, cl, cd, cm];
+                   wagner_params(wing, params)];
+                  name, initial_conditions=wagner_defaults)
 end
 
 # ==================== per-panel decomposition ==================== #
