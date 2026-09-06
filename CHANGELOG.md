@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Unreleased
+## v0.16.0 06-09-2026
 
 ### Added
 - Wind can be set per point. A `SystemStructure` now carries a `wind_mode`: the
