@@ -35,6 +35,11 @@
 
 ### Fixed
 
+- A panel's normal is taken from the quarter-chord step rather than the leading-edge
+  step, so it is square to the bound vortex the loads are built from. On a swept
+  panel the two steps differ, and the normal set the lift direction and the angle of
+  attack the polar was read at.
+
 - The cached-model hash now covers a station's flap wiring, so changing which
   bodies or points carry δ rebuilds the model instead of silently reusing one
   whose deflection equations read the old ones. Every cached model bin is

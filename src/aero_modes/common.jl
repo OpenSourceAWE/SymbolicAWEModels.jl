@@ -374,7 +374,7 @@ function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
     x_unit = chord_vec ./ smooth_norm(chord_vec)
     span_vec = (0.75 * le_1 + 0.25 * te_1) - (0.75 * le_2 + 0.25 * te_2)
     y_unit = orient .* (span_vec ./ smooth_norm(span_vec))
-    z_cross = x_unit × (le_1 - le_2)
+    z_cross = x_unit × span_vec
     z_unit = orient .* (z_cross ./ smooth_norm(z_cross))
 
     va_panel = 0.5 * (va_1 + va_2)
@@ -617,7 +617,9 @@ function wagner_reference_frame(wing)
         chord_vec = 0.5 .* ((right.TE_point .+ left.TE_point) .-
                             (right.LE_point .+ left.LE_point))
         x_unit = chord_vec ./ norm(chord_vec)
-        z_vec = x_unit × (left.LE_point .- right.LE_point)
+        span_vec = (0.75 .* left.LE_point .+ 0.25 .* left.TE_point) .-
+                   (0.75 .* right.LE_point .+ 0.25 .* right.TE_point)
+        z_vec = x_unit × span_vec
         x_ref .+= x_unit
         z_ref .+= orient[i] .* (z_vec ./ norm(z_vec))
     end
