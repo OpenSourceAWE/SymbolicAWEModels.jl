@@ -561,17 +561,17 @@ function next_step!(
     s::SymbolicAWEModel,
     integrator::OrdinaryDiffEqCore.ODEIntegrator;
     set_values=nothing, dt=1/s.set.sample_freq,
-    vsm_interval=1, vsm_min_wind=0.5
+    vsm_interval=1, vsm_min_wind=0.5, vsm_warn_on_fail=false
 )
     !(s.integrator === integrator) && error(
         "The ODEIntegrator doesn't belong to " *
         "the SymbolicAWEModel")
-    next_step!(s; set_values, dt, vsm_interval, vsm_min_wind)
+    next_step!(s; set_values, dt, vsm_interval, vsm_min_wind, vsm_warn_on_fail)
 end
 
 """
     next_step!(s::SymbolicAWEModel; set_values, dt,
-               vsm_interval, vsm_min_wind)
+               vsm_interval, vsm_min_wind, vsm_warn_on_fail)
 
 Advance the simulation by one time step, optionally
 updating control inputs and re-linearizing the VSM
@@ -587,10 +587,15 @@ integrator. Errors on an unstable solver retcode.
 - `vsm_min_wind=0.5`: Minimum apparent wind [m/s] for
     a VSM solve. Below this the solve is skipped and
     the wing's aero outputs are zeroed.
+- `vsm_warn_on_fail=false`: Warn instead of erroring
+    when a VSM solve fails, keeping the circulation, the
+    angles of attack and the frozen forces of the last
+    converged solve. The next scheduled update solves
+    again.
 """
 function next_step!(sam::SymbolicAWEModel;
     set_values=nothing, dt=1/sam.set.sample_freq,
-    vsm_interval=1, vsm_min_wind=0.5
+    vsm_interval=1, vsm_min_wind=0.5, vsm_warn_on_fail=false
 )
     prob = sam.prob
     integrator = sam.integrator
@@ -621,7 +626,7 @@ function next_step!(sam::SymbolicAWEModel;
         if vsm_interval != 0 && sam.iter % vsm_interval == 0 &&
                 has_vsm_wing(sam.sys_struct)
             sam.t_vsm = @elapsed begin
-                refresh_aero!(sam; vsm_min_wind)
+                refresh_aero!(sam; vsm_min_wind, vsm_warn_on_fail)
                 sync_params!(prob.param_sync, integrator, sam.sys_struct)
             end
         end

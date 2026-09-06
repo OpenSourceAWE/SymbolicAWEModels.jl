@@ -16,6 +16,10 @@
   wind. `set.profile_law` keeps its `AtmosphericModels` meaning and is unused in this
   mode. Only `PerPointWind` enters the model-cache hash, so existing models keep
   their cached builds.
+- `next_step!(sam; vsm_warn_on_fail=true)` warns instead of erroring when a VSM
+  solve does not converge. The wing keeps the circulation, the angles of attack and
+  the frozen forces of its last converged solve, and `vsm_interval` is untouched, so
+  the next scheduled update solves again.
 
 ### Fixed
 
@@ -163,6 +167,11 @@
     polars are read. `wagner_gains` and `wagner_rates` are registered
     parameters, so retuning a lag syncs instead of rebuilding; only the on/off
     switch is structural.
+- A failed VSM solve leaves the last converged solve's circulation in
+  `solver.sol.gamma_distribution` and its angles of attack in `solver.lr.alpha_dist`
+  and `solver.sol.alpha_dist`, rather than zeroing the circulation and keeping the
+  diverged angles. The next solve keeps its warm start, and a live polar keeps
+  re-centring its knots on a finite angle.
 
 ## v0.15.2 22-08-2026
 

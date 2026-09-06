@@ -92,7 +92,8 @@ Direct particle-wing refresh. Runs the full nonlinear VSM solve using each
 section's apparent wind (averaged from its LE/TE point velocities in
 `va_point_b_vals`), then distributes the resulting panel forces onto the wing's
 structural points ([`distribute_panel_forces_to_points!`](@ref)). Below
-`vsm_min_wind` the point forces are zeroed.
+`vsm_min_wind` the point forces are zeroed. Throws a [`VSMSolveFailure`](@ref) on
+a non-converged or non-finite solve, before any point force is written.
 """
 function refresh_particle_aero!(::AeroDirect, wing, points, va_point_b_vals;
                                 vsm_min_wind=0.5, cold_start=false)
@@ -109,7 +110,8 @@ function refresh_particle_aero!(::AeroDirect, wing, points, va_point_b_vals;
     set_particle_panel_va!(wing, va_point_b_vals)
 
     if !safe_vsm_solve!(wing.vsm_solver, wing.vsm_aero; cold_start)
-        throw(AssertionError("PARTICLE_DYNAMICS VSM solve failed (non-converged or non-finite) on wing $(wing.idx)"))
+        throw(VSMSolveFailure("PARTICLE_DYNAMICS VSM solve failed " *
+            "(non-converged or non-finite) on wing $(wing.idx)."))
     end
     distribute_panel_forces_to_points!(wing, points)
     for point in points
