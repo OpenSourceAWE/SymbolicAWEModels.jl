@@ -79,8 +79,7 @@ coulomb_viscous_friction(rate, coulomb_friction, viscous_coefficient, epsilon,
     smooth_norm(v, eps=VortexStepMethod.SMOOTH_FLOOR)
 
 Differentiable norm: `sqrt(sum(abs2, v) + eps^2)`. `VortexStepMethod.smooth_norm`
-under another name, so the aero equations traced from its panel aerodynamics and
-equations written here floor a norm the same way.
+under another name.
 """
 smooth_norm(v, eps=VortexStepMethod.SMOOTH_FLOOR) =
     VortexStepMethod.smooth_norm(v, eps)
