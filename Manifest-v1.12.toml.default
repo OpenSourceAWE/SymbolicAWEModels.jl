@@ -3281,9 +3281,9 @@ version = "1.28.0"
 
 [[deps.VortexStepMethod]]
 deps = ["Arrow", "Colors", "DefaultApplication", "DelimitedFiles", "DifferentiationInterface", "FiniteDiff", "ForwardDiff", "Interpolations", "LaTeXStrings", "LinearAlgebra", "Logging", "Measures", "NPZ", "NonlinearSolve", "Parameters", "Pkg", "PreallocationTools", "PrecompileTools", "Printf", "RecursiveArrayTools", "SciMLBase", "Serialization", "StaticArrays", "Statistics", "StructMapping", "Timers", "Xfoil", "YAML"]
-git-tree-sha1 = "57379c5e62329d54f717c0c8a041d6a257b8e74f"
+git-tree-sha1 = "b1fceb1b4c6003da1c2e0eb58cd490b99699d083"
 uuid = "ed3cd733-9f0f-46a9-93e0-89b8d4998dd9"
-version = "4.1.1"
+version = "4.3.0"
 weakdeps = ["MakieControlPlots"]
 
     [deps.VortexStepMethod.extensions]
