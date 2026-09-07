@@ -82,17 +82,13 @@
   `TwistSurface` is `Station`, `station_control_points` says what it returns,
   and the file is `station_eqs.jl`.
 
-- TEMPORARY: `SymbolicUtils` is taken from a fork
-  (`1-Bart-1/SymbolicUtils.jl#fix/isequal-dag-memo-v4.45`) through a `[sources]`
-  entry: the fix backported onto the 4.45 this stack resolves to. `isequal` on
-  two equal-but-distinct expressions is exponential in nesting depth otherwise,
-  which is what made a second model build in one session spend 320 s in
-  `ODEProblem` against 2 s for the first. Upstream issue
-  JuliaSymbolics/SymbolicUtils.jl#1049; the fix, #1052, is merged but is in no
-  registered release yet, and upstream `master` carries it only on a
-  SymbolicUtils that wants ModelingToolkitBase 1.68 against the 1.59 here. Drop
-  the `[sources]` entry once a release carries it — a registered package cannot
-  carry one.
+- `SymbolicUtils` 4.46.3 or newer is required. It carries the fix for
+  JuliaSymbolics/SymbolicUtils.jl#1049, where `isequal` on two equal but
+  distinct expressions is exponential in nesting depth: a second model build in
+  one session spent 320 s in `ODEProblem` against 2 s for the first. That
+  release moves the SciML stack a generation on, so `LinearSolve` 5 and
+  `DataInterpolations` 9-10 are allowed too and both default manifests are
+  regenerated.
 
 - `check_live_polar(mode, wing; panel_idx)` runs one XFoil solve against the
   live polar a panel is flying, on the state the model is in now. It defaults to

@@ -56,16 +56,12 @@ MakieControlPlots = "6d616b69-6563-4f6e-8472-6f6c706c6f74"
 [extensions]
 SymbolicAWEModelsMakieExt = ["GeometryBasics", "MakieControlPlots"]
 
-# Until the fix in JuliaSymbolics/SymbolicUtils.jl#1052 reaches a release.
-[sources]
-SymbolicUtils = {url = "https://github.com/1-Bart-1/SymbolicUtils.jl", rev = "fix/isequal-dag-memo-v4.45"}
-
 [compat]
 ADTypes = "1"
 AtmosphericModels = "0.3.2"
 CodecZlib = "0.7.8"
 ControlSystemsBase = "1.18.1"
-DataInterpolations = "8.10.0"
+DataInterpolations = "8.10.0, 9, 10"
 Dates = "1"
 DocStringExtensions = "0.9.4"
 ForwardDiff = "1, 2"
@@ -73,7 +69,7 @@ GeometryBasics = "0.5.10"
 KiteUtils = "0.12.2"
 LaTeXStrings = "1.4.0"
 LinearAlgebra = "1"
-LinearSolve = "2, 3, 4"
+LinearSolve = "2, 3, 4, 5"
 Logging = "1"
 MakieControlPlots = "0.1.5"
 ModelingToolkit = "11"
@@ -96,7 +92,7 @@ Statistics = "1"
 SteadyStateDiffEq = "2.5, 3, 4"
 Suppressor = "0.2.8"
 SymbolicIndexingInterface = "0.3, 0.4"
-SymbolicUtils = "4, 5"
+SymbolicUtils = "4.46.3, 5"
 Symbolics = "7, 8"
 TOML = "1"
 Tar = "1.10.0"
