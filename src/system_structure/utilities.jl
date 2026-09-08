@@ -680,6 +680,24 @@ function apply_tether_init_forces!(sys_struct::SystemStructure)
     end
 end
 
+"""
+    seed_per_point_wind!(sys_struct::SystemStructure)
+
+Give every point and every wing the ground wind `set.wind_vec` as its own wind, so a
+[`PerPointWind`](@ref) model that is never written to flies in the uniform wind the
+settings describe. Called from `reinit!`; from then on these winds belong to the
+caller, who writes them between steps.
+"""
+function seed_per_point_wind!(sys_struct::SystemStructure)
+    for point in sys_struct.points
+        point.wind_vec .= sys_struct.set.wind_vec
+    end
+    for wing in sys_struct.wings
+        wing.wind_vec .= sys_struct.set.wind_vec
+    end
+    return nothing
+end
+
 # ==================== REINIT! FOR SYSTEM STRUCTURE ==================== #
 
 """
@@ -786,18 +804,24 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     # Compute per-wing wind from settings
     wind_vec_gnd = set.wind_vec
 
-    wind_factor = WindFactor(sys_struct.am, sys_struct.set.profile_law)
+    if per_point_wind(sys_struct)
+        seed_per_point_wind!(sys_struct)
+    else
+        wind_factor = WindFactor(sys_struct.am, set.profile_law)
+        for wing in wings
+            # Calculate wind at wing position using atmospheric model
+            wing.wind_vec .= wind_factor(wing.pos_w[3]) * wind_vec_gnd
+        end
+    end
     for wing in wings
-        # Calculate wind at wing position using atmospheric model
-        wing.v_wind .= wind_factor(wing.pos_w[3]) * wind_vec_gnd
-
         R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
         if wing.dynamics_type == PARTICLE_DYNAMICS
-            va_wing_w = wing.v_wind - wing.vel_w + wing.wind_disturb
+            va_wing_w = wing.wind_vec - wing.vel_w + wing.wind_disturb
             wing.va_b .= R_b_to_w' * va_wing_w
         else
             # Initialize the aero operating point from the initial wind
-            init_aero_state!(wing.aero, wing, R_b_to_w' * wind_vec_gnd)
+            init_aero_state!(wing.aero, wing, R_b_to_w' *
+                (per_point_wind(sys_struct) ? wing.wind_vec : wind_vec_gnd))
         end
     end
 
@@ -1019,7 +1043,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         wing.tether_moment .= sys_state.tether_induced_moment
         wing.va_b .= NaN
         restore_point_aero_forces!(sys, wing, sys_state)
-        wing.v_wind .= sys_state.v_wind_kite
+        wing.wind_vec .= sys_state.v_wind_kite
         wing.aoa = Float64(sys_state.AoA)
         wing.course = Float64(sys_state.course)
         wing.acc_w .= 0.0

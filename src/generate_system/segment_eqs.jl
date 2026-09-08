@@ -65,8 +65,8 @@ end
 
 """
     segment_eqs!(s, eqs, points, segments, pulleys, tethers, bodies, params;
-                 pos, vel, wind_vec_gnd, spring_force_vec, drag_force, l0,
-                 pulley_len, pulley_vel, tether_len, tether_vel)
+                 pos, vel, wind_vec_gnd, wind_at_point, spring_force_vec,
+                 drag_force, l0, pulley_len, pulley_vel, tether_len, tether_vel)
 
 Generate equations for segment spring-damper forces and aerodynamic drag.
 
@@ -83,6 +83,8 @@ as well, keeping only the geometry.
 - `points`, `segments`, `pulleys`, `tethers`, `bodies`: System components.
 - `pos`, `vel`: Symbolic point state variables.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
+- `wind_at_point`: Per-point wind, which a [`PerPointWind`](@ref) segment averages
+  over its two endpoints instead of evaluating a height profile at its midpoint.
 - `spring_force_vec`, `drag_force`, `l0`: Pre-declared segment force variables.
 - `pulley_len`, `tether_len`: Symbolic state variables for pulley and tether lengths.
 - `pulley_vel`, `tether_vel`: Their rates, which a moving rest length's damper reads
@@ -94,7 +96,7 @@ as well, keeping only the geometry.
 """
 function segment_eqs!(s, eqs, points, segments,
                       pulleys, tethers, bodies,
-                      params; pos, vel, wind_vec_gnd,
+                      params; pos, vel, wind_vec_gnd, wind_at_point,
                       spring_force_vec, drag_force, l0,
                       pulley_len, pulley_vel, tether_len, tether_vel)
     @variables begin
@@ -141,11 +143,13 @@ function segment_eqs!(s, eqs, points, segments,
             continue
         end
 
-        spring, _, wind_factor = segment_spring_params(params, idx; with_drag)
+        spring = segment_spring_params(params, idx; with_drag)
+        wind_source = segment_wind_source(params, idx, wind_at_point[:, src],
+                                          wind_at_point[:, dst], wind_gnd)
         loads = segment_load_terms(s, src_pos, src_vel, dst_pos, dst_vel,
             spring.unit_stiffness, spring.unit_damping, spring.compression_frac,
             spring.compression_damping_frac, l0[idx], spring.diameter,
-            spring.density, spring.cd_tether, wind_gnd, wind_factor;
+            spring.density, spring.cd_tether, wind_source;
             with_drag, nonlinear = spring.nonlinear, rest_len_rate)
         eqs = [
             eqs

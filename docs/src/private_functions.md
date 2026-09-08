@@ -38,6 +38,17 @@ SymbolicAWEModels.get_sys_struct_hash
 ```@docs
 SymbolicAWEModels.WindFactor
 SymbolicAWEModels.WindFactorReader
+SymbolicAWEModels.AbstractWindSource
+SymbolicAWEModels.ProfileWindSource
+SymbolicAWEModels.PrescribedWindSource
+SymbolicAWEModels.wind_mode
+SymbolicAWEModels.segment_wind_params
+SymbolicAWEModels.bind_segment_winds!
+SymbolicAWEModels.profile_wind_source
+SymbolicAWEModels.point_wind_source
+SymbolicAWEModels.segment_wind_source
+SymbolicAWEModels.wing_wind_source
+SymbolicAWEModels.seed_per_point_wind!
 SymbolicAWEModels.calc_angle_of_attack
 SymbolicAWEModels.calc_heading
 SymbolicAWEModels.calc_R_t_to_w
@@ -380,8 +391,6 @@ SymbolicAWEModels.frozen_point_force_component
 SymbolicAWEModels.build_panel_force_eqs
 SymbolicAWEModels.panel_force_eqs
 SymbolicAWEModels.evaluate_polar
-SymbolicAWEModels.section_pitch_rate
-SymbolicAWEModels.flow_curvature_cm
 SymbolicAWEModels.flow_curvature_enabled
 SymbolicAWEModels.wagner_enabled
 SymbolicAWEModels.wagner_wing_eqs
@@ -443,6 +452,7 @@ SymbolicAWEModels.aero_geometry_entries
 SymbolicAWEModels.strut_inflow_weights
 SymbolicAWEModels.strut_pitch_weights
 SymbolicAWEModels.strut_station_weights
+SymbolicAWEModels.scatter_node_weights
 SymbolicAWEModels.scatter_totals!
 SymbolicAWEModels.zero_weight_pair
 SymbolicAWEModels.scatter_entry_list

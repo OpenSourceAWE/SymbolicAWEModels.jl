@@ -559,7 +559,8 @@ system:
             loads = SymbolicAWEModels.segment_load_terms(
                 nothing, src, still, dst, KVec3(0.0, 0.0, separation_speed),
                 unit_stiffness, unit_damping, 0.1, 1.0, l0, 0.005, 724.0,
-                0.0, still, nothing; with_drag=false, rest_len_rate)
+                0.0, SymbolicAWEModels.PrescribedWindSource(still);
+                with_drag=false, rest_len_rate)
             return loads.spring, loads.spring_vel
         end
 

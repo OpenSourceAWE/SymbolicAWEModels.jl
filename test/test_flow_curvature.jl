@@ -224,14 +224,18 @@ minimising `sum((rate - omega·y)^2)` is removed and the remaining norm reported
 relative to the original. Near zero means a rigid `omega` describes the motion.
 """
 function rigid_rate_residual(rates, axes)
-    gram = sum(axis * axis' for axis in axes)
-    moments = sum(rates[i] * axes[i] for i in eachindex(rates))
-    omega = gram \ moments
+    omega = pinv(stack(axes; dims=1)) * rates
     residual = [rates[i] - dot(omega, axes[i]) for i in eachindex(rates)]
     return norm(residual) / norm(rates)
 end
 
 @testset "Flow curvature" begin
+    @testset "the rigid residual survives axes sharing one direction" begin
+        spanwise = [[0.0, 1.0, 0.0] for _ in 1:4]
+        @test rigid_rate_residual([2.0, 2.0, 2.0, 2.0], spanwise) < 1e-12
+        @test rigid_rate_residual([1.0, -1.0, 1.0, -1.0], spanwise) ≈ 1.0
+    end
+
     root = mktempdir()
     # About the wing nodes' centroid: a few m/s against the ~15 m/s inflow.
     pitch_rate = 3.0

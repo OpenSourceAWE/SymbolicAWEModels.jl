@@ -109,7 +109,8 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     const wind_disturb::KVec3
     drag_frac::SimFloat
     const va_b::KVec3
-    const v_wind::KVec3
+    "Wind velocity at the wing, world frame [m/s]: a height-profile output, or the settable input under `PerPointWind`."
+    const wind_vec::KVec3
     const aero_force_b::KVec3
     const aero_moment_b::KVec3
     const tether_moment::KVec3

@@ -137,7 +137,7 @@ end
 the quantities the struct carries: its
 lumped body-frame `aero_force_b`/`aero_moment_b`, and — for a rigid wing, whose
 apparent wind the component computes rather than the getter — its `va_b` and
-`v_wind`. A name the component does not observe gets no slots and is left alone.
+`wind_vec`. A name the component does not observe gets no slots and is left alone.
 """
 struct WingAeroReadout
     wing::Int
@@ -471,7 +471,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
         copy_slots!(wing.aero_force_b, scratch.observable, readout.force)
         copy_slots!(wing.aero_moment_b, scratch.observable, readout.moment)
         copy_slots!(wing.va_b, scratch.observable, readout.apparent)
-        copy_slots!(wing.v_wind, scratch.observable, readout.wind)
+        copy_slots!(wing.wind_vec, scratch.observable, readout.wind)
     end
     for readout in getter.kinematic
         wing = sys_struct.bodies[readout.body]
@@ -479,8 +479,8 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
         base_point = (wing.transform_idx != 0 &&
                       wing.transform_idx <= length(transforms)) ?
             transforms[wing.transform_idx].base_point_idx : 0
-        wing_kinematics_from_points!(wing,
-            sys_struct.points, sys_struct.set, sys_struct.am;
+        wing_kinematics_from_points!(wing, sys_struct.points, sys_struct.set,
+            sys_struct.am, sys_struct.wind_mode;
             zp1 = readout.z1, zp2 = readout.z2, yp1 = readout.y1,
             yp2 = readout.y2, origin = readout.origin,
             aero_points = readout.aero_points, base_point,

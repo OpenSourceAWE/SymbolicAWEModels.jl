@@ -44,6 +44,41 @@ set_angular_damping
 calc_steady_torque
 ```
 
+## Wind
+
+Where a model takes its wind from is a [`WindMode`](@ref) on its
+`SystemStructure`. The default [`ProfileWind`](@ref) scales the ground wind
+`set.wind_vec` by the height profile `set.profile_law`. [`PerPointWind`](@ref)
+instead gives every point its own wind vector, settable between steps.
+
+```julia
+sys_struct = load_sys_struct_from_yaml(path; set, wind_mode=PerPointWind())
+sam = SymbolicAWEModel(set, sys_struct)
+init!(sam)
+for _ in 1:steps
+    for point in sam.sys_struct.points    # a gust field, refreshed every step
+        point.wind_vec .= my_wind_field(point.pos_w, sam.integrator.t)
+    end
+    sam.sys_struct.wings[1].wind_vec .= my_wind_field(...)
+    next_step!(sam)
+end
+```
+
+Each point's own drag and apparent wind read its `wind_vec` directly, and a
+segment's tether drag the mean of its two endpoints — the same averaging its
+drag already applies to their velocities. A wing reads its own `wing.wind_vec`,
+which is the wind a rigid wing's aerodynamics fly in; the per-point winds reach
+the VSM panels through the per-point inflow the panels already interpolate.
+`init!` seeds every point and wing with `set.wind_vec`, so a model that is never
+written to flies in a uniform wind.
+
+```@docs
+WindMode
+ProfileWind
+PerPointWind
+per_point_wind
+```
+
 ## Winch components
 
 The winch motor model is a pluggable [`AbstractWinchModel`](@ref) struct.
