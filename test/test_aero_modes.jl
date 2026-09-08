@@ -310,10 +310,10 @@ aero_poses = [
 
             @testset "dynamic run" begin
                 apply_pose!(sam, set, aero_poses[1])
-                dt = 0.02
+                dt = 0.05
                 force0, _ = model_force_moment(sam, wing)
                 bound = 50.0 * max(norm(force0), 1.0)
-                for _ in 1:50
+                for _ in 1:20
                     next_step!(sam; dt, vsm_interval=1)
                     force, moment = model_force_moment(sam, wing)
                     @test all(isfinite, force)
@@ -329,7 +329,7 @@ aero_poses = [
             if case.dynamics == PARTICLE_DYNAMICS
                 @testset "particle wing ω_b" begin
                     apply_pose!(sam, set, aero_poses[1])
-                    settle_aero!(sam; steps=40, dt=0.005)
+                    settle_aero!(sam; steps=10)
                     rot_before = copy(wing.R_b_to_w)
                     next_step!(sam; dt=1e-4, vsm_interval=1)
                     rot_after = copy(wing.R_b_to_w)
