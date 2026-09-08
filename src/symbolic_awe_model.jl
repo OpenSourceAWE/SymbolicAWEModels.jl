@@ -609,6 +609,8 @@ function next_step!(sam::SymbolicAWEModel;
     end
 
     sam.t_0 = integrator.t
+    # Setting parameters flags a derivative discontinuity; FBDF restarts on it.
+    OrdinaryDiffEqCore.derivative_discontinuity!(integrator, false)
     sam.t_step = @elapsed OrdinaryDiffEqCore.step!(integrator, dt, true)
     if !successful_retcode(integrator.sol)
         throw(AssertionError("Solver unstable at t=" *

@@ -70,6 +70,17 @@
   to tear the expression graph. `smooth_norm`, `panel_span_signs` and
   `store_chord_weights!` go through the same kernel. Requires VortexStepMethod
   4.2.
+- The SciML stack moves a generation on: `DataInterpolations` 9 and 10,
+  `LinearSolve` 5 and a `SymbolicUtils` floor of 4.46.3 are allowed, and both
+  default manifests are regenerated onto them.
+
+### Fixed
+- `next_step!` no longer costs `FBDF` its multistep history. SciMLBase 3.53
+  treats every parameter write through an integrator as a derivative
+  discontinuity, and OrdinaryDiffEqCore 4.17 acts on that on every step rather
+  than only the first, so the parameters `next_step!` syncs each step restarted
+  the solver at order 1 with an empty history and the dynamics went unstable
+  within a few steps. `next_step!` clears the flag before it steps.
 
 - BREAKING: a wing's `twist_surface` is now a `station`, in the code and in the
   structural geometry YAML: the `twist_surfaces:` key and the per-wing
