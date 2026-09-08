@@ -15,6 +15,14 @@
   `LinearSolve` 5 and a `SymbolicUtils` floor of 4.46.3 are allowed, and both
   default manifests are regenerated onto them.
 
+### Fixed
+- `next_step!` no longer costs `FBDF` its multistep history. SciMLBase 3.53
+  treats every parameter write through an integrator as a derivative
+  discontinuity, and OrdinaryDiffEqCore 4.17 acts on that on every step rather
+  than only the first, so the parameters `next_step!` syncs each step restarted
+  the solver at order 1 with an empty history and the dynamics went unstable
+  within a few steps. `next_step!` clears the flag before it steps.
+
 ## v0.16.0 06-09-2026
 
 ### Added
