@@ -96,10 +96,7 @@
 - `SymbolicUtils` 4.46.3 or newer is required. It carries the fix for
   JuliaSymbolics/SymbolicUtils.jl#1049, where `isequal` on two equal but
   distinct expressions is exponential in nesting depth: a second model build in
-  one session spent 320 s in `ODEProblem` against 2 s for the first. That
-  release moves the SciML stack a generation on, so `LinearSolve` 5 and
-  `DataInterpolations` 9-10 are allowed too and both default manifests are
-  regenerated.
+  one session spent 320 s in `ODEProblem` against 2 s for the first.
 
 - `check_live_polar(mode, wing; panel_idx)` runs one XFoil solve against the
   live polar a panel is flying, on the state the model is in now. It defaults to
