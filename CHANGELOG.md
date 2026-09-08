@@ -4,10 +4,10 @@
 
 ### Fixed
 - The `KernelBackend` evaluates its analytical Jacobian once before handing it to
-  the solver. When it is not finite it warns, names the kernels whose dual pass
-  came back non-finite, and leaves the solver to differentiate the right-hand
-  side itself, instead of failing on the first implicit step with `dt` driven
-  below floating-point epsilon.
+  the solver, and errors when it is not finite, naming the kernels whose dual
+  pass came back non-finite, instead of failing on the first implicit step with
+  `dt` driven below floating-point epsilon. `analytic_jacobian=false` runs such a
+  model on the solver's own Jacobian.
 
 - `AeroPressure` no longer writes one copy of a panel's live load per contour
   node. The symbolic component summed a separate `surface_node_forces` expression

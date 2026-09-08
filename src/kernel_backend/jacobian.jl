@@ -192,8 +192,8 @@ instance's column support and input gather, and the map from its derivative bloc
 onto the nonzeros of the assembled matrix.
 
 Returns `nothing`, with a warning, when an instance's own outputs feed an input its
-outputs read, or when the plan does not evaluate finite at `(u0, params)`
-([`finite_jacobian`](@ref)); those models keep the solver's own Jacobian.
+outputs read; those models keep the solver's own Jacobian. Throws when the planned
+Jacobian is not finite at `(u0, params)` ([`check_jacobian_finite`](@ref)).
 """
 function build_jacobian(rhs::KernelRHS, u0, params; prn = true)
     system = rhs.system
@@ -252,27 +252,28 @@ function build_jacobian(rhs::KernelRHS, u0, params; prn = true)
         zeros(SimFloat, widest_input, widest_columns),
         zeros(SimFloat, widest_state, widest_columns), matrix,
         zeros(SimFloat, system.n_states))
-    return finite_jacobian(jacobian, u0, params; prn) ? jacobian : nothing
+    check_jacobian_finite(jacobian, u0, params)
+    return jacobian
 end
 
 """
-    finite_jacobian(jacobian, u0, params; prn=true) -> Bool
+    check_jacobian_finite(jacobian, u0, params)
 
-Whether `jacobian` evaluates finite at `(u0, params, 0)`. A `false` warns, naming
-the kernels whose own dual pass came back non-finite.
+Evaluate `jacobian` at `(u0, params, 0)` and throw when it is not finite, naming the
+kernels whose own dual pass came back non-finite.
 """
-function finite_jacobian(jacobian::KernelJacobian, u0, params; prn = true)
+function check_jacobian_finite(jacobian::KernelJacobian, u0, params)
     jacobian(copy(jacobian.matrix), u0, params, zero(SimFloat))
-    all(isfinite, nonzeros(jacobian.matrix)) && return true
+    all(isfinite, nonzeros(jacobian.matrix)) && return nothing
     kernels = jacobian.rhs.system.kernels
     offenders = unique(kernels[entry.kernel].name for entry in jacobian.duals
                        if !all(isfinite, entry.blocks))
-    blame = isempty(offenders) ? "none; the composition itself overflows" :
-        join(offenders, ", ")
-    prn && @warn "No analytical Jacobian: it is not finite at the initial state, " *
-        "so the solver differentiates the right-hand side itself. Kernels whose " *
-        "own dual pass is not finite: $blame."
-    return false
+    offender_names = isempty(offenders) ?
+        "none; the composition itself overflows" : join(offenders, ", ")
+    error("The analytical Jacobian is not finite at the initial state. Kernels " *
+          "whose own dual pass is not finite: $offender_names. Pass " *
+          "`analytic_jacobian=false` to differentiate the right-hand side " *
+          "numerically instead.")
 end
 
 """

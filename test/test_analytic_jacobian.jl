@@ -13,7 +13,7 @@
 # 4. `analytic_jacobian=false` leaves the solver to differentiate itself
 # 5. It stays finite on a `ContinuousAero` wing, whose `aero_panel` kernel is the
 #    widest one the composition differentiates
-# 6. A plan that is not finite is refused rather than handed to the solver
+# 6. A plan that is not finite errors instead of reaching the solver
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -25,7 +25,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KernelBackend, ForwardDiff, VortexStepMethod,
-    finite_jacobian
+    check_jacobian_finite
 using KiteUtils
 using LinearAlgebra
 
@@ -229,14 +229,13 @@ end
         @test plain.integrator.t > 0.0
     end
 
-    @testset "Refuses a plan that is not finite" begin
+    @testset "Errors on a plan that is not finite" begin
         jacobian = sam.prob.prob.f.jac
         integrator = sam.integrator
-        @test finite_jacobian(jacobian, integrator.u, integrator.p)
+        @test isnothing(check_jacobian_finite(jacobian, integrator.u, integrator.p))
         broken = fill(NaN, length(integrator.u))
-        @test_logs (:warn,) match_mode = :any begin
-            @test !finite_jacobian(jacobian, broken, integrator.p)
-        end
+        @test_throws "not finite at the initial state" check_jacobian_finite(
+            jacobian, broken, integrator.p)
     end
 
     set_data_path(data_path_before)
