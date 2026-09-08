@@ -185,18 +185,17 @@ struct KernelJacobian{R}
 end
 
 """
-    build_jacobian(rhs; prn=true) -> KernelJacobian or nothing
+    build_jacobian(rhs, u0, params; prn=true) -> KernelJacobian or nothing
 
 Plan the analytical Jacobian of `rhs`: the per-kernel dual workspaces, each
 instance's column support and input gather, and the map from its derivative block
 onto the nonzeros of the assembled matrix.
 
 Returns `nothing`, with a warning, when an instance's own outputs feed an input its
-outputs read. The schedule deliberately does not order such an instance against
-itself, so its block is an algebraic loop that one sweep would not settle; those
-models keep the solver's own Jacobian.
+outputs read, or when the plan does not evaluate finite at `(u0, params)`
+([`finite_jacobian`](@ref)); those models keep the solver's own Jacobian.
 """
-function build_jacobian(rhs::KernelRHS; prn = true)
+function build_jacobian(rhs::KernelRHS, u0, params; prn = true)
     system = rhs.system
     offenders = self_feeding_instances(system)
     if !isempty(offenders)
@@ -246,13 +245,34 @@ function build_jacobian(rhs::KernelRHS; prn = true)
     widest_columns = maximum(max(length(cols[i]), length(dstate_cols[i]))
                              for i in 1:count)
 
-    return KernelJacobian(rhs, duals, [entry.blocks for entry in duals],
+    jacobian = KernelJacobian(rhs, duals, [entry.blocks for entry in duals],
         [(entry.n_state, entry.n_input, entry.n_output) for entry in duals],
         dual_of, position, order, stateful, gather, dstate_gather,
         cols, rows, dstate_cols, nzindex, zeros(Int, system.n_states),
         zeros(SimFloat, widest_input, widest_columns),
         zeros(SimFloat, widest_state, widest_columns), matrix,
         zeros(SimFloat, system.n_states))
+    return finite_jacobian(jacobian, u0, params; prn) ? jacobian : nothing
+end
+
+"""
+    finite_jacobian(jacobian, u0, params; prn=true) -> Bool
+
+Whether `jacobian` evaluates finite at `(u0, params, 0)`. A `false` warns, naming
+the kernels whose own dual pass came back non-finite.
+"""
+function finite_jacobian(jacobian::KernelJacobian, u0, params; prn = true)
+    jacobian(copy(jacobian.matrix), u0, params, zero(SimFloat))
+    all(isfinite, nonzeros(jacobian.matrix)) && return true
+    kernels = jacobian.rhs.system.kernels
+    offenders = unique(kernels[entry.kernel].name for entry in jacobian.duals
+                       if !all(isfinite, entry.blocks))
+    blame = isempty(offenders) ? "none; the composition itself overflows" :
+        join(offenders, ", ")
+    prn && @warn "No analytical Jacobian: it is not finite at the initial state, " *
+        "so the solver differentiates the right-hand side itself. Kernels whose " *
+        "own dual pass is not finite: $blame."
+    return false
 end
 
 """

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+- The `KernelBackend` evaluates its analytical Jacobian once before handing it to
+  the solver. When it is not finite it warns, names the kernels whose dual pass
+  came back non-finite, and leaves the solver to differentiate the right-hand
+  side itself, instead of failing on the first implicit step with `dt` driven
+  below floating-point epsilon.
+
 ### Changed
 - `panel_force_eqs` no longer restates the VSM panel aerodynamics symbolically.
   It traces VortexStepMethod's panel kernel (`panel_axes`, `panel_inflow`,
