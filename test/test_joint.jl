@@ -21,7 +21,6 @@ end
 
 using Test
 using SymbolicAWEModels
-using DataInterpolations: ExtrapolationType
 using KiteUtils
 using LinearAlgebra
 using Statistics: mean
@@ -203,8 +202,7 @@ end
         # zero-alloc function barrier, and the Dual derivative through the interp.
         EA = 100.0
         knots = collect(-0.6:0.05:0.6)
-        f_axial = SymbolicAWEModels.LinearInterpolation(EA .* knots, knots;
-            extrapolation=ExtrapolationType.Linear)
+        f_axial = SymbolicAWEModels.LinearInterpolation(EA .* knots, knots)
         b1i = Body(:b1; mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
         b2i = Body(:b2; mass=1.0, inertia_principal=inertia, pos=[1.0, 0.0, 0.0])
         joint_i = ElasticJoint(:j1, :b1, :b2;

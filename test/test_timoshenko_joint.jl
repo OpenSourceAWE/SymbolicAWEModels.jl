@@ -25,7 +25,6 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
-using DataInterpolations: ExtrapolationType
 using KiteUtils
 using LinearAlgebra
 
@@ -159,11 +158,9 @@ end
     eps_knots = collect(-0.02:0.001:0.02)
     kappa_knots = collect(-0.12:0.005:0.12)
     EA_law = SymbolicAWEModels.LinearInterpolation(
-        EA0 .- axial_slope .* abs.(eps_knots), eps_knots;
-        extrapolation=ExtrapolationType.Constant)
+        EA0 .- axial_slope .* abs.(eps_knots), eps_knots)
     EIy_law = SymbolicAWEModels.LinearInterpolation(
-        EI0 .- bend_slope .* abs.(kappa_knots), kappa_knots;
-        extrapolation=ExtrapolationType.Constant)
+        EI0 .- bend_slope .* abs.(kappa_knots), kappa_knots)
 
     nodeA2 = Body(:nodeA; mass=1.0, inertia_principal=inertia,
                   pos=[0.0, 0.0, 0.0], type=STATIC)
