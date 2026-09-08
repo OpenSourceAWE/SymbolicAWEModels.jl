@@ -185,17 +185,18 @@ struct KernelJacobian{R}
 end
 
 """
-    build_jacobian(rhs, u0, params; prn=true) -> KernelJacobian or nothing
+    build_jacobian(rhs; prn=true) -> KernelJacobian or nothing
 
 Plan the analytical Jacobian of `rhs`: the per-kernel dual workspaces, each
 instance's column support and input gather, and the map from its derivative block
 onto the nonzeros of the assembled matrix.
 
 Returns `nothing`, with a warning, when an instance's own outputs feed an input its
-outputs read; those models keep the solver's own Jacobian. Throws when the planned
-Jacobian is not finite at `(u0, params)` ([`check_jacobian_finite`](@ref)).
+outputs read. The schedule deliberately does not order such an instance against
+itself, so its block is an algebraic loop that one sweep would not settle; those
+models keep the solver's own Jacobian.
 """
-function build_jacobian(rhs::KernelRHS, u0, params; prn = true)
+function build_jacobian(rhs::KernelRHS; prn = true)
     system = rhs.system
     offenders = self_feeding_instances(system)
     if !isempty(offenders)
@@ -245,22 +246,21 @@ function build_jacobian(rhs::KernelRHS, u0, params; prn = true)
     widest_columns = maximum(max(length(cols[i]), length(dstate_cols[i]))
                              for i in 1:count)
 
-    jacobian = KernelJacobian(rhs, duals, [entry.blocks for entry in duals],
+    return KernelJacobian(rhs, duals, [entry.blocks for entry in duals],
         [(entry.n_state, entry.n_input, entry.n_output) for entry in duals],
         dual_of, position, order, stateful, gather, dstate_gather,
         cols, rows, dstate_cols, nzindex, zeros(Int, system.n_states),
         zeros(SimFloat, widest_input, widest_columns),
         zeros(SimFloat, widest_state, widest_columns), matrix,
         zeros(SimFloat, system.n_states))
-    check_jacobian_finite(jacobian, u0, params)
-    return jacobian
 end
 
 """
     check_jacobian_finite(jacobian, u0, params)
 
 Evaluate `jacobian` at `(u0, params, 0)` and throw when it is not finite, naming the
-kernels whose own dual pass came back non-finite.
+kernels whose own dual pass came back non-finite. `params` must carry the values
+[`sync_params!`](@ref) writes.
 """
 function check_jacobian_finite(jacobian::KernelJacobian, u0, params)
     jacobian(copy(jacobian.matrix), u0, params, zero(SimFloat))

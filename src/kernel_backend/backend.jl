@@ -12,11 +12,12 @@ callable store, so `sync_params!` writes struct fields straight into it. `sparse
 hands the solver [`state_sparsity`](@ref) as the Jacobian prototype; without it the
 Jacobian is dense, as the monolith's is. `analytic_jacobian` hands it a
 [`KernelJacobian`](@ref) rather than leaving it to differentiate the right-hand side
-numerically, unless [`build_jacobian`](@ref) declines to plan one.
-`FullSpecialize` because the right-hand side is one concrete type, so
-`SciMLBase`'s function wrappers would only add indirection and allocate; it goes on
-the `ODEFunction` as well as the problem, a bare `ODEFunction` being
-`AutoSpecialize`.
+numerically, unless [`build_jacobian`](@ref) declines to plan one; the plan is
+evaluated once at the synchronised initial state and has to be finite there
+([`check_jacobian_finite`](@ref)). `FullSpecialize` because the right-hand side is
+one concrete type, so `SciMLBase`'s function wrappers would only add indirection and
+allocate; it goes on the `ODEFunction` as well as the problem, a bare `ODEFunction`
+being `AutoSpecialize`.
 """
 function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = true,
                      prn = true)
@@ -31,7 +32,7 @@ function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = t
     prototype = sparse ? SimFloat.(model.system.sparsity) : nothing
     jacobian = nothing
     if analytic_jacobian
-        time = @elapsed jacobian = build_jacobian(rhs, model.u0, model.params; prn)
+        time = @elapsed jacobian = build_jacobian(rhs; prn)
         prn && println("\tPlanned the analytical Jacobian in $time seconds.")
     end
     problem = ODEProblem{true, SciMLBase.FullSpecialize}(
@@ -40,6 +41,7 @@ function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = t
             jac_prototype = prototype, jac = jacobian),
         model.u0, (0.0, step), model.params)
     sync_params!(model.param_sync, problem, sam.sys_struct)
+    isnothing(jacobian) || check_jacobian_finite(jacobian, problem.u0, problem.p)
     sam.prob = ProbWithAttributes(; prob = problem,
         param_sync = model.param_sync, initial_sync = KernelInitialSync(model),
         set_set_values = KernelControlSetter(model, sam.sys_struct),
