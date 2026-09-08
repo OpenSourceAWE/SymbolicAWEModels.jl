@@ -12,12 +12,12 @@ component subsystems to attach to the parent `System`.
 """
 function aero_eqs!(
     s, eqs, params;
-    aero_force_b, aero_moment_b, twist_surface_aero_moment,
+    aero_force_b, aero_moment_b, station_aero_moment,
     twist_angle, twist_ω, va_wing_b, wing_pos, ω_b, R_b_to_w,
     pos, vel, va_point_b, height, aero_force_point_b=nothing,
-    twist_surface_delta=nothing
+    station_delta=nothing
 )
-    (; twist_surfaces, wings) = s.sys_struct
+    (; stations, wings) = s.sys_struct
     aero_subsystems = Any[]
     length(wings) == 0 && return eqs, aero_subsystems
 
@@ -41,7 +41,7 @@ function aero_eqs!(
             eqs = [eqs
                    wiring.eqs
                    flap_delta_eqs(wing, subsys,
-                                  surface -> twist_surface_delta[surface])
+                                  surface -> station_delta[surface])
                    collect(aero_force_b[:, wing_idx]) .~ wiring.force_b
                    collect(aero_moment_b[:, wing_idx]) .~ wiring.moment_b]
             for (k, node) in enumerate(nodes)
@@ -58,20 +58,20 @@ function aero_eqs!(
             height = wing_pos[3, wing_idx],
             frame = vec(R_b_to_w[:, :, wing_idx]),
             omega_b = ω_b[:, wing_idx],
-            twist_angles = [twist_angle[twist_surfaces[gidx].idx]
-                            for gidx in wing.twist_surface_idxs],
-            twist_rates = [twist_ω[twist_surfaces[gidx].idx]
-                           for gidx in wing.twist_surface_idxs])
+            twist_angles = [twist_angle[stations[gidx].idx]
+                            for gidx in wing.station_idxs],
+            twist_rates = [twist_ω[stations[gidx].idx]
+                           for gidx in wing.station_idxs])
         eqs = [eqs
                wiring.eqs
                collect(aero_force_b[:, wing_idx]) .~ wiring.force_b
                collect(aero_moment_b[:, wing_idx]) .~ wiring.moment_b]
-        for (twist_surface_pos, gidx) in enumerate(wing.twist_surface_idxs)
-            twist_surface = twist_surfaces[gidx]
-            twist_surface_aero_driven(twist_surface) || continue
+        for (station_pos, gidx) in enumerate(wing.station_idxs)
+            station = stations[gidx]
+            station_aero_driven(station) || continue
             eqs = [eqs
-                   twist_surface_aero_moment[twist_surface.idx] ~
-                       wiring.twist_moments[twist_surface_pos]]
+                   station_aero_moment[station.idx] ~
+                       wiring.twist_moments[station_pos]]
         end
 
     end

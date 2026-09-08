@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 # test_flap_beam.jl — the two structure-driven aero-coupling features:
-#   A. KINEMATIC flap twist_surface: a live deflection δ = the signed angle between
+#   A. KINEMATIC flap station: a live deflection δ = the signed angle between
 #      two bodies about a hinge axis (fed to the (α, δ) polars by AeroPressure).
 #   B. beam-anchored point: a BODY_STATIC point rides a TimoshenkoJoint's deformed
 #      corotational-Hermite centerline instead of one rigid body.
@@ -105,10 +105,10 @@ end
             flap = Body(:flap; mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
                         pos=[1.0, 0, 0])
             bodies = [main, flap]
-            ts = TwistSurface(:flap_ts, Int[], KINEMATIC, 0.0;
+            ts = Station(:flap_ts, Int[], KINEMATIC, 0.0;
                 wing=1, flap_bodies=[1, 2], flap_axis=[0.0, 1.0, 0.0])
             ts.flap_body_idxs = [1, 2]
-            S.init_twist_surface_flap!(ts, bodies)
+            S.init_station_flap!(ts, bodies)
             @test ts.flap_rest_delta ≈ 0.0 atol=1e-12
             @test ts.flap_chord_refs == [KVec3(1, 0, 0), KVec3(1, 0, 0)]
             bodies[2].Q_b_to_w .= quat_y(phi)
@@ -123,10 +123,10 @@ end
         flap = Body(:flap; mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
                     pos=[1.0, 0, 0], Q_b_to_w=quat_y(phi0))
         bodies = [main, flap]
-        ts = TwistSurface(:flap_ts, Int[], KINEMATIC, 0.0;
+        ts = Station(:flap_ts, Int[], KINEMATIC, 0.0;
             wing=1, flap_bodies=[1, 2], flap_axis=[0.0, 1.0, 0.0])
         ts.flap_body_idxs = [1, 2]
-        S.init_twist_surface_flap!(ts, bodies)
+        S.init_station_flap!(ts, bodies)
         @test ts.flap_rest_delta ≈ phi0 atol=1e-10
         bodies[2].Q_b_to_w .= quat_y(phi0 + delta)
         R_main = S.quaternion_to_rotation_matrix(bodies[1].Q_b_to_w)
@@ -156,20 +156,20 @@ end
         joint = TimoshenkoJoint(:joint, :nodeA, :nodeB;
             EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
             damping=0.05)
-        # KINEMATIC flap twist_surface: δ = the hinge angle nodeA→nodeB.
-        flap = TwistSurface(:flap, Int[], KINEMATIC, 0.0;
+        # KINEMATIC flap station: δ = the hinge angle nodeA→nodeB.
+        flap = Station(:flap, Int[], KINEMATIC, 0.0;
             wing=:nodeA, flap_bodies=[:nodeA, :nodeB], flap_axis=[0.0, 1.0, 0.0])
         # Beam-anchored point at midspan, offset 0.1 in +z off the centerline.
         bridle = Point(:bridle, [0.5, 0.0, 0.1], BODY_STATIC; joint=:joint)
         return SystemStructure(name, set;
             points=[bridle], bodies=[nodeA, nodeB], timoshenko_joints=[joint],
-            twist_surfaces=with_flap ? [flap] : TwistSurface[])
+            stations=with_flap ? [flap] : Station[])
     end
 
     sys = build_beam_sys("flap_beam_test")
 
     @testset "structural resolution" begin
-        @test sys.twist_surfaces[:flap].flap_body_idxs == [1, 2]
+        @test sys.stations[:flap].flap_body_idxs == [1, 2]
         @test sys.points[:bridle].joint_idx == 1
         @test sys.points[:bridle].beam_frac ≈ 0.5 atol=1e-6
         @test sys.points[:bridle].beam_offset_b[3] ≈ 0.1 atol=1e-6
@@ -189,7 +189,7 @@ end
 
     @testset "KINEMATIC flap adds no ODE state" begin
         # Absolute counts shift with MTK's alias elimination, so compare against
-        # the same beam without the twist_surface: a DYNAMIC DOF would add 2.
+        # the same beam without the station: a DYNAMIC DOF would add 2.
         bare = SymbolicAWEModel(set, build_beam_sys("flap_beam_bare";
                                                     with_flap=false))
         test_init!(bare; prn=false)

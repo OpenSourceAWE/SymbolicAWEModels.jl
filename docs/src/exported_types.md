@@ -32,6 +32,7 @@ AeroLinearized
 AeroPlate
 ContinuousAero
 AeroPressure
+UnsteadyAero
 aero_component
 is_builtin_aero
 aero_hash_id
@@ -67,11 +68,11 @@ default_backend!
 
 ```@docs
 SystemStructure
-SystemStructure(name, set; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms, bodies, elastic_joints, timoshenko_joints)
+SystemStructure(name, set; points, stations, segments, pulleys, tethers, winches, wings, transforms, bodies, elastic_joints, timoshenko_joints)
 Point
 Point(name, pos_cad, type; wing, transform, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
-TwistSurface
-TwistSurface(name, points, type, moment_frac; damping=50.0)
+Station
+Station(name, points, type, moment_frac; damping=50.0)
 Segment
 Segment(name, set, point_i, point_j; l0, compression_frac, compression_damping_frac, diameter_mm, unit_stiffness, unit_damping, density, youngs_modulus, damping_per_stiffness)
 Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, compression_frac, compression_damping_frac)

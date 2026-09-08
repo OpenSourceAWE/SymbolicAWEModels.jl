@@ -384,8 +384,8 @@ its own job on Ubuntu with Julia 1.12.
 | `test_pulley` | [`Pulley`](@ref) | Equal-tension constraints, multi-segment pulleys |
 | `test_transform` | [`Transform`](@ref) | Spherical coordinate positioning |
 | `test_quaternion_conversions` | — | Quaternion ↔ rotation matrix round-trips |
-| `test_quaternion_auto_groups` | [`TwistSurface`](@ref) | Twist DOFs on a rigid wing |
-| `test_static_twist` | [`TwistSurface`](@ref) | Prescribed (`STATIC`) twist |
+| `test_quaternion_auto_groups` | [`Station`](@ref) | Twist DOFs on a rigid wing |
+| `test_static_twist` | [`Station`](@ref) | Prescribed (`STATIC`) twist |
 | `test_principal_body_frame` | [`Wing`](@ref AbstractWing) | Principal vs body frame separation |
 | `test_principal_frame_invariance` | [`Wing`](@ref AbstractWing) | [`PrincipalFrameMethod`](@ref) is a gauge choice |
 | `test_rigid_body` | [`Body`](@ref) | Free rigid-body motion, gravity, damping |
@@ -472,7 +472,7 @@ The source code is organized into modular directories:
 
 - **`src/system_structure/`** — component types and assembly
   - `types.jl`: [`Point`](@ref), [`Segment`](@ref), [`Pulley`](@ref),
-    [`Tether`](@ref), [`Winch`](@ref), [`TwistSurface`](@ref), [`Transform`](@ref)
+    [`Tether`](@ref), [`Winch`](@ref), [`Station`](@ref), [`Transform`](@ref)
   - `wing.jl`: [`AbstractWing`](@ref)/[`Wing`](@ref) types and the
     [`VSMWing`](@ref)/[`PlateWing`](@ref) constructors, aerodynamic setup
   - `rigid_body.jl`: [`Body`](@ref), [`ElasticJoint`](@ref),

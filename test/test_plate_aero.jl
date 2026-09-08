@@ -22,7 +22,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: Point, Segment, Tether, Winch, PlateWing, TwistSurface,
+using SymbolicAWEModels: Point, Segment, Tether, Winch, PlateWing, Station,
     Transform, SystemStructure, create_plate_interpolations, PARTICLE_DYNAMICS
 using KiteUtils
 using LinearAlgebra
@@ -77,13 +77,13 @@ function build_plate_kite(data_root)
     winches = [Winch(:winch, set, [:main_tether]; winch_point=:ground)]
 
     rel_side = set.rel_side_area / 100.0
-    twist_surfaces = [
-        TwistSurface(:main, [:top], STATIC, 0.0; x_airf=[1, 0, 0],
+    stations = [
+        Station(:main, [:top], STATIC, 0.0; x_airf=[1, 0, 0],
             y_airf=[0, 1, 0], area=set.area, twist=deg2rad(set.alpha_zero)),
-        TwistSurface(:right_tip, [:right], STATIC, 0.0; x_airf=[1, 0, 0],
+        Station(:right_tip, [:right], STATIC, 0.0; x_airf=[1, 0, 0],
             y_airf=[0, 0, -1], area=set.area * rel_side,
             twist=deg2rad(set.alpha_ztip)),
-        TwistSurface(:left_tip, [:left], STATIC, 0.0; x_airf=[1, 0, 0],
+        Station(:left_tip, [:left], STATIC, 0.0; x_airf=[1, 0, 0],
             y_airf=[0, 0, 1], area=set.area * rel_side,
             twist=deg2rad(set.alpha_ztip)),
     ]
@@ -96,7 +96,7 @@ function build_plate_kite(data_root)
     transforms = [Transform(:main_tf, deg2rad(set.elevation), 0.0, 0.0;
         base_pos=zeros(3), base_point=:ground, wing=:plate_wing)]
 
-    sys = SystemStructure("plate_aero_test", set; points, twist_surfaces,
+    sys = SystemStructure("plate_aero_test", set; points, stations,
         segments, tethers, winches, wings=[wing], transforms)
     return set, sys
 end
@@ -108,8 +108,8 @@ Antisymmetric tip twist about the wing's nominal `base` angle: `+delta` on the
 left tip, `-delta` on the right. Passing `-delta` gives the mirrored wing.
 """
 function tip_twist!(sys, base, delta)
-    sys.twist_surfaces[:left_tip].twist = base + delta
-    sys.twist_surfaces[:right_tip].twist = base - delta
+    sys.stations[:left_tip].twist = base + delta
+    sys.stations[:right_tip].twist = base - delta
     return nothing
 end
 

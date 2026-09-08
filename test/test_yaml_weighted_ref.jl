@@ -61,7 +61,7 @@ segments:
     - [6, 5, 7, 0, 1.0, 5000.0, 10.0, 0.01]
     - [7, 7, 9, 0, 1.0, 5000.0, 10.0, 0.01]
 
-twist_surfaces:
+stations:
   headers: [name, point_idxs, type, moment_frac, damping]
   data:
     - [ts_left,   [1, 2], STATIC, 0.75, 50.0]
@@ -73,7 +73,7 @@ wings:
     - idx: 1
       dynamics_type: PARTICLE_DYNAMICS
       aero_mode: AERO_NONE
-      twist_surfaces: [ts_left, ts_center, ts_right]
+      stations: [ts_left, ts_center, ts_right]
       origin_idx: [[7, 0.7], [9, 0.3]]
       z_ref_points: [7, [[3, 0.7], [5, 0.3]]]
       y_ref_points: [1, 5]

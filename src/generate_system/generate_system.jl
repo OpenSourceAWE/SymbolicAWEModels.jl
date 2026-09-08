@@ -10,7 +10,7 @@ include("initial_conditions.jl")
 
 # Component equations (can be in any order - no inter-dependencies)
 include("point_eqs.jl")
-include("twist_surface_eqs.jl")
+include("station_eqs.jl")
 include("segment_eqs.jl")
 include("pulley_eqs.jl")
 include("winch_eqs.jl")

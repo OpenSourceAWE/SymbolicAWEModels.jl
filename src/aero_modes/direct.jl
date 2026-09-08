@@ -39,47 +39,47 @@ on the rigid connector contract.
 """
 function aero_component(::AeroDirect, wing::RigidWing, sys_struct;
                         name, params=nothing)
-    twist_surfaces = sys_struct.twist_surfaces
-    num_twist_surfaces = length(wing.twist_surface_idxs)
-    connectors = rigid_aero_connectors(num_twist_surfaces)
+    stations = sys_struct.stations
+    num_stations = length(wing.station_idxs)
+    connectors = rigid_aero_connectors(num_stations)
     force_p = params.wings[wing.idx].aero_force_b
     moment_p = params.wings[wing.idx].aero_moment_b
     flat_ps = Any[force_p, moment_p]
     eqs = [collect(connectors.force) .~ collect(force_p)
            collect(connectors.moment) .~ collect(moment_p)]
-    for (twist_surface_pos, twist_surface_idx) in enumerate(wing.twist_surface_idxs)
-        if isempty(twist_surfaces[twist_surface_idx].unrefined_section_idxs)
-            eqs = [eqs; connectors.twist_moment[twist_surface_pos] ~ 0]
+    for (station_pos, station_idx) in enumerate(wing.station_idxs)
+        if isempty(stations[station_idx].unrefined_section_idxs)
+            eqs = [eqs; connectors.twist_moment[station_pos] ~ 0]
         else
-            moment_ts_p = params.twist_surfaces[twist_surface_idx].aero_moment
+            moment_ts_p = params.stations[station_idx].aero_moment
             push!(flat_ps, moment_ts_p)
-            eqs = [eqs; connectors.twist_moment[twist_surface_pos] ~ moment_ts_p]
+            eqs = [eqs; connectors.twist_moment[station_pos] ~ moment_ts_p]
         end
     end
     return System(eqs, t, rigid_unknowns(connectors), flat_ps; name)
 end
 
 """
-    refresh_rigid_aero!(::AeroDirect, wing, am, twist_surfaces; vsm_min_wind=0.5)
+    refresh_rigid_aero!(::AeroDirect, wing, am, stations; vsm_min_wind=0.5)
 
 Direct rigid-wing refresh. Computes the baseline coefficients and applies the
 resulting frozen body-frame force/moment ([`apply_direct_forces!`](@ref)), which
 the RHS holds constant until the next refresh. Below `vsm_min_wind` the
-coefficients, Jacobian, force, moment, and per-twist-surface moments are zeroed.
+coefficients, Jacobian, force, moment, and per-station moments are zeroed.
 """
-function refresh_rigid_aero!(::AeroDirect, wing, am, twist_surfaces;
+function refresh_rigid_aero!(::AeroDirect, wing, am, stations;
                              vsm_min_wind=0.5)
     if norm(wing.va_b) < vsm_min_wind
         fill!(wing.aero_x, 0.0)
         fill!(wing.aero_jac, 0.0)
         fill!(wing.aero_force_b, 0.0)
         fill!(wing.aero_moment_b, 0.0)
-        for gidx in wing.twist_surface_idxs
-            twist_surfaces[gidx].aero_moment = 0.0
+        for gidx in wing.station_idxs
+            stations[gidx].aero_moment = 0.0
         end
         return nothing
     end
-    rigid_aero_baseline!(wing, twist_surfaces; vsm_min_wind)
+    rigid_aero_baseline!(wing, stations; vsm_min_wind)
     apply_direct_forces!(wing, am, wing.aero_x)
     return nothing
 end

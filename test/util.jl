@@ -58,10 +58,10 @@ wing_node_positions(sys, wing) = Dict(point.idx => copy(point.pos_w)
 """
     deform_trailing_edge!(sys, wing, base_pos, delta)
 
-Mirror-antisymmetric deformation from `base_pos`: each twist surface's trailing
+Mirror-antisymmetric deformation from `base_pos`: each station's trailing
 edge moves `±delta` along the wing's body z, signed by its span station. Prescribed
 twist cannot do this on a `PARTICLE_DYNAMICS` wing — there a multi-point `STATIC`
-surface is an inert aero-section marker (`twist_surface_eqs.jl`) and the free
+surface is an inert aero-section marker (`station_eqs.jl`) and the free
 points carry the deformation.
 """
 function deform_trailing_edge!(sys, wing, base_pos, delta)
@@ -69,7 +69,7 @@ function deform_trailing_edge!(sys, wing, base_pos, delta)
     for point in sys.points
         haskey(base_pos, point.idx) && (point.pos_w .= base_pos[point.idx])
     end
-    for surface in sys.twist_surfaces
+    for surface in sys.stations
         length(surface.point_idxs) >= 2 || continue
         trailing = sys.points[surface.point_idxs[2]]
         side = sign(trailing.pos_cad[2])
@@ -82,12 +82,12 @@ end
 """
     set_twist!(sys, twists)
 
-Prescribe `twist` per twist-surface name, e.g. `(; left=0.06, right=-0.06)`.
-Surfaces not named keep their value. Only meaningful for `STATIC` twist surfaces,
+Prescribe `twist` per station name, e.g. `(; left=0.06, right=-0.06)`.
+Surfaces not named keep their value. Only meaningful for `STATIC` stations,
 where the angle is held rather than integrated.
 """
 function set_twist!(sys, twists)
-    for surface in sys.twist_surfaces
+    for surface in sys.stations
         haskey(twists, surface.name) && (surface.twist = twists[surface.name])
     end
     return nothing
