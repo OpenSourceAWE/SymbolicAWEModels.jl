@@ -8,7 +8,7 @@
 
 Flat-plate CL/CD lookup aerodynamics. Carries the shared polar lookups
 (`calc_cl`/`calc_cd`: `α_deg → coefficient`) and drag correction used by all of
-a wing's flat-plate (1-point `STATIC`) [`TwistSurface`](@ref)s. One polar set per
+a wing's flat-plate (1-point `STATIC`) [`Station`](@ref)s. One polar set per
 wing.
 """
 mutable struct AeroPlate{CL, CD} <: AbstractAeroModel
@@ -87,14 +87,14 @@ end
 Flat-plate aero component. Uses the same `PARTICLE_DYNAMICS` connector contract as
 the other per-point modes; it is the only one that consumes the `va`/`rho` inputs
 (the VSM particle modes read frozen forces and ignore them). Each wing node is a
-1-point `STATIC` [`TwistSurface`](@ref) section; the per-point force is computed
+1-point `STATIC` [`Station`](@ref) section; the per-point force is computed
 from the section's twisted body-frame axes, the point's apparent wind, and its
 air density.
 """
 function aero_component(::AeroPlate, wing::ParticleWing, sys_struct;
                         name, params=nothing)
     wing_idx = wing.idx
-    twist_surfaces = sys_struct.twist_surfaces
+    stations = sys_struct.stations
     points = wing_points(sys_struct, wing)
     num_points = length(points)
     connectors = particle_aero_connectors(num_points)
@@ -106,8 +106,8 @@ function aero_component(::AeroPlate, wing::ParticleWing, sys_struct;
     eqs = Equation[]
     for (point_num, point) in enumerate(points)
         ts_idx = 0
-        for gidx in wing.twist_surface_idxs
-            if twist_surfaces[gidx].point_idxs[1] == point.idx
+        for gidx in wing.station_idxs
+            if stations[gidx].point_idxs[1] == point.idx
                 ts_idx = gidx
                 break
             end
@@ -116,11 +116,11 @@ function aero_component(::AeroPlate, wing::ParticleWing, sys_struct;
             "Wing $wing_idx: wing node $(point.idx) is not a flat-plate " *
             "section point.")
 
-        chord_p = params.twist_surfaces[ts_idx].chord
-        y_airf_p = params.twist_surfaces[ts_idx].y_airf
-        twist_p = params.twist_surfaces[ts_idx].twist
+        chord_p = params.stations[ts_idx].chord
+        y_airf_p = params.stations[ts_idx].y_airf
+        twist_p = params.stations[ts_idx].twist
         drag_corr_p = params.wings[wing_idx].aero.drag_corr
-        area_p = params.twist_surfaces[ts_idx].area
+        area_p = params.stations[ts_idx].area
         append!(flat_ps, (chord_p, y_airf_p, twist_p, drag_corr_p, area_p))
         x_airf = smooth_normalize(collect(chord_p))
         y_airf = collect(y_airf_p)
@@ -156,19 +156,19 @@ end
 # ==================== log-point hooks ==================== #
 
 """
-    plate_corners(twist_surface, point_pos_w, R_b_to_w) -> NTuple{4, Vector}
+    plate_corners(station, point_pos_w, R_b_to_w) -> NTuple{4, Vector}
 
 World-frame corners of a flat-plate section's display quad. The section's
 structural point sits at quarter chord; the quad is a square of side
 `sqrt(area)` spanned by the twisted chord direction and `y_airf`, so the quad
 area matches the section's `area`.
 """
-function plate_corners(twist_surface, point_pos_w, R_b_to_w)
-    x_airf = normalize(twist_surface.chord)
-    y_airf = twist_surface.y_airf
-    twist = twist_surface.twist
+function plate_corners(station, point_pos_w, R_b_to_w)
+    x_airf = normalize(station.chord)
+    y_airf = station.y_airf
+    twist = station.twist
     x_twisted = cos(twist) * x_airf + sin(twist) * (y_airf × x_airf)
-    side = sqrt(twist_surface.area)
+    side = sqrt(station.area)
     chord_w = R_b_to_w * (side * x_twisted)
     span_half_w = R_b_to_w * (0.5 * side * y_airf)
     le_mid = point_pos_w - 0.25 * chord_w
@@ -182,7 +182,7 @@ end
 
 4 quad corners per flat-plate section ([`plate_corners`](@ref)).
 """
-n_aero_log_points(::AeroPlate, wing) = 4 * length(wing.twist_surface_idxs)
+n_aero_log_points(::AeroPlate, wing) = 4 * length(wing.station_idxs)
 
 """
     write_aero_log_points!(::AeroPlate, wing, sys_struct, sys_state,
@@ -193,10 +193,10 @@ Log each flat-plate section's display quad ([`plate_corners`](@ref)).
 function write_aero_log_points!(::AeroPlate, wing, sys_struct, sys_state,
                                 point_idx, zoom)
     R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-    for twist_surface_idx in wing.twist_surface_idxs
-        twist_surface = sys_struct.twist_surfaces[twist_surface_idx]
-        point = sys_struct.points[twist_surface.point_idxs[1]]
-        for corner_w in plate_corners(twist_surface, point.pos_w, R_b_to_w)
+    for station_idx in wing.station_idxs
+        station = sys_struct.stations[station_idx]
+        point = sys_struct.points[station.point_idxs[1]]
+        for corner_w in plate_corners(station, point.pos_w, R_b_to_w)
             point_idx += 1
             sys_state.X[point_idx] = corner_w[1] * zoom
             sys_state.Y[point_idx] = corner_w[2] * zoom
@@ -220,23 +220,23 @@ read_aero_log_points!(mode::AeroPlate, wing, sys_struct, sys_state,
 
 function load_wing(mode::AeroPlate, row, idx, data, set, wing_type, vsm_set,
                    yaml_to_ref, yaml_parse_ref_points, yaml_parse_origin,
-                   twist_surfaces)
+                   stations)
     return load_plate_wing(row, idx, data, set, wing_type, mode,
-        yaml_to_ref, yaml_parse_ref_points, yaml_parse_origin, twist_surfaces)
+        yaml_to_ref, yaml_parse_ref_points, yaml_parse_origin, stations)
 end
 
 """
     load_plate_wing(row, idx, data, set, wing_type, aero_mode,
                     yaml_to_ref, yaml_parse_ref_points,
-                    yaml_parse_origin, twist_surfaces)
+                    yaml_parse_origin, stations)
 
 Load a flat-plate wing from a YAML wing row + `surfaces` block. Each surface
-becomes a 1-point `STATIC` [`TwistSurface`](@ref) appended to `twist_surfaces`; the
+becomes a 1-point `STATIC` [`Station`](@ref) appended to `stations`; the
 wing references them by name. CL/CD interpolations come from `Settings` polar data.
 """
 function load_plate_wing(row, idx, data, set, wing_type, aero_mode,
                          yaml_to_ref, yaml_parse_ref_points,
-                         yaml_parse_origin, twist_surfaces)
+                         yaml_parse_origin, stations)
     name = if haskey(row, :name) && !isnothing(row.name)
         Symbol(row.name)
     else
@@ -278,7 +278,7 @@ function load_plate_wing(row, idx, data, set, wing_type, aero_mode,
             twist = hasfield(typeof(surf_row), :twist) &&
                 !isnothing(surf_row.twist) ?
                 float(surf_row.twist) : 0.0
-            push!(twist_surfaces, TwistSurface(
+            push!(stations, Station(
                 surf_name, [point], STATIC, 0.0;
                 x_airf, y_airf, area, twist))
             push!(section_refs, surf_name)

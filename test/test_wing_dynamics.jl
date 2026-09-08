@@ -47,7 +47,7 @@ points:
     - [ground,    [0.0, 0.0, 0.0],  STATIC, ~,
        ~, 0.0, 0.0, 0.0, 0.0, 0.0, ~]
 
-twist_surfaces:
+stations:
   headers: [name, point_idxs, type, moment_frac, damping]
   data:
     - [left,   [le_left, te_left],     STATIC, 0.75, 50.0]
@@ -59,7 +59,7 @@ wings:
     - name: main_wing
       dynamics_type: RIGID_DYNAMICS
       aero_mode: AERO_NONE
-      twist_surfaces: [left, center, right]
+      stations: [left, center, right]
       transform_idx: 0
       angular_damping: [0.0, 0.0, 0.0]
       aero_z_offset: 0.0

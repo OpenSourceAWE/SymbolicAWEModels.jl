@@ -65,6 +65,7 @@ function body_eqs!(
             eqs, defaults, idx;
             force_w, moment_w,
             inertia_p=params.bodies[idx].inertia_principal, mass,
+            apparent_mass=params.bodies[idx].apparent_mass,
             R_b_to_p=params.bodies[idx].R_b_to_p,
             com_offset_b=params.bodies[idx].com_offset_b,
             com_w=body_com_w, com_vel=body_com_vel,

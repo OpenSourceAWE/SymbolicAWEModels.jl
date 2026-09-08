@@ -59,7 +59,7 @@ function frame_snapshot(sys_struct)
         point_pos_w = [copy(point.pos_w) for point in sys_struct.points],
         point_force_w = [copy(point.force) for point in sys_struct.points],
         scalars = [[segment.force for segment in sys_struct.segments];
-                   [surface.twist for surface in sys_struct.twist_surfaces];
+                   [surface.twist for surface in sys_struct.stations];
                    norm(sys_struct.winches[1].force)])
 end
 
