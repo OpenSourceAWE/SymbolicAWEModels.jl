@@ -11,6 +11,9 @@
   to tear the expression graph. `smooth_norm`, `panel_span_signs` and
   `store_chord_weights!` go through the same kernel. Requires VortexStepMethod
   4.2.
+- The SciML stack moves a generation on: `DataInterpolations` 9 and 10,
+  `LinearSolve` 5 and a `SymbolicUtils` floor of 4.46.3 are allowed, and both
+  default manifests are regenerated onto them.
 
 ## v0.16.0 06-09-2026
 
