@@ -975,24 +975,88 @@ scatter_entry_list(totals) =
            for ((panel, point), total) in totals])
 
 """
+    panel_corners(panel) -> (le_1, te_1, le_2, te_2)
+
+A panel's four `corner_points` in the argument order
+`VortexStepMethod.panel_axes` takes them; they are stored leading edge 1,
+trailing edge 1, trailing edge 2, leading edge 2.
+"""
+panel_corners(panel) = (SVector{3}(@view panel.corner_points[:, 1]),
+                        SVector{3}(@view panel.corner_points[:, 2]),
+                        SVector{3}(@view panel.corner_points[:, 4]),
+                        SVector{3}(@view panel.corner_points[:, 3]))
+
+"""
+    spanwise_corners(panel, spanwise) -> (le_1, te_1, le_2, te_2)
+
+[`panel_corners`](@ref) with the two sections ordered so the panel's span runs
+along `+spanwise`. Which section a panel calls its first is whatever last wrote
+its corners: `VortexStepMethod.reinit!` swaps them on a span-flipped wing where
+[`read_aero_log_points!`](@ref) writes the structural order.
+"""
+function spanwise_corners(panel, spanwise)
+    le_1, te_1, le_2, te_2 = panel_corners(panel)
+    span = VortexStepMethod.panel_span_vector(le_1, te_1, le_2, te_2)
+    return dot(span, spanwise) < 0 ? (le_2, te_2, le_1, te_1) :
+                                     (le_1, te_1, le_2, te_2)
+end
+
+"""
+    panel_span_width(panel) -> SimFloat
+
+The panel's span width: the length of the quarter-chord step between its two
+sections, from its `corner_points`.
+"""
+panel_span_width(panel) = smooth_norm(
+    VortexStepMethod.panel_span_vector(panel_corners(panel)...))
+
+"""
+    chord_blend_weights(width, step) -> Vector{SimFloat}
+
+`VortexStepMethod.panel_chord_weight` over a wing's panel span widths: section
+1's share of the chord-direction edge blend for every panel, taking the
+neighbours `step` apart. `1` where the panels' sections run with the panel
+index, `-1` where they run against it.
+"""
+function chord_blend_weights(width, step)
+    n_panels = length(width)
+    return [VortexStepMethod.panel_chord_weight(
+                1 <= i - step <= n_panels ? width[i - step] : nothing, width[i],
+                1 <= i + step <= n_panels ? width[i + step] : nothing)
+            for i in 1:n_panels]
+end
+
+"""
     store_chord_weights!(chord_weight, body_aero)
 
 Freeze each refined panel's chord blend weight into `chord_weight` (n_panels)
-via `VortexStepMethod.panel_chord_weight`, so the weight follows the mesh as the
-wing deforms. Written at the same refresh as [`store_induced_velocity!`](@ref).
+via [`chord_blend_weights`](@ref), so the weight follows the mesh as the wing
+deforms. Written at the same refresh as [`store_induced_velocity!`](@ref).
 """
 function store_chord_weights!(chord_weight, body_aero)
     panels = body_aero.panels
-    n_panels = length(panels)
-    length(chord_weight) == n_panels || error(
-        "chord-weight buffer is stale ($(length(chord_weight)) for $n_panels " *
-        "panels); reinitialize the model.")
-    for i in 1:n_panels
-        chord_weight[i] = VortexStepMethod.panel_chord_weight(
-            i == 1 ? nothing : panels[i - 1].width, panels[i].width,
-            i == n_panels ? nothing : panels[i + 1].width)
-    end
+    length(chord_weight) == length(panels) || error(
+        "chord-weight buffer is stale ($(length(chord_weight)) for " *
+        "$(length(panels)) panels); reinitialize the model.")
+    chord_weight .= chord_blend_weights(map(panel_span_width, panels), 1)
     return nothing
+end
+
+"""
+    corner_chord_weights(wing) -> Vector{SimFloat}
+
+Every panel's chord blend weight for the frame [`chord_frame_coordinates`](@ref)
+builds over [`spanwise_corners`](@ref), which run along the wing's
+`spanwise_direction` rather than along the panel index.
+"""
+function corner_chord_weights(wing)
+    panels = wing.vsm_aero.panels
+    width = map(panel_span_width, panels)
+    length(panels) < 2 && return chord_blend_weights(width, 1)
+    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
+    along_index = spanwise_corners(panels[1], spanwise)[3] ≈
+                  spanwise_corners(panels[2], spanwise)[1]
+    return chord_blend_weights(width, along_index ? 1 : -1)
 end
 
 """
