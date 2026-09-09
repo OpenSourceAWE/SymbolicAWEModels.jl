@@ -63,7 +63,6 @@ SymbolicAWEModels.smooth_norm
 SymbolicAWEModels.smooth_sign
 SymbolicAWEModels.coulomb_viscous_friction
 SymbolicAWEModels.smooth_normalize
-SymbolicAWEModels.apply_heading
 SymbolicAWEModels.get_rot_pos
 SymbolicAWEModels.get_base_pos
 SymbolicAWEModels.calc_aoa
