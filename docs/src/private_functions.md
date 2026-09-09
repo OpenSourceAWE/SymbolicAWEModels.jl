@@ -373,7 +373,12 @@ SymbolicAWEModels.surface_node_forces
 SymbolicAWEModels.couple_shape
 SymbolicAWEModels.build_mesh_maps!
 SymbolicAWEModels.store_induced_velocity!
+SymbolicAWEModels.panel_corners
+SymbolicAWEModels.spanwise_corners
+SymbolicAWEModels.panel_span_width
+SymbolicAWEModels.chord_blend_weights
 SymbolicAWEModels.store_chord_weights!
+SymbolicAWEModels.corner_chord_weights
 SymbolicAWEModels.size_frozen_panel_buffers!
 SymbolicAWEModels.build_section_interp
 SymbolicAWEModels.section_interp_caches
