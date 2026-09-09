@@ -145,11 +145,6 @@ The live-polar sampling `wing`'s VSM settings ask for: the `airfoil:` block of t
 `vsm_set` wing of the same name, or of the first wing when no name matches, which is
 the single-wing case every VSM-backed kite is built as. Without a `vsm_set` the
 package defaults stand.
-
-This is what keeps a live polar honest. The offline tables were generated off one
-network at one transition criticality, and a live re-solve that took its own defaults
-would answer a deformed section on a different network than the undeformed one was
-tabulated on — a step in the polars that no deformation caused.
 """
 function live_polar_settings(wing, vsm_set)
     isnothing(vsm_set) && return AirfoilAero.LivePolarSettings()
