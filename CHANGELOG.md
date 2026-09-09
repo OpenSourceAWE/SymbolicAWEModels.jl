@@ -70,6 +70,11 @@
   to tear the expression graph. `smooth_norm`, `panel_span_signs` and
   `store_chord_weights!` go through the same kernel. Requires VortexStepMethod
   4.2.
+- `wagner_reference_frame` goes through it too. The wing's mean chordwise
+  direction, normal and chord are `VortexStepMethod.panel_axes` averaged over the
+  frozen mesh, taken at the chord blend weight VSM gives each panel rather than
+  at the 0.5 midpoint, so a wing whose panels differ in width is measured on the
+  frame its panels are built on.
 - The SciML stack moves a generation on: `DataInterpolations` 9 and 10,
   `LinearSolve` 5 and a `SymbolicUtils` floor of 4.46.3 are allowed, and both
   default manifests are regenerated onto them.
