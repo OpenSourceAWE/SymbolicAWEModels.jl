@@ -30,8 +30,7 @@ using LinearAlgebra
 using KiteUtils
 using SymbolicAWEModels
 using SymbolicAWEModels: smooth_normalize, sym_calc_R_t_to_w,
-    calc_heading, calc_R_t_to_w, Point, Body, Transform,
-    SystemStructure, reinit!, quaternion_to_rotation_matrix
+    calc_heading, calc_R_t_to_w, reinit!, quaternion_to_rotation_matrix
 
 # `Settings` reads through the process-wide data path; leave it as found.
 prev_data_path = get_data_path()
