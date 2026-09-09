@@ -10,6 +10,9 @@
   several beam elements needs no hinge bodies to read a deflection off, and the
   angle is read from the same points the aerodynamics is built on. Both backends
   emit it; `flap_bodies` keeps working, and a station given both reads the points.
+- `bin/install -y` (`--yes`) installs without a terminal: it takes the Julia
+  already active instead of asking, and leaves `juliaup` and the shell startup
+  file untouched. Without it the script waits on a menu prompt.
 
 ### Fixed
 - `AeroPressure` no longer writes one copy of a panel's live load per contour
