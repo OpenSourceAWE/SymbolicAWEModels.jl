@@ -164,8 +164,7 @@ using LinearAlgebra
         panel.chord = 7.0
         @test chord_frame_coordinates(panel, spanwise, weight, probe) ===
               (fraction, offset)
-        # And it restores them in the structural section order, which is the other
-        # one round from what a span-flipped wing's panels hold.
+        # A replay writes the structural section order; a flipped wing holds the other.
         panel.corner_points .= hcat(le_2, te_2, te_1, le_1)
         @test chord_frame_coordinates(panel, spanwise, weight, probe) ===
               (fraction, offset)
