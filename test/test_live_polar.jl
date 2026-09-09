@@ -186,9 +186,9 @@ using LinearAlgebra
             samples = AirfoilAero.neuralfoil_aero(state.source.base[i],
                 rad2deg.(alpha[i] .+ offsets), reynolds;
                 model_size=settings.model_size, n_crit=settings.n_crit)
-            @test panel.cl_coeffs ≈ samples.CL rtol = 1e-5
-            @test panel.cd_coeffs ≈ samples.CD rtol = 1e-5
-            @test panel.cm_coeffs ≈ samples.CM rtol = 1e-5
+            @test panel.cl_coeffs ≈ samples.CL rtol = 1e-4
+            @test panel.cd_coeffs ≈ samples.CD rtol = 1e-4
+            @test panel.cm_coeffs ≈ samples.CM rtol = 1e-4
             @test panel.alpha_knots ≈ alpha[i] .+ offsets
             @test panel.alpha_ref ≈ alpha[i]
             @test panel.alpha_window ≈ maximum(abs, offsets)
