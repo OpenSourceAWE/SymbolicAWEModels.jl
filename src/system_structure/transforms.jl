@@ -183,11 +183,8 @@ end
     spherical_spin(transform) -> Vector
 
 Angular velocity [rad/s], in world axes, of the rigid rotation about the
-transform's base that carries `elevation_vel` and `azimuth_vel`. Both axes are
-the ones the transform's own position convention turns about: `-y` of the
-tangential frame for elevation, world `-z` for azimuth. A component's velocity is
-then `spin` crossed into `pos_w - base_pos`, which moves the whole system rigidly
-rather than approximating each component's own spherical velocity.
+transform's base that carries `elevation_vel` and `azimuth_vel`. Its axes are `-y`
+of the tangential frame for elevation and world `-z` for azimuth.
 """
 function spherical_spin(transform)
     azim = transform.azimuth
@@ -249,10 +246,9 @@ end
 """
     apply_spherical_velocity!(transform, points, bodies, base_pos)
 
-Put every component of `transform` on the rigid rotation [`spherical_spin`](@ref)
-describes, as `spin x (pos_w - base_pos)`. Runs after the heading step, the
-positions it reads being the placed ones; a particle wing's `ω_b` is not part of
-its state, so only a rigid body takes the rate.
+Set every component of `transform` to the velocity of the rigid rotation
+[`spherical_spin`](@ref) describes, `spin × (pos_w - base_pos)`. Only a rigid body
+takes the matching `ω_b`.
 """
 function apply_spherical_velocity!(transform, points, bodies, base_pos)
     spin = spherical_spin(transform)
@@ -484,9 +480,8 @@ end
 
 Update the system's spatial orientation based on its current
 position, preserving velocities. `update_vel` instead overwrites
-them with the rigid rotation each transform's `elevation_vel` and
-`azimuth_vel` describe, which is how a state is placed already
-moving on its arc rather than at rest.
+them with the velocity of the rigid rotation each transform's
+`elevation_vel` and `azimuth_vel` describe.
 
 Unlike `reinit!`, uses current world positions (`pos_w`) as
 the starting point (no reset from CAD coordinates, no tether
