@@ -622,12 +622,29 @@ function derive_point_beam_anchor!(point::Point, joint, bodies)
 end
 
 """
+    has_body_flap(station::Station) -> Bool
+
+`true` if the station reads its deflection off two ordered flap bodies.
+"""
+has_body_flap(station::Station) = length(station.flap_body_idxs) == 2
+
+"""
+    has_point_flap(station::Station) -> Bool
+
+`true` if the station reads its deflection off three structural points
+`[fore, hinge, aft]` ([`point_flap_delta`](@ref)).
+"""
+has_point_flap(station::Station) = length(station.flap_point_idxs) == 3
+
+"""
     has_flap(station::Station) -> Bool
 
-`true` if the station carries a flap hinge (two ordered flap bodies), so it
-drives a live deflection δ ([`flap_delta`](@ref) / `station_delta_eqs!`).
+`true` if the station carries a flap hinge either way, so it drives a live
+deflection δ ([`flap_delta`](@ref) / [`point_flap_delta`](@ref) /
+`station_delta_eqs!`). A station given both reads the points.
 """
-has_flap(station::Station) = length(station.flap_body_idxs) == 2
+has_flap(station::Station) =
+    has_point_flap(station) || has_body_flap(station)
 
 """
     flap_delta(station, R_main, R_flap) -> SimFloat
@@ -640,27 +657,48 @@ full polar δ range (an `atan`, not a small-angle approximation). The same formu
 the symbolic RHS uses (`station_delta_eqs!`), so it is the ground truth for
 tests.
 """
-function flap_delta(station::Station, R_main, R_flap)
-    chord_main = station.flap_chord_refs[1]
-    chord_flap = station.flap_chord_refs[2]
-    main_w = R_main * chord_main
-    flap_w = R_flap * chord_flap
-    n_w = R_main * station.flap_axis
-    mp = main_w .- dot(main_w, n_w) .* n_w
-    fp = flap_w .- dot(flap_w, n_w) .* n_w
-    return atan(dot(n_w, cross(mp, fp)), dot(mp, fp)) - station.flap_rest_delta
+flap_delta(station::Station, R_main, R_flap) =
+    flap_delta_expression(station, R_main, R_flap)
+
+"""
+    point_flap_delta(station, points, R_wing) -> SimFloat
+
+Deflection δ [rad] of a point flap from the current positions of its three points,
+with `R_wing` the owning wing's orientation. The same
+[`point_flap_delta_expression`](@ref) the symbolic RHS evaluates, so it is the ground
+truth for tests.
+"""
+function point_flap_delta(station::Station, points, R_wing)
+    fore, hinge, aft = station.flap_point_idxs
+    return point_flap_delta_expression(station, points[fore].pos_w,
+        points[hinge].pos_w, points[aft].pos_w, R_wing)
 end
 
 """
-    init_station_flap!(station, bodies)
+    init_station_flap!(station, sys_struct)
 
-Capture a flapped `KINEMATIC` station's rest geometry from the placed body
-poses: default the reference chords to each body's x-axis, then set
-`flap_rest_delta` so the as-placed configuration has δ = 0. No-op for surfaces
+Capture a flapped `KINEMATIC` station's rest geometry, so the undeformed
+configuration reads δ = 0. A body flap defaults its reference chords to each body's
+x-axis and measures the placed poses; a point flap measures its three points in CAD,
+which is the geometry the polars were tabulated from and is unaffected by whatever
+the placement or a settling run has since done to the structure. No-op for surfaces
 without a flap.
 """
-function init_station_flap!(station::Station, bodies)
-    has_flap(station) || return nothing
+function init_station_flap!(station::Station, sys_struct)
+    if has_point_flap(station)
+        station.wing_idx in eachindex(sys_struct.wings) || error(
+            "Station $(station.name): a point flap needs a `wing` to take its hinge " *
+            "axis from; wing_idx is $(station.wing_idx).")
+        points = sys_struct.points
+        fore, hinge, aft = station.flap_point_idxs
+        station.flap_rest_delta = 0.0
+        station.flap_rest_delta = point_flap_delta_expression(station,
+            points[fore].pos_cad, points[hinge].pos_cad, points[aft].pos_cad,
+            sys_struct.wings[station.wing_idx].R_b_to_c)
+        return nothing
+    end
+    has_body_flap(station) || return nothing
+    bodies = sys_struct.bodies
     isempty(station.flap_chord_refs) &&
         (station.flap_chord_refs = [KVec3(1.0, 0.0, 0.0), KVec3(1.0, 0.0, 0.0)])
     R_main = quaternion_to_rotation_matrix(

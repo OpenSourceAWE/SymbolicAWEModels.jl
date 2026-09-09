@@ -876,7 +876,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             station = call_yaml_constructor(Station, row,
                 [:name, :points, :type, :moment_frac],
                 [:damping, :stiffness, :wing, :bodies, :flap_bodies,
-                 :flap_axis];
+                 :flap_points, :flap_axis];
                 mappings=Dict(
                     :points => row -> haskey(row, :points) ?
                         [yaml_to_ref(p) for p in row.points] :
@@ -892,7 +892,10 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         [yaml_to_ref(b) for b in row.bodies] : NameRef[],
                     :flap_bodies => row -> haskey(row, :flap_bodies) &&
                         !isnothing(row.flap_bodies) ?
-                        [yaml_to_ref(b) for b in row.flap_bodies] : NameRef[]
+                        [yaml_to_ref(b) for b in row.flap_bodies] : NameRef[],
+                    :flap_points => row -> haskey(row, :flap_points) &&
+                        !isnothing(row.flap_points) ?
+                        [yaml_to_ref(p) for p in row.flap_points] : NameRef[]
                 ))
             saved_twist = yaml_float(row, :twist)
             isnothing(saved_twist) ||

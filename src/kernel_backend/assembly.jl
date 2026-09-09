@@ -42,6 +42,9 @@ leaves some entries unread, and `mtkcompile` will not take part of a declared
 array."""
 const FLAP_INPUTS = [[Symbol(:main_frame_, k) for k in 1:9];
                      [Symbol(:flap_frame_, k) for k in 1:9]]
+"""A point flap's three chord positions and the wing frame its hinge axis is in."""
+const POINT_FLAP_INPUTS = [[Symbol(:point_pos_, k) for k in 1:3];
+                           [Symbol(:wing_frame_, k) for k in 1:9]]
 const WING_AERO_POSE_INPUTS = [:wing_pos, :wing_frame]
 const AERO_INFLOW_POINT_INPUTS = [:pos, :vel, :wing_pos, :wing_frame]
 const AERO_INFLOW_POINT_OUTPUTS = [:pos_b, :va_b, :rho]
@@ -387,7 +390,8 @@ function assemble(sam; verbose = false)
                    :timoshenko_joints, TimoshenkoJointComponent,
                    TIMOSHENKO_RIGIDITIES)
     end
-    flap_instances = add_flap_deltas!(builder, table, bindings, sam, body_instances)
+    flap_instances = add_flap_deltas!(builder, table, bindings, sam, body_instances,
+                                      point_instances)
     inflow_instances = zeros(Int, length(sys_struct.points))
     aero_force_instances = zeros(Int, length(sys_struct.points))
     aero_instances = [add_wing_aero!(builder, table, bindings, sam, wing,
@@ -410,26 +414,39 @@ function assemble(sam; verbose = false)
 end
 
 """
-    add_flap_deltas!(builder, table, bindings, sam, bodies) -> Dict{Int, Int}
+    add_flap_deltas!(builder, table, bindings, sam, bodies, points) -> Dict{Int, Int}
 
-Add one [`FlapDelta`](@ref) per flapped station and wire its two flap bodies'
-orientations in. Returns the instance of each such surface; a surface with no flap
-is absent, and the aero input it would feed stays unconnected and so reads the zero
-`station_delta_eqs!` binds it to.
+Add one flap-deflection kernel per flapped station and wire what it reads: a point
+flap's three chord positions and its wing's frame ([`PointFlapDelta`](@ref)), or a
+body flap's two orientations ([`FlapDelta`](@ref)). Returns the instance of each such
+surface; a surface with no flap is absent, and the aero input it would feed stays
+unconnected and so reads the zero `station_delta_eqs!` binds it to.
 """
-function add_flap_deltas!(builder, table, bindings, sam, bodies)
+function add_flap_deltas!(builder, table, bindings, sam, bodies, points)
     instances = Dict{Int, Int}()
     for surface in sam.sys_struct.stations
         has_flap(surface) || continue
-        entry = kernel!(builder, table, sam, :flap_delta, surface.idx,
-                        params -> FlapDelta(sam, params, surface.idx;
-                                            name = :flap_delta),
-                        FLAP_INPUTS, [:delta])
+        point_flap = has_point_flap(surface)
+        key = point_flap ? :point_flap_delta : :flap_delta
+        entry = kernel!(builder, table, sam, key, surface.idx,
+                        params -> point_flap ?
+                            PointFlapDelta(sam, params, surface.idx; name = key) :
+                            FlapDelta(sam, params, surface.idx; name = key),
+                        point_flap ? POINT_FLAP_INPUTS : FLAP_INPUTS, [:delta])
         instance = add_instance!(builder, entry.index)
         push!(bindings, (instance, entry, Dict(:stations => surface.idx)))
-        main, flap = surface.flap_body_idxs
-        connect!(builder, bodies[main], :frame, instance, :main_frame)
-        connect!(builder, bodies[flap], :frame, instance, :flap_frame)
+        if point_flap
+            for (k, idx) in enumerate(surface.flap_point_idxs)
+                connect!(builder, points[idx], :pos, instance,
+                         Symbol(:point_pos_, k))
+            end
+            connect!(builder, bodies[surface.wing_idx], :frame, instance,
+                     :wing_frame)
+        else
+            main, flap = surface.flap_body_idxs
+            connect!(builder, bodies[main], :frame, instance, :main_frame)
+            connect!(builder, bodies[flap], :frame, instance, :flap_frame)
+        end
         instances[surface.idx] = instance
     end
     return instances
