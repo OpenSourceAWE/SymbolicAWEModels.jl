@@ -38,7 +38,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, PARTICLE_DYNAMICS,
-    RIGID_DYNAMICS, AERO_SCALE_CHORD, VSMSolveFailure
+    RIGID_DYNAMICS, AERO_SCALE_CHORD
 using KiteUtils
 using LinearAlgebra
 
@@ -336,8 +336,8 @@ aero_poses = [
                 alpha = copy(solver.lr.alpha_dist)
                 solver.rtol, solver.max_iterations = 0.0, 2
 
-                @test_throws VSMSolveFailure next_step!(sam; dt=0.05,
-                                                        vsm_interval=1)
+                @test_throws VortexStepMethod.SolveFailure next_step!(
+                    sam; dt=0.05, vsm_interval=1)
                 logs, _ = Test.collect_test_logs() do
                     for _ in 1:4
                         next_step!(sam; dt=0.05, vsm_interval=2,
@@ -345,7 +345,7 @@ aero_poses = [
                     end
                 end
                 # One warning per scheduled update, so the schedule is intact.
-                @test count(record -> occursin("VSM solve failed",
+                @test count(record -> occursin("Reusing the last converged",
                                                record.message), logs) == 2
                 @test solver.lr.gamma_new != gamma
                 @test solver.sol.gamma_distribution == gamma

@@ -171,7 +171,8 @@
   `solver.sol.gamma_distribution` and its angles of attack in `solver.lr.alpha_dist`
   and `solver.sol.alpha_dist`, rather than zeroing the circulation and keeping the
   diverged angles. The next solve keeps its warm start, and a live polar keeps
-  re-centring its knots on a finite angle.
+  re-centring its knots on a finite angle. The failure itself is
+  `VortexStepMethod.SolveFailure`, raised by `solve!` under `throw_on_fail`.
 
 ## v0.16.0 06-09-2026
 

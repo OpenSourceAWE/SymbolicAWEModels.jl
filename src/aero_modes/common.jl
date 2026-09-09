@@ -1233,7 +1233,7 @@ alone. The per-step refresh wants the warm start; the first solve after a
 [`reinit!`](@ref) must not have it, or it inherits whatever ran on this model
 before.
 
-`vsm_warn_on_fail` downgrades a [`VSMSolveFailure`](@ref) to a warning
+`vsm_warn_on_fail` downgrades a `VortexStepMethod.SolveFailure` to a warning
 ([`warn_or_rethrow`](@ref)).
 """
 function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
@@ -1256,7 +1256,7 @@ function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
             refresh_rigid_aero!(wing.aero, wing, sam.am, stations;
                                 vsm_min_wind)
         catch failure
-            warn_or_rethrow(failure, vsm_warn_on_fail)
+            warn_or_rethrow(failure, vsm_warn_on_fail, wing)
         end
     end
 
@@ -1273,7 +1273,7 @@ function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
             refresh_particle_aero!(wing.aero, wing, points, va_point_b_vals;
                                    vsm_min_wind, cold_start)
         catch failure
-            warn_or_rethrow(failure, vsm_warn_on_fail)
+            warn_or_rethrow(failure, vsm_warn_on_fail, wing)
         end
     end
 
@@ -1281,15 +1281,18 @@ function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
 end
 
 """
-    warn_or_rethrow(failure, vsm_warn_on_fail)
+    warn_or_rethrow(failure, vsm_warn_on_fail, wing)
 
-Rethrow `failure`, unless it is a [`VSMSolveFailure`](@ref) and `vsm_warn_on_fail`
-is set: then warn instead, and the wing flies on with the circulation, the angles
-of attack and the frozen forces of its last converged solve.
+Rethrow `failure`, unless it is a `VortexStepMethod.SolveFailure` and
+`vsm_warn_on_fail` is set: then warn instead, and `wing` flies on with the
+circulation, the angles of attack and the frozen forces of its last converged
+solve.
 """
-function warn_or_rethrow(failure, vsm_warn_on_fail)
-    (vsm_warn_on_fail && failure isa VSMSolveFailure) || rethrow(failure)
-    @warn "$(failure.msg) Reusing the last converged aero state."
+function warn_or_rethrow(failure, vsm_warn_on_fail, wing)
+    (vsm_warn_on_fail && failure isa VortexStepMethod.SolveFailure) ||
+        rethrow(failure)
+    @warn "$(nameof(typeof(wing.aero))) on wing $(wing.idx): $(failure.msg) " *
+          "Reusing the last converged aero state."
     return nothing
 end
 
@@ -1861,36 +1864,13 @@ restore_live_shape!(::AbstractAeroModel, wing, points) = nothing
 # ==================== shared VSM numerics ==================== #
 
 """
-    finite_full(x) -> Bool
+    safe_vsm_solve!(solver, body_aero, gamma_init=nothing;
+                    moment_frac=0.1, cold_start=false)
 
-`true` if `x` is finite. For a `ForwardDiff.Dual` it also checks every partial, so
-a NaN/Inf *derivative* is caught — used by [`safe_vsm_solve!`](@ref) to reject a
-bad VSM solve during the Jacobian pass, not just the value pass.
-"""
-finite_full(x::Real) = isfinite(x)
-finite_full(x::ForwardDiff.Dual) =
-    isfinite(ForwardDiff.value(x)) &&
-    all(isfinite, ForwardDiff.partials(x))
-
-"""
-    VSMSolveFailure(msg)
-
-A VSM solve that did not converge or returned a non-finite result, thrown by
-every VSM mode's refresh. `vsm_warn_on_fail` ([`refresh_aero!`](@ref),
-[`next_step!`](@ref)) downgrades it to a warning; the assertions on a corrupted
-frozen state are `AssertionError` and stay fatal.
-"""
-struct VSMSolveFailure <: Exception
-    msg::String
-end
-
-Base.showerror(io::IO, failure::VSMSolveFailure) = print(io, failure.msg)
-
-"""
-NaN/Inf-guarded `solve!`. Checks both Dual value and partials. On a non-finite or
-non-converged result, restore the aero state of the last converged solve — its
-circulation and its two angle-of-attack distributions, which `solve!` overwrites
-with the diverged ones — and return `false`.
+Solve under `throw_on_fail`, so a solve that missed the solver's tolerances or
+came back non-finite throws `VortexStepMethod.SolveFailure`. The circulation and
+the two angle-of-attack distributions of the last converged solve, which `solve!`
+has already overwritten with the diverged ones, are restored before it leaves.
 
 Without `gamma_init`, `solve!` warm-starts from the circulation it left in
 `solver.sol` last time. `cold_start` starts from the solver's configured initial
@@ -1904,28 +1884,20 @@ function safe_vsm_solve!(solver, body_aero,
         copy(solver.sol.gamma_distribution)
     alpha_converged = copy(solver.lr.alpha_dist)
     alpha_corrected_converged = copy(solver.sol.alpha_dist)
-    if cold_start
-        VortexStepMethod.solve!(solver, body_aero, nothing;
-            moment_frac, log=false)
-    elseif isnothing(gamma_init)
-        VortexStepMethod.solve!(solver, body_aero;
-            moment_frac, log=false)
-    else
-        VortexStepMethod.solve!(solver, body_aero, gamma_init;
-            moment_frac, log=false)
-    end
-    force_coeffs = solver.sol.force_coeffs
-    moment_coeffs = solver.sol.moment_coeffs
-    if !solver.lr.converged ||
-            any(!finite_full, force_coeffs) ||
-            any(!finite_full, moment_coeffs)
+    gamma_start = isnothing(gamma_init) ? solver.sol.gamma_distribution : gamma_init
+    cold_start && (gamma_start = nothing)
+    try
+        VortexStepMethod.solve!(solver, body_aero, gamma_start;
+            moment_frac, log=false, throw_on_fail=true)
+    catch failure
+        failure isa VortexStepMethod.SolveFailure || rethrow()
         isnothing(gamma_converged) ||
             copyto!(solver.sol.gamma_distribution, gamma_converged)
         copyto!(solver.lr.alpha_dist, alpha_converged)
         copyto!(solver.sol.alpha_dist, alpha_corrected_converged)
-        return false
+        rethrow()
     end
-    return true
+    return nothing
 end
 
 """
@@ -1934,16 +1906,13 @@ end
 Solve and freeze the per-refined-panel induced velocity into `mode.v_ind` and the
 chord blend weights into `mode.chord_weight`, shared by the continuous VSM modes.
 Warm starting is `VortexStepMethod.solve!`'s own, gated by `use_gamma_prev` and by
-`cold_start` ([`safe_vsm_solve!`](@ref)). Throws a [`VSMSolveFailure`](@ref) on a
-non-converged or non-finite solve, before anything frozen is written.
+`cold_start` ([`safe_vsm_solve!`](@ref)), which throws on a failed solve before
+anything frozen is written.
 """
 function solve_and_freeze_circulation!(mode, wing; cold_start=false)
     solver = wing.vsm_solver
     body_aero = wing.vsm_aero
-    if !safe_vsm_solve!(solver, body_aero; cold_start)
-        throw(VSMSolveFailure("$(nameof(typeof(mode))) VSM solve failed " *
-            "(non-converged or non-finite) on wing $(wing.idx)."))
-    end
+    safe_vsm_solve!(solver, body_aero; cold_start)
     store_induced_velocity!(mode.v_ind, body_aero, solver.lr.gamma_new)
     store_chord_weights!(mode.chord_weight, body_aero)
     return nothing
@@ -2093,11 +2062,7 @@ function vsm_aero_coeffs(wing, y::AbstractVector{T},
             body_aero_c; init_aero=false)
     end
     set_va!(body_aero_c, va_b_local, ω)
-    if !safe_vsm_solve!(solver_c, body_aero_c, gamma_init;
-                         moment_frac)
-        throw(VSMSolveFailure("VSM solve failed (non-converged or " *
-            "non-finite) on wing $(wing.idx) [eltype=$T]."))
-    end
+    safe_vsm_solve!(solver_c, body_aero_c, gamma_init; moment_frac)
 
     sol = solver_c.sol
     force_coeffs = sol.force_coeffs
