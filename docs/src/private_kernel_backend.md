@@ -184,6 +184,7 @@ SymbolicAWEModels.scalar_output
 SymbolicAWEModels.FlapDelta
 SymbolicAWEModels.PointFlapDelta
 SymbolicAWEModels.FLAP_INPUTS
+SymbolicAWEModels.POINT_FLAP_INPUTS
 SymbolicAWEModels.flap_delta_expression
 SymbolicAWEModels.point_flap_delta_expression
 SymbolicAWEModels.hinge_angle
