@@ -237,7 +237,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     # Live flap deflection δ per station (derived from body orientations).
     if length(stations) > 0
         eqs = station_delta_eqs!(
-            eqs, stations; station_delta, body_R_b_to_w)
+            eqs, stations; station_delta, body_R_b_to_w, pos)
     end
 
     # Aero: each wing's aero component is wired winch-style as a subsystem.

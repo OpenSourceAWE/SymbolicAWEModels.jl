@@ -23,7 +23,7 @@ function validate_station_modes(stations, bodies)
         if station.type == KINEMATIC
             # KINEMATIC surfaces are derived (no twist DOF, no owning-body couple);
             # a flap variant needs its owning wing and an ordered [main, flap] pair.
-            has_flap(station) || isempty(station.flap_body_idxs) || error(
+            has_body_flap(station) || isempty(station.flap_body_idxs) || error(
                 "Station $(station.name): flap needs exactly 2 flap " *
                 "bodies [main, flap], got $(length(station.flap_body_idxs)).")
             has_flap(station) && station.wing_idx == 0 && error(
@@ -245,22 +245,34 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
 end
 
 """
-    station_delta_eqs!(eqs, stations; station_delta, body_R_b_to_w)
+    station_delta_eqs!(eqs, stations; station_delta, body_R_b_to_w, pos)
 
-Emit the live flap deflection δ for each station into `station_delta`.
-A flapped surface ([`has_flap`](@ref)) gets the signed angle between its two flap
-bodies' reference chords about the world hinge axis, referenced to rest (same
-formula as [`flap_delta`](@ref), evaluated symbolically from the bodies'
-orientations `body_R_b_to_w`); every other surface gets 0. The flap axis,
-reference chords and rest angle are frozen rest geometry baked in as constants.
+Emit the live flap deflection δ for each station into `station_delta`; a surface
+with no flap gets 0. The flap axis, reference chords and rest angle are frozen rest
+geometry baked in as constants.
+
+A point flap ([`has_point_flap`](@ref)) gets the angle between its two chord
+segments, straight out of the point positions `pos` — the same three points the
+aerodynamics is built on, so a chord that bends over several beam elements still
+reads a deflection. A body flap gets the signed angle between its two flap bodies'
+reference chords. Both are the shared [`hinge_angle`](@ref), referenced to rest.
 """
 function station_delta_eqs!(eqs, stations;
-                                  station_delta, body_R_b_to_w)
+                                  station_delta, body_R_b_to_w, pos)
     length(stations) == 0 && return eqs
     for station in stations
         j = station.idx
         if !has_flap(station)
             eqs = [eqs; station_delta[j] ~ 0]
+            continue
+        end
+        if has_point_flap(station)
+            fore, hinge, aft = station.flap_point_idxs
+            eqs = [eqs
+                   station_delta[j] ~ point_flap_delta_expression(station,
+                       collect(pos[:, fore]), collect(pos[:, hinge]),
+                       collect(pos[:, aft]),
+                       collect(body_R_b_to_w[:, :, station.wing_idx]))]
             continue
         end
         R_main = collect(body_R_b_to_w[:, :, station.flap_body_idxs[1]])

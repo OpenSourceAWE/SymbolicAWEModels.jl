@@ -121,7 +121,10 @@ SymbolicAWEModels.joint_eqs!
 SymbolicAWEModels.timoshenko_joint_eqs!
 SymbolicAWEModels.station_delta_eqs!
 SymbolicAWEModels.has_flap
+SymbolicAWEModels.has_body_flap
+SymbolicAWEModels.has_point_flap
 SymbolicAWEModels.flap_delta
+SymbolicAWEModels.point_flap_delta
 SymbolicAWEModels.init_station_flap!
 SymbolicAWEModels.derive_point_beam_anchor!
 SymbolicAWEModels.init_rigid_body!
@@ -410,6 +413,7 @@ SymbolicAWEModels.init_pressure_buffers!
 SymbolicAWEModels.freeze_traction_pattern!
 SymbolicAWEModels.LivePolarState
 SymbolicAWEModels.chord_frame_coordinates
+SymbolicAWEModels.live_polar_settings
 SymbolicAWEModels.build_live_polars!
 SymbolicAWEModels.station_control_points
 SymbolicAWEModels.panel_station_candidates
