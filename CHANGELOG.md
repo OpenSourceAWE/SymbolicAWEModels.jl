@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+- `bin/install -y` (`--yes`) installs without a terminal: it takes the Julia
+  already active instead of asking, and leaves `juliaup` and the shell startup
+  file untouched. Without it the script waits on a menu prompt.
+
 ### Fixed
 - `AeroPressure` no longer writes one copy of a panel's live load per contour
   node. The symbolic component summed a separate `surface_node_forces` expression
