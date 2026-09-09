@@ -93,7 +93,8 @@
   now reads it instead of taking the package defaults — which were a different
   network size and a different `n_crit` than any tabulated dataset uses, so a
   deformed section was re-solved against a curve its undeformed self was never
-  on. `setup_aero!` takes the model's `vsm_set` to reach it.
+  on. `setup_aero!` takes the model's `vsm_set` to reach it. The block is
+  VortexStepMethod's own, so the minimum is now v5.0.0.
 
 ### Fixed
 - `next_step!` no longer costs `FBDF` its multistep history. SciMLBase 3.53
