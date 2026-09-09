@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Under twist_surface twist (steering), the structural strut trailing-edge
+# Under station twist (steering), the structural strut trailing-edge
 # points should stay aligned with the deformed VSM panel trailing
 # edges for a RIGID_DYNAMICS wing.
 
@@ -40,7 +40,7 @@ init!(sam; prn=false, remake=false, remake_vsm=false)
 SymbolicAWEModels.find_steady_state!(sam)
 
 """
-Compare each twist_surface's structural strut chord (body frame, under the
+Compare each station's structural strut chord (body frame, under the
 current twist) with the matching deformed VSM panel chord.
 
 Reports the angle between the two chord vectors and their relative length
@@ -55,21 +55,21 @@ cosine) and would quantize an exact match to a spurious ~1e-6 deg.
 function twist_chord_diffs(sam)
     wing = sam.sys_struct.wings[1]
     points = sam.sys_struct.points
-    twist_surfaces = sam.sys_struct.twist_surfaces
+    stations = sam.sys_struct.stations
     vsm = wing.vsm_wing
     R = wing.R_b_to_w
     origin = wing.pos_w
 
     n_unref = vsm.n_unrefined_sections
     theta = zeros(Float64, n_unref)
-    for g in twist_surfaces, u in g.unrefined_section_idxs
+    for g in stations, u in g.unrefined_section_idxs
         theta[u] = g.twist
     end
     VortexStepMethod.unrefined_deform!(vsm, theta)
     refined = vsm.refined_sections
 
     rows = NamedTuple[]
-    for g in twist_surfaces
+    for g in stations
         i1, i2 = g.point_idxs[1], g.point_idxs[end]
         le_idx, te_idx =
             points[i1].pos_cad[1] < points[i2].pos_cad[1] ?
@@ -94,7 +94,7 @@ end
 
 function report(label, rows)
     for r in rows
-        println("[$label] twist_surface $(r.name): twist=",
+        println("[$label] station $(r.name): twist=",
             round(r.twist; digits=5),
             "  angle=", r.angle, " deg  length_err=", r.length_err)
     end
@@ -111,7 +111,7 @@ report("static", static_rows)
 end
 
 # Ramp steering over a fixed trajectory and check the alignment there. Holding
-# this steering runs the twist_surface twist away until the VSM solve diverges,
+# this steering runs the station twist away until the VSM solve diverges,
 # so a settled operating point does not exist for this 2-plate config.
 steer_mag = 0.03
 for step in 1:60

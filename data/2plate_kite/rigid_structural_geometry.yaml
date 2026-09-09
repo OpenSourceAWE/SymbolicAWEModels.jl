@@ -99,7 +99,7 @@ pulleys:
 ###########################
 ## Groups #################
 ###########################
-twist_surfaces:
+stations:
   headers: [name, point_idxs, type, moment_frac, damping]
   data:
     - [left, [le_left, te_left], DYNAMIC, 0.25, 100.0]
@@ -129,7 +129,7 @@ wings:
   data:
     - name: main_wing
       dynamics_type: RIGID_DYNAMICS
-      twist_surfaces: [left, center, right]
+      stations: [left, center, right]
       origin_idx: kcu
       z_ref_points: [kcu, le_center]
       y_ref_points: [le_right, le_left]

@@ -61,6 +61,7 @@ makedocs(;
         "Compilation pipeline" => "pipeline.md",
         "Examples" => "examples.md",
         "VSM coupling" => "vsm_coupling.md",
+        "Unsteady aerodynamics" => "unsteady_aero.md",
         "Coordinate frames" => "coordinate_frames.md",
         "Types" => "exported_types.md",
         "Functions" => "exported_functions.md",

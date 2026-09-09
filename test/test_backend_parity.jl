@@ -98,7 +98,7 @@ left out because it is a filtered view of `bodies` — the same `Body` objects, 
 including it would only report each wing twice.
 """
 function struct_mismatches(kernel, monolith; atol=1e-6)
-    groups = (:points, :twist_surfaces, :segments, :pulleys, :tethers, :winches,
+    groups = (:points, :stations, :segments, :pulleys, :tethers, :winches,
               :bodies, :elastic_joints, :timoshenko_joints)
     return reduce(vcat, (field_mismatches(String(group), getfield(kernel, group),
                                           getfield(monolith, group), atol)
