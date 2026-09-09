@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+- `bin/install -y` (`--yes`) skips the version menu and uses the Julia already
+  active, so the script can run unattended.
+
 ### Fixed
 - `AeroPressure` no longer writes one copy of a panel's live load per contour
   node. The symbolic component summed a separate `surface_node_forces` expression

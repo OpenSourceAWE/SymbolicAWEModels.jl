@@ -5,8 +5,8 @@
 _update=false
 _skip_subprojects=false
 _no_precompile=false
+_assume_yes=false
 _desired_julia=""
-_version_specified=false
 
 _red='\033[31m'
 _green='\033[32m'
@@ -18,6 +18,7 @@ print_usage() {
     echo "./install --update"
     echo "./install --skip-subprojects"
     echo "./install --no-precompile"
+    echo "./install -y"
     echo "./install +1.11 | +1.12"
     echo "./install --version 1.11 | --version 1.12"
     echo "./install -h"
@@ -27,6 +28,8 @@ print_usage() {
     echo "                        then copy the resulting main manifest back to *.toml.default."
     echo "  --skip-subprojects    Skip setup/update of examples, test, and docs sub-projects."
     echo "  --no-precompile       Skip all Pkg.precompile() steps; just resolve manifests."
+    echo "  -y, --yes             Never prompt: use the Julia already active instead of"
+    echo "                        showing the version menu."
     echo "  +X.Y, --version X.Y   Use Julia channel X.Y for this run (juliaup default unchanged)."
     echo "                        Without this, a menu will ask you to choose 1.11 or 1.12"
     echo "                        (with the currently active Julia version as default)."
@@ -52,18 +55,20 @@ while [[ $# -gt 0 ]]; do
             _no_precompile=true
             shift
             ;;
+        -y|--yes)
+            _assume_yes=true
+            shift
+            ;;
         --version)
             if [[ $# -lt 2 ]]; then
                 echo "Error: --version requires a value (e.g. --version 1.12)"
                 exit 1
             fi
             _desired_julia="$2"
-            _version_specified=true
             shift 2
             ;;
         +*)
             _desired_julia="${1#+}"
-            _version_specified=true
             shift
             ;;
         *)
@@ -95,7 +100,7 @@ if ! command -v juliaup &> /dev/null; then
     exit 1
 fi
 
-# If no version specified, show a menu with the current Julia version as default
+# If no version specified, use the active Julia, asking first unless -y was given
 if [[ -z "$_desired_julia" ]]; then
     # Detect current juliaup default (more reliable than julia --version,
     # which can report a different binary if one is ahead on PATH).
@@ -104,24 +109,31 @@ if [[ -z "$_desired_julia" ]]; then
         _current_major="1.12"  # fallback default
     fi
 
-    # Ask user to choose version
-    echo "Which Julia version would you like to use?"
-    echo ""
-    
     if [[ "$_current_major" == "1.11" ]]; then
-        echo -e "  ${_green}[1]${_reset} Julia 1.11 (current, default)"
-        echo -e "  ${_reset}[2]${_reset} Julia 1.12"
         _default_choice=1
     else
-        echo -e "  ${_reset}[1]${_reset} Julia 1.11"
-        echo -e "  ${_green}[2]${_reset} Julia 1.12 (current, default)"
         _default_choice=2
     fi
-    
-    echo ""
-    read -p "Choose an option (press Enter for default [$_default_choice]): " _choice
-    _choice=${_choice:-$_default_choice}
-    
+
+    if [[ "$_assume_yes" == true ]]; then
+        _choice=$_default_choice
+    else
+        echo "Which Julia version would you like to use?"
+        echo ""
+
+        if [[ "$_default_choice" -eq 1 ]]; then
+            echo -e "  ${_green}[1]${_reset} Julia 1.11 (current, default)"
+            echo -e "  ${_reset}[2]${_reset} Julia 1.12"
+        else
+            echo -e "  ${_reset}[1]${_reset} Julia 1.11"
+            echo -e "  ${_green}[2]${_reset} Julia 1.12 (current, default)"
+        fi
+
+        echo ""
+        read -p "Choose an option (press Enter for default [$_default_choice]): " _choice
+        _choice=${_choice:-$_default_choice}
+    fi
+
     case "$_choice" in
         1)
             _desired_julia="1.11"
