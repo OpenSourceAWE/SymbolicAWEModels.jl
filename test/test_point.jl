@@ -18,7 +18,7 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using SymbolicAWEModels: KVec3, VortexStepMethod
 using KiteUtils
 using LinearAlgebra
 
@@ -515,6 +515,61 @@ system:
     end
 
     # Cleanup
+    rm(tmpdir; recursive=true)
+end
+
+# ============================================================================
+# A point does not have to belong to a wing: `wing_idx = 0` is the "no wing"
+# sentinel, and the equations for such a point must be built without a wing
+# frame rather than indexing the wing arrays at zero.
+# ============================================================================
+@testset "Point without a wing" begin
+    tmpdir = mktempdir()
+    data_path = joinpath(tmpdir, "2plate_kite")
+    cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path; force=true)
+    set_data_path(data_path)
+    set = Settings("system.yaml")
+    vsm_set = VortexStepMethod.VSMSettings(
+        joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
+
+    # Rewrite the `wing_idx` column of one point row of the 2plate geometry.
+    function geometry_with_wing(point_name, wing_ref)
+        lines = readlines(joinpath(data_path, "particle_structural_geometry.yaml"))
+        row = findfirst(contains("[$point_name,"), lines)
+        @test !isnothing(row)
+        lines[row] = replace(lines[row], "main_wing" => wing_ref)
+        path = joinpath(data_path, "$(point_name)_wing_$(wing_ref).yaml")
+        write(path, join(lines, "\n"))
+        return path
+    end
+
+    # The KCU carries no body-frame damping, so dropping its wing membership is a
+    # pure bookkeeping change: same kite, same physics.
+    @testset "free point with no wing builds and flies" begin
+        sys = load_sys_struct_from_yaml(geometry_with_wing(:kcu, "0");
+            system_name="point_no_wing", set, vsm_set)
+        @test sys.points[:kcu].wing_idx == 0
+        @test !sys.points[:kcu].is_wing_node
+
+        sam = SymbolicAWEModel(set, sys)
+        test_init!(sam)
+        kcu = sam.sys_struct.points[:kcu]
+        height_before = kcu.pos_w[3]
+        for _ in 1:10
+            next_step!(sam; dt=0.05)
+        end
+        @test all(isfinite, kcu.pos_w)
+        @test all(isfinite, kcu.vel_w)
+        @test kcu.pos_w[3] ≈ height_before rtol=0.05
+    end
+
+    # A station member is a wing's structural node, so it cannot be wingless.
+    @testset "station member without a wing is rejected" begin
+        @test_throws "le_left" load_sys_struct_from_yaml(
+            geometry_with_wing(:le_left, "0");
+            system_name="wing_node_no_wing", set, vsm_set)
+    end
+
     rm(tmpdir; recursive=true)
 end
 nothing

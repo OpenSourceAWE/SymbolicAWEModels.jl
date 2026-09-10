@@ -6,24 +6,17 @@
 """
     point_damping_accel(point, params, R_b_to_w, wing_idx, vel_w, vel_diff_w)
 
-Per-mass damping acceleration for a DYNAMIC point. Each frame's term is built
-only when its coefficient is set; a `nothing` coefficient keeps that term out of
-the equation entirely (no zero-valued parameter to prune). The body-frame term
-also needs a wing frame — pass `vel_diff_w = nothing` (point velocity relative to
-its wing) to skip it when no wing is available.
+Per-mass damping acceleration for a DYNAMIC point: a world-frame term against
+`vel_w`, plus a body-frame term in wing `wing_idx`'s frame against `vel_diff_w`,
+the point velocity relative to that wing. Pass `vel_diff_w = nothing` for a point
+that belongs to no wing, leaving only the world-frame term.
 """
 function point_damping_accel(point, params, R_b_to_w, wing_idx, vel_w, vel_diff_w)
-    accel = zeros(Num, 3)
-    if !isnothing(point.body_frame_damping) && !isnothing(vel_diff_w)
-        R = R_b_to_w[:, :, wing_idx]
-        coeff = params.points[point.idx].body_frame_damping
-        accel = accel + R * (coeff .* (R' * vel_diff_w))
-    end
-    if !isnothing(point.world_frame_damping)
-        coeff = params.points[point.idx].world_frame_damping
-        accel = accel + coeff .* vel_w
-    end
-    return accel
+    accel = collect(params.points[point.idx].world_frame_damping .* vel_w)
+    isnothing(vel_diff_w) && return accel
+    R = R_b_to_w[:, :, wing_idx]
+    coeff = params.points[point.idx].body_frame_damping
+    return accel + R * (coeff .* (R' * vel_diff_w))
 end
 
 """
@@ -319,11 +312,10 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, wings, params,
             # Free particle: integrated position/velocity (DYNAMIC point or an
             # unanchored surface node).
             pars = point_particle_params(params, point.idx)
-            wing_idx_damp = length(wings) > 0 ? point.wing_idx : 0
-            vel_diff_w = length(wings) > 0 ?
+            vel_diff_w = (!isempty(wings) && point.wing_idx > 0) ?
                 vel[:, point.idx] - wing_vel[:, point.wing_idx] : nothing
             damp_accel = point_damping_accel(
-                point, params, R_b_to_w, wing_idx_damp, vel[:, point.idx], vel_diff_w)
+                point, params, R_b_to_w, point.wing_idx, vel[:, point.idx], vel_diff_w)
             velocity, acceleration = confined_derivatives(
                 pos[:, point.idx], vel[:, point.idx], collect(acc[:, point.idx]),
                 (; fix_sphere = fix_point_sphere[point.idx],
