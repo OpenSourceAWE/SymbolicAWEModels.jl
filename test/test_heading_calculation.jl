@@ -8,6 +8,10 @@ Verifies that `calc_heading` correctly projects the body x-axis
 onto the tangent plane of the tether sphere and returns the
 angle from the elevation direction (x_t) toward azimuthal (y_t).
 
+Also places a body through `reinit!` from a near-vertical CAD
+pose and verifies it lands on the transform's heading, where the
+tether frame the pose sits in is degenerate.
+
 Tests run with both origin and non-origin base positions to
 verify heading is computed relative to the sphere center.
 
@@ -23,8 +27,16 @@ end
 
 using Test
 using LinearAlgebra
+using KiteUtils
+using SymbolicAWEModels
 using SymbolicAWEModels: smooth_normalize, sym_calc_R_t_to_w,
-    calc_heading, calc_R_t_to_w
+    calc_heading, calc_R_t_to_w, reinit!, quaternion_to_rotation_matrix
+
+# `Settings` reads through the process-wide data path; leave it as found.
+prev_data_path = get_data_path()
+set_data_path(joinpath(dirname(@__DIR__), "data", "2plate_kite"))
+set = Settings("system.yaml")
+set_data_path(prev_data_path)
 
 # Support selective test execution via command-line args
 const test_patterns = isempty(ARGS) ? String[] : ARGS
@@ -124,6 +136,39 @@ function test_special_cases(base_pos, label)
     end
 end
 
+function heading_after_reinit(base_pos, dx, target_heading)
+    cad_pos = base_pos + [dx, 0.0, 51.0]
+    kite = Body(:kite; mass=1.0, inertia_principal=ones(3),
+                pos=cad_pos, transform=:main_tf)
+    points = [Point(:ground, base_pos, STATIC; transform=0),
+              Point(:kite_origin, cad_pos, BODY_STATIC;
+                    body=:kite, anchor_b=zeros(3),
+                    transform=:main_tf)]
+    transforms = [Transform(:main_tf, deg2rad(70), deg2rad(20),
+                      target_heading; base_pos=base_pos,
+                      base_point=:ground, rot_point=:kite_origin)]
+
+    sys = SystemStructure("near_vertical_heading", set;
+        points, bodies=[kite], transforms, prn=false)
+    reinit!(sys, set; prn=false)
+
+    placed = sys.bodies[:kite]
+    return calc_heading(
+        quaternion_to_rotation_matrix(placed.Q_b_to_w),
+        placed.pos_w - sys.points[:ground].pos_w)
+end
+
+function test_near_vertical_placement(base_pos, label)
+    @testset "Near-Vertical Placement ($label)" begin
+        target_heading = deg2rad(30)
+        for dx in [0.0, 1e-3, -1e-3, 1e-2, -1e-2]
+            @test heading_after_reinit(
+                base_pos, dx, target_heading) ≈
+                target_heading atol=1e-10
+        end
+    end
+end
+
 base_positions = [
     (zeros(3), "origin base"),
     ([10.0, -5.0, 3.0], "non-origin base"),
@@ -149,6 +194,14 @@ if should_run_test("special")
 @testset "Heading - Special Cases" begin
     for (bp, label) in base_positions
         test_special_cases(bp, label)
+    end
+end
+end
+
+if should_run_test("vertical")
+@testset "Heading - Near-Vertical Placement" begin
+    for (bp, label) in base_positions
+        test_near_vertical_placement(bp, label)
     end
 end
 end
