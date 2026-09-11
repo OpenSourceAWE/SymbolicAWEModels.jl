@@ -221,6 +221,41 @@ SymbolicAWEModels.load_yaml_joints
 SymbolicAWEModels.load_body_state!
 ```
 
+## Structure document internals
+
+```@docs
+SymbolicAWEModels.AWESIO_VERSION
+SymbolicAWEModels.STRUCTURE_SCHEMA
+SymbolicAWEModels.DOCUMENT_HEADERS
+SymbolicAWEModels.connectivity_sha
+SymbolicAWEModels.linear_rigidity
+SymbolicAWEModels.vector3
+SymbolicAWEModels.optional_symbol
+SymbolicAWEModels.optional_length
+SymbolicAWEModels.component_name
+SymbolicAWEModels.ref_name
+SymbolicAWEModels.ref_names
+SymbolicAWEModels.document_table
+SymbolicAWEModels.point_rows
+SymbolicAWEModels.segment_rows
+SymbolicAWEModels.station_rows
+SymbolicAWEModels.pulley_rows
+SymbolicAWEModels.tether_rows
+SymbolicAWEModels.winch_rows
+SymbolicAWEModels.body_rows
+SymbolicAWEModels.elastic_joint_rows
+SymbolicAWEModels.timoshenko_joint_rows
+SymbolicAWEModels.is_wing_row
+SymbolicAWEModels.document_rows
+SymbolicAWEModels.check_document_version
+SymbolicAWEModels.check_connectivity
+SymbolicAWEModels.named_model
+SymbolicAWEModels.read_wing
+SymbolicAWEModels.apply_body_row!
+SymbolicAWEModels.document_format
+SymbolicAWEModels.encode_document
+```
+
 ## SystemStructure internals
 
 ```@docs

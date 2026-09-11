@@ -1,0 +1,483 @@
+$schema: http://json-schema.org/draft-07/schema#
+$id: structure_schema
+title: AWE System Structure Schema
+description: >
+  Resolved structural definition of an AWE system: the points, the segments,
+  stations, pulleys, tethers and winches built on them, the rigid bodies, and
+  the joints that link those bodies. Each component carries its own geometry
+  and material, so a file is a complete structural definition rather than a
+  connectivity sketch.
+
+  Fully resolved and expanded — no variable substitution, no segment counts left
+  to expand, every component explicit — so a file is readable with nothing
+  beyond a YAML or JSON parser. This is the layer system_schema.yml leaves
+  free-form under its wing_sections, bridle_nodes, bridle_lines and
+  bridle_connections blocks.
+
+  Every block is a headers/data table and every reference is by name. A block
+  may carry columns beyond the ones required here; a reader addresses columns by
+  header, never by position, so a later minor version may append a column
+  without breaking an older reader. An absent optional block means the same as
+  an empty one.
+
+  Live state — positions, velocities, forces, twist angles, reel-out — is not
+  structure and is not described here. Nor is the placement of CAD geometry into
+  the world, which depends on a frame convention this schema does not fix.
+
+type: object
+required:
+  - metadata
+  - points
+  - segments
+
+properties:
+  metadata:
+    type: object
+    required:
+      - name
+      - description
+      - note
+      - awesIO_version
+      - schema
+      - n_points
+      - connectivity_sha
+    properties:
+      name:
+        type: string
+      description:
+        type: string
+      note:
+        type: string
+      awesIO_version:
+        type: string
+        description: >
+          Version of this schema the file was written against. A reader must
+          refuse an unknown major version and warn on an unknown minor one.
+        pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+      schema:
+        type: string
+        const: structure_schema.yml
+      n_points:
+        type: integer
+        minimum: 1
+        description: Number of rows in the points block.
+      connectivity_sha:
+        type: string
+        description: >
+          Lowercase hex SHA-256 of the connectivity, so state recorded against
+          one structure is not silently replayed against another that indexes
+          differently.
+
+          The preimage is ASCII and built in document order: the number of
+          points, a semicolon, then for each segment its two endpoints as
+          ONE-BASED row numbers into the points block, comma-separated, each
+          pair followed by a semicolon. The example in examples/structure reads
+          `8;1,2;2,3;3,4;4,5;4,7;`. Row numbers are one-based so that
+          implementations in zero-based languages agree with each other; a
+          reader that gets this wrong sees every file as a mismatch.
+        pattern: '^[0-9a-f]{64}$'
+    additionalProperties: false
+
+  # --------------------------------------------------------------------------
+  # POINTS AND THE ELEMENTS BUILT ON THEM
+  # --------------------------------------------------------------------------
+  points:
+    allOf:
+      - $ref: "#/definitions/table"
+      - properties:
+          headers:
+            items:
+              - const: name
+              - const: type
+              - const: body
+              - const: wing
+              - const: pos_cad
+            minItems: 5
+          data:
+            items:
+              type: array
+              items:
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/dynamics_type"
+                - $ref: "#/definitions/optional_name"
+                - $ref: "#/definitions/optional_name"
+                - $ref: "#/definitions/vec3"
+              minItems: 5
+
+  segments:
+    allOf:
+      - $ref: "#/definitions/table"
+      - properties:
+          headers:
+            items:
+              - const: name
+              - const: point_a
+              - const: point_b
+              - const: l0
+              - const: diameter
+              - const: density
+              - const: unit_stiffness
+              - const: unit_damping
+              - const: compression_frac
+              - const: compression_damping_frac
+            minItems: 10
+          data:
+            items:
+              type: array
+              items:
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/length"
+                - $ref: "#/definitions/length"
+                - $ref: "#/definitions/density"
+                - $ref: "#/definitions/rigidity"
+                - $ref: "#/definitions/non_negative"
+                - $ref: "#/definitions/fraction"
+                - $ref: "#/definitions/fraction"
+              minItems: 10
+
+  stations:
+    description: >
+      Groups of points sharing one twist degree of freedom. A station is a
+      structural group, not an aerodynamic section: a wing is typically meshed
+      into many more aerodynamic sections than it has stations, and the two must
+      not be conflated.
+    allOf:
+      - $ref: "#/definitions/table"
+      - properties:
+          headers:
+            items:
+              - const: name
+              - const: type
+              - const: points
+              - const: moment_frac
+              - const: stiffness
+              - const: damping
+            minItems: 6
+          data:
+            items:
+              type: array
+              items:
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/dynamics_type"
+                - $ref: "#/definitions/name_list"
+                - $ref: "#/definitions/fraction"
+                - $ref: "#/definitions/non_negative"
+                - $ref: "#/definitions/non_negative"
+              minItems: 6
+
+  pulleys:
+    allOf:
+      - $ref: "#/definitions/table"
+      - properties:
+          headers:
+            items:
+              - const: name
+              - const: segment_a
+              - const: segment_b
+              - const: type
+              - const: efficiency
+            minItems: 5
+          data:
+            items:
+              type: array
+              items:
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/dynamics_type"
+                - $ref: "#/definitions/fraction"
+              minItems: 5
+
+  tethers:
+    description: >
+      Ordered runs of segments between two points. Material lives on the
+      segments; a tether is the grouping a winch reels.
+    allOf:
+      - $ref: "#/definitions/table"
+      - properties:
+          headers:
+            items:
+              - const: name
+              - const: start_point
+              - const: end_point
+              - const: segments
+            minItems: 4
+          data:
+            items:
+              type: array
+              items:
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/name_list"
+              minItems: 4
+
+  winches:
+    allOf:
+      - $ref: "#/definitions/table"
+      - properties:
+          headers:
+            items:
+              - const: name
+              - const: tethers
+              - const: winch_point
+              - const: model
+              - const: gear_ratio
+              - const: drum_radius
+            minItems: 6
+          data:
+            items:
+              type: array
+              items:
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/name_list"
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/model_name"
+                - $ref: "#/definitions/non_negative"
+                - $ref: "#/definitions/length"
+              minItems: 6
+
+  # --------------------------------------------------------------------------
+  # RIGID BODIES AND THE JOINTS BETWEEN THEM
+  # --------------------------------------------------------------------------
+  bodies:
+    description: >
+      Rigid bodies. A wing is a body that carries an aerodynamic model, so the
+      wings of a system are the rows whose `aero` is not null; there is no
+      separate wings block to fall out of step with this one.
+    allOf:
+      - $ref: "#/definitions/table"
+      - properties:
+          headers:
+            items:
+              - const: name
+              - const: type
+              - const: aero
+              - const: wing
+              - const: mass
+              - const: apparent_mass
+              - const: inertia_principal
+              - const: com_offset_b
+              - const: pos_cad
+            minItems: 9
+          data:
+            items:
+              type: array
+              items:
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/dynamics_type"
+                - $ref: "#/definitions/optional_model_name"
+                - $ref: "#/definitions/optional_name"
+                - $ref: "#/definitions/non_negative"
+                - $ref: "#/definitions/non_negative"
+                - $ref: "#/definitions/vec3"
+                - $ref: "#/definitions/vec3"
+                - $ref: "#/definitions/vec3"
+              minItems: 9
+
+  elastic_joints:
+    description: >
+      Six-degree-of-freedom elastic links between two bodies, each stiffness
+      resolved about one relative degree of freedom.
+    allOf:
+      - $ref: "#/definitions/table"
+      - properties:
+          headers:
+            items:
+              - const: name
+              - const: body_a
+              - const: body_b
+              - const: anchor_a
+              - const: anchor_b
+              - const: stiffness_axial
+              - const: stiffness_shear
+              - const: stiffness_torsion
+              - const: stiffness_bending
+              - const: damping
+              - const: radius
+            minItems: 11
+          data:
+            items:
+              type: array
+              items:
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/vec3"
+                - $ref: "#/definitions/vec3"
+                - $ref: "#/definitions/rigidity"
+                - $ref: "#/definitions/rigidity"
+                - $ref: "#/definitions/rigidity"
+                - $ref: "#/definitions/rigidity"
+                - $ref: "#/definitions/non_negative"
+                - $ref: "#/definitions/optional_length"
+              minItems: 11
+
+  timoshenko_joints:
+    description: >
+      Timoshenko beam elements between two bodies. A chain of them forms a beam.
+    allOf:
+      - $ref: "#/definitions/table"
+      - properties:
+          headers:
+            items:
+              - const: name
+              - const: body_a
+              - const: body_b
+              - const: anchor_a
+              - const: anchor_b
+              - const: EA
+              - const: GA
+              - const: GJ
+              - const: EIy
+              - const: EIz
+              - const: shear_coeff
+              - const: damping
+              - const: rest_length
+              - const: radius
+            minItems: 14
+          data:
+            items:
+              type: array
+              items:
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/vec3"
+                - $ref: "#/definitions/vec3"
+                - $ref: "#/definitions/rigidity"
+                - $ref: "#/definitions/rigidity"
+                - $ref: "#/definitions/rigidity"
+                - $ref: "#/definitions/rigidity"
+                - $ref: "#/definitions/rigidity"
+                - $ref: "#/definitions/fraction"
+                - $ref: "#/definitions/non_negative"
+                - $ref: "#/definitions/length"
+                - $ref: "#/definitions/optional_length"
+              minItems: 14
+
+additionalProperties: false
+
+definitions:
+  # ============================================================================
+  # TABLES
+  # ============================================================================
+  table:
+    description: >
+      A headers/data block. Each block fixes the columns it requires as the
+      leading headers and leaves the rest open, so a writer may append columns
+      and an older reader still finds what it addresses by name.
+    type: object
+    required:
+      - headers
+      - data
+    properties:
+      headers:
+        type: array
+        additionalItems:
+          type: string
+      data:
+        type: array
+        items:
+          type: array
+          additionalItems: true
+    additionalProperties: false
+
+  # ============================================================================
+  # REFERENCES
+  # ============================================================================
+  component_name:
+    description: >
+      Name of a component in this document. Names are unique within their own
+      block and are how every other block refers to it.
+    type: string
+    minLength: 1
+
+  optional_name:
+    description: A component name, or null where the component has no such link.
+    oneOf:
+      - $ref: "#/definitions/component_name"
+      - type: "null"
+
+  name_list:
+    description: Ordered component names, as referenced from another block.
+    type: array
+    items:
+      $ref: "#/definitions/component_name"
+
+  # ============================================================================
+  # QUANTITIES
+  # ============================================================================
+  vec3:
+    description: >
+      A three-component vector [m], in the CAD design frame for a position and
+      in the owning body's frame for an offset. CAD geometry is not a world
+      position.
+    type: array
+    items:
+      type: number
+    minItems: 3
+    maxItems: 3
+
+  length:
+    type: number
+    minimum: 0
+
+  optional_length:
+    description: A length [m], or null where the quantity does not apply.
+    oneOf:
+      - $ref: "#/definitions/length"
+      - type: "null"
+
+  density:
+    description: Material density [kg/m³].
+    type: number
+    minimum: 0
+
+  non_negative:
+    type: number
+    minimum: 0
+
+  fraction:
+    type: number
+    minimum: 0
+    maximum: 1
+
+  rigidity:
+    description: >
+      A stiffness or rigidity. A number is the linear value in the units its
+      column names. A string names a nonlinear law that the reader resolves to
+      a function of the corresponding strain, curvature or deflection; how such
+      a law is defined is not yet part of this schema, so a file using one is
+      portable only between readers that know the name.
+    oneOf:
+      - type: number
+        minimum: 0
+      - $ref: "#/definitions/model_name"
+
+  model_name:
+    description: >
+      Name of a model or law the reader resolves to an implementation, rather
+      than a component in this document.
+    type: string
+    minLength: 1
+
+  optional_model_name:
+    description: A model name, or null where the component carries no such model.
+    oneOf:
+      - $ref: "#/definitions/model_name"
+      - type: "null"
+
+  dynamics_type:
+    description: >
+      The dynamic model governing a component. DYNAMIC components carry
+      differential state and are solved by the dynamics; the others are
+      prescribed, holding no state but mutable between steps.
+    type: string
+    enum:
+      - DYNAMIC
+      - STATIC
+      - BODY_STATIC
+      - KINEMATIC

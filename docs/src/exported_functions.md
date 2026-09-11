@@ -35,6 +35,24 @@ check_live_polar
 load_sys_struct_from_yaml
 ```
 
+## Structure documents
+
+A `SystemStructure` also reads and writes as a *structure document* — the
+resolved points, segments, stations, pulleys, tethers, winches, bodies and
+joints as one `headers`/`data` table per block, conforming to awesIO's
+`structure_schema.yml`. YAML and JSON are two encodings of the one document, and
+the file extension picks between them. The document is structure only: the
+transforms that place the system in the world, the live state, and the point
+masses and drag properties the schema has no column for do not survive a round
+trip.
+
+```@docs
+structure_document
+sys_struct_from_document
+save_structure_document
+load_structure_document
+```
+
 ## System configuration
 
 ```@docs
