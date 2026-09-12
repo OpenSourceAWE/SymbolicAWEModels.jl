@@ -174,6 +174,10 @@
   to tear the expression graph. `smooth_norm`, `panel_span_signs` and
   `store_chord_weights!` go through the same kernel. Requires VortexStepMethod
   4.2.
+- `chord_frame_coordinates` goes through it too: a live polar's control points are
+  now measured in `panel_axes` over the panel's corners, which is the frame its
+  contour nodes are lofted along. On a swept or tapered panel the mid-chord axis
+  and `norm(chord_vec)` it used before are neither that axis nor that chord.
 - The SciML stack moves a generation on: `DataInterpolations` 9 and 10,
   `LinearSolve` 5 and a `SymbolicUtils` floor of 4.46.3 are allowed, and both
   default manifests are regenerated onto them.

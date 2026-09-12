@@ -9,7 +9,7 @@
 using VortexStepMethod: AirfoilAero
 
 """
-    LivePolarState(source, control_point, control_fraction, control_offset)
+    LivePolarState(source, control_point, control_offset)
 
 Per-wing state of the live polar path: the
 [`LivePolars`](@ref VortexStepMethod.AirfoilAero.LivePolars) source that owns the base
@@ -28,8 +28,6 @@ mutable struct LivePolarState
     source::AirfoilAero.LivePolars
     "Structural point indices of each spanwise station."
     control_point::Vector{Vector{Int64}}
-    "Reference chord fraction of every control point, station by station."
-    control_fraction::Vector{Vector{SimFloat}}
     "Reference offset off the chord line, over chord, of every control point."
     control_offset::Vector{Vector{SimFloat}}
     "Panel each station reads its chord frame from."
@@ -57,32 +55,20 @@ mutable struct LivePolarState
 end
 
 """
-    chord_frame_coordinates(panel, pos_b) -> (fraction, offset)
+    chord_frame_coordinates(panel, spanwise, chord_weight, pos_b) -> (fraction, offset)
 
 Where a body-frame position sits in a panel's chord frame: along-chord fraction off the
 mid leading edge and offset off the chord line, both over the panel chord. The frame is
-built from the panel's four `corner_points`, which is the one part of a panel's geometry
-a replayed log frame restores, so a replay measures the deformation of the frame it
-draws rather than of whatever the last solve left behind. Its normal is sign-aligned to
-`z_airf`, so a control point and the traction pattern cannot disagree about which way is
-up.
+`VortexStepMethod.panel_axes` over the panel's [`spanwise_corners`](@ref), which is the
+frame [`loft_contour_node`](@ref) lofts the panel's contour along. `chord_weight` is the
+panel's blend weight for that order ([`corner_chord_weights`](@ref)).
 """
-function chord_frame_coordinates(panel, pos_b)
-    corners = panel.corner_points
-    le_1 = SVector{3}(@view corners[:, 1])
-    te_1 = SVector{3}(@view corners[:, 2])
-    te_2 = SVector{3}(@view corners[:, 3])
-    le_2 = SVector{3}(@view corners[:, 4])
-    le_mid = 0.5 .* (le_1 .+ le_2)
-    chord_vec = 0.5 .* (te_1 .+ te_2) .- le_mid
-    chord = max(norm(chord_vec), eps())
-    x_axis = chord_vec ./ chord
-    normal = cross(x_axis, le_1 .- le_2)
-    normal_length = norm(normal)
-    z_axis = normal_length < eps() ? SVector{3}(panel.z_airf) : normal ./ normal_length
-    dot(z_axis, SVector{3}(panel.z_airf)) < 0 && (z_axis = -z_axis)
-    offset = SVector{3}(pos_b) .- le_mid
-    return (dot(offset, x_axis) / chord, dot(offset, z_axis) / chord)
+function chord_frame_coordinates(panel, spanwise, chord_weight, pos_b)
+    le_1, te_1, le_2, te_2 = spanwise_corners(panel, spanwise)
+    axes = VortexStepMethod.panel_axes(le_1, te_1, le_2, te_2, chord_weight, 1)
+    offset = SVector{3}(pos_b) .- 0.5 .* (le_1 .+ le_2)
+    return (dot(offset, axes.x_airf) / axes.chord,
+            dot(offset, axes.z_airf) / axes.chord)
 end
 
 """
@@ -195,16 +181,18 @@ function build_live_polars!(mode::AeroPressure, wing, points, stations;
     centre = [lo + weight for (lo, _, weight) in panel_blend]
     station_panel = [argmin(abs.(centre .- s)) for s in 1:n_stations]
 
-    control_fraction = Vector{Vector{SimFloat}}(undef, n_stations)
+    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
+    chord_weight = corner_chord_weights(wing)
     control_offset = Vector{Vector{SimFloat}}(undef, n_stations)
-    for (s, group) in enumerate(control)
-        frames = [chord_frame_coordinates(panels[station_panel[s]], body_of(i))
-                  for i in group]
-        control_fraction[s] = SimFloat[f[1] for f in frames]
-        control_offset[s] = SimFloat[f[2] for f in frames]
+    for (station, group) in enumerate(control)
+        panel = panels[station_panel[station]]
+        weight = chord_weight[station_panel[station]]
+        control_offset[station] = SimFloat[
+            chord_frame_coordinates(panel, spanwise, weight, body_of(i))[2]
+            for i in group]
     end
 
-    maximum(length, control_fraction) <= 2 && @warn(
+    maximum(length, control) <= 2 && @warn(
         "Live polars see no chordwise deformation: every station names at most two " *
         "points, which are the chord ends the frame is built on. Add chordwise " *
         "control points to the wing, or the polars only track α and Reynolds.",
@@ -215,7 +203,7 @@ function build_live_polars!(mode::AeroPressure, wing, points, stations;
     contour_x = [collect(SimFloat, c[1]) for c in contour]
     contour_y = [collect(SimFloat, c[2]) for c in contour]
     node_buffer() = [zeros(SimFloat, length(x)) for x in contour_x]
-    mode.live = LivePolarState(source, control, control_fraction, control_offset,
+    mode.live = LivePolarState(source, control, control_offset,
         station_panel, panel_blend,
         [zeros(SimFloat, n_basis) for _ in 1:n_stations],
         [zeros(SimFloat, n_basis) for _ in 1:n_panels],
@@ -242,18 +230,21 @@ function update_live_deflection!(mode::AeroPressure, wing, points)
     panels = wing.vsm_aero.panels
     rot_body_to_world = wing.R_b_to_w::Matrix{SimFloat}
     origin = wing.pos_w::KVec3
-    for s in eachindex(state.control_point)
-        assigned = state.control_point[s]
-        panel = panels[state.station_panel[s]]
+    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
+    chord_weight = corner_chord_weights(wing)
+    for station in eachindex(state.control_point)
+        assigned = state.control_point[station]
+        panel = panels[state.station_panel[station]]
+        weight = chord_weight[state.station_panel[station]]
         fractions = Vector{SimFloat}(undef, length(assigned))
         deflections = Vector{SimFloat}(undef, length(assigned))
         for (k, idx) in enumerate(assigned)
             pos_b = rot_body_to_world' * (points[idx].pos_w - origin)
-            fraction, offset = chord_frame_coordinates(panel, pos_b)
+            fraction, offset = chord_frame_coordinates(panel, spanwise, weight, pos_b)
             fractions[k] = fraction
-            deflections[k] = offset - state.control_offset[s][k]
+            deflections[k] = offset - state.control_offset[station][k]
         end
-        state.station_deflection[s] .= AirfoilAero.control_point_deflection(
+        state.station_deflection[station] .= AirfoilAero.control_point_deflection(
             state.source.basis, fractions, deflections)
     end
     for i in eachindex(panels)
