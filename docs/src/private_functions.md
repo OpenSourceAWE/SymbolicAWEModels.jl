@@ -63,7 +63,6 @@ SymbolicAWEModels.smooth_norm
 SymbolicAWEModels.smooth_sign
 SymbolicAWEModels.coulomb_viscous_friction
 SymbolicAWEModels.smooth_normalize
-SymbolicAWEModels.apply_heading
 SymbolicAWEModels.get_rot_pos
 SymbolicAWEModels.get_base_pos
 SymbolicAWEModels.calc_aoa
@@ -365,8 +364,8 @@ SymbolicAWEModels.apply_direct_forces!
 SymbolicAWEModels.vsm_aero_coeffs
 SymbolicAWEModels.vsm_solve_objects
 SymbolicAWEModels.safe_vsm_solve!
+SymbolicAWEModels.warn_or_rethrow
 SymbolicAWEModels.solve_and_freeze_circulation!
-SymbolicAWEModels.finite_full
 SymbolicAWEModels.set_particle_panel_va!
 SymbolicAWEModels.set_refined_panel_va!
 SymbolicAWEModels.surface_node_forces
@@ -492,6 +491,8 @@ SymbolicAWEModels.heading_reference_body
 ```@docs
 SymbolicAWEModels.apply_azimuth_elevation!
 SymbolicAWEModels.apply_heading!
+SymbolicAWEModels.spherical_spin
+SymbolicAWEModels.apply_spherical_velocity!
 SymbolicAWEModels.finalize_transforms!
 SymbolicAWEModels.refresh_deformed_positions!
 SymbolicAWEModels.min_rotation
