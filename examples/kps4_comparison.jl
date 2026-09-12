@@ -116,13 +116,13 @@ push!(points, Point(:kcu, pos_kcu, DYNAMIC;
     transform=:main_tf))
 push!(points, Point(:nose, pos_nose, DYNAMIC;
     extra_mass=k_nose, transform=:main_tf))
-push!(points, Point(:top, pos_top, WING;
+push!(points, Point(:top, pos_top, DYNAMIC;
     extra_mass=k_top, wing=:plate_wing,
     transform=:kite_tilt))
-push!(points, Point(:right, pos_right, WING;
+push!(points, Point(:right, pos_right, DYNAMIC;
     extra_mass=k_side, wing=:plate_wing,
     transform=:kite_tilt))
-push!(points, Point(:left, pos_left, WING;
+push!(points, Point(:left, pos_left, DYNAMIC;
     extra_mass=k_side, wing=:plate_wing,
     transform=:kite_tilt))
 

@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+- `sam_tutorial.jl` and `kps4_comparison.jl` build their wing points again. Both
+  still passed the `WING` `DynamicsType` that v0.13.0 removed, so the tutorial
+  died with `UndefVarError: WING` on the step that adds the kite. A rigid wing's
+  structural nodes are now `BODY_STATIC` riding its body and a particle wing's
+  are `DYNAMIC`; the tutorial's wing is rigid, so it also declares the three
+  stations that the removal of `auto_create_twist_surfaces!` requires.
+
 ## v0.17.0 12-09-2026
 
 ### Added
