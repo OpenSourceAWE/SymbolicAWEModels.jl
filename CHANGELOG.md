@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Unreleased
+## v0.17.0 12-09-2026
 
 ### Added
 - A station can read its flap deflection δ off three of its own chord points
@@ -26,24 +26,20 @@
   the same pattern to two scalar weights per (panel, point). Both backends now
   walk one `scatter_node_weights`, and the couple is bound to a variable instead
   of being inlined. The model is unchanged; it interns 29% fewer symbolic terms.
-
 - The cached-model hash now covers a station's flap wiring, so changing which
   bodies or points carry δ rebuilds the model instead of silently reusing one
   whose deflection equations read the old ones. Every cached model bin is
   invalidated once by the change.
-
 - A panel's drag direction no longer re-derives its lift direction inside itself.
   `drag_cross` inlined `lift_cross / |lift_cross|` where the `dir_lift` variable
   already holds exactly that, so normalising `dir_drag` squared and summed three
   copies of it: one panel's drag direction reached 199k expression nodes and a
   wing's system 3.4M. Reading the variable halves the system the monolith backend
   compiles, and leaves the value unchanged.
-
 - Building a wing model no longer constructs the per-section flow curvature rate
   when the wing's solver has the term switched off, which is the default. The
   symbolic inflow reconstruction built it for every refined section and dropped
   it one line later, while the kernel backend already gated the same gather.
-
 - A transform's `elevation_vel` and `azimuth_vel` now place the velocity they
   describe. Both terms were wrong: the elevation term was never rotated by the
   azimuth, so off the `azimuth = 0` meridian it pointed out of the sphere, and
@@ -59,7 +55,6 @@
 - `reposition!` takes `update_vel` (`false` as before), so a state can be moved
   onto a pose and released already flying on it. Nothing applied the transform
   velocity except `reinit!`, which resets from CAD.
-
 - A panel's aerodynamic load is shared between the two stations it lies between
   rather than rounded onto the nearer one. Rounding is a discontinuity, and two
   panels mirroring each other across the wing land on spanwise places that agree
@@ -69,7 +64,6 @@
   cancelled; both are now identically zero. A panel straddling a station also
   took the mean of two weights measured against different station pairs, which
   means nothing averaged.
-
 - `AeroPressure` now places each panel's pitching moment, not only its force.
   The scatter anchored the force to the VSM panel force and left the moment to
   whatever the frozen `Cp` pattern happened to integrate to, so the polar's `Cm`
@@ -81,36 +75,12 @@
   the moment now come out exact rather than approximate. The divisor carries the
   airfoil frame's own triple product, the axes not being quite orthogonal on a
   billowed panel.
-
-### Changed
-- `panel_force_eqs` no longer restates the VSM panel aerodynamics symbolically.
-  It traces VortexStepMethod's panel kernel (`panel_axes`, `panel_inflow`,
-  `panel_force_directions`, `panel_loads`) with symbolic arguments, so the
-  equations both backends compile are the ones the numeric solver evaluates and
-  the two packages cannot drift apart. All this function still decides is where
-  to tear the expression graph. `smooth_norm`, `panel_span_signs` and
-  `store_chord_weights!` go through the same kernel. Requires VortexStepMethod
-  4.2.
-- The SciML stack moves a generation on: `DataInterpolations` 9 and 10,
-  `LinearSolve` 5 and a `SymbolicUtils` floor of 4.46.3 are allowed, and both
-  default manifests are regenerated onto them.
-- Live polars are sampled at the settings their tables were generated with. A
-  wing's `airfoil:` block in `vsm_settings.yaml` says which NeuralFoil network and
-  what transition criticality a section is solved on, and `build_live_polars!`
-  now reads it instead of taking the package defaults — which were a different
-  network size and a different `n_crit` than any tabulated dataset uses, so a
-  deformed section was re-solved against a curve its undeformed self was never
-  on. `setup_aero!` takes the model's `vsm_set` to reach it. The block is
-  VortexStepMethod's own, so the minimum is now v5.0.0.
-
-### Fixed
 - `next_step!` no longer costs `FBDF` its multistep history. SciMLBase 3.53
   treats every parameter write through an integrator as a derivative
   discontinuity, and OrdinaryDiffEqCore 4.17 acts on that on every step rather
   than only the first, so the parameters `next_step!` syncs each step restarted
   the solver at order 1 with an empty history and the dynamics went unstable
   within a few steps. `next_step!` clears the flag before it steps.
-
 - BREAKING: a wing's `twist_surface` is now a `station`, in the code and in the
   structural geometry YAML: the `twist_surfaces:` key and the per-wing
   `twist_surfaces: [...]` list are both `stations:`. The entity is the
@@ -121,12 +91,10 @@
   blend twice without anyone noticing they were the same quantity.
   `TwistSurface` is `Station`, `station_control_points` says what it returns,
   and the file is `station_eqs.jl`.
-
 - `SymbolicUtils` 4.46.3 or newer is required. It carries the fix for
   JuliaSymbolics/SymbolicUtils.jl#1049, where `isequal` on two equal but
   distinct expressions is exponential in nesting depth: a second model build in
   one session spent 320 s in `ODEProblem` against 2 s for the first.
-
 - `check_live_polar(mode, wing; panel_idx)` runs one XFoil solve against the
   live polar a panel is flying, on the state the model is in now. It defaults to
   the panel NeuralFoil is least confident about.
@@ -196,6 +164,27 @@
   re-centring its knots on a finite angle. The failure itself is
   `VortexStepMethod.SolveFailure`, raised by `solve!` under `throw_on_fail`, so the
   minimum VortexStepMethod is now v5.1.0.
+
+### Changed
+- `panel_force_eqs` no longer restates the VSM panel aerodynamics symbolically.
+  It traces VortexStepMethod's panel kernel (`panel_axes`, `panel_inflow`,
+  `panel_force_directions`, `panel_loads`) with symbolic arguments, so the
+  equations both backends compile are the ones the numeric solver evaluates and
+  the two packages cannot drift apart. All this function still decides is where
+  to tear the expression graph. `smooth_norm`, `panel_span_signs` and
+  `store_chord_weights!` go through the same kernel. Requires VortexStepMethod
+  4.2.
+- The SciML stack moves a generation on: `DataInterpolations` 9 and 10,
+  `LinearSolve` 5 and a `SymbolicUtils` floor of 4.46.3 are allowed, and both
+  default manifests are regenerated onto them.
+- Live polars are sampled at the settings their tables were generated with. A
+  wing's `airfoil:` block in `vsm_settings.yaml` says which NeuralFoil network and
+  what transition criticality a section is solved on, and `build_live_polars!`
+  now reads it instead of taking the package defaults — which were a different
+  network size and a different `n_crit` than any tabulated dataset uses, so a
+  deformed section was re-solved against a curve its undeformed self was never
+  on. `setup_aero!` takes the model's `vsm_set` to reach it. The block is
+  VortexStepMethod's own, so the minimum is now v5.0.0.
 
 ## v0.16.0 06-09-2026
 
