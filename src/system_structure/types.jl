@@ -370,7 +370,7 @@ Base.getproperty(point::Point, sym::Symbol) =
     getfield(point, sym === :disturb ? :ext_force_w : sym)
 
 """
-    Point(name, pos_cad, type; wing=1, transform=1, ...)
+    Point(name, pos_cad, type; wing=nothing, transform=nothing, ...)
 
 Constructs a `Point` object, which can be of three different [`DynamicsType`](@ref)s:
 - `STATIC`: The point does not move. ``\\ddot{\\mathbf{r}} = \\mathbf{0}``
@@ -393,7 +393,8 @@ drives the per-point aero and wing-frame fitting.
   Pass `BODY_STATIC` together with `body` to anchor the point to a rigid body.
 
 # Keyword Arguments
-- `wing::Union{Int, Symbol}=1`: Reference to the wing (name or index).
+- `wing::Union{Int, Symbol}`: Reference to the wing (name or index). Defaults to
+  no wing; the point is then placed and damped in the world frame alone.
 - `transform::Union{Int, Symbol}=1`: Reference to the transform (name or index).
 - `body::Union{Int, Symbol}`: Reference to a [`Body`](@ref) to anchor the
   point to (requires `type = BODY_STATIC`). The point then rides the body
@@ -432,10 +433,9 @@ function Point(name, pos_cad, type;
         "not both.")
     (!isnothing(joint) && type != BODY_STATIC) && error(
         "Point $name: `joint` (beam anchoring) requires type BODY_STATIC.")
-    # transform 0 means no transform; a body-anchored point has no wing (wing_ref 0).
     body_ref = isnothing(body) ? 0 : body
     joint_ref = isnothing(joint) ? 0 : joint
-    wing_ref = isnothing(wing) ? (type == BODY_STATIC ? 0 : 1) : wing
+    wing_ref = isnothing(wing) ? 0 : wing
     transform_ref = isnothing(transform) ? 0 : transform
     anchor = isnothing(anchor_b) ? zeros(KVec3) : KVec3(anchor_b...)
     vel = isnothing(vel_w) ? zeros(KVec3) : KVec3(vel_w...)

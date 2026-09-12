@@ -172,10 +172,8 @@ a steering or pulley point with `body_frame_damping` needs it too.
 """
 function kinematic_wing_of(sys_struct, point)
     idx = point.wing_idx
-    (idx > 0 && idx <= length(sys_struct.bodies)) || return 0
-    sys_struct.bodies[idx].type == KINEMATIC || return 0
-    needs = point.is_wing_node || point.body_frame_damping !== nothing
-    return needs ? idx : 0
+    idx > 0 || return 0
+    return sys_struct.bodies[idx].type == KINEMATIC ? idx : 0
 end
 
 """

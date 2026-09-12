@@ -15,14 +15,19 @@
   file untouched. Without it the script waits on a menu prompt.
 
 ### Fixed
-- A point no longer has to belong to a wing. `wing_idx: 0` is the documented "no
-  wing" sentinel, but the monolith backend decided whether a free point had a wing
-  frame to damp against by asking whether the *system* had any wing, so such a
-  point in a model that has a wing crashed model generation with a `BoundsError`
-  on index 0. It now asks the point, and a point whose wing is not among the
-  aero-carrying bodies keeps only its world-frame damping. A station member with
-  no wing — a wing's own structural node claiming to belong to no wing — is now
-  rejected with a message naming the point.
+- BREAKING: a point's `wing_idx` now means one thing — the wing it belongs to,
+  `0` for none — and a point that names no wing gets `0` instead of silently
+  defaulting to wing 1. A wingless point crashed model generation with a
+  `BoundsError` on index 0, because the monolith asked whether the *system* had a
+  wing rather than whether the point did; both that guard and the "use the first
+  wing" fallback behind every non-wing point's `va_b` are gone, so a point is
+  damped and has its apparent wind expressed in the frame of the wing it actually
+  names, or in the world frame alone. Three consequences: a point that never named
+  a wing loses its body-frame damping term (it was damping against an arbitrary
+  wing) and gets `va_b = 0` rather than wing 1's frame; a station member that
+  names no wing is rejected by name, since a wing's own structural node must
+  belong to a wing; and a `wing_idx` naming a wing that does not exist now errors
+  at load instead of failing later.
 
 - `AeroPressure` no longer writes one copy of a panel's live load per contour
   node. The symbolic component summed a separate `surface_node_forces` expression

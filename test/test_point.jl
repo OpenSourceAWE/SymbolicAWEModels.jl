@@ -519,11 +519,19 @@ system:
 end
 
 # ============================================================================
-# A point does not have to belong to a wing: `wing_idx = 0` is the "no wing"
-# sentinel, and the equations for such a point must be built without a wing
-# frame rather than indexing the wing arrays at zero.
+# `point.wing_idx` is the wing the point belongs to, and 0 means none. A point
+# that names no wing gets 0 rather than wing 1, and its equations are built
+# without a wing frame rather than indexing the wing arrays at zero.
 # ============================================================================
 @testset "Point without a wing" begin
+    @testset "a point names no wing unless it says so" begin
+        for type in (STATIC, DYNAMIC, KINEMATIC)
+            @test Point(:free, zeros(3), type).wing_ref == 0
+        end
+        @test Point(:rider, zeros(3), BODY_STATIC; body=:b).wing_ref == 0
+        @test Point(:node, zeros(3), DYNAMIC; wing=:main_wing).wing_ref == :main_wing
+    end
+
     tmpdir = mktempdir()
     data_path = joinpath(tmpdir, "2plate_kite")
     cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path; force=true)
@@ -568,6 +576,13 @@ end
         @test_throws "le_left" load_sys_struct_from_yaml(
             geometry_with_wing(:le_left, "0");
             system_name="wing_node_no_wing", set, vsm_set)
+    end
+
+    # A wing index has to name a wing that exists.
+    @testset "wing that does not exist is rejected at load" begin
+        @test_throws "kcu" load_sys_struct_from_yaml(
+            geometry_with_wing(:kcu, "7");
+            system_name="wing_out_of_range", set, vsm_set)
     end
 
     rm(tmpdir; recursive=true)

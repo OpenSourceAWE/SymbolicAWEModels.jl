@@ -4,17 +4,17 @@
 # Point dynamics equation generation
 
 """
-    point_damping_accel(point, params, R_b_to_w, wing_idx, vel_w, vel_diff_w)
+    point_damping_accel(point, params, R_b_to_w, vel_w, vel_diff_w)
 
 Per-mass damping acceleration for a DYNAMIC point: a world-frame term against
-`vel_w`, plus a body-frame term in wing `wing_idx`'s frame against `vel_diff_w`,
-the point velocity relative to that wing. Pass `vel_diff_w = nothing` for a point
-that belongs to no wing, leaving only the world-frame term.
+`vel_w`, plus a body-frame term in its wing's frame against `vel_diff_w`, the
+point velocity relative to that wing. Pass `vel_diff_w = nothing` for a point that
+belongs to no wing, leaving only the world-frame term.
 """
-function point_damping_accel(point, params, R_b_to_w, wing_idx, vel_w, vel_diff_w)
+function point_damping_accel(point, params, R_b_to_w, vel_w, vel_diff_w)
     accel = collect(params.points[point.idx].world_frame_damping .* vel_w)
     isnothing(vel_diff_w) && return accel
-    R = R_b_to_w[:, :, wing_idx]
+    R = R_b_to_w[:, :, point.wing_idx]
     coeff = params.points[point.idx].body_frame_damping
     return accel + R * (coeff .* (R' * vel_diff_w))
 end
@@ -86,7 +86,7 @@ function beam_hermite_ride_eqs(point, force_on_point, s, params;
 end
 
 """
-    point_eqs!(s, eqs, defaults, points, segments, stations, wings, params, initial;
+    point_eqs!(s, eqs, defaults, points, segments, stations, params, initial;
                R_b_to_w, wing_vel, wind_vec_gnd, twist_angle,
                pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
                spring_sum_force, point_aero_drag, total_drag,
@@ -109,7 +109,7 @@ COM. Free particles integrate through [`confined_derivatives`](@ref), which appl
 # Arguments
 - `s::SymbolicAWEModel`: The main model object (for atmospheric model).
 - `eqs`, `defaults`: Accumulating vectors for the MTK system.
-- `points`, `segments`, `stations`, `wings`: System components.
+- `points`, `segments`, `stations`: System components.
 - `R_b_to_w`: Symbolic rotation matrix (body to world).
 - `wing_vel`: Symbolic wing center of mass velocity.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
@@ -125,7 +125,7 @@ COM. Free particles integrate through [`confined_derivatives`](@ref), which appl
 - Tuple `(eqs, defaults)` with updated equation vectors.
   Note: `body_force` and `body_moment` are modified in-place.
 """
-function point_eqs!(s, eqs, defaults, points, segments, stations, wings, params, initial;
+function point_eqs!(s, eqs, defaults, points, segments, stations, params, initial;
                     R_b_to_w, com_w,
                     wing_vel, wind_vec_gnd, twist_angle,
                     pos, vel, acc, point_force, point_mass, spring_force_vec, drag_force, l0,
@@ -167,23 +167,13 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, wings, params,
             disturb_force[:, point.idx] ~ params.points[point.idx].ext_force_w
         ]
 
-        # Apparent velocity for ALL points (PARTICLE_DYNAMICS wings need body frame).
-        wing_idx_for_transform = if point.is_wing_node
-            point.wing_idx
-        elseif length(wings) > 0
-            # Use first wing for non-wing points
-            Int64(1)
-        else
-            nothing
-        end
-
         drag_coeff = params.points[point.idx].drag_coeff
         area = params.points[point.idx].area
         wind_source = point_wind_source(params, point.idx, wind_gnd)
         drag_rhs = point_drag_force(collect(va_point_w[:, point.idx]),
             air_density(s.am, height[point.idx]), drag_coeff, area)
-        va_point_b_rhs = isnothing(wing_idx_for_transform) ? zeros(3) :
-            R_b_to_w[:, :, wing_idx_for_transform]' * va_point_w[:, point.idx]
+        va_point_b_rhs = point.wing_idx > 0 ?
+            R_b_to_w[:, :, point.wing_idx]' * va_point_w[:, point.idx] : zeros(3)
         eqs = [
             eqs
             height[point.idx] ~ max(0.0, pos[3, point.idx])
@@ -312,10 +302,10 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, wings, params,
             # Free particle: integrated position/velocity (DYNAMIC point or an
             # unanchored surface node).
             pars = point_particle_params(params, point.idx)
-            vel_diff_w = (!isempty(wings) && point.wing_idx > 0) ?
+            vel_diff_w = point.wing_idx > 0 ?
                 vel[:, point.idx] - wing_vel[:, point.wing_idx] : nothing
             damp_accel = point_damping_accel(
-                point, params, R_b_to_w, point.wing_idx, vel[:, point.idx], vel_diff_w)
+                point, params, R_b_to_w, vel[:, point.idx], vel_diff_w)
             velocity, acceleration = confined_derivatives(
                 pos[:, point.idx], vel[:, point.idx], collect(acc[:, point.idx]),
                 (; fix_sphere = fix_point_sphere[point.idx],
