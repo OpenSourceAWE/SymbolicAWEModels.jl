@@ -20,6 +20,10 @@
 - `bin/install -y` (`--yes`) installs without a terminal: it takes the Julia
   already active instead of asking, and leaves `juliaup` and the shell startup
   file untouched. Without it the script waits on a menu prompt.
+- `next_step!(sam; vsm_warn_on_fail=true)` warns instead of erroring when a VSM
+  solve does not converge. The wing keeps the circulation, the angles of attack and
+  the frozen forces of its last converged solve, and `vsm_interval` is untouched, so
+  the next scheduled update solves again.
 
 ### Fixed
 - `AeroPressure` no longer writes one copy of a panel's live load per contour
@@ -192,6 +196,13 @@
     polars are read. `wagner_gains` and `wagner_rates` are registered
     parameters, so retuning a lag syncs instead of rebuilding; only the on/off
     switch is structural.
+- A failed VSM solve leaves the last converged solve's circulation in
+  `solver.sol.gamma_distribution` and its angles of attack in `solver.lr.alpha_dist`
+  and `solver.sol.alpha_dist`, rather than zeroing the circulation and keeping the
+  diverged angles. The next solve keeps its warm start, and a live polar keeps
+  re-centring its knots on a finite angle. The failure itself is
+  `VortexStepMethod.SolveFailure`, raised by `solve!` under `throw_on_fail`, so the
+  minimum VortexStepMethod is now v5.1.0.
 
 ## v0.16.0 06-09-2026
 

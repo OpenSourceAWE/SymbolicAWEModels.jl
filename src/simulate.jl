@@ -77,7 +77,8 @@ function sim!(
                 step_time, integ_time, vsm_time = 0.0, 0.0, 0.0
             end
         catch exception
-            if exception isa AssertionError
+            if exception isa
+                    Union{AssertionError, VortexStepMethod.SolveFailure}
                 if prn
                     @warn "Crashed at t=$t"
                 end

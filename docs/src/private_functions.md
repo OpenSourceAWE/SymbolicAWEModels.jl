@@ -400,8 +400,8 @@ SymbolicAWEModels.apply_direct_forces!
 SymbolicAWEModels.vsm_aero_coeffs
 SymbolicAWEModels.vsm_solve_objects
 SymbolicAWEModels.safe_vsm_solve!
+SymbolicAWEModels.warn_or_rethrow
 SymbolicAWEModels.solve_and_freeze_circulation!
-SymbolicAWEModels.finite_full
 SymbolicAWEModels.set_particle_panel_va!
 SymbolicAWEModels.set_refined_panel_va!
 SymbolicAWEModels.surface_node_forces
