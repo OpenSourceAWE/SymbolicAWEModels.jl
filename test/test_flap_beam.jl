@@ -108,7 +108,7 @@ end
             ts = Station(:flap_ts, Int[], KINEMATIC, 0.0;
                 wing=1, flap_bodies=[1, 2], flap_axis=[0.0, 1.0, 0.0])
             ts.flap_body_idxs = [1, 2]
-            S.init_station_flap!(ts, bodies)
+            S.init_station_flap!(ts, (; bodies))
             @test ts.flap_rest_delta ≈ 0.0 atol=1e-12
             @test ts.flap_chord_refs == [KVec3(1, 0, 0), KVec3(1, 0, 0)]
             bodies[2].Q_b_to_w .= quat_y(phi)
@@ -126,7 +126,7 @@ end
         ts = Station(:flap_ts, Int[], KINEMATIC, 0.0;
             wing=1, flap_bodies=[1, 2], flap_axis=[0.0, 1.0, 0.0])
         ts.flap_body_idxs = [1, 2]
-        S.init_station_flap!(ts, bodies)
+        S.init_station_flap!(ts, (; bodies))
         @test ts.flap_rest_delta ≈ phi0 atol=1e-10
         bodies[2].Q_b_to_w .= quat_y(phi0 + delta)
         R_main = S.quaternion_to_rotation_matrix(bodies[1].Q_b_to_w)

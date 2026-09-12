@@ -3,7 +3,16 @@
 ## Unreleased
 
 ### Added
-
+- A station can read its flap deflection δ off three of its own chord points
+  instead of two flap bodies: `flap_points: [fore, hinge, aft]` on a `KINEMATIC`
+  station, and δ is the angle the aft segment makes with the fore one about the
+  wing-frame hinge axis, referenced to the CAD pose. A chord that bends over
+  several beam elements needs no hinge bodies to read a deflection off, and the
+  angle is read from the same points the aerodynamics is built on. Both backends
+  emit it; `flap_bodies` keeps working, and a station given both reads the points.
+- `bin/install -y` (`--yes`) installs without a terminal: it takes the Julia
+  already active instead of asking, and leaves `juliaup` and the shell startup
+  file untouched. Without it the script waits on a menu prompt.
 - `next_step!(sam; vsm_warn_on_fail=true)` warns instead of erroring when a VSM
   solve does not converge. The wing keeps the circulation, the angles of attack and
   the frozen forces of its last converged solve, and `vsm_interval` is untouched, so
@@ -17,6 +26,11 @@
   the same pattern to two scalar weights per (panel, point). Both backends now
   walk one `scatter_node_weights`, and the couple is bound to a variable instead
   of being inlined. The model is unchanged; it interns 29% fewer symbolic terms.
+
+- The cached-model hash now covers a station's flap wiring, so changing which
+  bodies or points carry δ rebuilds the model instead of silently reusing one
+  whose deflection equations read the old ones. Every cached model bin is
+  invalidated once by the change.
 
 - A panel's drag direction no longer re-derives its lift direction inside itself.
   `drag_cross` inlined `lift_cross / |lift_cross|` where the `dir_lift` variable
@@ -80,6 +94,14 @@
 - The SciML stack moves a generation on: `DataInterpolations` 9 and 10,
   `LinearSolve` 5 and a `SymbolicUtils` floor of 4.46.3 are allowed, and both
   default manifests are regenerated onto them.
+- Live polars are sampled at the settings their tables were generated with. A
+  wing's `airfoil:` block in `vsm_settings.yaml` says which NeuralFoil network and
+  what transition criticality a section is solved on, and `build_live_polars!`
+  now reads it instead of taking the package defaults — which were a different
+  network size and a different `n_crit` than any tabulated dataset uses, so a
+  deformed section was re-solved against a curve its undeformed self was never
+  on. `setup_aero!` takes the model's `vsm_set` to reach it. The block is
+  VortexStepMethod's own, so the minimum is now v5.0.0.
 
 ### Fixed
 - `next_step!` no longer costs `FBDF` its multistep history. SciMLBase 3.53
