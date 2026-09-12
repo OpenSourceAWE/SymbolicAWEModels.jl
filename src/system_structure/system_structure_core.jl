@@ -397,8 +397,9 @@ end
 Set `point.is_wing_node` for every point that is a member of some station.
 A wing's aerodynamic-surface structural points carry their wing membership
 through station membership (there is no `WING` dynamics type); this flag,
-derived once here, drives the per-point aero and wing-frame equations. Requires
-`station.point_idxs` to be resolved first.
+derived once here, drives the per-point aero and wing-frame equations. Errors
+when such a point names no wing. Requires `station.point_idxs` and
+`point.wing_idx` to be resolved first.
 """
 function mark_wing_nodes!(points, stations)
     members = Set{Int64}()
@@ -407,6 +408,9 @@ function mark_wing_nodes!(points, stations)
     end
     for point in points
         point.is_wing_node = point.idx in members
+        point.is_wing_node && point.wing_idx == 0 && error(
+            "Point $(point.name) is a station member, so it is a structural node " *
+            "of a wing, but its wing reference is 0 (no wing). Give it a `wing`.")
     end
     return nothing
 end

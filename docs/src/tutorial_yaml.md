@@ -217,7 +217,7 @@ points:
 | `name` | String/Int | required | Point identifier (`idx` also accepted) |
 | `pos_cad` | [x,y,z] | required | Position in CAD frame [m] |
 | `type` | String | required | `STATIC`, `DYNAMIC`, or `BODY_STATIC` |
-| `wing_idx` | Int/nothing | 1 | Wing this point belongs to |
+| `wing_idx` | Int/nothing | 1 | Wing this point belongs to; `0` for none |
 | `transform_idx` | Int/nothing | nothing | Transform for initial positioning |
 | `body` | Ref/nothing | nothing | `BODY_STATIC`: body the point rides |
 | `joint` | Ref/nothing | nothing | `BODY_STATIC`: beam element the point rides |
