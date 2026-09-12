@@ -30,7 +30,7 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     #  - libglib-2.0.so.0:   override version missing g_string_copy via LD_PRELOAD (placed first)
     #
     # All Julia invocations are handled by forwarding every argument to `command julia`,
-    # so both `julia +1.11 ...` and `$JULIA_CMD` with `JULIA_CMD="julia +1.11"` work.
+    # so both `julia +1.12 ...` and `$JULIA_CMD` with `JULIA_CMD="julia +1.12"` work.
     julia() {
         local _jpreloads=() _jlibdirs=()
         local _jdepots=()
