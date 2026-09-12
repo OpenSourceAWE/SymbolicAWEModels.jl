@@ -14,6 +14,7 @@
 #   - nothing at all when the scale is zero
 #
 # What the Wagner lag owes:
+#   - a reference frame that is the one VSM gives the panels the lag shifts
 #   - two states for the wing, however many panels it has
 #   - no deficiency in steady flow, so a trimmed wing is untouched
 #   - φ(s) = 1 - A₁·exp(-b₁·s) - A₂·exp(-b₂·s) after a step in angle of attack
@@ -30,7 +31,8 @@ using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, wing_points, unsteady_aero,
     panel_apparent_mass, panel_chord_width, wagner_enabled, get_sys_struct_hash,
-    update_sys_struct!, aero_scatter_entries, apparent_mass_carriers
+    update_sys_struct!, aero_scatter_entries, apparent_mass_carriers,
+    wagner_reference_frame
 using KiteUtils
 using LinearAlgebra
 
@@ -160,6 +162,17 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
         _, sys = build_unsteady_case(root, "wag_default")
         @test !wagner_enabled(sys.wings[1])
         @test unsteady_aero(sys.wings[1]).apparent_mass == 0.0
+    end
+
+    @testset "Wagner: the reference frame is the panels' own" begin
+        # The lag shifts every panel's α, so its own α is read in their frame.
+        _, sys = build_unsteady_case(root, "wag_frame")
+        wing = sys.wings[1]
+        panels = wing.vsm_aero.panels
+        x_ref, z_ref, chord_ref = wagner_reference_frame(wing)
+        @test x_ref ≈ normalize(sum(Vector(panel.x_airf) for panel in panels))
+        @test z_ref ≈ normalize(sum(Vector(panel.z_airf) for panel in panels))
+        @test chord_ref ≈ sum(panel.chord for panel in panels) / length(panels)
     end
 
     @testset "Wagner: constants are parameters, not structure" begin
