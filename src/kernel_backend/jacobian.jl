@@ -256,6 +256,27 @@ function build_jacobian(rhs::KernelRHS; prn = true)
 end
 
 """
+    check_jacobian_finite(jacobian, u0, params)
+
+Evaluate `jacobian` at `(u0, params, 0)` and throw when it is not finite, naming the
+kernels whose own dual pass came back non-finite. `params` must carry the values
+[`sync_params!`](@ref) writes.
+"""
+function check_jacobian_finite(jacobian::KernelJacobian, u0, params)
+    jacobian(copy(jacobian.matrix), u0, params, zero(SimFloat))
+    all(isfinite, nonzeros(jacobian.matrix)) && return nothing
+    kernels = jacobian.rhs.system.kernels
+    offenders = unique(kernels[entry.kernel].name for entry in jacobian.duals
+                       if !all(isfinite, entry.blocks))
+    offender_names = isempty(offenders) ?
+        "none; the composition itself overflows" : join(offenders, ", ")
+    error("The analytical Jacobian is not finite at the initial state. Kernels " *
+          "whose own dual pass is not finite: $offender_names. Pass " *
+          "`analytic_jacobian=false` to differentiate the right-hand side " *
+          "numerically instead.")
+end
+
+"""
     self_feeding_instances(system) -> Vector{Int}
 
 The instances whose own outputs feed an input their output map reads.

@@ -19,6 +19,12 @@
   the next scheduled update solves again.
 
 ### Fixed
+- The `KernelBackend` evaluates its analytical Jacobian once before handing it to
+  the solver, and errors when it is not finite, naming the kernels whose dual
+  pass came back non-finite, instead of failing on the first implicit step with
+  `dt` driven below floating-point epsilon. `analytic_jacobian=false` runs such a
+  model on the solver's own Jacobian.
+
 - `AeroPressure` no longer writes one copy of a panel's live load per contour
   node. The symbolic component summed a separate `surface_node_forces` expression
   for each of the 210 nodes, so the panel's force residual and its pitching couple

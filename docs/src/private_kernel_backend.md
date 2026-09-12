@@ -121,6 +121,7 @@ SymbolicAWEModels.record_build_index!
 ```@docs
 SymbolicAWEModels.KernelJacobian
 SymbolicAWEModels.build_jacobian
+SymbolicAWEModels.check_jacobian_finite
 SymbolicAWEModels.KernelDuals
 SymbolicAWEModels.packed_slice
 SymbolicAWEModels.fill_blocks!

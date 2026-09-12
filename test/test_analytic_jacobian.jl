@@ -11,6 +11,9 @@
 # 2. Every entry it writes is inside the declared sparsity pattern
 # 3. It refreshes: a second state gives a different, still correct, matrix
 # 4. `analytic_jacobian=false` leaves the solver to differentiate itself
+# 5. It stays finite on a `ContinuousAero` wing, whose `aero_panel` kernel is the
+#    widest one the composition differentiates
+# 6. A plan that is not finite errors instead of reaching the solver
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -21,7 +24,8 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KernelBackend, ForwardDiff
+using SymbolicAWEModels: KernelBackend, ForwardDiff, VortexStepMethod,
+    check_jacobian_finite
 using KiteUtils
 using LinearAlgebra
 
@@ -138,6 +142,33 @@ function jacobian_test_model(; analytic_jacobian)
     return sam
 end
 
+"""
+    continuous_wing_model()
+
+The 2plate particle wing under `ContinuousAero` on the [`KernelBackend`](@ref),
+initialised with the analytical Jacobian and stepped once. Its `aero_panel`
+kernel carries the widest input block the composition differentiates, and the
+polars it calls have no symbolic derivative.
+"""
+function continuous_wing_model()
+    data_path = joinpath(mktempdir(), "2plate_kite")
+    cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path; force=true)
+    set_data_path(data_path)
+    set = Settings("system.yaml")
+    vsm_set = VortexStepMethod.VSMSettings(
+        joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
+    for vsm_wing_settings in vsm_set.wings
+        vsm_wing_settings.spanwise_panel_distribution = VortexStepMethod.BILLOWING
+    end
+    sys = load_sys_struct_from_yaml(
+        joinpath(data_path, "particle_structural_geometry.yaml");
+        system_name="continuous_test", set, vsm_set, aero_mode=ContinuousAero())
+    sam = SymbolicAWEModel(set, sys; backend=KernelBackend())
+    init!(sam; prn=false, analytic_jacobian=true)
+    next_step!(sam; dt=0.05)
+    return sam
+end
+
 """The composed Jacobian and a global forward-mode one, at the model's state."""
 function jacobian_pair(sam)
     jacobian = sam.prob.prob.f.jac
@@ -182,10 +213,29 @@ end
         @test maximum(abs, again .- reference) < 1e-8 * maximum(abs, reference)
     end
 
+    @testset "Stays finite through a ContinuousAero wing's panels" begin
+        wing = continuous_wing_model()
+        @test wing.integrator.t > 0.0
+        composed, reference, _ = jacobian_pair(wing)
+        @test all(isfinite, composed)
+        scale = maximum(abs, reference)
+        @test scale > 1.0
+        @test maximum(abs, composed .- reference) < 1e-8 * scale
+    end
+
     @testset "Can be turned off" begin
         plain = jacobian_test_model(; analytic_jacobian=false)
         @test isnothing(plain.prob.prob.f.jac)
         @test plain.integrator.t > 0.0
+    end
+
+    @testset "Errors on a plan that is not finite" begin
+        jacobian = sam.prob.prob.f.jac
+        integrator = sam.integrator
+        @test isnothing(check_jacobian_finite(jacobian, integrator.u, integrator.p))
+        broken = fill(NaN, length(integrator.u))
+        @test_throws "not finite at the initial state" check_jacobian_finite(
+            jacobian, broken, integrator.p)
     end
 
     set_data_path(data_path_before)
