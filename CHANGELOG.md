@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## SymbolicAWEModels v0.17.0 2026-09-12
+## v0.17.0 12-09-2026
 
 ### Added
 - A station can read its flap deflection δ off three of its own chord points
