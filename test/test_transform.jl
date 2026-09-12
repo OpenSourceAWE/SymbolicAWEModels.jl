@@ -22,7 +22,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod,
-    calc_heading, reposition!
+    calc_heading, reposition!, write_wing_scalars!
 using KiteUtils
 using LinearAlgebra
 
@@ -140,6 +140,34 @@ using LinearAlgebra
                 println("\n  ====== [$dynamics_type_name] Velocities: " *
                     "elev_vel=$(round(rad2deg(transform.elevation_vel), digits=2))°/s, " *
                     "azim_vel=$(round(rad2deg(transform.azimuth_vel), digits=2))°/s ======\n")
+            end
+
+            # ================================================================
+            # Physics Test 2b: A start velocity is the wing's own rate
+            # ================================================================
+            @testset "Start velocity round-trips into the wing rates" begin
+                sys = sam.sys_struct
+                tf = sys.transforms[:main_transform]
+                reset_transform!(sys)
+                tf.elevation = deg2rad(70)
+                tf.azimuth = deg2rad(25)
+                tf.elevation_vel = deg2rad(3.0)
+                tf.azimuth_vel = deg2rad(-2.0)
+
+                SymbolicAWEModels.reinit!(sys, set)
+
+                wing = sys.bodies[:main_wing]
+                write_wing_scalars!(wing, sys.points;
+                    base_point=tf.base_point_idx)
+
+                @test wing.elevation_vel ≈ tf.elevation_vel atol=1e-8
+                @test wing.azimuth_vel ≈ tf.azimuth_vel atol=1e-8
+
+                println("\n  ====== [$dynamics_type_name] Start velocity: " *
+                    "elev_vel=$(round(rad2deg(wing.elevation_vel), digits=3))°/s, " *
+                    "azim_vel=$(round(rad2deg(wing.azimuth_vel), digits=3))°/s ======\n")
+
+                reset_transform!(sys)
             end
 
             # ================================================================

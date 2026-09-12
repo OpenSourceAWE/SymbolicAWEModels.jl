@@ -63,7 +63,6 @@ SymbolicAWEModels.smooth_norm
 SymbolicAWEModels.smooth_sign
 SymbolicAWEModels.coulomb_viscous_friction
 SymbolicAWEModels.smooth_normalize
-SymbolicAWEModels.apply_heading
 SymbolicAWEModels.get_rot_pos
 SymbolicAWEModels.get_base_pos
 SymbolicAWEModels.calc_aoa
@@ -121,7 +120,10 @@ SymbolicAWEModels.joint_eqs!
 SymbolicAWEModels.timoshenko_joint_eqs!
 SymbolicAWEModels.station_delta_eqs!
 SymbolicAWEModels.has_flap
+SymbolicAWEModels.has_body_flap
+SymbolicAWEModels.has_point_flap
 SymbolicAWEModels.flap_delta
+SymbolicAWEModels.point_flap_delta
 SymbolicAWEModels.init_station_flap!
 SymbolicAWEModels.derive_point_beam_anchor!
 SymbolicAWEModels.init_rigid_body!
@@ -362,8 +364,8 @@ SymbolicAWEModels.apply_direct_forces!
 SymbolicAWEModels.vsm_aero_coeffs
 SymbolicAWEModels.vsm_solve_objects
 SymbolicAWEModels.safe_vsm_solve!
+SymbolicAWEModels.warn_or_rethrow
 SymbolicAWEModels.solve_and_freeze_circulation!
-SymbolicAWEModels.finite_full
 SymbolicAWEModels.set_particle_panel_va!
 SymbolicAWEModels.set_refined_panel_va!
 SymbolicAWEModels.surface_node_forces
@@ -411,6 +413,7 @@ SymbolicAWEModels.init_pressure_buffers!
 SymbolicAWEModels.freeze_traction_pattern!
 SymbolicAWEModels.LivePolarState
 SymbolicAWEModels.chord_frame_coordinates
+SymbolicAWEModels.live_polar_settings
 SymbolicAWEModels.build_live_polars!
 SymbolicAWEModels.station_control_points
 SymbolicAWEModels.panel_station_candidates
@@ -484,6 +487,8 @@ SymbolicAWEModels.heading_reference_body
 ```@docs
 SymbolicAWEModels.apply_azimuth_elevation!
 SymbolicAWEModels.apply_heading!
+SymbolicAWEModels.spherical_spin
+SymbolicAWEModels.apply_spherical_velocity!
 SymbolicAWEModels.finalize_transforms!
 SymbolicAWEModels.refresh_deformed_positions!
 SymbolicAWEModels.min_rotation

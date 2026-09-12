@@ -5,7 +5,7 @@
 Transform functions for heading calculation and spatial positioning.
 
 This file contains:
-- Heading calculation functions (calc_heading, apply_heading, etc.)
+- Heading calculation functions (calc_heading, apply_heading!, etc.)
 - reinit! and reposition! functions for applying transforms
 
 Note: The Transform struct and its constructors are defined in types.jl
@@ -14,16 +14,6 @@ Note: The Transform struct and its constructors are defined in types.jl
 function finalize_transforms! end
 
 # ==================== HEADING CALCULATION ==================== #
-
-"""
-    apply_heading(vec, R_t_to_w, curr_R_t_to_w, heading)
-
-Apply a heading rotation to a vector.
-"""
-function apply_heading(vec, R_t_to_w, curr_R_t_to_w, heading)
-    vec_along_z = rotate_around_z(curr_R_t_to_w' * vec, heading)
-    return R_t_to_w * vec_along_z
-end
 
 """
     wrap_to_pi(angle)
@@ -180,17 +170,29 @@ function min_rotation(curr_dir, target_dir)
 end
 
 """
-    apply_azimuth_elevation!(transform, points, bodies, base_pos; update_vel=false)
+    spherical_spin(transform) -> Vector
+
+Angular velocity [rad/s], in world axes, of the rigid rotation about the
+transform's base that carries `elevation_vel` and `azimuth_vel`. Its axes are `-y`
+of the tangential frame for elevation and world `-z` for azimuth.
+"""
+function spherical_spin(transform)
+    azim = transform.azimuth
+    return transform.elevation_vel .* [-sin(azim), -cos(azim), 0.0] .-
+           transform.azimuth_vel .* [0.0, 0.0, 1.0]
+end
+
+"""
+    apply_azimuth_elevation!(transform, points, bodies, base_pos)
 
 Apply the azimuth/elevation rotation of a single transform to all components in
 it (points and bodies). Rotates the current radial onto the target radial by the
 minimal (roll-free) rotation, so placement never depends on the source frame —
 which is undefined when the components start at the zenith. Roll about the radial
 is set afterwards by the heading step, which is well-defined at the target
-elevation/azimuth. Returns `(curr_R_t_to_w, R_t_to_w)` for use in that step.
+elevation/azimuth.
 """
-function apply_azimuth_elevation!(transform, points, bodies, base_pos;
-                                   update_vel::Bool=false)
+function apply_azimuth_elevation!(transform, points, bodies, base_pos)
     curr_rot_pos = get_rot_pos(transform, bodies, points)
     rel_pos = curr_rot_pos - base_pos
 
@@ -200,11 +202,9 @@ function apply_azimuth_elevation!(transform, points, bodies, base_pos;
               "elevation/azimuth rotation. Use transform_idx: 0 to skip " *
               "transforms, or adjust positions.")
     end
-    curr_R_t_to_w = calc_R_t_to_w(rel_pos)
 
     transform_pos = rotate_around_z(
         rotate_around_y([1, 0, 0], -transform.elevation), -transform.azimuth)
-    R_t_to_w = calc_R_t_to_w(transform_pos)
 
     if abs(abs(transform.elevation) - π / 2) < 1e-6
         @warn "Transform #$(transform.idx): elevation = " *
@@ -214,16 +214,9 @@ function apply_azimuth_elevation!(transform, points, bodies, base_pos;
 
     axis, angle = min_rotation(normalize(rel_pos), normalize(transform_pos))
 
-    r_rot = norm(rel_pos)
-    elev = transform.elevation
-    azim = transform.azimuth
-    vel_spherical = rotate_around_y([0, 0, r_rot * transform.elevation_vel], -elev) +
-                    rotate_around_z([0, r_rot * transform.azimuth_vel, 0], -azim)
-
     for point in points
         point.transform_idx == transform.idx || continue
         point.pos_w .= base_pos .+ rotate_v_around_k(point.pos_w .- base_pos, axis, angle)
-        update_vel && (point.vel_w .= norm(point.pos_w - base_pos) / r_rot * vel_spherical)
     end
     for body in bodies
         body.transform_idx == transform.idx || continue
@@ -233,18 +226,32 @@ function apply_azimuth_elevation!(transform, points, bodies, base_pos;
             R_b[:, i] .= rotate_v_around_k(R_b[:, i], axis, angle)
         end
         body.Q_b_to_w .= rotation_matrix_to_quaternion(R_b)
-        if update_vel
-            body.vel_w .= norm(body.pos_w - base_pos) / r_rot * vel_spherical
-            body.ω_b .= 0.0
-        end
     end
-
-    return curr_R_t_to_w, R_t_to_w
 end
 
 """
-    apply_heading!(transform, points, bodies,
-                    curr_R_t_to_w, R_t_to_w, base_pos)
+    apply_spherical_velocity!(transform, points, bodies, base_pos)
+
+Set every component of `transform` to the velocity of the rigid rotation
+[`spherical_spin`](@ref) describes, `spin × (pos_w - base_pos)`. Only a rigid body
+takes the matching `ω_b`.
+"""
+function apply_spherical_velocity!(transform, points, bodies, base_pos)
+    spin = spherical_spin(transform)
+    for point in points
+        point.transform_idx == transform.idx || continue
+        point.vel_w .= cross(spin, point.pos_w .- base_pos)
+    end
+    for body in bodies
+        body.transform_idx == transform.idx || continue
+        body.vel_w .= cross(spin, body.pos_w .- base_pos)
+        body.ω_b .= body.dynamics_type == RIGID_DYNAMICS ?
+            quaternion_to_rotation_matrix(body.Q_b_to_w)' * spin : 0.0
+    end
+end
+
+"""
+    apply_heading!(transform, points, bodies, base_pos)
 
 Apply heading rotation to all components in a single transform.
 Rotates around the radial axis through `base_pos` (not the origin).
@@ -254,8 +261,7 @@ After `copy_cad_to_world!`, this equals `R_b_to_c` (for
 Bodies in the transform rotate with the same heading delta; a transform
 without a body target applies no heading (matching point behavior).
 """
-function apply_heading!(transform, points, bodies,
-                         curr_R_t_to_w, R_t_to_w, base_pos)
+function apply_heading!(transform, points, bodies, base_pos)
     reference_body = heading_reference_body(transform, bodies)
     isnothing(reference_body) && return
 
@@ -441,10 +447,10 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
         end
 
         # ==================== ROTATE + HEADING ==================== #
-        curr_R_t_to_w, R_t_to_w = apply_azimuth_elevation!(
-            transform, points, bodies, base_pos; update_vel)
-        apply_heading!(transform, points, bodies,
-            curr_R_t_to_w, R_t_to_w, base_pos)
+        apply_azimuth_elevation!(transform, points, bodies, base_pos)
+        apply_heading!(transform, points, bodies, base_pos)
+        update_vel && apply_spherical_velocity!(
+            transform, points, bodies, base_pos)
     end
 
     finalize_transforms!(points, bodies)
@@ -452,10 +458,12 @@ end
 
 """
     reposition!(transforms::AbstractVector{Transform},
-                sys_struct::SystemStructure)
+                sys_struct::SystemStructure; update_vel=false)
 
 Update the system's spatial orientation based on its current
-position, preserving velocities.
+position, preserving velocities. `update_vel` instead overwrites
+them with the velocity of the rigid rotation each transform's
+`elevation_vel` and `azimuth_vel` describe.
 
 Unlike `reinit!`, uses current world positions (`pos_w`) as
 the starting point (no reset from CAD coordinates, no tether
@@ -464,7 +472,8 @@ consistent with `reinit!`.
 """
 function reposition!(
     transforms::AbstractVector{Transform},
-    sys_struct::SystemStructure
+    sys_struct::SystemStructure;
+    update_vel::Bool=false
 )
     (; points, bodies) = sys_struct
     for transform in transforms
@@ -477,12 +486,10 @@ function reposition!(
             points[something(
                 transform.base_point_idx)].pos_w
         end
-        curr_R_t_to_w, R_t_to_w =
-            apply_azimuth_elevation!(
-                transform, points, bodies, base_pos;
-                update_vel=false)
-        apply_heading!(transform, points, bodies,
-            curr_R_t_to_w, R_t_to_w, base_pos)
+        apply_azimuth_elevation!(transform, points, bodies, base_pos)
+        apply_heading!(transform, points, bodies, base_pos)
+        update_vel && apply_spherical_velocity!(
+            transform, points, bodies, base_pos)
     end
     finalize_transforms!(points, bodies)
 end

@@ -280,8 +280,10 @@ function build_panel_station_map!(mode::AeroPressure, wing, sys_struct)
     origin_cad = wing.pos_cad
     spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     flap_station = map(flaps) do ts
-        mid_cad = 0.5 .* (sys_struct.bodies[ts.flap_body_idxs[1]].pos_cad .+
-                          sys_struct.bodies[ts.flap_body_idxs[2]].pos_cad)
+        mid_cad = has_point_flap(ts) ?
+            sys_struct.points[ts.flap_point_idxs[2]].pos_cad :
+            0.5 .* (sys_struct.bodies[ts.flap_body_idxs[1]].pos_cad .+
+                    sys_struct.bodies[ts.flap_body_idxs[2]].pos_cad)
         dot(rot_cad_to_body * (mid_cad .- origin_cad), spanwise)
     end
     assignment = zeros(Int64, n_panels)
@@ -310,6 +312,11 @@ function station_deltas(sys_struct)
     deltas = zeros(SimFloat, length(stations))
     for station in stations
         has_flap(station) || continue
+        if has_point_flap(station)
+            deltas[station.idx] = point_flap_delta(station, sys_struct.points,
+                sys_struct.wings[station.wing_idx].R_b_to_w)
+            continue
+        end
         R_main = quaternion_to_rotation_matrix(
             bodies[station.flap_body_idxs[1]].Q_b_to_w)
         R_flap = quaternion_to_rotation_matrix(
@@ -605,15 +612,20 @@ function init_pressure_buffers!(mode::AeroPressure, wing)
 end
 
 """
-    setup_aero!(mode::AeroPressure, wing, points, stations; prn=false)
+    setup_aero!(mode::AeroPressure, wing, points, stations; prn=false,
+                vsm_set=nothing)
 
 Run the generic particle VSM setup (rebuild the unrefined sections onto the
 structural LE/TE stations, refine, build `point_to_vsm_point`), freeze the
 strut-interpolation caches ([`build_section_interp`](@ref)), then build the
 surface→point traction map ([`build_station_point_map!`](@ref)) and size the frozen
 buffers/polars ([`init_pressure_buffers!`](@ref)). `PARTICLE_DYNAMICS` only.
+
+Live polars are sampled at the `airfoil:` settings `vsm_set` carries, so a deformed
+section is re-solved on the network its tables were generated with.
 """
-function setup_aero!(mode::AeroPressure, wing, points, stations; prn=false)
+function setup_aero!(mode::AeroPressure, wing, points, stations; prn=false,
+                     vsm_set=nothing)
     wing.dynamics_type == PARTICLE_DYNAMICS || error(
         "AeroPressure supports PARTICLE_DYNAMICS wings only; wing " *
         "$(wing.name) is $(wing.dynamics_type).")
@@ -624,7 +636,7 @@ function setup_aero!(mode::AeroPressure, wing, points, stations; prn=false)
         build_section_interp(wing.vsm_wing)
     build_station_point_map!(mode, wing, points, stations; prn)
     init_pressure_buffers!(mode, wing)
-    mode.live_polars && build_live_polars!(mode, wing, points, stations)
+    mode.live_polars && build_live_polars!(mode, wing, points, stations; vsm_set)
     return nothing
 end
 
@@ -659,7 +671,7 @@ function remake_aero!(mode::AeroPressure, wing, set, vsm_set, points,
         build_section_interp(wing.vsm_wing)
     build_station_point_map!(mode, wing, points, stations)
     init_pressure_buffers!(mode, wing)
-    mode.live_polars && build_live_polars!(mode, wing, points, stations)
+    mode.live_polars && build_live_polars!(mode, wing, points, stations; vsm_set)
     return nothing
 end
 
