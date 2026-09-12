@@ -98,6 +98,13 @@
   deformed section was re-solved against a curve its undeformed self was never
   on. `setup_aero!` takes the model's `vsm_set` to reach it. The block is
   VortexStepMethod's own, so the minimum is now v5.0.0.
+- Julia 1.13 takes the place of 1.11 in the development setup. CI's third cell
+  runs 1.13, `bin/install` and `bin/update_default_manifests` offer 1.12 and
+  1.13, and the tracked default manifest resolved under 1.11 is replaced by one
+  resolved under 1.13. `[compat]` gains `1.13` without dropping an entry, so the
+  package still admits 1.11 — it is only no longer the version the repo's own
+  tooling installs. `SHA` compat now reads `"0.7.0, 1"`, 1 being the version the
+  stdlib has on 1.13.
 
 ### Fixed
 - `next_step!` no longer costs `FBDF` its multistep history. SciMLBase 3.53

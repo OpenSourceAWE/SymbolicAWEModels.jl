@@ -19,8 +19,8 @@ print_usage() {
     echo "./install --update"
     echo "./install --skip-subprojects"
     echo "./install --no-precompile"
-    echo "./install +1.11 | +1.12"
-    echo "./install --version 1.11 | --version 1.12"
+    echo "./install +1.12 | +1.13"
+    echo "./install --version 1.12 | --version 1.13"
     echo "./install -h"
     echo "./install --help"
     echo "Options:"
@@ -32,7 +32,7 @@ print_usage() {
     echo "  --skip-subprojects    Skip setup/update of examples, test, and docs sub-projects."
     echo "  --no-precompile       Skip all Pkg.precompile() steps; just resolve manifests."
     echo "  +X.Y, --version X.Y   Use Julia channel X.Y for this run (juliaup default unchanged)."
-    echo "                        Without this, a menu will ask you to choose 1.11 or 1.12"
+    echo "                        Without this, a menu will ask you to choose 1.12 or 1.13"
     echo "                        (with the currently active Julia version as default)."
     echo "  -h, --help            Show this help message and exit."
 }
@@ -89,7 +89,7 @@ if ! command -v juliaup &> /dev/null; then
     echo "Error: juliaup is not installed. Please install it first."
     case "$(uname -s)" in
         Linux|Darwin)
-            echo "  curl -fsSL https://install.julialang.org | sh -s -- --default-channel 1.11"
+            echo "  curl -fsSL https://install.julialang.org | sh -s -- --default-channel 1.12"
             ;;
         MINGW*|MSYS*|CYGWIN*)
             echo "  winget install --name Julia --id 9NJNWW8PVKMN -e -s msstore"
@@ -116,20 +116,20 @@ if [[ -z "$_desired_julia" ]]; then
     # which can report a different binary if one is ahead on PATH).
     _current_major=$(juliaup status 2>/dev/null | awk '/\*/ {print $2}')
     if [[ -z "$_current_major" ]]; then
-        _current_major="1.12"  # fallback default
+        _current_major="1.13"  # fallback default
     fi
 
     # Ask user to choose version
     echo "Which Julia version would you like to use?"
     echo ""
     
-    if [[ "$_current_major" == "1.11" ]]; then
-        echo -e "  ${_green}[1]${_reset} Julia 1.11 (current, default)"
-        echo -e "  ${_reset}[2]${_reset} Julia 1.12"
+    if [[ "$_current_major" == "1.12" ]]; then
+        echo -e "  ${_green}[1]${_reset} Julia 1.12 (current, default)"
+        echo -e "  ${_reset}[2]${_reset} Julia 1.13"
         _default_choice=1
     else
-        echo -e "  ${_reset}[1]${_reset} Julia 1.11"
-        echo -e "  ${_green}[2]${_reset} Julia 1.12 (current, default)"
+        echo -e "  ${_reset}[1]${_reset} Julia 1.12"
+        echo -e "  ${_green}[2]${_reset} Julia 1.13 (current, default)"
         _default_choice=2
     fi
     
@@ -139,14 +139,14 @@ if [[ -z "$_desired_julia" ]]; then
     
     case "$_choice" in
         1)
-            _desired_julia="1.11"
+            _desired_julia="1.12"
             ;;
         2)
-            _desired_julia="1.12"
+            _desired_julia="1.13"
             ;;
         *)
             echo "Invalid choice. Using default: $_default_choice"
-            _desired_julia=$([ "$_default_choice" -eq 1 ] && echo "1.11" || echo "1.12")
+            _desired_julia=$([ "$_default_choice" -eq 1 ] && echo "1.12" || echo "1.13")
             ;;
     esac
 fi
@@ -175,10 +175,10 @@ if compgen -G "bin/kps-image-${julia_major}-*.so" > /dev/null; then
     rm -f bin/kps-image-"${julia_major}"-*.so
 fi
 
-# Only accept Julia 1.11 and 1.12
-if [[ $julia_major != "1.11" ]] && [[ $julia_major != "1.12" ]]; then
-    echo "Error: Julia $julia_major is not supported. Only Julia 1.11 and 1.12 are supported."
-    echo "Re-run with +1.11 or +1.12, e.g. ./bin/install +1.11"
+# Only accept Julia 1.12 and 1.13
+if [[ $julia_major != "1.12" ]] && [[ $julia_major != "1.13" ]]; then
+    echo "Error: Julia $julia_major is not supported. Only Julia 1.12 and 1.13 are supported."
+    echo "Re-run with +1.12 or +1.13, e.g. ./bin/install +1.12"
     exit 1
 fi
 
@@ -206,8 +206,9 @@ _prepare_manifests() {
     local dir="${1:-.}"
     rm -f "${dir}/Manifest.toml"
     # Remove stale 0-byte versioned manifests left from failed previous runs
-    [ -s "${dir}/Manifest-v1.11.toml" ] || rm -f "${dir}/Manifest-v1.11.toml"
-    [ -s "${dir}/Manifest-v1.12.toml" ] || rm -f "${dir}/Manifest-v1.12.toml"
+    for _manifest in "${dir}"/Manifest-v*.toml; do
+        [ -s "$_manifest" ] || rm -f "$_manifest"
+    done
 }
 
 if [[ $_update == true ]]; then
@@ -251,14 +252,7 @@ if [[ $_skip_subprojects == true ]]; then
 else
     echo "Julia $julia_major: instantiating all sub-projects..."
 
-    # Seed examples/test from the main manifest only on Julia 1.11.
-    # On 1.12 we let each sub-project resolve fresh.
-    if [[ $julia_major == "1.11" ]]; then
-        cp "Manifest-v${julia_major}.toml" "examples/Manifest-v${julia_major}.toml"
-        cp "Manifest-v${julia_major}.toml" "test/Manifest-v${julia_major}.toml"
-    else
-        rm -f examples/Manifest-v${julia_major}.toml test/Manifest-v${julia_major}.toml
-    fi
+    rm -f examples/Manifest-v${julia_major}.toml test/Manifest-v${julia_major}.toml
     rm -f docs/Manifest-v${julia_major}.toml
 
     if [[ $_update == true ]]; then
@@ -276,11 +270,11 @@ else
             echo "Precompiling $_sub project..."
             $JULIA --project="$_sub" -e 'using Pkg; Pkg.precompile()'
         fi
-            if [[ $julia_major == "1.12" ]]; then
-                rm -f examples/Manifest*.toml test/Manifest*.toml docs/Manifest*.toml
-                echo "Removed subproject manifests for Julia 1.12"
-            fi
     done
+
+    # A manifest of a sub-project's own shadows the workspace's root one.
+    rm -f examples/Manifest*.toml test/Manifest*.toml docs/Manifest*.toml
+    echo "Removed subproject manifests"
 fi
 
 # Copy .JETLSConfig.toml.default to .JETLSConfig.toml if it doesn't exist
