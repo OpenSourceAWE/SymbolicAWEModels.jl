@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+- `precompile_workload = false` now switches off the Makie extension's workload as
+  well as the package's, so precompiling `SymbolicAWEModelsMakieExt` no longer
+  builds four models and loading it no longer replaces the package's own
+  precompiled copies of the model pipeline.
+
 ## v0.17.0 12-09-2026
 
 ### Added
