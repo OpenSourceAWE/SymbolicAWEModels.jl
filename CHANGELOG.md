@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## Unreleased
+
+### Changed
+- Julia 1.13 takes the place of 1.11 in the development setup. CI's third cell
+  runs 1.13, `bin/install` and `bin/update_default_manifests` offer 1.12 and
+  1.13, and the tracked default manifest resolved under 1.11 is replaced by one
+  resolved under 1.13. `[compat]` gains `1.13` without dropping an entry, so the
+  package still admits 1.11 — it is only no longer the version the repo's own
+  tooling installs. `SHA` compat now reads `"0.7.0, 1"`, 1 being the version the
+  stdlib has on 1.13.
+
 ## v0.17.0 12-09-2026
 
 ### Added

@@ -57,7 +57,7 @@ jobs:
         # configuration because Julia keys its caches by that configuration.
         include:
           - os: ubuntu-latest
-            version: '1.11'
+            version: '1.13'
             arch: x64
             prefix: xvfb-run -a
           - os: ubuntu-latest
