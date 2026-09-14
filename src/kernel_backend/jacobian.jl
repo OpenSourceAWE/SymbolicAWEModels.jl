@@ -263,7 +263,7 @@ kernels whose own dual pass came back non-finite. `params` must carry the values
 [`sync_params!`](@ref) writes.
 """
 function check_jacobian_finite(jacobian::KernelJacobian, u0, params)
-    jacobian(copy(jacobian.matrix), u0, params, zero(SimFloat))
+    jacobian(jacobian.matrix, u0, params, zero(SimFloat))
     all(isfinite, nonzeros(jacobian.matrix)) && return nothing
     kernels = jacobian.rhs.system.kernels
     offenders = unique(kernels[entry.kernel].name for entry in jacobian.duals
