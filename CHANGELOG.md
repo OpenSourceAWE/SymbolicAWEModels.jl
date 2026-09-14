@@ -3,6 +3,10 @@
 ## Unreleased
 
 ### Fixed
+- `precompile_workload = false` now switches off the Makie extension's workload as
+  well as the package's, so precompiling `SymbolicAWEModelsMakieExt` no longer
+  builds four models and loading it no longer replaces the package's own
+  precompiled copies of the model pipeline.
 - `sam_tutorial.jl` and `kps4_comparison.jl` build their wing points again. Both
   still passed the `WING` `DynamicsType` that v0.13.0 removed, so the tutorial
   died with `UndefVarError: WING` on the step that adds the kite. A rigid wing's
@@ -38,6 +42,12 @@
   the next scheduled update solves again.
 
 ### Fixed
+- The `KernelBackend` evaluates its analytical Jacobian once before handing it to
+  the solver, and errors when it is not finite, naming the kernels whose dual
+  pass came back non-finite, instead of failing on the first implicit step with
+  `dt` driven below floating-point epsilon. `analytic_jacobian=false` runs such a
+  model on the solver's own Jacobian.
+
 - `AeroPressure` no longer writes one copy of a panel's live load per contour
   node. The symbolic component summed a separate `surface_node_forces` expression
   for each of the 210 nodes, so the panel's force residual and its pitching couple
