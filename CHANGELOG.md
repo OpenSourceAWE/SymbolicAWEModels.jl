@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+- `precompile_workload = false` now switches off the Makie extension's workload as
+  well as the package's, so precompiling `SymbolicAWEModelsMakieExt` no longer
+  builds four models and loading it no longer replaces the package's own
+  precompiled copies of the model pipeline.
+
 ### Changed
 - Julia 1.13 takes the place of 1.11 in the development setup. CI's third cell
   runs 1.13, `bin/install` and `bin/update_default_manifests` offer 1.12 and

@@ -6,9 +6,7 @@ using PrecompileTools: @setup_workload, @compile_workload
 """
     workload_fixture() -> String
 
-Copy the 2-plate fixture into a scratch directory and return its path. The
-workload builds real models and `init!` serialises one, so it must not write into
-the package's own `data`.
+Copy the 2-plate fixture into a scratch directory and return its path.
 """
 function workload_fixture()
     source = joinpath(@__DIR__, "..", "data", "2plate_kite")
@@ -26,7 +24,7 @@ end
     workload_model(fixture, geometry, system_name, backend) -> SymbolicAWEModel
 
 Load the 2-plate structure from `geometry` and build it on `backend`, ready for
-`init!`. Reloads the structure per call because building consumes it.
+`init!`. Reloads the structure on every call.
 """
 function workload_model(fixture, geometry, system_name, backend)
     set = Settings("system.yaml")
@@ -43,9 +41,7 @@ end
     run_workload(fixture)
 
 Build, initialise and step the 2-plate models on both backends. Called from this
-package's workload and again from the Makie extension's, where the same code is
-compiled against the method table Makie leaves behind — loading Makie invalidates
-around 19500 method instances, and a cold start is almost entirely inference.
+package's `@compile_workload` and from the Makie extension's.
 """
 function run_workload(fixture)
     set_data_path(fixture)
