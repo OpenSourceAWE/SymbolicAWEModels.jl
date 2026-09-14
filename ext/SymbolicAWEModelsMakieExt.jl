@@ -4357,12 +4357,15 @@ function SymbolicAWEModels.plot_aoa(sys_struct::SystemStructure;
     return fig
 end
 
-using PrecompileTools: @setup_workload, @compile_workload
+using PrecompileTools: @setup_workload, @compile_workload, workload_enabled
 
-@setup_workload begin
-    fixture = SymbolicAWEModels.workload_fixture()
-    @compile_workload begin
-        SymbolicAWEModels.run_workload(fixture)
+# @setup_workload would read this extension module's preference, not the package's.
+if workload_enabled(SymbolicAWEModels)
+    @setup_workload begin
+        fixture = SymbolicAWEModels.workload_fixture()
+        @compile_workload begin
+            SymbolicAWEModels.run_workload(fixture)
+        end
     end
 end
 
