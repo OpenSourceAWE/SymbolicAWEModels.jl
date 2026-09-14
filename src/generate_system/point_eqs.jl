@@ -4,18 +4,18 @@
 # Point dynamics equation generation
 
 """
-    point_damping_accel(point, params, R_b_to_w, vel_w, vel_diff_w)
+    point_damping_accel(point, params, R_b_to_w, wing_vel, vel_w)
 
-Per-mass damping acceleration for a DYNAMIC point: a world-frame term against
-`vel_w`, plus a body-frame term in its wing's frame against `vel_diff_w`, the
-point velocity relative to that wing. Pass `vel_diff_w = nothing` for a point that
-belongs to no wing, leaving only the world-frame term.
+Per-mass damping acceleration for a DYNAMIC point: a world-frame term against its
+world velocity `vel_w`, plus, for a point that belongs to a wing, a body-frame term
+in that wing's frame against the point's velocity relative to the wing.
 """
-function point_damping_accel(point, params, R_b_to_w, vel_w, vel_diff_w)
+function point_damping_accel(point, params, R_b_to_w, wing_vel, vel_w)
     accel = collect(params.points[point.idx].world_frame_damping .* vel_w)
-    isnothing(vel_diff_w) && return accel
+    point.wing_idx > 0 || return accel
     R = R_b_to_w[:, :, point.wing_idx]
     coeff = params.points[point.idx].body_frame_damping
+    vel_diff_w = vel_w - wing_vel[:, point.wing_idx]
     return accel + R * (coeff .* (R' * vel_diff_w))
 end
 
@@ -302,10 +302,8 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
             # Free particle: integrated position/velocity (DYNAMIC point or an
             # unanchored surface node).
             pars = point_particle_params(params, point.idx)
-            vel_diff_w = point.wing_idx > 0 ?
-                vel[:, point.idx] - wing_vel[:, point.wing_idx] : nothing
             damp_accel = point_damping_accel(
-                point, params, R_b_to_w, vel[:, point.idx], vel_diff_w)
+                point, params, R_b_to_w, wing_vel, vel[:, point.idx])
             velocity, acceleration = confined_derivatives(
                 pos[:, point.idx], vel[:, point.idx], collect(acc[:, point.idx]),
                 (; fix_sphere = fix_point_sphere[point.idx],

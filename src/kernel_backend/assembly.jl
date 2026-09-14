@@ -145,7 +145,7 @@ node is placed by a twist-deformed body-frame offset instead of riding anything 
 and so does [`classify_points`](@ref).
 """
 rigid_wing_node(sys_struct, point) =
-    point.is_wing_node && point.wing_idx > 0 &&
+    point.is_wing_node &&
     sys_struct.bodies[point.wing_idx].dynamics_type == RIGID_DYNAMICS
 
 """

@@ -519,9 +519,7 @@ system:
 end
 
 # ============================================================================
-# `point.wing_idx` is the wing the point belongs to, and 0 means none. A point
-# that names no wing gets 0 rather than wing 1, and its equations are built
-# without a wing frame rather than indexing the wing arrays at zero.
+# `point.wing_idx` is the wing the point belongs to, and 0 means none
 # ============================================================================
 @testset "Point without a wing" begin
     @testset "a point names no wing unless it says so" begin
@@ -551,8 +549,7 @@ end
         return path
     end
 
-    # The KCU carries no body-frame damping, so dropping its wing membership is a
-    # pure bookkeeping change: same kite, same physics.
+    # The KCU carries no body-frame damping, so its physics is unchanged by this.
     @testset "free point with no wing builds and flies" begin
         sys = load_sys_struct_from_yaml(geometry_with_wing(:kcu, "0");
             system_name="point_no_wing", set, vsm_set)
@@ -571,14 +568,12 @@ end
         @test kcu.pos_w[3] ≈ height_before rtol=0.05
     end
 
-    # A station member is a wing's structural node, so it cannot be wingless.
     @testset "station member without a wing is rejected" begin
         @test_throws "le_left" load_sys_struct_from_yaml(
             geometry_with_wing(:le_left, "0");
             system_name="wing_node_no_wing", set, vsm_set)
     end
 
-    # A wing index has to name a wing that exists.
     @testset "wing that does not exist is rejected at load" begin
         @test_throws "kcu" load_sys_struct_from_yaml(
             geometry_with_wing(:kcu, "7");

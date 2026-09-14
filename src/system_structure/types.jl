@@ -292,7 +292,7 @@ mutable struct Point
     const name::Union{Int, Symbol, Nothing}
     "Resolved transform index (filled by SystemStructure)."
     transform_idx::Int64
-    "Resolved wing index (filled by SystemStructure)."
+    "Resolved wing index (filled by SystemStructure). 0 = no wing."
     wing_idx::Int64
     "Resolved rigid-body index for a body-anchored point (filled by SystemStructure). 0 = not anchored."
     body_idx::Int64
@@ -393,9 +393,11 @@ drives the per-point aero and wing-frame fitting.
   Pass `BODY_STATIC` together with `body` to anchor the point to a rigid body.
 
 # Keyword Arguments
-- `wing::Union{Int, Symbol}`: Reference to the wing (name or index). Defaults to
-  no wing; the point is then placed and damped in the world frame alone.
-- `transform::Union{Int, Symbol}=1`: Reference to the transform (name or index).
+- `wing::Union{Int, Symbol}`: The wing the point belongs to (name or index).
+  Without it the point belongs to none: no body-frame damping, and no body frame
+  to express its apparent wind in.
+- `transform::Union{Int, Symbol}`: Reference to the transform (name or index),
+  defaulting to none.
 - `body::Union{Int, Symbol}`: Reference to a [`Body`](@ref) to anchor the
   point to (requires `type = BODY_STATIC`). The point then rides the body
   kinematically and feeds its net force (and the moment about the body COM)
