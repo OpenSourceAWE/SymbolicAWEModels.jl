@@ -247,12 +247,11 @@ Create a `VortexStepMethod.Wing` geometry object from the settings provided.
 
 This function checks for a `.obj` file in the model directory. If present it uses
 `VortexStepMethod.ObjWing(obj_path; …)` to generate the aero geometry (airfoils
-are extracted from the mesh; no `.dat` is needed). The mesh is sliced at panel
-resolution — `ObjWing` defaults to one unrefined section per panel boundary
-(`n_panels + 1`) — independent of the wing's station count; the twist
-surfaces map onto the refined panels by distance later. The generated
-`geometry.yaml` is cached under `<model_dir>/obj_geometry` and reused on later
-runs. When no `.obj` is present it falls back to `vsm_set`'s `geometry_file`. Aero
+are extracted from the mesh; no `.dat` is needed). The wing settings say how the
+mesh is cut: `mesh.n_sections` unrefined sections, panelled into `n_panels` by
+`spanwise_panel_distribution`. The generated `geometry.yaml` is cached under
+`<model_dir>/obj_geometry/<n_sections>_sections` and reused on later runs. When
+no `.obj` is present it falls back to `vsm_set`'s `geometry_file`. Aero
 only — mass properties are handled separately (see [`VSMWing`](@ref) and
 [`ObjAdapter`](@ref)).
 """
@@ -263,10 +262,16 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
 
     if isfile(obj_path)
         prn && @info "Generating wing aero geometry from .obj file"
-        n_panels = isempty(vsm_set.wings) ? 56 : vsm_set.wings[1].n_panels
+        wing_set = isempty(vsm_set.wings) ?
+            VortexStepMethod.WingSettings(; n_panels=56) : vsm_set.wings[1]
+        n_sections = wing_set.mesh.n_sections
         return VortexStepMethod.ObjWing(obj_path;
-            n_panels, crease_frac=set.crease_frac,
-            output_dir=joinpath(model_dir, "obj_geometry"), verbose=prn)
+            n_panels=wing_set.n_panels, n_sections,
+            spanwise_distribution=wing_set.spanwise_panel_distribution,
+            spanwise_direction=wing_set.spanwise_direction,
+            remove_nan=wing_set.remove_nan, crease_frac=set.crease_frac,
+            output_dir=joinpath(model_dir, "obj_geometry",
+                                "$(n_sections)_sections"), verbose=prn)
     end
 
     # Fallback: load from aero_geometry.yaml using provided vsm_set

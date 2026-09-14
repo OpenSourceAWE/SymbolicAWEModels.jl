@@ -9,6 +9,16 @@
   precompiled copies of the model pipeline.
 
 ### Changed
+- `create_vsm_wing` cuts an `.obj` mesh the way the wing's
+  `VSMSettings` ask rather than always at panel resolution: `mesh.n_sections`
+  unrefined sections, panelled into `n_panels` by
+  `spanwise_panel_distribution`, with `spanwise_direction` and `remove_nan`
+  also read from the wing settings. A model whose stations each need their own
+  aero strut can now say so; one that named no `mesh:` block slices at
+  `MeshSettings`' default of 45 sections instead of `n_panels + 1`. The
+  generated geometry is cached under
+  `<model_dir>/obj_geometry/<n_sections>_sections`, so changing the count
+  re-slices instead of silently reusing the previous cut.
 - Julia 1.13 takes the place of 1.11 in the development setup. CI's third cell
   runs 1.13, `bin/install` and `bin/update_default_manifests` offer 1.12 and
   1.13, and the tracked default manifest resolved under 1.11 is replaced by one
