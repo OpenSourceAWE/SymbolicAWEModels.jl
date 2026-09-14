@@ -232,7 +232,7 @@ function Wing(name, stations::AbstractVector, R_b_to_c::AbstractMatrix,
         # aero/wing fields
         aero, Int64[], station_refs,
         zeros(KVec3), one(SimFloat),
-        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         zeros(KVec3), zeros(KVec3), 0.0, 0.0,
         group_points_moment,

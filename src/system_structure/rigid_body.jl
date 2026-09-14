@@ -113,8 +113,6 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     const wind_vec::KVec3
     const aero_force_b::KVec3
     const aero_moment_b::KVec3
-    const tether_moment::KVec3
-    const tether_force::KVec3
     elevation::SimFloat
     elevation_vel::SimFloat
     elevation_acc::SimFloat
@@ -293,7 +291,7 @@ function Body(name;
         # aero/wing fields (inert for a plain body)
         AeroNone(), Int64[], NameRef[],
         zeros(KVec3), one(SimFloat),
-        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         zeros(KVec3), zeros(KVec3), 0.0, 0.0,
         true, nothing, nothing, nothing)

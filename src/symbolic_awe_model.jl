@@ -384,8 +384,6 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         end
         ss.aero_force_b .= wing.aero_force_b
         ss.aero_moment_b .= wing.aero_moment_b
-        ss.tether_induced_force .= wing.tether_force
-        ss.tether_induced_moment .= wing.tether_moment
         ss.vel_kite .= wing.vel_w
         # Calculate Roll, Pitch, Yaw from Quaternion
         q = wing.Q_b_to_w

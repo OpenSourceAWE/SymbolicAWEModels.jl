@@ -9,6 +9,13 @@
   precompiled copies of the model pipeline.
 
 ### Changed
+- BREAKING: `Body.tether_force`, `Body.tether_moment` and the Makie extension's
+  `plot_tether_moment` panel are gone. Neither backend's readout ever wrote the
+  two fields, so they held the zeros their constructor gave them; the two
+  `SysState` columns they were copied into, `tether_induced_force` and
+  `tether_induced_moment`, are removed in KiteUtils 0.13. The panel plotted the
+  moment column, which was that same constant. A wing's tether-induced wrench
+  has no source in this package, so there is nothing to plot in its place.
 - Julia 1.13 takes the place of 1.11 in the development setup. CI's third cell
   runs 1.13, `bin/install` and `bin/update_default_manifests` offer 1.12 and
   1.13, and the tracked default manifest resolved under 1.11 is replaced by one
