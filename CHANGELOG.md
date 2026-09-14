@@ -7,6 +7,9 @@
   well as the package's, so precompiling `SymbolicAWEModelsMakieExt` no longer
   builds four models and loading it no longer replaces the package's own
   precompiled copies of the model pipeline.
+- `plot(syss, logs; plot_gk=true)` draws the steering-gain panel, with its
+  y-limits taken from `gk_ylims`. It threw `UndefVarError: cs_over_us_vec` and
+  printed a block of `@info` lines per log on every call.
 
 ### Changed
 - Julia 1.13 takes the place of 1.11 in the development setup. CI's third cell

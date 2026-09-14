@@ -1156,6 +1156,17 @@ function moving_average_same(x::AbstractVector{<:Real}, window::Int)
 end
 
 """
+    compute_heading_rate(syslog)
+
+Rate of change of the logged heading in [°/s] over each logging interval, one
+element shorter than `syslog.time`.
+"""
+function compute_heading_rate(syslog)
+    heading_step = SymbolicAWEModels.wrap_to_pi.(diff(syslog.heading))
+    return rad2deg.(heading_step) ./ diff(syslog.time)
+end
+
+"""
     compute_turn_radius(sl_in, sys::SystemStructure; smooth_window=10, eps=1e-12)
 
 Compute signed turn radius from velocity and smoothed acceleration using the
@@ -1253,10 +1264,11 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 - `plot_twist::Bool=false`: Show the panel with the twist angles for each wing group.
 - `plot_v_app`::Bool=false`: Show the panel with the apparent wind speed at the wing.
 - `plot_aoa::Bool=plot_default`: Show the panel with the angle of attack.
-- `aoa_ylims::Union{Nothing,Tuple}=nothing`: Y-axis limits for the AoA panel (`nothing` leaves autoscaling).
 - `plot_heading::Bool=plot_default`: Show the panel with the kite's heading and course angles.
 - `plot_kiteutils_course::Bool=false`: Also plot course calculated using KiteUtils.calc_course.
-- `gk_ylims::Union{Nothing,Tuple}=(0.0, 10.0)`: Y-axis limits for the gk panel (`nothing` leaves autoscaling).
+- `plot_gk::Bool=false`: Show the panel with the steering gain `g_k = dψ/dt / (v_a u_s)`.
+- `gk_ylims::Union{Nothing,Tuple}=(0.0, 15.0)`: Y-axis limits for the gk panel
+  (`nothing` leaves autoscaling).
 - `plot_elevation::Bool=false`: Show the panel with the kite's elevation angle.
 - `plot_azimuth::Bool=false`: Show the panel with the kite's azimuth angle.
 - `plot_distance::Bool=false`: Show the panel with the kite distance from origin (norm of position).
@@ -1427,17 +1439,7 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
             sl = lg.syslog
             suffix = actual_suffixes[i]
 
-            # Calculate heading rate from diff for quaternion wings
-            heading_unwrapped = copy(sl.heading)
-            for j in 2:lastindex(heading_unwrapped)
-                while heading_unwrapped[j] - heading_unwrapped[j-1] > π
-                    heading_unwrapped[j] -= 2π
-                end
-                while heading_unwrapped[j] - heading_unwrapped[j-1] < -π
-                    heading_unwrapped[j] += 2π
-                end
-            end
-            heading_rate = diff(rad2deg.(heading_unwrapped)) ./ diff(sl.time)
+            heading_rate = compute_heading_rate(sl)
             # Filter out high jumps (> 200 °/s)
             for j in eachindex(heading_rate)
                 if abs(heading_rate[j]) > 200
@@ -1790,150 +1792,15 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
             sl = lg.syslog
             suffix = actual_suffixes[i]
 
-            us_pct = collect(sl.steering)
-
-            # Calculate heading rate from diff for quaternion wings
-            heading_unwrapped = copy(sl.heading)
-            for j in 2:lastindex(heading_unwrapped)
-                while heading_unwrapped[j] - heading_unwrapped[j-1] > π
-                    heading_unwrapped[j] -= 2π
-                end
-                while heading_unwrapped[j] - heading_unwrapped[j-1] < -π
-                    heading_unwrapped[j] += 2π
-                end
-            end
-            heading_rate = diff(rad2deg.(heading_unwrapped)) ./ diff(sl.time)
+            heading_rate = compute_heading_rate(sl)
             v_app = sl.v_app[2:end]
-            us_seg = us_pct[2:end]
+            steering_pct = sl.steering[2:end]
 
-            # calculate gk, guarding against zero steering (use percentage threshold)
             gk = similar(heading_rate)
-            @inbounds for k in eachindex(gk)
-                gk[k] = abs(us_seg[k]) > 1.0 ? heading_rate[k] / (v_app[k] * us_seg[k] / 100.0) : NaN
+            for k in eachindex(gk)
+                gk[k] = abs(steering_pct[k]) > 1.0 ?
+                        heading_rate[k] / (v_app[k] * steering_pct[k] / 100) : NaN
             end
-
-            @info "turn-rate $(heading_rate[end])"
-            @info "v_app $(v_app[end])"
-            @info "us_seg $(us_seg[end])%"
-            @info "gk $(gk[end])"
-            @info "alpha-vsm $(rad2deg(sl.AoA[end]))"
-
-            # Average over the last 50 seconds (or full log if shorter)
-            t_end = sl.time[end]
-            t_start = max(sl.time[1], t_end - 50)
-            window_mean(vals, times) = begin
-                idxs = findall(t -> t >= t_start, times)
-                isempty(idxs) && return NaN
-                window = vals[idxs]
-                finite_vals = filter(isfinite, window)
-                isempty(finite_vals) ? NaN : mean(finite_vals)
-            end
-
-            heading_rate_avg = window_mean(heading_rate, sl.time[2:end])
-            v_app_avg = window_mean(v_app, sl.time[2:end])
-            us_seg_avg = window_mean(us_seg, sl.time[2:end])
-            gk_avg = window_mean(gk, sl.time[2:end])
-            cs_us_avg = isempty(cs_over_us_vec) ? NaN : window_mean(cs_over_us_vec, sl.time[2:end])
-            aoa_avg = window_mean(rad2deg.(sl.AoA), sl.time)
-
-            @info "averages over last 50 seconds for log $(i) $(syss[i].name): \n"
-            @info "turn-rate $(heading_rate_avg)"
-            @info "v_app $(v_app_avg)"
-            @info "us_seg $(us_seg_avg)"
-            @info "gk ~10 $(gk_avg)"
-            @info "cs/us ~0.1 $(abs(cs_us_avg))"
-            @info "alpha-vsm $(aoa_avg)"
-
-            # @info "--- resolving alpha mystery ---"
-            # # ss.AoA = atan(wing.va_b[3], wing.va_b[1]) # version-1 
-            # #---> ss.AoA = wing.vsm_solver.sol.alpha_dist[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-2, likely with induction
-            # # ss.AoA =wing.vsm_aero.alpha_uncorrected[length(wing.vsm_solver.sol.alpha_dist) ÷ 2 + (length(wing.vsm_solver.sol.alpha_dist) % 2)] # version-3, hopefully without induction
-            # @info "alpha VSM (with induction?) $(rad2deg(sl.AoA[end])) deg"
-
-            # # computing alpha geometrically
-            # # Report final geometric AoA using hardcoded mid-panel corners (world frame)
-            # last_state = sl[end]
-            # X = last_state.X; Y = last_state.Y; Z = last_state.Z
-            # # Mid-panel corners: 10,11,12,13 (11/13 front; 10/12 back)
-            # back = 0.5 .* ([X[10], Y[10], Z[10]] .+ [X[12], Y[12], Z[12]])
-            # front = 0.5 .* ([X[11], Y[11], Z[11]] .+ [X[13], Y[13], Z[13]])
-
-            # delta_z = front[3] - back[3]
-            # delta_x = front[1] - back[1]
-            # aoa_wrt_horizontal = -rad2deg(atan(delta_z, delta_x))
-            # @info "alpha wrt horizontal $(round(aoa_wrt_horizontal, digits=2)) deg"
-
-            # mid_panel_vector = front .- back
-            # mid_panel_vector_unit = mid_panel_vector / (norm(mid_panel_vector) + 1e-12)
-            # # @info "mid-panel vector" mid_panel_vector_unit=round.(mid_panel_vector_unit, digits=5)
-            
-            # # wind vector in world frame
-            # v_wind = sl.v_wind_kite[end]
-            # # @info "v_wind_kite" v_wind=round.(v_wind, digits=5)
-            # v_wind_unit = v_wind / (norm(v_wind) + 1e-12)
-
-            # # compute angle v_a and vector_mid_panel
-            # vel_KCU = sl.vel_kite[end]
-            # # @info "vel_KCU" vel_kite=round.(vel_KCU, digits=5)
-            # va_kcu = vel_KCU - v_wind
-            # va_kcu_unit = va_kcu / (norm(va_kcu) + 1e-12)
-
-
-            # # Flip chord direction so it points into the incoming flow (front -> back)
-            # cos_theta = dot(-mid_panel_vector_unit, va_kcu_unit)
-            # alpha_KCU = rad2deg(acos(clamp(cos_theta, -1.0, 1.0)))
-            # @info "KCU" va_kcu=round.(va_kcu, digits=5) va_kcu_norm=norm(va_kcu) alpha_KCU=round(alpha_KCU, digits=2)
-            # # @info "alpha wing (v_app_KCU) $(round(alpha_KCU, digits=2))"
-            
-            # # compute wing v_a
-            # min1 = sl[end - 1]
-            # last_state = sl[end]
-
-            # X_last = last_state.X; Y_last = last_state.Y; Z_last = last_state.Z
-            # X_min1 = min1.X; Y_min1 = min1.Y; Z_min1 = min1.Z
-
-            # dt_last_to_min1 = last_state.time - min1.time + 1e-12
-            # va_wing = SVector{3,Float64}(
-            #     (X_last[1] - X_min1[1]) / (dt_last_to_min1) - v_wind[1],
-            #     (Y_last[1] - Y_min1[1]) / (dt_last_to_min1) - v_wind[2],
-            #     (Z_last[1] - Z_min1[1]) / (dt_last_to_min1) - v_wind[3],
-            # )
-            # # @info "v_app wing" va_wing=round.(va_wing, digits=5)
-            # va_wing_unit = va_wing / (norm(va_wing) + 1e-12)
-            
-
-            # # Use the same convention: chord points front -> back, apparent wind approaches from front
-            # cos_theta_wing = dot(-mid_panel_vector_unit, va_wing_unit)
-            # alpha_wing = rad2deg(acos(clamp(cos_theta_wing, -1.0, 1.0)))
-            # @info "WING" va_wing=round.(va_wing, digits=5) va_wing_norm=norm(va_wing) alpha_wing=round(alpha_wing, digits=2)
-
-            # # computing lift and drag using the total aero force "aero_force_b"
-            # # SysLog stores orientation as a quaternion; rebuild R_b_w on the fly
-            # R_b_w = SymbolicAWEModels.quaternion_to_rotation_matrix(sl.orient[end])
-            # F_aero_b = sl.aero_force_b[end]
-            # F_aero_world = R_b_w * F_aero_b
-            # # Decompose aero force into drag (opposing apparent wind) and lift (perpendicular)
-            # drag_dir = -va_wing_unit               # drag acts against the flow
-            # drag = -dot(F_aero_world, va_wing_unit)  # positive magnitude
-            # drag_vec = drag * drag_dir
-            # lift_vec = F_aero_world - dot(F_aero_world, va_wing_unit) * va_wing_unit
-            # lift = norm(lift_vec)
-            # lift_dir = lift > 1e-12 ? lift_vec / lift : zeros(3)
-            # @info "Aero VSM forces" lift=round(lift, digits=2) drag=round(drag, digits=2) L_over_D=round(lift / (drag + 1e-12), digits=2)
-
-            # # Aero forces of tethers
-            # tether_force_w = sl.tether_induced_force[end]
-            # drag_tether = -dot(tether_force_w, va_wing_unit)
-            # tether_lift_vec = tether_force_w - dot(tether_force_w, va_wing_unit) * va_wing_unit
-            # tether_lift = norm(tether_lift_vec)
-            # @info "Aero tether forces" lift=round(tether_lift, digits=2) drag=round(drag_tether, digits=2) L_over_D=round(tether_lift / (drag_tether + 1e-12), digits=2)
-
-            # # Total aero forces (wing + tether)
-            # total_drag = drag + drag_tether
-            # total_lift_vec = lift_vec + tether_lift_vec
-            # total_lift = norm(total_lift_vec)
-            # total_angle = rad2deg(acos(clamp(dot(total_lift_vec / (total_lift + 1e-12), drag_dir), -1.0, 1.0)))
-            # @info "Aero total forces" lift=round(total_lift, digits=2) drag=round(total_drag, digits=2) angle_lift_to_drag=round(total_angle, digits=2) L_over_D=round(total_lift / (total_drag + 1e-12), digits=2)
 
             push!(all_data, gk)
             push!(all_labels, lbl(L"g_k", suffix))
@@ -1943,7 +1810,8 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
             data = all_data,
             labels = all_labels,
             times = all_times,
-            ylabel = L"g_k \; [-]"
+            ylabel = L"g_k \; [-]",
+            ylim = gk_ylims
         ))
     end
 

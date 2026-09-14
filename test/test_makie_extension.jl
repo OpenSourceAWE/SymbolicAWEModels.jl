@@ -9,6 +9,7 @@
 # 3. Multi-system record produces output file
 # 4. Replay single system
 # 5. Replay multiple systems
+# 6. The steering-gain panel draws and takes its y-limits from gk_ylims
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -197,6 +198,18 @@ end
     @testset "Multi-system replay" begin
         scene = replay([lg1, lg2], [sys1, sys2])
         @test scene isa GLMakie.Scene
+    end
+
+    # ================================================================
+    # Test 6: Steering-gain panel
+    # ================================================================
+    @testset "gk panel draws and honours gk_ylims" begin
+        fig = MakieControlPlots.plot([sys1, sys2], [lg1, lg2];
+            plot_default=false, plot_gk=true, gk_ylims=(0.0, 20.0))
+        @test fig isa GLMakie.Figure
+        axes = filter(block -> block isa GLMakie.Axis, fig.content)
+        @test length(axes) == 1
+        @test only(axes).limits[][2] == (0.0, 20.0)
     end
 
     rm(tmpdir; recursive=true)
