@@ -24,6 +24,12 @@
   instead of leaving whatever the last live simulation step wrote, so a replayed
   frame shows the forces of that frame. A log written before the `spring_force`
   column existed leaves the force `NaN`.
+- A live polar's control points are measured in the panel's own `panel_axes`
+  frame over its corners, which is the frame its contour nodes are lofted along.
+  The hand-built frame they used before measured along the unleaned mid-chord
+  axis over `norm(chord_vec)`, so on a swept or tapered panel the chord fraction
+  and the camber offset were on a different scale from the nodes they are
+  matched against.
 - `precompile_workload = false` now switches off the Makie extension's workload as
   well as the package's, so precompiling `SymbolicAWEModelsMakieExt` no longer
   builds four models and loading it no longer replaces the package's own

@@ -523,6 +523,8 @@ function build_station_point_map!(mode::AeroPressure, wing, points, stations;
     blend_point = Vector{Vector{Int64}}(undef, length(panels))
     node_couple_shape = Vector{Vector{SimFloat}}(undef, length(panels))
     node_residual_share = Vector{Vector{SimFloat}}(undef, length(panels))
+    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
+    chord_weight = corner_chord_weights(wing)
     max_chord_ratio = 0.0
     for (panel_idx_local, panel) in enumerate(panels)
         panel.section_aero === nothing && error(
@@ -535,7 +537,9 @@ function build_station_point_map!(mode::AeroPressure, wing, points, stations;
         near, far, weight = isnothing(candidates) ? (nothing, nothing, 0.0) :
             candidates[panel_idx_local]
         fractions(group) = isnothing(group) ? nothing :
-            [chord_frame_coordinates(panel, pos_b)[1] for (_, pos_b) in group]
+            [chord_frame_coordinates(panel, spanwise,
+                                     chord_weight[panel_idx_local], pos_b)[1]
+             for (_, pos_b) in group]
         near_fraction, far_fraction = fractions(near), fractions(far)
         for k in eachindex(xc)
             node = loft_contour_node(panel, xc, yc, k)

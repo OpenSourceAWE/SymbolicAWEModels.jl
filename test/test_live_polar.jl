@@ -8,10 +8,11 @@
 # - the sampling comes off the wing's own `airfoil:` block, not the package defaults
 # - the flap axis is gone: no panel carries a station, so the RHS has no δ
 # - a refresh leaves every panel on a rewritten polar centred on its own α
-# - a chordwise deformation moves the polar, and the frame maths that produces it
-#   agrees with a hand-computed chord frame
+# - a chordwise deformation moves the polar, and the frame that produces it is the
+#   panel's own `panel_axes` frame, on a swept and tapered panel too
 # - against the tabulated mode: the scatter is bit-identical, only the polar source
 #   differs, and an undeformed panel's polar is the network's own answer
+# - the replay path rebuilds the live shape from the corners a log frame carries
 #
 # What AeroPressure's scatter does with the resulting forces is in
 # test_pressure_aero.jl and is unchanged by the polar source.
@@ -131,13 +132,42 @@ using LinearAlgebra
 
     @testset "chord frame coordinates" begin
         panel = panels[1]
+        spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
+        weight = SymbolicAWEModels.corner_chord_weights(wing)[1]
         le_mid = 0.5 .* (Vector(panel.LE_point_1) .+ Vector(panel.LE_point_2))
         probe = le_mid .+ 0.4 * panel.chord .* Vector(panel.x_airf) .+
                 0.03 * panel.chord .* Vector(panel.z_airf)
-        fraction, offset = chord_frame_coordinates(panel, probe)
+        fraction, offset = chord_frame_coordinates(panel, spanwise, weight, probe)
         @test fraction ≈ 0.4
         @test offset ≈ 0.03
-        @test all(iszero, chord_frame_coordinates(panel, le_mid))
+        @test all(iszero, chord_frame_coordinates(panel, spanwise, weight, le_mid))
+    end
+
+    @testset "a swept, tapered panel is measured in its own leaned frame" begin
+        le_1 = [0.0, 0.0, 0.0]
+        te_1 = [1.0, 0.0, 0.25]
+        le_2 = [0.35, 1.4, 0.0]
+        te_2 = [1.15, 1.4, -0.10]
+        spanwise = [0.0, -1.0, 0.0]
+        panel = VortexStepMethod.Panel{Float64}()
+        panel.corner_points .= hcat(le_1, te_1, te_2, le_2)
+        weight = 0.62
+        axes = VortexStepMethod.panel_axes(le_1, te_1, le_2, te_2, weight, 1)
+        probe = 0.5 .* (le_1 .+ le_2) .+ 0.4 * axes.chord .* axes.x_airf .+
+                0.03 * axes.chord .* axes.z_airf
+        fraction, offset = chord_frame_coordinates(panel, spanwise, weight, probe)
+        @test fraction ≈ 0.4
+        @test offset ≈ 0.03
+        # A replayed frame restores the corners and nothing else.
+        panel.x_airf .= 7.0
+        panel.z_airf .= 7.0
+        panel.chord = 7.0
+        @test chord_frame_coordinates(panel, spanwise, weight, probe) ===
+              (fraction, offset)
+        # A replay writes the structural section order; a flipped wing holds the other.
+        panel.corner_points .= hcat(le_2, te_2, te_1, le_1)
+        @test chord_frame_coordinates(panel, spanwise, weight, probe) ===
+              (fraction, offset)
     end
 
     @testset "a chordwise deformation moves the polar" begin
@@ -273,6 +303,26 @@ using LinearAlgebra
         # and the order of magnitude are a shared claim.
         @test 0.5 < norm(force) / norm(force_t) < 2.0
         @test dot(force, force_t) / (norm(force) * norm(force_t)) > 0.99
+    end
+
+    @testset "the replay path rebuilds the live shape from the logged corners" begin
+        state = mode.live
+        update_live_deflection!(mode, wing, sys.points)
+        expected = [copy(deflection) for deflection in state.deflection]
+        logged = SysState(SymbolicAWEModels.position_slots(sys).total;
+                          precision=Float64)
+        SymbolicAWEModels.write_aero_log_points!(mode, wing, sys, logged,
+                                                 length(sys.points), 1.0)
+        corners = [copy(panel.corner_points) for panel in panels]
+        for panel in panels
+            panel.corner_points .= 0.0
+        end
+        SymbolicAWEModels.read_aero_log_points!(mode, wing, sys, logged,
+                                                length(sys.points))
+        @test all(panels[i].corner_points ≈ corners[i] for i in eachindex(panels))
+        SymbolicAWEModels.restore_live_shape!(mode, wing, sys.points)
+        @test all(maximum(abs, state.deflection[i] .- expected[i]) < 1e-9
+                  for i in eachindex(panels))
     end
 end
 nothing
