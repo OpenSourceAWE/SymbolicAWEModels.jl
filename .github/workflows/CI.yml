@@ -32,10 +32,8 @@ jobs:
   test-with-code-coverage:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ matrix.backend || 'monolith' }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
-    # The kernel backend needs ~100 min of the budget and grows with the suite.
     timeout-minutes: 180
     strategy:
-      fail-fast: false
       matrix:
         version:
           - '1.12'
@@ -48,9 +46,6 @@ jobs:
         # merged into the ubuntu/1.12 combination; it becomes its own job.
         backend:
           - monolith
-        exclude:
-          - os: macOS-latest
-            arch: x64
         # `coverage` marks the one job per backend that reports to Codecov.
         # Everywhere else it stays off: instrumented code runs slower, and
         # `Pkg.test` precompiles the whole tree again under the coverage
