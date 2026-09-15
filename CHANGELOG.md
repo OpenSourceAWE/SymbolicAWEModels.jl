@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Changed
+- BREAKING: `roll`, `pitch` and `yaw` are no longer written to `SysState`, which
+  dropped the three fields in KiteUtils 0.13. They were computed here with a NED
+  Euler formula applied to `Q_b_to_w`, which is ENU, so they were not the angles
+  any sensor reports — yaw was out by 90 degrees at zenith.
+  `KiteUtils.euler_KS(ss.orient)` reports them correctly.
+- BREAKING: the aerodynamic wrench goes to the `SysState` columns `aero_force_KA`
+  and `aero_moment_KA`, which KiteUtils 0.13 renamed from `aero_force_b` and
+  `aero_moment_b` so that the name says which body frame the components are in.
+  `load_log` still reads the old column, so older logs keep loading.
+- `[compat]` on KiteUtils is raised to `0.13`.
+
+## v0.18.0 2026-09-15
+
+### Added
+- A "Spring force" checkbox in the replay viewer colours the tether and bridle
+  segments green-to-red by their spring force, and takes the colouring off again.
+  `replay(log, sys; force_color=true)` starts with it ticked.
+
 ### Fixed
 - A point that belongs to no wing no longer crashes model generation with a
   `BoundsError` on index 0. `wing_idx` now means one thing — the wing the point
@@ -15,6 +34,10 @@
   no wing is rejected at load since a wing's structural node must belong to a
   wing, and a `wing_idx` naming a wing that does not exist errors at load
   instead of failing later.
+- `update_from_sysstate!` restores each segment's spring force from the log
+  instead of leaving whatever the last live simulation step wrote, so a replayed
+  frame shows the forces of that frame. A log written before the `spring_force`
+  column existed leaves the force `NaN`.
 - `precompile_workload = false` now switches off the Makie extension's workload as
   well as the package's, so precompiling `SymbolicAWEModelsMakieExt` no longer
   builds four models and loading it no longer replaces the package's own
@@ -34,16 +57,6 @@
   `tether_induced_moment`, are removed in KiteUtils 0.13. The panel plotted the
   moment column, which was that same constant. A wing's tether-induced wrench
   has no source in this package, so there is nothing to plot in its place.
-- BREAKING: `roll`, `pitch` and `yaw` are no longer written to `SysState`, which
-  dropped the three fields in KiteUtils 0.13. They were computed here with a NED
-  Euler formula applied to `Q_b_to_w`, which is ENU, so they were not the angles
-  any sensor reports — yaw was out by 90 degrees at zenith.
-  `KiteUtils.euler_KS(ss.orient)` reports them correctly.
-- BREAKING: the `SysState` columns `aero_force_b` and `aero_moment_b` are written as
-  `aero_force_KA` and `aero_moment_KA`, KiteUtils 0.13 having renamed them so the name
-  says which frame the components are in. `load_log` still reads the old column, so logs
-  written before this keep loading.
-- `[compat]` on KiteUtils is raised to `0.13`.
 - Julia 1.13 takes the place of 1.11 in the development setup. CI's third cell
   runs 1.13, `bin/install` and `bin/update_default_manifests` offer 1.12 and
   1.13, and the tracked default manifest resolved under 1.11 is replaced by one
