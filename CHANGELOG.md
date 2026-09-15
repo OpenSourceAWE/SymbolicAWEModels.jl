@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+- `precompile_workload = false` now switches off the Makie extension's workload as
+  well as the package's, so precompiling `SymbolicAWEModelsMakieExt` no longer
+  builds four models and loading it no longer replaces the package's own
+  precompiled copies of the model pipeline.
+
+### Changed
+- Julia 1.13 takes the place of 1.11 in the development setup. CI's third cell
+  runs 1.13, `bin/install` and `bin/update_default_manifests` offer 1.12 and
+  1.13, and the tracked default manifest resolved under 1.11 is replaced by one
+  resolved under 1.13. `[compat]` gains `1.13` without dropping an entry, so the
+  package still admits 1.11 — it is only no longer the version the repo's own
+  tooling installs. `SHA` compat now reads `"0.7.0, 1"`, 1 being the version the
+  stdlib has on 1.13.
+
 ## v0.17.0 12-09-2026
 
 ### Added
@@ -19,6 +36,12 @@
   the next scheduled update solves again.
 
 ### Fixed
+- The `KernelBackend` evaluates its analytical Jacobian once before handing it to
+  the solver, and errors when it is not finite, naming the kernels whose dual
+  pass came back non-finite, instead of failing on the first implicit step with
+  `dt` driven below floating-point epsilon. `analytic_jacobian=false` runs such a
+  model on the solver's own Jacobian.
+
 - `AeroPressure` no longer writes one copy of a panel's live load per contour
   node. The symbolic component summed a separate `surface_node_forces` expression
   for each of the 210 nodes, so the panel's force residual and its pitching couple
