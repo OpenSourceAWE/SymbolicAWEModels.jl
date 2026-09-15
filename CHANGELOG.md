@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+- `system.yaml` is the project file: besides `sim_settings:` it names a model's
+  `structural_geometry:`, `aero_geometry:` and `vsm_settings:`, the layout
+  `V3Kite.jl` already uses. `project_file(entry)` resolves one against the data
+  path and returns `""` where the project names none, so examples ask the project
+  for a model's files instead of spelling their names. A project that names only
+  `sim_settings:` keeps working.
+
+### Changed
+- A wing's aero geometry is the project file's `aero_geometry:` where the project
+  names one, so the file is named in one place instead of also being the
+  `geometry_file:` of every wing in `vsm_settings.yaml`. A `VSMSettings` built
+  outside the project still flies its own `geometry_file:`.
+- The `kite.struc_geometry_path` and `kite.aero_geometry_path` fields of
+  `settings.yaml` are gone from the shipped models and from the documented
+  schema. Nothing ever read them; `structural_geometry:` and `aero_geometry:` in
+  the project file take their place.
+
 ## SymbolicAWEModels v0.18.0 2026-09-15
 
 ### Added
@@ -36,14 +56,6 @@
   stations that the removal of `auto_create_twist_surfaces!` requires.
 
 ### Changed
-- A wing's aero geometry is the project file's `aero_geometry:` where the project
-  names one, so the file is named in one place instead of also being the
-  `geometry_file:` of every wing in `vsm_settings.yaml`. A `VSMSettings` built
-  outside the project still flies its own `geometry_file:`.
-- The `kite.struc_geometry_path` and `kite.aero_geometry_path` fields of
-  `settings.yaml` are gone from the shipped models and from the documented
-  schema. Nothing ever read them; `structural_geometry:` and `aero_geometry:` in
-  the project file take their place.
 - BREAKING: `Body.tether_force`, `Body.tether_moment` and the Makie extension's
   `plot_tether_moment` panel are gone. Neither backend's readout ever wrote the
   two fields, so they held the zeros their constructor gave them; the two
@@ -68,12 +80,6 @@
 ## v0.17.0 12-09-2026
 
 ### Added
-- `system.yaml` is the project file: besides `sim_settings:` it names a model's
-  `structural_geometry:`, `aero_geometry:` and `vsm_settings:`, the layout
-  `V3Kite.jl` already uses. `project_file(entry)` resolves one against the data
-  path and returns `""` where the project names none, so examples ask the project
-  for a model's files instead of spelling their names. A project that names only
-  `sim_settings:` keeps working.
 - A station can read its flap deflection δ off three of its own chord points
   instead of two flap bodies: `flap_points: [fore, hinge, aft]` on a `KINEMATIC`
   station, and δ is the angle the aft segment makes with the fore one about the
