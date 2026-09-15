@@ -599,6 +599,9 @@ function assign_indices_and_resolve!(
     # Points: resolve wing/transform refs (body_ref resolved later, no bodies here).
     for point in points
         point.wing_idx = resolve_ref(point.wing_ref, wing_names, "wing")
+        point.wing_idx in 0:length(wings) || error(
+            "Point $(point.name): wing $(point.wing_ref) does not exist; the " *
+            "system has $(length(wings)) wings.")
         point.transform_idx = resolve_ref(point.transform_ref, transform_names, "transform")
     end
 
@@ -971,6 +974,13 @@ function SystemStructure(name, set;
                 points[idx].vel_w .= 0.0
             end
         end
+    end
+
+    # A surviving wing node is a wing's own structural node, so it must name one.
+    for point in points
+        point.is_wing_node && point.wing_idx == 0 && error(
+            "Point $(point.name) is a station member, so it is a structural node " *
+            "of a wing, but it names no wing. Give it a `wing`.")
     end
 
     # Validate indices (now assigned by assign_indices_and_resolve!)
