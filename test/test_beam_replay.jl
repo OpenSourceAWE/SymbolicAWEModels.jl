@@ -84,12 +84,18 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     @test sys2.bodies[:seg_1].pos_w[1] ≈ 0.25 atol=1e-4  # fixed root
 
     @testset "sim! logs to the output folder, not the data folder" begin
-        steps = 3
-        sim_log, _ = sim!(sam, zeros(steps, 0);
-                          dt, total_time=steps*dt, prn=false)
-        @test length(sim_log.syslog) == steps
-        @test isfile(joinpath(get_output_path(), "tmp_run.arrow"))
-        @test !isfile(joinpath(get_data_path(), "tmp_run.arrow"))
+        previous_output_path = SymbolicAWEModels.OUTPUT_PATH[1]
+        set_output_path(joinpath(mktempdir(), "output"))
+        try
+            steps = 3
+            sim_log, _ = sim!(sam, zeros(steps, 0);
+                              dt, total_time=steps*dt, prn=false)
+            @test length(sim_log.syslog) == steps
+            @test isfile(joinpath(get_output_path(), "tmp_run.arrow"))
+            @test !isfile(joinpath(get_data_path(), "tmp_run.arrow"))
+        finally
+            set_output_path(previous_output_path)
+        end
     end
 
     # On Windows, load_log keeps an Arrow mmap handle open, so the temp dir
