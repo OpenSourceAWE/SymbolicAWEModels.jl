@@ -19,6 +19,12 @@
   well as the package's, so precompiling `SymbolicAWEModelsMakieExt` no longer
   builds four models and loading it no longer replaces the package's own
   precompiled copies of the model pipeline.
+- `sam_tutorial.jl` and `kps4_comparison.jl` build their wing points again. Both
+  still passed the `WING` `DynamicsType` that v0.13.0 removed, so the tutorial
+  died with `UndefVarError: WING` on the step that adds the kite. A rigid wing's
+  structural nodes are now `BODY_STATIC` riding its body and a particle wing's
+  are `DYNAMIC`; the tutorial's wing is rigid, so it also declares the three
+  stations that the removal of `auto_create_twist_surfaces!` requires.
 
 ### Changed
 - BREAKING: `Body.tether_force`, `Body.tether_moment` and the Makie extension's
