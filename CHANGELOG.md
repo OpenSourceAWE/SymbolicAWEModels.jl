@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Unreleased
+## v0.18.0 2026-09-15
 
 ### Added
 - A `SystemStructure` writes and reads as a *structure document* conforming to
