@@ -16,6 +16,12 @@
   package still admits 1.11 — it is only no longer the version the repo's own
   tooling installs. `SHA` compat now reads `"0.7.0, 1"`, 1 being the version the
   stdlib has on 1.13.
+- `wagner_reference_frame` builds the wing's mean chordwise direction and normal
+  with `VortexStepMethod.panel_axes` instead of its own cross product, so the frame
+  the Wagner lag measures its one angle of attack in is the frame of the panels that
+  lag shifts. It averages over the frozen VSM mesh at the chord blend weight VSM
+  gives each panel rather than at the 0.5 midpoint, so a wing whose panels differ in
+  width is measured on the frame its panels are built on.
 
 ## v0.17.0 12-09-2026
 
