@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## v0.18.0 2026-09-15
+## Unreleased
 
 ### Added
 - A `SystemStructure` writes and reads as a *structure document* conforming to
@@ -10,6 +10,10 @@
   loader. The document is the resolved structure — points, segments, stations,
   pulleys, tethers, winches, bodies and joints, every reference by name — without
   the transforms that place it in the world.
+
+## v0.18.0 2026-09-15
+
+### Added
 - A "Spring force" checkbox in the replay viewer colours the tether and bridle
   segments green-to-red by their spring force, and takes the colouring off again.
   `replay(log, sys; force_color=true)` starts with it ticked.
