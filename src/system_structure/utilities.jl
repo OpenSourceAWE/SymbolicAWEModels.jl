@@ -1039,8 +1039,6 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
 
         wing.aero_force_b .= sys_state.aero_force_b
         wing.aero_moment_b .= sys_state.aero_moment_b
-        wing.tether_force .= sys_state.tether_induced_force
-        wing.tether_moment .= sys_state.tether_induced_moment
         wing.va_b .= NaN
         restore_point_aero_forces!(sys, wing, sys_state)
         wing.wind_vec .= sys_state.v_wind_kite
