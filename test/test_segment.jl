@@ -693,6 +693,33 @@ system:
         @test m_steel / m_dyneema ≈ 7800.0 / 724.0 rtol=0.01
     end
 
+    # ========================================================================
+    # Replay: the spring force the log carries reaches the structure again
+    # ========================================================================
+    @testset "spring force survives the SysLog round trip" begin
+        set.g_earth = 9.81
+        set.v_wind = 0.0
+
+        sys = load_sys_struct_from_yaml(yaml_path; system_name="segment_test", set=set)
+        sam = SymbolicAWEModel(set, sys)
+        test_init!(sam)
+        for _ in 1:5
+            next_step!(sam; dt=0.05, vsm_interval=0)
+        end
+        simulated = [segment.force for segment in sam.sys_struct.segments]
+        @test all(>(0), simulated)   # the mass hangs on the segment
+
+        logger = Logger(sam, 1)
+        log!(logger, SysState(sam))
+        save_log(logger, "segment_force_roundtrip", false; path=tmpdir)
+        lg = load_log("segment_force_roundtrip"; path=tmpdir)
+
+        replayed = load_sys_struct_from_yaml(yaml_path;
+            system_name="segment_test", set=set)
+        update_from_sysstate!(replayed, lg.syslog[1])
+        @test [segment.force for segment in replayed.segments] ≈ simulated rtol=1e-5
+    end
+
     # Cleanup
     rm(tmpdir; recursive=true)
 end
