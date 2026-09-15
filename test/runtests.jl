@@ -28,6 +28,7 @@ than going unnoticed.
 KERNEL_SKIP_FILES = Dict(
     "test_aqua.jl" => "package-quality checks, backend-independent",
     "test_helpers.jl" => "covers the test helpers themselves, builds no model",
+    "test_yaml_fields.jl" => "YAML loader only, builds no model",
     "test_yaml_variables.jl" => "YAML loader only, builds no model",
     "test_bench.jl" => "benchmarks; every file here already asserts a " *
                        "zero-allocation RHS through test_init!",
