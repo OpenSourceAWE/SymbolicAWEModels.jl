@@ -440,7 +440,7 @@ function winch_sweep(sam; force_cap, name = "sweep", log_to = nothing)
         end
         tension[end] > force_cap && break
     end
-    !isnothing(logger) && save_log(logger, log_to)
+    !isnothing(logger) && save_log(logger, log_to; path=get_output_path())
     return deflection_mm, tension
 end
 
@@ -552,7 +552,7 @@ axislegend(ax; position = :rb)
 display(fig)
 
 # ----- replay the Comer-Levy high-fi sweep -----
-scene = replay(load_log("inflated_beam_hf_comer"),
+scene = replay(load_log("inflated_beam_hf_comer"; path=get_output_path()),
     results[:comer].sam_hf.sys_struct; vector_scale = 0.03)
 display(scene)
 

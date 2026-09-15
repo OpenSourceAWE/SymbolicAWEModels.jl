@@ -79,8 +79,8 @@ for i in 1:n_steps
     log!(logger, sys_state)
 end
 
-save_log(logger, "tether_deflection")
-syslog = load_log("tether_deflection")
+save_log(logger, "tether_deflection"; path=get_output_path())
+syslog = load_log("tether_deflection"; path=get_output_path())
 scene = replay(syslog, sam.sys_struct)
 display(scene)
 @info "Wind deflection simulation complete"

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+- `get_output_path` and `set_output_path` name the folder simulation results go
+  to, `output` in the working directory by default. `get_output_path` creates it
+  on first use, so a run that wants its results kept apart — one per long
+  simulation, say — only has to point `set_output_path` at a folder of its own.
+
 ### Fixed
 - A point that belongs to no wing no longer crashes model generation with a
   `BoundsError` on index 0. `wing_idx` now means one thing — the wing the point
@@ -27,6 +33,11 @@
   stations that the removal of `auto_create_twist_surfaces!` requires.
 
 ### Changed
+- Simulation results are written to the output folder instead of the working
+  directory or the data folder. `sim!` and `sim_reposition!` save their `SysLog`
+  under `get_output_path()`, `record` resolves a relative filename there, and the
+  replay viewer's Save button puts its screenshot there rather than wherever
+  Julia was started. The data folder now holds only what a run reads.
 - BREAKING: `Body.tether_force`, `Body.tether_moment` and the Makie extension's
   `plot_tether_moment` panel are gone. Neither backend's readout ever wrote the
   two fields, so they held the zeros their constructor gave them; the two
