@@ -41,6 +41,7 @@ load_sys_struct_from_yaml
 set_world_frame_damping
 set_body_frame_damping
 set_angular_damping
+set_unstretched_length!
 calc_steady_torque
 ```
 
