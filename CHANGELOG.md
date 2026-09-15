@@ -3,19 +3,18 @@
 ## Unreleased
 
 ### Fixed
-- BREAKING: a point's `wing_idx` now means one thing — the wing it belongs to,
-  `0` for none — and a point that names no wing gets `0` instead of silently
-  defaulting to wing 1. A wingless point crashed model generation with a
-  `BoundsError` on index 0, because the monolith asked whether the *system* had a
-  wing rather than whether the point did; both that guard and the "use the first
-  wing" fallback behind every non-wing point's `va_b` are gone, so a point is
-  damped and has its apparent wind expressed in the frame of the wing it actually
-  names, or in the world frame alone. Three consequences: a point that never named
-  a wing loses its body-frame damping term (it was damping against an arbitrary
-  wing) and gets `va_b = 0` rather than wing 1's frame; a station member that
-  names no wing is rejected by name, since a wing's own structural node must
-  belong to a wing; and a `wing_idx` naming a wing that does not exist now errors
-  at load instead of failing later.
+- A point that belongs to no wing no longer crashes model generation with a
+  `BoundsError` on index 0. `wing_idx` now means one thing — the wing the point
+  belongs to, `0` for none — and a point that names no wing gets `0` instead of
+  silently defaulting to wing 1. The monolith asked whether the *system* had a
+  wing rather than whether the point did, and every non-wing point's `va_b` fell
+  back to the first wing's frame; both are gone, so a point is damped and has
+  its apparent wind expressed in the frame of the wing it names, or in the world
+  frame alone. A point that never named a wing therefore loses a body-frame
+  damping term it was taking from an arbitrary wing, a station member that names
+  no wing is rejected at load since a wing's structural node must belong to a
+  wing, and a `wing_idx` naming a wing that does not exist errors at load
+  instead of failing later.
 - `precompile_workload = false` now switches off the Makie extension's workload as
   well as the package's, so precompiling `SymbolicAWEModelsMakieExt` no longer
   builds four models and loading it no longer replaces the package's own
