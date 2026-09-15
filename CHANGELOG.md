@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+- A transform's `turn_rate` places the rotation it names: a structure comes out of
+  `reinit!` or `reposition!` already turning about the radial axis through the
+  transform's base, at the rate its heading then advances at. The field has been
+  read from the YAML in degrees per second since it was added, but `reinit!`
+  warned that it was ignored and placed the structure at rest.
+
 ## v0.18.0 2026-09-15
 
 ### Added
