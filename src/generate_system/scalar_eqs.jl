@@ -6,11 +6,9 @@
 """
     scalar_eqs!(s, eqs, params; kwargs...)
 
-Generate equations for derived scalar kinematic quantities useful for control and
-analysis.
-
-This includes elevation, azimuth, heading, course, angle of attack, and their time
-derivatives, as well as apparent wind calculations.
+Generate equations for the derived scalar kinematics used in control and analysis:
+elevation, azimuth, heading, course, angle of attack, their time derivatives, and the
+apparent wind.
 
 # Arguments
 - `s::SymbolicAWEModel`: The main model object.
@@ -27,7 +25,6 @@ function scalar_eqs!(
     R_v_to_w, pos
 )
     (; wings) = s.sys_struct
-    wind_factor = param_computed!(params.reg, :wind_factor, WindFactorReader())
     @variables begin
         # Body frame axes and apparent wind (column-major: [1:3, wing_idx])
         e_x(t)[1:3, eachindex(wings)]
@@ -45,7 +42,8 @@ function scalar_eqs!(
             e_y[:, wing.idx] ~ R_b_to_w[:, 2, wing.idx]
             e_z[:, wing.idx] ~ R_b_to_w[:, 3, wing.idx]
             wind_vel_wing[:, wing.idx] ~
-                wind_factor(wing_pos[3, wing.idx]) * wind_vec_gnd
+                wing_wind_source(params, wing.idx, wind_vec_gnd)(
+                    wing_pos[3, wing.idx])
             wind_disturb[:, wing.idx] ~ params.wings[wing.idx].wind_disturb
             va_wing[:, wing.idx] ~
                 wind_vel_wing[:, wing.idx] - wing_vel[:, wing.idx] +
@@ -85,11 +83,11 @@ function scalar_eqs!(
             rel_pos = wing_pos[:, wing.idx]
         end
 
-        has_twist_surfaces = !isempty(wing.twist_surface_idxs)
-        half_len = has_twist_surfaces ?
-            wing.twist_surface_idxs[1] +
-            length(wing.twist_surface_idxs) ÷ 2 - 1 : 0
-        twist_offset = has_twist_surfaces ?
+        has_stations = !isempty(wing.station_idxs)
+        half_len = has_stations ?
+            wing.station_idxs[1] +
+            length(wing.station_idxs) ÷ 2 - 1 : 0
+        twist_offset = has_stations ?
             0.5 * twist_angle[half_len] + 0.5 * twist_angle[half_len + 1] : 0
 
         scalars = wing_scalar_kinematics(;

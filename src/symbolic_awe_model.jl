@@ -162,11 +162,9 @@ end
 """
     @with_kw mutable struct SerializedModel{...}
 
-A type-stable container for the compiled and serialized components of a `SymbolicAWEModel`.
-
-This struct holds the products of the `ModelingToolkit.jl` compilation process,
-now organized into nested attribute structs (`ProbWithAttributes`, etc.).
-This simplifies the structure and improves serialization robustness.
+A type-stable container for the compiled and serialized components of a
+`SymbolicAWEModel`: the products of the `ModelingToolkit.jl` compilation, grouped
+into nested attribute structs (`ProbWithAttributes`, etc.).
 
 $(TYPEDFIELDS)
 """
@@ -194,12 +192,9 @@ end
 
 The main state container for a kite power system model, built using `ModelingToolkit.jl`.
 
-This struct holds the complete state of the simulation, including the physical
-structure (`SystemStructure`), the compiled model (`SerializedModel`), the atmospheric
-model, and the ODE integrator.
-
-Users typically interact with this model through high-level functions like
-[`init!`](@ref) and [`next_step!`](@ref) rather than accessing its fields directly.
+Holds the physical structure (`SystemStructure`), the compiled model
+(`SerializedModel`), the atmospheric model, and the ODE integrator. Interact with it
+through [`init!`](@ref) and [`next_step!`](@ref) rather than through its fields.
 
 # Type Parameters
 - `S`: Scalar type, typically `SimFloat`.
@@ -312,9 +307,9 @@ end
 """
     write_aero_forces!(ss, sys_struct) -> ss
 
-Fill `ss.aero_force_x/y/z` with the aerodynamic force each point carries, world
-frame. A point's own `aero_force_b` holds it only for `PARTICLE_DYNAMICS` wing
-nodes, so a scattering mode is asked for its own distribution instead.
+Fill `ss.aero_force_x/y/z` with the world-frame aerodynamic force each wing node
+carries, from its `point.aero_force_b`. A mode that stores none leaves its nodes at
+zero.
 """
 function write_aero_forces!(ss::SysState, sys_struct::SystemStructure)
     fill!(ss.aero_force_x, 0.0)
@@ -322,11 +317,11 @@ function write_aero_forces!(ss::SysState, sys_struct::SystemStructure)
     fill!(ss.aero_force_z, 0.0)
     for wing in sys_struct.wings
         rot = quaternion_to_rotation_matrix(wing.Q_b_to_w)
-        for (idx, force_b) in aero_point_forces(wing.aero, wing, sys_struct)
-            force = rot * force_b
-            ss.aero_force_x[idx] += force[1]
-            ss.aero_force_y[idx] += force[2]
-            ss.aero_force_z[idx] += force[3]
+        for point in wing_points(sys_struct, wing)
+            force = rot * point.aero_force_b
+            ss.aero_force_x[point.idx] += force[1]
+            ss.aero_force_y[point.idx] += force[2]
+            ss.aero_force_z[point.idx] += force[3]
         end
     end
     return ss
@@ -335,11 +330,8 @@ end
 """
     update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
 
-Updates a `SysState` object with the current state values from the `SymbolicAWEModel`.
-
-This function takes the raw data from the model's internal integrator and populates
-the fields of the user-friendly `SysState` struct, converting units (e.g., radians
-to degrees) and calculating derived values like AoA and roll/pitch/yaw angles.
+Update a `SysState` from the model's integrator: converts units (e.g. radians to
+degrees) and computes derived values like AoA and roll/pitch/yaw angles.
 
 # Arguments
 - `ss::SysState`: The state struct to be updated.
@@ -348,7 +340,7 @@ to degrees) and calculating derived values like AoA and roll/pitch/yaw angles.
 """
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
-    (; points, twist_surfaces, winches, wings, tethers,
+    (; points, stations, winches, wings, tethers,
        bodies) = sam.sys_struct
 
     for (ti, tether) in enumerate(tethers)
@@ -361,12 +353,12 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.set_torque[winch.idx] = winch.set_value
     end
     # Unlike flap_angle, these are the integrated state itself.
-    for twist_surface in twist_surfaces
-        ss.twist_angles[twist_surface.idx] = twist_surface.twist
-        ss.twist_vel[twist_surface.idx] = twist_surface.twist_ω
+    for station in stations
+        ss.twist_angles[station.idx] = station.twist
+        ss.twist_vel[station.idx] = station.twist_ω
     end
-    if length(twist_surfaces) > 0
-        outer = length(twist_surfaces)
+    if length(stations) > 0
+        outer = length(stations)
         ss.depower = rad2deg(mean(ss.twist_angles))
         ss.steering = rad2deg(ss.twist_angles[outer] - ss.twist_angles[1])
     end
@@ -381,7 +373,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.course = wing.course
         # Apparent Wind and Aerodynamics
         ss.v_app = norm(wing.va_b)
-        ss.v_wind_kite .= wing.v_wind
+        ss.v_wind_kite .= wing.wind_vec
         # Calculate AoA and Side Slip from apparent wind in body frame
         if ss.v_app > 1e-6 # Avoid division by zero
             ss.AoA = calc_aoa(wing.aero, wing)
@@ -392,8 +384,6 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         end
         ss.aero_force_b .= wing.aero_force_b
         ss.aero_moment_b .= wing.aero_moment_b
-        ss.tether_induced_force .= wing.tether_force
-        ss.tether_induced_moment .= wing.tether_moment
         ss.vel_kite .= wing.vel_w
     end
     for point in points
@@ -495,10 +485,7 @@ n_orient_frames(sys_struct) = max(1,
 """
     SysState(s::SymbolicAWEModel, zoom=1.0)
 
-Constructs a `SysState` object from a `SymbolicAWEModel`.
-
-This is a convenience constructor that creates a new `SysState` object and populates it
-with the current state of the provided model.
+Construct a `SysState` holding the current state of the model.
 
 # Arguments
 - `s::SymbolicAWEModel`: The source model.
@@ -557,32 +544,27 @@ end
     next_step!(s::SymbolicAWEModel, integrator::ODEIntegrator; set_values, dt, vsm_interval)
 
 Take a simulation step, using the provided integrator.
-
-This is a convenience method that calls the main `next_step!` function.
 """
 function next_step!(
     s::SymbolicAWEModel,
     integrator::OrdinaryDiffEqCore.ODEIntegrator;
     set_values=nothing, dt=1/s.set.sample_freq,
-    vsm_interval=1, vsm_min_wind=0.5
+    vsm_interval=1, vsm_min_wind=0.5, vsm_warn_on_fail=false
 )
     !(s.integrator === integrator) && error(
         "The ODEIntegrator doesn't belong to " *
         "the SymbolicAWEModel")
-    next_step!(s; set_values, dt, vsm_interval, vsm_min_wind)
+    next_step!(s; set_values, dt, vsm_interval, vsm_min_wind, vsm_warn_on_fail)
 end
 
 """
     next_step!(s::SymbolicAWEModel; set_values, dt,
-               vsm_interval, vsm_min_wind)
+               vsm_interval, vsm_min_wind, vsm_warn_on_fail)
 
-Take a simulation step forward in time.
-
-Advances the simulation by one time step, optionally
+Advance the simulation by one time step, optionally
 updating control inputs and re-linearizing the VSM
-model. Then updates the `SystemStructure` with the new
-state from the ODE integrator. Throws an error if the
-solver returns an unstable retcode.
+model, then update the `SystemStructure` from the ODE
+integrator. Errors on an unstable solver retcode.
 
 # Keyword Arguments
 - `set_values=nothing`: Control input values.
@@ -591,14 +573,17 @@ solver returns an unstable retcode.
 - `vsm_interval=1`: Steps between VSM
     re-linearization. 0 disables re-linearization.
 - `vsm_min_wind=0.5`: Minimum apparent wind [m/s] for
-    a VSM solve. Below this the solver is skipped and
-    the wing's aero outputs are zeroed, since the
-    solver fails to converge or returns a Jacobian
-    whose norm grows as 1/|va|.
+    a VSM solve. Below this the solve is skipped and
+    the wing's aero outputs are zeroed.
+- `vsm_warn_on_fail=false`: Warn instead of erroring
+    when a VSM solve fails, keeping the circulation, the
+    angles of attack and the frozen forces of the last
+    converged solve. The next scheduled update solves
+    again.
 """
 function next_step!(sam::SymbolicAWEModel;
     set_values=nothing, dt=1/sam.set.sample_freq,
-    vsm_interval=1, vsm_min_wind=0.5
+    vsm_interval=1, vsm_min_wind=0.5, vsm_warn_on_fail=false
 )
     prob = sam.prob
     integrator = sam.integrator
@@ -617,6 +602,8 @@ function next_step!(sam::SymbolicAWEModel;
     end
 
     sam.t_0 = integrator.t
+    # Setting parameters flags a derivative discontinuity; FBDF restarts on it.
+    OrdinaryDiffEqCore.derivative_discontinuity!(integrator, false)
     sam.t_step = @elapsed OrdinaryDiffEqCore.step!(integrator, dt, true)
     if !successful_retcode(integrator.sol)
         throw(AssertionError("Solver unstable at t=" *
@@ -629,7 +616,7 @@ function next_step!(sam::SymbolicAWEModel;
         if vsm_interval != 0 && sam.iter % vsm_interval == 0 &&
                 has_vsm_wing(sam.sys_struct)
             sam.t_vsm = @elapsed begin
-                refresh_aero!(sam; vsm_min_wind)
+                refresh_aero!(sam; vsm_min_wind, vsm_warn_on_fail)
                 sync_params!(prob.param_sync, integrator, sam.sys_struct)
             end
         end
@@ -640,11 +627,8 @@ end
 """
     update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, integ=s.integrator)
 
-Updates the high-level `SystemStructure` from the low-level integrator state vector.
-
-This function reads the raw state vector from the ODE integrator and uses the generated
-getter functions to populate the human-readable fields in the `SystemStructure`. This
-synchronization step is crucial for making the simulation results accessible.
+Update the high-level `SystemStructure` from the integrator state vector, through the
+generated getter functions.
 """
 function update_sys_struct!(prob::ProbWithAttributes,
                             integ::OrdinaryDiffEqCore.ODEIntegrator,
@@ -702,7 +686,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     # Count components
     n_points = length(sys_struct.points)
     n_segments = length(sys_struct.segments)
-    n_twist_surfaces = length(sys_struct.twist_surfaces)
+    n_stations = length(sys_struct.stations)
     n_wings = length(sys_struct.wings)
     n_winches = length(sys_struct.winches)
     n_bodies = length(sys_struct.bodies)
@@ -710,7 +694,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     sparse_tag = sparse ? "_sparse" : ""
     jacobian_tag = analytic_jacobian ? "_analytic" : ""
 
-    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_twist_surfaces)grp_$(n_wings)wng_$(n_winches)wch$(body_tag)$(sparse_tag)$(jacobian_tag)$(backend_tag(backend)).bin$suffix"
+    return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_stations)grp_$(n_wings)wng_$(n_winches)wch$(body_tag)$(sparse_tag)$(jacobian_tag)$(backend_tag(backend)).bin$suffix"
 end
 
 """

@@ -23,10 +23,9 @@ at once returns all of their blocks from a single pass without the seeds mixing 
 compressed differentiation whose colouring is the local slot index.
 
 The buffers are packed, one instance after another, and `instances` is the kernel's
-instance list rebased onto them; the global buffers are scattered and 25× larger, and
-a set of them per kernel would be hundreds of megabytes of duals to hold and to walk.
-`blocks` receives the local Jacobians as `(row, slot, position)`, the rows being the
-kernel's outputs followed by its state derivatives.
+instance list rebased onto them, so no kernel holds a set of duals over the scattered
+global buffers. `blocks` receives the local Jacobians as `(row, slot, position)`, the
+rows being the kernel's outputs followed by its state derivatives.
 """
 struct KernelDuals{W, T}
     kernel::Int
@@ -130,9 +129,8 @@ gathered row is local input slot `slots[k]`, and sums `weight` times row `row` o
 substitution never searches for one.
 
 `slots` holds only the inputs the pass in hand reads — those the output maps read for
-the sweep, those the derivatives read for the composition — because both the gather
-and the product that follows it are linear in the number of rows, and an input the
-pass ignores contributes a row of zeros times a column of zeros.
+the sweep, those the derivatives read for the composition — since an input the pass
+ignores contributes a row of zeros.
 """
 struct InputGather
     slots::Vector{Int}
@@ -155,14 +153,14 @@ the substitution is a sweep of little matrix products rather than sparse algebra
 the whole model.
 
 `blocks` and `shape` restate what the [`KernelDuals`](@ref) hold, at concrete types:
-a workspace's element type carries its dual width, so a vector of them is abstract
-and reaching through one inside the sweep left every operation on it dynamically
-dispatched. The workspaces are touched once per kernel and the blocks once per
-instance, so only the latter has to be concrete.
+a workspace's element type carries its dual width, so a vector of them is abstract and
+reaching through one inside the sweep dispatches dynamically. The workspaces are
+touched once per kernel and the blocks once per instance, so only the latter has to be
+concrete.
 
 Each component is differentiated *numerically*, so a registered leaf without a
 symbolic derivative — the wind profile, an aerodynamic polar — is differentiated by
-running it on duals, which is exactly where the monolith's symbolic Jacobian fails.
+running it on duals, where the monolith's symbolic Jacobian fails.
 """
 struct KernelJacobian{R}
     rhs::R
@@ -255,6 +253,27 @@ function build_jacobian(rhs::KernelRHS; prn = true)
         zeros(SimFloat, widest_input, widest_columns),
         zeros(SimFloat, widest_state, widest_columns), matrix,
         zeros(SimFloat, system.n_states))
+end
+
+"""
+    check_jacobian_finite(jacobian, u0, params)
+
+Evaluate `jacobian` at `(u0, params, 0)` and throw when it is not finite, naming the
+kernels whose own dual pass came back non-finite. `params` must carry the values
+[`sync_params!`](@ref) writes.
+"""
+function check_jacobian_finite(jacobian::KernelJacobian, u0, params)
+    jacobian(jacobian.matrix, u0, params, zero(SimFloat))
+    all(isfinite, nonzeros(jacobian.matrix)) && return nothing
+    kernels = jacobian.rhs.system.kernels
+    offenders = unique(kernels[entry.kernel].name for entry in jacobian.duals
+                       if !all(isfinite, entry.blocks))
+    offender_names = isempty(offenders) ?
+        "none; the composition itself overflows" : join(offenders, ", ")
+    error("The analytical Jacobian is not finite at the initial state. Kernels " *
+          "whose own dual pass is not finite: $offender_names. Pass " *
+          "`analytic_jacobian=false` to differentiate the right-hand side " *
+          "numerically instead.")
 end
 
 """

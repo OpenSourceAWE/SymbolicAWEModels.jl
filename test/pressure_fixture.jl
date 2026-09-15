@@ -1,8 +1,9 @@
 # Copyright (c) 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# The synthetic surface-aero fixture the AeroPressure test and the cold-start
-# inference benchmark both build their model from.
+# The synthetic surface-aero fixture the AeroPressure tests and the cold-start
+# inference benchmark both build their model from, plus the loader that turns it
+# into a SystemStructure carrying a given aero mode.
 
 """
 Write a synthetic per-node surface aero fixture (`.dat` contour + Cp/cf CSVs) for
@@ -66,3 +67,19 @@ function write_pressure_fixture(data_path; camber=0.0, uniform_cp=nothing)
     return n_node
 end
 
+"""
+    load_pressure_sys(data_path, aero_mode)
+
+`Settings` and `SystemStructure` for the particle 2plate kite carrying
+`aero_mode`, reading the fixture-patched geometry under `data_path`.
+"""
+function load_pressure_sys(data_path, aero_mode)
+    set_data_path(data_path)
+    set = Settings("system.yaml")
+    vsm_set = VortexStepMethod.VSMSettings(
+        joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
+    particle_yaml = joinpath(data_path, "particle_structural_geometry.yaml")
+    sys = load_sys_struct_from_yaml(particle_yaml; system_name="pressure_test",
+        set, vsm_set, aero_mode)
+    return set, sys
+end

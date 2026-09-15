@@ -76,11 +76,13 @@ coulomb_viscous_friction(rate, coulomb_friction, viscous_coefficient, epsilon,
     viscous_coefficient * rate * ratio^2
 
 """
-    smooth_norm(v, eps=1e-12)
+    smooth_norm(v, eps=VortexStepMethod.SMOOTH_FLOOR)
 
-Differentiable norm: `sqrt(sum(abs2, v) + eps^2)`.
+Differentiable norm: `sqrt(sum(abs2, v) + eps^2)`. `VortexStepMethod.smooth_norm`
+under another name.
 """
-smooth_norm(v, eps=1e-12) = sqrt(sum(abs2, v) + eps^2)
+smooth_norm(v, eps=VortexStepMethod.SMOOTH_FLOOR) =
+    VortexStepMethod.smooth_norm(v, eps)
 
 """
     quaternion_to_rotation_matrix(q)

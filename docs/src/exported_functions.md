@@ -26,6 +26,7 @@ next_step!
 find_steady_state!
 linearize!
 position_slots
+check_live_polar
 ```
 
 ## YAML loading
@@ -41,6 +42,41 @@ set_world_frame_damping
 set_body_frame_damping
 set_angular_damping
 calc_steady_torque
+```
+
+## Wind
+
+Where a model takes its wind from is a [`WindMode`](@ref) on its
+`SystemStructure`. The default [`ProfileWind`](@ref) scales the ground wind
+`set.wind_vec` by the height profile `set.profile_law`. [`PerPointWind`](@ref)
+instead gives every point its own wind vector, settable between steps.
+
+```julia
+sys_struct = load_sys_struct_from_yaml(path; set, wind_mode=PerPointWind())
+sam = SymbolicAWEModel(set, sys_struct)
+init!(sam)
+for _ in 1:steps
+    for point in sam.sys_struct.points    # a gust field, refreshed every step
+        point.wind_vec .= my_wind_field(point.pos_w, sam.integrator.t)
+    end
+    sam.sys_struct.wings[1].wind_vec .= my_wind_field(...)
+    next_step!(sam)
+end
+```
+
+Each point's own drag and apparent wind read its `wind_vec` directly, and a
+segment's tether drag the mean of its two endpoints — the same averaging its
+drag already applies to their velocities. A wing reads its own `wing.wind_vec`,
+which is the wind a rigid wing's aerodynamics fly in; the per-point winds reach
+the VSM panels through the per-point inflow the panels already interpolate.
+`init!` seeds every point and wing with `set.wind_vec`, so a model that is never
+written to flies in a uniform wind.
+
+```@docs
+WindMode
+ProfileWind
+PerPointWind
+per_point_wind
 ```
 
 ## Winch components
@@ -123,9 +159,9 @@ set on or off as a group; the panels below default to `plot_default`:
 - `plot_winch_force`: Winch forces
 
 Opt-in panels (all default `false`): `plot_twist`, `plot_turn_rates`,
-`plot_turn_radius`, `plot_aero_moment`, `plot_tether_moment`, `plot_tether`,
-`plot_tether_actual`, `plot_v_app`, `plot_elevation`, `plot_azimuth`,
-`plot_distance`, `plot_yaw_rate`, `plot_cone_angle`, `plot_old_heading`,
+`plot_turn_radius`, `plot_aero_moment`, `plot_tether`, `plot_tether_actual`,
+`plot_v_app`, `plot_elevation`, `plot_azimuth`, `plot_distance`,
+`plot_yaw_rate`, `plot_cone_angle`, `plot_old_heading`,
 `plot_kiteutils_course`, `plot_set_values`.
 
 Appearance: `suffix::String=" - " * sys.name`, `size::Tuple=(1200, 800)`,
@@ -167,6 +203,13 @@ comer_levy_bending_law
 membrane_linear_rigidities
 frame_quaternion
 frame_quaternion_xy
+```
+
+## Unsteady aerodynamics
+
+```@docs
+unsteady_aero
+apply_apparent_mass!
 ```
 
 ## Utility and helper functions

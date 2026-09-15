@@ -18,14 +18,14 @@ multiplier is `1 + (wing.aero_scale_chord or this default)`.
 const AERO_SCALE_CHORD = 0.0
 
 """
-    identify_wing_segments(wing_points; twist_surfaces=nothing, wing_twist_surface_idxs=nothing)
+    identify_wing_segments(wing_points; stations=nothing, wing_station_idxs=nothing)
 
 Identify wing segments (LE/TE pairs) from wing nodes.
 
-When `twist_surfaces` and `wing_twist_surface_idxs` are provided, uses twist_surface `point_idxs`
+When `stations` and `wing_station_idxs` are provided, uses station `point_idxs`
 to determine LE (`point_idxs[1]`) and TE (`point_idxs[end]`) for each
 section. Falls back to a consecutive-pair heuristic (sorted by point index)
-when twist_surfaces are unavailable.
+when stations are unavailable.
 
 In both paths an x-coordinate check swaps LE/TE if needed (LE has
 smaller `pos_cad[1]`).
@@ -34,32 +34,32 @@ smaller `pos_cad[1]`).
 - `wing_points::AbstractVector{Point}`: wing nodes for a wing.
 
 # Keyword Arguments
-- `twist_surfaces::Union{Nothing, AbstractVector{TwistSurface}}`: All twist_surfaces in the
-  system (indexed by `wing_twist_surface_idxs`).
-- `wing_twist_surface_idxs::Union{Nothing, AbstractVector{<:Integer}}`:
-  Indices into `twist_surfaces` belonging to this wing.
+- `stations::Union{Nothing, AbstractVector{Station}}`: All stations in the
+  system (indexed by `wing_station_idxs`).
+- `wing_station_idxs::Union{Nothing, AbstractVector{<:Integer}}`:
+  Indices into `stations` belonging to this wing.
 
 # Returns
 - `Vector{Tuple{Int64, Int64}}`: (le_point_idx, te_point_idx) pairs.
 """
 function identify_wing_segments(
     wing_points::AbstractVector{Point};
-    twist_surfaces::AbstractVector{TwistSurface}=TwistSurface[],
-    wing_twist_surface_idxs::AbstractVector{<:Integer}=Int[]
+    stations::AbstractVector{Station}=Station[],
+    wing_station_idxs::AbstractVector{<:Integer}=Int[]
 )
-    use_twist_surfaces = !isempty(twist_surfaces) &&
-        !isempty(wing_twist_surface_idxs)
+    use_stations = !isempty(stations) &&
+        !isempty(wing_station_idxs)
 
-    if use_twist_surfaces
+    if use_stations
         segments = Tuple{Int64, Int64}[]
-        for g_idx in wing_twist_surface_idxs
-            twist_surface = twist_surfaces[g_idx]
-            length(twist_surface.point_idxs) >= 2 || error(
-                "TwistSurface $(twist_surface.name): need at least " *
+        for g_idx in wing_station_idxs
+            station = stations[g_idx]
+            length(station.point_idxs) >= 2 || error(
+                "Station $(station.name): need at least " *
                 "2 point_idxs (LE/TE), got " *
-                "$(length(twist_surface.point_idxs))")
+                "$(length(station.point_idxs))")
             station = [wing_points[findfirst(p -> p.idx == idx, wing_points)]
-                       for idx in twist_surface.point_idxs]
+                       for idx in station.point_idxs]
             le_point = argmin(p -> p.pos_cad[1], station)
             te_point = argmax(p -> p.pos_cad[1], station)
             push!(segments, (le_point.idx, te_point.idx))
@@ -95,12 +95,12 @@ function identify_wing_segments(
 end
 
 """
-    match_aero_sections_to_structure!(wing, points; twist_surfaces)
+    match_aero_sections_to_structure!(wing, points; stations)
 
 Reconcile a wing's aerodynamic sections with its structural geometry.
 
 RIGID_DYNAMICS wings own their aero panel geometry (mesh- or
-YAML-defined) and keep it; only the twist_surface→section mapping
+YAML-defined) and keep it; only the station→section mapping
 (`wing.wing_segments`) is recorded. PARTICLE_DYNAMICS wings deform with
 their structural points, so each unrefined section is rebuilt onto its
 structural LE/TE pair: a 1:1 copy when counts match, otherwise
@@ -108,13 +108,13 @@ structural LE/TE pair: a 1:1 copy when counts match, otherwise
 preserve polars.
 
 # Keyword Arguments
-- `twist_surfaces::AbstractVector{TwistSurface}`: TwistSurfaces used for LE/TE identification
+- `stations::AbstractVector{Station}`: Stations used for LE/TE identification
   via [`identify_wing_segments`](@ref).
 """
 function match_aero_sections_to_structure!(
     wing::Body,
     points::AbstractVector{Point};
-    twist_surfaces::AbstractVector{TwistSurface}=TwistSurface[]
+    stations::AbstractVector{Station}=Station[]
 )
     wing_points = [
         p for p in points if
@@ -123,31 +123,31 @@ function match_aero_sections_to_structure!(
 
     if wing.dynamics_type == RIGID_DYNAMICS
         wing.wing_segments = identify_wing_segments(
-            wing_points; twist_surfaces=twist_surfaces,
-            wing_twist_surface_idxs=wing.twist_surface_idxs)
+            wing_points; stations=stations,
+            wing_station_idxs=wing.station_idxs)
         return nothing
     end
 
-    wing_twist_surface_idxs = wing.twist_surface_idxs
-    has_twist_surfaces = !isempty(twist_surfaces) &&
-        !isempty(wing_twist_surface_idxs)
+    wing_station_idxs = wing.station_idxs
+    has_stations = !isempty(stations) &&
+        !isempty(wing_station_idxs)
 
-    if has_twist_surfaces
-        n_struct_sections = length(wing_twist_surface_idxs)
-        for g_idx in wing_twist_surface_idxs
-            twist_surface = twist_surfaces[g_idx]
-            length(twist_surface.point_idxs) >= 2 || error(
-                "PARTICLE_DYNAMICS wing $(wing.idx): twist_surface " *
-                "$(twist_surface.name) needs at least 2 points " *
+    if has_stations
+        n_struct_sections = length(wing_station_idxs)
+        for g_idx in wing_station_idxs
+            station = stations[g_idx]
+            length(station.point_idxs) >= 2 || error(
+                "PARTICLE_DYNAMICS wing $(wing.idx): station " *
+                "$(station.name) needs at least 2 points " *
                 "(LE = point_idxs[1], TE = point_idxs[end]), got " *
-                "$(length(twist_surface.point_idxs))")
+                "$(length(station.point_idxs))")
         end
     else
         n_points = length(wing_points)
         n_points % 2 == 0 || error(
-            "Wing $(wing.idx): no twist_surfaces and odd " *
+            "Wing $(wing.idx): no stations and odd " *
             "number of wing nodes " *
-            "($(n_points)). Define twist_surfaces to " *
+            "($(n_points)). Define stations to " *
             "specify LE/TE pairs.")
         n_struct_sections = n_points ÷ 2
     end
@@ -177,8 +177,8 @@ function match_aero_sections_to_structure!(
     end
 
     wing_segments = identify_wing_segments(
-        wing_points; twist_surfaces=twist_surfaces,
-        wing_twist_surface_idxs=wing_twist_surface_idxs)
+        wing_points; stations=stations,
+        wing_station_idxs=wing_station_idxs)
     wing.wing_segments = wing_segments
     length(wing_segments) == n_struct_sections || error(
         "Wing $(wing.idx): failed to identify " *
@@ -236,7 +236,7 @@ end
 """
     build_point_to_vsm_point_mapping(wing_segments)
 
-Invert the twist-surface-derived `wing_segments` — `(le_point_idx, te_point_idx)`
+Invert the station-derived `wing_segments` — `(le_point_idx, te_point_idx)`
 per unrefined section — into the `structural point → (section_idx, :LE/:TE)` map.
 
 Each unrefined section contributes exactly its LE and TE structural points. Any
@@ -325,18 +325,10 @@ end
 
 Distribute VSM forces to structural points using refined panel forces.
 
-After VSM solve, each refined panel force/moment is split into corner-node
-forces (moment-preserving about the chosen reference) and then aggregated to
-the structural LE/TE points of the parent section (1:1 mapping).
-
-# Algorithm
-1. Initialize all wing-node aero_forces to zero
-2. Build inverse mapping from section → LE/TE structural point indices
-3. For each refined panel of this wing:
-   - Get panel force/moment from solver solution (body frame)
-   - Map panel to its parent section using `refined_panel_mapping`
-   - Split to LE/TE forces with `compute_aerostruc_loads`
-   - Accumulate forces at the corresponding structural points
+After the VSM solve, each refined panel's body-frame force/moment is split into
+corner-node forces ([`compute_aerostruc_loads`](@ref), moment-preserving about the
+chosen reference) and accumulated on the structural LE/TE points of its parent
+section, which `refined_panel_mapping` names (1:1).
 
 # Arguments
 - `wing::Body`: Wing with PARTICLE_DYNAMICS type and solved VSM state
@@ -412,16 +404,12 @@ end
 """
     update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Point})
 
-Update VSM section points (LE/TE) directly from structural point positions using 1:1 mapping.
+Update VSM section points (LE/TE) directly from structural point positions, closing
+the two-way coupling structural deformation → VSM sections → aero forces.
 
-This creates two-way coupling: structural deformation → VSM sections → aero forces.
-
-# Algorithm
-Uses direct 1:1 correspondence between structural points and VSM section points:
-1. For each structural wing node:
-   - Calculate current position in body frame: pos_b = R_b_to_w' * (pos_w - origin)
-   - Find corresponding VSM section point (LE or TE) via wing.point_to_vsm_point
-   - Set VSM section point directly: section.LE_point = pos_b (or TE_point)
+Each structural wing node maps 1:1 onto a VSM section point through
+`wing.point_to_vsm_point`, and writes it its body-frame position
+`pos_b = R_b_to_w' * (pos_w - origin)`.
 
 # Notes
 - Section points are stored in body frame coordinates
@@ -472,22 +460,22 @@ function update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Poin
 end
 
 """
-    compute_twist_surface_geometry!(wing, twist_surfaces, points)
+    compute_station_geometry!(wing, stations, points)
 
-For each of `wing`'s twist surfaces with an unset chord, derive its leading-edge
+For each of `wing`'s stations with an unset chord, derive its leading-edge
 position, chord vector, and spanwise airfoil axis from the nearest VSM refined
-section (body frame). Fills the chord for any twist surface left unset.
+section (body frame). Fills the chord for any station left unset.
 """
-function compute_twist_surface_geometry!(wing, twist_surfaces, points)
-    for twist_surface_idx in wing.twist_surface_idxs
-        twist_surface = twist_surfaces[twist_surface_idx]
-        iszero(twist_surface.chord) || continue
+function compute_station_geometry!(wing, stations, points)
+    for station_idx in wing.station_idxs
+        station = stations[station_idx]
+        iszero(station.chord) || continue
         center = zeros(3)
-        for pt_idx in twist_surface.point_idxs
+        for pt_idx in station.point_idxs
             center .+= wing.R_b_to_c' *
                 (points[pt_idx].pos_cad - wing.pos_cad)
         end
-        center ./= length(twist_surface.point_idxs)
+        center ./= length(station.point_idxs)
 
         sections = wing.vsm_wing.refined_sections
         n_sec = length(sections)
@@ -505,28 +493,28 @@ function compute_twist_surface_geometry!(wing, twist_surfaces, points)
         ksec < n_sec && (span_dir += normalize(
             le_sec - Vector(sections[ksec + 1].LE_point)))
 
-        twist_surface.le_pos .= le_sec
-        twist_surface.chord .= te_sec - le_sec
-        twist_surface.y_airf .= normalize(span_dir)
+        station.le_pos .= le_sec
+        station.chord .= te_sec - le_sec
+        station.y_airf .= normalize(span_dir)
     end
     return nothing
 end
 
 """
-    setup_particle_point_mapping!(wing, points, twist_surfaces)
+    setup_particle_point_mapping!(wing, points, stations)
 
 For a VSM `PARTICLE_DYNAMICS` `wing`, build the structural↔panel point mapping and
 LE/TE `wing_segments` if not already set. Errors if the required body-frame
 `z_ref_points`/`y_ref_points` are missing.
 """
-function setup_particle_point_mapping!(wing, points, twist_surfaces)
+function setup_particle_point_mapping!(wing, points, stations)
     wing_point_idxs = findall(
         point -> point.is_wing_node && point.wing_idx == wing.idx, points)
     wing_pts = [points[idx] for idx in wing_point_idxs]
     if isnothing(wing.wing_segments)
         wing.wing_segments = identify_wing_segments(wing_pts;
-            twist_surfaces=twist_surfaces,
-            wing_twist_surface_idxs=wing.twist_surface_idxs)
+            stations=stations,
+            wing_station_idxs=wing.station_idxs)
     end
     if isnothing(wing.point_to_vsm_point)
         wing.point_to_vsm_point =

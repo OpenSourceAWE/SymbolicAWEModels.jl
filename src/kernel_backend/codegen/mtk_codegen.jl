@@ -774,16 +774,13 @@ which writes `target[inst.target_field]` for every instance named in `batch`.
 and `:observables` for an observed map.
 
 The body appears once, so what is compiled grows with the number of component
-*types*, not with the number of instances. Calling the scalar body once per instance
-instead leaves a call boundary the compiler declines to remove — kernel bodies are
-too large for it to inline, and the argument views are then built on the far side of
-a real call.
+*types*, not with the number of instances; calling the scalar body per instance
+instead leaves a real call boundary, since kernel bodies are too large to inline.
 
-The loop's own names are fixed rather than `gensym`ed, which is what makes two
-compiles of the same component give the same type: a `RuntimeGeneratedFunction`'s
-type is a hash of its argument names and body, so a fresh `gensym` counter per call
-gave every build a new type and no specialization of a kernel map was ever reused.
-The `#` in each name is what keeps it from colliding with the body's own variables.
+The loop's own names are fixed rather than `gensym`ed, so two compiles of the same
+component share a type: a `RuntimeGeneratedFunction`'s type is a hash of its argument
+names and body. The `#` in each name keeps it from colliding with the body's own
+variables.
 """
 function compile_batched(func_expr, target_field::Symbol)
     out, state, input, param, callable, iv = func_expr.args[1].args
@@ -826,9 +823,7 @@ name variables of `sys` (array-valued ones are scalarized). Returns a named tupl
 
 All three callables take the same argument list,
 `(target, u, input, numeric, callables, instances, batch, t)`, and run over every
-instance named in `batch`, as [`compile_batched`](@ref) wraps them — unlike upstream,
-where the argument list varies with the feedforward type, because scheduling here is
-the caller's job.
+instance named in `batch`, as [`compile_batched`](@ref) wraps them.
 """
 function generate_io_function(sys, inputs, outputs; verbose=false, cse=true)
     allinputs = convert(Vector{ST},

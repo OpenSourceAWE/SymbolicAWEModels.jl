@@ -17,7 +17,6 @@ is_wing(::Body) = true
 
 is_builtin_aero(::AeroNone) = true
 aero_mode_tag(::AeroNone) = "none"
-stores_point_force(::AeroNone) = false
 
 """
     aero_component(::AeroNone, wing::ParticleWing, sys_struct; name)
@@ -40,10 +39,10 @@ Zero lumped force/moment (rigid connector contract).
 """
 function aero_component(::AeroNone, wing::RigidWing, sys_struct;
                         name, params=nothing)
-    num_twist_surfaces = length(wing.twist_surface_idxs)
-    connectors = rigid_aero_connectors(num_twist_surfaces)
+    num_stations = length(wing.station_idxs)
+    connectors = rigid_aero_connectors(num_stations)
     eqs = [collect(connectors.force) .~ 0
            collect(connectors.moment) .~ 0]
-    num_twist_surfaces > 0 && (eqs = [eqs; collect(connectors.twist_moment) .~ 0])
+    num_stations > 0 && (eqs = [eqs; collect(connectors.twist_moment) .~ 0])
     return System(eqs, t, rigid_unknowns(connectors), []; name)
 end

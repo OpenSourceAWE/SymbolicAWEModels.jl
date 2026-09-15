@@ -2,6 +2,39 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 """
+    carries_point_aero(sys_struct, point) -> Bool
+
+Whether `point`'s per-node aerodynamic force has to be read back out of the model:
+it is a node of a `PARTICLE_DYNAMICS` wing whose mode scatters panel loads, so the
+load exists only in the equations. This selects the same nodes the `KernelBackend`
+builds an [`AeroPointForce`](@ref) for.
+"""
+function carries_point_aero(sys_struct, point)
+    point.is_wing_node || return false
+    body = sys_struct.bodies[point.wing_idx]
+    return is_wing(body) && body.dynamics_type == PARTICLE_DYNAMICS &&
+        supports_panel_decomposition(body.aero)
+end
+
+"""
+    point_aero_force_array(sys_struct, sys) -> Matrix{Num} or nothing
+
+The body-frame aerodynamic force of every point as one `3 x n_points` array to
+fetch, holding `aero_force_point_b` where a node has one and a literal zero
+elsewhere, so it scatters on the point index like the other per-point arrays.
+`nothing` when no wing writes per-node forces. The zeros are constants in the
+generated function, so a point carrying no aero costs nothing to fetch.
+"""
+function point_aero_force_array(sys_struct, sys)
+    hasproperty(sys, :aero_force_point_b) || return nothing
+    any(carries_point_aero(sys_struct, point) for point in sys_struct.points) ||
+        return nothing
+    field = getproperty(sys, :aero_force_point_b)
+    return [carries_point_aero(sys_struct, point) ? Num(field[i, point.idx]) : Num(0)
+            for i in 1:3, point in sys_struct.points]
+end
+
+"""
     generate_prob_getters(sys_struct, sys)
 
 Generate getter and setter functions for the state variables of the full system model.
@@ -18,19 +51,22 @@ of the compiled `ODESystem` (`sys`).
 """
 function generate_prob_getters(sys_struct, sys, param_registry=nothing,
                                initial_registry=nothing)
-    (; points, wings, twist_surfaces, pulleys, winches, tethers, segments, bodies) = sys_struct
+    (; points, wings, stations, pulleys, winches, tethers, segments, bodies) = sys_struct
     get_aero_input, set_set_values, get_set_values = nothing, nothing, nothing
 
     specs = NamedTuple[]
     if length(points) > 0
-        push!(specs, scatter_spec(ss -> ss.points,
-            sys.pos         => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
-            sys.vel         => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
-            sys.point_force => (c, v) -> copy_vec!(c.force, v, c.idx),
-            sys.va_point_b  => (c, v) -> copy_vec!(c.va_b, v, c.idx),
-            sys.wind_at_point => (c, v) -> copy_vec!(c.wind_vec, v, c.idx),
-            sys.point_mass  => (c, v) -> (c.total_mass = v[c.idx]; nothing),
-            sys.total_drag  => (c, v) -> copy_vec!(c.drag_force, v, c.idx)))
+        pairs = Pair[sys.pos         => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
+                     sys.vel         => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
+                     sys.point_force => (c, v) -> copy_vec!(c.force, v, c.idx),
+                     sys.va_point_b  => (c, v) -> copy_vec!(c.va_b, v, c.idx),
+                     sys.wind_at_point => (c, v) -> copy_vec!(c.wind_vec, v, c.idx),
+                     sys.point_mass  => (c, v) -> (c.total_mass = v[c.idx]; nothing),
+                     sys.total_drag  => (c, v) -> copy_vec!(c.drag_force, v, c.idx)]
+        aero_force = point_aero_force_array(sys_struct, sys)
+        isnothing(aero_force) || push!(pairs,
+            aero_force => (c, v) -> copy_vec!(c.aero_force_b, v, c.idx))
+        push!(specs, scatter_spec(ss -> ss.points, pairs...))
     end
     if length(pulleys) > 0
         push!(specs, scatter_spec(ss -> ss.pulleys,
@@ -43,13 +79,13 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             sys.len          => (c, v) -> (c.len = v[c.idx]; nothing),
             sys.l0           => (c, v) -> (c.l0 = v[c.idx]; nothing)))
     end
-    if length(twist_surfaces) > 0
-        push!(specs, scatter_spec(ss -> ss.twist_surfaces,
+    if length(stations) > 0
+        push!(specs, scatter_spec(ss -> ss.stations,
             sys.twist_angle                 => (c, v) -> (c.twist = v[c.idx]; nothing),
             sys.twist_ω                     => (c, v) -> (c.twist_ω = v[c.idx]; nothing),
-            sys.twist_surface_tether_force  => (c, v) -> (c.tether_force = v[c.idx]; nothing),
-            sys.twist_surface_tether_moment => (c, v) -> (c.tether_moment = v[c.idx]; nothing),
-            sys.twist_surface_aero_moment   => (c, v) -> (c.aero_moment = v[c.idx]; nothing)))
+            sys.station_tether_force  => (c, v) -> (c.tether_force = v[c.idx]; nothing),
+            sys.station_tether_moment => (c, v) -> (c.tether_moment = v[c.idx]; nothing),
+            sys.station_aero_moment   => (c, v) -> (c.aero_moment = v[c.idx]; nothing)))
     end
     if length(winches) > 0
         push!(specs, scatter_spec(ss -> ss.winches,
@@ -70,7 +106,7 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
         # Wing rigid-body state is synced via the embedded body in the bodies spec below.
         push!(specs, scatter_spec(ss -> ss.wings,
             sys.va_wing_b        => (c, v) -> copy_vec!(c.va_b, v, c.idx),
-            sys.wind_vel_wing    => (c, v) -> copy_vec!(c.v_wind, v, c.idx),
+            sys.wind_vel_wing    => (c, v) -> copy_vec!(c.wind_vec, v, c.idx),
             sys.aero_force_b     => (c, v) -> copy_vec!(c.aero_force_b, v, c.idx),
             sys.aero_moment_b    => (c, v) -> copy_vec!(c.aero_moment_b, v, c.idx),
             sys.elevation        => (c, v) -> (c.elevation = v[c.idx]; nothing),
@@ -238,11 +274,9 @@ end
 """
     generate_control_funcs(model, inputs, outputs)
 
-Generate in-place and out-of-place control functions from a ModelingToolkit system.
-
-This function wraps `ModelingToolkit.generate_control_function` and
-`ModelingToolkit.build_explicit_observed_function` to create the necessary functions
-for simulation and analysis.
+Generate in-place and out-of-place control functions from a ModelingToolkit system,
+wrapping `ModelingToolkit.generate_control_function` and
+`ModelingToolkit.build_explicit_observed_function`.
 
 # Arguments
 - `model`: The full `ODESystem`.
@@ -346,10 +380,8 @@ end
     maybe_create_prob!(sam; create_prob=true, sparse=false,
                        analytic_jacobian=false, prn=true)
 
-Create and cache the `ODEProblem` if it does not already exist.
-
-This function compiles the full system, creates the `ODEProblem`, and generates
-the necessary getter/setter functions.
+Compile the full system, create the `ODEProblem` and its getter/setter functions, if
+they do not already exist.
 
 # Arguments
 - `sam::SymbolicAWEModel`: The main model object.
@@ -521,9 +553,9 @@ return a freshly initialized `ODEIntegrator`.
   [`default_linsolve`](@ref) of the backend. Ignored when `solver` is passed
   explicitly.
 - `prn`: print progress messages.
-- `remake`: force a full rebuild, ignoring any cached compiled model. Defaults to
-  `nothing`, which rebuilds automatically when a custom winch/aero component is
-  present (see [`has_custom_component`](@ref)) and reuses the cache otherwise.
+- `remake`: force a full rebuild, ignoring any cached compiled model. `nothing`
+  rebuilds when a custom winch/aero component is present (see
+  [`has_custom_component`](@ref)) and reuses the cache otherwise.
 - `reload`: force reloading the serialized model from disk.
 - `outputs`: vector of output variables (used by linearization / control funcs).
 - `create_prob`, `create_lin_prob`, `create_control_func`: which artefacts to build.
@@ -532,26 +564,22 @@ return a freshly initialized `ODEIntegrator`.
   `aero_geometry.yaml` etc.).
 - `reset_vel`, `ignore_l0`: forwarded to `reinit!(sys_struct, set)`.
 - `reinit_sys`: run `reinit!(sys_struct, set)` to refresh positions, lengths, and
-  transforms. Set to `false` to preserve manual adjustments to the
-  `SystemStructure` (or after calling `reinit!(sys_struct, set; …)` yourself).
-- `reset_integrator`: discard the existing integrator and build a fresh one. Use
-  when stale BDF history would taint the next run.
+  transforms. `false` preserves manual adjustments to the `SystemStructure`.
+- `reset_integrator`: discard the existing integrator and build a fresh one, so no
+  stale BDF history taints the next run.
 - `vsm_min_wind=0.5`: minimum |va| [m/s] for the initial VSM solve. Below this the
-  solve is skipped and the wing's aero outputs are zeroed (the solver fails to
-  converge / the Jacobian blows up as 1/|va|).
+  solve is skipped and the wing's aero outputs are zeroed.
 - `sparse`: give the solver a Jacobian sparsity pattern, so the
-  finite-difference Jacobian is coloured and its factorization sparse instead of
-  both being dense. The [`MonolithBackend`](@ref) takes MTK's structural pattern,
-  the [`KernelBackend`](@ref) derives its own from the wiring
-  ([`state_sparsity`](@ref)). Part of the serialized model's name, so the sparse and
-  dense builds are cached separately rather than shadowing each other. `nothing`
-  takes the backend's [`default_sparse`](@ref).
+  finite-difference Jacobian is coloured and its factorization sparse. The
+  [`MonolithBackend`](@ref) takes MTK's structural pattern, the
+  [`KernelBackend`](@ref) derives its own from the wiring
+  ([`state_sparsity`](@ref)). Part of the serialized model's name, so sparse and
+  dense builds are cached separately. `nothing` takes the backend's
+  [`default_sparse`](@ref).
 - `analytic_jacobian=nothing`: give the solver a Jacobian instead of letting it
   differentiate the right-hand side numerically. `nothing` takes the backend's
-  [`default_analytic_jacobian`](@ref) — on for the [`KernelBackend`](@ref), whose
-  [`KernelJacobian`](@ref) composes one from per-kernel local Jacobians, off for the
-  [`MonolithBackend`](@ref), whose only route is MTK's symbolic one. Part of the
-  serialized model's name, as `sparse` is.
+  [`default_analytic_jacobian`](@ref). Part of the serialized model's name, as
+  `sparse` is.
 """
 function init!(sam::SymbolicAWEModel;
     solver=nothing, autodiff=default_autodiff(sam.backend), adaptive=true, prn=true,
@@ -678,6 +706,23 @@ end
 
 
 """
+    reinit!(sam, integrator; solver=integrator.alg, kwargs...) -> (ODEIntegrator, Bool)
+
+Reset `integrator`, which is `sam`'s own, from the current `SystemStructure`.
+`solver` defaults to the one `integrator` was built with, so the reset stays on the
+compiled right-hand side instead of forcing a second compilation at another
+Jacobian's element type. `kwargs` are those of
+[`reinit!`](@ref)`(sam, prob, solver; …)`.
+"""
+function reinit!(sam::SymbolicAWEModel,
+        integrator::OrdinaryDiffEqCore.ODEIntegrator;
+        solver = integrator.alg, kwargs...)
+    isnothing(sam.prob) && error("reinit!: $(sam.sys_struct.name) has no " *
+        "ODEProblem; call init! first.")
+    return reinit!(sam, sam.prob, solver; kwargs...)
+end
+
+"""
     reinit!(sam, prob, solver; kwargs...) -> (ODEIntegrator, Bool)
 
 Reset the ODE integrator from new initial conditions without rebuilding the
@@ -746,8 +791,8 @@ This is used to check if a cached compiled model is still valid.
 
 Anything read back from a struct at sync time stays out, so one build serves a sweep
 over it. That is every numeric setting the equations use — `:g_earth`, `:wind_vec`,
-`:cd_tether`, `:v_wind`, `:profile_law`, initial conditions — since each enters as a
-flat parameter `sync_params!` refreshes from `sys_struct.set`, not as a literal.
+`:cd_tether`, `:v_wind`, the profile law, initial conditions — since each enters
+as a flat parameter `sync_params!` refreshes from `sys_struct.set`, not as a literal.
 
 # Runtime Fields (don't affect compilation, excluded from hash):
 - `:profile_law`: Wind profile law (evaluated at runtime via symbolic function)
@@ -775,17 +820,20 @@ Includes all structural properties that affect the symbolic equations:
 - Point connectivity and types (STATIC, DYNAMIC, BODY_STATIC), including the
   beam joint a BODY_STATIC point anchors to (selects which bodies enter its equations)
 - Segment connectivity
-- TwistSurface structure and types (STATIC, DYNAMIC)
+- Station structure and types (STATIC, DYNAMIC)
 - Pulley constraints and types
 - Tether topology
 - Winch configuration
 - Wing topology, connectivity, aerodynamic model type (RIGID_DYNAMICS vs PARTICLE_DYNAMICS), and aero mode
 - Transform hierarchy
+- The wind mode, which decides whether the wind is a height profile or a per-point
+  parameter. Only [`PerPointWind`](@ref) enters the hash, so structures on the
+  default [`ProfileWind`](@ref) keep the cached models they already have.
 
 Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
-    (; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms,
+    (; points, stations, segments, pulleys, tethers, winches, wings, transforms,
        bodies, elastic_joints, timoshenko_joints) = sys_struct
     data_parts = []
     for point in points
@@ -800,8 +848,10 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
                      string(typeof(segment.unit_stiffness))
         push!(data_parts, ("segment", segment.idx, segment.point_idxs, stiff_type))
     end
-    for twist_surface in twist_surfaces
-        push!(data_parts, ("twist_surface", twist_surface.idx, twist_surface.point_idxs, Int(twist_surface.type)))
+    for station in stations
+        push!(data_parts, ("station", station.idx, station.point_idxs,
+                           Int(station.type), station.flap_body_idxs,
+                           station.flap_point_idxs))
     end
     for pulley in pulleys
         push!(data_parts, ("pulley", pulley.idx, pulley.segment_idxs, Int(pulley.type)))
@@ -817,10 +867,13 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         polar_format = wing.aero isa AbstractVSMAero &&
                        !isempty(wing.aero.vsm_aero.panels) ?
             wing.aero.vsm_aero.panels[1].aero_model : nothing
-        wing_data = ("wing", wing.idx, wing.twist_surface_idxs,
+        # flow_curvature adds a moment term and the lag adds states, so both are
+        # structure; their constants are parameters, as is the apparent mass.
+        wing_data = ("wing", wing.idx, wing.station_idxs,
                      Int(wing.dynamics_type),
                      nameof(typeof(wing.aero)),
-                     aero_hash_id(wing.aero), polar_format)
+                     aero_hash_id(wing.aero), polar_format,
+                     flow_curvature_enabled(wing), wagner_enabled(wing))
 
         # Include wing reference points in hash
         ref_hash(ref) = (ref.ids, ref.weights)
@@ -834,6 +887,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
             origin_hash(wing.origin))
         push!(data_parts, wing_data)
     end
+    per_point_wind(sys_struct) && push!(data_parts, ("wind_mode", :per_point))
     for transform in transforms
         push!(data_parts, ("transform", transform.idx, transform.wing_idx, transform.rot_point_idx,
                         transform.base_point_idx, transform.base_transform_idx))

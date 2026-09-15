@@ -6,7 +6,7 @@
 #
 # Usage:
 #   ./create_xz.sh          # Uses the default Julia version
-#   ./create_xz.sh +1.11    # Uses Julia v1.11
+#   ./create_xz.sh +1.12    # Uses Julia v1.12
 
 # Ensure the script runs from the project root
 if [[ $(basename "$(pwd)") == "bin" ]]; then

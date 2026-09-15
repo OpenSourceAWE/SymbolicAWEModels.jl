@@ -52,6 +52,8 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     # ---- rigid-body core ----
     "Total mass [kg]."
     mass::SimFloat
+    "Entrained-air mass [kg] resisting acceleration without adding weight."
+    apparent_mass::SimFloat
     "Principal moments of inertia `[Ixx, Iyy, Izz]` [kg·m²]."
     const inertia_principal::KVec3
     "Constant body→principal rotation."
@@ -100,18 +102,17 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
 
     # ---- aerodynamics + wing machinery (inert when aero === AeroNone) ----
     aero::A
-    "Resolved twist_surface indices (filled by SystemStructure)."
-    twist_surface_idxs::Vector{Int64}
-    "Raw twist_surface references."
-    const twist_surface_refs::Vector{NameRef}
+    "Resolved station indices (filled by SystemStructure)."
+    station_idxs::Vector{Int64}
+    "Raw station references."
+    const station_refs::Vector{NameRef}
     const wind_disturb::KVec3
     drag_frac::SimFloat
     const va_b::KVec3
-    const v_wind::KVec3
+    "Wind velocity at the wing, world frame [m/s]: a height-profile output, or the settable input under `PerPointWind`."
+    const wind_vec::KVec3
     const aero_force_b::KVec3
     const aero_moment_b::KVec3
-    const tether_moment::KVec3
-    const tether_force::KVec3
     elevation::SimFloat
     elevation_vel::SimFloat
     elevation_acc::SimFloat
@@ -123,7 +124,7 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     const turn_acc::KVec3
     course::SimFloat
     aoa::SimFloat
-    "Whether in-group (twist_surface) points contribute their moment to the body."
+    "Whether in-group (station) points contribute their moment to the body."
     group_points_moment::Bool
     # Body-frame reference points (define R_b_to_w / pos_w from structural points)
     z_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
@@ -277,7 +278,8 @@ function Body(name;
     # Plain body: no aero (AeroNone), rigid dynamics, inert aero/wing fields.
     return Body{AeroNone, RigidDynamics}(
         0, name, 0, transform_ref, 0, wing_ref,
-        SimFloat(mass), KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p),
+        SimFloat(mass), zero(SimFloat),
+        KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p),
         Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b), principal_frame_method,
         KVec3(ext_force_w), KVec3(ext_force_b), KVec3(ext_moment_b),
         damping_vec, world_damping_vec, body_damping_vec, fix_sphere, fix_static,
@@ -289,7 +291,7 @@ function Body(name;
         # aero/wing fields (inert for a plain body)
         AeroNone(), Int64[], NameRef[],
         zeros(KVec3), one(SimFloat),
-        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
+        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
         zeros(KVec3), zeros(KVec3), 0.0, 0.0,
         true, nothing, nothing, nothing)
@@ -334,14 +336,12 @@ optional translational/rotational damping. The equal-and-opposite wrench is adde
 to both bodies' load accumulators.
 
 Each stiffness is either a `Real` (linear law, force `= k·Δ`) or a callable
-interpolation `f` (nonlinear law, force `= f(Δ)`, e.g. a wrinkling/saturating
-inflatable beam). They may be mixed per DOF; the type parameter `S` keeps the
-fields concrete (`Real`s share one type, interpolations share one type) so the
-ODE right-hand side stays allocation-free. The symbolic equations are identical
-for `Real` or interpolation stiffnesses (the choice is resolved at runtime in the
-registered force function), but the stiffness types are part of the
-`SystemStructure` type parameter, so a float vs an interpolation is a distinct
-compiled model with its own cache entry.
+interpolation `f` (nonlinear law, force `= f(Δ)`, e.g. a wrinkling inflatable
+beam), mixable per DOF; the type parameter `S` keeps the fields concrete so the ODE
+right-hand side stays allocation-free. The symbolic equations are the same either
+way (resolved at runtime in the registered force function), but the stiffness types
+enter the `SystemStructure` type parameter, so a float and an interpolation are
+distinct compiled models with their own cache entries.
 
 $(TYPEDFIELDS)
 """
@@ -426,34 +426,23 @@ end
 """
     TimoshenkoJoint
 
-A consistent-stiffness Timoshenko connection between two `Body`s — the
-distributed-compliance counterpart of the lumped [`ElasticJoint`](@ref). Like
-that joint it connects two bodies and applies a restoring wrench; a chain of
-bodies joined by `TimoshenkoJoint`s forms a beam. The "element" of the underlying
-2-node beam finite element is exactly this body-A–to–body-B connection.
+A 2-node Timoshenko beam element between two `Body`s — the distributed-compliance
+counterpart of the lumped [`ElasticJoint`](@ref); a chain of them forms a beam. The
+stiffness couples each node's transverse displacement to its rotation, so transverse
+shear is represented.
 
-Unlike the hinge, the stiffness couples each node's transverse displacement to its
-rotation, so transverse shear (cross-sections rotating while the centerline stays
-straight) is represented — the defining Timoshenko ingredient. Fewer segments
-match a given beam fidelity than a hinge chain.
+Corotational: an element frame follows the chord and node A's orientation, small
+deformations are measured relative to it, and the restoring wrench is accumulated
+equal-and-opposite into both bodies' `body_force`/`body_moment`. Damping resists the
+relative node velocity/spin.
 
-The element wraps the linear stiffness corotationally: an element frame follows
-the chord and node A's orientation, small deformations are measured relative to
-it, and the restoring wrench is accumulated equal-and-opposite into both bodies'
-load accumulators (the same `body_force`/`body_moment` that [`ElasticJoint`](@ref)
-and `body_eqs!` use). Damping resists the relative node velocity/spin.
-
-Each rigidity (`EA` axial, `GA` shear with `shear_coeff` correction factor `k`,
+Each rigidity (`EA` axial, `GA` shear with correction factor `shear_coeff`,
 `Φ = 12·EI/(k·GA·L²)`, `GJ` torsion, `EIy`/`EIz` bending about the two transverse
 axes) is either a `Real` (linear) or a callable of that mode's strain/curvature
-returning the *effective rigidity* at the current deformation — the
-distributed-beam analogue of [`ElasticJoint`](@ref)'s nonlinear stiffness. Unlike
-the hinge, whose callable returns a force, here it returns a rigidity, because the
-consistent element couples bending to shear and no single force suffices; a
-curvature-softening `EIy(κ)` is how inflated-tube wrinkling enters (Breukels). All
-callables must share one type. `rest_length` (0 ⇒ taken from the initial geometry)
-and the per-node rest orientations `R_a_rel0`/`R_b_rel0` (set at `reinit!`) define
-the unstrained configuration.
+returning the effective rigidity there, e.g. a curvature-softening `EIy(κ)` for
+inflated-tube wrinkling (Breukels). All callables must share one type. `rest_length`
+(0 ⇒ initial geometry) and the per-node rest orientations `R_a_rel0`/`R_b_rel0` (set
+at `reinit!`) define the unstrained configuration.
 
 $(TYPEDFIELDS)
 """
@@ -631,52 +620,90 @@ function derive_point_beam_anchor!(point::Point, joint, bodies)
 end
 
 """
-    has_flap(twist_surface::TwistSurface) -> Bool
+    has_body_flap(station::Station) -> Bool
 
-`true` if the twist_surface carries a flap hinge (two ordered flap bodies), so it
-drives a live deflection δ ([`flap_delta`](@ref) / `twist_surface_delta_eqs!`).
+`true` if the station reads its deflection off two ordered flap bodies.
 """
-has_flap(twist_surface::TwistSurface) = length(twist_surface.flap_body_idxs) == 2
+has_body_flap(station::Station) = length(station.flap_body_idxs) == 2
 
 """
-    flap_delta(twist_surface, R_main, R_flap) -> SimFloat
+    has_point_flap(station::Station) -> Bool
 
-Signed flap deflection δ [rad] of `twist_surface` from the two flap bodies'
+`true` if the station reads its deflection off three structural points
+`[fore, hinge, aft]` ([`point_flap_delta`](@ref)).
+"""
+has_point_flap(station::Station) = length(station.flap_point_idxs) == 3
+
+"""
+    has_flap(station::Station) -> Bool
+
+`true` if the station carries a flap hinge either way, so it drives a live
+deflection δ ([`flap_delta`](@ref) / [`point_flap_delta`](@ref) /
+`station_delta_eqs!`). A station given both reads the points.
+"""
+has_flap(station::Station) =
+    has_point_flap(station) || has_body_flap(station)
+
+"""
+    flap_delta(station, R_main, R_flap) -> SimFloat
+
+Signed flap deflection δ [rad] of `station` from the two flap bodies'
 world orientations `R_main`, `R_flap`: project each body's reference chord
 direction onto the plane normal to the world hinge axis and take the signed angle
 about that axis, minus the rest deflection `flap_rest_delta`. Robust across the
 full polar δ range (an `atan`, not a small-angle approximation). The same formula
-the symbolic RHS uses (`twist_surface_delta_eqs!`), so it is the ground truth for
+the symbolic RHS uses (`station_delta_eqs!`), so it is the ground truth for
 tests.
 """
-function flap_delta(twist_surface::TwistSurface, R_main, R_flap)
-    chord_main = twist_surface.flap_chord_refs[1]
-    chord_flap = twist_surface.flap_chord_refs[2]
-    main_w = R_main * chord_main
-    flap_w = R_flap * chord_flap
-    n_w = R_main * twist_surface.flap_axis
-    mp = main_w .- dot(main_w, n_w) .* n_w
-    fp = flap_w .- dot(flap_w, n_w) .* n_w
-    return atan(dot(n_w, cross(mp, fp)), dot(mp, fp)) - twist_surface.flap_rest_delta
+flap_delta(station::Station, R_main, R_flap) =
+    flap_delta_expression(station, R_main, R_flap)
+
+"""
+    point_flap_delta(station, points, R_wing) -> SimFloat
+
+Deflection δ [rad] of a point flap from the current positions of its three points,
+with `R_wing` the owning wing's orientation. The same
+[`point_flap_delta_expression`](@ref) the symbolic RHS evaluates, so it is the ground
+truth for tests.
+"""
+function point_flap_delta(station::Station, points, R_wing)
+    fore, hinge, aft = station.flap_point_idxs
+    return point_flap_delta_expression(station, points[fore].pos_w,
+        points[hinge].pos_w, points[aft].pos_w, R_wing)
 end
 
 """
-    init_twist_surface_flap!(twist_surface, bodies)
+    init_station_flap!(station, sys_struct)
 
-Capture a flapped `KINEMATIC` twist_surface's rest geometry from the placed body
-poses: default the reference chords to each body's x-axis, then set
-`flap_rest_delta` so the as-placed configuration has δ = 0. No-op for surfaces
+Capture a flapped `KINEMATIC` station's rest geometry, so the undeformed
+configuration reads δ = 0. A body flap defaults its reference chords to each body's
+x-axis and measures the placed poses; a point flap measures its three points in CAD,
+which is the geometry the polars were tabulated from and is unaffected by whatever
+the placement or a settling run has since done to the structure. No-op for surfaces
 without a flap.
 """
-function init_twist_surface_flap!(twist_surface::TwistSurface, bodies)
-    has_flap(twist_surface) || return nothing
-    isempty(twist_surface.flap_chord_refs) &&
-        (twist_surface.flap_chord_refs = [KVec3(1.0, 0.0, 0.0), KVec3(1.0, 0.0, 0.0)])
+function init_station_flap!(station::Station, sys_struct)
+    if has_point_flap(station)
+        station.wing_idx in eachindex(sys_struct.wings) || error(
+            "Station $(station.name): a point flap needs a `wing` to take its hinge " *
+            "axis from; wing_idx is $(station.wing_idx).")
+        points = sys_struct.points
+        fore, hinge, aft = station.flap_point_idxs
+        station.flap_rest_delta = 0.0
+        station.flap_rest_delta = point_flap_delta_expression(station,
+            points[fore].pos_cad, points[hinge].pos_cad, points[aft].pos_cad,
+            sys_struct.wings[station.wing_idx].R_b_to_c)
+        return nothing
+    end
+    has_body_flap(station) || return nothing
+    bodies = sys_struct.bodies
+    isempty(station.flap_chord_refs) &&
+        (station.flap_chord_refs = [KVec3(1.0, 0.0, 0.0), KVec3(1.0, 0.0, 0.0)])
     R_main = quaternion_to_rotation_matrix(
-        bodies[twist_surface.flap_body_idxs[1]].Q_b_to_w)
+        bodies[station.flap_body_idxs[1]].Q_b_to_w)
     R_flap = quaternion_to_rotation_matrix(
-        bodies[twist_surface.flap_body_idxs[2]].Q_b_to_w)
-    twist_surface.flap_rest_delta = 0.0
-    twist_surface.flap_rest_delta = flap_delta(twist_surface, R_main, R_flap)
+        bodies[station.flap_body_idxs[2]].Q_b_to_w)
+    station.flap_rest_delta = 0.0
+    station.flap_rest_delta = flap_delta(station, R_main, R_flap)
     return nothing
 end

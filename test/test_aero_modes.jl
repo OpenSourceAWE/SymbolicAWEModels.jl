@@ -4,7 +4,7 @@
 # test_aero_modes.jl
 # Unified tests for the VSM-family aero modes (AeroNone, AeroDirect,
 # ContinuousAero, AeroPressure, AeroLinearized) on the 2plate kite, for every
-# supported (aero mode x dynamics type) combination. Two drivers per case:
+# supported (aero mode x dynamics type) combination. Three drivers per case:
 #
 #   (A) strict pose sweep — init! at a grid of transform poses + wind speeds
 #       (no ODE integration, so no solver residual noise), then compare the
@@ -13,6 +13,9 @@
 #   (B) loose dynamic run — a short next_step! loop; assert the force/moment
 #       stay finite and bounded every step (catches blow-ups and that each
 #       combination actually steps).
+#   (C) failed VSM solve — `next_step!(...; vsm_warn_on_fail=true)` warns and
+#       reuses the last converged solve rather than erroring, on every mode
+#       that solves.
 #
 # Reference point for the moment is the WING BODY ORIGIN (wing.pos_w), not the
 # COM: VSM's sol.moment is about reference_point=(0,0,0)=body origin, and the
@@ -91,7 +94,7 @@ rel_error(value, reference) = norm(value .- reference) / norm(reference)
 Set the main transform (elevation, azimuth, heading) and wind speed from a
 `(elevation, azimuth, heading, v_wind)` tuple, then re-init the model. Used to
 drive a controlled rigid pose without running the ODE. `twist` prescribes the
-twist-surface angles, so the pose is held in a deformed state. It is applied
+station angles, so the pose is held in a deformed state. It is applied
 *before* `init!`: `update_sys_struct!` writes `twist` back from the model every
 step, so a value set afterwards is overwritten and never reaches the dynamics.
 """
@@ -150,17 +153,12 @@ aero_poses = [
     particle_yaml = joinpath(data_path, "particle_structural_geometry.yaml")
     rigid_yaml = joinpath(data_path, "rigid_structural_geometry.yaml")
 
-    # AeroPressure needs a per-node surface aero fixture. It is written into its
-    # own copy of the data so every other mode reads the unpatched geometry, and
-    # it gets its own VSMSettings because `create_vsm_wing` rewrites the geometry
-    # path into whichever data directory is active.
-    surface_path = joinpath(tmpdir, "surface", "2plate_kite")
-    mkpath(dirname(surface_path))
-    cp(src_data_path, surface_path; force=true)
-    write_pressure_fixture(surface_path)
-    surface_yaml = joinpath(surface_path, "particle_structural_geometry.yaml")
-    vsm_set_surface = VortexStepMethod.VSMSettings(
-        joinpath(surface_path, "vsm_settings.yaml"); data_prefix=false)
+    # Every mode reads the same patched geometry. AeroPressure is the only one that
+    # needs the per-node surface aero the patch adds, and the others ignore it, but
+    # sharing one fixture is what makes their numbers comparable: the yaw contract
+    # below is a symmetry with no VSM reference, so a mode failing it while the
+    # others pass says something only when all four fly the same wing.
+    write_pressure_fixture(data_path)
 
     # The moment tolerance is `moment_rtol * |M_ref| + moment_lever * |F_ref|`:
     # the relative term plus a small force-proportional floor. The floor
@@ -205,7 +203,7 @@ aero_poses = [
         # (~0.01 chord, bounded by "moment placement" in test_pressure_aero.jl),
         # is what the budget pays for.
         (name="pressure particle", make=() -> AeroPressure(),
-            yaml=surface_yaml, data=surface_path, vsm_set=vsm_set_surface,
+            yaml=particle_yaml, data=data_path, vsm_set=vsm_set,
             dynamics=PARTICLE_DYNAMICS, reference=:vsm,
             force_rtol=0.006, moment_rtol=0.20, moment_lever=0.12,
             drag_rtol=0.005, lift_rtol=0.05, side_atol=0.02,
@@ -325,6 +323,37 @@ aero_poses = [
                     @test all(isfinite, moment)
                     @test norm(force) < bound
                 end
+            end
+
+            # Runs on the converged state the dynamic run leaves behind. The LOOP
+            # solver converges on `normalized_error < rtol`, so `rtol = 0` never
+            # converges and `max_iterations` bounds what the failure costs.
+            case.reference == :vsm &&
+            @testset "failed solve warns and is reused" begin
+                solver = wing.vsm_solver
+                rtol, max_iterations = solver.rtol, solver.max_iterations
+                gamma = copy(solver.sol.gamma_distribution)
+                alpha = copy(solver.lr.alpha_dist)
+                solver.rtol, solver.max_iterations = 0.0, 2
+
+                @test_throws VortexStepMethod.SolveFailure next_step!(
+                    sam; dt=0.05, vsm_interval=1)
+                logs, _ = Test.collect_test_logs() do
+                    for _ in 1:4
+                        next_step!(sam; dt=0.05, vsm_interval=2,
+                                   vsm_warn_on_fail=true)
+                    end
+                end
+                # One warning per scheduled update, so the schedule is intact.
+                @test count(record -> occursin("Reusing the last converged",
+                                               record.message), logs) == 2
+                @test solver.lr.gamma_new != gamma
+                @test solver.sol.gamma_distribution == gamma
+                @test solver.lr.alpha_dist == alpha
+
+                solver.rtol, solver.max_iterations = rtol, max_iterations
+                next_step!(sam; dt=0.05, vsm_interval=1)
+                @test solver.sol.gamma_distribution != gamma
             end
 
             # A KINEMATIC wing's body frame is fitted from reference points, so

@@ -6,14 +6,14 @@ if abspath(PROGRAM_FILE) == abspath(@__FILE__)
     Pkg.activate(@__DIR__)
 end
 
-# Test twist_surface handling for RIGID_DYNAMICS wings (explicit only)
+# Test station handling for RIGID_DYNAMICS wings (explicit only)
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod,
     RIGID_DYNAMICS, PARTICLE_DYNAMICS
 using Test
 using LinearAlgebra
 
-@testset "RIGID_DYNAMICS wing twist_surface handling" begin
+@testset "RIGID_DYNAMICS wing station handling" begin
     # Copy 2plate_kite data to temp directory
     pkg_root = dirname(@__DIR__)
     src_data_path = joinpath(
@@ -35,18 +35,18 @@ using LinearAlgebra
     vsm_set = VortexStepMethod.VSMSettings(
         vsm_set_path; data_prefix=false)
 
-    # ── PARTICLE_DYNAMICS: 3 explicit twist_surfaces (LE/TE membership) ──
+    # ── PARTICLE_DYNAMICS: 3 explicit stations (LE/TE membership) ──
     sys_refine = load_sys_struct_from_yaml(
         refine_yaml;
         system_name="2plate_refine", set, vsm_set)
 
     @test length(sys_refine.wings) == 1
     @test sys_refine.wings[1].dynamics_type == PARTICLE_DYNAMICS
-    @test length(sys_refine.twist_surfaces) == 3
-    @test length(sys_refine.wings[1].twist_surface_idxs) == 3
+    @test length(sys_refine.stations) == 3
+    @test length(sys_refine.wings[1].station_idxs) == 3
 
-    # ── RIGID_DYNAMICS with YAML-defined twist_surfaces ───────
-    # rigid_structural_geometry.yaml has 3 explicit twist_surfaces
+    # ── RIGID_DYNAMICS with YAML-defined stations ───────
+    # rigid_structural_geometry.yaml has 3 explicit stations
     # and 7 WING points (6 LE/TE + kcu).
     sys_quat = load_sys_struct_from_yaml(
         struc_yaml;
@@ -55,15 +55,15 @@ using LinearAlgebra
 
     wing = sys_quat.wings[1]
     @test wing.dynamics_type == RIGID_DYNAMICS
-    @test length(sys_quat.twist_surfaces) == 3
-    @test length(wing.twist_surface_idxs) == 3
+    @test length(sys_quat.stations) == 3
+    @test length(wing.station_idxs) == 3
     @test !isnothing(wing.wing_segments)
     @test length(wing.wing_segments) == 3
 
     # Geometry was computed from closest VSM panel
-    for twist_surface in sys_quat.twist_surfaces
-        @test !iszero(twist_surface.chord)
-        @test !iszero(twist_surface.y_airf)
+    for station in sys_quat.stations
+        @test !iszero(station.chord)
+        @test !iszero(station.y_airf)
     end
 
 end

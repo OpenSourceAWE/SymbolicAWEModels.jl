@@ -31,8 +31,7 @@ segments' dampers read as a rest-length rate:
   `D(tether_len) = tether_vel`, so the length is integrator state.
 - Without winch: `tether_vel = 0` and `tether_len ~ params.tethers[i].len`, a
   parameter, so writing `tether.len` retrims a running simulation without a
-  `reinit!`. This is what `KernelBackend` already does via
-  `retarget_tether_rest_lengths!`.
+  `reinit!`.
 """
 function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
                     sys_struct, params, initial;

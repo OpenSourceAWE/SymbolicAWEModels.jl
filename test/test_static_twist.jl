@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 # STATIC twist mode: twist is a prescribed control input (no differential state,
-# no algebraic equilibrium). Verifies validate_twist_surface_modes and a rigid
-# wing built with STATIC-twist twist_surfaces.
+# no algebraic equilibrium). Verifies validate_station_modes and a rigid
+# wing built with STATIC-twist stations.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -12,15 +12,15 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: VortexStepMethod, validate_twist_surface_modes,
-    Wing, TwistSurface
+using SymbolicAWEModels: VortexStepMethod, validate_station_modes,
+    Wing, Station
 using KiteUtils: init!, next_step!
 using LinearAlgebra
 
 pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
 
-@testset "validate_twist_surface_modes" begin
+@testset "validate_station_modes" begin
     rigid = Wing(:rigid, NameRef[], Matrix{Float64}(I, 3, 3),
         zeros(3), ones(3); dynamics_type=RIGID_DYNAMICS)
     rigid.idx = 1
@@ -28,36 +28,36 @@ set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
         zeros(3), ones(3); dynamics_type=PARTICLE_DYNAMICS)
     particle.idx = 1
 
-    mktwist_surface(name, npoints, type) = begin
-        g = TwistSurface(name, collect(1:npoints), type, 0.25)
+    mkstation(name, npoints, type) = begin
+        g = Station(name, collect(1:npoints), type, 0.25)
         g.idx = 1
         g.point_idxs = collect(1:npoints)
         g
     end
 
     # DYNAMIC on rigid + >=2 points -> ok
-    rigid.twist_surface_idxs = [1]
-    @test validate_twist_surface_modes([mktwist_surface(:g, 2, DYNAMIC)], [rigid]) === nothing
+    rigid.station_idxs = [1]
+    @test validate_station_modes([mkstation(:g, 2, DYNAMIC)], [rigid]) === nothing
     # STATIC on rigid, any point count -> ok
-    @test validate_twist_surface_modes([mktwist_surface(:g, 1, STATIC)], [rigid]) === nothing
-    @test validate_twist_surface_modes([mktwist_surface(:g, 3, STATIC)], [rigid]) === nothing
+    @test validate_station_modes([mkstation(:g, 1, STATIC)], [rigid]) === nothing
+    @test validate_station_modes([mkstation(:g, 3, STATIC)], [rigid]) === nothing
 
     # DYNAMIC on particle -> reject (needs rigid)
-    particle.twist_surface_idxs = [1]
-    @test_throws ErrorException validate_twist_surface_modes(
-        [mktwist_surface(:g, 2, DYNAMIC)], [particle])
+    particle.station_idxs = [1]
+    @test_throws ErrorException validate_station_modes(
+        [mkstation(:g, 2, DYNAMIC)], [particle])
     # DYNAMIC 1-point -> reject (needs bridle couple)
-    @test_throws ErrorException validate_twist_surface_modes(
-        [mktwist_surface(:g, 1, DYNAMIC)], [rigid])
+    @test_throws ErrorException validate_station_modes(
+        [mkstation(:g, 1, DYNAMIC)], [rigid])
     # STATIC on particle + multi-point -> ok (inert aero-section membership
     # marker; the free particles carry the deformation)
-    @test validate_twist_surface_modes([mktwist_surface(:g, 2, STATIC)], [particle]) === nothing
+    @test validate_station_modes([mkstation(:g, 2, STATIC)], [particle]) === nothing
     # STATIC on particle + 1 point -> ok
-    @test validate_twist_surface_modes([mktwist_surface(:g, 1, STATIC)], [particle]) === nothing
+    @test validate_station_modes([mkstation(:g, 1, STATIC)], [particle]) === nothing
 end
 
 @testset "STATIC twist on rigid VSM wing" begin
-    # Work in a tmpdir copy so the temp STATIC-twist_surfaces geometry never touches the
+    # Work in a tmpdir copy so the temp STATIC-stations geometry never touches the
     # repo data dir.
     data_dir = mktempdir()
     cp(joinpath(pkg_root, "data", "2plate_kite"), data_dir; force=true)
@@ -68,7 +68,7 @@ end
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
 
-    # Build a temp structural geometry with STATIC twist_surfaces.
+    # Build a temp structural geometry with STATIC stations.
     src_yaml = joinpath(get_data_path(), "rigid_structural_geometry.yaml")
     txt = read(src_yaml, String)
     txt = replace(txt,
@@ -84,11 +84,11 @@ end
     sys = load_sys_struct_from_yaml(fixed_yaml;
         system_name="2plate_fixed", set, vsm_set)
     sys.winches[:main_winch].brake = true
-    @test all(g.type == STATIC for g in sys.twist_surfaces)
+    @test all(g.type == STATIC for g in sys.stations)
 
-    # Prescribe distinct twist angles per twist_surface.
+    # Prescribe distinct twist angles per station.
     prescribed = Dict(:left => 0.05, :center => -0.10, :right => 0.08)
-    for g in sys.twist_surfaces
+    for g in sys.stations
         g.twist = prescribed[g.name]
     end
 
@@ -97,7 +97,7 @@ end
     next_step!(sam)
 
     # twist_angle must track the prescribed value (no dynamics, no clamp drift).
-    for g in sam.sys_struct.twist_surfaces
+    for g in sam.sys_struct.stations
         @test isapprox(g.twist, prescribed[g.name]; atol=1e-9)
     end
     rm(fixed_yaml; force=true)

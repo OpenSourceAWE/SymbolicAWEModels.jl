@@ -42,6 +42,9 @@ leaves some entries unread, and `mtkcompile` will not take part of a declared
 array."""
 const FLAP_INPUTS = [[Symbol(:main_frame_, k) for k in 1:9];
                      [Symbol(:flap_frame_, k) for k in 1:9]]
+"""A point flap's three chord positions and the wing frame its hinge axis is in."""
+const POINT_FLAP_INPUTS = [[Symbol(:point_pos_, k) for k in 1:3];
+                           [Symbol(:wing_frame_, k) for k in 1:9]]
 const WING_AERO_POSE_INPUTS = [:wing_pos, :wing_frame]
 const AERO_INFLOW_POINT_INPUTS = [:pos, :vel, :wing_pos, :wing_frame]
 const AERO_INFLOW_POINT_OUTPUTS = [:pos_b, :va_b, :rho]
@@ -49,6 +52,10 @@ const AERO_INFLOW_INPUTS = [:va_in, :rho_in]
 const AERO_INFLOW_OUTPUTS = [:va, :rho]
 const AERO_PANEL_INPUTS = [:le_a, :te_a, :le_b, :te_b,
                            :va_a, :va_b, :rho_a, :rho_b]
+const AERO_PANEL_PITCH_INPUTS = [:dva_a, :dva_b]
+const AERO_PANEL_WAGNER_INPUTS = [:wagner_deficiency]
+const WAGNER_LAG_INPUTS = [:va_in]
+const WAGNER_LAG_OUTPUTS = [:deficiency]
 const AERO_PANEL_OUTPUTS = [:force_out, :couple_out]
 const AERO_POINT_FORCE_INPUTS = [:pos_b, :wing_frame, :force_b_in]
 const AERO_POINT_FORCE_OUTPUTS = [:force, :force_b, :moment_b]
@@ -57,7 +64,7 @@ const TWIST_NODE_INPUTS = [RIDE_INPUTS; :twist_angle]
 const TWIST_WRENCH_INPUTS = [:height, :vel, :arm, :frame, :twist_angle, :force_in,
                              :mass_in, :drag_in]
 const TWIST_OUTPUTS = [:twist_angle, :twist_vel]
-const TWIST_SURFACE_INPUTS = [:aero_moment_in, :node_moment_in, :node_force_in,
+const STATION_INPUTS = [:aero_moment_in, :node_moment_in, :node_force_in,
                               :node_mass_in]
 
 """
@@ -91,7 +98,7 @@ function classify_points(sys_struct)
     for (i, point) in enumerate(sys_struct.points)
         if rigid_wing_node(sys_struct, point)
             roles[i] = PointRole(:twist_node, 0, 0, 0, point.wing_idx,
-                                 twist_surface_of(sys_struct, point.idx))
+                                 station_of(sys_struct, point.idx))
             continue
         end
         if point.joint_idx > 0
@@ -138,21 +145,21 @@ node is placed by a twist-deformed body-frame offset instead of riding anything 
 and so does [`classify_points`](@ref).
 """
 rigid_wing_node(sys_struct, point) =
-    point.is_wing_node && point.wing_idx > 0 &&
+    point.is_wing_node &&
     sys_struct.bodies[point.wing_idx].dynamics_type == RIGID_DYNAMICS
 
 """
-    twist_surface_of(sys_struct, idx) -> Int
+    station_of(sys_struct, idx) -> Int
 
-The one twist surface point `idx` belongs to, or `0`. Two would make its section
+The one station point `idx` belongs to, or `0`. Two would make its section
 twist ambiguous, which `point_eqs!` also rejects.
 """
-function twist_surface_of(sys_struct, idx)
-    found = [surface.idx for surface in sys_struct.twist_surfaces
+function station_of(sys_struct, idx)
+    found = [surface.idx for surface in sys_struct.stations
              if idx in surface.point_idxs]
     length(found) <= 1 || error(
         "KernelBackend: point $(sys_struct.points[idx].name) is in " *
-        "$(length(found)) twist surfaces; expected 0 or 1.")
+        "$(length(found)) stations; expected 0 or 1.")
     return isempty(found) ? 0 : only(found)
 end
 
@@ -165,10 +172,8 @@ a steering or pulley point with `body_frame_damping` needs it too.
 """
 function kinematic_wing_of(sys_struct, point)
     idx = point.wing_idx
-    (idx > 0 && idx <= length(sys_struct.bodies)) || return 0
-    sys_struct.bodies[idx].type == KINEMATIC || return 0
-    needs = point.is_wing_node || point.body_frame_damping !== nothing
-    return needs ? idx : 0
+    idx > 0 || return 0
+    return sys_struct.bodies[idx].type == KINEMATIC ? idx : 0
 end
 
 """
@@ -303,9 +308,10 @@ all the state getter and the control setter need to find their values. A
 `BODY_STATIC` point has two: `point_instances` holds its kinematics and
 `wrench_instances` the load it feeds back (`0` for every other point).
 `aero_instances` holds each wing's aero instance and `twist_instances` each twist
-surface's, `0` where there is none. `inflow_instances` holds each point's
-[`AeroInflowPoint`](@ref), whose `va_b` output is the apparent wind the aero is
-solved on, and `0` for a point that has none.
+surface's, `0` where there is none. `aero_force_instances` holds each point's
+[`AeroPointForce`](@ref) and `inflow_instances` its [`AeroInflowPoint`](@ref), whose
+`va_b` output is the apparent wind the aero is solved on; `0` for a point with
+neither.
 """
 struct KernelModel{S, P}
     system::S
@@ -321,6 +327,7 @@ struct KernelModel{S, P}
     aero_instances::Vector{Int}
     twist_instances::Vector{Int}
     inflow_instances::Vector{Int}
+    aero_force_instances::Vector{Int}
 end
 
 """
@@ -341,7 +348,7 @@ function assemble(sam; verbose = false)
 
     body_instances = [add_body!(builder, table, bindings, sam, i)
                       for i in eachindex(sys_struct.bodies)]
-    twist_instances = add_twist_surfaces!(builder, table, bindings, sam)
+    twist_instances = add_stations!(builder, table, bindings, sam)
     wrench_instances = zeros(Int, length(sys_struct.points))
     point_instances = [add_point!(builder, table, bindings, sam, i, point_roles[i],
                                   body_instances, wrench_instances, twist_instances)
@@ -381,12 +388,14 @@ function assemble(sam; verbose = false)
                    :timoshenko_joints, TimoshenkoJointComponent,
                    TIMOSHENKO_RIGIDITIES)
     end
-    flap_instances = add_flap_deltas!(builder, table, bindings, sam, body_instances)
+    flap_instances = add_flap_deltas!(builder, table, bindings, sam, body_instances,
+                                      point_instances)
     inflow_instances = zeros(Int, length(sys_struct.points))
+    aero_force_instances = zeros(Int, length(sys_struct.points))
     aero_instances = [add_wing_aero!(builder, table, bindings, sam, wing,
                                      body_instances, point_instances, flap_instances,
                                      twist_instances, wrench_instances,
-                                     inflow_instances)
+                                     inflow_instances, aero_force_instances)
                       for wing in sys_struct.wings]
 
     system = build_system(builder)
@@ -399,30 +408,43 @@ function assemble(sam; verbose = false)
     return KernelModel(system, u0, params, sync, point_instances,
                           wrench_instances, segment_instances, body_instances,
                           point_roles, segment_roles, aero_instances,
-                          twist_instances, inflow_instances)
+                          twist_instances, inflow_instances, aero_force_instances)
 end
 
 """
-    add_flap_deltas!(builder, table, bindings, sam, bodies) -> Dict{Int, Int}
+    add_flap_deltas!(builder, table, bindings, sam, bodies, points) -> Dict{Int, Int}
 
-Add one [`FlapDelta`](@ref) per flapped twist surface and wire its two flap bodies'
-orientations in. Returns the instance of each such surface; a surface with no flap
-is absent, and the aero input it would feed stays unconnected and so reads the zero
-`twist_surface_delta_eqs!` binds it to.
+Add one flap-deflection kernel per flapped station and wire what it reads: a point
+flap's three chord positions and its wing's frame ([`PointFlapDelta`](@ref)), or a
+body flap's two orientations ([`FlapDelta`](@ref)). Returns the instance of each such
+surface; a surface with no flap is absent, and the aero input it would feed stays
+unconnected and so reads the zero `station_delta_eqs!` binds it to.
 """
-function add_flap_deltas!(builder, table, bindings, sam, bodies)
+function add_flap_deltas!(builder, table, bindings, sam, bodies, points)
     instances = Dict{Int, Int}()
-    for surface in sam.sys_struct.twist_surfaces
+    for surface in sam.sys_struct.stations
         has_flap(surface) || continue
-        entry = kernel!(builder, table, sam, :flap_delta, surface.idx,
-                        params -> FlapDelta(sam, params, surface.idx;
-                                            name = :flap_delta),
-                        FLAP_INPUTS, [:delta])
+        point_flap = has_point_flap(surface)
+        key = point_flap ? :point_flap_delta : :flap_delta
+        entry = kernel!(builder, table, sam, key, surface.idx,
+                        params -> point_flap ?
+                            PointFlapDelta(sam, params, surface.idx; name = key) :
+                            FlapDelta(sam, params, surface.idx; name = key),
+                        point_flap ? POINT_FLAP_INPUTS : FLAP_INPUTS, [:delta])
         instance = add_instance!(builder, entry.index)
-        push!(bindings, (instance, entry, Dict(:twist_surfaces => surface.idx)))
-        main, flap = surface.flap_body_idxs
-        connect!(builder, bodies[main], :frame, instance, :main_frame)
-        connect!(builder, bodies[flap], :frame, instance, :flap_frame)
+        push!(bindings, (instance, entry, Dict(:stations => surface.idx)))
+        if point_flap
+            for (k, idx) in enumerate(surface.flap_point_idxs)
+                connect!(builder, points[idx], :pos, instance,
+                         Symbol(:point_pos_, k))
+            end
+            connect!(builder, bodies[surface.wing_idx], :frame, instance,
+                     :wing_frame)
+        else
+            main, flap = surface.flap_body_idxs
+            connect!(builder, bodies[main], :frame, instance, :main_frame)
+            connect!(builder, bodies[flap], :frame, instance, :flap_frame)
+        end
         instances[surface.idx] = instance
     end
     return instances
@@ -438,17 +460,16 @@ loads: a `PARTICLE_DYNAMICS` wing's aero delivers a force to each structural poi
 body ([`add_rigid_wing_aero!`](@ref)).
 
 Either way the aero is a component of its own, not a term inside the points or the
-body, because nothing about it is a cycle: neither a point's position nor a body's
-pose depends on the force it receives, so the schedule simply runs the structure,
-then the wing frame, then the aero, then the derivatives.
+body: nothing about it is a cycle, so the schedule runs the structure, then the wing
+frame, then the aero, then the derivatives.
 """
 function add_wing_aero!(builder, table, bindings, sam, wing, bodies, points, flaps,
-                        twists, wrenches, inflow_instances)
+                        twists, wrenches, inflow_instances, aero_force_instances)
     wing.dynamics_type == PARTICLE_DYNAMICS || return add_rigid_wing_aero!(
         builder, table, bindings, sam, wing, bodies, twists)
     supports_panel_decomposition(wing.aero) && return add_panel_wing_aero!(
         builder, table, bindings, sam, wing, bodies, points, flaps, wrenches,
-        inflow_instances)
+        inflow_instances, aero_force_instances)
     sys_struct = sam.sys_struct
     nodes = wing_points(sys_struct, wing)
     surfaces = wing_flap_surfaces(wing)
@@ -491,12 +512,12 @@ the strut interpolation, the inflow average, the load scatter — is a constant 
 so it is wiring rather than equations. Returns the sum's instance, which is where the
 wing's readouts hang.
 
-This is what [`ParticleWingAero`](@ref) does in one component. One is superlinear in
-the wing's size and the other is not, which on a wing of any real size is the whole
-difference between a build that finishes and one that does not.
+The one-component equivalent, [`ParticleWingAero`](@ref), is superlinear in the wing's
+size; this decomposition is not, which is what makes a large wing buildable.
 """
 function add_panel_wing_aero!(builder, table, bindings, sam, wing, bodies, points,
-                              flaps, wrenches, inflow_instances)
+                              flaps, wrenches, inflow_instances,
+                              aero_force_instances)
     nodes = wing_points(sam.sys_struct, wing)
     body = bodies[wing.idx]
     inflow_points = add_aero_inflow_points!(builder, table, bindings, sam, nodes,
@@ -506,10 +527,22 @@ function add_panel_wing_aero!(builder, table, bindings, sam, wing, bodies, point
     end
     groups, section_group = aero_inflow_groups(wing.aero, wing, nodes)
     inflows = add_aero_inflows!(builder, table, bindings, sam, groups, inflow_points)
+    pitches = if flow_curvature_enabled(wing)
+        add_aero_inflows!(builder, table, bindings, sam,
+                          aero_pitch_groups(wing.aero, wing, nodes)[1], inflow_points)
+    else
+        nothing
+    end
+    wagner = wagner_enabled(wing) ?
+        add_wagner_lag!(builder, table, bindings, sam, wing, inflow_points) : nothing
     panels = add_aero_panels!(builder, table, bindings, sam, wing, nodes,
-                              inflow_points, inflows, section_group, flaps)
+                              inflow_points, inflows, pitches, section_group, flaps,
+                              wagner)
     forces = add_aero_point_forces!(builder, table, bindings, sam, wing, nodes,
                                     inflow_points, body, points, wrenches)
+    for (node, instance) in zip(nodes, forces)
+        aero_force_instances[node.idx] = instance
+    end
     for (panel, node, force_weight, couple_weight) in
             aero_scatter_entries(wing.aero, wing, nodes)
         force_weight == 0 || connect!(builder, panels[panel], :force_out,
@@ -525,17 +558,20 @@ end
     add_aero_inflow_points!(builder, table, bindings, sam, nodes, points, body)
 
 One [`AeroInflowPoint`](@ref) per structural point of a wing, wired from that point's
-kinematics and its wing body's pose. The kernel reads no per-component field, so every
-point of every wing shares it. Returns the instances, indexed as `nodes` is.
+kinematics and its wing body's pose. The only per-component field the kernel reads is
+the point's prescribed wind, remapped per instance, so every point of every wing
+shares it. Returns the instances, indexed as `nodes` is.
 """
 function add_aero_inflow_points!(builder, table, bindings, sam, nodes, points, body)
-    entry = kernel!(builder, table, sam, :aero_inflow_point, 0,
-                    params -> AeroInflowPoint(sam, params; name = :aero_inflow_point),
+    source = first(nodes).idx
+    entry = kernel!(builder, table, sam, :aero_inflow_point, source,
+                    params -> AeroInflowPoint(sam, params, source;
+                                              name = :aero_inflow_point),
                     AERO_INFLOW_POINT_INPUTS, AERO_INFLOW_POINT_OUTPUTS)
     instances = Int[]
     for node in nodes
         instance = add_instance!(builder, entry.index)
-        push!(bindings, (instance, entry, Dict{Symbol, Int}()))
+        push!(bindings, (instance, entry, Dict(:points => node.idx)))
         connect!(builder, points[node.idx], :pos, instance, :pos)
         connect!(builder, points[node.idx], :vel, instance, :vel)
         connect!(builder, body, :pos, instance, :wing_pos)
@@ -570,18 +606,25 @@ end
 
 """
     add_aero_panels!(builder, table, bindings, sam, wing, nodes, inflow_points,
-                     inflows, section_group, flaps) -> Vector{Int}
+                     inflows, pitches, section_group, flaps) -> Vector{Int}
 
 One [`AeroPanel`](@ref) per refined panel, reading its two sections' corners from the
 strut interpolation ([`aero_geometry_entries`](@ref)), their inflow from the group they
-belong to, and its flap deflection from the twist surface it deflects with. Panels
+belong to, and its flap deflection from the station it deflects with. Panels
 differ only in their `±1` span sign, so a wing needs at most two kernels.
+
+`pitches` are the [`aero_pitch_groups`](@ref) gathers, or `nothing` on a wing without
+[`flow_curvature_enabled`](@ref), which then has no such inputs to connect. `wagner`
+is the wing's [`add_wagner_lag!`](@ref) instance, or `nothing` in the same way.
 """
 function add_aero_panels!(builder, table, bindings, sam, wing, nodes, inflow_points,
-                          inflows, section_group, flaps)
+                          inflows, pitches, section_group, flaps, wagner=nothing)
     spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     with_flap = !isempty(wing_flap_surfaces(wing))
-    inputs = with_flap ? [AERO_PANEL_INPUTS; :flap_delta] : AERO_PANEL_INPUTS
+    inputs = isnothing(pitches) ? AERO_PANEL_INPUTS :
+        [AERO_PANEL_INPUTS; AERO_PANEL_PITCH_INPUTS]
+    isnothing(wagner) || (inputs = [inputs; AERO_PANEL_WAGNER_INPUTS])
+    with_flap && (inputs = [inputs; :flap_delta])
     instances = Int[]
     for (panel_idx, orient) in enumerate(panel_span_signs(wing, spanwise))
         key = Symbol(:aero_panel_, wing.idx, orient > 0 ? :_up : :_down)
@@ -595,7 +638,11 @@ function add_aero_panels!(builder, table, bindings, sam, wing, nodes, inflow_poi
             inflow = inflows[section_group[section]]
             connect!(builder, inflow, :va, instance, Symbol(:va_, side))
             connect!(builder, inflow, :rho, instance, Symbol(:rho_, side))
+            isnothing(pitches) || connect!(builder, pitches[section_group[section]],
+                                           :va, instance, Symbol(:dva_, side))
         end
+        isnothing(wagner) || connect!(builder, wagner, :deficiency, instance,
+                                      :wagner_deficiency)
         push!(instances, instance)
     end
     for (panel, corner, node, weight) in aero_geometry_entries(wing.aero, wing, nodes)
@@ -606,14 +653,35 @@ function add_aero_panels!(builder, table, bindings, sam, wing, nodes, inflow_poi
 end
 
 """
+    add_wagner_lag!(builder, table, bindings, sam, wing, inflow_points) -> Int
+
+The wing's one [`WagnerLag`](@ref) instance, its `va_in` gathered at equal weight
+over every node of the wing so the lag rides the wing's mean apparent wind. Returns
+the instance the panels read their deficiency from.
+"""
+function add_wagner_lag!(builder, table, bindings, sam, wing, inflow_points)
+    key = Symbol(:wagner_lag_, wing.idx)
+    entry = kernel!(builder, table, sam, key, 0,
+                    params -> WagnerLag(sam, params, wing.idx; name = key),
+                    WAGNER_LAG_INPUTS, WAGNER_LAG_OUTPUTS)
+    instance = add_instance!(builder, entry.index)
+    push!(bindings, (instance, entry, Dict{Symbol, Int}()))
+    weight = 1.0 / length(inflow_points)
+    for point in inflow_points
+        connect!(builder, point, :va_b, instance, :va_in; weight)
+    end
+    return instance
+end
+
+"""
     wire_panel_flaps!(builder, mode, panels, flaps)
 
-Connect each panel's flap deflection to the [`FlapDelta`](@ref) of the twist surface it
+Connect each panel's flap deflection to the [`FlapDelta`](@ref) of the station it
 deflects with. A panel mapped to no surface keeps its input unconnected, which reads
 zero — the same deflection `flap_delta_inputs` gives it.
 """
 function wire_panel_flaps!(builder, mode, panels, flaps)
-    for (panel, surface) in enumerate(mode.panel_twist_surface)
+    for (panel, surface) in enumerate(mode.panel_station)
         haskey(flaps, surface) || continue
         connect!(builder, flaps[surface], :delta, panels[panel], :flap_delta)
     end
@@ -671,13 +739,13 @@ end
     add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twists) -> Int
 
 Add a `RIGID_DYNAMICS` wing's [`WingAero`](@ref) and wire it: the wing body's pose
-and each of its twist surfaces' angle and rate in, the world wrench about the body
+and each of its stations' angle and rate in, the world wrench about the body
 COM back into the body, and each surface's aerodynamic hinge moment on to that
 surface. Returns the instance. `aero_eqs!` drives every surface's hinge moment
 except a prescribed one with no aero sections, which has nothing to drive it with.
 """
 function add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twists)
-    surfaces = wing.twist_surface_idxs
+    surfaces = wing.station_idxs
     key = Symbol(:wing_aero_, wing.idx)
     inputs = [RIDE_INPUTS
               [Symbol(:twist_angle_, surface) for surface in surfaces]
@@ -702,7 +770,7 @@ function add_rigid_wing_aero!(builder, table, bindings, sam, wing, bodies, twist
                  Symbol(:twist_angle_, surface))
         connect!(builder, twists[surface], :twist_vel, instance,
                  Symbol(:twist_vel_, surface))
-        twist_surface_aero_driven(sam.sys_struct.twist_surfaces[surface]) &&
+        station_aero_driven(sam.sys_struct.stations[surface]) &&
             connect!(builder, instance, Symbol(:twist_moment_, surface),
                      twists[surface], :aero_moment_in)
     end
@@ -879,27 +947,27 @@ function add_ride_point!(builder, table, bindings, sam, idx, role, bodies, wrenc
 end
 
 """
-    add_twist_surfaces!(builder, table, bindings, sam) -> Vector{Int}
+    add_stations!(builder, table, bindings, sam) -> Vector{Int}
 
-Add one twist instance per twist surface that has a section twist to report: a
-[`TwistSurfaceDOF`](@ref) for a `DYNAMIC` surface, whose twist is a state, and a
+Add one twist instance per station that has a section twist to report: a
+[`StationDOF`](@ref) for a `DYNAMIC` surface, whose twist is a state, and a
 [`PrescribedTwist`](@ref) for a `STATIC` one, whose twist is a parameter. A
 `KINEMATIC` surface has neither and gets `0`; its deflection is a
 [`FlapDelta`](@ref) instead.
 """
-function add_twist_surfaces!(builder, table, bindings, sam)
-    instances = zeros(Int, length(sam.sys_struct.twist_surfaces))
-    for surface in sam.sys_struct.twist_surfaces
+function add_stations!(builder, table, bindings, sam)
+    instances = zeros(Int, length(sam.sys_struct.stations))
+    for surface in sam.sys_struct.stations
         surface.type in (DYNAMIC, STATIC) || continue
         dynamic = surface.type == DYNAMIC
-        key = dynamic ? :twist_surface : :prescribed_twist
-        make = dynamic ? TwistSurfaceDOF : PrescribedTwist
+        key = dynamic ? :station : :prescribed_twist
+        make = dynamic ? StationDOF : PrescribedTwist
         entry = kernel!(builder, table, sam, key, surface.idx,
                         params -> make(sam, params, surface.idx; name = key),
-                        dynamic ? TWIST_SURFACE_INPUTS : [:aero_moment_in],
+                        dynamic ? STATION_INPUTS : [:aero_moment_in],
                         TWIST_OUTPUTS)
         instance = add_instance!(builder, entry.index)
-        push!(bindings, (instance, entry, Dict(:twist_surfaces => surface.idx)))
+        push!(bindings, (instance, entry, Dict(:stations => surface.idx)))
         instances[surface.idx] = instance
     end
     return instances
@@ -921,7 +989,7 @@ function add_twist_node!(builder, table, bindings, sam, idx, role, bodies, wrenc
     surface = role.joint_idx
     gated = surface > 0 && !sam.sys_struct.bodies[role.body_idx].group_points_moment
     index_map = Dict(:points => idx)
-    surface > 0 && (index_map[:twist_surfaces] = surface)
+    surface > 0 && (index_map[:stations] = surface)
     suffix = surface > 0 ? "" : "_free"
     kinematics = kernel!(builder, table, sam, Symbol(:twist_node, suffix), idx,
                          params -> TwistNodePoint(sam, params, idx;
@@ -955,7 +1023,7 @@ function add_twist_node!(builder, table, bindings, sam, idx, role, bodies, wrenc
     if surface > 0 && twists[surface] != 0
         connect!(builder, twists[surface], :twist_angle, node, :twist_angle)
         connect!(builder, twists[surface], :twist_angle, wrench, :twist_angle)
-        if sam.sys_struct.twist_surfaces[surface].type == DYNAMIC
+        if sam.sys_struct.stations[surface].type == DYNAMIC
             connect!(builder, wrench, :node_force, twists[surface], :node_force_in)
             connect!(builder, wrench, :node_moment, twists[surface], :node_moment_in)
             connect!(builder, wrench, :node_mass, twists[surface], :node_mass_in)
@@ -1188,6 +1256,7 @@ function bind_params(system, sys_struct, bindings, segment_roles, segment_instan
         end
     end
     retarget_tether_rest_lengths!(readers, segment_roles)
+    bind_segment_winds!(slots, readers, system, sys_struct, segment_instances)
     sync = KernelParamSync(group_readers(slots, readers),
                            group_callables(callable_targets, callable_readers))
     return KernelParams(numeric, callables), sync
@@ -1211,6 +1280,32 @@ function callable_store(system)
         defaults = Tuple(system.kernels[k].callable_defaults)
         fill(defaults, counts[k])
     end
+end
+
+"""
+    bind_segment_winds!(slots, readers, system, sys_struct, segment_instances)
+
+Point each segment's `src_wind`/`dst_wind` parameters at its two endpoints'
+`point.wind_vec`, which is how a [`PerPointWind`](@ref) segment reads the wind of the
+points it spans: a segment kernel is instanced over `:segments`, so its endpoints
+cannot both be reached through the registry's per-instance index remapping.
+[`segment_wind_params`](@ref) mints these parameters, so nothing else binds them; a
+segment without tether drag has none.
+"""
+function bind_segment_winds!(slots, readers, system, sys_struct, segment_instances)
+    per_point_wind(sys_struct) || return nothing
+    for (idx, instance) in enumerate(segment_instances)
+        kernel = system.kernels[system.instances[instance].kernel]
+        has_slot(kernel.params, :src_wind) || continue
+        endpoints = sys_struct.segments[idx].point_idxs
+        for (endpoint, name) in zip(endpoints, (:src_wind, :dst_wind))
+            for (k, slot) in enumerate(buffer_slots(system, instance, :params, name))
+                push!(slots, slot)
+                push!(readers, PathReader((:points, endpoint, :wind_vec, k)))
+            end
+        end
+    end
+    return nothing
 end
 
 """
@@ -1260,7 +1355,7 @@ end
     initial_state!(u0, system, sys_struct, point_roles, point_instances,
                    body_instances, twist_instances)
 
-Fill `u0` with the initial state: each `DYNAMIC` twist surface's twist and rate,
+Fill `u0` with the initial state: each `DYNAMIC` station's twist and rate,
 each body's principal pose, each particle's `pos`/`vel`, each pulley's split
 `pulley_len`/`pulley_vel` and each winch's `winch_vel` and per-tether lengths, read
 from the struct. Called again by [`KernelInitialSync`](@ref) whenever a problem is
@@ -1271,7 +1366,7 @@ function initial_state!(u0, system, sys_struct, point_roles, point_instances,
     fill!(u0, zero(SimFloat))
     for (idx, instance) in enumerate(twist_instances)
         instance == 0 && continue
-        surface = sys_struct.twist_surfaces[idx]
+        surface = sys_struct.stations[idx]
         surface.type == DYNAMIC || continue
         u0[only(buffer_slots(system, instance, :states, :free_twist_angle))] =
             surface.twist

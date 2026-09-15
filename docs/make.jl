@@ -51,7 +51,7 @@ makedocs(;
         prettyurls=get(ENV, "CI", "false") == "true",
         canonical="https://OpenSourceAWE.github.io/SymbolicAWEModels.jl",
         assets=String[],
-        size_threshold=500 * 1024,
+        size_threshold=600 * 1024,
     ),
     pages=[
         "Home" => "index.md",
@@ -61,6 +61,7 @@ makedocs(;
         "Compilation pipeline" => "pipeline.md",
         "Examples" => "examples.md",
         "VSM coupling" => "vsm_coupling.md",
+        "Unsteady aerodynamics" => "unsteady_aero.md",
         "Coordinate frames" => "coordinate_frames.md",
         "Types" => "exported_types.md",
         "Functions" => "exported_functions.md",

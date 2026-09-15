@@ -25,7 +25,8 @@ using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, refresh_particle_aero!, SimFloat,
                          loft_contour_node, aero_inflow_groups, wing_points,
-                         aero_scatter_entries, surface_node_forces
+                         aero_scatter_entries, surface_node_forces,
+                         pressure_couple
 using KiteUtils
 using LinearAlgebra
 
@@ -33,20 +34,30 @@ using LinearAlgebra
     include(joinpath(@__DIR__, "pressure_fixture.jl"))
 
 """
-    load_pressure_sys(data_path, aero_mode)
+    panel_node_forces(mode, wing, panel, i, column) -> NamedTuple
 
-`Settings` and `SystemStructure` for the particle 2plate kite carrying
-`aero_mode`, reading the fixture-patched geometry under `data_path`.
+One panel's contour nodes and the forces its scatter actually puts on them —
+frozen traction, residual share and the [`pressure_couple`](@ref) that carries the
+pitching moment. `column` is the panel's first column in `mode.traction`.
 """
-function load_pressure_sys(data_path, aero_mode)
-    set_data_path(data_path)
-    set = Settings("system.yaml")
-    vsm_set = VortexStepMethod.VSMSettings(
-        joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    particle_yaml = joinpath(data_path, "particle_structural_geometry.yaml")
-    sys = load_sys_struct_from_yaml(particle_yaml; system_name="pressure_test",
-        set, vsm_set, aero_mode)
-    return set, sys
+function panel_node_forces(mode, wing, panel, i, column)
+    sol = wing.vsm_solver.sol
+    xc, yc, _, _ = VortexStepMethod.section_surface(panel.section_aero, 0.0,
+                                                    panel.delta)
+    q_dyn = 0.5 * wing.vsm_solver.density * dot(wing.va_b, wing.va_b)
+    x_axis = Vector(panel.x_airf)
+    y_axis = Vector(panel.y_airf)
+    z_axis = Vector(panel.z_airf)
+    force = Vector(sol.f_body_3D[:, i])
+    cm = VortexStepMethod.calculate_cm(panel, sol.alpha_dist[i])
+    panel_couple = (panel.width * cm * q_dyn * panel.chord) .* z_axis
+    couple = pressure_couple(panel_couple, force, mode.traction_net[:, i],
+        mode.traction_moment[:, i], mode.residual_arm[:, i],
+        x_axis, y_axis, z_axis, panel.chord)
+    nodes = surface_node_forces(mode.traction, column + 1, length(xc), force,
+        mode.traction_net[:, i], couple, mode.node_couple_shape[i],
+        mode.node_residual_share[i])
+    return (; xc, yc, force, panel_couple, couple, x_axis, y_axis, nodes)
 end
 
 @testset "AeroPressure" begin
@@ -151,10 +162,22 @@ end
         point_pos_b = Dict(p.idx => rot_cad_to_body * (p.pos_cad - wing.pos_cad)
                            for p in nodes)
 
+        # The couple carries the pitching moment, so a comparison that dropped it
+        # would score the scatter on half of what it applies.
+        couples = SimFloat[]
+        column = 0
+        for (i, panel) in enumerate(panels)
+            push!(couples, panel_node_forces(mode, wing, panel, i, column).couple...)
+            column += length(mode.station_point[i])
+        end
+        couples = reshape(couples, 3, length(panels))
+
         applied_total = zeros(SimFloat, 3)
-        for (panel, column, force_weight, _) in aero_scatter_entries(mode, wing, nodes)
+        for (panel, column, force_weight, couple_weight) in
+                aero_scatter_entries(mode, wing, nodes)
             applied_total .+= cross(point_pos_b[nodes[column].idx],
-                force_weight .* Vector(sol.f_body_3D[:, panel]))
+                force_weight .* Vector(sol.f_body_3D[:, panel]) .+
+                couple_weight .* couples[:, panel])
         end
         for (point_idx, offset) in mode.point_offset
             applied_total .+= cross(point_pos_b[point_idx], offset)
@@ -170,8 +193,7 @@ end
                 panel.section_aero, 0.0, panel.delta)
             assigned = mode.station_point[i]
             f_vsm = Vector(sol.f_body_3D[:, i])
-            node_forces = surface_node_forces(mode.traction, column + 1,
-                length(assigned), f_vsm, mode.traction_net[:, i])
+            node_forces = panel_node_forces(mode, wing, panel, i, column).nodes
             applied = zeros(SimFloat, 3)
             pattern = zeros(SimFloat, 3)
             for node in eachindex(assigned)
@@ -203,9 +225,38 @@ end
         # the anchored force scores 0.27, which is the margin this bound has.
         @test pattern_error < 0.20
         # Nearest-node quantization, the only part the scatter itself controls.
+        # Measured on the loads the scatter really applies, the pitching couple
+        # included: the residual share concentrates load where the contour is
+        # clustered and on its own scores 0.063, and the couple pulls the load
+        # centre back to where the polar's Cm puts it.
         @test lumping < 0.05
         # Mz on its own, so a yaw-placement error cannot hide inside the norm.
         @test abs(applied_total[3] - pattern_total[3]) / lever_scale < 0.05
+    end
+
+    # What the scatter is anchored to. Both hold exactly, over whatever pattern the
+    # Cp field happens to give: the force because `share` sums to one, the moment
+    # because `pressure_couple` places the deficit between the pattern's own moment
+    # and the one VSM's polar asks for. Before that couple existed only the force was
+    # anchored and the polar's Cm never reached the structure.
+    @testset "each panel's force and pitching moment are VSM's" begin
+        column = 0
+        for (i, panel) in enumerate(wing.vsm_aero.panels)
+            p = panel_node_forces(mode, wing, panel, i, column)
+            le_mid = 0.5 .* (Vector(panel.LE_point_1) .+ Vector(panel.LE_point_2))
+            moment = zeros(SimFloat, 3)
+            for k in eachindex(p.xc)
+                column += 1
+                moment .+= cross(loft_contour_node(panel, p.xc, p.yc, k) .- le_mid,
+                                 p.nodes[k])
+            end
+            # `ContinuousAero` places the same panel as its force at the quarter
+            # chord plus `panel_couple`; that is the moment this has to reproduce.
+            target = dot((0.25 * panel.chord) .* cross(p.x_axis, p.force) .-
+                         panel.chord .* cross(p.x_axis, p.panel_couple), p.y_axis)
+            @test norm(sum(p.nodes) .- p.force) <= 1e-12 * norm(p.force)
+            @test isapprox(dot(moment, p.y_axis), target; rtol=1e-10)
+        end
     end
 
     # The scatter's identities are arithmetic on the frozen params, so they hold

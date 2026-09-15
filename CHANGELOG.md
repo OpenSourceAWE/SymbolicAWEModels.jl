@@ -2,14 +2,295 @@
 
 ## Unreleased
 
+### Fixed
+- A point that belongs to no wing no longer crashes model generation with a
+  `BoundsError` on index 0. `wing_idx` now means one thing — the wing the point
+  belongs to, `0` for none — and a point that names no wing gets `0` instead of
+  silently defaulting to wing 1. The monolith asked whether the *system* had a
+  wing rather than whether the point did, and every non-wing point's `va_b` fell
+  back to the first wing's frame; both are gone, so a point is damped and has
+  its apparent wind expressed in the frame of the wing it names, or in the world
+  frame alone. A point that never named a wing therefore loses a body-frame
+  damping term it was taking from an arbitrary wing, a station member that names
+  no wing is rejected at load since a wing's structural node must belong to a
+  wing, and a `wing_idx` naming a wing that does not exist errors at load
+  instead of failing later.
+- `precompile_workload = false` now switches off the Makie extension's workload as
+  well as the package's, so precompiling `SymbolicAWEModelsMakieExt` no longer
+  builds four models and loading it no longer replaces the package's own
+  precompiled copies of the model pipeline.
+- `sam_tutorial.jl` and `kps4_comparison.jl` build their wing points again. Both
+  still passed the `WING` `DynamicsType` that v0.13.0 removed, so the tutorial
+  died with `UndefVarError: WING` on the step that adds the kite. A rigid wing's
+  structural nodes are now `BODY_STATIC` riding its body and a particle wing's
+  are `DYNAMIC`; the tutorial's wing is rigid, so it also declares the three
+  stations that the removal of `auto_create_twist_surfaces!` requires.
+
 ### Changed
-- BREAKING: `roll`, `pitch` and `yaw` are no longer written to `SysState`, which dropped
-  them in KiteUtils 0.13. They were computed here with a NED Euler formula applied to
-  `Q_b_to_w`, which is ENU, so they were not the angles any sensor reports — yaw was out
-  by 90 degrees at zenith. `KiteUtils.euler_ks(ss.orient)` reports them correctly.
-- `ss.orient` needs no conversion: KiteUtils 0.13 stores `KA`, which is what `Q_b_to_w`
-  already is.
-- compat bound on KiteUtils raised to `0.13`.
+- BREAKING: `Body.tether_force`, `Body.tether_moment` and the Makie extension's
+  `plot_tether_moment` panel are gone. Neither backend's readout ever wrote the
+  two fields, so they held the zeros their constructor gave them; the two
+  `SysState` columns they were copied into, `tether_induced_force` and
+  `tether_induced_moment`, are removed in KiteUtils 0.13. The panel plotted the
+  moment column, which was that same constant. A wing's tether-induced wrench
+  has no source in this package, so there is nothing to plot in its place.
+- BREAKING: `roll`, `pitch` and `yaw` are no longer written to `SysState`, which
+  dropped the three fields in KiteUtils 0.13. They were computed here with a NED
+  Euler formula applied to `Q_b_to_w`, which is ENU, so they were not the angles
+  any sensor reports — yaw was out by 90 degrees at zenith.
+  `KiteUtils.euler_ks(ss.orient)` reports them correctly.
+- `[compat]` on KiteUtils is raised to `0.13`.
+- Julia 1.13 takes the place of 1.11 in the development setup. CI's third cell
+  runs 1.13, `bin/install` and `bin/update_default_manifests` offer 1.12 and
+  1.13, and the tracked default manifest resolved under 1.11 is replaced by one
+  resolved under 1.13. `[compat]` gains `1.13` without dropping an entry, so the
+  package still admits 1.11 — it is only no longer the version the repo's own
+  tooling installs. `SHA` compat now reads `"0.7.0, 1"`, 1 being the version the
+  stdlib has on 1.13.
+- `wagner_reference_frame` builds the wing's mean chordwise direction and normal
+  with `VortexStepMethod.panel_axes` instead of its own cross product, so the frame
+  the Wagner lag measures its one angle of attack in is the frame of the panels that
+  lag shifts. It averages over the frozen VSM mesh at the chord blend weight VSM
+  gives each panel rather than at the 0.5 midpoint, so a wing whose panels differ in
+  width is measured on the frame its panels are built on.
+
+## v0.17.0 12-09-2026
+
+### Added
+- A station can read its flap deflection δ off three of its own chord points
+  instead of two flap bodies: `flap_points: [fore, hinge, aft]` on a `KINEMATIC`
+  station, and δ is the angle the aft segment makes with the fore one about the
+  wing-frame hinge axis, referenced to the CAD pose. A chord that bends over
+  several beam elements needs no hinge bodies to read a deflection off, and the
+  angle is read from the same points the aerodynamics is built on. Both backends
+  emit it; `flap_bodies` keeps working, and a station given both reads the points.
+- `bin/install -y` (`--yes`) installs without a terminal: it takes the Julia
+  already active instead of asking, and leaves `juliaup` and the shell startup
+  file untouched. Without it the script waits on a menu prompt.
+- `next_step!(sam; vsm_warn_on_fail=true)` warns instead of erroring when a VSM
+  solve does not converge. The wing keeps the circulation, the angles of attack and
+  the frozen forces of its last converged solve, and `vsm_interval` is untouched, so
+  the next scheduled update solves again.
+
+### Fixed
+- The `KernelBackend` evaluates its analytical Jacobian once before handing it to
+  the solver, and errors when it is not finite, naming the kernels whose dual
+  pass came back non-finite, instead of failing on the first implicit step with
+  `dt` driven below floating-point epsilon. `analytic_jacobian=false` runs such a
+  model on the solver's own Jacobian.
+
+- `AeroPressure` no longer writes one copy of a panel's live load per contour
+  node. The symbolic component summed a separate `surface_node_forces` expression
+  for each of the 210 nodes, so the panel's force residual and its pitching couple
+  were spelled out a few hundred times where the kernel backend already reduced
+  the same pattern to two scalar weights per (panel, point). Both backends now
+  walk one `scatter_node_weights`, and the couple is bound to a variable instead
+  of being inlined. The model is unchanged; it interns 29% fewer symbolic terms.
+- The cached-model hash now covers a station's flap wiring, so changing which
+  bodies or points carry δ rebuilds the model instead of silently reusing one
+  whose deflection equations read the old ones. Every cached model bin is
+  invalidated once by the change.
+- A panel's drag direction no longer re-derives its lift direction inside itself.
+  `drag_cross` inlined `lift_cross / |lift_cross|` where the `dir_lift` variable
+  already holds exactly that, so normalising `dir_drag` squared and summed three
+  copies of it: one panel's drag direction reached 199k expression nodes and a
+  wing's system 3.4M. Reading the variable halves the system the monolith backend
+  compiles, and leaves the value unchanged.
+- Building a wing model no longer constructs the per-section flow curvature rate
+  when the wing's solver has the term switched off, which is the default. The
+  symbolic inflow reconstruction built it for every refined section and dropped
+  it one line later, while the kernel backend already gated the same gather.
+- A transform's `elevation_vel` and `azimuth_vel` now place the velocity they
+  describe. Both terms were wrong: the elevation term was never rotated by the
+  azimuth, so off the `azimuth = 0` meridian it pointed out of the sphere, and
+  the azimuth term had the sign the position convention does not have and was
+  missing its `cos(elevation)`, which at 70° elevation is a factor of three. The
+  field was also a per-component approximation — every component took the wing's
+  own spherical velocity scaled by its radius, so the structure was not moving
+  rigidly — and it was written before the heading step rotated the positions it
+  was measured against, so a placed heading left position and velocity
+  disagreeing by metres per second. It is now one rigid rotation about the base,
+  `spherical_spin(transform)` crossed into `pos_w - base_pos`, applied after the
+  heading; a rigid body takes the matching `ω_b` where it used to be zeroed.
+- `reposition!` takes `update_vel` (`false` as before), so a state can be moved
+  onto a pose and released already flying on it. Nothing applied the transform
+  velocity except `reinit!`, which resets from CAD.
+- A panel's aerodynamic load is shared between the two stations it lies between
+  rather than rounded onto the nearer one. Rounding is a discontinuity, and two
+  panels mirroring each other across the wing land on spanwise places that agree
+  to within a few ulps but not exactly, so the nearer station could be a
+  different one for each and a whole panel's load moved a station across the
+  span. A symmetric wing at a symmetric pose carried yaw and roll that nothing
+  cancelled; both are now identically zero. A panel straddling a station also
+  took the mean of two weights measured against different station pairs, which
+  means nothing averaged.
+- `AeroPressure` now places each panel's pitching moment, not only its force.
+  The scatter anchored the force to the VSM panel force and left the moment to
+  whatever the frozen `Cp` pattern happened to integrate to, so the polar's `Cm`
+  never reached the structure; the couple it did place was the flow-curvature
+  increment alone. `pressure_couple` now places the deficit between the moment
+  the pattern already carries — its own, plus the residual's on its
+  share-weighted arm — and the moment `ContinuousAero` would place for the same
+  panel, its force at the quarter chord plus `panel_couple`. Both the force and
+  the moment now come out exact rather than approximate. The divisor carries the
+  airfoil frame's own triple product, the axes not being quite orthogonal on a
+  billowed panel.
+- `next_step!` no longer costs `FBDF` its multistep history. SciMLBase 3.53
+  treats every parameter write through an integrator as a derivative
+  discontinuity, and OrdinaryDiffEqCore 4.17 acts on that on every step rather
+  than only the first, so the parameters `next_step!` syncs each step restarted
+  the solver at order 1 with an empty history and the dynamics went unstable
+  within a few steps. `next_step!` clears the flag before it steps.
+- BREAKING: a wing's `twist_surface` is now a `station`, in the code and in the
+  structural geometry YAML: the `twist_surfaces:` key and the per-wing
+  `twist_surfaces: [...]` list are both `stations:`. The entity is the
+  structural points lying in one chordwise plane, and twist is one of the things
+  it carries, alongside the spanwise stations the aero load and the live polars
+  are read on. It had grown three names — `twist_surface`, `station` and `strut`
+  — which is how the load path and the deformation path came to compute the same
+  blend twice without anyone noticing they were the same quantity.
+  `TwistSurface` is `Station`, `station_control_points` says what it returns,
+  and the file is `station_eqs.jl`.
+- `SymbolicUtils` 4.46.3 or newer is required. It carries the fix for
+  JuliaSymbolics/SymbolicUtils.jl#1049, where `isequal` on two equal but
+  distinct expressions is exponential in nesting depth: a second model build in
+  one session spent 320 s in `ODEProblem` against 2 s for the first.
+- `check_live_polar(mode, wing; panel_idx)` runs one XFoil solve against the
+  live polar a panel is flying, on the state the model is in now. It defaults to
+  the panel NeuralFoil is least confident about.
+  `Live polar off the trained shape range` says the network is extrapolating;
+  this says whether the extrapolation is any good, which a confidence cannot.
+- `AeroPressure(; live_polars=true)`: instead of reading a tabulated `(α, δ)`
+  polar, every panel's polar is regenerated from its deformed shape at each VSM
+  solve. The structural points a panel already scatters its load onto are read
+  as control points, their offset off the deformed chord line deforms the
+  panel's Kulfan fit analytically, NeuralFoil is evaluated on a grid of angles
+  about the panel's own α, and those values are written into the panel's own
+  polar table. This is for a chord that bends into a shape no single hinge angle
+  stands for — the flap angle δ then carries nothing, so it is dropped from the
+  generated equations entirely and only α stays live in the RHS. Requires
+  VortexStepMethod 4.3.
+
+  The surface traction pattern is regenerated from the same deformed shapes once
+  the solve has converged: the contour offset by the deformation's own camber
+  increment, `Cp` from one batched NeuralFoil pass at the converged α, and skin
+  friction from the flat-plate closure at each panel's own Reynolds. Force and
+  placement therefore both follow the deformation — previously a deformation
+  changed how hard a panel pulled but not where it pulled, and every traction
+  normal was the reference section's. The contour's chord fractions and its
+  nodes' assignment to structural points do not move, so the scatter stays
+  continuous.
+
+  A live polar spans only the angles it was sampled over and holds its last
+  value past them, so bring-up still wants damping enough to keep the solve
+  inside that range — on the SK100, `start_world_damping` 300 rather than 20,
+  which is what the placed geometry needs before the wing reaches 20 m/s in 10
+  ms and slews α 20° in a single step. Past the range the answer is stale rather
+  than wrong-signed. Settled at 12 m/s the two agree; at 20 m/s the live polars
+  settle to a peak tube bending margin of 1.02 against the tabulated 4.71, with
+  3 of 49 joints past the collapse knee rather than 10.
+- The continuous VSM modes carry VortexStepMethod's `flow_curvature` moment
+  increment, the thin-airfoil `Δcm = -(π/4)·q̂` of a section rotating about its
+  own spanwise axis. They re-derive the panel force symbolically instead of
+  reading `solve!`'s output, so the term was absent from them while `AeroDirect`
+  and `AeroLinearized` had it, and enabling the solver flag silently meant two
+  different models. Each panel's rate comes from its sections' own trailing
+  minus leading edge apparent wind, so a deforming wing gets the true
+  per-section rate — twist and flapping included — rather than a projection of
+  one body rate. Off by default, and read from the wing's solver, so no mode can
+  have the term while another does not.
+- Unsteady aerodynamics on the particle VSM modes, carried by the wing's new
+  `UnsteadyAero` (`wing.unsteady`) and off by default. `unsteady_aero(wing)`
+  reads a wing's settings back and `apply_apparent_mass!` puts the entrained air
+  on the structure. See the "Unsteady aerodynamics" docs page.
+  - `apparent_mass` gives the wing's nodes the air they entrain, the thin-plate
+    `ρ·π·c²/4` per unit span, spread over them by the weights that carry each
+    panel's force. It sits in a new `Point`/`Body` field rather than
+    `extra_mass`, because entrained air resists acceleration but has no weight,
+    and it lands on whatever integrates the node's translation — the node
+    itself, the body that places it, or the two beam bodies its joint spans. It
+    is a scale, `1` being the thin-plate value, translational and isotropic.
+  - `wagner` adds the two-state Wagner lift lag: circulation reaches its steady
+    value over `φ(s) = 1 - A₁·exp(-b₁·s) - A₂·exp(-b₂·s)` semi-chords rather
+    than at once. Two states serve the whole wing, driven by its mean apparent
+    wind, and the one deficiency shifts every panel's angle of attack before the
+    polars are read. `wagner_gains` and `wagner_rates` are registered
+    parameters, so retuning a lag syncs instead of rebuilding; only the on/off
+    switch is structural.
+- A failed VSM solve leaves the last converged solve's circulation in
+  `solver.sol.gamma_distribution` and its angles of attack in `solver.lr.alpha_dist`
+  and `solver.sol.alpha_dist`, rather than zeroing the circulation and keeping the
+  diverged angles. The next solve keeps its warm start, and a live polar keeps
+  re-centring its knots on a finite angle. The failure itself is
+  `VortexStepMethod.SolveFailure`, raised by `solve!` under `throw_on_fail`, so the
+  minimum VortexStepMethod is now v5.1.0.
+
+### Changed
+- `panel_force_eqs` no longer restates the VSM panel aerodynamics symbolically.
+  It traces VortexStepMethod's panel kernel (`panel_axes`, `panel_inflow`,
+  `panel_force_directions`, `panel_loads`) with symbolic arguments, so the
+  equations both backends compile are the ones the numeric solver evaluates and
+  the two packages cannot drift apart. All this function still decides is where
+  to tear the expression graph. `smooth_norm`, `panel_span_signs` and
+  `store_chord_weights!` go through the same kernel. Requires VortexStepMethod
+  4.2.
+- The SciML stack moves a generation on: `DataInterpolations` 9 and 10,
+  `LinearSolve` 5 and a `SymbolicUtils` floor of 4.46.3 are allowed, and both
+  default manifests are regenerated onto them.
+- Live polars are sampled at the settings their tables were generated with. A
+  wing's `airfoil:` block in `vsm_settings.yaml` says which NeuralFoil network and
+  what transition criticality a section is solved on, and `build_live_polars!`
+  now reads it instead of taking the package defaults — which were a different
+  network size and a different `n_crit` than any tabulated dataset uses, so a
+  deformed section was re-solved against a curve its undeformed self was never
+  on. `setup_aero!` takes the model's `vsm_set` to reach it. The block is
+  VortexStepMethod's own, so the minimum is now v5.0.0.
+
+## v0.16.0 06-09-2026
+
+### Added
+- Wind can be set per point. A `SystemStructure` now carries a `wind_mode`: the
+  default `ProfileWind()` is the height profile `set.profile_law` as before, and
+  `PerPointWind()` makes every `point.wind_vec` a parameter, settable between steps
+  (`load_sys_struct_from_yaml(path; wind_mode=PerPointWind())`, or the
+  `SystemStructure` keyword of the same name). Point drag and apparent wind read
+  their point's vector, a segment's tether drag the mean of its two endpoints, and a
+  wing its own `wing.wind_vec`; VSM panels keep interpolating their inflow from the
+  points, so a per-point wind reaches them unchanged. `init!` seeds every point and
+  wing with `set.wind_vec`, so a model that is never written to flies in a uniform
+  wind. `set.profile_law` keeps its `AtmosphericModels` meaning and is unused in this
+  mode. Only `PerPointWind` enters the model-cache hash, so existing models keep
+  their cached builds.
+
+### Changed
+- BREAKING: a wing's wind vector is `wing.wind_vec`, renamed from `wing.v_wind` to
+  match `point.wind_vec` and to stop reading as the scalar `set.v_wind`.
+
+## v0.15.2 22-08-2026
+
+### Added
+- `reinit!(sam, integrator; solver=integrator.alg, kwargs...)`, which defaults the
+  solver to the one the integrator was built with. The three-argument method takes
+  it as a required argument, and a caller passing a bare `FBDF()` made the monolith
+  backend compile its whole right-hand side again at `ForwardDiff.Dual`.
+
+### Fixed
+- `sim_reposition!` reinitializes with the solver `init!` built, rather than
+  rebuilding one and dropping its `linsolve`.
+- Every wing node's `aero_force_b`, and the `aero_force_x/y/z` log channels with it,
+  stayed zero under the modes that scatter panel loads (`AeroPressure`,
+  `ContinuousAero`), so `plot` drew no aero arrows on such a wing. Both backends now
+  read the load back out of the model, where it already existed.
+- `update_from_sysstate!` set the wing's aero and tether loads to `NaN` to keep them
+  unplotted, but `plot` skips a load only with `iszero`, so one `NaN` blanked every
+  aero arrow in a replay through the shared adaptive scale. All four loads and the
+  per-point forces are restored from the log instead.
+- `plot` drops non-finite loads before scaling the rest.
+
+### Changed
+- `point.aero_force_b` is the one place a per-point aerodynamic load is read from,
+  filled by refresh (`AeroDirect`) or read back out of the model. The private
+  `aero_point_forces` and `stores_point_force` are removed.
 
 ## v0.15.1 22-08-2026
 

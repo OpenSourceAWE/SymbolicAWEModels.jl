@@ -6,7 +6,7 @@
 # global slot, resolved once at assembly, so both are plain indexed loops.
 
 """
-    PointReadout(point, pos, vel, drag, wind, force, mass, va, va_frame)
+    PointReadout(point, pos, vel, drag, wind, force, mass, va, va_frame, aero)
 
 Where one point's results live: its `pos`/`vel` in the output buffer and its
 `total_drag`, `wind_vec` and `net_force` in the observable buffer — all three from
@@ -30,6 +30,7 @@ struct PointReadout
     mass::Int
     va::Vector{Int}
     va_frame::Int
+    aero::Vector{Int}
 end
 
 """
@@ -114,13 +115,13 @@ struct KinematicWingReadout
 end
 
 """
-    TwistSurfaceReadout(surface, angle, rate, tether_force, tether_moment, aero_moment)
+    StationReadout(surface, angle, rate, tether_force, tether_moment, aero_moment)
 
-Where one twist surface's results live: its twist and rate in the output buffer, and
+Where one station's results live: its twist and rate in the output buffer, and
 the bridle couple and aerodynamic hinge moment in the observable buffer. A surface
 whose twist is prescribed reports the same names, with the couple bound to zero.
 """
-struct TwistSurfaceReadout
+struct StationReadout
     surface::Int
     angle::Int
     rate::Int
@@ -136,7 +137,7 @@ end
 the quantities the struct carries: its
 lumped body-frame `aero_force_b`/`aero_moment_b`, and — for a rigid wing, whose
 apparent wind the component computes rather than the getter — its `va_b` and
-`v_wind`. A name the component does not observe gets no slots and is left alone.
+`wind_vec`. A name the component does not observe gets no slots and is left alone.
 """
 struct WingAeroReadout
     wing::Int
@@ -190,7 +191,7 @@ struct KernelStateGetter{R}
     kinematic::Vector{KinematicWingReadout}
     rigid::Vector{RigidWingReadout}
     aero::Vector{WingAeroReadout}
-    twist::Vector{TwistSurfaceReadout}
+    twist::Vector{StationReadout}
     alpha_b::KVec3
 end
 
@@ -204,7 +205,8 @@ function KernelStateGetter(model::KernelModel, rhs, sys_struct)
                   observed_slots(system, drag_source(model, idx), :wind_vec),
                   observed_slots(system, drag_source(model, idx), :net_force),
                   mass_slot(system, drag_source(model, idx)),
-                  inflow_slots(model, idx), va_frame_body(sys_struct, idx))
+                  inflow_slots(model, idx), va_frame_body(sys_struct, idx),
+                  aero_force_slots(model, idx))
               for (idx, instance) in enumerate(model.point_instances)]
     segments = [SegmentReadout(idx,
                     only(buffer_slots(system, instance, :observables, :spring_force)),
@@ -225,7 +227,7 @@ function KernelStateGetter(model::KernelModel, rhs, sys_struct)
                                 kinematic_wing_readouts(sys_struct),
                                 rigid_wing_readouts(model, sys_struct),
                                 wing_aero_readouts(model, sys_struct),
-                                twist_surface_readouts(model), zero(KVec3))
+                                station_readouts(model), zero(KVec3))
 end
 
 """
@@ -272,19 +274,19 @@ function kinematic_wing_readouts(sys_struct)
 end
 
 """
-    twist_surface_readouts(model) -> Vector{TwistSurfaceReadout}
+    station_readouts(model) -> Vector{StationReadout}
 
-One [`TwistSurfaceReadout`](@ref) per twist surface that has a twist instance. A
+One [`StationReadout`](@ref) per station that has a twist instance. A
 `KINEMATIC` surface has none — its deflection is a [`FlapDelta`](@ref), which the
 aero reads directly and the struct does not carry.
 """
-function twist_surface_readouts(model::KernelModel)
-    readouts = TwistSurfaceReadout[]
+function station_readouts(model::KernelModel)
+    readouts = StationReadout[]
     for (idx, instance) in enumerate(model.twist_instances)
         instance == 0 && continue
         output(name) = only(buffer_slots(model.system, instance, :outputs, name))
         observed(name) = only(buffer_slots(model.system, instance, :observables, name))
-        push!(readouts, TwistSurfaceReadout(idx, output(:twist_angle),
+        push!(readouts, StationReadout(idx, output(:twist_angle),
             output(:twist_vel), observed(:tether_force), observed(:tether_moment),
             observed(:aero_moment)))
     end
@@ -317,15 +319,9 @@ function observed_slots(system, instance::Int, name::Symbol)
 end
 
 """The body whose frame point `idx`'s `va_b` is expressed in when the point has no
-[`AeroInflowPoint`](@ref) to read it from: its own wing, or the first body if it is
-not a wing node, which is the fallback `point_eqs!` uses. 0 for a model with no wing,
-where the monolith leaves `va_b` at zero. Resolved once here because the choice is
-fixed for the life of the model."""
-function va_frame_body(sys_struct, idx)
-    isempty(sys_struct.wings) && return 0
-    point = sys_struct.points[idx]
-    return point.is_wing_node ? point.wing_idx : 1
-end
+[`AeroInflowPoint`](@ref) to read it from: the wing it belongs to, or 0 for a point
+belonging to none, where `va_b` stays zero as it does in the monolith."""
+va_frame_body(sys_struct, idx) = sys_struct.points[idx].wing_idx
 
 """The slot `instance` gathers its incident segments' half-masses into, or 0 if it
 has no `mass_in` input. With `extra_mass` this is the monolith's `point_mass`, which
@@ -341,6 +337,14 @@ half when the point rides a body."""
 drag_source(model::KernelModel, idx) =
     model.wrench_instances[idx] == 0 ? model.point_instances[idx] :
     model.wrench_instances[idx]
+
+"""The output slots of point `idx`'s body-frame aerodynamic force, or none when it
+has no [`AeroPointForce`](@ref) — a point outside a panel-decomposed wing."""
+function aero_force_slots(model::KernelModel, idx)
+    instance = model.aero_force_instances[idx]
+    instance == 0 && return Int[]
+    return buffer_slots(model.system, instance, :outputs, :force_b)
+end
 
 """The output slots of point `idx`'s `va_b`, or none when it has no
 [`AeroInflowPoint`](@ref). This is the apparent wind the compiled model solves the
@@ -404,6 +408,8 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
         copy_slots!(point.drag_force, scratch.observable, readout.drag)
         copy_slots!(point.wind_vec, scratch.observable, readout.wind)
         copy_slots!(point.force, scratch.observable, readout.force)
+        isempty(readout.aero) ||
+            copy_slots!(point.aero_force_b, scratch.output, readout.aero)
         readout.mass == 0 || (point.total_mass =
             point.extra_mass + scratch.input[readout.mass])
     end
@@ -447,7 +453,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
         end
     end
     for readout in getter.twist
-        surface = sys_struct.twist_surfaces[readout.surface]
+        surface = sys_struct.stations[readout.surface]
         surface.twist = scratch.output[readout.angle]
         surface.twist_ω = scratch.output[readout.rate]
         surface.tether_force = scratch.observable[readout.tether_force]
@@ -459,7 +465,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
         copy_slots!(wing.aero_force_b, scratch.observable, readout.force)
         copy_slots!(wing.aero_moment_b, scratch.observable, readout.moment)
         copy_slots!(wing.va_b, scratch.observable, readout.apparent)
-        copy_slots!(wing.v_wind, scratch.observable, readout.wind)
+        copy_slots!(wing.wind_vec, scratch.observable, readout.wind)
     end
     for readout in getter.kinematic
         wing = sys_struct.bodies[readout.body]
@@ -467,12 +473,12 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
         base_point = (wing.transform_idx != 0 &&
                       wing.transform_idx <= length(transforms)) ?
             transforms[wing.transform_idx].base_point_idx : 0
-        wing_kinematics_from_points!(wing,
-            sys_struct.points, sys_struct.set, sys_struct.am;
+        wing_kinematics_from_points!(wing, sys_struct.points, sys_struct.set,
+            sys_struct.am, sys_struct.wind_mode;
             zp1 = readout.z1, zp2 = readout.z2, yp1 = readout.y1,
             yp2 = readout.y2, origin = readout.origin,
             aero_points = readout.aero_points, base_point,
-            twist_surfaces = sys_struct.twist_surfaces)
+            stations = sys_struct.stations)
     end
     for readout in getter.rigid
         wing = sys_struct.bodies[readout.wing]
@@ -480,7 +486,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
         copy_slots!(getter.alpha_b, scratch.observable, readout.alpha_b)
         write_wing_scalars!(wing, sys_struct.points;
             base_point = readout.base_point, alpha_b = getter.alpha_b,
-            twist_surfaces = sys_struct.twist_surfaces)
+            stations = sys_struct.stations)
     end
     for readout in getter.points
         point = sys_struct.points[readout.point]

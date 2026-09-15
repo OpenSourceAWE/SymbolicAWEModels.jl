@@ -147,6 +147,14 @@ group_means(groups, values) =
             next_step!(sam; dt=1e-4, vsm_interval=0)
             force_symbolic = copy(wing.aero_force_b)
 
+            # These modes leave the load in the equations; the struct reads it back.
+            @testset "per-node force reaches the struct" begin
+                @test norm(force_symbolic) > 0.1
+                @test count(node -> !iszero(node.aero_force_b), nodes) > 0
+                @test isapprox(sum(node.aero_force_b for node in nodes),
+                               force_symbolic; rtol=1e-8)
+            end
+
             # Every per-panel intermediate must match VSM, not just the span sum:
             # a per-panel error that cancels spanwise is invisible in the total.
             # `panel_force_eqs` is evaluated on the panel's own geometry and
@@ -182,7 +190,7 @@ group_means(groups, values) =
                     result = evaluate_panel_equations(
                         (le_1, te_1, le_2, te_2),
                         (panel_va, panel_va, solver.density, solver.density,
-                         mode.v_ind[:, i]),
+                         mode.v_ind[:, i], nothing, nothing),
                         alpha -> (VortexStepMethod.calculate_cl(panel, alpha),
                             VortexStepMethod.calculate_cd_cm(panel, alpha)...),
                         spanwise, scale, orient[i], mode.chord_weight[i])

@@ -32,7 +32,8 @@ jobs:
   test-with-code-coverage:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ matrix.backend || 'monolith' }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
+    # The kernel backend needs ~100 min of the budget and grows with the suite.
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -56,7 +57,7 @@ jobs:
         # configuration because Julia keys its caches by that configuration.
         include:
           - os: ubuntu-latest
-            version: '1.11'
+            version: '1.13'
             arch: x64
             prefix: xvfb-run -a
           - os: ubuntu-latest

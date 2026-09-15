@@ -44,48 +44,23 @@ end
 """
     validate_sys_struct(sys_struct::SystemStructure)
 
-Validate a `SystemStructure` for common configuration errors.
-
-This function checks for issues that can cause initialization failures or
-numerical problems during simulation. It emits warnings for suspicious
-configurations and throws assertions for definite errors.
+Check a `SystemStructure` for configurations that cause initialization failures or
+numerical problems: warnings for suspicious values, assertions for definite errors.
 
 # Validations Performed
-
-## Point Validations
-- NaN extra_mass (error)
-- Negative extra_mass (warning)
-- Non-positive total_mass for DYNAMIC points (error) - checked before NaN position
-- NaN position (error) - often caused by zero mass
-
-## Wing Validations
-- Non-positive mass (error) - checked before NaN position
-- Zero or near-zero principal inertia components on RIGID_DYNAMICS wings (error/warning)
-- NaN inertia values (error)
-- Empty twist_surface list for RIGID_DYNAMICS wings (warning)
-- NaN position (error) - often caused by zero mass/inertia
-
-## Winch Validations
-- Zero or negative inertia_total (error)
-- Very small inertia_total (warning)
-- NaN inertia_total (error)
-- Non-positive drum_radius (error)
-- Non-positive gear_ratio (error)
-
-## Segment Validations
-- Unusual diameter outside (0, 1) m range (warning)
-- Non-positive rest length l0 (error)
-- Zero or negative stiffness (warning)
-- Negative damping (warning)
-
-## Pulley Validations
-- Zero total length constraint (error)
-
-## TwistSurface Validations
-- Inconsistent moment_frac across twist_surfaces (error)
+- **Points**: NaN or negative `extra_mass`, non-positive `total_mass` on DYNAMIC
+  points, NaN position (usually a consequence of zero mass).
+- **Wings**: non-positive mass, zero/near-zero or NaN principal inertia on
+  RIGID_DYNAMICS wings, empty station list, NaN position.
+- **Winches**: non-positive, tiny or NaN `inertia_total`, non-positive `drum_radius`
+  or `gear_ratio`.
+- **Segments**: diameter outside (0, 1) m, non-positive rest length `l0`,
+  non-positive stiffness, negative damping.
+- **Pulleys**: zero total length constraint.
+- **Stations**: inconsistent `moment_frac`.
 """
 function validate_sys_struct(sys_struct::SystemStructure)
-    (; points, twist_surfaces, segments, pulleys, wings, winches) = sys_struct
+    (; points, stations, segments, pulleys, wings, winches) = sys_struct
 
     # ==================== POINT VALIDATIONS ==================== #
     for point in points
@@ -140,11 +115,11 @@ function validate_sys_struct(sys_struct::SystemStructure)
                 error("Wing $(wing.name) has NaN inertia: I_b = $I_b")
             end
 
-            # AeroNone does not couple to sections, so missing twist_surfaces is fine.
-            if isempty(wing.twist_surface_idxs) &&
+            # AeroNone does not couple to sections, so missing stations is fine.
+            if isempty(wing.station_idxs) &&
                couples_to_sections(wing.aero)
                 @warn "Wing $(wing.name) (RIGID_DYNAMICS)" *
-                    " has no twist_surfaces"
+                    " has no stations"
             end
         end
 
@@ -226,14 +201,14 @@ function validate_sys_struct(sys_struct::SystemStructure)
         end
     end
 
-    # ==================== TWIST_SURFACE VALIDATIONS ==================== #
-    if length(twist_surfaces) > 0
-        first_moment_frac = twist_surfaces[1].moment_frac
-        for twist_surface in twist_surfaces
-            if !(twist_surface.moment_frac ≈ first_moment_frac)
-                error("TwistSurface $(twist_surface.name) has moment_frac = " *
-                      "$(twist_surface.moment_frac), but all twist_surfaces must have the " *
-                      "same moment_frac (first twist_surface has $(first_moment_frac))")
+    # ==================== STATION VALIDATIONS ==================== #
+    if length(stations) > 0
+        first_moment_frac = stations[1].moment_frac
+        for station in stations
+            if !(station.moment_frac ≈ first_moment_frac)
+                error("Station $(station.name) has moment_frac = " *
+                      "$(station.moment_frac), but all stations must have the " *
+                      "same moment_frac (first station has $(first_moment_frac))")
             end
         end
     end
@@ -430,14 +405,14 @@ function tether_downstream_idxs(tether, segments, boundary,
 end
 
 """
-    twist_surface_tethers_by_overlap(specified, reach)
+    station_tethers_by_overlap(specified, reach)
 
 Cluster the `specified` tethers with a union-find over `reach`
 (point indices each tether touches): tethers whose reaches intersect
 share structure and land in the same cluster. Returns a vector of
 tether vectors, one per cluster.
 """
-function twist_surface_tethers_by_overlap(specified, reach)
+function station_tethers_by_overlap(specified, reach)
     n = length(specified)
     parent = collect(1:n)
     function find_root(i)
@@ -457,11 +432,11 @@ function twist_surface_tethers_by_overlap(specified, reach)
             parent[root_i] = root_j
         end
     end
-    twist_surfaces = Dict{Int64, Vector{Tether}}()
+    stations = Dict{Int64, Vector{Tether}}()
     for i in 1:n
-        push!(get!(() -> Tether[], twist_surfaces, find_root(i)), specified[i])
+        push!(get!(() -> Tether[], stations, find_root(i)), specified[i])
     end
-    return collect(values(twist_surfaces))
+    return collect(values(stations))
 end
 
 """
@@ -469,7 +444,7 @@ end
 
 Return the common per-unit-length stiffness `[N]` of the tether's
 segments. Errors if the segments are not uniform, since the spring
-inversion in `apply_tether_init_forces!` assumes a single stiffnesys_state.
+inversion in `apply_tether_init_forces!` assumes a single stiffness.
 """
 function tether_unit_stiffness(tether, segments)
     any(!(segments[i].unit_stiffness isa Real) for i in tether.segment_idxs) &&
@@ -643,7 +618,7 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
                 boundary),
         downstream[tether.idx]) for tether in specified)
 
-    for cluster in twist_surface_tethers_by_overlap(specified, reach)
+    for cluster in station_tethers_by_overlap(specified, reach)
         apply_cluster_init_stretched_len!(cluster, points, segments, bodies,
                                           timoshenko_joints, body_neighbors,
                                           downstream, boundary; prn)
@@ -705,16 +680,31 @@ function apply_tether_init_forces!(sys_struct::SystemStructure)
     end
 end
 
+"""
+    seed_per_point_wind!(sys_struct::SystemStructure)
+
+Give every point and every wing the ground wind `set.wind_vec` as its own wind, so a
+[`PerPointWind`](@ref) model that is never written to flies in the uniform wind the
+settings describe. Called from `reinit!`; from then on these winds belong to the
+caller, who writes them between steps.
+"""
+function seed_per_point_wind!(sys_struct::SystemStructure)
+    for point in sys_struct.points
+        point.wind_vec .= sys_struct.set.wind_vec
+    end
+    for wing in sys_struct.wings
+        wing.wind_vec .= sys_struct.set.wind_vec
+    end
+    return nothing
+end
+
 # ==================== REINIT! FOR SYSTEM STRUCTURE ==================== #
 
 """
     reinit!(sys_struct::SystemStructure, set::Settings; kwargs...)
 
-Re-initialize a `SystemStructure` from a `Settings` object.
-
-This function resets various component states (e.g., winch lengths, twist_surface twists,
-pulley positions) to their initial values as defined in the `Settings` object. It
-is typically called before starting a new simulation run.
+Reset the component states (winch lengths, station twists, pulley positions, …)
+to the initial values defined in `set`, before a new simulation run.
 
 Pulley lengths are initialized proportionally based on current segment lengths:
 `pulley.len = segment1.len / (segment1.len+segment2.len) * pulley.sum_len`
@@ -735,7 +725,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                  ignore_l0::Bool=false, remake_vsm::Bool=false,
                  reset_vel::Bool=true, apply_transforms::Bool=true,
                  apply_tether_lengths::Bool=true, prn::Bool=true)
-    (; points, twist_surfaces, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
+    (; points, stations, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
 
     for winch in winches
         winch.vel = winch.init_vel
@@ -752,10 +742,10 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         init_rigid_body!(rigid_body)
     end
 
-    for twist_surface in twist_surfaces
-        twist_surface.type == STATIC && continue
-        twist_surface.twist = 0.0
-        twist_surface.twist_ω = 0.0
+    for station in stations
+        station.type == STATIC && continue
+        station.twist = 0.0
+        station.twist_ω = 0.0
     end
 
     # Transforms are not updated from Settings; YAML structure geometry has priority.
@@ -807,25 +797,31 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     if remake_vsm
         for wing in wings
             remake_aero!(wing.aero, wing, set, sys_struct.vsm_set,
-                         points, twist_surfaces)
+                         points, stations)
         end
     end
 
     # Compute per-wing wind from settings
     wind_vec_gnd = set.wind_vec
 
-    wind_factor = WindFactor(sys_struct.am, sys_struct.set.profile_law)
+    if per_point_wind(sys_struct)
+        seed_per_point_wind!(sys_struct)
+    else
+        wind_factor = WindFactor(sys_struct.am, set.profile_law)
+        for wing in wings
+            # Calculate wind at wing position using atmospheric model
+            wing.wind_vec .= wind_factor(wing.pos_w[3]) * wind_vec_gnd
+        end
+    end
     for wing in wings
-        # Calculate wind at wing position using atmospheric model
-        wing.v_wind .= wind_factor(wing.pos_w[3]) * wind_vec_gnd
-
         R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
         if wing.dynamics_type == PARTICLE_DYNAMICS
-            va_wing_w = wing.v_wind - wing.vel_w + wing.wind_disturb
+            va_wing_w = wing.wind_vec - wing.vel_w + wing.wind_disturb
             wing.va_b .= R_b_to_w' * va_wing_w
         else
             # Initialize the aero operating point from the initial wind
-            init_aero_state!(wing.aero, wing, R_b_to_w' * wind_vec_gnd)
+            init_aero_state!(wing.aero, wing, R_b_to_w' *
+                (per_point_wind(sys_struct) ? wing.wind_vec : wind_vec_gnd))
         end
     end
 
@@ -843,8 +839,8 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     # Joint rest geometry, from the final placed body poses (as-placed = unstrained).
     init_joint_rest!.(sys_struct.elastic_joints, Ref(sys_struct.bodies))
     init_joint_rest!.(sys_struct.timoshenko_joints, Ref(sys_struct.bodies))
-    # Flap KINEMATIC twist_surfaces: capture rest deflection from the placed bodies.
-    init_twist_surface_flap!.(sys_struct.twist_surfaces, Ref(sys_struct.bodies))
+    # Flap KINEMATIC stations: capture rest deflection from the placed bodies.
+    init_station_flap!.(sys_struct.stations, Ref(sys_struct))
 
     return nothing
 end
@@ -854,18 +850,14 @@ end
 """
     copy!(sys1::SystemStructure, sys2::SystemStructure)
 
-Copy the dynamic state from one `SystemStructure` (`sys1`) to another (`sys2`).
+Copy the dynamic state (positions, velocities, …) from one `SystemStructure` to
+another, which may be of a different fidelity — e.g. from a multi-segment tether model
+to a single-segment one.
 
-This function is designed to transfer the state (positions, velocities, etc.) between
-two system models, which can have different levels of fidelity. For example, it can
-copy the state from a detailed multi-segment tether model (`sys1`) to a simplified
-single-segment model (`sys2`).
-
-The function handles several cases:
-- If `sys1` and `sys2` have the same structure, it performs a direct copy of all point states.
-- If `sys2` is a simplified (1-segment per tether) version of `sys1`, it copies the
-  positions and velocities of the tether endpoints.
-- It also copies the state of wings, twist_surfaces, winches, and pulleys where applicable.
+- Same structure: direct copy of all point states.
+- `sys2` a 1-segment-per-tether version of `sys1`: the tether endpoints' positions and
+  velocities are copied.
+- Wing, station, winch and pulley states are copied where applicable.
 """
 function copy!(sys1::SystemStructure, sys2::SystemStructure)
 
@@ -907,11 +899,11 @@ function copy!(sys1::SystemStructure, sys2::SystemStructure)
         end
     end
 
-    # copy twist and twist_ω of twist_surfaces
-    if length(sys1.twist_surfaces) > 0 && length(sys1.twist_surfaces) == length(sys2.twist_surfaces)
-        for (twist_surface1, twist_surface2) in zip(sys1.twist_surfaces, sys2.twist_surfaces)
-            twist_surface2.twist = twist_surface1.twist
-            twist_surface2.twist_ω = twist_surface1.twist_ω
+    # copy twist and twist_ω of stations
+    if length(sys1.stations) > 0 && length(sys1.stations) == length(sys2.stations)
+        for (station1, station2) in zip(sys1.stations, sys2.stations)
+            station2.twist = station1.twist
+            station2.twist_ω = station1.twist_ω
         end
     end
 
@@ -955,52 +947,40 @@ end
 # ==================== SYSSTATE INTEROP ==================== #
 
 """
+    restore_point_aero_forces!(sys, wing, sys_state)
+
+Put each of `wing`'s nodes back to the body-frame aero force the log holds for it,
+rotating the logged world-frame `aero_force_x/y/z` by the frame just restored. A log
+without those channels restores zeros.
+"""
+function restore_point_aero_forces!(sys, wing, sys_state)
+    length(sys_state.aero_force_x) == length(sys_state.X) || return nothing
+    rot = quaternion_to_rotation_matrix(wing.Q_b_to_w)
+    for point in sys.points
+        (point.is_wing_node && point.wing_idx == wing.idx) || continue
+        point.aero_force_b .= rot' * [sys_state.aero_force_x[point.idx],
+                                      sys_state.aero_force_y[point.idx],
+                                      sys_state.aero_force_z[point.idx]]
+    end
+    return nothing
+end
+
+"""
     update_from_sysstate!(sys::SystemStructure, sys_state::SysState)
 
-Update the dynamic state of a `SystemStructure` from a `SysState` snapshot.
+Copy the state a `SysState` carries (point positions, wing orientations, winch
+lengths, twist angles) into an existing `SystemStructure`, e.g. to plot one snapshot
+of a `SysLog` with the Makie extension. Fields `SysState` cannot supply (aerodynamic
+forces and moments, segment forces) are set to `NaN` so they are not plotted.
 
-This function copies the state variables that are present in `SysState` (such as point
-positions, wing orientations, winch lengths, and twist angles) into an existing `SystemStructure`.
-Fields that cannot be populated from `SysState` (such as aerodynamic forces, moments, and
-segment forces) are set to `NaN` to prevent them from being plotted.
+`sys` must have been created with the same model configuration as the simulation that
+produced the log; its point count must match the parametric type `P` of `SysState{P}`.
 
-This is useful for visualizing a `SysLog` by extracting individual `SysState` snapshots
-and applying them to a `SystemStructure` for plotting with the Makie extension.
-
-# Arguments
-- `sys::SystemStructure`: The system structure to update (must already exist with correct topology).
-- `sys_state::SysState`: The state snapshot to copy from.
-
-# Example
-```julia
-# Load a system log
-sim_log = load_log(...)
-
-# Create a SystemStructure with the same topology
-sys = SystemStructure(se(), "ram")
-
-# Update from a specific time step
-update_from_sysstate!(sys, sim_log.syslog[100])
-
-# Plot the system at that time step
-plot(sys)
-```
-
-# Notes
-- The `SystemStructure` must have been created with the same model configuration as the
-  simulation that generated the `SysLog`.
-- Aerodynamic and force fields are set to `NaN` and will not be plotted.
-- The number of points in `sys` must match the parametric type `P` of `SysState{P}`.
-- Every field the log can reach is written, whether or not the compiler ends up
-  integrating it, because a derived field can still seed `u0` as a torn variable.
-  A `KINEMATIC` body is no exception: its centre of mass is not logged, but
-  `init_principal_state!` rebuilds it from the restored origin, which is exact
-  there (`com_offset_b` is zero for a body whose pose `wing_eqs!` fits from
-  points). Skipping it strands the origin point at the geometry-file position
-  while every other point moves to the logged one.
+Every field the log can reach is written, whether or not the compiler integrates it,
+because a derived field can still seed `u0` as a torn variable.
 """
 function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) where P
-    (; points, twist_surfaces, pulleys, tethers, winches, wings, bodies) = sys
+    (; points, stations, pulleys, tethers, winches, wings, bodies) = sys
 
     # Position slot layout (points, panel corners, wing origins, body origins).
     slots = position_slots(sys)
@@ -1057,13 +1037,11 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         # Set angular velocity to NaN (turn_rates in SysState, but need conversion)
         wing.ω_b .= sys_state.turn_rates
 
-        # Set aerodynamic quantities to NaN (to prevent plotting)
-        wing.aero_force_b .= NaN
-        wing.aero_moment_b .= NaN
-        wing.tether_force .= NaN
-        wing.tether_moment .= NaN
+        wing.aero_force_b .= sys_state.aero_force_b
+        wing.aero_moment_b .= sys_state.aero_moment_b
         wing.va_b .= NaN
-        wing.v_wind .= sys_state.v_wind_kite
+        restore_point_aero_forces!(sys, wing, sys_state)
+        wing.wind_vec .= sys_state.v_wind_kite
         wing.aoa = Float64(sys_state.AoA)
         wing.course = Float64(sys_state.course)
         wing.acc_w .= 0.0
@@ -1091,17 +1069,17 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
     end
 
     # Logs written before twist_vel existed restart the surfaces at rest.
-    has_twist_vel = length(sys_state.twist_vel) == length(twist_surfaces)
-    for twist_surface in twist_surfaces
-        i = twist_surface.idx
+    has_twist_vel = length(sys_state.twist_vel) == length(stations)
+    for station in stations
+        i = station.idx
         if i <= length(sys_state.twist_angles)
-            twist_surface.twist = Float64(sys_state.twist_angles[i])
-            twist_surface.twist_ω = has_twist_vel ?
+            station.twist = Float64(sys_state.twist_angles[i])
+            station.twist_ω = has_twist_vel ?
                 Float64(sys_state.twist_vel[i]) : 0.0
         end
-        twist_surface.tether_force = NaN
-        twist_surface.tether_moment = NaN
-        twist_surface.aero_moment = NaN
+        station.tether_force = NaN
+        station.tether_moment = NaN
+        station.aero_moment = NaN
     end
     for pulley in pulleys
         pulley.idx > length(sys_state.pulley_len) && break
@@ -1110,7 +1088,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
     end
 
     for wing in wings
-        restore_aero_twist!(wing.aero, wing, twist_surfaces)
+        restore_aero_twist!(wing.aero, wing, stations)
     end
 
     # Update tether lengths from SysState (per-tether)
@@ -1134,6 +1112,7 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         corner_idx = read_aero_log_points!(wing.aero, wing, sys,
                                            sys_state, corner_idx)
         restore_flap_delta!(wing.aero, wing, sys_state)
+        restore_live_shape!(wing.aero, wing, sys.points)
     end
 
     # Update global wind vector (only if wind_vec mode is active)
@@ -1233,15 +1212,11 @@ set_angular_damping(bodies::AbstractVector, damping::Union{Real, AbstractVector}
 """
     segment_stretch_stats(sys::SystemStructure)
 
-Calculate segment stretch statistics for segments in tension.
+Maximum and mean relative stretch `(len - l0) / l0` over the segments in tension
+(`len > l0`), plus the index of the most stretched one.
 
-Returns the maximum and mean relative stretch of segments where len > l0,
-along with the index of the segment with maximum stretch.
-Relative stretch is defined as (current_length - l0) / l0.
-Only segments in tension (stretched) are included in the statistics.
-
-For pulley segments, the combined length of both segments is used against
-the pulley's sum_l0, since the pulley constraint distributes length between them.
+For pulley segments, the combined length of both legs is used against the pulley's
+`sum_l0`, since the pulley constraint distributes length between them.
 
 # Arguments
 - `sys::SystemStructure`: System structure with current segment states

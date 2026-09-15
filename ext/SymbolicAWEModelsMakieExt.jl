@@ -79,6 +79,21 @@ const PLOT_MULTI_SYSTEMS = Ref{Union{Nothing, Vector{<:SystemStructure}}}(nothin
 const PLOT_MULTI_GEOMETRY_OBS = Ref{Union{Nothing, Vector{Observable}}}(nothing)
 
 """
+    finite_force_arrows(origins, forces, scale) -> (origins, directions)
+
+Arrows for `forces`, scaled so the largest is `scale` long. Non-finite forces are
+dropped before the rest are sized, so one unset load cannot blank the layer through
+the shared scale.
+"""
+function finite_force_arrows(origins, forces, scale)
+    keep = [i for i in eachindex(forces) if all(isfinite, forces[i])]
+    isempty(keep) && return (Point3f[], Vec3f[])
+    max_force = maximum(norm(forces[i]) for i in keep)
+    max_force > 0 || return (Point3f[], Vec3f[])
+    return (origins[keep], [forces[i] * (scale / max_force) for i in keep])
+end
+
+"""
     calculate_segment_force_colors(segments, segment_color)
 
 Calculate segment colors based on their force values.
@@ -128,11 +143,11 @@ function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
         use_observables=false, geometry_obs=nothing, border_linewidth=1.5,
         transparency=true)
     quad_vertices() = [Point3f(corner)
-        for twist_surface_idx in wing.twist_surface_idxs
+        for station_idx in wing.station_idxs
         for corner in SymbolicAWEModels.plate_corners(
-            sys.twist_surfaces[twist_surface_idx],
+            sys.stations[station_idx],
             sys.points[
-                sys.twist_surfaces[twist_surface_idx].point_idxs[1]].pos_w,
+                sys.stations[station_idx].point_idxs[1]].pos_w,
             wing.R_b_to_w)]
     initial = quad_vertices()
     isempty(initial) && return nothing
@@ -878,13 +893,9 @@ function Makie.plot!(ax, sys::SystemStructure;
                 end
             end
 
+            aero_origins, aero_directions =
+                finite_force_arrows(aero_origins, aero_forces_raw, vector_scale)
             if !isempty(aero_origins)
-                # Calculate adaptive force scale
-                max_force = maximum(norm.(aero_forces_raw))
-                # Scale forces to be similar size as vector_scale
-                force_scale = vector_scale / max_force
-                aero_directions = [f * force_scale for f in aero_forces_raw]
-
                 plots[:aero_forces] = arrows3d!(ax, aero_origins, aero_directions,
                                                color=:magenta,
                                                label="Aero Forces")
@@ -923,14 +934,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                     end
                 end
 
-                # Calculate adaptive force scale
-                directions = Vec3f[]
-                if !isempty(forces_raw)
-                    max_force = maximum(norm.(forces_raw))
-                    force_scale = scale / max_force
-                    directions = [f * force_scale for f in forces_raw]
-                end
-                (origins, directions)
+                finite_force_arrows(origins, forces_raw, scale)
             end
 
             plots[:aero_forces] = arrows3d!(ax, @lift($aero_origins_dirs[1]), @lift($aero_origins_dirs[2]),
@@ -1023,6 +1027,7 @@ function Makie.plot!(ax, sys::SystemStructure;
         if overlay !== nothing
             plots[:aero_mapping_lines] = overlay.lines
             plots[:aero_mapping_receivers] = overlay.receivers
+            plots[:aero_mapping] = [overlay.lines, overlay.receivers]
         end
     end
 
@@ -1032,22 +1037,16 @@ end
 """
     SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
 
-Trigger plot updates by updating the geometry observable.
+Trigger plot updates by notifying the geometry observable, which makes Makie
+recompute all geometry from `PLOT_SYSTEM_STRUCTURE[]` through its `@lift`
+expressions. `sys` should already carry the new state (e.g. from
+`update_from_sysstate!`).
 
-The SystemStructure should already be updated via `update_from_sysstate!`.
-This function simply triggers the observable which causes Makie to recompute
-all geometry from `PLOT_SYSTEM_STRUCTURE[]` via `@lift` expressions.
-
-# Example
 ```julia
-# Create initial plot
 scene = plot(sys_struct)
-
-# In simulation loop:
 for step in 1:steps
     next_step!(sam; ...)
     update_plot_observables!(sam.sys_struct)
-    sleep(0.001)  # Allow Makie to process updates
 end
 ```
 """
@@ -1248,7 +1247,6 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 - `plot_reelout::Bool=plot_default`: Show the panel with the reel-out velocities of the steering winches.
 - `plot_aero_force::Bool=plot_default`: Show the panel with the z-component of aerodynamic force.
 - `plot_aero_moment::Bool=false`: Show the panel with the y-component of aerodynamic moment.
-- `plot_tether_moment::Bool=false`: Show the panel with the y-component of tether-induced moment.
 - `plot_tether::Bool=false`: Show the panel with winched tether length.
 - `plot_tether_actual::Bool=false`: Show the panel with actual tether length from nodal positions.
 - `plot_twist::Bool=false`: Show the panel with the twist angles for each wing group.
@@ -1287,11 +1285,9 @@ end
 """
     MakieControlPlots.plot(sys::SystemStructure, logs::Vector{SysLog}; kwargs...)
 
-Create a multi-panel plot comparing multiple simulation logs on the same figure.
-
-This method allows plotting multiple syslogs (e.g., from PARTICLE_DYNAMICS and RIGID_DYNAMICS models)
-on the same panels for direct comparison. Each log's traces are labeled with its
-corresponding system name.
+Create a multi-panel plot comparing several simulation logs (e.g. from
+PARTICLE_DYNAMICS and RIGID_DYNAMICS models) on the same panels. Each log's traces are
+labeled with its system name.
 
 # Arguments
 - `sys::SystemStructure`: The system structure (can be from any of the models).
@@ -1349,7 +1345,6 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
                    plot_elevation=false,
                    plot_azimuth=false,
                    plot_wind=false,
-                   plot_tether_moment=false,
                    plot_tether_actual=false,
                    plot_winch_force=plot_default,
                    plot_set_values=false,
@@ -1716,26 +1711,6 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
             labels = all_labels,
             times = all_times,
             ylabel = L"M_{a,z} \; [Nm]"
-        ))
-    end
-
-    if plot_tether_moment
-        all_data = []
-        all_labels = []
-        all_times = []
-        for (i, lg) in enumerate(logs)
-            sl = lg.syslog
-            suffix = actual_suffixes[i]
-            tether_moment_y = [sl.tether_induced_moment[i][2] for i in eachindex(sl.tether_induced_moment)]
-            push!(all_data, tether_moment_y)
-            push!(all_labels, lbl(L"M_{tether,y}", suffix))
-            push!(all_times, sl.time)
-        end
-        push!(panels, (
-            data = all_data,
-            labels = all_labels,
-            times = all_times,
-            ylabel = L"M_{t,y} \; [Nm]"
         ))
     end
 
@@ -3309,31 +3284,18 @@ end
 """
     Makie.plot!(sys::SystemStructure; vector_scale=1.0)
 
-Update the currently displayed SystemStructure plot with new data from `sys`.
-
-This function follows standard Makie conventions: `plot!` with `!` mutates the existing
-scene by updating its observables. Must be called after an initial `plot(sys)` has created
-the scene and observables.
-
-# Arguments
-- `sys::SystemStructure`: The system structure with updated state to display
+Update the displayed SystemStructure plot with new data from `sys`, by writing the
+scene's observables. Requires an earlier `plot(sys)` to have created them; returns
+`nothing`.
 
 # Keyword Arguments
 - `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
 
-# Returns
-- `nothing` (mutates existing scene via observables)
-
-# Example
 ```julia
-# Create initial plot
 scene = plot(sys_struct)
-
-# In simulation loop, update the plot
 for i in 1:100
     next_step!(sam)
-    plot!(sys_struct)  # Updates observables
-    sleep(0.01)
+    plot!(sys_struct)
 end
 ```
 
@@ -3846,6 +3808,7 @@ Replay a SysLog with interactive 3D visualization and playback controls.
 # - `loop::Bool=false`: Loop playback continuously
 # - `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
 # - `show_panes::Bool=true`: Show gray background reference panes (set `false` for white-only background)
+# - `show_aero_mapping::Bool=false`: Draw which structural point each panel's surface nodes map to; off by default, toggle it with the "Aero map" checkbox
 # - All other keyword arguments are passed through to the SystemStructure plot function
 
 # Returns
@@ -3884,6 +3847,7 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
                       show_beam=true,
                       show_panels=false,
                       show_airfoils=true,
+                      show_aero_mapping=false,
                       transparency=true,
                       kwargs...)
 
@@ -3896,9 +3860,11 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     # Create every toggleable layer up front (so the checkboxes can show any of
     # them); their initial visibility is set from the `show_*` flags below.
     passthrough = filter(pair -> !(pair.first in
-        (:plot_vsm, :plot_airfoils, :show_body_frame, :show_wing_frame)), kwargs)
+        (:plot_vsm, :plot_airfoils, :show_body_frame, :show_wing_frame,
+         :aero_mapping, :show_aero_mapping)), kwargs)
     scene = plot(sys; vector_scale, plot_vsm=true, plot_airfoils=true,
-                 show_body_frame=true, show_wing_frame=true, transparency,
+                 show_body_frame=true, show_wing_frame=true,
+                 aero_mapping=true, show_aero_mapping, transparency,
                  passthrough...)
 
     # Define callbacks for UI controls
@@ -3915,7 +3881,8 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
                            ("Body frame", :bodies, show_body_frame),
                            ("Beam", :beam_tubes, show_beam),
                            ("Panels", :vsm, show_panels),
-                           ("Airfoil", :airfoils, show_airfoils))
+                           ("Airfoil", :airfoils, show_airfoils),
+                           ("Aero map", :aero_mapping, show_aero_mapping))
                if haskey(layers, t[2])]
 
     # Setup replay controls using shared function
@@ -3975,6 +3942,7 @@ function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemS
                       show_beam=true,
                       show_panels=false,
                       show_airfoils=true,
+                      show_aero_mapping=false,
                       kwargs...)
 
     length(logs) == length(syss) || error("logs and systems must have same length")
@@ -3987,10 +3955,12 @@ function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemS
 
     # Build the primary with every toggleable layer so the checkboxes can show any.
     passthrough = filter(pair -> !(pair.first in
-        (:plot_vsm, :plot_airfoils, :show_body_frame, :show_wing_frame)), kwargs)
+        (:plot_vsm, :plot_airfoils, :show_body_frame, :show_wing_frame,
+         :aero_mapping, :show_aero_mapping)), kwargs)
     scene = plot(syss; ghost_color, ghost_alpha, vector_scale, transparency,
                  plot_vsm=true, plot_airfoils=true,
-                 show_body_frame=true, show_wing_frame=true, passthrough...)
+                 show_body_frame=true, show_wing_frame=true,
+                 aero_mapping=true, show_aero_mapping, passthrough...)
 
     update_frame!(idx) = (update_multi_states!(syss, logs, idx);
                           refresh_multi_frame!(primary_sys; vector_scale))
@@ -4005,7 +3975,8 @@ function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemS
                            ("Body frame", :bodies, show_body_frame),
                            ("Beam", :beam_tubes, show_beam),
                            ("Panels", :vsm, show_panels),
-                           ("Airfoil", :airfoils, show_airfoils))
+                           ("Airfoil", :airfoils, show_airfoils),
+                           ("Aero map", :aero_mapping, show_aero_mapping))
                if haskey(layers, t[2])]
 
     setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
@@ -4364,12 +4335,15 @@ function SymbolicAWEModels.plot_aoa(sys_struct::SystemStructure;
     return fig
 end
 
-using PrecompileTools: @setup_workload, @compile_workload
+using PrecompileTools: @setup_workload, @compile_workload, workload_enabled
 
-@setup_workload begin
-    fixture = SymbolicAWEModels.workload_fixture()
-    @compile_workload begin
-        SymbolicAWEModels.run_workload(fixture)
+# @setup_workload would read this extension module's preference, not the package's.
+if workload_enabled(SymbolicAWEModels)
+    @setup_workload begin
+        fixture = SymbolicAWEModels.workload_fixture()
+        @compile_workload begin
+            SymbolicAWEModels.run_workload(fixture)
+        end
     end
 end
 

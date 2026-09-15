@@ -77,7 +77,8 @@ function sim!(
                 step_time, integ_time, vsm_time = 0.0, 0.0, 0.0
             end
         catch exception
-            if exception isa AssertionError
+            if exception isa
+                    Union{AssertionError, VortexStepMethod.SolveFailure}
                 if prn
                     @warn "Crashed at t=$t"
                 end
@@ -215,10 +216,8 @@ function sim_reposition!(
             SymbolicAWEModels.reposition!(sys_struct.transforms, sys_struct)
             
             # Reinitialize the solver to handle the state discontinuity
-            local_prob = sam.prob
-            if local_prob isa ProbWithAttributes
-                SymbolicAWEModels.reinit!(sam, local_prob,
-                    FBDF(; autodiff = default_autodiff(sam.backend)))
+            if sam.prob isa ProbWithAttributes
+                SymbolicAWEModels.reinit!(sam, sam.integrator)
             end
 
             if prn
