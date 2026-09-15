@@ -180,12 +180,12 @@ function validate_sysstate_roundtrip(sam; rtol = 1e-10)
     sys = sam.sys_struct
     expected = copy(sam.integrator.u)
     isempty(expected) && return nothing
-    # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
     path = mktempdir()
     logger = Logger(sam, 1; precision = Float64)
     log!(logger, SysState(sam; precision = Float64))
     save_log(logger, "roundtrip", false; path)
     reloaded = load_log("roundtrip"; path)
+    # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
     sys.state_vars = 1.5 .* vec(sys.state_vars) .+ 0.25
     update_from_sysstate!(sys, reloaded.syslog[1])
     init!(sam; remake = false, reinit_sys = false, prn = false)
