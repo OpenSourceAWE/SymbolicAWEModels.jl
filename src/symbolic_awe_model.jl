@@ -331,7 +331,7 @@ end
     update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
 
 Update a `SysState` from the model's integrator: converts units (e.g. radians to
-degrees) and computes derived values like AoA and roll/pitch/yaw angles.
+degrees) and computes derived values like AoA.
 
 # Arguments
 - `ss::SysState`: The state struct to be updated.
@@ -382,8 +382,8 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
             ss.AoA = NaN       # Apparent wind too small to define AoA
             ss.side_slip = NaN # Side slip not defined for zero apparent wind
         end
-        ss.aero_force_b .= wing.aero_force_b
-        ss.aero_moment_b .= wing.aero_moment_b
+        ss.aero_force_KA .= wing.aero_force_b
+        ss.aero_moment_KA .= wing.aero_moment_b
         ss.vel_kite .= wing.vel_w
     end
     for point in points

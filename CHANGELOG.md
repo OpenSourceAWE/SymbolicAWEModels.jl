@@ -38,7 +38,11 @@
   dropped the three fields in KiteUtils 0.13. They were computed here with a NED
   Euler formula applied to `Q_b_to_w`, which is ENU, so they were not the angles
   any sensor reports — yaw was out by 90 degrees at zenith.
-  `KiteUtils.euler_ks(ss.orient)` reports them correctly.
+  `KiteUtils.euler_KS(ss.orient)` reports them correctly.
+- BREAKING: the `SysState` columns `aero_force_b` and `aero_moment_b` are written as
+  `aero_force_KA` and `aero_moment_KA`, KiteUtils 0.13 having renamed them so the name
+  says which frame the components are in. `load_log` still reads the old column, so logs
+  written before this keep loading.
 - `[compat]` on KiteUtils is raised to `0.13`.
 - Julia 1.13 takes the place of 1.11 in the development setup. CI's third cell
   runs 1.13, `bin/install` and `bin/update_default_manifests` offer 1.12 and
