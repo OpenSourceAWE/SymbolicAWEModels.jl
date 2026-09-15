@@ -47,9 +47,6 @@ jobs:
         # merged into the ubuntu/1.12 combination; it becomes its own job.
         backend:
           - monolith
-        exclude:
-          - os: macOS-latest
-            arch: x64
         # `coverage` marks the one job per backend that reports to Codecov.
         # Everywhere else it stays off: instrumented code runs slower, and
         # `Pkg.test` precompiles the whole tree again under the coverage
