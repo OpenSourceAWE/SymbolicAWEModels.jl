@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+- `plot(..., plot_gk=true)` no longer throws `UndefVarError: cs_over_us_vec`. The
+  panel plotted the steering gain of the V3 four-line kite, which lives in
+  V3Kite.jl, and had been broken since the `plot_cs` panel it read was removed in
+  v0.12.0, so it is gone rather than repaired — with it the sibling `plot_us`
+  panel, the `gk_ylims` keyword, and the `SysState.depower` and
+  `SysState.steering` writes in `update_sys_state!` that were the two panels' only
+  source. `scripts/extrapolate_polars.jl`, which reads a `data/v3/` directory this
+  repo does not carry, and the never-called `parse_segment_type` parser for the
+  removed `SegmentType` YAML column go with them.
+
 ## v0.18.0 2026-09-15
 
 ### Added
