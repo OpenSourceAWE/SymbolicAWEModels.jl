@@ -27,13 +27,12 @@ STEERING_MAGNITUDE = 0.1
 pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", MODEL_NAME))
 
-struc_yaml = joinpath(get_data_path(),
-                      "particle_structural_geometry.yaml")
+struc_yaml = project_file("structural_geometry")
 
 set = Settings("system.yaml")
 set.g_earth = 0.0
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml");
+    project_file("vsm_settings");
     data_prefix=false)
 
 sys = load_sys_struct_from_yaml(struc_yaml;

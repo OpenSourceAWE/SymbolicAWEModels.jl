@@ -9,6 +9,23 @@ using VortexStepMethod, KiteUtils
 # ------------------ helpers ------------------
 
 """
+    project_file(entry, project=KiteUtils.PROJECT)
+
+Path of the file the project file names under `system.<entry>`, resolved against
+the data path. `entry` is `"sim_settings"`, `"vsm_settings"`, `"aero_geometry"`
+or `"structural_geometry"`. Returns `""` where the project file does not exist
+or names no such file.
+"""
+function project_file(entry, project=KiteUtils.PROJECT)
+    data_path = get_data_path()
+    project_path = joinpath(data_path, project)
+    isfile(project_path) || return ""
+    entries = get(YAML.load_file(project_path), "system", Dict{String,Any}())
+    haskey(entries, entry) || return ""
+    joinpath(data_path, dirname(project), entries[entry])
+end
+
+"""
     get_field_or_nothing(::Type{T}, row::NamedTuple,
                          field::Symbol) where T
 
