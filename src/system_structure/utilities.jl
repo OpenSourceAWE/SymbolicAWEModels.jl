@@ -667,16 +667,37 @@ function init_unstretched_len(tether, segments)
 end
 
 """
+    set_unstretched_length!(sys_struct::SystemStructure, tether::Tether, len)
+
+Set `tether`'s unstretched length [m] and share it equally over its segments'
+`l0`. Point positions, body poses, joint rest geometry and station flap
+references are left as they are.
+"""
+function set_unstretched_length!(sys_struct::SystemStructure, tether::Tether, len)
+    len > 0 || error("Tether $(tether.name): unstretched length $len m " *
+        "must be positive")
+    isempty(tether.segment_idxs) && error("Tether $(tether.name): " *
+        "has no segments to carry an unstretched length")
+    tether.len = len
+    l0 = len / length(tether.segment_idxs)
+    for seg_idx in tether.segment_idxs
+        sys_struct.segments[seg_idx].l0 = l0
+    end
+    return nothing
+end
+
+"""
     apply_tether_init_forces!(sys_struct::SystemStructure)
 
-Set every tether's `len` to its [`init_unstretched_len`](@ref).
-Must be called after segment world lengths are current.
+Set every tether's `len` to its [`init_unstretched_len`](@ref), and its segments'
+`l0` with it. Must be called after segment world lengths are current.
 """
 function apply_tether_init_forces!(sys_struct::SystemStructure)
     (; segments, tethers) = sys_struct
     for tether in tethers
         isempty(tether.segment_idxs) && continue
-        tether.len = init_unstretched_len(tether, segments)
+        set_unstretched_length!(sys_struct, tether,
+                                init_unstretched_len(tether, segments))
     end
 end
 
@@ -725,7 +746,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
                  ignore_l0::Bool=false, remake_vsm::Bool=false,
                  reset_vel::Bool=true, apply_transforms::Bool=true,
                  apply_tether_lengths::Bool=true, prn::Bool=true)
-    (; points, stations, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
+    (; points, stations, segments, pulleys, winches, wings, transforms) = sys_struct
 
     for winch in winches
         winch.vel = winch.init_vel
@@ -766,15 +787,6 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     end
 
     apply_tether_init_forces!(sys_struct)
-
-    for tether in tethers
-        n = length(tether.segment_idxs)
-        n == 0 && continue
-        l0 = tether.len / n
-        for seg_idx in tether.segment_idxs
-            segments[seg_idx].l0 = l0
-        end
-    end
 
     for pulley in pulleys
         segment1, segment2 = segments[pulley.segment_idxs[1]],

@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+- `set_unstretched_length!(sys_struct, tether, len)` sets a tether's unstretched
+  length [m] and shares it over its segments' `l0`, leaving point positions, body
+  poses, joint rest geometry and station flap references alone. `reinit!` still
+  derives `len` from the placed geometry, so a length set this way holds until the
+  next `reinit!`.
+
 ## v0.18.0 2026-09-15
 
 ### Added
