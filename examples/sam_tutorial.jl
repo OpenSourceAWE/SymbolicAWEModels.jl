@@ -109,21 +109,23 @@ vsm_set = VortexStepMethod.VSMSettings(
 vsm_wing = VortexStepMethod.Wing(vsm_set)
 vsm_aero = BodyAerodynamics([vsm_wing])
 vsm_solver = Solver(vsm_aero, vsm_set)
-wings = [SymbolicAWEModels.Wing(1, vsm_aero, vsm_wing,
-    vsm_solver, [], I(3), [0.5, 0, set.l_tether + 6])]
-
-# WING-type points: 3 LE/TE pairs matching the 3 aero sections
+# One station per aero section joins its LE/TE pair to the wing.
 wing_z = set.l_tether + 6
-for (_, y) in enumerate([-1.0, 0.0, 1.0])
+stations = Station[]
+for (i, y) in enumerate([-1.0, 0.0, 1.0])
     n = length(points)
     push!(points, Point(n + 1, [-0.5, y, wing_z],
-        WING; wing=1, transform=1, extra_mass=0.1))
+        BODY_STATIC; wing=1, transform=1, extra_mass=0.1))
     push!(points, Point(n + 2, [0.5, y, wing_z],
-        WING; wing=1, transform=1, extra_mass=0.1))
+        BODY_STATIC; wing=1, transform=1, extra_mass=0.1))
+    push!(stations, Station(i, [n + 1, n + 2], DYNAMIC, 0.25))
 end
 
+wings = [SymbolicAWEModels.Wing(1, vsm_aero, vsm_wing,
+    vsm_solver, eachindex(stations), I(3), [0.5, 0, wing_z])]
+
 sys = SystemStructure("wing", set;
-    points, segments, tethers, winches, pulleys,
+    points, stations, segments, tethers, winches, pulleys,
     wings, transforms)
 sam = SymbolicAWEModel(set, sys)
 @info "Wing model created successfully"

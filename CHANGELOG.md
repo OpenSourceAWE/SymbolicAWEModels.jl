@@ -1,6 +1,11 @@
 # CHANGELOG
 
-## Unreleased
+## v0.18.0 2026-09-15
+
+### Added
+- A "Spring force" checkbox in the replay viewer colours the tether and bridle
+  segments green-to-red by their spring force, and takes the colouring off again.
+  `replay(log, sys; force_color=true)` starts with it ticked.
 
 ### Fixed
 - `plot(..., plot_gk=true)` no longer throws `UndefVarError: cs_over_us_vec`. The
@@ -24,10 +29,20 @@
   no wing is rejected at load since a wing's structural node must belong to a
   wing, and a `wing_idx` naming a wing that does not exist errors at load
   instead of failing later.
+- `update_from_sysstate!` restores each segment's spring force from the log
+  instead of leaving whatever the last live simulation step wrote, so a replayed
+  frame shows the forces of that frame. A log written before the `spring_force`
+  column existed leaves the force `NaN`.
 - `precompile_workload = false` now switches off the Makie extension's workload as
   well as the package's, so precompiling `SymbolicAWEModelsMakieExt` no longer
   builds four models and loading it no longer replaces the package's own
   precompiled copies of the model pipeline.
+- `sam_tutorial.jl` and `kps4_comparison.jl` build their wing points again. Both
+  still passed the `WING` `DynamicsType` that v0.13.0 removed, so the tutorial
+  died with `UndefVarError: WING` on the step that adds the kite. A rigid wing's
+  structural nodes are now `BODY_STATIC` riding its body and a particle wing's
+  are `DYNAMIC`; the tutorial's wing is rigid, so it also declares the three
+  stations that the removal of `auto_create_twist_surfaces!` requires.
 
 ### Changed
 - BREAKING: `Body.tether_force`, `Body.tether_moment` and the Makie extension's
