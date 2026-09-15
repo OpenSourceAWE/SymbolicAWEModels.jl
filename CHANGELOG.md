@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## SymbolicAWEModels v0.18.0 2026-09-15
+## v0.18.0 2026-09-15
 
 ### Added
 - A "Spring force" checkbox in the replay viewer colours the tether and bridle
