@@ -35,7 +35,6 @@ jobs:
     # The kernel backend needs ~100 min of the budget and grows with the suite.
     timeout-minutes: 180
     strategy:
-      fail-fast: false
       matrix:
         version:
           - '1.12'
