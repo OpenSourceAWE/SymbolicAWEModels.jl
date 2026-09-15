@@ -1,11 +1,6 @@
 # CHANGELOG
 
-## v0.18.0 2026-09-15
-
-### Added
-- A "Spring force" checkbox in the replay viewer colours the tether and bridle
-  segments green-to-red by their spring force, and takes the colouring off again.
-  `replay(log, sys; force_color=true)` starts with it ticked.
+## Unreleased
 
 ### Fixed
 - `plot(..., plot_gk=true)` no longer throws `UndefVarError: cs_over_us_vec`. The
@@ -17,6 +12,15 @@
   source. `scripts/extrapolate_polars.jl`, which reads a `data/v3/` directory this
   repo does not carry, and the never-called `parse_segment_type` parser for the
   removed `SegmentType` YAML column go with them.
+
+## v0.18.0 2026-09-15
+
+### Added
+- A "Spring force" checkbox in the replay viewer colours the tether and bridle
+  segments green-to-red by their spring force, and takes the colouring off again.
+  `replay(log, sys; force_color=true)` starts with it ticked.
+
+### Fixed
 - A point that belongs to no wing no longer crashes model generation with a
   `BoundsError` on index 0. `wing_idx` now means one thing — the wing the point
   belongs to, `0` for none — and a point that names no wing gets `0` instead of
