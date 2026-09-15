@@ -1,11 +1,6 @@
 # CHANGELOG
 
-## v0.18.0 2026-09-15
-
-### Added
-- A "Spring force" checkbox in the replay viewer colours the tether and bridle
-  segments green-to-red by their spring force, and takes the colouring off again.
-  `replay(log, sys; force_color=true)` starts with it ticked.
+## Unreleased
 
 ### Added
 - A transform's `turn_rate` places the rotation it names: a structure comes out of
@@ -13,6 +8,13 @@
   transform's base, at the rate its heading then advances at. The field has been
   read from the YAML in degrees per second since it was added, but `reinit!`
   warned that it was ignored and placed the structure at rest.
+
+## v0.18.0 2026-09-15
+
+### Added
+- A "Spring force" checkbox in the replay viewer colours the tether and bridle
+  segments green-to-red by their spring force, and takes the colouring off again.
+  `replay(log, sys; force_color=true)` starts with it ticked.
 
 ### Fixed
 - A point that belongs to no wing no longer crashes model generation with a
