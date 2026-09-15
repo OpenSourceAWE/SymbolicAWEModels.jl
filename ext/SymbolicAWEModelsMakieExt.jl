@@ -3339,7 +3339,8 @@ determined by the file extension (`.mp4`, `.gif`, `.mkv`, `.webm`).
 # Arguments
 - `lg::SysLog`: The simulation log to record
 - `sys::SystemStructure`: The system structure matching the log's topology
-- `filename::String`: Output filename (e.g., `"sim.mp4"`, `"sim.gif"`)
+- `filename::String`: Output filename (e.g., `"sim.mp4"`, `"sim.gif"`),
+  taken relative to the output folder, `get_output_path()`
 
 # Keyword Arguments
 - `framerate::Int=30`: Framerate (frames per second)
@@ -3363,6 +3364,7 @@ function SymbolicAWEModels.record(lg::SysLog, sys::SystemStructure, filename::St
     n_frames = length(lg.syslog)
     n_frames == 0 && error("Empty SysLog provided for recording")
 
+    filename = joinpath(get_output_path(), filename)
     println("Recording video to: $filename")
     println("Framerate: $framerate fps")
     println("Total frames: $n_frames")
@@ -3408,7 +3410,8 @@ The output format is determined by the file extension
 # Arguments
 - `logs::Vector{<:SysLog}`: Simulation logs; `logs[1]` is the primary.
 - `syss::Vector{<:SystemStructure}`: System structures (must match logs length).
-- `filename::String`: Output filename (e.g., `"sim.mp4"`, `"sim.gif"`).
+- `filename::String`: Output filename (e.g., `"sim.mp4"`, `"sim.gif"`),
+  taken relative to the output folder, `get_output_path()`.
 
 # Keyword Arguments
 - `framerate::Int=30`: Framerate (frames per second).
@@ -3441,6 +3444,7 @@ function SymbolicAWEModels.record(
         error("Empty SysLog provided for recording")
     primary_sys = syss[1]
 
+    filename = joinpath(get_output_path(), filename)
     println("Recording multi-system video to: $filename")
     println("Framerate: $framerate fps")
     println("Total frames: $n_frames")
@@ -3752,9 +3756,10 @@ function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt
                 if mp[1] >= save_button_rect.origin[1] && mp[1] <= save_button_rect.origin[1] + save_button_rect.widths[1] &&
                    mp[2] >= save_button_rect.origin[2] && mp[2] <= save_button_rect.origin[2] + save_button_rect.widths[2]
                     # Generate filename with timestamp and simulation time
-                    sim_time = get_time(frame_idx[])
+                    sim_time = round(get_time(frame_idx[]), digits=2)
                     timestamp = Dates.format(Dates.now(), "yyyy-mm-dd_HH-MM-SS")
-                    filename = "replay_$(timestamp)_t$(round(sim_time, digits=2))s_frame$(frame_idx[]).png"
+                    filename = joinpath(get_output_path(),
+                        "replay_$(timestamp)_t$(sim_time)s_frame$(frame_idx[]).png")
                     # Hide UI scene, save, then restore
                     ui_scene.visible[] = false
                     save(filename, scene; px_per_unit=2)
@@ -3847,6 +3852,8 @@ Replay a SysLog with interactive 3D visualization and playback controls.
 - **Play/Pause button**: Toggle playback (green when stopped, red when playing)
 - **< button**: Step backward one frame
 - **> button**: Step forward one frame
+- **Save button**: Write a high-resolution PNG of the current frame into the
+  output folder, `get_output_path()`
 - **Info display**: Shows current frame, time, and playback speed
 
 # Example

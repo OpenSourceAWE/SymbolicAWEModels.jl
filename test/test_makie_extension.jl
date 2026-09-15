@@ -230,6 +230,15 @@ end
         @test !allequal(ext.PLOT_SEGMENT_COLORS_OBS[][])
     end
 
+    # ================================================================
+    # Test 7: A bare record filename lands in the output folder
+    # ================================================================
+    @testset "Bare record filename lands in the output folder" begin
+        SymbolicAWEModels.record(lg1, sys1, "bare_name.mp4"; framerate=10)
+        @test isfile(joinpath(get_output_path(), "bare_name.mp4"))
+        @test !isfile("bare_name.mp4")
+    end
+
     rm(tmpdir; recursive=true)
 end
 

@@ -70,8 +70,8 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     tip = sam.sys_struct.bodies[:seg_6]
     @test tip.pos_w[3] < -0.01           # beam sagged under gravity
 
-    save_log(logger, "beam_replay_test")
-    lg = load_log("beam_replay_test")
+    save_log(logger, "beam_replay_test"; path=get_output_path())
+    lg = load_log("beam_replay_test"; path=get_output_path())
     @test length(lg.syslog) == nsteps + 1
     @test length(lg.syslog.Qw[1]) == n   # O frames preserved through Arrow
     @test norm(collect(lg.syslog.orient[end])) ≈ 1.0 atol=1e-3
@@ -82,6 +82,21 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     update_from_sysstate!(sys2, lg.syslog[end])
     @test sys2.bodies[:seg_6].pos_w[3] ≈ tip.pos_w[3] atol=1e-3
     @test sys2.bodies[:seg_1].pos_w[1] ≈ 0.25 atol=1e-4  # fixed root
+
+    @testset "sim! logs to the output folder, not the data folder" begin
+        previous_output_path = SymbolicAWEModels.OUTPUT_PATH[1]
+        set_output_path(joinpath(mktempdir(), "output"))
+        try
+            steps = 3
+            sim_log, _ = sim!(sam, zeros(steps, 0);
+                              dt, total_time=steps*dt, prn=false)
+            @test length(sim_log.syslog) == steps
+            @test isfile(joinpath(get_output_path(), "tmp_run.arrow"))
+            @test !isfile(joinpath(get_data_path(), "tmp_run.arrow"))
+        finally
+            set_output_path(previous_output_path)
+        end
+    end
 
     # On Windows, load_log keeps an Arrow mmap handle open, so the temp dir
     # may still be locked here; eager cleanup is best-effort.

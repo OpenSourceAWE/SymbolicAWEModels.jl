@@ -78,8 +78,8 @@ lift, drag = KiteModels.lift_drag(kps4)
 println("KiteModels final lift, drag [N]: " *
     "$(round(lift, digits=2)), $(round(drag, digits=2))")
 
-save_log(km_logger, "kps4_km")
-km_syslog = load_log("kps4_km")
+save_log(km_logger, "kps4_km"; path=get_output_path())
+km_syslog = load_log("kps4_km"; path=get_output_path())
 
 # ==================== SYMBOLICAWEMODELS SIMULATION ========= #
 println()
@@ -252,8 +252,8 @@ println("SymAWE final lift, drag [N]: " *
     "$(round(lift_val, digits=2)), " *
     "$(round(drag_val, digits=2))")
 
-save_log(sam_logger, "kps4_sam")
-sam_syslog = load_log("kps4_sam")
+save_log(sam_logger, "kps4_sam"; path=get_output_path())
+sam_syslog = load_log("kps4_sam"; path=get_output_path())
 
 # ==================== COMPARISON PLOTS ==================== #
 println()

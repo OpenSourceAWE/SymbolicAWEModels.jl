@@ -64,7 +64,7 @@ for i in 1:n_steps
     log!(logger, sys_state)
 end
 
-save_log(logger, "catenary_line")
-syslog = load_log("catenary_line")
+save_log(logger, "catenary_line"; path=get_output_path())
+syslog = load_log("catenary_line"; path=get_output_path())
 scene = replay(syslog, sam.sys_struct)
 display(scene)

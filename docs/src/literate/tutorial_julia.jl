@@ -138,8 +138,8 @@ for i in 1:200
     log!(logger, sys_state)
 end
 
-save_log(logger, "tether_sim")
-lg = load_log("tether_sim")
+save_log(logger, "tether_sim"; path=get_output_path())
+lg = load_log("tether_sim"; path=get_output_path())
 SymbolicAWEModels.record(lg, sam.sys_struct, "tether_sim.gif")
 SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
     joinpath(ASSETS, "tether_sim.gif"); framerate=20)             #hide
@@ -195,8 +195,8 @@ for i in 1:200
     log!(logger, sys_state)
 end
 
-save_log(logger, "winch_sim")
-lg = load_log("winch_sim")
+save_log(logger, "winch_sim"; path=get_output_path())
+lg = load_log("winch_sim"; path=get_output_path())
 SymbolicAWEModels.record(lg, sam.sys_struct, "winch_sim.gif")
 SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
     joinpath(ASSETS, "winch_sim.gif"); framerate=20)              #hide
@@ -269,8 +269,8 @@ for i in 1:200
     log!(logger, sys_state)
 end
 
-save_log(logger, "pulley_sim")
-lg = load_log("pulley_sim")
+save_log(logger, "pulley_sim"; path=get_output_path())
+lg = load_log("pulley_sim"; path=get_output_path())
 SymbolicAWEModels.record(lg, sam.sys_struct, "pulley_sim.gif")
 SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
     joinpath(ASSETS, "pulley_sim.gif"); framerate=20)             #hide

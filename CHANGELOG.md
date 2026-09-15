@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+- `get_output_path` and `set_output_path` name the folder simulation results go
+  to, `output` in the working directory by default. `get_output_path` creates it
+  on first use, so a run that wants its results kept apart — one per long
+  simulation, say — only has to point `set_output_path` at a folder of its own.
+
+### Changed
+- Simulation results are written to the output folder instead of the working
+  directory or the data folder. `sim!` and `sim_reposition!` save their `SysLog`
+  under `get_output_path()`, `record` resolves a relative filename there, and the
+  replay viewer's Save button puts its screenshot there rather than wherever
+  Julia was started. The data folder now holds only what a run reads.
+
 ## v0.18.0 2026-09-15
 
 ### Added

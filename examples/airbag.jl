@@ -176,7 +176,7 @@ for i in 1:n_steps
     log!(logger, sys_state)
 end
 
-save_log(logger, "airbag")
-syslog = load_log("airbag")
+save_log(logger, "airbag"; path=get_output_path())
+syslog = load_log("airbag"; path=get_output_path())
 scene  = replay(syslog, sam.sys_struct)
 display(scene)

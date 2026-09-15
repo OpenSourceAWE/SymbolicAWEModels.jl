@@ -85,8 +85,8 @@ function run_saddle(; yaml_file)
         log!(logger, sys_state)
     end
 
-    save_log(logger, "saddle_form")
-    syslog = load_log("saddle_form")
+    save_log(logger, "saddle_form"; path=get_output_path())
+    syslog = load_log("saddle_form"; path=get_output_path())
     scene = replay(syslog, sam.sys_struct)
     display(scene)
 
