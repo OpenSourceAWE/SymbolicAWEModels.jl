@@ -94,33 +94,39 @@ function finite_force_arrows(origins, forces, scale)
 end
 
 """
-    calculate_segment_force_colors(segments, segment_color)
+    segment_display_colors(segments, segment_color, force_color)
 
-Calculate segment colors based on their force values.
-Maps forces from green (low) to red (high) using linear interpolation.
-
-# Arguments
-- `segments`: Collection of segments with force field
-- `segment_color`: Default color to use when all forces are equal
-
-# Returns
-- Vector of RGBAf colors, one per segment
+One colour per segment: `segment_color` throughout, or, when `force_color` is set, a
+green-to-red ramp over the segments whose spring force is known. A segment with no
+force, and every segment when the known forces are all equal, keeps `segment_color`.
 """
-function calculate_segment_force_colors(segments, segment_color)
-    forces = [seg.force for seg in segments]
-    max_force = maximum(forces)
-    min_force = minimum(forces)
-    force_range = max_force - min_force
+function segment_display_colors(segments, segment_color, force_color)
+    base = to_color(segment_color)
+    colors = fill(base, length(segments))
+    force_color || return colors
+    # One unknown force must not blank the layer through the shared scale.
+    known = [segment.force for segment in segments if isfinite(segment.force)]
+    isempty(known) && return colors
+    min_force, force_range = minimum(known), maximum(known) - minimum(known)
+    force_range > 0 || return colors
+    for (i, segment) in enumerate(segments)
+        isfinite(segment.force) || continue
+        fraction = (segment.force - min_force) / force_range
+        colors[i] = RGBAf(fraction, 1.0 - fraction, 0.0, 1.0)
+    end
+    return colors
+end
 
-    return [begin
-        if force_range > 0
-            normalized_force = (seg.force - min_force) / force_range
-            # Interpolate from green (0,1,0) to red (1,0,0)
-            RGBAf(normalized_force, 1.0 - normalized_force, 0.0, 1.0)
-        else
-            to_color(segment_color)
-        end
-    end for seg in segments]
+"""
+    refresh_segment_colors!(sys)
+
+Write `sys`'s current segment colours into the observable the drawn segments read.
+"""
+function refresh_segment_colors!(sys)
+    isnothing(PLOT_SEGMENT_COLORS_OBS[]) && return nothing
+    PLOT_SEGMENT_COLORS_OBS[][] = segment_display_colors(sys.segments,
+        PLOT_SEGMENT_COLOR[], PLOT_FORCE_COLOR[])
+    return nothing
 end
 
 function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing,
@@ -691,14 +697,8 @@ function Makie.plot!(ax, sys::SystemStructure;
             end
         end
 
-        num_segments = length(sys.segments)
-
-        # Calculate segment colors based on force if requested
-        if force_color
-            seg_colors = Observable(calculate_segment_force_colors(sys.segments, segment_color))
-        else
-            seg_colors = Observable(fill(to_color(segment_color), num_segments))
-        end
+        seg_colors = Observable(
+            segment_display_colors(sys.segments, segment_color, force_color))
 
         if iszero(taper)
             seg_linewidth = segment_linewidth
@@ -1056,10 +1056,7 @@ function SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
         PLOT_GEOMETRY_OBS[][] = time()  # Use timestamp as trigger value
     end
 
-    # Update segment colors if force coloring is enabled
-    if !isnothing(PLOT_SEGMENT_COLORS_OBS[]) && PLOT_FORCE_COLOR[]
-        PLOT_SEGMENT_COLORS_OBS[][] = calculate_segment_force_colors(sys.segments, PLOT_SEGMENT_COLOR[])
-    end
+    PLOT_FORCE_COLOR[] && refresh_segment_colors!(sys)
 
     # Update per-mode aero plots (VSM panel meshes; quad plots update
     # through the geometry observable on their own)
@@ -2676,7 +2673,7 @@ hover_ref_label(name, idx) = isnothing(name) ? string(idx) : string(name)
     setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                                  segment_color_obs::Vector, all_plots;
                                  segment_colors, highlight_color=:yellow,
-                                 force_color=false, relmargin=0.2)
+                                 relmargin=0.2)
 
 Add hover labels and click-to-zoom for segments across multiple systems.
 
@@ -2691,7 +2688,6 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
                                       segment_color_obs::Vector, all_plots;
                                       segment_colors::Vector,
                                       highlight_color=:yellow,
-                                      force_color=false,
                                       relmargin=0.2)
     # Track hover state per system
     last_hovered = Ref((-1, -1))  # (sys_idx, seg_idx)
@@ -2743,12 +2739,8 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
         if hover != last_hovered[]
             # Reset all segment colors (per-segment obs drives the mesh vertices)
             for (sys_i, sys) in enumerate(systems)
-                base_color = segment_colors[sys_i]
-                if force_color
-                    new_colors = calculate_segment_force_colors(sys.segments, base_color)
-                else
-                    new_colors = fill(to_color(base_color), length(sys.segments))
-                end
+                new_colors = segment_display_colors(sys.segments,
+                    segment_colors[sys_i], PLOT_FORCE_COLOR[])
                 if hover[1] == sys_i && hover[2] != -1
                     new_colors[hover[2]] = to_color(highlight_color)
                 end
@@ -3038,7 +3030,7 @@ function plot_with_panes(sys::SystemStructure;
     if haskey(plots, :segments)
         setup_segment_hover_events!(scene, [sys], [plots[:segment_colors_obs]], relevant_plots;
                                     segment_colors=[segment_color],
-                                    highlight_color, force_color, relmargin)
+                                    highlight_color, relmargin)
     end
     # Hover labels + highlight + click-to-zoom for standalone rigid bodies.
     setup_body_zoom_events!(scene, sys; relmargin, highlight_color,
@@ -3479,8 +3471,7 @@ end
     set_layer_visible!(layer, visible::Bool)
 
 Set the visibility of a stored plot layer — a single Makie plot or a (possibly
-nested) vector of them. Non-plot entries (colour observables, `nothing`) are
-skipped. Used by the replay show/hide checkboxes.
+nested) vector of them. `nothing` and non-plot entries are skipped.
 """
 function set_layer_visible!(layer, visible::Bool)
     if layer isa AbstractVector
@@ -3489,6 +3480,24 @@ function set_layer_visible!(layer, visible::Bool)
         end
     elseif layer isa Makie.AbstractPlot
         layer.visible[] = visible
+    end
+    return nothing
+end
+
+"""
+    apply_view_toggle!(key::Symbol, enabled::Bool)
+
+Switch the replay checkbox for `PLOT_LAYERS` entry `key` on or off:
+`:segment_colors_obs` colours the segments by spring force, every other key shows or
+hides the layer of that name.
+"""
+function apply_view_toggle!(key::Symbol, enabled::Bool)
+    if key === :segment_colors_obs
+        PLOT_FORCE_COLOR[] = enabled
+        sys = PLOT_SYSTEM_STRUCTURE[]
+        isnothing(sys) || refresh_segment_colors!(sys)
+    elseif !isnothing(PLOT_LAYERS[])
+        set_layer_visible!(get(PLOT_LAYERS[], key, nothing), enabled)
     end
     return nothing
 end
@@ -3504,6 +3513,27 @@ function wait_until(target_ns)
     while Float64(time_ns()) < target_ns
         yield()
     end
+end
+
+"""
+    replay_toggles(; show_wing_frame, show_body_frame, show_beam, show_panels,
+                   show_airfoils, show_aero_mapping, force_color)
+
+The replay checkboxes, each a `(label, key, enabled)` naming the `PLOT_LAYERS` entry
+it switches, dropping the ones the current plot did not build.
+"""
+function replay_toggles(; show_wing_frame, show_body_frame, show_beam, show_panels,
+                        show_airfoils, show_aero_mapping, force_color)
+    layers = something(PLOT_LAYERS[], Dict{Symbol, Any}())
+    return [toggle for toggle in
+                ((label="Wing frame",   key=:wings,       enabled=show_wing_frame),
+                 (label="Body frame",   key=:bodies,      enabled=show_body_frame),
+                 (label="Beam",         key=:beam_tubes,  enabled=show_beam),
+                 (label="Panels",       key=:vsm,         enabled=show_panels),
+                 (label="Airfoil",      key=:airfoils,    enabled=show_airfoils),
+                 (label="Aero map",     key=:aero_mapping, enabled=show_aero_mapping),
+                 (label="Spring force", key=:segment_colors_obs, enabled=force_color))
+            if haskey(layers, toggle.key)]
 end
 
 """
@@ -3530,7 +3560,7 @@ This is a reusable function that can be used by both single and multi-system rep
 """
 function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
                                  replay_speed=1.0, autoplay=false, loop=false,
-                                 toggles=Tuple{String, Symbol, Bool}[])
+                                 toggles=[])
     # Create pixel-space subscene for UI controls overlay
     ui_scene = Scene(scene, viewport=scene.viewport, clear=false, camera=campixel!)
 
@@ -3573,8 +3603,8 @@ function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt
     checkbox_row = 24
     checkbox_states = Observable{Bool}[]
     checkbox_rects = Observable{Rect2f}[]
-    for (row, (label, key, init_visible)) in enumerate(toggles)
-        state = Observable(init_visible)
+    for (row, toggle) in enumerate(toggles)
+        state = Observable(toggle.enabled)
         push!(checkbox_states, state)
         box_x = @lift($(scene_width) - ui_margin - checkbox_size)
         box_y = @lift($(scene_height) - ui_margin - row * checkbox_row)
@@ -3582,13 +3612,11 @@ function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt
         push!(checkbox_rects, box_rect)
         box_color = @lift($(state) ? RGBAf(0.3, 0.6, 0.8, 0.95) : RGBAf(0.5, 0.5, 0.5, 0.6))
         poly!(ui_scene, box_rect; color=box_color, strokecolor=:black, strokewidth=1)
-        text!(ui_scene, label;
+        text!(ui_scene, toggle.label;
               position=@lift(Point2f($box_x - 6, $box_y + checkbox_size / 2)),
               align=(:right, :center), fontsize=14, color=:white,
               strokecolor=:black, strokewidth=1.5)
-        if !isnothing(PLOT_LAYERS[])
-            set_layer_visible!(get(PLOT_LAYERS[], key, nothing), init_visible)
-        end
+        apply_view_toggle!(toggle.key, toggle.enabled)
     end
 
     on(events(ui_scene).mousebutton, priority=3) do event
@@ -3600,9 +3628,7 @@ function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt
                mp[2] >= rect.origin[2] && mp[2] <= rect.origin[2] + rect.widths[2]
                 new_visible = !checkbox_states[i][]
                 checkbox_states[i][] = new_visible
-                if !isnothing(PLOT_LAYERS[])
-                    set_layer_visible!(get(PLOT_LAYERS[], toggles[i][2], nothing), new_visible)
-                end
+                apply_view_toggle!(toggles[i].key, new_visible)
                 return Consume(true)
             end
         end
@@ -3814,6 +3840,8 @@ Replay a SysLog with interactive 3D visualization and playback controls.
 # - `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
 # - `show_panes::Bool=true`: Show gray background reference panes (set `false` for white-only background)
 # - `show_aero_mapping::Bool=false`: Draw which structural point each panel's surface nodes map to; off by default, toggle it with the "Aero map" checkbox
+# - `force_color::Bool=false`: Colour the segments green-to-red by spring force;
+#   off by default, toggle it with the "Spring force" checkbox
 # - All other keyword arguments are passed through to the SystemStructure plot function
 
 # Returns
@@ -3855,6 +3883,7 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
                       show_panels=false,
                       show_airfoils=true,
                       show_aero_mapping=false,
+                      force_color=false,
                       transparency=true,
                       kwargs...)
 
@@ -3871,7 +3900,7 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
          :aero_mapping, :show_aero_mapping)), kwargs)
     scene = plot(sys; vector_scale, plot_vsm=true, plot_airfoils=true,
                  show_body_frame=true, show_wing_frame=true,
-                 aero_mapping=true, show_aero_mapping, transparency,
+                 aero_mapping=true, show_aero_mapping, force_color, transparency,
                  passthrough...)
 
     # Define callbacks for UI controls
@@ -3883,14 +3912,9 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
     get_time(idx) = lg.syslog[idx].time
     get_dt(idx) = idx > 1 ? lg.syslog[idx].time - lg.syslog[idx - 1].time : 0.05
 
-    layers = something(PLOT_LAYERS[], Dict{Symbol, Any}())
-    toggles = [t for t in (("Wing frame", :wings, show_wing_frame),
-                           ("Body frame", :bodies, show_body_frame),
-                           ("Beam", :beam_tubes, show_beam),
-                           ("Panels", :vsm, show_panels),
-                           ("Airfoil", :airfoils, show_airfoils),
-                           ("Aero map", :aero_mapping, show_aero_mapping))
-               if haskey(layers, t[2])]
+    toggles = replay_toggles(; show_wing_frame, show_body_frame, show_beam,
+                             show_panels, show_airfoils, show_aero_mapping,
+                             force_color)
 
     # Setup replay controls using shared function
     setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
@@ -3950,6 +3974,7 @@ function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemS
                       show_panels=false,
                       show_airfoils=true,
                       show_aero_mapping=false,
+                      force_color=false,
                       kwargs...)
 
     length(logs) == length(syss) || error("logs and systems must have same length")
@@ -3967,7 +3992,8 @@ function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemS
     scene = plot(syss; ghost_color, ghost_alpha, vector_scale, transparency,
                  plot_vsm=true, plot_airfoils=true,
                  show_body_frame=true, show_wing_frame=true,
-                 aero_mapping=true, show_aero_mapping, passthrough...)
+                 aero_mapping=true, show_aero_mapping, force_color,
+                 passthrough...)
 
     update_frame!(idx) = (update_multi_states!(syss, logs, idx);
                           refresh_multi_frame!(primary_sys; vector_scale))
@@ -3977,14 +4003,9 @@ function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemS
         get_time(idx) - primary_log.syslog[min(idx - 1, length(primary_log.syslog))].time :
         0.05
 
-    layers = something(PLOT_LAYERS[], Dict{Symbol, Any}())
-    toggles = [t for t in (("Wing frame", :wings, show_wing_frame),
-                           ("Body frame", :bodies, show_body_frame),
-                           ("Beam", :beam_tubes, show_beam),
-                           ("Panels", :vsm, show_panels),
-                           ("Airfoil", :airfoils, show_airfoils),
-                           ("Aero map", :aero_mapping, show_aero_mapping))
-               if haskey(layers, t[2])]
+    toggles = replay_toggles(; show_wing_frame, show_body_frame, show_beam,
+                             show_panels, show_airfoils, show_aero_mapping,
+                             force_color)
 
     setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt;
                            replay_speed, autoplay, loop, toggles)

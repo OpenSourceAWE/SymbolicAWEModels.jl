@@ -9,6 +9,7 @@
 # 3. Multi-system record produces output file
 # 4. Replay single system
 # 5. Replay multiple systems
+# 6. The replay spring-force checkbox recolours the segments
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -41,7 +42,9 @@ using SymbolicAWEModels: KVec3
 using KiteUtils
 
 # ============================================================================
-# Minimal 2-point, 1-segment YAML (same pattern as test_segment.jl)
+# Minimal 3-point, 2-segment YAML (same pattern as test_segment.jl). Two
+# segments, because one carries the lower mass and the other carries both, so
+# the spring-force colour ramp has a range to span.
 # ============================================================================
 MAKIE_TEST_YAML = """
 points:
@@ -51,6 +54,8 @@ points:
   data:
     - [anchor, [0.0, 0.0, 0.0], STATIC, nothing, nothing,
        0.0, 0.0, 0.0, 0.0, 0.0]
+    - [mid_point, [0.0, 0.0, -5.0], DYNAMIC, nothing,
+       nothing, 1.0, 0.0, 0.0, 0.0, 0.0]
     - [mass_point, [0.0, 0.0, -10.0], DYNAMIC, nothing,
        nothing, 1.0, 0.0, 0.0, 0.0, 0.0]
 
@@ -58,7 +63,9 @@ segments:
   headers: [name, point_i, point_j, l0, diameter_mm,
             unit_stiffness, unit_damping, compression_frac]
   data:
-    - [seg1, anchor, mass_point, 10.0, 5.0,
+    - [seg1, anchor, mid_point, 5.0, 5.0,
+       1000.0, 10.0, 0.1]
+    - [seg2, mid_point, mass_point, 5.0, 5.0,
        1000.0, 10.0, 0.1]
 """
 
@@ -200,7 +207,31 @@ end
     end
 
     # ================================================================
-    # Test 6: A bare record filename lands in the output folder
+    # Test 6: The replay checkbox colours the segments by spring force
+    # ================================================================
+    # `sys2` never ran the simulation, so the only forces it can colour by are
+    # the ones the replayed log put there.
+    @testset "Spring force checkbox recolours the replayed segments" begin
+        ext = Base.get_extension(SymbolicAWEModels, :SymbolicAWEModelsMakieExt)
+        replay(lg2, sys2)
+        colors = ext.PLOT_SEGMENT_COLORS_OBS[]
+        @test allequal(colors[])            # plain segment colour by default
+
+        ext.apply_view_toggle!(:segment_colors_obs, true)
+        @test ext.PLOT_FORCE_COLOR[]
+        @test !allequal(colors[])           # the two segments differ in tension
+
+        ext.apply_view_toggle!(:segment_colors_obs, false)
+        @test !ext.PLOT_FORCE_COLOR[]
+        @test allequal(colors[])
+
+        # Starting the replay with the box ticked needs no click.
+        replay(lg2, sys2; force_color=true)
+        @test !allequal(ext.PLOT_SEGMENT_COLORS_OBS[][])
+    end
+
+    # ================================================================
+    # Test 7: A bare record filename lands in the output folder
     # ================================================================
     @testset "Bare record filename lands in the output folder" begin
         SymbolicAWEModels.record(lg1, sys1, "bare_name.mp4"; framerate=10)
