@@ -1038,8 +1038,8 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         # Set angular velocity to NaN (turn_rates in SysState, but need conversion)
         wing.ω_b .= sys_state.turn_rates
 
-        wing.aero_force_b .= sys_state.aero_force_b
-        wing.aero_moment_b .= sys_state.aero_moment_b
+        wing.aero_force_b .= sys_state.aero_force_KA
+        wing.aero_moment_b .= sys_state.aero_moment_KA
         wing.va_b .= NaN
         restore_point_aero_forces!(sys, wing, sys_state)
         wing.wind_vec .= sys_state.v_wind_kite
