@@ -1247,7 +1247,6 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 - `plot_reelout::Bool=plot_default`: Show the panel with the reel-out velocities of the steering winches.
 - `plot_aero_force::Bool=plot_default`: Show the panel with the z-component of aerodynamic force.
 - `plot_aero_moment::Bool=false`: Show the panel with the y-component of aerodynamic moment.
-- `plot_tether_moment::Bool=false`: Show the panel with the y-component of tether-induced moment.
 - `plot_tether::Bool=false`: Show the panel with winched tether length.
 - `plot_tether_actual::Bool=false`: Show the panel with actual tether length from nodal positions.
 - `plot_twist::Bool=false`: Show the panel with the twist angles for each wing group.
@@ -1346,7 +1345,6 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
                    plot_elevation=false,
                    plot_azimuth=false,
                    plot_wind=false,
-                   plot_tether_moment=false,
                    plot_tether_actual=false,
                    plot_winch_force=plot_default,
                    plot_set_values=false,
@@ -1713,26 +1711,6 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
             labels = all_labels,
             times = all_times,
             ylabel = L"M_{a,z} \; [Nm]"
-        ))
-    end
-
-    if plot_tether_moment
-        all_data = []
-        all_labels = []
-        all_times = []
-        for (i, lg) in enumerate(logs)
-            sl = lg.syslog
-            suffix = actual_suffixes[i]
-            tether_moment_y = [sl.tether_induced_moment[i][2] for i in eachindex(sl.tether_induced_moment)]
-            push!(all_data, tether_moment_y)
-            push!(all_labels, lbl(L"M_{tether,y}", suffix))
-            push!(all_times, sl.time)
-        end
-        push!(panels, (
-            data = all_data,
-            labels = all_labels,
-            times = all_times,
-            ylabel = L"M_{t,y} \; [Nm]"
         ))
     end
 
