@@ -266,7 +266,7 @@ function Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
     if sym === :set
         error("Cannot replace `set`: it is owned by `sys_struct` " *
               "(const field). Mutate fields directly, " *
-              "e.g. `sam.set.wind_vec = ...`.")
+              "e.g. `sam.set.abs_tol = ...`.")
     elseif sym in SAM_FIELDS
         setfield!(sam, sym, val)
     else
