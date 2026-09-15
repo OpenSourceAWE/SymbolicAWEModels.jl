@@ -2,18 +2,16 @@
 
 ## Unreleased
 
-### Removed
-- BREAKING: the `plot_gk` and `plot_us` panels of the multi-panel log plot and
-  the `gk_ylims` keyword that went with them. `g_k` and `u_s` are the steering
-  gain and steering input of the V3 four-line kite, which lives in V3Kite.jl;
-  `plot_gk` had thrown `UndefVarError: cs_over_us_vec` since the `plot_cs` panel
-  was removed in v0.12.0. `update_sys_state!` no longer writes `SysState.depower`
-  and `SysState.steering`, the station-twist statistics those panels read.
-- `docs/logo.jl` and `scripts/extrapolate_polars.jl`, which have both read the
-  deleted `data/v3/` directory since it was removed, and the unused
-  `parse_segment_type` YAML parser for the removed `SegmentType` column.
-
 ### Fixed
+- `plot(..., plot_gk=true)` no longer throws `UndefVarError: cs_over_us_vec`. The
+  panel plotted the steering gain of the V3 four-line kite, which lives in
+  V3Kite.jl, and had been broken since the `plot_cs` panel it read was removed in
+  v0.12.0, so it is gone rather than repaired — with it the sibling `plot_us`
+  panel, the `gk_ylims` keyword, and the `SysState.depower` and
+  `SysState.steering` writes in `update_sys_state!` that were the two panels' only
+  source. `scripts/extrapolate_polars.jl`, which reads a `data/v3/` directory this
+  repo does not carry, and the never-called `parse_segment_type` parser for the
+  removed `SegmentType` YAML column go with them.
 - A point that belongs to no wing no longer crashes model generation with a
   `BoundsError` on index 0. `wing_idx` now means one thing — the wing the point
   belongs to, `0` for none — and a point that names no wing gets `0` instead of
