@@ -29,7 +29,7 @@ Load the 2-plate structure from `geometry` and build it on `backend`, ready for
 function workload_model(fixture, geometry, system_name, backend)
     set = Settings("system.yaml")
     set.g_earth = 0.0
-    vsm_set = VortexStepMethod.VSMSettings(joinpath(fixture, "vsm_settings.yaml");
+    vsm_set = VortexStepMethod.VSMSettings(project_file("vsm_settings");
                                            data_prefix=false)
     sys = load_sys_struct_from_yaml(joinpath(fixture, geometry);
                                     system_name, set, vsm_set, prn=false)

@@ -252,8 +252,9 @@ resolution — `ObjWing` defaults to one unrefined section per panel boundary
 (`n_panels + 1`) — independent of the wing's station count; the twist
 surfaces map onto the refined panels by distance later. The generated
 `geometry.yaml` is cached under `<model_dir>/obj_geometry` and reused on later
-runs. When no `.obj` is present it falls back to `vsm_set`'s `geometry_file`. Aero
-only — mass properties are handled separately (see [`VSMWing`](@ref) and
+runs. When no `.obj` is present each wing is built from its own `geometry_file`,
+or from the project file's `aero_geometry:` where it names none. Aero only —
+mass properties are handled separately (see [`VSMWing`](@ref) and
 [`ObjAdapter`](@ref)).
 """
 function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
@@ -269,14 +270,16 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
             output_dir=joinpath(model_dir, "obj_geometry"), verbose=prn)
     end
 
-    # Fallback: load from aero_geometry.yaml using provided vsm_set
     prn && @info "Using provided VSMSettings for wing creation"
-    # Resolve relative geometry_file paths against data dir
+    aero_geometry = project_file("aero_geometry")
     for wing_settings in vsm_set.wings
         geometry_file = wing_settings.geometry_file
-        if !isempty(geometry_file) && !isabspath(geometry_file)
-            wing_settings.geometry_file = joinpath(model_dir, basename(geometry_file))
+        if isempty(geometry_file)
+            geometry_file = aero_geometry
+        elseif !isabspath(geometry_file)
+            geometry_file = joinpath(model_dir, basename(geometry_file))
         end
+        wing_settings.geometry_file = geometry_file
     end
     return VortexStepMethod.Wing(vsm_set; sort_sections)
 end

@@ -104,8 +104,9 @@ end
 # --- STEP 4: Add a kite ---
 
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml");
+    project_file("vsm_settings");
     data_prefix=false)
+vsm_set.wings[1].geometry_file = project_file("aero_geometry")
 vsm_wing = VortexStepMethod.Wing(vsm_set)
 vsm_aero = BodyAerodynamics([vsm_wing])
 vsm_solver = Solver(vsm_aero, vsm_set)
