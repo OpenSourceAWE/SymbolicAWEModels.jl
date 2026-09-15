@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+- A "Spring force" checkbox in the replay viewer colours the tether and bridle
+  segments green-to-red by their spring force, and takes the colouring off again.
+  `replay(log, sys; force_color=true)` starts with it ticked.
+
 ### Fixed
 - A point that belongs to no wing no longer crashes model generation with a
   `BoundsError` on index 0. `wing_idx` now means one thing — the wing the point
@@ -15,6 +20,10 @@
   no wing is rejected at load since a wing's structural node must belong to a
   wing, and a `wing_idx` naming a wing that does not exist errors at load
   instead of failing later.
+- `update_from_sysstate!` restores each segment's spring force from the log
+  instead of leaving whatever the last live simulation step wrote, so a replayed
+  frame shows the forces of that frame. A log written before the `spring_force`
+  column existed leaves the force `NaN`.
 - A live polar's control points are measured in the panel's own `panel_axes`
   frame over its corners, which is the frame its contour nodes are lofted along.
   The hand-built frame they used before measured along the unleaned mid-chord
