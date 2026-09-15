@@ -20,7 +20,7 @@
   schema. Nothing ever read them; `structural_geometry:` and `aero_geometry:` in
   the project file take their place.
 
-## SymbolicAWEModels v0.18.0 2026-09-15
+## v0.18.0 2026-09-15
 
 ### Added
 - A "Spring force" checkbox in the replay viewer colours the tether and bridle
