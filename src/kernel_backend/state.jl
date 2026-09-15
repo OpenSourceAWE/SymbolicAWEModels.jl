@@ -319,15 +319,9 @@ function observed_slots(system, instance::Int, name::Symbol)
 end
 
 """The body whose frame point `idx`'s `va_b` is expressed in when the point has no
-[`AeroInflowPoint`](@ref) to read it from: its own wing, or the first body if it is
-not a wing node, which is the fallback `point_eqs!` uses. 0 for a model with no wing,
-where the monolith leaves `va_b` at zero. Resolved once here because the choice is
-fixed for the life of the model."""
-function va_frame_body(sys_struct, idx)
-    isempty(sys_struct.wings) && return 0
-    point = sys_struct.points[idx]
-    return point.is_wing_node ? point.wing_idx : 1
-end
+[`AeroInflowPoint`](@ref) to read it from: the wing it belongs to, or 0 for a point
+belonging to none, where `va_b` stays zero as it does in the monolith."""
+va_frame_body(sys_struct, idx) = sys_struct.points[idx].wing_idx
 
 """The slot `instance` gathers its incident segments' half-masses into, or 0 if it
 has no `mass_in` input. With `extra_mass` this is the monolith's `point_mass`, which

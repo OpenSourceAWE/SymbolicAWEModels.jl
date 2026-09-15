@@ -292,7 +292,7 @@ mutable struct Point
     const name::Union{Int, Symbol, Nothing}
     "Resolved transform index (filled by SystemStructure)."
     transform_idx::Int64
-    "Resolved wing index (filled by SystemStructure)."
+    "Resolved wing index (filled by SystemStructure). 0 = no wing."
     wing_idx::Int64
     "Resolved rigid-body index for a body-anchored point (filled by SystemStructure). 0 = not anchored."
     body_idx::Int64
@@ -370,7 +370,7 @@ Base.getproperty(point::Point, sym::Symbol) =
     getfield(point, sym === :disturb ? :ext_force_w : sym)
 
 """
-    Point(name, pos_cad, type; wing=1, transform=1, ...)
+    Point(name, pos_cad, type; wing=nothing, transform=nothing, ...)
 
 Constructs a `Point` object, which can be of three different [`DynamicsType`](@ref)s:
 - `STATIC`: The point does not move. ``\\ddot{\\mathbf{r}} = \\mathbf{0}``
@@ -393,8 +393,11 @@ drives the per-point aero and wing-frame fitting.
   Pass `BODY_STATIC` together with `body` to anchor the point to a rigid body.
 
 # Keyword Arguments
-- `wing::Union{Int, Symbol}=1`: Reference to the wing (name or index).
-- `transform::Union{Int, Symbol}=1`: Reference to the transform (name or index).
+- `wing::Union{Int, Symbol}`: The wing the point belongs to (name or index).
+  Without it the point belongs to none: no body-frame damping, and no body frame
+  to express its apparent wind in.
+- `transform::Union{Int, Symbol}`: Reference to the transform (name or index),
+  defaulting to none.
 - `body::Union{Int, Symbol}`: Reference to a [`Body`](@ref) to anchor the
   point to (requires `type = BODY_STATIC`). The point then rides the body
   kinematically and feeds its net force (and the moment about the body COM)
@@ -432,10 +435,9 @@ function Point(name, pos_cad, type;
         "not both.")
     (!isnothing(joint) && type != BODY_STATIC) && error(
         "Point $name: `joint` (beam anchoring) requires type BODY_STATIC.")
-    # transform 0 means no transform; a body-anchored point has no wing (wing_ref 0).
     body_ref = isnothing(body) ? 0 : body
     joint_ref = isnothing(joint) ? 0 : joint
-    wing_ref = isnothing(wing) ? (type == BODY_STATIC ? 0 : 1) : wing
+    wing_ref = isnothing(wing) ? 0 : wing
     transform_ref = isnothing(transform) ? 0 : transform
     anchor = isnothing(anchor_b) ? zeros(KVec3) : KVec3(anchor_b...)
     vel = isnothing(vel_w) ? zeros(KVec3) : KVec3(vel_w...)

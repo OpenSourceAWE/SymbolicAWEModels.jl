@@ -969,9 +969,10 @@ end
     update_from_sysstate!(sys::SystemStructure, sys_state::SysState)
 
 Copy the state a `SysState` carries (point positions, wing orientations, winch
-lengths, twist angles) into an existing `SystemStructure`, e.g. to plot one snapshot
-of a `SysLog` with the Makie extension. Fields `SysState` cannot supply (aerodynamic
-forces and moments, segment forces) are set to `NaN` so they are not plotted.
+lengths, twist angles, segment spring forces) into an existing `SystemStructure`,
+e.g. to plot one snapshot of a `SysLog` with the Makie extension. Fields `SysState`
+cannot supply (net point forces, winch forces, station moments) are set to `NaN` so
+they are not plotted.
 
 `sys` must have been created with the same model configuration as the simulation that
 produced the log; its point count must match the parametric type `P` of `SysState{P}`.
@@ -980,7 +981,7 @@ Every field the log can reach is written, whether or not the compiler integrates
 because a derived field can still seed `u0` as a torn variable.
 """
 function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) where P
-    (; points, stations, pulleys, tethers, winches, wings, bodies) = sys
+    (; points, segments, stations, pulleys, tethers, winches, wings, bodies) = sys
 
     # Position slot layout (points, panel corners, wing origins, body origins).
     slots = position_slots(sys)
@@ -1039,8 +1040,6 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
 
         wing.aero_force_b .= sys_state.aero_force_b
         wing.aero_moment_b .= sys_state.aero_moment_b
-        wing.tether_force .= sys_state.tether_induced_force
-        wing.tether_moment .= sys_state.tether_induced_moment
         wing.va_b .= NaN
         restore_point_aero_forces!(sys, wing, sys_state)
         wing.wind_vec .= sys_state.v_wind_kite
@@ -1122,7 +1121,12 @@ function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) whe
         sys.set.wind_vec = MVec3(sys_state.v_wind_gnd)
     end
 
-    # Segment lengths/forces come from symbolic getters, not from the SysState.
+    # Only the force is logged; `segment.len` still comes from the symbolic getters.
+    has_spring_force = length(sys_state.spring_force) == length(segments)
+    for segment in segments
+        segment.force = has_spring_force ?
+            Float64(sys_state.spring_force[segment.idx]) : NaN
+    end
 
     return nothing
 end

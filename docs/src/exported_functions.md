@@ -177,9 +177,9 @@ set on or off as a group; the panels below default to `plot_default`:
 - `plot_winch_force`: Winch forces
 
 Opt-in panels (all default `false`): `plot_twist`, `plot_turn_rates`,
-`plot_turn_radius`, `plot_aero_moment`, `plot_tether_moment`, `plot_tether`,
-`plot_tether_actual`, `plot_v_app`, `plot_elevation`, `plot_azimuth`,
-`plot_distance`, `plot_yaw_rate`, `plot_cone_angle`, `plot_old_heading`,
+`plot_turn_radius`, `plot_aero_moment`, `plot_tether`, `plot_tether_actual`,
+`plot_v_app`, `plot_elevation`, `plot_azimuth`, `plot_distance`,
+`plot_yaw_rate`, `plot_cone_angle`, `plot_old_heading`,
 `plot_kiteutils_course`, `plot_set_values`.
 
 Appearance: `suffix::String=" - " * sys.name`, `size::Tuple=(1200, 800)`,

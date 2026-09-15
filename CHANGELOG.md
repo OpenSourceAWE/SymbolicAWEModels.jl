@@ -10,14 +10,46 @@
   loader. The document is the resolved structure — points, segments, stations,
   pulleys, tethers, winches, bodies and joints, every reference by name — without
   the transforms that place it in the world.
+- A "Spring force" checkbox in the replay viewer colours the tether and bridle
+  segments green-to-red by their spring force, and takes the colouring off again.
+  `replay(log, sys; force_color=true)` starts with it ticked.
 
 ### Fixed
+- A point that belongs to no wing no longer crashes model generation with a
+  `BoundsError` on index 0. `wing_idx` now means one thing — the wing the point
+  belongs to, `0` for none — and a point that names no wing gets `0` instead of
+  silently defaulting to wing 1. The monolith asked whether the *system* had a
+  wing rather than whether the point did, and every non-wing point's `va_b` fell
+  back to the first wing's frame; both are gone, so a point is damped and has
+  its apparent wind expressed in the frame of the wing it names, or in the world
+  frame alone. A point that never named a wing therefore loses a body-frame
+  damping term it was taking from an arbitrary wing, a station member that names
+  no wing is rejected at load since a wing's structural node must belong to a
+  wing, and a `wing_idx` naming a wing that does not exist errors at load
+  instead of failing later.
+- `update_from_sysstate!` restores each segment's spring force from the log
+  instead of leaving whatever the last live simulation step wrote, so a replayed
+  frame shows the forces of that frame. A log written before the `spring_force`
+  column existed leaves the force `NaN`.
 - `precompile_workload = false` now switches off the Makie extension's workload as
   well as the package's, so precompiling `SymbolicAWEModelsMakieExt` no longer
   builds four models and loading it no longer replaces the package's own
   precompiled copies of the model pipeline.
+- `sam_tutorial.jl` and `kps4_comparison.jl` build their wing points again. Both
+  still passed the `WING` `DynamicsType` that v0.13.0 removed, so the tutorial
+  died with `UndefVarError: WING` on the step that adds the kite. A rigid wing's
+  structural nodes are now `BODY_STATIC` riding its body and a particle wing's
+  are `DYNAMIC`; the tutorial's wing is rigid, so it also declares the three
+  stations that the removal of `auto_create_twist_surfaces!` requires.
 
 ### Changed
+- BREAKING: `Body.tether_force`, `Body.tether_moment` and the Makie extension's
+  `plot_tether_moment` panel are gone. Neither backend's readout ever wrote the
+  two fields, so they held the zeros their constructor gave them; the two
+  `SysState` columns they were copied into, `tether_induced_force` and
+  `tether_induced_moment`, are removed in KiteUtils 0.13. The panel plotted the
+  moment column, which was that same constant. A wing's tether-induced wrench
+  has no source in this package, so there is nothing to plot in its place.
 - Julia 1.13 takes the place of 1.11 in the development setup. CI's third cell
   runs 1.13, `bin/install` and `bin/update_default_manifests` offer 1.12 and
   1.13, and the tracked default manifest resolved under 1.11 is replaced by one
@@ -25,6 +57,12 @@
   package still admits 1.11 — it is only no longer the version the repo's own
   tooling installs. `SHA` compat now reads `"0.7.0, 1"`, 1 being the version the
   stdlib has on 1.13.
+- `wagner_reference_frame` builds the wing's mean chordwise direction and normal
+  with `VortexStepMethod.panel_axes` instead of its own cross product, so the frame
+  the Wagner lag measures its one angle of attack in is the frame of the panels that
+  lag shifts. It averages over the frozen VSM mesh at the chord blend weight VSM
+  gives each panel rather than at the 0.5 midpoint, so a wing whose panels differ in
+  width is measured on the frame its panels are built on.
 
 ## v0.17.0 12-09-2026
 

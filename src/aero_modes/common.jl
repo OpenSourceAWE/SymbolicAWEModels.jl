@@ -466,8 +466,8 @@ wagner_enabled(wing) = unsteady_aero(wing).wagner
     panel_chord_width(wing) -> (chord, width)
 
 Each refined panel's mean chord and quarter-chord width [m] read off the frozen VSM
-mesh: the build-time twins of the `chord` and `width` equations in
-[`panel_force_eqs`](@ref).
+mesh, from the `VortexStepMethod` helpers the `chord` and `width` equations in
+[`panel_force_eqs`](@ref) are traced through.
 """
 function panel_chord_width(wing)
     refined = wing.vsm_wing.refined_sections
@@ -475,13 +475,29 @@ function panel_chord_width(wing)
     chord = zeros(SimFloat, n)
     width = zeros(SimFloat, n)
     for i in 1:n
-        left, right = refined[i], refined[i + 1]
-        chord[i] = 0.5 * (norm(left.TE_point .- left.LE_point) +
-                          norm(right.TE_point .- right.LE_point))
-        width[i] = norm((0.75 .* left.LE_point .+ 0.25 .* left.TE_point) .-
-                        (0.75 .* right.LE_point .+ 0.25 .* right.TE_point))
+        section = (refined[i].LE_point, refined[i].TE_point,
+                   refined[i + 1].LE_point, refined[i + 1].TE_point)
+        chord[i] = VortexStepMethod.panel_chord(section...)
+        width[i] = smooth_norm(VortexStepMethod.panel_span_vector(section...))
     end
     return chord, width
+end
+
+"""
+    chord_blend_weights!(chord_weight, width)
+
+Every panel's section-1 share of the chord-direction blend, written into
+`chord_weight` (n_panels): `VortexStepMethod.panel_chord_weight` over the panel
+widths `width`, with `nothing` standing in for the neighbour a tip panel lacks.
+"""
+function chord_blend_weights!(chord_weight, width)
+    n_panels = length(width)
+    for i in 1:n_panels
+        chord_weight[i] = VortexStepMethod.panel_chord_weight(
+            i == 1 ? nothing : width[i - 1], width[i],
+            i == n_panels ? nothing : width[i + 1])
+    end
+    return chord_weight
 end
 
 """
@@ -570,26 +586,26 @@ end
 The wing's mean chordwise and normal directions in body frame and its mean chord
 [m], averaged over the frozen VSM mesh. [`wagner_lag_eqs`](@ref) reads its one
 angle of attack against these, so the lag follows the whole wing rather than any
-one panel. Built the way [`panel_force_eqs`](@ref) builds a panel's axes, down to
-the [`panel_span_signs`](@ref) orientation, so the wing angle and the panel angles
-it shifts have the same sign.
+one panel. Each panel contributes the axes `VortexStepMethod.panel_axes` builds at
+its [`panel_span_signs`](@ref) orientation and [`chord_blend_weights!`](@ref) blend
+weight, which are the axes the panel itself carries.
 """
 function wagner_reference_frame(wing)
     refined = wing.vsm_wing.refined_sections
     n = Int(wing.vsm_wing.n_panels)
     spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     orient = panel_span_signs(wing, spanwise)
-    chord, _ = panel_chord_width(wing)
+    chord, width = panel_chord_width(wing)
+    weight = chord_blend_weights!(similar(width), width)
     x_ref = zeros(SimFloat, 3)
     z_ref = zeros(SimFloat, 3)
     for i in 1:n
         left, right = refined[i], refined[i + 1]
-        chord_vec = 0.5 .* ((right.TE_point .+ left.TE_point) .-
-                            (right.LE_point .+ left.LE_point))
-        x_unit = chord_vec ./ norm(chord_vec)
-        z_vec = x_unit × (left.LE_point .- right.LE_point)
-        x_ref .+= x_unit
-        z_ref .+= orient[i] .* (z_vec ./ norm(z_vec))
+        axes = VortexStepMethod.panel_axes(left.LE_point, left.TE_point,
+                                           right.LE_point, right.TE_point,
+                                           weight[i], orient[i])
+        x_ref .+= axes.x_airf
+        z_ref .+= axes.z_airf
     end
     return x_ref ./ norm(x_ref), z_ref ./ norm(z_ref), sum(chord) / n
 end
@@ -977,21 +993,16 @@ scatter_entry_list(totals) =
 """
     store_chord_weights!(chord_weight, body_aero)
 
-Freeze each refined panel's chord blend weight into `chord_weight` (n_panels)
-via `VortexStepMethod.panel_chord_weight`, so the weight follows the mesh as the
-wing deforms. Written at the same refresh as [`store_induced_velocity!`](@ref).
+Freeze the live panels' [`chord_blend_weights!`](@ref) into `chord_weight`
+(n_panels), so the weight follows the mesh as the wing deforms. Written at the
+same refresh as [`store_induced_velocity!`](@ref).
 """
 function store_chord_weights!(chord_weight, body_aero)
     panels = body_aero.panels
-    n_panels = length(panels)
-    length(chord_weight) == n_panels || error(
-        "chord-weight buffer is stale ($(length(chord_weight)) for $n_panels " *
-        "panels); reinitialize the model.")
-    for i in 1:n_panels
-        chord_weight[i] = VortexStepMethod.panel_chord_weight(
-            i == 1 ? nothing : panels[i - 1].width, panels[i].width,
-            i == n_panels ? nothing : panels[i + 1].width)
-    end
+    length(chord_weight) == length(panels) || error(
+        "chord-weight buffer is stale ($(length(chord_weight)) for " *
+        "$(length(panels)) panels); reinitialize the model.")
+    chord_blend_weights!(chord_weight, [panel.width for panel in panels])
     return nothing
 end
 
