@@ -3,6 +3,12 @@
 ## Unreleased
 
 ### Fixed
+- A live polar's control points are measured in the panel's own `panel_axes`
+  frame over its corners, which is the frame its contour nodes are lofted along.
+  The hand-built frame they used before measured along the unleaned mid-chord
+  axis over `norm(chord_vec)`, so on a swept or tapered panel the chord fraction
+  and the camber offset were on a different scale from the nodes they are
+  matched against.
 - `precompile_workload = false` now switches off the Makie extension's workload as
   well as the package's, so precompiling `SymbolicAWEModelsMakieExt` no longer
   builds four models and loading it no longer replaces the package's own
@@ -197,10 +203,6 @@
   to tear the expression graph. `smooth_norm`, `panel_span_signs` and
   `store_chord_weights!` go through the same kernel. Requires VortexStepMethod
   4.2.
-- `chord_frame_coordinates` goes through it too: a live polar's control points are
-  now measured in `panel_axes` over the panel's corners, which is the frame its
-  contour nodes are lofted along. On a swept or tapered panel the mid-chord axis
-  and `norm(chord_vec)` it used before are neither that axis nor that chord.
 - The SciML stack moves a generation on: `DataInterpolations` 9 and 10,
   `LinearSolve` 5 and a `SymbolicUtils` floor of 4.46.3 are allowed, and both
   default manifests are regenerated onto them.
