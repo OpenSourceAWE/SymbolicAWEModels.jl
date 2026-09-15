@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+- A transform's `turn_rate` places the rotation it names: a structure comes out of
+  `reinit!` or `reposition!` already turning about the radial axis through the
+  transform's base, at the rate its heading then advances at. The field has been
+  read from the YAML in degrees per second since it was added, but `reinit!`
+  warned that it was ignored and placed the structure at rest.
+
 ### Fixed
 - A point that belongs to no wing no longer crashes model generation with a
   `BoundsError` on index 0. `wing_idx` now means one thing — the wing the point
