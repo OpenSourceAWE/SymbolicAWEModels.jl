@@ -935,14 +935,16 @@ generates; a Route 1 tether reads them off its own segments.
 Two distinct lengths, set independently at `reinit!`:
 - `init_stretched_len` — the *placed* (stretched) standoff; `reinit!` scales the
   free end's world position so the geometry spans this length.
-- `len` — the *unstretched* rest length and the reeled ODE state. Not set directly;
-  `reinit!` derives it from the placed length via either `init_stretch_frac`
+- `len` — the *unstretched* rest length and the reeled ODE state. `reinit!`
+  derives it from the placed length via either `init_stretch_frac`
   (`len = frac · stretched`) or `init_tether_force`
   (`len = stretched · (1 − force/stiffness)`, default 0 → `len = stretched`).
 
-For a specific initial unstretched length `L`, place at a known
-`init_stretched_len = S` and set `init_stretch_frac = L / S`; setting `len` directly
-does not survive `reinit!`.
+For a specific initial unstretched length `L` through `reinit!`, place at a known
+`init_stretched_len = S` and set `init_stretch_frac = L / S`. On a structure that
+is already placed, [`set_unstretched_length!`](@ref) writes `len` and the segments'
+`l0` without moving anything; the next `reinit!` derives `len` from the geometry
+again and overwrites it.
 
 $(TYPEDFIELDS)
 """

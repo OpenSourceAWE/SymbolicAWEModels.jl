@@ -667,16 +667,37 @@ function init_unstretched_len(tether, segments)
 end
 
 """
+    set_unstretched_length!(sys_struct::SystemStructure, tether::Tether, len)
+
+Set `tether`'s unstretched length [m] and share it equally over its segments'
+`l0`. Point positions, body poses, joint rest geometry and station flap
+references are left as they are.
+"""
+function set_unstretched_length!(sys_struct::SystemStructure, tether::Tether, len)
+    len > 0 || error("Tether $(tether.name): unstretched length $len m " *
+        "must be positive")
+    isempty(tether.segment_idxs) && error("Tether $(tether.name): " *
+        "has no segments to carry an unstretched length")
+    tether.len = len
+    l0 = len / length(tether.segment_idxs)
+    for seg_idx in tether.segment_idxs
+        sys_struct.segments[seg_idx].l0 = l0
+    end
+    return nothing
+end
+
+"""
     apply_tether_init_forces!(sys_struct::SystemStructure)
 
-Set every tether's `len` to its [`init_unstretched_len`](@ref).
-Must be called after segment world lengths are current.
+Set every tether's `len` to its [`init_unstretched_len`](@ref), and its segments'
+`l0` with it. Must be called after segment world lengths are current.
 """
 function apply_tether_init_forces!(sys_struct::SystemStructure)
     (; segments, tethers) = sys_struct
     for tether in tethers
         isempty(tether.segment_idxs) && continue
-        tether.len = init_unstretched_len(tether, segments)
+        set_unstretched_length!(sys_struct, tether,
+                                init_unstretched_len(tether, segments))
     end
 end
 
@@ -685,7 +706,7 @@ end
 
 Give every point and every wing the ground wind `set.wind_vec` as its own wind, so a
 [`PerPointWind`](@ref) model that is never written to flies in the uniform wind the
-settings describe. Called from `reinit!`; from then on these winds belong to the
+settings describe. Called from [`init_wind!`](@ref); from then on these winds belong to the
 caller, who writes them between steps.
 """
 function seed_per_point_wind!(sys_struct::SystemStructure)
@@ -701,116 +722,87 @@ end
 # ==================== REINIT! FOR SYSTEM STRUCTURE ==================== #
 
 """
-    reinit!(sys_struct::SystemStructure, set::Settings; kwargs...)
+    reset_to_cad!(sys_struct::SystemStructure; reset_vel=true)
 
-Reset the component states (winch lengths, station twists, pulley positions, …)
-to the initial values defined in `set`, before a new simulation run.
-
-Pulley lengths are initialized proportionally based on current segment lengths:
-`pulley.len = segment1.len / (segment1.len+segment2.len) * pulley.sum_len`
-
-# Keyword Arguments
-- `ignore_l0::Bool=false`: If true, recalculate segment rest lengths from current positions
-- `remake_vsm::Bool=false`: If true, recreate VSM wing, aerodynamics, and solver from settings.
-  This is useful after modifying `aero_geometry.yaml` or other VSM-related configuration files.
-  For PARTICLE_DYNAMICS wings, also rebuilds the `point_to_vsm_point` mapping.
-- `apply_transforms::Bool=true`: If false, skip applying spatial transforms
-  (translate, rotate, heading) during reinitialization.
-- `apply_tether_lengths::Bool=true`: If false, skip scaling point positions
-  to match `tether.init_stretched_len`.
-- `prn::Bool=true`: If true, print info messages (e.g. when several root
-  tethers are placed to their mean stretched length).
+Put every point and body back at its CAD pose, zero the twist of every
+non-`STATIC` station and set every winch's reel-out speed to `init_vel`.
+`reset_vel` zeroes point and body velocities as well.
 """
-function reinit!(sys_struct::SystemStructure, set::Settings;
-                 ignore_l0::Bool=false, remake_vsm::Bool=false,
-                 reset_vel::Bool=true, apply_transforms::Bool=true,
-                 apply_tether_lengths::Bool=true, prn::Bool=true)
-    (; points, stations, segments, pulleys, tethers, winches, wings, transforms) = sys_struct
-
-    for winch in winches
+function reset_to_cad!(sys_struct::SystemStructure; reset_vel::Bool=true)
+    for winch in sys_struct.winches
         winch.vel = winch.init_vel
     end
-
-    # Reset body pose to CAD (idempotent placement); ODE state derived below.
-    for rigid_body in sys_struct.bodies
-        rigid_body.pos_w .= rigid_body.pos_cad
-        rigid_body.Q_b_to_w .= rotation_matrix_to_quaternion(rigid_body.R_b_to_c)
-        if reset_vel
-            rigid_body.vel_w .= 0.0
-            rigid_body.ω_b .= 0.0
-        end
-        init_rigid_body!(rigid_body)
-    end
-
-    for station in stations
+    copy_cad_to_world!(sys_struct.points, sys_struct.bodies; update_vel=reset_vel)
+    init_rigid_body!.(sys_struct.bodies)
+    for station in sys_struct.stations
         station.type == STATIC && continue
         station.twist = 0.0
         station.twist_ω = 0.0
     end
+    return nothing
+end
 
-    # Transforms are not updated from Settings; YAML structure geometry has priority.
+"""
+    update_segment_lengths!(sys_struct::SystemStructure)
 
-    # Step 1: copy CAD geometry to world frame
-    copy_cad_to_world!(points, sys_struct.bodies; update_vel=reset_vel)
-
-    # Step 2: apply stretched lengths (scales pos_w)
-    if apply_tether_lengths
-        apply_tether_init_stretched_lens!(sys_struct; prn)
-    end
-
-    # Step 3: compute segment lengths from pos_w
-    for segment in segments
-        len = segment_world_length(segment, points)
+Set every segment's `len` to its world length, and a zero `l0` to that length.
+"""
+function update_segment_lengths!(sys_struct::SystemStructure)
+    for segment in sys_struct.segments
+        len = segment_world_length(segment, sys_struct.points)
         (segment.l0 ≈ 0) && (segment.l0 = len)
         segment.len = len
     end
+    return nothing
+end
 
-    apply_tether_init_forces!(sys_struct)
+"""
+    init_pulley_lengths!(sys_struct::SystemStructure)
 
-    for tether in tethers
-        n = length(tether.segment_idxs)
-        n == 0 && continue
-        l0 = tether.len / n
-        for seg_idx in tether.segment_idxs
-            segments[seg_idx].l0 = l0
-        end
-    end
-
-    for pulley in pulleys
-        segment1, segment2 = segments[pulley.segment_idxs[1]],
-                             segments[pulley.segment_idxs[2]]
+Set every pulley's `sum_len` to its two segments' summed `l0`, split it between
+them in proportion to their current `len`, and stop the pulley.
+"""
+function init_pulley_lengths!(sys_struct::SystemStructure)
+    (; segments) = sys_struct
+    for pulley in sys_struct.pulleys
+        segment1 = segments[pulley.segment_idxs[1]]
+        segment2 = segments[pulley.segment_idxs[2]]
         pulley.sum_len = segment1.l0 + segment2.l0
-
-        # Proportional to current segment lengths (accurate for asymmetric bridles).
-        pulley.len = segment1.len / (segment1.len+segment2.len) *
-                     pulley.sum_len
-
+        pulley.len = segment1.len / (segment1.len + segment2.len) * pulley.sum_len
         pulley.vel = 0.0
     end
+    return nothing
+end
 
-    # Step 5: apply transforms (translate/rotate/heading); pos_w already initialized.
-    if apply_transforms
-        reinit!(transforms, sys_struct; update_vel=reset_vel)
+"""
+    remake_wing_aero!(sys_struct::SystemStructure, set::Settings)
+
+Rebuild every wing's aero engine from `set` and the structure's `vsm_set`, e.g.
+after editing `aero_geometry.yaml`. A no-op for aero modes without an engine.
+"""
+function remake_wing_aero!(sys_struct::SystemStructure, set::Settings)
+    for wing in sys_struct.wings
+        remake_aero!(wing.aero, wing, set, sys_struct.vsm_set,
+                     sys_struct.points, sys_struct.stations)
     end
+    return nothing
+end
 
-    # Recreate each wing's aero engine from settings (no-op for engine-less modes).
-    if remake_vsm
-        for wing in wings
-            remake_aero!(wing.aero, wing, set, sys_struct.vsm_set,
-                         points, stations)
-        end
-    end
+"""
+    init_wind!(sys_struct::SystemStructure, set::Settings)
 
-    # Compute per-wing wind from settings
-    wind_vec_gnd = set.wind_vec
-
+Set each wing's wind from the ground wind `set.wind_vec` at the wing's height, or
+seed every point and wing with it under [`PerPointWind`](@ref), and initialise each
+wing's aerodynamic operating point from that wind.
+"""
+function init_wind!(sys_struct::SystemStructure, set::Settings)
+    (; wings) = sys_struct
     if per_point_wind(sys_struct)
         seed_per_point_wind!(sys_struct)
     else
         wind_factor = WindFactor(sys_struct.am, set.profile_law)
         for wing in wings
-            # Calculate wind at wing position using atmospheric model
-            wing.wind_vec .= wind_factor(wing.pos_w[3]) * wind_vec_gnd
+            wing.wind_vec .= wind_factor(wing.pos_w[3]) * set.wind_vec
         end
     end
     for wing in wings
@@ -819,29 +811,77 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
             va_wing_w = wing.wind_vec - wing.vel_w + wing.wind_disturb
             wing.va_b .= R_b_to_w' * va_wing_w
         else
-            # Initialize the aero operating point from the initial wind
             init_aero_state!(wing.aero, wing, R_b_to_w' *
-                (per_point_wind(sys_struct) ? wing.wind_vec : wind_vec_gnd))
+                (per_point_wind(sys_struct) ? wing.wind_vec : set.wind_vec))
         end
     end
+    return nothing
+end
 
-    # validate_sys_struct() runs later: total_mass needs the live integrator.
+"""
+    relax_segments!(sys_struct::SystemStructure)
 
-    # Recalculate segment rest lengths from current positions if requested
-    if ignore_l0
-        for segment in segments
-            point1 = points[segment.point_idxs[1]]
-            point2 = points[segment.point_idxs[2]]
-            segment.l0 = norm(point2.pos_w - point1.pos_w)
-        end
+Set every segment's `l0` to its current world length, so no segment is stretched.
+"""
+function relax_segments!(sys_struct::SystemStructure)
+    for segment in sys_struct.segments
+        segment.l0 = segment_world_length(segment, sys_struct.points)
     end
+    return nothing
+end
 
-    # Joint rest geometry, from the final placed body poses (as-placed = unstrained).
+"""
+    init_rest_geometry!(sys_struct::SystemStructure)
+
+Capture every joint's rest configuration and every flap station's rest deflection
+from the current body poses, so the placed structure is unstrained.
+"""
+function init_rest_geometry!(sys_struct::SystemStructure)
     init_joint_rest!.(sys_struct.elastic_joints, Ref(sys_struct.bodies))
     init_joint_rest!.(sys_struct.timoshenko_joints, Ref(sys_struct.bodies))
-    # Flap KINEMATIC stations: capture rest deflection from the placed bodies.
     init_station_flap!.(sys_struct.stations, Ref(sys_struct))
+    return nothing
+end
 
+"""
+    reinit!(sys_struct::SystemStructure, set::Settings; kwargs...)
+
+Place `sys_struct` for a new run from its CAD geometry and `set`. Runs, in order:
+
+1. [`reset_to_cad!`](@ref)
+2. [`apply_tether_init_stretched_lens!`](@ref) — skipped by `apply_tether_lengths=false`
+3. [`update_segment_lengths!`](@ref)
+4. [`apply_tether_init_forces!`](@ref)
+5. [`init_pulley_lengths!`](@ref)
+6. `reinit!(sys_struct.transforms, sys_struct)` — skipped by `apply_transforms=false`
+7. [`remake_wing_aero!`](@ref) — only with `remake_vsm=true`
+8. [`init_wind!`](@ref)
+9. [`relax_segments!`](@ref) — only with `ignore_l0=true`
+10. [`init_rest_geometry!`](@ref)
+
+`init!(sam; reinit_sys=true)` calls this. To adjust only part of the structure, run
+the steps wanted on `sam.sys_struct` and then `init!(sam; reinit_sys=false)`.
+
+# Keyword Arguments
+- `reset_vel::Bool=true`: zero point and body velocities in steps 1 and 6.
+- `prn::Bool=true`: print info messages from step 2.
+"""
+function reinit!(sys_struct::SystemStructure, set::Settings;
+                 ignore_l0::Bool=false, remake_vsm::Bool=false,
+                 reset_vel::Bool=true, apply_transforms::Bool=true,
+                 apply_tether_lengths::Bool=true, prn::Bool=true)
+    reset_to_cad!(sys_struct; reset_vel)
+    apply_tether_lengths && apply_tether_init_stretched_lens!(sys_struct; prn)
+    update_segment_lengths!(sys_struct)
+    apply_tether_init_forces!(sys_struct)
+    init_pulley_lengths!(sys_struct)
+    apply_transforms &&
+        reinit!(sys_struct.transforms, sys_struct; update_vel=reset_vel)
+    remake_vsm && remake_wing_aero!(sys_struct, set)
+    init_wind!(sys_struct, set)
+    # validate_sys_struct() runs later: total_mass needs the live integrator.
+    ignore_l0 && relax_segments!(sys_struct)
+    init_rest_geometry!(sys_struct)
     return nothing
 end
 

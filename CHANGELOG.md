@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+- `set_unstretched_length!(sys_struct, tether, len)` sets a tether's unstretched
+  length [m] and shares it over its segments' `l0`, leaving point positions, body
+  poses, joint rest geometry and station flap references alone. `reinit!` still
+  derives `len` from the placed geometry, so a length set this way holds until the
+  next `reinit!`.
+- The steps of `reinit!(sys_struct, set)` are exported functions of their own:
+  `reset_to_cad!`, `apply_tether_init_stretched_lens!`, `update_segment_lengths!`,
+  `apply_tether_init_forces!`, `init_pulley_lengths!`, `remake_wing_aero!`,
+  `init_wind!`, `relax_segments!` and `init_rest_geometry!`. Run the ones wanted
+  on `sam.sys_struct`, then `init!(sam; reinit_sys=false)`, to adjust part of a
+  structure without placing all of it again.
+
 ## v0.18.0 2026-09-15
 
 ### Added
