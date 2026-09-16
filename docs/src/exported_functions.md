@@ -41,8 +41,33 @@ load_sys_struct_from_yaml
 set_world_frame_damping
 set_body_frame_damping
 set_angular_damping
-set_unstretched_length!
 calc_steady_torque
+```
+
+## Placing a SystemStructure
+
+`init!(sam)` places the structure for a new run with `reinit!(sys_struct, set)`,
+which applies every adjustment the geometry and settings describe, by running the
+steps below in the order its docstring lists. To change only part of the structure
+— a tether's unstretched length, say, without moving the kite — run the steps
+wanted on `sam.sys_struct` and initialise with `reinit_sys=false`:
+
+```julia
+set_unstretched_length!(sam.sys_struct, sam.sys_struct.tethers[1], 240.0)
+init!(sam; reinit_sys=false)
+```
+
+```@docs
+reset_to_cad!
+apply_tether_init_stretched_lens!
+update_segment_lengths!
+apply_tether_init_forces!
+init_pulley_lengths!
+remake_wing_aero!
+init_wind!
+relax_segments!
+init_rest_geometry!
+set_unstretched_length!
 ```
 
 ## Wind
