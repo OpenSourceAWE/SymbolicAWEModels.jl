@@ -100,6 +100,20 @@ vsm_set = VortexStepMethod.VSMSettings(
     @test size(wing.aero_jac) == (6 + 3, 5 + 3)
 end
 
+@testset "Rigid wing mass in total_mass" begin
+    sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+        struc_yaml; system_name="rigid_total_mass",
+        set, vsm_set, dynamics_type=RIGID_DYNAMICS)
+    wing = sys.wings[1]
+
+    # The six wing nodes and the kcu ride the wing body, so their 1.6 kg is the
+    # wing's mass and counts once, next to the two 0.1 kg bridle points.
+    @test wing.mass ≈ 1.6
+    @test sys.total_mass ≈ 1.8
+    wing.mass = 2.0
+    @test sys.total_mass ≈ 2.2
+end
+
 @testset "n_stations > n_unrefined errors" begin
     sys = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="too_many_stations",

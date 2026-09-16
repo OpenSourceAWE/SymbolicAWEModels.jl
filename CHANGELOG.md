@@ -8,6 +8,9 @@
   section, so the last section never had a panel and the centre panel went to the +y
   station. A 41-section ram-air wing with 4 stations gave its stations 10/11/10/9 panels
   and twisted asymmetrically at rest. `Station.panel_idxs` holds the panels.
+- `sys_struct.total_mass` counts a rigid wing's `mass`. The points riding the wing body
+  are counted once through it, so a wing given `mass` with zero point masses no longer
+  reads 0.
 
 ## SymbolicAWEModels v0.18.1 2026-09-16
 

@@ -59,14 +59,23 @@ end
 
 function Base.getproperty(sys::SystemStructure, sym::Symbol)
     if sym == :total_mass
-        # Falls back to extra_mass for points whose total_mass is not yet computed.
+        # A rigid wing's frame points ride its body, whose mass holds theirs, so they
+        # are counted once through the wing. Falls back to extra_mass for points whose
+        # total_mass is not yet computed.
+        wings = getfield(sys, :wings)
+        rigid_frame_point(point) = any(wing.dynamics_type == RIGID_DYNAMICS &&
+            wing_frame_member(point, wing.idx) for wing in wings)
         total = 0.0
         for point in getfield(sys, :points)
+            rigid_frame_point(point) && continue
             if point.total_mass > 0
                 total += point.total_mass
             else
                 total += point.extra_mass
             end
+        end
+        for wing in wings
+            wing.dynamics_type == RIGID_DYNAMICS && (total += wing.mass)
         end
         return total
     elseif sym == :state_vars
