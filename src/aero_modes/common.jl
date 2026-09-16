@@ -1493,6 +1493,7 @@ function transform_vsm_sections_to_body!(wing; aero_z_offset=nothing)
     rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
     vsm_wing.R_cad_body .= wing.R_b_to_c
     isnothing(aero_z_offset) || apply_aero_z_offset!(vsm_wing, aero_z_offset)
+    check_span_order(wing)
     VortexStepMethod.reinit!(wing.vsm_aero)
     return nothing
 end
