@@ -83,12 +83,6 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     @test sys2.bodies[:seg_6].pos_w[3] ≈ tip.pos_w[3] atol=1e-3
     @test sys2.bodies[:seg_1].pos_w[1] ≈ 0.25 atol=1e-4  # fixed root
 
-    # On Windows, load_log keeps an Arrow mmap handle open, so the temp dir
-    # may still be locked here; eager cleanup is best-effort.
-    try
-        rm(tmpdir; recursive=true)
-    catch err
-        err isa Base.IOError || rethrow()
-    end
+    # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
 end
 nothing
