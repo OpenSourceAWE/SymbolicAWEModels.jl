@@ -228,7 +228,7 @@ end
         @test !allequal(ext.PLOT_SEGMENT_COLORS_OBS[][])
     end
 
-    rm(tmpdir; recursive=true)
+    # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
 end
 
 end # if GLMAKIE_AVAILABLE

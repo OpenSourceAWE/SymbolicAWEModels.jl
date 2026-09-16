@@ -718,7 +718,6 @@ system:
         @test [segment.force for segment in replayed.segments] ≈ simulated rtol=1e-5
     end
 
-    # Cleanup
-    rm(tmpdir; recursive=true)
+    # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
 end
 nothing
