@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Unreleased
+## SymbolicAWEModels v0.18.1 2026-09-16
 
 ### Added
 - `set_unstretched_length!(sys_struct, tether, len)` sets a tether's unstretched
