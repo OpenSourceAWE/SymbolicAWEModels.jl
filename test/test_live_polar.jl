@@ -132,42 +132,35 @@ using LinearAlgebra
 
     @testset "chord frame coordinates" begin
         panel = panels[1]
-        spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
         weight = SymbolicAWEModels.corner_chord_weights(wing)[1]
         le_mid = 0.5 .* (Vector(panel.LE_point_1) .+ Vector(panel.LE_point_2))
         probe = le_mid .+ 0.4 * panel.chord .* Vector(panel.x_airf) .+
                 0.03 * panel.chord .* Vector(panel.z_airf)
-        fraction, offset = chord_frame_coordinates(panel, spanwise, weight, probe)
+        fraction, offset = chord_frame_coordinates(panel, weight, probe)
         @test fraction ≈ 0.4
         @test offset ≈ 0.03
-        @test all(iszero, chord_frame_coordinates(panel, spanwise, weight, le_mid))
+        @test all(iszero, chord_frame_coordinates(panel, weight, le_mid))
     end
 
     @testset "a swept, tapered panel is measured in its own leaned frame" begin
         le_1 = [0.0, 0.0, 0.0]
         te_1 = [1.0, 0.0, 0.25]
-        le_2 = [0.35, 1.4, 0.0]
-        te_2 = [1.15, 1.4, -0.10]
-        spanwise = [0.0, -1.0, 0.0]
+        le_2 = [0.35, -1.4, 0.0]
+        te_2 = [1.15, -1.4, -0.10]
         panel = VortexStepMethod.Panel{Float64}()
         panel.corner_points .= hcat(le_1, te_1, te_2, le_2)
         weight = 0.62
         axes = VortexStepMethod.panel_axes(le_1, te_1, le_2, te_2, weight, 1)
         probe = 0.5 .* (le_1 .+ le_2) .+ 0.4 * axes.chord .* axes.x_airf .+
                 0.03 * axes.chord .* axes.z_airf
-        fraction, offset = chord_frame_coordinates(panel, spanwise, weight, probe)
+        fraction, offset = chord_frame_coordinates(panel, weight, probe)
         @test fraction ≈ 0.4
         @test offset ≈ 0.03
         # A replayed frame restores the corners and nothing else.
         panel.x_airf .= 7.0
         panel.z_airf .= 7.0
         panel.chord = 7.0
-        @test chord_frame_coordinates(panel, spanwise, weight, probe) ===
-              (fraction, offset)
-        # A replay writes the structural section order; a flipped wing holds the other.
-        panel.corner_points .= hcat(le_2, te_2, te_1, le_1)
-        @test chord_frame_coordinates(panel, spanwise, weight, probe) ===
-              (fraction, offset)
+        @test chord_frame_coordinates(panel, weight, probe) === (fraction, offset)
     end
 
     @testset "a chordwise deformation moves the polar" begin

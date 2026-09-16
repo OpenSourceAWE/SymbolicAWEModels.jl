@@ -55,16 +55,16 @@ mutable struct LivePolarState
 end
 
 """
-    chord_frame_coordinates(panel, spanwise, chord_weight, pos_b) -> (fraction, offset)
+    chord_frame_coordinates(panel, chord_weight, pos_b) -> (fraction, offset)
 
 Where a body-frame position sits in a panel's chord frame: along-chord fraction off the
 mid leading edge and offset off the chord line, both over the panel chord. The frame is
-`VortexStepMethod.panel_axes` over the panel's [`spanwise_corners`](@ref), which is the
+`VortexStepMethod.panel_axes` over the panel's [`panel_corners`](@ref), which is the
 frame [`loft_contour_node`](@ref) lofts the panel's contour along. `chord_weight` is the
-panel's blend weight for that order ([`corner_chord_weights`](@ref)).
+panel's blend weight ([`corner_chord_weights`](@ref)).
 """
-function chord_frame_coordinates(panel, spanwise, chord_weight, pos_b)
-    le_1, te_1, le_2, te_2 = spanwise_corners(panel, spanwise)
+function chord_frame_coordinates(panel, chord_weight, pos_b)
+    le_1, te_1, le_2, te_2 = panel_corners(panel)
     axes = VortexStepMethod.panel_axes(le_1, te_1, le_2, te_2, chord_weight, 1)
     offset = SVector{3}(pos_b) .- 0.5 .* (le_1 .+ le_2)
     return (dot(offset, axes.x_airf) / axes.chord,
@@ -181,14 +181,13 @@ function build_live_polars!(mode::AeroPressure, wing, points, stations;
     centre = [lo + weight for (lo, _, weight) in panel_blend]
     station_panel = [argmin(abs.(centre .- s)) for s in 1:n_stations]
 
-    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     chord_weight = corner_chord_weights(wing)
     control_offset = Vector{Vector{SimFloat}}(undef, n_stations)
     for (station, group) in enumerate(control)
         panel = panels[station_panel[station]]
         weight = chord_weight[station_panel[station]]
         control_offset[station] = SimFloat[
-            chord_frame_coordinates(panel, spanwise, weight, body_of(i))[2]
+            chord_frame_coordinates(panel, weight, body_of(i))[2]
             for i in group]
     end
 
@@ -230,7 +229,6 @@ function update_live_deflection!(mode::AeroPressure, wing, points)
     panels = wing.vsm_aero.panels
     rot_body_to_world = wing.R_b_to_w::Matrix{SimFloat}
     origin = wing.pos_w::KVec3
-    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     chord_weight = corner_chord_weights(wing)
     for station in eachindex(state.control_point)
         assigned = state.control_point[station]
@@ -240,7 +238,7 @@ function update_live_deflection!(mode::AeroPressure, wing, points)
         deflections = Vector{SimFloat}(undef, length(assigned))
         for (k, idx) in enumerate(assigned)
             pos_b = rot_body_to_world' * (points[idx].pos_w - origin)
-            fraction, offset = chord_frame_coordinates(panel, spanwise, weight, pos_b)
+            fraction, offset = chord_frame_coordinates(panel, weight, pos_b)
             fractions[k] = fraction
             deflections[k] = offset - state.control_offset[station][k]
         end
