@@ -22,11 +22,10 @@
   axis over `norm(chord_vec)`, so on a swept or tapered panel the chord fraction
   and the camber offset were on a different scale from the nodes they are
   matched against.
-
-### Changed
-- BREAKING: a wing whose aerodynamic sections, or the structural stations they are
-  matched to, run from -y to +y errors when its aero is set up or refreshed. The
-  only supported order is VortexStepMethod's, +y to -y.
+- A wing whose aerodynamic sections, or the structural stations they are matched
+  to, run from -y to +y errors when its aero is set up or refreshed, instead of
+  running on aero that order does not support. The only supported order is
+  VortexStepMethod's, +y to -y.
 
 ## v0.18.0 2026-09-15
 
