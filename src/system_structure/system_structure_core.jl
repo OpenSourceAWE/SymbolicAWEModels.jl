@@ -730,6 +730,11 @@ Partition the wing's unrefined VSM sections among its
 stations by spatial proximity: each unrefined section is
 assigned to the single closest station (by distance between
 section centre and station centre, both in body frame).
+Each VSM panel goes the same way, by the centre of its corners, into
+`panel_idxs`; the station's twist moment is summed over those. A panel
+between two sections owned by different stations thus goes to the
+nearer station, rather than to the station of the section VSM files it
+under, which without refinement is always its left edge.
 
 `n_stations == n_unrefined` gives a 1:1 mapping; with
 fewer stations one may own several adjacent sections and
@@ -778,9 +783,10 @@ function compute_spatial_station_mapping!(
             (le_point + te_point) / 2 .- offset_vec
     end
 
-    # Reset section lists (we rebuild the partition)
+    # Reset section and panel lists (we rebuild the partition)
     for station_idx in the_wing.station_idxs
         empty!(stations[station_idx].unrefined_section_idxs)
+        empty!(stations[station_idx].panel_idxs)
     end
 
     # Assign each unrefined section to nearest station
@@ -798,6 +804,15 @@ function compute_spatial_station_mapping!(
         g_idx = the_wing.station_idxs[closest_local]
         push!(stations[g_idx].unrefined_section_idxs,
               Int64(section_idx))
+    end
+
+    # Assign each panel to nearest station
+    for (panel_idx, panel) in enumerate(the_wing.vsm_aero.panels)
+        panel_center = vec(sum(panel.corner_points; dims=2)) / 4 .- offset_vec
+        closest_local = argmin([norm(panel_center - station_center)
+                                for station_center in station_centers])
+        push!(stations[the_wing.station_idxs[closest_local]].panel_idxs,
+              Int64(panel_idx))
     end
 
     # Every station must claim at least one section

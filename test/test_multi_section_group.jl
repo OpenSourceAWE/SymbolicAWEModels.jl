@@ -48,6 +48,22 @@ vsm_set = VortexStepMethod.VSMSettings(
         @test length(station.unrefined_section_idxs) == 1
     end
 
+    # Every panel belongs to exactly one station, the one nearest its centre, so the
+    # mirror-symmetric kite gives its left and right stations the same number of panels.
+    n_panels = length(wing.vsm_aero.panels)
+    owned = reduce(vcat, [station.panel_idxs for station in sys.stations])
+    @test sort(owned) == collect(1:n_panels)
+    station_center(station) = sum(wing.R_b_to_c' * (sys.points[i].pos_cad - wing.pos_cad)
+                                  for i in station.point_idxs) / length(station.point_idxs)
+    offset = [0.0, 0.0, wing.aero_z_offset]
+    for station in sys.stations, panel_idx in station.panel_idxs
+        corners = wing.vsm_aero.panels[panel_idx].corner_points
+        center = vec(sum(corners; dims=2)) / 4 - offset
+        @test all(norm(center - station_center(station)) <= norm(center - station_center(other))
+                  for other in sys.stations)
+    end
+    @test length(sys.stations[:left].panel_idxs) == length(sys.stations[:right].panel_idxs)
+
     # Inject a 4th unrefined section by duplicating an
     # existing one. Now n_stations (3) < n_unrefined (4).
     extra = deepcopy(vsm_w.unrefined_sections[2])
@@ -75,6 +91,8 @@ vsm_set = VortexStepMethod.VSMSettings(
     end
     @test sort(assigned) == [1, 2, 3, 4]
     @test length(unique(assigned)) == 4
+    @test sort(reduce(vcat, [station.panel_idxs for station in sys.stations])) ==
+        collect(1:length(wing.vsm_aero.panels))
 
     # Wing aero arrays sized by n_stations, not n_unrefined.
     @test length(wing.aero_y) == 5 + 3

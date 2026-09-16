@@ -1,5 +1,14 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+- A station's twist moment is summed over the VSM panels nearest the station, not over
+  the sections it owns. Without refinement VSM files each panel under its left-edge
+  section, so the last section never had a panel and the centre panel went to the +y
+  station. A 41-section ram-air wing with 4 stations gave its stations 10/11/10/9 panels
+  and twisted asymmetrically at rest. `Station.panel_idxs` holds the panels.
+
 ## SymbolicAWEModels v0.18.1 2026-09-16
 
 ### Added
