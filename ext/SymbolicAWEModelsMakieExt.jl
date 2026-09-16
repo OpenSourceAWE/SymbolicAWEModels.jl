@@ -1678,7 +1678,7 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
-            aero_force_z = [sl.aero_force_b[i][3] for i in eachindex(sl.aero_force_b)]
+            aero_force_z = [sl.aero_force_KA[i][3] for i in eachindex(sl.aero_force_KA)]
             push!(all_data, aero_force_z)
             push!(all_labels, lbl(L"F_{aero,z}", suffix))
             push!(all_times, sl.time)
@@ -1698,7 +1698,7 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
-            aero_moment_z = [sl.aero_moment_b[i][3] for i in eachindex(sl.aero_moment_b)]
+            aero_moment_z = [sl.aero_moment_KA[i][3] for i in eachindex(sl.aero_moment_KA)]
             push!(all_data, aero_moment_z)
             push!(all_labels, lbl(L"M_{aero,z}", suffix))
             push!(all_times, sl.time)

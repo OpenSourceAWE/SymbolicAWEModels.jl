@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## Unreleased
+
+### Changed
+- BREAKING: `roll`, `pitch` and `yaw` are no longer written to `SysState`, which
+  dropped the three fields in KiteUtils 0.13. They were computed here with a NED
+  Euler formula applied to `Q_b_to_w`, which is ENU, so they were not the angles
+  any sensor reports — yaw was out by 90 degrees at zenith.
+  `KiteUtils.euler_KS(ss.orient)` reports them correctly.
+- BREAKING: the aerodynamic wrench goes to the `SysState` columns `aero_force_KA`
+  and `aero_moment_KA`, which KiteUtils 0.13 renamed from `aero_force_b` and
+  `aero_moment_b` so that the name says which body frame the components are in.
+  `load_log` still reads the old column, so older logs keep loading.
+- `[compat]` on KiteUtils is raised to `0.13`.
+
 ## v0.18.0 2026-09-15
 
 ### Added
