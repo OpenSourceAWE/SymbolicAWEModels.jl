@@ -2273,9 +2273,10 @@ end
 The added twist degree of freedom of a `DYNAMIC` station: a thin plate hinged
 at its leading edge, driven by the aerodynamic moment its wing's aero returns and
 the bridle couple its points deliver, restrained by the surface's own stiffness and
-damping. Its inertia `⅓·m·L²` takes the mass from those same points as an input, so
-the component reads only its own surface's parameters. The monolith's `fix_wing`
-freeze is not carried over: it is a parameter nothing ever sets.
+damping. Its inertia `⅓·m·L²` takes the mass of those same points as an input, plus
+the surface's `body_mass`, so the component reads only its own surface's parameters.
+The monolith's `fix_wing` freeze is not carried over: it is a parameter nothing ever
+sets.
 """
 function StationDOF(s, params, idx; name)
     vars = @variables begin
@@ -2291,7 +2292,8 @@ function StationDOF(s, params, idx; name)
     surface = params.stations[idx]
     twist = station_dynamics(; free_angle = state[1], twist_vel = state[2],
                                    aero_moment = vars[1], node_moment = vars[2],
-                                   mass = vars[4], chord = surface.chord,
+                                   mass = vars[4] + surface.body_mass,
+                                   chord = surface.chord,
                                    damping = surface.damping,
                                    stiffness = surface.stiffness)
     eqs = [

@@ -57,17 +57,22 @@ mutable struct SystemStructure{J<:ElasticJoint}
     wind_mode::WindMode
 end
 
+"""
+    rigid_frame_point(point, wings) -> Bool
+
+Whether `point` rides the body of a `RIGID_DYNAMICS` wing in `wings`. Such a point
+carries no gravity of its own: its mass is part of the wing's `mass`.
+"""
+rigid_frame_point(point, wings) = any(wing.dynamics_type == RIGID_DYNAMICS &&
+    wing_frame_member(point, wing.idx) for wing in wings)
+
 function Base.getproperty(sys::SystemStructure, sym::Symbol)
     if sym == :total_mass
-        # A rigid wing's frame points ride its body, whose mass holds theirs, so they
-        # are counted once through the wing. Falls back to extra_mass for points whose
-        # total_mass is not yet computed.
+        # Falls back to extra_mass for points whose total_mass is not yet computed.
         wings = getfield(sys, :wings)
-        rigid_frame_point(point) = any(wing.dynamics_type == RIGID_DYNAMICS &&
-            wing_frame_member(point, wing.idx) for wing in wings)
         total = 0.0
         for point in getfield(sys, :points)
-            rigid_frame_point(point) && continue
+            rigid_frame_point(point, wings) && continue
             if point.total_mass > 0
                 total += point.total_mass
             else
@@ -740,10 +745,11 @@ stations by spatial proximity: each unrefined section is
 assigned to the single closest station (by distance between
 section centre and station centre, both in body frame).
 Each VSM panel goes the same way, by the centre of its corners, into
-`panel_idxs`; the station's twist moment is summed over those. A panel
-between two sections owned by different stations thus goes to the
-nearer station, rather than to the station of the section VSM files it
-under, which without refinement is always its left edge.
+`panel_idxs`, which the station's twist moment is summed over, and
+[`share_body_mass!`](@ref) splits the wing mass by them. A panel between
+two sections owned by different stations thus goes to the nearer station,
+rather than to the station of the section VSM files it under, which
+without refinement is always its left edge.
 
 `n_stations == n_unrefined` gives a 1:1 mapping; with
 fewer stations one may own several adjacent sections and
@@ -824,6 +830,8 @@ function compute_spatial_station_mapping!(
               Int64(panel_idx))
     end
 
+    share_body_mass!(the_wing, stations, points)
+
     # Every station must claim at least one section
     for station_idx in the_wing.station_idxs
         station = stations[station_idx]
@@ -832,6 +840,29 @@ function compute_spatial_station_mapping!(
             "$(station.name) claims no unrefined " *
             "sections (likely coincident station centres).")
     end
+end
+
+"""
+    share_body_mass!(the_wing, stations, points)
+
+Set each station's `body_mass`: the part of `the_wing.mass` that no frame point
+carries, times the station's share of the wing's panel area. A wing whose mass sits on
+its points gives every station 0.
+"""
+function share_body_mass!(the_wing::Body, stations::AbstractVector{Station},
+                          points::AbstractVector{Point})
+    panels = the_wing.vsm_aero.panels
+    point_mass = sum(point.extra_mass for point in points
+                     if wing_frame_member(point, the_wing.idx); init=0.0)
+    body_mass = max(the_wing.mass - point_mass, 0.0)
+    wing_area = sum(panel.chord * panel.width for panel in panels)
+    for station_idx in the_wing.station_idxs
+        station = stations[station_idx]
+        station_area = sum(panels[i].chord * panels[i].width for i in station.panel_idxs;
+                           init=0.0)
+        station.body_mass = body_mass * station_area / wing_area
+    end
+    return nothing
 end
 
 # ==================== CONSTRUCTOR ==================== #

@@ -64,6 +64,17 @@ vsm_set = VortexStepMethod.VSMSettings(
     end
     @test length(sys.stations[:left].panel_idxs) == length(sys.stations[:right].panel_idxs)
 
+    # The wing mass sits on its points, so no station takes a share of it. Moved onto
+    # the wing body, it is shared by panel area: all of it, the same left and right.
+    @test all(station.body_mass == 0 for station in sys.stations)
+    for point in sys.points
+        SymbolicAWEModels.wing_frame_member(point, wing.idx) && (point.extra_mass = 0.0)
+    end
+    compute_spatial_station_mapping!(wing, sys.stations, sys.points)
+    @test sum(station.body_mass for station in sys.stations) ≈ wing.mass
+    @test sys.stations[:left].body_mass ≈ sys.stations[:right].body_mass
+    @test sys.stations[:center].body_mass > 0
+
     # Inject a 4th unrefined section by duplicating an
     # existing one. Now n_stations (3) < n_unrefined (4).
     extra = deepcopy(vsm_w.unrefined_sections[2])
