@@ -48,7 +48,7 @@ syslog = try
     save_log(logger, "_hanging_mass")
     load_log("_hanging_mass")
 finally
-    rm(tmpdir; recursive=true)
+    # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
     set_data_path(prev_data_path)
 end
 
