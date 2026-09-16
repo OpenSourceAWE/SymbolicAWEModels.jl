@@ -2089,24 +2089,21 @@ function WagnerLag(s, params, wing_idx; name)
 end
 
 """
-    AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
+    AeroPanel(s, params, wing_idx, panel_idx; name, with_flap)
 
 One refined VSM panel's aerodynamic load: its two sections' leading and trailing edges
 (each already the gathered strut interpolation), their apparent wind and density, and
 its flap deflection in; its body-frame force and the couple its mode's scatter places
 ([`scatter_couple`](@ref)) out. The physics is
 the shared [`panel_force_eqs`](@ref) on a single column, so the expressions are those a
-whole-wing system emits for this panel. `orient` is the panel's `±1` span sign, baked
-in because it costs a second kernel and saves a parameter on every instance; the
-chord blend weight cannot be, because it differs per panel and would cost a kernel
-each. `with_flap` selects the `(α, δ)` polars.
+whole-wing system emits for this panel. `with_flap` selects the `(α, δ)` polars.
 
 A wing with [`flow_curvature_enabled`](@ref) takes two more inputs, its sections'
 trailing minus leading edge apparent wind, gathered at [`strut_pitch_weights`](@ref).
 A wing with [`wagner_enabled`](@ref) takes one more, the lag deficiency its
 [`WagnerLag`](@ref) hands to every panel.
 """
-function AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
+function AeroPanel(s, params, wing_idx, panel_idx; name, with_flap)
     wing = params.reg.sys_struct.wings[wing_idx]
     panel = params.wings[wing_idx].aero.panels[panel_idx]
     io = @variables begin
@@ -2138,7 +2135,7 @@ function AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
             dva[2] === nothing ? nothing : collect(dva[2]))
     eqs = panel_force_eqs(slots, 1, sections, flow,
                           (panel.cl, panel.cd, panel.cm),
-                          spanwise, scale, orient, panel.chord_weight, delta,
+                          spanwise, scale, panel.chord_weight, delta,
                           lag === nothing ? 0.0 : lag)
     couple = scatter_couple(wing.aero, slots, 1, panel)
     append!(eqs, collect(io[9]) .~ collect(slots.panel_force[:, 1]))
