@@ -8,7 +8,8 @@ using SymbolicAWEModels
 
 include("util.jl")
 
-# Set up data path for 2plate_kite tests
+# Data path for the 2plate_kite tests, output path for everything the
+# suite writes, so no run leaves an output folder in the repository.
 pkg_root = dirname(@__DIR__)
 src_data_path = joinpath(pkg_root, "data", "2plate_kite")
 tmpdir = mktempdir()
@@ -16,6 +17,7 @@ data_path = joinpath(tmpdir, "2plate_kite")
 cp(src_data_path, data_path; force=true)
 @show data_path
 set_data_path(data_path)
+set_output_path(joinpath(tmpdir, "output"))
 
 """
     KERNEL_SKIP_FILES

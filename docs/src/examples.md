@@ -30,12 +30,13 @@ plot(sam.sys_struct, log; plot_default=true)
 
 **Interactive replay** — scrub through a simulation with playback controls:
 ```julia
-save_log(logger, "my_run")
-syslog = load_log("my_run")
+save_log(logger, "my_run"; path=get_output_path())
+syslog = load_log("my_run"; path=get_output_path())
 replay(syslog, sam.sys_struct)
 ```
 
-**Record to video** — save a simulation as an MP4 file:
+**Record to video** — save a simulation as an MP4 file under
+[`get_output_path`](@ref):
 ```julia
 record(syslog, sam.sys_struct, "simulation.mp4"; framerate=30)
 ```

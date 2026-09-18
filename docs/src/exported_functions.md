@@ -238,6 +238,20 @@ unsteady_aero
 apply_apparent_mass!
 ```
 
+## Output folder
+
+Simulation results — logs, videos, replay screenshots — go to the output
+folder, `output` in the working directory until [`set_output_path`](@ref) says
+otherwise. `data` holds what a run reads and the output folder what it writes,
+so the output folder can be deleted at any time. A long run that wants its
+results kept apart from the next one points [`set_output_path`](@ref) at a
+folder of its own.
+
+```@docs
+get_output_path
+set_output_path
+```
+
 ## Utility and helper functions
 
 ```@docs
