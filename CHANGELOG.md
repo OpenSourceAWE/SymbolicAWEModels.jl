@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Fixed
+- A live polar's control points are measured in the panel's own `panel_axes`
+  frame over its corners, which is the frame its contour nodes are lofted along.
+  The hand-built frame they used before measured along the unleaned mid-chord
+  axis over `norm(chord_vec)`, so on a swept or tapered panel the chord fraction
+  and the camber offset were on a different scale from the nodes they are
+  matched against.
+- A wing whose aerodynamic sections, or the structural stations they are matched
+  to, run from -y to +y errors when its aero is set up or refreshed, instead of
+  running on aero that order does not support. The only supported order is
+  VortexStepMethod's, +y to -y.
+
 ### Changed
 - Julia 1.11 is no longer supported: the package installs on Julia 1.12 and 1.13,
   the two versions CI tests.
