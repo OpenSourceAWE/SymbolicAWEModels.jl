@@ -14,6 +14,10 @@
   running on aero that order does not support. The only supported order is
   VortexStepMethod's, +y to -y.
 
+### Changed
+- Julia 1.11 is no longer supported: the package installs on Julia 1.12 and 1.13,
+  the two versions CI tests.
+
 ## SymbolicAWEModels v0.18.1 2026-09-16
 
 ### Added
@@ -28,6 +32,11 @@
   `init_wind!`, `relax_segments!` and `init_rest_geometry!`. Run the ones wanted
   on `sam.sys_struct`, then `init!(sam; reinit_sys=false)`, to adjust part of a
   structure without placing all of it again.
+- A transform's `turn_rate` places the rotation it names: a structure comes out of
+  `reinit!` or `reposition!` already turning about the radial axis through the
+  transform's base, at the rate its heading then advances at. The field has been
+  read from the YAML in degrees per second since it was added, but `reinit!`
+  warned that it was ignored and placed the structure at rest.
 
 ### Fixed
 - `plot(..., plot_gk=true)` no longer throws `UndefVarError: cs_over_us_vec`. The
