@@ -378,14 +378,6 @@ function parse_dynamics_type(text::String)
     error("Unknown DynamicsType: $text")
 end
 
-function parse_segment_type(text::String)
-    text_upper = uppercase(text)
-    text_upper == "POWER_LINE" && return POWER_LINE
-    text_upper == "STEERING_LINE" && return STEERING_LINE
-    text_upper == "BRIDLE" && return BRIDLE
-    error("Unknown SegmentType: $text")
-end
-
 function parse_wing_type(text::String)
     text_upper = uppercase(text)
     text_upper == "PARTICLE_DYNAMICS" && return PARTICLE_DYNAMICS

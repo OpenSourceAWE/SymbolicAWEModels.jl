@@ -897,7 +897,8 @@ of the same structural shape should share one.
   `vsm_settings:` when omitted.
 - `wind_mode::WindMode=ProfileWind()`: [`PerPointWind`](@ref) makes every point's
   `wind_vec` a settable parameter instead of a height-profile output.
-- `ignore_l0::Bool=false`: Recompute every segment `l0` from the CAD geometry.
+- `ignore_l0::Bool=false`: Set every segment `l0` to its placed length
+  ([`relax_segments!`](@ref)).
 - `prn::Bool=true`: If true, print info messages about auto-generated components.
 
 # Returns
@@ -1159,14 +1160,7 @@ function SystemStructure(name, set;
         build_panel_station_map!(wing.aero, wing, sys_struct)
     end
 
-    # Recalculate segment rest lengths from current positions if requested
-    if ignore_l0
-        for segment in sys_struct.segments
-            point1 = sys_struct.points[segment.point_idxs[1]]
-            point2 = sys_struct.points[segment.point_idxs[2]]
-            segment.l0 = norm(point2.pos_w - point1.pos_w)
-        end
-    end
+    ignore_l0 && relax_segments!(sys_struct)
 
     return sys_struct
 end

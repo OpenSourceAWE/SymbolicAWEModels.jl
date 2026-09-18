@@ -641,6 +641,30 @@ environment:
             bad_subsys, sys_l.winches[1])
     end
 
+    # ============================================================
+    # Test 10: set_unstretched_length! hands a winched tether a new
+    # rest length without re-placing the structure
+    # ============================================================
+    @testset "set_unstretched_length! retrims a winched tether" begin
+        winch.brake = true
+        seg.unit_stiffness = 50000.0
+        seg.unit_damping = 500.0
+        test_init!(sam; prn=false)
+
+        placed = [copy(point.pos_w) for point in sam.sys_struct.points]
+        @test unstretched_length(sam) ≈ [50.0]
+
+        set_unstretched_length!(sam.sys_struct, tether, 48.0)
+        # A winched tether's length is integrator state, so it reaches `u0`
+        # through a fresh `init!`; `reinit_sys=false` keeps the placement.
+        init!(sam; reinit_sys=false, remake=false, prn=false)
+
+        @test unstretched_length(sam) ≈ [48.0]
+        @test seg.l0 ≈ 48.0
+        @test all(point.pos_w ≈ was
+                  for (point, was) in zip(sam.sys_struct.points, placed))
+    end
+
     rm(tmpdir; recursive=true)
 end
 nothing
