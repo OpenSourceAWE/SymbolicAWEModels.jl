@@ -75,19 +75,19 @@ Here is a complete YAML file for a simple two-point tether:
 # simple_tether.yaml
 
 points:
-  headers: [idx, pos_cad, type, wing_idx, transform_idx, extra_mass]
+  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass]
   data:
     - [1, [0, 0, 0], STATIC, nothing, 1, 0.0]
     - [2, [0, 0, -50], DYNAMIC, nothing, 1, 1.0]
 
 segments:
-  headers: [idx, point_i, point_j, l0, diameter_mm,
+  headers: [name, point_i, point_j, l0, diameter_mm,
             unit_stiffness, unit_damping, compression_frac]
   data:
     - [1, 1, 2, 50.0, 5.0, 100000, 50.0, 0.001]
 
 transforms:
-  headers: [idx, elevation, azimuth, heading,
+  headers: [name, elevation, azimuth, heading,
             base_pos, base_point_idx, rot_point_idx]
   data:
     - [1, -80, 0, 0, [0, 0, 50], 1, 2]
@@ -214,13 +214,14 @@ points:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | String/Int | required | Point identifier (`idx` also accepted) |
+| `name` | String/Int | row number | Point identifier |
 | `pos_cad` | [x,y,z] | required | Position in CAD frame [m] |
 | `type` | String | required | `STATIC`, `DYNAMIC`, or `BODY_STATIC` |
 | `wing_idx` | Int/nothing | none | Wing this point belongs to; omit it, or `0`, for a point that belongs to none |
 | `transform_idx` | Int/nothing | nothing | Transform for initial positioning |
 | `body` | Ref/nothing | nothing | `BODY_STATIC`: body the point rides |
 | `joint` | Ref/nothing | nothing | `BODY_STATIC`: beam element the point rides |
+| `anchor_b` | [x,y,z] | from `pos_cad` | `BODY_STATIC`: offset in the body's frame [m] |
 | `vel_w` | [x,y,z] | zeros | Initial world-frame velocity [m/s] |
 | `extra_mass` | Float | 0.0 | Additional mass [kg] |
 | `body_frame_damping` | Float | 0.0 | Damping in body frame [Ns/m] |
@@ -230,14 +231,15 @@ points:
 | `fix_sphere` | Bool | false | Constrain the point to a sphere |
 | `fix_static` | Bool | false | Dynamically freeze the point position |
 
-A `BODY_STATIC` point rides a rigid body (`body:`, or `wing:` for a wing body)
-or a beam element (`joint:`); its body-frame offset is derived from `pos_cad`.
+A `BODY_STATIC` point rides a rigid body (`body:`, or `wing_idx:` for a wing)
+or a beam element (`joint:`). Its body-frame offset is `anchor_b` where the row
+gives a non-zero one; a missing or all-zero `anchor_b` is derived from `pos_cad`.
 
 ### Segments
 
 ```yaml
 segments:
-  headers: [idx, point_i, point_j, l0, diameter_mm,
+  headers: [name, point_i, point_j, l0, diameter_mm,
             unit_stiffness, unit_damping, compression_frac]
   data:
     - [1, 1, 2, 5.0, 5.0, 100000, 50.0, 0.01]
@@ -248,7 +250,7 @@ The material columns can also come from a multi-variable, see
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `idx` | Int | Segment identifier |
+| `name` | String/Int | Segment identifier |
 | `point_i`, `point_j` | Int | Endpoint point indices |
 | `l0` | Float | Unstretched length [m] (0 = calculate from points) |
 | `diameter_mm` | Float | Diameter [mm] |
@@ -264,14 +266,14 @@ The material columns can also come from a multi-variable, see
 
 ```yaml
 pulleys:
-  headers: [idx, segment_i, segment_j, type, efficiency]
+  headers: [name, segment_i, segment_j, type, efficiency]
   data:
     - [1, 3, 4, DYNAMIC, 0.95]
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `idx` | Int | — | Pulley identifier |
+| `name` | String/Int | — | Pulley identifier |
 | `segment_i`, `segment_j` | Int | — | The two segments sharing the pulley point |
 | `type` | Enum | — | `DYNAMIC` |
 | `efficiency` | Float | 0.95 | Fraction of line tension the sheave passes on (1.0 = ideal) |
@@ -284,7 +286,7 @@ pulleys:
 **Route 1** (explicit segments):
 ```yaml
 tethers:
-  headers: [idx, segment_idxs]
+  headers: [name, segment_idxs]
   data:
     - [1, [1, 2, 3]]
 ```
@@ -314,7 +316,7 @@ how a plain line is split into several segments.
 
 ```yaml
 winches:
-  headers: [idx, tether_idxs, winch_point]
+  headers: [name, tether_idxs, winch_point]
   data:
     - [1, [1], ground]
 ```
@@ -370,10 +372,10 @@ bodies:
 
 timoshenko_joints:
   headers: [name, body_a, body_b, EA, GA, GJ, EIy, EIz, shear_coeff,
-            damping_trans, damping_rot]
+            damping]
   data:
     - [joint, nodeA, nodeB, 10000.0, 1500.0, 50.0, 100.0, 100.0, 0.8333,
-       200.0, 3.0]
+       0.05]
 
 points:
   headers: [name, pos_cad, type, body_idx]
@@ -388,7 +390,7 @@ supplied programmatically, not from YAML.
 
 ```yaml
 transforms:
-  headers: [idx, elevation, azimuth, heading,
+  headers: [name, elevation, azimuth, heading,
             base_pos, base_point_idx, rot_point_idx]
   data:
     - [1, -80, 0, 0, [0, 0, 50], 1, 2]
