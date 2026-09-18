@@ -233,7 +233,7 @@ points:
 
 A `BODY_STATIC` point rides a rigid body (`body:`, or `wing_idx:` for a wing)
 or a beam element (`joint:`). Its body-frame offset is `anchor_b` where the row
-gives one, and is otherwise derived from `pos_cad`.
+gives a non-zero one; a missing or all-zero `anchor_b` is derived from `pos_cad`.
 
 ### Segments
 

@@ -74,6 +74,7 @@ function check_yaml_fields(data, yaml_path)
         for (i, row) in enumerate(parse_table(table)), field in keys(row)
             field in accepted || error("Unknown field `$field` in row " *
                 "$(yaml_row_name(row, i)) of block `$block` in $yaml_path. " *
+                (field == :idx ? "Rename `idx` to `name`. " : "") *
                 "Fields: $(join(accepted, ", ")).")
         end
     end
