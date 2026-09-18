@@ -893,7 +893,8 @@ of the same structural shape should share one.
 
 # Keyword Arguments
 - `points`, `stations`, `segments`, etc.: Vectors of the system components.
-- `vsm_set`: `VSMSettings` for VSM wings; read from `vsm_settings.yaml` when omitted.
+- `vsm_set`: `VSMSettings` for VSM wings; read from the project file's
+  `vsm_settings:` when omitted.
 - `wind_mode::WindMode=ProfileWind()`: [`PerPointWind`](@ref) makes every point's
   `wind_vec` a settable parameter instead of a height-profile output.
 - `ignore_l0::Bool=false`: Set every segment `l0` to its placed length
@@ -923,8 +924,7 @@ function SystemStructure(name, set;
     # Load VSMSettings if not provided and VSM wings exist
     has_vsm_wings = any(has_vsm_engine(wing.aero) for wing in wings)
     if isnothing(vsm_set) && has_vsm_wings
-        model_dir = get_data_path()
-        vsm_set_path = joinpath(model_dir, "vsm_settings.yaml")
+        vsm_set_path = project_file("vsm_settings")
         if isfile(vsm_set_path)
             vsm_set = VortexStepMethod.VSMSettings(
                 vsm_set_path; data_prefix=false)

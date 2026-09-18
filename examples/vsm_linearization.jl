@@ -45,7 +45,7 @@ struc_yaml = joinpath(
 
 set = Settings("system.yaml")
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml");
+    project_file("vsm_settings");
     data_prefix=false)
 
 sys = load_sys_struct_from_yaml(struc_yaml;

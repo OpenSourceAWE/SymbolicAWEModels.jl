@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Added
+- `system.yaml` is the project file: besides `sim_settings:` it names a model's
+  `structural_geometry:`, `aero_geometry:` and `vsm_settings:`, the layout
+  `V3Kite.jl` already uses. `project_file(entry)` resolves one against the data
+  path and returns `""` where the project names none, so examples ask the project
+  for a model's files instead of spelling their names. A project that names only
+  `sim_settings:` keeps working.
+
+### Changed
+- Julia 1.11 is no longer supported: the package installs on Julia 1.12 and 1.13,
+  the two versions CI tests.
+- A wing's aero geometry is the project file's `aero_geometry:` where the project
+  names one, so the file is named in one place instead of also being the
+  `geometry_file:` of every wing in `vsm_settings.yaml`. A `VSMSettings` built
+  outside the project still flies its own `geometry_file:`.
+- The `kite.struc_geometry_path` and `kite.aero_geometry_path` fields of
+  `settings.yaml` are gone from the shipped models and from the documented
+  schema. Nothing ever read them; `structural_geometry:` and `aero_geometry:` in
+  the project file take their place.
+
 ### Fixed
 - A live polar's control points are measured in the panel's own `panel_axes`
   frame over its corners, which is the frame its contour nodes are lofted along.
@@ -13,10 +33,6 @@
   to, run from -y to +y errors when its aero is set up or refreshed, instead of
   running on aero that order does not support. The only supported order is
   VortexStepMethod's, +y to -y.
-
-### Changed
-- Julia 1.11 is no longer supported: the package installs on Julia 1.12 and 1.13,
-  the two versions CI tests.
 
 ## SymbolicAWEModels v0.18.1 2026-09-16
 

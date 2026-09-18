@@ -404,10 +404,9 @@ using SymbolicAWEModels, VortexStepMethod
 set_data_path("data/2plate_kite")
 set = Settings("system.yaml")
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
+    project_file("vsm_settings"); data_prefix=false)
 
-struc_yaml = joinpath(get_data_path(),
-    "rigid_structural_geometry.yaml")
+struc_yaml = project_file("structural_geometry")
 sys = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite",
     set=set,
