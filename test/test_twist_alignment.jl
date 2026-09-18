@@ -110,17 +110,18 @@ report("static", static_rows)
     end
 end
 
-# Ramp steering over a fixed trajectory and check the alignment there. Holding
-# this steering runs the station twist away until the VSM solve diverges,
-# so a settled operating point does not exist for this 2-plate config.
+# Ramp steering until a station twists past 0.1 rad and check the alignment
+# there. Holding this steering runs the station twist away until the VSM solve
+# diverges, so a settled operating point does not exist for this 2-plate config.
 steer_mag = 0.03
-for step in 1:60
+for step in 1:100
     steer = steer_mag * clamp(step * dt / 2.0, 0.0, 1.0)
     sam.sys_struct.segments[:kcu_steering_left].l0 =
         l0_left - steer
     sam.sys_struct.segments[:kcu_steering_right].l0 =
         l0_right + steer
     next_step!(sam; dt, vsm_interval=1)
+    any(station -> abs(station.twist) > 0.1, sam.sys_struct.stations) && break
 end
 dyn_rows = twist_chord_diffs(sam)
 report("dynamic", dyn_rows)
