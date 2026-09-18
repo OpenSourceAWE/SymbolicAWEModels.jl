@@ -1265,7 +1265,7 @@ runtime control.
 """
 function body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc,
                           orientation_p; frozen=false, wing_frame=nothing,
-                          wing_vel=nothing)
+                          wing_vel=nothing, frame=nothing)
     body = params.bodies[idx]
     sphere = body.fix_sphere
     spin = collect(omega_p)
@@ -1277,7 +1277,7 @@ function body_integration(params, idx, com_w, com_vel, omega_p, alpha_p, com_acc
     damped_acc = collect(com_acc) .-
         collect(body.world_frame_damping) .* velocity .-
         body_frame_damp_accel(velocity, body.body_frame_damping,
-                              parent_frame, parent_vel)
+                              parent_frame, parent_vel; frame)
     axis = collect(smooth_normalize(collect(com_w)))
     axis_p = orientation_p' * axis
     spin_kinematic = ifelse.(sphere == true, remove_along(spin, axis_p), spin)
@@ -1306,7 +1306,7 @@ clamped body is [`StaticBody`](@ref) instead.
 wing needs, so its `body_frame_damping` resists motion relative to that wing
 rather than absolute motion; the assembly connects them from the parent instance.
 """
-function RigidBody(s, params, idx; name, parented = false)
+function RigidBody(s, params, idx; name, parented = false, framed = false)
     io = body_variables()
     state = @variables com_w(t)[1:3] com_vel(t)[1:3] Q(t)[1:4] omega_p(t)[1:3]
     torn = @variables alpha_p(t)[1:3] com_acc(t)[1:3]
@@ -1314,11 +1314,13 @@ function RigidBody(s, params, idx; name, parented = false)
         wing_frame(t)[1:9], [input = true]
         wing_velocity(t)[1:3], [input = true]
     end
+    fv = framed ? frame_variables() : nothing
     com_w, com_vel, Q, omega_p = state
     alpha_p, com_acc = torn
     body = params.bodies[idx]
     orientation_p = quaternion_to_rotation_matrix(collect(Q))
     orientation = orientation_p * collect(body.R_b_to_p)
+    frame = transform_frame(params, s, :bodies, idx, com_w, fv)
     gravity = Num[0, 0, -params.set.g_earth * body.mass]
     force_w = collect(io.force_in) .+ gravity .+ collect(body.ext_force_w) .+
         orientation * collect(body.ext_force_b)
@@ -1330,7 +1332,8 @@ function RigidBody(s, params, idx; name, parented = false)
                          com_acc, orientation_p;
                          wing_frame = parented ?
                              reshape(collect(parent[1]), 3, 3) : nothing,
-                         wing_vel = parented ? collect(parent[2]) : nothing)...)
+                         wing_vel = parented ? collect(parent[2]) : nothing,
+                         frame)...)
     eqs = [
         collect(alpha_p) .~ ex.α_p
         collect(com_acc) .~ ex.com_acc
@@ -1350,6 +1353,7 @@ function RigidBody(s, params, idx; name, parented = false)
         collect(io.alpha_b) .~ ex.α_b
     ]
     vars = parented ? [io.all; parent; state; torn] : [io.all; state; torn]
+    framed && (vars = [vars; collect(fv.all)])
     return System(eqs, t, vars, param_unknowns(params); name)
 end
 
@@ -2514,14 +2518,258 @@ function KinematicBody(s, params, idx; name)
 end
 
 """
-    body_frame_damp_accel(vel, body_damp, orientation, wing_vel)
+    DAMPING_FRAME
 
-Body-frame damping acceleration `R·(coeff ⊙ (Rᵀ·(vel − wing_vel)))`, the term
-`point_damping_accel` adds for a point that damps against its wing's frame rather
-than the world.
+How the rigid motion body-frame damping is measured against is derived, per
+transform, at build time:
+- `:fit` — the damping-weighted least-squares rotation about the base plus radial
+  stretch of every damped component ([`FrameFit`](@ref)). Stationarity of the fit
+  makes the damping apply no net moment about the base and no net radial load.
+- `:wing` — the rotation about the base and radial stretch the wing itself is in
+  ([`WingFrameRate`](@ref)).
+Part of the model name, so the two build different bins.
 """
-body_frame_damp_accel(vel, body_damp, orientation, wing_vel) =
-    orientation * (collect(body_damp) .* (orientation' * (collect(vel) .- wing_vel)))
+const DAMPING_FRAME = Ref(:fit)
+
+"""
+    body_frame_damp_accel(vel, body_damp, orientation, wing_vel; frame=nothing)
+
+Body-frame damping acceleration `R·(coeff ⊙ (Rᵀ·v_rel))`, the term
+`point_damping_accel` adds for a point that damps against its wing's frame rather
+than the world. `frame = (pos, base, spin, stretch)` measures `v_rel` against the
+rigid motion of the whole structure about its base,
+`vel − spin × (pos − base) − stretch · (pos − base)`, which no rigid turn of the kite
+about its base or uniform reel-out excites; without it `v_rel = vel − wing_vel`.
+"""
+function body_frame_damp_accel(vel, body_damp, orientation, wing_vel; frame = nothing)
+    reference = if isnothing(frame)
+        wing_vel
+    else
+        arm = collect(frame.pos) .- collect(frame.base)
+        collect(frame.spin) × arm .+ frame.stretch .* arm
+    end
+    return orientation * (collect(body_damp) .*
+        (orientation' * (collect(vel) .- reference)))
+end
+
+"""
+    in_transform(sam, container, idx) -> Bool
+
+Whether component `idx` of `container` belongs to a transform, and so measures its
+body-frame damping against that transform's rigid motion.
+"""
+in_transform(sam, container, idx) =
+    getproperty(sam.sys_struct, container)[idx].transform_idx > 0
+
+"""The inputs a framed component reads its reference rigid motion from."""
+const FRAME_INPUTS = [:frame_spin, :frame_stretch]
+"""The damping-weighted fit contributions a framed component hands [`FrameFit`](@ref)."""
+const FRAME_FIT_OUTPUTS = [:fit_A, :fit_b, :fit_c, :fit_d, :fit_e]
+
+"""
+    frame_variables()
+
+A framed component's reference-motion inputs, `frame_spin` and `frame_stretch`.
+"""
+function frame_variables()
+    vars = @variables begin
+        frame_spin(t)[1:3], [input = true]
+        frame_stretch(t), [input = true]
+    end
+    return (; spin = vars[1], stretch = vars[2], all = vars)
+end
+
+"""
+    fit_share_variables()
+
+The fit contributions a share kernel hands [`FrameFit`](@ref): `fit_A` (symmetric
+3×3 as `[11, 22, 33, 12, 13, 23]`), `fit_b`, `fit_c`, `fit_d`, `fit_e`.
+"""
+function fit_share_variables()
+    vars = @variables begin
+        fit_A(t)[1:6], [output = true]
+        fit_b(t)[1:3], [output = true]
+        fit_c(t)[1:3], [output = true]
+        fit_d(t), [output = true]
+        fit_e(t), [output = true]
+    end
+    return (; A = vars[1], b = vars[2], c = vars[3], d = vars[4], e = vars[5],
+            all = vars)
+end
+
+"""
+    FramePointShare(s, params, idx; name)
+
+A framed wing node's share of the [`FrameFit`](@ref), computed apart from the node
+itself: the scheduler orders whole instances, so a node whose outputs read its mass
+or its wing's frame would depend on the segments and the wing that read its
+position. Reads the node's `pos`/`vel`, the `mass_in` its segments deliver and its
+wing's `wing_frame`, as the node does.
+"""
+function FramePointShare(s, params, idx; name)
+    inputs = @variables begin
+        pos(t)[1:3], [input = true]
+        vel(t)[1:3], [input = true]
+        mass_in(t), [input = true]
+        wing_frame(t)[1:9], [input = true]
+    end
+    share = fit_share_variables()
+    point = params.points[idx]
+    pars = point_particle_params(params, idx)
+    transform = params.transforms[s.sys_struct.points[idx].transform_idx]
+    eqs = frame_fit_eqs(share, collect(inputs[1]), collect(inputs[2]),
+        collect(transform.base_w), pars.extra_mass + inputs[3] + pars.apparent_mass,
+        reshape(collect(inputs[4]), 3, 3), point.body_frame_damping)
+    return System(eqs, t, [inputs...; share.all...], param_unknowns(params); name)
+end
+
+"""
+    FrameBodyShare(s, params, idx; name, parented)
+
+A framed body's share of the [`FrameFit`](@ref): its COM position and velocity,
+weighted by its mass and its body-frame damping resolved on the parent wing's frame
+(`wing_frame`), or on its own `frame` when it has no parent wing.
+"""
+function FrameBodyShare(s, params, idx; name, parented)
+    inputs = @variables begin
+        com(t)[1:3], [input = true]
+        com_velocity(t)[1:3], [input = true]
+        frame(t)[1:9], [input = true]
+    end
+    share = fit_share_variables()
+    body = params.bodies[idx]
+    transform = params.transforms[s.sys_struct.bodies[idx].transform_idx]
+    eqs = frame_fit_eqs(share, collect(inputs[1]), collect(inputs[2]),
+        collect(transform.base_w), body.mass, reshape(collect(inputs[3]), 3, 3),
+        body.body_frame_damping)
+    return System(eqs, t, [inputs...; share.all...], param_unknowns(params); name)
+end
+
+cross_matrix(r) = [0 -r[3] r[2]; r[3] 0 -r[1]; -r[2] r[1] 0]
+
+"""
+    frame_fit_eqs(fv, pos, vel, base, mass, orientation, coeff)
+
+One component's share of the weighted least-squares rigid motion. With arm `r`,
+velocity `v` and damping weight `W = m·R·diag(coeff)·Rᵀ`, minimising
+`Σ (v − Ω×r − λr)ᵀ W (v − Ω×r − λr)` gives
+`[A c; cᵀ d] [Ω; λ] = [b; e]` with `A = −[r]× W [r]×`, `b = [r]× W v`,
+`c = [r]× W r`, `d = rᵀ W r`, `e = rᵀ W v`, each summed over the components.
+"""
+function frame_fit_eqs(share, pos, vel, base, mass, orientation, coeff)
+    fv = share
+    r = collect(pos) .- collect(base)
+    v = collect(vel)
+    W = mass .* (orientation * (collect(coeff) .* orientation'))
+    K = cross_matrix(r)
+    A = -(K * W * K)
+    Wr = W * r
+    return [collect(fv.A) .~ [A[1, 1], A[2, 2], A[3, 3], A[1, 2], A[1, 3], A[2, 3]]
+            collect(fv.b) .~ K * (W * v)
+            collect(fv.c) .~ K * Wr
+            fv.d ~ r ⋅ Wr
+            fv.e ~ r ⋅ (W * v)]
+end
+
+"""
+    transform_frame(params, sam, container, idx, pos, fv) -> NamedTuple or nothing
+
+The reference rigid motion a framed component's damping is measured against: its
+transform's `base_w` (read through `params`, remapped per instance) and the
+`frame_spin`/`frame_stretch` inputs, at the live position `pos`.
+"""
+function transform_frame(params, sam, container, idx, pos, fv)
+    isnothing(fv) && return nothing
+    transform = params.transforms[getproperty(sam.sys_struct, container)[idx].transform_idx]
+    return (; pos = collect(pos), base = collect(transform.base_w),
+            spin = collect(fv.spin), stretch = fv.stretch)
+end
+
+"""
+    solve_sym3(M, b)
+
+`M⁻¹ b` for a symbolic 3×3 `M`, by the adjugate.
+"""
+function solve_sym3(M, b)
+    adj = [M[2,2]*M[3,3]-M[2,3]*M[3,2]  M[1,3]*M[3,2]-M[1,2]*M[3,3]  M[1,2]*M[2,3]-M[1,3]*M[2,2];
+           M[2,3]*M[3,1]-M[2,1]*M[3,3]  M[1,1]*M[3,3]-M[1,3]*M[3,1]  M[1,3]*M[2,1]-M[1,1]*M[2,3];
+           M[2,1]*M[3,2]-M[2,2]*M[3,1]  M[1,2]*M[3,1]-M[1,1]*M[3,2]  M[1,1]*M[2,2]-M[1,2]*M[2,1]]
+    det = M[1,1] * adj[1,1] + M[1,2] * adj[2,1] + M[1,3] * adj[3,1]
+    return (adj * b) ./ det
+end
+
+"""
+    FrameFit(s, params; name)
+
+The `:fit` reference motion of one transform: the summed contributions of its framed
+components in, `frame_spin` and `frame_stretch` out, from the Schur complement of the
+normal equations ([`frame_fit_eqs`](@ref)). A little isotropic regularisation keeps a
+direction no damping sees (heading, under damping normal to the wing only) defined;
+the damping has nothing to say about it either way.
+"""
+function FrameFit(s, params; name)
+    vars = @variables begin
+        fit_A(t)[1:6], [input = true]
+        fit_b(t)[1:3], [input = true]
+        fit_c(t)[1:3], [input = true]
+        fit_d(t), [input = true]
+        fit_e(t), [input = true]
+        frame_spin(t)[1:3], [output = true]
+        frame_stretch(t), [output = true]
+    end
+    a, b, c = collect(vars[1]), collect(vars[2]), collect(vars[3])
+    d, e = vars[4], vars[5]
+    A = [a[1] a[4] a[5]; a[4] a[2] a[6]; a[5] a[6] a[3]]
+    d_reg = d + 1e-9
+    schur = A .- (c * c') ./ d_reg
+    regularisation = 1e-6 * (schur[1, 1] + schur[2, 2] + schur[3, 3]) / 3 + 1e-12
+    schur = schur .+ regularisation .* [1 0 0; 0 1 0; 0 0 1]
+    spin = solve_sym3(schur, b .- c .* (e / d_reg))
+    eqs = [collect(vars[6]) .~ spin
+           vars[7] ~ (e - c ⋅ spin) / d_reg]
+    return System(eqs, t, vars, param_unknowns(params); name)
+end
+
+"""The references [`WingFrameRate`](@ref) reads, as a fitted wing body's plus velocities."""
+const WING_RATE_INPUTS = [:z1_pos, :z2_pos, :y1_pos, :y2_pos, :origin_pos, :origin_vel,
+                          :z1_vel, :z2_vel, :y1_vel, :y2_vel]
+
+"""
+    WingFrameRate(s, params, transform_idx; name)
+
+The `:wing` reference motion of one transform: the rotation about the base the wing
+is in, `r × v / |r|²` from its origin's offset `r` and velocity `v` plus the fitted
+frame's spin about the radial, and the radial stretch `r·v / |r|²`.
+"""
+function WingFrameRate(s, params, transform_idx; name)
+    vars = @variables begin
+        z1_pos(t)[1:3], [input = true]
+        z2_pos(t)[1:3], [input = true]
+        y1_pos(t)[1:3], [input = true]
+        y2_pos(t)[1:3], [input = true]
+        origin_pos(t)[1:3], [input = true]
+        origin_vel(t)[1:3], [input = true]
+        z1_vel(t)[1:3], [input = true]
+        z2_vel(t)[1:3], [input = true]
+        y1_vel(t)[1:3], [input = true]
+        y2_vel(t)[1:3], [input = true]
+        frame_spin(t)[1:3], [output = true]
+        frame_stretch(t), [output = true]
+    end
+    zp1, zp2, yp1, yp2, origin, origin_vel = collect.(vars[1:6])
+    vz1, vz2, vy1, vy2 = collect.(vars[7:10])
+    axes = wing_frame_columns(zp1, zp2, yp1, yp2)
+    rates = wing_frame_rates(zp1, zp2, yp1, yp2, (vz1, vz2, vy1, vy2), axes)
+    R = hcat(axes...)
+    wing_spin = R * body_frame_omega(axes, rates)
+    base = collect(params.transforms[transform_idx].base_w)
+    r = origin .- base
+    r2 = r ⋅ r
+    radial_spin = (wing_spin ⋅ r) / r2
+    eqs = [collect(vars[11]) .~ (r × origin_vel) ./ r2 .+ radial_spin .* r
+           vars[12] ~ (r ⋅ origin_vel) / r2]
+    return System(eqs, t, vars, param_unknowns(params); name)
+end
 
 """
     WingNodePoint(s, params, idx; name, with_damping=true)
@@ -2532,14 +2780,17 @@ rather than the world, which reads the `wing_frame`/`wing_velocity` the fitted b
 supplies. Its aerodynamic force arrives at `force_in` from
 [`ParticleWingAero`](@ref), like any other load. `with_damping = false` drops the
 damping term whose coefficient the struct leaves unset, so no zero-valued parameter
-is generated, matching the monolith.
+is generated, matching the monolith. `framed` measures that damping against its
+transform's rigid motion instead ([`body_frame_damp_accel`](@ref)) and reports its
+share of the fit ([`frame_fit_eqs`](@ref)).
 """
-function WingNodePoint(s, params, idx; name, with_damping = true)
+function WingNodePoint(s, params, idx; name, with_damping = true, framed = false)
     io = point_variables()
     extra = @variables begin
         wing_frame(t)[1:9], [input = true]
         wing_velocity(t)[1:3], [input = true]
     end
+    fv = framed ? frame_variables() : nothing
     orientation = reshape(collect(extra[1]), 3, 3)
     point = params.points[idx]
     pars = point_particle_params(params, idx)
@@ -2549,8 +2800,9 @@ function WingNodePoint(s, params, idx; name, with_damping = true)
         collect(pars.world_damping), pars.wind_source, pars.g_earth;
         pars.apparent_mass)
     accel = motion.accel
+    frame = transform_frame(params, s, :points, idx, io.pos, fv)
     with_damping && (accel = accel .- body_frame_damp_accel(io.vel,
-        point.body_frame_damping, orientation, collect(extra[2])))
+        point.body_frame_damping, orientation, collect(extra[2]); frame))
     velocity, acceleration = confined_derivatives(io.pos, io.vel, accel, pars)
     eqs = [
         D.(collect(io.pos)) .~ velocity
@@ -2560,5 +2812,6 @@ function WingNodePoint(s, params, idx; name, with_damping = true)
     ]
     vars = [io.pos, io.vel, io.force_in, io.mass_in, io.drag_in, io.total_drag,
             io.wind_vec, io.net_force, extra...]
+    framed && (vars = [vars; collect(fv.all)])
     return System(eqs, t, vars, param_unknowns(params); name)
 end

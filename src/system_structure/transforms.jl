@@ -193,6 +193,112 @@ function spherical_spin(transform)
 end
 
 """
+    frame_spin(transform, rel_pos) -> KVec3
+
+World angular velocity [rad/s] of the rigid rotation about the base that carries the
+transform's `elevation_vel`, `azimuth_vel` and `turn_rate`, for a rotating object at
+`rel_pos` from the base. The axes follow the placement: a transform puts its object
+at `Rz(-azimuth)·Ry(-elevation)·x̂` ([`apply_azimuth_elevation!`](@ref)), so elevation
+turns about `[-sin az, -cos az, 0]` and azimuth about `-z`, as in
+[`spherical_spin`](@ref), and heading grows with a right-handed turn about the
+outward radial ([`apply_heading!`](@ref)). The azimuth is read off `rel_pos` rather
+than the transform, so the spin is that of the pose the structure is actually in.
+"""
+function frame_spin(transform, rel_pos)
+    radius = norm(rel_pos)
+    radius < 1e-9 && return zeros(KVec3)
+    radial = rel_pos ./ radius
+    azim = atan(-rel_pos[2], rel_pos[1])
+    return KVec3(transform.elevation_vel .* [-sin(azim), -cos(azim), 0.0] .-
+                 transform.azimuth_vel .* [0.0, 0.0, 1.0] .+
+                 transform.turn_rate .* radial)
+end
+
+"""
+    transform_base_pos(transform, transforms, bodies, points) -> KVec3
+
+World position of the base `transform` rotates about, found as [`reposition!`](@ref)
+finds it: the rotating object of its base transform, or its base point.
+"""
+function transform_base_pos(transform, transforms, bodies, points)
+    if !isnothing(transform.base_transform_idx)
+        return KVec3(get_rot_pos(transforms[something(transform.base_transform_idx)],
+                                 bodies, points))
+    end
+    return KVec3(points[something(transform.base_point_idx)].pos_w)
+end
+
+"""
+    transform_reference_pos(transform, bodies, points) -> KVec3
+
+World position of the object that sets a transform's radial: its heading reference
+body when it has one, otherwise its rotating object.
+"""
+function transform_reference_pos(transform, bodies, points)
+    body = heading_reference_body(transform, bodies)
+    return KVec3(isnothing(body) ? get_rot_pos(transform, bodies, points) : body.pos_w)
+end
+
+"""Whether `transform` has a base to rotate about."""
+has_transform_base(transform) =
+    !isnothing(transform.base_point_idx) || !isnothing(transform.base_transform_idx)
+
+"""
+    update_transform_frames!(sys_struct) -> sys_struct
+
+Write every transform's derived `spin_w` and `base_w` from its rates and the current
+pose ([`frame_spin`](@ref)). Body-frame damping is measured against them, as
+`v − spin_w × (x − base_w)`: the velocity relative to the whole structure turning
+rigidly about its base, so near the ground station a point is damped against the
+ground and near the wing against the wing's flight. Called before every parameter
+sync.
+"""
+function update_transform_frames!(sys_struct::SystemStructure)
+    (; transforms, bodies, points) = sys_struct
+    for transform in transforms
+        has_transform_base(transform) || continue
+        base = transform_base_pos(transform, transforms, bodies, points)
+        rel = transform_reference_pos(transform, bodies, points) .- base
+        transform.base_w .= base
+        transform.spin_w .= frame_spin(transform, rel)
+    end
+    return sys_struct
+end
+
+"""
+    measure_transform_rates!(sys_struct) -> sys_struct
+
+Set each wing transform's `elevation_vel`, `azimuth_vel` and `turn_rate` to the rigid
+rotation about the base that its wing is actually in: `r × v / |r|²` from the wing's
+offset `r` off the base and its velocity `v`, plus the wing's own spin about the
+radial. The three rates are that spin written on the [`frame_spin`](@ref) axes, so
+`frame_spin` gives it back exactly. A transform without a wing, or a wing straight
+above its base where azimuth is undefined, keeps its rates.
+"""
+function measure_transform_rates!(sys_struct::SystemStructure)
+    (; transforms, bodies, points) = sys_struct
+    for transform in transforms
+        (isnothing(transform.wing_idx) || !has_transform_base(transform)) && continue
+        wing = bodies[something(transform.wing_idx)]
+        base = transform_base_pos(transform, transforms, bodies, points)
+        rel = wing.pos_w .- base
+        radius = norm(rel)
+        radius < 1e-9 && continue
+        radial = rel ./ radius
+        spin = cross(rel, wing.vel_w) ./ radius^2 .+
+            dot(wing.R_b_to_w * wing.ω_b, radial) .* radial
+        azim = atan(-rel[2], rel[1])
+        axes = hcat([-sin(azim), -cos(azim), 0.0], [0.0, 0.0, -1.0], collect(radial))
+        abs(det(axes)) < 1e-6 && continue
+        rates = axes \ collect(spin)
+        transform.elevation_vel = rates[1]
+        transform.azimuth_vel = rates[2]
+        transform.turn_rate = rates[3]
+    end
+    return sys_struct
+end
+
+"""
     apply_azimuth_elevation!(transform, points, bodies, base_pos)
 
 Apply the azimuth/elevation rotation of a single transform to all components in

@@ -94,6 +94,7 @@ export WindMode, ProfileWind, PerPointWind, per_point_wind
 
 # --- High-Level Simulation Functions (Workers) ---
 export sim!, sim_reposition!
+export frame_spin, update_transform_frames!, measure_transform_rates!
 
 # --- Low-Level Simulation Functions ---
 export find_steady_state!

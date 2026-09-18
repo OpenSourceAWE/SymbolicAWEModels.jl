@@ -1345,6 +1345,12 @@ mutable struct Transform
     turn_rate::SimFloat
     "Base position [m]. Nothing = derived from base_transform."
     base_pos::Union{KVec3, Nothing}
+    "Derived: world angular velocity [rad/s] of the rigid rotation about `base_w` that
+    `elevation_vel`, `azimuth_vel` and `turn_rate` describe (see
+    [`update_transform_frames!`](@ref)). Body-frame damping is measured against it."
+    const spin_w::KVec3
+    "Derived: world position [m] of the base the transform rotates about."
+    const base_w::KVec3
 end
 
 # Helper to convert ref to NameRef or nothing
@@ -1386,7 +1392,8 @@ function Transform(name, elevation, azimuth, heading;
     Transform(0, name, nothing, wing_ref, nothing, rot_point_ref,
               nothing, base_point_ref, nothing, base_transform_ref,
               elevation, azimuth, heading, elevation_vel, azimuth_vel, turn_rate,
-              isnothing(base_pos) ? nothing : KVec3(base_pos...))
+              isnothing(base_pos) ? nothing : KVec3(base_pos...),
+              zeros(KVec3), zeros(KVec3))
 end
 
 """

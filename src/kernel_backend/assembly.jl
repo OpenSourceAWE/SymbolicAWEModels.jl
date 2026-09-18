@@ -381,6 +381,8 @@ function assemble(sam; verbose = false)
         connect!(builder, body_instances[body.wing_idx], :vel,
                  body_instances[idx], :wing_velocity)
     end
+    add_damping_frames!(builder, table, bindings, sam, point_roles, point_instances,
+                        body_instances)
     for joint in sys_struct.elastic_joints
         add_joint!(builder, table, bindings, sam, joint, body_instances,
                    :elastic_joints, ElasticJointComponent, ELASTIC_RIGIDITIES)
@@ -794,15 +796,20 @@ function add_body!(builder, table, bindings, sam, idx)
         "KernelBackend: body $(body.name) has type $(body.type); only DYNAMIC, " *
         "STATIC and KINEMATIC are supported so far.")
     parented = body.type != STATIC && body.wing_idx != 0
+    framed = framed_body(sam, idx)
     key = body.type == STATIC ? :static_body :
         parented ? :parented_rigid_body : :rigid_body
+    framed && (key = Symbol(key, :_framed))
     make = body.type == STATIC ?
         (params -> StaticBody(sam, params, idx; name = key)) :
-        (params -> RigidBody(sam, params, idx; name = key, parented))
+        (params -> RigidBody(sam, params, idx; name = key, parented, framed))
+    inputs = parented ? PARENTED_BODY_INPUTS : BODY_INPUTS
     entry = kernel!(builder, table, sam, key, idx, make,
-                    parented ? PARENTED_BODY_INPUTS : BODY_INPUTS, BODY_OUTPUTS)
+                    framed ? [inputs; FRAME_INPUTS] : inputs, BODY_OUTPUTS)
     instance = add_instance!(builder, entry.index)
-    push!(bindings, (instance, entry, Dict(:bodies => idx)))
+    index_map = Dict(:bodies => idx)
+    framed && (index_map[:transforms] = body.transform_idx)
+    push!(bindings, (instance, entry, index_map))
     return instance
 end
 
@@ -821,6 +828,158 @@ function add_kinematic_body!(builder, table, bindings, sam, idx)
     instance = add_instance!(builder, entry.index)
     push!(bindings, (instance, entry, Dict(:bodies => idx)))
     return instance
+end
+
+"""
+    mirror_input!(builder, from, from_name, to, to_name)
+
+Feed input `to_name` of instance `to` from every output that already feeds input
+`from_name` of instance `from`, with the same weights: a second reader of a summed
+input such as a point's `mass_in`. Call after `from`'s input is fully wired.
+"""
+function mirror_input!(builder, from, from_name, to, to_name)
+    source_slots = slots(builder.kernels[builder.instances[from].kernel].inputs, from_name)
+    target_slots = slots(builder.kernels[builder.instances[to].kernel].inputs, to_name)
+    length(source_slots) == length(target_slots) || error(
+        "cannot mirror $from_name onto $to_name: widths differ")
+    for (source_slot, target_slot) in zip(source_slots, target_slots)
+        global_source = first(builder.instances[from].inputs) - 1 + source_slot
+        global_target = first(builder.instances[to].inputs) - 1 + target_slot
+        for k in eachindex(builder.targets)
+            builder.targets[k] == global_source || continue
+            push!(builder.sources, builder.sources[k])
+            push!(builder.targets, global_target)
+            push!(builder.weights, builder.weights[k])
+        end
+    end
+    return nothing
+end
+
+"""
+    framed_point(sam, role, idx) -> Bool
+
+Whether point `idx` measures its body-frame damping against its transform's rigid
+motion: a damped wing node inside a transform.
+"""
+framed_point(sam, role, idx) = DAMPING_FRAME[] !== :legacy && role.kind === :wing_node &&
+    sam.sys_struct.points[idx].body_frame_damping !== nothing &&
+    in_transform(sam, :points, idx)
+
+"""
+    framed_body(sam, idx) -> Bool
+
+Whether body `idx` measures its body-frame damping against its transform's rigid
+motion: an integrated body inside a transform.
+"""
+framed_body(sam, idx) = DAMPING_FRAME[] !== :legacy &&
+    sam.sys_struct.bodies[idx].type == DYNAMIC &&
+    in_transform(sam, :bodies, idx)
+
+"""
+    add_damping_frames!(builder, table, bindings, sam, point_roles, point_instances,
+                        body_instances)
+
+Add, per transform with framed components, the kernel that derives the rigid motion
+their damping is measured against, and wire it both ways: under
+[`DAMPING_FRAME`](@ref)` = :fit` a [`FrameFit`](@ref) summing every framed
+component's fit contributions, under `:wing` a [`WingFrameRate`](@ref) reading the
+transform's fitted wing; either feeds `frame_spin`/`frame_stretch` back to every
+framed component.
+"""
+function add_damping_frames!(builder, table, bindings, sam, point_roles,
+                             point_instances, body_instances)
+    sys_struct = sam.sys_struct
+    mode = DAMPING_FRAME[]
+    mode === :legacy && return nothing
+    mode in (:fit, :wing) ||
+        error("DAMPING_FRAME must be :fit, :wing or :legacy, got $mode")
+    for (t, transform) in enumerate(sys_struct.transforms)
+        points = [idx for (idx, role) in enumerate(point_roles)
+                  if framed_point(sam, role, idx) &&
+                     sys_struct.points[idx].transform_idx == t]
+        bodies = [idx for idx in eachindex(sys_struct.bodies)
+                  if framed_body(sam, idx) && sys_struct.bodies[idx].transform_idx == t]
+        framed = [point_instances[points]; body_instances[bodies]]
+        isempty(framed) && continue
+        if mode === :fit
+            entry = kernel!(builder, table, sam, :frame_fit, t,
+                            params -> FrameFit(sam, params; name = :frame_fit),
+                            FRAME_FIT_OUTPUTS, FRAME_INPUTS)
+            instance = add_instance!(builder, entry.index)
+            push!(bindings, (instance, entry, Dict{Symbol, Int}()))
+            for idx in points
+                share_entry = kernel!(builder, table, sam, :frame_point_share, idx,
+                    params -> FramePointShare(sam, params, idx;
+                                              name = :frame_point_share),
+                    [:pos, :vel, :mass_in, :wing_frame], FRAME_FIT_OUTPUTS)
+                share = add_instance!(builder, share_entry.index)
+                push!(bindings, (share, share_entry,
+                                 Dict(:points => idx, :transforms => t)))
+                node = point_instances[idx]
+                connect!(builder, node, :pos, share, :pos)
+                connect!(builder, node, :vel, share, :vel)
+                connect!(builder, body_instances[point_roles[idx].body_idx], :frame,
+                         share, :wing_frame)
+                mirror_input!(builder, node, :mass_in, share, :mass_in)
+                for name in FRAME_FIT_OUTPUTS
+                    connect!(builder, share, name, instance, name)
+                end
+            end
+            for idx in bodies
+                body = sys_struct.bodies[idx]
+                parented = body.wing_idx != 0
+                key = parented ? :frame_parented_body_share : :frame_body_share
+                share_entry = kernel!(builder, table, sam, key, idx,
+                    params -> FrameBodyShare(sam, params, idx; name = key, parented),
+                    [:com, :com_velocity, :frame], FRAME_FIT_OUTPUTS)
+                share = add_instance!(builder, share_entry.index)
+                push!(bindings, (share, share_entry,
+                                 Dict(:bodies => idx, :transforms => t)))
+                connect!(builder, body_instances[idx], :com, share, :com)
+                connect!(builder, body_instances[idx], :com_velocity, share,
+                         :com_velocity)
+                connect!(builder, body_instances[parented ? body.wing_idx : idx],
+                         :frame, share, :frame)
+                for name in FRAME_FIT_OUTPUTS
+                    connect!(builder, share, name, instance, name)
+                end
+            end
+        else
+            wing_idx = something(transform.wing_idx, 0)
+            (wing_idx > 0 && sys_struct.bodies[wing_idx].type == KINEMATIC) || error(
+                "DAMPING_FRAME = :wing needs transform $(transform.name) to position a " *
+                "fitted (KINEMATIC) wing.")
+            entry = kernel!(builder, table, sam, :wing_frame_rate, t,
+                            params -> WingFrameRate(sam, params, t;
+                                                    name = :wing_frame_rate),
+                            WING_RATE_INPUTS, FRAME_INPUTS)
+            instance = add_instance!(builder, entry.index)
+            push!(bindings, (instance, entry, Dict(:transforms => t)))
+            wing = sys_struct.bodies[wing_idx]
+            references = ((wing.z_ref_points[1], :z1_pos, :pos),
+                          (wing.z_ref_points[2], :z2_pos, :pos),
+                          (wing.y_ref_points[1], :y1_pos, :pos),
+                          (wing.y_ref_points[2], :y2_pos, :pos),
+                          (wing.origin, :origin_pos, :pos),
+                          (wing.origin, :origin_vel, :vel),
+                          (wing.z_ref_points[1], :z1_vel, :vel),
+                          (wing.z_ref_points[2], :z2_vel, :vel),
+                          (wing.y_ref_points[1], :y1_vel, :vel),
+                          (wing.y_ref_points[2], :y2_vel, :vel))
+            for (reference, target, source) in references
+                for (position, point) in enumerate(reference.ids)
+                    weight = length(reference.ids) == 1 ? 1.0 :
+                        reference.weights[position]
+                    connect!(builder, point_instances[point], source, instance,
+                             target; weight)
+                end
+            end
+        end
+        for component in framed, name in FRAME_INPUTS
+            connect!(builder, instance, name, component, name)
+        end
+    end
+    return nothing
 end
 
 """
@@ -871,9 +1030,16 @@ function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches,
     entry = if role.kind === :wing_node
         with_damping = sys_struct.points[idx].body_frame_damping !== nothing
         key = with_damping ? :wing_node : :wing_node_undamped
+        framed = framed_point(sam, role, idx)
+        if framed
+            key = :wing_node_framed
+            index_map[:transforms] = sys_struct.points[idx].transform_idx
+        end
         kernel!(builder, table, sam, key, idx,
-                params -> WingNodePoint(sam, params, idx; name = key, with_damping),
-                WING_NODE_INPUTS, PARTICLE_OUTPUTS)
+                params -> WingNodePoint(sam, params, idx; name = key, with_damping,
+                                        framed),
+                framed ? [WING_NODE_INPUTS; FRAME_INPUTS] : WING_NODE_INPUTS,
+                PARTICLE_OUTPUTS)
     elseif role.kind === :particle
         kernel!(builder, table, sam, :particle, idx,
                 params -> Particle(sam, params, idx; name = :particle),

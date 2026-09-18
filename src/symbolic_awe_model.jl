@@ -592,16 +592,24 @@ integrator. Errors on an unstable solver retcode.
     angles of attack and the frozen forces of the last
     converged solve. The next scheduled update solves
     again.
+- `measure_rates=false`: Set every wing transform's rates
+    to the rigid rotation the wing is in before the step
+    ([`measure_transform_rates!`](@ref)). Held for the
+    whole step, the measurement lags a changing turn, so
+    body-frame damping then resists turn acceleration;
+    `false` keeps the rates a caller holds.
 """
 function next_step!(sam::SymbolicAWEModel;
     set_values=nothing, dt=1/sam.set.sample_freq,
-    vsm_interval=1, vsm_min_wind=0.5, vsm_warn_on_fail=false
+    vsm_interval=1, vsm_min_wind=0.5, vsm_warn_on_fail=false,
+    measure_rates=false
 )
     prob = sam.prob
     integrator = sam.integrator
     if isnothing(integrator)
         error("next_step! called before init!: integrator is not initialized")
     end
+    measure_rates && measure_transform_rates!(sam.sys_struct)
     if (isnothing(set_values))
         set_values = [winch.set_value
             for winch in sam.sys_struct.winches]
@@ -705,6 +713,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     body_tag = n_bodies > 0 ? "_$(n_bodies)bdy" : ""
     sparse_tag = sparse ? "_sparse" : ""
     jacobian_tag = analytic_jacobian ? "_analytic" : ""
+    jacobian_tag *= "_frame$(DAMPING_FRAME[])"
 
     return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_stations)grp_$(n_wings)wng_$(n_winches)wch$(body_tag)$(sparse_tag)$(jacobian_tag)$(backend_tag(backend)).bin$suffix"
 end
