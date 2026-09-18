@@ -458,7 +458,6 @@ SymbolicAWEModels.scatter_node_weights
 SymbolicAWEModels.scatter_totals!
 SymbolicAWEModels.zero_weight_pair
 SymbolicAWEModels.scatter_entry_list
-SymbolicAWEModels.panel_span_signs
 SymbolicAWEModels.frame_sections
 SymbolicAWEModels.seed_wing_inertia!
 ```
