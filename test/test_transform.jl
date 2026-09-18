@@ -70,6 +70,7 @@ using LinearAlgebra
         tf.heading = deg2rad(0)
         tf.elevation_vel = 0.0
         tf.azimuth_vel = 0.0
+        tf.turn_rate = 0.0
     end
 
     # Test both wing types
@@ -166,6 +167,44 @@ using LinearAlgebra
                 println("\n  ====== [$dynamics_type_name] Start velocity: " *
                     "elev_vel=$(round(rad2deg(wing.elevation_vel), digits=3))°/s, " *
                     "azim_vel=$(round(rad2deg(wing.azimuth_vel), digits=3))°/s ======\n")
+
+                reset_transform!(sys)
+            end
+
+            # ================================================================
+            # Physics Test 2c: turn_rate spins the structure as it is placed
+            # ================================================================
+            @testset "turn_rate advances the placed heading" begin
+                sys = sam.sys_struct
+                tf = sys.transforms[:main_transform]
+                turn_rate = deg2rad(6.0)
+                dt = 1e-5
+
+                reset_transform!(sys)
+                tf.elevation = deg2rad(70)
+                tf.azimuth = deg2rad(25)
+                tf.heading = deg2rad(15)
+                tf.turn_rate = turn_rate
+                SymbolicAWEModels.reinit!(sys, set)
+                point_pos = [copy(point.pos_w) for point in sys.points]
+                point_vel = [copy(point.vel_w) for point in sys.points]
+                body_pos = [copy(body.pos_w) for body in sys.bodies]
+                body_vel = [copy(body.vel_w) for body in sys.bodies]
+
+                tf.heading += turn_rate * dt
+                tf.turn_rate = 0.0
+                SymbolicAWEModels.reinit!(sys, set)
+
+                for (idx, point) in enumerate(sys.points)
+                    @test (point.pos_w .- point_pos[idx]) ./ dt ≈ point_vel[idx] atol=1e-6
+                end
+                for (idx, body) in enumerate(sys.bodies)
+                    @test (body.pos_w .- body_pos[idx]) ./ dt ≈ body_vel[idx] atol=1e-6
+                end
+
+                println("\n  ====== [$dynamics_type_name] Turn rate: " *
+                    "$(round(rad2deg(turn_rate), digits=2))°/s moves the fastest " *
+                    "point at $(round(maximum(norm, point_vel), digits=3)) m/s ======\n")
 
                 reset_transform!(sys)
             end

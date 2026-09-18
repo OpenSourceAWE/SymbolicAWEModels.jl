@@ -239,7 +239,7 @@ end
         @test !isfile("bare_name.mp4")
     end
 
-    rm(tmpdir; recursive=true)
+    # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
 end
 
 end # if GLMAKIE_AVAILABLE

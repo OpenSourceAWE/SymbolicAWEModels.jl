@@ -98,12 +98,6 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
         end
     end
 
-    # On Windows, load_log keeps an Arrow mmap handle open, so the temp dir
-    # may still be locked here; eager cleanup is best-effort.
-    try
-        rm(tmpdir; recursive=true)
-    catch err
-        err isa Base.IOError || rethrow()
-    end
+    # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
 end
 nothing
