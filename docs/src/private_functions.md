@@ -236,9 +236,7 @@ SymbolicAWEModels.tether_downstream_idxs
 SymbolicAWEModels.station_tethers_by_overlap
 SymbolicAWEModels.tether_unit_stiffness
 SymbolicAWEModels.apply_cluster_init_stretched_len!
-SymbolicAWEModels.apply_tether_init_stretched_lens!
 SymbolicAWEModels.init_unstretched_len
-SymbolicAWEModels.apply_tether_init_forces!
 SymbolicAWEModels.joint_endpoint_frames
 SymbolicAWEModels.init_joint_rest!
 SymbolicAWEModels.timoshenko_element_frame
@@ -487,6 +485,7 @@ SymbolicAWEModels.heading_reference_body
 ```@docs
 SymbolicAWEModels.apply_azimuth_elevation!
 SymbolicAWEModels.apply_heading!
+SymbolicAWEModels.radial_direction
 SymbolicAWEModels.spherical_spin
 SymbolicAWEModels.apply_spherical_velocity!
 SymbolicAWEModels.finalize_transforms!

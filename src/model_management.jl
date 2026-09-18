@@ -562,9 +562,11 @@ return a freshly initialized `ODEIntegrator`.
 - `lin_vsm`: linearize the VSM aerodynamics after init.
 - `remake_vsm`: rebuild the VSM wing/aero from settings (after editing
   `aero_geometry.yaml` etc.).
-- `reset_vel`, `ignore_l0`: forwarded to `reinit!(sys_struct, set)`.
-- `reinit_sys`: run `reinit!(sys_struct, set)` to refresh positions, lengths, and
-  transforms. `false` preserves manual adjustments to the `SystemStructure`.
+- `reset_vel`, `ignore_l0`, `apply_tether_lengths`: forwarded to
+  `reinit!(sys_struct, set)`.
+- `reinit_sys`: place the `SystemStructure` with `reinit!(sys_struct, set)`,
+  which runs all of its steps. `false` takes the structure as it is: run the steps
+  of `reinit!` wanted on `sam.sys_struct` first.
 - `reset_integrator`: discard the existing integrator and build a fresh one, so no
   stale BDF history taints the next run.
 - `vsm_min_wind=0.5`: minimum |va| [m/s] for the initial VSM solve. Below this the
@@ -786,7 +788,7 @@ This is used to check if a cached compiled model is still valid.
 - `:segments`: Number of tether segments (affects state vector size)
 - `:model`: Kite model name (affects geometry)
 - `:foil_file`: Airfoil data file (affects VSM setup)
-- `:physical_model`: Model type (ram, simple_ram, 4_attach_ram)
+- `:physical_model`: Free-form name of the physical model (affects geometry)
 - `:winch_model`: Winch dynamics model (affects winch equations)
 
 Anything read back from a struct at sync time stays out, so one build serves a sweep
