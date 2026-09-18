@@ -221,12 +221,11 @@ function aero_component(mode::ContinuousAero, wing::ParticleWing, sys_struct;
     sec_va, sec_rho, sec_dva =
         reconstruct_inflow_sym(mode, wing, connectors, column)
 
-    orient = panel_span_signs(wing, spanwise)
     wagner_eqs, wagner_vars, deficiency, wagner_defaults =
         wagner_wing_eqs(wing, sec_va, params)
     eqs, panel_vars, panel_force, panel_couple, curvature_couple, slots =
         build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
-            cl, cd, cm, spanwise, scale, orient; sec_dva, deficiency)
+            cl, cd, cm, spanwise, scale; sec_dva, deficiency)
     append!(eqs, wagner_eqs)
     vars = particle_unknowns(connectors)
     append!(vars, panel_vars)
