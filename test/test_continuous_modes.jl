@@ -30,7 +30,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, aero_inflow_groups, wing_points,
-    panel_span_signs, AERO_SCALE_CHORD
+    AERO_SCALE_CHORD
 using KiteUtils
 using LinearAlgebra
 
@@ -170,7 +170,6 @@ group_means(groups, values) =
                 VortexStepMethod.solve!(solver, wing.vsm_aero)
                 panels = wing.vsm_aero.panels
                 spanwise = collect(Float64, wing.vsm_wing.spanwise_direction)
-                orient = panel_span_signs(wing, spanwise)
                 scale = 1.0 + (isfinite(wing.aero_scale_chord) ?
                     wing.aero_scale_chord : AERO_SCALE_CHORD)
                 @test scale == 1.0
@@ -193,7 +192,7 @@ group_means(groups, values) =
                          mode.v_ind[:, i], nothing, nothing),
                         alpha -> (VortexStepMethod.calculate_cl(panel, alpha),
                             VortexStepMethod.calculate_cd_cm(panel, alpha)...),
-                        spanwise, scale, orient[i], mode.chord_weight[i])
+                        spanwise, scale, mode.chord_weight[i])
                     reference_q = 0.5 * solver.density * solver.lr.v_a_dist[i]^2
                     reference_couple = solver.sol.panel_moment_dist[i] *
                         panel.width / panel.chord .* Vector(panel.z_airf)
