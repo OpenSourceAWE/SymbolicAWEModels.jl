@@ -190,9 +190,9 @@ Opt-in panels (all default `false`): `plot_twist`, `plot_turn_rates`,
 `plot_yaw_rate`, `plot_cone_angle`, `plot_old_heading`,
 `plot_kiteutils_course`, `plot_set_values`.
 
-Appearance: `suffix::String=" - " * sys.name`, `size::Tuple=(1200, 800)`,
-`label_fontsize::Int=16`, `ticklabelsize::Int=12`, `legendsize::Int=10`, and
-the per-panel limits `aoa_ylims`, `gk_ylims`, `turn_radius_ylims`.
+Appearance: `suffixes::Vector{String}` (one label suffix per log, defaulting to
+the system names), `size::Tuple=(1200, 800)`, `label_fontsize::Int=16`,
+`ticklabelsize::Int=12`, `legendsize::Int=10`, and `turn_radius_ylims`.
 
 Passing a `Vector{SysLog}` instead of a single log overlays several runs on the
 same panels for comparison.
