@@ -485,6 +485,7 @@ SymbolicAWEModels.heading_reference_body
 ```@docs
 SymbolicAWEModels.apply_azimuth_elevation!
 SymbolicAWEModels.apply_heading!
+SymbolicAWEModels.radial_direction
 SymbolicAWEModels.spherical_spin
 SymbolicAWEModels.apply_spherical_velocity!
 SymbolicAWEModels.finalize_transforms!
