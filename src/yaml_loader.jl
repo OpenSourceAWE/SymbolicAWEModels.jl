@@ -332,9 +332,9 @@ args and kwargs from YAML row and calls constructor.
 
 # Example
 ```julia
-row = (idx=1, x=0.0, y=0.0, z=0.0, type="STATIC")
+row = (name=1, x=0.0, y=0.0, z=0.0, type="STATIC")
 point = call_yaml_constructor(Point, row,
-    [:idx, :pos_cad, :type],  # positional args
+    [:name, :pos_cad, :type],  # positional args
     [:extra_mass, :wing_idx];       # kwargs
     mappings=Dict(
         :pos_cad => r -> [Float64(r.x),

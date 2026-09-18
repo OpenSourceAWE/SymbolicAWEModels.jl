@@ -75,22 +75,22 @@ Here is a complete YAML file for a simple two-point tether:
 # simple_tether.yaml
 
 points:
-  headers: [pos_cad, type, wing_idx, transform_idx, extra_mass]
+  headers: [name, pos_cad, type, wing_idx, transform_idx, extra_mass]
   data:
-    - [[0, 0, 0], STATIC, nothing, 1, 0.0]
-    - [[0, 0, -50], DYNAMIC, nothing, 1, 1.0]
+    - [1, [0, 0, 0], STATIC, nothing, 1, 0.0]
+    - [2, [0, 0, -50], DYNAMIC, nothing, 1, 1.0]
 
 segments:
-  headers: [point_i, point_j, l0, diameter_mm,
+  headers: [name, point_i, point_j, l0, diameter_mm,
             unit_stiffness, unit_damping, compression_frac]
   data:
-    - [1, 2, 50.0, 5.0, 100000, 50.0, 0.001]
+    - [1, 1, 2, 50.0, 5.0, 100000, 50.0, 0.001]
 
 transforms:
-  headers: [elevation, azimuth, heading,
+  headers: [name, elevation, azimuth, heading,
             base_pos, base_point_idx, rot_point_idx]
   data:
-    - [-80, 0, 0, [0, 0, 50], 1, 2]
+    - [1, -80, 0, 0, [0, 0, 50], 1, 2]
 ```
 
 Load and simulate:
@@ -214,7 +214,7 @@ points:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | String/Int | required | Point identifier |
+| `name` | String/Int | row number | Point identifier |
 | `pos_cad` | [x,y,z] | required | Position in CAD frame [m] |
 | `type` | String | required | `STATIC`, `DYNAMIC`, or `BODY_STATIC` |
 | `wing_idx` | Int/nothing | none | Wing this point belongs to; omit it, or `0`, for a point that belongs to none |
@@ -239,10 +239,10 @@ gives one, and is otherwise derived from `pos_cad`.
 
 ```yaml
 segments:
-  headers: [point_i, point_j, l0, diameter_mm,
+  headers: [name, point_i, point_j, l0, diameter_mm,
             unit_stiffness, unit_damping, compression_frac]
   data:
-    - [1, 2, 5.0, 5.0, 100000, 50.0, 0.01]
+    - [1, 1, 2, 5.0, 5.0, 100000, 50.0, 0.01]
 ```
 
 The material columns can also come from a multi-variable, see
@@ -266,9 +266,9 @@ The material columns can also come from a multi-variable, see
 
 ```yaml
 pulleys:
-  headers: [segment_i, segment_j, type, efficiency]
+  headers: [name, segment_i, segment_j, type, efficiency]
   data:
-    - [3, 4, DYNAMIC, 0.95]
+    - [1, 3, 4, DYNAMIC, 0.95]
 ```
 
 | Field | Type | Default | Description |
@@ -286,9 +286,9 @@ pulleys:
 **Route 1** (explicit segments):
 ```yaml
 tethers:
-  headers: [segment_idxs]
+  headers: [name, segment_idxs]
   data:
-    - [[1, 2, 3]]
+    - [1, [1, 2, 3]]
 ```
 
 **Route 2** (auto-generated segments):
@@ -316,9 +316,9 @@ how a plain line is split into several segments.
 
 ```yaml
 winches:
-  headers: [tether_idxs, winch_point]
+  headers: [name, tether_idxs, winch_point]
   data:
-    - [[1], ground]
+    - [1, [1], ground]
 ```
 
 ### Stations
@@ -390,10 +390,10 @@ supplied programmatically, not from YAML.
 
 ```yaml
 transforms:
-  headers: [elevation, azimuth, heading,
+  headers: [name, elevation, azimuth, heading,
             base_pos, base_point_idx, rot_point_idx]
   data:
-    - [-80, 0, 0, [0, 0, 50], 1, 2]
+    - [1, -80, 0, 0, [0, 0, 50], 1, 2]
 ```
 
 ## Loading workflow

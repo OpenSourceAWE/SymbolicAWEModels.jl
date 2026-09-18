@@ -26,40 +26,40 @@ using KiteUtils
 # Layout mirrors particle_structural_geometry.yaml.
 const WEIGHTED_REF_YAML = """
 points:
-  headers: [pos_cad, type, wing_idx, transform_idx,
+  headers: [name, pos_cad, type, wing_idx, transform_idx,
             extra_mass, body_frame_damping,
             world_frame_damping, area, drag_coeff]
   data:
-    - [[-0.5, 1.0, 2.0], DYNAMIC, 1, 1,
+    - [1, [-0.5, 1.0, 2.0], DYNAMIC, 1, 1,
        0.1, 10.0, 0.0, 0.0, 0.0]
-    - [[0.5, 1.0, 2.3], DYNAMIC, 1, 1,
+    - [2, [0.5, 1.0, 2.3], DYNAMIC, 1, 1,
        0.1, 10.0, 0.0, 0.0, 0.0]
-    - [[-0.5, 0.0, 2.5], DYNAMIC, 1, 1,
+    - [3, [-0.5, 0.0, 2.5], DYNAMIC, 1, 1,
        0.1, 10.0, 0.0, 0.0, 0.0]
-    - [[0.5, 0.0, 2.8], DYNAMIC, 1, 1,
+    - [4, [0.5, 0.0, 2.8], DYNAMIC, 1, 1,
        0.1, 10.0, 0.0, 0.0, 0.0]
-    - [[-0.5, -1.0, 2.0], DYNAMIC, 1, 1,
+    - [5, [-0.5, -1.0, 2.0], DYNAMIC, 1, 1,
        0.1, 10.0, 0.0, 0.0, 0.0]
-    - [[0.5, -1.0, 2.3], DYNAMIC, 1, 1,
+    - [6, [0.5, -1.0, 2.3], DYNAMIC, 1, 1,
        0.1, 10.0, 0.0, 0.0, 0.0]
-    - [[0.0, 0.0, 0.0], DYNAMIC, 1, 1,
+    - [7, [0.0, 0.0, 0.0], DYNAMIC, 1, 1,
        1.0, 0.0, 0.0, 0.1, 1.0]
-    - [[0.0, 0.0, -20.0], STATIC, 1, 1,
+    - [8, [0.0, 0.0, -20.0], STATIC, 1, 1,
        0.0, 0.0, 0.0, 0.0, 0.0]
-    - [[1.0, 0.0, 0.0], DYNAMIC, 1, 1,
+    - [9, [1.0, 0.0, 0.0], DYNAMIC, 1, 1,
        1.0, 0.0, 0.0, 0.1, 1.0]
 
 segments:
-  headers: [point_i, point_j, l0, diameter_mm,
+  headers: [name, point_i, point_j, l0, diameter_mm,
             unit_stiffness, unit_damping, compression_frac]
   data:
-    - [1, 2, 0, 1.0, 5000.0, 10.0, 1.0]
-    - [3, 4, 0, 1.0, 5000.0, 10.0, 1.0]
-    - [5, 6, 0, 1.0, 5000.0, 10.0, 1.0]
-    - [1, 7, 0, 1.0, 5000.0, 10.0, 0.01]
-    - [3, 7, 0, 1.0, 5000.0, 10.0, 0.01]
-    - [5, 7, 0, 1.0, 5000.0, 10.0, 0.01]
-    - [7, 9, 0, 1.0, 5000.0, 10.0, 0.01]
+    - [1, 1, 2, 0, 1.0, 5000.0, 10.0, 1.0]
+    - [2, 3, 4, 0, 1.0, 5000.0, 10.0, 1.0]
+    - [3, 5, 6, 0, 1.0, 5000.0, 10.0, 1.0]
+    - [4, 1, 7, 0, 1.0, 5000.0, 10.0, 0.01]
+    - [5, 3, 7, 0, 1.0, 5000.0, 10.0, 0.01]
+    - [6, 5, 7, 0, 1.0, 5000.0, 10.0, 0.01]
+    - [7, 7, 9, 0, 1.0, 5000.0, 10.0, 0.01]
 
 stations:
   headers: [name, point_idxs, type, moment_frac, damping]
@@ -70,7 +70,8 @@ stations:
 
 wings:
   data:
-    - dynamics_type: PARTICLE_DYNAMICS
+    - name: 1
+      dynamics_type: PARTICLE_DYNAMICS
       aero_mode: AERO_NONE
       stations: [ts_left, ts_center, ts_right]
       origin_idx: [[7, 0.7], [9, 0.3]]
@@ -79,7 +80,8 @@ wings:
 
 transforms:
   data:
-    - elevation: 50
+    - name: 1
+      elevation: 50
       azimuth: 0.0
       heading: 0.0
       wing_idx: 1
