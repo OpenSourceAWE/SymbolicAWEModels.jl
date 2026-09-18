@@ -407,6 +407,9 @@ LE/TE pairs, `match_aero_sections_to_structure!` rebuilds the unrefined sections
 so their geometry matches the structure. This applies to both wing types and
 requires `use_prior_polar=true` on the VortexStepMethod wing.
 
+The sections, and the structural stations they are matched to, run from +y to -y,
+the order VortexStepMethod builds its panels in. A wing in the other order errors.
+
 The steps are:
 
 1. **Find structural LE/TE pairs**: `identify_wing_segments` extracts pairs from
