@@ -9,6 +9,8 @@
   simulation, say — only has to point `set_output_path` at a folder of its own.
 
 ### Changed
+- Julia 1.11 is no longer supported: the package installs on Julia 1.12 and 1.13,
+  the two versions CI tests.
 - Simulation results are written to the output folder instead of the working
   directory or the data folder. `sim!` and `sim_reposition!` save their `SysLog`
   under `get_output_path()`, `record` resolves a relative filename there, and the
