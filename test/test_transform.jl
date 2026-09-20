@@ -22,7 +22,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod,
-    calc_heading, reposition!, write_wing_scalars!
+    calc_heading, reinit!, reposition!, write_wing_scalars!
 using KiteUtils
 using LinearAlgebra
 
@@ -366,6 +366,53 @@ using LinearAlgebra
             test_reposition_heading(
                 sam, KVec3(10.0, 5.0, 0.0),
                 "non-origin base")
+
+            # ================================================================
+            # Physics Test 10: reposition! turns velocities with the pose,
+            # so the structure's own motion is what it was before.
+            # ================================================================
+            @testset "Reposition turns velocities with the pose" begin
+                sys = sam.sys_struct
+                tf = sys.transforms[:main_transform]
+                reset_transform!(sys)
+                test_init!(sam; prn=false)
+                moved = [point for point in sys.points
+                         if point.transform_idx == tf.idx]
+                for (i, point) in enumerate(moved)
+                    point.vel_w .= [0.3i, -0.2i, 0.1i]
+                end
+                base = copy(sys.points[:ground].pos_w)
+                along_offset(point) = dot(point.vel_w, point.pos_w .- base)
+                before = along_offset.(moved)
+
+                tf.heading = deg2rad(25)
+                tf.elevation = deg2rad(60)
+                reposition!(sys.transforms, sys)
+
+                @test along_offset.(moved) ≈ before atol=1e-8
+            end
+
+            # ================================================================
+            # Physics Test 11: reinit! places the structure from CAD, so the
+            # velocities it is handed are already world ones and stay put.
+            # ================================================================
+            @testset "Reinit leaves supplied velocities alone" begin
+                sys = sam.sys_struct
+                tf = sys.transforms[:main_transform]
+                reset_transform!(sys)
+                test_init!(sam; prn=false)
+                moved = [point for point in sys.points
+                         if point.transform_idx == tf.idx]
+                for (i, point) in enumerate(moved)
+                    point.vel_w .= [0.3i, -0.2i, 0.1i]
+                end
+                before = [copy(point.vel_w) for point in moved]
+
+                tf.heading = deg2rad(25)
+                reinit!(sys.transforms, sys; update_vel=false)
+
+                @test all(point.vel_w ≈ before[i] for (i, point) in enumerate(moved))
+            end
         end
     end
 
