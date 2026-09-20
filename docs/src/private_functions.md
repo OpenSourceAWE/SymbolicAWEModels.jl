@@ -242,6 +242,7 @@ SymbolicAWEModels.pulley_rows
 SymbolicAWEModels.tether_rows
 SymbolicAWEModels.winch_rows
 SymbolicAWEModels.body_rows
+SymbolicAWEModels.joint_bodies
 SymbolicAWEModels.elastic_joint_rows
 SymbolicAWEModels.timoshenko_joint_rows
 SymbolicAWEModels.is_wing_row
@@ -249,6 +250,7 @@ SymbolicAWEModels.document_rows
 SymbolicAWEModels.check_document_version
 SymbolicAWEModels.check_connectivity
 SymbolicAWEModels.named_model
+SymbolicAWEModels.read_point
 SymbolicAWEModels.read_wing
 SymbolicAWEModels.apply_body_row!
 SymbolicAWEModels.document_format
