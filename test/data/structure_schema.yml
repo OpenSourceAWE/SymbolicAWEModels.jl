@@ -92,9 +92,13 @@ properties:
   # --------------------------------------------------------------------------
   points:
     description: >
-      Mass points. `body` names the rigid body a BODY_STATIC point is fixed to.
-      `wing` names the wing a point belongs to where `body` does not already
-      name it, and is null otherwise, so a point on a wing names that wing once.
+      Mass points. `body` names the rigid body a BODY_STATIC point is fixed to,
+      and that body's row names the wing it is part of, so `wing` is null
+      wherever `body` is given. `wing` is for a point with no body: a free node
+      of a wing meshed as particles.
+      `mass` [kg] is the point's own mass, without its segments' share; a body's
+      mass properties already include the points fixed to it. `drag_area` [m²]
+      is the cross-sectional area `drag_coefficient` [-] refers to.
     allOf:
       - $ref: "#/definitions/table"
       - properties:
@@ -105,7 +109,10 @@ properties:
               - const: body
               - const: wing
               - const: pos_cad
-            minItems: 5
+              - const: mass
+              - const: drag_area
+              - const: drag_coefficient
+            minItems: 8
           data:
             items:
               type: array
@@ -115,7 +122,10 @@ properties:
                 - $ref: "#/definitions/optional_name"
                 - $ref: "#/definitions/optional_name"
                 - $ref: "#/definitions/vec3"
-              minItems: 5
+                - $ref: "#/definitions/non_negative"
+                - $ref: "#/definitions/non_negative"
+                - $ref: "#/definitions/non_negative"
+              minItems: 8
 
   segments:
     allOf:
@@ -153,7 +163,7 @@ properties:
       Groups of points sharing one twist degree of freedom. A station is a
       structural group, not an aerodynamic section: a wing is typically meshed
       into many more aerodynamic sections than it has stations, and the two must
-      not be conflated.
+      not be conflated. `wing` names the wing whose twist the station carries.
     allOf:
       - $ref: "#/definitions/table"
       - properties:
@@ -161,20 +171,22 @@ properties:
             items:
               - const: name
               - const: type
+              - const: wing
               - const: points
               - const: stiffness
               - const: damping
-            minItems: 5
+            minItems: 6
           data:
             items:
               type: array
               items:
                 - $ref: "#/definitions/component_name"
                 - $ref: "#/definitions/dynamics_type"
+                - $ref: "#/definitions/component_name"
                 - $ref: "#/definitions/name_list"
                 - $ref: "#/definitions/non_negative"
                 - $ref: "#/definitions/non_negative"
-              minItems: 5
+              minItems: 6
 
   pulleys:
     allOf:
@@ -200,7 +212,8 @@ properties:
   tethers:
     description: >
       Ordered runs of segments between two points. Material lives on the
-      segments; a tether is the grouping a winch reels.
+      segments; a tether is the grouping a winch reels, and the length it is
+      reeled from is its segments' `l0`.
     allOf:
       - $ref: "#/definitions/table"
       - properties:
@@ -253,7 +266,9 @@ properties:
     description: >
       Rigid bodies. A wing is a body that carries an aerodynamic model, so the
       wings of a system are the rows whose `aero` is not null; there is no
-      separate wings block to fall out of step with this one.
+      separate wings block to fall out of step with this one. `wing` names the
+      wing a body is part of, and is null both on a wing's own row and on a body
+      belonging to none.
     allOf:
       - $ref: "#/definitions/table"
       - properties:

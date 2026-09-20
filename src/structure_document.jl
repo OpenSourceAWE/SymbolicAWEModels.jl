@@ -12,11 +12,12 @@ const STRUCTURE_SCHEMA = "structure_schema.yml"
 
 """Columns of every document block, in the order `structure_schema.yml` fixes them."""
 const DOCUMENT_HEADERS = OrderedDict(
-    "points" => ["name", "type", "body", "wing", "pos_cad"],
+    "points" => ["name", "type", "body", "wing", "pos_cad", "mass",
+                 "drag_area", "drag_coefficient"],
     "segments" => ["name", "points", "l0", "diameter", "density",
                    "unit_stiffness", "unit_damping", "compression_frac",
                    "compression_damping_frac"],
-    "stations" => ["name", "type", "points", "stiffness", "damping",
+    "stations" => ["name", "type", "wing", "points", "stiffness", "damping",
                    "moment_frac"],
     "pulleys" => ["name", "segments", "type", "efficiency"],
     "tethers" => ["name", "start_point", "end_point", "segments"],
@@ -105,8 +106,7 @@ carrying its own geometry and material. Returns nested `OrderedDict`s and
 `Vector`s, which [`save_structure_document`](@ref) encodes as YAML or JSON.
 
 The schema describes structure only, so the transforms that place the system in
-the world, the live state, and the point masses and drag properties it has no
-column for are left out.
+the world and the live state are left out.
 """
 function structure_document(sys::SystemStructure; name::AbstractString=sys.name,
         description::AbstractString="", note::AbstractString="")
@@ -140,16 +140,17 @@ document_table(block::AbstractString, rows) = OrderedDict{String, Any}(
     "headers" => DOCUMENT_HEADERS[block], "data" => rows)
 
 """
-Rows of the `points` block. A point on a wing names that wing once: `wing` is
-null where `body` already names it.
+Rows of the `points` block. The body a point is fixed to names the wing it is
+part of, so `wing` carries only a point that has no body.
 """
 function point_rows(sys::SystemStructure)
     return map(sys.points) do point
         body = ref_name(sys.bodies, point.body_idx)
-        wing = point.is_wing_node ?
+        wing = isnothing(body) && point.is_wing_node ?
             component_name(sys.wings[point.wing_idx]) : nothing
-        Any[component_name(point), string(point.type), body,
-            wing == body ? nothing : wing, vector3(point.pos_cad)]
+        Any[component_name(point), string(point.type), body, wing,
+            vector3(point.pos_cad), point.extra_mass, point.area,
+            point.drag_coeff]
     end
 end
 
@@ -168,9 +169,33 @@ segment_rows(sys::SystemStructure) =
 station_rows(sys::SystemStructure) =
     [Any[component_name(station),
          string(station.type),
+         station_wing(sys, station),
          ref_names(sys.points, station.point_idxs),
          station.stiffness, station.damping, station.moment_frac]
      for station in sys.stations]
+
+"""
+    station_wing(sys, station) -> String
+
+Name of the wing whose twist `station` carries: its own reference where it has
+one, and the wing its points sit on where it does not.
+"""
+function station_wing(sys::SystemStructure, station::Station)
+    station.wing_idx == 0 || return component_name(sys.wings[station.wing_idx])
+    wings = unique(point_wing(sys, sys.points[idx]) for idx in station.point_idxs)
+    (length(wings) == 1 && !isnothing(only(wings))) || error(
+        "Station $(station.name) names no wing and its points do not agree on " *
+        "one ($(join(wings, ", "))); a structure document states it.")
+    return only(wings)
+end
+
+"""Name of the wing a point is part of: its own reference, or its body's."""
+function point_wing(sys::SystemStructure, point::Point)
+    point.body_idx == 0 && return point.is_wing_node ?
+        component_name(sys.wings[point.wing_idx]) : nothing
+    body = sys.bodies[point.body_idx]
+    return is_wing(body) ? component_name(body) : ref_name(sys.wings, body.wing_idx)
+end
 
 """Rows of the `pulleys` block."""
 pulley_rows(sys::SystemStructure) =
@@ -256,17 +281,18 @@ function sys_struct_from_document(doc::AbstractDict; set=nothing, vsm_set=nothin
     resolved_set = isnothing(set) ? load_settings("base") : set
 
     wing_rows = filter(is_wing_row, rows["bodies"])
-    wing_names = Set(row["name"] for row in wing_rows)
+    wing_by_body = Dict(row["name"] => is_wing_row(row) ? row["name"] : row["wing"]
+                        for row in rows["bodies"])
 
     sys_struct = SystemStructure(string(metadata["name"]), resolved_set;
-        points = Point[read_point(row, wing_names) for row in rows["points"]],
+        points = Point[read_point(row, wing_by_body) for row in rows["points"]],
         stations = Station[read_station(row) for row in rows["stations"]],
         segments = Segment[read_segment(row) for row in rows["segments"]],
         pulleys = Pulley[read_pulley(row) for row in rows["pulleys"]],
         tethers = Tether[read_tether(row) for row in rows["tethers"]],
         winches = Winch[read_winch(row, resolved_set) for row in rows["winches"]],
-        wings = Body[read_wing(row, rows["stations"], rows["points"],
-                               resolved_set, vsm_set) for row in wing_rows],
+        wings = Body[read_wing(row, rows["stations"], resolved_set, vsm_set)
+                     for row in wing_rows],
         bodies = Body[read_body(row) for row in rows["bodies"] if !is_wing_row(row)],
         elastic_joints = ElasticJoint[read_elastic_joint(row)
                                       for row in rows["elastic_joints"]],
@@ -350,15 +376,18 @@ function named_model(name::AbstractString, ::Type{T}) where T
 end
 
 """
-    read_point(row, wing_names) -> Point
+    read_point(row, wing_by_body) -> Point
 
-The point `row` describes. A point on a wing names that wing once, in whichever
-of `body` and `wing` carries it, and a `Point` wants both.
+The point `row` describes. A `Point` wants the wing as well as the body, which
+the document leaves to the body's own row: `wing_by_body` maps each body name to
+the wing it is part of.
 """
-read_point(row, wing_names) = Point(Symbol(row["name"]), vector3(row["pos_cad"]),
+read_point(row, wing_by_body) = Point(Symbol(row["name"]), vector3(row["pos_cad"]),
     parse_dynamics_type(row["type"]); body = optional_symbol(row["body"]),
-    wing = optional_symbol(isnothing(row["wing"]) && row["body"] in wing_names ?
-                           row["body"] : row["wing"]))
+    wing = optional_symbol(isnothing(row["body"]) ? row["wing"] :
+                           wing_by_body[row["body"]]),
+    extra_mass = Float64(row["mass"]), area = Float64(row["drag_area"]),
+    drag_coeff = Float64(row["drag_coefficient"]))
 
 read_segment(row) = Segment(Symbol(row["name"]), Symbol(row["points"][1]),
     Symbol(row["points"][2]),
@@ -370,6 +399,7 @@ read_segment(row) = Segment(Symbol(row["name"]), Symbol(row["points"][1]),
 
 read_station(row) = Station(Symbol(row["name"]), Symbol.(row["points"]),
     parse_dynamics_type(row["type"]), Float64(get(row, "moment_frac", 0.0));
+    wing = Symbol(row["wing"]),
     stiffness = Float64(row["stiffness"]), damping = Float64(row["damping"]))
 
 read_pulley(row) = Pulley(Symbol(row["name"]), Symbol(row["segments"][1]),
@@ -392,19 +422,16 @@ read_body(row) = Body(Symbol(row["name"]); mass = Float64(row["mass"]),
     type = parse_dynamics_type(row["type"]), wing = optional_symbol(row["wing"]))
 
 """
-    read_wing(row, station_rows, point_rows, set, vsm_set) -> Body
+    read_wing(row, station_rows, set, vsm_set) -> Body
 
-The aero-carrying body `row` describes. The document has no wing column on a
-station, so a wing's stations are those whose points name it.
+The aero-carrying body `row` describes, with the stations whose `wing` names it.
 """
-function read_wing(row, station_rows, point_rows, set, vsm_set)
+function read_wing(row, station_rows, set, vsm_set)
     parse_dynamics_type(row["type"]) == KINEMATIC && error(
         "Wing $(row["name"]) is KINEMATIC, a PARTICLE_DYNAMICS wing whose body " *
         "frame is fitted to reference points $STRUCTURE_SCHEMA has no column for.")
-    on_wing = Set(point["name"] for point in point_rows
-                  if row["name"] in (point["wing"], point["body"]))
     stations = [Symbol(station["name"]) for station in station_rows
-                if all(in(on_wing), station["points"])]
+                if station["wing"] == row["name"]]
     return VSMWing(Symbol(row["name"]), set, stations, vsm_set;
         transform = 0, dynamics_type = RIGID_DYNAMICS,
         aero = named_model(row["aero"], AbstractAeroModel),

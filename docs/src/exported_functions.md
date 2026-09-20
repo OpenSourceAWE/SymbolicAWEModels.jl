@@ -42,9 +42,8 @@ resolved points, segments, stations, pulleys, tethers, winches, bodies and
 joints as one `headers`/`data` table per block, conforming to awesIO's
 `structure_schema.yml`. YAML and JSON are two encodings of the one document, and
 the file extension picks between them. The document is structure only: the
-transforms that place the system in the world, the live state, and the point
-masses and drag properties the schema has no column for do not survive a round
-trip.
+transforms that place the system in the world and the live state do not survive a
+round trip.
 
 ```@docs
 structure_document

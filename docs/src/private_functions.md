@@ -238,6 +238,8 @@ SymbolicAWEModels.document_table
 SymbolicAWEModels.point_rows
 SymbolicAWEModels.segment_rows
 SymbolicAWEModels.station_rows
+SymbolicAWEModels.station_wing
+SymbolicAWEModels.point_wing
 SymbolicAWEModels.pulley_rows
 SymbolicAWEModels.tether_rows
 SymbolicAWEModels.winch_rows
