@@ -123,8 +123,9 @@ undefined.
 #### Force distribution
 
 Integrated force and moment coefficients are applied to the rigid body, driving
-quaternion dynamics. Each station's aerodynamic moment is the sum of its
-unrefined section moments, driving the twist DOF.
+quaternion dynamics. Each station's aerodynamic moment is the sum of the moments of
+the panels nearest its centre, driving the twist DOF. Those panels also set its share
+of any wing mass that sits on no point, which its twist inertia counts.
 
 ## Aero modes
 
