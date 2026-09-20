@@ -287,6 +287,7 @@ SymbolicAWEModels.finalize_particle_wing_mass!
 SymbolicAWEModels.compute_station_geometry!
 SymbolicAWEModels.setup_particle_point_mapping!
 SymbolicAWEModels.identify_wing_segments
+SymbolicAWEModels.check_span_order
 SymbolicAWEModels.match_aero_sections_to_structure!
 SymbolicAWEModels.compute_spatial_station_mapping!
 SymbolicAWEModels.copy_cad_to_world!
@@ -405,8 +406,11 @@ SymbolicAWEModels.surface_node_forces
 SymbolicAWEModels.couple_shape
 SymbolicAWEModels.build_mesh_maps!
 SymbolicAWEModels.store_induced_velocity!
+SymbolicAWEModels.panel_corners
+SymbolicAWEModels.panel_span_width
 SymbolicAWEModels.chord_blend_weights!
 SymbolicAWEModels.store_chord_weights!
+SymbolicAWEModels.corner_chord_weights
 SymbolicAWEModels.size_frozen_panel_buffers!
 SymbolicAWEModels.build_section_interp
 SymbolicAWEModels.section_interp_caches
@@ -489,7 +493,6 @@ SymbolicAWEModels.scatter_node_weights
 SymbolicAWEModels.scatter_totals!
 SymbolicAWEModels.zero_weight_pair
 SymbolicAWEModels.scatter_entry_list
-SymbolicAWEModels.panel_span_signs
 SymbolicAWEModels.frame_sections
 SymbolicAWEModels.seed_wing_inertia!
 ```
@@ -520,6 +523,7 @@ SymbolicAWEModels.heading_reference_body
 ```@docs
 SymbolicAWEModels.apply_azimuth_elevation!
 SymbolicAWEModels.apply_heading!
+SymbolicAWEModels.radial_direction
 SymbolicAWEModels.spherical_spin
 SymbolicAWEModels.apply_spherical_velocity!
 SymbolicAWEModels.finalize_transforms!

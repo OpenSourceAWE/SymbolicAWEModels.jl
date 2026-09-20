@@ -788,7 +788,7 @@ This is used to check if a cached compiled model is still valid.
 - `:segments`: Number of tether segments (affects state vector size)
 - `:model`: Kite model name (affects geometry)
 - `:foil_file`: Airfoil data file (affects VSM setup)
-- `:physical_model`: Model type (ram, simple_ram, 4_attach_ram)
+- `:physical_model`: Free-form name of the physical model (affects geometry)
 - `:winch_model`: Winch dynamics model (affects winch equations)
 
 Anything read back from a struct at sync time stays out, so one build serves a sweep

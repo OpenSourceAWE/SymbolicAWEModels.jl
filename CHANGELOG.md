@@ -10,6 +10,26 @@
   loader. The document is the resolved structure — points, segments, stations,
   pulleys, tethers, winches, bodies and joints, every reference by name — without
   the transforms that place it in the world.
+
+### Fixed
+- A live polar's control points are measured in the panel's own `panel_axes`
+  frame over its corners, which is the frame its contour nodes are lofted along.
+  The hand-built frame they used before measured along the unleaned mid-chord
+  axis over `norm(chord_vec)`, so on a swept or tapered panel the chord fraction
+  and the camber offset were on a different scale from the nodes they are
+  matched against.
+- A wing whose aerodynamic sections, or the structural stations they are matched
+  to, run from -y to +y errors when its aero is set up or refreshed, instead of
+  running on aero that order does not support. The only supported order is
+  VortexStepMethod's, +y to -y.
+
+### Changed
+- Julia 1.11 is no longer supported: the package installs on Julia 1.12 and 1.13,
+  the two versions CI tests.
+
+## SymbolicAWEModels v0.18.1 2026-09-16
+
+### Added
 - `set_unstretched_length!(sys_struct, tether, len)` sets a tether's unstretched
   length [m] and shares it over its segments' `l0`, leaving point positions, body
   poses, joint rest geometry and station flap references alone. `reinit!` still
@@ -21,6 +41,22 @@
   `init_wind!`, `relax_segments!` and `init_rest_geometry!`. Run the ones wanted
   on `sam.sys_struct`, then `init!(sam; reinit_sys=false)`, to adjust part of a
   structure without placing all of it again.
+- A transform's `turn_rate` places the rotation it names: a structure comes out of
+  `reinit!` or `reposition!` already turning about the radial axis through the
+  transform's base, at the rate its heading then advances at. The field has been
+  read from the YAML in degrees per second since it was added, but `reinit!`
+  warned that it was ignored and placed the structure at rest.
+
+### Fixed
+- `plot(..., plot_gk=true)` no longer throws `UndefVarError: cs_over_us_vec`. The
+  panel plotted the steering gain of the V3 four-line kite, which lives in
+  V3Kite.jl, and had been broken since the `plot_cs` panel it read was removed in
+  v0.12.0, so it is gone rather than repaired — with it the sibling `plot_us`
+  panel, the `gk_ylims` keyword, and the `SysState.depower` and
+  `SysState.steering` writes in `update_sys_state!` that were the two panels' only
+  source. `scripts/extrapolate_polars.jl`, which reads a `data/v3/` directory this
+  repo does not carry, and the never-called `parse_segment_type` parser for the
+  removed `SegmentType` YAML column go with them.
 
 ## v0.18.0 2026-09-15
 

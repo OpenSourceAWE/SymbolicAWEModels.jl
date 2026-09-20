@@ -3,9 +3,10 @@
 
 # test_match_aero_sections.jl
 # Tests for match_aero_sections_to_structure!:
-# verifies geometry alignment and that use_prior_polar
+# verifies geometry alignment, that use_prior_polar
 # preserves refined panel polars across section count
-# changes (no re-interpolation).
+# changes (no re-interpolation), and that a wing whose
+# sections run from -y to +y is refused.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -16,7 +17,8 @@ using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod,
     PARTICLE_DYNAMICS, RIGID_DYNAMICS, SimFloat,
-    match_aero_sections_to_structure!
+    match_aero_sections_to_structure!, update_vsm_wing_from_structure!,
+    transform_vsm_sections_to_body!
 using KiteUtils
 using LinearAlgebra
 
@@ -188,6 +190,25 @@ vsm_set = VortexStepMethod.VSMSettings(
 
         @test_throws ErrorException match_aero_sections_to_structure!(
             wing, points)
+    end
+
+    @testset "a wing whose sections run from -y to +y is refused" begin
+        sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+            refine_yaml;
+            system_name="refine_span_order", set, vsm_set)
+        wing = sys.wings[1]
+        # The fixture's wing is pitched about y, so mirroring y mirrors body y too.
+        for point in sys.points
+            point.is_wing_node || continue
+            point.pos_cad[2] *= -1
+            point.pos_w[2] *= -1
+        end
+        @test_throws "run from -y to +y" update_vsm_wing_from_structure!(
+            wing, sys.points)
+        wing.wing_segments = nothing
+        @test_throws "run from -y to +y" match_aero_sections_to_structure!(
+            wing, sys.points)
+        @test_throws "run from -y to +y" transform_vsm_sections_to_body!(wing)
     end
 end
 

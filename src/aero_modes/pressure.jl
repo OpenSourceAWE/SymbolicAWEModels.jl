@@ -201,13 +201,12 @@ function aero_component(mode::AeroPressure, wing::ParticleWing, sys_struct;
     scale = 1.0 + (isfinite(wing.aero_scale_chord) ?
         wing.aero_scale_chord : AERO_SCALE_CHORD)
 
-    orient = panel_span_signs(wing, spanwise)
     delta = has_flap_coupling ? collect(connectors.delta) : nothing
     wagner_eqs, wagner_vars, deficiency, wagner_defaults =
         wagner_wing_eqs(wing, sec_va, params)
     eqs, panel_vars, panel_force, panel_couple, curvature_couple, slots =
         build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
-            cl, cd, cm, spanwise, scale, orient; delta, sec_dva, deficiency)
+            cl, cd, cm, spanwise, scale; delta, sec_dva, deficiency)
     append!(eqs, wagner_eqs)
     column_of(p, i) = [p[c, i] for c in 1:3]
     @variables scatter_couple(t)[1:3, 1:n_panels]
@@ -523,6 +522,7 @@ function build_station_point_map!(mode::AeroPressure, wing, points, stations;
     blend_point = Vector{Vector{Int64}}(undef, length(panels))
     node_couple_shape = Vector{Vector{SimFloat}}(undef, length(panels))
     node_residual_share = Vector{Vector{SimFloat}}(undef, length(panels))
+    chord_weight = corner_chord_weights(wing)
     max_chord_ratio = 0.0
     for (panel_idx_local, panel) in enumerate(panels)
         panel.section_aero === nothing && error(
@@ -535,7 +535,8 @@ function build_station_point_map!(mode::AeroPressure, wing, points, stations;
         near, far, weight = isnothing(candidates) ? (nothing, nothing, 0.0) :
             candidates[panel_idx_local]
         fractions(group) = isnothing(group) ? nothing :
-            [chord_frame_coordinates(panel, pos_b)[1] for (_, pos_b) in group]
+            [chord_frame_coordinates(panel, chord_weight[panel_idx_local], pos_b)[1]
+             for (_, pos_b) in group]
         near_fraction, far_fraction = fractions(near), fractions(far)
         for k in eachindex(xc)
             node = loft_contour_node(panel, xc, yc, k)

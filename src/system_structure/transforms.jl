@@ -170,16 +170,29 @@ function min_rotation(curr_dir, target_dir)
 end
 
 """
+    radial_direction(transform) -> Vector
+
+Unit vector, in world axes, from the transform's base towards the place its
+`elevation` and `azimuth` put the rotating object.
+"""
+function radial_direction(transform)
+    return rotate_around_z(
+        rotate_around_y([1, 0, 0], -transform.elevation), -transform.azimuth)
+end
+
+"""
     spherical_spin(transform) -> Vector
 
 Angular velocity [rad/s], in world axes, of the rigid rotation about the
-transform's base that carries `elevation_vel` and `azimuth_vel`. Its axes are `-y`
-of the tangential frame for elevation and world `-z` for azimuth.
+transform's base that carries `elevation_vel`, `azimuth_vel` and `turn_rate`. Its
+axes are `-y` of the tangential frame for elevation, world `-z` for azimuth and
+[`radial_direction`](@ref) for the turn rate.
 """
 function spherical_spin(transform)
     azim = transform.azimuth
     return transform.elevation_vel .* [-sin(azim), -cos(azim), 0.0] .-
-           transform.azimuth_vel .* [0.0, 0.0, 1.0]
+           transform.azimuth_vel .* [0.0, 0.0, 1.0] .+
+           transform.turn_rate .* radial_direction(transform)
 end
 
 """
@@ -203,16 +216,13 @@ function apply_azimuth_elevation!(transform, points, bodies, base_pos)
               "transforms, or adjust positions.")
     end
 
-    transform_pos = rotate_around_z(
-        rotate_around_y([1, 0, 0], -transform.elevation), -transform.azimuth)
-
     if abs(abs(transform.elevation) - π / 2) < 1e-6
         @warn "Transform #$(transform.idx): elevation = " *
               "$(round(rad2deg(transform.elevation); digits=2))° is at the " *
               "zenith/nadir, where azimuth and heading are undefined."
     end
 
-    axis, angle = min_rotation(normalize(rel_pos), normalize(transform_pos))
+    axis, angle = min_rotation(normalize(rel_pos), radial_direction(transform))
 
     for point in points
         point.transform_idx == transform.idx || continue
@@ -424,13 +434,6 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
     end
 
     for transform in transforms
-        if transform.turn_rate != 0.0
-            @warn "Transform #$(transform.idx): turn_rate = " *
-                  "$(rad2deg(transform.turn_rate))°/s is not zero, " *
-                  "but turn_rate dynamics are not yet implemented. " *
-                  "This field will be ignored."
-        end
-
         # ==================== TRANSLATE ==================== #
         base_pos, curr_base_pos = get_base_pos(transform, transforms, bodies, points)
         T = base_pos - curr_base_pos
@@ -463,7 +466,7 @@ end
 Update the system's spatial orientation based on its current
 position, preserving velocities. `update_vel` instead overwrites
 them with the velocity of the rigid rotation each transform's
-`elevation_vel` and `azimuth_vel` describe.
+`elevation_vel`, `azimuth_vel` and `turn_rate` describe.
 
 Unlike `reinit!`, uses current world positions (`pos_w`) as
 the starting point (no reset from CAD coordinates, no tether
