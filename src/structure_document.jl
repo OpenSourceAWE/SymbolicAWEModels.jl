@@ -253,11 +253,10 @@ function sys_struct_from_document(doc::AbstractDict; set=nothing, vsm_set=nothin
     resolved_set = isnothing(set) ? load_settings("base") : set
 
     wing_rows = filter(is_wing_row, rows["bodies"])
-    stations = Station[read_station(row) for row in rows["stations"]]
 
     sys_struct = SystemStructure(string(metadata["name"]), resolved_set;
         points = Point[read_point(row) for row in rows["points"]],
-        stations,
+        stations = Station[read_station(row) for row in rows["stations"]],
         segments = Segment[read_segment(row) for row in rows["segments"]],
         pulleys = Pulley[read_pulley(row) for row in rows["pulleys"]],
         tethers = Tether[read_tether(row) for row in rows["tethers"]],
