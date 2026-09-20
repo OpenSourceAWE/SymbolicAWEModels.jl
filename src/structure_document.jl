@@ -13,22 +13,23 @@ const STRUCTURE_SCHEMA = "structure_schema.yml"
 """Columns of every document block, in the order `structure_schema.yml` fixes them."""
 const DOCUMENT_HEADERS = OrderedDict(
     "points" => ["name", "type", "body", "wing", "pos_cad"],
-    "segments" => ["name", "point_a", "point_b", "l0", "diameter", "density",
+    "segments" => ["name", "points", "l0", "diameter", "density",
                    "unit_stiffness", "unit_damping", "compression_frac",
                    "compression_damping_frac"],
-    "stations" => ["name", "type", "points", "moment_frac", "stiffness", "damping"],
-    "pulleys" => ["name", "segment_a", "segment_b", "type", "efficiency"],
+    "stations" => ["name", "type", "points", "stiffness", "damping",
+                   "moment_frac"],
+    "pulleys" => ["name", "segments", "type", "efficiency"],
     "tethers" => ["name", "start_point", "end_point", "segments"],
     "winches" => ["name", "tethers", "winch_point", "model", "gear_ratio",
                   "drum_radius"],
     "bodies" => ["name", "type", "aero", "wing", "mass", "apparent_mass",
-                 "inertia_principal", "com_offset_b", "pos_cad"],
-    "elastic_joints" => ["name", "body_a", "body_b", "anchor_a", "anchor_b",
-                         "stiffness_axial", "stiffness_shear", "stiffness_torsion",
+                 "inertia_principal", "com_offset_KA", "pos_cad"],
+    "elastic_joints" => ["name", "bodies", "anchors_KA", "stiffness_axial",
+                         "stiffness_shear", "stiffness_torsion",
                          "stiffness_bending", "damping", "radius"],
-    "timoshenko_joints" => ["name", "body_a", "body_b", "anchor_a", "anchor_b",
-                            "EA", "GA", "GJ", "EIy", "EIz", "shear_coeff",
-                            "damping", "rest_length", "radius"],
+    "timoshenko_joints" => ["name", "bodies", "anchors_KA", "EA", "GA", "GJ",
+                            "EIy", "EIz", "shear_coeff", "damping",
+                            "rest_length", "radius"],
 )
 
 # ==================== SHARED HELPERS ==================== #
@@ -138,20 +139,24 @@ end
 document_table(block::AbstractString, rows) = OrderedDict{String, Any}(
     "headers" => DOCUMENT_HEADERS[block], "data" => rows)
 
-"""Rows of the `points` block. A point names its wing when it is a wing node."""
-point_rows(sys::SystemStructure) =
-    [Any[component_name(point),
-         string(point.type),
-         ref_name(sys.bodies, point.body_idx),
-         point.is_wing_node ? component_name(sys.wings[point.wing_idx]) : nothing,
-         vector3(point.pos_cad)]
-     for point in sys.points]
+"""
+Rows of the `points` block. A point on a wing names that wing once: `wing` is
+null where `body` already names it.
+"""
+function point_rows(sys::SystemStructure)
+    return map(sys.points) do point
+        body = ref_name(sys.bodies, point.body_idx)
+        wing = point.is_wing_node ?
+            component_name(sys.wings[point.wing_idx]) : nothing
+        Any[component_name(point), string(point.type), body,
+            wing == body ? nothing : wing, vector3(point.pos_cad)]
+    end
+end
 
 """Rows of the `segments` block."""
 segment_rows(sys::SystemStructure) =
     [Any[component_name(segment),
-         component_name(sys.points[segment.point_idxs[1]]),
-         component_name(sys.points[segment.point_idxs[2]]),
+         ref_names(sys.points, segment.point_idxs),
          segment.l0, segment.diameter, segment.density,
          linear_rigidity(segment.unit_stiffness,
                          "segment $(segment.name) unit_stiffness"),
@@ -164,14 +169,13 @@ station_rows(sys::SystemStructure) =
     [Any[component_name(station),
          string(station.type),
          ref_names(sys.points, station.point_idxs),
-         station.moment_frac, station.stiffness, station.damping]
+         station.stiffness, station.damping, station.moment_frac]
      for station in sys.stations]
 
 """Rows of the `pulleys` block."""
 pulley_rows(sys::SystemStructure) =
     [Any[component_name(pulley),
-         component_name(sys.segments[pulley.segment_idxs[1]]),
-         component_name(sys.segments[pulley.segment_idxs[2]]),
+         ref_names(sys.segments, pulley.segment_idxs),
          string(pulley.type), pulley.efficiency]
      for pulley in sys.pulleys]
 
@@ -203,12 +207,14 @@ body_rows(sys::SystemStructure) =
          vector3(body.pos_cad)]
      for body in sys.bodies]
 
+"""The two bodies a joint links, and its anchor in each body's own KA frame."""
+joint_bodies(sys::SystemStructure, joint) =
+    (ref_names(sys.bodies, (joint.body_a_idx, joint.body_b_idx)),
+     [vector3(joint.anchor_a_b), vector3(joint.anchor_b_b)])
+
 """Rows of the `elastic_joints` block."""
 elastic_joint_rows(sys::SystemStructure) =
-    [Any[component_name(joint),
-         component_name(sys.bodies[joint.body_a_idx]),
-         component_name(sys.bodies[joint.body_b_idx]),
-         vector3(joint.anchor_a_b), vector3(joint.anchor_b_b),
+    [Any[component_name(joint), joint_bodies(sys, joint)...,
          linear_rigidity(joint.stiffness_axial, "joint $(joint.name) axial"),
          linear_rigidity(joint.stiffness_shear, "joint $(joint.name) shear"),
          linear_rigidity(joint.stiffness_torsion, "joint $(joint.name) torsion"),
@@ -218,10 +224,7 @@ elastic_joint_rows(sys::SystemStructure) =
 
 """Rows of the `timoshenko_joints` block."""
 timoshenko_joint_rows(sys::SystemStructure) =
-    [Any[component_name(joint),
-         component_name(sys.bodies[joint.body_a_idx]),
-         component_name(sys.bodies[joint.body_b_idx]),
-         vector3(joint.anchor_a_b), vector3(joint.anchor_b_b),
+    [Any[component_name(joint), joint_bodies(sys, joint)...,
          linear_rigidity(joint.EA, "joint $(joint.name) EA"),
          linear_rigidity(joint.GA, "joint $(joint.name) GA"),
          linear_rigidity(joint.GJ, "joint $(joint.name) GJ"),
@@ -253,10 +256,11 @@ function sys_struct_from_document(doc::AbstractDict; set=nothing, vsm_set=nothin
     resolved_set = isnothing(set) ? load_settings("base") : set
 
     wing_rows = filter(is_wing_row, rows["bodies"])
+    wing_names = Set(row["name"] for row in wing_rows)
     stations = Station[read_station(row) for row in rows["stations"]]
 
     sys_struct = SystemStructure(string(metadata["name"]), resolved_set;
-        points = Point[read_point(row) for row in rows["points"]],
+        points = Point[read_point(row, wing_names) for row in rows["points"]],
         stations,
         segments = Segment[read_segment(row) for row in rows["segments"]],
         pulleys = Pulley[read_pulley(row) for row in rows["pulleys"]],
@@ -315,7 +319,7 @@ function check_connectivity(metadata::AbstractDict, points, segments)
         "The document holds $(length(points)) points but its metadata claims " *
         "$(metadata["n_points"]).")
     row_number = Dict(row["name"] => i for (i, row) in enumerate(points))
-    endpoints = [(row_number[row["point_a"]], row_number[row["point_b"]])
+    endpoints = [(row_number[row["points"][1]], row_number[row["points"][2]])
                  for row in segments]
     computed = connectivity_sha(length(points), endpoints)
     computed == metadata["connectivity_sha"] || error(
@@ -346,12 +350,19 @@ function named_model(name::AbstractString, ::Type{T}) where T
     end
 end
 
-read_point(row) = Point(Symbol(row["name"]), vector3(row["pos_cad"]),
-    parse_dynamics_type(row["type"]); body = optional_symbol(row["body"]),
-    wing = optional_symbol(row["wing"]))
+"""
+    read_point(row, wing_names) -> Point
 
-read_segment(row) = Segment(Symbol(row["name"]), Symbol(row["point_a"]),
-    Symbol(row["point_b"]),
+The point `row` describes. A point on a wing names that wing once, in whichever
+of `body` and `wing` carries it, and a `Point` wants both.
+"""
+read_point(row, wing_names) = Point(Symbol(row["name"]), vector3(row["pos_cad"]),
+    parse_dynamics_type(row["type"]); body = optional_symbol(row["body"]),
+    wing = optional_symbol(isnothing(row["wing"]) && row["body"] in wing_names ?
+                           row["body"] : row["wing"]))
+
+read_segment(row) = Segment(Symbol(row["name"]), Symbol(row["points"][1]),
+    Symbol(row["points"][2]),
     linear_rigidity(row["unit_stiffness"], "segment $(row["name"]) unit_stiffness"),
     Float64(row["unit_damping"]), Float64(row["diameter"]);
     l0 = Float64(row["l0"]), density = Float64(row["density"]),
@@ -359,11 +370,11 @@ read_segment(row) = Segment(Symbol(row["name"]), Symbol(row["point_a"]),
     compression_damping_frac = Float64(row["compression_damping_frac"]))
 
 read_station(row) = Station(Symbol(row["name"]), Symbol.(row["points"]),
-    parse_dynamics_type(row["type"]), Float64(row["moment_frac"]);
+    parse_dynamics_type(row["type"]), Float64(get(row, "moment_frac", 0.0));
     stiffness = Float64(row["stiffness"]), damping = Float64(row["damping"]))
 
-read_pulley(row) = Pulley(Symbol(row["name"]), Symbol(row["segment_a"]),
-    Symbol(row["segment_b"]), parse_dynamics_type(row["type"]);
+read_pulley(row) = Pulley(Symbol(row["name"]), Symbol(row["segments"][1]),
+    Symbol(row["segments"][2]), parse_dynamics_type(row["type"]);
     efficiency = Float64(row["efficiency"]))
 
 read_tether(row) = Tether(Symbol(row["name"]), Symbol.(row["segments"]);
@@ -378,7 +389,7 @@ read_winch(row, set) = Winch(Symbol(row["name"]), Symbol.(row["tethers"]),
 read_body(row) = Body(Symbol(row["name"]); mass = Float64(row["mass"]),
     inertia_principal = vector3(row["inertia_principal"]),
     pos = vector3(row["pos_cad"]),
-    com_offset_b = vector3(row["com_offset_b"]),
+    com_offset_b = vector3(row["com_offset_KA"]),
     type = parse_dynamics_type(row["type"]), wing = optional_symbol(row["wing"]))
 
 """
@@ -392,7 +403,7 @@ function read_wing(row, station_rows, point_rows, set, vsm_set)
         "Wing $(row["name"]) is KINEMATIC, a PARTICLE_DYNAMICS wing whose body " *
         "frame is fitted to reference points $STRUCTURE_SCHEMA has no column for.")
     on_wing = Set(point["name"] for point in point_rows
-                  if point["wing"] == row["name"])
+                  if row["name"] in (point["wing"], point["body"]))
     stations = [Symbol(station["name"]) for station in station_rows
                 if all(in(on_wing), station["points"])]
     return VSMWing(Symbol(row["name"]), set, stations, vsm_set;
@@ -402,9 +413,10 @@ function read_wing(row, station_rows, point_rows, set, vsm_set)
         inertia_diag = KVec3(vector3(row["inertia_principal"])))
 end
 
-read_elastic_joint(row) = ElasticJoint(Symbol(row["name"]), Symbol(row["body_a"]),
-    Symbol(row["body_b"]); anchor_a = vector3(row["anchor_a"]),
-    anchor_b = vector3(row["anchor_b"]),
+read_elastic_joint(row) = ElasticJoint(Symbol(row["name"]),
+    Symbol(row["bodies"][1]), Symbol(row["bodies"][2]);
+    anchor_a = vector3(row["anchors_KA"][1]),
+    anchor_b = vector3(row["anchors_KA"][2]),
     stiffness_axial = linear_rigidity(row["stiffness_axial"],
                                       "joint $(row["name"]) axial"),
     stiffness_shear = linear_rigidity(row["stiffness_shear"],
@@ -416,8 +428,9 @@ read_elastic_joint(row) = ElasticJoint(Symbol(row["name"]), Symbol(row["body_a"]
     damping = Float64(row["damping"]), radius = optional_length(row["radius"]))
 
 read_timoshenko_joint(row) = TimoshenkoJoint(Symbol(row["name"]),
-    Symbol(row["body_a"]), Symbol(row["body_b"]);
-    anchor_a = vector3(row["anchor_a"]), anchor_b = vector3(row["anchor_b"]),
+    Symbol(row["bodies"][1]), Symbol(row["bodies"][2]);
+    anchor_a = vector3(row["anchors_KA"][1]),
+    anchor_b = vector3(row["anchors_KA"][2]),
     EA = linear_rigidity(row["EA"], "joint $(row["name"]) EA"),
     GA = linear_rigidity(row["GA"], "joint $(row["name"]) GA"),
     GJ = linear_rigidity(row["GJ"], "joint $(row["name"]) GJ"),
@@ -432,7 +445,7 @@ function apply_body_row!(body::Body, row)
     body.mass = Float64(row["mass"])
     body.apparent_mass = Float64(row["apparent_mass"])
     body.inertia_principal .= vector3(row["inertia_principal"])
-    body.com_offset_b .= vector3(row["com_offset_b"])
+    body.com_offset_b .= vector3(row["com_offset_KA"])
     body.pos_cad .= vector3(row["pos_cad"])
     return body
 end
