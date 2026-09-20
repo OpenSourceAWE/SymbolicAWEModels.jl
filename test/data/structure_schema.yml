@@ -20,9 +20,18 @@ description: >
   without breaking an older reader. An absent optional block means the same as
   an empty one.
 
+  A tool may carry data of its own as extra columns and as extra top-level
+  blocks of any shape. A reader ignores every column and block it does not know.
+  A later minor version may claim any such name for the schema, after which the
+  tool renames its own.
+
+  A column's suffix names the frame of its vectors: `_cad` the CAD design frame,
+  `_KA` the owning body's KA frame as KiteUtils.jl defines it (x from leading to
+  trailing edge, y from the left to the right tip, z up).
+
   Live state — positions, velocities, forces, twist angles, reel-out — is not
   structure and is not described here. Nor is the placement of CAD geometry into
-  the world, which depends on a frame convention this schema does not fix.
+  the ENU world frame: the same structure flies at any elevation.
 
 type: object
 required:
@@ -82,6 +91,10 @@ properties:
   # POINTS AND THE ELEMENTS BUILT ON THEM
   # --------------------------------------------------------------------------
   points:
+    description: >
+      Mass points. `body` names the rigid body a BODY_STATIC point is fixed to.
+      `wing` names the wing a point belongs to where `body` does not already
+      name it, and is null otherwise, so a point on a wing names that wing once.
     allOf:
       - $ref: "#/definitions/table"
       - properties:
@@ -111,8 +124,7 @@ properties:
           headers:
             items:
               - const: name
-              - const: point_a
-              - const: point_b
+              - const: points
               - const: l0
               - const: diameter
               - const: density
@@ -120,14 +132,13 @@ properties:
               - const: unit_damping
               - const: compression_frac
               - const: compression_damping_frac
-            minItems: 10
+            minItems: 9
           data:
             items:
               type: array
               items:
                 - $ref: "#/definitions/component_name"
-                - $ref: "#/definitions/component_name"
-                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/name_pair"
                 - $ref: "#/definitions/length"
                 - $ref: "#/definitions/length"
                 - $ref: "#/definitions/density"
@@ -135,7 +146,7 @@ properties:
                 - $ref: "#/definitions/non_negative"
                 - $ref: "#/definitions/fraction"
                 - $ref: "#/definitions/fraction"
-              minItems: 10
+              minItems: 9
 
   stations:
     description: >
@@ -151,10 +162,9 @@ properties:
               - const: name
               - const: type
               - const: points
-              - const: moment_frac
               - const: stiffness
               - const: damping
-            minItems: 6
+            minItems: 5
           data:
             items:
               type: array
@@ -162,10 +172,9 @@ properties:
                 - $ref: "#/definitions/component_name"
                 - $ref: "#/definitions/dynamics_type"
                 - $ref: "#/definitions/name_list"
-                - $ref: "#/definitions/fraction"
                 - $ref: "#/definitions/non_negative"
                 - $ref: "#/definitions/non_negative"
-              minItems: 6
+              minItems: 5
 
   pulleys:
     allOf:
@@ -174,21 +183,19 @@ properties:
           headers:
             items:
               - const: name
-              - const: segment_a
-              - const: segment_b
+              - const: segments
               - const: type
               - const: efficiency
-            minItems: 5
+            minItems: 4
           data:
             items:
               type: array
               items:
                 - $ref: "#/definitions/component_name"
-                - $ref: "#/definitions/component_name"
-                - $ref: "#/definitions/component_name"
+                - $ref: "#/definitions/name_pair"
                 - $ref: "#/definitions/dynamics_type"
                 - $ref: "#/definitions/fraction"
-              minItems: 5
+              minItems: 4
 
   tethers:
     description: >
@@ -259,7 +266,7 @@ properties:
               - const: mass
               - const: apparent_mass
               - const: inertia_principal
-              - const: com_offset_b
+              - const: com_offset_KA
               - const: pos_cad
             minItems: 9
           data:
@@ -287,33 +294,29 @@ properties:
           headers:
             items:
               - const: name
-              - const: body_a
-              - const: body_b
-              - const: anchor_a
-              - const: anchor_b
+              - const: bodies
+              - const: anchors_KA
               - const: stiffness_axial
               - const: stiffness_shear
               - const: stiffness_torsion
               - const: stiffness_bending
               - const: damping
               - const: radius
-            minItems: 11
+            minItems: 9
           data:
             items:
               type: array
               items:
                 - $ref: "#/definitions/component_name"
-                - $ref: "#/definitions/component_name"
-                - $ref: "#/definitions/component_name"
-                - $ref: "#/definitions/vec3"
-                - $ref: "#/definitions/vec3"
+                - $ref: "#/definitions/name_pair"
+                - $ref: "#/definitions/vec3_pair"
                 - $ref: "#/definitions/rigidity"
                 - $ref: "#/definitions/rigidity"
                 - $ref: "#/definitions/rigidity"
                 - $ref: "#/definitions/rigidity"
                 - $ref: "#/definitions/non_negative"
                 - $ref: "#/definitions/optional_length"
-              minItems: 11
+              minItems: 9
 
   timoshenko_joints:
     description: >
@@ -324,10 +327,8 @@ properties:
           headers:
             items:
               - const: name
-              - const: body_a
-              - const: body_b
-              - const: anchor_a
-              - const: anchor_b
+              - const: bodies
+              - const: anchors_KA
               - const: EA
               - const: GA
               - const: GJ
@@ -337,16 +338,14 @@ properties:
               - const: damping
               - const: rest_length
               - const: radius
-            minItems: 14
+            minItems: 12
           data:
             items:
               type: array
               items:
                 - $ref: "#/definitions/component_name"
-                - $ref: "#/definitions/component_name"
-                - $ref: "#/definitions/component_name"
-                - $ref: "#/definitions/vec3"
-                - $ref: "#/definitions/vec3"
+                - $ref: "#/definitions/name_pair"
+                - $ref: "#/definitions/vec3_pair"
                 - $ref: "#/definitions/rigidity"
                 - $ref: "#/definitions/rigidity"
                 - $ref: "#/definitions/rigidity"
@@ -356,9 +355,9 @@ properties:
                 - $ref: "#/definitions/non_negative"
                 - $ref: "#/definitions/length"
                 - $ref: "#/definitions/optional_length"
-              minItems: 14
+              minItems: 12
 
-additionalProperties: false
+additionalProperties: true
 
 definitions:
   # ============================================================================
@@ -368,7 +367,9 @@ definitions:
     description: >
       A headers/data block. Each block fixes the columns it requires as the
       leading headers and leaves the rest open, so a writer may append columns
-      and an older reader still finds what it addresses by name.
+      and an older reader still finds what it addresses by name. Every header is
+      a string, and every row is exactly as long as the headers, which
+      `rowsMatchHeaders` states and awesio.validator enforces.
     type: object
     required:
       - headers
@@ -376,13 +377,13 @@ definitions:
     properties:
       headers:
         type: array
-        additionalItems:
+        items:
           type: string
       data:
         type: array
         items:
           type: array
-          additionalItems: true
+    rowsMatchHeaders: true
     additionalProperties: false
 
   # ============================================================================
@@ -401,6 +402,14 @@ definitions:
       - $ref: "#/definitions/component_name"
       - type: "null"
 
+  name_pair:
+    description: The two components an element connects, as a two-element tuple.
+    type: array
+    items:
+      $ref: "#/definitions/component_name"
+    minItems: 2
+    maxItems: 2
+
   name_list:
     description: Ordered component names, as referenced from another block.
     type: array
@@ -412,14 +421,23 @@ definitions:
   # ============================================================================
   vec3:
     description: >
-      A three-component vector [m], in the CAD design frame for a position and
-      in the owning body's frame for an offset. CAD geometry is not a world
-      position.
+      A three-component vector in the frame its column's suffix names, in the
+      units its column implies. CAD geometry is not a world position.
     type: array
     items:
       type: number
     minItems: 3
     maxItems: 3
+
+  vec3_pair:
+    description: >
+      One vector per component of the neighbouring name pair, in the same
+      order, each in that component's own frame.
+    type: array
+    items:
+      $ref: "#/definitions/vec3"
+    minItems: 2
+    maxItems: 2
 
   length:
     type: number

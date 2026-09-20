@@ -109,6 +109,13 @@ end
         @test reread.stations[:left].point_idxs == sys.stations[:left].point_idxs
     end
 
+    @testset "a point on a wing names that wing once" begin
+        document = structure_document(two_plate_kite(set, vsm_set))
+        columns = Dict(row[1] => (row[3], row[4])
+                       for row in document["points"]["data"])
+        @test columns["le_left"] == ("main_wing", nothing)
+    end
+
     @testset "bodies and joints round-trip" begin
         sys = bodies_and_joints(set)
         document = structure_document(sys)
