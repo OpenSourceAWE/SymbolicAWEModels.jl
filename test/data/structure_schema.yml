@@ -80,8 +80,8 @@ properties:
           The preimage is ASCII and built in document order: the number of
           points, a semicolon, then for each segment its two endpoints as
           ONE-BASED row numbers into the points block, comma-separated, each
-          pair followed by a semicolon. The example in examples/structure reads
-          `8;1,2;2,3;3,4;4,5;4,7;`. Row numbers are one-based so that
+          pair followed by a semicolon. examples/structure/minimal_structure.yml
+          reads `8;1,2;2,3;3,4;4,5;4,7;`. Row numbers are one-based so that
           implementations in zero-based languages agree with each other; a
           reader that gets this wrong sees every file as a mismatch.
         pattern: '^[0-9a-f]{64}$'
