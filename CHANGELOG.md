@@ -18,6 +18,19 @@
 - Julia 1.11 is no longer supported: the package installs on Julia 1.12 and 1.13,
   the two versions CI tests.
 
+### Fixed
+- A station's twist moment is summed over the VSM panels nearest the station, not over
+  the sections it owns. Without refinement VSM files each panel under its left-edge
+  section, so the last section never had a panel and the centre panel went to the +y
+  station. A 41-section ram-air wing with 4 stations gave its stations 10/11/10/9 panels
+  and twisted asymmetrically at rest. `Station.panel_idxs` holds the panels.
+- A station's twist inertia counts its share of the wing mass that sits on no point, by
+  the area of its panels (`Station.body_mass`). A rigid wing given `mass` with zero point
+  masses had stations with zero inertia, and the model failed at t = 0.
+- `sys_struct.total_mass` counts a rigid wing's `mass`. The points riding the wing body
+  are counted once through it, so a wing given `mass` with zero point masses no longer
+  reads 0.
+
 ## SymbolicAWEModels v0.18.1 2026-09-16
 
 ### Added
