@@ -271,11 +271,11 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
     end
 
     prn && @info "Using provided VSMSettings for wing creation"
-    aero_geometry = project_file("aero_geometry")
+    aero_geometry = optional_project_file("aero_geometry")
     for wing_settings in vsm_set.wings
         geometry_file = wing_settings.geometry_file
         if isempty(geometry_file)
-            geometry_file = aero_geometry
+            geometry_file = something(aero_geometry, "")
         elseif !isabspath(geometry_file)
             geometry_file = joinpath(model_dir, basename(geometry_file))
         end

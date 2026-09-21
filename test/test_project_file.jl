@@ -6,8 +6,9 @@
 #
 # Verifies:
 # 1. Every entry of a shipped model's project file resolves to a file that exists
-# 2. An entry the project does not name, and a data path with no project file at
-#    all, both give "" rather than an error
+# 2. An entry the project does not name, a data path with no project file and an
+#    empty `system:` block all throw an error naming the missing entry, where
+#    `optional_project_file` gives `nothing`
 # 3. A project file in a subdirectory of the data path resolves against that
 #    subdirectory
 
@@ -31,16 +32,24 @@ previous_data_path = get_data_path()
     end
 end
 
-@testset "an entry the project does not name gives an empty path" begin
+@testset "an entry the project does not name throws, naming the entry" begin
     set_data_path(joinpath(pkg_root, "data", "beam"))
     @test isfile(project_file("sim_settings"))
-    @test project_file("aero_geometry") == ""
-    @test project_file("vsm_settings") == ""
+    @test_throws r"names no system.aero_geometry" project_file("aero_geometry")
+    @test isnothing(SymbolicAWEModels.optional_project_file("vsm_settings"))
 end
 
-@testset "a data path without a project file gives an empty path" begin
+@testset "a data path without a project file throws" begin
     set_data_path(mktempdir())
-    @test project_file("sim_settings") == ""
+    @test_throws ArgumentError project_file("sim_settings")
+    @test isnothing(SymbolicAWEModels.optional_project_file("sim_settings"))
+end
+
+@testset "a project file with an empty system block names nothing" begin
+    set_data_path(mktempdir())
+    write(joinpath(get_data_path(), "system.yaml"), "system:\n")
+    @test isnothing(SymbolicAWEModels.optional_project_file("vsm_settings"))
+    @test_throws ArgumentError project_file("vsm_settings")
 end
 
 @testset "a project in a subdirectory resolves against that subdirectory" begin

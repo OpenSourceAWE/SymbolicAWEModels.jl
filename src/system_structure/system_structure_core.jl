@@ -979,8 +979,8 @@ function SystemStructure(name, set;
     # Load VSMSettings if not provided and VSM wings exist
     has_vsm_wings = any(has_vsm_engine(wing.aero) for wing in wings)
     if isnothing(vsm_set) && has_vsm_wings
-        vsm_set_path = project_file("vsm_settings")
-        if isfile(vsm_set_path)
+        vsm_set_path = optional_project_file("vsm_settings")
+        if !isnothing(vsm_set_path)
             vsm_set = VortexStepMethod.VSMSettings(
                 vsm_set_path; data_prefix=false)
         end

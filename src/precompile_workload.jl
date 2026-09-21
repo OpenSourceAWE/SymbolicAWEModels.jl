@@ -21,17 +21,17 @@ function workload_fixture()
 end
 
 """
-    workload_model(fixture, geometry, system_name, backend) -> SymbolicAWEModel
+    workload_model(geometry, system_name, backend) -> SymbolicAWEModel
 
-Load the 2-plate structure from `geometry` and build it on `backend`, ready for
-`init!`. Reloads the structure on every call.
+Load the 2-plate structure from the `geometry` file in the data path and build it
+on `backend`, ready for `init!`. Reloads the structure on every call.
 """
-function workload_model(fixture, geometry, system_name, backend)
+function workload_model(geometry, system_name, backend)
     set = Settings("system.yaml")
     set.g_earth = 0.0
     vsm_set = VortexStepMethod.VSMSettings(project_file("vsm_settings");
                                            data_prefix=false)
-    sys = load_sys_struct_from_yaml(joinpath(fixture, geometry);
+    sys = load_sys_struct_from_yaml(joinpath(get_data_path(), geometry);
                                     system_name, set, vsm_set, prn=false)
     haskey(sys.winches, :main_winch) && (sys.winches[:main_winch].brake = true)
     return SymbolicAWEModel(set, sys; backend)
@@ -49,7 +49,7 @@ function run_workload(fixture)
                   ("rigid_structural_geometry.yaml", "workload_rigid"))
     for (geometry, system_name) in geometries, backend in (KernelBackend(),
                                                            MonolithBackend())
-        sam = workload_model(fixture, geometry, system_name, backend)
+        sam = workload_model(geometry, system_name, backend)
         init!(sam; remake=false, remake_vsm=false, prn=false)
         next_step!(sam; dt=0.05)
     end

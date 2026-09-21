@@ -6,8 +6,9 @@
 - `system.yaml` is the project file: besides `sim_settings:` it names a model's
   `structural_geometry:`, `aero_geometry:` and `vsm_settings:`, the layout
   `V3Kite.jl` already uses. `project_file(entry)` resolves one against the data
-  path and returns `""` where the project names none, so examples ask the project
-  for a model's files instead of spelling their names. A project that names only
+  path and throws an `ArgumentError` naming the entry where the project names
+  none, so examples ask the project for a model's files instead of spelling their
+  names. A project that names only
   `sim_settings:` keeps working.
 
 ### Changed

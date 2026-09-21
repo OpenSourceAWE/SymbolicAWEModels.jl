@@ -106,8 +106,7 @@ end
 vsm_set = VortexStepMethod.VSMSettings(
     project_file("vsm_settings");
     data_prefix=false)
-vsm_set.wings[1].geometry_file = project_file("aero_geometry")
-vsm_wing = VortexStepMethod.Wing(vsm_set)
+vsm_wing = SymbolicAWEModels.create_vsm_wing(set, vsm_set)
 vsm_aero = BodyAerodynamics([vsm_wing])
 vsm_solver = Solver(vsm_aero, vsm_set)
 # One station per aero section joins its LE/TE pair to the wing.
