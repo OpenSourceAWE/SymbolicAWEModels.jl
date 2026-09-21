@@ -8,28 +8,14 @@
   on first use, so a run that wants its results kept apart — one per long
   simulation, say — only has to point `set_output_path` at a folder of its own.
 
-### Fixed
-- A live polar's control points are measured in the panel's own `panel_axes`
-  frame over its corners, which is the frame its contour nodes are lofted along.
-  The hand-built frame they used before measured along the unleaned mid-chord
-  axis over `norm(chord_vec)`, so on a swept or tapered panel the chord fraction
-  and the camber offset were on a different scale from the nodes they are
-  matched against.
-- A wing whose aerodynamic sections, or the structural stations they are matched
-  to, run from -y to +y errors when its aero is set up or refreshed, instead of
-  running on aero that order does not support. The only supported order is
-  VortexStepMethod's, +y to -y.
-
 ### Changed
-- Julia 1.11 is no longer supported: the package installs on Julia 1.12 and 1.13,
-  the two versions CI tests.
 - Simulation results are written to the output folder instead of the working
   directory or the data folder. `sim!` and `sim_reposition!` save their `SysLog`
   under `get_output_path()`, `record` resolves a relative filename there, and the
   replay viewer's Save button puts its screenshot there rather than wherever
   Julia was started. The data folder now holds only what a run reads.
 
-## SymbolicAWEModels v0.18.1 2026-09-16
+## v0.18.1 2026-09-21
 
 ### Added
 - `set_unstretched_length!(sys_struct, tether, len)` sets a tether's unstretched
@@ -49,7 +35,32 @@
   read from the YAML in degrees per second since it was added, but `reinit!`
   warned that it was ignored and placed the structure at rest.
 
+### Changed
+- Julia 1.11 is no longer supported: the package installs on Julia 1.12 and 1.13,
+  the two versions CI tests.
+
 ### Fixed
+- A live polar's control points are measured in the panel's own `panel_axes`
+  frame over its corners, which is the frame its contour nodes are lofted along.
+  The hand-built frame they used before measured along the unleaned mid-chord
+  axis over `norm(chord_vec)`, so on a swept or tapered panel the chord fraction
+  and the camber offset were on a different scale from the nodes they are
+  matched against.
+- A wing whose aerodynamic sections, or the structural stations they are matched
+  to, run from -y to +y errors when its aero is set up or refreshed, instead of
+  running on aero that order does not support. The only supported order is
+  VortexStepMethod's, +y to -y.
+- A station's twist moment is summed over the VSM panels nearest the station, not over
+  the sections it owns. Without refinement VSM files each panel under its left-edge
+  section, so the last section never had a panel and the centre panel went to the +y
+  station. A 41-section ram-air wing with 4 stations gave its stations 10/11/10/9 panels
+  and twisted asymmetrically at rest. `Station.panel_idxs` holds the panels.
+- A station's twist inertia counts its share of the wing mass that sits on no point, by
+  the area of its panels (`Station.body_mass`). A rigid wing given `mass` with zero point
+  masses had stations with zero inertia, and the model failed at t = 0.
+- `sys_struct.total_mass` counts a rigid wing's `mass`. The points riding the wing body
+  are counted once through it, so a wing given `mass` with zero point masses no longer
+  reads 0.
 - `plot(..., plot_gk=true)` no longer throws `UndefVarError: cs_over_us_vec`. The
   panel plotted the steering gain of the V3 four-line kite, which lives in
   V3Kite.jl, and had been broken since the `plot_cs` panel it read was removed in
