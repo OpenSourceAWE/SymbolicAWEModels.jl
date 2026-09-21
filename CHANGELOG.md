@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Unreleased
+## v0.18.1 2026-09-21
 
 ### Added
 - `set_unstretched_length!(sys_struct, tether, len)` sets a tether's unstretched
