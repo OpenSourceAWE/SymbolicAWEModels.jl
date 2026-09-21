@@ -11,6 +11,30 @@
   pulleys, tethers, winches, bodies and joints, every reference by name — without
   the transforms that place it in the world.
 
+## v0.18.1 2026-09-21
+
+### Added
+- `set_unstretched_length!(sys_struct, tether, len)` sets a tether's unstretched
+  length [m] and shares it over its segments' `l0`, leaving point positions, body
+  poses, joint rest geometry and station flap references alone. `reinit!` still
+  derives `len` from the placed geometry, so a length set this way holds until the
+  next `reinit!`.
+- The steps of `reinit!(sys_struct, set)` are exported functions of their own:
+  `reset_to_cad!`, `apply_tether_init_stretched_lens!`, `update_segment_lengths!`,
+  `apply_tether_init_forces!`, `init_pulley_lengths!`, `remake_wing_aero!`,
+  `init_wind!`, `relax_segments!` and `init_rest_geometry!`. Run the ones wanted
+  on `sam.sys_struct`, then `init!(sam; reinit_sys=false)`, to adjust part of a
+  structure without placing all of it again.
+- A transform's `turn_rate` places the rotation it names: a structure comes out of
+  `reinit!` or `reposition!` already turning about the radial axis through the
+  transform's base, at the rate its heading then advances at. The field has been
+  read from the YAML in degrees per second since it was added, but `reinit!`
+  warned that it was ignored and placed the structure at rest.
+
+### Changed
+- Julia 1.11 is no longer supported: the package installs on Julia 1.12 and 1.13,
+  the two versions CI tests.
+
 ### Fixed
 - A live polar's control points are measured in the panel's own `panel_axes`
   frame over its corners, which is the frame its contour nodes are lofted along.
@@ -33,32 +57,6 @@
 - `sys_struct.total_mass` counts a rigid wing's `mass`. The points riding the wing body
   are counted once through it, so a wing given `mass` with zero point masses no longer
   reads 0.
-
-### Changed
-- Julia 1.11 is no longer supported: the package installs on Julia 1.12 and 1.13,
-  the two versions CI tests.
-
-## SymbolicAWEModels v0.18.1 2026-09-16
-
-### Added
-- `set_unstretched_length!(sys_struct, tether, len)` sets a tether's unstretched
-  length [m] and shares it over its segments' `l0`, leaving point positions, body
-  poses, joint rest geometry and station flap references alone. `reinit!` still
-  derives `len` from the placed geometry, so a length set this way holds until the
-  next `reinit!`.
-- The steps of `reinit!(sys_struct, set)` are exported functions of their own:
-  `reset_to_cad!`, `apply_tether_init_stretched_lens!`, `update_segment_lengths!`,
-  `apply_tether_init_forces!`, `init_pulley_lengths!`, `remake_wing_aero!`,
-  `init_wind!`, `relax_segments!` and `init_rest_geometry!`. Run the ones wanted
-  on `sam.sys_struct`, then `init!(sam; reinit_sys=false)`, to adjust part of a
-  structure without placing all of it again.
-- A transform's `turn_rate` places the rotation it names: a structure comes out of
-  `reinit!` or `reposition!` already turning about the radial axis through the
-  transform's base, at the rate its heading then advances at. The field has been
-  read from the YAML in degrees per second since it was added, but `reinit!`
-  warned that it was ignored and placed the structure at rest.
-
-### Fixed
 - `plot(..., plot_gk=true)` no longer throws `UndefVarError: cs_over_us_vec`. The
   panel plotted the steering gain of the V3 four-line kite, which lives in
   V3Kite.jl, and had been broken since the `plot_cs` panel it read was removed in
