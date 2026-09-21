@@ -28,7 +28,7 @@ fitted from structural points — particle wings) or STATIC (clamped). `D` mirro
 the rigid/particle distinction into the type domain for aero dispatch. All bodies
 share the 6-DOF generator `rigid_body_eqs!`.
 
-The rigid-body core (`mass`, `inertia_principal`, frames, 6-DOF state) is set
+The rigid-body core (`extra_mass`, `inertia_principal`, frames, 6-DOF state) is set
 directly or derived from the body's points; aero/wing fields are inert when
 `aero` is [`AeroNone`](@ref). Loads are gravity (`-g·mass` for DYNAMIC bodies),
 the settable external wrench, joint wrenches, and aerodynamics.
@@ -50,8 +50,8 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     const wing_ref::Union{Int, Symbol}
 
     # ---- rigid-body core ----
-    "Total mass [kg]."
-    mass::SimFloat
+    "Own mass [kg]."
+    extra_mass::SimFloat
     "Entrained-air mass [kg] resisting acceleration without adding weight."
     apparent_mass::SimFloat
     "Principal moments of inertia `[Ixx, Iyy, Izz]` [kg·m²]."
@@ -206,7 +206,7 @@ broadcast_damping(damping) = damping isa Real ?
     KVec3(damping, damping, damping) : KVec3(damping)
 
 """
-    Body(name; mass, inertia_principal | inertia, pos, vel=zeros,
+    Body(name; extra_mass, inertia_principal | inertia, pos, vel=zeros,
               Q_b_to_w=[1,0,0,0], ω_b=zeros, com_offset_b=zeros, R_b_to_p=I,
               angular_damping=0, world_frame_damping=0, body_frame_damping=0,
               fix_sphere=false, fix_static=false, type=DYNAMIC,
@@ -237,7 +237,7 @@ principal inertia, with `R_b_to_p` giving the body→principal rotation), or
 and `R_b_to_p` are derived via the chosen `principal_frame_method`. Give one, not both.
 """
 function Body(name;
-        mass::Real,
+        extra_mass::Real,
         inertia_principal = nothing,
         inertia = nothing,
         pos,
@@ -278,7 +278,7 @@ function Body(name;
     # Plain body: no aero (AeroNone), rigid dynamics, inert aero/wing fields.
     return Body{AeroNone, RigidDynamics}(
         0, name, 0, transform_ref, 0, wing_ref,
-        SimFloat(mass), zero(SimFloat),
+        SimFloat(extra_mass), zero(SimFloat),
         KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p),
         Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b), principal_frame_method,
         KVec3(ext_force_w), KVec3(ext_force_b), KVec3(ext_moment_b),

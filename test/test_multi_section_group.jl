@@ -71,7 +71,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         SymbolicAWEModels.wing_frame_member(point, wing.idx) && (point.extra_mass = 0.0)
     end
     compute_spatial_station_mapping!(wing, sys.stations, sys.points)
-    @test sum(station.body_mass for station in sys.stations) ≈ wing.mass
+    @test sum(station.body_mass for station in sys.stations) ≈ wing.extra_mass
     @test sys.stations[:left].body_mass ≈ sys.stations[:right].body_mass
     @test sys.stations[:center].body_mass > 0
 
@@ -119,9 +119,9 @@ end
 
     # The six wing nodes and the kcu ride the wing body, so their 1.6 kg is the
     # wing's mass and counts once, next to the two 0.1 kg bridle points.
-    @test wing.mass ≈ 1.6
+    @test wing.extra_mass ≈ 1.6
     @test sys.total_mass ≈ 1.8
-    wing.mass = 2.0
+    wing.extra_mass = 2.0
     @test sys.total_mass ≈ 2.2
 end
 

@@ -349,7 +349,7 @@ wings:
       aero_z_offset: 0.0
 ```
 
-Mass properties (`mass`, `com`, `unit_inertia`) are optional columns; when
+Mass properties (`extra_mass`, `com`, `unit_inertia`) are optional columns; when
 omitted they are computed from the wing's `.obj` mesh if one is supplied, and
 otherwise fall back to point-mass inertia.
 
@@ -363,7 +363,7 @@ element (`joint`).
 
 ```yaml
 bodies:
-  headers: [name, mass, inertia_principal, pos, type]
+  headers: [name, extra_mass, inertia_principal, pos, type]
   data:
     - [nodeA, 1.0, [0.01, 0.01, 0.01], [0.0, 0.0, 0.0], STATIC]
     - [nodeB, 1.0, [0.01, 0.01, 0.01], [1.0, 0.0, 0.0], DYNAMIC]

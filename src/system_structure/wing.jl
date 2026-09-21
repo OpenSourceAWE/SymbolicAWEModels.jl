@@ -358,7 +358,7 @@ function VSMWing(name, set::Settings,
                  pos_cad::Union{Nothing,AbstractVector}=nothing,
                  transform=nothing, angular_damping=[0.0, 150.0, 0.0],
                  inertia_diag=nothing,
-                 mass=nothing,
+                 extra_mass=nothing,
                  com=nothing,
                  unit_inertia=nothing,
                  dynamics_type::Union{Nothing,WingType}=nothing,
@@ -421,7 +421,7 @@ function VSMWing(name, set::Settings,
         transform, angular_damping, dynamics_type, aero,
         group_points_moment, z_ref_points, y_ref_points, origin,
         principal_frame_method)
-    isnothing(mass) || (wing.mass = SimFloat(mass))
+    isnothing(extra_mass) || (wing.extra_mass = SimFloat(extra_mass))
     return wing
 end
 

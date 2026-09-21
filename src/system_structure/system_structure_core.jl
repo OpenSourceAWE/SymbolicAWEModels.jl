@@ -80,7 +80,7 @@ function Base.getproperty(sys::SystemStructure, sym::Symbol)
             end
         end
         for wing in wings
-            wing.dynamics_type == RIGID_DYNAMICS && (total += wing.mass)
+            wing.dynamics_type == RIGID_DYNAMICS && (total += wing.extra_mass)
         end
         return total
     elseif sym == :state_vars
@@ -441,7 +441,7 @@ wing_frame_member(point, wing_idx) =
     distribute_mass_over_points!(points, point_idxs, wing, total_mass)
 
 Split `total_mass` equally across the wing's `point_idxs` (writing each point's
-`extra_mass`) and record it as `wing.mass`. Used for a PARTICLE wing given a
+`extra_mass`) and record it as `wing.extra_mass`. Used for a PARTICLE wing given a
 lumped `set.mass` rather than per-point masses.
 """
 function distribute_mass_over_points!(points, point_idxs, wing, total_mass)
@@ -451,7 +451,7 @@ function distribute_mass_over_points!(points, point_idxs, wing, total_mass)
             points[idx].extra_mass = per_point
         end
     end
-    wing.mass = total_mass
+    wing.extra_mass = total_mass
     return nothing
 end
 
@@ -520,7 +520,7 @@ function particle_wing_masses(wing, stations, points, bodies, root)
     body_mass = 0.0
     for (body_idx, body) in enumerate(bodies)
         (is_wing(body) || !(root[body_idx] in seed_roots)) && continue
-        body_mass += body.mass
+        body_mass += body.extra_mass
     end
     return point_mass, body_mass
 end
@@ -542,7 +542,7 @@ function finalize_particle_wing_mass!(wing, stations, points, bodies, set, root)
         "and ride bodies with mass ($body_mass kg) — gravity is counted twice."
     total = point_mass + body_mass
     if total > 0
-        wing.mass = total
+        wing.extra_mass = total
     else
         set_mass = hasproperty(set, :mass) ? set.mass : 0.0
         if set_mass > 0
@@ -550,7 +550,7 @@ function finalize_particle_wing_mass!(wing, stations, points, bodies, set, root)
                 if wing_frame_member(point, wing.idx)]
             distribute_mass_over_points!(points, wing_point_idxs, wing, set_mass)
         else
-            wing.mass = 0.0
+            wing.extra_mass = 0.0
             @warn "Wing $(wing.idx) (PARTICLE_DYNAMICS) has zero mass — no member " *
                 "point extra_mass and no connected body mass."
         end
@@ -845,7 +845,7 @@ end
 """
     share_body_mass!(the_wing, stations, points)
 
-Set each station's `body_mass`: the part of `the_wing.mass` that no frame point
+Set each station's `body_mass`: the part of `the_wing.extra_mass` that no frame point
 carries, times the station's share of the wing's panel area. A wing whose mass sits on
 its points gives every station 0.
 """
@@ -854,7 +854,7 @@ function share_body_mass!(the_wing::Body, stations::AbstractVector{Station},
     panels = the_wing.vsm_aero.panels
     point_mass = sum(point.extra_mass for point in points
                      if wing_frame_member(point, the_wing.idx); init=0.0)
-    body_mass = max(the_wing.mass - point_mass, 0.0)
+    body_mass = max(the_wing.extra_mass - point_mass, 0.0)
     wing_area = sum(panel.chord * panel.width for panel in panels)
     for station_idx in the_wing.station_idxs
         station = stations[station_idx]
@@ -886,7 +886,7 @@ function setup_wing_frame!(wing, points; prn=true)
         com_cad, inertia_normalized = normalized_inertia(wing.aero, wing, points)
         if !isnothing(inertia_normalized)
             # The hook returns per-unit-mass inertia [m²]; scale once here.
-            I_cad = wing.mass .* inertia_normalized
+            I_cad = wing.extra_mass .* inertia_normalized
             inertia_principal, R_c_to_p = wing.principal_frame_method == Y_ROTATION ?
                 calc_inertia_y_rotation(I_cad) : principal_frame(I_cad)
             wing.R_p_to_c .= R_c_to_p'
@@ -1077,7 +1077,7 @@ function SystemStructure(name, set;
             point.extra_mass for point in points
             if wing_frame_member(point, wing.idx); init=0.0)
         set_mass = hasproperty(set, :mass) ? set.mass : 0.0
-        user_mass = wing.mass
+        user_mass = wing.extra_mass
 
         if wing.dynamics_type == PARTICLE_DYNAMICS
             user_mass > 0 && @warn "Wing $(wing.idx) (PARTICLE_DYNAMICS): " *
@@ -1089,11 +1089,11 @@ function SystemStructure(name, set;
                 "`mass=$user_mass` and point masses ($point_mass_sum) are set — " *
                 "gravity is counted twice (COM + points); zero the point extra_mass."
         elseif point_mass_sum > 0
-            wing.mass = point_mass_sum
+            wing.extra_mass = point_mass_sum
         elseif set_mass > 0
             distribute_mass_over_points!(points, wing_point_idxs, wing, set_mass)
         else
-            wing.mass = 0.0
+            wing.extra_mass = 0.0
         end
     end
 

@@ -1319,12 +1319,12 @@ function RigidBody(s, params, idx; name, parented = false)
     body = params.bodies[idx]
     orientation_p = quaternion_to_rotation_matrix(collect(Q))
     orientation = orientation_p * collect(body.R_b_to_p)
-    gravity = Num[0, 0, -params.set.g_earth * body.mass]
+    gravity = Num[0, 0, -params.set.g_earth * body.extra_mass]
     force_w = collect(io.force_in) .+ gravity .+ collect(body.ext_force_w) .+
         orientation * collect(body.ext_force_b)
     moment_w = collect(io.moment_in) .+ orientation * collect(body.ext_moment_b)
     ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
-        body.mass, body.R_b_to_p, body.apparent_mass,
+        body.extra_mass, body.R_b_to_p, body.apparent_mass,
         body.com_offset_b, com_w, com_vel, Q, omega_p;
         body_integration(params, idx, com_w, com_vel, omega_p, alpha_p,
                          com_acc, orientation_p;

@@ -205,7 +205,7 @@ end
         wing = sys.bodies[:main_wing]
         @test wing.dynamics_type == SymbolicAWEModels.RIGID_DYNAMICS
         @test wing.aero isa AeroNone
-        @test wing.mass ≈ 3.0  # 6 points * 0.5 kg
+        @test wing.extra_mass ≈ 3.0  # 6 points * 0.5 kg
         @test length(sys.segments) == 0
         # No ref points: body frame = CAD orientation, not principal.
         @test wing.R_b_to_c ≈ I(3) atol=1e-12

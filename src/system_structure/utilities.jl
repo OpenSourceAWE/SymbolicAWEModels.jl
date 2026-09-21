@@ -90,8 +90,8 @@ function validate_sys_struct(sys_struct::SystemStructure)
     # ==================== WING VALIDATIONS ==================== #
     for wing in wings
         # Check mass/inertia before NaN position: NaN pos is often caused by zero mass.
-        if wing.mass <= 0
-            error("Wing $(wing.name) has non-positive mass ($(wing.mass)). " *
+        if wing.extra_mass <= 0
+            error("Wing $(wing.name) has non-positive mass ($(wing.extra_mass)). " *
                   "This will cause division by zero in acceleration calculations.")
         end
 

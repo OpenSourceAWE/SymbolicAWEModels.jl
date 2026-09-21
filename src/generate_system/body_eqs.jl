@@ -40,7 +40,7 @@ function body_eqs!(
             ]
             continue
         end
-        mass = params.bodies[idx].mass
+        mass = params.bodies[idx].extra_mass
         R_b_to_w = collect(body_R_b_to_w[:, :, idx])
 
         # Loads at / about the COM (world frame).

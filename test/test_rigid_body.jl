@@ -70,13 +70,13 @@ environment:
     set = Settings("system.yaml")
 
     inertia = [0.1, 0.2, 0.3]
-    body = Body(:body1; mass=2.0, inertia_principal=inertia,
+    body = Body(:body1; extra_mass=2.0, inertia_principal=inertia,
                      pos=[0.0, 0.0, 10.0])
     sys = SystemStructure("rigid_body_test", set; bodies=[body])
 
     @testset "Model setup" begin
         @test length(sys.bodies) == 1
-        @test sys.bodies[:body1].mass ≈ 2.0
+        @test sys.bodies[:body1].extra_mass ≈ 2.0
     end
 
     sam = SymbolicAWEModel(set, sys)
@@ -127,7 +127,7 @@ environment:
 
     @testset "COM-offset body-frame output" begin
         offset = [0.5, 0.0, 0.0]
-        body2 = Body(:body2; mass=1.0, inertia_principal=inertia,
+        body2 = Body(:body2; extra_mass=1.0, inertia_principal=inertia,
                           pos=[1.0, 2.0, 5.0], com_offset_b=offset)
         sys2 = SystemStructure("rigid_body_test", set; bodies=[body2])
         sam2 = SymbolicAWEModel(set, sys2)
@@ -147,7 +147,7 @@ environment:
     # Tested at the SystemStructure level (reinit!), no ODE compilation.
     @testset "Transform repositions and rotates a rigid body" begin
         ground = Point(:ground, [0.0, 0.0, 0.0], STATIC; transform=0)
-        body3 = Body(:body3; mass=1.0, inertia_principal=inertia,
+        body3 = Body(:body3; extra_mass=1.0, inertia_principal=inertia,
                           pos=[100.0, 0.0, 0.0], transform=:tf)
         tip = Point(:tip, [100.0, 0.0, 0.0], BODY_STATIC;
                     body=:body3, anchor_b=[0.0, 0.0, 0.0], transform=:tf)

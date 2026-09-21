@@ -120,7 +120,7 @@ end
 
 Per-unit-mass inertia of the wing's wing nodes treated as point masses
 (`extra_mass`), normalized by their total mass. Exact under the construction
-invariant `wing.mass == sum of wing-node masses` (the constructor
+invariant `wing.extra_mass == sum of wing-node masses` (the constructor
 distributes `set.mass` onto the points). With zero total mass, `com_cad` is
 the unweighted centroid and `inertia` is `nothing`.
 """

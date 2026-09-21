@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## Unreleased
+
+### Changed
+- BREAKING: a body's and a wing's own mass is `extra_mass`, like a point's: the `Body`
+  and `VSMWing` keyword, the `Body` field and the `wings`/`bodies` YAML column, which
+  were `mass`. A YAML row still carrying `mass` errors.
+
 ## v0.18.1 2026-09-21
 
 ### Added
