@@ -1354,6 +1354,12 @@ mutable struct Transform
     turn_rate::SimFloat
     "Base position [m]. Nothing = derived from base_transform."
     base_pos::Union{KVec3, Nothing}
+    "What body-frame damping in this transform is measured against: `:wing_velocity`
+    or `:rigid_motion` (see [`body_frame_damp_accel`](@ref))."
+    const body_damping_reference::Symbol
+    "World position [m] of the base the transform turns about, refreshed before every
+    parameter sync ([`update_transform_bases!`](@ref))."
+    const base_w::KVec3
 end
 
 # Helper to convert ref to NameRef or nothing
@@ -1378,11 +1384,19 @@ Constructs a `Transform` object that orients system components using spherical c
 **Target Object (choose one):**
 - `wing`: Reference to the wing to position at (elevation, azimuth).
 - `rot_point`: Reference to the point to position at (elevation, azimuth).
+
+**Body-frame damping:**
+- `body_damping_reference`: `:wing_velocity` (default) or `:rigid_motion`, see
+  [`body_frame_damp_accel`](@ref).
 """
 function Transform(name, elevation, azimuth, heading;
         base_point=nothing, base_pos=nothing, base_transform=nothing,
         wing=nothing, rot_point=nothing,
-        elevation_vel=0.0, azimuth_vel=0.0, turn_rate=0.0)
+        elevation_vel=0.0, azimuth_vel=0.0, turn_rate=0.0,
+        body_damping_reference=:wing_velocity)
+    body_damping_reference in BODY_DAMPING_REFERENCES || error(
+        "body_damping_reference must be one of $(BODY_DAMPING_REFERENCES), got " *
+        "$(repr(body_damping_reference)).")
     (isnothing(wing) == isnothing(rot_point)) && error("Either provide a wing or a rot_point, not both or none.")
     (isnothing(base_pos) == isnothing(base_transform)) && error("Either provide the base_pos or the base_transform, not both or none.")
     (!isnothing(base_pos) && isnothing(base_point)) && error("When providing a base_pos, also provide a base_point.")
@@ -1395,8 +1409,11 @@ function Transform(name, elevation, azimuth, heading;
     Transform(0, name, nothing, wing_ref, nothing, rot_point_ref,
               nothing, base_point_ref, nothing, base_transform_ref,
               elevation, azimuth, heading, elevation_vel, azimuth_vel, turn_rate,
-              isnothing(base_pos) ? nothing : KVec3(base_pos...))
+              isnothing(base_pos) ? nothing : KVec3(base_pos...),
+              Symbol(body_damping_reference), zeros(KVec3))
 end
+
+const BODY_DAMPING_REFERENCES = (:wing_velocity, :rigid_motion)
 
 """
     get_rot_pos(transform::Transform, bodies, points)

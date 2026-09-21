@@ -291,6 +291,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
         body_com_w, body_com_vel, body_com_acc, body_Q_p_to_w, body_ω_p, body_α_p,
         body_pos_w, body_vel_w, body_acc_w, body_ω_b, body_α_b, body_Q_b_to_w,
         body_R_b_to_w, body_R_p_to_w, body_moment_p, body_Q_p_vel,
+        transforms = system.transforms,
     )
 
     # Build scalar kinematic and apparent wind equations

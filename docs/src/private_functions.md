@@ -65,6 +65,10 @@ SymbolicAWEModels.coulomb_viscous_friction
 SymbolicAWEModels.smooth_normalize
 SymbolicAWEModels.get_rot_pos
 SymbolicAWEModels.get_base_pos
+SymbolicAWEModels.transform_base_w
+SymbolicAWEModels.update_transform_bases!
+SymbolicAWEModels.damps_rigid_motion
+SymbolicAWEModels.damped_against_rigid_motion
 SymbolicAWEModels.calc_aoa
 ```
 
@@ -305,6 +309,7 @@ SymbolicAWEModels.validate_station_modes
 SymbolicAWEModels.body_ride_eqs
 SymbolicAWEModels.beam_hermite_ride_eqs
 SymbolicAWEModels.point_damping_accel
+SymbolicAWEModels.wing_rigid_motion_frame
 SymbolicAWEModels.broadcast_damping
 SymbolicAWEModels.assign_damping!
 SymbolicAWEModels.segment_rest_length_eqs

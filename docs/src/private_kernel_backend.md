@@ -164,6 +164,10 @@ SymbolicAWEModels.StaticBody
 SymbolicAWEModels.wing_frame_variables
 SymbolicAWEModels.KinematicBody
 SymbolicAWEModels.body_frame_damp_accel
+SymbolicAWEModels.rigid_motion_variables
+SymbolicAWEModels.rigid_motion_frame
+SymbolicAWEModels.rigid_motion_of_wing
+SymbolicAWEModels.WingFrameRate
 SymbolicAWEModels.WingNodePoint
 SymbolicAWEModels.ParticleWingAero
 SymbolicAWEModels.WagnerLag
@@ -230,6 +234,10 @@ SymbolicAWEModels.add_segment!
 SymbolicAWEModels.add_body!
 SymbolicAWEModels.add_kinematic_body!
 SymbolicAWEModels.wire_kinematic_body!
+SymbolicAWEModels.wire_wing_references!
+SymbolicAWEModels.framed_point
+SymbolicAWEModels.framed_body
+SymbolicAWEModels.add_rigid_motion_references!
 SymbolicAWEModels.kinematic_wing_of
 SymbolicAWEModels.add_ride_point!
 SymbolicAWEModels.add_hermite_ride_point!

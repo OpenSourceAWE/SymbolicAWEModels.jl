@@ -394,6 +394,11 @@ transforms:
     - [1, -80, 0, 0, [0, 0, 50], 1, 2]
 ```
 
+A transform may also set `body_damping_reference`: `wing_velocity` (the default)
+damps each point's body-frame velocity relative to its wing's, `rigid_motion`
+relative to the rigid turn and reel-out of the whole transform about its base, so a
+kite flying a pass or reeling out is not damped for it.
+
 ## Loading workflow
 
 The full loading workflow for a model with aerodynamics:

@@ -106,6 +106,7 @@ struct KernelParamSync
 end
 
 function sync_params!(sync::KernelParamSync, target, sys_struct::SystemStructure)
+    update_transform_bases!(sys_struct)
     numeric = target.p.numeric
     for group in sync.groups
         sync_readers!(group, numeric, sys_struct)

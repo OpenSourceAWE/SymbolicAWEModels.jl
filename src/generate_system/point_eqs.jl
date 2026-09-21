@@ -4,19 +4,38 @@
 # Point dynamics equation generation
 
 """
-    point_damping_accel(point, params, R_b_to_w, wing_vel, vel_w)
+    point_damping_accel(point, params, R_b_to_w, wing_vel, vel_w; frame=nothing)
 
 Per-mass damping acceleration for a DYNAMIC point: a world-frame term against its
-world velocity `vel_w`, plus, for a point that belongs to a wing, a body-frame term
-in that wing's frame against the point's velocity relative to the wing.
+world velocity `vel_w`, plus, for a point that belongs to a wing, the body-frame
+term [`body_frame_damp_accel`](@ref) in that wing's frame, measured against the
+wing's velocity or, given `frame`, against its transform's rigid motion.
 """
-function point_damping_accel(point, params, R_b_to_w, wing_vel, vel_w)
+function point_damping_accel(point, params, R_b_to_w, wing_vel, vel_w; frame = nothing)
     accel = collect(params.points[point.idx].world_frame_damping .* vel_w)
     point.wing_idx > 0 || return accel
-    R = R_b_to_w[:, :, point.wing_idx]
-    coeff = params.points[point.idx].body_frame_damping
-    vel_diff_w = vel_w - wing_vel[:, point.wing_idx]
-    return accel + R * (coeff .* (R' * vel_diff_w))
+    return accel .+ body_frame_damp_accel(vel_w,
+        params.points[point.idx].body_frame_damping,
+        collect(R_b_to_w[:, :, point.wing_idx]), collect(wing_vel[:, point.wing_idx]);
+        frame)
+end
+
+"""
+    wing_rigid_motion_frame(transforms, params, component, pos;
+                            body_pos_w, body_vel_w, body_R_b_to_w, body_ω_b)
+
+The rigid motion a component of a `:rigid_motion` transform is damped against, at
+its position `pos`: its transform's wing's ([`rigid_motion_of_wing`](@ref)) about the
+transform's `base_w`. `nothing` for a component damped against its wing's velocity.
+"""
+function wing_rigid_motion_frame(transforms, params, component, pos;
+                                 body_pos_w, body_vel_w, body_R_b_to_w, body_ω_b)
+    damped_against_rigid_motion(transforms, component) || return nothing
+    wing = something(transforms[component.transform_idx].wing_idx)
+    base = collect(params.transforms[component.transform_idx].base_w)
+    motion = rigid_motion_of_wing(body_pos_w[:, wing], body_vel_w[:, wing],
+        collect(body_R_b_to_w[:, :, wing]) * collect(body_ω_b[:, wing]), base)
+    return (; pos = collect(pos), base, motion.spin, motion.stretch)
 end
 
 """
@@ -302,8 +321,11 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
             # Free particle: integrated position/velocity (DYNAMIC point or an
             # unanchored surface node).
             pars = point_particle_params(params, point.idx)
+            frame = wing_rigid_motion_frame(s.sys_struct.transforms, params, point,
+                pos[:, point.idx]; body_pos_w, body_vel_w = wing_vel, body_R_b_to_w,
+                body_ω_b)
             damp_accel = point_damping_accel(
-                point, params, R_b_to_w, wing_vel, vel[:, point.idx])
+                point, params, R_b_to_w, wing_vel, vel[:, point.idx]; frame)
             velocity, acceleration = confined_derivatives(
                 pos[:, point.idx], vel[:, point.idx], collect(acc[:, point.idx]),
                 (; fix_sphere = fix_point_sphere[point.idx],

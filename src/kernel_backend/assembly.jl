@@ -379,6 +379,8 @@ function assemble(sam; verbose = false)
         connect!(builder, body_instances[body.wing_idx], :vel,
                  body_instances[idx], :wing_velocity)
     end
+    add_rigid_motion_references!(builder, table, bindings, sam, point_roles,
+                                 point_instances, body_instances)
     for joint in sys_struct.elastic_joints
         add_joint!(builder, table, bindings, sam, joint, body_instances,
                    :elastic_joints, ElasticJointComponent, ELASTIC_RIGIDITIES)
@@ -791,15 +793,20 @@ function add_body!(builder, table, bindings, sam, idx)
         "KernelBackend: body $(body.name) has type $(body.type); only DYNAMIC, " *
         "STATIC and KINEMATIC are supported so far.")
     parented = body.type != STATIC && body.wing_idx != 0
+    framed = framed_body(sam, idx)
     key = body.type == STATIC ? :static_body :
         parented ? :parented_rigid_body : :rigid_body
+    framed && (key = Symbol(key, :_framed))
     make = body.type == STATIC ?
         (params -> StaticBody(sam, params, idx; name = key)) :
-        (params -> RigidBody(sam, params, idx; name = key, parented))
+        (params -> RigidBody(sam, params, idx; name = key, parented, framed))
+    inputs = parented ? PARENTED_BODY_INPUTS : BODY_INPUTS
     entry = kernel!(builder, table, sam, key, idx, make,
-                    parented ? PARENTED_BODY_INPUTS : BODY_INPUTS, BODY_OUTPUTS)
+                    framed ? [inputs; RIGID_MOTION_INPUTS] : inputs, BODY_OUTPUTS)
     instance = add_instance!(builder, entry.index)
-    push!(bindings, (instance, entry, Dict(:bodies => idx)))
+    index_map = Dict(:bodies => idx)
+    framed && (index_map[:transforms] = body.transform_idx)
+    push!(bindings, (instance, entry, index_map))
     return instance
 end
 
@@ -821,24 +828,97 @@ function add_kinematic_body!(builder, table, bindings, sam, idx)
 end
 
 """
+    framed_point(sam, role, idx) -> Bool
+
+Whether point `idx` is a damped wing node measured against its transform's rigid
+motion.
+"""
+framed_point(sam, role, idx) = role.kind === :wing_node &&
+    sam.sys_struct.points[idx].body_frame_damping !== nothing &&
+    damped_against_rigid_motion(sam.sys_struct.transforms, sam.sys_struct.points[idx])
+
+"""
+    framed_body(sam, idx) -> Bool
+
+Whether body `idx` is an integrated body measured against its transform's rigid
+motion.
+"""
+framed_body(sam, idx) = sam.sys_struct.bodies[idx].type == DYNAMIC &&
+    damped_against_rigid_motion(sam.sys_struct.transforms, sam.sys_struct.bodies[idx])
+
+"""
+    add_rigid_motion_references!(builder, table, bindings, sam, point_roles,
+                                 point_instances, body_instances)
+
+Add, per transform damped against its rigid motion, the [`WingFrameRate`](@ref)
+kernel that reads the transform's fitted wing, and feed its
+`frame_spin`/`frame_stretch` to every framed point and body of that transform.
+"""
+function add_rigid_motion_references!(builder, table, bindings, sam, point_roles,
+                                      point_instances, body_instances)
+    sys_struct = sam.sys_struct
+    for (t, transform) in enumerate(sys_struct.transforms)
+        transform.body_damping_reference === :rigid_motion || continue
+        points = [idx for (idx, role) in enumerate(point_roles)
+                  if framed_point(sam, role, idx) &&
+                     sys_struct.points[idx].transform_idx == t]
+        bodies = [idx for idx in eachindex(sys_struct.bodies)
+                  if framed_body(sam, idx) && sys_struct.bodies[idx].transform_idx == t]
+        framed = [point_instances[points]; body_instances[bodies]]
+        isempty(framed) && continue
+        wing_idx = something(transform.wing_idx, 0)
+        (wing_idx > 0 && sys_struct.bodies[wing_idx].type == KINEMATIC) || error(
+            "Transform $(transform.name): body_damping_reference = :rigid_motion needs " *
+            "the transform to position a fitted (KINEMATIC) wing.")
+        entry = kernel!(builder, table, sam, :wing_frame_rate, t,
+                        params -> WingFrameRate(sam, params, t; name = :wing_frame_rate),
+                        WING_RATE_INPUTS, RIGID_MOTION_INPUTS)
+        instance = add_instance!(builder, entry.index)
+        push!(bindings, (instance, entry, Dict(:transforms => t)))
+        wire_wing_references!(builder, sys_struct.bodies[wing_idx], instance,
+                              point_instances; reference_velocities = true)
+        for component in framed, name in RIGID_MOTION_INPUTS
+            connect!(builder, instance, name, component, name)
+        end
+    end
+    return nothing
+end
+
+"""
     wire_kinematic_body!(builder, sys_struct, idx, body_instance, point_instances)
 
 Wire a fitted wing's reference points into it: the four frame references and the
 origin's position and velocity, each a weighted blend of point outputs.
 """
 function wire_kinematic_body!(builder, sys_struct, idx, body_instance, point_instances)
-    wing = sys_struct.bodies[idx]
-    references = ((wing.z_ref_points[1], :z1_pos, :pos),
-                  (wing.z_ref_points[2], :z2_pos, :pos),
-                  (wing.y_ref_points[1], :y1_pos, :pos),
-                  (wing.y_ref_points[2], :y2_pos, :pos),
-                  (wing.origin, :origin_pos, :pos),
-                  (wing.origin, :origin_vel, :vel))
-    for (reference, target, source) in references
+    return wire_wing_references!(builder, sys_struct.bodies[idx], body_instance,
+                                 point_instances; reference_velocities = false)
+end
+
+"""
+    wire_wing_references!(builder, wing, instance, point_instances;
+                          reference_velocities)
+
+Feed `instance` the fitted `wing`'s reference points, each a weighted blend of real
+points: the four frame references' positions (`z1_pos` … `y2_pos`) and the origin's
+position and velocity, plus the frame references' velocities (`z1_vel` … `y2_vel`)
+under `reference_velocities`.
+"""
+function wire_wing_references!(builder, wing, instance, point_instances;
+                               reference_velocities)
+    frame_sources = reference_velocities ? (:pos, :vel) : (:pos,)
+    references = [[(reference, label, source)
+                   for (reference, label) in ((wing.z_ref_points[1], :z1),
+                                              (wing.z_ref_points[2], :z2),
+                                              (wing.y_ref_points[1], :y1),
+                                              (wing.y_ref_points[2], :y2))
+                   for source in frame_sources];
+                  [(wing.origin, :origin, :pos), (wing.origin, :origin, :vel)]]
+    for (reference, label, source) in references
         for (position, point) in enumerate(reference.ids)
             weight = length(reference.ids) == 1 ? 1.0 : reference.weights[position]
-            connect!(builder, point_instances[point], source, body_instance, target;
-                     weight)
+            connect!(builder, point_instances[point], source, instance,
+                     Symbol(label, :_, source); weight)
         end
     end
     return nothing
@@ -868,9 +948,16 @@ function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches,
     entry = if role.kind === :wing_node
         with_damping = sys_struct.points[idx].body_frame_damping !== nothing
         key = with_damping ? :wing_node : :wing_node_undamped
+        framed = framed_point(sam, role, idx)
+        if framed
+            key = :wing_node_framed
+            index_map[:transforms] = sys_struct.points[idx].transform_idx
+        end
         kernel!(builder, table, sam, key, idx,
-                params -> WingNodePoint(sam, params, idx; name = key, with_damping),
-                WING_NODE_INPUTS, PARTICLE_OUTPUTS)
+                params -> WingNodePoint(sam, params, idx; name = key, with_damping,
+                                        framed),
+                framed ? [WING_NODE_INPUTS; RIGID_MOTION_INPUTS] : WING_NODE_INPUTS,
+                PARTICLE_OUTPUTS)
     elseif role.kind === :particle
         kernel!(builder, table, sam, :particle, idx,
                 params -> Particle(sam, params, idx; name = :particle),

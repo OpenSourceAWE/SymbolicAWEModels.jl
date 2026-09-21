@@ -350,6 +350,7 @@ are no flattened parameters.
 """
 sync_params!(::Nothing, target, sys_struct) = nothing
 function sync_params!(sync::ParamSync, target, sys_struct::SystemStructure)
+    update_transform_bases!(sys_struct)
     sync_group!(sync.scalar, target, sys_struct)
     sync_group!(sync.array, target, sys_struct)
     sync_group!(sync.callable, target, sys_struct)

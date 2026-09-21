@@ -473,12 +473,15 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
         base_point = (wing.transform_idx != 0 &&
                       wing.transform_idx <= length(transforms)) ?
             transforms[wing.transform_idx].base_point_idx : 0
+        rigid_motion_base = damped_against_rigid_motion(transforms, wing) ?
+            transform_base_w(transforms[wing.transform_idx], transforms,
+                             sys_struct.bodies, sys_struct.points) : nothing
         wing_kinematics_from_points!(wing, sys_struct.points, sys_struct.set,
             sys_struct.am, sys_struct.wind_mode;
             zp1 = readout.z1, zp2 = readout.z2, yp1 = readout.y1,
             yp2 = readout.y2, origin = readout.origin,
             aero_points = readout.aero_points, base_point,
-            stations = sys_struct.stations)
+            stations = sys_struct.stations, rigid_motion_base)
     end
     for readout in getter.rigid
         wing = sys_struct.bodies[readout.wing]

@@ -9,6 +9,7 @@ using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: panel_force_slots, panel_force_eqs
 using SymbolicAWEModels.ModelingToolkit: Symbolics
+using KiteUtils
 using Profile
 using LinearAlgebra
 
@@ -317,4 +318,56 @@ function diagnose_rhs(f, du, u, p, t)
         end
     end
     return nothing
+end
+
+"""
+    two_plate_model(backend, geometry, root; aero_mode=nothing, fixture=false,
+                    prepare=identity, system_name="backend_parity")
+
+The 2plate kite on `backend`, built from `geometry` and initialised, with its struct
+scattered back out of the solved model. The fixture is copied under `root`, one copy
+per backend so neither reads the other's model cache; `fixture` writes the pressure
+fixture into it and `prepare(data_path)` may add files of its own.
+"""
+function two_plate_model(backend, geometry, root; aero_mode=nothing, fixture=false,
+                         prepare=identity, system_name="backend_parity")
+    data_path = joinpath(root, string(nameof(typeof(backend))), "2plate_kite")
+    mkpath(dirname(data_path))
+    cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path; force=true)
+    fixture && write_pressure_fixture(data_path)
+    prepare(data_path)
+    set_data_path(data_path)
+    set = Settings("system.yaml")
+    vsm_set = SymbolicAWEModels.VortexStepMethod.VSMSettings(
+        joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
+    sys = load_sys_struct_from_yaml(joinpath(data_path, geometry); system_name,
+                                    set, vsm_set,
+                                    (isnothing(aero_mode) ? () :
+                                     (; aero_mode=aero_mode()))...)
+    sam = SymbolicAWEModel(set, sys; backend)
+    init!(sam; prn=false, remake=true)
+    SymbolicAWEModels.update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+    return sam
+end
+
+"""The 2plate particle geometry with its transform damped against its rigid motion."""
+const RIGID_MOTION_GEOMETRY = "rigid_motion_structural_geometry.yaml"
+
+"""
+    write_rigid_motion_geometry(data_path)
+
+Write [`RIGID_MOTION_GEOMETRY`](@ref) next to the 2plate particle geometry: the same
+kite with `body_damping_reference: rigid_motion` on its transform, turning in
+elevation and about the radial so `init!` starts it on a rigid motion.
+"""
+function write_rigid_motion_geometry(data_path)
+    text = read(joinpath(data_path, "particle_structural_geometry.yaml"), String)
+    anchor = "      base_point_idx: ground\n"
+    occursin(anchor, text) || error("2plate transform row not found")
+    text = replace(text, anchor => anchor *
+        "      body_damping_reference: rigid_motion\n" *
+        "      elevation_vel: 5.0\n" *
+        "      turn_rate: 10.0\n")
+    write(joinpath(data_path, RIGID_MOTION_GEOMETRY), text)
+    return data_path
 end

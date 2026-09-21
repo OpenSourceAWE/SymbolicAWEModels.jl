@@ -36,33 +36,6 @@ using SymbolicAWEModels: update_sys_struct!, MonolithBackend, KernelBackend,
                          VortexStepMethod
 using KiteUtils
 
-"""
-    parity_model(backend, geometry, root)
-
-The 2plate kite on `backend`, built from `geometry` and initialised, with its
-struct scattered back out of the solved model. Each backend gets its own copy of
-the fixture so neither can read the other's model cache.
-"""
-function parity_model(backend, geometry, root; aero_mode=nothing, fixture=false)
-    data_path = joinpath(root, string(nameof(typeof(backend))), "2plate_kite")
-    mkpath(dirname(data_path))
-    cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path; force=true)
-    fixture && write_pressure_fixture(data_path)
-    set_data_path(data_path)
-    set = Settings("system.yaml")
-    vsm_set = VortexStepMethod.VSMSettings(
-        joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    sys = load_sys_struct_from_yaml(joinpath(data_path, geometry);
-                                    system_name="backend_parity", set=set,
-                                    vsm_set=vsm_set,
-                                    (isnothing(aero_mode) ? () :
-                                     (; aero_mode=aero_mode()))...)
-    sam = SymbolicAWEModel(set, sys; backend)
-    init!(sam; prn=false, remake=true)
-    update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
-    return sam
-end
-
 """Whether `value` is a number or an array of them, and so comparable at all."""
 comparable(value) = value isa Real ||
     (value isa AbstractArray && eltype(value) <: Real)
@@ -116,17 +89,20 @@ end
     data_path_before = get_data_path()
     root = mktempdir()
     # Only `AeroPressure` scatters panel loads, exercising the read-back path.
-    geometries = (("particle", "particle_structural_geometry.yaml", nothing, false),
-                  ("rigid", "rigid_structural_geometry.yaml", nothing, false),
+    geometries = (("particle", "particle_structural_geometry.yaml", nothing, false,
+                   identity),
+                  ("rigid", "rigid_structural_geometry.yaml", nothing, false, identity),
                   ("particle pressure", "particle_structural_geometry.yaml",
-                   () -> AeroPressure(), true))
+                   () -> AeroPressure(), true, identity),
+                  ("particle damped against its rigid motion",
+                   RIGID_MOTION_GEOMETRY, nothing, false, write_rigid_motion_geometry))
 
-    for (name, geometry, aero_mode, fixture) in geometries
+    for (name, geometry, aero_mode, fixture, prepare) in geometries
         @testset "$name wing" begin
-            kernel = parity_model(KernelBackend(), geometry,
-                                  joinpath(root, name); aero_mode, fixture)
-            monolith = parity_model(MonolithBackend(), geometry,
-                                    joinpath(root, name); aero_mode, fixture)
+            kernel = two_plate_model(KernelBackend(), geometry, joinpath(root, name);
+                                     aero_mode, fixture, prepare)
+            monolith = two_plate_model(MonolithBackend(), geometry,
+                                       joinpath(root, name); aero_mode, fixture, prepare)
 
             mismatches = struct_mismatches(kernel.sys_struct,
                                            monolith.sys_struct)

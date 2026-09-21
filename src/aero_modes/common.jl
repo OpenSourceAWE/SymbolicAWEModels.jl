@@ -1116,17 +1116,18 @@ function sync_aero_density!(wing, am)
 end
 
 """
-    point_acceleration_w(point, wing_frame, wing_vel) -> KVec3
+    point_acceleration_w(point, wing_frame, wing_vel; frame=nothing) -> KVec3
 
 A free particle's world-frame acceleration, rebuilt from what the struct already
-carries: its net force per unit mass less the world-frame and body-frame damping.
-The same expression `point_eqs!` binds to `acc`, which is where the monolith's
-fitted wing reads its own `acc_w` from.
+carries: its net force per unit mass less the world-frame and body-frame damping,
+the latter measured against `frame` when its transform damps against its rigid
+motion ([`body_frame_damp_accel`](@ref)). The same expression `point_eqs!` binds to
+`acc`, which is where the monolith's fitted wing reads its own `acc_w` from.
 """
-function point_acceleration_w(point, wing_frame, wing_vel)
+function point_acceleration_w(point, wing_frame, wing_vel; frame = nothing)
     damping = collect(point.world_frame_damping) .* collect(point.vel_w) .+
         body_frame_damp_accel(point.vel_w, point.body_frame_damping, wing_frame,
-                              collect(wing_vel))
+                              collect(wing_vel); frame)
     return collect(point.force) ./ point.total_mass .- damping
 end
 
@@ -1140,7 +1141,8 @@ positions/velocities, for a backend that does not carry these quantities as stat
 reference is the weighted blend of its points. Writes the body frame `R_b_to_w`
 ([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the frame's own
 `ω_b` ([`body_frame_omega`](@ref)), the origin's acceleration `acc_w`
-([`point_acceleration_w`](@ref)), the reported scalars
+([`point_acceleration_w`](@ref), damped against the rigid motion about
+`rigid_motion_base` when one is given), the reported scalars
 ([`write_wing_scalars!`](@ref)), the wing apparent wind `va_b`, and each aero point's
 `va_b = R'·(wind − vel)`, the wind coming from the height profile or, under
 [`PerPointWind`](@ref), from `point.wind_vec` and `wing.wind_vec`, which the caller
@@ -1148,7 +1150,7 @@ owns — the same quantities the monolith's `get_all_state` copies out of the in
 """
 function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode;
         zp1, zp2, yp1, yp2, origin, aero_points,
-        base_point = 0, stations = nothing)
+        base_point = 0, stations = nothing, rigid_motion_base = nothing)
     pos_z1 = get_ref_position_from_points(points, zp1)
     pos_z2 = get_ref_position_from_points(points, zp2)
     pos_y1 = get_ref_position_from_points(points, yp1)
@@ -1167,8 +1169,12 @@ function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode
         wing_frame_rates(pos_z1, pos_z2, pos_y1, pos_y2,
             (vel_z1, vel_z2, vel_y1, vel_y2), axes))
     fill!(wing.acc_w, 0.0)
+    motion = isnothing(rigid_motion_base) ? nothing :
+        rigid_motion_of_wing(wing.pos_w, wing.vel_w, R * wing.ω_b, rigid_motion_base)
     for (idx, weight) in zip(origin.ids, origin.weights)
-        wing.acc_w .+= weight .* point_acceleration_w(points[idx], R, wing.vel_w)
+        frame = isnothing(motion) ? nothing :
+            (; pos = points[idx].pos_w, base = rigid_motion_base, motion...)
+        wing.acc_w .+= weight .* point_acceleration_w(points[idx], R, wing.vel_w; frame)
     end
     profile = wind_mode isa PerPointWind ? nothing : WindFactor(am, set.profile_law)
     isnothing(profile) || (wing.wind_vec .= profile(wing.pos_w[3]) .* set.wind_vec)

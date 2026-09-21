@@ -18,7 +18,7 @@ function body_eqs!(
     body_force, body_moment,
     body_com_w, body_com_vel, body_com_acc, body_Q_p_to_w, body_ω_p, body_α_p,
     body_pos_w, body_vel_w, body_acc_w, body_ω_b, body_α_b, body_Q_b_to_w,
-    body_R_b_to_w, body_R_p_to_w, body_moment_p, body_Q_p_vel,
+    body_R_b_to_w, body_R_p_to_w, body_moment_p, body_Q_p_vel, transforms,
 )
     for rigid_body in bodies
         idx = rigid_body.idx
@@ -59,7 +59,9 @@ function body_eqs!(
             frozen=(rigid_body.type == STATIC),
             wing_frame = parent == 0 ? nothing :
                 collect(body_R_b_to_w[:, :, parent]),
-            wing_vel = parent == 0 ? nothing : body_com_vel[:, parent])
+            wing_vel = parent == 0 ? nothing : body_com_vel[:, parent],
+            frame = wing_rigid_motion_frame(transforms, params, rigid_body,
+                body_com_w[:, idx]; body_pos_w, body_vel_w, body_R_b_to_w, body_ω_b))
 
         eqs, defaults = rigid_body_eqs!(
             eqs, defaults, idx;

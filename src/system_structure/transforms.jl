@@ -485,19 +485,61 @@ function reposition!(
 )
     (; points, bodies) = sys_struct
     for transform in transforms
-        base_pos = if !isnothing(
-                transform.base_transform_idx)
-            base_tf = transforms[something(
-                transform.base_transform_idx)]
-            get_rot_pos(base_tf, bodies, points)
-        else
-            points[something(
-                transform.base_point_idx)].pos_w
-        end
+        base_pos = transform_base_w(transform, transforms, bodies, points)
         apply_azimuth_elevation!(transform, points, bodies, base_pos; rotate_vel = true)
         apply_heading!(transform, points, bodies, base_pos; rotate_vel = true)
         update_vel && apply_spherical_velocity!(
             transform, points, bodies, base_pos)
     end
     finalize_transforms!(points, bodies)
+end
+
+"""
+    transform_base_w(transform, transforms, bodies, points) -> KVec3
+
+World position of the base `transform` turns about as the structure stands now: the
+rotating object of its base transform, or its base point.
+"""
+function transform_base_w(transform, transforms, bodies, points)
+    base_transform = transform.base_transform_idx
+    isnothing(base_transform) ||
+        return KVec3(get_rot_pos(transforms[base_transform], bodies, points))
+    return KVec3(points[something(transform.base_point_idx)].pos_w)
+end
+
+"""
+    update_transform_bases!(sys_struct) -> sys_struct
+
+Write every transform's `base_w` from the structure's current pose. Called before
+every parameter sync, so body-frame damping measured against the rigid motion
+about the base reads the base where it is.
+"""
+function update_transform_bases!(sys_struct::SystemStructure)
+    (; transforms, bodies, points) = sys_struct
+    for transform in transforms
+        isnothing(transform.base_transform_idx) && isnothing(transform.base_point_idx) &&
+            continue
+        transform.base_w .= transform_base_w(transform, transforms, bodies, points)
+    end
+    return sys_struct
+end
+
+"""
+    damps_rigid_motion(sys_struct) -> Bool
+
+Whether any transform measures its body-frame damping against its rigid motion.
+"""
+damps_rigid_motion(sys_struct) =
+    any(transform -> transform.body_damping_reference === :rigid_motion,
+        sys_struct.transforms)
+
+"""
+    damped_against_rigid_motion(transforms, component) -> Bool
+
+Whether `component` (a point or body) sits in one of `transforms` whose body-frame
+damping is measured against its rigid motion.
+"""
+function damped_against_rigid_motion(transforms, component)
+    component.transform_idx > 0 || return false
+    return transforms[component.transform_idx].body_damping_reference === :rigid_motion
 end

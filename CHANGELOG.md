@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+- `body_damping_reference: rigid_motion` on a transform measures its body-frame
+  damping against the rigid motion of the whole transform about its base (the
+  turn its fitted wing flies, its turn rate about the radial included, and its
+  reel-out) instead of against the wing's velocity, so the damping no longer
+  resists the kite's own flight. The default, `wing_velocity`, is unchanged.
+
+### Fixed
+- `reposition!` turns velocities with the pose. It rotated positions and
+  orientations and left `vel_w` in the old frame, so every repositioned state
+  moved differently from the one it was given.
+
 ### Fixed
 - A live polar's control points are measured in the panel's own `panel_axes`
   frame over its corners, which is the frame its contour nodes are lofted along.

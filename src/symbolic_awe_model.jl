@@ -697,7 +697,8 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     n_bodies = length(sys_struct.bodies)
     body_tag = n_bodies > 0 ? "_$(n_bodies)bdy" : ""
     sparse_tag = sparse ? "_sparse" : ""
-    jacobian_tag = analytic_jacobian ? "_analytic" : ""
+    jacobian_tag = (analytic_jacobian ? "_analytic" : "") *
+        (damps_rigid_motion(sys_struct) ? "_rigiddamp" : "")
 
     return "model_v$(pkg_ver)_jl$(ver)_$(set.physical_model)_$(dynamics_type_str)_$(aero_mode_str)_$(dynamics_type)_$(n_points)pnt_$(n_segments)seg_$(n_stations)grp_$(n_wings)wng_$(n_winches)wch$(body_tag)$(sparse_tag)$(jacobian_tag)$(backend_tag(backend)).bin$suffix"
 end

@@ -1029,7 +1029,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                 [:name, :elevation, :azimuth, :heading],
                 [:base_point, :base_pos, :base_transform,
                  :wing, :rot_point,
-                 :elevation_vel, :azimuth_vel, :turn_rate];
+                 :elevation_vel, :azimuth_vel, :turn_rate, :body_damping_reference];
                 mappings=Dict(
                     :elevation => row -> deg2rad(row.elevation),
                     :azimuth => row -> deg2rad(row.azimuth),
@@ -1040,6 +1040,10 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                         deg2rad(row.azimuth_vel) : 0.0,
                     :turn_rate => row -> hasfield(typeof(row), :turn_rate) && !isnothing(row.turn_rate) ?
                         deg2rad(row.turn_rate) : 0.0,
+                    :body_damping_reference => row ->
+                        hasfield(typeof(row), :body_damping_reference) &&
+                        !isnothing(row.body_damping_reference) ?
+                        Symbol(row.body_damping_reference) : :wing_velocity,
                     :base_pos => row -> KVec3(row.base_pos...),
                     :base_point => row -> yaml_to_ref(row.base_point_idx),
                     :base_transform => row ->
