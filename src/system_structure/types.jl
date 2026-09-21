@@ -519,6 +519,11 @@ mutable struct Station
     aero_moment::SimFloat
     "Indices of VSM unrefined sections in this station."
     unrefined_section_idxs::Vector{Int64}
+    "Indices of the VSM panels whose twist moment this station takes."
+    panel_idxs::Vector{Int64}
+    "Share [kg] of its wing's mass that sits on no point, by the area of its panels;
+    its twist inertia counts it with the mass of its points."
+    body_mass::SimFloat
     "Surface area [m²] (flat-plate sections; `NaN` when unused)."
     area::SimFloat
     # ---- owning wing + flap deflection (KINEMATIC α+δ variant) ----
@@ -620,7 +625,7 @@ function Station(name, points, type, moment_frac;
           zeros(KVec3), chord_vec, y_vec,
           type, moment_frac, damping, stiffness,
           SimFloat(twist), 0.0, 0.0, 0.0, 0.0,
-          Int64[], SimFloat(area),
+          Int64[], Int64[], 0.0, SimFloat(area),
           0, wing_ref, Int64[], body_refs,
           Int64[], flap_body_refs, Int64[], flap_point_refs, KVec3(flap_axis),
           Vector{KVec3}(flap_chord_refs), SimFloat(flap_rest_delta))
