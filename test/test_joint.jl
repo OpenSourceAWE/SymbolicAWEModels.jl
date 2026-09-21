@@ -168,9 +168,9 @@ end
 
     @testset "Torsional oscillation frequency" begin
         # Body A near-fixed via huge inertia: B is a torsional pendulum.
-        b1.inertia_principal .= [1.0e4, 1.0e4, 1.0e4]
+        b1.extra_inertia_b .= Diagonal([1.0e4, 1.0e4, 1.0e4])
         Ixx = 0.1
-        b2.inertia_principal .= [Ixx, 0.2, 0.3]
+        b2.extra_inertia_b .= Diagonal([Ixx, 0.2, 0.3])
         jt.stiffness_axial = 0.0
         jt.stiffness_torsion = 5.0
         jt.stiffness_bending = 0.0
@@ -192,8 +192,8 @@ end
         end
         T_measured = period_from_crossings(times, ωx)
         @test 2pi / T_measured ≈ ω_expected rtol=0.03
-        b1.inertia_principal .= inertia
-        b2.inertia_principal .= inertia
+        b1.extra_inertia_b .= Diagonal(inertia)
+        b2.extra_inertia_b .= Diagonal(inertia)
     end
 
     @testset "Interpolated (nonlinear) stiffness" begin

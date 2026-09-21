@@ -20,6 +20,9 @@
   `extra_mass` is never overwritten: a rigid wing no longer takes its points'
   masses or `set.mass` into it, and setting both counts both, without a warning.
   The segment halves use `l0` as `reinit!` leaves it, not the live winch length.
+  `inertia_principal`, `R_b_to_p` and `com_offset_b` are derived on every `reinit!`:
+  change a built body's own inertia and COM through `extra_inertia_b` (a body-frame
+  tensor) and `extra_com_offset_b`.
 - A particle wing's `total_mass` sums its free member points and section bodies,
   segment halves included; points riding a body count in that body. Its "gravity
   is counted twice" warning is gone.
