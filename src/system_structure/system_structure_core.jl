@@ -837,9 +837,9 @@ structural points and its ref points. [`update_mass_properties!`](@ref) adds the
 carried points. This is dynamics/geometry only — independent of the aero mode, which
 does its own mode-specific setup afterwards in [`setup_aero!`](@ref).
 
-Without ref points the body frame keeps the CAD orientation (origin at the own
-COM). Without a mesh, the own mass is spread like the frame points' `extra_mass`;
-with neither, the constructor's inertia stays, or none for a massless wing.
+Without ref points the body frame keeps the CAD orientation (origin at the wing
+body's own COM). Without a mesh, the wing's own mass is spread like the frame points'
+`extra_mass`; with neither, the constructor's inertia stays, or none for a massless wing.
 """
 function setup_wing_frame!(wing, points; prn=true)
     if wing.dynamics_type == RIGID_DYNAMICS
@@ -848,7 +848,7 @@ function setup_wing_frame!(wing, points; prn=true)
 
         com_cad, inertia_normalized = normalized_inertia(wing.aero, wing, points)
 
-        # Body frame from ref points (else body = CAD orientation, origin = own COM)
+        # Body frame from ref points (else body = CAD orientation, origin = its own COM)
         origin = wing.origin
         z_ref = wing.z_ref_points
         y_ref = wing.y_ref_points
@@ -913,7 +913,7 @@ function update_mass_properties!(sys_struct::SystemStructure; prn=true)
     root = connected_body_groups(length(bodies),
         sys_struct.elastic_joints, sys_struct.timoshenko_joints)
     for wing in sys_struct.wings
-        wing.type == KINEMATIC || continue
+        wing.dynamics_type == PARTICLE_DYNAMICS || continue
         point_idxs, body_idxs = particle_wing_parts(wing, stations, points, bodies, root)
         wing.total_mass = sum(points[idx].total_mass for idx in point_idxs
                               if carrier_body_idx(points[idx], bodies) == 0; init=0.0) +
@@ -933,11 +933,11 @@ function combine_carried_points!(body, points, bodies)
     carried = [(point.total_mass, carried_position_b(point, body)) for point in points
                if carrier_body_idx(point, bodies) == body.idx]
     total_mass = body.extra_mass + sum(first, carried; init=0.0)
-    com = total_mass > 0 ?
-        (body.extra_mass .* body.extra_com_offset_b .+
-         sum(mass .* position for (mass, position) in carried; init=zeros(3))) /
-            total_mass :
-        body.extra_com_offset_b
+    first_moment = body.extra_mass .* body.extra_com_offset_b
+    for (mass, position) in carried
+        first_moment .+= mass .* position
+    end
+    com = total_mass > 0 ? first_moment ./ total_mass : body.extra_com_offset_b
     inertia = body.extra_inertia_b .+
         point_mass_inertia(body.extra_mass, body.extra_com_offset_b .- com)
     for (mass, position) in carried

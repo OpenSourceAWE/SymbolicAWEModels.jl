@@ -102,7 +102,7 @@ below) — but it is frozen at construction as a constant
 ``R_{b \to c}`` instead of being refitted every step, since the wing
 body is rigid. If a wing declares no `origin`/`z_ref_points`/
 `y_ref_points`, the body frame keeps the CAD orientation
-(``R_{b \to c} = I``) with its origin at the own COM.
+(``R_{b \to c} = I``) with its origin at the wing body's own COM.
 
 The wing's mass properties are those of the wing body with every point
 it carries (see [Mass of a rigid body](@ref)):

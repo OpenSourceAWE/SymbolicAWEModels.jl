@@ -880,7 +880,6 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
         reinit!(sys_struct.transforms, sys_struct; update_vel=reset_vel)
     remake_vsm && remake_wing_aero!(sys_struct, set)
     init_wind!(sys_struct, set)
-    # validate_sys_struct() runs later: total_mass needs the live integrator.
     ignore_l0 && relax_segments!(sys_struct)
     update_mass_properties!(sys_struct; prn)
     init_rest_geometry!(sys_struct)

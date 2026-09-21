@@ -68,9 +68,9 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     const R_p_to_c::Matrix{SimFloat}
     "Offset from body origin to COM with the carried points, body frame [m]."
     const com_offset_b::KVec3
-    "Own inertia tensor about the own COM, body frame [kg·m²]."
+    "Inertia tensor of the body alone about its own COM, body frame [kg·m²]."
     const extra_inertia_b::Matrix{SimFloat}
-    "Offset from body origin to the own COM, body frame [m]."
+    "Offset from body origin to the COM of the body alone, body frame [m]."
     const extra_com_offset_b::KVec3
     "Method used to compute the principal frame (see [`PrincipalFrameMethod`](@ref))."
     principal_frame_method::PrincipalFrameMethod
@@ -250,9 +250,11 @@ toggled on a built model.
 
 `extra_mass`, `com_offset_b` and the inertia are the body's own, without the
 `BODY_STATIC` points riding it: [`SystemStructure`](@ref) adds those. Supply the
-inertia about the own COM in one of two ways: `inertia_principal` (a length-3
+inertia about the body's own COM in one of two ways: `inertia_principal` (a length-3
 diagonal principal inertia, with `R_b_to_p` giving the body→principal rotation), or
-`inertia` (a full 3×3 body-frame tensor). Give one, not both.
+`inertia` (a full 3×3 body-frame tensor). Give one, not both. Either is stored as a
+tensor; the stored `inertia_principal` and `R_b_to_p` diagonalise the total with the
+riders, so `R_b_to_p` can differ from the one passed.
 """
 function Body(name;
         extra_mass::Real,
