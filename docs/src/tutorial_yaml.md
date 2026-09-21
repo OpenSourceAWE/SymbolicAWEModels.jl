@@ -349,9 +349,32 @@ wings:
       aero_z_offset: 0.0
 ```
 
-Mass properties (`extra_mass`, `com`, `unit_inertia`) are optional columns; when
-omitted they are computed from the wing's `.obj` mesh if one is supplied, and
-otherwise fall back to point-mass inertia.
+Mass properties (`extra_mass`, `com`, `unit_inertia`) are optional columns; `com`
+and `unit_inertia` are computed from the wing's `.obj` mesh when omitted, if one is
+supplied. They describe the wing body alone, as below.
+
+### Mass of a rigid body
+
+A `RIGID_DYNAMICS` wing or a plain `Body` has an `extra_mass`: its own mass, which
+nothing overwrites. The points it carries — its `BODY_STATIC` riders, and a rigid
+wing's nodes — keep their own masses too, and the body adds each of them at the
+point's attachment as its `total_mass`: its `extra_mass` plus half of every segment
+it holds. So the body's
+
+- `total_mass` is `extra_mass` plus the `total_mass` of every point it carries, and its
+  weight acts at the COM;
+- COM (`com_offset_b`) is the mass-weighted mean of its own COM and those points;
+- inertia is its own about that COM plus each point's, by the parallel-axis theorem.
+
+Mass given both on the body and on its points counts both, once each: a KCU point
+of 10 kg riding a 15 kg wing makes a 25 kg body whose COM sits 40% of the way to
+the KCU. A wing with no `extra_mass` of its own and no point masses spreads
+`set.mass` over its points. A particle wing's `total_mass` adds up its free points
+and section bodies, which carry its mass.
+
+The segment halves use each segment's `l0` when the structure is placed
+([`update_mass_properties!`](@ref), run by `reinit!`); they are not updated while
+a winch changes a tether's `l0` during a run.
 
 ### Bodies and joints
 

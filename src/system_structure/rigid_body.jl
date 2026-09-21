@@ -28,10 +28,14 @@ fitted from structural points — particle wings) or STATIC (clamped). `D` mirro
 the rigid/particle distinction into the type domain for aero dispatch. All bodies
 share the 6-DOF generator `rigid_body_eqs!`.
 
-The rigid-body core (`extra_mass`, `inertia_principal`, frames, 6-DOF state) is set
-directly or derived from the body's points; aero/wing fields are inert when
-`aero` is [`AeroNone`](@ref). Loads are gravity (`-g·mass` for DYNAMIC bodies),
-the settable external wrench, joint wrenches, and aerodynamics.
+The body's own mass properties (`extra_mass`, `extra_inertia_b`,
+`extra_com_offset_b`) are set directly or derived from its mesh or points. A
+DYNAMIC or STATIC body adds the points it carries — its `BODY_STATIC` riders, and a
+`RIGID_DYNAMICS` wing's nodes — as point masses of their `total_mass` at their
+anchors: `total_mass`, `com_offset_b` and the principal inertia describe the body
+with them ([`update_mass_properties!`](@ref)). Aero/wing fields are inert when
+`aero` is [`AeroNone`](@ref). Loads are gravity (`-g·total_mass` at the COM), the
+settable external wrench, joint wrenches, and aerodynamics.
 
 $(TYPEDFIELDS)
 """
@@ -50,18 +54,24 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     const wing_ref::Union{Int, Symbol}
 
     # ---- rigid-body core ----
-    "Own mass [kg]."
+    "Own mass [kg], without the points the body carries."
     extra_mass::SimFloat
+    "`extra_mass` plus the `total_mass` of the points the body carries [kg]."
+    total_mass::SimFloat
     "Entrained-air mass [kg] resisting acceleration without adding weight."
     apparent_mass::SimFloat
-    "Principal moments of inertia `[Ixx, Iyy, Izz]` [kg·m²]."
+    "Principal moments of inertia `[Ixx, Iyy, Izz]` with the carried points [kg·m²]."
     const inertia_principal::KVec3
     "Constant body→principal rotation."
     const R_b_to_p::Matrix{SimFloat}
     "Principal frame → CAD (from inertia diagonalisation)."
     const R_p_to_c::Matrix{SimFloat}
-    "Offset from body origin to COM, body frame [m]."
+    "Offset from body origin to COM with the carried points, body frame [m]."
     const com_offset_b::KVec3
+    "Own inertia tensor about the own COM, body frame [kg·m²]."
+    const extra_inertia_b::Matrix{SimFloat}
+    "Offset from body origin to the own COM, body frame [m]."
+    const extra_com_offset_b::KVec3
     "Method used to compute the principal frame (see [`PrincipalFrameMethod`](@ref))."
     principal_frame_method::PrincipalFrameMethod
     "External force applied at the COM, world frame [N] (settable)."
@@ -175,6 +185,13 @@ function principal_frame(inertia::AbstractMatrix)
 end
 
 """
+    point_mass_inertia(mass, r) -> Matrix
+
+Inertia tensor [kg·m²] of a point `mass` [kg] at offset `r` [m] from the reference.
+"""
+point_mass_inertia(mass, r) = mass * (dot(r, r) * I(3) - r * r')
+
+"""
     calc_inertia_y_rotation(I_tensor) -> (inertia_principal, R_to_principal)
 
 Diagonalize a 3×3 inertia tensor via a closed-form rotation about the Y axis,
@@ -231,10 +248,11 @@ DOF frozen), like a `RIGID_DYNAMICS` wing's `fix_sphere`. `fix_static=true` hold
 the body where it is; unlike `type=STATIC` it is a parameter, so it can be
 toggled on a built model.
 
-Supply the inertia in one of two ways: `inertia_principal` (a length-3 diagonal
-principal inertia, with `R_b_to_p` giving the body→principal rotation), or
-`inertia` (a full 3×3 body-frame tensor), in which case both `inertia_principal`
-and `R_b_to_p` are derived via the chosen `principal_frame_method`. Give one, not both.
+`extra_mass`, `com_offset_b` and the inertia are the body's own, without the
+`BODY_STATIC` points riding it: [`SystemStructure`](@ref) adds those. Supply the
+inertia about the own COM in one of two ways: `inertia_principal` (a length-3
+diagonal principal inertia, with `R_b_to_p` giving the body→principal rotation), or
+`inertia` (a full 3×3 body-frame tensor). Give one, not both.
 """
 function Body(name;
         extra_mass::Real,
@@ -274,13 +292,15 @@ function Body(name;
     elseif isnothing(inertia_principal)
         error("Body $name: provide `inertia_principal` or `inertia`.")
     end
+    extra_inertia_b = R_b_to_p' * Diagonal(inertia_principal) * R_b_to_p
     R_b_to_c = quaternion_to_rotation_matrix(Vector{SimFloat}(Q_b_to_w))
     # Plain body: no aero (AeroNone), rigid dynamics, inert aero/wing fields.
     return Body{AeroNone, RigidDynamics}(
         0, name, 0, transform_ref, 0, wing_ref,
-        SimFloat(extra_mass), zero(SimFloat),
+        SimFloat(extra_mass), SimFloat(extra_mass), zero(SimFloat),
         KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p),
-        Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b), principal_frame_method,
+        Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b),
+        Matrix{SimFloat}(extra_inertia_b), KVec3(com_offset_b), principal_frame_method,
         KVec3(ext_force_w), KVec3(ext_force_b), KVec3(ext_moment_b),
         damping_vec, world_damping_vec, body_damping_vec, fix_sphere, fix_static,
         type,

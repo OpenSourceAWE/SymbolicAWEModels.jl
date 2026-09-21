@@ -402,7 +402,7 @@ system:
         @test sys.points[:test_point].drag_coeff == 0.33
         @test sys.points[:test_point].world_frame_damping == KVec3(0.0, 0.0, 0.0)
         @test sys.points[:test_point].extra_mass == 2.3
-        @test sys.points[:test_point].total_mass == 0.0 # Not initialized yet
+        @test sys.points[:test_point].total_mass == 2.3
 
         sam = SymbolicAWEModel(set, sys)
         test_init!(sam)

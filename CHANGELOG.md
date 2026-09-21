@@ -2,10 +2,28 @@
 
 ## Unreleased
 
+### Added
+- `update_mass_properties!(sys_struct)` sets each body's `total_mass`, COM and
+  principal inertia from its own and its points' masses. `reinit!` runs it after the
+  segment lengths are set.
+
 ### Changed
 - BREAKING: a body's and a wing's own mass is `extra_mass`, like a point's: the `Body`
   and `VSMWing` keyword, the `Body` field and the `wings`/`bodies` YAML column, which
   were `mass`. A YAML row still carrying `mass` errors.
+- A rigid body — a `RIGID_DYNAMICS` wing or a plain `Body` — weighs, and turns, with
+  the points it carries: its new `total_mass` is its `extra_mass` plus the
+  `total_mass` of its `BODY_STATIC` riders and wing nodes, extra mass and segment
+  halves both, and its COM and inertia include them at their anchors. A rigid wing's
+  bridle and tether halves had no weight or inertia, and a plain body's riders
+  pulled at their anchors without moving its COM, so a heavy KCU turned the body.
+  `extra_mass` is never overwritten: a rigid wing no longer takes its points'
+  masses or `set.mass` into it, and setting both counts both, without a warning.
+  The segment halves use `l0` as `reinit!` leaves it, not the live winch length.
+- A particle wing's `total_mass` sums its free member points and section bodies,
+  segment halves included; points riding a body count in that body. Its "gravity
+  is counted twice" warning is gone.
+- BREAKING: `sys_struct.total_mass` is removed; each body reports its `total_mass`.
 
 ## v0.18.1 2026-09-21
 

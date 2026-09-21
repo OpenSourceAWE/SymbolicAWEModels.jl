@@ -90,8 +90,8 @@ function validate_sys_struct(sys_struct::SystemStructure)
     # ==================== WING VALIDATIONS ==================== #
     for wing in wings
         # Check mass/inertia before NaN position: NaN pos is often caused by zero mass.
-        if wing.extra_mass <= 0
-            error("Wing $(wing.name) has non-positive mass ($(wing.extra_mass)). " *
+        if wing.total_mass <= 0
+            error("Wing $(wing.name) has non-positive total_mass ($(wing.total_mass)). " *
                   "This will cause division by zero in acceleration calculations.")
         end
 
@@ -857,14 +857,15 @@ Place `sys_struct` for a new run from its CAD geometry and `set`. Runs, in order
 7. [`remake_wing_aero!`](@ref) — only with `remake_vsm=true`
 8. [`init_wind!`](@ref)
 9. [`relax_segments!`](@ref) — only with `ignore_l0=true`
-10. [`init_rest_geometry!`](@ref)
+10. [`update_mass_properties!`](@ref)
+11. [`init_rest_geometry!`](@ref)
 
 `init!(sam; reinit_sys=true)` calls this. To adjust only part of the structure, run
 the steps wanted on `sam.sys_struct` and then `init!(sam; reinit_sys=false)`.
 
 # Keyword Arguments
 - `reset_vel::Bool=true`: zero point and body velocities in steps 1 and 6.
-- `prn::Bool=true`: print info messages from step 2.
+- `prn::Bool=true`: print info messages from steps 2 and 10.
 """
 function reinit!(sys_struct::SystemStructure, set::Settings;
                  ignore_l0::Bool=false, remake_vsm::Bool=false,
@@ -881,6 +882,7 @@ function reinit!(sys_struct::SystemStructure, set::Settings;
     init_wind!(sys_struct, set)
     # validate_sys_struct() runs later: total_mass needs the live integrator.
     ignore_l0 && relax_segments!(sys_struct)
+    update_mass_properties!(sys_struct; prn)
     init_rest_geometry!(sys_struct)
     return nothing
 end

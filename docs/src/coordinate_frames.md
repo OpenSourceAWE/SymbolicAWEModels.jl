@@ -102,27 +102,30 @@ below) — but it is frozen at construction as a constant
 ``R_{b \to c}`` instead of being refitted every step, since the wing
 body is rigid. If a wing declares no `origin`/`z_ref_points`/
 `y_ref_points`, the body frame keeps the CAD orientation
-(``R_{b \to c} = I``) with its origin at the COM.
+(``R_{b \to c} = I``) with its origin at the own COM.
 
-Given the wing's structural points (its wing nodes) and, for a wing
-loaded from an `.obj` mesh, the mesh mass properties:
+The wing's mass properties are those of the wing body with every point
+it carries (see [Mass of a rigid body](@ref)):
 
-1. **COM**: mass-weighted centroid in CAD frame
-   ``\text{com} = \frac{\sum m_i \, \mathbf{p}_i}{\sum m_i}``
-2. **Inertia tensor** ``I_\text{cad}`` about COM from point masses:
-   ``I_\text{cad} = \sum m_i \left[
-       (\mathbf{r}_i \cdot \mathbf{r}_i)\, \mathbf{I}_3
-       - \mathbf{r}_i \mathbf{r}_i^\top \right]``
-   where ``\mathbf{r}_i = \mathbf{p}_i - \text{com}``
-3. **Origin**: `wing.pos_cad` is the weighted `origin` reference
-   position, and ``\text{com\_offset}_b = R_{b \to c}^\top
-   (\text{com} - \text{origin})``
+1. **Own part**: `extra_mass` ``m_e`` with inertia ``I_e`` about its own
+   COM ``\mathbf{c}_e``, spread like the `.obj` mesh when there is one,
+   else like the frame points' `extra_mass`.
+2. **Carried points**: each wing node and `BODY_STATIC` rider, as a
+   point mass ``m_i`` (its `total_mass`) at its body-frame position
+   ``\mathbf{p}_i``.
+3. **COM**: ``\text{com\_offset}_b = \frac{m_e \mathbf{c}_e + \sum m_i \mathbf{p}_i}
+   {m_e + \sum m_i}``, measured from the body origin (`wing.pos_cad`,
+   the weighted `origin` reference position).
+4. **Inertia** about that COM, by the parallel-axis theorem:
+   ``I_b = I_e + m_e S(\mathbf{c}_e - \text{com}) + \sum m_i S(\mathbf{p}_i - \text{com})``
+   with ``S(\mathbf{r}) = (\mathbf{r} \cdot \mathbf{r})\, \mathbf{I}_3 - \mathbf{r}\mathbf{r}^\top``.
 
 At runtime, the quaternion state gives ``R_{b \to w}``, and world
 positions are recovered as
 ``\mathbf{p}_w = \mathbf{wing.pos}_w + R_{b \to w} \, \mathbf{p}_b``.
 
-See `setup_wing_frame!` in `system_structure_core.jl`.
+See `setup_wing_frame!` and [`update_mass_properties!`](@ref) in
+`system_structure_core.jl`.
 
 ## Principal Frame — RIGID_DYNAMICS
 
@@ -132,8 +135,9 @@ tensor is diagonal so the Euler equations have no product-of-inertia
 terms. It is a constant rotation off the body frame,
 ``R_{b \to p} = R_{p \to c}^\top R_{b \to c}``.
 
-[`PrincipalFrameMethod`](@ref) selects how ``R_{p \to c}`` is found
-from ``I_\text{cad}``:
+The inertia it diagonalises is the body's with the points it carries
+([`update_mass_properties!`](@ref)), expressed in the body frame, and
+[`PrincipalFrameMethod`](@ref) selects how ``R_{b \to p}`` is found from it:
 
 - `EIGEN_DECOMP` (`principal_frame`) — full 3-axis eigendecomposition
   with a permutation search. General-purpose, correct for any body.

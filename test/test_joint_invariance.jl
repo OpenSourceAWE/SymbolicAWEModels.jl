@@ -102,8 +102,8 @@ function pair_momenta(sys, ref)
     for body in sys.bodies
         vel = Vector(body.vel_w)
         R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
-        linear .+= body.extra_mass .* vel
-        angular .+= body.extra_mass .* ((Vector(body.com_w) .- ref) × vel) .+
+        linear .+= body.total_mass .* vel
+        angular .+= body.total_mass .* ((Vector(body.com_w) .- ref) × vel) .+
                     R_b_to_w * (Vector(body.inertia_principal) .*
                                 Vector(body.ω_b))
     end
