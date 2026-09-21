@@ -18,7 +18,6 @@ using SymbolicAWEModels: VortexStepMethod, RIGID_DYNAMICS,
     match_aero_sections_to_structure!
 using KiteUtils
 using LinearAlgebra
-using Logging
 
 pkg_root = dirname(@__DIR__)
 src_data = joinpath(pkg_root, "data", "2plate_kite")
@@ -140,9 +139,10 @@ end
         "      aero_z_offset: 0.0" => "      aero_z_offset: 0.0\n      extra_mass: 2.0")
     both_yaml = joinpath(data_path, "rigid_both_masses.yaml")
     write(both_yaml, wing_yaml)
-    both = @test_logs min_level=Logging.Warn SymbolicAWEModels.load_sys_struct_from_yaml(
+    load_both() = SymbolicAWEModels.load_sys_struct_from_yaml(
         both_yaml; system_name="rigid_total_mass", set, vsm_set,
         dynamics_type=RIGID_DYNAMICS)
+    both = @test_logs min_level=Base.CoreLogging.Warn load_both()
     @test both.wings[1].extra_mass == 2.0
     @test both.wings[1].total_mass ≈ 2.0 + riding_mass(both, both.wings[1])
 end
