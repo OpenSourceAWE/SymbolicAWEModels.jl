@@ -298,8 +298,9 @@ function build_vsm_solver(vsm_aero::VortexStepMethod.BodyAerodynamics{P}, vsm_se
 end
 
 """
-    build_vsm_engine(set, vsm_set, dynamics_type; n_stations=0, point_to_vsm_point=nothing,
-                     wing_segments=nothing, aero_scale_chord=0.0, aero_z_offset=0.0)
+    build_vsm_engine(set, vsm_set, dynamics_type; n_stations=0,
+                     point_to_vsm_point=nothing, wing_segments=nothing,
+                     aero_scale_chord=0.0, aero_z_offset=0.0)
 
 Build a [`VSMEngine`](@ref): create the VortexStepMethod `vsm_wing`/`vsm_aero`/
 `vsm_solver` and size the linearization state vectors. Aero-state sizes are
@@ -425,7 +426,8 @@ function VSMWing(name, set::Settings,
             "Wing '$name': aero mode $(typeof(aero)) needs VSM geometry " *
             "but no vsm_set was provided.")
         aero = attach_engine!(aero, build_vsm_engine(set, vsm_set, dynamics_type;
-            n_stations=length(stations), point_to_vsm_point, wing_segments, aero_scale_chord, aero_z_offset))
+            n_stations=length(stations), point_to_vsm_point, wing_segments,
+            aero_scale_chord, aero_z_offset))
         seed_wing_inertia!(aero.engine.vsm_wing, set, com, unit_inertia)
     end
 
