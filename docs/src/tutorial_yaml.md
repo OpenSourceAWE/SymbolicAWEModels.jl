@@ -366,6 +366,14 @@ it holds. So the body's
 - COM (`com_offset_b`) is the mass-weighted mean of its own COM and those points;
 - inertia is its own about that COM plus each point's, by the parallel-axis theorem.
 
+```text
+body.total_mass
+├── body.extra_mass            the body's own mass
+└── point.total_mass           for every point the body carries
+    ├── point.extra_mass
+    └── segment_mass / 2       for every segment attached to the point
+```
+
 Mass given both on the body and on its points counts both, once each: a KCU point
 of 10 kg riding a 15 kg wing makes a 25 kg body whose COM sits 40% of the way to
 the KCU. A wing with no `extra_mass` of its own and no point masses spreads
