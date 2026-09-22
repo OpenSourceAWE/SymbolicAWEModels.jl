@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## Unreleased
+
+### Changed
+- Requires the VortexStepMethod release after v5.1.1, whose settings name the apparent
+  wind speed `va` (`condition.wind_speed` in `vsm_settings.yaml` now errors there) and
+  drop the artificial damping keys.
+
+### Fixed
+- A `PARTICLE_DYNAMICS` wing whose stations differ in number from its aero geometry's
+  sections gets a VSM solver sized for the stations it is re-sectioned onto, so
+  VortexStepMethod's size check no longer throws a `DimensionMismatch` on its first
+  solve.
+
 ## v0.18.1 2026-09-21
 
 ### Added
