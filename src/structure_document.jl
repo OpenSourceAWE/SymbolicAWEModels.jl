@@ -196,15 +196,18 @@ winch_rows(sys::SystemStructure) =
          winch.gear_ratio, winch.drum_radius]
      for winch in sys.winches]
 
-"""Rows of the `bodies` block. A wing is a body whose `aero` is not null."""
+"""
+Rows of the `bodies` block: each body's own mass properties, without the points it
+carries. A wing is a body whose `aero` is not null.
+"""
 body_rows(sys::SystemStructure) =
     [Any[component_name(body),
          string(body.type),
          body.aero isa AeroNone ? nothing : string(nameof(typeof(body.aero))),
          ref_name(sys.wings, body.wing_idx),
-         body.mass, body.apparent_mass,
-         vector3(body.inertia_principal), vector3(body.com_offset_b),
-         vector3(body.pos_cad)]
+         body.extra_mass, body.apparent_mass,
+         vector3(first(principal_frame(body.extra_inertia_b))),
+         vector3(body.extra_com_offset_b), vector3(body.pos_cad)]
      for body in sys.bodies]
 
 """The two bodies a joint links, and its anchor in each body's own KA frame."""
@@ -243,9 +246,9 @@ Build the `SystemStructure` a parsed structure document describes. `set`
 supplies what the schema has no column for — the winch friction and inertia, the
 tether material defaults — and falls back to the `base` settings.
 
-The document is the truth for what it carries: each body's mass, inertia, COM
-offset and CAD origin are taken from its row rather than re-derived from the
-points.
+The document is the truth for what it carries: each body's own mass, inertia,
+COM offset and CAD origin are taken from its row rather than re-derived from the
+points, and `reinit!` adds the points it carries.
 """
 function sys_struct_from_document(doc::AbstractDict; set=nothing, vsm_set=nothing,
         wind_mode::WindMode=ProfileWind(), prn::Bool=true)
@@ -385,7 +388,7 @@ read_winch(row, set) = Winch(Symbol(row["name"]), Symbol.(row["tethers"]),
     winch_point = Symbol(row["winch_point"]),
     model = named_model(row["model"], AbstractWinchModel))
 
-read_body(row) = Body(Symbol(row["name"]); mass = Float64(row["mass"]),
+read_body(row) = Body(Symbol(row["name"]); extra_mass = Float64(row["mass"]),
     inertia_principal = vector3(row["inertia_principal"]),
     pos = vector3(row["pos_cad"]),
     com_offset_b = vector3(row["com_offset_KA"]),
@@ -408,7 +411,7 @@ function read_wing(row, station_rows, point_rows, set, vsm_set)
     return VSMWing(Symbol(row["name"]), set, stations, vsm_set;
         transform = 0, dynamics_type = RIGID_DYNAMICS,
         aero = named_model(row["aero"], AbstractAeroModel),
-        pos_cad = vector3(row["pos_cad"]), mass = Float64(row["mass"]),
+        pos_cad = vector3(row["pos_cad"]), extra_mass = Float64(row["mass"]),
         inertia_diag = KVec3(vector3(row["inertia_principal"])))
 end
 
@@ -439,12 +442,12 @@ read_timoshenko_joint(row) = TimoshenkoJoint(Symbol(row["name"]),
     rest_length = Float64(row["rest_length"]),
     radius = optional_length(row["radius"]))
 
-"""Overwrite the mass properties `SystemStructure` derives with the document's."""
+"""Overwrite the own mass properties `SystemStructure` derives with the document's."""
 function apply_body_row!(body::Body, row)
-    body.mass = Float64(row["mass"])
+    body.extra_mass = Float64(row["mass"])
     body.apparent_mass = Float64(row["apparent_mass"])
-    body.inertia_principal .= vector3(row["inertia_principal"])
-    body.com_offset_b .= vector3(row["com_offset_KA"])
+    body.extra_inertia_b .= Diagonal(vector3(row["inertia_principal"]))
+    body.extra_com_offset_b .= vector3(row["com_offset_KA"])
     body.pos_cad .= vector3(row["pos_cad"])
     return body
 end

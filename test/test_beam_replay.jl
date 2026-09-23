@@ -44,7 +44,7 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     set_data_path(data_path)
     set = Settings("system.yaml")
 
-    make_bodies() = [Body(Symbol("seg_$i"); mass=m,
+    make_bodies() = [Body(Symbol("seg_$i"); extra_mass=m,
         inertia_principal=inertia, pos=[(i-0.5)*L, 0.0, 0.0],
         type=(i==1 ? STATIC : DYNAMIC)) for i in 1:n]
     joints = [ElasticJoint(Symbol("j_$i"), Symbol("seg_$i"), Symbol("seg_$(i+1)");

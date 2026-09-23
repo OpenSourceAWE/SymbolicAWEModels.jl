@@ -43,11 +43,11 @@ one elastic joint, with a segment between two body-anchored points.
 """
 function bodies_and_joints(set)
     bodies = Body[
-        Body(:root; mass=1.0, inertia_principal=[0.01, 0.01, 0.01],
+        Body(:root; extra_mass=1.0, inertia_principal=[0.01, 0.01, 0.01],
              pos=[0.0, 0.0, 0.0], type=STATIC),
-        Body(:tip; mass=1.0, inertia_principal=[0.01, 0.01, 0.01],
+        Body(:tip; extra_mass=1.0, inertia_principal=[0.01, 0.01, 0.01],
              pos=[1.0, 0.0, 0.0]),
-        Body(:hub; mass=0.5, inertia_principal=[0.02, 0.03, 0.04],
+        Body(:hub; extra_mass=0.5, inertia_principal=[0.02, 0.03, 0.04],
              pos=[2.0, 0.0, 0.0], com_offset_b=[0.01, 0.0, 0.0])]
     points = Point[
         Point(:tip_anchor, [1.0, 0.0, 0.0], BODY_STATIC; body=:tip),
@@ -105,7 +105,7 @@ end
         @test structure_document(reread; description=GOLDEN_DESCRIPTION,
                                  note=GOLDEN_NOTE) == document
         @test length(reread.points) == length(sys.points)
-        @test reread.wings[:main_wing].mass ≈ sys.wings[:main_wing].mass
+        @test reread.wings[:main_wing].total_mass ≈ sys.wings[:main_wing].total_mass
         @test reread.stations[:left].point_idxs == sys.stations[:left].point_idxs
     end
 

@@ -84,6 +84,7 @@ init_pulley_lengths!
 remake_wing_aero!
 init_wind!
 relax_segments!
+update_mass_properties!
 init_rest_geometry!
 set_unstretched_length!
 ```

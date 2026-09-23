@@ -125,7 +125,8 @@ undefined.
 Integrated force and moment coefficients are applied to the rigid body, driving
 quaternion dynamics. Each station's aerodynamic moment is the sum of the moments of
 the panels nearest its centre, driving the twist DOF. Those panels also set its share
-of any wing mass that sits on no point, which its twist inertia counts.
+of the wing's own `extra_mass`, which sits on no point, and which its twist inertia
+counts.
 
 ## Aero modes
 
@@ -319,7 +320,7 @@ the mode:
   [`refresh_particle_aero!`](@ref).
 - **Diagnostics**: [`calc_aoa`](@ref) (default `NaN`),
   [`normalized_inertia`](@ref) — per-unit-mass inertia [m²], scaled by the
-  wing's mass at the single consumer (default: normalized point-mass inertia
+  wing's own `extra_mass` at the single consumer (default: normalized point-mass inertia
   from the wing's structural points).
 - **Log-point visualization**: [`n_aero_log_points`](@ref) /
   [`write_aero_log_points!`](@ref) / [`read_aero_log_points!`](@ref) /

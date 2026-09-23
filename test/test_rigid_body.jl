@@ -70,13 +70,13 @@ environment:
     set = Settings("system.yaml")
 
     inertia = [0.1, 0.2, 0.3]
-    body = Body(:body1; mass=2.0, inertia_principal=inertia,
+    body = Body(:body1; extra_mass=2.0, inertia_principal=inertia,
                      pos=[0.0, 0.0, 10.0])
     sys = SystemStructure("rigid_body_test", set; bodies=[body])
 
     @testset "Model setup" begin
         @test length(sys.bodies) == 1
-        @test sys.bodies[:body1].mass ≈ 2.0
+        @test sys.bodies[:body1].extra_mass ≈ 2.0
     end
 
     sam = SymbolicAWEModel(set, sys)
@@ -127,7 +127,7 @@ environment:
 
     @testset "COM-offset body-frame output" begin
         offset = [0.5, 0.0, 0.0]
-        body2 = Body(:body2; mass=1.0, inertia_principal=inertia,
+        body2 = Body(:body2; extra_mass=1.0, inertia_principal=inertia,
                           pos=[1.0, 2.0, 5.0], com_offset_b=offset)
         sys2 = SystemStructure("rigid_body_test", set; bodies=[body2])
         sam2 = SymbolicAWEModel(set, sys2)
@@ -147,7 +147,7 @@ environment:
     # Tested at the SystemStructure level (reinit!), no ODE compilation.
     @testset "Transform repositions and rotates a rigid body" begin
         ground = Point(:ground, [0.0, 0.0, 0.0], STATIC; transform=0)
-        body3 = Body(:body3; mass=1.0, inertia_principal=inertia,
+        body3 = Body(:body3; extra_mass=1.0, inertia_principal=inertia,
                           pos=[100.0, 0.0, 0.0], transform=:tf)
         tip = Point(:tip, [100.0, 0.0, 0.0], BODY_STATIC;
                     body=:body3, anchor_b=[0.0, 0.0, 0.0], transform=:tf)
@@ -170,6 +170,35 @@ environment:
         # idempotent across a second reinit!
         SymbolicAWEModels.reinit!(sys3, set)
         @test rb.pos_w ≈ KVec3(r, 0.0, r) atol=1e-6
+    end
+
+    # A KCU-like point riding 1 m out moves the COM a third of the way to it, and
+    # its weight acts there: the body falls at g without turning.
+    @testset "A riding point's mass joins the body" begin
+        carrier = Body(:carrier; extra_mass=2.0, inertia_principal=inertia,
+                       pos=[0.0, 0.0, 10.0])
+        kcu = Point(:kcu, [1.0, 0.0, 10.0], BODY_STATIC; body=:carrier,
+                    extra_mass=1.0, transform=0)
+        sys4 = SystemStructure("rigid_body_rider_test", set;
+            points=[kcu], bodies=[carrier])
+        rb = sys4.bodies[:carrier]
+        @test rb.extra_mass == 2.0
+        @test rb.total_mass ≈ 3.0
+        @test rb.com_offset_b ≈ [1/3, 0.0, 0.0] atol=1e-12
+        @test rb.inertia_principal ≈ inertia .+ [0.0, 2/3, 2/3] atol=1e-12
+
+        sam4 = SymbolicAWEModel(set, sys4)
+        test_init!(sam4)
+        rb = sam4.sys_struct.bodies[:carrier]
+        @test rb.com_w ≈ rb.pos_w .+ [1/3, 0.0, 0.0] atol=1e-6
+        vel_before = copy(rb.com_vel)
+        t_before = sam4.integrator.t
+        for _ in 1:10
+            next_step!(sam4; dt=0.01, vsm_interval=0)
+        end
+        acc = (rb.com_vel - vel_before) / (sam4.integrator.t - t_before)
+        @test acc ≈ [0.0, 0.0, -9.81] atol=0.1
+        @test norm(rb.ω_b) < 1e-6
     end
 
     rm(tmpdir; recursive=true)
