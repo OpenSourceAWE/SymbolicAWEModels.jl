@@ -87,9 +87,9 @@ end
     EI = 100.0; GA = 1500.0; EA = 1.0e4; GJ = 50.0; kshear = 5 / 6
     inertia = [0.01, 0.01, 0.01]
 
-    nodeA = Body(:nodeA; mass=1.0, inertia_principal=inertia,
+    nodeA = Body(:nodeA; extra_mass=1.0, inertia_principal=inertia,
                  pos=[0.0, 0.0, 0.0], type=STATIC)
-    nodeB = Body(:nodeB; mass=1.0, inertia_principal=inertia,
+    nodeB = Body(:nodeB; extra_mass=1.0, inertia_principal=inertia,
                  pos=[beam_length, 0.0, 0.0])
     joint = TimoshenkoJoint(:joint, :nodeA, :nodeB;
         EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
@@ -162,9 +162,9 @@ end
     EIy_law = SymbolicAWEModels.LinearInterpolation(
         EI0 .- bend_slope .* abs.(kappa_knots), kappa_knots)
 
-    nodeA2 = Body(:nodeA; mass=1.0, inertia_principal=inertia,
+    nodeA2 = Body(:nodeA; extra_mass=1.0, inertia_principal=inertia,
                   pos=[0.0, 0.0, 0.0], type=STATIC)
-    nodeB2 = Body(:nodeB; mass=1.0, inertia_principal=inertia,
+    nodeB2 = Body(:nodeB; extra_mass=1.0, inertia_principal=inertia,
                   pos=[beam_length, 0.0, 0.0])
     joint_nl = TimoshenkoJoint(:joint, :nodeA, :nodeB;
         EA=EA_law, GA, GJ, EIy=EIy_law, EIz=EI, shear_coeff=kshear,

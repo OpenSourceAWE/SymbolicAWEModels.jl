@@ -98,8 +98,8 @@ calc_side_slip(wing) =
         -> (com_cad, inertia)
 
 Normalized (per-unit-mass) inertia of the wing body about its COM in the CAD
-frame, with `inertia` in [m²] — multiply by the wing's mass for the physical
-tensor [kg·m²]. `inertia` is `nothing` when there is no mass to normalize
+frame, with `inertia` in [m²] — multiply by the wing's own `extra_mass` for the
+physical tensor [kg·m²]. `inertia` is `nothing` when there is no mass to normalize
 by. The default normalizes the wing nodes' point-mass inertia
 ([`normalized_point_inertia`](@ref)); VSM modes with an `ObjWing` mesh
 return the per-unit-mass mesh tensor as-is (its COM is `-T_cad_body`) and
@@ -118,11 +118,10 @@ end
 """
     normalized_point_inertia(wing, points) -> (com_cad, inertia)
 
-Per-unit-mass inertia of the wing's wing nodes treated as point masses
-(`extra_mass`), normalized by their total mass. Exact under the construction
-invariant `wing.mass == sum of wing-node masses` (the constructor
-distributes `set.mass` onto the points). With zero total mass, `com_cad` is
-the unweighted centroid and `inertia` is `nothing`.
+Per-unit-mass inertia of the wing's frame points treated as point masses
+(`extra_mass`), normalized by their total mass: the shape a wing without a mesh
+spreads its own mass in. With zero total mass, `com_cad` is the unweighted
+centroid and `inertia` is `nothing`.
 """
 function normalized_point_inertia(wing, points)
     wing_points = [point for point in points
@@ -134,11 +133,8 @@ function normalized_point_inertia(wing, points)
             for j in eachindex(wing_points)) / total_mass :
         mean([point.pos_cad for point in wing_points])
     total_mass > 0 || return com_cad, nothing
-    inertia = zeros(3, 3)
-    for (mass, point) in zip(masses, wing_points)
-        r = point.pos_cad - com_cad
-        inertia += mass * (dot(r, r) * I(3) - r * r')
-    end
+    inertia = sum(point_mass_inertia(mass, point.pos_cad - com_cad)
+                  for (mass, point) in zip(masses, wing_points))
     return com_cad, inertia / total_mass
 end
 

@@ -369,7 +369,7 @@ function build_beam(name, n_seg, joint_law)
         radius = station_radius((i - 0.5) / n_seg)
         inertia = [0.5 * seg_mass * radius^2,
                    seg_mass * seg_len^2 / 12, seg_mass * seg_len^2 / 12]
-        push!(bodies, Body(Symbol("seg_$i"); mass = seg_mass,
+        push!(bodies, Body(Symbol("seg_$i"); extra_mass = seg_mass,
             inertia_principal = inertia, pos = [(i - 0.5) * seg_len, 0.0, 0.0],
             type = i == 1 ? STATIC : DYNAMIC))
     end

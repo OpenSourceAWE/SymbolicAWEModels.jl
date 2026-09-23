@@ -110,6 +110,7 @@ export init_pulley_lengths!
 export remake_wing_aero!
 export init_wind!
 export relax_segments!
+export update_mass_properties!
 export init_rest_geometry!
 export segment_stretch_stats
 export calc_steady_torque
