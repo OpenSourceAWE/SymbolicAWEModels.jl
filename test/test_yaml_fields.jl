@@ -6,7 +6,8 @@
 # Verifies:
 # 1. A field the loader reads is applied, and the same field misspelled errors
 #    instead of leaving the component on its default; the retired `idx` column
-#    says to rename it to `name`
+#    says to rename it to `name`, and a body's retired `mass` column says it
+#    became `extra_mass`
 # 2. An unknown top-level block errors
 # 3. A row carrying more values than the table has headers errors
 
@@ -30,6 +31,13 @@ points:
 TYPO_FIELD_YAML = replace(FIELDS_YAML, "extra_mass]" => "extra_masss]")
 
 IDX_COLUMN_YAML = replace(FIELDS_YAML, "[name," => "[idx,")
+
+BODY_MASS_COLUMN_YAML = FIELDS_YAML * """
+bodies:
+  headers: [name, mass, inertia_principal, pos]
+  data:
+    - [hub, 1.0, [0.01, 0.01, 0.01], [0.0, 0.0, 0.0]]
+"""
 
 UNKNOWN_BLOCK_YAML = FIELDS_YAML * """
 pointz:
@@ -71,6 +79,8 @@ end
         tmpdir, "typo.yaml", TYPO_FIELD_YAML, set)
     @test_throws "Rename `idx` to `name`" load_yaml_text(
         tmpdir, "idx.yaml", IDX_COLUMN_YAML, set)
+    @test_throws "renamed to `extra_mass`" load_yaml_text(
+        tmpdir, "body_mass.yaml", BODY_MASS_COLUMN_YAML, set)
     @test_throws "pointz" load_yaml_text(
         tmpdir, "unknown_block.yaml", UNKNOWN_BLOCK_YAML, set)
     @test_throws "headers" load_yaml_text(

@@ -65,6 +65,25 @@ wings:
       aero_z_offset: 0.0
 """
 
+# The wing of WING_FREEFALL_YAML with its mass on the body instead of the points,
+# hung from a STATIC anchor by a heavy line to a hook above its COM.
+WING_HANGING_YAML = replace(WING_FREEFALL_YAML,
+    ", 0.5, 0.0, 0.0, 0.0, 0.0, main_wing]" => ", 0.0, 0.0, 0.0, 0.0, 0.0, main_wing]",
+    """    - [ground,    [0.0, 0.0, 0.0],  STATIC, ~,
+       ~, 0.0, 0.0, 0.0, 0.0, 0.0, ~]
+""" => """    - [hook,      [0.0, 0.0, 2.5],  BODY_STATIC, main_wing,
+       ~, 0.0, 0.0, 0.0, 0.0, 0.0, main_wing]
+    - [anchor,    [0.0, 0.0, 6.0],  STATIC, ~,
+       ~, 0.0, 0.0, 0.0, 0.0, 0.0, ~]
+
+segments:
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping,
+            compression_frac, density]
+  data:
+    - [line, anchor, hook, nothing, 20.0, 100000.0, 5000.0, 0.1, 1000.0]
+""",
+    "      aero_z_offset: 0.0" => "      aero_z_offset: 0.0\n      extra_mass: 2.0")
+
 SETTINGS_YAML = """
 system:
     log_file: "data/wing_test"
@@ -205,7 +224,8 @@ end
         wing = sys.bodies[:main_wing]
         @test wing.dynamics_type == SymbolicAWEModels.RIGID_DYNAMICS
         @test wing.aero isa AeroNone
-        @test wing.mass ≈ 3.0  # 6 points * 0.5 kg
+        @test wing.extra_mass == 0
+        @test wing.total_mass ≈ 3.0  # 6 points * 0.5 kg
         @test length(sys.segments) == 0
         # No ref points: body frame = CAD orientation, not principal.
         @test wing.R_b_to_c ≈ I(3) atol=1e-12
@@ -424,6 +444,31 @@ end
         println("  Max ||Q_p| - 1|: $max_qp_norm_dev")
         @test norm(wing.Q_b_to_w) ≈ 1.0 atol=1e-4
         @test max_qp_norm_dev < 1e-4
+    end
+
+    # ====== Weight of a hanging wing ====== #
+    # At rest the line carries the wing's own 2 kg and the half of the line that
+    # hangs on its hook, and nothing else.
+
+    @testset "Hanging wing weighs its total_mass" begin
+        hanging_path = joinpath(data_path, "wing_hanging.yaml")
+        write(hanging_path, WING_HANGING_YAML)
+        hanging = load_sys_struct_from_yaml(hanging_path;
+            system_name="wing_hanging", set, vsm_set, aero_mode=AeroNone())
+        wing = hanging.bodies[:main_wing]
+        line = hanging.segments[:line]
+        half_line = SymbolicAWEModels.segment_half_mass(
+            line.l0, line.diameter, line.density)
+        @test wing.extra_mass == 2.0
+        @test wing.total_mass ≈ 2.0 + half_line
+
+        hanging_sam = SymbolicAWEModel(set, hanging)
+        test_init!(hanging_sam)
+        for _ in 1:100
+            next_step!(hanging_sam; dt=0.01, vsm_interval=0)
+        end
+        @test norm(wing.com_vel) < 1e-3
+        @test line.force ≈ set.g_earth * (2.0 + half_line) rtol=1e-3
     end
 
     rm(tmpdir; recursive=true)

@@ -57,7 +57,7 @@ environment:
 
 STRUC_YAML = """
 bodies:
-  headers: [name, mass, inertia_principal, pos, type]
+  headers: [name, extra_mass, inertia_principal, pos, type]
   data:
     - [nodeA, 1.0, [0.01, 0.01, 0.01], [0.0, 0.0, 0.0], STATIC]
     - [nodeB, 1.0, [0.01, 0.01, 0.01], [1.0, 0.0, 0.0], DYNAMIC]
@@ -95,7 +95,7 @@ points:
         @test length(sys.bodies) == 2
         @test sys.bodies[:nodeA].type == STATIC
         @test sys.bodies[:nodeB].type == DYNAMIC
-        @test sys.bodies[:nodeA].mass == 1.0
+        @test sys.bodies[:nodeA].extra_mass == 1.0
         @test length(sys.timoshenko_joints) == 1
         joint = sys.timoshenko_joints[:joint]
         @test joint.body_a_idx == sys.bodies[:nodeA].idx

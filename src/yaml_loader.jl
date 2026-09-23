@@ -34,16 +34,16 @@ const YAML_BLOCK_FIELDS = Dict{String, Vector{Symbol}}(
         :speed_controlled, :friction_epsilon, :vel, :set_value],
     "wings" => [:name, :type, :dynamics_type, :aero_mode, :stations,
         :transform_idx, :origin_idx, :z_ref_points, :y_ref_points, :pos_cad,
-        :mass, :com, :unit_inertia, :angular_damping, :aero_scale_chord,
-        :aero_z_offset, :principal_frame_method, :drag_corr, :vel, :Q_b_to_w,
-        :omega_b],
+        :extra_mass, :mass, :com, :unit_inertia, :angular_damping,
+        :aero_scale_chord, :aero_z_offset, :principal_frame_method, :drag_corr,
+        :vel, :Q_b_to_w, :omega_b],
     "surfaces" => [:name, :point_idx, :x_airf, :y_airf, :area, :twist],
     "transforms" => [:name, :elevation, :azimuth, :heading, :elevation_vel,
         :azimuth_vel, :turn_rate, :base_pos, :base_point_idx,
         :base_transform_idx, :rot_point_idx, :wing_idx],
-    "bodies" => [:name, :mass, :pos, :type, :inertia, :inertia_principal,
-        :com_offset_b, :vel, :Q_b_to_w, :omega_b, :transform_idx, :wing,
-        :angular_damping, :world_frame_damping, :body_frame_damping,
+    "bodies" => [:name, :extra_mass, :mass, :pos, :type, :inertia,
+        :inertia_principal, :com_offset_b, :vel, :Q_b_to_w, :omega_b,
+        :transform_idx, :wing, :angular_damping, :world_frame_damping, :body_frame_damping,
         :fix_sphere, :fix_static, :ext_force_w, :ext_force_b, :ext_moment_b,
         :principal_frame_method],
     "timoshenko_joints" => [:name, :body_a, :body_b, :anchor_a, :anchor_b,
@@ -449,7 +449,7 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
     kwargs_spec = [:transform, :angular_damping, :dynamics_type,
         :aero, :z_ref_points, :y_ref_points, :origin, :pos_cad,
         :aero_scale_chord, :principal_frame_method,
-        :mass, :com, :unit_inertia]
+        :extra_mass, :com, :unit_inertia]
     wing_type == RIGID_DYNAMICS && push!(kwargs_spec, :aero_z_offset)
     return call_yaml_constructor(VSMWing, row,
         [:name, :set, :stations, :vsm_set], kwargs_spec;
@@ -476,7 +476,7 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                 !isnothing(row.principal_frame_method) ?
                     parse_principal_frame_method(String(row.principal_frame_method)) :
                     EIGEN_DECOMP,
-            :mass => row -> yaml_float(row, :mass),
+            :extra_mass => row -> yaml_float(row, :extra_mass),
             :com => row -> yaml_vec3(row, :com),
             :unit_inertia => row -> begin
                 value = yaml_field(row, :unit_inertia)
@@ -531,6 +531,15 @@ function yaml_float(row, field)
     value = yaml_field(row, field)
     isnothing(value) ? nothing : Float64(value)
 end
+
+"""
+    reject_renamed_mass(row, owner)
+
+Error when a wing or body row still carries the `mass` column, renamed `extra_mass`.
+"""
+reject_renamed_mass(row, owner) = hasfield(typeof(row), :mass) && error(
+    "$owner: the `mass` column was renamed to `extra_mass`, the body's own mass " *
+    "without the points riding it.")
 
 """
     yaml_float_or_nan(row, field) -> Float64
@@ -614,7 +623,7 @@ end
 
 Build the plain rigid [`Body`](@ref)s from a `bodies` YAML block (empty when the
 block is absent). Field names mirror the [`Body`](@ref) constructor: required
-`name`, `mass`, `pos`, and one of `inertia_principal` (3-vector) or `inertia`
+`name`, `extra_mass`, `pos`, and one of `inertia_principal` (3-vector) or `inertia`
 (3×3); optional `type` (`DYNAMIC`/`STATIC`), `transform_idx`, `vel`, `Q_b_to_w`
 (4-vector), `omega_b`, `com_offset_b`, `wing` (the parent wing a body-frame
 damping resolves against), `angular_damping`, `world_frame_damping`,
@@ -627,11 +636,12 @@ function load_yaml_bodies(data, yaml_to_ref)
     yaml_block_empty(data, "bodies") && return bodies
     for (i, row) in enumerate(parse_table(data["bodies"]))
         name = yaml_row_name(row, i)
-        mass = yaml_float(row, :mass)
-        isnothing(mass) && error("Body $name: missing required `mass`.")
+        reject_renamed_mass(row, "Body $name")
+        extra_mass = yaml_float(row, :extra_mass)
+        isnothing(extra_mass) && error("Body $name: missing required `extra_mass`.")
         pos = yaml_vec3(row, :pos)
         isnothing(pos) && error("Body $name: missing required `pos`.")
-        kwargs = Dict{Symbol, Any}(:mass => mass, :pos => pos)
+        kwargs = Dict{Symbol, Any}(:extra_mass => extra_mass, :pos => pos)
         inertia_principal = yaml_vec3(row, :inertia_principal)
         isnothing(inertia_principal) ||
             (kwargs[:inertia_principal] = inertia_principal)
@@ -1048,6 +1058,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     AeroDirect()
             end
 
+            reject_renamed_mass(row, "Wing $(yaml_row_name(row, i))")
             wing = load_wing(resolved_aero_mode, row, i, data,
                 resolved_set, resolved_wing_type, vsm_set, yaml_to_ref,
                 yaml_parse_ref_points, yaml_parse_origin, stations)

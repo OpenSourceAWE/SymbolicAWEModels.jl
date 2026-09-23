@@ -8,7 +8,7 @@
 
 Generate the differential equations for each plain `Body` (no aero). Loads are
 the accumulated joint wrench (`body_force`/`body_moment`, filled by `joint_eqs!`)
-plus gravity (`-g·mass` at the COM) and the external wrench (`ext_force_w` world,
+plus gravity (`-g·total_mass` at the COM) and the external wrench (`ext_force_w` world,
 `ext_force_b`/`ext_moment_b` body). `STATIC` bodies are frozen; `fix_sphere`
 confines the COM to a sphere about the world origin; `damping` is per-axis
 angular damping.
@@ -40,7 +40,7 @@ function body_eqs!(
             ]
             continue
         end
-        mass = params.bodies[idx].mass
+        mass = params.bodies[idx].total_mass
         R_b_to_w = collect(body_R_b_to_w[:, :, idx])
 
         # Loads at / about the COM (world frame).
