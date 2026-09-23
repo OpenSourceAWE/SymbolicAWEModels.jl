@@ -95,6 +95,21 @@ function identify_wing_segments(
 end
 
 """
+    check_span_order(wing)
+
+Error unless the wing's unrefined VSM sections run from +y to -y: the first section's
+leading edge lies further along `spanwise_direction` than the last one's.
+"""
+function check_span_order(wing)
+    sections = wing.vsm_wing.unrefined_sections
+    span = first(sections).LE_point - last(sections).LE_point
+    dot(span, wing.vsm_wing.spanwise_direction) >= 0 || error(
+        "Wing $(wing.name): its aerodynamic sections run from -y to +y. " *
+        "Order the sections and the structural stations from +y to -y.")
+    return nothing
+end
+
+"""
     match_aero_sections_to_structure!(wing, points; stations)
 
 Reconcile a wing's aerodynamic sections with its structural geometry.
@@ -225,6 +240,7 @@ function match_aero_sections_to_structure!(
     wing.vsm_wing.unrefined_sections = new_sections
     wing.vsm_wing.n_unrefined_sections =
         Int16(n_struct_sections)
+    check_span_order(wing)
 
     refine!(wing.vsm_wing;
         recompute_mapping=true, sort_sections=false)
@@ -453,6 +469,7 @@ function update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Poin
         end
     end
 
+    check_span_order(wing)
     refine!(wing.vsm_wing; recompute_mapping=false, sort_sections=false)
     VortexStepMethod.reinit!(wing.vsm_aero)
     # Do NOT reinit! the wing; body_aero reinit! updates panels in refresh_aero!.

@@ -203,7 +203,9 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
         end
 
         station_chord = collect(station_chord)
-        station_mass = sum(params.points[point_idx].extra_mass for point_idx in station.point_idxs)
+        station_mass = sum(params.points[point_idx].extra_mass
+                           for point_idx in station.point_idxs) +
+            params.stations[station.idx].body_mass
         twist = station_dynamics(;
             free_angle = free_twist_angle[station.idx],
             twist_vel = twist_ω[station.idx],

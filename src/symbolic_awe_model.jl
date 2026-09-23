@@ -357,11 +357,6 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.twist_angles[station.idx] = station.twist
         ss.twist_vel[station.idx] = station.twist_ω
     end
-    if length(stations) > 0
-        outer = length(stations)
-        ss.depower = rad2deg(mean(ss.twist_angles))
-        ss.steering = rad2deg(ss.twist_angles[outer] - ss.twist_angles[1])
-    end
     if length(wings) > 0
         wing = wings[1]
         ss.acc = norm(wing.acc_w) # Use the norm of the wing's acceleration vector

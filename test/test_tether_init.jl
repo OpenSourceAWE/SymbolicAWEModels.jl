@@ -450,9 +450,9 @@ winches:
         seg_len = 1.0
         inertia = [0.01, 0.1, 0.1]
         bodies = [
-            Body(:root; mass=1.0, inertia_principal=inertia,
+            Body(:root; extra_mass=1.0, inertia_principal=inertia,
                 pos=[0.5seg_len, 0.0, 0.0], type=STATIC),
-            Body(:tip; mass=1.0, inertia_principal=inertia,
+            Body(:tip; extra_mass=1.0, inertia_principal=inertia,
                 pos=[1.5seg_len, 0.0, 0.0], type=DYNAMIC),
         ]
         joints = [ElasticJoint(:j, :root, :tip; anchor_a=[seg_len/2, 0, 0],
@@ -572,7 +572,7 @@ winches:
     # ================================================================
     @testset "Placement moves a beam (joint-anchored points)" begin
         inertia = [0.01, 0.01, 0.01]
-        bodies = [Body(Symbol(:node, i); mass=1.0, inertia_principal=inertia,
+        bodies = [Body(Symbol(:node, i); extra_mass=1.0, inertia_principal=inertia,
                        pos=[Float64(i - 1), 0.0, 0.0], type=DYNAMIC)
                   for i in 1:4]
         joints = [TimoshenkoJoint(Symbol(:j, i), Symbol(:node, i),
@@ -610,6 +610,39 @@ winches:
         @test sys.points[:tail].pos_w ≈ KVec3(1.5, 0.0, -1.0) .+ delta
         @test SymbolicAWEModels.segment_world_length(
             sys.segments[:tail_seg], sys.points) ≈ 1.0
+    end
+
+    # ================================================================
+    # Test 12: set_unstretched_length! writes len and l0 and moves nothing
+    # ================================================================
+    @testset "set_unstretched_length! sets len without re-placing" begin
+        yaml_path = joinpath(tmpdir, "r1_yaml.yaml")
+        sys = load_sys_struct_from_yaml(
+            yaml_path; system_name="init_stretched_length_r1_yaml", set=set)
+        SymbolicAWEModels.reinit!(sys, set)
+
+        tether = sys.tethers[:main_tether]
+        @test tether.len ≈ 200.0
+        placed_w = [copy(point.pos_w) for point in sys.points]
+        placed_cad = [copy(point.pos_cad) for point in sys.points]
+
+        set_unstretched_length!(sys, tether, 150.0)
+
+        @test tether.len ≈ 150.0
+        @test sys.segments[:s1].l0 ≈ 75.0
+        @test sys.segments[:s2].l0 ≈ 75.0
+        @test all(point.pos_w ≈ was for (point, was) in zip(sys.points, placed_w))
+        @test all(point.pos_cad ≈ was
+                  for (point, was) in zip(sys.points, placed_cad))
+        # The stretched geometry is untouched, so the rope is now taut.
+        @test sum(sys.segments[idx].len for idx in tether.segment_idxs) ≈ 200.0
+
+        # `reinit!` re-places the structure, so it derives `len` afresh.
+        SymbolicAWEModels.reinit!(sys, set)
+        @test tether.len ≈ 200.0
+
+        @test_throws ErrorException set_unstretched_length!(sys, tether, 0.0)
+        @test_throws ErrorException set_unstretched_length!(sys, tether, -1.0)
     end
 
 end

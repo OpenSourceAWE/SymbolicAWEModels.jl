@@ -128,9 +128,9 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
         set_data_path(joinpath(dirname(@__DIR__), "data", "2plate_kite"))
         set = Settings("system.yaml")
         inertia = [0.01, 0.01, 0.01]
-        node_a = Body(:node_a; mass=1.0, inertia_principal=inertia,
+        node_a = Body(:node_a; extra_mass=1.0, inertia_principal=inertia,
                       pos=[0.0, 0.0, 0.0], type=STATIC)
-        node_b = Body(:node_b; mass=1.0, inertia_principal=inertia,
+        node_b = Body(:node_b; extra_mass=1.0, inertia_principal=inertia,
                       pos=[1.0, 0.0, 0.0])
         joint = TimoshenkoJoint(:joint, :node_a, :node_b;
             EA=1.0e4, GA=1500.0, GJ=50.0, EIy=100.0, EIz=100.0,

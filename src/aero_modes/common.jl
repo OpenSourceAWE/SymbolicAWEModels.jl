@@ -98,8 +98,8 @@ calc_side_slip(wing) =
         -> (com_cad, inertia)
 
 Normalized (per-unit-mass) inertia of the wing body about its COM in the CAD
-frame, with `inertia` in [m²] — multiply by the wing's mass for the physical
-tensor [kg·m²]. `inertia` is `nothing` when there is no mass to normalize
+frame, with `inertia` in [m²] — multiply by the wing's own `extra_mass` for the
+physical tensor [kg·m²]. `inertia` is `nothing` when there is no mass to normalize
 by. The default normalizes the wing nodes' point-mass inertia
 ([`normalized_point_inertia`](@ref)); VSM modes with an `ObjWing` mesh
 return the per-unit-mass mesh tensor as-is (its COM is `-T_cad_body`) and
@@ -118,11 +118,10 @@ end
 """
     normalized_point_inertia(wing, points) -> (com_cad, inertia)
 
-Per-unit-mass inertia of the wing's wing nodes treated as point masses
-(`extra_mass`), normalized by their total mass. Exact under the construction
-invariant `wing.mass == sum of wing-node masses` (the constructor
-distributes `set.mass` onto the points). With zero total mass, `com_cad` is
-the unweighted centroid and `inertia` is `nothing`.
+Per-unit-mass inertia of the wing's frame points treated as point masses
+(`extra_mass`), normalized by their total mass: the shape a wing without a mesh
+spreads its own mass in. With zero total mass, `com_cad` is the unweighted
+centroid and `inertia` is `nothing`.
 """
 function normalized_point_inertia(wing, points)
     wing_points = [point for point in points
@@ -134,11 +133,8 @@ function normalized_point_inertia(wing, points)
             for j in eachindex(wing_points)) / total_mass :
         mean([point.pos_cad for point in wing_points])
     total_mass > 0 || return com_cad, nothing
-    inertia = zeros(3, 3)
-    for (mass, point) in zip(masses, wing_points)
-        r = point.pos_cad - com_cad
-        inertia += mass * (dot(r, r) * I(3) - r * r')
-    end
+    inertia = sum(point_mass_inertia(mass, point.pos_cad - com_cad)
+                  for (mass, point) in zip(masses, wing_points))
     return com_cad, inertia / total_mass
 end
 
@@ -225,26 +221,8 @@ function wing_points(sys_struct, wing)
 end
 
 """
-    panel_span_signs(wing, spanwise)
-
-Per-panel sign (`±1`) that orients the local span/normal so each panel's `y_airf`
-points along `+spanwise` and `z_airf` to the upper surface, independent of section
-ordering. Baked at build time because the section order is fixed for a wing.
-"""
-function panel_span_signs(wing, spanwise)
-    refined = wing.vsm_wing.refined_sections
-    n = Int(wing.vsm_wing.n_panels)
-    map(1:n) do i
-        span_vec = VortexStepMethod.panel_span_vector(
-            refined[i].LE_point, refined[i].TE_point,
-            refined[i + 1].LE_point, refined[i + 1].TE_point)
-        dot(span_vec, spanwise) < 0 ? -1.0 : 1.0
-    end
-end
-
-"""
     build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho, vind_p, chord_w,
-                          cl, cd, cm, spanwise, scale, orient)
+                          cl, cd, cm, spanwise, scale)
         -> (eqs, vars, panel_force, panel_couple, curvature_couple, slots)
 
 Shared per-refined-panel VSM force assembly for the live particle aero modes
@@ -263,8 +241,7 @@ tuple for a scatter that needs the panel axes too. `curvature_couple` is the
 3-vectors (positions and apparent wind at the section boundaries), `sec_rho`
 the matching air densities; they may be live (interpolated from structure) or
 constant (a fixed mesh). `spanwise` is the wing spanwise direction, `scale` the
-chord-scale factor. `orient` is the per-panel `±1` span/normal sign from
-[`panel_span_signs`](@ref) and `chord_w` the per-panel chord blend weight from
+chord-scale factor and `chord_w` the per-panel chord blend weight from
 [`store_chord_weights!`](@ref).
 
 `delta` is an optional length-`n_panels` vector of symbolic per-panel flap
@@ -279,9 +256,8 @@ carries the `VortexStepMethod.flow_curvature_cm` increment, or `nothing` to leav
 every panel's angle of attack before the polars are read; `0.0` leaves them steady.
 """
 function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
-                               vind_p, chord_w, cl, cd, cm, spanwise, scale,
-                               orient; delta=nothing, sec_dva=nothing,
-                               deficiency=0.0)
+                               vind_p, chord_w, cl, cd, cm, spanwise, scale;
+                               delta=nothing, sec_dva=nothing, deficiency=0.0)
     n_panels = length(sec_le) - 1
     slots = panel_force_slots(n_panels)
     eqs = Equation[]
@@ -293,7 +269,7 @@ function build_panel_force_eqs(sec_le, sec_te, sec_va, sec_rho,
              sec_dva === nothing ? nothing : sec_dva[i],
              sec_dva === nothing ? nothing : sec_dva[i + 1]),
             (PanelPolar(cl, i), PanelPolar(cd, i), PanelPolar(cm, i)),
-            spanwise, scale, orient[i], chord_w[i],
+            spanwise, scale, chord_w[i],
             delta === nothing ? nothing : delta[i], deficiency))
     end
 
@@ -335,7 +311,7 @@ end
 panel_force_vars(slots) = Any[values(slots)...]
 
 """
-    panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale, orient,
+    panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
                     chord_weight, delta)
 
 One panel's aerodynamic equations, writing into column `i` of the symbolic arrays
@@ -367,7 +343,7 @@ whole-wing system (looped by [`build_panel_force_eqs`](@ref)) and a per-panel
 component compiled once and instantiated for each panel.
 """
 function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
-                         orient, chord_weight, delta, deficiency=0.0)
+                         chord_weight, delta, deficiency=0.0)
     (; x_airf, y_airf, z_airf, v_eff, chord, width, alpha, alpha_eff, q_dyn,
        pitch_rate, dir_lift, dir_drag, panel_force, panel_couple,
        curvature_couple) = slots
@@ -375,8 +351,7 @@ function panel_force_eqs(slots, i, sections, flow, polars, spanwise, scale,
     va_1, va_2, rho_1, rho_2, vind, dva_1, dva_2 = flow
     cl, cd, cm = polars
 
-    axes = VortexStepMethod.panel_axes(le_1, te_1, le_2, te_2, chord_weight,
-                                       orient)
+    axes = VortexStepMethod.panel_axes(le_1, te_1, le_2, te_2, chord_weight)
     inflow = VortexStepMethod.panel_inflow(axes, va_1, va_2, vind)
     bound_axes = (x_airf=collect(x_airf[:, i]), y_airf=collect(y_airf[:, i]),
                   z_airf=collect(z_airf[:, i]), chord=chord[i], width=width[i])
@@ -587,14 +562,12 @@ The wing's mean chordwise and normal directions in body frame and its mean chord
 [m], averaged over the frozen VSM mesh. [`wagner_lag_eqs`](@ref) reads its one
 angle of attack against these, so the lag follows the whole wing rather than any
 one panel. Each panel contributes the axes `VortexStepMethod.panel_axes` builds at
-its [`panel_span_signs`](@ref) orientation and [`chord_blend_weights!`](@ref) blend
-weight, which are the axes the panel itself carries.
+its [`chord_blend_weights!`](@ref) blend weight, which are the axes the panel itself
+carries.
 """
 function wagner_reference_frame(wing)
     refined = wing.vsm_wing.refined_sections
     n = Int(wing.vsm_wing.n_panels)
-    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
-    orient = panel_span_signs(wing, spanwise)
     chord, width = panel_chord_width(wing)
     weight = chord_blend_weights!(similar(width), width)
     x_ref = zeros(SimFloat, 3)
@@ -603,7 +576,7 @@ function wagner_reference_frame(wing)
         left, right = refined[i], refined[i + 1]
         axes = VortexStepMethod.panel_axes(left.LE_point, left.TE_point,
                                            right.LE_point, right.TE_point,
-                                           weight[i], orient[i])
+                                           weight[i])
         x_ref .+= axes.x_airf
         z_ref .+= axes.z_airf
     end
@@ -991,6 +964,27 @@ scatter_entry_list(totals) =
            for ((panel, point), total) in totals])
 
 """
+    panel_corners(panel) -> (le_1, te_1, le_2, te_2)
+
+A panel's four `corner_points` in the argument order
+`VortexStepMethod.panel_axes` takes them; they are stored leading edge 1,
+trailing edge 1, trailing edge 2, leading edge 2.
+"""
+panel_corners(panel) = (SVector{3}(@view panel.corner_points[:, 1]),
+                        SVector{3}(@view panel.corner_points[:, 2]),
+                        SVector{3}(@view panel.corner_points[:, 4]),
+                        SVector{3}(@view panel.corner_points[:, 3]))
+
+"""
+    panel_span_width(panel) -> SimFloat
+
+The panel's span width: the length of the quarter-chord step between its two
+sections, from its `corner_points`.
+"""
+panel_span_width(panel) = smooth_norm(
+    VortexStepMethod.panel_span_vector(panel_corners(panel)...))
+
+"""
     store_chord_weights!(chord_weight, body_aero)
 
 Freeze the live panels' [`chord_blend_weights!`](@ref) into `chord_weight`
@@ -1004,6 +998,17 @@ function store_chord_weights!(chord_weight, body_aero)
         "$(length(panels)) panels); reinitialize the model.")
     chord_blend_weights!(chord_weight, [panel.width for panel in panels])
     return nothing
+end
+
+"""
+    corner_chord_weights(wing) -> Vector{SimFloat}
+
+Every panel's [`chord_blend_weights!`](@ref) over the span widths of its
+`corner_points` ([`panel_span_width`](@ref)).
+"""
+function corner_chord_weights(wing)
+    width = map(panel_span_width, wing.vsm_aero.panels)
+    return chord_blend_weights!(similar(width), width)
 end
 
 """
@@ -1461,6 +1466,7 @@ function transform_vsm_sections_to_body!(wing; aero_z_offset=nothing)
     rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
     vsm_wing.R_cad_body .= wing.R_b_to_c
     isnothing(aero_z_offset) || apply_aero_z_offset!(vsm_wing, aero_z_offset)
+    check_span_order(wing)
     VortexStepMethod.reinit!(wing.vsm_aero)
     return nothing
 end
@@ -2079,7 +2085,7 @@ function vsm_aero_coeffs(wing, y::AbstractVector{T},
     sol = solver_c.sol
     force_coeffs = sol.force_coeffs
     cm_body = sol.moment_coeffs
-    moment_coeff_unrefined = sol.moment_coeff_unrefined_dist
+    moment_coeff_dist = sol.moment_coeff_dist
 
     # Wind-axis basis (VSM): drag∥va, lift=norm(drag×span), side=lift×drag.
     span = SVector(zero(T), one(T), zero(T))
@@ -2096,9 +2102,8 @@ function vsm_aero_coeffs(wing, y::AbstractVector{T},
     x[6] = cm_body[3]
     for (station_index, gidx) in enumerate(station_idxs)
         x[6 + station_index] = sum(
-            moment_coeff_unrefined[unrefined_index]
-            for unrefined_index in
-                stations[gidx].unrefined_section_idxs;
+            moment_coeff_dist[panel_idx]
+            for panel_idx in stations[gidx].panel_idxs;
             init = zero(T))
     end
     return x

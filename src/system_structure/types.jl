@@ -519,6 +519,11 @@ mutable struct Station
     aero_moment::SimFloat
     "Indices of VSM unrefined sections in this station."
     unrefined_section_idxs::Vector{Int64}
+    "Indices of the VSM panels whose twist moment this station takes."
+    panel_idxs::Vector{Int64}
+    "Share [kg] of its wing's mass that sits on no point, by the area of its panels;
+    its twist inertia counts it with the mass of its points."
+    body_mass::SimFloat
     "Surface area [m²] (flat-plate sections; `NaN` when unused)."
     area::SimFloat
     # ---- owning wing + flap deflection (KINEMATIC α+δ variant) ----
@@ -620,7 +625,7 @@ function Station(name, points, type, moment_frac;
           zeros(KVec3), chord_vec, y_vec,
           type, moment_frac, damping, stiffness,
           SimFloat(twist), 0.0, 0.0, 0.0, 0.0,
-          Int64[], SimFloat(area),
+          Int64[], Int64[], 0.0, SimFloat(area),
           0, wing_ref, Int64[], body_refs,
           Int64[], flap_body_refs, Int64[], flap_point_refs, KVec3(flap_axis),
           Vector{KVec3}(flap_chord_refs), SimFloat(flap_rest_delta))
@@ -935,14 +940,16 @@ generates; a Route 1 tether reads them off its own segments.
 Two distinct lengths, set independently at `reinit!`:
 - `init_stretched_len` — the *placed* (stretched) standoff; `reinit!` scales the
   free end's world position so the geometry spans this length.
-- `len` — the *unstretched* rest length and the reeled ODE state. Not set directly;
-  `reinit!` derives it from the placed length via either `init_stretch_frac`
+- `len` — the *unstretched* rest length and the reeled ODE state. `reinit!`
+  derives it from the placed length via either `init_stretch_frac`
   (`len = frac · stretched`) or `init_tether_force`
   (`len = stretched · (1 − force/stiffness)`, default 0 → `len = stretched`).
 
-For a specific initial unstretched length `L`, place at a known
-`init_stretched_len = S` and set `init_stretch_frac = L / S`; setting `len` directly
-does not survive `reinit!`.
+For a specific initial unstretched length `L` through `reinit!`, place at a known
+`init_stretched_len = S` and set `init_stretch_frac = L / S`. On a structure that
+is already placed, [`set_unstretched_length!`](@ref) writes `len` and the segments'
+`l0` without moving anything; the next `reinit!` derives `len` from the geometry
+again and overwrites it.
 
 $(TYPEDFIELDS)
 """

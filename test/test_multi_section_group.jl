@@ -48,6 +48,32 @@ vsm_set = VortexStepMethod.VSMSettings(
         @test length(station.unrefined_section_idxs) == 1
     end
 
+    # Every panel belongs to exactly one station, the one nearest its centre, so the
+    # mirror-symmetric kite gives its left and right stations the same number of panels.
+    n_panels = length(wing.vsm_aero.panels)
+    owned = reduce(vcat, [station.panel_idxs for station in sys.stations])
+    @test sort(owned) == collect(1:n_panels)
+    station_center(station) = sum(wing.R_b_to_c' * (sys.points[i].pos_cad - wing.pos_cad)
+                                  for i in station.point_idxs) / length(station.point_idxs)
+    offset = [0.0, 0.0, wing.aero_z_offset]
+    for station in sys.stations, panel_idx in station.panel_idxs
+        corners = wing.vsm_aero.panels[panel_idx].corner_points
+        center = vec(sum(corners; dims=2)) / 4 - offset
+        @test all(norm(center - station_center(station)) <= norm(center - station_center(other))
+                  for other in sys.stations)
+    end
+    @test length(sys.stations[:left].panel_idxs) == length(sys.stations[:right].panel_idxs)
+
+    # The wing mass sits on its points, so no station takes a share of it. Given to
+    # the wing body as its own mass, it is shared by panel area: all of it, the same
+    # left and right.
+    @test all(station.body_mass == 0 for station in sys.stations)
+    wing.extra_mass = 1.6
+    compute_spatial_station_mapping!(wing, sys.stations, sys.points)
+    @test sum(station.body_mass for station in sys.stations) ≈ wing.extra_mass
+    @test sys.stations[:left].body_mass ≈ sys.stations[:right].body_mass
+    @test sys.stations[:center].body_mass > 0
+
     # Inject a 4th unrefined section by duplicating an
     # existing one. Now n_stations (3) < n_unrefined (4).
     extra = deepcopy(vsm_w.unrefined_sections[2])
@@ -75,11 +101,50 @@ vsm_set = VortexStepMethod.VSMSettings(
     end
     @test sort(assigned) == [1, 2, 3, 4]
     @test length(unique(assigned)) == 4
+    @test sort(reduce(vcat, [station.panel_idxs for station in sys.stations])) ==
+        collect(1:length(wing.vsm_aero.panels))
 
     # Wing aero arrays sized by n_stations, not n_unrefined.
     @test length(wing.aero_y) == 5 + 3
     @test length(wing.aero_x) == 6 + 3
     @test size(wing.aero_jac) == (6 + 3, 5 + 3)
+end
+
+"""The total mass of the points riding `wing`: extra_mass plus their segment halves."""
+function riding_mass(sys, wing)
+    riders = [point.idx for point in sys.points
+              if point.type == SymbolicAWEModels.BODY_STATIC && point.body_idx == wing.idx]
+    mass = sum(sys.points[idx].extra_mass for idx in riders)
+    for segment in sys.segments, idx in segment.point_idxs
+        idx in riders && (mass += SymbolicAWEModels.segment_half_mass(
+            segment.l0, segment.diameter, segment.density))
+    end
+    return mass
+end
+
+@testset "Rigid wing total_mass is its extra_mass plus its riders" begin
+    sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+        struc_yaml; system_name="rigid_total_mass",
+        set, vsm_set, dynamics_type=RIGID_DYNAMICS)
+    wing = sys.wings[1]
+
+    # The six wing nodes and the kcu carry 1.6 kg of extra_mass; it stays on them
+    # and reaches the wing once, with the halves of the bridles and tether they hold.
+    @test wing.extra_mass == 0
+    @test riding_mass(sys, wing) > 1.6
+    @test wing.total_mass ≈ riding_mass(sys, wing)
+
+    # Mass on the wing and on its points both count, with no warning.
+    wing_yaml = replace(read(struc_yaml, String),
+        "      aero_z_offset: 0.0" => "      aero_z_offset: 0.0\n      extra_mass: 2.0")
+    both_yaml = joinpath(data_path, "rigid_both_masses.yaml")
+    write(both_yaml, wing_yaml)
+    load_both() = SymbolicAWEModels.load_sys_struct_from_yaml(
+        both_yaml; system_name="rigid_total_mass", set, vsm_set,
+        dynamics_type=RIGID_DYNAMICS)
+    both = @test_logs min_level=Base.CoreLogging.Warn load_both()
+    @test both.wings[1].extra_mass == 2.0
+    @test both.wings[1].total_mass ≈ 2.0 + riding_mass(both, both.wings[1])
 end
 
 @testset "n_stations > n_unrefined errors" begin

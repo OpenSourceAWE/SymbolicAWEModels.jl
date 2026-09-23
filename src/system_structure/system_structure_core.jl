@@ -58,18 +58,7 @@ mutable struct SystemStructure{J<:ElasticJoint}
 end
 
 function Base.getproperty(sys::SystemStructure, sym::Symbol)
-    if sym == :total_mass
-        # Falls back to extra_mass for points whose total_mass is not yet computed.
-        total = 0.0
-        for point in getfield(sys, :points)
-            if point.total_mass > 0
-                total += point.total_mass
-            else
-                total += point.extra_mass
-            end
-        end
-        return total
-    elseif sym == :state_vars
+    if sym == :state_vars
         vars = SimFloat[]
         points = getfield(sys, :points)
         for point in points
@@ -414,30 +403,42 @@ end
 """
     wing_frame_member(point, wing_idx) -> Bool
 
-Whether `point` contributes to wing `wing_idx`'s mass, COM and body frame. Its
-aerodynamic-surface nodes (`is_wing_node`) plus any `BODY_STATIC` structural
-point sharing its `wing_idx` — e.g. a rigid wing's attachment points (like the
-KCU) that ride the wing body without being aero-surface members. Bridle points
-riding a beam carry `wing_idx == 0`, so they are excluded.
+Whether `point` belongs to wing `wing_idx`'s frame: it places the wing body and,
+without a mesh, shapes its own inertia. Its aerodynamic-surface nodes
+(`is_wing_node`) plus any `BODY_STATIC` structural point sharing its `wing_idx` —
+e.g. a rigid wing's attachment points (like the KCU) that ride the wing body without
+being aero-surface members. Bridle points riding a beam carry `wing_idx == 0`, so
+they are excluded.
 """
 wing_frame_member(point, wing_idx) =
     (point.is_wing_node || point.type == BODY_STATIC) && point.wing_idx == wing_idx
 
 """
-    distribute_mass_over_points!(points, point_idxs, wing, total_mass)
+    carrier_body_idx(point, bodies) -> Int
 
-Split `total_mass` equally across the wing's `point_idxs` (writing each point's
-`extra_mass`) and record it as `wing.mass`. Used for a PARTICLE wing given a
-lumped `set.mass` rather than per-point masses.
+Index of the body whose `total_mass` holds `point`'s mass: the DYNAMIC or STATIC
+body a `BODY_STATIC` point rides, or the `RIGID_DYNAMICS` wing a wing node belongs
+to. 0 when no integrated body carries it, and the point then carries its own weight.
 """
-function distribute_mass_over_points!(points, point_idxs, wing, total_mass)
-    if !isempty(point_idxs)
-        per_point = total_mass / length(point_idxs)
-        for idx in point_idxs
-            points[idx].extra_mass = per_point
-        end
+function carrier_body_idx(point, bodies)
+    point.type == BODY_STATIC && point.body_idx > 0 &&
+        bodies[point.body_idx].type != KINEMATIC && return point.body_idx
+    point.is_wing_node && point.wing_idx > 0 &&
+        bodies[point.wing_idx].type != KINEMATIC && return point.wing_idx
+    return 0
+end
+
+"""
+    distribute_mass_over_points!(points, point_idxs, mass)
+
+Split `mass` equally across `point_idxs`, writing each point's `extra_mass`. Used
+for a wing given a lumped `set.mass` rather than per-point masses.
+"""
+function distribute_mass_over_points!(points, point_idxs, mass)
+    isempty(point_idxs) && return nothing
+    for idx in point_idxs
+        points[idx].extra_mass = mass / length(point_idxs)
     end
-    wing.mass = total_mass
     return nothing
 end
 
@@ -464,23 +465,16 @@ function connected_body_groups(n_bodies, joint_collections...)
 end
 
 """
-    particle_wing_masses(wing, stations, points, bodies, root)
-        -> (point_mass, body_mass)
+    particle_wing_parts(wing, stations, points, bodies, root)
+        -> (point_idxs, body_idxs)
 
-Mass associated with a PARTICLE_DYNAMICS `wing`, split by source. `point_mass`
-sums the `extra_mass` of the wing's member points; `body_mass` sums the mass of
-every non-wing body sharing a beam component (`root`, from
-[`connected_body_groups`](@ref)) with the wing's structure. A particle wing
-carries its mass on its section bodies — most of which are beam-internal and ride
-no point — so `body_mass` is the usual source; both being nonzero means gravity
-is counted twice (points and bodies).
-
-The wing's components are seeded from its stations' member/flap bodies and
-the bodies its member points ride, then expanded over the joint graph. Members
-are the union of the wing's station points, falling back to
-`wing_frame_member` points when the wing has no stations.
+The member points of a PARTICLE_DYNAMICS `wing` and the non-wing bodies sharing a
+beam component (`root`, from [`connected_body_groups`](@ref)) with its structure,
+which carry its mass. The components are seeded from its stations' member/flap
+bodies and the bodies its member points ride. Members are the union of the wing's
+station points, falling back to `wing_frame_member` points when it has no stations.
 """
-function particle_wing_masses(wing, stations, points, bodies, root)
+function particle_wing_parts(wing, stations, points, bodies, root)
     seed_roots = Set{Int64}()
     point_idxs = Set{Int64}()
     for station_idx in wing.station_idxs
@@ -496,50 +490,36 @@ function particle_wing_masses(wing, stations, points, bodies, root)
             wing_frame_member(point, wing.idx) && push!(point_idxs, point.idx)
         end
     end
-    point_mass = 0.0
     for idx in point_idxs
-        point = points[idx]
-        point_mass += point.extra_mass
-        point.body_idx != 0 && point.body_idx != wing.idx &&
-            push!(seed_roots, root[point.body_idx])
+        body_idx = points[idx].body_idx
+        body_idx != 0 && body_idx != wing.idx && push!(seed_roots, root[body_idx])
     end
-    body_mass = 0.0
-    for (body_idx, body) in enumerate(bodies)
-        (is_wing(body) || !(root[body_idx] in seed_roots)) && continue
-        body_mass += body.mass
-    end
-    return point_mass, body_mass
+    body_idxs = [body_idx for (body_idx, body) in enumerate(bodies)
+                 if !is_wing(body) && root[body_idx] in seed_roots]
+    return point_idxs, body_idxs
 end
 
 """
     finalize_particle_wing_mass!(wing, stations, points, bodies, set, root)
 
-Set a PARTICLE_DYNAMICS `wing`'s bookkeeping mass from its member points and the
-section bodies of its beam component (see [`particle_wing_masses`](@ref)), warning
-when the wing is massless or when mass is counted twice (points and bodies). Falls
-back to distributing `set.mass` over the member points when neither source carries
-mass. Deferred until point/station→body and joint→body references resolve.
+Distribute `set.mass` over a PARTICLE_DYNAMICS `wing`'s member points when neither
+they nor its section bodies (see [`particle_wing_parts`](@ref)) carry `extra_mass`,
+warning when that leaves the wing massless. Deferred until point/station→body and
+joint→body references resolve.
 """
 function finalize_particle_wing_mass!(wing, stations, points, bodies, set, root)
-    point_mass, body_mass =
-        particle_wing_masses(wing, stations, points, bodies, root)
-    point_mass > 0 && body_mass > 0 && @warn "Wing $(wing.idx) " *
-        "(PARTICLE_DYNAMICS): member points carry both extra_mass ($point_mass kg) " *
-        "and ride bodies with mass ($body_mass kg) — gravity is counted twice."
-    total = point_mass + body_mass
-    if total > 0
-        wing.mass = total
+    point_idxs, body_idxs = particle_wing_parts(wing, stations, points, bodies, root)
+    own_mass = sum(points[idx].extra_mass for idx in point_idxs; init=0.0) +
+        sum(bodies[idx].extra_mass for idx in body_idxs; init=0.0)
+    own_mass > 0 && return nothing
+    set_mass = hasproperty(set, :mass) ? set.mass : 0.0
+    if set_mass > 0
+        wing_point_idxs = [point.idx for point in points
+            if wing_frame_member(point, wing.idx)]
+        distribute_mass_over_points!(points, wing_point_idxs, set_mass)
     else
-        set_mass = hasproperty(set, :mass) ? set.mass : 0.0
-        if set_mass > 0
-            wing_point_idxs = [point.idx for point in points
-                if wing_frame_member(point, wing.idx)]
-            distribute_mass_over_points!(points, wing_point_idxs, wing, set_mass)
-        else
-            wing.mass = 0.0
-            @warn "Wing $(wing.idx) (PARTICLE_DYNAMICS) has zero mass — no member " *
-                "point extra_mass and no connected body mass."
-        end
+        @warn "Wing $(wing.idx) (PARTICLE_DYNAMICS) has zero mass — no member " *
+            "point extra_mass and no connected body mass."
     end
     return nothing
 end
@@ -730,6 +710,12 @@ Partition the wing's unrefined VSM sections among its
 stations by spatial proximity: each unrefined section is
 assigned to the single closest station (by distance between
 section centre and station centre, both in body frame).
+Each VSM panel goes the same way, by the centre of its corners, into
+`panel_idxs`, which the station's twist moment is summed over, and
+[`share_body_mass!`](@ref) splits the wing's own mass by them. A panel between
+two sections owned by different stations thus goes to the nearer station,
+rather than to the station of the section VSM files it under, which
+without refinement is always its left edge.
 
 `n_stations == n_unrefined` gives a 1:1 mapping; with
 fewer stations one may own several adjacent sections and
@@ -778,9 +764,10 @@ function compute_spatial_station_mapping!(
             (le_point + te_point) / 2 .- offset_vec
     end
 
-    # Reset section lists (we rebuild the partition)
+    # Reset section and panel lists (we rebuild the partition)
     for station_idx in the_wing.station_idxs
         empty!(stations[station_idx].unrefined_section_idxs)
+        empty!(stations[station_idx].panel_idxs)
     end
 
     # Assign each unrefined section to nearest station
@@ -800,6 +787,17 @@ function compute_spatial_station_mapping!(
               Int64(section_idx))
     end
 
+    # Assign each panel to nearest station
+    for (panel_idx, panel) in enumerate(the_wing.vsm_aero.panels)
+        panel_center = vec(sum(panel.corner_points; dims=2)) / 4 .- offset_vec
+        closest_local = argmin([norm(panel_center - station_center)
+                                for station_center in station_centers])
+        push!(stations[the_wing.station_idxs[closest_local]].panel_idxs,
+              Int64(panel_idx))
+    end
+
+    share_body_mass!(the_wing, stations)
+
     # Every station must claim at least one section
     for station_idx in the_wing.station_idxs
         station = stations[station_idx]
@@ -810,18 +808,38 @@ function compute_spatial_station_mapping!(
     end
 end
 
+"""
+    share_body_mass!(the_wing, stations)
+
+Set each station's `body_mass`: the wing's `extra_mass`, which sits on no point, times
+the station's share of the wing's panel area.
+"""
+function share_body_mass!(the_wing::Body, stations::AbstractVector{Station})
+    panels = the_wing.vsm_aero.panels
+    wing_area = sum(panel.chord * panel.width for panel in panels)
+    for station_idx in the_wing.station_idxs
+        station = stations[station_idx]
+        station_area = sum(panels[i].chord * panels[i].width for i in station.panel_idxs;
+                           init=0.0)
+        station.body_mass = the_wing.extra_mass * station_area / wing_area
+    end
+    return nothing
+end
+
 # ==================== CONSTRUCTOR ==================== #
 
 """
     setup_wing_frame!(wing, points; prn=true)
 
 Compute a wing's body frame (`R_b_to_c`, `pos_cad`) and, for `RIGID_DYNAMICS`, its
-COM offset and principal inertia, from the wing's structural points and ref points. This is
-dynamics/geometry only — independent of the aero mode, which does its own
-mode-specific setup afterwards in [`setup_aero!`](@ref).
+own COM offset and inertia (`extra_com_offset_b`, `extra_inertia_b`), from its mesh or
+structural points and its ref points. [`update_mass_properties!`](@ref) adds the
+carried points. This is dynamics/geometry only — independent of the aero mode, which
+does its own mode-specific setup afterwards in [`setup_aero!`](@ref).
 
-Without ref points the body frame keeps the CAD orientation (origin at the
-COM).
+Without ref points the body frame keeps the CAD orientation (origin at the wing
+body's own COM). Without a mesh, the wing's own mass is spread like the frame points'
+`extra_mass`; with neither, the constructor's inertia stays, or none for a massless wing.
 """
 function setup_wing_frame!(wing, points; prn=true)
     if wing.dynamics_type == RIGID_DYNAMICS
@@ -829,16 +847,8 @@ function setup_wing_frame!(wing, points; prn=true)
             for point in points) || return nothing
 
         com_cad, inertia_normalized = normalized_inertia(wing.aero, wing, points)
-        if !isnothing(inertia_normalized)
-            # The hook returns per-unit-mass inertia [m²]; scale once here.
-            I_cad = wing.mass .* inertia_normalized
-            inertia_principal, R_c_to_p = wing.principal_frame_method == Y_ROTATION ?
-                calc_inertia_y_rotation(I_cad) : principal_frame(I_cad)
-            wing.R_p_to_c .= R_c_to_p'
-            wing.inertia_principal .= inertia_principal
-        end
 
-        # Body frame from ref points (else body = CAD orientation, origin = COM)
+        # Body frame from ref points (else body = CAD orientation, origin = its own COM)
         origin = wing.origin
         z_ref = wing.z_ref_points
         y_ref = wing.y_ref_points
@@ -853,27 +863,104 @@ function setup_wing_frame!(wing, points; prn=true)
             R_b_to_c, _ = calc_particle_dynamics_wing_frame(
                 points, z_ref, y_ref, origin)
             wing.R_b_to_c .= R_b_to_c
-            wing.com_offset_b .= R_b_to_c' * (com_cad - origin_cad)
+            wing.extra_com_offset_b .= R_b_to_c' * (com_cad - origin_cad)
         else
             wing.pos_cad .= com_cad
             wing.R_b_to_c .= Matrix{SimFloat}(I, 3, 3)
-            wing.com_offset_b .= 0.0
+            wing.extra_com_offset_b .= 0.0
         end
+        wing.com_offset_b .= wing.extra_com_offset_b
 
-        wing.R_b_to_p .= wing.R_p_to_c' * wing.R_b_to_c  # body → principal
-
-        if prn
-            I_rnd = round.(wing.inertia_principal; digits=4)
-            offset_rounded = round.(wing.com_offset_b; digits=4)
-            @info "RIGID_DYNAMICS wing $(wing.idx):" *
-                " COM=[$(round.(com_cad; digits=3))]" *
-                ", I=$I_rnd, com_offset_b=$offset_rounded"
+        # The hook returns per-unit-mass inertia [m²] in the CAD frame.
+        if !isnothing(inertia_normalized)
+            wing.extra_inertia_b .=
+                wing.R_b_to_c' * (wing.extra_mass .* inertia_normalized) * wing.R_b_to_c
+        elseif iszero(wing.extra_mass)
+            wing.extra_inertia_b .= 0.0
         end
     else  # PARTICLE_DYNAMICS (VSM or flat-plate)
         init_body_frame_from_ref_points!(wing, points; prn)
     end
     return nothing
 end
+
+"""
+    update_mass_properties!(sys_struct; prn=true)
+
+Set every DYNAMIC and STATIC body's `total_mass`, `com_offset_b` and principal
+inertia (`inertia_principal`, `R_b_to_p`, `R_p_to_c`): its own mass properties plus
+each point it carries ([`carrier_body_idx`](@ref)) as a point mass of the point's
+`total_mass`, at its anchor. A particle wing's `total_mass` sums its free member points
+and its section bodies. Point masses are taken at the current `l0`, and the
+principal-frame state is re-derived from the new COM.
+"""
+function update_mass_properties!(sys_struct::SystemStructure; prn=true)
+    (; points, bodies, stations) = sys_struct
+    write_total_mass!(sys_struct)
+    for body in bodies
+        body.type == KINEMATIC && continue
+        old_com_offset = copy(body.com_offset_b)
+        combine_carried_points!(body, points, bodies)
+        # A rigid wing's station leading edges are measured from its COM.
+        for station_idx in body.station_idxs
+            stations[station_idx].le_pos .+= old_com_offset .- body.com_offset_b
+        end
+        prn && is_wing(body) && @info "RIGID_DYNAMICS wing $(body.idx):" *
+            " total_mass=$(round(body.total_mass; digits=3))" *
+            ", I=$(round.(body.inertia_principal; digits=4))" *
+            ", com_offset_b=$(round.(body.com_offset_b; digits=4))"
+    end
+    root = connected_body_groups(length(bodies),
+        sys_struct.elastic_joints, sys_struct.timoshenko_joints)
+    for wing in sys_struct.wings
+        wing.dynamics_type == PARTICLE_DYNAMICS || continue
+        point_idxs, body_idxs = particle_wing_parts(wing, stations, points, bodies, root)
+        wing.total_mass = sum(points[idx].total_mass for idx in point_idxs
+                              if carrier_body_idx(points[idx], bodies) == 0; init=0.0) +
+            sum(bodies[idx].total_mass for idx in body_idxs; init=0.0)
+    end
+    init_principal_frame!(bodies, points)
+    return nothing
+end
+
+"""
+    combine_carried_points!(body, points, bodies)
+
+Add the points `body` carries to its own mass properties: `total_mass`, the COM
+`com_offset_b`, and the inertia about it diagonalised by `principal_frame_method`.
+"""
+function combine_carried_points!(body, points, bodies)
+    carried = [(point.total_mass, carried_position_b(point, body)) for point in points
+               if carrier_body_idx(point, bodies) == body.idx]
+    total_mass = body.extra_mass + sum(first, carried; init=0.0)
+    first_moment = body.extra_mass .* body.extra_com_offset_b
+    for (mass, position) in carried
+        first_moment .+= mass .* position
+    end
+    com = total_mass > 0 ? first_moment ./ total_mass : body.extra_com_offset_b
+    inertia = body.extra_inertia_b .+
+        point_mass_inertia(body.extra_mass, body.extra_com_offset_b .- com)
+    for (mass, position) in carried
+        inertia .+= point_mass_inertia(mass, position .- com)
+    end
+    inertia_principal, R_b_to_p = body.principal_frame_method == Y_ROTATION ?
+        calc_inertia_y_rotation(inertia) : principal_frame(inertia)
+    body.total_mass = total_mass
+    body.com_offset_b .= com
+    body.inertia_principal .= inertia_principal
+    body.R_b_to_p .= R_b_to_p
+    body.R_p_to_c .= body.R_b_to_c * R_b_to_p'
+    return nothing
+end
+
+"""
+    carried_position_b(point, body) -> Vector
+
+Body-frame position of a point `body` carries, from its body origin: a rider's
+`anchor_b`, or where its CAD position sits on the body.
+"""
+carried_position_b(point, body) = point.body_idx == body.idx ? Vector(point.anchor_b) :
+    body.R_b_to_c' * (point.pos_cad - body.pos_cad)
 
 """
     SystemStructure(name, set; points, stations, segments, pulleys, tethers,
@@ -896,7 +983,8 @@ of the same structural shape should share one.
 - `vsm_set`: `VSMSettings` for VSM wings; read from `vsm_settings.yaml` when omitted.
 - `wind_mode::WindMode=ProfileWind()`: [`PerPointWind`](@ref) makes every point's
   `wind_vec` a settable parameter instead of a height-profile output.
-- `ignore_l0::Bool=false`: Recompute every segment `l0` from the CAD geometry.
+- `ignore_l0::Bool=false`: Set every segment `l0` to its placed length
+  ([`relax_segments!`](@ref)).
 - `prn::Bool=true`: If true, print info messages about auto-generated components.
 
 # Returns
@@ -1017,27 +1105,15 @@ function SystemStructure(name, set;
     for wing in wings
         wing_point_idxs = [point.idx for point in points
             if wing_frame_member(point, wing.idx)]
-        point_mass_sum = sum(
-            point.extra_mass for point in points
-            if wing_frame_member(point, wing.idx); init=0.0)
         set_mass = hasproperty(set, :mass) ? set.mass : 0.0
-        user_mass = wing.mass
-
         if wing.dynamics_type == PARTICLE_DYNAMICS
-            user_mass > 0 && @warn "Wing $(wing.idx) (PARTICLE_DYNAMICS): " *
-                "`mass=$user_mass` is ignored — particle wings carry mass on their " *
-                "points and section bodies, not on the wing body."
-            # Mass is set by finalize_particle_wing_mass! once body refs resolve.
-        elseif user_mass > 0
-            point_mass_sum > 0 && @warn "Wing $(wing.idx) (RIGID_DYNAMICS): both " *
-                "`mass=$user_mass` and point masses ($point_mass_sum) are set — " *
-                "gravity is counted twice (COM + points); zero the point extra_mass."
-        elseif point_mass_sum > 0
-            wing.mass = point_mass_sum
-        elseif set_mass > 0
-            distribute_mass_over_points!(points, wing_point_idxs, wing, set_mass)
-        else
-            wing.mass = 0.0
+            wing.extra_mass > 0 && @warn "Wing $(wing.idx) (PARTICLE_DYNAMICS): " *
+                "`extra_mass=$(wing.extra_mass)` is ignored — particle wings carry " *
+                "mass on their points and section bodies, not on the wing body."
+            # set.mass is spread by finalize_particle_wing_mass! once body refs resolve.
+        elseif iszero(wing.extra_mass) && set_mass > 0 &&
+               all(iszero(points[idx].extra_mass) for idx in wing_point_idxs)
+            distribute_mass_over_points!(points, wing_point_idxs, set_mass)
         end
     end
 
@@ -1159,14 +1235,7 @@ function SystemStructure(name, set;
         build_panel_station_map!(wing.aero, wing, sys_struct)
     end
 
-    # Recalculate segment rest lengths from current positions if requested
-    if ignore_l0
-        for segment in sys_struct.segments
-            point1 = sys_struct.points[segment.point_idxs[1]]
-            point2 = sys_struct.points[segment.point_idxs[2]]
-            segment.l0 = norm(point2.pos_w - point1.pos_w)
-        end
-    end
+    ignore_l0 && relax_segments!(sys_struct)
 
     return sys_struct
 end

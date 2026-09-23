@@ -102,8 +102,8 @@ function pair_momenta(sys, ref)
     for body in sys.bodies
         vel = Vector(body.vel_w)
         R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
-        linear .+= body.mass .* vel
-        angular .+= body.mass .* ((Vector(body.com_w) .- ref) × vel) .+
+        linear .+= body.total_mass .* vel
+        angular .+= body.total_mass .* ((Vector(body.com_w) .- ref) × vel) .+
                     R_b_to_w * (Vector(body.inertia_principal) .*
                                 Vector(body.ω_b))
     end
@@ -138,9 +138,9 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
 
     """Two bodies `beam_length` apart, node A optionally clamped."""
     function pair_bodies(type_a=DYNAMIC)
-        return (Body(:nodeA; mass=body_mass, inertia_principal=inertia,
+        return (Body(:nodeA; extra_mass=body_mass, inertia_principal=inertia,
                      pos=[0.0, 0.0, 0.0], type=type_a),
-                Body(:nodeB; mass=body_mass, inertia_principal=inertia,
+                Body(:nodeB; extra_mass=body_mass, inertia_principal=inertia,
                      pos=[beam_length, 0.0, 0.0]))
     end
 

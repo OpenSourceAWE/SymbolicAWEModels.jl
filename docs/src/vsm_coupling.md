@@ -123,8 +123,10 @@ undefined.
 #### Force distribution
 
 Integrated force and moment coefficients are applied to the rigid body, driving
-quaternion dynamics. Each station's aerodynamic moment is the sum of its
-unrefined section moments, driving the twist DOF.
+quaternion dynamics. Each station's aerodynamic moment is the sum of the moments of
+the panels nearest its centre, driving the twist DOF. Those panels also set its share
+of the wing's own `extra_mass`, which sits on no point, and which its twist inertia
+counts.
 
 ## Aero modes
 
@@ -318,7 +320,7 @@ the mode:
   [`refresh_particle_aero!`](@ref).
 - **Diagnostics**: [`calc_aoa`](@ref) (default `NaN`),
   [`normalized_inertia`](@ref) — per-unit-mass inertia [m²], scaled by the
-  wing's mass at the single consumer (default: normalized point-mass inertia
+  wing's own `extra_mass` at the single consumer (default: normalized point-mass inertia
   from the wing's structural points).
 - **Log-point visualization**: [`n_aero_log_points`](@ref) /
   [`write_aero_log_points!`](@ref) / [`read_aero_log_points!`](@ref) /
@@ -406,6 +408,9 @@ When the number of aerodynamic sections differs from the number of structural
 LE/TE pairs, `match_aero_sections_to_structure!` rebuilds the unrefined sections
 so their geometry matches the structure. This applies to both wing types and
 requires `use_prior_polar=true` on the VortexStepMethod wing.
+
+The sections, and the structural stations they are matched to, run from +y to -y,
+the order VortexStepMethod builds its panels in. A wing in the other order errors.
 
 The steps are:
 

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+- `update_mass_properties!(sys_struct)` sets each body's `total_mass`, COM and
+  principal inertia from its own and its points' masses. `reinit!` runs it after the
+  segment lengths are set.
+
 ### Changed
 - BREAKING: `roll`, `pitch` and `yaw` are no longer written to `SysState`, which
   dropped the three fields in KiteUtils 0.13. They were computed here with a NED
@@ -13,6 +18,78 @@
   `aero_moment_b` so that the name says which body frame the components are in.
   `load_log` still reads the old column, so older logs keep loading.
 - `[compat]` on KiteUtils is raised to `0.13`.
+- BREAKING: a body's and a wing's own mass is `extra_mass`, like a point's: the `Body`
+  and `VSMWing` keyword, the `Body` field and the `wings`/`bodies` YAML column, which
+  were `mass`. A YAML row still carrying `mass` errors.
+- A rigid body — a `RIGID_DYNAMICS` wing or a plain `Body` — weighs and turns with
+  the points it carries: its new `total_mass` is its `extra_mass` plus the
+  `total_mass` of its `BODY_STATIC` riders and wing nodes, segment halves included,
+  and its COM and inertia include them at their anchors. Setting both `extra_mass`
+  and point masses counts both.
+- A rigid body's `inertia_principal`, `R_b_to_p` and `com_offset_b` are derived on
+  every `reinit!`, from `l0` as it leaves it, so a `Body`'s `R_b_to_p` can differ
+  from the one passed; change a built body through `extra_inertia_b` and
+  `extra_com_offset_b`.
+- A particle wing's `total_mass` sums its free member points and section bodies,
+  segment halves included; points riding a body count in that body. Its "gravity
+  is counted twice" warning is gone.
+- BREAKING: `sys_struct.total_mass` is removed; each body reports its `total_mass`.
+
+## v0.18.1 2026-09-21
+
+### Added
+- `set_unstretched_length!(sys_struct, tether, len)` sets a tether's unstretched
+  length [m] and shares it over its segments' `l0`, leaving point positions, body
+  poses, joint rest geometry and station flap references alone. `reinit!` still
+  derives `len` from the placed geometry, so a length set this way holds until the
+  next `reinit!`.
+- The steps of `reinit!(sys_struct, set)` are exported functions of their own:
+  `reset_to_cad!`, `apply_tether_init_stretched_lens!`, `update_segment_lengths!`,
+  `apply_tether_init_forces!`, `init_pulley_lengths!`, `remake_wing_aero!`,
+  `init_wind!`, `relax_segments!` and `init_rest_geometry!`. Run the ones wanted
+  on `sam.sys_struct`, then `init!(sam; reinit_sys=false)`, to adjust part of a
+  structure without placing all of it again.
+- A transform's `turn_rate` places the rotation it names: a structure comes out of
+  `reinit!` or `reposition!` already turning about the radial axis through the
+  transform's base, at the rate its heading then advances at. The field has been
+  read from the YAML in degrees per second since it was added, but `reinit!`
+  warned that it was ignored and placed the structure at rest.
+
+### Changed
+- Julia 1.11 is no longer supported: the package installs on Julia 1.12 and 1.13,
+  the two versions CI tests.
+
+### Fixed
+- A live polar's control points are measured in the panel's own `panel_axes`
+  frame over its corners, which is the frame its contour nodes are lofted along.
+  The hand-built frame they used before measured along the unleaned mid-chord
+  axis over `norm(chord_vec)`, so on a swept or tapered panel the chord fraction
+  and the camber offset were on a different scale from the nodes they are
+  matched against.
+- A wing whose aerodynamic sections, or the structural stations they are matched
+  to, run from -y to +y errors when its aero is set up or refreshed, instead of
+  running on aero that order does not support. The only supported order is
+  VortexStepMethod's, +y to -y.
+- A station's twist moment is summed over the VSM panels nearest the station, not over
+  the sections it owns. Without refinement VSM files each panel under its left-edge
+  section, so the last section never had a panel and the centre panel went to the +y
+  station. A 41-section ram-air wing with 4 stations gave its stations 10/11/10/9 panels
+  and twisted asymmetrically at rest. `Station.panel_idxs` holds the panels.
+- A station's twist inertia counts its share of the wing mass that sits on no point, by
+  the area of its panels (`Station.body_mass`). A rigid wing given `mass` with zero point
+  masses had stations with zero inertia, and the model failed at t = 0.
+- `sys_struct.total_mass` counts a rigid wing's `mass`. The points riding the wing body
+  are counted once through it, so a wing given `mass` with zero point masses no longer
+  reads 0.
+- `plot(..., plot_gk=true)` no longer throws `UndefVarError: cs_over_us_vec`. The
+  panel plotted the steering gain of the V3 four-line kite, which lives in
+  V3Kite.jl, and had been broken since the `plot_cs` panel it read was removed in
+  v0.12.0, so it is gone rather than repaired — with it the sibling `plot_us`
+  panel, the `gk_ylims` keyword, and the `SysState.depower` and
+  `SysState.steering` writes in `update_sys_state!` that were the two panels' only
+  source. `scripts/extrapolate_polars.jl`, which reads a `data/v3/` directory this
+  repo does not carry, and the never-called `parse_segment_type` parser for the
+  removed `SegmentType` YAML column go with them.
 
 ## v0.18.0 2026-09-15
 

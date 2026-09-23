@@ -1319,12 +1319,12 @@ function RigidBody(s, params, idx; name, parented = false)
     body = params.bodies[idx]
     orientation_p = quaternion_to_rotation_matrix(collect(Q))
     orientation = orientation_p * collect(body.R_b_to_p)
-    gravity = Num[0, 0, -params.set.g_earth * body.mass]
+    gravity = Num[0, 0, -params.set.g_earth * body.total_mass]
     force_w = collect(io.force_in) .+ gravity .+ collect(body.ext_force_w) .+
         orientation * collect(body.ext_force_b)
     moment_w = collect(io.moment_in) .+ orientation * collect(body.ext_moment_b)
     ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
-        body.mass, body.R_b_to_p, body.apparent_mass,
+        body.total_mass, body.R_b_to_p, body.apparent_mass,
         body.com_offset_b, com_w, com_vel, Q, omega_p;
         body_integration(params, idx, com_w, com_vel, omega_p, alpha_p,
                          com_acc, orientation_p;
@@ -1463,11 +1463,10 @@ end
 
 The world load an anchored point delivers to whatever carries it: the force its
 segments deliver, its own aerodynamic drag at its height, its gravity and its
-external force — the monolith's `point_force`. `with_gravity = false` is the point
-that rides its own wing body, whose mass is already counted at that body's COM
-(`rides_own_wing` in `point_eqs!`). The drag and the wind at the point's own height
-come back separately because they are the other two quantities
-[`ride_wrench_eqs`](@ref) reports.
+external force — the monolith's `point_force`. `with_gravity = false` is a point a
+rigid body carries, whose mass weighs at that body's COM ([`carrier_body_idx`](@ref)).
+The drag and the wind at the point's own height come back separately because they
+are the other two quantities [`ride_wrench_eqs`](@ref) reports.
 """
 function ride_load(s, params, idx, io; with_gravity)
     point = params.points[idx]
@@ -2089,24 +2088,21 @@ function WagnerLag(s, params, wing_idx; name)
 end
 
 """
-    AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
+    AeroPanel(s, params, wing_idx, panel_idx; name, with_flap)
 
 One refined VSM panel's aerodynamic load: its two sections' leading and trailing edges
 (each already the gathered strut interpolation), their apparent wind and density, and
 its flap deflection in; its body-frame force and the couple its mode's scatter places
 ([`scatter_couple`](@ref)) out. The physics is
 the shared [`panel_force_eqs`](@ref) on a single column, so the expressions are those a
-whole-wing system emits for this panel. `orient` is the panel's `±1` span sign, baked
-in because it costs a second kernel and saves a parameter on every instance; the
-chord blend weight cannot be, because it differs per panel and would cost a kernel
-each. `with_flap` selects the `(α, δ)` polars.
+whole-wing system emits for this panel. `with_flap` selects the `(α, δ)` polars.
 
 A wing with [`flow_curvature_enabled`](@ref) takes two more inputs, its sections'
 trailing minus leading edge apparent wind, gathered at [`strut_pitch_weights`](@ref).
 A wing with [`wagner_enabled`](@ref) takes one more, the lag deficiency its
 [`WagnerLag`](@ref) hands to every panel.
 """
-function AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
+function AeroPanel(s, params, wing_idx, panel_idx; name, with_flap)
     wing = params.reg.sys_struct.wings[wing_idx]
     panel = params.wings[wing_idx].aero.panels[panel_idx]
     io = @variables begin
@@ -2138,7 +2134,7 @@ function AeroPanel(s, params, wing_idx, panel_idx, orient; name, with_flap)
             dva[2] === nothing ? nothing : collect(dva[2]))
     eqs = panel_force_eqs(slots, 1, sections, flow,
                           (panel.cl, panel.cd, panel.cm),
-                          spanwise, scale, orient, panel.chord_weight, delta,
+                          spanwise, scale, panel.chord_weight, delta,
                           lag === nothing ? 0.0 : lag)
     couple = scatter_couple(wing.aero, slots, 1, panel)
     append!(eqs, collect(io[9]) .~ collect(slots.panel_force[:, 1]))
@@ -2273,9 +2269,10 @@ end
 The added twist degree of freedom of a `DYNAMIC` station: a thin plate hinged
 at its leading edge, driven by the aerodynamic moment its wing's aero returns and
 the bridle couple its points deliver, restrained by the surface's own stiffness and
-damping. Its inertia `⅓·m·L²` takes the mass from those same points as an input, so
-the component reads only its own surface's parameters. The monolith's `fix_wing`
-freeze is not carried over: it is a parameter nothing ever sets.
+damping. Its inertia `⅓·m·L²` takes the mass of those same points as an input, plus
+the surface's `body_mass`, so the component reads only its own surface's parameters.
+The monolith's `fix_wing` freeze is not carried over: it is a parameter nothing ever
+sets.
 """
 function StationDOF(s, params, idx; name)
     vars = @variables begin
@@ -2291,7 +2288,8 @@ function StationDOF(s, params, idx; name)
     surface = params.stations[idx]
     twist = station_dynamics(; free_angle = state[1], twist_vel = state[2],
                                    aero_moment = vars[1], node_moment = vars[2],
-                                   mass = vars[4], chord = surface.chord,
+                                   mass = vars[4] + surface.body_mass,
+                                   chord = surface.chord,
                                    damping = surface.damping,
                                    stiffness = surface.stiffness)
     eqs = [

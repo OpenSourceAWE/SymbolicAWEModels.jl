@@ -363,16 +363,10 @@ end
                 @test length(panels) == length(state.chord)
                 @test state.chord ≈ [panel.chord for panel in panels] rtol=1e-3
 
-                # y_airf runs against VSM's on the panels the mode orients the
-                # other way; z_airf flips with it, so the couple is the same
-                # vector either way and only the rate differs in sign. The model
-                # builds the axis from the live structure and the panels hold the
-                # last refresh's, so a little drift is expected; a different
-                # convention would leave O(1) behind.
-                orientation = [sign(dot(state.y_airf[i], panels[i].y_airf))
-                               for i in eachindex(panels)]
-                axis_error = maximum(norm(state.y_airf[i] -
-                                          orientation[i] .* panels[i].y_airf)
+                # The model builds the axis from the live structure and the
+                # panels hold the last refresh's, so a little drift is expected;
+                # a different convention would leave O(1) behind.
+                axis_error = maximum(norm(state.y_airf[i] - panels[i].y_airf)
                                      for i in eachindex(panels))
                 println("  [$(case.name)] vs VSM: y_airf error=",
                     "$(round(axis_error; sigdigits=3))")
@@ -399,7 +393,7 @@ end
                 body_aero = SymbolicAWEModels.vsm_engine(wing_on.aero).vsm_aero
                 saved = copy(body_aero.pitch_rate_dist)
                 VortexStepMethod.set_pitch_rate_dist!(body_aero, omega_body)
-                vsm_rates = orientation .* Vector(body_aero.pitch_rate_dist)
+                vsm_rates = Vector(body_aero.pitch_rate_dist)
                 body_aero.pitch_rate_dist .= saved
                 @test norm(state.pitch_rate - before - vsm_rates) /
                       norm(vsm_rates) < 0.15

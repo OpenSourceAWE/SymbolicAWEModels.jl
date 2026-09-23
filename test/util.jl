@@ -175,10 +175,6 @@ anyway, so filtering can only lose coverage.
 `rtol` is not zero because bodies are logged in the body frame
 and rebuilt into the principal frame, which costs a few ULP in
 the quaternion/matrix conversions.
-
-The temporary directory is left to Julia's exit-time cleanup:
-`load_log` memory-maps the Arrow file, and on Windows a mapped
-file cannot be deleted while the mapping is alive.
 """
 function validate_sysstate_roundtrip(sam; rtol = 1e-10)
     sys = sam.sys_struct
@@ -189,6 +185,7 @@ function validate_sysstate_roundtrip(sam; rtol = 1e-10)
     log!(logger, SysState(sam; precision = Float64))
     save_log(logger, "roundtrip", false; path)
     reloaded = load_log("roundtrip"; path)
+    # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
     sys.state_vars = 1.5 .* vec(sys.state_vars) .+ 0.25
     update_from_sysstate!(sys, reloaded.syslog[1])
     init!(sam; remake = false, reinit_sys = false, prn = false)
@@ -235,7 +232,7 @@ end
 
 """
     evaluate_panel_equations(sections, flow, coefficients, spanwise, scale,
-                             orient, chord_weight) -> NamedTuple
+                             chord_weight) -> NamedTuple
 
 One panel of `panel_force_eqs` evaluated numerically. The equations are built on
 numeric `sections`/`flow` and substituted forward in the order they are emitted,
@@ -244,13 +241,13 @@ reimplementation of it. `coefficients` maps the resulting angle of attack to
 `(cl, cd, cm)`, which are folded into `force` and `couple`.
 """
 function evaluate_panel_equations(sections, flow, coefficients, spanwise, scale,
-                                  orient, chord_weight)
+                                  chord_weight)
     slots = panel_force_slots(1)
     polar_symbols = [Symbolics.variable(name) for name in (:cl, :cd, :cm)]
     polars = Tuple(_ -> symbol for symbol in polar_symbols)
     values = Dict{Any, Any}()
     for equation in panel_force_eqs(slots, 1, sections, flow, polars, spanwise,
-                                    scale, orient, chord_weight, nothing),
+                                    scale, chord_weight, nothing),
         (left, right) in scalar_equation_pairs(equation)
         values[Symbolics.value(left)] =
             Symbolics.substitute(right, values; fold = Val(true))

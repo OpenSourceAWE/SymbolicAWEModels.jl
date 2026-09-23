@@ -610,8 +610,8 @@ end
 
 One [`AeroPanel`](@ref) per refined panel, reading its two sections' corners from the
 strut interpolation ([`aero_geometry_entries`](@ref)), their inflow from the group they
-belong to, and its flap deflection from the station it deflects with. Panels
-differ only in their `±1` span sign, so a wing needs at most two kernels.
+belong to, and its flap deflection from the station it deflects with. Every panel of
+a wing shares one kernel.
 
 `pitches` are the [`aero_pitch_groups`](@ref) gathers, or `nothing` on a wing without
 [`flow_curvature_enabled`](@ref), which then has no such inputs to connect. `wagner`
@@ -619,17 +619,16 @@ is the wing's [`add_wagner_lag!`](@ref) instance, or `nothing` in the same way.
 """
 function add_aero_panels!(builder, table, bindings, sam, wing, nodes, inflow_points,
                           inflows, pitches, section_group, flaps, wagner=nothing)
-    spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     with_flap = !isempty(wing_flap_surfaces(wing))
     inputs = isnothing(pitches) ? AERO_PANEL_INPUTS :
         [AERO_PANEL_INPUTS; AERO_PANEL_PITCH_INPUTS]
     isnothing(wagner) || (inputs = [inputs; AERO_PANEL_WAGNER_INPUTS])
     with_flap && (inputs = [inputs; :flap_delta])
     instances = Int[]
-    for (panel_idx, orient) in enumerate(panel_span_signs(wing, spanwise))
-        key = Symbol(:aero_panel_, wing.idx, orient > 0 ? :_up : :_down)
+    key = Symbol(:aero_panel_, wing.idx)
+    for panel_idx in 1:Int(wing.vsm_wing.n_panels)
         entry = kernel!(builder, table, sam, key, panel_idx,
-                        params -> AeroPanel(sam, params, wing.idx, panel_idx, orient;
+                        params -> AeroPanel(sam, params, wing.idx, panel_idx;
                                             name = key, with_flap),
                         inputs, AERO_PANEL_OUTPUTS)
         instance = add_instance!(builder, entry.index)
@@ -920,7 +919,7 @@ function add_ride_point!(builder, table, bindings, sam, idx, role, bodies, wrenc
     kinematics = kernel!(builder, table, sam, :ride_point, idx,
                          params -> RidePoint(sam, params, idx; name = :ride_point),
                          RIDE_INPUTS, RIDE_OUTPUTS)
-    gravity = !wing_frame_member(point, point.body_idx)
+    gravity = carrier_body_idx(point, sam.sys_struct.bodies) == 0
     key = gravity ? :ride_wrench : :riding_wrench
     statics = kernel!(builder, table, sam, key, idx,
                       params -> RideWrench(sam, params, idx; name = key,
