@@ -114,7 +114,7 @@ winches:
   data:
     - [main_winch, [main_tether], ground]
 bodies:
-  headers: [name, pos, type, transform_idx, mass, inertia_principal]
+  headers: [name, pos, type, transform_idx, extra_mass, inertia_principal]
   data:
     - [le_body, [-0.5, 0.0, 2.17], STATIC,  main_transform, 0.5, [0.05, 0.05, 0.05]]
     - [te_body, [0.5,  0.0, 2.47], DYNAMIC, main_transform, 0.5, [0.05, 0.05, 0.05]]

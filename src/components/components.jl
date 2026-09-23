@@ -1319,12 +1319,12 @@ function RigidBody(s, params, idx; name, parented = false)
     body = params.bodies[idx]
     orientation_p = quaternion_to_rotation_matrix(collect(Q))
     orientation = orientation_p * collect(body.R_b_to_p)
-    gravity = Num[0, 0, -params.set.g_earth * body.mass]
+    gravity = Num[0, 0, -params.set.g_earth * body.total_mass]
     force_w = collect(io.force_in) .+ gravity .+ collect(body.ext_force_w) .+
         orientation * collect(body.ext_force_b)
     moment_w = collect(io.moment_in) .+ orientation * collect(body.ext_moment_b)
     ex = rigid_body_pose_expressions(force_w, moment_w, body.inertia_principal,
-        body.mass, body.R_b_to_p, body.apparent_mass,
+        body.total_mass, body.R_b_to_p, body.apparent_mass,
         body.com_offset_b, com_w, com_vel, Q, omega_p;
         body_integration(params, idx, com_w, com_vel, omega_p, alpha_p,
                          com_acc, orientation_p;
@@ -1463,11 +1463,10 @@ end
 
 The world load an anchored point delivers to whatever carries it: the force its
 segments deliver, its own aerodynamic drag at its height, its gravity and its
-external force — the monolith's `point_force`. `with_gravity = false` is the point
-that rides its own wing body, whose mass is already counted at that body's COM
-(`rides_own_wing` in `point_eqs!`). The drag and the wind at the point's own height
-come back separately because they are the other two quantities
-[`ride_wrench_eqs`](@ref) reports.
+external force — the monolith's `point_force`. `with_gravity = false` is a point a
+rigid body carries, whose mass weighs at that body's COM ([`carrier_body_idx`](@ref)).
+The drag and the wind at the point's own height come back separately because they
+are the other two quantities [`ride_wrench_eqs`](@ref) reports.
 """
 function ride_load(s, params, idx, io; with_gravity)
     point = params.points[idx]

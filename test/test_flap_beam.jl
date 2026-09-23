@@ -100,9 +100,9 @@ end
     @testset "flap δ extraction (Julia ground truth)" begin
         # Rest capture at φ=0 → rest_delta 0; then δ equals the hinge rotation.
         for phi in (0.0, 0.3, -0.25, 0.5)
-            main = Body(:main; mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
+            main = Body(:main; extra_mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
                         pos=[0.0, 0, 0])
-            flap = Body(:flap; mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
+            flap = Body(:flap; extra_mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
                         pos=[1.0, 0, 0])
             bodies = [main, flap]
             ts = Station(:flap_ts, Int[], KINEMATIC, 0.0;
@@ -118,9 +118,9 @@ end
         end
         # Nonzero rest: capture at φ0, deflect to φ0+Δ → δ = Δ.
         phi0, delta = 0.2, 0.15
-        main = Body(:main; mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
+        main = Body(:main; extra_mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
                     pos=[0.0, 0, 0], Q_b_to_w=quat_y(0.0))
-        flap = Body(:flap; mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
+        flap = Body(:flap; extra_mass=1.0, inertia_principal=[1.0, 1.0, 1.0],
                     pos=[1.0, 0, 0], Q_b_to_w=quat_y(phi0))
         bodies = [main, flap]
         ts = Station(:flap_ts, Int[], KINEMATIC, 0.0;
@@ -149,9 +149,9 @@ end
 
     # Fresh components per call: `SystemStructure` resolves indices in place.
     function build_beam_sys(name; with_flap=true)
-        nodeA = Body(:nodeA; mass=1.0, inertia_principal=inertia,
+        nodeA = Body(:nodeA; extra_mass=1.0, inertia_principal=inertia,
                      pos=[0.0, 0.0, 0.0], type=STATIC)
-        nodeB = Body(:nodeB; mass=1.0, inertia_principal=inertia,
+        nodeB = Body(:nodeB; extra_mass=1.0, inertia_principal=inertia,
                      pos=[beam_length, 0.0, 0.0])
         joint = TimoshenkoJoint(:joint, :nodeA, :nodeB;
             EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,

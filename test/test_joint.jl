@@ -85,9 +85,9 @@ end
     set = Settings("system.yaml")
 
     inertia = [0.1, 0.2, 0.3]
-    body1 = Body(:b1; mass=1.0, inertia_principal=inertia,
+    body1 = Body(:b1; extra_mass=1.0, inertia_principal=inertia,
                       pos=[0.0, 0.0, 0.0])
-    body2 = Body(:b2; mass=1.0, inertia_principal=inertia,
+    body2 = Body(:b2; extra_mass=1.0, inertia_principal=inertia,
                       pos=[1.0, 0.0, 0.0])
     # Anchors meet at the midpoint [0.5, 0, 0] when relaxed.
     joint = ElasticJoint(:j1, :b1, :b2;
@@ -168,9 +168,9 @@ end
 
     @testset "Torsional oscillation frequency" begin
         # Body A near-fixed via huge inertia: B is a torsional pendulum.
-        b1.inertia_principal .= [1.0e4, 1.0e4, 1.0e4]
+        b1.extra_inertia_b .= Diagonal([1.0e4, 1.0e4, 1.0e4])
         Ixx = 0.1
-        b2.inertia_principal .= [Ixx, 0.2, 0.3]
+        b2.extra_inertia_b .= Diagonal([Ixx, 0.2, 0.3])
         jt.stiffness_axial = 0.0
         jt.stiffness_torsion = 5.0
         jt.stiffness_bending = 0.0
@@ -192,8 +192,8 @@ end
         end
         T_measured = period_from_crossings(times, ωx)
         @test 2pi / T_measured ≈ ω_expected rtol=0.03
-        b1.inertia_principal .= inertia
-        b2.inertia_principal .= inertia
+        b1.extra_inertia_b .= Diagonal(inertia)
+        b2.extra_inertia_b .= Diagonal(inertia)
     end
 
     @testset "Interpolated (nonlinear) stiffness" begin
@@ -203,8 +203,8 @@ end
         EA = 100.0
         knots = collect(-0.6:0.05:0.6)
         f_axial = SymbolicAWEModels.LinearInterpolation(EA .* knots, knots)
-        b1i = Body(:b1; mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
-        b2i = Body(:b2; mass=1.0, inertia_principal=inertia, pos=[1.0, 0.0, 0.0])
+        b1i = Body(:b1; extra_mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
+        b2i = Body(:b2; extra_mass=1.0, inertia_principal=inertia, pos=[1.0, 0.0, 0.0])
         joint_i = ElasticJoint(:j1, :b1, :b2;
             anchor_a=[0.5, 0.0, 0.0], anchor_b=[-0.5, 0.0, 0.0],
             stiffness_axial=f_axial,       # interpolation ...
@@ -242,8 +242,8 @@ end
         # fling it.
         half = π / 12  # half-angle of 30°
         Q_rot = Float64[cos(half), 0.0, 0.0, sin(half)]
-        bodyA = Body(:b1; mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
-        bodyB = Body(:b2; mass=1.0, inertia_principal=inertia,
+        bodyA = Body(:b1; extra_mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
+        bodyB = Body(:b2; extra_mass=1.0, inertia_principal=inertia,
                      pos=[1.0, 0.0, 0.0], Q_b_to_w=Q_rot)
         joint_r = ElasticJoint(:j1, :b1, :b2;
             stiffness_axial=1000.0, stiffness_shear=1000.0,

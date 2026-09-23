@@ -329,7 +329,7 @@ SymbolicAWEModels.record(lg, sam.sys_struct,                      #hide
 # | [`Winch`](@ref) | `Winch(name, tethers, n, r, Fc, cv, I; ...)` | Torque-controlled motor |
 # | [`Pulley`](@ref) | `Pulley(name, seg_i, seg_j, type)` | Equal-tension constraint |
 # | [`Station`](@ref) | `Station(name, points, type, frac; ...)` | Wing twist section |
-# | [`Body`](@ref) | `Body(name; mass, inertia_principal, pos)` | Rigid body |
+# | [`Body`](@ref) | `Body(name; extra_mass, inertia_principal, pos)` | Rigid body |
 # | [`ElasticJoint`](@ref) | `ElasticJoint(name, body_a, body_b; ...)` | Lumped 6-DOF spring between bodies |
 # | [`TimoshenkoJoint`](@ref) | `TimoshenkoJoint(name, body_a, body_b; ...)` | Beam element between bodies |
 # | [`Transform`](@ref) | `Transform(name, el, az, hdg; ...)` | Spherical positioning |
