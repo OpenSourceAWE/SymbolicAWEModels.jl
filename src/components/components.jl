@@ -2527,7 +2527,9 @@ transform, at build time:
   makes the damping apply no net moment about the base and no net radial load.
 - `:wing` — the rotation about the base and radial stretch the wing itself is in
   ([`WingFrameRate`](@ref)).
-Part of the model name, so the two build different bins.
+- `:prescribed` — the rotation the transform's `elevation_vel`, `azimuth_vel` and
+  `turn_rate` prescribe, with no stretch ([`PrescribedFrameRate`](@ref)).
+Part of the model name, so each builds its own bin.
 """
 const DAMPING_FRAME = Ref(:fit)
 
@@ -2768,6 +2770,22 @@ function WingFrameRate(s, params, transform_idx; name)
     radial_spin = (wing_spin ⋅ r) / r2
     eqs = [collect(vars[11]) .~ (r × origin_vel) ./ r2 .+ radial_spin .* r
            vars[12] ~ (r ⋅ origin_vel) / r2]
+    return System(eqs, t, vars, param_unknowns(params); name)
+end
+
+"""
+    PrescribedFrameRate(s, params, transform_idx; name)
+
+The `:prescribed` reference motion of one transform: its `spin_w`, the rotation about
+the base its `elevation_vel`, `azimuth_vel` and `turn_rate` prescribe, and no stretch.
+"""
+function PrescribedFrameRate(s, params, transform_idx; name)
+    vars = @variables begin
+        frame_spin(t)[1:3], [output = true]
+        frame_stretch(t), [output = true]
+    end
+    eqs = [collect(vars[1]) .~ collect(params.transforms[transform_idx].spin_w)
+           vars[2] ~ 0]
     return System(eqs, t, vars, param_unknowns(params); name)
 end
 

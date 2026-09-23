@@ -883,16 +883,17 @@ Add, per transform with framed components, the kernel that derives the rigid mot
 their damping is measured against, and wire it both ways: under
 [`DAMPING_FRAME`](@ref)` = :fit` a [`FrameFit`](@ref) summing every framed
 component's fit contributions, under `:wing` a [`WingFrameRate`](@ref) reading the
-transform's fitted wing; either feeds `frame_spin`/`frame_stretch` back to every
-framed component.
+transform's fitted wing, under `:prescribed` a [`PrescribedFrameRate`](@ref) reading
+the transform's rates; each feeds `frame_spin`/`frame_stretch` back to every framed
+component.
 """
 function add_damping_frames!(builder, table, bindings, sam, point_roles,
                              point_instances, body_instances)
     sys_struct = sam.sys_struct
     mode = DAMPING_FRAME[]
     mode === :legacy && return nothing
-    mode in (:fit, :wing) ||
-        error("DAMPING_FRAME must be :fit, :wing or :legacy, got $mode")
+    mode in (:fit, :wing, :prescribed) ||
+        error("DAMPING_FRAME must be :fit, :wing, :prescribed or :legacy, got $mode")
     for (t, transform) in enumerate(sys_struct.transforms)
         points = [idx for (idx, role) in enumerate(point_roles)
                   if framed_point(sam, role, idx) &&
@@ -944,6 +945,13 @@ function add_damping_frames!(builder, table, bindings, sam, point_roles,
                     connect!(builder, share, name, instance, name)
                 end
             end
+        elseif mode === :prescribed
+            entry = kernel!(builder, table, sam, :prescribed_frame_rate, t,
+                            params -> PrescribedFrameRate(sam, params, t;
+                                                          name = :prescribed_frame_rate),
+                            Symbol[], FRAME_INPUTS)
+            instance = add_instance!(builder, entry.index)
+            push!(bindings, (instance, entry, Dict(:transforms => t)))
         else
             wing_idx = something(transform.wing_idx, 0)
             (wing_idx > 0 && sys_struct.bodies[wing_idx].type == KINEMATIC) || error(
