@@ -259,7 +259,7 @@ end
 Reynolds number of every panel, from the solver's air properties and the panel's own
 apparent wind and chord.
 """
-panel_reynolds(wing) = [wing.vsm_solver.density * norm(panel.va) * panel.chord /
+panel_reynolds(wing) = [wing.vsm_solver.density * norm(panel.va_vec) * panel.chord /
                         wing.vsm_solver.mu for panel in wing.vsm_aero.panels]
 
 """
