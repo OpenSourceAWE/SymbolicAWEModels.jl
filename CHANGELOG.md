@@ -2,10 +2,31 @@
 
 ## Unreleased
 
+### Added
+- `update_mass_properties!(sys_struct)` sets each body's `total_mass`, COM and
+  principal inertia from its own and its points' masses. `reinit!` runs it after the
+  segment lengths are set.
+
 ### Changed
-- Requires the VortexStepMethod release after v5.1.1, whose settings name the apparent
-  wind speed `va` (`condition.wind_speed` in `vsm_settings.yaml` now errors there) and
-  drop the artificial damping keys.
+- BREAKING: requires VortexStepMethod v6, whose settings name the apparent wind speed
+  `va` (`condition.wind_speed` in `vsm_settings.yaml` now errors) and drop the
+  artificial damping keys.
+- BREAKING: a body's and a wing's own mass is `extra_mass`, like a point's: the `Body`
+  and `VSMWing` keyword, the `Body` field and the `wings`/`bodies` YAML column, which
+  were `mass`. A YAML row still carrying `mass` errors.
+- A rigid body — a `RIGID_DYNAMICS` wing or a plain `Body` — weighs and turns with
+  the points it carries: its new `total_mass` is its `extra_mass` plus the
+  `total_mass` of its `BODY_STATIC` riders and wing nodes, segment halves included,
+  and its COM and inertia include them at their anchors. Setting both `extra_mass`
+  and point masses counts both.
+- A rigid body's `inertia_principal`, `R_b_to_p` and `com_offset_b` are derived on
+  every `reinit!`, from `l0` as it leaves it, so a `Body`'s `R_b_to_p` can differ
+  from the one passed; change a built body through `extra_inertia_b` and
+  `extra_com_offset_b`.
+- A particle wing's `total_mass` sums its free member points and section bodies,
+  segment halves included; points riding a body count in that body. Its "gravity
+  is counted twice" warning is gone.
+- BREAKING: `sys_struct.total_mass` is removed; each body reports its `total_mass`.
 
 ### Fixed
 - A `PARTICLE_DYNAMICS` wing whose stations differ in number from its aero geometry's

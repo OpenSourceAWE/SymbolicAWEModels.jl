@@ -216,6 +216,7 @@ SymbolicAWEModels.yaml_ref_field
 SymbolicAWEModels.yaml_unset
 SymbolicAWEModels.yaml_field
 SymbolicAWEModels.yaml_float_or_nan
+SymbolicAWEModels.reject_renamed_mass
 SymbolicAWEModels.load_yaml_bodies
 SymbolicAWEModels.load_yaml_joints
 SymbolicAWEModels.load_body_state!
@@ -248,7 +249,7 @@ SymbolicAWEModels.validate_sys_struct
 SymbolicAWEModels.build_name_dict
 SymbolicAWEModels.setup_wing_frame!
 SymbolicAWEModels.connected_body_groups
-SymbolicAWEModels.particle_wing_masses
+SymbolicAWEModels.particle_wing_parts
 SymbolicAWEModels.finalize_particle_wing_mass!
 SymbolicAWEModels.compute_station_geometry!
 SymbolicAWEModels.setup_particle_point_mapping!
@@ -257,13 +258,16 @@ SymbolicAWEModels.check_span_order
 SymbolicAWEModels.match_aero_sections_to_structure!
 SymbolicAWEModels.compute_spatial_station_mapping!
 SymbolicAWEModels.share_body_mass!
-SymbolicAWEModels.rigid_frame_point
+SymbolicAWEModels.carrier_body_idx
+SymbolicAWEModels.combine_carried_points!
+SymbolicAWEModels.carried_position_b
 SymbolicAWEModels.copy_cad_to_world!
 SymbolicAWEModels.adjust_vsm_panels_to_origin!
 SymbolicAWEModels.apply_aero_z_offset!
 SymbolicAWEModels.calc_particle_dynamics_wing_frame
 SymbolicAWEModels.principal_frame
 SymbolicAWEModels.calc_inertia_y_rotation
+SymbolicAWEModels.point_mass_inertia
 SymbolicAWEModels.init_principal_state!
 SymbolicAWEModels.is_wing
 SymbolicAWEModels.wing_dynamics
