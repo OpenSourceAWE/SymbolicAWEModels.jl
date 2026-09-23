@@ -214,13 +214,14 @@ function Wing(name, stations::AbstractVector, R_b_to_c::AbstractMatrix,
         (WeightedRefPoints(y_ref_points[1]), WeightedRefPoints(y_ref_points[2]))
     origin_rp = isnothing(origin) ? nothing : WeightedRefPoints(origin)
 
-    # mass, R_b_to_p, R_p_to_c, com_offset_b are placeholders filled by SystemStructure.
+    # Mass properties and frames are placeholders filled by SystemStructure.
     body_type = dynamics_type == RIGID_DYNAMICS ? DYNAMIC : KINEMATIC
     damping_vec = broadcast_damping(angular_damping)
     return Body{typeof(aero), wing_dynamics(dynamics_type)}(
         0, name, 0, transform_ref, 0, 0,
-        zero(SimFloat), zero(SimFloat), KVec3(inertia_principal),
+        zero(SimFloat), zero(SimFloat), zero(SimFloat), KVec3(inertia_principal),
         Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3), zeros(KVec3),
+        Matrix{SimFloat}(Diagonal(inertia_principal)), zeros(KVec3),
         principal_frame_method,
         zeros(KVec3), zeros(KVec3), zeros(KVec3),
         damping_vec, broadcast_damping(world_frame_damping),
@@ -345,6 +346,9 @@ it to the wing.
 # Keyword Arguments
 - `transform=nothing`: Reference to the transform. Defaults to 1.
 - `R_b_to_c`, `pos_cad`, `inertia_diag`: Geometry placeholders (resolved later).
+- `extra_mass`, `com`, `unit_inertia`: the wing body's own mass [kg], COM and
+  per-unit-mass inertia, without its points (see [`Body`](@ref)); `com` and
+  `unit_inertia` default to the `.obj` mesh's.
 - `angular_damping`: Per-axis spin damping [1/s]; a scalar is broadcast.
 - `dynamics_type::WingType=RIGID_DYNAMICS`: Aerodynamic model type.
 - `aero::AbstractAeroModel`: Aerodynamic model (defaults by `dynamics_type`).
@@ -361,7 +365,7 @@ function VSMWing(name, set::Settings,
                  pos_cad::Union{Nothing,AbstractVector}=nothing,
                  transform=nothing, angular_damping=[0.0, 150.0, 0.0],
                  inertia_diag=nothing,
-                 mass=nothing,
+                 extra_mass=nothing,
                  com=nothing,
                  unit_inertia=nothing,
                  dynamics_type::Union{Nothing,WingType}=nothing,
@@ -424,7 +428,7 @@ function VSMWing(name, set::Settings,
         transform, angular_damping, dynamics_type, aero,
         group_points_moment, z_ref_points, y_ref_points, origin,
         principal_frame_method)
-    isnothing(mass) || (wing.mass = SimFloat(mass))
+    isnothing(extra_mass) || (wing.extra_mass = SimFloat(extra_mass))
     return wing
 end
 

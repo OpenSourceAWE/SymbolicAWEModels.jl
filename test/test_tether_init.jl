@@ -448,9 +448,9 @@ winches:
         seg_len = 1.0
         inertia = [0.01, 0.1, 0.1]
         bodies = [
-            Body(:root; mass=1.0, inertia_principal=inertia,
+            Body(:root; extra_mass=1.0, inertia_principal=inertia,
                 pos=[0.5seg_len, 0.0, 0.0], type=STATIC),
-            Body(:tip; mass=1.0, inertia_principal=inertia,
+            Body(:tip; extra_mass=1.0, inertia_principal=inertia,
                 pos=[1.5seg_len, 0.0, 0.0], type=DYNAMIC),
         ]
         joints = [ElasticJoint(:j, :root, :tip; anchor_a=[seg_len/2, 0, 0],
@@ -570,7 +570,7 @@ winches:
     # ================================================================
     @testset "Placement moves a beam (joint-anchored points)" begin
         inertia = [0.01, 0.01, 0.01]
-        bodies = [Body(Symbol(:node, i); mass=1.0, inertia_principal=inertia,
+        bodies = [Body(Symbol(:node, i); extra_mass=1.0, inertia_principal=inertia,
                        pos=[Float64(i - 1), 0.0, 0.0], type=DYNAMIC)
                   for i in 1:4]
         joints = [TimoshenkoJoint(Symbol(:j, i), Symbol(:node, i),

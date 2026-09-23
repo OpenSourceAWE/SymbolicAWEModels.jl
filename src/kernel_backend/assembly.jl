@@ -919,7 +919,7 @@ function add_ride_point!(builder, table, bindings, sam, idx, role, bodies, wrenc
     kinematics = kernel!(builder, table, sam, :ride_point, idx,
                          params -> RidePoint(sam, params, idx; name = :ride_point),
                          RIDE_INPUTS, RIDE_OUTPUTS)
-    gravity = !wing_frame_member(point, point.body_idx)
+    gravity = carrier_body_idx(point, sam.sys_struct.bodies) == 0
     key = gravity ? :ride_wrench : :riding_wrench
     statics = kernel!(builder, table, sam, key, idx,
                       params -> RideWrench(sam, params, idx; name = key,
