@@ -185,7 +185,7 @@ group_means(groups, values) =
                     te_1 = collect(panel.TE_point_1)
                     le_2 = collect(panel.LE_point_2)
                     te_2 = collect(panel.TE_point_2)
-                    panel_va = collect(panel.va)
+                    panel_va = collect(panel.va_vec)
                     result = evaluate_panel_equations(
                         (le_1, te_1, le_2, te_2),
                         (panel_va, panel_va, solver.density, solver.density,
@@ -193,7 +193,7 @@ group_means(groups, values) =
                         alpha -> (VortexStepMethod.calculate_cl(panel, alpha),
                             VortexStepMethod.calculate_cd_cm(panel, alpha)...),
                         spanwise, scale, mode.chord_weight[i])
-                    reference_q = 0.5 * solver.density * solver.lr.v_a_dist[i]^2
+                    reference_q = 0.5 * solver.density * solver.lr.v_rel_dist[i]^2
                     reference_couple = solver.sol.panel_moment_dist[i] *
                         panel.width / panel.chord .* Vector(panel.z_airf)
                     record(:chord, abs(result.chord - panel.chord) / panel.chord)

@@ -23,6 +23,9 @@
   `settings.yaml` are gone from the shipped models and from the documented
   schema. Nothing ever read them; `structural_geometry:` and `aero_geometry:` in
   the project file take their place.
+- BREAKING: requires VortexStepMethod v6, whose settings name the apparent wind speed
+  `va` (`condition.wind_speed` in `vsm_settings.yaml` now errors) and drop the
+  artificial damping keys.
 - BREAKING: a body's and a wing's own mass is `extra_mass`, like a point's: the `Body`
   and `VSMWing` keyword, the `Body` field and the `wings`/`bodies` YAML column, which
   were `mass`. A YAML row still carrying `mass` errors.
@@ -39,6 +42,12 @@
   segment halves included; points riding a body count in that body. Its "gravity
   is counted twice" warning is gone.
 - BREAKING: `sys_struct.total_mass` is removed; each body reports its `total_mass`.
+
+### Fixed
+- A `PARTICLE_DYNAMICS` wing whose stations differ in number from its aero geometry's
+  sections gets a VSM solver sized for the stations it is re-sectioned onto, so
+  VortexStepMethod's size check no longer throws a `DimensionMismatch` on its first
+  solve.
 
 ## v0.18.1 2026-09-21
 

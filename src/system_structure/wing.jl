@@ -286,8 +286,25 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
 end
 
 """
-    build_vsm_engine(set, vsm_set, dynamics_type; point_to_vsm_point=nothing,
-                     wing_segments=nothing, aero_scale_chord=0.0, aero_z_offset=0.0)
+    build_vsm_solver(vsm_aero, vsm_set, dynamics_type, n_stations)
+
+Build the VortexStepMethod `Solver` with `vsm_set`'s solver settings, sized for the
+unrefined sections the wing is solved with: one per station for a `PARTICLE_DYNAMICS`
+wing with stations, which [`match_aero_sections_to_structure!`](@ref) re-sections onto
+them, otherwise those of `vsm_aero`.
+"""
+function build_vsm_solver(vsm_aero::VortexStepMethod.BodyAerodynamics{P}, vsm_set,
+                          dynamics_type, n_stations) where {P}
+    n_sections = dynamics_type == PARTICLE_DYNAMICS && n_stations > 0 ?
+        n_stations : VortexStepMethod.n_unrefined_sections(vsm_aero)
+    return VortexStepMethod.Solver(P, n_sections;
+        VortexStepMethod.solver_kwargs(vsm_set.solver_settings)...)
+end
+
+"""
+    build_vsm_engine(set, vsm_set, dynamics_type; n_stations=0,
+                     point_to_vsm_point=nothing, wing_segments=nothing,
+                     aero_scale_chord=0.0, aero_z_offset=0.0)
 
 Build a [`VSMEngine`](@ref): create the VortexStepMethod `vsm_wing`/`vsm_aero`/
 `vsm_solver` and size the linearization state vectors. Aero-state sizes are
@@ -296,18 +313,20 @@ station-count proxy) and resized by `SystemStructure` once stations
 are resolved.
 
 # Keywords
+- `n_stations`: the wing's station count, which sizes the solver
+  ([`build_vsm_solver`](@ref)).
 - `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
 - `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
 - `unsteady`: the wing's [`UnsteadyAero`](@ref) corrections; `nothing` takes the
   defaults, which are all off.
 """
 function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
-                          dynamics_type::WingType;
+                          dynamics_type::WingType; n_stations=0,
                           point_to_vsm_point=nothing, wing_segments=nothing,
                           aero_scale_chord=0.0, aero_z_offset=0.0, unsteady=nothing)
     vsm_wing = create_vsm_wing(set, vsm_set; prn=false, sort_sections=false)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
-    vsm_solver = VortexStepMethod.Solver(vsm_aero, vsm_set)
+    vsm_solver = build_vsm_solver(vsm_aero, vsm_set, dynamics_type, n_stations)
 
     if dynamics_type == PARTICLE_DYNAMICS
         num_aero_outputs = 0
@@ -414,7 +433,8 @@ function VSMWing(name, set::Settings,
             "Wing '$name': aero mode $(typeof(aero)) needs VSM geometry " *
             "but no vsm_set was provided.")
         aero = attach_engine!(aero, build_vsm_engine(set, vsm_set, dynamics_type;
-            point_to_vsm_point, wing_segments, aero_scale_chord, aero_z_offset))
+            n_stations=length(stations), point_to_vsm_point, wing_segments,
+            aero_scale_chord, aero_z_offset))
         seed_wing_inertia!(aero.engine.vsm_wing, set, com, unit_inertia)
     end
 
