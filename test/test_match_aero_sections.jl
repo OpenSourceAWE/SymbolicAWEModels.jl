@@ -171,6 +171,30 @@ vsm_set = VortexStepMethod.VSMSettings(
         @test vsm_w.n_unrefined_sections == n_struct
     end
 
+    @testset "solver is sized for the stations, not the aero geometry" begin
+        geometry = read(joinpath(data_path, "aero_geometry.yaml"), String)
+        extra_sections = "    - [1, -0.5, 0.5, 2.25, 0.5, 0.5, 2.55]\n" *
+                         "    - [1, -0.5, -0.5, 2.25, 0.5, -0.5, 2.55]\n"
+        geometry = replace(geometry,
+            "\n    # Right section" => "\n" * extra_sections * "\n    # Right section")
+        write(joinpath(data_path, "aero_geometry_5_sections.yaml"), geometry)
+        vsm_set_5 = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
+        vsm_set_5.wings[1].geometry_file = "aero_geometry_5_sections.yaml"
+        vsm_set_5.wings[1].use_prior_polar = true
+        vsm_set_5.wings[1].n_panels = 8
+
+        sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+            refine_yaml;
+            system_name="refine_solver_size", set, vsm_set=vsm_set_5)
+        wing = sys.wings[1]
+        @test length(wing.station_idxs) == 3
+        @test wing.vsm_wing.n_unrefined_sections == 3
+        @test length(wing.vsm_solver.sol.cm_unrefined_dist) == 3
+        VortexStepMethod.set_va!(wing.vsm_aero, [10.0, 0.0, 1.0])
+        @test VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero) isa
+            VortexStepMethod.VSMSolution
+    end
+
     @testset "errors when use_prior_polar=false" begin
         sys = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
