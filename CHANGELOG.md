@@ -17,7 +17,8 @@
   and `aero_moment_KA`, which KiteUtils 0.13 renamed from `aero_force_b` and
   `aero_moment_b` so that the name says which body frame the components are in.
   `load_log` still reads the old column, so older logs keep loading.
-- `[compat]` on KiteUtils is raised to `0.13`.
+- `[compat]` on KiteUtils is raised to `0.13`, and on AtmosphericModels to `0.3.11`,
+  the first release that accepts KiteUtils 0.13.
 - BREAKING: requires VortexStepMethod v6, whose settings name the apparent wind speed
   `va` (`condition.wind_speed` in `vsm_settings.yaml` now errors) and drop the
   artificial damping keys.
