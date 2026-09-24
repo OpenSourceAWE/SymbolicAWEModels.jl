@@ -56,14 +56,14 @@ SymbolicAWEModelsMakieExt = ["GeometryBasics", "MakieControlPlots"]
 
 [compat]
 ADTypes = "1"
-AtmosphericModels = "0.3.2"
+AtmosphericModels = "0.3.11"
 ControlSystemsBase = "1.18.1"
 DataInterpolations = "8.10.0, 9, 10"
 Dates = "1"
 DocStringExtensions = "0.9.4"
 ForwardDiff = "1, 2"
 GeometryBasics = "0.5.10"
-KiteUtils = "0.12.2"
+KiteUtils = "0.13"
 LaTeXStrings = "1.4.0"
 LinearAlgebra = "1"
 LinearSolve = "2, 3, 4, 5"
