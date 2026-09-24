@@ -8,6 +8,7 @@ SPDX-License-Identifier = "LGPL-3.0-only"
 
 [[annotations]]
 path = ["data/**/*.csv", "data/**/*.pdf", "data/**/*.yaml", "data/**/*.obj",
+        "test/data/2plate_kite_structure.yml",
         "processed_data/**/*.csv",
         "processed_data/**/*.png", "processed_data/**/*.txt"]
 SPDX-FileCopyrightText = "2025 Bart van de Lint, Jelle Poland, Uwe Fechner"
@@ -19,3 +20,8 @@ path = ["docs/.gitignore", "docs/src/assets/*.png", "docs/src/assets/*.svg",
         "CITATION.cff", "Artifacts*", ".zenodo.json"]
 SPDX-FileCopyrightText = "2025 Bart van de Lint, Jelle Poland, Uwe Fechner"
 SPDX-License-Identifier = "LGPL-3.0-only"
+
+[[annotations]]
+path = ["test/data/structure_schema.yml"]
+SPDX-FileCopyrightText = "2025 Airborne Wind Energy Research Group"
+SPDX-License-Identifier = "MIT"
