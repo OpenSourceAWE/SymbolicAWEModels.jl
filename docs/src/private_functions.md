@@ -257,6 +257,7 @@ SymbolicAWEModels.named_model
 SymbolicAWEModels.read_point
 SymbolicAWEModels.read_wing
 SymbolicAWEModels.apply_body_row!
+SymbolicAWEModels.move_body_origin!
 SymbolicAWEModels.document_format
 SymbolicAWEModels.encode_document
 ```

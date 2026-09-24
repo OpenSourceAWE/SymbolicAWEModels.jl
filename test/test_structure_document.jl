@@ -68,6 +68,15 @@ function bodies_and_joints(set)
         bodies, elastic_joints, timoshenko_joints, prn=false)
 end
 
+"""CAD position of `body`'s centre of mass."""
+com_cad(body) = body.pos_cad .+ body.R_b_to_c * body.com_offset_b
+
+"""CAD position a body-anchored `point` of `sys` rides at."""
+function anchor_cad(sys, point)
+    body = sys.bodies[point.body_idx]
+    return body.pos_cad .+ body.R_b_to_c * point.anchor_b
+end
+
 @testset verbose = true "Structure document" begin
     pkg_root = dirname(@__DIR__)
     set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
@@ -105,7 +114,12 @@ end
         @test structure_document(reread; description=GOLDEN_DESCRIPTION,
                                  note=GOLDEN_NOTE) == document
         @test length(reread.points) == length(sys.points)
-        @test reread.wings[:main_wing].total_mass ≈ sys.wings[:main_wing].total_mass
+        wing, reread_wing = sys.wings[:main_wing], reread.wings[:main_wing]
+        @test reread_wing.total_mass ≈ wing.total_mass
+        @test reread_wing.inertia_principal ≈ wing.inertia_principal
+        @test com_cad(reread_wing) ≈ com_cad(wing)
+        @test all(anchor_cad(reread, point) ≈ point.pos_cad
+                  for point in reread.points if point.body_idx > 0)
         @test reread.stations[:left].point_idxs == sys.stations[:left].point_idxs
         @test reread.points[:kcu].extra_mass ≈ 1.0
         @test reread.points[:kcu].drag_coeff ≈ 1.0

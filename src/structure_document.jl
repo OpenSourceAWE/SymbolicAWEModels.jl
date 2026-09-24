@@ -304,7 +304,7 @@ function sys_struct_from_document(doc::AbstractDict; set=nothing, vsm_set=nothin
         vsm_set, wind_mode, prn)
 
     for row in rows["bodies"]
-        apply_body_row!(sys_struct.bodies[Symbol(row["name"])], row)
+        apply_body_row!(sys_struct, sys_struct.bodies[Symbol(row["name"])], row)
     end
     reinit!(sys_struct, resolved_set; prn)
     return sys_struct
@@ -469,13 +469,32 @@ read_timoshenko_joint(row) = TimoshenkoJoint(Symbol(row["name"]),
     rest_length = Float64(row["rest_length"]),
     radius = optional_length(row["radius"]))
 
-"""Overwrite the own mass properties `SystemStructure` derives with the document's."""
-function apply_body_row!(body::Body, row)
+"""
+Overwrite the own mass properties and CAD origin `SystemStructure` derives for
+`body` with the document's.
+"""
+function apply_body_row!(sys_struct::SystemStructure, body::Body, row)
     body.extra_mass = Float64(row["mass"])
     body.apparent_mass = Float64(row["apparent_mass"])
     body.extra_inertia_b .= Diagonal(vector3(row["inertia_principal"]))
     body.extra_com_offset_b .= vector3(row["com_offset_KA"])
-    body.pos_cad .= vector3(row["pos_cad"])
+    move_body_origin!(sys_struct, body, vector3(row["pos_cad"]))
+    return body
+end
+
+"""
+    move_body_origin!(sys_struct, body, pos_cad)
+
+Move `body`'s origin to `pos_cad` [m] in the CAD frame, re-expressing its COM
+offset and the anchors of the points it carries from there.
+"""
+function move_body_origin!(sys_struct::SystemStructure, body::Body, pos_cad)
+    shift_b = body.R_b_to_c' * (body.pos_cad - pos_cad)
+    body.pos_cad .= pos_cad
+    body.com_offset_b .+= shift_b
+    for point in sys_struct.points
+        point.body_idx == body.idx && (point.anchor_b = KVec3(point.anchor_b + shift_b))
+    end
     return body
 end
 
