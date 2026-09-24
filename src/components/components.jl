@@ -1459,14 +1459,14 @@ function ride_wrench_variables()
 end
 
 """
-    ride_load(s, params, idx, io; with_gravity) -> (; load, drag, wind)
+    ride_load(s, params, idx, io; with_gravity) -> (; load, drag, wind, mass)
 
 The world load an anchored point delivers to whatever carries it: the force its
 segments deliver, its own aerodynamic drag at its height, its gravity and its
 external force — the monolith's `point_force`. `with_gravity = false` is a point a
 rigid body carries, whose mass weighs at that body's COM ([`carrier_body_idx`](@ref)).
-The drag and the wind at the point's own height come back separately because they
-are the other two quantities [`ride_wrench_eqs`](@ref) reports.
+Also returns the `drag` and `wind` at the point's own height and its `mass`, its
+`extra_mass` plus the segment halves it holds.
 """
 function ride_load(s, params, idx, io; with_gravity)
     point = params.points[idx]
@@ -1477,7 +1477,7 @@ function ride_load(s, params, idx, io; with_gravity)
     mass = point.extra_mass + io.mass_in
     gravity = with_gravity ? Num[0, 0, -params.set.g_earth * mass] : zeros(Num, 3)
     load = collect(io.force_in) .+ drag .+ gravity .+ collect(point.ext_force_w)
-    return (; load, drag, wind)
+    return (; load, drag, wind, mass)
 end
 
 """
@@ -2450,7 +2450,7 @@ function TwistNodeWrench(s, params, idx; name, surface_idx = 0, gated = false)
         eqs = [eqs
                node_force ~ ride.load ⋅ couple.direction
                node_moment ~ couple.arm * node_force
-               node_mass ~ point.extra_mass]
+               node_mass ~ ride.mass]
         append!(extra, Any[node_force, node_moment, node_mass])
     end
     return System(eqs, t, [io.all; vars; extra], param_unknowns(params); name)

@@ -191,7 +191,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     eqs, defaults = station_eqs!(
         eqs, defaults, stations, bodies, params, initial;
         R_b_to_w, fix_wing, twist_angle, twist_ω, station_aero_moment,
-        point_force, station_y_airf, station_chord, station_le_pos
+        point_force, point_mass, station_y_airf, station_chord, station_le_pos
     )
 
     # 3. Segment equations (spring-damper forces, returns len and spring_force)
