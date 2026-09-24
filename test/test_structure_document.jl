@@ -107,13 +107,20 @@ end
         @test length(reread.points) == length(sys.points)
         @test reread.wings[:main_wing].total_mass ≈ sys.wings[:main_wing].total_mass
         @test reread.stations[:left].point_idxs == sys.stations[:left].point_idxs
+        @test reread.points[:kcu].extra_mass ≈ 1.0
+        @test reread.points[:kcu].drag_coeff ≈ 1.0
     end
 
-    @testset "a point on a wing names that wing once" begin
+    @testset "a point names its body, and carries its own mass and drag" begin
         document = structure_document(two_plate_kite(set, vsm_set))
-        columns = Dict(row[1] => (row[3], row[4])
-                       for row in document["points"]["data"])
-        @test columns["le_left"] == ("main_wing", nothing)
+        columns = Dict(row[1] => row for row in document["points"]["data"])
+        @test columns["le_left"][3:4] == ["main_wing", nothing]
+        @test columns["kcu"][6:8] == [1.0, 0.1, 1.0]
+    end
+
+    @testset "a station names the wing whose twist it carries" begin
+        document = structure_document(two_plate_kite(set, vsm_set))
+        @test all(row[3] == "main_wing" for row in document["stations"]["data"])
     end
 
     @testset "bodies and joints round-trip" begin

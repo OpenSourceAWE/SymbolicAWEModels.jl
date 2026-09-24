@@ -13,6 +13,9 @@ points:
     - "body"
     - "wing"
     - "pos_cad"
+    - "mass"
+    - "drag_area"
+    - "drag_coefficient"
   data:
     -
       - "le_left"
@@ -23,6 +26,9 @@ points:
         - -0.5
         - 1.0
         - 2.0
+      - 0.1
+      - 0.0
+      - 0.0
     -
       - "te_left"
       - "BODY_STATIC"
@@ -32,6 +38,9 @@ points:
         - 0.5
         - 1.0
         - 2.3
+      - 0.1
+      - 0.0
+      - 0.0
     -
       - "le_center"
       - "BODY_STATIC"
@@ -41,6 +50,9 @@ points:
         - -0.5
         - 0.0
         - 2.5
+      - 0.1
+      - 0.0
+      - 0.0
     -
       - "te_center"
       - "BODY_STATIC"
@@ -50,6 +62,9 @@ points:
         - 0.5
         - 0.0
         - 2.8
+      - 0.1
+      - 0.0
+      - 0.0
     -
       - "le_right"
       - "BODY_STATIC"
@@ -59,6 +74,9 @@ points:
         - -0.5
         - -1.0
         - 2.0
+      - 0.1
+      - 0.0
+      - 0.0
     -
       - "te_right"
       - "BODY_STATIC"
@@ -68,6 +86,9 @@ points:
         - 0.5
         - -1.0
         - 2.3
+      - 0.1
+      - 0.0
+      - 0.0
     -
       - "steering_left"
       - "DYNAMIC"
@@ -77,6 +98,9 @@ points:
         - 0.0
         - 0.5
         - 0.5
+      - 0.1
+      - 0.0
+      - 0.0
     -
       - "steering_right"
       - "DYNAMIC"
@@ -86,6 +110,9 @@ points:
         - 0.0
         - -0.5
         - 0.5
+      - 0.1
+      - 0.0
+      - 0.0
     -
       - "kcu"
       - "BODY_STATIC"
@@ -95,6 +122,9 @@ points:
         - 0.0
         - 0.0
         - 0.0
+      - 1.0
+      - 0.1
+      - 1.0
     -
       - "ground"
       - "STATIC"
@@ -104,6 +134,9 @@ points:
         - 0.0
         - 0.0
         - -20.0
+      - 0.0
+      - 0.0
+      - 0.0
     -
       - "main_tether_point_1"
       - "DYNAMIC"
@@ -113,6 +146,9 @@ points:
         - 0.0
         - 0.0
         - -3.333333333333333
+      - 0.0
+      - 0.0
+      - 0.0
     -
       - "main_tether_point_2"
       - "DYNAMIC"
@@ -122,6 +158,9 @@ points:
         - 0.0
         - 0.0
         - -6.666666666666666
+      - 0.0
+      - 0.0
+      - 0.0
     -
       - "main_tether_point_3"
       - "DYNAMIC"
@@ -131,6 +170,9 @@ points:
         - 0.0
         - 0.0
         - -10.0
+      - 0.0
+      - 0.0
+      - 0.0
     -
       - "main_tether_point_4"
       - "DYNAMIC"
@@ -140,6 +182,9 @@ points:
         - 0.0
         - 0.0
         - -13.333333333333332
+      - 0.0
+      - 0.0
+      - 0.0
     -
       - "main_tether_point_5"
       - "DYNAMIC"
@@ -149,6 +194,9 @@ points:
         - 0.0
         - 0.0
         - -16.666666666666668
+      - 0.0
+      - 0.0
+      - 0.0
 segments:
   headers:
     - "name"
@@ -489,6 +537,7 @@ stations:
   headers:
     - "name"
     - "type"
+    - "wing"
     - "points"
     - "stiffness"
     - "damping"
@@ -497,6 +546,7 @@ stations:
     -
       - "left"
       - "DYNAMIC"
+      - "main_wing"
       -
         - "le_left"
         - "te_left"
@@ -506,6 +556,7 @@ stations:
     -
       - "center"
       - "DYNAMIC"
+      - "main_wing"
       -
         - "le_center"
         - "te_center"
@@ -515,6 +566,7 @@ stations:
     -
       - "right"
       - "DYNAMIC"
+      - "main_wing"
       -
         - "le_right"
         - "te_right"
