@@ -15,6 +15,20 @@
   segment lengths are set.
 
 ### Changed
+- BREAKING: `roll`, `pitch` and `yaw` are no longer written to `SysState`, which
+  dropped the three fields in KiteUtils 0.13. They were computed here with a NED
+  Euler formula applied to `Q_b_to_w`, which is ENU, so they were not the angles
+  any sensor reports — yaw was out by 90 degrees at zenith.
+  `KiteUtils.euler_KS(ss.orient)` reports them correctly.
+- BREAKING: the aerodynamic wrench goes to the `SysState` columns `aero_force_KA`
+  and `aero_moment_KA`, which KiteUtils 0.13 renamed from `aero_force_b` and
+  `aero_moment_b` so that the name says which body frame the components are in.
+  `load_log` still reads the old column, so older logs keep loading.
+- `[compat]` on KiteUtils is raised to `0.13`, and on AtmosphericModels to `0.3.11`,
+  the first release that accepts KiteUtils 0.13.
+- BREAKING: requires VortexStepMethod v6, whose settings name the apparent wind speed
+  `va` (`condition.wind_speed` in `vsm_settings.yaml` now errors) and drop the
+  artificial damping keys.
 - BREAKING: a body's and a wing's own mass is `extra_mass`, like a point's: the `Body`
   and `VSMWing` keyword, the `Body` field and the `wings`/`bodies` YAML column, which
   were `mass`. A YAML row still carrying `mass` errors.
@@ -31,6 +45,12 @@
   segment halves included; points riding a body count in that body. Its "gravity
   is counted twice" warning is gone.
 - BREAKING: `sys_struct.total_mass` is removed; each body reports its `total_mass`.
+
+### Fixed
+- A `PARTICLE_DYNAMICS` wing whose stations differ in number from its aero geometry's
+  sections gets a VSM solver sized for the stations it is re-sectioned onto, so
+  VortexStepMethod's size check no longer throws a `DimensionMismatch` on its first
+  solve.
 
 ## v0.18.1 2026-09-21
 

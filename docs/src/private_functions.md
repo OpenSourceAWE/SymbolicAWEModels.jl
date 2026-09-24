@@ -20,6 +20,7 @@ SymbolicAWEModels.InplaceGetter
 SymbolicAWEModels.ScatterGroup
 SymbolicAWEModels.create_vsm_wing
 SymbolicAWEModels.build_vsm_engine
+SymbolicAWEModels.build_vsm_solver
 ```
 
 ## State management and model simplification

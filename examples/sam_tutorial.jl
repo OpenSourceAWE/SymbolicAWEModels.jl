@@ -108,7 +108,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     data_prefix=false)
 vsm_wing = VortexStepMethod.Wing(vsm_set)
 vsm_aero = BodyAerodynamics([vsm_wing])
-vsm_solver = Solver(vsm_aero, vsm_set)
+vsm_solver = Solver(vsm_set)
 # One station per aero section joins its LE/TE pair to the wing.
 wing_z = set.l_tether + 6
 stations = Station[]
