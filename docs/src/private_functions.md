@@ -173,9 +173,6 @@ SymbolicAWEModels.get_model_name
 SymbolicAWEModels.calc_height
 SymbolicAWEModels.pos
 SymbolicAWEModels.spring_forces
-SymbolicAWEModels.create_model_archive
-SymbolicAWEModels.filecmp
-SymbolicAWEModels.extract_model_archive
 SymbolicAWEModels.copy_bin
 SymbolicAWEModels.copy_examples
 SymbolicAWEModels.copy_data

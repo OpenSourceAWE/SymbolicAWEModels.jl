@@ -15,7 +15,7 @@ SPDX-License-Identifier = "LGPL-3.0-only"
 
 [[annotations]]
 path = ["docs/.gitignore", "docs/src/assets/*.png", "docs/src/assets/*.svg",
-        "docs/Project.toml", "Manifest*", "docs/LocalPreferences.toml", "*/Project*", "Project*", 
-        "CITATION.cff", "Artifacts*", ".zenodo.json"]
+        "docs/Project.toml", "Manifest*", "docs/LocalPreferences.toml", "*/Project*", "Project*",
+        "CITATION.cff", ".zenodo.json"]
 SPDX-FileCopyrightText = "2025 Bart van de Lint, Jelle Poland, Uwe Fechner"
 SPDX-License-Identifier = "LGPL-3.0-only"
