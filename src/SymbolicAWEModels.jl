@@ -16,8 +16,6 @@ using Parameters
 using Printf
 using Serialization
 using SHA
-using CodecZlib
-using Tar
 using Statistics
 using Suppressor
 using Timers
@@ -201,7 +199,6 @@ need no update here. Defined in the Makie extension.
 function update_wing_aero_plot! end
 function find_steady_state! end
 function make_lin_sys_state end
-function create_model_archive end
 
 function __init__()
     data_dir = joinpath(pwd(), "data")
@@ -385,7 +382,6 @@ function init_module(; force=false, add_pkg=true)
     println("Initialization complete! Examples and data files are prepared in the current directory.")
 end
 
-include("precompile.jl")
 include("precompile_workload.jl")
 
 end

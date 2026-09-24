@@ -39,7 +39,6 @@ data/spectrum*.jld2
 data/settings_v9e.yaml
 cspell.config.yaml
 Manifest-v1.*.toml
-Artifacts.toml
 data/settings_v9f.yaml
 Manifest-v1.11.toml.backup
 data/model*.default

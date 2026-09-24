@@ -37,6 +37,9 @@
   `total_mass` of its `BODY_STATIC` riders and wing nodes, segment halves included,
   and its COM and inertia include them at their anchors. Setting both `extra_mass`
   and point masses counts both.
+- A `DYNAMIC` station twists with the `total_mass` of its points, segment halves
+  included, where it counted only their `extra_mass`; a station with bridles on its
+  points turns more slowly.
 - A rigid body's `inertia_principal`, `R_b_to_p` and `com_offset_b` are derived on
   every `reinit!`, from `l0` as it leaves it, so a `Body`'s `R_b_to_p` can differ
   from the one passed; change a built body through `extra_inertia_b` and
