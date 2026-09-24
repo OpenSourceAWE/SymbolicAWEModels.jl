@@ -10,6 +10,10 @@
   loader. The document is the resolved structure — points, segments, stations,
   pulleys, tethers, winches, bodies and joints, every reference by name — without
   the transforms that place it in the world.
+
+## SymbolicAWEModels v0.19.0 2026-09-24
+
+### Added
 - `update_mass_properties!(sys_struct)` sets each body's `total_mass`, COM and
   principal inertia from its own and its points' masses. `reinit!` runs it after the
   segment lengths are set.
