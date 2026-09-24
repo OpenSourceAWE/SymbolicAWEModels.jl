@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## SymbolicAWEModels v0.19.0 2026-09-24
+## v0.19.0 2026-09-24
 
 ### Added
 - `update_mass_properties!(sys_struct)` sets each body's `total_mass`, COM and
