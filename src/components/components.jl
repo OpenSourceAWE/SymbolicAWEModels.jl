@@ -1465,8 +1465,7 @@ The world load an anchored point delivers to whatever carries it: the force its
 segments deliver, its own aerodynamic drag at its height, its gravity and its
 external force — the monolith's `point_force`. `with_gravity = false` is a point a
 rigid body carries, whose mass weighs at that body's COM ([`carrier_body_idx`](@ref)).
-The drag and the wind at the point's own height come back separately because they
-are the other two quantities [`ride_wrench_eqs`](@ref) reports; `mass` is the point's
+Also returns the `drag` and `wind` at the point's own height and its `mass`, its
 `extra_mass` plus the segment halves it holds.
 """
 function ride_load(s, params, idx, io; with_gravity)

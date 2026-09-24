@@ -104,7 +104,7 @@ end
 end
 
 """The sum of `field`, a point mass, over the points of `station`."""
-point_mass(points, station, field) =
+station_point_mass(points, station, field) =
     sum(getfield(points[idx], field) for idx in station.point_idxs)
 
 @testset "DYNAMIC station twists with the total mass of its points" begin
@@ -123,11 +123,11 @@ point_mass(points, station, field) =
 
     stations = sam.sys_struct.stations
     points = sam.sys_struct.points
-    # The halves of the segments on its points make up ~2% of each station's mass.
-    @test all(point_mass(points, station, :total_mass) >
-              1.01 * point_mass(points, station, :extra_mass) for station in stations)
+    @test all(station_point_mass(points, station, :total_mass) >
+              1.01 * station_point_mass(points, station, :extra_mass)
+              for station in stations)
     moment = [station.aero_moment + station.tether_moment for station in stations]
-    inertia = [(point_mass(points, station, :total_mass) + station.body_mass) *
+    inertia = [(station_point_mass(points, station, :total_mass) + station.body_mass) *
                norm(station.chord)^2 / 3 for station in stations]
     @test all(station.twist_ω == 0 for station in stations)
 
