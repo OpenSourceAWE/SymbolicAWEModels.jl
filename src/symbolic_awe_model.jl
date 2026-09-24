@@ -331,7 +331,8 @@ end
     update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
 
 Update a `SysState` from the model's integrator: converts units (e.g. radians to
-degrees) and computes derived values like AoA.
+degrees) and computes derived values like AoA. Roll, pitch and yaw are
+`KiteUtils.euler_KS(ss.orient)`.
 
 # Arguments
 - `ss::SysState`: The state struct to be updated.
