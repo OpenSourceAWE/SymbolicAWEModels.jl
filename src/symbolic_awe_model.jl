@@ -266,7 +266,7 @@ function Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
     if sym === :set
         error("Cannot replace `set`: it is owned by `sys_struct` " *
               "(const field). Mutate fields directly, " *
-              "e.g. `sam.set.wind_vec = ...`.")
+              "e.g. `sam.set.abs_tol = ...`.")
     elseif sym in SAM_FIELDS
         setfield!(sam, sym, val)
     else
@@ -331,7 +331,8 @@ end
     update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
 
 Update a `SysState` from the model's integrator: converts units (e.g. radians to
-degrees) and computes derived values like AoA and roll/pitch/yaw angles.
+degrees) and computes derived values like AoA. Roll, pitch and yaw are
+`KiteUtils.euler_KS(ss.orient)`.
 
 # Arguments
 - `ss::SysState`: The state struct to be updated.
@@ -377,19 +378,9 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
             ss.AoA = NaN       # Apparent wind too small to define AoA
             ss.side_slip = NaN # Side slip not defined for zero apparent wind
         end
-        ss.aero_force_b .= wing.aero_force_b
-        ss.aero_moment_b .= wing.aero_moment_b
+        ss.aero_force_KA .= wing.aero_force_b
+        ss.aero_moment_KA .= wing.aero_moment_b
         ss.vel_kite .= wing.vel_w
-        # Calculate Roll, Pitch, Yaw from Quaternion
-        q = wing.Q_b_to_w
-        sinr_cosp = 2 * (q[1] * q[2] + q[3] * q[4])
-        cosr_cosp = 1 - 2 * (q[2] * q[2] + q[3] * q[3])
-        ss.roll = atan(sinr_cosp, cosr_cosp)
-        sinp = 2 * (q[1] * q[3] - q[4] * q[2])
-        ss.pitch = abs(sinp) >= 1 ? copysign(pi / 2, sinp) : asin(sinp)
-        siny_cosp = 2 * (q[1] * q[4] + q[2] * q[3])
-        cosy_cosp = 1 - 2 * (q[3] * q[3] + q[4] * q[4])
-        ss.yaw = atan(siny_cosp, cosy_cosp)
     end
     for point in points
         ss.X[point.idx] = point.pos_w[1] * zoom
