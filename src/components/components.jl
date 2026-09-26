@@ -279,6 +279,19 @@ function wing_structural_segment(sys_struct, idx)
 end
 
 """
+    segment_role(sys_struct, segment) -> Symbol
+
+What `segment` is in the system: `:tether` when a tether owns it, `:wing` when it is a
+[`wing_structural_segment`](@ref), and `:bridle` otherwise.
+"""
+function segment_role(sys_struct, segment)
+    any(segment.idx in tether.segment_idxs for tether in sys_struct.tethers) &&
+        return :tether
+    wing_structural_segment(sys_struct, segment.idx) && return :wing
+    return :bridle
+end
+
+"""
     segment_spring_params(params, idx; with_drag=true)
 
 The spring-damper parameters read from `params.segments[idx]` (stiffness, damping,

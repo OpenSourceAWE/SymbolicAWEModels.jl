@@ -150,7 +150,8 @@ plot(sys::SystemStructure; kwargs...)
 **Keyword arguments:**
 - `vector_scale::Float64=1.0`: Length scale of the force/orientation arrows
 - `force_color::Bool=false`: Colour segments by tension instead of `segment_color`
-- `segment_color=RGBf(0.25, 0.25, 0.25)`: Default colour for segments
+- `segment_color=RGBf(0.25, 0.25, 0.25)`: Segment colour — one colour, a vector
+  with one per segment, or a function `segment -> colour`
 - `relmargin::Float64=0.2`: Margin around the system, as a fraction of its extent
 - `body_frame`: Track a wing body frame with the camera (defaults on with `aero_mapping`)
 - `zoom`, `pan_horizontal`, `pan_vertical`, `tilt_horizontal`, `tilt_vertical`: Camera placement
@@ -162,6 +163,18 @@ Remaining keywords are forwarded to `plot!`, including:
 - `transparency::Bool=true`: Order-independent transparency; `false` is much faster
 - `aero_mapping::Bool=false`: Overlay the [`AeroPressure`](@ref) station→point map
 - `linewidth`, `point_size`, `beam_color`, `airfoil_color`, …: Styling
+
+To tell the wing from the bridle and the tethers, colour the segments by
+[`segment_role`](@ref):
+```julia
+role_colors = Dict(:wing => :black, :bridle => :steelblue, :tether => :darkorange)
+plot(sys; segment_color=[role_colors[segment_role(sys, segment)]
+                         for segment in sys.segments])
+```
+
+```@docs
+segment_role
+```
 
 **Interactive features:**
 - Hover over segments to highlight them

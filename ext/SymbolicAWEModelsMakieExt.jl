@@ -30,7 +30,7 @@ const PLOT_LAYERS = Ref{Union{Nothing, Dict{Symbol, Any}}}(nothing)
 const PLOT_SYSTEM_STRUCTURE = Ref{Union{Nothing, SystemStructure}}(nothing)
 const PLOT_VECTOR_SCALE = Ref{Float64}(1.0)
 const PLOT_FORCE_COLOR = Ref{Bool}(false)
-const PLOT_SEGMENT_COLOR = Ref{RGBAf}(to_color(:black))
+const PLOT_SEGMENT_COLOR = Ref{Any}(:black)
 const PLOT_ZOOMED_IN = Ref{Bool}(false)
 const PLOT_ZOOM_RELMARGIN = Ref{Float64}(0.2)
 const PLOT_ZOOM_SEGMENT_IDX = Ref{Int}(-1)  # Which segment we're zoomed into (-1 = none)
@@ -94,15 +94,33 @@ function finite_force_arrows(origins, forces, scale)
 end
 
 """
+    segment_base_colors(segments, segment_color) -> Vector{RGBAf}
+
+One colour per segment from `segment_color`: a single colour for all of them, a vector
+holding one per segment, or a function `segment -> colour`.
+"""
+segment_base_colors(segments, segment_color) =
+    fill(to_color(segment_color), length(segments))
+
+function segment_base_colors(segments, segment_color::AbstractVector)
+    length(segment_color) == length(segments) || throw(ArgumentError(
+        "segment_color holds $(length(segment_color)) colours for " *
+        "$(length(segments)) segments"))
+    return RGBAf[to_color(color) for color in segment_color]
+end
+
+segment_base_colors(segments, segment_color::Function) =
+    RGBAf[to_color(segment_color(segment)) for segment in segments]
+
+"""
     segment_display_colors(segments, segment_color, force_color)
 
-One colour per segment: `segment_color` throughout, or, when `force_color` is set, a
+One colour per segment: `segment_base_colors`, or, when `force_color` is set, a
 green-to-red ramp over the segments whose spring force is known. A segment with no
-force, and every segment when the known forces are all equal, keeps `segment_color`.
+force, and every segment when the known forces are all equal, keeps its base colour.
 """
 function segment_display_colors(segments, segment_color, force_color)
-    base = to_color(segment_color)
-    colors = fill(base, length(segments))
+    colors = segment_base_colors(segments, segment_color)
     force_color || return colors
     # One unknown force must not blank the layer through the shared scale.
     known = [segment.force for segment in segments if isfinite(segment.force)]
@@ -2883,7 +2901,7 @@ function MakieControlPlots.plot(sys::SystemStructure;
     PLOT_SYSTEM_STRUCTURE[] = sys
     PLOT_VECTOR_SCALE[] = vector_scale
     PLOT_FORCE_COLOR[] = force_color
-    PLOT_SEGMENT_COLOR[] = to_color(segment_color)
+    PLOT_SEGMENT_COLOR[] = segment_color
     PLOT_BODY_FRAME[] = body_frame
 
     # Create single geometry trigger observable
