@@ -75,8 +75,8 @@ sim_time = n_steps * dt
       "$(round(sim_time; digits=2))s sim, " *
       "$(round(1e3 * elapsed / n_steps; digits=2)) ms/step)"
 
-save_log(logger, "nonlin_vsm")
-syslog = load_log("nonlin_vsm")
+save_log(logger, "nonlin_vsm"; path=get_output_path())
+syslog = load_log("nonlin_vsm"; path=get_output_path())
 scene = replay(syslog, sam.sys_struct)
 display(scene)
 @info "Done (nonlinear VSM, interval=$VSM_INTERVAL)"

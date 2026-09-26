@@ -6,6 +6,10 @@
 - `update_mass_properties!(sys_struct)` sets each body's `total_mass`, COM and
   principal inertia from its own and its points' masses. `reinit!` runs it after the
   segment lengths are set.
+- `get_output_path` and `set_output_path` name the folder simulation results go
+  to, `output` in the working directory by default. `get_output_path` creates it
+  on first use, so a run that wants its results kept apart — one per long
+  simulation, say — only has to point `set_output_path` at a folder of its own.
 
 ### Changed
 - BREAKING: `roll`, `pitch` and `yaw` are no longer written to `SysState`, which
@@ -41,6 +45,11 @@
   segment halves included; points riding a body count in that body. Its "gravity
   is counted twice" warning is gone.
 - BREAKING: `sys_struct.total_mass` is removed; each body reports its `total_mass`.
+- Simulation results are written to the output folder instead of the working
+  directory or the data folder. `sim!` and `sim_reposition!` save their `SysLog`
+  under `get_output_path()`, `record` resolves a relative filename there, and the
+  replay viewer's Save button puts its screenshot there rather than wherever
+  Julia was started. The data folder now holds only what a run reads.
 
 ### Fixed
 - A `PARTICLE_DYNAMICS` wing whose stations differ in number from its aero geometry's

@@ -74,8 +74,8 @@ sim_time = n_steps * dt
       "$(round(sim_time; digits=2))s sim, " *
       "$(round(1e3 * elapsed / n_steps; digits=2)) ms/step)"
 
-save_log(logger, "linear_vsm")
-syslog = load_log("linear_vsm")
+save_log(logger, "linear_vsm"; path=get_output_path())
+syslog = load_log("linear_vsm"; path=get_output_path())
 scene = replay(syslog, sam.sys_struct)
 display(scene)
 @info "Done (linearized VSM, interval=$VSM_INTERVAL)"
