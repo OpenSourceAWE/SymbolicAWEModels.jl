@@ -131,23 +131,23 @@ end
 
 function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing,
         mode::SymbolicAWEModels.AbstractAeroModel;
-        use_observables=false, geometry_obs=nothing, border_linewidth=1.5,
-        transparency=true)
+        use_observables=false, geometry_obs=nothing, border_color=:black,
+        border_linewidth=1.5, transparency=true)
     return nothing
 end
 
 function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing,
         mode::SymbolicAWEModels.AbstractVSMAero;
-        use_observables=false, geometry_obs=nothing, border_linewidth=1.5,
-        transparency=true)
+        use_observables=false, geometry_obs=nothing, border_color=:black,
+        border_linewidth=1.5, transparency=true)
     return plot!(ax, mode.vsm_aero; R_b_w=wing.R_b_to_w,
-                 T_b_w=aero_plot_translation(wing), use_observables, border_linewidth,
-                 transparency)
+                 T_b_w=aero_plot_translation(wing), use_observables, border_color,
+                 border_linewidth, transparency)
 end
 
 function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
-        use_observables=false, geometry_obs=nothing, border_linewidth=1.5,
-        transparency=true)
+        use_observables=false, geometry_obs=nothing, border_color=:black,
+        border_linewidth=1.5, transparency=true)
     quad_vertices() = [Point3f(corner)
         for station_idx in wing.station_idxs
         for corner in SymbolicAWEModels.plate_corners(
@@ -177,7 +177,7 @@ function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
     p = mesh!(ax, vertices, faces; color=(:red, 0.2), transparency)
     borders = animate ?
         @lift(quad_borders($vertices)) : quad_borders(initial)
-    lines!(ax, borders; color=:black, linewidth=border_linewidth, transparency)
+    lines!(ax, borders; color=border_color, linewidth=border_linewidth, transparency)
     return p
 end
 
@@ -640,6 +640,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                      force_color = false,
                      plot_vsm = false, plot_aero = true, plot_airfoils = true,
                      airfoil_color = :deepskyblue, airfoil_opacity = 0.2,
+                     panel_border_color = :black,
                      aero_mapping = false,
                      aero_mapping_colormap = :turbo, aero_mapping_alpha = 0.7,
                      aero_mapping_linewidth = 1.0, show_aero_mapping = true,
@@ -834,8 +835,8 @@ function Makie.plot!(ax, sys::SystemStructure;
             border_lw = wing_border_linewidth(ax, sys, wing, geometry_obs,
                 segment_linewidth, taper)
             p = SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, wing.aero;
-                use_observables=use_obs, geometry_obs, border_linewidth=border_lw,
-                transparency)
+                use_observables=use_obs, geometry_obs, border_color=panel_border_color,
+                border_linewidth=border_lw, transparency)
             isnothing(p) || push!(plots[:vsm], p)
         end
     end

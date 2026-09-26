@@ -173,11 +173,12 @@ function plot_aoa end
 
 """
     plot_wing_aero!(ax, sys, wing, mode::AbstractAeroModel;
-                    use_observables=false, geometry_obs=nothing)
+                    use_observables=false, geometry_obs=nothing, border_color=:black,
+                    border_linewidth=1.5, transparency=true)
 
 Render `wing`'s aero geometry into `ax`, dispatched on its aero `mode`:
 VSM modes plot their panels via VortexStepMethod's recipe, flat-plate modes
-draw their section quads in the same style (red mesh, black borders). The
+draw their section quads in the same style (red mesh, `border_color` borders). The
 default draws nothing — add a method for a custom mode to render its own
 geometry. With `use_observables`, the plot re-reads the live structure on
 every `geometry_obs` trigger (live plots and replay). Returns the plot
