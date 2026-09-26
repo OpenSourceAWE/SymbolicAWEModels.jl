@@ -109,11 +109,17 @@ normalized_inertia(::AbstractAeroModel, wing, points) =
     normalized_point_inertia(wing, points)
 
 function normalized_inertia(mode::AbstractVSMAero, wing, points)
-    tensor = mode.vsm_wing.inertia_tensor
-    (isempty(tensor) || all(iszero, tensor)) &&
-        return normalized_point_inertia(wing, points)
-    return -mode.vsm_wing.T_cad_body, tensor
+    has_mesh_inertia(mode.vsm_wing) || return normalized_point_inertia(wing, points)
+    return -mode.vsm_wing.T_cad_body, mode.vsm_wing.inertia_tensor
 end
+
+"""
+    has_mesh_inertia(vsm_wing) -> Bool
+
+Whether [`seed_wing_inertia!`](@ref) gave the VSM wing a mesh inertia tensor and COM.
+"""
+has_mesh_inertia(vsm_wing) =
+    !(isempty(vsm_wing.inertia_tensor) || all(iszero, vsm_wing.inertia_tensor))
 
 """
     normalized_point_inertia(wing, points) -> (com_cad, inertia)
@@ -1475,6 +1481,7 @@ end
 function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
                      prn=false, vsm_set=nothing)
     require_vsm_engine(mode, wing)
+    check_aero_frame(wing, points)
     if wing.dynamics_type == RIGID_DYNAMICS
         transform_vsm_sections_to_body!(wing; aero_z_offset=wing.aero_z_offset)
 
