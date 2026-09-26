@@ -12,6 +12,14 @@ end
 @isdefined(test_init!) || include(joinpath(@__DIR__, "util.jl"))
 
 using Test
+
+# CI drops MakieControlPlots, which needs GLMakie, where there is no OpenGL.
+if Base.find_package("MakieControlPlots") === nothing
+    @testset "Makie static figure" begin
+        @test true skip=true  # MakieControlPlots unavailable
+    end
+else
+
 using SymbolicAWEModels
 import CairoMakie
 import MakieControlPlots
@@ -39,5 +47,7 @@ import MakieControlPlots
     pdf = read(pdf_path, String)
     @test startswith(pdf, "%PDF")
     @test !occursin("/Subtype /Image", pdf)
+end
+
 end
 nothing
