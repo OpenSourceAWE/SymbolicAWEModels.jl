@@ -248,6 +248,7 @@ function border_lines(sys, color; kwargs...)
 end
 
 @testset "panel_border_color colours the VSM and flat-plate panel borders" begin
+    data_path = get_data_path()
     set_data_path(joinpath(dirname(@__DIR__), "data", "2plate_kite"))
     vsm_sys = load_sys_struct_from_yaml(
         joinpath(get_data_path(), "rigid_structural_geometry.yaml");
@@ -261,6 +262,7 @@ end
         @test border_lines(sys, :gray; panel_border_color=:gray) == n_borders
         @test border_lines(sys, :gray) == 0
     end
+    set_data_path(data_path)
 end
 
 end # if GLMAKIE_AVAILABLE
