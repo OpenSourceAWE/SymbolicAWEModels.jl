@@ -167,7 +167,7 @@ Remaining keywords are forwarded to `plot!`, including:
 To tell the wing from the bridle and the tethers, colour the segments by
 [`segment_role`](@ref):
 ```julia
-role_colors = Dict(:wing => :black, :bridle => :steelblue, :tether => :darkorange)
+role_colors = (wing=:black, bridle=:steelblue, tether=:darkorange)
 plot(sys; segment_color=segment -> role_colors[segment_role(sys, segment)])
 ```
 
@@ -176,6 +176,30 @@ plot(sys; segment_color=segment -> role_colors[segment_role(sys, segment)])
 - Click on a segment to zoom in
 - Click in empty space to zoom out
 - Rotate, pan, and zoom with mouse
+
+### Static and vector figures
+
+For a figure with labelled axes, or a vector PDF, draw the system into an axis
+of your own with `plot!(ax, sys; kwargs...)`. It takes the drawing keywords of
+`plot` (colours, layers, styling) but not its camera ones, draws into any Makie
+axis (`Axis3`, `LScene`) and returns a `Dict` of the plot objects by layer
+(`:segments`, `:points`, …). With CairoMakie as the backend, `save` writes the
+figure as vector graphics. Here `sys` is any `SystemStructure`, such as the one
+the [2-Plate Kite](@ref plate-kite-2) example loads:
+```julia
+using SymbolicAWEModels, CairoMakie
+import MakieControlPlots
+CairoMakie.activate!()
+
+role_colors = (wing=:black, bridle=:steelblue, tether=:darkorange)
+fig = Figure(size=(600, 500))
+ax = Axis3(fig[1, 1]; aspect=:data, xlabel="x [m]", ylabel="y [m]", zlabel="z [m]")
+plot!(ax, sys; segment_color=segment -> role_colors[segment_role(sys, segment)],
+      show_orient=false, show_wing_frame=false)
+Legend(fig[1, 2], [LineElement(color=color) for color in values(role_colors)],
+       [string(role) for role in keys(role_colors)])
+save("kite.pdf", fig)
+```
 
 ### Time-series visualization
 
@@ -211,8 +235,9 @@ same panels for comparison.
     `MakieControlPlots` are loaded — `using GLMakie` on its own is not enough.
     `plot` extends `MakieControlPlots.plot`, the generic of the figure-returning
     plot commands; the scene-mutating `plot!` extends `Makie.plot!`. A Makie
-    backend exports a `plot` of its own, so load the backend with `import
-    GLMakie` rather than `using GLMakie` to keep the name unambiguous.
+    backend exports a `plot` and a `save` of its own, so bring only one of the
+    two in with `using`: `import GLMakie` for the interactive `plot`, `import
+    MakieControlPlots` for a CairoMakie figure.
 
 ## Inflated-tube rigidity laws
 
