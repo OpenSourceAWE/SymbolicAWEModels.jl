@@ -51,7 +51,8 @@ Load the rigid 2plate kite with its points moved by `motion` and `wing_columns`
 appended to its wing row.
 """
 function load_moved(data_path, set, vsm_set, motion; wing_columns="")
-    yaml = read(joinpath(data_path, "rigid_structural_geometry.yaml"), String)
+    yaml = replace(read(joinpath(data_path, "rigid_structural_geometry.yaml"), String),
+        "\r\n" => "\n")
     anchor = "      aero_z_offset: 0.0\n"
     occursin(anchor, yaml) || error("no `$(strip(anchor))` row to append columns to")
     yaml = replace(move_points(yaml, motion), anchor => anchor * wing_columns)
