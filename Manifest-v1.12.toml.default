@@ -2,7 +2,7 @@
 
 julia_version = "1.12.7"
 manifest_format = "2.0"
-project_hash = "0db910feb8a3068b435dd9f6cbdcda026a837775"
+project_hash = "279f7a67df7d2ffa9aea8b1333f204fec042f150"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -1502,9 +1502,9 @@ version = "0.4.2"
 
 [[deps.KiteUtils]]
 deps = ["Arrow", "CSV", "DocStringExtensions", "LinearAlgebra", "OrderedCollections", "Parameters", "Parsers", "Pkg", "PrecompileTools", "RecursiveArrayTools", "ReferenceFrameRotations", "Rotations", "StaticArrays", "StructArrays", "StructTypes", "YAML"]
-git-tree-sha1 = "c9b724b8281baf82e21610843aea75aac62a7565"
+git-tree-sha1 = "85b4f730bf098b5afc796daa11dd8fde66a1db2c"
 uuid = "90980105-b163-44e5-ba9f-8b1c83bb0533"
-version = "0.13.0"
+version = "0.13.1"
 
 [[deps.Krylov]]
 deps = ["LinearAlgebra", "Printf", "SparseArrays"]
@@ -3141,7 +3141,7 @@ version = "0.2.8"
 deps = ["ADTypes", "AtmosphericModels", "ControlSystemsBase", "DataInterpolations", "Dates", "DocStringExtensions", "ForwardDiff", "JSON", "KiteUtils", "LaTeXStrings", "LinearAlgebra", "LinearSolve", "Logging", "ModelingToolkit", "NonlinearSolve", "NonlinearSolveQuasiNewton", "OrderedCollections", "OrdinaryDiffEqBDF", "OrdinaryDiffEqCore", "OrdinaryDiffEqNonlinearSolve", "Parameters", "Pkg", "PrecompileTools", "Printf", "RecipesBase", "SHA", "Serialization", "SparseArrays", "StaticArrays", "Statistics", "SteadyStateDiffEq", "Suppressor", "SymbolicIndexingInterface", "SymbolicUtils", "Symbolics", "TOML", "Timers", "UnPack", "VortexStepMethod", "YAML"]
 path = "."
 uuid = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
-version = "0.18.1"
+version = "0.19.0"
 weakdeps = ["GeometryBasics", "MakieControlPlots"]
 
     [deps.SymbolicAWEModels.extensions]
