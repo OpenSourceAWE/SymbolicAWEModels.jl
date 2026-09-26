@@ -46,10 +46,10 @@ defined, whether in a YAML file or via Julia constructors.
   the body frame during construction
 - A VSM wing's structure and its aerodynamic geometry must share one
   CAD frame: construction errors, naming the wing, when a station node
-  or the mesh COM lies outside the sections' bounding box (grown by 10 %
-  of its largest side), or when the span from `y_ref_points` lies more
-  than 5° from the sections' span ([`check_aero_frame`](@ref
-  SymbolicAWEModels.check_aero_frame))
+  or the mesh COM lies outside the sections' bounding box, or when the
+  span from `y_ref_points` is turned away from the sections' span
+  ([`check_aero_frame`](@ref SymbolicAWEModels.check_aero_frame) gives
+  the margins)
 
 ## Transform: CAD to World Initial Positioning
 

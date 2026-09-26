@@ -52,12 +52,22 @@ appended to its wing row.
 """
 function load_moved(data_path, set, vsm_set, motion; wing_columns="")
     yaml = read(joinpath(data_path, "rigid_structural_geometry.yaml"), String)
-    yaml = replace(move_points(yaml, motion),
-        "      aero_z_offset: 0.0\n" => "      aero_z_offset: 0.0\n" * wing_columns)
+    anchor = "      aero_z_offset: 0.0\n"
+    occursin(anchor, yaml) || error("no `$(strip(anchor))` row to append columns to")
+    yaml = replace(move_points(yaml, motion), anchor => anchor * wing_columns)
     path = joinpath(data_path, "moved_structural_geometry.yaml")
     write(path, yaml)
     return load_sys_struct_from_yaml(path; system_name="frame_check", set, vsm_set)
 end
+
+"""
+    refused(data_path, set, vsm_set, motion; wing_columns="")
+
+Test that loading the moved kite errors on its `main_wing` frame check.
+"""
+refused(data_path, set, vsm_set, motion; kw...) =
+    @test_throws r"Wing main_wing: .*CAD frame" load_moved(
+        data_path, set, vsm_set, motion; kw...)
 
 @testset "structural and aero frames agree at load" begin
     src_data_path = joinpath(dirname(@__DIR__), "data", "2plate_kite")
@@ -67,8 +77,6 @@ end
     set = Settings("system.yaml")
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    refused(motion; kw...) = @test_throws r"Wing main_wing: .*CAD frame" load_moved(
-        data_path, set, vsm_set, motion; kw...)
 
     @testset "a matching frame loads, and so does a 0.06 m shift" begin
         @test load_moved(data_path, set, vsm_set, identity) isa SystemStructure
@@ -77,13 +85,13 @@ end
     end
 
     @testset "points outside the aero bounding box are refused" begin
-        refused(pos -> pos + [1.0, 0.0, 0.0])
-        refused(pos -> 1000 * pos)
-        refused(pos -> [-pos[1], pos[2], -pos[3]])
+        refused(data_path, set, vsm_set, pos -> pos + [1.0, 0.0, 0.0])
+        refused(data_path, set, vsm_set, pos -> 1000 * pos)
+        refused(data_path, set, vsm_set, pos -> [-pos[1], pos[2], -pos[3]])
     end
 
     @testset "a mirrored span is refused" begin
-        refused(pos -> [pos[1], -pos[2], pos[3]])
+        refused(data_path, set, vsm_set, pos -> [pos[1], -pos[2], pos[3]])
     end
 
     @testset "a seeded COM outside the aero bounding box is refused" begin
@@ -91,6 +99,7 @@ end
         @test load_moved(data_path, set, vsm_set, identity;
             wing_columns=unit_inertia * "      com: [0.0, 0.0, 2.4]\n") isa
             SystemStructure
-        refused(identity; wing_columns=unit_inertia * "      com: [0.0, 0.0, 0.0]\n")
+        refused(data_path, set, vsm_set, identity;
+            wing_columns=unit_inertia * "      com: [0.0, 0.0, 0.0]\n")
     end
 end

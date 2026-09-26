@@ -128,10 +128,11 @@ the span from its `y_ref_points` lies within `AERO_FRAME_MAX_SPAN_ANGLE` [°] of
 [`section_span`](@ref).
 """
 function check_aero_frame(wing, points)
-    sections = wing.vsm_wing.unrefined_sections
-    edges = reduce(hcat, [edge for section in sections
-                          for edge in (section.LE_point, section.TE_point)])
-    low, high = vec(minimum(edges; dims=2)), vec(maximum(edges; dims=2))
+    low, high = fill(Inf, 3), fill(-Inf, 3)
+    for section in wing.vsm_wing.unrefined_sections
+        low .= min.(low, section.LE_point, section.TE_point)
+        high .= max.(high, section.LE_point, section.TE_point)
+    end
     margin = AERO_FRAME_BOX_MARGIN * maximum(high - low)
     low, high = low .- margin, high .+ margin
     located = ["point $(point.name)" => point.pos_cad for point in points
