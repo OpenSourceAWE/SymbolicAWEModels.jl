@@ -727,6 +727,7 @@ end
 @testset "segment_role tells wing, bridle and tether segments apart" begin
     data_path = joinpath(mktempdir(), "2plate_kite")
     cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path)
+    data_path_before = get_data_path()
     set_data_path(data_path)
     set = Settings("system.yaml")
     vsm_set = VortexStepMethod.VSMSettings(
@@ -734,6 +735,7 @@ end
     sys = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
         system_name="2plate_segment_role", set, vsm_set)
+    set_data_path(data_path_before)
     roles = Dict(segment.name => segment_role(sys, segment) for segment in sys.segments)
     @test roles[:strut_left] == roles[:diag_1] == :wing
     @test roles[:le_left] == roles[:kcu_steering_right] == :bridle

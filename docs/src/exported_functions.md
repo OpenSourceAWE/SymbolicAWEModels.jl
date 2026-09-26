@@ -168,12 +168,7 @@ To tell the wing from the bridle and the tethers, colour the segments by
 [`segment_role`](@ref):
 ```julia
 role_colors = Dict(:wing => :black, :bridle => :steelblue, :tether => :darkorange)
-plot(sys; segment_color=[role_colors[segment_role(sys, segment)]
-                         for segment in sys.segments])
-```
-
-```@docs
-segment_role
+plot(sys; segment_color=segment -> role_colors[segment_role(sys, segment)])
 ```
 
 **Interactive features:**
@@ -256,4 +251,5 @@ apply_apparent_mass!
 
 ```@docs
 init_module
+segment_role
 ```
