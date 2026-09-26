@@ -162,6 +162,8 @@ Remaining keywords are forwarded to `plot!`, including:
 - `transparency::Bool=true`: Order-independent transparency; `false` is much faster
 - `aero_mapping::Bool=false`: Overlay the [`AeroPressure`](@ref) station→point map
 - `linewidth`, `point_size`, `beam_color`, `airfoil_color`, …: Styling
+- `panel_border_color=:black`: Colour of the aero panel borders drawn with `plot_vsm`;
+  the lofted-airfoil ribs of `plot_airfoils` keep their own colour
 
 **Interactive features:**
 - Hover over segments to highlight them

@@ -10,6 +10,7 @@
 # 4. Replay single system
 # 5. Replay multiple systems
 # 6. The replay spring-force checkbox recolours the segments
+# 7. panel_border_color reaches the VSM and flat-plate panel borders
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -40,6 +41,7 @@ else
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3
 using KiteUtils
+using VortexStepMethod
 
 # ============================================================================
 # Minimal 3-point, 2-segment YAML (same pattern as test_segment.jl). Two
@@ -231,6 +233,36 @@ end
     end
 
     # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
+end
+
+"""
+    border_lines(sys, color; kwargs...) -> Int
+
+Number of line plots drawn in `color` when `sys` is plotted into a fresh `Axis3`.
+"""
+function border_lines(sys, color; kwargs...)
+    ax = Axis3(Figure()[1, 1])
+    Makie.plot!(ax, sys; plot_vsm=true, plot_airfoils=false, kwargs...)
+    return count(plot -> plot isa Lines && plot.color[] == Makie.to_color(color),
+                 ax.scene.plots)
+end
+
+@testset "panel_border_color colours the VSM and flat-plate panel borders" begin
+    data_path = get_data_path()
+    set_data_path(joinpath(dirname(@__DIR__), "data", "2plate_kite"))
+    vsm_sys = load_sys_struct_from_yaml(
+        joinpath(get_data_path(), "rigid_structural_geometry.yaml");
+        system_name="2plate_kite", set=Settings("system.yaml"),
+        vsm_set=VortexStepMethod.VSMSettings(
+            joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false))
+    n_panels = length(vsm_sys.wings[1].vsm_aero.panels)
+    _, plate_sys = build_plate_kite(mktempdir())
+
+    for (sys, n_borders) in ((vsm_sys, n_panels), (plate_sys, 1))
+        @test border_lines(sys, :gray; panel_border_color=:gray) == n_borders
+        @test border_lines(sys, :gray) == 0
+    end
+    set_data_path(data_path)
 end
 
 end # if GLMAKIE_AVAILABLE
