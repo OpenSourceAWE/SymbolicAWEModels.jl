@@ -455,10 +455,11 @@ winches:
             Body(:tip; extra_mass=1.0, inertia_principal=inertia,
                 pos=[1.5seg_len, 0.0, 0.0], type=DYNAMIC),
         ]
-        joints = [ElasticJoint(:j, :root, :tip; anchor_a=[seg_len/2, 0, 0],
-            anchor_b=[-seg_len/2, 0, 0], stiffness_axial=1e4,
-            stiffness_shear=1e4, stiffness_torsion=1e3, stiffness_bending=1e3,
-            damping=0.05)]
+        tubes = [Tube(:j, :root, :tip; diameter=0.1, pressure=3e4,
+            anchor_a=[seg_len/2, 0, 0], anchor_b=[-seg_len/2, 0, 0],
+            model=ElasticTube(stiffness_axial=1e4, stiffness_shear=1e4,
+                              stiffness_torsion=1e3, stiffness_bending=1e3,
+                              damping=0.05))]
         # Ground 5 m below the tip; standoff 6 m forces the tip body up ~1 m.
         points = [
             Point(:ground, [2.0seg_len, 0.0, -5.0], STATIC),
@@ -470,8 +471,7 @@ winches:
         tethers = [Tether(:tether, [:tether_seg], 6.0)]
         winches = [Winch(:winch, set, [:tether]; winch_point=:ground)]
         sys = SystemStructure("init_stretched_length_body", set; points,
-            segments, tethers, winches, bodies=bodies,
-            elastic_joints=joints)
+            segments, tethers, winches, bodies=bodies, tubes)
 
         SymbolicAWEModels.reinit!(sys, set)
 
@@ -565,24 +565,25 @@ winches:
 
     # ================================================================
     # Test 11: placement translates a free-floating beam anchored only through
-    # joint-riding BODY_STATIC points. Such a point has body_idx 0 and carries
-    # its association in joint_idx, so collecting moved bodies via body_idx
+    # tube-riding BODY_STATIC points. Such a point has body_idx 0 and carries
+    # its association in tube_idx, so collecting moved bodies via body_idx
     # alone leaves the whole beam behind while the tether's free end moves —
     # the ride constraint then snaps the point back, silently.
     # ================================================================
-    @testset "Placement moves a beam (joint-anchored points)" begin
+    @testset "Placement moves a beam (tube-anchored points)" begin
         inertia = [0.01, 0.01, 0.01]
         bodies = [Body(Symbol(:node, i); extra_mass=1.0, inertia_principal=inertia,
                        pos=[Float64(i - 1), 0.0, 0.0], type=DYNAMIC)
                   for i in 1:4]
-        joints = [TimoshenkoJoint(Symbol(:j, i), Symbol(:node, i),
-                      Symbol(:node, i + 1); EA=1.0e4, GA=1500.0, GJ=50.0,
-                      EIy=100.0, EIz=100.0, shear_coeff=5/6,
-                      damping=0.05) for i in 1:3]
+        tubes = [Tube(Symbol(:j, i), Symbol(:node, i), Symbol(:node, i + 1);
+                      diameter=0.1, pressure=3e4,
+                      model=TimoshenkoTube(EA=1.0e4, GA=1500.0, GJ=50.0,
+                                           EIy=100.0, EIz=100.0, shear_coeff=5/6,
+                                           damping=0.05)) for i in 1:3]
         points = [
             Point(:ground, [0.5, 0.0, -5.0], STATIC),
-            Point(:beam_anchor, [0.5, 0.0, 0.0], BODY_STATIC; joint=:j1),
-            Point(:tip_anchor, [1.5, 0.0, 0.0], BODY_STATIC; joint=:j2),
+            Point(:beam_anchor, [0.5, 0.0, 0.0], BODY_STATIC; tube=:j1),
+            Point(:tip_anchor, [1.5, 0.0, 0.0], BODY_STATIC; tube=:j2),
             Point(:tail, [1.5, 0.0, -1.0], DYNAMIC; extra_mass=1.0),
         ]
         segments = [Segment(:tether_seg, :ground, :beam_anchor, 1e4, 10.0, 0.01;
@@ -592,8 +593,7 @@ winches:
         tethers = [Tether(:tether, [:tether_seg], 6.0)]
         winches = [Winch(:winch, set, [:tether]; winch_point=:ground)]
         sys = SystemStructure("init_stretched_length_beam", set; points,
-            segments, tethers, winches, bodies=bodies,
-            timoshenko_joints=joints)
+            segments, tethers, winches, bodies=bodies, tubes)
 
         delta = KVec3(0.0, 0.0, 1.0)
         SymbolicAWEModels.reinit!(sys, set)

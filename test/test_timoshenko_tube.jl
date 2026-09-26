@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# test_timoshenko_joint.jl - Validate the corotational Timoshenko joint (the
-# element of a 2-node Timoshenko beam) against closed-form beam theory. One joint
+# test_timoshenko_tube.jl - Validate the corotational TimoshenkoTube (the
+# element of a 2-node Timoshenko beam) against closed-form beam theory. One tube
 # connects node A (clamped, STATIC) to node B (free, DYNAMIC); a constant external
 # load is applied and the settled equilibrium is compared to the analytic result.
 #
@@ -72,7 +72,7 @@ function settle!(sam, body; dt=0.01, max_steps=6000, vtol=1e-8)
     end
 end
 
-@testset "Timoshenko joint element" begin
+@testset "Timoshenko tube element" begin
     pkg_root = dirname(@__DIR__)
     tmpdir = mktempdir()
     data_path = joinpath(tmpdir, "2plate_kite")
@@ -91,18 +91,18 @@ end
                  pos=[0.0, 0.0, 0.0], type=STATIC)
     nodeB = Body(:nodeB; extra_mass=1.0, inertia_principal=inertia,
                  pos=[beam_length, 0.0, 0.0])
-    joint = TimoshenkoJoint(:joint, :nodeA, :nodeB;
-        EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
-        damping=0.05)
+    tube = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
+        model=TimoshenkoTube(; EA, GA, GJ, EIy=EI, EIz=EI, shear_coeff=kshear,
+                             damping=0.05))
     sys = SystemStructure("timoshenko_test", set;
-        bodies=[nodeA, nodeB], timoshenko_joints=[joint])
+        bodies=[nodeA, nodeB], tubes=[tube])
 
     @testset "Model setup" begin
-        @info "Structure wiring: one joint resolved, rest length from geometry."
-        @test length(sys.timoshenko_joints) == 1
-        @test sys.timoshenko_joints[:joint].body_a_idx == 1
-        @test sys.timoshenko_joints[:joint].body_b_idx == 2
-        @test sys.timoshenko_joints[:joint].rest_length ≈ beam_length
+        @info "Structure wiring: one tube resolved, rest length from geometry."
+        @test length(sys.tubes) == 1
+        @test sys.tubes[:tube].body_a_idx == 1
+        @test sys.tubes[:tube].body_b_idx == 2
+        @test sys.tubes[:tube].model.rest_length ≈ beam_length
     end
 
     sam = SymbolicAWEModel(set, sys)
@@ -166,16 +166,16 @@ end
                   pos=[0.0, 0.0, 0.0], type=STATIC)
     nodeB2 = Body(:nodeB; extra_mass=1.0, inertia_principal=inertia,
                   pos=[beam_length, 0.0, 0.0])
-    joint_nl = TimoshenkoJoint(:joint, :nodeA, :nodeB;
-        EA=EA_law, GA, GJ, EIy=EIy_law, EIz=EI, shear_coeff=kshear,
-        damping=0.05)
+    tube_nl = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
+        model=TimoshenkoTube(; EA=EA_law, GA, GJ, EIy=EIy_law, EIz=EI,
+                             shear_coeff=kshear, damping=0.05))
     sys_nl = SystemStructure("timoshenko_test", set;
-        bodies=[nodeA2, nodeB2], timoshenko_joints=[joint_nl])
+        bodies=[nodeA2, nodeB2], tubes=[tube_nl])
     sam_nl = SymbolicAWEModel(set, sys_nl)
     rb_nl = sam_nl.sys_struct.bodies[:nodeB]
 
     @testset "Nonlinear axial (callable rigidity)" begin
-        @test !(sys_nl.timoshenko_joints[:joint].EA isa Real)  # callable path
+        @test !(sys_nl.tubes[:tube].model.EA isa Real)  # callable path
         load = 20.0
         rb_nl.ext_force_w .= [load, 0.0, 0.0]
         rb_nl.ext_moment_b .= 0.0

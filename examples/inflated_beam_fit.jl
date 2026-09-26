@@ -7,7 +7,7 @@
 # tube in closed form (parametrised by the slack-arc angle θ₀), from the linear
 # regime through wrinkling onset to collapse. We sample that curve as synthetic
 # "measurements", fit a smooth per-joint bending law to it, and build a
-# Body + ElasticJoint chain. It is validated as a cantilever under a ramped
+# Body + ElasticTube chain. It is validated as a cantilever under a ramped
 # downward tip force, reproducing the P-vs-tip-deflection curve up to collapse.
 #
 # Isotropic by choice: Comer-Levy assumes one modulus E. A woven (orthotropic)
@@ -384,10 +384,11 @@ function build_beam(name, n_seg, joint_law)
                           seg_mass * ((j - 0.5) * seg_len - joint_x)^2
                           for j in (i + 1):n_seg)
         damping_rot = critical_damping(linear_bending_stiffness(law), inertia_out)
-        ElasticJoint(Symbol("joint_$i"), Symbol("seg_$i"), Symbol("seg_$(i + 1)");
+        Tube(Symbol("joint_$i"), Symbol("seg_$i"), Symbol("seg_$(i + 1)");
+            diameter = 2 * station_radius(i / n_seg), pressure,
             anchor_a = [seg_len / 2, 0.0, 0.0], anchor_b = [-seg_len / 2, 0.0, 0.0],
-            stiffness_axial, stiffness_shear, stiffness_torsion,
-            stiffness_bending = law, damping_trans, damping_rot)
+            model = ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion,
+                                stiffness_bending = law, damping_trans, damping_rot))
     end
     joints = [make_joint(i) for i in 1:(n_seg - 1)]
     tip_body = Symbol("seg_$n_seg")
@@ -404,7 +405,7 @@ function build_beam(name, n_seg, joint_law)
             position_gain = 20.0, velocity_gain = 20.0))]
     winches[1].inertia_total = 1.0e-4     # tiny rotor → near-instant tracking
     sys = SystemStructure(name, set; points, segments, tethers, winches,
-        bodies = bodies, elastic_joints = joints)
+        bodies = bodies, tubes = joints)
     sam = SymbolicAWEModel(set, sys)
     init!(sam; remake = false, prn = true)
     return sam
