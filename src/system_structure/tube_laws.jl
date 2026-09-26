@@ -3,7 +3,7 @@
 
 """
 Rigidity laws of pressurised fabric tubes, supplying the `EA`, `GA`, `GJ`, `EIy`
-and `EIz` of a [`TimoshenkoJoint`](@ref) that models an inflated leading edge or
+and `EIz` of a [`TimoshenkoTube`](@ref) that models an inflated leading edge or
 strut.
 
 Two independent sources are available. The Breukels (2011) empirical
@@ -11,7 +11,7 @@ correlations fit a 1 m cantilever tip-force curve and cover the linear regime up
 to collapse. The Comer-Levy (1963) wrinkled-section theory is analytical, needs
 the fabric membrane stiffness `E·t` on top of radius and pressure, and stays
 valid past collapse. Both are exposed as a callable [`TubeRigidityLaw`](@ref)
-that a joint evaluates at its current curvature.
+that a tube evaluates at its current curvature.
 """
 
 # Breukels (2011) empirical correlation constants for inflated fabric tubes,
@@ -43,12 +43,12 @@ const SOFTENING_EXPONENT_RANGE = (0.05, 100.0)
 """
     TubeRigidityLaw
 
-Callable effective rigidity of an inflated tube for one [`TimoshenkoJoint`](@ref)
+Callable effective rigidity of an inflated tube for one [`TimoshenkoTube`](@ref)
 mode, evaluated at that mode's curvature [1/m]. `mode == :torsion` returns
 `GJ(κ) = c1·atan(c2·κ)/κ` (Breukels). `mode == :bending` returns `EI(κ)`: the
 linear rigidity below the knee curvature and the smooth power-law approach to the
 collapse moment above it. One struct covers both modes because all callable
-rigidities of a joint must share a type.
+rigidities of a tube must share a type.
 
 $(TYPEDFIELDS)
 """
@@ -237,6 +237,18 @@ function tube_linear_rigidities(radius, pressure)
     EI0 = slope / (3 * (1 - shear_frac))
     EA = EI0 * area / inertia
     return EA, GA, EI0, GJ0
+end
+
+"""
+    tube_law_rigidities(law, diameter, pressure) -> (EA, GA, EI, GJ)
+
+Small-deformation rigidities of a tube of `diameter` [m] at `pressure` [Pa] under
+the stiffness law named `law`. The one law known is `:breukels2011`
+([`tube_linear_rigidities`](@ref)).
+"""
+function tube_law_rigidities(law::Symbol, diameter, pressure)
+    law == :breukels2011 && return tube_linear_rigidities(diameter / 2, pressure / 1e5)
+    error("Tube law $law is unknown; give the model's rigidities instead.")
 end
 
 """

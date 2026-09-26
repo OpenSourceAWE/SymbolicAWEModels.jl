@@ -27,11 +27,10 @@ physical model, from points and segments to winches and wings.
 - [`Winch`](@ref): Ground-based winches.
 - [`Body`](@ref): Rigid bodies; a wing is a body that carries aero, so
   `sys.wings` holds the subset of `sys.bodies` that does.
-- [`ElasticJoint`](@ref), [`TimoshenkoJoint`](@ref): Two-body links; a chain of
-  the latter forms a beam.
+- [`Tube`](@ref): Inflated tubes between two bodies; a chain of them forms a beam.
 - [`Transform`](@ref): Spatial transformations for initial positioning.
 """
-mutable struct SystemStructure{J<:ElasticJoint}
+mutable struct SystemStructure
     const name::String
     set::Settings
     const points::NamedCollection{Point}
@@ -46,8 +45,7 @@ mutable struct SystemStructure{J<:ElasticJoint}
     "The `bodies` that carry aero, which are prepended to `bodies`, so a wing's
     position here equals its `idx`. The same objects, not copies."
     const wings::NamedCollection{Body}
-    const elastic_joints::NamedCollection{J}
-    const timoshenko_joints::NamedCollection{TimoshenkoJoint}
+    const tubes::NamedCollection{Tube}
 
     const am::AtmosphericModel
     stabilize::Bool
@@ -443,18 +441,17 @@ function distribute_mass_over_points!(points, point_idxs, mass)
 end
 
 """
-    connected_body_groups(n_bodies, joint_collections...) -> Vector{Int64}
+    connected_body_groups(n_bodies, tubes) -> Vector{Int64}
 
-Union-find over body indices `1:n_bodies`, uniting the two bodies of every joint
-in each collection (each joint exposes `body_a_idx`/`body_b_idx`). Returns a
-`root` vector mapping each body to its component representative, so all bodies
-tied into one continuous beam share a root.
+Union-find over body indices `1:n_bodies`, uniting the two bodies of every tube.
+Returns a `root` vector mapping each body to its component representative, so all
+bodies tied into one continuous beam share a root.
 """
-function connected_body_groups(n_bodies, joint_collections...)
+function connected_body_groups(n_bodies, tubes)
     root = collect(1:n_bodies)
     find(x) = root[x] == x ? x : (root[x] = find(root[x]))
-    for joints in joint_collections, joint in joints
-        a, b = joint.body_a_idx, joint.body_b_idx
+    for tube in tubes
+        a, b = tube.body_a_idx, tube.body_b_idx
         (a == 0 || b == 0) && continue
         root[find(a)] = find(b)
     end
@@ -505,7 +502,7 @@ end
 Distribute `set.mass` over a PARTICLE_DYNAMICS `wing`'s member points when neither
 they nor its section bodies (see [`particle_wing_parts`](@ref)) carry `extra_mass`,
 warning when that leaves the wing massless. Deferred until point/station→body and
-joint→body references resolve.
+tube→body references resolve.
 """
 function finalize_particle_wing_mass!(wing, stations, points, bodies, set, root)
     point_idxs, body_idxs = particle_wing_parts(wing, stations, points, bodies, root)
@@ -910,8 +907,7 @@ function update_mass_properties!(sys_struct::SystemStructure; prn=true)
             ", I=$(round.(body.inertia_principal; digits=4))" *
             ", com_offset_b=$(round.(body.com_offset_b; digits=4))"
     end
-    root = connected_body_groups(length(bodies),
-        sys_struct.elastic_joints, sys_struct.timoshenko_joints)
+    root = connected_body_groups(length(bodies), sys_struct.tubes)
     for wing in sys_struct.wings
         wing.dynamics_type == PARTICLE_DYNAMICS || continue
         point_idxs, body_idxs = particle_wing_parts(wing, stations, points, bodies, root)
@@ -964,8 +960,7 @@ carried_position_b(point, body) = point.body_idx == body.idx ? Vector(point.anch
 
 """
     SystemStructure(name, set; points, stations, segments, pulleys, tethers,
-                    winches, wings, transforms, bodies, elastic_joints,
-                    timoshenko_joints)
+                    winches, wings, transforms, bodies, tubes)
 
 Constructs a `SystemStructure` object representing a complete mechanical system.
 Resolves every symbolic reference to a numeric index, fills in derived properties
@@ -1000,8 +995,7 @@ function SystemStructure(name, set;
         wings=Body[],
         transforms=Transform[],
         bodies=Body[],
-        elastic_joints=ElasticJoint[],
-        timoshenko_joints=TimoshenkoJoint[],
+        tubes=Tube[],
         ignore_l0::Bool=false,
         vsm_set=nothing,
         wind_mode::WindMode=ProfileWind(),
@@ -1163,25 +1157,15 @@ function SystemStructure(name, set;
         end
     end
 
-    # Elastic joints: assign indices, resolve their body references.
-    for (i, joint) in enumerate(elastic_joints)
-        joint.idx = i
-        joint.body_a_idx = resolve_ref(
-            joint.body_a_ref, rigid_body_names_dict, "rigid_body")
-        joint.body_b_idx = resolve_ref(
-            joint.body_b_ref, rigid_body_names_dict, "rigid_body")
+    # Tubes: assign indices, resolve their body references.
+    for (i, tube) in enumerate(tubes)
+        tube.idx = i
+        tube.body_a_idx = resolve_ref(
+            tube.body_a_ref, rigid_body_names_dict, "rigid_body")
+        tube.body_b_idx = resolve_ref(
+            tube.body_b_ref, rigid_body_names_dict, "rigid_body")
     end
-    elastic_joint_names_dict = build_name_dict(elastic_joints)
-
-    # Timoshenko joints: assign indices, resolve their body references.
-    for (i, joint) in enumerate(timoshenko_joints)
-        joint.idx = i
-        joint.body_a_idx = resolve_ref(
-            joint.body_a_ref, rigid_body_names_dict, "rigid_body")
-        joint.body_b_idx = resolve_ref(
-            joint.body_b_ref, rigid_body_names_dict, "rigid_body")
-    end
-    timoshenko_joint_names_dict = build_name_dict(timoshenko_joints)
+    tube_names_dict = build_name_dict(tubes)
 
     # Stations: resolve owning-wing and (member + flap) body references.
     for station in stations
@@ -1195,18 +1179,18 @@ function SystemStructure(name, set;
             "point") for ref in station.flap_point_refs]
     end
 
-    # Beam-anchored points: resolve the joint ref, derive beam_frac + offset.
+    # Beam-anchored points: resolve the tube ref, derive beam_frac + offset.
     for point in points
-        point.joint_idx = resolve_ref(
-            point.joint_ref, timoshenko_joint_names_dict, "timoshenko_joint")
-        point.joint_idx == 0 && continue
-        derive_point_beam_anchor!(
-            point, timoshenko_joints[point.joint_idx], bodies)
+        point.tube_idx = resolve_ref(point.tube_ref, tube_names_dict, "tube")
+        point.tube_idx == 0 && continue
+        tube = tubes[point.tube_idx]
+        tube.model isa TimoshenkoTube || error("Point $(point.name) rides tube " *
+            "$(tube.name), which is not a TimoshenkoTube beam element.")
+        derive_point_beam_anchor!(point, tube, bodies)
     end
 
-    # Particle wings carry mass on their (joint-connected) section bodies.
-    body_groups = connected_body_groups(
-        length(bodies), elastic_joints, timoshenko_joints)
+    # Particle wings carry mass on their (tube-connected) section bodies.
+    body_groups = connected_body_groups(length(bodies), tubes)
     for wing in wings
         wing.dynamics_type == PARTICLE_DYNAMICS &&
             finalize_particle_wing_mass!(
@@ -1225,8 +1209,7 @@ function SystemStructure(name, set;
         NamedCollection{Transform}(transforms, transform_names_dict),
         NamedCollection{Body}(bodies, rigid_body_names_dict),
         NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
-        NamedCollection{eltype(elastic_joints)}(elastic_joints, elastic_joint_names_dict),
-        NamedCollection{TimoshenkoJoint}(timoshenko_joints, timoshenko_joint_names_dict),
+        NamedCollection{Tube}(tubes, tube_names_dict),
         AtmosphericModel(set), false, false, vsm_set, wind_mode)
     reinit!(sys_struct, set; prn)
 

@@ -836,13 +836,13 @@ Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
     (; points, stations, segments, pulleys, tethers, winches, wings, transforms,
-       bodies, elastic_joints, timoshenko_joints) = sys_struct
+       bodies, tubes) = sys_struct
     data_parts = []
     for point in points
         # nothing-vs-set gates whether drag/damping equations are emitted (structure,
         # not value), so 0.0↔1.0 reuses the cached bin but adding/removing regenerates.
         push!(data_parts, ("point", point.idx, point.wing_idx, point.body_idx,
-                           point.joint_idx, Int(point.type)))
+                           point.tube_idx, Int(point.type)))
     end
     for segment in segments
         # Stiffness type selects the spring law (scalar k·Δ vs callable F(ε)).
@@ -898,24 +898,13 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("rigid_body", rigid_body.idx, Int(rigid_body.type),
                            rigid_body.wing_idx))
     end
-    for joint in elastic_joints
-        # Stiffness type selects the generated law (scalar `k·Δ` vs callable `k(Δ)`).
-        stiff_type(s) = s isa Real ? "float" : string(typeof(s))
-        push!(data_parts, ("elastic_joint", joint.idx,
-                           joint.body_a_idx, joint.body_b_idx,
-                           stiff_type(joint.stiffness_axial),
-                           stiff_type(joint.stiffness_shear),
-                           stiff_type(joint.stiffness_torsion),
-                           stiff_type(joint.stiffness_bending)))
-    end
-    for joint in timoshenko_joints
+    for tube in tubes
         # Rigidity type selects the generated law (scalar vs callable of strain).
-        rigidity_type(r) = r isa Real ? "float" : string(typeof(r))
-        push!(data_parts, ("timoshenko_joint", joint.idx,
-                           joint.body_a_idx, joint.body_b_idx,
-                           rigidity_type(joint.EA), rigidity_type(joint.GA),
-                           rigidity_type(joint.GJ), rigidity_type(joint.EIy),
-                           rigidity_type(joint.EIz)))
+        rigidity_types = [value isa Real ? "float" : string(typeof(value))
+                          for value in getfield.(Ref(tube.model),
+                                                 rigidity_fields(tube.model))]
+        push!(data_parts, ("tube", tube.idx, tube.body_a_idx, tube.body_b_idx,
+                           nameof(typeof(tube.model)), rigidity_types...))
     end
     content = string(data_parts)
     return sha1(content)

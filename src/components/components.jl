@@ -460,12 +460,12 @@ function timoshenko_local_wrench(rigidities, L0, kshear, δ, θ_a, θ_b)
 end
 
 """
-    timoshenko_element_wrench(joint, params; frame, theta_a, theta_b, force_a, force_b,
+    timoshenko_element_wrench(tube, params; frame, theta_a, theta_b, force_a, force_b,
         moment_a, moment_b, pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
 Corotational Timoshenko element wrench. Given the two nodes' world poses (`pos`,
-`R_b_to_w`, `com`, `com_vel`, world spin `omega_w`) and the joint's rest
+`R_b_to_w`, `com`, `com_vel`, world spin `omega_w`) and the tube's rest
 geometry/rigidities, it builds the
 element frame and per-node deformations, evaluates the consistent Timoshenko stiffness
 (axial, torsion, two bending planes with shear reduction `Φ`) and damping, and returns
@@ -475,14 +475,14 @@ each node (world frame, transported to each COM). `frame`/`theta_a`/`theta_b`/`f
 standalone ones as the caller binds them, so the reused frame/force subtrees are not
 re-embedded; `tear_eqs` binds them.
 """
-function timoshenko_element_wrench(joint, params;
+function timoshenko_element_wrench(tube, params;
         frame, theta_a, theta_b, force_a, force_b, moment_a, moment_b,
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
-    j = joint.idx
-    jp = params.timoshenko_joints[j]
-    anchor_a = collect(jp.anchor_a_b)
-    anchor_b = collect(jp.anchor_b_b)
+    tp = params.tubes[tube.idx]
+    jp = tp.model
+    anchor_a = collect(tp.anchor_a_b)
+    anchor_b = collect(tp.anchor_b_b)
     Ra = collect(R_a)
     Rb = collect(R_b)
     x_a = collect(pos_a) .+ Ra * anchor_a
@@ -513,12 +513,12 @@ function timoshenko_element_wrench(joint, params;
     κz = (θ_b[3] - θ_a[3]) / L0
     γy = 0.5 * (θ_a[2] + θ_b[2])
     γz = 0.5 * (θ_a[3] + θ_b[3])
-    rigidities = (timoshenko_rigidity(joint, params, :EA, ε),
-                  timoshenko_rigidity(joint, params, :GA, γy),
-                  timoshenko_rigidity(joint, params, :GA, γz),
-                  timoshenko_rigidity(joint, params, :GJ, κt),
-                  timoshenko_rigidity(joint, params, :EIy, κy),
-                  timoshenko_rigidity(joint, params, :EIz, κz))
+    rigidities = (timoshenko_rigidity(tube, params, :EA, ε),
+                  timoshenko_rigidity(tube, params, :GA, γy),
+                  timoshenko_rigidity(tube, params, :GA, γz),
+                  timoshenko_rigidity(tube, params, :GJ, κt),
+                  timoshenko_rigidity(tube, params, :EIy, κy),
+                  timoshenko_rigidity(tube, params, :EIz, κz))
     stiff = timoshenko_local_wrench(rigidities, L0, kshear, δ, θ_a, θ_b)
     ω_a_w = collect(omega_a_w)
     ω_b_w = collect(omega_b_w)
@@ -552,10 +552,10 @@ function timoshenko_element_wrench(joint, params;
 end
 
 """
-    elastic_joint_wrench(joint, params; force_w, torque_w, pos_a, R_a, com_a, com_vel_a,
+    elastic_tube_wrench(tube, params; force_w, torque_w, pos_a, R_a, com_a, com_vel_a,
         omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
-Lumped 6-DOF `ElasticJoint` restoring wrench. From the relative
+Lumped 6-DOF [`ElasticTube`](@ref) restoring wrench. From the relative
 pose of the two anchors (in body A's frame) it builds the per-DOF restoring
 force/torque (axial,
 shear, torsion, bending stiffness + damping) and returns
@@ -563,15 +563,15 @@ shear, torsion, bending stiffness + damping) and returns
 wrench transported to each COM. `force_w`/`torque_w` are the caller's **torn** world-frame
 wrench variables, array slices or standalone ones as the caller binds them.
 """
-function elastic_joint_wrench(joint, params; force_w, torque_w,
+function elastic_tube_wrench(tube, params; force_w, torque_w,
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
-    j = joint.idx
-    jp = params.elastic_joints[j]
+    tp = params.tubes[tube.idx]
+    jp = tp.model
     Ra = collect(R_a)
     Rb = collect(R_b)
-    anchor_a = collect(jp.anchor_a_b)
-    anchor_b = collect(jp.anchor_b_b)
+    anchor_a = collect(tp.anchor_a_b)
+    anchor_b = collect(tp.anchor_b_b)
     ca = collect(com_a)
     cb = collect(com_b)
     pos_anchor_a = collect(pos_a) .+ Ra * anchor_a
@@ -594,8 +594,8 @@ function elastic_joint_wrench(joint, params; force_w, torque_w,
     Δω_a = Ra' * (ω_b_w .- ω_a_w)
     beta = jp.damping
     elastic(kind, Δ, rate) =
-        -joint_stiffness_term(joint, params, kind, Δ) -
-        joint_rayleigh_term(joint, params, kind, Δ, rate, beta)
+        -joint_stiffness_term(tube, params, kind, Δ) -
+        joint_rayleigh_term(tube, params, kind, Δ, rate, beta)
     force_a = [elastic(1, Δr_a[1], Δv_a[1]),
                elastic(2, Δr_a[2], Δv_a[2]),
                elastic(2, Δr_a[3], Δv_a[3])]
@@ -617,10 +617,10 @@ function elastic_joint_wrench(joint, params; force_w, torque_w,
 end
 
 """
-    beam_hermite_ride_expressions(joint, params, point_idx; pos_a, R_a, com_a, com_vel_a,
+    beam_hermite_ride_expressions(tube, params, point_idx; pos_a, R_a, com_a, com_vel_a,
         omega_a_w, pos_b, R_b, com_b, com_vel_b, omega_b_w)
 
-Kinematics of a point riding `joint`'s corotational cubic-Hermite centerline at the
+Kinematics of a point riding `tube`'s corotational cubic-Hermite centerline at the
 point's `beam_frac`. From the two end bodies' world poses it
 builds the element frame, the two nodes' chord-relative rotations, the transverse Hermite
 deflection (+ a frame-carried `beam_offset_b`) and returns `(pos_point, vel_point, sfrac,
@@ -630,15 +630,16 @@ splits any force at the point onto the two end bodies (`(1−sfrac)` to A, `sfra
 position `p`, so a backend can tear `pos_point` first and avoid re-embedding the heavy
 element-frame subtree in the velocity.
 """
-function beam_hermite_ride_expressions(joint, params, point_idx;
+function beam_hermite_ride_expressions(tube, params, point_idx;
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w,
         frame = nothing, theta_a = nothing, theta_b = nothing)
-    jp = params.timoshenko_joints[joint.idx]
+    tp = params.tubes[tube.idx]
+    jp = tp.model
     Ra = collect(R_a)
     Rb = collect(R_b)
-    x_a = collect(pos_a) .+ Ra * collect(jp.anchor_a_b)
-    x_b = collect(pos_b) .+ Rb * collect(jp.anchor_b_b)
+    x_a = collect(pos_a) .+ Ra * collect(tp.anchor_a_b)
+    x_b = collect(pos_b) .+ Rb * collect(tp.anchor_b_b)
     e1, e2, e3, beam_len = timoshenko_element_frame(x_a, x_b, Ra)
     frame_expr = [e1[1] e2[1] e3[1];
                   e1[2] e2[2] e3[2];
@@ -1541,8 +1542,8 @@ function HermiteRidePoint(s, params, idx; name)
         height(t), [output = true]
     end
     sys_struct = params.reg.sys_struct
-    joint = sys_struct.timoshenko_joints[sys_struct.points[idx].joint_idx]
-    ex = beam_hermite_ride_expressions(joint, params, idx; joint_poses(io)...)
+    tube = sys_struct.tubes[sys_struct.points[idx].tube_idx]
+    ex = beam_hermite_ride_expressions(tube, params, idx; joint_poses(io)...)
     eqs = [
         collect(vars[1]) .~ ex.pos_point
         collect(vars[2]) .~ ex.ride_velocity(vars[1])
@@ -1669,30 +1670,30 @@ joint_wrench_eqs(io, ex) = [
 ]
 
 """
-    ElasticJointComponent(s, params, idx; name)
+    ElasticTubeComponent(s, params, idx; name)
 
-Lumped 6-DOF elastic joint between two bodies: reads both poses and emits the
-restoring wrench on each, through [`elastic_joint_wrench`](@ref).
+Tube `idx` as a lumped 6-DOF [`ElasticTube`](@ref): reads both end bodies' poses and
+emits the restoring wrench on each, through [`elastic_tube_wrench`](@ref).
 """
-function ElasticJointComponent(s, params, idx; name)
+function ElasticTubeComponent(s, params, idx; name)
     io = joint_variables()
     torn = @variables joint_force(t)[1:3] joint_torque(t)[1:3]
-    joint = params.reg.sys_struct.elastic_joints[idx]
-    ex = elastic_joint_wrench(joint, params; force_w = torn[1],
+    tube = params.reg.sys_struct.tubes[idx]
+    ex = elastic_tube_wrench(tube, params; force_w = torn[1],
                               torque_w = torn[2], joint_poses(io)...)
     return System(joint_wrench_eqs(io, ex), t, [io.all; torn],
                   param_unknowns(params); name)
 end
 
 """
-    TimoshenkoJointComponent(s, params, idx; name)
+    TimoshenkoTubeComponent(s, params, idx; name)
 
 Corotational Timoshenko beam element between two bodies: reads both poses and emits
 the restoring wrench on each, through [`timoshenko_element_wrench`](@ref). The
 element frame, the two nodes' chord-relative rotations
 and the element forces are torn, so the shared frame subtree is built once.
 """
-function TimoshenkoJointComponent(s, params, idx; name)
+function TimoshenkoTubeComponent(s, params, idx; name)
     io = joint_variables()
     torn = @variables begin
         element_frame(t)[1:3, 1:3]
@@ -1703,8 +1704,8 @@ function TimoshenkoJointComponent(s, params, idx; name)
         element_moment_a(t)[1:3]
         element_moment_b(t)[1:3]
     end
-    joint = params.reg.sys_struct.timoshenko_joints[idx]
-    ex = timoshenko_element_wrench(joint, params; frame = torn[1],
+    tube = params.reg.sys_struct.tubes[idx]
+    ex = timoshenko_element_wrench(tube, params; frame = torn[1],
         theta_a = torn[2], theta_b = torn[3], force_a = torn[4],
         force_b = torn[5], moment_a = torn[6], moment_b = torn[7],
         joint_poses(io)...)

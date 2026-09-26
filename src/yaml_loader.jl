@@ -517,7 +517,7 @@ yaml_float_or_nan(row, field) = something(yaml_float(row, field), NaN)
     yaml_row_name(row, i)
 
 Name for a YAML row: its `name` field (as a `Symbol`) when present, else the
-1-based row index `i`. Shared by the body/joint loaders so components can be
+1-based row index `i`. Shared by the body/tube loaders so components can be
 referenced either by name or by position.
 """
 yaml_row_name(row, i) =
@@ -649,44 +649,53 @@ function load_yaml_bodies(data, yaml_to_ref)
     return bodies
 end
 
-"""
-    load_yaml_joints(::Type{Joint}, data, key, required, optional; yaml_to_ref)
+"""The tube models a `tubes` row names in its `model` column, and the columns each reads."""
+const YAML_TUBE_MODELS = Dict(
+    "timoshenko" => (TimoshenkoTube, (:EA, :GA, :GJ, :EIy, :EIz, :shear_coeff, :damping)),
+    "elastic" => (ElasticTube, (:stiffness_axial, :stiffness_shear, :stiffness_torsion,
+                                :stiffness_bending, :damping)),
+)
 
-Build two-body joints of type `Joint` from the `key` YAML block (empty when the
-block is absent). Every row needs `body_a`, `body_b` and each `required` scalar;
-`anchor_a`/`anchor_b` (3-vectors) and each `optional` scalar are read when
-present. Shared by the [`TimoshenkoJoint`](@ref) and [`ElasticJoint`](@ref)
-loaders — scalar fields from YAML are linear; callable/nonlinear laws are
-supplied programmatically.
 """
-function load_yaml_joints(::Type{Joint}, data, key, required, optional;
-                          yaml_to_ref) where Joint
-    joints = Joint[]
-    yaml_block_empty(data, key) && return joints
-    for (i, row) in enumerate(parse_table(data[key]))
+    load_yaml_tubes(data, yaml_to_ref) -> Vector{Tube}
+
+Build the [`Tube`](@ref)s of the `tubes` YAML block (empty when it is absent). Every
+row names its two `bodies`, its `diameter`, `pressure` and `law`; `model` picks the
+element from [`YAML_TUBE_MODELS`](@ref) (`timoshenko` when absent) and that model's
+columns are read where present. `anchor_a`/`anchor_b` are the tube ends in each
+body's frame. Rigidities from YAML are linear; callable laws are set in Julia.
+"""
+function load_yaml_tubes(data, yaml_to_ref)
+    tubes = Tube[]
+    yaml_block_empty(data, "tubes") && return tubes
+    for (i, row) in enumerate(parse_table(data["tubes"]))
         name = yaml_row_name(row, i)
-        body_a = yaml_to_ref(yaml_field(row, :body_a))
-        body_b = yaml_to_ref(yaml_field(row, :body_b))
-        (isnothing(body_a) || isnothing(body_b)) &&
-            error("$(nameof(Joint)) $name: requires `body_a` and `body_b`.")
-        kwargs = Dict{Symbol, Any}()
-        for field in required
-            value = yaml_float(row, field)
-            isnothing(value) &&
-                error("$(nameof(Joint)) $name: missing `$field`.")
-            kwargs[field] = value
+        bodies = yaml_field(row, :bodies)
+        (isnothing(bodies) || length(bodies) != 2) &&
+            error("Tube $name: `bodies` must name the two bodies it joins.")
+        for field in (:diameter, :pressure, :law)
+            isnothing(yaml_field(row, field)) && error("Tube $name: missing `$field`.")
         end
+        model_name = string(something(yaml_field(row, :model), "timoshenko"))
+        haskey(YAML_TUBE_MODELS, model_name) || error("Tube $name: model " *
+            "`$model_name` is not one of $(sort(collect(keys(YAML_TUBE_MODELS)))).")
+        model_type, model_fields = YAML_TUBE_MODELS[model_name]
+        model_kwargs = Dict{Symbol, Any}()
+        for field in model_fields
+            value = yaml_float(row, field)
+            isnothing(value) || (model_kwargs[field] = value)
+        end
+        anchors = Dict{Symbol, Any}()
         for field in (:anchor_a, :anchor_b)
             anchor = yaml_vec3(row, field)
-            isnothing(anchor) || (kwargs[field] = anchor)
+            isnothing(anchor) || (anchors[field] = anchor)
         end
-        for field in optional
-            value = yaml_float(row, field)
-            isnothing(value) || (kwargs[field] = value)
-        end
-        push!(joints, Joint(name, body_a, body_b; kwargs...))
+        push!(tubes, Tube(name, yaml_to_ref(bodies[1]), yaml_to_ref(bodies[2]);
+            diameter = yaml_float(row, :diameter), pressure = yaml_float(row, :pressure),
+            law = yaml_field(row, :law), model = model_type(; model_kwargs...),
+            anchors...))
     end
-    return joints
+    return tubes
 end
 
 """
@@ -784,7 +793,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Raw references are passed; SystemStructure resolves them.
             point = call_yaml_constructor(Point, row,
                 [:name, :pos_cad, :type],
-                [:wing, :transform, :body, :joint, :vel_w, :extra_mass,
+                [:wing, :transform, :body, :tube, :vel_w, :extra_mass,
                  :body_frame_damping, :world_frame_damping,
                  :area, :drag_coeff, :fix_sphere, :fix_static];
                 mappings=Dict(
@@ -797,7 +806,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     # A BODY_STATIC/wing node rides a Body; anchor_b is its body-frame offset.
                     :body => row -> haskey(row, :body_idx) ? yaml_to_ref(row.body_idx) :
                         yaml_ref_field(row, :body, yaml_to_ref),
-                    :joint => row -> yaml_ref_field(row, :joint, yaml_to_ref),
+                    :tube => row -> yaml_ref_field(row, :tube, yaml_to_ref),
                     :vel_w => row -> yaml_vec3(row, :vel_w)
                 ))
 
@@ -1079,20 +1088,13 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
-    # Plain rigid bodies + beam/elastic joints (empty when the blocks are absent).
+    # Plain rigid bodies and the tubes between them (empty when the blocks are absent).
     bodies = load_yaml_bodies(data, yaml_to_ref)
-    timoshenko_joints = load_yaml_joints(TimoshenkoJoint, data,
-        "timoshenko_joints", (:EA, :GA, :GJ, :EIy, :EIz),
-        (:shear_coeff, :damping, :rest_length, :radius);
-        yaml_to_ref)
-    elastic_joints = load_yaml_joints(ElasticJoint, data, "elastic_joints",
-        (:stiffness_axial, :stiffness_shear, :stiffness_torsion,
-         :stiffness_bending), (:damping, :radius);
-        yaml_to_ref)
+    tubes = load_yaml_tubes(data, yaml_to_ref)
 
     # The SystemStructure constructor handles WING->STATIC when no wings exist.
     return SystemStructure(system_name, resolved_set; points, stations,
         segments, pulleys, tethers, winches, wings,
-        transforms, bodies, elastic_joints, timoshenko_joints,
+        transforms, bodies, tubes,
         ignore_l0, vsm_set, wind_mode, prn)
 end

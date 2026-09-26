@@ -537,19 +537,19 @@ the air it entrains can slow down. Three cases, and a beam wing has the last two
 
 - a free `DYNAMIC` node integrates itself and takes all of it;
 - a node anchored to a rigid body is placed by that body, which takes all of it;
-- a node riding a `TimoshenkoJoint`'s deformed centerline is placed by the two
-  bodies the joint spans, which split it by where along the element it sits
+- a node riding a `TimoshenkoTube`'s deformed centerline is placed by the two
+  bodies the tube spans, which split it by where along the element it sits
   (`beam_frac`).
 
 Mass left on a node that integrates nothing would never be felt, so a carrier that
 is not the node itself is the whole reason this lookup exists.
 """
 function apparent_mass_carriers(sys_struct, point)
-    if point.joint_idx > 0
-        joint = sys_struct.timoshenko_joints[point.joint_idx]
+    if point.tube_idx > 0
+        tube = sys_struct.tubes[point.tube_idx]
         frac = clamp(point.beam_frac, 0.0, 1.0)
-        return [(sys_struct.bodies[joint.body_a_idx], 1.0 - frac),
-                (sys_struct.bodies[joint.body_b_idx], frac)]
+        return [(sys_struct.bodies[tube.body_a_idx], 1.0 - frac),
+                (sys_struct.bodies[tube.body_b_idx], frac)]
     end
     point.body_idx > 0 && return [(sys_struct.bodies[point.body_idx], 1.0)]
     return [(point, 1.0)]

@@ -25,11 +25,6 @@ const WRENCH_OUTPUTS = [:force_out, :moment_out]
 const JOINT_INPUTS = [:a_pos, :a_frame, :a_com, :a_com_velocity, :a_omega,
                       :b_pos, :b_frame, :b_com, :b_com_velocity, :b_omega]
 const JOINT_OUTPUTS = [:force_a, :moment_a, :force_b, :moment_b]
-"""The joint fields whose equations differ between a `Real` and a callable, so a
-kernel is shared only by joints that agree on them ([`callable_field_key`](@ref))."""
-const ELASTIC_RIGIDITIES = [:stiffness_axial, :stiffness_shear,
-                            :stiffness_torsion, :stiffness_bending]
-const TIMOSHENKO_RIGIDITIES = [:EA, :GA, :GJ, :EIy, :EIz]
 const HERMITE_RIDE_OUTPUTS = [:pos, :vel, :arm_a, :arm_b, :height]
 const HERMITE_WRENCH_INPUTS = [:height, :vel, :arm_a, :arm_b, :force_in,
                                :mass_in, :drag_in]
@@ -74,7 +69,7 @@ How one point is realised: `kind` is `:particle`, `:anchor`, `:pulley`, `:winch`
 `:wing_node`, `:ride` or `:hermite`. A `:pulley` point carries the pulley it splits
 and one of that pulley's segments (whose material gives the rope mass); a `:winch`
 point carries its winch; a `:ride` point carries the body it is anchored to and a
-`:hermite` point the Timoshenko joint whose beam it rides.
+`:hermite` point the Timoshenko tube whose beam it rides.
 """
 struct PointRole
     kind::Symbol
@@ -101,8 +96,8 @@ function classify_points(sys_struct)
                                  station_of(sys_struct, point.idx))
             continue
         end
-        if point.joint_idx > 0
-            roles[i] = PointRole(:hermite, 0, 0, 0, 0, point.joint_idx)
+        if point.tube_idx > 0
+            roles[i] = PointRole(:hermite, 0, 0, 0, 0, point.tube_idx)
             continue
         end
         if point.type == BODY_STATIC
@@ -379,14 +374,8 @@ function assemble(sam; verbose = false)
         connect!(builder, body_instances[body.wing_idx], :vel,
                  body_instances[idx], :wing_velocity)
     end
-    for joint in sys_struct.elastic_joints
-        add_joint!(builder, table, bindings, sam, joint, body_instances,
-                   :elastic_joints, ElasticJointComponent, ELASTIC_RIGIDITIES)
-    end
-    for joint in sys_struct.timoshenko_joints
-        add_joint!(builder, table, bindings, sam, joint, body_instances,
-                   :timoshenko_joints, TimoshenkoJointComponent,
-                   TIMOSHENKO_RIGIDITIES)
+    for tube in sys_struct.tubes
+        add_tube!(builder, table, bindings, sam, tube, body_instances)
     end
     flap_instances = add_flap_deltas!(builder, table, bindings, sam, body_instances,
                                       point_instances)
@@ -1042,8 +1031,8 @@ which is what the incident segments connect to.
 """
 function add_hermite_ride_point!(builder, table, bindings, sam, idx, role, bodies,
                                  wrenches)
-    joint = sam.sys_struct.timoshenko_joints[role.joint_idx]
-    index_map = Dict(:points => idx, :timoshenko_joints => role.joint_idx)
+    tube = sam.sys_struct.tubes[role.joint_idx]
+    index_map = Dict(:points => idx, :tubes => role.joint_idx)
     kinematics = kernel!(builder, table, sam, :hermite_ride_point, idx,
                          params -> HermiteRidePoint(sam, params, idx;
                                                     name = :hermite_ride_point),
@@ -1057,7 +1046,7 @@ function add_hermite_ride_point!(builder, table, bindings, sam, idx, role, bodie
     push!(bindings, (ride, kinematics, index_map))
     push!(bindings, (wrench, statics, index_map))
     wrenches[idx] = wrench
-    for (prefix, body) in ((:a, joint.body_a_idx), (:b, joint.body_b_idx))
+    for (prefix, body) in ((:a, tube.body_a_idx), (:b, tube.body_b_idx))
         for source in (:pos, :frame, :com, :com_velocity)
             connect!(builder, bodies[body], source, ride, Symbol(prefix, :_, source))
         end
@@ -1072,21 +1061,21 @@ function add_hermite_ride_point!(builder, table, bindings, sam, idx, role, bodie
 end
 
 """
-    add_joint!(builder, table, bindings, sam, joint, bodies, container, make)
+    add_tube!(builder, table, bindings, sam, tube, bodies)
 
-Add one body-to-body joint and wire it: both end bodies' poses in, the restoring
-wrench on each back out. `container` names the joint collection its parameters are
-remapped over and `make` builds the component.
+Add one tube and wire it: both end bodies' poses in, the restoring wrench on each
+back out. Its model picks the component ([`tube_kernel`](@ref)); its parameters
+are remapped over `tubes`.
 """
-function add_joint!(builder, table, bindings, sam, joint, bodies, container, make,
-                    rigidity_fields)
-    key = callable_field_key(container, joint, rigidity_fields)
-    entry = kernel!(builder, table, sam, key, joint.idx,
-                    params -> make(sam, params, joint.idx; name = container),
+function add_tube!(builder, table, bindings, sam, tube, bodies)
+    kind, make = tube_kernel(tube.model)
+    key = callable_field_key(kind, tube.model, rigidity_fields(tube.model))
+    entry = kernel!(builder, table, sam, key, tube.idx,
+                    params -> make(sam, params, tube.idx; name = kind),
                     JOINT_INPUTS, JOINT_OUTPUTS)
     instance = add_instance!(builder, entry.index)
-    push!(bindings, (instance, entry, Dict(container => joint.idx)))
-    for (prefix, body) in ((:a, joint.body_a_idx), (:b, joint.body_b_idx))
+    push!(bindings, (instance, entry, Dict(:tubes => tube.idx)))
+    for (prefix, body) in ((:a, tube.body_a_idx), (:b, tube.body_b_idx))
         for (source, target) in ((:pos, :pos), (:frame, :frame), (:com, :com),
                                  (:com_velocity, :com_velocity),
                                  (:omega_w, :omega))
@@ -1099,6 +1088,14 @@ function add_joint!(builder, table, bindings, sam, joint, bodies, container, mak
     end
     return instance
 end
+
+"""
+    tube_kernel(model) -> (kind, make)
+
+The kernel kind a tube model is built as and the component constructor building it.
+"""
+tube_kernel(::ElasticTube) = (:elastic_tube, ElasticTubeComponent)
+tube_kernel(::TimoshenkoTube) = (:timoshenko_tube, TimoshenkoTubeComponent)
 
 """
     add_segment!(builder, table, bindings, sam, idx, role) -> Int

@@ -354,11 +354,11 @@ mutable struct Point
     wing (a member of one of the wing's stations). Set by SystemStructure
     from station membership; drives the wing-node equations."
     is_wing_node::Bool
-    # ---- beam-curvature anchoring (rides a TimoshenkoJoint's deformed centerline) ----
-    "Resolved anchoring TimoshenkoJoint index (filled by SystemStructure). 0 = not beam-anchored."
-    joint_idx::Int64
-    "Raw anchoring TimoshenkoJoint reference (name or idx). 0 = not beam-anchored."
-    const joint_ref::Union{Int, Symbol}
+    # ---- beam-curvature anchoring (rides a TimoshenkoTube's deformed centerline) ----
+    "Resolved anchoring tube index (filled by SystemStructure). 0 = not beam-anchored."
+    tube_idx::Int64
+    "Raw anchoring tube reference (name or idx). 0 = not beam-anchored."
+    const tube_ref::Union{Int, Symbol}
     "Parameter `s ∈ [0,1]` along the beam element (auto-derived from `pos_cad`)."
     beam_frac::SimFloat
     "Perpendicular offset off the centerline in the rest element frame [m] (auto-derived)."
@@ -377,7 +377,7 @@ Constructs a `Point` object, which can be of three different [`DynamicsType`](@r
 - `DYNAMIC`: The point moves according to Newton's second law. ``\\ddot{\\mathbf{r}} = \\mathbf{F}/m``
 - `BODY_STATIC`: The point is static in a [`Body`](@ref)'s body frame; it rides
   the body and feeds its net force and moment into it. Anchor it with `body`,
-  `joint`, or `wing` (a wing is a body, so `wing` rides that wing's own body).
+  `tube`, or `wing` (a wing is a body, so `wing` rides that wing's own body).
   `body` and `wing` may both be set only when `body` is a non-wing body; a `body`
   naming a different wing errors during resolution.
 
@@ -417,26 +417,26 @@ drives the per-point aero and wing-frame fitting.
 """
 function Point(name, pos_cad, type;
     wing=nothing, transform=nothing, vel_w=nothing,
-    body=nothing, anchor_b=nothing, joint=nothing,
+    body=nothing, anchor_b=nothing, tube=nothing,
     extra_mass=0.0, apparent_mass=0.0,
     body_frame_damping=nothing, world_frame_damping=nothing,
     area=0.0, drag_coeff=0.0,
     fix_sphere=false, fix_static=false
 )
     if type == BODY_STATIC
-        (isnothing(body) && isnothing(joint) && isnothing(wing)) && error(
-            "Point $name: BODY_STATIC requires a `body`, a `joint`, or a `wing` " *
+        (isnothing(body) && isnothing(tube) && isnothing(wing)) && error(
+            "Point $name: BODY_STATIC requires a `body`, a `tube`, or a `wing` " *
             "reference (a wing is a body, so `wing` rides that wing's body).")
     elseif !isnothing(body)
         error("Point $name: `body` is only valid with type BODY_STATIC.")
     end
-    (!isnothing(body) && !isnothing(joint)) && error(
-        "Point $name: set either `body` (rigid rider) or `joint` (beam rider), " *
+    (!isnothing(body) && !isnothing(tube)) && error(
+        "Point $name: set either `body` (rigid rider) or `tube` (beam rider), " *
         "not both.")
-    (!isnothing(joint) && type != BODY_STATIC) && error(
-        "Point $name: `joint` (beam anchoring) requires type BODY_STATIC.")
+    (!isnothing(tube) && type != BODY_STATIC) && error(
+        "Point $name: `tube` (beam anchoring) requires type BODY_STATIC.")
     body_ref = isnothing(body) ? 0 : body
-    joint_ref = isnothing(joint) ? 0 : joint
+    tube_ref = isnothing(tube) ? 0 : tube
     wing_ref = isnothing(wing) ? 0 : wing
     transform_ref = isnothing(transform) ? 0 : transform
     anchor = isnothing(anchor_b) ? zeros(KVec3) : KVec3(anchor_b...)
@@ -466,7 +466,7 @@ function Point(name, pos_cad, type;
         type, extra_mass, 0.0, apparent_mass,
         bf_damp, wf_damp, area, drag_coeff,
         fix_sphere, fix_static, false,
-        0, joint_ref, 0.0, zeros(KVec3))
+        0, tube_ref, 0.0, zeros(KVec3))
 end
 
 # ==================== STATION ==================== #

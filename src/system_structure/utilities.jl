@@ -254,34 +254,34 @@ function tether_anchor_free(tether, boundary)
 end
 
 """
-    anchor_body_idxs(point, timoshenko_joints) -> Tuple
+    anchor_body_idxs(point, tubes) -> Tuple
 
 Body indices whose placement carries `point`: the node `Body` it rides
-(`body_idx`), both ends of the beam element it rides (`joint_idx`, a
+(`body_idx`), both ends of the beam element it rides (`tube_idx`, a
 `BODY_STATIC` point on a Timoshenko centerline), or the body of the
 `RIGID_DYNAMICS` wing it is a node of (`wing_idx`, since wings are bodies).
 Empty for a point that stands free.
 """
-function anchor_body_idxs(point, timoshenko_joints)
+function anchor_body_idxs(point, tubes)
     point.body_idx != 0 && return (point.body_idx,)
-    if point.joint_idx != 0
-        joint = timoshenko_joints[point.joint_idx]
-        return (joint.body_a_idx, joint.body_b_idx)
+    if point.tube_idx != 0
+        tube = tubes[point.tube_idx]
+        return (tube.body_a_idx, tube.body_b_idx)
     end
     (point.is_wing_node && point.wing_idx != 0) && return (point.wing_idx,)
     return ()
 end
 
 """
-    beam_body_neighbors(joint_collections...) -> Dict{Int64, Vector{Int64}}
+    beam_body_neighbors(tubes) -> Dict{Int64, Vector{Int64}}
 
 Adjacency of the beam graph: each body index mapped to the bodies it shares a
-joint with, over every joint in each collection.
+tube with.
 """
-function beam_body_neighbors(joint_collections...)
+function beam_body_neighbors(tubes)
     neighbors = Dict{Int64, Vector{Int64}}()
-    for joints in joint_collections, joint in joints
-        body_a, body_b = joint.body_a_idx, joint.body_b_idx
+    for tube in tubes
+        body_a, body_b = tube.body_a_idx, tube.body_b_idx
         (body_a == 0 || body_b == 0) && continue
         push!(get!(neighbors, body_a, Int64[]), body_b)
         push!(get!(neighbors, body_b, Int64[]), body_a)
@@ -318,17 +318,17 @@ function translated_body_idxs(seeds, bodies, body_neighbors)
 end
 
 """
-    rigid_point_siblings(points, wings, timoshenko_joints, root)
+    rigid_point_siblings(points, wings, tubes, root)
 
 Map each point index that rides a rigid structure to the set of all points
 sharing it, so downstream traversal moves them as one unit. Which bodies carry a
 point comes from [`anchor_body_idxs`](@ref); `root` (from
-[`connected_body_groups`](@ref)) collapses bodies tied by beam joints into one
-component, so all points riding any body in a joint-connected chain are
+[`connected_body_groups`](@ref)) collapses bodies tied by tubes into one
+component, so all points riding any body in a tube-connected chain are
 siblings. This is how the two halves of a beam wing — bridged only through the
 beam, not by inter-point segments — are recognised as one structure.
 """
-function rigid_point_siblings(points, wings, timoshenko_joints, root)
+function rigid_point_siblings(points, wings, tubes, root)
     siblings = Dict{Int64, Set{Int64}}()
     for wing in wings
         wing.dynamics_type == RIGID_DYNAMICS || continue
@@ -342,7 +342,7 @@ function rigid_point_siblings(points, wings, timoshenko_joints, root)
     body_members = Dict{Int64, Set{Int64}}()
     for point in points
         (point.type == BODY_STATIC || point.is_wing_node) || continue
-        for body_idx in anchor_body_idxs(point, timoshenko_joints)
+        for body_idx in anchor_body_idxs(point, tubes)
             push!(get!(body_members, root[body_idx], Set{Int64}()), point.idx)
         end
     end
@@ -462,7 +462,7 @@ end
 
 """
     apply_cluster_init_stretched_len!(cluster, points, segments, bodies,
-                                      timoshenko_joints, body_neighbors,
+                                      tubes, body_neighbors,
                                       downstream, boundary; prn=true)
 
 Reposition one cluster of root tethers so each sits at its
@@ -478,7 +478,7 @@ by [`translated_body_idxs`](@ref) so bodies that carry no point of their own do
 not stay behind.
 """
 function apply_cluster_init_stretched_len!(
-    cluster, points, segments, bodies, timoshenko_joints, body_neighbors,
+    cluster, points, segments, bodies, tubes, body_neighbors,
     downstream, boundary; prn=true)
     snaps = map(cluster) do tether
         anchor_idx, free_idx = tether_anchor_free(tether, boundary)
@@ -524,7 +524,7 @@ function apply_cluster_init_stretched_len!(
     # Move the body, not its points: the pos~anchor constraint would snap them back.
     seeds = Set{Int64}()
     for idx in moved
-        union!(seeds, anchor_body_idxs(points[idx], timoshenko_joints))
+        union!(seeds, anchor_body_idxs(points[idx], tubes))
     end
     for body_idx in translated_body_idxs(seeds, bodies, body_neighbors)
         bodies[body_idx].pos_w .+= delta
@@ -568,12 +568,10 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
     isempty(specified) && return
 
     bodies = sys_struct.bodies
-    timoshenko_joints = sys_struct.timoshenko_joints
-    body_neighbors = beam_body_neighbors(sys_struct.elastic_joints,
-                                         timoshenko_joints)
-    root = connected_body_groups(length(bodies), sys_struct.elastic_joints,
-                                 timoshenko_joints)
-    rigid_siblings = rigid_point_siblings(points, wings, timoshenko_joints, root)
+    tubes = sys_struct.tubes
+    body_neighbors = beam_body_neighbors(tubes)
+    root = connected_body_groups(length(bodies), tubes)
+    rigid_siblings = rigid_point_siblings(points, wings, tubes, root)
 
     # Boundary = externally world-fixed points: STATIC, winch, and BODY_STATIC carried
     # only by STATIC bodies.
@@ -581,7 +579,7 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
     for point in points
         point.type == STATIC && push!(boundary, point.idx)
         point.type == BODY_STATIC || continue
-        carriers = anchor_body_idxs(point, timoshenko_joints)
+        carriers = anchor_body_idxs(point, tubes)
         isempty(carriers) && continue
         all(bodies[body_idx].type == STATIC for body_idx in carriers) &&
             push!(boundary, point.idx)
@@ -620,7 +618,7 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
 
     for cluster in station_tethers_by_overlap(specified, reach)
         apply_cluster_init_stretched_len!(cluster, points, segments, bodies,
-                                          timoshenko_joints, body_neighbors,
+                                          tubes, body_neighbors,
                                           downstream, boundary; prn)
     end
 end
@@ -670,7 +668,7 @@ end
     set_unstretched_length!(sys_struct::SystemStructure, tether::Tether, len)
 
 Set `tether`'s unstretched length [m] and share it equally over its segments'
-`l0`. Point positions, body poses, joint rest geometry and station flap
+`l0`. Point positions, body poses, tube rest geometry and station flap
 references are left as they are.
 """
 function set_unstretched_length!(sys_struct::SystemStructure, tether::Tether, len)
@@ -833,12 +831,11 @@ end
 """
     init_rest_geometry!(sys_struct::SystemStructure)
 
-Capture every joint's rest configuration and every flap station's rest deflection
+Capture every tube's rest configuration and every flap station's rest deflection
 from the current body poses, so the placed structure is unstrained.
 """
 function init_rest_geometry!(sys_struct::SystemStructure)
-    init_joint_rest!.(sys_struct.elastic_joints, Ref(sys_struct.bodies))
-    init_joint_rest!.(sys_struct.timoshenko_joints, Ref(sys_struct.bodies))
+    init_tube_rest!.(sys_struct.tubes, Ref(sys_struct.bodies))
     init_station_flap!.(sys_struct.stations, Ref(sys_struct))
     return nothing
 end
@@ -1247,7 +1244,7 @@ body's own axes and damped per axis, `dω/dt -= c .* ω`, so `[0, 20, 0]` resist
 rotation about the body `y` axis alone. Coefficients are [1/s]; a scalar applies
 to all three axes.
 
-Unlike the joint Rayleigh damping this resists the body's *absolute* spin, so it
+Unlike the tube Rayleigh damping this resists the body's *absolute* spin, so it
 brakes rigid rotation of whatever the body belongs to as well as deformation.
 """
 set_angular_damping(bodies::AbstractVector, damping::Union{Real, AbstractVector},
