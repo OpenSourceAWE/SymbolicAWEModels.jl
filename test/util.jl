@@ -216,6 +216,27 @@ function test_init!(
 end
 
 """
+    load_2plate_particle_sys(system_name) -> SystemStructure
+
+The 2plate kite's particle `SystemStructure`, loaded from a scratch copy of
+`data/2plate_kite`; the global data path is left as it was.
+"""
+function load_2plate_particle_sys(system_name)
+    data_path = joinpath(mktempdir(), "2plate_kite")
+    cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path)
+    data_path_before = get_data_path()
+    set_data_path(data_path)
+    set = Settings("system.yaml")
+    vsm_set = SymbolicAWEModels.VortexStepMethod.VSMSettings(
+        joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
+    sys = load_sys_struct_from_yaml(
+        joinpath(data_path, "particle_structural_geometry.yaml");
+        system_name, set, vsm_set)
+    set_data_path(data_path_before)
+    return sys
+end
+
+"""
     scalar_equation_pairs(eq) -> Vector{Tuple}
 
 `eq` as scalar `(left, right)` pairs, splitting an array-valued equation into one
