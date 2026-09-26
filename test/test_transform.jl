@@ -417,7 +417,6 @@ using LinearAlgebra
         kite_angle = deg2rad(3.83)
         set_c, sys_c = build_plate_kite(tmpdir; name="chained_test",
             azimuth=deg2rad(10.0), tilt=kite_angle)
-        elev = deg2rad(set_c.elevation)
         sam_c = SymbolicAWEModel(set_c, sys_c)
         init!(sam_c)
 
@@ -511,6 +510,7 @@ using LinearAlgebra
         @testset "Different child elevation changes pos" begin
             sys = sam_c.sys_struct
             tf_child = sys.transforms[:kite_tilt]
+            elev = tf_child.elevation - kite_angle
 
             # Elevation 1
             tf_child.elevation = elev + kite_angle
