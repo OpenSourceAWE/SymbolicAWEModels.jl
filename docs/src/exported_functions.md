@@ -43,7 +43,8 @@ joints as one `headers`/`data` table per block, conforming to awesIO's
 `structure_schema.yml`. YAML and JSON are two encodings of the one document, and
 the file extension picks between them. The document is structure only: the
 transforms that place the system in the world and the live state do not survive a
-round trip. A log saved with the system that ran carries the document in its metadata.
+round trip. `save_log(logger, sys, name)` writes a log that carries the document as
+JSON under the metadata key `topology`.
 
 ```@docs
 structure_document

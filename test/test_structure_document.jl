@@ -86,6 +86,7 @@ end
         joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
     schema = Schema(YAML.load_file(joinpath(@__DIR__, "data",
                                             "structure_schema.yml")))
+    golden = YAML.load_file(joinpath(@__DIR__, "data", "2plate_kite_structure.yml"))
     tmpdir = mktempdir()
 
     @testset "connectivity_sha hashes the preimage the schema documents" begin
@@ -99,8 +100,7 @@ end
         document = structure_document(two_plate_kite(set, vsm_set);
             description=GOLDEN_DESCRIPTION, note=GOLDEN_NOTE)
         @test isnothing(JSONSchema.validate(schema, document))
-        @test YAML.load_file(joinpath(@__DIR__, "data",
-                                      "2plate_kite_structure.yml")) == document
+        @test golden == document
     end
 
     @testset "the 2plate kite round-trips through $extension" for
@@ -168,9 +168,8 @@ end
         run_log = load_log("2plate_kite_run"; path=tmpdir)
         topology = JSON.parse(run_log.metadata["topology"])
         @test isnothing(JSONSchema.validate(schema, topology))
-        endpoints = [segment.point_idxs for segment in sys.segments]
         @test topology["metadata"]["connectivity_sha"] ==
-              SymbolicAWEModels.connectivity_sha(length(sys.points), endpoints)
+              golden["metadata"]["connectivity_sha"]
         @test length(run_log.syslog) == 3
     end
 
