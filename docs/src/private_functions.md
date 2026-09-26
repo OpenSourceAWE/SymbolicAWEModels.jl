@@ -251,7 +251,9 @@ SymbolicAWEModels.finalize_particle_wing_mass!
 SymbolicAWEModels.compute_station_geometry!
 SymbolicAWEModels.setup_particle_point_mapping!
 SymbolicAWEModels.identify_wing_segments
+SymbolicAWEModels.section_span
 SymbolicAWEModels.check_span_order
+SymbolicAWEModels.check_aero_frame
 SymbolicAWEModels.match_aero_sections_to_structure!
 SymbolicAWEModels.compute_spatial_station_mapping!
 SymbolicAWEModels.share_body_mass!
@@ -338,6 +340,7 @@ SymbolicAWEModels.attach_engine!
 SymbolicAWEModels.resize_aero_state!
 SymbolicAWEModels.init_aero_state!
 SymbolicAWEModels.normalized_inertia
+SymbolicAWEModels.has_mesh_inertia
 SymbolicAWEModels.normalized_point_inertia
 SymbolicAWEModels.n_aero_log_points
 SymbolicAWEModels.write_aero_log_points!

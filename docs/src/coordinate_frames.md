@@ -44,6 +44,12 @@ defined, whether in a YAML file or via Julia constructors.
   origin point position (PARTICLE_DYNAMICS) during construction
 - VSM panel positions start in the CAD frame and are transformed to
   the body frame during construction
+- A VSM wing's structure and its aerodynamic geometry must share one
+  CAD frame: construction errors, naming the wing, when a station node
+  or the mesh COM lies outside the sections' bounding box (grown by 10 %
+  of its largest side), or when the span from `y_ref_points` lies more
+  than 5° from the sections' span ([`check_aero_frame`](@ref
+  SymbolicAWEModels.check_aero_frame))
 
 ## Transform: CAD to World Initial Positioning
 

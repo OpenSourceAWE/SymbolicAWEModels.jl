@@ -95,17 +95,64 @@ function identify_wing_segments(
 end
 
 """
+    section_span(vsm_wing)
+
+Vector from the last unrefined section's leading edge to the first's.
+"""
+section_span(vsm_wing) = first(vsm_wing.unrefined_sections).LE_point -
+    last(vsm_wing.unrefined_sections).LE_point
+
+"""
     check_span_order(wing)
 
 Error unless the wing's unrefined VSM sections run from +y to -y: the first section's
 leading edge lies further along `spanwise_direction` than the last one's.
 """
 function check_span_order(wing)
-    sections = wing.vsm_wing.unrefined_sections
-    span = first(sections).LE_point - last(sections).LE_point
-    dot(span, wing.vsm_wing.spanwise_direction) >= 0 || error(
+    dot(section_span(wing.vsm_wing), wing.vsm_wing.spanwise_direction) >= 0 || error(
         "Wing $(wing.name): its aerodynamic sections run from -y to +y. " *
         "Order the sections and the structural stations from +y to -y.")
+    return nothing
+end
+
+const AERO_FRAME_BOX_MARGIN = 0.1
+const AERO_FRAME_MAX_SPAN_ANGLE = 5.0
+
+"""
+    check_aero_frame(wing, points)
+
+Error unless the wing's structure and its unrefined VSM sections share one CAD frame:
+its station nodes, and its mesh COM where one is seeded, lie inside the sections'
+bounding box grown on every side by `AERO_FRAME_BOX_MARGIN` of its largest side, and
+the span from its `y_ref_points` lies within `AERO_FRAME_MAX_SPAN_ANGLE` [°] of the
+[`section_span`](@ref).
+"""
+function check_aero_frame(wing, points)
+    sections = wing.vsm_wing.unrefined_sections
+    edges = reduce(hcat, [edge for section in sections
+                          for edge in (section.LE_point, section.TE_point)])
+    low, high = vec(minimum(edges; dims=2)), vec(maximum(edges; dims=2))
+    margin = AERO_FRAME_BOX_MARGIN * maximum(high - low)
+    low, high = low .- margin, high .+ margin
+    located = ["point $(point.name)" => point.pos_cad for point in points
+               if point.is_wing_node && point.wing_idx == wing.idx]
+    has_mesh_inertia(wing.vsm_wing) &&
+        push!(located, "its COM" => -wing.vsm_wing.T_cad_body)
+    for (name, pos) in located
+        all(low .<= pos .<= high) || error(
+            "Wing $(wing.name): $name at $pos lies outside its aerodynamic sections' " *
+            "bounding box $low .. $high. Give the structure and the aerodynamic " *
+            "geometry the same CAD frame.")
+    end
+    isnothing(wing.y_ref_points) && return nothing
+    y_ref = [get_ref_position_from_points(points, ref; field=:pos_cad)
+             for ref in wing.y_ref_points]
+    span = normalize(section_span(wing.vsm_wing))
+    angle = acosd(clamp(dot(normalize(y_ref[2] - y_ref[1]), span), -1, 1))
+    angle <= AERO_FRAME_MAX_SPAN_ANGLE || error(
+        "Wing $(wing.name): the span from its y_ref_points lies " *
+        "$(round(angle; digits=1))° from its aerodynamic sections' span. " *
+        "Give the structure and the aerodynamic geometry the same CAD frame.")
     return nothing
 end
 
