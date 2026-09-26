@@ -125,6 +125,9 @@ function build_test_syslog(sam, sys, n_steps, dt)
     return load_log("makie_test_log")
 end
 
+"Blue for `seg1`, red for every other segment."
+seg1_blue(segment) = segment.name == :seg1 ? :blue : :red
+
 @testset "Makie Extension" begin
     tmpdir = mktempdir()
     yaml_path = joinpath(tmpdir, "particle_structural_geometry.yaml")
@@ -164,6 +167,16 @@ end
     @testset "Multi-system plot vector colors" begin
         scene = MakieControlPlots.plot([sys1, sys2]; use_observables=true)
         @test scene isa GLMakie.Scene
+    end
+
+    @testset "segment_color takes one colour per segment, or a function of it" begin
+        red, blue = GLMakie.to_color(:red), GLMakie.to_color(:blue)
+        plots = GLMakie.plot!(GLMakie.Scene(), sys1; segment_color=[:red, :blue])
+        @test plots[:segment_colors_obs][] == [red, blue]
+        plots = GLMakie.plot!(GLMakie.Scene(), sys1; segment_color=seg1_blue)
+        @test plots[:segment_colors_obs][] == [blue, red]
+        @test_throws ArgumentError GLMakie.plot!(GLMakie.Scene(), sys1;
+            segment_color=[:red])
     end
 
     # ================================================================
@@ -228,6 +241,13 @@ end
         # Starting the replay with the box ticked needs no click.
         replay(lg2, sys2; force_color=true)
         @test !allequal(ext.PLOT_SEGMENT_COLORS_OBS[][])
+
+        # Unticking goes back to the colours the replay was given.
+        replay(lg2, sys2; segment_color=[:red, :blue])
+        ext.apply_view_toggle!(:segment_colors_obs, true)
+        ext.apply_view_toggle!(:segment_colors_obs, false)
+        @test ext.PLOT_SEGMENT_COLORS_OBS[][] ==
+            GLMakie.to_color.([:red, :blue])
     end
 
     # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
