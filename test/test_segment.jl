@@ -724,7 +724,7 @@ system:
     # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
 end
 
-@testset "segment_role tells winched and unwinched tethers, wing and free segments apart" begin
+@testset "segment_role tells winched and unwinched tethers, wing and free apart" begin
     data_path = joinpath(mktempdir(), "2plate_kite")
     cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path)
     data_path_before = get_data_path()
