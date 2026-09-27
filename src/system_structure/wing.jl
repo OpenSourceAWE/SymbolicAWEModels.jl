@@ -361,7 +361,8 @@ it to the wing.
 
 # Keyword Arguments
 - `transform=nothing`: Reference to the transform. Defaults to 1.
-- `R_b_to_c`, `pos_cad`, `inertia_diag`: Geometry placeholders (resolved later).
+- `R_b_to_c`, `pos_cad`, `inertia_diag`: Placeholders that [`SystemStructure`](@ref)
+  overwrites from the wing's points and mesh.
 - `extra_mass`, `com`, `unit_inertia`: the wing body's own mass [kg], COM and
   per-unit-mass inertia, without its points (see [`Body`](@ref)); `com` and
   `unit_inertia` default to the `.obj` mesh's.

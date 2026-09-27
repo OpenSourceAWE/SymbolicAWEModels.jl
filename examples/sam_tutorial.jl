@@ -13,7 +13,7 @@ if Base.active_project() != joinpath(@__DIR__, "Project.toml")
 end
 
 using KiteUtils: init!, next_step!, update_sys_state!
-using SymbolicAWEModels, VortexStepMethod, LinearAlgebra
+using SymbolicAWEModels, VortexStepMethod
 using SymbolicAWEModels: Point
 
 set_data_path("data/2plate_kite")
@@ -118,8 +118,7 @@ for (i, y) in enumerate([-1.0, 0.0, 1.0])
     push!(stations, Station(i, [n + 1, n + 2], DYNAMIC, 0.25))
 end
 
-wings = [VSMWing(1, set, eachindex(stations), vsm_set;
-    R_b_to_c=I(3), pos_cad=[0.5, 0, wing_z])]
+wings = [VSMWing(1, set, eachindex(stations), vsm_set)]
 
 sys = SystemStructure("wing", set;
     points, stations, segments, tethers, winches, pulleys,
