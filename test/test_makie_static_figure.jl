@@ -27,7 +27,8 @@ import MakieControlPlots
 @testset "plot! draws a system into a CairoMakie Axis3 that saves as a vector PDF" begin
     sys = load_2plate_particle_sys("2plate_segment_role")
 
-    role_colors = (wing=:black, bridle=:steelblue, tether=:darkorange)
+    role_colors = (wing=:black, free=:steelblue, unwinched_tether=:seagreen,
+                   winched_tether=:darkorange)
     role_color(segment) = role_colors[segment_role(sys, segment)]
     fig = CairoMakie.Figure(size=(600, 500))
     ax = CairoMakie.Axis3(fig[1, 1]; aspect=:data,
@@ -43,7 +44,7 @@ import MakieControlPlots
     @test plots[:segments] in ax.scene.plots
     @test plots[:segment_colors_obs][] == CairoMakie.to_color.(role_color.(sys.segments))
     @test [entry.label[] for entry in only(legend.entrygroups[])[2]] ==
-        ["wing", "bridle", "tether"]
+        ["wing", "free", "unwinched_tether", "winched_tether"]
     pdf = read(pdf_path, String)
     @test startswith(pdf, "%PDF")
     @test !occursin("/Subtype /Image", pdf)

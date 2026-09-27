@@ -164,10 +164,11 @@ Remaining keywords are forwarded to `plot!`, including:
 - `aero_mapping::Bool=false`: Overlay the [`AeroPressure`](@ref) station→point map
 - `linewidth`, `point_size`, `beam_color`, `airfoil_color`, …: Styling
 
-To tell the wing from the bridle and the tethers, colour the segments by
+To tell the wing from the tethers and the free segments, colour the segments by
 [`segment_role`](@ref):
 ```julia
-role_colors = (wing=:black, bridle=:steelblue, tether=:darkorange)
+role_colors = (wing=:black, free=:steelblue, unwinched_tether=:seagreen,
+               winched_tether=:darkorange)
 plot(sys; segment_color=segment -> role_colors[segment_role(sys, segment)])
 ```
 
@@ -191,7 +192,8 @@ using SymbolicAWEModels, CairoMakie
 import MakieControlPlots
 CairoMakie.activate!()
 
-role_colors = (wing=:black, bridle=:steelblue, tether=:darkorange)
+role_colors = (wing=:black, free=:steelblue, unwinched_tether=:seagreen,
+               winched_tether=:darkorange)
 fig = Figure(size=(600, 500))
 ax = Axis3(fig[1, 1]; aspect=:data, xlabel="x [m]", ylabel="y [m]", zlabel="z [m]")
 plot!(ax, sys; segment_color=segment -> role_colors[segment_role(sys, segment)],

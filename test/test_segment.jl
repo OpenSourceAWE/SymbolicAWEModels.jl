@@ -724,14 +724,29 @@ system:
     # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
 end
 
-@testset "segment_role tells wing, bridle and tether segments apart" begin
+@testset "segment_role tells winched and unwinched tethers, wing and free segments apart" begin
     sys = load_2plate_particle_sys("2plate_segment_role")
+    set = sys.set
     roles = Dict(segment.name => segment_role(sys, segment) for segment in sys.segments)
     @test roles[:strut_left] == roles[:diag_1] == :wing
-    @test roles[:le_left] == roles[:kcu_steering_right] == :bridle
-    @test roles[:main_tether_seg_1] == roles[:main_tether_seg_6] == :tether
+    @test roles[:le_left] == roles[:kcu_steering_right] == :free
+    @test roles[:main_tether_seg_1] == roles[:main_tether_seg_6] == :winched_tether
     @test count(==(:wing), values(roles)) == 11
-    @test count(==(:bridle), values(roles)) == 10
-    @test count(==(:tether), values(roles)) == 6
+    @test count(==(:free), values(roles)) == 10
+    @test count(==(:winched_tether), values(roles)) == 6
+
+    points = [Point(:ground, [0.0, 0.0, 0.0], STATIC),
+              Point(:knot, [0.0, 0.0, 10.0], DYNAMIC),
+              Point(:line_end, [5.0, 0.0, 0.0], DYNAMIC),
+              Point(:loose_end, [-1.0, 0.0, 11.0], DYNAMIC)]
+    segments = [Segment(:main, :ground, :knot, 1e4, 10.0, 0.01),
+                Segment(:line, :ground, :line_end, 1e4, 10.0, 0.01),
+                Segment(:loose, :knot, :loose_end, 1e4, 10.0, 0.01)]
+    tethers = [Tether(:main_tether, [:main], 10.0), Tether(:line_tether, [:line], 5.0)]
+    winches = [Winch(:winch, set, [:main_tether]; winch_point=:ground)]
+    sys = SystemStructure("segment_role_tethers", set; points, segments, tethers,
+                          winches)
+    @test [segment_role(sys, segment) for segment in sys.segments] ==
+          [:winched_tether, :unwinched_tether, :free]
 end
 nothing
