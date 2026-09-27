@@ -724,7 +724,7 @@ system:
     # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
 end
 
-@testset "segment_role tells winched and unwinched tethers, wing and free segments apart" begin
+@testset "segment_role tells winched and unwinched tethers, wing and free apart" begin
     sys = load_2plate_particle_sys("2plate_segment_role")
     set = sys.set
     roles = Dict(segment.name => segment_role(sys, segment) for segment in sys.segments)
