@@ -304,6 +304,23 @@ function wing_structural_segment(sys_struct, idx)
 end
 
 """
+    segment_role(sys_struct, segment) -> Symbol
+
+What `segment` is in the system: `:winched_tether` when it is in a tether a winch reels,
+`:unwinched_tether` when it is in a tether no winch reels, `:wing` when it is a
+[`wing_structural_segment`](@ref), and `:free` otherwise.
+"""
+function segment_role(sys_struct, segment)
+    for tether in sys_struct.tethers
+        segment.idx in tether.segment_idxs || continue
+        winched = any(tether.idx in winch.tether_idxs for winch in sys_struct.winches)
+        return winched ? :winched_tether : :unwinched_tether
+    end
+    wing_structural_segment(sys_struct, segment.idx) && return :wing
+    return :free
+end
+
+"""
     segment_spring_params(params, idx; with_drag=true)
 
 The spring-damper parameters read from `params.segments[idx]` (stiffness, damping,
