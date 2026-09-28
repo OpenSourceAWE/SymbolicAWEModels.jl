@@ -83,7 +83,7 @@ as well, keeping only the geometry.
 - `points`, `segments`, `pulleys`, `tethers`, `bodies`: System components.
 - `pos`, `vel`: Symbolic point state variables.
 - `wind_vec_gnd`: Symbolic ground-level wind vector.
-- `wind_at_point`: Per-point wind, which a [`PerPointWind`](@ref) segment averages
+- `wind_at_point`: Per-point wind, which a [`PrescribedWind`](@ref) segment averages
   over its two endpoints instead of evaluating a height profile at its midpoint.
 - `spring_force_vec`, `drag_force`, `l0`: Pre-declared segment force variables.
 - `pulley_len`, `tether_len`: Symbolic state variables for pulley and tether lengths.

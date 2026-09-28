@@ -147,3 +147,4 @@ environment:
                              # Cabauw: 8.5863 m/s * 5.0 = 42.9 m/s
     height_step: 2.0         # use a grid with 2m resolution in z direction                                 [m]
     grid_step:   2.0         # grid resolution in x and y direction                                         [m]               
+    grid: [4050, 100, 500, 70] # wind field size nx, ny, nz and minimal height z_min            [m]

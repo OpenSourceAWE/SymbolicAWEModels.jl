@@ -29,11 +29,19 @@ keep_along(vector, axis) = (vector ⋅ axis) .* axis
     WindMode
 
 Where a model takes its wind from, chosen once per [`SystemStructure`](@ref) through
-its `wind_mode` field and baked into the equations: [`ProfileWind`](@ref) or
-[`PerPointWind`](@ref). A further mode adds a `wind_source` method per consumer
-rather than a branch inside one.
+its `wind_mode` field and baked into the equations: [`ProfileWind`](@ref),
+[`PerPointWind`](@ref) or [`TurbulentWind`](@ref). A further mode adds a
+`wind_source` method per consumer rather than a branch inside one.
 """
 abstract type WindMode end
+
+"""
+    PrescribedWind
+
+A [`WindMode`](@ref) in which every point's and wing's `wind_vec` is a parameter written
+between steps rather than an output of the height profile.
+"""
+abstract type PrescribedWind <: WindMode end
 
 """
     ProfileWind()
@@ -52,13 +60,30 @@ segment takes the mean of its two endpoints' winds and a wing reads its own
 `wing.wind_vec`; `set.profile_law` is unused. `reinit!` seeds every point and wing
 with `set.wind_vec`, so a model that is never written to flies in a uniform wind.
 """
-struct PerPointWind <: WindMode end
+struct PerPointWind <: PrescribedWind end
+
+"""
+    TurbulentWind()
+
+Wind mode in which every point and wing flies in the turbulent wind field of
+`AtmosphericModels` at its own position: the winds of [`PerPointWind`](@ref), written by
+[`update_turbulent_wind!`](@ref) at the start of every step and held through it. The mean
+wind points along `set.upwind_dir` and `set.upwind_elevation`; with
+`set.use_turbulence == 0` it is all there is.
+"""
+struct TurbulentWind <: PrescribedWind
+    "positions the field is sampled at, the points' then the wings' [m]"
+    positions::Vector{SVec3}
+    "wind at `positions`, world frame [m/s]"
+    winds::Vector{SVec3}
+end
+TurbulentWind() = TurbulentWind(SVec3[], SVec3[])
 
 """The [`WindMode`](@ref) of the structure a build-time `params` view reads."""
 wind_mode(params) = params.reg.sys_struct.wind_mode
 
-"""Whether `sys_struct` takes its wind per point ([`PerPointWind`](@ref))."""
-per_point_wind(sys_struct) = sys_struct.wind_mode isa PerPointWind
+"""Whether `sys_struct` takes its wind per point ([`PrescribedWind`](@ref))."""
+per_point_wind(sys_struct) = sys_struct.wind_mode isa PrescribedWind
 
 """
     AbstractWindSource
@@ -86,9 +111,9 @@ end
 """
     PrescribedWindSource(wind)
 
-A wind expression that does not depend on height — under [`PerPointWind`](@ref) the
-component's own wind parameter, or an expression in the winds of the points it spans.
-The height it is asked for is ignored.
+A wind expression that does not depend on height — under a [`PrescribedWind`](@ref)
+mode the component's own wind parameter, or an expression in the winds of the points
+it spans. The height it is asked for is ignored.
 """
 struct PrescribedWindSource{V} <: AbstractWindSource
     wind::V
@@ -110,21 +135,21 @@ profile_wind_source(params, ground) =
 """
     point_wind_source(params, idx, ground=nothing)
 
-The wind source of point `idx`: its own `wind_vec` parameter under
-[`PerPointWind`](@ref), else the height profile.
+The wind source of point `idx`: its own `wind_vec` parameter under a
+[`PrescribedWind`](@ref) mode, else the height profile.
 """
 point_wind_source(params, idx, ground = nothing) =
     point_wind_source(wind_mode(params), params, idx, ground)
 point_wind_source(::ProfileWind, params, idx, ground) =
     profile_wind_source(params, ground)
-point_wind_source(::PerPointWind, params, idx, ground) =
+point_wind_source(::PrescribedWind, params, idx, ground) =
     PrescribedWindSource(collect(params.points[idx].wind_vec))
 
 """
     wing_wind_source(params, idx, ground=nothing)
 
-The wind source of wing `idx`: its own `wind_vec` parameter under
-[`PerPointWind`](@ref), else the height profile. This is the wind a rigid wing's
+The wind source of wing `idx`: its own `wind_vec` parameter under a
+[`PrescribedWind`](@ref) mode, else the height profile. This is the wind a rigid wing's
 aerodynamics fly in; the per-point winds reach the VSM panels through
 [`AeroInflowPoint`](@ref) instead.
 """
@@ -132,14 +157,14 @@ wing_wind_source(params, idx, ground = nothing) =
     wing_wind_source(wind_mode(params), params, idx, ground)
 wing_wind_source(::ProfileWind, params, idx, ground) =
     profile_wind_source(params, ground)
-wing_wind_source(::PerPointWind, params, idx, ground) =
+wing_wind_source(::PrescribedWind, params, idx, ground) =
     PrescribedWindSource(collect(params.wings[idx].wind_vec))
 
 """
     segment_wind_source(params, idx, src_wind, dst_wind, ground=nothing)
 
 The wind source of segment `idx`: the mean of the winds at its two endpoints under
-[`PerPointWind`](@ref) — the same averaging its drag already applies to their
+a [`PrescribedWind`](@ref) mode — the same averaging its drag already applies to their
 velocities — else the height profile at its midpoint. `src_wind`/`dst_wind` are the
 endpoint winds as each backend addresses them and are unused under
 [`ProfileWind`](@ref).
@@ -148,21 +173,21 @@ segment_wind_source(params, idx, src_wind, dst_wind, ground = nothing) =
     segment_wind_source(wind_mode(params), params, idx, src_wind, dst_wind, ground)
 segment_wind_source(::ProfileWind, params, idx, src_wind, dst_wind, ground) =
     profile_wind_source(params, ground)
-segment_wind_source(::PerPointWind, params, idx, src_wind, dst_wind, ground) =
+segment_wind_source(::PrescribedWind, params, idx, src_wind, dst_wind, ground) =
     PrescribedWindSource(0.5 .* (collect(src_wind) .+ collect(dst_wind)))
 
 """
     segment_wind_params(params, idx, with_drag) -> (wind_source, minted)
 
 The wind source a segment kernel uses and the parameters it has to declare for it.
-Under [`PerPointWind`](@ref) a drag-carrying segment mints `src_wind`/`dst_wind`,
+Under a [`PrescribedWind`](@ref) mode a drag-carrying segment mints `src_wind`/`dst_wind`,
 which `bind_segment_winds!` points at its two endpoints' `point.wind_vec` — the
 kernel is instanced over `:segments`, so the endpoints cannot be reached through the
 registry's per-instance index remapping. The monolith reads its endpoints'
 `wind_at_point` directly and calls [`segment_wind_source`](@ref) itself.
 """
 function segment_wind_params(params, idx, with_drag)
-    wind_mode(params) isa PerPointWind ||
+    wind_mode(params) isa PrescribedWind ||
         return segment_wind_source(params, idx, nothing, nothing), []
     with_drag || return PrescribedWindSource(zeros(3)), []
     src_wind = make_array_param(:src_wind, zeros(3))

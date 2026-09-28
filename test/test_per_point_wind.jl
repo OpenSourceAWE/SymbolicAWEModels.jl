@@ -1,12 +1,14 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# test_per_point_wind.jl - Wind set per point (PerPointWind)
+# test_per_point_wind.jl - Wind set per point (PerPointWind, TurbulentWind)
 #
 # Verifies:
 # 1. A uniform per-point wind reproduces the height profile of a constant law
 # 2. A segment's tether drag flies in the mean of its two endpoints' winds
 # 3. A wind written between steps reaches that step's own point
+# 4. TurbulentWind without turbulence is the profile, upwind elevation included
+# 5. TurbulentWind samples the field at each step's start time and positions
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -17,9 +19,10 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using SymbolicAWEModels: KVec3, SVec3
 using KiteUtils
 using LinearAlgebra
+using AtmosphericModels: calc_turbulent_wind!, set_windfield_path!
 
 # Two free points on a stiff vertical segment: both carry point drag (area,
 # drag_coeff) and the segment carries tether drag, so every wind consumer is live.
@@ -169,6 +172,71 @@ end
         _, reversed = stepped_state(set, yaml_path, PerPointWind();
                                     steps = 20, winds = reverse(windward))
         @test reversed[2][1] > reversed[1][1]
+    end
+
+    # ========================================================================
+    # TurbulentWind with the turbulence off flies in the profile wind
+    # ========================================================================
+    @testset "Turbulent wind without turbulence is the profile, elevation included" begin
+        tilted = Settings("system.yaml")
+        tilted.use_wind_vec = false
+        tilted.upwind_elevation = 10.0
+        profile_pos, profile_vel = stepped_state(tilted, yaml_path, ProfileWind())
+        turbulent_pos, turbulent_vel =
+            stepped_state(tilted, yaml_path, TurbulentWind())
+
+        for k in eachindex(profile_pos)
+            @test turbulent_pos[k] ≈ profile_pos[k] rtol=1e-6
+            @test turbulent_vel[k] ≈ profile_vel[k] rtol=1e-6
+        end
+        # The elevated wind pushed the points down, so the tilt was compared.
+        @test profile_vel[1][3] < -0.1
+    end
+
+    # ========================================================================
+    # TurbulentWind samples the field at the start of every step
+    # ========================================================================
+    @testset "Turbulent wind is sampled at each step's start and held" begin
+        set_windfield_path!(mktempdir())
+        turbulent = Settings("system.yaml")
+        turbulent.use_wind_vec = false
+        turbulent.upwind_elevation = 10.0
+        turbulent.use_turbulence = 1.0
+        turbulent.grid = [200, 100, 100, 6]
+        turbulent.grid_step = 2.0
+        turbulent.height_step = 2.0
+        turbulent.v_wind_gnds = [10.0]
+        turbulent.rel_turbs = [0.5]
+        turbulent.i_ref = 0.14
+        turbulent.avg_height = 200.0
+        turbulent.h_ref = 6.0
+        sys = load_sys_struct_from_yaml(yaml_path; system_name = "per_point_wind_test",
+                                        set = turbulent, wind_mode = TurbulentWind())
+        sam = SymbolicAWEModel(turbulent, sys)
+        test_init!(sam; prn=false)
+        points = sam.sys_struct.points
+        initial_wind = copy(points[1].wind_vec)
+        @test !(points[1].wind_vec ≈ points[2].wind_vec)
+
+        for _ in 1:5
+            positions = [SVec3(point.pos_w) for point in points]
+            expected = calc_turbulent_wind!(similar(positions), sam.sys_struct.am,
+                positions, sam.integrator.t; upwind_dir = deg2rad(turbulent.upwind_dir),
+                upwind_elevation = deg2rad(10.0), interpolate = true)
+            next_step!(sam; dt = 0.05, vsm_interval = 0)
+            for (point, wind) in zip(points, expected)
+                @test point.wind_vec ≈ wind rtol=1e-12
+            end
+        end
+        @test !(points[1].wind_vec ≈ initial_wind)
+
+        # Without the fluctuation what is left is the mean, along the tilted wind.
+        turbulent.use_turbulence = 1e-9
+        next_step!(sam; dt = 0.05, vsm_interval = 0)
+        for point in points
+            @test point.wind_vec ≈ turbulent.wind_vec rtol=1e-6
+        end
+        set_windfield_path!("")
     end
 
     set_data_path(data_path_before)
