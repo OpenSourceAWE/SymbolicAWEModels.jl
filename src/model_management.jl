@@ -681,7 +681,7 @@ function init!(sam::SymbolicAWEModel;
         end
 
         init_sys_struct!(sam.sys_struct, sam.set; remake_vsm)
-        # reinit! below syncs the struct's ICs onto the problem; no rebuild needed.
+        # reinit!(sam, prob) syncs the struct's ICs onto the problem; no rebuild needed.
         if create_prob && !isnothing(sam.prob)
             prob = something(sam.prob)
             reset_integrator |= reload

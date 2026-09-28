@@ -5,8 +5,8 @@
 # corotational Timoshenko beam: it applies an equal-and-opposite restoring wrench
 # to two bodies' load accumulators, from a consistent element stiffness that
 # couples transverse displacement to rotation (transverse shear) — the
-# distributed-compliance counterpart of elastic_tube_eqs.jl. A chain of bodies joined by
-# these forms a beam.
+# distributed-compliance counterpart of elastic_tube_eqs.jl. A chain of bodies
+# joined by these forms a beam.
 
 """
     timoshenko_rigidity(tube, params, field, arg)
@@ -24,13 +24,14 @@ end
 """
     timoshenko_tube_eqs!(eqs, tubes, params; kwargs...)
 
-For each tube of `tubes` simulated as a [`TimoshenkoTube`](@ref), build a corotational element frame, extract the
-small per-node deformations (axial stretch, chord-relative rotations) relative to
-the rest geometry, evaluate the consistent Timoshenko stiffness (axial, torsion,
-and two bending planes with the shear reduction `Φ = 12·EI/(k·GA·L²)`) — each
-rigidity either constant or a callable of its strain/curvature ([`timoshenko_rigidity`](@ref)) — and
-accumulate the restoring wrench — equal and opposite, transported to each COM —
-into `body_force`/`body_moment` (the same accumulators `body_eqs!` reads).
+For each tube of `tubes` simulated as a [`TimoshenkoTube`](@ref), build a
+corotational element frame, extract the small per-node deformations (axial stretch,
+chord-relative rotations) relative to the rest geometry, evaluate the consistent
+Timoshenko stiffness (axial, torsion, and two bending planes with the shear
+reduction `Φ = 12·EI/(k·GA·L²)`) — each rigidity either constant or a callable of
+its strain/curvature ([`timoshenko_rigidity`](@ref)) — and accumulate the restoring
+wrench — equal and opposite, transported to each COM — into
+`body_force`/`body_moment` (the same accumulators `body_eqs!` reads).
 Damping resists the axial stretch rate and the relative node spin.
 """
 function timoshenko_tube_eqs!(
@@ -46,7 +47,7 @@ function timoshenko_tube_eqs!(
         timoshenko_force_b_w(t)[1:3, eachindex(beam_tubes)]
         timoshenko_moment_a_w(t)[1:3, eachindex(beam_tubes)]
         timoshenko_moment_b_w(t)[1:3, eachindex(beam_tubes)]
-        # Torn intermediates so the reused frame subtree is not re-embedded/re-scalarized per nesting level.
+        # Torn so the reused frame subtree is not re-embedded per nesting level.
         timoshenko_frame(t)[1:3, 1:3, eachindex(beam_tubes)]
         timoshenko_theta_a(t)[1:3, eachindex(beam_tubes)]
         timoshenko_theta_b(t)[1:3, eachindex(beam_tubes)]
@@ -63,9 +64,11 @@ function timoshenko_tube_eqs!(
             force_a = timoshenko_force_a_w[:, j], force_b = timoshenko_force_b_w[:, j],
             moment_a = timoshenko_moment_a_w[:, j], moment_b = timoshenko_moment_b_w[:, j],
             pos_a = collect(body_pos_w[:, a]), R_a, com_a = collect(body_com_w[:, a]),
-            com_vel_a = collect(body_com_vel[:, a]), omega_a_w = R_a * collect(body_ω_b[:, a]),
+            com_vel_a = collect(body_com_vel[:, a]),
+            omega_a_w = R_a * collect(body_ω_b[:, a]),
             pos_b = collect(body_pos_w[:, b]), R_b, com_b = collect(body_com_w[:, b]),
-            com_vel_b = collect(body_com_vel[:, b]), omega_b_w = R_b * collect(body_ω_b[:, b]))
+            com_vel_b = collect(body_com_vel[:, b]),
+            omega_b_w = R_b * collect(body_ω_b[:, b]))
         eqs = [eqs; ex.tear_eqs]
         body_force[:, a] .+= ex.force_on_a
         body_force[:, b] .+= ex.force_on_b

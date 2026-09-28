@@ -92,9 +92,9 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     fix_static::Bool
     "Dynamics type: DYNAMIC (free 6-DOF), KINEMATIC (fitted) or STATIC (frozen)."
     type::DynamicsType
-    "Initial body-origin position [m]; `pos_w` is reset to this each `reinit!`."
+    "Initial body-origin position [m]; `pos_w` is reset to this by each `place!`."
     const pos_cad::KVec3
-    "Initial body→world orientation; `Q_b_to_w` is reset from this each `reinit!`."
+    "Initial body→world orientation; `Q_b_to_w` is reset from this by each `place!`."
     const R_b_to_c::Matrix{SimFloat}
 
     # ---- body frame state (ICs in, live output out) ----
@@ -351,7 +351,7 @@ init_rigid_body!(body::Body) = init_principal_state!(body)
     AbstractTubeModel
 
 Structural element a [`Tube`](@ref) is simulated as. Each concrete model carries
-its rigidities, its damping and the rest state it captures at `reinit!`.
+its rigidities, its damping and the rest state it captures at `place!`.
 """
 abstract type AbstractTubeModel end
 
@@ -380,9 +380,9 @@ mutable struct ElasticTube{S} <: AbstractTubeModel
     "Rayleigh damping β [s]: each DOF is damped in proportion to its own
     stiffness (C = βK), so rigid motion stays undamped by construction."
     damping::SimFloat
-    "Rest anchor offset (body A frame), set at `reinit!` so the as-placed geometry is unstrained."
+    "Rest anchor offset (body A frame) [m], the placed geometry, set by `place!`."
     const rest_offset_a::KVec3
-    "Rest relative rotation `R_a' R_b`, set at `reinit!` so the as-placed orientation is unstrained."
+    "Rest relative rotation `R_a' R_b`, the placed orientation, set by `place!`."
     const R_rel0::Matrix{SimFloat}
 end
 
@@ -432,7 +432,7 @@ mutable struct TimoshenkoTube{S} <: AbstractTubeModel
     deformation rate (C = βK), so every mode is damped in proportion to its
     rigidity and rigid motion stays undamped by construction."
     damping::SimFloat
-    "Rest chord length [m], taken from the placed geometry at the first `reinit!`."
+    "Rest chord length [m], taken from the placed geometry at the first `place!`."
     rest_length::SimFloat
     "Rest orientation of node A in the element frame (set at reinit!)."
     const R_a_rel0::Matrix{SimFloat}

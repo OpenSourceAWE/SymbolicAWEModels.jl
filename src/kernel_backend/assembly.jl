@@ -63,13 +63,14 @@ const STATION_INPUTS = [:aero_moment_in, :node_moment_in, :node_force_in,
                               :node_mass_in]
 
 """
-    PointRole(kind, pulley_idx, segment_idx, winch_idx, body_idx, joint_idx)
+    PointRole(kind, pulley_idx, segment_idx, winch_idx, body_idx, element_idx)
 
 How one point is realised: `kind` is `:particle`, `:anchor`, `:pulley`, `:winch`,
 `:wing_node`, `:ride` or `:hermite`. A `:pulley` point carries the pulley it splits
 and one of that pulley's segments (whose material gives the rope mass); a `:winch`
-point carries its winch; a `:ride` point carries the body it is anchored to and a
-`:hermite` point the Timoshenko tube whose beam it rides.
+point carries its winch; a `:ride` point carries the body it is anchored to.
+`element_idx` is the Timoshenko tube a `:hermite` point rides, or the station of a
+`:twist_node`.
 """
 struct PointRole
     kind::Symbol
@@ -77,7 +78,7 @@ struct PointRole
     segment_idx::Int
     winch_idx::Int
     body_idx::Int
-    joint_idx::Int
+    element_idx::Int
 end
 
 """
@@ -974,7 +975,7 @@ prescribed one holds its twist whatever the nodes pull.
 function add_twist_node!(builder, table, bindings, sam, idx, role, bodies, wrenches,
                          twists)
     body = bodies[role.body_idx]
-    surface = role.joint_idx
+    surface = role.element_idx
     gated = surface > 0 && !sam.sys_struct.bodies[role.body_idx].group_points_moment
     index_map = Dict(:points => idx)
     surface > 0 && (index_map[:stations] = surface)
@@ -1031,8 +1032,8 @@ which is what the incident segments connect to.
 """
 function add_hermite_ride_point!(builder, table, bindings, sam, idx, role, bodies,
                                  wrenches)
-    tube = sam.sys_struct.tubes[role.joint_idx]
-    index_map = Dict(:points => idx, :tubes => role.joint_idx)
+    tube = sam.sys_struct.tubes[role.element_idx]
+    index_map = Dict(:points => idx, :tubes => role.element_idx)
     kinematics = kernel!(builder, table, sam, :hermite_ride_point, idx,
                          params -> HermiteRidePoint(sam, params, idx;
                                                     name = :hermite_ride_point),

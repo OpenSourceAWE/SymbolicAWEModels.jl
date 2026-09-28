@@ -13,7 +13,8 @@
 - BREAKING: `init!` no longer places the structure; it starts from `sam.sys_struct`
   as it stands. After changing a transform, call `place!(sam.sys_struct)` before
   `init!`. `reinit!(sys_struct, set)` is `place!(sys_struct)`, and `init!` drops
-  `reinit_sys`, `reset_vel`, `ignore_l0` and `apply_tether_lengths`.
+  `reinit_sys`, `reset_vel`, `ignore_l0` and `apply_tether_lengths`. `init!` always
+  sets the wind from `set.wind_vec`; `remake_vsm=false` keeps a hand-edited aero.
 - BREAKING: a structure document is written and read against awesIO
   `structure_schema.yml` 1.0.0: the system where it is placed, every position in
   ENU, bodies with `Q_KA_to_ENU` and an `extra_inertia_KA` tensor about their own

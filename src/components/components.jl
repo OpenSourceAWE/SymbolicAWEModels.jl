@@ -480,7 +480,7 @@ function timoshenko_element_wrench(tube, params;
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
     tp = params.tubes[tube.idx]
-    jp = tp.model
+    tube_model = tp.model
     anchor_a = collect(tp.anchor_a_b)
     anchor_b = collect(tp.anchor_b_b)
     Ra = collect(R_a)
@@ -492,9 +492,9 @@ function timoshenko_element_wrench(tube, params;
                   e1[2] e2[2] e3[2];
                   e1[3] e2[3] e3[3]]
     element_frame = collect(frame)
-    L0 = jp.rest_length
-    R_a_rel0 = collect(jp.R_a_rel0)
-    R_b_rel0 = collect(jp.R_b_rel0)
+    L0 = tube_model.rest_length
+    R_a_rel0 = collect(tube_model.R_a_rel0)
+    R_b_rel0 = collect(tube_model.R_b_rel0)
     Da = (element_frame' * Ra) * R_a_rel0'
     Db = (element_frame' * Rb) * R_b_rel0'
     θ_a_expr = [0.5 * (Da[3, 2] - Da[2, 3]),
@@ -506,7 +506,7 @@ function timoshenko_element_wrench(tube, params;
     θ_a = collect(theta_a)
     θ_b = collect(theta_b)
     δ = len - L0
-    kshear = jp.shear_coeff
+    kshear = tube_model.shear_coeff
     ε = δ / L0
     κt = (θ_b[1] - θ_a[1]) / L0
     κy = (θ_b[2] - θ_a[2]) / L0
@@ -530,7 +530,7 @@ function timoshenko_element_wrench(tube, params;
     # Element-frame spin: roll follows node A, tilt is the chord's own rotation
     # rate. Subtracting it leaves deformation rate only, so rigid motion is mute.
     frame_spin = (axis ⋅ ω_a_w) .* axis .+ (axis × Δv) ./ len
-    beta = jp.damping
+    beta = tube_model.damping
     rate_a = element_frame' * (ω_a_w .- frame_spin)
     rate_b = element_frame' * (ω_b_w .- frame_spin)
     damp = timoshenko_local_wrench(rigidities, L0, kshear, beta * stretch_vel,
@@ -567,7 +567,7 @@ function elastic_tube_wrench(tube, params; force_w, torque_w,
         pos_a, R_a, com_a, com_vel_a, omega_a_w,
         pos_b, R_b, com_b, com_vel_b, omega_b_w)
     tp = params.tubes[tube.idx]
-    jp = tp.model
+    tube_model = tp.model
     Ra = collect(R_a)
     Rb = collect(R_b)
     anchor_a = collect(tp.anchor_a_b)
@@ -576,8 +576,8 @@ function elastic_tube_wrench(tube, params; force_w, torque_w,
     cb = collect(com_b)
     pos_anchor_a = collect(pos_a) .+ Ra * anchor_a
     pos_anchor_b = collect(pos_b) .+ Rb * anchor_b
-    rest_offset = collect(jp.rest_offset_a)
-    R_rel0 = collect(jp.R_rel0)
+    rest_offset = collect(tube_model.rest_offset_a)
+    R_rel0 = collect(tube_model.R_rel0)
     Δr_a = Ra' * (pos_anchor_b .- pos_anchor_a) .- rest_offset
     R_rel = R_rel0' * (Ra' * Rb)
     Δθ_a = [0.5 * (R_rel[3, 2] - R_rel[2, 3]),
@@ -592,10 +592,10 @@ function elastic_tube_wrench(tube, params; force_w, torque_w,
     Δv_a = Ra' * ((vel_anchor_b .- vel_anchor_a) .-
                   (ω_a_w × (pos_anchor_b .- pos_anchor_a)))
     Δω_a = Ra' * (ω_b_w .- ω_a_w)
-    beta = jp.damping
+    beta = tube_model.damping
     elastic(kind, Δ, rate) =
-        -joint_stiffness_term(tube, params, kind, Δ) -
-        joint_rayleigh_term(tube, params, kind, Δ, rate, beta)
+        -tube_stiffness_term(tube, params, kind, Δ) -
+        tube_rayleigh_term(tube, params, kind, Δ, rate, beta)
     force_a = [elastic(1, Δr_a[1], Δv_a[1]),
                elastic(2, Δr_a[2], Δv_a[2]),
                elastic(2, Δr_a[3], Δv_a[3])]
@@ -635,7 +635,7 @@ function beam_hermite_ride_expressions(tube, params, point_idx;
         pos_b, R_b, com_b, com_vel_b, omega_b_w,
         frame = nothing, theta_a = nothing, theta_b = nothing)
     tp = params.tubes[tube.idx]
-    jp = tp.model
+    tube_model = tp.model
     Ra = collect(R_a)
     Rb = collect(R_b)
     x_a = collect(pos_a) .+ Ra * collect(tp.anchor_a_b)
@@ -645,8 +645,8 @@ function beam_hermite_ride_expressions(tube, params, point_idx;
                   e1[2] e2[2] e3[2];
                   e1[3] e2[3] e3[3]]
     element_frame = frame === nothing ? frame_expr : collect(frame)
-    Da = (element_frame' * Ra) * collect(jp.R_a_rel0)'
-    Db = (element_frame' * Rb) * collect(jp.R_b_rel0)'
+    Da = (element_frame' * Ra) * collect(tube_model.R_a_rel0)'
+    Db = (element_frame' * Rb) * collect(tube_model.R_b_rel0)'
     θ_a_expr = [0.5 * (Da[3, 2] - Da[2, 3]), 0.5 * (Da[1, 3] - Da[3, 1]),
                 0.5 * (Da[2, 1] - Da[1, 2])]
     θ_b_expr = [0.5 * (Db[3, 2] - Db[2, 3]), 0.5 * (Db[1, 3] - Db[3, 1]),

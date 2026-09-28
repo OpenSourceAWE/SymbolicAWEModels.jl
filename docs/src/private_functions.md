@@ -91,7 +91,7 @@ SymbolicAWEModels.dynamic_point_dynamics
 SymbolicAWEModels.wing_structural_segment
 SymbolicAWEModels.segment_spring_params
 SymbolicAWEModels.rigid_body_pose_expressions
-SymbolicAWEModels.joint_rayleigh_term
+SymbolicAWEModels.tube_rayleigh_term
 SymbolicAWEModels.timoshenko_local_wrench
 SymbolicAWEModels.timoshenko_element_wrench
 SymbolicAWEModels.elastic_tube_wrench
@@ -573,7 +573,7 @@ SymbolicAWEModels.ParamSync
 SymbolicAWEModels.survivor_index
 SymbolicAWEModels.build_param_sync
 SymbolicAWEModels.sync_params!
-SymbolicAWEModels.joint_stiffness_term
+SymbolicAWEModels.tube_stiffness_term
 SymbolicAWEModels.timoshenko_rigidity
 ```
 

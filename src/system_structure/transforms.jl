@@ -267,7 +267,7 @@ Apply heading rotation to all components in a single transform.
 Rotates around the radial axis through `base_pos` (not the origin).
 Uses the reference body's `R_b_to_w` for the no-ref-points orientation source.
 After `copy_cad_to_world!`, this equals `R_b_to_c` (for
-`reinit!`), or the current world orientation (for `reposition!`).
+`place!`), or the current world orientation (for `reposition!`).
 Bodies in the transform rotate with the same heading delta; a transform
 without a body target applies no heading (matching point behavior).
 """
@@ -468,10 +468,10 @@ position, preserving velocities. `update_vel` instead overwrites
 them with the velocity of the rigid rotation each transform's
 `elevation_vel`, `azimuth_vel` and `turn_rate` describe.
 
-Unlike `reinit!`, uses current world positions (`pos_w`) as
+Unlike `place!`, uses current world positions (`pos_w`) as
 the starting point (no reset from CAD coordinates, no tether
 length scaling). Heading uses the tangential sphere frame,
-consistent with `reinit!`.
+consistent with `place!`.
 """
 function reposition!(
     transforms::AbstractVector{Transform},

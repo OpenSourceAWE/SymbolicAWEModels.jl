@@ -73,7 +73,8 @@ export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints
 # Inflated-tube rigidity laws
 export TubeRigidityLaw, TUBE_SHEAR_COEFF, TUBE_POISSON_RATIO
-export tube_torsion_law, tube_linear_rigidities, tube_law_rigidities, tube_bending_law, tube_mass
+export tube_torsion_law, tube_linear_rigidities, tube_law_rigidities, tube_bending_law
+export tube_mass
 export breukels_tip_force, breukels_collapse_deflection, breukels_membrane_stiffness
 export comer_levy_bending_law, comer_levy_bending_stiffness,
        comer_levy_wrinkling_moment, comer_levy_collapse_moment

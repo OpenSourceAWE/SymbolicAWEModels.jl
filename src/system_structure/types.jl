@@ -937,18 +937,18 @@ since `SystemStructure.tethers` is read every step. The material fields
 generates; a Route 1 tether reads them off its own segments.
 
 # Initial length
-Two distinct lengths, set independently at `reinit!`:
-- `init_stretched_len` — the *placed* (stretched) standoff; `reinit!` scales the
+Two distinct lengths, set independently at `place!`:
+- `init_stretched_len` — the *placed* (stretched) standoff; `place!` scales the
   free end's world position so the geometry spans this length.
-- `len` — the *unstretched* rest length and the reeled ODE state. `reinit!`
+- `len` — the *unstretched* rest length and the reeled ODE state. `place!`
   derives it from the placed length via either `init_stretch_frac`
   (`len = frac · stretched`) or `init_tether_force`
   (`len = stretched · (1 − force/stiffness)`, default 0 → `len = stretched`).
 
-For a specific initial unstretched length `L` through `reinit!`, place at a known
+For a specific initial unstretched length `L` through `place!`, place at a known
 `init_stretched_len = S` and set `init_stretch_frac = L / S`. On a structure that
 is already placed, [`set_unstretched_length!`](@ref) writes `len` and the segments'
-`l0` without moving anything; the next `reinit!` derives `len` from the geometry
+`l0` without moving anything; the next `place!` derives `len` from the geometry
 again and overwrites it.
 
 $(TYPEDFIELDS)
@@ -998,12 +998,12 @@ mutable struct Tether
     tethers. `nothing` = use the geometric (CAD) length,
     i.e. no scaling."""
     init_stretched_len::Union{SimFloat, Nothing}
-    """Target initial spring force [N], default 0. `reinit!`
+    """Target initial spring force [N], default 0. `place!`
     solves the unstretched `len` from the placed stretched
     length: `len = stretched · (1 − force/unit_stiffness)`.
     Mutually exclusive with `init_stretch_frac`."""
     init_tether_force::Union{SimFloat, Nothing}
-    """Initial unstretched/stretched length fraction. `reinit!`
+    """Initial unstretched/stretched length fraction. `place!`
     sets `len = init_stretch_frac · stretched`; 0.9 gives 10%
     pre-stretch, 1.0 no tension, >1.0 slack. Must be positive.
     Mutually exclusive with `init_tether_force`."""
