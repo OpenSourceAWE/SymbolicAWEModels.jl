@@ -9,7 +9,7 @@ end
 using Test
 using SymbolicAWEModels
 
-@testset "Testing helper functions..." begin
+@testset "copy_data and copy_examples honour force" begin
     path=pwd()
     tmpdir=mktempdir()
     mkpath(tmpdir)
@@ -37,7 +37,9 @@ using SymbolicAWEModels
         rm(tmpdir, recursive=true)
     end
     cd(path)
+end
 
+@testset "test environment has no dev-only packages or Manifest.toml" begin
     @test ! ("TestEnv" ∈ keys(Pkg.project().dependencies))
     @test ! ("Revise" ∈ keys(Pkg.project().dependencies))
     @test ! ("Plots" ∈ keys(Pkg.project().dependencies))
