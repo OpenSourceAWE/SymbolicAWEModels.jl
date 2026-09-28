@@ -103,9 +103,9 @@ written to flies in a uniform wind.
 each point and wing gets the wind of the `AtmosphericModels` turbulent field at
 its own position and the integrator's time, held through the step. The mean wind
 points along `set.upwind_dir` and `set.upwind_elevation`, so with the turbulence
-switched off each point flies in the profile wind of its own height. `set.use_turbulence` scales
-the turbulence; the field is generated once per `environment.grid` and ground
-wind speed and cached.
+switched off each point flies in the profile wind of its own height.
+`set.use_turbulence` scales the turbulence; the field is generated once per
+`environment.grid` and ground wind speed and cached.
 
 ```julia
 sys_struct = load_sys_struct_from_yaml(path; set, wind_mode=TurbulentWind())

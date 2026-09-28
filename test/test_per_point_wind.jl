@@ -9,6 +9,7 @@
 # 3. A wind written between steps reaches that step's own point
 # 4. TurbulentWind without turbulence is the profile, upwind elevation included
 # 5. TurbulentWind samples the field at each step's start time and positions
+# 6. TurbulentWind samples each wing at its own position, after the points
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -22,6 +23,7 @@ using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, SVec3
 using KiteUtils
 using LinearAlgebra
+using VortexStepMethod
 using AtmosphericModels: calc_turbulent_wind!, set_windfield_path!
 
 # Two free points on a stiff vertical segment: both carry point drag (area,
@@ -108,6 +110,24 @@ function stepped_state(set, yaml_path, wind_mode; steps = 40, dt = 0.05,
     end
     return [copy(point.pos_w) for point in sam.sys_struct.points],
            [copy(point.vel_w) for point in sam.sys_struct.points]
+end
+
+"""
+Switch `set` to a small turbulent field, 10° upwind elevation, and return it.
+"""
+function turbulent_settings!(set)
+    set.use_wind_vec = false
+    set.upwind_elevation = 10.0
+    set.use_turbulence = 1.0
+    set.grid = [200, 100, 100, 6]
+    set.grid_step = 2.0
+    set.height_step = 2.0
+    set.v_wind_gnds = [10.0]
+    set.rel_turbs = [0.5]
+    set.i_ref = 0.14
+    set.avg_height = 200.0
+    set.h_ref = 6.0
+    return set
 end
 
 @testset "Per-point wind tests" begin
@@ -198,45 +218,72 @@ end
     # ========================================================================
     @testset "Turbulent wind is sampled at each step's start and held" begin
         set_windfield_path!(mktempdir())
-        turbulent = Settings("system.yaml")
-        turbulent.use_wind_vec = false
-        turbulent.upwind_elevation = 10.0
-        turbulent.use_turbulence = 1.0
-        turbulent.grid = [200, 100, 100, 6]
-        turbulent.grid_step = 2.0
-        turbulent.height_step = 2.0
-        turbulent.v_wind_gnds = [10.0]
-        turbulent.rel_turbs = [0.5]
-        turbulent.i_ref = 0.14
-        turbulent.avg_height = 200.0
-        turbulent.h_ref = 6.0
-        sys = load_sys_struct_from_yaml(yaml_path; system_name = "per_point_wind_test",
-                                        set = turbulent, wind_mode = TurbulentWind())
-        sam = SymbolicAWEModel(turbulent, sys)
-        test_init!(sam; prn=false)
-        points = sam.sys_struct.points
-        initial_wind = copy(points[1].wind_vec)
-        @test !(points[1].wind_vec ≈ points[2].wind_vec)
+        try
+            turbulent = turbulent_settings!(Settings("system.yaml"))
+            sys = load_sys_struct_from_yaml(yaml_path; system_name = "per_point_wind_test",
+                                            set = turbulent, wind_mode = TurbulentWind())
+            sam = SymbolicAWEModel(turbulent, sys)
+            test_init!(sam; prn=false)
+            points = sam.sys_struct.points
+            initial_wind = copy(points[1].wind_vec)
+            @test !(points[1].wind_vec ≈ points[2].wind_vec)
 
-        for _ in 1:5
-            positions = [SVec3(point.pos_w) for point in points]
-            expected = calc_turbulent_wind!(similar(positions), sam.sys_struct.am,
-                positions, sam.integrator.t; upwind_dir = deg2rad(turbulent.upwind_dir),
-                upwind_elevation = deg2rad(10.0), interpolate = true)
-            next_step!(sam; dt = 0.05, vsm_interval = 0)
-            for (point, wind) in zip(points, expected)
-                @test point.wind_vec ≈ wind rtol=1e-12
+            for _ in 1:5
+                positions = [SVec3(point.pos_w) for point in points]
+                expected = calc_turbulent_wind!(similar(positions), sam.sys_struct.am,
+                    positions, sam.integrator.t; upwind_dir = deg2rad(turbulent.upwind_dir),
+                    upwind_elevation = deg2rad(10.0), interpolate = true)
+                next_step!(sam; dt = 0.05, vsm_interval = 0)
+                for (point, wind) in zip(points, expected)
+                    @test point.wind_vec ≈ wind rtol=1e-12
+                end
             end
-        end
-        @test !(points[1].wind_vec ≈ initial_wind)
+            @test !(points[1].wind_vec ≈ initial_wind)
 
-        # Without the fluctuation what is left is the mean, along the tilted wind.
-        turbulent.use_turbulence = 1e-9
-        next_step!(sam; dt = 0.05, vsm_interval = 0)
-        for point in points
-            @test point.wind_vec ≈ turbulent.wind_vec rtol=1e-6
+            # Without the fluctuation what is left is the mean, along the tilted wind:
+            # 1e-9 still reads the field, exactly 0 takes the profile law instead.
+            for use_turbulence in (1e-9, 0.0)
+                turbulent.use_turbulence = use_turbulence
+                next_step!(sam; dt = 0.05, vsm_interval = 0)
+                for point in points
+                    @test point.wind_vec ≈ turbulent.wind_vec rtol=1e-6
+                end
+            end
+        finally
+            set_windfield_path!("")
         end
-        set_windfield_path!("")
+    end
+
+    # ========================================================================
+    # TurbulentWind samples each wing at the wing's own position
+    # ========================================================================
+    @testset "Turbulent wind reaches points and wings alike" begin
+        set_windfield_path!(mktempdir())
+        try
+            kite_path = joinpath(pkgdir(SymbolicAWEModels), "data", "2plate_kite")
+            set_data_path(kite_path)
+            turbulent = turbulent_settings!(Settings("system.yaml"))
+            vsm_set = VortexStepMethod.VSMSettings(
+                joinpath(kite_path, "vsm_settings.yaml"); data_prefix=false)
+            sys = load_sys_struct_from_yaml(
+                joinpath(kite_path, "particle_structural_geometry.yaml");
+                system_name = "per_point_wind_kite", set = turbulent, vsm_set,
+                wind_mode = TurbulentWind())
+            points_and_wings = [sys.points; sys.wings]
+            @test !isempty(sys.wings)
+
+            SymbolicAWEModels.update_turbulent_wind!(sys, 0.3)
+            positions = [SymbolicAWEModels.sample_position(body.pos_w)
+                         for body in points_and_wings]
+            expected = calc_turbulent_wind!(similar(positions), sys.am, positions, 0.3;
+                upwind_dir = deg2rad(turbulent.upwind_dir),
+                upwind_elevation = deg2rad(10.0), interpolate = true)
+            for (body, wind) in zip(points_and_wings, expected)
+                @test body.wind_vec ≈ wind rtol=1e-12
+            end
+        finally
+            set_windfield_path!("")
+        end
     end
 
     set_data_path(data_path_before)
