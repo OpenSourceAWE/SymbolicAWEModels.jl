@@ -2,201 +2,210 @@ metadata:
   name: "2plate_kite"
   description: "Resolved structure of the 2-plate kite shipped in data/"
   note: "Written by SymbolicAWEModels; the golden file of test_structure_document.jl."
-  awesIO_version: "0.1.0"
+  awesIO_version: "1.0.0"
   schema: "structure_schema.yml"
   n_points: 15
-  connectivity_sha: "6d806a8cdf337675dafee91f89e64c8d7da9f121896193ad11363431f1b560bd"
+  connectivity_sha: "9e17875e28589d91745d57de9cb4708fe7e33808f2562fa643dae6e572c5a16d"
 points:
   headers:
     - "name"
     - "type"
     - "body"
-    - "wing"
-    - "pos_cad"
-    - "mass"
+    - "pos_ENU"
+    - "extra_mass"
     - "drag_area"
     - "drag_coefficient"
+    - "wing"
+  units:
+    - "-"
+    - "-"
+    - "-"
+    - "m"
+    - "kg"
+    - "m^2"
+    - "-"
+    - "-"
   data:
     -
       - "le_left"
       - "BODY_STATIC"
       - "main_wing"
-      - ~
       -
-        - -0.5
+        - 13.758305191544377
         - 1.0
-        - 2.0
+        - 17.174371553460784
       - 0.1
       - 0.0
       - 0.0
+      - ~
     -
       - "te_left"
       - "BODY_STATIC"
       - "main_wing"
-      - ~
       -
-        - 0.5
+        - 14.717185917569317
         - 1.0
-        - 2.3
+        - 16.761397276709943
       - 0.1
       - 0.0
       - 0.0
+      - ~
     -
       - "le_center"
       - "BODY_STATIC"
       - "main_wing"
-      - ~
       -
-        - -0.5
+        - 14.079698996387647
         - 0.0
-        - 2.5
+        - 17.557393775020273
       - 0.1
       - 0.0
       - 0.0
+      - ~
     -
       - "te_center"
       - "BODY_STATIC"
       - "main_wing"
-      - ~
       -
-        - 0.5
+        - 15.038579722412587
         - 0.0
-        - 2.8
+        - 17.144419498269432
       - 0.1
       - 0.0
       - 0.0
+      - ~
     -
       - "le_right"
       - "BODY_STATIC"
       - "main_wing"
-      - ~
       -
-        - -0.5
+        - 13.758305191544377
         - -1.0
-        - 2.0
+        - 17.174371553460784
       - 0.1
       - 0.0
       - 0.0
+      - ~
     -
       - "te_right"
       - "BODY_STATIC"
       - "main_wing"
-      - ~
       -
-        - 0.5
+        - 14.717185917569317
         - -1.0
-        - 2.3
+        - 16.761397276709943
       - 0.1
       - 0.0
       - 0.0
+      - ~
     -
       - "steering_left"
       - "DYNAMIC"
       - ~
-      - ~
       -
-        - 0.0
+        - 13.177145998574057
         - 0.5
-        - 0.5
+        - 15.70391108393905
       - 0.1
       - 0.0
       - 0.0
+      - ~
     -
       - "steering_right"
       - "DYNAMIC"
       - ~
-      - ~
       -
-        - 0.0
+        - 13.177145998574057
         - -0.5
-        - 0.5
+        - 15.70391108393905
       - 0.1
       - 0.0
       - 0.0
+      - ~
     -
       - "kcu"
       - "BODY_STATIC"
       - "main_wing"
-      - ~
       -
+        - 12.855752193730787
         - 0.0
-        - 0.0
-        - 0.0
+        - 15.32088886237956
       - 1.0
       - 0.1
       - 1.0
+      - ~
     -
       - "ground"
       - "STATIC"
       - ~
-      - ~
       -
         - 0.0
         - 0.0
-        - -20.0
+        - 0.0
       - 0.0
       - 0.0
       - 0.0
+      - ~
     -
       - "main_tether_point_1"
       - "DYNAMIC"
       - ~
-      - ~
       -
+        - 10.71312682810899
         - 0.0
-        - 0.0
-        - -3.333333333333333
+        - 12.767407385316302
       - 0.0
       - 0.0
       - 0.0
+      - ~
     -
       - "main_tether_point_2"
       - "DYNAMIC"
       - ~
-      - ~
       -
+        - 8.570501462487192
         - 0.0
-        - 0.0
-        - -6.666666666666666
+        - 10.21392590825304
       - 0.0
       - 0.0
       - 0.0
+      - ~
     -
       - "main_tether_point_3"
       - "DYNAMIC"
       - ~
-      - ~
       -
+        - 6.427876096865393
         - 0.0
-        - 0.0
-        - -10.0
+        - 7.66044443118978
       - 0.0
       - 0.0
       - 0.0
+      - ~
     -
       - "main_tether_point_4"
       - "DYNAMIC"
       - ~
-      - ~
       -
+        - 4.285250731243597
         - 0.0
-        - 0.0
-        - -13.333333333333332
+        - 5.106962954126521
       - 0.0
       - 0.0
       - 0.0
+      - ~
     -
       - "main_tether_point_5"
       - "DYNAMIC"
       - ~
-      - ~
       -
+        - 2.142625365621797
         - 0.0
-        - 0.0
-        - -16.666666666666668
+        - 2.5534814770632592
       - 0.0
       - 0.0
       - 0.0
+      - ~
 segments:
   headers:
     - "name"
@@ -208,6 +217,16 @@ segments:
     - "unit_damping"
     - "compression_frac"
     - "compression_damping_frac"
+  units:
+    - "-"
+    - "-"
+    - "m"
+    - "m"
+    - "kg/m^3"
+    - "N"
+    - "N*s"
+    - "-"
+    - "-"
   data:
     -
       - "le_tube_left"
@@ -536,17 +555,25 @@ segments:
 stations:
   headers:
     - "name"
-    - "type"
     - "wing"
+    - "type"
     - "points"
     - "stiffness"
     - "damping"
     - "moment_frac"
+  units:
+    - "-"
+    - "-"
+    - "-"
+    - "-"
+    - "N*m"
+    - "N*m*s"
+    - "-"
   data:
     -
       - "left"
-      - "DYNAMIC"
       - "main_wing"
+      - "DYNAMIC"
       -
         - "le_left"
         - "te_left"
@@ -555,8 +582,8 @@ stations:
       - 0.25
     -
       - "center"
-      - "DYNAMIC"
       - "main_wing"
+      - "DYNAMIC"
       -
         - "le_center"
         - "te_center"
@@ -565,8 +592,8 @@ stations:
       - 0.25
     -
       - "right"
-      - "DYNAMIC"
       - "main_wing"
+      - "DYNAMIC"
       -
         - "le_right"
         - "te_right"
@@ -579,6 +606,11 @@ pulleys:
     - "segments"
     - "type"
     - "efficiency"
+  units:
+    - "-"
+    - "-"
+    - "-"
+    - "-"
   data:
     -
       - "left"
@@ -600,6 +632,11 @@ tethers:
     - "start_point"
     - "end_point"
     - "segments"
+  units:
+    - "-"
+    - "-"
+    - "-"
+    - "-"
   data:
     -
       - "main_tether"
@@ -617,73 +654,104 @@ winches:
     - "name"
     - "tethers"
     - "winch_point"
-    - "model"
     - "gear_ratio"
     - "drum_radius"
+    - "model"
+  units:
+    - "-"
+    - "-"
+    - "-"
+    - "-"
+    - "m"
+    - "-"
   data:
     -
       - "main_winch"
       -
         - "main_tether"
       - "ground"
-      - "TorqueWinch"
       - 1.0
       - 0.11
+      - "TorqueWinch"
+wings:
+  headers:
+    - "name"
+    - "canopy_material"
+    - "aero"
+  units:
+    - "-"
+    - "-"
+    - "-"
+  data:
+    -
+      - "main_wing"
+      - ~
+      - "AeroLinearized"
 bodies:
   headers:
     - "name"
     - "type"
-    - "aero"
+    - "pos_ENU"
+    - "Q_KA_to_ENU"
+    - "extra_mass"
+    - "extra_inertia_KA"
     - "wing"
-    - "mass"
     - "apparent_mass"
-    - "inertia_principal"
-    - "com_offset_KA"
-    - "pos_cad"
+  units:
+    - "-"
+    - "-"
+    - "m"
+    - "-"
+    - "kg"
+    - "kg*m^2"
+    - "-"
+    - "kg"
   data:
     -
       - "main_wing"
       - "DYNAMIC"
-      - "AeroLinearized"
+      -
+        - 13.414173929645967
+        - 0.0
+        - 15.986389972339172
+      -
+        - 0.9688212939880393
+        - 0.0
+        - 0.2477605705420883
+        - 0.0
+      - 0.0
+      -
+        -
+          - 0.0
+          - 0.0
+          - 0.0
+        -
+          - 0.0
+          - 0.0
+          - 0.0
+        -
+          - 0.0
+          - 0.0
+          - 0.0
       - ~
       - 0.0
-      - 0.0
-      -
-        - 0.0
-        - 0.0
-        - 0.0
-      -
-        - 0.17037589240129736
-        - 0.0
-        - 0.8518794620064869
-      -
-        - 0.0
-        - 0.0
-        - 0.0
-elastic_joints:
+tubes:
   headers:
     - "name"
     - "bodies"
-    - "anchors_KA"
-    - "stiffness_axial"
-    - "stiffness_shear"
-    - "stiffness_torsion"
-    - "stiffness_bending"
-    - "damping"
-    - "radius"
-  data: []
-timoshenko_joints:
-  headers:
-    - "name"
-    - "bodies"
-    - "anchors_KA"
-    - "EA"
-    - "GA"
-    - "GJ"
-    - "EIy"
-    - "EIz"
-    - "shear_coeff"
-    - "damping"
-    - "rest_length"
-    - "radius"
+    - "diameter"
+    - "pressure"
+    - "law"
+    - "model"
+    - "anchor_a"
+    - "anchor_b"
+  units:
+    - "-"
+    - "-"
+    - "m"
+    - "Pa"
+    - "-"
+    - "-"
+    - "m"
+    - "m"
   data: []
