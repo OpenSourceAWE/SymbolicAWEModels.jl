@@ -38,8 +38,7 @@ A YAML file can contain any of these top-level blocks:
 | `winches` | Torque-controlled motors |
 | `wings` | Aerodynamic bodies |
 | `bodies` | Plain rigid bodies |
-| `elastic_joints` | Lumped 6-DOF springs between two bodies |
-| `timoshenko_joints` | Beam elements between two bodies |
+| `tubes` | Inflated tubes between two bodies |
 | `transforms` | Spherical coordinate positioning |
 
 A file needs at least a `points` or a `bodies` block; everything else is
@@ -207,7 +206,7 @@ error. What is left out comes from the settings (`e_tether`, `rel_damping`,
 
 ```yaml
 points:
-  headers: [name, pos_cad, type, wing_idx, transform_idx, body, joint,
+  headers: [name, pos_cad, type, wing_idx, transform_idx, body, tube,
             vel_w, extra_mass, body_frame_damping, world_frame_damping,
             area, drag_coeff, fix_sphere, fix_static]
 ```
@@ -220,7 +219,7 @@ points:
 | `wing_idx` | Int/nothing | none | Wing this point belongs to; omit it, or `0`, for a point that belongs to none |
 | `transform_idx` | Int/nothing | nothing | Transform for initial positioning |
 | `body` | Ref/nothing | nothing | `BODY_STATIC`: body the point rides |
-| `joint` | Ref/nothing | nothing | `BODY_STATIC`: beam element the point rides |
+| `tube` | Ref/nothing | nothing | `BODY_STATIC`: Timoshenko tube the point rides |
 | `vel_w` | [x,y,z] | zeros | Initial world-frame velocity [m/s] |
 | `extra_mass` | Float | 0.0 | Additional mass [kg] |
 | `body_frame_damping` | Float | 0.0 | Damping in body frame [Ns/m] |
@@ -231,7 +230,7 @@ points:
 | `fix_static` | Bool | false | Dynamically freeze the point position |
 
 A `BODY_STATIC` point rides a rigid body (`body:`, or `wing:` for a wing body)
-or a beam element (`joint:`); its body-frame offset is derived from `pos_cad`.
+or a Timoshenko tube (`tube:`); its body-frame offset is derived from `pos_cad`.
 
 ### Segments
 
@@ -384,13 +383,16 @@ The segment halves use each segment's `l0` when the structure is placed
 ([`update_mass_properties!`](@ref), run by [`place!`](@ref)); they are not updated while
 a winch changes a tether's `l0` during a run.
 
-### Bodies and joints
+### Bodies and tubes
 
 A [`Body`](@ref) is a plain rigid body — no aerodynamics, no structural points
-of its own. Bodies are linked by [`ElasticJoint`](@ref)s (a lumped 6-DOF
-spring) or [`TimoshenkoJoint`](@ref)s (a 2-node beam element); a chain of the
-latter forms a beam. `BODY_STATIC` points ride a body (`body_idx`) or a beam
-element (`joint`).
+of its own. Bodies are linked by [`Tube`](@ref)s: an inflated tube of one
+`diameter` [m] and `pressure` [Pa], whose `law` gives its rigidities and whose
+`model` is the element it is simulated as — `timoshenko`, a 2-node
+[`TimoshenkoTube`](@ref) beam element, or `elastic`, a lumped 6-DOF
+[`ElasticTube`](@ref) spring. A chain of Timoshenko tubes forms a beam, and the
+placed bodies fix each tube's rest length. `BODY_STATIC` points ride a body
+(`body_idx`) or a Timoshenko tube (`tube`).
 
 ```yaml
 bodies:
@@ -399,12 +401,11 @@ bodies:
     - [nodeA, 1.0, [0.01, 0.01, 0.01], [0.0, 0.0, 0.0], STATIC]
     - [nodeB, 1.0, [0.01, 0.01, 0.01], [1.0, 0.0, 0.0], DYNAMIC]
 
-timoshenko_joints:
-  headers: [name, body_a, body_b, EA, GA, GJ, EIy, EIz, shear_coeff,
-            damping_trans, damping_rot]
+tubes:
+  headers: [name, bodies, diameter, pressure, law, model, shear_coeff, damping]
   data:
-    - [joint, nodeA, nodeB, 10000.0, 1500.0, 50.0, 100.0, 100.0, 0.8333,
-       200.0, 3.0]
+    - [beam, [nodeA, nodeB], 0.12, 30000.0, breukels2011, timoshenko, 0.8333,
+       0.05]
 
 points:
   headers: [name, pos_cad, type, body_idx]
@@ -412,8 +413,12 @@ points:
     - [tip_anchor, [1.0, 0.0, 0.0], BODY_STATIC, nodeB]
 ```
 
-Scalar joint columns are linear laws; nonlinear (callable) stiffness laws are
-supplied programmatically, not from YAML.
+A `timoshenko` tube derives each of `EA`, `GA`, `GJ`, `EIy` and `EIz` from its
+law unless its row gives it; an `elastic` tube takes `stiffness_axial`,
+`stiffness_shear`, `stiffness_torsion` and `stiffness_bending`. Both take
+`damping` [s], and `anchor_a`/`anchor_b` place the ends in each body's frame.
+Scalar rigidities are linear laws; nonlinear (callable) ones are supplied
+programmatically, not from YAML.
 
 ### Transforms
 
