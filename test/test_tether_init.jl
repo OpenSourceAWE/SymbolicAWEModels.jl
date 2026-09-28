@@ -224,7 +224,7 @@ environment:
             yaml_path; system_name="init_stretched_length_r2_yaml", set=set)
 
         # init_stretched_length=200 already set from YAML; no programmatic change needed
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         mid = sys.points[:main_tether_point_1]
         @test mid.pos_w ≈ KVec3(0, 0, -100)
@@ -244,7 +244,7 @@ environment:
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_r1_yaml", set=set)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         @test sys.points[:mid].pos_w ≈ KVec3(0, 0, -100)
         @test sys.points[:top].pos_w ≈ KVec3(0, 0, -200)
@@ -262,7 +262,7 @@ environment:
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_r2_downstream", set=set)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         @test sys.points[:top].pos_w ≈ KVec3(0, 0, -200)
         @test sys.points[:downstream].pos_w ≈ KVec3(10, 0, -200)
@@ -286,11 +286,11 @@ environment:
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_r2_idem", set=set)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
         mid_pos = copy(sys.points[:main_tether_point_1].pos_w)
         top_pos = copy(sys.points[:top].pos_w)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
         @test sys.points[:main_tether_point_1].pos_w ≈ mid_pos
         @test sys.points[:top].pos_w ≈ top_pos
     end
@@ -334,7 +334,7 @@ winches:
             yaml_path; system_name="init_stretched_length_multi", set=set)
 
         sys.tethers[:tether_static].init_stretched_len = 200.0
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         ground_static = sys.points[:ground_static].pos_w
         @test norm(sys.points[:top].pos_w - ground_static) ≈ 200.0
@@ -342,7 +342,7 @@ winches:
         @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
 
         sys.tethers[:tether_winch].init_stretched_len = 100.0
-        @test_logs (:info,) match_mode=:any SymbolicAWEModels.reinit!(sys, set)
+        @test_logs (:info,) match_mode=:any place!(sys)
 
         # Placed by the mean displacement of both roots: standoff is
         # ≈ the mean target (150), offset slightly because the two
@@ -403,7 +403,7 @@ winches:
         write(yaml_path, INIT_LEN_YAML_ROUTE2)
         sys = load_sys_struct_from_yaml(yaml_path;
             system_name="init_stretched_length_r2_force", set=set)
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         tether = sys.tethers[:main_tether]
         segs = sys.segments
@@ -473,7 +473,7 @@ winches:
         sys = SystemStructure("init_stretched_length_body", set; points,
             segments, tethers, winches, bodies=bodies, tubes)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         tip = sys.bodies[:tip]
         @test tip.pos_w[3] > 0.5
@@ -549,7 +549,7 @@ winches:
         # ground, so the whole wing translates by delta = [-0.5, 0, 2.5].
         delta = KVec3(-0.5, 0.0, 2.5)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         ground = sys.points[:ground].pos_w
         le_center = sys.points[:le_center].pos_w
@@ -596,7 +596,7 @@ winches:
             segments, tethers, winches, bodies=bodies, tubes)
 
         delta = KVec3(0.0, 0.0, 1.0)
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         @test norm(sys.points[:beam_anchor].pos_w -
                    sys.points[:ground].pos_w) ≈ 6.0
@@ -619,7 +619,7 @@ winches:
         yaml_path = joinpath(tmpdir, "r1_yaml.yaml")
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_r1_yaml", set=set)
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         tether = sys.tethers[:main_tether]
         @test tether.len ≈ 200.0
@@ -638,7 +638,7 @@ winches:
         @test sum(sys.segments[idx].len for idx in tether.segment_idxs) ≈ 200.0
 
         # `reinit!` re-places the structure, so it derives `len` afresh.
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
         @test tether.len ≈ 200.0
 
         @test_throws ErrorException set_unstretched_length!(sys, tether, 0.0)

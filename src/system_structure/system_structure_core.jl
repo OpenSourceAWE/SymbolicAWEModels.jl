@@ -1211,14 +1211,13 @@ function SystemStructure(name, set;
         NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
         NamedCollection{Tube}(tubes, tube_names_dict),
         AtmosphericModel(set), false, false, vsm_set, wind_mode)
-    reinit!(sys_struct, set; prn)
+    place!(sys_struct; ignore_l0, prn)
+    init_wind!(sys_struct, set)
 
     # Panel→flap station map (structural; needs placed bodies + built panels).
     for wing in sys_struct.wings
         build_panel_station_map!(wing.aero, wing, sys_struct)
     end
-
-    ignore_l0 && relax_segments!(sys_struct)
 
     return sys_struct
 end

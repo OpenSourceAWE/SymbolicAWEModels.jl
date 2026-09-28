@@ -106,7 +106,7 @@ end
 
 # Apply transforms to get world-frame positions
 println("\n== Applying transforms ==")
-SymbolicAWEModels.reinit!(sys, set)
+place!(sys)
 
 println("  R_b_to_w = ", round.(wing.R_b_to_w; digits=4))
 println("  pos_w = ", round.(wing.pos_w; digits=4))

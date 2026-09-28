@@ -541,7 +541,8 @@ end
 
 Load or build the symbolic model, create the `ODEProblem` (and optionally the
 `LinearizationProblem` / control functions), serialize new builds to disk, and
-return a freshly initialized `ODEIntegrator`.
+return a freshly initialized `ODEIntegrator` from `sam.sys_struct` as it stands. To
+start from the design geometry again, [`place!`](@ref) the structure first.
 
 # Keyword Arguments
 - `solver`, `adaptive`: ODE solver and time-stepping mode. `solver=nothing` picks
@@ -562,11 +563,6 @@ return a freshly initialized `ODEIntegrator`.
 - `lin_vsm`: linearize the VSM aerodynamics after init.
 - `remake_vsm`: rebuild the VSM wing/aero from settings (after editing
   `aero_geometry.yaml` etc.).
-- `reset_vel`, `ignore_l0`, `apply_tether_lengths`: forwarded to
-  `reinit!(sys_struct, set)`.
-- `reinit_sys`: place the `SystemStructure` with `reinit!(sys_struct, set)`,
-  which runs all of its steps. `false` takes the structure as it is: run the steps
-  of `reinit!` wanted on `sam.sys_struct` first.
 - `reset_integrator`: discard the existing integrator and build a fresh one, so no
   stale BDF history taints the next run.
 - `vsm_min_wind=0.5`: minimum |va| [m/s] for the initial VSM solve. Below this the
@@ -591,12 +587,8 @@ function init!(sam::SymbolicAWEModel;
     create_lin_prob::Bool=false,
     create_control_func::Bool=false,
     lin_vsm::Bool=true,
-    ignore_l0::Bool=false,
     remake_vsm::Bool=true,
-    reset_vel::Bool=true,
     reset_integrator::Bool=true,
-    reinit_sys::Bool=true,
-    apply_tether_lengths::Bool=true,
     vsm_min_wind=0.5,
     sparse::Union{Bool, Nothing}=nothing,
     linsolve=default_linsolve(sam.backend),
@@ -630,8 +622,7 @@ function init!(sam::SymbolicAWEModel;
 
         if !(sam.backend isa MonolithBackend)
             integrator = init_backend!(sam.backend, sam, solver;
-                adaptive, prn, reinit_sys, reset_vel, ignore_l0,
-                apply_tether_lengths, remake_vsm, reset_integrator, vsm_min_wind,
+                adaptive, prn, remake_vsm, reset_integrator, vsm_min_wind,
                 lin_vsm, sparse, analytic_jacobian, remake, reload)
             prn && @info "$(sam.sys_struct.name) model initialized " *
                 "($(nameof(typeof(sam.backend))))."
@@ -689,11 +680,7 @@ function init!(sam::SymbolicAWEModel;
             serialize(model_path, sam.serialized_model)
         end
 
-        if reinit_sys
-            reinit!(sam.sys_struct, sam.set;
-                    ignore_l0, remake_vsm, reset_vel,
-                    apply_tether_lengths, prn)
-        end
+        init_sys_struct!(sam.sys_struct, sam.set; remake_vsm)
         # reinit! below syncs the struct's ICs onto the problem; no rebuild needed.
         if create_prob && !isnothing(sam.prob)
             prob = something(sam.prob)

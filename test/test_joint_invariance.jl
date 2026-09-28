@@ -185,7 +185,8 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
             omega = 0.7 .* normalize([1.0, 2.0, -3.0])
             vel = [0.3, -0.2, 0.5]
             set_rigid_motion!(sys, omega, vel, ref)
-            test_init!(sam; prn=false, reset_vel=false)
+            place!(sam.sys_struct; reset_vel=false)
+            test_init!(sam; prn=false)
             before = pair_momenta(sys, ref)
             spin_before = norm(Vector(sys.bodies[:nodeB].ω_b))
             elapsed = 1.0
@@ -213,7 +214,8 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         speed = 0.2
         node_b.vel_w .= [speed, 0.0, 0.0]
         node_b.ω_b .= 0.0
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
         period = 2π / (omega_n * sqrt(1 - zeta^2))
         for _ in 1:2000
             next_step!(sam; dt=period / 2000, vsm_interval=0)
@@ -232,7 +234,8 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         spin = 0.2
         node_b.vel_w .= 0.0
         node_b.ω_b .= [spin, 0.0, 0.0]
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
         period = 2π / (omega_n * sqrt(1 - zeta^2))
         for _ in 1:2000
             next_step!(sam; dt=period / 2000, vsm_interval=0)
@@ -251,7 +254,8 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         speed = 0.2
         node_b.vel_w .= [speed, 0.0, 0.0]
         node_b.ω_b .= 0.0
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
         period = 2π / (omega_n * sqrt(1 - zeta^2))
         for _ in 1:2000
             next_step!(sam; dt=period / 2000, vsm_interval=0)

@@ -101,6 +101,7 @@ export set_world_frame_damping
 export set_body_frame_damping
 export set_angular_damping
 export set_unstretched_length!
+export place!
 export reset_to_cad!
 export apply_tether_init_stretched_lens!
 export update_segment_lengths!
@@ -108,6 +109,7 @@ export apply_tether_init_forces!
 export init_pulley_lengths!
 export remake_wing_aero!
 export init_wind!
+export init_sys_struct!
 export relax_segments!
 export update_mass_properties!
 export init_rest_geometry!

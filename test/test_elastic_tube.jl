@@ -129,7 +129,8 @@ end
         reset_bodies!()
         # CAD pose is unstrained, so excite the axial mode with a velocity kick.
         b2.vel_w .= [0.5, 0.0, 0.0]
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
 
         ω_expected = sqrt(100.0 * (1/1.0 + 1/1.0))
         dt = 0.001
@@ -154,7 +155,8 @@ end
         # No external force: a velocity kick conserves total momentum, so the COM
         # drifts at constant velocity while the bodies oscillate internally.
         b2.vel_w .= [0.3, 0.0, 0.0]
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
         com0 = (b1.pos_w + b2.pos_w) / 2
         vcom = (b1.vel_w + b2.vel_w) / 2
         dt = 0.001
@@ -178,7 +180,8 @@ end
         reset_bodies!()
         # CAD orientation is unstrained, so excite the torsional mode with a spin kick.
         b2.ω_b .= [0.5, 0.0, 0.0]
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
 
         ω_expected = sqrt(5.0 / Ixx)
         dt = 0.001
@@ -220,7 +223,8 @@ end
         body2 = sam_i.sys_struct.bodies[:b2]
         # CAD pose is unstrained, so excite the axial mode with a velocity kick.
         body2.vel_w .= [0.5, 0.0, 0.0]
-        test_init!(sam_i; prn=false, reset_vel=false)
+        place!(sam_i.sys_struct; reset_vel=false)
+        test_init!(sam_i; prn=false)
 
         ω_expected = sqrt(EA * (1/1.0 + 1/1.0))
         dt = 0.001

@@ -51,7 +51,7 @@ A [`Transform`](@ref) repositions CAD-frame geometry into the world
 frame for the initial condition. Without a Transform,
 `pos_w = pos_cad`.
 
-When a Transform is applied, `reinit!` performs three steps:
+[`place!`](@ref) applies each Transform in three steps:
 
 1. **Translation**: `pos_w = pos_cad + (base_pos - curr_base_pos)`
 2. **Rotation**: spherical repositioning using `elevation` and
@@ -80,7 +80,8 @@ specified elevation and azimuth. Transforms can chain: use
 `base_transform` instead of `base_pos` to use the already-rotated
 `rot_point`/`wing` position of another transform as the base.
 
-See `reinit!` in `transforms.jl`.
+`SystemStructure` places once when it is built; after changing a Transform, call
+`place!(sys_struct)` before `init!`.
 
 ## World Frame
 

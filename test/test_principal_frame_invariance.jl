@@ -92,13 +92,13 @@ diverging variant).
 """
 function run_case(sam; frame=nothing, steps=10, dt=0.05)
     wing = sam.sys_struct.wings[1]
-    SymbolicAWEModels.reinit!(sam.sys_struct, sam.set; prn=false)
+    place!(sam.sys_struct; prn=false)
     if !isnothing(frame)
         apply_principal_frame!(wing, frame)
         @test wing.R_b_to_p ≈ wing.R_p_to_c' * wing.R_b_to_c atol=1e-12
         SymbolicAWEModels.init_principal_state!(wing)
     end
-    init!(sam; reinit_sys=false, prn=false)
+    init!(sam; prn=false)
     next_step!(sam; dt=1e-5, vsm_interval=1)
     snaps = [frame_snapshot(sam.sys_struct)]
     for _ in 1:steps

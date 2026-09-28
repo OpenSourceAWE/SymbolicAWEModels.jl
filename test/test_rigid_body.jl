@@ -109,7 +109,8 @@ environment:
         rb.ω_b .= 0.0
         torque = 0.05
         rb.ext_moment_b .= [torque, 0.0, 0.0]
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
 
         dt = 0.005
         t_before = sam.integrator.t
@@ -157,7 +158,7 @@ environment:
         sys3 = SystemStructure("rigid_body_transform_test", set;
             points=[ground, tip], bodies=[body3], transforms=[tf])
 
-        SymbolicAWEModels.reinit!(sys3, set)
+        place!(sys3)
 
         rb = sys3.bodies[:body3]
         r = 100.0 / sqrt(2)
@@ -168,7 +169,7 @@ environment:
         # the body-anchored point rides the rotated body
         @test sys3.points[:tip].pos_w ≈ rb.pos_w atol=1e-6
         # idempotent across a second reinit!
-        SymbolicAWEModels.reinit!(sys3, set)
+        place!(sys3)
         @test rb.pos_w ≈ KVec3(r, 0.0, r) atol=1e-6
     end
 

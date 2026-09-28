@@ -84,8 +84,7 @@ them; a parameter no registry reader syncs keeps the value the struct had when t
 bin was built, as on the monolith.
 """
 function init_backend!(::KernelBackend, sam, solver;
-        adaptive = true, prn = true, reinit_sys = true, reset_vel = true,
-        ignore_l0 = false, apply_tether_lengths = true, remake_vsm = true,
+        adaptive = true, prn = true, remake_vsm = true,
         reset_integrator = true, vsm_min_wind = 0.5, lin_vsm = true,
         sparse = false, analytic_jacobian = true, remake = false, reload = false)
     model_name = get_model_name(sam.set, sam.sys_struct; sparse, analytic_jacobian,
@@ -93,10 +92,7 @@ function init_backend!(::KernelBackend, sam, solver;
     model_path = joinpath(KiteUtils.get_data_path(), model_name)
     prn && @info "Model bin name: $model_name"
     loaded = load_serialized_model!(sam, model_path; remake, reload, prn)
-    if reinit_sys
-        reinit!(sam.sys_struct, sam.set;
-                ignore_l0, remake_vsm, reset_vel, apply_tether_lengths, prn)
-    end
+    init_sys_struct!(sam.sys_struct, sam.set; remake_vsm)
     write_total_mass!(sam.sys_struct)
     if loaded && !isnothing(sam.prob)
         prn && @info "Reusing the assembled model, so no kernel is compiled here."

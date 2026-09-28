@@ -421,7 +421,7 @@ end
 Apply transforms to all components in a `SystemStructure`.
 
 Expects `pos_w` to already be set (via `copy_cad_to_world!` and optionally
-`apply_tether_init_stretched_lens!` from `reinit!(sys_struct, set; ...)`).
+`apply_tether_init_stretched_lens!` from [`place!`](@ref)).
 Applies: translate (from pos_w) → azimuth/elevation → heading.
 """
 function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure;

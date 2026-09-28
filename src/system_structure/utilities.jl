@@ -717,7 +717,7 @@ function seed_per_point_wind!(sys_struct::SystemStructure)
     return nothing
 end
 
-# ==================== REINIT! FOR SYSTEM STRUCTURE ==================== #
+# ==================== PLACEMENT ==================== #
 
 """
     reset_to_cad!(sys_struct::SystemStructure; reset_vel=true)
@@ -817,6 +817,22 @@ function init_wind!(sys_struct::SystemStructure, set::Settings)
 end
 
 """
+    init_sys_struct!(sys_struct::SystemStructure, set::Settings; remake_vsm=false)
+
+Bring a placed structure to the start of a run: derive every body's principal-frame
+state from its body-frame one ([`init_rigid_body!`](@ref)), rebuild every wing's aero
+engine when `remake_vsm` ([`remake_wing_aero!`](@ref)), and set the wind and aero
+operating point ([`init_wind!`](@ref)). [`init!`](@ref) runs it.
+"""
+function init_sys_struct!(sys_struct::SystemStructure, set::Settings;
+                          remake_vsm::Bool=false)
+    init_rigid_body!.(sys_struct.bodies)
+    remake_vsm && remake_wing_aero!(sys_struct, set)
+    init_wind!(sys_struct, set)
+    return nothing
+end
+
+"""
     relax_segments!(sys_struct::SystemStructure)
 
 Set every segment's `l0` to its current world length, so no segment is stretched.
@@ -841,42 +857,33 @@ function init_rest_geometry!(sys_struct::SystemStructure)
 end
 
 """
-    reinit!(sys_struct::SystemStructure, set::Settings; kwargs...)
+    place!(sys_struct::SystemStructure; ignore_l0=false, reset_vel=true, prn=true)
 
-Place `sys_struct` for a new run from its CAD geometry and `set`. Runs, in order:
+Place `sys_struct` in the world from its CAD geometry by its `transforms`. Runs, in
+order:
 
 1. [`reset_to_cad!`](@ref)
-2. [`apply_tether_init_stretched_lens!`](@ref) — skipped by `apply_tether_lengths=false`
+2. [`apply_tether_init_stretched_lens!`](@ref)
 3. [`update_segment_lengths!`](@ref)
 4. [`apply_tether_init_forces!`](@ref)
 5. [`init_pulley_lengths!`](@ref)
-6. `reinit!(sys_struct.transforms, sys_struct)` — skipped by `apply_transforms=false`
-7. [`remake_wing_aero!`](@ref) — only with `remake_vsm=true`
-8. [`init_wind!`](@ref)
-9. [`relax_segments!`](@ref) — only with `ignore_l0=true`
-10. [`update_mass_properties!`](@ref)
-11. [`init_rest_geometry!`](@ref)
+6. `reinit!(sys_struct.transforms, sys_struct)`
+7. [`relax_segments!`](@ref) — only with `ignore_l0=true`
+8. [`update_mass_properties!`](@ref)
+9. [`init_rest_geometry!`](@ref)
 
-`init!(sam; reinit_sys=true)` calls this. To adjust only part of the structure, run
-the steps wanted on `sam.sys_struct` and then `init!(sam; reinit_sys=false)`.
-
-# Keyword Arguments
-- `reset_vel::Bool=true`: zero point and body velocities in steps 1 and 6.
-- `prn::Bool=true`: print info messages from steps 2 and 10.
+The `SystemStructure` constructor ends with it; [`init!`](@ref) takes the structure
+as placed. `reset_vel` zeroes point and body velocities in steps 1 and 6; `prn`
+prints the info messages of steps 2 and 8.
 """
-function reinit!(sys_struct::SystemStructure, set::Settings;
-                 ignore_l0::Bool=false, remake_vsm::Bool=false,
-                 reset_vel::Bool=true, apply_transforms::Bool=true,
-                 apply_tether_lengths::Bool=true, prn::Bool=true)
+function place!(sys_struct::SystemStructure; ignore_l0::Bool=false,
+                reset_vel::Bool=true, prn::Bool=true)
     reset_to_cad!(sys_struct; reset_vel)
-    apply_tether_lengths && apply_tether_init_stretched_lens!(sys_struct; prn)
+    apply_tether_init_stretched_lens!(sys_struct; prn)
     update_segment_lengths!(sys_struct)
     apply_tether_init_forces!(sys_struct)
     init_pulley_lengths!(sys_struct)
-    apply_transforms &&
-        reinit!(sys_struct.transforms, sys_struct; update_vel=reset_vel)
-    remake_vsm && remake_wing_aero!(sys_struct, set)
-    init_wind!(sys_struct, set)
+    reinit!(sys_struct.transforms, sys_struct; update_vel=reset_vel)
     ignore_l0 && relax_segments!(sys_struct)
     update_mass_properties!(sys_struct; prn)
     init_rest_geometry!(sys_struct)

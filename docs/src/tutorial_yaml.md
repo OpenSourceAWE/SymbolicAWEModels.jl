@@ -306,7 +306,7 @@ how a plain line is split into several segments.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `init_stretched_length` | Float/nothing | Placed (stretched) standoff [m]; `reinit!` moves the free end to span it. `nothing` = keep the point geometry |
+| `init_stretched_length` | Float/nothing | Placed (stretched) standoff [m]; [`place!`](@ref) moves the free end to span it. `nothing` = keep the point geometry |
 | `init_tether_force` | Float/nothing | Target initial spring force [N], default 0 |
 | `init_stretch_frac` | Float/nothing | Initial unstretched/stretched ratio; 1.0 is untensioned, `> 1` slack. Excludes `init_tether_force` |
 
@@ -381,7 +381,7 @@ the KCU. A wing with no `extra_mass` of its own and no point masses spreads
 and section bodies, which carry its mass.
 
 The segment halves use each segment's `l0` when the structure is placed
-([`update_mass_properties!`](@ref), run by `reinit!`); they are not updated while
+([`update_mass_properties!`](@ref), run by [`place!`](@ref)); they are not updated while
 a winch changes a tether's `l0` during a run.
 
 ### Bodies and joints
