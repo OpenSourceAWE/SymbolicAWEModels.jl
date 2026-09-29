@@ -1,0 +1,16 @@
+[deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
+KiteUtils = "90980105-b163-44e5-ba9f-8b1c83bb0533"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MakieControlPlots = "6d616b69-6563-4f6e-8472-6f6c706c6f74"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+SymbolicAWEModels = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
+V3Kite = "4caac9c8-c726-438f-ab10-3553e918eab1"
+VortexStepMethod = "ed3cd733-9f0f-46a9-93e0-89b8d4998dd9"
+
+[sources]
+SymbolicAWEModels = {path = "../.."}
+V3Kite = {rev = "agent/65-test-if-this-package-works-with-latest-v", url = "https://github.com/OpenSourceAWE/V3Kite.jl"}

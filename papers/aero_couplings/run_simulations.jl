@@ -1,0 +1,110 @@
+# Copyright (c) 2026 Bart van de Lint
+# SPDX-License-Identifier: LGPL-3.0-only
+
+# Fly the V3 beam wing under each aerodynamic coupling and log the runs the paper
+# compares. Needs the NeuralFoil aero geometry: run make_aero_geometry.jl first.
+# Writes output/logs/<case>.arrow and output/cases.csv; `RUNS` keeps each case's
+# model in memory for make_figures.jl. Case names as arguments fly only those.
+
+using Pkg
+Pkg.activate(@__DIR__)
+
+using V3Kite
+using SymbolicAWEModels
+using Logging
+using Printf
+
+include(joinpath(@__DIR__, "paper_setup.jl"))
+
+"""
+    FailureCounter(parent)
+
+Logger that forwards to `parent` and counts the VSM solves reported as failed.
+"""
+mutable struct FailureCounter <: AbstractLogger
+    parent::AbstractLogger
+    failed_solves::Int
+end
+FailureCounter(parent) = FailureCounter(parent, 0)
+Logging.min_enabled_level(logger::FailureCounter) = Logging.min_enabled_level(logger.parent)
+Logging.shouldlog(logger::FailureCounter, args...) = true
+Logging.catch_exceptions(logger::FailureCounter) = Logging.catch_exceptions(logger.parent)
+function Logging.handle_message(logger::FailureCounter, level, message, _module, group,
+                                id, file, line; kwargs...)
+    occursin("did not converge", string(message)) && (logger.failed_solves += 1)
+    return Logging.handle_message(logger.parent, level, message, _module, group, id,
+                                  file, line; kwargs...)
+end
+
+"""
+    fly(case) -> NamedTuple
+
+Build the V3 beam wing under `case.mode`, fly it for `SIM_TIME` tracking
+`heading_setpoint` with the project's heading controller, and log it. Returns the run's summary and its model.
+"""
+function fly(case)
+    kite_set = load_kite(PROJECT; data_path=DATA_PATH)
+    kite_set.aero_mode = case.mode
+    sam, sys = build_v3_model(PROJECT; data_path=DATA_PATH, kite_set)
+    nominal = V3Kite.get_steering(sys, kite_set.geom)
+    heading = load_heading(PROJECT; data_path=DATA_PATH)
+    pid = heading_pid(heading, case.dt)
+    n_steps = round(Int, SIM_TIME / case.dt)
+    logger, sys_state = create_logger(sam, n_steps)
+    counter = FailureCounter(current_logger())
+    t_step = t_vsm = 0.0
+    steps = 0
+    started = time()
+    wall = @elapsed with_logger(counter) do
+        for step in 1:n_steps
+            t = step * case.dt
+            target = heading_setpoint(t)
+            measured = sys.wings[1].heading
+            schedule_heading_pid!(pid, heading, t, sys_state.v_app, target, measured)
+            steering = nominal + pid(target, measured, 0.0)
+            sys_state.bearing = target
+            set_steering!(sys, steering, kite_set.geom)
+            flew = try
+                sim_step!(sam; dt=case.dt, vsm_interval=case.vsm_interval,
+                          vsm_warn_on_fail=true)
+            catch failure
+                failure isa InterruptException && rethrow()
+                @warn "Case stopped" case.name t exception=failure
+                false
+            end
+            flew || break
+            all(isfinite, sys.wings[1].pos_w) || break
+            t_step += sam.t_step
+            t_vsm += sam.t_vsm
+            steps = step
+            log_state!(logger, sys_state, sam, t; steering)
+            counter.failed_solves > MAX_FAILED_SOLVES && break
+            time() - started > WALL_LIMIT && break
+            step % round(Int, 1 / case.dt) == 0 &&
+                @info "Flown" case.name t wall=round(time() - started; digits=1)
+        end
+    end
+    save_log(logger, case.name; path=LOG_PATH)
+    flown = steps * case.dt
+    return (; case.name, mode=mode_label(case.mode), case.dt, case.vsm_interval,
+            flown, completed=steps == n_steps, failed_solves=counter.failed_solves,
+            wall, t_step, t_vsm, sam)
+end
+
+mkpath(LOG_PATH)
+@isdefined(RUNS) || (RUNS = Dict{String, Any}())
+for case in filter(case -> isempty(ARGS) || case.name in ARGS, CASES)
+    @info "Flying" case.name
+    RUNS[case.name] = fly(case)
+end
+
+open(joinpath(OUTPUT_PATH, "cases.csv"), "w") do io
+    println(io, "name,mode,dt,vsm_interval,flown,completed,failed_solves,wall,t_step,t_vsm")
+    for case in filter(case -> haskey(RUNS, case.name), CASES)
+        run = RUNS[case.name]
+        @printf(io, "%s,%s,%.3f,%d,%.2f,%s,%d,%.2f,%.2f,%.2f\n", run.name, run.mode,
+                run.dt, run.vsm_interval, run.flown, run.completed, run.failed_solves,
+                run.wall, run.t_step, run.t_vsm)
+    end
+end
+nothing
