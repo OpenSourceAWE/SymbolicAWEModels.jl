@@ -13,6 +13,7 @@ using MakieControlPlots
 using SymbolicAWEModels
 using KiteUtils
 using LinearAlgebra
+using DelimitedFiles
 using Printf
 using Statistics
 
@@ -27,6 +28,7 @@ MODE_COLORS = Dict("AeroDirect" => :black, "ContinuousAero" => :dodgerblue3,
                    "AeroPressure" => :darkorange, "AeroPressure+live" => :forestgreen)
 COMPARED = ["direct_dt10", "continuous_dt10", "pressure_dt10", "live_dt10"]
 STATION = 5             # mid-span structural station of the beam V3
+PANEL = 20              # a mid-span VSM panel
 SETTLE_TIME = 5.0       # [s] start of the window the flight statistics are taken over
 
 """
@@ -142,30 +144,95 @@ function pressure_figure(panel_idx)
 end
 
 """
-    flight_statistics(name) -> NamedTuple
+    case_table() -> Vector{NamedTuple}
 
-Mean tether force [N], mean and high-pass RMS angle of attack [deg], RMS heading
-error [deg] and RMS high-pass wing-node speed [m/s] of case `name` after
-`SETTLE_TIME`.
+The rows output/cases.csv holds, in the order of `CASES`.
 """
-function flight_statistics(name)
-    log = flight_log(name)
+function case_table()
+    rows = readdlm(joinpath(OUTPUT_PATH, "cases.csv"), ','; header=true)[1]
+    table = [(name=String(row[1]), mode=String(row[2]), dt=Float64(row[3]),
+              vsm_interval=Int(row[4]), flown=Float64(row[5]), completed=row[6] == "true",
+              failed_solves=Int(row[7]), wall=Float64(row[8]), t_step=Float64(row[9]),
+              t_vsm=Float64(row[10])) for row in eachrow(rows)]
+    order = [case.name for case in CASES]
+    return sort!(table; by=row -> findfirst(==(row.name), order))
+end
+
+"""
+    wing_points(sys) -> Vector{Int}
+
+Indices of the points of `sys` that belong to its first wing.
+"""
+wing_points(sys) = [point.idx for point in sys.points if point.wing_idx == 1]
+
+"""
+    flight_statistics(row, wing) -> NamedTuple
+
+Mean tether force [kN], high-pass RMS angle of attack [deg], RMS heading error [deg]
+and high-pass RMS mean speed of the `wing` points [m/s] of case `row` after
+`SETTLE_TIME`, or `nothing` when it did not fly that long.
+"""
+function flight_statistics(row, wing)
+    log = flight_log(row.name)
     rows = settled(log)
     any(rows) || return nothing
-    dt = RUNS[name].dt
     aoa = rad2deg.(log.AoA)
     heading_error = rad2deg.(log.heading .- log.bearing)
-    wing = [i for i in eachindex(first(log.X)) if i <= length(RUNS[name].sam.sys_struct.points) &&
-            RUNS[name].sam.sys_struct.points[i].wing_idx == 1]
     node_speed = [mean(norm((log.VX[k][i], log.VY[k][i], log.VZ[k][i])) for i in wing)
                   for k in eachindex(log.time)]
-    return (force=mean(first.(log.winch_force)[rows]), aoa=mean(aoa[rows]),
-            aoa_ripple=sqrt(mean(abs2, high_pass(aoa, dt)[rows])),
+    return (force=mean(first.(log.winch_force)[rows]) / 1e3,
+            aoa_ripple=sqrt(mean(abs2, high_pass(aoa, row.dt)[rows])),
             heading_error=sqrt(mean(abs2, heading_error[rows])),
-            node_ripple=sqrt(mean(abs2, high_pass(node_speed, dt)[rows])))
+            node_ripple=sqrt(mean(abs2, high_pass(node_speed, row.dt)[rows])))
+end
+
+"""
+    case_row(row, stats) -> String
+
+One line of the paper's case table: `row` of `case_table` and its `flight_statistics`.
+"""
+function case_row(row, stats)
+    cost = row.flown > 0 ? @sprintf("%.1f & %.0f", row.wall / row.flown,
+                                    100 * row.t_vsm / row.wall) : "-- & --"
+    flight = isnothing(stats) ? "-- & -- & -- & --" :
+             @sprintf("%.2f & %.2f & %.1f & %.3f", stats.force, stats.aoa_ripple,
+                      stats.heading_error, stats.node_ripple)
+    return @sprintf("\\code{%s} & %.0f & %d & %.1f & %d & %s & %s \\\\",
+                    row.mode, 1e3 * row.dt, row.vsm_interval, row.flown,
+                    row.failed_solves, cost, flight)
+end
+
+"""
+    write_results(path, table, sys)
+
+Write the macros the paper reads: the flight condition, the size of `sys`'s aero
+model, and `\\CaseRows`, one table row per case of `table`.
+"""
+function write_results(path, table, sys)
+    wing = sys.wings[1]
+    stats = [flight_statistics(row, wing_points(sys)) for row in table]
+    open(path, "w") do io
+        println(io, "% Written by make_figures.jl")
+        println(io, "\\newcommand{\\MaxHeading}{", MAX_HEADING, "}")
+        println(io, "\\newcommand{\\Period}{", PERIOD, "}")
+        println(io, "\\newcommand{\\SimTime}{", SIM_TIME, "}")
+        println(io, "\\newcommand{\\SettleTime}{", SETTLE_TIME, "}")
+        println(io, "\\newcommand{\\NumSections}{",
+                length(wing.vsm_wing.unrefined_sections), "}")
+        println(io, "\\newcommand{\\NumPanels}{", length(wing.vsm_aero.panels), "}")
+        println(io, "\\newcommand{\\CaseRows}{")
+        foreach((row, stat) -> println(io, case_row(row, stat)), table, stats)
+        println(io, "}")
+    end
+    return stats
 end
 
 mkpath(FIGURE_PATH)
+TABLE = case_table()
+STATS = write_results(joinpath(@__DIR__, "results.tex"), TABLE,
+                      RUNS[first(COMPARED)].sam.sys_struct)
 save(joinpath(FIGURE_PATH, "tracking.pdf"), tracking_figure())
 save(joinpath(FIGURE_PATH, "station_loads.pdf"), station_loads_figure())
+save(joinpath(FIGURE_PATH, "polar.pdf"), polar_figure(PANEL))
+save(joinpath(FIGURE_PATH, "pressure.pdf"), pressure_figure(PANEL))
 nothing

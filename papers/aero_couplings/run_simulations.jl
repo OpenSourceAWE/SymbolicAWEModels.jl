@@ -3,8 +3,9 @@
 
 # Fly the V3 beam wing under each aerodynamic coupling and log the runs the paper
 # compares. Needs the NeuralFoil aero geometry: run make_aero_geometry.jl first.
-# Writes output/logs/<case>.arrow and output/cases.csv; `RUNS` keeps each case's
-# model in memory for make_figures.jl. Case names as arguments fly only those.
+# Writes output/logs/<case>.arrow and a row of output/cases.csv as each case ends;
+# `RUNS` keeps each case's model in memory for make_figures.jl. Case names as
+# arguments fly only those.
 
 using Pkg
 Pkg.activate(@__DIR__)
@@ -40,7 +41,8 @@ end
     fly(case) -> NamedTuple
 
 Build the V3 beam wing under `case.mode`, fly it for `SIM_TIME` tracking
-`heading_setpoint` with the project's heading controller, and log it. Returns the run's summary and its model.
+`heading_setpoint` with the project's heading controller, and log it. Returns the
+run's summary and its model.
 """
 function fly(case)
     kite_set = load_kite(PROJECT; data_path=DATA_PATH)
@@ -91,20 +93,28 @@ function fly(case)
             wall, t_step, t_vsm, sam)
 end
 
+"""
+    record_case(run)
+
+Replace case `run.name`'s row of output/cases.csv with `run`'s summary.
+"""
+function record_case(run)
+    path = joinpath(OUTPUT_PATH, "cases.csv")
+    header = "name,mode,dt,vsm_interval,flown,completed,failed_solves,wall,t_step,t_vsm"
+    rows = isfile(path) ? readlines(path)[2:end] : String[]
+    filter!(row -> !startswith(row, run.name * ","), rows)
+    push!(rows, @sprintf("%s,%s,%.3f,%d,%.2f,%s,%d,%.2f,%.2f,%.2f", run.name, run.mode,
+                         run.dt, run.vsm_interval, run.flown, run.completed,
+                         run.failed_solves, run.wall, run.t_step, run.t_vsm))
+    write(path, join([header; rows], "\n") * "\n")
+    return nothing
+end
+
 mkpath(LOG_PATH)
 @isdefined(RUNS) || (RUNS = Dict{String, Any}())
 for case in filter(case -> isempty(ARGS) || case.name in ARGS, CASES)
     @info "Flying" case.name
     RUNS[case.name] = fly(case)
-end
-
-open(joinpath(OUTPUT_PATH, "cases.csv"), "w") do io
-    println(io, "name,mode,dt,vsm_interval,flown,completed,failed_solves,wall,t_step,t_vsm")
-    for case in filter(case -> haskey(RUNS, case.name), CASES)
-        run = RUNS[case.name]
-        @printf(io, "%s,%s,%.3f,%d,%.2f,%s,%d,%.2f,%.2f,%.2f\n", run.name, run.mode,
-                run.dt, run.vsm_interval, run.flown, run.completed, run.failed_solves,
-                run.wall, run.t_step, run.t_vsm)
-    end
+    record_case(RUNS[case.name])
 end
 nothing
