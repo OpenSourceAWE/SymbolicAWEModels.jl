@@ -41,7 +41,6 @@ else
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod
 using KiteUtils
-using LinearAlgebra
 
 @isdefined(write_pressure_fixture) ||
     include(joinpath(@__DIR__, "pressure_fixture.jl"))
@@ -267,11 +266,14 @@ seg1_blue(segment) = segment.name == :seg1 ? :blue : :red
         SymbolicAWEModels.refresh_particle_aero!(wing.aero, wing, sys.points, va)
         ax = Axis(Figure()[1, 1])
 
+        points = sys.points[sys.stations[1].point_idxs]
+        for (i, point) in enumerate(points)
+            point.aero_force_b .= [i, 0.5, -2i]
+        end
         arrows = plot_station_loads!(ax, sys, 1; force_scale=0.01)
-        points = sort(sys.points[sys.stations[1].point_idxs]; by=p -> p.pos_b[1])
-        @test arrows[2][] ≈ [Vec2f(0.01 * p.aero_force_b[1], 0.01 * p.aero_force_b[3])
-                             for p in points]
-        @test any(p -> norm(p.aero_force_b) > 0, points)
+        chord_order = sort(points; by=point -> point.pos_b[1])
+        @test arrows[2][] ≈ [Vec2f(0.01 * point.aero_force_b[1],
+                                   0.01 * point.aero_force_b[3]) for point in chord_order]
 
         panel_idx = 2
         panel = wing.vsm_aero.panels[panel_idx]
