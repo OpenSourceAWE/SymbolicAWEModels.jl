@@ -34,6 +34,7 @@ mode_label(mode::AeroPressure) = mode.live_polars ? "AeroPressure+live" : "AeroP
 CASES = [
     (name="direct_dt50", mode=AeroDirect(), dt=0.05, vsm_interval=1),
     (name="direct_dt10", mode=AeroDirect(), dt=0.01, vsm_interval=1),
+    (name="direct_dt2", mode=AeroDirect(), dt=0.002, vsm_interval=1),
     (name="direct_dt10_vsm5", mode=AeroDirect(), dt=0.01, vsm_interval=5),
     (name="continuous_dt50", mode=ContinuousAero(), dt=0.05, vsm_interval=1),
     (name="continuous_dt10", mode=ContinuousAero(), dt=0.01, vsm_interval=1),

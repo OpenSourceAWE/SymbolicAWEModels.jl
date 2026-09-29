@@ -6,3 +6,9 @@
 - `papers/aero_couplings/`: a paper comparing `AeroDirect`, `ContinuousAero`,
   `AeroPressure` and `AeroPressure` with live polars on the V3 kite, with the
   scripts that produce its results.
+
+### Fixed
+
+- `sam.t_vsm` is zero after a `next_step!` that does not refresh the aerodynamics,
+  instead of repeating the last refresh's time, so summing it over a run with
+  `vsm_interval > 1` no longer overcounts the VSM time.

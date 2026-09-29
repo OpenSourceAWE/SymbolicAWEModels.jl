@@ -27,6 +27,7 @@ TEXT_WIDTH = 453        # [pt] the paper's text width
 MODE_COLORS = Dict("AeroDirect" => :black, "ContinuousAero" => :dodgerblue3,
                    "AeroPressure" => :darkorange, "AeroPressure+live" => :forestgreen)
 COMPARED = ["direct_dt10", "continuous_dt10", "pressure_dt10", "live_dt10"]
+SECTION_CASES = ["continuous_dt10", "pressure_dt10", "live_dt10"]
 STATION = 5             # mid-span structural station of the beam V3
 PANEL = 20              # a mid-span VSM panel
 SETTLE_TIME = 5.0       # [s] start of the window the flight statistics are taken over
@@ -77,9 +78,9 @@ function tracking_figure()
         lines!(axes[2], log.time, first.(log.winch_force) ./ 1e3; color)
         lines!(axes[3], log.time, rad2deg.(log.AoA); color)
     end
-    log = flight_log(first(COMPARED))
-    lines!(axes[1], log.time, rad2deg.(log.bearing); color=:gray, linestyle=:dash,
-           label="setpoint")
+    time = 0:0.05:SIM_TIME
+    lines!(axes[1], time, rad2deg.(heading_setpoint.(time)); color=:gray,
+           linestyle=:dash, label="setpoint")
     Legend(fig[0, 1], axes[1]; orientation=:horizontal, framevisible=false,
            tellwidth=false, nbanks=1)
     return fig
@@ -88,11 +89,12 @@ end
 """
     station_loads_figure() -> Figure
 
-The aero point loads of structural station `STATION` at the end of each compared case.
+The aero point loads of structural station `STATION` at the end of each of
+`SECTION_CASES`.
 """
 function station_loads_figure()
     fig = Figure(size=(TEXT_WIDTH, 260))
-    for (col, name) in enumerate(COMPARED)
+    for (col, name) in enumerate(SECTION_CASES)
         run = RUNS[name]
         ax = Axis(fig[1, col]; title=run.mode, aspect=DataAspect(),
                   xlabel=L"x_b~[\mathrm{m}]", ylabel=L"z_b~[\mathrm{m}]",
@@ -231,7 +233,7 @@ end
 mkpath(FIGURE_PATH)
 TABLE = case_table()
 STATS = write_results(joinpath(@__DIR__, "results.tex"), TABLE,
-                      RUNS[first(COMPARED)].sam.sys_struct)
+                      RUNS[first(SECTION_CASES)].sam.sys_struct)
 save(joinpath(FIGURE_PATH, "tracking.pdf"), tracking_figure())
 save(joinpath(FIGURE_PATH, "station_loads.pdf"), station_loads_figure())
 save(joinpath(FIGURE_PATH, "polar.pdf"), polar_figure(PANEL))
