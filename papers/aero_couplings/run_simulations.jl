@@ -67,6 +67,7 @@ function fly(case)
             steering = nominal + pid(target, measured, 0.0)
             sys_state.bearing = target
             set_steering!(sys, steering, kite_set.geom)
+            sam.integrator.opts.maxiters = sam.integrator.iter + MAX_SOLVER_STEPS
             flew = try
                 sim_step!(sam; dt=case.dt, vsm_interval=case.vsm_interval,
                           vsm_warn_on_fail=true)

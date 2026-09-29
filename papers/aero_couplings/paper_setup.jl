@@ -14,6 +14,7 @@ MAX_HEADING = 40.0       # amplitude of the heading setpoint [deg]
 PERIOD = 15.0            # period of the heading setpoint [s]
 MAX_FAILED_SOLVES = 20   # a case stops once this many VSM solves have failed
 WALL_LIMIT = 1200.0      # a case stops once it has run this long [s]
+MAX_SOLVER_STEPS = 1000  # a case stops once one output step takes more solver steps
 
 """
     heading_setpoint(t)
