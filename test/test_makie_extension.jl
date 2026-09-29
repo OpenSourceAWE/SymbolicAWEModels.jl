@@ -10,6 +10,7 @@
 # 4. Replay single system
 # 5. Replay multiple systems
 # 6. The replay spring-force checkbox recolours the segments
+# 7. The section plots draw a wing's point loads, panel polar and Cp pattern
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -38,8 +39,12 @@ if !GLMAKIE_AVAILABLE
 else
 
 using SymbolicAWEModels
-using SymbolicAWEModels: KVec3
+using SymbolicAWEModels: KVec3, VortexStepMethod
 using KiteUtils
+using LinearAlgebra
+
+@isdefined(write_pressure_fixture) ||
+    include(joinpath(@__DIR__, "pressure_fixture.jl"))
 
 # ============================================================================
 # Minimal 3-point, 2-segment YAML (same pattern as test_segment.jl). Two
@@ -248,6 +253,41 @@ seg1_blue(segment) = segment.name == :seg1 ? :blue : :red
         ext.apply_view_toggle!(:segment_colors_obs, false)
         @test ext.PLOT_SEGMENT_COLORS_OBS[][] ==
             GLMakie.to_color.([:red, :blue])
+    end
+
+    @testset "Section plots draw the wing's own loads, polar and pressure" begin
+        data_path = joinpath(mktempdir(), "2plate_kite")
+        cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path)
+        write_pressure_fixture(data_path)
+        _, sys = load_pressure_sys(data_path, AeroPressure())
+        wing = sys.wings[1]
+        wing.va_b .= [15.0, 0.0, 3.5]
+        wing.vsm_solver.density = 1.225
+        va = repeat(collect(wing.va_b), 1, length(sys.points))
+        SymbolicAWEModels.refresh_particle_aero!(wing.aero, wing, sys.points, va)
+        ax = Axis(Figure()[1, 1])
+
+        arrows = plot_station_loads!(ax, sys, 1; force_scale=0.01)
+        points = sort(sys.points[sys.stations[1].point_idxs]; by=p -> p.pos_b[1])
+        @test arrows[2][] ≈ [Vec2f(0.01 * p.aero_force_b[1], 0.01 * p.aero_force_b[3])
+                             for p in points]
+        @test any(p -> norm(p.aero_force_b) > 0, points)
+
+        panel_idx = 2
+        panel = wing.vsm_aero.panels[panel_idx]
+        alpha = wing.vsm_solver.sol.alpha_dist[panel_idx]
+        marker = plot_panel_polar!(ax, sys, panel_idx; coefficient=:cm)
+        @test marker[1][][1] ≈
+            Point2f(rad2deg(alpha), VortexStepMethod.calculate_cm(panel, alpha))
+        @test_throws ArgumentError plot_panel_polar!(ax, sys, 1; coefficient=:cx)
+
+        line = plot_panel_pressure!(ax, sys, panel_idx)
+        x, _, cp_nodes, _ = SymbolicAWEModels.surface_pattern(wing.aero, panel,
+                                                             panel_idx, alpha)
+        @test line[1][] ≈ Point2f.(x, -cp_nodes)
+
+        _, direct_sys = load_pressure_sys(data_path, AeroDirect())
+        @test_throws ArgumentError plot_panel_pressure!(ax, direct_sys, 1)
     end
 
     # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
