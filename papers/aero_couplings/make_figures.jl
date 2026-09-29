@@ -234,8 +234,8 @@ mkpath(FIGURE_PATH)
 TABLE = case_table()
 STATS = write_results(joinpath(@__DIR__, "results.tex"), TABLE,
                       RUNS[first(SECTION_CASES)].sam.sys_struct)
-save(joinpath(FIGURE_PATH, "tracking.pdf"), tracking_figure())
-save(joinpath(FIGURE_PATH, "station_loads.pdf"), station_loads_figure())
-save(joinpath(FIGURE_PATH, "polar.pdf"), polar_figure(PANEL))
-save(joinpath(FIGURE_PATH, "pressure.pdf"), pressure_figure(PANEL))
+CairoMakie.save(joinpath(FIGURE_PATH, "tracking.pdf"), tracking_figure())
+CairoMakie.save(joinpath(FIGURE_PATH, "station_loads.pdf"), station_loads_figure())
+CairoMakie.save(joinpath(FIGURE_PATH, "polar.pdf"), polar_figure(PANEL))
+CairoMakie.save(joinpath(FIGURE_PATH, "pressure.pdf"), pressure_figure(PANEL))
 nothing

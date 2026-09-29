@@ -325,6 +325,7 @@ aero_poses = [
                 end
             end
 
+            case.reference == :vsm &&
             @testset "t_vsm times only a step that refreshes the aero" begin
                 next_step!(sam; dt=0.05, vsm_interval=1)
                 @test sam.t_vsm > 0
