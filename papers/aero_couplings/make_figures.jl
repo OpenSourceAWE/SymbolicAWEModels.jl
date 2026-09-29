@@ -192,8 +192,9 @@ end
 One line of the paper's case table: `row` of `case_table` and its `flight_statistics`.
 """
 function case_row(row, stats)
-    cost = row.flown > 0 ? @sprintf("%.1f & %.0f", row.wall / row.flown,
-                                    100 * row.t_vsm / row.wall) : "-- & --"
+    timed = row.flown - row.dt
+    cost = timed > 0 ? @sprintf("%.1f & %.0f", (row.t_step + row.t_vsm) / timed,
+                                100 * row.t_vsm / (row.t_step + row.t_vsm)) : "-- & --"
     flight = isnothing(stats) ? "-- & -- & -- & --" :
              @sprintf("%.2f & %.2f & %.1f & %.3f", stats.force, stats.aoa_ripple,
                       stats.heading_error, stats.node_ripple)

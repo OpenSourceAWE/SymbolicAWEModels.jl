@@ -42,7 +42,8 @@ end
 
 Build the V3 beam wing under `case.mode`, fly it for `SIM_TIME` tracking
 `heading_setpoint` with the project's heading controller, and log it. Returns the
-run's summary and its model.
+run's summary, with integration and VSM time [s] summed from the second step on,
+and its model.
 """
 function fly(case)
     kite_set = load_kite(PROJECT; data_path=DATA_PATH)
@@ -76,8 +77,10 @@ function fly(case)
             end
             flew || break
             all(isfinite, sys.wings[1].pos_w) || break
-            t_step += sam.t_step
-            t_vsm += sam.t_vsm
+            if step > 1
+                t_step += sam.t_step
+                t_vsm += sam.t_vsm
+            end
             steps = step
             log_state!(logger, sys_state, sam, t; steering)
             counter.failed_solves > MAX_FAILED_SOLVES && break

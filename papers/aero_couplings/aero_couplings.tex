@@ -222,11 +222,34 @@ between the cases only to within some ten percent.
 
 \section{Results}
 
-\input{results_body.tex}
+\begin{table}[t]
+\centering
+\small
+\caption{The cases. $\Delta t$ is the output step, $n$ the steps between VSM solves,
+$T$ the time flown before the case ended and $N_f$ the VSM solves that did not
+converge. Cost is integration plus VSM time per simulated second, first step excluded,
+and the share of it spent in the VSM
+solves. The flight statistics are taken after \SI{\SettleTime}{s}: mean tether force
+$\bar F_t$, RMS angle of attack above \SI{2}{Hz} $\tilde\alpha$, RMS heading error
+$e_\psi$, and RMS mean wing-node speed above \SI{2}{Hz} $\tilde v$.}
+\label{tab:cases}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrrrrrrrrr}
+\toprule
+coupling & $\Delta t$ & $n$ & $T$ & $N_f$ & cost & VSM & $\bar F_t$ & $\tilde\alpha$
+  & $e_\psi$ & $\tilde v$ \\
+ & [ms] & & [s] & & [s/s] & [\%] & [kN] & [°] & [°] & [m/s] \\
+\midrule
+\CaseRows
+\bottomrule
+\end{tabular}
+\end{table}
+
+RESULTS_TEXT
 
 \section{Discussion}
 
-\input{discussion.tex}
+DISCUSSION_TEXT
 
 \section{Reproducing the results}
 
