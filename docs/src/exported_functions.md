@@ -43,15 +43,36 @@ joints as one `headers`/`data` table per block, conforming to awesIO's
 `structure_schema.yml`. YAML and JSON are two encodings of the one document, and
 the file extension picks between them. The document is structure only: the
 transforms that place the system in the world and the live state do not survive a
-round trip. `save_log(logger, sys, name)` writes a log that carries the document as
-JSON under the metadata key `topology`.
+round trip. `sys_log(logger, sys, name)` returns a log that carries the document as
+JSON under the metadata key `topology`, and `save_log(logger, sys, name)` writes it.
 
 ```@docs
 structure_document
 sys_struct_from_document
 save_structure_document
 load_structure_document
+sys_log(::Logger, ::SystemStructure)
 save_log(::Logger, ::SystemStructure)
+```
+
+## Job runner
+
+symawe.com hands requested simulations to runners over the job API in `api/openapi.yaml`, with one JSON Schema per job kind in `api/jobs/`. A kite package registers its kites as `JobKite`s, each with a parameter menu per job kind, and `serve_jobs` heartbeats, claims, runs and uploads their jobs. Every run it uploads carries a `run` key beside `topology` in its Arrow metadata: the job's kind, kite, parameters, key, the runner version and the wall time. `runner/Dockerfile.base` is the image a kite package's runner image builds from.
+
+```julia
+mass = JobParameter("mass", "kg", 0.5, 10.0, 1.0)
+kite = JobKite("hanging_mass"; steady_menu=[mass], sim_menu=[mass], sweep_menu=[mass],
+               steady=params -> steady_log(params),
+               simulate=(params; progress) -> sim_log(params; progress),
+               sweep_point=params -> steady_log(params))
+serve_jobs([kite]; site="https://symawe.com", token=ENV["SYMAWE_RUNNER_TOKEN"])
+```
+
+```@docs
+JobKite
+JobParameter
+serve_jobs
+job_key
 ```
 
 ## System configuration

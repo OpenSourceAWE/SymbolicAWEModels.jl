@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 Bart van de Lint
+# SPDX-License-Identifier: LGPL-3.0-only
+#
+# Base image for a job runner (`serve_jobs`, api/openapi.yaml). A kite package's image
+# builds FROM it, installs its package into /runner and sets the command, for example:
+#
+#   FROM symawe-runner-base
+#   COPY --chown=runner . /runner
+#   RUN julia --project=/runner -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+#   CMD ["--project=/runner", "-e", "using V3Kite; V3Kite.serve()"]
+#
+# A built model is written beside the settings in the data path, so a named volume
+# mounted over the kite's data directory, which starts as a copy of it, keeps the
+# models across restarts. The runner token is passed at run time, never built into an
+# image.
+
+ARG JULIA_VERSION=1.12
+FROM julia:${JULIA_VERSION}
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 1000 runner \
+    && mkdir -p /depot /runner \
+    && chown runner:runner /depot /runner
+
+USER runner
+# Packages and their precompile caches, built into the image; the trailing colon keeps
+# Julia's bundled depot for the standard library.
+ENV JULIA_DEPOT_PATH=/depot:
+WORKDIR /runner
+
+# One interactive thread keeps the heartbeat going while jobs run.
+ENTRYPOINT ["julia", "--threads=auto,1"]

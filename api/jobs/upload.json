@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "upload.json",
+  "title": "Upload job request",
+  "description": "A run computed elsewhere, uploaded by hand under the admin token. The site marks the job running at once, and the run arrives on the job's result endpoint.",
+  "type": "object",
+  "required": ["kind"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "upload" },
+    "name": { "type": "string", "minLength": 1, "description": "name the run is shown under" }
+  }
+}
