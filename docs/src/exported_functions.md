@@ -184,12 +184,11 @@ For a figure with labelled axes, or a vector PDF, draw the system into an axis
 of your own with `plot!(ax, sys; kwargs...)`. It takes the drawing keywords of
 `plot` (colours, layers, styling) but not its camera ones, draws into any Makie
 axis (`Axis3`, `LScene`) and returns a `Dict` of the plot objects by layer
-(`:segments`, `:points`, …). With CairoMakie as the backend, `save` writes the
-figure as vector graphics. Here `sys` is any `SystemStructure`, such as the one
+(`:segments`, `:points`, …). With CairoMakie as the backend, `CairoMakie.save` writes
+the figure as vector graphics. Here `sys` is any `SystemStructure`, such as the one
 the [2-Plate Kite](@ref plate-kite-2) example loads:
 ```julia
-using SymbolicAWEModels, CairoMakie
-import MakieControlPlots
+using SymbolicAWEModels, CairoMakie, MakieControlPlots
 CairoMakie.activate!()
 
 role_colors = (wing=:black, free=:steelblue, unwinched_tether=:seagreen,
@@ -200,7 +199,7 @@ plot!(ax, sys; segment_color=segment -> role_colors[segment_role(sys, segment)],
       show_orient=false, show_wing_frame=false)
 Legend(fig[1, 2], [LineElement(color=color) for color in values(role_colors)],
        [string(role) for role in keys(role_colors)])
-save("kite.pdf", fig)
+CairoMakie.save("kite.pdf", fig)
 ```
 
 ### Time-series visualization
@@ -237,9 +236,9 @@ same panels for comparison.
     `MakieControlPlots` are loaded — `using GLMakie` on its own is not enough.
     `plot` extends `MakieControlPlots.plot`, the generic of the figure-returning
     plot commands; the scene-mutating `plot!` extends `Makie.plot!`. A Makie
-    backend exports a `plot` and a `save` of its own, so bring only one of the
-    two in with `using`: `import GLMakie` for the interactive `plot`, `import
-    MakieControlPlots` for a CairoMakie figure.
+    backend exports a `plot` and a `save` of its own, so with both packages
+    brought in by `using` those two names are ambiguous: call them qualified,
+    as `MakieControlPlots.plot(sys)` and `CairoMakie.save("kite.pdf", fig)`.
 
 ## Inflated-tube rigidity laws
 
