@@ -59,7 +59,7 @@ end
 """
     station_eqs!(eqs, defaults, stations, bodies, params;
                R_b_to_w, fix_wing, twist_angle, twist_ω, station_aero_moment,
-               point_force, station_y_airf, station_chord, station_le_pos)
+               point_force, point_mass, station_y_airf, station_chord, station_le_pos)
 
 Generate equations for deformable wing station twist dynamics. The couple each
 of a surface's points delivers to its hinge is built from the shared
@@ -74,6 +74,7 @@ of a surface's points delivers to its hinge is built from the shared
 - `twist_angle`, `twist_ω`: Symbolic twist state variables.
 - `station_aero_moment`: Symbolic aerodynamic moment on stations.
 - `point_force`: Symbolic point force variable.
+- `point_mass`: Symbolic point mass variable (extra mass plus segment halves).
 - `station_y_airf`, `station_chord`, `station_le_pos`: Symbolic station geometry variables.
 
 # Returns
@@ -81,7 +82,8 @@ of a surface's points delivers to its hinge is built from the shared
 """
 function station_eqs!(eqs, defaults, stations, bodies, params, initial;
                     R_b_to_w, fix_wing, twist_angle, twist_ω, station_aero_moment,
-                    point_force, station_y_airf, station_chord, station_le_pos)
+                    point_force, point_mass, station_y_airf, station_chord,
+                    station_le_pos)
 
     length(stations) == 0 && return eqs, defaults
 
@@ -203,8 +205,7 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
         end
 
         station_chord = collect(station_chord)
-        station_mass = sum(params.points[point_idx].extra_mass
-                           for point_idx in station.point_idxs) +
+        station_mass = sum(point_mass[point_idx] for point_idx in station.point_idxs) +
             params.stations[station.idx].body_mass
         twist = station_dynamics(;
             free_angle = free_twist_angle[station.idx],

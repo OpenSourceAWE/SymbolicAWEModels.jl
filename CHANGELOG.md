@@ -1,28 +1,13 @@
 # CHANGELOG
 
-## Unreleased
+## v0.19.0 2026-09-24
 
 ### Added
-- `system.yaml` is the project file: besides `sim_settings:` it names a model's
-  `structural_geometry:`, `aero_geometry:` and `vsm_settings:`, the layout
-  `V3Kite.jl` already uses. `project_file(entry)` resolves one against the data
-  path and throws an `ArgumentError` naming the entry where the project names
-  none, so examples ask the project for a model's files instead of spelling their
-  names. A project that names only
-  `sim_settings:` keeps working.
 - `update_mass_properties!(sys_struct)` sets each body's `total_mass`, COM and
   principal inertia from its own and its points' masses. `reinit!` runs it after the
   segment lengths are set.
 
 ### Changed
-- A wing's aero geometry is the project file's `aero_geometry:` where the project
-  names one, so the file is named in one place instead of also being the
-  `geometry_file:` of every wing in `vsm_settings.yaml`. A `VSMSettings` built
-  outside the project still flies its own `geometry_file:`.
-- The `kite.struc_geometry_path` and `kite.aero_geometry_path` fields of
-  `settings.yaml` are gone from the shipped models and from the documented
-  schema. Nothing ever read them; `structural_geometry:` and `aero_geometry:` in
-  the project file take their place.
 - BREAKING: `roll`, `pitch` and `yaw` are no longer written to `SysState`, which
   dropped the three fields in KiteUtils 0.13. They were computed here with a NED
   Euler formula applied to `Q_b_to_w`, which is ENU, so they were not the angles
@@ -45,6 +30,9 @@
   `total_mass` of its `BODY_STATIC` riders and wing nodes, segment halves included,
   and its COM and inertia include them at their anchors. Setting both `extra_mass`
   and point masses counts both.
+- A `DYNAMIC` station twists with the `total_mass` of its points, segment halves
+  included, where it counted only their `extra_mass`; a station with bridles on its
+  points turns more slowly.
 - A rigid body's `inertia_principal`, `R_b_to_p` and `com_offset_b` are derived on
   every `reinit!`, from `l0` as it leaves it, so a `Body`'s `R_b_to_p` can differ
   from the one passed; change a built body through `extra_inertia_b` and

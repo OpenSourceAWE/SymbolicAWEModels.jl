@@ -8,6 +8,7 @@ module SymbolicAWEModels
 # --- Julia Standard Library & General Utilities ---
 using Pkg
 using TOML
+using JSON
 using DocStringExtensions
 using LinearAlgebra
 using SparseArrays
@@ -15,8 +16,6 @@ using Parameters
 using Printf
 using Serialization
 using SHA
-using CodecZlib
-using Tar
 using Statistics
 using Suppressor
 using Timers
@@ -67,6 +66,7 @@ export ModelBackend, MonolithBackend, KernelBackend,
        BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
 export SystemStructure, Point, Station, Segment, Pulley, Tether, Winch, Wing, Transform
+export segment_role
 export Body, ElasticJoint, TimoshenkoJoint
 export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
 export ObjAdapter
@@ -130,6 +130,8 @@ export update_plot_observables!
 export animate
 export load_sys_struct_from_yaml
 export project_file
+export structure_document, sys_struct_from_document
+export save_structure_document, load_structure_document
 export replay
 export record
 export plot_sphere_trajectory
@@ -199,7 +201,6 @@ need no update here. Defined in the Makie extension.
 function update_wing_aero_plot! end
 function find_steady_state! end
 function make_lin_sys_state end
-function create_model_archive end
 
 function __init__()
     data_dir = joinpath(pwd(), "data")
@@ -218,6 +219,7 @@ include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
 include("yaml_loader.jl")
+include("structure_document.jl")
 include("linearize.jl")
 include("generate_system/generate_system.jl")
 # Aero subsystem; loaded after generate_system for the accessors/MTK it uses.
@@ -382,7 +384,6 @@ function init_module(; force=false, add_pkg=true)
     println("Initialization complete! Examples and data files are prepared in the current directory.")
 end
 
-include("precompile.jl")
 include("precompile_workload.jl")
 
 end
