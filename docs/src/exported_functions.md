@@ -45,12 +45,15 @@ and the file extension picks between them. The document holds the system where i
 is placed, every position in the ENU world frame; its CAD geometry, its transforms
 and the live state do not survive a round trip. Reading a document with wings is
 not supported yet ([#396](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/issues/396)).
+`save_log(logger, sys, name)` writes a log that carries the document as JSON under
+the metadata key `topology`.
 
 ```@docs
 structure_document
 sys_struct_from_document
 save_structure_document
 load_structure_document
+save_log(::Logger, ::SystemStructure)
 ```
 
 ## System configuration

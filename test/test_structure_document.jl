@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 # test_structure_document.jl - SystemStructure → structure document →
-# SystemStructure, in both encodings, against a vendored copy of
-# structure_schema.yml and the golden document in test/data. Regenerate the
-# golden by pointing save_structure_document at data/2plate_kite_structure.yml
+# SystemStructure, in both encodings and through a run's log, against a vendored
+# copy of structure_schema.yml and the golden document in test/data. Regenerate
+# the golden by pointing save_structure_document at data/2plate_kite_structure.yml
 # with the description and note below.
 
 using Pkg
@@ -16,6 +16,7 @@ using Test
 using SymbolicAWEModels
 using KiteUtils
 using VortexStepMethod
+using JSON
 using JSONSchema
 using YAML
 
@@ -86,6 +87,7 @@ end
         joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
     schema = Schema(YAML.load_file(joinpath(@__DIR__, "data",
                                             "structure_schema.yml")))
+    golden = YAML.load_file(joinpath(@__DIR__, "data", "2plate_kite_structure.yml"))
     tmpdir = mktempdir()
 
     @testset "connectivity_sha hashes the preimage the schema documents" begin
@@ -99,8 +101,7 @@ end
         document = structure_document(two_plate_kite(set, vsm_set);
             description=GOLDEN_DESCRIPTION, note=GOLDEN_NOTE)
         @test isnothing(JSONSchema.validate(schema, document))
-        @test YAML.load_file(joinpath(@__DIR__, "data",
-                                      "2plate_kite_structure.yml")) == document
+        @test golden == document
     end
 
     @testset "a document holds the system where it is placed" begin
@@ -150,6 +151,26 @@ end
         end
         spring, reread_spring = sys.tubes[:spring], reread.tubes[:spring]
         @test tube_end(reread, reread_spring) ≈ tube_end(sys, spring)
+    end
+
+    @testset "a run's log carries the structure document of the system that ran" begin
+        sys = two_plate_kite(set, vsm_set)
+        sam = SymbolicAWEModel(set, sys)
+        init!(sam; prn=false)
+        logger = Logger(sam, 3)
+        state = SysState(sam)
+        for step in 0:2
+            step > 0 && next_step!(sam)
+            update_sys_state!(state, sam)
+            log!(logger, state)
+        end
+        save_log(logger, sys, "2plate_kite_run"; path=tmpdir)
+        run_log = load_log("2plate_kite_run"; path=tmpdir)
+        topology = JSON.parse(run_log.metadata["topology"])
+        @test isnothing(JSONSchema.validate(schema, topology))
+        @test topology["metadata"]["connectivity_sha"] ==
+              golden["metadata"]["connectivity_sha"]
+        @test length(run_log.syslog) == 3
     end
 
     @testset "a document whose connectivity_sha does not describe it is refused" begin
