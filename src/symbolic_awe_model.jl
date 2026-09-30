@@ -638,14 +638,9 @@ end
     get_model_name(set::Settings, sys_struct::SystemStructure; precompile=false,
                    sparse=false, analytic_jacobian=false, backend=MonolithBackend())
 
-Constructs a unique filename for the serialized model based on its configuration.
-The filename includes the SymbolicAWEModels version, Julia version, physical model,
-wing type, aero mode, dynamics type, component counts and a digest of
-[`component_types`](@ref) to ensure that the correct cached model is loaded. `sparse`,
-`analytic_jacobian` and `backend` are part of the name because the cached
-`ODEProblem` carries its Jacobian prototype, its Jacobian and its backend's assembly,
-so those builds are different artefacts; naming them apart keeps all of them on disk
-rather than invalidating one with the other.
+Filename of the serialized model: the SymbolicAWEModels and Julia versions, physical
+model, wing type, aero mode, dynamics type, component counts, a digest of
+[`component_types`](@ref), and tags for `sparse`, `analytic_jacobian` and `backend`.
 """
 function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=false,
                         sparse=false, analytic_jacobian=false,
