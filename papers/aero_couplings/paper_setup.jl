@@ -18,8 +18,8 @@ RAMP = (0.5, 2.5)        # start and end of the steering ramp [s]
 MAX_FAILED_SOLVES = 200  # a case stops once this many VSM solves have failed
 WALL_LIMIT = 1200.0      # a case stops once it has run this long [s]
 MAX_SOLVER_STEPS = 1000  # a case stops once one output step takes more solver steps
-CASE_COLUMNS = (:name, :mode, :dt, :vsm_interval, :flown, :completed, :failed_solves,
-                :wall, :t_step, :t_vsm)   # the columns of output/cases.csv
+CASE_COLUMNS = (:name, :mode, :dt, :vsm_interval, :flown, :failed_solves, :t_step,
+                :t_vsm)   # the columns of output/cases.csv
 
 """
     steering_offset(t)

@@ -4,8 +4,8 @@
 # Fly the V3 kite under each aerodynamic coupling and log the runs the paper
 # compares. Needs the NeuralFoil aero geometry: run make_aero_geometry.jl first.
 # Writes output/logs/<case>.arrow and a row of output/cases.csv as each case ends;
-# `RUNS` keeps each case's model in memory for make_figures.jl. Case names as
-# arguments fly only those.
+# `RUNS` keeps each case's model in memory for the section figures of make_figures.jl.
+# Case names as arguments fly only those.
 
 using Pkg
 Pkg.activate(@__DIR__)
@@ -38,13 +38,13 @@ function Logging.handle_message(logger::FailureCounter, level, message, mod, gro
 end
 
 """
-    fly(case; sim_time=SIM_TIME) -> NamedTuple
+    fly(case; sim_time) -> NamedTuple
 
 Build `case.project` under `case.mode`, fly it for `sim_time` [s] with the steering
 of `steering_offset`, and log it. Returns the run's summary, with integration and
 VSM time [s] summed from the second step on, and its model.
 """
-function fly(case; sim_time=SIM_TIME)
+function fly(case; sim_time)
     kite_set = load_kite(case.project; data_path=DATA_PATH)
     kite_set.aero_mode = case.mode
     sam, sys = build_v3_model(case.project; data_path=DATA_PATH, kite_set)
@@ -55,7 +55,7 @@ function fly(case; sim_time=SIM_TIME)
     t_step = t_vsm = 0.0
     steps = 0
     started = time()
-    wall = @elapsed with_logger(counter) do
+    with_logger(counter) do
         for step in 1:n_steps
             t = step * case.dt
             steering = nominal + steering_offset(t)
@@ -86,8 +86,7 @@ function fly(case; sim_time=SIM_TIME)
     save_log(logger, case.name; path=LOG_PATH)
     flown = steps * case.dt
     return (; case.name, mode=mode_label(case.mode), case.dt, case.vsm_interval,
-            flown, completed=steps == n_steps, failed_solves=counter.failed_solves,
-            wall, t_step, t_vsm, sam)
+            flown, failed_solves=counter.failed_solves, t_step, t_vsm, sam)
 end
 
 """
@@ -100,9 +99,9 @@ function record_case(run)
     header = join(CASE_COLUMNS, ",")
     rows = isfile(path) ? readlines(path)[2:end] : String[]
     filter!(row -> !startswith(row, run.name * ","), rows)
-    push!(rows, @sprintf("%s,%s,%.3f,%d,%.2f,%s,%d,%.2f,%.2f,%.2f", run.name, run.mode,
-                         run.dt, run.vsm_interval, run.flown, run.completed,
-                         run.failed_solves, run.wall, run.t_step, run.t_vsm))
+    push!(rows, @sprintf("%s,%s,%.3f,%d,%.2f,%d,%.2f,%.2f", run.name, run.mode, run.dt,
+                         run.vsm_interval, run.flown, run.failed_solves, run.t_step,
+                         run.t_vsm))
     write(path, join([header; rows], "\n") * "\n")
     return nothing
 end
@@ -116,13 +115,11 @@ selected(cases) = filter(case -> isempty(ARGS) || case.name in ARGS, cases)
 
 mkpath(LOG_PATH)
 @isdefined(RUNS) || (RUNS = Dict{String, Any}())
-for case in selected(CASES)
-    @info "Flying" case.name
-    RUNS[case.name] = fly(case)
-    record_case(RUNS[case.name])
-end
-for case in selected(SECTION_CASES)
-    @info "Flying" case.name
-    RUNS[case.name] = fly(case; sim_time=SECTION_TIME)
+for (cases, sim_time) in ((CASES, SIM_TIME), (SECTION_CASES, SECTION_TIME))
+    for case in selected(cases)
+        @info "Flying" case.name
+        RUNS[case.name] = fly(case; sim_time)
+        record_case(RUNS[case.name])
+    end
 end
 nothing

@@ -236,10 +236,7 @@ same panels for comparison.
 
 ### Aerodynamic section plots
 
-Three functions draw one wing section into a 2D `Axis`, so that aero modes can be
-compared side by side: the point loads a structural station carries, the polar a
-VSM panel flies, and the `Cp` pattern an [`AeroPressure`](@ref) wing spreads the
-panel force with.
+Three functions draw one wing section into a 2D `Axis`, so that aero modes can be compared side by side: the point loads a structural station carries, the polar a VSM panel flies, and the `Cp` pattern an [`AeroPressure`](@ref) wing spreads the panel force with.
 ```julia
 fig = Figure()
 ax = Axis(fig[1, 1]; aspect=DataAspect())

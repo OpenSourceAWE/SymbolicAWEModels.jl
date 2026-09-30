@@ -2,21 +2,25 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 # Write the paper's figures to figures/ and the numbers it quotes to results.tex.
-# Runs in the session run_simulations.jl flew in: the section figures read the
-# models `RUNS` holds at the end of each case.
+# The table reads the logs and output/cases.csv; the section figures and numbers read
+# the models `RUNS` holds at the end of the section cases, so run
+# `run_simulations.jl continuous_particle pressure_beam live_beam` in this session first.
 
 using Pkg
 Pkg.activate(@__DIR__)
 
 using CairoMakie
+import MakieControlPlots   # with GeometryBasics, loads the package's Makie extension
+using V3Kite
 using SymbolicAWEModels
+using VortexStepMethod
 using LinearAlgebra
 using DelimitedFiles
 using Printf
 using Statistics
 
 include(joinpath(@__DIR__, "paper_setup.jl"))
-@isdefined(RUNS) || error("Run run_simulations.jl in this session first")
+@isdefined(RUNS) || error("Fly the section cases with run_simulations.jl first")
 
 CairoMakie.activate!(type="pdf")
 set_theme!(theme_latexfonts(); fontsize=10, linewidth=1.2)
@@ -29,6 +33,13 @@ SECTIONS = ["continuous_particle", "pressure_beam", "live_beam"]
 STATION = 5             # a mid-span structural station of both V3 models
 PANEL = 20              # a VSM panel a quarter of the span from the tip
 SETTLE_TIME = 5.0       # [s] start of the window the flight statistics are taken over
+
+"""
+    find_case(name)
+
+The case of `CASES` or `SECTION_CASES` named `name`.
+"""
+find_case(name) = only(case for case in [CASES; SECTION_CASES] if case.name == name)
 
 """
     flight_log(name) -> SysLog
@@ -64,10 +75,10 @@ function tracking_figure()
     time = 0:0.05:SIM_TIME
     lines!(axes[1], time, steering_offset.(time); color=:gray)
     for name in COMPARED
-        run = RUNS[name]
+        mode = mode_label(find_case(name).mode)
         log = flight_log(name)
-        color = MODE_COLORS[run.mode]
-        lines!(axes[2], log.time, first.(log.winch_force) ./ 1e3; color, label=run.mode)
+        color = MODE_COLORS[mode]
+        lines!(axes[2], log.time, first.(log.winch_force) ./ 1e3; color, label=mode)
         lines!(axes[3], log.time, rad2deg.(log.AoA); color)
     end
     Legend(fig[0, 1], axes[2]; orientation=:horizontal, framevisible=false,
@@ -84,10 +95,9 @@ function trajectory_figure()
     fig = Figure(size=(COLUMN_WIDTH, 220))
     axis = Axis(fig[1, 1]; xlabel=L"\phi~[°]", ylabel=L"\beta~[°]", aspect=DataAspect())
     for name in COMPARED
-        run = RUNS[name]
         log = flight_log(name)
         lines!(axis, rad2deg.(log.azimuth), rad2deg.(log.elevation);
-               color=MODE_COLORS[run.mode])
+               color=MODE_COLORS[mode_label(find_case(name).mode)])
     end
     return fig
 end
@@ -152,31 +162,39 @@ function pressure_figure(panel_idx)
 end
 
 """
-    case_table() -> Vector{NamedTuple}
+    case_rows() -> Dict{String, NamedTuple}
 
-The rows output/cases.csv holds, in the order of `CASES`.
+The rows output/cases.csv holds, by case name.
 """
-function case_table()
+function case_rows()
     rows = readdlm(joinpath(OUTPUT_PATH, "cases.csv"), ','; header=true)[1]
     table = [NamedTuple{CASE_COLUMNS}(Tuple(value isa AbstractString ? String(value) : value
                                             for value in row)) for row in eachrow(rows)]
-    order = [case.name for case in CASES]
-    return sort!(table; by=row -> findfirst(==(row.name), order))
+    return Dict(row.name => row for row in table)
 end
 
 """
-    flight_statistics(row) -> NamedTuple
+    unbuilt_structure(case) -> SystemStructure
+
+The structure `case` flies, loaded from its project without compiling a model.
+"""
+function unbuilt_structure(case)
+    kite_set = load_kite(case.project; data_path=DATA_PATH)
+    kite_set.aero_mode = case.mode
+    return last(V3Kite.create_v3_model(case.project; data_path=DATA_PATH, kite_set))
+end
+
+"""
+    flight_statistics(row, wing_nodes) -> NamedTuple
 
 Mean tether force [kN], high-pass RMS angle of attack [deg] and high-pass RMS mean
-wing-node speed [m/s] of case `row` after `SETTLE_TIME`, or `nothing` when it did not
-fly that long.
+speed [m/s] of the points `wing_nodes` of case `row` after `SETTLE_TIME`, or `nothing`
+when it did not fly that long.
 """
-function flight_statistics(row)
+function flight_statistics(row, wing_nodes)
     log = flight_log(row.name)
     rows = log.time .>= SETTLE_TIME
     any(rows) || return nothing
-    sys = RUNS[row.name].sam.sys_struct
-    wing_nodes = [point.idx for point in SymbolicAWEModels.wing_points(sys, sys.wings[1])]
     aoa = rad2deg.(log.AoA)
     node_speed = [mean(norm((log.VX[k][i], log.VY[k][i], log.VZ[k][i])) for i in wing_nodes)
                   for k in eachindex(log.time)]
@@ -186,21 +204,12 @@ function flight_statistics(row)
 end
 
 """
-    model_label(name) -> String
+    case_row(row, model, stats) -> String
 
-The structural model case `name` flies: `particle` or `beam`.
+One line of the paper's case table: `row` of `case_rows`, flown on `model`, and its
+`flight_statistics`.
 """
-function model_label(name)
-    project = only(case.project for case in CASES if case.name == name)
-    return project == BEAM ? "beam" : "particle"
-end
-
-"""
-    case_row(row, stats) -> String
-
-One line of the paper's case table: `row` of `case_table` and its `flight_statistics`.
-"""
-function case_row(row, stats)
+function case_row(row, model, stats)
     timed = row.flown - row.dt
     cost = timed > 0 ? @sprintf("%.1f & %.0f", (row.t_step + row.t_vsm) / timed,
                                 100 * row.t_vsm / (row.t_step + row.t_vsm)) : "-- & --"
@@ -208,53 +217,94 @@ function case_row(row, stats)
              @sprintf("%.2f & %.2f & %.3f", stats.force, stats.aoa_ripple,
                       stats.node_ripple)
     return @sprintf("\\code{%s} & %s & %.0f & %d & %.1f & %d & %s & %s \\\\",
-                    row.mode, model_label(row.name), 1e3 * row.dt, row.vsm_interval,
-                    row.flown, row.failed_solves, cost, flight)
+                    row.mode, model, 1e3 * row.dt, row.vsm_interval, row.flown,
+                    row.failed_solves, cost, flight)
 end
 
 """
-    aero_size_macros(io, suffix, sys)
+    operating_coefficient(run, coefficient) -> Float64
 
-Write `\\NumSections<suffix>` and `\\NumPanels<suffix>`, the sections and VSM
-panels of `sys`'s wing.
+Coefficient `coefficient` (`:cl` or `:cm`) of panel `PANEL` at its angle of attack at
+the end of section case `run`.
 """
-function aero_size_macros(io, suffix, sys)
-    wing = sys.wings[1]
-    println(io, "\\newcommand{\\NumSections", suffix, "}{",
-            length(wing.vsm_wing.unrefined_sections), "}")
-    println(io, "\\newcommand{\\NumPanels", suffix, "}{", length(wing.vsm_aero.panels), "}")
+function operating_coefficient(run, coefficient)
+    wing = run.sam.sys_struct.wings[1]
+    calculate = getproperty(VortexStepMethod, Symbol(:calculate_, coefficient))
+    return calculate(wing.vsm_aero.panels[PANEL], wing.vsm_solver.sol.alpha_dist[PANEL])
+end
+
+"""
+    wing_node_idxs(sys) -> Vector{Int}
+
+Indices of the points of the wing of `sys`.
+"""
+wing_node_idxs(sys) = [point.idx
+                       for point in SymbolicAWEModels.wing_points(sys, sys.wings[1])]
+
+"""
+    ratio_text(numerator, denominator) -> String
+
+`numerator / denominator` to one decimal.
+"""
+ratio_text(numerator, denominator) = @sprintf("%.1f", numerator / denominator)
+
+"""
+    tex_macro(io, name, value)
+
+Write the LaTeX macro `\\<name>`, expanding to `value`.
+"""
+tex_macro(io, name, value) = println(io, "\\newcommand{\\", name, "}{", value, "}")
+
+"""
+    write_results(path, rows)
+
+Write the macros the paper reads: the manoeuvre, the size of both wings' aero models,
+`\\CaseRows` with one table row per case of `CASES` in `rows`, the ripple of a solve
+every fifth step over every step, and what the live-polar section case found.
+"""
+function write_results(path, rows)
+    table = [rows[case.name] for case in CASES if haskey(rows, case.name)]
+    structures = Dict(case.project => unbuilt_structure(case)
+                      for case in unique(case -> case.project, CASES))
+    wing_nodes = Dict(project => wing_node_idxs(sys) for (project, sys) in structures)
+    stats = Dict(row.name => flight_statistics(row, wing_nodes[find_case(row.name).project])
+                 for row in table)
+    stale, fresh = stats["continuous_dt10_vsm5"], stats["continuous_dt10"]
+    live, tabulated = RUNS["live_beam"], RUNS["pressure_beam"]
+    open(path, "w") do io
+        println(io, "% Written by make_figures.jl")
+        for (name, value) in (("Steering", STEERING), ("RampStart", RAMP[1]),
+                              ("RampEnd", RAMP[2]), ("SimTime", SIM_TIME),
+                              ("SectionTime", SECTION_TIME), ("SettleTime", SETTLE_TIME),
+                              ("MaxFailedSolves", MAX_FAILED_SOLVES))
+            tex_macro(io, name, value)
+        end
+        for (suffix, project) in (("Particle", PARTICLE), ("Beam", BEAM))
+            wing = structures[project].wings[1]
+            tex_macro(io, "NumSections" * suffix, length(wing.vsm_wing.unrefined_sections))
+            tex_macro(io, "NumPanels" * suffix, length(wing.vsm_aero.panels))
+        end
+        println(io, "\\newcommand{\\CaseRows}{")
+        for row in table
+            model = find_case(row.name).project == BEAM ? "beam" : "particle"
+            println(io, case_row(row, model, stats[row.name]))
+        end
+        println(io, "}")
+        tex_macro(io, "StaleAoARatio", ratio_text(stale.aoa_ripple, fresh.aoa_ripple))
+        tex_macro(io, "StaleSpeedRatio", ratio_text(stale.node_ripple, fresh.node_ripple))
+        tex_macro(io, "LiftRatio", ratio_text(operating_coefficient(live, :cl),
+                                              operating_coefficient(tabulated, :cl)))
+        tex_macro(io, "MomentRatio", ratio_text(operating_coefficient(live, :cm),
+                                                operating_coefficient(tabulated, :cm)))
+        section = rows["live_beam"]
+        tex_macro(io, "SectionSolves", round(Int, section.flown / section.dt))
+        tex_macro(io, "SectionFailedSolves", section.failed_solves)
+    end
     return nothing
 end
 
-"""
-    write_results(path, table)
-
-Write the macros the paper reads: the manoeuvre, the size of both wings' aero models,
-and `\\CaseRows`, one table row per case of `table`. Returns each row's
-`flight_statistics`.
-"""
-function write_results(path, table)
-    stats = flight_statistics.(table)
-    open(path, "w") do io
-        println(io, "% Written by make_figures.jl")
-        println(io, "\\newcommand{\\Steering}{", STEERING, "}")
-        println(io, "\\newcommand{\\RampStart}{", RAMP[1], "}")
-        println(io, "\\newcommand{\\RampEnd}{", RAMP[2], "}")
-        println(io, "\\newcommand{\\SimTime}{", SIM_TIME, "}")
-        println(io, "\\newcommand{\\SectionTime}{", SECTION_TIME, "}")
-        println(io, "\\newcommand{\\SettleTime}{", SETTLE_TIME, "}")
-        aero_size_macros(io, "Particle", RUNS["continuous_particle"].sam.sys_struct)
-        aero_size_macros(io, "Beam", RUNS["pressure_beam"].sam.sys_struct)
-        println(io, "\\newcommand{\\CaseRows}{")
-        foreach((row, stat) -> println(io, case_row(row, stat)), table, stats)
-        println(io, "}")
-    end
-    return stats
-end
-
 mkpath(FIGURE_PATH)
-TABLE = case_table()
-STATS = write_results(joinpath(@__DIR__, "results.tex"), TABLE)
+write_results(joinpath(@__DIR__, "results.tex"), case_rows())
 CairoMakie.save(joinpath(FIGURE_PATH, "tracking.pdf"), tracking_figure())
 CairoMakie.save(joinpath(FIGURE_PATH, "trajectory.pdf"), trajectory_figure())
 CairoMakie.save(joinpath(FIGURE_PATH, "station_loads.pdf"), station_loads_figure())
