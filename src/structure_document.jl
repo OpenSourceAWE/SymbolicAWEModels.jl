@@ -514,6 +514,19 @@ function save_structure_document(path::AbstractString, sys::SystemStructure;
 end
 
 """
+    save_log(logger::Logger, sys::SystemStructure, name="sim_log"; path="")
+
+Save `logger` as an uncompressed .arrow file whose table metadata holds
+[`structure_document`](@ref)`(sys)` as JSON under the key `topology`, read back into
+`SysLog.metadata` by `load_log`.
+"""
+function KiteUtils.save_log(logger::Logger, sys::SystemStructure, name="sim_log";
+                            path="")
+    topology = encode_document(structure_document(sys), :json)
+    return save_log(logger, name, false; path, metadata=Dict("topology" => topology))
+end
+
+"""
     load_structure_document(path; kwargs...)
 
 Read the structure document at `path` — YAML or JSON by extension — and build the

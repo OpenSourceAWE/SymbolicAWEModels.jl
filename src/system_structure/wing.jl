@@ -364,7 +364,8 @@ it to the wing.
 
 # Keyword Arguments
 - `transform=nothing`: Reference to the transform. Defaults to 1.
-- `R_b_to_c`, `pos_cad`, `inertia_diag`: Geometry placeholders (resolved later).
+- `R_b_to_c`, `pos_cad`, `inertia_diag`: Placeholders that [`SystemStructure`](@ref)
+  overwrites from the wing's points and mesh.
 - `extra_mass`, `com`, `unit_inertia`: the wing body's own mass [kg], COM and
   per-unit-mass inertia, without its points (see [`Body`](@ref)); `com` and
   `unit_inertia` default to the `.obj` mesh's.
@@ -480,43 +481,6 @@ function seed_wing_inertia!(vsm_wing, set::Settings, com, unit_inertia)
     vsm_wing.inertia_tensor = tensor
     vsm_wing.T_cad_body .= -com_val
     return nothing
-end
-
-"""
-    VSMWing(name, vsm_aero, vsm_wing, vsm_solver, stations, R_b_to_c, pos_cad; transform=nothing)
-
-Construct a `RIGID_DYNAMICS` [`Wing`](@ref) from pre-created VSM objects. Kept for
-backward compatibility with predefined structures.
-"""
-function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
-                 stations::AbstractVector,
-                 R_b_to_c::AbstractMatrix,
-                 pos_cad::AbstractVector;
-                 transform=nothing,
-                 n_unrefined_sections=nothing)
-    inertia_vec = ones(MVector{3, SimFloat})
-    n_stations_est = isnothing(n_unrefined_sections) ?
-        vsm_wing.n_unrefined_sections : n_unrefined_sections
-    num_aero_outputs = 6 + n_stations_est
-    num_aero_inputs = 5 + n_stations_est
-    engine = VSMEngine(vsm_aero, vsm_wing, vsm_solver,
-        zeros(SimFloat, num_aero_inputs),
-        zeros(SimFloat, num_aero_outputs),
-        zeros(SimFloat, num_aero_outputs, num_aero_inputs),
-        nothing, nothing, SimFloat(0.0), SimFloat(0.0), UnsteadyAero())
-    return Wing(name, stations, R_b_to_c, pos_cad, inertia_vec;
-        transform, aero=AeroLinearized(engine))
-end
-
-"""
-    Wing(name, vsm_aero, vsm_wing, vsm_solver, stations, R_b_to_c, pos_cad; transform=1)
-
-Backward-compatibility constructor: builds a VSM [`Wing`](@ref) from pre-created
-VSM objects (delegates to [`VSMWing`](@ref)).
-"""
-function Wing(name, vsm_aero, vsm_wing, vsm_solver, stations, R_b_to_c,
-              pos_cad; kwargs...)
-    return VSMWing(name, vsm_aero, vsm_wing, vsm_solver, stations, R_b_to_c, pos_cad; kwargs...)
 end
 
 # ==================== PLATE WING ==================== #

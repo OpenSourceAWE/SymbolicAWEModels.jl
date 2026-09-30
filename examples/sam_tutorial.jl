@@ -13,7 +13,7 @@ if Base.active_project() != joinpath(@__DIR__, "Project.toml")
 end
 
 using KiteUtils: init!, next_step!, update_sys_state!
-using SymbolicAWEModels, VortexStepMethod, LinearAlgebra
+using SymbolicAWEModels, VortexStepMethod
 using SymbolicAWEModels: Point
 
 set_data_path("data/2plate_kite")
@@ -106,9 +106,6 @@ end
 vsm_set = VortexStepMethod.VSMSettings(
     project_file("vsm_settings");
     data_prefix=false)
-vsm_wing = SymbolicAWEModels.create_vsm_wing(set, vsm_set)
-vsm_aero = BodyAerodynamics([vsm_wing])
-vsm_solver = Solver(vsm_set)
 # One station per aero section joins its LE/TE pair to the wing.
 wing_z = set.l_tether + 6
 stations = Station[]
@@ -121,8 +118,7 @@ for (i, y) in enumerate([-1.0, 0.0, 1.0])
     push!(stations, Station(i, [n + 1, n + 2], DYNAMIC, 0.25))
 end
 
-wings = [SymbolicAWEModels.Wing(1, vsm_aero, vsm_wing,
-    vsm_solver, eachindex(stations), I(3), [0.5, 0, wing_z])]
+wings = [VSMWing(1, set, eachindex(stations), vsm_set)]
 
 sys = SystemStructure("wing", set;
     points, stations, segments, tethers, winches, pulleys,
