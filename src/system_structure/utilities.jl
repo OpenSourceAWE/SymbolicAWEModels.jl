@@ -907,8 +907,9 @@ it lands its initial pose. Runs, in order:
 4. [`apply_tether_init_forces!`](@ref)
 5. [`init_pulley_lengths!`](@ref)
 6. `reinit!(sys_struct.transforms, sys_struct)`
-7. [`relax_segments!`](@ref) — only with `ignore_l0=true`
-8. [`store_initial_pose!`](@ref)
+7. [`carry_body_points!`](@ref)
+8. [`relax_segments!`](@ref) — only with `ignore_l0=true`
+9. [`store_initial_pose!`](@ref)
 
 The `SystemStructure` constructor runs it on the authoring geometry, then
 [`init_sys_struct!`](@ref); [`init!`](@ref) takes the structure as placed. Run again
@@ -924,8 +925,23 @@ function place!(sys_struct::SystemStructure; ignore_l0::Bool=false,
     apply_tether_init_forces!(sys_struct)
     init_pulley_lengths!(sys_struct)
     reinit!(sys_struct.transforms, sys_struct; update_vel=reset_vel)
+    carry_body_points!(sys_struct)
     ignore_l0 && relax_segments!(sys_struct)
     store_initial_pose!(sys_struct)
+    return nothing
+end
+
+"""
+    carry_body_points!(sys_struct::SystemStructure)
+
+Put every point a body carries at its `anchor_b` on that body, where the body is now.
+"""
+function carry_body_points!(sys_struct::SystemStructure)
+    for point in sys_struct.points
+        point.body_idx > 0 || continue
+        body = sys_struct.bodies[point.body_idx]
+        point.pos_w .= body.pos_w .+ body.R_b_to_w * point.anchor_b
+    end
     return nothing
 end
 
@@ -933,15 +949,9 @@ end
     store_initial_pose!(sys_struct::SystemStructure)
 
 Make the current pose the initial one: `pos_ENU = pos_w` for every point and body,
-and `Q_KA_to_ENU = Q_b_to_w` for every body, after putting each point a body carries
-at its `anchor_b` on that body.
+and `Q_KA_to_ENU = Q_b_to_w` for every body.
 """
 function store_initial_pose!(sys_struct::SystemStructure)
-    for point in sys_struct.points
-        point.body_idx > 0 || continue
-        body = sys_struct.bodies[point.body_idx]
-        point.pos_w .= body.pos_w .+ body.R_b_to_w * point.anchor_b
-    end
     for point in sys_struct.points
         point.pos_ENU .= point.pos_w
     end

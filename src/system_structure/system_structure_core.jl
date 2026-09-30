@@ -765,28 +765,14 @@ function compute_spatial_station_mapping!(
         empty!(stations[station_idx].panel_idxs)
     end
 
-    # Assign each unrefined section to nearest station
     for section_idx in 1:n_unrefined
-        min_dist = Inf
-        closest_local = 1
-        for local_idx in 1:n_stations
-            dist = norm(unrefined_centers[section_idx] -
-                     station_centers[local_idx])
-            if dist < min_dist
-                min_dist = dist
-                closest_local = local_idx
-            end
-        end
-        g_idx = the_wing.station_idxs[closest_local]
-        push!(stations[g_idx].unrefined_section_idxs,
+        closest_local = nearest_station(unrefined_centers[section_idx], station_centers)
+        push!(stations[the_wing.station_idxs[closest_local]].unrefined_section_idxs,
               Int64(section_idx))
     end
-
-    # Assign each panel to nearest station
     for (panel_idx, panel) in enumerate(the_wing.vsm_aero.panels)
         panel_center = vec(sum(panel.corner_points; dims=2)) / 4 .- offset_vec
-        closest_local = argmin([norm(panel_center - station_center)
-                                for station_center in station_centers])
+        closest_local = nearest_station(panel_center, station_centers)
         push!(stations[the_wing.station_idxs[closest_local]].panel_idxs,
               Int64(panel_idx))
     end
@@ -801,6 +787,19 @@ function compute_spatial_station_mapping!(
             "$(station.name) claims no unrefined " *
             "sections (likely coincident station centres).")
     end
+end
+
+"""
+    nearest_station(position, station_centers) -> Int
+
+Index of the body-frame station centre nearest `position`. Centres within `1e-9` of
+the nearest distance, relative, tie, and a tie goes to the outboard one (largest
+`|y|`), so a mirror-symmetric wing splits symmetrically.
+"""
+function nearest_station(position, station_centers)
+    dists = [norm(position - center) for center in station_centers]
+    tied = findall(<=(minimum(dists) * (1 + 1e-9)), dists)
+    return argmax(local_idx -> abs(station_centers[local_idx][2]), tied)
 end
 
 """

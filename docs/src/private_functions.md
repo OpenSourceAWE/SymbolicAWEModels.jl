@@ -301,11 +301,13 @@ SymbolicAWEModels.identify_wing_segments
 SymbolicAWEModels.check_span_order
 SymbolicAWEModels.match_aero_sections_to_structure!
 SymbolicAWEModels.compute_spatial_station_mapping!
+SymbolicAWEModels.nearest_station
 SymbolicAWEModels.share_body_mass!
 SymbolicAWEModels.carrier_body_idx
 SymbolicAWEModels.combine_carried_points!
 SymbolicAWEModels.carried_position_b
 SymbolicAWEModels.copy_initial_pose!
+SymbolicAWEModels.carry_body_points!
 SymbolicAWEModels.store_initial_pose!
 SymbolicAWEModels.initial_rotation
 SymbolicAWEModels.initial_body_position
