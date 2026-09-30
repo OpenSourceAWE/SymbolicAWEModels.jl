@@ -147,6 +147,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorised" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/NotRunning" }
   /api/jobs/{id}/failure:
     post:
       tags: [runner]
@@ -165,6 +166,7 @@ paths:
           description: Recorded.
         "401": { $ref: "#/components/responses/Unauthorised" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/NotRunning" }
   /api/jobs/{id}/cancel:
     post:
       tags: [request]
@@ -281,6 +283,8 @@ components:
       description: The token or session lacks the grant this needs.
     NotFound:
       description: No such job, sandbox or kite.
+    NotRunning:
+      description: The job is no longer running; it keeps the state it had.
   schemas:
     Name:
       type: string
@@ -296,7 +300,7 @@ components:
         version: { type: string, description: the package's version }
         commit:
           type: [string, "null"]
-          description: the git commit the package was loaded from, or null outside a git checkout
+          description: the git commit the package was loaded from, suffixed `-dirty` when the checkout has uncommitted changes, or null outside a git checkout
     RunnerVersion:
       type: object
       description: The version of each package a runner computes with, by package name.
@@ -387,25 +391,32 @@ components:
         - $ref: "jobs/upload.json"
       discriminator:
         propertyName: kind
-    Job:
-      description: A job as a runner claims it.
+    JobFields:
+      description: What every job holds; an upload job has no key and no parameters.
       type: object
-      required: [id, sandbox, kite, kind, key, parameters]
+      required: [id, sandbox, kite, kind]
       properties:
         id: { type: string }
         sandbox: { $ref: "#/components/schemas/Name" }
         kite: { $ref: "#/components/schemas/Name" }
         kind: { $ref: "#/components/schemas/Kind" }
-        key: { type: string, pattern: "^[0-9a-f]{64}$" }
+        key: { type: [string, "null"], pattern: "^[0-9a-f]{64}$" }
         parameters: { $ref: "jobs/parameters.json" }
         axes: { $ref: "jobs/sweep.json#/properties/axes" }
+    Job:
+      description: A job as a runner claims it.
+      allOf:
+        - $ref: "#/components/schemas/JobFields"
+        - type: object
+          required: [key, parameters]
+          properties:
+            key: { type: string }
     JobStatus:
       allOf:
-        - $ref: "#/components/schemas/Job"
+        - $ref: "#/components/schemas/JobFields"
         - type: object
           required: [state, requested_at]
           properties:
-            key: { type: [string, "null"] }
             state:
               type: string
               enum: [queued, running, done, failed, rejected, cancelled, lost]
@@ -463,11 +474,15 @@ components:
         kind: { $ref: "#/components/schemas/Kind" }
         kite: { $ref: "#/components/schemas/Name" }
         parameters: { $ref: "jobs/parameters.json" }
-        job_key: { type: string, pattern: "^[0-9a-f]{64}$" }
+        job_key:
+          type: [string, "null"]
+          pattern: "^[0-9a-f]{64}$"
+          description: the key of the job the run was computed for, null for an upload
         version: { $ref: "#/components/schemas/RunnerVersion" }
         wall_time: { type: number, description: "time the run took to compute [s]" }
     Error:
       type: object
       required: [error]
+      additionalProperties: false
       properties:
         error: { type: string }

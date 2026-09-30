@@ -12,11 +12,17 @@ to `max`, taking `default` when left out. `step` is the increment a request form
 offers.
 """
 struct JobParameter
+    "the parameter's name, as a job's `parameters` key it"
     name::String
+    "its unit, as shown to a person"
     unit::String
+    "the smallest value allowed"
     min::Float64
+    "the largest value allowed"
     max::Float64
+    "the value a job leaving it out gets"
     default::Float64
+    "the increment a request form offers, or `nothing`"
     step::Union{Nothing, Float64}
     function JobParameter(name, unit, min, max, default; step=nothing)
         min <= default <= max ||
@@ -41,13 +47,21 @@ whose metadata carries the structure document (see [`sys_log`](@ref)):
   most `max_axes` of the `sweep_menu` parameters at once.
 """
 struct JobKite
+    "the kite's name, as jobs and the runner id name it"
     name::String
+    "the parameters a steady job may set"
     steady_menu::Vector{JobParameter}
+    "the parameters a sim job may set"
     sim_menu::Vector{JobParameter}
+    "the parameters a sweep may fix or sweep"
     sweep_menu::Vector{JobParameter}
+    "how many sweep parameters one sweep may vary, from 1 to 4"
     max_axes::Int
+    "`steady(params)`: the one-frame log of the quasi-steady state"
     steady::Function
+    "`simulate(params; progress)`: the log of a simulation"
     simulate::Function
+    "`sweep_point(params)`: the log of one operating point"
     sweep_point::Function
     function JobKite(name; steady_menu, sim_menu, sweep_menu, max_axes=1,
                      steady, simulate, sweep_point)

@@ -21,7 +21,8 @@ end
 """
 The site's side of `api/openapi.yaml`, in memory, one request per connection: a
 queue, what the runner sent, and the jobs an admin cancelled. Every JSON body is
-checked against the spec's schema.
+checked against the spec's schema. Setting `bare_replies[]` answers heartbeats and
+progress reports with an empty 200.
 """
 struct FakeSite
     schemas::Dict{String, Schema}
@@ -31,6 +32,7 @@ struct FakeSite
     results::Dict{String, SiteRequest}
     failures::Dict{String, Any}
     cancelled::Set{String}
+    bare_replies::Threads.Atomic{Bool}
     lock::ReentrantLock
 end
 
@@ -40,9 +42,10 @@ function FakeSite()
     schemas = Dict(name => Schema(Dict("\$ref" => "#/components/schemas/$name",
                                        "components" => components);
                                   parent_dir=api_dir)
-                   for name in ("Heartbeat", "Claim", "Progress", "Failure",
-                                "RunMetadata", "SweepManifest"))
-    return FakeSite(schemas, [], [], [], Dict(), Dict(), Set(), ReentrantLock())
+                   for name in ("Heartbeat", "Claim", "Progress", "Failure", "Job",
+                                "JobStatus", "RunMetadata", "SweepManifest"))
+    return FakeSite(schemas, [], [], [], Dict(), Dict(), Set(), Threads.Atomic{Bool}(false),
+                    ReentrantLock())
 end
 
 function conforming_body(site::FakeSite, request::SiteRequest, schema_name)
@@ -88,6 +91,7 @@ function handle(site::FakeSite, request::SiteRequest)
     path = request.path
     @lock site.lock if startswith(path, "/api/runners/")
         push!(site.heartbeats, conforming_body(site, request, "Heartbeat"))
+        site.bare_replies[] && return 200, ""
         return 200, JSON.json(Dict("cancel" => collect(site.cancelled)))
     elseif path == "/api/jobs/claim"
         kites = conforming_body(site, request, "Claim")["kites"]
@@ -98,6 +102,7 @@ function handle(site::FakeSite, request::SiteRequest)
     id = split(path, '/')[4]
     @lock site.lock if endswith(path, "/progress")
         push!(site.progress, (id, conforming_body(site, request, "Progress")))
+        site.bare_replies[] && return 200, ""
         return 200, JSON.json(Dict("cancel" => id in site.cancelled))
     elseif endswith(path, "/result")
         site.results[id] = request
@@ -124,10 +129,14 @@ function multipart_parts(request::SiteRequest)
     return parts
 end
 
-function queue!(site::FakeSite, id, kite, kind; parameters=Dict(), axes=nothing)
+"""
+Queue a job whose `parameters` hold its whole menu, keyed as the site keys it for
+`runner`, or with `key` instead.
+"""
+function queue!(site::FakeSite, runner, id, kite, kind; parameters=Dict(), axes=nothing,
+                key=job_key("open", kite, kind, parameters, runner.version; axes))
     job = Dict{String, Any}("id" => id, "sandbox" => "open", "kite" => kite,
-                            "kind" => kind, "key" => repeat("0", 64),
-                            "parameters" => parameters)
+                            "kind" => kind, "key" => key, "parameters" => parameters)
     isnothing(axes) || (job["axes"] = axes)
     @lock site.lock push!(site.queue, job)
     return job
@@ -166,13 +175,16 @@ function fly!(sam, kite_runs, params, steps; progress=time -> nothing)
     return sys_log(logger, sam.sys_struct, "hanging_mass")
 end
 
-"""A mass on a spring, built from `data/base`, as a kite with `mass` on its menus;
+"""The hanging mass of `test_for_precompile.jl` as a kite with `mass` on its menus;
 `kite_runs` counts its runs."""
 function hanging_mass_kite(set, kite_runs)
     points = [Point(:anchor, [2, 0, 5], STATIC),
               Point(:mass, [2, 0, 2], DYNAMIC; extra_mass=1.0)]
     segments = [Segment(:spring, :anchor, :mass, 500.0, 50.0, 0.005; l0=4.0)]
-    sam = SymbolicAWEModel(set, SystemStructure("hanging_mass", set; points, segments))
+    transforms = [Transform(:tf, -deg2rad(90), 0, 0; base_pos=[2, 0, 5],
+                            base_point=:anchor, rot_point=:mass)]
+    sys = SystemStructure("hanging_mass", set; points, segments, transforms)
+    sam = SymbolicAWEModel(set, sys)
     init!(sam; prn=false)
     sim_steps(params) = round(Int, params["duration"] * set.sample_freq)
     mass = JobParameter("mass", "kg", 0.5, 10.0, 1.0; step=0.5)
@@ -203,9 +215,7 @@ stub_kite() = JobKite("stub"; steady_menu=JobParameter[], sim_menu=JobParameter[
 
 @testset verbose = true "Job runner" begin
     previous_data_path = get_data_path()
-    data_dir = mktempdir()
-    cp(joinpath(dirname(@__DIR__), "data", "base"), joinpath(data_dir, "base"))
-    set_data_path(data_dir)
+    set_data_path(joinpath(dirname(@__DIR__), "data"))
     set = Settings("base/system.yaml")
     set.v_wind = 0
     kite_runs = Ref(0)
@@ -236,19 +246,43 @@ stub_kite() = JobKite("stub"; steady_menu=JobParameter[], sim_menu=JobParameter[
     end
 
     site = FakeSite()
+
+    @testset "an upload job has a status, and no job without a key is claimed" begin
+        upload = Dict("id" => "7", "sandbox" => "open", "kite" => "toy", "kind" => "upload",
+                      "key" => nothing, "state" => "running",
+                      "requested_at" => "2026-09-30T08:00:00Z")
+        @test isnothing(JSONSchema.validate(site.schemas["JobStatus"], upload))
+        @test !isnothing(JSONSchema.validate(site.schemas["Job"], upload))
+    end
+
+    @testset "a checkout with uncommitted changes versions as its commit plus -dirty" begin
+        repo = mktempdir()
+        git(args...) = run(`git -C $repo -c user.name=test -c user.email=test@test $args`)
+        git("init", "-q")
+        write(joinpath(repo, "file"), "committed")
+        git("add", "file")
+        git("commit", "-qm", "first")
+        commit = SymbolicAWEModels.git_commit(repo)
+        @test occursin(r"^[0-9a-f]{40}$", commit)
+        write(joinpath(repo, "file"), "changed")
+        @test SymbolicAWEModels.git_commit(repo) == commit * "-dirty"
+    end
+
     port, listener = listenany(ip"127.0.0.1", 49152)
     Threads.@spawn serve_site(site, listener)
     runner = SymbolicAWEModels.JobRunner(kites; site="http://127.0.0.1:$port",
                                          token="runner-token")
-    queue!(site, "steady", "hanging_mass", "steady";
+    queue!(site, runner, "steady", "hanging_mass", "steady";
            parameters=Dict("mass" => 2.0))
-    queue!(site, "sim", "hanging_mass", "sim";
+    queue!(site, runner, "sim", "hanging_mass", "sim";
            parameters=Dict("mass" => 3.0, "duration" => 0.25))
-    queue!(site, "sweep", "hanging_mass", "sweep";
+    queue!(site, runner, "sweep", "hanging_mass", "sweep";
            axes=Dict("mass" => [1.0, 4.0]))
-    queue!(site, "too_heavy", "hanging_mass", "steady";
+    queue!(site, runner, "too_heavy", "hanging_mass", "steady";
            parameters=Dict("mass" => 50.0))
-    queue!(site, "broken", "stub", "steady")
+    queue!(site, runner, "stale_key", "hanging_mass", "steady";
+           parameters=Dict("mass" => 2.0), key=repeat("0", 64))
+    queue!(site, runner, "broken", "stub", "steady")
     serving = Threads.@spawn serve_jobs(runner)
 
     @testset "the runner heartbeats its kites' menus and version" begin
@@ -301,8 +335,16 @@ stub_kite() = JobKite("stub"; steady_menu=JobParameter[], sim_menu=JobParameter[
         wait_until(() -> haskey(site.failures, "too_heavy"))
         @test site.failures["too_heavy"]["reason"] == "rejected"
         @test occursin("mass = 50", site.failures["too_heavy"]["log"])
+        wait_until(() -> haskey(site.failures, "stale_key"))
         @test kite_runs[] == 4  # the steady job, the sim and two sweep points
         @test !haskey(site.results, "too_heavy")
+    end
+
+    @testset "a job whose key is not the runner's is refused before the kite runs" begin
+        wait_until(() -> haskey(site.failures, "stale_key"))
+        @test site.failures["stale_key"]["reason"] == "rejected"
+        @test occursin("is not this runner's", site.failures["stale_key"]["log"])
+        @test !haskey(site.results, "stale_key")
     end
 
     @testset "a job that throws is reported, and the runner carries on" begin
@@ -312,12 +354,21 @@ stub_kite() = JobKite("stub"; steady_menu=JobParameter[], sim_menu=JobParameter[
     end
 
     @testset "a cancelled job stops running" begin
-        queue!(site, "endless", "stub", "sim")
+        queue!(site, runner, "endless", "stub", "sim")
         wait_until(() -> any(((id, _),) -> id == "endless", site.progress))
         @lock site.lock push!(site.cancelled, "endless")
         wait_until(() -> @lock(runner.lock, isempty(runner.cancelled)); timeout=30)
         @test !haskey(site.results, "endless")
         @test !haskey(site.failures, "endless")
+    end
+
+    @testset "a 200 without `cancel` is a failed call, not a crash" begin
+        site.bare_replies[] = true
+        @test_logs (:warn, r"Heartbeat failed") SymbolicAWEModels.heartbeat!(runner)
+        progress = SymbolicAWEModels.JobProgress(runner, "endless",
+                                                 Threads.Atomic{Bool}(false), time(), -Inf)
+        @test_logs (:warn, r"Reporting progress") progress(1.0)
+        site.bare_replies[] = false
     end
 
     runner.stopped[] = true

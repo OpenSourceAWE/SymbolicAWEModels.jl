@@ -23,14 +23,23 @@ calls with, and a cancellation flag per running job. Setting `stopped[]` ends it
 claim loop.
 """
 struct JobRunner
+    "the kites served, by name"
     kites::Dict{String, JobKite}
+    "the site's base URL, without a trailing slash"
     site::String
+    "the runner token every call carries"
     token::String
+    "how many jobs run at once"
     slots::Int
+    "the runner's id: its kites' names joined by `+`"
     id::String
+    "the `RunnerVersion` the heartbeat sends and the job key hashes"
     version::Dict{String, Any}
+    "a cancellation flag per running job, by job id"
     cancelled::Dict{String, Threads.Atomic{Bool}}
+    "guards `cancelled`"
     lock::ReentrantLock
+    "set to end the claim loop and the heartbeat"
     stopped::Threads.Atomic{Bool}
 end
 
@@ -94,9 +103,12 @@ function runner_version(kites)
     return version
 end
 
+"""The commit `dir` is checked out at, suffixed `-dirty` for uncommitted changes."""
 function git_commit(dir)
     (ispath(joinpath(dir, ".git")) && !isnothing(Sys.which("git"))) || return nothing
-    return readchomp(`git -C $dir rev-parse HEAD`)
+    commit = readchomp(`git -C $dir rev-parse HEAD`)
+    changes = readchomp(`git -C $dir status --porcelain --untracked-files=no`)
+    return isempty(changes) ? commit : commit * "-dirty"
 end
 
 """
@@ -148,13 +160,13 @@ function heartbeat!(runner::JobRunner)
              for kite in values(runner.kites)]
     body = Dict("version" => runner.version, "kites" => kites,
                 "slots" => runner.slots, "running" => running)
-    reply = try
-        site_call(runner, "PUT", "/api/runners/$(runner.id)"; body)
+    cancel = try
+        site_call(runner, "PUT", "/api/runners/$(runner.id)"; body)["cancel"]
     catch err
         @warn "Heartbeat failed" exception=err
         return nothing
     end
-    @lock runner.lock for id in reply["cancel"]
+    @lock runner.lock for id in cancel
         haskey(runner.cancelled, id) && (runner.cancelled[id][] = true)
     end
     return nothing
@@ -204,13 +216,14 @@ function (progress::JobProgress)(sim_time=nothing; phase="simulating")
     progress.reported = time()
     body = Dict{String, Any}("wall_time" => time() - progress.started, "phase" => phase)
     isnothing(sim_time) || (body["sim_time"] = sim_time)
-    reply = try
-        site_call(progress.runner, "POST", "/api/jobs/$(progress.id)/progress"; body)
+    cancel = try
+        site_call(progress.runner, "POST", "/api/jobs/$(progress.id)/progress";
+                  body)["cancel"]
     catch err
         @warn "Reporting progress of job $(progress.id) failed" exception=err
         return nothing
     end
-    reply["cancel"] && throw(JobCancelled())
+    cancel === true && throw(JobCancelled())
     return nothing
 end
 
@@ -246,7 +259,7 @@ function compute_job(runner::JobRunner, job, progress::JobProgress, dir)
     kind in ("steady", "sim") || throw(JobRejected("a runner does not run $kind jobs"))
     menu = kind == "steady" ? kite.steady_menu : kite.sim_menu
     parameters = menu_values(menu, get(job, "parameters", Dict()))
-    key = job_key(job["sandbox"], kite.name, kind, parameters, runner.version)
+    key = checked_key(runner, job, parameters)
     started = time()
     log = kind == "steady" ? kite.steady(parameters) :
           kite.simulate(parameters; progress)
@@ -258,7 +271,7 @@ function run_sweep(runner::JobRunner, kite::JobKite, job, progress::JobProgress,
     axes = sweep_axes(kite, get(job, "axes", Dict()))
     fixed = menu_values(kite.sweep_menu, get(job, "parameters", Dict());
                         swept=collect(keys(axes)))
-    key = job_key(job["sandbox"], kite.name, "sweep", fixed, runner.version; axes)
+    key = checked_key(runner, job, fixed; axes)
     points = vec(collect(Iterators.product(values(axes)...)))
     manifest_points = Dict{String, Any}[]
     for (i, point) in enumerate(points)
@@ -273,6 +286,18 @@ function run_sweep(runner::JobRunner, kite::JobKite, job, progress::JobProgress,
     end
     manifest = Dict("axes" => axes, "parameters" => fixed, "points" => manifest_points)
     return write_multipart(dir, manifest)
+end
+
+"""
+The key the site sent with `job`, once it matches the one `parameters` and this
+runner's version give; throws [`JobRejected`](@ref) when it does not.
+"""
+function checked_key(runner::JobRunner, job, parameters; axes=nothing)
+    key = job_key(job["sandbox"], job["kite"], job["kind"], parameters, runner.version;
+                  axes)
+    job["key"] == key ||
+        throw(JobRejected("the site's key $(job["key"]) is not this runner's $key"))
+    return key
 end
 
 """The `run` metadata key of a run, as JSON."""
