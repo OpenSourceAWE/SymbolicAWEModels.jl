@@ -310,10 +310,10 @@ its VSM share is comparable to that of \code{ContinuousAero}.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/tracking.pdf}
-\caption{Steering offset $u_s$, heading $\psi$, tether force $F_t$ and angle of attack
-$\alpha$ of the \SI{10}{ms} cases with a VSM solve every step. Released from their
-settled states, both models lose tether force to that of the parked kite, the particle
-model within \SI{1}{s} and the beam model within \SI{3}{s}.}
+\caption{Steering offset $u_s$, tether force $F_t$ and angle of attack $\alpha$ of the
+\SI{10}{ms} cases with a VSM solve every step. Released from their settled states,
+both models lose tether force to that of the parked kite, the particle model within
+\SI{1}{s} and the beam model within \SI{3}{s}.}
 \label{fig:tracking}
 \end{figure}
 
@@ -333,9 +333,10 @@ the line width: once both are stable, the hold on the forces changes nothing at 
 scale of the flight path. Live polars fly a tighter loop at a lower tether force. They
 see no deformation on this model, so the difference is the polar itself: NeuralFoil's
 polar of each undeformed section against the CFD polar the other two couplings use.
-The beam model under \code{AeroPressure} turns faster, flies a tighter loop and pulls
-more, at a lower angle of attack; the two models differ in structure, mass and polars,
-so this is a difference between the models rather than between couplings.
+The beam model under \code{AeroPressure} flies a wider first loop, then a tight second
+one, and pulls more, at a lower angle of attack; the two models differ in structure,
+mass and polars, so this is a difference between the models rather than between
+couplings.
 
 \subsection{Load placement and deformation}
 \label{sec:sections}
