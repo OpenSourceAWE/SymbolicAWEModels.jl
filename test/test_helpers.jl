@@ -46,26 +46,4 @@ end
 
     @test ! isfile(joinpath(dirname(@__DIR__), "Manifest.toml"))
 end
-
-@testset "Output folder" begin
-    previous = SymbolicAWEModels.OUTPUT_PATH[1]
-    try
-        @testset "get_output_path creates the folder it names" begin
-            output_dir = joinpath(mktempdir(), "results")
-            set_output_path(output_dir)
-            @test !isdir(output_dir)
-            @test get_output_path() == output_dir
-            @test isdir(output_dir)
-        end
-        @testset "set_output_path without an argument falls back to ./output" begin
-            cd(mktempdir()) do
-                set_output_path()
-                @test get_output_path() == "output"
-                @test isdir("output")
-            end
-        end
-    finally
-        set_output_path(previous)
-    end
-end
 nothing

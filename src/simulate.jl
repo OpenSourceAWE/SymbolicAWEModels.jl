@@ -116,12 +116,12 @@ function sim!(
                 lin_sys_state, y_k, sam, t_vec[step])
             log!(lin_logger, lin_sys_state)
         end
-        save_log(lin_logger, "tmp_run_lin"; path=get_output_path())
-        lin_sim_log = load_log("tmp_run_lin"; path=get_output_path())
+        save_log(lin_logger, "tmp_run_lin")
+        lin_sim_log = load_log("tmp_run_lin")
     end
 
-    save_log(logger, "tmp_run"; path=get_output_path())
-    sim_log = load_log("tmp_run"; path=get_output_path())
+    save_log(logger, "tmp_run")
+    sim_log = load_log("tmp_run")
     
     if prn
         lines = [
@@ -247,8 +247,8 @@ function sim_reposition!(
         println("Times realtime: $(dt*steps/time)")
     end
 
-    save_log(logger, "tmp_reposition_run"; path=get_output_path())
-    return load_log("tmp_reposition_run"; path=get_output_path())
+    save_log(logger, "tmp_reposition_run")
+    return load_log("tmp_reposition_run")
 end
 
 

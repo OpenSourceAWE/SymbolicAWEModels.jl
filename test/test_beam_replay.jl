@@ -70,8 +70,8 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     tip = sam.sys_struct.bodies[:seg_6]
     @test tip.pos_w[3] < -0.01           # beam sagged under gravity
 
-    save_log(logger, "beam_replay_test"; path=get_output_path())
-    lg = load_log("beam_replay_test"; path=get_output_path())
+    save_log(logger, "beam_replay_test")
+    lg = load_log("beam_replay_test")
     @test length(lg.syslog) == nsteps + 1
     @test length(lg.syslog.Qw[1]) == n   # O frames preserved through Arrow
     @test norm(collect(lg.syslog.orient[end])) ≈ 1.0 atol=1e-3
@@ -84,7 +84,7 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     @test sys2.bodies[:seg_1].pos_w[1] ≈ 0.25 atol=1e-4  # fixed root
 
     @testset "sim! logs to the output folder, not the data folder" begin
-        previous_output_path = SymbolicAWEModels.OUTPUT_PATH[1]
+        previous_output_path = get_output_path()
         set_output_path(joinpath(mktempdir(), "output"))
         try
             steps = 3

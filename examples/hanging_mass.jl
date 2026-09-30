@@ -55,10 +55,10 @@ for i in 1:n_steps
     log!(logger, sys_state)
 end
 
-save_log(logger, "hanging_mass"; path=get_output_path())
+save_log(logger, "hanging_mass")
 toc()
 
-syslog = load_log("hanging_mass"; path=get_output_path())
+syslog = load_log("hanging_mass")
 scene = replay(syslog, sam.sys_struct)
 display(scene)
 toc()

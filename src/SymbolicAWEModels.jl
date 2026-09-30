@@ -55,6 +55,7 @@ import ModelingToolkit.SciMLBase: successful_retcode, init
 
 # --- KiteUtils ---
 export update_from_sysstate!, get_data_path, set_data_path, se
+export get_output_path, set_output_path
 export position_slots
 export SysState, SysLog, Settings, AbstractKiteModel
 export Logger, log!, save_log, load_log
@@ -123,9 +124,6 @@ export tether_length
 # --- Winch component API ---
 export AbstractWinchModel, TorqueWinch, CascadedLengthWinch
 export winch_component, is_builtin_winch, validate_winch_component
-
-# --- Output Folder ---
-export get_output_path, set_output_path
 
 # --- Helper Functions ---
 export init_module
@@ -246,7 +244,6 @@ include("kernel_backend/assembly.jl")
 include("kernel_backend/state.jl")
 include("kernel_backend/jacobian.jl")
 include("kernel_backend/backend.jl")
-include("output_path.jl")
 include("simulate.jl")
 
 # rotate a 3d vector around the x axis in the yz plane - following the right hand rule
