@@ -103,8 +103,8 @@ environment:
 
     @testset "Spin-up under applied moment" begin
         rb = sam.sys_struct.bodies[:body1]
-        rb.pos_cad .= [0.0, 0.0, 10.0]
-        rb.R_b_to_c .= [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
+        rb.pos_ENU .= [0.0, 0.0, 10.0]
+        rb.Q_KA_to_ENU .= [1.0, 0.0, 0.0, 0.0]
         rb.vel_w .= 0.0
         rb.ω_b .= 0.0
         torque = 0.05

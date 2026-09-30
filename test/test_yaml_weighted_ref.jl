@@ -136,7 +136,7 @@ transforms:
 
     # pos_cad after body-frame init should equal the
     # weighted centroid of points 7 (0,0,0) and 9 (1,0,0)
-    @test wing.pos_cad ≈ KVec3(0.3, 0.0, 0.0)
+    @test wing.pos_ENU ≈ KVec3(0.3, 0.0, 0.0)
 
     # N-point (4-point) weighted origin should also parse
     # and resolve correctly

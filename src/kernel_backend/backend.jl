@@ -92,7 +92,7 @@ function init_backend!(::KernelBackend, sam, solver;
     model_path = joinpath(KiteUtils.get_data_path(), model_name)
     prn && @info "Model bin name: $model_name"
     loaded = load_serialized_model!(sam, model_path; remake, reload, prn)
-    init_sys_struct!(sam.sys_struct, sam.set; remake_vsm)
+    init_sys_struct!(sam.sys_struct, sam.set; remake_vsm, prn)
     write_total_mass!(sam.sys_struct)
     if loaded && !isnothing(sam.prob)
         prn && @info "Reusing the assembled model, so no kernel is compiled here."

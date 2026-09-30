@@ -430,7 +430,7 @@ using LinearAlgebra
             PlateWing, Station, Transform,
             SystemStructure,
             create_plate_interpolations, get_rot_pos,
-            get_rot_pos_cad, get_base_pos, reinit!
+            get_rot_pos_ENU, get_base_pos, reinit!
 
         # Use kps4 settings (2plate_kite has no tethers)
         kps4_data = joinpath(tmpdir, "kps4")
@@ -573,31 +573,23 @@ using LinearAlgebra
         sam_c = SymbolicAWEModel(set_c, sys_c)
         init!(sam_c)
 
-        @testset "get_base_pos returns different values" begin
+        @testset "get_base_pos returns the parent's current and initial position" begin
             sys = sam_c.sys_struct
             tf_child = sys.transforms[:kite_tilt]
             base_pos, curr_base_pos = get_base_pos(
                 tf_child, sys.transforms,
                 sys.bodies, sys.points)
-            # After init, parent wing has moved from CAD
-            # so base_pos (world) != curr_base_pos (CAD)
-            @test !(base_pos ≈ curr_base_pos)
-            println("  base_pos=$(round.(base_pos, digits=2))")
-            println("  curr_base_pos=" *
-                "$(round.(curr_base_pos, digits=2))")
+            @test base_pos == sys.wings[:plate_wing].pos_w
+            @test curr_base_pos == sys.wings[:plate_wing].pos_ENU
         end
 
-        @testset "Child points translated from CAD" begin
+        @testset "Child points translated from the authoring geometry" begin
             sys = sam_c.sys_struct
             top = sys.points[:top]
-            # top should NOT be at its CAD position
-            @test !(top.pos_w ≈ top.pos_cad)
+            @test !(top.pos_w ≈ pos_top)
             # top should be far from origin (at tether length)
             @test norm(top.pos_w) > 50.0
-            println("  top.pos_w=" *
-                "$(round.(top.pos_w, digits=2))")
-            println("  top.pos_cad=" *
-                "$(round.(top.pos_cad, digits=2))")
+            @test top.pos_ENU == top.pos_w
         end
 
         @testset "Child points near parent wing" begin
@@ -622,16 +614,10 @@ using LinearAlgebra
 
         @testset "Distances preserved (rigid body)" begin
             sys = sam_c.sys_struct
-            # CAD distances between child points
-            cad_dist_top_right = norm(
-                sys.points[:top].pos_cad -
-                sys.points[:right].pos_cad)
-            cad_dist_top_left = norm(
-                sys.points[:top].pos_cad -
-                sys.points[:left].pos_cad)
-            cad_dist_right_left = norm(
-                sys.points[:right].pos_cad -
-                sys.points[:left].pos_cad)
+            # Authoring distances between child points
+            cad_dist_top_right = norm(pos_top - pos_right)
+            cad_dist_top_left = norm(pos_top - pos_left)
+            cad_dist_right_left = norm(pos_right - pos_left)
 
             # World distances should match CAD distances
             # (transforms are rigid body)

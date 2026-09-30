@@ -53,7 +53,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     n_panels = length(wing.vsm_aero.panels)
     owned = reduce(vcat, [station.panel_idxs for station in sys.stations])
     @test sort(owned) == collect(1:n_panels)
-    station_center(station) = sum(wing.R_b_to_c' * (sys.points[i].pos_cad - wing.pos_cad)
+    station_center(station) = sum(SymbolicAWEModels.initial_rotation(wing)' * (sys.points[i].pos_ENU - wing.pos_ENU)
                                   for i in station.point_idxs) / length(station.point_idxs)
     offset = [0.0, 0.0, wing.aero_z_offset]
     for station in sys.stations, panel_idx in station.panel_idxs

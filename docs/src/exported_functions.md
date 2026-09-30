@@ -41,9 +41,9 @@ A `SystemStructure` also reads and writes as a *structure document* — the
 resolved points, segments, stations, pulleys, tethers, winches, wings, bodies and
 tubes as one `headers`/`units`/`data` table per block, conforming to awesIO's
 `structure_schema.yml` 1.0.0. YAML and JSON are two encodings of the one document,
-and the file extension picks between them. The document holds the system where it
-is placed, every position in the ENU world frame; its CAD geometry, its transforms
-and the live state do not survive a round trip. Reading a document with wings is
+and the file extension picks between them. The document holds the system in its
+initial pose, every position in the ENU world frame; its authored geometry, its
+transforms and the live state do not survive a round trip. Reading a document with wings is
 not supported yet ([#396](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/issues/396)).
 `save_log(logger, sys, name)` writes a log that carries the document as JSON under
 the metadata key `topology`.
@@ -67,9 +67,12 @@ calc_steady_torque
 
 ## Placing a SystemStructure
 
-[`place!`](@ref) puts a structure in the world from its CAD geometry by its
-transforms; the `SystemStructure` constructor ends with it, and `init!(sam)` takes the
-structure as it stands. To move the system for a new run, change its transforms and
+[`place!`](@ref) puts a structure in the world by its transforms and makes where it
+lands its initial pose (`pos_ENU`, `Q_KA_to_ENU`); the `SystemStructure` constructor
+runs it, and `init!(sam)` takes the moving state as it stands and derives mass
+properties and rest geometry from the initial pose
+([`init_derived_properties!`](@ref)), so a run restarted from a logged state
+resumes. To move the system for a new run, change its transforms and
 `place!` it again. To change only part of it — a tether's unstretched length, say,
 without moving the kite — run the steps wanted on `sam.sys_struct` before `init!`:
 
@@ -80,7 +83,7 @@ init!(sam)
 
 ```@docs
 place!
-reset_to_cad!
+reset_to_initial_pose!
 apply_tether_init_stretched_lens!
 update_segment_lengths!
 apply_tether_init_forces!
@@ -89,6 +92,7 @@ remake_wing_aero!
 init_wind!
 init_sys_struct!
 relax_segments!
+init_derived_properties!
 update_mass_properties!
 init_rest_geometry!
 set_unstretched_length!

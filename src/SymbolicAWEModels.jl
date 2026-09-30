@@ -104,7 +104,7 @@ export set_body_frame_damping
 export set_angular_damping
 export set_unstretched_length!
 export place!
-export reset_to_cad!
+export reset_to_initial_pose!
 export apply_tether_init_stretched_lens!
 export update_segment_lengths!
 export apply_tether_init_forces!
@@ -114,7 +114,7 @@ export init_wind!
 export init_sys_struct!
 export relax_segments!
 export update_mass_properties!
-export init_rest_geometry!
+export init_rest_geometry!, init_derived_properties!
 export segment_stretch_stats
 export calc_steady_torque
 

@@ -122,7 +122,7 @@ document_connectivity(n_points, segment_points, n_bodies, tube_bodies) =
 """
     structure_document(sys::SystemStructure; name=sys.name, description="", note="")
 
-Render `sys` where it is placed as a document conforming to `structure_schema.yml`:
+Render `sys` in its initial pose as a document conforming to `structure_schema.yml`:
 one `headers`/`units`/`data` table per block, every reference by name, every
 position in the world frame. Returns nested `OrderedDict`s and `Vector`s, which
 [`save_structure_document`](@ref) encodes as YAML or JSON.
@@ -170,7 +170,7 @@ function point_rows(sys::SystemStructure)
         body = ref_name(sys.bodies, point.body_idx)
         wing = isnothing(body) && point.is_wing_node ?
             component_name(sys.wings[point.wing_idx]) : nothing
-        Any[component_name(point), string(point.type), body, vector3(point.pos_w),
+        Any[component_name(point), string(point.type), body, vector3(point.pos_ENU),
             point.extra_mass, point.area, point.drag_coeff, wing]
     end
 end
@@ -252,13 +252,12 @@ carries, about the centre of that mass, which is the origin the row places.
 """
 body_rows(sys::SystemStructure) =
     [Any[component_name(body), string(body.type), vector3(body_mass_centre(body)),
-         Float64.(body.Q_b_to_w), body.extra_mass, matrix3(body.extra_inertia_b),
+         Float64.(body.Q_KA_to_ENU), body.extra_mass, matrix3(body.extra_inertia_b),
          ref_name(sys.wings, body.wing_idx), body.apparent_mass]
      for body in sys.bodies]
 
-"""World position [m] of the centre of `body`'s own mass."""
-body_mass_centre(body) =
-    body.pos_w + quaternion_to_rotation_matrix(body.Q_b_to_w) * body.extra_com_offset_b
+"""World position [m] of the centre of `body`'s own mass in its initial pose."""
+body_mass_centre(body) = body.pos_ENU + initial_rotation(body) * body.extra_com_offset_b
 
 """
     tube_table(sys) -> OrderedDict

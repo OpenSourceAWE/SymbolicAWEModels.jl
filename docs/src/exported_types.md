@@ -70,7 +70,7 @@ default_backend!
 SystemStructure
 SystemStructure(name, set; points, stations, segments, pulleys, tethers, winches, wings, transforms, bodies, tubes)
 Point
-Point(name, pos_cad, type; wing, transform, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
+Point(name, pos_ENU, type; wing, transform, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
 Station
 Station(name, points, type, moment_frac; damping=50.0)
 Segment

@@ -300,10 +300,10 @@ args and kwargs from YAML row and calls constructor.
 ```julia
 row = (idx=1, x=0.0, y=0.0, z=0.0, type="STATIC")
 point = call_yaml_constructor(Point, row,
-    [:idx, :pos_cad, :type],  # positional args
+    [:idx, :pos_ENU, :type],  # positional args
     [:extra_mass, :wing_idx];       # kwargs
     mappings=Dict(
-        :pos_cad => r -> [Float64(r.x),
+        :pos_ENU => r -> [Float64(r.x),
             Float64(r.y), Float64(r.z)],
         :type => r -> parse_dynamics_type(
             String(r.type))
@@ -406,13 +406,13 @@ custom aero mode.
 function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                    vsm_set, yaml_to_ref, yaml_parse_ref_points,
                    yaml_parse_origin, stations)
-    # PARTICLE derives pos_cad from the origin point during resolution; RIGID
-    # reads it from the row when given.
-    pos_cad = wing_type == PARTICLE_DYNAMICS ? (row -> nothing) :
+    # PARTICLE derives its position from the origin point during resolution; RIGID
+    # reads the row's `pos_cad` when given.
+    pos_ENU = wing_type == PARTICLE_DYNAMICS ? (row -> nothing) :
         (row -> yaml_vec3(row, :pos_cad))
     # aero_z_offset only applies to RIGID wings.
     kwargs_spec = [:transform, :angular_damping, :dynamics_type,
-        :aero, :z_ref_points, :y_ref_points, :origin, :pos_cad,
+        :aero, :z_ref_points, :y_ref_points, :origin, :pos_ENU,
         :aero_scale_chord, :principal_frame_method,
         :extra_mass, :com, :unit_inertia]
     wing_type == RIGID_DYNAMICS && push!(kwargs_spec, :aero_z_offset)
@@ -428,7 +428,7 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
             :dynamics_type => row -> wing_type,
             :name => row -> yaml_row_name(row, idx),
             :transform => row -> yaml_ref_field(row, :transform_idx, yaml_to_ref),
-            :pos_cad => pos_cad,
+            :pos_ENU => pos_ENU,
             :z_ref_points => row -> yaml_parse_ref_points(row, :z_ref_points),
             :y_ref_points => row -> yaml_parse_ref_points(row, :y_ref_points),
             :origin => row -> yaml_parse_origin(row, :origin_idx),
@@ -792,12 +792,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         for (i, row) in enumerate(point_rows)
             # Raw references are passed; SystemStructure resolves them.
             point = call_yaml_constructor(Point, row,
-                [:name, :pos_cad, :type],
+                [:name, :pos_ENU, :type],
                 [:wing, :transform, :body, :tube, :vel_w, :extra_mass,
                  :body_frame_damping, :world_frame_damping,
                  :area, :drag_coeff, :fix_sphere, :fix_static];
                 mappings=Dict(
-                    :pos_cad => row -> KVec3(row.pos_cad...),
+                    :pos_ENU => row -> KVec3(row.pos_cad...),
                     :type => row -> parse_dynamics_type(String(row.type)),
                     :name => row -> yaml_row_name(row, i),
                     # Pass raw references - constructor handles defaults
@@ -810,7 +810,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     :vel_w => row -> yaml_vec3(row, :vel_w)
                 ))
 
-            point.pos_w .= point.pos_cad
+            point.pos_w .= point.pos_ENU
             saved_vel = yaml_vec3(row, :vel_w)
             point.vel_w .= isnothing(saved_vel) ? 0.0 : saved_vel
             push!(points, point)

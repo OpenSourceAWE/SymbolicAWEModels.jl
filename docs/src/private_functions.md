@@ -54,7 +54,6 @@ SymbolicAWEModels.calc_angle_of_attack
 SymbolicAWEModels.calc_heading
 SymbolicAWEModels.calc_R_t_to_w
 SymbolicAWEModels.calc_R_v_to_w
-SymbolicAWEModels.cad_to_body_frame
 SymbolicAWEModels.calc_pos
 SymbolicAWEModels.calc_winch_force
 SymbolicAWEModels.quaternion_to_rotation_matrix
@@ -267,7 +266,7 @@ SymbolicAWEModels.encode_document
 
 ```@docs
 SymbolicAWEModels.resolve_material
-SymbolicAWEModels.segment_cad_length
+SymbolicAWEModels.segment_initial_length
 SymbolicAWEModels.segment_world_length
 SymbolicAWEModels.tether_ordered_point_idxs
 SymbolicAWEModels.tether_anchor_free
@@ -280,7 +279,7 @@ SymbolicAWEModels.station_tethers_by_overlap
 SymbolicAWEModels.tether_unit_stiffness
 SymbolicAWEModels.apply_cluster_init_stretched_len!
 SymbolicAWEModels.init_unstretched_len
-SymbolicAWEModels.tube_endpoint_frames
+SymbolicAWEModels.tube_initial_frames
 SymbolicAWEModels.init_tube_rest!
 SymbolicAWEModels.rigidity_fields
 SymbolicAWEModels.concrete_rigidities
@@ -305,7 +304,11 @@ SymbolicAWEModels.share_body_mass!
 SymbolicAWEModels.carrier_body_idx
 SymbolicAWEModels.combine_carried_points!
 SymbolicAWEModels.carried_position_b
-SymbolicAWEModels.copy_cad_to_world!
+SymbolicAWEModels.copy_initial_pose!
+SymbolicAWEModels.store_initial_pose!
+SymbolicAWEModels.initial_rotation
+SymbolicAWEModels.initial_body_position
+SymbolicAWEModels.initial_chord_position
 SymbolicAWEModels.adjust_vsm_panels_to_origin!
 SymbolicAWEModels.apply_aero_z_offset!
 SymbolicAWEModels.calc_particle_dynamics_wing_frame
@@ -616,6 +619,6 @@ SymbolicAWEModels.fit_softening_exponent
 ```@docs
 SymbolicAWEModels.init_principal_frame!
 SymbolicAWEModels.init_body_frame_from_ref_points!
-SymbolicAWEModels.get_rot_pos_cad
+SymbolicAWEModels.get_rot_pos_ENU
 KiteUtils.Logger(::SymbolicAWEModel, ::Int64)
 ```

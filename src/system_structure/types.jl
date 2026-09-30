@@ -302,8 +302,8 @@ mutable struct Point
     const wing_ref::Union{Int, Symbol}
     "Raw rigid-body reference for anchoring (name or idx). 0 = not anchored to a body."
     const body_ref::Union{Int, Symbol}
-    "Position in CAD frame [m]."
-    const pos_cad::KVec3
+    "Initial position, world frame [m]: where [`place!`](@ref) puts the point, and what `init!` derives rest geometry from."
+    const pos_ENU::KVec3
     "Undeformed position relative to wing COM in principal frame [m]. Reference
     geometry the equations take as a parameter and `twist_deformed_offset`
     rotates by the live twist angle; overwriting it with a deformed position
@@ -312,7 +312,7 @@ mutable struct Point
     "Position relative to wing COM in principal frame [m]: `pos_undeformed_b`
     carried by the live twist angle (updated during simulation)."
     const pos_b::KVec3
-    "Anchor offset in the rigid body's body frame [m] (body-anchored points). Auto-derived from `pos_cad` by SystemStructure when left at zero."
+    "Anchor offset in the rigid body's body frame [m] (body-anchored points). Auto-derived from `pos_ENU` by SystemStructure when left at zero."
     anchor_b::KVec3
     "Position in world frame [m] (updated during simulation)."
     const pos_w::KVec3
@@ -359,7 +359,7 @@ mutable struct Point
     tube_idx::Int64
     "Raw anchoring tube reference (name or idx). 0 = not beam-anchored."
     const tube_ref::Union{Int, Symbol}
-    "Parameter `s ∈ [0,1]` along the beam element (auto-derived from `pos_cad`)."
+    "Parameter `s ∈ [0,1]` along the beam element (auto-derived from `pos_ENU`)."
     beam_frac::SimFloat
     "Perpendicular offset off the centerline in the rest element frame [m] (auto-derived)."
     beam_offset_b::KVec3
@@ -370,7 +370,7 @@ Base.getproperty(point::Point, sym::Symbol) =
     getfield(point, sym === :disturb ? :ext_force_w : sym)
 
 """
-    Point(name, pos_cad, type; wing=nothing, transform=nothing, ...)
+    Point(name, pos_ENU, type; wing=nothing, transform=nothing, ...)
 
 Constructs a `Point` object, which can be of three different [`DynamicsType`](@ref)s:
 - `STATIC`: The point does not move. ``\\ddot{\\mathbf{r}} = \\mathbf{0}``
@@ -388,7 +388,7 @@ drives the per-point aero and wing-frame fitting.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the point (e.g., `:kcu`, `:le_1`, or `1` for legacy).
-- `pos_cad::KVec3`: Position of the point in the CAD frame.
+- `pos_ENU::KVec3`: Position of the point before [`place!`](@ref) moves it by the transforms [m].
 - `type::DynamicsType`: Dynamics type of the point (`STATIC`, `DYNAMIC`, etc.).
   Pass `BODY_STATIC` together with `body` to anchor the point to a rigid body.
 
@@ -415,7 +415,7 @@ drives the per-point aero and wing-frame fitting.
 # Returns
 - `Point`: A new `Point` object. The `idx` field is assigned later by SystemStructure.
 """
-function Point(name, pos_cad, type;
+function Point(name, pos_ENU, type;
     wing=nothing, transform=nothing, vel_w=nothing,
     body=nothing, anchor_b=nothing, tube=nothing,
     extra_mass=0.0, apparent_mass=0.0,
@@ -460,7 +460,7 @@ function Point(name, pos_cad, type;
 
     # idx, transform_idx, wing_idx, body_idx are placeholders - resolved by SystemStructure
     Point(0, name, 0, 0, 0, transform_ref, wing_ref, body_ref,
-        KVec3(pos_cad...), zeros(KVec3), zeros(KVec3), anchor, zeros(KVec3),
+        KVec3(pos_ENU...), zeros(KVec3), zeros(KVec3), anchor, zeros(KVec3),
         vel, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
         zeros(KVec3),
         type, extra_mass, 0.0, apparent_mass,
@@ -587,7 +587,7 @@ using the closest VSM panel to the station's mean point position.
 - `flap_points=[]`: Ordered `[fore, hinge, aft]` point references of a point flap —
   the alternative to `flap_bodies`. δ is the signed angle the aft segment
   (`hinge`→`aft`) makes with the fore segment (`fore`→`hinge`) about `flap_axis`,
-  referenced to the CAD pose. A chord that bends rather than hinges needs no bodies
+  referenced to the initial pose. A chord that bends rather than hinges needs no bodies
   to read a deflection off, and the two segments are read from the structure the
   polars are indexed on. Give both `flap_bodies` and `flap_points` and the points win.
 - `flap_axis=[0,1,0]`: Flap-hinge axis (unit), in the main flap body's frame, or the
@@ -995,7 +995,7 @@ mutable struct Tether
     len::SimFloat
     """Initial stretched standoff [m] — the placed point
     geometry (Σ segment norms). Drives placement of root
-    tethers. `nothing` = use the geometric (CAD) length,
+    tethers. `nothing` = use the authored length,
     i.e. no scaling."""
     init_stretched_len::Union{SimFloat, Nothing}
     """Target initial spring force [N], default 0. `place!`
@@ -1417,20 +1417,20 @@ function get_rot_pos(transform::Transform, bodies, points)
 end
 
 """
-    get_rot_pos_cad(transform::Transform, bodies, points)
+    get_rot_pos_ENU(transform::Transform, bodies, points)
 
-Get the CAD-frame position of the rotating object (body or point).
+Get the initial position `pos_ENU` of the rotating object (body or point).
 Used by `get_base_pos` to compute the translation offset for
 chained transforms.
 """
-function get_rot_pos_cad(transform::Transform, bodies, points)
+function get_rot_pos_ENU(transform::Transform, bodies, points)
     wing_idx = transform.wing_idx
     if !isnothing(wing_idx)
-        return bodies[something(wing_idx)].pos_cad
+        return bodies[something(wing_idx)].pos_ENU
     end
     rot_point_idx = transform.rot_point_idx
     if !isnothing(rot_point_idx)
-        return points[something(rot_point_idx)].pos_cad
+        return points[something(rot_point_idx)].pos_ENU
     end
     error("Transform #$(transform.idx): " *
         "neither wing_idx nor rot_point_idx is set")
@@ -1442,7 +1442,7 @@ end
 Get `(base_pos, curr_base_pos)` for a transform.
 
 For chained transforms (`base_transform`): returns the parent's
-current world position and CAD position, so
+current world position and initial position `pos_ENU`, so
 `T = base_pos - curr_base_pos` shifts child points by the same
 displacement the parent transform applied.
 
@@ -1456,9 +1456,9 @@ function get_base_pos(transform::Transform,
         base_tf = transforms[something(
             base_transform_idx)]
         rot_pos = get_rot_pos(base_tf, bodies, points)
-        rot_pos_cad = get_rot_pos_cad(
+        rot_pos_ENU = get_rot_pos_ENU(
             base_tf, bodies, points)
-        return rot_pos, rot_pos_cad
+        return rot_pos, rot_pos_ENU
     end
     curr_base_pos = points[something(
         transform.base_point_idx)].pos_w

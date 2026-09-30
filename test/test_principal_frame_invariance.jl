@@ -38,7 +38,6 @@ function apply_principal_frame!(wing, S)
     wing.inertia_principal .= diag(inertia_new)
     wing.angular_damping .=
         diag(S' * Diagonal(collect(wing.angular_damping)) * S)
-    wing.R_p_to_c .= wing.R_p_to_c * S
     wing.R_b_to_p .= S' * wing.R_b_to_p
     return nothing
 end
@@ -84,21 +83,21 @@ end
 """
     run_case(sam; frame=nothing, steps=10, dt=0.05)
 
-Place the structure, swap in the principal `frame` change when given (the
-placement derives the frame afresh), init, take one tiny step so all force
-outputs are realised, then step the dynamics; returns the snapshots (the
+Place and init the structure, swap in the principal `frame` change when given
+(`init!` derives the frame afresh) and reset the integrator from it, take one tiny
+step so all force outputs are realised, then step the dynamics; returns the snapshots (the
 reported failure grew over time, so the run must be long enough to expose a
 diverging variant).
 """
 function run_case(sam; frame=nothing, steps=10, dt=0.05)
     wing = sam.sys_struct.wings[1]
     place!(sam.sys_struct; prn=false)
+    init!(sam; prn=false)
     if !isnothing(frame)
         apply_principal_frame!(wing, frame)
-        @test wing.R_b_to_p ≈ wing.R_p_to_c' * wing.R_b_to_c atol=1e-12
         SymbolicAWEModels.init_principal_state!(wing)
+        reinit!(sam, sam.integrator)
     end
-    init!(sam; prn=false)
     next_step!(sam; dt=1e-5, vsm_interval=1)
     snaps = [frame_snapshot(sam.sys_struct)]
     for _ in 1:steps

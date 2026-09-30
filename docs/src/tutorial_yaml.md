@@ -214,7 +214,7 @@ points:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | String/Int | required | Point identifier (`idx` also accepted) |
-| `pos_cad` | [x,y,z] | required | Position in CAD frame [m] |
+| `pos_cad` | [x,y,z] | required | Authored position [m], before the transforms move it; [`place!`](@ref) turns it into the initial pose `pos_ENU` |
 | `type` | String | required | `STATIC`, `DYNAMIC`, or `BODY_STATIC` |
 | `wing_idx` | Int/nothing | none | Wing this point belongs to; omit it, or `0`, for a point that belongs to none |
 | `transform_idx` | Int/nothing | nothing | Transform for initial positioning |
@@ -230,7 +230,7 @@ points:
 | `fix_static` | Bool | false | Dynamically freeze the point position |
 
 A `BODY_STATIC` point rides a rigid body (`body:`, or `wing:` for a wing body)
-or a Timoshenko tube (`tube:`); its body-frame offset is derived from `pos_cad`.
+or a Timoshenko tube (`tube:`); its body-frame offset is derived from its initial pose.
 
 ### Segments
 
@@ -379,8 +379,8 @@ the KCU. A wing with no `extra_mass` of its own and no point masses spreads
 `set.mass` over its points. A particle wing's `total_mass` adds up its free points
 and section bodies, which carry its mass.
 
-The segment halves use each segment's `l0` when the structure is placed
-([`update_mass_properties!`](@ref), run by [`place!`](@ref)); they are not updated while
+The segment halves use each segment's `l0` at the start of a run
+([`update_mass_properties!`](@ref), run by [`init!`](@ref)); they are not updated while
 a winch changes a tether's `l0` during a run.
 
 ### Bodies and tubes

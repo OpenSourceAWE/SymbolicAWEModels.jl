@@ -110,12 +110,11 @@ end
     b2 = sam.sys_struct.bodies[:b2]
     jt = sam.sys_struct.tubes[:j1].model
 
-    # Perturb the CAD home (pos_cad / R_b_to_c); init resets pos_w/Q_b_to_w
-    # to these, so the stretch/twist survives without a warm-start flag.
+    # Reset the initial pose that place! puts the bodies back at.
     function reset_bodies!()
         for (b, x) in ((b1, 0.0), (b2, 1.0))
-            b.pos_cad .= [x, 0.0, 0.0]
-            b.R_b_to_c .= [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
+            b.pos_ENU .= [x, 0.0, 0.0]
+            b.Q_KA_to_ENU .= [1.0, 0.0, 0.0, 0.0]
             b.vel_w .= 0.0
             b.ω_b .= 0.0
         end
@@ -275,6 +274,19 @@ end
         @test norm(nodeB.pos_w - pos0) < 1e-7
         @test norm(nodeB.vel_w) < 1e-7
         @test norm(R_meas - Rz30) < 1e-6
+    end
+
+    @testset "init! derives mass and rest geometry from the initial pose" begin
+        reset_bodies!()
+        place!(sam.sys_struct)
+        Q_rot = Float64[cos(π / 12), 0.0, 0.0, sin(π / 12)]
+        b2.Q_KA_to_ENU .= Q_rot
+        b2.extra_mass = 2.5
+        test_init!(sam; prn=false)
+        @test b2.total_mass ≈ 2.5
+        @test norm(jt.R_rel0 -
+                   SymbolicAWEModels.quaternion_to_rotation_matrix(Q_rot)) < 1e-12
+        @test b2.Q_b_to_w == [1.0, 0.0, 0.0, 0.0]
     end
 
     rm(tmpdir; recursive=true)

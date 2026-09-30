@@ -680,7 +680,7 @@ function init!(sam::SymbolicAWEModel;
             serialize(model_path, sam.serialized_model)
         end
 
-        init_sys_struct!(sam.sys_struct, sam.set; remake_vsm)
+        init_sys_struct!(sam.sys_struct, sam.set; remake_vsm, prn)
         # reinit!(sam, prob) syncs the struct's ICs onto the problem; no rebuild needed.
         if create_prob && !isnothing(sam.prob)
             prob = something(sam.prob)

@@ -15,14 +15,14 @@ This file contains:
 # ==================== SHARED HELPERS ==================== #
 
 """
-    segment_cad_length(segment::Segment, points)
+    segment_initial_length(segment::Segment, points)
 
-Compute segment length from endpoint `pos_cad` positions.
+Compute segment length from endpoint `pos_ENU` positions.
 """
-function segment_cad_length(segment::Segment, points)
+function segment_initial_length(segment::Segment, points)
     point1 = points[segment.point_idxs[1]]
     point2 = points[segment.point_idxs[2]]
-    return norm(point1.pos_cad - point2.pos_cad)
+    return norm(point1.pos_ENU - point2.pos_ENU)
 end
 
 """
@@ -465,13 +465,12 @@ end
                                       tubes, body_neighbors,
                                       downstream, boundary; prn=true)
 
-Reposition one cluster of root tethers so each sits at its
-`init_stretched_len` standoff. Each tether contributes the
-displacement that would move its free end onto the target length
-along the anchor→free direction; the free end and everything
-downstream of it are translated by the mean of those displacements,
-then interior points are redistributed proportionally along each
-tether. For a multi-tether cluster, logs an `@info` when `prn`.
+Reposition one cluster of root tethers to their `init_stretched_len` standoff. The
+free ends and everything downstream of them are translated so the mean free end sits
+the mean `init_stretched_len` from the mean anchor, along the line between the two;
+interior points are then redistributed proportionally along each tether. A single
+tether lands at exactly its length, and placing again moves nothing. For a
+multi-tether cluster, logs an `@info` when `prn`.
 
 The bodies the moved points ride are translated too, expanded over the beam graph
 by [`translated_body_idxs`](@ref) so bodies that carry no point of their own do
@@ -497,14 +496,17 @@ function apply_cluster_init_stretched_len!(
         (; tether, free_idx, anchor_pos, free_pos, ordered, seg_lens, path_len)
     end
 
-    deltas = [(snap.tether.init_stretched_len::SimFloat / snap.path_len - 1) .*
-              (snap.free_pos .- snap.anchor_pos) for snap in snaps]
-    delta = sum(deltas) ./ length(deltas)
+    mean_anchor = sum(snap.anchor_pos for snap in snaps) ./ length(snaps)
+    mean_free = sum(snap.free_pos for snap in snaps) ./ length(snaps)
+    mean_len = sum(snap.tether.init_stretched_len::SimFloat for snap in snaps) /
+        length(snaps)
+    standoff = mean_free .- mean_anchor
+    delta = (mean_len / norm(standoff) - 1) .* standoff
 
     if length(cluster) > 1 && prn
         names = join((string(snap.tether.name) for snap in snaps), ", ")
-        @info "Tethers ($names) feed one structure; placing it to the " *
-              "mean stretched length and direction of all."
+        @info "Tethers ($names) feed one structure; placing it at their mean " *
+              "stretched length from their mean anchor."
     end
     norm(delta) ≈ 0 && return
 
@@ -547,15 +549,15 @@ end
     apply_tether_init_stretched_lens!(sys_struct::SystemStructure; prn=true)
 
 Scale `pos_w` so each tether with an explicit `init_stretched_len` sits at
-that standoff. Call after `copy_cad_to_world!`. Rest length is derived
+that standoff. Call after `copy_initial_pose!`. Rest length is derived
 separately by `apply_tether_init_forces!`.
 
 Only tethers with one endpoint on a boundary (`STATIC` or winch point) are
 placed; that endpoint is the fixed anchor (start or end). Scaling runs from
 the anchor toward the free end, translating everything downstream of it.
 A tether with neither endpoint anchored is an error. Roots feeding one
-structure form a cluster, placed by their mean displacement (length and
-direction).
+structure form a cluster, placed at their mean length from their mean anchor
+([`apply_cluster_init_stretched_len!`](@ref)).
 
 Errors if a downstream segment connects back to the anchor.
 """
@@ -720,17 +722,17 @@ end
 # ==================== PLACEMENT ==================== #
 
 """
-    reset_to_cad!(sys_struct::SystemStructure; reset_vel=true)
+    reset_to_initial_pose!(sys_struct::SystemStructure; reset_vel=true)
 
-Put every point and body back at its CAD pose, zero the twist of every
-non-`STATIC` station and set every winch's reel-out speed to `init_vel`.
-`reset_vel` zeroes point and body velocities as well.
+Put every point and body back at its initial pose (`pos_ENU`, `Q_KA_to_ENU`), zero the
+twist of every non-`STATIC` station and set every winch's reel-out speed to
+`init_vel`. `reset_vel` zeroes point and body velocities as well.
 """
-function reset_to_cad!(sys_struct::SystemStructure; reset_vel::Bool=true)
+function reset_to_initial_pose!(sys_struct::SystemStructure; reset_vel::Bool=true)
     for winch in sys_struct.winches
         winch.vel = winch.init_vel
     end
-    copy_cad_to_world!(sys_struct.points, sys_struct.bodies; update_vel=reset_vel)
+    copy_initial_pose!(sys_struct.points, sys_struct.bodies; update_vel=reset_vel)
     init_rigid_body!.(sys_struct.bodies)
     for station in sys_struct.stations
         station.type == STATIC && continue
@@ -758,7 +760,8 @@ end
     init_pulley_lengths!(sys_struct::SystemStructure)
 
 Set every pulley's `sum_len` to its two segments' summed `l0`, split it between
-them in proportion to their current `len`, and stop the pulley.
+them in proportion to their current `len` into `len` and the two segments' `l0`, and
+stop the pulley.
 """
 function init_pulley_lengths!(sys_struct::SystemStructure)
     (; segments) = sys_struct
@@ -767,6 +770,8 @@ function init_pulley_lengths!(sys_struct::SystemStructure)
         segment2 = segments[pulley.segment_idxs[2]]
         pulley.sum_len = segment1.l0 + segment2.l0
         pulley.len = segment1.len / (segment1.len + segment2.len) * pulley.sum_len
+        segment1.l0 = pulley.len
+        segment2.l0 = pulley.sum_len - pulley.len
         pulley.vel = 0.0
     end
     return nothing
@@ -817,15 +822,17 @@ function init_wind!(sys_struct::SystemStructure, set::Settings)
 end
 
 """
-    init_sys_struct!(sys_struct::SystemStructure, set::Settings; remake_vsm=false)
+    init_sys_struct!(sys_struct::SystemStructure, set::Settings; remake_vsm=false, prn=true)
 
-Bring a placed structure to the start of a run: derive every body's principal-frame
-state from its body-frame one ([`init_rigid_body!`](@ref)), rebuild every wing's aero
-engine when `remake_vsm` ([`remake_wing_aero!`](@ref)), and set the wind and aero
-operating point ([`init_wind!`](@ref)). [`init!`](@ref) runs it.
+Bring a placed structure to the start of a run: derive its mass properties and rest
+geometry ([`init_derived_properties!`](@ref)) and every body's principal-frame state
+from its body-frame one ([`init_rigid_body!`](@ref)), rebuild every wing's aero engine
+when `remake_vsm` ([`remake_wing_aero!`](@ref)), and set the wind and aero operating
+point ([`init_wind!`](@ref)). [`init!`](@ref) runs it.
 """
 function init_sys_struct!(sys_struct::SystemStructure, set::Settings;
-                          remake_vsm::Bool=false)
+                          remake_vsm::Bool=false, prn::Bool=true)
+    init_derived_properties!(sys_struct; prn)
     init_rigid_body!.(sys_struct.bodies)
     remake_vsm && remake_wing_aero!(sys_struct, set)
     init_wind!(sys_struct, set)
@@ -848,7 +855,7 @@ end
     init_rest_geometry!(sys_struct::SystemStructure)
 
 Capture every tube's rest configuration and every flap station's rest deflection
-from the current body poses, so the placed structure is unstrained.
+from the initial pose, so the structure is unstrained there.
 """
 function init_rest_geometry!(sys_struct::SystemStructure)
     init_tube_rest!.(sys_struct.tubes, Ref(sys_struct.bodies))
@@ -857,36 +864,66 @@ function init_rest_geometry!(sys_struct::SystemStructure)
 end
 
 """
+    init_derived_properties!(sys_struct::SystemStructure; prn=true)
+
+Derive from the initial pose every body's mass properties
+([`update_mass_properties!`](@ref)) and the rest geometry of its tubes and flap
+stations ([`init_rest_geometry!`](@ref)).
+"""
+function init_derived_properties!(sys_struct::SystemStructure; prn::Bool=true)
+    update_mass_properties!(sys_struct; prn)
+    init_rest_geometry!(sys_struct)
+    return nothing
+end
+
+"""
     place!(sys_struct::SystemStructure; ignore_l0=false, reset_vel=true, prn=true)
 
-Place `sys_struct` in the world from its CAD geometry by its `transforms`. Runs, in
-order:
+Place `sys_struct` in the world by its `transforms` and tether lengths, and make where
+it lands its initial pose. Runs, in order:
 
-1. [`reset_to_cad!`](@ref)
+1. [`reset_to_initial_pose!`](@ref)
 2. [`apply_tether_init_stretched_lens!`](@ref)
 3. [`update_segment_lengths!`](@ref)
 4. [`apply_tether_init_forces!`](@ref)
 5. [`init_pulley_lengths!`](@ref)
 6. `reinit!(sys_struct.transforms, sys_struct)`
 7. [`relax_segments!`](@ref) — only with `ignore_l0=true`
-8. [`update_mass_properties!`](@ref)
-9. [`init_rest_geometry!`](@ref)
+8. [`store_initial_pose!`](@ref)
 
-The `SystemStructure` constructor ends with it; [`init!`](@ref) takes the structure
-as placed. `reset_vel` zeroes point and body velocities in steps 1 and 6; `prn`
-prints the info messages of steps 2 and 8.
+The `SystemStructure` constructor runs it on the authoring geometry, then
+[`init_sys_struct!`](@ref); [`init!`](@ref) takes the structure as placed. Run again
+after a transform changes, it places the structure anew from its initial pose.
+`reset_vel` zeroes point and body velocities in steps 1 and 6; `prn` prints the info
+messages of step 2.
 """
 function place!(sys_struct::SystemStructure; ignore_l0::Bool=false,
                 reset_vel::Bool=true, prn::Bool=true)
-    reset_to_cad!(sys_struct; reset_vel)
+    reset_to_initial_pose!(sys_struct; reset_vel)
     apply_tether_init_stretched_lens!(sys_struct; prn)
     update_segment_lengths!(sys_struct)
     apply_tether_init_forces!(sys_struct)
     init_pulley_lengths!(sys_struct)
     reinit!(sys_struct.transforms, sys_struct; update_vel=reset_vel)
     ignore_l0 && relax_segments!(sys_struct)
-    update_mass_properties!(sys_struct; prn)
-    init_rest_geometry!(sys_struct)
+    store_initial_pose!(sys_struct)
+    return nothing
+end
+
+"""
+    store_initial_pose!(sys_struct::SystemStructure)
+
+Make the current pose the initial one: `pos_ENU = pos_w` for every point and body,
+and `Q_KA_to_ENU = Q_b_to_w` for every body.
+"""
+function store_initial_pose!(sys_struct::SystemStructure)
+    for point in sys_struct.points
+        point.pos_ENU .= point.pos_w
+    end
+    for body in sys_struct.bodies
+        body.pos_ENU .= body.pos_w
+        body.Q_KA_to_ENU .= body.Q_b_to_w
+    end
     return nothing
 end
 

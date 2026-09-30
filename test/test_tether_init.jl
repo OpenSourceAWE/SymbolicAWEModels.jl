@@ -230,9 +230,9 @@ environment:
         @test mid.pos_w ≈ KVec3(0, 0, -100)
         @test sys.points[:top].pos_w ≈ KVec3(0, 0, -200)
         @test sys.tethers[:main_tether].len ≈ 200.0
-        # pos_cad unchanged
-        @test mid.pos_cad ≈ KVec3(0, 0, -50)
-        @test sys.points[:top].pos_cad ≈ KVec3(0, 0, -100)
+        # The stretched placement is the initial pose.
+        @test mid.pos_ENU == mid.pos_w
+        @test sys.points[:top].pos_ENU == sys.points[:top].pos_w
     end
 
     # ================================================================
@@ -250,7 +250,7 @@ environment:
         @test sys.points[:top].pos_w ≈ KVec3(0, 0, -200)
         @test sys.segments[:s1].l0 ≈ 100.0
         @test sys.segments[:s2].l0 ≈ 100.0
-        @test sys.points[:top].pos_cad ≈ KVec3(0, 0, -100)
+        @test sys.points[:top].pos_ENU == sys.points[:top].pos_w
     end
 
     # ================================================================
@@ -342,17 +342,17 @@ winches:
         @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
 
         sys.tethers[:tether_winch].init_stretched_len = 100.0
+        top_before = copy(sys.points[:top].pos_w)
         @test_logs (:info,) match_mode=:any place!(sys)
 
-        # Placed by the mean displacement of both roots: standoff is
-        # ≈ the mean target (150), offset slightly because the two
-        # tethers pull in different directions, and top is drawn off
-        # the static-tether line toward that mean direction.
-        ground_static = sys.points[:ground_static].pos_w
-        @test isapprox(norm(sys.points[:top].pos_w - ground_static),
-                       150.0; atol=0.05)
-        @test sys.points[:top].pos_w[1] < -4.95
+        # The mean anchor is the origin and the mean target 150 m: top lands 150 m
+        # out along the line from the origin through where it was.
+        placed = copy(sys.points[:top].pos_w)
+        @test placed ≈ 150.0 .* normalize(top_before)
         @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
+
+        place!(sys; prn=false)
+        @test sys.points[:top].pos_w ≈ placed
     end
 
     # ================================================================
@@ -544,10 +544,11 @@ winches:
             aero_mode=AeroNone())
 
         wing = sys.bodies[:main_wing]
-        pos_cad = copy(wing.pos_cad)
         # Free end le_center at [-0.5, 0, 2.5]; standoff = 2× its distance to
-        # ground, so the whole wing translates by delta = [-0.5, 0, 2.5].
+        # ground, so the whole wing translates by delta = [-0.5, 0, 2.5]. The wing
+        # origin is the mean of its six equal-mass points as authored.
         delta = KVec3(-0.5, 0.0, 2.5)
+        authored_origin = KVec3(0.0, 0.0, 13.6 / 6)
 
         place!(sys)
 
@@ -556,11 +557,10 @@ winches:
         # Free end sits at the stretched standoff.
         @test norm(le_center - ground) ≈ 5.0990195135927845
         # The wing body translated with its points (the regression: the body
-        # stayed at pos_cad while the points moved).
-        @test wing.pos_w ≈ pos_cad .+ delta
+        # stayed where it was authored while the points moved).
+        @test wing.pos_w ≈ authored_origin .+ delta
         # Body and its WING points stay rigid: point→origin offset preserved.
-        @test le_center .- wing.pos_w ≈
-              sys.points[:le_center].pos_cad .- pos_cad
+        @test le_center .- wing.pos_w ≈ KVec3(-0.5, 0.0, 2.5) .- authored_origin
     end
 
     # ================================================================
@@ -624,7 +624,7 @@ winches:
         tether = sys.tethers[:main_tether]
         @test tether.len ≈ 200.0
         placed_w = [copy(point.pos_w) for point in sys.points]
-        placed_cad = [copy(point.pos_cad) for point in sys.points]
+        placed_initial = [copy(point.pos_ENU) for point in sys.points]
 
         set_unstretched_length!(sys, tether, 150.0)
 
@@ -632,8 +632,8 @@ winches:
         @test sys.segments[:s1].l0 ≈ 75.0
         @test sys.segments[:s2].l0 ≈ 75.0
         @test all(point.pos_w ≈ was for (point, was) in zip(sys.points, placed_w))
-        @test all(point.pos_cad ≈ was
-                  for (point, was) in zip(sys.points, placed_cad))
+        @test all(point.pos_ENU ≈ was
+                  for (point, was) in zip(sys.points, placed_initial))
         # The stretched geometry is untouched, so the rope is now taut.
         @test sum(sys.segments[idx].len for idx in tether.segment_idxs) ≈ 200.0
 

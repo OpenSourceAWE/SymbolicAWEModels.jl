@@ -64,8 +64,6 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     const inertia_principal::KVec3
     "Constant body→principal rotation."
     const R_b_to_p::Matrix{SimFloat}
-    "Principal frame → CAD (from inertia diagonalisation)."
-    const R_p_to_c::Matrix{SimFloat}
     "Offset from body origin to COM with the carried points, body frame [m]."
     const com_offset_b::KVec3
     "Inertia tensor of the body alone about its own COM, body frame [kg·m²]."
@@ -92,10 +90,10 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     fix_static::Bool
     "Dynamics type: DYNAMIC (free 6-DOF), KINEMATIC (fitted) or STATIC (frozen)."
     type::DynamicsType
-    "Initial body-origin position [m]; `pos_w` is reset to this by each `place!`."
-    const pos_cad::KVec3
-    "Initial body→world orientation; `Q_b_to_w` is reset from this by each `place!`."
-    const R_b_to_c::Matrix{SimFloat}
+    "Initial body-origin position, world frame [m]: where [`place!`](@ref) puts the body."
+    const pos_ENU::KVec3
+    "Initial body→world orientation quaternion: how [`place!`](@ref) turns the body."
+    const Q_KA_to_ENU::Vector{SimFloat}
 
     # ---- body frame state (ICs in, live output out) ----
     const Q_b_to_w::Vector{SimFloat}
@@ -295,18 +293,16 @@ function Body(name;
         error("Body $name: provide `inertia_principal` or `inertia`.")
     end
     extra_inertia_b = R_b_to_p' * Diagonal(inertia_principal) * R_b_to_p
-    R_b_to_c = quaternion_to_rotation_matrix(Vector{SimFloat}(Q_b_to_w))
     # Plain body: no aero (AeroNone), rigid dynamics, inert aero/wing fields.
     return Body{AeroNone, RigidDynamics}(
         0, name, 0, transform_ref, 0, wing_ref,
         SimFloat(extra_mass), SimFloat(extra_mass), zero(SimFloat),
-        KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p),
-        Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b),
+        KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p), KVec3(com_offset_b),
         Matrix{SimFloat}(extra_inertia_b), KVec3(com_offset_b), principal_frame_method,
         KVec3(ext_force_w), KVec3(ext_force_b), KVec3(ext_moment_b),
         damping_vec, world_damping_vec, body_damping_vec, fix_sphere, fix_static,
         type,
-        KVec3(pos), Matrix{SimFloat}(R_b_to_c),
+        KVec3(pos), Vector{SimFloat}(Q_b_to_w),
         Vector{SimFloat}(Q_b_to_w), KVec3(ω_b),
         KVec3(pos), KVec3(vel), zeros(KVec3),
         zeros(KVec3), zeros(KVec3), zeros(SimFloat, 4), zeros(KVec3),
@@ -320,13 +316,35 @@ function Body(name;
 end
 
 """
+    initial_rotation(body) -> Matrix
+
+The body→world rotation matrix of `body`'s initial pose `Q_KA_to_ENU`.
+"""
+initial_rotation(body) = quaternion_to_rotation_matrix(body.Q_KA_to_ENU)
+
+"""
+    initial_body_position(body, point) -> Vector
+
+Where `point` sits in `body`'s frame, from the body origin, in the initial pose.
+"""
+initial_body_position(body, point) =
+    initial_rotation(body)' * (point.pos_ENU - body.pos_ENU)
+
+"""
+    initial_chord_position(wing, point) -> SimFloat
+
+Body-frame x of `point` on `wing` in the initial pose: smaller towards the leading edge.
+"""
+initial_chord_position(wing, point) = initial_body_position(wing, point)[1]
+
+"""
     init_principal_state!(obj)
 
 Derive the principal-frame ODE state (`com_w`, `com_vel`, `Q_p_to_w`, `ω_p`) from
 the body-frame initial conditions (`pos_w`, `vel_w`, `Q_b_to_w`, `ω_b`) of a rigid
 body or `RIGID_DYNAMICS` wing, with `R_p_to_w = R_b_to_w * R_b_to_p'`. Shared by
 [`init_rigid_body!`](@ref) and the rigid branch of `init_principal_frame!` (for a
-`RIGID_DYNAMICS` wing `R_b_to_p = R_p_to_c' * R_b_to_c`, so the two agree).
+`RIGID_DYNAMICS` wing).
 """
 function init_principal_state!(obj)
     R_b_to_w = quaternion_to_rotation_matrix(obj.Q_b_to_w)
@@ -576,27 +594,27 @@ function timoshenko_element_frame(x_a, x_b, R_a)
 end
 
 """
-    tube_endpoint_frames(tube, bodies) -> (R_a, R_b, anchor_a_w, anchor_b_w)
+    tube_initial_frames(tube, bodies) -> (R_a, R_b, anchor_a_w, anchor_b_w)
 
 World rotations of the two connected bodies and the world positions of the tube's
-two anchors, from the current (placed) poses.
+two anchors, in the bodies' initial poses (`pos_ENU`, `Q_KA_to_ENU`).
 """
-function tube_endpoint_frames(tube::Tube, bodies)
+function tube_initial_frames(tube::Tube, bodies)
     body_a = bodies[tube.body_a_idx]
     body_b = bodies[tube.body_b_idx]
-    R_a = quaternion_to_rotation_matrix(body_a.Q_b_to_w)
-    R_b = quaternion_to_rotation_matrix(body_b.Q_b_to_w)
-    anchor_a_w = body_a.pos_w .+ R_a * tube.anchor_a_b
-    anchor_b_w = body_b.pos_w .+ R_b * tube.anchor_b_b
+    R_a = initial_rotation(body_a)
+    R_b = initial_rotation(body_b)
+    anchor_a_w = body_a.pos_ENU .+ R_a * tube.anchor_a_b
+    anchor_b_w = body_b.pos_ENU .+ R_b * tube.anchor_b_b
     return R_a, R_b, anchor_a_w, anchor_b_w
 end
 
 """
     init_tube_rest!(tube, bodies)
 
-Capture the rest reference of `tube.model` from the current (placed) body poses,
-so the as-placed geometry is unstrained and the tube wrench is exactly zero at
-initialization. One `init_rest!` method per tube model:
+Capture the rest reference of `tube.model` from the bodies' initial poses, so the
+initial geometry is unstrained and the tube wrench there is exactly zero. One
+`init_rest!` method per tube model:
 
 - [`ElasticTube`](@ref): rest anchor offset (body-A frame) and rest relative
   rotation `R_a' R_b`.
@@ -604,7 +622,7 @@ initialization. One `init_rest!` method per tube model:
   orientations relative to the corotational element frame.
 """
 init_tube_rest!(tube::Tube, bodies) =
-    init_rest!(tube.model, tube_endpoint_frames(tube, bodies)...)
+    init_rest!(tube.model, tube_initial_frames(tube, bodies)...)
 
 function init_rest!(model::ElasticTube, R_a, R_b, anchor_a_w, anchor_b_w)
     model.rest_offset_a .= R_a' * (anchor_b_w .- anchor_a_w)
@@ -627,18 +645,19 @@ end
     derive_point_beam_anchor!(point, tube, bodies)
 
 Derive a beam-anchored point's `beam_frac` and `beam_offset_b` from its
-`pos_cad`: project onto the rest beam line between the tube's two node anchors
-(CAD frame), storing the axial fraction `s ∈ [0,1]` and the perpendicular
+`pos_ENU`: project onto the rest beam line between the tube's two node anchors
+in the initial pose, storing the axial fraction `s ∈ [0,1]` and the perpendicular
 remainder expressed in the rest element frame (so the point tracks the same
 off-centerline offset as the beam bends). Usually near-centerline (offset ≈ 0).
 """
 function derive_point_beam_anchor!(point::Point, tube::Tube, bodies)
     body_a = bodies[tube.body_a_idx]
     body_b = bodies[tube.body_b_idx]
-    node_a = body_a.pos_cad .+ body_a.R_b_to_c * tube.anchor_a_b
-    node_b = body_b.pos_cad .+ body_b.R_b_to_c * tube.anchor_b_b
-    e1, e2, e3, len = timoshenko_element_frame(node_a, node_b, body_a.R_b_to_c)
-    rel = point.pos_cad .- node_a
+    R_a = initial_rotation(body_a)
+    node_a = body_a.pos_ENU .+ R_a * tube.anchor_a_b
+    node_b = body_b.pos_ENU .+ initial_rotation(body_b) * tube.anchor_b_b
+    e1, e2, e3, len = timoshenko_element_frame(node_a, node_b, R_a)
+    rel = point.pos_ENU .- node_a
     s = clamp(dot(rel, e1) / len, 0.0, 1.0)
     point.beam_frac = s
     perp = rel .- (s * len) .* e1
@@ -702,12 +721,10 @@ end
 """
     init_station_flap!(station, sys_struct)
 
-Capture a flapped `KINEMATIC` station's rest geometry, so the undeformed
-configuration reads δ = 0. A body flap defaults its reference chords to each body's
-x-axis and measures the placed poses; a point flap measures its three points in CAD,
-which is the geometry the polars were tabulated from and is unaffected by whatever
-the placement or a settling run has since done to the structure. No-op for surfaces
-without a flap.
+Capture a flapped `KINEMATIC` station's rest geometry from the initial pose, so the
+undeformed configuration reads δ = 0. A body flap defaults its reference chords to
+each body's x-axis and measures the two bodies' `Q_KA_to_ENU`; a point flap measures
+its three points' `pos_ENU`. No-op for surfaces without a flap.
 """
 function init_station_flap!(station::Station, sys_struct)
     if has_point_flap(station)
@@ -718,18 +735,16 @@ function init_station_flap!(station::Station, sys_struct)
         fore, hinge, aft = station.flap_point_idxs
         station.flap_rest_delta = 0.0
         station.flap_rest_delta = point_flap_delta_expression(station,
-            points[fore].pos_cad, points[hinge].pos_cad, points[aft].pos_cad,
-            sys_struct.wings[station.wing_idx].R_b_to_c)
+            points[fore].pos_ENU, points[hinge].pos_ENU, points[aft].pos_ENU,
+            initial_rotation(sys_struct.wings[station.wing_idx]))
         return nothing
     end
     has_body_flap(station) || return nothing
     bodies = sys_struct.bodies
     isempty(station.flap_chord_refs) &&
         (station.flap_chord_refs = [KVec3(1.0, 0.0, 0.0), KVec3(1.0, 0.0, 0.0)])
-    R_main = quaternion_to_rotation_matrix(
-        bodies[station.flap_body_idxs[1]].Q_b_to_w)
-    R_flap = quaternion_to_rotation_matrix(
-        bodies[station.flap_body_idxs[2]].Q_b_to_w)
+    R_main = initial_rotation(bodies[station.flap_body_idxs[1]])
+    R_flap = initial_rotation(bodies[station.flap_body_idxs[2]])
     station.flap_rest_delta = 0.0
     station.flap_rest_delta = flap_delta(station, R_main, R_flap)
     return nothing

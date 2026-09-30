@@ -1771,11 +1771,11 @@ end
 
 Deflection δ [rad] of a point flap from three structural positions: the signed angle
 the aft segment `hinge`→`aft` makes with the fore segment `fore`→`hinge` about the
-hinge axis, less the rest angle the CAD pose holds. Positive δ is a trailing edge
+hinge axis, less the rest angle the initial pose holds. Positive δ is a trailing edge
 deflected down, the sign the polars are tabulated on.
 
 `R_wing` takes the axis from the wing's frame to the frame the positions are in, so
-the same expression reads world positions at run time and CAD positions at build.
+the same expression reads the live positions at run time and the initial pose at init.
 Nothing here is a body: a chord bending over several beam elements still reads a
 deflection, and it is read off the very points the aerodynamics is built on rather
 than off a pair of orientations standing in for a hinge.

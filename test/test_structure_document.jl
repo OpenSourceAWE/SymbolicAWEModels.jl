@@ -104,12 +104,13 @@ end
         @test golden == document
     end
 
-    @testset "a document holds the system where it is placed" begin
+    @testset "a document holds the initial pose, not where a run moved the system" begin
         sys = two_plate_kite(set, vsm_set)
+        sys.points[:kcu].pos_w .+= [1.0, 0.0, 0.0]
         document = structure_document(sys)
         kcu = document["points"]["data"][sys.points[:kcu].idx]
-        @test kcu[4] ≈ sys.points[:kcu].pos_w
-        @test !(kcu[4] ≈ sys.points[:kcu].pos_cad)
+        @test kcu[4] ≈ sys.points[:kcu].pos_ENU
+        @test !(kcu[4] ≈ sys.points[:kcu].pos_w)
     end
 
     @testset "a point names its body, and carries its own mass and drag" begin
