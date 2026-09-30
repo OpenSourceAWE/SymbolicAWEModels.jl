@@ -70,6 +70,20 @@ function bodies_and_tubes(set)
         bodies, tubes, prn=false)
 end
 
+"""
+    pretensioned_tether(set) -> SystemStructure
+
+A ground point and a top point on one two-segment tether whose rest length is 99 % of
+its length.
+"""
+function pretensioned_tether(set)
+    points = Point[Point(:ground, [0.0, 0.0, 0.0], STATIC),
+                   Point(:top, [0.0, 0.0, 10.0], DYNAMIC; extra_mass=1.0)]
+    tethers = Tether[Tether(:line, 10.0; start_point=:ground, end_point=:top,
+                            n_segments=2, stretch_frac=0.99)]
+    return SystemStructure("structure_document_tether", set; points, tethers, prn=false)
+end
+
 """World position of `body`'s centre of mass."""
 com_w(body) = body.pos_w .+ body.R_b_to_w * body.com_offset_b
 
@@ -152,6 +166,15 @@ end
         end
         spring, reread_spring = sys.tubes[:spring], reread.tubes[:spring]
         @test tube_end(reread, reread_spring) ≈ tube_end(sys, spring)
+    end
+
+    @testset "a document is read in its initial pose, its tethers' rest lengths kept" begin
+        sys = pretensioned_tether(set)
+        @test sum(segment.l0 for segment in sys.segments) ≈ 9.9
+        document = structure_document(sys)
+        reread = sys_struct_from_document(document; set, prn=false)
+        @test structure_document(reread) == document
+        @test [point.pos_w for point in reread.points] == [point.pos_ENU for point in sys.points]
     end
 
     @testset "a run's log carries the structure document of the system that ran" begin

@@ -307,6 +307,7 @@ SymbolicAWEModels.carrier_body_idx
 SymbolicAWEModels.combine_carried_points!
 SymbolicAWEModels.carried_position_b
 SymbolicAWEModels.copy_initial_pose!
+SymbolicAWEModels.start_placed!
 SymbolicAWEModels.carry_body_points!
 SymbolicAWEModels.store_initial_pose!
 SymbolicAWEModels.initial_rotation

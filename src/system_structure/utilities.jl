@@ -932,6 +932,21 @@ function place!(sys_struct::SystemStructure; ignore_l0::Bool=false,
 end
 
 """
+    start_placed!(sys_struct::SystemStructure)
+
+Start a structure whose positions are its initial pose already: put it there
+([`reset_to_initial_pose!`](@ref)) and set its segment and pulley lengths
+([`update_segment_lengths!`](@ref), [`init_pulley_lengths!`](@ref)), keeping every
+tether's `l0`.
+"""
+function start_placed!(sys_struct::SystemStructure)
+    reset_to_initial_pose!(sys_struct)
+    update_segment_lengths!(sys_struct)
+    init_pulley_lengths!(sys_struct)
+    return nothing
+end
+
+"""
     carry_body_points!(sys_struct::SystemStructure)
 
 Put every point a body carries at its `anchor_b` on that body, where the body is now.

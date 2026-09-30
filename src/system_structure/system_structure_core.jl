@@ -977,6 +977,8 @@ of the same structural shape should share one.
   `wind_vec` a settable parameter instead of a height-profile output.
 - `ignore_l0::Bool=false`: Set every segment `l0` to its placed length
   ([`relax_segments!`](@ref)).
+- `placed::Bool=false`: The positions given are the initial pose already: start there
+  ([`start_placed!`](@ref)) instead of running [`place!`](@ref), keeping every `l0`.
 - `prn::Bool=true`: If true, print info messages about auto-generated components.
 
 # Returns
@@ -994,6 +996,7 @@ function SystemStructure(name, set;
         bodies=Body[],
         tubes=Tube[],
         ignore_l0::Bool=false,
+        placed::Bool=false,
         vsm_set=nothing,
         wind_mode::WindMode=ProfileWind(),
         prn::Bool=true,
@@ -1208,7 +1211,7 @@ function SystemStructure(name, set;
         NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
         NamedCollection{Tube}(tubes, tube_names_dict),
         AtmosphericModel(set), false, false, vsm_set, wind_mode)
-    place!(sys_struct; ignore_l0, prn)
+    placed ? start_placed!(sys_struct) : place!(sys_struct; ignore_l0, prn)
     init_sys_struct!(sys_struct, set; prn)
 
     # Panel→flap station map (structural; needs placed bodies + built panels).

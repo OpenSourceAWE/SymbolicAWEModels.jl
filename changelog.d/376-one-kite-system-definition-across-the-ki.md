@@ -30,6 +30,9 @@
   (#396).
 
 ### Fixed
+- A structure document is read in the initial pose it gives, without `place!`, so a
+  pre-tensioned tether keeps the `l0` the document holds (`SystemStructure(...;
+  placed=true)`).
 - Placing a structure hung on several tethers with `init_stretched_length` moves it
   straight away from their mean anchor until their mean length is the mean target,
   so tethers that already have their lengths stay and placing again moves nothing.

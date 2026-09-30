@@ -301,8 +301,8 @@ end
     sys_struct_from_document(doc::AbstractDict; set=nothing, vsm_set=nothing,
                              wind_mode=ProfileWind(), prn=true)
 
-Build the `SystemStructure` a parsed structure document describes, placed where
-the document places it. `set` supplies what the schema has no column for — the
+Build the `SystemStructure` a parsed structure document describes, starting in the
+initial pose the document gives, without [`place!`](@ref). `set` supplies what the schema has no column for — the
 winch friction and inertia, the tether material defaults — and falls back to the
 `base` settings. A column the reader does not know is ignored.
 
@@ -331,7 +331,7 @@ function sys_struct_from_document(doc::AbstractDict; set=nothing, vsm_set=nothin
         winches = Winch[read_winch(row, resolved_set) for row in rows["winches"]],
         bodies = Body[read_body(row) for row in rows["bodies"]],
         tubes = load_yaml_tubes(doc, Symbol),
-        vsm_set, wind_mode, prn)
+        placed = true, vsm_set, wind_mode, prn)
 
     for row in rows["bodies"]
         apply_body_row!(sys_struct.bodies[Symbol(row["name"])], row)
