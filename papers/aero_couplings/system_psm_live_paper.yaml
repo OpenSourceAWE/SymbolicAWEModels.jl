@@ -1,0 +1,11 @@
+# The particle V3 on the flight condition and NeuralFoil aero geometry of
+# system_beam.yaml, whose surface tables AeroPressure needs.
+system:
+  sim_settings: "sim_settings_beam.yaml"
+  structural_geometry: "struc_geometry.yaml"
+  aero_geometry: "nf_aero_geometry.yaml"
+  vsm_settings: "vsm_settings.yaml"
+  wc_settings: "wc_settings.yaml"
+  kite_settings: "kite_settings_psm.yaml"
+  settle_settings: "settle_settings_default.yaml"
+  heading_settings: "heading_settings_psm.yaml"

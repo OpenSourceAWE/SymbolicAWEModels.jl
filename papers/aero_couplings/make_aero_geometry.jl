@@ -1,9 +1,9 @@
 # Copyright (c) 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Copy V3Kite's data into output/data and write the NeuralFoil aero geometry the beam
-# wing flies with, as V3Kite's examples/v3beam_aero_geometry.jl does for its own
-# data directory.
+# Copy V3Kite's data and the paper's particle projects into output/data, and write the
+# NeuralFoil aero geometry both wings fly with, as V3Kite's
+# examples/v3beam_aero_geometry.jl does for its own data directory.
 
 using Pkg
 Pkg.activate(@__DIR__)
@@ -20,6 +20,9 @@ REYNOLDS = 1.225 * 15.4 * 2.32 / 1.81e-5   # ρ v_app c_ref / μ at the flight c
 
 isdir(DATA_PATH) || cp(v3_data_path(), DATA_PATH)
 chmod(DATA_PATH, 0o755; recursive=true)
+for project in (PARTICLE, PARTICLE_LIVE)
+    cp(joinpath(@__DIR__, project), joinpath(DATA_PATH, project); force=true)
+end
 obj_to_yaml(joinpath(pkgdir(VortexStepMethod), "data", "TUDELFT_V3_KITE", "V3_25.obj"),
     joinpath(DATA_PATH, "polars_neuralfoil");
     geometry_path=joinpath(DATA_PATH, "nf_aero_geometry.yaml"), n_sections=37,

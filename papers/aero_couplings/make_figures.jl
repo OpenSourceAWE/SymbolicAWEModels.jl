@@ -26,9 +26,9 @@ COLUMN_WIDTH = 252      # [pt] one column of the paper
 TEXT_WIDTH = 453        # [pt] the paper's text width
 MODE_COLORS = Dict("AeroDirect" => :black, "ContinuousAero" => :dodgerblue3,
                    "AeroPressure" => :darkorange, "AeroPressure+live" => :forestgreen)
-COMPARED = ["direct_dt10", "continuous_dt10", "pressure_dt10", "live_dt10"]
-SECTION_CASES = ["continuous_dt10", "pressure_dt10", "live_dt10"]
-STATION = 5             # mid-span structural station of the beam V3
+COMPARED = ["direct_dt10", "continuous_dt10", "live_dt10", "pressure_dt10"]
+SECTIONS = ["continuous_particle", "pressure_beam", "live_beam"]
+STATION = 5             # a mid-span structural station of both V3 models
 PANEL = 20              # a mid-span VSM panel
 SETTLE_TIME = 5.0       # [s] start of the window the flight statistics are taken over
 
@@ -59,30 +59,57 @@ function high_pass(signal, dt; window=0.5)
 end
 
 """
+    unwrapped(angle) -> Vector
+
+`angle` [rad] with its jumps of a full turn removed.
+"""
+function unwrapped(angle)
+    turns = cumsum([0; round.(diff(angle) ./ 2pi)])
+    return angle .- 2pi .* turns
+end
+
+"""
     tracking_figure() -> Figure
 
-Heading, tether force and angle of attack of the compared cases against time.
+Heading, tether force and angle of attack of the compared cases against time, with
+the steering offset they fly.
 """
 function tracking_figure()
-    fig = Figure(size=(TEXT_WIDTH, 330))
-    labels = [L"\psi~[°]", L"F_t~[\mathrm{kN}]", L"\alpha~[°]"]
-    axes = [Axis(fig[row, 1]; ylabel=labels[row], xticklabelsvisible=row == 3)
-            for row in 1:3]
-    axes[3].xlabel = L"t~[\mathrm{s}]"
+    fig = Figure(size=(TEXT_WIDTH, 380))
+    labels = [L"u_s", L"\psi~[°]", L"F_t~[\mathrm{kN}]", L"\alpha~[°]"]
+    axes = [Axis(fig[row, 1]; ylabel=labels[row], xticklabelsvisible=row == 4)
+            for row in 1:4]
+    axes[4].xlabel = L"t~[\mathrm{s}]"
     linkxaxes!(axes...)
+    time = 0:0.05:SIM_TIME
+    lines!(axes[1], time, steering_offset.(time); color=:gray)
     for name in COMPARED
         run = RUNS[name]
         log = flight_log(name)
         color = MODE_COLORS[run.mode]
-        lines!(axes[1], log.time, rad2deg.(log.heading); color, label=run.mode)
-        lines!(axes[2], log.time, first.(log.winch_force) ./ 1e3; color)
-        lines!(axes[3], log.time, rad2deg.(log.AoA); color)
+        lines!(axes[2], log.time, rad2deg.(unwrapped(log.heading)); color, label=run.mode)
+        lines!(axes[3], log.time, first.(log.winch_force) ./ 1e3; color)
+        lines!(axes[4], log.time, rad2deg.(log.AoA); color)
     end
-    time = 0:0.05:SIM_TIME
-    lines!(axes[1], time, rad2deg.(heading_setpoint.(time)); color=:gray,
-           linestyle=:dash, label="setpoint")
-    Legend(fig[0, 1], axes[1]; orientation=:horizontal, framevisible=false,
+    Legend(fig[0, 1], axes[2]; orientation=:horizontal, framevisible=false,
            tellwidth=false, nbanks=1)
+    return fig
+end
+
+"""
+    trajectory_figure() -> Figure
+
+Elevation against azimuth of the compared cases: the loop each coupling flies.
+"""
+function trajectory_figure()
+    fig = Figure(size=(COLUMN_WIDTH, 220))
+    ax = Axis(fig[1, 1]; xlabel=L"\phi~[°]", ylabel=L"\beta~[°]", aspect=DataAspect())
+    for name in COMPARED
+        run = RUNS[name]
+        log = flight_log(name)
+        lines!(ax, rad2deg.(log.azimuth), rad2deg.(log.elevation);
+               color=MODE_COLORS[run.mode], label=run.mode)
+    end
     return fig
 end
 
@@ -90,11 +117,11 @@ end
     station_loads_figure() -> Figure
 
 The aero point loads of structural station `STATION` at the end of each of
-`SECTION_CASES`.
+`SECTIONS`.
 """
 function station_loads_figure()
     fig = Figure(size=(TEXT_WIDTH, 260))
-    for (col, name) in enumerate(SECTION_CASES)
+    for (col, name) in enumerate(SECTIONS)
         run = RUNS[name]
         ax = Axis(fig[1, col]; title=run.mode, aspect=DataAspect(),
                   xlabel=L"x_b~[\mathrm{m}]", ylabel=L"z_b~[\mathrm{m}]",
@@ -109,15 +136,15 @@ end
 """
     polar_figure(panel_idx) -> Figure
 
-Lift and moment polars of VSM panel `panel_idx` at the end of the tabulated and the
-live-polar `AeroPressure` cases.
+Lift and moment polars of VSM panel `panel_idx` of the beam wing at the end of the
+tabulated and the live-polar `AeroPressure` section cases.
 """
 function polar_figure(panel_idx)
     fig = Figure(size=(TEXT_WIDTH, 200))
     for (col, coefficient) in enumerate((:cl, :cm))
         ax = Axis(fig[1, col]; xlabel=L"\alpha~[°]",
                   ylabel=coefficient === :cl ? L"C_l" : L"C_m")
-        for name in ("pressure_dt10", "live_dt10")
+        for name in ("pressure_beam", "live_beam")
             run = RUNS[name]
             plot_panel_polar!(ax, run.sam.sys_struct, panel_idx; coefficient,
                               color=MODE_COLORS[run.mode], label=run.mode)
@@ -130,13 +157,13 @@ end
 """
     pressure_figure(panel_idx) -> Figure
 
-The `-Cp` pattern of VSM panel `panel_idx` at the end of the tabulated and the
-live-polar `AeroPressure` cases.
+The `-Cp` pattern of VSM panel `panel_idx` of the beam wing at the end of the
+tabulated and the live-polar `AeroPressure` section cases.
 """
 function pressure_figure(panel_idx)
     fig = Figure(size=(COLUMN_WIDTH, 200))
     ax = Axis(fig[1, 1]; xlabel=L"x/c", ylabel=L"-C_p")
-    for name in ("pressure_dt10", "live_dt10")
+    for name in ("pressure_beam", "live_beam")
         run = RUNS[name]
         plot_panel_pressure!(ax, run.sam.sys_struct, panel_idx;
                              color=MODE_COLORS[run.mode], label=run.mode)
@@ -168,24 +195,33 @@ Indices of the points of `sys` that belong to its first wing.
 wing_points(sys) = [point.idx for point in sys.points if point.wing_idx == 1]
 
 """
-    flight_statistics(row, wing) -> NamedTuple
+    flight_statistics(row) -> NamedTuple
 
-Mean tether force [kN], high-pass RMS angle of attack [deg], RMS heading error [deg]
-and high-pass RMS mean speed of the `wing` points [m/s] of case `row` after
-`SETTLE_TIME`, or `nothing` when it did not fly that long.
+Mean tether force [kN], high-pass RMS angle of attack [deg] and high-pass RMS mean
+wing-node speed [m/s] of case `row` after `SETTLE_TIME`, or `nothing` when it did not
+fly that long.
 """
-function flight_statistics(row, wing)
+function flight_statistics(row)
     log = flight_log(row.name)
     rows = settled(log)
     any(rows) || return nothing
+    wing = wing_points(RUNS[row.name].sam.sys_struct)
     aoa = rad2deg.(log.AoA)
-    heading_error = rad2deg.(log.heading .- log.bearing)
     node_speed = [mean(norm((log.VX[k][i], log.VY[k][i], log.VZ[k][i])) for i in wing)
                   for k in eachindex(log.time)]
     return (force=mean(first.(log.winch_force)[rows]) / 1e3,
             aoa_ripple=sqrt(mean(abs2, high_pass(aoa, row.dt)[rows])),
-            heading_error=sqrt(mean(abs2, heading_error[rows])),
             node_ripple=sqrt(mean(abs2, high_pass(node_speed, row.dt)[rows])))
+end
+
+"""
+    model_label(name) -> String
+
+The structural model case `name` flies: `particle` or `beam`.
+"""
+function model_label(name)
+    project = only(case.project for case in CASES if case.name == name)
+    return project == BEAM ? "beam" : "particle"
 end
 
 """
@@ -197,32 +233,47 @@ function case_row(row, stats)
     timed = row.flown - row.dt
     cost = timed > 0 ? @sprintf("%.1f & %.0f", (row.t_step + row.t_vsm) / timed,
                                 100 * row.t_vsm / (row.t_step + row.t_vsm)) : "-- & --"
-    flight = isnothing(stats) ? "-- & -- & -- & --" :
-             @sprintf("%.2f & %.2f & %.1f & %.3f", stats.force, stats.aoa_ripple,
-                      stats.heading_error, stats.node_ripple)
-    return @sprintf("\\code{%s} & %.0f & %d & %.1f & %d & %s & %s \\\\",
-                    row.mode, 1e3 * row.dt, row.vsm_interval, row.flown,
-                    row.failed_solves, cost, flight)
+    flight = isnothing(stats) ? "-- & -- & --" :
+             @sprintf("%.2f & %.2f & %.3f", stats.force, stats.aoa_ripple,
+                      stats.node_ripple)
+    return @sprintf("\\code{%s} & %s & %.0f & %d & %.1f & %d & %s & %s \\\\",
+                    row.mode, model_label(row.name), 1e3 * row.dt, row.vsm_interval,
+                    row.flown, row.failed_solves, cost, flight)
 end
 
 """
-    write_results(path, table, sys)
+    aero_size_macros(io, suffix, sys)
 
-Write the macros the paper reads: the flight condition, the size of `sys`'s aero
-model, and `\\CaseRows`, one table row per case of `table`.
+Write `\\NumSections<suffix>` and `\\NumPanels<suffix>`, the sections and VSM
+panels of `sys`'s wing.
 """
-function write_results(path, table, sys)
+function aero_size_macros(io, suffix, sys)
     wing = sys.wings[1]
-    stats = [flight_statistics(row, wing_points(sys)) for row in table]
+    println(io, "\\newcommand{\\NumSections", suffix, "}{",
+            length(wing.vsm_wing.unrefined_sections), "}")
+    println(io, "\\newcommand{\\NumPanels", suffix, "}{", length(wing.vsm_aero.panels), "}")
+    return nothing
+end
+
+"""
+    write_results(path, table)
+
+Write the macros the paper reads: the manoeuvre, the size of both wings' aero models,
+and `\\CaseRows`, one table row per case of `table`. Returns each row's
+`flight_statistics`.
+"""
+function write_results(path, table)
+    stats = flight_statistics.(table)
     open(path, "w") do io
         println(io, "% Written by make_figures.jl")
-        println(io, "\\newcommand{\\MaxHeading}{", MAX_HEADING, "}")
-        println(io, "\\newcommand{\\Period}{", PERIOD, "}")
+        println(io, "\\newcommand{\\Steering}{", STEERING, "}")
+        println(io, "\\newcommand{\\RampStart}{", RAMP[1], "}")
+        println(io, "\\newcommand{\\RampEnd}{", RAMP[2], "}")
         println(io, "\\newcommand{\\SimTime}{", SIM_TIME, "}")
+        println(io, "\\newcommand{\\SectionTime}{", SECTION_TIME, "}")
         println(io, "\\newcommand{\\SettleTime}{", SETTLE_TIME, "}")
-        println(io, "\\newcommand{\\NumSections}{",
-                length(wing.vsm_wing.unrefined_sections), "}")
-        println(io, "\\newcommand{\\NumPanels}{", length(wing.vsm_aero.panels), "}")
+        aero_size_macros(io, "Particle", RUNS["continuous_particle"].sam.sys_struct)
+        aero_size_macros(io, "Beam", RUNS["pressure_beam"].sam.sys_struct)
         println(io, "\\newcommand{\\CaseRows}{")
         foreach((row, stat) -> println(io, case_row(row, stat)), table, stats)
         println(io, "}")
@@ -232,9 +283,9 @@ end
 
 mkpath(FIGURE_PATH)
 TABLE = case_table()
-STATS = write_results(joinpath(@__DIR__, "results.tex"), TABLE,
-                      RUNS[first(SECTION_CASES)].sam.sys_struct)
+STATS = write_results(joinpath(@__DIR__, "results.tex"), TABLE)
 CairoMakie.save(joinpath(FIGURE_PATH, "tracking.pdf"), tracking_figure())
+CairoMakie.save(joinpath(FIGURE_PATH, "trajectory.pdf"), trajectory_figure())
 CairoMakie.save(joinpath(FIGURE_PATH, "station_loads.pdf"), station_loads_figure())
 CairoMakie.save(joinpath(FIGURE_PATH, "polar.pdf"), polar_figure(PANEL))
 CairoMakie.save(joinpath(FIGURE_PATH, "pressure.pdf"), pressure_figure(PANEL))

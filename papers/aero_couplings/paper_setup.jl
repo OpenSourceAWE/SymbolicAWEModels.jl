@@ -7,21 +7,25 @@ OUTPUT_PATH = joinpath(@__DIR__, "output")
 DATA_PATH = joinpath(OUTPUT_PATH, "data")
 LOG_PATH = joinpath(OUTPUT_PATH, "logs")
 FIGURE_PATH = joinpath(@__DIR__, "figures")
-PROJECT = "system_beam.yaml"
+PARTICLE = "system_psm_paper.yaml"
+PARTICLE_LIVE = "system_psm_live_paper.yaml"
+BEAM = "system_beam.yaml"
 
 SIM_TIME = 20.0          # flown time per case [s]
-MAX_HEADING = 40.0       # amplitude of the heading setpoint [deg]
-PERIOD = 15.0            # period of the heading setpoint [s]
-MAX_FAILED_SOLVES = 20   # a case stops once this many VSM solves have failed
+SECTION_TIME = 1.0       # flown time of the cases the section figures read [s]
+STEERING = 0.1           # steering step on top of the nominal steering [-]
+RAMP = (0.5, 2.5)        # start and end of the steering ramp [s]
+MAX_FAILED_SOLVES = 200  # a case stops once this many VSM solves have failed
 WALL_LIMIT = 1200.0      # a case stops once it has run this long [s]
 MAX_SOLVER_STEPS = 1000  # a case stops once one output step takes more solver steps
 
 """
-    heading_setpoint(t)
+    steering_offset(t)
 
-Heading the controller tracks at time `t` [s], in radians.
+Steering added to the nominal steering at time `t` [s]: zero, ramped linearly to
+`STEERING` over `RAMP`, then held.
 """
-heading_setpoint(t) = deg2rad(MAX_HEADING) * sin(2pi * t / PERIOD)
+steering_offset(t) = STEERING * clamp((t - RAMP[1]) / (RAMP[2] - RAMP[1]), 0, 1)
 
 """
     mode_label(mode)
@@ -33,15 +37,30 @@ mode_label(::ContinuousAero) = "ContinuousAero"
 mode_label(mode::AeroPressure) = mode.live_polars ? "AeroPressure+live" : "AeroPressure"
 
 CASES = [
-    (name="direct_dt50", mode=AeroDirect(), dt=0.05, vsm_interval=1),
-    (name="direct_dt10", mode=AeroDirect(), dt=0.01, vsm_interval=1),
-    (name="direct_dt2", mode=AeroDirect(), dt=0.002, vsm_interval=1),
-    (name="direct_dt10_vsm5", mode=AeroDirect(), dt=0.01, vsm_interval=5),
-    (name="continuous_dt50", mode=ContinuousAero(), dt=0.05, vsm_interval=1),
-    (name="continuous_dt10", mode=ContinuousAero(), dt=0.01, vsm_interval=1),
-    (name="continuous_dt10_vsm5", mode=ContinuousAero(), dt=0.01, vsm_interval=5),
-    (name="pressure_dt50", mode=AeroPressure(), dt=0.05, vsm_interval=1),
-    (name="pressure_dt10", mode=AeroPressure(), dt=0.01, vsm_interval=1),
-    (name="live_dt50", mode=AeroPressure(; live_polars=true), dt=0.05, vsm_interval=1),
-    (name="live_dt10", mode=AeroPressure(; live_polars=true), dt=0.01, vsm_interval=1),
+    (name="direct_dt50", project=PARTICLE, mode=AeroDirect(), dt=0.05, vsm_interval=1),
+    (name="direct_dt10", project=PARTICLE, mode=AeroDirect(), dt=0.01, vsm_interval=1),
+    (name="direct_dt2", project=PARTICLE, mode=AeroDirect(), dt=0.002, vsm_interval=1),
+    (name="continuous_dt50", project=PARTICLE, mode=ContinuousAero(), dt=0.05,
+     vsm_interval=1),
+    (name="continuous_dt10", project=PARTICLE, mode=ContinuousAero(), dt=0.01,
+     vsm_interval=1),
+    (name="continuous_dt10_vsm5", project=PARTICLE, mode=ContinuousAero(), dt=0.01,
+     vsm_interval=5),
+    (name="live_dt50", project=PARTICLE_LIVE, mode=AeroPressure(; live_polars=true),
+     dt=0.05, vsm_interval=1),
+    (name="live_dt10", project=PARTICLE_LIVE, mode=AeroPressure(; live_polars=true),
+     dt=0.01, vsm_interval=1),
+    (name="pressure_dt50", project=BEAM, mode=AeroPressure(), dt=0.05, vsm_interval=1),
+    (name="pressure_dt10", project=BEAM, mode=AeroPressure(), dt=0.01, vsm_interval=1),
+]
+
+"""
+Cases flown for `SECTION_TIME`, whose end states the section figures compare.
+"""
+SECTION_CASES = [
+    (name="continuous_particle", project=PARTICLE, mode=ContinuousAero(), dt=0.01,
+     vsm_interval=1),
+    (name="pressure_beam", project=BEAM, mode=AeroPressure(), dt=0.01, vsm_interval=1),
+    (name="live_beam", project=BEAM, mode=AeroPressure(; live_polars=true), dt=0.01,
+     vsm_interval=1),
 ]

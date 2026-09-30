@@ -74,3 +74,5 @@ papers/*/*.out
 papers/*/*.fdb_latexmk
 papers/*/*.fls
 papers/*/aero_couplings.pdf
+papers/*/build/
+papers/*/figures/

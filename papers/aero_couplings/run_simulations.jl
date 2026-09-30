@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# Fly the V3 beam wing under each aerodynamic coupling and log the runs the paper
+# Fly the V3 kite under each aerodynamic coupling and log the runs the paper
 # compares. Needs the NeuralFoil aero geometry: run make_aero_geometry.jl first.
 # Writes output/logs/<case>.arrow and a row of output/cases.csv as each case ends;
 # `RUNS` keeps each case's model in memory for make_figures.jl. Case names as
@@ -38,21 +38,18 @@ function Logging.handle_message(logger::FailureCounter, level, message, _module,
 end
 
 """
-    fly(case) -> NamedTuple
+    fly(case; sim_time=SIM_TIME) -> NamedTuple
 
-Build the V3 beam wing under `case.mode`, fly it for `SIM_TIME` tracking
-`heading_setpoint` with the project's heading controller, and log it. Returns the
-run's summary, with integration and VSM time [s] summed from the second step on,
-and its model.
+Build `case.project` under `case.mode`, fly it for `sim_time` [s] with the steering
+of `steering_offset`, and log it. Returns the run's summary, with integration and
+VSM time [s] summed from the second step on, and its model.
 """
-function fly(case)
-    kite_set = load_kite(PROJECT; data_path=DATA_PATH)
+function fly(case; sim_time=SIM_TIME)
+    kite_set = load_kite(case.project; data_path=DATA_PATH)
     kite_set.aero_mode = case.mode
-    sam, sys = build_v3_model(PROJECT; data_path=DATA_PATH, kite_set)
+    sam, sys = build_v3_model(case.project; data_path=DATA_PATH, kite_set)
     nominal = V3Kite.get_steering(sys, kite_set.geom)
-    heading = load_heading(PROJECT; data_path=DATA_PATH)
-    pid = heading_pid(heading, case.dt)
-    n_steps = round(Int, SIM_TIME / case.dt)
+    n_steps = round(Int, sim_time / case.dt)
     logger, sys_state = create_logger(sam, n_steps)
     counter = FailureCounter(current_logger())
     t_step = t_vsm = 0.0
@@ -61,11 +58,7 @@ function fly(case)
     wall = @elapsed with_logger(counter) do
         for step in 1:n_steps
             t = step * case.dt
-            target = heading_setpoint(t)
-            measured = sys.wings[1].heading
-            schedule_heading_pid!(pid, heading, t, sys_state.v_app, target, measured)
-            steering = nominal + pid(target, measured, 0.0)
-            sys_state.bearing = target
+            steering = nominal + steering_offset(t)
             set_steering!(sys, steering, kite_set.geom)
             sam.integrator.opts.maxiters = sam.integrator.iter + MAX_SOLVER_STEPS
             flew = try
@@ -120,5 +113,9 @@ for case in filter(case -> isempty(ARGS) || case.name in ARGS, CASES)
     @info "Flying" case.name
     RUNS[case.name] = fly(case)
     record_case(RUNS[case.name])
+end
+for case in filter(case -> isempty(ARGS) || case.name in ARGS, SECTION_CASES)
+    @info "Flying" case.name
+    RUNS[case.name] = fly(case; sim_time=SECTION_TIME)
 end
 nothing

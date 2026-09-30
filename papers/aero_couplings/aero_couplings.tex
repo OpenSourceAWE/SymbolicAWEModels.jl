@@ -32,10 +32,12 @@ constant between solves; \code{ContinuousAero} holds only the induced velocity a
 re-evaluates every panel force from the live wing state; \code{AeroPressure} does the
 same and places each panel force on the structure through the airfoil pressure
 distribution; and \code{AeroPressure} with live polars also regenerates each panel's
-polar and pressure distribution from its deformed shape with NeuralFoil. We fly the
-Timoshenko-beam model of the TU~Delft V3 kite, built with V3Kite.jl, under all four
-couplings through the same heading manoeuvre and compare their stability, cost, load
-placement and sensitivity to deformation. \ResultAbstract
+polar and pressure distribution from its deformed shape with NeuralFoil. The couplings
+suit different structural models, so we fly the TU~Delft V3 kite, built with V3Kite.jl,
+as two: a particle system under \code{AeroDirect}, \code{ContinuousAero} and live
+polars, and a new dynamic model of Timoshenko beam elements under \code{AeroPressure}.
+All cases fly the same steering manoeuvre at the same flight condition, and we compare
+their stability, cost, load placement and sensitivity to deformation.
 \end{abstract}
 
 \section{Introduction}
@@ -43,8 +45,8 @@ placement and sensitivity to deformation. \ResultAbstract
 The leading-edge inflatable (LEI) kites used for airborne wind energy deform
 substantially in flight: the canopy billows, the struts bend and the whole wing twists
 when it is steered through its bridle. An aero-structural model of such a kite pairs a
-structural model, here a lattice of Timoshenko beams, bridle lines and point masses,
-with an aerodynamic model that turns the deformed shape and the apparent wind into
+structural model of point masses, spring segments and, in this paper, beams, with an
+aerodynamic model that turns the deformed shape and the apparent wind into
 loads. A lifting-line model with 2D section polars, the Vortex Step Method
 (VSM)~\citep{cayon2023vsm,vortexstepmethod}, is accurate enough for a curved LEI wing
 and cheap enough to run inside a dynamic simulation~\citep{poland2023}, but solving its
@@ -67,17 +69,32 @@ flies each on the same kite and manoeuvre, and states what each one is for.
 
 \section{Aero-structural model}
 
-\subsection{The V3 kite}
+\subsection{Two structural models of the V3 kite}
 
-The TU~Delft V3 is a \SI{25}{m^2} LEI kite with a well documented geometry. We use the
-Timoshenko-beam model of V3Kite.jl~\citep{v3kite}
-(\code{system\_beam.yaml}): the leading edge and the struts are inflated beams joined
-at ten structural stations, each carrying a leading-edge point, a trailing-edge point
-and eleven chordwise control points on the canopy; the bridle is a network of spring
-segments and pulleys down to a kite control unit and a braked winch holding
-\SI{250}{m} of tether. The aerodynamic geometry has \NumSections{} sections sliced
-from the V3 surface mesh, with NeuralFoil~\citep{neuralfoil} polars and surface
-pressure tables for every section, and is refined into \NumPanels{} VSM panels.
+The TU~Delft V3 is a \SI{25}{m^2} LEI kite with a well documented geometry.
+V3Kite.jl~\citep{v3kite} models it in two ways that share the bridle, the kite
+control unit (KCU) and the tether: a network of spring segments and pulleys down to the
+KCU and a braked winch holding \SI{250}{m} of tether. They differ in the wing.
+
+\paragraph{Particle model.} (\code{system\_psm.yaml}) The wing is ten pairs of point
+masses, one at the leading and one at the trailing edge of each of ten structural
+stations, joined by stiff spring-damper segments along the leading edge, the struts
+and the trailing edge. A station is a chord line and nothing more: the model has no
+point between the leading and the trailing edge, so it can twist, bend and change its
+span, but its sections keep their airfoil. The aerodynamic geometry has
+\NumSectionsParticle{} sections with polars from CFD, refined into
+\NumPanelsParticle{} VSM panels.
+
+\paragraph{Beam model.} (\code{system\_beam.yaml}) The leading edge and the struts
+are inflated Timoshenko beams, joined at the same ten stations, each of which also
+carries eleven chordwise control points on the canopy, held by the struts and by
+canopy segments. The sections can therefore deform chordwise, which is what the
+pressure placement of \code{AeroPressure} acts on and what live polars read. To our
+knowledge it is the first dynamic kite model that resolves the inflatable frame in beam
+elements; its structural formulation and validation are the subject of a separate
+paper. Its aerodynamic geometry has \NumSectionsBeam{} sections sliced from the V3
+surface mesh, with NeuralFoil~\citep{neuralfoil} polars and surface pressure tables
+for every section, refined into \NumPanelsBeam{} VSM panels.
 
 \subsection{Common aerodynamic core}
 
@@ -205,17 +222,35 @@ NeuralFoil's for the deformed shape.
 
 \section{Test case}
 
-All cases start from the same settled state of the beam V3 at \SI{250}{m} tether length,
-\SI{60}{\degree} elevation and \SI{20}{\percent} depower, with the winch braked. A
-proportional heading controller (V3Kite's \code{heading\_settings\_beam.yaml}, gain
-$K=1$, steering limited to \num{0.15}) tracks the setpoint
-$\psi_{\mathrm{ref}}(t) = \SI{\MaxHeading}{\degree}\sin(2\pi t/\SI{\Period}{s})$
-for \SI{\SimTime}{s}. The structure is integrated with the FBDF solver of V3Kite's
-settings at a fixed output step $\Delta t$ of \SI{50}{ms} or \SI{10}{ms}. Each
-coupling is flown at both steps with a VSM solve every step, and the two cheaper
-couplings are also flown at \SI{10}{ms} with a solve every fifth step. A case stops
-early when the integrator fails, the wing's geometry becomes invalid for the VSM,
-more than \num{20} VSM solves fail to converge, or it has run for
+\paragraph{Which coupling on which model.} A coupling is only as good as the structure
+it loads. \code{AeroPressure} exists to place the load between the leading and the
+trailing edge; on the particle model there is nothing there, and its pressure scatter
+reduces to the leading/trailing-edge split of the other couplings. It is flown on the
+beam model. \code{AeroDirect} and \code{ContinuousAero} place their loads on the
+chord ends and are flown on the particle model, the structure they were written for.
+Live polars are flown on the particle model as well. There they see the angle of attack
+and the Reynolds number of each panel but no chordwise deformation, since a particle
+station has no point off its chord line; the polars they fit are NeuralFoil's for the
+undeformed sections, not the tabulated ones. What they add on a deforming section is
+shown on the beam model in Section~\ref{sec:sections}. Because \code{AeroPressure}
+needs surface pressure tables, the live-polar cases fly the particle model on the
+NeuralFoil geometry of the beam model rather than on its CFD polars.
+
+\paragraph{Manoeuvre.} Both models start from their own settled state at
+\SI{250}{m} tether length, \SI{60}{\degree} elevation, \SI{15.4}{m/s} of uniform wind
+and \SI{20}{\percent} depower, with the winch braked. The steering is raised
+open-loop by \num{\Steering} above its settled value, ramped linearly from
+\SI{\RampStart}{s} to \SI{\RampEnd}{s} and then held, which turns the kite out of the
+zenith into a loop through the power zone for the rest of the \SI{\SimTime}{s}. An
+open-loop input gives every coupling the same excitation; a heading controller would
+feed each coupling's own response back into it.
+
+\paragraph{Integration.} The structure is integrated with the FBDF solver of V3Kite's
+settings at a fixed output step $\Delta t$ of \SI{50}{ms} or \SI{10}{ms}, with a VSM
+solve every step. \code{AeroDirect} is also flown at \SI{2}{ms}, and
+\code{ContinuousAero} at \SI{10}{ms} with a solve every fifth step. A case stops
+early when the integrator fails, one output step takes more than \num{1000} solver
+steps, the wing's geometry becomes invalid for the VSM, or it has run for
 \SI{20}{min} of wall time. The wall times are single-threaded, measured by the
 simulation's own step timers on one core of a shared machine, and are comparable
 between the cases only to within some ten percent.
@@ -230,34 +265,174 @@ $T$ the time flown before the case ended and $N_f$ the VSM solves that did not
 converge. Cost is integration plus VSM time per simulated second, first step excluded,
 and the share of it spent in the VSM
 solves. The flight statistics are taken after \SI{\SettleTime}{s}: mean tether force
-$\bar F_t$, RMS angle of attack above \SI{2}{Hz} $\tilde\alpha$, RMS heading error
-$e_\psi$, and RMS mean wing-node speed above \SI{2}{Hz} $\tilde v$.}
+$\bar F_t$, RMS angle of attack above \SI{2}{Hz} $\tilde\alpha$ and RMS mean
+wing-node speed above \SI{2}{Hz} $\tilde v$.}
 \label{tab:cases}
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{lrrrrrrrrrr}
+\begin{tabular}{llrrrrrrrrr}
 \toprule
-coupling & $\Delta t$ & $n$ & $T$ & $N_f$ & cost & VSM & $\bar F_t$ & $\tilde\alpha$
-  & $e_\psi$ & $\tilde v$ \\
- & [ms] & & [s] & & [s/s] & [\%] & [kN] & [°] & [°] & [m/s] \\
+coupling & model & $\Delta t$ & $n$ & $T$ & $N_f$ & cost & VSM & $\bar F_t$
+  & $\tilde\alpha$ & $\tilde v$ \\
+ & & [ms] & & [s] & & [s/s] & [\%] & [kN] & [°] & [m/s] \\
 \midrule
 \CaseRows
 \bottomrule
 \end{tabular}
 \end{table}
 
-RESULTS_TEXT
+\subsection{Stability and cost}
+
+Table~\ref{tab:cases} lists every case. Only one did not finish:
+\code{AeroDirect} at \SI{50}{ms} folded the particle wing within its first second,
+until its aerodynamic sections crossed over and the VSM geometry became invalid. At
+\SI{10}{ms} and \SI{2}{ms} it flies the whole manoeuvre, and so do
+\code{ContinuousAero}, live polars and \code{AeroPressure} at every step they were
+given. This is the pattern the loosely coupled scheme predicts: under a zero-order
+hold the structure moves for a whole output step under forces that do not see it
+move, and the energy that feedback would have removed is left to grow in the fast
+modes of the wing. The couplings that evaluate the panel forces from the live state
+are stable at the coarse step.
+
+The cost is set by the step each coupling needs. \code{ContinuousAero} at
+\SI{50}{ms} is the cheapest case in the table, about half the cost of
+\code{AeroDirect} at the \SI{10}{ms} it needs, because it needs five times fewer VSM
+solves. Its symbolic force evaluation costs integration time: at the same
+\SI{10}{ms} step it spends about twice as long integrating as \code{AeroDirect}. A
+solve every fifth step moves the cost from the VSM to the integrator rather than
+removing it, and doubles the high-frequency content of the angle of attack and
+quadruples that of the wing-node speed: an induced velocity five steps old is felt. Live polars cost a
+NeuralFoil evaluation per panel and solve, which dominates their cost at both steps.
+\code{AeroPressure} on the beam model is the most expensive coupling, mostly because
+the beam model has five times the points of the particle model and a denser Jacobian;
+its VSM share is comparable to that of \code{ContinuousAero}.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/tracking.pdf}
+\caption{Steering offset $u_s$, heading $\psi$, tether force $F_t$ and angle of attack
+$\alpha$ of the \SI{10}{ms} cases with a VSM solve every step. Released from their
+settled states, both models lose tether force to that of the parked kite, the particle
+model within \SI{1}{s} and the beam model within \SI{3}{s}.}
+\label{fig:tracking}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.6\textwidth]{figures/trajectory.pdf}
+\caption{Elevation $\beta$ against azimuth $\phi$ of the cases of
+Fig.~\ref{fig:tracking}.}
+\label{fig:trajectory}
+\end{figure}
+
+\subsection{Flight}
+
+Figures~\ref{fig:tracking} and~\ref{fig:trajectory} show the manoeuvre. On the
+particle model \code{AeroDirect} and \code{ContinuousAero} fly the same loop to within
+the line width: once both are stable, the hold on the forces changes nothing at the
+scale of the flight path. Live polars fly a tighter loop at a lower tether force. They
+see no deformation on this model, so the difference is the polar itself: NeuralFoil's
+polar of each undeformed section against the CFD polar the other two couplings use.
+The beam model under \code{AeroPressure} turns faster, flies a tighter loop and pulls
+more, at a lower angle of attack; the two models differ in structure, mass and polars,
+so this is a difference between the models rather than between couplings.
+
+\subsection{Load placement and deformation}
+\label{sec:sections}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/station_loads.pdf}
+\caption{Aerodynamic point loads on the mid-span structural station after
+\SI{\SectionTime}{s} of the manoeuvre: the particle model under
+\code{ContinuousAero} and the beam model under \code{AeroPressure}, with tabulated
+and with live polars.}
+\label{fig:station-loads}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/polar.pdf}
+\caption{Lift and moment polars of a mid-span VSM panel of the beam model after
+\SI{\SectionTime}{s}, tabulated and live; the dot is the panel's operating point.
+A live polar is refitted over \SI{\pm12}{\degree} about the current angle of attack
+and held constant outside it.}
+\label{fig:polar}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.6\textwidth]{figures/pressure.pdf}
+\caption{Pressure distribution of the panel of Fig.~\ref{fig:polar} at its operating
+point, tabulated and live.}
+\label{fig:pressure}
+\end{figure}
+
+Figure~\ref{fig:station-loads} shows where each coupling puts the load. On the
+particle model the whole section force lands on the two chord ends. On the beam model
+\code{AeroPressure} spreads it over every point of the station, following the
+tabulated pressure distribution whose suction peak sits just behind the leading edge,
+so the canopy between the struts is loaded as well. With live polars the same station
+carries a larger load, spread further aft.
+
+The reason is in Figures~\ref{fig:polar} and~\ref{fig:pressure}. After one second of
+the manoeuvre the canopy of the beam model has billowed. The tabulated polar belongs
+to the undeformed section and knows nothing of it; the live polar is NeuralFoil's for
+the section as it now is. Its lift at the operating point is more than twice the
+tabulated one, at a lower angle of attack, with a nose-down moment four times larger,
+and its suction peak has moved from the leading edge to a third of the chord. That is
+the case live polars are for. It is also what makes them fragile on the beam model:
+the circulation solve over polars refitted to strongly billowed sections does not
+always converge, and in the first second of the manoeuvre \num{7} of the \num{100}
+solves of the live-polar section case did not.
 
 \section{Discussion}
 
-DISCUSSION_TEXT
+Each coupling does what it is for, on the model it is for.
+
+\code{AeroDirect} is the simplest: the aerodynamics adds nothing to the RHS, works with
+every wing type, and is the reference the others are checked against. Its price is
+stability. With no aerodynamic damping in the Jacobian it needs a step short enough
+that the structure cannot move much between solves, \SI{10}{ms} on the particle V3,
+and a VSM solve at every one of those steps.
+
+\code{ContinuousAero} is the efficient choice on a particle model. The panel forces
+follow the wing between solves, so the implicit integrator sees the aerodynamic
+damping of the fast modes and stays stable at a five times larger step, which is what
+halves its cost against \code{AeroDirect} although its RHS is dearer. Solving the VSM
+less often than every step is possible, but the stale induced velocity shows up as
+high-frequency content in the flight.
+
+\code{AeroPressure} is for a structure with points between the leading and trailing
+edge. There it puts the load where the pressure acts, so the canopy and the struts are
+loaded as they are in flight, which is what a model that resolves them needs. On a
+particle model it has nothing to act on.
+
+Live polars are for sections that deform in ways a polar table cannot anticipate. A
+table indexed by one flap angle covers a known chord-fraction deformation; live
+polars cover any shape the structure can express, as the billowed beam section
+shows. They pay for it with a NeuralFoil evaluation per panel and solve, with
+NeuralFoil's accuracy on shapes far from its training set, and with circulation solves
+that stop converging when the deformation grows. On the particle model they are
+stable but see no deformation, so there they only replace the tabulated polar with
+NeuralFoil's.
+
+Two limits apply to what is shown here. The particle and the beam models differ in
+structure, mass, polars and settled state, so a comparison across them is one of
+models, not of couplings; within each model the cases share everything but the
+coupling and the step. And the manoeuvre is a single open-loop turn at one flight
+condition; a reel-out, a gust or a depower step would load the fast modes differently.
 
 \section{Reproducing the results}
 
 The paper lives in \code{papers/aero\_couplings} of the SymbolicAWEModels.jl
-repository. \code{make\_aero\_geometry.jl} slices the V3 mesh and writes the NeuralFoil
-section tables, \code{run\_simulations.jl} flies the cases and logs them, and
-\code{make\_figures.jl} writes the figures and the numbers quoted here. The figures use
-the plotting functions \code{plot\_station\_loads!}, \code{plot\_panel\_polar!} and
+repository, with three scripts:
+\begin{itemize}
+  \item \code{make\_aero\_geometry.jl} slices the V3 mesh and writes the NeuralFoil
+    section tables;
+  \item \code{run\_simulations.jl} flies the cases and logs them;
+  \item \code{make\_figures.jl} writes the figures and the numbers quoted here.
+\end{itemize}
+The section figures use \code{plot\_station\_loads!}, \code{plot\_panel\_polar!} and
 \code{plot\_panel\_pressure!} of the package's Makie extension.
 
 \bibliographystyle{unsrtnat}
