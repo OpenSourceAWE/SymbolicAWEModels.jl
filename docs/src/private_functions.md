@@ -616,7 +616,9 @@ SymbolicAWEModels.menu_values
 SymbolicAWEModels.sweep_axes
 SymbolicAWEModels.canonical_json
 SymbolicAWEModels.canonical_number
+SymbolicAWEModels.checked_key
 SymbolicAWEModels.runner_version
+SymbolicAWEModels.git_commit
 SymbolicAWEModels.site_call
 SymbolicAWEModels.send_report
 SymbolicAWEModels.compute_job
