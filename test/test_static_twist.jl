@@ -1,9 +1,9 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# STATIC twist mode: twist is a prescribed control input (no differential state,
-# no algebraic equilibrium). Verifies validate_station_modes and a rigid
-# wing built with STATIC-twist stations.
+# Station twist modes: validate_station_modes, a rigid wing built with STATIC-twist
+# stations (twist a prescribed control input), and the inertia a DYNAMIC station
+# twists with.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -13,7 +13,7 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: VortexStepMethod, validate_station_modes,
-    Wing, Station
+    Wing, Station, update_sys_struct!
 using KiteUtils: init!, next_step!
 using LinearAlgebra
 
@@ -101,5 +101,40 @@ end
         @test isapprox(g.twist, prescribed[g.name]; atol=1e-9)
     end
     rm(fixed_yaml; force=true)
+end
+
+"""The sum of `field`, a point mass, over the points of `station`."""
+station_point_mass(points, station, field) =
+    sum(getfield(points[idx], field) for idx in station.point_idxs)
+
+@testset "DYNAMIC station twists with the total mass of its points" begin
+    set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
+    set = Settings("system.yaml")
+    set.g_earth = 0.0
+    vsm_set = VortexStepMethod.VSMSettings(
+        joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
+    sys = load_sys_struct_from_yaml(
+        joinpath(get_data_path(), "rigid_structural_geometry.yaml");
+        system_name="2plate_kite", set, vsm_set)
+    sys.winches[:main_winch].brake = true
+    sam = SymbolicAWEModel(set, sys)
+    init!(sam; prn=false, remake=false, remake_vsm=false)
+    update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+
+    stations = sam.sys_struct.stations
+    points = sam.sys_struct.points
+    @test all(station_point_mass(points, station, :total_mass) >
+              1.01 * station_point_mass(points, station, :extra_mass)
+              for station in stations)
+    moment = [station.aero_moment + station.tether_moment for station in stations]
+    inertia = [(station_point_mass(points, station, :total_mass) + station.body_mass) *
+               norm(station.chord)^2 / 3 for station in stations]
+    @test all(station.twist_ω == 0 for station in stations)
+
+    # From rest the twist rate gains `moment / inertia · dt` to first order in `dt`.
+    dt = 1e-6
+    next_step!(sam; dt, vsm_interval=0)
+    twist_acc = [station.twist_ω / dt for station in stations]
+    @test twist_acc .* inertia ≈ moment rtol=2e-3
 end
 nothing

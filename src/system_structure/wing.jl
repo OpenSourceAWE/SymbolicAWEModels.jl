@@ -283,8 +283,25 @@ function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
 end
 
 """
-    build_vsm_engine(set, vsm_set, dynamics_type; point_to_vsm_point=nothing,
-                     wing_segments=nothing, aero_scale_chord=0.0, aero_z_offset=0.0)
+    build_vsm_solver(vsm_aero, vsm_set, dynamics_type, n_stations)
+
+Build the VortexStepMethod `Solver` with `vsm_set`'s solver settings, sized for the
+unrefined sections the wing is solved with: one per station for a `PARTICLE_DYNAMICS`
+wing with stations, which [`match_aero_sections_to_structure!`](@ref) re-sections onto
+them, otherwise those of `vsm_aero`.
+"""
+function build_vsm_solver(vsm_aero::VortexStepMethod.BodyAerodynamics{P}, vsm_set,
+                          dynamics_type, n_stations) where {P}
+    n_sections = dynamics_type == PARTICLE_DYNAMICS && n_stations > 0 ?
+        n_stations : VortexStepMethod.n_unrefined_sections(vsm_aero)
+    return VortexStepMethod.Solver(P, n_sections;
+        VortexStepMethod.solver_kwargs(vsm_set.solver_settings)...)
+end
+
+"""
+    build_vsm_engine(set, vsm_set, dynamics_type; n_stations=0,
+                     point_to_vsm_point=nothing, wing_segments=nothing,
+                     aero_scale_chord=0.0, aero_z_offset=0.0)
 
 Build a [`VSMEngine`](@ref): create the VortexStepMethod `vsm_wing`/`vsm_aero`/
 `vsm_solver` and size the linearization state vectors. Aero-state sizes are
@@ -293,18 +310,20 @@ station-count proxy) and resized by `SystemStructure` once stations
 are resolved.
 
 # Keywords
+- `n_stations`: the wing's station count, which sizes the solver
+  ([`build_vsm_solver`](@ref)).
 - `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
 - `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
 - `unsteady`: the wing's [`UnsteadyAero`](@ref) corrections; `nothing` takes the
   defaults, which are all off.
 """
 function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
-                          dynamics_type::WingType;
+                          dynamics_type::WingType; n_stations=0,
                           point_to_vsm_point=nothing, wing_segments=nothing,
                           aero_scale_chord=0.0, aero_z_offset=0.0, unsteady=nothing)
     vsm_wing = create_vsm_wing(set, vsm_set; prn=false, sort_sections=false)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
-    vsm_solver = VortexStepMethod.Solver(vsm_aero, vsm_set)
+    vsm_solver = build_vsm_solver(vsm_aero, vsm_set, dynamics_type, n_stations)
 
     if dynamics_type == PARTICLE_DYNAMICS
         num_aero_outputs = 0
@@ -342,7 +361,8 @@ it to the wing.
 
 # Keyword Arguments
 - `transform=nothing`: Reference to the transform. Defaults to 1.
-- `R_b_to_c`, `pos_cad`, `inertia_diag`: Geometry placeholders (resolved later).
+- `R_b_to_c`, `pos_cad`, `inertia_diag`: Placeholders that [`SystemStructure`](@ref)
+  overwrites from the wing's points and mesh.
 - `extra_mass`, `com`, `unit_inertia`: the wing body's own mass [kg], COM and
   per-unit-mass inertia, without its points (see [`Body`](@ref)); `com` and
   `unit_inertia` default to the `.obj` mesh's.
@@ -411,7 +431,8 @@ function VSMWing(name, set::Settings,
             "Wing '$name': aero mode $(typeof(aero)) needs VSM geometry " *
             "but no vsm_set was provided.")
         aero = attach_engine!(aero, build_vsm_engine(set, vsm_set, dynamics_type;
-            point_to_vsm_point, wing_segments, aero_scale_chord, aero_z_offset))
+            n_stations=length(stations), point_to_vsm_point, wing_segments,
+            aero_scale_chord, aero_z_offset))
         seed_wing_inertia!(aero.engine.vsm_wing, set, com, unit_inertia)
     end
 
@@ -457,43 +478,6 @@ function seed_wing_inertia!(vsm_wing, set::Settings, com, unit_inertia)
     vsm_wing.inertia_tensor = tensor
     vsm_wing.T_cad_body .= -com_val
     return nothing
-end
-
-"""
-    VSMWing(name, vsm_aero, vsm_wing, vsm_solver, stations, R_b_to_c, pos_cad; transform=nothing)
-
-Construct a `RIGID_DYNAMICS` [`Wing`](@ref) from pre-created VSM objects. Kept for
-backward compatibility with predefined structures.
-"""
-function VSMWing(name, vsm_aero, vsm_wing, vsm_solver,
-                 stations::AbstractVector,
-                 R_b_to_c::AbstractMatrix,
-                 pos_cad::AbstractVector;
-                 transform=nothing,
-                 n_unrefined_sections=nothing)
-    inertia_vec = ones(MVector{3, SimFloat})
-    n_stations_est = isnothing(n_unrefined_sections) ?
-        vsm_wing.n_unrefined_sections : n_unrefined_sections
-    num_aero_outputs = 6 + n_stations_est
-    num_aero_inputs = 5 + n_stations_est
-    engine = VSMEngine(vsm_aero, vsm_wing, vsm_solver,
-        zeros(SimFloat, num_aero_inputs),
-        zeros(SimFloat, num_aero_outputs),
-        zeros(SimFloat, num_aero_outputs, num_aero_inputs),
-        nothing, nothing, SimFloat(0.0), SimFloat(0.0), UnsteadyAero())
-    return Wing(name, stations, R_b_to_c, pos_cad, inertia_vec;
-        transform, aero=AeroLinearized(engine))
-end
-
-"""
-    Wing(name, vsm_aero, vsm_wing, vsm_solver, stations, R_b_to_c, pos_cad; transform=1)
-
-Backward-compatibility constructor: builds a VSM [`Wing`](@ref) from pre-created
-VSM objects (delegates to [`VSMWing`](@ref)).
-"""
-function Wing(name, vsm_aero, vsm_wing, vsm_solver, stations, R_b_to_c,
-              pos_cad; kwargs...)
-    return VSMWing(name, vsm_aero, vsm_wing, vsm_solver, stations, R_b_to_c, pos_cad; kwargs...)
 end
 
 # ==================== PLATE WING ==================== #

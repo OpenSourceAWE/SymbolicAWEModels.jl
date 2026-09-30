@@ -1373,7 +1373,8 @@ function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, points,
     wing.vsm_wing = create_vsm_wing(set, vsm_set;
         prn=false, sort_sections=false)
     wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
-    wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero, vsm_set)
+    wing.vsm_solver = build_vsm_solver(wing.vsm_aero, vsm_set, wing.dynamics_type,
+        length(wing.station_idxs))
 
     # Transform sections CAD → body frame (matches the SystemStructure constructor)
     transform_vsm_sections_to_body!(wing;

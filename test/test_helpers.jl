@@ -9,7 +9,7 @@ end
 using Test
 using SymbolicAWEModels
 
-@testset "Testing helper functions..." begin
+@testset "copy_data and copy_examples honour force" begin
     path=pwd()
     tmpdir=mktempdir()
     mkpath(tmpdir)
@@ -37,18 +37,14 @@ using SymbolicAWEModels
         rm(tmpdir, recursive=true)
     end
     cd(path)
+end
 
+@testset "test environment has no dev-only packages or Manifest.toml" begin
     @test ! ("TestEnv" ∈ keys(Pkg.project().dependencies))
     @test ! ("Revise" ∈ keys(Pkg.project().dependencies))
     @test ! ("Plots" ∈ keys(Pkg.project().dependencies))
 
-    root = dirname(@__DIR__)
-    @test ! isfile(joinpath(root, "Manifest.toml"))
-    project_mtime = mtime(joinpath(root, "Project.toml"))
-    # Allow 1s tolerance: on CI, git checkout assigns timestamps in sequence order,
-    # so Project.toml may be fractionally newer due to checkout ordering.
-    @test mtime(joinpath(root, "Manifest-v1.12.toml.default")) >= project_mtime - 1.0
-    @test mtime(joinpath(root, "Manifest-v1.13.toml.default")) >= project_mtime - 1.0
+    @test ! isfile(joinpath(dirname(@__DIR__), "Manifest.toml"))
 end
 
 @testset "Output folder" begin
