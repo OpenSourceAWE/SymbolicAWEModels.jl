@@ -345,12 +345,19 @@ winches:
         top_before = copy(sys.points[:top].pos_w)
         @test_logs (:info,) match_mode=:any place!(sys)
 
-        # The mean anchor is the origin and the mean target 150 m: top lands 150 m
-        # out along the line from the origin through where it was.
+        # top moves along the line from the mean anchor (the origin) through where
+        # it was, until the two tethers' mean length is the mean target, 150 m.
         placed = copy(sys.points[:top].pos_w)
-        @test placed ≈ 150.0 .* normalize(top_before)
+        @test normalize(placed) ≈ normalize(top_before)
+        @test (norm(placed - ground_static) + norm(placed - KVec3(-10, 0, 0))) / 2 ≈ 150.0
         @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
 
+        place!(sys; prn=false)
+        @test sys.points[:top].pos_w ≈ placed
+
+        # Tethers that already have their lengths stay where they are.
+        sys.tethers[:tether_static].init_stretched_len = norm(placed - ground_static)
+        sys.tethers[:tether_winch].init_stretched_len = norm(placed - KVec3(-10, 0, 0))
         place!(sys; prn=false)
         @test sys.points[:top].pos_w ≈ placed
     end

@@ -278,6 +278,7 @@ SymbolicAWEModels.tether_downstream_idxs
 SymbolicAWEModels.station_tethers_by_overlap
 SymbolicAWEModels.tether_unit_stiffness
 SymbolicAWEModels.apply_cluster_init_stretched_len!
+SymbolicAWEModels.cluster_standoff_shift
 SymbolicAWEModels.init_unstretched_len
 SymbolicAWEModels.tube_initial_frames
 SymbolicAWEModels.init_tube_rest!

@@ -30,7 +30,8 @@
   (#396).
 
 ### Fixed
-- Placing a structure hung on several tethers with `init_stretched_length` puts it at
-  their mean length from their mean anchor, so placing it again no longer moves it.
+- Placing a structure hung on several tethers with `init_stretched_length` moves it
+  straight away from their mean anchor until their mean length is the mean target,
+  so tethers that already have their lengths stay and placing again moves nothing.
 - `init_pulley_lengths!` sets the two pulley segments' `l0` to the split it writes
   into the pulley, as the model uses them, so the mass of their points matches it.

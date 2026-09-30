@@ -461,16 +461,38 @@ function tether_unit_stiffness(tether, segments)
 end
 
 """
+    cluster_standoff_shift(spans, mean_len) -> Vector
+
+Translation `t·d` that brings the mean length of the anchor→free vectors `spans` to
+`mean_len`, with `d` the direction of their mean: the structure moves straight away
+from (or towards) the mean anchor. Newton's method on `t`, from `t = 0`.
+"""
+function cluster_standoff_shift(spans, mean_len)
+    direction = normalize(sum(spans))
+    t = 0.0
+    for _ in 1:50
+        lens = [norm(span .+ t .* direction) for span in spans]
+        residual = sum(lens) / length(lens) - mean_len
+        abs(residual) < 1e-12 * mean_len && break
+        slope = sum(dot(span .+ t .* direction, direction) / len
+                    for (span, len) in zip(spans, lens)) / length(lens)
+        t -= residual / slope
+    end
+    return t .* direction
+end
+
+"""
     apply_cluster_init_stretched_len!(cluster, points, segments, bodies,
                                       tubes, body_neighbors,
                                       downstream, boundary; prn=true)
 
 Reposition one cluster of root tethers to their `init_stretched_len` standoff. The
-free ends and everything downstream of them are translated so the mean free end sits
-the mean `init_stretched_len` from the mean anchor, along the line between the two;
-interior points are then redistributed proportionally along each tether. A single
-tether lands at exactly its length, and placing again moves nothing. For a
-multi-tether cluster, logs an `@info` when `prn`.
+free ends and everything downstream of them are translated along the line from the
+mean anchor through the mean free end until the tethers' mean length is their mean
+`init_stretched_len` ([`cluster_standoff_shift`](@ref)); interior points are then
+redistributed proportionally along each tether. A single tether lands at exactly its
+length, tethers that already have their lengths stay, and placing again moves
+nothing. For a multi-tether cluster, logs an `@info` when `prn`.
 
 The bodies the moved points ride are translated too, expanded over the beam graph
 by [`translated_body_idxs`](@ref) so bodies that carry no point of their own do
@@ -496,17 +518,14 @@ function apply_cluster_init_stretched_len!(
         (; tether, free_idx, anchor_pos, free_pos, ordered, seg_lens, path_len)
     end
 
-    mean_anchor = sum(snap.anchor_pos for snap in snaps) ./ length(snaps)
-    mean_free = sum(snap.free_pos for snap in snaps) ./ length(snaps)
-    mean_len = sum(snap.tether.init_stretched_len::SimFloat for snap in snaps) /
-        length(snaps)
-    standoff = mean_free .- mean_anchor
-    delta = (mean_len / norm(standoff) - 1) .* standoff
+    delta = cluster_standoff_shift(
+        [snap.free_pos .- snap.anchor_pos for snap in snaps],
+        sum(snap.tether.init_stretched_len::SimFloat for snap in snaps) / length(snaps))
 
     if length(cluster) > 1 && prn
         names = join((string(snap.tether.name) for snap in snaps), ", ")
         @info "Tethers ($names) feed one structure; placing it at their mean " *
-              "stretched length from their mean anchor."
+              "stretched length."
     end
     norm(delta) ≈ 0 && return
 
@@ -556,7 +575,7 @@ Only tethers with one endpoint on a boundary (`STATIC` or winch point) are
 placed; that endpoint is the fixed anchor (start or end). Scaling runs from
 the anchor toward the free end, translating everything downstream of it.
 A tether with neither endpoint anchored is an error. Roots feeding one
-structure form a cluster, placed at their mean length from their mean anchor
+structure form a cluster, placed at their mean length
 ([`apply_cluster_init_stretched_len!`](@ref)).
 
 Errors if a downstream segment connects back to the anchor.
@@ -914,9 +933,15 @@ end
     store_initial_pose!(sys_struct::SystemStructure)
 
 Make the current pose the initial one: `pos_ENU = pos_w` for every point and body,
-and `Q_KA_to_ENU = Q_b_to_w` for every body.
+and `Q_KA_to_ENU = Q_b_to_w` for every body, after putting each point a body carries
+at its `anchor_b` on that body.
 """
 function store_initial_pose!(sys_struct::SystemStructure)
+    for point in sys_struct.points
+        point.body_idx > 0 || continue
+        body = sys_struct.bodies[point.body_idx]
+        point.pos_w .= body.pos_w .+ body.R_b_to_w * point.anchor_b
+    end
     for point in sys_struct.points
         point.pos_ENU .= point.pos_w
     end
