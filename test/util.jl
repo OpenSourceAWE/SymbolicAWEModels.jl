@@ -72,8 +72,9 @@ function deform_trailing_edge!(sys, wing, base_pos, delta)
     for surface in sys.stations
         length(surface.point_idxs) >= 2 || continue
         trailing = sys.points[surface.point_idxs[2]]
-        side = sign(SymbolicAWEModels.initial_body_position(wing, trailing)[2])
-        side == 0 && continue
+        span = SymbolicAWEModels.initial_body_position(wing, trailing)[2]
+        abs(span) < 1e-9 && continue
+        side = sign(span)
         trailing.pos_w .+= (side * delta) .* normal_w
     end
     return nothing
