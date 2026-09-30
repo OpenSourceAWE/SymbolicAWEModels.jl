@@ -302,7 +302,7 @@ mutable struct Point
     const wing_ref::Union{Int, Symbol}
     "Raw rigid-body reference for anchoring (name or idx). 0 = not anchored to a body."
     const body_ref::Union{Int, Symbol}
-    "Initial position, world frame [m]: where [`place!`](@ref) puts the point, and what `init!` derives rest geometry from."
+    "Initial position, world frame [m]: where [`place!`](@ref) puts the point."
     const pos_ENU::KVec3
     "Undeformed position relative to wing COM in principal frame [m]. Reference
     geometry the equations take as a parameter and `twist_deformed_offset`
@@ -312,7 +312,8 @@ mutable struct Point
     "Position relative to wing COM in principal frame [m]: `pos_undeformed_b`
     carried by the live twist angle (updated during simulation)."
     const pos_b::KVec3
-    "Anchor offset in the rigid body's body frame [m] (body-anchored points). Auto-derived from `pos_ENU` by SystemStructure when left at zero."
+    "Anchor offset in the rigid body's body frame [m] (body-anchored points), derived
+    from `pos_ENU` by SystemStructure when left at zero."
     anchor_b::KVec3
     "Position in world frame [m] (updated during simulation)."
     const pos_w::KVec3
@@ -388,7 +389,7 @@ drives the per-point aero and wing-frame fitting.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the point (e.g., `:kcu`, `:le_1`, or `1` for legacy).
-- `pos_ENU::KVec3`: Position of the point before [`place!`](@ref) moves it by the transforms [m].
+- `pos_ENU::KVec3`: Position of the point before [`place!`](@ref) moves it [m].
 - `type::DynamicsType`: Dynamics type of the point (`STATIC`, `DYNAMIC`, etc.).
   Pass `BODY_STATIC` together with `body` to anchor the point to a rigid body.
 

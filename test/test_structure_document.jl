@@ -174,7 +174,8 @@ end
         document = structure_document(sys)
         reread = sys_struct_from_document(document; set, prn=false)
         @test structure_document(reread) == document
-        @test [point.pos_w for point in reread.points] == [point.pos_ENU for point in sys.points]
+        @test [point.pos_w for point in reread.points] ==
+              [point.pos_ENU for point in sys.points]
     end
 
     @testset "a run's log carries the structure document of the system that ran" begin

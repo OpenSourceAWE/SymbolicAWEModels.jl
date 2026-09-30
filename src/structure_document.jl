@@ -302,9 +302,10 @@ end
                              wind_mode=ProfileWind(), prn=true)
 
 Build the `SystemStructure` a parsed structure document describes, starting in the
-initial pose the document gives, without [`place!`](@ref). `set` supplies what the schema has no column for — the
-winch friction and inertia, the tether material defaults — and falls back to the
-`base` settings. A column the reader does not know is ignored.
+initial pose the document gives, without [`place!`](@ref). `set` supplies what the
+schema has no column for — the winch friction and inertia, the tether material
+defaults — and falls back to the `base` settings. A column the reader does not know is
+ignored.
 
 The document is the truth for what it carries: each body's own mass, inertia and
 origin are taken from its row rather than re-derived from the points. A document

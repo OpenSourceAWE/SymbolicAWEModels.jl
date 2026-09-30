@@ -98,9 +98,9 @@ calc_side_slip(wing) =
         -> (com, inertia)
 
 Normalized (per-unit-mass) inertia of the wing body about its COM, in the axes the
-wing's geometry is authored in, with `inertia` in [m²] — multiply by the wing's own `extra_mass` for the
-physical tensor [kg·m²]. `inertia` is `nothing` when there is no mass to normalize
-by. The default normalizes the wing nodes' point-mass inertia
+wing's geometry is authored in, with `inertia` in [m²] — multiply by the wing's own
+`extra_mass` for the physical tensor [kg·m²]. `inertia` is `nothing` when there is no
+mass to normalize by. The default normalizes the wing nodes' point-mass inertia
 ([`normalized_point_inertia`](@ref)); VSM modes with an `ObjWing` mesh
 return the per-unit-mass mesh tensor as-is (its COM is `-T_cad_body`) and
 fall back to the point masses otherwise.
