@@ -73,6 +73,7 @@ papers/*/*.blg
 papers/*/*.out
 papers/*/*.fdb_latexmk
 papers/*/*.fls
-papers/*/aero_couplings.pdf
+papers/*/*.pdf
+papers/*/results.tex
 papers/*/build/
 papers/*/figures/

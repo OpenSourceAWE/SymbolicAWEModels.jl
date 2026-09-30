@@ -9,9 +9,7 @@ using Pkg
 Pkg.activate(@__DIR__)
 
 using CairoMakie
-using MakieControlPlots
 using SymbolicAWEModels
-using KiteUtils
 using LinearAlgebra
 using DelimitedFiles
 using Printf
@@ -29,7 +27,7 @@ MODE_COLORS = Dict("AeroDirect" => :black, "ContinuousAero" => :dodgerblue3,
 COMPARED = ["direct_dt10", "continuous_dt10", "live_dt10", "pressure_dt10"]
 SECTIONS = ["continuous_particle", "pressure_beam", "live_beam"]
 STATION = 5             # a mid-span structural station of both V3 models
-PANEL = 20              # a mid-span VSM panel
+PANEL = 20              # a VSM panel a quarter of the span from the tip
 SETTLE_TIME = 5.0       # [s] start of the window the flight statistics are taken over
 
 """
@@ -38,13 +36,6 @@ SETTLE_TIME = 5.0       # [s] start of the window the flight statistics are take
 The log run_simulations.jl wrote for case `name`.
 """
 flight_log(name) = load_log(name; path=LOG_PATH).syslog
-
-"""
-    settled(log) -> BitVector
-
-Rows of `log` after `SETTLE_TIME`.
-"""
-settled(log) = log.time .>= SETTLE_TIME
 
 """
     high_pass(signal, dt; window=0.5) -> Vector
@@ -59,27 +50,16 @@ function high_pass(signal, dt; window=0.5)
 end
 
 """
-    unwrapped(angle) -> Vector
-
-`angle` [rad] with its jumps of a full turn removed.
-"""
-function unwrapped(angle)
-    turns = cumsum([0; round.(diff(angle) ./ 2pi)])
-    return angle .- 2pi .* turns
-end
-
-"""
     tracking_figure() -> Figure
 
-Heading, tether force and angle of attack of the compared cases against time, with
-the steering offset they fly.
+Steering offset, tether force and angle of attack of the compared cases against time.
 """
 function tracking_figure()
-    fig = Figure(size=(TEXT_WIDTH, 380))
-    labels = [L"u_s", L"\psi~[°]", L"F_t~[\mathrm{kN}]", L"\alpha~[°]"]
-    axes = [Axis(fig[row, 1]; ylabel=labels[row], xticklabelsvisible=row == 4)
-            for row in 1:4]
-    axes[4].xlabel = L"t~[\mathrm{s}]"
+    fig = Figure(size=(TEXT_WIDTH, 300))
+    labels = [L"u_s", L"F_t~[\mathrm{kN}]", L"\alpha~[°]"]
+    axes = [Axis(fig[row, 1]; ylabel=labels[row], xticklabelsvisible=row == 3)
+            for row in 1:3]
+    axes[3].xlabel = L"t~[\mathrm{s}]"
     linkxaxes!(axes...)
     time = 0:0.05:SIM_TIME
     lines!(axes[1], time, steering_offset.(time); color=:gray)
@@ -87,9 +67,8 @@ function tracking_figure()
         run = RUNS[name]
         log = flight_log(name)
         color = MODE_COLORS[run.mode]
-        lines!(axes[2], log.time, rad2deg.(unwrapped(log.heading)); color, label=run.mode)
-        lines!(axes[3], log.time, first.(log.winch_force) ./ 1e3; color)
-        lines!(axes[4], log.time, rad2deg.(log.AoA); color)
+        lines!(axes[2], log.time, first.(log.winch_force) ./ 1e3; color, label=run.mode)
+        lines!(axes[3], log.time, rad2deg.(log.AoA); color)
     end
     Legend(fig[0, 1], axes[2]; orientation=:horizontal, framevisible=false,
            tellwidth=false, nbanks=1)
@@ -103,12 +82,12 @@ Elevation against azimuth of the compared cases: the loop each coupling flies.
 """
 function trajectory_figure()
     fig = Figure(size=(COLUMN_WIDTH, 220))
-    ax = Axis(fig[1, 1]; xlabel=L"\phi~[°]", ylabel=L"\beta~[°]", aspect=DataAspect())
+    axis = Axis(fig[1, 1]; xlabel=L"\phi~[°]", ylabel=L"\beta~[°]", aspect=DataAspect())
     for name in COMPARED
         run = RUNS[name]
         log = flight_log(name)
-        lines!(ax, rad2deg.(log.azimuth), rad2deg.(log.elevation);
-               color=MODE_COLORS[run.mode], label=run.mode)
+        lines!(axis, rad2deg.(log.azimuth), rad2deg.(log.elevation);
+               color=MODE_COLORS[run.mode])
     end
     return fig
 end
@@ -123,12 +102,12 @@ function station_loads_figure()
     fig = Figure(size=(TEXT_WIDTH, 260))
     for (col, name) in enumerate(SECTIONS)
         run = RUNS[name]
-        ax = Axis(fig[1, col]; title=run.mode, aspect=DataAspect(),
+        axis = Axis(fig[1, col]; title=run.mode, aspect=DataAspect(),
                   xlabel=L"x_b~[\mathrm{m}]", ylabel=L"z_b~[\mathrm{m}]",
                   ylabelvisible=col == 1, yticklabelsvisible=col == 1)
-        plot_station_loads!(ax, run.sam.sys_struct, STATION; force_scale=1.5e-3,
+        plot_station_loads!(axis, run.sam.sys_struct, STATION; force_scale=1.5e-3,
                             color=MODE_COLORS[run.mode])
-        col > 1 && linkaxes!(ax, content(fig[1, 1]))
+        col > 1 && linkaxes!(axis, content(fig[1, 1]))
     end
     return fig
 end
@@ -142,14 +121,14 @@ tabulated and the live-polar `AeroPressure` section cases.
 function polar_figure(panel_idx)
     fig = Figure(size=(TEXT_WIDTH, 200))
     for (col, coefficient) in enumerate((:cl, :cm))
-        ax = Axis(fig[1, col]; xlabel=L"\alpha~[°]",
+        axis = Axis(fig[1, col]; xlabel=L"\alpha~[°]",
                   ylabel=coefficient === :cl ? L"C_l" : L"C_m")
         for name in ("pressure_beam", "live_beam")
             run = RUNS[name]
-            plot_panel_polar!(ax, run.sam.sys_struct, panel_idx; coefficient,
+            plot_panel_polar!(axis, run.sam.sys_struct, panel_idx; coefficient,
                               color=MODE_COLORS[run.mode], label=run.mode)
         end
-        col == 1 && axislegend(ax; position=:rb, framevisible=false)
+        col == 1 && axislegend(axis; position=:rb, framevisible=false)
     end
     return fig
 end
@@ -162,13 +141,13 @@ tabulated and the live-polar `AeroPressure` section cases.
 """
 function pressure_figure(panel_idx)
     fig = Figure(size=(COLUMN_WIDTH, 200))
-    ax = Axis(fig[1, 1]; xlabel=L"x/c", ylabel=L"-C_p")
+    axis = Axis(fig[1, 1]; xlabel=L"x/c", ylabel=L"-C_p")
     for name in ("pressure_beam", "live_beam")
         run = RUNS[name]
-        plot_panel_pressure!(ax, run.sam.sys_struct, panel_idx;
+        plot_panel_pressure!(axis, run.sam.sys_struct, panel_idx;
                              color=MODE_COLORS[run.mode], label=run.mode)
     end
-    axislegend(ax; position=:rt, framevisible=false)
+    axislegend(axis; position=:rt, framevisible=false)
     return fig
 end
 
@@ -179,20 +158,11 @@ The rows output/cases.csv holds, in the order of `CASES`.
 """
 function case_table()
     rows = readdlm(joinpath(OUTPUT_PATH, "cases.csv"), ','; header=true)[1]
-    table = [(name=String(row[1]), mode=String(row[2]), dt=Float64(row[3]),
-              vsm_interval=Int(row[4]), flown=Float64(row[5]), completed=row[6] == "true",
-              failed_solves=Int(row[7]), wall=Float64(row[8]), t_step=Float64(row[9]),
-              t_vsm=Float64(row[10])) for row in eachrow(rows)]
+    table = [NamedTuple{CASE_COLUMNS}(Tuple(value isa AbstractString ? String(value) : value
+                                            for value in row)) for row in eachrow(rows)]
     order = [case.name for case in CASES]
     return sort!(table; by=row -> findfirst(==(row.name), order))
 end
-
-"""
-    wing_points(sys) -> Vector{Int}
-
-Indices of the points of `sys` that belong to its first wing.
-"""
-wing_points(sys) = [point.idx for point in sys.points if point.wing_idx == 1]
 
 """
     flight_statistics(row) -> NamedTuple
@@ -203,11 +173,12 @@ fly that long.
 """
 function flight_statistics(row)
     log = flight_log(row.name)
-    rows = settled(log)
+    rows = log.time .>= SETTLE_TIME
     any(rows) || return nothing
-    wing = wing_points(RUNS[row.name].sam.sys_struct)
+    sys = RUNS[row.name].sam.sys_struct
+    wing_nodes = [point.idx for point in SymbolicAWEModels.wing_points(sys, sys.wings[1])]
     aoa = rad2deg.(log.AoA)
-    node_speed = [mean(norm((log.VX[k][i], log.VY[k][i], log.VZ[k][i])) for i in wing)
+    node_speed = [mean(norm((log.VX[k][i], log.VY[k][i], log.VZ[k][i])) for i in wing_nodes)
                   for k in eachindex(log.time)]
     return (force=mean(first.(log.winch_force)[rows]) / 1e3,
             aoa_ripple=sqrt(mean(abs2, high_pass(aoa, row.dt)[rows])),

@@ -30,10 +30,10 @@ FailureCounter(parent) = FailureCounter(parent, 0)
 Logging.min_enabled_level(logger::FailureCounter) = Logging.min_enabled_level(logger.parent)
 Logging.shouldlog(logger::FailureCounter, args...) = true
 Logging.catch_exceptions(logger::FailureCounter) = Logging.catch_exceptions(logger.parent)
-function Logging.handle_message(logger::FailureCounter, level, message, _module, group,
+function Logging.handle_message(logger::FailureCounter, level, message, mod, group,
                                 id, file, line; kwargs...)
     occursin("did not converge", string(message)) && (logger.failed_solves += 1)
-    return Logging.handle_message(logger.parent, level, message, _module, group, id,
+    return Logging.handle_message(logger.parent, level, message, mod, group, id,
                                   file, line; kwargs...)
 end
 
@@ -97,7 +97,7 @@ Replace case `run.name`'s row of output/cases.csv with `run`'s summary.
 """
 function record_case(run)
     path = joinpath(OUTPUT_PATH, "cases.csv")
-    header = "name,mode,dt,vsm_interval,flown,completed,failed_solves,wall,t_step,t_vsm"
+    header = join(CASE_COLUMNS, ",")
     rows = isfile(path) ? readlines(path)[2:end] : String[]
     filter!(row -> !startswith(row, run.name * ","), rows)
     push!(rows, @sprintf("%s,%s,%.3f,%d,%.2f,%s,%d,%.2f,%.2f,%.2f", run.name, run.mode,
@@ -107,14 +107,21 @@ function record_case(run)
     return nothing
 end
 
+"""
+    selected(cases)
+
+The `cases` named in the script's arguments, or all of them when it has none.
+"""
+selected(cases) = filter(case -> isempty(ARGS) || case.name in ARGS, cases)
+
 mkpath(LOG_PATH)
 @isdefined(RUNS) || (RUNS = Dict{String, Any}())
-for case in filter(case -> isempty(ARGS) || case.name in ARGS, CASES)
+for case in selected(CASES)
     @info "Flying" case.name
     RUNS[case.name] = fly(case)
     record_case(RUNS[case.name])
 end
-for case in filter(case -> isempty(ARGS) || case.name in ARGS, SECTION_CASES)
+for case in selected(SECTION_CASES)
     @info "Flying" case.name
     RUNS[case.name] = fly(case; sim_time=SECTION_TIME)
 end

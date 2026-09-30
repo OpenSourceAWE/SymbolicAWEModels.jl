@@ -4201,11 +4201,9 @@ function SymbolicAWEModels.plot_panel_polar!(ax, sys::SystemStructure, panel_idx
         throw(ArgumentError("coefficient must be :cl, :cd or :cm, got :$coefficient"))
     wing = sys.wings[wing_idx]
     panel = wing.vsm_aero.panels[panel_idx]
-    calculate = coefficient === :cl ? VortexStepMethod.calculate_cl :
-                coefficient === :cd ? VortexStepMethod.calculate_cd :
-                                      VortexStepMethod.calculate_cm
+    calculate = getproperty(VortexStepMethod, Symbol(:calculate_, coefficient))
     alpha_now = wing.vsm_solver.sol.alpha_dist[panel_idx]
-    lines!(ax, rad2deg.(alpha), [calculate(panel, a) for a in alpha];
+    lines!(ax, rad2deg.(alpha), [calculate(panel, angle) for angle in alpha];
            color, linewidth, label)
     return scatter!(ax, [rad2deg(alpha_now)], [calculate(panel, alpha_now)];
                     color, markersize=8)

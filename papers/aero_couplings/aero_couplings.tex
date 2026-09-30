@@ -300,8 +300,9 @@ solves. Its symbolic force evaluation costs integration time: at the same
 \SI{10}{ms} step it spends about twice as long integrating as \code{AeroDirect}. A
 solve every fifth step moves the cost from the VSM to the integrator rather than
 removing it, and doubles the high-frequency content of the angle of attack and
-quadruples that of the wing-node speed: an induced velocity five steps old is felt. Live polars cost a
-NeuralFoil evaluation per panel and solve, which dominates their cost at both steps.
+nearly quadruples that of the wing-node speed: an induced velocity five steps old is
+felt. Live polars cost a NeuralFoil evaluation per panel and solve, which dominates
+their cost at both steps.
 \code{AeroPressure} on the beam model is the most expensive coupling, mostly because
 the beam model has five times the points of the particle model and a denser Jacobian;
 its VSM share is comparable to that of \code{ContinuousAero}.
@@ -352,7 +353,8 @@ and with live polars.}
 \begin{figure}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/polar.pdf}
-\caption{Lift and moment polars of a mid-span VSM panel of the beam model after
+\caption{Lift and moment polars of a VSM panel a quarter of the span from the tip of
+the beam model after
 \SI{\SectionTime}{s}, tabulated and live; the dot is the panel's operating point.
 A live polar is refitted over \SI{\pm12}{\degree} about the current angle of attack
 and held constant outside it.}

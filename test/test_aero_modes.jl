@@ -325,14 +325,6 @@ aero_poses = [
                 end
             end
 
-            case.reference == :vsm &&
-            @testset "t_vsm times only a step that refreshes the aero" begin
-                next_step!(sam; dt=0.05, vsm_interval=1)
-                @test sam.t_vsm > 0
-                next_step!(sam; dt=0.05, vsm_interval=0)
-                @test sam.t_vsm == 0
-            end
-
             # Runs on the converged state the dynamic run leaves behind. The LOOP
             # solver converges on `normalized_error < rtol`, so `rtol = 0` never
             # converges and `max_iterations` bounds what the failure costs.
@@ -362,6 +354,14 @@ aero_poses = [
                 solver.rtol, solver.max_iterations = rtol, max_iterations
                 next_step!(sam; dt=0.05, vsm_interval=1)
                 @test solver.sol.gamma_distribution != gamma
+            end
+
+            case.reference == :vsm &&
+            @testset "t_vsm times only a step that refreshes the aero" begin
+                next_step!(sam; dt=0.05, vsm_interval=1)
+                @test sam.t_vsm > 0
+                next_step!(sam; dt=0.05, vsm_interval=0)
+                @test sam.t_vsm == 0
             end
 
             # A KINEMATIC wing's body frame is fitted from reference points, so
