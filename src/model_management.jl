@@ -813,6 +813,19 @@ function get_set_hash(set::Settings;
 end
 
 """
+    component_types(sys_struct::SystemStructure) -> String
+
+The fully qualified concrete types of the wings' aero models and the winches' models,
+printed as one string.
+"""
+function component_types(sys_struct::SystemStructure)
+    types = [[typeof(wing.aero) for wing in sys_struct.wings];
+             [typeof(winch.model) for winch in sys_struct.winches]]
+    # `:module => Core` qualifies every name, whatever `Main` imports.
+    return sprint(show, types; context = :module => Core)
+end
+
+"""
     get_sys_struct_hash(sys_struct::SystemStructure)
 
 Calculates a SHA1 hash for the topology and structure of a `SystemStructure`.
@@ -826,7 +839,8 @@ Includes all structural properties that affect the symbolic equations:
 - Pulley constraints and types
 - Tether topology
 - Winch configuration
-- Wing topology, connectivity, aerodynamic model type (RIGID_DYNAMICS vs PARTICLE_DYNAMICS), and aero mode
+- Wing topology, connectivity and dynamics type (RIGID_DYNAMICS vs PARTICLE_DYNAMICS)
+- [`component_types`](@ref): the concrete aero-model and winch-model types
 - Transform hierarchy
 - The wind mode, which decides whether the wind is a height profile or a per-point
   parameter. Only [`PerPointWind`](@ref) enters the hash, so structures on the
@@ -865,16 +879,10 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("winch", winch.idx, winch.tether_idxs))
     end
     for wing in wings
-        # Polar format sets the panel interpolant dimensionality baked into the bin.
-        polar_format = wing.aero isa AbstractVSMAero &&
-                       !isempty(wing.aero.vsm_aero.panels) ?
-            wing.aero.vsm_aero.panels[1].aero_model : nothing
         # flow_curvature adds a moment term and the lag adds states, so both are
         # structure; their constants are parameters, as is the apparent mass.
         wing_data = ("wing", wing.idx, wing.station_idxs,
-                     Int(wing.dynamics_type),
-                     nameof(typeof(wing.aero)),
-                     aero_hash_id(wing.aero), polar_format,
+                     Int(wing.dynamics_type), aero_hash_id(wing.aero),
                      flow_curvature_enabled(wing), wagner_enabled(wing))
 
         # Include wing reference points in hash
@@ -889,6 +897,7 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
             origin_hash(wing.origin))
         push!(data_parts, wing_data)
     end
+    push!(data_parts, ("component_types", component_types(sys_struct)))
     per_point_wind(sys_struct) && push!(data_parts, ("wind_mode", :per_point))
     for transform in transforms
         push!(data_parts, ("transform", transform.idx, transform.wing_idx, transform.rot_point_idx,
