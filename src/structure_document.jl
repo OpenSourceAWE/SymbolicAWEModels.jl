@@ -5,49 +5,63 @@ using JSON
 using OrderedCollections: OrderedDict
 
 """Version of `structure_schema.yml` this writer emits and this reader accepts."""
-const AWESIO_VERSION = "0.1.0"
+const AWESIO_VERSION = "1.0.0"
 
 """The `metadata.schema` every conforming structure document carries."""
 const STRUCTURE_SCHEMA = "structure_schema.yml"
 
-"""Columns of every document block, in the order `structure_schema.yml` fixes them."""
-const DOCUMENT_HEADERS = OrderedDict(
-    "points" => ["name", "type", "body", "wing", "pos_cad", "mass",
-                 "drag_area", "drag_coefficient"],
-    "segments" => ["name", "points", "l0", "diameter", "density",
-                   "unit_stiffness", "unit_damping", "compression_frac",
-                   "compression_damping_frac"],
-    "stations" => ["name", "type", "wing", "points", "stiffness", "damping",
-                   "moment_frac"],
-    "pulleys" => ["name", "segments", "type", "efficiency"],
-    "tethers" => ["name", "start_point", "end_point", "segments"],
-    "winches" => ["name", "tethers", "winch_point", "model", "gear_ratio",
-                  "drum_radius"],
-    "bodies" => ["name", "type", "aero", "wing", "mass", "apparent_mass",
-                 "inertia_principal", "com_offset_KA", "pos_cad"],
-    "elastic_joints" => ["name", "bodies", "anchors_KA", "stiffness_axial",
-                         "stiffness_shear", "stiffness_torsion",
-                         "stiffness_bending", "damping", "radius"],
-    "timoshenko_joints" => ["name", "bodies", "anchors_KA", "EA", "GA", "GJ",
-                            "EIy", "EIz", "shear_coeff", "damping",
-                            "rest_length", "radius"],
+"""
+Columns of every block but `tubes`, each with its unit: first those
+`structure_schema.yml` requires, in its order, then SymbolicAWEModels' own.
+"""
+const DOCUMENT_COLUMNS = OrderedDict(
+    "points" => ["name" => "-", "type" => "-", "body" => "-", "pos_ENU" => "m",
+                 "extra_mass" => "kg", "drag_area" => "m^2", "drag_coefficient" => "-",
+                 "wing" => "-"],
+    "segments" => ["name" => "-", "points" => "-", "l0" => "m", "diameter" => "m",
+                   "density" => "kg/m^3", "unit_stiffness" => "N", "unit_damping" => "N*s",
+                   "compression_frac" => "-", "compression_damping_frac" => "-"],
+    "stations" => ["name" => "-", "wing" => "-", "type" => "-", "points" => "-",
+                   "stiffness" => "N*m", "damping" => "N*m*s", "moment_frac" => "-"],
+    "pulleys" => ["name" => "-", "segments" => "-", "type" => "-", "efficiency" => "-"],
+    "tethers" => ["name" => "-", "start_point" => "-", "end_point" => "-",
+                  "segments" => "-"],
+    "winches" => ["name" => "-", "tethers" => "-", "winch_point" => "-",
+                  "gear_ratio" => "-", "drum_radius" => "m", "model" => "-"],
+    "wings" => ["name" => "-", "canopy_material" => "-", "aero" => "-"],
+    "bodies" => ["name" => "-", "type" => "-", "pos_ENU" => "m", "Q_KA_to_ENU" => "-",
+                 "extra_mass" => "kg", "extra_inertia_KA" => "kg*m^2", "wing" => "-",
+                 "apparent_mass" => "kg"],
 )
+
+"""The columns every `tubes` row has, each with its unit."""
+const TUBE_COLUMNS = ["name" => "-", "bodies" => "-", "diameter" => "m",
+                      "pressure" => "Pa", "law" => "-", "model" => "-"]
+"""Unit of each column a tube model ([`YAML_TUBE_MODELS`](@ref)) or a tube end adds."""
+const TUBE_MODEL_UNITS = Dict(
+    :EA => "N", :GA => "N", :GJ => "N*m^2", :EIy => "N*m^2", :EIz => "N*m^2",
+    :shear_coeff => "-", :stiffness_axial => "N/m", :stiffness_shear => "N/m",
+    :stiffness_torsion => "N*m", :stiffness_bending => "N*m", :damping => "s",
+    :anchor_a => "m", :anchor_b => "m")
 
 # ==================== SHARED HELPERS ==================== #
 
 """
-    connectivity_sha(n_points, endpoints) -> String
+    connectivity_sha(sections...) -> String
 
 Lowercase hex SHA-256 of the connectivity preimage `structure_schema.yml`
-documents: the point count, a semicolon, then every segment's two endpoints as
-one-based row numbers into the points block, comma separated and semicolon
-terminated.
+documents. Each section is a count and its elements, each element a tuple of
+one-based row numbers: the count, a semicolon, then every element comma separated
+and semicolon terminated.
 """
-function connectivity_sha(n_points::Integer, endpoints)
+function connectivity_sha(sections...)
     preimage = IOBuffer()
-    print(preimage, n_points, ';')
-    for (point_a, point_b) in endpoints
-        print(preimage, point_a, ',', point_b, ';')
+    for (count, elements) in sections
+        print(preimage, count, ';')
+        for element in elements
+            join(preimage, element, ',')
+            print(preimage, ';')
+        end
     end
     return bytes2hex(sha256(take!(preimage)))
 end
@@ -68,13 +82,12 @@ end
 """Three-component vector as the plain `Float64` list the document holds."""
 vector3(value) = Float64[value[1], value[2], value[3]]
 
+"""A 3×3 matrix as the three rows the document holds."""
+matrix3(value) = [Float64[value[row, 1], value[row, 2], value[row, 3]] for row in 1:3]
+
 """A component name as a `Symbol`, passing an absent reference through."""
 optional_symbol(::Nothing) = nothing
 optional_symbol(name::AbstractString) = Symbol(name)
-
-"""A length as a `Float64`, passing an absent quantity through."""
-optional_length(::Nothing) = nothing
-optional_length(value) = Float64(value)
 
 """
     component_name(component) -> String
@@ -95,22 +108,30 @@ ref_name(collection, idx::Integer) =
 """Names of `collection` at `idxs`, in order."""
 ref_names(collection, idxs) = [component_name(collection[idx]) for idx in idxs]
 
+"""
+    document_connectivity(n_points, segment_points, n_bodies, tube_bodies) -> String
+
+The `connectivity_sha` of a document with these points and segments, bodies and
+tubes, and no canopy faces.
+"""
+document_connectivity(n_points, segment_points, n_bodies, tube_bodies) =
+    connectivity_sha((n_points, segment_points), (n_bodies, tube_bodies), (0, ()))
+
 # ==================== WRITING ==================== #
 
 """
     structure_document(sys::SystemStructure; name=sys.name, description="", note="")
 
-Render `sys` as a document conforming to `structure_schema.yml`: one
-`headers`/`data` table per block, every reference by name, every component
-carrying its own geometry and material. Returns nested `OrderedDict`s and
-`Vector`s, which [`save_structure_document`](@ref) encodes as YAML or JSON.
-
-The schema describes structure only, so the transforms that place the system in
-the world and the live state are left out.
+Render `sys` in its initial pose as a document conforming to `structure_schema.yml`:
+one `headers`/`units`/`data` table per block, every reference by name, every
+position in the world frame. Returns nested `OrderedDict`s and `Vector`s, which
+[`save_structure_document`](@ref) encodes as YAML or JSON.
 """
 function structure_document(sys::SystemStructure; name::AbstractString=sys.name,
         description::AbstractString="", note::AbstractString="")
-    endpoints = [segment.point_idxs for segment in sys.segments]
+    tube_bodies = [(tube.body_a_idx, tube.body_b_idx) for tube in sys.tubes]
+    sha = document_connectivity(length(sys.points),
+        [segment.point_idxs for segment in sys.segments], length(sys.bodies), tube_bodies)
     document = OrderedDict{String, Any}(
         "metadata" => OrderedDict{String, Any}(
             "name" => name,
@@ -119,7 +140,7 @@ function structure_document(sys::SystemStructure; name::AbstractString=sys.name,
             "awesIO_version" => AWESIO_VERSION,
             "schema" => STRUCTURE_SCHEMA,
             "n_points" => length(sys.points),
-            "connectivity_sha" => connectivity_sha(length(sys.points), endpoints),
+            "connectivity_sha" => sha,
         ))
     document["points"] = document_table("points", point_rows(sys))
     document["segments"] = document_table("segments", segment_rows(sys))
@@ -127,17 +148,18 @@ function structure_document(sys::SystemStructure; name::AbstractString=sys.name,
     document["pulleys"] = document_table("pulleys", pulley_rows(sys))
     document["tethers"] = document_table("tethers", tether_rows(sys))
     document["winches"] = document_table("winches", winch_rows(sys))
+    document["wings"] = document_table("wings", wing_rows(sys))
     document["bodies"] = document_table("bodies", body_rows(sys))
-    document["elastic_joints"] =
-        document_table("elastic_joints", elastic_joint_rows(sys))
-    document["timoshenko_joints"] =
-        document_table("timoshenko_joints", timoshenko_joint_rows(sys))
+    document["tubes"] = tube_table(sys)
     return document
 end
 
-"""One `headers`/`data` block of a structure document."""
-document_table(block::AbstractString, rows) = OrderedDict{String, Any}(
-    "headers" => DOCUMENT_HEADERS[block], "data" => rows)
+"""One `headers`/`units`/`data` block from `columns` (header => unit pairs)."""
+table(columns, rows) = OrderedDict{String, Any}(
+    "headers" => first.(columns), "units" => last.(columns), "data" => rows)
+
+"""The `block` table of a structure document."""
+document_table(block::AbstractString, rows) = table(DOCUMENT_COLUMNS[block], rows)
 
 """
 Rows of the `points` block. The body a point is fixed to names the wing it is
@@ -148,9 +170,8 @@ function point_rows(sys::SystemStructure)
         body = ref_name(sys.bodies, point.body_idx)
         wing = isnothing(body) && point.is_wing_node ?
             component_name(sys.wings[point.wing_idx]) : nothing
-        Any[component_name(point), string(point.type), body, wing,
-            vector3(point.pos_cad), point.extra_mass, point.area,
-            point.drag_coeff]
+        Any[component_name(point), string(point.type), body, vector3(point.pos_ENU),
+            point.extra_mass, point.area, point.drag_coeff, wing]
     end
 end
 
@@ -168,8 +189,8 @@ segment_rows(sys::SystemStructure) =
 """Rows of the `stations` block."""
 station_rows(sys::SystemStructure) =
     [Any[component_name(station),
-         string(station.type),
          station_wing(sys, station),
+         string(station.type),
          ref_names(sys.points, station.point_idxs),
          station.stiffness, station.damping, station.moment_frac]
      for station in sys.stations]
@@ -217,49 +238,62 @@ winch_rows(sys::SystemStructure) =
     [Any[component_name(winch),
          ref_names(sys.tethers, winch.tether_idxs),
          component_name(sys.points[winch.winch_point_idx]),
-         string(nameof(typeof(winch.model))),
-         winch.gear_ratio, winch.drum_radius]
+         winch.gear_ratio, winch.drum_radius, string(nameof(typeof(winch.model)))]
      for winch in sys.winches]
+
+"""Rows of the `wings` block: every wing is also the body of its name, with no canopy."""
+wing_rows(sys::SystemStructure) =
+    [Any[component_name(wing), nothing, string(nameof(typeof(wing.aero)))]
+     for wing in sys.wings]
 
 """
 Rows of the `bodies` block: each body's own mass properties, without the points it
-carries. A wing is a body whose `aero` is not null.
+carries, about the centre of that mass, which is the origin the row places.
 """
 body_rows(sys::SystemStructure) =
-    [Any[component_name(body),
-         string(body.type),
-         body.aero isa AeroNone ? nothing : string(nameof(typeof(body.aero))),
-         ref_name(sys.wings, body.wing_idx),
-         body.extra_mass, body.apparent_mass,
-         vector3(first(principal_frame(body.extra_inertia_b))),
-         vector3(body.extra_com_offset_b), vector3(body.pos_cad)]
+    [Any[component_name(body), string(body.type), vector3(body_mass_centre(body)),
+         Float64.(body.Q_KA_to_ENU), body.extra_mass, matrix3(body.extra_inertia_b),
+         ref_name(sys.wings, body.wing_idx), body.apparent_mass]
      for body in sys.bodies]
 
-"""The two bodies a joint links, and its anchor in each body's own KA frame."""
-joint_bodies(sys::SystemStructure, joint) =
-    (ref_names(sys.bodies, (joint.body_a_idx, joint.body_b_idx)),
-     [vector3(joint.anchor_a_b), vector3(joint.anchor_b_b)])
+"""World position [m] of the centre of `body`'s own mass in its initial pose."""
+body_mass_centre(body) = body.pos_ENU + initial_rotation(body) * body.extra_com_offset_b
 
-"""Rows of the `elastic_joints` block."""
-elastic_joint_rows(sys::SystemStructure) =
-    [Any[component_name(joint), joint_bodies(sys, joint)...,
-         linear_rigidity(joint.stiffness_axial, "joint $(joint.name) axial"),
-         linear_rigidity(joint.stiffness_shear, "joint $(joint.name) shear"),
-         linear_rigidity(joint.stiffness_torsion, "joint $(joint.name) torsion"),
-         linear_rigidity(joint.stiffness_bending, "joint $(joint.name) bending"),
-         joint.damping, joint.radius]
-     for joint in sys.elastic_joints]
+"""
+    tube_table(sys) -> OrderedDict
 
-"""Rows of the `timoshenko_joints` block."""
-timoshenko_joint_rows(sys::SystemStructure) =
-    [Any[component_name(joint), joint_bodies(sys, joint)...,
-         linear_rigidity(joint.EA, "joint $(joint.name) EA"),
-         linear_rigidity(joint.GA, "joint $(joint.name) GA"),
-         linear_rigidity(joint.GJ, "joint $(joint.name) GJ"),
-         linear_rigidity(joint.EIy, "joint $(joint.name) EIy"),
-         linear_rigidity(joint.EIz, "joint $(joint.name) EIz"),
-         joint.shear_coeff, joint.damping, joint.rest_length, joint.radius]
-     for joint in sys.timoshenko_joints]
+The `tubes` block: the columns every row has, then the columns of each tube model
+in `sys`, as the `tubes` table of the YAML loader reads them, then each end as an
+offset from its body's mass centre in the body's frame.
+"""
+function tube_table(sys::SystemStructure)
+    model_fields = unique(field for tube in sys.tubes
+                          for field in last(YAML_TUBE_MODELS[tube_model_name(tube.model)]))
+    columns = [TUBE_COLUMNS; [string(field) => TUBE_MODEL_UNITS[field]
+                              for field in [model_fields; :anchor_a; :anchor_b]]]
+    rows = map(sys.tubes) do tube
+        body_a, body_b = sys.bodies[tube.body_a_idx], sys.bodies[tube.body_b_idx]
+        Any[component_name(tube),
+            ref_names(sys.bodies, (tube.body_a_idx, tube.body_b_idx)),
+            tube.diameter, tube.pressure, string(tube.law), tube_model_name(tube.model),
+            [tube_model_value(tube, field) for field in model_fields]...,
+            vector3(tube.anchor_a_b - body_a.extra_com_offset_b),
+            vector3(tube.anchor_b_b - body_b.extra_com_offset_b)]
+    end
+    return table(columns, rows)
+end
+
+"""The `model` column naming `model` in [`YAML_TUBE_MODELS`](@ref)."""
+tube_model_name(model::AbstractTubeModel) =
+    only(name for (name, (type, _)) in YAML_TUBE_MODELS if model isa type)
+
+"""`tube.model`'s `field` as a document value, or `nothing` where it has none."""
+function tube_model_value(tube::Tube, field::Symbol)
+    hasfield(typeof(tube.model), field) || return nothing
+    value = getfield(tube.model, field)
+    field in rigidity_fields(tube.model) || return value
+    return linear_rigidity(value, "tube $(tube.name) $field")
+end
 
 # ==================== READING ==================== #
 
@@ -267,51 +301,45 @@ timoshenko_joint_rows(sys::SystemStructure) =
     sys_struct_from_document(doc::AbstractDict; set=nothing, vsm_set=nothing,
                              wind_mode=ProfileWind(), prn=true)
 
-Build the `SystemStructure` a parsed structure document describes. `set`
-supplies what the schema has no column for — the winch friction and inertia, the
-tether material defaults — and falls back to the `base` settings.
+Build the `SystemStructure` a parsed structure document describes, starting in the
+initial pose the document gives, without [`place!`](@ref). `set` supplies what the
+schema has no column for — the winch friction and inertia, the tether material
+defaults — and falls back to the `base` settings. A column the reader does not know is
+ignored.
 
-The document is the truth for what it carries: each body's own mass, inertia,
-COM offset and CAD origin are taken from its row rather than re-derived from the
-points, and `reinit!` adds the points it carries.
+The document is the truth for what it carries: each body's own mass, inertia and
+origin are taken from its row rather than re-derived from the points. A document
+with wings is refused: it holds the wings where they are placed, but not the frame
+their aerodynamic geometry is written in.
 """
 function sys_struct_from_document(doc::AbstractDict; set=nothing, vsm_set=nothing,
         wind_mode::WindMode=ProfileWind(), prn::Bool=true)
     metadata = doc["metadata"]
     check_document_version(metadata)
-    rows = Dict(block => document_rows(doc, block) for block in keys(DOCUMENT_HEADERS))
-    check_connectivity(metadata, rows["points"], rows["segments"])
+    rows = Dict(block => document_rows(doc, block)
+                for block in [collect(keys(DOCUMENT_COLUMNS)); "tubes"])
+    check_connectivity(metadata, rows)
+    isempty(rows["wings"]) || error(
+        "The document has wings ($(join((row["name"] for row in rows["wings"]), ", "))); " *
+        "reading a wing back is not supported yet (SymbolicAWEModels.jl#396).")
     resolved_set = isnothing(set) ? load_settings("base") : set
 
-    wing_rows = filter(is_wing_row, rows["bodies"])
-    wing_by_body = Dict(row["name"] => is_wing_row(row) ? row["name"] : row["wing"]
-                        for row in rows["bodies"])
-
     sys_struct = SystemStructure(string(metadata["name"]), resolved_set;
-        points = Point[read_point(row, wing_by_body) for row in rows["points"]],
-        stations = Station[read_station(row) for row in rows["stations"]],
+        points = Point[read_point(row) for row in rows["points"]],
         segments = Segment[read_segment(row) for row in rows["segments"]],
         pulleys = Pulley[read_pulley(row) for row in rows["pulleys"]],
         tethers = Tether[read_tether(row) for row in rows["tethers"]],
         winches = Winch[read_winch(row, resolved_set) for row in rows["winches"]],
-        wings = Body[read_wing(row, rows["stations"], resolved_set, vsm_set)
-                     for row in wing_rows],
-        bodies = Body[read_body(row) for row in rows["bodies"] if !is_wing_row(row)],
-        elastic_joints = ElasticJoint[read_elastic_joint(row)
-                                      for row in rows["elastic_joints"]],
-        timoshenko_joints = TimoshenkoJoint[read_timoshenko_joint(row)
-                                            for row in rows["timoshenko_joints"]],
-        vsm_set, wind_mode, prn)
+        bodies = Body[read_body(row) for row in rows["bodies"]],
+        tubes = load_yaml_tubes(doc, Symbol),
+        placed = true, vsm_set, wind_mode, prn)
 
     for row in rows["bodies"]
-        apply_body_row!(sys_struct, sys_struct.bodies[Symbol(row["name"])], row)
+        apply_body_row!(sys_struct.bodies[Symbol(row["name"])], row)
     end
-    reinit!(sys_struct, resolved_set; prn)
+    update_mass_properties!(sys_struct; prn)
     return sys_struct
 end
-
-"""A body row carries aero, which is what makes it a wing."""
-is_wing_row(row) = !isnothing(row["aero"])
 
 """
     document_rows(doc, block) -> Vector{OrderedDict{String, Any}}
@@ -342,17 +370,20 @@ function check_document_version(metadata::AbstractDict)
 end
 
 """Check that `connectivity_sha` and `n_points` describe the document's own tables."""
-function check_connectivity(metadata::AbstractDict, points, segments)
+function check_connectivity(metadata::AbstractDict, rows)
+    points, bodies = rows["points"], rows["bodies"]
     length(points) == metadata["n_points"] || error(
         "The document holds $(length(points)) points but its metadata claims " *
         "$(metadata["n_points"]).")
-    row_number = Dict(row["name"] => i for (i, row) in enumerate(points))
-    endpoints = [(row_number[row["points"][1]], row_number[row["points"][2]])
-                 for row in segments]
-    computed = connectivity_sha(length(points), endpoints)
+    point_row = Dict(row["name"] => i for (i, row) in enumerate(points))
+    body_row = Dict(row["name"] => i for (i, row) in enumerate(bodies))
+    computed = document_connectivity(length(points),
+        [Tuple(point_row[name] for name in row["points"]) for row in rows["segments"]],
+        length(bodies),
+        [Tuple(body_row[name] for name in row["bodies"]) for row in rows["tubes"]])
     computed == metadata["connectivity_sha"] || error(
         "connectivity_sha $(metadata["connectivity_sha"]) does not describe the " *
-        "document's own points and segments (computed $computed).")
+        "document's own points, segments, bodies and tubes (computed $computed).")
     return nothing
 end
 
@@ -379,31 +410,27 @@ function named_model(name::AbstractString, ::Type{T}) where T
 end
 
 """
-    read_point(row, wing_by_body) -> Point
+    optional_columns(row, columns) -> NamedTuple
 
-The point `row` describes. A `Point` wants the wing as well as the body, which
-the document leaves to the body's own row: `wing_by_body` maps each body name to
-the wing it is part of.
+The keyword arguments `row` carries among `columns` (column => keyword pairs), each
+as a `Float64`, leaving out a column the row lacks so the constructor's default holds.
 """
-read_point(row, wing_by_body) = Point(Symbol(row["name"]), vector3(row["pos_cad"]),
+optional_columns(row, columns) =
+    (; (keyword => Float64(row[column]) for (column, keyword) in columns
+        if !isnothing(get(row, column, nothing)))...)
+
+read_point(row) = Point(Symbol(row["name"]), vector3(row["pos_ENU"]),
     parse_dynamics_type(row["type"]); body = optional_symbol(row["body"]),
-    wing = optional_symbol(isnothing(row["body"]) ? row["wing"] :
-                           wing_by_body[row["body"]]),
-    extra_mass = Float64(row["mass"]), area = Float64(row["drag_area"]),
+    extra_mass = Float64(row["extra_mass"]), area = Float64(row["drag_area"]),
     drag_coeff = Float64(row["drag_coefficient"]))
 
 read_segment(row) = Segment(Symbol(row["name"]), Symbol(row["points"][1]),
     Symbol(row["points"][2]),
     linear_rigidity(row["unit_stiffness"], "segment $(row["name"]) unit_stiffness"),
-    Float64(row["unit_damping"]), Float64(row["diameter"]);
+    Float64(get(row, "unit_damping", 0.0)), Float64(row["diameter"]);
     l0 = Float64(row["l0"]), density = Float64(row["density"]),
-    compression_frac = Float64(row["compression_frac"]),
-    compression_damping_frac = Float64(row["compression_damping_frac"]))
-
-read_station(row) = Station(Symbol(row["name"]), Symbol.(row["points"]),
-    parse_dynamics_type(row["type"]), Float64(get(row, "moment_frac", 0.0));
-    wing = Symbol(row["wing"]),
-    stiffness = Float64(row["stiffness"]), damping = Float64(row["damping"]))
+    optional_columns(row, ("compression_frac" => :compression_frac,
+                           "compression_damping_frac" => :compression_damping_frac))...)
 
 read_pulley(row) = Pulley(Symbol(row["name"]), Symbol(row["segments"][1]),
     Symbol(row["segments"][2]), parse_dynamics_type(row["type"]);
@@ -412,89 +439,29 @@ read_pulley(row) = Pulley(Symbol(row["name"]), Symbol(row["segments"][1]),
 read_tether(row) = Tether(Symbol(row["name"]), Symbol.(row["segments"]);
     start_point = Symbol(row["start_point"]), end_point = Symbol(row["end_point"]))
 
-read_winch(row, set) = Winch(Symbol(row["name"]), Symbol.(row["tethers"]),
-    Float64(row["gear_ratio"]), Float64(row["drum_radius"]),
-    set.f_coulomb, set.c_vf, set.inertia_total;
-    winch_point = Symbol(row["winch_point"]),
-    model = named_model(row["model"], AbstractWinchModel))
-
-read_body(row) = Body(Symbol(row["name"]); extra_mass = Float64(row["mass"]),
-    inertia_principal = vector3(row["inertia_principal"]),
-    pos = vector3(row["pos_cad"]),
-    com_offset_b = vector3(row["com_offset_KA"]),
-    type = parse_dynamics_type(row["type"]), wing = optional_symbol(row["wing"]))
-
-"""
-    read_wing(row, station_rows, set, vsm_set) -> Body
-
-The aero-carrying body `row` describes, with the stations whose `wing` names it.
-"""
-function read_wing(row, station_rows, set, vsm_set)
-    parse_dynamics_type(row["type"]) == KINEMATIC && error(
-        "Wing $(row["name"]) is KINEMATIC, a PARTICLE_DYNAMICS wing whose body " *
-        "frame is fitted to reference points $STRUCTURE_SCHEMA has no column for.")
-    stations = [Symbol(station["name"]) for station in station_rows
-                if station["wing"] == row["name"]]
-    return VSMWing(Symbol(row["name"]), set, stations, vsm_set;
-        transform = 0, dynamics_type = RIGID_DYNAMICS,
-        aero = named_model(row["aero"], AbstractAeroModel),
-        pos_cad = vector3(row["pos_cad"]), extra_mass = Float64(row["mass"]),
-        inertia_diag = KVec3(vector3(row["inertia_principal"])))
+function read_winch(row, set)
+    model = get(row, "model", nothing)
+    return Winch(Symbol(row["name"]), Symbol.(row["tethers"]),
+        Float64(row["gear_ratio"]), Float64(row["drum_radius"]),
+        set.f_coulomb, set.c_vf, set.inertia_total;
+        winch_point = Symbol(row["winch_point"]),
+        (isnothing(model) ? (;) :
+         (; model = named_model(model, AbstractWinchModel)))...)
 end
 
-read_elastic_joint(row) = ElasticJoint(Symbol(row["name"]),
-    Symbol(row["bodies"][1]), Symbol(row["bodies"][2]);
-    anchor_a = vector3(row["anchors_KA"][1]),
-    anchor_b = vector3(row["anchors_KA"][2]),
-    stiffness_axial = linear_rigidity(row["stiffness_axial"],
-                                      "joint $(row["name"]) axial"),
-    stiffness_shear = linear_rigidity(row["stiffness_shear"],
-                                      "joint $(row["name"]) shear"),
-    stiffness_torsion = linear_rigidity(row["stiffness_torsion"],
-                                        "joint $(row["name"]) torsion"),
-    stiffness_bending = linear_rigidity(row["stiffness_bending"],
-                                        "joint $(row["name"]) bending"),
-    damping = Float64(row["damping"]), radius = optional_length(row["radius"]))
-
-read_timoshenko_joint(row) = TimoshenkoJoint(Symbol(row["name"]),
-    Symbol(row["bodies"][1]), Symbol(row["bodies"][2]);
-    anchor_a = vector3(row["anchors_KA"][1]),
-    anchor_b = vector3(row["anchors_KA"][2]),
-    EA = linear_rigidity(row["EA"], "joint $(row["name"]) EA"),
-    GA = linear_rigidity(row["GA"], "joint $(row["name"]) GA"),
-    GJ = linear_rigidity(row["GJ"], "joint $(row["name"]) GJ"),
-    EIy = linear_rigidity(row["EIy"], "joint $(row["name"]) EIy"),
-    EIz = linear_rigidity(row["EIz"], "joint $(row["name"]) EIz"),
-    shear_coeff = Float64(row["shear_coeff"]), damping = Float64(row["damping"]),
-    rest_length = Float64(row["rest_length"]),
-    radius = optional_length(row["radius"]))
+read_body(row) = Body(Symbol(row["name"]); extra_mass = Float64(row["extra_mass"]),
+    inertia = yaml_matrix3(row["extra_inertia_KA"]), pos = vector3(row["pos_ENU"]),
+    Q_b_to_w = Float64.(row["Q_KA_to_ENU"]), type = parse_dynamics_type(row["type"]))
 
 """
-Overwrite the own mass properties and CAD origin `SystemStructure` derives for
-`body` with the document's.
+Overwrite the own mass properties `SystemStructure` derives for `body` with the
+document's, about the origin its row places.
 """
-function apply_body_row!(sys_struct::SystemStructure, body::Body, row)
-    body.extra_mass = Float64(row["mass"])
-    body.apparent_mass = Float64(row["apparent_mass"])
-    body.extra_inertia_b .= Diagonal(vector3(row["inertia_principal"]))
-    body.extra_com_offset_b .= vector3(row["com_offset_KA"])
-    move_body_origin!(sys_struct, body, vector3(row["pos_cad"]))
-    return body
-end
-
-"""
-    move_body_origin!(sys_struct, body, pos_cad)
-
-Move `body`'s origin to `pos_cad` [m] in the CAD frame, re-expressing its COM
-offset and the anchors of the points it carries from there.
-"""
-function move_body_origin!(sys_struct::SystemStructure, body::Body, pos_cad)
-    shift_b = body.R_b_to_c' * (body.pos_cad - pos_cad)
-    body.pos_cad .= pos_cad
-    body.com_offset_b .+= shift_b
-    for point in sys_struct.points
-        point.body_idx == body.idx && (point.anchor_b = KVec3(point.anchor_b + shift_b))
-    end
+function apply_body_row!(body::Body, row)
+    body.extra_mass = Float64(row["extra_mass"])
+    body.apparent_mass = Float64(get(row, "apparent_mass", 0.0))
+    body.extra_inertia_b .= yaml_matrix3(row["extra_inertia_KA"])
+    body.extra_com_offset_b .= 0.0
     return body
 end
 

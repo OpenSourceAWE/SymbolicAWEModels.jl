@@ -72,8 +72,9 @@ function deform_trailing_edge!(sys, wing, base_pos, delta)
     for surface in sys.stations
         length(surface.point_idxs) >= 2 || continue
         trailing = sys.points[surface.point_idxs[2]]
-        side = sign(trailing.pos_cad[2])
-        side == 0 && continue
+        span = SymbolicAWEModels.initial_body_position(wing, trailing)[2]
+        abs(span) < 1e-9 && continue
+        side = sign(span)
         trailing.pos_w .+= (side * delta) .* normal_w
     end
     return nothing
@@ -161,10 +162,6 @@ which they are depends on the model and on what the compiler
 tears, so running this for every model the suite builds is what
 covers the combinations.
 
-`reinit_sys=false` keeps `init!` from calling
-`reinit!(sys_struct, set)`, which would reset positions from
-the CAD frame and discard the loaded state.
-
 Scrambling matters: without it an `update_from_sysstate!` that
 restored nothing would still pass, since the structure already
 holds the right values. `sys.state_vars` scrambles every field a
@@ -188,7 +185,7 @@ function validate_sysstate_roundtrip(sam; rtol = 1e-10)
     # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
     sys.state_vars = 1.5 .* vec(sys.state_vars) .+ 0.25
     update_from_sysstate!(sys, reloaded.syslog[1])
-    init!(sam; remake = false, reinit_sys = false, prn = false)
+    init!(sam; remake = false, prn = false)
     @test length(sam.integrator.u) == length(expected)
     @test isapprox(sam.integrator.u, expected; rtol)
     return nothing

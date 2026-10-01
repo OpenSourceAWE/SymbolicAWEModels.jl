@@ -151,8 +151,8 @@ end
         write_yaml(tmpdir, "variables.yaml", VARIABLES_YAML);
         system_name="variables_test", set)
 
-    @test sys.points[:anchor].pos_cad ≈ [1.0, 2.0, 0.0]
-    @test sys.points[:top].pos_cad ≈ [1.0, 2.0, -10.0]
+    @test sys.points[:anchor].pos_ENU ≈ [1.0, 2.0, 0.0]
+    @test sys.points[:top].pos_ENU ≈ [1.0, 2.0, -10.0]
 
     # A multi-variable fills the three columns at its position
     thin_line = sys.segments[:thin_line]

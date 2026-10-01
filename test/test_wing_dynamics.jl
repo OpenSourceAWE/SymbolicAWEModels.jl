@@ -227,9 +227,8 @@ end
         @test wing.extra_mass == 0
         @test wing.total_mass ≈ 3.0  # 6 points * 0.5 kg
         @test length(sys.segments) == 0
-        # No ref points: body frame = CAD orientation, not principal.
-        @test wing.R_b_to_c ≈ I(3) atol=1e-12
-        @test wing.R_b_to_p ≈ wing.R_p_to_c' atol=1e-12
+        # No ref points: body frame = world orientation, not principal.
+        @test SymbolicAWEModels.initial_rotation(wing) ≈ I(3) atol=1e-12
         # This wing has a nonzero xz inertia product, so body ≠ principal.
         @test !isapprox(wing.R_b_to_p, I(3); atol=0.01)
     end
@@ -278,7 +277,8 @@ end
         omega_init = collect(wing.R_b_to_p' * omega_principal)
         wing.ω_b .= omega_init
         wing.vel_w .= 0.0
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
 
         Q0 = copy(wing.Q_b_to_w)
         println("  I_b = $(round.(I_b; digits=4))")
@@ -323,18 +323,16 @@ end
         @test max_norm_err < 1e-4
     end
 
-    # ========== reset_vel init behaviour ========== #
-    # reset_vel=false must keep the struct velocities/spin set before init!;
-    # reset_vel=true must zero them (and the derived principal-frame state).
+    # ========== init! takes the structure as placed ========== #
 
-    @testset "reset_vel preserves vs zeros velocity" begin
+    @testset "init! keeps set velocities, place! zeros them" begin
         wing = sam.sys_struct.bodies[:main_wing]
         vel_set = [1.5, -0.7, 2.3]
         omega_set = collect(wing.R_b_to_p' * [0.0, 0.0, 4.0])
 
         wing.vel_w .= vel_set
         wing.ω_b .= omega_set
-        test_init!(sam; prn=false, reset_vel=false)
+        test_init!(sam; prn=false)
         @test wing.vel_w ≈ vel_set atol=1e-10
         @test wing.ω_b ≈ omega_set atol=1e-10
         @test norm(wing.com_vel) > 1e-6
@@ -342,7 +340,8 @@ end
 
         wing.vel_w .= vel_set
         wing.ω_b .= omega_set
-        test_init!(sam; prn=false, reset_vel=true)
+        place!(sam.sys_struct; prn=false)
+        test_init!(sam; prn=false)
         @test norm(wing.vel_w) < 1e-10
         @test norm(wing.ω_b) < 1e-10
         @test norm(wing.com_vel) < 1e-10
@@ -372,7 +371,8 @@ end
         # omega_init is a principal-frame vector; ω_b is body frame.
         wing.ω_b .= wing.R_b_to_p' * omega_init
         wing.vel_w .= 0.0
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
 
         T_prec = 2pi / pc.Omega
         amp_q = abs(eps * pc.Omega / pc.C_pq)

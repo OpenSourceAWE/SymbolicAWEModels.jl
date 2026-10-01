@@ -74,7 +74,7 @@ These examples demonstrate the building blocks without aerodynamics:
 | `pulley.jl` | Pulley system with winch control |
 | `saddle_form.jl` | Complex mesh demonstrating 3D structures |
 | `airbag.jl` | Pressurized square membrane inflating under internal gauge pressure |
-| `inflated_beam_fit.jl` | Fits a nonlinear bending law for a pressurised tube and validates the [`Body`](@ref)/[`ElasticJoint`](@ref) chain as a cantilever |
+| `inflated_beam_fit.jl` | Fits a nonlinear bending law for a pressurised tube and validates the [`Body`](@ref)/[`ElasticTube`](@ref) chain as a cantilever |
 | `custom_tape_winch.jl` | Plugging in a custom [`AbstractWinchModel`](@ref) |
 
 ## Coupled examples
