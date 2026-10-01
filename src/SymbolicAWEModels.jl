@@ -136,6 +136,7 @@ export record
 export plot_sphere_trajectory
 export plot_body_frame
 export plot_aoa
+export plot_station_loads!, plot_panel_polar!, plot_panel_pressure!
 
 set_zero_subnormals(true)       # required to avoid drastic slow down on Intel CPUs when numbers become very small
 
@@ -198,6 +199,42 @@ observables. Modes drawn through the geometry observable (flat-plate quads)
 need no update here. Defined in the Makie extension.
 """
 function update_wing_aero_plot! end
+
+"""
+    plot_station_loads!(ax, sys, station_idx; force_scale=1e-3, color=:black,
+                        label=nothing, linewidth=1.5)
+
+Draw the chordwise cut of structural station `station_idx` into the 2D axis `ax`:
+its points in the wing's body-frame x–z plane [m], joined in chord order, and the
+aerodynamic force on each point as an arrow of `force_scale` [m/N]. Returns the
+arrow plot. Defined in the Makie extension.
+"""
+function plot_station_loads! end
+
+"""
+    plot_panel_polar!(ax, sys, panel_idx; wing_idx=1, coefficient=:cl,
+                      alpha=deg2rad.(-10:0.25:25), color=:black, label=nothing,
+                      linewidth=1.5)
+
+Plot the polar VSM panel `panel_idx` currently flies, `coefficient` (`:cl`, `:cd`
+or `:cm`) against angle of attack [deg] over `alpha` [rad], with a marker at the
+panel's angle of attack from the last solve. With live polars this is the polar
+regenerated from the deformed shape. Returns the marker plot. Defined in the Makie
+extension.
+"""
+function plot_panel_polar! end
+
+"""
+    plot_panel_pressure!(ax, sys, panel_idx; wing_idx=1, color=:black,
+                         label=nothing, linewidth=1.5)
+
+Plot `-Cp` against chord fraction over the airfoil contour of VSM panel
+`panel_idx`, at its angle of attack from the last solve: the traction pattern an
+[`AeroPressure`](@ref) wing spreads the panel force with. Returns the line plot.
+Defined in the Makie extension.
+"""
+function plot_panel_pressure! end
+
 function find_steady_state! end
 function make_lin_sys_state end
 

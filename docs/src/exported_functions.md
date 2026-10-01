@@ -234,6 +234,21 @@ same panels for comparison.
     backend exports a `plot` of its own, so load the backend with `import
     GLMakie` rather than `using GLMakie` to keep the name unambiguous.
 
+### Aerodynamic section plots
+
+Three functions draw one wing section into a 2D `Axis`, so that aero modes can be compared side by side: the point loads a structural station carries, the polar a VSM panel flies, and the `Cp` pattern an [`AeroPressure`](@ref) wing spreads the panel force with.
+```julia
+fig = Figure()
+ax = Axis(fig[1, 1]; aspect=DataAspect())
+plot_station_loads!(ax, sys, 5; force_scale=2e-3)
+```
+
+```@docs
+plot_station_loads!
+plot_panel_polar!
+plot_panel_pressure!
+```
+
 ## Inflated-tube rigidity laws
 
 Rigidities for the [`TimoshenkoJoint`](@ref)s of a beam wing whose leading edge

@@ -356,6 +356,14 @@ aero_poses = [
                 @test solver.sol.gamma_distribution != gamma
             end
 
+            case.reference == :vsm &&
+            @testset "t_vsm times only a step that refreshes the aero" begin
+                next_step!(sam; dt=0.05, vsm_interval=1)
+                @test sam.t_vsm > 0
+                next_step!(sam; dt=0.05, vsm_interval=0)
+                @test sam.t_vsm == 0
+            end
+
             # A KINEMATIC wing's body frame is fitted from reference points, so
             # its angular velocity is the rate of that fit — not zero, which is
             # what it used to be hardcoded to. Diagnostic only, but

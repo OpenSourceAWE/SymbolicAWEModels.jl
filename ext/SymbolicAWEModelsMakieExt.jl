@@ -4181,6 +4181,46 @@ function SymbolicAWEModels.plot_aoa(sys_struct::SystemStructure;
     return fig
 end
 
+function SymbolicAWEModels.plot_station_loads!(ax, sys::SystemStructure, station_idx;
+        force_scale=1e-3, color=:black, label=nothing, linewidth=1.5)
+    points = sys.points[sys.stations[station_idx].point_idxs]
+    sort!(points; by=point -> point.pos_b[1])
+    chord = [Point2f(point.pos_b[1], point.pos_b[3]) for point in points]
+    loads = [Vec2f(force_scale * point.aero_force_b[1],
+                   force_scale * point.aero_force_b[3]) for point in points]
+    lines!(ax, chord; color, linewidth, label)
+    scatter!(ax, chord; color, markersize=5)
+    return arrows2d!(ax, chord, loads; color, shaftwidth=linewidth, tiplength=6,
+                     tipwidth=6)
+end
+
+function SymbolicAWEModels.plot_panel_polar!(ax, sys::SystemStructure, panel_idx;
+        wing_idx=1, coefficient=:cl, alpha=deg2rad.(-10:0.25:25), color=:black,
+        label=nothing, linewidth=1.5)
+    coefficient in (:cl, :cd, :cm) ||
+        throw(ArgumentError("coefficient must be :cl, :cd or :cm, got :$coefficient"))
+    wing = sys.wings[wing_idx]
+    panel = wing.vsm_aero.panels[panel_idx]
+    calculate = getproperty(VortexStepMethod, Symbol(:calculate_, coefficient))
+    alpha_now = wing.vsm_solver.sol.alpha_dist[panel_idx]
+    lines!(ax, rad2deg.(alpha), [calculate(panel, angle) for angle in alpha];
+           color, linewidth, label)
+    return scatter!(ax, [rad2deg(alpha_now)], [calculate(panel, alpha_now)];
+                    color, markersize=8)
+end
+
+function SymbolicAWEModels.plot_panel_pressure!(ax, sys::SystemStructure, panel_idx;
+        wing_idx=1, color=:black, label=nothing, linewidth=1.5)
+    wing = sys.wings[wing_idx]
+    wing.aero isa AeroPressure ||
+        throw(ArgumentError("wing $wing_idx carries $(nameof(typeof(wing.aero))); " *
+                            "a pressure distribution needs AeroPressure"))
+    alpha = wing.vsm_solver.sol.alpha_dist[panel_idx]
+    x, _, cp, _ = SymbolicAWEModels.surface_pattern(wing.aero,
+        wing.vsm_aero.panels[panel_idx], panel_idx, alpha)
+    return lines!(ax, x, -cp; color, linewidth, label)
+end
+
 using PrecompileTools: @setup_workload, @compile_workload, workload_enabled
 
 # @setup_workload would read this extension module's preference, not the package's.
