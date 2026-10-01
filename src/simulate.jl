@@ -120,7 +120,6 @@ function sim!(
         lin_sim_log = load_log("tmp_run_lin")
     end
 
-    mkpath(get_data_path())
     save_log(logger, "tmp_run")
     sim_log = load_log("tmp_run")
     
@@ -248,8 +247,6 @@ function sim_reposition!(
         println("Times realtime: $(dt*steps/time)")
     end
 
-    # Save and return the log
-    mkpath(get_data_path())
     save_log(logger, "tmp_reposition_run")
     return load_log("tmp_reposition_run")
 end

@@ -250,6 +250,15 @@ seg1_blue(segment) = segment.name == :seg1 ? :blue : :red
             GLMakie.to_color.([:red, :blue])
     end
 
+    # ================================================================
+    # Test 7: A bare record filename lands in the output folder
+    # ================================================================
+    @testset "Bare record filename lands in the output folder" begin
+        SymbolicAWEModels.record(lg1, sys1, "bare_name.mp4"; framerate=10)
+        @test isfile(joinpath(get_output_path(), "bare_name.mp4"))
+        @test !isfile("bare_name.mp4")
+    end
+
     # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
 end
 

@@ -267,6 +267,10 @@ unsteady_aero
 apply_apparent_mass!
 ```
 
+## Output folder
+
+Simulation results — logs, videos, replay screenshots — go to the output folder, `output` in the working directory until `set_output_path` says otherwise; `save_log` and `load_log` use it when no `path` is passed, and `get_output_path()` returns it. `data` holds what a run reads and the output folder what it writes, so the output folder can be deleted at any time. A long run that wants its results kept apart from the next one points `set_output_path` at a folder of its own. Both functions are re-exported from [KiteUtils](https://opensourceawe.github.io/KiteUtils.jl/dev/functions/), where they are documented.
+
 ## Utility and helper functions
 
 ```@docs
