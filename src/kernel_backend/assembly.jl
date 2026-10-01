@@ -1285,7 +1285,7 @@ end
     bind_segment_winds!(slots, readers, system, sys_struct, segment_instances)
 
 Point each segment's `src_wind`/`dst_wind` parameters at its two endpoints'
-`point.wind_vec`, which is how a [`PerPointWind`](@ref) segment reads the wind of the
+`point.wind_vec`, which is how a [`PrescribedWind`](@ref) segment reads the wind of the
 points it spans: a segment kernel is instanced over `:segments`, so its endpoints
 cannot both be reached through the registry's per-instance index remapping.
 [`segment_wind_params`](@ref) mints these parameters, so nothing else binds them; a

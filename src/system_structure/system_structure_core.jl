@@ -53,7 +53,7 @@ mutable struct SystemStructure{J<:ElasticJoint}
     stabilize::Bool
     fix_wing::Bool
     vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
-    "Where the wind comes from: [`ProfileWind`](@ref) or [`PerPointWind`](@ref)."
+    "Where the wind comes from: a [`WindMode`](@ref)."
     wind_mode::WindMode
 end
 
@@ -982,7 +982,8 @@ of the same structural shape should share one.
 - `points`, `stations`, `segments`, etc.: Vectors of the system components.
 - `vsm_set`: `VSMSettings` for VSM wings; read from `vsm_settings.yaml` when omitted.
 - `wind_mode::WindMode=ProfileWind()`: [`PerPointWind`](@ref) makes every point's
-  `wind_vec` a settable parameter instead of a height-profile output.
+  `wind_vec` a settable parameter instead of a height-profile output,
+  [`TurbulentWind`](@ref) fills it from the turbulent wind field.
 - `ignore_l0::Bool=false`: Set every segment `l0` to its placed length
   ([`relax_segments!`](@ref)).
 - `prn::Bool=true`: If true, print info messages about auto-generated components.

@@ -560,7 +560,9 @@ end
 Advance the simulation by one time step, optionally
 updating control inputs and re-linearizing the VSM
 model, then update the `SystemStructure` from the ODE
-integrator. Errors on an unstable solver retcode.
+integrator. Under [`TurbulentWind`](@ref) the winds are
+sampled at the start of the step and held through it.
+Errors on an unstable solver retcode.
 
 # Keyword Arguments
 - `set_values=nothing`: Control input values.
@@ -592,6 +594,9 @@ function next_step!(sam::SymbolicAWEModel;
     end
     if prob isa ProbWithAttributes && !isnothing(prob.set_set_values)
         prob.set_set_values(integrator, set_values)
+    end
+    if sam.sys_struct.wind_mode isa TurbulentWind
+        update_turbulent_wind!(sam.sys_struct, integrator.t)
     end
     if prob isa ProbWithAttributes
         sync_params!(prob.param_sync, integrator, sam.sys_struct)

@@ -719,6 +719,45 @@ function seed_per_point_wind!(sys_struct::SystemStructure)
     return nothing
 end
 
+"""
+    update_turbulent_wind!(sys_struct::SystemStructure, t)
+
+Write the wind of the turbulent field at time `t` [s] into every point's and wing's
+`wind_vec`, each sampled at its own position with the height raised to at least
+$(AtmosphericModels.MIN_TETHER_HEIGHT) m. The winds of a [`TurbulentWind`](@ref) structure.
+"""
+function update_turbulent_wind!(sys_struct::SystemStructure, t)
+    (; points, wings, set) = sys_struct
+    (; positions, winds) = sys_struct.wind_mode::TurbulentWind
+    n_points = length(points)
+    resize!(positions, n_points + length(wings))
+    resize!(winds, length(positions))
+    for (i, point) in enumerate(points)
+        positions[i] = sample_position(point.pos_w)
+    end
+    for (i, wing) in enumerate(wings)
+        positions[n_points + i] = sample_position(wing.pos_w)
+    end
+    calc_turbulent_wind!(winds, sys_struct.am, positions, t;
+                         upwind_dir=deg2rad(set.upwind_dir),
+                         upwind_elevation=deg2rad(set.upwind_elevation), interpolate=true)
+    for (i, point) in enumerate(points)
+        point.wind_vec .= winds[i]
+    end
+    for (i, wing) in enumerate(wings)
+        wing.wind_vec .= winds[n_points + i]
+    end
+    return nothing
+end
+
+"""
+    sample_position(pos)
+
+`pos` with its height raised to the lowest one the turbulent wind field is sampled at.
+"""
+sample_position(pos) =
+    SVec3(pos[1], pos[2], max(pos[3], AtmosphericModels.MIN_TETHER_HEIGHT))
+
 # ==================== REINIT! FOR SYSTEM STRUCTURE ==================== #
 
 """
@@ -791,13 +830,16 @@ end
 """
     init_wind!(sys_struct::SystemStructure, set::Settings)
 
-Set each wing's wind from the ground wind `set.wind_vec` at the wing's height, or
-seed every point and wing with it under [`PerPointWind`](@ref), and initialise each
-wing's aerodynamic operating point from that wind.
+Set each wing's wind from the ground wind `set.wind_vec` at the wing's height, seed
+every point and wing with it under [`PerPointWind`](@ref), or sample the turbulent
+field at `t = 0` under [`TurbulentWind`](@ref), and initialise each wing's aerodynamic
+operating point from that wind.
 """
 function init_wind!(sys_struct::SystemStructure, set::Settings)
     (; wings) = sys_struct
-    if per_point_wind(sys_struct)
+    if sys_struct.wind_mode isa TurbulentWind
+        update_turbulent_wind!(sys_struct, 0.0)
+    elseif per_point_wind(sys_struct)
         seed_per_point_wind!(sys_struct)
     else
         wind_factor = WindFactor(sys_struct.am, set.profile_law)

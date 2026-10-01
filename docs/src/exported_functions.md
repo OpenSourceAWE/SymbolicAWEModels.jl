@@ -118,10 +118,23 @@ the VSM panels through the per-point inflow the panels already interpolate.
 `init!` seeds every point and wing with `set.wind_vec`, so a model that is never
 written to flies in a uniform wind.
 
+[`TurbulentWind`](@ref) writes those winds itself: at the start of every step
+each point and wing gets the wind of the `AtmosphericModels` turbulent field at
+its own position and the integrator's time, held through the step. The mean wind
+points along `set.upwind_dir` and `set.upwind_elevation`, so with the turbulence
+switched off each point flies in the profile wind of its own height.
+`set.use_turbulence` scales the turbulence; the field is generated once per
+`environment.grid` and ground wind speed and cached.
+
+```julia
+sys_struct = load_sys_struct_from_yaml(path; set, wind_mode=TurbulentWind())
+```
+
 ```@docs
 WindMode
 ProfileWind
 PerPointWind
+TurbulentWind
 per_point_wind
 ```
 

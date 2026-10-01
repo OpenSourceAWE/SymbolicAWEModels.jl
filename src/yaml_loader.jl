@@ -695,7 +695,8 @@ end
 Build a `SystemStructure` from a component-based structural
 YAML file. See source for full documentation of expected blocks.
 `wind_mode=PerPointWind()` builds a structure whose points carry their own settable
-wind. `prn=false` silences the transform, wing-frame and aero-setup messages loading
+wind, `wind_mode=TurbulentWind()` one that flies in the turbulent wind field.
+`prn=false` silences the transform, wing-frame and aero-setup messages loading
 a structure prints.
 """
 function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml", set::Union{Nothing,Settings}=nothing, ignore_l0::Bool=false, dynamics_type::Union{Nothing,WingType}=nothing, aero_mode::Union{Nothing,AbstractAeroModel}=nothing, vsm_set::Union{Nothing,VortexStepMethod.VSMSettings}=nothing, wing_type::Union{Nothing,WingType}=nothing, wind_mode::WindMode=ProfileWind(), prn::Bool=true)
