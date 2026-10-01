@@ -8,6 +8,9 @@
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: panel_force_slots, panel_force_eqs
+using SymbolicAWEModels: Point, Segment, Tether, Winch, PlateWing, Station,
+    Transform, SystemStructure, create_plate_interpolations, PARTICLE_DYNAMICS
+using KiteUtils
 using SymbolicAWEModels.ModelingToolkit: Symbolics
 using Profile
 using LinearAlgebra
@@ -317,4 +320,78 @@ function diagnose_rhs(f, du, u, p, t)
         end
     end
     return nothing
+end
+
+"""
+    build_plate_kite(data_root)
+
+The kps4 flat-plate kite built programmatically: three 1-point `STATIC` twist
+surfaces (`main`, `right_tip`, `left_tip`) carrying one shared CL/CD polar set.
+Returns `(set, sys)`.
+"""
+function build_plate_kite(data_root)
+    data_path = joinpath(data_root, "kps4")
+    cp(joinpath(dirname(@__DIR__), "data", "kps4"), data_path; force=true)
+    set_data_path(data_path)
+    set = Settings("system.yaml")
+    set.upwind_dir = rad2deg(-pi / 2)
+
+    particles = KiteUtils.get_particles(set.height_k, set.h_bridle,
+        set.width, set.m_k)
+    pos_kcu, pos_nose, pos_top = particles[2], particles[3], particles[4]
+    pos_right, pos_left = particles[5], particles[6]
+
+    kite_mass = set.mass
+    k_nose = set.rel_nose_mass * kite_mass
+    k_top = set.rel_top_mass * (1.0 - set.rel_nose_mass) * kite_mass
+    k_side = 0.5 * (1.0 - set.rel_top_mass) * (1.0 - set.rel_nose_mass) * kite_mass
+    set.mass = 0.0
+
+    pos_map = Dict(:kcu => pos_kcu, :nose => pos_nose, :top => pos_top,
+        :right => pos_right, :left => pos_left)
+    bridle_l0(a, b) = norm(pos_map[b] - pos_map[a]) * 0.9975
+
+    points = [
+        Point(:ground, zeros(3), STATIC),
+        Point(:kcu, pos_kcu, DYNAMIC; extra_mass=set.kcu_mass, transform=:main_tf),
+        Point(:nose, pos_nose, DYNAMIC; extra_mass=k_nose, transform=:main_tf),
+        Point(:top, pos_top, DYNAMIC; extra_mass=k_top, wing=:plate_wing,
+            transform=:main_tf),
+        Point(:right, pos_right, DYNAMIC; extra_mass=k_side, wing=:plate_wing,
+            transform=:main_tf),
+        Point(:left, pos_left, DYNAMIC; extra_mass=k_side, wing=:plate_wing,
+            transform=:main_tf),
+    ]
+    pairs = [(:kcu, :nose), (:right, :nose), (:right, :left), (:top, :right),
+             (:left, :kcu), (:right, :kcu), (:top, :left), (:left, :nose),
+             (:nose, :top)]
+    segments = [Segment(Symbol(a, :_, b), set, a, b; l0=bridle_l0(a, b),
+                        diameter_mm=set.d_line) for (a, b) in pairs]
+    tethers = [Tether(:main_tether, set.l_tethers[1]; start_point=:ground,
+                      end_point=:kcu, n_segments=set.segments)]
+    winches = [Winch(:winch, set, [:main_tether]; winch_point=:ground)]
+
+    rel_side = set.rel_side_area / 100.0
+    stations = [
+        Station(:main, [:top], STATIC, 0.0; x_airf=[1, 0, 0],
+            y_airf=[0, 1, 0], area=set.area, twist=deg2rad(set.alpha_zero)),
+        Station(:right_tip, [:right], STATIC, 0.0; x_airf=[1, 0, 0],
+            y_airf=[0, 0, -1], area=set.area * rel_side,
+            twist=deg2rad(set.alpha_ztip)),
+        Station(:left_tip, [:left], STATIC, 0.0; x_airf=[1, 0, 0],
+            y_airf=[0, 0, 1], area=set.area * rel_side,
+            twist=deg2rad(set.alpha_ztip)),
+    ]
+    cl_interp, cd_interp = create_plate_interpolations(set.alpha_cl, set.cl_list,
+        set.cd_list; alpha_cd=set.alpha_cd)
+    wing = PlateWing(:plate_wing, [:main, :right_tip, :left_tip],
+        cl_interp, cd_interp; dynamics_type=PARTICLE_DYNAMICS,
+        z_ref_points=([:right, :left], :top), y_ref_points=(:left, :right),
+        origin=:kcu, drag_corr=0.93 * (1.0 - rel_side))
+    transforms = [Transform(:main_tf, deg2rad(set.elevation), 0.0, 0.0;
+        base_pos=zeros(3), base_point=:ground, wing=:plate_wing)]
+
+    sys = SystemStructure("plate_aero_test", set; points, stations,
+        segments, tethers, winches, wings=[wing], transforms)
+    return set, sys
 end
