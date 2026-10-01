@@ -38,16 +38,46 @@ function Logging.handle_message(logger::FailureCounter, level, message, mod, gro
 end
 
 """
-    fly(case; sim_time) -> NamedTuple
+    settled_model(case) -> (sam, sys, kite_set)
 
-Build `case.project` under `case.mode`, fly it for `sim_time` [s] with the steering
-of `steering_offset`, and log it. Returns the run's summary, with integration and
-VSM time [s] summed from the second step on, and its model.
+Build `case.project` under `case.mode` and settle it at the flight condition of
+paper_setup.jl, as V3Kite's examples/batch_run_circles.jl does, with the winch braked.
 """
-function fly(case; sim_time)
+function settled_model(case)
     kite_set = load_kite(case.project; data_path=DATA_PATH)
     kite_set.aero_mode = case.mode
-    sam, sys = build_v3_model(case.project; data_path=DATA_PATH, kite_set)
+    kite_set.geom.tether_length = TETHER_LENGTH
+    config = V3SettleConfig(; project=case.project, kite_set, v_wind=WIND_SPEED,
+                            tether_length=TETHER_LENGTH, g_earth=GRAVITY,
+                            kcu_mass=KCU_MASS, decay_steps=30, num_steps=40,
+                            start_depower=40.0, course_correction_gain=0.0)
+    elevation = deg2rad(ELEVATION)
+    sam, _, failed = settle_wing(config; data_path=DATA_PATH,
+                                 position=TETHER_LENGTH .* [cos(elevation), 0.0,
+                                                            sin(elevation)],
+                                 velocity=zeros(3), heading=0.0, steering=0.0,
+                                 depower=DEPOWER, wind_vec=[WIND_SPEED, 0.0, 0.0])
+    failed && error("$(case.name) did not settle")
+    sys = sam.sys_struct
+    for wing_settings in sys.vsm_set.wings
+        wing_settings.use_prior_polar = true
+    end
+    for wing in sys.wings
+        wing.vsm_wing.use_prior_polar = true
+    end
+    sys.winches[1].brake = true
+    return sam, sys, kite_set
+end
+
+"""
+    fly(case; sim_time) -> NamedTuple
+
+Settle `case`, fly it for `sim_time` [s] with the steering of `steering_offset`, and
+log it. Returns the run's summary, with integration and VSM time [s] summed from the
+second step on, and its model.
+"""
+function fly(case; sim_time)
+    sam, sys, kite_set = settled_model(case)
     nominal = V3Kite.get_steering(sys, kite_set.geom)
     n_steps = round(Int, sim_time / case.dt)
     logger, sys_state = create_logger(sam, n_steps)

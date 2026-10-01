@@ -1,7 +1,6 @@
-# The particle V3 on the flight condition and NeuralFoil aero geometry of
-# system_beam.yaml.
+# V3Kite's system_psm.yaml on the NeuralFoil aero geometry of system_beam.yaml.
 system:
-  sim_settings: "sim_settings_beam.yaml"
+  sim_settings: "sim_settings_v3kite.yaml"
   structural_geometry: "struc_geometry.yaml"
   aero_geometry: "nf_aero_geometry.yaml"
   vsm_settings: "vsm_settings.yaml"

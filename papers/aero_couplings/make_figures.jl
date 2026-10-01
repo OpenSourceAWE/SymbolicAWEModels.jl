@@ -31,8 +31,9 @@ MODE_COLORS = Dict("AeroDirect" => :black, "ContinuousAero" => :dodgerblue3,
 COMPARED = ["direct_dt10", "continuous_dt10", "live_dt10", "pressure_dt10"]
 SECTIONS = ["continuous_particle", "pressure_beam", "live_beam"]
 STATION = 5             # a mid-span structural station of both V3 models
+ARROW_LENGTH = 0.8      # [m] drawn length of the largest station load
 PANEL = 20              # a VSM panel a quarter of the span from the tip
-SETTLE_TIME = 5.0       # [s] start of the window the flight statistics are taken over
+SETTLE_TIME = 30.0      # [s] start of the window the flight statistics are taken over
 
 """
     find_case(name)
@@ -47,6 +48,14 @@ find_case(name) = only(case for case in [CASES; SECTION_CASES] if case.name == n
 The log run_simulations.jl wrote for case `name`.
 """
 flight_log(name) = load_log(name; path=LOG_PATH).syslog
+
+"""
+    kite_aoa(log) -> Vector
+
+The angle of attack [deg] of the apparent wind in the kite's body frame, which V3Kite's
+`log_state!` writes to `var_04`.
+"""
+kite_aoa(log) = rad2deg.(log.var_04)
 
 """
     high_pass(signal, dt; window=0.5) -> Vector
@@ -79,7 +88,7 @@ function tracking_figure()
         log = flight_log(name)
         color = MODE_COLORS[mode]
         lines!(axes[2], log.time, first.(log.winch_force) ./ 1e3; color, label=mode)
-        lines!(axes[3], log.time, rad2deg.(log.AoA); color)
+        lines!(axes[3], log.time, kite_aoa(log); color)
     end
     Legend(fig[0, 1], axes[2]; orientation=:horizontal, framevisible=false,
            tellwidth=false, nbanks=1)
@@ -103,20 +112,30 @@ function trajectory_figure()
 end
 
 """
+    station_points(sys) -> Vector{Point}
+
+The points of structural station `STATION` of `sys`.
+"""
+station_points(sys) = sys.points[sys.stations[STATION].point_idxs]
+
+"""
     station_loads_figure() -> Figure
 
 The aero point loads of structural station `STATION` at the end of each of
-`SECTIONS`.
+`SECTIONS`, scaled so that the largest is drawn `ARROW_LENGTH` long.
 """
 function station_loads_figure()
-    fig = Figure(size=(TEXT_WIDTH, 260))
+    fig = Figure(size=(TEXT_WIDTH, 130))
+    largest = maximum(norm(point.aero_force_b) for name in SECTIONS
+                      for point in station_points(RUNS[name].sam.sys_struct))
     for (col, name) in enumerate(SECTIONS)
         run = RUNS[name]
         axis = Axis(fig[1, col]; title=run.mode, aspect=DataAspect(),
-                  xlabel=L"x_b~[\mathrm{m}]", ylabel=L"z_b~[\mathrm{m}]",
-                  ylabelvisible=col == 1, yticklabelsvisible=col == 1)
-        plot_station_loads!(axis, run.sam.sys_struct, STATION; force_scale=1.5e-3,
-                            color=MODE_COLORS[run.mode])
+                    xlabel=L"x_b~[\mathrm{m}]", ylabel=L"z_b~[\mathrm{m}]",
+                    ylabelvisible=col == 1, yticklabelsvisible=col == 1,
+                    yticks=LinearTicks(2))
+        plot_station_loads!(axis, run.sam.sys_struct, STATION;
+                            force_scale=ARROW_LENGTH / largest, color=MODE_COLORS[run.mode])
         col > 1 && linkaxes!(axis, content(fig[1, 1]))
     end
     return fig
@@ -187,7 +206,7 @@ end
 """
     flight_statistics(row, wing_nodes) -> NamedTuple
 
-Mean tether force [kN], high-pass RMS angle of attack [deg] and high-pass RMS mean
+Mean tether force [kN], high-pass RMS kite angle of attack [deg] and high-pass RMS mean
 speed [m/s] of the points `wing_nodes` of case `row` after `SETTLE_TIME`, or `nothing`
 when it did not fly that long.
 """
@@ -195,7 +214,7 @@ function flight_statistics(row, wing_nodes)
     log = flight_log(row.name)
     rows = log.time .>= SETTLE_TIME
     any(rows) || return nothing
-    aoa = rad2deg.(log.AoA)
+    aoa = kite_aoa(log)
     node_speed = [mean(norm((log.VX[k][i], log.VY[k][i], log.VZ[k][i])) for i in wing_nodes)
                   for k in eachindex(log.time)]
     return (force=mean(first.(log.winch_force)[rows]) / 1e3,
@@ -214,8 +233,8 @@ function case_row(row, model, stats)
     cost = timed > 0 ? @sprintf("%.1f & %.0f", (row.t_step + row.t_vsm) / timed,
                                 100 * row.t_vsm / (row.t_step + row.t_vsm)) : "-- & --"
     flight = isnothing(stats) ? "-- & -- & --" :
-             @sprintf("%.2f & %.2f & %.3f", stats.force, stats.aoa_ripple,
-                      stats.node_ripple)
+             @sprintf("%.2f & \\num{%.2g} & \\num{%.2g}", stats.force,
+                      1e3 * stats.aoa_ripple, 1e3 * stats.node_ripple)
     return @sprintf("\\code{%s} & %s & %.0f & %d & %.1f & %d & %s & %s \\\\",
                     row.mode, model, 1e3 * row.dt, row.vsm_interval, row.flown,
                     row.failed_solves, cost, flight)
@@ -273,7 +292,10 @@ function write_results(path, rows)
     live, tabulated = RUNS["live_beam"], RUNS["pressure_beam"]
     open(path, "w") do io
         println(io, "% Written by make_figures.jl")
-        for (name, value) in (("Steering", STEERING), ("RampStart", RAMP[1]),
+        for (name, value) in (("WindSpeed", WIND_SPEED), ("TetherLength", TETHER_LENGTH),
+                              ("Depower", DEPOWER), ("KcuMass", KCU_MASS),
+                              ("Elevation", ELEVATION), ("ParkTime", PARK_TIME),
+                              ("Steering", STEERING), ("RampStart", RAMP[1]),
                               ("RampEnd", RAMP[2]), ("SimTime", SIM_TIME),
                               ("SectionTime", SECTION_TIME), ("SettleTime", SETTLE_TIME),
                               ("MaxFailedSolves", MAX_FAILED_SOLVES))
