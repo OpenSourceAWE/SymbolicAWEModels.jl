@@ -1,0 +1,3 @@
+### Added
+- The symawe.com job API in `api/openapi.yaml`, with a JSON Schema per job kind in `api/jobs/`, and its runner side: `serve_jobs` runs the steady, sim and sweep jobs the site hands out for kites registered as `JobKite`s with a menu of `JobParameter`s, and uploads each run with a `run` key beside `topology` in its metadata. `job_key` gives the key the site recognises a duplicate job by. `runner/Dockerfile.base` is the base image of a kite package's runner.
+- `sys_log(logger, sys, name)` returns the in-memory `SysLog` that `save_log(logger, sys, name)` writes, with the structure document under `topology`.

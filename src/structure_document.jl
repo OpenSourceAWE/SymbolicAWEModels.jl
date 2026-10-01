@@ -514,17 +514,24 @@ function save_structure_document(path::AbstractString, sys::SystemStructure;
 end
 
 """
+    sys_log(logger::Logger, sys::SystemStructure, name="sim_log")
+
+The `SysLog` of `logger`, whose metadata holds [`structure_document`](@ref)`(sys)` as
+JSON under the key `topology`.
+"""
+function KiteUtils.sys_log(logger::Logger, sys::SystemStructure, name="sim_log")
+    topology = encode_document(structure_document(sys), :json)
+    return sys_log(logger, name; metadata=Dict("topology" => topology))
+end
+
+"""
     save_log(logger::Logger, sys::SystemStructure, name="sim_log"; path="")
 
-Save `logger` as an uncompressed .arrow file whose table metadata holds
-[`structure_document`](@ref)`(sys)` as JSON under the key `topology`, read back into
-`SysLog.metadata` by `load_log`.
+Save [`sys_log`](@ref)`(logger, sys, name)` as an uncompressed .arrow file, whose
+`topology` metadata `load_log` reads back into `SysLog.metadata`.
 """
-function KiteUtils.save_log(logger::Logger, sys::SystemStructure, name="sim_log";
-                            path="")
-    topology = encode_document(structure_document(sys), :json)
-    return save_log(logger, name, false; path, metadata=Dict("topology" => topology))
-end
+KiteUtils.save_log(logger::Logger, sys::SystemStructure, name="sim_log"; path="") =
+    save_log(sys_log(logger, sys, name), false; path)
 
 """
     load_structure_document(path; kwargs...)

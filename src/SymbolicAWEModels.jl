@@ -10,6 +10,7 @@ using Pkg
 using TOML
 using JSON
 using DocStringExtensions
+using Downloads
 using LinearAlgebra
 using SparseArrays
 using Parameters
@@ -57,7 +58,7 @@ import ModelingToolkit.SciMLBase: successful_retcode, init
 export update_from_sysstate!, get_data_path, set_data_path, se
 export position_slots
 export SysState, SysLog, Settings, AbstractKiteModel
-export Logger, log!, save_log, load_log
+export Logger, log!, sys_log, save_log, load_log
 export load_settings
 
 # --- Types: Core Model ---
@@ -94,6 +95,9 @@ export WindMode, ProfileWind, PerPointWind, per_point_wind
 
 # --- High-Level Simulation Functions (Workers) ---
 export sim!, sim_reposition!
+
+# --- Job runner (api/openapi.yaml) ---
+export JobKite, JobParameter, serve_jobs, job_key
 
 # --- Low-Level Simulation Functions ---
 export find_steady_state!
@@ -244,6 +248,8 @@ include("kernel_backend/state.jl")
 include("kernel_backend/jacobian.jl")
 include("kernel_backend/backend.jl")
 include("simulate.jl")
+include("jobs/job_kite.jl")
+include("jobs/serve_jobs.jl")
 
 # rotate a 3d vector around the x axis in the yz plane - following the right hand rule
 function rotate_around_x(vec, angle::T) where T

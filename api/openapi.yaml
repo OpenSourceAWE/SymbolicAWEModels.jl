@@ -1,0 +1,488 @@
+# SPDX-FileCopyrightText: 2026 Bart van de Lint
+# SPDX-License-Identifier: LGPL-3.0-only
+openapi: 3.1.0
+info:
+  title: symawe.com job API
+  version: 0.1.0
+  license:
+    name: LGPL-3.0-only
+    identifier: LGPL-3.0-only
+  description: |
+    How simulation requests and their results travel between symawe.com and the runners
+    that compute them. A runner pulls: it heartbeats, claims jobs, reports progress and
+    uploads results, and the site never calls it. SymbolicAWEModels' `serve_jobs`
+    implements the runner side.
+
+    **Heartbeat.** A runner heartbeats every 20 s, while idle and while running jobs
+    alike. A runner that has not heartbeated for two minutes (six missed beats) is lost,
+    and so are the jobs it was running.
+
+    **Job key.** A job's `key` is the lowercase hex SHA-256 of the RFC 8785 (JCS)
+    canonical JSON of the object `{sandbox, kite, kind, parameters, axes, version}`.
+    `parameters` holds every parameter of the kind's menu, with the requested value or
+    else its default; for a sweep it leaves out the swept parameters, which `axes` holds
+    with their values in the requested order. `axes` is present for a sweep only.
+    `version` is the `RunnerVersion` of the runner's last heartbeat. A request whose key
+    matches a finished job in the same sandbox is answered with that job rather than
+    queued. Upload jobs have no key.
+
+    Test vector: sandbox `open`, kite `toy`, kind `steady`, parameters
+    `{"mass": 2, "drop": 0.5}` and version
+    `{"SymbolicAWEModels": {"version": "0.19.0", "commit": null}}` canonicalise to
+    `{"kind":"steady","kite":"toy","parameters":{"drop":0.5,"mass":2},"sandbox":"open","version":{"SymbolicAWEModels":{"commit":null,"version":"0.19.0"}}}`
+    with key `9f7e017406ccbd36eb6e6ea37e8ce6ae990508a1a40e2108d21305617fee6649`.
+
+    **Tokens.** A runner token may heartbeat, claim, report progress and failure, and
+    upload the result of a job its runner claimed. The admin token may do all of that
+    for an upload job, and may cancel any job. Requesting a job needs a request grant on
+    the sandbox, and reading jobs needs a view grant.
+servers:
+  - url: https://symawe.com
+security:
+  - bearer: []
+tags:
+  - name: runner
+    description: called by a runner, under its runner token
+  - name: request
+    description: called on behalf of a person, or under the admin token
+paths:
+  /api/runners/{id}:
+    put:
+      tags: [runner]
+      summary: Heartbeat
+      description: The runner's version, what it serves and what it is running. Sent every 20 s.
+      operationId: heartbeat
+      parameters:
+        - $ref: "#/components/parameters/RunnerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Heartbeat" }
+      responses:
+        "200":
+          description: The running jobs an admin has cancelled since.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Cancellations" }
+        "401": { $ref: "#/components/responses/Unauthorised" }
+  /api/jobs/claim:
+    post:
+      tags: [runner]
+      summary: Claim the oldest queued job for one of the runner's kites
+      operationId: claimJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Claim" }
+      responses:
+        "200":
+          description: The claimed job, now running on this runner.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "204":
+          description: Nothing queued for these kites.
+        "401": { $ref: "#/components/responses/Unauthorised" }
+  /api/jobs/{id}/progress:
+    post:
+      tags: [runner]
+      summary: Report progress of a running job
+      operationId: reportProgress
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Progress" }
+      responses:
+        "200":
+          description: Whether an admin has cancelled the job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProgressReply" }
+        "401": { $ref: "#/components/responses/Unauthorised" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/jobs/{id}/result:
+    post:
+      tags: [runner]
+      summary: Upload the result of a job
+      description: |
+        A steady, sim or upload job uploads one uncompressed Arrow IPC file. A sweep
+        uploads a multipart form of its `manifest` and one `runs` part per point, each
+        part's filename the one the manifest names. Every run carries a `topology` and a
+        `run` key in its Arrow schema metadata. The job is then done.
+      operationId: uploadResult
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        required: true
+        content:
+          application/vnd.apache.arrow.file:
+            schema:
+              type: string
+              contentMediaType: application/vnd.apache.arrow.file
+          multipart/form-data:
+            schema:
+              type: object
+              required: [manifest, runs]
+              properties:
+                manifest: { $ref: "#/components/schemas/SweepManifest" }
+                runs:
+                  type: array
+                  items:
+                    type: string
+                    contentMediaType: application/vnd.apache.arrow.file
+            encoding:
+              manifest:
+                contentType: application/json
+      responses:
+        "201":
+          description: Stored; the job is done.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobStatus" }
+        "401": { $ref: "#/components/responses/Unauthorised" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/NotRunning" }
+  /api/jobs/{id}/failure:
+    post:
+      tags: [runner]
+      summary: Report that a job failed
+      description: The job is then failed. Only admins see the log.
+      operationId: reportFailure
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Failure" }
+      responses:
+        "204":
+          description: Recorded.
+        "401": { $ref: "#/components/responses/Unauthorised" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/NotRunning" }
+  /api/jobs/{id}/cancel:
+    post:
+      tags: [request]
+      summary: Cancel a queued or running job
+      description: Admin only. A runner learns of it from its next heartbeat or progress report, and stops the job without reporting.
+      operationId: cancelJob
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: The cancelled job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobStatus" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/jobs/{id}:
+    get:
+      tags: [request]
+      summary: A job's state
+      description: Needs a view grant on the job's sandbox.
+      operationId: getJob
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobStatus" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/sandboxes/{sandbox}/{kite}/jobs:
+    parameters:
+      - $ref: "#/components/parameters/Sandbox"
+      - $ref: "#/components/parameters/Kite"
+    get:
+      tags: [request]
+      summary: A kite's jobs, newest first
+      description: Needs a view grant on the sandbox.
+      operationId: listJobs
+      responses:
+        "200":
+          description: The jobs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/JobStatus" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [request]
+      summary: Request a job
+      description: |
+        Needs a request grant on the sandbox; an upload job needs the admin token. The
+        site checks the parameters against the kite's last menu, as the runner does again.
+      operationId: requestJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JobRequest" }
+      responses:
+        "200":
+          description: A finished job with the same key; nothing was queued.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobStatus" }
+        "201":
+          description: Queued, or for an upload job running.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobStatus" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422":
+          description: The parameters do not fit the kite's menu.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: A runner token or the admin token. A person signed in to the site is authorised by their session instead.
+  parameters:
+    RunnerId:
+      name: id
+      in: path
+      required: true
+      description: The runner's id, the names of the kites it serves joined by `+` in sorted order.
+      schema: { type: string }
+    JobId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    Sandbox:
+      name: sandbox
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/Name" }
+    Kite:
+      name: kite
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/Name" }
+  responses:
+    Unauthorised:
+      description: No valid token.
+    Forbidden:
+      description: The token or session lacks the grant this needs.
+    NotFound:
+      description: No such job, sandbox or kite.
+    NotRunning:
+      description: The job is no longer running; it keeps the state it had.
+  schemas:
+    Name:
+      type: string
+      pattern: "^[a-z0-9][a-z0-9_-]*$"
+    Kind:
+      type: string
+      enum: [steady, sim, sweep, upload]
+    PackageVersion:
+      type: object
+      required: [version, commit]
+      additionalProperties: false
+      properties:
+        version: { type: string, description: the package's version }
+        commit:
+          type: [string, "null"]
+          description: the git commit the package was loaded from, suffixed `-dirty` when the checkout has uncommitted changes, or null outside a git checkout
+    RunnerVersion:
+      type: object
+      description: The version of each package a runner computes with, by package name.
+      minProperties: 1
+      additionalProperties: { $ref: "#/components/schemas/PackageVersion" }
+    MenuParameter:
+      type: object
+      required: [name, unit, min, max, default]
+      additionalProperties: false
+      properties:
+        name: { type: string, pattern: "^[a-z][a-z0-9_]*$" }
+        unit: { type: string, description: "the unit, as shown to a person: m/s, deg, kg, s, -" }
+        min: { type: number }
+        max: { type: number }
+        default: { type: number }
+        step: { type: number, exclusiveMinimum: 0, description: the step a form offers between values }
+    KindMenu:
+      type: object
+      required: [parameters]
+      additionalProperties: false
+      properties:
+        parameters:
+          type: array
+          items: { $ref: "#/components/schemas/MenuParameter" }
+        max_axes:
+          type: integer
+          minimum: 1
+          maximum: 4
+          description: sweep only, how many parameters one sweep may vary
+    Menu:
+      type: object
+      description: What a person may choose, per job kind.
+      required: [steady, sim, sweep]
+      additionalProperties: false
+      properties:
+        steady: { $ref: "#/components/schemas/KindMenu" }
+        sim: { $ref: "#/components/schemas/KindMenu" }
+        sweep:
+          allOf:
+            - $ref: "#/components/schemas/KindMenu"
+            - required: [max_axes]
+    KiteOffer:
+      type: object
+      required: [name, menu]
+      additionalProperties: false
+      properties:
+        name: { $ref: "#/components/schemas/Name" }
+        menu: { $ref: "#/components/schemas/Menu" }
+    Heartbeat:
+      type: object
+      required: [version, kites, slots, running]
+      additionalProperties: false
+      properties:
+        version: { $ref: "#/components/schemas/RunnerVersion" }
+        kites:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/KiteOffer" }
+        slots: { type: integer, minimum: 1, description: how many jobs the runner runs at once }
+        running:
+          type: array
+          description: the ids of the jobs the runner is running
+          items: { type: string }
+    Cancellations:
+      type: object
+      required: [cancel]
+      additionalProperties: false
+      properties:
+        cancel:
+          type: array
+          description: the ids of running jobs to stop
+          items: { type: string }
+    Claim:
+      type: object
+      required: [runner, kites]
+      additionalProperties: false
+      properties:
+        runner: { type: string, description: the runner's id }
+        kites:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/Name" }
+    JobRequest:
+      oneOf:
+        - $ref: "jobs/steady.json"
+        - $ref: "jobs/sim.json"
+        - $ref: "jobs/sweep.json"
+        - $ref: "jobs/upload.json"
+      discriminator:
+        propertyName: kind
+    JobFields:
+      description: What every job holds; an upload job has no key and no parameters.
+      type: object
+      required: [id, sandbox, kite, kind]
+      properties:
+        id: { type: string }
+        sandbox: { $ref: "#/components/schemas/Name" }
+        kite: { $ref: "#/components/schemas/Name" }
+        kind: { $ref: "#/components/schemas/Kind" }
+        key: { type: [string, "null"], pattern: "^[0-9a-f]{64}$" }
+        parameters: { $ref: "jobs/parameters.json" }
+        axes: { $ref: "jobs/sweep.json#/properties/axes" }
+    Job:
+      description: A job as a runner claims it.
+      allOf:
+        - $ref: "#/components/schemas/JobFields"
+        - type: object
+          required: [key, parameters]
+          properties:
+            key: { type: string }
+    JobStatus:
+      allOf:
+        - $ref: "#/components/schemas/JobFields"
+        - type: object
+          required: [state, requested_at]
+          properties:
+            state:
+              type: string
+              enum: [queued, running, done, failed, rejected, cancelled, lost]
+            requested_at: { type: string, format: date-time }
+            progress: { $ref: "#/components/schemas/Progress" }
+            run:
+              type: string
+              description: where the finished run is shown, a path on the site
+    Progress:
+      type: object
+      required: [wall_time, phase]
+      additionalProperties: false
+      properties:
+        sim_time: { type: number, description: "simulated time reached [s]" }
+        wall_time: { type: number, description: "time since the runner started the job [s]" }
+        phase: { type: string, description: "what the job is doing: building, simulating, point 3 of 12" }
+    ProgressReply:
+      type: object
+      required: [cancel]
+      additionalProperties: false
+      properties:
+        cancel: { type: boolean, description: whether the runner is to stop the job }
+    Failure:
+      type: object
+      required: [reason, log]
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          enum: [rejected, error]
+          description: "`rejected`: the runner refused the job before the kite ran, for a parameter the menu does not allow or a kite or kind it does not serve; `error`: the job threw"
+        log: { type: string, description: the error and the tail of its backtrace }
+    SweepManifest:
+      type: object
+      required: [axes, parameters, points]
+      additionalProperties: false
+      properties:
+        axes: { $ref: "jobs/sweep.json#/properties/axes" }
+        parameters: { $ref: "jobs/parameters.json" }
+        points:
+          type: array
+          items:
+            type: object
+            required: [parameters, run]
+            additionalProperties: false
+            properties:
+              parameters: { $ref: "jobs/parameters.json" }
+              run: { type: string, description: the filename of the point's run in the upload }
+    RunMetadata:
+      description: The `run` key of a run's Arrow schema metadata, as JSON; the `topology` key beside it holds the structure document.
+      type: object
+      required: [kind, kite, parameters, job_key, version, wall_time]
+      additionalProperties: false
+      properties:
+        kind: { $ref: "#/components/schemas/Kind" }
+        kite: { $ref: "#/components/schemas/Name" }
+        parameters: { $ref: "jobs/parameters.json" }
+        job_key:
+          type: [string, "null"]
+          pattern: "^[0-9a-f]{64}$"
+          description: the key of the job the run was computed for, null for an upload
+        version: { $ref: "#/components/schemas/RunnerVersion" }
+        wall_time: { type: number, description: "time the run took to compute [s]" }
+    Error:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error: { type: string }

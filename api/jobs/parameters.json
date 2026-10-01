@@ -1,0 +1,9 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "parameters.json",
+  "title": "Job parameters",
+  "description": "Menu parameters by name, each a number in the menu's unit and within its range.",
+  "type": "object",
+  "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+  "additionalProperties": { "type": "number" }
+}
