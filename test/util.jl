@@ -323,13 +323,15 @@ function diagnose_rhs(f, du, u, p, t)
 end
 
 """
-    build_plate_kite(data_root)
+    build_plate_kite(data_root; name="plate_aero_test", azimuth=0.0, tilt=nothing)
 
 The kps4 flat-plate kite built programmatically: three 1-point `STATIC` twist
-surfaces (`main`, `right_tip`, `left_tip`) carrying one shared CL/CD polar set.
+surfaces (`main`, `right_tip`, `left_tip`) carrying one shared CL/CD polar set,
+placed by `:main_tf` at `azimuth` [rad]. A `tilt` [rad] hangs `top`, `right` and
+`left` on a child `:kite_tilt` transform pitched by `tilt` about `top`.
 Returns `(set, sys)`.
 """
-function build_plate_kite(data_root)
+function build_plate_kite(data_root; name="plate_aero_test", azimuth=0.0, tilt=nothing)
     data_path = joinpath(data_root, "kps4")
     cp(joinpath(dirname(@__DIR__), "data", "kps4"), data_path; force=true)
     set_data_path(data_path)
@@ -351,16 +353,17 @@ function build_plate_kite(data_root)
         :right => pos_right, :left => pos_left)
     bridle_l0(a, b) = norm(pos_map[b] - pos_map[a]) * 0.9975
 
+    wing_tf = isnothing(tilt) ? :main_tf : :kite_tilt
     points = [
         Point(:ground, zeros(3), STATIC),
         Point(:kcu, pos_kcu, DYNAMIC; extra_mass=set.kcu_mass, transform=:main_tf),
         Point(:nose, pos_nose, DYNAMIC; extra_mass=k_nose, transform=:main_tf),
         Point(:top, pos_top, DYNAMIC; extra_mass=k_top, wing=:plate_wing,
-            transform=:main_tf),
+            transform=wing_tf),
         Point(:right, pos_right, DYNAMIC; extra_mass=k_side, wing=:plate_wing,
-            transform=:main_tf),
+            transform=wing_tf),
         Point(:left, pos_left, DYNAMIC; extra_mass=k_side, wing=:plate_wing,
-            transform=:main_tf),
+            transform=wing_tf),
     ]
     pairs = [(:kcu, :nose), (:right, :nose), (:right, :left), (:top, :right),
              (:left, :kcu), (:right, :kcu), (:top, :left), (:left, :nose),
@@ -388,10 +391,13 @@ function build_plate_kite(data_root)
         cl_interp, cd_interp; dynamics_type=PARTICLE_DYNAMICS,
         z_ref_points=([:right, :left], :top), y_ref_points=(:left, :right),
         origin=:kcu, drag_corr=0.93 * (1.0 - rel_side))
-    transforms = [Transform(:main_tf, deg2rad(set.elevation), 0.0, 0.0;
+    elevation = deg2rad(set.elevation)
+    transforms = [Transform(:main_tf, elevation, azimuth, 0.0;
         base_pos=zeros(3), base_point=:ground, wing=:plate_wing)]
+    isnothing(tilt) || push!(transforms, Transform(:kite_tilt, elevation + tilt,
+        azimuth, 0.0; base_transform=:main_tf, rot_point=:top))
 
-    sys = SystemStructure("plate_aero_test", set; points, stations,
+    sys = SystemStructure(name, set; points, stations,
         segments, tethers, winches, wings=[wing], transforms)
     return set, sys
 end
