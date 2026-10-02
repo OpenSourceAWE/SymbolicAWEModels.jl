@@ -40,6 +40,9 @@ replay(syslog, sam.sys_struct)
 record(syslog, sam.sys_struct, "simulation.mp4"; framerate=30)
 ```
 
+**Static or vector figure** — draw into an `Axis3` with CairoMakie and save a
+PDF; see [Static and vector figures](@ref).
+
 See the [Functions](exported_functions.md) page for plotting keyword arguments.
 
 ## Getting examples
