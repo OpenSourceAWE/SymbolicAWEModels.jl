@@ -35,6 +35,25 @@ check_live_polar
 load_sys_struct_from_yaml
 ```
 
+## Structure documents
+
+A `SystemStructure` also reads and writes as a *structure document* — the
+resolved points, segments, stations, pulleys, tethers, winches, bodies and
+joints as one `headers`/`data` table per block, conforming to awesIO's
+`structure_schema.yml`. YAML and JSON are two encodings of the one document, and
+the file extension picks between them. The document is structure only: the
+transforms that place the system in the world and the live state do not survive a
+round trip. `save_log(logger, sys, name)` writes a log that carries the document as
+JSON under the metadata key `topology`.
+
+```@docs
+structure_document
+sys_struct_from_document
+save_structure_document
+load_structure_document
+save_log(::Logger, ::SystemStructure)
+```
+
 ## System configuration
 
 ```@docs
@@ -150,7 +169,8 @@ plot(sys::SystemStructure; kwargs...)
 **Keyword arguments:**
 - `vector_scale::Float64=1.0`: Length scale of the force/orientation arrows
 - `force_color::Bool=false`: Colour segments by tension instead of `segment_color`
-- `segment_color=RGBf(0.25, 0.25, 0.25)`: Default colour for segments
+- `segment_color=RGBf(0.25, 0.25, 0.25)`: Segment colour — one colour, a vector
+  with one per segment, or a function `segment -> colour`
 - `relmargin::Float64=0.2`: Margin around the system, as a fraction of its extent
 - `body_frame`: Track a wing body frame with the camera (defaults on with `aero_mapping`)
 - `zoom`, `pan_horizontal`, `pan_vertical`, `tilt_horizontal`, `tilt_vertical`: Camera placement
@@ -162,6 +182,14 @@ Remaining keywords are forwarded to `plot!`, including:
 - `transparency::Bool=true`: Order-independent transparency; `false` is much faster
 - `aero_mapping::Bool=false`: Overlay the [`AeroPressure`](@ref) station→point map
 - `linewidth`, `point_size`, `beam_color`, `airfoil_color`, …: Styling
+
+To tell the wing from the tethers and the free segments, colour the segments by
+[`segment_role`](@ref):
+```julia
+role_colors = Dict(:wing => :black, :free => :steelblue,
+                   :unwinched_tether => :seagreen, :winched_tether => :darkorange)
+plot(sys; segment_color=segment -> role_colors[segment_role(sys, segment)])
+```
 
 **Interactive features:**
 - Hover over segments to highlight them
@@ -243,4 +271,5 @@ apply_apparent_mass!
 
 ```@docs
 init_module
+segment_role
 ```

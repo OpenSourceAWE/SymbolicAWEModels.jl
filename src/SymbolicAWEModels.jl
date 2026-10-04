@@ -8,6 +8,7 @@ module SymbolicAWEModels
 # --- Julia Standard Library & General Utilities ---
 using Pkg
 using TOML
+using JSON
 using DocStringExtensions
 using LinearAlgebra
 using SparseArrays
@@ -65,6 +66,7 @@ export ModelBackend, MonolithBackend, KernelBackend,
        BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
 export SystemStructure, Point, Station, Segment, Pulley, Tether, Winch, Wing, Transform
+export segment_role
 export Body, ElasticJoint, TimoshenkoJoint
 export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
 export ObjAdapter
@@ -127,6 +129,8 @@ export init_module
 export update_plot_observables!
 export animate
 export load_sys_struct_from_yaml
+export structure_document, sys_struct_from_document
+export save_structure_document, load_structure_document
 export replay
 export record
 export plot_sphere_trajectory
@@ -214,6 +218,7 @@ include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
 include("yaml_loader.jl")
+include("structure_document.jl")
 include("linearize.jl")
 include("generate_system/generate_system.jl")
 # Aero subsystem; loaded after generate_system for the accessors/MTK it uses.
