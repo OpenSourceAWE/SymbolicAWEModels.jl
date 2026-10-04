@@ -116,7 +116,7 @@ function check_span_order(wing)
 end
 
 const AERO_FRAME_BOX_MARGIN = 0.1
-const AERO_FRAME_MAX_SPAN_ANGLE = 5.0
+const AERO_FRAME_MAX_SPAN_ANGLE = 10.0
 
 """
     check_aero_frame(wing, points)
