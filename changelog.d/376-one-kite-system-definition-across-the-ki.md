@@ -7,6 +7,8 @@
   `init!` runs it, so a run restarted from a logged state keeps its rest shape.
 
 ### Changed
+- Requires VortexStepMethod 6.1, whose panel mapping breaks a tie between two
+  sections outboard, so a mirror-symmetric wing maps mirror panels to mirror sections.
 - BREAKING: `SystemStructure` carries `tubes::Vector{Tube}` in place of
   `elastic_joints` and `timoshenko_joints`. A `Tube` names its two bodies, diameter,
   pressure and law, and its `model` is a `TimoshenkoTube` or an `ElasticTube`, whose
