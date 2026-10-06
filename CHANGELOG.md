@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## v0.19.0 2026-09-24
+## SymbolicAWEModels v0.19.0 2026-09-24
 
 ### Added
 - `update_mass_properties!(sys_struct)` sets each body's `total_mass`, COM and
@@ -48,7 +48,7 @@
   VortexStepMethod's size check no longer throws a `DimensionMismatch` on its first
   solve.
 
-## v0.18.1 2026-09-21
+## SymbolicAWEModels v0.18.1 2026-09-21
 
 ### Added
 - `set_unstretched_length!(sys_struct, tether, len)` sets a tether's unstretched
@@ -104,7 +104,7 @@
   repo does not carry, and the never-called `parse_segment_type` parser for the
   removed `SegmentType` YAML column go with them.
 
-## v0.18.0 2026-09-15
+## SymbolicAWEModels v0.18.0 2026-09-15
 
 ### Added
 - A "Spring force" checkbox in the replay viewer colours the tether and bridle
@@ -161,7 +161,7 @@
   gives each panel rather than at the 0.5 midpoint, so a wing whose panels differ in
   width is measured on the frame its panels are built on.
 
-## v0.17.0 12-09-2026
+## SymbolicAWEModels v0.17.0 2026-09-12
 
 ### Added
 - A station can read its flap deflection δ off three of its own chord points
@@ -353,7 +353,7 @@
   on. `setup_aero!` takes the model's `vsm_set` to reach it. The block is
   VortexStepMethod's own, so the minimum is now v5.0.0.
 
-## v0.16.0 06-09-2026
+## SymbolicAWEModels v0.16.0 2026-09-06
 
 ### Added
 - Wind can be set per point. A `SystemStructure` now carries a `wind_mode`: the
@@ -373,7 +373,7 @@
 - BREAKING: a wing's wind vector is `wing.wind_vec`, renamed from `wing.v_wind` to
   match `point.wind_vec` and to stop reading as the scalar `set.v_wind`.
 
-## v0.15.2 22-08-2026
+## SymbolicAWEModels v0.15.2 2026-08-22
 
 ### Added
 - `reinit!(sam, integrator; solver=integrator.alg, kwargs...)`, which defaults the
@@ -399,7 +399,7 @@
   filled by refresh (`AeroDirect`) or read back out of the model. The private
   `aero_point_forces` and `stores_point_force` are removed.
 
-## v0.15.1 22-08-2026
+## SymbolicAWEModels v0.15.1 2026-08-22
 
 ### Changed
 - The `KernelBackend` now defaults to a sparse Jacobian and a `KLUFactorization`,
@@ -500,7 +500,7 @@
   `MonolithBackend` builds one, so the testset was skipped on the `KernelBackend`,
   and the names it reached for were codegen artefacts a rename would break.
 
-## v0.15.0 21-08-2026
+## SymbolicAWEModels v0.15.0 2026-08-21
 
 ### Added
 - `Body.fix_static` freezes a body where it is, like a `Point`'s. A parameter,
@@ -625,7 +625,7 @@
   (`your u0 did not satisfy the initialization requirements`) — on the V3 at
   250 m tether the origin was stranded 148 m from the rest of the kite.
 
-## v0.14.0 13-08-2026
+## SymbolicAWEModels v0.14.0 2026-08-13
 
 ### Added
 - `Pulley` gains `efficiency`, the fraction of line tension its sheave passes
@@ -790,7 +790,7 @@
   never as a wing-wide mean; `test_continuous_aero.jl` and
   `test_pressure_aero.jl` keep only what is specific to one mode.
 
-## v0.13.0 06-08-2026
+## SymbolicAWEModels v0.13.0 2026-08-06
 
 ### Added
 - New aero mode `ContinuousAero` (`PARTICLE_DYNAMICS`, YAML
@@ -955,7 +955,7 @@
   / `in_percent_band` helpers (unexported, unused — the one-segment equivalent
   spring fit went away with `copy_to_simple!` in v0.6.0).
 
-## v0.12.0 12-06-2026
+## SymbolicAWEModels v0.12.0 2026-06-12
 
 ### Added
 - Winch interface (#210): each `Winch` carries a `model` builder
@@ -1076,7 +1076,7 @@
 - Plate logs recorded before the quad logging have a different point count
   and will not replay.
 
-## v0.11.1 06-06-2026
+## SymbolicAWEModels v0.11.1 2026-06-06
 
 ### Added
 - `init_stretch_frac` (YAML column and `Tether(...; stretch_frac)` kwarg),
@@ -1098,7 +1098,7 @@
   `update_cam!` with explicit up-vector and `PLOT_BODY_PREV_WING_POS`
   to eliminate view drift.
 
-## v0.11.0 02-06-2026
+## SymbolicAWEModels v0.11.0 2026-06-02
 
 ### Breaking
 - Tether `init_unstretched_length` (YAML) removed; specifying it errors.
@@ -1152,7 +1152,7 @@
   geometry was corrected to match its structural points.
 - `get_sys_struct_hash` hashes `wing.origin`.
 
-## v0.10.0 30-05-2026
+## SymbolicAWEModels v0.10.0 2026-05-30
 
 ### Changed
 - BREAKING: `WingType` constants `QUATERNION` and `REFINE` are now
@@ -1204,7 +1204,7 @@
 - `examples/makie_polar_plots.jl` — removed (functionality
   superseded).
 
-## v0.9.0 20-05-2026
+## SymbolicAWEModels v0.9.0 2026-05-20
 
 ### Changed
 - BREAKING: simplified `AERO_LINEARIZED`. ForwardDiff Jacobian
@@ -1230,7 +1230,7 @@
 - `test/util.jl` — shared test utilities for allocation checks across
   all integrators.
 
-## v0.8.3 03-05-2026
+## SymbolicAWEModels v0.8.3 2026-05-03
 
 ### Changed
 - VSM solver type is taken from VSM settings instead of being
@@ -1240,7 +1240,7 @@
   on `init!`, `reinit!`, `next_step!`.
 - Bumped `VortexStepMethod` compat to `3.2.0`.
 
-## v0.8.2 26-04-2026
+## SymbolicAWEModels v0.8.2 2026-04-26
 
 ### Changed
 - Updated the default manifest files.
@@ -1264,7 +1264,7 @@
 - `plot_recipe.jl` — unused legacy Plots.jl recipe. Visualization is
   handled by `SymbolicAWEModelsMakieExt`.
 
-## v0.8.1 23-04-2026
+## SymbolicAWEModels v0.8.1 2026-04-23
 
 ### Changed
 - `SystemStructure.set` field is no longer `const`, allowing change
@@ -1279,7 +1279,7 @@
   config differs from the default.
 - `bin/install` warning messages now use colored output for visibility.
 
-## v0.8.0 18-04-2026
+## SymbolicAWEModels v0.8.0 2026-04-18
 
 ### Changed
 - BREAKING: `SegmentType` positional argument removed from `Segment`
@@ -1394,7 +1394,7 @@
 - README pendulum example and README 2-plate kite example are now
   executed in `test/setup_integration.jl`.
 
-## v0.7.2 18-03-2026
+## SymbolicAWEModels v0.7.2 2026-03-18
 
 ### Added
 - `speed_controlled` field on `Winch` — when `true`, tether velocity
@@ -1431,7 +1431,7 @@
 - 2plate_kite aero geometry TE z-coordinates adjusted.
 - `settings.yaml` now includes `sample_freq` field.
 
-## v0.7.1 27-02-2026
+## SymbolicAWEModels v0.7.1 2026-02-27
 
 ### Added
 - `update_sys_struct_from_yaml!()` — update a `SystemStructure` in-place
@@ -1443,7 +1443,7 @@
 - `SystemStructure` constructor auto-calculates `winch.tether_len` from
   all connected tethers (was only using the first).
 
-## v0.7.0 DD-02-2026
+## SymbolicAWEModels v0.7.0 2026-02-27
 
 ### Changed
 - BREAKING: Julia version requirement raised from 1.10 to 1.11, 1.12.
@@ -1479,14 +1479,14 @@
 - Helper scripts: `bin/install` (environment setup, Julia version detection)
   and `bin/run_julia` (launcher with system image support).
 
-## v0.6.1 23-02-2026
+## SymbolicAWEModels v0.6.1 2026-02-23
 
 ### Fixed
 - Disable VSM auto-sorting of sections (`sort_sections=false`) in all
   VortexStepMethod calls. Auto-sorting silently broke the correspondence
   between VSM sections and structural point indices / group mappings.
 
-## v0.6.0 21-02-2026
+## SymbolicAWEModels v0.6.0 2026-02-21
 
 ### Changed
 - Component constructors (`Point`, `Segment`, `Wing`, `Winch`,
@@ -1591,21 +1591,21 @@
 - `SymbolicAWEModelsControlPlotsExt` package extension.
 - `src/precompile.jl`.
 
-## v0.5.0 25-08-2024
+## SymbolicAWEModels v0.5.0 2025-08-25
 ### Removed
 - BREAKING: the Winch struct doesn't have a model field anymore. Instead, all equations are symbolic, and the WinchModels dependency is removed.
 ### Added
 - The function `calc_steady_torque` calculates the torque that will result in zero acceleration.
 
-## v0.4.2 24-08-2024
+## SymbolicAWEModels v0.4.2 2025-08-24
 ### Fixed
 - Don't write protect manifest
 
-## v0.4.1 13-08-2025
+## SymbolicAWEModels v0.4.1 2025-08-13
 ### Fixed
 - Update Artifacts.toml.default
 
-## v0.4.0 13-08-2025
+## SymbolicAWEModels v0.4.0 2025-08-13
 ### Added
 - Structs with attributes for better serialization and code structure (`SimpleLinModelWithAttributes`, `ProbWithAttributes`, `LinProbWithAttributes`, `ControlFuncWithAttributes`).
 - `plot_force` option to the plot recipe.
@@ -1622,19 +1622,19 @@
 - `data/kite.obj` file.
 - `copy_examples`, `copy_bin`, `copy_model_settings`, `install_examples` functions.
 
-## v0.3.3 07-08-2025
+## SymbolicAWEModels v0.3.3 2025-08-07
 ### Fixed
 - Fix non-persistent state bug with `calc_tether_props`
 
-## v0.3.2 07-08-2025
+## SymbolicAWEModels v0.3.2 2025-08-07
 ### Fixed
 - Fix documentation for sim_oscillate!
 
-## v0.3.1 06-08-2025
+## SymbolicAWEModels v0.3.1 2025-08-06
 ### Fixed
 - Fix examples and menu
 
-## v0.3.0 06-08-2025
+## SymbolicAWEModels v0.3.0 2025-08-06
 ### Changed
 - Breaking: sim!, sim_oscillate! and sim_turn! return a tuple (sl, lin_sl) instead of just a sl
 ### Fixed
@@ -1643,11 +1643,11 @@
 ### Added
 - Added `lin_simple_tuned_model.jl` example
 
-## v0.2.1 01-08-2025
+## SymbolicAWEModels v0.2.1 2025-08-01
 ### Fixed
 - Import Pkg
 
-## v0.2.0 01-08-2025
+## SymbolicAWEModels v0.2.0 2025-08-01
 ### Added
 - Adds simple model and tether model
 - Adds `copy_to_simple!` function, which copies the ram model state to the simple model state, uses the tether model to find the equivalent 1-segment spring properties of the tether
@@ -1664,20 +1664,20 @@
 ### Removed
 - Removed `.bin` files from git, will be added as release artifacts
 
-## v0.1.3 18-07-2025
+## SymbolicAWEModels v0.1.3 2025-07-18
 ### Changed
 - Add interface keyword arguments to `init!`
 
-## v0.1.2 13-07-2025
+## SymbolicAWEModels v0.1.2 2025-07-13
 ### Changed
 - Update VortexStepMethod.jl
 
-## v0.1.1 13-07-2025
+## SymbolicAWEModels v0.1.1 2025-07-13
 ### Added
 - Added a simple linearized model
 ### Changed
 - Improved the reinitialization using scalar settings values
 - Update KiteUtils and AtmosphericModels
 
-## v0.1.0
+## SymbolicAWEModels v0.1.0 2025-07-03
 - Moved the SymbolicAWEModel from KiteModels.jl to SymbolicAWEModels.jl
