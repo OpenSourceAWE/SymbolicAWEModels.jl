@@ -95,12 +95,12 @@ calc_side_slip(wing) =
 
 """
     normalized_inertia(mode::AbstractAeroModel, wing, points)
-        -> (com_cad, inertia)
+        -> (com, inertia)
 
-Normalized (per-unit-mass) inertia of the wing body about its COM in the CAD
-frame, with `inertia` in [m²] — multiply by the wing's own `extra_mass` for the
-physical tensor [kg·m²]. `inertia` is `nothing` when there is no mass to normalize
-by. The default normalizes the wing nodes' point-mass inertia
+Normalized (per-unit-mass) inertia of the wing body about its COM, in the axes the
+wing's geometry is authored in, with `inertia` in [m²] — multiply by the wing's own
+`extra_mass` for the physical tensor [kg·m²]. `inertia` is `nothing` when there is no
+mass to normalize by. The default normalizes the wing nodes' point-mass inertia
 ([`normalized_point_inertia`](@ref)); VSM modes with an `ObjWing` mesh
 return the per-unit-mass mesh tensor as-is (its COM is `-T_cad_body`) and
 fall back to the point masses otherwise.
@@ -116,11 +116,11 @@ function normalized_inertia(mode::AbstractVSMAero, wing, points)
 end
 
 """
-    normalized_point_inertia(wing, points) -> (com_cad, inertia)
+    normalized_point_inertia(wing, points) -> (com, inertia)
 
 Per-unit-mass inertia of the wing's frame points treated as point masses
 (`extra_mass`), normalized by their total mass: the shape a wing without a mesh
-spreads its own mass in. With zero total mass, `com_cad` is the unweighted
+spreads its own mass in, from their `pos_ENU`. With zero total mass, `com` is the unweighted
 centroid and `inertia` is `nothing`.
 """
 function normalized_point_inertia(wing, points)
@@ -128,14 +128,14 @@ function normalized_point_inertia(wing, points)
                    if wing_frame_member(point, wing.idx)]
     masses = [point.extra_mass for point in wing_points]
     total_mass = sum(masses)
-    com_cad = total_mass > 0 ?
-        sum(masses[j] .* wing_points[j].pos_cad
+    com = total_mass > 0 ?
+        sum(masses[j] .* wing_points[j].pos_ENU
             for j in eachindex(wing_points)) / total_mass :
-        mean([point.pos_cad for point in wing_points])
-    total_mass > 0 || return com_cad, nothing
-    inertia = sum(point_mass_inertia(mass, point.pos_cad - com_cad)
+        mean([point.pos_ENU for point in wing_points])
+    total_mass > 0 || return com, nothing
+    inertia = sum(point_mass_inertia(mass, point.pos_ENU - com)
                   for (mass, point) in zip(masses, wing_points))
-    return com_cad, inertia / total_mass
+    return com, inertia / total_mass
 end
 
 # ==================== connector scaffolding ==================== #
@@ -537,19 +537,19 @@ the air it entrains can slow down. Three cases, and a beam wing has the last two
 
 - a free `DYNAMIC` node integrates itself and takes all of it;
 - a node anchored to a rigid body is placed by that body, which takes all of it;
-- a node riding a `TimoshenkoJoint`'s deformed centerline is placed by the two
-  bodies the joint spans, which split it by where along the element it sits
+- a node riding a `TimoshenkoTube`'s deformed centerline is placed by the two
+  bodies the tube spans, which split it by where along the element it sits
   (`beam_frac`).
 
 Mass left on a node that integrates nothing would never be felt, so a carrier that
 is not the node itself is the whole reason this lookup exists.
 """
 function apparent_mass_carriers(sys_struct, point)
-    if point.joint_idx > 0
-        joint = sys_struct.timoshenko_joints[point.joint_idx]
+    if point.tube_idx > 0
+        tube = sys_struct.tubes[point.tube_idx]
         frac = clamp(point.beam_frac, 0.0, 1.0)
-        return [(sys_struct.bodies[joint.body_a_idx], 1.0 - frac),
-                (sys_struct.bodies[joint.body_b_idx], frac)]
+        return [(sys_struct.bodies[tube.body_a_idx], 1.0 - frac),
+                (sys_struct.bodies[tube.body_b_idx], frac)]
     end
     point.body_idx > 0 && return [(sys_struct.bodies[point.body_idx], 1.0)]
     return [(point, 1.0)]
@@ -1370,13 +1370,15 @@ function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, points,
     vsm_set isa VortexStepMethod.VSMSettings || error(
         "remake_aero!: VSM wing $(wing.idx) needs a VSMSettings, " *
         "got $(typeof(vsm_set)).")
+    mesh_origin = copy(wing.vsm_wing.T_cad_body)
+    R_b_to_mesh = copy(wing.vsm_wing.R_cad_body)
     wing.vsm_wing = create_vsm_wing(set, vsm_set;
         prn=false, sort_sections=false)
     wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
-    wing.vsm_solver = VortexStepMethod.Solver(wing.vsm_aero, vsm_set)
+    wing.vsm_solver = build_vsm_solver(wing.vsm_aero, vsm_set, wing.dynamics_type,
+        length(wing.station_idxs))
 
-    # Transform sections CAD → body frame (matches the SystemStructure constructor)
-    transform_vsm_sections_to_body!(wing;
+    transform_vsm_sections_to_body!(wing, mesh_origin, R_b_to_mesh;
         aero_z_offset=(wing.dynamics_type == PARTICLE_DYNAMICS ? nothing :
                        wing.aero_z_offset))
 
@@ -1451,20 +1453,21 @@ function require_vsm_engine(mode, wing)
 end
 
 """
-    transform_vsm_sections_to_body!(wing; aero_z_offset=nothing)
+    transform_vsm_sections_to_body!(wing, origin, R_b_to_mesh; aero_z_offset=nothing)
 
-Move the wing's VSM sections/panels from the CAD frame into the body frame
-(translate to `wing.pos_cad`, rotate by `wing.R_b_to_c'`) and reinit the panels.
-With `aero_z_offset` set, also apply the chordwise aero z-offset (RIGID wings);
-PARTICLE wings pass `nothing`. Shared by [`setup_aero!`](@ref) and
-[`remake_aero!`](@ref).
+Move the wing's VSM sections/panels from the frame its aero geometry is authored in
+into the body frame, given the body origin `origin` and orientation `R_b_to_mesh` in
+that frame, record both in `T_cad_body` / `R_cad_body`, and reinit the panels. With
+`aero_z_offset` set, also apply the chordwise aero z-offset (RIGID wings); PARTICLE
+wings pass `nothing`. [`setup_aero!`](@ref) passes the wing's pose as authored,
+[`remake_aero!`](@ref) the one the replaced mesh recorded.
 """
-function transform_vsm_sections_to_body!(wing; aero_z_offset=nothing)
+function transform_vsm_sections_to_body!(wing, origin, R_b_to_mesh; aero_z_offset=nothing)
     vsm_wing = wing.vsm_wing
-    vsm_wing.T_cad_body .= wing.pos_cad
-    adjust_vsm_panels_to_origin!(vsm_wing, wing.pos_cad)
-    rotate_vsm_sections!(vsm_wing, wing.R_b_to_c')
-    vsm_wing.R_cad_body .= wing.R_b_to_c
+    vsm_wing.T_cad_body .= origin
+    adjust_vsm_panels_to_origin!(vsm_wing, origin)
+    rotate_vsm_sections!(vsm_wing, R_b_to_mesh')
+    vsm_wing.R_cad_body .= R_b_to_mesh
     isnothing(aero_z_offset) || apply_aero_z_offset!(vsm_wing, aero_z_offset)
     check_span_order(wing)
     VortexStepMethod.reinit!(wing.vsm_aero)
@@ -1475,7 +1478,8 @@ function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
                      prn=false, vsm_set=nothing)
     require_vsm_engine(mode, wing)
     if wing.dynamics_type == RIGID_DYNAMICS
-        transform_vsm_sections_to_body!(wing; aero_z_offset=wing.aero_z_offset)
+        transform_vsm_sections_to_body!(wing, wing.pos_ENU, initial_rotation(wing);
+                                        aero_z_offset=wing.aero_z_offset)
 
         if couples_to_sections(mode) && isempty(wing.station_idxs)
             error("Section-coupled aero on RIGID wing $(wing.idx) requires " *
@@ -1491,7 +1495,8 @@ function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
             stations[station_idx].le_pos .-= wing.com_offset_b
         end
     else  # PARTICLE_DYNAMICS
-        isnothing(wing.origin) || transform_vsm_sections_to_body!(wing)
+        isnothing(wing.origin) ||
+            transform_vsm_sections_to_body!(wing, wing.pos_ENU, initial_rotation(wing))
         couples_to_sections(mode) &&
             match_aero_sections_to_structure!(wing, points; stations)
         setup_particle_point_mapping!(wing, points, stations)

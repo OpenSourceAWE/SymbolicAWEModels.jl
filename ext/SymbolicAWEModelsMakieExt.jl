@@ -30,7 +30,7 @@ const PLOT_LAYERS = Ref{Union{Nothing, Dict{Symbol, Any}}}(nothing)
 const PLOT_SYSTEM_STRUCTURE = Ref{Union{Nothing, SystemStructure}}(nothing)
 const PLOT_VECTOR_SCALE = Ref{Float64}(1.0)
 const PLOT_FORCE_COLOR = Ref{Bool}(false)
-const PLOT_SEGMENT_COLOR = Ref{RGBAf}(to_color(:black))
+const PLOT_SEGMENT_COLOR = Ref{Any}(RGBf(0.25, 0.25, 0.25))
 const PLOT_ZOOMED_IN = Ref{Bool}(false)
 const PLOT_ZOOM_RELMARGIN = Ref{Float64}(0.2)
 const PLOT_ZOOM_SEGMENT_IDX = Ref{Int}(-1)  # Which segment we're zoomed into (-1 = none)
@@ -94,15 +94,33 @@ function finite_force_arrows(origins, forces, scale)
 end
 
 """
+    segment_base_colors(segments, segment_color) -> Vector{RGBAf}
+
+One colour per segment from `segment_color`: a single colour for all of them, a vector
+holding one per segment, or a function `segment -> colour`.
+"""
+segment_base_colors(segments, segment_color) =
+    fill(to_color(segment_color), length(segments))
+
+function segment_base_colors(segments, segment_color::AbstractVector)
+    length(segment_color) == length(segments) || throw(ArgumentError(
+        "segment_color holds $(length(segment_color)) colours for " *
+        "$(length(segments)) segments"))
+    return RGBAf[to_color(color) for color in segment_color]
+end
+
+segment_base_colors(segments, segment_color::Function) =
+    RGBAf[to_color(segment_color(segment)) for segment in segments]
+
+"""
     segment_display_colors(segments, segment_color, force_color)
 
-One colour per segment: `segment_color` throughout, or, when `force_color` is set, a
+One colour per segment: `segment_base_colors`, or, when `force_color` is set, a
 green-to-red ramp over the segments whose spring force is known. A segment with no
-force, and every segment when the known forces are all equal, keeps `segment_color`.
+force, and every segment when the known forces are all equal, keeps its base colour.
 """
 function segment_display_colors(segments, segment_color, force_color)
-    base = to_color(segment_color)
-    colors = fill(base, length(segments))
+    colors = segment_base_colors(segments, segment_color)
     force_color || return colors
     # One unknown force must not blank the layer through the shared scale.
     known = [segment.force for segment in segments if isfinite(segment.force)]
@@ -315,54 +333,61 @@ rigid_body_frames(sys) = [(body.pos_w,
     for body in sys.bodies]
 
 """
-    body_joint_spokes(sys) -> Vector{Point3f}
+    elastic_tubes(sys) -> Vector{Tube}
+
+The tubes of `sys` simulated as a lumped `ElasticTube`.
+"""
+elastic_tubes(sys) = [tube for tube in sys.tubes if tube.model isa ElasticTube]
+
+"""
+    body_tube_spokes(sys) -> Vector{Point3f}
 
 Flat list of segment endpoints (consecutive pairs, for `linesegments!`): for each
-elastic joint, a rigid spoke from each connected body's origin to its anchor on
-that joint. This shows a body's rigid extent and the actual joint connectivity,
+elastic tube, a rigid spoke from each connected body's origin to its anchor on
+that tube. This shows a body's rigid extent and the actual tube connectivity,
 rather than assuming a rod shape or a fixed body order. (Point→body spokes would
 slot in here the same way once points can attach to rigid bodies.)
 """
-function body_joint_spokes(sys)
+function body_tube_spokes(sys)
     points = Point3f[]
-    for joint in sys.elastic_joints
-        body_a = sys.bodies[joint.body_a_idx]
-        body_b = sys.bodies[joint.body_b_idx]
+    for tube in elastic_tubes(sys)
+        body_a = sys.bodies[tube.body_a_idx]
+        body_b = sys.bodies[tube.body_b_idx]
         R_a = SymbolicAWEModels.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
         R_b = SymbolicAWEModels.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
         push!(points, Point3f(body_a.pos_w),
-              Point3f(body_a.pos_w .+ R_a * joint.anchor_a_b))
+              Point3f(body_a.pos_w .+ R_a * tube.anchor_a_b))
         push!(points, Point3f(body_b.pos_w),
-              Point3f(body_b.pos_w .+ R_b * joint.anchor_b_b))
+              Point3f(body_b.pos_w .+ R_b * tube.anchor_b_b))
     end
     return points
 end
 
 # Sub-cylinders per Timoshenko beam element, so its curved centerline reads as
-# a smooth tube. Elastic joints stay a single straight cylinder.
+# a smooth tube. Elastic tubes stay a single straight cylinder.
 const BEAM_CURVE_SEGMENTS = 12
 
 """
-    beam_centerline(joint, sys) -> Vector{Point3f}
+    beam_centerline(tube, sys) -> Vector{Point3f}
 
-World samples (`BEAM_CURVE_SEGMENTS + 1`) of a Timoshenko joint's deformed
+World samples (`BEAM_CURVE_SEGMENTS + 1`) of a Timoshenko tube's deformed
 corotational cubic-Hermite centerline, so the drawn tube bends with the beam.
 Mirrors the `x_center` construction in `beam_hermite_ride_eqs`.
 """
-function beam_centerline(joint, sys)
-    body_a = sys.bodies[joint.body_a_idx]
-    body_b = sys.bodies[joint.body_b_idx]
+function beam_centerline(tube, sys)
+    body_a = sys.bodies[tube.body_a_idx]
+    body_b = sys.bodies[tube.body_b_idx]
     R_a = SymbolicAWEModels.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
     R_b = SymbolicAWEModels.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
-    x_a = body_a.pos_w .+ R_a * joint.anchor_a_b
-    x_b = body_b.pos_w .+ R_b * joint.anchor_b_b
+    x_a = body_a.pos_w .+ R_a * tube.anchor_a_b
+    x_b = body_b.pos_w .+ R_b * tube.anchor_b_b
     e1, e2, e3, beam_len =
         SymbolicAWEModels.timoshenko_element_frame(x_a, x_b, R_a)
     element_frame = [e1[1] e2[1] e3[1];
                      e1[2] e2[2] e3[2];
                      e1[3] e2[3] e3[3]]
-    Da = (element_frame' * R_a) * joint.R_a_rel0'
-    Db = (element_frame' * R_b) * joint.R_b_rel0'
+    Da = (element_frame' * R_a) * tube.model.R_a_rel0'
+    Db = (element_frame' * R_b) * tube.model.R_b_rel0'
     θ_a = [0.5 * (Da[3, 2] - Da[2, 3]), 0.5 * (Da[1, 3] - Da[3, 1]),
            0.5 * (Da[2, 1] - Da[1, 2])]
     θ_b = [0.5 * (Db[3, 2] - Db[2, 3]), 0.5 * (Db[1, 3] - Db[3, 1]),
@@ -383,34 +408,33 @@ end
 """
     beam_elements(sys) -> Vector{Tuple{Point3f, Point3f, Float32}}
 
-World endpoints and plot radius of every drawn cylinder segment. An elastic joint
-is a pivot, so it contributes two straight segments meeting at the joint point
-(body-A origin → pivot → body-B origin), which kink as the bodies rotate about it.
-Timoshenko joints contribute `BEAM_CURVE_SEGMENTS` segments tracing their deformed
-Hermite centerline. Joints with `radius === nothing` are skipped. The segment
-count is fixed by the joint set, so observable-driven redraws keep a stable
+World endpoints and plot radius of every drawn cylinder segment, at half the
+tube's diameter. An elastic tube is a pivot, so it contributes two straight
+segments meeting at the tube's midpoint (body-A origin → pivot → body-B origin),
+which kink as the bodies rotate about it. Timoshenko tubes contribute
+`BEAM_CURVE_SEGMENTS` segments tracing their deformed Hermite centerline. The
+segment count is fixed by the tube set, so observable-driven redraws keep a stable
 indexing.
 """
 function beam_elements(sys)
     elements = Tuple{Point3f, Point3f, Float32}[]
-    for joint in sys.elastic_joints
-        joint.radius === nothing && continue
-        body_a = sys.bodies[joint.body_a_idx]
-        body_b = sys.bodies[joint.body_b_idx]
+    for tube in elastic_tubes(sys)
+        body_a = sys.bodies[tube.body_a_idx]
+        body_b = sys.bodies[tube.body_b_idx]
         R_a = SymbolicAWEModels.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
         R_b = SymbolicAWEModels.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
         norm(body_b.pos_w .- body_a.pos_w) < 1e-9 && continue
-        anchor_a_w = body_a.pos_w .+ R_a * joint.anchor_a_b
-        anchor_b_w = body_b.pos_w .+ R_b * joint.anchor_b_b
+        anchor_a_w = body_a.pos_w .+ R_a * tube.anchor_a_b
+        anchor_b_w = body_b.pos_w .+ R_b * tube.anchor_b_b
         pivot = Point3f(0.5 .* (anchor_a_w .+ anchor_b_w))
-        radius = Float32(joint.radius)
+        radius = Float32(tube.diameter / 2)
         push!(elements, (Point3f(body_a.pos_w), pivot, radius))
         push!(elements, (pivot, Point3f(body_b.pos_w), radius))
     end
-    for joint in sys.timoshenko_joints
-        joint.radius === nothing && continue
-        radius = Float32(joint.radius)
-        samples = beam_centerline(joint, sys)
+    for tube in sys.tubes
+        tube.model isa TimoshenkoTube || continue
+        radius = Float32(tube.diameter / 2)
+        samples = beam_centerline(tube, sys)
         norm(samples[end] .- samples[1]) < 1e-9 && continue
         for k in 1:length(samples) - 1
             push!(elements, (samples[k], samples[k + 1], radius))
@@ -594,14 +618,14 @@ end
 """
     spoke_body_indices(sys) -> Vector{Int}
 
-Body index owning each spoke, in the same order as `body_joint_spokes` emits them
-(per joint: body_a's spoke then body_b's). Used to highlight a hovered body's
+Body index owning each spoke, in the same order as `body_tube_spokes` emits them
+(per tube: body_a's spoke then body_b's). Used to highlight a hovered body's
 spokes.
 """
 function spoke_body_indices(sys)
     idxs = Int[]
-    for joint in sys.elastic_joints
-        push!(idxs, joint.body_a_idx, joint.body_b_idx)
+    for tube in elastic_tubes(sys)
+        push!(idxs, tube.body_a_idx, tube.body_b_idx)
     end
     return idxs
 end
@@ -756,15 +780,15 @@ function Makie.plot!(ax, sys::SystemStructure;
 
     # === Plot Rigid Bodies (standalone, e.g. a beam) ===
     if !isempty(sys.bodies)
-        # Grey spokes from each body origin to its joint anchors: show the rigid
-        # extent and the true joint connectivity (works for chains, stars, Ys).
-        if !isempty(sys.elastic_joints)
+        # Grey spokes from each body origin to its tube anchors: show the rigid
+        # extent and the true tube connectivity (works for chains, stars, Ys).
+        if !isempty(elastic_tubes(sys))
             if isnothing(geometry_obs)
-                spoke_points = body_joint_spokes(sys)
+                spoke_points = body_tube_spokes(sys)
             else
                 spoke_points = @lift begin
                     $geometry_obs  # Trigger dependency
-                    body_joint_spokes(PLOT_SYSTEM_STRUCTURE[])
+                    body_tube_spokes(PLOT_SYSTEM_STRUCTURE[])
                 end
             end
             spoke_colors = Observable(fill(to_color(RGBf(0.32, 0.32, 0.32)),
@@ -781,7 +805,7 @@ function Makie.plot!(ax, sys::SystemStructure;
                     $taper_view_obs  # Re-taper on camera move
                     sys_ref = PLOT_SYSTEM_STRUCTURE[]
                     eye = plot_eye(ax)
-                    taper_sizes(body_joint_spokes(sys_ref), eye,
+                    taper_sizes(body_tube_spokes(sys_ref), eye,
                         taper_reference(ax, sys_ref, eye), linewidth, taper)
                 end
             end
@@ -791,10 +815,10 @@ function Makie.plot!(ax, sys::SystemStructure;
             plots[:body_chain_colors_obs] = spoke_colors
         end
 
-        # See-through tube per beam element (elastic + Timoshenko joints), drawn as
+        # See-through tube per beam element (elastic + Timoshenko tubes), drawn as
         # one instanced meshscatter of a unit cylinder so the whole beam is a single
         # GPU-instanced draw call instead of one re-tessellated mesh per element.
-        if show_beams && (!isempty(sys.elastic_joints) || !isempty(sys.timoshenko_joints))
+        if show_beams && !isempty(sys.tubes)
             tube_color = (beam_color, beam_opacity)
             tube_marker = Cylinder(Point3f(0, 0, 0), Point3f(0, 0, 1), 1f0)
             if isnothing(geometry_obs)
@@ -1669,7 +1693,7 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
-            aero_force_z = [sl.aero_force_b[i][3] for i in eachindex(sl.aero_force_b)]
+            aero_force_z = [sl.aero_force_KA[i][3] for i in eachindex(sl.aero_force_KA)]
             push!(all_data, aero_force_z)
             push!(all_labels, lbl(L"F_{aero,z}", suffix))
             push!(all_times, sl.time)
@@ -1689,7 +1713,7 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
         for (i, lg) in enumerate(logs)
             sl = lg.syslog
             suffix = actual_suffixes[i]
-            aero_moment_z = [sl.aero_moment_b[i][3] for i in eachindex(sl.aero_moment_b)]
+            aero_moment_z = [sl.aero_moment_KA[i][3] for i in eachindex(sl.aero_moment_KA)]
             push!(all_data, aero_moment_z)
             push!(all_labels, lbl(L"M_{aero,z}", suffix))
             push!(all_times, sl.time)
@@ -2377,7 +2401,7 @@ end
     zoom_in_body!(scene, cam, sys, body_idx, distance=nothing)
 
 Center the camera on rigid body `body_idx`. Without `distance`, derives one from
-the body's spoke reach (joint anchors) so the body fills the view. The active
+the body's spoke reach (tube anchors) so the body fills the view. The active
 `PLOT_CAMERA_PAN` then shifts the whole rig within the screen plane (meters).
 """
 function zoom_in_body!(scene, cam, sys, body_idx, distance=nothing)
@@ -2386,11 +2410,11 @@ function zoom_in_body!(scene, cam, sys, body_idx, distance=nothing)
     if isnothing(distance)
         R = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
         reach = 0.0
-        for joint in sys.elastic_joints
-            joint.body_a_idx == body_idx &&
-                (reach = max(reach, norm(R * joint.anchor_a_b)))
-            joint.body_b_idx == body_idx &&
-                (reach = max(reach, norm(R * joint.anchor_b_b)))
+        for tube in elastic_tubes(sys)
+            tube.body_a_idx == body_idx &&
+                (reach = max(reach, norm(R * tube.anchor_a_b)))
+            tube.body_b_idx == body_idx &&
+                (reach = max(reach, norm(R * tube.anchor_b_b)))
         end
         distance = zoomed_distance(reach * 4.0 + 2.0)
     end
@@ -2678,7 +2702,7 @@ end
                             spoke_colors_obs=nothing, highlight_color=:red)
 
 Hover labels and click-to-zoom for standalone rigid bodies, picking on the grey
-joint spokes (origin→anchor segments). Hovering a body shows its name and, when
+tube spokes (origin→anchor segments). Hovering a body shows its name and, when
 `spoke_colors_obs` (the per-spoke color observable of `plots[:body_chain]`) is
 given, recolors that body's spokes to `highlight_color`. Clicking zooms in and
 tracks it (`PLOT_ZOOM_BODY_IDX`, followed each frame by `apply_zoom_mode!`);
@@ -2700,17 +2724,17 @@ function setup_body_zoom_events!(scene, sys; relmargin=0.2,
           fontsize=14, color=:black, overdraw=true,
           align=(:center, :center), visible=body_label_visible, transparency=true)
 
-    # Min 2D distance from the cursor to any of body `b`'s joint spokes.
+    # Min 2D distance from the cursor to any of body `b`'s tube spokes.
     function spoke_distance(b, mouse_2d)
         body = sys.bodies[b]
         R = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
         origin_2d = Makie.project(scene, Point3f(body.pos_w))
         dist = Inf
-        for joint in sys.elastic_joints
-            anchor = if joint.body_a_idx == b
-                joint.anchor_a_b
-            elseif joint.body_b_idx == b
-                joint.anchor_b_b
+        for tube in elastic_tubes(sys)
+            anchor = if tube.body_a_idx == b
+                tube.anchor_a_b
+            elseif tube.body_b_idx == b
+                tube.anchor_b_b
             else
                 continue
             end
@@ -2883,7 +2907,7 @@ function MakieControlPlots.plot(sys::SystemStructure;
     PLOT_SYSTEM_STRUCTURE[] = sys
     PLOT_VECTOR_SCALE[] = vector_scale
     PLOT_FORCE_COLOR[] = force_color
-    PLOT_SEGMENT_COLOR[] = to_color(segment_color)
+    PLOT_SEGMENT_COLOR[] = segment_color
     PLOT_BODY_FRAME[] = body_frame
 
     # Create single geometry trigger observable

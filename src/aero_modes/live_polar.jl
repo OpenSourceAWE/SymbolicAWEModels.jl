@@ -89,7 +89,7 @@ function station_control_points(stations, points, wing)
     owned = [surface.point_idxs for surface in stations
              if length(surface.point_idxs) >= 2 &&
                 all(points[i].wing_idx == wing.idx for i in surface.point_idxs)]
-    return [unique(idx -> round.(points[idx].pos_cad; digits = 9), group)
+    return [unique(idx -> round.(points[idx].pos_ENU; digits = 9), group)
             for group in owned]
 end
 
@@ -148,7 +148,7 @@ Build the wing's [`LivePolarState`](@ref) from the reference geometry: fit each 
 undeformed Kulfan parameters off its surface contour, take the spanwise stations the
 wing declares, and record where each of their control points sits in that station's
 chord frame. Run after [`build_station_point_map!`](@ref), which binds each panel to
-one of those same stations, and while the mesh still stands on the reference (CAD)
+one of those same stations, and while the mesh still stands on the undeformed
 structure — the offsets stored here are the zero the live deformation is measured
 against.
 
@@ -162,12 +162,10 @@ function build_live_polars!(mode::AeroPressure, wing, points, stations;
                             vsm_set=nothing,
                             settings=live_polar_settings(wing, vsm_set))
     panels = wing.vsm_aero.panels
-    rot_cad_to_body = wing.R_b_to_c'
-    origin_cad = wing.pos_cad
     source = AirfoilAero.LivePolars(AirfoilAero.panel_kulfan_parameters(panels);
                                     settings)
     n_panels = length(panels)
-    body_of(idx) = rot_cad_to_body * (points[idx].pos_cad - origin_cad)
+    body_of(idx) = initial_body_position(wing, points[idx])
 
     control = station_control_points(stations, points, wing)
     n_stations = length(control)
@@ -259,7 +257,7 @@ end
 Reynolds number of every panel, from the solver's air properties and the panel's own
 apparent wind and chord.
 """
-panel_reynolds(wing) = [wing.vsm_solver.density * norm(panel.va) * panel.chord /
+panel_reynolds(wing) = [wing.vsm_solver.density * norm(panel.va_vec) * panel.chord /
                         wing.vsm_solver.mu for panel in wing.vsm_aero.panels]
 
 """

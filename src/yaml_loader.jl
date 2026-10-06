@@ -8,6 +8,13 @@ using VortexStepMethod, KiteUtils
 
 # ------------------ helpers ------------------
 
+"""The tube models a `tubes` row names in its `model` column, and the columns each reads."""
+const YAML_TUBE_MODELS = Dict(
+    "timoshenko" => (TimoshenkoTube, (:EA, :GA, :GJ, :EIy, :EIz, :shear_coeff, :damping)),
+    "elastic" => (ElasticTube, (:stiffness_axial, :stiffness_shear, :stiffness_torsion,
+                                :stiffness_bending, :damping)),
+)
+
 """
 Field names each top-level block of a structural YAML accepts, including the
 retired ones whose own loader rejects them by name. A block or a field outside
@@ -15,7 +22,7 @@ this table stops the load.
 """
 const YAML_BLOCK_FIELDS = Dict{String, Vector{Symbol}}(
     "points" => [:name, :pos_cad, :type, :wing_idx, :transform_idx, :body_idx,
-        :body, :anchor_b, :joint, :vel_w, :extra_mass, :body_frame_damping,
+        :body, :anchor_b, :tube, :vel_w, :extra_mass, :body_frame_damping,
         :world_frame_damping, :area, :drag_coeff, :fix_sphere, :fix_static],
     "segments" => [:name, :point_i, :point_j, :type, :l0, :diameter_mm,
         :unit_stiffness, :unit_damping, :density, :youngs_modulus,
@@ -46,12 +53,8 @@ const YAML_BLOCK_FIELDS = Dict{String, Vector{Symbol}}(
         :transform_idx, :wing, :angular_damping, :world_frame_damping, :body_frame_damping,
         :fix_sphere, :fix_static, :ext_force_w, :ext_force_b, :ext_moment_b,
         :principal_frame_method],
-    "timoshenko_joints" => [:name, :body_a, :body_b, :anchor_a, :anchor_b,
-        :EA, :GA, :GJ, :EIy, :EIz, :shear_coeff, :damping, :rest_length,
-        :radius],
-    "elastic_joints" => [:name, :body_a, :body_b, :anchor_a, :anchor_b,
-        :stiffness_axial, :stiffness_shear, :stiffness_torsion,
-        :stiffness_bending, :damping, :radius],
+    "tubes" => union([:name, :bodies, :diameter, :pressure, :law, :model, :anchor_a,
+        :anchor_b], (field for (_, fields) in values(YAML_TUBE_MODELS) for field in fields)),
 )
 
 """
@@ -335,10 +338,10 @@ args and kwargs from YAML row and calls constructor.
 ```julia
 row = (name=1, x=0.0, y=0.0, z=0.0, type="STATIC")
 point = call_yaml_constructor(Point, row,
-    [:name, :pos_cad, :type],  # positional args
+    [:name, :pos_ENU, :type],  # positional args
     [:extra_mass, :wing_idx];       # kwargs
     mappings=Dict(
-        :pos_cad => r -> [Float64(r.x),
+        :pos_ENU => r -> [Float64(r.x),
             Float64(r.y), Float64(r.z)],
         :type => r -> parse_dynamics_type(
             String(r.type))
@@ -441,13 +444,13 @@ custom aero mode.
 function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
                    vsm_set, yaml_to_ref, yaml_parse_ref_points,
                    yaml_parse_origin, stations)
-    # PARTICLE derives pos_cad from the origin point during resolution; RIGID
-    # reads it from the row when given.
-    pos_cad = wing_type == PARTICLE_DYNAMICS ? (row -> nothing) :
+    # PARTICLE derives its position from the origin point during resolution; RIGID
+    # reads the row's `pos_cad` when given.
+    pos_ENU = wing_type == PARTICLE_DYNAMICS ? (row -> nothing) :
         (row -> yaml_vec3(row, :pos_cad))
     # aero_z_offset only applies to RIGID wings.
     kwargs_spec = [:transform, :angular_damping, :dynamics_type,
-        :aero, :z_ref_points, :y_ref_points, :origin, :pos_cad,
+        :aero, :z_ref_points, :y_ref_points, :origin, :pos_ENU,
         :aero_scale_chord, :principal_frame_method,
         :extra_mass, :com, :unit_inertia]
     wing_type == RIGID_DYNAMICS && push!(kwargs_spec, :aero_z_offset)
@@ -463,7 +466,7 @@ function load_wing(mode::AbstractAeroModel, row, idx, data, set, wing_type,
             :dynamics_type => row -> wing_type,
             :name => row -> yaml_row_name(row, idx),
             :transform => row -> yaml_ref_field(row, :transform_idx, yaml_to_ref),
-            :pos_cad => pos_cad,
+            :pos_ENU => pos_ENU,
             :z_ref_points => row -> yaml_parse_ref_points(row, :z_ref_points),
             :y_ref_points => row -> yaml_parse_ref_points(row, :y_ref_points),
             :origin => row -> yaml_parse_origin(row, :origin_idx),
@@ -552,7 +555,7 @@ yaml_float_or_nan(row, field) = something(yaml_float(row, field), NaN)
     yaml_row_name(row, i)
 
 Name for a YAML row: its `name` field (as a `Symbol`) when present, else the
-1-based row index `i`. Shared by the body/joint loaders so components can be
+1-based row index `i`. Shared by the body/tube loaders so components can be
 referenced either by name or by position.
 """
 yaml_row_name(row, i) =
@@ -685,45 +688,45 @@ function load_yaml_bodies(data, yaml_to_ref)
 end
 
 """
-    load_yaml_joints(::Type{Joint}, data, key, required; yaml_to_ref)
+    load_yaml_tubes(data, yaml_to_ref) -> Vector{Tube}
 
-Build two-body joints of type `Joint` from the `key` YAML block (empty when the
-block is absent). Every row needs `body_a`, `body_b` and each `required` scalar;
-`anchor_a`/`anchor_b` (3-vectors) and the block's remaining scalars in
-[`YAML_BLOCK_FIELDS`](@ref) are read when present. Shared by the
-[`TimoshenkoJoint`](@ref) and [`ElasticJoint`](@ref) loaders — scalar fields
-from YAML are linear; callable/nonlinear laws are supplied programmatically.
+Build the [`Tube`](@ref)s of the `tubes` YAML block (empty when it is absent). Every
+row names its two `bodies`, its `diameter`, `pressure` and `law`; `model` picks the
+element from [`YAML_TUBE_MODELS`](@ref) (`timoshenko` when absent) and that model's
+columns are read where present. `anchor_a`/`anchor_b` are the tube ends in each
+body's frame. Rigidities from YAML are linear; callable laws are set in Julia.
 """
-function load_yaml_joints(::Type{Joint}, data, key, required;
-                          yaml_to_ref) where Joint
-    joints = Joint[]
-    yaml_block_empty(data, key) && return joints
-    optional = setdiff(YAML_BLOCK_FIELDS[key],
-        (:name, :body_a, :body_b, :anchor_a, :anchor_b), required)
-    for (i, row) in enumerate(parse_table(data[key]))
+function load_yaml_tubes(data, yaml_to_ref)
+    tubes = Tube[]
+    yaml_block_empty(data, "tubes") && return tubes
+    for (i, row) in enumerate(parse_table(data["tubes"]))
         name = yaml_row_name(row, i)
-        body_a = yaml_to_ref(yaml_field(row, :body_a))
-        body_b = yaml_to_ref(yaml_field(row, :body_b))
-        (isnothing(body_a) || isnothing(body_b)) &&
-            error("$(nameof(Joint)) $name: requires `body_a` and `body_b`.")
-        kwargs = Dict{Symbol, Any}()
-        for field in required
-            value = yaml_float(row, field)
-            isnothing(value) &&
-                error("$(nameof(Joint)) $name: missing `$field`.")
-            kwargs[field] = value
+        bodies = yaml_field(row, :bodies)
+        (isnothing(bodies) || length(bodies) != 2) &&
+            error("Tube $name: `bodies` must name the two bodies it joins.")
+        for field in (:diameter, :pressure, :law)
+            isnothing(yaml_field(row, field)) && error("Tube $name: missing `$field`.")
         end
+        model_name = string(something(yaml_field(row, :model), "timoshenko"))
+        haskey(YAML_TUBE_MODELS, model_name) || error("Tube $name: model " *
+            "`$model_name` is not one of $(sort(collect(keys(YAML_TUBE_MODELS)))).")
+        model_type, model_fields = YAML_TUBE_MODELS[model_name]
+        model_kwargs = Dict{Symbol, Any}()
+        for field in model_fields
+            value = yaml_float(row, field)
+            isnothing(value) || (model_kwargs[field] = value)
+        end
+        anchors = Dict{Symbol, Any}()
         for field in (:anchor_a, :anchor_b)
             anchor = yaml_vec3(row, field)
-            isnothing(anchor) || (kwargs[field] = anchor)
+            isnothing(anchor) || (anchors[field] = anchor)
         end
-        for field in optional
-            value = yaml_float(row, field)
-            isnothing(value) || (kwargs[field] = value)
-        end
-        push!(joints, Joint(name, body_a, body_b; kwargs...))
+        push!(tubes, Tube(name, yaml_to_ref(bodies[1]), yaml_to_ref(bodies[2]);
+            diameter = yaml_float(row, :diameter), pressure = yaml_float(row, :pressure),
+            law = yaml_field(row, :law), model = model_type(; model_kwargs...),
+            anchors...))
     end
-    return joints
+    return tubes
 end
 
 """
@@ -821,12 +824,12 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         for (i, row) in enumerate(point_rows)
             # Raw references are passed; SystemStructure resolves them.
             point = call_yaml_constructor(Point, row,
-                [:name, :pos_cad, :type],
-                [:wing, :transform, :body, :anchor_b, :joint, :vel_w, :extra_mass,
+                [:name, :pos_ENU, :type],
+                [:wing, :transform, :body, :anchor_b, :tube, :vel_w, :extra_mass,
                  :body_frame_damping, :world_frame_damping,
                  :area, :drag_coeff, :fix_sphere, :fix_static];
                 mappings=Dict(
-                    :pos_cad => row -> KVec3(row.pos_cad...),
+                    :pos_ENU => row -> KVec3(row.pos_cad...),
                     :type => row -> parse_dynamics_type(String(row.type)),
                     :name => row -> yaml_row_name(row, i),
                     # Pass raw references - constructor handles defaults
@@ -835,11 +838,11 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     # A BODY_STATIC/wing node rides a Body; anchor_b is its body-frame offset.
                     :body => row -> haskey(row, :body_idx) ? yaml_to_ref(row.body_idx) :
                         yaml_ref_field(row, :body, yaml_to_ref),
-                    :joint => row -> yaml_ref_field(row, :joint, yaml_to_ref),
+                    :tube => row -> yaml_ref_field(row, :tube, yaml_to_ref),
                     :vel_w => row -> yaml_vec3(row, :vel_w)
                 ))
 
-            point.pos_w .= point.pos_cad
+            point.pos_w .= point.pos_ENU
             saved_vel = yaml_vec3(row, :vel_w)
             point.vel_w .= isnothing(saved_vel) ? 0.0 : saved_vel
             push!(points, point)
@@ -1117,17 +1120,13 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         end
     end
 
-    # Plain rigid bodies + beam/elastic joints (empty when the blocks are absent).
+    # Plain rigid bodies and the tubes between them (empty when the blocks are absent).
     bodies = load_yaml_bodies(data, yaml_to_ref)
-    timoshenko_joints = load_yaml_joints(TimoshenkoJoint, data,
-        "timoshenko_joints", (:EA, :GA, :GJ, :EIy, :EIz); yaml_to_ref)
-    elastic_joints = load_yaml_joints(ElasticJoint, data, "elastic_joints",
-        (:stiffness_axial, :stiffness_shear, :stiffness_torsion,
-         :stiffness_bending); yaml_to_ref)
+    tubes = load_yaml_tubes(data, yaml_to_ref)
 
     # The SystemStructure constructor handles WING->STATIC when no wings exist.
     return SystemStructure(system_name, resolved_set; points, stations,
         segments, pulleys, tethers, winches, wings,
-        transforms, bodies, elastic_joints, timoshenko_joints,
+        transforms, bodies, tubes,
         ignore_l0, vsm_set, wind_mode, prn)
 end

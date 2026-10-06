@@ -71,7 +71,7 @@ using LinearAlgebra
         # handed one chord fraction twice has no answer.
         for group in stations
             @test length(unique(group)) == length(group)
-            @test length(unique(round.(sys.points[i].pos_cad; digits=9)
+            @test length(unique(round.(sys.points[i].pos_ENU; digits=9)
                                 for i in group)) == length(group)
         end
         # Every panel blends between two neighbouring stations, in range.
@@ -205,7 +205,7 @@ using LinearAlgebra
         alpha = collect(SimFloat, solver.lr.alpha_dist)
         offsets = settings.offsets
         for (i, panel) in enumerate(panels)
-            reynolds = solver.density * norm(panel.va) * panel.chord / solver.mu
+            reynolds = solver.density * norm(panel.va_vec) * panel.chord / solver.mu
             samples = AirfoilAero.neuralfoil_aero(state.source.base[i],
                 rad2deg.(alpha[i] .+ offsets), reynolds;
                 model_size=settings.model_size, n_crit=settings.n_crit)

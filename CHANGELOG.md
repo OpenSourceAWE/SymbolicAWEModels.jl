@@ -1,24 +1,27 @@
 # CHANGELOG
 
-## Unreleased
+## v0.19.0 2026-09-24
 
 ### Added
 - `update_mass_properties!(sys_struct)` sets each body's `total_mass`, COM and
   principal inertia from its own and its points' masses. `reinit!` runs it after the
   segment lengths are set.
 
-### Fixed
-- A structural YAML naming a block or a row field the loader does not read, or
-  giving a row more values than the table has headers, stops the load and says
-  what the block accepts. The field was silently dropped and the row silently
-  skipped before, so a typo left the component on its default. The `idx` column
-  the tutorial showed on points, segments, pulleys, tethers, winches and
-  transforms was one of those and now errors: rename it to `name`.
-- `anchor_b` on a point row reaches the point. A `BODY_STATIC` point anchored to
-  a body took its offset from the geometry even when its row gave one, because
-  the loader never passed the column on.
-
 ### Changed
+- BREAKING: `roll`, `pitch` and `yaw` are no longer written to `SysState`, which
+  dropped the three fields in KiteUtils 0.13. They were computed here with a NED
+  Euler formula applied to `Q_b_to_w`, which is ENU, so they were not the angles
+  any sensor reports — yaw was out by 90 degrees at zenith.
+  `KiteUtils.euler_KS(ss.orient)` reports them correctly.
+- BREAKING: the aerodynamic wrench goes to the `SysState` columns `aero_force_KA`
+  and `aero_moment_KA`, which KiteUtils 0.13 renamed from `aero_force_b` and
+  `aero_moment_b` so that the name says which body frame the components are in.
+  `load_log` still reads the old column, so older logs keep loading.
+- `[compat]` on KiteUtils is raised to `0.13`, and on AtmosphericModels to `0.3.11`,
+  the first release that accepts KiteUtils 0.13.
+- BREAKING: requires VortexStepMethod v6, whose settings name the apparent wind speed
+  `va` (`condition.wind_speed` in `vsm_settings.yaml` now errors) and drop the
+  artificial damping keys.
 - BREAKING: a body's and a wing's own mass is `extra_mass`, like a point's: the `Body`
   and `VSMWing` keyword, the `Body` field and the `wings`/`bodies` YAML column, which
   were `mass`. A YAML row still carrying `mass` errors.
@@ -27,6 +30,9 @@
   `total_mass` of its `BODY_STATIC` riders and wing nodes, segment halves included,
   and its COM and inertia include them at their anchors. Setting both `extra_mass`
   and point masses counts both.
+- A `DYNAMIC` station twists with the `total_mass` of its points, segment halves
+  included, where it counted only their `extra_mass`; a station with bridles on its
+  points turns more slowly.
 - A rigid body's `inertia_principal`, `R_b_to_p` and `com_offset_b` are derived on
   every `reinit!`, from `l0` as it leaves it, so a `Body`'s `R_b_to_p` can differ
   from the one passed; change a built body through `extra_inertia_b` and
@@ -35,6 +41,12 @@
   segment halves included; points riding a body count in that body. Its "gravity
   is counted twice" warning is gone.
 - BREAKING: `sys_struct.total_mass` is removed; each body reports its `total_mass`.
+
+### Fixed
+- A `PARTICLE_DYNAMICS` wing whose stations differ in number from its aero geometry's
+  sections gets a VSM solver sized for the stations it is re-sectioned onto, so
+  VortexStepMethod's size check no longer throws a `DimensionMismatch` on its first
+  solve.
 
 ## v0.18.1 2026-09-21
 

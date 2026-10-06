@@ -22,6 +22,7 @@ using SymbolicAWEModels: KVec3
 using KiteUtils
 using LinearAlgebra
 using Statistics
+using VortexStepMethod
 
 # ============================================================================
 # YAML Configuration - Minimal 2-point system with 1 segment
@@ -254,12 +255,12 @@ system:
         # Verify point properties
         anchor = sys.points[:anchor]
         @test anchor.type == SymbolicAWEModels.STATIC
-        @test anchor.pos_cad == KVec3(0.0, 0.0, 0.0)
+        @test anchor.pos_ENU == KVec3(0.0, 0.0, 0.0)
         @test anchor.extra_mass == 0.0
 
         mass_point = sys.points[:mass_point]
         @test mass_point.type == SymbolicAWEModels.DYNAMIC
-        @test mass_point.pos_cad == KVec3(0.0, 0.0, -10.0)
+        @test mass_point.pos_ENU == KVec3(0.0, 0.0, -10.0)
         @test mass_point.extra_mass == 1.0
         @test mass_point.area == 0.0
         @test mass_point.drag_coeff == 0.0
@@ -721,5 +722,40 @@ system:
     end
 
     # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
+end
+
+@testset "segment_role tells winched and unwinched tethers, wing and free apart" begin
+    data_path = joinpath(mktempdir(), "2plate_kite")
+    cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path)
+    data_path_before = get_data_path()
+    set_data_path(data_path)
+    set = Settings("system.yaml")
+    vsm_set = VortexStepMethod.VSMSettings(
+        joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
+    sys = load_sys_struct_from_yaml(
+        joinpath(data_path, "particle_structural_geometry.yaml");
+        system_name="2plate_segment_role", set, vsm_set)
+    set_data_path(data_path_before)
+    roles = Dict(segment.name => segment_role(sys, segment) for segment in sys.segments)
+    @test roles[:strut_left] == roles[:diag_1] == :wing
+    @test roles[:le_left] == roles[:kcu_steering_right] == :free
+    @test roles[:main_tether_seg_1] == roles[:main_tether_seg_6] == :winched_tether
+    @test count(==(:wing), values(roles)) == 11
+    @test count(==(:free), values(roles)) == 10
+    @test count(==(:winched_tether), values(roles)) == 6
+
+    points = [Point(:ground, [0.0, 0.0, 0.0], STATIC),
+              Point(:knot, [0.0, 0.0, 10.0], DYNAMIC),
+              Point(:line_end, [5.0, 0.0, 0.0], DYNAMIC),
+              Point(:loose_end, [-1.0, 0.0, 11.0], DYNAMIC)]
+    segments = [Segment(:main, :ground, :knot, 1e4, 10.0, 0.01),
+                Segment(:line, :ground, :line_end, 1e4, 10.0, 0.01),
+                Segment(:loose, :knot, :loose_end, 1e4, 10.0, 0.01)]
+    tethers = [Tether(:main_tether, [:main], 10.0), Tether(:line_tether, [:line], 5.0)]
+    winches = [Winch(:winch, set, [:main_tether]; winch_point=:ground)]
+    sys = SystemStructure("segment_role_tethers", set; points, segments, tethers,
+                          winches)
+    @test [segment_role(sys, segment) for segment in sys.segments] ==
+          [:winched_tether, :unwinched_tether, :free]
 end
 nothing

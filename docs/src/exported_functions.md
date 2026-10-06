@@ -35,6 +35,27 @@ check_live_polar
 load_sys_struct_from_yaml
 ```
 
+## Structure documents
+
+A `SystemStructure` also reads and writes as a *structure document* — the
+resolved points, segments, stations, pulleys, tethers, winches, wings, bodies and
+tubes as one `headers`/`units`/`data` table per block, conforming to awesIO's
+`structure_schema.yml` 1.0.0. YAML and JSON are two encodings of the one document,
+and the file extension picks between them. The document holds the system in its
+initial pose, every position in the ENU world frame; its authored geometry, its
+transforms and the live state do not survive a round trip. Reading a document with wings is
+not supported yet ([#396](https://github.com/OpenSourceAWE/SymbolicAWEModels.jl/issues/396)).
+`save_log(logger, sys, name)` writes a log that carries the document as JSON under
+the metadata key `topology`.
+
+```@docs
+structure_document
+sys_struct_from_document
+save_structure_document
+load_structure_document
+save_log(::Logger, ::SystemStructure)
+```
+
 ## System configuration
 
 ```@docs
@@ -46,26 +67,32 @@ calc_steady_torque
 
 ## Placing a SystemStructure
 
-`init!(sam)` places the structure for a new run with `reinit!(sys_struct, set)`,
-which applies every adjustment the geometry and settings describe, by running the
-steps below in the order its docstring lists. To change only part of the structure
-— a tether's unstretched length, say, without moving the kite — run the steps
-wanted on `sam.sys_struct` and initialise with `reinit_sys=false`:
+[`place!`](@ref) puts a structure in the world by its transforms and makes where it
+lands its initial pose (`pos_ENU`, `Q_KA_to_ENU`); the `SystemStructure` constructor
+runs it, and `init!(sam)` takes the moving state as it stands and derives mass
+properties and rest geometry from the initial pose
+([`init_derived_properties!`](@ref)), so a run restarted from a logged state
+resumes. To move the system for a new run, change its transforms and
+`place!` it again. To change only part of it — a tether's unstretched length, say,
+without moving the kite — run the steps wanted on `sam.sys_struct` before `init!`:
 
 ```julia
 set_unstretched_length!(sam.sys_struct, sam.sys_struct.tethers[1], 240.0)
-init!(sam; reinit_sys=false)
+init!(sam)
 ```
 
 ```@docs
-reset_to_cad!
+place!
+reset_to_initial_pose!
 apply_tether_init_stretched_lens!
 update_segment_lengths!
 apply_tether_init_forces!
 init_pulley_lengths!
 remake_wing_aero!
 init_wind!
+init_sys_struct!
 relax_segments!
+init_derived_properties!
 update_mass_properties!
 init_rest_geometry!
 set_unstretched_length!
@@ -150,7 +177,8 @@ plot(sys::SystemStructure; kwargs...)
 **Keyword arguments:**
 - `vector_scale::Float64=1.0`: Length scale of the force/orientation arrows
 - `force_color::Bool=false`: Colour segments by tension instead of `segment_color`
-- `segment_color=RGBf(0.25, 0.25, 0.25)`: Default colour for segments
+- `segment_color=RGBf(0.25, 0.25, 0.25)`: Segment colour — one colour, a vector
+  with one per segment, or a function `segment -> colour`
 - `relmargin::Float64=0.2`: Margin around the system, as a fraction of its extent
 - `body_frame`: Track a wing body frame with the camera (defaults on with `aero_mapping`)
 - `zoom`, `pan_horizontal`, `pan_vertical`, `tilt_horizontal`, `tilt_vertical`: Camera placement
@@ -162,6 +190,14 @@ Remaining keywords are forwarded to `plot!`, including:
 - `transparency::Bool=true`: Order-independent transparency; `false` is much faster
 - `aero_mapping::Bool=false`: Overlay the [`AeroPressure`](@ref) station→point map
 - `linewidth`, `point_size`, `beam_color`, `airfoil_color`, …: Styling
+
+To tell the wing from the tethers and the free segments, colour the segments by
+[`segment_role`](@ref):
+```julia
+role_colors = Dict(:wing => :black, :free => :steelblue,
+                   :unwinched_tether => :seagreen, :winched_tether => :darkorange)
+plot(sys; segment_color=segment -> role_colors[segment_role(sys, segment)])
+```
 
 **Interactive features:**
 - Hover over segments to highlight them
@@ -208,7 +244,7 @@ same panels for comparison.
 
 ## Inflated-tube rigidity laws
 
-Rigidities for the [`TimoshenkoJoint`](@ref)s of a beam wing whose leading edge
+Rigidities for the [`TimoshenkoTube`](@ref)s of a beam wing whose leading edge
 and struts are pressurised fabric tubes. [`tube_bending_law`](@ref) and
 [`tube_torsion_law`](@ref) come from the empirical Breukels correlations;
 [`comer_levy_bending_law`](@ref) is the analytical alternative that stays valid
@@ -217,6 +253,7 @@ past collapse but needs the fabric membrane stiffness `E·t`, which
 
 ```@docs
 tube_linear_rigidities
+tube_law_rigidities
 tube_bending_law
 tube_torsion_law
 tube_mass
@@ -243,4 +280,5 @@ apply_apparent_mass!
 
 ```@docs
 init_module
+segment_role
 ```

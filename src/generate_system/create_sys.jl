@@ -24,7 +24,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     defaults = Pair{Num, Any}[]
 
     (; points, stations, segments, pulleys, tethers, winches, wings,
-       bodies, elastic_joints, timoshenko_joints) = system
+       bodies, tubes) = system
 
     validate_station_modes(stations, bodies)
 
@@ -90,7 +90,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     Q_p_to_w = body_Q_p_to_w; ω_p = body_ω_p; α_p = body_α_p
     R_b_to_w = body_R_b_to_w; R_p_to_w = body_R_p_to_w
 
-    # Rigid body load accumulators (filled by joint_eqs!, read by body_eqs!).
+    # Rigid body load accumulators (filled by the tube equations, read by body_eqs!).
     body_force = zeros(Num, 3, length(bodies))
     body_moment = zeros(Num, 3, length(bodies))
 
@@ -191,7 +191,7 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
     eqs, defaults = station_eqs!(
         eqs, defaults, stations, bodies, params, initial;
         R_b_to_w, fix_wing, twist_angle, twist_ω, station_aero_moment,
-        point_force, station_y_airf, station_chord, station_le_pos
+        point_force, point_mass, station_y_airf, station_chord, station_le_pos
     )
 
     # 3. Segment equations (spring-damper forces, returns len and spring_force)
@@ -270,16 +270,15 @@ function create_sys!(s::SymbolicAWEModel, system::SystemStructure;
             aero_moment_b[:, widx] .+ (aero_force_b[:, widx] × com_off)))
     end
 
-    # Elastic joints accumulate wrenches into body loads; must precede body_eqs!.
-    eqs = joint_eqs!(
-        eqs, elastic_joints, params;
+    # Tubes accumulate wrenches into body loads; must precede body_eqs!.
+    eqs = elastic_tube_eqs!(
+        eqs, tubes, params;
         body_force, body_moment,
         body_com_w, body_pos_w, body_com_vel, body_ω_b, body_R_b_to_w,
     )
 
-    # Timoshenko joints: distributed-stiffness wrenches into the same accumulators.
-    eqs = timoshenko_joint_eqs!(
-        eqs, timoshenko_joints, params;
+    eqs = timoshenko_tube_eqs!(
+        eqs, tubes, params;
         body_force, body_moment,
         body_com_w, body_pos_w, body_com_vel, body_ω_b, body_R_b_to_w,
     )

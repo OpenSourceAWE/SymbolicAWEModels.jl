@@ -74,14 +74,14 @@ vsm_set = VortexStepMethod.VSMSettings(
         @test !isnothing(wing.wing_segments)
         @test length(wing.wing_segments) == n_struct
 
-        R = wing.R_b_to_c
-        origin = wing.pos_cad
+        R = SymbolicAWEModels.initial_rotation(wing)
+        origin = wing.pos_ENU
         for (i, (le_idx, te_idx)) in
                 enumerate(wing.wing_segments)
             sec = vsm_w.unrefined_sections[i]
-            le_body = R' * (points[le_idx].pos_cad -
+            le_body = R' * (points[le_idx].pos_ENU -
                             origin)
-            te_body = R' * (points[te_idx].pos_cad -
+            te_body = R' * (points[te_idx].pos_ENU -
                             origin)
             @test isapprox(Vector(sec.LE_point),
                            le_body; atol=1e-10)
@@ -171,6 +171,30 @@ vsm_set = VortexStepMethod.VSMSettings(
         @test vsm_w.n_unrefined_sections == n_struct
     end
 
+    @testset "solver is sized for the stations, not the aero geometry" begin
+        geometry = read(joinpath(data_path, "aero_geometry.yaml"), String)
+        extra_sections = "    - [1, -0.5, 0.5, 2.25, 0.5, 0.5, 2.55]\n" *
+                         "    - [1, -0.5, -0.5, 2.25, 0.5, -0.5, 2.55]\n"
+        geometry = replace(geometry,
+            "\n    # Right section" => "\n" * extra_sections * "\n    # Right section")
+        write(joinpath(data_path, "aero_geometry_5_sections.yaml"), geometry)
+        vsm_set_5 = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
+        vsm_set_5.wings[1].geometry_file = "aero_geometry_5_sections.yaml"
+        vsm_set_5.wings[1].use_prior_polar = true
+        vsm_set_5.wings[1].n_panels = 8
+
+        sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+            refine_yaml;
+            system_name="refine_solver_size", set, vsm_set=vsm_set_5)
+        wing = sys.wings[1]
+        @test length(wing.station_idxs) == 3
+        @test wing.vsm_wing.n_unrefined_sections == 3
+        @test length(wing.vsm_solver.sol.cm_unrefined_dist) == 3
+        VortexStepMethod.set_va!(wing.vsm_aero, [10.0, 0.0, 1.0])
+        @test VortexStepMethod.solve!(wing.vsm_solver, wing.vsm_aero) isa
+            VortexStepMethod.VSMSolution
+    end
+
     @testset "errors when use_prior_polar=false" begin
         sys = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
@@ -200,7 +224,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         # The fixture's wing is pitched about y, so mirroring y mirrors body y too.
         for point in sys.points
             point.is_wing_node || continue
-            point.pos_cad[2] *= -1
+            point.pos_ENU[2] *= -1
             point.pos_w[2] *= -1
         end
         @test_throws "run from -y to +y" update_vsm_wing_from_structure!(
@@ -208,7 +232,8 @@ vsm_set = VortexStepMethod.VSMSettings(
         wing.wing_segments = nothing
         @test_throws "run from -y to +y" match_aero_sections_to_structure!(
             wing, sys.points)
-        @test_throws "run from -y to +y" transform_vsm_sections_to_body!(wing)
+        @test_throws "run from -y to +y" transform_vsm_sections_to_body!(
+            wing, wing.pos_ENU, SymbolicAWEModels.initial_rotation(wing))
     end
 end
 
@@ -232,14 +257,14 @@ end
         @test vsm_w.n_unrefined_sections == n_struct
 
         # Verify LE/TE positions match
-        R = wing.R_b_to_c
-        origin = wing.pos_cad
+        R = SymbolicAWEModels.initial_rotation(wing)
+        origin = wing.pos_ENU
         for (i, (le_idx, te_idx)) in
                 enumerate(wing.wing_segments)
             sec = vsm_w.unrefined_sections[i]
-            le_body = R' * (points[le_idx].pos_cad -
+            le_body = R' * (points[le_idx].pos_ENU -
                             origin)
-            te_body = R' * (points[te_idx].pos_cad -
+            te_body = R' * (points[te_idx].pos_ENU -
                             origin)
             @test isapprox(Vector(sec.LE_point),
                            le_body; atol=1e-10)
