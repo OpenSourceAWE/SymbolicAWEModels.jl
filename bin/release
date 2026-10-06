@@ -10,15 +10,17 @@ _sha=""
 
 print_usage() {
     echo "Usage:"
-    echo "  ./bin/release            Register the current HEAD with JuliaRegistrator"
+    echo "  ./bin/release            Register the head of the default branch"
     echo "  ./bin/release --dry-run  Print the version, commit and release notes, then exit"
     echo "  ./bin/release --yes      Skip the confirmation prompt"
-    echo "  ./bin/release --sha SHA  Register a specific commit instead of HEAD"
+    echo "  ./bin/release --sha SHA  Register a specific commit instead"
     echo "  ./bin/release -h"
     echo
-    echo "Extracts the top section of CHANGELOG.md as release notes and posts a"
-    echo "'@JuliaRegistrator register' comment on the commit via the GitHub API."
-    echo "The commit must already be pushed to the remote."
+    echo "The version and the release notes are read from Project.toml and"
+    echo "CHANGELOG.md as that commit carries them, never from the working tree,"
+    echo "so this runs from any branch and from any directory in the repository."
+    echo "It posts a '@JuliaRegistrator register' comment on the commit via the"
+    echo "GitHub API; the commit must already be on the remote."
 }
 
 while [[ $# -gt 0 ]]; do
@@ -30,10 +32,6 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown option: $1" >&2; print_usage >&2; exit 1 ;;
     esac
 done
-
-if [[ $(basename "$(pwd)") == "bin" ]]; then
-    cd ..
-fi
 
 for cmd in git gh awk; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -47,13 +45,40 @@ if ! gh auth status >/dev/null 2>&1; then
     exit 1
 fi
 
-_version=$(awk -F'"' '/^version[[:space:]]*=/ {print $2; exit}' Project.toml)
+if [[ -z "$_sha" ]]; then
+    _default=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)
+    if [[ -z "$_default" ]]; then
+        echo "origin/HEAD is unset, so the default branch is unknown. Run" >&2
+        echo "'git remote set-head origin --auto', or pass --sha yourself." >&2
+        exit 1
+    fi
+    git fetch --quiet origin "${_default#origin/}"
+    _sha="$_default"
+fi
+
+_sha=$(git rev-parse --verify "$_sha^{commit}" 2>/dev/null) || {
+    echo "Not a commit in this repository: $_sha" >&2
+    exit 1
+}
+
+_project=$(git show "$_sha:Project.toml" 2>/dev/null) || {
+    echo "No Project.toml at $_sha." >&2
+    exit 1
+}
+_changelog=$(git show "$_sha:CHANGELOG.md" 2>/dev/null) || {
+    echo "No CHANGELOG.md at $_sha." >&2
+    exit 1
+}
+
+_version=$(printf '%s\n' "$_project" |
+    awk -F'"' '/^version[[:space:]]*=/ {print $2; exit}')
 if [[ -z "$_version" ]]; then
-    echo "Could not read version from Project.toml" >&2
+    echo "Could not read version from Project.toml at $_sha" >&2
     exit 1
 fi
 
-_changelog_version=$(awk '/^## / {sub(/^## /, ""); print $1; exit}' CHANGELOG.md)
+_changelog_version=$(printf '%s\n' "$_changelog" |
+    awk '/^## / {for (i = 1; i <= NF; i++) if ($i ~ /^v[0-9]/) {print $i; break}; exit}')
 if [[ "$_changelog_version" != "v$_version" ]]; then
     echo "Version mismatch: Project.toml is $_version but CHANGELOG top is" \
          "$_changelog_version (expected v$_version)." >&2
@@ -61,10 +86,10 @@ if [[ "$_changelog_version" != "v$_version" ]]; then
     exit 1
 fi
 
-_notes=$(awk '
+_notes=$(printf '%s\n' "$_changelog" | awk '
     /^## / { n++; if (n == 1) next }
     n == 1 { print }
-' CHANGELOG.md | awk '
+' | awk '
     { lines[NR] = $0 }
     END {
         start = 1; while (start <= NR && lines[start] ~ /^[[:space:]]*$/) start++
@@ -76,14 +101,6 @@ _notes=$(awk '
 if [[ -z "$_notes" ]]; then
     echo "No release notes found under the '## v$_version' section." >&2
     exit 1
-fi
-
-if [[ -z "$_sha" ]]; then
-    _sha=$(git rev-parse HEAD)
-fi
-
-if [[ -n "$(git status --porcelain)" ]]; then
-    echo "Warning: working tree has uncommitted changes." >&2
 fi
 
 _repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
