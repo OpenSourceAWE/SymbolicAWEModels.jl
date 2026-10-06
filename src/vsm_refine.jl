@@ -18,17 +18,17 @@ multiplier is `1 + (wing.aero_scale_chord or this default)`.
 const AERO_SCALE_CHORD = 0.0
 
 """
-    identify_wing_segments(wing_points; stations=nothing, wing_station_idxs=nothing)
+    identify_wing_segments(wing, wing_points; stations=nothing, wing_station_idxs=nothing)
 
-Identify wing segments (LE/TE pairs) from wing nodes.
+Identify wing segments (LE/TE pairs) from `wing`'s nodes.
 
 When `stations` and `wing_station_idxs` are provided, uses station `point_idxs`
 to determine LE (`point_idxs[1]`) and TE (`point_idxs[end]`) for each
 section. Falls back to a consecutive-pair heuristic (sorted by point index)
 when stations are unavailable.
 
-In both paths an x-coordinate check swaps LE/TE if needed (LE has
-smaller `pos_cad[1]`).
+In both paths a chord check swaps LE/TE if needed: the LE has the smaller body-frame
+x in the wing's initial pose ([`initial_chord_position`](@ref)).
 
 # Arguments
 - `wing_points::AbstractVector{Point}`: wing nodes for a wing.
@@ -43,6 +43,7 @@ smaller `pos_cad[1]`).
 - `Vector{Tuple{Int64, Int64}}`: (le_point_idx, te_point_idx) pairs.
 """
 function identify_wing_segments(
+    wing::Body,
     wing_points::AbstractVector{Point};
     stations::AbstractVector{Station}=Station[],
     wing_station_idxs::AbstractVector{<:Integer}=Int[]
@@ -60,8 +61,8 @@ function identify_wing_segments(
                 "$(length(station.point_idxs))")
             station = [wing_points[findfirst(p -> p.idx == idx, wing_points)]
                        for idx in station.point_idxs]
-            le_point = argmin(p -> p.pos_cad[1], station)
-            te_point = argmax(p -> p.pos_cad[1], station)
+            le_point = argmin(p -> initial_chord_position(wing, p), station)
+            te_point = argmax(p -> initial_chord_position(wing, p), station)
             push!(segments, (le_point.idx, te_point.idx))
         end
         return segments
@@ -84,7 +85,7 @@ function identify_wing_segments(
         le_point = sorted_points[le_idx]
         te_point = sorted_points[te_idx]
 
-        if le_point.pos_cad[1] < te_point.pos_cad[1]
+        if initial_chord_position(wing, le_point) < initial_chord_position(wing, te_point)
             push!(segments, (le_point.idx, te_point.idx))
         else
             push!(segments, (te_point.idx, le_point.idx))
@@ -135,7 +136,7 @@ function check_aero_frame(wing, points)
     end
     margin = AERO_FRAME_BOX_MARGIN * maximum(high - low)
     low, high = low .- margin, high .+ margin
-    located = ["point $(point.name)" => point.pos_cad for point in points
+    located = ["point $(point.name)" => point.pos_ENU for point in points
                if point.is_wing_node && point.wing_idx == wing.idx]
     has_mesh_inertia(wing.vsm_wing) &&
         push!(located, "its COM" => -wing.vsm_wing.T_cad_body)
@@ -146,7 +147,7 @@ function check_aero_frame(wing, points)
             "geometry the same CAD frame.")
     end
     isnothing(wing.y_ref_points) && return nothing
-    y_ref = [get_ref_position_from_points(points, ref; field=:pos_cad)
+    y_ref = [get_ref_position_from_points(points, ref; field=:pos_ENU)
              for ref in wing.y_ref_points]
     span = normalize(section_span(wing.vsm_wing))
     angle = acosd(clamp(dot(normalize(y_ref[2] - y_ref[1]), span), -1, 1))
@@ -186,7 +187,7 @@ function match_aero_sections_to_structure!(
 
     if wing.dynamics_type == RIGID_DYNAMICS
         wing.wing_segments = identify_wing_segments(
-            wing_points; stations=stations,
+            wing, wing_points; stations=stations,
             wing_station_idxs=wing.station_idxs)
         return nothing
     end
@@ -240,7 +241,7 @@ function match_aero_sections_to_structure!(
     end
 
     wing_segments = identify_wing_segments(
-        wing_points; stations=stations,
+        wing, wing_points; stations=stations,
         wing_station_idxs=wing_station_idxs)
     wing.wing_segments = wing_segments
     length(wing_segments) == n_struct_sections || error(
@@ -254,8 +255,6 @@ function match_aero_sections_to_structure!(
         "Wing $(wing.idx): aerodynamic geometry " *
         "has zero unrefined sections."
     )
-    R_b_to_c = wing.R_b_to_c
-    origin_cad = wing.pos_cad
     new_sections = Vector{VortexStepMethod.Section}(
         undef, n_struct_sections)
 
@@ -270,10 +269,8 @@ function match_aero_sections_to_structure!(
         end
         source_section = original_sections[source_idx]
 
-        le_body = R_b_to_c' *
-            (points[le_idx].pos_cad - origin_cad)
-        te_body = R_b_to_c' *
-            (points[te_idx].pos_cad - origin_cad)
+        le_body = initial_body_position(wing, points[le_idx])
+        te_body = initial_body_position(wing, points[te_idx])
 
         section = VortexStepMethod.Section()
         VortexStepMethod.reinit!(
@@ -537,8 +534,7 @@ function compute_station_geometry!(wing, stations, points)
         iszero(station.chord) || continue
         center = zeros(3)
         for pt_idx in station.point_idxs
-            center .+= wing.R_b_to_c' *
-                (points[pt_idx].pos_cad - wing.pos_cad)
+            center .+= initial_body_position(wing, points[pt_idx])
         end
         center ./= length(station.point_idxs)
 
@@ -577,7 +573,7 @@ function setup_particle_point_mapping!(wing, points, stations)
         point -> point.is_wing_node && point.wing_idx == wing.idx, points)
     wing_pts = [points[idx] for idx in wing_point_idxs]
     if isnothing(wing.wing_segments)
-        wing.wing_segments = identify_wing_segments(wing_pts;
+        wing.wing_segments = identify_wing_segments(wing, wing_pts;
             stations=stations,
             wing_station_idxs=wing.station_idxs)
     end

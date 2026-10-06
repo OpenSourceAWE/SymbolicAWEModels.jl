@@ -24,8 +24,8 @@ using LinearAlgebra
     reset_state!(sam, set)
 
 Reset SAM to default state between tests. Restores gravity, wind,
-transform, constraints, damping, and brake. Calls `init!` to
-reinitialize the integrator.
+transform, constraints, damping, and brake, places the structure and calls
+`init!` to reinitialize the integrator.
 """
 function reset_state!(sam, set)
     set.g_earth = 9.81
@@ -53,6 +53,7 @@ function reset_state!(sam, set)
 
     sam.sys_struct.winches[:main_winch].brake = true
 
+    place!(sam.sys_struct; prn=false)
     test_init!(sam; prn=false)
 end
 

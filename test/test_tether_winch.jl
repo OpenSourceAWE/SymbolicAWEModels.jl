@@ -186,6 +186,7 @@ environment:
         winch.inertia_total = 0.1
         seg.unit_stiffness = 0.0
         seg.unit_damping = 0.0
+        place!(sam.sys_struct; prn=false)
         test_init!(sam; prn=false)
 
         tau_motor = 5.0
@@ -211,6 +212,7 @@ environment:
 
         for I_test in [0.1, 0.5, 1.0]
             winch.inertia_total = I_test
+            place!(sam.sys_struct; prn=false)
             test_init!(sam; prn=false)
 
             dt = 0.001
@@ -246,6 +248,7 @@ environment:
 
         for f_c in [0.5, 2.0, 5.0]
             winch.coulomb_friction = f_c
+            place!(sam.sys_struct; prn=false)
             test_init!(sam; prn=false)
 
             dt = 0.001
@@ -290,6 +293,7 @@ environment:
 
         for viscous_test in [50.0, 100.0, 200.0]
             winch.viscous_coefficient = viscous_test
+            place!(sam.sys_struct; prn=false)
             test_init!(sam; prn=false)
 
             # Time constant: I / (viscous_coefficient * (r/n)^2)
@@ -325,6 +329,7 @@ environment:
         unit_d = unit_k * 0.01  # Damping for settling
         seg.unit_stiffness = unit_k
         seg.unit_damping = unit_d
+        place!(sam.sys_struct; prn=false)
         test_init!(sam; prn=false)
 
         # Compute total mass at weight point:
@@ -368,6 +373,7 @@ environment:
         # Stiff tether to transmit gravity force
         seg.unit_stiffness = 120000.0
         seg.unit_damping = 500.0
+        place!(sam.sys_struct; prn=false)
         test_init!(sam; prn=false)
 
         tau_motor = 0.5
@@ -474,6 +480,7 @@ environment:
             s.unit_stiffness = 50000.0
             s.unit_damping = 500.0
         end
+        place!(sam2.sys_struct; prn=false)
         test_init!(sam2; prn=false)
 
         next_step!(sam2; dt=3.0, vsm_interval=0)
@@ -599,6 +606,7 @@ environment:
             points=points_l, segments=segments_l,
             tethers=tethers_l, winches=winches_l, prn=false)
         sam_l = SymbolicAWEModel(set, sys_l)
+        place!(sam_l.sys_struct; prn=false)
         test_init!(sam_l; prn=false)
 
         tether_l = sam_l.sys_struct.tethers[:main_l]
@@ -651,6 +659,7 @@ environment:
         winch.brake = true
         seg.unit_stiffness = 50000.0
         seg.unit_damping = 500.0
+        place!(sam.sys_struct; prn=false)
         test_init!(sam; prn=false)
 
         placed = [copy(point.pos_w) for point in sam.sys_struct.points]
@@ -658,8 +667,8 @@ environment:
 
         set_unstretched_length!(sam.sys_struct, tether, 48.0)
         # A winched tether's length is integrator state, so it reaches `u0`
-        # through a fresh `init!`; `reinit_sys=false` keeps the placement.
-        init!(sam; reinit_sys=false, remake=false, prn=false)
+        # through a fresh `init!`, which keeps the placement.
+        init!(sam; remake=false, prn=false)
 
         @test unstretched_length(sam) ≈ [48.0]
         @test seg.l0 ≈ 48.0

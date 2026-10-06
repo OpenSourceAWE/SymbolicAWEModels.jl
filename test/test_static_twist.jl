@@ -21,10 +21,10 @@ pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
 
 @testset "validate_station_modes" begin
-    rigid = Wing(:rigid, NameRef[], Matrix{Float64}(I, 3, 3),
+    rigid = Wing(:rigid, NameRef[], [1.0, 0.0, 0.0, 0.0],
         zeros(3), ones(3); dynamics_type=RIGID_DYNAMICS)
     rigid.idx = 1
-    particle = Wing(:particle, NameRef[], Matrix{Float64}(I, 3, 3),
+    particle = Wing(:particle, NameRef[], [1.0, 0.0, 0.0, 0.0],
         zeros(3), ones(3); dynamics_type=PARTICLE_DYNAMICS)
     particle.idx = 1
 

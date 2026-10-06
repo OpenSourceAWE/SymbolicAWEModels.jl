@@ -2,72 +2,57 @@
 
 ## Overview
 
-SymbolicAWEModels uses four coordinate frames to describe geometry
+SymbolicAWEModels uses three coordinate frames to describe geometry
 and dynamics:
 
-- **CAD frame (c)**: where geometry is originally defined
-- **Body frame (b)**: attached to the wing, used for aerodynamics
+- **Body frame (b, KA)**: attached to the wing, used for aerodynamics
 - **Principal frame (p)**: diagonal-inertia frame carrying the
   rigid-body ODE state; a constant rotation off the body frame
-- **World frame (w)**: the simulation frame
+- **World frame (w, ENU)**: the simulation frame
 
 The transformation chain is:
 
 ```
-             R_b_to_c, pos_cad          R_b_to_w, wing.pos_w
-CAD frame ──────────────────▶ Body frame ─────────────────▶ World frame
-(geometry)                    (wing-attached)               (simulation)
+             R_b_to_w, wing.pos_w
+Body frame ─────────────────────▶ World frame
+(wing-attached)                   (simulation)
 ```
 
-Each step involves both a **rotation** and a **translation**:
-- **CAD to Body**: rotation `R_b_to_c` and origin shift to
-  `pos_cad` (COM for RIGID_DYNAMICS, origin point for PARTICLE_DYNAMICS)
-- **Body to World**: rotation `R_b_to_w` (from quaternion state or
-  structural points) and translation to `wing.pos_w`
-
-`R_b_to_c` is a constant rotation computed once during
-[`SystemStructure`](@ref) construction.
 `R_b_to_w` evolves during simulation — from the quaternion state
 (RIGID_DYNAMICS) or from deformed point positions (PARTICLE_DYNAMICS).
 
-## CAD Frame
+## Initial Pose
 
-The CAD frame is the coordinate system in which geometry is originally
-defined, whether in a YAML file or via Julia constructors.
+Every point and body holds an initial pose in the world frame: `pos_ENU`, and for a
+body `Q_KA_to_ENU`, its body→world orientation. It is where a run starts from, and
+a run never changes it; what moves is `pos_w` and `Q_b_to_w`.
 
-- Every point stores `pos_cad` — the original design position
-- `pos_cad` is never modified by the codebase; it is kept as a
-  permanent reference
-- There is no imposed convention on orientation or origin — use
-  whatever is convenient for your geometry
-- Wing `pos_cad` is set to the centre of mass (RIGID_DYNAMICS) or the
-  origin point position (PARTICLE_DYNAMICS) during construction
-- VSM panel positions start in the CAD frame and are transformed to
-  the body frame during construction
-- A VSM wing's structure and its aerodynamic geometry must share one
-  CAD frame: construction errors, naming the wing, when a station node
-  or the mesh COM lies outside the sections' bounding box, or when the
-  span from `y_ref_points` is turned away from the sections' span
-  ([`check_aero_frame`](@ref SymbolicAWEModels.check_aero_frame) gives
-  the margins)
+- Everything derived from geometry is derived from the initial pose, by
+  [`init!`](@ref) on every call: each body's mass properties and principal frame,
+  each tube's rest geometry and each flap's rest deflection. A run restarted from a
+  logged state therefore keeps the rest shape it started with.
+- A wing's `pos_ENU` is its centre of mass (RIGID_DYNAMICS without reference
+  points) or its weighted `origin` reference position.
+- [`reset_to_initial_pose!`](@ref) puts the structure back at it.
 
-## Transform: CAD to World Initial Positioning
+## Transform: Authoring Geometry to World
 
-A [`Transform`](@ref) repositions CAD-frame geometry into the world
-frame for the initial condition. Without a Transform,
-`pos_w = pos_cad`.
+Geometry is authored wherever convenient — the YAML's `pos_cad` column, or the
+position passed to a constructor — and a [`Transform`](@ref) moves it into the
+world. [`place!`](@ref) applies each Transform in three steps, then makes where the
+structure lands its initial pose:
 
-When a Transform is applied, `reinit!` performs three steps:
-
-1. **Translation**: `pos_w = pos_cad + (base_pos - curr_base_pos)`
+1. **Translation**: `pos_w = pos_ENU + (base_pos - curr_base_pos)`
 2. **Rotation**: spherical repositioning using `elevation` and
    `azimuth` angles around the base point
 3. **Heading**: orientation solve for wings (yaw about the radial
    axis)
 
-This lets you place geometry defined in any convenient CAD orientation
-into the correct world-frame position (e.g. a kite at 70deg
-elevation).
+A VSM wing's structure and its aerodynamic geometry must be authored in one frame: construction errors, naming the wing, when a station node or the mesh COM lies outside the sections' bounding box, or when the span from `y_ref_points` is turned away from the sections' span ([`check_aero_frame`](@ref SymbolicAWEModels.check_aero_frame) gives the margins).
+
+Without a Transform, the authored position is the initial pose. This lets you
+place geometry defined in any convenient orientation into the correct world-frame
+position (e.g. a kite at 70deg elevation).
 
 ```yaml
 transforms:
@@ -86,7 +71,9 @@ specified elevation and azimuth. Transforms can chain: use
 `base_transform` instead of `base_pos` to use the already-rotated
 `rot_point`/`wing` position of another transform as the base.
 
-See `reinit!` in `transforms.jl`.
+`SystemStructure` places once when it is built; after changing a Transform, call
+`place!(sys_struct)` before `init!`. Placing again starts from the initial pose,
+and the steps above land on the same pose whatever orientation they start from.
 
 ## World Frame
 
@@ -104,11 +91,10 @@ vector are expressed in the world frame.
 
 For `RIGID_DYNAMICS` wings the body frame is built the same way as
 for `PARTICLE_DYNAMICS` — from user-chosen reference points (see
-below) — but it is frozen at construction as a constant
-``R_{b \to c}`` instead of being refitted every step, since the wing
-body is rigid. If a wing declares no `origin`/`z_ref_points`/
-`y_ref_points`, the body frame keeps the CAD orientation
-(``R_{b \to c} = I``) with its origin at the wing body's own COM.
+below) — but it is fitted once, in the authored geometry, instead of being
+refitted every step, since the wing body is rigid. If a wing declares no
+`origin`/`z_ref_points`/`y_ref_points`, the body frame keeps the authored
+orientation with its origin at the wing body's own COM.
 
 The wing's mass properties are those of the wing body with every point
 it carries (see [Mass of a rigid body](@ref)):
@@ -120,8 +106,9 @@ it carries (see [Mass of a rigid body](@ref)):
    point mass ``m_i`` (its `total_mass`) at its body-frame position
    ``\mathbf{p}_i``.
 3. **COM**: ``\text{com\_offset}_b = \frac{m_e \mathbf{c}_e + \sum m_i \mathbf{p}_i}
-   {m_e + \sum m_i}``, measured from the body origin (`wing.pos_cad`,
-   the weighted `origin` reference position).
+   {m_e + \sum m_i}``, measured from the body origin (`wing.pos_ENU`,
+   the weighted `origin` reference position), with each ``\mathbf{p}_i`` taken
+   from the initial pose.
 4. **Inertia** about that COM, by the parallel-axis theorem:
    ``I_b = I_e + m_e S(\mathbf{c}_e - \text{com}) + \sum m_i S(\mathbf{p}_i - \text{com})``
    with ``S(\mathbf{r}) = (\mathbf{r} \cdot \mathbf{r})\, \mathbf{I}_3 - \mathbf{r}\mathbf{r}^\top``.
@@ -205,14 +192,17 @@ Key points:
 
 See `calc_particle_dynamics_wing_frame` in `transforms.jl`.
 
-## CAD to Body Transformation (VSM Panels)
+## Aero Geometry to Body Transformation (VSM Panels)
 
-Both wing types transform VSM panel positions from the CAD frame to
-the body frame during [`SystemStructure`](@ref) construction:
+The VSM aero geometry is read in the frame it was authored in, the same one as the
+structure's authored geometry. Both wing types move it into the body frame during
+[`SystemStructure`](@ref) construction, from the wing's authored origin and
+orientation, which the VSM wing records as `T_cad_body` and `R_cad_body` so that a
+rebuilt aero geometry lands the same way:
 
 1. **Translate**: subtract origin (`adjust_vsm_panels_to_origin!`)
-2. **Rotate**: apply ``R_{b \to c}^\top`` to all section LE/TE points
-   (`rotate_vsm_sections!`)
+2. **Rotate**: apply the inverse of the wing's authored orientation to all section
+   LE/TE points (`rotate_vsm_sections!`)
 3. **Z-offset** (RIGID_DYNAMICS only): apply `aero_z_offset` to shift the
    aerodynamic reference vertically in the body frame
    (`apply_aero_z_offset!`)
