@@ -172,7 +172,7 @@ function inject_velocity!(sam, nodes, velocities)
     for (node, velocity) in zip(nodes, velocities)
         node.vel_w .+= velocity
     end
-    init!(sam; reinit_sys=false, lin_vsm=false, prn=false)
+    init!(sam; lin_vsm=false, prn=false)
     error_norm = maximum(norm(Vector(nodes[k].vel_w) .- intended[k])
                          for k in eachindex(nodes))
     settle!(sam)

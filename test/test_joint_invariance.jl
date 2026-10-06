@@ -147,31 +147,33 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
     """Two bodies joined by one Timoshenko element."""
     function timoshenko_pair(; damping=0.0, type_a=DYNAMIC)
         node_a, node_b = pair_bodies(type_a)
-        joint = TimoshenkoJoint(:joint, :nodeA, :nodeB;
-            EA, GA=1500.0, GJ, EIy=100.0, EIz=100.0, shear_coeff=5 / 6, damping)
+        tube = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
+            model=TimoshenkoTube(; EA, GA=1500.0, GJ, EIy=100.0, EIz=100.0,
+                                 shear_coeff=5 / 6, damping))
         return SystemStructure("joint_invariance_test", set;
-            bodies=[node_a, node_b], timoshenko_joints=[joint])
+            bodies=[node_a, node_b], tubes=[tube])
     end
 
-    """Two bodies joined by one 6-DOF elastic joint with separated anchors."""
+    """Two bodies joined by one lumped 6-DOF elastic tube with separated anchors."""
     function elastic_pair(; damping=0.0, type_a=DYNAMIC)
         node_a, node_b = pair_bodies(type_a)
         # Anchors deliberately separated; coincident ones make Δv vanish anyway,
         # and only separated ones exercise the transport couple on body A.
-        joint = ElasticJoint(:joint, :nodeA, :nodeB;
+        tube = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
             anchor_a=[0.25, 0.0, 0.0], anchor_b=[-0.25, 0.0, 0.0],
-            stiffness_axial=axial_stiffness, stiffness_shear=axial_stiffness,
-            stiffness_torsion=20.0, stiffness_bending=20.0, damping)
+            model=ElasticTube(; stiffness_axial=axial_stiffness,
+                              stiffness_shear=axial_stiffness, stiffness_torsion=20.0,
+                              stiffness_bending=20.0, damping))
         return SystemStructure("joint_invariance_test", set;
-            bodies=[node_a, node_b], elastic_joints=[joint])
+            bodies=[node_a, node_b], tubes=[tube])
     end
 
-    # Add a joint type here and it inherits the rigid-motion invariants.
+    # Add a tube model here and it inherits the rigid-motion invariants.
     joint_cases = [
-        ("TimoshenkoJoint, undamped", () -> timoshenko_pair()),
-        ("TimoshenkoJoint, Rayleigh", () -> timoshenko_pair(; damping=0.02)),
-        ("ElasticJoint, undamped", () -> elastic_pair()),
-        ("ElasticJoint, Rayleigh", () -> elastic_pair(; damping=0.02)),
+        ("TimoshenkoTube, undamped", () -> timoshenko_pair()),
+        ("TimoshenkoTube, Rayleigh", () -> timoshenko_pair(; damping=0.02)),
+        ("ElasticTube, undamped", () -> elastic_pair()),
+        ("ElasticTube, Rayleigh", () -> elastic_pair(; damping=0.02)),
     ]
 
     for (label, build) in joint_cases
@@ -183,7 +185,8 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
             omega = 0.7 .* normalize([1.0, 2.0, -3.0])
             vel = [0.3, -0.2, 0.5]
             set_rigid_motion!(sys, omega, vel, ref)
-            test_init!(sam; prn=false, reset_vel=false)
+            place!(sam.sys_struct; reset_vel=false)
+            test_init!(sam; prn=false)
             before = pair_momenta(sys, ref)
             spin_before = norm(Vector(sys.bodies[:nodeB].ω_b))
             elapsed = 1.0
@@ -211,7 +214,8 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         speed = 0.2
         node_b.vel_w .= [speed, 0.0, 0.0]
         node_b.ω_b .= 0.0
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
         period = 2π / (omega_n * sqrt(1 - zeta^2))
         for _ in 1:2000
             next_step!(sam; dt=period / 2000, vsm_interval=0)
@@ -230,7 +234,8 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         spin = 0.2
         node_b.vel_w .= 0.0
         node_b.ω_b .= [spin, 0.0, 0.0]
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
         period = 2π / (omega_n * sqrt(1 - zeta^2))
         for _ in 1:2000
             next_step!(sam; dt=period / 2000, vsm_interval=0)
@@ -240,7 +245,7 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         @test node_b.ω_b[1] ≈ expected rtol=5e-3
     end
 
-    @testset "ElasticJoint: axial logarithmic decrement" begin
+    @testset "ElasticTube: axial logarithmic decrement" begin
         omega_n = sqrt(axial_stiffness / body_mass)
         zeta = 0.05
         sam = SymbolicAWEModel(set,
@@ -249,13 +254,14 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         speed = 0.2
         node_b.vel_w .= [speed, 0.0, 0.0]
         node_b.ω_b .= 0.0
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
         period = 2π / (omega_n * sqrt(1 - zeta^2))
         for _ in 1:2000
             next_step!(sam; dt=period / 2000, vsm_interval=0)
         end
         expected = speed * log_decrement(zeta)
-        @info "ElasticJoint axial: ζ = βω/2." measured=node_b.vel_w[1] expected
+        @info "ElasticTube axial: ζ = βω/2." measured=node_b.vel_w[1] expected
         @test node_b.vel_w[1] ≈ expected rtol=1e-2
     end
 

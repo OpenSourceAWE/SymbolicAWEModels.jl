@@ -67,14 +67,15 @@ export ModelBackend, MonolithBackend, KernelBackend,
 # System Structure Components
 export SystemStructure, Point, Station, Segment, Pulley, Tether, Winch, Wing, Transform
 export segment_role
-export Body, ElasticJoint, TimoshenkoJoint
+export Body, Tube, AbstractTubeModel, TimoshenkoTube, ElasticTube
 export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
 export ObjAdapter
 export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints
-# Inflated-tube rigidity laws for beam joints
+# Inflated-tube rigidity laws
 export TubeRigidityLaw, TUBE_SHEAR_COEFF, TUBE_POISSON_RATIO
-export tube_torsion_law, tube_linear_rigidities, tube_bending_law, tube_mass
+export tube_torsion_law, tube_linear_rigidities, tube_law_rigidities, tube_bending_law
+export tube_mass
 export breukels_tip_force, breukels_collapse_deflection, breukels_membrane_stiffness
 export comer_levy_bending_law, comer_levy_bending_stiffness,
        comer_levy_wrinkling_moment, comer_levy_collapse_moment
@@ -102,16 +103,18 @@ export set_world_frame_damping
 export set_body_frame_damping
 export set_angular_damping
 export set_unstretched_length!
-export reset_to_cad!
+export place!
+export reset_to_initial_pose!
 export apply_tether_init_stretched_lens!
 export update_segment_lengths!
 export apply_tether_init_forces!
 export init_pulley_lengths!
 export remake_wing_aero!
 export init_wind!
+export init_sys_struct!
 export relax_segments!
 export update_mass_properties!
-export init_rest_geometry!
+export init_rest_geometry!, init_derived_properties!
 export segment_stretch_stats
 export calc_steady_torque
 
