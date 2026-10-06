@@ -54,7 +54,8 @@ const YAML_BLOCK_FIELDS = Dict{String, Vector{Symbol}}(
         :fix_sphere, :fix_static, :ext_force_w, :ext_force_b, :ext_moment_b,
         :principal_frame_method],
     "tubes" => union([:name, :bodies, :diameter, :pressure, :law, :model, :anchor_a,
-        :anchor_b], (field for (_, fields) in values(YAML_TUBE_MODELS) for field in fields)),
+        :anchor_b], (field for (_, fields) in values(YAML_TUBE_MODELS)
+                     for field in fields)),
 )
 
 """
