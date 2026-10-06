@@ -65,7 +65,7 @@ end
     get_ref_position_from_points(points, ref_pt; field=:pos_w)
 
 Weighted position from structural points. `field` selects
-which point coordinate to read (`:pos_w` or `:pos_cad`).
+which point coordinate to read (`:pos_w` or `:pos_ENU`).
 """
 function get_ref_position_from_points(
     points::AbstractVector{Point},
@@ -129,20 +129,19 @@ end
 # ==================== HELPERS ==================== #
 
 """
-    copy_cad_to_world!(points, bodies; update_vel=true)
+    copy_initial_pose!(points, bodies; update_vel=true)
 
-Copy CAD geometry to world frame for ALL points and bodies.
-Sets `pos_w = pos_cad` (and `Q_b_to_w` to initial CAD orientation
-for bodies). Must be called before `reinit!(transforms, ...)`.
+Put every point and body at its initial pose: `pos_w = pos_ENU`, and
+`Q_b_to_w = Q_KA_to_ENU` for bodies. `update_vel` zeroes their velocities.
 """
-function copy_cad_to_world!(points, bodies; update_vel::Bool=true)
+function copy_initial_pose!(points, bodies; update_vel::Bool=true)
     for point in points
-        point.pos_w .= point.pos_cad
+        point.pos_w .= point.pos_ENU
         update_vel && (point.vel_w .= 0.0)
     end
     for body in bodies
-        body.pos_w .= body.pos_cad
-        body.Q_b_to_w .= rotation_matrix_to_quaternion(body.R_b_to_c)
+        body.pos_w .= body.pos_ENU
+        body.Q_b_to_w .= body.Q_KA_to_ENU
         if update_vel
             body.vel_w .= 0.0
             body.ω_b .= 0.0
@@ -265,9 +264,8 @@ end
 
 Apply heading rotation to all components in a single transform.
 Rotates around the radial axis through `base_pos` (not the origin).
-Uses the reference body's `R_b_to_w` for the no-ref-points orientation source.
-After `copy_cad_to_world!`, this equals `R_b_to_c` (for
-`reinit!`), or the current world orientation (for `reposition!`).
+Uses the reference body's `R_b_to_w` for the no-ref-points orientation source:
+its initial pose in [`place!`](@ref), its current one in `reposition!`.
 Bodies in the transform rotate with the same heading delta; a transform
 without a body target applies no heading (matching point behavior).
 """
@@ -391,19 +389,19 @@ function init_principal_frame!(bodies, points)
         if body.dynamics_type == RIGID_DYNAMICS
             init_principal_state!(body)
             # pos_b: wing nodes' offset from COM in body frame
-            com_cad = body.pos_cad .+ body.R_b_to_c * body.com_offset_b
+            R_initial = initial_rotation(body)
+            com_initial = body.pos_ENU .+ R_initial * body.com_offset_b
             for point in points
                 if point.is_wing_node && point.wing_idx == body.idx
                     point.pos_undeformed_b .=
-                        body.R_b_to_c' * (point.pos_cad - com_cad)
+                        R_initial' * (point.pos_ENU - com_initial)
                     point.pos_b .= point.pos_undeformed_b
                 end
             end
         else
-            # PARTICLE: R_b_to_p is identity, so derive R_p_to_w from R_b_to_c/R_p_to_c.
             R_b_to_w = body.R_b_to_w::Matrix{SimFloat}
             body.com_w .= body.pos_w .+ R_b_to_w * body.com_offset_b
-            R_p_to_w = R_b_to_w * body.R_b_to_c' * body.R_p_to_c
+            R_p_to_w = R_b_to_w * body.R_b_to_p'
             body.Q_p_to_w .= rotation_matrix_to_quaternion(R_p_to_w)
             ω_w = R_b_to_w * body.ω_b
             body.com_vel .= body.vel_w .+ cross(ω_w, R_b_to_w * body.com_offset_b)
@@ -420,8 +418,8 @@ end
 
 Apply transforms to all components in a `SystemStructure`.
 
-Expects `pos_w` to already be set (via `copy_cad_to_world!` and optionally
-`apply_tether_init_stretched_lens!` from `reinit!(sys_struct, set; ...)`).
+Expects `pos_w` to already be set (via `copy_initial_pose!` and optionally
+`apply_tether_init_stretched_lens!` from [`place!`](@ref)).
 Applies: translate (from pos_w) → azimuth/elevation → heading.
 """
 function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure;
@@ -468,10 +466,10 @@ position, preserving velocities. `update_vel` instead overwrites
 them with the velocity of the rigid rotation each transform's
 `elevation_vel`, `azimuth_vel` and `turn_rate` describe.
 
-Unlike `reinit!`, uses current world positions (`pos_w`) as
-the starting point (no reset from CAD coordinates, no tether
+Unlike `place!`, uses current world positions (`pos_w`) as
+the starting point (no reset to the initial pose, no tether
 length scaling). Heading uses the tangential sphere frame,
-consistent with `reinit!`.
+consistent with `place!`.
 """
 function reposition!(
     transforms::AbstractVector{Transform},
