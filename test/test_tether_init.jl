@@ -224,15 +224,15 @@ environment:
             yaml_path; system_name="init_stretched_length_r2_yaml", set=set)
 
         # init_stretched_length=200 already set from YAML; no programmatic change needed
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         mid = sys.points[:main_tether_point_1]
         @test mid.pos_w ≈ KVec3(0, 0, -100)
         @test sys.points[:top].pos_w ≈ KVec3(0, 0, -200)
         @test sys.tethers[:main_tether].len ≈ 200.0
-        # pos_cad unchanged
-        @test mid.pos_cad ≈ KVec3(0, 0, -50)
-        @test sys.points[:top].pos_cad ≈ KVec3(0, 0, -100)
+        # The stretched placement is the initial pose.
+        @test mid.pos_ENU == mid.pos_w
+        @test sys.points[:top].pos_ENU == sys.points[:top].pos_w
     end
 
     # ================================================================
@@ -244,13 +244,13 @@ environment:
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_r1_yaml", set=set)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         @test sys.points[:mid].pos_w ≈ KVec3(0, 0, -100)
         @test sys.points[:top].pos_w ≈ KVec3(0, 0, -200)
         @test sys.segments[:s1].l0 ≈ 100.0
         @test sys.segments[:s2].l0 ≈ 100.0
-        @test sys.points[:top].pos_cad ≈ KVec3(0, 0, -100)
+        @test sys.points[:top].pos_ENU == sys.points[:top].pos_w
     end
 
     # ================================================================
@@ -262,7 +262,7 @@ environment:
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_r2_downstream", set=set)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         @test sys.points[:top].pos_w ≈ KVec3(0, 0, -200)
         @test sys.points[:downstream].pos_w ≈ KVec3(10, 0, -200)
@@ -286,11 +286,11 @@ environment:
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_r2_idem", set=set)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
         mid_pos = copy(sys.points[:main_tether_point_1].pos_w)
         top_pos = copy(sys.points[:top].pos_w)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
         @test sys.points[:main_tether_point_1].pos_w ≈ mid_pos
         @test sys.points[:top].pos_w ≈ top_pos
     end
@@ -334,7 +334,7 @@ winches:
             yaml_path; system_name="init_stretched_length_multi", set=set)
 
         sys.tethers[:tether_static].init_stretched_len = 200.0
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         ground_static = sys.points[:ground_static].pos_w
         @test norm(sys.points[:top].pos_w - ground_static) ≈ 200.0
@@ -342,17 +342,24 @@ winches:
         @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
 
         sys.tethers[:tether_winch].init_stretched_len = 100.0
-        @test_logs (:info,) match_mode=:any SymbolicAWEModels.reinit!(sys, set)
+        top_before = copy(sys.points[:top].pos_w)
+        @test_logs (:info,) match_mode=:any place!(sys)
 
-        # Placed by the mean displacement of both roots: standoff is
-        # ≈ the mean target (150), offset slightly because the two
-        # tethers pull in different directions, and top is drawn off
-        # the static-tether line toward that mean direction.
-        ground_static = sys.points[:ground_static].pos_w
-        @test isapprox(norm(sys.points[:top].pos_w - ground_static),
-                       150.0; atol=0.05)
-        @test sys.points[:top].pos_w[1] < -4.95
+        # top moves along the line from the mean anchor (the origin) through where
+        # it was, until the two tethers' mean length is the mean target, 150 m.
+        placed = copy(sys.points[:top].pos_w)
+        @test normalize(placed) ≈ normalize(top_before)
+        @test (norm(placed - ground_static) + norm(placed - KVec3(-10, 0, 0))) / 2 ≈ 150.0
         @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
+
+        place!(sys; prn=false)
+        @test sys.points[:top].pos_w ≈ placed
+
+        # Tethers that already have their lengths stay where they are.
+        sys.tethers[:tether_static].init_stretched_len = norm(placed - ground_static)
+        sys.tethers[:tether_winch].init_stretched_len = norm(placed - KVec3(-10, 0, 0))
+        place!(sys; prn=false)
+        @test sys.points[:top].pos_w ≈ placed
     end
 
     # ================================================================
@@ -403,7 +410,7 @@ winches:
         write(yaml_path, INIT_LEN_YAML_ROUTE2)
         sys = load_sys_struct_from_yaml(yaml_path;
             system_name="init_stretched_length_r2_force", set=set)
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         tether = sys.tethers[:main_tether]
         segs = sys.segments
@@ -455,10 +462,11 @@ winches:
             Body(:tip; extra_mass=1.0, inertia_principal=inertia,
                 pos=[1.5seg_len, 0.0, 0.0], type=DYNAMIC),
         ]
-        joints = [ElasticJoint(:j, :root, :tip; anchor_a=[seg_len/2, 0, 0],
-            anchor_b=[-seg_len/2, 0, 0], stiffness_axial=1e4,
-            stiffness_shear=1e4, stiffness_torsion=1e3, stiffness_bending=1e3,
-            damping=0.05)]
+        tubes = [Tube(:j, :root, :tip; diameter=0.1, pressure=3e4,
+            anchor_a=[seg_len/2, 0, 0], anchor_b=[-seg_len/2, 0, 0],
+            model=ElasticTube(stiffness_axial=1e4, stiffness_shear=1e4,
+                              stiffness_torsion=1e3, stiffness_bending=1e3,
+                              damping=0.05))]
         # Ground 5 m below the tip; standoff 6 m forces the tip body up ~1 m.
         points = [
             Point(:ground, [2.0seg_len, 0.0, -5.0], STATIC),
@@ -470,10 +478,9 @@ winches:
         tethers = [Tether(:tether, [:tether_seg], 6.0)]
         winches = [Winch(:winch, set, [:tether]; winch_point=:ground)]
         sys = SystemStructure("init_stretched_length_body", set; points,
-            segments, tethers, winches, bodies=bodies,
-            elastic_joints=joints)
+            segments, tethers, winches, bodies=bodies, tubes)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         tip = sys.bodies[:tip]
         @test tip.pos_w[3] > 0.5
@@ -544,45 +551,46 @@ winches:
             aero_mode=AeroNone())
 
         wing = sys.bodies[:main_wing]
-        pos_cad = copy(wing.pos_cad)
         # Free end le_center at [-0.5, 0, 2.5]; standoff = 2× its distance to
-        # ground, so the whole wing translates by delta = [-0.5, 0, 2.5].
+        # ground, so the whole wing translates by delta = [-0.5, 0, 2.5]. The wing
+        # origin is the mean of its six equal-mass points as authored.
         delta = KVec3(-0.5, 0.0, 2.5)
+        authored_origin = KVec3(0.0, 0.0, 13.6 / 6)
 
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         ground = sys.points[:ground].pos_w
         le_center = sys.points[:le_center].pos_w
         # Free end sits at the stretched standoff.
         @test norm(le_center - ground) ≈ 5.0990195135927845
         # The wing body translated with its points (the regression: the body
-        # stayed at pos_cad while the points moved).
-        @test wing.pos_w ≈ pos_cad .+ delta
+        # stayed where it was authored while the points moved).
+        @test wing.pos_w ≈ authored_origin .+ delta
         # Body and its WING points stay rigid: point→origin offset preserved.
-        @test le_center .- wing.pos_w ≈
-              sys.points[:le_center].pos_cad .- pos_cad
+        @test le_center .- wing.pos_w ≈ KVec3(-0.5, 0.0, 2.5) .- authored_origin
     end
 
     # ================================================================
     # Test 11: placement translates a free-floating beam anchored only through
-    # joint-riding BODY_STATIC points. Such a point has body_idx 0 and carries
-    # its association in joint_idx, so collecting moved bodies via body_idx
+    # tube-riding BODY_STATIC points. Such a point has body_idx 0 and carries
+    # its association in tube_idx, so collecting moved bodies via body_idx
     # alone leaves the whole beam behind while the tether's free end moves —
     # the ride constraint then snaps the point back, silently.
     # ================================================================
-    @testset "Placement moves a beam (joint-anchored points)" begin
+    @testset "Placement moves a beam (tube-anchored points)" begin
         inertia = [0.01, 0.01, 0.01]
         bodies = [Body(Symbol(:node, i); extra_mass=1.0, inertia_principal=inertia,
                        pos=[Float64(i - 1), 0.0, 0.0], type=DYNAMIC)
                   for i in 1:4]
-        joints = [TimoshenkoJoint(Symbol(:j, i), Symbol(:node, i),
-                      Symbol(:node, i + 1); EA=1.0e4, GA=1500.0, GJ=50.0,
-                      EIy=100.0, EIz=100.0, shear_coeff=5/6,
-                      damping=0.05) for i in 1:3]
+        tubes = [Tube(Symbol(:j, i), Symbol(:node, i), Symbol(:node, i + 1);
+                      diameter=0.1, pressure=3e4,
+                      model=TimoshenkoTube(EA=1.0e4, GA=1500.0, GJ=50.0,
+                                           EIy=100.0, EIz=100.0, shear_coeff=5/6,
+                                           damping=0.05)) for i in 1:3]
         points = [
             Point(:ground, [0.5, 0.0, -5.0], STATIC),
-            Point(:beam_anchor, [0.5, 0.0, 0.0], BODY_STATIC; joint=:j1),
-            Point(:tip_anchor, [1.5, 0.0, 0.0], BODY_STATIC; joint=:j2),
+            Point(:beam_anchor, [0.5, 0.0, 0.0], BODY_STATIC; tube=:j1),
+            Point(:tip_anchor, [1.5, 0.0, 0.0], BODY_STATIC; tube=:j2),
             Point(:tail, [1.5, 0.0, -1.0], DYNAMIC; extra_mass=1.0),
         ]
         segments = [Segment(:tether_seg, :ground, :beam_anchor, 1e4, 10.0, 0.01;
@@ -592,11 +600,10 @@ winches:
         tethers = [Tether(:tether, [:tether_seg], 6.0)]
         winches = [Winch(:winch, set, [:tether]; winch_point=:ground)]
         sys = SystemStructure("init_stretched_length_beam", set; points,
-            segments, tethers, winches, bodies=bodies,
-            timoshenko_joints=joints)
+            segments, tethers, winches, bodies=bodies, tubes)
 
         delta = KVec3(0.0, 0.0, 1.0)
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         @test norm(sys.points[:beam_anchor].pos_w -
                    sys.points[:ground].pos_w) ≈ 6.0
@@ -619,12 +626,12 @@ winches:
         yaml_path = joinpath(tmpdir, "r1_yaml.yaml")
         sys = load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_r1_yaml", set=set)
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
 
         tether = sys.tethers[:main_tether]
         @test tether.len ≈ 200.0
         placed_w = [copy(point.pos_w) for point in sys.points]
-        placed_cad = [copy(point.pos_cad) for point in sys.points]
+        placed_initial = [copy(point.pos_ENU) for point in sys.points]
 
         set_unstretched_length!(sys, tether, 150.0)
 
@@ -632,13 +639,13 @@ winches:
         @test sys.segments[:s1].l0 ≈ 75.0
         @test sys.segments[:s2].l0 ≈ 75.0
         @test all(point.pos_w ≈ was for (point, was) in zip(sys.points, placed_w))
-        @test all(point.pos_cad ≈ was
-                  for (point, was) in zip(sys.points, placed_cad))
+        @test all(point.pos_ENU ≈ was
+                  for (point, was) in zip(sys.points, placed_initial))
         # The stretched geometry is untouched, so the rope is now taut.
         @test sum(sys.segments[idx].len for idx in tether.segment_idxs) ≈ 200.0
 
         # `reinit!` re-places the structure, so it derives `len` afresh.
-        SymbolicAWEModels.reinit!(sys, set)
+        place!(sys)
         @test tether.len ≈ 200.0
 
         @test_throws ErrorException set_unstretched_length!(sys, tether, 0.0)

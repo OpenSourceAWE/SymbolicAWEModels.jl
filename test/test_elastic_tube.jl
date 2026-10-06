@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# test_joint.jl - 6-DOF elastic joint between two RigidBodies.
+# test_elastic_tube.jl - Lumped 6-DOF ElasticTube between two RigidBodies.
 #
-# Gravity is disabled (g_earth = 0) to isolate the joint dynamics. One model
-# (two bodies + one joint) is built once; each test varies stiffness and the
+# Gravity is disabled (g_earth = 0) to isolate the tube dynamics. One model
+# (two bodies + one tube) is built once; each test varies stiffness and the
 # initial conditions through the live registered accessors.
 #
 # 1. Axial oscillation: only EA. Relative x oscillates at ω = √(EA·(1/m1+1/m2)).
@@ -72,7 +72,7 @@ function period_from_crossings(times, signal)
     return 2 * mean(half_periods)
 end
 
-@testset "ElasticJoint" begin
+@testset "ElasticTube" begin
     pkg_root = dirname(@__DIR__)
     src_data_path = joinpath(pkg_root, "data", "2plate_kite")
     tmpdir = mktempdir()
@@ -90,32 +90,31 @@ end
     body2 = Body(:b2; extra_mass=1.0, inertia_principal=inertia,
                       pos=[1.0, 0.0, 0.0])
     # Anchors meet at the midpoint [0.5, 0, 0] when relaxed.
-    joint = ElasticJoint(:j1, :b1, :b2;
+    tube = Tube(:j1, :b1, :b2; diameter=0.1, pressure=3e4,
         anchor_a=[0.5, 0.0, 0.0], anchor_b=[-0.5, 0.0, 0.0],
-        stiffness_axial=0.0, stiffness_shear=0.0,
-        stiffness_torsion=0.0, stiffness_bending=0.0)
+        model=ElasticTube(stiffness_axial=0.0, stiffness_shear=0.0,
+                          stiffness_torsion=0.0, stiffness_bending=0.0))
     sys = SystemStructure("joint_test", set;
-        bodies=[body1, body2], elastic_joints=[joint])
+        bodies=[body1, body2], tubes=[tube])
 
     @testset "Model setup" begin
         @test length(sys.bodies) == 2
-        @test length(sys.elastic_joints) == 1
-        @test sys.elastic_joints[:j1].body_a_idx == 1
-        @test sys.elastic_joints[:j1].body_b_idx == 2
+        @test length(sys.tubes) == 1
+        @test sys.tubes[:j1].body_a_idx == 1
+        @test sys.tubes[:j1].body_b_idx == 2
     end
 
     sam = SymbolicAWEModel(set, sys)
     test_init!(sam)
     b1 = sam.sys_struct.bodies[:b1]
     b2 = sam.sys_struct.bodies[:b2]
-    jt = sam.sys_struct.elastic_joints[:j1]
+    jt = sam.sys_struct.tubes[:j1].model
 
-    # Perturb the CAD home (pos_cad / R_b_to_c); init resets pos_w/Q_b_to_w
-    # to these, so the stretch/twist survives without a warm-start flag.
+    # Reset the initial pose that place! puts the bodies back at.
     function reset_bodies!()
         for (b, x) in ((b1, 0.0), (b2, 1.0))
-            b.pos_cad .= [x, 0.0, 0.0]
-            b.R_b_to_c .= [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
+            b.pos_ENU .= [x, 0.0, 0.0]
+            b.Q_KA_to_ENU .= [1.0, 0.0, 0.0, 0.0]
             b.vel_w .= 0.0
             b.ω_b .= 0.0
         end
@@ -129,7 +128,8 @@ end
         reset_bodies!()
         # CAD pose is unstrained, so excite the axial mode with a velocity kick.
         b2.vel_w .= [0.5, 0.0, 0.0]
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
 
         ω_expected = sqrt(100.0 * (1/1.0 + 1/1.0))
         dt = 0.001
@@ -154,7 +154,8 @@ end
         # No external force: a velocity kick conserves total momentum, so the COM
         # drifts at constant velocity while the bodies oscillate internally.
         b2.vel_w .= [0.3, 0.0, 0.0]
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
         com0 = (b1.pos_w + b2.pos_w) / 2
         vcom = (b1.vel_w + b2.vel_w) / 2
         dt = 0.001
@@ -178,7 +179,8 @@ end
         reset_bodies!()
         # CAD orientation is unstrained, so excite the torsional mode with a spin kick.
         b2.ω_b .= [0.5, 0.0, 0.0]
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam.sys_struct; reset_vel=false)
+        test_init!(sam; prn=false)
 
         ω_expected = sqrt(5.0 / Ixx)
         dt = 0.001
@@ -205,13 +207,14 @@ end
         f_axial = SymbolicAWEModels.LinearInterpolation(EA .* knots, knots)
         b1i = Body(:b1; extra_mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
         b2i = Body(:b2; extra_mass=1.0, inertia_principal=inertia, pos=[1.0, 0.0, 0.0])
-        joint_i = ElasticJoint(:j1, :b1, :b2;
+        tube_i = Tube(:j1, :b1, :b2; diameter=0.1, pressure=3e4,
             anchor_a=[0.5, 0.0, 0.0], anchor_b=[-0.5, 0.0, 0.0],
-            stiffness_axial=f_axial,       # interpolation ...
-            stiffness_shear=0.0, stiffness_torsion=0.0, stiffness_bending=0.0)  # ... mixed with floats
-        @test joint_i.stiffness_axial === f_axial
+            model=ElasticTube(stiffness_axial=f_axial,       # interpolation ...
+                stiffness_shear=0.0, stiffness_torsion=0.0,
+                stiffness_bending=0.0))                     # ... mixed with floats
+        @test tube_i.model.stiffness_axial === f_axial
         sys_i = SystemStructure("joint_test", set;
-            bodies=[b1i, b2i], elastic_joints=[joint_i])
+            bodies=[b1i, b2i], tubes=[tube_i])
         sam_i = SymbolicAWEModel(set, sys_i)
         test_init!(sam_i; prn=false)   # zero-alloc RHS with the interpolation
 
@@ -219,7 +222,8 @@ end
         body2 = sam_i.sys_struct.bodies[:b2]
         # CAD pose is unstrained, so excite the axial mode with a velocity kick.
         body2.vel_w .= [0.5, 0.0, 0.0]
-        test_init!(sam_i; prn=false, reset_vel=false)
+        place!(sam_i.sys_struct; reset_vel=false)
+        test_init!(sam_i; prn=false)
 
         ω_expected = sqrt(EA * (1/1.0 + 1/1.0))
         dt = 0.001
@@ -237,7 +241,7 @@ end
 
     @testset "As-placed geometry is unstrained (zero wrench at init)" begin
         # Body B is both offset (1 m anchor gap) and rotated 30° about z relative
-        # to A. With CAD-as-rest capture the joint wrench is zero at init, so B
+        # to A. With CAD-as-rest capture the tube wrench is zero at init, so B
         # must stay put despite stiff springs; without it the 1 m gap alone would
         # fling it.
         half = π / 12  # half-angle of 30°
@@ -245,16 +249,16 @@ end
         bodyA = Body(:b1; extra_mass=1.0, inertia_principal=inertia, pos=[0.0, 0.0, 0.0])
         bodyB = Body(:b2; extra_mass=1.0, inertia_principal=inertia,
                      pos=[1.0, 0.0, 0.0], Q_b_to_w=Q_rot)
-        joint_r = ElasticJoint(:j1, :b1, :b2;
-            stiffness_axial=1000.0, stiffness_shear=1000.0,
-            stiffness_torsion=1000.0, stiffness_bending=1000.0,
-            damping=0.05)
+        tube_r = Tube(:j1, :b1, :b2; diameter=0.1, pressure=3e4,
+            model=ElasticTube(stiffness_axial=1000.0, stiffness_shear=1000.0,
+                              stiffness_torsion=1000.0, stiffness_bending=1000.0,
+                              damping=0.05))
         sys_r = SystemStructure("joint_test", set;
-            bodies=[bodyA, bodyB], elastic_joints=[joint_r])
+            bodies=[bodyA, bodyB], tubes=[tube_r])
         sam_r = SymbolicAWEModel(set, sys_r)
         test_init!(sam_r; prn=false)
 
-        jr = sam_r.sys_struct.elastic_joints[:j1]
+        jr = sam_r.sys_struct.tubes[:j1].model
         Rz30 = [cos(2half) -sin(2half) 0.0; sin(2half) cos(2half) 0.0; 0.0 0.0 1.0]
         @info "Rest captured from CAD: anchor offset and relative rotation."
         @test jr.rest_offset_a ≈ [1.0, 0.0, 0.0] atol=1e-9
@@ -270,6 +274,19 @@ end
         @test norm(nodeB.pos_w - pos0) < 1e-7
         @test norm(nodeB.vel_w) < 1e-7
         @test norm(R_meas - Rz30) < 1e-6
+    end
+
+    @testset "init! derives mass and rest geometry from the initial pose" begin
+        reset_bodies!()
+        place!(sam.sys_struct)
+        Q_rot = Float64[cos(π / 12), 0.0, 0.0, sin(π / 12)]
+        b2.Q_KA_to_ENU .= Q_rot
+        b2.extra_mass = 2.5
+        test_init!(sam; prn=false)
+        @test b2.total_mass ≈ 2.5
+        @test norm(jt.R_rel0 -
+                   SymbolicAWEModels.quaternion_to_rotation_matrix(Q_rot)) < 1e-12
+        @test b2.Q_b_to_w == [1.0, 0.0, 0.0, 0.0]
     end
 
     rm(tmpdir; recursive=true)

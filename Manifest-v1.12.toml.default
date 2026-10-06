@@ -2,7 +2,7 @@
 
 julia_version = "1.12.7"
 manifest_format = "2.0"
-project_hash = "279f7a67df7d2ffa9aea8b1333f204fec042f150"
+project_hash = "17fc4f7d9dfc35ac8f920d6811f5d27a521feaf1"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -3359,9 +3359,9 @@ version = "1.29.0"
 
 [[deps.VortexStepMethod]]
 deps = ["Arrow", "Colors", "DefaultApplication", "DelimitedFiles", "DifferentiationInterface", "FiniteDiff", "ForwardDiff", "Interpolations", "LaTeXStrings", "LinearAlgebra", "Logging", "Measures", "NPZ", "NonlinearSolve", "Parameters", "Pkg", "PreallocationTools", "PrecompileTools", "Printf", "RecursiveArrayTools", "SciMLBase", "Serialization", "StaticArrays", "Statistics", "StructMapping", "Timers", "Xfoil", "YAML"]
-git-tree-sha1 = "6b2de83658924fef957dca2b1222c85256f42c29"
+git-tree-sha1 = "37da5cdca4a7cc2f031195c355fd489206e8e6d3"
 uuid = "ed3cd733-9f0f-46a9-93e0-89b8d4998dd9"
-version = "6.0.0"
+version = "6.1.0"
 weakdeps = ["MakieControlPlots"]
 
     [deps.VortexStepMethod.extensions]

@@ -7,7 +7,7 @@
     body_eqs!(eqs, defaults, bodies, params, initial; kwargs...)
 
 Generate the differential equations for each plain `Body` (no aero). Loads are
-the accumulated joint wrench (`body_force`/`body_moment`, filled by `joint_eqs!`)
+the accumulated tube wrench (`body_force`/`body_moment`, filled by the tube equations)
 plus gravity (`-g·total_mass` at the COM) and the external wrench (`ext_force_w` world,
 `ext_force_b`/`ext_moment_b` body). `STATIC` bodies are frozen; `fix_sphere`
 confines the COM to a sphere about the world origin; `damping` is per-axis

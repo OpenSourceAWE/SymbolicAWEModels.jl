@@ -72,7 +72,8 @@ function twist_chord_diffs(sam)
     for g in stations
         i1, i2 = g.point_idxs[1], g.point_idxs[end]
         le_idx, te_idx =
-            points[i1].pos_cad[1] < points[i2].pos_cad[1] ?
+            SymbolicAWEModels.initial_chord_position(wing, points[i1]) <
+            SymbolicAWEModels.initial_chord_position(wing, points[i2]) ?
             (i1, i2) : (i2, i1)
         le_b = R' * (points[le_idx].pos_w - origin)
         te_b = R' * (points[te_idx].pos_w - origin)
