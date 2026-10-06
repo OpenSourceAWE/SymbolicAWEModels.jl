@@ -48,6 +48,8 @@ structure lands its initial pose:
 3. **Heading**: orientation solve for wings (yaw about the radial
    axis)
 
+A VSM wing's structure and its aerodynamic geometry must be authored in one frame: construction errors, naming the wing, when a station node or the mesh COM lies outside the sections' bounding box, or when the span from `y_ref_points` is turned away from the sections' span ([`check_aero_frame`](@ref SymbolicAWEModels.check_aero_frame) gives the margins).
+
 Without a Transform, the authored position is the initial pose. This lets you
 place geometry defined in any convenient orientation into the correct world-frame
 position (e.g. a kite at 70deg elevation).

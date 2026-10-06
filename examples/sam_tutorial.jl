@@ -106,14 +106,14 @@ end
 vsm_set = VortexStepMethod.VSMSettings(
     joinpath(get_data_path(), "vsm_settings.yaml");
     data_prefix=false)
-# One station per aero section joins its LE/TE pair to the wing.
-wing_z = set.l_tether + 6
+# One station per aero section joins its LE/TE pair to the wing, placed on the
+# section's LE/TE in aero_geometry.yaml so structure and aero share one CAD frame.
 stations = Station[]
-for (i, y) in enumerate([-1.0, 0.0, 1.0])
+for (i, (y, le_z)) in enumerate([(-1.0, 2.0), (0.0, 2.5), (1.0, 2.0)])
     n = length(points)
-    push!(points, Point(n + 1, [-0.5, y, wing_z],
+    push!(points, Point(n + 1, [-0.5, y, le_z],
         BODY_STATIC; wing=1, transform=1, extra_mass=0.1))
-    push!(points, Point(n + 2, [0.5, y, wing_z],
+    push!(points, Point(n + 2, [0.5, y, le_z + 0.3],
         BODY_STATIC; wing=1, transform=1, extra_mass=0.1))
     push!(stations, Station(i, [n + 1, n + 2], DYNAMIC, 0.25))
 end
