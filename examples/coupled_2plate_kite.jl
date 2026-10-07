@@ -27,10 +27,9 @@ STEERING_MAGNITUDE = 0.1
 pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", MODEL_NAME))
 
-struc_yaml = project_file("structural_geometry")
-
 set = Settings("system.yaml")
 set.g_earth = 0.0
+struc_yaml = project_file("structural_geometry")
 vsm_set = VortexStepMethod.VSMSettings(
     project_file("vsm_settings");
     data_prefix=false)
