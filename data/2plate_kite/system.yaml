@@ -1,2 +1,6 @@
+# The project file: every other file this model needs, named once.
 system:
     sim_settings: "settings.yaml"
+    structural_geometry: "particle_structural_geometry.yaml"
+    aero_geometry: "aero_geometry.yaml"
+    vsm_settings: "vsm_settings.yaml"

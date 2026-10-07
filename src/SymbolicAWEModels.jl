@@ -133,6 +133,7 @@ export init_module
 export update_plot_observables!
 export animate
 export load_sys_struct_from_yaml
+export project_file
 export structure_document, sys_struct_from_document
 export save_structure_document, load_structure_document
 export replay
