@@ -193,6 +193,7 @@ Serialization.serialize(::Serialization.AbstractSerializer, ::SymbolicAWEModels.
 ## YAML loader internals
 
 ```@docs
+SymbolicAWEModels.optional_project_file
 SymbolicAWEModels.YAML_BLOCK_FIELDS
 SymbolicAWEModels.check_yaml_fields
 SymbolicAWEModels.substitute_variables
