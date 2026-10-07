@@ -38,39 +38,80 @@ function optional_project_file(entry, project=KiteUtils.PROJECT)
     return joinpath(data_path, dirname(project), entries[entry])
 end
 
-"""
-    get_field_or_nothing(::Type{T}, row::NamedTuple,
-                         field::Symbol) where T
+"""The tube models a `tubes` row names in its `model` column, and the columns each reads."""
+const YAML_TUBE_MODELS = Dict(
+    "timoshenko" => (TimoshenkoTube, (:EA, :GA, :GJ, :EIy, :EIz, :shear_coeff, :damping)),
+    "elastic" => (ElasticTube, (:stiffness_axial, :stiffness_shear, :stiffness_torsion,
+                                :stiffness_bending, :damping)),
+)
 
-Convert field to type T if present, otherwise return nothing.
-
-# Examples
-```julia
-get_field_or_nothing(Int64, row, :idx)  # -> Int64 or nothing
-get_field_or_nothing(Tuple{Int64,Int64}, row, :pair)
-    # -> (Int64, Int64) or nothing
-```
 """
-function get_field_or_nothing(::Type{T}, row::NamedTuple,
-                               field::Symbol) where T
-    if !haskey(row, field) || yaml_unset(row[field])
-        return nothing
+Field names each top-level block of a structural YAML accepts, including the
+retired ones whose own loader rejects them by name. A block or a field outside
+this table stops the load.
+"""
+const YAML_BLOCK_FIELDS = Dict{String, Vector{Symbol}}(
+    "points" => [:name, :pos_cad, :type, :wing_idx, :transform_idx, :body_idx,
+        :body, :anchor_b, :tube, :vel_w, :extra_mass, :body_frame_damping,
+        :world_frame_damping, :area, :drag_coeff, :fix_sphere, :fix_static],
+    "segments" => [:name, :point_i, :point_j, :type, :l0, :diameter_mm,
+        :unit_stiffness, :unit_damping, :density, :youngs_modulus,
+        :damping_per_stiffness, :compression_frac, :compression_damping_frac],
+    "pulleys" => [:name, :segment_i, :segment_j, :type, :efficiency, :damping,
+        :brake, :friction_epsilon, :sum_len, :len, :vel],
+    "stations" => [:name, :points, :point_idxs, :type, :moment_frac, :damping,
+        :stiffness, :wing, :bodies, :flap_bodies, :flap_points, :flap_axis,
+        :twist, :twist_vel],
+    "tethers" => [:name, :start_point, :end_point, :segment_idxs, :n_segments,
+        :init_stretched_length, :init_unstretched_length, :init_tether_force,
+        :init_stretch_frac, :unit_stiffness, :unit_damping, :diameter_mm,
+        :density, :youngs_modulus, :damping_per_stiffness, :compression_frac,
+        :compression_damping_frac, :len],
+    "winches" => [:name, :tether_idxs, :winch_point, :init_vel, :brake,
+        :speed_controlled, :friction_epsilon, :vel, :set_value],
+    "wings" => [:name, :type, :dynamics_type, :aero_mode, :stations,
+        :transform_idx, :origin_idx, :z_ref_points, :y_ref_points, :pos_cad,
+        :extra_mass, :mass, :com, :unit_inertia, :angular_damping,
+        :aero_scale_chord, :aero_z_offset, :principal_frame_method, :drag_corr,
+        :vel, :Q_b_to_w, :omega_b],
+    "surfaces" => [:name, :point_idx, :x_airf, :y_airf, :area, :twist],
+    "transforms" => [:name, :elevation, :azimuth, :heading, :elevation_vel,
+        :azimuth_vel, :turn_rate, :base_pos, :base_point_idx,
+        :base_transform_idx, :rot_point_idx, :wing_idx],
+    "bodies" => [:name, :extra_mass, :mass, :pos, :type, :inertia,
+        :inertia_principal, :com_offset_b, :vel, :Q_b_to_w, :omega_b,
+        :transform_idx, :wing, :angular_damping, :world_frame_damping, :body_frame_damping,
+        :fix_sphere, :fix_static, :ext_force_w, :ext_force_b, :ext_moment_b,
+        :principal_frame_method],
+    "tubes" => union([:name, :bodies, :diameter, :pressure, :law, :model, :anchor_a,
+        :anchor_b], (field for (_, fields) in values(YAML_TUBE_MODELS)
+                     for field in fields)),
+)
+
+"""
+    check_yaml_fields(data, yaml_path)
+
+Error on a block of `data`, or on a field of one of its rows, that no loader
+reads, naming what that block does accept. An unread field leaves the component
+it was meant for on its default.
+"""
+function check_yaml_fields(data, yaml_path)
+    blocks = join(sort(collect(keys(YAML_BLOCK_FIELDS))), ", ")
+    for block in sort(collect(keys(data)); by=string)
+        haskey(YAML_BLOCK_FIELDS, block) ||
+            error("Unknown block `$block` in $yaml_path. Blocks: $blocks.")
+        table = data[block]
+        table isa AbstractDict || error("Block `$block` in $yaml_path must be " *
+            "a table with a `data` list, got $(typeof(table)).")
+        yaml_block_empty(data, block) && continue
+        accepted = YAML_BLOCK_FIELDS[block]
+        for (i, row) in enumerate(parse_table(table)), field in keys(row)
+            field in accepted || error("Unknown field `$field` in row " *
+                "$(yaml_row_name(row, i)) of block `$block` in $yaml_path. " *
+                (field == :idx ? "Rename `idx` to `name`. " : "") *
+                "Fields: $(join(accepted, ", ")).")
+        end
     end
-    return convert_to_type(T, row[field])
-end
-
-"""
-    convert_to_type(::Type{T}, value) where T
-
-Convert value to type T. Handles special cases like Tuples.
-"""
-convert_to_type(::Type{T}, value) where T = T(value)
-
-# Special handling for Tuple types
-function convert_to_type(
-        ::Type{Tuple{T,T}}, value) where T
-    values = Vector{Int}(value)
-    return (T(values[1]), T(values[2]))
 end
 
 """
@@ -274,11 +315,9 @@ function parse_table(table)::Vector{NamedTuple}
                 row = vcat(row, fill(nothing,
                     length(headers) - length(row)))
             end
-            if length(row) > length(headers)
-                @warn "Skipping row $k: has $(length(row)) " *
-                      "values, expected $(length(headers))."
-                continue
-            end
+            length(row) > length(headers) && error("Row $k has " *
+                "$(length(row)) values but the table has " *
+                "$(length(headers)) headers.")
             named_row = NamedTuple{Tuple(Symbol.(headers))}(Tuple(row))
             push!(out, named_row)
         end
@@ -328,9 +367,9 @@ args and kwargs from YAML row and calls constructor.
 
 # Example
 ```julia
-row = (idx=1, x=0.0, y=0.0, z=0.0, type="STATIC")
+row = (name=1, x=0.0, y=0.0, z=0.0, type="STATIC")
 point = call_yaml_constructor(Point, row,
-    [:idx, :pos_ENU, :type],  # positional args
+    [:name, :pos_ENU, :type],  # positional args
     [:extra_mass, :wing_idx];       # kwargs
     mappings=Dict(
         :pos_ENU => r -> [Float64(r.x),
@@ -679,13 +718,6 @@ function load_yaml_bodies(data, yaml_to_ref)
     return bodies
 end
 
-"""The tube models a `tubes` row names in its `model` column, and the columns each reads."""
-const YAML_TUBE_MODELS = Dict(
-    "timoshenko" => (TimoshenkoTube, (:EA, :GA, :GJ, :EIy, :EIz, :shear_coeff, :damping)),
-    "elastic" => (ElasticTube, (:stiffness_axial, :stiffness_shear, :stiffness_torsion,
-                                :stiffness_bending, :damping)),
-)
-
 """
     load_yaml_tubes(data, yaml_to_ref) -> Vector{Tube}
 
@@ -752,6 +784,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             "name its fields (`youngs_modulus`, `damping_per_stiffness`, " *
             "`density`) as columns.")
     end
+    check_yaml_fields(data, yaml_path)
 
     # Use provided settings or fall back to base settings
     local resolved_set = (set === nothing ? load_settings("base") : set)
@@ -823,7 +856,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Raw references are passed; SystemStructure resolves them.
             point = call_yaml_constructor(Point, row,
                 [:name, :pos_ENU, :type],
-                [:wing, :transform, :body, :tube, :vel_w, :extra_mass,
+                [:wing, :transform, :body, :anchor_b, :tube, :vel_w, :extra_mass,
                  :body_frame_damping, :world_frame_damping,
                  :area, :drag_coeff, :fix_sphere, :fix_static];
                 mappings=Dict(

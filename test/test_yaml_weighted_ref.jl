@@ -26,7 +26,7 @@ using KiteUtils
 # Layout mirrors particle_structural_geometry.yaml.
 const WEIGHTED_REF_YAML = """
 points:
-  headers: [idx, pos_cad, type, wing_idx, transform_idx,
+  headers: [name, pos_cad, type, wing_idx, transform_idx,
             extra_mass, body_frame_damping,
             world_frame_damping, area, drag_coeff]
   data:
@@ -50,7 +50,7 @@ points:
        1.0, 0.0, 0.0, 0.1, 1.0]
 
 segments:
-  headers: [idx, point_i, point_j, l0, diameter_mm,
+  headers: [name, point_i, point_j, l0, diameter_mm,
             unit_stiffness, unit_damping, compression_frac]
   data:
     - [1, 1, 2, 0, 1.0, 5000.0, 10.0, 1.0]
@@ -70,7 +70,7 @@ stations:
 
 wings:
   data:
-    - idx: 1
+    - name: 1
       dynamics_type: PARTICLE_DYNAMICS
       aero_mode: AERO_NONE
       stations: [ts_left, ts_center, ts_right]
@@ -80,7 +80,7 @@ wings:
 
 transforms:
   data:
-    - idx: 1
+    - name: 1
       elevation: 50
       azimuth: 0.0
       heading: 0.0

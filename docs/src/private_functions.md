@@ -194,8 +194,8 @@ Serialization.serialize(::Serialization.AbstractSerializer, ::SymbolicAWEModels.
 
 ```@docs
 SymbolicAWEModels.optional_project_file
-SymbolicAWEModels.get_field_or_nothing
-SymbolicAWEModels.convert_to_type
+SymbolicAWEModels.YAML_BLOCK_FIELDS
+SymbolicAWEModels.check_yaml_fields
 SymbolicAWEModels.substitute_variables
 SymbolicAWEModels.resolve_variable!
 SymbolicAWEModels.check_variable_names
