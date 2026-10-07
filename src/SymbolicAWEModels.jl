@@ -211,6 +211,7 @@ function __init__()
     if isdir(data_dir) && isfile(joinpath(data_dir, "2plate_kite", "system.yaml"))
         set_data_path(data_dir)
     end
+    set_output_path("output")
 end
 
 include("backends.jl")

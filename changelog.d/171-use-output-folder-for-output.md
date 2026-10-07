@@ -1,6 +1,6 @@
 ### Added
 
-- `get_output_path` and `set_output_path`, re-exported from KiteUtils, name the folder simulation results go to: `output` in the working directory unless `set_output_path` names another, created on first use.
+- `get_output_path` and `set_output_path`, re-exported from KiteUtils, name the folder simulation results go to: loading SymbolicAWEModels sets it to `output` in the working directory, created on first use, and `set_output_path` names another.
 
 ### Changed
 
