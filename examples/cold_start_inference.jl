@@ -49,9 +49,9 @@ function pressure_model()
     settings = Settings("system.yaml")
     settings.g_earth = 0.0
     vsm_settings = VortexStepMethod.VSMSettings(
-        joinpath(data_path, "vsm_settings.yaml"); data_prefix = false)
+        project_file("vsm_settings"); data_prefix = false)
     structure = load_sys_struct_from_yaml(
-        joinpath(data_path, "particle_structural_geometry.yaml");
+        project_file("structural_geometry");
         system_name = "cold_start", set = settings, vsm_set = vsm_settings,
         aero_mode = AeroPressure())
     haskey(structure.winches, :main_winch) &&
