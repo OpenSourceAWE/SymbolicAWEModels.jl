@@ -1,5 +1,86 @@
 # CHANGELOG
 
+## SymbolicAWEModels v0.20.0 08-10-2026
+
+### Added
+
+- `system.yaml` is the project file: besides `sim_settings:` it names a model's
+  `structural_geometry:`, `aero_geometry:` and `vsm_settings:`, the layout
+  `V3Kite.jl` already uses. `project_file(entry)` resolves one against the data
+  path and throws an `ArgumentError` naming the entry where the project names
+  none, so examples ask the project for a model's files instead of spelling their
+  names. A project that names only `sim_settings:` keeps working.
+- A `SystemStructure` writes and reads as a *structure document* conforming to
+  awesIO's `structure_schema.yml`: `structure_document` renders one, and
+  `save_structure_document` / `load_structure_document` write and read it as YAML
+  or JSON by file extension, both through the one `sys_struct_from_document`
+  loader. The document is the resolved structure — points, segments, stations,
+  pulleys, tethers, winches, bodies and joints, every reference by name — without
+  the transforms that place it in the world.
+- `save_log(logger, sys, name)` saves a log that carries the structure document of
+  `sys` as JSON under the metadata key `topology`, uncompressed so that arrow-js can
+  read it in a browser. `load_log` returns the document in `SysLog.metadata`.
+- `place!(sys_struct)` puts a structure in the world by its transforms and makes
+  where it lands its initial pose. The `SystemStructure` constructor runs it.
+- `init_sys_struct!(sys_struct, set; remake_vsm)` brings a placed structure to the
+  start of a run: mass properties and rest geometry derived from the initial pose
+  (`init_derived_properties!`), principal-frame state, aero engines and wind.
+  `init!` runs it, so a run restarted from a logged state keeps its rest shape.
+- `segment_color` in `plot`, `plot!` and `replay` also takes a vector with one colour per
+  segment, or a function `segment -> colour`.
+- `segment_role(sys, segment)` names a segment `:winched_tether`, `:unwinched_tether`,
+  `:wing` or `:free`, to colour a plot by role.
+
+### Changed
+
+- A wing's aero geometry is the project file's `aero_geometry:` where the project
+  names one, so the file is named in one place instead of also being the
+  `geometry_file:` of every wing in `vsm_settings.yaml`. A `VSMSettings` built
+  outside the project still flies its own `geometry_file:`.
+- The `kite.struc_geometry_path` and `kite.aero_geometry_path` fields of
+  `settings.yaml` are gone from the shipped models and from the documented
+  schema. Nothing ever read them; `structural_geometry:` and `aero_geometry:` in
+  the project file take their place.
+- Requires VortexStepMethod 6.1, whose panel mapping breaks a tie between two
+  sections outboard, so a mirror-symmetric wing maps mirror panels to mirror sections.
+- BREAKING: `SystemStructure` carries `tubes::Vector{Tube}` in place of
+  `elastic_joints` and `timoshenko_joints`. A `Tube` names its two bodies, diameter,
+  pressure and law, and its `model` is a `TimoshenkoTube` or an `ElasticTube`, whose
+  rigidities come from the law unless given. The authoring YAML's two joint tables
+  are one `tubes` table, with `model` and its parameters as extra columns.
+- BREAKING: `init!` no longer places the structure; it starts from `sam.sys_struct`
+  as it stands. After changing a transform, call `place!(sam.sys_struct)` before
+  `init!`. `reinit!(sys_struct, set)` is `place!(sys_struct)`, and `init!` drops
+  `reinit_sys`, `reset_vel`, `ignore_l0` and `apply_tether_lengths`. `init!` always
+  sets the wind from `set.wind_vec`; `remake_vsm=false` keeps a hand-edited aero.
+- BREAKING: `Point` and `Body` hold their initial pose in the world frame,
+  `pos_ENU` and (bodies) the quaternion `Q_KA_to_ENU`, in place of the CAD frame
+  `pos_cad`, `R_b_to_c` and `R_p_to_c`; the `Wing` constructor takes
+  `Q_KA_to_ENU, pos_ENU`, and `VSMWing` the keywords of those names. `reset_to_cad!` is `reset_to_initial_pose!`. The
+  authoring YAML keeps its `pos_cad` column.
+- BREAKING: a structure document is written and read against awesIO
+  `structure_schema.yml` 1.0.0: the system in its initial pose, every position in
+  ENU, bodies with `Q_KA_to_ENU` and an `extra_inertia_KA` tensor about their own
+  mass centre, a `units` row per table, a `wings` block and one `tubes` table. A
+  0.1.0 document is refused. Reading a document with wings is not supported yet
+  (#396).
+- BREAKING: the positional `VSMWing(name, vsm_aero, vsm_wing, vsm_solver, stations,
+  R_b_to_c, pos_cad)` and the `Wing` method taking the same arguments are removed;
+  build a VSM wing with `VSMWing(name, set, stations, vsm_set; R_b_to_c, pos_cad)`.
+  A wing with an `.obj` mesh that was built positionally used point-mass inertia;
+  the keyword constructor gives it the mesh inertia tensor, so its dynamics change.
+
+### Fixed
+
+- A structure document is read in the initial pose it gives, without `place!`, so a
+  pre-tensioned tether keeps the `l0` the document holds (`SystemStructure(...;
+  placed=true)`).
+- Placing a structure hung on several tethers with `init_stretched_length` moves it
+  straight away from their mean anchor until their mean length is the mean target,
+  so tethers that already have their lengths stay and placing again moves nothing.
+- `init_pulley_lengths!` sets the two pulley segments' `l0` to the split it writes
+  into the pulley, as the model uses them, so the mass of their points matches it.
+
 ## v0.19.0 2026-09-24
 
 ### Added
