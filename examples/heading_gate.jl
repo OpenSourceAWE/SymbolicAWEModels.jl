@@ -18,6 +18,7 @@ using LinearAlgebra
 using LaTeXStrings
 using Statistics
 using Colors: HSV
+using SymbolicAWEModels: get_output_path
 
 # ============================================================================
 # Configuration variables (modify these as needed)
@@ -427,8 +428,9 @@ end
 """Save figure to PDF using CairoMakie."""
 function save_figure(basename, plot_func, args...; kwargs...)
     fig = plot_func(args...; use_glmakie=false, kwargs...)
-    save("$basename.pdf", fig)
-    println("Saved: $basename.pdf")
+    pdf_path = joinpath(get_output_path(), "$basename.pdf")
+    save(pdf_path, fig)
+    println("Saved: $pdf_path")
     return fig
 end
 
@@ -459,12 +461,14 @@ for angle in cone_angles
 
     if save_pdf
         # Save 3D trajectory as PDF using CairoMakie
-        save("trajectory_$(Int(angle)).pdf", figs_traj[Int(angle)])
-        println("Saved: trajectory_$(Int(angle)).pdf")
+        pdf_path = joinpath(get_output_path(), "trajectory_$(Int(angle)).pdf")
+        save(pdf_path, figs_traj[Int(angle)])
+        println("Saved: $pdf_path")
     end
 end
 
-open("errors.txt", "w") do f
+errors_path = joinpath(get_output_path(), "errors.txt")
+open(errors_path, "w") do f
     write(f, "Relative Turn Rate Errors\n")
     write(f, "=========================\n\n")
     for (angle, res) in zip(cone_angles, results)
@@ -473,7 +477,7 @@ open("errors.txt", "w") do f
         write(f, "  Wind perp.: $(res.turn_rate_rel_err_wind)\n\n")
     end
 end
-println("\nSaved: errors.txt")
+println("\nSaved: $errors_path")
 
 if length(cone_angles) > 0
     fig_combined = plot_combined(cone_angles, results; use_glmakie=true)

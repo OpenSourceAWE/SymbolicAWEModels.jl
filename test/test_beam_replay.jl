@@ -83,6 +83,21 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     @test sys2.bodies[:seg_6].pos_w[3] ≈ tip.pos_w[3] atol=1e-3
     @test sys2.bodies[:seg_1].pos_w[1] ≈ 0.25 atol=1e-4  # fixed root
 
+    @testset "sim! logs to the output folder, not the data folder" begin
+        previous_output_path = get_output_path()
+        set_output_path(joinpath(mktempdir(), "output"))
+        try
+            steps = 3
+            sim_log, _ = sim!(sam, zeros(steps, 0);
+                              dt, total_time=steps*dt, prn=false)
+            @test length(sim_log.syslog) == steps
+            @test isfile(joinpath(get_output_path(), "tmp_run.arrow"))
+            @test !isfile(joinpath(get_data_path(), "tmp_run.arrow"))
+        finally
+            set_output_path(previous_output_path)
+        end
+    end
+
     # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
 end
 nothing

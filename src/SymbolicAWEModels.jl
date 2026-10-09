@@ -55,6 +55,7 @@ import ModelingToolkit.SciMLBase: successful_retcode, init
 
 # --- KiteUtils ---
 export update_from_sysstate!, get_data_path, set_data_path, se
+export get_output_path, set_output_path
 export position_slots
 export SysState, SysLog, Settings, AbstractKiteModel
 export Logger, log!, save_log, load_log
@@ -210,6 +211,7 @@ function __init__()
     if isdir(data_dir) && isfile(joinpath(data_dir, "2plate_kite", "system.yaml"))
         set_data_path(data_dir)
     end
+    set_output_path("output")
 end
 
 include("backends.jl")

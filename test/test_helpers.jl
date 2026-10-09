@@ -39,6 +39,17 @@ using SymbolicAWEModels
     cd(path)
 end
 
+@testset "loading the package points the output path at ./output" begin
+    output_path_before = get_output_path()
+    set_output_path()
+    cd(mktempdir()) do
+        SymbolicAWEModels.__init__()
+        @test get_output_path() == "output"
+        @test isdir("output")
+    end
+    set_output_path(output_path_before)
+end
+
 @testset "test environment has no dev-only packages or Manifest.toml" begin
     @test ! ("TestEnv" ∈ keys(Pkg.project().dependencies))
     @test ! ("Revise" ∈ keys(Pkg.project().dependencies))
