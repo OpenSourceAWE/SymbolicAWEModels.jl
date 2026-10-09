@@ -103,7 +103,9 @@ if [[ -z "$_notes" ]]; then
     exit 1
 fi
 
-_repo=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+# gh repo view ignores GH_REPO, which gh also takes as HOST/OWNER/REPO.
+_repo=${GH_REPO:-$(gh repo view --json nameWithOwner -q .nameWithOwner)}
+[[ $_repo == */*/* ]] && _repo=${_repo#*/}
 
 if ! gh api "repos/$_repo/commits/$_sha" >/dev/null 2>&1; then
     echo "Commit $_sha was not found on $_repo. Push it first:" >&2
