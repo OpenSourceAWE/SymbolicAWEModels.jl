@@ -45,17 +45,20 @@ function move_points(yaml, motion)
 end
 
 """
-    load_moved(data_path, set, vsm_set, motion; wing_columns="")
+    load_moved(data_path, set, vsm_set, motion; wing_columns="", y_ref_points=nothing)
 
-Load the rigid 2plate kite with its points moved by `motion` and `wing_columns`
-appended to its wing row.
+Load the rigid 2plate kite with its points moved by `motion`, `wing_columns`
+appended to its wing row, and its `y_ref_points` replaced where given.
 """
-function load_moved(data_path, set, vsm_set, motion; wing_columns="")
+function load_moved(data_path, set, vsm_set, motion; wing_columns="",
+                    y_ref_points=nothing)
     yaml = replace(read(joinpath(data_path, "rigid_structural_geometry.yaml"), String),
         "\r\n" => "\n")
     anchor = "      aero_z_offset: 0.0\n"
     occursin(anchor, yaml) || error("no `$(strip(anchor))` row to append columns to")
     yaml = replace(move_points(yaml, motion), anchor => anchor * wing_columns)
+    isnothing(y_ref_points) || (yaml = replace(yaml,
+        "y_ref_points: [le_right, le_left]" => "y_ref_points: $y_ref_points"))
     path = joinpath(data_path, "moved_structural_geometry.yaml")
     write(path, yaml)
     return load_sys_struct_from_yaml(path; system_name="frame_check", set, vsm_set)
@@ -93,6 +96,11 @@ refused(data_path, set, vsm_set, motion; kw...) =
 
     @testset "a mirrored span is refused" begin
         refused(data_path, set, vsm_set, pos -> [pos[1], -pos[2], pos[3]])
+    end
+
+    @testset "a y_ref span tilted 3° off the aero span is refused" begin
+        refused(data_path, set, vsm_set, identity;
+            y_ref_points="[le_right, [[le_left, 0.8], [le_center, 0.2]]]")
     end
 
     @testset "a seeded COM outside the aero bounding box is refused" begin
