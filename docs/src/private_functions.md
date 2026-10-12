@@ -32,6 +32,7 @@ SymbolicAWEModels.reposition!
 SymbolicAWEModels.update_sys_struct!
 SymbolicAWEModels.get_set_hash
 SymbolicAWEModels.get_sys_struct_hash
+SymbolicAWEModels.component_types
 ```
 
 ## Physics and geometry helpers
