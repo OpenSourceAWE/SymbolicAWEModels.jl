@@ -220,6 +220,16 @@ SymbolicAWEModels.YAML_TUBE_MODELS
 SymbolicAWEModels.load_body_state!
 ```
 
+## KiteGeometry models
+
+```@docs
+SymbolicAWEModels.PointModel
+SymbolicAWEModels.StationModel
+SymbolicAWEModels.WingModel
+SymbolicAWEModels.PulleyModel
+SymbolicAWEModels.register_definition_models
+```
+
 ## Structure document internals
 
 ```@docs
