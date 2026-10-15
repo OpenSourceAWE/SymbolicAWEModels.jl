@@ -2,7 +2,7 @@
 
 julia_version = "1.13.0"
 manifest_format = "2.1"
-project_hash = "741bf17db60499a2a05467ec34129ab35da57bad"
+project_hash = "04c42e3552e2ae398c5488bb3f4dc2da09e56622"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -1670,9 +1670,8 @@ version = "0.6.12"
 
 [[deps.KiteGeometry]]
 deps = ["JSON", "KiteUtils", "LinearAlgebra", "OrderedCollections", "SHA", "StaticArrays", "YAML"]
-git-tree-sha1 = "3ebac7f52bbbb6a3d9cb76ae7c6a2a71acc957ef"
-repo-rev = "53aead49b52fbdb71f421018da6009dc8c3f4d93"
-repo-url = "https://github.com/OpenSourceAWE/KiteGeometry.jl"
+git-tree-sha1 = "58f6574113e72816f7c5f2c5521bea0ac4e1707f"
+registries = "General"
 uuid = "941ca69c-4b42-4a27-9601-abc4d37bf99e"
 version = "0.1.0"
 

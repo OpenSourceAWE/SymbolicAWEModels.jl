@@ -50,9 +50,6 @@ UnPack = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
 VortexStepMethod = "ed3cd733-9f0f-46a9-93e0-89b8d4998dd9"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
-[sources]
-KiteGeometry = {url = "https://github.com/OpenSourceAWE/KiteGeometry.jl", rev = "53aead49b52fbdb71f421018da6009dc8c3f4d93"}
-
 [weakdeps]
 GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 MakieControlPlots = "6d616b69-6563-4f6e-8472-6f6c706c6f74"
@@ -70,6 +67,7 @@ DocStringExtensions = "0.9.4"
 ForwardDiff = "1, 2"
 GeometryBasics = "0.5.10"
 JSON = "1"
+KiteGeometry = "0.1"
 KiteUtils = "0.13.1"
 LaTeXStrings = "1.4.0"
 LinearAlgebra = "1"
