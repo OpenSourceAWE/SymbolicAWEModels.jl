@@ -2,7 +2,7 @@
 
 julia_version = "1.12.7"
 manifest_format = "2.0"
-project_hash = "04c42e3552e2ae398c5488bb3f4dc2da09e56622"
+project_hash = "a00b273af5fdea74e1d92b3cad265e8b0a16a25a"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -1496,9 +1496,9 @@ version = "0.6.12"
 
 [[deps.KiteGeometry]]
 deps = ["JSON", "KiteUtils", "LinearAlgebra", "OrderedCollections", "SHA", "StaticArrays", "YAML"]
-git-tree-sha1 = "58f6574113e72816f7c5f2c5521bea0ac4e1707f"
+git-tree-sha1 = "601344720242c2dcbd434b319ddded6b2502fea8"
 uuid = "941ca69c-4b42-4a27-9601-abc4d37bf99e"
-version = "0.1.0"
+version = "0.2.0"
 
 [[deps.KitePodModels]]
 deps = ["DocStringExtensions", "KiteUtils", "Reexport"]
@@ -3147,7 +3147,7 @@ version = "0.2.8"
 deps = ["ADTypes", "AtmosphericModels", "ControlSystemsBase", "DataInterpolations", "Dates", "DocStringExtensions", "ForwardDiff", "JSON", "KiteGeometry", "KiteUtils", "LaTeXStrings", "LinearAlgebra", "LinearSolve", "Logging", "ModelingToolkit", "NonlinearSolve", "NonlinearSolveQuasiNewton", "OrderedCollections", "OrdinaryDiffEqBDF", "OrdinaryDiffEqCore", "OrdinaryDiffEqNonlinearSolve", "Parameters", "Pkg", "PrecompileTools", "Printf", "RecipesBase", "Reexport", "SHA", "Serialization", "SparseArrays", "StaticArrays", "Statistics", "SteadyStateDiffEq", "Suppressor", "SymbolicIndexingInterface", "SymbolicUtils", "Symbolics", "TOML", "Timers", "UnPack", "VortexStepMethod", "YAML"]
 path = "."
 uuid = "9c9a347c-5289-41db-a9b9-25ccc76c3360"
-version = "0.19.0"
+version = "0.20.0"
 weakdeps = ["GeometryBasics", "MakieControlPlots"]
 
     [deps.SymbolicAWEModels.extensions]

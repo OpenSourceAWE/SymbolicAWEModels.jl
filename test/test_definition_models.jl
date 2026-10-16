@@ -24,18 +24,26 @@ named(components, name) = only(filter(component -> component.name == name, compo
         load_authoring(joinpath(kite, "$(dynamics)_structural_geometry.yaml"); set)
 
     @testset "the $dynamics 2-plate kite reads SAM's columns" for
-            (dynamics, moment_frac, damping) in (("particle", 0.75, 50.0),
-                                                 ("rigid", 0.25, 100.0))
+            (dynamics, point_type, station_type, moment_frac, damping) in
+            (("particle", "DYNAMIC", "STATIC", 0.75, 50.0),
+             ("rigid", "BODY_STATIC", "DYNAMIC", 0.25, 100.0))
         system = load_kite(dynamics)
         le_left = named(system.points, "le_left")
         @test le_left.model isa SymbolicAWEModels.PointModel
+        @test le_left.type == point_type
         @test le_left.body_frame_damping == 10.0
         @test le_left.world_frame_damping == 0.0
+        @test le_left.area == 0.0
+        @test le_left.drag_coeff == 0.0
         @test isnothing(le_left.tube)
-        center = named(system.stations, "center")
+        center = named(system.spanwise_stations, "center")
+        @test center.type == station_type
         @test center.moment_frac == moment_frac
         @test center.damping == damping
         @test isnothing(center.stiffness)
+        pulley = named(system.pulleys, "left")
+        @test pulley.type == "DYNAMIC"
+        @test isnothing(pulley.efficiency)
         @test only(system.wings).model isa SymbolicAWEModels.WingModel
         @test length(system.canopy_faces) == 2
     end
@@ -43,6 +51,20 @@ named(components, name) = only(filter(component -> component.name == name, compo
     @testset "a wing's aero_z_offset reads into its model" begin
         @test only(load_kite("rigid").wings).aero_z_offset == 0.0
         @test isnothing(only(load_kite("particle").wings).aero_z_offset)
+    end
+
+    @testset "a body's dynamics type reads into its model" begin
+        authored = read(joinpath(kite, "rigid_structural_geometry.yaml"), String)
+        file = joinpath(mktempdir(), "rigid_structural_geometry.yaml")
+        write(file, authored * """
+            bodies:
+              headers: [name, extra_mass, pos, inertia_principal, type]
+              data:
+                - [hub, 1.0, [0.0, 0.0, 0.0], [1.0, 1.0, 1.0], STATIC]
+            """)
+        body = named(load_authoring(file; set).bodies, "hub")
+        @test body.model isa SymbolicAWEModels.BodyModel
+        @test body.type == "STATIC"
     end
 
     @testset "a point's damping reads as one number or one per axis" begin

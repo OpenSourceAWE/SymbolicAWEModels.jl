@@ -227,6 +227,7 @@ SymbolicAWEModels.PointModel
 SymbolicAWEModels.StationModel
 SymbolicAWEModels.WingModel
 SymbolicAWEModels.PulleyModel
+SymbolicAWEModels.BodyModel
 SymbolicAWEModels.register_definition_models
 ```
 
