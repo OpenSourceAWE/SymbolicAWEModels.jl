@@ -67,7 +67,7 @@ TUBES
 points:
   headers: [name, pos_cad, type, body_idx, anchor_b]
   data:
-    - [tip_anchor, [1.0, 0.0, 0.0], BODY_STATIC, nodeB, [0.0, 0.0, 0.0]]
+    - [tip_anchor, [1.0, 0.0, 0.0], BODY_STATIC, nodeB, [0.2, 0.0, 0.0]]
 """
 
 TUBE_ROWS = Dict(
@@ -132,6 +132,7 @@ end
         anchor = sys.points[:tip_anchor]
         @test anchor.type == BODY_STATIC
         @test anchor.body_idx == sys.bodies[:nodeB].idx
+        @test anchor.anchor_b ≈ [0.2, 0.0, 0.0]
     end
 
     @testset "a tube row without rigidities takes them from its law" begin

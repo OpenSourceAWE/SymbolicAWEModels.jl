@@ -28,6 +28,7 @@ than going unnoticed.
 KERNEL_SKIP_FILES = Dict(
     "test_aqua.jl" => "package-quality checks, backend-independent",
     "test_helpers.jl" => "covers the test helpers themselves, builds no model",
+    "test_yaml_fields.jl" => "YAML loader only, builds no model",
     "test_yaml_variables.jl" => "YAML loader only, builds no model",
     "test_project_file.jl" => "path resolution only, builds no model",
     "test_structure_document.jl" => "document writer and reader, builds no model",
