@@ -16,6 +16,7 @@ Files are organized as:
 - transforms.jl: Heading/rotation functions, reinit!/reposition!
 - utilities.jl: Helper functions and state management
 - tube_laws.jl: Inflated-tube rigidity laws for tubes
+- definition_models.jl: The models SymbolicAWEModels registers with KiteGeometry
 """
 
 # Include files in dependency order
@@ -27,3 +28,4 @@ include("named_collection.jl")  # NamedCollection wrapper for symbol-based index
 include("system_structure_core.jl")  # SystemStructure type and constructor (uses Transform)
 include("transforms.jl")    # Heading calculations, reinit!/reposition! (uses SystemStructure)
 include("utilities.jl")     # Helpers, validation, state management
+include("definition_models.jl")  # KiteGeometry models of SAM's own columns

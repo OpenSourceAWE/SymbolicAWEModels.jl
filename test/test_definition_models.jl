@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: 2026 Bart van de Lint
+# SPDX-License-Identifier: LGPL-3.0-only
+
+# test_definition_models.jl - SymbolicAWEModels' own authoring YAMLs load through
+# KiteGeometry, its columns read into the models it registers.
+
+using Pkg
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    Pkg.activate(@__DIR__)
+end
+
+using Test
+using SymbolicAWEModels
+using KiteUtils
+
+"""The component of `components` named `name`."""
+named(components, name) = only(filter(component -> component.name == name, components))
+
+@testset verbose = true "Definition models" begin
+    kite = joinpath(dirname(@__DIR__), "data", "2plate_kite")
+    set_data_path(kite)
+    set = Settings("system.yaml")
+    load_kite(dynamics) =
+        load_authoring(joinpath(kite, "$(dynamics)_structural_geometry.yaml"); set)
+
+    @testset "the $dynamics 2-plate kite reads SAM's columns" for
+            (dynamics, point_type, station_type, moment_frac, damping) in
+            (("particle", "DYNAMIC", "STATIC", 0.75, 50.0),
+             ("rigid", "BODY_STATIC", "DYNAMIC", 0.25, 100.0))
+        system = load_kite(dynamics)
+        le_left = named(system.points, "le_left")
+        @test le_left.model isa SymbolicAWEModels.PointModel
+        @test le_left.type == point_type
+        @test le_left.body_frame_damping == 10.0
+        @test le_left.world_frame_damping == 0.0
+        @test le_left.area == 0.0
+        @test le_left.drag_coeff == 0.0
+        @test isnothing(le_left.tube)
+        center = named(system.spanwise_stations, "center")
+        @test center.type == station_type
+        @test center.moment_frac == moment_frac
+        @test center.damping == damping
+        @test isnothing(center.stiffness)
+        pulley = named(system.pulleys, "left")
+        @test pulley.type == "DYNAMIC"
+        @test isnothing(pulley.efficiency)
+        @test only(system.wings).model isa SymbolicAWEModels.WingModel
+        @test length(system.canopy_faces) == 2
+    end
+
+    @testset "a wing's aero_z_offset reads into its model" begin
+        @test only(load_kite("rigid").wings).aero_z_offset == 0.0
+        @test isnothing(only(load_kite("particle").wings).aero_z_offset)
+    end
+
+    @testset "a body's dynamics type reads into its model" begin
+        authored = read(joinpath(kite, "rigid_structural_geometry.yaml"), String)
+        file = joinpath(mktempdir(), "rigid_structural_geometry.yaml")
+        write(file, authored * """
+            bodies:
+              headers: [name, extra_mass, pos, inertia_principal, type]
+              data:
+                - [hub, 1.0, [0.0, 0.0, 0.0], [1.0, 1.0, 1.0], STATIC]
+            """)
+        body = named(load_authoring(file; set).bodies, "hub")
+        @test body.model isa SymbolicAWEModels.BodyModel
+        @test body.type == "STATIC"
+    end
+
+    @testset "a point's damping reads as one number or one per axis" begin
+        authored = read(joinpath(kite, "rigid_structural_geometry.yaml"), String)
+        authored_row = "main_wing, main_transform, 0.1, 10.0, 0.0,"
+        file = joinpath(mktempdir(), "rigid_structural_geometry.yaml")
+        damped_row = "main_wing, main_transform, 0.1, [1, 2, 3], 4,"
+        write(file, replace(authored, authored_row => damped_row; count=1))
+        point = first(load_authoring(file; set).points)
+        @test point.body_frame_damping == [1.0, 2.0, 3.0]
+        @test point.world_frame_damping === 4.0
+    end
+end

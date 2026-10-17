@@ -38,6 +38,8 @@ using OrdinaryDiffEqNonlinearSolve
 using SteadyStateDiffEq
 
 # --- Open Source AWE Packages ---
+using Reexport
+@reexport using KiteGeometry
 using AtmosphericModels
 using KiteUtils
 using VortexStepMethod
@@ -206,6 +208,7 @@ function find_steady_state! end
 function make_lin_sys_state end
 
 function __init__()
+    register_definition_models()
     data_dir = joinpath(pwd(), "data")
     if isdir(data_dir) && isfile(joinpath(data_dir, "2plate_kite", "system.yaml"))
         set_data_path(data_dir)
