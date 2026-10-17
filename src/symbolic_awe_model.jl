@@ -214,9 +214,9 @@ $(TYPEDFIELDS)
     t_0::SimFloat = 0.0
     "Number of next_step! calls"
     iter::Int64 = 0
-    "Time spent in the VSM linearization step"
+    "Time the last `next_step!` spent refreshing the aerodynamics [s]; zero when it did not"
     t_vsm::SimFloat  = zero(SimFloat)
-    "Time spent in the ODE integration step"
+    "Time the last `next_step!` spent integrating [s]"
     t_step::SimFloat = zero(SimFloat)
     "Build-time flattened-parameter registry (transient, never serialized)."
     param_registry::Any = nothing
@@ -607,6 +607,7 @@ function next_step!(sam::SymbolicAWEModel;
             ": $(integrator.sol.retcode)"))
     end
     sam.iter += 1
+    sam.t_vsm = 0.0
     if prob isa ProbWithAttributes
         update_sys_struct!(prob, integrator, sam.sys_struct)
         if vsm_interval != 0 && sam.iter % vsm_interval == 0 &&

@@ -26,3 +26,9 @@ SPDX-License-Identifier = "LGPL-3.0-only"
 path = ["test/data/structure_schema.yml"]
 SPDX-FileCopyrightText = "2025 Airborne Wind Energy Research Group"
 SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = ["papers/**/*.tex", "papers/**/*.bib", "papers/**/*.yaml",
+        "papers/**/Project.toml"]
+SPDX-FileCopyrightText = "2026 Bart van de Lint"
+SPDX-License-Identifier = "LGPL-3.0-only"
