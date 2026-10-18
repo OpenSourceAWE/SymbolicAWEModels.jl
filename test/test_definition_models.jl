@@ -21,7 +21,7 @@ named(components, name) = only(filter(component -> component.name == name, compo
     set_data_path(kite)
     set = Settings("system.yaml")
     load_kite(dynamics) =
-        load_authoring(joinpath(kite, "$(dynamics)_structural_geometry.yaml"); set)
+        first(load_authoring(joinpath(kite, "$(dynamics)_structural_geometry.yaml"); set))
 
     @testset "the $dynamics 2-plate kite reads SAM's columns" for
             (dynamics, point_type, station_type, moment_frac, damping) in
@@ -62,7 +62,7 @@ named(components, name) = only(filter(component -> component.name == name, compo
               data:
                 - [hub, 1.0, [0.0, 0.0, 0.0], [1.0, 1.0, 1.0], STATIC]
             """)
-        body = named(load_authoring(file; set).bodies, "hub")
+        body = named(first(load_authoring(file; set)).bodies, "hub")
         @test body.model isa SymbolicAWEModels.BodyModel
         @test body.type == "STATIC"
     end
@@ -73,7 +73,7 @@ named(components, name) = only(filter(component -> component.name == name, compo
         file = joinpath(mktempdir(), "rigid_structural_geometry.yaml")
         damped_row = "main_wing, main_transform, 0.1, [1, 2, 3], 4,"
         write(file, replace(authored, authored_row => damped_row; count=1))
-        point = first(load_authoring(file; set).points)
+        point = first(first(load_authoring(file; set)).points)
         @test point.body_frame_damping == [1.0, 2.0, 3.0]
         @test point.world_frame_damping === 4.0
     end
