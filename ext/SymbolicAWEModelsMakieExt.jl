@@ -27,7 +27,7 @@ const PLOT_RELEVANT_PLOTS = Ref{Union{Nothing, Vector}}(nothing)
 # All plot layers by key (:bodies, :wings, :beam_tubes, :vsm, :airfoils, …), so
 # the replay checkboxes can toggle each layer's visibility.
 const PLOT_LAYERS = Ref{Union{Nothing, Dict{Symbol, Any}}}(nothing)
-const PLOT_SYSTEM_STRUCTURE = Ref{Union{Nothing, SystemStructure}}(nothing)
+const PLOT_SYSTEM_STRUCTURE = Ref{Union{Nothing, SystemState}}(nothing)
 const PLOT_VECTOR_SCALE = Ref{Float64}(1.0)
 const PLOT_FORCE_COLOR = Ref{Bool}(false)
 const PLOT_SEGMENT_COLOR = Ref{Any}(RGBf(0.25, 0.25, 0.25))
@@ -75,7 +75,7 @@ function wing_log_pos(sl, sys, wing, k)
 end
 
 # Multi-system plotting support
-const PLOT_MULTI_SYSTEMS = Ref{Union{Nothing, Vector{<:SystemStructure}}}(nothing)
+const PLOT_MULTI_SYSTEMS = Ref{Union{Nothing, Vector{<:SystemState}}}(nothing)
 const PLOT_MULTI_GEOMETRY_OBS = Ref{Union{Nothing, Vector{Observable}}}(nothing)
 
 """
@@ -655,7 +655,7 @@ function plot_frame_axes!(ax, plots, key, sys, n, frames_of, scale, geometry_obs
     return nothing
 end
 
-function Makie.plot!(ax, sys::SystemStructure;
+function Makie.plot!(ax, sys::SystemState;
                      point_color = :darkred, segment_color = RGBf(0.25, 0.25, 0.25),
                      wing_colors = Makie.wong_colors(), vector_scale = 1.0,
                      show_points = true, show_segments = true, show_orient = true,
@@ -1059,7 +1059,7 @@ function Makie.plot!(ax, sys::SystemStructure;
 end
 
 """
-    SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
+    SymbolicAWEModels.update_plot_observables!(sys::SystemState)
 
 Trigger plot updates by notifying the geometry observable, which makes Makie
 recompute all geometry from `PLOT_SYSTEM_STRUCTURE[]` through its `@lift`
@@ -1074,7 +1074,7 @@ for step in 1:steps
 end
 ```
 """
-function SymbolicAWEModels.update_plot_observables!(sys::SystemStructure)
+function SymbolicAWEModels.update_plot_observables!(sys::SystemState)
     # Trigger geometry observable - this causes all @lift expressions to recompute
     if !isnothing(PLOT_GEOMETRY_OBS[])
         PLOT_GEOMETRY_OBS[][] = time()  # Use timestamp as trigger value
@@ -1173,7 +1173,7 @@ function moving_average_same(x::AbstractVector{<:Real}, window::Int)
 end
 
 """
-    compute_turn_radius(sl_in, sys::SystemStructure; smooth_window=10, eps=1e-12)
+    compute_turn_radius(sl_in, sys::SystemState; smooth_window=10, eps=1e-12)
 
 Compute signed turn radius from velocity and smoothed acceleration using the
 instantaneous center of rotation (ICR). The sign follows the body x-axis
@@ -1183,7 +1183,7 @@ projected into the world xy-plane.
 - `(radius, time)`: Tuple of signed turn radius [m] and time vector [s]
 - `nothing` if required data is missing
 """
-function compute_turn_radius(sl_in, _sys::SystemStructure; smooth_window=10, eps=1e-12)
+function compute_turn_radius(sl_in, _sys::SystemState; smooth_window=10, eps=1e-12)
     sl = hasproperty(sl_in, :syslog) ? sl_in.syslog : sl_in
     n = length(sl.time)
     if n < 2 || isempty(sl.vel_kite) || isempty(sl.orient)
@@ -1249,12 +1249,12 @@ end
 
 
 """
-    MakieControlPlots.plot(sys::SystemStructure, lg::SysLog; kwargs...)
+    MakieControlPlots.plot(sys::SystemState, lg::SysLog; kwargs...)
 
 Create a multi-panel plot of key simulation results from a `SysLog`.
 
 # Arguments
-- `sys::SystemStructure`: The system structure, used to get component counts (e.g., number of groups).
+- `sys::SystemState`: The system structure, used to get component counts (e.g., number of groups).
 - `lg::SysLog`: The simulation log data to be plotted.
 
 # Keyword Arguments
@@ -1292,24 +1292,24 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 plot(model.sys_struct, log, plot_reelout=false, plot_aero_force=false, plot_twist=false, plot_winch_force=false)
 ```
 """
-function MakieControlPlots.plot(sys::SystemStructure, lg::SysLog{N}; kwargs...) where N
+function MakieControlPlots.plot(sys::SystemState, lg::SysLog{N}; kwargs...) where N
     # Wrapper that uses the vector version
     return MakieControlPlots.plot([sys], [lg]; kwargs...)
 end
 
 """
-    MakieControlPlots.plot(sys::SystemStructure, logs::Vector{SysLog}; kwargs...)
+    MakieControlPlots.plot(sys::SystemState, logs::Vector{SysLog}; kwargs...)
 
 Create a multi-panel plot comparing several simulation logs (e.g. from
 PARTICLE_DYNAMICS and RIGID_DYNAMICS models) on the same panels. Each log's traces are
 labeled with its system name.
 
 # Arguments
-- `sys::SystemStructure`: The system structure (can be from any of the models).
+- `sys::SystemState`: The system structure (can be from any of the models).
 - `logs::Vector{SysLog}`: Vector of simulation logs to compare.
 
 # Keyword Arguments
-Same as the single-syslog version. See `MakieControlPlots.plot(sys::SystemStructure, lg::SysLog)` for details.
+Same as the single-syslog version. See `MakieControlPlots.plot(sys::SystemState, lg::SysLog)` for details.
 
 # Example
 ```julia
@@ -1320,8 +1320,8 @@ plot(sys_struct, [syslog_refine, syslog_quat];
      plot_default=false, plot_aero_force=false)
 ```
 """
-function MakieControlPlots.plot(sys::SystemStructure, logs::Vector{<:SysLog}; kwargs...)
-    # Wrapper that creates a vector of SystemStructure with the same sys for each log
+function MakieControlPlots.plot(sys::SystemState, logs::Vector{<:SysLog}; kwargs...)
+    # Wrapper that creates a vector of the same sys for each log
     syss = [sys for _ in logs]
     return MakieControlPlots.plot(syss, logs; kwargs...)
 end
@@ -1337,7 +1337,7 @@ function per_winch_series(samples)
     return [[samples[k][j] for k in eachindex(samples)] for j in 1:n_winch]
 end
 
-function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
+function MakieControlPlots.plot(syss::Vector{<:SystemState}, logs::Vector{<:SysLog};
                    plot_default=true,
                    plot_reelout=plot_default,
                    plot_aero_force=plot_default,
@@ -2501,7 +2501,7 @@ falling back to the integer `idx` for auto-generated components with no name.
 hover_ref_label(name, idx) = isnothing(name) ? string(idx) : string(name)
 
 """
-    setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
+    setup_segment_hover_events!(scene, systems::Vector{<:SystemState},
                                  segment_color_obs::Vector, all_plots;
                                  segment_colors, highlight_color=:yellow,
                                  relmargin=0.2)
@@ -2510,12 +2510,12 @@ Add hover labels and click-to-zoom for segments across multiple systems.
 
 `segment_color_obs[i]` is system `i`'s per-segment color observable (the one
 driving the `linesegments!` colors); the highlight is applied by writing to it.
-Segment endpoints are read from the live `SystemStructure`, not the plot.
+Segment endpoints are read from the live `SystemState`, not the plot.
 
 For multi-system, labels show "sys_idx:seg_ref" and "sys_idx:pt_ref" format.
 For single system, labels show just "seg_ref" and "pt_ref".
 """
-function setup_segment_hover_events!(scene, systems::Vector{<:SystemStructure},
+function setup_segment_hover_events!(scene, systems::Vector{<:SystemState},
                                       segment_color_obs::Vector, all_plots;
                                       segment_colors::Vector,
                                       highlight_color=:yellow,
@@ -2809,7 +2809,7 @@ function setup_body_zoom_events!(scene, sys; relmargin=0.2,
     return nothing
 end
 
-function plot_with_panes(sys::SystemStructure;
+function plot_with_panes(sys::SystemState;
                     size = (1200, 800),
                     relmargin = 0.2,
                     segment_color = RGBf(0.25, 0.25, 0.25),
@@ -2882,7 +2882,7 @@ function plot_with_panes(sys::SystemStructure;
 end
 
 # Public API function - creates scene with observables for dynamic updates
-function MakieControlPlots.plot(sys::SystemStructure;
+function MakieControlPlots.plot(sys::SystemState;
                     vector_scale=1.0,
                     force_color=false,
                     segment_color=RGBf(0.25, 0.25, 0.25),
@@ -2903,7 +2903,7 @@ function MakieControlPlots.plot(sys::SystemStructure;
     body_frame = body_frame === nothing ? aero_mapping : body_frame
     PLOT_CAMERA_PAN[] = (Float64(zoom), Float64(pan_horizontal), Float64(pan_vertical))
     PLOT_CAMERA_TILT[] = (Float64(tilt_horizontal), Float64(tilt_vertical))
-    # Store SystemStructure globally FIRST so @lift expressions can access it
+    # Store the system globally FIRST so @lift expressions can access it
     PLOT_SYSTEM_STRUCTURE[] = sys
     PLOT_VECTOR_SCALE[] = vector_scale
     PLOT_FORCE_COLOR[] = force_color
@@ -2939,7 +2939,7 @@ function MakieControlPlots.plot(sys::SystemStructure;
     PLOT_SCENE[] = scene
     PLOT_RELEVANT_PLOTS[] = relevant_plots
     PLOT_LAYERS[] = plots
-    # SystemStructure and settings already stored above before plot creation
+    # The system and settings already stored above before plot creation
     PLOT_ZOOMED_IN[] = false  # Initialize zoom state (not zoomed in)
     PLOT_ZOOM_RELMARGIN[] = relmargin  # Store relmargin for auto-updates
     PLOT_ZOOM_SEGMENT_IDX[] = -1  # No segment zoomed initially
@@ -2964,19 +2964,19 @@ function MakieControlPlots.plot(sys::SystemStructure;
 end
 
 """
-    build_geometry_observables(sys::SystemStructure, trigger::Observable)
+    build_geometry_observables(sys::SystemState, trigger::Observable)
 
-Build geometry observables for a SystemStructure that update when trigger is notified.
+Build geometry observables for a `SystemState` that update when trigger is notified.
 Used for multi-system plotting where each system needs its own observable.
 
 # Arguments
-- `sys::SystemStructure`: The system structure to build observables for
+- `sys::SystemState`: The system structure to build observables for
 - `trigger::Observable`: Observable that triggers geometry recalculation
 
 # Returns
 - Dict with keys :segment_points, :point_positions, :wing_data
 """
-function build_geometry_observables(sys::SystemStructure, trigger::Observable)
+function build_geometry_observables(sys::SystemState, trigger::Observable)
     obs = Dict{Symbol, Any}()
 
     # Segments: Vector of Point3f pairs
@@ -3016,9 +3016,9 @@ function build_geometry_observables(sys::SystemStructure, trigger::Observable)
 end
 
 """
-    MakieControlPlots.plot(syss::Vector{<:SystemStructure}; ghost_color=..., ghost_alpha=0.5, ...)
+    MakieControlPlots.plot(syss::Vector{<:SystemState}; ghost_color=..., ghost_alpha=0.5, ...)
 
-Plot several SystemStructures in one 3D scene: the first as the fully-featured
+Plot several systems in one 3D scene: the first as the fully-featured
 primary, the rest as flat grey, non-interactive "ghost" outlines behind it.
 
 `syss[1]` is drawn through the full single-system [`plot`](@ref) (aero, beam
@@ -3028,7 +3028,7 @@ a reference shape. The ghost geometry observables are stored in
 `PLOT_MULTI_GEOMETRY_OBS` so `replay`/`record` can animate them.
 
 # Arguments
-- `syss::Vector{<:SystemStructure}`: `syss[1]` is the primary; the rest ghosts.
+- `syss::Vector{<:SystemState}`: `syss[1]` is the primary; the rest ghosts.
 
 # Keyword Arguments
 - `ghost_color`, `ghost_alpha`: colour/opacity of the ghost systems.
@@ -3043,7 +3043,7 @@ a reference shape. The ghost geometry observables are stored in
 scene = plot([sys_full, sys_collapsed])  # full model, collapsed as grey ghost
 ```
 """
-function MakieControlPlots.plot(syss::Vector{<:SystemStructure};
+function MakieControlPlots.plot(syss::Vector{<:SystemState};
                     ghost_color=RGBf(0.6, 0.6, 0.6),
                     ghost_alpha=0.5,
                     vector_scale=1.0,
@@ -3105,9 +3105,9 @@ function refresh_multi_frame!(primary_sys; vector_scale=1.0)
 end
 
 """
-    Makie.plot!(sys::SystemStructure; vector_scale=1.0)
+    Makie.plot!(sys::SystemState; vector_scale=1.0)
 
-Update the displayed SystemStructure plot with new data from `sys`, by writing the
+Update the displayed system plot with new data from `sys`, by writing the
 scene's observables. Requires an earlier `plot(sys)` to have created them; returns
 `nothing`.
 
@@ -3123,10 +3123,10 @@ end
 ```
 
 # See Also
-- `plot(::SystemStructure)`: Create a new scene (non-mutating)
+- `plot(::SystemState)`: Create a new scene (non-mutating)
 - `update_plot_observables!`: Lower-level observable update function
 """
-function Makie.plot!(sys::SystemStructure; vector_scale=1.0)
+function Makie.plot!(sys::SystemState; vector_scale=1.0)
     # Check if geometry observable exists
     if isnothing(PLOT_GEOMETRY_OBS[]) || isnothing(PLOT_SCENE[])
         error("No existing plot to update. Call plot(sys) first to create a scene.")
@@ -3162,20 +3162,20 @@ function Makie.plot!(sys::SystemStructure; vector_scale=1.0)
 end
 
 """
-    record(lg::SysLog, sys::SystemStructure, filename::String; framerate=30, kwargs...)
+    record(lg::SysLog, sys::SystemState, filename::String; framerate=30, kwargs...)
 
 Record a SysLog animation to a video or GIF file. The output format is
 determined by the file extension (`.mp4`, `.gif`, `.mkv`, `.webm`).
 
 # Arguments
 - `lg::SysLog`: The simulation log to record
-- `sys::SystemStructure`: The system structure matching the log's topology
+- `sys::SystemState`: The system structure matching the log's topology
 - `filename::String`: Output filename (e.g., `"sim.mp4"`, `"sim.gif"`)
 
 # Keyword Arguments
 - `framerate::Int=30`: Framerate (frames per second)
 - `vector_scale::Real=1.0`: Scale factor for wing orientation arrows
-- All other keyword arguments are passed through to the SystemStructure plot function
+- All other keyword arguments are passed through to the system plot function
 
 # Returns
 - The Scene object used for recording
@@ -3187,7 +3187,7 @@ record(log, sys_struct, "output.gif"; framerate=20)
 record(log, sys_struct, "sim.mp4"; framerate=60, vector_scale=0.3)
 ```
 """
-function SymbolicAWEModels.record(lg::SysLog, sys::SystemStructure, filename::String;
+function SymbolicAWEModels.record(lg::SysLog, sys::SystemState, filename::String;
                                    framerate::Int=30,
                                    vector_scale::Real=0.2,
                                    kwargs...)
@@ -3228,7 +3228,7 @@ function SymbolicAWEModels.record(lg::SysLog, sys::SystemStructure, filename::St
 end
 
 """
-    record(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure},
+    record(logs::Vector{<:SysLog}, syss::Vector{<:SystemState},
            filename::String; framerate=30, ghost_color=..., vector_scale=0.2, kwargs...)
 
 Record a multi-system SysLog animation to a video or GIF file, with `syss[1]` as
@@ -3238,7 +3238,7 @@ The output format is determined by the file extension
 
 # Arguments
 - `logs::Vector{<:SysLog}`: Simulation logs; `logs[1]` is the primary.
-- `syss::Vector{<:SystemStructure}`: System structures (must match logs length).
+- `syss::Vector{<:SystemState}`: System structures (must match logs length).
 - `filename::String`: Output filename (e.g., `"sim.mp4"`, `"sim.gif"`).
 
 # Keyword Arguments
@@ -3257,7 +3257,7 @@ record([log_full, log_collapsed], [sys_full, sys_collapsed], "output.mp4")
 """
 function SymbolicAWEModels.record(
         logs::Vector{<:SysLog},
-        syss::Vector{<:SystemStructure},
+        syss::Vector{<:SystemState},
         filename::String;
         framerate::Int=30,
         ghost_color=RGBf(0.6, 0.6, 0.6),
@@ -3651,13 +3651,13 @@ function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt
 end
 
 """
-    replay(lg::SysLog, sys::SystemStructure; replay_speed=1.0, autoplay=false, loop=false, kwargs...)
+    replay(lg::SysLog, sys::SystemState; replay_speed=1.0, autoplay=false, loop=false, kwargs...)
 
 Replay a SysLog with interactive 3D visualization and playback controls.
 
 # Arguments
 - `lg::SysLog`: The simulation log to replay
-- `sys::SystemStructure`: The system structure matching the log's topology
+- `sys::SystemState`: The system structure matching the log's topology
 
 # Keyword Arguments
 # - `replay_speed::Real=1.0`: Replay speed factor (1.0 = real-time, 2.0 = 2x speed, etc.)
@@ -3668,7 +3668,7 @@ Replay a SysLog with interactive 3D visualization and playback controls.
 # - `show_aero_mapping::Bool=false`: Draw which structural point each panel's surface nodes map to; off by default, toggle it with the "Aero map" checkbox
 # - `force_color::Bool=false`: Colour the segments green-to-red by spring force;
 #   off by default, toggle it with the "Spring force" checkbox
-# - All other keyword arguments are passed through to the SystemStructure plot function
+# - All other keyword arguments are passed through to the system plot function
 
 # Returns
 - A Scene with interactive controls overlaid on the 3D visualization
@@ -3695,7 +3695,7 @@ scene = replay(log, sys_struct, replay_speed=0.5, vector_scale=0.3)
 # See Also
 - `record`: For saving replay to MP4 video file
 """
-function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
+function SymbolicAWEModels.replay(lg::SysLog, sys::SystemState;
                       replay_speed=1.0,
                       autoplay=false,
                       loop=false,
@@ -3748,21 +3748,21 @@ function SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure;
 end
 
 """
-    replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure}; ghost_color=..., ...)
+    replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemState}; ghost_color=..., ...)
 
 Replay several SysLogs together, with the first one as the primary system and the
 rest overlaid as grey ghosts.
 
 `logs[1]`/`syss[1]` is the primary: it is drawn with the full single-system
 visualization (aero, beam tubes, wing/body frames, layer toggles and selectable
-segments) exactly like [`replay(::SysLog, ::SystemStructure)`](@ref). Every other
+segments) exactly like [`replay(::SysLog, ::SystemState)`](@ref). Every other
 system is drawn as flat grey, non-interactive geometry (segments + points) on the
 same scene so it reads as a reference outline behind the primary. The camera is
 fitted to the primary only.
 
 # Arguments
 - `logs::Vector{<:SysLog}`: simulation logs; `logs[1]` is the primary.
-- `syss::Vector{<:SystemStructure}`: matching structures (same length as `logs`).
+- `syss::Vector{<:SystemState}`: matching structures (same length as `logs`).
 
 # Keyword Arguments
 - `ghost_color`: colour of the ghost systems (default: grey).
@@ -3783,7 +3783,7 @@ fitted to the primary only.
 scene = replay([log_full, log_collapsed], [sys_full, sys_collapsed])
 ```
 """
-function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure};
+function SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemState};
                       colors=nothing,
                       ghost_color=RGBf(0.6, 0.6, 0.6),
                       ghost_alpha=0.5,
@@ -3927,14 +3927,14 @@ Plot wing points in 2D body frame coordinates.
 Updates pos_b for PARTICLE_DYNAMICS wing points and shows all wing-node points.
 
 # Arguments
-- `sys_struct::SystemStructure`: System structure to plot
+- `sys_struct::SystemState`: System structure to plot
 - `extra_points`: Optional vector of (x,y,z) tuples to overlay
 - `dir::Symbol`: Viewing direction (:side, :front, or :top, default :side)
 
 # Returns
 - Figure with 2D scatter plot of wing points in body frame
 """
-function SymbolicAWEModels.plot_body_frame(sys_struct::SystemStructure;
+function SymbolicAWEModels.plot_body_frame(sys_struct::SystemState;
                          extra_points=nothing,
                          dir::Symbol=:front,
                          point_size=10,
@@ -4154,14 +4154,14 @@ end
 Plot the angle of attack distribution along the wing span.
 
 # Arguments
-- `sys_struct::SystemStructure`: System structure containing the wing with VSM solver
+- `sys_struct::SystemState`: System structure containing the wing with VSM solver
 - `wing_idx::Int`: Index of the wing to plot (default: 1)
 - `figsize`: Figure size tuple (default: (800, 400))
 
 # Returns
 - Figure with angle of attack vs panel index
 """
-function SymbolicAWEModels.plot_aoa(sys_struct::SystemStructure;
+function SymbolicAWEModels.plot_aoa(sys_struct::SystemState;
                                     wing_idx::Int=1,
                                     figsize=(800, 400))
     wing = sys_struct.wings[wing_idx]
@@ -4198,5 +4198,34 @@ if workload_enabled(SymbolicAWEModels)
         end
     end
 end
+
+# ==================== STRUCTURES ==================== #
+
+# A structure is drawn at the pose a run of it starts from.
+Makie.plot!(ax, sys::SystemStructure; kwargs...) =
+    Makie.plot!(ax, SystemState(sys); kwargs...)
+MakieControlPlots.plot(sys::SystemStructure; kwargs...) =
+    MakieControlPlots.plot(SystemState(sys); kwargs...)
+MakieControlPlots.plot(syss::Vector{<:SystemStructure}; kwargs...) =
+    MakieControlPlots.plot(SystemState.(syss); kwargs...)
+MakieControlPlots.plot(sys::SystemStructure, logs; kwargs...) =
+    MakieControlPlots.plot(SystemState(sys), logs; kwargs...)
+MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:SysLog};
+                       kwargs...) =
+    MakieControlPlots.plot(SystemState.(syss), logs; kwargs...)
+SymbolicAWEModels.record(lg::SysLog, sys::SystemStructure, filename::String; kwargs...) =
+    SymbolicAWEModels.record(lg, SystemState(sys), filename; kwargs...)
+SymbolicAWEModels.record(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure},
+                         filename::String; kwargs...) =
+    SymbolicAWEModels.record(logs, SystemState.(syss), filename; kwargs...)
+SymbolicAWEModels.replay(lg::SysLog, sys::SystemStructure; kwargs...) =
+    SymbolicAWEModels.replay(lg, SystemState(sys); kwargs...)
+SymbolicAWEModels.replay(logs::Vector{<:SysLog}, syss::Vector{<:SystemStructure};
+                         kwargs...) =
+    SymbolicAWEModels.replay(logs, SystemState.(syss); kwargs...)
+SymbolicAWEModels.plot_body_frame(sys::SystemStructure; kwargs...) =
+    SymbolicAWEModels.plot_body_frame(SystemState(sys); kwargs...)
+SymbolicAWEModels.plot_aoa(sys::SystemStructure; kwargs...) =
+    SymbolicAWEModels.plot_aoa(SystemState(sys); kwargs...)
 
 end

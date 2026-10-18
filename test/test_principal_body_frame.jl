@@ -46,7 +46,8 @@ using LinearAlgebra
         yaml_path;
         system_name="frame_test", set, vsm_set)
 
-    wing = sys.wings[:main_wing]
+    state = SystemState(sys)
+    wing = state.wings[:main_wing]
     @test wing.dynamics_type == RIGID_DYNAMICS
     @test !isnothing(wing.origin)
     @test !isnothing(wing.z_ref_points)
@@ -73,7 +74,7 @@ using LinearAlgebra
 
     # ---- Test 2: Rigid body constraint ---- #
     @testset "pos_w = com_w + R_b_to_w * pos_b" begin
-        wing_pts = [p for p in sys.points
+        wing_pts = [p for p in state.points
             if p.is_wing_node &&
                p.wing_idx == wing.idx]
         @test !isempty(wing_pts)

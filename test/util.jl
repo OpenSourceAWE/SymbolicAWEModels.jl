@@ -174,7 +174,7 @@ and rebuilt into the principal frame, which costs a few ULP in
 the quaternion/matrix conversions.
 """
 function validate_sysstate_roundtrip(sam; rtol = 1e-10)
-    sys = sam.sys_struct
+    sys = sam.state
     expected = copy(sam.integrator.u)
     isempty(expected) && return nothing
     path = mktempdir()

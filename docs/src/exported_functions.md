@@ -69,20 +69,22 @@ calc_steady_torque
 
 [`place!`](@ref) puts a structure in the world by its transforms and makes where it
 lands its initial pose (`pos_ENU`, `Q_KA_to_ENU`); the `SystemStructure` constructor
-runs it, and `init!(sam)` takes the moving state as it stands and derives mass
-properties and rest geometry from the initial pose
+runs it. A model's run state, `sam.state` (a [`SystemState`](@ref)), starts there
+([`start_run!`](@ref)), and `init!(sam)` takes the run state as it stands and derives
+mass properties and rest geometry from the initial pose
 ([`init_derived_properties!`](@ref)), so a run restarted from a logged state
 resumes. To move the system for a new run, change its transforms and
-`place!` it again. To change only part of it — a tether's unstretched length, say,
-without moving the kite — run the steps wanted on `sam.sys_struct` before `init!`:
+`place!(sam)` it again. To change only part of it — a tether's unstretched length,
+say, without moving the kite — run the steps wanted on `sam.state` before `init!`:
 
 ```julia
-set_unstretched_length!(sam.sys_struct, sam.sys_struct.tethers[1], 240.0)
+set_unstretched_length!(sam.state, sam.state.tethers[1], 240.0)
 init!(sam)
 ```
 
 ```@docs
 place!
+start_run!
 reset_to_initial_pose!
 apply_tether_init_stretched_lens!
 update_segment_lengths!
@@ -110,10 +112,10 @@ sys_struct = load_sys_struct_from_yaml(path; set, wind_mode=PerPointWind())
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam)
 for _ in 1:steps
-    for point in sam.sys_struct.points    # a gust field, refreshed every step
+    for point in sam.state.points    # a gust field, refreshed every step
         point.wind_vec .= my_wind_field(point.pos_w, sam.integrator.t)
     end
-    sam.sys_struct.wings[1].wind_vec .= my_wind_field(...)
+    sam.state.wings[1].wind_vec .= my_wind_field(...)
     next_step!(sam)
 end
 ```

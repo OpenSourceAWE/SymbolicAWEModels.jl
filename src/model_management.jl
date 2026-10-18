@@ -537,6 +537,19 @@ function has_custom_component(sys_struct)
 end
 
 """
+    place!(sam::SymbolicAWEModel; reset_vel=true, kwargs...)
+
+Place the model's structure ([`place!`](@ref)`(sam.sys_struct; kwargs...)`) and start
+its run there ([`start_run!`](@ref)). `reset_vel=false` keeps the velocities the run
+holds.
+"""
+function place!(sam::SymbolicAWEModel; reset_vel::Bool=true, kwargs...)
+    place!(sam.sys_struct; kwargs...)
+    start_run!(sam.state; reset_vel)
+    return nothing
+end
+
+"""
     init!(sam::SymbolicAWEModel; ...)
 
 Load or build the symbolic model, create the `ODEProblem` (and optionally the

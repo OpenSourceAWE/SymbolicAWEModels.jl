@@ -67,7 +67,8 @@ export SymbolicAWEModel
 export ModelBackend, MonolithBackend, KernelBackend,
        BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
-export SystemStructure, Point, Station, Segment, Pulley, Tether, Winch, Wing, Transform
+export SystemStructure, SystemState, Point, Station, Segment, Pulley, Tether, Winch, Wing,
+       Transform
 export segment_role
 export Body, Tube, AbstractTubeModel, TimoshenkoTube, ElasticTube
 export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero

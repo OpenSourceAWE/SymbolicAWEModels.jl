@@ -220,15 +220,16 @@ vsm_set = VortexStepMethod.VSMSettings(
         sys = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
             system_name="refine_span_order", set, vsm_set)
-        wing = sys.wings[1]
+        state = SystemState(sys)
+        wing = state.wings[1]
         # The fixture's wing is pitched about y, so mirroring y mirrors body y too.
-        for point in sys.points
+        for point in state.points
             point.is_wing_node || continue
             point.pos_ENU[2] *= -1
             point.pos_w[2] *= -1
         end
         @test_throws "run from -y to +y" update_vsm_wing_from_structure!(
-            wing, sys.points)
+            wing, state.points)
         wing.wing_segments = nothing
         @test_throws "run from -y to +y" match_aero_sections_to_structure!(
             wing, sys.points)

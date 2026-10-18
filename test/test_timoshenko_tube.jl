@@ -106,8 +106,8 @@ end
     end
 
     sam = SymbolicAWEModel(set, sys)
-    rb = sam.sys_struct.bodies[:nodeB]
-    ra = sam.sys_struct.bodies[:nodeA]
+    rb = sam.state.bodies[:nodeB]
+    ra = sam.state.bodies[:nodeA]
 
     @testset "Transverse tip load (Timoshenko vs Euler)" begin
         load = 5.0
@@ -172,7 +172,7 @@ end
     sys_nl = SystemStructure("timoshenko_test", set;
         bodies=[nodeA2, nodeB2], tubes=[tube_nl])
     sam_nl = SymbolicAWEModel(set, sys_nl)
-    rb_nl = sam_nl.sys_struct.bodies[:nodeB]
+    rb_nl = sam_nl.state.bodies[:nodeB]
 
     @testset "Nonlinear axial (callable rigidity)" begin
         @test !(sys_nl.tubes[:tube].model.EA isa Real)  # callable path

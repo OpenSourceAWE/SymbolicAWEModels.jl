@@ -121,7 +121,7 @@ The integrator holds a reference to the mutable `sys_struct`, so
 mutating `disturb` fields takes effect at the next integration step.
 """
 function apply_pressure!(sam, pressure)
-    pts = sam.sys_struct.points
+    pts = sam.state.points
 
     # Reset all disturb forces to zero
     for pt in pts

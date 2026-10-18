@@ -85,12 +85,12 @@ function pretensioned_tether(set)
 end
 
 """World position of `body`'s centre of mass."""
-com_w(body) = body.pos_w .+ body.R_b_to_w * body.com_offset_b
+com_w(body) = body.pos_ENU .+ SymbolicAWEModels.initial_rotation(body) * body.com_offset_b
 
 """World position of `tube`'s end on body B in `sys`."""
 function tube_end(sys, tube)
     body = sys.bodies[tube.body_b_idx]
-    return body.pos_w .+ body.R_b_to_w * tube.anchor_b_b
+    return body.pos_ENU .+ SymbolicAWEModels.initial_rotation(body) * tube.anchor_b_b
 end
 
 @testset verbose = true "Structure document" begin
@@ -120,11 +120,12 @@ end
 
     @testset "a document holds the initial pose, not where a run moved the system" begin
         sys = two_plate_kite(set, vsm_set)
-        sys.points[:kcu].pos_w .+= [1.0, 0.0, 0.0]
+        state = SystemState(sys)
+        state.points[:kcu].pos_w .+= [1.0, 0.0, 0.0]
         document = structure_document(sys)
         kcu = document["points"]["data"][sys.points[:kcu].idx]
         @test kcu[4] ≈ sys.points[:kcu].pos_ENU
-        @test !(kcu[4] ≈ sys.points[:kcu].pos_w)
+        @test !(kcu[4] ≈ state.points[:kcu].pos_w)
     end
 
     @testset "a point names its body, and carries its own mass and drag" begin
@@ -174,7 +175,7 @@ end
         document = structure_document(sys)
         reread = sys_struct_from_document(document; set, prn=false)
         @test structure_document(reread) == document
-        @test [point.pos_w for point in reread.points] ==
+        @test [point.pos_w for point in SystemState(reread).points] ==
               [point.pos_ENU for point in sys.points]
     end
 

@@ -219,7 +219,7 @@ sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false, prn=true)
 
 twists = [round(rad2deg(ts.twist), digits=2)
-          for ts in sam.sys_struct.stations]
+          for ts in sam.state.stations]
 println("SymAWE section twists [deg]=$(twists)")
 
 sam_logger = Logger(sam, N_STEPS + 1)
@@ -244,7 +244,7 @@ end
 sam_rt = ((N_STEPS - 1) * dt) / sam_elapsed
 println("SymAWE realtime factor: $(round(sam_rt, digits=2))")
 
-w = sam.sys_struct.wings[1]
+w = sam.state.wings[1]
 va_dir = normalize(w.va_b)
 drag_val = w.aero_force_b ⋅ va_dir
 lift_val = norm(w.aero_force_b - drag_val * va_dir)

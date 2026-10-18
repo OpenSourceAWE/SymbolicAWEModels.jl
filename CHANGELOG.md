@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## Unreleased
+
+### Added
+
+- `sam.state`, a `SystemState`, holds what a run holds of each component: positions, velocities, forces, twist, lengths and the aero outputs, one record per point, station, segment, pulley, tether, winch and body. A record reads every other property through to the structure's component, so `sam.state.points[:kite].pos_w` and `sam.state.points[:kite].extra_mass` both work. `SystemState(sys)` builds one for a structure with no model, e.g. to replay a log into.
+- `place!(sam; reset_vel=true)` places the model's structure and starts its run there; `start_run!(state)` starts a run state from the pose its structure is placed in.
+
+### Changed
+
+- BREAKING: A `SystemStructure` holds no run state. Its points, bodies, segments, stations, pulleys, tethers and winches carry their initial pose and parameters only; read what a run does from `sam.state`. `place!(sys)` writes the placed pose to `pos_ENU`, `Q_KA_to_ENU`, segment `l0` and tether `len`, and takes no `reset_vel`.
+- BREAKING: `update_from_sysstate!`, `reposition!(transforms, state)`, `set_unstretched_length!` and the Makie live plot (`plot`, `plot!`, `update_plot_observables!`) act on a `SystemState`; `plot`, `replay` and `record` of a `SystemStructure` draw the pose a run of it starts from.
+- BREAKING: `Point` no longer takes `vel_w`, and `Body` no longer takes `vel` or `ω_b`: a run's starting velocities come from its transforms' rates. The YAML loader no longer reads saved point and body velocities or station twist rates.
+
 ## SymbolicAWEModels v0.20.0 2026-10-08
 
 ### Added

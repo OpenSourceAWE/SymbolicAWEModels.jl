@@ -84,7 +84,7 @@ for _ in 1:100
 end
 
 # Visualize the result
-plot(sam.sys_struct)
+plot(sam.state)
 ```
 
 For the full tutorial, see [Building a System using Julia](tutorial_julia.md).

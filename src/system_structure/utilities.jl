@@ -432,9 +432,9 @@ function station_tethers_by_overlap(specified, reach)
             parent[root_i] = root_j
         end
     end
-    stations = Dict{Int64, Vector{Tether}}()
+    stations = Dict{Int64, Vector{eltype(specified)}}()
     for i in 1:n
-        push!(get!(() -> Tether[], stations, find_root(i)), specified[i])
+        push!(get!(() -> eltype(specified)[], stations, find_root(i)), specified[i])
     end
     return collect(values(stations))
 end
@@ -565,7 +565,7 @@ function apply_cluster_init_stretched_len!(
 end
 
 """
-    apply_tether_init_stretched_lens!(sys_struct::SystemStructure; prn=true)
+    apply_tether_init_stretched_lens!(sys_struct::SystemState; prn=true)
 
 Scale `pos_w` so each tether with an explicit `init_stretched_len` sits at
 that standoff. Call after `copy_initial_pose!`. Rest length is derived
@@ -580,7 +580,7 @@ structure form a cluster, placed at their mean length
 
 Errors if a downstream segment connects back to the anchor.
 """
-function apply_tether_init_stretched_lens!(sys_struct::SystemStructure;
+function apply_tether_init_stretched_lens!(sys_struct::SystemState;
                                            prn=true)
     (; points, segments, tethers, winches, wings) = sys_struct
 
@@ -686,13 +686,13 @@ function init_unstretched_len(tether, segments)
 end
 
 """
-    set_unstretched_length!(sys_struct::SystemStructure, tether::Tether, len)
+    set_unstretched_length!(sys_struct::SystemState, tether, len)
 
 Set `tether`'s unstretched length [m] and share it equally over its segments'
 `l0`. Point positions, body poses, tube rest geometry and station flap
 references are left as they are.
 """
-function set_unstretched_length!(sys_struct::SystemStructure, tether::Tether, len)
+function set_unstretched_length!(sys_struct::SystemState, tether, len)
     len > 0 || error("Tether $(tether.name): unstretched length $len m " *
         "must be positive")
     isempty(tether.segment_idxs) && error("Tether $(tether.name): " *
@@ -706,12 +706,12 @@ function set_unstretched_length!(sys_struct::SystemStructure, tether::Tether, le
 end
 
 """
-    apply_tether_init_forces!(sys_struct::SystemStructure)
+    apply_tether_init_forces!(sys_struct::SystemState)
 
 Set every tether's `len` to its [`init_unstretched_len`](@ref), and its segments'
 `l0` with it. Must be called after segment world lengths are current.
 """
-function apply_tether_init_forces!(sys_struct::SystemStructure)
+function apply_tether_init_forces!(sys_struct::SystemState)
     (; segments, tethers) = sys_struct
     for tether in tethers
         isempty(tether.segment_idxs) && continue
@@ -747,7 +747,7 @@ Put every point and body back at its initial pose (`pos_ENU`, `Q_KA_to_ENU`), ze
 twist of every non-`STATIC` station and set every winch's reel-out speed to
 `init_vel`. `reset_vel` zeroes point and body velocities as well.
 """
-function reset_to_initial_pose!(sys_struct::SystemStructure; reset_vel::Bool=true)
+function reset_to_initial_pose!(sys_struct::SystemState; reset_vel::Bool=true)
     for winch in sys_struct.winches
         winch.vel = winch.init_vel
     end
@@ -762,11 +762,11 @@ function reset_to_initial_pose!(sys_struct::SystemStructure; reset_vel::Bool=tru
 end
 
 """
-    update_segment_lengths!(sys_struct::SystemStructure)
+    update_segment_lengths!(sys_struct::SystemState)
 
 Set every segment's `len` to its world length, and a zero `l0` to that length.
 """
-function update_segment_lengths!(sys_struct::SystemStructure)
+function update_segment_lengths!(sys_struct::SystemState)
     for segment in sys_struct.segments
         len = segment_world_length(segment, sys_struct.points)
         (segment.l0 ≈ 0) && (segment.l0 = len)
@@ -776,13 +776,13 @@ function update_segment_lengths!(sys_struct::SystemStructure)
 end
 
 """
-    init_pulley_lengths!(sys_struct::SystemStructure)
+    init_pulley_lengths!(sys_struct::SystemState)
 
 Set every pulley's `sum_len` to its two segments' summed `l0`, split it between
 them in proportion to their current `len` into `len` and the two segments' `l0`, and
 stop the pulley.
 """
-function init_pulley_lengths!(sys_struct::SystemStructure)
+function init_pulley_lengths!(sys_struct::SystemState)
     (; segments) = sys_struct
     for pulley in sys_struct.pulleys
         segment1 = segments[pulley.segment_idxs[1]]
@@ -859,11 +859,11 @@ function init_sys_struct!(sys_struct, set::Settings;
 end
 
 """
-    relax_segments!(sys_struct::SystemStructure)
+    relax_segments!(sys_struct::SystemState)
 
 Set every segment's `l0` to its current world length, so no segment is stretched.
 """
-function relax_segments!(sys_struct::SystemStructure)
+function relax_segments!(sys_struct::SystemState)
     for segment in sys_struct.segments
         segment.l0 = segment_world_length(segment, sys_struct.points)
     end
@@ -896,62 +896,66 @@ function init_derived_properties!(sys_struct; prn::Bool=true)
 end
 
 """
-    place!(sys_struct::SystemStructure; ignore_l0=false, reset_vel=true, prn=true)
+    place!(sys::SystemStructure; ignore_l0=false, prn=true)
 
-Place `sys_struct` in the world by its `transforms` and tether lengths, and make where
-it lands its initial pose. Runs, in order:
+Place `sys` in the world by its `transforms` and tether lengths, and make where it
+lands its initial pose: its points' and bodies' `pos_ENU` and `Q_KA_to_ENU`, its
+segments' `l0` and its tethers' `len`. Runs, on the state a run would start from:
 
 1. [`reset_to_initial_pose!`](@ref)
 2. [`apply_tether_init_stretched_lens!`](@ref)
 3. [`update_segment_lengths!`](@ref)
 4. [`apply_tether_init_forces!`](@ref)
 5. [`init_pulley_lengths!`](@ref)
-6. `reinit!(sys_struct.transforms, sys_struct)`
+6. `reinit!(sys.transforms, state)`
 7. [`carry_body_points!`](@ref)
 8. [`relax_segments!`](@ref) — only with `ignore_l0=true`
 9. [`store_initial_pose!`](@ref)
 
-The `SystemStructure` constructor runs it on the authoring geometry, then
-[`init_sys_struct!`](@ref); [`init!`](@ref) takes the structure as placed. Run again
-after a transform changes, it places the structure anew from its initial pose.
-`reset_vel` zeroes point and body velocities in steps 1 and 6; `prn` prints the info
-messages of step 2.
+The `SystemStructure` constructor runs it on the authoring geometry. Run again after a
+transform changes, it places the structure anew from its initial pose. `prn` prints
+the info messages of step 2.
 """
-function place!(sys_struct::SystemStructure; ignore_l0::Bool=false,
-                reset_vel::Bool=true, prn::Bool=true)
-    reset_to_initial_pose!(sys_struct; reset_vel)
-    apply_tether_init_stretched_lens!(sys_struct; prn)
-    update_segment_lengths!(sys_struct)
-    apply_tether_init_forces!(sys_struct)
-    init_pulley_lengths!(sys_struct)
-    reinit!(sys_struct.transforms, sys_struct; update_vel=reset_vel)
-    carry_body_points!(sys_struct)
-    ignore_l0 && relax_segments!(sys_struct)
-    store_initial_pose!(sys_struct)
+function place!(sys::SystemStructure; ignore_l0::Bool=false, prn::Bool=true)
+    state = SystemState(sys)
+    reset_to_initial_pose!(state)
+    apply_tether_init_stretched_lens!(state; prn)
+    update_segment_lengths!(state)
+    apply_tether_init_forces!(state)
+    init_pulley_lengths!(state)
+    reinit!(sys.transforms, state; update_vel=false)
+    carry_body_points!(state)
+    ignore_l0 && relax_segments!(state)
+    store_initial_pose!(state)
     return nothing
 end
 
 """
-    start_placed!(sys_struct::SystemStructure)
+    start_run!(state::SystemState; reset_vel=true)
 
-Start a structure whose positions are its initial pose already: put it there
-([`reset_to_initial_pose!`](@ref)) and set its segment and pulley lengths
-([`update_segment_lengths!`](@ref), [`init_pulley_lengths!`](@ref)), keeping every
-tether's `l0`.
+Put `state` at the start of a run from the pose its structure is placed in: every
+point and body at its initial pose ([`reset_to_initial_pose!`](@ref)), segment, tether
+and pulley lengths from the structure's rest lengths, and points and bodies moving as
+their transforms' rates say. `reset_vel=false` keeps the velocities `state` holds.
 """
-function start_placed!(sys_struct::SystemStructure)
-    reset_to_initial_pose!(sys_struct)
-    update_segment_lengths!(sys_struct)
-    init_pulley_lengths!(sys_struct)
-    return nothing
+function start_run!(state; reset_vel::Bool=true)
+    reset_to_initial_pose!(state; reset_vel)
+    foreach(segment -> segment.l0 = segment.row.l0, state.segments)
+    update_segment_lengths!(state)
+    for tether in state.tethers
+        tether.len = sum(state.segments[idx].l0 for idx in tether.segment_idxs; init=0.0)
+    end
+    init_pulley_lengths!(state)
+    reinit!(state.transforms, state; update_vel=reset_vel)
+    return state
 end
 
 """
-    carry_body_points!(sys_struct::SystemStructure)
+    carry_body_points!(sys_struct::SystemState)
 
 Put every point a body carries at its `anchor_b` on that body, where the body is now.
 """
-function carry_body_points!(sys_struct::SystemStructure)
+function carry_body_points!(sys_struct::SystemState)
     for point in sys_struct.points
         point.body_idx > 0 || continue
         body = sys_struct.bodies[point.body_idx]
@@ -961,19 +965,22 @@ function carry_body_points!(sys_struct::SystemStructure)
 end
 
 """
-    store_initial_pose!(sys_struct::SystemStructure)
+    store_initial_pose!(state::SystemState)
 
-Make the current pose the initial one: `pos_ENU = pos_w` for every point and body,
-and `Q_KA_to_ENU = Q_b_to_w` for every body.
+Make the pose `state` holds its structure's initial one: `pos_ENU = pos_w` for every
+point and body, `Q_KA_to_ENU = Q_b_to_w` for every body, and the rest lengths `l0` of
+its segments and `len` of its tethers.
 """
-function store_initial_pose!(sys_struct::SystemStructure)
-    for point in sys_struct.points
+function store_initial_pose!(state::SystemState)
+    for point in state.points
         point.pos_ENU .= point.pos_w
     end
-    for body in sys_struct.bodies
+    for body in state.bodies
         body.pos_ENU .= body.pos_w
         body.Q_KA_to_ENU .= body.Q_b_to_w
     end
+    foreach(segment -> segment.row.l0 = segment.l0, state.segments)
+    foreach(tether -> tether.row.len = tether.len, state.tethers)
     return nothing
 end
 
@@ -1098,11 +1105,11 @@ function restore_point_aero_forces!(sys, wing, sys_state)
 end
 
 """
-    update_from_sysstate!(sys::SystemStructure, sys_state::SysState)
+    update_from_sysstate!(sys::SystemState, sys_state::SysState)
 
 Copy the state a `SysState` carries (point positions, wing orientations, winch
-lengths, twist angles, segment spring forces) into an existing `SystemStructure`,
-e.g. to plot one snapshot of a `SysLog` with the Makie extension. Fields `SysState`
+lengths, twist angles, segment spring forces) into a run's state, e.g. to plot one
+snapshot of a `SysLog` with the Makie extension. Fields `SysState`
 cannot supply (net point forces, winch forces, station moments) are set to `NaN` so
 they are not plotted.
 
@@ -1112,7 +1119,7 @@ produced the log; its point count must match the parametric type `P` of `SysStat
 Every field the log can reach is written, whether or not the compiler integrates it,
 because a derived field can still seed `u0` as a torn variable.
 """
-function update_from_sysstate!(sys::SystemStructure, sys_state::SysState{P}) where P
+function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
     (; points, segments, stations, pulleys, tethers, winches, wings, bodies) = sys
 
     # Position slot layout (points, panel corners, wing origins, body origins).

@@ -59,7 +59,7 @@ function parity_model(backend, geometry, root; aero_mode=nothing, fixture=false)
                                      (; aero_mode=aero_mode()))...)
     sam = SymbolicAWEModel(set, sys; backend)
     init!(sam; prn=false, remake=true)
-    update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+    update_sys_struct!(sam.prob, sam.integrator, sam.state)
     return sam
 end
 
@@ -132,8 +132,8 @@ end
             monolith = parity_model(MonolithBackend(), geometry,
                                     joinpath(root, name); aero_mode, fixture)
 
-            mismatches = struct_mismatches(kernel.sys_struct,
-                                           monolith.sys_struct)
+            mismatches = struct_mismatches(kernel.state,
+                                           monolith.state)
             @test isempty(mismatches)
             isempty(mismatches) || println(describe(mismatches))
         end

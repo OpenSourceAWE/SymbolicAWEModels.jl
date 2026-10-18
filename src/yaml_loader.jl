@@ -598,18 +598,13 @@ yaml_ref_field(row, field, to_ref) =
 """
     load_body_state!(body, row)
 
-Overwrite a freshly constructed body's rigid state from the `vel`, `Q_b_to_w` and
-`omega_b` columns of its YAML row, leaving each untouched when its column is
-absent. The wing constructors take no state keywords, so a saved orientation or
-velocity is restored here instead.
+Overwrite a freshly constructed body's initial orientation from the `Q_b_to_w` column
+of its YAML row, leaving it untouched when the column is absent. The wing
+constructors take no orientation keyword, so it is set here instead.
 """
 function load_body_state!(body, row)
-    vel = yaml_vec3(row, :vel)
-    isnothing(vel) || (body.vel_w .= vel)
     quat = yaml_field(row, :Q_b_to_w)
-    isnothing(quat) || (body.Q_b_to_w .= Vector{SimFloat}(quat))
-    omega = yaml_vec3(row, :omega_b)
-    isnothing(omega) || (body.ω_b .= omega)
+    isnothing(quat) || (body.Q_KA_to_ENU .= Vector{SimFloat}(quat))
     return body
 end
 
@@ -619,8 +614,8 @@ end
 Build the plain rigid [`Body`](@ref)s from a `bodies` YAML block (empty when the
 block is absent). Field names mirror the [`Body`](@ref) constructor: required
 `name`, `extra_mass`, `pos`, and one of `inertia_principal` (3-vector) or `inertia`
-(3×3); optional `type` (`DYNAMIC`/`STATIC`), `transform_idx`, `vel`, `Q_b_to_w`
-(4-vector), `omega_b`, `com_offset_b`, `wing` (the parent wing a body-frame
+(3×3); optional `type` (`DYNAMIC`/`STATIC`), `transform_idx`, `Q_b_to_w`
+(4-vector), `com_offset_b`, `wing` (the parent wing a body-frame
 damping resolves against), `angular_damping`, `world_frame_damping`,
 `body_frame_damping` (each scalar or 3-vector), `fix_sphere`, `fix_static`,
 `ext_force_w`,
@@ -642,11 +637,8 @@ function load_yaml_bodies(data, yaml_to_ref)
             (kwargs[:inertia_principal] = inertia_principal)
         inertia = yaml_field(row, :inertia)
         isnothing(inertia) || (kwargs[:inertia] = yaml_matrix3(inertia))
-        vel = yaml_vec3(row, :vel); isnothing(vel) || (kwargs[:vel] = vel)
         quat = yaml_field(row, :Q_b_to_w)
         isnothing(quat) || (kwargs[:Q_b_to_w] = Vector{SimFloat}(quat))
-        omega = yaml_vec3(row, :omega_b)
-        isnothing(omega) || (kwargs[:ω_b] = omega)
         com_offset = yaml_vec3(row, :com_offset_b)
         isnothing(com_offset) || (kwargs[:com_offset_b] = com_offset)
         for key in (:angular_damping, :world_frame_damping, :body_frame_damping)
@@ -823,7 +815,7 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             # Raw references are passed; SystemStructure resolves them.
             point = call_yaml_constructor(Point, row,
                 [:name, :pos_ENU, :type],
-                [:wing, :transform, :body, :tube, :vel_w, :extra_mass,
+                [:wing, :transform, :body, :tube, :extra_mass,
                  :body_frame_damping, :world_frame_damping,
                  :area, :drag_coeff, :fix_sphere, :fix_static];
                 mappings=Dict(
@@ -836,13 +828,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     # A BODY_STATIC/wing node rides a Body; anchor_b is its body-frame offset.
                     :body => row -> haskey(row, :body_idx) ? yaml_to_ref(row.body_idx) :
                         yaml_ref_field(row, :body, yaml_to_ref),
-                    :tube => row -> yaml_ref_field(row, :tube, yaml_to_ref),
-                    :vel_w => row -> yaml_vec3(row, :vel_w)
+                    :tube => row -> yaml_ref_field(row, :tube, yaml_to_ref)
                 ))
-
-            point.pos_w .= point.pos_ENU
-            saved_vel = yaml_vec3(row, :vel_w)
-            point.vel_w .= isnothing(saved_vel) ? 0.0 : saved_vel
             push!(points, point)
         end
     end
@@ -898,11 +885,8 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     :name => row -> yaml_row_name(row, i),
                     :type => row -> parse_dynamics_type(String(row.type))
                 ))
-            for (field, value) in ((:sum_len, yaml_float(row, :sum_len)),
-                                   (:len, yaml_float(row, :len)),
-                                   (:vel, yaml_float(row, :vel)))
-                isnothing(value) || setfield!(pulley, field, SimFloat(value))
-            end
+            sum_len = yaml_float(row, :sum_len)
+            isnothing(sum_len) || (pulley.sum_len = SimFloat(sum_len))
             push!(pulleys, pulley)
         end
     end
@@ -941,9 +925,6 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
             saved_twist = yaml_float(row, :twist)
             isnothing(saved_twist) ||
                 (station.twist = SimFloat(saved_twist))
-            saved_twist_vel = yaml_float(row, :twist_vel)
-            isnothing(saved_twist_vel) ||
-                (station.twist_ω = SimFloat(saved_twist_vel))
             push!(stations, station)
         end
     end
@@ -1019,10 +1000,6 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
                     :winch_point => row -> yaml_to_ref(row.winch_point),
                     :name => row -> yaml_row_name(row, i)
                 ))
-            for (field, value) in ((:vel, yaml_float(row, :vel)),
-                                   (:set_value, yaml_float(row, :set_value)))
-                isnothing(value) || setfield!(winch, field, SimFloat(value))
-            end
             push!(winches, winch)
         end
     end
