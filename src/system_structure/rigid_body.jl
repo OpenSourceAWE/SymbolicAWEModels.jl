@@ -358,12 +358,12 @@ function init_principal_state!(obj)
 end
 
 """
-    init_rigid_body!(body::Body)
+    init_rigid_body!(body)
 
 Derive the body's principal-frame ODE state from its body-frame initial
 conditions via [`init_principal_state!`](@ref).
 """
-init_rigid_body!(body::Body) = init_principal_state!(body)
+init_rigid_body!(body) = init_principal_state!(body)
 
 """
     AbstractTubeModel
@@ -666,28 +666,28 @@ function derive_point_beam_anchor!(point::Point, tube::Tube, bodies)
 end
 
 """
-    has_body_flap(station::Station) -> Bool
+    has_body_flap(station) -> Bool
 
 `true` if the station reads its deflection off two ordered flap bodies.
 """
-has_body_flap(station::Station) = length(station.flap_body_idxs) == 2
+has_body_flap(station) = length(station.flap_body_idxs) == 2
 
 """
-    has_point_flap(station::Station) -> Bool
+    has_point_flap(station) -> Bool
 
 `true` if the station reads its deflection off three structural points
 `[fore, hinge, aft]` ([`point_flap_delta`](@ref)).
 """
-has_point_flap(station::Station) = length(station.flap_point_idxs) == 3
+has_point_flap(station) = length(station.flap_point_idxs) == 3
 
 """
-    has_flap(station::Station) -> Bool
+    has_flap(station) -> Bool
 
 `true` if the station carries a flap hinge either way, so it drives a live
 deflection δ ([`flap_delta`](@ref) / [`point_flap_delta`](@ref) /
 `station_delta_eqs!`). A station given both reads the points.
 """
-has_flap(station::Station) =
+has_flap(station) =
     has_point_flap(station) || has_body_flap(station)
 
 """
@@ -701,7 +701,7 @@ full polar δ range (an `atan`, not a small-angle approximation). The same formu
 the symbolic RHS uses (`station_delta_eqs!`), so it is the ground truth for
 tests.
 """
-flap_delta(station::Station, R_main, R_flap) =
+flap_delta(station, R_main, R_flap) =
     flap_delta_expression(station, R_main, R_flap)
 
 """
@@ -712,7 +712,7 @@ with `R_wing` the owning wing's orientation. The same
 [`point_flap_delta_expression`](@ref) the symbolic RHS evaluates, so it is the ground
 truth for tests.
 """
-function point_flap_delta(station::Station, points, R_wing)
+function point_flap_delta(station, points, R_wing)
     fore, hinge, aft = station.flap_point_idxs
     return point_flap_delta_expression(station, points[fore].pos_w,
         points[hinge].pos_w, points[aft].pos_w, R_wing)
@@ -726,7 +726,7 @@ undeformed configuration reads δ = 0. A body flap defaults its reference chords
 each body's x-axis and measures the two bodies' `Q_KA_to_ENU`; a point flap measures
 its three points' `pos_ENU`. No-op for surfaces without a flap.
 """
-function init_station_flap!(station::Station, sys_struct)
+function init_station_flap!(station, sys_struct)
     if has_point_flap(station)
         station.wing_idx in eachindex(sys_struct.wings) || error(
             "Station $(station.name): a point flap needs a `wing` to take its hinge " *

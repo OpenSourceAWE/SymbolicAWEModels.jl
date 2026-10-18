@@ -719,11 +719,8 @@ fewer stations one may own several adjacent sections and
 drive them all as a rigid unit with its single twist DOF. More
 stations than sections is rejected.
 """
-function compute_spatial_station_mapping!(
-    the_wing::Body,
-    stations::AbstractVector{Station},
-    points::AbstractVector{Point}
-)
+function compute_spatial_station_mapping!(the_wing, stations::AbstractVector,
+                                          points::AbstractVector)
     the_vsm_wing = the_wing.vsm_wing
     n_unrefined = the_vsm_wing.n_unrefined_sections
     n_stations = length(the_wing.station_idxs)
@@ -808,7 +805,7 @@ end
 Set each station's `body_mass`: the wing's `extra_mass`, which sits on no point, times
 the station's share of the wing's panel area.
 """
-function share_body_mass!(the_wing::Body, stations::AbstractVector{Station})
+function share_body_mass!(the_wing, stations::AbstractVector)
     panels = the_wing.vsm_aero.panels
     wing_area = sum(panel.chord * panel.width for panel in panels)
     for station_idx in the_wing.station_idxs
@@ -889,7 +886,7 @@ each point it carries ([`carrier_body_idx`](@ref)) as a point mass of the point'
 and its section bodies. Point masses are taken at the current `l0`, and the
 principal-frame state is re-derived from the new COM.
 """
-function update_mass_properties!(sys_struct::SystemStructure; prn=true)
+function update_mass_properties!(sys_struct; prn=true)
     (; points, bodies, stations) = sys_struct
     write_total_mass!(sys_struct)
     for body in bodies

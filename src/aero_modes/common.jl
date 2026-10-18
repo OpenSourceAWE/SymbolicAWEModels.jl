@@ -43,7 +43,7 @@ couples_to_sections(::AbstractVSMAero) = true
 state must be refreshed each `vsm_interval`. When `false`, [`refresh_aero!`](@ref)
 is a no-op for every wing, so callers skip it and the trailing parameter sync.
 """
-has_vsm_wing(sys_struct::SystemStructure) =
+has_vsm_wing(sys_struct) =
     any(wing -> wing.aero isa AbstractVSMAero, sys_struct.wings)
 
 """
@@ -1253,15 +1253,15 @@ before.
 """
 function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
                        cold_start=false, vsm_warn_on_fail=false)
-    wings = sam.sys_struct.wings
-    stations = sam.sys_struct.stations
-    points = sam.sys_struct.points
+    wings = sam.state.wings
+    stations = sam.state.stations
+    points = sam.state.points
 
     length(wings) == 0 && return nothing
 
     for wing in wings
         sync_aero_density!(wing, sam.am)
-        apply_apparent_mass!(sam.sys_struct, wing,
+        apply_apparent_mass!(sam.state, wing,
                              air_density(sam.am, wing.pos_w[3]))
     end
 
@@ -1283,7 +1283,7 @@ function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
     end
     for wing in wings
         wing.dynamics_type == PARTICLE_DYNAMICS || continue
-        apply_flap_delta!(wing.aero, wing, sam.sys_struct)
+        apply_flap_delta!(wing.aero, wing, sam.state)
         try
             refresh_particle_aero!(wing.aero, wing, points, va_point_b_vals;
                                    vsm_min_wind, cold_start)

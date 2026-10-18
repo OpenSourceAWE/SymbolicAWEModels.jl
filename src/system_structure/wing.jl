@@ -126,7 +126,7 @@ quad for flat-plate wings, 0 by default.
 function count_aero_log_points(wings)
     total = 0
     for wing in wings
-        total += n_aero_log_points(getfield(wing, :aero), wing)
+        total += n_aero_log_points(wing.aero, wing)
     end
     return total
 end

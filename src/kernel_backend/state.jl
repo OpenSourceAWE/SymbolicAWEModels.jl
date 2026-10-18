@@ -399,7 +399,7 @@ function winch_readouts(model::KernelModel, sys_struct)
     return readouts
 end
 
-function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
+function (getter::KernelStateGetter)(integrator, sys_struct)
     scratch = refresh_outputs!(getter.rhs, integrator.u, integrator.p, integrator.t)
     for readout in getter.points
         point = sys_struct.points[readout.point]

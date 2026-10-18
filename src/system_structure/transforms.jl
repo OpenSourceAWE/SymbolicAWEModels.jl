@@ -68,7 +68,7 @@ Weighted position from structural points. `field` selects
 which point coordinate to read (`:pos_w` or `:pos_ENU`).
 """
 function get_ref_position_from_points(
-    points::AbstractVector{Point},
+    points::AbstractVector,
     ref_pt::WeightedRefPoints;
     field::Symbol=:pos_w,
 )
@@ -93,7 +93,7 @@ from structural point positions.
 5. Origin from weighted `origin` ref points
 """
 function calc_particle_dynamics_wing_frame(
-    points::AbstractVector{Point},
+    points::AbstractVector,
     z_ref_points::Tuple{WeightedRefPoints,
                         WeightedRefPoints},
     y_ref_points::Tuple{WeightedRefPoints,

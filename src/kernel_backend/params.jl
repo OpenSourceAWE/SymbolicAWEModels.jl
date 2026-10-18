@@ -105,7 +105,7 @@ struct KernelParamSync
     callable_groups::Vector{CallableGroup}
 end
 
-function sync_params!(sync::KernelParamSync, target, sys_struct::SystemStructure)
+function sync_params!(sync::KernelParamSync, target, sys_struct)
     numeric = target.p.numeric
     for group in sync.groups
         sync_readers!(group, numeric, sys_struct)
@@ -129,7 +129,7 @@ struct KernelInitialSync{M}
     model::M
 end
 
-function sync_initial!(sync::KernelInitialSync, prob, sys_struct::SystemStructure)
+function sync_initial!(sync::KernelInitialSync, prob, sys_struct)
     model = sync.model
     initial_state!(prob.u0, model.system, sys_struct, model.point_roles,
                    model.point_instances, model.body_instances, model.twist_instances)

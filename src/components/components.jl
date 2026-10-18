@@ -1062,7 +1062,7 @@ function WinchAnchor(s, params, winch, idx; name)
     set_value = make_param(:set_value, 0.0)
     brake = params.winches[winch.idx].brake
     reel = ifelse(brake > 0.5, 0.0, extra[2])
-    motor = winch_component(winch.model, s.sys_struct, winch.idx;
+    motor = winch_component(winch.model, s.state, winch.idx;
                             name = :motor, params)
     validate_winch_component(motor, winch)
     pars = point_particle_params(params, idx)

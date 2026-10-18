@@ -433,7 +433,7 @@ function build_prob!(::MonolithBackend, sam; sparse=false, analytic_jacobian=fal
         build_initializeprob=false, sparse, jac=analytic_jacobian)
     prn && println("\tCreated the ODEProblem in $time seconds.")
 
-    time = @elapsed getters = generate_prob_getters(sam.sys_struct, sys,
+    time = @elapsed getters = generate_prob_getters(sam.state, sys,
         sam.param_registry, sam.initial_registry)
     prn && println("\tCreated state getters and setters in $time seconds.")
 
@@ -541,7 +541,7 @@ end
 
 Load or build the symbolic model, create the `ODEProblem` (and optionally the
 `LinearizationProblem` / control functions), serialize new builds to disk, and
-return a freshly initialized `ODEIntegrator` from `sam.sys_struct` as it stands. To
+return a freshly initialized `ODEIntegrator` from `sam.state` as it stands. To
 start from the design geometry again, [`place!`](@ref) the structure first.
 
 # Keyword Arguments
@@ -597,12 +597,12 @@ function init!(sam::SymbolicAWEModel;
     sparse = something(sparse, default_sparse(sam.backend))
     analytic_jacobian = something(analytic_jacobian,
                                   default_analytic_jacobian(sam.backend))
-    prn && @info "Initializing $(sam.sys_struct.name) model..."
+    prn && @info "Initializing $(sam.state.name) model..."
     sam.sys_struct isa SystemStructure || error(
         "Equation generation requires SystemStructure, " *
         "got $(typeof(sam.sys_struct)).")
     if isnothing(remake)
-        remake = has_custom_component(sam.sys_struct)
+        remake = has_custom_component(sam.state)
         remake && prn && @info "Custom winch/aero model detected; " *
             "forcing remake (custom component equations are not " *
             "captured by the model hash)."
@@ -624,7 +624,7 @@ function init!(sam::SymbolicAWEModel;
             integrator = init_backend!(sam.backend, sam, solver;
                 adaptive, prn, remake_vsm, reset_integrator, vsm_min_wind,
                 lin_vsm, sparse, analytic_jacobian, remake, reload)
-            prn && @info "$(sam.sys_struct.name) model initialized " *
+            prn && @info "$(sam.state.name) model initialized " *
                 "($(nameof(typeof(sam.backend))))."
             return integrator
         end
@@ -637,22 +637,22 @@ function init!(sam::SymbolicAWEModel;
                 winch_force(t)[1:3]
             end
             outputs = Num[]
-            if length(sam.sys_struct.wings) > 0
+            if length(sam.state.wings) > 0
                 push!(outputs, heading[1], angle_of_attack[1])
             end
-            if length(sam.sys_struct.winches) > 0
+            if length(sam.state.winches) > 0
                 push!(outputs, tether_len[1], winch_force[1])
             end
         end
 
-        model_name = get_model_name(sam.set, sam.sys_struct; sparse,
+        model_name = get_model_name(sam.set, sam.state; sparse,
                                     analytic_jacobian, backend = sam.backend)
         model_path = joinpath(KiteUtils.get_data_path(), model_name)
         prn && @info "Model bin name: $model_name"
         loaded = load_serialized_model!(sam, model_path; remake, reload, prn)
         changed = false
         if !loaded
-            sam.inputs = create_sys!(sam, sam.sys_struct; prn)
+            sam.inputs = create_sys!(sam, sam.state; prn)
             changed = true
         end
         outputs_changed = isnothing(sam.outputs) ||
@@ -672,7 +672,7 @@ function init!(sam::SymbolicAWEModel;
 
         # Sync deserialized prob's flat parameters to the current sys_struct.
         if !isnothing(sam.prob)
-            sync_params!(sam.prob.param_sync, sam.prob.prob, sam.sys_struct)
+            sync_params!(sam.prob.param_sync, sam.prob.prob, sam.state)
         end
 
         if changed
@@ -680,7 +680,7 @@ function init!(sam::SymbolicAWEModel;
             serialize(model_path, sam.serialized_model)
         end
 
-        init_sys_struct!(sam.sys_struct, sam.set; remake_vsm, prn)
+        init_sys_struct!(sam.state, sam.set; remake_vsm, prn)
         # reinit!(sam, prob) syncs the struct's ICs onto the problem; no rebuild needed.
         if create_prob && !isnothing(sam.prob)
             prob = something(sam.prob)
@@ -689,7 +689,7 @@ function init!(sam::SymbolicAWEModel;
                 adaptive, reset_integrator, lin_vsm, vsm_min_wind, prn)
         end
     end
-    prn && @info "$(sam.sys_struct.name) model initialized in $time seconds."
+    prn && @info "$(sam.state.name) model initialized in $time seconds."
     return sam.integrator
 end
 
@@ -706,7 +706,7 @@ Jacobian's element type. `kwargs` are those of
 function reinit!(sam::SymbolicAWEModel,
         integrator::OrdinaryDiffEqCore.ODEIntegrator;
         solver = integrator.alg, kwargs...)
-    isnothing(sam.prob) && error("reinit!: $(sam.sys_struct.name) has no " *
+    isnothing(sam.prob) && error("reinit!: $(sam.state.name) has no " *
         "ODEProblem; call init! first.")
     return reinit!(sam, sam.prob, solver; kwargs...)
 end
@@ -734,11 +734,11 @@ function reinit!(
     fresh = isnothing(existing) || !successful_retcode(existing.sol) || reset_integrator
     seed_set_values!(target) = isnothing(prob.set_set_values) ? nothing :
         prob.set_set_values(target,
-            SimFloat[winch.set_value for winch in sam.sys_struct.winches])
+            SimFloat[winch.set_value for winch in sam.state.winches])
     if fresh
         # A trailing reinit! would re-solve the DAE init and discard this synced state.
-        sync_params!(prob.param_sync, prob.prob, sam.sys_struct)
-        sync_initial!(prob.initial_sync, prob.prob, sam.sys_struct)
+        sync_params!(prob.param_sync, prob.prob, sam.state)
+        sync_initial!(prob.initial_sync, prob.prob, sam.state)
         seed_set_values!(prob.prob)
         prn && @info "JIT-compiling the RHS and building the integrator (first " *
             "solve; this is the slow step on large beams)…"
@@ -750,18 +750,18 @@ function reinit!(
     else
         integrator = existing
         sam.integrator = integrator
-        sync_params!(prob.param_sync, integrator, sam.sys_struct)
+        sync_params!(prob.param_sync, integrator, sam.state)
         seed_set_values!(integrator)
         OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
     end
-    update_sys_struct!(prob, integrator, sam.sys_struct)
-    if lin_vsm && has_vsm_wing(sam.sys_struct)
+    update_sys_struct!(prob, integrator, sam.state)
+    if lin_vsm && has_vsm_wing(sam.state)
         prn && @info "Running initial VSM aero solve…"
         aero_time = @elapsed refresh_aero!(sam; vsm_min_wind, cold_start=true)
         prn && @info "Initial aero solved in $(round(aero_time; digits=1)) s."
-        sync_params!(prob.param_sync, integrator, sam.sys_struct)
+        sync_params!(prob.param_sync, integrator, sam.state)
     end
-    validate_sys_struct(sam.sys_struct)  # Check for division-by-zero issues
+    validate_sys_struct(sam.state)  # Check for division-by-zero issues
     return integrator, true
 end
 

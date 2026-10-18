@@ -87,11 +87,11 @@ generation; the `params` view records one [`ParamEntry`](@ref) per distinct fiel
 it reads (memoised by cache key). After compilation it drives `sync_params!`.
 """
 mutable struct ParamRegistry
-    sys_struct::SystemStructure
+    sys_struct::SystemState
     entries::Vector{ParamEntry}
     cache::Dict{Any, Any}
 end
-ParamRegistry(sys_struct::SystemStructure) =
+ParamRegistry(sys_struct::SystemState) =
     ParamRegistry(sys_struct, ParamEntry[], Dict{Any, Any}())
 
 # ---- parameter constructors (value baked in as default) ----
@@ -350,7 +350,7 @@ buffers (`target` is an `ODEProblem` or an `ODEIntegrator`). A no-op when there
 are no flattened parameters.
 """
 sync_params!(::Nothing, target, sys_struct) = nothing
-function sync_params!(sync::ParamSync, target, sys_struct::SystemStructure)
+function sync_params!(sync::ParamSync, target, sys_struct)
     sync_group!(sync.scalar, target, sys_struct)
     sync_group!(sync.array, target, sys_struct)
     sync_group!(sync.callable, target, sys_struct)
@@ -358,7 +358,7 @@ function sync_params!(sync::ParamSync, target, sys_struct::SystemStructure)
 end
 
 sync_group!(::Nothing, target, sys_struct) = nothing
-function sync_group!(group::ParamGroup, target, sys_struct::SystemStructure)
+function sync_group!(group::ParamGroup, target, sys_struct)
     buffer = group.buffer
     for reader_group in group.groups
         sync_readers!(reader_group, buffer, sys_struct)

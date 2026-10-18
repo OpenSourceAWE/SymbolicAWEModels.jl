@@ -1070,7 +1070,7 @@ expressions. `sys` should already carry the new state (e.g. from
 scene = plot(sys_struct)
 for step in 1:steps
     next_step!(sam; ...)
-    update_plot_observables!(sam.sys_struct)
+    update_plot_observables!(sam.state)
 end
 ```
 """

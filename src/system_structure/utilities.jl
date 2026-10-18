@@ -15,22 +15,22 @@ This file contains:
 # ==================== SHARED HELPERS ==================== #
 
 """
-    segment_initial_length(segment::Segment, points)
+    segment_initial_length(segment, points)
 
 Compute segment length from endpoint `pos_ENU` positions.
 """
-function segment_initial_length(segment::Segment, points)
+function segment_initial_length(segment, points)
     point1 = points[segment.point_idxs[1]]
     point2 = points[segment.point_idxs[2]]
     return norm(point1.pos_ENU - point2.pos_ENU)
 end
 
 """
-    segment_world_length(segment::Segment, points)
+    segment_world_length(segment, points)
 
 Compute segment length from endpoint `pos_w` positions.
 """
-function segment_world_length(segment::Segment, points)
+function segment_world_length(segment, points)
     point1 = points[segment.point_idxs[1]]
     point2 = points[segment.point_idxs[2]]
     return norm(point1.pos_w - point2.pos_w)
@@ -59,7 +59,7 @@ numerical problems: warnings for suspicious values, assertions for definite erro
 - **Pulleys**: zero total length constraint.
 - **Stations**: inconsistent `moment_frac`.
 """
-function validate_sys_struct(sys_struct::SystemStructure)
+function validate_sys_struct(sys_struct)
     (; points, stations, segments, pulleys, wings, winches) = sys_struct
 
     # ==================== POINT VALIDATIONS ==================== #
@@ -728,7 +728,7 @@ Give every point and every wing the ground wind `set.wind_vec` as its own wind, 
 settings describe. Called from [`init_wind!`](@ref); from then on these winds belong to the
 caller, who writes them between steps.
 """
-function seed_per_point_wind!(sys_struct::SystemStructure)
+function seed_per_point_wind!(sys_struct)
     for point in sys_struct.points
         point.wind_vec .= sys_struct.set.wind_vec
     end
@@ -802,7 +802,7 @@ end
 Rebuild every wing's aero engine from `set` and the structure's `vsm_set`, e.g.
 after editing `aero_geometry.yaml`. A no-op for aero modes without an engine.
 """
-function remake_wing_aero!(sys_struct::SystemStructure, set::Settings)
+function remake_wing_aero!(sys_struct, set::Settings)
     for wing in sys_struct.wings
         remake_aero!(wing.aero, wing, set, sys_struct.vsm_set,
                      sys_struct.points, sys_struct.stations)
@@ -817,7 +817,7 @@ Set each wing's wind from the ground wind `set.wind_vec` at the wing's height, o
 seed every point and wing with it under [`PerPointWind`](@ref), and initialise each
 wing's aerodynamic operating point from that wind.
 """
-function init_wind!(sys_struct::SystemStructure, set::Settings)
+function init_wind!(sys_struct, set::Settings)
     (; wings) = sys_struct
     if per_point_wind(sys_struct)
         seed_per_point_wind!(sys_struct)
@@ -849,7 +849,7 @@ from its body-frame one ([`init_rigid_body!`](@ref)), rebuild every wing's aero 
 when `remake_vsm` ([`remake_wing_aero!`](@ref)), and set the wind and aero operating
 point ([`init_wind!`](@ref)). [`init!`](@ref) runs it.
 """
-function init_sys_struct!(sys_struct::SystemStructure, set::Settings;
+function init_sys_struct!(sys_struct, set::Settings;
                           remake_vsm::Bool=false, prn::Bool=true)
     init_derived_properties!(sys_struct; prn)
     init_rigid_body!.(sys_struct.bodies)
@@ -876,7 +876,7 @@ end
 Capture every tube's rest configuration and every flap station's rest deflection
 from the initial pose, so the structure is unstrained there.
 """
-function init_rest_geometry!(sys_struct::SystemStructure)
+function init_rest_geometry!(sys_struct)
     init_tube_rest!.(sys_struct.tubes, Ref(sys_struct.bodies))
     init_station_flap!.(sys_struct.stations, Ref(sys_struct))
     return nothing
@@ -889,7 +889,7 @@ Derive from the initial pose every body's mass properties
 ([`update_mass_properties!`](@ref)) and the rest geometry of its tubes and flap
 stations ([`init_rest_geometry!`](@ref)).
 """
-function init_derived_properties!(sys_struct::SystemStructure; prn::Bool=true)
+function init_derived_properties!(sys_struct; prn::Bool=true)
     update_mass_properties!(sys_struct; prn)
     init_rest_geometry!(sys_struct)
     return nothing
@@ -1363,7 +1363,7 @@ For pulley segments, the combined length of both legs is used against the pulley
 - `(max_stretch, mean_stretch, max_idx)`: Tuple of maximum stretch, mean stretch,
   and index of the segment with maximum stretch (or first pulley segment index)
 """
-function segment_stretch_stats(sys::SystemStructure)
+function segment_stretch_stats(sys::SystemState)
     if isempty(sys.segments)
         return (0.0, 0.0, 0)
     end
@@ -1417,7 +1417,7 @@ the diagnostics see it. The monolith gets the same value from its `point_mass`
 observable; the batched backends compute it here because no single component owns
 it.
 """
-function write_total_mass!(sys_struct::SystemStructure)
+function write_total_mass!(sys_struct)
     for point in sys_struct.points
         point.total_mass = point.extra_mass
     end
