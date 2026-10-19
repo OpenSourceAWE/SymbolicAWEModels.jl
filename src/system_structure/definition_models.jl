@@ -94,6 +94,8 @@ struct WingModel <: KiteGeometry.AbstractModel
     unit_inertia::Any
     "Drag correction of a flat-plate wing."
     drag_corr::Union{Nothing, Float64}
+    "The stations the wing lists, by name or index."
+    stations::Union{Nothing, Vector{KiteGeometry.NameRef}}
 end
 
 """
@@ -256,7 +258,8 @@ function register_definition_models()
                     ("-", "-", "N*m*s/rad", "N*m/rad", "-", "-", "-", "-");
                     default=true)
     register_model!(:wings, "sam_wing", WingModel,
-                    ("-", "1/s", "-", "m", "-", "-", "-", "-", "-", "m", "m", "m^2", "-");
+                    ("-", "1/s", "-", "m", "-", "-", "-", "-", "-", "m", "m", "m^2", "-",
+                     "-");
                     default=true)
     register_model!(:pulleys, "sam_pulley", PulleyModel,
                     ("-", "-", "N*s/m", "-", "m/s"); default=true)

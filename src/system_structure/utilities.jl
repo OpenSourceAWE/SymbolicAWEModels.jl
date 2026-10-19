@@ -970,9 +970,10 @@ end
 
 Make the pose `state` holds its structure's initial one: `pos_ENU = pos_w` for every
 point and body, `Q_KA_to_ENU = Q_b_to_w` for every body, and the rest lengths `l0` of
-its segments and `len` of its tethers.
+its segments and `len` of its tethers, in the structure and in its definition.
 """
 function store_initial_pose!(state::SystemState)
+    store_definition_pose!(state)
     for point in state.points
         point.pos_ENU .= point.pos_w
     end

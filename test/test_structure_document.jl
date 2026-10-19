@@ -1,11 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# test_structure_document.jl - SystemStructure → structure document →
-# SystemStructure, in both encodings and through a run's log, against a vendored
-# copy of structure_schema.yml and the golden document in test/data. Regenerate
-# the golden by pointing save_structure_document at data/2plate_kite_structure.yml
-# with the description and note below.
+# test_structure_document.jl - SystemStructure → awesIO structure document →
+# SystemStructure, in both encodings and through a run's log, against the
+# structure_schema.yml KiteGeometry ships and the golden document in test/data.
+# Regenerate the golden by pointing save_structure_document at
+# data/2plate_kite_structure.yml.
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -14,15 +14,12 @@ end
 
 using Test
 using SymbolicAWEModels
+using SymbolicAWEModels: KiteGeometry
 using KiteUtils
 using VortexStepMethod
 using JSON
 using JSONSchema
 using YAML
-
-GOLDEN_DESCRIPTION = "Resolved structure of the 2-plate kite shipped in data/"
-GOLDEN_NOTE = "Written by SymbolicAWEModels; the golden file of " *
-              "test_structure_document.jl."
 
 """
     two_plate_kite(set, vsm_set) -> SystemStructure
@@ -93,27 +90,33 @@ function tube_end(sys, tube)
     return body.pos_ENU .+ SymbolicAWEModels.initial_rotation(body) * tube.anchor_b_b
 end
 
+"""The `header` cells of the rows of `block` in `document`, by row name."""
+function cells(document, block, header)
+    table = document[block]
+    column = findfirst(==(header), table["headers"])
+    return Dict(row[1] => row[column] for row in table["data"])
+end
+
 @testset verbose = true "Structure document" begin
     pkg_root = dirname(@__DIR__)
     set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
     set = Settings("system.yaml")
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
-    schema = Schema(YAML.load_file(joinpath(@__DIR__, "data",
+    schema = Schema(YAML.load_file(joinpath(pkgdir(KiteGeometry), "src", "awesio",
                                             "structure_schema.yml")))
     golden = YAML.load_file(joinpath(@__DIR__, "data", "2plate_kite_structure.yml"))
     tmpdir = mktempdir()
 
     @testset "connectivity_sha hashes the preimage the schema documents" begin
         # The schema's worked example reads `3;1,2;2,3;2;1,2;1;1,2,3;`.
-        @test SymbolicAWEModels.connectivity_sha(
+        @test connectivity_sha(
             (3, [(1, 2), (2, 3)]), (2, [(1, 2)]), (1, [(1, 2, 3)])) ==
             "1f9a31aca7b6d655aaae4f5de9872d3fd489f907f90316e8f33e3125b1fd18ea"
     end
 
     @testset "the 2plate kite writes the golden document" begin
-        document = structure_document(two_plate_kite(set, vsm_set);
-            description=GOLDEN_DESCRIPTION, note=GOLDEN_NOTE)
+        document = structure_document(two_plate_kite(set, vsm_set))
         @test isnothing(JSONSchema.validate(schema, document))
         @test golden == document
     end
@@ -122,27 +125,31 @@ end
         sys = two_plate_kite(set, vsm_set)
         state = SystemState(sys)
         state.points[:kcu].pos_w .+= [1.0, 0.0, 0.0]
-        document = structure_document(sys)
-        kcu = document["points"]["data"][sys.points[:kcu].idx]
-        @test kcu[4] ≈ sys.points[:kcu].pos_ENU
-        @test !(kcu[4] ≈ state.points[:kcu].pos_w)
+        kcu = cells(structure_document(sys), "points", "pos_ENU")["kcu"]
+        @test kcu ≈ sys.points[:kcu].pos_ENU
+        @test !(kcu ≈ state.points[:kcu].pos_w)
     end
 
     @testset "a point names its body, and carries its own mass and drag" begin
         document = structure_document(two_plate_kite(set, vsm_set))
-        columns = Dict(row[1] => row for row in document["points"]["data"])
-        @test columns["le_left"][[3, 8]] == ["main_wing", nothing]
-        @test columns["kcu"][5:7] == [1.0, 0.1, 1.0]
+        @test cells(document, "points", "body")["le_left"] == "main_wing"
+        @test [cells(document, "points", header)["kcu"]
+               for header in ("extra_mass", "area", "drag_coeff")] == [1.0, 0.1, 1.0]
     end
 
     @testset "a station names the wing whose twist it carries" begin
         document = structure_document(two_plate_kite(set, vsm_set))
-        @test all(row[2] == "main_wing" for row in document["stations"]["data"])
+        @test all(==("main_wing"), values(cells(document, "spanwise_stations", "wing")))
     end
 
-    @testset "a document with wings is refused" begin
-        document = structure_document(two_plate_kite(set, vsm_set))
-        @test_throws "#396" sys_struct_from_document(document; set, vsm_set)
+    @testset "a document with wings reads back in its initial pose" begin
+        sys = two_plate_kite(set, vsm_set)
+        reread = sys_struct_from_document(structure_document(sys); set, vsm_set,
+                                          prn=false)
+        @test [point.pos_ENU for point in reread.points] ≈
+              [point.pos_ENU for point in sys.points]
+        @test reread.wings[:main_wing].pos_ENU ≈ sys.wings[:main_wing].pos_ENU
+        @test reread.wings[:main_wing].Q_KA_to_ENU ≈ sys.wings[:main_wing].Q_KA_to_ENU
     end
 
     @testset "bodies and tubes round-trip through $extension" for
@@ -207,13 +214,16 @@ end
 
     @testset "a document of another major version is refused" begin
         document = structure_document(bodies_and_tubes(set))
-        document["metadata"]["awesIO_version"] = "0.1.0"
-        @test_throws "does not understand" sys_struct_from_document(document; set)
+        document["metadata"]["awesIO_version"] = "1.0.0"
+        @test_throws "major version" sys_struct_from_document(document; set)
     end
 
     @testset "a nonlinear stiffness law cannot be written yet" begin
-        sys = bodies_and_tubes(set)
-        sys.segments[:link].unit_stiffness = strain -> 1000.0 * strain
+        points = Point[Point(:ground, [0.0, 0.0, 0.0], STATIC),
+                       Point(:top, [0.0, 0.0, 1.0], DYNAMIC; extra_mass=1.0)]
+        segments = Segment[Segment(:link, :ground, :top, strain -> 1000.0 * strain,
+                                   10.0, 0.004; l0=1.0, density=724.0)]
+        sys = SystemStructure("nonlinear_link", set; points, segments, prn=false)
         @test_throws "awesIO#1" structure_document(sys)
     end
 end

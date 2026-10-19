@@ -53,6 +53,8 @@ mutable struct SystemStructure
     vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
     "Where the wind comes from: [`ProfileWind`](@ref) or [`PerPointWind`](@ref)."
     wind_mode::WindMode
+    "The KiteGeometry definition of the system in its initial pose."
+    definition::Union{Nothing, SystemDefinition}
 end
 
 """
@@ -874,6 +876,8 @@ of the same structural shape should share one.
 - `placed::Bool=false`: The positions given are the initial pose already: keep them
   and every `l0` instead of running [`place!`](@ref).
 - `prn::Bool=true`: If true, print info messages about auto-generated components.
+- `definition`: The KiteGeometry definition the components were read from; written from
+  them ([`system_definition`](@ref)) when omitted.
 
 # Returns
 - `SystemStructure`: A complete system ready for building a `SymbolicAWEModel`.
@@ -894,6 +898,7 @@ function SystemStructure(name, set;
         vsm_set=nothing,
         wind_mode::WindMode=ProfileWind(),
         prn::Bool=true,
+        definition::Union{Nothing, SystemDefinition}=nothing,
     )
     # Load VSMSettings if not provided and VSM wings exist
     has_vsm_wings = any(has_vsm_engine(wing.aero) for wing in wings)
@@ -1101,9 +1106,10 @@ function SystemStructure(name, set;
         NamedCollection{Body}(bodies, rigid_body_names_dict),
         NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
         NamedCollection{Tube}(tubes, tube_names_dict),
-        AtmosphericModel(set), false, false, vsm_set, wind_mode)
+        AtmosphericModel(set), false, false, vsm_set, wind_mode, definition)
     placed || place!(sys_struct; ignore_l0, prn)
     init_derived_properties!(sys_struct; prn)
+    isnothing(definition) && (sys_struct.definition = system_definition(sys_struct))
 
     # Panel→flap station map (structural; needs placed bodies + built panels).
     for wing in sys_struct.wings

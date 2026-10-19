@@ -218,75 +218,50 @@ read_aero_log_points!(mode::AeroPlate, wing, sys_struct, sys_state,
 
 # ==================== YAML construction ==================== #
 
-function load_wing(mode::AeroPlate, row, idx, data, set, wing_type, vsm_set,
-                   yaml_to_ref, yaml_parse_ref_points, yaml_parse_origin,
-                   stations)
-    return load_plate_wing(row, idx, data, set, wing_type, mode,
-        yaml_to_ref, yaml_parse_ref_points, yaml_parse_origin, stations)
+function load_wing(mode::AeroPlate, definition, w, set, dynamics_type, vsm_set,
+                   station_refs, stations; transform)
+    return load_plate_wing(definition, w, set, dynamics_type, mode, stations;
+                           transform)
 end
 
 """
-    load_plate_wing(row, idx, data, set, wing_type, aero_mode,
-                    yaml_to_ref, yaml_parse_ref_points,
-                    yaml_parse_origin, stations)
+    load_plate_wing(definition, w, set, dynamics_type, aero_mode, stations; transform)
 
-Load a flat-plate wing from a YAML wing row + `surfaces` block. Each surface
-becomes a 1-point `STATIC` [`Station`](@ref) appended to `stations`; the
-wing references them by name. CL/CD interpolations come from `Settings` polar data.
+Load flat-plate wing `w` of `definition` from its wing row and the `surfaces` block of
+its extras. Each surface becomes a 1-point `STATIC` [`Station`](@ref) appended to
+`stations`; the wing references them by name. CL/CD interpolations come from `Settings`
+polar data.
 """
-function load_plate_wing(row, idx, data, set, wing_type, aero_mode,
-                         yaml_to_ref, yaml_parse_ref_points,
-                         yaml_parse_origin, stations)
-    name = if haskey(row, :name) && !isnothing(row.name)
-        Symbol(row.name)
-    else
-        idx
-    end
-
+function load_plate_wing(definition, w, set, dynamics_type, aero_mode, stations;
+                         transform)
+    wing = definition.wings[w]
+    name = row_name(wing)
     cl_interp, cd_interp = create_plate_interpolations(
         set.alpha_cl, set.cl_list, set.cd_list;
         alpha_cd=set.alpha_cd)
 
-    drag_corr = hasfield(typeof(row), :drag_corr) &&
-        !isnothing(row.drag_corr) ? float(row.drag_corr) : 0.93
-    angular_damping = hasfield(typeof(row), :angular_damping) &&
-        !isnothing(row.angular_damping) ?
-        broadcast_damping(row.angular_damping) : KVec3(0.0, 150.0, 0.0)
-
-    z_ref = yaml_parse_ref_points(row, :z_ref_points)
-    y_ref = yaml_parse_ref_points(row, :y_ref_points)
-    origin = yaml_parse_origin(row, :origin_idx)
-    transform = if hasfield(typeof(row), :transform_idx) &&
-                   !isnothing(row.transform_idx)
-        yaml_to_ref(row.transform_idx)
-    else
-        nothing
-    end
-
     section_refs = NameRef[]
-    if haskey(data, "surfaces") &&
-       haskey(data["surfaces"], "data") &&
-       data["surfaces"]["data"] !== nothing
-        surf_rows = parse_table(data["surfaces"])
-        for (si, surf_row) in enumerate(surf_rows)
+    surfaces = get(definition.extras, "surfaces", nothing)
+    if !isnothing(surfaces) && !isnothing(get(surfaces, "data", nothing))
+        for (si, surf_row) in enumerate(KiteGeometry.parse_table(surfaces))
             surf_name = haskey(surf_row, :name) && !isnothing(surf_row.name) ?
                 Symbol(surf_row.name) : Symbol("$(name)_plate_$si")
-            x_airf = collect(Float64, surf_row.x_airf)
-            y_airf = collect(Float64, surf_row.y_airf)
-            area = float(surf_row.area)
-            point = yaml_to_ref(surf_row.point_idx)
-            twist = hasfield(typeof(surf_row), :twist) &&
-                !isnothing(surf_row.twist) ?
+            twist = haskey(surf_row, :twist) && !isnothing(surf_row.twist) ?
                 float(surf_row.twist) : 0.0
             push!(stations, Station(
-                surf_name, [point], STATIC, 0.0;
-                x_airf, y_airf, area, twist))
+                surf_name, [cell_ref(surf_row.point_idx)], STATIC, 0.0;
+                x_airf=collect(Float64, surf_row.x_airf),
+                y_airf=collect(Float64, surf_row.y_airf),
+                area=float(surf_row.area), twist))
             push!(section_refs, surf_name)
         end
     end
 
     PlateWing(name, section_refs, cl_interp, cd_interp;
-              dynamics_type=wing_type, transform, angular_damping,
-              drag_corr, z_ref_points=z_ref, y_ref_points=y_ref,
-              origin)
+              dynamics_type, transform,
+              angular_damping=something(wing.angular_damping, KVec3(0.0, 150.0, 0.0)),
+              drag_corr=something(wing.drag_corr, 0.93),
+              z_ref_points=maybe(ref_pair_spec, wing.z_ref_points),
+              y_ref_points=maybe(ref_pair_spec, wing.y_ref_points),
+              origin=maybe(ref_points_spec, wing.origin_idx))
 end

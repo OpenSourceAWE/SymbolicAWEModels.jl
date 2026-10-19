@@ -97,13 +97,13 @@ calc_side_slip(wing) =
     normalized_inertia(mode::AbstractAeroModel, wing, points)
         -> (com, inertia)
 
-Normalized (per-unit-mass) inertia of the wing body about its COM, in the axes the
-wing's geometry is authored in, with `inertia` in [m²] — multiply by the wing's own
-`extra_mass` for the physical tensor [kg·m²]. `inertia` is `nothing` when there is no
-mass to normalize by. The default normalizes the wing nodes' point-mass inertia
-([`normalized_point_inertia`](@ref)); VSM modes with an `ObjWing` mesh
-return the per-unit-mass mesh tensor as-is (its COM is `-T_cad_body`) and
-fall back to the point masses otherwise.
+Normalized (per-unit-mass) inertia of the wing body about its COM, in world axes, with
+`inertia` in [m²] — multiply by the wing's own `extra_mass` for the physical tensor
+[kg·m²]. `inertia` is `nothing` when there is no mass to normalize by. The default
+normalizes the wing nodes' point-mass inertia ([`normalized_point_inertia`](@ref)); VSM
+modes with an `ObjWing` mesh return the per-unit-mass mesh tensor (its COM is
+`-T_cad_body`) carried from the mesh's frame into the world, and fall back to the point
+masses otherwise.
 """
 normalized_inertia(::AbstractAeroModel, wing, points) =
     normalized_point_inertia(wing, points)
@@ -112,7 +112,8 @@ function normalized_inertia(mode::AbstractVSMAero, wing, points)
     tensor = mode.vsm_wing.inertia_tensor
     (isempty(tensor) || all(iszero, tensor)) &&
         return normalized_point_inertia(wing, points)
-    return -mode.vsm_wing.T_cad_body, tensor
+    R = wing.R_mesh_to_w
+    return wing.mesh_frame_pos - R * mode.vsm_wing.T_cad_body, R * tensor * R'
 end
 
 """
@@ -1474,11 +1475,21 @@ function transform_vsm_sections_to_body!(wing, origin, R_b_to_mesh; aero_z_offse
     return nothing
 end
 
+"""
+    body_in_mesh_frame(wing) -> (origin, R_b_to_mesh)
+
+The initial pose of `wing`'s body in the frame its mesh is authored in.
+"""
+function body_in_mesh_frame(wing)
+    R = wing.R_mesh_to_w
+    return R' * (wing.pos_ENU - wing.mesh_frame_pos), R' * initial_rotation(wing)
+end
+
 function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
                      prn=false, vsm_set=nothing)
     require_vsm_engine(mode, wing)
     if wing.dynamics_type == RIGID_DYNAMICS
-        transform_vsm_sections_to_body!(wing, wing.pos_ENU, initial_rotation(wing);
+        transform_vsm_sections_to_body!(wing, body_in_mesh_frame(wing)...;
                                         aero_z_offset=wing.aero_z_offset)
 
         if couples_to_sections(mode) && isempty(wing.station_idxs)
@@ -1496,7 +1507,7 @@ function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
         end
     else  # PARTICLE_DYNAMICS
         isnothing(wing.origin) ||
-            transform_vsm_sections_to_body!(wing, wing.pos_ENU, initial_rotation(wing))
+            transform_vsm_sections_to_body!(wing, body_in_mesh_frame(wing)...)
         couples_to_sections(mode) &&
             match_aero_sections_to_structure!(wing, points; stations)
         setup_particle_point_mapping!(wing, points, stations)

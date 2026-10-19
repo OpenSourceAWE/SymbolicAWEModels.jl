@@ -110,6 +110,10 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     z_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
     y_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
     origin::Union{Nothing, WeightedRefPoints}
+    "Origin of the frame the wing's mesh is authored in, world frame [m]."
+    const mesh_frame_pos::KVec3
+    "Rotation of the frame the wing's mesh is authored in into the world."
+    const R_mesh_to_w::Matrix{SimFloat}
 end
 
 """`Body` with rigid (DYNAMIC/STATIC) 6-DOF dynamics."""
@@ -274,7 +278,7 @@ function Body(name;
         KVec3(pos), Vector{SimFloat}(Q_b_to_w),
         # aero/wing fields (inert for a plain body)
         AeroNone(), Int64[], NameRef[], zeros(KVec3), one(SimFloat),
-        true, nothing, nothing, nothing)
+        true, nothing, nothing, nothing, zeros(KVec3), Matrix{SimFloat}(I, 3, 3))
 end
 
 """

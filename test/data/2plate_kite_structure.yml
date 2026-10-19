@@ -1,219 +1,290 @@
 metadata:
   name: "2plate_kite"
-  description: "Resolved structure of the 2-plate kite shipped in data/"
-  note: "Written by SymbolicAWEModels; the golden file of test_structure_document.jl."
-  awesIO_version: "1.0.0"
+  description: ""
+  note: ""
+  awesIO_version: "0.1.0"
   schema: "structure_schema.yml"
   n_points: 15
-  connectivity_sha: "9e17875e28589d91745d57de9cb4708fe7e33808f2562fa643dae6e572c5a16d"
+  connectivity_sha: "43069553d4eb3d9aace6b69e3754a344d5153e809e8df3d3f4764ec544368a61"
+materials:
+  headers:
+    - "name"
+    - "law"
+    - "parameters"
+  units:
+    - "-"
+    - "-"
+    - "-"
+  data:
+    -
+      - "wing_element"
+      - "linear"
+      - density: 724.0
+        youngs_modulus: 6.366197723675814e9
+    -
+      - "dyneema"
+      - "linear"
+      - density: 724.0
+        youngs_modulus: 5.5e10
 points:
   headers:
     - "name"
-    - "type"
+    - "fixed"
     - "body"
     - "pos_ENU"
     - "extra_mass"
-    - "drag_area"
-    - "drag_coefficient"
-    - "wing"
+    - "type"
+    - "body_frame_damping"
+    - "world_frame_damping"
+    - "area"
+    - "drag_coeff"
+    - "wing_idx"
   units:
     - "-"
     - "-"
     - "-"
     - "m"
     - "kg"
+    - "-"
+    - "N*s/m"
+    - "N*s/m"
     - "m^2"
     - "-"
     - "-"
   data:
     -
       - "le_left"
-      - "BODY_STATIC"
+      - false
       - "main_wing"
       -
         - 13.758305191544377
         - 1.0
         - 17.174371553460787
       - 0.1
+      - "BODY_STATIC"
+      - 10.0
       - 0.0
       - 0.0
-      - ~
+      - 0.0
+      - "main_wing"
     -
       - "te_left"
-      - "BODY_STATIC"
+      - false
       - "main_wing"
       -
         - 14.717185917569317
         - 1.0
         - 16.76139727670994
       - 0.1
+      - "BODY_STATIC"
+      - 10.0
       - 0.0
       - 0.0
-      - ~
+      - 0.0
+      - "main_wing"
     -
       - "le_center"
-      - "BODY_STATIC"
+      - false
       - "main_wing"
       -
         - 14.079698996387647
         - 0.0
         - 17.557393775020273
       - 0.1
+      - "BODY_STATIC"
+      - 10.0
       - 0.0
       - 0.0
-      - ~
+      - 0.0
+      - "main_wing"
     -
       - "te_center"
-      - "BODY_STATIC"
+      - false
       - "main_wing"
       -
         - 15.038579722412585
         - 0.0
         - 17.14441949826943
       - 0.1
+      - "BODY_STATIC"
+      - 10.0
       - 0.0
       - 0.0
-      - ~
+      - 0.0
+      - "main_wing"
     -
       - "le_right"
-      - "BODY_STATIC"
+      - false
       - "main_wing"
       -
         - 13.758305191544377
         - -1.0
         - 17.174371553460787
       - 0.1
+      - "BODY_STATIC"
+      - 10.0
       - 0.0
       - 0.0
-      - ~
+      - 0.0
+      - "main_wing"
     -
       - "te_right"
-      - "BODY_STATIC"
+      - false
       - "main_wing"
       -
         - 14.717185917569317
         - -1.0
         - 16.76139727670994
       - 0.1
+      - "BODY_STATIC"
+      - 10.0
       - 0.0
       - 0.0
-      - ~
+      - 0.0
+      - "main_wing"
     -
       - "steering_left"
-      - "DYNAMIC"
+      - false
       - ~
       -
         - 13.177145998574057
         - 0.5
         - 15.70391108393905
       - 0.1
+      - "DYNAMIC"
+      - 10.0
       - 0.0
       - 0.0
-      - ~
+      - 0.0
+      - "main_wing"
     -
       - "steering_right"
-      - "DYNAMIC"
+      - false
       - ~
       -
         - 13.177145998574057
         - -0.5
         - 15.70391108393905
       - 0.1
+      - "DYNAMIC"
+      - 10.0
       - 0.0
       - 0.0
-      - ~
+      - 0.0
+      - "main_wing"
     -
       - "kcu"
-      - "BODY_STATIC"
+      - false
       - "main_wing"
       -
         - 12.855752193730787
         - 0.0
         - 15.32088886237956
       - 1.0
+      - "BODY_STATIC"
+      - 0.0
+      - 0.0
       - 0.1
       - 1.0
-      - ~
+      - "main_wing"
     -
       - "ground"
-      - "STATIC"
+      - true
       - ~
       -
         - 0.0
         - 0.0
         - 0.0
       - 0.0
+      - "STATIC"
       - 0.0
       - 0.0
-      - ~
+      - 0.0
+      - 0.0
+      - "main_wing"
     -
       - "main_tether_point_1"
-      - "DYNAMIC"
+      - false
       - ~
       -
         - 10.71312682810899
         - 0.0
         - 12.767407385316302
       - 0.0
-      - 0.0
-      - 0.0
+      - ~
+      - ~
+      - ~
+      - ~
+      - ~
       - ~
     -
       - "main_tether_point_2"
-      - "DYNAMIC"
+      - false
       - ~
       -
         - 8.570501462487192
         - 0.0
         - 10.21392590825304
       - 0.0
-      - 0.0
-      - 0.0
+      - ~
+      - ~
+      - ~
+      - ~
+      - ~
       - ~
     -
       - "main_tether_point_3"
-      - "DYNAMIC"
+      - false
       - ~
       -
         - 6.427876096865393
         - 0.0
         - 7.66044443118978
       - 0.0
-      - 0.0
-      - 0.0
+      - ~
+      - ~
+      - ~
+      - ~
+      - ~
       - ~
     -
       - "main_tether_point_4"
-      - "DYNAMIC"
+      - false
       - ~
       -
         - 4.285250731243597
         - 0.0
         - 5.106962954126521
       - 0.0
-      - 0.0
-      - 0.0
+      - ~
+      - ~
+      - ~
+      - ~
+      - ~
       - ~
     -
       - "main_tether_point_5"
-      - "DYNAMIC"
+      - false
       - ~
       -
         - 2.142625365621797
         - 0.0
         - 2.5534814770632592
       - 0.0
-      - 0.0
-      - 0.0
+      - ~
+      - ~
+      - ~
+      - ~
+      - ~
       - ~
 segments:
   headers:
     - "name"
     - "points"
-    - "l0"
+    - "rest_length"
     - "diameter"
-    - "density"
-    - "unit_stiffness"
+    - "material"
+    - "model"
     - "unit_damping"
     - "compression_frac"
     - "compression_damping_frac"
@@ -222,8 +293,8 @@ segments:
     - "-"
     - "m"
     - "m"
-    - "kg/m^3"
-    - "N"
+    - "-"
+    - "-"
     - "N*s"
     - "-"
     - "-"
@@ -235,9 +306,9 @@ segments:
         - "te_center"
       - 1.118033988749895
       - 0.001
-      - 724.0
-      - 5000.0
-      - 10.0
+      - "wing_element"
+      - "spring"
+      - 9.999999999999998
       - 1.0
       - 1.0
     -
@@ -247,9 +318,9 @@ segments:
         - "te_right"
       - 1.118033988749895
       - 0.001
-      - 724.0
-      - 5000.0
-      - 10.0
+      - "wing_element"
+      - "spring"
+      - 9.999999999999998
       - 1.0
       - 1.0
     -
@@ -259,9 +330,9 @@ segments:
         - "te_left"
       - 1.0440306508910548
       - 0.001
-      - 724.0
-      - 5000.0
-      - 10.0
+      - "wing_element"
+      - "spring"
+      - 9.999999999999998
       - 1.0
       - 1.0
     -
@@ -271,9 +342,9 @@ segments:
         - "te_center"
       - 1.0440306508910548
       - 0.001
-      - 724.0
-      - 5000.0
-      - 10.0
+      - "wing_element"
+      - "spring"
+      - 9.999999999999998
       - 1.0
       - 1.0
     -
@@ -283,9 +354,9 @@ segments:
         - "te_right"
       - 1.0440306508910548
       - 0.001
-      - 724.0
-      - 5000.0
-      - 10.0
+      - "wing_element"
+      - "spring"
+      - 9.999999999999998
       - 1.0
       - 1.0
     -
@@ -295,9 +366,9 @@ segments:
         - "le_right"
       - 1.118033988749895
       - 0.001
-      - 724.0
-      - 5000.0
-      - 10.0
+      - "wing_element"
+      - "spring"
+      - 9.999999999999998
       - 1.0
       - 1.0
     -
@@ -307,9 +378,9 @@ segments:
         - "le_left"
       - 1.118033988749895
       - 0.001
-      - 724.0
-      - 5000.0
-      - 10.0
+      - "wing_element"
+      - "spring"
+      - 9.999999999999998
       - 1.0
       - 1.0
     -
@@ -319,9 +390,9 @@ segments:
         - "le_center"
       - 1.42828568570857
       - 0.001
-      - 724.0
-      - 5000.0
-      - 10.0
+      - "wing_element"
+      - "spring"
+      - 9.999999999999998
       - 0.01
       - 1.0
     -
@@ -331,9 +402,9 @@ segments:
         - "te_center"
       - 1.624807680927192
       - 0.001
-      - 724.0
-      - 5000.0
-      - 10.0
+      - "wing_element"
+      - "spring"
+      - 9.999999999999998
       - 0.01
       - 1.0
     -
@@ -343,9 +414,9 @@ segments:
         - "le_center"
       - 1.42828568570857
       - 0.001
-      - 724.0
-      - 5000.0
-      - 10.0
+      - "wing_element"
+      - "spring"
+      - 9.999999999999998
       - 0.01
       - 1.0
     -
@@ -355,9 +426,9 @@ segments:
         - "te_center"
       - 1.624807680927192
       - 0.001
-      - 724.0
-      - 5000.0
-      - 10.0
+      - "wing_element"
+      - "spring"
+      - 9.999999999999998
       - 0.01
       - 1.0
     -
@@ -367,8 +438,8 @@ segments:
         - "kcu"
       - 2.29128784747792
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.01
       - 1.0
@@ -379,8 +450,8 @@ segments:
         - "kcu"
       - 2.5495097567963922
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.01
       - 1.0
@@ -391,8 +462,8 @@ segments:
         - "kcu"
       - 2.29128784747792
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.01
       - 1.0
@@ -403,8 +474,8 @@ segments:
         - "kcu"
       - 2.8442925306655784
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.01
       - 1.0
@@ -415,8 +486,8 @@ segments:
         - "steering_left"
       - 1.6583123951777
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.01
       - 1.0
@@ -427,8 +498,8 @@ segments:
         - "steering_left"
       - 1.9339079605813714
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.01
       - 1.0
@@ -439,8 +510,8 @@ segments:
         - "kcu"
       - 0.7071067811865476
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.01
       - 1.0
@@ -451,8 +522,8 @@ segments:
         - "steering_right"
       - 1.6583123951777
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.01
       - 1.0
@@ -463,8 +534,8 @@ segments:
         - "steering_right"
       - 1.9339079605813714
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.01
       - 1.0
@@ -475,8 +546,8 @@ segments:
         - "kcu"
       - 0.7071067811865476
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.01
       - 1.0
@@ -487,8 +558,8 @@ segments:
         - "main_tether_point_1"
       - 3.3333333333333335
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.1
       - 1.0
@@ -499,8 +570,8 @@ segments:
         - "main_tether_point_2"
       - 3.3333333333333335
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.1
       - 1.0
@@ -511,8 +582,8 @@ segments:
         - "main_tether_point_3"
       - 3.3333333333333335
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.1
       - 1.0
@@ -523,8 +594,8 @@ segments:
         - "main_tether_point_4"
       - 3.3333333333333335
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.1
       - 1.0
@@ -535,8 +606,8 @@ segments:
         - "main_tether_point_5"
       - 3.3333333333333335
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.1
       - 1.0
@@ -547,67 +618,60 @@ segments:
         - "ground"
       - 3.3333333333333335
       - 0.001
-      - 724.0
-      - 43196.898986859655
+      - "dyneema"
+      - "spring"
       - 33.26161221988193
       - 0.1
       - 1.0
-stations:
+spanwise_stations:
   headers:
     - "name"
     - "wing"
-    - "type"
     - "points"
-    - "stiffness"
-    - "damping"
+    - "type"
     - "moment_frac"
+    - "damping"
   units:
     - "-"
     - "-"
     - "-"
     - "-"
-    - "N*m"
-    - "N*m*s"
     - "-"
+    - "N*m*s/rad"
   data:
     -
       - "left"
       - "main_wing"
-      - "DYNAMIC"
       -
         - "le_left"
         - "te_left"
-      - 0.0
-      - 100.0
+      - "DYNAMIC"
       - 0.25
+      - 100.0
     -
       - "center"
       - "main_wing"
-      - "DYNAMIC"
       -
         - "le_center"
         - "te_center"
-      - 0.0
-      - 100.0
+      - "DYNAMIC"
       - 0.25
+      - 100.0
     -
       - "right"
       - "main_wing"
-      - "DYNAMIC"
       -
         - "le_right"
         - "te_right"
-      - 0.0
-      - 100.0
+      - "DYNAMIC"
       - 0.25
+      - 100.0
 pulleys:
   headers:
     - "name"
     - "segments"
     - "type"
-    - "efficiency"
   units:
-    - "-"
     - "-"
     - "-"
     - "-"
@@ -618,25 +682,25 @@ pulleys:
         - "le_steering_left"
         - "te_steering_left"
       - "DYNAMIC"
-      - 0.95
     -
       - "right"
       -
         - "le_steering_right"
         - "te_steering_right"
       - "DYNAMIC"
-      - 0.95
 tethers:
   headers:
     - "name"
     - "start_point"
     - "end_point"
     - "segments"
+    - "init_stretched_length"
   units:
     - "-"
     - "-"
     - "-"
     - "-"
+    - "m"
   data:
     -
       - "main_tether"
@@ -649,6 +713,7 @@ tethers:
         - "main_tether_seg_4"
         - "main_tether_seg_5"
         - "main_tether_seg_6"
+      - 20.0
 winches:
   headers:
     - "name"
@@ -656,14 +721,12 @@ winches:
     - "winch_point"
     - "gear_ratio"
     - "drum_radius"
-    - "model"
   units:
     - "-"
     - "-"
     - "-"
     - "-"
     - "m"
-    - "-"
   data:
     -
       - "main_winch"
@@ -672,44 +735,94 @@ winches:
       - "ground"
       - 1.0
       - 0.11
-      - "TorqueWinch"
 wings:
   headers:
     - "name"
-    - "canopy_material"
-    - "aero"
+    - "pos_ENU"
+    - "Q_KA2ENU"
+    - "aero_z_offset"
+    - "dynamics_type"
+    - "origin_idx"
+    - "z_ref_points"
+    - "y_ref_points"
+    - "stations"
   units:
+    - "-"
+    - "m"
+    - "-"
+    - "m"
+    - "-"
+    - "-"
     - "-"
     - "-"
     - "-"
   data:
     -
       - "main_wing"
-      - ~
-      - "AeroLinearized"
+      -
+        - 12.855752193730787
+        - 0.0
+        - 15.32088886237956
+      -
+        - 0.9396926207859083
+        - 0.0
+        - 0.3420201433256687
+        - 0.0
+      - 0.0
+      - "RIGID_DYNAMICS"
+      - "kcu"
+      -
+        - "kcu"
+        - "le_center"
+      -
+        - "le_right"
+        - "le_left"
+      -
+        - "left"
+        - "center"
+        - "right"
+canopy_faces:
+  headers:
+    - "name"
+    - "wing"
+    - "points"
+  units:
+    - "-"
+    - "-"
+    - "-"
+  data:
+    -
+      - "canopy_1"
+      - "main_wing"
+      -
+        - "le_left"
+        - "te_left"
+        - "te_center"
+        - "le_center"
+    -
+      - "canopy_2"
+      - "main_wing"
+      -
+        - "le_center"
+        - "te_center"
+        - "te_right"
+        - "le_right"
 bodies:
   headers:
     - "name"
-    - "type"
     - "pos_ENU"
-    - "Q_KA_to_ENU"
+    - "Q_KA2ENU"
     - "extra_mass"
     - "extra_inertia_KA"
-    - "wing"
-    - "apparent_mass"
   units:
-    - "-"
     - "-"
     - "m"
     - "-"
     - "kg"
     - "kg*m^2"
-    - "-"
-    - "kg"
   data:
     -
       - "main_wing"
-      - "DYNAMIC"
       -
         - 13.414173929645967
         - 0.0
@@ -733,25 +846,3 @@ bodies:
           - 0.0
           - 0.0
           - 0.0
-      - ~
-      - 0.0
-tubes:
-  headers:
-    - "name"
-    - "bodies"
-    - "diameter"
-    - "pressure"
-    - "law"
-    - "model"
-    - "anchor_a"
-    - "anchor_b"
-  units:
-    - "-"
-    - "-"
-    - "m"
-    - "Pa"
-    - "-"
-    - "-"
-    - "m"
-    - "m"
-  data: []

@@ -30,3 +30,4 @@ include("system_structure_core.jl")  # SystemStructure type and constructor (use
 include("transforms.jl")    # Heading calculations, reinit!/reposition! (uses SystemStructure)
 include("utilities.jl")     # Helpers, validation, state management
 include("definition_models.jl")  # KiteGeometry models of SAM's own columns
+include("definition.jl")         # The KiteGeometry definition of a structure

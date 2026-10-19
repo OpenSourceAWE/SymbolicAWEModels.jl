@@ -220,34 +220,21 @@ Base.setproperty!
 Serialization.serialize(::Serialization.AbstractSerializer, ::SymbolicAWEModels.InplaceGetter)
 ```
 
-## YAML loader internals
+## Definition loader internals
 
 ```@docs
 SymbolicAWEModels.optional_project_file
-SymbolicAWEModels.get_field_or_nothing
-SymbolicAWEModels.convert_to_type
-SymbolicAWEModels.substitute_variables
-SymbolicAWEModels.resolve_variable!
-SymbolicAWEModels.check_variable_names
-SymbolicAWEModels.expand_multi_variable_row
-SymbolicAWEModels.expand_multi_variables
-SymbolicAWEModels.resolve_yaml_variables
-SymbolicAWEModels.extract_args
-SymbolicAWEModels.call_yaml_constructor
-SymbolicAWEModels.parse_tether_init
-SymbolicAWEModels.yaml_row_name
-SymbolicAWEModels.yaml_block_empty
-SymbolicAWEModels.yaml_vec3
-SymbolicAWEModels.yaml_matrix3
-SymbolicAWEModels.yaml_ref_field
-SymbolicAWEModels.yaml_unset
-SymbolicAWEModels.yaml_field
-SymbolicAWEModels.yaml_float_or_nan
-SymbolicAWEModels.reject_renamed_mass
-SymbolicAWEModels.load_yaml_bodies
-SymbolicAWEModels.load_yaml_tubes
-SymbolicAWEModels.YAML_TUBE_MODELS
-SymbolicAWEModels.load_body_state!
+SymbolicAWEModels.member_transforms
+SymbolicAWEModels.row_name
+SymbolicAWEModels.name_of
+SymbolicAWEModels.cell_ref
+SymbolicAWEModels.ref_points_spec
+SymbolicAWEModels.ref_pair_spec
+SymbolicAWEModels.unit_inertia_spec
+SymbolicAWEModels.set_kwargs
+SymbolicAWEModels.maybe
+SymbolicAWEModels.definition_wing
+SymbolicAWEModels.document_format
 ```
 
 ## KiteGeometry models
@@ -265,47 +252,21 @@ SymbolicAWEModels.ElasticTubeModel
 SymbolicAWEModels.register_definition_models
 ```
 
-## Structure document internals
+## Definition writer internals
 
 ```@docs
-SymbolicAWEModels.AWESIO_VERSION
-SymbolicAWEModels.STRUCTURE_SCHEMA
-SymbolicAWEModels.DOCUMENT_COLUMNS
-SymbolicAWEModels.TUBE_COLUMNS
-SymbolicAWEModels.TUBE_MODEL_UNITS
-SymbolicAWEModels.connectivity_sha
-SymbolicAWEModels.document_connectivity
-SymbolicAWEModels.linear_rigidity
-SymbolicAWEModels.vector3
-SymbolicAWEModels.matrix3
-SymbolicAWEModels.optional_symbol
-SymbolicAWEModels.component_name
-SymbolicAWEModels.ref_name
-SymbolicAWEModels.ref_names
-SymbolicAWEModels.table
-SymbolicAWEModels.document_table
-SymbolicAWEModels.point_rows
-SymbolicAWEModels.segment_rows
-SymbolicAWEModels.station_rows
-SymbolicAWEModels.station_wing
-SymbolicAWEModels.point_wing
-SymbolicAWEModels.pulley_rows
-SymbolicAWEModels.tether_rows
-SymbolicAWEModels.winch_rows
-SymbolicAWEModels.wing_rows
-SymbolicAWEModels.body_rows
-SymbolicAWEModels.body_mass_centre
-SymbolicAWEModels.tube_table
-SymbolicAWEModels.tube_model_name
-SymbolicAWEModels.tube_model_value
-SymbolicAWEModels.document_rows
-SymbolicAWEModels.check_document_version
-SymbolicAWEModels.check_connectivity
-SymbolicAWEModels.named_model
-SymbolicAWEModels.optional_columns
-SymbolicAWEModels.apply_body_row!
-SymbolicAWEModels.document_format
-SymbolicAWEModels.encode_document
+SymbolicAWEModels.system_definition
+SymbolicAWEModels.store_definition_pose!
+SymbolicAWEModels.definition_name
+SymbolicAWEModels.optional_index
+SymbolicAWEModels.optional_indices
+SymbolicAWEModels.material!
+SymbolicAWEModels.station_wing_idx
+SymbolicAWEModels.winch_friction_epsilon
+SymbolicAWEModels.wing_engine_field
+SymbolicAWEModels.wing_drag_corr
+SymbolicAWEModels.ref_points_cell
+SymbolicAWEModels.tube_law_parameters
 ```
 
 ## SystemStructure internals
@@ -436,6 +397,7 @@ SymbolicAWEModels.attach_engine!
 SymbolicAWEModels.resize_aero_state!
 SymbolicAWEModels.init_aero_state!
 SymbolicAWEModels.normalized_inertia
+SymbolicAWEModels.body_in_mesh_frame
 SymbolicAWEModels.normalized_point_inertia
 SymbolicAWEModels.n_aero_log_points
 SymbolicAWEModels.write_aero_log_points!

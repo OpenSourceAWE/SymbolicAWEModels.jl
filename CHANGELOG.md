@@ -6,6 +6,8 @@
 
 - `sam.state`, a `SystemState`, holds what a run holds of each component: positions, velocities, forces, twist, lengths and the aero outputs, one record per point, station, segment, pulley, tether, winch and body. A record reads every other property through to the structure's component, so `sam.state.points[:kite].pos_w` and `sam.state.points[:kite].extra_mass` both work. `SystemState(sys)` builds one for a structure with no model, e.g. to replay a log into.
 - `place!(sam; reset_vel=true)` places the model's structure and starts its run there; `start_run!(state)` starts a run state from the pose its structure is placed in.
+- A `SystemStructure` holds the KiteGeometry `SystemDefinition` of its initial pose, `sys.definition`, and `SystemStructure(definition, transforms, set)` builds one from a definition. The columns only SymbolicAWEModels reads are models it registers with KiteGeometry, for every block; tubes read the model their `model` column names, `timoshenko` (the default) or `elastic`.
+- `sys_struct_from_document` and `load_structure_document` read a document with wings.
 
 ### Changed
 
@@ -13,6 +15,8 @@
 - BREAKING: `update_from_sysstate!`, `reposition!(transforms, state)`, `set_unstretched_length!` and the Makie live plot (`plot`, `plot!`, `update_plot_observables!`) act on a `SystemState`; `plot`, `replay` and `record` of a `SystemStructure` draw the pose a run of it starts from.
 - BREAKING: A run's state is a KiteUtils `SysState` of `Float64` the model owns, beside columns for the outputs it has no field for yet (OpenSourceAWE/KiteUtils.jl#166); `sam.state`'s records read and write it in place. A segment's `len`, a tether's `stretched_len` and a body's principal-frame state (`com_w`, `com_vel`, `Q_p_to_w`, `ω_p`, `R_p_to_w`) follow from the rest of the state and cannot be set, and a point no longer has `pos_b`.
 - BREAKING: `Point` no longer takes `vel_w`, and `Body` no longer takes `vel` or `ω_b`: a run's starting velocities come from its transforms' rates. The YAML loader no longer reads saved point and body velocities or station twist rates.
+- BREAKING: `load_sys_struct_from_yaml` reads the YAML with KiteGeometry's `load_authoring`, which refuses a column nothing reads: the saved-state columns pulley `sum_len`, station `twist`, tether `len` and wing `Q_b_to_w` are no longer read. It no longer takes the deprecated `wing_type`, nor the wing types `REFINE` and `QUATERNION`.
+- BREAKING: A structure document is KiteGeometry's awesIO 0.1.0 document (`structure_document` is KiteGeometry's, with a method for a `SystemStructure`) in place of SymbolicAWEModels' own 1.0.0 one, and takes no `description` or `note`. A body's `pos_ENU` there is the centre of its own mass.
 
 ## SymbolicAWEModels v0.20.0 2026-10-08
 

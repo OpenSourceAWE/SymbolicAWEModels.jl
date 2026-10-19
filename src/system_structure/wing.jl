@@ -220,7 +220,7 @@ function Wing(name, stations::AbstractVector, Q_KA_to_ENU::AbstractVector,
         # aero/wing fields
         aero, Int64[], station_refs, zeros(KVec3), one(SimFloat),
         group_points_moment,
-        z_ref, y_ref, origin_rp)
+        z_ref, y_ref, origin_rp, zeros(KVec3), Matrix{SimFloat}(I, 3, 3))
 end
 
 """
