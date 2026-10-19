@@ -381,6 +381,41 @@ aero_poses = [
                         "$(round(norm(wing.ω_b); sigdigits=3)) vs measured ",
                         "$(round(norm(omega_measured); sigdigits=3)) rad/s")
                 end
+
+                case.reference == :vsm &&
+                @testset "SysState turn_rates hold the body-frame rate" begin
+                    sys_struct = sam.sys_struct
+                    wing.ω_b .= [0.1, -0.2, 0.3]
+                    SymbolicAWEModels.write_wing_scalars!(wing, sys_struct.points;
+                        base_point = SymbolicAWEModels.wing_base_point(wing,
+                            sys_struct.transforms))
+                    turn_rate_v = copy(wing.turn_rate)
+                    @test !isapprox(turn_rate_v, wing.ω_b)
+                    ss = SysState(sam)
+                    update_sys_state!(ss, sam)
+                    @test ss.turn_rates ≈ wing.ω_b
+                    @test ss.turn_rates ≈
+                        [ss.turn_rate_x[1], ss.turn_rate_y[1], ss.turn_rate_z[1]]
+
+                    wing.ω_b .= NaN
+                    wing.turn_rate .= NaN
+                    update_from_sysstate!(sys_struct, ss)
+                    @test wing.ω_b == ss.turn_rates
+                    # The log stores Float32, so the restored pose is rounded to it.
+                    @test isapprox(wing.turn_rate, turn_rate_v; atol=10eps(Float32))
+
+                    # Linear-model logging reads the compiled symbolic system.
+                    if sam.backend isa MonolithBackend
+                        outputs = sam.outputs
+                        lin_state = try
+                            sam.outputs = [sam.prob.sys.body_ω_b[3, 1]]
+                            SymbolicAWEModels.make_lin_sys_state([0.7], sam, 0.0)
+                        finally
+                            sam.outputs = outputs
+                        end
+                        @test lin_state.turn_rates[3] ≈ 0.7
+                    end
+                end
             end
 
             case.reference == :zero && continue

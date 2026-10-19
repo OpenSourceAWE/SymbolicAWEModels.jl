@@ -1180,6 +1180,24 @@ function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode
 end
 
 """
+    wing_base_point(wing, transforms) -> Int
+
+Index of the point the wing's transform is based on, or 0 when it has none.
+"""
+function wing_base_point(wing, transforms)
+    (wing.transform_idx == 0 || wing.transform_idx > length(transforms)) && return 0
+    return transforms[wing.transform_idx].base_point_idx
+end
+
+"""
+    wing_rel_pos(wing, points, base_point) -> Vector
+
+Wing origin relative to point `base_point`, or to the world origin when it is 0.
+"""
+wing_rel_pos(wing, points, base_point) = base_point == 0 ? collect(wing.pos_w) :
+    collect(wing.pos_w) .- collect(points[base_point].pos_w)
+
+"""
     write_wing_scalars!(wing, points; base_point, alpha_b, stations) -> nothing
 
 Fill a fitted wing's reported scalars — heading, course, elevation, azimuth,
@@ -1192,8 +1210,7 @@ via the one definition in [`wing_scalar_kinematics`](@ref).
 """
 function write_wing_scalars!(wing, points; base_point = 0, alpha_b = zeros(3),
                              stations = nothing)
-    rel_pos = base_point == 0 ? collect(wing.pos_w) :
-        collect(wing.pos_w) .- collect(points[base_point].pos_w)
+    rel_pos = wing_rel_pos(wing, points, base_point)
     idxs = wing.station_idxs
     twist_offset = if isnothing(stations) || isempty(idxs)
         0.0

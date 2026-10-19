@@ -278,8 +278,8 @@ function update_sys_state!(sys_state, y::AbstractVector, sam::SymbolicAWEModel, 
     for (i, sym) in enumerate(outputs)
         if isequal(sym, sys.heading[1])
             sys_state.heading = y[i]
-        elseif isequal(sym, sys.turn_rate[3, 1])
-            sys_state.turn_rates[1,3] = y[i]
+        elseif isequal(sym, sys.body_ω_b[3, 1])
+            sys_state.turn_rates[3] = y[i]
         elseif isequal(sym, sys.tether_len[1])
             sys_state.l_tether[1] = y[i]
         elseif isequal(sym, sys.tether_len[2])
