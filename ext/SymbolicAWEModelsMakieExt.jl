@@ -1458,12 +1458,12 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
             push!(all_labels, lbl(L"\dot{\psi}", suffix))
             push!(all_times, sl.time[1:end-1])
 
-            # Also plot z-component (yaw rate ω_z) if available
+            # Also plot the body-frame yaw rate ω_b,z if available
             turn_rates_rad = hcat(sl.turn_rates...)
             if !all(iszero, turn_rates_rad)
                 omega_z_deg = rad2deg.(turn_rates_rad[3, :])
                 push!(all_data, omega_z_deg)
-                push!(all_labels, lbl(L"\omega_z", suffix))
+                push!(all_labels, lbl(L"\omega_{b,z}", suffix))
                 push!(all_times, sl.time)
             end
         end

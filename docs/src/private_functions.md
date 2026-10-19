@@ -97,6 +97,7 @@ SymbolicAWEModels.elastic_tube_wrench
 SymbolicAWEModels.beam_hermite_ride_expressions
 SymbolicAWEModels.ground_wind_vec
 SymbolicAWEModels.wing_scalar_kinematics
+SymbolicAWEModels.body_to_view_rate
 SymbolicAWEModels.station_dynamics
 SymbolicAWEModels.MAX_TWIST_ANGLE
 SymbolicAWEModels.pulley_split_eqs
@@ -135,6 +136,8 @@ SymbolicAWEModels.refresh_aero!
 SymbolicAWEModels.wing_kinematics_from_points!
 SymbolicAWEModels.point_acceleration_w
 SymbolicAWEModels.write_wing_scalars!
+SymbolicAWEModels.wing_base_point
+SymbolicAWEModels.wing_rel_pos
 SymbolicAWEModels.sync_aero_density!
 SymbolicAWEModels.jacobian
 SymbolicAWEModels.load_serialized_model!

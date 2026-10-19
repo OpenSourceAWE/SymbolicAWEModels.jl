@@ -238,14 +238,11 @@ by [`kinematic_wing_readouts`](@ref) instead.
 """
 function rigid_wing_readouts(model::KernelModel, sys_struct)
     readouts = RigidWingReadout[]
-    transforms = sys_struct.transforms
     for wing in sys_struct.wings
         wing.dynamics_type == RIGID_DYNAMICS || continue
         instance = model.body_instances[wing.idx]
         instance == 0 && continue
-        base_point = (wing.transform_idx != 0 &&
-                      wing.transform_idx <= length(transforms)) ?
-            transforms[wing.transform_idx].base_point_idx : 0
+        base_point = wing_base_point(wing, sys_struct.transforms)
         push!(readouts, RigidWingReadout(wing.idx,
             buffer_slots(model.system, instance, :outputs, :frame),
             buffer_slots(model.system, instance, :observables, :alpha_b),
@@ -469,10 +466,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct::SystemStructure)
     end
     for readout in getter.kinematic
         wing = sys_struct.bodies[readout.body]
-        transforms = sys_struct.transforms
-        base_point = (wing.transform_idx != 0 &&
-                      wing.transform_idx <= length(transforms)) ?
-            transforms[wing.transform_idx].base_point_idx : 0
+        base_point = wing_base_point(wing, sys_struct.transforms)
         wing_kinematics_from_points!(wing, sys_struct.points, sys_struct.set,
             sys_struct.am, sys_struct.wind_mode;
             zp1 = readout.z1, zp2 = readout.z2, yp1 = readout.y1,
