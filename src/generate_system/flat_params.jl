@@ -232,6 +232,15 @@ end
 
 (reader::CopyReader)(sys_struct) = (reader.buffer .= reader.reader(sys_struct))
 
+"""The [`PathReader`](@ref) `reader` reads through, or `nothing` for a computed one."""
+path_reader(reader) = nothing
+path_reader(reader::PathReader) = reader
+path_reader(reader::CopyReader) = reader.reader
+
+"""A reader of the same kind as `reader` reading `path` instead."""
+read_at(::PathReader, path) = PathReader(path)
+read_at(reader::CopyReader, path) = CopyReader(PathReader(path), similar(reader.buffer))
+
 # ==================== SYNC ==================== #
 
 """

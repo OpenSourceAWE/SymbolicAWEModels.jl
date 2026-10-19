@@ -249,11 +249,13 @@ array whose components occupy separate slots. A computed entry (not a plain fiel
 read) is instance-independent and is reused as it stands.
 """
 function entry_reader(entry::ParamEntry, index_map, element)
-    if !(entry.read isa PathReader)
+    source = path_reader(entry.read)
+    if source === nothing
         return element === nothing ? entry.read : ElementReader(entry.read, element)
     end
-    remapped = remap_path(entry.read.path, index_map)
-    return PathReader(element === nothing ? remapped : (remapped..., element))
+    remapped = remap_path(source.path, index_map)
+    element === nothing && return read_at(entry.read, remapped)
+    return PathReader((remapped..., element))
 end
 
 """
@@ -284,8 +286,9 @@ both be swapped to the same instance index, silently reading the wrong one; the
 components are written so this cannot happen, and this says so if that changes.
 """
 function record_build_index!(built_from, entry::ParamEntry, index_map)
-    entry.read isa PathReader || return nothing
-    path = entry.read.path
+    source = path_reader(entry.read)
+    source === nothing && return nothing
+    path = source.path
     for k in 1:(length(path) - 1)
         haskey(index_map, path[k]) && path[k + 1] isa Int || continue
         previous = get!(built_from, path[k], path[k + 1])

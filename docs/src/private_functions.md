@@ -600,6 +600,8 @@ SymbolicAWEModels.read_path
 SymbolicAWEModels.PathReader
 SymbolicAWEModels.leaf_reader
 SymbolicAWEModels.CopyReader
+SymbolicAWEModels.path_reader
+SymbolicAWEModels.read_at
 SymbolicAWEModels.path_of
 SymbolicAWEModels.ParamEntry
 SymbolicAWEModels.ParamRegistry
