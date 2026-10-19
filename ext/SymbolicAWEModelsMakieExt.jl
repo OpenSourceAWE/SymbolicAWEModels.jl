@@ -27,7 +27,7 @@ const PLOT_RELEVANT_PLOTS = Ref{Union{Nothing, Vector}}(nothing)
 # All plot layers by key (:bodies, :wings, :beam_tubes, :vsm, :airfoils, …), so
 # the replay checkboxes can toggle each layer's visibility.
 const PLOT_LAYERS = Ref{Union{Nothing, Dict{Symbol, Any}}}(nothing)
-const PLOT_SYSTEM_STRUCTURE = Ref{Union{Nothing, SystemState}}(nothing)
+const PLOT_SYSTEM_STATE = Ref{Union{Nothing, SystemState}}(nothing)
 const PLOT_VECTOR_SCALE = Ref{Float64}(1.0)
 const PLOT_FORCE_COLOR = Ref{Bool}(false)
 const PLOT_SEGMENT_COLOR = Ref{Any}(RGBf(0.25, 0.25, 0.25))
@@ -607,7 +607,7 @@ function wing_border_linewidth(ax, sys, wing, geometry_obs, base, strength)
     isnothing(geometry_obs) || return @lift begin
         $geometry_obs  # Trigger dependency
         $view_obs  # Re-taper on camera move
-        sys_ref = PLOT_SYSTEM_STRUCTURE[]
+        sys_ref = PLOT_SYSTEM_STATE[]
         eye = plot_eye(ax)
         taper_width(wing.pos_w, eye, taper_reference(ax, sys_ref, eye), base, strength)
     end
@@ -635,7 +635,7 @@ end
 
 Plot RGB body-frame axes for `n` entities, reading frames via `frames_of(sys)`.
 Static when `geometry_obs === nothing`, otherwise observable-driven from
-`PLOT_SYSTEM_STRUCTURE[]`. No-op when `n == 0`.
+`PLOT_SYSTEM_STATE[]`. No-op when `n == 0`.
 """
 function plot_frame_axes!(ax, plots, key, sys, n, frames_of, scale, geometry_obs;
                           facets=8)
@@ -647,7 +647,7 @@ function plot_frame_axes!(ax, plots, key, sys, n, frames_of, scale, geometry_obs
     else
         origins_dirs = @lift begin
             $geometry_obs  # Trigger dependency
-            body_frame_arrows(frames_of(PLOT_SYSTEM_STRUCTURE[]), PLOT_VECTOR_SCALE[])
+            body_frame_arrows(frames_of(PLOT_SYSTEM_STATE[]), PLOT_VECTOR_SCALE[])
         end
         plots[key] = arrows3d!(ax, @lift($origins_dirs[1]),
             @lift($origins_dirs[2]); color=axis_colors, quality=facets)
@@ -706,10 +706,10 @@ function Makie.plot!(ax, sys::SystemState;
                 push!(lineseg_points, Point3f(p2))
             end
         else
-            # Dynamic plotting: compute from PLOT_SYSTEM_STRUCTURE when triggered
+            # Dynamic plotting: compute from PLOT_SYSTEM_STATE when triggered
             lineseg_points = @lift begin
                 $geometry_obs  # Trigger dependency
-                sys_ref = PLOT_SYSTEM_STRUCTURE[]
+                sys_ref = PLOT_SYSTEM_STATE[]
                 points = Point3f[]
                 for seg in sys_ref.segments
                     p1 = sys_ref.points[seg.point_idxs[1]].pos_w
@@ -734,7 +734,7 @@ function Makie.plot!(ax, sys::SystemState;
             seg_linewidth = @lift begin
                 $geometry_obs  # Trigger dependency
                 $taper_view_obs  # Re-taper on camera move
-                sys_ref = PLOT_SYSTEM_STRUCTURE[]
+                sys_ref = PLOT_SYSTEM_STATE[]
                 eye = plot_eye(ax)
                 segment_taper_widths(segment_midpoints(sys_ref), eye,
                     taper_reference(ax, sys_ref, eye), segment_linewidth, taper)
@@ -754,7 +754,7 @@ function Makie.plot!(ax, sys::SystemState;
         else
             point_pos = @lift begin
                 $geometry_obs  # Trigger dependency
-                point_positions(PLOT_SYSTEM_STRUCTURE[])
+                point_positions(PLOT_SYSTEM_STATE[])
             end
         end
         if iszero(taper)
@@ -767,7 +767,7 @@ function Makie.plot!(ax, sys::SystemState;
             markersize = @lift begin
                 $geometry_obs  # Trigger dependency
                 $taper_view_obs  # Re-taper on camera move
-                sys_ref = PLOT_SYSTEM_STRUCTURE[]
+                sys_ref = PLOT_SYSTEM_STATE[]
                 eye = plot_eye(ax)
                 taper_sizes(point_positions(sys_ref), eye,
                     taper_reference(ax, sys_ref, eye), point_size, taper)
@@ -788,7 +788,7 @@ function Makie.plot!(ax, sys::SystemState;
             else
                 spoke_points = @lift begin
                     $geometry_obs  # Trigger dependency
-                    body_tube_spokes(PLOT_SYSTEM_STRUCTURE[])
+                    body_tube_spokes(PLOT_SYSTEM_STATE[])
                 end
             end
             spoke_colors = Observable(fill(to_color(RGBf(0.32, 0.32, 0.32)),
@@ -803,7 +803,7 @@ function Makie.plot!(ax, sys::SystemState;
                 spoke_linewidth = @lift begin
                     $geometry_obs  # Trigger dependency
                     $taper_view_obs  # Re-taper on camera move
-                    sys_ref = PLOT_SYSTEM_STRUCTURE[]
+                    sys_ref = PLOT_SYSTEM_STATE[]
                     eye = plot_eye(ax)
                     taper_sizes(body_tube_spokes(sys_ref), eye,
                         taper_reference(ax, sys_ref, eye), linewidth, taper)
@@ -828,7 +828,7 @@ function Makie.plot!(ax, sys::SystemState;
             else
                 instances = @lift begin
                     $geometry_obs  # Trigger dependency
-                    beam_tube_instances(beam_elements(PLOT_SYSTEM_STRUCTURE[]))
+                    beam_tube_instances(beam_elements(PLOT_SYSTEM_STATE[]))
                 end
                 plots[:beam_tubes] = meshscatter!(ax, (@lift $instances[1]);
                     marker=tube_marker, markersize=(@lift $instances[3]),
@@ -925,10 +925,10 @@ function Makie.plot!(ax, sys::SystemState;
                                                label="Aero Forces")
             end
         else
-            # Dynamic plotting: compute from PLOT_SYSTEM_STRUCTURE when triggered
+            # Dynamic plotting: compute from PLOT_SYSTEM_STATE when triggered
             aero_origins_dirs = @lift begin
                 $geometry_obs  # Trigger dependency
-                sys_ref = PLOT_SYSTEM_STRUCTURE[]
+                sys_ref = PLOT_SYSTEM_STATE[]
                 scale = PLOT_VECTOR_SCALE[]
                 origins = Point3f[]
                 forces_raw = Vec3f[]
@@ -1062,7 +1062,7 @@ end
     SymbolicAWEModels.update_plot_observables!(sys::SystemState)
 
 Trigger plot updates by notifying the geometry observable, which makes Makie
-recompute all geometry from `PLOT_SYSTEM_STRUCTURE[]` through its `@lift`
+recompute all geometry from `PLOT_SYSTEM_STATE[]` through its `@lift`
 expressions. `sys` should already carry the new state (e.g. from
 `update_from_sysstate!`).
 
@@ -1090,10 +1090,10 @@ function SymbolicAWEModels.update_plot_observables!(sys::SystemState)
         end
     end
 
-    if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) && !isnothing(PLOT_SYSTEM_STRUCTURE[])
+    if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) && !isnothing(PLOT_SYSTEM_STATE[])
         scene = PLOT_SCENE[]
         relevant_plots = PLOT_RELEVANT_PLOTS[]
-        stored_sys = PLOT_SYSTEM_STRUCTURE[]
+        stored_sys = PLOT_SYSTEM_STATE[]
 
         mode_changed = (PLOT_PREV_BODY_FRAME[] != PLOT_BODY_FRAME[] ||
                         PLOT_PREV_ZOOMED_IN[] != PLOT_ZOOMED_IN[] ||
@@ -1254,7 +1254,7 @@ end
 Create a multi-panel plot of key simulation results from a `SysLog`.
 
 # Arguments
-- `sys::SystemState`: The system structure, used to get component counts (e.g., number of groups).
+- `sys::SystemState`: The run state of the system, used to get component counts (e.g., number of groups).
 - `lg::SysLog`: The simulation log data to be plotted.
 
 # Keyword Arguments
@@ -1305,7 +1305,7 @@ PARTICLE_DYNAMICS and RIGID_DYNAMICS models) on the same panels. Each log's trac
 labeled with its system name.
 
 # Arguments
-- `sys::SystemState`: The system structure (can be from any of the models).
+- `sys::SystemState`: The run state of the system (can be from any of the models).
 - `logs::Vector{SysLog}`: Vector of simulation logs to compare.
 
 # Keyword Arguments
@@ -2682,8 +2682,8 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemState},
                 zoomed_in[] = false
                 PLOT_ZOOMED_IN[] = false
                 PLOT_ZOOM_SEGMENT_IDX[] = -1
-                if !isnothing(PLOT_SYSTEM_STRUCTURE[])
-                    apply_zoom_mode!(scene, all_plots, PLOT_SYSTEM_STRUCTURE[]; mode_changed=true)
+                if !isnothing(PLOT_SYSTEM_STATE[])
+                    apply_zoom_mode!(scene, all_plots, PLOT_SYSTEM_STATE[]; mode_changed=true)
                 else
                     zoom_out!(scene, cam, all_plots; relmargin)
                 end
@@ -2904,7 +2904,7 @@ function MakieControlPlots.plot(sys::SystemState;
     PLOT_CAMERA_PAN[] = (Float64(zoom), Float64(pan_horizontal), Float64(pan_vertical))
     PLOT_CAMERA_TILT[] = (Float64(tilt_horizontal), Float64(tilt_vertical))
     # Store the system globally FIRST so @lift expressions can access it
-    PLOT_SYSTEM_STRUCTURE[] = sys
+    PLOT_SYSTEM_STATE[] = sys
     PLOT_VECTOR_SCALE[] = vector_scale
     PLOT_FORCE_COLOR[] = force_color
     PLOT_SEGMENT_COLOR[] = segment_color
@@ -2970,7 +2970,7 @@ Build geometry observables for a `SystemState` that update when trigger is notif
 Used for multi-system plotting where each system needs its own observable.
 
 # Arguments
-- `sys::SystemState`: The system structure to build observables for
+- `sys::SystemState`: The run state of the system to build observables for
 - `trigger::Observable`: Observable that triggers geometry recalculation
 
 # Returns
@@ -3169,7 +3169,7 @@ determined by the file extension (`.mp4`, `.gif`, `.mkv`, `.webm`).
 
 # Arguments
 - `lg::SysLog`: The simulation log to record
-- `sys::SystemState`: The system structure matching the log's topology
+- `sys::SystemState`: The run state of a system matching the log's topology
 - `filename::String`: Output filename (e.g., `"sim.mp4"`, `"sim.gif"`)
 
 # Keyword Arguments
@@ -3238,7 +3238,7 @@ The output format is determined by the file extension
 
 # Arguments
 - `logs::Vector{<:SysLog}`: Simulation logs; `logs[1]` is the primary.
-- `syss::Vector{<:SystemState}`: System structures (must match logs length).
+- `syss::Vector{<:SystemState}`: Run states of the systems (must match logs length).
 - `filename::String`: Output filename (e.g., `"sim.mp4"`, `"sim.gif"`).
 
 # Keyword Arguments
@@ -3321,7 +3321,7 @@ hides the layer of that name.
 function apply_view_toggle!(key::Symbol, enabled::Bool)
     if key === :segment_colors_obs
         PLOT_FORCE_COLOR[] = enabled
-        sys = PLOT_SYSTEM_STRUCTURE[]
+        sys = PLOT_SYSTEM_STATE[]
         isnothing(sys) || refresh_segment_colors!(sys)
     elseif !isnothing(PLOT_LAYERS[])
         set_layer_visible!(get(PLOT_LAYERS[], key, nothing), enabled)
@@ -3572,9 +3572,9 @@ function setup_replay_controls!(scene, n_frames, update_frame!, get_time, get_dt
                         PLOT_ZOOMED_IN[] = false
                         PLOT_ZOOM_SEGMENT_IDX[] = -1
                     end
-                    if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) && !isnothing(PLOT_SYSTEM_STRUCTURE[])
+                    if !isnothing(PLOT_SCENE[]) && !isnothing(PLOT_RELEVANT_PLOTS[]) && !isnothing(PLOT_SYSTEM_STATE[])
                         apply_zoom_mode!(PLOT_SCENE[], PLOT_RELEVANT_PLOTS[],
-                                         PLOT_SYSTEM_STRUCTURE[]; mode_changed=true)
+                                         PLOT_SYSTEM_STATE[]; mode_changed=true)
                     end
                     return Consume(true)
                 end
@@ -3657,7 +3657,7 @@ Replay a SysLog with interactive 3D visualization and playback controls.
 
 # Arguments
 - `lg::SysLog`: The simulation log to replay
-- `sys::SystemState`: The system structure matching the log's topology
+- `sys::SystemState`: The run state of a system matching the log's topology
 
 # Keyword Arguments
 # - `replay_speed::Real=1.0`: Replay speed factor (1.0 = real-time, 2.0 = 2x speed, etc.)
@@ -3939,7 +3939,7 @@ Plot wing points in 2D body frame coordinates: all wing-node points, a particle 
 where they are now in its frame.
 
 # Arguments
-- `sys_struct::SystemState`: System structure to plot
+- `sys_struct::SystemState`: Run state of the system to plot
 - `extra_points`: Optional vector of (x,y,z) tuples to overlay
 - `dir::Symbol`: Viewing direction (:side, :front, or :top, default :side)
 
@@ -4155,7 +4155,7 @@ end
 Plot the angle of attack distribution along the wing span.
 
 # Arguments
-- `sys_struct::SystemState`: System structure containing the wing with VSM solver
+- `sys_struct::SystemState`: Run state of the system containing the wing with VSM solver
 - `wing_idx::Int`: Index of the wing to plot (default: 1)
 - `figsize`: Figure size tuple (default: (800, 400))
 

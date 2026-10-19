@@ -214,10 +214,11 @@ function SystemState(sys)
     state = SystemState(sys, SysState(P; counts..., precision=SimFloat), columns,
                         first(position_slots(sys).bodies) - 1, length(sys.wings),
                         no_records, no_records)
-    state.bodies = NamedCollection(ComponentState[BodyState(body, state, i)
-                                                  for (i, body) in enumerate(sys.bodies)])
-    state.wings = NamedCollection(ComponentState[state.bodies[i]
-                                                 for i in eachindex(sys.wings)])
+    bodies = NamedCollection(ComponentState[BodyState(body, state, i)
+                                            for (i, body) in enumerate(sys.bodies)])
+    setfield!(state, :bodies, bodies)
+    setfield!(state, :wings, NamedCollection(ComponentState[bodies[i]
+                                                            for i in eachindex(sys.wings)]))
     return start_run!(state)
 end
 
@@ -252,7 +253,6 @@ Base.haskey(records::Records, name::Symbol) = haskey(records.rows, name)
 end
 
 function Base.setproperty!(state::SystemState, name::Symbol, value)
-    (name === :bodies || name === :wings) && return setfield!(state, name, value)
     name === :state_vars || error("SystemState has no settable property $name")
     set_state_vars!(state, vec(value))
     return value

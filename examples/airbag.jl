@@ -117,8 +117,8 @@ and inject them as `disturb` forces on the dynamic interior nodes.
 Each quad cell (i,j) is split into two triangles. The force on each
 triangle is `P × area_triangle`. This force is divided equally among
 the three corners, and only DYNAMIC corners accumulate the contribution.
-The integrator holds a reference to the mutable `sys_struct`, so
-mutating `disturb` fields takes effect at the next integration step.
+The model reads each point's `disturb` at every step, so setting it
+here takes effect at the next integration step.
 """
 function apply_pressure!(sam, pressure)
     pts = sam.state.points
