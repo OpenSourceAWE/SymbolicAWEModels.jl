@@ -404,14 +404,17 @@ aero_poses = [
                     # The log stores Float32, so the restored pose is rounded to it.
                     @test isapprox(wing.turn_rate, turn_rate_v; atol=10eps(Float32))
 
-                    outputs = sam.outputs
-                    lin_state = try
-                        sam.outputs = [sam.prob.sys.body_ω_b[3, 1]]
-                        SymbolicAWEModels.make_lin_sys_state([0.7], sam, 0.0)
-                    finally
-                        sam.outputs = outputs
+                    # Linear-model logging reads the compiled symbolic system.
+                    if sam.backend isa MonolithBackend
+                        outputs = sam.outputs
+                        lin_state = try
+                            sam.outputs = [sam.prob.sys.body_ω_b[3, 1]]
+                            SymbolicAWEModels.make_lin_sys_state([0.7], sam, 0.0)
+                        finally
+                            sam.outputs = outputs
+                        end
+                        @test lin_state.turn_rates[3] ≈ 0.7
                     end
-                    @test lin_state.turn_rates[3] ≈ 0.7
                 end
             end
 
