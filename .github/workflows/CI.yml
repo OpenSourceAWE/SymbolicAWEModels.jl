@@ -19,7 +19,8 @@ concurrency:
 # Julia package server, which intermittently 404s on stale registry trees.
 env:
   JULIA_PKG_SERVER: ""
-  DEPOT_PATHS: |
+  # Registries stay out: Pkg refuses to update a restored, dirty clone (Pkg.jl#4557).
+  DEPOT_CACHE_PATHS: |
     ~/.julia
     !~/.julia/registries
     !~/.julia/clones
@@ -81,6 +82,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: julia-actions/setup-julia@v2
+        id: julia
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
@@ -100,15 +102,14 @@ jobs:
             > test/Project.toml.tmp
           mv test/Project.toml.tmp test/Project.toml
 
-      # Only main saves the depot (last step); a pull request restores main's.
-      # Registries stay out: a restored one is a git clone Pkg refuses to update
-      # once it goes dirty (Pkg.jl#4557).
       - name: Restore the Julia depot
         id: depot
         uses: actions/cache/restore@v6
         with:
-          path: ${{ env.DEPOT_PATHS }}
-          key: ${{ env.DEPOT_KEY }}-${{ hashFiles(env.MANIFEST, 'test/Project.toml') }}
+          path: ${{ env.DEPOT_CACHE_PATHS }}
+          key: >-
+            ${{ env.DEPOT_KEY }}-${{ steps.julia.outputs.julia-version }}-${{
+            hashFiles(env.MANIFEST, 'test/Project.toml') }}
           restore-keys: ${{ env.DEPOT_KEY }}-
 
       - name: Prepare version-specific manifest
@@ -155,7 +156,7 @@ jobs:
         if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.depot.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6
         with:
-          path: ${{ env.DEPOT_PATHS }}
+          path: ${{ env.DEPOT_CACHE_PATHS }}
           key: ${{ steps.depot.outputs.cache-primary-key }}
 
   docs:
@@ -166,6 +167,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: julia-actions/setup-julia@v2
+        id: julia
         with:
           version: '1'
 
@@ -173,8 +175,10 @@ jobs:
         id: depot
         uses: actions/cache/restore@v6
         with:
-          path: ${{ env.DEPOT_PATHS }}
-          key: julia-docs-${{ hashFiles('Manifest-v*.toml.default', 'docs/Project.toml') }}
+          path: ${{ env.DEPOT_CACHE_PATHS }}
+          key: >-
+            julia-docs-${{ steps.julia.outputs.julia-version }}-${{
+            hashFiles('Manifest-v*.toml.default', 'docs/Project.toml') }}
           restore-keys: julia-docs-
       - uses: julia-actions/julia-buildpkg@v1
 
@@ -210,5 +214,5 @@ jobs:
         if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.depot.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v6
         with:
-          path: ${{ env.DEPOT_PATHS }}
+          path: ${{ env.DEPOT_CACHE_PATHS }}
           key: ${{ steps.depot.outputs.cache-primary-key }}
