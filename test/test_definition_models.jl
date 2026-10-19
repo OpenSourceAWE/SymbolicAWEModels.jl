@@ -119,4 +119,29 @@ named(components, name) = only(filter(component -> component.name == name, compo
         @test tube.EA == 10000.0
         @test isnothing(tube.GJ)
     end
+
+    @testset "a point on a wing naming a tube and no body rides the tube" begin
+        authored = read(joinpath(kite, "rigid_structural_geometry.yaml"), String)
+        rider_row = "    - [rider, [0.0, 0.0, 2.5], BODY_STATIC, main_wing, " *
+                    "main_transform, 0.1, 10.0, 0.0, 0.0, 0.0, nothing, strut]\n"
+        authored = replace(authored,
+            "area, drag_coeff, body_idx]\n  data:\n" =>
+            "area, drag_coeff, body_idx, tube]\n  data:\n" * rider_row; count=1)
+        file = joinpath(mktempdir(), "rigid_structural_geometry.yaml")
+        write(file, authored * """
+            bodies:
+              headers: [name, extra_mass, inertia_principal, pos, type]
+              data:
+                - [nodeA, 1.0, [0.01, 0.01, 0.01], [0.0, 0.0, 2.5], DYNAMIC]
+                - [nodeB, 1.0, [0.01, 0.01, 0.01], [0.0, 0.5, 2.5], DYNAMIC]
+            tubes:
+              headers: [name, bodies, diameter, pressure, law, EA]
+              data:
+                - [strut, [nodeA, nodeB], 0.1, 30000.0, breukels2011, 10000.0]
+            """)
+        sys = load_sys_struct_from_yaml(file; system_name="tube_rider", set,
+                                        aero_mode=AeroNone(), prn=false)
+        rider = sys.points[:rider]
+        @test rider.tube_idx == sys.tubes[:strut].idx
+    end
 end

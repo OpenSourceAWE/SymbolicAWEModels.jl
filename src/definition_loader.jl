@@ -170,7 +170,7 @@ function definition_point(definition, point, transform)
         parse_dynamics_type(point.type)
     return Point(row_name(point), point.pos_ENU, type;
         set_kwargs(:wing => maybe(cell_ref, point.wing_idx), :transform => transform,
-                   :body => name_of(definition.bodies, point.body),
+                   :body => point_body(definition, point),
                    :anchor_b => point.anchor_b,
                    :tube => maybe(cell_ref, point.tube),
                    :extra_mass => point.extra_mass,
@@ -178,6 +178,17 @@ function definition_point(definition, point, transform)
                    :world_frame_damping => point.world_frame_damping,
                    :area => point.area, :drag_coeff => point.drag_coeff,
                    :fix_sphere => point.fix_sphere, :fix_static => point.fix_static)...)
+end
+
+"""The body `point` rides: none for a tube rider whose body is the one KiteGeometry gives
+a `BODY_STATIC` point naming its wing and no body, which is that wing's."""
+function point_body(definition, point)
+    isnothing(point.body) && return nothing
+    wing = maybe(cell_ref, point.wing_idx)
+    wing_body = point.body <= length(definition.wings) &&
+        wing in (point.body, name_of(definition.wings, point.body))
+    return !isnothing(point.tube) && wing_body ? nothing :
+        name_of(definition.bodies, point.body)
 end
 
 """`f(value)`, or `nothing` for `nothing`."""
