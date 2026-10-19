@@ -19,6 +19,10 @@ concurrency:
 # Julia package server, which intermittently 404s on stale registry trees.
 env:
   JULIA_PKG_SERVER: ""
+  DEPOT_PATHS: |
+    ~/.julia
+    !~/.julia/registries
+    !~/.julia/clones
 
 jobs:
   reuse-lint:
@@ -33,6 +37,9 @@ jobs:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ matrix.backend || 'monolith' }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 180
+    env:
+      DEPOT_KEY: julia-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.version }}-coverage-${{ matrix.coverage == true }}
+      MANIFEST: Manifest-v${{ matrix.version }}.toml.default
     strategy:
       matrix:
         version:
@@ -93,11 +100,16 @@ jobs:
             > test/Project.toml.tmp
           mv test/Project.toml.tmp test/Project.toml
 
-      # A restored registry is a git clone Pkg refuses to update once it goes
-      # dirty, pinning resolution to whatever the cache holds (Pkg.jl#4557).
-      - uses: julia-actions/cache@v3
+      # Only main saves the depot (last step); a pull request restores main's.
+      # Registries stay out: a restored one is a git clone Pkg refuses to update
+      # once it goes dirty (Pkg.jl#4557).
+      - name: Restore the Julia depot
+        id: depot
+        uses: actions/cache/restore@v6
         with:
-          cache-registries: 'false'
+          path: ${{ env.DEPOT_PATHS }}
+          key: ${{ env.DEPOT_KEY }}-${{ hashFiles(env.MANIFEST, 'test/Project.toml') }}
+          restore-keys: ${{ env.DEPOT_KEY }}-
 
       - name: Prepare version-specific manifest
         shell: bash
@@ -139,6 +151,13 @@ jobs:
           files: lcov.info
         continue-on-error: true
 
+      - name: Save the Julia depot
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.depot.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.DEPOT_PATHS }}
+          key: ${{ steps.depot.outputs.cache-primary-key }}
+
   docs:
     name: Documentation
     runs-on: ubuntu-latest
@@ -150,9 +169,13 @@ jobs:
         with:
           version: '1'
 
-      - uses: julia-actions/cache@v3
+      - name: Restore the Julia depot
+        id: depot
+        uses: actions/cache/restore@v6
         with:
-          cache-registries: 'false'
+          path: ${{ env.DEPOT_PATHS }}
+          key: julia-docs-${{ hashFiles('Manifest-v*.toml.default', 'docs/Project.toml') }}
+          restore-keys: julia-docs-
       - uses: julia-actions/julia-buildpkg@v1
 
       - name: Install display dependencies for GLMakie
@@ -182,3 +205,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
+
+      - name: Save the Julia depot
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.depot.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.DEPOT_PATHS }}
+          key: ${{ steps.depot.outputs.cache-primary-key }}
