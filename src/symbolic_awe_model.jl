@@ -5,16 +5,14 @@ const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{
 const GetSetNothing = Union{AbstractIndexer, Nothing}
 
 """
-    ScatterGroup{Sel, Fns, Views}
+    ScatterGroup{Fns, Views}
 
-One component group of an [`InplaceGetter`](@ref). `selector(sys_struct)` returns
-the group's component vector (e.g. `sys_struct.points`); `copyfns` is a tuple of
-`(component, view) -> _` closures, one per output array, each copying that
-array's slice into the component's struct field; `views` is the matching tuple of
-zero-copy reshaped views into the getter's buffer.
+One component group of an [`InplaceGetter`](@ref). `copyfns` is a tuple of
+`(state, view) -> _` closures, one per output array, each writing that array into the
+run state's columns; `views` is the matching tuple of zero-copy reshaped views into
+the getter's buffer.
 """
-struct ScatterGroup{Sel, Fns, Views}
-    selector::Sel
+struct ScatterGroup{Fns, Views}
     copyfns::Fns
     views::Views
 end
@@ -27,7 +25,7 @@ component state. `fn` is an in-place MTK observed function `fn(buf, u, p, t)`
 over the concatenation of every component's output arrays; `buf` is a
 preallocated flat buffer reused each call; `groups` is a tuple of
 [`ScatterGroup`](@ref)s that write the freshly-computed buffer straight into the
-`SystemStructure` fields. One spec drives both the buffer layout and the scatter.
+run state's columns. One spec drives both the buffer layout and the scatter.
 """
 struct InplaceGetter{F, B, G}
     fn::F
@@ -35,25 +33,20 @@ struct InplaceGetter{F, B, G}
     groups::G
 end
 
-"Copy column `idx` of the matrix view `v` into the mutable vector `field` in place."
-@inline copy_vec!(field, v, idx) = (@views field .= v[:, idx]; nothing)
-
-"Apply each `(component, view)` copy closure for one component (tuple recursion)."
-@inline scatter_component(::Tuple{}, ::Tuple{}, component) = nothing
-@inline function scatter_component(copyfns::Tuple, views::Tuple, component)
-    first(copyfns)(component, first(views))
-    scatter_component(Base.tail(copyfns), Base.tail(views), component)
+"Apply each `(state, view)` copy closure of one group (tuple recursion)."
+@inline scatter_arrays(::Tuple{}, ::Tuple{}, state) = nothing
+@inline function scatter_arrays(copyfns::Tuple, views::Tuple, state)
+    first(copyfns)(state, first(views))
+    scatter_arrays(Base.tail(copyfns), Base.tail(views), state)
     return nothing
 end
 
-"Scatter every group into `sys_struct` (tuple recursion over heterogeneous groups)."
-@inline scatter_groups(::Tuple{}, sys_struct) = nothing
-@inline function scatter_groups(groups::Tuple, sys_struct)
+"Scatter every group into the run state `state` (tuple recursion over the groups)."
+@inline scatter_groups(::Tuple{}, state) = nothing
+@inline function scatter_groups(groups::Tuple, state)
     group = first(groups)
-    for component in group.selector(sys_struct)
-        scatter_component(group.copyfns, group.views, component)
-    end
-    scatter_groups(Base.tail(groups), sys_struct)
+    scatter_arrays(group.copyfns, group.views, state)
+    scatter_groups(Base.tail(groups), state)
     return nothing
 end
 
@@ -493,13 +486,8 @@ Construct a `SysState` holding the current state of the model.
 - `SysState`: A new state struct representing the current model state.
 """
 function SysState(s::SymbolicAWEModel, zoom=1.0; precision=KiteUtils.MyFloat)
-    ss = SysState(position_slots(s.state).total;
-                  orients = n_orient_frames(s.state),
-                  deflections = n_flap_deflections(s.state),
-                  pulleys = length(s.state.pulleys),
-                  winches = length(s.state.winches),
-                  tethers = length(s.state.tethers),
-                  segments = length(s.state.segments), precision)
+    P, counts = sysstate_counts(s.state)
+    ss = SysState(P; counts..., precision)
     update_sys_state!(ss, s, zoom)
     ss
 end
@@ -527,15 +515,8 @@ logger = Logger(sam, 1000)  # Instead of Logger(length(sam.state.points), 1000)
 """
 function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int;
                           precision=KiteUtils.MyFloat)
-    slots = position_slots(sam.state)
-    return Logger(slots.total, steps;
-                  orients = n_orient_frames(sam.state),
-                  deflections = n_flap_deflections(sam.state),
-                  pulleys = length(sam.state.pulleys),
-                  winches = length(sam.state.winches),
-                  tethers = length(sam.state.tethers),
-                  segments = length(sam.state.segments),
-                  precision)
+    P, counts = sysstate_counts(sam.state)
+    return Logger(P, steps; counts..., precision)
 end
 
 """
@@ -631,7 +612,6 @@ generated getter functions.
 function update_sys_struct!(prob::ProbWithAttributes,
                             integ::OrdinaryDiffEqCore.ODEIntegrator, sys_struct)
     prob.get_all_state(integ, sys_struct)
-    refresh_deformed_positions!(sys_struct.points, sys_struct.bodies)
     return nothing
 end
 

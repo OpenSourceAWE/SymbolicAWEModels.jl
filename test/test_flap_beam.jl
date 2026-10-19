@@ -111,10 +111,8 @@ end
             S.init_station_flap!(ts, (; bodies))
             @test ts.flap_rest_delta ≈ 0.0 atol=1e-12
             @test ts.flap_chord_refs == [KVec3(1, 0, 0), KVec3(1, 0, 0)]
-            states = S.BodyState.(bodies)
-            states[2].Q_b_to_w .= quat_y(phi)
-            R_main = S.quaternion_to_rotation_matrix(states[1].Q_b_to_w)
-            R_flap = S.quaternion_to_rotation_matrix(states[2].Q_b_to_w)
+            R_main = S.quaternion_to_rotation_matrix(bodies[1].Q_KA_to_ENU)
+            R_flap = S.quaternion_to_rotation_matrix(quat_y(phi))
             @test S.flap_delta(ts, R_main, R_flap) ≈ phi atol=1e-10
         end
         # Nonzero rest: capture at φ0, deflect to φ0+Δ → δ = Δ.
@@ -129,10 +127,8 @@ end
         ts.flap_body_idxs = [1, 2]
         S.init_station_flap!(ts, (; bodies))
         @test ts.flap_rest_delta ≈ phi0 atol=1e-10
-        states = S.BodyState.(bodies)
-        states[2].Q_b_to_w .= quat_y(phi0 + delta)
-        R_main = S.quaternion_to_rotation_matrix(states[1].Q_b_to_w)
-        R_flap = S.quaternion_to_rotation_matrix(states[2].Q_b_to_w)
+        R_main = S.quaternion_to_rotation_matrix(bodies[1].Q_KA_to_ENU)
+        R_flap = S.quaternion_to_rotation_matrix(quat_y(phi0 + delta))
         @test S.flap_delta(ts, R_main, R_flap) ≈ delta atol=1e-10
     end
 

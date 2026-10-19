@@ -11,7 +11,7 @@ Walk `path` (a tuple of `Symbol` fields and `Int` indices) from `obj`, e.g.
 """
 read_path(obj, ::Tuple{}) = obj
 read_path(obj, path::Tuple) = read_path(path_step(obj, first(path)), Base.tail(path))
-path_step(obj, key::Symbol) = getproperty(obj, key)
+@inline path_step(obj, key::Symbol) = getproperty(obj, key)
 path_step(obj, key::Int) = obj[key]
 
 """
@@ -209,8 +209,28 @@ function Base.getproperty(view::PathView, sym::Symbol)
     path = (getfield(view, :path)..., sym)
     value = read_path(reg.sys_struct, path)
     param_descend(value) && return PathView(reg, path)
-    return leaf_param!(reg, path, PathReader(path), value)
+    return leaf_param!(reg, path, leaf_reader(path, value), value)
 end
+
+"""The reader of the leaf `value` at `path`: a [`PathReader`](@ref), copying into a
+buffer of its own a vector a run's state holds in its columns."""
+leaf_reader(path, value) = PathReader(path)
+leaf_reader(path, value::Union{ColumnVec3, ColumnQuat}) =
+    CopyReader(PathReader(path), MVector(Tuple(value)))
+
+"""
+    CopyReader(reader, buffer)
+
+Reads `reader` into `buffer` and returns it, so a vector of a run's state, read from
+its columns, reaches a parameter buffer as the same array every sync rather than a
+new one.
+"""
+struct CopyReader{R, B}
+    reader::R
+    buffer::B
+end
+
+(reader::CopyReader)(sys_struct) = (reader.buffer .= reader.reader(sys_struct))
 
 # ==================== SYNC ==================== #
 

@@ -34,14 +34,13 @@ struct PointReadout
 end
 
 """
-    SegmentReadout(segment, spring_force, len, l0)
+    SegmentReadout(segment, spring_force, l0)
 
 Where one segment's diagnostics live in the observable buffer.
 """
 struct SegmentReadout
     segment::Int
     spring_force::Int
-    len::Int
     l0::Int
 end
 
@@ -74,24 +73,19 @@ struct WinchReadout
 end
 
 """
-    BodyReadout(body, pos, vel, acc, com, com_velocity, orientation, omega_b,
-                principal, spin_p)
+    BodyReadout(body, pos, vel, acc, orientation, omega_b)
 
-Where one body's results live: its pose in the output buffer, its acceleration,
-body-frame orientation and spin in the observable buffer, and its principal
-attitude/spin in the state vector.
+Where one body's results live: its pose in the output buffer, and its acceleration,
+body-frame orientation and spin in the observable buffer. Its principal frame follows
+from these.
 """
 struct BodyReadout
     body::Int
     pos::Vector{Int}
     vel::Vector{Int}
     acc::Vector{Int}
-    com::Vector{Int}
-    com_velocity::Vector{Int}
     orientation::Vector{Int}
     omega_b::Vector{Int}
-    principal::Vector{Int}
-    spin_p::Vector{Int}
 end
 
 """
@@ -210,7 +204,6 @@ function KernelStateGetter(model::KernelModel, rhs, sys_struct)
               for (idx, instance) in enumerate(model.point_instances)]
     segments = [SegmentReadout(idx,
                     only(buffer_slots(system, instance, :observables, :spring_force)),
-                    only(buffer_slots(system, instance, :observables, :len)),
                     only(buffer_slots(system, instance, :observables, :l0)))
                 for (idx, instance) in enumerate(model.segment_instances)]
     pulleys = PulleyReadout[]
@@ -223,7 +216,7 @@ function KernelStateGetter(model::KernelModel, rhs, sys_struct)
     end
     return KernelStateGetter(rhs, points, segments, pulleys,
                                 winch_readouts(model, sys_struct),
-                                body_readouts(model, sys_struct),
+                                body_readouts(model),
                                 kinematic_wing_readouts(sys_struct),
                                 rigid_wing_readouts(model, sys_struct),
                                 wing_aero_readouts(model, sys_struct),
@@ -355,24 +348,15 @@ function inflow_slots(model::KernelModel, idx)
     return buffer_slots(model.system, instance, :outputs, :va_b)
 end
 
-"""One [`BodyReadout`](@ref) per body. Only a `DYNAMIC` body integrates, so a
-clamped or fitted one keeps whatever principal attitude and spin the struct holds —
-which for a fitted wing is what its own pose output already implies."""
-function body_readouts(model::KernelModel, sys_struct)
+"""One [`BodyReadout`](@ref) per body."""
+function body_readouts(model::KernelModel)
     system = model.system
-    principal(instance, idx, name) =
-        sys_struct.bodies[idx].type == DYNAMIC ?
-        buffer_slots(system, instance, :states, name) : Int[]
     return [BodyReadout(idx,
                 buffer_slots(system, instance, :outputs, :pos),
                 buffer_slots(system, instance, :outputs, :vel),
                 buffer_slots(system, instance, :observables, :acc),
-                buffer_slots(system, instance, :outputs, :com),
-                buffer_slots(system, instance, :outputs, :com_velocity),
                 buffer_slots(system, instance, :observables, :orientation),
-                buffer_slots(system, instance, :observables, :omega_b),
-                principal(instance, idx, :Q),
-                principal(instance, idx, :omega_p))
+                buffer_slots(system, instance, :observables, :omega_b))
             for (idx, instance) in enumerate(model.body_instances)]
 end
 
@@ -416,7 +400,6 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
     for readout in getter.segments
         segment = sys_struct.segments[readout.segment]
         segment.force = scratch.observable[readout.spring_force]
-        segment.len = scratch.observable[readout.len]
         segment.l0 = scratch.observable[readout.l0]
     end
     for readout in getter.pulleys
@@ -440,17 +423,9 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
         body = sys_struct.bodies[readout.body]
         copy_slots!(body.pos_w, scratch.output, readout.pos)
         copy_slots!(body.vel_w, scratch.output, readout.vel)
-        copy_slots!(body.com_w, scratch.output, readout.com)
-        copy_slots!(body.com_vel, scratch.output, readout.com_velocity)
         copy_slots!(body.acc_w, scratch.observable, readout.acc)
         copy_slots!(body.Q_b_to_w, scratch.observable, readout.orientation)
         copy_slots!(body.ω_b, scratch.observable, readout.omega_b)
-        copy_slots!(body.Q_p_to_w, integrator.u, readout.principal)
-        copy_slots!(body.ω_p, integrator.u, readout.spin_p)
-        if body.type == KINEMATIC
-            body.Q_p_to_w .= body.Q_b_to_w
-            fill!(body.ω_p, 0.0)
-        end
     end
     for readout in getter.twist
         surface = sys_struct.stations[readout.surface]
@@ -497,7 +472,6 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
             mul!(point.va_b, frame', point.wind_vec .- point.vel_w)
         end
     end
-    write_stretched_lengths!(sys_struct)
     return nothing
 end
 
@@ -505,20 +479,6 @@ end
 function copy_slots!(target, buffer, slots)
     @inbounds for k in eachindex(slots)
         target[k] = buffer[slots[k]]
-    end
-    return nothing
-end
-
-"""
-    write_stretched_lengths!(sys_struct)
-
-Each tether's stretched length is the sum of its segments' current lengths, which
-is what `tether_eqs!` computes symbolically.
-"""
-function write_stretched_lengths!(sys_struct)
-    for tether in sys_struct.tethers
-        tether.stretched_len =
-            sum(sys_struct.segments[idx].len for idx in tether.segment_idxs)
     end
     return nothing
 end

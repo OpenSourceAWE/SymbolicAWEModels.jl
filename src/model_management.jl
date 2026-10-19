@@ -56,70 +56,75 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
 
     specs = NamedTuple[]
     if length(points) > 0
-        pairs = Pair[sys.pos         => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
-                     sys.vel         => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
-                     sys.point_force => (c, v) -> copy_vec!(c.force, v, c.idx),
-                     sys.va_point_b  => (c, v) -> copy_vec!(c.va_b, v, c.idx),
-                     sys.wind_at_point => (c, v) -> copy_vec!(c.wind_vec, v, c.idx),
-                     sys.point_mass  => (c, v) -> (c.total_mass = v[c.idx]; nothing),
-                     sys.total_drag  => (c, v) -> copy_vec!(c.drag_force, v, c.idx)]
+        pairs = Pair[
+            sys.pos           => (st, v) -> write_columns!(xyz(st.sysstate, :X, :Y, :Z), v),
+            sys.vel           => (st, v) -> write_columns!(
+                xyz(st.sysstate, :VX, :VY, :VZ), v),
+            sys.point_force   => (st, v) -> write_columns!(st.columns.point_force, v),
+            sys.va_point_b    => (st, v) -> write_columns!(st.columns.point_va_b, v),
+            sys.wind_at_point => (st, v) -> write_columns!(st.columns.point_wind, v),
+            sys.point_mass    => (st, v) -> write_column!(st.columns.point_mass, v),
+            sys.total_drag    => (st, v) -> write_columns!(xyz(st.sysstate, :drag_force_x,
+                                               :drag_force_y, :drag_force_z), v)]
         aero_force = point_aero_force_array(sys_struct, sys)
         isnothing(aero_force) || push!(pairs,
-            aero_force => (c, v) -> copy_vec!(c.aero_force_b, v, c.idx))
-        push!(specs, scatter_spec(ss -> ss.points, pairs...))
+            aero_force => (st, v) -> write_columns!(st.columns.point_aero_force_b, v))
+        push!(specs, scatter_spec(pairs...))
     end
     if length(pulleys) > 0
-        push!(specs, scatter_spec(ss -> ss.pulleys,
-            sys.pulley_len => (c, v) -> (c.len = v[c.idx]; nothing),
-            sys.pulley_vel => (c, v) -> (c.vel = v[c.idx]; nothing)))
+        push!(specs, scatter_spec(
+            sys.pulley_len => (st, v) -> write_column!(st.sysstate.pulley_len, v),
+            sys.pulley_vel => (st, v) -> write_column!(st.sysstate.pulley_vel, v)))
     end
     if length(segments) > 0
-        push!(specs, scatter_spec(ss -> ss.segments,
-            sys.spring_force => (c, v) -> (c.force = v[c.idx]; nothing),
-            sys.len          => (c, v) -> (c.len = v[c.idx]; nothing),
-            sys.l0           => (c, v) -> (c.l0 = v[c.idx]; nothing)))
+        push!(specs, scatter_spec(
+            sys.spring_force => (st, v) -> write_column!(st.sysstate.spring_force, v),
+            sys.l0           => (st, v) -> write_column!(st.columns.segment_l0, v)))
     end
     if length(stations) > 0
-        push!(specs, scatter_spec(ss -> ss.stations,
-            sys.twist_angle                 => (c, v) -> (c.twist = v[c.idx]; nothing),
-            sys.twist_ω                     => (c, v) -> (c.twist_ω = v[c.idx]; nothing),
-            sys.station_tether_force  => (c, v) -> (c.tether_force = v[c.idx]; nothing),
-            sys.station_tether_moment => (c, v) -> (c.tether_moment = v[c.idx]; nothing),
-            sys.station_aero_moment   => (c, v) -> (c.aero_moment = v[c.idx]; nothing)))
+        push!(specs, scatter_spec(
+            sys.twist_angle => (st, v) -> write_column!(st.sysstate.twist_angles, v),
+            sys.twist_ω     => (st, v) -> write_column!(st.sysstate.twist_vel, v),
+            sys.station_tether_force =>
+                (st, v) -> write_column!(st.columns.station_tether_force, v),
+            sys.station_tether_moment =>
+                (st, v) -> write_column!(st.columns.station_tether_moment, v),
+            sys.station_aero_moment =>
+                (st, v) -> write_column!(st.columns.station_aero_moment, v)))
     end
     if length(winches) > 0
-        push!(specs, scatter_spec(ss -> ss.winches,
-            sys.winch_acc       => (c, v) -> (c.acc = v[c.idx]; nothing),
-            sys.winch_vel       => (c, v) -> (c.vel = v[c.idx]; nothing),
-            sys.set_values      => (c, v) -> (c.set_value = v[c.idx]; nothing),
-            sys.winch_force_vec => (c, v) -> copy_vec!(c.force, v, c.idx),
-            sys.winch_friction  => (c, v) -> (c.friction = v[c.idx]; nothing)))
+        push!(specs, scatter_spec(
+            sys.winch_acc       => (st, v) -> write_column!(st.columns.winch_acc, v),
+            sys.winch_vel       => (st, v) -> write_column!(st.sysstate.v_reelout, v),
+            sys.set_values      => (st, v) -> write_column!(st.sysstate.set_torque, v),
+            sys.winch_force_vec => (st, v) -> write_columns!(st.columns.winch_force, v),
+            sys.winch_friction  => (st, v) -> write_column!(st.columns.winch_friction, v)))
         set_set_values = setp(sys, sys.set_values)
         get_set_values = getp(sys, sys.set_values)
     end
     if length(tethers) > 0
-        push!(specs, scatter_spec(ss -> ss.tethers,
-            sys.tether_len    => (c, v) -> (c.len = v[c.idx]; nothing),
-            sys.stretched_len => (c, v) -> (c.stretched_len = v[c.idx]; nothing)))
+        push!(specs, scatter_spec(
+            sys.tether_len => (st, v) -> write_column!(st.sysstate.l_tether, v)))
     end
     if length(wings) > 0
-        # Wing rigid-body state is synced via the embedded body in the bodies spec below.
-        push!(specs, scatter_spec(ss -> ss.wings,
-            sys.va_wing_b        => (c, v) -> copy_vec!(c.va_b, v, c.idx),
-            sys.wind_vel_wing    => (c, v) -> copy_vec!(c.wind_vec, v, c.idx),
-            sys.aero_force_b     => (c, v) -> copy_vec!(c.aero_force_b, v, c.idx),
-            sys.aero_moment_b    => (c, v) -> copy_vec!(c.aero_moment_b, v, c.idx),
-            sys.elevation        => (c, v) -> (c.elevation = v[c.idx]; nothing),
-            sys.elevation_vel    => (c, v) -> (c.elevation_vel = v[c.idx]; nothing),
-            sys.elevation_acc    => (c, v) -> (c.elevation_acc = v[c.idx]; nothing),
-            sys.azimuth          => (c, v) -> (c.azimuth = v[c.idx]; nothing),
-            sys.azimuth_vel      => (c, v) -> (c.azimuth_vel = v[c.idx]; nothing),
-            sys.azimuth_acc      => (c, v) -> (c.azimuth_acc = v[c.idx]; nothing),
-            sys.heading          => (c, v) -> (c.heading = v[c.idx]; nothing),
-            sys.turn_rate        => (c, v) -> copy_vec!(c.turn_rate, v, c.idx),
-            sys.turn_acc         => (c, v) -> copy_vec!(c.turn_acc, v, c.idx),
-            sys.course           => (c, v) -> (c.course = v[c.idx]; nothing),
-            sys.angle_of_attack  => (c, v) -> (c.aoa = v[c.idx]; nothing)))
+        # A wing is the body of the same index; its body pose comes with the bodies.
+        push!(specs, scatter_spec(
+            sys.va_wing_b     => (st, v) -> write_columns!(st.columns.body_va_b, v),
+            sys.wind_vel_wing => (st, v) -> write_columns!(st.columns.body_wind, v),
+            sys.aero_force_b  => (st, v) -> write_columns!(st.columns.body_aero_force_b, v),
+            sys.aero_moment_b =>
+                (st, v) -> write_columns!(st.columns.body_aero_moment_b, v),
+            sys.elevation     => (st, v) -> write_column!(st.columns.body_elevation, v),
+            sys.elevation_vel => (st, v) -> write_column!(st.columns.body_elevation_vel, v),
+            sys.elevation_acc => (st, v) -> write_column!(st.columns.body_elevation_acc, v),
+            sys.azimuth       => (st, v) -> write_column!(st.columns.body_azimuth, v),
+            sys.azimuth_vel   => (st, v) -> write_column!(st.columns.body_azimuth_vel, v),
+            sys.azimuth_acc   => (st, v) -> write_column!(st.columns.body_azimuth_acc, v),
+            sys.heading       => (st, v) -> write_column!(st.columns.body_heading, v),
+            sys.turn_rate     => (st, v) -> write_columns!(st.columns.body_turn_rate, v),
+            sys.turn_acc      => (st, v) -> write_columns!(st.columns.body_turn_acc, v),
+            sys.course        => (st, v) -> write_column!(st.columns.body_course, v),
+            sys.angle_of_attack => (st, v) -> write_column!(st.columns.body_aoa, v)))
 
         # aero_input exists only for wings whose component exposes the connector.
         aero_inputs = [
@@ -131,16 +136,16 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             getu(sys, collect.(aero_inputs))
     end
     if length(bodies) > 0
-        push!(specs, scatter_spec(ss -> ss.bodies,
-            sys.body_Q_b_to_w => (c, v) -> copy_vec!(c.Q_b_to_w, v, c.idx),
-            sys.body_ω_b      => (c, v) -> copy_vec!(c.ω_b, v, c.idx),
-            sys.body_pos_w    => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
-            sys.body_vel_w    => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
-            sys.body_acc_w    => (c, v) -> copy_vec!(c.acc_w, v, c.idx),
-            sys.body_com_w    => (c, v) -> copy_vec!(c.com_w, v, c.idx),
-            sys.body_com_vel  => (c, v) -> copy_vec!(c.com_vel, v, c.idx),
-            sys.body_Q_p_to_w => (c, v) -> copy_vec!(c.Q_p_to_w, v, c.idx),
-            sys.body_ω_p      => (c, v) -> copy_vec!(c.ω_p, v, c.idx)))
+        push!(specs, scatter_spec(
+            sys.body_Q_b_to_w => (st, v) -> write_columns!(
+                xyz(st.sysstate, :Qw, :Qx, :Qy, :Qz), v, st.n_wings),
+            sys.body_ω_b      => (st, v) -> write_columns!(xyz(st.sysstate, :turn_rate_x,
+                                               :turn_rate_y, :turn_rate_z), v, st.n_wings),
+            sys.body_pos_w    => (st, v) -> write_columns!(
+                xyz(st.sysstate, :X, :Y, :Z), v, st.body_slot0),
+            sys.body_vel_w    => (st, v) -> write_columns!(
+                xyz(st.sysstate, :VX, :VY, :VZ), v, st.body_slot0),
+            sys.body_acc_w    => (st, v) -> write_columns!(st.columns.body_acc, v)))
     end
 
     get_all_state = build_inplace_getter(sys, specs)
@@ -155,18 +160,44 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
 end
 
 """
-    scatter_spec(selector, pairs...)
+    scatter_spec(pairs...)
 
-Describe one component group: `selector(sys_struct)` yields its component vector
-and each `sys_array => copyfn` pair maps a symbolic output array to a
-`(component, view) -> _` closure that writes that array's slice into the
-component's struct field. This is the single source of truth — both the buffer
-layout and the scatter derive from the same ordered list.
+Describe one component group: each `sys_array => copyfn` pair maps a symbolic output
+array to a `(state, view) -> _` closure that writes that array into the run state's
+columns. This is the single source of truth — both the buffer layout and the scatter
+derive from the same ordered list.
 """
-function scatter_spec(selector, pairs::Pair...)
-    return (; selector,
-            arrays  = [pair.first for pair in pairs],
+function scatter_spec(pairs::Pair...)
+    return (; arrays  = [pair.first for pair in pairs],
             copyfns = Tuple(pair.second for pair in pairs))
+end
+
+"""The columns `names` of `sysstate`, as a tuple."""
+@inline xyz(sysstate, names::Symbol...) = map(name -> getproperty(sysstate, name), names)
+
+"""
+    write_columns!(columns, v, offset=0)
+
+Write each column `i` of the matrix `v` into entry `offset + i` of `columns`, one
+vector per row of `v`.
+"""
+@inline function write_columns!(columns::Tuple, v, offset=0)
+    @inbounds for i in axes(v, 2), k in eachindex(columns)
+        columns[k][offset + i] = v[k, i]
+    end
+    return nothing
+end
+
+"""
+    write_column!(column, v, offset=0)
+
+Write each entry `i` of the vector `v` into entry `offset + i` of `column`.
+"""
+@inline function write_column!(column, v, offset=0)
+    @inbounds for i in eachindex(v)
+        column[offset + i] = v[i]
+    end
+    return nothing
 end
 
 """
@@ -206,7 +237,7 @@ function build_inplace_getter(sys, specs)
         sys, flat; return_inplace=true)
     buf = Vector{SimFloat}(undef, length(flat))
     grouped_views = build_grouped_views(buf, group_shapes)
-    groups = Tuple(ScatterGroup(spec.selector, spec.copyfns, views)
+    groups = Tuple(ScatterGroup(spec.copyfns, views)
                    for (spec, views) in zip(specs, grouped_views))
     return InplaceGetter(iip, buf, groups)
 end
@@ -225,7 +256,6 @@ function Serialization.serialize(s::Serialization.AbstractSerializer,
     serialize(s, length(g.buf))
     serialize(s, length(g.groups))
     for group in g.groups
-        serialize(s, group.selector)
         serialize(s, group.copyfns)
         serialize(s, map(size, group.views))
     end
@@ -236,18 +266,15 @@ function Serialization.deserialize(s::Serialization.AbstractSerializer,
     fn = deserialize(s)
     n = deserialize(s)
     n_groups = deserialize(s)
-    selectors = Vector{Any}(undef, n_groups)
     copyfns = Vector{Any}(undef, n_groups)
     shapes = Vector{Any}(undef, n_groups)
     for i in 1:n_groups
-        selectors[i] = deserialize(s)
         copyfns[i] = deserialize(s)
         shapes[i] = deserialize(s)
     end
     buf = Vector{SimFloat}(undef, n)
     grouped_views = build_grouped_views(buf, Tuple(shapes))
-    groups = Tuple(ScatterGroup(selectors[i], copyfns[i], grouped_views[i])
-                   for i in 1:n_groups)
+    groups = Tuple(ScatterGroup(copyfns[i], grouped_views[i]) for i in 1:n_groups)
     return InplaceGetter(fn, buf, groups)
 end
 

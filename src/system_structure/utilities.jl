@@ -549,7 +549,6 @@ function apply_cluster_init_stretched_len!(
     end
     for body_idx in translated_body_idxs(seeds, bodies, body_neighbors)
         bodies[body_idx].pos_w .+= delta
-        bodies[body_idx].com_w .+= delta
     end
 
     for snap in snaps
@@ -752,7 +751,6 @@ function reset_to_initial_pose!(sys_struct::SystemState; reset_vel::Bool=true)
         winch.vel = winch.init_vel
     end
     copy_initial_pose!(sys_struct.points, sys_struct.bodies; update_vel=reset_vel)
-    init_rigid_body!.(sys_struct.bodies)
     for station in sys_struct.stations
         station.type == STATIC && continue
         station.twist = 0.0
@@ -764,13 +762,11 @@ end
 """
     update_segment_lengths!(sys_struct::SystemState)
 
-Set every segment's `len` to its world length, and a zero `l0` to that length.
+Set a zero `l0` of a segment to its world length.
 """
 function update_segment_lengths!(sys_struct::SystemState)
     for segment in sys_struct.segments
-        len = segment_world_length(segment, sys_struct.points)
-        (segment.l0 ≈ 0) && (segment.l0 = len)
-        segment.len = len
+        (segment.l0 ≈ 0) && (segment.l0 = segment.len)
     end
     return nothing
 end
@@ -844,15 +840,13 @@ end
     init_sys_struct!(sys_struct::SystemStructure, set::Settings; remake_vsm=false, prn=true)
 
 Bring a placed structure to the start of a run: derive its mass properties and rest
-geometry ([`init_derived_properties!`](@ref)) and every body's principal-frame state
-from its body-frame one ([`init_rigid_body!`](@ref)), rebuild every wing's aero engine
-when `remake_vsm` ([`remake_wing_aero!`](@ref)), and set the wind and aero operating
-point ([`init_wind!`](@ref)). [`init!`](@ref) runs it.
+geometry ([`init_derived_properties!`](@ref)), rebuild every wing's aero engine when
+`remake_vsm` ([`remake_wing_aero!`](@ref)), and set the wind and aero operating point
+([`init_wind!`](@ref)). [`init!`](@ref) runs it.
 """
 function init_sys_struct!(sys_struct, set::Settings;
                           remake_vsm::Bool=false, prn::Bool=true)
     init_derived_properties!(sys_struct; prn)
-    init_rigid_body!.(sys_struct.bodies)
     remake_vsm && remake_wing_aero!(sys_struct, set)
     init_wind!(sys_struct, set)
     return nothing
@@ -934,12 +928,19 @@ end
     start_run!(state::SystemState; reset_vel=true)
 
 Put `state` at the start of a run from the pose its structure is placed in: every
-point and body at its initial pose ([`reset_to_initial_pose!`](@ref)), segment, tether
-and pulley lengths from the structure's rest lengths, and points and bodies moving as
-their transforms' rates say. `reset_vel=false` keeps the velocities `state` holds.
+point and body at its initial pose ([`reset_to_initial_pose!`](@ref)), the twist of a
+`STATIC` station, masses, segment, tether and pulley lengths from the structure's, and
+points and bodies moving as their transforms' rates say. `reset_vel=false` keeps the
+velocities `state` holds.
 """
 function start_run!(state; reset_vel::Bool=true)
+    foreach(station -> station.twist = station.row.twist, state.stations)
     reset_to_initial_pose!(state; reset_vel)
+    for point in state.points
+        point.total_mass = point.row.total_mass
+        point.apparent_mass = point.row.apparent_mass
+    end
+    foreach(body -> body.apparent_mass = body.row.apparent_mass, state.bodies)
     foreach(segment -> segment.l0 = segment.row.l0, state.segments)
     update_segment_lengths!(state)
     for tether in state.tethers
@@ -1203,8 +1204,6 @@ function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
             frame <= length(sys_state.turn_rate_x) &&
                 (rigid_body.ω_b .= (sys_state.turn_rate_x[frame],
                     sys_state.turn_rate_y[frame], sys_state.turn_rate_z[frame]))
-            # The ODE integrates the principal frame; the log stores the body one.
-            init_principal_state!(rigid_body)
         end
     end
 

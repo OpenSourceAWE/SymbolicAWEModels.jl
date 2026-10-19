@@ -3921,10 +3921,22 @@ function SymbolicAWEModels.plot_sphere_trajectory(logs::Vector{<:SysLog};
 end
 
 """
+    wing_node_position_b(wing, point)
+
+Where wing node `point` is in `wing`'s body frame: a particle wing's from its current
+world position, a rigid wing's its undeformed offset.
+"""
+function wing_node_position_b(wing, point)
+    wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS ||
+        return point.pos_undeformed_b
+    return wing.R_b_to_w' * (point.pos_w - wing.pos_w)
+end
+
+"""
     plot_body_frame(sys_struct; extra_points=nothing, dir=:side)
 
-Plot wing points in 2D body frame coordinates.
-Updates pos_b for PARTICLE_DYNAMICS wing points and shows all wing-node points.
+Plot wing points in 2D body frame coordinates: all wing-node points, a particle wing's
+where they are now in its frame.
 
 # Arguments
 - `sys_struct::SystemState`: System structure to plot
@@ -3942,36 +3954,25 @@ function SymbolicAWEModels.plot_body_frame(sys_struct::SystemState;
                          figsize=(800, 600))
     (; points, wings, segments) = sys_struct
 
-    # Update pos_b for PARTICLE_DYNAMICS wing points based on current wing orientation
-    for wing in wings
-        if wing.dynamics_type == SymbolicAWEModels.PARTICLE_DYNAMICS
-            R_w_b = wing.R_b_to_w'  # transpose to get world-to-body
-            for point in points
-                if point.wing_idx == wing.idx
-                    point.pos_b .= R_w_b * (point.pos_w - wing.pos_w)
-                end
-            end
-        end
-    end
-
     # Collect wing-node points
     wing_points = [p for p in points if p.is_wing_node]
+    pos_b = Dict(p.idx => wing_node_position_b(wings[p.wing_idx], p) for p in wing_points)
 
     # Extract coordinates and depth based on viewing direction
     # :front = looking in +x direction (shows y-z plane)
     # :side = looking in +y direction (shows x-z plane)
     # :top = looking in -z direction (shows x-y plane)
     if dir == :top
-        coords = [(p.pos_b[1], p.pos_b[2]) for p in wing_points]
-        depths = [-p.pos_b[3] for p in wing_points]  # -z: lower z = further
+        coords = [(pos_b[p.idx][1], pos_b[p.idx][2]) for p in wing_points]
+        depths = [-pos_b[p.idx][3] for p in wing_points]  # -z: lower z = further
         xlabel, ylabel = "x [m]", "y [m]"
     elseif dir == :side
-        coords = [(p.pos_b[1], p.pos_b[3]) for p in wing_points]
-        depths = [p.pos_b[2] for p in wing_points]  # +y: higher y = further
+        coords = [(pos_b[p.idx][1], pos_b[p.idx][3]) for p in wing_points]
+        depths = [pos_b[p.idx][2] for p in wing_points]  # +y: higher y = further
         xlabel, ylabel = "x [m]", "z [m]"
     else  # :front (default)
-        coords = [(p.pos_b[2], p.pos_b[3]) for p in wing_points]
-        depths = [p.pos_b[1] for p in wing_points]  # +x: higher x = further
+        coords = [(pos_b[p.idx][2], pos_b[p.idx][3]) for p in wing_points]
+        depths = [pos_b[p.idx][1] for p in wing_points]  # +x: higher x = further
         xlabel, ylabel = "y [m]", "z [m]"
     end
 
@@ -4019,8 +4020,8 @@ function SymbolicAWEModels.plot_body_frame(sys_struct::SystemState;
         if from_idx in wing_point_idxs && to_idx in wing_point_idxs
             p1 = points[from_idx]
             p2 = points[to_idx]
-            c1 = get_2d(p1.pos_b)
-            c2 = get_2d(p2.pos_b)
+            c1 = get_2d(pos_b[p1.idx])
+            c2 = get_2d(pos_b[p2.idx])
             lines!(ax, [c1[1], c2[1]], [c1[2], c2[2]];
                    color=:gray, linewidth=0.5)
         end

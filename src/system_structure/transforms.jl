@@ -326,9 +326,9 @@ end
 """
     finalize_transforms!(points, bodies)
 
-Finalize transforms: update PARTICLE_DYNAMICS body frames from structural
-point positions, then compute principal frame ODE state for every body
-(RIGID_DYNAMICS bodies re-derived from the transformed `pos_w`/`Q_b_to_w`).
+Finalize transforms: update PARTICLE_DYNAMICS body frames and their nodes'
+undeformed offsets from structural point positions, and the rigid wings' nodes'
+offsets from the initial pose ([`init_undeformed_offsets!`](@ref)).
 """
 function finalize_transforms!(points, bodies)
     for body in bodies
@@ -342,37 +342,10 @@ function finalize_transforms!(points, bodies)
         for point in points
             if point.is_wing_node && point.wing_idx == body.idx
                 point.pos_undeformed_b .= R_b_to_w' * (point.pos_w - origin)
-                point.pos_b .= point.pos_undeformed_b
             end
         end
     end
-    init_principal_frame!(bodies, points)
-end
-
-"""
-    refresh_deformed_positions!(points, bodies) -> nothing
-
-Update every PARTICLE_DYNAMICS wing node's `pos_b` from its live world
-position, measured in its wing's current frame about the wing origin — the same
-reference `finalize_transforms!` builds `pos_undeformed_b` against, so the two
-differ only by the deformation the points have picked up.
-
-Called once per state sync, so both backends report it from one definition. A
-RIGID_DYNAMICS wing's nodes keep the offset they were constructed with, that
-being what places them.
-"""
-function refresh_deformed_positions!(points, bodies)
-    for body in bodies
-        body.dynamics_type == PARTICLE_DYNAMICS || continue
-        isnothing(body.origin) && continue
-        frame = body.R_b_to_w'
-        for point in points
-            if point.is_wing_node && point.wing_idx == body.idx
-                point.pos_b .= frame * (point.pos_w - body.pos_w)
-            end
-        end
-    end
-    return nothing
+    init_undeformed_offsets!(bodies, points)
 end
 
 """
@@ -393,39 +366,6 @@ function init_undeformed_offsets!(bodies, points)
         end
     end
     return nothing
-end
-
-"""
-    init_principal_frame!(bodies, points)
-
-Compute principal frame ODE state from body frame.
-Must be called after body frame (`pos_w`, `R_b_to_w`,
-`vel_w`, `ω_b`) is fully initialized.
-
-Sets: `com_w`, `Q_p_to_w`, `com_vel`, `ω_p` (derived from body
-frame), and `pos_undeformed_b` and `pos_b` for RIGID_DYNAMICS wing points (body
-frame, relative to COM).
-"""
-function init_principal_frame!(bodies, points)
-    init_undeformed_offsets!(bodies, points)
-    for body in bodies
-        if body.dynamics_type == RIGID_DYNAMICS
-            init_principal_state!(body)
-            for point in points
-                if point.is_wing_node && point.wing_idx == body.idx
-                    point.pos_b .= point.pos_undeformed_b
-                end
-            end
-        else
-            R_b_to_w = body.R_b_to_w::Matrix{SimFloat}
-            body.com_w .= body.pos_w .+ R_b_to_w * body.com_offset_b
-            R_p_to_w = R_b_to_w * body.R_b_to_p'
-            body.Q_p_to_w .= rotation_matrix_to_quaternion(R_p_to_w)
-            ω_w = R_b_to_w * body.ω_b
-            body.com_vel .= body.vel_w .+ cross(ω_w, R_b_to_w * body.com_offset_b)
-            body.ω_p .= R_p_to_w' * ω_w
-        end
-    end
 end
 
 # ==================== REINIT! ==================== #

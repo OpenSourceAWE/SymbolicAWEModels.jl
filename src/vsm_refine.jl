@@ -438,7 +438,7 @@ function update_vsm_wing_from_structure!(wing, points::AbstractVector)
 
     # R_b_to_w and origin are updated during simulation from structural geometry.
     R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-    origin = wing.pos_w::KVec3
+    origin = SVector(wing.pos_w)
 
     # Update each VSM section point directly from its corresponding structural point
     point_to_vsm_point =

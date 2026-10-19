@@ -281,7 +281,6 @@ SymbolicAWEModels.inflow_slots
 SymbolicAWEModels.mass_slot
 SymbolicAWEModels.va_frame_body
 SymbolicAWEModels.drag_source
-SymbolicAWEModels.write_stretched_lengths!
 SymbolicAWEModels.copy_slots!
 SymbolicAWEModels.KernelControlSetter
 SymbolicAWEModels.write_total_mass!

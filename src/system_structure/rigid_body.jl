@@ -300,34 +300,6 @@ Body-frame x of `point` on `wing` in the initial pose: smaller towards the leadi
 initial_chord_position(wing, point) = initial_body_position(wing, point)[1]
 
 """
-    init_principal_state!(obj)
-
-Derive the principal-frame ODE state (`com_w`, `com_vel`, `Q_p_to_w`, `ω_p`) from
-the body-frame initial conditions (`pos_w`, `vel_w`, `Q_b_to_w`, `ω_b`) of a rigid
-body or `RIGID_DYNAMICS` wing, with `R_p_to_w = R_b_to_w * R_b_to_p'`. Shared by
-[`init_rigid_body!`](@ref) and the rigid branch of `init_principal_frame!` (for a
-`RIGID_DYNAMICS` wing).
-"""
-function init_principal_state!(obj)
-    R_b_to_w = quaternion_to_rotation_matrix(obj.Q_b_to_w)
-    obj.com_w .= obj.pos_w .+ R_b_to_w * obj.com_offset_b
-    R_p_to_w = R_b_to_w * obj.R_b_to_p'
-    obj.Q_p_to_w .= rotation_matrix_to_quaternion(R_p_to_w)
-    ω_w = R_b_to_w * obj.ω_b
-    obj.com_vel .= obj.vel_w .+ cross(ω_w, R_b_to_w * obj.com_offset_b)
-    obj.ω_p .= R_p_to_w' * ω_w
-    return nothing
-end
-
-"""
-    init_rigid_body!(body)
-
-Derive the body's principal-frame ODE state from its body-frame initial
-conditions via [`init_principal_state!`](@ref).
-"""
-init_rigid_body!(body) = init_principal_state!(body)
-
-"""
     AbstractTubeModel
 
 Structural element a [`Tube`](@ref) is simulated as. Each concrete model carries
