@@ -153,7 +153,9 @@ jobs:
         continue-on-error: true
 
       - name: Save the Julia depot
-        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.depot.outputs.cache-hit != 'true' }}
+        if: >-
+          ${{ !cancelled() && steps.depot.outputs.cache-hit != 'true' &&
+          (github.ref == 'refs/heads/main' || github.event_name == 'pull_request') }}
         uses: actions/cache/save@v6
         with:
           path: ${{ env.DEPOT_CACHE_PATHS }}
@@ -211,7 +213,9 @@ jobs:
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
 
       - name: Save the Julia depot
-        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.depot.outputs.cache-hit != 'true' }}
+        if: >-
+          ${{ !cancelled() && steps.depot.outputs.cache-hit != 'true' &&
+          (github.ref == 'refs/heads/main' || github.event_name == 'pull_request') }}
         uses: actions/cache/save@v6
         with:
           path: ${{ env.DEPOT_CACHE_PATHS }}
