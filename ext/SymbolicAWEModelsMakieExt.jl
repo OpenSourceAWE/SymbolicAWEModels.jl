@@ -1259,7 +1259,7 @@ Create a multi-panel plot of key simulation results from a `SysLog`.
 
 # Keyword Arguments
 - `plot_default::Bool=true`: Defaults to true, enabling all plot panels. If false, all panels are disabled.
-- `plot_turn_rates::Bool=false`: Show the panel with the wing's angular velocities (ω_x, ω_y, ω_z).
+- `plot_turn_rates::Bool=false`: Show the panel with the wing's body-frame angular velocities (ω_x, ω_y, ω_z).
 - `plot_turn_radius::Bool=false`: Show signed turn radius derived from velocity and acceleration.
 - `plot_reelout::Bool=plot_default`: Show the panel with the reel-out velocities of the steering winches.
 - `plot_aero_force::Bool=plot_default`: Show the panel with the z-component of aerodynamic force.
@@ -1483,24 +1483,22 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
             sl = lg.syslog
             suffix = " - " * syss[i].name
 
-            # View-frame angular velocity components (ω_v) from log turn_rates
+            # Body-frame angular velocity components (ω_b) from log turn_rates
             turn_rates_rad = hcat(sl.turn_rates...)
             if !all(iszero, turn_rates_rad)
                 push!(all_data, rad2deg.(turn_rates_rad[1, :]))
-                push!(all_labels, "ω_v,x")
+                push!(all_labels, "ω_b,x")
                 push!(all_times, sl.time)
 
                 push!(all_data, rad2deg.(turn_rates_rad[2, :]))
-                push!(all_labels, "ω_v,y")
+                push!(all_labels, "ω_b,y")
                 push!(all_times, sl.time)
 
                 push!(all_data, rad2deg.(turn_rates_rad[3, :]))
-                push!(all_labels, "ω_v,z")
+                push!(all_labels, "ω_b,z")
                 push!(all_times, sl.time)
             elseif !isempty(sl.orient)
-                # Fallback for PARTICLE_DYNAMICS logs: reconstruct ω_v from quaternions
-                sys_i = syss[i]
-                wing = sys_i.wings[1]
+                # Fallback for logs without turn_rates: reconstruct ω_b from quaternions
                 n = length(sl.time)
                 ωx = Vector{Float64}(undef, n - 1)
                 ωy = Vector{Float64}(undef, n - 1)
@@ -1523,22 +1521,18 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
                         )
                     end
                     ω_w = (angle / dt) .* axis
-                    pos_w = wing_log_pos(sl, sys_i, wing, k)
-                    e_x = SVector{3, Float64}(R1[:, 1])
-                    R_v_w = SymbolicAWEModels.calc_R_v_to_w(pos_w, e_x)
-                    ω_v = R_v_w' * ω_w
-                    ωx[k], ωy[k], ωz[k] = ω_v
+                    ωx[k], ωy[k], ωz[k] = R1' * ω_w
                 end
                 push!(all_data, rad2deg.(ωx))
-                push!(all_labels, "ω_v,x")
+                push!(all_labels, "ω_b,x")
                 push!(all_times, sl.time[1:end-1])
 
                 push!(all_data, rad2deg.(ωy))
-                push!(all_labels, "ω_v,y")
+                push!(all_labels, "ω_b,y")
                 push!(all_times, sl.time[1:end-1])
 
                 push!(all_data, rad2deg.(ωz))
-                push!(all_labels, "ω_v,z")
+                push!(all_labels, "ω_b,z")
                 push!(all_times, sl.time[1:end-1])
             end
         end
@@ -1547,7 +1541,7 @@ function MakieControlPlots.plot(syss::Vector{<:SystemStructure}, logs::Vector{<:
                 data = all_data,
                 labels = all_labels,
                 times = all_times,
-                ylabel = "ω_v [°/s]\nturn-rate"
+                ylabel = "ω_b [°/s]\nturn-rate"
             ))
         end
     end

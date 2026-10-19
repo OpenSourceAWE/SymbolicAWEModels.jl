@@ -381,6 +381,23 @@ aero_poses = [
                         "$(round(norm(wing.ω_b); sigdigits=3)) vs measured ",
                         "$(round(norm(omega_measured); sigdigits=3)) rad/s")
                 end
+
+                case.reference == :vsm &&
+                @testset "SysState turn_rates hold the body-frame rate" begin
+                    wing.ω_b .= [0.1, -0.2, 0.3]
+                    wing.turn_rate .= [0.3, 0.1, -0.2]
+                    ss = SysState(sam)
+                    update_sys_state!(ss, sam)
+                    @test ss.turn_rates ≈ wing.ω_b
+                    @test ss.turn_rates ≈
+                        [ss.turn_rate_x[1], ss.turn_rate_y[1], ss.turn_rate_z[1]]
+
+                    outputs = sam.outputs
+                    sam.outputs = [sam.prob.sys.body_ω_b[3, 1]]
+                    lin_state = SymbolicAWEModels.make_lin_sys_state([0.7], sam, 0.0)
+                    sam.outputs = outputs
+                    @test lin_state.turn_rates[3] ≈ 0.7
+                end
             end
 
             case.reference == :zero && continue

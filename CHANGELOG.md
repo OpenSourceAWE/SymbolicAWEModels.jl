@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## Unreleased
+
+### Fixed
+
+- `SysState.turn_rates` holds the wing's angular velocity in its body frame (KA when the wing's reference points give aft-right-up), as KiteUtils defines it, instead of in the view frame. The linear-simulation log writes the body-frame yaw rate `body_ω_b[3, 1]` to `turn_rates[3]`, where it threw a `BoundsError` before. The `plot_turn_rates` panel is labelled `ω_b`. `Wing.turn_rate` stays in the view frame.
+
 ## SymbolicAWEModels v0.20.0 2026-10-08
 
 ### Added
