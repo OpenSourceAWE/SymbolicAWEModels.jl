@@ -258,6 +258,10 @@ SymbolicAWEModels.StationModel
 SymbolicAWEModels.WingModel
 SymbolicAWEModels.PulleyModel
 SymbolicAWEModels.BodyModel
+SymbolicAWEModels.TetherModel
+SymbolicAWEModels.WinchModel
+SymbolicAWEModels.TimoshenkoTubeModel
+SymbolicAWEModels.ElasticTubeModel
 SymbolicAWEModels.register_definition_models
 ```
 

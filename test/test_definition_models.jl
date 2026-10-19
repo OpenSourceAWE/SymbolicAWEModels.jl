@@ -77,4 +77,46 @@ named(components, name) = only(filter(component -> component.name == name, compo
         @test point.body_frame_damping == [1.0, 2.0, 3.0]
         @test point.world_frame_damping === 4.0
     end
+
+    @testset "a tube reads into the model it names, a point into its anchor" begin
+        beam(tubes) = """
+            bodies:
+              headers: [name, extra_mass, inertia_principal, pos, type]
+              data:
+                - [nodeA, 1.0, [0.01, 0.01, 0.01], [0.0, 0.0, 0.0], STATIC]
+                - [nodeB, 1.0, [0.01, 0.01, 0.01], [1.0, 0.0, 0.0], DYNAMIC]
+            points:
+              headers: [name, pos_cad, type, body_idx, anchor_b]
+              data:
+                - [tip, [1.0, 0.0, 0.0], BODY_STATIC, nodeB, [0.0, 0.0, 0.0]]
+            tubes:
+            """ * tubes
+        function load_beam(tubes)
+            file = joinpath(mktempdir(), "beam.yaml")
+            write(file, beam(tubes))
+            return first(load_authoring(file; set))
+        end
+        system = load_beam("""
+              headers: [name, bodies, diameter, pressure, law, model, anchor_a,
+                        stiffness_axial, stiffness_shear, stiffness_torsion,
+                        stiffness_bending]
+              data:
+                - [tube, [nodeA, nodeB], 0.1, 30000.0, breukels2011, elastic,
+                   [0.5, 0.0, 0.0], 10000.0, 1500.0, 50.0, 100.0]
+            """)
+        tube = only(system.tubes)
+        @test tube.model isa SymbolicAWEModels.ElasticTubeModel
+        @test tube.stiffness_bending == 100.0
+        @test tube.anchor_a == [0.5, 0.0, 0.0]
+        @test only(system.points).anchor_b == zeros(3)
+        @test named(system.bodies, "nodeA").type == "STATIC"
+        tube = only(load_beam("""
+              headers: [name, bodies, diameter, pressure, law, EA, damping]
+              data:
+                - [tube, [nodeA, nodeB], 0.1, 30000.0, breukels2011, 10000.0, 0.05]
+            """).tubes)
+        @test tube.model isa SymbolicAWEModels.TimoshenkoTubeModel
+        @test tube.EA == 10000.0
+        @test isnothing(tube.GJ)
+    end
 end
