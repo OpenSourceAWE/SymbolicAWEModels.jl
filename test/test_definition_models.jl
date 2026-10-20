@@ -14,7 +14,7 @@ using SymbolicAWEModels
 using KiteUtils
 
 """The component of `components` named `name`."""
-named(components, name) = only(filter(component -> component.name == name, components))
+named(components, name) = only(filter(row -> row.name == Symbol(name), components))
 
 @testset verbose = true "Definition models" begin
     kite = joinpath(dirname(@__DIR__), "data", "2plate_kite")

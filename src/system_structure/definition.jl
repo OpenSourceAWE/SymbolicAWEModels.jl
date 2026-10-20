@@ -27,7 +27,7 @@ function system_definition(sys::SystemStructure)
 end
 
 """The name a definition gives component `component`: its own, else its index."""
-definition_name(component) = string(something(component.name, component.idx))
+definition_name(component) = Symbol(something(component.name, component.idx))
 
 """Index `idx` as a reference, `nothing` for the absent reference 0."""
 optional_index(idx) = idx == 0 ? nothing : idx

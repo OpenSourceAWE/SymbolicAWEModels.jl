@@ -145,7 +145,7 @@ function member_transforms(transforms, block, count)
 end
 
 """A row's name as a `Symbol`, or its index where the authoring YAML gave it none."""
-row_name(row) = something(tryparse(Int, row.name), Symbol(row.name))
+row_name(row) = something(tryparse(Int, String(row.name)), row.name)
 
 """The name of row `i` of `rows`, as [`row_name`](@ref) gives it, `nothing` for
 `nothing`."""
@@ -153,7 +153,7 @@ name_of(rows, i) = isnothing(i) ? nothing : row_name(rows[i])
 
 """A reference an authoring YAML cell gives: an index, or a name as a `Symbol`."""
 cell_ref(value::Integer) = Int(value)
-cell_ref(value::AbstractString) = Symbol(value)
+cell_ref(value::Union{AbstractString, Symbol}) = Symbol(value)
 
 """The weighted reference points a cell gives: one reference, a list averaged, or
 `[reference, weight]` pairs."""
