@@ -234,6 +234,7 @@ SymbolicAWEModels.unit_inertia_spec
 SymbolicAWEModels.set_kwargs
 SymbolicAWEModels.maybe
 SymbolicAWEModels.definition_wing
+SymbolicAWEModels.point_body
 SymbolicAWEModels.document_format
 ```
 
