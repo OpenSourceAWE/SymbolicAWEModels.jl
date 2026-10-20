@@ -73,8 +73,8 @@ end
                               ignore_l0=false, dynamics_type=nothing, aero_mode=nothing,
                               vsm_set=nothing, wind_mode=ProfileWind(), prn=true)
 
-Build a `SystemStructure` from an authoring YAML, read by KiteGeometry's `load_authoring`
-in its design pose and placed by its transforms ([`place!`](@ref)). `set` defaults to the
+Build a `SystemStructure` from an authoring YAML, read and placed by its transforms with
+KiteGeometry's `load_authoring`. `set` defaults to the
 `base` settings; `dynamics_type` and `aero_mode` override every wing's.
 `wind_mode=PerPointWind()` gives each point its own settable wind. `prn=false` silences the
 messages loading a structure prints.
@@ -86,25 +86,22 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}=nothing,
         wind_mode::WindMode=ProfileWind(), prn::Bool=true)
     isnothing(set) && (set = load_settings("base"))
-    definition, transforms = load_authoring(yaml_path; set, name=system_name,
-                                            place=false)
-    return SystemStructure(definition, transforms, set; placed=false, ignore_l0,
+    definition, transforms = load_authoring(yaml_path; set, name=system_name, ignore_l0)
+    return SystemStructure(definition, transforms, set;
                            dynamics_type, aero_mode, vsm_set, wind_mode, prn)
 end
 
 """
-    SystemStructure(definition::SystemDefinition, transforms, set; placed=true,
-                    ignore_l0=false, dynamics_type=nothing, aero_mode=nothing,
-                    vsm_set=nothing, wind_mode=ProfileWind(), prn=true)
+    SystemStructure(definition::SystemDefinition, transforms, set; dynamics_type=nothing,
+                    aero_mode=nothing, vsm_set=nothing, wind_mode=ProfileWind(), prn=true)
 
 The structure of a KiteGeometry `definition` and its `transforms`, in the pose the
-definition gives, or, with `placed=false`, placed from it ([`place!`](@ref)). Its
-components are read from the definition's rows and the models SymbolicAWEModels registers
-for them ([`register_definition_models`](@ref)).
+definition gives. Its components are read from the definition's rows and the models
+SymbolicAWEModels registers for them ([`register_definition_models`](@ref)).
 """
 function SystemStructure(definition::SystemDefinition, transforms, set::Settings;
-        placed=true, ignore_l0=false, dynamics_type=nothing, aero_mode=nothing,
-        vsm_set=nothing, wind_mode::WindMode=ProfileWind(), prn=true)
+        dynamics_type=nothing, aero_mode=nothing, vsm_set=nothing,
+        wind_mode::WindMode=ProfileWind(), prn=true)
     point_transforms = member_transforms(transforms, :points, length(definition.points))
     body_transforms = member_transforms(transforms, :bodies, length(definition.bodies))
     n_wings = length(definition.wings)
@@ -131,7 +128,7 @@ function SystemStructure(definition::SystemDefinition, transforms, set::Settings
         bodies=Body[definition_body(definition.bodies[b], body_transforms[b])
                     for b in n_wings+1:length(definition.bodies)],
         tubes=Tube[definition_tube(definition, tube) for tube in definition.tubes],
-        placed, ignore_l0, vsm_set, wind_mode, prn, definition)
+        placed=true, vsm_set, wind_mode, prn, definition)
 end
 
 """The name of the transform moving each of `count` members of `block`, `nothing` for
