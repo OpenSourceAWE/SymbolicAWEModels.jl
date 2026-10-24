@@ -163,7 +163,7 @@ function build_flap_model(data_path, tube_block; point_flap=false, kwargs...)
     return SymbolicAWEModel(set, sys; kwargs...), sys
 end
 
-flap_angle(sam) = station_deltas(sam.sys_struct)[sam.sys_struct.stations[:flap].idx]
+flap_angle(sam) = station_deltas(sam.state)[sam.state.stations[:flap].idx]
 
 @testset "point flap geometry" begin
     station = S.Station(:s, Symbol[], KINEMATIC, 0.0;
@@ -198,7 +198,7 @@ end
             cp(joinpath(pkg_root, "data", "2plate_kite"), data_path; force=true)
             write_delta_swept_fixture(data_path)
             sam, sys = build_flap_model(data_path, tube_block)
-            wing = sys.wings[1]; mode = wing.aero
+            wing = sam.state.wings[1]; mode = wing.aero
             te = sys.bodies[:te_body]
             @test mode isa AeroPressure
             @test has_flap(sys.stations[:flap])
@@ -238,7 +238,7 @@ end
     write_delta_swept_fixture(data_path)
     sam, sys = build_flap_model(data_path, ELASTIC_TUBE;
                                 point_flap=true, backend=KernelBackend())
-    wing = sys.wings[1]
+    wing = sam.state.wings[1]
     station = sys.stations[:flap]
     @test has_point_flap(station)
     @test isempty(station.flap_body_idxs)

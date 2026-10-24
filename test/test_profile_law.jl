@@ -146,7 +146,7 @@ system:
         norm(get_wind_vector_at_point(sam, point_name))
 
     get_wind_vector_at_point(sam, point_name) =
-        copy(sam.sys_struct.points[point_name].wind_vec)
+        copy(sam.state.points[point_name].wind_vec)
 
     # ========================================================================
     # Test 1: Profile law 0 (CONST) - uniform wind at all heights

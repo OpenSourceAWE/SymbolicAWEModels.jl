@@ -226,7 +226,7 @@ function update_live_deflection!(mode::AeroPressure, wing, points)
     state = mode.live::LivePolarState
     panels = wing.vsm_aero.panels
     rot_body_to_world = wing.R_b_to_w::Matrix{SimFloat}
-    origin = wing.pos_w::KVec3
+    origin = SVector(wing.pos_w)
     chord_weight = corner_chord_weights(wing)
     for station in eachindex(state.control_point)
         assigned = state.control_point[station]

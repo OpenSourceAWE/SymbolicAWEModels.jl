@@ -114,10 +114,10 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
                                            apparent_mass=scale)
             sam = SymbolicAWEModel(set, sys; backend=MonolithBackend())
             test_init!(sam; remake=true)
-            points = wing_points(sam.sys_struct, sam.sys_struct.wings[1])
+            points = wing_points(sam.state, sam.state.wings[1])
             before = [copy(p.vel_w) for p in points]
             next_step!(sam)
-            update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+            update_sys_struct!(sam.prob, sam.integrator, sam.state)
             maximum(norm(p.vel_w .- v0) for (p, v0) in zip(points, before))
         end
         @test accels[2] < accels[1]

@@ -61,7 +61,7 @@ wing-node aero receivers, so both track the deformed beam identically.
 function beam_hermite_ride_eqs(point, force_on_point, s, params;
                                pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
                                body_com_vel, body_ω_b, body_force, body_moment)
-    tube = s.sys_struct.tubes[point.tube_idx]
+    tube = s.state.tubes[point.tube_idx]
     a = tube.body_a_idx
     b = tube.body_b_idx
     R_a = collect(body_R_b_to_w[:, :, a])
@@ -194,12 +194,12 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
 
         # A rigid wing's own VSM wrench replaces the per-node aero force.
         rigid_wing_node = point.is_wing_node &&
-            s.sys_struct.bodies[point.wing_idx].dynamics_type == RIGID_DYNAMICS
+            s.state.bodies[point.wing_idx].dynamics_type == RIGID_DYNAMICS
         aero_force_w = (!rigid_wing_node && point.is_wing_node &&
-                        is_wing(s.sys_struct.bodies[point.wing_idx])) ?
+                        is_wing(s.state.bodies[point.wing_idx])) ?
             collect(R_b_to_w[:, :, point.wing_idx] *
                     aero_force_point_b[:, point.idx]) : zeros(Num, 3)
-        carries_gravity = carrier_body_idx(point, s.sys_struct.bodies) == 0
+        carries_gravity = carrier_body_idx(point, s.state.bodies) == 0
         eqs = [
             eqs
             point_force[:, point.idx] ~ point_net_force(s,
@@ -232,7 +232,7 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
             )
             if in_group
                 found = 0
-                for wing_ in s.sys_struct.bodies
+                for wing_ in s.state.bodies
                     if station.idx in wing_.station_idxs
                         found += 1
                     end

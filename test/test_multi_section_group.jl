@@ -48,8 +48,9 @@ vsm_set = VortexStepMethod.VSMSettings(
         @test length(station.unrefined_section_idxs) == 1
     end
 
-    # Every panel belongs to exactly one station, the one nearest its centre, so the
-    # mirror-symmetric kite gives its left and right stations the same number of panels.
+    # Every panel belongs to exactly one station, the one nearest its centre, a tie within
+    # 1e-9 relative going outboard, so the mirror-symmetric kite gives its left and right
+    # stations the same number of panels.
     n_panels = length(wing.vsm_aero.panels)
     owned = reduce(vcat, [station.panel_idxs for station in sys.stations])
     @test sort(owned) == collect(1:n_panels)
@@ -60,7 +61,8 @@ vsm_set = VortexStepMethod.VSMSettings(
     for station in sys.stations, panel_idx in station.panel_idxs
         corners = wing.vsm_aero.panels[panel_idx].corner_points
         center = vec(sum(corners; dims=2)) / 4 - offset
-        @test all(norm(center - station_center(station)) <= norm(center - station_center(other))
+        distance(other) = norm(center - station_center(other))
+        @test all(distance(station) <= distance(other) * (1 + 1e-9)
                   for other in sys.stations)
     end
     @test length(sys.stations[:left].panel_idxs) == length(sys.stations[:right].panel_idxs)

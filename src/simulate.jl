@@ -176,7 +176,7 @@ function sim_reposition!(
     prn=true
 )
     # 1. --- Initialization ---
-    sys_struct = sam.sys_struct
+    sys_struct = sam.state
     steps = Int(round(total_time / dt))
     reposition_interval_steps = Int(round(reposition_interval_s / dt))
     set_values = zeros(Float64, steps, length(sys_struct.winches))

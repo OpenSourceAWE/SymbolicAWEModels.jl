@@ -31,8 +31,8 @@ sys = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite", set, vsm_set)
 sys.winches[:main_winch].brake = true
 sam = SymbolicAWEModel(set, sys)
-l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
-l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
+l0_left = sam.state.segments[:kcu_steering_left].l0
+l0_right = sam.state.segments[:kcu_steering_right].l0
 
 dt = 0.05
 
@@ -53,9 +53,9 @@ zero resolves no finer than `sqrt(eps)` rad (8.5e-7 deg per ULP of the
 cosine) and would quantize an exact match to a spurious ~1e-6 deg.
 """
 function twist_chord_diffs(sam)
-    wing = sam.sys_struct.wings[1]
-    points = sam.sys_struct.points
-    stations = sam.sys_struct.stations
+    wing = sam.state.wings[1]
+    points = sam.state.points
+    stations = sam.state.stations
     vsm = wing.vsm_wing
     R = wing.R_b_to_w
     origin = wing.pos_w
@@ -117,12 +117,12 @@ end
 steer_mag = 0.03
 for step in 1:100
     steer = steer_mag * clamp(step * dt / 2.0, 0.0, 1.0)
-    sam.sys_struct.segments[:kcu_steering_left].l0 =
+    sam.state.segments[:kcu_steering_left].l0 =
         l0_left - steer
-    sam.sys_struct.segments[:kcu_steering_right].l0 =
+    sam.state.segments[:kcu_steering_right].l0 =
         l0_right + steer
     next_step!(sam; dt, vsm_interval=1)
-    any(station -> abs(station.twist) > 0.1, sam.sys_struct.stations) && break
+    any(station -> abs(station.twist) > 0.1, sam.state.stations) && break
 end
 dyn_rows = twist_chord_diffs(sam)
 report("dynamic", dyn_rows)

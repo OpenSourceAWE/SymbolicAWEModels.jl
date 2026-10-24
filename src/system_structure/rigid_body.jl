@@ -58,7 +58,8 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     extra_mass::SimFloat
     "`extra_mass` plus the `total_mass` of the points the body carries [kg]."
     total_mass::SimFloat
-    "Entrained-air mass [kg] resisting acceleration without adding weight."
+    "Entrained-air mass [kg] resisting acceleration without adding weight, before a
+    wing's aero sets it."
     apparent_mass::SimFloat
     "Principal moments of inertia `[Ixx, Iyy, Izz]` with the carried points [kg·m²]."
     const inertia_principal::KVec3
@@ -95,19 +96,6 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     "Initial body→world orientation quaternion: how [`place!`](@ref) turns the body."
     const Q_KA_to_ENU::Vector{SimFloat}
 
-    # ---- body frame state (ICs in, live output out) ----
-    const Q_b_to_w::Vector{SimFloat}
-    const ω_b::KVec3
-    const pos_w::KVec3
-    const vel_w::KVec3
-    const acc_w::KVec3
-
-    # ---- principal frame ODE state ----
-    const com_w::KVec3
-    const com_vel::KVec3
-    const Q_p_to_w::Vector{SimFloat}
-    const ω_p::KVec3
-
     # ---- aerodynamics + wing machinery (inert when aero === AeroNone) ----
     aero::A
     "Resolved station indices (filled by SystemStructure)."
@@ -116,28 +104,16 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     const station_refs::Vector{NameRef}
     const wind_disturb::KVec3
     drag_frac::SimFloat
-    const va_b::KVec3
-    "Wind velocity at the wing, world frame [m/s]: a height-profile output, or the settable input under `PerPointWind`."
-    const wind_vec::KVec3
-    const aero_force_b::KVec3
-    const aero_moment_b::KVec3
-    elevation::SimFloat
-    elevation_vel::SimFloat
-    elevation_acc::SimFloat
-    azimuth::SimFloat
-    azimuth_vel::SimFloat
-    azimuth_acc::SimFloat
-    heading::SimFloat
-    const turn_rate::KVec3
-    const turn_acc::KVec3
-    course::SimFloat
-    aoa::SimFloat
     "Whether in-group (station) points contribute their moment to the body."
     group_points_moment::Bool
     # Body-frame reference points (define R_b_to_w / pos_w from structural points)
     z_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
     y_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
     origin::Union{Nothing, WeightedRefPoints}
+    "Origin of the frame the wing's mesh is authored in, world frame [m]."
+    const mesh_frame_pos::KVec3
+    "Rotation of the frame the wing's mesh is authored in into the world."
+    const R_mesh_to_w::Matrix{SimFloat}
 end
 
 """`Body` with rigid (DYNAMIC/STATIC) 6-DOF dynamics."""
@@ -221,16 +197,15 @@ broadcast_damping(damping) = damping isa Real ?
     KVec3(damping, damping, damping) : KVec3(damping)
 
 """
-    Body(name; extra_mass, inertia_principal | inertia, pos, vel=zeros,
-              Q_b_to_w=[1,0,0,0], ω_b=zeros, com_offset_b=zeros, R_b_to_p=I,
+    Body(name; extra_mass, inertia_principal | inertia, pos,
+              Q_b_to_w=[1,0,0,0], com_offset_b=zeros, R_b_to_p=I,
               angular_damping=0, world_frame_damping=0, body_frame_damping=0,
               fix_sphere=false, fix_static=false, type=DYNAMIC,
               transform=nothing, wing=nothing,
               ext_force_w=zeros, ext_moment_b=zeros)
 
-Construct a standalone rigid body. `pos`/`vel` are the body origin's initial
-world-frame position/velocity; `Q_b_to_w`/`ω_b` its initial orientation/spin.
-The principal-frame ODE state is derived from these by `init_rigid_body!`.
+Construct a standalone rigid body. `pos` is the body origin's initial world-frame
+position and `Q_b_to_w` its initial orientation.
 
 `type` is `DYNAMIC` (free 6-DOF, default) or `STATIC` (clamped to its initial
 pose — e.g. a cantilever root). `transform` optionally references a
@@ -259,9 +234,7 @@ function Body(name;
         inertia_principal = nothing,
         inertia = nothing,
         pos,
-        vel = zeros(SimFloat, 3),
         Q_b_to_w = SimFloat[1, 0, 0, 0],
-        ω_b = zeros(SimFloat, 3),
         com_offset_b = zeros(SimFloat, 3),
         R_b_to_p = Matrix{SimFloat}(I, 3, 3),
         angular_damping = 0.0,
@@ -303,16 +276,9 @@ function Body(name;
         damping_vec, world_damping_vec, body_damping_vec, fix_sphere, fix_static,
         type,
         KVec3(pos), Vector{SimFloat}(Q_b_to_w),
-        Vector{SimFloat}(Q_b_to_w), KVec3(ω_b),
-        KVec3(pos), KVec3(vel), zeros(KVec3),
-        zeros(KVec3), zeros(KVec3), zeros(SimFloat, 4), zeros(KVec3),
         # aero/wing fields (inert for a plain body)
-        AeroNone(), Int64[], NameRef[],
-        zeros(KVec3), one(SimFloat),
-        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        zeros(KVec3), zeros(KVec3), 0.0, 0.0,
-        true, nothing, nothing, nothing)
+        AeroNone(), Int64[], NameRef[], zeros(KVec3), one(SimFloat),
+        true, nothing, nothing, nothing, zeros(KVec3), Matrix{SimFloat}(I, 3, 3))
 end
 
 """
@@ -336,34 +302,6 @@ initial_body_position(body, point) =
 Body-frame x of `point` on `wing` in the initial pose: smaller towards the leading edge.
 """
 initial_chord_position(wing, point) = initial_body_position(wing, point)[1]
-
-"""
-    init_principal_state!(obj)
-
-Derive the principal-frame ODE state (`com_w`, `com_vel`, `Q_p_to_w`, `ω_p`) from
-the body-frame initial conditions (`pos_w`, `vel_w`, `Q_b_to_w`, `ω_b`) of a rigid
-body or `RIGID_DYNAMICS` wing, with `R_p_to_w = R_b_to_w * R_b_to_p'`. Shared by
-[`init_rigid_body!`](@ref) and the rigid branch of `init_principal_frame!` (for a
-`RIGID_DYNAMICS` wing).
-"""
-function init_principal_state!(obj)
-    R_b_to_w = quaternion_to_rotation_matrix(obj.Q_b_to_w)
-    obj.com_w .= obj.pos_w .+ R_b_to_w * obj.com_offset_b
-    R_p_to_w = R_b_to_w * obj.R_b_to_p'
-    obj.Q_p_to_w .= rotation_matrix_to_quaternion(R_p_to_w)
-    ω_w = R_b_to_w * obj.ω_b
-    obj.com_vel .= obj.vel_w .+ cross(ω_w, R_b_to_w * obj.com_offset_b)
-    obj.ω_p .= R_p_to_w' * ω_w
-    return nothing
-end
-
-"""
-    init_rigid_body!(body::Body)
-
-Derive the body's principal-frame ODE state from its body-frame initial
-conditions via [`init_principal_state!`](@ref).
-"""
-init_rigid_body!(body::Body) = init_principal_state!(body)
 
 """
     AbstractTubeModel
@@ -666,28 +604,28 @@ function derive_point_beam_anchor!(point::Point, tube::Tube, bodies)
 end
 
 """
-    has_body_flap(station::Station) -> Bool
+    has_body_flap(station) -> Bool
 
 `true` if the station reads its deflection off two ordered flap bodies.
 """
-has_body_flap(station::Station) = length(station.flap_body_idxs) == 2
+has_body_flap(station) = length(station.flap_body_idxs) == 2
 
 """
-    has_point_flap(station::Station) -> Bool
+    has_point_flap(station) -> Bool
 
 `true` if the station reads its deflection off three structural points
 `[fore, hinge, aft]` ([`point_flap_delta`](@ref)).
 """
-has_point_flap(station::Station) = length(station.flap_point_idxs) == 3
+has_point_flap(station) = length(station.flap_point_idxs) == 3
 
 """
-    has_flap(station::Station) -> Bool
+    has_flap(station) -> Bool
 
 `true` if the station carries a flap hinge either way, so it drives a live
 deflection δ ([`flap_delta`](@ref) / [`point_flap_delta`](@ref) /
 `station_delta_eqs!`). A station given both reads the points.
 """
-has_flap(station::Station) =
+has_flap(station) =
     has_point_flap(station) || has_body_flap(station)
 
 """
@@ -701,7 +639,7 @@ full polar δ range (an `atan`, not a small-angle approximation). The same formu
 the symbolic RHS uses (`station_delta_eqs!`), so it is the ground truth for
 tests.
 """
-flap_delta(station::Station, R_main, R_flap) =
+flap_delta(station, R_main, R_flap) =
     flap_delta_expression(station, R_main, R_flap)
 
 """
@@ -712,7 +650,7 @@ with `R_wing` the owning wing's orientation. The same
 [`point_flap_delta_expression`](@ref) the symbolic RHS evaluates, so it is the ground
 truth for tests.
 """
-function point_flap_delta(station::Station, points, R_wing)
+function point_flap_delta(station, points, R_wing)
     fore, hinge, aft = station.flap_point_idxs
     return point_flap_delta_expression(station, points[fore].pos_w,
         points[hinge].pos_w, points[aft].pos_w, R_wing)
@@ -726,7 +664,7 @@ undeformed configuration reads δ = 0. A body flap defaults its reference chords
 each body's x-axis and measures the two bodies' `Q_KA_to_ENU`; a point flap measures
 its three points' `pos_ENU`. No-op for surfaces without a flap.
 """
-function init_station_flap!(station::Station, sys_struct)
+function init_station_flap!(station, sys_struct)
     if has_point_flap(station)
         station.wing_idx in eachindex(sys_struct.wings) || error(
             "Station $(station.name): a point flap needs a `wing` to take its hinge " *

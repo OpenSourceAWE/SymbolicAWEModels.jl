@@ -53,111 +53,18 @@ mutable struct SystemStructure
     vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
     "Where the wind comes from: [`ProfileWind`](@ref) or [`PerPointWind`](@ref)."
     wind_mode::WindMode
-end
-
-function Base.getproperty(sys::SystemStructure, sym::Symbol)
-    if sym == :state_vars
-        vars = SimFloat[]
-        points = getfield(sys, :points)
-        for point in points
-            append!(vars, point.pos_w)
-            append!(vars, point.vel_w)
-        end
-        bodies = getfield(sys, :bodies)
-        for rigid_body in bodies
-            append!(vars, rigid_body.com_w)
-            append!(vars, rigid_body.com_vel)
-            append!(vars, rigid_body.Q_p_to_w)
-            append!(vars, rigid_body.ω_p)
-        end
-        stations = getfield(sys, :stations)
-        for station in stations
-            push!(vars, station.twist)
-            push!(vars, station.twist_ω)
-        end
-        pulleys = getfield(sys, :pulleys)
-        for pulley in pulleys
-            push!(vars, pulley.len)
-            push!(vars, pulley.vel)
-        end
-        # tethers
-        tethers = getfield(sys, :tethers)
-        for tether in tethers
-            push!(vars, tether.len)
-        end
-        # winches
-        winches = getfield(sys, :winches)
-        for winch in winches
-            push!(vars, winch.vel)
-        end
-        return reshape(vars, :, 1) # Return as a column vector (2D array)
-    else
-        return getfield(sys, sym)
-    end
-end
-
-function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
-    if sym == :state_vars
-        flat_value = vec(value) # Ensure value is a flat vector
-        offset = 1
-        points = getfield(sys, :points)
-        for point in points
-            point.pos_w .= @view flat_value[offset:offset+2]
-            offset += 3
-            point.vel_w .= @view flat_value[offset:offset+2]
-            offset += 3
-        end
-        bodies = getfield(sys, :bodies)
-        for rigid_body in bodies
-            rigid_body.com_w .= @view flat_value[offset:offset+2]
-            offset += 3
-            rigid_body.com_vel .= @view flat_value[offset:offset+2]
-            offset += 3
-            rigid_body.Q_p_to_w .= @view flat_value[offset:offset+3]
-            offset += 4
-            rigid_body.ω_p .= @view flat_value[offset:offset+2]
-            offset += 3
-        end
-        stations = getfield(sys, :stations)
-        for station in stations
-            station.twist = flat_value[offset]
-            offset += 1
-            station.twist_ω = flat_value[offset]
-            offset += 1
-        end
-        pulleys = getfield(sys, :pulleys)
-        for pulley in pulleys
-            pulley.len = flat_value[offset]
-            offset += 1
-            pulley.vel = flat_value[offset]
-            offset += 1
-        end
-        # tethers
-        tethers = getfield(sys, :tethers)
-        for tether in tethers
-            tether.len = flat_value[offset]
-            offset += 1
-        end
-        # winches
-        winches = getfield(sys, :winches)
-        for winch in winches
-            winch.vel = flat_value[offset]
-            offset += 1
-        end
-        return value
-    else
-        return setfield!(sys, sym, value)
-    end
+    "The KiteGeometry definition of the system in its initial pose."
+    definition::Union{Nothing, SystemDefinition}
 end
 
 """
-    calc_heading(sys::SystemStructure)
+    calc_heading(sys::SystemState)
 
 Calculate heading angles for all wings using the tangential
 sphere frame method. Returns a vector of heading angles, one
 per wing.
 """
-function calc_heading(sys::SystemStructure)
+function calc_heading(sys::SystemState)
     return [calc_heading(wing.R_b_to_w, wing.pos_w) for wing in sys.wings]
 end
 
@@ -682,14 +589,9 @@ function init_body_frame_from_ref_points!(
         points, wing.origin; field=:pos_ENU)
     wing.pos_ENU .= origin_pos
 
-    # Temporarily set pos_w = pos_ENU so the frame calc can read positions.
-    for point in points
-        wing_frame_member(point, wing.idx) &&
-            (point.pos_w .= point.pos_ENU)
-    end
     R_b_to_w, _ = calc_particle_dynamics_wing_frame(
         points, wing.z_ref_points,
-        wing.y_ref_points, wing.origin)
+        wing.y_ref_points, wing.origin; field=:pos_ENU)
     wing.Q_KA_to_ENU .= rotation_matrix_to_quaternion(R_b_to_w)
     wing.R_b_to_p .= Matrix{SimFloat}(I, 3, 3)
 
@@ -719,11 +621,8 @@ fewer stations one may own several adjacent sections and
 drive them all as a rigid unit with its single twist DOF. More
 stations than sections is rejected.
 """
-function compute_spatial_station_mapping!(
-    the_wing::Body,
-    stations::AbstractVector{Station},
-    points::AbstractVector{Point}
-)
+function compute_spatial_station_mapping!(the_wing, stations::AbstractVector,
+                                          points::AbstractVector)
     the_vsm_wing = the_wing.vsm_wing
     n_unrefined = the_vsm_wing.n_unrefined_sections
     n_stations = length(the_wing.station_idxs)
@@ -808,7 +707,7 @@ end
 Set each station's `body_mass`: the wing's `extra_mass`, which sits on no point, times
 the station's share of the wing's panel area.
 """
-function share_body_mass!(the_wing::Body, stations::AbstractVector{Station})
+function share_body_mass!(the_wing, stations::AbstractVector)
     panels = the_wing.vsm_aero.panels
     wing_area = sum(panel.chord * panel.width for panel in panels)
     for station_idx in the_wing.station_idxs
@@ -850,12 +749,8 @@ function setup_wing_frame!(wing, points; prn=true)
             origin_pos = get_ref_position_from_points(
                 points, origin; field=:pos_ENU)
             wing.pos_ENU .= origin_pos
-            for point in points
-                wing_frame_member(point, wing.idx) &&
-                    (point.pos_w .= point.pos_ENU)
-            end
             R_b_to_w, _ = calc_particle_dynamics_wing_frame(
-                points, z_ref, y_ref, origin)
+                points, z_ref, y_ref, origin; field=:pos_ENU)
             wing.Q_KA_to_ENU .= rotation_matrix_to_quaternion(R_b_to_w)
             wing.extra_com_offset_b .= R_b_to_w' * (com - origin_pos)
         else
@@ -886,10 +781,10 @@ Set every DYNAMIC and STATIC body's `total_mass`, `com_offset_b` and principal
 inertia (`inertia_principal`, `R_b_to_p`): its own mass properties plus
 each point it carries ([`carrier_body_idx`](@ref)) as a point mass of the point's
 `total_mass`, at its anchor. A particle wing's `total_mass` sums its free member points
-and its section bodies. Point masses are taken at the current `l0`, and the
-principal-frame state is re-derived from the new COM.
+and its section bodies. Point masses are taken at the current `l0`, and the rigid wing
+nodes' offsets from the new COM re-derived ([`init_undeformed_offsets!`](@ref)).
 """
-function update_mass_properties!(sys_struct::SystemStructure; prn=true)
+function update_mass_properties!(sys_struct; prn=true)
     (; points, bodies, stations) = sys_struct
     write_total_mass!(sys_struct)
     for body in bodies
@@ -913,7 +808,7 @@ function update_mass_properties!(sys_struct::SystemStructure; prn=true)
                               if carrier_body_idx(points[idx], bodies) == 0; init=0.0) +
             sum(bodies[idx].total_mass for idx in body_idxs; init=0.0)
     end
-    init_principal_frame!(bodies, points)
+    init_undeformed_offsets!(bodies, points)
     return nothing
 end
 
@@ -978,9 +873,11 @@ of the same structural shape should share one.
   `wind_vec` a settable parameter instead of a height-profile output.
 - `ignore_l0::Bool=false`: Set every segment `l0` to its placed length
   ([`relax_segments!`](@ref)).
-- `placed::Bool=false`: The positions given are the initial pose already: start there
-  ([`start_placed!`](@ref)) instead of running [`place!`](@ref), keeping every `l0`.
+- `placed::Bool=false`: The positions given are the initial pose already: keep them
+  and every `l0` instead of running [`place!`](@ref).
 - `prn::Bool=true`: If true, print info messages about auto-generated components.
+- `definition`: The KiteGeometry definition the components were read from; written from
+  them ([`system_definition`](@ref)) when omitted.
 
 # Returns
 - `SystemStructure`: A complete system ready for building a `SymbolicAWEModel`.
@@ -1001,6 +898,7 @@ function SystemStructure(name, set;
         vsm_set=nothing,
         wind_mode::WindMode=ProfileWind(),
         prn::Bool=true,
+        definition::Union{Nothing, SystemDefinition}=nothing,
     )
     # Load VSMSettings if not provided and VSM wings exist
     has_vsm_wings = any(has_vsm_engine(wing.aero) for wing in wings)
@@ -1052,8 +950,6 @@ function SystemStructure(name, set;
                     transform = points[idx].transform_ref
                 )
                 points[idx].idx = idx  # Reassign idx after recreation
-                points[idx].pos_w .= points[idx].pos_ENU
-                points[idx].vel_w .= 0.0
             end
         end
     end
@@ -1210,9 +1106,10 @@ function SystemStructure(name, set;
         NamedCollection{Body}(bodies, rigid_body_names_dict),
         NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
         NamedCollection{Tube}(tubes, tube_names_dict),
-        AtmosphericModel(set), false, false, vsm_set, wind_mode)
-    placed ? start_placed!(sys_struct) : place!(sys_struct; ignore_l0, prn)
-    init_sys_struct!(sys_struct, set; prn)
+        AtmosphericModel(set), false, false, vsm_set, wind_mode, definition)
+    placed || place!(sys_struct; ignore_l0, prn)
+    init_derived_properties!(sys_struct; prn)
+    isnothing(definition) && (sys_struct.definition = system_definition(sys_struct))
 
     # Panel→flap station map (structural; needs placed bodies + built panels).
     for wing in sys_struct.wings

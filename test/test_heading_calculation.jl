@@ -154,8 +154,8 @@ function heading_after_reinit(base_pos, dx, target_heading)
 
     placed = sys.bodies[:kite]
     return calc_heading(
-        quaternion_to_rotation_matrix(placed.Q_b_to_w),
-        placed.pos_w - sys.points[:ground].pos_w)
+        quaternion_to_rotation_matrix(placed.Q_KA_to_ENU),
+        placed.pos_ENU - sys.points[:ground].pos_ENU)
 end
 
 function test_near_vertical_placement(base_pos, label)

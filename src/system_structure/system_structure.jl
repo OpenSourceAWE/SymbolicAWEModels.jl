@@ -25,7 +25,9 @@ include("tube_laws.jl")     # Breukels/Comer-Levy tube rigidities for Timoshenko
 include("rigid_body.jl")    # Body (embedded in Wing and standalone)
 include("wing.jl")          # AbstractWing, Wing (embeds a Body)
 include("named_collection.jl")  # NamedCollection wrapper for symbol-based indexing
+include("system_state.jl")  # SystemState: what a run holds of each component
 include("system_structure_core.jl")  # SystemStructure type and constructor (uses Transform)
 include("transforms.jl")    # Heading calculations, reinit!/reposition! (uses SystemStructure)
 include("utilities.jl")     # Helpers, validation, state management
 include("definition_models.jl")  # KiteGeometry models of SAM's own columns
+include("definition.jl")         # The KiteGeometry definition of a structure

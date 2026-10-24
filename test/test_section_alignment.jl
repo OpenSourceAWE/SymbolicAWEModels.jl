@@ -108,13 +108,13 @@ end
 println("\n== Applying transforms ==")
 place!(sys)
 
-println("  R_b_to_w = ", round.(wing.R_b_to_w; digits=4))
-println("  pos_w = ", round.(wing.pos_w; digits=4))
+println("  R_b_to_w = ", round.(SymbolicAWEModels.initial_rotation(wing); digits=4))
+println("  pos_w = ", round.(wing.pos_ENU; digits=4))
 println()
 
 @testset "World-frame panel alignment" begin
-    R_bw = wing.R_b_to_w
-    T_bw = wing.pos_w
+    R_bw = SymbolicAWEModels.initial_rotation(wing)
+    T_bw = wing.pos_ENU
     panels = wing.vsm_aero.panels
 
     for i in 1:length(pairs)
@@ -122,8 +122,8 @@ println()
 
         # Structural points in world frame (set by
         # reinit! via transforms)
-        le_w = Vector(le_pt.pos_w)
-        te_w = Vector(te_pt.pos_w)
+        le_w = Vector(le_pt.pos_ENU)
+        te_w = Vector(te_pt.pos_ENU)
 
         # Find the panel whose center is closest to
         # the midpoint of this LE-TE pair in world
@@ -198,8 +198,8 @@ end
 
 # Also check unrefined sections → world directly
 @testset "World-frame unrefined section alignment" begin
-    R_bw = wing.R_b_to_w
-    T_bw = wing.pos_w
+    R_bw = SymbolicAWEModels.initial_rotation(wing)
+    T_bw = wing.pos_ENU
     n = vsm_wing.n_unrefined_sections
 
     for i in 1:n
@@ -211,8 +211,8 @@ end
         sec_te_w = R_bw * Vector(sec.TE_point) + T_bw
 
         # Structural points in world frame
-        le_w = Vector(le_pt.pos_w)
-        te_w = Vector(te_pt.pos_w)
+        le_w = Vector(le_pt.pos_ENU)
+        te_w = Vector(te_pt.pos_ENU)
 
         le_err = norm(sec_le_w - le_w)
         te_err = norm(sec_te_w - te_w)

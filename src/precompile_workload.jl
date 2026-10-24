@@ -57,6 +57,7 @@ function run_workload(fixture)
 end
 
 @setup_workload begin
+    register_definition_models()  # __init__ has not run while precompiling
     fixture = workload_fixture()
     @compile_workload begin
         run_workload(fixture)
