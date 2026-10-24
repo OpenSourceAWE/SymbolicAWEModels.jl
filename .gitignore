@@ -1,6 +1,7 @@
 /LocalPreferences.toml
 examples/LocalPreferences.toml
 test/LocalPreferences.toml
+output/
 *.log
 *.old
 *.mp4
