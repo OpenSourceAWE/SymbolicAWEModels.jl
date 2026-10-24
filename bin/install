@@ -251,6 +251,8 @@ if [[ $_skip_subprojects == true ]]; then
     echo "Skipping sub-project setup (--skip-subprojects)."
 else
     echo "Julia $julia_major: instantiating all sub-projects..."
+    # Pkg.resolve() does not update the registry, but needs the versions of the root manifest
+    $JULIA -e 'using Pkg; Pkg.Registry.update()'
 
     rm -f examples/Manifest-v${julia_major}.toml test/Manifest-v${julia_major}.toml
     rm -f docs/Manifest-v${julia_major}.toml
