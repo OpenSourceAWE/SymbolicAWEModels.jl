@@ -121,7 +121,8 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
     end
 
     @testset "a point on a wing naming a tube and no body rides the tube" begin
-        authored = read(joinpath(kite, "rigid_structural_geometry.yaml"), String)
+        authored = replace(read(joinpath(kite, "rigid_structural_geometry.yaml"), String),
+                           "\r\n" => "\n")
         rider_row = "    - [rider, [0.0, 0.0, 2.5], BODY_STATIC, main_wing, " *
                     "main_transform, 0.1, 10.0, 0.0, 0.0, 0.0, nothing, strut]\n"
         authored = replace(authored,
