@@ -45,7 +45,7 @@ function reset_state!(sam, set)
         end
     end
 
-    for wing in sam.sys_struct.wings
+    for wing in sam.state.wings
         wing.fix_sphere = false
     end
 
@@ -53,7 +53,7 @@ function reset_state!(sam, set)
 
     sam.sys_struct.winches[:main_winch].brake = true
 
-    place!(sam.sys_struct; prn=false)
+    place!(sam; prn=false)
     test_init!(sam; prn=false)
 end
 
@@ -116,7 +116,7 @@ end
             # Test 0: YAML Loading Verification
             # ========================================================
             @testset "YAML loading" begin
-                sys = sam.sys_struct
+                sys = sam.state
 
                 @test length(sys.wings) == 1
                 @test haskey(sys.wings, :main_wing)
@@ -148,9 +148,9 @@ end
                 set.v_wind = 0.0
                 test_init!(sam; prn=false)
                 @show sam.set.wind_vec
-                @show sam.sys_struct.wings[1].heading
+                @show sam.state.wings[1].heading
 
-                sys = sam.sys_struct
+                sys = sam.state
                 wing = sys.wings[:main_wing]
                 init_wing_pos = copy(wing.pos_w)
                 init_kcu_pos = copy(sys.points[:kcu].pos_w)
@@ -184,7 +184,7 @@ end
                 set.v_wind = 0.0
                 test_init!(sam; prn=false)
 
-                wing = sam.sys_struct.wings[:main_wing]
+                wing = sam.state.wings[:main_wing]
                 initial_z = wing.pos_w[3]
 
                 for _ in 1:n_steps
@@ -206,7 +206,7 @@ end
             @testset "Wind+gravity stable" begin
                 reset_state!(sam, set)
 
-                wing = sam.sys_struct.wings[:main_wing]
+                wing = sam.state.wings[:main_wing]
                 initial_norm = norm(wing.pos_w)
 
                 for _ in 1:n_steps
@@ -228,7 +228,7 @@ end
             @testset "Kite moves" begin
                 reset_state!(sam, set)
 
-                wing = sam.sys_struct.wings[:main_wing]
+                wing = sam.state.wings[:main_wing]
                 initial_pos = copy(wing.pos_w)
 
                 for _ in 1:n_steps
@@ -252,7 +252,7 @@ end
             @testset "Kite rotates" begin
                 reset_state!(sam, set)
 
-                wing = sam.sys_struct.wings[:main_wing]
+                wing = sam.state.wings[:main_wing]
                 initial_Q = copy(wing.Q_b_to_w)
 
                 for _ in 1:n_steps
@@ -281,7 +281,7 @@ end
                         point.fix_sphere = true
                     end
                 end
-                for wing in sam.sys_struct.wings
+                for wing in sam.state.wings
                     wing.fix_sphere = true
                 end
                 test_init!(sam; prn=false)
@@ -289,13 +289,13 @@ end
                 # RIGID_DYNAMICS: fix_sphere constrains com_w
                 # (not kcu, which shifts with rotation).
                 # PARTICLE_DYNAMICS: no separate COM, check kcu directly.
-                wing = sam.sys_struct.wings[:main_wing]
+                wing = sam.state.wings[:main_wing]
                 if expected_dynamics_type ==
                         SymbolicAWEModels.RIGID_DYNAMICS
                     p0 = copy(wing.com_w)
                 else
                     p0 = copy(
-                        sam.sys_struct.points[:kcu].pos_w
+                        sam.state.points[:kcu].pos_w
                     )
                 end
                 r̂0 = normalize(p0)
@@ -307,7 +307,7 @@ end
                 if expected_dynamics_type == SymbolicAWEModels.RIGID_DYNAMICS
                     p1 = copy(wing.com_w)
                 else
-                    p1 = copy(sam.sys_struct.points[:kcu].pos_w)
+                    p1 = copy(sam.state.points[:kcu].pos_w)
                 end
 
                 Δp = p1 - p0
@@ -342,7 +342,7 @@ end
                         :steering_right]
                 end
                 initial_positions = Dict(
-                    n => copy(sam.sys_struct.points[n].pos_w)
+                    n => copy(sam.state.points[n].pos_w)
                     for n in check_names
                 )
 
@@ -352,7 +352,7 @@ end
 
                 for name in check_names
                     drift = norm(
-                        sam.sys_struct.points[name].pos_w -
+                        sam.state.points[name].pos_w -
                         initial_positions[name]
                     )
                     drift_tol = if expected_dynamics_type ==
@@ -379,7 +379,7 @@ end
                 set.v_wind = 0.0
                 test_init!(sam; prn=false)
 
-                wing = sam.sys_struct.wings[:main_wing]
+                wing = sam.state.wings[:main_wing]
                 init_pos = copy(wing.pos_w)
 
                 for _ in 1:n_steps
@@ -427,7 +427,7 @@ end
                     next_step!(sam; dt, vsm_interval=1)
                 end
 
-                wing = sam.sys_struct.wings[:main_wing]
+                wing = sam.state.wings[:main_wing]
                 sol_force =
                     Vector(wing.vsm_solver.sol.force)
 
@@ -442,7 +442,7 @@ end
                         wing.aero_scale_chord : 0.0)
                     sol_force .*= scale
                     total_force = zeros(3)
-                    for p in sam.sys_struct.points
+                    for p in sam.state.points
                         if p.is_wing_node &&
                                 p.wing_idx == wing.idx
                             total_force .+= p.aero_force_b

@@ -17,19 +17,19 @@ function aero_eqs!(
     pos, vel, va_point_b, height, aero_force_point_b=nothing,
     station_delta=nothing
 )
-    (; stations, wings) = s.sys_struct
+    (; stations, wings) = s.state
     aero_subsystems = Any[]
     length(wings) == 0 && return eqs, aero_subsystems
 
     for wing in wings
         wing_idx = wing.idx
-        subsys = aero_component(wing.aero, wing, s.sys_struct;
+        subsys = aero_component(wing.aero, wing, s.state;
                                 name = Symbol("aero_$(wing_idx)"), params)
         push!(aero_subsystems, subsys)
         validate_aero_component(subsys, wing)
 
         if wing.dynamics_type == PARTICLE_DYNAMICS
-            nodes = wing_points(s.sys_struct, wing)
+            nodes = wing_points(s.state, wing)
             aero_force_point = aero_force_point_b::AbstractArray
             wiring = particle_wing_aero_wiring(s, subsys;
                 orientation = R_b_to_w[:, :, wing_idx],

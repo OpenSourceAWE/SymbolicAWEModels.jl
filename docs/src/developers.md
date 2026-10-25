@@ -491,8 +491,9 @@ The source code is organized into modular directories:
   - `create_sys.jl`: Top-level orchestrator
   - `point_eqs.jl`, `segment_eqs.jl`, `wing_eqs.jl`, `rigid_body_eqs.jl`,
     `elastic_tube_eqs.jl`, etc.: per-subsystem equations
-- **`src/yaml_loader.jl`** — YAML configuration file parser
-  ([`load_sys_struct_from_yaml`](@ref))
+- **`src/definition_loader.jl`** — a structure from a KiteGeometry definition: the
+  authoring YAML KiteGeometry loads ([`load_sys_struct_from_yaml`](@ref)) and the
+  structure documents it reads and writes
 - **`src/obj_adapter.jl`** — `.obj` mesh mass properties (`ObjAdapter`)
 - **`src/linearize.jl`** — low-frequency aero refresh dispatch and
   state-space linearization ([`linearize!`](@ref))

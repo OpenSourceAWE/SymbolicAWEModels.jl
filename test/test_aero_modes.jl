@@ -106,9 +106,9 @@ function apply_pose!(sam, set, pose; twist=nothing)
     transform.heading = heading
     transform.elevation_vel = 0.0
     transform.azimuth_vel = 0.0
-    place!(sam.sys_struct; prn=false)
+    place!(sam; prn=false)
     set.v_wind = v_wind
-    isnothing(twist) || set_twist!(sam.sys_struct, twist)
+    isnothing(twist) || set_twist!(sam.state, twist)
     init!(sam; prn=false)
     next_step!(sam; dt=1e-5, vsm_interval=1)
     return nothing
@@ -227,6 +227,7 @@ aero_poses = [
             @test wing.dynamics_type == case.dynamics
 
             sam = SymbolicAWEModel(set, sys)
+            wing = sam.state.bodies[1]
             test_init!(sam)
 
             @testset "pose sweep" begin
@@ -397,11 +398,11 @@ aero_poses = [
             @testset "yaw antisymmetry" begin
                 apply_pose!(sam, set, aero_poses[1])
                 pin_wing_nodes!(sys, wing)
-                base_pos = wing_node_positions(sys, wing)
+                base_pos = wing_node_positions(sam.state, wing)
                 @test !isempty(base_pos)
 
                 function held(delta)
-                    deform_trailing_edge!(sys, wing, base_pos, delta)
+                    deform_trailing_edge!(sam.state, wing, base_pos, delta)
                     init!(sam; prn=false)
                     next_step!(sam; dt=1e-5, vsm_interval=1)
                     return model_force_moment(sam, wing)

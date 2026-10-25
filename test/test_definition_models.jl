@@ -14,14 +14,14 @@ using SymbolicAWEModels
 using KiteUtils
 
 """The component of `components` named `name`."""
-named(components, name) = only(filter(component -> component.name == name, components))
+named(components, name) = only(filter(row -> row.name == Symbol(name), components))
 
 @testset verbose = true "Definition models" begin
     kite = joinpath(dirname(@__DIR__), "data", "2plate_kite")
     set_data_path(kite)
     set = Settings("system.yaml")
     load_kite(dynamics) =
-        load_authoring(joinpath(kite, "$(dynamics)_structural_geometry.yaml"); set)
+        first(load_authoring(joinpath(kite, "$(dynamics)_structural_geometry.yaml"); set))
 
     @testset "the $dynamics 2-plate kite reads SAM's columns" for
             (dynamics, point_type, station_type, moment_frac, damping) in
@@ -62,7 +62,7 @@ named(components, name) = only(filter(component -> component.name == name, compo
               data:
                 - [hub, 1.0, [0.0, 0.0, 0.0], [1.0, 1.0, 1.0], STATIC]
             """)
-        body = named(load_authoring(file; set).bodies, "hub")
+        body = named(first(load_authoring(file; set)).bodies, "hub")
         @test body.model isa SymbolicAWEModels.BodyModel
         @test body.type == "STATIC"
     end
@@ -73,8 +73,76 @@ named(components, name) = only(filter(component -> component.name == name, compo
         file = joinpath(mktempdir(), "rigid_structural_geometry.yaml")
         damped_row = "main_wing, main_transform, 0.1, [1, 2, 3], 4,"
         write(file, replace(authored, authored_row => damped_row; count=1))
-        point = first(load_authoring(file; set).points)
+        point = first(first(load_authoring(file; set)).points)
         @test point.body_frame_damping == [1.0, 2.0, 3.0]
         @test point.world_frame_damping === 4.0
+    end
+
+    @testset "a tube reads into the model it names, a point into its anchor" begin
+        beam(tubes) = """
+            bodies:
+              headers: [name, extra_mass, inertia_principal, pos, type]
+              data:
+                - [nodeA, 1.0, [0.01, 0.01, 0.01], [0.0, 0.0, 0.0], STATIC]
+                - [nodeB, 1.0, [0.01, 0.01, 0.01], [1.0, 0.0, 0.0], DYNAMIC]
+            points:
+              headers: [name, pos_cad, type, body_idx, anchor_b]
+              data:
+                - [tip, [1.0, 0.0, 0.0], BODY_STATIC, nodeB, [0.0, 0.0, 0.0]]
+            tubes:
+            """ * tubes
+        function load_beam(tubes)
+            file = joinpath(mktempdir(), "beam.yaml")
+            write(file, beam(tubes))
+            return first(load_authoring(file; set))
+        end
+        system = load_beam("""
+              headers: [name, bodies, diameter, pressure, law, model, anchor_a,
+                        stiffness_axial, stiffness_shear, stiffness_torsion,
+                        stiffness_bending]
+              data:
+                - [tube, [nodeA, nodeB], 0.1, 30000.0, breukels2011, elastic,
+                   [0.5, 0.0, 0.0], 10000.0, 1500.0, 50.0, 100.0]
+            """)
+        tube = only(system.tubes)
+        @test tube.model isa SymbolicAWEModels.ElasticTubeModel
+        @test tube.stiffness_bending == 100.0
+        @test tube.anchor_a == [0.5, 0.0, 0.0]
+        @test only(system.points).anchor_b == zeros(3)
+        @test named(system.bodies, "nodeA").type == "STATIC"
+        tube = only(load_beam("""
+              headers: [name, bodies, diameter, pressure, law, EA, damping]
+              data:
+                - [tube, [nodeA, nodeB], 0.1, 30000.0, breukels2011, 10000.0, 0.05]
+            """).tubes)
+        @test tube.model isa SymbolicAWEModels.TimoshenkoTubeModel
+        @test tube.EA == 10000.0
+        @test isnothing(tube.GJ)
+    end
+
+    @testset "a point on a wing naming a tube and no body rides the tube" begin
+        authored = replace(read(joinpath(kite, "rigid_structural_geometry.yaml"), String),
+                           "\r\n" => "\n")
+        rider_row = "    - [rider, [0.0, 0.0, 2.5], BODY_STATIC, main_wing, " *
+                    "main_transform, 0.1, 10.0, 0.0, 0.0, 0.0, nothing, strut]\n"
+        authored = replace(authored,
+            "area, drag_coeff, body_idx]\n  data:\n" =>
+            "area, drag_coeff, body_idx, tube]\n  data:\n" * rider_row; count=1)
+        file = joinpath(mktempdir(), "rigid_structural_geometry.yaml")
+        write(file, authored * """
+            bodies:
+              headers: [name, extra_mass, inertia_principal, pos, type]
+              data:
+                - [nodeA, 1.0, [0.01, 0.01, 0.01], [0.0, 0.0, 2.5], DYNAMIC]
+                - [nodeB, 1.0, [0.01, 0.01, 0.01], [0.0, 0.5, 2.5], DYNAMIC]
+            tubes:
+              headers: [name, bodies, diameter, pressure, law, EA]
+              data:
+                - [strut, [nodeA, nodeB], 0.1, 30000.0, breukels2011, 10000.0]
+            """)
+        sys = load_sys_struct_from_yaml(file; system_name="tube_rider", set,
+                                        aero_mode=AeroNone(), prn=false)
+        rider = sys.points[:rider]
+        @test rider.tube_idx == sys.tubes[:strut].idx
     end
 end

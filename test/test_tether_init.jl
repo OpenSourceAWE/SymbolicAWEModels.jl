@@ -225,12 +225,12 @@ environment:
         place!(sys)
 
         mid = sys.points[:main_tether_point_1]
-        @test mid.pos_w ≈ KVec3(0, 0, -100)
-        @test sys.points[:top].pos_w ≈ KVec3(0, 0, -200)
+        @test mid.pos_ENU ≈ KVec3(0, 0, -100)
+        @test sys.points[:top].pos_ENU ≈ KVec3(0, 0, -200)
         @test sys.tethers[:main_tether].len ≈ 200.0
         # The stretched placement is the initial pose.
-        @test mid.pos_ENU == mid.pos_w
-        @test sys.points[:top].pos_ENU == sys.points[:top].pos_w
+        @test SystemState(sys).points[:main_tether_point_1].pos_w == mid.pos_ENU
+        @test SystemState(sys).points[:top].pos_w == sys.points[:top].pos_ENU
     end
 
     # ================================================================
@@ -244,11 +244,11 @@ environment:
 
         place!(sys)
 
-        @test sys.points[:mid].pos_w ≈ KVec3(0, 0, -100)
-        @test sys.points[:top].pos_w ≈ KVec3(0, 0, -200)
+        @test sys.points[:mid].pos_ENU ≈ KVec3(0, 0, -100)
+        @test sys.points[:top].pos_ENU ≈ KVec3(0, 0, -200)
         @test sys.segments[:s1].l0 ≈ 100.0
         @test sys.segments[:s2].l0 ≈ 100.0
-        @test sys.points[:top].pos_ENU == sys.points[:top].pos_w
+        @test SystemState(sys).points[:top].pos_w == sys.points[:top].pos_ENU
     end
 
     # ================================================================
@@ -262,8 +262,8 @@ environment:
 
         place!(sys)
 
-        @test sys.points[:top].pos_w ≈ KVec3(0, 0, -200)
-        @test sys.points[:downstream].pos_w ≈ KVec3(10, 0, -200)
+        @test sys.points[:top].pos_ENU ≈ KVec3(0, 0, -200)
+        @test sys.points[:downstream].pos_ENU ≈ KVec3(10, 0, -200)
     end
 
     # ================================================================
@@ -285,12 +285,12 @@ environment:
             yaml_path; system_name="init_stretched_length_r2_idem", set=set)
 
         place!(sys)
-        mid_pos = copy(sys.points[:main_tether_point_1].pos_w)
-        top_pos = copy(sys.points[:top].pos_w)
+        mid_pos = copy(sys.points[:main_tether_point_1].pos_ENU)
+        top_pos = copy(sys.points[:top].pos_ENU)
 
         place!(sys)
-        @test sys.points[:main_tether_point_1].pos_w ≈ mid_pos
-        @test sys.points[:top].pos_w ≈ top_pos
+        @test sys.points[:main_tether_point_1].pos_ENU ≈ mid_pos
+        @test sys.points[:top].pos_ENU ≈ top_pos
     end
 
     # ================================================================
@@ -334,30 +334,30 @@ winches:
         sys.tethers[:tether_static].init_stretched_len = 200.0
         place!(sys)
 
-        ground_static = sys.points[:ground_static].pos_w
-        @test norm(sys.points[:top].pos_w - ground_static) ≈ 200.0
-        @test sys.points[:ground_static].pos_w ≈ KVec3(10, 0, 0)
-        @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
+        ground_static = sys.points[:ground_static].pos_ENU
+        @test norm(sys.points[:top].pos_ENU - ground_static) ≈ 200.0
+        @test sys.points[:ground_static].pos_ENU ≈ KVec3(10, 0, 0)
+        @test sys.points[:ground_winch].pos_ENU ≈ KVec3(-10, 0, 0)
 
         sys.tethers[:tether_winch].init_stretched_len = 100.0
-        top_before = copy(sys.points[:top].pos_w)
+        top_before = copy(sys.points[:top].pos_ENU)
         @test_logs (:info,) match_mode=:any place!(sys)
 
         # top moves along the line from the mean anchor (the origin) through where
         # it was, until the two tethers' mean length is the mean target, 150 m.
-        placed = copy(sys.points[:top].pos_w)
+        placed = copy(sys.points[:top].pos_ENU)
         @test normalize(placed) ≈ normalize(top_before)
         @test (norm(placed - ground_static) + norm(placed - KVec3(-10, 0, 0))) / 2 ≈ 150.0
-        @test sys.points[:ground_winch].pos_w ≈ KVec3(-10, 0, 0)
+        @test sys.points[:ground_winch].pos_ENU ≈ KVec3(-10, 0, 0)
 
         place!(sys; prn=false)
-        @test sys.points[:top].pos_w ≈ placed
+        @test sys.points[:top].pos_ENU ≈ placed
 
         # Tethers that already have their lengths stay where they are.
         sys.tethers[:tether_static].init_stretched_len = norm(placed - ground_static)
         sys.tethers[:tether_winch].init_stretched_len = norm(placed - KVec3(-10, 0, 0))
         place!(sys; prn=false)
-        @test sys.points[:top].pos_w ≈ placed
+        @test sys.points[:top].pos_ENU ≈ placed
     end
 
     # ================================================================
@@ -410,8 +410,9 @@ winches:
             system_name="init_stretched_length_r2_force", set=set)
         place!(sys)
 
-        tether = sys.tethers[:main_tether]
-        segs = sys.segments
+        state = SystemState(sys)
+        tether = state.tethers[:main_tether]
+        segs = state.segments
         stretched = sum(segs[si].len for si in tether.segment_idxs)
         k = SymbolicAWEModels.tether_unit_stiffness(tether, segs)
         @test stretched ≈ 200.0
@@ -419,28 +420,28 @@ winches:
         # default: force 0, no frac → len == stretched
         @test tether.init_tether_force == 0.0
         @test isnothing(tether.init_stretch_frac)
-        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        SymbolicAWEModels.apply_tether_init_forces!(state)
         @test tether.len ≈ stretched
 
         # stretch_frac → len = frac * stretched; clears the force
         tether.init_stretch_frac = 0.8
         @test isnothing(tether.init_tether_force)
-        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        SymbolicAWEModels.apply_tether_init_forces!(state)
         @test tether.len ≈ 0.8 * stretched
 
         # stretch_frac > 1 → slack: len longer than stretched
         tether.init_stretch_frac = 1.1
-        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        SymbolicAWEModels.apply_tether_init_forces!(state)
         @test tether.len ≈ 1.1 * stretched
 
         # non-positive stretch_frac errors
         tether.init_stretch_frac = 0.0
-        @test_throws ErrorException SymbolicAWEModels.apply_tether_init_forces!(sys)
+        @test_throws ErrorException SymbolicAWEModels.apply_tether_init_forces!(state)
 
         # force → len = stretched * (1 - force/k); clears the frac
         tether.init_tether_force = 0.1 * k
         @test isnothing(tether.init_stretch_frac)
-        SymbolicAWEModels.apply_tether_init_forces!(sys)
+        SymbolicAWEModels.apply_tether_init_forces!(state)
         @test tether.len ≈ stretched * 0.9
 
         # only one of force / frac may have a value at a time
@@ -481,14 +482,14 @@ winches:
         place!(sys)
 
         tip = sys.bodies[:tip]
-        @test tip.pos_w[3] > 0.5
-        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(tip.Q_b_to_w)
-        anchor_w = tip.pos_w .+ R_b_to_w * sys.points[:tip_anchor].anchor_b
-        @test sys.points[:tip_anchor].pos_w ≈ anchor_w
-        @test norm(sys.points[:tip_anchor].pos_w -
-                   sys.points[:ground].pos_w) ≈ 6.0
+        @test tip.pos_ENU[3] > 0.5
+        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(tip.Q_KA_to_ENU)
+        anchor_w = tip.pos_ENU .+ R_b_to_w * sys.points[:tip_anchor].anchor_b
+        @test sys.points[:tip_anchor].pos_ENU ≈ anchor_w
+        @test norm(sys.points[:tip_anchor].pos_ENU -
+                   sys.points[:ground].pos_ENU) ≈ 6.0
         # The clamped root body must not move.
-        @test sys.bodies[:root].pos_w ≈ KVec3(0.5seg_len, 0, 0)
+        @test sys.bodies[:root].pos_ENU ≈ KVec3(0.5seg_len, 0, 0)
     end
 
     # ================================================================
@@ -557,15 +558,15 @@ winches:
 
         place!(sys)
 
-        ground = sys.points[:ground].pos_w
-        le_center = sys.points[:le_center].pos_w
+        ground = sys.points[:ground].pos_ENU
+        le_center = sys.points[:le_center].pos_ENU
         # Free end sits at the stretched standoff.
         @test norm(le_center - ground) ≈ 5.0990195135927845
         # The wing body translated with its points (the regression: the body
         # stayed where it was authored while the points moved).
-        @test wing.pos_w ≈ authored_origin .+ delta
+        @test wing.pos_ENU ≈ authored_origin .+ delta
         # Body and its WING points stay rigid: point→origin offset preserved.
-        @test le_center .- wing.pos_w ≈ KVec3(-0.5, 0.0, 2.5) .- authored_origin
+        @test le_center .- wing.pos_ENU ≈ KVec3(-0.5, 0.0, 2.5) .- authored_origin
     end
 
     # ================================================================
@@ -603,17 +604,17 @@ winches:
         delta = KVec3(0.0, 0.0, 1.0)
         place!(sys)
 
-        @test norm(sys.points[:beam_anchor].pos_w -
-                   sys.points[:ground].pos_w) ≈ 6.0
+        @test norm(sys.points[:beam_anchor].pos_ENU -
+                   sys.points[:ground].pos_ENU) ≈ 6.0
         # Every beam body translates, including node4, which no point rides and
         # which is reachable only through the joint graph.
         for (i, body) in enumerate(sys.bodies)
-            @test body.pos_w ≈ KVec3(Float64(i - 1), 0.0, 0.0) .+ delta
+            @test body.pos_ENU ≈ KVec3(Float64(i - 1), 0.0, 0.0) .+ delta
         end
         # tail hangs off the far end of the beam, reachable from the tether's
         # free end only through the rigid-sibling hop across the beam.
-        @test sys.points[:tail].pos_w ≈ KVec3(1.5, 0.0, -1.0) .+ delta
-        @test SymbolicAWEModels.segment_world_length(
+        @test sys.points[:tail].pos_ENU ≈ KVec3(1.5, 0.0, -1.0) .+ delta
+        @test SymbolicAWEModels.segment_initial_length(
             sys.segments[:tail_seg], sys.points) ≈ 1.0
     end
 
@@ -626,28 +627,29 @@ winches:
             yaml_path; system_name="init_stretched_length_r1_yaml", set=set)
         place!(sys)
 
-        tether = sys.tethers[:main_tether]
+        state = SystemState(sys)
+        tether = state.tethers[:main_tether]
         @test tether.len ≈ 200.0
-        placed_w = [copy(point.pos_w) for point in sys.points]
+        placed_w = [copy(point.pos_w) for point in state.points]
         placed_initial = [copy(point.pos_ENU) for point in sys.points]
 
-        set_unstretched_length!(sys, tether, 150.0)
+        set_unstretched_length!(state, tether, 150.0)
 
         @test tether.len ≈ 150.0
-        @test sys.segments[:s1].l0 ≈ 75.0
-        @test sys.segments[:s2].l0 ≈ 75.0
-        @test all(point.pos_w ≈ was for (point, was) in zip(sys.points, placed_w))
+        @test state.segments[:s1].l0 ≈ 75.0
+        @test state.segments[:s2].l0 ≈ 75.0
+        @test all(point.pos_w ≈ was for (point, was) in zip(state.points, placed_w))
         @test all(point.pos_ENU ≈ was
                   for (point, was) in zip(sys.points, placed_initial))
         # The stretched geometry is untouched, so the rope is now taut.
-        @test sum(sys.segments[idx].len for idx in tether.segment_idxs) ≈ 200.0
+        @test sum(state.segments[idx].len for idx in tether.segment_idxs) ≈ 200.0
 
         # `reinit!` re-places the structure, so it derives `len` afresh.
         place!(sys)
-        @test tether.len ≈ 200.0
+        @test sys.tethers[:main_tether].len ≈ 200.0
 
-        @test_throws ErrorException set_unstretched_length!(sys, tether, 0.0)
-        @test_throws ErrorException set_unstretched_length!(sys, tether, -1.0)
+        @test_throws ErrorException set_unstretched_length!(state, tether, 0.0)
+        @test_throws ErrorException set_unstretched_length!(state, tether, -1.0)
     end
 
 end

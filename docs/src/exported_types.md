@@ -124,6 +124,7 @@ TUBE_POISSON_RATIO
 ## System state
 
 ```@docs
+SystemState
 SysState
 update_sys_state!
 update_from_sysstate!

@@ -96,13 +96,13 @@ function stepped_state(set, yaml_path, wind_mode; steps = 40, dt = 0.05,
     test_init!(sam; prn=false)
     point_drag || foreach(point -> (point.area = 0.0), sam.sys_struct.points)
     for _ in 1:steps
-        isnothing(winds) || for (point, wind) in zip(sam.sys_struct.points, winds)
+        isnothing(winds) || for (point, wind) in zip(sam.state.points, winds)
             point.wind_vec .= wind
         end
         next_step!(sam; dt, vsm_interval=0)
     end
-    return [copy(point.pos_w) for point in sam.sys_struct.points],
-           [copy(point.vel_w) for point in sam.sys_struct.points]
+    return [copy(point.pos_w) for point in sam.state.points],
+           [copy(point.vel_w) for point in sam.state.points]
 end
 
 @testset "Per-point wind tests" begin

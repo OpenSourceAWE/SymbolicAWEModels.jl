@@ -179,13 +179,13 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
     for (label, build) in joint_cases
         @testset "$label: rigid motion produces no wrench" begin
             sam = SymbolicAWEModel(set, build())
-            sys = sam.sys_struct
+            sys = sam.state
             ref = [beam_length / 2, 0.0, 0.0]
             # Off-axis spin so every damping direction is exercised at once.
             omega = 0.7 .* normalize([1.0, 2.0, -3.0])
             vel = [0.3, -0.2, 0.5]
             set_rigid_motion!(sys, omega, vel, ref)
-            place!(sam.sys_struct; reset_vel=false)
+            place!(sam; reset_vel=false)
             test_init!(sam; prn=false)
             before = pair_momenta(sys, ref)
             spin_before = norm(Vector(sys.bodies[:nodeB].ω_b))
@@ -210,11 +210,11 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         zeta = 0.05
         sam = SymbolicAWEModel(set,
             timoshenko_pair(; damping=2 * zeta / omega_n, type_a=STATIC))
-        node_b = sam.sys_struct.bodies[:nodeB]
+        node_b = sam.state.bodies[:nodeB]
         speed = 0.2
         node_b.vel_w .= [speed, 0.0, 0.0]
         node_b.ω_b .= 0.0
-        place!(sam.sys_struct; reset_vel=false)
+        place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
         period = 2π / (omega_n * sqrt(1 - zeta^2))
         for _ in 1:2000
@@ -230,11 +230,11 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         zeta = 0.05
         sam = SymbolicAWEModel(set,
             timoshenko_pair(; damping=2 * zeta / omega_n, type_a=STATIC))
-        node_b = sam.sys_struct.bodies[:nodeB]
+        node_b = sam.state.bodies[:nodeB]
         spin = 0.2
         node_b.vel_w .= 0.0
         node_b.ω_b .= [spin, 0.0, 0.0]
-        place!(sam.sys_struct; reset_vel=false)
+        place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
         period = 2π / (omega_n * sqrt(1 - zeta^2))
         for _ in 1:2000
@@ -250,11 +250,11 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         zeta = 0.05
         sam = SymbolicAWEModel(set,
             elastic_pair(; damping=2 * zeta / omega_n, type_a=STATIC))
-        node_b = sam.sys_struct.bodies[:nodeB]
+        node_b = sam.state.bodies[:nodeB]
         speed = 0.2
         node_b.vel_w .= [speed, 0.0, 0.0]
         node_b.ω_b .= 0.0
-        place!(sam.sys_struct; reset_vel=false)
+        place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
         period = 2π / (omega_n * sqrt(1 - zeta^2))
         for _ in 1:2000

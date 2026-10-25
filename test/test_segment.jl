@@ -332,7 +332,7 @@ system:
         test_init!(sam)
 
         # Record initial position
-        initial_z = sam.sys_struct.points[:mass_point].pos_w[3]
+        initial_z = sam.state.points[:mass_point].pos_w[3]
 
         # Run simulation for 1 second
         dt = 0.01
@@ -342,7 +342,7 @@ system:
         end
 
         # Position should be unchanged
-        final_z = sam.sys_struct.points[:mass_point].pos_w[3]
+        final_z = sam.state.points[:mass_point].pos_w[3]
         @test abs(final_z - initial_z) < 0.001  # Should not move more than 1mm
 
         println("\n  ====== Position drift: $(round(abs(final_z - initial_z)*1000, digits=3)) mm (limit: 1 mm) ======\n")
@@ -412,7 +412,7 @@ system:
 
         for i in 1:n_steps
             next_step!(sam; dt=dt, vsm_interval=0)
-            push!(z_history, sam.sys_struct.points[:mass_point].pos_w[3])
+            push!(z_history, sam.state.points[:mass_point].pos_w[3])
             push!(t_history, i * dt)
         end
 
@@ -499,8 +499,8 @@ system:
         end
 
         # Check segment stays horizontal (both points at same height)
-        final_z_left = sam.sys_struct.points[:point_left].pos_w[3]
-        final_z_right = sam.sys_struct.points[:point_right].pos_w[3]
+        final_z_left = sam.state.points[:point_left].pos_w[3]
+        final_z_right = sam.state.points[:point_right].pos_w[3]
         @test abs(final_z_left - final_z_right) < 0.01  # Within 1cm
 
         # Calculate air density at final height using same model as simulation
@@ -512,8 +512,8 @@ system:
         v_terminal_expected = sqrt(2 * m_total * set.g_earth / (rho_air * cd * L * d))
 
         # Check terminal velocity (downward)
-        vz_left = sam.sys_struct.points[:point_left].vel_w[3]
-        vz_right = sam.sys_struct.points[:point_right].vel_w[3]
+        vz_left = sam.state.points[:point_left].vel_w[3]
+        vz_right = sam.state.points[:point_right].vel_w[3]
         avg_vz = (vz_left + vz_right) / 2
 
         @test avg_vz < 0  # Moving downward
@@ -523,8 +523,8 @@ system:
 
         # Verify drag_force field: each point gets half the
         # segment drag. At terminal velocity total drag = m*g.
-        pl = sam.sys_struct.points[:point_left]
-        pr = sam.sys_struct.points[:point_right]
+        pl = sam.state.points[:point_left]
+        pr = sam.state.points[:point_right]
         total_drag = pl.drag_force + pr.drag_force
         @test norm(total_drag) ≈ m_total * set.g_earth rtol=0.01
         # Both halves should be roughly equal
@@ -554,8 +554,8 @@ system:
         test_init!(sam)
 
         # Record initial positions
-        initial_z_top = sam.sys_struct.points[:point_top].pos_w[3]
-        initial_z_bottom = sam.sys_struct.points[:point_bottom].pos_w[3]
+        initial_z_top = sam.state.points[:point_top].pos_w[3]
+        initial_z_bottom = sam.state.points[:point_bottom].pos_w[3]
 
         # Run simulation until terminal velocity is reached
         dt = 0.1
@@ -566,8 +566,8 @@ system:
         end
 
         # Check segment stays vertical (points at same height difference)
-        final_z_top = sam.sys_struct.points[:point_top].pos_w[3]
-        final_z_bottom = sam.sys_struct.points[:point_bottom].pos_w[3]
+        final_z_top = sam.state.points[:point_top].pos_w[3]
+        final_z_bottom = sam.state.points[:point_bottom].pos_w[3]
         height_diff_initial = initial_z_top - initial_z_bottom
         height_diff_final = final_z_top - final_z_bottom
         @test abs(height_diff_final - height_diff_initial) < 0.1  # Within 10cm
@@ -579,8 +579,8 @@ system:
         # Check terminal velocity matches wind velocity
         # Wind blows in x direction (upwind_dir = -90 means wind from +x)
         # At steady state, segment velocity = wind velocity
-        vx_top = sam.sys_struct.points[:point_top].vel_w[1]
-        vx_bottom = sam.sys_struct.points[:point_bottom].vel_w[1]
+        vx_top = sam.state.points[:point_top].vel_w[1]
+        vx_bottom = sam.state.points[:point_bottom].vel_w[1]
         avg_vx = (vx_top + vx_bottom) / 2
 
         # Wind direction: upwind_dir = -90 deg means wind blows in x direction
@@ -624,8 +624,8 @@ system:
         end
 
         # Get final state
-        final_z_left = sam.sys_struct.points[:point_left].pos_w[3]
-        final_z_right = sam.sys_struct.points[:point_right].pos_w[3]
+        final_z_left = sam.state.points[:point_left].pos_w[3]
+        final_z_right = sam.state.points[:point_right].pos_w[3]
         final_height = (final_z_left + final_z_right) / 2
 
         # Height should still be positive (above sea level)
@@ -646,8 +646,8 @@ system:
         @test v_terminal_altitude > v_terminal_sea_level
 
         # Check actual terminal velocity matches expected
-        vz_left = sam.sys_struct.points[:point_left].vel_w[3]
-        vz_right = sam.sys_struct.points[:point_right].vel_w[3]
+        vz_left = sam.state.points[:point_left].vel_w[3]
+        vz_right = sam.state.points[:point_right].vel_w[3]
         avg_vz = (vz_left + vz_right) / 2
 
         @test avg_vz < 0  # Moving downward
@@ -705,7 +705,7 @@ system:
         for _ in 1:5
             next_step!(sam; dt=0.05, vsm_interval=0)
         end
-        simulated = [segment.force for segment in sam.sys_struct.segments]
+        simulated = [segment.force for segment in sam.state.segments]
         @test all(>(0), simulated)   # the mass hangs on the segment
 
         logger = Logger(sam, 1)
@@ -713,8 +713,8 @@ system:
         save_log(logger, "segment_force_roundtrip", false; path=tmpdir)
         lg = load_log("segment_force_roundtrip"; path=tmpdir)
 
-        replayed = load_sys_struct_from_yaml(yaml_path;
-            system_name="segment_test", set=set)
+        replayed = SystemState(load_sys_struct_from_yaml(yaml_path;
+            system_name="segment_test", set=set))
         update_from_sysstate!(replayed, lg.syslog[1])
         @test [segment.force for segment in replayed.segments] ≈ simulated rtol=1e-5
     end

@@ -46,7 +46,7 @@ function wing_eqs!(
         return result
     end
 
-    for wing in s.sys_struct.bodies
+    for wing in s.state.bodies
         # KINEMATIC wings: body frame fitted from ref points; DYNAMIC via body_eqs!.
         wing.type == KINEMATIC || continue
         z_p1, z_p2 = wing.z_ref_points
