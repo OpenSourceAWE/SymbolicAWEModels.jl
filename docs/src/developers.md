@@ -26,7 +26,7 @@ Before you begin, ensure you have the following software installed:
 - **Bash**: A Unix-like shell environment.
 - **Code editor**: Your preferred code editor with Julia support.
 
-For Windows or macOS, check [these](https://ufechner7.github.io/2024/08/09/installing-julia-with-juliaup.html) instructions.
+For Windows or macOS, check [these](https://ufechner7.github.io/2026/10/24/installing-julia-1.13-and-vscode.html) instructions.
 
 ---
 
