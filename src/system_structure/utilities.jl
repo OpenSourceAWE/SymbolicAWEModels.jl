@@ -1176,7 +1176,6 @@ function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
         # Copy velocity if available in vel_kite
         wing.vel_w .= sys_state.vel_kite
 
-        # Set angular velocity to NaN (turn_rates in SysState, but need conversion)
         wing.ω_b .= sys_state.turn_rates
 
         wing.aero_force_b .= sys_state.aero_force_KA
@@ -1187,7 +1186,10 @@ function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
         wing.aoa = Float64(sys_state.AoA)
         wing.course = Float64(sys_state.course)
         wing.acc_w .= 0.0
-        wing.turn_rate .= sys_state.turn_rates
+        rel_pos = wing_rel_pos(wing, points, wing_base_point(wing, sys.transforms))
+        R_b_to_w = wing.R_b_to_w
+        wing.turn_rate .= body_to_view_rate(calc_R_v_to_w(rel_pos, R_b_to_w[:, 1]),
+            R_b_to_w, wing.ω_b)
         wing.turn_acc .= 0.0
     end
 

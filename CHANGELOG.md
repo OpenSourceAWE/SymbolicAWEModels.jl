@@ -18,6 +18,10 @@
 - BREAKING: `load_sys_struct_from_yaml` reads the YAML with KiteGeometry's `load_authoring`, which refuses a column nothing reads: the saved-state columns pulley `sum_len`, station `twist`, tether `len` and wing `Q_b_to_w` are no longer read. It no longer takes the deprecated `wing_type`, nor the wing types `REFINE` and `QUATERNION`.
 - BREAKING: A structure document is KiteGeometry's awesIO 0.1.0 document (`structure_document` is KiteGeometry's, with a method for a `SystemStructure`) in place of SymbolicAWEModels' own 1.0.0 one, and takes no `description` or `note`. A body's `pos_ENU` there is the centre of its own mass.
 
+### Fixed
+
+- `SysState.turn_rates` holds the wing's angular velocity in its body frame (KA when the wing's reference points give aft-right-up), as KiteUtils defines it, instead of in the view frame. The linear-simulation log writes the body-frame yaw rate `body_ω_b[3, 1]` to `turn_rates[3]`, where it threw a `BoundsError` before. The `plot_turn_rates` panel and the heading-rate panel's yaw rate are labelled `ω_b`. `Wing.turn_rate` stays in the view frame, and `update_from_sysstate!` rebuilds it from the logged body rate.
+
 ## SymbolicAWEModels v0.20.0 2026-10-08
 
 ### Added
