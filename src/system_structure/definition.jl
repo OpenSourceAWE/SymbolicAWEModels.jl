@@ -43,15 +43,14 @@ function material!(materials, law, parameters)
     return length(materials)
 end
 
+"""The row of `point`, its references and its anchor written as indices."""
 function point_row(sys, point)
-    body = optional_index(point.body_idx)
-    return KiteGeometry.Point(; name=definition_name(point), fixed=point.type == STATIC,
-        body, pos_ENU=point.pos_ENU, point.extra_mass,
-        model=PointModel(string(point.type), Vector(point.body_frame_damping),
-            Vector(point.world_frame_damping), point.area, point.drag_coeff,
-            optional_index(point.tube_idx), point.fix_sphere, point.fix_static,
-            optional_index(point.wing_idx),
-            isnothing(body) ? nothing : Vector(point.anchor_b)))
+    row = point.definition_row
+    row.body = optional_index(point.body_idx)
+    row.tube = optional_index(point.tube_idx)
+    row.wing_idx = optional_index(point.wing_idx)
+    row.anchor_b = isnothing(row.body) ? nothing : Vector(point.anchor_b)
+    return row
 end
 
 function segment_row!(materials, segment)
@@ -176,16 +175,13 @@ end
     store_definition_pose!(state::SystemState)
 
 Write the pose `state` holds into its structure's definition, where it has one: each
-point's position, each body's at the centre of its own mass, each wing's KA frame carried
-with its body, and each segment's rest length.
+body's at the centre of its own mass, each wing's KA frame carried with its body, and each
+segment's rest length.
 """
 function store_definition_pose!(state::SystemState)
     sys = getfield(state, :structure)
     definition = sys.definition
     isnothing(definition) && return nothing
-    for (row, point) in zip(definition.points, state.points)
-        row.pos_ENU .= point.pos_w
-    end
     for (row, wing) in zip(definition.wings, state.wings)
         R = quaternion_to_rotation_matrix(wing.Q_b_to_w) * initial_rotation(wing.row)'
         row.pos_ENU .= wing.pos_w + R * (row.pos_ENU - wing.row.pos_ENU)

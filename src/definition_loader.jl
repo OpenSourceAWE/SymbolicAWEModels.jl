@@ -162,19 +162,9 @@ ref_points_spec(value) = value isa AbstractVector ?
 set_kwargs(pairs...) = (; (key => value for (key, value) in pairs if !isnothing(value))...)
 
 function definition_point(definition, point, transform)
-    type = isnothing(point.type) ?
-        (point.fixed ? STATIC : isnothing(point.body) ? DYNAMIC : BODY_STATIC) :
-        parse_dynamics_type(point.type)
-    return Point(row_name(point), point.pos_ENU, type;
-        set_kwargs(:wing => maybe(cell_ref, point.wing_idx), :transform => transform,
-                   :body => point_body(definition, point),
-                   :anchor_b => point.anchor_b,
-                   :tube => maybe(cell_ref, point.tube),
-                   :extra_mass => point.extra_mass,
-                   :body_frame_damping => point.body_frame_damping,
-                   :world_frame_damping => point.world_frame_damping,
-                   :area => point.area, :drag_coeff => point.drag_coeff,
-                   :fix_sphere => point.fix_sphere, :fix_static => point.fix_static)...)
+    return Point(point; set_kwargs(:wing => maybe(cell_ref, point.wing_idx),
+        :transform => transform, :body => point_body(definition, point),
+        :anchor_b => point.anchor_b, :tube => maybe(cell_ref, point.tube))...)
 end
 
 """The body `point` rides: none for a tube rider whose body is the one KiteGeometry gives

@@ -938,17 +938,10 @@ function SystemStructure(name, set;
                   "$(length(wing_point_idxs)) wing-node " *
                   "points found. Converting to STATIC."
             for idx in wing_point_idxs
-                points[idx] = Point(
-                    points[idx].name,
-                    points[idx].pos_ENU,
-                    STATIC;
-                    extra_mass = points[idx].extra_mass,
-                    body_frame_damping =
-                        points[idx].body_frame_damping,
-                    world_frame_damping =
-                        points[idx].world_frame_damping,
-                    transform = points[idx].transform_ref
-                )
+                row = points[idx].definition_row
+                row.fixed, row.type, row.wing_idx = true, string(STATIC), nothing
+                transform = points[idx].transform_ref
+                points[idx] = Point(row; transform)
                 points[idx].idx = idx  # Reassign idx after recreation
             end
         end

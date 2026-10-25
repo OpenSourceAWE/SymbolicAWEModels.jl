@@ -137,6 +137,19 @@ end
                for header in ("extra_mass", "area", "drag_coeff")] == [1.0, 0.1, 1.0]
     end
 
+    @testset "a point's values are its definition row's, read and written" for
+            sys in (two_plate_kite(set, vsm_set), pretensioned_tether(set))
+        point = last(sys.points)
+        row = sys.definition.points[point.idx]
+        point.extra_mass = 2.0
+        point.area = 0.3
+        point.fix_static = true
+        @test (row.extra_mass, row.area, row.fix_static) == (2.0, 0.3, true)
+        row.drag_coeff = 0.7
+        @test point.drag_coeff == 0.7
+        @test point.pos_ENU === row.pos_ENU
+    end
+
     @testset "a station names the wing whose twist it carries" begin
         document = structure_document(two_plate_kite(set, vsm_set))
         @test all(==("main_wing"), values(cells(document, "spanwise_stations", "wing")))

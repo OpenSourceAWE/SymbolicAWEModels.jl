@@ -9,7 +9,7 @@ where the row leaves it unset.
 
 $(TYPEDFIELDS)
 """
-struct PointModel <: KiteGeometry.AbstractModel
+mutable struct PointModel <: KiteGeometry.AbstractModel
     "Dynamics type, such as `DYNAMIC`, `STATIC` or `BODY_STATIC`."
     type::Union{Nothing, String}
     "Damping in the body frame [N·s/m], one value or one per axis."

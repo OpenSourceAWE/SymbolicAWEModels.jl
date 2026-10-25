@@ -283,13 +283,15 @@ const NameRef = Union{Int, Symbol}
 
 A point mass, representing a node in the mass-spring system.
 
+Its `name`, `pos_ENU`, `type`, `extra_mass`, `body_frame_damping`, `world_frame_damping`,
+`area`, `drag_coeff`, `fix_sphere` and `fix_static` are read and written through its
+KiteGeometry `points` row, an unset one reading as its default.
+
 $(TYPEDFIELDS)
 """
 mutable struct Point
     "Index in the points vector (assigned by SystemStructure)."
     idx::Int64
-    "Name used for lookup by other components' `_ref` fields."
-    const name::Union{Int, Symbol, Nothing}
     "Resolved transform index (filled by SystemStructure)."
     transform_idx::Int64
     "Resolved wing index (filled by SystemStructure). 0 = no wing."
@@ -302,8 +304,6 @@ mutable struct Point
     const wing_ref::Union{Int, Symbol}
     "Raw rigid-body reference for anchoring (name or idx). 0 = not anchored to a body."
     const body_ref::Union{Int, Symbol}
-    "Initial position, world frame [m]: where [`place!`](@ref) puts the point."
-    const pos_ENU::KVec3
     "Undeformed position relative to wing COM in principal frame [m]. Reference
     geometry the equations take as a parameter and `twist_deformed_offset`
     rotates by the live twist angle; overwriting it with a deformed position
@@ -314,27 +314,11 @@ mutable struct Point
     anchor_b::KVec3
     "External force applied to the point, world frame [N] (settable). Was `disturb`."
     const ext_force_w::KVec3
-    "Dynamics type (DYNAMIC, STATIC, BODY_STATIC, KINEMATIC)."
-    const type::DynamicsType
-    "User-provided mass [kg]."
-    extra_mass::SimFloat
     "Total mass [kg]: extra_mass + segment contributions (computed during simulation)."
     total_mass::SimFloat
     "Entrained-air mass [kg] resisting acceleration without adding weight, before a
     wing's aero sets it."
     apparent_mass::SimFloat
-    "Per-axis damping in body frame [N·s/m]."
-    body_frame_damping::KVec3
-    "Per-axis damping in world frame [N·s/m]."
-    world_frame_damping::KVec3
-    "Cross-sectional area for drag [m²]."
-    area::SimFloat
-    "Drag coefficient [-]."
-    drag_coeff::SimFloat
-    "If true, constrain point to a sphere."
-    fix_sphere::Bool
-    "If true, dynamically freeze point position."
-    fix_static::Bool
     "Derived: true when the point is an aerodynamic-surface structural node of a
     wing (a member of one of the wing's stations). Set by SystemStructure
     from station membership; drives the wing-node equations."
@@ -348,11 +332,68 @@ mutable struct Point
     beam_frac::SimFloat
     "Perpendicular offset off the centerline in the rest element frame [m] (auto-derived)."
     beam_offset_b::KVec3
+    "The KiteGeometry `points` row of the point."
+    const definition_row::KiteGeometry.Point{PointModel}
 end
 
+"""The properties of a [`Point`](@ref) its KiteGeometry row holds."""
+const POINT_ROW_PROPERTIES = (:name, :pos_ENU, :type, :extra_mass, :body_frame_damping,
+    :world_frame_damping, :area, :drag_coeff, :fix_sphere, :fix_static)
+
 # Deprecated `point.disturb` forwards to `ext_force_w` (external world-frame force).
-Base.getproperty(point::Point, sym::Symbol) =
-    getfield(point, sym === :disturb ? :ext_force_w : sym)
+@inline function Base.getproperty(point::Point, property::Symbol)
+    property === :disturb && return getfield(point, :ext_force_w)
+    hasfield(Point, property) && return getfield(point, property)
+    return row_property(getfield(point, :definition_row), Val(property))
+end
+
+function Base.setproperty!(point::Point, property::Symbol, value)
+    hasfield(Point, property) &&
+        return setfield!(point, property, convert(fieldtype(Point, property), value))
+    setproperty!(getfield(point, :definition_row), property, column_value(value))
+    return value
+end
+
+Base.propertynames(::Point) = (fieldnames(Point)..., POINT_ROW_PROPERTIES...)
+
+"""
+    row_property(row, Val(property))
+
+Property `property` of the component whose KiteGeometry row is `row`, an unset column
+reading as its default.
+"""
+@inline row_property(row, ::Val{property}) where {property} = getproperty(row, property)
+row_property(row::KiteGeometry.Point, ::Val{:name}) = row_name(row)
+row_property(row::KiteGeometry.Point, ::Val{:type}) = point_type(row)
+@inline row_property(row::KiteGeometry.Point, ::Val{:extra_mass}) =
+    something(row.extra_mass, 0.0)
+@inline row_property(row::KiteGeometry.Point, ::Val{:area}) = something(row.area, 0.0)
+@inline row_property(row::KiteGeometry.Point, ::Val{:drag_coeff}) =
+    something(row.drag_coeff, 0.0)
+@inline row_property(row::KiteGeometry.Point, ::Val{:fix_sphere}) =
+    something(row.fix_sphere, false)
+@inline row_property(row::KiteGeometry.Point, ::Val{:fix_static}) =
+    something(row.fix_static, false)
+@inline row_property(row::KiteGeometry.Point, ::Val{:body_frame_damping}) =
+    per_axis(row.body_frame_damping)
+@inline row_property(row::KiteGeometry.Point, ::Val{:world_frame_damping}) =
+    per_axis(row.world_frame_damping)
+
+"""A value one per axis: a vector column as it is, one number on every axis, zero unset."""
+per_axis(values::Vector{Float64}) = values
+per_axis(value::Float64) = SVector(value, value, value)
+per_axis(::Nothing) = zero(SVector{3, Float64})
+
+"""`value` as a KiteGeometry column holds it: a vector as a `Vector{Float64}`."""
+column_value(value) = value
+column_value(values::AbstractVector{<:Real}) = Vector{Float64}(values)
+
+"""The dynamics type of the point `row` describes: its `type`, else what `fixed` and
+`body` give."""
+function point_type(row::KiteGeometry.Point)
+    isnothing(row.type) || return parse_dynamics_type(row.type)
+    return row.fixed ? STATIC : isnothing(row.body) ? DYNAMIC : BODY_STATIC
+end
 
 """
     Point(name, pos_ENU, type; wing=nothing, transform=nothing, ...)
@@ -407,6 +448,31 @@ function Point(name, pos_ENU, type;
     area=0.0, drag_coeff=0.0,
     fix_sphere=false, fix_static=false
 )
+    model = PointModel(string(type), axis_column(body_frame_damping),
+        axis_column(world_frame_damping), area, drag_coeff, nothing, fix_sphere,
+        fix_static, nothing, nothing)
+    row = KiteGeometry.Point(; name=Symbol(name), fixed=type == STATIC,
+        pos_ENU=KVec3(pos_ENU...), extra_mass, model)
+    return Point(row; wing, transform, body, anchor_b, tube, apparent_mass)
+end
+
+"""A per-axis damping as a column of one value per axis, zero for `nothing`."""
+axis_column(::Nothing) = zeros(3)
+axis_column(value::Real) = fill(Float64(value), 3)
+axis_column(values::AbstractVector) = Vector{Float64}(values)
+
+"""
+    Point(row::KiteGeometry.Point; wing=nothing, transform=nothing, body=nothing,
+          anchor_b=nothing, tube=nothing, apparent_mass=0.0)
+
+The point KiteGeometry `points` row `row` describes, holding that row, with the
+references and the anchor of [`Point(name, pos_ENU, type)`](@ref Point).
+"""
+function Point(row::KiteGeometry.Point{PointModel};
+    wing=nothing, transform=nothing, body=nothing, anchor_b=nothing, tube=nothing,
+    apparent_mass=0.0
+)
+    name, type = row_name(row), point_type(row)
     if type == BODY_STATIC
         (isnothing(body) && isnothing(tube) && isnothing(wing)) && error(
             "Point $name: BODY_STATIC requires a `body`, a `tube`, or a `wing` " *
@@ -419,35 +485,11 @@ function Point(name, pos_ENU, type;
         "not both.")
     (!isnothing(tube) && type != BODY_STATIC) && error(
         "Point $name: `tube` (beam anchoring) requires type BODY_STATIC.")
-    body_ref = isnothing(body) ? 0 : body
-    tube_ref = isnothing(tube) ? 0 : tube
-    wing_ref = isnothing(wing) ? 0 : wing
-    transform_ref = isnothing(transform) ? 0 : transform
     anchor = isnothing(anchor_b) ? zeros(KVec3) : KVec3(anchor_b...)
-
-    # Convert scalar damping to vector (broadcast to all axes), handle nothing
-    bf_damp = if isnothing(body_frame_damping)
-        zeros(KVec3)
-    elseif body_frame_damping isa Real
-        SVector{3,SimFloat}(body_frame_damping, body_frame_damping, body_frame_damping)
-    else
-        SVector{3,SimFloat}(body_frame_damping...)
-    end
-    wf_damp = if isnothing(world_frame_damping)
-        zeros(KVec3)
-    elseif world_frame_damping isa Real
-        SVector{3,SimFloat}(world_frame_damping, world_frame_damping, world_frame_damping)
-    else
-        SVector{3,SimFloat}(world_frame_damping...)
-    end
-
     # idx, transform_idx, wing_idx, body_idx are placeholders - resolved by SystemStructure
-    Point(0, name, 0, 0, 0, transform_ref, wing_ref, body_ref,
-        KVec3(pos_ENU...), zeros(KVec3), anchor, zeros(KVec3),
-        type, extra_mass, 0.0, apparent_mass,
-        bf_damp, wf_damp, area, drag_coeff,
-        fix_sphere, fix_static, false,
-        0, tube_ref, 0.0, zeros(KVec3))
+    return Point(0, 0, 0, 0, something(transform, 0), something(wing, 0),
+        something(body, 0), zeros(KVec3), anchor, zeros(KVec3), 0.0, apparent_mass,
+        false, 0, something(tube, 0), 0.0, zeros(KVec3), row)
 end
 
 # ==================== STATION ==================== #
