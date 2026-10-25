@@ -333,7 +333,7 @@ mutable struct Point
     "Perpendicular offset off the centerline in the rest element frame [m] (auto-derived)."
     beam_offset_b::KVec3
     "The KiteGeometry `points` row of the point."
-    const definition_row::KiteGeometry.Point{PointModel}
+    definition_row::KiteGeometry.Point{PointModel}
 end
 
 """The properties of a [`Point`](@ref) its KiteGeometry row holds."""

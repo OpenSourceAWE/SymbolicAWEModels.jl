@@ -26,6 +26,20 @@ function system_definition(sys::SystemStructure)
         materials)
 end
 
+"""
+    attach_definition!(sys::SystemStructure)
+
+Give `sys` the definition [`system_definition`](@ref) writes from its components, each
+point holding its row there.
+"""
+function attach_definition!(sys::SystemStructure)
+    sys.definition = system_definition(sys)
+    for (point, row) in zip(sys.points, sys.definition.points)
+        point.definition_row = row
+    end
+    return sys.definition
+end
+
 """The name a definition gives component `component`: its own, else its index."""
 definition_name(component) = Symbol(something(component.name, component.idx))
 

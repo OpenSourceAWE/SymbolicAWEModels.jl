@@ -1102,7 +1102,7 @@ function SystemStructure(name, set;
         AtmosphericModel(set), false, false, vsm_set, wind_mode, definition)
     placed || place!(sys_struct; ignore_l0, prn)
     init_derived_properties!(sys_struct; prn)
-    isnothing(definition) && (sys_struct.definition = system_definition(sys_struct))
+    isnothing(definition) && attach_definition!(sys_struct)
 
     # Panel→flap station map (structural; needs placed bodies + built panels).
     for wing in sys_struct.wings
