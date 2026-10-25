@@ -272,6 +272,21 @@ same panels for comparison.
     brought in by `using` those two names are ambiguous: call them qualified,
     as `MakieControlPlots.plot(sys)` and `CairoMakie.save("kite.pdf", fig)`.
 
+### Aerodynamic section plots
+
+Three functions draw one wing section of a run state, such as `sam.state`, into a 2D `Axis`, so that aero modes can be compared side by side: the point loads a structural station carries, the polar a VSM panel flies, and the `Cp` pattern an [`AeroPressure`](@ref) wing spreads the panel force with.
+```julia
+fig = Figure()
+ax = Axis(fig[1, 1]; aspect=DataAspect())
+plot_station_loads!(ax, sam.state, 5; force_scale=2e-3)
+```
+
+```@docs
+plot_station_loads!
+plot_panel_polar!
+plot_panel_pressure!
+```
+
 ## Inflated-tube rigidity laws
 
 Rigidities for the [`TimoshenkoTube`](@ref)s of a beam wing whose leading edge

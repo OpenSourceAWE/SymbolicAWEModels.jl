@@ -21,3 +21,9 @@ path = ["docs/.gitignore", "docs/src/assets/*.png", "docs/src/assets/*.svg",
         "CITATION.cff", ".zenodo.json"]
 SPDX-FileCopyrightText = "2025 Bart van de Lint, Jelle Poland, Uwe Fechner"
 SPDX-License-Identifier = "LGPL-3.0-only"
+
+[[annotations]]
+path = ["papers/**/*.tex", "papers/**/*.bib", "papers/**/*.yaml",
+        "papers/**/Project.toml"]
+SPDX-FileCopyrightText = "2026 Bart van de Lint"
+SPDX-License-Identifier = "LGPL-3.0-only"
