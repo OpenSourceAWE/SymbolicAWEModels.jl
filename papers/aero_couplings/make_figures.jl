@@ -112,11 +112,11 @@ function trajectory_figure()
 end
 
 """
-    station_points(sys) -> Vector{Point}
+    station_points(sys) -> Vector{PointState}
 
-The points of structural station `STATION` of `sys`.
+The points of structural station `STATION` of the run state `sys`.
 """
-station_points(sys) = sys.points[sys.stations[STATION].point_idxs]
+station_points(sys) = [sys.points[idx] for idx in sys.stations[STATION].point_idxs]
 
 """
     station_loads_figure() -> Figure
@@ -127,14 +127,14 @@ The aero point loads of structural station `STATION` at the end of each of
 function station_loads_figure()
     fig = Figure(size=(TEXT_WIDTH, 130))
     largest = maximum(norm(point.aero_force_b) for name in SECTIONS
-                      for point in station_points(RUNS[name].sam.sys_struct))
+                      for point in station_points(RUNS[name].sam.state))
     for (col, name) in enumerate(SECTIONS)
         run = RUNS[name]
         axis = Axis(fig[1, col]; title=run.mode, aspect=DataAspect(),
                     xlabel=L"x_b~[\mathrm{m}]", ylabel=L"z_b~[\mathrm{m}]",
                     ylabelvisible=col == 1, yticklabelsvisible=col == 1,
                     yticks=LinearTicks(2))
-        plot_station_loads!(axis, run.sam.sys_struct, STATION;
+        plot_station_loads!(axis, run.sam.state, STATION;
                             force_scale=ARROW_LENGTH / largest, color=MODE_COLORS[run.mode])
         col > 1 && linkaxes!(axis, content(fig[1, 1]))
     end
@@ -154,7 +154,7 @@ function polar_figure(panel_idx)
                   ylabel=coefficient === :cl ? L"C_l" : L"C_m")
         for name in ("pressure_beam", "live_beam")
             run = RUNS[name]
-            plot_panel_polar!(axis, run.sam.sys_struct, panel_idx; coefficient,
+            plot_panel_polar!(axis, run.sam.state, panel_idx; coefficient,
                               color=MODE_COLORS[run.mode], label=run.mode)
         end
         col == 1 && axislegend(axis; position=:rb, framevisible=false)
@@ -173,7 +173,7 @@ function pressure_figure(panel_idx)
     axis = Axis(fig[1, 1]; xlabel=L"x/c", ylabel=L"-C_p")
     for name in ("pressure_beam", "live_beam")
         run = RUNS[name]
-        plot_panel_pressure!(axis, run.sam.sys_struct, panel_idx;
+        plot_panel_pressure!(axis, run.sam.state, panel_idx;
                              color=MODE_COLORS[run.mode], label=run.mode)
     end
     axislegend(axis; position=:rt, framevisible=false)
@@ -247,7 +247,7 @@ Coefficient `coefficient` (`:cl` or `:cm`) of panel `PANEL` at its angle of atta
 the end of section case `run`.
 """
 function operating_coefficient(run, coefficient)
-    wing = run.sam.sys_struct.wings[1]
+    wing = run.sam.state.wings[1]
     calculate = getproperty(VortexStepMethod, Symbol(:calculate_, coefficient))
     return calculate(wing.vsm_aero.panels[PANEL], wing.vsm_solver.sol.alpha_dist[PANEL])
 end

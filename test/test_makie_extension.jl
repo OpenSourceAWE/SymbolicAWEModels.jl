@@ -88,8 +88,6 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "particle_structural_geometry.yaml"
-    aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
 
 tether:
@@ -162,24 +160,25 @@ seg1_blue(segment) = segment.name == :seg1 ? :blue : :red
         yaml_path; system_name="makie_test_2", set=set)
 
     # Reset sys structs to first frame for plotting
-    update_from_sysstate!(sys1, lg1.syslog[1])
-    update_from_sysstate!(sys2, lg2.syslog[1])
+    state1, state2 = SystemState(sys1), SystemState(sys2)
+    update_from_sysstate!(state1, lg1.syslog[1])
+    update_from_sysstate!(state2, lg2.syslog[1])
 
     # ================================================================
     # Test 1: Multi-system plot creates vector-typed colors
     # ================================================================
     @testset "Multi-system plot vector colors" begin
-        scene = MakieControlPlots.plot([sys1, sys2]; use_observables=true)
+        scene = MakieControlPlots.plot([state1, state2]; use_observables=true)
         @test scene isa GLMakie.Scene
     end
 
     @testset "segment_color takes one colour per segment, or a function of it" begin
         red, blue = GLMakie.to_color(:red), GLMakie.to_color(:blue)
-        plots = GLMakie.plot!(GLMakie.Scene(), sys1; segment_color=[:red, :blue])
+        plots = GLMakie.plot!(GLMakie.Scene(), state1; segment_color=[:red, :blue])
         @test plots[:segment_colors_obs][] == [red, blue]
-        plots = GLMakie.plot!(GLMakie.Scene(), sys1; segment_color=seg1_blue)
+        plots = GLMakie.plot!(GLMakie.Scene(), state1; segment_color=seg1_blue)
         @test plots[:segment_colors_obs][] == [blue, red]
-        @test_throws ArgumentError GLMakie.plot!(GLMakie.Scene(), sys1;
+        @test_throws ArgumentError GLMakie.plot!(GLMakie.Scene(), state1;
             segment_color=[:red])
     end
 
@@ -266,12 +265,13 @@ seg1_blue(segment) = segment.name == :seg1 ? :blue : :red
         SymbolicAWEModels.refresh_particle_aero!(wing.aero, wing, sys.points, va)
         ax = Axis(Figure()[1, 1])
 
-        points = sys.points[sys.stations[1].point_idxs]
+        points = [sys.points[idx] for idx in sys.stations[1].point_idxs]
         for (i, point) in enumerate(points)
             point.aero_force_b .= [i, 0.5, -2i]
         end
         arrows = plot_station_loads!(ax, sys, 1; force_scale=0.01)
-        chord_order = sort(points; by=point -> point.pos_b[1])
+        chord_x(point) = (wing.R_b_to_w' * (point.pos_w - wing.pos_w))[1]
+        chord_order = sort(points; by=chord_x)
         @test arrows[2][] ≈ [Vec2f(0.01 * point.aero_force_b[1],
                                    0.01 * point.aero_force_b[3]) for point in chord_order]
 

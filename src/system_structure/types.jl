@@ -302,41 +302,26 @@ mutable struct Point
     const wing_ref::Union{Int, Symbol}
     "Raw rigid-body reference for anchoring (name or idx). 0 = not anchored to a body."
     const body_ref::Union{Int, Symbol}
-    "Position in CAD frame [m]."
-    const pos_cad::KVec3
+    "Initial position, world frame [m]: where [`place!`](@ref) puts the point."
+    const pos_ENU::KVec3
     "Undeformed position relative to wing COM in principal frame [m]. Reference
     geometry the equations take as a parameter and `twist_deformed_offset`
     rotates by the live twist angle; overwriting it with a deformed position
     would twist an already-twisted station on the next model build."
     const pos_undeformed_b::KVec3
-    "Position relative to wing COM in principal frame [m]: `pos_undeformed_b`
-    carried by the live twist angle (updated during simulation)."
-    const pos_b::KVec3
-    "Anchor offset in the rigid body's body frame [m] (body-anchored points). Auto-derived from `pos_cad` by SystemStructure when left at zero."
+    "Anchor offset in the rigid body's body frame [m] (body-anchored points), derived
+    from `pos_ENU` by SystemStructure when left at zero."
     anchor_b::KVec3
-    "Position in world frame [m] (updated during simulation)."
-    const pos_w::KVec3
-    "Velocity in world frame [m/s] (updated during simulation)."
-    const vel_w::KVec3
     "External force applied to the point, world frame [N] (settable). Was `disturb`."
     const ext_force_w::KVec3
-    "Net force on the point [N] (updated during simulation)."
-    const force::KVec3
-    "Aerodynamic force in body frame [N] (PARTICLE_DYNAMICS wing nodes)."
-    const aero_force_b::KVec3
-    "Total drag force in world frame [N], including the point's own drag and any segment drag contributions assigned to it."
-    const drag_force::KVec3
-    "Apparent velocity in body frame [m/s] (VSM per-point)."
-    const va_b::KVec3
-    "Wind velocity at the point, world frame [m/s]: a height-profile output, or the settable input under `PerPointWind`."
-    const wind_vec::KVec3
     "Dynamics type (DYNAMIC, STATIC, BODY_STATIC, KINEMATIC)."
     const type::DynamicsType
     "User-provided mass [kg]."
     extra_mass::SimFloat
     "Total mass [kg]: extra_mass + segment contributions (computed during simulation)."
     total_mass::SimFloat
-    "Entrained-air mass [kg] resisting acceleration without adding weight."
+    "Entrained-air mass [kg] resisting acceleration without adding weight, before a
+    wing's aero sets it."
     apparent_mass::SimFloat
     "Per-axis damping in body frame [N·s/m]."
     body_frame_damping::KVec3
@@ -354,12 +339,12 @@ mutable struct Point
     wing (a member of one of the wing's stations). Set by SystemStructure
     from station membership; drives the wing-node equations."
     is_wing_node::Bool
-    # ---- beam-curvature anchoring (rides a TimoshenkoJoint's deformed centerline) ----
-    "Resolved anchoring TimoshenkoJoint index (filled by SystemStructure). 0 = not beam-anchored."
-    joint_idx::Int64
-    "Raw anchoring TimoshenkoJoint reference (name or idx). 0 = not beam-anchored."
-    const joint_ref::Union{Int, Symbol}
-    "Parameter `s ∈ [0,1]` along the beam element (auto-derived from `pos_cad`)."
+    # ---- beam-curvature anchoring (rides a TimoshenkoTube's deformed centerline) ----
+    "Resolved anchoring tube index (filled by SystemStructure). 0 = not beam-anchored."
+    tube_idx::Int64
+    "Raw anchoring tube reference (name or idx). 0 = not beam-anchored."
+    const tube_ref::Union{Int, Symbol}
+    "Parameter `s ∈ [0,1]` along the beam element (auto-derived from `pos_ENU`)."
     beam_frac::SimFloat
     "Perpendicular offset off the centerline in the rest element frame [m] (auto-derived)."
     beam_offset_b::KVec3
@@ -370,14 +355,14 @@ Base.getproperty(point::Point, sym::Symbol) =
     getfield(point, sym === :disturb ? :ext_force_w : sym)
 
 """
-    Point(name, pos_cad, type; wing=nothing, transform=nothing, ...)
+    Point(name, pos_ENU, type; wing=nothing, transform=nothing, ...)
 
 Constructs a `Point` object, which can be of three different [`DynamicsType`](@ref)s:
 - `STATIC`: The point does not move. ``\\ddot{\\mathbf{r}} = \\mathbf{0}``
 - `DYNAMIC`: The point moves according to Newton's second law. ``\\ddot{\\mathbf{r}} = \\mathbf{F}/m``
 - `BODY_STATIC`: The point is static in a [`Body`](@ref)'s body frame; it rides
   the body and feeds its net force and moment into it. Anchor it with `body`,
-  `joint`, or `wing` (a wing is a body, so `wing` rides that wing's own body).
+  `tube`, or `wing` (a wing is a body, so `wing` rides that wing's own body).
   `body` and `wing` may both be set only when `body` is a non-wing body; a `body`
   naming a different wing errors during resolution.
 
@@ -388,7 +373,7 @@ drives the per-point aero and wing-frame fitting.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the point (e.g., `:kcu`, `:le_1`, or `1` for legacy).
-- `pos_cad::KVec3`: Position of the point in the CAD frame.
+- `pos_ENU::KVec3`: Position of the point before [`place!`](@ref) moves it [m].
 - `type::DynamicsType`: Dynamics type of the point (`STATIC`, `DYNAMIC`, etc.).
   Pass `BODY_STATIC` together with `body` to anchor the point to a rigid body.
 
@@ -403,7 +388,6 @@ drives the per-point aero and wing-frame fitting.
   kinematically and feeds its net force (and the moment about the body COM)
   into the body. Defaults to no anchor.
 - `anchor_b::KVec3`: Anchor offset in the body frame [m] (used with `body`).
-- `vel_w::KVec3=zeros(KVec3)`: Initial velocity of the point in world frame.
 - `extra_mass::Float64=0.0`: User-provided mass of the point [kg].
 - `apparent_mass::Float64=0.0`: Entrained-air mass of the point [kg], which resists
   acceleration but carries no weight.
@@ -415,32 +399,31 @@ drives the per-point aero and wing-frame fitting.
 # Returns
 - `Point`: A new `Point` object. The `idx` field is assigned later by SystemStructure.
 """
-function Point(name, pos_cad, type;
-    wing=nothing, transform=nothing, vel_w=nothing,
-    body=nothing, anchor_b=nothing, joint=nothing,
+function Point(name, pos_ENU, type;
+    wing=nothing, transform=nothing,
+    body=nothing, anchor_b=nothing, tube=nothing,
     extra_mass=0.0, apparent_mass=0.0,
     body_frame_damping=nothing, world_frame_damping=nothing,
     area=0.0, drag_coeff=0.0,
     fix_sphere=false, fix_static=false
 )
     if type == BODY_STATIC
-        (isnothing(body) && isnothing(joint) && isnothing(wing)) && error(
-            "Point $name: BODY_STATIC requires a `body`, a `joint`, or a `wing` " *
+        (isnothing(body) && isnothing(tube) && isnothing(wing)) && error(
+            "Point $name: BODY_STATIC requires a `body`, a `tube`, or a `wing` " *
             "reference (a wing is a body, so `wing` rides that wing's body).")
     elseif !isnothing(body)
         error("Point $name: `body` is only valid with type BODY_STATIC.")
     end
-    (!isnothing(body) && !isnothing(joint)) && error(
-        "Point $name: set either `body` (rigid rider) or `joint` (beam rider), " *
+    (!isnothing(body) && !isnothing(tube)) && error(
+        "Point $name: set either `body` (rigid rider) or `tube` (beam rider), " *
         "not both.")
-    (!isnothing(joint) && type != BODY_STATIC) && error(
-        "Point $name: `joint` (beam anchoring) requires type BODY_STATIC.")
+    (!isnothing(tube) && type != BODY_STATIC) && error(
+        "Point $name: `tube` (beam anchoring) requires type BODY_STATIC.")
     body_ref = isnothing(body) ? 0 : body
-    joint_ref = isnothing(joint) ? 0 : joint
+    tube_ref = isnothing(tube) ? 0 : tube
     wing_ref = isnothing(wing) ? 0 : wing
     transform_ref = isnothing(transform) ? 0 : transform
     anchor = isnothing(anchor_b) ? zeros(KVec3) : KVec3(anchor_b...)
-    vel = isnothing(vel_w) ? zeros(KVec3) : KVec3(vel_w...)
 
     # Convert scalar damping to vector (broadcast to all axes), handle nothing
     bf_damp = if isnothing(body_frame_damping)
@@ -460,13 +443,11 @@ function Point(name, pos_cad, type;
 
     # idx, transform_idx, wing_idx, body_idx are placeholders - resolved by SystemStructure
     Point(0, name, 0, 0, 0, transform_ref, wing_ref, body_ref,
-        KVec3(pos_cad...), zeros(KVec3), zeros(KVec3), anchor, zeros(KVec3),
-        vel, zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
-        zeros(KVec3),
+        KVec3(pos_ENU...), zeros(KVec3), anchor, zeros(KVec3),
         type, extra_mass, 0.0, apparent_mass,
         bf_damp, wf_damp, area, drag_coeff,
         fix_sphere, fix_static, false,
-        0, joint_ref, 0.0, zeros(KVec3))
+        0, tube_ref, 0.0, zeros(KVec3))
 end
 
 # ==================== STATION ==================== #
@@ -507,16 +488,8 @@ mutable struct Station
     geometry. Defaults to 0.0 (no effect, matching prior behaviour) when not
     set."
     stiffness::SimFloat
-    "Current twist angle [rad]."
+    "Twist angle a run starts from [rad], held for a `STATIC` station."
     twist::SimFloat
-    "Current twist angular velocity [rad/s]."
-    twist_ω::SimFloat
-    "Tether force contribution [N]."
-    tether_force::SimFloat
-    "Tether moment contribution [N·m]."
-    tether_moment::SimFloat
-    "Aerodynamic moment [N·m]."
-    aero_moment::SimFloat
     "Indices of VSM unrefined sections in this station."
     unrefined_section_idxs::Vector{Int64}
     "Indices of the VSM panels whose twist moment this station takes."
@@ -587,7 +560,7 @@ using the closest VSM panel to the station's mean point position.
 - `flap_points=[]`: Ordered `[fore, hinge, aft]` point references of a point flap —
   the alternative to `flap_bodies`. δ is the signed angle the aft segment
   (`hinge`→`aft`) makes with the fore segment (`fore`→`hinge`) about `flap_axis`,
-  referenced to the CAD pose. A chord that bends rather than hinges needs no bodies
+  referenced to the initial pose. A chord that bends rather than hinges needs no bodies
   to read a deflection off, and the two segments are read from the structure the
   polars are indexed on. Give both `flap_bodies` and `flap_points` and the points win.
 - `flap_axis=[0,1,0]`: Flap-hinge axis (unit), in the main flap body's frame, or the
@@ -624,7 +597,7 @@ function Station(name, points, type, moment_frac;
     Station(0, name, Int64[], point_refs,
           zeros(KVec3), chord_vec, y_vec,
           type, moment_frac, damping, stiffness,
-          SimFloat(twist), 0.0, 0.0, 0.0, 0.0,
+          SimFloat(twist),
           Int64[], Int64[], 0.0, SimFloat(area),
           0, wing_ref, Int64[], body_refs,
           Int64[], flap_body_refs, Int64[], flap_point_refs, KVec3(flap_axis),
@@ -648,7 +621,7 @@ owns the full law, including any slack/compression behaviour, so `compression_fr
 is ignored for it.
 
 `unit_stiffness` is typed `Any` (not a type parameter) so the segment stays a
-concrete type — `SystemStructure.segments` is written every step, and a parametric
+concrete type — a run reads `SystemStructure.segments` every step, and a parametric
 element type would make that collection abstract and allocate.
 
 $(TYPEDFIELDS)
@@ -678,10 +651,6 @@ mutable struct Segment
     diameter::SimFloat
     "Material density [kg/m³]."
     density::SimFloat
-    "Current length [m] (updated during simulation)."
-    len::SimFloat
-    "Current force [N] (updated during simulation)."
-    force::SimFloat
 end
 
 """
@@ -712,8 +681,7 @@ function Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter;
     # Real → SimFloat; a callable force law F(ε) is kept as-is.
     stiff = unit_stiffness isa Real ? SimFloat(unit_stiffness) : unit_stiffness
     Segment(0, name, (0, 0), (p1, p2), stiff, SimFloat(unit_damping), l0,
-        compression_frac, compression_damping_frac, diameter, SimFloat(density),
-        zero(SimFloat), zero(SimFloat))
+        compression_frac, compression_damping_frac, diameter, SimFloat(density))
 end
 
 """
@@ -832,8 +800,7 @@ function Segment(name, set, point_i, point_j;
 
     Segment(0, name, (0, 0), (p1, p2),
         unit_stiffness, unit_damping, l0,
-        compression_frac, compression_damping_frac, diameter_m, density,
-        zero(SimFloat), zero(SimFloat))
+        compression_frac, compression_damping_frac, diameter_m, density)
 end
 
 """Deprecated: SegmentType parameter removed."""
@@ -874,10 +841,6 @@ mutable struct Pulley
     friction_epsilon::SimFloat
     "Sum of connected segment lengths [m]."
     sum_len::SimFloat
-    "Current pulley length [m] (updated during simulation)."
-    len::SimFloat
-    "Current pulley velocity [m/s] (updated during simulation)."
-    vel::SimFloat
 end
 
 """
@@ -912,7 +875,7 @@ function Pulley(name, segment_i, segment_j, type;
     s1 = segment_i isa Integer ? Int(segment_i) : Symbol(segment_i)
     s2 = segment_j isa Integer ? Int(segment_j) : Symbol(segment_j)
     return Pulley(0, name, (0, 0), (s1, s2), type, efficiency, damping, brake,
-                  friction_epsilon, 0.0, 0.0, 0.0)
+                  friction_epsilon, 0.0)
 end
 
 # ==================== TETHER ==================== #
@@ -937,18 +900,18 @@ since `SystemStructure.tethers` is read every step. The material fields
 generates; a Route 1 tether reads them off its own segments.
 
 # Initial length
-Two distinct lengths, set independently at `reinit!`:
-- `init_stretched_len` — the *placed* (stretched) standoff; `reinit!` scales the
+Two distinct lengths, set independently at `place!`:
+- `init_stretched_len` — the *placed* (stretched) standoff; `place!` scales the
   free end's world position so the geometry spans this length.
-- `len` — the *unstretched* rest length and the reeled ODE state. `reinit!`
+- `len` — the *unstretched* rest length and the reeled ODE state. `place!`
   derives it from the placed length via either `init_stretch_frac`
   (`len = frac · stretched`) or `init_tether_force`
   (`len = stretched · (1 − force/stiffness)`, default 0 → `len = stretched`).
 
-For a specific initial unstretched length `L` through `reinit!`, place at a known
+For a specific initial unstretched length `L` through `place!`, place at a known
 `init_stretched_len = S` and set `init_stretch_frac = L / S`. On a structure that
 is already placed, [`set_unstretched_length!`](@ref) writes `len` and the segments'
-`l0` without moving anything; the next `reinit!` derives `len` from the geometry
+`l0` without moving anything; the next `place!` derives `len` from the geometry
 again and overwrites it.
 
 $(TYPEDFIELDS)
@@ -988,22 +951,20 @@ mutable struct Tether
     const compression_frac::SimFloat
     "Fraction of `unit_damping` still acting under compression (0-1), per segment."
     const compression_damping_frac::SimFloat
-    "Current stretched length [m] (updated during simulation)."
-    stretched_len::SimFloat
-    """Unstretched tether length [m] (sum of segment l0).
-    ODE state variable. Segment l0 = len / n_segments."""
+    """Unstretched tether length [m] where [`place!`](@ref) puts it (sum of segment
+    l0). Segment l0 = len / n_segments."""
     len::SimFloat
     """Initial stretched standoff [m] — the placed point
     geometry (Σ segment norms). Drives placement of root
-    tethers. `nothing` = use the geometric (CAD) length,
+    tethers. `nothing` = use the authored length,
     i.e. no scaling."""
     init_stretched_len::Union{SimFloat, Nothing}
-    """Target initial spring force [N], default 0. `reinit!`
+    """Target initial spring force [N], default 0. `place!`
     solves the unstretched `len` from the placed stretched
     length: `len = stretched · (1 − force/unit_stiffness)`.
     Mutually exclusive with `init_stretch_frac`."""
     init_tether_force::Union{SimFloat, Nothing}
-    """Initial unstretched/stretched length fraction. `reinit!`
+    """Initial unstretched/stretched length fraction. `place!`
     sets `len = init_stretch_frac · stretched`; 0.9 gives 10%
     pre-stretch, 1.0 no tension, >1.0 slack. Must be positive.
     Mutually exclusive with `init_tether_force`."""
@@ -1060,7 +1021,7 @@ function Tether(name, segments::AbstractVector, stretched_length=nothing;
     return Tether(0, name, Int64[], segment_refs,
                   0, name_ref(start_point), 0, name_ref(end_point),
                   length(segments),
-                  NaN, NaN, NaN, NaN, NaN, NaN, 0.1, 1.0, 0.0,
+                  NaN, NaN, NaN, NaN, NaN, NaN, 0.1, 1.0,
                   0.0, init_stretched, init_force, init_frac)
 end
 
@@ -1144,7 +1105,7 @@ function Tether(name, stretched_length=nothing;
                   Float64(youngs_modulus),
                   Float64(damping_per_stiffness),
                   Float64(compression_frac),
-                  Float64(compression_damping_frac), 0.0,
+                  Float64(compression_damping_frac),
                   0.0, init_stretched, init_force, init_frac)
 end
 
@@ -1190,27 +1151,16 @@ mutable struct Winch
     winch_point_idx::Int64
     "Raw winch point reference (name or index)."
     const winch_point_ref::NameRef
-    "Initial reel-out velocity [m/s]. Applied on reinit!."
+    "Reel-out velocity a run starts from [m/s]."
     init_vel::SimFloat
-    "Current reel-out velocity [m/s]. ODE state variable."
-    vel::SimFloat
-    "Current winch acceleration [m/s²] from motor dynamics."
-    acc::SimFloat
-    """Abstract setpoint passed to the winch component as the
-    `set_value` connector. Interpretation is the component's
-    choice (e.g. motor torque, current, set velocity, set length).
-    The default component treats it as motor torque [N·m]."""
-    set_value::SimFloat
     """Brake input in [0, 1]. The outer integrator freezes
     `winch_vel` and `tether_len` when `> 0.5`; custom components
     may interpret intermediate values as a continuous brake."""
     brake::SimFloat
     """If true, reel-out velocity is prescribed externally rather
     than integrated from motor dynamics: winch acceleration is forced
-    to 0 (ignoring `model`). Set the velocity via `winch.vel`."""
+    to 0 (ignoring `model`). Set the velocity via the run's `winch.vel`."""
     speed_controlled::Bool
-    "Force vector at winch point [N]."
-    const force::KVec3
     "Gear ratio [-]."
     gear_ratio::SimFloat
     "Drum radius [m]."
@@ -1221,8 +1171,6 @@ mutable struct Winch
     viscous_coefficient::SimFloat
     "Total rotational inertia [kg·m²]."
     inertia_total::SimFloat
-    "Current friction force [N] (updated during simulation)."
-    friction::SimFloat
     """Winch motor dynamics model carrying its own parameters.
     Defaults to [`TorqueWinch`](@ref). See [`AbstractWinchModel`](@ref)."""
     model::AbstractWinchModel
@@ -1265,13 +1213,10 @@ function Winch(name, set::Settings, tethers;
     wp = winch_point isa Integer ? Int(winch_point) :
          Symbol(winch_point)
     return Winch(0, name, Int64[], tether_refs, 0, wp,
-                 init_vel, 0.0,
-                 0.0, 0.0,
-                 SimFloat(brake), speed_controlled, zeros(KVec3),
+                 init_vel, SimFloat(brake), speed_controlled,
                  set.gear_ratio, set.drum_radius,
                  set.f_coulomb, set.c_vf,
-                 set.inertia_total, zero(SimFloat),
-                 model)
+                 set.inertia_total, model)
 end
 
 """
@@ -1301,12 +1246,9 @@ function Winch(name, tethers, gear_ratio, drum_radius,
     wp = winch_point isa Integer ? Int(winch_point) :
          Symbol(winch_point)
     return Winch(0, name, Int64[], tether_refs, 0, wp,
-                 init_vel, 0.0,
-                 0.0, 0.0,
-                 SimFloat(brake), speed_controlled, zeros(KVec3),
+                 init_vel, SimFloat(brake), speed_controlled,
                  gear_ratio, drum_radius, coulomb_friction,
-                 viscous_coefficient, inertia_total, zero(SimFloat),
-                 model)
+                 viscous_coefficient, inertia_total, model)
 end
 
 # ==================== TRANSFORM ==================== #
@@ -1417,20 +1359,20 @@ function get_rot_pos(transform::Transform, bodies, points)
 end
 
 """
-    get_rot_pos_cad(transform::Transform, bodies, points)
+    get_rot_pos_ENU(transform::Transform, bodies, points)
 
-Get the CAD-frame position of the rotating object (body or point).
+Get the initial position `pos_ENU` of the rotating object (body or point).
 Used by `get_base_pos` to compute the translation offset for
 chained transforms.
 """
-function get_rot_pos_cad(transform::Transform, bodies, points)
+function get_rot_pos_ENU(transform::Transform, bodies, points)
     wing_idx = transform.wing_idx
     if !isnothing(wing_idx)
-        return bodies[something(wing_idx)].pos_cad
+        return bodies[something(wing_idx)].pos_ENU
     end
     rot_point_idx = transform.rot_point_idx
     if !isnothing(rot_point_idx)
-        return points[something(rot_point_idx)].pos_cad
+        return points[something(rot_point_idx)].pos_ENU
     end
     error("Transform #$(transform.idx): " *
         "neither wing_idx nor rot_point_idx is set")
@@ -1442,7 +1384,7 @@ end
 Get `(base_pos, curr_base_pos)` for a transform.
 
 For chained transforms (`base_transform`): returns the parent's
-current world position and CAD position, so
+current world position and initial position `pos_ENU`, so
 `T = base_pos - curr_base_pos` shifts child points by the same
 displacement the parent transform applied.
 
@@ -1456,9 +1398,9 @@ function get_base_pos(transform::Transform,
         base_tf = transforms[something(
             base_transform_idx)]
         rot_pos = get_rot_pos(base_tf, bodies, points)
-        rot_pos_cad = get_rot_pos_cad(
+        rot_pos_ENU = get_rot_pos_ENU(
             base_tf, bodies, points)
-        return rot_pos, rot_pos_cad
+        return rot_pos, rot_pos_ENU
     end
     curr_base_pos = points[something(
         transform.base_point_idx)].pos_w

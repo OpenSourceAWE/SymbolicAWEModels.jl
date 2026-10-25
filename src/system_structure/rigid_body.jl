@@ -35,7 +35,7 @@ DYNAMIC or STATIC body adds the points it carries — its `BODY_STATIC` riders, 
 anchors: `total_mass`, `com_offset_b` and the principal inertia describe the body
 with them ([`update_mass_properties!`](@ref)). Aero/wing fields are inert when
 `aero` is [`AeroNone`](@ref). Loads are gravity (`-g·total_mass` at the COM), the
-settable external wrench, joint wrenches, and aerodynamics.
+settable external wrench, tube wrenches, and aerodynamics.
 
 $(TYPEDFIELDS)
 """
@@ -58,14 +58,13 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     extra_mass::SimFloat
     "`extra_mass` plus the `total_mass` of the points the body carries [kg]."
     total_mass::SimFloat
-    "Entrained-air mass [kg] resisting acceleration without adding weight."
+    "Entrained-air mass [kg] resisting acceleration without adding weight, before a
+    wing's aero sets it."
     apparent_mass::SimFloat
     "Principal moments of inertia `[Ixx, Iyy, Izz]` with the carried points [kg·m²]."
     const inertia_principal::KVec3
     "Constant body→principal rotation."
     const R_b_to_p::Matrix{SimFloat}
-    "Principal frame → CAD (from inertia diagonalisation)."
-    const R_p_to_c::Matrix{SimFloat}
     "Offset from body origin to COM with the carried points, body frame [m]."
     const com_offset_b::KVec3
     "Inertia tensor of the body alone about its own COM, body frame [kg·m²]."
@@ -92,23 +91,10 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     fix_static::Bool
     "Dynamics type: DYNAMIC (free 6-DOF), KINEMATIC (fitted) or STATIC (frozen)."
     type::DynamicsType
-    "Initial body-origin position [m]; `pos_w` is reset to this each `reinit!`."
-    const pos_cad::KVec3
-    "Initial body→world orientation; `Q_b_to_w` is reset from this each `reinit!`."
-    const R_b_to_c::Matrix{SimFloat}
-
-    # ---- body frame state (ICs in, live output out) ----
-    const Q_b_to_w::Vector{SimFloat}
-    const ω_b::KVec3
-    const pos_w::KVec3
-    const vel_w::KVec3
-    const acc_w::KVec3
-
-    # ---- principal frame ODE state ----
-    const com_w::KVec3
-    const com_vel::KVec3
-    const Q_p_to_w::Vector{SimFloat}
-    const ω_p::KVec3
+    "Initial body-origin position, world frame [m]: where [`place!`](@ref) puts the body."
+    const pos_ENU::KVec3
+    "Initial body→world orientation quaternion: how [`place!`](@ref) turns the body."
+    const Q_KA_to_ENU::Vector{SimFloat}
 
     # ---- aerodynamics + wing machinery (inert when aero === AeroNone) ----
     aero::A
@@ -118,28 +104,16 @@ mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
     const station_refs::Vector{NameRef}
     const wind_disturb::KVec3
     drag_frac::SimFloat
-    const va_b::KVec3
-    "Wind velocity at the wing, world frame [m/s]: a height-profile output, or the settable input under `PerPointWind`."
-    const wind_vec::KVec3
-    const aero_force_b::KVec3
-    const aero_moment_b::KVec3
-    elevation::SimFloat
-    elevation_vel::SimFloat
-    elevation_acc::SimFloat
-    azimuth::SimFloat
-    azimuth_vel::SimFloat
-    azimuth_acc::SimFloat
-    heading::SimFloat
-    const turn_rate::KVec3
-    const turn_acc::KVec3
-    course::SimFloat
-    aoa::SimFloat
     "Whether in-group (station) points contribute their moment to the body."
     group_points_moment::Bool
     # Body-frame reference points (define R_b_to_w / pos_w from structural points)
     z_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
     y_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
     origin::Union{Nothing, WeightedRefPoints}
+    "Origin of the frame the wing's mesh is authored in, world frame [m]."
+    const mesh_frame_pos::KVec3
+    "Rotation of the frame the wing's mesh is authored in into the world."
+    const R_mesh_to_w::Matrix{SimFloat}
 end
 
 """`Body` with rigid (DYNAMIC/STATIC) 6-DOF dynamics."""
@@ -223,16 +197,15 @@ broadcast_damping(damping) = damping isa Real ?
     KVec3(damping, damping, damping) : KVec3(damping)
 
 """
-    Body(name; extra_mass, inertia_principal | inertia, pos, vel=zeros,
-              Q_b_to_w=[1,0,0,0], ω_b=zeros, com_offset_b=zeros, R_b_to_p=I,
+    Body(name; extra_mass, inertia_principal | inertia, pos,
+              Q_b_to_w=[1,0,0,0], com_offset_b=zeros, R_b_to_p=I,
               angular_damping=0, world_frame_damping=0, body_frame_damping=0,
               fix_sphere=false, fix_static=false, type=DYNAMIC,
               transform=nothing, wing=nothing,
               ext_force_w=zeros, ext_moment_b=zeros)
 
-Construct a standalone rigid body. `pos`/`vel` are the body origin's initial
-world-frame position/velocity; `Q_b_to_w`/`ω_b` its initial orientation/spin.
-The principal-frame ODE state is derived from these by `init_rigid_body!`.
+Construct a standalone rigid body. `pos` is the body origin's initial world-frame
+position and `Q_b_to_w` its initial orientation.
 
 `type` is `DYNAMIC` (free 6-DOF, default) or `STATIC` (clamped to its initial
 pose — e.g. a cantilever root). `transform` optionally references a
@@ -261,9 +234,7 @@ function Body(name;
         inertia_principal = nothing,
         inertia = nothing,
         pos,
-        vel = zeros(SimFloat, 3),
         Q_b_to_w = SimFloat[1, 0, 0, 0],
-        ω_b = zeros(SimFloat, 3),
         com_offset_b = zeros(SimFloat, 3),
         R_b_to_p = Matrix{SimFloat}(I, 3, 3),
         angular_damping = 0.0,
@@ -295,199 +266,112 @@ function Body(name;
         error("Body $name: provide `inertia_principal` or `inertia`.")
     end
     extra_inertia_b = R_b_to_p' * Diagonal(inertia_principal) * R_b_to_p
-    R_b_to_c = quaternion_to_rotation_matrix(Vector{SimFloat}(Q_b_to_w))
     # Plain body: no aero (AeroNone), rigid dynamics, inert aero/wing fields.
     return Body{AeroNone, RigidDynamics}(
         0, name, 0, transform_ref, 0, wing_ref,
         SimFloat(extra_mass), SimFloat(extra_mass), zero(SimFloat),
-        KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p),
-        Matrix{SimFloat}(I, 3, 3), KVec3(com_offset_b),
+        KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p), KVec3(com_offset_b),
         Matrix{SimFloat}(extra_inertia_b), KVec3(com_offset_b), principal_frame_method,
         KVec3(ext_force_w), KVec3(ext_force_b), KVec3(ext_moment_b),
         damping_vec, world_damping_vec, body_damping_vec, fix_sphere, fix_static,
         type,
-        KVec3(pos), Matrix{SimFloat}(R_b_to_c),
-        Vector{SimFloat}(Q_b_to_w), KVec3(ω_b),
-        KVec3(pos), KVec3(vel), zeros(KVec3),
-        zeros(KVec3), zeros(KVec3), zeros(SimFloat, 4), zeros(KVec3),
+        KVec3(pos), Vector{SimFloat}(Q_b_to_w),
         # aero/wing fields (inert for a plain body)
-        AeroNone(), Int64[], NameRef[],
-        zeros(KVec3), one(SimFloat),
-        zeros(KVec3), zeros(KVec3), zeros(KVec3), zeros(KVec3),
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        zeros(KVec3), zeros(KVec3), 0.0, 0.0,
-        true, nothing, nothing, nothing)
+        AeroNone(), Int64[], NameRef[], zeros(KVec3), one(SimFloat),
+        true, nothing, nothing, nothing, zeros(KVec3), Matrix{SimFloat}(I, 3, 3))
 end
 
 """
-    init_principal_state!(obj)
+    initial_rotation(body) -> Matrix
 
-Derive the principal-frame ODE state (`com_w`, `com_vel`, `Q_p_to_w`, `ω_p`) from
-the body-frame initial conditions (`pos_w`, `vel_w`, `Q_b_to_w`, `ω_b`) of a rigid
-body or `RIGID_DYNAMICS` wing, with `R_p_to_w = R_b_to_w * R_b_to_p'`. Shared by
-[`init_rigid_body!`](@ref) and the rigid branch of `init_principal_frame!` (for a
-`RIGID_DYNAMICS` wing `R_b_to_p = R_p_to_c' * R_b_to_c`, so the two agree).
+The body→world rotation matrix of `body`'s initial pose `Q_KA_to_ENU`.
 """
-function init_principal_state!(obj)
-    R_b_to_w = quaternion_to_rotation_matrix(obj.Q_b_to_w)
-    obj.com_w .= obj.pos_w .+ R_b_to_w * obj.com_offset_b
-    R_p_to_w = R_b_to_w * obj.R_b_to_p'
-    obj.Q_p_to_w .= rotation_matrix_to_quaternion(R_p_to_w)
-    ω_w = R_b_to_w * obj.ω_b
-    obj.com_vel .= obj.vel_w .+ cross(ω_w, R_b_to_w * obj.com_offset_b)
-    obj.ω_p .= R_p_to_w' * ω_w
-    return nothing
-end
+initial_rotation(body) = quaternion_to_rotation_matrix(body.Q_KA_to_ENU)
 
 """
-    init_rigid_body!(body::Body)
+    initial_body_position(body, point) -> Vector
 
-Derive the body's principal-frame ODE state from its body-frame initial
-conditions via [`init_principal_state!`](@ref).
+Where `point` sits in `body`'s frame, from the body origin, in the initial pose.
 """
-init_rigid_body!(body::Body) = init_principal_state!(body)
+initial_body_position(body, point) =
+    initial_rotation(body)' * (point.pos_ENU - body.pos_ENU)
 
 """
-    ElasticJoint
+    initial_chord_position(wing, point) -> SimFloat
 
-A 6-DOF elastic connection between two `Body`s. Anchored at a body-frame
-offset on each body, it applies a restoring wrench from the relative pose of the
-anchors, decomposed in body A's frame into axial (`EA`), shear (`GA`, both
-transverse axes), torsion (`GJ`), and bending (`EI`, both transverse axes), with
-optional translational/rotational damping. The equal-and-opposite wrench is added
-to both bodies' load accumulators.
+Body-frame x of `point` on `wing` in the initial pose: smaller towards the leading edge.
+"""
+initial_chord_position(wing, point) = initial_body_position(wing, point)[1]
+
+"""
+    AbstractTubeModel
+
+Structural element a [`Tube`](@ref) is simulated as. Each concrete model carries
+its rigidities, its damping and the rest state it captures at `place!`.
+"""
+abstract type AbstractTubeModel end
+
+"""
+    ElasticTube
+
+Lumped 6-DOF spring between a tube's two anchors: the relative pose of the anchors,
+decomposed in body A's frame into axial, shear (both transverse axes), torsion and
+bending (both transverse axes) springs, with Rayleigh damping.
 
 Each stiffness is either a `Real` (linear law, force `= k·Δ`) or a callable
-interpolation `f` (nonlinear law, force `= f(Δ)`, e.g. a wrinkling inflatable
-beam), mixable per DOF; the type parameter `S` keeps the fields concrete so the ODE
-right-hand side stays allocation-free. The symbolic equations are the same either
-way (resolved at runtime in the registered force function), but the stiffness types
-enter the `SystemStructure` type parameter, so a float and an interpolation are
-distinct compiled models with their own cache entries.
+interpolation `f` (nonlinear law, force `= f(Δ)`), mixable per DOF; callables must
+share one type, which keeps the fields concrete.
 
 $(TYPEDFIELDS)
 """
-mutable struct ElasticJoint{S}
-    "Index in the elastic_joints vector (assigned by SystemStructure)."
-    idx::Int64
-    "Name used for lookup."
-    const name::Union{Int, Symbol, Nothing}
-
-    "Resolved index of body A (filled by SystemStructure)."
-    body_a_idx::Int64
-    "Resolved index of body B (filled by SystemStructure)."
-    body_b_idx::Int64
-    "Raw reference (name or index) of body A."
-    const body_a_ref::NameRef
-    "Raw reference (name or index) of body B."
-    const body_b_ref::NameRef
-
-    "Anchor offset from body A origin, body A frame [m]."
-    const anchor_a_b::KVec3
-    "Anchor offset from body B origin, body B frame [m]."
-    const anchor_b_b::KVec3
-
-    "Axial stiffness: `Real` EA [N/m], or interpolation force(Δx) (body A x-axis)."
+mutable struct ElasticTube{S} <: AbstractTubeModel
+    "Axial stiffness: `Real` [N/m], or interpolation force(Δx) (body A x-axis)."
     stiffness_axial::S
-    "Shear stiffness: `Real` GA [N/m], or interpolation force(Δ) (both transverse)."
+    "Shear stiffness: `Real` [N/m], or interpolation force(Δ) (both transverse)."
     stiffness_shear::S
-    "Torsional stiffness: `Real` GJ [N·m/rad], or interpolation moment(Δθ) (x-axis)."
+    "Torsional stiffness: `Real` [N·m/rad], or interpolation moment(Δθ) (x-axis)."
     stiffness_torsion::S
-    "Bending stiffness: `Real` EI [N·m/rad], or interpolation moment(Δθ) (transverse)."
+    "Bending stiffness: `Real` [N·m/rad], or interpolation moment(Δθ) (transverse)."
     stiffness_bending::S
     "Rayleigh damping β [s]: each DOF is damped in proportion to its own
     stiffness (C = βK), so rigid motion stays undamped by construction."
     damping::SimFloat
-    "Rest anchor offset (body A frame), set at `reinit!` so the as-placed geometry is unstrained."
+    "Rest anchor offset (body A frame) [m], the placed geometry, set by `place!`."
     const rest_offset_a::KVec3
-    "Rest relative rotation `R_a' R_b`, set at `reinit!` so the as-placed orientation is unstrained."
+    "Rest relative rotation `R_a' R_b`, the placed orientation, set by `place!`."
     const R_rel0::Matrix{SimFloat}
-    "Cylinder radius for plotting the beam element [m]; `nothing` ⇒ not drawn. Visual only."
-    radius::Union{Nothing, SimFloat}
 end
 
 """
-    ElasticJoint(name, body_a, body_b; anchor_a=zeros, anchor_b=zeros,
-                 stiffness_axial, stiffness_shear, stiffness_torsion,
-                 stiffness_bending, damping=0, radius=nothing)
+    ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion,
+                stiffness_bending, damping=0)
 
-Connect `body_a` to `body_b` (names or indices) with a 6-DOF elastic joint.
-`anchor_a`/`anchor_b` are the connection points in each body's frame. Each
-stiffness is a `Real` (linear) or a callable interpolation of the relative DOF
-(nonlinear); interpolations must all be the same type. `radius` sets the beam
-cylinder radius when visualising (`nothing` ⇒ not drawn); no effect on dynamics.
+A lumped [`ElasticTube`](@ref) with the four given stiffnesses, each a `Real` or a
+callable of its relative DOF.
 """
-function ElasticJoint(name, body_a, body_b;
-        anchor_a = zeros(SimFloat, 3),
-        anchor_b = zeros(SimFloat, 3),
-        stiffness_axial,
-        stiffness_shear,
-        stiffness_torsion,
-        stiffness_bending,
-        damping::Real = 0.0,
-        radius::Union{Nothing, Real} = nothing,
-    )
-    # Reals → SimFloat; interpolations kept as-is. All interps must share a type.
-    conv(s) = s isa Real ? SimFloat(s) : s
-    stiffs = map(conv, (stiffness_axial, stiffness_shear,
-                        stiffness_torsion, stiffness_bending))
-    interp_types = unique(typeof(s) for s in stiffs if !(s isa Real))
-    length(interp_types) > 1 && error(
-        "ElasticJoint: all interpolation stiffnesses must be the same type, " *
-        "got $(interp_types). Mix only `Real`s and a single interpolation type.")
-    S = Union{map(typeof, stiffs)...}
-    body_a_ref = body_a isa Integer ? Int(body_a) : Symbol(body_a)
-    body_b_ref = body_b isa Integer ? Int(body_b) : Symbol(body_b)
-    return ElasticJoint{S}(0, name, 0, 0, body_a_ref, body_b_ref,
-        KVec3(anchor_a), KVec3(anchor_b), stiffs...,
-        SimFloat(damping),
-        KVec3(0.0, 0.0, 0.0), Matrix{SimFloat}(I, 3, 3),
-        radius === nothing ? nothing : SimFloat(radius))
+function ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion,
+                     stiffness_bending, damping::Real = 0.0)
+    stiffnesses = concrete_rigidities("ElasticTube", (stiffness_axial,
+        stiffness_shear, stiffness_torsion, stiffness_bending))
+    return ElasticTube{Union{map(typeof, stiffnesses)...}}(stiffnesses...,
+        SimFloat(damping), KVec3(0.0, 0.0, 0.0), Matrix{SimFloat}(I, 3, 3))
 end
 
 """
-    TimoshenkoJoint
+    TimoshenkoTube
 
-A 2-node Timoshenko beam element between two `Body`s — the distributed-compliance
-counterpart of the lumped [`ElasticJoint`](@ref); a chain of them forms a beam. The
-stiffness couples each node's transverse displacement to its rotation, so transverse
-shear is represented.
-
-Corotational: an element frame follows the chord and node A's orientation, small
-deformations are measured relative to it, and the restoring wrench is accumulated
-equal-and-opposite into both bodies' `body_force`/`body_moment`. Damping resists the
-relative node velocity/spin.
+A 2-node corotational Timoshenko beam element; a chain of tubes forms a beam. The
+stiffness couples each node's transverse displacement to its rotation, so
+transverse shear is represented.
 
 Each rigidity (`EA` axial, `GA` shear with correction factor `shear_coeff`,
 `Φ = 12·EI/(k·GA·L²)`, `GJ` torsion, `EIy`/`EIz` bending about the two transverse
 axes) is either a `Real` (linear) or a callable of that mode's strain/curvature
-returning the effective rigidity there, e.g. a curvature-softening `EIy(κ)` for
-inflated-tube wrinkling (Breukels). All callables must share one type. `rest_length`
-(0 ⇒ initial geometry) and the per-node rest orientations `R_a_rel0`/`R_b_rel0` (set
-at `reinit!`) define the unstrained configuration.
+returning the effective rigidity there. All callables must share one type.
 
 $(TYPEDFIELDS)
 """
-mutable struct TimoshenkoJoint{S}
-    "Index in the timoshenko_joints vector (assigned by SystemStructure)."
-    idx::Int64
-    "Name used for lookup."
-    const name::Union{Int, Symbol, Nothing}
-
-    "Resolved index of body A (filled by SystemStructure)."
-    body_a_idx::Int64
-    "Resolved index of body B (filled by SystemStructure)."
-    body_b_idx::Int64
-    "Raw reference (name or index) of body A."
-    const body_a_ref::NameRef
-    "Raw reference (name or index) of body B."
-    const body_b_ref::NameRef
-
-    "Node offset from body A origin, body A frame [m]."
-    const anchor_a_b::KVec3
-    "Node offset from body B origin, body B frame [m]."
-    const anchor_b_b::KVec3
-
+mutable struct TimoshenkoTube{S} <: AbstractTubeModel
     "Axial rigidity: `Real` EA [N], or callable EA(ε) of axial strain ε=δ/L₀."
     EA::S
     "Shear rigidity (before `shear_coeff`): `Real` GA [N], or callable GA(γ) of shear angle."
@@ -504,54 +388,130 @@ mutable struct TimoshenkoJoint{S}
     deformation rate (C = βK), so every mode is damped in proportion to its
     rigidity and rigid motion stays undamped by construction."
     damping::SimFloat
-    "Rest (unstrained) chord length [m]; 0 ⇒ taken from initial geometry."
+    "Rest chord length [m], taken from the placed geometry at the first `place!`."
     rest_length::SimFloat
     "Rest orientation of node A in the element frame (set at reinit!)."
     const R_a_rel0::Matrix{SimFloat}
     "Rest orientation of node B in the element frame (set at reinit!)."
     const R_b_rel0::Matrix{SimFloat}
-    "Cylinder radius for plotting the beam element [m]; `nothing` ⇒ not drawn. Visual only."
-    radius::Union{Nothing, SimFloat}
 end
 
 """
-    TimoshenkoJoint(name, body_a, body_b; anchor_a=zeros, anchor_b=zeros,
-                   EA, GA, GJ, EIy, EIz, shear_coeff=5/6,
-                   damping=0, rest_length=0, radius=nothing)
+    TimoshenkoTube(; EA=nothing, GA=nothing, GJ=nothing, EIy=nothing, EIz=nothing,
+                   shear_coeff=5/6, damping=0)
 
-Connect `body_a` to `body_b` (names or indices) with a Timoshenko beam element.
-`anchor_a`/`anchor_b` are the node points in each body's frame. Each rigidity is a
-`Real` (linear) or a callable of its strain/curvature returning the effective
-rigidity (nonlinear); callables must all be the same type. `rest_length=0` takes
-the unstrained length from the initial geometry. `damping` is the Rayleigh β in
-seconds, giving modal ratio ζ = βω/2 per mode. `radius` sets the beam cylinder
-radius when visualising (`nothing` ⇒ not drawn); no effect on dynamics.
+A [`TimoshenkoTube`](@ref). Each rigidity is a `Real` or a callable of its
+strain/curvature; the ones left `nothing` are derived from the tube's law when the
+[`Tube`](@ref) is built.
 """
-function TimoshenkoJoint(name, body_a, body_b;
-        anchor_a = zeros(SimFloat, 3),
-        anchor_b = zeros(SimFloat, 3),
-        EA, GA, GJ, EIy, EIz,
-        shear_coeff::Real = 5 / 6,
-        damping::Real = 0.0,
-        rest_length::Real = 0.0,
-        radius::Union{Nothing, Real} = nothing,
-    )
-    # Reals → SimFloat; callables kept as-is. All callables must share a type.
-    conv(s) = s isa Real ? SimFloat(s) : s
-    rigidities = map(conv, (EA, GA, GJ, EIy, EIz))
-    callable_types = unique(typeof(s) for s in rigidities if !(s isa Real))
+TimoshenkoTube(; EA = nothing, GA = nothing, GJ = nothing, EIy = nothing,
+               EIz = nothing, shear_coeff::Real = 5 / 6, damping::Real = 0.0) =
+    timoshenko_tube((EA, GA, GJ, EIy, EIz), shear_coeff, damping)
+
+function timoshenko_tube(rigidities, shear_coeff, damping)
+    rigidities = concrete_rigidities("TimoshenkoTube", rigidities)
+    return TimoshenkoTube{Union{map(typeof, rigidities)...}}(rigidities...,
+        SimFloat(shear_coeff), SimFloat(damping), 0.0,
+        Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3))
+end
+
+"""
+    rigidity_fields(model::AbstractTubeModel) -> Tuple
+
+The fields of `model` holding a rigidity, each a `Real` or a callable.
+"""
+rigidity_fields(::ElasticTube) =
+    (:stiffness_axial, :stiffness_shear, :stiffness_torsion, :stiffness_bending)
+rigidity_fields(::TimoshenkoTube) = (:EA, :GA, :GJ, :EIy, :EIz)
+
+"""
+    concrete_rigidities(model, rigidities) -> Tuple
+
+`rigidities` with every `Real` as a `SimFloat` and callables kept, erroring when
+the callables are of more than one type.
+"""
+function concrete_rigidities(model, rigidities)
+    converted = map(value -> value isa Real ? SimFloat(value) : value, rigidities)
+    callable_types = unique(typeof(value) for value in converted
+                            if !(value isa Union{Real, Nothing}))
     length(callable_types) > 1 && error(
-        "TimoshenkoJoint: all callable rigidities must be the same type, " *
-        "got $(callable_types). Mix only `Real`s and a single callable type.")
-    S = Union{map(typeof, rigidities)...}
-    body_a_ref = body_a isa Integer ? Int(body_a) : Symbol(body_a)
-    body_b_ref = body_b isa Integer ? Int(body_b) : Symbol(body_b)
-    return TimoshenkoJoint{S}(0, name, 0, 0, body_a_ref, body_b_ref,
-        KVec3(anchor_a), KVec3(anchor_b), rigidities...,
-        SimFloat(shear_coeff), SimFloat(damping), SimFloat(rest_length),
-        Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3),
-        radius === nothing ? nothing : SimFloat(radius))
+        "$model: all callable rigidities must be the same type, got " *
+        "$(callable_types). Mix only `Real`s and a single callable type.")
+    return converted
 end
+
+"""
+    with_law_rigidities(model, law, diameter, pressure) -> AbstractTubeModel
+
+`model` with every rigidity it leaves `nothing` derived from `law` at the tube's
+`diameter` [m] and `pressure` [Pa] ([`tube_law_rigidities`](@ref)).
+"""
+function with_law_rigidities(model::TimoshenkoTube, law, diameter, pressure)
+    fields = rigidity_fields(model)
+    given = map(field -> getfield(model, field), fields)
+    any(isnothing, given) || return model
+    EA, GA, EI, GJ = tube_law_rigidities(law, diameter, pressure)
+    derived = (; EA, GA, GJ, EIy = EI, EIz = EI)
+    rigidities = map((field, value) -> something(value, derived[field]), fields, given)
+    return timoshenko_tube(rigidities, model.shear_coeff, model.damping)
+end
+
+with_law_rigidities(model::ElasticTube, law, diameter, pressure) = model
+
+"""
+    Tube{M<:AbstractTubeModel}
+
+An inflated tube between two `Body`s, simulated as `model`: a
+[`TimoshenkoTube`](@ref) beam element or a lumped [`ElasticTube`](@ref). Its ends
+sit at an anchor on each body, and the placed bodies fix its rest length.
+
+$(TYPEDFIELDS)
+"""
+mutable struct Tube{M <: AbstractTubeModel}
+    "Index in `SystemStructure.tubes` (assigned by SystemStructure)."
+    idx::Int64
+    "Name used for lookup."
+    const name::Union{Int, Symbol, Nothing}
+    "Resolved index of body A (filled by SystemStructure)."
+    body_a_idx::Int64
+    "Resolved index of body B (filled by SystemStructure)."
+    body_b_idx::Int64
+    "Raw reference (name or index) of body A."
+    const body_a_ref::NameRef
+    "Raw reference (name or index) of body B."
+    const body_b_ref::NameRef
+    "Tube end on body A, as an offset from its origin in its frame [m]."
+    const anchor_a_b::KVec3
+    "Tube end on body B, as an offset from its origin in its frame [m]."
+    const anchor_b_b::KVec3
+    "Outer diameter [m], one for the whole element."
+    diameter::SimFloat
+    "Inflation pressure [Pa]."
+    pressure::SimFloat
+    "Name of the stiffness law the rigidities are derived from, e.g. `:breukels2011`."
+    law::Symbol
+    "The structural element the tube is simulated as."
+    model::M
+end
+
+"""
+    Tube(name, body_a, body_b; diameter, pressure, law=:breukels2011,
+         model=TimoshenkoTube(), anchor_a=zeros, anchor_b=zeros)
+
+A tube from `body_a` to `body_b` (names or indices), its ends at `anchor_a` and
+`anchor_b` in each body's frame. Rigidities `model` leaves `nothing` are derived
+from `law` at `diameter` [m] and `pressure` [Pa].
+"""
+function Tube(name, body_a, body_b; diameter::Real, pressure::Real,
+              law = :breukels2011, model::AbstractTubeModel = TimoshenkoTube(),
+              anchor_a = zeros(SimFloat, 3), anchor_b = zeros(SimFloat, 3))
+    law = Symbol(law)
+    model = with_law_rigidities(model, law, diameter, pressure)
+    return Tube(0, name, 0, 0, name_ref(body_a), name_ref(body_b),
+        KVec3(anchor_a), KVec3(anchor_b), SimFloat(diameter), SimFloat(pressure),
+        law, model)
+end
+
 
 """
     timoshenko_element_frame(x_a, x_b, R_a) -> (e1, e2, e3, len)
@@ -572,68 +532,70 @@ function timoshenko_element_frame(x_a, x_b, R_a)
 end
 
 """
-    joint_endpoint_frames(joint, bodies) -> (R_a, R_b, anchor_a_w, anchor_b_w)
+    tube_initial_frames(tube, bodies) -> (R_a, R_b, anchor_a_w, anchor_b_w)
 
-World rotations of the two connected bodies and the world positions of the joint's
-two anchors, from the current (placed) poses. Shared by every `init_joint_rest!`.
+World rotations of the two connected bodies and the world positions of the tube's
+two anchors, in the bodies' initial poses (`pos_ENU`, `Q_KA_to_ENU`).
 """
-function joint_endpoint_frames(joint, bodies)
-    body_a = bodies[joint.body_a_idx]
-    body_b = bodies[joint.body_b_idx]
-    R_a = quaternion_to_rotation_matrix(body_a.Q_b_to_w)
-    R_b = quaternion_to_rotation_matrix(body_b.Q_b_to_w)
-    anchor_a_w = body_a.pos_w .+ R_a * joint.anchor_a_b
-    anchor_b_w = body_b.pos_w .+ R_b * joint.anchor_b_b
+function tube_initial_frames(tube::Tube, bodies)
+    body_a = bodies[tube.body_a_idx]
+    body_b = bodies[tube.body_b_idx]
+    R_a = initial_rotation(body_a)
+    R_b = initial_rotation(body_b)
+    anchor_a_w = body_a.pos_ENU .+ R_a * tube.anchor_a_b
+    anchor_b_w = body_b.pos_ENU .+ R_b * tube.anchor_b_b
     return R_a, R_b, anchor_a_w, anchor_b_w
 end
 
 """
-    init_joint_rest!(joint, bodies)
+    init_tube_rest!(tube, bodies)
 
-Capture `joint`'s rest reference from the current (placed) body poses, so the
-as-placed (CAD) geometry is unstrained and the joint wrench is exactly zero at
-initialization. One method per joint type; a new joint type adds a method.
+Capture the rest reference of `tube.model` from the bodies' initial poses, so the
+initial geometry is unstrained and the tube wrench there is exactly zero. One
+`init_rest!` method per tube model:
 
-- [`ElasticJoint`](@ref): rest anchor offset (body-A frame) and rest relative
+- [`ElasticTube`](@ref): rest anchor offset (body-A frame) and rest relative
   rotation `R_a' R_b`.
-- [`TimoshenkoJoint`](@ref): rest length (if unset) and per-node orientations
-  relative to the corotational element frame.
+- [`TimoshenkoTube`](@ref): rest length (on the first call) and per-node
+  orientations relative to the corotational element frame.
 """
-function init_joint_rest!(joint::ElasticJoint, bodies)
-    R_a, R_b, anchor_a_w, anchor_b_w = joint_endpoint_frames(joint, bodies)
-    joint.rest_offset_a .= R_a' * (anchor_b_w .- anchor_a_w)
-    joint.R_rel0 .= R_a' * R_b
+init_tube_rest!(tube::Tube, bodies) =
+    init_rest!(tube.model, tube_initial_frames(tube, bodies)...)
+
+function init_rest!(model::ElasticTube, R_a, R_b, anchor_a_w, anchor_b_w)
+    model.rest_offset_a .= R_a' * (anchor_b_w .- anchor_a_w)
+    model.R_rel0 .= R_a' * R_b
     return nothing
 end
 
-function init_joint_rest!(joint::TimoshenkoJoint, bodies)
-    R_a, R_b, x_a, x_b = joint_endpoint_frames(joint, bodies)
+function init_rest!(model::TimoshenkoTube, R_a, R_b, x_a, x_b)
     e1, e2, e3, len = timoshenko_element_frame(x_a, x_b, R_a)
     element_frame = [e1[1] e2[1] e3[1];
                      e1[2] e2[2] e3[2];
                      e1[3] e2[3] e3[3]]
-    joint.rest_length ≈ 0 && (joint.rest_length = len)
-    joint.R_a_rel0 .= element_frame' * R_a
-    joint.R_b_rel0 .= element_frame' * R_b
+    model.rest_length ≈ 0 && (model.rest_length = len)
+    model.R_a_rel0 .= element_frame' * R_a
+    model.R_b_rel0 .= element_frame' * R_b
     return nothing
 end
 
 """
-    derive_point_beam_anchor!(point, joint, bodies)
+    derive_point_beam_anchor!(point, tube, bodies)
 
 Derive a beam-anchored point's `beam_frac` and `beam_offset_b` from its
-`pos_cad`: project onto the rest beam line between the joint's two node anchors
-(CAD frame), storing the axial fraction `s ∈ [0,1]` and the perpendicular
+`pos_ENU`: project onto the rest beam line between the tube's two node anchors
+in the initial pose, storing the axial fraction `s ∈ [0,1]` and the perpendicular
 remainder expressed in the rest element frame (so the point tracks the same
 off-centerline offset as the beam bends). Usually near-centerline (offset ≈ 0).
 """
-function derive_point_beam_anchor!(point::Point, joint, bodies)
-    body_a = bodies[joint.body_a_idx]
-    body_b = bodies[joint.body_b_idx]
-    node_a = body_a.pos_cad .+ body_a.R_b_to_c * joint.anchor_a_b
-    node_b = body_b.pos_cad .+ body_b.R_b_to_c * joint.anchor_b_b
-    e1, e2, e3, len = timoshenko_element_frame(node_a, node_b, body_a.R_b_to_c)
-    rel = point.pos_cad .- node_a
+function derive_point_beam_anchor!(point::Point, tube::Tube, bodies)
+    body_a = bodies[tube.body_a_idx]
+    body_b = bodies[tube.body_b_idx]
+    R_a = initial_rotation(body_a)
+    node_a = body_a.pos_ENU .+ R_a * tube.anchor_a_b
+    node_b = body_b.pos_ENU .+ initial_rotation(body_b) * tube.anchor_b_b
+    e1, e2, e3, len = timoshenko_element_frame(node_a, node_b, R_a)
+    rel = point.pos_ENU .- node_a
     s = clamp(dot(rel, e1) / len, 0.0, 1.0)
     point.beam_frac = s
     perp = rel .- (s * len) .* e1
@@ -642,28 +604,28 @@ function derive_point_beam_anchor!(point::Point, joint, bodies)
 end
 
 """
-    has_body_flap(station::Station) -> Bool
+    has_body_flap(station) -> Bool
 
 `true` if the station reads its deflection off two ordered flap bodies.
 """
-has_body_flap(station::Station) = length(station.flap_body_idxs) == 2
+has_body_flap(station) = length(station.flap_body_idxs) == 2
 
 """
-    has_point_flap(station::Station) -> Bool
+    has_point_flap(station) -> Bool
 
 `true` if the station reads its deflection off three structural points
 `[fore, hinge, aft]` ([`point_flap_delta`](@ref)).
 """
-has_point_flap(station::Station) = length(station.flap_point_idxs) == 3
+has_point_flap(station) = length(station.flap_point_idxs) == 3
 
 """
-    has_flap(station::Station) -> Bool
+    has_flap(station) -> Bool
 
 `true` if the station carries a flap hinge either way, so it drives a live
 deflection δ ([`flap_delta`](@ref) / [`point_flap_delta`](@ref) /
 `station_delta_eqs!`). A station given both reads the points.
 """
-has_flap(station::Station) =
+has_flap(station) =
     has_point_flap(station) || has_body_flap(station)
 
 """
@@ -677,7 +639,7 @@ full polar δ range (an `atan`, not a small-angle approximation). The same formu
 the symbolic RHS uses (`station_delta_eqs!`), so it is the ground truth for
 tests.
 """
-flap_delta(station::Station, R_main, R_flap) =
+flap_delta(station, R_main, R_flap) =
     flap_delta_expression(station, R_main, R_flap)
 
 """
@@ -688,7 +650,7 @@ with `R_wing` the owning wing's orientation. The same
 [`point_flap_delta_expression`](@ref) the symbolic RHS evaluates, so it is the ground
 truth for tests.
 """
-function point_flap_delta(station::Station, points, R_wing)
+function point_flap_delta(station, points, R_wing)
     fore, hinge, aft = station.flap_point_idxs
     return point_flap_delta_expression(station, points[fore].pos_w,
         points[hinge].pos_w, points[aft].pos_w, R_wing)
@@ -697,14 +659,12 @@ end
 """
     init_station_flap!(station, sys_struct)
 
-Capture a flapped `KINEMATIC` station's rest geometry, so the undeformed
-configuration reads δ = 0. A body flap defaults its reference chords to each body's
-x-axis and measures the placed poses; a point flap measures its three points in CAD,
-which is the geometry the polars were tabulated from and is unaffected by whatever
-the placement or a settling run has since done to the structure. No-op for surfaces
-without a flap.
+Capture a flapped `KINEMATIC` station's rest geometry from the initial pose, so the
+undeformed configuration reads δ = 0. A body flap defaults its reference chords to
+each body's x-axis and measures the two bodies' `Q_KA_to_ENU`; a point flap measures
+its three points' `pos_ENU`. No-op for surfaces without a flap.
 """
-function init_station_flap!(station::Station, sys_struct)
+function init_station_flap!(station, sys_struct)
     if has_point_flap(station)
         station.wing_idx in eachindex(sys_struct.wings) || error(
             "Station $(station.name): a point flap needs a `wing` to take its hinge " *
@@ -713,18 +673,16 @@ function init_station_flap!(station::Station, sys_struct)
         fore, hinge, aft = station.flap_point_idxs
         station.flap_rest_delta = 0.0
         station.flap_rest_delta = point_flap_delta_expression(station,
-            points[fore].pos_cad, points[hinge].pos_cad, points[aft].pos_cad,
-            sys_struct.wings[station.wing_idx].R_b_to_c)
+            points[fore].pos_ENU, points[hinge].pos_ENU, points[aft].pos_ENU,
+            initial_rotation(sys_struct.wings[station.wing_idx]))
         return nothing
     end
     has_body_flap(station) || return nothing
     bodies = sys_struct.bodies
     isempty(station.flap_chord_refs) &&
         (station.flap_chord_refs = [KVec3(1.0, 0.0, 0.0), KVec3(1.0, 0.0, 0.0)])
-    R_main = quaternion_to_rotation_matrix(
-        bodies[station.flap_body_idxs[1]].Q_b_to_w)
-    R_flap = quaternion_to_rotation_matrix(
-        bodies[station.flap_body_idxs[2]].Q_b_to_w)
+    R_main = initial_rotation(bodies[station.flap_body_idxs[1]])
+    R_flap = initial_rotation(bodies[station.flap_body_idxs[2]])
     station.flap_rest_delta = 0.0
     station.flap_rest_delta = flap_delta(station, R_main, R_flap)
     return nothing

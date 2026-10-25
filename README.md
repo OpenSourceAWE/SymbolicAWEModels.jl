@@ -41,7 +41,7 @@ SymbolicAWEModels provides building blocks for flexible mechanical systems:
 - **Winch**es — torque-controlled motors with Coulomb and viscous friction
 - **Pulley**s — equal-tension constraints between segments
 - **Wing**s — rigid-body or particle dynamics with aerodynamic forces from
-  the [Vortex Step Method](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
+  the [Vortex Step Method](https://github.com/OpenSourceAWE/VortexStepMethod.jl)
 - **TwistSurface**s — twist degrees of freedom for aeroelastic coupling
 - **Bodies** — plain rigid bodies, linked by **ElasticJoint**s or
   **TimoshenkoJoint** beam elements
@@ -257,15 +257,15 @@ Key related packages:
   kite model
 - [KiteUtils.jl](https://github.com/OpenSourceAWE/KiteUtils.jl) — shared
   types and utilities
-- [VortexStepMethod.jl](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
+- [VortexStepMethod.jl](https://github.com/OpenSourceAWE/VortexStepMethod.jl)
   — aerodynamic solver
-- [AtmosphericModels.jl](https://github.com/aenarete/AtmosphericModels.jl)
+- [AtmosphericModels.jl](https://github.com/OpenSourceAWE/AtmosphericModels.jl)
   — wind profiles
-- [KiteModels.jl](https://github.com/ufechner7/KiteModels.jl) —
+- [KiteModels.jl](https://github.com/OpenSourceAWE/KiteModels.jl) —
   non-symbolic, predefined kite models
-- [KiteSimulators.jl](https://github.com/aenarete/KiteSimulators.jl) —
-  meta-package
-- [KiteControllers.jl](https://github.com/aenarete/KiteControllers.jl) —
+- [RobustKiteControllers.jl](https://github.com/OpenSourceAWE/RobustKiteControllers.jl) —
+  path following controllers
+- [KiteControllers.jl](https://github.com/OpenSourceAWE/KiteControllers.jl) —
   control algorithms
 
 Visualisation uses the built-in Makie extension

@@ -59,7 +59,7 @@ function parity_model(backend, geometry, root; aero_mode=nothing, fixture=false)
                                      (; aero_mode=aero_mode()))...)
     sam = SymbolicAWEModel(set, sys; backend)
     init!(sam; prn=false, remake=true)
-    update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+    update_sys_struct!(sam.prob, sam.integrator, sam.state)
     return sam
 end
 
@@ -77,8 +77,8 @@ backend defines, not a gap between them.
 function field_mismatches(tag, kernel_components, monolith_components, atol)
     found = Tuple{String, Int, Symbol, Float64}[]
     for (idx, (a, b)) in enumerate(zip(kernel_components, monolith_components))
-        for name in fieldnames(typeof(a))
-            left, right = getfield(a, name), getfield(b, name)
+        for name in propertynames(a)
+            left, right = getproperty(a, name), getproperty(b, name)
             comparable(left) && comparable(right) || continue
             av, bv = collect(left), collect(right)
             all(isnan, av) && all(isnan, bv) && continue
@@ -99,10 +99,14 @@ including it would only report each wing twice.
 """
 function struct_mismatches(kernel, monolith; atol=1e-6)
     groups = (:points, :stations, :segments, :pulleys, :tethers, :winches,
-              :bodies, :elastic_joints, :timoshenko_joints)
-    return reduce(vcat, (field_mismatches(String(group), getfield(kernel, group),
-                                          getfield(monolith, group), atol)
-                         for group in groups))
+              :bodies, :tubes)
+    found = reduce(vcat, (field_mismatches(String(group), getproperty(kernel, group),
+                                           getproperty(monolith, group), atol)
+                          for group in groups))
+    tube_models = field_mismatches("tube models",
+        [tube.model for tube in kernel.tubes],
+        [tube.model for tube in monolith.tubes], atol)
+    return [found; tube_models]
 end
 
 """One line per mismatch, worst first, for a failing test's message."""
@@ -128,8 +132,8 @@ end
             monolith = parity_model(MonolithBackend(), geometry,
                                     joinpath(root, name); aero_mode, fixture)
 
-            mismatches = struct_mismatches(kernel.sys_struct,
-                                           monolith.sys_struct)
+            mismatches = struct_mismatches(kernel.state,
+                                           monolith.state)
             @test isempty(mismatches)
             isempty(mismatches) || println(describe(mismatches))
         end

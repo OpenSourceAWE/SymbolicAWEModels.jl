@@ -12,4 +12,7 @@ VortexStepMethod = "ed3cd733-9f0f-46a9-93e0-89b8d4998dd9"
 
 [sources]
 SymbolicAWEModels = {path = "../.."}
-V3Kite = {rev = "8711699a5daaf42c51c685ad5d8954b3e231d20d", url = "https://github.com/OpenSourceAWE/V3Kite.jl"}
+V3Kite = {rev = "v2.0.0", url = "https://github.com/OpenSourceAWE/V3Kite.jl"}
+
+[compat]
+V3Kite = "2"

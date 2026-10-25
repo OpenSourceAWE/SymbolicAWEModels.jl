@@ -17,7 +17,7 @@ using MakieControlPlots  # together these load the plotting extension
 
 **3D system structure** — interactive visualization with clickable segments:
 ```julia
-plot(sam.sys_struct)
+plot(sam.state)
 ```
 
 ![2-plate kite structure](assets/2plate_kite_structure.png)
@@ -39,6 +39,9 @@ replay(syslog, sam.sys_struct)
 ```julia
 record(syslog, sam.sys_struct, "simulation.mp4"; framerate=30)
 ```
+
+**Static or vector figure** — draw into an `Axis3` with CairoMakie and save a
+PDF; see [Static and vector figures](@ref).
 
 See the [Functions](exported_functions.md) page for plotting keyword arguments.
 
@@ -74,7 +77,7 @@ These examples demonstrate the building blocks without aerodynamics:
 | `pulley.jl` | Pulley system with winch control |
 | `saddle_form.jl` | Complex mesh demonstrating 3D structures |
 | `airbag.jl` | Pressurized square membrane inflating under internal gauge pressure |
-| `inflated_beam_fit.jl` | Fits a nonlinear bending law for a pressurised tube and validates the [`Body`](@ref)/[`ElasticJoint`](@ref) chain as a cantilever |
+| `inflated_beam_fit.jl` | Fits a nonlinear bending law for a pressurised tube and validates the [`Body`](@ref)/[`ElasticTube`](@ref) chain as a cantilever |
 | `custom_tape_winch.jl` | Plugging in a custom [`AbstractWinchModel`](@ref) |
 
 ## Coupled examples
@@ -98,7 +101,7 @@ struc_yaml = joinpath(get_data_path(), "rigid_structural_geometry.yaml")
 # Load settings and VSM configuration
 set = Settings("system.yaml")
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
+    project_file("vsm_settings"); data_prefix=false)
 
 # Build system structure from YAML
 sys = load_sys_struct_from_yaml(struc_yaml;
@@ -111,8 +114,8 @@ init!(sam)
 for step in 1:600
     t = step * (10.0 / 600)
     ramp = clamp(t / 2.0, 0.0, 1.0)
-    sam.sys_struct.segments[:kcu_steering_left].l0 -= 0.1 * ramp
-    sam.sys_struct.segments[:kcu_steering_right].l0 += 0.1 * ramp
+    sam.state.segments[:kcu_steering_left].l0 -= 0.1 * ramp
+    sam.state.segments[:kcu_steering_right].l0 += 0.1 * ramp
     next_step!(sam; dt=10.0/600, vsm_interval=1)
 end
 ```
@@ -146,18 +149,18 @@ have been moved to dedicated packages:
 
 ## Real-time visualization
 
-To watch a simulation live, call `plot(sam.sys_struct)` once to build the scene
-and then `plot!(sam.sys_struct)` inside the loop. `plot!` pushes new positions
+To watch a simulation live, call `plot(sam.state)` once to build the scene
+and then `plot!(sam.state)` inside the loop. `plot!` pushes new positions
 into the existing Makie observables rather than rebuilding the scene, so the
 cost per frame is a redraw, not a re-plot:
 
 ```julia
-plot(sam.sys_struct)
+plot(sam.state)
 dt = 0.05
 for _ in 1:500
     t_start = time()
     next_step!(sam; dt)
-    plot!(sam.sys_struct)
+    plot!(sam.state)
     sleep(max(0, dt - (time() - t_start)))
 end
 ```

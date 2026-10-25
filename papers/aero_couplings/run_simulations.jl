@@ -58,7 +58,7 @@ function settled_model(case)
                                  velocity=zeros(3), heading=0.0, steering=0.0,
                                  depower=DEPOWER, wind_vec=[WIND_SPEED, 0.0, 0.0])
     failed && error("$(case.name) did not settle")
-    sys = sam.sys_struct
+    sys = sam.state
     for wing_settings in sys.vsm_set.wings
         wing_settings.use_prior_polar = true
     end

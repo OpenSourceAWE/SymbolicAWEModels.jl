@@ -108,8 +108,8 @@ sys_struct = SystemStructure("custom_winch_vel", set;
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam; remake=true, prn=false)
 
-winch  = sam.sys_struct.winches[:winch]
-tether = sam.sys_struct.tethers[:main]
+winch  = sam.state.winches[:winch]
+tether = sam.state.tethers[:main]
 
 dt = 0.02
 n_steps = 1500

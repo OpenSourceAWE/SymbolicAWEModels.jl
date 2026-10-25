@@ -56,70 +56,75 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
 
     specs = NamedTuple[]
     if length(points) > 0
-        pairs = Pair[sys.pos         => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
-                     sys.vel         => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
-                     sys.point_force => (c, v) -> copy_vec!(c.force, v, c.idx),
-                     sys.va_point_b  => (c, v) -> copy_vec!(c.va_b, v, c.idx),
-                     sys.wind_at_point => (c, v) -> copy_vec!(c.wind_vec, v, c.idx),
-                     sys.point_mass  => (c, v) -> (c.total_mass = v[c.idx]; nothing),
-                     sys.total_drag  => (c, v) -> copy_vec!(c.drag_force, v, c.idx)]
+        pairs = Pair[
+            sys.pos           => (st, v) -> write_columns!(xyz(st.sysstate, :X, :Y, :Z), v),
+            sys.vel           => (st, v) -> write_columns!(
+                xyz(st.sysstate, :VX, :VY, :VZ), v),
+            sys.point_force   => (st, v) -> write_columns!(st.columns.point_force, v),
+            sys.va_point_b    => (st, v) -> write_columns!(st.columns.point_va_b, v),
+            sys.wind_at_point => (st, v) -> write_columns!(st.columns.point_wind, v),
+            sys.point_mass    => (st, v) -> write_column!(st.columns.point_mass, v),
+            sys.total_drag    => (st, v) -> write_columns!(xyz(st.sysstate, :drag_force_x,
+                                               :drag_force_y, :drag_force_z), v)]
         aero_force = point_aero_force_array(sys_struct, sys)
         isnothing(aero_force) || push!(pairs,
-            aero_force => (c, v) -> copy_vec!(c.aero_force_b, v, c.idx))
-        push!(specs, scatter_spec(ss -> ss.points, pairs...))
+            aero_force => (st, v) -> write_columns!(st.columns.point_aero_force_b, v))
+        push!(specs, scatter_spec(pairs...))
     end
     if length(pulleys) > 0
-        push!(specs, scatter_spec(ss -> ss.pulleys,
-            sys.pulley_len => (c, v) -> (c.len = v[c.idx]; nothing),
-            sys.pulley_vel => (c, v) -> (c.vel = v[c.idx]; nothing)))
+        push!(specs, scatter_spec(
+            sys.pulley_len => (st, v) -> write_column!(st.sysstate.pulley_len, v),
+            sys.pulley_vel => (st, v) -> write_column!(st.sysstate.pulley_vel, v)))
     end
     if length(segments) > 0
-        push!(specs, scatter_spec(ss -> ss.segments,
-            sys.spring_force => (c, v) -> (c.force = v[c.idx]; nothing),
-            sys.len          => (c, v) -> (c.len = v[c.idx]; nothing),
-            sys.l0           => (c, v) -> (c.l0 = v[c.idx]; nothing)))
+        push!(specs, scatter_spec(
+            sys.spring_force => (st, v) -> write_column!(st.sysstate.spring_force, v),
+            sys.l0           => (st, v) -> write_column!(st.columns.segment_l0, v)))
     end
     if length(stations) > 0
-        push!(specs, scatter_spec(ss -> ss.stations,
-            sys.twist_angle                 => (c, v) -> (c.twist = v[c.idx]; nothing),
-            sys.twist_ω                     => (c, v) -> (c.twist_ω = v[c.idx]; nothing),
-            sys.station_tether_force  => (c, v) -> (c.tether_force = v[c.idx]; nothing),
-            sys.station_tether_moment => (c, v) -> (c.tether_moment = v[c.idx]; nothing),
-            sys.station_aero_moment   => (c, v) -> (c.aero_moment = v[c.idx]; nothing)))
+        push!(specs, scatter_spec(
+            sys.twist_angle => (st, v) -> write_column!(st.sysstate.twist_angles, v),
+            sys.twist_ω     => (st, v) -> write_column!(st.sysstate.twist_vel, v),
+            sys.station_tether_force =>
+                (st, v) -> write_column!(st.columns.station_tether_force, v),
+            sys.station_tether_moment =>
+                (st, v) -> write_column!(st.columns.station_tether_moment, v),
+            sys.station_aero_moment =>
+                (st, v) -> write_column!(st.columns.station_aero_moment, v)))
     end
     if length(winches) > 0
-        push!(specs, scatter_spec(ss -> ss.winches,
-            sys.winch_acc       => (c, v) -> (c.acc = v[c.idx]; nothing),
-            sys.winch_vel       => (c, v) -> (c.vel = v[c.idx]; nothing),
-            sys.set_values      => (c, v) -> (c.set_value = v[c.idx]; nothing),
-            sys.winch_force_vec => (c, v) -> copy_vec!(c.force, v, c.idx),
-            sys.winch_friction  => (c, v) -> (c.friction = v[c.idx]; nothing)))
+        push!(specs, scatter_spec(
+            sys.winch_acc       => (st, v) -> write_column!(st.columns.winch_acc, v),
+            sys.winch_vel       => (st, v) -> write_column!(st.sysstate.v_reelout, v),
+            sys.set_values      => (st, v) -> write_column!(st.sysstate.set_torque, v),
+            sys.winch_force_vec => (st, v) -> write_columns!(st.columns.winch_force, v),
+            sys.winch_friction  => (st, v) -> write_column!(st.columns.winch_friction, v)))
         set_set_values = setp(sys, sys.set_values)
         get_set_values = getp(sys, sys.set_values)
     end
     if length(tethers) > 0
-        push!(specs, scatter_spec(ss -> ss.tethers,
-            sys.tether_len    => (c, v) -> (c.len = v[c.idx]; nothing),
-            sys.stretched_len => (c, v) -> (c.stretched_len = v[c.idx]; nothing)))
+        push!(specs, scatter_spec(
+            sys.tether_len => (st, v) -> write_column!(st.sysstate.l_tether, v)))
     end
     if length(wings) > 0
-        # Wing rigid-body state is synced via the embedded body in the bodies spec below.
-        push!(specs, scatter_spec(ss -> ss.wings,
-            sys.va_wing_b        => (c, v) -> copy_vec!(c.va_b, v, c.idx),
-            sys.wind_vel_wing    => (c, v) -> copy_vec!(c.wind_vec, v, c.idx),
-            sys.aero_force_b     => (c, v) -> copy_vec!(c.aero_force_b, v, c.idx),
-            sys.aero_moment_b    => (c, v) -> copy_vec!(c.aero_moment_b, v, c.idx),
-            sys.elevation        => (c, v) -> (c.elevation = v[c.idx]; nothing),
-            sys.elevation_vel    => (c, v) -> (c.elevation_vel = v[c.idx]; nothing),
-            sys.elevation_acc    => (c, v) -> (c.elevation_acc = v[c.idx]; nothing),
-            sys.azimuth          => (c, v) -> (c.azimuth = v[c.idx]; nothing),
-            sys.azimuth_vel      => (c, v) -> (c.azimuth_vel = v[c.idx]; nothing),
-            sys.azimuth_acc      => (c, v) -> (c.azimuth_acc = v[c.idx]; nothing),
-            sys.heading          => (c, v) -> (c.heading = v[c.idx]; nothing),
-            sys.turn_rate        => (c, v) -> copy_vec!(c.turn_rate, v, c.idx),
-            sys.turn_acc         => (c, v) -> copy_vec!(c.turn_acc, v, c.idx),
-            sys.course           => (c, v) -> (c.course = v[c.idx]; nothing),
-            sys.angle_of_attack  => (c, v) -> (c.aoa = v[c.idx]; nothing)))
+        # A wing is the body of the same index; its body pose comes with the bodies.
+        push!(specs, scatter_spec(
+            sys.va_wing_b     => (st, v) -> write_columns!(st.columns.body_va_b, v),
+            sys.wind_vel_wing => (st, v) -> write_columns!(st.columns.body_wind, v),
+            sys.aero_force_b  => (st, v) -> write_columns!(st.columns.body_aero_force_b, v),
+            sys.aero_moment_b =>
+                (st, v) -> write_columns!(st.columns.body_aero_moment_b, v),
+            sys.elevation     => (st, v) -> write_column!(st.columns.body_elevation, v),
+            sys.elevation_vel => (st, v) -> write_column!(st.columns.body_elevation_vel, v),
+            sys.elevation_acc => (st, v) -> write_column!(st.columns.body_elevation_acc, v),
+            sys.azimuth       => (st, v) -> write_column!(st.columns.body_azimuth, v),
+            sys.azimuth_vel   => (st, v) -> write_column!(st.columns.body_azimuth_vel, v),
+            sys.azimuth_acc   => (st, v) -> write_column!(st.columns.body_azimuth_acc, v),
+            sys.heading       => (st, v) -> write_column!(st.columns.body_heading, v),
+            sys.turn_rate     => (st, v) -> write_columns!(st.columns.body_turn_rate, v),
+            sys.turn_acc      => (st, v) -> write_columns!(st.columns.body_turn_acc, v),
+            sys.course        => (st, v) -> write_column!(st.columns.body_course, v),
+            sys.angle_of_attack => (st, v) -> write_column!(st.columns.body_aoa, v)))
 
         # aero_input exists only for wings whose component exposes the connector.
         aero_inputs = [
@@ -131,16 +136,16 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             getu(sys, collect.(aero_inputs))
     end
     if length(bodies) > 0
-        push!(specs, scatter_spec(ss -> ss.bodies,
-            sys.body_Q_b_to_w => (c, v) -> copy_vec!(c.Q_b_to_w, v, c.idx),
-            sys.body_ω_b      => (c, v) -> copy_vec!(c.ω_b, v, c.idx),
-            sys.body_pos_w    => (c, v) -> copy_vec!(c.pos_w, v, c.idx),
-            sys.body_vel_w    => (c, v) -> copy_vec!(c.vel_w, v, c.idx),
-            sys.body_acc_w    => (c, v) -> copy_vec!(c.acc_w, v, c.idx),
-            sys.body_com_w    => (c, v) -> copy_vec!(c.com_w, v, c.idx),
-            sys.body_com_vel  => (c, v) -> copy_vec!(c.com_vel, v, c.idx),
-            sys.body_Q_p_to_w => (c, v) -> copy_vec!(c.Q_p_to_w, v, c.idx),
-            sys.body_ω_p      => (c, v) -> copy_vec!(c.ω_p, v, c.idx)))
+        push!(specs, scatter_spec(
+            sys.body_Q_b_to_w => (st, v) -> write_columns!(
+                xyz(st.sysstate, :Qw, :Qx, :Qy, :Qz), v, st.n_wings),
+            sys.body_ω_b      => (st, v) -> write_columns!(xyz(st.sysstate, :turn_rate_x,
+                                               :turn_rate_y, :turn_rate_z), v, st.n_wings),
+            sys.body_pos_w    => (st, v) -> write_columns!(
+                xyz(st.sysstate, :X, :Y, :Z), v, st.body_slot0),
+            sys.body_vel_w    => (st, v) -> write_columns!(
+                xyz(st.sysstate, :VX, :VY, :VZ), v, st.body_slot0),
+            sys.body_acc_w    => (st, v) -> write_columns!(st.columns.body_acc, v)))
     end
 
     get_all_state = build_inplace_getter(sys, specs)
@@ -155,18 +160,44 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
 end
 
 """
-    scatter_spec(selector, pairs...)
+    scatter_spec(pairs...)
 
-Describe one component group: `selector(sys_struct)` yields its component vector
-and each `sys_array => copyfn` pair maps a symbolic output array to a
-`(component, view) -> _` closure that writes that array's slice into the
-component's struct field. This is the single source of truth — both the buffer
-layout and the scatter derive from the same ordered list.
+Describe one component group: each `sys_array => copyfn` pair maps a symbolic output
+array to a `(state, view) -> _` closure that writes that array into the run state's
+columns. This is the single source of truth — both the buffer layout and the scatter
+derive from the same ordered list.
 """
-function scatter_spec(selector, pairs::Pair...)
-    return (; selector,
-            arrays  = [pair.first for pair in pairs],
+function scatter_spec(pairs::Pair...)
+    return (; arrays  = [pair.first for pair in pairs],
             copyfns = Tuple(pair.second for pair in pairs))
+end
+
+"""The columns `names` of `sysstate`, as a tuple."""
+@inline xyz(sysstate, names::Symbol...) = map(name -> getproperty(sysstate, name), names)
+
+"""
+    write_columns!(columns, v, offset=0)
+
+Write each column `i` of the matrix `v` into entry `offset + i` of `columns`, one
+vector per row of `v`.
+"""
+@inline function write_columns!(columns::Tuple, v, offset=0)
+    @inbounds for i in axes(v, 2), k in eachindex(columns)
+        columns[k][offset + i] = v[k, i]
+    end
+    return nothing
+end
+
+"""
+    write_column!(column, v, offset=0)
+
+Write each entry `i` of the vector `v` into entry `offset + i` of `column`.
+"""
+@inline function write_column!(column, v, offset=0)
+    @inbounds for i in eachindex(v)
+        column[offset + i] = v[i]
+    end
+    return nothing
 end
 
 """
@@ -206,7 +237,7 @@ function build_inplace_getter(sys, specs)
         sys, flat; return_inplace=true)
     buf = Vector{SimFloat}(undef, length(flat))
     grouped_views = build_grouped_views(buf, group_shapes)
-    groups = Tuple(ScatterGroup(spec.selector, spec.copyfns, views)
+    groups = Tuple(ScatterGroup(spec.copyfns, views)
                    for (spec, views) in zip(specs, grouped_views))
     return InplaceGetter(iip, buf, groups)
 end
@@ -225,7 +256,6 @@ function Serialization.serialize(s::Serialization.AbstractSerializer,
     serialize(s, length(g.buf))
     serialize(s, length(g.groups))
     for group in g.groups
-        serialize(s, group.selector)
         serialize(s, group.copyfns)
         serialize(s, map(size, group.views))
     end
@@ -236,18 +266,15 @@ function Serialization.deserialize(s::Serialization.AbstractSerializer,
     fn = deserialize(s)
     n = deserialize(s)
     n_groups = deserialize(s)
-    selectors = Vector{Any}(undef, n_groups)
     copyfns = Vector{Any}(undef, n_groups)
     shapes = Vector{Any}(undef, n_groups)
     for i in 1:n_groups
-        selectors[i] = deserialize(s)
         copyfns[i] = deserialize(s)
         shapes[i] = deserialize(s)
     end
     buf = Vector{SimFloat}(undef, n)
     grouped_views = build_grouped_views(buf, Tuple(shapes))
-    groups = Tuple(ScatterGroup(selectors[i], copyfns[i], grouped_views[i])
-                   for i in 1:n_groups)
+    groups = Tuple(ScatterGroup(copyfns[i], grouped_views[i]) for i in 1:n_groups)
     return InplaceGetter(fn, buf, groups)
 end
 
@@ -433,7 +460,7 @@ function build_prob!(::MonolithBackend, sam; sparse=false, analytic_jacobian=fal
         build_initializeprob=false, sparse, jac=analytic_jacobian)
     prn && println("\tCreated the ODEProblem in $time seconds.")
 
-    time = @elapsed getters = generate_prob_getters(sam.sys_struct, sys,
+    time = @elapsed getters = generate_prob_getters(sam.state, sys,
         sam.param_registry, sam.initial_registry)
     prn && println("\tCreated state getters and setters in $time seconds.")
 
@@ -537,11 +564,25 @@ function has_custom_component(sys_struct)
 end
 
 """
+    place!(sam::SymbolicAWEModel; reset_vel=true, kwargs...)
+
+Place the model's structure ([`place!`](@ref)`(sam.sys_struct; kwargs...)`) and start
+its run there ([`start_run!`](@ref)). `reset_vel=false` keeps the velocities the run
+holds.
+"""
+function place!(sam::SymbolicAWEModel; reset_vel::Bool=true, kwargs...)
+    place!(sam.sys_struct; kwargs...)
+    start_run!(sam.state; reset_vel)
+    return nothing
+end
+
+"""
     init!(sam::SymbolicAWEModel; ...)
 
 Load or build the symbolic model, create the `ODEProblem` (and optionally the
 `LinearizationProblem` / control functions), serialize new builds to disk, and
-return a freshly initialized `ODEIntegrator`.
+return a freshly initialized `ODEIntegrator` from `sam.state` as it stands. To
+start from the design geometry again, [`place!`](@ref) the structure first.
 
 # Keyword Arguments
 - `solver`, `adaptive`: ODE solver and time-stepping mode. `solver=nothing` picks
@@ -562,11 +603,6 @@ return a freshly initialized `ODEIntegrator`.
 - `lin_vsm`: linearize the VSM aerodynamics after init.
 - `remake_vsm`: rebuild the VSM wing/aero from settings (after editing
   `aero_geometry.yaml` etc.).
-- `reset_vel`, `ignore_l0`, `apply_tether_lengths`: forwarded to
-  `reinit!(sys_struct, set)`.
-- `reinit_sys`: place the `SystemStructure` with `reinit!(sys_struct, set)`,
-  which runs all of its steps. `false` takes the structure as it is: run the steps
-  of `reinit!` wanted on `sam.sys_struct` first.
 - `reset_integrator`: discard the existing integrator and build a fresh one, so no
   stale BDF history taints the next run.
 - `vsm_min_wind=0.5`: minimum |va| [m/s] for the initial VSM solve. Below this the
@@ -591,12 +627,8 @@ function init!(sam::SymbolicAWEModel;
     create_lin_prob::Bool=false,
     create_control_func::Bool=false,
     lin_vsm::Bool=true,
-    ignore_l0::Bool=false,
     remake_vsm::Bool=true,
-    reset_vel::Bool=true,
     reset_integrator::Bool=true,
-    reinit_sys::Bool=true,
-    apply_tether_lengths::Bool=true,
     vsm_min_wind=0.5,
     sparse::Union{Bool, Nothing}=nothing,
     linsolve=default_linsolve(sam.backend),
@@ -605,12 +637,12 @@ function init!(sam::SymbolicAWEModel;
     sparse = something(sparse, default_sparse(sam.backend))
     analytic_jacobian = something(analytic_jacobian,
                                   default_analytic_jacobian(sam.backend))
-    prn && @info "Initializing $(sam.sys_struct.name) model..."
+    prn && @info "Initializing $(sam.state.name) model..."
     sam.sys_struct isa SystemStructure || error(
         "Equation generation requires SystemStructure, " *
         "got $(typeof(sam.sys_struct)).")
     if isnothing(remake)
-        remake = has_custom_component(sam.sys_struct)
+        remake = has_custom_component(sam.state)
         remake && prn && @info "Custom winch/aero model detected; " *
             "forcing remake (custom component equations are not " *
             "captured by the model hash)."
@@ -630,10 +662,9 @@ function init!(sam::SymbolicAWEModel;
 
         if !(sam.backend isa MonolithBackend)
             integrator = init_backend!(sam.backend, sam, solver;
-                adaptive, prn, reinit_sys, reset_vel, ignore_l0,
-                apply_tether_lengths, remake_vsm, reset_integrator, vsm_min_wind,
+                adaptive, prn, remake_vsm, reset_integrator, vsm_min_wind,
                 lin_vsm, sparse, analytic_jacobian, remake, reload)
-            prn && @info "$(sam.sys_struct.name) model initialized " *
+            prn && @info "$(sam.state.name) model initialized " *
                 "($(nameof(typeof(sam.backend))))."
             return integrator
         end
@@ -646,22 +677,22 @@ function init!(sam::SymbolicAWEModel;
                 winch_force(t)[1:3]
             end
             outputs = Num[]
-            if length(sam.sys_struct.wings) > 0
+            if length(sam.state.wings) > 0
                 push!(outputs, heading[1], angle_of_attack[1])
             end
-            if length(sam.sys_struct.winches) > 0
+            if length(sam.state.winches) > 0
                 push!(outputs, tether_len[1], winch_force[1])
             end
         end
 
-        model_name = get_model_name(sam.set, sam.sys_struct; sparse,
+        model_name = get_model_name(sam.set, sam.state; sparse,
                                     analytic_jacobian, backend = sam.backend)
         model_path = joinpath(KiteUtils.get_data_path(), model_name)
         prn && @info "Model bin name: $model_name"
         loaded = load_serialized_model!(sam, model_path; remake, reload, prn)
         changed = false
         if !loaded
-            sam.inputs = create_sys!(sam, sam.sys_struct; prn)
+            sam.inputs = create_sys!(sam, sam.state; prn)
             changed = true
         end
         outputs_changed = isnothing(sam.outputs) ||
@@ -681,7 +712,7 @@ function init!(sam::SymbolicAWEModel;
 
         # Sync deserialized prob's flat parameters to the current sys_struct.
         if !isnothing(sam.prob)
-            sync_params!(sam.prob.param_sync, sam.prob.prob, sam.sys_struct)
+            sync_params!(sam.prob.param_sync, sam.prob.prob, sam.state)
         end
 
         if changed
@@ -689,12 +720,8 @@ function init!(sam::SymbolicAWEModel;
             serialize(model_path, sam.serialized_model)
         end
 
-        if reinit_sys
-            reinit!(sam.sys_struct, sam.set;
-                    ignore_l0, remake_vsm, reset_vel,
-                    apply_tether_lengths, prn)
-        end
-        # reinit! below syncs the struct's ICs onto the problem; no rebuild needed.
+        init_sys_struct!(sam.state, sam.set; remake_vsm, prn)
+        # reinit!(sam, prob) syncs the struct's ICs onto the problem; no rebuild needed.
         if create_prob && !isnothing(sam.prob)
             prob = something(sam.prob)
             reset_integrator |= reload
@@ -702,7 +729,7 @@ function init!(sam::SymbolicAWEModel;
                 adaptive, reset_integrator, lin_vsm, vsm_min_wind, prn)
         end
     end
-    prn && @info "$(sam.sys_struct.name) model initialized in $time seconds."
+    prn && @info "$(sam.state.name) model initialized in $time seconds."
     return sam.integrator
 end
 
@@ -719,7 +746,7 @@ Jacobian's element type. `kwargs` are those of
 function reinit!(sam::SymbolicAWEModel,
         integrator::OrdinaryDiffEqCore.ODEIntegrator;
         solver = integrator.alg, kwargs...)
-    isnothing(sam.prob) && error("reinit!: $(sam.sys_struct.name) has no " *
+    isnothing(sam.prob) && error("reinit!: $(sam.state.name) has no " *
         "ODEProblem; call init! first.")
     return reinit!(sam, sam.prob, solver; kwargs...)
 end
@@ -747,11 +774,11 @@ function reinit!(
     fresh = isnothing(existing) || !successful_retcode(existing.sol) || reset_integrator
     seed_set_values!(target) = isnothing(prob.set_set_values) ? nothing :
         prob.set_set_values(target,
-            SimFloat[winch.set_value for winch in sam.sys_struct.winches])
+            SimFloat[winch.set_value for winch in sam.state.winches])
     if fresh
         # A trailing reinit! would re-solve the DAE init and discard this synced state.
-        sync_params!(prob.param_sync, prob.prob, sam.sys_struct)
-        sync_initial!(prob.initial_sync, prob.prob, sam.sys_struct)
+        sync_params!(prob.param_sync, prob.prob, sam.state)
+        sync_initial!(prob.initial_sync, prob.prob, sam.state)
         seed_set_values!(prob.prob)
         prn && @info "JIT-compiling the RHS and building the integrator (first " *
             "solve; this is the slow step on large beams)…"
@@ -763,18 +790,18 @@ function reinit!(
     else
         integrator = existing
         sam.integrator = integrator
-        sync_params!(prob.param_sync, integrator, sam.sys_struct)
+        sync_params!(prob.param_sync, integrator, sam.state)
         seed_set_values!(integrator)
         OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
     end
-    update_sys_struct!(prob, integrator, sam.sys_struct)
-    if lin_vsm && has_vsm_wing(sam.sys_struct)
+    update_sys_struct!(prob, integrator, sam.state)
+    if lin_vsm && has_vsm_wing(sam.state)
         prn && @info "Running initial VSM aero solve…"
         aero_time = @elapsed refresh_aero!(sam; vsm_min_wind, cold_start=true)
         prn && @info "Initial aero solved in $(round(aero_time; digits=1)) s."
-        sync_params!(prob.param_sync, integrator, sam.sys_struct)
+        sync_params!(prob.param_sync, integrator, sam.state)
     end
-    validate_sys_struct(sam.sys_struct)  # Check for division-by-zero issues
+    validate_sys_struct(sam.state)  # Check for division-by-zero issues
     return integrator, true
 end
 
@@ -836,13 +863,13 @@ Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
     (; points, stations, segments, pulleys, tethers, winches, wings, transforms,
-       bodies, elastic_joints, timoshenko_joints) = sys_struct
+       bodies, tubes) = sys_struct
     data_parts = []
     for point in points
         # nothing-vs-set gates whether drag/damping equations are emitted (structure,
         # not value), so 0.0↔1.0 reuses the cached bin but adding/removing regenerates.
         push!(data_parts, ("point", point.idx, point.wing_idx, point.body_idx,
-                           point.joint_idx, Int(point.type)))
+                           point.tube_idx, Int(point.type)))
     end
     for segment in segments
         # Stiffness type selects the spring law (scalar k·Δ vs callable F(ε)).
@@ -898,24 +925,13 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("rigid_body", rigid_body.idx, Int(rigid_body.type),
                            rigid_body.wing_idx))
     end
-    for joint in elastic_joints
-        # Stiffness type selects the generated law (scalar `k·Δ` vs callable `k(Δ)`).
-        stiff_type(s) = s isa Real ? "float" : string(typeof(s))
-        push!(data_parts, ("elastic_joint", joint.idx,
-                           joint.body_a_idx, joint.body_b_idx,
-                           stiff_type(joint.stiffness_axial),
-                           stiff_type(joint.stiffness_shear),
-                           stiff_type(joint.stiffness_torsion),
-                           stiff_type(joint.stiffness_bending)))
-    end
-    for joint in timoshenko_joints
+    for tube in tubes
         # Rigidity type selects the generated law (scalar vs callable of strain).
-        rigidity_type(r) = r isa Real ? "float" : string(typeof(r))
-        push!(data_parts, ("timoshenko_joint", joint.idx,
-                           joint.body_a_idx, joint.body_b_idx,
-                           rigidity_type(joint.EA), rigidity_type(joint.GA),
-                           rigidity_type(joint.GJ), rigidity_type(joint.EIy),
-                           rigidity_type(joint.EIz)))
+        rigidity_types = [value isa Real ? "float" : string(typeof(value))
+                          for value in getfield.(Ref(tube.model),
+                                                 rigidity_fields(tube.model))]
+        push!(data_parts, ("tube", tube.idx, tube.body_a_idx, tube.body_b_idx,
+                           nameof(typeof(tube.model)), rigidity_types...))
     end
     content = string(data_parts)
     return sha1(content)

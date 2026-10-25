@@ -305,7 +305,7 @@ function SymbolicAWEModels.aero_component(::MyAero, wing::RigidWing, sys_struct;
 end
 SymbolicAWEModels.aero_mode_tag(::MyAero) = "myaero"
 
-Wing(name, stations, R_b_to_c, pos_cad, inertia; aero = MyAero())
+Wing(name, stations, Q_KA_to_ENU, pos_ENU, inertia; aero = MyAero())
 ```
 
 Everything else is an **optional hook with a working default**, dispatched on

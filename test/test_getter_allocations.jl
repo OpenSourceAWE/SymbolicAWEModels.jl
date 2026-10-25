@@ -53,8 +53,6 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "particle_structural_geometry.yaml"
-    aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
 
 tether:
@@ -131,7 +129,7 @@ SYNC_ALLOC_BUDGET = Dict(:KernelBackend => 0, :MonolithBackend => 256)
 
         prob = sam.prob
         integ = sam.integrator
-        sys_struct = sam.sys_struct
+        sys_struct = sam.state
         getter = prob.get_all_state
 
         # warm up, then assert zero allocation
@@ -184,7 +182,7 @@ WING_ALLOC_BUDGET = Dict(:KernelBackend => 22_000, :MonolithBackend => 4_000)
             init!(sam; prn=false, remake=true)
             next_step!(sam; dt=0.05, vsm_interval=0)
 
-            prob, integ, sys_struct = sam.prob, sam.integrator, sam.sys_struct
+            prob, integ, sys_struct = sam.prob, sam.integrator, sam.state
             measure_update_alloc(prob, integ, sys_struct)
 
             @testset "$name wing / $backend_name" begin

@@ -24,7 +24,7 @@ function scalar_eqs!(
     wing_vel, wing_acc, twist_angle, ω_b, α_b,
     R_v_to_w, pos
 )
-    (; wings) = s.sys_struct
+    (; wings) = s.state
     @variables begin
         # Body frame axes and apparent wind (column-major: [1:3, wing_idx])
         e_x(t)[1:3, eachindex(wings)]
@@ -72,7 +72,7 @@ function scalar_eqs!(
 
     for wing in wings
         # Spherical coords are centered at the transform base point, not origin.
-        transforms = s.sys_struct.transforms
+        transforms = s.state.transforms
         if wing.transform_idx != 0 &&
                 wing.transform_idx <= length(transforms)
             tf = transforms[wing.transform_idx]

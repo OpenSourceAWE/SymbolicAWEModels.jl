@@ -4,7 +4,7 @@
 # test_beam_replay.jl - SysLog round-trip for a rigid-body beam.
 #
 # Exercises the multi-frame orientation logging added on top of KiteUtils'
-# `orients`: a chain of RigidBodies + ElasticJoints is logged via SysState,
+# `orients`: a chain of RigidBodies + ElasticTubes is logged via SysState,
 # saved/loaded as an Arrow SysLog, and reconstructed with
 # `update_from_sysstate!` (the path `replay` uses). No GLMakie rendering here.
 
@@ -47,14 +47,14 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
     make_bodies() = [Body(Symbol("seg_$i"); extra_mass=m,
         inertia_principal=inertia, pos=[(i-0.5)*L, 0.0, 0.0],
         type=(i==1 ? STATIC : DYNAMIC)) for i in 1:n]
-    joints = [ElasticJoint(Symbol("j_$i"), Symbol("seg_$i"), Symbol("seg_$(i+1)");
-        anchor_a=[L/2,0.0,0.0], anchor_b=[-L/2,0.0,0.0],
-        stiffness_axial=1e5, stiffness_shear=1e5, stiffness_torsion=5e3,
-        stiffness_bending=5e3, damping=0.05)
+    make_tubes() = [Tube(Symbol("j_$i"), Symbol("seg_$i"), Symbol("seg_$(i+1)");
+        diameter=0.1, pressure=3e4, anchor_a=[L/2,0.0,0.0], anchor_b=[-L/2,0.0,0.0],
+        model=ElasticTube(stiffness_axial=1e5, stiffness_shear=1e5,
+                          stiffness_torsion=5e3, stiffness_bending=5e3, damping=0.05))
         for i in 1:(n-1)]
 
     sys = SystemStructure("beam_replay", set;
-        bodies=make_bodies(), elastic_joints=joints)
+        bodies=make_bodies(), tubes=make_tubes())
     sam = SymbolicAWEModel(set, sys)
     init!(sam)
 
@@ -67,7 +67,7 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
         step > 0 && next_step!(sam; dt, vsm_interval=0)
         update_sys_state!(ss, sam); ss.time = step*dt; log!(logger, ss)
     end
-    tip = sam.sys_struct.bodies[:seg_6]
+    tip = sam.state.bodies[:seg_6]
     @test tip.pos_w[3] < -0.01           # beam sagged under gravity
 
     save_log(logger, "beam_replay_test")
@@ -78,10 +78,11 @@ environment: {rho_0: 1.225, v_wind: 0.0, upwind_dir: -90.0, upwind_elevation: 0.
 
     # Reconstruct geometry from the last frame (the path replay uses).
     sys2 = SystemStructure("beam_replay", set;
-        bodies=make_bodies(), elastic_joints=joints)
-    update_from_sysstate!(sys2, lg.syslog[end])
-    @test sys2.bodies[:seg_6].pos_w[3] ≈ tip.pos_w[3] atol=1e-3
-    @test sys2.bodies[:seg_1].pos_w[1] ≈ 0.25 atol=1e-4  # fixed root
+        bodies=make_bodies(), tubes=make_tubes())
+    state2 = SystemState(sys2)
+    update_from_sysstate!(state2, lg.syslog[end])
+    @test state2.bodies[:seg_6].pos_w[3] ≈ tip.pos_w[3] atol=1e-3
+    @test state2.bodies[:seg_1].pos_w[1] ≈ 0.25 atol=1e-4  # fixed root
 
     # No teardown: load_log mmaps the Arrow file, and Windows locks a mapped file.
 end

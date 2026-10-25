@@ -104,7 +104,7 @@ end
 # --- STEP 4: Add a kite ---
 
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml");
+    project_file("vsm_settings");
     data_prefix=false)
 # One station per aero section joins its LE/TE pair to the wing.
 wing_z = set.l_tether + 6

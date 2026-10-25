@@ -32,7 +32,7 @@ struc_yaml = joinpath(get_data_path(),
 set = Settings("system.yaml")
 set.g_earth = 0.0
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml");
+    project_file("vsm_settings");
     data_prefix=false)
 
 sys = load_sys_struct_from_yaml(struc_yaml;

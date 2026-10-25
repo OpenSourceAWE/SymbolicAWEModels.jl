@@ -31,23 +31,28 @@ check_live_polar
 
 ## YAML loading
 
+KiteGeometry's `load_authoring` reads and places an authoring YAML, and the structure
+is built from the definition it returns, with the columns SymbolicAWEModels reads held
+by the models it registers with KiteGeometry.
+
 ```@docs
 load_sys_struct_from_yaml
+SystemStructure(::SystemDefinition, ::Any, ::Settings)
 ```
 
 ## Structure documents
 
-A `SystemStructure` also reads and writes as a *structure document* — the
-resolved points, segments, stations, pulleys, tethers, winches, bodies and
-joints as one `headers`/`data` table per block, conforming to awesIO's
-`structure_schema.yml`. YAML and JSON are two encodings of the one document, and
-the file extension picks between them. The document is structure only: the
-transforms that place the system in the world and the live state do not survive a
-round trip. `save_log(logger, sys, name)` writes a log that carries the document as
-JSON under the metadata key `topology`.
+A `SystemStructure` holds the KiteGeometry `SystemDefinition` of its initial pose,
+and reads and writes as that definition's awesIO *structure document*: one
+`headers`/`units`/`data` table per block, conforming to the `structure_schema.yml`
+KiteGeometry ships. YAML and JSON are two encodings of the one document, and the file
+extension picks between them. Every position is in the ENU world frame, each body at
+the centre of its own mass; the authoring geometry, the transforms and the live state
+do not survive a round trip. `save_log(logger, sys, name)` writes a log that carries
+the document as JSON under the metadata key `topology`.
 
 ```@docs
-structure_document
+structure_document(::SystemStructure)
 sys_struct_from_document
 save_structure_document
 load_structure_document
@@ -65,26 +70,34 @@ calc_steady_torque
 
 ## Placing a SystemStructure
 
-`init!(sam)` places the structure for a new run with `reinit!(sys_struct, set)`,
-which applies every adjustment the geometry and settings describe, by running the
-steps below in the order its docstring lists. To change only part of the structure
-— a tether's unstretched length, say, without moving the kite — run the steps
-wanted on `sam.sys_struct` and initialise with `reinit_sys=false`:
+[`place!`](@ref) puts a structure in the world by its transforms and makes where it
+lands its initial pose (`pos_ENU`, `Q_KA_to_ENU`); the `SystemStructure` constructor
+runs it. A model's run state, `sam.state` (a [`SystemState`](@ref)), starts there
+([`start_run!`](@ref)), and `init!(sam)` takes the run state as it stands and derives
+mass properties and rest geometry from the initial pose
+([`init_derived_properties!`](@ref)), so a run restarted from a logged state
+resumes. To move the system for a new run, change its transforms and
+`place!(sam)` it again. To change only part of it — a tether's unstretched length,
+say, without moving the kite — run the steps wanted on `sam.state` before `init!`:
 
 ```julia
-set_unstretched_length!(sam.sys_struct, sam.sys_struct.tethers[1], 240.0)
-init!(sam; reinit_sys=false)
+set_unstretched_length!(sam.state, sam.state.tethers[1], 240.0)
+init!(sam)
 ```
 
 ```@docs
-reset_to_cad!
+place!
+start_run!
+reset_to_initial_pose!
 apply_tether_init_stretched_lens!
 update_segment_lengths!
 apply_tether_init_forces!
 init_pulley_lengths!
 remake_wing_aero!
 init_wind!
+init_sys_struct!
 relax_segments!
+init_derived_properties!
 update_mass_properties!
 init_rest_geometry!
 set_unstretched_length!
@@ -102,10 +115,10 @@ sys_struct = load_sys_struct_from_yaml(path; set, wind_mode=PerPointWind())
 sam = SymbolicAWEModel(set, sys_struct)
 init!(sam)
 for _ in 1:steps
-    for point in sam.sys_struct.points    # a gust field, refreshed every step
+    for point in sam.state.points    # a gust field, refreshed every step
         point.wind_vec .= my_wind_field(point.pos_w, sam.integrator.t)
     end
-    sam.sys_struct.wings[1].wind_vec .= my_wind_field(...)
+    sam.state.wings[1].wind_vec .= my_wind_field(...)
     next_step!(sam)
 end
 ```
@@ -186,8 +199,8 @@ Remaining keywords are forwarded to `plot!`, including:
 To tell the wing from the tethers and the free segments, colour the segments by
 [`segment_role`](@ref):
 ```julia
-role_colors = Dict(:wing => :black, :free => :steelblue,
-                   :unwinched_tether => :seagreen, :winched_tether => :darkorange)
+role_colors = (wing=:black, free=:steelblue, unwinched_tether=:seagreen,
+               winched_tether=:darkorange)
 plot(sys; segment_color=segment -> role_colors[segment_role(sys, segment)])
 ```
 
@@ -196,6 +209,30 @@ plot(sys; segment_color=segment -> role_colors[segment_role(sys, segment)])
 - Click on a segment to zoom in
 - Click in empty space to zoom out
 - Rotate, pan, and zoom with mouse
+
+### Static and vector figures
+
+For a figure with labelled axes, or a vector PDF, draw the system into an axis
+of your own with `plot!(ax, sys; kwargs...)`. It takes the drawing keywords of
+`plot` (colours, layers, styling) but not its camera ones, draws into any Makie
+axis (`Axis3`, `LScene`) and returns a `Dict` of the plot objects by layer
+(`:segments`, `:points`, …). With CairoMakie as the backend, `CairoMakie.save` writes
+the figure as vector graphics. Here `sys` is any `SystemStructure`, such as the one
+the [2-Plate Kite](@ref plate-kite-2) example loads:
+```julia
+using SymbolicAWEModels, CairoMakie, MakieControlPlots
+CairoMakie.activate!()
+
+role_colors = (wing=:black, free=:steelblue, unwinched_tether=:seagreen,
+               winched_tether=:darkorange)
+fig = Figure(size=(600, 500))
+ax = Axis3(fig[1, 1]; aspect=:data, xlabel="x [m]", ylabel="y [m]", zlabel="z [m]")
+plot!(ax, sys; segment_color=segment -> role_colors[segment_role(sys, segment)],
+      show_orient=false, show_wing_frame=false)
+Legend(fig[1, 2], [LineElement(color=color) for color in values(role_colors)],
+       [string(role) for role in keys(role_colors)])
+CairoMakie.save("kite.pdf", fig)
+```
 
 ### Time-series visualization
 
@@ -231,16 +268,17 @@ same panels for comparison.
     `MakieControlPlots` are loaded — `using GLMakie` on its own is not enough.
     `plot` extends `MakieControlPlots.plot`, the generic of the figure-returning
     plot commands; the scene-mutating `plot!` extends `Makie.plot!`. A Makie
-    backend exports a `plot` of its own, so load the backend with `import
-    GLMakie` rather than `using GLMakie` to keep the name unambiguous.
+    backend exports a `plot` and a `save` of its own, so with both packages
+    brought in by `using` those two names are ambiguous: call them qualified,
+    as `MakieControlPlots.plot(sys)` and `CairoMakie.save("kite.pdf", fig)`.
 
 ### Aerodynamic section plots
 
-Three functions draw one wing section into a 2D `Axis`, so that aero modes can be compared side by side: the point loads a structural station carries, the polar a VSM panel flies, and the `Cp` pattern an [`AeroPressure`](@ref) wing spreads the panel force with.
+Three functions draw one wing section of a run state, such as `sam.state`, into a 2D `Axis`, so that aero modes can be compared side by side: the point loads a structural station carries, the polar a VSM panel flies, and the `Cp` pattern an [`AeroPressure`](@ref) wing spreads the panel force with.
 ```julia
 fig = Figure()
 ax = Axis(fig[1, 1]; aspect=DataAspect())
-plot_station_loads!(ax, sys, 5; force_scale=2e-3)
+plot_station_loads!(ax, sam.state, 5; force_scale=2e-3)
 ```
 
 ```@docs
@@ -251,7 +289,7 @@ plot_panel_pressure!
 
 ## Inflated-tube rigidity laws
 
-Rigidities for the [`TimoshenkoJoint`](@ref)s of a beam wing whose leading edge
+Rigidities for the [`TimoshenkoTube`](@ref)s of a beam wing whose leading edge
 and struts are pressurised fabric tubes. [`tube_bending_law`](@ref) and
 [`tube_torsion_law`](@ref) come from the empirical Breukels correlations;
 [`comer_levy_bending_law`](@ref) is the analytical alternative that stays valid
@@ -260,6 +298,7 @@ past collapse but needs the fabric membrane stiffness `E·t`, which
 
 ```@docs
 tube_linear_rigidities
+tube_law_rigidities
 tube_bending_law
 tube_torsion_law
 tube_mass

@@ -134,9 +134,8 @@ transforms:
     @test wing.origin.ids == [7, 9]
     @test wing.origin.weights ≈ [0.7, 0.3]
 
-    # pos_cad after body-frame init should equal the
-    # weighted centroid of points 7 (0,0,0) and 9 (1,0,0)
-    @test wing.pos_cad ≈ KVec3(0.3, 0.0, 0.0)
+    # The wing origin is the weighted centroid of points 7 and 9
+    @test wing.pos_ENU ≈ 0.7 .* sys.points[7].pos_ENU .+ 0.3 .* sys.points[9].pos_ENU
 
     # N-point (4-point) weighted origin should also parse
     # and resolve correctly
@@ -160,8 +159,8 @@ transforms:
     # The fitted pose read back after a step must use the
     # weights, not just the first point of each reference.
     next_step!(sam)
-    points = sam.sys_struct.points
-    wing = sam.sys_struct.bodies[1]
+    points = sam.state.points
+    wing = sam.state.bodies[1]
     blend(ref) = sum(w * points[i].pos_w
                      for (i, w) in zip(ref.ids, ref.weights))
     @test wing.pos_w ≈ blend(wing.origin)

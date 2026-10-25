@@ -18,20 +18,20 @@ multiplier is `1 + (wing.aero_scale_chord or this default)`.
 const AERO_SCALE_CHORD = 0.0
 
 """
-    identify_wing_segments(wing_points; stations=nothing, wing_station_idxs=nothing)
+    identify_wing_segments(wing, wing_points; stations=nothing, wing_station_idxs=nothing)
 
-Identify wing segments (LE/TE pairs) from wing nodes.
+Identify wing segments (LE/TE pairs) from `wing`'s nodes.
 
 When `stations` and `wing_station_idxs` are provided, uses station `point_idxs`
 to determine LE (`point_idxs[1]`) and TE (`point_idxs[end]`) for each
 section. Falls back to a consecutive-pair heuristic (sorted by point index)
 when stations are unavailable.
 
-In both paths an x-coordinate check swaps LE/TE if needed (LE has
-smaller `pos_cad[1]`).
+In both paths a chord check swaps LE/TE if needed: the LE has the smaller body-frame
+x in the wing's initial pose ([`initial_chord_position`](@ref)).
 
 # Arguments
-- `wing_points::AbstractVector{Point}`: wing nodes for a wing.
+- `wing_points::AbstractVector`: wing nodes for a wing.
 
 # Keyword Arguments
 - `stations::Union{Nothing, AbstractVector{Station}}`: All stations in the
@@ -43,8 +43,9 @@ smaller `pos_cad[1]`).
 - `Vector{Tuple{Int64, Int64}}`: (le_point_idx, te_point_idx) pairs.
 """
 function identify_wing_segments(
-    wing_points::AbstractVector{Point};
-    stations::AbstractVector{Station}=Station[],
+    wing,
+    wing_points::AbstractVector;
+    stations::AbstractVector=Station[],
     wing_station_idxs::AbstractVector{<:Integer}=Int[]
 )
     use_stations = !isempty(stations) &&
@@ -60,8 +61,8 @@ function identify_wing_segments(
                 "$(length(station.point_idxs))")
             station = [wing_points[findfirst(p -> p.idx == idx, wing_points)]
                        for idx in station.point_idxs]
-            le_point = argmin(p -> p.pos_cad[1], station)
-            te_point = argmax(p -> p.pos_cad[1], station)
+            le_point = argmin(p -> initial_chord_position(wing, p), station)
+            te_point = argmax(p -> initial_chord_position(wing, p), station)
             push!(segments, (le_point.idx, te_point.idx))
         end
         return segments
@@ -84,7 +85,7 @@ function identify_wing_segments(
         le_point = sorted_points[le_idx]
         te_point = sorted_points[te_idx]
 
-        if le_point.pos_cad[1] < te_point.pos_cad[1]
+        if initial_chord_position(wing, le_point) < initial_chord_position(wing, te_point)
             push!(segments, (le_point.idx, te_point.idx))
         else
             push!(segments, (te_point.idx, le_point.idx))
@@ -123,13 +124,13 @@ structural LE/TE pair: a 1:1 copy when counts match, otherwise
 preserve polars.
 
 # Keyword Arguments
-- `stations::AbstractVector{Station}`: Stations used for LE/TE identification
+- `stations::AbstractVector`: Stations used for LE/TE identification
   via [`identify_wing_segments`](@ref).
 """
 function match_aero_sections_to_structure!(
-    wing::Body,
-    points::AbstractVector{Point};
-    stations::AbstractVector{Station}=Station[]
+    wing,
+    points::AbstractVector;
+    stations::AbstractVector=Station[]
 )
     wing_points = [
         p for p in points if
@@ -138,7 +139,7 @@ function match_aero_sections_to_structure!(
 
     if wing.dynamics_type == RIGID_DYNAMICS
         wing.wing_segments = identify_wing_segments(
-            wing_points; stations=stations,
+            wing, wing_points; stations=stations,
             wing_station_idxs=wing.station_idxs)
         return nothing
     end
@@ -192,7 +193,7 @@ function match_aero_sections_to_structure!(
     end
 
     wing_segments = identify_wing_segments(
-        wing_points; stations=stations,
+        wing, wing_points; stations=stations,
         wing_station_idxs=wing_station_idxs)
     wing.wing_segments = wing_segments
     length(wing_segments) == n_struct_sections || error(
@@ -206,8 +207,6 @@ function match_aero_sections_to_structure!(
         "Wing $(wing.idx): aerodynamic geometry " *
         "has zero unrefined sections."
     )
-    R_b_to_c = wing.R_b_to_c
-    origin_cad = wing.pos_cad
     new_sections = Vector{VortexStepMethod.Section}(
         undef, n_struct_sections)
 
@@ -222,10 +221,8 @@ function match_aero_sections_to_structure!(
         end
         source_section = original_sections[source_idx]
 
-        le_body = R_b_to_c' *
-            (points[le_idx].pos_cad - origin_cad)
-        te_body = R_b_to_c' *
-            (points[te_idx].pos_cad - origin_cad)
+        le_body = initial_body_position(wing, points[le_idx])
+        te_body = initial_body_position(wing, points[te_idx])
 
         section = VortexStepMethod.Section()
         VortexStepMethod.reinit!(
@@ -337,7 +334,7 @@ function compute_aerostruc_loads(panel, F_panel::SVector{3}, M_panel::SVector{3}
 end
 
 """
-    distribute_panel_forces_to_points!(wing::Body, points::AbstractVector{Point})
+    distribute_panel_forces_to_points!(wing, points::AbstractVector)
 
 Distribute VSM forces to structural points using refined panel forces.
 
@@ -347,10 +344,10 @@ chosen reference) and accumulated on the structural LE/TE points of its parent
 section, which `refined_panel_mapping` names (1:1).
 
 # Arguments
-- `wing::Body`: Wing with PARTICLE_DYNAMICS type and solved VSM state
-- `points::AbstractVector{Point}`: All structural points (filtered to this wing's nodes)
+- `wing::BodyState`: Wing with PARTICLE_DYNAMICS type and solved VSM state
+- `points::AbstractVector`: All structural points (filtered to this wing's nodes)
 """
-function distribute_panel_forces_to_points!(wing::Body, points::AbstractVector{Point})
+function distribute_panel_forces_to_points!(wing, points::AbstractVector)
     @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only distribute forces for PARTICLE_DYNAMICS wings"
 
     sol = wing.vsm_solver.sol
@@ -418,7 +415,7 @@ function distribute_panel_forces_to_points!(wing::Body, points::AbstractVector{P
 end
 
 """
-    update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Point})
+    update_vsm_wing_from_structure!(wing, points::AbstractVector)
 
 Update VSM section points (LE/TE) directly from structural point positions, closing
 the two-way coupling structural deformation → VSM sections → aero forces.
@@ -433,15 +430,15 @@ Each structural wing node maps 1:1 onto a VSM section point through
 - To get world coordinates: `world_pos = wing.R_b_to_w * section.LE_point + wing.pos_w`
 
 # Arguments
-- `wing::Body`: Wing with PARTICLE_DYNAMICS type
-- `points::AbstractVector{Point}`: All structural points (filtered to this wing's nodes)
+- `wing::BodyState`: Wing with PARTICLE_DYNAMICS type
+- `points::AbstractVector`: All structural points (filtered to this wing's nodes)
 """
-function update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Point})
+function update_vsm_wing_from_structure!(wing, points::AbstractVector)
     @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only update wing geometry for PARTICLE_DYNAMICS wings"
 
     # R_b_to_w and origin are updated during simulation from structural geometry.
     R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-    origin = wing.pos_w::KVec3
+    origin = SVector(wing.pos_w)
 
     # Update each VSM section point directly from its corresponding structural point
     point_to_vsm_point =
@@ -489,8 +486,7 @@ function compute_station_geometry!(wing, stations, points)
         iszero(station.chord) || continue
         center = zeros(3)
         for pt_idx in station.point_idxs
-            center .+= wing.R_b_to_c' *
-                (points[pt_idx].pos_cad - wing.pos_cad)
+            center .+= initial_body_position(wing, points[pt_idx])
         end
         center ./= length(station.point_idxs)
 
@@ -529,7 +525,7 @@ function setup_particle_point_mapping!(wing, points, stations)
         point -> point.is_wing_node && point.wing_idx == wing.idx, points)
     wing_pts = [points[idx] for idx in wing_point_idxs]
     if isnothing(wing.wing_segments)
-        wing.wing_segments = identify_wing_segments(wing_pts;
+        wing.wing_segments = identify_wing_segments(wing, wing_pts;
             stations=stations,
             wing_station_idxs=wing.station_idxs)
     end

@@ -75,8 +75,6 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "particle_structural_geometry.yaml"
-    aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
 
 tether:
@@ -136,8 +134,8 @@ system:
 
         # Verify probe types and positions
         @test sys.points[:probe_10m].type == SymbolicAWEModels.STATIC
-        @test sys.points[:probe_10m].pos_cad == KVec3(0.0, 0.0, 10.0)
-        @test sys.points[:probe_500m].pos_cad == KVec3(0.0, 0.0, 500.0)
+        @test sys.points[:probe_10m].pos_ENU == KVec3(0.0, 0.0, 10.0)
+        @test sys.points[:probe_500m].pos_ENU == KVec3(0.0, 0.0, 500.0)
         @test sys.points[:dynamic_point].type == SymbolicAWEModels.DYNAMIC
 
         println("\n  ====== Loaded 5 static probes at heights: 10m, 50m, 100m, 200m, 500m ======\n")
@@ -148,7 +146,7 @@ system:
         norm(get_wind_vector_at_point(sam, point_name))
 
     get_wind_vector_at_point(sam, point_name) =
-        copy(sam.sys_struct.points[point_name].wind_vec)
+        copy(sam.state.points[point_name].wind_vec)
 
     # ========================================================================
     # Test 1: Profile law 0 (CONST) - uniform wind at all heights

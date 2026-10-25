@@ -48,8 +48,6 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "particle_structural_geometry.yaml"
-    aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
 tether:
     cd_tether: 0.958
@@ -120,7 +118,7 @@ system:
             next_step!(sam1; dt=0.01, vsm_interval=0)
         end
         vel_no_grav = copy(
-            sam1.sys_struct.points[:test_point].vel_w)
+            sam1.state.points[:test_point].vel_w)
         @test norm(vel_no_grav) < 1e-6
 
         # Now create a new SAM with gravity enabled,
@@ -142,7 +140,7 @@ system:
             next_step!(sam2; dt=0.01, vsm_interval=0)
         end
         vel_with_grav = copy(
-            sam2.sys_struct.points[:test_point].vel_w)
+            sam2.state.points[:test_point].vel_w)
         # Z velocity should be negative (falling in NED)
         @test vel_with_grav[3] < -0.5
     end
@@ -175,7 +173,7 @@ system:
         sam_fresh = build_refine(; remake=true)    # builds + caches
         sam_cached = build_refine(; remake=false)  # loads from .bin
 
-        wpts(sam) = [p for p in sam.sys_struct.points if p.is_wing_node]
+        wpts(sam) = [p for p in sam.state.points if p.is_wing_node]
         fresh, cached = wpts(sam_fresh), wpts(sam_cached)
 
         # wind is on → aero is non-trivial (test is meaningful)

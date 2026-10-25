@@ -154,8 +154,6 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "particle_structural_geometry.yaml"
-    aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
 
 tether:
@@ -217,13 +215,13 @@ system:
         # Verify attachment points are STATIC
         @test sys.points[:attach_left].type == SymbolicAWEModels.STATIC
         @test sys.points[:attach_right].type == SymbolicAWEModels.STATIC
-        @test sys.points[:attach_left].pos_cad == KVec3(-2.0, 0.0, 10.0)
-        @test sys.points[:attach_right].pos_cad == KVec3(2.0, 0.0, 10.0)
+        @test sys.points[:attach_left].pos_ENU == KVec3(-2.0, 0.0, 10.0)
+        @test sys.points[:attach_right].pos_ENU == KVec3(2.0, 0.0, 10.0)
 
         # Verify pulley point is DYNAMIC with no extra mass
         pulley_point = sys.points[:pulley_point]
         @test pulley_point.type == SymbolicAWEModels.DYNAMIC
-        @test pulley_point.pos_cad[1] == 0.5  # Off-center at x=0.5
+        @test pulley_point.pos_ENU[1] == 0.5  # Off-center at x=0.5
         @test pulley_point.extra_mass == 0.0
         @test pulley_point.body_frame_damping == KVec3(50.0, 50.0, 50.0)
 
@@ -239,10 +237,10 @@ system:
         @test haskey(sys.segments, :main_tether)
 
         # Verify segment rest lengths are auto-calculated from point positions
-        attach_left_pos = sys.points[:attach_left].pos_cad
-        attach_right_pos = sys.points[:attach_right].pos_cad
-        pulley_pos = sys.points[:pulley_point].pos_cad
-        weight_pos = sys.points[:weight].pos_cad
+        attach_left_pos = sys.points[:attach_left].pos_ENU
+        attach_right_pos = sys.points[:attach_right].pos_ENU
+        pulley_pos = sys.points[:pulley_point].pos_ENU
+        weight_pos = sys.points[:weight].pos_ENU
 
         l0_left_expected = norm(pulley_pos - attach_left_pos)
         l0_right_expected = norm(pulley_pos - attach_right_pos)
@@ -276,13 +274,13 @@ system:
         test_init!(sam)
 
         # Get initial total length of pulley segments
-        pulley = sam.sys_struct.pulleys[:main_pulley]
+        pulley = sam.state.pulleys[:main_pulley]
         initial_sum_len = pulley.sum_len
 
         # Expected sum_len = l0_left + l0_right (from point positions)
-        attach_left_pos = sys.points[:attach_left].pos_cad
-        attach_right_pos = sys.points[:attach_right].pos_cad
-        pulley_pos = sys.points[:pulley_point].pos_cad
+        attach_left_pos = sys.points[:attach_left].pos_ENU
+        attach_right_pos = sys.points[:attach_right].pos_ENU
+        pulley_pos = sys.points[:pulley_point].pos_ENU
         expected_sum_len = norm(pulley_pos - attach_left_pos) + norm(pulley_pos - attach_right_pos)
         @test initial_sum_len ≈ expected_sum_len atol=1e-10
 
@@ -296,9 +294,9 @@ system:
             next_step!(sam; dt=dt, vsm_interval=0)
 
             # Calculate current lengths from point positions
-            attach_left = sam.sys_struct.points[:attach_left].pos_w
-            attach_right = sam.sys_struct.points[:attach_right].pos_w
-            pulley_pos = sam.sys_struct.points[:pulley_point].pos_w
+            attach_left = sam.state.points[:attach_left].pos_w
+            attach_right = sam.state.points[:attach_right].pos_w
+            pulley_pos = sam.state.points[:pulley_point].pos_w
 
             len_left = norm(pulley_pos - attach_left)
             len_right = norm(pulley_pos - attach_right)
@@ -331,7 +329,7 @@ system:
         test_init!(sam)
 
         # Initial x position is off-center at 0.5
-        initial_x = sam.sys_struct.points[:pulley_point].pos_w[1]
+        initial_x = sam.state.points[:pulley_point].pos_w[1]
         @test abs(initial_x) > 0.4  # Verify we start off-center
 
         # Run simulation until equilibrium
@@ -344,7 +342,7 @@ system:
 
         # At equilibrium, pulley should find symmetric position (x ≈ 0)
         # due to equal tensions from symmetric attachment points
-        final_x = sam.sys_struct.points[:pulley_point].pos_w[1]
+        final_x = sam.state.points[:pulley_point].pos_w[1]
 
         # Should be close to x=0 (symmetric equilibrium)
         @test abs(final_x) < 0.001
@@ -365,10 +363,10 @@ system:
         sys = load_sys_struct_from_yaml(yaml_symmetric_path; system_name="pulley_symmetric", set=set)
 
         # Get positions from YAML
-        attach_left_pos = sys.points[:attach_left].pos_cad
-        attach_right_pos = sys.points[:attach_right].pos_cad
-        pulley_pos = sys.points[:pulley_point].pos_cad
-        weight_pos = sys.points[:weight].pos_cad
+        attach_left_pos = sys.points[:attach_left].pos_ENU
+        attach_right_pos = sys.points[:attach_right].pos_ENU
+        pulley_pos = sys.points[:pulley_point].pos_ENU
+        weight_pos = sys.points[:weight].pos_ENU
 
         # Calculate expected l0 from geometry
         l0_left_expected = norm(pulley_pos - attach_left_pos)
@@ -394,7 +392,7 @@ system:
             next_step!(sam; dt=dt, vsm_interval=0)
         end
 
-        final_pos = sam.sys_struct.points[:pulley_point].pos_w
+        final_pos = sam.state.points[:pulley_point].pos_w
         final_x = final_pos[1]
         final_z = final_pos[3]
         initial_z = pulley_pos[3]
@@ -404,8 +402,8 @@ system:
         @test final_z ≈ initial_z atol=0.001  # Close to initial z
 
         # Verify both legs have equal length at equilibrium
-        attach_left = sam.sys_struct.points[:attach_left].pos_w
-        attach_right = sam.sys_struct.points[:attach_right].pos_w
+        attach_left = sam.state.points[:attach_left].pos_w
+        attach_right = sam.state.points[:attach_right].pos_w
 
         len_left = norm(final_pos - attach_left)
         len_right = norm(final_pos - attach_right)
@@ -435,16 +433,16 @@ system:
         end
 
         # At equilibrium, both pulley point and weight should have near-zero velocity
-        pulley_vel = sam.sys_struct.points[:pulley_point].vel_w
-        weight_vel = sam.sys_struct.points[:weight].vel_w
+        pulley_vel = sam.state.points[:pulley_point].vel_w
+        weight_vel = sam.state.points[:weight].vel_w
         @test norm(pulley_vel) < 0.1  # Pulley velocity near zero
         @test norm(weight_vel) < 0.1  # Weight velocity near zero
 
         # The geometry should be symmetric
-        pulley_pos = sam.sys_struct.points[:pulley_point].pos_w
-        weight_pos = sam.sys_struct.points[:weight].pos_w
-        attach_left = sam.sys_struct.points[:attach_left].pos_w
-        attach_right = sam.sys_struct.points[:attach_right].pos_w
+        pulley_pos = sam.state.points[:pulley_point].pos_w
+        weight_pos = sam.state.points[:weight].pos_w
+        attach_left = sam.state.points[:attach_left].pos_w
+        attach_right = sam.state.points[:attach_right].pos_w
 
         # Weight should hang below pulley point
         @test weight_pos[3] < pulley_pos[3]  # Weight z < pulley z
@@ -484,7 +482,7 @@ system:
         sys = load_sys_struct_from_yaml(yaml_path; system_name="pulley_test", set=set)
         sam = SymbolicAWEModel(set, sys)
         test_init!(sam)
-        pulley = sam.sys_struct.pulleys[:main_pulley]
+        pulley = sam.state.pulleys[:main_pulley]
 
         """Peak rope speed over 0.5 s from the off-centre start, at this friction."""
         function peak_rope_speed(efficiency, damping, friction_epsilon)
@@ -612,7 +610,7 @@ system:
         sam = SymbolicAWEModel(set, sys)
         test_init!(sam)
 
-        pulley = sam.sys_struct.pulleys[:main_pulley]
+        pulley = sam.state.pulleys[:main_pulley]
         left = sam.sys_struct.segments[:left_leg]
         right = sam.sys_struct.segments[:right_leg]
         nominal = left.unit_damping
@@ -625,6 +623,7 @@ system:
             sam.sys_struct.points[:pulley_point].body_frame_damping .= 0.0
             sam.sys_struct.points[:weight].body_frame_damping .= 0.0
             sam.sys_struct.segments[:main_tether].unit_damping = 0.0
+            place!(sam; prn=false)
             init!(sam; prn=false)
             speeds = Float64[]
             for _ in 1:n

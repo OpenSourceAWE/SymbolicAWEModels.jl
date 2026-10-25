@@ -21,10 +21,10 @@ pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
 
 @testset "validate_station_modes" begin
-    rigid = Wing(:rigid, NameRef[], Matrix{Float64}(I, 3, 3),
+    rigid = Wing(:rigid, NameRef[], [1.0, 0.0, 0.0, 0.0],
         zeros(3), ones(3); dynamics_type=RIGID_DYNAMICS)
     rigid.idx = 1
-    particle = Wing(:particle, NameRef[], Matrix{Float64}(I, 3, 3),
+    particle = Wing(:particle, NameRef[], [1.0, 0.0, 0.0, 0.0],
         zeros(3), ones(3); dynamics_type=PARTICLE_DYNAMICS)
     particle.idx = 1
 
@@ -97,7 +97,7 @@ end
     next_step!(sam)
 
     # twist_angle must track the prescribed value (no dynamics, no clamp drift).
-    for g in sam.sys_struct.stations
+    for g in sam.state.stations
         @test isapprox(g.twist, prescribed[g.name]; atol=1e-9)
     end
     rm(fixed_yaml; force=true)
@@ -119,9 +119,9 @@ station_point_mass(points, station, field) =
     sys.winches[:main_winch].brake = true
     sam = SymbolicAWEModel(set, sys)
     init!(sam; prn=false, remake=false, remake_vsm=false)
-    update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+    update_sys_struct!(sam.prob, sam.integrator, sam.state)
 
-    stations = sam.sys_struct.stations
+    stations = sam.state.stations
     points = sam.sys_struct.points
     @test all(station_point_mass(points, station, :total_mass) >
               1.01 * station_point_mass(points, station, :extra_mass)

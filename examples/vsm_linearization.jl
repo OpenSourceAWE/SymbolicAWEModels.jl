@@ -45,7 +45,7 @@ struc_yaml = joinpath(
 
 set = Settings("system.yaml")
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml");
+    project_file("vsm_settings");
     data_prefix=false)
 
 sys = load_sys_struct_from_yaml(struc_yaml;
@@ -54,11 +54,11 @@ sam = SymbolicAWEModel(set, sys)
 init!(sam; remake=false)
 
 # ─── Extract VSM objects ─────────────────────────────
-wing = sam.sys_struct.wings[1]
+wing = sam.state.wings[1]
 solver = wing.vsm_solver
 body_aero = wing.vsm_aero
 vsm_wing = wing.vsm_wing
-stations = sam.sys_struct.stations
+stations = sam.state.stations
 
 @info "Solver" solver_type=solver.solver_type use_gamma_prev=solver.use_gamma_prev
 

@@ -114,10 +114,10 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
                                            apparent_mass=scale)
             sam = SymbolicAWEModel(set, sys; backend=MonolithBackend())
             test_init!(sam; remake=true)
-            points = wing_points(sam.sys_struct, sam.sys_struct.wings[1])
+            points = wing_points(sam.state, sam.state.wings[1])
             before = [copy(p.vel_w) for p in points]
             next_step!(sam)
-            update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+            update_sys_struct!(sam.prob, sam.integrator, sam.state)
             maximum(norm(p.vel_w .- v0) for (p, v0) in zip(points, before))
         end
         @test accels[2] < accels[1]
@@ -132,22 +132,22 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
                       pos=[0.0, 0.0, 0.0], type=STATIC)
         node_b = Body(:node_b; extra_mass=1.0, inertia_principal=inertia,
                       pos=[1.0, 0.0, 0.0])
-        joint = TimoshenkoJoint(:joint, :node_a, :node_b;
-            EA=1.0e4, GA=1500.0, GJ=50.0, EIy=100.0, EIz=100.0,
-            shear_coeff=5 / 6, damping=0.05)
-        rider = Point(:rider, [0.25, 0.0, 0.0], BODY_STATIC; joint=:joint)
+        tube = Tube(:tube, :node_a, :node_b; diameter=0.1, pressure=3e4,
+            model=TimoshenkoTube(EA=1.0e4, GA=1500.0, GJ=50.0, EIy=100.0,
+                                 EIz=100.0, shear_coeff=5 / 6, damping=0.05))
+        rider = Point(:rider, [0.25, 0.0, 0.0], BODY_STATIC; tube=:tube)
         anchored = Point(:anchored, [1.0, 0.0, 0.0], BODY_STATIC; body=:node_b)
         free = Point(:free, [2.0, 0.0, 0.0], DYNAMIC; wing=0)
         beam = SystemStructure("carrier_test", set;
             points=[rider, anchored, free], bodies=[node_a, node_b],
-            timoshenko_joints=[joint])
+            tubes=[tube])
 
-        # A joint rider is placed by both bodies, split by where it sits.
+        # A tube rider is placed by both bodies, split by where it sits.
         carriers = apparent_mass_carriers(beam, beam.points[:rider])
         @test length(carriers) == 2
         @test sum(share for (_, share) in carriers) ≈ 1.0
         frac = beam.points[:rider].beam_frac
-        @test carriers[1][1] === beam.bodies[joint.body_a_idx]
+        @test carriers[1][1] === beam.bodies[tube.body_a_idx]
         @test carriers[1][2] ≈ 1 - frac
         @test carriers[2][2] ≈ frac
 

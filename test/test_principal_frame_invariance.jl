@@ -38,7 +38,6 @@ function apply_principal_frame!(wing, S)
     wing.inertia_principal .= diag(inertia_new)
     wing.angular_damping .=
         diag(S' * Diagonal(collect(wing.angular_damping)) * S)
-    wing.R_p_to_c .= wing.R_p_to_c * S
     wing.R_b_to_p .= S' * wing.R_b_to_p
     return nothing
 end
@@ -84,26 +83,25 @@ end
 """
     run_case(sam; frame=nothing, steps=10, dt=0.05)
 
-Place the structure, swap in the principal `frame` change when given (the
-placement derives the frame afresh), init, take one tiny step so all force
-outputs are realised, then step the dynamics; returns the snapshots (the
+Place and init the structure, swap in the principal `frame` change when given
+(`init!` derives the frame afresh) and reset the integrator from it, take one tiny
+step so all force outputs are realised, then step the dynamics; returns the snapshots (the
 reported failure grew over time, so the run must be long enough to expose a
 diverging variant).
 """
 function run_case(sam; frame=nothing, steps=10, dt=0.05)
-    wing = sam.sys_struct.wings[1]
-    SymbolicAWEModels.reinit!(sam.sys_struct, sam.set; prn=false)
+    wing = sam.state.wings[1]
+    place!(sam; prn=false)
+    init!(sam; prn=false)
     if !isnothing(frame)
         apply_principal_frame!(wing, frame)
-        @test wing.R_b_to_p ≈ wing.R_p_to_c' * wing.R_b_to_c atol=1e-12
-        SymbolicAWEModels.init_principal_state!(wing)
+        reinit!(sam, sam.integrator)
     end
-    init!(sam; reinit_sys=false, prn=false)
     next_step!(sam; dt=1e-5, vsm_interval=1)
-    snaps = [frame_snapshot(sam.sys_struct)]
+    snaps = [frame_snapshot(sam.state)]
     for _ in 1:steps
         next_step!(sam; dt, vsm_interval=1)
-        push!(snaps, frame_snapshot(sam.sys_struct))
+        push!(snaps, frame_snapshot(sam.state))
     end
     return snaps
 end
@@ -133,13 +131,13 @@ end
     ref = run_case(sam)
     @test norm(ref[1].aero_wrench_w) > 1.0
     @test maximum(norm, ref[1].point_force_w) > 1.0
-    R_p_to_w_ref = quaternion_to_rotation_matrix(Vector(wing.Q_p_to_w))
+    R_p_to_w_ref = quaternion_to_rotation_matrix(Vector(sam.state.wings[1].Q_p_to_w))
 
     # The 90°-about-y flip from the A1-15 failure.
     S = [0.0 0 1; 0 1 0; -1 0 0]
     snaps = run_case(sam; frame=S)
     # Prove the variant took effect: principal attitude rotated by S.
-    R_p_to_w = quaternion_to_rotation_matrix(Vector(wing.Q_p_to_w))
+    R_p_to_w = quaternion_to_rotation_matrix(Vector(sam.state.wings[1].Q_p_to_w))
     @test norm(R_p_to_w - R_p_to_w_ref) > 0.5
     @test norm(R_p_to_w * S' - R_p_to_w_ref) < 0.05
 

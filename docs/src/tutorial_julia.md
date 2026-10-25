@@ -343,8 +343,7 @@ sys.winches[:winch]       # Access winch by name
 | [`Pulley`](@ref) | `Pulley(name, seg_i, seg_j, type)` | Equal-tension constraint |
 | [`Station`](@ref) | `Station(name, points, type, frac; ...)` | Wing twist section |
 | [`Body`](@ref) | `Body(name; extra_mass, inertia_principal, pos)` | Rigid body |
-| [`ElasticJoint`](@ref) | `ElasticJoint(name, body_a, body_b; ...)` | Lumped 6-DOF spring between bodies |
-| [`TimoshenkoJoint`](@ref) | `TimoshenkoJoint(name, body_a, body_b; ...)` | Beam element between bodies |
+| [`Tube`](@ref) | `Tube(name, body_a, body_b; diameter, pressure, model)` | Inflated tube between bodies |
 | [`Transform`](@ref) | `Transform(name, el, az, hdg; ...)` | Spherical positioning |
 
 See the [Types](exported_types.md) page for full constructor

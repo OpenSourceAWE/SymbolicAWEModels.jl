@@ -27,11 +27,10 @@ physical model, from points and segments to winches and wings.
 - [`Winch`](@ref): Ground-based winches.
 - [`Body`](@ref): Rigid bodies; a wing is a body that carries aero, so
   `sys.wings` holds the subset of `sys.bodies` that does.
-- [`ElasticJoint`](@ref), [`TimoshenkoJoint`](@ref): Two-body links; a chain of
-  the latter forms a beam.
+- [`Tube`](@ref): Inflated tubes between two bodies; a chain of them forms a beam.
 - [`Transform`](@ref): Spatial transformations for initial positioning.
 """
-mutable struct SystemStructure{J<:ElasticJoint}
+mutable struct SystemStructure
     const name::String
     set::Settings
     const points::NamedCollection{Point}
@@ -46,8 +45,7 @@ mutable struct SystemStructure{J<:ElasticJoint}
     "The `bodies` that carry aero, which are prepended to `bodies`, so a wing's
     position here equals its `idx`. The same objects, not copies."
     const wings::NamedCollection{Body}
-    const elastic_joints::NamedCollection{J}
-    const timoshenko_joints::NamedCollection{TimoshenkoJoint}
+    const tubes::NamedCollection{Tube}
 
     const am::AtmosphericModel
     stabilize::Bool
@@ -55,111 +53,18 @@ mutable struct SystemStructure{J<:ElasticJoint}
     vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
     "Where the wind comes from: [`ProfileWind`](@ref) or [`PerPointWind`](@ref)."
     wind_mode::WindMode
-end
-
-function Base.getproperty(sys::SystemStructure, sym::Symbol)
-    if sym == :state_vars
-        vars = SimFloat[]
-        points = getfield(sys, :points)
-        for point in points
-            append!(vars, point.pos_w)
-            append!(vars, point.vel_w)
-        end
-        bodies = getfield(sys, :bodies)
-        for rigid_body in bodies
-            append!(vars, rigid_body.com_w)
-            append!(vars, rigid_body.com_vel)
-            append!(vars, rigid_body.Q_p_to_w)
-            append!(vars, rigid_body.ω_p)
-        end
-        stations = getfield(sys, :stations)
-        for station in stations
-            push!(vars, station.twist)
-            push!(vars, station.twist_ω)
-        end
-        pulleys = getfield(sys, :pulleys)
-        for pulley in pulleys
-            push!(vars, pulley.len)
-            push!(vars, pulley.vel)
-        end
-        # tethers
-        tethers = getfield(sys, :tethers)
-        for tether in tethers
-            push!(vars, tether.len)
-        end
-        # winches
-        winches = getfield(sys, :winches)
-        for winch in winches
-            push!(vars, winch.vel)
-        end
-        return reshape(vars, :, 1) # Return as a column vector (2D array)
-    else
-        return getfield(sys, sym)
-    end
-end
-
-function Base.setproperty!(sys::SystemStructure, sym::Symbol, value)
-    if sym == :state_vars
-        flat_value = vec(value) # Ensure value is a flat vector
-        offset = 1
-        points = getfield(sys, :points)
-        for point in points
-            point.pos_w .= @view flat_value[offset:offset+2]
-            offset += 3
-            point.vel_w .= @view flat_value[offset:offset+2]
-            offset += 3
-        end
-        bodies = getfield(sys, :bodies)
-        for rigid_body in bodies
-            rigid_body.com_w .= @view flat_value[offset:offset+2]
-            offset += 3
-            rigid_body.com_vel .= @view flat_value[offset:offset+2]
-            offset += 3
-            rigid_body.Q_p_to_w .= @view flat_value[offset:offset+3]
-            offset += 4
-            rigid_body.ω_p .= @view flat_value[offset:offset+2]
-            offset += 3
-        end
-        stations = getfield(sys, :stations)
-        for station in stations
-            station.twist = flat_value[offset]
-            offset += 1
-            station.twist_ω = flat_value[offset]
-            offset += 1
-        end
-        pulleys = getfield(sys, :pulleys)
-        for pulley in pulleys
-            pulley.len = flat_value[offset]
-            offset += 1
-            pulley.vel = flat_value[offset]
-            offset += 1
-        end
-        # tethers
-        tethers = getfield(sys, :tethers)
-        for tether in tethers
-            tether.len = flat_value[offset]
-            offset += 1
-        end
-        # winches
-        winches = getfield(sys, :winches)
-        for winch in winches
-            winch.vel = flat_value[offset]
-            offset += 1
-        end
-        return value
-    else
-        return setfield!(sys, sym, value)
-    end
+    "The KiteGeometry definition of the system in its initial pose."
+    definition::Union{Nothing, SystemDefinition}
 end
 
 """
-    calc_heading(sys::SystemStructure)
+    calc_heading(sys::SystemState)
 
 Calculate heading angles for all wings using the tangential
 sphere frame method. Returns a vector of heading angles, one
 per wing.
 """
-function calc_heading(sys::SystemStructure)
+function calc_heading(sys::SystemState)
     return [calc_heading(wing.R_b_to_w, wing.pos_w) for wing in sys.wings]
 end
 
@@ -306,8 +211,8 @@ function expand_auto_tethers!(
             ":$end_point_sym not found in points")
         start_point_idx = point_names[start_point_sym]
         end_point_idx = point_names[end_point_sym]
-        start_pos = points[start_point_idx].pos_cad
-        end_pos = points[end_point_idx].pos_cad
+        start_pos = points[start_point_idx].pos_ENU
+        end_pos = points[end_point_idx].pos_ENU
 
         # Inherit transform from endpoints
         start_transform = points[start_point_idx].transform_ref
@@ -443,18 +348,17 @@ function distribute_mass_over_points!(points, point_idxs, mass)
 end
 
 """
-    connected_body_groups(n_bodies, joint_collections...) -> Vector{Int64}
+    connected_body_groups(n_bodies, tubes) -> Vector{Int64}
 
-Union-find over body indices `1:n_bodies`, uniting the two bodies of every joint
-in each collection (each joint exposes `body_a_idx`/`body_b_idx`). Returns a
-`root` vector mapping each body to its component representative, so all bodies
-tied into one continuous beam share a root.
+Union-find over body indices `1:n_bodies`, uniting the two bodies of every tube.
+Returns a `root` vector mapping each body to its component representative, so all
+bodies tied into one continuous beam share a root.
 """
-function connected_body_groups(n_bodies, joint_collections...)
+function connected_body_groups(n_bodies, tubes)
     root = collect(1:n_bodies)
     find(x) = root[x] == x ? x : (root[x] = find(root[x]))
-    for joints in joint_collections, joint in joints
-        a, b = joint.body_a_idx, joint.body_b_idx
+    for tube in tubes
+        a, b = tube.body_a_idx, tube.body_b_idx
         (a == 0 || b == 0) && continue
         root[find(a)] = find(b)
     end
@@ -505,7 +409,7 @@ end
 Distribute `set.mass` over a PARTICLE_DYNAMICS `wing`'s member points when neither
 they nor its section bodies (see [`particle_wing_parts`](@ref)) carry `extra_mass`,
 warning when that leaves the wing massless. Deferred until point/station→body and
-joint→body references resolve.
+tube→body references resolve.
 """
 function finalize_particle_wing_mass!(wing, stations, points, bodies, set, root)
     point_idxs, body_idxs = particle_wing_parts(wing, stations, points, bodies, root)
@@ -671,7 +575,7 @@ end
 """
     init_body_frame_from_ref_points!(wing, points; prn=true)
 
-Initialize wing body frame (R_b_to_c, pos_cad) from z/y
+Initialize wing body frame (`Q_KA_to_ENU`, `pos_ENU`) from z/y
 reference points. Shared by VSMWing PARTICLE_DYNAMICS and PlateWing.
 """
 function init_body_frame_from_ref_points!(
@@ -682,18 +586,13 @@ function init_body_frame_from_ref_points!(
     isnothing(wing.y_ref_points) && return
 
     origin_pos = get_ref_position_from_points(
-        points, wing.origin; field=:pos_cad)
-    wing.pos_cad .= origin_pos
+        points, wing.origin; field=:pos_ENU)
+    wing.pos_ENU .= origin_pos
 
-    # Temporarily set pos_w = pos_cad so the frame calc can read positions.
-    for point in points
-        wing_frame_member(point, wing.idx) &&
-            (point.pos_w .= point.pos_cad)
-    end
-    R_b_to_c, _ = calc_particle_dynamics_wing_frame(
+    R_b_to_w, _ = calc_particle_dynamics_wing_frame(
         points, wing.z_ref_points,
-        wing.y_ref_points, wing.origin)
-    wing.R_b_to_c .= R_b_to_c
+        wing.y_ref_points, wing.origin; field=:pos_ENU)
+    wing.Q_KA_to_ENU .= rotation_matrix_to_quaternion(R_b_to_w)
     wing.R_b_to_p .= Matrix{SimFloat}(I, 3, 3)
 
     if prn
@@ -722,11 +621,8 @@ fewer stations one may own several adjacent sections and
 drive them all as a rigid unit with its single twist DOF. More
 stations than sections is rejected.
 """
-function compute_spatial_station_mapping!(
-    the_wing::Body,
-    stations::AbstractVector{Station},
-    points::AbstractVector{Point}
-)
+function compute_spatial_station_mapping!(the_wing, stations::AbstractVector,
+                                          points::AbstractVector)
     the_vsm_wing = the_wing.vsm_wing
     n_unrefined = the_vsm_wing.n_unrefined_sections
     n_stations = length(the_wing.station_idxs)
@@ -744,9 +640,7 @@ function compute_spatial_station_mapping!(
         station = stations[station_idx]
         center = zeros(3)
         for pt_idx in station.point_idxs
-            center += the_wing.R_b_to_c' *
-                (points[pt_idx].pos_cad -
-                 the_wing.pos_cad)
+            center += initial_body_position(the_wing, points[pt_idx])
         end
         station_centers[local_idx] =
             center / length(station.point_idxs)
@@ -770,28 +664,14 @@ function compute_spatial_station_mapping!(
         empty!(stations[station_idx].panel_idxs)
     end
 
-    # Assign each unrefined section to nearest station
     for section_idx in 1:n_unrefined
-        min_dist = Inf
-        closest_local = 1
-        for local_idx in 1:n_stations
-            dist = norm(unrefined_centers[section_idx] -
-                     station_centers[local_idx])
-            if dist < min_dist
-                min_dist = dist
-                closest_local = local_idx
-            end
-        end
-        g_idx = the_wing.station_idxs[closest_local]
-        push!(stations[g_idx].unrefined_section_idxs,
+        closest_local = nearest_station(unrefined_centers[section_idx], station_centers)
+        push!(stations[the_wing.station_idxs[closest_local]].unrefined_section_idxs,
               Int64(section_idx))
     end
-
-    # Assign each panel to nearest station
     for (panel_idx, panel) in enumerate(the_wing.vsm_aero.panels)
         panel_center = vec(sum(panel.corner_points; dims=2)) / 4 .- offset_vec
-        closest_local = argmin([norm(panel_center - station_center)
-                                for station_center in station_centers])
+        closest_local = nearest_station(panel_center, station_centers)
         push!(stations[the_wing.station_idxs[closest_local]].panel_idxs,
               Int64(panel_idx))
     end
@@ -809,12 +689,25 @@ function compute_spatial_station_mapping!(
 end
 
 """
+    nearest_station(position, station_centers) -> Int
+
+Index of the body-frame station centre nearest `position`. Centres within `1e-9` of
+the nearest distance, relative, tie, and a tie goes to the outboard one (largest
+`|y|`), so a mirror-symmetric wing splits symmetrically.
+"""
+function nearest_station(position, station_centers)
+    dists = [norm(position - center) for center in station_centers]
+    tied = findall(<=(minimum(dists) * (1 + 1e-9)), dists)
+    return argmax(local_idx -> abs(station_centers[local_idx][2]), tied)
+end
+
+"""
     share_body_mass!(the_wing, stations)
 
 Set each station's `body_mass`: the wing's `extra_mass`, which sits on no point, times
 the station's share of the wing's panel area.
 """
-function share_body_mass!(the_wing::Body, stations::AbstractVector{Station})
+function share_body_mass!(the_wing, stations::AbstractVector)
     panels = the_wing.vsm_aero.panels
     wing_area = sum(panel.chord * panel.width for panel in panels)
     for station_idx in the_wing.station_idxs
@@ -831,13 +724,13 @@ end
 """
     setup_wing_frame!(wing, points; prn=true)
 
-Compute a wing's body frame (`R_b_to_c`, `pos_cad`) and, for `RIGID_DYNAMICS`, its
+Compute a wing's body frame (`Q_KA_to_ENU`, `pos_ENU`) and, for `RIGID_DYNAMICS`, its
 own COM offset and inertia (`extra_com_offset_b`, `extra_inertia_b`), from its mesh or
 structural points and its ref points. [`update_mass_properties!`](@ref) adds the
 carried points. This is dynamics/geometry only — independent of the aero mode, which
 does its own mode-specific setup afterwards in [`setup_aero!`](@ref).
 
-Without ref points the body frame keeps the CAD orientation (origin at the wing
+Without ref points the body frame keeps the world orientation (origin at the wing
 body's own COM). Without a mesh, the wing's own mass is spread like the frame points'
 `extra_mass`; with neither, the constructor's inertia stays, or none for a massless wing.
 """
@@ -846,35 +739,32 @@ function setup_wing_frame!(wing, points; prn=true)
         any(wing_frame_member(point, wing.idx)
             for point in points) || return nothing
 
-        com_cad, inertia_normalized = normalized_inertia(wing.aero, wing, points)
+        com, inertia_normalized = normalized_inertia(wing.aero, wing, points)
 
-        # Body frame from ref points (else body = CAD orientation, origin = its own COM)
+        # Body frame from ref points (else body = world orientation, origin = its own COM)
         origin = wing.origin
         z_ref = wing.z_ref_points
         y_ref = wing.y_ref_points
         if !isnothing(origin) && !isnothing(z_ref) && !isnothing(y_ref)
-            origin_cad = get_ref_position_from_points(
-                points, origin; field=:pos_cad)
-            wing.pos_cad .= origin_cad
-            for point in points
-                wing_frame_member(point, wing.idx) &&
-                    (point.pos_w .= point.pos_cad)
-            end
-            R_b_to_c, _ = calc_particle_dynamics_wing_frame(
-                points, z_ref, y_ref, origin)
-            wing.R_b_to_c .= R_b_to_c
-            wing.extra_com_offset_b .= R_b_to_c' * (com_cad - origin_cad)
+            origin_pos = get_ref_position_from_points(
+                points, origin; field=:pos_ENU)
+            wing.pos_ENU .= origin_pos
+            R_b_to_w, _ = calc_particle_dynamics_wing_frame(
+                points, z_ref, y_ref, origin; field=:pos_ENU)
+            wing.Q_KA_to_ENU .= rotation_matrix_to_quaternion(R_b_to_w)
+            wing.extra_com_offset_b .= R_b_to_w' * (com - origin_pos)
         else
-            wing.pos_cad .= com_cad
-            wing.R_b_to_c .= Matrix{SimFloat}(I, 3, 3)
+            wing.pos_ENU .= com
+            wing.Q_KA_to_ENU .= SimFloat[1, 0, 0, 0]
             wing.extra_com_offset_b .= 0.0
         end
         wing.com_offset_b .= wing.extra_com_offset_b
 
-        # The hook returns per-unit-mass inertia [m²] in the CAD frame.
+        # The hook returns per-unit-mass inertia [m²] in the world axes of `pos_ENU`.
         if !isnothing(inertia_normalized)
+            R_initial = initial_rotation(wing)
             wing.extra_inertia_b .=
-                wing.R_b_to_c' * (wing.extra_mass .* inertia_normalized) * wing.R_b_to_c
+                R_initial' * (wing.extra_mass .* inertia_normalized) * R_initial
         elseif iszero(wing.extra_mass)
             wing.extra_inertia_b .= 0.0
         end
@@ -888,13 +778,13 @@ end
     update_mass_properties!(sys_struct; prn=true)
 
 Set every DYNAMIC and STATIC body's `total_mass`, `com_offset_b` and principal
-inertia (`inertia_principal`, `R_b_to_p`, `R_p_to_c`): its own mass properties plus
+inertia (`inertia_principal`, `R_b_to_p`): its own mass properties plus
 each point it carries ([`carrier_body_idx`](@ref)) as a point mass of the point's
 `total_mass`, at its anchor. A particle wing's `total_mass` sums its free member points
-and its section bodies. Point masses are taken at the current `l0`, and the
-principal-frame state is re-derived from the new COM.
+and its section bodies. Point masses are taken at the current `l0`, and the rigid wing
+nodes' offsets from the new COM re-derived ([`init_undeformed_offsets!`](@ref)).
 """
-function update_mass_properties!(sys_struct::SystemStructure; prn=true)
+function update_mass_properties!(sys_struct; prn=true)
     (; points, bodies, stations) = sys_struct
     write_total_mass!(sys_struct)
     for body in bodies
@@ -910,8 +800,7 @@ function update_mass_properties!(sys_struct::SystemStructure; prn=true)
             ", I=$(round.(body.inertia_principal; digits=4))" *
             ", com_offset_b=$(round.(body.com_offset_b; digits=4))"
     end
-    root = connected_body_groups(length(bodies),
-        sys_struct.elastic_joints, sys_struct.timoshenko_joints)
+    root = connected_body_groups(length(bodies), sys_struct.tubes)
     for wing in sys_struct.wings
         wing.dynamics_type == PARTICLE_DYNAMICS || continue
         point_idxs, body_idxs = particle_wing_parts(wing, stations, points, bodies, root)
@@ -919,7 +808,7 @@ function update_mass_properties!(sys_struct::SystemStructure; prn=true)
                               if carrier_body_idx(points[idx], bodies) == 0; init=0.0) +
             sum(bodies[idx].total_mass for idx in body_idxs; init=0.0)
     end
-    init_principal_frame!(bodies, points)
+    init_undeformed_offsets!(bodies, points)
     return nothing
 end
 
@@ -949,7 +838,6 @@ function combine_carried_points!(body, points, bodies)
     body.com_offset_b .= com
     body.inertia_principal .= inertia_principal
     body.R_b_to_p .= R_b_to_p
-    body.R_p_to_c .= body.R_b_to_c * R_b_to_p'
     return nothing
 end
 
@@ -957,15 +845,14 @@ end
     carried_position_b(point, body) -> Vector
 
 Body-frame position of a point `body` carries, from its body origin: a rider's
-`anchor_b`, or where its CAD position sits on the body.
+`anchor_b`, or where its initial position sits on the body in its initial pose.
 """
 carried_position_b(point, body) = point.body_idx == body.idx ? Vector(point.anchor_b) :
-    body.R_b_to_c' * (point.pos_cad - body.pos_cad)
+    initial_body_position(body, point)
 
 """
     SystemStructure(name, set; points, stations, segments, pulleys, tethers,
-                    winches, wings, transforms, bodies, elastic_joints,
-                    timoshenko_joints)
+                    winches, wings, transforms, bodies, tubes)
 
 Constructs a `SystemStructure` object representing a complete mechanical system.
 Resolves every symbolic reference to a numeric index, fills in derived properties
@@ -980,12 +867,17 @@ of the same structural shape should share one.
 
 # Keyword Arguments
 - `points`, `stations`, `segments`, etc.: Vectors of the system components.
-- `vsm_set`: `VSMSettings` for VSM wings; read from `vsm_settings.yaml` when omitted.
+- `vsm_set`: `VSMSettings` for VSM wings; read from the project file's
+  `vsm_settings:` when omitted.
 - `wind_mode::WindMode=ProfileWind()`: [`PerPointWind`](@ref) makes every point's
   `wind_vec` a settable parameter instead of a height-profile output.
 - `ignore_l0::Bool=false`: Set every segment `l0` to its placed length
   ([`relax_segments!`](@ref)).
+- `placed::Bool=false`: The positions given are the initial pose already: keep them
+  and every `l0` instead of running [`place!`](@ref).
 - `prn::Bool=true`: If true, print info messages about auto-generated components.
+- `definition`: The KiteGeometry definition the components were read from; written from
+  them ([`system_definition`](@ref)) when omitted.
 
 # Returns
 - `SystemStructure`: A complete system ready for building a `SymbolicAWEModel`.
@@ -1000,19 +892,19 @@ function SystemStructure(name, set;
         wings=Body[],
         transforms=Transform[],
         bodies=Body[],
-        elastic_joints=ElasticJoint[],
-        timoshenko_joints=TimoshenkoJoint[],
+        tubes=Tube[],
         ignore_l0::Bool=false,
+        placed::Bool=false,
         vsm_set=nothing,
         wind_mode::WindMode=ProfileWind(),
         prn::Bool=true,
+        definition::Union{Nothing, SystemDefinition}=nothing,
     )
     # Load VSMSettings if not provided and VSM wings exist
     has_vsm_wings = any(has_vsm_engine(wing.aero) for wing in wings)
     if isnothing(vsm_set) && has_vsm_wings
-        model_dir = get_data_path()
-        vsm_set_path = joinpath(model_dir, "vsm_settings.yaml")
-        if isfile(vsm_set_path)
+        vsm_set_path = optional_project_file("vsm_settings")
+        if !isnothing(vsm_set_path)
             vsm_set = VortexStepMethod.VSMSettings(
                 vsm_set_path; data_prefix=false)
         end
@@ -1048,7 +940,7 @@ function SystemStructure(name, set;
             for idx in wing_point_idxs
                 points[idx] = Point(
                     points[idx].name,
-                    points[idx].pos_cad,
+                    points[idx].pos_ENU,
                     STATIC;
                     extra_mass = points[idx].extra_mass,
                     body_frame_damping =
@@ -1058,8 +950,6 @@ function SystemStructure(name, set;
                     transform = points[idx].transform_ref
                 )
                 points[idx].idx = idx  # Reassign idx after recreation
-                points[idx].pos_w .= points[idx].pos_cad
-                points[idx].vel_w .= 0.0
             end
         end
     end
@@ -1083,7 +973,7 @@ function SystemStructure(name, set;
     end
     for (i, segment) in enumerate(segments)
         @assert segment.idx == i
-        (segment.l0 ≈ 0) && (segment.l0 = segment_cad_length(segment, points))
+        (segment.l0 ≈ 0) && (segment.l0 = segment_initial_length(segment, points))
         isnan(segment.density) && (segment.density = set.rho_tether)
     end
     for (i, pulley) in enumerate(pulleys)
@@ -1144,7 +1034,7 @@ function SystemStructure(name, set;
     end
     rigid_body_names_dict = build_name_dict(bodies)
 
-    # Body-anchored points: resolve the body, deriving anchor_b from pos_cad when unset.
+    # Body-anchored points: resolve the body, deriving anchor_b from pos_ENU when unset.
     for point in points
         point.body_idx = resolve_ref(
             point.body_ref, rigid_body_names_dict, "rigid_body")
@@ -1159,29 +1049,19 @@ function SystemStructure(name, set;
         end
         if point.body_idx > 0 && iszero(point.anchor_b)
             body = bodies[point.body_idx]
-            point.anchor_b = KVec3(body.R_b_to_c' * (point.pos_cad - body.pos_cad))
+            point.anchor_b = KVec3(initial_body_position(body, point))
         end
     end
 
-    # Elastic joints: assign indices, resolve their body references.
-    for (i, joint) in enumerate(elastic_joints)
-        joint.idx = i
-        joint.body_a_idx = resolve_ref(
-            joint.body_a_ref, rigid_body_names_dict, "rigid_body")
-        joint.body_b_idx = resolve_ref(
-            joint.body_b_ref, rigid_body_names_dict, "rigid_body")
+    # Tubes: assign indices, resolve their body references.
+    for (i, tube) in enumerate(tubes)
+        tube.idx = i
+        tube.body_a_idx = resolve_ref(
+            tube.body_a_ref, rigid_body_names_dict, "rigid_body")
+        tube.body_b_idx = resolve_ref(
+            tube.body_b_ref, rigid_body_names_dict, "rigid_body")
     end
-    elastic_joint_names_dict = build_name_dict(elastic_joints)
-
-    # Timoshenko joints: assign indices, resolve their body references.
-    for (i, joint) in enumerate(timoshenko_joints)
-        joint.idx = i
-        joint.body_a_idx = resolve_ref(
-            joint.body_a_ref, rigid_body_names_dict, "rigid_body")
-        joint.body_b_idx = resolve_ref(
-            joint.body_b_ref, rigid_body_names_dict, "rigid_body")
-    end
-    timoshenko_joint_names_dict = build_name_dict(timoshenko_joints)
+    tube_names_dict = build_name_dict(tubes)
 
     # Stations: resolve owning-wing and (member + flap) body references.
     for station in stations
@@ -1195,18 +1075,18 @@ function SystemStructure(name, set;
             "point") for ref in station.flap_point_refs]
     end
 
-    # Beam-anchored points: resolve the joint ref, derive beam_frac + offset.
+    # Beam-anchored points: resolve the tube ref, derive beam_frac + offset.
     for point in points
-        point.joint_idx = resolve_ref(
-            point.joint_ref, timoshenko_joint_names_dict, "timoshenko_joint")
-        point.joint_idx == 0 && continue
-        derive_point_beam_anchor!(
-            point, timoshenko_joints[point.joint_idx], bodies)
+        point.tube_idx = resolve_ref(point.tube_ref, tube_names_dict, "tube")
+        point.tube_idx == 0 && continue
+        tube = tubes[point.tube_idx]
+        tube.model isa TimoshenkoTube || error("Point $(point.name) rides tube " *
+            "$(tube.name), which is not a TimoshenkoTube beam element.")
+        derive_point_beam_anchor!(point, tube, bodies)
     end
 
-    # Particle wings carry mass on their (joint-connected) section bodies.
-    body_groups = connected_body_groups(
-        length(bodies), elastic_joints, timoshenko_joints)
+    # Particle wings carry mass on their (tube-connected) section bodies.
+    body_groups = connected_body_groups(length(bodies), tubes)
     for wing in wings
         wing.dynamics_type == PARTICLE_DYNAMICS &&
             finalize_particle_wing_mass!(
@@ -1225,17 +1105,16 @@ function SystemStructure(name, set;
         NamedCollection{Transform}(transforms, transform_names_dict),
         NamedCollection{Body}(bodies, rigid_body_names_dict),
         NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
-        NamedCollection{eltype(elastic_joints)}(elastic_joints, elastic_joint_names_dict),
-        NamedCollection{TimoshenkoJoint}(timoshenko_joints, timoshenko_joint_names_dict),
-        AtmosphericModel(set), false, false, vsm_set, wind_mode)
-    reinit!(sys_struct, set; prn)
+        NamedCollection{Tube}(tubes, tube_names_dict),
+        AtmosphericModel(set), false, false, vsm_set, wind_mode, definition)
+    placed || place!(sys_struct; ignore_l0, prn)
+    init_derived_properties!(sys_struct; prn)
+    isnothing(definition) && (sys_struct.definition = system_definition(sys_struct))
 
     # Panel→flap station map (structural; needs placed bodies + built panels).
     for wing in sys_struct.wings
         build_panel_station_map!(wing.aero, wing, sys_struct)
     end
-
-    ignore_l0 && relax_segments!(sys_struct)
 
     return sys_struct
 end

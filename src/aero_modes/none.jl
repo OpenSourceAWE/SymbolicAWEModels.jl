@@ -14,17 +14,18 @@ struct AeroNone <: AbstractAeroModel end
 """A wing is a `Body` carrying aerodynamics; `Body{AeroNone}` is a plain body."""
 is_wing(::Body{AeroNone}) = false
 is_wing(::Body) = true
+is_wing(body::BodyState) = is_wing(body.row)
 
 is_builtin_aero(::AeroNone) = true
 aero_mode_tag(::AeroNone) = "none"
 
 """
-    aero_component(::AeroNone, wing::ParticleWing, sys_struct; name)
+    aero_component(::AeroNone, wing::ParticleWingState, sys_struct; name)
 
 Zero per-point forces (particle connector contract). AeroNone supports both wing
 dynamics via one method each.
 """
-function aero_component(::AeroNone, wing::ParticleWing, sys_struct;
+function aero_component(::AeroNone, wing::ParticleWingState, sys_struct;
                         name, params=nothing)
     num_points = length(wing_points(sys_struct, wing))
     connectors = particle_aero_connectors(num_points)
@@ -33,11 +34,11 @@ function aero_component(::AeroNone, wing::ParticleWing, sys_struct;
 end
 
 """
-    aero_component(::AeroNone, wing::RigidWing, sys_struct; name)
+    aero_component(::AeroNone, wing::RigidWingState, sys_struct; name)
 
 Zero lumped force/moment (rigid connector contract).
 """
-function aero_component(::AeroNone, wing::RigidWing, sys_struct;
+function aero_component(::AeroNone, wing::RigidWingState, sys_struct;
                         name, params=nothing)
     num_stations = length(wing.station_idxs)
     connectors = rigid_aero_connectors(num_stations)

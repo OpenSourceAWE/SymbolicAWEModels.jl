@@ -40,10 +40,9 @@ condition:
     beta: 0.0            # [°] Sideslip angle (yaw angle relative to flow)
     yaw_rate: 0.0        # [°/s] Yaw rate (for dynamic analysis, 0 for static)
 
-# Define wing geometry files and discretization parameters
+# Wing discretization; the geometry itself is the project file's `aero_geometry:`
 wings:
     - name: V3_Kite                    # Wing identifier for output labeling
-      geometry_file: data/2plate_kite/aero_geometry.yaml
       n_panels: 10                     # Total number of panels along wingspan
       spanwise_panel_distribution: SPLIT_PROVIDED    # Panel spacing algorithm
       spanwise_direction: [0.0, 1.0, 0.0]   # Unit vector defining wingspan direction

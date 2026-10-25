@@ -71,7 +71,7 @@ using LinearAlgebra
         # handed one chord fraction twice has no answer.
         for group in stations
             @test length(unique(group)) == length(group)
-            @test length(unique(round.(sys.points[i].pos_cad; digits=9)
+            @test length(unique(round.(sys.points[i].pos_ENU; digits=9)
                                 for i in group)) == length(group)
         end
         # Every panel blends between two neighbouring stations, in range.
