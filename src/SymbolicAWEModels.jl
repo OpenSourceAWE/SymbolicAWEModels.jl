@@ -67,7 +67,8 @@ export SymbolicAWEModel
 export ModelBackend, MonolithBackend, KernelBackend,
        BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
-export SystemStructure, Point, Station, Segment, Pulley, Tether, Winch, Wing, Transform
+export SystemStructure, SystemState, Point, Station, Segment, Pulley, Tether, Winch, Wing,
+       Transform
 export segment_role
 export Body, Tube, AbstractTubeModel, TimoshenkoTube, ElasticTube
 export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
@@ -135,7 +136,7 @@ export update_plot_observables!
 export animate
 export load_sys_struct_from_yaml
 export project_file
-export structure_document, sys_struct_from_document
+export sys_struct_from_document
 export save_structure_document, load_structure_document
 export replay
 export record
@@ -224,8 +225,7 @@ include("system_structure/system_structure.jl")
 include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
-include("yaml_loader.jl")
-include("structure_document.jl")
+include("definition_loader.jl")
 include("linearize.jl")
 include("generate_system/generate_system.jl")
 # Aero subsystem; loaded after generate_system for the accessors/MTK it uses.

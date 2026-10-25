@@ -11,7 +11,7 @@ Walk `path` (a tuple of `Symbol` fields and `Int` indices) from `obj`, e.g.
 """
 read_path(obj, ::Tuple{}) = obj
 read_path(obj, path::Tuple) = read_path(path_step(obj, first(path)), Base.tail(path))
-path_step(obj, key::Symbol) = getproperty(obj, key)
+@inline path_step(obj, key::Symbol) = getproperty(obj, key)
 path_step(obj, key::Int) = obj[key]
 
 """
@@ -87,11 +87,11 @@ generation; the `params` view records one [`ParamEntry`](@ref) per distinct fiel
 it reads (memoised by cache key). After compilation it drives `sync_params!`.
 """
 mutable struct ParamRegistry
-    sys_struct::SystemStructure
+    sys_struct::SystemState
     entries::Vector{ParamEntry}
     cache::Dict{Any, Any}
 end
-ParamRegistry(sys_struct::SystemStructure) =
+ParamRegistry(sys_struct::SystemState) =
     ParamRegistry(sys_struct, ParamEntry[], Dict{Any, Any}())
 
 # ---- parameter constructors (value baked in as default) ----
@@ -209,8 +209,37 @@ function Base.getproperty(view::PathView, sym::Symbol)
     path = (getfield(view, :path)..., sym)
     value = read_path(reg.sys_struct, path)
     param_descend(value) && return PathView(reg, path)
-    return leaf_param!(reg, path, PathReader(path), value)
+    return leaf_param!(reg, path, leaf_reader(path, value), value)
 end
+
+"""The reader of the leaf `value` at `path`: a [`PathReader`](@ref), copying into a
+buffer of its own a vector a run's state holds in its columns."""
+leaf_reader(path, value) = PathReader(path)
+leaf_reader(path, value::Union{ColumnVec3, ColumnQuat}) =
+    CopyReader(PathReader(path), MVector(Tuple(value)))
+
+"""
+    CopyReader(reader, buffer)
+
+Reads `reader` into `buffer` and returns it, so a vector of a run's state, read from
+its columns, reaches a parameter buffer as the same array every sync rather than a
+new one.
+"""
+struct CopyReader{R, B}
+    reader::R
+    buffer::B
+end
+
+(reader::CopyReader)(sys_struct) = (reader.buffer .= reader.reader(sys_struct))
+
+"""The [`PathReader`](@ref) `reader` reads through, or `nothing` for a computed one."""
+path_reader(reader) = nothing
+path_reader(reader::PathReader) = reader
+path_reader(reader::CopyReader) = reader.reader
+
+"""A reader of the same kind as `reader` reading `path` instead."""
+read_at(::PathReader, path) = PathReader(path)
+read_at(reader::CopyReader, path) = CopyReader(PathReader(path), similar(reader.buffer))
 
 # ==================== SYNC ==================== #
 
@@ -350,7 +379,7 @@ buffers (`target` is an `ODEProblem` or an `ODEIntegrator`). A no-op when there
 are no flattened parameters.
 """
 sync_params!(::Nothing, target, sys_struct) = nothing
-function sync_params!(sync::ParamSync, target, sys_struct::SystemStructure)
+function sync_params!(sync::ParamSync, target, sys_struct)
     sync_group!(sync.scalar, target, sys_struct)
     sync_group!(sync.array, target, sys_struct)
     sync_group!(sync.callable, target, sys_struct)
@@ -358,7 +387,7 @@ function sync_params!(sync::ParamSync, target, sys_struct::SystemStructure)
 end
 
 sync_group!(::Nothing, target, sys_struct) = nothing
-function sync_group!(group::ParamGroup, target, sys_struct::SystemStructure)
+function sync_group!(group::ParamGroup, target, sys_struct)
     buffer = group.buffer
     for reader_group in group.groups
         sync_readers!(reader_group, buffer, sys_struct)

@@ -418,10 +418,10 @@ at every step. Optionally logs for replay.
 function winch_sweep(sam; force_cap, name = "sweep", log_to = nothing)
     dt = 0.02
     max_steps = 6000
-    tip = sam.sys_struct.points[:tip_anchor]
-    tether_seg = sam.sys_struct.segments[:tether_seg]
+    tip = sam.state.points[:tip_anchor]
+    tether_seg = sam.state.segments[:tether_seg]
     z0 = tip.pos_w[3]
-    target = sam.sys_struct.tethers[:tether].len - 0.6  # command a long reel-in
+    target = sam.state.tethers[:tether].len - 0.6  # command a long reel-in
     logger = isnothing(log_to) ? nothing : Logger(sam, max_steps + 1)
     sys_state = isnothing(log_to) ? nothing : SysState(sam)
     deflection_mm, tension, sim_time = Float64[], Float64[], 0.0

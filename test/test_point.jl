@@ -214,8 +214,8 @@ system:
         test_init!(sam)
 
         # Record initial state
-        initial_pos = copy(sam.sys_struct.points[:test_point].pos_w)
-        initial_vel = copy(sam.sys_struct.points[:test_point].vel_w)
+        initial_pos = copy(sam.state.points[:test_point].pos_w)
+        initial_vel = copy(sam.state.points[:test_point].vel_w)
 
         # Run simulation
         dt = 0.01
@@ -223,8 +223,8 @@ system:
             next_step!(sam; dt=dt, vsm_interval=0)
         end
 
-        final_pos = sam.sys_struct.points[:test_point].pos_w
-        final_vel = sam.sys_struct.points[:test_point].vel_w
+        final_pos = sam.state.points[:test_point].pos_w
+        final_vel = sam.state.points[:test_point].vel_w
 
         # Position should be unchanged (within numerical tolerance)
         @test norm(final_pos - initial_pos) ≈ 0.0 atol=1e-8
@@ -273,14 +273,14 @@ system:
         dt = 0.001
         n_steps = 10
         initial_vel = copy(
-            sam.sys_struct.points[:test_point].vel_w)
+            sam.state.points[:test_point].vel_w)
 
         for _ in 1:n_steps
             next_step!(sam; dt=dt, vsm_interval=0)
         end
 
         final_vel =
-            sam.sys_struct.points[:test_point].vel_w
+            sam.state.points[:test_point].vel_w
         t_elapsed = n_steps * dt
         speed = norm(final_vel - initial_vel)
         a_measured = speed / t_elapsed
@@ -316,8 +316,8 @@ system:
         test_init!(sam)
 
         # Initial state
-        z0 = sam.sys_struct.points[:test_point].pos_w[3]
-        vz0 = sam.sys_struct.points[:test_point].vel_w[3]
+        z0 = sam.state.points[:test_point].pos_w[3]
+        vz0 = sam.state.points[:test_point].vel_w[3]
 
         # Run for short time
         dt = 0.001
@@ -328,8 +328,8 @@ system:
             next_step!(sam; dt=dt, vsm_interval=0)
         end
 
-        vz_final = sam.sys_struct.points[:test_point].vel_w[3]
-        z_final = sam.sys_struct.points[:test_point].pos_w[3]
+        vz_final = sam.state.points[:test_point].vel_w[3]
+        z_final = sam.state.points[:test_point].pos_w[3]
 
         # Velocity should be v0 - g*t (mass doesn't affect free fall acceleration)
         vz_expected = vz0 - set.g_earth * total_time
@@ -377,7 +377,7 @@ system:
         end
 
         # Check terminal velocity (downward, so negative z velocity)
-        vz_final = sam.sys_struct.points[:test_point].vel_w[3]
+        vz_final = sam.state.points[:test_point].vel_w[3]
         @test abs(vz_final) ≈ v_terminal_expected atol=0.001
         @test vz_final < 0  # Moving downward
 
@@ -407,7 +407,7 @@ system:
         @test sys.points[:test_point].total_mass == 2.3
 
         # Verify point properties are preserved after init
-        point = sam.sys_struct.points[:test_point]
+        point = sam.state.points[:test_point]
         @test point.area == 4.2
         @test point.drag_coeff == 0.33
 
@@ -469,7 +469,7 @@ system:
         sam = SymbolicAWEModel(set, sys)
         test_init!(sam)
 
-        point = sam.sys_struct.points[:test_point]
+        point = sam.state.points[:test_point]
         m = 2.3
         Cd = 0.33
         A = 4.2
@@ -556,7 +556,7 @@ end
 
         sam = SymbolicAWEModel(set, sys)
         test_init!(sam)
-        kcu = sam.sys_struct.points[:kcu]
+        kcu = sam.state.points[:kcu]
         height_before = kcu.pos_w[3]
         for _ in 1:10
             next_step!(sam; dt=0.05)

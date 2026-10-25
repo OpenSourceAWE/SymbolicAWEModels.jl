@@ -106,9 +106,10 @@ group_means(groups, values) =
     for case in cases
         @testset "$(case.name)" begin
             set, sys = build_continuous_case(case, root)
-            wing = sys.wings[1]
+            sam = SymbolicAWEModel(set, sys)
+            wing = sam.state.wings[1]
             mode = wing.aero
-            nodes = wing_points(sys, wing)
+            nodes = wing_points(sam.state, wing)
             n_panels = length(wing.vsm_aero.panels)
 
             @testset "mesh maps" begin
@@ -134,7 +135,6 @@ group_means(groups, values) =
                 @test maximum(norm, group_means(groups, velocity)) > 0.3 * largest
             end
 
-            sam = SymbolicAWEModel(set, sys)
             test_init!(sam)
 
             @testset "frozen induced velocity" begin

@@ -154,7 +154,7 @@ end
             for _ in 1:400
                 next_step!(sam; dt=0.005, vsm_interval=0)
             end
-            tip = sam.sys_struct.bodies[:nodeB]
+            tip = sam.state.bodies[:nodeB]
             @test tip.pos_w ≈ SETTLED_TIP[model_name].pos_w atol=1e-8
             @test tip.Q_b_to_w ≈ SETTLED_TIP[model_name].Q_b_to_w atol=1e-8
         end

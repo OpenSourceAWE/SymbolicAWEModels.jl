@@ -106,9 +106,9 @@ function apply_pose!(sam, set, pose; twist=nothing)
     transform.heading = heading
     transform.elevation_vel = 0.0
     transform.azimuth_vel = 0.0
-    place!(sam.sys_struct; prn=false)
+    place!(sam; prn=false)
     set.v_wind = v_wind
-    isnothing(twist) || set_twist!(sam.sys_struct, twist)
+    isnothing(twist) || set_twist!(sam.state, twist)
     init!(sam; prn=false)
     next_step!(sam; dt=1e-5, vsm_interval=1)
     return nothing
@@ -227,6 +227,7 @@ aero_poses = [
             @test wing.dynamics_type == case.dynamics
 
             sam = SymbolicAWEModel(set, sys)
+            wing = sam.state.bodies[1]
             test_init!(sam)
 
             @testset "pose sweep" begin
@@ -384,11 +385,11 @@ aero_poses = [
 
                 case.reference == :vsm &&
                 @testset "SysState turn_rates hold the body-frame rate" begin
-                    sys_struct = sam.sys_struct
+                    state = sam.state
                     wing.ω_b .= [0.1, -0.2, 0.3]
-                    SymbolicAWEModels.write_wing_scalars!(wing, sys_struct.points;
+                    SymbolicAWEModels.write_wing_scalars!(wing, state.points;
                         base_point = SymbolicAWEModels.wing_base_point(wing,
-                            sys_struct.transforms))
+                            state.transforms))
                     turn_rate_v = copy(wing.turn_rate)
                     @test !isapprox(turn_rate_v, wing.ω_b)
                     ss = SysState(sam)
@@ -399,7 +400,7 @@ aero_poses = [
 
                     wing.ω_b .= NaN
                     wing.turn_rate .= NaN
-                    update_from_sysstate!(sys_struct, ss)
+                    update_from_sysstate!(state, ss)
                     @test wing.ω_b == ss.turn_rates
                     # The log stores Float32, so the restored pose is rounded to it.
                     @test isapprox(wing.turn_rate, turn_rate_v; atol=10eps(Float32))
@@ -432,11 +433,11 @@ aero_poses = [
             @testset "yaw antisymmetry" begin
                 apply_pose!(sam, set, aero_poses[1])
                 pin_wing_nodes!(sys, wing)
-                base_pos = wing_node_positions(sys, wing)
+                base_pos = wing_node_positions(sam.state, wing)
                 @test !isempty(base_pos)
 
                 function held(delta)
-                    deform_trailing_edge!(sys, wing, base_pos, delta)
+                    deform_trailing_edge!(sam.state, wing, base_pos, delta)
                     init!(sam; prn=false)
                     next_step!(sam; dt=1e-5, vsm_interval=1)
                     return model_force_moment(sam, wing)

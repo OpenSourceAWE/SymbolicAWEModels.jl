@@ -43,7 +43,7 @@ couples_to_sections(::AbstractVSMAero) = true
 state must be refreshed each `vsm_interval`. When `false`, [`refresh_aero!`](@ref)
 is a no-op for every wing, so callers skip it and the trailing parameter sync.
 """
-has_vsm_wing(sys_struct::SystemStructure) =
+has_vsm_wing(sys_struct) =
     any(wing -> wing.aero isa AbstractVSMAero, sys_struct.wings)
 
 """
@@ -97,13 +97,13 @@ calc_side_slip(wing) =
     normalized_inertia(mode::AbstractAeroModel, wing, points)
         -> (com, inertia)
 
-Normalized (per-unit-mass) inertia of the wing body about its COM, in the axes the
-wing's geometry is authored in, with `inertia` in [m²] — multiply by the wing's own
-`extra_mass` for the physical tensor [kg·m²]. `inertia` is `nothing` when there is no
-mass to normalize by. The default normalizes the wing nodes' point-mass inertia
-([`normalized_point_inertia`](@ref)); VSM modes with an `ObjWing` mesh
-return the per-unit-mass mesh tensor as-is (its COM is `-T_cad_body`) and
-fall back to the point masses otherwise.
+Normalized (per-unit-mass) inertia of the wing body about its COM, in world axes, with
+`inertia` in [m²] — multiply by the wing's own `extra_mass` for the physical tensor
+[kg·m²]. `inertia` is `nothing` when there is no mass to normalize by. The default
+normalizes the wing nodes' point-mass inertia ([`normalized_point_inertia`](@ref)); VSM
+modes with an `ObjWing` mesh return the per-unit-mass mesh tensor (its COM is
+`-T_cad_body`) carried from the mesh's frame into the world, and fall back to the point
+masses otherwise.
 """
 normalized_inertia(::AbstractAeroModel, wing, points) =
     normalized_point_inertia(wing, points)
@@ -112,7 +112,8 @@ function normalized_inertia(mode::AbstractVSMAero, wing, points)
     tensor = mode.vsm_wing.inertia_tensor
     (isempty(tensor) || all(iszero, tensor)) &&
         return normalized_point_inertia(wing, points)
-    return -mode.vsm_wing.T_cad_body, tensor
+    R = wing.R_mesh_to_w
+    return wing.mesh_frame_pos - R * mode.vsm_wing.T_cad_body, R * tensor * R'
 end
 
 """
@@ -1270,15 +1271,15 @@ before.
 """
 function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
                        cold_start=false, vsm_warn_on_fail=false)
-    wings = sam.sys_struct.wings
-    stations = sam.sys_struct.stations
-    points = sam.sys_struct.points
+    wings = sam.state.wings
+    stations = sam.state.stations
+    points = sam.state.points
 
     length(wings) == 0 && return nothing
 
     for wing in wings
         sync_aero_density!(wing, sam.am)
-        apply_apparent_mass!(sam.sys_struct, wing,
+        apply_apparent_mass!(sam.state, wing,
                              air_density(sam.am, wing.pos_w[3]))
     end
 
@@ -1300,7 +1301,7 @@ function refresh_aero!(sam::SymbolicAWEModel; vsm_min_wind=0.5,
     end
     for wing in wings
         wing.dynamics_type == PARTICLE_DYNAMICS || continue
-        apply_flap_delta!(wing.aero, wing, sam.sys_struct)
+        apply_flap_delta!(wing.aero, wing, sam.state)
         try
             refresh_particle_aero!(wing.aero, wing, points, va_point_b_vals;
                                    vsm_min_wind, cold_start)
@@ -1491,11 +1492,21 @@ function transform_vsm_sections_to_body!(wing, origin, R_b_to_mesh; aero_z_offse
     return nothing
 end
 
+"""
+    body_in_mesh_frame(wing) -> (origin, R_b_to_mesh)
+
+The initial pose of `wing`'s body in the frame its mesh is authored in.
+"""
+function body_in_mesh_frame(wing)
+    R = wing.R_mesh_to_w
+    return R' * (wing.pos_ENU - wing.mesh_frame_pos), R' * initial_rotation(wing)
+end
+
 function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
                      prn=false, vsm_set=nothing)
     require_vsm_engine(mode, wing)
     if wing.dynamics_type == RIGID_DYNAMICS
-        transform_vsm_sections_to_body!(wing, wing.pos_ENU, initial_rotation(wing);
+        transform_vsm_sections_to_body!(wing, body_in_mesh_frame(wing)...;
                                         aero_z_offset=wing.aero_z_offset)
 
         if couples_to_sections(mode) && isempty(wing.station_idxs)
@@ -1513,7 +1524,7 @@ function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
         end
     else  # PARTICLE_DYNAMICS
         isnothing(wing.origin) ||
-            transform_vsm_sections_to_body!(wing, wing.pos_ENU, initial_rotation(wing))
+            transform_vsm_sections_to_body!(wing, body_in_mesh_frame(wing)...)
         couples_to_sections(mode) &&
             match_aero_sections_to_structure!(wing, points; stations)
         setup_particle_point_mapping!(wing, points, stations)

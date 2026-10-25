@@ -68,7 +68,7 @@ Weighted position from structural points. `field` selects
 which point coordinate to read (`:pos_w` or `:pos_ENU`).
 """
 function get_ref_position_from_points(
-    points::AbstractVector{Point},
+    points::AbstractVector,
     ref_pt::WeightedRefPoints;
     field::Symbol=:pos_w,
 )
@@ -80,10 +80,11 @@ function get_ref_position_from_points(
 end
 
 """
-    calc_particle_dynamics_wing_frame(points, z_ref_points, y_ref_points, origin)
+    calc_particle_dynamics_wing_frame(points, z_ref_points, y_ref_points, origin;
+                                      field=:pos_w)
 
 Calculate R_b_to_w rotation matrix and origin position
-from structural point positions.
+from structural point positions, each point's `field`.
 
 # Algorithm
 1. Weighted ref point positions
@@ -93,20 +94,21 @@ from structural point positions.
 5. Origin from weighted `origin` ref points
 """
 function calc_particle_dynamics_wing_frame(
-    points::AbstractVector{Point},
+    points::AbstractVector,
     z_ref_points::Tuple{WeightedRefPoints,
                         WeightedRefPoints},
     y_ref_points::Tuple{WeightedRefPoints,
                         WeightedRefPoints},
-    origin::WeightedRefPoints,
+    origin::WeightedRefPoints;
+    field::Symbol=:pos_w,
 )
     z_p1, z_p2 = z_ref_points
     y_p1, y_p2 = y_ref_points
 
-    pos_z1 = get_ref_position_from_points(points, z_p1)
-    pos_z2 = get_ref_position_from_points(points, z_p2)
-    pos_y1 = get_ref_position_from_points(points, y_p1)
-    pos_y2 = get_ref_position_from_points(points, y_p2)
+    pos_z1 = get_ref_position_from_points(points, z_p1; field)
+    pos_z2 = get_ref_position_from_points(points, z_p2; field)
+    pos_y1 = get_ref_position_from_points(points, y_p1; field)
+    pos_y2 = get_ref_position_from_points(points, y_p2; field)
 
     # Z direction (normal to wing, normalized)
     z_axis = normalize(pos_z2 - pos_z1)
@@ -121,7 +123,7 @@ function calc_particle_dynamics_wing_frame(
     y_axis = z_axis × x_axis
 
     R_b_to_w = hcat(x_axis, y_axis, z_axis)
-    origin_pos = get_ref_position_from_points(points, origin)
+    origin_pos = get_ref_position_from_points(points, origin; field)
 
     return R_b_to_w, origin_pos
 end
@@ -324,9 +326,9 @@ end
 """
     finalize_transforms!(points, bodies)
 
-Finalize transforms: update PARTICLE_DYNAMICS body frames from structural
-point positions, then compute principal frame ODE state for every body
-(RIGID_DYNAMICS bodies re-derived from the transformed `pos_w`/`Q_b_to_w`).
+Finalize transforms: update PARTICLE_DYNAMICS body frames and their nodes'
+undeformed offsets from structural point positions, and the rigid wings' nodes'
+offsets from the initial pose ([`init_undeformed_offsets!`](@ref)).
 """
 function finalize_transforms!(points, bodies)
     for body in bodies
@@ -340,89 +342,44 @@ function finalize_transforms!(points, bodies)
         for point in points
             if point.is_wing_node && point.wing_idx == body.idx
                 point.pos_undeformed_b .= R_b_to_w' * (point.pos_w - origin)
-                point.pos_b .= point.pos_undeformed_b
             end
         end
     end
-    init_principal_frame!(bodies, points)
+    init_undeformed_offsets!(bodies, points)
 end
 
 """
-    refresh_deformed_positions!(points, bodies) -> nothing
+    init_undeformed_offsets!(bodies, points)
 
-Update every PARTICLE_DYNAMICS wing node's `pos_b` from its live world
-position, measured in its wing's current frame about the wing origin — the same
-reference `finalize_transforms!` builds `pos_undeformed_b` against, so the two
-differ only by the deformation the points have picked up.
-
-Called once per state sync, so both backends report it from one definition. A
-RIGID_DYNAMICS wing's nodes keep the offset they were constructed with, that
-being what places them.
+Set every rigid wing node's `pos_undeformed_b`, its offset from the wing's centre of
+mass in the body frame, from the initial pose.
 """
-function refresh_deformed_positions!(points, bodies)
+function init_undeformed_offsets!(bodies, points)
     for body in bodies
-        body.dynamics_type == PARTICLE_DYNAMICS || continue
-        isnothing(body.origin) && continue
-        frame = body.R_b_to_w'
+        body.dynamics_type == RIGID_DYNAMICS || continue
+        R_initial = initial_rotation(body)
+        com_initial = body.pos_ENU .+ R_initial * body.com_offset_b
         for point in points
             if point.is_wing_node && point.wing_idx == body.idx
-                point.pos_b .= frame * (point.pos_w - body.pos_w)
+                point.pos_undeformed_b .= R_initial' * (point.pos_ENU - com_initial)
             end
         end
     end
     return nothing
 end
 
-"""
-    init_principal_frame!(bodies, points)
-
-Compute principal frame ODE state from body frame.
-Must be called after body frame (`pos_w`, `R_b_to_w`,
-`vel_w`, `ω_b`) is fully initialized.
-
-Sets: `com_w`, `Q_p_to_w`, `com_vel`, `ω_p` (derived from body
-frame), and `pos_b` for RIGID_DYNAMICS wing points (body
-frame, relative to COM).
-"""
-function init_principal_frame!(bodies, points)
-    for body in bodies
-        if body.dynamics_type == RIGID_DYNAMICS
-            init_principal_state!(body)
-            # pos_b: wing nodes' offset from COM in body frame
-            R_initial = initial_rotation(body)
-            com_initial = body.pos_ENU .+ R_initial * body.com_offset_b
-            for point in points
-                if point.is_wing_node && point.wing_idx == body.idx
-                    point.pos_undeformed_b .=
-                        R_initial' * (point.pos_ENU - com_initial)
-                    point.pos_b .= point.pos_undeformed_b
-                end
-            end
-        else
-            R_b_to_w = body.R_b_to_w::Matrix{SimFloat}
-            body.com_w .= body.pos_w .+ R_b_to_w * body.com_offset_b
-            R_p_to_w = R_b_to_w * body.R_b_to_p'
-            body.Q_p_to_w .= rotation_matrix_to_quaternion(R_p_to_w)
-            ω_w = R_b_to_w * body.ω_b
-            body.com_vel .= body.vel_w .+ cross(ω_w, R_b_to_w * body.com_offset_b)
-            body.ω_p .= R_p_to_w' * ω_w
-        end
-    end
-end
-
 # ==================== REINIT! ==================== #
 
 """
-    reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure;
-            update_vel=true)
+    reinit!(transforms::AbstractVector{Transform}, state::SystemState; update_vel=true)
 
-Apply transforms to all components in a `SystemStructure`.
+Apply transforms to the points and bodies of a run's state.
 
 Expects `pos_w` to already be set (via `copy_initial_pose!` and optionally
 `apply_tether_init_stretched_lens!` from [`place!`](@ref)).
 Applies: translate (from pos_w) → azimuth/elevation → heading.
 """
-function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStructure;
+function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemState;
                  update_vel::Bool=true)
     (; points, bodies) = sys_struct
 
@@ -458,8 +415,8 @@ function reinit!(transforms::AbstractVector{Transform}, sys_struct::SystemStruct
 end
 
 """
-    reposition!(transforms::AbstractVector{Transform},
-                sys_struct::SystemStructure; update_vel=false)
+    reposition!(transforms::AbstractVector{Transform}, state::SystemState;
+                update_vel=false)
 
 Update the system's spatial orientation based on its current
 position, preserving velocities. `update_vel` instead overwrites
@@ -473,7 +430,7 @@ consistent with `place!`.
 """
 function reposition!(
     transforms::AbstractVector{Transform},
-    sys_struct::SystemStructure;
+    sys_struct::SystemState;
     update_vel::Bool=false
 )
     (; points, bodies) = sys_struct

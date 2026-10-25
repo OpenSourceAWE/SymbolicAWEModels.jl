@@ -129,10 +129,10 @@ end
 @testset "AeroPlate" begin
     root = mktempdir()
     set, sys = build_plate_kite(root)
-    wing = sys.wings[1]
     base = deg2rad(set.alpha_ztip)
 
     sam = SymbolicAWEModel(set, sys)
+    wing = sam.state.wings[1]
     test_init!(sam)
 
     @testset "steps and stays bounded" begin
@@ -154,9 +154,9 @@ end
     # a swapped tip is invisible without it.
     @testset "yaw antisymmetry" begin
         delta = deg2rad(4.0)
-        force_pos, moment_pos = plate_force_moment(sam, wing, sys, base, delta)
-        _, moment_neg = plate_force_moment(sam, wing, sys, base, -delta)
-        _, moment_flat = plate_force_moment(sam, wing, sys, base, 0.0)
+        force_pos, moment_pos = plate_force_moment(sam, wing, sam.state, base, delta)
+        _, moment_neg = plate_force_moment(sam, wing, sam.state, base, -delta)
+        _, moment_flat = plate_force_moment(sam, wing, sam.state, base, 0.0)
 
         @test all(isfinite, moment_pos)
         # The twist must actually excite yaw, else the rest is vacuous.

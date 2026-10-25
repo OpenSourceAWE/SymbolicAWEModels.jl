@@ -239,7 +239,7 @@ end
     # ================ Free fall ================ #
 
     @testset "Free fall acceleration = g" begin
-        wing = sam.sys_struct.bodies[:main_wing]
+        wing = sam.state.bodies[:main_wing]
         dt = 0.01
         for _ in 1:5
             next_step!(sam; dt, vsm_interval=0)
@@ -266,7 +266,7 @@ end
     # analytically as Q0 * q_rot(omega*t).
 
     @testset "Constant spin about principal axis" begin
-        wing = sam.sys_struct.bodies[:main_wing]
+        wing = sam.state.bodies[:main_wing]
         I_b = collect(wing.inertia_principal)
         k = argmax(I_b)  # max I axis: always stable
 
@@ -277,7 +277,7 @@ end
         omega_init = collect(wing.R_b_to_p' * omega_principal)
         wing.ω_b .= omega_init
         wing.vel_w .= 0.0
-        place!(sam.sys_struct; reset_vel=false)
+        place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
 
         Q0 = copy(wing.Q_b_to_w)
@@ -326,7 +326,7 @@ end
     # ========== init! takes the structure as placed ========== #
 
     @testset "init! keeps set velocities, place! zeros them" begin
-        wing = sam.sys_struct.bodies[:main_wing]
+        wing = sam.state.bodies[:main_wing]
         vel_set = [1.5, -0.7, 2.3]
         omega_set = collect(wing.R_b_to_p' * [0.0, 0.0, 4.0])
 
@@ -340,7 +340,7 @@ end
 
         wing.vel_w .= vel_set
         wing.ω_b .= omega_set
-        place!(sam.sys_struct; prn=false)
+        place!(sam; prn=false)
         test_init!(sam; prn=false)
         @test norm(wing.vel_w) < 1e-10
         @test norm(wing.ω_b) < 1e-10
@@ -356,7 +356,7 @@ end
     #                         / (I_a * I_b))
 
     @testset "Torque-free precession" begin
-        wing = sam.sys_struct.bodies[:main_wing]
+        wing = sam.state.bodies[:main_wing]
         I_b = collect(wing.inertia_principal)
         k = argmax(I_b)  # stable spin axis
 
@@ -371,7 +371,7 @@ end
         # omega_init is a principal-frame vector; ω_b is body frame.
         wing.ω_b .= wing.R_b_to_p' * omega_init
         wing.vel_w .= 0.0
-        place!(sam.sys_struct; reset_vel=false)
+        place!(sam; reset_vel=false)
         test_init!(sam; prn=false)
 
         T_prec = 2pi / pc.Omega
@@ -467,8 +467,9 @@ end
         for _ in 1:100
             next_step!(hanging_sam; dt=0.01, vsm_interval=0)
         end
-        @test norm(wing.com_vel) < 1e-3
-        @test line.force ≈ set.g_earth * (2.0 + half_line) rtol=1e-3
+        @test norm(hanging_sam.state.bodies[:main_wing].com_vel) < 1e-3
+        @test hanging_sam.state.segments[:line].force ≈
+            set.g_earth * (2.0 + half_line) rtol=1e-3
     end
 
     rm(tmpdir; recursive=true)

@@ -31,7 +31,7 @@ In both paths a chord check swaps LE/TE if needed: the LE has the smaller body-f
 x in the wing's initial pose ([`initial_chord_position`](@ref)).
 
 # Arguments
-- `wing_points::AbstractVector{Point}`: wing nodes for a wing.
+- `wing_points::AbstractVector`: wing nodes for a wing.
 
 # Keyword Arguments
 - `stations::Union{Nothing, AbstractVector{Station}}`: All stations in the
@@ -43,9 +43,9 @@ x in the wing's initial pose ([`initial_chord_position`](@ref)).
 - `Vector{Tuple{Int64, Int64}}`: (le_point_idx, te_point_idx) pairs.
 """
 function identify_wing_segments(
-    wing::Body,
-    wing_points::AbstractVector{Point};
-    stations::AbstractVector{Station}=Station[],
+    wing,
+    wing_points::AbstractVector;
+    stations::AbstractVector=Station[],
     wing_station_idxs::AbstractVector{<:Integer}=Int[]
 )
     use_stations = !isempty(stations) &&
@@ -124,13 +124,13 @@ structural LE/TE pair: a 1:1 copy when counts match, otherwise
 preserve polars.
 
 # Keyword Arguments
-- `stations::AbstractVector{Station}`: Stations used for LE/TE identification
+- `stations::AbstractVector`: Stations used for LE/TE identification
   via [`identify_wing_segments`](@ref).
 """
 function match_aero_sections_to_structure!(
-    wing::Body,
-    points::AbstractVector{Point};
-    stations::AbstractVector{Station}=Station[]
+    wing,
+    points::AbstractVector;
+    stations::AbstractVector=Station[]
 )
     wing_points = [
         p for p in points if
@@ -334,7 +334,7 @@ function compute_aerostruc_loads(panel, F_panel::SVector{3}, M_panel::SVector{3}
 end
 
 """
-    distribute_panel_forces_to_points!(wing::Body, points::AbstractVector{Point})
+    distribute_panel_forces_to_points!(wing, points::AbstractVector)
 
 Distribute VSM forces to structural points using refined panel forces.
 
@@ -344,10 +344,10 @@ chosen reference) and accumulated on the structural LE/TE points of its parent
 section, which `refined_panel_mapping` names (1:1).
 
 # Arguments
-- `wing::Body`: Wing with PARTICLE_DYNAMICS type and solved VSM state
-- `points::AbstractVector{Point}`: All structural points (filtered to this wing's nodes)
+- `wing::BodyState`: Wing with PARTICLE_DYNAMICS type and solved VSM state
+- `points::AbstractVector`: All structural points (filtered to this wing's nodes)
 """
-function distribute_panel_forces_to_points!(wing::Body, points::AbstractVector{Point})
+function distribute_panel_forces_to_points!(wing, points::AbstractVector)
     @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only distribute forces for PARTICLE_DYNAMICS wings"
 
     sol = wing.vsm_solver.sol
@@ -415,7 +415,7 @@ function distribute_panel_forces_to_points!(wing::Body, points::AbstractVector{P
 end
 
 """
-    update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Point})
+    update_vsm_wing_from_structure!(wing, points::AbstractVector)
 
 Update VSM section points (LE/TE) directly from structural point positions, closing
 the two-way coupling structural deformation → VSM sections → aero forces.
@@ -430,15 +430,15 @@ Each structural wing node maps 1:1 onto a VSM section point through
 - To get world coordinates: `world_pos = wing.R_b_to_w * section.LE_point + wing.pos_w`
 
 # Arguments
-- `wing::Body`: Wing with PARTICLE_DYNAMICS type
-- `points::AbstractVector{Point}`: All structural points (filtered to this wing's nodes)
+- `wing::BodyState`: Wing with PARTICLE_DYNAMICS type
+- `points::AbstractVector`: All structural points (filtered to this wing's nodes)
 """
-function update_vsm_wing_from_structure!(wing::Body, points::AbstractVector{Point})
+function update_vsm_wing_from_structure!(wing, points::AbstractVector)
     @assert wing.dynamics_type == PARTICLE_DYNAMICS "Can only update wing geometry for PARTICLE_DYNAMICS wings"
 
     # R_b_to_w and origin are updated during simulation from structural geometry.
     R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-    origin = wing.pos_w::KVec3
+    origin = SVector(wing.pos_w)
 
     # Update each VSM section point directly from its corresponding structural point
     point_to_vsm_point =

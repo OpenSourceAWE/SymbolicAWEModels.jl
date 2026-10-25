@@ -159,8 +159,8 @@ transforms:
     # The fitted pose read back after a step must use the
     # weights, not just the first point of each reference.
     next_step!(sam)
-    points = sam.sys_struct.points
-    wing = sam.sys_struct.bodies[1]
+    points = sam.state.points
+    wing = sam.state.bodies[1]
     blend(ref) = sum(w * points[i].pos_w
                      for (i, w) in zip(ref.ids, ref.weights))
     @test wing.pos_w ≈ blend(wing.origin)

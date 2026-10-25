@@ -255,7 +255,7 @@ end
             sam_on = SymbolicAWEModel(set_on, sys_on)
             set_off, sys_off = build_curvature_case(case, root, false)
             sam_off = SymbolicAWEModel(set_off, sys_off)
-            wing_on, wing_off = sys_on.wings[1], sys_off.wings[1]
+            wing_on, wing_off = sam_on.state.wings[1], sam_off.state.wings[1]
 
             @testset "the flag reaches the wing" begin
                 @test SymbolicAWEModels.flow_curvature_enabled(wing_on)
@@ -267,8 +267,8 @@ end
 
             test_init!(sam_on)
             test_init!(sam_off)
-            nodes_on = wing_points(sys_on, wing_on)
-            nodes_off = wing_points(sys_off, wing_off)
+            nodes_on = wing_points(sam_on.state, wing_on)
+            nodes_off = wing_points(sam_off.state, wing_off)
             settle!(sam_on)
             settle!(sam_off)
 
