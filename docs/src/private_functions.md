@@ -253,10 +253,23 @@ SymbolicAWEModels.ElasticTubeModel
 SymbolicAWEModels.register_definition_models
 ```
 
+## Point definition row
+
+```@docs
+SymbolicAWEModels.POINT_ROW_PROPERTIES
+SymbolicAWEModels.row_property
+SymbolicAWEModels.point_type
+SymbolicAWEModels.per_axis
+SymbolicAWEModels.axis_column
+SymbolicAWEModels.column_value
+```
+
 ## Definition writer internals
 
 ```@docs
 SymbolicAWEModels.system_definition
+SymbolicAWEModels.attach_definition!
+SymbolicAWEModels.point_row
 SymbolicAWEModels.store_definition_pose!
 SymbolicAWEModels.definition_name
 SymbolicAWEModels.optional_index
