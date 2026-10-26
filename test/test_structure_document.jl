@@ -158,11 +158,17 @@ end
         segment.diameter = 0.002
         segment.unit_damping = 3.0
         segment.compression_frac = 0.2
-        @test (row.rest_length, row.diameter, row.unit_damping, row.compression_frac) ==
-              (1.5, 0.002, 3.0, 0.2)
+        segment.compression_damping_frac = 0.5
+        @test (row.rest_length, row.diameter, row.unit_damping, row.compression_frac,
+               row.compression_damping_frac) == (1.5, 0.002, 3.0, 0.2, 0.5)
         row.rest_length = 2.5
         @test segment.l0 == 2.5
         @test Symbol(segment.name) == row.name
+    end
+
+    @testset "a segment named by a number reads that number back" begin
+        segment = Segment(3, :ground, :top, 1.0, 0.0, 0.001)
+        @test (segment.name, segment.definition_row.name) == (3, Symbol(3))
     end
 
     @testset "a station names the wing whose twist it carries" begin

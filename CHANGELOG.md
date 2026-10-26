@@ -12,7 +12,7 @@
 ### Changed
 
 - A point holds its row of `sys.definition`: setting `extra_mass`, `area`, `drag_coeff`, the dampings, `fix_sphere`, `fix_static` or `pos_ENU` on a point changes the definition too, and a change to the row reads back on the point.
-- A segment holds its row of `sys.definition`: setting `l0`, `diameter`, `unit_damping`, `compression_frac` or `compression_damping_frac` on a segment changes the definition too, and a change to the row reads back on the segment.
+- A segment holds its row of `sys.definition`: setting `name`, `l0`, `diameter`, `unit_damping`, `compression_frac` or `compression_damping_frac` on a segment changes the definition too, and a change to the row reads back on the segment.
 - BREAKING: A `SystemStructure` holds no run state. Its points, bodies, segments, stations, pulleys, tethers and winches carry their initial pose and parameters only; read what a run does from `sam.state`. `place!(sys)` writes the placed pose to `pos_ENU`, `Q_KA_to_ENU`, segment `l0` and tether `len`, and takes no `reset_vel`.
 - BREAKING: `update_from_sysstate!`, `reposition!(transforms, state)`, `set_unstretched_length!` and the Makie live plot (`plot`, `plot!`, `update_plot_observables!`) act on a `SystemState`; `plot`, `replay` and `record` of a `SystemStructure` draw the pose a run of it starts from.
 - BREAKING: A run's state is a KiteUtils `SysState` of `Float64` the model owns, beside columns for the outputs it has no field for yet (OpenSourceAWE/KiteUtils.jl#166); `sam.state`'s records read and write it in place. A segment's `len`, a tether's `stretched_len` and a body's principal-frame state (`com_w`, `com_vel`, `Q_p_to_w`, `ω_p`, `R_p_to_w`) follow from the rest of the state and cannot be set, and a point no longer has `pos_b`.

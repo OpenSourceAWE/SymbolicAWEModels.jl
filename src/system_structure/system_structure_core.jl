@@ -168,23 +168,9 @@ function expand_auto_tethers!(
     tethers::Vector{Tether},
     set::Settings
 )
-    # Build point name lookup for finding start/end points
-    point_names = Dict{Symbol, Int}()
-    for (i, point) in enumerate(points)
-        if !isnothing(point.name)
-            name = point.name isa Symbol ? point.name : Symbol(point.name)
-            point_names[name] = i
-        end
-    end
-
-    # Build segment name set for checking existing segments
-    seg_names = Set{Symbol}()
-    for segment in segments
-        if !isnothing(segment.name)
-            name = segment.name isa Symbol ? segment.name : Symbol(segment.name)
-            push!(seg_names, name)
-        end
-    end
+    point_names = Dict{Symbol, Int}(Symbol(point.name) => i
+                                    for (i, point) in enumerate(points))
+    seg_names = Set{Symbol}(Symbol(segment.name) for segment in segments)
 
     for tether in tethers
         # Skip Route 1 tethers (no start_point_ref)

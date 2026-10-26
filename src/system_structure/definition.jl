@@ -60,7 +60,7 @@ function material!(materials, law, parameters)
     return length(materials)
 end
 
-"""The row of `point`, its references and its anchor written as indices."""
+"""The row `point` holds, its references and its anchor written into it as indices."""
 function point_row(sys, point)
     row = point.definition_row
     row.body = optional_index(point.body_idx)
@@ -70,8 +70,8 @@ function point_row(sys, point)
     return row
 end
 
-"""The row of `segment`, its points written as indices and its stiffness and density as a
-material it appends to `materials`."""
+"""The row `segment` holds, its points written into it as indices and its stiffness and
+density as a material it appends to `materials`."""
 function segment_row!(materials, segment)
     area = π * (segment.diameter / 2)^2
     stiffness = segment.unit_stiffness
