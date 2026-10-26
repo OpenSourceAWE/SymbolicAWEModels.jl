@@ -105,7 +105,7 @@ function SystemStructure(definition::SystemDefinition, transforms, set::Settings
     point_transforms = member_transforms(transforms, :points, length(definition.points))
     body_transforms = member_transforms(transforms, :bodies, length(definition.bodies))
     n_wings = length(definition.wings)
-    stations = Station[definition_station(definition, station)
+    stations = Station[definition_station(station)
                        for station in definition.spanwise_stations]
     wings = Body[definition_wing(definition, w, set, stations, body_transforms[w];
                                  dynamics_type, aero_mode, vsm_set)
@@ -116,10 +116,8 @@ function SystemStructure(definition::SystemDefinition, transforms, set::Settings
         stations,
         segments=Segment[definition_segment(definition, i, set)
                          for i in eachindex(definition.segments)],
-        pulleys=Pulley[definition_pulley(definition, pulley)
-                       for pulley in definition.pulleys],
-        tethers=Tether[definition_tether(definition, tether)
-                       for tether in definition.tethers],
+        pulleys=Pulley[definition_pulley(pulley) for pulley in definition.pulleys],
+        tethers=Tether[definition_tether(tether) for tether in definition.tethers],
         winches=Winch[definition_winch(definition, winch, set)
                       for winch in definition.winches],
         wings,
@@ -183,17 +181,11 @@ end
 """`f(value)`, or `nothing` for `nothing`."""
 maybe(f, value) = isnothing(value) ? nothing : f(value)
 
-function definition_station(definition, station)
-    isnothing(station.type) && error("station $(station.name) needs its `type`")
-    return Station(row_name(station), name_of.((definition.points,), station.points),
-        parse_dynamics_type(station.type),
-        something(station.moment_frac, 0.0);
-        set_kwargs(:damping => station.damping, :stiffness => station.stiffness,
-                   :wing => name_of(definition.wings, station.wing),
-                   :bodies => maybe(refs -> cell_ref.(refs), station.bodies),
-                   :flap_bodies => maybe(refs -> cell_ref.(refs), station.flap_bodies),
-                   :flap_points => maybe(refs -> cell_ref.(refs), station.flap_points),
-                   :flap_axis => station.flap_axis)...)
+"""The station `station` of a definition is: the row itself, refusing one without a
+`type`."""
+function definition_station(station)
+    isnothing(station.model.type) && error("station $(station.name) needs its `type`")
+    return station
 end
 
 """The segment `segment` of `definition` is, its `spring` model read into a
@@ -214,20 +206,19 @@ function definition_segment(definition, i, set)
         segment.rest_length, segment.diameter, segment.material, model)
 end
 
-function definition_pulley(definition, pulley)
-    isnothing(pulley.type) && error("pulley $(pulley.name) needs its `type`")
-    return Pulley(row_name(pulley), name_of.((definition.segments,), pulley.segments)...,
-        parse_dynamics_type(pulley.type);
-        set_kwargs(:efficiency => pulley.efficiency, :damping => pulley.damping,
-                   :brake => pulley.brake,
-                   :friction_epsilon => pulley.friction_epsilon)...)
+"""The pulley `pulley` of a definition is: the row itself, refusing one without a
+`type`."""
+function definition_pulley(pulley)
+    isnothing(pulley.model.type) && error("pulley $(pulley.name) needs its `type`")
+    return pulley
 end
 
-definition_tether(definition, tether) = Tether(row_name(tether),
-    name_of.((definition.segments,), tether.segments), tether.init_stretched_length;
-    start_point=name_of(definition.points, tether.start_point),
-    end_point=name_of(definition.points, tether.end_point),
-    tether_force=tether.init_tether_force, stretch_frac=tether.init_stretch_frac)
+"""The tether `tether` of a definition is: the row itself, of as many segments as it
+lists."""
+function definition_tether(tether)
+    tether.n_segments = length(tether.segments)
+    return tether
+end
 
 definition_winch(definition, winch, set) = Winch(row_name(winch), set,
     name_of.((definition.tethers,), winch.tethers);

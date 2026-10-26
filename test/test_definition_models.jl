@@ -37,13 +37,13 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         @test le_left.drag_coeff == 0.0
         @test isnothing(le_left.tube)
         center = named(system.spanwise_stations, "center")
-        @test center.type == station_type
+        @test center.model.type == station_type
         @test center.moment_frac == moment_frac
         @test center.damping == damping
-        @test isnothing(center.stiffness)
+        @test isnothing(center.model.stiffness)
         pulley = named(system.pulleys, "left")
-        @test pulley.type == "DYNAMIC"
-        @test isnothing(pulley.efficiency)
+        @test pulley.model.type == "DYNAMIC"
+        @test isnothing(pulley.model.efficiency)
         @test only(system.wings).model isa SymbolicAWEModels.WingModel
         @test length(system.canopy_faces) == 2
     end

@@ -105,29 +105,71 @@ KiteGeometry.model_columns(::Type{SegmentModel}) =
 """
     StationModel
 
-The columns of a KiteGeometry `spanwise_stations` row only SymbolicAWEModels reads, each
-`nothing` where the row leaves it unset.
+What SymbolicAWEModels holds of a station beyond its KiteGeometry `spanwise_stations` row:
+the columns only it reads, each `nothing` where the row leaves it unset, then what it
+derives when it builds the structure, which no document holds.
 
 $(TYPEDFIELDS)
 """
-struct StationModel <: KiteGeometry.AbstractModel
+@kwdef mutable struct StationModel <: KiteGeometry.AbstractModel
     "Dynamics type of the station's twist, such as `DYNAMIC` or `STATIC`."
-    type::Union{Nothing, String}
+    type::Union{Nothing, String} = nothing
     "Chordwise twist axis as a fraction of the chord (0 leading edge, 1 trailing edge)."
-    moment_frac::Union{Nothing, Float64}
+    moment_frac::Union{Nothing, Float64} = nothing
     "Twist damping [N·m·s/rad]."
-    damping::Union{Nothing, Float64}
+    damping::Union{Nothing, Float64} = nothing
     "Twist restoring stiffness [N·m/rad]."
-    stiffness::Union{Nothing, Float64}
+    stiffness::Union{Nothing, Float64} = nothing
     "The bodies the station twists with, by name or index."
-    bodies::Union{Nothing, Vector{KiteGeometry.NameRef}}
+    bodies::Union{Nothing, Vector{KiteGeometry.NameRef}} = nothing
     "The main and the flap body of a body flap, by name or index."
-    flap_bodies::Union{Nothing, Vector{KiteGeometry.NameRef}}
+    flap_bodies::Union{Nothing, Vector{KiteGeometry.NameRef}} = nothing
     "The three points of a point flap, by name or index."
-    flap_points::Union{Nothing, Vector{KiteGeometry.NameRef}}
+    flap_points::Union{Nothing, Vector{KiteGeometry.NameRef}} = nothing
     "Unit flap-hinge axis."
-    flap_axis::Union{Nothing, Vector{Float64}}
+    flap_axis::Union{Nothing, Vector{Float64}} = nothing
+    "Index in the structure's stations."
+    idx::Int64 = 0
+    "Indices of the station's points."
+    point_idxs::Vector{Int64} = Int64[]
+    "Index of the body whose twist the station carries; 0 for none."
+    resolved_wing_idx::Int64 = 0
+    "Indices of the bodies the station twists with."
+    body_idxs::Vector{Int64} = Int64[]
+    "Indices of the main and the flap body of a body flap."
+    flap_body_idxs::Vector{Int64} = Int64[]
+    "Indices of the three points of a point flap."
+    flap_point_idxs::Vector{Int64} = Int64[]
+    "Leading edge position, body frame [m]."
+    le_pos::KVec3 = zeros(KVec3)
+    "Chord vector, body frame [m]."
+    chord::KVec3 = zeros(KVec3)
+    "Spanwise vector, local panel frame."
+    y_airf::KVec3 = zeros(KVec3)
+    "Twist angle a run starts from, held for a `STATIC` station [rad]."
+    twist::SimFloat = 0.0
+    "Indices of the unrefined VSM sections of the station."
+    unrefined_section_idxs::Vector{Int64} = Int64[]
+    "Indices of the VSM panels whose twist moment the station takes."
+    panel_idxs::Vector{Int64} = Int64[]
+    "Share of its wing's mass on no point, by the area of its panels [kg]."
+    body_mass::SimFloat = 0.0
+    "Surface area of a flat-plate section [m²]; `NaN` unused."
+    area::SimFloat = NaN
+    "Reference chord directions `[main, flap]` of a flap, each body's frame."
+    flap_chord_refs::Vector{KVec3} = KVec3[]
+    "Deflection of the flap in its initial pose [rad]."
+    flap_rest_delta::SimFloat = 0.0
 end
+
+StationModel(type, moment_frac, damping, stiffness, bodies, flap_bodies, flap_points,
+             flap_axis) =
+    StationModel(; type, moment_frac, damping, stiffness, bodies, flap_bodies,
+                 flap_points, flap_axis)
+
+KiteGeometry.model_columns(::Type{StationModel}) =
+    (:type, :moment_frac, :damping, :stiffness, :bodies, :flap_bodies, :flap_points,
+     :flap_axis)
 
 """
     WingModel
@@ -171,23 +213,34 @@ end
 """
     PulleyModel
 
-The columns of a KiteGeometry `pulleys` row only SymbolicAWEModels reads, each `nothing`
-where the row leaves it unset.
+What SymbolicAWEModels holds of a pulley beyond its KiteGeometry `pulleys` row: the columns
+only it reads, each `nothing` where the row leaves it unset, then what it derives when it
+builds the structure, which no document holds.
 
 $(TYPEDFIELDS)
 """
-struct PulleyModel <: KiteGeometry.AbstractModel
+@kwdef mutable struct PulleyModel <: KiteGeometry.AbstractModel
     "Dynamics type, such as `DYNAMIC` or `STATIC`."
-    type::Union{Nothing, String}
+    type::Union{Nothing, String} = nothing
     "Fraction of line tension the sheave passes on (0-1)."
-    efficiency::Union{Nothing, Float64}
+    efficiency::Union{Nothing, Float64} = nothing
     "Damping on rope travel [N·s/m]."
-    damping::Union{Nothing, Float64}
+    damping::Union{Nothing, Float64} = nothing
     "Whether the rope split is frozen."
-    brake::Union{Nothing, Bool}
+    brake::Union{Nothing, Bool} = nothing
     "Friction smoothing width [m/s]."
-    friction_epsilon::Union{Nothing, Float64}
+    friction_epsilon::Union{Nothing, Float64} = nothing
+    "Index in the structure's pulleys."
+    idx::Int64 = 0
+    "Sum of the lengths of the pulley's two segments [m]."
+    sum_len::SimFloat = 0.0
 end
+
+PulleyModel(type, efficiency, damping, brake, friction_epsilon) =
+    PulleyModel(; type, efficiency, damping, brake, friction_epsilon)
+
+KiteGeometry.model_columns(::Type{PulleyModel}) =
+    (:type, :efficiency, :damping, :brake, :friction_epsilon)
 
 """
     BodyModel
@@ -225,19 +278,55 @@ end
 """
     TetherModel
 
-The columns of a KiteGeometry `tethers` row only SymbolicAWEModels reads, each `nothing`
-where the row leaves it unset: how the tether is placed.
+What SymbolicAWEModels holds of a tether beyond its KiteGeometry `tethers` row: the columns
+only it reads, each `nothing` where the row leaves it unset, then what it derives when it
+builds the structure, which no document holds.
 
 $(TYPEDFIELDS)
 """
-struct TetherModel <: KiteGeometry.AbstractModel
+@kwdef mutable struct TetherModel <: KiteGeometry.AbstractModel
     "Length the tether is stretched to when placed [m]."
-    init_stretched_length::Union{Nothing, Float64}
+    init_stretched_length::Union{Nothing, Float64} = nothing
     "Tension the placed tether carries, which sets its rest length [N]."
-    init_tether_force::Union{Nothing, Float64}
+    init_tether_force::Union{Nothing, Float64} = nothing
     "Strain of the placed tether, which sets its rest length."
-    init_stretch_frac::Union{Nothing, Float64}
+    init_stretch_frac::Union{Nothing, Float64} = nothing
+    "Index in the structure's tethers."
+    idx::Int64 = 0
+    "Indices of the tether's segments."
+    segment_idxs::Vector{Int64} = Int64[]
+    "Index of the tether's start point; 0 for none."
+    start_point_idx::Int64 = 0
+    "Index of the tether's end point; 0 for none."
+    end_point_idx::Int64 = 0
+    "Number of segments a tether given by its end points is split into."
+    n_segments::Int64 = 0
+    "Stiffness per unit length of the segments it generates: a number [N] or a callable
+    force law `F(ε)` [N]; `NaN` from the settings."
+    unit_stiffness::Any = NaN
+    "Damping per unit length of the segments it generates [N·s]; `NaN` from the settings."
+    unit_damping::SimFloat = NaN
+    "Diameter [m]; `NaN` from the settings."
+    diameter::SimFloat = NaN
+    "Material density [kg/m³]; `NaN` from the settings."
+    density::SimFloat = NaN
+    "Young's modulus [Pa], the diameter-independent form of `unit_stiffness`."
+    youngs_modulus::SimFloat = NaN
+    "Damping per unit stiffness [s], the diameter-independent form of `unit_damping`."
+    damping_per_stiffness::SimFloat = NaN
+    "Compressive over tensile stiffness of the segments it generates."
+    compression_frac::SimFloat = 0.1
+    "Fraction of `unit_damping` still acting under compression, per segment."
+    compression_damping_frac::SimFloat = 1.0
+    "Unstretched length where [`place!`](@ref) puts it: the sum of its segments' `l0` [m]."
+    len::SimFloat = 0.0
 end
+
+TetherModel(init_stretched_length, init_tether_force, init_stretch_frac) =
+    TetherModel(; init_stretched_length, init_tether_force, init_stretch_frac)
+
+KiteGeometry.model_columns(::Type{TetherModel}) =
+    (:init_stretched_length, :init_tether_force, :init_stretch_frac)
 
 """
     WinchModel

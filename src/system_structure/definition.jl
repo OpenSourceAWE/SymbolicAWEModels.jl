@@ -17,8 +17,8 @@ function system_definition(sys::SystemStructure)
         segments=[segment_row!(materials, segment) for segment in sys.segments],
         spanwise_stations=[station_row(sys, station) for station in sys.stations
                            if !isnothing(station_wing_idx(sys, station))],
-        pulleys=[pulley_row(pulley) for pulley in sys.pulleys],
-        tethers=[tether_row(tether) for tether in sys.tethers],
+        pulleys=collect(sys.pulleys),
+        tethers=[with_ends!(tether) for tether in sys.tethers],
         winches=[winch_row(winch) for winch in sys.winches],
         wings=[wing_row(sys, wing) for wing in sys.wings],
         bodies=[body_row(sys, body) for body in sys.bodies],
@@ -34,9 +34,23 @@ point and segment of `sys` then being its row there.
 """
 function attach_definition!(sys::SystemStructure)
     definition = sys.definition = system_definition(sys)
-    copyto!(sys.points.items, definition.points)
-    copyto!(sys.segments.items, definition.segments)
+    for (components, rows) in ((sys.points, definition.points),
+                               (sys.segments, definition.segments),
+                               (sys.stations, definition.spanwise_stations),
+                               (sys.pulleys, definition.pulleys),
+                               (sys.tethers, definition.tethers))
+        replace_with_rows!(components.items, rows)
+    end
     return definition
+end
+
+"""Replace each of `components` by the row of `rows` that holds its model."""
+function replace_with_rows!(components, rows)
+    position = IdDict(component.model => i for (i, component) in enumerate(components))
+    for row in rows
+        components[position[row.model]] = row
+    end
+    return components
 end
 
 """The name a definition gives component `component`: its own, else its index."""
@@ -69,17 +83,14 @@ function segment_row!(materials, segment)
     return segment
 end
 
-function station_row(sys, station)
-    return KiteGeometry.SpanwiseStation(; name=definition_name(station),
-        wing=station_wing_idx(sys, station), points=station.point_idxs,
-        model=StationModel(string(station.type), station.moment_frac, station.damping,
-            station.stiffness, optional_indices(station.body_idxs),
-            optional_indices(station.flap_body_idxs),
-            optional_indices(station.flap_point_idxs), Vector(station.flap_axis)))
-end
-
 """Indices as references, `nothing` for none."""
 optional_indices(idxs) = isempty(idxs) ? nothing : Vector{KiteGeometry.NameRef}(idxs)
+
+"""`station` with the wing whose twist it carries."""
+function station_row(sys, station)
+    station.wing_ref = station_wing_idx(sys, station)
+    return station
+end
 
 """The wing whose twist `station` carries: its own, else the one listing it, `nothing`
 for a station of a body that is no wing."""
@@ -88,16 +99,13 @@ function station_wing_idx(sys, station)
     return findfirst(wing -> station.idx in wing.station_idxs, sys.wings)
 end
 
-pulley_row(pulley) = KiteGeometry.Pulley(; name=definition_name(pulley),
-    segments=pulley.segment_idxs,
-    model=PulleyModel(string(pulley.type), pulley.efficiency, pulley.damping,
-                      pulley.brake, pulley.friction_epsilon))
-
-tether_row(tether) = KiteGeometry.Tether(; name=definition_name(tether),
-    start_point=tether.start_point_idx, end_point=tether.end_point_idx,
-    segments=tether.segment_idxs,
-    model=TetherModel(tether.init_stretched_len, tether.init_tether_force,
-                      tether.init_stretch_frac))
+"""`tether` naming the ends it resolves to, those its segments give where it names
+none."""
+function with_ends!(tether)
+    tether.start_point = tether.start_point_idx
+    tether.end_point = tether.end_point_idx
+    return tether
+end
 
 winch_row(winch) = KiteGeometry.Winch(; name=definition_name(winch),
     tethers=winch.tether_idxs, winch_point=winch.winch_point_idx, winch.gear_ratio,

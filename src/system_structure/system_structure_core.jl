@@ -151,6 +151,14 @@ function resolve!(
         for ref in ref_pt.refs]
 end
 
+"""The index of the point `ref` names as an end of `tether`, refusing one that names none
+of `points`."""
+function endpoint_idx(tether, ref, point_names, points)
+    ref isa Int && ref in eachindex(points) && return ref
+    ref isa Symbol && haskey(point_names, ref) && return point_names[ref]
+    error("Tether $(tether.name): end point $ref not found in points")
+end
+
 """
     expand_auto_tethers!(points, segments, tethers, set)
 
@@ -176,27 +184,12 @@ function expand_auto_tethers!(
         # Skip Route 1 tethers (no start_point_ref)
         isnothing(tether.start_point_ref) && continue
 
-        # Skip if segments already exist (user pre-created)
-        first_seg_name = tether.segment_refs[1]
-        first_seg_sym = first_seg_name isa Symbol ?
-            first_seg_name : Symbol(first_seg_name)
-        first_seg_sym in seg_names && continue
+        # Skip if segments already exist (user pre-created, or an index)
+        first_segment = tether.segment_refs[1]
+        (first_segment isa Int || first_segment in seg_names) && continue
 
-        # Resolve start and end points by name
-        start_point_sym = tether.start_point_ref isa Symbol ?
-            tether.start_point_ref :
-            Symbol(tether.start_point_ref)
-        end_point_sym = tether.end_point_ref isa Symbol ?
-            tether.end_point_ref :
-            Symbol(tether.end_point_ref)
-        haskey(point_names, start_point_sym) || error(
-            "Tether $(tether.name): start_point " *
-            ":$start_point_sym not found in points")
-        haskey(point_names, end_point_sym) || error(
-            "Tether $(tether.name): end_point " *
-            ":$end_point_sym not found in points")
-        start_point_idx = point_names[start_point_sym]
-        end_point_idx = point_names[end_point_sym]
+        start_point_idx = endpoint_idx(tether, tether.start_point_ref, point_names, points)
+        end_point_idx = endpoint_idx(tether, tether.end_point_ref, point_names, points)
         start_pos = points[start_point_idx].pos_ENU
         end_pos = points[end_point_idx].pos_ENU
 
