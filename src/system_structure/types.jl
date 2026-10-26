@@ -735,7 +735,8 @@ Base.setproperty!(segment::Segment, property::Symbol, value) =
     set_component_property!(segment, property, value)
 Base.propertynames(::Segment) = (fieldnames(Segment)..., SEGMENT_ROW_PROPERTIES...)
 
-@inline row_property(row::KiteGeometry.Segment, ::Val{:l0}) = something(row.rest_length, 0.0)
+@inline row_property(row::KiteGeometry.Segment, ::Val{:l0}) =
+    something(row.rest_length, 0.0)
 @inline row_property(row::KiteGeometry.Segment, ::Val{:diameter}) =
     something(row.diameter, 0.0)
 
@@ -762,7 +763,7 @@ function Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter;
     l0=zero(SimFloat), compression_frac=0.1, compression_damping_frac=1.0,
     density=NaN
 )
-    points = map(point -> point isa Integer ? Int(point) : Symbol(point), (point_i, point_j))
+    points = cell_ref.((point_i, point_j))
     row = KiteGeometry.Segment(; name=Symbol(name), points, rest_length=l0, diameter,
         material=nothing,
         model=SegmentSpring(unit_damping, compression_frac, compression_damping_frac))
@@ -770,15 +771,13 @@ function Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter;
 end
 
 """
-    Segment(row::KiteGeometry.Segment{SegmentSpring}; points=row.points, unit_stiffness,
-            density=NaN)
+    Segment(row::KiteGeometry.Segment{SegmentSpring}; points, unit_stiffness, density)
 
 The segment KiteGeometry `segments` row `row` describes, holding that row, joining the
 points `points` names with the `unit_stiffness` and `density` of
 [`Segment(name, point_i, point_j, ...)`](@ref Segment).
 """
-function Segment(row::KiteGeometry.Segment{SegmentSpring}; points=row.points,
-                 unit_stiffness, density=NaN)
+function Segment(row::KiteGeometry.Segment{SegmentSpring}; points, unit_stiffness, density)
     # Real → SimFloat; a callable force law F(ε) is kept as-is.
     stiffness = unit_stiffness isa Real ? SimFloat(unit_stiffness) : unit_stiffness
     return Segment(row, points, stiffness, SimFloat(density))
