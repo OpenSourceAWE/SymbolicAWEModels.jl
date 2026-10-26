@@ -150,6 +150,21 @@ end
         @test point.pos_ENU === row.pos_ENU
     end
 
+    @testset "a segment's values are its definition row's, read and written" for
+            sys in (two_plate_kite(set, vsm_set), pretensioned_tether(set))
+        segment = last(sys.segments)
+        row = sys.definition.segments[segment.idx]
+        segment.l0 = 1.5
+        segment.diameter = 0.002
+        segment.unit_damping = 3.0
+        segment.compression_frac = 0.2
+        @test (row.rest_length, row.diameter, row.unit_damping, row.compression_frac) ==
+              (1.5, 0.002, 3.0, 0.2)
+        row.rest_length = 2.5
+        @test segment.l0 == 2.5
+        @test Symbol(segment.name) == row.name
+    end
+
     @testset "a station names the wing whose twist it carries" begin
         document = structure_document(two_plate_kite(set, vsm_set))
         @test all(==("main_wing"), values(cells(document, "spanwise_stations", "wing")))

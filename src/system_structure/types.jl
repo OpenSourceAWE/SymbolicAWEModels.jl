@@ -341,20 +341,37 @@ const POINT_ROW_PROPERTIES = (:name, :pos_ENU, :type, :extra_mass, :body_frame_d
     :world_frame_damping, :area, :drag_coeff, :fix_sphere, :fix_static)
 
 # Deprecated `point.disturb` forwards to `ext_force_w` (external world-frame force).
-@inline function Base.getproperty(point::Point, property::Symbol)
-    property === :disturb && return getfield(point, :ext_force_w)
-    hasfield(Point, property) && return getfield(point, property)
-    return row_property(getfield(point, :definition_row), Val(property))
-end
-
-function Base.setproperty!(point::Point, property::Symbol, value)
-    hasfield(Point, property) &&
-        return setfield!(point, property, convert(fieldtype(Point, property), value))
-    setproperty!(getfield(point, :definition_row), property, column_value(value))
-    return value
-end
+@inline Base.getproperty(point::Point, property::Symbol) = property === :disturb ?
+    getfield(point, :ext_force_w) : component_property(point, property)
+Base.setproperty!(point::Point, property::Symbol, value) =
+    set_component_property!(point, property, value)
 
 Base.propertynames(::Point) = (fieldnames(Point)..., POINT_ROW_PROPERTIES...)
+
+"""
+    component_property(component, property)
+
+Property `property` of a component holding its KiteGeometry row in `definition_row`: its
+own field, else what the row holds ([`row_property`](@ref)).
+"""
+@inline function component_property(component, property::Symbol)
+    hasfield(typeof(component), property) && return getfield(component, property)
+    return row_property(getfield(component, :definition_row), Val(property))
+end
+
+"""
+    set_component_property!(component, property, value)
+
+Set property `property` of a component holding its KiteGeometry row in `definition_row`:
+its own field, else the row's column ([`set_row_property!`](@ref)).
+"""
+function set_component_property!(component::T, property::Symbol, value) where {T}
+    hasfield(T, property) &&
+        return setfield!(component, property, convert(fieldtype(T, property), value))
+    set_row_property!(getfield(component, :definition_row), Val(property),
+                      column_value(value))
+    return value
+end
 
 """
     row_property(row, Val(property))
@@ -363,7 +380,7 @@ Property `property` of the component whose KiteGeometry row is `row`, an unset c
 reading as its default.
 """
 @inline row_property(row, ::Val{property}) where {property} = getproperty(row, property)
-row_property(row::KiteGeometry.Point, ::Val{:name}) = row_name(row)
+row_property(row::KiteGeometry.Component, ::Val{:name}) = row_name(row)
 row_property(row::KiteGeometry.Point, ::Val{:type}) = point_type(row)
 @inline row_property(row::KiteGeometry.Point, ::Val{:extra_mass}) =
     something(row.extra_mass, 0.0)
@@ -378,6 +395,25 @@ row_property(row::KiteGeometry.Point, ::Val{:type}) = point_type(row)
     per_axis(row.body_frame_damping)
 @inline row_property(row::KiteGeometry.Point, ::Val{:world_frame_damping}) =
     per_axis(row.world_frame_damping)
+
+"""
+    set_row_property!(row, Val(property), value)
+
+Write `value` to the column of KiteGeometry row `row` that property `property` reads, an
+immutable model replaced by one holding it.
+"""
+function set_row_property!(row, ::Val{property}, value) where {property}
+    model = getfield(row, :model)
+    (ismutable(model) || !hasfield(typeof(model), property)) &&
+        return setproperty!(row, property, value)
+    setfield!(row, :model, with_field(model, property, value))
+    return value
+end
+set_row_property!(row::KiteGeometry.Segment, ::Val{:l0}, value) = row.rest_length = value
+
+"""`model` with field `field` set to `value`."""
+with_field(model::T, field, value) where {T} =
+    T((name === field ? value : getfield(model, name) for name in fieldnames(T))...)
 
 """A value one per axis: a vector column as it is, one number on every axis, zero unset."""
 per_axis(values::Vector{Float64}) = values
@@ -666,34 +702,42 @@ is ignored for it.
 concrete type — a run reads `SystemStructure.segments` every step, and a parametric
 element type would make that collection abstract and allocate.
 
+Its `name`, `l0` (the row's `rest_length`), `diameter`, `unit_damping`, `compression_frac`
+and `compression_damping_frac` are read and written through its KiteGeometry `segments`
+row, an unset `l0` or `diameter` reading as zero.
+
 $(TYPEDFIELDS)
 """
 mutable struct Segment
     "Index in the segments vector (assigned by SystemStructure)."
     idx::Int64
-    "Name used for lookup by other components' `_ref` fields."
-    const name::Union{Int, Symbol, Nothing}
     "Resolved endpoint indices (filled by SystemStructure)."
     point_idxs::Tuple{Int64, Int64}
     "Raw endpoint references (names or indices)."
     const point_refs::Tuple{NameRef, NameRef}
     "Stiffness per unit length: `Real` [N] (k = unit_stiffness/length), or callable F(ε) → force [N]."
     unit_stiffness::Any
-    "Damping per unit length [N·s]. Effective c = unit_damping/length [N·s/m]."
-    unit_damping::SimFloat
-    "Rest (unstretched) length [m]."
-    l0::SimFloat
-    "Compressive/tensile stiffness ratio (0-1) under compression.
-    0 = a slack segment carries no spring force."
-    compression_frac::SimFloat
-    "Fraction of `unit_damping` that still acts under compression (0-1).
-    1 = damping is unaffected by compression; 0 = a slack segment is undamped."
-    compression_damping_frac::SimFloat
-    "Segment diameter [m]."
-    diameter::SimFloat
     "Material density [kg/m³]."
     density::SimFloat
+    "The KiteGeometry `segments` row of the segment."
+    definition_row::KiteGeometry.Segment{SegmentSpring}
+    Segment(row::KiteGeometry.Segment{SegmentSpring}, points, unit_stiffness, density) =
+        new(0, (0, 0), points, unit_stiffness, density, row)
 end
+
+"""The properties of a [`Segment`](@ref) its KiteGeometry row holds."""
+const SEGMENT_ROW_PROPERTIES = (:name, :l0, :diameter, :unit_damping, :compression_frac,
+    :compression_damping_frac)
+
+@inline Base.getproperty(segment::Segment, property::Symbol) =
+    component_property(segment, property)
+Base.setproperty!(segment::Segment, property::Symbol, value) =
+    set_component_property!(segment, property, value)
+Base.propertynames(::Segment) = (fieldnames(Segment)..., SEGMENT_ROW_PROPERTIES...)
+
+@inline row_property(row::KiteGeometry.Segment, ::Val{:l0}) = something(row.rest_length, 0.0)
+@inline row_property(row::KiteGeometry.Segment, ::Val{:diameter}) =
+    something(row.diameter, 0.0)
 
 """
     Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, compression_frac, compression_damping_frac)
@@ -718,12 +762,26 @@ function Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter;
     l0=zero(SimFloat), compression_frac=0.1, compression_damping_frac=1.0,
     density=NaN
 )
-    p1 = point_i isa Integer ? Int(point_i) : Symbol(point_i)
-    p2 = point_j isa Integer ? Int(point_j) : Symbol(point_j)
+    points = map(point -> point isa Integer ? Int(point) : Symbol(point), (point_i, point_j))
+    row = KiteGeometry.Segment(; name=Symbol(name), points, rest_length=l0, diameter,
+        material=nothing,
+        model=SegmentSpring(unit_damping, compression_frac, compression_damping_frac))
+    return Segment(row; points, unit_stiffness, density)
+end
+
+"""
+    Segment(row::KiteGeometry.Segment{SegmentSpring}; points=row.points, unit_stiffness,
+            density=NaN)
+
+The segment KiteGeometry `segments` row `row` describes, holding that row, joining the
+points `points` names with the `unit_stiffness` and `density` of
+[`Segment(name, point_i, point_j, ...)`](@ref Segment).
+"""
+function Segment(row::KiteGeometry.Segment{SegmentSpring}; points=row.points,
+                 unit_stiffness, density=NaN)
     # Real → SimFloat; a callable force law F(ε) is kept as-is.
-    stiff = unit_stiffness isa Real ? SimFloat(unit_stiffness) : unit_stiffness
-    Segment(0, name, (0, 0), (p1, p2), stiff, SimFloat(unit_damping), l0,
-        compression_frac, compression_damping_frac, diameter, SimFloat(density))
+    stiffness = unit_stiffness isa Real ? SimFloat(unit_stiffness) : unit_stiffness
+    return Segment(row, points, stiffness, SimFloat(density))
 end
 
 """
@@ -831,18 +889,13 @@ function Segment(name, set, point_i, point_j;
     unit_damping=NaN, density=NaN, youngs_modulus=NaN,
     damping_per_stiffness=NaN
 )
-    p1 = point_i isa Integer ? Int(point_i) : Symbol(point_i)
-    p2 = point_j isa Integer ? Int(point_j) : Symbol(point_j)
-
     diameter_m, unit_stiffness, unit_damping, density = resolve_material(
         "Segment $(name)", set;
         diameter_m = isnan(diameter_mm) ? NaN : 0.001 * diameter_mm,
         unit_stiffness, unit_damping, density, youngs_modulus,
         damping_per_stiffness)
-
-    Segment(0, name, (0, 0), (p1, p2),
-        unit_stiffness, unit_damping, l0,
-        compression_frac, compression_damping_frac, diameter_m, density)
+    return Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter_m;
+        l0, compression_frac, compression_damping_frac, density)
 end
 
 """Deprecated: SegmentType parameter removed."""

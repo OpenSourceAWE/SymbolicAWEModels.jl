@@ -30,14 +30,17 @@ end
     attach_definition!(sys::SystemStructure)
 
 Give `sys` the definition [`system_definition`](@ref) writes from its components, each
-point holding its row there.
+point and segment holding its row there.
 """
 function attach_definition!(sys::SystemStructure)
-    sys.definition = system_definition(sys)
-    for (point, row) in zip(sys.points, sys.definition.points)
-        point.definition_row = row
+    definition = sys.definition = system_definition(sys)
+    for (components, rows) in ((sys.points, definition.points),
+                               (sys.segments, definition.segments))
+        for (component, row) in zip(components, rows)
+            component.definition_row = row
+        end
     end
-    return sys.definition
+    return definition
 end
 
 """The name a definition gives component `component`: its own, else its index."""
@@ -67,6 +70,8 @@ function point_row(sys, point)
     return row
 end
 
+"""The row of `segment`, its points written as indices and its stiffness and density as a
+material it appends to `materials`."""
 function segment_row!(materials, segment)
     area = π * (segment.diameter / 2)^2
     stiffness = segment.unit_stiffness
@@ -75,11 +80,10 @@ function segment_row!(materials, segment)
             "youngs_modulus" => iszero(stiffness) ? 0.0 : stiffness / area)) :
         ("unit_stiffness", OrderedDict{String, Any}("density" => segment.density,
                                                      "unit_stiffness" => stiffness))
-    return KiteGeometry.Segment(; name=definition_name(segment),
-        points=segment.point_idxs, rest_length=segment.l0, segment.diameter,
-        material=material!(materials, law, parameters),
-        model=SegmentSpring(segment.unit_damping, segment.compression_frac,
-                            segment.compression_damping_frac))
+    row = segment.definition_row
+    row.points = segment.point_idxs
+    row.material = material!(materials, law, parameters)
+    return row
 end
 
 function station_row(sys, station)
@@ -189,8 +193,7 @@ end
     store_definition_pose!(state::SystemState)
 
 Write the pose `state` holds into its structure's definition, where it has one: each
-body's at the centre of its own mass, each wing's KA frame carried with its body, and each
-segment's rest length.
+body's at the centre of its own mass and each wing's KA frame carried with its body.
 """
 function store_definition_pose!(state::SystemState)
     sys = getfield(state, :structure)
@@ -206,9 +209,6 @@ function store_definition_pose!(state::SystemState)
         R = quaternion_to_rotation_matrix(body.Q_b_to_w)
         row.pos_ENU .= body.pos_w + R * body.row.extra_com_offset_b
         row.Q_KA2ENU .= body.Q_b_to_w
-    end
-    for (row, segment) in zip(definition.segments, state.segments)
-        row.rest_length = segment.l0
     end
     return nothing
 end

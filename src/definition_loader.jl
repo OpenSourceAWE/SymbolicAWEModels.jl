@@ -198,13 +198,11 @@ function definition_segment(definition, segment, set)
     material = definition.materials[segment.material]
     material.law == "linear" || error("segment $(segment.name): material law " *
         "$(material.law) has no force law here; give its unit_stiffness in Julia")
-    spring = segment.model
-    points = name_of.((definition.points,), segment.points)
-    return Segment(row_name(segment), set, points...;
-        l0=segment.rest_length, diameter_mm=1000 * segment.diameter,
-        youngs_modulus=material.parameters["youngs_modulus"],
-        density=material.parameters["density"], unit_damping=spring.unit_damping,
-        spring.compression_frac, spring.compression_damping_frac)
+    _, unit_stiffness, _, density = resolve_material("Segment $(row_name(segment))", set;
+        diameter_m=segment.diameter, youngs_modulus=material.parameters["youngs_modulus"],
+        density=material.parameters["density"], segment.unit_damping)
+    return Segment(segment; points=name_of.((definition.points,), segment.points),
+                   unit_stiffness, density)
 end
 
 function definition_pulley(definition, pulley)
