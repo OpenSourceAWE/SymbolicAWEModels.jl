@@ -620,8 +620,8 @@ system:
             left.unit_damping = factor * nominal
             right.unit_damping = factor * nominal
             pulley.efficiency, pulley.damping, pulley.brake = 1.0, 0.0, false
-            sam.sys_struct.points[:pulley_point].body_frame_damping .= 0.0
-            sam.sys_struct.points[:weight].body_frame_damping .= 0.0
+            sam.sys_struct.points[:pulley_point].body_frame_damping = zeros(3)
+            sam.sys_struct.points[:weight].body_frame_damping = zeros(3)
             sam.sys_struct.segments[:main_tether].unit_damping = 0.0
             place!(sam; prn=false)
             init!(sam; prn=false)

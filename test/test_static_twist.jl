@@ -105,7 +105,7 @@ end
 
 """The sum of `field`, a point mass, over the points of `station`."""
 station_point_mass(points, station, field) =
-    sum(getfield(points[idx], field) for idx in station.point_idxs)
+    sum(getproperty(points[idx], field) for idx in station.point_idxs)
 
 @testset "DYNAMIC station twists with the total mass of its points" begin
     set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
