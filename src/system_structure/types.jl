@@ -279,137 +279,97 @@ const NameRef = Union{Int, Symbol}
 # ==================== POINT ==================== #
 
 """
-    mutable struct Point
+    Point
 
-A point mass, representing a node in the mass-spring system.
-
-Its `name`, `pos_ENU`, `type`, `extra_mass`, `body_frame_damping`, `world_frame_damping`,
-`area`, `drag_coeff`, `fix_sphere` and `fix_static` are read and written through its
-KiteGeometry `points` row, an unset one reading as its default.
-
-$(TYPEDFIELDS)
+A point mass, a node of the mass-spring system: a KiteGeometry `points` row whose model is
+a [`PointModel`](@ref). Its properties are the row's fields and its model's, an unset
+column reading as its default ([`row_property`](@ref)); `wing_ref`, `body_ref` and
+`tube_ref` read the reference the row gives, `wing_idx`, `body_idx` and `tube_idx` the index
+the structure resolves it to, and `anchor_b` where it rides its body, given or derived.
 """
-mutable struct Point
-    "Index in the points vector (assigned by SystemStructure)."
-    idx::Int64
-    "Resolved transform index (filled by SystemStructure)."
-    transform_idx::Int64
-    "Resolved wing index (filled by SystemStructure). 0 = no wing."
-    wing_idx::Int64
-    "Resolved rigid-body index for a body-anchored point (filled by SystemStructure). 0 = not anchored."
-    body_idx::Int64
-    "Raw transform reference (name or idx). 0 = no transform."
-    const transform_ref::Union{Int, Symbol}
-    "Raw wing reference (name or idx). 0 = no wing."
-    const wing_ref::Union{Int, Symbol}
-    "Raw rigid-body reference for anchoring (name or idx). 0 = not anchored to a body."
-    const body_ref::Union{Int, Symbol}
-    "Undeformed position relative to wing COM in principal frame [m]. Reference
-    geometry the equations take as a parameter and `twist_deformed_offset`
-    rotates by the live twist angle; overwriting it with a deformed position
-    would twist an already-twisted station on the next model build."
-    const pos_undeformed_b::KVec3
-    "Anchor offset in the rigid body's body frame [m] (body-anchored points), derived
-    from `pos_ENU` by SystemStructure when left at zero."
-    anchor_b::KVec3
-    "External force applied to the point, world frame [N] (settable). Was `disturb`."
-    const ext_force_w::KVec3
-    "Total mass [kg]: extra_mass + segment contributions (computed during simulation)."
-    total_mass::SimFloat
-    "Entrained-air mass [kg] resisting acceleration without adding weight, before a
-    wing's aero sets it."
-    apparent_mass::SimFloat
-    "Derived: true when the point is an aerodynamic-surface structural node of a
-    wing (a member of one of the wing's stations). Set by SystemStructure
-    from station membership; drives the wing-node equations."
-    is_wing_node::Bool
-    # ---- beam-curvature anchoring (rides a TimoshenkoTube's deformed centerline) ----
-    "Resolved anchoring tube index (filled by SystemStructure). 0 = not beam-anchored."
-    tube_idx::Int64
-    "Raw anchoring tube reference (name or idx). 0 = not beam-anchored."
-    const tube_ref::Union{Int, Symbol}
-    "Parameter `s ∈ [0,1]` along the beam element (auto-derived from `pos_ENU`)."
-    beam_frac::SimFloat
-    "Perpendicular offset off the centerline in the rest element frame [m] (auto-derived)."
-    beam_offset_b::KVec3
-    "The KiteGeometry `points` row of the point."
-    definition_row::KiteGeometry.Point{PointModel}
-end
+const Point = KiteGeometry.Point{PointModel}
 
-"""The properties of a [`Point`](@ref) its KiteGeometry row holds."""
-const POINT_ROW_PROPERTIES = (:name, :pos_ENU, :type, :extra_mass, :body_frame_damping,
-    :world_frame_damping, :area, :drag_coeff, :fix_sphere, :fix_static)
-
-# Deprecated `point.disturb` forwards to `ext_force_w` (external world-frame force).
-@inline Base.getproperty(point::Point, property::Symbol) = property === :disturb ?
-    getfield(point, :ext_force_w) : component_property(point, property)
+@inline Base.getproperty(point::Point, property::Symbol) = row_property(point, Val(property))
 Base.setproperty!(point::Point, property::Symbol, value) =
-    set_component_property!(point, property, value)
-
-Base.propertynames(::Point) = (fieldnames(Point)..., POINT_ROW_PROPERTIES...)
-
-"""
-    component_property(component, property)
-
-Property `property` of a component holding its KiteGeometry row in `definition_row`: its
-own field, else what the row holds ([`row_property`](@ref)).
-"""
-@inline function component_property(component, property::Symbol)
-    hasfield(typeof(component), property) && return getfield(component, property)
-    return row_property(getfield(component, :definition_row), Val(property))
-end
-
-"""
-    set_component_property!(component, property, value)
-
-Set property `property` of a component holding its KiteGeometry row in `definition_row`:
-its own field, else the row's column ([`set_row_property!`](@ref)).
-"""
-function set_component_property!(component::T, property::Symbol, value) where {T}
-    hasfield(T, property) &&
-        return setfield!(component, property, convert(fieldtype(T, property), value))
-    set_row_property!(getfield(component, :definition_row), Val(property),
-                      column_value(value))
-    return value
-end
+    set_row_property!(point, Val(property), value)
 
 """
     row_property(row, Val(property))
 
-Property `property` of the component whose KiteGeometry row is `row`, an unset column
-reading as its default.
+Property `property` of the component KiteGeometry row `row` is: a field of the row, else
+of its model, an unset column reading as its default.
 """
-@inline row_property(row, ::Val{property}) where {property} = getproperty(row, property)
-row_property(row::KiteGeometry.Component, ::Val{:name}) = row_name(row)
-row_property(row::KiteGeometry.Point, ::Val{:type}) = point_type(row)
-@inline row_property(row::KiteGeometry.Point, ::Val{:extra_mass}) =
-    something(row.extra_mass, 0.0)
-@inline row_property(row::KiteGeometry.Point, ::Val{:area}) = something(row.area, 0.0)
-@inline row_property(row::KiteGeometry.Point, ::Val{:drag_coeff}) =
-    something(row.drag_coeff, 0.0)
-@inline row_property(row::KiteGeometry.Point, ::Val{:fix_sphere}) =
-    something(row.fix_sphere, false)
-@inline row_property(row::KiteGeometry.Point, ::Val{:fix_static}) =
-    something(row.fix_static, false)
-@inline row_property(row::KiteGeometry.Point, ::Val{:body_frame_damping}) =
-    per_axis(row.body_frame_damping)
-@inline row_property(row::KiteGeometry.Point, ::Val{:world_frame_damping}) =
-    per_axis(row.world_frame_damping)
+@inline function row_property(row::KiteGeometry.Component, ::Val{property}) where {property}
+    hasfield(typeof(row), property) && return getfield(row, property)
+    return getfield(getfield(row, :model), property)
+end
+"""The [`PointModel`](@ref) of point row `row`."""
+@inline point_model(row::Point) = getfield(row, :model)
+row_property(row::Point, ::Val{:type}) = point_type(row)
+@inline row_property(row::Point, ::Val{:disturb}) = row_property(row, Val(:ext_force_w))
+@inline row_property(row::Point, ::Val{:extra_mass}) =
+    something(getfield(row, :extra_mass), 0.0)
+@inline row_property(row::Point, ::Val{:area}) = something(point_model(row).area, 0.0)
+@inline row_property(row::Point, ::Val{:drag_coeff}) =
+    something(point_model(row).drag_coeff, 0.0)
+@inline row_property(row::Point, ::Val{:fix_sphere}) =
+    something(point_model(row).fix_sphere, false)
+@inline row_property(row::Point, ::Val{:fix_static}) =
+    something(point_model(row).fix_static, false)
+@inline row_property(row::Point, ::Val{:body_frame_damping}) =
+    per_axis(point_model(row).body_frame_damping)
+@inline row_property(row::Point, ::Val{:world_frame_damping}) =
+    per_axis(point_model(row).world_frame_damping)
+@inline row_property(row::Point, ::Val{:anchor_b}) = point_model(row).resolved_anchor_b
+@inline row_property(row::Point, ::Val{:wing_ref}) = reference(point_model(row).wing_idx)
+@inline row_property(row::Point, ::Val{:body_ref}) = reference(getfield(row, :body))
+@inline row_property(row::Point, ::Val{:tube_ref}) = reference(point_model(row).tube)
+@inline row_property(row::Point, ::Val{:wing_idx}) = point_model(row).resolved_wing_idx
+@inline row_property(row::Point, ::Val{:body_idx}) = point_model(row).resolved_body_idx
+@inline row_property(row::Point, ::Val{:tube_idx}) = point_model(row).resolved_tube_idx
+
+"""A reference column as a component reads it: its name or index, 0 for none."""
+reference(::Nothing) = 0
+reference(ref::KiteGeometry.NameRef) = ref
+
+"""A reference as a column holds it: `nothing` for none (0)."""
+reference_column(ref) = ref == 0 ? nothing : ref
 
 """
     set_row_property!(row, Val(property), value)
 
-Write `value` to the column of KiteGeometry row `row` that property `property` reads, an
-immutable model replaced by one holding it.
+Write `value` to what property `property` of KiteGeometry row `row` reads: a field of the
+row or of its model, a vector as a `Vector{Float64}`.
 """
-function set_row_property!(row, ::Val{property}, value) where {property}
+function set_row_property!(row::KiteGeometry.Component, ::Val{property},
+                           value) where {property}
+    hasfield(typeof(row), property) && return invoke(setproperty!,
+        Tuple{KiteGeometry.Component, Symbol, Any}, row, property, value)
     model = getfield(row, :model)
-    (ismutable(model) || !hasfield(typeof(model), property)) &&
-        return setproperty!(row, property, value)
-    setfield!(row, :model, with_field(model, property, value))
+    ismutable(model) || return setfield!(row, :model, with_field(model, property, value))
+    T = fieldtype(typeof(model), property)
+    setfield!(model, property, convert(T, column_value(value)))
     return value
 end
-set_row_property!(row::KiteGeometry.Segment, ::Val{:l0}, value) = row.rest_length = value
+function set_row_property!(row::Point, ::Val{:type}, type::DynamicsType)
+    row.model.type = string(type)
+    row.fixed = type == STATIC
+    return type
+end
+set_row_property!(row::Point, ::Val{:disturb}, value) =
+    set_row_property!(row, Val(:ext_force_w), value)
+set_row_property!(row::Point, ::Val{:wing_ref}, ref) =
+    row.model.wing_idx = reference_column(ref)
+set_row_property!(row::Point, ::Val{:body_ref}, ref) = row.body = reference_column(ref)
+set_row_property!(row::Point, ::Val{:tube_ref}, ref) = row.model.tube = reference_column(ref)
+set_row_property!(row::Point, ::Val{:wing_idx}, idx) = row.model.resolved_wing_idx = idx
+set_row_property!(row::Point, ::Val{:body_idx}, idx) = row.model.resolved_body_idx = idx
+set_row_property!(row::Point, ::Val{:tube_idx}, idx) = row.model.resolved_tube_idx = idx
+function set_row_property!(row::Point, ::Val{:anchor_b}, anchor)
+    row.model.anchor_b = isnothing(anchor) ? nothing : Vector{Float64}(anchor)
+    row.model.resolved_anchor_b .= something(anchor, zeros(3))
+    return anchor
+end
 
 """`model` with field `field` set to `value`."""
 with_field(model::T, field, value) where {T} =
@@ -427,7 +387,8 @@ column_value(values::AbstractVector{<:Real}) = Vector{Float64}(values)
 """The dynamics type of the point `row` describes: its `type`, else what `fixed` and
 `body` give."""
 function point_type(row::KiteGeometry.Point)
-    isnothing(row.type) || return parse_dynamics_type(row.type)
+    type = row.model.type
+    isnothing(type) || return parse_dynamics_type(type)
     return row.fixed ? STATIC : isnothing(row.body) ? DYNAMIC : BODY_STATIC
 end
 
@@ -476,7 +437,7 @@ drives the per-point aero and wing-frame fitting.
 # Returns
 - `Point`: A new `Point` object. The `idx` field is assigned later by SystemStructure.
 """
-function Point(name, pos_ENU, type;
+function Point(name, pos_ENU, type::DynamicsType;
     wing=nothing, transform=nothing,
     body=nothing, anchor_b=nothing, tube=nothing,
     extra_mass=0.0, apparent_mass=0.0,
@@ -484,12 +445,17 @@ function Point(name, pos_ENU, type;
     area=0.0, drag_coeff=0.0,
     fix_sphere=false, fix_static=false
 )
-    model = PointModel(string(type), axis_column(body_frame_damping),
-        axis_column(world_frame_damping), area, drag_coeff, nothing, fix_sphere,
-        fix_static, nothing, nothing)
-    row = KiteGeometry.Point(; name=Symbol(name), fixed=type == STATIC,
+    model = PointModel(; type=string(type),
+        body_frame_damping=axis_column(body_frame_damping),
+        world_frame_damping=axis_column(world_frame_damping), area, drag_coeff, tube,
+        fix_sphere, fix_static, wing_idx=wing,
+        anchor_b=isnothing(anchor_b) ? nothing : Vector{Float64}(anchor_b),
+        resolved_anchor_b=KVec3(something(anchor_b, zeros(3))),
+        transform_ref=something(transform, 0), apparent_mass)
+    point = KiteGeometry.Point(; name=Symbol(name), fixed=type == STATIC, body,
         pos_ENU=KVec3(pos_ENU...), extra_mass, model)
-    return Point(row; wing, transform, body, anchor_b, tube, apparent_mass)
+    check_point_anchor(point)
+    return point
 end
 
 """A per-axis damping as a column of one value per axis, zero for `nothing`."""
@@ -497,36 +463,25 @@ axis_column(::Nothing) = zeros(3)
 axis_column(value::Real) = fill(Float64(value), 3)
 axis_column(values::AbstractVector) = Vector{Float64}(values)
 
-"""
-    Point(row::KiteGeometry.Point; wing=nothing, transform=nothing, body=nothing,
-          anchor_b=nothing, tube=nothing, apparent_mass=0.0)
-
-The point KiteGeometry `points` row `row` describes, holding that row, with the
-references and the anchor of [`Point(name, pos_ENU, type)`](@ref Point).
-"""
-function Point(row::KiteGeometry.Point{PointModel};
-    wing=nothing, transform=nothing, body=nothing, anchor_b=nothing, tube=nothing,
-    apparent_mass=0.0
-)
-    name, type = row_name(row), point_type(row)
+"""Refuse a point whose type does not fit what it rides: a `BODY_STATIC` point rides a
+body, tube or wing, and only it rides a body or a tube, never both."""
+function check_point_anchor(point::Point)
+    name, type = point.name, point.type
+    body, tube, wing = point.body_ref, point.tube_ref, point.wing_ref
     if type == BODY_STATIC
-        (isnothing(body) && isnothing(tube) && isnothing(wing)) && error(
+        body == tube == wing == 0 && error(
             "Point $name: BODY_STATIC requires a `body`, a `tube`, or a `wing` " *
             "reference (a wing is a body, so `wing` rides that wing's body).")
-    elseif !isnothing(body)
+    elseif body != 0
         error("Point $name: `body` is only valid with type BODY_STATIC.")
     end
-    (!isnothing(body) && !isnothing(tube)) && error(
-        "Point $name: set either `body` (rigid rider) or `tube` (beam rider), " *
-        "not both.")
-    (!isnothing(tube) && type != BODY_STATIC) && error(
+    body != 0 && tube != 0 && error(
+        "Point $name: set either `body` (rigid rider) or `tube` (beam rider), not both.")
+    tube != 0 && type != BODY_STATIC && error(
         "Point $name: `tube` (beam anchoring) requires type BODY_STATIC.")
-    anchor = isnothing(anchor_b) ? zeros(KVec3) : KVec3(anchor_b...)
-    # idx, transform_idx, wing_idx, body_idx are placeholders - resolved by SystemStructure
-    return Point(0, 0, 0, 0, something(transform, 0), something(wing, 0),
-        something(body, 0), zeros(KVec3), anchor, zeros(KVec3), 0.0, apparent_mass,
-        false, 0, something(tube, 0), 0.0, zeros(KVec3), row)
+    return point
 end
+
 
 # ==================== STATION ==================== #
 
@@ -685,9 +640,11 @@ end
 # ==================== SEGMENT ==================== #
 
 """
-    mutable struct Segment
+    Segment
 
-A segment representing a spring-damper connection from one point to another.
+A spring-damper from one point to another: a KiteGeometry `segments` row whose model is a
+[`SegmentModel`](@ref). Its `l0` is the row's `rest_length`; `point_refs` reads the points
+the row gives, `point_idxs` the indices they resolve to.
 
 The spring-damper model uses per-unit-length stiffness and damping:
 - Effective stiffness: `k = unit_stiffness / length` [N/m]
@@ -697,48 +654,21 @@ The spring-damper model uses per-unit-length stiffness and damping:
 strain `ε = (len − l0)/l0` returning the spring force [N] (nonlinear); the callable
 owns the full law, including any slack/compression behaviour, so `compression_frac`
 is ignored for it.
-
-`unit_stiffness` is typed `Any` (not a type parameter) so the segment stays a
-concrete type — a run reads `SystemStructure.segments` every step, and a parametric
-element type would make that collection abstract and allocate.
-
-Its `name`, `l0` (the row's `rest_length`), `diameter`, `unit_damping`, `compression_frac`
-and `compression_damping_frac` are read and written through its KiteGeometry `segments`
-row, an unset `l0` or `diameter` reading as zero.
-
-$(TYPEDFIELDS)
 """
-mutable struct Segment
-    "Index in the segments vector (assigned by SystemStructure)."
-    idx::Int64
-    "Resolved endpoint indices (filled by SystemStructure)."
-    point_idxs::Tuple{Int64, Int64}
-    "Raw endpoint references (names or indices)."
-    const point_refs::Tuple{NameRef, NameRef}
-    "Stiffness per unit length: `Real` [N] (k = unit_stiffness/length), or callable F(ε) → force [N]."
-    unit_stiffness::Any
-    "Material density [kg/m³]."
-    density::SimFloat
-    "The KiteGeometry `segments` row of the segment."
-    definition_row::KiteGeometry.Segment{SegmentSpring}
-    Segment(row::KiteGeometry.Segment{SegmentSpring}, points, unit_stiffness, density) =
-        new(0, (0, 0), points, unit_stiffness, density, row)
-end
-
-"""The properties of a [`Segment`](@ref) its KiteGeometry row holds."""
-const SEGMENT_ROW_PROPERTIES = (:name, :l0, :diameter, :unit_damping, :compression_frac,
-    :compression_damping_frac)
+const Segment = KiteGeometry.Segment{SegmentModel}
 
 @inline Base.getproperty(segment::Segment, property::Symbol) =
-    component_property(segment, property)
+    row_property(segment, Val(property))
 Base.setproperty!(segment::Segment, property::Symbol, value) =
-    set_component_property!(segment, property, value)
-Base.propertynames(::Segment) = (fieldnames(Segment)..., SEGMENT_ROW_PROPERTIES...)
+    set_row_property!(segment, Val(property), value)
 
-@inline row_property(row::KiteGeometry.Segment, ::Val{:l0}) =
-    something(row.rest_length, 0.0)
-@inline row_property(row::KiteGeometry.Segment, ::Val{:diameter}) =
-    something(row.diameter, 0.0)
+@inline row_property(row::Segment, ::Val{:l0}) = something(getfield(row, :rest_length), 0.0)
+@inline row_property(row::Segment, ::Val{:diameter}) =
+    something(getfield(row, :diameter), 0.0)
+@inline row_property(row::Segment, ::Val{:point_refs}) = getfield(row, :points)
+@inline row_property(row::Segment, ::Val{:point_idxs}) = map(Int, getfield(row, :points))
+set_row_property!(row::Segment, ::Val{:l0}, value) = row.rest_length = value
+set_row_property!(row::Segment, ::Val{:point_idxs}, points) = row.points = points
 
 """
     Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, compression_frac, compression_damping_frac)
@@ -759,29 +689,19 @@ Basic constructor for a `Segment` object.
   acting under compression (0-1). See [`segment_spring_force`](@ref).
 - `density::SimFloat=NaN`: Material density [kg/m³] used for mass.
 """
-function Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter;
+function Segment(name, point_i::Union{Integer, Symbol}, point_j::Union{Integer, Symbol},
+    unit_stiffness, unit_damping, diameter;
     l0=zero(SimFloat), compression_frac=0.1, compression_damping_frac=1.0,
     density=NaN
 )
-    points = cell_ref.((point_i, point_j))
-    row = KiteGeometry.Segment(; name=Symbol(name), points, rest_length=l0, diameter,
-        material=nothing,
-        model=SegmentSpring(unit_damping, compression_frac, compression_damping_frac))
-    return Segment(row; points, unit_stiffness, density)
-end
-
-"""
-    Segment(row::KiteGeometry.Segment{SegmentSpring}; points, unit_stiffness, density)
-
-The segment KiteGeometry `segments` row `row` describes, holding that row, joining the
-points `points` names with the `unit_stiffness` and `density` of
-[`Segment(name, point_i, point_j, ...)`](@ref Segment).
-"""
-function Segment(row::KiteGeometry.Segment{SegmentSpring}; points, unit_stiffness, density)
     # Real → SimFloat; a callable force law F(ε) is kept as-is.
     stiffness = unit_stiffness isa Real ? SimFloat(unit_stiffness) : unit_stiffness
-    return Segment(row, points, stiffness, SimFloat(density))
+    model = SegmentModel(; unit_damping, compression_frac, compression_damping_frac,
+                         unit_stiffness=stiffness, density=SimFloat(density))
+    return KiteGeometry.Segment(; name=Symbol(name), points=cell_ref.((point_i, point_j)),
+        rest_length=l0, diameter, material=nothing, model)
 end
+
 
 """
     resolve_material(label, set; diameter_m, unit_stiffness, unit_damping,

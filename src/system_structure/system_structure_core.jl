@@ -923,12 +923,9 @@ function SystemStructure(name, set;
             @warn "No wings provided but " *
                   "$(length(wing_point_idxs)) wing-node " *
                   "points found. Converting to STATIC."
-            for idx in wing_point_idxs
-                row = points[idx].definition_row
-                row.fixed, row.type, row.wing_idx = true, string(STATIC), nothing
-                transform = points[idx].transform_ref
-                points[idx] = Point(row; transform)
-                points[idx].idx = idx  # Reassign idx after recreation
+            for point in points[wing_point_idxs]
+                point.type, point.wing_idx, point.body_idx, point.tube_idx = STATIC, 0, 0, 0
+                point.anchor_b, point.apparent_mass, point.is_wing_node = nothing, 0.0, false
             end
         end
     end
@@ -1028,7 +1025,7 @@ function SystemStructure(name, set;
         end
         if point.body_idx > 0 && iszero(point.anchor_b)
             body = bodies[point.body_idx]
-            point.anchor_b = KVec3(initial_body_position(body, point))
+            point.resolved_anchor_b = initial_body_position(body, point)
         end
     end
 

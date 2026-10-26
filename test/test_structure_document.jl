@@ -137,7 +137,7 @@ end
                for header in ("extra_mass", "area", "drag_coeff")] == [1.0, 0.1, 1.0]
     end
 
-    @testset "a point's values are its definition row's, read and written" for
+    @testset "a point is its definition row" for
             sys in (two_plate_kite(set, vsm_set), pretensioned_tether(set))
         point = last(sys.points)
         row = sys.definition.points[point.idx]
@@ -147,10 +147,10 @@ end
         @test (row.extra_mass, row.area, row.fix_static) == (2.0, 0.3, true)
         row.drag_coeff = 0.7
         @test point.drag_coeff == 0.7
-        @test point.pos_ENU === row.pos_ENU
+        @test point === row
     end
 
-    @testset "a segment's values are its definition row's, read and written" for
+    @testset "a segment is its definition row" for
             sys in (two_plate_kite(set, vsm_set), pretensioned_tether(set))
         segment = last(sys.segments)
         row = sys.definition.segments[segment.idx]
@@ -163,12 +163,11 @@ end
                row.compression_damping_frac) == (1.5, 0.002, 3.0, 0.2, 0.5)
         row.rest_length = 2.5
         @test segment.l0 == 2.5
-        @test Symbol(segment.name) == row.name
+        @test segment === row
     end
 
-    @testset "a segment named by a number reads that number back" begin
-        segment = Segment(3, :ground, :top, 1.0, 0.0, 0.001)
-        @test (segment.name, segment.definition_row.name) == (3, Symbol(3))
+    @testset "a segment named by a number keeps that name as its row's" begin
+        @test Segment(3, :ground, :top, 1.0, 0.0, 0.001).name === Symbol(3)
     end
 
     @testset "a station names the wing whose twist it carries" begin

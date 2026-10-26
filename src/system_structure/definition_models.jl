@@ -4,33 +4,103 @@
 """
     PointModel
 
-The columns of a KiteGeometry `points` row only SymbolicAWEModels reads, each `nothing`
-where the row leaves it unset.
+What SymbolicAWEModels holds of a point beyond its KiteGeometry `points` row: the columns
+only it reads, each `nothing` where the row leaves it unset, then what it derives when it
+builds the structure, which no document holds.
 
 $(TYPEDFIELDS)
 """
-mutable struct PointModel <: KiteGeometry.AbstractModel
+@kwdef mutable struct PointModel <: KiteGeometry.AbstractModel
     "Dynamics type, such as `DYNAMIC`, `STATIC` or `BODY_STATIC`."
-    type::Union{Nothing, String}
+    type::Union{Nothing, String} = nothing
     "Damping in the body frame [N·s/m], one value or one per axis."
-    body_frame_damping::Union{Nothing, Float64, Vector{Float64}}
+    body_frame_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
     "Damping in the world frame [N·s/m], one value or one per axis."
-    world_frame_damping::Union{Nothing, Float64, Vector{Float64}}
+    world_frame_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
     "Drag area [m²]."
-    area::Union{Nothing, Float64}
+    area::Union{Nothing, Float64} = nothing
     "Drag coefficient."
-    drag_coeff::Union{Nothing, Float64}
+    drag_coeff::Union{Nothing, Float64} = nothing
     "The tube the point rides on, by name or index."
-    tube::Union{Nothing, KiteGeometry.NameRef}
+    tube::Union{Nothing, KiteGeometry.NameRef} = nothing
     "Whether the point is held on a sphere."
-    fix_sphere::Union{Nothing, Bool}
+    fix_sphere::Union{Nothing, Bool} = nothing
     "Whether the point is frozen in place."
-    fix_static::Union{Nothing, Bool}
+    fix_static::Union{Nothing, Bool} = nothing
     "The wing the point belongs to, by name or index."
-    wing_idx::Union{Nothing, KiteGeometry.NameRef}
+    wing_idx::Union{Nothing, KiteGeometry.NameRef} = nothing
     "Where the point sits in its body's frame [m]."
-    anchor_b::Union{Nothing, Vector{Float64}}
+    anchor_b::Union{Nothing, Vector{Float64}} = nothing
+    "Index in the structure's points."
+    idx::Int64 = 0
+    "The transform placing the point, by name or index; 0 for none."
+    transform_ref::KiteGeometry.NameRef = 0
+    "Index of the transform placing the point; 0 for none."
+    transform_idx::Int64 = 0
+    "Index of the wing the point belongs to; 0 for none."
+    resolved_wing_idx::Int64 = 0
+    "Index of the body the point rides; 0 for none."
+    resolved_body_idx::Int64 = 0
+    "Index of the tube the point rides; 0 for none."
+    resolved_tube_idx::Int64 = 0
+    "Where the point sits in the frame of the body it rides [m]: `anchor_b`, else where its
+    position puts it."
+    resolved_anchor_b::KVec3 = zeros(KVec3)
+    "Undeformed position relative to the wing's centre of mass, principal frame [m]."
+    pos_undeformed_b::KVec3 = zeros(KVec3)
+    "External force on the point, world frame [N]."
+    ext_force_w::KVec3 = zeros(KVec3)
+    "Own mass plus half of each of its segments' masses at rest length [kg]."
+    total_mass::SimFloat = 0.0
+    "Entrained-air mass resisting acceleration without adding weight [kg]."
+    apparent_mass::SimFloat = 0.0
+    "Whether the point is a structural node of a wing: a member of one of its stations."
+    is_wing_node::Bool = false
+    "Position `s ∈ [0,1]` along the beam element of the tube the point rides."
+    beam_frac::SimFloat = 0.0
+    "Offset off that beam's centerline, rest element frame [m]."
+    beam_offset_b::KVec3 = zeros(KVec3)
 end
+
+PointModel(type, body_frame_damping, world_frame_damping, area, drag_coeff, tube,
+           fix_sphere, fix_static, wing_idx, anchor_b) =
+    PointModel(; type, body_frame_damping, world_frame_damping, area, drag_coeff, tube,
+               fix_sphere, fix_static, wing_idx, anchor_b,
+               resolved_anchor_b=KVec3(something(anchor_b, zeros(3))))
+
+KiteGeometry.model_columns(::Type{PointModel}) =
+    (:type, :body_frame_damping, :world_frame_damping, :area, :drag_coeff, :tube,
+     :fix_sphere, :fix_static, :wing_idx, :anchor_b)
+
+"""
+    SegmentModel
+
+What SymbolicAWEModels holds of a segment beyond its KiteGeometry `segments` row: the
+columns of KiteGeometry's segment model `spring`, then what it derives when it builds the
+structure, which no document holds.
+
+$(TYPEDFIELDS)
+"""
+@kwdef mutable struct SegmentModel <: KiteGeometry.AbstractModel
+    "Damping per unit length [N·s]."
+    unit_damping::Float64
+    "Compressive over tensile stiffness; 0 for a segment that goes slack."
+    compression_frac::Float64 = 0.1
+    "Fraction of `unit_damping` still acting under compression."
+    compression_damping_frac::Float64 = 1.0
+    "Index in the structure's segments."
+    idx::Int64 = 0
+    "Stiffness per unit length: a number [N], or a callable force law `F(ε)` [N]."
+    unit_stiffness::Any = NaN
+    "Material density [kg/m³]."
+    density::SimFloat = NaN
+end
+
+SegmentModel(unit_damping, compression_frac, compression_damping_frac) =
+    SegmentModel(; unit_damping, compression_frac, compression_damping_frac)
+
+KiteGeometry.model_columns(::Type{SegmentModel}) =
+    (:unit_damping, :compression_frac, :compression_damping_frac)
 
 """
     StationModel
@@ -246,13 +316,15 @@ end
     register_definition_models()
 
 Register SymbolicAWEModels' models of each KiteGeometry block, so `load_authoring` and
-`load_structure` read its columns into them: the default model of points, stations, wings,
-pulleys, bodies, tethers and winches, and the tube models `timoshenko`, the default, and
+`load_structure` read its columns into them: the default model of points, segments, stations,
+wings, pulleys, bodies, tethers and winches, and the tube models `timoshenko`, the default, and
 `elastic`.
 """
 function register_definition_models()
     register_model!(:points, "sam_point", PointModel,
                     ("-", "N*s/m", "N*s/m", "m^2", "-", "-", "-", "-", "-", "m");
+                    default=true)
+    register_model!(:segments, "sam_segment", SegmentModel, ("N*s", "-", "-");
                     default=true)
     register_model!(:spanwise_stations, "sam_station", StationModel,
                     ("-", "-", "N*m*s/rad", "N*m/rad", "-", "-", "-", "-");

@@ -30,9 +30,9 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         system = load_kite(dynamics)
         le_left = named(system.points, "le_left")
         @test le_left.model isa SymbolicAWEModels.PointModel
-        @test le_left.type == point_type
-        @test le_left.body_frame_damping == 10.0
-        @test le_left.world_frame_damping == 0.0
+        @test le_left.model.type == point_type
+        @test le_left.model.body_frame_damping == 10.0
+        @test le_left.model.world_frame_damping == 0.0
         @test le_left.area == 0.0
         @test le_left.drag_coeff == 0.0
         @test isnothing(le_left.tube)
@@ -74,8 +74,8 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         damped_row = "main_wing, main_transform, 0.1, [1, 2, 3], 4,"
         write(file, replace(authored, authored_row => damped_row; count=1))
         point = first(first(load_authoring(file; set)).points)
-        @test point.body_frame_damping == [1.0, 2.0, 3.0]
-        @test point.world_frame_damping === 4.0
+        @test point.model.body_frame_damping == [1.0, 2.0, 3.0]
+        @test point.model.world_frame_damping === 4.0
     end
 
     @testset "a tube reads into the model it names, a point into its anchor" begin

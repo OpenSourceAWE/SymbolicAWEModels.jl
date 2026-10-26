@@ -114,8 +114,8 @@ function SystemStructure(definition::SystemDefinition, transforms, set::Settings
         points=Point[definition_point(definition, point, point_transforms[i])
                      for (i, point) in enumerate(definition.points)],
         stations,
-        segments=Segment[definition_segment(definition, segment, set)
-                         for segment in definition.segments],
+        segments=Segment[definition_segment(definition, i, set)
+                         for i in eachindex(definition.segments)],
         pulleys=Pulley[definition_pulley(definition, pulley)
                        for pulley in definition.pulleys],
         tethers=Tether[definition_tether(definition, tether)
@@ -161,21 +161,23 @@ ref_points_spec(value) = value isa AbstractVector ?
 """Keyword arguments from `pairs` whose value is set."""
 set_kwargs(pairs...) = (; (key => value for (key, value) in pairs if !isnothing(value))...)
 
+"""The point `point` of `definition` is, placed by `transform`: the row itself, riding no
+body where it is a tube rider on its wing's ([`point_body`](@ref))."""
 function definition_point(definition, point, transform)
-    return Point(point; set_kwargs(:wing => maybe(cell_ref, point.wing_idx),
-        :transform => transform, :body => point_body(definition, point),
-        :anchor_b => point.anchor_b, :tube => maybe(cell_ref, point.tube))...)
+    point.body_ref = point_body(definition, point)
+    point.transform_ref = something(transform, 0)
+    return check_point_anchor(point)
 end
 
 """The body `point` rides: none for a tube rider whose body is the one KiteGeometry gives
 a `BODY_STATIC` point naming its wing and no body, which is that wing's."""
 function point_body(definition, point)
-    isnothing(point.body) && return nothing
-    wing = maybe(cell_ref, point.wing_idx)
-    wing_body = point.body <= length(definition.wings) &&
-        wing in (point.body, name_of(definition.wings, point.body))
-    return !isnothing(point.tube) && wing_body ? nothing :
-        name_of(definition.bodies, point.body)
+    body = getfield(point, :body)
+    isnothing(body) && return 0
+    wing = point.model.wing_idx
+    wing_body = body <= length(definition.wings) &&
+        wing in (body, definition.wings[body].name)
+    return !isnothing(point.model.tube) && wing_body ? 0 : body
 end
 
 """`f(value)`, or `nothing` for `nothing`."""
@@ -194,15 +196,22 @@ function definition_station(definition, station)
                    :flap_axis => station.flap_axis)...)
 end
 
-function definition_segment(definition, segment, set)
+"""The segment `segment` of `definition` is, its `spring` model read into a
+[`SegmentModel`](@ref) with the stiffness and density of its material, in its place in
+`definition`."""
+function definition_segment(definition, i, set)
+    segment = definition.segments[i]
     material = definition.materials[segment.material]
     material.law == "linear" || error("segment $(segment.name): material law " *
         "$(material.law) has no force law here; give its unit_stiffness in Julia")
-    _, unit_stiffness, _, density = resolve_material("Segment $(row_name(segment))", set;
+    spring = segment.model
+    _, unit_stiffness, _, density = resolve_material("Segment $(segment.name)", set;
         diameter_m=segment.diameter, youngs_modulus=material.parameters["youngs_modulus"],
-        density=material.parameters["density"], segment.unit_damping)
-    return Segment(segment; points=name_of.((definition.points,), segment.points),
-                   unit_stiffness, density)
+        density=material.parameters["density"], spring.unit_damping)
+    model = SegmentModel(; spring.unit_damping, spring.compression_frac,
+                         spring.compression_damping_frac, unit_stiffness, density)
+    return definition.segments[i] = KiteGeometry.Segment(; segment.name, segment.points,
+        segment.rest_length, segment.diameter, segment.material, model)
 end
 
 function definition_pulley(definition, pulley)

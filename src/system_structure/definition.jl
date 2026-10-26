@@ -13,7 +13,7 @@ function system_definition(sys::SystemStructure)
     materials = KiteGeometry.Material[]
     return SystemDefinition(;
         metadata=Metadata(; name=sys.name, n_points=length(sys.points)),
-        points=[point_row(sys, point) for point in sys.points],
+        points=collect(sys.points),
         segments=[segment_row!(materials, segment) for segment in sys.segments],
         spanwise_stations=[station_row(sys, station) for station in sys.stations
                            if !isnothing(station_wing_idx(sys, station))],
@@ -30,16 +30,12 @@ end
     attach_definition!(sys::SystemStructure)
 
 Give `sys` the definition [`system_definition`](@ref) writes from its components, each
-point and segment holding its row there.
+point and segment of `sys` then being its row there.
 """
 function attach_definition!(sys::SystemStructure)
     definition = sys.definition = system_definition(sys)
-    for (components, rows) in ((sys.points, definition.points),
-                               (sys.segments, definition.segments))
-        for (component, row) in zip(components, rows)
-            component.definition_row = row
-        end
-    end
+    copyto!(sys.points.items, definition.points)
+    copyto!(sys.segments.items, definition.segments)
     return definition
 end
 
@@ -60,18 +56,7 @@ function material!(materials, law, parameters)
     return length(materials)
 end
 
-"""The row `point` holds, its references and its anchor written into it as indices."""
-function point_row(sys, point)
-    row = point.definition_row
-    row.body = optional_index(point.body_idx)
-    row.tube = optional_index(point.tube_idx)
-    row.wing_idx = optional_index(point.wing_idx)
-    row.anchor_b = isnothing(row.body) ? nothing : Vector(point.anchor_b)
-    return row
-end
-
-"""The row `segment` holds, its points written into it as indices and its stiffness and
-density as a material it appends to `materials`."""
+"""`segment` with its stiffness and density as a material it appends to `materials`."""
 function segment_row!(materials, segment)
     area = π * (segment.diameter / 2)^2
     stiffness = segment.unit_stiffness
@@ -80,10 +65,8 @@ function segment_row!(materials, segment)
             "youngs_modulus" => iszero(stiffness) ? 0.0 : stiffness / area)) :
         ("unit_stiffness", OrderedDict{String, Any}("density" => segment.density,
                                                      "unit_stiffness" => stiffness))
-    row = segment.definition_row
-    row.points = segment.point_idxs
-    row.material = material!(materials, law, parameters)
-    return row
+    segment.material = material!(materials, law, parameters)
+    return segment
 end
 
 function station_row(sys, station)
