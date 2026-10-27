@@ -1,2 +1,2 @@
 ### Changed
-- SymbolicAWEModels allows Parameters 0.13 and OrderedCollections 2, so an environment using it is no longer held at Parameters 0.12 and OrderedCollections 1.
+- SymbolicAWEModels allows Parameters 0.12–0.13 and OrderedCollections 1.8–2.
