@@ -198,7 +198,8 @@ set_row_property!(row::Body, ::Val{:wing_ref}, ref) =
     body_model(row).wing = reference_column(ref)
 set_row_property!(row::Body, ::Val{:wing_idx}, idx) =
     body_model(row).resolved_wing_idx = idx
-set_row_property!(row::Body, ::Val{:pos_ENU}, pos) = body_model(row).initial_pos_ENU = KVec3(pos)
+set_row_property!(row::Body, ::Val{:pos_ENU}, pos) =
+    body_model(row).initial_pos_ENU = KVec3(pos)
 set_row_property!(row::Body, ::Val{:Q_KA_to_ENU}, Q) =
     body_model(row).initial_Q_KA_to_ENU .= Q
 
