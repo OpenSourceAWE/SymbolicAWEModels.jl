@@ -64,7 +64,7 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
             """)
         body = named(first(load_authoring(file; set)).bodies, "hub")
         @test body.model isa SymbolicAWEModels.BodyModel
-        @test body.type == "STATIC"
+        @test body.model.type == "STATIC"
     end
 
     @testset "a point's damping reads as one number or one per axis" begin
@@ -109,7 +109,7 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         @test tube.stiffness_bending == 100.0
         @test tube.anchor_a == [0.5, 0.0, 0.0]
         @test only(system.points).anchor_b == zeros(3)
-        @test named(system.bodies, "nodeA").type == "STATIC"
+        @test named(system.bodies, "nodeA").model.type == "STATIC"
         tube = only(load_beam("""
               headers: [name, bodies, diameter, pressure, law, EA, damping]
               data:

@@ -243,39 +243,6 @@ KiteGeometry.model_columns(::Type{PulleyModel}) =
     (:type, :efficiency, :damping, :brake, :friction_epsilon)
 
 """
-    BodyModel
-
-The columns of a KiteGeometry `bodies` row only SymbolicAWEModels reads, each `nothing`
-where the row leaves it unset.
-
-$(TYPEDFIELDS)
-"""
-struct BodyModel <: KiteGeometry.AbstractModel
-    "Dynamics type, `DYNAMIC` or `STATIC`."
-    type::Union{Nothing, String}
-    "The wing whose body frame the body's damping acts in, by name or index."
-    wing::Union{Nothing, KiteGeometry.NameRef}
-    "Spin damping about the body axes [1/s], one value or one per axis."
-    angular_damping::Union{Nothing, Float64, Vector{Float64}}
-    "Damping per unit mass on the world axes [1/s], one value or one per axis."
-    world_frame_damping::Union{Nothing, Float64, Vector{Float64}}
-    "Damping per unit mass on the body axes [1/s], one value or one per axis."
-    body_frame_damping::Union{Nothing, Float64, Vector{Float64}}
-    "Whether the body is held on a sphere."
-    fix_sphere::Union{Nothing, Bool}
-    "Whether the body is frozen in place."
-    fix_static::Union{Nothing, Bool}
-    "External force, world frame [N]."
-    ext_force_w::Union{Nothing, Vector{Float64}}
-    "External force, body frame [N]."
-    ext_force_b::Union{Nothing, Vector{Float64}}
-    "External moment, body frame [N·m]."
-    ext_moment_b::Union{Nothing, Vector{Float64}}
-    "How the principal frame is found: `EIGEN_DECOMP` or `Y_ROTATION`."
-    principal_frame_method::Union{Nothing, String}
-end
-
-"""
     TetherModel
 
 What SymbolicAWEModels holds of a tether beyond its KiteGeometry `tethers` row: the columns

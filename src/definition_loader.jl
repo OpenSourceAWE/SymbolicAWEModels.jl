@@ -240,21 +240,22 @@ function definition_transform(definition, transform, transforms)
         transform.elevation_vel, transform.azimuth_vel, transform.turn_rate)
 end
 
+"""The body `body` of a definition is, placed by `transform`: the row itself, with what
+the structure derives from its mass, inertia and pose."""
 function definition_body(body, transform)
-    type = maybe(parse_dynamics_type, body.type)
-    return Body(row_name(body); extra_mass=something(body.extra_mass, 0.0),
-        inertia=Matrix{SimFloat}(something(body.extra_inertia_KA, zeros(3, 3))),
-        pos=body.pos_ENU, Q_b_to_w=Vector{SimFloat}(body.Q_KA2ENU),
-        set_kwargs(:type => type, :transform => transform,
-                   :wing => maybe(cell_ref, body.wing),
-                   :angular_damping => body.angular_damping,
-                   :world_frame_damping => body.world_frame_damping,
-                   :body_frame_damping => body.body_frame_damping,
-                   :fix_sphere => body.fix_sphere, :fix_static => body.fix_static,
-                   :ext_force_w => body.ext_force_w, :ext_force_b => body.ext_force_b,
-                   :ext_moment_b => body.ext_moment_b,
-                   :principal_frame_method =>
-                       maybe(parse_principal_frame_method, body.principal_frame_method))...)
+    body.type in (DYNAMIC, STATIC) ||
+        error("Body $(body.name): type must be DYNAMIC or STATIC, got $(body.type).")
+    model = body_model(body)
+    inertia = Matrix{SimFloat}(something(getfield(body, :extra_inertia_KA), zeros(3, 3)))
+    inertia_principal, R_b_to_p = principal_axes(inertia, body.principal_frame_method)
+    model.transform_ref = something(transform, 0)
+    model.total_mass = body.extra_mass
+    model.inertia_principal .= inertia_principal
+    model.R_b_to_p = R_b_to_p
+    model.extra_inertia_b = R_b_to_p' * Diagonal(inertia_principal) * R_b_to_p
+    model.initial_pos_ENU = KVec3(getfield(body, :pos_ENU))
+    model.initial_Q_KA_to_ENU .= getfield(body, :Q_KA2ENU)
+    return body
 end
 
 function definition_tube(definition, tube)
@@ -291,6 +292,21 @@ function definition_wing(definition, w, set, stations, transform; dynamics_type,
                       stations; transform)
     built.mesh_frame_pos .= wing.pos_ENU
     built.R_mesh_to_w .= quaternion_to_rotation_matrix(wing.Q_KA2ENU)
+    return definition.bodies[w] = in_place_of(definition.bodies[w], built, wing)
+end
+
+"""Wing body row `built` in place of the definition's row `body` of wing `wing`: what
+`body` gives, its columns among them, and what the structure derives in `built`."""
+function in_place_of(body, built, wing)
+    model = body_model(built)
+    for column in KiteGeometry.model_columns(typeof(model))
+        setfield!(model, column, getfield(body.model, column))
+    end
+    model.wing_definition = wing
+    getfield(built, :pos_ENU) .= getfield(body, :pos_ENU)
+    getfield(built, :Q_KA2ENU) .= getfield(body, :Q_KA2ENU)
+    setfield!(built, :extra_mass, getfield(body, :extra_mass))
+    setfield!(built, :extra_inertia_KA, getfield(body, :extra_inertia_KA))
     return built
 end
 

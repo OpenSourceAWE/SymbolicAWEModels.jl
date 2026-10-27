@@ -38,8 +38,13 @@ function attach_definition!(sys::SystemStructure)
                                (sys.segments, definition.segments),
                                (sys.stations, definition.spanwise_stations),
                                (sys.pulleys, definition.pulleys),
-                               (sys.tethers, definition.tethers))
+                               (sys.tethers, definition.tethers),
+                               (sys.bodies, definition.bodies),
+                               (sys.wings, definition.bodies))
         replace_with_rows!(components.items, rows)
+    end
+    for (wing, row) in zip(sys.wings, definition.wings)
+        body_model(wing).wing_definition = row
     end
     return definition
 end
@@ -48,7 +53,8 @@ end
 function replace_with_rows!(components, rows)
     position = IdDict(component.model => i for (i, component) in enumerate(components))
     for row in rows
-        components[position[row.model]] = row
+        i = get(position, row.model, nothing)
+        isnothing(i) || (components[i] = row)
     end
     return components
 end
@@ -145,16 +151,14 @@ ref_points_cell(sys, ::Nothing) = nothing
 ref_pair_cell(sys, pair) = isnothing(pair) ? nothing :
     [ref_points_cell(sys, pair[1]), ref_points_cell(sys, pair[2])]
 
+"""`body` with its row at the centre of its own mass in its initial pose, its inertia in
+that frame."""
 function body_row(sys, body)
     R = initial_rotation(body)
-    return KiteGeometry.Body(; name=definition_name(body),
-        pos_ENU=body.pos_ENU + R * body.extra_com_offset_b, Q_KA2ENU=body.Q_KA_to_ENU,
-        body.extra_mass, extra_inertia_KA=body.extra_inertia_b,
-        model=BodyModel(string(body.type), optional_index(body.wing_idx),
-            Vector(body.angular_damping), Vector(body.world_frame_damping),
-            Vector(body.body_frame_damping), body.fix_sphere, body.fix_static,
-            Vector(body.ext_force_w), Vector(body.ext_force_b), Vector(body.ext_moment_b),
-            string(body.principal_frame_method)))
+    getfield(body, :pos_ENU) .= body.pos_ENU + R * body.extra_com_offset_b
+    getfield(body, :Q_KA2ENU) .= body.Q_KA_to_ENU
+    setfield!(body, :extra_inertia_KA, MMatrix{3, 3, Float64, 9}(body.extra_inertia_b))
+    return body
 end
 
 """The parameters of the material of a tube's rigidity `law`: KiteGeometry's constants
@@ -198,8 +202,8 @@ function store_definition_pose!(state::SystemState)
     end
     for (row, body) in zip(definition.bodies, state.bodies)
         R = quaternion_to_rotation_matrix(body.Q_b_to_w)
-        row.pos_ENU .= body.pos_w + R * body.row.extra_com_offset_b
-        row.Q_KA2ENU .= body.Q_b_to_w
+        getfield(row, :pos_ENU) .= body.pos_w + R * body.row.extra_com_offset_b
+        getfield(row, :Q_KA2ENU) .= body.Q_b_to_w
     end
     return nothing
 end

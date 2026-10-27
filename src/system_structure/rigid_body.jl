@@ -19,14 +19,115 @@ mutable struct WeightedRefPoints
 end
 
 """
+    BodyModel{A, D}
+
+What SymbolicAWEModels holds of a body beyond its KiteGeometry `bodies` row: the columns
+only it reads, each `nothing` where the row leaves it unset, then what it derives when it
+builds the structure, which no document holds. `A` is the type of the body's aero model,
+`D` its [`WingDynamics`](@ref).
+
+$(TYPEDFIELDS)
+"""
+@kwdef mutable struct BodyModel{A, D} <: KiteGeometry.AbstractModel
+    "Dynamics type, `DYNAMIC` or `STATIC`."
+    type::Union{Nothing, String} = nothing
+    "The wing whose body frame the body's damping acts in, by name or index."
+    wing::Union{Nothing, KiteGeometry.NameRef} = nothing
+    "Spin damping about the body axes [1/s], one value or one per axis."
+    angular_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
+    "Damping per unit mass on the world axes [1/s], one value or one per axis."
+    world_frame_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
+    "Damping per unit mass on the body axes [1/s], one value or one per axis."
+    body_frame_damping::Union{Nothing, Float64, Vector{Float64}} = nothing
+    "Whether the body is held on a sphere."
+    fix_sphere::Union{Nothing, Bool} = nothing
+    "Whether the body is frozen in place."
+    fix_static::Union{Nothing, Bool} = nothing
+    "External force, world frame [N]."
+    ext_force_w::Union{Nothing, Vector{Float64}} = nothing
+    "External force, body frame [N]."
+    ext_force_b::Union{Nothing, Vector{Float64}} = nothing
+    "External moment, body frame [N·m]."
+    ext_moment_b::Union{Nothing, Vector{Float64}} = nothing
+    "How the principal frame is found: `EIGEN_DECOMP` or `Y_ROTATION`."
+    principal_frame_method::Union{Nothing, String} = nothing
+    "Index in the structure's bodies."
+    idx::Int64 = 0
+    "The transform placing the body, by name or index; 0 for none."
+    transform_ref::KiteGeometry.NameRef = 0
+    "Index of the transform placing the body; 0 for none."
+    transform_idx::Int64 = 0
+    "Index of the wing whose body frame the body's damping acts in; 0 for none."
+    resolved_wing_idx::Int64 = 0
+    "`extra_mass` plus the `total_mass` of the points the body carries [kg]."
+    total_mass::SimFloat = 0.0
+    "Entrained-air mass resisting acceleration without adding weight [kg]."
+    apparent_mass::SimFloat = 0.0
+    "Principal moments of inertia `[Ixx, Iyy, Izz]` with the carried points [kg·m²]."
+    inertia_principal::KVec3 = zeros(KVec3)
+    "Body→principal rotation."
+    R_b_to_p::Matrix{SimFloat} = Matrix{SimFloat}(I, 3, 3)
+    "Offset from the body origin to the centre of mass with the carried points, body
+    frame [m]."
+    com_offset_b::KVec3 = zeros(KVec3)
+    "Inertia of the body alone about its own centre of mass, body frame [kg·m²]."
+    extra_inertia_b::Matrix{SimFloat} = zeros(SimFloat, 3, 3)
+    "Offset from the body origin to the centre of mass of the body alone, body frame [m]."
+    extra_com_offset_b::KVec3 = zeros(KVec3)
+    "Initial position of the body origin, world frame [m]: where [`place!`](@ref) puts it;
+    unset until the structure is built."
+    initial_pos_ENU::Union{Nothing, KVec3} = nothing
+    "Initial body→world orientation quaternion: how [`place!`](@ref) turns the body."
+    initial_Q_KA_to_ENU::Vector{SimFloat} = SimFloat[1, 0, 0, 0]
+    "The body's aero model; [`AeroNone`](@ref) for a body that is no wing."
+    aero::A
+    "Indices of the wing's stations."
+    station_idxs::Vector{Int64} = Int64[]
+    "The wing's stations, by name or index."
+    station_refs::Vector{NameRef} = NameRef[]
+    "Wind disturbance on the wing, world frame [m/s]."
+    wind_disturb::KVec3 = zeros(KVec3)
+    "Fraction of the wing's drag applied."
+    drag_frac::SimFloat = 1.0
+    "Whether the wing's station points add their moment to it."
+    group_points_moment::Bool = true
+    "Reference points of the body z axis."
+    z_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}} = nothing
+    "Reference points of the body y axis."
+    y_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}} = nothing
+    "Reference points of the body origin."
+    origin::Union{Nothing, WeightedRefPoints} = nothing
+    "Origin of the frame the wing's mesh is authored in, world frame [m]."
+    mesh_frame_pos::KVec3 = zeros(KVec3)
+    "Rotation of the frame the wing's mesh is authored in into the world."
+    R_mesh_to_w::Matrix{SimFloat} = Matrix{SimFloat}(I, 3, 3)
+    "The KiteGeometry `wings` row of the wing whose body this is, where a definition gives
+    one."
+    wing_definition::Union{Nothing, KiteGeometry.Wing} = nothing
+end
+
+BodyModel(type, wing, angular_damping, world_frame_damping, body_frame_damping,
+          fix_sphere, fix_static, ext_force_w, ext_force_b, ext_moment_b,
+          principal_frame_method) =
+    BodyModel{AeroNone, RigidDynamics}(; type, wing, angular_damping, world_frame_damping,
+        body_frame_damping, fix_sphere, fix_static, ext_force_w, ext_force_b,
+        ext_moment_b, principal_frame_method, aero=AeroNone())
+
+KiteGeometry.model_columns(::Type{<:BodyModel}) =
+    (:type, :wing, :angular_damping, :world_frame_damping, :body_frame_damping,
+     :fix_sphere, :fix_static, :ext_force_w, :ext_force_b, :ext_moment_b,
+     :principal_frame_method)
+
+"""
     Body{A<:AbstractAeroModel, D<:WingDynamics}
 
 A 6-DOF body integrated (or fitted) in the principal frame, optionally carrying
-aerodynamics. A plain body has `aero = AeroNone()`; a "wing" carries a real aero
-mode (see [`sys_struct.wings`]). `type` is DYNAMIC (free 6-DOF), KINEMATIC (pose
-fitted from structural points — particle wings) or STATIC (clamped). `D` mirrors
-the rigid/particle distinction into the type domain for aero dispatch. All bodies
-share the 6-DOF generator `rigid_body_eqs!`.
+aerodynamics: a KiteGeometry `bodies` row whose model is a [`BodyModel`](@ref). A plain
+body has `aero = AeroNone()`; a "wing" carries a real aero mode (see
+[`sys_struct.wings`]). `type` is DYNAMIC (free 6-DOF), KINEMATIC (pose fitted from
+structural points — particle wings) or STATIC (clamped). `D` mirrors the rigid/particle
+distinction into the type domain for aero dispatch. All bodies share the 6-DOF generator
+`rigid_body_eqs!`.
 
 The body's own mass properties (`extra_mass`, `extra_inertia_b`,
 `extra_com_offset_b`) are set directly or derived from its mesh or points. A
@@ -37,83 +138,111 @@ with them ([`update_mass_properties!`](@ref)). Aero/wing fields are inert when
 `aero` is [`AeroNone`](@ref). Loads are gravity (`-g·total_mass` at the COM), the
 settable external wrench, tube wrenches, and aerodynamics.
 
-$(TYPEDFIELDS)
+`pos_ENU` and `Q_KA_to_ENU` are the initial pose of the body frame, whose origin the row
+puts at the centre of the body's own mass; `extra_inertia_b` is about that centre in the
+body frame. An external force or moment the row leaves unset reads as a zero vector the
+row then holds, so it can be written in place.
 """
-mutable struct Body{A<:AbstractAeroModel, D<:WingDynamics}
-    "Index in the bodies vector (assigned by SystemStructure)."
-    idx::Int64
-    "Name used for lookup by other components' `_ref` fields."
-    const name::Union{Int, Symbol, Nothing}
-    "Resolved transform index (filled by SystemStructure). 0 = no transform."
-    transform_idx::Int64
-    "Raw transform reference (name or idx). 0 = no transform."
-    const transform_ref::Union{Int, Symbol}
-    "Resolved parent wing index (filled by SystemStructure). 0 = no parent wing."
-    wing_idx::Int64
-    "Raw parent-wing reference (name or idx). 0 = no parent wing."
-    const wing_ref::Union{Int, Symbol}
+const Body{A, D} = KiteGeometry.Body{BodyModel{A, D}}
 
-    # ---- rigid-body core ----
-    "Own mass [kg], without the points the body carries."
-    extra_mass::SimFloat
-    "`extra_mass` plus the `total_mass` of the points the body carries [kg]."
-    total_mass::SimFloat
-    "Entrained-air mass [kg] resisting acceleration without adding weight, before a
-    wing's aero sets it."
-    apparent_mass::SimFloat
-    "Principal moments of inertia `[Ixx, Iyy, Izz]` with the carried points [kg·m²]."
-    const inertia_principal::KVec3
-    "Constant body→principal rotation."
-    const R_b_to_p::Matrix{SimFloat}
-    "Offset from body origin to COM with the carried points, body frame [m]."
-    const com_offset_b::KVec3
-    "Inertia tensor of the body alone about its own COM, body frame [kg·m²]."
-    const extra_inertia_b::Matrix{SimFloat}
-    "Offset from body origin to the COM of the body alone, body frame [m]."
-    const extra_com_offset_b::KVec3
-    "Method used to compute the principal frame (see [`PrincipalFrameMethod`](@ref))."
-    principal_frame_method::PrincipalFrameMethod
-    "External force applied at the COM, world frame [N] (settable)."
-    const ext_force_w::KVec3
-    "External force applied at the COM, body frame [N] (settable)."
-    const ext_force_b::KVec3
-    "External moment applied about the COM, body frame [N·m] (settable)."
-    const ext_moment_b::KVec3
-    "Angular damping `[d_x, d_y, d_z]` [1/s] about the body-frame axes."
-    angular_damping::KVec3
-    "Per-mass translational damping `[d_x, d_y, d_z]` [1/s] on the world axes."
-    world_frame_damping::KVec3
-    "Per-mass translational damping `[d_x, d_y, d_z]` [1/s] on the body axes."
-    body_frame_damping::KVec3
-    "If true, COM motion is confined to a sphere about the world origin."
-    fix_sphere::Bool
-    "If true, dynamically freezes the body where it is, without rebuilding."
-    fix_static::Bool
-    "Dynamics type: DYNAMIC (free 6-DOF), KINEMATIC (fitted) or STATIC (frozen)."
-    type::DynamicsType
-    "Initial body-origin position, world frame [m]: where [`place!`](@ref) puts the body."
-    const pos_ENU::KVec3
-    "Initial body→world orientation quaternion: how [`place!`](@ref) turns the body."
-    const Q_KA_to_ENU::Vector{SimFloat}
+@inline Base.getproperty(body::Body, property::Symbol) = row_property(body, Val(property))
+Base.setproperty!(body::Body, property::Symbol, value) =
+    set_row_property!(body, Val(property), value)
 
-    # ---- aerodynamics + wing machinery (inert when aero === AeroNone) ----
-    aero::A
-    "Resolved station indices (filled by SystemStructure)."
-    station_idxs::Vector{Int64}
-    "Raw station references."
-    const station_refs::Vector{NameRef}
-    const wind_disturb::KVec3
-    drag_frac::SimFloat
-    "Whether in-group (station) points contribute their moment to the body."
-    group_points_moment::Bool
-    # Body-frame reference points (define R_b_to_w / pos_w from structural points)
-    z_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
-    y_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}}
-    origin::Union{Nothing, WeightedRefPoints}
-    "Origin of the frame the wing's mesh is authored in, world frame [m]."
-    const mesh_frame_pos::KVec3
-    "Rotation of the frame the wing's mesh is authored in into the world."
-    const R_mesh_to_w::Matrix{SimFloat}
+"""The [`BodyModel`](@ref) of body row `row`."""
+@inline body_model(row::Body) = getfield(row, :model)
+function row_property(row::Body{A, D}, ::Val{:type}) where {A, D}
+    type = body_model(row).type
+    isnothing(type) || return parse_dynamics_type(type)
+    return D === ParticleDynamics ? KINEMATIC : DYNAMIC
+end
+row_property(row::Body, ::Val{:dynamics_type}) =
+    row_property(row, Val(:type)) === KINEMATIC ? PARTICLE_DYNAMICS : RIGID_DYNAMICS
+row_property(row::Body, ::Val{:vsm_aoa}) =
+    mean(body_vsm_engine(row, :vsm_aoa).vsm_solver.sol.alpha_dist)
+row_property(row::Body, ::Val{:principal_frame_method}) =
+    parse_principal_frame_method(something(wing_column(row, :principal_frame_method),
+                                           "EIGEN_DECOMP"))
+@inline row_property(row::Body, ::Val{:extra_mass}) =
+    something(getfield(row, :extra_mass), 0.0)
+@inline row_property(row::Body, ::Val{:pos_ENU}) =
+    something(body_model(row).initial_pos_ENU, getfield(row, :pos_ENU))
+@inline row_property(row::Body, ::Val{:Q_KA_to_ENU}) = body_model(row).initial_Q_KA_to_ENU
+@inline row_property(row::Body, ::Val{:wing_ref}) = reference(body_model(row).wing)
+@inline row_property(row::Body, ::Val{:wing_idx}) = body_model(row).resolved_wing_idx
+@inline row_property(row::Body, ::Val{:fix_sphere}) =
+    something(body_model(row).fix_sphere, false)
+@inline row_property(row::Body, ::Val{:fix_static}) =
+    something(body_model(row).fix_static, false)
+row_property(row::Body{A}, ::Val{:angular_damping}) where {A} =
+    per_axis(something(wing_column(row, :angular_damping),
+                       A === AeroNone ? 0.0 : [0.0, 150.0, 0.0]))
+@inline row_property(row::Body, ::Val{:world_frame_damping}) =
+    per_axis(body_model(row).world_frame_damping)
+@inline row_property(row::Body, ::Val{:body_frame_damping}) =
+    per_axis(body_model(row).body_frame_damping)
+@inline row_property(row::Body, ::Val{:ext_force_w}) = held_vector!(row, :ext_force_w)
+@inline row_property(row::Body, ::Val{:ext_force_b}) = held_vector!(row, :ext_force_b)
+@inline row_property(row::Body, ::Val{:ext_moment_b}) = held_vector!(row, :ext_moment_b)
+for field in VSM_ENGINE_FIELDS
+    @eval row_property(row::Body, ::Val{$(QuoteNode(field))}) =
+        getproperty(body_vsm_engine(row, $(QuoteNode(field))), $(QuoteNode(field)))
+    @eval set_row_property!(row::Body, ::Val{$(QuoteNode(field))}, value) =
+        setproperty!(body_vsm_engine(row, $(QuoteNode(field))), $(QuoteNode(field)), value)
+end
+set_row_property!(row::Body, ::Val{:type}, type::DynamicsType) =
+    body_model(row).type = string(type)
+set_row_property!(row::Body, ::Val{:principal_frame_method}, method::PrincipalFrameMethod) =
+    body_model(row).principal_frame_method = string(method)
+set_row_property!(row::Body, ::Val{:wing_ref}, ref) =
+    body_model(row).wing = reference_column(ref)
+set_row_property!(row::Body, ::Val{:wing_idx}, idx) =
+    body_model(row).resolved_wing_idx = idx
+set_row_property!(row::Body, ::Val{:pos_ENU}, pos) = body_model(row).initial_pos_ENU = KVec3(pos)
+set_row_property!(row::Body, ::Val{:Q_KA_to_ENU}, Q) =
+    body_model(row).initial_Q_KA_to_ENU .= Q
+
+"""Column `column` of the model of body row `row`, else the same column of its wing's
+`wings` row, `nothing` where neither gives it."""
+function wing_column(row::Body, column)
+    model = body_model(row)
+    value = getfield(model, column)
+    wing = model.wing_definition
+    isnothing(value) && !isnothing(wing) && return getproperty(wing.model, column)
+    return value
+end
+
+"""
+    held_vector!(row, field)
+
+The vector column `field` of the model of `row`, a zero vector the model then holds where
+the row leaves it unset.
+"""
+@inline function held_vector!(row, field)
+    model = getfield(row, :model)
+    values = getfield(model, field)
+    isnothing(values) || return values
+    values = zeros(3)
+    setfield!(model, field, values)
+    return values
+end
+
+"""
+    body_row(name, aero, dynamics; extra_mass, extra_inertia_b, pos_ENU, Q_KA_to_ENU,
+             model_fields...)
+
+The `bodies` row of a body named `name` with aero model `aero` and
+[`WingDynamics`](@ref) `dynamics`: its own mass `extra_mass` and inertia
+`extra_inertia_b` about its body-frame origin, which sits at its initial pose `pos_ENU`,
+`Q_KA_to_ENU`, and a model holding `model_fields`.
+"""
+function body_row(name, aero::A, ::Type{D}; extra_mass, extra_inertia_b, pos_ENU,
+                  Q_KA_to_ENU, model_fields...) where {A, D}
+    model = BodyModel{A, D}(; aero, model_fields...,
+        extra_inertia_b=Matrix{SimFloat}(extra_inertia_b),
+        initial_pos_ENU=KVec3(pos_ENU), initial_Q_KA_to_ENU=Vector{SimFloat}(Q_KA_to_ENU))
+    return KiteGeometry.Body(; name=Symbol(name), pos_ENU, Q_KA2ENU=Q_KA_to_ENU,
+        extra_mass, extra_inertia_KA=extra_inertia_b, model)
 end
 
 """`Body` with rigid (DYNAMIC/STATIC) 6-DOF dynamics."""
@@ -157,6 +286,11 @@ function principal_frame(inertia::AbstractMatrix)
     end
     return Vector{SimFloat}(moments), Matrix{SimFloat}(axes')
 end
+
+"""The principal moments of `inertia` and the rotation into them, found by `method`
+(see [`PrincipalFrameMethod`](@ref))."""
+principal_axes(inertia, method::PrincipalFrameMethod) =
+    method == Y_ROTATION ? calc_inertia_y_rotation(inertia) : principal_frame(inertia)
 
 """
     point_mass_inertia(mass, r) -> Matrix
@@ -260,25 +394,22 @@ function Body(name;
     if !isnothing(inertia)
         isnothing(inertia_principal) || error(
             "Body $name: give `inertia` or `inertia_principal`, not both.")
-        inertia_principal, R_b_to_p = principal_frame_method == Y_ROTATION ?
-            calc_inertia_y_rotation(inertia) : principal_frame(inertia)
+        inertia_principal, R_b_to_p = principal_axes(inertia, principal_frame_method)
     elseif isnothing(inertia_principal)
         error("Body $name: provide `inertia_principal` or `inertia`.")
     end
     extra_inertia_b = R_b_to_p' * Diagonal(inertia_principal) * R_b_to_p
-    # Plain body: no aero (AeroNone), rigid dynamics, inert aero/wing fields.
-    return Body{AeroNone, RigidDynamics}(
-        0, name, 0, transform_ref, 0, wing_ref,
-        SimFloat(extra_mass), SimFloat(extra_mass), zero(SimFloat),
-        KVec3(inertia_principal), Matrix{SimFloat}(R_b_to_p), KVec3(com_offset_b),
-        Matrix{SimFloat}(extra_inertia_b), KVec3(com_offset_b), principal_frame_method,
-        KVec3(ext_force_w), KVec3(ext_force_b), KVec3(ext_moment_b),
-        damping_vec, world_damping_vec, body_damping_vec, fix_sphere, fix_static,
-        type,
-        KVec3(pos), Vector{SimFloat}(Q_b_to_w),
-        # aero/wing fields (inert for a plain body)
-        AeroNone(), Int64[], NameRef[], zeros(KVec3), one(SimFloat),
-        true, nothing, nothing, nothing, zeros(KVec3), Matrix{SimFloat}(I, 3, 3))
+    return body_row(name, AeroNone(), RigidDynamics; extra_mass, extra_inertia_b,
+        pos_ENU=pos, Q_KA_to_ENU=Q_b_to_w, type=string(type),
+        wing=reference_column(wing_ref),
+        angular_damping=Vector(damping_vec), world_frame_damping=Vector(world_damping_vec),
+        body_frame_damping=Vector(body_damping_vec), fix_sphere, fix_static,
+        ext_force_w=Vector{Float64}(ext_force_w), ext_force_b=Vector{Float64}(ext_force_b),
+        ext_moment_b=Vector{Float64}(ext_moment_b),
+        principal_frame_method=string(principal_frame_method), transform_ref,
+        total_mass=extra_mass, inertia_principal=KVec3(inertia_principal),
+        R_b_to_p=Matrix{SimFloat}(R_b_to_p), com_offset_b=KVec3(com_offset_b),
+        extra_com_offset_b=KVec3(com_offset_b))
 end
 
 """
