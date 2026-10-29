@@ -308,6 +308,7 @@ SymbolicAWEModels.optional_indices
 SymbolicAWEModels.material!
 SymbolicAWEModels.station_wing_idx
 SymbolicAWEModels.winch_friction_epsilon
+SymbolicAWEModels.torque_winch
 SymbolicAWEModels.wing_engine_field
 SymbolicAWEModels.wing_drag_corr
 SymbolicAWEModels.ref_points_cell

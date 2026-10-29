@@ -1125,9 +1125,9 @@ torque or speed regulation, its drum parameters from `set`.
 - `speed_controlled::Bool=false`: If true, prescribe reel-out
   velocity via `winch.vel` instead of integrating motor dynamics;
   winch acceleration is forced to 0, ignoring `model`.
-- `friction_epsilon::SimFloat=6.0`: Coulomb-friction smoothing width;
-  forwarded into the default [`TorqueWinch`](@ref) (ignored when an
-  explicit non-default `model` is passed).
+- `friction_epsilon`: Coulomb-friction smoothing width of the default
+  `model`, the [`TorqueWinch`](@ref) default when not given (ignored when
+  `model` is passed).
 - `model::AbstractWinchModel=TorqueWinch()`: Winch motor dynamics
   model. See [`AbstractWinchModel`](@ref) for plugging in your own.
 """
@@ -1154,8 +1154,8 @@ function Winch(name, tethers, gear_ratio, drum_radius,
                coulomb_friction, viscous_coefficient, inertia_total;
                winch_point,
                init_vel=0.0, brake=0.0, speed_controlled=false,
-               friction_epsilon=6.0,
-               model::AbstractWinchModel=TorqueWinch(; friction_epsilon))
+               friction_epsilon=nothing,
+               model::AbstractWinchModel=torque_winch(friction_epsilon))
     winch_model = WinchModel(; init_vel, brake, speed_controlled,
         friction_epsilon=winch_friction_epsilon(model), coulomb_friction,
         viscous_coefficient, inertia_total, dynamics=model)

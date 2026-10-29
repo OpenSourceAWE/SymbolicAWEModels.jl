@@ -181,6 +181,17 @@ end
         @test winch === row
     end
 
+    @testset "a winch read back keeps its row's drum over the settings'" begin
+        sys = pretensioned_tether(set;
+                                  winches=[Winch(:reel, set, [:line]; winch_point=:ground)])
+        winch = only(sys.winches)
+        winch.gear_ratio = 2 * set.gear_ratio
+        winch.drum_radius = 2 * set.drum_radius
+        reread = sys_struct_from_document(structure_document(sys); set, prn=false)
+        @test (only(reread.winches).gear_ratio, only(reread.winches).drum_radius) ==
+              (2 * set.gear_ratio, 2 * set.drum_radius)
+    end
+
     @testset "a segment named by a number keeps that name as its row's" begin
         @test Segment(3, :ground, :top, 1.0, 0.0, 0.001).name === Symbol(3)
     end

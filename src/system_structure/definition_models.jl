@@ -321,11 +321,11 @@ $(TYPEDFIELDS)
     tether_idxs::Vector{Int64} = Int64[]
     "Index of the winch's ground point."
     winch_point_idx::Int64 = 0
-    "Coulomb friction force [N]; `NaN` from the settings."
+    "Coulomb friction force [N]."
     coulomb_friction::SimFloat = NaN
-    "Viscous friction coefficient [N·s/m]; `NaN` from the settings."
+    "Viscous friction coefficient [N·s/m]."
     viscous_coefficient::SimFloat = NaN
-    "Total rotational inertia [kg·m²]; `NaN` from the settings."
+    "Total rotational inertia [kg·m²]."
     inertia_total::SimFloat = NaN
     "Motor dynamics."
     dynamics::W
@@ -333,7 +333,7 @@ end
 
 WinchModel(init_vel, brake, speed_controlled, friction_epsilon) =
     WinchModel(; init_vel, brake, speed_controlled, friction_epsilon,
-               dynamics=TorqueWinch(; friction_epsilon=something(friction_epsilon, 6.0)))
+               dynamics=torque_winch(friction_epsilon))
 
 KiteGeometry.model_columns(::Type{<:WinchModel}) =
     (:init_vel, :brake, :speed_controlled, :friction_epsilon)
