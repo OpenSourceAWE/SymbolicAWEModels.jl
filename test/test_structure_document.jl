@@ -68,17 +68,18 @@ function bodies_and_tubes(set)
 end
 
 """
-    pretensioned_tether(set) -> SystemStructure
+    pretensioned_tether(set; winches=Winch[]) -> SystemStructure
 
 A ground point and a top point on one two-segment tether whose rest length is 99 % of
-its length.
+its length, reeled by `winches`.
 """
-function pretensioned_tether(set)
+function pretensioned_tether(set; winches=Winch[])
     points = Point[Point(:ground, [0.0, 0.0, 0.0], STATIC),
                    Point(:top, [0.0, 0.0, 10.0], DYNAMIC; extra_mass=1.0)]
     tethers = Tether[Tether(:line, 10.0; start_point=:ground, end_point=:top,
                             n_segments=2, stretch_frac=0.99)]
-    return SystemStructure("structure_document_tether", set; points, tethers, prn=false)
+    return SystemStructure("structure_document_tether", set; points, tethers, winches,
+        prn=false)
 end
 
 """World position of `body`'s centre of mass."""
@@ -164,6 +165,20 @@ end
         row.rest_length = 2.5
         @test segment.l0 == 2.5
         @test segment === row
+    end
+
+    @testset "a winch is its definition row" for sys in (two_plate_kite(set, vsm_set),
+            pretensioned_tether(set;
+                                winches=[Winch(:reel, set, [:line]; winch_point=:ground)]))
+        winch = only(sys.winches)
+        row = sys.definition.winches[winch.idx]
+        winch.brake = 1.0
+        winch.model.friction_epsilon = 3.0
+        @test row.model.brake == 1.0
+        document = structure_document(sys)
+        @test only(values(cells(document, "winches", "friction_epsilon"))) == 3.0
+        @test winch.model.dynamics.friction_epsilon == 3.0
+        @test winch === row
     end
 
     @testset "a segment named by a number keeps that name as its row's" begin

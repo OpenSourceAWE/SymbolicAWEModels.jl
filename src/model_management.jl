@@ -556,7 +556,7 @@ custom aero model, in which case the compiled model cannot be reused from cache
 and must be rebuilt.
 """
 function has_custom_component(sys_struct)
-    any(!is_builtin_winch(winch.model)
+    any(!is_builtin_winch(winch.model.dynamics)
         for winch in sys_struct.winches) && return true
     any(!is_builtin_aero(wing.aero)
         for wing in sys_struct.wings) && return true

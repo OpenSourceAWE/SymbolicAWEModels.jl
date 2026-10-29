@@ -296,22 +296,60 @@ KiteGeometry.model_columns(::Type{TetherModel}) =
     (:init_stretched_length, :init_tether_force, :init_stretch_frac)
 
 """
-    WinchModel
+    WinchModel{W}
 
-The columns of a KiteGeometry `winches` row only SymbolicAWEModels reads, each `nothing`
-where the row leaves it unset.
+What SymbolicAWEModels holds of a winch beyond its KiteGeometry `winches` row: the columns
+only it reads, each `nothing` where the row leaves it unset, then what it derives when it
+builds the structure, and the motor dynamics `W` (an [`AbstractWinchModel`](@ref)).
+A property it has no field for is the dynamics'; `friction_epsilon` is the dynamics' where
+they have one.
 
 $(TYPEDFIELDS)
 """
-struct WinchModel <: KiteGeometry.AbstractModel
+@kwdef mutable struct WinchModel{W} <: KiteGeometry.AbstractModel
     "Reel-out speed at the start [m/s]."
-    init_vel::Union{Nothing, Float64}
+    init_vel::Union{Nothing, Float64} = nothing
     "Brake setting."
-    brake::Union{Nothing, Float64}
+    brake::Union{Nothing, Float64} = nothing
     "Whether the winch follows a set speed rather than a set torque."
-    speed_controlled::Union{Nothing, Bool}
+    speed_controlled::Union{Nothing, Bool} = nothing
     "Friction smoothing width [m/s]."
-    friction_epsilon::Union{Nothing, Float64}
+    friction_epsilon::Union{Nothing, Float64} = nothing
+    "Index in the structure's winches."
+    idx::Int64 = 0
+    "Indices of the winch's tethers."
+    tether_idxs::Vector{Int64} = Int64[]
+    "Index of the winch's ground point."
+    winch_point_idx::Int64 = 0
+    "Coulomb friction force [N]; `NaN` from the settings."
+    coulomb_friction::SimFloat = NaN
+    "Viscous friction coefficient [N·s/m]; `NaN` from the settings."
+    viscous_coefficient::SimFloat = NaN
+    "Total rotational inertia [kg·m²]; `NaN` from the settings."
+    inertia_total::SimFloat = NaN
+    "Motor dynamics."
+    dynamics::W
+end
+
+WinchModel(init_vel, brake, speed_controlled, friction_epsilon) =
+    WinchModel(; init_vel, brake, speed_controlled, friction_epsilon,
+               dynamics=TorqueWinch(; friction_epsilon=something(friction_epsilon, 6.0)))
+
+KiteGeometry.model_columns(::Type{<:WinchModel}) =
+    (:init_vel, :brake, :speed_controlled, :friction_epsilon)
+
+@inline function Base.getproperty(model::WinchModel{W}, property::Symbol) where {W}
+    (hasfield(W, property) || !hasfield(WinchModel{W}, property)) &&
+        return getproperty(getfield(model, :dynamics), property)
+    return getfield(model, property)
+end
+
+function Base.setproperty!(model::WinchModel{W}, property::Symbol, value) where {W}
+    hasfield(WinchModel{W}, property) &&
+        setfield!(model, property, convert(fieldtype(typeof(model), property), value))
+    (hasfield(W, property) || !hasfield(WinchModel{W}, property)) &&
+        setproperty!(getfield(model, :dynamics), property, value)
+    return value
 end
 
 """

@@ -118,8 +118,7 @@ function SystemStructure(definition::SystemDefinition, transforms, set::Settings
                          for i in eachindex(definition.segments)],
         pulleys=Pulley[definition_pulley(pulley) for pulley in definition.pulleys],
         tethers=Tether[definition_tether(tether) for tether in definition.tethers],
-        winches=Winch[definition_winch(definition, winch, set)
-                      for winch in definition.winches],
+        winches=Winch[definition_winch(winch, set) for winch in definition.winches],
         wings,
         transforms=Transform[definition_transform(definition, transform, transforms)
                              for transform in transforms],
@@ -220,12 +219,16 @@ function definition_tether(tether)
     return tether
 end
 
-definition_winch(definition, winch, set) = Winch(row_name(winch), set,
-    name_of.((definition.tethers,), winch.tethers);
-    winch_point=name_of(definition.points, winch.winch_point),
-    set_kwargs(:init_vel => winch.init_vel, :brake => winch.brake,
-               :speed_controlled => winch.speed_controlled,
-               :friction_epsilon => winch.friction_epsilon)...)
+"""The winch `winch` of a definition is: the row itself, its drum parameters the row
+leaves unset and its friction and inertia from `set`."""
+function definition_winch(winch, set)
+    winch.gear_ratio = something(getfield(winch, :gear_ratio), set.gear_ratio)
+    winch.drum_radius = something(getfield(winch, :drum_radius), set.drum_radius)
+    winch.coulomb_friction = set.f_coulomb
+    winch.viscous_coefficient = set.c_vf
+    winch.inertia_total = set.inertia_total
+    return winch
+end
 
 function definition_transform(definition, transform, transforms)
     body = transform.body

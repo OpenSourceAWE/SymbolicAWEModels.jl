@@ -239,6 +239,7 @@ SymbolicAWEModels.definition_station
 SymbolicAWEModels.definition_segment
 SymbolicAWEModels.definition_pulley
 SymbolicAWEModels.definition_tether
+SymbolicAWEModels.definition_winch
 SymbolicAWEModels.definition_body
 SymbolicAWEModels.in_place_of
 SymbolicAWEModels.point_body
@@ -274,6 +275,7 @@ SymbolicAWEModels.station_model
 SymbolicAWEModels.pulley_model
 SymbolicAWEModels.tether_model
 SymbolicAWEModels.body_model
+SymbolicAWEModels.winch_model
 SymbolicAWEModels.field_value
 SymbolicAWEModels.reference
 SymbolicAWEModels.reference_column
@@ -297,6 +299,7 @@ SymbolicAWEModels.attach_definition!
 SymbolicAWEModels.replace_with_rows!
 SymbolicAWEModels.station_row
 SymbolicAWEModels.with_ends!
+SymbolicAWEModels.winch_row!
 SymbolicAWEModels.segment_row!
 SymbolicAWEModels.store_definition_pose!
 SymbolicAWEModels.definition_name
