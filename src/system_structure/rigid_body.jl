@@ -438,10 +438,11 @@ initial_chord_position(wing, point) = initial_body_position(wing, point)[1]
 """
     AbstractTubeModel
 
-Structural element a [`Tube`](@ref) is simulated as. Each concrete model carries
-its rigidities, its damping and the rest state it captures at `place!`.
+Structural element a [`Tube`](@ref) is simulated as, the model of its KiteGeometry `tubes`
+row. Each concrete model carries its rigidities, its damping, the rest state it captures at
+`place!`, the tube's index and where its ends sit on its bodies.
 """
-abstract type AbstractTubeModel end
+abstract type AbstractTubeModel <: KiteGeometry.AbstractModel end
 
 """
     ElasticTube
@@ -472,6 +473,12 @@ mutable struct ElasticTube{S} <: AbstractTubeModel
     const rest_offset_a::KVec3
     "Rest relative rotation `R_a' R_b`, the placed orientation, set by `place!`."
     const R_rel0::Matrix{SimFloat}
+    "Index in `SystemStructure.tubes` (assigned by SystemStructure)."
+    idx::Int64
+    "Tube end on body A, as an offset from its origin in its frame [m]."
+    const anchor_a_b::KVec3
+    "Tube end on body B, as an offset from its origin in its frame [m]."
+    const anchor_b_b::KVec3
 end
 
 """
@@ -486,7 +493,8 @@ function ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion,
     stiffnesses = concrete_rigidities("ElasticTube", (stiffness_axial,
         stiffness_shear, stiffness_torsion, stiffness_bending))
     return ElasticTube{Union{map(typeof, stiffnesses)...}}(stiffnesses...,
-        SimFloat(damping), KVec3(0.0, 0.0, 0.0), Matrix{SimFloat}(I, 3, 3))
+        SimFloat(damping), zeros(KVec3), Matrix{SimFloat}(I, 3, 3), 0, zeros(KVec3),
+        zeros(KVec3))
 end
 
 """
@@ -526,6 +534,12 @@ mutable struct TimoshenkoTube{S} <: AbstractTubeModel
     const R_a_rel0::Matrix{SimFloat}
     "Rest orientation of node B in the element frame (set at reinit!)."
     const R_b_rel0::Matrix{SimFloat}
+    "Index in `SystemStructure.tubes` (assigned by SystemStructure)."
+    idx::Int64
+    "Tube end on body A, as an offset from its origin in its frame [m]."
+    const anchor_a_b::KVec3
+    "Tube end on body B, as an offset from its origin in its frame [m]."
+    const anchor_b_b::KVec3
 end
 
 """
@@ -544,7 +558,7 @@ function timoshenko_tube(rigidities, shear_coeff, damping)
     rigidities = concrete_rigidities("TimoshenkoTube", rigidities)
     return TimoshenkoTube{Union{map(typeof, rigidities)...}}(rigidities...,
         SimFloat(shear_coeff), SimFloat(damping), 0.0,
-        Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3))
+        Matrix{SimFloat}(I, 3, 3), Matrix{SimFloat}(I, 3, 3), 0, zeros(KVec3), zeros(KVec3))
 end
 
 """
@@ -593,38 +607,28 @@ with_law_rigidities(model::ElasticTube, law, diameter, pressure) = model
 """
     Tube{M<:AbstractTubeModel}
 
-An inflated tube between two `Body`s, simulated as `model`: a
-[`TimoshenkoTube`](@ref) beam element or a lumped [`ElasticTube`](@ref). Its ends
-sit at an anchor on each body, and the placed bodies fix its rest length.
-
-$(TYPEDFIELDS)
+An inflated tube between two `Body`s: a KiteGeometry `tubes` row whose model is the
+structural element it is simulated as, a [`TimoshenkoTube`](@ref) beam element or a lumped
+[`ElasticTube`](@ref). Its ends sit at an anchor on each body, and the placed bodies fix its
+rest length. `law` reads the row's material, named after its stiffness law; `body_a_ref`
+and `body_b_ref` read the bodies the row gives, `body_a_idx` and `body_b_idx` the indices
+they resolve to; `idx`, `anchor_a_b` and `anchor_b_b` read its model.
 """
-mutable struct Tube{M <: AbstractTubeModel}
-    "Index in `SystemStructure.tubes` (assigned by SystemStructure)."
-    idx::Int64
-    "Name used for lookup."
-    const name::Union{Int, Symbol, Nothing}
-    "Resolved index of body A (filled by SystemStructure)."
-    body_a_idx::Int64
-    "Resolved index of body B (filled by SystemStructure)."
-    body_b_idx::Int64
-    "Raw reference (name or index) of body A."
-    const body_a_ref::NameRef
-    "Raw reference (name or index) of body B."
-    const body_b_ref::NameRef
-    "Tube end on body A, as an offset from its origin in its frame [m]."
-    const anchor_a_b::KVec3
-    "Tube end on body B, as an offset from its origin in its frame [m]."
-    const anchor_b_b::KVec3
-    "Outer diameter [m], one for the whole element."
-    diameter::SimFloat
-    "Inflation pressure [Pa]."
-    pressure::SimFloat
-    "Name of the stiffness law the rigidities are derived from, e.g. `:breukels2011`."
-    law::Symbol
-    "The structural element the tube is simulated as."
-    model::M
-end
+const Tube{M <: AbstractTubeModel} = KiteGeometry.Tube{M}
+
+@inline Base.getproperty(tube::Tube, property::Symbol) = row_property(tube, Val(property))
+Base.setproperty!(tube::Tube, property::Symbol, value) =
+    set_row_property!(tube, Val(property), value)
+
+row_property(row::Tube, ::Val{:law}) = getfield(row, :material)
+@inline row_property(row::Tube, ::Val{:body_a_ref}) = getfield(row, :bodies)[1]
+@inline row_property(row::Tube, ::Val{:body_b_ref}) = getfield(row, :bodies)[2]
+@inline row_property(row::Tube, ::Val{:body_a_idx}) = Int(getfield(row, :bodies)[1])
+@inline row_property(row::Tube, ::Val{:body_b_idx}) = Int(getfield(row, :bodies)[2])
+set_row_property!(row::Tube, ::Val{:body_a_idx}, idx) =
+    row.bodies = (idx, getfield(row, :bodies)[2])
+set_row_property!(row::Tube, ::Val{:body_b_idx}, idx) =
+    row.bodies = (getfield(row, :bodies)[1], idx)
 
 """
     Tube(name, body_a, body_b; diameter, pressure, law=:breukels2011,
@@ -639,11 +643,11 @@ function Tube(name, body_a, body_b; diameter::Real, pressure::Real,
               anchor_a = zeros(SimFloat, 3), anchor_b = zeros(SimFloat, 3))
     law = Symbol(law)
     model = with_law_rigidities(model, law, diameter, pressure)
-    return Tube(0, name, 0, 0, name_ref(body_a), name_ref(body_b),
-        KVec3(anchor_a), KVec3(anchor_b), SimFloat(diameter), SimFloat(pressure),
-        law, model)
+    model.anchor_a_b .= anchor_a
+    model.anchor_b_b .= anchor_b
+    return KiteGeometry.Tube(; name=Symbol(name), bodies=name_ref.((body_a, body_b)),
+        diameter=SimFloat(diameter), pressure=SimFloat(pressure), material=law, model)
 end
-
 
 """
     timoshenko_element_frame(x_a, x_b, R_a) -> (e1, e2, e3, len)
