@@ -589,20 +589,29 @@ end
 """
     with_law_rigidities(model, law, diameter, pressure) -> AbstractTubeModel
 
-`model` with every rigidity it leaves `nothing` derived from `law` at the tube's
-`diameter` [m] and `pressure` [Pa] ([`tube_law_rigidities`](@ref)).
+A fresh copy of `model` with every rigidity it leaves `nothing` derived from `law` at the
+tube's `diameter` [m] and `pressure` [Pa] ([`tube_law_rigidities`](@ref)).
 """
 function with_law_rigidities(model::TimoshenkoTube, law, diameter, pressure)
     fields = rigidity_fields(model)
-    given = map(field -> getfield(model, field), fields)
-    any(isnothing, given) || return model
-    EA, GA, EI, GJ = tube_law_rigidities(law, diameter, pressure)
-    derived = (; EA, GA, GJ, EIy = EI, EIz = EI)
-    rigidities = map((field, value) -> something(value, derived[field]), fields, given)
-    return timoshenko_tube(rigidities, model.shear_coeff, model.damping)
+    rigidities = map(field -> getfield(model, field), fields)
+    if any(isnothing, rigidities)
+        EA, GA, EI, GJ = tube_law_rigidities(law, diameter, pressure)
+        derived = (; EA, GA, GJ, EIy = EI, EIz = EI)
+        rigidities = map((field, value) -> something(value, derived[field]), fields,
+                         rigidities)
+    end
+    fresh = timoshenko_tube(rigidities, model.shear_coeff, model.damping)
+    fresh.rest_length = model.rest_length
+    return fresh
 end
 
-with_law_rigidities(model::ElasticTube, law, diameter, pressure) = model
+function with_law_rigidities(model::ElasticTube, law, diameter, pressure)
+    stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending =
+        map(field -> getfield(model, field), rigidity_fields(model))
+    return ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion,
+                       stiffness_bending, model.damping)
+end
 
 """
     Tube{M<:AbstractTubeModel}
@@ -635,8 +644,8 @@ set_row_property!(row::Tube, ::Val{:body_b_idx}, idx) =
          model=TimoshenkoTube(), anchor_a=zeros, anchor_b=zeros)
 
 A tube from `body_a` to `body_b` (names or indices), its ends at `anchor_a` and
-`anchor_b` in each body's frame. Rigidities `model` leaves `nothing` are derived
-from `law` at `diameter` [m] and `pressure` [Pa].
+`anchor_b` in each body's frame. The tube holds a copy of `model`, the rigidities it
+leaves `nothing` derived from `law` at `diameter` [m] and `pressure` [Pa].
 """
 function Tube(name, body_a, body_b; diameter::Real, pressure::Real,
               law = :breukels2011, model::AbstractTubeModel = TimoshenkoTube(),
