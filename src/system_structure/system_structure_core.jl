@@ -419,7 +419,7 @@ function assign_indices_and_resolve!(
     segments::Vector{Segment},
     pulleys::Vector{Pulley},
     tethers::Vector{Tether},
-    winches::Vector{Winch},
+    winches::AbstractVector{<:Winch},
     wings::AbstractVector{<:Body},
     transforms::Vector{Transform}
 )

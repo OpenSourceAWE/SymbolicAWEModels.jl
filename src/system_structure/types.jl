@@ -1062,70 +1062,53 @@ end
 Selects the winch motor dynamics. Each concrete model carries its own
 parameter fields and adds a `winch_component(model, sys_struct, idx; name,
 params)` method building the MTK subsystem (mirrors [`AbstractAeroModel`](@ref)).
-The model lives in [`Winch`](@ref)`.model`; common drum parameters
+The model lives in [`Winch`](@ref)`.model.dynamics`; common drum parameters
 (`gear_ratio`, `drum_radius`, `coulomb_friction`, `viscous_coefficient`,
-`inertia_total`) stay on
-the `Winch` struct. New models = new struct + a few methods; see
+`inertia_total`) stay on the `Winch`. New models = new struct + a few methods; see
 [`TorqueWinch`](@ref).
 """
 abstract type AbstractWinchModel end
 
 """
-    mutable struct Winch
+    Winch{W}
 
-A set of tethers (or a single tether) connected to a winch mechanism.
+A set of tethers (or a single tether) connected to a winch mechanism: a KiteGeometry
+`winches` row whose model is a [`WinchModel`](@ref) with motor dynamics `W`, reached as
+`winch.model.dynamics`. `tether_refs` and `winch_point_ref` read the tethers and ground
+point the row gives, `tether_idxs` and `winch_point_idx` the indices they resolve to.
 
 The winch has no length field of its own: its length is the mean of its tethers'
 unstretched lengths (`winch.len ~ mean(tether.len for tether in tethers)`) and
 `D(tether.len) ~ winch_vel`. To set the initial reeled length, set the initial
 unstretched `len` of each connected tether (see [`Tether`](@ref) "Initial
-length"); `brake > 0.5` then freezes it.
-
-$(TYPEDFIELDS)
+length"); `brake > 0.5` then freezes it, and `speed_controlled` prescribes the
+reel-out velocity through the run's `winch.vel` instead of integrating the dynamics.
 """
-mutable struct Winch
-    "Index in the winches vector (assigned by SystemStructure)."
-    idx::Int64
-    "Name used for lookup by other components' `_ref` fields."
-    const name::Union{Int, Symbol, Nothing}
-    "Resolved tether indices (filled by SystemStructure)."
-    tether_idxs::Vector{Int64}
-    "Raw tether references (names or indices)."
-    const tether_refs::Vector{NameRef}
-    "Resolved winch point index (filled by SystemStructure)."
-    winch_point_idx::Int64
-    "Raw winch point reference (name or index)."
-    const winch_point_ref::NameRef
-    "Reel-out velocity a run starts from [m/s]."
-    init_vel::SimFloat
-    """Brake input in [0, 1]. The outer integrator freezes
-    `winch_vel` and `tether_len` when `> 0.5`; custom components
-    may interpret intermediate values as a continuous brake."""
-    brake::SimFloat
-    """If true, reel-out velocity is prescribed externally rather
-    than integrated from motor dynamics: winch acceleration is forced
-    to 0 (ignoring `model`). Set the velocity via the run's `winch.vel`."""
-    speed_controlled::Bool
-    "Gear ratio [-]."
-    gear_ratio::SimFloat
-    "Drum radius [m]."
-    drum_radius::SimFloat
-    "Coulomb friction force [N]."
-    coulomb_friction::SimFloat
-    "Viscous friction coefficient [N·s/m]."
-    viscous_coefficient::SimFloat
-    "Total rotational inertia [kg·m²]."
-    inertia_total::SimFloat
-    """Winch motor dynamics model carrying its own parameters.
-    Defaults to [`TorqueWinch`](@ref). See [`AbstractWinchModel`](@ref)."""
-    model::AbstractWinchModel
-end
+const Winch{W} = KiteGeometry.Winch{WinchModel{W}}
+
+@inline Base.getproperty(winch::Winch, property::Symbol) =
+    row_property(winch, Val(property))
+Base.setproperty!(winch::Winch, property::Symbol, value) =
+    set_row_property!(winch, Val(property), value)
+
+"""The [`WinchModel`](@ref) of winch row `row`."""
+@inline winch_model(row::Winch) = getfield(row, :model)
+@inline row_property(row::Winch, ::Val{:init_vel}) =
+    something(getfield(winch_model(row), :init_vel), 0.0)
+@inline row_property(row::Winch, ::Val{:brake}) =
+    something(getfield(winch_model(row), :brake), 0.0)
+@inline row_property(row::Winch, ::Val{:speed_controlled}) =
+    something(getfield(winch_model(row), :speed_controlled), false)
+@inline row_property(row::Winch, ::Val{:gear_ratio}) = getfield(row, :gear_ratio)::Float64
+@inline row_property(row::Winch, ::Val{:drum_radius}) = getfield(row, :drum_radius)::Float64
+@inline row_property(row::Winch, ::Val{:tether_refs}) = getfield(row, :tethers)
+@inline row_property(row::Winch, ::Val{:winch_point_ref}) = getfield(row, :winch_point)
 
 """
     Winch(name, set, tethers; winch_point, ...)
 
 Constructs a `Winch` object that controls tether length through
-torque or speed regulation.
+torque or speed regulation, its drum parameters from `set`.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the winch.
@@ -1142,27 +1125,15 @@ torque or speed regulation.
 - `speed_controlled::Bool=false`: If true, prescribe reel-out
   velocity via `winch.vel` instead of integrating motor dynamics;
   winch acceleration is forced to 0, ignoring `model`.
-- `friction_epsilon::SimFloat=6.0`: Coulomb-friction smoothing width;
-  forwarded into the default [`TorqueWinch`](@ref) (ignored when an
-  explicit non-default `model` is passed).
+- `friction_epsilon`: Coulomb-friction smoothing width of the default
+  `model`, the [`TorqueWinch`](@ref) default when not given (ignored when
+  `model` is passed).
 - `model::AbstractWinchModel=TorqueWinch()`: Winch motor dynamics
   model. See [`AbstractWinchModel`](@ref) for plugging in your own.
 """
-function Winch(name, set::Settings, tethers;
-               winch_point,
-               init_vel=0.0, brake=0.0, speed_controlled=false,
-               friction_epsilon=6.0,
-               model::AbstractWinchModel=TorqueWinch(; friction_epsilon))
-    tether_refs = Vector{NameRef}(
-        [t isa Integer ? Int(t) : Symbol(t) for t in tethers])
-    wp = winch_point isa Integer ? Int(winch_point) :
-         Symbol(winch_point)
-    return Winch(0, name, Int64[], tether_refs, 0, wp,
-                 init_vel, SimFloat(brake), speed_controlled,
-                 set.gear_ratio, set.drum_radius,
-                 set.f_coulomb, set.c_vf,
-                 set.inertia_total, model)
-end
+Winch(name, set::Settings, tethers; kwargs...) =
+    Winch(name, tethers, set.gear_ratio, set.drum_radius, set.f_coulomb, set.c_vf,
+          set.inertia_total; kwargs...)
 
 """
     Winch(name, tethers, gear_ratio, drum_radius, coulomb_friction,
@@ -1177,24 +1148,25 @@ Constructs a `Winch` by directly providing physical parameters.
   `inertia_total`: Physical parameters.
 
 # Keyword Arguments
-- `winch_point`: Reference to ground attachment point. Required.
-- `init_vel::SimFloat=0.0`: Initial reel-out rate [m/s].
+As the `Settings` method.
 """
 function Winch(name, tethers, gear_ratio, drum_radius,
                coulomb_friction, viscous_coefficient, inertia_total;
                winch_point,
                init_vel=0.0, brake=0.0, speed_controlled=false,
-               friction_epsilon=6.0,
-               model::AbstractWinchModel=TorqueWinch(; friction_epsilon))
-    tether_refs = Vector{NameRef}(
-        [t isa Integer ? Int(t) : Symbol(t) for t in tethers])
-    wp = winch_point isa Integer ? Int(winch_point) :
-         Symbol(winch_point)
-    return Winch(0, name, Int64[], tether_refs, 0, wp,
-                 init_vel, SimFloat(brake), speed_controlled,
-                 gear_ratio, drum_radius, coulomb_friction,
-                 viscous_coefficient, inertia_total, model)
+               friction_epsilon=nothing,
+               model::AbstractWinchModel=torque_winch(friction_epsilon))
+    winch_model = WinchModel(; init_vel, brake, speed_controlled,
+        friction_epsilon=winch_friction_epsilon(model), coulomb_friction,
+        viscous_coefficient, inertia_total, dynamics=model)
+    return KiteGeometry.Winch(; name=Symbol(name),
+        tethers=Vector{NameRef}(cell_ref.(tethers)), winch_point=cell_ref(winch_point),
+        gear_ratio, drum_radius, model=winch_model)
 end
+
+"""The friction smoothing width of winch dynamics `model`, `nothing` for one without."""
+winch_friction_epsilon(model) =
+    hasproperty(model, :friction_epsilon) ? model.friction_epsilon : nothing
 
 # ==================== TRANSFORM ==================== #
 

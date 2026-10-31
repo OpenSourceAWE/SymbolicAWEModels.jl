@@ -19,7 +19,7 @@ function system_definition(sys::SystemStructure)
                            if !isnothing(station_wing_idx(sys, station))],
         pulleys=collect(sys.pulleys),
         tethers=[with_ends!(tether) for tether in sys.tethers],
-        winches=[winch_row(winch) for winch in sys.winches],
+        winches=[winch_row!(winch) for winch in sys.winches],
         wings=[wing_row(sys, wing) for wing in sys.wings],
         bodies=[body_row(sys, body) for body in sys.bodies],
         tubes=[tube_row!(materials, sys, tube) for tube in sys.tubes],
@@ -30,7 +30,8 @@ end
     attach_definition!(sys::SystemStructure)
 
 Give `sys` the definition [`system_definition`](@ref) writes from its components, each
-point and segment of `sys` then being its row there.
+point, segment, station, pulley, tether, winch, body and wing of `sys` then being its
+row there.
 """
 function attach_definition!(sys::SystemStructure)
     definition = sys.definition = system_definition(sys)
@@ -39,6 +40,7 @@ function attach_definition!(sys::SystemStructure)
                                (sys.stations, definition.spanwise_stations),
                                (sys.pulleys, definition.pulleys),
                                (sys.tethers, definition.tethers),
+                               (sys.winches, definition.winches),
                                (sys.bodies, definition.bodies),
                                (sys.wings, definition.bodies))
         replace_with_rows!(components.items, rows)
@@ -113,15 +115,12 @@ function with_ends!(tether)
     return tether
 end
 
-winch_row(winch) = KiteGeometry.Winch(; name=definition_name(winch),
-    tethers=winch.tether_idxs, winch_point=winch.winch_point_idx, winch.gear_ratio,
-    winch.drum_radius,
-    model=WinchModel(winch.init_vel, winch.brake, winch.speed_controlled,
-                     winch_friction_epsilon(winch.model)))
-
-"""The friction smoothing width of a winch model, `nothing` for one without."""
-winch_friction_epsilon(model) =
-    hasproperty(model, :friction_epsilon) ? model.friction_epsilon : nothing
+"""`winch` naming its tethers and ground point by the indices they resolve to."""
+function winch_row!(winch)
+    winch.tethers = winch.tether_idxs
+    winch.winch_point = winch.winch_point_idx
+    return winch
+end
 
 function wing_row(sys, wing)
     return KiteGeometry.Wing(; name=definition_name(wing), pos_ENU=wing.mesh_frame_pos,
