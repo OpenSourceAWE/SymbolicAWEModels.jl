@@ -13,17 +13,50 @@ function system_definition(sys::SystemStructure)
     materials = KiteGeometry.Material[]
     return SystemDefinition(;
         metadata=Metadata(; name=sys.name, n_points=length(sys.points)),
-        points=[point_row(sys, point) for point in sys.points],
+        points=collect(sys.points),
         segments=[segment_row!(materials, segment) for segment in sys.segments],
         spanwise_stations=[station_row(sys, station) for station in sys.stations
                            if !isnothing(station_wing_idx(sys, station))],
-        pulleys=[pulley_row(pulley) for pulley in sys.pulleys],
-        tethers=[tether_row(tether) for tether in sys.tethers],
+        pulleys=collect(sys.pulleys),
+        tethers=[with_ends!(tether) for tether in sys.tethers],
         winches=[winch_row(winch) for winch in sys.winches],
         wings=[wing_row(sys, wing) for wing in sys.wings],
         bodies=[body_row(sys, body) for body in sys.bodies],
         tubes=[tube_row!(materials, sys, tube) for tube in sys.tubes],
         materials)
+end
+
+"""
+    attach_definition!(sys::SystemStructure)
+
+Give `sys` the definition [`system_definition`](@ref) writes from its components, each
+point and segment of `sys` then being its row there.
+"""
+function attach_definition!(sys::SystemStructure)
+    definition = sys.definition = system_definition(sys)
+    for (components, rows) in ((sys.points, definition.points),
+                               (sys.segments, definition.segments),
+                               (sys.stations, definition.spanwise_stations),
+                               (sys.pulleys, definition.pulleys),
+                               (sys.tethers, definition.tethers),
+                               (sys.bodies, definition.bodies),
+                               (sys.wings, definition.bodies))
+        replace_with_rows!(components.items, rows)
+    end
+    for (wing, row) in zip(sys.wings, definition.wings)
+        body_model(wing).wing_definition = row
+    end
+    return definition
+end
+
+"""Replace each of `components` by the row of `rows` that holds its model."""
+function replace_with_rows!(components, rows)
+    position = IdDict(component.model => i for (i, component) in enumerate(components))
+    for row in rows
+        i = get(position, row.model, nothing)
+        isnothing(i) || (components[i] = row)
+    end
+    return components
 end
 
 """The name a definition gives component `component`: its own, else its index."""
@@ -43,17 +76,7 @@ function material!(materials, law, parameters)
     return length(materials)
 end
 
-function point_row(sys, point)
-    body = optional_index(point.body_idx)
-    return KiteGeometry.Point(; name=definition_name(point), fixed=point.type == STATIC,
-        body, pos_ENU=point.pos_ENU, point.extra_mass,
-        model=PointModel(string(point.type), Vector(point.body_frame_damping),
-            Vector(point.world_frame_damping), point.area, point.drag_coeff,
-            optional_index(point.tube_idx), point.fix_sphere, point.fix_static,
-            optional_index(point.wing_idx),
-            isnothing(body) ? nothing : Vector(point.anchor_b)))
-end
-
+"""`segment` with its stiffness and density as a material it appends to `materials`."""
 function segment_row!(materials, segment)
     area = π * (segment.diameter / 2)^2
     stiffness = segment.unit_stiffness
@@ -62,24 +85,18 @@ function segment_row!(materials, segment)
             "youngs_modulus" => iszero(stiffness) ? 0.0 : stiffness / area)) :
         ("unit_stiffness", OrderedDict{String, Any}("density" => segment.density,
                                                      "unit_stiffness" => stiffness))
-    return KiteGeometry.Segment(; name=definition_name(segment),
-        points=segment.point_idxs, rest_length=segment.l0, segment.diameter,
-        material=material!(materials, law, parameters),
-        model=SegmentSpring(segment.unit_damping, segment.compression_frac,
-                            segment.compression_damping_frac))
-end
-
-function station_row(sys, station)
-    return KiteGeometry.SpanwiseStation(; name=definition_name(station),
-        wing=station_wing_idx(sys, station), points=station.point_idxs,
-        model=StationModel(string(station.type), station.moment_frac, station.damping,
-            station.stiffness, optional_indices(station.body_idxs),
-            optional_indices(station.flap_body_idxs),
-            optional_indices(station.flap_point_idxs), Vector(station.flap_axis)))
+    segment.material = material!(materials, law, parameters)
+    return segment
 end
 
 """Indices as references, `nothing` for none."""
 optional_indices(idxs) = isempty(idxs) ? nothing : Vector{KiteGeometry.NameRef}(idxs)
+
+"""`station` with the wing whose twist it carries."""
+function station_row(sys, station)
+    station.wing_ref = station_wing_idx(sys, station)
+    return station
+end
 
 """The wing whose twist `station` carries: its own, else the one listing it, `nothing`
 for a station of a body that is no wing."""
@@ -88,16 +105,13 @@ function station_wing_idx(sys, station)
     return findfirst(wing -> station.idx in wing.station_idxs, sys.wings)
 end
 
-pulley_row(pulley) = KiteGeometry.Pulley(; name=definition_name(pulley),
-    segments=pulley.segment_idxs,
-    model=PulleyModel(string(pulley.type), pulley.efficiency, pulley.damping,
-                      pulley.brake, pulley.friction_epsilon))
-
-tether_row(tether) = KiteGeometry.Tether(; name=definition_name(tether),
-    start_point=tether.start_point_idx, end_point=tether.end_point_idx,
-    segments=tether.segment_idxs,
-    model=TetherModel(tether.init_stretched_len, tether.init_tether_force,
-                      tether.init_stretch_frac))
+"""`tether` naming the ends it resolves to, those its segments give where it names
+none."""
+function with_ends!(tether)
+    tether.start_point = tether.start_point_idx
+    tether.end_point = tether.end_point_idx
+    return tether
+end
 
 winch_row(winch) = KiteGeometry.Winch(; name=definition_name(winch),
     tethers=winch.tether_idxs, winch_point=winch.winch_point_idx, winch.gear_ratio,
@@ -137,16 +151,14 @@ ref_points_cell(sys, ::Nothing) = nothing
 ref_pair_cell(sys, pair) = isnothing(pair) ? nothing :
     [ref_points_cell(sys, pair[1]), ref_points_cell(sys, pair[2])]
 
+"""`body` with its row at the centre of its own mass in its initial pose, its inertia in
+that frame."""
 function body_row(sys, body)
     R = initial_rotation(body)
-    return KiteGeometry.Body(; name=definition_name(body),
-        pos_ENU=body.pos_ENU + R * body.extra_com_offset_b, Q_KA2ENU=body.Q_KA_to_ENU,
-        body.extra_mass, extra_inertia_KA=body.extra_inertia_b,
-        model=BodyModel(string(body.type), optional_index(body.wing_idx),
-            Vector(body.angular_damping), Vector(body.world_frame_damping),
-            Vector(body.body_frame_damping), body.fix_sphere, body.fix_static,
-            Vector(body.ext_force_w), Vector(body.ext_force_b), Vector(body.ext_moment_b),
-            string(body.principal_frame_method)))
+    getfield(body, :pos_ENU) .= body.pos_ENU + R * body.extra_com_offset_b
+    getfield(body, :Q_KA2ENU) .= body.Q_KA_to_ENU
+    setfield!(body, :extra_inertia_KA, MMatrix{3, 3, Float64, 9}(body.extra_inertia_b))
+    return body
 end
 
 """The parameters of the material of a tube's rigidity `law`: KiteGeometry's constants
@@ -176,16 +188,12 @@ end
     store_definition_pose!(state::SystemState)
 
 Write the pose `state` holds into its structure's definition, where it has one: each
-point's position, each body's at the centre of its own mass, each wing's KA frame carried
-with its body, and each segment's rest length.
+body's at the centre of its own mass and each wing's KA frame carried with its body.
 """
 function store_definition_pose!(state::SystemState)
     sys = getfield(state, :structure)
     definition = sys.definition
     isnothing(definition) && return nothing
-    for (row, point) in zip(definition.points, state.points)
-        row.pos_ENU .= point.pos_w
-    end
     for (row, wing) in zip(definition.wings, state.wings)
         R = quaternion_to_rotation_matrix(wing.Q_b_to_w) * initial_rotation(wing.row)'
         row.pos_ENU .= wing.pos_w + R * (row.pos_ENU - wing.row.pos_ENU)
@@ -194,11 +202,8 @@ function store_definition_pose!(state::SystemState)
     end
     for (row, body) in zip(definition.bodies, state.bodies)
         R = quaternion_to_rotation_matrix(body.Q_b_to_w)
-        row.pos_ENU .= body.pos_w + R * body.row.extra_com_offset_b
-        row.Q_KA2ENU .= body.Q_b_to_w
-    end
-    for (row, segment) in zip(definition.segments, state.segments)
-        row.rest_length = segment.l0
+        getfield(row, :pos_ENU) .= body.pos_w + R * body.row.extra_com_offset_b
+        getfield(row, :Q_KA2ENU) .= body.Q_b_to_w
     end
     return nothing
 end

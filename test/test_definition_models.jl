@@ -30,20 +30,20 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         system = load_kite(dynamics)
         le_left = named(system.points, "le_left")
         @test le_left.model isa SymbolicAWEModels.PointModel
-        @test le_left.type == point_type
-        @test le_left.body_frame_damping == 10.0
-        @test le_left.world_frame_damping == 0.0
+        @test le_left.model.type == point_type
+        @test le_left.model.body_frame_damping == 10.0
+        @test le_left.model.world_frame_damping == 0.0
         @test le_left.area == 0.0
         @test le_left.drag_coeff == 0.0
         @test isnothing(le_left.tube)
         center = named(system.spanwise_stations, "center")
-        @test center.type == station_type
+        @test center.model.type == station_type
         @test center.moment_frac == moment_frac
         @test center.damping == damping
-        @test isnothing(center.stiffness)
+        @test isnothing(center.model.stiffness)
         pulley = named(system.pulleys, "left")
-        @test pulley.type == "DYNAMIC"
-        @test isnothing(pulley.efficiency)
+        @test pulley.model.type == "DYNAMIC"
+        @test isnothing(pulley.model.efficiency)
         @test only(system.wings).model isa SymbolicAWEModels.WingModel
         @test length(system.canopy_faces) == 2
     end
@@ -64,7 +64,7 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
             """)
         body = named(first(load_authoring(file; set)).bodies, "hub")
         @test body.model isa SymbolicAWEModels.BodyModel
-        @test body.type == "STATIC"
+        @test body.model.type == "STATIC"
     end
 
     @testset "a point's damping reads as one number or one per axis" begin
@@ -74,8 +74,8 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         damped_row = "main_wing, main_transform, 0.1, [1, 2, 3], 4,"
         write(file, replace(authored, authored_row => damped_row; count=1))
         point = first(first(load_authoring(file; set)).points)
-        @test point.body_frame_damping == [1.0, 2.0, 3.0]
-        @test point.world_frame_damping === 4.0
+        @test point.model.body_frame_damping == [1.0, 2.0, 3.0]
+        @test point.model.world_frame_damping === 4.0
     end
 
     @testset "a tube reads into the model it names, a point into its anchor" begin
@@ -109,7 +109,7 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         @test tube.stiffness_bending == 100.0
         @test tube.anchor_a == [0.5, 0.0, 0.0]
         @test only(system.points).anchor_b == zeros(3)
-        @test named(system.bodies, "nodeA").type == "STATIC"
+        @test named(system.bodies, "nodeA").model.type == "STATIC"
         tube = only(load_beam("""
               headers: [name, bodies, diameter, pressure, law, EA, damping]
               data:

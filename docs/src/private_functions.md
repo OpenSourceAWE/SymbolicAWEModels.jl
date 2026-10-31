@@ -234,6 +234,13 @@ SymbolicAWEModels.unit_inertia_spec
 SymbolicAWEModels.set_kwargs
 SymbolicAWEModels.maybe
 SymbolicAWEModels.definition_wing
+SymbolicAWEModels.definition_point
+SymbolicAWEModels.definition_station
+SymbolicAWEModels.definition_segment
+SymbolicAWEModels.definition_pulley
+SymbolicAWEModels.definition_tether
+SymbolicAWEModels.definition_body
+SymbolicAWEModels.in_place_of
 SymbolicAWEModels.point_body
 SymbolicAWEModels.document_format
 ```
@@ -250,13 +257,47 @@ SymbolicAWEModels.TetherModel
 SymbolicAWEModels.WinchModel
 SymbolicAWEModels.TimoshenkoTubeModel
 SymbolicAWEModels.ElasticTubeModel
+SymbolicAWEModels.SegmentModel
 SymbolicAWEModels.register_definition_models
+```
+
+## Component definition rows
+
+```@docs
+SymbolicAWEModels.row_property
+SymbolicAWEModels.set_row_property!
+SymbolicAWEModels.with_field
+SymbolicAWEModels.point_type
+SymbolicAWEModels.per_axis
+SymbolicAWEModels.point_model
+SymbolicAWEModels.station_model
+SymbolicAWEModels.pulley_model
+SymbolicAWEModels.tether_model
+SymbolicAWEModels.body_model
+SymbolicAWEModels.field_value
+SymbolicAWEModels.reference
+SymbolicAWEModels.reference_column
+SymbolicAWEModels.references
+SymbolicAWEModels.references_column
+SymbolicAWEModels.open_end
+SymbolicAWEModels.check_point_anchor
+SymbolicAWEModels.tether_row
+SymbolicAWEModels.body_row
+SymbolicAWEModels.wing_column
+SymbolicAWEModels.held_vector!
+SymbolicAWEModels.principal_axes
+SymbolicAWEModels.axis_column
 ```
 
 ## Definition writer internals
 
 ```@docs
 SymbolicAWEModels.system_definition
+SymbolicAWEModels.attach_definition!
+SymbolicAWEModels.replace_with_rows!
+SymbolicAWEModels.station_row
+SymbolicAWEModels.with_ends!
+SymbolicAWEModels.segment_row!
 SymbolicAWEModels.store_definition_pose!
 SymbolicAWEModels.definition_name
 SymbolicAWEModels.optional_index
@@ -277,6 +318,7 @@ SymbolicAWEModels.resolve_material
 SymbolicAWEModels.segment_initial_length
 SymbolicAWEModels.segment_world_length
 SymbolicAWEModels.tether_ordered_point_idxs
+SymbolicAWEModels.endpoint_idx
 SymbolicAWEModels.tether_anchor_free
 SymbolicAWEModels.anchor_body_idxs
 SymbolicAWEModels.beam_body_neighbors

@@ -137,6 +137,39 @@ end
                for header in ("extra_mass", "area", "drag_coeff")] == [1.0, 0.1, 1.0]
     end
 
+    @testset "a point is its definition row" for
+            sys in (two_plate_kite(set, vsm_set), pretensioned_tether(set))
+        point = last(sys.points)
+        row = sys.definition.points[point.idx]
+        point.extra_mass = 2.0
+        point.area = 0.3
+        point.fix_static = true
+        @test (row.extra_mass, row.area, row.fix_static) == (2.0, 0.3, true)
+        row.drag_coeff = 0.7
+        @test point.drag_coeff == 0.7
+        @test point === row
+    end
+
+    @testset "a segment is its definition row" for
+            sys in (two_plate_kite(set, vsm_set), pretensioned_tether(set))
+        segment = last(sys.segments)
+        row = sys.definition.segments[segment.idx]
+        segment.l0 = 1.5
+        segment.diameter = 0.002
+        segment.unit_damping = 3.0
+        segment.compression_frac = 0.2
+        segment.compression_damping_frac = 0.5
+        @test (row.rest_length, row.diameter, row.unit_damping, row.compression_frac,
+               row.compression_damping_frac) == (1.5, 0.002, 3.0, 0.2, 0.5)
+        row.rest_length = 2.5
+        @test segment.l0 == 2.5
+        @test segment === row
+    end
+
+    @testset "a segment named by a number keeps that name as its row's" begin
+        @test Segment(3, :ground, :top, 1.0, 0.0, 0.001).name === Symbol(3)
+    end
+
     @testset "a station names the wing whose twist it carries" begin
         document = structure_document(two_plate_kite(set, vsm_set))
         @test all(==("main_wing"), values(cells(document, "spanwise_stations", "wing")))

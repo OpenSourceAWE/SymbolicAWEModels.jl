@@ -69,29 +69,6 @@ end
 
 # ==================== VSM ENGINE ==================== #
 
-# ==================== BODY PROPERTY FORWARDING (VSM) ==================== #
-
-function Base.getproperty(body::Body, sym::Symbol)
-    if sym === :dynamics_type
-        # Back-compat WingType view: KINEMATIC → PARTICLE_DYNAMICS, else RIGID.
-        return getfield(body, :type) === KINEMATIC ? PARTICLE_DYNAMICS : RIGID_DYNAMICS
-    elseif sym === :vsm_aoa
-        return mean(body_vsm_engine(body, sym).vsm_solver.sol.alpha_dist)
-    elseif sym in VSM_ENGINE_FIELDS
-        return getproperty(body_vsm_engine(body, sym), sym)
-    else
-        return getfield(body, sym)
-    end
-end
-
-function Base.setproperty!(body::Body, sym::Symbol, value)
-    if sym in VSM_ENGINE_FIELDS
-        setproperty!(body_vsm_engine(body, sym), sym, value)
-    else
-        setfield!(body, sym, convert(fieldtype(typeof(body), sym), value))
-    end
-end
-
 """
     body_vsm_engine(body::Body, sym::Symbol)
 
@@ -99,10 +76,11 @@ Return the body's VSM engine; errors if the aero mode carries none
 (e.g. AeroNone/AeroPlate).
 """
 function body_vsm_engine(body::Body, sym::Symbol)
-    engine = vsm_engine(getfield(body, :aero))
+    aero = body_model(body).aero
+    engine = vsm_engine(aero)
     engine === nothing && error(
         "Body $(getfield(body, :name)) aero mode " *
-        "$(typeof(getfield(body, :aero))) has no VSM engine; field `$sym` unavailable.")
+        "$(typeof(aero)) has no VSM engine; field `$sym` unavailable.")
     return engine
 end
 
@@ -207,20 +185,15 @@ function Wing(name, stations::AbstractVector, Q_KA_to_ENU::AbstractVector,
     # Mass properties and frames are placeholders filled by SystemStructure.
     body_type = dynamics_type == RIGID_DYNAMICS ? DYNAMIC : KINEMATIC
     damping_vec = broadcast_damping(angular_damping)
-    return Body{typeof(aero), wing_dynamics(dynamics_type)}(
-        0, name, 0, transform_ref, 0, 0,
-        zero(SimFloat), zero(SimFloat), zero(SimFloat), KVec3(inertia_principal),
-        Matrix{SimFloat}(I, 3, 3), zeros(KVec3),
-        Matrix{SimFloat}(Diagonal(inertia_principal)), zeros(KVec3),
-        principal_frame_method,
-        zeros(KVec3), zeros(KVec3), zeros(KVec3),
-        damping_vec, broadcast_damping(world_frame_damping),
-        broadcast_damping(body_frame_damping), false, false, body_type,
-        KVec3(pos_ENU), Vector{SimFloat}(Q_KA_to_ENU),
-        # aero/wing fields
-        aero, Int64[], station_refs, zeros(KVec3), one(SimFloat),
-        group_points_moment,
-        z_ref, y_ref, origin_rp, zeros(KVec3), Matrix{SimFloat}(I, 3, 3))
+    return body_row(name, aero, wing_dynamics(dynamics_type); extra_mass=0.0,
+        extra_inertia_b=Diagonal(inertia_principal), pos_ENU, Q_KA_to_ENU,
+        type=string(body_type), angular_damping=Vector(damping_vec),
+        world_frame_damping=Vector(broadcast_damping(world_frame_damping)),
+        body_frame_damping=Vector(broadcast_damping(body_frame_damping)),
+        fix_sphere=false, fix_static=false, ext_force_w=zeros(3), ext_force_b=zeros(3),
+        ext_moment_b=zeros(3), principal_frame_method=string(principal_frame_method),
+        transform_ref, inertia_principal=KVec3(inertia_principal), station_refs,
+        group_points_moment, z_ref_points=z_ref, y_ref_points=y_ref, origin=origin_rp)
 end
 
 """
