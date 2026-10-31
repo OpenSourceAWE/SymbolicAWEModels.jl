@@ -2,7 +2,7 @@
 
 julia_version = "1.13.0"
 manifest_format = "2.1"
-project_hash = "8986a318c812e9c2d2a44315f79ca0c2cda4ec4c"
+project_hash = "1a2e08e646b8d94db4eb8bf926c675ff2caaccfc"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -1670,10 +1670,10 @@ version = "0.6.12"
 
 [[deps.KiteGeometry]]
 deps = ["JSON", "KiteUtils", "LinearAlgebra", "OrderedCollections", "SHA", "StaticArrays", "YAML"]
-git-tree-sha1 = "f111b21c7a0d5b6f9b491954d01fcbb672158d65"
+git-tree-sha1 = "8affcf2b7dedb67cac0f8123f1809c5e7c425579"
 registries = "General"
 uuid = "941ca69c-4b42-4a27-9601-abc4d37bf99e"
-version = "0.3.2"
+version = "0.3.3"
 
 [[deps.KitePodModels]]
 deps = ["DocStringExtensions", "KiteUtils", "Reexport"]

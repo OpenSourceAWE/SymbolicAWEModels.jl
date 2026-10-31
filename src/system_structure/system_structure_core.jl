@@ -151,6 +151,14 @@ function resolve!(
         for ref in ref_pt.refs]
 end
 
+"""The index of the point `ref` names as an end of `tether`, refusing one that names none
+of `points`."""
+function endpoint_idx(tether, ref, point_names, points)
+    ref isa Int && ref in eachindex(points) && return ref
+    ref isa Symbol && haskey(point_names, ref) && return point_names[ref]
+    error("Tether $(tether.name): end point $ref not found in points")
+end
+
 """
     expand_auto_tethers!(points, segments, tethers, set)
 
@@ -168,49 +176,20 @@ function expand_auto_tethers!(
     tethers::Vector{Tether},
     set::Settings
 )
-    # Build point name lookup for finding start/end points
-    point_names = Dict{Symbol, Int}()
-    for (i, point) in enumerate(points)
-        if !isnothing(point.name)
-            name = point.name isa Symbol ? point.name : Symbol(point.name)
-            point_names[name] = i
-        end
-    end
-
-    # Build segment name set for checking existing segments
-    seg_names = Set{Symbol}()
-    for segment in segments
-        if !isnothing(segment.name)
-            name = segment.name isa Symbol ? segment.name : Symbol(segment.name)
-            push!(seg_names, name)
-        end
-    end
+    point_names = Dict{Symbol, Int}(Symbol(point.name) => i
+                                    for (i, point) in enumerate(points))
+    seg_names = Set{Symbol}(Symbol(segment.name) for segment in segments)
 
     for tether in tethers
         # Skip Route 1 tethers (no start_point_ref)
         isnothing(tether.start_point_ref) && continue
 
-        # Skip if segments already exist (user pre-created)
-        first_seg_name = tether.segment_refs[1]
-        first_seg_sym = first_seg_name isa Symbol ?
-            first_seg_name : Symbol(first_seg_name)
-        first_seg_sym in seg_names && continue
+        # Skip if segments already exist (user pre-created, or an index)
+        first_segment = tether.segment_refs[1]
+        (first_segment isa Int || first_segment in seg_names) && continue
 
-        # Resolve start and end points by name
-        start_point_sym = tether.start_point_ref isa Symbol ?
-            tether.start_point_ref :
-            Symbol(tether.start_point_ref)
-        end_point_sym = tether.end_point_ref isa Symbol ?
-            tether.end_point_ref :
-            Symbol(tether.end_point_ref)
-        haskey(point_names, start_point_sym) || error(
-            "Tether $(tether.name): start_point " *
-            ":$start_point_sym not found in points")
-        haskey(point_names, end_point_sym) || error(
-            "Tether $(tether.name): end_point " *
-            ":$end_point_sym not found in points")
-        start_point_idx = point_names[start_point_sym]
-        end_point_idx = point_names[end_point_sym]
+        start_point_idx = endpoint_idx(tether, tether.start_point_ref, point_names, points)
+        end_point_idx = endpoint_idx(tether, tether.end_point_ref, point_names, points)
         start_pos = points[start_point_idx].pos_ENU
         end_pos = points[end_point_idx].pos_ENU
 
@@ -937,19 +916,9 @@ function SystemStructure(name, set;
             @warn "No wings provided but " *
                   "$(length(wing_point_idxs)) wing-node " *
                   "points found. Converting to STATIC."
-            for idx in wing_point_idxs
-                points[idx] = Point(
-                    points[idx].name,
-                    points[idx].pos_ENU,
-                    STATIC;
-                    extra_mass = points[idx].extra_mass,
-                    body_frame_damping =
-                        points[idx].body_frame_damping,
-                    world_frame_damping =
-                        points[idx].world_frame_damping,
-                    transform = points[idx].transform_ref
-                )
-                points[idx].idx = idx  # Reassign idx after recreation
+            for point in points[wing_point_idxs]
+                point.type, point.wing_idx, point.body_idx, point.tube_idx = STATIC, 0, 0, 0
+                point.anchor_b, point.apparent_mass, point.is_wing_node = nothing, 0.0, false
             end
         end
     end
@@ -1049,7 +1018,7 @@ function SystemStructure(name, set;
         end
         if point.body_idx > 0 && iszero(point.anchor_b)
             body = bodies[point.body_idx]
-            point.anchor_b = KVec3(initial_body_position(body, point))
+            point.resolved_anchor_b = initial_body_position(body, point)
         end
     end
 
@@ -1109,7 +1078,7 @@ function SystemStructure(name, set;
         AtmosphericModel(set), false, false, vsm_set, wind_mode, definition)
     placed || place!(sys_struct; ignore_l0, prn)
     init_derived_properties!(sys_struct; prn)
-    isnothing(definition) && (sys_struct.definition = system_definition(sys_struct))
+    isnothing(definition) && attach_definition!(sys_struct)
 
     # Panel→flap station map (structural; needs placed bodies + built panels).
     for wing in sys_struct.wings

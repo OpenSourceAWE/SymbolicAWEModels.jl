@@ -70,14 +70,14 @@ default_backend!
 SystemStructure
 SystemStructure(name, set; points, stations, segments, pulleys, tethers, winches, wings, transforms, bodies, tubes)
 Point
-Point(name, pos_ENU, type; wing, transform, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
+Point(name, pos_ENU, type::DynamicsType; wing, transform, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
 Station
-Station(name, points, type, moment_frac; damping=50.0)
+Station(name, points, type::DynamicsType, moment_frac; damping=50.0)
 Segment
 Segment(name, set, point_i, point_j; l0, compression_frac, compression_damping_frac, diameter_mm, unit_stiffness, unit_damping, density, youngs_modulus, damping_per_stiffness)
-Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, compression_frac, compression_damping_frac)
+Segment(name, point_i::Union{Integer, Symbol}, point_j::Union{Integer, Symbol}, unit_stiffness, unit_damping, diameter; l0, compression_frac, compression_damping_frac)
 Pulley
-Pulley(name, segment_i, segment_j, type; efficiency, damping, brake, friction_epsilon)
+Pulley(name, segment_i, segment_j, type::DynamicsType; efficiency, damping, brake, friction_epsilon)
 Tether
 Tether(name, segments::AbstractVector, stretched_length; start_point, end_point, tether_force, stretch_frac)
 Tether(name, stretched_length; start_point, end_point, n_segments, unit_stiffness, unit_damping, diameter, compression_frac, compression_damping_frac, tether_force, stretch_frac)

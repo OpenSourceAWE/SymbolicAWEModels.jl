@@ -105,7 +105,7 @@ function SystemStructure(definition::SystemDefinition, transforms, set::Settings
     point_transforms = member_transforms(transforms, :points, length(definition.points))
     body_transforms = member_transforms(transforms, :bodies, length(definition.bodies))
     n_wings = length(definition.wings)
-    stations = Station[definition_station(definition, station)
+    stations = Station[definition_station(station)
                        for station in definition.spanwise_stations]
     wings = Body[definition_wing(definition, w, set, stations, body_transforms[w];
                                  dynamics_type, aero_mode, vsm_set)
@@ -114,12 +114,10 @@ function SystemStructure(definition::SystemDefinition, transforms, set::Settings
         points=Point[definition_point(definition, point, point_transforms[i])
                      for (i, point) in enumerate(definition.points)],
         stations,
-        segments=Segment[definition_segment(definition, segment, set)
-                         for segment in definition.segments],
-        pulleys=Pulley[definition_pulley(definition, pulley)
-                       for pulley in definition.pulleys],
-        tethers=Tether[definition_tether(definition, tether)
-                       for tether in definition.tethers],
+        segments=Segment[definition_segment(definition, i, set)
+                         for i in eachindex(definition.segments)],
+        pulleys=Pulley[definition_pulley(pulley) for pulley in definition.pulleys],
+        tethers=Tether[definition_tether(tether) for tether in definition.tethers],
         winches=Winch[definition_winch(definition, winch, set)
                       for winch in definition.winches],
         wings,
@@ -161,76 +159,66 @@ ref_points_spec(value) = value isa AbstractVector ?
 """Keyword arguments from `pairs` whose value is set."""
 set_kwargs(pairs...) = (; (key => value for (key, value) in pairs if !isnothing(value))...)
 
+"""The point `point` of `definition` is, placed by `transform`: the row itself, riding no
+body where it is a tube rider on its wing's ([`point_body`](@ref))."""
 function definition_point(definition, point, transform)
-    type = isnothing(point.type) ?
-        (point.fixed ? STATIC : isnothing(point.body) ? DYNAMIC : BODY_STATIC) :
-        parse_dynamics_type(point.type)
-    return Point(row_name(point), point.pos_ENU, type;
-        set_kwargs(:wing => maybe(cell_ref, point.wing_idx), :transform => transform,
-                   :body => point_body(definition, point),
-                   :anchor_b => point.anchor_b,
-                   :tube => maybe(cell_ref, point.tube),
-                   :extra_mass => point.extra_mass,
-                   :body_frame_damping => point.body_frame_damping,
-                   :world_frame_damping => point.world_frame_damping,
-                   :area => point.area, :drag_coeff => point.drag_coeff,
-                   :fix_sphere => point.fix_sphere, :fix_static => point.fix_static)...)
+    point.body_ref = point_body(definition, point)
+    point.transform_ref = something(transform, 0)
+    return check_point_anchor(point)
 end
 
 """The body `point` rides: none for a tube rider whose body is the one KiteGeometry gives
 a `BODY_STATIC` point naming its wing and no body, which is that wing's."""
 function point_body(definition, point)
-    isnothing(point.body) && return nothing
-    wing = maybe(cell_ref, point.wing_idx)
-    wing_body = point.body <= length(definition.wings) &&
-        wing in (point.body, name_of(definition.wings, point.body))
-    return !isnothing(point.tube) && wing_body ? nothing :
-        name_of(definition.bodies, point.body)
+    body = getfield(point, :body)
+    isnothing(body) && return 0
+    wing = point.model.wing_idx
+    wing_body = body <= length(definition.wings) &&
+        wing in (body, definition.wings[body].name)
+    return !isnothing(point.model.tube) && wing_body ? 0 : body
 end
 
 """`f(value)`, or `nothing` for `nothing`."""
 maybe(f, value) = isnothing(value) ? nothing : f(value)
 
-function definition_station(definition, station)
-    isnothing(station.type) && error("station $(station.name) needs its `type`")
-    return Station(row_name(station), name_of.((definition.points,), station.points),
-        parse_dynamics_type(station.type),
-        something(station.moment_frac, 0.0);
-        set_kwargs(:damping => station.damping, :stiffness => station.stiffness,
-                   :wing => name_of(definition.wings, station.wing),
-                   :bodies => maybe(refs -> cell_ref.(refs), station.bodies),
-                   :flap_bodies => maybe(refs -> cell_ref.(refs), station.flap_bodies),
-                   :flap_points => maybe(refs -> cell_ref.(refs), station.flap_points),
-                   :flap_axis => station.flap_axis)...)
+"""The station `station` of a definition is: the row itself, refusing one without a
+`type`."""
+function definition_station(station)
+    isnothing(station.model.type) && error("station $(station.name) needs its `type`")
+    return station
 end
 
-function definition_segment(definition, segment, set)
+"""The segment `segment` of `definition` is, its `spring` model read into a
+[`SegmentModel`](@ref) with the stiffness and density of its material, in its place in
+`definition`."""
+function definition_segment(definition, i, set)
+    segment = definition.segments[i]
     material = definition.materials[segment.material]
     material.law == "linear" || error("segment $(segment.name): material law " *
         "$(material.law) has no force law here; give its unit_stiffness in Julia")
     spring = segment.model
-    points = name_of.((definition.points,), segment.points)
-    return Segment(row_name(segment), set, points...;
-        l0=segment.rest_length, diameter_mm=1000 * segment.diameter,
-        youngs_modulus=material.parameters["youngs_modulus"],
-        density=material.parameters["density"], unit_damping=spring.unit_damping,
-        spring.compression_frac, spring.compression_damping_frac)
+    _, unit_stiffness, _, density = resolve_material("Segment $(segment.name)", set;
+        diameter_m=segment.diameter, youngs_modulus=material.parameters["youngs_modulus"],
+        density=material.parameters["density"], spring.unit_damping)
+    model = SegmentModel(; spring.unit_damping, spring.compression_frac,
+                         spring.compression_damping_frac, unit_stiffness, density)
+    return definition.segments[i] = KiteGeometry.Segment(; segment.name, segment.points,
+        segment.rest_length, segment.diameter, segment.material, model)
 end
 
-function definition_pulley(definition, pulley)
-    isnothing(pulley.type) && error("pulley $(pulley.name) needs its `type`")
-    return Pulley(row_name(pulley), name_of.((definition.segments,), pulley.segments)...,
-        parse_dynamics_type(pulley.type);
-        set_kwargs(:efficiency => pulley.efficiency, :damping => pulley.damping,
-                   :brake => pulley.brake,
-                   :friction_epsilon => pulley.friction_epsilon)...)
+"""The pulley `pulley` of a definition is: the row itself, refusing one without a
+`type`."""
+function definition_pulley(pulley)
+    isnothing(pulley.model.type) && error("pulley $(pulley.name) needs its `type`")
+    return pulley
 end
 
-definition_tether(definition, tether) = Tether(row_name(tether),
-    name_of.((definition.segments,), tether.segments), tether.init_stretched_length;
-    start_point=name_of(definition.points, tether.start_point),
-    end_point=name_of(definition.points, tether.end_point),
-    tether_force=tether.init_tether_force, stretch_frac=tether.init_stretch_frac)
+"""The tether `tether` of a definition is: the row itself, of as many segments as it
+lists."""
+function definition_tether(tether)
+    tether.n_segments = length(tether.segments)
+    return tether
+end
 
 definition_winch(definition, winch, set) = Winch(row_name(winch), set,
     name_of.((definition.tethers,), winch.tethers);
@@ -252,21 +240,22 @@ function definition_transform(definition, transform, transforms)
         transform.elevation_vel, transform.azimuth_vel, transform.turn_rate)
 end
 
+"""The body `body` of a definition is, placed by `transform`: the row itself, with what
+the structure derives from its mass, inertia and pose."""
 function definition_body(body, transform)
-    type = maybe(parse_dynamics_type, body.type)
-    return Body(row_name(body); extra_mass=something(body.extra_mass, 0.0),
-        inertia=Matrix{SimFloat}(something(body.extra_inertia_KA, zeros(3, 3))),
-        pos=body.pos_ENU, Q_b_to_w=Vector{SimFloat}(body.Q_KA2ENU),
-        set_kwargs(:type => type, :transform => transform,
-                   :wing => maybe(cell_ref, body.wing),
-                   :angular_damping => body.angular_damping,
-                   :world_frame_damping => body.world_frame_damping,
-                   :body_frame_damping => body.body_frame_damping,
-                   :fix_sphere => body.fix_sphere, :fix_static => body.fix_static,
-                   :ext_force_w => body.ext_force_w, :ext_force_b => body.ext_force_b,
-                   :ext_moment_b => body.ext_moment_b,
-                   :principal_frame_method =>
-                       maybe(parse_principal_frame_method, body.principal_frame_method))...)
+    body.type in (DYNAMIC, STATIC) ||
+        error("Body $(body.name): type must be DYNAMIC or STATIC, got $(body.type).")
+    model = body_model(body)
+    inertia = Matrix{SimFloat}(something(getfield(body, :extra_inertia_KA), zeros(3, 3)))
+    inertia_principal, R_b_to_p = principal_axes(inertia, body.principal_frame_method)
+    model.transform_ref = something(transform, 0)
+    model.total_mass = body.extra_mass
+    model.inertia_principal .= inertia_principal
+    model.R_b_to_p = R_b_to_p
+    model.extra_inertia_b = R_b_to_p' * Diagonal(inertia_principal) * R_b_to_p
+    model.initial_pos_ENU = KVec3(getfield(body, :pos_ENU))
+    model.initial_Q_KA_to_ENU .= getfield(body, :Q_KA2ENU)
+    return body
 end
 
 function definition_tube(definition, tube)
@@ -303,6 +292,21 @@ function definition_wing(definition, w, set, stations, transform; dynamics_type,
                       stations; transform)
     built.mesh_frame_pos .= wing.pos_ENU
     built.R_mesh_to_w .= quaternion_to_rotation_matrix(wing.Q_KA2ENU)
+    return definition.bodies[w] = in_place_of(definition.bodies[w], built, wing)
+end
+
+"""Wing body row `built` in place of the definition's row `body` of wing `wing`: what
+`body` gives, its columns among them, and what the structure derives in `built`."""
+function in_place_of(body, built, wing)
+    model = body_model(built)
+    for column in KiteGeometry.model_columns(typeof(model))
+        setfield!(model, column, getfield(body.model, column))
+    end
+    model.wing_definition = wing
+    getfield(built, :pos_ENU) .= getfield(body, :pos_ENU)
+    getfield(built, :Q_KA2ENU) .= getfield(body, :Q_KA2ENU)
+    setfield!(built, :extra_mass, getfield(body, :extra_mass))
+    setfield!(built, :extra_inertia_KA, getfield(body, :extra_inertia_KA))
     return built
 end
 

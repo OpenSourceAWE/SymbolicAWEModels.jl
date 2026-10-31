@@ -213,9 +213,10 @@ function Base.getproperty(view::PathView, sym::Symbol)
 end
 
 """The reader of the leaf `value` at `path`: a [`PathReader`](@ref), copying into a
-buffer of its own a vector a run's state holds in its columns."""
+buffer of its own a vector built on read — one a run's state holds in its columns, or
+one a definition row holds as one number per axis."""
 leaf_reader(path, value) = PathReader(path)
-leaf_reader(path, value::Union{ColumnVec3, ColumnQuat}) =
+leaf_reader(path, value::Union{ColumnVec3, ColumnQuat, SVector}) =
     CopyReader(PathReader(path), MVector(Tuple(value)))
 
 """
