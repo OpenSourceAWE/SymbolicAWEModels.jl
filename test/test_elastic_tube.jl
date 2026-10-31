@@ -104,6 +104,18 @@ end
         @test sys.tubes[:j1].body_b_idx == 2
     end
 
+    @testset "Tubes built from one element keep their own anchors" begin
+        element = ElasticTube(stiffness_axial=1.0, stiffness_shear=1.0,
+                              stiffness_torsion=1.0, stiffness_bending=1.0)
+        first_tube = Tube(1, :b1, :b2; diameter=0.1, pressure=3e4, model=element,
+                          anchor_a=[0.5, 0.0, 0.0])
+        second_tube = Tube(2, :b1, :b2; diameter=0.1, pressure=3e4, model=element,
+                           anchor_a=[0.25, 0.0, 0.0])
+        @test first_tube.anchor_a_b == [0.5, 0.0, 0.0]
+        @test second_tube.anchor_a_b == [0.25, 0.0, 0.0]
+        @test first_tube.name === Symbol("1")
+    end
+
     sam = SymbolicAWEModel(set, sys)
     test_init!(sam)
     b1 = sam.state.bodies[:b1]
