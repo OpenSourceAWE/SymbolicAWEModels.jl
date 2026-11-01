@@ -140,8 +140,8 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
               data:
                 - [strut, [nodeA, nodeB], 0.1, 30000.0, breukels2011, 10000.0]
             """)
-        sys = load_sys_struct_from_yaml(file; system_name="tube_rider", set,
-                                        aero_mode=AeroNone(), prn=false)
+        sys, _ = load_sys_struct_from_yaml(file; system_name="tube_rider", set,
+                                           aero_mode=AeroNone(), prn=false)
         rider = sys.points[:rider]
         @test rider.tube_idx == sys.tubes[:strut].idx
     end

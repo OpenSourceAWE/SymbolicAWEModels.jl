@@ -84,10 +84,10 @@ system:
 
     @testset "sam.set delegates to sys_struct.set" begin
         set = Settings("system.yaml")
-        sys = load_sys_struct_from_yaml(
+        sys, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_1", set)
 
-        sam = SymbolicAWEModel(set, sys)
+        sam = SymbolicAWEModel(set, sys; transforms)
         init!(sam; remake=true, prn=false)
 
         # sam.set must be the exact same object as
@@ -108,9 +108,9 @@ system:
         set1 = Settings("system.yaml")
         set1.g_earth = 0.0
         set1.v_wind = 0.0
-        sys1 = load_sys_struct_from_yaml(
+        sys1, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_2", set=set1)
-        sam1 = SymbolicAWEModel(set1, sys1)
+        sam1 = SymbolicAWEModel(set1, sys1; transforms)
         init!(sam1; remake=true, prn=false)
 
         # Simulate - no gravity, no wind → stationary
@@ -126,9 +126,9 @@ system:
         set2 = Settings("system.yaml")
         set2.g_earth = 9.81
         set2.v_wind = 0.0
-        sys2 = load_sys_struct_from_yaml(
+        sys2, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_2", set=set2)
-        sam2 = SymbolicAWEModel(set2, sys2)
+        sam2 = SymbolicAWEModel(set2, sys2; transforms)
         # remake=false → loads from cache
         init!(sam2; remake=false, prn=false)
 
@@ -158,11 +158,11 @@ system:
         function build_refine(; remake)
             set = Settings("system.yaml")
             set.g_earth = 0.0
-            sys = load_sys_struct_from_yaml(refine_yaml;
+            sys, transforms = load_sys_struct_from_yaml(refine_yaml;
                 system_name="deser_refine", set,
                 dynamics_type=PARTICLE_DYNAMICS, vsm_set)
             sys.winches[:main_winch].brake = true
-            sam = SymbolicAWEModel(set, sys)
+            sam = SymbolicAWEModel(set, sys; transforms)
             init!(sam; remake, remake_vsm=false, prn=false)
             for _ in 1:5
                 next_step!(sam; dt=0.05, vsm_interval=1)

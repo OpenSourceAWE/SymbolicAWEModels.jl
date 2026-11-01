@@ -163,9 +163,9 @@ environment:
     set_data_path(tmpdir)
     set = Settings("system.yaml")
 
-    sys = load_sys_struct_from_yaml(
+    sys, transforms = load_sys_struct_from_yaml(
         yaml_path; system_name="winch_test", set=set)
-    sam = SymbolicAWEModel(set, sys)
+    sam = SymbolicAWEModel(set, sys; transforms)
     test_init!(sam)
 
     winch = sam.state.winches[:main_winch]
@@ -408,7 +408,7 @@ environment:
     # ============================================================
     @testset "Route 2 auto-generated tether" begin
         using SymbolicAWEModels: Point, Segment, Tether, Winch,
-            Transform, SystemStructure, SymbolicAWEModel,
+            SystemStructure, SymbolicAWEModel,
             STATIC, DYNAMIC, init!
 
         points = [
@@ -417,9 +417,8 @@ environment:
             Point(:anchor, [0.0, 0.0, 0.0], STATIC),
         ]
         transforms = [
-            Transform(:tf, deg2rad(-80.0), 0.0, 0.0;
-                base_pos=[0, 0, 0], base_point=:anchor,
-                rot_point=:mass)
+            Transform(; name=:tf, elevation=deg2rad(-80.0), azimuth=0.0, heading=0.0,
+                base_pos=[0, 0, 0], base_point=2, rot_point=[1 => 1.0])
         ]
 
         # Route 2: auto-generate 4 segments between mass
@@ -431,8 +430,7 @@ environment:
             winch_point=:anchor)]
 
         sys2 = SystemStructure("route2_test", set;
-            points, tethers, winches, transforms,
-            prn=false)
+            points, tethers, winches, prn=false)
 
         # 2 original + 3 intermediate = 5 points
         @test length(sys2.points) == 5
@@ -468,7 +466,7 @@ environment:
         end
 
         # Build and simulate: mass should settle under gravity
-        sam2 = SymbolicAWEModel(set, sys2)
+        sam2 = SymbolicAWEModel(set, sys2; transforms)
         test_init!(sam2)
 
         # Brake on, stiff tether
@@ -517,7 +515,7 @@ environment:
     # ============================================================
     @testset "Tether without winch" begin
         using SymbolicAWEModels: Point, Segment, Tether,
-            Transform, SystemStructure, SymbolicAWEModel,
+            SystemStructure, SymbolicAWEModel,
             STATIC, DYNAMIC
 
         points = [
@@ -531,15 +529,13 @@ environment:
         ]
         tethers = [Tether(:free_tether, [:seg], 50.0)]
         transforms = [
-            Transform(:tf, deg2rad(-80.0), 0.0, 0.0;
-                base_pos=[0, 0, 0], base_point=:bot,
-                rot_point=:top)
+            Transform(; name=:tf, elevation=deg2rad(-80.0), azimuth=0.0, heading=0.0,
+                base_pos=[0, 0, 0], base_point=2, rot_point=[1 => 1.0])
         ]
 
         # No winches — should build fine
         sys3 = SystemStructure("no_winch", set;
-            points, segments, tethers, transforms,
-            prn=false)
+            points, segments, tethers, prn=false)
 
         @test length(sys3.winches) == 0
         @test length(sys3.tethers) == 1
@@ -549,7 +545,7 @@ environment:
         @test teth.end_point_idx ==
             sys3.points[:bot].idx
 
-        sam3 = SymbolicAWEModel(set, sys3)
+        sam3 = SymbolicAWEModel(set, sys3; transforms)
         test_init!(sam3)
 
         # Settle under gravity. k = unit_stiffness/l0 = 1000 N/m against 5 kg

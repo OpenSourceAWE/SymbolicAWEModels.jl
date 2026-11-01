@@ -37,10 +37,10 @@ using LinearAlgebra
 """
     build_continuous_case(case, root)
 
-Fresh data directory, `Settings` and `SystemStructure` for one continuous-mode
-case. The mode's spanwise distribution and its own fixture (AeroPressure's
-synthetic surface aero) are applied to that copy alone, so no case can disturb
-another's geometry or model cache.
+Fresh data directory, `Settings`, `SystemStructure` and its placing transforms
+for one continuous-mode case. The mode's spanwise distribution and its own
+fixture (AeroPressure's synthetic surface aero) are applied to that copy alone,
+so no case can disturb another's geometry or model cache.
 """
 function build_continuous_case(case, root)
     data_path = joinpath(root, case.system_name, "2plate_kite")
@@ -58,10 +58,10 @@ function build_continuous_case(case, root)
             vsm_wing_settings.billowing_percentage = 8.0
         end
     end
-    sys = load_sys_struct_from_yaml(
+    sys, transforms = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
         system_name=case.system_name, set, vsm_set, aero_mode=case.make())
-    return set, sys
+    return set, sys, transforms
 end
 
 """
@@ -105,8 +105,8 @@ group_means(groups, values) =
 
     for case in cases
         @testset "$(case.name)" begin
-            set, sys = build_continuous_case(case, root)
-            sam = SymbolicAWEModel(set, sys)
+            set, sys, transforms = build_continuous_case(case, root)
+            sam = SymbolicAWEModel(set, sys; transforms)
             wing = sam.state.wings[1]
             mode = wing.aero
             nodes = wing_points(sam.state, wing)

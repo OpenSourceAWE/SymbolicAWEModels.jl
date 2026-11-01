@@ -36,7 +36,7 @@ using LinearAlgebra
         vsm_set_path; data_prefix=false)
 
     # ── PARTICLE_DYNAMICS: 3 explicit stations (LE/TE membership) ──
-    sys_refine = load_sys_struct_from_yaml(
+    sys_refine, _ = load_sys_struct_from_yaml(
         refine_yaml;
         system_name="2plate_refine", set, vsm_set)
 
@@ -48,7 +48,7 @@ using LinearAlgebra
     # ── RIGID_DYNAMICS with YAML-defined stations ───────
     # rigid_structural_geometry.yaml has 3 explicit stations
     # and 7 WING points (6 LE/TE + kcu).
-    sys_quat = load_sys_struct_from_yaml(
+    sys_quat, _ = load_sys_struct_from_yaml(
         struc_yaml;
         system_name="2plate_quat", set, vsm_set,
         dynamics_type=RIGID_DYNAMICS)

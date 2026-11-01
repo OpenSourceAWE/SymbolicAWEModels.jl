@@ -31,7 +31,7 @@ function reset_state!(sam, set)
     set.g_earth = 9.81
     set.v_wind = 15.0
 
-    tf = sam.sys_struct.transforms[:main_transform]
+    tf = sam.transforms[:main_transform]
     tf.elevation = deg2rad(60)
     tf.azimuth = 0.0
     tf.heading = 0.0
@@ -86,18 +86,18 @@ end
     )
 
     # Build SAMs once (expensive symbolic compilation)
-    quat_sys = load_sys_struct_from_yaml(
+    quat_sys, quat_transforms = load_sys_struct_from_yaml(
         quat_yaml_path;
         system_name="wing_test_QUATERNION", set, vsm_set
     )
-    quat_sam = SymbolicAWEModel(set, quat_sys)
+    quat_sam = SymbolicAWEModel(set, quat_sys; transforms=quat_transforms)
     test_init!(quat_sam)
 
-    refine_sys = load_sys_struct_from_yaml(
+    refine_sys, refine_transforms = load_sys_struct_from_yaml(
         refine_yaml_path;
         system_name="wing_test_REFINE", set, vsm_set
     )
-    refine_sam = SymbolicAWEModel(set, refine_sys)
+    refine_sam = SymbolicAWEModel(set, refine_sys; transforms=refine_transforms)
     test_init!(refine_sam)
 
     sam_configs = [

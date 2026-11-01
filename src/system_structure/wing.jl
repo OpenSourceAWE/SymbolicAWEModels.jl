@@ -123,12 +123,11 @@ function Wing end
 
 """
     Wing(name, stations, Q_KA_to_ENU, pos_ENU, inertia_principal;
-         transform=nothing, angular_damping=[0.0, 150.0, 0.0],
-         dynamics_type=RIGID_DYNAMICS, aero=nothing,
+         angular_damping=[0.0, 150.0, 0.0], dynamics_type=RIGID_DYNAMICS, aero=nothing,
          z_ref_points=nothing, y_ref_points=nothing, origin=nothing, vsm=nothing)
 
-Low-level `Wing` constructor. The `idx`, `station_idxs`, and `transform_idx`
-are resolved by `SystemStructure`.
+Low-level `Wing` constructor. The `idx` and `station_idxs` are resolved by
+`SystemStructure`.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier (e.g. `:main_wing`).
@@ -138,7 +137,6 @@ are resolved by `SystemStructure`.
 - `inertia_principal::KVec3`: Principal moments of inertia `[Ixx, Iyy, Izz]`.
 
 # Keyword Arguments
-- `transform`: Reference to the transform (name or index). Defaults to 1.
 - `angular_damping`: Per-axis spin damping [1/s] about the body axes, `dω/dt -=
   c .* ω`. A scalar is broadcast to all three axes.
 - `world_frame_damping`, `body_frame_damping`: Per-mass translational damping
@@ -152,8 +150,7 @@ are resolved by `SystemStructure`.
 """
 function Wing(name, stations::AbstractVector, Q_KA_to_ENU::AbstractVector,
               pos_ENU, inertia_principal;
-              transform=nothing, angular_damping=[0.0, 150.0, 0.0],
-              world_frame_damping=0.0, body_frame_damping=0.0,
+              angular_damping=[0.0, 150.0, 0.0], world_frame_damping=0.0, body_frame_damping=0.0,
               dynamics_type::Union{Nothing,WingType}=nothing,
               aero::Union{Nothing,AbstractAeroModel}=nothing,
               wing_type::Union{Nothing,WingType}=nothing,
@@ -173,8 +170,6 @@ function Wing(name, stations::AbstractVector, Q_KA_to_ENU::AbstractVector,
     isnothing(aero) && (aero = dynamics_type == RIGID_DYNAMICS ?
         AeroLinearized() : AeroDirect())
     station_refs = Vector{NameRef}([to_name_ref(station) for station in stations])
-    transform_value = isnothing(transform) ? 1 : transform
-    transform_ref = to_name_ref(transform_value)
 
     z_ref = isnothing(z_ref_points) ? nothing :
         (WeightedRefPoints(z_ref_points[1]), WeightedRefPoints(z_ref_points[2]))
@@ -192,7 +187,7 @@ function Wing(name, stations::AbstractVector, Q_KA_to_ENU::AbstractVector,
         body_frame_damping=Vector(broadcast_damping(body_frame_damping)),
         fix_sphere=false, fix_static=false, ext_force_w=zeros(3), ext_force_b=zeros(3),
         ext_moment_b=zeros(3), principal_frame_method=string(principal_frame_method),
-        transform_ref, inertia_principal=KVec3(inertia_principal), station_refs,
+        inertia_principal=KVec3(inertia_principal), station_refs,
         group_points_moment, z_ref_points=z_ref, y_ref_points=y_ref, origin=origin_rp)
 end
 
@@ -303,8 +298,7 @@ function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
 end
 
 """
-    VSMWing(name, set, stations, vsm_set; transform=nothing,
-            angular_damping=[0.0, 150.0, 0.0], ...)
+    VSMWing(name, set, stations, vsm_set; angular_damping=[0.0, 150.0, 0.0], ...)
 
 Construct a [`Wing`](@ref) with Vortex Step Method aerodynamics. Builds the
 [`VSMEngine`](@ref) (`vsm_wing`/`vsm_aero`/`vsm_solver`) internally and attaches
@@ -319,7 +313,6 @@ it to the wing.
   like [`AeroNone`](@ref).
 
 # Keyword Arguments
-- `transform=nothing`: Reference to the transform. Defaults to 1.
 - `Q_KA_to_ENU`, `pos_ENU`, `inertia_diag`: Placeholders that [`SystemStructure`](@ref)
   overwrites from the wing's points and mesh.
 - `extra_mass`, `com`, `unit_inertia`: the wing body's own mass [kg], COM and
@@ -339,8 +332,7 @@ function VSMWing(name, set::Settings,
                  vsm_set::Union{Nothing, VortexStepMethod.VSMSettings};
                  Q_KA_to_ENU::Union{Nothing,AbstractVector}=nothing,
                  pos_ENU::Union{Nothing,AbstractVector}=nothing,
-                 transform=nothing, angular_damping=[0.0, 150.0, 0.0],
-                 inertia_diag=nothing,
+                 angular_damping=[0.0, 150.0, 0.0], inertia_diag=nothing,
                  extra_mass=nothing,
                  com=nothing,
                  unit_inertia=nothing,
@@ -402,8 +394,7 @@ function VSMWing(name, set::Settings,
         ones(MVector{3, SimFloat}) : inertia_diag
 
     wing = Wing(name, stations, Q_KA_to_ENU, pos_ENU, inertia_vec;
-        transform, angular_damping, dynamics_type, aero,
-        group_points_moment, z_ref_points, y_ref_points, origin,
+        angular_damping, dynamics_type, aero, group_points_moment, z_ref_points, y_ref_points, origin,
         principal_frame_method)
     isnothing(extra_mass) || (wing.extra_mass = SimFloat(extra_mass))
     return wing
@@ -443,8 +434,7 @@ end
 
 """
     PlateWing(name, stations, calc_cl, calc_cd;
-              dynamics_type=PARTICLE_DYNAMICS, transform=nothing,
-              angular_damping=[0.0, 150.0, 0.0], drag_corr=0.93,
+              dynamics_type=PARTICLE_DYNAMICS, angular_damping=[0.0, 150.0, 0.0], drag_corr=0.93,
               z_ref_points=nothing, y_ref_points=nothing, origin=nothing)
 
 Construct a flat-plate [`Wing`](@ref) (no VSM engine; `vsm === nothing`). Each
@@ -462,7 +452,6 @@ polar lookups live on the wing's [`AeroPlate`](@ref) `aero` model. Supports both
 
 # Keyword Arguments
 - `dynamics_type`: `RIGID_DYNAMICS` or `PARTICLE_DYNAMICS` (default).
-- `transform`: Reference to transform (name or index).
 - `angular_damping`: Per-axis spin damping [1/s]; a scalar is broadcast.
 - `drag_corr`: Drag correction factor (stored on the `AeroPlate` model).
 - `z_ref_points`, `y_ref_points`, `origin`: Body-frame references.
@@ -470,7 +459,6 @@ polar lookups live on the wing's [`AeroPlate`](@ref) `aero` model. Supports both
 function PlateWing(name, stations::AbstractVector,
                    calc_cl, calc_cd;
                    dynamics_type::WingType=PARTICLE_DYNAMICS,
-                   transform=nothing,
                    angular_damping=[0.0, 150.0, 0.0],
                    drag_corr=0.93,
                    z_ref_points=nothing,
@@ -478,8 +466,7 @@ function PlateWing(name, stations::AbstractVector,
                    origin=nothing)
     return Wing(name, stations, SimFloat[1, 0, 0, 0],
                 zeros(KVec3), ones(MVector{3, SimFloat});
-                transform, angular_damping, dynamics_type,
-                aero=AeroPlate(calc_cl, calc_cd; drag_corr),
+                angular_damping, dynamics_type, aero=AeroPlate(calc_cl, calc_cd; drag_corr),
                 z_ref_points, y_ref_points, origin)
 end
 
@@ -567,4 +554,93 @@ function calc_pos(wing::VortexStepMethod.Wing, gamma, frac)
     chord = [wing.te_interp[i](gamma) for i in 1:3] .- le_pos
     pos = le_pos .+ chord .* frac
     return pos
+end
+
+# ==================== BODY FRAMES ==================== #
+
+"""
+    get_ref_position_from_points(points, ref_pt; field=:pos_w)
+
+Weighted position from structural points. `field` selects
+which point coordinate to read (`:pos_w` or `:pos_ENU`).
+"""
+function get_ref_position_from_points(
+    points::AbstractVector,
+    ref_pt::WeightedRefPoints;
+    field::Symbol=:pos_w,
+)
+    pos = zero(KVec3)
+    for (idx, w) in zip(ref_pt.ids, ref_pt.weights)
+        pos += w * getproperty(points[idx], field)
+    end
+    return pos
+end
+
+"""
+    calc_particle_dynamics_wing_frame(points, z_ref_points, y_ref_points, origin;
+                                      field=:pos_w)
+
+Calculate R_b_to_w rotation matrix and origin position
+from structural point positions, each point's `field`.
+
+# Algorithm
+1. Weighted ref point positions
+2. Z-axis (normal): z_p1 → z_p2
+3. X-axis (chord): Y_temp × Z
+4. Y-axis (span): Z × X (orthogonal, right-handed)
+5. Origin from weighted `origin` ref points
+"""
+function calc_particle_dynamics_wing_frame(
+    points::AbstractVector,
+    z_ref_points::Tuple{WeightedRefPoints,
+                        WeightedRefPoints},
+    y_ref_points::Tuple{WeightedRefPoints,
+                        WeightedRefPoints},
+    origin::WeightedRefPoints;
+    field::Symbol=:pos_w,
+)
+    z_p1, z_p2 = z_ref_points
+    y_p1, y_p2 = y_ref_points
+
+    pos_z1 = get_ref_position_from_points(points, z_p1; field)
+    pos_z2 = get_ref_position_from_points(points, z_p2; field)
+    pos_y1 = get_ref_position_from_points(points, y_p1; field)
+    pos_y2 = get_ref_position_from_points(points, y_p2; field)
+
+    # Z direction (normal to wing, normalized)
+    z_axis = normalize(pos_z2 - pos_z1)
+
+    # Y temp direction (not necessarily orthogonal)
+    y_temp = normalize(pos_y2 - pos_y1)
+
+    # X = Y_temp × Z (chord, orthogonal to Z)
+    x_axis = normalize(y_temp × z_axis)
+
+    # Y = Z × X (orthogonal, right-handed)
+    y_axis = z_axis × x_axis
+
+    R_b_to_w = hcat(x_axis, y_axis, z_axis)
+    origin_pos = get_ref_position_from_points(points, origin; field)
+
+    return R_b_to_w, origin_pos
+end
+
+"""
+    init_undeformed_offsets!(bodies, points)
+
+Set every rigid wing node's `pos_undeformed_b`, its offset from the wing's centre of
+mass in the body frame, from the initial pose.
+"""
+function init_undeformed_offsets!(bodies, points)
+    for body in bodies
+        body.dynamics_type == RIGID_DYNAMICS || continue
+        R_initial = initial_rotation(body)
+        com_initial = body.pos_ENU .+ R_initial * body.com_offset_b
+        for point in points
+            if point.is_wing_node && point.wing_idx == body.idx
+                point.pos_undeformed_b .= R_initial' * (point.pos_ENU - com_initial)
+            end
+        end
+    end
+    return nothing
 end

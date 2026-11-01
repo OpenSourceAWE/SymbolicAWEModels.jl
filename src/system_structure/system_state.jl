@@ -183,6 +183,8 @@ mutable struct SystemState{SS, ST <: SysState}
     bodies::NamedCollection{ComponentState}
     "the records of the wings, the first of `bodies`"
     wings::NamedCollection{ComponentState}
+    "the KiteGeometry transforms placing the run, whose rates start it moving"
+    const transforms::Rows{Transform}
 end
 
 """
@@ -200,12 +202,12 @@ function sysstate_counts(sys)
 end
 
 """
-    SystemState(sys::SystemStructure)
+    SystemState(sys::SystemStructure; transforms=Transform[])
 
-The state of a run of `sys`, at its start from the pose `sys` is placed in
-([`start_run!`](@ref)).
+The state of a run of `sys` placed by KiteGeometry `transforms`, at its start from the
+pose `sys` is placed in ([`start_run!`](@ref)).
 """
-function SystemState(sys)
+function SystemState(sys; transforms=Transform[])
     P, counts = sysstate_counts(sys)
     columns = RunColumns(; points=length(sys.points), segments=length(sys.segments),
                          stations=length(sys.stations), winches=length(sys.winches),
@@ -213,7 +215,7 @@ function SystemState(sys)
     no_records = NamedCollection(ComponentState[])
     state = SystemState(sys, SysState(P; counts..., precision=SimFloat), columns,
                         first(position_slots(sys).bodies) - 1, length(sys.wings),
-                        no_records, no_records)
+                        no_records, no_records, convert(Rows{Transform}, transforms))
     bodies = NamedCollection(ComponentState[BodyState(body, state, i)
                                             for (i, body) in enumerate(sys.bodies)])
     setfield!(state, :bodies, bodies)

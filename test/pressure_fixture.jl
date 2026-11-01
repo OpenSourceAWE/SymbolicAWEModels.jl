@@ -79,7 +79,7 @@ function load_pressure_sys(data_path, aero_mode)
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
     particle_yaml = joinpath(data_path, "particle_structural_geometry.yaml")
-    sys = load_sys_struct_from_yaml(particle_yaml; system_name="pressure_test",
+    sys, _ = load_sys_struct_from_yaml(particle_yaml; system_name="pressure_test",
         set, vsm_set, aero_mode)
     return set, SystemState(sys)
 end

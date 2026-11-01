@@ -147,7 +147,7 @@ end
     set_data_path(data_path)
     set = Settings("system.yaml")
 
-    sys = load_sys_struct_from_yaml(
+    sys, _ = load_sys_struct_from_yaml(
         write_yaml(tmpdir, "variables.yaml", VARIABLES_YAML);
         system_name="variables_test", set)
 
@@ -171,7 +171,7 @@ end
     @test sys.segments[:plain_line].unit_stiffness ≈ 5.0e9 * π * 0.001^2
 
     # In a dict row the fields are merged, without overriding the row
-    dict_sys = load_sys_struct_from_yaml(
+    dict_sys, _ = load_sys_struct_from_yaml(
         write_yaml(tmpdir, "dict_row.yaml", DICT_ROW_YAML);
         system_name="variables_test", set)
     dict_line = dict_sys.segments[:dict_line]

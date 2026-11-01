@@ -28,28 +28,27 @@ seg_diameter  = 0.004      # [m]
 
 # --- STEP 1: Tether ---
 
-points = [Point(1, zeros(3), STATIC; transform=1)]
+points = [Point(1, zeros(3), STATIC)]
 segments = Segment[]
 l_seg = set.l_tether / set.segments
 for i in 1:set.segments
     pos = [0.0, 0.0, i * l_seg]
     kw = i == set.segments ? (; extra_mass=1.0) : (;)
-    push!(points, Point(i + 1, pos, DYNAMIC;
-        transform=1, kw...))
+    push!(points, Point(i + 1, pos, DYNAMIC; kw...))
     push!(segments, Segment(i, i, i + 1,
         seg_stiffness, seg_damping, seg_diameter;
         l0=l_seg))
 end
 
 transforms = [
-    Transform(1, deg2rad(-80), 0, 0;
-              base_pos=[0, 0, 0],
-              base_point=1, rot_point=length(points)),
+    Transform(; name=:main, elevation=deg2rad(-80), azimuth=0, heading=0,
+              base_pos=[0, 0, 0], base_point=1,
+              rot_point=[length(points) => 1.0], points=collect(eachindex(points))),
 ]
 
-sys = SystemStructure("tether", set;
-                      points, segments, transforms)
-sam = SymbolicAWEModel(set, sys)
+sys = SystemStructure("tether", set; points, segments)
+place!(sys, transforms)
+sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false)
 
 for _ in 1:80
@@ -64,9 +63,9 @@ n_seg = length(segments)
 tethers = [Tether(:main, collect(1:n_seg))]
 winches = [Winch(:winch, set, [:main]; winch_point=1)]
 
-sys = SystemStructure("winch", set;
-    points, segments, tethers, winches, transforms)
-sam = SymbolicAWEModel(set, sys)
+sys = SystemStructure("winch", set; points, segments, tethers, winches)
+place!(sys, transforms)
+sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false)
 
 for _ in 1:80
@@ -76,24 +75,22 @@ end
 
 # --- STEP 3: Add a pulley ---
 
-push!(points, Point(22, [0, 0, set.l_tether + 5], DYNAMIC;
-    extra_mass=0.1, transform=1))
-push!(points, Point(23, [1, 0, set.l_tether + 5], STATIC;
-    transform=1))
+push!(points, Point(22, [0, 0, set.l_tether + 5], DYNAMIC; extra_mass=0.1))
+push!(points, Point(23, [1, 0, set.l_tether + 5], STATIC))
 push!(segments, Segment(21, 21, 22,
     seg_stiffness, seg_damping, seg_diameter))
 push!(segments, Segment(22, 21, 23,
     seg_stiffness, seg_damping, seg_diameter))
 pulleys = [Pulley(1, 21, 22, DYNAMIC)]
 transforms = [
-    Transform(1, deg2rad(-85), 0, 0;
-              base_pos=[0, 0, 0], base_point=1,
-              rot_point=21),
+    Transform(; name=:main, elevation=deg2rad(-85), azimuth=0, heading=0,
+              base_pos=[0, 0, 0], base_point=1, rot_point=[21 => 1.0],
+              points=collect(eachindex(points))),
 ]
 
-sys = SystemStructure("pulley", set;
-    points, segments, tethers, winches, pulleys, transforms)
-sam = SymbolicAWEModel(set, sys)
+sys = SystemStructure("pulley", set; points, segments, tethers, winches, pulleys)
+place!(sys, transforms)
+sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false)
 
 for _ in 1:80
@@ -112,16 +109,21 @@ stations = Station[]
 for (i, y) in enumerate([-1.0, 0.0, 1.0])
     n = length(points)
     push!(points, Point(n + 1, [-0.5, y, wing_z],
-        BODY_STATIC; wing=1, transform=1, extra_mass=0.1))
+        BODY_STATIC; wing=1, extra_mass=0.1))
     push!(points, Point(n + 2, [0.5, y, wing_z],
-        BODY_STATIC; wing=1, transform=1, extra_mass=0.1))
+        BODY_STATIC; wing=1, extra_mass=0.1))
     push!(stations, Station(i, [n + 1, n + 2], DYNAMIC, 0.25))
 end
 
 wings = [VSMWing(1, set, eachindex(stations), vsm_set)]
+transforms = [
+    Transform(; name=:main, elevation=deg2rad(-85), azimuth=0, heading=0,
+              base_pos=[0, 0, 0], base_point=1, rot_point=[21 => 1.0], body=1,
+              points=collect(eachindex(points)), bodies=[1]),
+]
 
 sys = SystemStructure("wing", set;
-    points, stations, segments, tethers, winches, pulleys,
-    wings, transforms)
-sam = SymbolicAWEModel(set, sys)
+    points, stations, segments, tethers, winches, pulleys, wings)
+place!(sys, transforms)
+sam = SymbolicAWEModel(set, sys; transforms)
 @info "Wing model created successfully"

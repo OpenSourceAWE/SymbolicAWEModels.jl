@@ -243,6 +243,8 @@ function Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
         getfield(sam, :sys_struct).set
     elseif sym === :am
         getfield(sam, :sys_struct).am
+    elseif sym === :transforms
+        getfield(sam, :state).transforms
     elseif sym in SAM_FIELDS
         getfield(sam, sym)
     else
@@ -270,9 +272,11 @@ function Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
 end
 
 """
-    SymbolicAWEModel(set::Settings, sys_struct::SystemStructure; kwargs...)
+    SymbolicAWEModel(set::Settings, sys_struct::SystemStructure; transforms=Transform[],
+                     kwargs...)
 
-Constructs a `SymbolicAWEModel` from an existing `SystemStructure`.
+Constructs a `SymbolicAWEModel` from an existing `SystemStructure` and the KiteGeometry
+`transforms` that place it, `sam.transforms`.
 
 This is the primary inner constructor. It takes a `SystemStructure` that defines the
 physical layout of the kite system and prepares it for symbolic model generation.
@@ -280,6 +284,8 @@ physical layout of the kite system and prepares it for symbolic model generation
 # Arguments
 - `set::Settings`: Configuration parameters.
 - `sys_struct::SystemStructure`: The physical system definition.
+- `transforms`: The KiteGeometry transforms placing `sys_struct`, as
+  [`load_sys_struct_from_yaml`](@ref) returns them; their rates start the run moving.
 - `kwargs...`: Further keyword arguments passed to the `SymbolicAWEModel` constructor.
 
 # Returns
@@ -288,15 +294,17 @@ physical layout of the kite system and prepares it for symbolic model generation
 function SymbolicAWEModel(
     set::Settings,
     sys_struct::SystemStructure;
+    transforms=Transform[],
     kwargs...
 )
     @assert set === sys_struct.set "The `set` argument must be the" *
         " same object as `sys_struct.set`"
     set_hash = get_set_hash(set)
-    sys_struct_hash = get_sys_struct_hash(sys_struct)
+    state = SystemState(sys_struct; transforms)
+    sys_struct_hash = get_sys_struct_hash(sys_struct, state.transforms)
     # Initialize with an empty, but now fully typed, SerializedModel.
     serialized_model = SerializedModel(; set_hash, sys_struct_hash)
-    return SymbolicAWEModel(; sys_struct, serialized_model, kwargs...)
+    return SymbolicAWEModel(; sys_struct, state, serialized_model, kwargs...)
 end
 
 """

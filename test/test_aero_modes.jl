@@ -100,7 +100,7 @@ step, so a value set afterwards is overwritten and never reaches the dynamics.
 """
 function apply_pose!(sam, set, pose; twist=nothing)
     elevation, azimuth, heading, v_wind = pose
-    transform = sam.sys_struct.transforms[:main_transform]
+    transform = sam.transforms[:main_transform]
     transform.elevation = elevation
     transform.azimuth = azimuth
     transform.heading = heading
@@ -220,13 +220,13 @@ aero_poses = [
     for (idx, case) in enumerate(cases)
         @testset "$(case.name)" begin
             set_data_path(case.data)
-            sys = load_sys_struct_from_yaml(case.yaml;
+            sys, transforms = load_sys_struct_from_yaml(case.yaml;
                 system_name="aero_modes_$(idx)", set, vsm_set=case.vsm_set,
                 aero_mode=case.make())
             wing = sys.bodies[1]
             @test wing.dynamics_type == case.dynamics
 
-            sam = SymbolicAWEModel(set, sys)
+            sam = SymbolicAWEModel(set, sys; transforms)
             wing = sam.state.bodies[1]
             test_init!(sam)
 

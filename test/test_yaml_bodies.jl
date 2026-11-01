@@ -108,13 +108,13 @@ function load_beam(model_name)
     write(struc_yaml, replace(STRUC_YAML, "TUBES" => TUBE_ROWS[model_name]))
     set_data_path(data_path)
     set = Settings("system.yaml")
-    sys = load_sys_struct_from_yaml(struc_yaml;
+    sys, transforms = load_sys_struct_from_yaml(struc_yaml;
         system_name="yaml_bodies_$model_name", set)
-    return set, sys
+    return set, sys, transforms
 end
 
 @testset "YAML body + tube loading" begin
-    set, sys = load_beam("timoshenko")
+    set, sys, transforms = load_beam("timoshenko")
 
     @testset "Structure wiring from YAML" begin
         @test length(sys.bodies) == 2
@@ -148,8 +148,9 @@ end
 
     for model_name in ("timoshenko", "elastic")
         @testset "$model_name tube settles where its joint row did" begin
-            set, sys = model_name == "timoshenko" ? (set, sys) : load_beam(model_name)
-            sam = SymbolicAWEModel(set, sys)
+            set, sys, transforms = model_name == "timoshenko" ?
+                (set, sys, transforms) : load_beam(model_name)
+            sam = SymbolicAWEModel(set, sys; transforms)
             test_init!(sam; prn=false)
             for _ in 1:400
                 next_step!(sam; dt=0.005, vsm_interval=0)

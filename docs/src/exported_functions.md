@@ -37,7 +37,7 @@ by the models it registers with KiteGeometry.
 
 ```@docs
 load_sys_struct_from_yaml
-SystemStructure(::SystemDefinition, ::Any, ::Settings)
+SystemStructure(::SystemDefinition, ::Settings)
 ```
 
 ## Structure documents
@@ -70,9 +70,9 @@ calc_steady_torque
 
 ## Placing a SystemStructure
 
-[`place!`](@ref) puts a structure in the world by its transforms and makes where it
-lands its initial pose (`pos_ENU`, `Q_KA_to_ENU`); the `SystemStructure` constructor
-runs it. A model's run state, `sam.state` (a [`SystemState`](@ref)), starts there
+[`place!`](@ref) puts a structure in the world by KiteGeometry transforms and makes
+where it lands its initial pose (`pos_ENU`, `Q_KA_to_ENU`); the `SystemStructure`
+constructor runs it with none. A model's run state, `sam.state` (a [`SystemState`](@ref)), starts there
 ([`start_run!`](@ref)), and `init!(sam)` takes the run state as it stands and derives
 mass properties and rest geometry from the initial pose
 ([`init_derived_properties!`](@ref)), so a run restarted from a logged state
@@ -111,8 +111,8 @@ Where a model takes its wind from is a [`WindMode`](@ref) on its
 instead gives every point its own wind vector, settable between steps.
 
 ```julia
-sys_struct = load_sys_struct_from_yaml(path; set, wind_mode=PerPointWind())
-sam = SymbolicAWEModel(set, sys_struct)
+sys_struct, transforms = load_sys_struct_from_yaml(path; set, wind_mode=PerPointWind())
+sam = SymbolicAWEModel(set, sys_struct; transforms)
 init!(sam)
 for _ in 1:steps
     for point in sam.state.points    # a gust field, refreshed every step

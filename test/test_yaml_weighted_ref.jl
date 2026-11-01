@@ -109,7 +109,7 @@ transforms:
 
     # This should not throw — the bug causes
     # MethodError: no method matching Int64(::Vector{Real})
-    sys = load_sys_struct_from_yaml(yaml_path;
+    sys, transforms = load_sys_struct_from_yaml(yaml_path;
         system_name="weighted_ref_test", set, vsm_set)
 
     wing = sys.bodies[1]
@@ -144,7 +144,7 @@ transforms:
         "origin_idx: [[1, 0.1], [3, 0.2], [5, 0.3], [9, 0.4]]")
     yaml_path_4pt = joinpath(tmpdir, "geometry_4pt.yaml")
     write(yaml_path_4pt, yaml_4pt)
-    sys_4pt = load_sys_struct_from_yaml(yaml_path_4pt;
+    sys_4pt, _ = load_sys_struct_from_yaml(yaml_path_4pt;
         system_name="weighted_ref_4pt_test", set, vsm_set)
     wing_4pt = sys_4pt.bodies[1]
     @test wing_4pt.origin.ids == [1, 3, 5, 9]
@@ -152,7 +152,7 @@ transforms:
 
     # Compile and init — weighted refs must survive
     # symbolic equation generation and scalarization
-    sam = SymbolicAWEModel(set, sys)
+    sam = SymbolicAWEModel(set, sys; transforms)
     integ = init!(sam; prn=false)
     @test integ !== nothing
 
