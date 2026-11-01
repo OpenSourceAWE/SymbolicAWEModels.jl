@@ -99,9 +99,7 @@ set_unstretched_length!
 
 ## Wind
 
-Where a model takes its wind from is a [`WindMode`](@ref) it is built with. The default [`ProfileWind`](@ref) scales the ground wind
-`set.wind_vec` by the height profile `set.profile_law`. [`PerPointWind`](@ref)
-instead gives every point its own wind vector, settable between steps.
+Where a model takes its wind from is a [`WindMode`](@ref) it is built with. The default [`ProfileWind`](@ref) scales the ground wind `set.wind_vec` by the height profile `set.profile_law`. [`PerPointWind`](@ref) instead gives every point its own wind vector, settable between steps.
 
 ```julia
 sys_struct, transforms = load_sys_struct_from_yaml(path; set)

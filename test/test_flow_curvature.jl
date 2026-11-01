@@ -261,8 +261,8 @@ end
                 @test SymbolicAWEModels.flow_curvature_enabled(wing_on)
                 @test !SymbolicAWEModels.flow_curvature_enabled(wing_off)
                 # The term is in the equations, so no shared cached model.
-                @test SymbolicAWEModels.get_sys_struct_hash(sys_on) !=
-                      SymbolicAWEModels.get_sys_struct_hash(sys_off)
+                @test SymbolicAWEModels.get_sys_struct_hash(sam_on.state) !=
+                      SymbolicAWEModels.get_sys_struct_hash(sam_off.state)
             end
 
             test_init!(sam_on)

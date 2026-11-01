@@ -4,7 +4,7 @@
 # test_deserialization.jl - Deserialization and settings sync tests
 #
 # Verifies that after loading a cached .bin model:
-# 1. sam.set === sam.sys_struct.set (reference identity)
+# 1. sam.set === sam.state.set (reference identity)
 # 2. Modified settings propagate through deserialized models
 
 using Pkg
@@ -105,6 +105,8 @@ system:
 
     @testset "two models on one structure keep their own run settings" begin
         set_a, set_b = Settings("system.yaml"), Settings("system.yaml")
+        set_a.g_earth, set_a.v_wind = 0.0, 0.0
+        set_b.g_earth, set_b.v_wind = 9.81, 0.0
         sys, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_1", set=set_a)
         sam_a = SymbolicAWEModel(set_a, sys; transforms)
@@ -113,6 +115,16 @@ system:
         @test sam_b.set === set_b
         @test sam_a.wind_mode isa ProfileWind
         @test sam_b.wind_mode isa PerPointWind
+
+        fall_velocity = map((sam_a, sam_b)) do sam
+            init!(sam; prn=false)
+            for _ in 1:10
+                next_step!(sam; dt=0.01, vsm_interval=0)
+            end
+            sam.state.points[:test_point].vel_w[3]
+        end
+        @test abs(fall_velocity[1]) < 1e-6
+        @test fall_velocity[2] < -0.5
     end
 
     @testset "Deserialized model uses current settings" begin
