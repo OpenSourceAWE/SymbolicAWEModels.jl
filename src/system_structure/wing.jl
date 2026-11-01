@@ -150,7 +150,8 @@ Low-level `Wing` constructor. The `idx` and `station_idxs` are resolved by
 """
 function Wing(name, stations::AbstractVector, Q_KA_to_ENU::AbstractVector,
               pos_ENU, inertia_principal;
-              angular_damping=[0.0, 150.0, 0.0], world_frame_damping=0.0, body_frame_damping=0.0,
+              angular_damping=[0.0, 150.0, 0.0], world_frame_damping=0.0,
+              body_frame_damping=0.0,
               dynamics_type::Union{Nothing,WingType}=nothing,
               aero::Union{Nothing,AbstractAeroModel}=nothing,
               wing_type::Union{Nothing,WingType}=nothing,
@@ -394,8 +395,8 @@ function VSMWing(name, set::Settings,
         ones(MVector{3, SimFloat}) : inertia_diag
 
     wing = Wing(name, stations, Q_KA_to_ENU, pos_ENU, inertia_vec;
-        angular_damping, dynamics_type, aero, group_points_moment, z_ref_points, y_ref_points, origin,
-        principal_frame_method)
+        angular_damping, dynamics_type, aero, group_points_moment, z_ref_points,
+        y_ref_points, origin, principal_frame_method)
     isnothing(extra_mass) || (wing.extra_mass = SimFloat(extra_mass))
     return wing
 end
@@ -434,7 +435,8 @@ end
 
 """
     PlateWing(name, stations, calc_cl, calc_cd;
-              dynamics_type=PARTICLE_DYNAMICS, angular_damping=[0.0, 150.0, 0.0], drag_corr=0.93,
+              dynamics_type=PARTICLE_DYNAMICS, angular_damping=[0.0, 150.0, 0.0],
+              drag_corr=0.93,
               z_ref_points=nothing, y_ref_points=nothing, origin=nothing)
 
 Construct a flat-plate [`Wing`](@ref) (no VSM engine; `vsm === nothing`). Each

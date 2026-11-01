@@ -95,7 +95,7 @@ function run_case(sam; frame=nothing, steps=10, dt=0.05)
     init!(sam; prn=false)
     if !isnothing(frame)
         apply_principal_frame!(wing, frame)
-        reinit!(sam, sam.integrator)
+        SymbolicAWEModels.reinit!(sam, sam.integrator)
     end
     next_step!(sam; dt=1e-5, vsm_interval=1)
     snaps = [frame_snapshot(sam.state)]
