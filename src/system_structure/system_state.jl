@@ -183,7 +183,7 @@ mutable struct SystemState{SS, ST <: SysState}
     bodies::NamedCollection{ComponentState}
     "the records of the wings, the first of `bodies`"
     wings::NamedCollection{ComponentState}
-    "the KiteGeometry transforms placing the run, whose rates start it moving"
+    "the KiteGeometry transforms placing the run"
     const transforms::Rows{Transform}
 end
 

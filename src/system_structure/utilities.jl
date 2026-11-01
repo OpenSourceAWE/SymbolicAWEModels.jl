@@ -740,7 +740,7 @@ end
 # ==================== PLACEMENT ==================== #
 
 """
-    reset_to_initial_pose!(sys_struct::SystemStructure; reset_vel=true)
+    reset_to_initial_pose!(state::SystemState; reset_vel=true)
 
 Put every point and body back at its initial pose (`pos_ENU`, `Q_KA_to_ENU`), zero the
 twist of every non-`STATIC` station and set every winch's reel-out speed to
