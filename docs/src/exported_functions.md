@@ -79,6 +79,8 @@ init!(sam)
 
 ```@docs
 place!
+place_transforms!(::SystemState, ::Any)
+Pose(::SystemState)
 start_run!
 reset_to_initial_pose!
 apply_tether_init_stretched_lens!
