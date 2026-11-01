@@ -62,7 +62,7 @@ Calculate heading angles for all wings using the tangential
 sphere frame method. Returns a vector of heading angles, one
 per wing.
 """
-function KiteGeometry.calc_heading(sys::SystemState)
+function calc_heading(sys::SystemState)
     return [calc_heading(wing.R_b_to_w, wing.pos_w) for wing in sys.wings]
 end
 

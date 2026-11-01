@@ -29,9 +29,9 @@ using Test
 using LinearAlgebra
 using KiteUtils
 using SymbolicAWEModels
-using SymbolicAWEModels: smooth_normalize, sym_calc_R_t_to_w,
+using SymbolicAWEModels: smooth_normalize, sym_calc_R_t_to_w, calc_heading,
     quaternion_to_rotation_matrix
-using KiteGeometry: calc_R_t_to_w
+using SymbolicAWEModels.KiteGeometry: calc_R_t_to_w
 
 # `Settings` reads through the process-wide data path; leave it as found.
 prev_data_path = get_data_path()

@@ -24,6 +24,7 @@ using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod,
     write_wing_scalars!
 using KiteUtils
+using SymbolicAWEModels.KiteGeometry: base_position
 using LinearAlgebra
 
 @testset "Transform Tests" begin
@@ -428,7 +429,6 @@ using LinearAlgebra
     @testset "Chained Transforms" begin
         using SymbolicAWEModels: Point, Segment, Tether, Winch,
             PlateWing, Station, SystemStructure, create_plate_interpolations
-        using KiteGeometry: base_position
 
         # Use kps4 settings (2plate_kite has no tethers)
         kps4_data = joinpath(tmpdir, "kps4")
