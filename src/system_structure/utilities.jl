@@ -1373,9 +1373,10 @@ function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
         restore_live_shape!(wing.aero, wing, sys.points)
     end
 
-    # Update global wind vector (only if wind_vec mode is active)
-    if sys.set.use_wind_vec
-        sys.set.wind_vec = MVec3(sys_state.v_wind_gnd)
+    # The logged ground wind goes to the run's settings, where the state has any.
+    set = sys.set
+    if !isnothing(set) && set.use_wind_vec
+        set.wind_vec = MVec3(sys_state.v_wind_gnd)
     end
 
     # Only the force is logged; `segment.len` still comes from the symbolic getters.
