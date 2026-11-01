@@ -271,6 +271,7 @@ SymbolicAWEModels.with_field
 SymbolicAWEModels.point_type
 SymbolicAWEModels.per_axis
 SymbolicAWEModels.point_model
+SymbolicAWEModels.segment_model
 SymbolicAWEModels.station_model
 SymbolicAWEModels.pulley_model
 SymbolicAWEModels.tether_model
@@ -286,6 +287,7 @@ SymbolicAWEModels.check_point_anchor
 SymbolicAWEModels.tether_row
 SymbolicAWEModels.body_row
 SymbolicAWEModels.wing_column
+SymbolicAWEModels.mesh_frame
 SymbolicAWEModels.held_vector!
 SymbolicAWEModels.principal_axes
 SymbolicAWEModels.axis_column
@@ -301,6 +303,10 @@ SymbolicAWEModels.station_row
 SymbolicAWEModels.with_ends!
 SymbolicAWEModels.winch_row!
 SymbolicAWEModels.segment_row!
+SymbolicAWEModels.segment_row
+SymbolicAWEModels.settings_segment
+SymbolicAWEModels.stiffness_law
+SymbolicAWEModels.material_parameters
 SymbolicAWEModels.store_definition_pose!
 SymbolicAWEModels.definition_name
 SymbolicAWEModels.optional_index
@@ -318,7 +324,6 @@ SymbolicAWEModels.tube_law_parameters
 ## SystemStructure internals
 
 ```@docs
-SymbolicAWEModels.resolve_material
 SymbolicAWEModels.segment_initial_length
 SymbolicAWEModels.segment_world_length
 SymbolicAWEModels.tether_ordered_point_idxs

@@ -211,13 +211,6 @@ function expand_auto_tethers!(
 
         n = tether.n_segments
 
-        diameter, unit_stiffness, unit_damping, density = resolve_material(
-            "Tether $(tether.name)", set; diameter_m=tether.diameter,
-            unit_stiffness=tether.unit_stiffness,
-            unit_damping=tether.unit_damping, density=tether.density,
-            youngs_modulus=tether.youngs_modulus,
-            damping_per_stiffness=tether.damping_per_stiffness)
-
         rope_len = isnothing(tether.init_stretched_len) ?
             norm(end_pos - start_pos) : tether.init_stretched_len
         seg_l0 = rope_len / n
@@ -253,12 +246,8 @@ function expand_auto_tethers!(
                 end_ref = Symbol(
                     "$(tether.name)_point_$i")
             end
-            push!(segments, Segment(
-                seg_sym, start_ref, end_ref,
-                unit_stiffness, unit_damping, diameter;
-                l0=seg_l0, density,
-                compression_frac=tether.compression_frac,
-                compression_damping_frac=tether.compression_damping_frac))
+            push!(segments, settings_segment(seg_sym, set, (start_ref, end_ref), seg_l0;
+                                             tether.segment_columns...))
             push!(seg_names, seg_sym)
         end
     end

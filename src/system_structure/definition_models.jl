@@ -76,31 +76,35 @@ KiteGeometry.model_columns(::Type{PointModel}) =
     SegmentModel
 
 What SymbolicAWEModels holds of a segment beyond its KiteGeometry `segments` row: the
-columns of KiteGeometry's segment model `spring`, then what it derives when it builds the
-structure, which no document holds.
+segment's KiteGeometry `SegmentSpring`, whose fields are its columns and its properties,
+then what it derives when it builds the structure, which no document holds.
 
 $(TYPEDFIELDS)
 """
 @kwdef mutable struct SegmentModel <: KiteGeometry.AbstractModel
-    "Damping per unit length [N·s]."
-    unit_damping::Float64
-    "Compressive over tensile stiffness; 0 for a segment that goes slack."
-    compression_frac::Float64 = 0.1
-    "Fraction of `unit_damping` still acting under compression."
-    compression_damping_frac::Float64 = 1.0
+    "Damping per unit length and how the segment carries compression."
+    spring::KiteGeometry.SegmentSpring
     "Index in the structure's segments."
     idx::Int64 = 0
-    "Stiffness per unit length: a number [N], or a callable force law `F(ε)` [N]."
-    unit_stiffness::Any = NaN
-    "Material density [kg/m³]."
-    density::SimFloat = NaN
+    "The segment's material, whose law gives its stiffness and density; `nothing` until
+    the segment is given one."
+    material_row::Union{Nothing, KiteGeometry.Material} = nothing
 end
 
-SegmentModel(unit_damping, compression_frac, compression_damping_frac) =
-    SegmentModel(; unit_damping, compression_frac, compression_damping_frac)
+SegmentModel(unit_damping::Real, compression_frac::Real, compression_damping_frac::Real) =
+    SegmentModel(; spring=KiteGeometry.SegmentSpring(unit_damping, compression_frac,
+                                                     compression_damping_frac))
 
-KiteGeometry.model_columns(::Type{SegmentModel}) =
-    (:unit_damping, :compression_frac, :compression_damping_frac)
+KiteGeometry.model_columns(::Type{SegmentModel}) = fieldnames(KiteGeometry.SegmentSpring)
+KiteGeometry.column_type(::Type{SegmentModel}, column::Symbol) =
+    fieldtype(KiteGeometry.SegmentSpring, column)
+
+@inline function Base.getproperty(model::SegmentModel, property::Symbol)
+    hasfield(SegmentModel, property) && return getfield(model, property)
+    return getfield(getfield(model, :spring), property)
+end
+Base.propertynames(model::SegmentModel) =
+    (fieldnames(SegmentModel)..., fieldnames(KiteGeometry.SegmentSpring)...)
 
 """
     StationModel
@@ -268,23 +272,10 @@ $(TYPEDFIELDS)
     end_point_idx::Int64 = 0
     "Number of segments a tether given by its end points is split into."
     n_segments::Int64 = 0
-    "Stiffness per unit length of the segments it generates: a number [N] or a callable
-    force law `F(ε)` [N]; `NaN` from the settings."
-    unit_stiffness::Any = NaN
-    "Damping per unit length of the segments it generates [N·s]; `NaN` from the settings."
-    unit_damping::SimFloat = NaN
-    "Diameter [m]; `NaN` from the settings."
-    diameter::SimFloat = NaN
-    "Material density [kg/m³]; `NaN` from the settings."
-    density::SimFloat = NaN
-    "Young's modulus [Pa], the diameter-independent form of `unit_stiffness`."
-    youngs_modulus::SimFloat = NaN
-    "Damping per unit stiffness [s], the diameter-independent form of `unit_damping`."
-    damping_per_stiffness::SimFloat = NaN
-    "Compressive over tensile stiffness of the segments it generates."
-    compression_frac::SimFloat = 0.1
-    "Fraction of `unit_damping` still acting under compression, per segment."
-    compression_damping_frac::SimFloat = 1.0
+    "What a tether given by its end points builds each of its segments from: the keywords
+    of KiteGeometry's `resolve_material`, `NaN` from the settings, and the segments'
+    `compression_frac` and `compression_damping_frac`."
+    segment_columns::NamedTuple = (;)
     "Unstretched length where [`place!`](@ref) puts it: the sum of its segments' `l0` [m]."
     len::SimFloat = 0.0
 end
