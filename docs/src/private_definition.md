@@ -61,6 +61,8 @@ SymbolicAWEModels.per_axis
 SymbolicAWEModels.point_model
 SymbolicAWEModels.segment_model
 SymbolicAWEModels.numeric_unit_stiffness
+SymbolicAWEModels.material_unit_stiffness
+SymbolicAWEModels.to_float64
 SymbolicAWEModels.station_model
 SymbolicAWEModels.pulley_model
 SymbolicAWEModels.tether_model

@@ -103,6 +103,12 @@ KiteGeometry.column_type(::Type{SegmentModel}, column::Symbol) =
     hasfield(SegmentModel, property) && return getfield(model, property)
     return getfield(getfield(model, :spring), property)
 end
+function Base.setproperty!(model::SegmentModel, property::Symbol, value)
+    hasfield(SegmentModel, property) && return setfield!(model, property,
+        convert(fieldtype(SegmentModel, property), value))
+    setfield!(model, :spring, with_field(getfield(model, :spring), property, value))
+    return value
+end
 Base.propertynames(model::SegmentModel) =
     (fieldnames(SegmentModel)..., fieldnames(KiteGeometry.SegmentSpring)...)
 

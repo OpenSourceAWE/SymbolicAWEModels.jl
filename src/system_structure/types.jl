@@ -649,25 +649,25 @@ end
 Stiffness per unit length of segment row `row`: KiteGeometry's `unit_stiffness` from its
 `linear` material and its diameter [N], else the force law `F(ε)` [N] its material holds.
 """
-function row_property(row::Segment, ::Val{:unit_stiffness})
-    material = segment_model(row).material_row
-    stiffness = KiteGeometry.unit_stiffness(material, row.diameter)
-    return isnothing(stiffness) ? material.parameters["unit_stiffness"] : stiffness
-end
+@inline row_property(row::Segment, ::Val{:unit_stiffness}) =
+    material_unit_stiffness(row, identity)
 """
     numeric_unit_stiffness(row::Segment) -> Float64
 
 The stiffness per unit length [N] of segment row `row` whose stiffness is a number, as
-`row.unit_stiffness` reads it but typed, so a parameter sync reading it every step boxes
-no number.
+`row.unit_stiffness` reads it but typed `Float64`.
 """
-function numeric_unit_stiffness(row::Segment)
+numeric_unit_stiffness(row::Segment) = material_unit_stiffness(row, to_float64)
+"""The stiffness per unit length of segment row `row` from its material and diameter,
+the stiffness a non-`linear` material holds read through `read_held`."""
+@inline function material_unit_stiffness(row::Segment, read_held::F) where {F}
     material = segment_model(row).material_row
     stiffness = KiteGeometry.unit_stiffness(material, row.diameter)
-    isnothing(stiffness) || return stiffness
-    value = material.parameters["unit_stiffness"]
-    return value isa Float64 ? value : Float64(value)::Float64
+    return isnothing(stiffness) ? read_held(material.parameters["unit_stiffness"]) :
+           stiffness
 end
+"""`value` as a `Float64`."""
+to_float64(value) = value isa Float64 ? value : Float64(value)::Float64
 @inline row_property(row::Segment, ::Val{:density}) =
     segment_model(row).material_row.parameters["density"]
 
@@ -676,17 +676,16 @@ set_row_property!(row::Segment, ::Val{:point_idxs}, points) = row.points = point
 function set_row_property!(row::Segment, ::Val{property}, value) where {property}
     hasfield(KiteGeometry.SegmentSpring, property) || return invoke(set_row_property!,
         Tuple{KiteGeometry.Component, Val{property}, Any}, row, Val(property), value)
-    model = segment_model(row)
-    model.spring = with_field(model.spring, property, value)
-    return value
+    return setproperty!(segment_model(row), property, value)
 end
 
 """
     set_row_property!(row::Segment, Val(:unit_stiffness), unit_stiffness)
 
 Give the material of segment row `row` the stiffness per unit length `unit_stiffness`, a
-number [N] or a force law `F(ε)` [N], at the segment's diameter. A material that segments
-share is theirs together, so they all take it.
+number [N] or a force law `F(ε)` [N], at the segment's diameter. The material's law
+changes for every segment sharing it: a number on a line with a cross-section becomes its
+Young's modulus, so a segment of another diameter takes that modulus at its own area.
 """
 function set_row_property!(row::Segment, ::Val{:unit_stiffness}, unit_stiffness)
     material = segment_model(row).material_row

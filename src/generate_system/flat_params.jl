@@ -209,16 +209,18 @@ function Base.getproperty(view::PathView, sym::Symbol)
     path = (getfield(view, :path)..., sym)
     value = read_path(reg.sys_struct, path)
     param_descend(value) && return PathView(reg, path)
-    return leaf_param!(reg, path, leaf_reader(path, value), value)
+    parent = read_path(reg.sys_struct, Base.front(path))
+    return leaf_param!(reg, path, leaf_reader(path, value, parent), value)
 end
 
-"""The reader of the leaf `value` at `path`: a [`PathReader`](@ref), copying into a
-buffer of its own a vector built on read — one a run's state holds in its columns, or
-one a definition row holds as one number per axis."""
-leaf_reader(path, value) = PathReader(path)
-leaf_reader(path, value::Union{ColumnVec3, ColumnQuat, SVector}) =
+"""The reader of the leaf `value` at `path`, a property of `parent`: a
+[`PathReader`](@ref), copying into a buffer of its own a vector built on read — one a
+run's state holds in its columns, or one a definition row holds as one number per axis —
+and a [`StiffnessReader`](@ref) for a segment's numeric `unit_stiffness`."""
+leaf_reader(path, value, parent) = PathReader(path)
+leaf_reader(path, value::Union{ColumnVec3, ColumnQuat, SVector}, parent) =
     CopyReader(PathReader(path), MVector(Tuple(value)))
-leaf_reader(path, value::Real) = last(path) === :unit_stiffness ?
+leaf_reader(path, value::Real, parent::SegmentState) = last(path) === :unit_stiffness ?
     StiffnessReader(PathReader(Base.front(path))) : PathReader(path)
 
 """
@@ -239,8 +241,7 @@ end
     StiffnessReader(segment)
 
 Reads the numeric stiffness per unit length of the segment the reader `segment` reads,
-through [`numeric_unit_stiffness`](@ref): a segment's stiffness is computed from its
-material, and read as the untyped `unit_stiffness` it boxes a number every sync.
+through [`numeric_unit_stiffness`](@ref).
 """
 struct StiffnessReader{R}
     segment::R
