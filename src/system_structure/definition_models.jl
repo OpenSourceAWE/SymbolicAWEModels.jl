@@ -88,7 +88,7 @@ $(TYPEDFIELDS)
     idx::Int64 = 0
     "The segment's material, whose law gives its stiffness and density; `nothing` until
     the segment is given one."
-    material_row::Union{Nothing, KiteGeometry.Material} = nothing
+    material_row::Union{Nothing, KiteGeometry.Material{KiteGeometry.NoModel}} = nothing
 end
 
 SegmentModel(unit_damping::Real, compression_frac::Real, compression_damping_frac::Real) =
@@ -272,9 +272,8 @@ $(TYPEDFIELDS)
     end_point_idx::Int64 = 0
     "Number of segments a tether given by its end points is split into."
     n_segments::Int64 = 0
-    "What a tether given by its end points builds each of its segments from: the keywords
-    of KiteGeometry's `resolve_material`, `NaN` from the settings, and the segments'
-    `compression_frac` and `compression_damping_frac`."
+    "Keywords of [`settings_segment`](@ref) for each segment a tether given by its end
+    points generates; `NaN` from the settings."
     segment_columns::NamedTuple = (;)
     "Unstretched length where [`place!`](@ref) puts it: the sum of its segments' `l0` [m]."
     len::SimFloat = 0.0

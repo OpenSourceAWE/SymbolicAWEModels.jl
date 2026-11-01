@@ -272,6 +272,7 @@ SymbolicAWEModels.point_type
 SymbolicAWEModels.per_axis
 SymbolicAWEModels.point_model
 SymbolicAWEModels.segment_model
+SymbolicAWEModels.numeric_unit_stiffness
 SymbolicAWEModels.station_model
 SymbolicAWEModels.pulley_model
 SymbolicAWEModels.tether_model
@@ -303,7 +304,7 @@ SymbolicAWEModels.station_row
 SymbolicAWEModels.with_ends!
 SymbolicAWEModels.winch_row!
 SymbolicAWEModels.segment_row!
-SymbolicAWEModels.segment_row
+SymbolicAWEModels.segment_with_material
 SymbolicAWEModels.settings_segment
 SymbolicAWEModels.stiffness_law
 SymbolicAWEModels.material_parameters
@@ -618,6 +619,7 @@ SymbolicAWEModels.read_path
 SymbolicAWEModels.PathReader
 SymbolicAWEModels.leaf_reader
 SymbolicAWEModels.CopyReader
+SymbolicAWEModels.StiffnessReader
 SymbolicAWEModels.path_reader
 SymbolicAWEModels.read_at
 SymbolicAWEModels.path_of

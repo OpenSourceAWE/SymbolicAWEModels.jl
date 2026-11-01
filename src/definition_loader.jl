@@ -187,8 +187,9 @@ function definition_station(station)
     return station
 end
 
-"""The segment `segment` of `definition` is, its `spring` model read into a
-[`SegmentModel`](@ref) holding its material, in its place in `definition`."""
+"""Replace segment `i` of `definition` with one whose model is a [`SegmentModel`](@ref)
+holding its spring, the `SegmentSpring` a `spring` row reads into or the one a row of
+SymbolicAWEModels' own model holds, and its material."""
 function definition_segment(definition, i)
     segment = definition.segments[i]
     material = definition.materials[segment.material]

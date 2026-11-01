@@ -218,6 +218,8 @@ one a definition row holds as one number per axis."""
 leaf_reader(path, value) = PathReader(path)
 leaf_reader(path, value::Union{ColumnVec3, ColumnQuat, SVector}) =
     CopyReader(PathReader(path), MVector(Tuple(value)))
+leaf_reader(path, value::Real) = last(path) === :unit_stiffness ?
+    StiffnessReader(PathReader(Base.front(path))) : PathReader(path)
 
 """
     CopyReader(reader, buffer)
@@ -233,14 +235,30 @@ end
 
 (reader::CopyReader)(sys_struct) = (reader.buffer .= reader.reader(sys_struct))
 
+"""
+    StiffnessReader(segment)
+
+Reads the numeric stiffness per unit length of the segment the reader `segment` reads,
+through [`numeric_unit_stiffness`](@ref): a segment's stiffness is computed from its
+material, and read as the untyped `unit_stiffness` it boxes a number every sync.
+"""
+struct StiffnessReader{R}
+    segment::R
+end
+
+(reader::StiffnessReader)(sys_struct) =
+    numeric_unit_stiffness(getfield(reader.segment(sys_struct), :row))
+
 """The [`PathReader`](@ref) `reader` reads through, or `nothing` for a computed one."""
 path_reader(reader) = nothing
 path_reader(reader::PathReader) = reader
 path_reader(reader::CopyReader) = reader.reader
+path_reader(reader::StiffnessReader) = PathReader((reader.segment.path..., :unit_stiffness))
 
 """A reader of the same kind as `reader` reading `path` instead."""
 read_at(::PathReader, path) = PathReader(path)
 read_at(reader::CopyReader, path) = CopyReader(PathReader(path), similar(reader.buffer))
+read_at(::StiffnessReader, path) = StiffnessReader(PathReader(Base.front(path)))
 
 # ==================== SYNC ==================== #
 
