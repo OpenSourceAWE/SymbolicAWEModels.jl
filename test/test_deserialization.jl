@@ -82,7 +82,7 @@ system:
 
     set_data_path(tmpdir)
 
-    @testset "sam.set delegates to sys_struct.set" begin
+    @testset "sam.set delegates to state.set" begin
         set = Settings("system.yaml")
         sys, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_1", set)
@@ -91,16 +91,28 @@ system:
         init!(sam; remake=true, prn=false)
 
         # sam.set must be the exact same object as
-        # sam.sys_struct.set
-        @test sam.set === sam.sys_struct.set
+        # sam.state.set
+        @test sam.set === sam.state.set
 
         # Mutating via sam.set should be visible via
-        # sys_struct.set
+        # state.set
         sam.set.g_earth = 3.14
-        @test sam.sys_struct.set.g_earth == 3.14
+        @test sam.state.set.g_earth == 3.14
 
         # Assigning sam.set = ... should error
         @test_throws ErrorException (sam.set = set)
+    end
+
+    @testset "two models on one structure keep their own run settings" begin
+        set_a, set_b = Settings("system.yaml"), Settings("system.yaml")
+        sys, transforms = load_sys_struct_from_yaml(
+            yaml_path; system_name="deser_test_1", set=set_a)
+        sam_a = SymbolicAWEModel(set_a, sys; transforms)
+        sam_b = SymbolicAWEModel(set_b, sys; transforms, wind_mode=PerPointWind())
+        @test sam_a.set === set_a
+        @test sam_b.set === set_b
+        @test sam_a.wind_mode isa ProfileWind
+        @test sam_b.wind_mode isa PerPointWind
     end
 
     @testset "Deserialized model uses current settings" begin
@@ -132,7 +144,7 @@ system:
         # remake=false → loads from cache
         init!(sam2; remake=false, prn=false)
 
-        @test sam2.set === sam2.sys_struct.set
+        @test sam2.set === sam2.state.set
         @test sam2.set.g_earth == 9.81
 
         # Simulate - with gravity, point should accelerate

@@ -99,14 +99,13 @@ set_unstretched_length!
 
 ## Wind
 
-Where a model takes its wind from is a [`WindMode`](@ref) on its
-`SystemStructure`. The default [`ProfileWind`](@ref) scales the ground wind
+Where a model takes its wind from is a [`WindMode`](@ref) it is built with. The default [`ProfileWind`](@ref) scales the ground wind
 `set.wind_vec` by the height profile `set.profile_law`. [`PerPointWind`](@ref)
 instead gives every point its own wind vector, settable between steps.
 
 ```julia
-sys_struct, transforms = load_sys_struct_from_yaml(path; set, wind_mode=PerPointWind())
-sam = SymbolicAWEModel(set, sys_struct; transforms)
+sys_struct, transforms = load_sys_struct_from_yaml(path; set)
+sam = SymbolicAWEModel(set, sys_struct; transforms, wind_mode=PerPointWind())
 init!(sam)
 for _ in 1:steps
     for point in sam.state.points    # a gust field, refreshed every step
