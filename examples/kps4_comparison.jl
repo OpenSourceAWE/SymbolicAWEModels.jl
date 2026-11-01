@@ -194,8 +194,10 @@ sys.winches[1].brake = true
 
 KITE_ANGLE = 3.83
 point_idx(name) = sys.points[name].idx
-tether_points = [point.idx for point in sys.points
-                 if startswith(String(point.name), "main_tether_point")]
+tether_points = setdiff(
+    (point for segment in sys.tethers[:main_tether].segment_idxs
+     for point in sys.segments[segment].point_idxs),
+    point_idx.([:ground, :kcu]))
 transforms = [
     Transform(; name=:main_tf, elevation=deg2rad(set.elevation), azimuth=AZIMUTH,
         heading=0.0, base_pos=zeros(3), base_point=point_idx(:ground), body=1,
