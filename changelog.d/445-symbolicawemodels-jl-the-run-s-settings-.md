@@ -1,0 +1,3 @@
+### Changed
+
+- BREAKING: The run's settings are the model's, not the structure's. A `SystemStructure` holds no `set`, `am` or `wind_mode`: `set` is still what `SystemStructure(name, set)` and `load_sys_struct_from_yaml` build from, and `SymbolicAWEModel(set, sys; transforms, wind_mode)` holds the settings it runs with, read as `sam.set`, `sam.am` and `sam.wind_mode`. `wind_mode` moved from `SystemStructure` and `load_sys_struct_from_yaml` to `SymbolicAWEModel`, and the model's `set` no longer has to be the one the structure was built with, so one structure serves models with different settings.

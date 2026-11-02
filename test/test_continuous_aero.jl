@@ -54,8 +54,11 @@ end
 
 The model bin name and structure hash a build of `sys` is cached under.
 """
-model_key(set, sys) = (SymbolicAWEModels.get_model_name(set, SystemState(sys)),
-                       SymbolicAWEModels.get_sys_struct_hash(sys))
+function model_key(set, sys)
+    state = SystemState(sys)
+    return (SymbolicAWEModels.get_model_name(set, state),
+            SymbolicAWEModels.get_sys_struct_hash(state))
+end
 
 @testset "ContinuousAero" begin
     tmpdir = mktempdir()

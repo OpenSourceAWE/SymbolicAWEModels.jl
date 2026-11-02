@@ -91,8 +91,8 @@ zeroes the points' own drag area so only the segment's tether drag acts.
 function stepped_state(set, yaml_path, wind_mode; steps = 40, dt = 0.05,
                        winds = nothing, point_drag = true)
     sys, transforms = load_sys_struct_from_yaml(yaml_path;
-        system_name = "per_point_wind_test", set, wind_mode)
-    sam = SymbolicAWEModel(set, sys; transforms)
+        system_name = "per_point_wind_test", set)
+    sam = SymbolicAWEModel(set, sys; transforms, wind_mode)
     test_init!(sam; prn=false)
     point_drag || foreach(point -> (point.area = 0.0), sam.sys_struct.points)
     for _ in 1:steps

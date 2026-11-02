@@ -360,7 +360,7 @@ current ones in the `SymbolicAWEModel` object (`sam`).
 function load_serialized_model!(sam, model_path; remake=false, reload=false,
                                 prn=true)
     set_hash = get_set_hash(sam.set)
-    sys_struct_hash = get_sys_struct_hash(sam.sys_struct, sam.transforms)
+    sys_struct_hash = get_sys_struct_hash(sam.state)
     
     if ispath(model_path) && !remake
         if set_hash != sam.serialized_model.set_hash || sys_struct_hash != sam.serialized_model.sys_struct_hash
@@ -821,7 +821,7 @@ This is used to check if a cached compiled model is still valid.
 Anything read back from a struct at sync time stays out, so one build serves a sweep
 over it. That is every numeric setting the equations use — `:g_earth`, `:wind_vec`,
 `:cd_tether`, `:v_wind`, the profile law, initial conditions — since each enters
-as a flat parameter `sync_params!` refreshes from `sys_struct.set`, not as a literal.
+as a flat parameter `sync_params!` refreshes from the run's `set`, not as a literal.
 
 # Runtime Fields (don't affect compilation, excluded from hash):
 - `:profile_law`: Wind profile law (evaluated at runtime via symbolic function)
@@ -853,9 +853,9 @@ function component_types(sys_struct::SystemStructure)
 end
 
 """
-    get_sys_struct_hash(sys_struct::SystemStructure, transforms=Transform[])
+    get_sys_struct_hash(state::SystemState)
 
-Calculates a SHA1 hash for the topology and structure of a `SystemStructure`.
+Calculates a SHA1 hash for the topology and structure of a run's `SystemStructure`.
 This is used to check if a cached compiled model is still valid.
 
 Includes all structural properties that affect the symbolic equations:
@@ -875,9 +875,10 @@ Includes all structural properties that affect the symbolic equations:
 
 Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
-function get_sys_struct_hash(sys_struct::SystemStructure, transforms=Transform[])
+function get_sys_struct_hash(state::SystemState)
+    (; structure, transforms) = state
     (; points, stations, segments, pulleys, tethers, winches, wings, bodies,
-       tubes) = sys_struct
+       tubes) = structure
     data_parts = []
     for point in points
         # nothing-vs-set gates whether drag/damping equations are emitted (structure,
@@ -924,8 +925,8 @@ function get_sys_struct_hash(sys_struct::SystemStructure, transforms=Transform[]
             origin_hash(wing.origin), transform_base_point(transforms, wing.idx))
         push!(data_parts, wing_data)
     end
-    push!(data_parts, ("component_types", component_types(sys_struct)))
-    per_point_wind(sys_struct) && push!(data_parts, ("wind_mode", :per_point))
+    push!(data_parts, ("component_types", component_types(structure)))
+    per_point_wind(state) && push!(data_parts, ("wind_mode", :per_point))
     for rigid_body in bodies
         push!(data_parts, ("rigid_body", rigid_body.idx, Int(rigid_body.type),
                            rigid_body.wing_idx))
