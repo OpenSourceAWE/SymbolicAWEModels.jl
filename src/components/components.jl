@@ -409,6 +409,13 @@ function station_dynamics(; free_angle, twist_vel, aero_moment, node_moment,
 end
 
 """
+    body_to_view_rate(R_v_to_w, R_b_to_w, rate_b)
+
+Express a body-frame angular rate `rate_b` (velocity or acceleration) in the view frame.
+"""
+body_to_view_rate(R_v_to_w, R_b_to_w, rate_b) = R_v_to_w' * (R_b_to_w * rate_b)
+
+"""
     wing_scalar_kinematics(; rel_pos, e_x, R_t_to_w, R_v_to_w, R_b_to_w, vel, acc,
                            omega_b, alpha_b, va_b, twist_offset)
 
@@ -431,8 +438,8 @@ function wing_scalar_kinematics(; rel_pos, e_x, R_t_to_w, R_v_to_w, R_b_to_w, ve
     distance = smooth_norm(rel_pos)
     return (;
         heading = atan(e_x ⋅ R_t_to_w[:, 2], e_x ⋅ R_t_to_w[:, 1]),
-        turn_rate = R_v_to_w' * (R_b_to_w * omega_b),
-        turn_acc = R_v_to_w' * (R_b_to_w * alpha_b),
+        turn_rate = body_to_view_rate(R_v_to_w, R_b_to_w, omega_b),
+        turn_acc = body_to_view_rate(R_v_to_w, R_b_to_w, alpha_b),
         distance,
         distance_vel = vel ⋅ R_t_to_w[:, 3],
         distance_acc = acc ⋅ R_t_to_w[:, 3],
