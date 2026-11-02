@@ -112,8 +112,8 @@ function normalized_inertia(mode::AbstractVSMAero, wing, points)
     tensor = mode.vsm_wing.inertia_tensor
     (isempty(tensor) || all(iszero, tensor)) &&
         return normalized_point_inertia(wing, points)
-    R = wing.R_mesh_to_w
-    return wing.mesh_frame_pos - R * mode.vsm_wing.T_cad_body, R * tensor * R'
+    origin, R = mesh_frame(wing)
+    return origin - R * mode.vsm_wing.T_cad_body, R * tensor * R'
 end
 
 """
@@ -1481,8 +1481,8 @@ end
 The initial pose of `wing`'s body in the frame its mesh is authored in.
 """
 function body_in_mesh_frame(wing)
-    R = wing.R_mesh_to_w
-    return R' * (wing.pos_ENU - wing.mesh_frame_pos), R' * initial_rotation(wing)
+    origin, R = mesh_frame(wing)
+    return R' * (wing.pos_ENU - origin), R' * initial_rotation(wing)
 end
 
 function setup_aero!(mode::AbstractVSMAero, wing, points, stations;

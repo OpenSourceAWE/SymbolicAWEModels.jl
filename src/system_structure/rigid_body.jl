@@ -93,12 +93,7 @@ $(TYPEDFIELDS)
     y_ref_points::Union{Nothing, Tuple{WeightedRefPoints, WeightedRefPoints}} = nothing
     "Reference points of the body origin."
     origin::Union{Nothing, WeightedRefPoints} = nothing
-    "Origin of the frame the wing's mesh is authored in, world frame [m]."
-    mesh_frame_pos::KVec3 = zeros(KVec3)
-    "Rotation of the frame the wing's mesh is authored in into the world."
-    R_mesh_to_w::Matrix{SimFloat} = Matrix{SimFloat}(I, 3, 3)
-    "The KiteGeometry `wings` row of the wing whose body this is, where a definition gives
-    one."
+    "The definition's `wings` row of the wing whose body this is, where it has one."
     wing_definition::Union{Nothing, KiteGeometry.Wing} = nothing
 end
 
@@ -207,6 +202,18 @@ function wing_column(row::Body, column)
     wing = model.wing_definition
     isnothing(value) && !isnothing(wing) && return getproperty(wing.model, column)
     return value
+end
+
+"""
+    mesh_frame(row::Body) -> (origin, R_mesh_to_w)
+
+The frame the mesh of body row `row`'s wing is authored in: the KA frame of its wing's
+`wings` row, origin [m] and rotation into the world, else the world frame.
+"""
+function mesh_frame(row::Body)
+    wing = body_model(row).wing_definition
+    isnothing(wing) && return zeros(KVec3), Matrix{SimFloat}(I, 3, 3)
+    return KVec3(wing.pos_ENU), quaternion_to_rotation_matrix(wing.Q_KA2ENU)
 end
 
 """

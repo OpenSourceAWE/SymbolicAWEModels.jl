@@ -78,16 +78,12 @@ function material!(materials, law, parameters)
     return length(materials)
 end
 
-"""`segment` with its stiffness and density as a material it appends to `materials`."""
+"""`segment` with its own material filed in `materials`, where it is not already."""
 function segment_row!(materials, segment)
-    area = π * (segment.diameter / 2)^2
-    stiffness = segment.unit_stiffness
-    law, parameters = stiffness isa Real && (area > 0 || iszero(stiffness)) ?
-        ("linear", OrderedDict{String, Any}("density" => segment.density,
-            "youngs_modulus" => iszero(stiffness) ? 0.0 : stiffness / area)) :
-        ("unit_stiffness", OrderedDict{String, Any}("density" => segment.density,
-                                                     "unit_stiffness" => stiffness))
-    segment.material = material!(materials, law, parameters)
+    material = segment_model(segment).material_row
+    index = findfirst(row -> row === material, materials)
+    isnothing(index) && push!(materials, material)
+    segment.material = something(index, length(materials))
     return segment
 end
 
@@ -123,8 +119,9 @@ function winch_row!(winch)
 end
 
 function wing_row(sys, wing)
-    return KiteGeometry.Wing(; name=definition_name(wing), pos_ENU=wing.mesh_frame_pos,
-        Q_KA2ENU=rotation_matrix_to_quaternion(wing.R_mesh_to_w),
+    origin, R = mesh_frame(wing)
+    return KiteGeometry.Wing(; name=definition_name(wing), pos_ENU=origin,
+        Q_KA2ENU=rotation_matrix_to_quaternion(R),
         model=WingModel(string(nameof(typeof(wing.aero))), Vector(wing.angular_damping),
             wing_engine_field(wing, :aero_scale_chord),
             wing_engine_field(wing, :aero_z_offset), string(wing.principal_frame_method),

@@ -108,7 +108,7 @@ function SystemStructure(definition::SystemDefinition, set::Settings;
     return SystemStructure(definition.metadata.name, set;
         points=Point[definition_point(definition, point) for point in definition.points],
         stations,
-        segments=Segment[definition_segment(definition, i, set)
+        segments=Segment[definition_segment(definition, i)
                          for i in eachindex(definition.segments)],
         pulleys=Pulley[definition_pulley(pulley) for pulley in definition.pulleys],
         tethers=Tether[definition_tether(tether) for tether in definition.tethers],
@@ -168,20 +168,16 @@ function definition_station(station)
     return station
 end
 
-"""The segment `segment` of `definition` is, its `spring` model read into a
-[`SegmentModel`](@ref) with the stiffness and density of its material, in its place in
-`definition`."""
-function definition_segment(definition, i, set)
+"""Replace segment `i` of `definition` with one whose model is a [`SegmentModel`](@ref)
+holding its spring, the `SegmentSpring` a `spring` row reads into or the one a row of
+SymbolicAWEModels' own model holds, and its material."""
+function definition_segment(definition, i)
     segment = definition.segments[i]
     material = definition.materials[segment.material]
     material.law == "linear" || error("segment $(segment.name): material law " *
         "$(material.law) has no force law here; give its unit_stiffness in Julia")
-    spring = segment.model
-    _, unit_stiffness, _, density = resolve_material("Segment $(segment.name)", set;
-        diameter_m=segment.diameter, youngs_modulus=material.parameters["youngs_modulus"],
-        density=material.parameters["density"], spring.unit_damping)
-    model = SegmentModel(; spring.unit_damping, spring.compression_frac,
-                         spring.compression_damping_frac, unit_stiffness, density)
+    spring = segment.model isa SegmentModel ? segment.model.spring : segment.model
+    model = SegmentModel(; spring, material_row=material)
     return definition.segments[i] = KiteGeometry.Segment(; segment.name, segment.points,
         segment.rest_length, segment.diameter, segment.material, model)
 end
@@ -259,8 +255,6 @@ function definition_wing(definition, w, set, stations; dynamics_type, aero_mode,
     station_refs = [cell_ref(station) for station in something(wing.stations, [])]
     built = load_wing(mode, definition, w, set, dynamics, vsm_set, station_refs,
                       stations)
-    built.mesh_frame_pos .= wing.pos_ENU
-    built.R_mesh_to_w .= quaternion_to_rotation_matrix(wing.Q_KA2ENU)
     return definition.bodies[w] = in_place_of(definition.bodies[w], built, wing)
 end
 
