@@ -100,8 +100,13 @@ model_key(set, sys) = (SymbolicAWEModels.get_model_name(set, SystemState(sys)),
             data_path, set; billowing=true, remove_nan=false)
         @test typeof(unextrapolated.wings[1].aero) != typeof(mode)
         @test all(model_key(set, unextrapolated) .!= model_key(set, sys))
-        rebuilt.winches[1].model = CascadedLengthWinch(;
-            v_max=8.0, position_gain=1.0, velocity_gain=1.0)
+        torque_winch = rebuilt.winches[1]
+        cascaded_winch = Winch(torque_winch.name, set, torque_winch.tethers;
+            winch_point=torque_winch.winch_point, model=CascadedLengthWinch(;
+                v_max=8.0, position_gain=1.0, velocity_gain=1.0))
+        cascaded_winch.idx = torque_winch.idx
+        cascaded_winch.tether_idxs = torque_winch.tether_idxs
+        rebuilt.winches[1] = cascaded_winch
         @test all(model_key(set, rebuilt) .!= model_key(set, sys))
     end
 
