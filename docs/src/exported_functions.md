@@ -24,6 +24,9 @@ These functions provide direct control over the simulation and tools for model a
 init!
 next_step!
 find_steady_state!
+find_quasi_steady!
+quasi_steady_residual
+quasi_steady_log
 linearize!
 position_slots
 check_live_polar
