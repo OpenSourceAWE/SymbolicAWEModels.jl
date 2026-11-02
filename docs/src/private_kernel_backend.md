@@ -290,3 +290,32 @@ SymbolicAWEModels.workload_fixture
 SymbolicAWEModels.workload_model
 SymbolicAWEModels.run_workload
 ```
+
+## Quasi-steady finder internals
+
+```@docs
+SymbolicAWEModels.RigidLayout
+SymbolicAWEModels.state_slots
+SymbolicAWEModels.part_positions
+SymbolicAWEModels.part_velocities
+SymbolicAWEModels.quat_product
+SymbolicAWEModels.set_rigid_velocities!
+SymbolicAWEModels.rotate_state!
+SymbolicAWEModels.best_rotation
+SymbolicAWEModels.PassProblem
+SymbolicAWEModels.pass_spin
+SymbolicAWEModels.read_state!
+SymbolicAWEModels.hold_pose!
+SymbolicAWEModels.refresh_aero!(::SymbolicAWEModels.PassProblem, ::Any)
+SymbolicAWEModels.PassDampedRHS
+SymbolicAWEModels.PassDampedJacobian
+SymbolicAWEModels.pattern_entry
+SymbolicAWEModels.set_tube_damping!
+SymbolicAWEModels.set_damping!
+SymbolicAWEModels.without_damping
+SymbolicAWEModels.tether_point_idxs
+SymbolicAWEModels.mid_span_chord
+SymbolicAWEModels.pass_residual
+SymbolicAWEModels.worst_ratio
+SymbolicAWEModels.relax!
+```
