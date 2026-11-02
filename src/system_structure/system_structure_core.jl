@@ -31,7 +31,6 @@ physical model, from points and segments to winches and wings.
 """
 mutable struct SystemStructure
     const name::String
-    set::Settings
     const points::NamedCollection{Point}
     const stations::NamedCollection{Station}
     const segments::NamedCollection{Segment}
@@ -44,13 +43,7 @@ mutable struct SystemStructure
     position here equals its `idx`. The same objects, not copies."
     const wings::NamedCollection{Body}
     const tubes::NamedCollection{Tube}
-
-    const am::AtmosphericModel
-    stabilize::Bool
-    fix_wing::Bool
     vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
-    "Where the wind comes from: [`ProfileWind`](@ref) or [`PerPointWind`](@ref)."
-    wind_mode::WindMode
     "The KiteGeometry definition of the system in its initial pose."
     definition::Union{Nothing, SystemDefinition}
 end
@@ -784,8 +777,6 @@ of the same structural shape should share one.
 - `points`, `stations`, `segments`, etc.: Vectors of the system components.
 - `vsm_set`: `VSMSettings` for VSM wings; read from the project file's
   `vsm_settings:` when omitted.
-- `wind_mode::WindMode=ProfileWind()`: [`PerPointWind`](@ref) makes every point's
-  `wind_vec` a settable parameter instead of a height-profile output.
 - `ignore_l0::Bool=false`: Set every segment `l0` to its placed length
   ([`relax_segments!`](@ref)).
 - `placed::Bool=false`: The positions given are the initial pose already: keep them
@@ -810,7 +801,6 @@ function SystemStructure(name, set;
         ignore_l0::Bool=false,
         placed::Bool=false,
         vsm_set=nothing,
-        wind_mode::WindMode=ProfileWind(),
         prn::Bool=true,
         definition::Union{Nothing, SystemDefinition}=nothing,
     )
@@ -917,8 +907,6 @@ function SystemStructure(name, set;
         setup_aero!(wing.aero, wing, points, stations; prn, vsm_set)
     end
 
-    set.physical_model = name
-
     # Wings are bodies, placed first so idx stays 1..n_wings (wing arrays index by idx).
     prepend!(bodies, wings)
     wing_names_dict = build_name_dict(wings)
@@ -989,7 +977,7 @@ function SystemStructure(name, set;
 
     # Name dictionaries were already built by assign_indices_and_resolve!
     wing_bodies = filter(is_wing, bodies)
-    sys_struct = SystemStructure(name, set,
+    sys_struct = SystemStructure(name,
         NamedCollection{Point}(points, point_names_dict),
         NamedCollection{Station}(stations, station_names_dict),
         NamedCollection{Segment}(segments, segment_names_dict),
@@ -999,7 +987,7 @@ function SystemStructure(name, set;
         NamedCollection{Body}(bodies, rigid_body_names_dict),
         NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
         NamedCollection{Tube}(tubes, tube_names_dict),
-        AtmosphericModel(set), false, false, vsm_set, wind_mode, definition)
+        vsm_set, definition)
     placed || place!(sys_struct; ignore_l0, prn)
     init_derived_properties!(sys_struct; prn)
     isnothing(definition) && attach_definition!(sys_struct)

@@ -180,13 +180,13 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
         # structure, because it is what adds or removes the two states.
         _, slow, _ = build_unsteady_case(root, "wag_tune"; wagner=true,
                                          rates=(0.02, 0.15))
-        slow_hash = get_sys_struct_hash(slow)
+        slow_hash = get_sys_struct_hash(SystemState(slow))
         slow.wings[1].unsteady.wagner_rates = [0.0455, 0.3]
         slow.wings[1].unsteady.wagner_gains = [0.2, 0.4]
-        @test get_sys_struct_hash(slow) == slow_hash
+        @test get_sys_struct_hash(SystemState(slow)) == slow_hash
 
         _, off, _ = build_unsteady_case(root, "wag_tune"; wagner=false)
-        @test get_sys_struct_hash(off) != slow_hash
+        @test get_sys_struct_hash(SystemState(off)) != slow_hash
     end
 
     @testset "Wagner: two states for the whole wing" begin
