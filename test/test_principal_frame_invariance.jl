@@ -95,7 +95,7 @@ function run_case(sam; frame=nothing, steps=10, dt=0.05)
     init!(sam; prn=false)
     if !isnothing(frame)
         apply_principal_frame!(wing, frame)
-        reinit!(sam, sam.integrator)
+        SymbolicAWEModels.reinit!(sam, sam.integrator)
     end
     next_step!(sam; dt=1e-5, vsm_interval=1)
     snaps = [frame_snapshot(sam.state)]
@@ -120,14 +120,14 @@ end
 
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    sys = load_sys_struct_from_yaml(
+    sys, transforms = load_sys_struct_from_yaml(
         joinpath(data_path, "rigid_structural_geometry.yaml");
         system_name="frame_invariance", set, vsm_set,
         aero_mode=AeroLinearized())
     wing = sys.wings[1]
     @test wing.dynamics_type == RIGID_DYNAMICS
 
-    sam = SymbolicAWEModel(set, sys)
+    sam = SymbolicAWEModel(set, sys; transforms)
     ref = run_case(sam)
     @test norm(ref[1].aero_wrench_w) > 1.0
     @test maximum(norm, ref[1].point_force_w) > 1.0

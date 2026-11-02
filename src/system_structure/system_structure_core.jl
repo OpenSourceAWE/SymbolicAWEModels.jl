@@ -28,7 +28,6 @@ physical model, from points and segments to winches and wings.
 - [`Body`](@ref): Rigid bodies; a wing is a body that carries aero, so
   `sys.wings` holds the subset of `sys.bodies` that does.
 - [`Tube`](@ref): Inflated tubes between two bodies; a chain of them forms a beam.
-- [`Transform`](@ref): Spatial transformations for initial positioning.
 """
 mutable struct SystemStructure
     const name::String
@@ -39,7 +38,6 @@ mutable struct SystemStructure
     const pulleys::NamedCollection{Pulley}
     const tethers::NamedCollection{Tether}
     const winches::NamedCollection{Winch}
-    const transforms::NamedCollection{Transform}
     "All bodies (plain bodies + wings). `wings` holds those of them that carry aero."
     const bodies::NamedCollection{Body}
     "The `bodies` that carry aero, which are prepended to `bodies`, so a wing's
@@ -118,23 +116,6 @@ function resolve_ref(::Nothing, ::Dict{Symbol, Int64}, ::String)
 end
 
 """
-    resolve_ref_spec(spec, name_dict, component_type) -> Union{Int64, Vector{Int64}, Nothing}
-
-Resolve a reference point specification (single ref or vector of refs) to indices.
-"""
-function resolve_ref_spec(spec::Union{Int, Symbol}, name_dict::Dict{Symbol, Int64}, component_type::String)
-    return resolve_ref(spec, name_dict, component_type)
-end
-
-function resolve_ref_spec(spec::AbstractVector, name_dict::Dict{Symbol, Int64}, component_type::String)
-    return Int64[resolve_ref(ref, name_dict, component_type) for ref in spec]
-end
-
-function resolve_ref_spec(::Nothing, ::Dict{Symbol, Int64}, ::String)
-    return nothing
-end
-
-"""
     resolve!(ref_pt::WeightedRefPoints, name_dict, type)
 
 Resolve symbolic refs to integer indices, filling
@@ -149,6 +130,14 @@ function resolve!(
     ref_pt.ids = Int64[
         resolve_ref(ref, name_dict, component_type)
         for ref in ref_pt.refs]
+end
+
+"""The index of the point `ref` names as an end of `tether`, refusing one that names none
+of `points`."""
+function endpoint_idx(tether, ref, point_names, points)
+    ref isa Int && ref in eachindex(points) && return ref
+    ref isa Symbol && haskey(point_names, ref) && return point_names[ref]
+    error("Tether $(tether.name): end point $ref not found in points")
 end
 
 """
@@ -168,67 +157,22 @@ function expand_auto_tethers!(
     tethers::Vector{Tether},
     set::Settings
 )
-    # Build point name lookup for finding start/end points
-    point_names = Dict{Symbol, Int}()
-    for (i, point) in enumerate(points)
-        if !isnothing(point.name)
-            name = point.name isa Symbol ? point.name : Symbol(point.name)
-            point_names[name] = i
-        end
-    end
-
-    # Build segment name set for checking existing segments
-    seg_names = Set{Symbol}()
-    for segment in segments
-        if !isnothing(segment.name)
-            name = segment.name isa Symbol ? segment.name : Symbol(segment.name)
-            push!(seg_names, name)
-        end
-    end
+    point_names = Dict{Symbol, Int}(Symbol(point.name) => i
+                                    for (i, point) in enumerate(points))
+    seg_names = Set{Symbol}(Symbol(segment.name) for segment in segments)
 
     for tether in tethers
         # Skip Route 1 tethers (no start_point_ref)
         isnothing(tether.start_point_ref) && continue
 
-        # Skip if segments already exist (user pre-created)
-        first_seg_name = tether.segment_refs[1]
-        first_seg_sym = first_seg_name isa Symbol ?
-            first_seg_name : Symbol(first_seg_name)
-        first_seg_sym in seg_names && continue
+        # Skip if segments already exist (user pre-created, or an index)
+        first_segment = tether.segment_refs[1]
+        (first_segment isa Int || first_segment in seg_names) && continue
 
-        # Resolve start and end points by name
-        start_point_sym = tether.start_point_ref isa Symbol ?
-            tether.start_point_ref :
-            Symbol(tether.start_point_ref)
-        end_point_sym = tether.end_point_ref isa Symbol ?
-            tether.end_point_ref :
-            Symbol(tether.end_point_ref)
-        haskey(point_names, start_point_sym) || error(
-            "Tether $(tether.name): start_point " *
-            ":$start_point_sym not found in points")
-        haskey(point_names, end_point_sym) || error(
-            "Tether $(tether.name): end_point " *
-            ":$end_point_sym not found in points")
-        start_point_idx = point_names[start_point_sym]
-        end_point_idx = point_names[end_point_sym]
+        start_point_idx = endpoint_idx(tether, tether.start_point_ref, point_names, points)
+        end_point_idx = endpoint_idx(tether, tether.end_point_ref, point_names, points)
         start_pos = points[start_point_idx].pos_ENU
         end_pos = points[end_point_idx].pos_ENU
-
-        # Inherit transform from endpoints
-        start_transform = points[start_point_idx].transform_ref
-        end_transform = points[end_point_idx].transform_ref
-        start_has_transform = start_transform != 0
-        end_has_transform = end_transform != 0
-        if start_has_transform && end_has_transform &&
-           start_transform != end_transform
-            error("Tether $(tether.name): " *
-                "start_point :$start_point_sym (transform=" *
-                "$start_transform) and end_point :$end_point_sym " *
-                "(transform=$end_transform) have different " *
-                "transforms")
-        end
-        transform_idx = start_has_transform ? start_transform :
-            end_has_transform ? end_transform : 0
 
         n = tether.n_segments
 
@@ -250,10 +194,7 @@ function expand_auto_tethers!(
             frac = i / n
             pos = start_pos + frac * direction
             point_name = Symbol("$(tether.name)_point_$i")
-            transform_kw = transform_idx == 0 ? () :
-                (transform=transform_idx,)
-            push!(points, Point(point_name, pos,
-                DYNAMIC; transform_kw...))
+            push!(points, Point(point_name, pos, DYNAMIC))
             point_names[point_name] = length(points)
         end
 
@@ -440,9 +381,8 @@ function assign_indices_and_resolve!(
     segments::Vector{Segment},
     pulleys::Vector{Pulley},
     tethers::Vector{Tether},
-    winches::Vector{Winch},
-    wings::AbstractVector{<:Body},
-    transforms::Vector{Transform}
+    winches::AbstractVector{<:Winch},
+    wings::AbstractVector{<:Body}
 )
     # First pass: assign indices based on position.
     for (i, point) in enumerate(points)
@@ -466,9 +406,6 @@ function assign_indices_and_resolve!(
     for (i, wing) in enumerate(wings)
         wing.idx = i
     end
-    for (i, transform) in enumerate(transforms)
-        transform.idx = i
-    end
 
     # Build name lookup dictionaries
     point_names = build_name_dict(points)
@@ -478,15 +415,13 @@ function assign_indices_and_resolve!(
     tether_names = build_name_dict(tethers)
     winch_names = build_name_dict(winches)
     wing_names = build_name_dict(wings)
-    transform_names = build_name_dict(transforms)
 
-    # Points: resolve wing/transform refs (body_ref resolved later, no bodies here).
+    # Points: resolve wing refs (body_ref resolved later, no bodies here).
     for point in points
         point.wing_idx = resolve_ref(point.wing_ref, wing_names, "wing")
         point.wing_idx in 0:length(wings) || error(
             "Point $(point.name): wing $(point.wing_ref) does not exist; the " *
             "system has $(length(wings)) wings.")
-        point.transform_idx = resolve_ref(point.transform_ref, transform_names, "transform")
     end
 
     # Stations: resolve point_refs
@@ -533,19 +468,10 @@ function assign_indices_and_resolve!(
             winch.winch_point_ref, point_names, "point")
     end
 
-    # Transforms: resolve refs via resolve_ref_spec (nothing-safe for Union fields).
-    for transform in transforms
-        transform.wing_idx = resolve_ref_spec(transform.wing_ref, wing_names, "wing")
-        transform.rot_point_idx = resolve_ref_spec(transform.rot_point_ref, point_names, "point")
-        transform.base_point_idx = resolve_ref_spec(transform.base_point_ref, point_names, "point")
-        transform.base_transform_idx = resolve_ref_spec(transform.base_transform_ref, transform_names, "transform")
-    end
-
-    # Wings: resolve station_refs, transform_ref, and PARTICLE_DYNAMICS-specific refs
+    # Wings: resolve station_refs and PARTICLE_DYNAMICS-specific refs
     for wing in wings
         # BaseWing fields
         wing.station_idxs = Int64[resolve_ref(ref, station_names, "station") for ref in wing.station_refs]
-        wing.transform_idx = resolve_ref(wing.transform_ref, transform_names, "transform")
 
         # Body-frame reference points (any wing may carry them)
         if !isnothing(wing.origin)
@@ -569,7 +495,7 @@ function assign_indices_and_resolve!(
     end
 
     return (point_names, station_names, segment_names, pulley_names,
-            tether_names, winch_names, wing_names, transform_names)
+            tether_names, winch_names, wing_names)
 end
 
 """
@@ -852,7 +778,7 @@ carried_position_b(point, body) = point.body_idx == body.idx ? Vector(point.anch
 
 """
     SystemStructure(name, set; points, stations, segments, pulleys, tethers,
-                    winches, wings, transforms, bodies, tubes)
+                    winches, wings, bodies, tubes)
 
 Constructs a `SystemStructure` object representing a complete mechanical system.
 Resolves every symbolic reference to a numeric index, fills in derived properties
@@ -890,7 +816,6 @@ function SystemStructure(name, set;
         tethers=Tether[],
         winches=Winch[],
         wings=Body[],
-        transforms=Transform[],
         bodies=Body[],
         tubes=Tube[],
         ignore_l0::Bool=false,
@@ -924,11 +849,9 @@ function SystemStructure(name, set;
     # Assign indices and resolve all symbolic references to numeric indices.
     (point_names_dict, station_names_dict,
      segment_names_dict, pulley_names_dict,
-     tether_names_dict, winch_names_dict,
-     _, transform_names_dict) =
+     tether_names_dict, winch_names_dict, _) =
         assign_indices_and_resolve!(
-            points, stations, segments, pulleys,
-            tethers, winches, wings, transforms)
+            points, stations, segments, pulleys, tethers, winches, wings)
 
     # If no wings defined, convert wing nodes to STATIC
     if isempty(wings)
@@ -937,19 +860,9 @@ function SystemStructure(name, set;
             @warn "No wings provided but " *
                   "$(length(wing_point_idxs)) wing-node " *
                   "points found. Converting to STATIC."
-            for idx in wing_point_idxs
-                points[idx] = Point(
-                    points[idx].name,
-                    points[idx].pos_ENU,
-                    STATIC;
-                    extra_mass = points[idx].extra_mass,
-                    body_frame_damping =
-                        points[idx].body_frame_damping,
-                    world_frame_damping =
-                        points[idx].world_frame_damping,
-                    transform = points[idx].transform_ref
-                )
-                points[idx].idx = idx  # Reassign idx after recreation
+            for point in points[wing_point_idxs]
+                point.type, point.wing_idx, point.body_idx, point.tube_idx = STATIC, 0, 0, 0
+                point.anchor_b, point.apparent_mass, point.is_wing_node = nothing, 0.0, false
             end
         end
     end
@@ -964,9 +877,6 @@ function SystemStructure(name, set;
     # Validate indices (now assigned by assign_indices_and_resolve!)
     for (i, point) in enumerate(points)
         @assert point.idx == i "Point $(point.idx) != $i"
-        # Allow transform_idx=0 (no transform) or valid index
-        @assert point.transform_idx == 0 ||
-                point.transform_idx <= length(transforms)
     end
     for (i, station) in enumerate(stations)
         @assert station.idx == i
@@ -1018,9 +928,6 @@ function SystemStructure(name, set;
         setup_aero!(wing.aero, wing, points, stations; prn, vsm_set)
     end
 
-    for (i, transform) in enumerate(transforms)
-        @assert transform.idx == i
-    end
     set.physical_model = name
 
     # Wings are bodies, placed first so idx stays 1..n_wings (wing arrays index by idx).
@@ -1028,8 +935,6 @@ function SystemStructure(name, set;
     wing_names_dict = build_name_dict(wings)
     for (i, body) in enumerate(bodies)
         body.idx = i
-        body.transform_idx = resolve_ref(
-            body.transform_ref, transform_names_dict, "transform")
         body.wing_idx = resolve_ref(body.wing_ref, wing_names_dict, "wing")
     end
     rigid_body_names_dict = build_name_dict(bodies)
@@ -1049,7 +954,7 @@ function SystemStructure(name, set;
         end
         if point.body_idx > 0 && iszero(point.anchor_b)
             body = bodies[point.body_idx]
-            point.anchor_b = KVec3(initial_body_position(body, point))
+            point.resolved_anchor_b = initial_body_position(body, point)
         end
     end
 
@@ -1102,14 +1007,13 @@ function SystemStructure(name, set;
         NamedCollection{Pulley}(pulleys, pulley_names_dict),
         NamedCollection{Tether}(tethers, tether_names_dict),
         NamedCollection{Winch}(winches, winch_names_dict),
-        NamedCollection{Transform}(transforms, transform_names_dict),
         NamedCollection{Body}(bodies, rigid_body_names_dict),
         NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
         NamedCollection{Tube}(tubes, tube_names_dict),
         AtmosphericModel(set), false, false, vsm_set, wind_mode, definition)
     placed || place!(sys_struct; ignore_l0, prn)
     init_derived_properties!(sys_struct; prn)
-    isnothing(definition) && (sys_struct.definition = system_definition(sys_struct))
+    isnothing(definition) && attach_definition!(sys_struct)
 
     # Panel→flap station map (structural; needs placed bodies + built panels).
     for wing in sys_struct.wings

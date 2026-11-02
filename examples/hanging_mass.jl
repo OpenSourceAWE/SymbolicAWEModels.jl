@@ -25,23 +25,22 @@ set = Settings("base/system.yaml")
 set.v_wind = 0
 
 points = [
-    Point(:anchor, [2, 0, 5], STATIC; transform=:tf),
-    Point(:mass, [2, 0, 2], DYNAMIC;
-        extra_mass=1.0, transform=:tf),
+    Point(:anchor, [2, 0, 5], STATIC),
+    Point(:mass, [2, 0, 2], DYNAMIC; extra_mass=1.0),
 ]
 segments = [
     Segment(:spring, :anchor, :mass,
             500.0, 50.0, 0.005; l0=4.0),
 ]
 transforms = [
-    Transform(:tf, -deg2rad(90), 0, 0;
-              base_pos=[2, 0, 5], base_point=:anchor,
-              rot_point=:mass),
+    Transform(; name=:tf, elevation=-deg2rad(90), azimuth=0, heading=0,
+              base_pos=[2, 0, 5], base_point=1, rot_point=[2 => 1.0],
+              points=[1, 2]),
 ]
 
-sys = SystemStructure("hanging_mass", set;
-                      points, segments, transforms)
-sam = SymbolicAWEModel(set, sys)
+sys = SystemStructure("hanging_mass", set; points, segments)
+place!(sys, transforms)
+sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false)
 
 n_steps = 30

@@ -64,7 +64,7 @@ The [`SystemStructure`](@ref) constructor takes the component vectors and:
    etc. via `validate_sys_struct()`
 
 ```julia
-sys = SystemStructure("my_model", set; points, segments, transforms)
+sys = SystemStructure("my_model", set; points, segments)
 # All references now resolved: segments[1].point_idxs == (1, 2)
 ```
 

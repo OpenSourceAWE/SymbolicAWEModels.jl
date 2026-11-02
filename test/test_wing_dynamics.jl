@@ -212,7 +212,7 @@ end
     yaml_path = joinpath(data_path, "wing_freefall.yaml")
     write(yaml_path, WING_FREEFALL_YAML)
 
-    sys = load_sys_struct_from_yaml(
+    sys, transforms = load_sys_struct_from_yaml(
         yaml_path;
         system_name="wing_freefall",
         set, vsm_set,
@@ -233,7 +233,7 @@ end
         @test !isapprox(wing.R_b_to_p, I(3); atol=0.01)
     end
 
-    sam = SymbolicAWEModel(set, sys)
+    sam = SymbolicAWEModel(set, sys; transforms)
     test_init!(sam)
 
     # ================ Free fall ================ #
@@ -453,7 +453,7 @@ end
     @testset "Hanging wing weighs its total_mass" begin
         hanging_path = joinpath(data_path, "wing_hanging.yaml")
         write(hanging_path, WING_HANGING_YAML)
-        hanging = load_sys_struct_from_yaml(hanging_path;
+        hanging, hanging_transforms = load_sys_struct_from_yaml(hanging_path;
             system_name="wing_hanging", set, vsm_set, aero_mode=AeroNone())
         wing = hanging.bodies[:main_wing]
         line = hanging.segments[:line]
@@ -462,7 +462,7 @@ end
         @test wing.extra_mass == 2.0
         @test wing.total_mass ≈ 2.0 + half_line
 
-        hanging_sam = SymbolicAWEModel(set, hanging)
+        hanging_sam = SymbolicAWEModel(set, hanging; transforms=hanging_transforms)
         test_init!(hanging_sam)
         for _ in 1:100
             next_step!(hanging_sam; dt=0.01, vsm_interval=0)

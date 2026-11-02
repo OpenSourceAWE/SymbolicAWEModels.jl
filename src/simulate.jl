@@ -208,12 +208,13 @@ function sim_reposition!(
             end
             
             # Update the transform with the new target pose
-            sys_struct.transforms[1].elevation = target_elevation
-            sys_struct.transforms[1].azimuth   = target_azimuth
-            sys_struct.transforms[1].heading   = target_heading
-            
+            transform = sam.transforms[1]
+            transform.elevation = target_elevation
+            transform.azimuth = target_azimuth
+            transform.heading = target_heading
+
             # Apply the transformation without changing velocities
-            SymbolicAWEModels.reposition!(sys_struct.transforms, sys_struct)
+            reposition!(sam.state)
             
             # Reinitialize the solver to handle the state discontinuity
             if sam.prob isa ProbWithAttributes

@@ -239,7 +239,7 @@ system:
     set = Settings("system.yaml")
 
     # Load system structure from YAML
-    sys = load_sys_struct_from_yaml(yaml_path; system_name="segment_test", set=set)
+    sys, _ = load_sys_struct_from_yaml(yaml_path; system_name="segment_test", set=set)
 
     # ========================================================================
     # YAML Loading Verification
@@ -327,8 +327,9 @@ system:
         set.g_earth = 0.0
         set.v_wind = 0.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="segment_test", set=set)
-        sam = SymbolicAWEModel(set, sys)
+        sys, transforms = load_sys_struct_from_yaml(yaml_path;
+            system_name="segment_test", set=set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Record initial position
@@ -357,13 +358,14 @@ system:
 
         # Use low damping YAML with 5.0 kg point mass (>> segment mass ~0.14 kg)
         # This ensures clean spring-damper dynamics where point mass dominates
-        sys = load_sys_struct_from_yaml(yaml_low_damp_path; system_name="segment_test", set=set)
+        sys, transforms = load_sys_struct_from_yaml(yaml_low_damp_path;
+            system_name="segment_test", set=set)
 
         # Verify the properties were loaded
         @test sys.segments[:test_segment].unit_damping == 100.0
         @test sys.points[:mass_point].extra_mass == 5.0
 
-        sam = SymbolicAWEModel(set, sys)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Physics parameters
@@ -472,7 +474,8 @@ system:
         set.v_wind = 0.0
         set.cd_tether = 0.958  # enable segment aero drag for this test
 
-        sys = load_sys_struct_from_yaml(yaml_horiz_drag_path; system_name="segment_test", set=set)
+        sys, transforms = load_sys_struct_from_yaml(yaml_horiz_drag_path;
+            system_name="segment_test", set=set)
         segment = sys.segments[:horiz_segment]
         L = segment.l0  # 10.0 m
         d = segment.diameter  # 0.004 m (4mm)
@@ -487,7 +490,7 @@ system:
         @test sys.points[:point_left].extra_mass == 0.0
         @test sys.points[:point_right].extra_mass == 0.0
 
-        sam = SymbolicAWEModel(set, sys)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Run simulation until terminal velocity is reached
@@ -546,11 +549,12 @@ system:
         set.profile_law = 0  # Use constant wind profile
 
         # Verify no extra mass on points (segment mass only)
-        sys = load_sys_struct_from_yaml(yaml_vert_wind_path; system_name="segment_test", set=set)
+        sys, transforms = load_sys_struct_from_yaml(yaml_vert_wind_path;
+            system_name="segment_test", set=set)
         @test sys.points[:point_top].extra_mass == 0.0
         @test sys.points[:point_bottom].extra_mass == 0.0
 
-        sam = SymbolicAWEModel(set, sys)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Record initial positions
@@ -601,7 +605,8 @@ system:
         set.profile_law = 0  # Reset to constant profile
 
         # Get segment properties
-        sys = load_sys_struct_from_yaml(yaml_high_alt_path; system_name="segment_test", set=set)
+        sys, transforms = load_sys_struct_from_yaml(yaml_high_alt_path;
+            system_name="segment_test", set=set)
         segment = sys.segments[:horiz_segment]
         L = segment.l0  # 10.0 m
         d = segment.diameter  # 0.004 m (4mm)
@@ -612,7 +617,7 @@ system:
         m_total = segment_mass
         cd = set.cd_tether
 
-        sam = SymbolicAWEModel(set, sys)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Run simulation - shorter time since we want to stay at altitude
@@ -664,7 +669,7 @@ system:
         set.g_earth = 0.0
         set.v_wind = 0.0
 
-        sys = load_sys_struct_from_yaml(yaml_material_density_path;
+        sys, transforms = load_sys_struct_from_yaml(yaml_material_density_path;
             system_name="segment_test", set=set)
 
         seg_dyneema = sys.segments[:seg_dyneema]
@@ -675,7 +680,7 @@ system:
         @test seg_steel.density ≈ 7800.0
         @test set.rho_tether == 724.0
 
-        sam = SymbolicAWEModel(set, sys)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # total_mass of each hanging point = half the connected segment mass,
@@ -699,8 +704,9 @@ system:
         set.g_earth = 9.81
         set.v_wind = 0.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="segment_test", set=set)
-        sam = SymbolicAWEModel(set, sys)
+        sys, transforms = load_sys_struct_from_yaml(yaml_path;
+            system_name="segment_test", set=set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
         for _ in 1:5
             next_step!(sam; dt=0.05, vsm_interval=0)
@@ -713,8 +719,8 @@ system:
         save_log(logger, "segment_force_roundtrip", false; path=tmpdir)
         lg = load_log("segment_force_roundtrip"; path=tmpdir)
 
-        replayed = SystemState(load_sys_struct_from_yaml(yaml_path;
-            system_name="segment_test", set=set))
+        replayed = SystemState(first(load_sys_struct_from_yaml(yaml_path;
+            system_name="segment_test", set=set)))
         update_from_sysstate!(replayed, lg.syslog[1])
         @test [segment.force for segment in replayed.segments] ≈ simulated rtol=1e-5
     end

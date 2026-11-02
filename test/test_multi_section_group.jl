@@ -35,7 +35,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     vsm_set_path; data_prefix=false)
 
 @testset "Multi-section station partition" begin
-    sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+    sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="multi_section",
         set, vsm_set, dynamics_type=RIGID_DYNAMICS)
     wing = sys.wings[1]
@@ -126,7 +126,7 @@ function riding_mass(sys, wing)
 end
 
 @testset "Rigid wing total_mass is its extra_mass plus its riders" begin
-    sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+    sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="rigid_total_mass",
         set, vsm_set, dynamics_type=RIGID_DYNAMICS)
     wing = sys.wings[1]
@@ -145,13 +145,13 @@ end
     load_both() = SymbolicAWEModels.load_sys_struct_from_yaml(
         both_yaml; system_name="rigid_total_mass", set, vsm_set,
         dynamics_type=RIGID_DYNAMICS)
-    both = @test_logs min_level=Base.CoreLogging.Warn load_both()
+    both, _ = @test_logs min_level=Base.CoreLogging.Warn load_both()
     @test both.wings[1].extra_mass == 2.0
     @test both.wings[1].total_mass ≈ 2.0 + riding_mass(both, both.wings[1])
 end
 
 @testset "n_stations > n_unrefined errors" begin
-    sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+    sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="too_many_stations",
         set, vsm_set, dynamics_type=RIGID_DYNAMICS)
     wing = sys.wings[1]

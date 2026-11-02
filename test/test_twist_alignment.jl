@@ -27,10 +27,10 @@ vsm_set = VortexStepMethod.VSMSettings(
     joinpath(get_data_path(), "vsm_settings.yaml");
     data_prefix=false)
 
-sys = load_sys_struct_from_yaml(struc_yaml;
+sys, transforms = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite", set, vsm_set)
 sys.winches[:main_winch].brake = true
-sam = SymbolicAWEModel(set, sys)
+sam = SymbolicAWEModel(set, sys; transforms)
 l0_left = sam.state.segments[:kcu_steering_left].l0
 l0_right = sam.state.segments[:kcu_steering_right].l0
 

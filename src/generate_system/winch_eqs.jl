@@ -16,7 +16,7 @@ parent system.
 For each winch:
 1. Sum spring force vectors of the segments meeting the winch point
    (sign-aware via segment `point_idxs`) → `winch_force_vec`.
-2. Instantiate the winch component via `winch_component(winch.model, …)`.
+2. Instantiate the winch component via `winch_component(winch.model.dynamics, …)`.
 3. Validate the connector contract with
    [`validate_winch_component`](@ref).
 4. Bind connectors to the parent variables (including
@@ -90,7 +90,7 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
             end
         end
 
-        subsys = winch_component(winch.model, sys_struct, winch.idx;
+        subsys = winch_component(winch.model.dynamics, sys_struct, winch.idx;
                                  name=Symbol("winch_$(winch.idx)"), params)
         validate_winch_component(subsys, winch)
         push!(winch_subsystems, subsys)

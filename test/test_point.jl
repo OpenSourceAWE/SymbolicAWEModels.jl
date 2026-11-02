@@ -178,7 +178,7 @@ system:
     set = Settings("system.yaml")
 
     # Load system structure from YAML
-    sys = load_sys_struct_from_yaml(yaml_path; system_name="point_test", set=set)
+    sys, _ = load_sys_struct_from_yaml(yaml_path; system_name="point_test", set=set)
 
     # ========================================================================
     # YAML Loading Verification
@@ -207,10 +207,11 @@ system:
         set.v_wind = 0.0
 
         # Use no-drag YAML for cleaner test
-        sys = load_sys_struct_from_yaml(yaml_no_drag_path; system_name="point_no_drag_test", set=set)
+        sys, transforms = load_sys_struct_from_yaml(yaml_no_drag_path;
+            system_name="point_no_drag_test", set=set)
         @test sys.points[:test_point].area == 0.0
 
-        sam = SymbolicAWEModel(set, sys)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Record initial state
@@ -245,7 +246,7 @@ system:
 
         # Heavy point (50 kg) with large drag area for
         # slow, precisely measurable acceleration
-        sys = load_sys_struct_from_yaml(
+        sys, transforms = load_sys_struct_from_yaml(
             yaml_heavy_drag_path;
             system_name="point_test_drag", set=set)
 
@@ -253,7 +254,7 @@ system:
         @test sys.points[:test_point].drag_coeff == 1.0
         @test sys.points[:test_point].extra_mass == 50.0
 
-        sam = SymbolicAWEModel(set, sys)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Physics: F = 0.5 * rho * Cd * A * v^2
@@ -306,13 +307,14 @@ system:
         set.v_wind = 0.0
 
         # Use no-drag YAML - just a point with mass, no segments
-        sys = load_sys_struct_from_yaml(yaml_no_drag_path; system_name="point_no_drag_test", set=set)
+        sys, transforms = load_sys_struct_from_yaml(yaml_no_drag_path;
+            system_name="point_no_drag_test", set=set)
 
         @test sys.points[:test_point].area == 0.0
         @test sys.points[:test_point].world_frame_damping == KVec3(0.0, 0.0, 0.0)
         @test sys.points[:test_point].extra_mass == 0.69
 
-        sam = SymbolicAWEModel(set, sys)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Initial state
@@ -352,13 +354,14 @@ system:
         yaml_damping_path = joinpath(tmpdir, "world_damping_geometry.yaml")
         write(yaml_damping_path, POINT_WORLD_DAMPING_YAML)
 
-        sys = load_sys_struct_from_yaml(yaml_damping_path; system_name="damping_test", set=set)
+        sys, transforms = load_sys_struct_from_yaml(yaml_damping_path;
+            system_name="damping_test", set=set)
 
         @test sys.points[:test_point].world_frame_damping == KVec3(0.7, 0.7, 0.7)
         @test sys.points[:test_point].area == 0.0
         @test sys.points[:test_point].extra_mass == 2.3
 
-        sam = SymbolicAWEModel(set, sys)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Terminal velocity calculation:
@@ -394,7 +397,8 @@ system:
         yaml_aero_path = joinpath(tmpdir, "aero_drag_geometry.yaml")
         write(yaml_aero_path, POINT_AERO_DRAG_YAML)
 
-        sys = load_sys_struct_from_yaml(yaml_aero_path; system_name="aero_drag_test", set=set)
+        sys, transforms = load_sys_struct_from_yaml(yaml_aero_path;
+            system_name="aero_drag_test", set=set)
 
         @test sys.points[:test_point].area == 4.2
         @test sys.points[:test_point].drag_coeff == 0.33
@@ -402,7 +406,7 @@ system:
         @test sys.points[:test_point].extra_mass == 2.3
         @test sys.points[:test_point].total_mass == 2.3
 
-        sam = SymbolicAWEModel(set, sys)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
         @test sys.points[:test_point].total_mass == 2.3
 
@@ -460,13 +464,14 @@ system:
         yaml_high_alt_path = joinpath(tmpdir, "high_alt_geometry.yaml")
         write(yaml_high_alt_path, POINT_HIGH_ALTITUDE_YAML)
 
-        sys = load_sys_struct_from_yaml(yaml_high_alt_path; system_name="high_alt_point_test", set=set)
+        sys, transforms = load_sys_struct_from_yaml(yaml_high_alt_path;
+            system_name="high_alt_point_test", set=set)
 
         @test sys.points[:test_point].area == 4.2
         @test sys.points[:test_point].drag_coeff == 0.33
         @test sys.points[:test_point].extra_mass == 2.3
 
-        sam = SymbolicAWEModel(set, sys)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         point = sam.state.points[:test_point]
@@ -549,12 +554,12 @@ end
 
     # The KCU carries no body-frame damping, so its physics is unchanged by this.
     @testset "free point with no wing builds and flies" begin
-        sys = load_sys_struct_from_yaml(geometry_with_wing(:kcu, "0");
+        sys, transforms = load_sys_struct_from_yaml(geometry_with_wing(:kcu, "0");
             system_name="point_no_wing", set, vsm_set)
         @test sys.points[:kcu].wing_idx == 0
         @test !sys.points[:kcu].is_wing_node
 
-        sam = SymbolicAWEModel(set, sys)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
         kcu = sam.state.points[:kcu]
         height_before = kcu.pos_w[3]

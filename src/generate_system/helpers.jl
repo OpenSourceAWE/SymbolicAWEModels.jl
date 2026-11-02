@@ -197,31 +197,9 @@ function calc_R_v_to_w(wing_pos, e_x)
 end
 
 """
-    calc_R_t_to_w(wing_pos)
-
-Calculate the rotation matrix from the local tether frame (`_t`) to the world
-frame (`_w`).
-
-The tether frame is a local spherical coordinate system:
-- **z-axis**: Aligned with the tether (radial direction).
-- **y-axis**: Azimuthal direction, parallel to the XY plane.
-- **x-axis**: Elevation direction, tangent to the sphere (`y × z`).
-"""
-function calc_R_t_to_w(wing_pos)
-    z = smooth_normalize(wing_pos)
-    if abs(wing_pos[1]) < 1e-6 && abs(wing_pos[2]) < 1e-6
-        y = [0, 1, 0]
-    else
-        y = smooth_normalize([-wing_pos[2], wing_pos[1], 0])
-    end
-    x = y × z
-    return [x[1] y[1] z[1]; x[2] y[2] z[2]; x[3] y[3] z[3]]
-end
-
-"""
     sym_calc_R_t_to_w(wing_pos)
 
-Symbolic version of `calc_R_t_to_w` that uses explicit element access
+Symbolic version of KiteGeometry's `calc_R_t_to_w` that uses explicit element access
 to avoid slice scalarization issues.
 """
 function sym_calc_R_t_to_w(wing_pos)

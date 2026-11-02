@@ -167,8 +167,8 @@ param_computed!(reg::ParamRegistry, name::Symbol, reader) =
 
 """Types the view descends *through* (everything else is a leaf)."""
 param_descend(x) = x isa NamedCollection || x isa AbstractAeroModel ||
-                   x isa AbstractWinchModel || x isa AbstractTubeModel ||
-                   x isa VSMEngine || x isa Settings ||
+                   x isa AbstractWinchModel || x isa WinchModel ||
+                   x isa AbstractTubeModel || x isa VSMEngine || x isa Settings ||
                    x isa UnsteadyAero
 
 param_name(path::Tuple) = Symbol("p_", join(path, "_"))
@@ -213,9 +213,10 @@ function Base.getproperty(view::PathView, sym::Symbol)
 end
 
 """The reader of the leaf `value` at `path`: a [`PathReader`](@ref), copying into a
-buffer of its own a vector a run's state holds in its columns."""
+buffer of its own a vector built on read — one a run's state holds in its columns, or
+one a definition row holds as one number per axis."""
 leaf_reader(path, value) = PathReader(path)
-leaf_reader(path, value::Union{ColumnVec3, ColumnQuat}) =
+leaf_reader(path, value::Union{ColumnVec3, ColumnQuat, SVector}) =
     CopyReader(PathReader(path), MVector(Tuple(value)))
 
 """

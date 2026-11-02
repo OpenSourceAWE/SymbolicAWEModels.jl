@@ -567,7 +567,7 @@ end
     apply_tether_init_stretched_lens!(sys_struct::SystemState; prn=true)
 
 Scale `pos_w` so each tether with an explicit `init_stretched_len` sits at
-that standoff. Call after `copy_initial_pose!`. Rest length is derived
+that standoff. Call after [`reset_to_initial_pose!`](@ref). Rest length is derived
 separately by `apply_tether_init_forces!`.
 
 Only tethers with one endpoint on a boundary (`STATIC` or winch point) are
@@ -740,7 +740,7 @@ end
 # ==================== PLACEMENT ==================== #
 
 """
-    reset_to_initial_pose!(sys_struct::SystemStructure; reset_vel=true)
+    reset_to_initial_pose!(state::SystemState; reset_vel=true)
 
 Put every point and body back at its initial pose (`pos_ENU`, `Q_KA_to_ENU`), zero the
 twist of every non-`STATIC` station and set every winch's reel-out speed to
@@ -750,7 +750,15 @@ function reset_to_initial_pose!(sys_struct::SystemState; reset_vel::Bool=true)
     for winch in sys_struct.winches
         winch.vel = winch.init_vel
     end
-    copy_initial_pose!(sys_struct.points, sys_struct.bodies; update_vel=reset_vel)
+    for point in sys_struct.points
+        point.pos_w .= point.pos_ENU
+        reset_vel && (point.vel_w .= 0.0)
+    end
+    for body in sys_struct.bodies
+        body.pos_w .= body.pos_ENU
+        body.Q_b_to_w .= body.Q_KA_to_ENU
+        reset_vel && (body.vel_w .= 0.0; body.ω_b .= 0.0)
+    end
     for station in sys_struct.stations
         station.type == STATIC && continue
         station.twist = 0.0
@@ -890,10 +898,10 @@ function init_derived_properties!(sys_struct; prn::Bool=true)
 end
 
 """
-    place!(sys::SystemStructure; ignore_l0=false, prn=true)
+    place!(sys::SystemStructure, transforms=Transform[]; ignore_l0=false, prn=true)
 
-Place `sys` in the world by its `transforms` and tether lengths, and make where it
-lands its initial pose: its points' and bodies' `pos_ENU` and `Q_KA_to_ENU`, its
+Place `sys` in the world by KiteGeometry `transforms` and its tether lengths, and make
+where it lands its initial pose: its points' and bodies' `pos_ENU` and `Q_KA_to_ENU`, its
 segments' `l0` and its tethers' `len`. Runs, on the state a run would start from:
 
 1. [`reset_to_initial_pose!`](@ref)
@@ -901,23 +909,24 @@ segments' `l0` and its tethers' `len`. Runs, on the state a run would start from
 3. [`update_segment_lengths!`](@ref)
 4. [`apply_tether_init_forces!`](@ref)
 5. [`init_pulley_lengths!`](@ref)
-6. `reinit!(sys.transforms, state)`
+6. `place_transforms!(state, transforms)`
 7. [`carry_body_points!`](@ref)
 8. [`relax_segments!`](@ref) — only with `ignore_l0=true`
 9. [`store_initial_pose!`](@ref)
 
-The `SystemStructure` constructor runs it on the authoring geometry. Run again after a
-transform changes, it places the structure anew from its initial pose. `prn` prints
-the info messages of step 2.
+The `SystemStructure` constructor runs it with no transforms. Run again after a transform
+changes, it places the structure anew from its initial pose. `prn` prints the info
+messages of step 2.
 """
-function place!(sys::SystemStructure; ignore_l0::Bool=false, prn::Bool=true)
-    state = SystemState(sys)
+function KiteGeometry.place!(sys::SystemStructure, transforms=Transform[];
+                             ignore_l0::Bool=false, prn::Bool=true)
+    state = SystemState(sys; transforms)
     reset_to_initial_pose!(state)
     apply_tether_init_stretched_lens!(state; prn)
     update_segment_lengths!(state)
     apply_tether_init_forces!(state)
     init_pulley_lengths!(state)
-    reinit!(sys.transforms, state; update_vel=false)
+    place_transforms!(state, transforms)
     carry_body_points!(state)
     ignore_l0 && relax_segments!(state)
     store_initial_pose!(state)
@@ -930,8 +939,9 @@ end
 Put `state` at the start of a run from the pose its structure is placed in: every
 point and body at its initial pose ([`reset_to_initial_pose!`](@ref)), the twist of a
 `STATIC` station, masses, segment, tether and pulley lengths from the structure's, and
-points and bodies moving as their transforms' rates say. `reset_vel=false` keeps the
-velocities `state` holds.
+points and bodies moving as the rates of its transforms say
+([`set_transform_velocities!`](@ref)). `reset_vel=false` keeps the velocities `state`
+holds.
 """
 function start_run!(state; reset_vel::Bool=true)
     foreach(station -> station.twist = station.row.twist, state.stations)
@@ -947,8 +957,116 @@ function start_run!(state; reset_vel::Bool=true)
         tether.len = sum(state.segments[idx].l0 for idx in tether.segment_idxs; init=0.0)
     end
     init_pulley_lengths!(state)
-    reinit!(state.transforms, state; update_vel=reset_vel)
+    fit_body_frames!(state.points, state.bodies)
+    reset_vel && set_transform_velocities!(state, state.transforms)
     return state
+end
+
+"""
+    Pose(state::SystemState)
+
+The KiteGeometry `Pose` `state` stands in: the position of each point, and the origin
+and frame of each body.
+"""
+KiteGeometry.Pose(state::SystemState) =
+    Pose([KiteGeometry.Vec3(point.pos_w) for point in state.points],
+         [KiteGeometry.Vec3(body.pos_w) for body in state.bodies],
+         [KiteGeometry.Mat3(body.R_b_to_w) for body in state.bodies])
+
+"""Put the points and bodies of `state` where `pose` has them."""
+function set_pose!(state::SystemState, pose)
+    foreach((point, pos) -> point.pos_w .= pos, state.points, pose.pos)
+    for (body, pos, R) in zip(state.bodies, pose.body_pos, pose.body_R)
+        body.pos_w .= pos
+        body.R_b_to_w = R
+    end
+    return state
+end
+
+"""
+    place_transforms!(state::SystemState, transforms)
+
+Apply KiteGeometry `transforms` to the points and bodies of `state` from where they
+stand ([`Pose`](@ref)), then fit the body frames to them ([`fit_body_frames!`](@ref)).
+"""
+function KiteGeometry.place_transforms!(state::SystemState, transforms)
+    fit_body_frames!(state.points, state.bodies)
+    design = Pose(state)
+    set_pose!(state, place_transforms!(copy(design), design, transforms))
+    fit_body_frames!(state.points, state.bodies)
+    return state
+end
+
+"""
+    reposition!(state::SystemState, transforms=state.transforms; update_vel=false)
+
+Turn the points and bodies of a running `state` to the current elevation, azimuth and
+heading of each of `transforms` about its base where it stands, with KiteGeometry's
+`reposition!`, keeping their velocities. `update_vel` sets them to the transforms' rates
+instead ([`set_transform_velocities!`](@ref)).
+"""
+function KiteGeometry.reposition!(state::SystemState, transforms=state.transforms;
+                                  update_vel::Bool=false)
+    fit_body_frames!(state.points, state.bodies)
+    set_pose!(state, reposition!(Pose(state), transforms))
+    update_vel && set_transform_velocities!(state, transforms)
+    fit_body_frames!(state.points, state.bodies)
+    return state
+end
+
+"""
+    set_transform_velocities!(state::SystemState, transforms)
+
+Set every point and body of `state` to the velocity KiteGeometry's
+`transform_velocities` gives it, zero for one no transform moves; a `RIGID_DYNAMICS`
+body takes the matching `ω_b` as well.
+"""
+function set_transform_velocities!(state::SystemState, transforms)
+    point_vel, body_vel, body_spin = transform_velocities(Pose(state), transforms)
+    foreach((point, vel) -> point.vel_w .= vel, state.points, point_vel)
+    for (body, vel, spin) in zip(state.bodies, body_vel, body_spin)
+        body.vel_w .= vel
+        body.ω_b .= body.dynamics_type == RIGID_DYNAMICS ? body.R_b_to_w' * spin : 0.0
+    end
+    return state
+end
+
+"""
+    fit_body_frames!(points, bodies)
+
+Fit each `PARTICLE_DYNAMICS` body's frame and origin to its reference points and set its
+nodes' undeformed offsets from them, and the rigid wings' nodes' offsets from the initial
+pose ([`init_undeformed_offsets!`](@ref)).
+"""
+function fit_body_frames!(points, bodies)
+    for body in bodies
+        body.dynamics_type == PARTICLE_DYNAMICS || continue
+        (isnothing(body.z_ref_points) || isnothing(body.y_ref_points) ||
+         isnothing(body.origin)) && continue
+        R_b_to_w, origin = calc_particle_dynamics_wing_frame(
+            points, body.z_ref_points, body.y_ref_points, body.origin)
+        body.R_b_to_w = R_b_to_w
+        body.pos_w .= origin
+        for point in points
+            if point.is_wing_node && point.wing_idx == body.idx
+                point.pos_undeformed_b .= R_b_to_w' * (point.pos_w - origin)
+            end
+        end
+    end
+    init_undeformed_offsets!(bodies, points)
+end
+
+"""
+    transform_base_point(transforms, body_idx) -> Int
+
+The base point of the transform among `transforms` moving body `body_idx`, from which its
+elevation and azimuth are measured; 0 for none.
+"""
+function transform_base_point(transforms, body_idx)
+    for transform in transforms
+        body_idx in transform.bodies && return something(transform.base_point, 0)
+    end
+    return 0
 end
 
 """
@@ -1186,7 +1304,8 @@ function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
         wing.aoa = Float64(sys_state.AoA)
         wing.course = Float64(sys_state.course)
         wing.acc_w .= 0.0
-        rel_pos = wing_rel_pos(wing, points, wing_base_point(wing, sys.transforms))
+        base_point = transform_base_point(sys.transforms, wing.idx)
+        rel_pos = wing_rel_pos(wing, points, base_point)
         R_b_to_w = wing.R_b_to_w
         wing.turn_rate .= body_to_view_rate(calc_R_v_to_w(rel_pos, R_b_to_w[:, 1]),
             R_b_to_w, wing.ω_b)

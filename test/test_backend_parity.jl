@@ -52,12 +52,12 @@ function parity_model(backend, geometry, root; aero_mode=nothing, fixture=false)
     set = Settings("system.yaml")
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    sys = load_sys_struct_from_yaml(joinpath(data_path, geometry);
-                                    system_name="backend_parity", set=set,
-                                    vsm_set=vsm_set,
-                                    (isnothing(aero_mode) ? () :
-                                     (; aero_mode=aero_mode()))...)
-    sam = SymbolicAWEModel(set, sys; backend)
+    sys, transforms = load_sys_struct_from_yaml(joinpath(data_path, geometry);
+                                                system_name="backend_parity", set=set,
+                                                vsm_set=vsm_set,
+                                                (isnothing(aero_mode) ? () :
+                                                 (; aero_mode=aero_mode()))...)
+    sam = SymbolicAWEModel(set, sys; transforms, backend)
     init!(sam; prn=false, remake=true)
     update_sys_struct!(sam.prob, sam.integrator, sam.state)
     return sam
