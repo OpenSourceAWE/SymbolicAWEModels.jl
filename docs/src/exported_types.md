@@ -68,9 +68,9 @@ default_backend!
 
 ```@docs
 SystemStructure
-SystemStructure(name, set; points, stations, segments, pulleys, tethers, winches, wings, transforms, bodies, tubes)
+SystemStructure(name, set; points, stations, segments, pulleys, tethers, winches, wings, bodies, tubes)
 Point
-Point(name, pos_ENU, type::DynamicsType; wing, transform, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
+Point(name, pos_ENU, type::DynamicsType; wing, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
 Station
 Station(name, points, type::DynamicsType, moment_frac; damping=50.0)
 Segment
@@ -101,8 +101,6 @@ TimoshenkoTube
 TimoshenkoTube(; EA, GA, GJ, EIy, EIz, shear_coeff, damping)
 ElasticTube
 ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping)
-Transform
-Transform(name, elevation, azimuth, heading; base_point, base_pos, base_transform, wing, rot_point)
 ```
 
 ## Indexing

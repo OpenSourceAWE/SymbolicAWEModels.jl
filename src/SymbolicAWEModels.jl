@@ -49,6 +49,7 @@ using ForwardDiff
 # ===== Imports (for extending functions) ===== #
 
 import KiteUtils: init!, next_step!, update_sys_state!, SysState
+import KiteGeometry: calc_heading
 import ModelingToolkit: t_nounits as t, D_nounits as D
 import ModelingToolkit: SciMLBase
 import ModelingToolkit.SciMLBase: successful_retcode, init
@@ -67,8 +68,7 @@ export SymbolicAWEModel
 export ModelBackend, MonolithBackend, KernelBackend,
        BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
-export SystemStructure, SystemState, Point, Station, Segment, Pulley, Tether, Winch, Wing,
-       Transform
+export SystemStructure, SystemState, Point, Station, Segment, Pulley, Tether, Winch, Wing
 export segment_role
 export Body, Tube, AbstractTubeModel, TimoshenkoTube, ElasticTube
 export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
@@ -106,7 +106,6 @@ export set_world_frame_damping
 export set_body_frame_damping
 export set_angular_damping
 export set_unstretched_length!
-export place!
 export reset_to_initial_pose!
 export apply_tether_init_stretched_lens!
 export update_segment_lengths!

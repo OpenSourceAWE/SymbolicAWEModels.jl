@@ -111,20 +111,11 @@ set.mass = 0.0
 
 points = Point[]
 push!(points, Point(:ground, zeros(3), STATIC))
-push!(points, Point(:kcu, pos_kcu, DYNAMIC;
-    extra_mass=set.kcu_mass,
-    transform=:main_tf))
-push!(points, Point(:nose, pos_nose, DYNAMIC;
-    extra_mass=k_nose, transform=:main_tf))
-push!(points, Point(:top, pos_top, DYNAMIC;
-    extra_mass=k_top, wing=:plate_wing,
-    transform=:kite_tilt))
-push!(points, Point(:right, pos_right, DYNAMIC;
-    extra_mass=k_side, wing=:plate_wing,
-    transform=:kite_tilt))
-push!(points, Point(:left, pos_left, DYNAMIC;
-    extra_mass=k_side, wing=:plate_wing,
-    transform=:kite_tilt))
+push!(points, Point(:kcu, pos_kcu, DYNAMIC; extra_mass=set.kcu_mass))
+push!(points, Point(:nose, pos_nose, DYNAMIC; extra_mass=k_nose))
+push!(points, Point(:top, pos_top, DYNAMIC; extra_mass=k_top, wing=:plate_wing))
+push!(points, Point(:right, pos_right, DYNAMIC; extra_mass=k_side, wing=:plate_wing))
+push!(points, Point(:left, pos_left, DYNAMIC; extra_mass=k_side, wing=:plate_wing))
 
 pos_map = Dict(:kcu => pos_kcu, :nose => pos_nose,
                :top => pos_top, :right => pos_right,
@@ -197,25 +188,27 @@ plate_wing = PlateWing(
     origin=:kcu,
     drag_corr=0.93 * K)
 
-KITE_ANGLE = 3.83
-transforms = [
-    Transform(:main_tf,
-        deg2rad(set.elevation), AZIMUTH, 0.0;
-        base_pos=zeros(3), base_point=:ground,
-        wing=:plate_wing),
-    Transform(:kite_tilt,
-        deg2rad(set.elevation - KITE_ANGLE),
-        AZIMUTH, 0.0;
-        base_transform=:main_tf,
-        rot_point=:top),
-]
-
 sys = SystemStructure("kps4", set;
-    points, stations, segments, tethers, winches,
-    wings=[plate_wing], transforms)
+    points, stations, segments, tethers, winches, wings=[plate_wing])
 sys.winches[1].brake = true
 
-sam = SymbolicAWEModel(set, sys)
+KITE_ANGLE = 3.83
+point_idx(name) = sys.points[name].idx
+tether_points = setdiff(
+    (point for segment in sys.tethers[:main_tether].segment_idxs
+     for point in sys.segments[segment].point_idxs),
+    point_idx.([:ground, :kcu]))
+transforms = [
+    Transform(; name=:main_tf, elevation=deg2rad(set.elevation), azimuth=AZIMUTH,
+        heading=0.0, base_pos=zeros(3), base_point=point_idx(:ground), body=1,
+        points=[point_idx(:kcu), point_idx(:nose), tether_points...], bodies=[1]),
+    Transform(; name=:kite_tilt, elevation=deg2rad(set.elevation - KITE_ANGLE),
+        azimuth=AZIMUTH, heading=0.0, base_transform=1,
+        rot_point=[point_idx(:top) => 1.0], points=point_idx.([:top, :right, :left])),
+]
+place!(sys, transforms)
+
+sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false, prn=true)
 
 twists = [round(rad2deg(ts.twist), digits=2)

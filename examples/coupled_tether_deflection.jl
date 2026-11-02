@@ -36,16 +36,14 @@ seg_diameter  = 0.004      # [m]
 
 # Points laid out horizontally; transform rotates to vertical
 points = [
-    Point(:top, [vertical_span, 0, 0], STATIC;
-        transform=:tf),
+    Point(:top, [vertical_span, 0, 0], STATIC),
 ]
 for i in 1:n_segments - 1
     x = vertical_span - i * vertical_span / n_segments
     push!(points, Point(Symbol("p$i"), [x, 0, 0], DYNAMIC;
-        world_frame_damping=1.0, transform=:tf))
+        world_frame_damping=1.0))
 end
-push!(points, Point(:bottom, [0, 0, 0], STATIC;
-    transform=:tf))
+push!(points, Point(:bottom, [0, 0, 0], STATIC))
 
 l0_seg = total_length / n_segments
 segments = Segment[]
@@ -58,14 +56,14 @@ for i in 1:n_segments
 end
 
 transforms = [
-    Transform(:tf, -deg2rad(90), 0, 0;
-              base_pos=[0, 0, vertical_span],
-              base_point=:top, rot_point=:bottom),
+    Transform(; name=:tf, elevation=-deg2rad(90), azimuth=0, heading=0,
+              base_pos=[0, 0, vertical_span], base_point=1,
+              rot_point=[length(points) => 1.0], points=collect(eachindex(points))),
 ]
 
-sys = SystemStructure("wind_drag", set;
-                      points, segments, transforms)
-sam = SymbolicAWEModel(set, sys)
+sys = SystemStructure("wind_drag", set; points, segments)
+place!(sys, transforms)
+sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false)
 
 n_steps = 800

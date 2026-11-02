@@ -33,10 +33,6 @@ $(TYPEDFIELDS)
     anchor_b::Union{Nothing, Vector{Float64}} = nothing
     "Index in the structure's points."
     idx::Int64 = 0
-    "The transform placing the point, by name or index; 0 for none."
-    transform_ref::KiteGeometry.NameRef = 0
-    "Index of the transform placing the point; 0 for none."
-    transform_idx::Int64 = 0
     "Index of the wing the point belongs to; 0 for none."
     resolved_wing_idx::Int64 = 0
     "Index of the body the point rides; 0 for none."

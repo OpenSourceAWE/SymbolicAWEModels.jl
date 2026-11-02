@@ -53,10 +53,6 @@ $(TYPEDFIELDS)
     principal_frame_method::Union{Nothing, String} = nothing
     "Index in the structure's bodies."
     idx::Int64 = 0
-    "The transform placing the body, by name or index; 0 for none."
-    transform_ref::KiteGeometry.NameRef = 0
-    "Index of the transform placing the body; 0 for none."
-    transform_idx::Int64 = 0
     "Index of the wing whose body frame the body's damping acts in; 0 for none."
     resolved_wing_idx::Int64 = 0
     "`extra_mass` plus the `total_mass` of the points the body carries [kg]."
@@ -343,16 +339,13 @@ broadcast_damping(damping) = damping isa Real ?
               Q_b_to_w=[1,0,0,0], com_offset_b=zeros, R_b_to_p=I,
               angular_damping=0, world_frame_damping=0, body_frame_damping=0,
               fix_sphere=false, fix_static=false, type=DYNAMIC,
-              transform=nothing, wing=nothing,
-              ext_force_w=zeros, ext_moment_b=zeros)
+              wing=nothing, ext_force_w=zeros, ext_moment_b=zeros)
 
 Construct a standalone rigid body. `pos` is the body origin's initial world-frame
 position and `Q_b_to_w` its initial orientation.
 
 `type` is `DYNAMIC` (free 6-DOF, default) or `STATIC` (clamped to its initial
-pose — e.g. a cantilever root). `transform` optionally references a
-[`Transform`](@ref) that repositions/rotates the body's initial pose (azimuth,
-elevation, heading), like a wing. `wing` names the parent wing whose frame and
+pose — e.g. a cantilever root). `wing` names the parent wing whose frame and
 motion the body-frame damping resolves against, as a `Point`'s `wing` does.
 
 `angular_damping` is a scalar (isotropic) or length-3 per-axis spin damping [1/s].
@@ -385,7 +378,6 @@ function Body(name;
         fix_sphere::Bool = false,
         fix_static::Bool = false,
         type::DynamicsType = DYNAMIC,
-        transform = nothing,
         wing = nothing,
         ext_force_w = zeros(SimFloat, 3),
         ext_force_b = zeros(SimFloat, 3),
@@ -397,7 +389,6 @@ function Body(name;
     body_damping_vec = broadcast_damping(body_frame_damping)
     type in (DYNAMIC, STATIC) || error(
         "Body $name: type must be DYNAMIC or STATIC, got $type.")
-    transform_ref = isnothing(transform) ? 0 : transform
     wing_ref = isnothing(wing) ? 0 : wing
     if !isnothing(inertia)
         isnothing(inertia_principal) || error(
@@ -414,7 +405,7 @@ function Body(name;
         body_frame_damping=Vector(body_damping_vec), fix_sphere, fix_static,
         ext_force_w=Vector{Float64}(ext_force_w), ext_force_b=Vector{Float64}(ext_force_b),
         ext_moment_b=Vector{Float64}(ext_moment_b),
-        principal_frame_method=string(principal_frame_method), transform_ref,
+        principal_frame_method=string(principal_frame_method),
         total_mass=extra_mass, inertia_principal=KVec3(inertia_principal),
         R_b_to_p=Matrix{SimFloat}(R_b_to_p), com_offset_b=KVec3(com_offset_b),
         extra_com_offset_b=KVec3(com_offset_b))

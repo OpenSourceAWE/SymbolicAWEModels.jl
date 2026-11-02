@@ -219,21 +219,19 @@ read_aero_log_points!(mode::AeroPlate, wing, sys_struct, sys_state,
 # ==================== YAML construction ==================== #
 
 function load_wing(mode::AeroPlate, definition, w, set, dynamics_type, vsm_set,
-                   station_refs, stations; transform)
-    return load_plate_wing(definition, w, set, dynamics_type, mode, stations;
-                           transform)
+                   station_refs, stations)
+    return load_plate_wing(definition, w, set, dynamics_type, mode, stations)
 end
 
 """
-    load_plate_wing(definition, w, set, dynamics_type, aero_mode, stations; transform)
+    load_plate_wing(definition, w, set, dynamics_type, aero_mode, stations)
 
 Load flat-plate wing `w` of `definition` from its wing row and the `surfaces` block of
 its extras. Each surface becomes a 1-point `STATIC` [`Station`](@ref) appended to
 `stations`; the wing references them by name. CL/CD interpolations come from `Settings`
 polar data.
 """
-function load_plate_wing(definition, w, set, dynamics_type, aero_mode, stations;
-                         transform)
+function load_plate_wing(definition, w, set, dynamics_type, aero_mode, stations)
     wing = definition.wings[w]
     name = row_name(wing)
     cl_interp, cd_interp = create_plate_interpolations(
@@ -258,7 +256,7 @@ function load_plate_wing(definition, w, set, dynamics_type, aero_mode, stations;
     end
 
     PlateWing(name, section_refs, cl_interp, cd_interp;
-              dynamics_type, transform,
+              dynamics_type,
               angular_damping=something(wing.angular_damping, KVec3(0.0, 150.0, 0.0)),
               drag_corr=something(wing.drag_corr, 0.93),
               z_ref_points=maybe(ref_pair_spec, wing.z_ref_points),

@@ -12,7 +12,6 @@ components as definition rows, and the writer. Not part of the public API.
 
 ```@docs
 SymbolicAWEModels.optional_project_file
-SymbolicAWEModels.member_transforms
 SymbolicAWEModels.row_name
 SymbolicAWEModels.name_of
 SymbolicAWEModels.cell_ref

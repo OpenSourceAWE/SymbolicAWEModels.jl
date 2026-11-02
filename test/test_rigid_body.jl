@@ -147,18 +147,18 @@ environment:
     # A transform must reposition AND reorient a rigid body, like a wing.
     # Tested at the SystemStructure level (reinit!), no ODE compilation.
     @testset "Transform repositions and rotates a rigid body" begin
-        ground = Point(:ground, [0.0, 0.0, 0.0], STATIC; transform=0)
+        ground = Point(:ground, [0.0, 0.0, 0.0], STATIC)
         body3 = Body(:body3; extra_mass=1.0, inertia_principal=inertia,
-                          pos=[100.0, 0.0, 0.0], transform=:tf)
+                          pos=[100.0, 0.0, 0.0])
         tip = Point(:tip, [100.0, 0.0, 0.0], BODY_STATIC;
-                    body=:body3, anchor_b=[0.0, 0.0, 0.0], transform=:tf)
-        tf = Transform(:tf, deg2rad(45), 0.0, 0.0;
-                       base_pos=[0.0, 0.0, 0.0], base_point=:ground,
-                       rot_point=:tip)
+                    body=:body3, anchor_b=[0.0, 0.0, 0.0])
         sys3 = SystemStructure("rigid_body_transform_test", set;
-            points=[ground, tip], bodies=[body3], transforms=[tf])
+            points=[ground, tip], bodies=[body3])
+        tf = Transform(; name=:tf, elevation=deg2rad(45), azimuth=0.0, heading=0.0,
+                       base_pos=[0.0, 0.0, 0.0], base_point=1, rot_point=[2 => 1.0],
+                       body=1, points=[2], bodies=[1])
 
-        place!(sys3)
+        place!(sys3, [tf])
 
         rb = sys3.bodies[:body3]
         r = 100.0 / sqrt(2)
@@ -169,7 +169,7 @@ environment:
         # the body-anchored point rides the rotated body
         @test sys3.points[:tip].pos_ENU ≈ rb.pos_ENU atol=1e-6
         # idempotent across a second reinit!
-        place!(sys3)
+        place!(sys3, [tf])
         @test rb.pos_ENU ≈ KVec3(r, 0.0, r) atol=1e-6
     end
 
@@ -179,7 +179,7 @@ environment:
         carrier = Body(:carrier; extra_mass=2.0, inertia_principal=inertia,
                        pos=[0.0, 0.0, 10.0])
         kcu = Point(:kcu, [1.0, 0.0, 10.0], BODY_STATIC; body=:carrier,
-                    extra_mass=1.0, transform=0)
+                    extra_mass=1.0)
         sys4 = SystemStructure("rigid_body_rider_test", set;
             points=[kcu], bodies=[carrier])
         rb = sys4.bodies[:carrier]

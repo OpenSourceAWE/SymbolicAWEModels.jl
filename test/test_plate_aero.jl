@@ -32,7 +32,7 @@ using LinearAlgebra
 
 The kps4 flat-plate kite built programmatically: three 1-point `STATIC` twist
 surfaces (`main`, `right_tip`, `left_tip`) carrying one shared CL/CD polar set.
-Returns `(set, sys)`.
+Returns `(set, sys, transforms)`.
 """
 function build_plate_kite(data_root)
     data_path = joinpath(data_root, "kps4")
@@ -58,14 +58,11 @@ function build_plate_kite(data_root)
 
     points = [
         Point(:ground, zeros(3), STATIC),
-        Point(:kcu, pos_kcu, DYNAMIC; extra_mass=set.kcu_mass, transform=:main_tf),
-        Point(:nose, pos_nose, DYNAMIC; extra_mass=k_nose, transform=:main_tf),
-        Point(:top, pos_top, DYNAMIC; extra_mass=k_top, wing=:plate_wing,
-            transform=:main_tf),
-        Point(:right, pos_right, DYNAMIC; extra_mass=k_side, wing=:plate_wing,
-            transform=:main_tf),
-        Point(:left, pos_left, DYNAMIC; extra_mass=k_side, wing=:plate_wing,
-            transform=:main_tf),
+        Point(:kcu, pos_kcu, DYNAMIC; extra_mass=set.kcu_mass),
+        Point(:nose, pos_nose, DYNAMIC; extra_mass=k_nose),
+        Point(:top, pos_top, DYNAMIC; extra_mass=k_top, wing=:plate_wing),
+        Point(:right, pos_right, DYNAMIC; extra_mass=k_side, wing=:plate_wing),
+        Point(:left, pos_left, DYNAMIC; extra_mass=k_side, wing=:plate_wing),
     ]
     pairs = [(:kcu, :nose), (:right, :nose), (:right, :left), (:top, :right),
              (:left, :kcu), (:right, :kcu), (:top, :left), (:left, :nose),
@@ -93,12 +90,13 @@ function build_plate_kite(data_root)
         cl_interp, cd_interp; dynamics_type=PARTICLE_DYNAMICS,
         z_ref_points=([:right, :left], :top), y_ref_points=(:left, :right),
         origin=:kcu, drag_corr=0.93 * (1.0 - rel_side))
-    transforms = [Transform(:main_tf, deg2rad(set.elevation), 0.0, 0.0;
-        base_pos=zeros(3), base_point=:ground, wing=:plate_wing)]
-
     sys = SystemStructure("plate_aero_test", set; points, stations,
-        segments, tethers, winches, wings=[wing], transforms)
-    return set, sys
+        segments, tethers, winches, wings=[wing])
+    transforms = [Transform(; name=:main_tf, elevation=deg2rad(set.elevation),
+        azimuth=0.0, heading=0.0, base_pos=zeros(3), base_point=1, body=1,
+        points=collect(2:length(sys.points)), bodies=[1])]
+    place!(sys, transforms)
+    return set, sys, transforms
 end
 
 """
@@ -128,10 +126,10 @@ end
 
 @testset "AeroPlate" begin
     root = mktempdir()
-    set, sys = build_plate_kite(root)
+    set, sys, transforms = build_plate_kite(root)
     base = deg2rad(set.alpha_ztip)
 
-    sam = SymbolicAWEModel(set, sys)
+    sam = SymbolicAWEModel(set, sys; transforms)
     wing = sam.state.wings[1]
     test_init!(sam)
 

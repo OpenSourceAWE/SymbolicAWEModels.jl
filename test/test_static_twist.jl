@@ -81,7 +81,7 @@ end
     fixed_yaml = joinpath(get_data_path(), "rigid_fixed_twist_geometry.yaml")
     write(fixed_yaml, txt)
 
-    sys = load_sys_struct_from_yaml(fixed_yaml;
+    sys, transforms = load_sys_struct_from_yaml(fixed_yaml;
         system_name="2plate_fixed", set, vsm_set)
     sys.winches[:main_winch].brake = true
     @test all(g.type == STATIC for g in sys.stations)
@@ -92,7 +92,7 @@ end
         g.twist = prescribed[g.name]
     end
 
-    sam = SymbolicAWEModel(set, sys)
+    sam = SymbolicAWEModel(set, sys; transforms)
     init!(sam; prn=false, remake=true, remake_vsm=false)
     next_step!(sam)
 
@@ -113,11 +113,11 @@ station_point_mass(points, station, field) =
     set.g_earth = 0.0
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
-    sys = load_sys_struct_from_yaml(
+    sys, transforms = load_sys_struct_from_yaml(
         joinpath(get_data_path(), "rigid_structural_geometry.yaml");
         system_name="2plate_kite", set, vsm_set)
     sys.winches[:main_winch].brake = true
-    sam = SymbolicAWEModel(set, sys)
+    sam = SymbolicAWEModel(set, sys; transforms)
     init!(sam; prn=false, remake=false, remake_vsm=false)
     update_sys_struct!(sam.prob, sam.integrator, sam.state)
 

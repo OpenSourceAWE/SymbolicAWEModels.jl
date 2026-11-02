@@ -30,7 +30,7 @@ vsm_set_path = joinpath(
     get_data_path(), "vsm_settings.yaml")
 vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
 
-sys = SymbolicAWEModels.load_sys_struct_from_yaml(
+sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
     struc_yaml; system_name="2plate_kite",
     set=set, vsm_set=vsm_set)
 

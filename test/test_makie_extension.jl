@@ -139,9 +139,9 @@ seg1_blue(segment) = segment.name == :seg1 ? :blue : :red
     set = Settings("system.yaml")
 
     # Build SAM once (expensive) and reuse
-    sys1 = load_sys_struct_from_yaml(
+    sys1, transforms = load_sys_struct_from_yaml(
         yaml_path; system_name="makie_test_1", set=set)
-    sam = SymbolicAWEModel(set, sys1)
+    sam = SymbolicAWEModel(set, sys1; transforms)
     test_init!(sam)
 
     # Build SysLog with a few frames
@@ -152,7 +152,7 @@ seg1_blue(segment) = segment.name == :seg1 ? :blue : :red
     lg2 = build_test_syslog(sam, sys1, 5, 0.05)
 
     # Second SystemStructure for multi-system tests
-    sys2 = load_sys_struct_from_yaml(
+    sys2, _ = load_sys_struct_from_yaml(
         yaml_path; system_name="makie_test_2", set=set)
 
     # Reset sys structs to first frame for plotting

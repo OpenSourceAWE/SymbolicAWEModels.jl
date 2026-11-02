@@ -159,10 +159,10 @@ function build_model(data_path, geometry_path, count, backend)
     set.g_earth = 0.0
     vsm_set = VortexStepMethod.VSMSettings(
         project_file("vsm_settings"); data_prefix = false)
-    sys = load_sys_struct_from_yaml(geometry_path;
-                                    system_name = "scaling_$(count)kite", set, vsm_set,
-                                    aero_mode = AERO_MODE, prn = false)
-    model = SymbolicAWEModel(set, sys; backend)
+    sys, transforms = load_sys_struct_from_yaml(geometry_path;
+        system_name = "scaling_$(count)kite", set, vsm_set,
+        aero_mode = AERO_MODE, prn = false)
+    model = SymbolicAWEModel(set, sys; transforms, backend)
     init!(model; remake = true, prn = false)
     return model
 end
