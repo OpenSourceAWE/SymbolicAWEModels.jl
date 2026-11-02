@@ -25,7 +25,7 @@ import CairoMakie
 import MakieControlPlots
 
 @testset "plot! draws a system into a CairoMakie Axis3 that saves as a vector PDF" begin
-    sys = load_2plate_particle_sys("2plate_segment_role")
+    sys, _ = load_2plate_particle_sys("2plate_segment_role")
 
     role_colors = (wing=:black, free=:steelblue, unwinched_tether=:seagreen,
                    winched_tether=:darkorange)

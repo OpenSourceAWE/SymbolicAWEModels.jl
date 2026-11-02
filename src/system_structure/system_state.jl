@@ -167,8 +167,9 @@ What a run holds of a [`SystemStructure`](@ref). Its state is a KiteUtils `SysSt
 `Float64`, `sysstate`, beside `columns` for the outputs that has no column for. Its
 `points`, `stations`, `segments`, `pulleys`, `tethers`, `winches`, `bodies` and `wings`
 are records of the structure's components, found by index or name, each reading its
-state from those columns and every other property from its component. Any other
-property, `tubes` among them, is the structure's.
+state from those columns and every other property from its component. It holds the
+run's settings `set`, its atmosphere `am`, its `wind_mode` and its `transforms`. Any
+other property, `tubes` among them, is the structure's.
 """
 mutable struct SystemState{SS, ST <: SysState}
     const structure::SS
@@ -185,6 +186,12 @@ mutable struct SystemState{SS, ST <: SysState}
     wings::NamedCollection{ComponentState}
     "the KiteGeometry transforms placing the run"
     const transforms::Rows{Transform}
+    "the run's settings; `nothing` for a state that only draws or places the structure"
+    const set::Union{Nothing, Settings}
+    "the atmosphere of `set`"
+    const am::Union{Nothing, AtmosphericModel}
+    "where the wind comes from: [`ProfileWind`](@ref) or [`PerPointWind`](@ref)"
+    const wind_mode::WindMode
 end
 
 """
@@ -202,12 +209,14 @@ function sysstate_counts(sys)
 end
 
 """
-    SystemState(sys::SystemStructure; transforms=Transform[])
+    SystemState(sys::SystemStructure; set=nothing, transforms=Transform[],
+                wind_mode=ProfileWind())
 
-The state of a run of `sys` placed by KiteGeometry `transforms`, at its start from the
-pose `sys` is placed in ([`start_run!`](@ref)).
+The state of a run of `sys` with settings `set` and `wind_mode`, placed by KiteGeometry
+`transforms`, at its start from the pose `sys` is placed in ([`start_run!`](@ref)).
 """
-function SystemState(sys; transforms=Transform[])
+function SystemState(sys; set=nothing, transforms=Transform[],
+                     wind_mode::WindMode=ProfileWind())
     P, counts = sysstate_counts(sys)
     columns = RunColumns(; points=length(sys.points), segments=length(sys.segments),
                          stations=length(sys.stations), winches=length(sys.winches),
@@ -215,7 +224,8 @@ function SystemState(sys; transforms=Transform[])
     no_records = NamedCollection(ComponentState[])
     state = SystemState(sys, SysState(P; counts..., precision=SimFloat), columns,
                         first(position_slots(sys).bodies) - 1, length(sys.wings),
-                        no_records, no_records, convert(Rows{Transform}, transforms))
+                        no_records, no_records, convert(Rows{Transform}, transforms),
+                        set, isnothing(set) ? nothing : AtmosphericModel(set), wind_mode)
     bodies = NamedCollection(ComponentState[BodyState(body, state, i)
                                             for (i, body) in enumerate(sys.bodies)])
     setfield!(state, :bodies, bodies)

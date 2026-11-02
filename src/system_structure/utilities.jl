@@ -720,19 +720,19 @@ function apply_tether_init_forces!(sys_struct::SystemState)
 end
 
 """
-    seed_per_point_wind!(sys_struct::SystemStructure)
+    seed_per_point_wind!(state::SystemState)
 
 Give every point and every wing the ground wind `set.wind_vec` as its own wind, so a
 [`PerPointWind`](@ref) model that is never written to flies in the uniform wind the
 settings describe. Called from [`init_wind!`](@ref); from then on these winds belong to the
 caller, who writes them between steps.
 """
-function seed_per_point_wind!(sys_struct)
-    for point in sys_struct.points
-        point.wind_vec .= sys_struct.set.wind_vec
+function seed_per_point_wind!(state)
+    for point in state.points
+        point.wind_vec .= state.set.wind_vec
     end
-    for wing in sys_struct.wings
-        wing.wind_vec .= sys_struct.set.wind_vec
+    for wing in state.wings
+        wing.wind_vec .= state.set.wind_vec
     end
     return nothing
 end
@@ -746,20 +746,20 @@ Put every point and body back at its initial pose (`pos_ENU`, `Q_KA_to_ENU`), ze
 twist of every non-`STATIC` station and set every winch's reel-out speed to
 `init_vel`. `reset_vel` zeroes point and body velocities as well.
 """
-function reset_to_initial_pose!(sys_struct::SystemState; reset_vel::Bool=true)
-    for winch in sys_struct.winches
+function reset_to_initial_pose!(state::SystemState; reset_vel::Bool=true)
+    for winch in state.winches
         winch.vel = winch.init_vel
     end
-    for point in sys_struct.points
+    for point in state.points
         point.pos_w .= point.pos_ENU
         reset_vel && (point.vel_w .= 0.0)
     end
-    for body in sys_struct.bodies
+    for body in state.bodies
         body.pos_w .= body.pos_ENU
         body.Q_b_to_w .= body.Q_KA_to_ENU
         reset_vel && (body.vel_w .= 0.0; body.ω_b .= 0.0)
     end
-    for station in sys_struct.stations
+    for station in state.stations
         station.type == STATIC && continue
         station.twist = 0.0
         station.twist_ω = 0.0
@@ -768,27 +768,27 @@ function reset_to_initial_pose!(sys_struct::SystemState; reset_vel::Bool=true)
 end
 
 """
-    update_segment_lengths!(sys_struct::SystemState)
+    update_segment_lengths!(state::SystemState)
 
 Set a zero `l0` of a segment to its world length.
 """
-function update_segment_lengths!(sys_struct::SystemState)
-    for segment in sys_struct.segments
+function update_segment_lengths!(state::SystemState)
+    for segment in state.segments
         (segment.l0 ≈ 0) && (segment.l0 = segment.len)
     end
     return nothing
 end
 
 """
-    init_pulley_lengths!(sys_struct::SystemState)
+    init_pulley_lengths!(state::SystemState)
 
 Set every pulley's `sum_len` to its two segments' summed `l0`, split it between
 them in proportion to their current `len` into `len` and the two segments' `l0`, and
 stop the pulley.
 """
-function init_pulley_lengths!(sys_struct::SystemState)
-    (; segments) = sys_struct
-    for pulley in sys_struct.pulleys
+function init_pulley_lengths!(state::SystemState)
+    (; segments) = state
+    for pulley in state.pulleys
         segment1 = segments[pulley.segment_idxs[1]]
         segment2 = segments[pulley.segment_idxs[2]]
         pulley.sum_len = segment1.l0 + segment2.l0
@@ -801,32 +801,32 @@ function init_pulley_lengths!(sys_struct::SystemState)
 end
 
 """
-    remake_wing_aero!(sys_struct::SystemStructure, set::Settings)
+    remake_wing_aero!(state::SystemState, set::Settings)
 
 Rebuild every wing's aero engine from `set` and the structure's `vsm_set`, e.g.
 after editing `aero_geometry.yaml`. A no-op for aero modes without an engine.
 """
-function remake_wing_aero!(sys_struct, set::Settings)
-    for wing in sys_struct.wings
-        remake_aero!(wing.aero, wing, set, sys_struct.vsm_set,
-                     sys_struct.points, sys_struct.stations)
+function remake_wing_aero!(state, set::Settings)
+    for wing in state.wings
+        remake_aero!(wing.aero, wing, set, state.vsm_set,
+                     state.points, state.stations)
     end
     return nothing
 end
 
 """
-    init_wind!(sys_struct::SystemStructure, set::Settings)
+    init_wind!(state::SystemState, set::Settings)
 
 Set each wing's wind from the ground wind `set.wind_vec` at the wing's height, or
 seed every point and wing with it under [`PerPointWind`](@ref), and initialise each
 wing's aerodynamic operating point from that wind.
 """
-function init_wind!(sys_struct, set::Settings)
-    (; wings) = sys_struct
-    if per_point_wind(sys_struct)
-        seed_per_point_wind!(sys_struct)
+function init_wind!(state, set::Settings)
+    (; wings) = state
+    if per_point_wind(state)
+        seed_per_point_wind!(state)
     else
-        wind_factor = WindFactor(sys_struct.am, set.profile_law)
+        wind_factor = WindFactor(state.am, set.profile_law)
         for wing in wings
             wing.wind_vec .= wind_factor(wing.pos_w[3]) * set.wind_vec
         end
@@ -838,25 +838,25 @@ function init_wind!(sys_struct, set::Settings)
             wing.va_b .= R_b_to_w' * va_wing_w
         else
             init_aero_state!(wing.aero, wing, R_b_to_w' *
-                (per_point_wind(sys_struct) ? wing.wind_vec : set.wind_vec))
+                (per_point_wind(state) ? wing.wind_vec : set.wind_vec))
         end
     end
     return nothing
 end
 
 """
-    init_sys_struct!(sys_struct::SystemStructure, set::Settings; remake_vsm=false, prn=true)
+    init_sys_struct!(state::SystemState, set::Settings; remake_vsm=false, prn=true)
 
 Bring a placed structure to the start of a run: derive its mass properties and rest
 geometry ([`init_derived_properties!`](@ref)), rebuild every wing's aero engine when
 `remake_vsm` ([`remake_wing_aero!`](@ref)), and set the wind and aero operating point
 ([`init_wind!`](@ref)). [`init!`](@ref) runs it.
 """
-function init_sys_struct!(sys_struct, set::Settings;
+function init_sys_struct!(state, set::Settings;
                           remake_vsm::Bool=false, prn::Bool=true)
-    init_derived_properties!(sys_struct; prn)
-    remake_vsm && remake_wing_aero!(sys_struct, set)
-    init_wind!(sys_struct, set)
+    init_derived_properties!(state; prn)
+    remake_vsm && remake_wing_aero!(state, set)
+    init_wind!(state, set)
     return nothing
 end
 
@@ -1373,9 +1373,9 @@ function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
         restore_live_shape!(wing.aero, wing, sys.points)
     end
 
-    # Update global wind vector (only if wind_vec mode is active)
-    if sys.set.use_wind_vec
-        sys.set.wind_vec = MVec3(sys_state.v_wind_gnd)
+    set = sys.set
+    if !isnothing(set) && set.use_wind_vec
+        set.wind_vec = MVec3(sys_state.v_wind_gnd)
     end
 
     # Only the force is logged; `segment.len` still comes from the symbolic getters.

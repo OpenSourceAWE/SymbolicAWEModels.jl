@@ -729,8 +729,7 @@ system:
 end
 
 @testset "segment_role tells winched and unwinched tethers, wing and free apart" begin
-    sys = load_2plate_particle_sys("2plate_segment_role")
-    set = sys.set
+    sys, set = load_2plate_particle_sys("2plate_segment_role")
     roles = Dict(segment.name => segment_role(sys, segment) for segment in sys.segments)
     @test roles[:strut_left] == roles[:diag_1] == :wing
     @test roles[:le_left] == roles[:kcu_steering_right] == :free
