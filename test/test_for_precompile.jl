@@ -20,14 +20,12 @@ segments = [
             500.0, 50.0, 0.005; l0=4.0),
 ]
 transforms = [
-    Transform(:tf, -deg2rad(90), 0, 0;
-              base_pos=[2, 0, 5], base_point=:anchor,
-              rot_point=:mass),
+    Transform(; name=:tf, elevation=-deg2rad(90), azimuth=0, heading=0,
+              base_pos=[2, 0, 5], base_point=1, rot_point=[2 => 1.0]),
 ]
 
-sys = SystemStructure("hanging_mass", set;
-                      points, segments, transforms)
-sam = SymbolicAWEModel(set, sys)
+sys = SystemStructure("hanging_mass", set; points, segments)
+sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam)
 
 n_steps = 30

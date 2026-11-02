@@ -81,7 +81,6 @@ SymbolicAWEModels.wing_wind_source
 SymbolicAWEModels.seed_per_point_wind!
 SymbolicAWEModels.calc_angle_of_attack
 SymbolicAWEModels.calc_heading
-SymbolicAWEModels.calc_R_t_to_w
 SymbolicAWEModels.calc_R_v_to_w
 SymbolicAWEModels.calc_pos
 SymbolicAWEModels.calc_winch_force
@@ -92,8 +91,6 @@ SymbolicAWEModels.smooth_norm
 SymbolicAWEModels.smooth_sign
 SymbolicAWEModels.coulomb_viscous_friction
 SymbolicAWEModels.smooth_normalize
-SymbolicAWEModels.get_rot_pos
-SymbolicAWEModels.get_base_pos
 SymbolicAWEModels.calc_aoa
 ```
 
@@ -224,7 +221,6 @@ Serialization.serialize(::Serialization.AbstractSerializer, ::SymbolicAWEModels.
 
 ```@docs
 SymbolicAWEModels.optional_project_file
-SymbolicAWEModels.member_transforms
 SymbolicAWEModels.row_name
 SymbolicAWEModels.name_of
 SymbolicAWEModels.cell_ref
@@ -342,7 +338,6 @@ SymbolicAWEModels.with_law_rigidities
 SymbolicAWEModels.timoshenko_element_frame
 SymbolicAWEModels.assign_indices_and_resolve!
 SymbolicAWEModels.resolve_ref
-SymbolicAWEModels.resolve_ref_spec
 SymbolicAWEModels.validate_sys_struct
 SymbolicAWEModels.build_name_dict
 SymbolicAWEModels.setup_wing_frame!
@@ -360,7 +355,6 @@ SymbolicAWEModels.share_body_mass!
 SymbolicAWEModels.carrier_body_idx
 SymbolicAWEModels.combine_carried_points!
 SymbolicAWEModels.carried_position_b
-SymbolicAWEModels.copy_initial_pose!
 SymbolicAWEModels.carry_body_points!
 SymbolicAWEModels.store_initial_pose!
 SymbolicAWEModels.initial_rotation
@@ -587,23 +581,17 @@ SymbolicAWEModels.ObjAdapter.unit_inertia_vector
 ## Heading and geometry
 
 ```@docs
-SymbolicAWEModels.solve_heading_rotation
 SymbolicAWEModels.get_ref_position_from_points
 SymbolicAWEModels.sym_calc_R_t_to_w
-SymbolicAWEModels.wrap_to_pi
-SymbolicAWEModels.heading_reference_body
 ```
 
 ## Transform internals
 
 ```@docs
-SymbolicAWEModels.apply_azimuth_elevation!
-SymbolicAWEModels.apply_heading!
-SymbolicAWEModels.radial_direction
-SymbolicAWEModels.spherical_spin
-SymbolicAWEModels.apply_spherical_velocity!
-SymbolicAWEModels.finalize_transforms!
-SymbolicAWEModels.min_rotation
+SymbolicAWEModels.set_pose!
+SymbolicAWEModels.set_transform_velocities!
+SymbolicAWEModels.fit_body_frames!
+SymbolicAWEModels.transform_base_point
 ```
 
 ## Flat parameters
@@ -679,6 +667,5 @@ SymbolicAWEModels.fit_softening_exponent
 ```@docs
 SymbolicAWEModels.init_undeformed_offsets!
 SymbolicAWEModels.init_body_frame_from_ref_points!
-SymbolicAWEModels.get_rot_pos_ENU
 KiteUtils.Logger(::SymbolicAWEModel, ::Int64)
 ```

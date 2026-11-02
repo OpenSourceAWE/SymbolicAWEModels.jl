@@ -72,16 +72,9 @@ function scalar_eqs!(
 
     for wing in wings
         # Spherical coords are centered at the transform base point, not origin.
-        transforms = s.state.transforms
-        if wing.transform_idx != 0 &&
-                wing.transform_idx <= length(transforms)
-            tf = transforms[wing.transform_idx]
-            bp_idx = tf.base_point_idx
-            rel_pos = wing_pos[:, wing.idx] .-
-                pos[:, bp_idx]
-        else
-            rel_pos = wing_pos[:, wing.idx]
-        end
+        base_point = transform_base_point(s.transforms, wing.idx)
+        rel_pos = base_point == 0 ? wing_pos[:, wing.idx] :
+            wing_pos[:, wing.idx] .- pos[:, base_point]
 
         has_stations = !isempty(wing.station_idxs)
         half_len = has_stations ?

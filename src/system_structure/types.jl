@@ -394,7 +394,7 @@ function point_type(row::KiteGeometry.Point)
 end
 
 """
-    Point(name, pos_ENU, type; wing=nothing, transform=nothing, ...)
+    Point(name, pos_ENU, type; wing=nothing, ...)
 
 Constructs a `Point` object, which can be of three different [`DynamicsType`](@ref)s:
 - `STATIC`: The point does not move. ``\\ddot{\\mathbf{r}} = \\mathbf{0}``
@@ -420,8 +420,6 @@ drives the per-point aero and wing-frame fitting.
 - `wing::Union{Int, Symbol}`: The wing the point belongs to (name or index).
   Without it the point belongs to none: no body-frame damping, and no body frame
   to express its apparent wind in.
-- `transform::Union{Int, Symbol}`: Reference to the transform (name or index),
-  defaulting to none.
 - `body::Union{Int, Symbol}`: Reference to a [`Body`](@ref) to anchor the
   point to (requires `type = BODY_STATIC`). The point then rides the body
   kinematically and feeds its net force (and the moment about the body COM)
@@ -439,7 +437,7 @@ drives the per-point aero and wing-frame fitting.
 - `Point`: A new `Point` object. The `idx` field is assigned later by SystemStructure.
 """
 function Point(name, pos_ENU, type::DynamicsType;
-    wing=nothing, transform=nothing,
+    wing=nothing,
     body=nothing, anchor_b=nothing, tube=nothing,
     extra_mass=0.0, apparent_mass=0.0,
     body_frame_damping=nothing, world_frame_damping=nothing,
@@ -451,8 +449,7 @@ function Point(name, pos_ENU, type::DynamicsType;
         world_frame_damping=axis_column(world_frame_damping), area, drag_coeff, tube,
         fix_sphere, fix_static, wing_idx=wing,
         anchor_b=isnothing(anchor_b) ? nothing : Vector{Float64}(anchor_b),
-        resolved_anchor_b=KVec3(something(anchor_b, zeros(3))),
-        transform_ref=something(transform, 0), apparent_mass)
+        resolved_anchor_b=KVec3(something(anchor_b, zeros(3))), apparent_mass)
     point = KiteGeometry.Point(; name=Symbol(name), fixed=type == STATIC, body,
         pos_ENU=KVec3(pos_ENU...), extra_mass, model)
     check_point_anchor(point)
@@ -1167,164 +1164,3 @@ end
 """The friction smoothing width of winch dynamics `model`, `nothing` for one without."""
 winch_friction_epsilon(model) =
     hasproperty(model, :friction_epsilon) ? model.friction_epsilon : nothing
-
-# ==================== TRANSFORM ==================== #
-
-"""
-    mutable struct Transform
-
-Describes the spatial transformation (position and orientation) of system components
-relative to a base reference point.
-
-$(TYPEDFIELDS)
-"""
-mutable struct Transform
-    "Index in the transforms vector (assigned by SystemStructure)."
-    idx::Int64
-    "Name used for lookup by other components' `_ref` fields."
-    const name::Union{Int, Symbol, Nothing}
-    "Resolved wing index (filled by SystemStructure)."
-    wing_idx::Union{Int64, Nothing}
-    "Raw wing reference (name or index). Nothing = uses rot_point."
-    const wing_ref::Union{NameRef, Nothing}
-    "Resolved rotation point index (filled by SystemStructure)."
-    rot_point_idx::Union{Int64, Nothing}
-    "Raw rotation point reference. Nothing = uses wing."
-    const rot_point_ref::Union{NameRef, Nothing}
-    "Resolved base point index (filled by SystemStructure)."
-    base_point_idx::Union{Int64, Nothing}
-    "Raw base point reference."
-    const base_point_ref::Union{NameRef, Nothing}
-    "Resolved base transform index (filled by SystemStructure)."
-    base_transform_idx::Union{Int64, Nothing}
-    "Raw base transform reference. Nothing = uses base_pos."
-    const base_transform_ref::Union{NameRef, Nothing}
-    "Elevation angle [rad]."
-    elevation::SimFloat
-    "Azimuth angle [rad]."
-    azimuth::SimFloat
-    "Heading angle [rad]."
-    heading::SimFloat
-    "Angular velocity in elevation direction [rad/s]."
-    elevation_vel::SimFloat
-    "Angular velocity in azimuth direction [rad/s]."
-    azimuth_vel::SimFloat
-    "Angular velocity around radial axis [rad/s]."
-    turn_rate::SimFloat
-    "Base position [m]. Nothing = derived from base_transform."
-    base_pos::Union{KVec3, Nothing}
-end
-
-# Helper to convert ref to NameRef or nothing
-to_ref(::Nothing) = nothing
-to_ref(x::Integer) = Int(x)
-to_ref(x) = Symbol(x)
-
-"""
-    Transform(name, elevation, azimuth, heading; base_point, base_pos, base_transform, wing, rot_point)
-
-Constructs a `Transform` object that orients system components using spherical coordinates.
-
-# Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the transform.
-- `elevation`, `azimuth`, `heading`: Spherical coordinates [rad].
-
-# Keyword Arguments
-**Base Reference (choose one method):**
-- `base_pos` & `base_point`: Use a fixed position and a reference point.
-- `base_transform`: Chain to another transform's position.
-
-**Target Object (choose one):**
-- `wing`: Reference to the wing to position at (elevation, azimuth).
-- `rot_point`: Reference to the point to position at (elevation, azimuth).
-"""
-function Transform(name, elevation, azimuth, heading;
-        base_point=nothing, base_pos=nothing, base_transform=nothing,
-        wing=nothing, rot_point=nothing,
-        elevation_vel=0.0, azimuth_vel=0.0, turn_rate=0.0)
-    (isnothing(wing) == isnothing(rot_point)) && error("Either provide a wing or a rot_point, not both or none.")
-    (isnothing(base_pos) == isnothing(base_transform)) && error("Either provide the base_pos or the base_transform, not both or none.")
-    (!isnothing(base_pos) && isnothing(base_point)) && error("When providing a base_pos, also provide a base_point.")
-
-    wing_ref = to_ref(wing)
-    rot_point_ref = to_ref(rot_point)
-    base_point_ref = to_ref(base_point)
-    base_transform_ref = to_ref(base_transform)
-
-    Transform(0, name, nothing, wing_ref, nothing, rot_point_ref,
-              nothing, base_point_ref, nothing, base_transform_ref,
-              elevation, azimuth, heading, elevation_vel, azimuth_vel, turn_rate,
-              isnothing(base_pos) ? nothing : KVec3(base_pos...))
-end
-
-"""
-    get_rot_pos(transform::Transform, bodies, points)
-
-Get the world position of the rotating object (body or point).
-"""
-function get_rot_pos(transform::Transform, bodies, points)
-    wing_idx = transform.wing_idx
-    if !isnothing(wing_idx)
-        return bodies[something(wing_idx)].pos_w
-    end
-    rot_point_idx = transform.rot_point_idx
-    if !isnothing(rot_point_idx)
-        return points[something(rot_point_idx)].pos_w
-    end
-    error("Transform #$(transform.idx): " *
-        "neither wing_idx nor rot_point_idx is set")
-end
-
-"""
-    get_rot_pos_ENU(transform::Transform, bodies, points)
-
-Get the initial position `pos_ENU` of the rotating object (body or point).
-Used by `get_base_pos` to compute the translation offset for
-chained transforms.
-"""
-function get_rot_pos_ENU(transform::Transform, bodies, points)
-    wing_idx = transform.wing_idx
-    if !isnothing(wing_idx)
-        return bodies[something(wing_idx)].pos_ENU
-    end
-    rot_point_idx = transform.rot_point_idx
-    if !isnothing(rot_point_idx)
-        return points[something(rot_point_idx)].pos_ENU
-    end
-    error("Transform #$(transform.idx): " *
-        "neither wing_idx nor rot_point_idx is set")
-end
-
-"""
-    get_base_pos(transform, transforms, bodies, points)
-
-Get `(base_pos, curr_base_pos)` for a transform.
-
-For chained transforms (`base_transform`): returns the parent's
-current world position and initial position `pos_ENU`, so
-`T = base_pos - curr_base_pos` shifts child points by the same
-displacement the parent transform applied.
-
-For direct transforms (`base_pos` + `base_point`): returns the
-user-specified position and the base point's current position.
-"""
-function get_base_pos(transform::Transform,
-        transforms, bodies, points)
-    base_transform_idx = transform.base_transform_idx
-    if !isnothing(base_transform_idx)
-        base_tf = transforms[something(
-            base_transform_idx)]
-        rot_pos = get_rot_pos(base_tf, bodies, points)
-        rot_pos_ENU = get_rot_pos_ENU(
-            base_tf, bodies, points)
-        return rot_pos, rot_pos_ENU
-    end
-    curr_base_pos = points[something(
-        transform.base_point_idx)].pos_w
-    base_pos = transform.base_pos
-    if !isnothing(base_pos)
-        return something(base_pos), curr_base_pos
-    end
-    error("Transform #$(transform.idx): neither " *
-        "base_pos nor base_transform_idx is set")
-end

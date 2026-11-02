@@ -22,10 +22,10 @@ using JSONSchema
 using YAML
 
 """
-    two_plate_kite(set, vsm_set) -> SystemStructure
+    two_plate_kite(set, vsm_set) -> (SystemStructure, transforms)
 
 The rigid-dynamics 2-plate kite from `data/2plate_kite`, the system the golden
-document describes.
+document describes, with the transforms placing it.
 """
 function two_plate_kite(set, vsm_set)
     return load_sys_struct_from_yaml(
@@ -117,13 +117,13 @@ end
     end
 
     @testset "the 2plate kite writes the golden document" begin
-        document = structure_document(two_plate_kite(set, vsm_set))
+        document = structure_document(first(two_plate_kite(set, vsm_set)))
         @test isnothing(JSONSchema.validate(schema, document))
         @test golden == document
     end
 
     @testset "a document holds the initial pose, not where a run moved the system" begin
-        sys = two_plate_kite(set, vsm_set)
+        sys, _ = two_plate_kite(set, vsm_set)
         state = SystemState(sys)
         state.points[:kcu].pos_w .+= [1.0, 0.0, 0.0]
         kcu = cells(structure_document(sys), "points", "pos_ENU")["kcu"]
@@ -132,14 +132,14 @@ end
     end
 
     @testset "a point names its body, and carries its own mass and drag" begin
-        document = structure_document(two_plate_kite(set, vsm_set))
+        document = structure_document(first(two_plate_kite(set, vsm_set)))
         @test cells(document, "points", "body")["le_left"] == "main_wing"
         @test [cells(document, "points", header)["kcu"]
                for header in ("extra_mass", "area", "drag_coeff")] == [1.0, 0.1, 1.0]
     end
 
     @testset "a point is its definition row" for
-            sys in (two_plate_kite(set, vsm_set), pretensioned_tether(set))
+            sys in (first(two_plate_kite(set, vsm_set)), pretensioned_tether(set))
         point = last(sys.points)
         row = sys.definition.points[point.idx]
         point.extra_mass = 2.0
@@ -152,7 +152,7 @@ end
     end
 
     @testset "a segment is its definition row" for
-            sys in (two_plate_kite(set, vsm_set), pretensioned_tether(set))
+            sys in (first(two_plate_kite(set, vsm_set)), pretensioned_tether(set))
         segment = last(sys.segments)
         row = sys.definition.segments[segment.idx]
         segment.l0 = 1.5
@@ -167,7 +167,8 @@ end
         @test segment === row
     end
 
-    @testset "a winch is its definition row" for sys in (two_plate_kite(set, vsm_set),
+    @testset "a winch is its definition row" for
+            sys in (first(two_plate_kite(set, vsm_set)),
             pretensioned_tether(set;
                                 winches=[Winch(:reel, set, [:line]; winch_point=:ground)]))
         winch = only(sys.winches)
@@ -197,12 +198,12 @@ end
     end
 
     @testset "a station names the wing whose twist it carries" begin
-        document = structure_document(two_plate_kite(set, vsm_set))
+        document = structure_document(first(two_plate_kite(set, vsm_set)))
         @test all(==("main_wing"), values(cells(document, "spanwise_stations", "wing")))
     end
 
     @testset "a document with wings reads back in its initial pose" begin
-        sys = two_plate_kite(set, vsm_set)
+        sys, _ = two_plate_kite(set, vsm_set)
         reread = sys_struct_from_document(structure_document(sys); set, vsm_set,
                                           prn=false)
         @test [point.pos_ENU for point in reread.points] ≈
@@ -246,8 +247,8 @@ end
     end
 
     @testset "a run's log carries the structure document of the system that ran" begin
-        sys = two_plate_kite(set, vsm_set)
-        sam = SymbolicAWEModel(set, sys)
+        sys, transforms = two_plate_kite(set, vsm_set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         init!(sam; prn=false)
         logger = Logger(sam, 3)
         state = SysState(sam)

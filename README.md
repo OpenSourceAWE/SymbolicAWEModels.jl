@@ -92,17 +92,18 @@ set.v_wind = 0.0
 
 # Define components using symbolic names
 points = [
-    Point(:anchor, [0, 0, 0], STATIC; transform=:tf),
-    Point(:mass, [0, 0, -50], DYNAMIC; extra_mass=1.0, transform=:tf),
+    Point(:anchor, [0, 0, 0], STATIC),
+    Point(:mass, [0, 0, -50], DYNAMIC; extra_mass=1.0),
 ]
 segments = [Segment(:spring, :anchor, :mass,
     614600.0, 473.0, 0.004)]
-transforms = [Transform(:tf, deg2rad(-70), 0.0, 0.0;
-    base_pos=[0, 0, 50], base_point=:anchor, rot_point=:mass)]
 
-# Assemble and compile
-sys = SystemStructure("pendulum", set; points, segments, transforms)
-sam = SymbolicAWEModel(set, sys)
+# Assemble, place by a KiteGeometry transform (indices into the points), and compile
+sys = SystemStructure("pendulum", set; points, segments)
+transforms = [Transform(; name=:tf, elevation=deg2rad(-70), azimuth=0.0, heading=0.0,
+    base_pos=[0, 0, 50], base_point=1, rot_point=[2 => 1.0], points=[1, 2])]
+place!(sys, transforms)
+sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam)
 plot(sam.sys_struct)
 
@@ -164,13 +165,13 @@ vsm_set = VortexStepMethod.VSMSettings(
     data_prefix=false)
 
 # Build system structure from YAML
-sys = load_sys_struct_from_yaml(struc_yaml;
+sys, transforms = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite", set, vsm_set)
 sys.segments[:kcu_steering_right].l0 += 0.1
 sys.segments[:kcu_steering_left].l0 -= 0.1
 sys.winches[:main_winch].brake = true
 
-sam = SymbolicAWEModel(set, sys)
+sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false, lin_vsm=false)
 plot(sam.sys_struct)
 

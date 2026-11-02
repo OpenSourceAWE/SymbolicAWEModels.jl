@@ -72,12 +72,13 @@ end
     load_sys_struct_from_yaml(yaml_path; system_name="from_yaml", set=nothing,
                               ignore_l0=false, dynamics_type=nothing, aero_mode=nothing,
                               vsm_set=nothing, wind_mode=ProfileWind(), prn=true)
+        -> (sys, transforms)
 
-Build a `SystemStructure` from an authoring YAML, read and placed by its transforms with
-KiteGeometry's `load_authoring`. `set` defaults to the
-`base` settings; `dynamics_type` and `aero_mode` override every wing's.
-`wind_mode=PerPointWind()` gives each point its own settable wind. `prn=false` silences the
-messages loading a structure prints.
+The structure of an authoring YAML and its KiteGeometry transforms, read and placed by
+them with KiteGeometry's `load_authoring`. `set` defaults to the `base` settings;
+`dynamics_type` and `aero_mode` override every wing's. `wind_mode=PerPointWind()` gives
+each point its own settable wind. `prn=false` silences the messages loading a structure
+prints.
 """
 function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml",
         set::Union{Nothing, Settings}=nothing, ignore_l0::Bool=false,
@@ -87,32 +88,30 @@ function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_
         wind_mode::WindMode=ProfileWind(), prn::Bool=true)
     isnothing(set) && (set = load_settings("base"))
     definition, transforms = load_authoring(yaml_path; set, name=system_name, ignore_l0)
-    return SystemStructure(definition, transforms, set;
-                           dynamics_type, aero_mode, vsm_set, wind_mode, prn)
+    sys = SystemStructure(definition, set; dynamics_type, aero_mode, vsm_set, wind_mode,
+                          prn)
+    return sys, transforms
 end
 
 """
-    SystemStructure(definition::SystemDefinition, transforms, set; dynamics_type=nothing,
+    SystemStructure(definition::SystemDefinition, set; dynamics_type=nothing,
                     aero_mode=nothing, vsm_set=nothing, wind_mode=ProfileWind(), prn=true)
 
-The structure of a KiteGeometry `definition` and its `transforms`, in the pose the
-definition gives. Its components are read from the definition's rows and the models
-SymbolicAWEModels registers for them ([`register_definition_models`](@ref)).
+The structure of a KiteGeometry `definition`, in the pose the definition gives. Its
+components are read from the definition's rows and the models SymbolicAWEModels
+registers for them ([`register_definition_models`](@ref)).
 """
-function SystemStructure(definition::SystemDefinition, transforms, set::Settings;
+function SystemStructure(definition::SystemDefinition, set::Settings;
         dynamics_type=nothing, aero_mode=nothing, vsm_set=nothing,
         wind_mode::WindMode=ProfileWind(), prn=true)
-    point_transforms = member_transforms(transforms, :points, length(definition.points))
-    body_transforms = member_transforms(transforms, :bodies, length(definition.bodies))
     n_wings = length(definition.wings)
     stations = Station[definition_station(station)
                        for station in definition.spanwise_stations]
-    wings = Body[definition_wing(definition, w, set, stations, body_transforms[w];
-                                 dynamics_type, aero_mode, vsm_set)
+    wings = Body[definition_wing(definition, w, set, stations; dynamics_type, aero_mode,
+                                 vsm_set)
                  for w in 1:n_wings]
     return SystemStructure(definition.metadata.name, set;
-        points=Point[definition_point(definition, point, point_transforms[i])
-                     for (i, point) in enumerate(definition.points)],
+        points=Point[definition_point(definition, point) for point in definition.points],
         stations,
         segments=Segment[definition_segment(definition, i, set)
                          for i in eachindex(definition.segments)],
@@ -120,22 +119,10 @@ function SystemStructure(definition::SystemDefinition, transforms, set::Settings
         tethers=Tether[definition_tether(tether) for tether in definition.tethers],
         winches=Winch[definition_winch(winch, set) for winch in definition.winches],
         wings,
-        transforms=Transform[definition_transform(definition, transform, transforms)
-                             for transform in transforms],
-        bodies=Body[definition_body(definition.bodies[b], body_transforms[b])
+        bodies=Body[definition_body(definition.bodies[b])
                     for b in n_wings+1:length(definition.bodies)],
         tubes=Tube[definition_tube(definition, tube) for tube in definition.tubes],
         placed=true, vsm_set, wind_mode, prn, definition)
-end
-
-"""The name of the transform moving each of `count` members of `block`, `nothing` for
-none."""
-function member_transforms(transforms, block, count)
-    member = Vector{Union{Nothing, Int, Symbol}}(nothing, count)
-    for transform in transforms
-        member[getfield(transform, block)] .= Ref(row_name(transform))
-    end
-    return member
 end
 
 """A row's name as a `Symbol`, or its index where the authoring YAML gave it none."""
@@ -158,11 +145,10 @@ ref_points_spec(value) = value isa AbstractVector ?
 """Keyword arguments from `pairs` whose value is set."""
 set_kwargs(pairs...) = (; (key => value for (key, value) in pairs if !isnothing(value))...)
 
-"""The point `point` of `definition` is, placed by `transform`: the row itself, riding no
-body where it is a tube rider on its wing's ([`point_body`](@ref))."""
-function definition_point(definition, point, transform)
+"""The point `point` of `definition` is: the row itself, riding no body where it is a
+tube rider on its wing's ([`point_body`](@ref))."""
+function definition_point(definition, point)
     point.body_ref = point_body(definition, point)
-    point.transform_ref = something(transform, 0)
     return check_point_anchor(point)
 end
 
@@ -230,28 +216,14 @@ function definition_winch(winch, set)
     return winch
 end
 
-function definition_transform(definition, transform, transforms)
-    body = transform.body
-    wing = !isnothing(body) && body <= length(definition.wings) ?
-        name_of(definition.wings, body) : nothing
-    rot_point = isnothing(wing) ?
-        name_of(definition.points, first(only(transform.rot_point))) : nothing
-    return Transform(row_name(transform), transform.elevation, transform.azimuth,
-        transform.heading; base_point=name_of(definition.points, transform.base_point),
-        transform.base_pos, wing, rot_point,
-        base_transform=name_of(transforms, transform.base_transform),
-        transform.elevation_vel, transform.azimuth_vel, transform.turn_rate)
-end
-
-"""The body `body` of a definition is, placed by `transform`: the row itself, with what
-the structure derives from its mass, inertia and pose."""
-function definition_body(body, transform)
+"""The body `body` of a definition is: the row itself, with what the structure derives
+from its mass, inertia and pose."""
+function definition_body(body)
     body.type in (DYNAMIC, STATIC) ||
         error("Body $(body.name): type must be DYNAMIC or STATIC, got $(body.type).")
     model = body_model(body)
     inertia = Matrix{SimFloat}(something(getfield(body, :extra_inertia_KA), zeros(3, 3)))
     inertia_principal, R_b_to_p = principal_axes(inertia, body.principal_frame_method)
-    model.transform_ref = something(transform, 0)
     model.total_mass = body.extra_mass
     model.inertia_principal .= inertia_principal
     model.R_b_to_p = R_b_to_p
@@ -277,22 +249,21 @@ function definition_tube(definition, tube)
 end
 
 """
-    definition_wing(definition, w, set, stations, transform; dynamics_type, aero_mode,
-                    vsm_set)
+    definition_wing(definition, w, set, stations; dynamics_type, aero_mode, vsm_set)
 
 Wing `w` of `definition`, its mesh authored in the wing's KA frame. `dynamics_type` and
 `aero_mode` override the wing row's; `stations` collects the stations a flat-plate wing
 adds.
 """
-function definition_wing(definition, w, set, stations, transform; dynamics_type,
-                         aero_mode, vsm_set)
+function definition_wing(definition, w, set, stations; dynamics_type, aero_mode,
+                         vsm_set)
     wing = definition.wings[w]
     dynamics = something(dynamics_type, maybe(parse_wing_type, wing.dynamics_type))
     mode = something(aero_mode, maybe(parse_aero_mode, wing.aero_mode),
         dynamics == RIGID_DYNAMICS ? AeroLinearized() : AeroDirect())
     station_refs = [cell_ref(station) for station in something(wing.stations, [])]
     built = load_wing(mode, definition, w, set, dynamics, vsm_set, station_refs,
-                      stations; transform)
+                      stations)
     built.mesh_frame_pos .= wing.pos_ENU
     built.R_mesh_to_w .= quaternion_to_rotation_matrix(wing.Q_KA2ENU)
     return definition.bodies[w] = in_place_of(definition.bodies[w], built, wing)
@@ -315,19 +286,19 @@ end
 
 """
     load_wing(mode::AbstractAeroModel, definition, w, set, dynamics_type, vsm_set,
-              station_refs, stations; transform)
+              station_refs, stations)
 
 Build wing `w` of `definition` for its aero `mode`: a [`VSMWing`](@ref) by default.
 Add a method to build a wing for a custom aero mode.
 """
 function load_wing(mode::AbstractAeroModel, definition, w, set, dynamics_type, vsm_set,
-                   station_refs, stations; transform)
+                   station_refs, stations)
     wing = definition.wings[w]
     pos_ENU = dynamics_type == PARTICLE_DYNAMICS || isnothing(wing.pos_cad) ? nothing :
         wing.pos_ENU + quaternion_to_rotation_matrix(wing.Q_KA2ENU) * wing.pos_cad
     aero_z_offset = dynamics_type == RIGID_DYNAMICS ? wing.aero_z_offset : nothing
     return VSMWing(row_name(wing), set, station_refs, vsm_set;
-        transform, dynamics_type, aero=mode, pos_ENU,
+        dynamics_type, aero=mode, pos_ENU,
         extra_mass=definition.bodies[w].extra_mass,
         set_kwargs(:angular_damping => wing.angular_damping,
                    :z_ref_points => maybe(ref_pair_spec, wing.z_ref_points),
@@ -371,12 +342,11 @@ end
 
 The `SystemStructure` of a parsed structure document, in the initial pose it gives. `set`
 falls back to the `base` settings; `kwargs` reach
-[`SystemStructure(::SystemDefinition, transforms, set)`](@ref).
+[`SystemStructure(::SystemDefinition, set)`](@ref).
 """
 function sys_struct_from_document(document::AbstractDict; set=nothing, kwargs...)
     isnothing(set) && (set = load_settings("base"))
-    return SystemStructure(SystemDefinition(document), KiteGeometry.Transform[], set;
-                           kwargs...)
+    return SystemStructure(SystemDefinition(document), set; kwargs...)
 end
 
 """

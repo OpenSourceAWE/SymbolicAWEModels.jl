@@ -360,7 +360,7 @@ current ones in the `SymbolicAWEModel` object (`sam`).
 function load_serialized_model!(sam, model_path; remake=false, reload=false,
                                 prn=true)
     set_hash = get_set_hash(sam.set)
-    sys_struct_hash = get_sys_struct_hash(sam.sys_struct)
+    sys_struct_hash = get_sys_struct_hash(sam.sys_struct, sam.transforms)
     
     if ispath(model_path) && !remake
         if set_hash != sam.serialized_model.set_hash || sys_struct_hash != sam.serialized_model.sys_struct_hash
@@ -566,12 +566,12 @@ end
 """
     place!(sam::SymbolicAWEModel; reset_vel=true, kwargs...)
 
-Place the model's structure ([`place!`](@ref)`(sam.sys_struct; kwargs...)`) and start
-its run there ([`start_run!`](@ref)). `reset_vel=false` keeps the velocities the run
-holds.
+Place the model's structure by its transforms
+([`place!`](@ref)`(sam.sys_struct, sam.transforms; kwargs...)`) and start its run there
+([`start_run!`](@ref)). `reset_vel=false` keeps the velocities the run holds.
 """
-function place!(sam::SymbolicAWEModel; reset_vel::Bool=true, kwargs...)
-    place!(sam.sys_struct; kwargs...)
+function KiteGeometry.place!(sam::SymbolicAWEModel; reset_vel::Bool=true, kwargs...)
+    place!(sam.sys_struct, sam.transforms; kwargs...)
     start_run!(sam.state; reset_vel)
     return nothing
 end
@@ -840,7 +840,7 @@ function get_set_hash(set::Settings;
 end
 
 """
-    get_sys_struct_hash(sys_struct::SystemStructure)
+    get_sys_struct_hash(sys_struct::SystemStructure, transforms=Transform[])
 
 Calculates a SHA1 hash for the topology and structure of a `SystemStructure`.
 This is used to check if a cached compiled model is still valid.
@@ -854,16 +854,16 @@ Includes all structural properties that affect the symbolic equations:
 - Tether topology
 - Winch configuration
 - Wing topology, connectivity, aerodynamic model type (RIGID_DYNAMICS vs PARTICLE_DYNAMICS), and aero mode
-- Transform hierarchy
+- The transform base point each wing's elevation and azimuth are measured from
 - The wind mode, which decides whether the wind is a height profile or a per-point
   parameter. Only [`PerPointWind`](@ref) enters the hash, so structures on the
   default [`ProfileWind`](@ref) keep the cached models they already have.
 
 Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
-function get_sys_struct_hash(sys_struct::SystemStructure)
-    (; points, stations, segments, pulleys, tethers, winches, wings, transforms,
-       bodies, tubes) = sys_struct
+function get_sys_struct_hash(sys_struct::SystemStructure, transforms=Transform[])
+    (; points, stations, segments, pulleys, tethers, winches, wings, bodies,
+       tubes) = sys_struct
     data_parts = []
     for point in points
         # nothing-vs-set gates whether drag/damping equations are emitted (structure,
@@ -913,14 +913,10 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         wing_data = (wing_data...,
             rp_hash(wing.z_ref_points),
             rp_hash(wing.y_ref_points),
-            origin_hash(wing.origin))
+            origin_hash(wing.origin), transform_base_point(transforms, wing.idx))
         push!(data_parts, wing_data)
     end
     per_point_wind(sys_struct) && push!(data_parts, ("wind_mode", :per_point))
-    for transform in transforms
-        push!(data_parts, ("transform", transform.idx, transform.wing_idx, transform.rot_point_idx,
-                        transform.base_point_idx, transform.base_transform_idx))
-    end
     for rigid_body in bodies
         push!(data_parts, ("rigid_body", rigid_body.idx, Int(rigid_body.type),
                            rigid_body.wing_idx))

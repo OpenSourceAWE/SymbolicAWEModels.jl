@@ -226,7 +226,7 @@ function load_2plate_particle_sys(system_name)
     set = Settings("system.yaml")
     vsm_set = SymbolicAWEModels.VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-    sys = load_sys_struct_from_yaml(
+    sys, _ = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
         system_name, set, vsm_set)
     set_data_path(data_path_before)
