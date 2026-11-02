@@ -14,8 +14,8 @@ authors:
     affiliation: "Delft University of Technology"
 repository-code: "https://github.com/OpenSourceAWE/SymbolicAWEModels.jl"
 license: LGPL-3.0-only
-version: "0.20.0"
-date-released: "2026-10-08"
+version: "0.21.0"
+date-released: "2026-10-25"
 keywords:
   - airborne wind energy
   - kite power

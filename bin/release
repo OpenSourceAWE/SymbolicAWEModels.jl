@@ -70,14 +70,15 @@ _changelog=$(git show "$_sha:CHANGELOG.md" 2>/dev/null) || {
     exit 1
 }
 
-_version=$(awk -F'"' '/^version[[:space:]]*=/ {print $2; exit}' <<<"$_project")
+_version=$(printf '%s\n' "$_project" |
+    awk -F'"' '/^version[[:space:]]*=/ {print $2; exit}')
 if [[ -z "$_version" ]]; then
     echo "Could not read version from Project.toml at $_sha" >&2
     exit 1
 fi
 
-_changelog_version=$(awk '/^## / {for (i = 1; i <= NF; i++) if ($i ~ /^v[0-9]/) {print $i; break}; exit}' \
-    <<<"$_changelog")
+_changelog_version=$(printf '%s\n' "$_changelog" |
+    awk '/^## / {for (i = 1; i <= NF; i++) if ($i ~ /^v[0-9]/) {print $i; break}; exit}')
 if [[ "$_changelog_version" != "v$_version" ]]; then
     echo "Version mismatch: Project.toml is $_version but CHANGELOG top is" \
          "$_changelog_version (expected v$_version)." >&2
