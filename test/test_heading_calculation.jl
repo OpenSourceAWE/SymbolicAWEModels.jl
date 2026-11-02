@@ -8,7 +8,7 @@ Verifies that `calc_heading` correctly projects the body x-axis
 onto the tangent plane of the tether sphere and returns the
 angle from the elevation direction (x_t) toward azimuthal (y_t).
 
-Also places a body through `reinit!` from a near-vertical CAD
+Also places a body through `place!` from a near-vertical CAD
 pose and verifies it lands on the transform's heading, where the
 tether frame the pose sits in is degenerate.
 
@@ -29,8 +29,9 @@ using Test
 using LinearAlgebra
 using KiteUtils
 using SymbolicAWEModels
-using SymbolicAWEModels: smooth_normalize, sym_calc_R_t_to_w,
-    calc_heading, calc_R_t_to_w, reinit!, quaternion_to_rotation_matrix
+using SymbolicAWEModels: smooth_normalize, sym_calc_R_t_to_w, calc_heading,
+    quaternion_to_rotation_matrix
+using SymbolicAWEModels.KiteGeometry: calc_R_t_to_w
 
 # `Settings` reads through the process-wide data path; leave it as found.
 prev_data_path = get_data_path()
@@ -138,24 +139,23 @@ end
 
 function heading_after_reinit(base_pos, dx, target_heading)
     cad_pos = base_pos + [dx, 0.0, 51.0]
-    kite = Body(:kite; extra_mass=1.0, inertia_principal=ones(3),
-                pos=cad_pos, transform=:main_tf)
-    points = [Point(:ground, base_pos, STATIC; transform=0),
+    kite = Body(:kite; extra_mass=1.0, inertia_principal=ones(3), pos=cad_pos)
+    points = [Point(:ground, base_pos, STATIC),
               Point(:kite_origin, cad_pos, BODY_STATIC;
-                    body=:kite, anchor_b=zeros(3),
-                    transform=:main_tf)]
-    transforms = [Transform(:main_tf, deg2rad(70), deg2rad(20),
-                      target_heading; base_pos=base_pos,
-                      base_point=:ground, rot_point=:kite_origin)]
+                    body=:kite, anchor_b=zeros(3))]
+    transforms = [Transform(; name=:main_tf, elevation=deg2rad(70),
+                      azimuth=deg2rad(20), heading=target_heading, base_pos,
+                      base_point=1, rot_point=[2 => 1.0], body=1, points=[2],
+                      bodies=[1])]
 
     sys = SystemStructure("near_vertical_heading", set;
-        points, bodies=[kite], transforms, prn=false)
-    reinit!(sys, set; prn=false)
+        points, bodies=[kite], prn=false)
+    place!(sys, transforms; prn=false)
 
     placed = sys.bodies[:kite]
     return calc_heading(
-        quaternion_to_rotation_matrix(placed.Q_b_to_w),
-        placed.pos_w - sys.points[:ground].pos_w)
+        quaternion_to_rotation_matrix(placed.Q_KA_to_ENU),
+        placed.pos_ENU - sys.points[:ground].pos_ENU)
 end
 
 function test_near_vertical_placement(base_pos, label)

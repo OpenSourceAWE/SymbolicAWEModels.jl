@@ -21,10 +21,10 @@ pkg_root = dirname(@__DIR__)
 set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
 
 @testset "validate_station_modes" begin
-    rigid = Wing(:rigid, NameRef[], Matrix{Float64}(I, 3, 3),
+    rigid = Wing(:rigid, NameRef[], [1.0, 0.0, 0.0, 0.0],
         zeros(3), ones(3); dynamics_type=RIGID_DYNAMICS)
     rigid.idx = 1
-    particle = Wing(:particle, NameRef[], Matrix{Float64}(I, 3, 3),
+    particle = Wing(:particle, NameRef[], [1.0, 0.0, 0.0, 0.0],
         zeros(3), ones(3); dynamics_type=PARTICLE_DYNAMICS)
     particle.idx = 1
 
@@ -81,7 +81,7 @@ end
     fixed_yaml = joinpath(get_data_path(), "rigid_fixed_twist_geometry.yaml")
     write(fixed_yaml, txt)
 
-    sys = load_sys_struct_from_yaml(fixed_yaml;
+    sys, transforms = load_sys_struct_from_yaml(fixed_yaml;
         system_name="2plate_fixed", set, vsm_set)
     sys.winches[:main_winch].brake = true
     @test all(g.type == STATIC for g in sys.stations)
@@ -92,12 +92,12 @@ end
         g.twist = prescribed[g.name]
     end
 
-    sam = SymbolicAWEModel(set, sys)
+    sam = SymbolicAWEModel(set, sys; transforms)
     init!(sam; prn=false, remake=true, remake_vsm=false)
     next_step!(sam)
 
     # twist_angle must track the prescribed value (no dynamics, no clamp drift).
-    for g in sam.sys_struct.stations
+    for g in sam.state.stations
         @test isapprox(g.twist, prescribed[g.name]; atol=1e-9)
     end
     rm(fixed_yaml; force=true)
@@ -105,7 +105,7 @@ end
 
 """The sum of `field`, a point mass, over the points of `station`."""
 station_point_mass(points, station, field) =
-    sum(getfield(points[idx], field) for idx in station.point_idxs)
+    sum(getproperty(points[idx], field) for idx in station.point_idxs)
 
 @testset "DYNAMIC station twists with the total mass of its points" begin
     set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
@@ -113,15 +113,15 @@ station_point_mass(points, station, field) =
     set.g_earth = 0.0
     vsm_set = VortexStepMethod.VSMSettings(
         joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
-    sys = load_sys_struct_from_yaml(
+    sys, transforms = load_sys_struct_from_yaml(
         joinpath(get_data_path(), "rigid_structural_geometry.yaml");
         system_name="2plate_kite", set, vsm_set)
     sys.winches[:main_winch].brake = true
-    sam = SymbolicAWEModel(set, sys)
+    sam = SymbolicAWEModel(set, sys; transforms)
     init!(sam; prn=false, remake=false, remake_vsm=false)
-    update_sys_struct!(sam.prob, sam.integrator, sam.sys_struct)
+    update_sys_struct!(sam.prob, sam.integrator, sam.state)
 
-    stations = sam.sys_struct.stations
+    stations = sam.state.stations
     points = sam.sys_struct.points
     @test all(station_point_mass(points, station, :total_mass) >
               1.01 * station_point_mass(points, station, :extra_mass)

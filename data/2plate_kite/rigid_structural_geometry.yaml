@@ -136,6 +136,15 @@ wings:
       aero_z_offset: 0.0
 
 ###########################
+## Canopy faces ###########
+###########################
+canopy_faces:
+  headers: [name, wing, points]
+  data:
+    - [canopy_1, main_wing, [le_left, te_left, te_center, le_center]]
+    - [canopy_2, main_wing, [le_center, te_center, te_right, le_right]]
+
+###########################
 ## Transforms #############
 ###########################
 transforms:

@@ -38,10 +38,10 @@ using LinearAlgebra
 """
     build_curvature_case(case, root, flow_curvature)
 
-Fresh data directory, `Settings` and `SystemStructure` for one mode of the
-particle-dynamics 2plate kite, with the solver's `flow_curvature` flag set as
-given. Each build gets its own data copy and `system_name`: the flag changes the
-emitted equations, so the two must not share a compiled model.
+Fresh data directory, `Settings`, `SystemStructure` and its placing transforms for
+one mode of the particle-dynamics 2plate kite, with the solver's `flow_curvature`
+flag set as given. Each build gets its own data copy and `system_name`: the flag
+changes the emitted equations, so the two must not share a compiled model.
 """
 function build_curvature_case(case, root, flow_curvature)
     system_name = case.system_name * (flow_curvature ? "_on" : "_off")
@@ -61,10 +61,10 @@ function build_curvature_case(case, root, flow_curvature)
             vsm_wing_settings.billowing_percentage = 8.0
         end
     end
-    sys = load_sys_struct_from_yaml(
+    sys, transforms = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
         system_name, set, vsm_set, aero_mode=case.make())
-    return set, sys
+    return set, sys, transforms
 end
 
 """
@@ -172,7 +172,7 @@ function inject_velocity!(sam, nodes, velocities)
     for (node, velocity) in zip(nodes, velocities)
         node.vel_w .+= velocity
     end
-    init!(sam; reinit_sys=false, lin_vsm=false, prn=false)
+    init!(sam; lin_vsm=false, prn=false)
     error_norm = maximum(norm(Vector(nodes[k].vel_w) .- intended[k])
                          for k in eachindex(nodes))
     settle!(sam)
@@ -251,11 +251,11 @@ end
         @testset "$(case.name)" begin
             # Each model is built while its own case is the active data path, so
             # the two compiled models cache separately.
-            set_on, sys_on = build_curvature_case(case, root, true)
-            sam_on = SymbolicAWEModel(set_on, sys_on)
-            set_off, sys_off = build_curvature_case(case, root, false)
-            sam_off = SymbolicAWEModel(set_off, sys_off)
-            wing_on, wing_off = sys_on.wings[1], sys_off.wings[1]
+            set_on, sys_on, transforms_on = build_curvature_case(case, root, true)
+            sam_on = SymbolicAWEModel(set_on, sys_on; transforms=transforms_on)
+            set_off, sys_off, transforms_off = build_curvature_case(case, root, false)
+            sam_off = SymbolicAWEModel(set_off, sys_off; transforms=transforms_off)
+            wing_on, wing_off = sam_on.state.wings[1], sam_off.state.wings[1]
 
             @testset "the flag reaches the wing" begin
                 @test SymbolicAWEModels.flow_curvature_enabled(wing_on)
@@ -267,8 +267,8 @@ end
 
             test_init!(sam_on)
             test_init!(sam_off)
-            nodes_on = wing_points(sys_on, wing_on)
-            nodes_off = wing_points(sys_off, wing_off)
+            nodes_on = wing_points(sam_on.state, wing_on)
+            nodes_off = wing_points(sam_off.state, wing_off)
             settle!(sam_on)
             settle!(sam_off)
 

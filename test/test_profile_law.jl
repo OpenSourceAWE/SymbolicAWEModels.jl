@@ -75,8 +75,6 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "particle_structural_geometry.yaml"
-    aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
 
 tether:
@@ -120,7 +118,7 @@ system:
     set = Settings("system.yaml")
 
     # Load system structure to verify YAML loading
-    sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
+    sys, _ = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
 
     # ========================================================================
     # YAML Loading Verification
@@ -136,8 +134,8 @@ system:
 
         # Verify probe types and positions
         @test sys.points[:probe_10m].type == SymbolicAWEModels.STATIC
-        @test sys.points[:probe_10m].pos_cad == KVec3(0.0, 0.0, 10.0)
-        @test sys.points[:probe_500m].pos_cad == KVec3(0.0, 0.0, 500.0)
+        @test sys.points[:probe_10m].pos_ENU == KVec3(0.0, 0.0, 10.0)
+        @test sys.points[:probe_500m].pos_ENU == KVec3(0.0, 0.0, 500.0)
         @test sys.points[:dynamic_point].type == SymbolicAWEModels.DYNAMIC
 
         println("\n  ====== Loaded 5 static probes at heights: 10m, 50m, 100m, 200m, 500m ======\n")
@@ -148,7 +146,7 @@ system:
         norm(get_wind_vector_at_point(sam, point_name))
 
     get_wind_vector_at_point(sam, point_name) =
-        copy(sam.sys_struct.points[point_name].wind_vec)
+        copy(sam.state.points[point_name].wind_vec)
 
     # ========================================================================
     # Test 1: Profile law 0 (CONST) - uniform wind at all heights
@@ -157,8 +155,9 @@ system:
         set.profile_law = 0
         set.v_wind = 10.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
-        sam = SymbolicAWEModel(set, sys)
+        sys, transforms = load_sys_struct_from_yaml(yaml_path;
+            system_name="profile_law_test", set=set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # All probes should see the same wind speed
@@ -179,8 +178,9 @@ system:
         set.profile_law = 1
         set.v_wind = 10.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
-        sam = SymbolicAWEModel(set, sys)
+        sys, transforms = load_sys_struct_from_yaml(yaml_path;
+            system_name="profile_law_test", set=set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Wind should increase with height
@@ -205,8 +205,9 @@ system:
         set.profile_law = 2
         set.v_wind = 10.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
-        sam = SymbolicAWEModel(set, sys)
+        sys, transforms = load_sys_struct_from_yaml(yaml_path;
+            system_name="profile_law_test", set=set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Wind should increase with height
@@ -234,8 +235,9 @@ system:
         set.v_wind = 10.0
         set.upwind_dir = -90.0  # Wind from +x direction
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
-        sam = SymbolicAWEModel(set, sys)
+        sys, transforms = load_sys_struct_from_yaml(yaml_path;
+            system_name="profile_law_test", set=set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         probes = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]
@@ -266,8 +268,9 @@ system:
         set.profile_law = 0
         set.v_wind = 0.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
-        sam = SymbolicAWEModel(set, sys)
+        sys, transforms = load_sys_struct_from_yaml(yaml_path;
+            system_name="profile_law_test", set=set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         probes = [:probe_10m, :probe_50m, :probe_100m, :probe_200m, :probe_500m]
@@ -288,8 +291,9 @@ system:
         set.profile_law = 3
         set.v_wind = 10.0
 
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="profile_law_test", set=set)
-        sam = SymbolicAWEModel(set, sys)
+        sys, transforms = load_sys_struct_from_yaml(yaml_path;
+            system_name="profile_law_test", set=set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Wind should increase monotonically with height

@@ -5,16 +5,14 @@ const LinType = @NamedTuple{A::Matrix{SimFloat}, B::Matrix{SimFloat}, C::Matrix{
 const GetSetNothing = Union{AbstractIndexer, Nothing}
 
 """
-    ScatterGroup{Sel, Fns, Views}
+    ScatterGroup{Fns, Views}
 
-One component group of an [`InplaceGetter`](@ref). `selector(sys_struct)` returns
-the group's component vector (e.g. `sys_struct.points`); `copyfns` is a tuple of
-`(component, view) -> _` closures, one per output array, each copying that
-array's slice into the component's struct field; `views` is the matching tuple of
-zero-copy reshaped views into the getter's buffer.
+One component group of an [`InplaceGetter`](@ref). `copyfns` is a tuple of
+`(state, view) -> _` closures, one per output array, each writing that array into the
+run state's columns; `views` is the matching tuple of zero-copy reshaped views into
+the getter's buffer.
 """
-struct ScatterGroup{Sel, Fns, Views}
-    selector::Sel
+struct ScatterGroup{Fns, Views}
     copyfns::Fns
     views::Views
 end
@@ -27,7 +25,7 @@ component state. `fn` is an in-place MTK observed function `fn(buf, u, p, t)`
 over the concatenation of every component's output arrays; `buf` is a
 preallocated flat buffer reused each call; `groups` is a tuple of
 [`ScatterGroup`](@ref)s that write the freshly-computed buffer straight into the
-`SystemStructure` fields. One spec drives both the buffer layout and the scatter.
+run state's columns. One spec drives both the buffer layout and the scatter.
 """
 struct InplaceGetter{F, B, G}
     fn::F
@@ -35,25 +33,20 @@ struct InplaceGetter{F, B, G}
     groups::G
 end
 
-"Copy column `idx` of the matrix view `v` into the mutable vector `field` in place."
-@inline copy_vec!(field, v, idx) = (@views field .= v[:, idx]; nothing)
-
-"Apply each `(component, view)` copy closure for one component (tuple recursion)."
-@inline scatter_component(::Tuple{}, ::Tuple{}, component) = nothing
-@inline function scatter_component(copyfns::Tuple, views::Tuple, component)
-    first(copyfns)(component, first(views))
-    scatter_component(Base.tail(copyfns), Base.tail(views), component)
+"Apply each `(state, view)` copy closure of one group (tuple recursion)."
+@inline scatter_arrays(::Tuple{}, ::Tuple{}, state) = nothing
+@inline function scatter_arrays(copyfns::Tuple, views::Tuple, state)
+    first(copyfns)(state, first(views))
+    scatter_arrays(Base.tail(copyfns), Base.tail(views), state)
     return nothing
 end
 
-"Scatter every group into `sys_struct` (tuple recursion over heterogeneous groups)."
-@inline scatter_groups(::Tuple{}, sys_struct) = nothing
-@inline function scatter_groups(groups::Tuple, sys_struct)
+"Scatter every group into the run state `state` (tuple recursion over the groups)."
+@inline scatter_groups(::Tuple{}, state) = nothing
+@inline function scatter_groups(groups::Tuple, state)
     group = first(groups)
-    for component in group.selector(sys_struct)
-        scatter_component(group.copyfns, group.views, component)
-    end
-    scatter_groups(Base.tail(groups), sys_struct)
+    scatter_arrays(group.copyfns, group.views, state)
+    scatter_groups(Base.tail(groups), state)
     return nothing
 end
 
@@ -206,6 +199,8 @@ $(TYPEDFIELDS)
 @with_kw mutable struct SymbolicAWEModel{SS<:SystemStructure, SM<:SerializedModel} <: AbstractKiteModel
     "Reference to the point mass system with points, segments, pulleys and tethers"
     sys_struct::SS
+    "What the run holds of each component of `sys_struct`"
+    state::SystemState{SS} = SystemState(sys_struct)
     "Container for the compiled and serialized model components"
     serialized_model::SM # Now strongly typed
     "The ODE integrator for the full nonlinear model"
@@ -233,7 +228,7 @@ Tuple of field names that are direct fields of `SymbolicAWEModel` (as opposed to
 delegated to the nested `serialized_model`). Used by `getproperty` and `setproperty!`
 to dispatch field access correctly.
 """
-const SAM_FIELDS = (:sys_struct, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :param_registry, :initial_registry, :backend)
+const SAM_FIELDS = (:sys_struct, :state, :serialized_model, :integrator, :t_0, :iter, :t_vsm, :t_step, :param_registry, :initial_registry, :backend)
 
 """
     Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
@@ -248,6 +243,8 @@ function Base.getproperty(sam::SymbolicAWEModel, sym::Symbol)
         getfield(sam, :sys_struct).set
     elseif sym === :am
         getfield(sam, :sys_struct).am
+    elseif sym === :transforms
+        getfield(sam, :state).transforms
     elseif sym in SAM_FIELDS
         getfield(sam, sym)
     else
@@ -275,9 +272,11 @@ function Base.setproperty!(sam::SymbolicAWEModel, sym::Symbol, val)
 end
 
 """
-    SymbolicAWEModel(set::Settings, sys_struct::SystemStructure; kwargs...)
+    SymbolicAWEModel(set::Settings, sys_struct::SystemStructure; transforms=Transform[],
+                     kwargs...)
 
-Constructs a `SymbolicAWEModel` from an existing `SystemStructure`.
+Constructs a `SymbolicAWEModel` from an existing `SystemStructure` and the KiteGeometry
+`transforms` that place it, `sam.transforms`.
 
 This is the primary inner constructor. It takes a `SystemStructure` that defines the
 physical layout of the kite system and prepares it for symbolic model generation.
@@ -285,6 +284,8 @@ physical layout of the kite system and prepares it for symbolic model generation
 # Arguments
 - `set::Settings`: Configuration parameters.
 - `sys_struct::SystemStructure`: The physical system definition.
+- `transforms`: The KiteGeometry transforms placing `sys_struct`, as
+  [`load_sys_struct_from_yaml`](@ref) returns them; their rates start the run moving.
 - `kwargs...`: Further keyword arguments passed to the `SymbolicAWEModel` constructor.
 
 # Returns
@@ -293,15 +294,17 @@ physical layout of the kite system and prepares it for symbolic model generation
 function SymbolicAWEModel(
     set::Settings,
     sys_struct::SystemStructure;
+    transforms=Transform[],
     kwargs...
 )
     @assert set === sys_struct.set "The `set` argument must be the" *
         " same object as `sys_struct.set`"
     set_hash = get_set_hash(set)
-    sys_struct_hash = get_sys_struct_hash(sys_struct)
+    state = SystemState(sys_struct; transforms)
+    sys_struct_hash = get_sys_struct_hash(sys_struct, state.transforms)
     # Initialize with an empty, but now fully typed, SerializedModel.
     serialized_model = SerializedModel(; set_hash, sys_struct_hash)
-    return SymbolicAWEModel(; sys_struct, serialized_model, kwargs...)
+    return SymbolicAWEModel(; sys_struct, state, serialized_model, kwargs...)
 end
 
 """
@@ -311,7 +314,7 @@ Fill `ss.aero_force_x/y/z` with the world-frame aerodynamic force each wing node
 carries, from its `point.aero_force_b`. A mode that stores none leaves its nodes at
 zero.
 """
-function write_aero_forces!(ss::SysState, sys_struct::SystemStructure)
+function write_aero_forces!(ss::SysState, sys_struct::SystemState)
     fill!(ss.aero_force_x, 0.0)
     fill!(ss.aero_force_y, 0.0)
     fill!(ss.aero_force_z, 0.0)
@@ -342,7 +345,7 @@ degrees) and computes derived values like AoA. Roll, pitch and yaw are
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
     (; points, stations, winches, wings, tethers,
-       bodies) = sam.sys_struct
+       bodies) = sam.state
 
     for (ti, tether) in enumerate(tethers)
         ss.l_tether[ti] = tether.len
@@ -393,21 +396,21 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.drag_force_y[point.idx] = point.drag_force[2]
         ss.drag_force_z[point.idx] = point.drag_force[3]
     end
-    for segment in sam.sys_struct.segments
+    for segment in sam.state.segments
         ss.spring_force[segment.idx] = segment.force
     end
-    write_aero_forces!(ss, sam.sys_struct)
+    write_aero_forces!(ss, sam.state)
 
     # Store per-mode aero log points (e.g. VSM panel corners) in world frame
     corner_idx = length(points)
     for wing in wings
-        corner_idx = write_aero_log_points!(wing.aero, wing, sam.sys_struct,
+        corner_idx = write_aero_log_points!(wing.aero, wing, sam.state,
                                             ss, corner_idx, zoom)
     end
-    write_flap_deflections!(ss, sam.sys_struct)
+    write_flap_deflections!(ss, sam.state)
 
     # Orientation frames are ordered wings-first, then bodies (slots after corners).
-    slots = position_slots(sam.sys_struct)
+    slots = position_slots(sam.state)
     n_wings = length(wings)
     for wing in wings
         # frame 1 == legacy `orient`
@@ -417,7 +420,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         write_body_state!(ss, rigid_body, slots.bodies[rigid_body.idx],
                           n_wings + rigid_body.idx, zoom)
     end
-    for pulley in sam.sys_struct.pulleys
+    for pulley in sam.state.pulleys
         ss.pulley_len[pulley.idx] = pulley.len
         ss.pulley_vel[pulley.idx] = pulley.vel
     end
@@ -456,8 +459,8 @@ that group (empty if none); `total` is the position count. Orientation frames
 `w`, rigid body `b` uses frame `n_wings + b`.
 
 ```julia
-slots = position_slots(sam.sys_struct)
-sam.sys_struct.bodies[2]  # logged at X/Y/Z slot slots.bodies[2]
+slots = position_slots(sam.state)
+sam.state.bodies[2]  # logged at X/Y/Z slot slots.bodies[2]
 ```
 """
 function position_slots(sys_struct)
@@ -491,13 +494,8 @@ Construct a `SysState` holding the current state of the model.
 - `SysState`: A new state struct representing the current model state.
 """
 function SysState(s::SymbolicAWEModel, zoom=1.0; precision=KiteUtils.MyFloat)
-    ss = SysState(position_slots(s.sys_struct).total;
-                  orients = n_orient_frames(s.sys_struct),
-                  deflections = n_flap_deflections(s.sys_struct),
-                  pulleys = length(s.sys_struct.pulleys),
-                  winches = length(s.sys_struct.winches),
-                  tethers = length(s.sys_struct.tethers),
-                  segments = length(s.sys_struct.segments), precision)
+    P, counts = sysstate_counts(s.state)
+    ss = SysState(P; counts..., precision)
     update_sys_state!(ss, s, zoom)
     ss
 end
@@ -520,20 +518,13 @@ appropriate size.
 
 # Example
 ```julia
-logger = Logger(sam, 1000)  # Instead of Logger(length(sam.sys_struct.points), 1000)
+logger = Logger(sam, 1000)  # Instead of Logger(length(sam.state.points), 1000)
 ```
 """
 function KiteUtils.Logger(sam::SymbolicAWEModel, steps::Int;
                           precision=KiteUtils.MyFloat)
-    slots = position_slots(sam.sys_struct)
-    return Logger(slots.total, steps;
-                  orients = n_orient_frames(sam.sys_struct),
-                  deflections = n_flap_deflections(sam.sys_struct),
-                  pulleys = length(sam.sys_struct.pulleys),
-                  winches = length(sam.sys_struct.winches),
-                  tethers = length(sam.sys_struct.tethers),
-                  segments = length(sam.sys_struct.segments),
-                  precision)
+    P, counts = sysstate_counts(sam.state)
+    return Logger(P, steps; counts..., precision)
 end
 
 """
@@ -588,13 +579,13 @@ function next_step!(sam::SymbolicAWEModel;
     end
     if (isnothing(set_values))
         set_values = [winch.set_value
-            for winch in sam.sys_struct.winches]
+            for winch in sam.state.winches]
     end
     if prob isa ProbWithAttributes && !isnothing(prob.set_set_values)
         prob.set_set_values(integrator, set_values)
     end
     if prob isa ProbWithAttributes
-        sync_params!(prob.param_sync, integrator, sam.sys_struct)
+        sync_params!(prob.param_sync, integrator, sam.state)
     end
 
     sam.t_0 = integrator.t
@@ -608,12 +599,12 @@ function next_step!(sam::SymbolicAWEModel;
     end
     sam.iter += 1
     if prob isa ProbWithAttributes
-        update_sys_struct!(prob, integrator, sam.sys_struct)
+        update_sys_struct!(prob, integrator, sam.state)
         if vsm_interval != 0 && sam.iter % vsm_interval == 0 &&
-                has_vsm_wing(sam.sys_struct)
+                has_vsm_wing(sam.state)
             sam.t_vsm = @elapsed begin
                 refresh_aero!(sam; vsm_min_wind, vsm_warn_on_fail)
-                sync_params!(prob.param_sync, integrator, sam.sys_struct)
+                sync_params!(prob.param_sync, integrator, sam.state)
             end
         end
     end
@@ -621,28 +612,26 @@ function next_step!(sam::SymbolicAWEModel;
 end
 
 """
-    update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemStructure, integ=s.integrator)
+    update_sys_struct!(s::SymbolicAWEModel, sys_struct::SystemState, integ=s.integrator)
 
 Update the high-level `SystemStructure` from the integrator state vector, through the
 generated getter functions.
 """
 function update_sys_struct!(prob::ProbWithAttributes,
-                            integ::OrdinaryDiffEqCore.ODEIntegrator,
-                            sys_struct::SystemStructure)
+                            integ::OrdinaryDiffEqCore.ODEIntegrator, sys_struct)
     prob.get_all_state(integ, sys_struct)
-    refresh_deformed_positions!(sys_struct.points, sys_struct.bodies)
     return nothing
 end
 
 """
-    get_model_name(set::Settings, sys_struct::SystemStructure; precompile=false,
+    get_model_name(set::Settings, sys_struct::SystemState; precompile=false,
                    sparse=false, analytic_jacobian=false, backend=MonolithBackend())
 
 Filename of the serialized model: the SymbolicAWEModels and Julia versions, physical
 model, wing type, aero mode, dynamics type, component counts, a digest of
 [`component_types`](@ref), and tags for `sparse`, `analytic_jacobian` and `backend`.
 """
-function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=false,
+function get_model_name(set::Settings, sys_struct::SystemState; precompile=false,
                         sparse=false, analytic_jacobian=false,
                         backend=MonolithBackend())
     suffix = ""
@@ -685,7 +674,7 @@ function get_model_name(set::Settings, sys_struct::SystemStructure; precompile=f
     body_tag = n_bodies > 0 ? "_$(n_bodies)bdy" : ""
     sparse_tag = sparse ? "_sparse" : ""
     jacobian_tag = analytic_jacobian ? "_analytic" : ""
-    type_tag = first(bytes2hex(sha1(component_types(sys_struct))), 8)
+    type_tag = first(bytes2hex(sha1(component_types(sys_struct.structure))), 8)
 
     counts = "$(n_points)pnt_$(n_segments)seg_$(n_stations)grp_$(n_wings)wng_" *
              "$(n_winches)wch$(body_tag)"
@@ -700,9 +689,9 @@ end
 Calculates the torque for each winch that results in zero acceleration (steady state).
 """
 function calc_steady_torque(sam::SymbolicAWEModel)
-    return calc_steady_torque(sam.sys_struct)
+    return calc_steady_torque(sam.state)
 end
-function calc_steady_torque(sys_struct::SystemStructure)
+function calc_steady_torque(sys_struct::SystemState)
     torques = [-winch.drum_radius / winch.gear_ratio * norm(winch.force) +
                winch.friction for winch in sys_struct.winches]
     return torques
@@ -719,7 +708,7 @@ Reads `friction` from the live winch struct (populated each step from
 the component output), so the formula matches whatever the component
 reported even if the component overrides friction.
 """
-function calc_winch_force(sys::SystemStructure,
+function calc_winch_force(sys::SystemState,
         winch_vel, winch_acc, set_values)
     winches = sys.winches
     winch_force = zeros(length(winches))
@@ -740,7 +729,7 @@ Angle of attack [rad] of the first wing, dispatched on its aero mode
 ([`calc_aoa(::AbstractAeroModel, wing)`](@ref)). `NaN` if the mode defines no AoA.
 """
 function calc_aoa(sam::SymbolicAWEModel)
-    wing = sam.sys_struct.wings[1]
+    wing = sam.state.wings[1]
     return calc_aoa(wing.aero, wing)
 end
 
@@ -749,41 +738,41 @@ end
 
 Returns the unstretched tether length [m] for each tether.
 """
-unstretched_length(sam::SymbolicAWEModel) = [tether.len for tether in sam.sys_struct.tethers]
+unstretched_length(sam::SymbolicAWEModel) = [tether.len for tether in sam.state.tethers]
 
 """
     tether_length(s::SymbolicAWEModel)
 
 Returns the current stretched tether length [m] for each tether.
 """
-tether_length(sam::SymbolicAWEModel) = [tether.stretched_len for tether in sam.sys_struct.tethers]
+tether_length(sam::SymbolicAWEModel) = [tether.stretched_len for tether in sam.state.tethers]
 
 """
     calc_height(s::SymbolicAWEModel)
 
 Returns the height (z-position) [m] of the wing.
 """
-calc_height(sam::SymbolicAWEModel) = sam.sys_struct.wings[1].pos_w[3]
+calc_height(sam::SymbolicAWEModel) = sam.state.wings[1].pos_w[3]
 
 """
     winch_force(s::SymbolicAWEModel)
 
 Returns the winch force [N] for each winch.
 """
-winch_force(sam::SymbolicAWEModel) = [norm(winch.force) for winch in sam.sys_struct.winches]
+winch_force(sam::SymbolicAWEModel) = [norm(winch.force) for winch in sam.state.winches]
 
 """
     spring_forces(s::SymbolicAWEModel)
 
 Returns the spring force [N] for each tether segment.
 """
-spring_forces(sam::SymbolicAWEModel) = [segment.force for segment in sam.sys_struct.segments]
+spring_forces(sam::SymbolicAWEModel) = [segment.force for segment in sam.state.segments]
 
 """
     pos(s::SymbolicAWEModel)
 
 Returns a vector of the position vectors [m] for each point in the system.
 """
-pos(sam::SymbolicAWEModel) = [point.pos_w for point in sam.sys_struct.points]
+pos(sam::SymbolicAWEModel) = [point.pos_w for point in sam.state.points]
 
 

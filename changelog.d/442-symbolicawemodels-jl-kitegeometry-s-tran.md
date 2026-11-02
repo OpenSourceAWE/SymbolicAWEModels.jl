@@ -1,0 +1,4 @@
+### Changed
+
+- BREAKING: Transforms are KiteGeometry's `Transform`, held by the model rather than the structure. `load_sys_struct_from_yaml` returns `(sys, transforms)`, `SymbolicAWEModel(set, sys; transforms)` takes them and `sam.transforms` reads them. `place!(sys, transforms)` places a structure by them with KiteGeometry's `place_transforms!`, and `reposition!(sam.state)` turns a running state with KiteGeometry's `reposition!`. A Julia-built transform names its base point, turned point or body and every point and body it moves by index, the inner points of a tether the structure expands included; `Point`, `Body` and the wing constructors no longer take `transform`. A `SystemStructure` has no `transforms`, and its constructor places with none.
+- The model cache key no longer lists transforms and now carries each wing's transform base point, so every cached model with a transform or a wing recompiles once.

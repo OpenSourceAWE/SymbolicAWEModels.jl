@@ -68,16 +68,16 @@ default_backend!
 
 ```@docs
 SystemStructure
-SystemStructure(name, set; points, stations, segments, pulleys, tethers, winches, wings, transforms, bodies, elastic_joints, timoshenko_joints)
+SystemStructure(name, set; points, stations, segments, pulleys, tethers, winches, wings, bodies, tubes)
 Point
-Point(name, pos_cad, type; wing, transform, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
+Point(name, pos_ENU, type::DynamicsType; wing, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
 Station
-Station(name, points, type, moment_frac; damping=50.0)
+Station(name, points, type::DynamicsType, moment_frac; damping=50.0)
 Segment
 Segment(name, set, point_i, point_j; l0, compression_frac, compression_damping_frac, diameter_mm, unit_stiffness, unit_damping, density, youngs_modulus, damping_per_stiffness)
-Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, compression_frac, compression_damping_frac)
+Segment(name, point_i::Union{Integer, Symbol}, point_j::Union{Integer, Symbol}, unit_stiffness, unit_damping, diameter; l0, compression_frac, compression_damping_frac)
 Pulley
-Pulley(name, segment_i, segment_j, type; efficiency, damping, brake, friction_epsilon)
+Pulley(name, segment_i, segment_j, type::DynamicsType; efficiency, damping, brake, friction_epsilon)
 Tether
 Tether(name, segments::AbstractVector, stretched_length; start_point, end_point, tether_force, stretch_frac)
 Tether(name, stretched_length; start_point, end_point, n_segments, unit_stiffness, unit_damping, diameter, compression_frac, compression_damping_frac, tether_force, stretch_frac)
@@ -94,12 +94,13 @@ PlateWing
 create_plate_interpolations
 Body
 Body(name; extra_mass, inertia_principal, pos, vel, Q_b_to_w, ω_b, com_offset_b, R_b_to_p, angular_damping, ext_force_w, ext_moment_b)
-ElasticJoint
-ElasticJoint(name, body_a, body_b; anchor_a, anchor_b, stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping_trans, damping_rot)
-TimoshenkoJoint
-TimoshenkoJoint(name, body_a, body_b; anchor_a, anchor_b, EA, GA, GJ, EIy, EIz, shear_coeff, damping_trans, damping_rot, rest_length)
-Transform
-Transform(name, elevation, azimuth, heading; base_point, base_pos, base_transform, wing, rot_point)
+Tube
+Tube(name, body_a, body_b; diameter, pressure, law, model, anchor_a, anchor_b)
+AbstractTubeModel
+TimoshenkoTube
+TimoshenkoTube(; EA, GA, GJ, EIy, EIz, shear_coeff, damping)
+ElasticTube
+ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping)
 ```
 
 ## Indexing
@@ -121,6 +122,7 @@ TUBE_POISSON_RATIO
 ## System state
 
 ```@docs
+SystemState
 SysState
 update_sys_state!
 update_from_sysstate!

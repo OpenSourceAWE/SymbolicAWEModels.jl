@@ -62,14 +62,14 @@ often not the node. `apparent_mass_carriers` picks it, and there are three cases
 - a free `DYNAMIC` node carries its own air, through `point_acceleration`;
 - a node anchored to a rigid body is *placed* by that body and integrates nothing of
   its own, so its air goes to the body, through `rigid_body_pose_expressions`;
-- a node riding a `TimoshenkoJoint`'s deformed centerline is placed by the two bodies
-  the joint spans, which split its air by `beam_frac`, where along the element it
+- a node riding a `TimoshenkoTube`'s deformed centerline is placed by the two bodies
+  the tube spans, which split its air by `beam_frac`, where along the element it
   sits.
 
 The last two are not edge cases. **No node of a beam wing integrates itself**: a beam
 wing keeps its mass and its motion in its beam bodies, its leading- and trailing-edge
 stations are anchored to those bodies, and the great majority of its nodes ride the
-strut joints between them. Mass left on such a node would be silently inert — it
+strut tubes between them. Mass left on such a node would be silently inert — it
 would look applied and change nothing.
 
 Both backends reach every path through shared kernels: points via `point_eqs.jl`

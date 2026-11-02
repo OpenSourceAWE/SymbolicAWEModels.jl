@@ -158,8 +158,8 @@ end
         sol = wing.vsm_solver.sol
         panels = wing.vsm_aero.panels
         nodes = wing_points(sys, wing)
-        rot_cad_to_body = wing.R_b_to_c'
-        point_pos_b = Dict(p.idx => rot_cad_to_body * (p.pos_cad - wing.pos_cad)
+        rot_to_body = SymbolicAWEModels.initial_rotation(wing)'
+        point_pos_b = Dict(p.idx => rot_to_body * (p.pos_ENU - wing.pos_ENU)
                            for p in nodes)
 
         # The couple carries the pitching moment, so a comparison that dropped it

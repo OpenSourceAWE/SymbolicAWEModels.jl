@@ -22,8 +22,9 @@ end
 using Test
 using SymbolicAWEModels
 using SymbolicAWEModels: KVec3, VortexStepMethod,
-    calc_heading, reposition!, write_wing_scalars!
+    write_wing_scalars!
 using KiteUtils
+using SymbolicAWEModels.KiteGeometry: base_position
 using LinearAlgebra
 
 @testset "Transform Tests" begin
@@ -48,18 +49,20 @@ using LinearAlgebra
     particle_dynamics_yaml_path = joinpath(data_path, "particle_structural_geometry.yaml")
 
     # Create and initialize SAMs once for each wing type
-    rigid_dynamics_sys = load_sys_struct_from_yaml(
+    rigid_dynamics_sys, rigid_dynamics_transforms = load_sys_struct_from_yaml(
         rigid_dynamics_yaml_path; system_name="transform_test_RIGID_DYNAMICS", set=set, vsm_set=vsm_set,
         aero_mode=AeroNone()
     )
-    rigid_dynamics_sam = SymbolicAWEModel(set, rigid_dynamics_sys)
+    rigid_dynamics_sam = SymbolicAWEModel(set, rigid_dynamics_sys;
+                                          transforms=rigid_dynamics_transforms)
     test_init!(rigid_dynamics_sam)
 
-    particle_dynamics_sys = load_sys_struct_from_yaml(
+    particle_dynamics_sys, particle_dynamics_transforms = load_sys_struct_from_yaml(
         particle_dynamics_yaml_path; system_name="transform_test_PARTICLE_DYNAMICS", set=set, vsm_set=vsm_set,
         aero_mode=AeroNone()
     )
-    particle_dynamics_sam = SymbolicAWEModel(set, particle_dynamics_sys)
+    particle_dynamics_sam = SymbolicAWEModel(set, particle_dynamics_sys;
+                                             transforms=particle_dynamics_transforms)
     test_init!(particle_dynamics_sam)
 
     # Helper to reset transform to default YAML values
@@ -85,19 +88,17 @@ using LinearAlgebra
             # YAML Loading Verification (uses already-loaded sys_struct)
             # ================================================================
             @testset "YAML Loading Verification" begin
-                sys = sam.sys_struct
-
                 # Verify transform was loaded
-                @test length(sys.transforms) == 1
-                @test haskey(sys.transforms, :main_transform)
+                @test length(sam.transforms) == 1
+                @test haskey(sam.transforms, :main_transform)
 
-                transform = sys.transforms[:main_transform]
+                transform = sam.transforms[:main_transform]
 
                 # Verify base point
-                @test transform.base_point_idx == 10  # ground point index
+                @test transform.base_point == 10  # ground point index
 
                 # Verify wing reference
-                @test transform.wing_idx == 1  # main_wing index
+                @test transform.body == 1  # main_wing index
 
                 println("\n  ====== [$dynamics_type_name] Loaded transform: " *
                     "elev=$(round(rad2deg(transform.elevation), digits=1))°, " *
@@ -109,11 +110,12 @@ using LinearAlgebra
             # Physics Test 1: Initial angles after init
             # ================================================================
             @testset "Initial angles after init!" begin
-                reset_transform!(sam.sys_struct)
+                reset_transform!(sam.state)
+                place!(sam; prn=false)
                 test_init!(sam; prn=false)
 
                 # After init, the transform angles should still match
-                transform = sam.sys_struct.transforms[:main_transform]
+                transform = sam.transforms[:main_transform]
 
                 @test transform.elevation ≈ deg2rad(80) atol=1e-10
                 @test transform.azimuth ≈ deg2rad(0) atol=1e-10
@@ -129,10 +131,11 @@ using LinearAlgebra
             # Physics Test 2: Initial velocities after init
             # ================================================================
             @testset "Initial velocities after init!" begin
-                reset_transform!(sam.sys_struct)
+                reset_transform!(sam.state)
+                place!(sam; prn=false)
                 test_init!(sam; prn=false)
 
-                transform = sam.sys_struct.transforms[:main_transform]
+                transform = sam.transforms[:main_transform]
 
                 # Default velocities are 0
                 @test transform.elevation_vel ≈ 0.0 atol=1e-10
@@ -147,7 +150,7 @@ using LinearAlgebra
             # Physics Test 2b: A start velocity is the wing's own rate
             # ================================================================
             @testset "Start velocity round-trips into the wing rates" begin
-                sys = sam.sys_struct
+                sys = sam.state
                 tf = sys.transforms[:main_transform]
                 reset_transform!(sys)
                 tf.elevation = deg2rad(70)
@@ -155,11 +158,11 @@ using LinearAlgebra
                 tf.elevation_vel = deg2rad(3.0)
                 tf.azimuth_vel = deg2rad(-2.0)
 
-                SymbolicAWEModels.reinit!(sys, set)
+                place!(sam)
 
                 wing = sys.bodies[:main_wing]
                 write_wing_scalars!(wing, sys.points;
-                    base_point=tf.base_point_idx)
+                    base_point=tf.base_point)
 
                 @test wing.elevation_vel ≈ tf.elevation_vel atol=1e-8
                 @test wing.azimuth_vel ≈ tf.azimuth_vel atol=1e-8
@@ -175,7 +178,7 @@ using LinearAlgebra
             # Physics Test 2c: turn_rate spins the structure as it is placed
             # ================================================================
             @testset "turn_rate advances the placed heading" begin
-                sys = sam.sys_struct
+                sys = sam.state
                 tf = sys.transforms[:main_transform]
                 turn_rate = deg2rad(6.0)
                 dt = 1e-5
@@ -185,7 +188,7 @@ using LinearAlgebra
                 tf.azimuth = deg2rad(25)
                 tf.heading = deg2rad(15)
                 tf.turn_rate = turn_rate
-                SymbolicAWEModels.reinit!(sys, set)
+                place!(sam)
                 point_pos = [copy(point.pos_w) for point in sys.points]
                 point_vel = [copy(point.vel_w) for point in sys.points]
                 body_pos = [copy(body.pos_w) for body in sys.bodies]
@@ -193,7 +196,7 @@ using LinearAlgebra
 
                 tf.heading += turn_rate * dt
                 tf.turn_rate = 0.0
-                SymbolicAWEModels.reinit!(sys, set)
+                place!(sam)
 
                 for (idx, point) in enumerate(sys.points)
                     @test (point.pos_w .- point_pos[idx]) ./ dt ≈ point_vel[idx] atol=1e-6
@@ -215,15 +218,16 @@ using LinearAlgebra
             @testset "Geometric consistency" begin
                 # For elevation=80deg, azimuth=0deg, the wing should be positioned
                 # according to spherical coordinate transformation
-                reset_transform!(sam.sys_struct)
+                reset_transform!(sam.state)
+                place!(sam; prn=false)
                 test_init!(sam; prn=false)
 
                 # Get wing position
-                wing = sam.sys_struct.bodies[:main_wing]
+                wing = sam.state.bodies[:main_wing]
                 wing_pos = wing.pos_w
 
                 # Get ground position
-                ground_pos = sam.sys_struct.points[:ground].pos_w
+                ground_pos = sam.state.points[:ground].pos_w
 
                 # Vector from ground to wing
                 rel_pos = wing_pos - ground_pos
@@ -248,7 +252,7 @@ using LinearAlgebra
             # ================================================================
             @testset "Alternative angles configuration" begin
                 # Modify transform to test different angles
-                tf = sam.sys_struct.transforms[:main_transform]
+                tf = sam.transforms[:main_transform]
                 tf.elevation = deg2rad(45)
                 tf.azimuth = deg2rad(30)
                 tf.heading = deg2rad(10)
@@ -262,10 +266,11 @@ using LinearAlgebra
                 @test tf.elevation_vel ≈ deg2rad(0.1) atol=1e-10
                 @test tf.azimuth_vel ≈ deg2rad(0.5) atol=1e-10
 
+                place!(sam; prn=false)
                 test_init!(sam; prn=false)
 
                 # Angles should be preserved after init
-                transform_after = sam.sys_struct.transforms[:main_transform]
+                transform_after = sam.transforms[:main_transform]
                 @test transform_after.elevation ≈ deg2rad(45) atol=1e-10
                 @test transform_after.azimuth ≈ deg2rad(30) atol=1e-10
 
@@ -279,14 +284,18 @@ using LinearAlgebra
             # ================================================================
             @testset "Transform affects wing position" begin
                 # Test 1: elevation = 80 deg (default)
-                reset_transform!(sam.sys_struct)
+                reset_transform!(sam.state)
+                place!(sam; prn=false)
                 test_init!(sam; prn=false)
-                wing_z1 = sam.sys_struct.bodies[:main_wing].pos_w[3]
+                wing_z1 = sam.state.bodies[:main_wing].pos_w[3]
 
-                # Test 2: elevation = 45 deg
-                sam.sys_struct.transforms[:main_transform].elevation = deg2rad(45)
+                # Test 2: elevation = 45 deg; init! alone keeps the placement
+                sam.transforms[:main_transform].elevation = deg2rad(45)
                 test_init!(sam; prn=false)
-                wing_z2 = sam.sys_struct.bodies[:main_wing].pos_w[3]
+                @test sam.state.bodies[:main_wing].pos_w[3] ≈ wing_z1 atol=1e-6
+                place!(sam; prn=false)
+                test_init!(sam; prn=false)
+                wing_z2 = sam.state.bodies[:main_wing].pos_w[3]
 
                 # Higher elevation should result in higher z position
                 # (wing more overhead)
@@ -302,14 +311,16 @@ using LinearAlgebra
             # ================================================================
             @testset "Azimuth affects y-position" begin
                 # Test 1: azimuth = 0 deg (default)
-                reset_transform!(sam.sys_struct)
+                reset_transform!(sam.state)
+                place!(sam; prn=false)
                 test_init!(sam; prn=false)
-                wing_y1 = sam.sys_struct.bodies[:main_wing].pos_w[2]
+                wing_y1 = sam.state.bodies[:main_wing].pos_w[2]
 
                 # Test 2: azimuth = 30 deg (more to the side)
-                sam.sys_struct.transforms[:main_transform].azimuth = deg2rad(30)
+                sam.transforms[:main_transform].azimuth = deg2rad(30)
+                place!(sam; prn=false)
                 test_init!(sam; prn=false)
-                wing_y2 = sam.sys_struct.bodies[:main_wing].pos_w[2]
+                wing_y2 = sam.state.bodies[:main_wing].pos_w[2]
 
                 # Larger azimuth should give larger |y| component
                 @test abs(wing_y2) > abs(wing_y1)
@@ -323,10 +334,11 @@ using LinearAlgebra
             # Physics Test 7: Heading affects wing orientation (not position)
             # ================================================================
             @testset "Heading affects orientation" begin
-                reset_transform!(sam.sys_struct)
+                reset_transform!(sam.state)
+                place!(sam; prn=false)
                 test_init!(sam; prn=false)
 
-                wing = sam.sys_struct.bodies[:main_wing]
+                wing = sam.state.bodies[:main_wing]
 
                 # Wing should have a rotation matrix
                 @test !isnothing(wing.R_b_to_w)
@@ -345,14 +357,15 @@ using LinearAlgebra
             # ================================================================
             @testset "Base position from base_point" begin
                 # The transform references ground as base_point
-                transform = sam.sys_struct.transforms[:main_transform]
-                @test transform.base_point_idx == 10  # ground index
+                transform = sam.transforms[:main_transform]
+                @test transform.base_point == 10  # ground index
 
-                reset_transform!(sam.sys_struct)
+                reset_transform!(sam.state)
+                place!(sam; prn=false)
                 test_init!(sam; prn=false)
 
                 # Transform base_pos should match the ground point position
-                ground_pos = sam.sys_struct.points[:ground].pos_w
+                ground_pos = sam.state.points[:ground].pos_w
                 @test transform.base_pos ≈ ground_pos atol=1e-10
 
                 println("\n  ====== [$dynamics_type_name] Base point: " *
@@ -366,7 +379,7 @@ using LinearAlgebra
             # to verify heading rotates around the correct axis.
             # ================================================================
             function test_reposition_heading(sam, base_pos, label)
-                sys = sam.sys_struct
+                sys = sam.state
                 tf = sys.transforms[:main_transform]
                 orig_base_pos = copy(tf.base_pos)
 
@@ -378,6 +391,7 @@ using LinearAlgebra
                         tf.base_pos .= base_pos
                         reset_transform!(sys)
                         tf.heading = target_h
+                        place!(sam; prn=false)
                         test_init!(sam; prn=false)
                         wing = sys.bodies[:main_wing]
                         reinit_R = copy(wing.R_b_to_w)
@@ -387,9 +401,10 @@ using LinearAlgebra
                         # reposition! to target
                         tf.base_pos .= base_pos
                         reset_transform!(sys)
+                        place!(sam; prn=false)
                         test_init!(sam; prn=false)
                         tf.heading = target_h
-                        reposition!(sys.transforms, sys)
+                        reposition!(sys)
                         wing = sys.bodies[:main_wing]
 
                         @test reinit_R ≈ wing.R_b_to_w atol=1e-6
@@ -413,10 +428,7 @@ using LinearAlgebra
     # ================================================================
     @testset "Chained Transforms" begin
         using SymbolicAWEModels: Point, Segment, Tether, Winch,
-            PlateWing, Station, Transform,
-            SystemStructure,
-            create_plate_interpolations, get_rot_pos,
-            get_rot_pos_cad, get_base_pos, reinit!
+            PlateWing, Station, SystemStructure, create_plate_interpolations
 
         # Use kps4 settings (2plate_kite has no tethers)
         kps4_data = joinpath(tmpdir, "kps4")
@@ -454,20 +466,15 @@ using LinearAlgebra
         points_c = [
             Point(:ground, zeros(3), STATIC),
             Point(:kcu, pos_kcu, DYNAMIC;
-                extra_mass=set_c.kcu_mass,
-                transform=:main_tf),
+                extra_mass=set_c.kcu_mass),
             Point(:nose, pos_nose, DYNAMIC;
-                extra_mass=k_nose,
-                transform=:main_tf),
+                extra_mass=k_nose),
             Point(:top, pos_top, DYNAMIC;
-                extra_mass=k_top, wing=:plate_wing,
-                transform=:kite_tilt),
+                extra_mass=k_top, wing=:plate_wing),
             Point(:right, pos_right, DYNAMIC;
-                extra_mass=k_side, wing=:plate_wing,
-                transform=:kite_tilt),
+                extra_mass=k_side, wing=:plate_wing),
             Point(:left, pos_left, DYNAMIC;
-                extra_mass=k_side, wing=:plate_wing,
-                transform=:kite_tilt),
+                extra_mass=k_side, wing=:plate_wing),
         ]
 
         segments_c = [
@@ -540,54 +547,53 @@ using LinearAlgebra
         azim = deg2rad(10.0)
         kite_angle = deg2rad(3.83)
 
-        transforms_c = [
-            Transform(:main_tf, elev, azim, 0.0;
-                base_pos=zeros(3), base_point=:ground,
-                wing=:plate_wing),
-            Transform(:kite_tilt,
-                elev + kite_angle, azim, 0.0;
-                base_transform=:main_tf,
-                rot_point=:top),
-        ]
-
         sys_c = SystemStructure("chained_test", set_c;
             points=points_c, stations=stations_c,
             segments=segments_c,
             tethers=tethers_c, winches=winches_c,
-            wings=[wing_c], transforms=transforms_c)
+            wings=[wing_c])
 
-        sam_c = SymbolicAWEModel(set_c, sys_c)
+        point_idx(name) = sys_c.points[name].idx
+        tether_idxs = [point.idx for point in sys_c.points
+                       if startswith(String(point.name), "main_tether_point")]
+        transforms_c = [
+            Transform(; name=:main_tf, elevation=elev, azimuth=azim, heading=0.0,
+                base_pos=zeros(3), base_point=point_idx(:ground), body=1,
+                points=[point_idx(:kcu), point_idx(:nose), tether_idxs...],
+                bodies=[1]),
+            Transform(; name=:kite_tilt, elevation=elev + kite_angle, azimuth=azim,
+                heading=0.0, base_transform=1, rot_point=[point_idx(:top) => 1.0],
+                points=point_idx.([:top, :right, :left])),
+        ]
+        place!(sys_c, transforms_c; prn=false)
+
+        sam_c = SymbolicAWEModel(set_c, sys_c; transforms=transforms_c)
         init!(sam_c)
 
-        @testset "get_base_pos returns different values" begin
-            sys = sam_c.sys_struct
+        @testset "get_base_pos returns the parent's current and initial position" begin
+            sys = sam_c.state
             tf_child = sys.transforms[:kite_tilt]
-            base_pos, curr_base_pos = get_base_pos(
-                tf_child, sys.transforms,
-                sys.bodies, sys.points)
-            # After init, parent wing has moved from CAD
-            # so base_pos (world) != curr_base_pos (CAD)
-            @test !(base_pos ≈ curr_base_pos)
-            println("  base_pos=$(round.(base_pos, digits=2))")
-            println("  curr_base_pos=" *
-                "$(round.(curr_base_pos, digits=2))")
+            design = Pose([KVec3(point.pos_ENU) for point in sys.points],
+                          [KVec3(body.pos_ENU) for body in sys.bodies],
+                          [quaternion_to_rotation_matrix(body.Q_KA_to_ENU)
+                           for body in sys.bodies])
+            base_pos = base_position(Pose(sys), sys.transforms, tf_child)
+            curr_base_pos = base_position(design, sys.transforms, tf_child)
+            @test base_pos == sys.wings[:plate_wing].pos_w
+            @test curr_base_pos == sys.wings[:plate_wing].pos_ENU
         end
 
-        @testset "Child points translated from CAD" begin
-            sys = sam_c.sys_struct
+        @testset "Child points translated from the authoring geometry" begin
+            sys = sam_c.state
             top = sys.points[:top]
-            # top should NOT be at its CAD position
-            @test !(top.pos_w ≈ top.pos_cad)
+            @test !(top.pos_w ≈ pos_top)
             # top should be far from origin (at tether length)
             @test norm(top.pos_w) > 50.0
-            println("  top.pos_w=" *
-                "$(round.(top.pos_w, digits=2))")
-            println("  top.pos_cad=" *
-                "$(round.(top.pos_cad, digits=2))")
+            @test top.pos_ENU == top.pos_w
         end
 
         @testset "Child points near parent wing" begin
-            sys = sam_c.sys_struct
+            sys = sam_c.state
             wing_pos = sys.wings[1].pos_w
             top_pos = sys.points[:top].pos_w
             right_pos = sys.points[:right].pos_w
@@ -607,17 +613,11 @@ using LinearAlgebra
         end
 
         @testset "Distances preserved (rigid body)" begin
-            sys = sam_c.sys_struct
-            # CAD distances between child points
-            cad_dist_top_right = norm(
-                sys.points[:top].pos_cad -
-                sys.points[:right].pos_cad)
-            cad_dist_top_left = norm(
-                sys.points[:top].pos_cad -
-                sys.points[:left].pos_cad)
-            cad_dist_right_left = norm(
-                sys.points[:right].pos_cad -
-                sys.points[:left].pos_cad)
+            sys = sam_c.state
+            # Authoring distances between child points
+            cad_dist_top_right = norm(pos_top - pos_right)
+            cad_dist_top_left = norm(pos_top - pos_left)
+            cad_dist_right_left = norm(pos_right - pos_left)
 
             # World distances should match CAD distances
             # (transforms are rigid body)
@@ -640,23 +640,24 @@ using LinearAlgebra
         end
 
         @testset "reposition! no crash" begin
-            sys = sam_c.sys_struct
+            sys = sam_c.state
             # Should not crash for chained transforms
-            @test_nowarn reposition!(
-                sys.transforms, sys)
+            @test_nowarn reposition!(sys)
         end
 
         @testset "Different child elevation changes pos" begin
-            sys = sam_c.sys_struct
+            sys = sam_c.state
             tf_child = sys.transforms[:kite_tilt]
 
             # Elevation 1
             tf_child.elevation = elev + kite_angle
+            place!(sam_c; prn=false)
             init!(sam_c; prn=false)
             top_pos1 = copy(sys.points[:top].pos_w)
 
             # Elevation 2 (larger tilt)
             tf_child.elevation = elev + 2 * kite_angle
+            place!(sam_c; prn=false)
             init!(sam_c; prn=false)
             top_pos2 = copy(sys.points[:top].pos_w)
 

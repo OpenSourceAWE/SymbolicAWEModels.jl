@@ -44,9 +44,9 @@ function load_continuous_sys(data_path, set; billowing, remove_nan=true)
         vsm_wing_settings.spanwise_panel_distribution = VortexStepMethod.BILLOWING
         vsm_wing_settings.billowing_percentage = 8.0
     end
-    return load_sys_struct_from_yaml(
+    return first(load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name="continuous_test", set, vsm_set, aero_mode=ContinuousAero())
+        system_name="continuous_test", set, vsm_set, aero_mode=ContinuousAero()))
 end
 
 """
@@ -54,7 +54,7 @@ end
 
 The model bin name and structure hash a build of `sys` is cached under.
 """
-model_key(set, sys) = (SymbolicAWEModels.get_model_name(set, sys),
+model_key(set, sys) = (SymbolicAWEModels.get_model_name(set, SystemState(sys)),
                        SymbolicAWEModels.get_sys_struct_hash(sys))
 
 @testset "ContinuousAero" begin

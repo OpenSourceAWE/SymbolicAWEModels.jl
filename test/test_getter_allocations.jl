@@ -53,8 +53,6 @@ kite:
     model: ""
     foil_file: "ram_air_kite/ram_air_kite_foil.dat"
     physical_model: "2plate"
-    struc_geometry_path: "particle_structural_geometry.yaml"
-    aero_geometry_path: "aero_geometry.yaml"
     mass: 0.0
 
 tether:
@@ -120,10 +118,11 @@ SYNC_ALLOC_BUDGET = Dict(:KernelBackend => 0, :MonolithBackend => 256)
     set_data_path(tmpdir)
     set = Settings("system.yaml")
     yaml_path = joinpath(tmpdir, "getter_alloc_geometry.yaml")
-    sys = load_sys_struct_from_yaml(yaml_path; system_name="segment_test", set=set)
+    sys, _ = load_sys_struct_from_yaml(yaml_path; system_name="segment_test", set=set)
     for backend in (MonolithBackend(), KernelBackend())
-        sys = load_sys_struct_from_yaml(yaml_path; system_name="segment_test", set=set)
-        sam = SymbolicAWEModel(set, sys; backend)
+        sys, transforms = load_sys_struct_from_yaml(yaml_path;
+            system_name="segment_test", set=set)
+        sam = SymbolicAWEModel(set, sys; transforms, backend)
         # init!, not test_init!: the RHS allocation check belongs to the tests
         # about the RHS, and this file is about the sync paths either side of it.
         init!(sam)
@@ -131,7 +130,7 @@ SYNC_ALLOC_BUDGET = Dict(:KernelBackend => 0, :MonolithBackend => 256)
 
         prob = sam.prob
         integ = sam.integrator
-        sys_struct = sam.sys_struct
+        sys_struct = sam.state
         getter = prob.get_all_state
 
         # warm up, then assert zero allocation
@@ -178,13 +177,13 @@ WING_ALLOC_BUDGET = Dict(:KernelBackend => 22_000, :MonolithBackend => 4_000)
             set = Settings("system.yaml")
             vsm_set = VortexStepMethod.VSMSettings(
                 joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
-            sys = load_sys_struct_from_yaml(joinpath(data_path, geometry);
+            sys, transforms = load_sys_struct_from_yaml(joinpath(data_path, geometry);
                 system_name="wing_alloc_$name", set=set, vsm_set=vsm_set)
-            sam = SymbolicAWEModel(set, sys; backend)
+            sam = SymbolicAWEModel(set, sys; transforms, backend)
             init!(sam; prn=false, remake=true)
             next_step!(sam; dt=0.05, vsm_interval=0)
 
-            prob, integ, sys_struct = sam.prob, sam.integrator, sam.sys_struct
+            prob, integ, sys_struct = sam.prob, sam.integrator, sam.state
             measure_update_alloc(prob, integ, sys_struct)
 
             @testset "$name wing / $backend_name" begin

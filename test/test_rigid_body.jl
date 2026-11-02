@@ -83,7 +83,7 @@ environment:
     test_init!(sam)
 
     @testset "Free fall acceleration = g" begin
-        rb = sam.sys_struct.bodies[:body1]
+        rb = sam.state.bodies[:body1]
         dt = 0.01
         for _ in 1:5
             next_step!(sam; dt, vsm_interval=0)
@@ -102,14 +102,15 @@ environment:
     end
 
     @testset "Spin-up under applied moment" begin
-        rb = sam.sys_struct.bodies[:body1]
-        rb.pos_cad .= [0.0, 0.0, 10.0]
-        rb.R_b_to_c .= [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]
+        rb = sam.state.bodies[:body1]
+        rb.pos_ENU .= [0.0, 0.0, 10.0]
+        rb.Q_KA_to_ENU .= [1.0, 0.0, 0.0, 0.0]
         rb.vel_w .= 0.0
         rb.ω_b .= 0.0
         torque = 0.05
         rb.ext_moment_b .= [torque, 0.0, 0.0]
-        test_init!(sam; prn=false, reset_vel=false)
+        place!(sam; reset_vel=false)
+        test_init!(sam; prn=false)
 
         dt = 0.005
         t_before = sam.integrator.t
@@ -132,7 +133,7 @@ environment:
         sys2 = SystemStructure("rigid_body_test", set; bodies=[body2])
         sam2 = SymbolicAWEModel(set, sys2)
         test_init!(sam2)
-        rb = sam2.sys_struct.bodies[:body2]
+        rb = sam2.state.bodies[:body2]
         # identity orientation: com_w = pos_w + offset
         @test rb.com_w ≈ rb.pos_w .+ offset atol=1e-6
         for _ in 1:10
@@ -146,30 +147,30 @@ environment:
     # A transform must reposition AND reorient a rigid body, like a wing.
     # Tested at the SystemStructure level (reinit!), no ODE compilation.
     @testset "Transform repositions and rotates a rigid body" begin
-        ground = Point(:ground, [0.0, 0.0, 0.0], STATIC; transform=0)
+        ground = Point(:ground, [0.0, 0.0, 0.0], STATIC)
         body3 = Body(:body3; extra_mass=1.0, inertia_principal=inertia,
-                          pos=[100.0, 0.0, 0.0], transform=:tf)
+                          pos=[100.0, 0.0, 0.0])
         tip = Point(:tip, [100.0, 0.0, 0.0], BODY_STATIC;
-                    body=:body3, anchor_b=[0.0, 0.0, 0.0], transform=:tf)
-        tf = Transform(:tf, deg2rad(45), 0.0, 0.0;
-                       base_pos=[0.0, 0.0, 0.0], base_point=:ground,
-                       rot_point=:tip)
+                    body=:body3, anchor_b=[0.0, 0.0, 0.0])
         sys3 = SystemStructure("rigid_body_transform_test", set;
-            points=[ground, tip], bodies=[body3], transforms=[tf])
+            points=[ground, tip], bodies=[body3])
+        tf = Transform(; name=:tf, elevation=deg2rad(45), azimuth=0.0, heading=0.0,
+                       base_pos=[0.0, 0.0, 0.0], base_point=1, rot_point=[2 => 1.0],
+                       body=1, points=[2], bodies=[1])
 
-        SymbolicAWEModels.reinit!(sys3, set)
+        place!(sys3, [tf])
 
         rb = sys3.bodies[:body3]
         r = 100.0 / sqrt(2)
-        @test rb.pos_w ≈ KVec3(r, 0.0, r) atol=1e-6
+        @test rb.pos_ENU ≈ KVec3(r, 0.0, r) atol=1e-6
         # body x-axis followed the radial from +x to the 45° elevation direction
-        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_b_to_w)
+        R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_KA_to_ENU)
         @test R_b_to_w[:, 1] ≈ normalize(KVec3(1.0, 0.0, 1.0)) atol=1e-6
         # the body-anchored point rides the rotated body
-        @test sys3.points[:tip].pos_w ≈ rb.pos_w atol=1e-6
+        @test sys3.points[:tip].pos_ENU ≈ rb.pos_ENU atol=1e-6
         # idempotent across a second reinit!
-        SymbolicAWEModels.reinit!(sys3, set)
-        @test rb.pos_w ≈ KVec3(r, 0.0, r) atol=1e-6
+        place!(sys3, [tf])
+        @test rb.pos_ENU ≈ KVec3(r, 0.0, r) atol=1e-6
     end
 
     # A KCU-like point riding 1 m out moves the COM a third of the way to it, and
@@ -178,7 +179,7 @@ environment:
         carrier = Body(:carrier; extra_mass=2.0, inertia_principal=inertia,
                        pos=[0.0, 0.0, 10.0])
         kcu = Point(:kcu, [1.0, 0.0, 10.0], BODY_STATIC; body=:carrier,
-                    extra_mass=1.0, transform=0)
+                    extra_mass=1.0)
         sys4 = SystemStructure("rigid_body_rider_test", set;
             points=[kcu], bodies=[carrier])
         rb = sys4.bodies[:carrier]
@@ -189,7 +190,7 @@ environment:
 
         sam4 = SymbolicAWEModel(set, sys4)
         test_init!(sam4)
-        rb = sam4.sys_struct.bodies[:carrier]
+        rb = sam4.state.bodies[:carrier]
         @test rb.com_w ≈ rb.pos_w .+ [1/3, 0.0, 0.0] atol=1e-6
         vel_before = copy(rb.com_vel)
         t_before = sam4.integrator.t

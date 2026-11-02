@@ -32,13 +32,13 @@ struc_yaml = joinpath(get_data_path(),
 set = Settings("system.yaml")
 set.g_earth = 0.0
 vsm_set = VortexStepMethod.VSMSettings(
-    joinpath(get_data_path(), "vsm_settings.yaml");
+    project_file("vsm_settings");
     data_prefix=false)
 
-sys = load_sys_struct_from_yaml(struc_yaml;
+sys, transforms = load_sys_struct_from_yaml(struc_yaml;
     system_name=MODEL_NAME, set, vsm_set)
 sys.winches[:main_winch].brake = true
-sam = SymbolicAWEModel(set, sys)
+sam = SymbolicAWEModel(set, sys; transforms)
 l0_left = sam.sys_struct.segments[:kcu_steering_left].l0
 l0_right = sam.sys_struct.segments[:kcu_steering_right].l0
 init!(sam; remake=false, remake_vsm=false)

@@ -38,6 +38,8 @@ using OrdinaryDiffEqNonlinearSolve
 using SteadyStateDiffEq
 
 # --- Open Source AWE Packages ---
+using Reexport
+@reexport using KiteGeometry
 using AtmosphericModels
 using KiteUtils
 using VortexStepMethod
@@ -47,6 +49,7 @@ using ForwardDiff
 # ===== Imports (for extending functions) ===== #
 
 import KiteUtils: init!, next_step!, update_sys_state!, SysState
+import KiteGeometry: calc_heading
 import ModelingToolkit: t_nounits as t, D_nounits as D
 import ModelingToolkit: SciMLBase
 import ModelingToolkit.SciMLBase: successful_retcode, init
@@ -65,16 +68,17 @@ export SymbolicAWEModel
 export ModelBackend, MonolithBackend, KernelBackend,
        BackendUnsupportedError, default_backend, default_backend!
 # System Structure Components
-export SystemStructure, Point, Station, Segment, Pulley, Tether, Winch, Wing, Transform
+export SystemStructure, SystemState, Point, Station, Segment, Pulley, Tether, Winch, Wing
 export segment_role
-export Body, ElasticJoint, TimoshenkoJoint
+export Body, Tube, AbstractTubeModel, TimoshenkoTube, ElasticTube
 export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
 export ObjAdapter
 export create_plate_interpolations
 export NameRef, NamedCollection, WeightedRefPoints
-# Inflated-tube rigidity laws for beam joints
+# Inflated-tube rigidity laws
 export TubeRigidityLaw, TUBE_SHEAR_COEFF, TUBE_POISSON_RATIO
-export tube_torsion_law, tube_linear_rigidities, tube_bending_law, tube_mass
+export tube_torsion_law, tube_linear_rigidities, tube_law_rigidities, tube_bending_law
+export tube_mass
 export breukels_tip_force, breukels_collapse_deflection, breukels_membrane_stiffness
 export comer_levy_bending_law, comer_levy_bending_stiffness,
        comer_levy_wrinkling_moment, comer_levy_collapse_moment
@@ -102,16 +106,17 @@ export set_world_frame_damping
 export set_body_frame_damping
 export set_angular_damping
 export set_unstretched_length!
-export reset_to_cad!
+export reset_to_initial_pose!
 export apply_tether_init_stretched_lens!
 export update_segment_lengths!
 export apply_tether_init_forces!
 export init_pulley_lengths!
 export remake_wing_aero!
 export init_wind!
+export init_sys_struct!
 export relax_segments!
 export update_mass_properties!
-export init_rest_geometry!
+export init_rest_geometry!, init_derived_properties!
 export segment_stretch_stats
 export calc_steady_torque
 
@@ -129,7 +134,8 @@ export init_module
 export update_plot_observables!
 export animate
 export load_sys_struct_from_yaml
-export structure_document, sys_struct_from_document
+export project_file
+export sys_struct_from_document
 export save_structure_document, load_structure_document
 export replay
 export record
@@ -202,6 +208,7 @@ function find_steady_state! end
 function make_lin_sys_state end
 
 function __init__()
+    register_definition_models()
     data_dir = joinpath(pwd(), "data")
     if isdir(data_dir) && isfile(joinpath(data_dir, "2plate_kite", "system.yaml"))
         set_data_path(data_dir)
@@ -217,8 +224,7 @@ include("system_structure/system_structure.jl")
 include("vsm_refine.jl")
 include("symbolic_awe_model.jl")
 include("model_management.jl")
-include("yaml_loader.jl")
-include("structure_document.jl")
+include("definition_loader.jl")
 include("linearize.jl")
 include("generate_system/generate_system.jl")
 # Aero subsystem; loaded after generate_system for the accessors/MTK it uses.
