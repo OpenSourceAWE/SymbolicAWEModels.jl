@@ -296,26 +296,25 @@ SymbolicAWEModels.run_workload
 ```@docs
 SymbolicAWEModels.RigidLayout
 SymbolicAWEModels.state_slots
-SymbolicAWEModels.part_positions
-SymbolicAWEModels.part_velocities
+SymbolicAWEModels.state_vector
 SymbolicAWEModels.quat_product
 SymbolicAWEModels.set_rigid_velocities!
 SymbolicAWEModels.rotate_state!
 SymbolicAWEModels.best_rotation
-SymbolicAWEModels.PassProblem
-SymbolicAWEModels.pass_spin
+SymbolicAWEModels.SteadyProblem
+SymbolicAWEModels.fitted_spin
 SymbolicAWEModels.read_state!
 SymbolicAWEModels.hold_pose!
-SymbolicAWEModels.refresh_aero!(::SymbolicAWEModels.PassProblem, ::Any)
-SymbolicAWEModels.PassDampedRHS
-SymbolicAWEModels.PassDampedJacobian
+SymbolicAWEModels.refresh_aero!(::SymbolicAWEModels.SteadyProblem, ::Any)
+SymbolicAWEModels.RigidDampedRHS
+SymbolicAWEModels.RigidDampedJacobian
 SymbolicAWEModels.pattern_entry
 SymbolicAWEModels.set_tube_damping!
 SymbolicAWEModels.set_damping!
 SymbolicAWEModels.without_damping
 SymbolicAWEModels.tether_point_idxs
 SymbolicAWEModels.mid_span_chord
-SymbolicAWEModels.pass_residual
+SymbolicAWEModels.residual_at
 SymbolicAWEModels.worst_ratio
 SymbolicAWEModels.relax!
 ```

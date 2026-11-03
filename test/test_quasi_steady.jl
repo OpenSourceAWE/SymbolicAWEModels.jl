@@ -8,16 +8,17 @@ end
 
 using Test
 using SymbolicAWEModels
-using SymbolicAWEModels: KernelBackend, MonolithBackend, RigidLayout, VortexStepMethod
+using SymbolicAWEModels: KernelBackend, MonolithBackend, RigidLayout, VortexStepMethod,
+                         KiteGeometry, RigidDampedRHS, SteadyProblem, sync_params!
 using KiteUtils
 using LinearAlgebra
 
 """
-    load_2plate(geometry, system_name; backend=KernelBackend()) -> SymbolicAWEModel
+    load_2plate(geometry; backend=KernelBackend()) -> SymbolicAWEModel
 
 A model of the 2plate kite on `geometry`, loaded from a scratch copy of `data/2plate_kite`.
 """
-function load_2plate(geometry, system_name; backend = KernelBackend())
+function load_2plate(geometry; backend = KernelBackend())
     data_path = joinpath(mktempdir(), "2plate_kite")
     cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path)
     set_data_path(data_path)
@@ -25,7 +26,7 @@ function load_2plate(geometry, system_name; backend = KernelBackend())
     vsm_set = VortexStepMethod.VSMSettings(joinpath(data_path, "vsm_settings.yaml");
                                            data_prefix = false)
     sys, transforms = load_sys_struct_from_yaml(joinpath(data_path, geometry);
-                                                system_name, set, vsm_set)
+                                                system_name = "2plate_kite", set, vsm_set)
     return SymbolicAWEModel(set, sys; transforms, backend)
 end
 
@@ -51,6 +52,13 @@ damping_values(sam) = (
 """Positions of every point of `sam`, one vector per point."""
 point_positions(sam) = [Vector(point.pos_w) for point in sam.state.points]
 
+"""The acceleration of `sam`'s bodies at the state `u`, through its own right-hand side."""
+function body_acceleration(sam, u)
+    du = similar(u)
+    sam.integrator.f(du, u, sam.integrator.p, 0.0)
+    return du[RigidLayout(sam).body_vel]
+end
+
 """Largest distance [m] `reposition!` moves a point of `sam`, zero on its held pose."""
 function pose_error(sam)
     placed = point_positions(sam)
@@ -59,8 +67,10 @@ function pose_error(sam)
 end
 
 @testset "quasi-steady finder" begin
-    particle = load_2plate("particle_structural_geometry.yaml", "quasi_steady_particle")
-    solver = (; dt = 0.01, check_every = 25, prn = false)
+    particle = load_2plate("particle_structural_geometry.yaml")
+    rigid = load_2plate("rigid_structural_geometry.yaml")
+    solver = (; prn = false)
+    unstable_pose = (; solver..., damping = 20.0, check_every = 25)
 
     @testset "a perturbed kite converges to the state an unperturbed one finds" begin
         start_at_pose!(particle)
@@ -84,7 +94,7 @@ end
     end
 
     @testset "a parked kite converges barely moving, with its damping back" begin
-        start_at_pose!(particle; elevation = 55.0)
+        start_at_pose!(particle; elevation = 53.0)
         particle.state.points[1].body_frame_damping .= 3.0
         damping_before = damping_values(particle)
 
@@ -117,16 +127,47 @@ end
     end
 
     @testset "a pose with no equilibrium is reported with its residual" begin
-        for azimuth in (60.0, 90.0)
-            start_at_pose!(particle; azimuth)
-            result = find_quasi_steady!(particle; solver...)
-            @test !result.converged
-            @test result.status in (:aero_failed, :max_steps)
-            @test isfinite(result.force_ratio) && isfinite(result.moment_ratio)
-            @test max(result.force_ratio, result.moment_ratio) > 0.01
-            @test norm(result.force) > 0.0
-            @test norm(result.moment) > 0.0
-        end
+        start_at_pose!(particle; azimuth = 90.0)
+        result = find_quasi_steady!(particle; unstable_pose...)
+        @test !result.converged
+        @test result.status === :max_steps
+        @test max(result.force_ratio, result.moment_ratio) > 0.01
+        @test isfinite(result.force_ratio) && isfinite(result.moment_ratio)
+        @test norm(result.force) > 0.0
+        @test norm(result.moment) > 0.0
+    end
+
+    @testset "a flight leaving the aero solver's range says so with its best residual" begin
+        start_at_pose!(particle; azimuth = 60.0)
+        result = find_quasi_steady!(particle; unstable_pose...)
+        @test !result.converged
+        @test result.status === :aero_failed
+        @test result.steps > 0
+        @test isfinite(result.force_ratio) && isfinite(result.moment_ratio)
+    end
+
+    @testset "an aero solve failing at the start ends the search there" begin
+        start_at_pose!(particle)
+        vsm_solver = particle.state.wings[1].vsm_solver
+        iterations = vsm_solver.max_iterations
+        vsm_solver.max_iterations = 0
+        result = find_quasi_steady!(particle; solver..., max_steps = 0)
+        vsm_solver.max_iterations = iterations
+        @test !result.converged
+        @test result.status === :aero_failed
+        @test result.steps == 0
+    end
+
+    @testset "the damped right-hand side allocates nothing beyond the model's own" begin
+        start_at_pose!(particle)
+        (; f, p, u) = particle.integrator
+        du = similar(u)
+        problem = SteadyProblem(particle)
+        damped = RigidDampedRHS(f.f, problem.layout, problem.base, [0.0, 0.0, 0.1], 20.0)
+        plain_rhs(du, u, p) = @allocated f.f(du, u, p, 0.0)
+        damped_rhs(du, u, p) = @allocated damped(du, u, p, 0.0)
+        plain_rhs(du, u, p); damped_rhs(du, u, p)
+        @test damped_rhs(du, u, p) <= plain_rhs(du, u, p)
     end
 
     @testset "the log holds one frame of the state the finder leaves" begin
@@ -134,18 +175,31 @@ end
         find_quasi_steady!(particle; solver...)
         log = quasi_steady_log(particle)
         @test length(log.syslog) == 1
+        @test length(KiteGeometry.definition(log).points) == length(particle.state.points)
         frame = log.syslog[1]
         for (idx, point) in enumerate(particle.state.points)
             @test [frame.X[idx], frame.Y[idx], frame.Z[idx]] ≈ point.pos_w rtol = 1e-5
         end
     end
 
-    @testset "a rigid wing's body turns with the pose and its torque is judged" begin
-        rigid = load_2plate("rigid_structural_geometry.yaml", "quasi_steady_rigid")
+    @testset "a rigid wing's body turns with the pose and stays there" begin
         start_at_pose!(rigid)
-        result = find_quasi_steady!(rigid; solver..., damping = 5.0)
+        result = find_quasi_steady!(rigid; solver...)
         @test result.converged
         @test pose_error(rigid) < 1e-6
+    end
+
+    @testset "a pure torque on a rigid wing shows in the moment residual" begin
+        start_at_pose!(rigid)
+        applied_moment = rigid.state.wings[1].model.ext_moment_b
+        before = quasi_steady_residual(rigid)
+        applied_moment .= [0.0, 0.0, 1.0]
+        sync_params!(rigid.prob.param_sync, rigid.integrator, rigid.state)
+        after = quasi_steady_residual(rigid)
+        applied_moment .= 0.0
+        sync_params!(rigid.prob.param_sync, rigid.integrator, rigid.state)
+        @test after.moment .- before.moment ≈ [0.0, 0.0, 1.0] atol = 1e-6
+        @test after.force ≈ before.force atol = 1e-6
     end
 
     @testset "a tube's damping is off inside the judgement and back after it" begin
@@ -160,22 +214,17 @@ end
         sys = SystemStructure("quasi_steady_tube", set; bodies, tubes = [tube])
         sam = SymbolicAWEModel(set, sys; backend = KernelBackend())
         init!(sam; prn = false)
-        layout = RigidLayout(sam)
         u = copy(sam.integrator.u)
-        u[layout.body_vel] .= 1.0
-        acceleration() = begin
-            du = similar(u)
-            sam.integrator.f(du, u, sam.integrator.p, 0.0)
-            du[layout.body_vel]
-        end
-        damped = acceleration()
-        @test SymbolicAWEModels.without_damping(acceleration, sam) != damped
+        u[RigidLayout(sam).body_vel] .= 1.0
+        damped = body_acceleration(sam, u)
+        undamped = SymbolicAWEModels.without_damping(() -> body_acceleration(sam, u), sam)
+        @test undamped != damped
         @test sam.state.tubes[:tube].model.damping == 0.05
-        @test acceleration() == damped
+        @test body_acceleration(sam, u) == damped
     end
 
     @testset "a monolith model is refused by name" begin
-        monolith = load_2plate("particle_structural_geometry.yaml", "quasi_steady_monolith";
+        monolith = load_2plate("particle_structural_geometry.yaml";
                                backend = MonolithBackend())
         @test_throws "KernelBackend" find_quasi_steady!(monolith)
     end
