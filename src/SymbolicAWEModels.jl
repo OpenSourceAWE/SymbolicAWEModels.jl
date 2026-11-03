@@ -101,6 +101,7 @@ export sim!, sim_reposition!
 
 # --- Low-Level Simulation Functions ---
 export find_steady_state!
+export find_quasi_steady!, quasi_steady_residual, quasi_steady_log
 export linearize!
 export set_world_frame_damping
 export set_body_frame_damping
@@ -250,6 +251,7 @@ include("kernel_backend/state.jl")
 include("kernel_backend/jacobian.jl")
 include("kernel_backend/backend.jl")
 include("simulate.jl")
+include("quasi_steady.jl")
 
 # rotate a 3d vector around the x axis in the yz plane - following the right hand rule
 function rotate_around_x(vec, angle::T) where T
