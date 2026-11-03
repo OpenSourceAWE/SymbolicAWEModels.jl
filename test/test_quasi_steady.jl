@@ -106,6 +106,16 @@ end
         @test max(residual.force_ratio, residual.moment_ratio) <= 0.02
     end
 
+    @testset "a run steps on from the state the finder leaves without a jump" begin
+        start_at_pose!(particle)
+        result = find_quasi_steady!(particle; solver...)
+        settled = point_positions(particle)
+        start_time = particle.integrator.t
+        next_step!(particle)
+        flown = 2 * result.speed * (particle.integrator.t - start_time)
+        @test maximum(norm.(point_positions(particle) .- settled)) < flown
+    end
+
     @testset "a pose with no equilibrium is reported with its residual" begin
         for azimuth in (60.0, 90.0)
             start_at_pose!(particle; azimuth)

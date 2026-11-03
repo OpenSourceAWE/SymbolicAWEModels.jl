@@ -422,8 +422,8 @@ re-solved, so they hold still within a step and a light kite needs a shorter `dt
 `check_every` steps [`quasi_steady_residual`](@ref) judges it; it has converged when both
 ratios are within `tol`.
 
-Leaves the model at the best state judged, on the damping it had before, with the
-aerodynamics re-solved there where that solve converges, and returns
+Leaves the model ready to step on from the best state judged, on the damping it had
+before, with the aerodynamics re-solved there where that solve converges, and returns
 `(; converged, status, steps, force, moment, force_ratio, moment_ratio, spin, speed,
 turn_rate, wall_time)`. `status` is `:converged`, `:max_steps` or `:max_time`, or
 `:aero_failed` / `:integration_failed` where the flight left the model's range; the
@@ -444,6 +444,9 @@ function find_quasi_steady!(sam::SymbolicAWEModel; dt = 0.05, max_steps = 1000,
     refresh_aero!(problem, result.u; cold_start = true) ||
         @warn "find_quasi_steady!: the aero solve fails at the best state; the model " *
               "keeps the aerodynamics of the last solve" result.status
+    run_time = sam.integrator.t
+    OrdinaryDiffEqCore.reinit!(sam.integrator, result.u; t0 = run_time, tf = run_time + dt,
+                               reinit_dae = false)
     (; spin, force, moment, force_ratio, moment_ratio) = result.residual
     radial = sam.state.wings[1].pos_w .- problem.base
     return (; converged = result.status === :converged, result.status, result.steps,
