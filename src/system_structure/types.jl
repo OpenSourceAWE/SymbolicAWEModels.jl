@@ -264,7 +264,8 @@ function model_aero(wing, set, vsm_set)
     (isnothing(seed) || isnothing(set) || !(wing.aero isa AbstractVSMAero)) && return wing.aero
     engine = build_vsm_engine(set, something(vsm_set, seed.vsm_set), wing.dynamics_type;
         n_stations=length(wing.station_idxs), seed.point_to_vsm_point, seed.wing_segments,
-        seed.aero_scale_chord, seed.aero_z_offset, seed.unsteady)
+        seed.aero_scale_chord, seed.aero_z_offset,
+        unsteady=copy_aero_mode(seed.unsteady))
     engine.vsm_wing.T_cad_body .= seed.T_cad_body
     engine.vsm_wing.R_cad_body .= seed.R_cad_body
     mode = copy_aero_mode(wing.aero)
@@ -272,7 +273,7 @@ function model_aero(wing, set, vsm_set)
     return mode
 end
 
-"""A new aero mode of the same type and fields as `mode`."""
+"""A new object of the same type and fields as `mode`."""
 copy_aero_mode(mode::T) where {T} = T((getfield(mode, name) for name in fieldnames(T))...)
 
 function Base.getproperty(mode::AbstractVSMAero, sym::Symbol)

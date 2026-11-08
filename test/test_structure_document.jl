@@ -151,6 +151,15 @@ end
         @test point === row
     end
 
+    @testset "a model builds its own VSM engine" begin
+        sys, _ = two_plate_kite(set, vsm_set)
+        @test isnothing(sys.wings[1].aero.engine)
+        first_state = SymbolicAWEModels.SystemState(sys; set)
+        second_state = SymbolicAWEModels.SystemState(sys; set)
+        @test first_state.wings[1].vsm_wing !== second_state.wings[1].vsm_wing
+        @test isnothing(sys.wings[1].aero.engine)
+    end
+
     @testset "a segment is its definition row" for
             sys in (first(two_plate_kite(set, vsm_set)), pretensioned_tether(set))
         segment = last(sys.segments)

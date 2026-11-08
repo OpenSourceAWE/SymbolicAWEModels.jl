@@ -61,7 +61,7 @@ end
     end
 
     sys = load_continuous_sys(data_path, set; billowing=true)
-    wing = sys.wings[1]
+    wing = SymbolicAWEModels.SystemState(sys; set).wings[1]
     mode = wing.aero
     n_panels = length(wing.vsm_aero.panels)
 

@@ -34,7 +34,7 @@ sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
     struc_yaml; system_name="2plate_kite",
     set=set, vsm_set=vsm_set)
 
-wing = sys.wings[1]
+wing = SymbolicAWEModels.SystemState(sys; set).wings[1]
 vsm_wing = wing.vsm_wing
 points = sys.points
 

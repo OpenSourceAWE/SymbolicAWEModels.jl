@@ -38,7 +38,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="multi_section",
         set, vsm_set, dynamics_type=RIGID_DYNAMICS)
-    wing = sys.wings[1]
+    wing = SymbolicAWEModels.SystemState(sys; set).wings[1]
     vsm_w = wing.vsm_wing
 
     # Baseline: 3 stations, 3 unrefined sections (1:1)
@@ -129,7 +129,7 @@ end
     sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="rigid_total_mass",
         set, vsm_set, dynamics_type=RIGID_DYNAMICS)
-    wing = sys.wings[1]
+    wing = SymbolicAWEModels.SystemState(sys; set).wings[1]
 
     # The six wing nodes and the kcu carry 1.6 kg of extra_mass; it stays on them
     # and reaches the wing once, with the halves of the bridles and tether they hold.
@@ -154,7 +154,7 @@ end
     sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="too_many_stations",
         set, vsm_set, dynamics_type=RIGID_DYNAMICS)
-    wing = sys.wings[1]
+    wing = SymbolicAWEModels.SystemState(sys; set).wings[1]
     vsm_w = wing.vsm_wing
 
     # Drop down to 2 unrefined sections while keeping

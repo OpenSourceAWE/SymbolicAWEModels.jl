@@ -60,9 +60,9 @@ function build_unsteady_case(root, tag; apparent_mass=0.0, wagner=false,
     sys, transforms = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
         system_name=tag, set, vsm_set, aero_mode=ContinuousAero())
-    sys.wings[1].unsteady.apparent_mass = apparent_mass
-    sys.wings[1].unsteady.wagner = wagner
-    sys.wings[1].unsteady.wagner_rates = rates
+    sys.wings[1].vsm_seed.unsteady.apparent_mass = apparent_mass
+    sys.wings[1].vsm_seed.unsteady.wagner = wagner
+    sys.wings[1].vsm_seed.unsteady.wagner_rates = rates
     return set, sys, transforms
 end
 
@@ -74,8 +74,8 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
     root = mktempdir()
 
     @testset "apparent mass" begin
-        _, sys, _ = build_unsteady_case(root, "am_on"; apparent_mass=1.0)
-        wing = sys.wings[1]
+        set, sys, _ = build_unsteady_case(root, "am_on"; apparent_mass=1.0)
+        wing = SystemState(sys; set).wings[1]
         points = wing_points(sys, wing)
 
         rho = 1.225
@@ -159,15 +159,16 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
     end
 
     @testset "Wagner: off by default" begin
-        _, sys, _ = build_unsteady_case(root, "wag_default")
-        @test !wagner_enabled(sys.wings[1])
-        @test unsteady_aero(sys.wings[1]).apparent_mass == 0.0
+        set, sys, _ = build_unsteady_case(root, "wag_default")
+        wing = SystemState(sys; set).wings[1]
+        @test !wagner_enabled(wing)
+        @test unsteady_aero(wing).apparent_mass == 0.0
     end
 
     @testset "Wagner: the reference frame is the panels' own" begin
         # The lag shifts every panel's α, so its own α is read in their frame.
-        _, sys, _ = build_unsteady_case(root, "wag_frame")
-        wing = sys.wings[1]
+        set, sys, _ = build_unsteady_case(root, "wag_frame")
+        wing = SystemState(sys; set).wings[1]
         panels = wing.vsm_aero.panels
         x_ref, z_ref, chord_ref = wagner_reference_frame(wing)
         @test x_ref ≈ normalize(sum(Vector(panel.x_airf) for panel in panels))
@@ -178,15 +179,15 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
     @testset "Wagner: constants are parameters, not structure" begin
         # Retuning a lag must sync, not rebuild: only the on/off switch is
         # structure, because it is what adds or removes the two states.
-        _, slow, _ = build_unsteady_case(root, "wag_tune"; wagner=true,
-                                         rates=(0.02, 0.15))
-        slow_hash = get_sys_struct_hash(SystemState(slow))
-        slow.wings[1].unsteady.wagner_rates = [0.0455, 0.3]
-        slow.wings[1].unsteady.wagner_gains = [0.2, 0.4]
-        @test get_sys_struct_hash(SystemState(slow)) == slow_hash
+        set, slow, _ = build_unsteady_case(root, "wag_tune"; wagner=true,
+                                           rates=(0.02, 0.15))
+        slow_hash = get_sys_struct_hash(SystemState(slow; set))
+        slow.wings[1].vsm_seed.unsteady.wagner_rates = [0.0455, 0.3]
+        slow.wings[1].vsm_seed.unsteady.wagner_gains = [0.2, 0.4]
+        @test get_sys_struct_hash(SystemState(slow; set)) == slow_hash
 
-        _, off, _ = build_unsteady_case(root, "wag_tune"; wagner=false)
-        @test get_sys_struct_hash(SystemState(off)) != slow_hash
+        off_set, off, _ = build_unsteady_case(root, "wag_tune"; wagner=false)
+        @test get_sys_struct_hash(SystemState(off; set=off_set)) != slow_hash
     end
 
     @testset "Wagner: two states for the whole wing" begin
@@ -196,7 +197,7 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
                                                        wagner)
             sam = SymbolicAWEModel(set, sys; transforms, backend=MonolithBackend())
             test_init!(sam; remake=true)
-            (length(sam.integrator.u), Int(sys.wings[1].vsm_wing.n_panels))
+            (length(sam.integrator.u), Int(sam.state.wings[1].vsm_wing.n_panels))
         end
         @test counts[2][1] - counts[1][1] == 2
         @test counts[1][2] > 2

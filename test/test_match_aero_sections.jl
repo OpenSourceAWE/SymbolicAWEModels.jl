@@ -48,7 +48,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
             system_name="refine_geom", set, vsm_set)
-        wing = sys.wings[1]
+        wing = SymbolicAWEModels.SystemState(sys; set).wings[1]
         points = sys.points
         vsm_w = wing.vsm_wing
 
@@ -94,7 +94,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
             system_name="refine_polar", set, vsm_set)
-        wing = sys.wings[1]
+        wing = SymbolicAWEModels.SystemState(sys; set).wings[1]
         points = sys.points
         vsm_w = wing.vsm_wing
 
@@ -186,7 +186,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
             system_name="refine_solver_size", set, vsm_set=vsm_set_5)
-        wing = sys.wings[1]
+        wing = SymbolicAWEModels.SystemState(sys; set).wings[1]
         @test length(wing.station_idxs) == 3
         @test wing.vsm_wing.n_unrefined_sections == 3
         @test length(wing.vsm_solver.sol.cm_unrefined_dist) == 3
@@ -199,7 +199,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
             system_name="refine_err", set, vsm_set)
-        wing = sys.wings[1]
+        wing = SymbolicAWEModels.SystemState(sys; set).wings[1]
         points = sys.points
         vsm_w = wing.vsm_wing
 
@@ -220,7 +220,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
             system_name="refine_span_order", set, vsm_set)
-        state = SystemState(sys)
+        state = SystemState(sys; set)
         wing = state.wings[1]
         # The fixture's wing is pitched about y, so mirroring y mirrors body y too.
         for point in state.points
