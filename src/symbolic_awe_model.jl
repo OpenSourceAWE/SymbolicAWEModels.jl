@@ -329,6 +329,30 @@ function write_aero_forces!(ss::SysState, sys_struct::SystemState)
     return ss
 end
 
+"""Copy the columns a run writes directly from its state `from` into the log frame `to`."""
+function copy_run_columns!(to::SysState, from::SysState)
+    copyto!(to.force_x, from.force_x)
+    copyto!(to.force_y, from.force_y)
+    copyto!(to.force_z, from.force_z)
+    copyto!(to.wind_x, from.wind_x)
+    copyto!(to.wind_y, from.wind_y)
+    copyto!(to.wind_z, from.wind_z)
+    copyto!(to.acc_x, from.acc_x)
+    copyto!(to.acc_y, from.acc_y)
+    copyto!(to.acc_z, from.acc_z)
+    copyto!(to.turn_acc_x, from.turn_acc_x)
+    copyto!(to.turn_acc_y, from.turn_acc_y)
+    copyto!(to.turn_acc_z, from.turn_acc_z)
+    copyto!(to.winch_acc, from.winch_acc)
+    copyto!(to.winch_friction, from.winch_friction)
+    copyto!(to.elevations, from.elevations)
+    copyto!(to.azimuths, from.azimuths)
+    copyto!(to.headings, from.headings)
+    copyto!(to.courses, from.courses)
+    copyto!(to.AoAs, from.AoAs)
+    return to
+end
+
 """
     update_sys_state!(ss::SysState, s::SymbolicAWEModel, zoom=1.0)
 
@@ -342,6 +366,7 @@ degrees) and computes derived values like AoA. Roll, pitch and yaw are
 - `zoom::SimFloat=1.0`: A scaling factor for the position coordinates.
 """
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
+    copy_run_columns!(ss, sam.state.sysstate)
     ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
     (; points, stations, winches, wings, tethers,
        bodies) = sam.state

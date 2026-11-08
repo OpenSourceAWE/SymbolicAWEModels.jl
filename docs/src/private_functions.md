@@ -21,12 +21,12 @@ SymbolicAWEModels.ScatterGroup
 SymbolicAWEModels.ColumnVec3
 SymbolicAWEModels.column_vec3
 SymbolicAWEModels.ColumnQuat
-SymbolicAWEModels.RunColumns
+SymbolicAWEModels.RunCache
 SymbolicAWEModels.sysstate_counts
 SymbolicAWEModels.Records
 SymbolicAWEModels.ComponentState
 SymbolicAWEModels.sysstate
-SymbolicAWEModels.columns
+SymbolicAWEModels.cache
 SymbolicAWEModels.index
 SymbolicAWEModels.@state_record
 SymbolicAWEModels.derived

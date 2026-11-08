@@ -1138,8 +1138,7 @@ reference is the weighted blend of its points. Writes the body frame `R_b_to_w`
 ([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the frame's own
 `ω_b` ([`body_frame_omega`](@ref)), the origin's acceleration `acc_w`
 ([`point_acceleration_w`](@ref)), the reported scalars
-([`write_wing_scalars!`](@ref)), the wing apparent wind `va_b`, and each aero point's
-`va_b = R'·(wind − vel)`, the wind coming from the height profile or, under
+([`write_wing_scalars!`](@ref)) and each aero point's wind, the wind coming from the height profile or, under
 [`PerPointWind`](@ref), from `point.wind_vec` and `wing.wind_vec`, which the caller
 owns — the same quantities the monolith's `get_all_state` copies out of the integrator.
 """
@@ -1169,12 +1168,9 @@ function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode
     end
     profile = wind_mode isa PerPointWind ? nothing : WindFactor(am, set.profile_law)
     isnothing(profile) || (wing.wind_vec .= profile(wing.pos_w[3]) .* set.wind_vec)
-    wing.va_b .= R' * (wing.wind_vec .- wing.vel_w .+ wing.wind_disturb)
     for point_idx in aero_points
         point = points[point_idx]
-        wind = isnothing(profile) ? point.wind_vec :
-            profile(point.pos_w[3]) .* set.wind_vec
-        point.va_b .= R' * (wind .- point.vel_w)
+        isnothing(profile) || (point.wind_vec .= profile(point.pos_w[3]) .* set.wind_vec)
     end
     write_wing_scalars!(wing, points; base_point, stations)
     return nothing
@@ -1184,11 +1180,10 @@ end
     write_wing_scalars!(wing, points; base_point, alpha_b, stations) -> nothing
 
 Fill a fitted wing's reported scalars — heading, course, elevation, azimuth,
-distance and angle of attack with their rates — from its freshly rebuilt pose,
+and angle of attack — from its freshly rebuilt pose,
 via the one definition in [`wing_scalar_kinematics`](@ref).
 
-`turn_rate` follows the `ω_b` the caller fitted from the frame's own ref points, the
-`_acc` scalars the `wing.acc_w` it wrote, and `turn_acc` the `alpha_b` it passed.
+`turn_acc` follows the `alpha_b` the caller passed.
 `alpha_b` defaults to zero, which is what the monolith binds a fitted wing's to.
 """
 function write_wing_scalars!(wing, points; base_point = 0, alpha_b = zeros(3),
@@ -1210,15 +1205,11 @@ function write_wing_scalars!(wing, points; base_point = 0, alpha_b = zeros(3),
         R_b_to_w, vel = collect(wing.vel_w), acc = collect(wing.acc_w),
         omega_b = collect(wing.ω_b), alpha_b = collect(alpha_b),
         va_b = collect(wing.va_b), twist_offset)
-    wing.heading = scalars.heading
-    wing.turn_rate .= scalars.turn_rate
     wing.turn_acc .= scalars.turn_acc
+    index(wing) > getfield(getfield(wing, :state), :n_wings) && return nothing
+    wing.heading = scalars.heading
     wing.elevation = scalars.elevation
-    wing.elevation_vel = scalars.elevation_vel
-    wing.elevation_acc = scalars.elevation_acc
     wing.azimuth = scalars.azimuth
-    wing.azimuth_vel = scalars.azimuth_vel
-    wing.azimuth_acc = scalars.azimuth_acc
     wing.course = scalars.course
     wing.aoa = scalars.angle_of_attack
     return nothing

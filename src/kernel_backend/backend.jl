@@ -93,7 +93,6 @@ function init_backend!(::KernelBackend, sam, solver;
     prn && @info "Model bin name: $model_name"
     loaded = load_serialized_model!(sam, model_path; remake, reload, prn)
     init_sys_struct!(sam.state, sam.set; remake_vsm, prn)
-    write_total_mass!(sam.state)
     if loaded && !isnothing(sam.prob)
         prn && @info "Reusing the assembled model, so no kernel is compiled here."
     else

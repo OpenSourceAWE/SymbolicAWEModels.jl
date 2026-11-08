@@ -832,14 +832,10 @@ function init_wind!(state, set::Settings)
         end
     end
     for wing in wings
+        wing.dynamics_type == PARTICLE_DYNAMICS && continue
         R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
-        if wing.dynamics_type == PARTICLE_DYNAMICS
-            va_wing_w = wing.wind_vec - wing.vel_w + wing.wind_disturb
-            wing.va_b .= R_b_to_w' * va_wing_w
-        else
-            init_aero_state!(wing.aero, wing, R_b_to_w' *
-                (per_point_wind(state) ? wing.wind_vec : set.wind_vec))
-        end
+        init_aero_state!(wing.aero, wing, R_b_to_w' *
+            (per_point_wind(state) ? wing.wind_vec : set.wind_vec))
     end
     return nothing
 end
@@ -947,7 +943,6 @@ function start_run!(state; reset_vel::Bool=true)
     foreach(station -> station.twist = station.row.twist, state.stations)
     reset_to_initial_pose!(state; reset_vel)
     for point in state.points
-        point.total_mass = point.row.total_mass
         point.apparent_mass = point.row.apparent_mass
     end
     foreach(body -> body.apparent_mass = body.row.apparent_mass, state.bodies)
@@ -1266,8 +1261,6 @@ function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
         point.vel_w .= has_velocity ?
             (sys_state.VX[point.idx], sys_state.VY[point.idx],
              sys_state.VZ[point.idx]) : (0.0, 0.0, 0.0)
-        # Set forces to NaN (not available in SysState)
-        point.force .= NaN
     end
 
     # Update wing state if wings exist
@@ -1299,14 +1292,10 @@ function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
 
         wing.aero_force_b .= sys_state.aero_force_KA
         wing.aero_moment_b .= sys_state.aero_moment_KA
-        wing.va_b .= NaN
         restore_point_aero_forces!(sys, wing, sys_state)
         wing.wind_vec .= sys_state.v_wind_kite
         wing.aoa = Float64(sys_state.AoA)
         wing.course = Float64(sys_state.course)
-        wing.acc_w .= 0.0
-        wing.turn_rate .= sys_state.turn_rates
-        wing.turn_acc .= 0.0
     end
 
     # Standalone bodies: origins after the wing slots, orientations after the wings.
@@ -1335,8 +1324,6 @@ function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
             station.twist_ω = has_twist_vel ?
                 Float64(sys_state.twist_vel[i]) : 0.0
         end
-        station.tether_force = NaN
-        station.tether_moment = NaN
         station.aero_moment = NaN
     end
     for pulley in pulleys
@@ -1357,9 +1344,6 @@ function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
 
     # Update winch state from SysState (per-winch)
     for i in eachindex(winches)
-        winches[i].force .= NaN
-        winches[i].friction = NaN
-        winches[i].acc = 0.0
         i > length(sys_state.v_reelout) && continue
         winches[i].vel = Float64(sys_state.v_reelout[i])
         winches[i].set_value = Float64(sys_state.set_torque[i])
@@ -1542,6 +1526,7 @@ the diagnostics see it. The monolith gets the same value from its `point_mass`
 observable; the batched backends compute it here because no single component owns
 it.
 """
+write_total_mass!(::SystemState) = nothing
 function write_total_mass!(sys_struct)
     for point in sys_struct.points
         point.total_mass = point.extra_mass

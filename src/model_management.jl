@@ -60,15 +60,15 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             sys.pos           => (st, v) -> write_columns!(xyz(st.sysstate, :X, :Y, :Z), v),
             sys.vel           => (st, v) -> write_columns!(
                 xyz(st.sysstate, :VX, :VY, :VZ), v),
-            sys.point_force   => (st, v) -> write_columns!(st.columns.point_force, v),
-            sys.va_point_b    => (st, v) -> write_columns!(st.columns.point_va_b, v),
-            sys.wind_at_point => (st, v) -> write_columns!(st.columns.point_wind, v),
-            sys.point_mass    => (st, v) -> write_column!(st.columns.point_mass, v),
+            sys.point_force   => (st, v) -> write_columns!(
+                xyz(st.sysstate, :force_x, :force_y, :force_z), v),
+            sys.wind_at_point => (st, v) -> write_columns!(
+                xyz(st.sysstate, :wind_x, :wind_y, :wind_z), v),
             sys.total_drag    => (st, v) -> write_columns!(xyz(st.sysstate, :drag_force_x,
                                                :drag_force_y, :drag_force_z), v)]
         aero_force = point_aero_force_array(sys_struct, sys)
         isnothing(aero_force) || push!(pairs,
-            aero_force => (st, v) -> write_columns!(st.columns.point_aero_force_b, v))
+            aero_force => (st, v) -> write_columns!(st.cache.point_aero_force_b, v))
         push!(specs, scatter_spec(pairs...))
     end
     if length(pulleys) > 0
@@ -79,26 +79,21 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
     if length(segments) > 0
         push!(specs, scatter_spec(
             sys.spring_force => (st, v) -> write_column!(st.sysstate.spring_force, v),
-            sys.l0           => (st, v) -> write_column!(st.columns.segment_l0, v)))
+            sys.l0           => (st, v) -> write_column!(st.cache.segment_l0, v)))
     end
     if length(stations) > 0
         push!(specs, scatter_spec(
             sys.twist_angle => (st, v) -> write_column!(st.sysstate.twist_angles, v),
             sys.twist_ω     => (st, v) -> write_column!(st.sysstate.twist_vel, v),
-            sys.station_tether_force =>
-                (st, v) -> write_column!(st.columns.station_tether_force, v),
-            sys.station_tether_moment =>
-                (st, v) -> write_column!(st.columns.station_tether_moment, v),
             sys.station_aero_moment =>
-                (st, v) -> write_column!(st.columns.station_aero_moment, v)))
+                (st, v) -> write_column!(st.cache.station_aero_moment, v)))
     end
     if length(winches) > 0
         push!(specs, scatter_spec(
-            sys.winch_acc       => (st, v) -> write_column!(st.columns.winch_acc, v),
+            sys.winch_acc       => (st, v) -> write_column!(st.sysstate.winch_acc, v),
             sys.winch_vel       => (st, v) -> write_column!(st.sysstate.v_reelout, v),
             sys.set_values      => (st, v) -> write_column!(st.sysstate.set_torque, v),
-            sys.winch_force_vec => (st, v) -> write_columns!(st.columns.winch_force, v),
-            sys.winch_friction  => (st, v) -> write_column!(st.columns.winch_friction, v)))
+            sys.winch_friction  => (st, v) -> write_column!(st.sysstate.winch_friction, v)))
         set_set_values = setp(sys, sys.set_values)
         get_set_values = getp(sys, sys.set_values)
     end
@@ -109,22 +104,18 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
     if length(wings) > 0
         # A wing is the body of the same index; its body pose comes with the bodies.
         push!(specs, scatter_spec(
-            sys.va_wing_b     => (st, v) -> write_columns!(st.columns.body_va_b, v),
-            sys.wind_vel_wing => (st, v) -> write_columns!(st.columns.body_wind, v),
-            sys.aero_force_b  => (st, v) -> write_columns!(st.columns.body_aero_force_b, v),
-            sys.aero_moment_b =>
-                (st, v) -> write_columns!(st.columns.body_aero_moment_b, v),
-            sys.elevation     => (st, v) -> write_column!(st.columns.body_elevation, v),
-            sys.elevation_vel => (st, v) -> write_column!(st.columns.body_elevation_vel, v),
-            sys.elevation_acc => (st, v) -> write_column!(st.columns.body_elevation_acc, v),
-            sys.azimuth       => (st, v) -> write_column!(st.columns.body_azimuth, v),
-            sys.azimuth_vel   => (st, v) -> write_column!(st.columns.body_azimuth_vel, v),
-            sys.azimuth_acc   => (st, v) -> write_column!(st.columns.body_azimuth_acc, v),
-            sys.heading       => (st, v) -> write_column!(st.columns.body_heading, v),
-            sys.turn_rate     => (st, v) -> write_columns!(st.columns.body_turn_rate, v),
-            sys.turn_acc      => (st, v) -> write_columns!(st.columns.body_turn_acc, v),
-            sys.course        => (st, v) -> write_column!(st.columns.body_course, v),
-            sys.angle_of_attack => (st, v) -> write_column!(st.columns.body_aoa, v)))
+            sys.wind_vel_wing => (st, v) -> write_columns!(st.cache.body_wind, v),
+            sys.aero_force_b  => (st, v) -> write_columns!(xyz(st.sysstate,
+                :aero_force_KA_x, :aero_force_KA_y, :aero_force_KA_z), v),
+            sys.aero_moment_b => (st, v) -> write_columns!(xyz(st.sysstate,
+                :aero_moment_KA_x, :aero_moment_KA_y, :aero_moment_KA_z), v),
+            sys.elevation     => (st, v) -> write_column!(st.sysstate.elevations, v),
+            sys.azimuth       => (st, v) -> write_column!(st.sysstate.azimuths, v),
+            sys.heading       => (st, v) -> write_column!(st.sysstate.headings, v),
+            sys.turn_acc      => (st, v) -> write_columns!(xyz(st.sysstate,
+                :turn_acc_x, :turn_acc_y, :turn_acc_z), v),
+            sys.course        => (st, v) -> write_column!(st.sysstate.courses, v),
+            sys.angle_of_attack => (st, v) -> write_column!(st.sysstate.AoAs, v)))
 
         # aero_input exists only for wings whose component exposes the connector.
         aero_inputs = [
@@ -145,7 +136,8 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
                 xyz(st.sysstate, :X, :Y, :Z), v, st.body_slot0),
             sys.body_vel_w    => (st, v) -> write_columns!(
                 xyz(st.sysstate, :VX, :VY, :VZ), v, st.body_slot0),
-            sys.body_acc_w    => (st, v) -> write_columns!(st.columns.body_acc, v)))
+            sys.body_acc_w    => (st, v) -> write_columns!(
+                xyz(st.sysstate, :acc_x, :acc_y, :acc_z), v, st.body_slot0)))
     end
 
     get_all_state = build_inplace_getter(sys, specs)
@@ -173,7 +165,11 @@ function scatter_spec(pairs::Pair...)
 end
 
 """The columns `names` of `sysstate`, as a tuple."""
-@inline xyz(sysstate, names::Symbol...) = map(name -> getproperty(sysstate, name), names)
+@inline xyz(sysstate, a::Symbol, b::Symbol, c::Symbol) =
+    (getfield(sysstate, a), getfield(sysstate, b), getfield(sysstate, c))
+@inline xyz(sysstate, a::Symbol, b::Symbol, c::Symbol, d::Symbol) =
+    (getfield(sysstate, a), getfield(sysstate, b), getfield(sysstate, c),
+     getfield(sysstate, d))
 
 """
     write_columns!(columns, v, offset=0)
