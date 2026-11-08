@@ -2,7 +2,7 @@
 
 julia_version = "1.12.7"
 manifest_format = "2.0"
-project_hash = "08867b84f18b5acc27f5f1af2dd6e48c0ca52044"
+project_hash = "38ea9c1be0329dab0901e58b2251faf7882c4bfd"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -183,9 +183,9 @@ version = "1.11.0"
 
 [[deps.AtmosphericModels]]
 deps = ["FFTW", "HypergeometricFunctions", "KiteUtils", "LinearAlgebra", "MeshGrid", "NPZ", "Printf", "Random", "SHA", "Scratch", "StableRNGs", "Statistics"]
-git-tree-sha1 = "0721e5ef33dd16ab35d124df3c75017b8e80a41f"
+git-tree-sha1 = "875d0e2c680a3af17efd72da061138b0b3150c37"
 uuid = "c59cac55-771d-4f45-b14d-1c681463a295"
-version = "0.3.11"
+version = "0.3.13"
 
 [[deps.Automa]]
 deps = ["PrecompileTools", "TranscodingStreams"]
@@ -1496,21 +1496,15 @@ version = "0.6.12"
 
 [[deps.KiteGeometry]]
 deps = ["JSON", "KiteUtils", "LinearAlgebra", "OrderedCollections", "SHA", "StaticArrays", "YAML"]
-git-tree-sha1 = "8affcf2b7dedb67cac0f8123f1809c5e7c425579"
+git-tree-sha1 = "1368f27f1018c03a16fece8756e2c0059f8874e6"
 uuid = "941ca69c-4b42-4a27-9601-abc4d37bf99e"
-version = "0.3.3"
-
-[[deps.KitePodModels]]
-deps = ["DocStringExtensions", "KiteUtils", "Reexport"]
-git-tree-sha1 = "a54b0d8d4e011b2c8e6135322b1e57d2f2d250be"
-uuid = "9de5dc81-f971-414a-927b-652b2f41c539"
-version = "0.4.2"
+version = "0.4.0"
 
 [[deps.KiteUtils]]
 deps = ["Arrow", "CSV", "DocStringExtensions", "LinearAlgebra", "OrderedCollections", "Parameters", "Parsers", "Pkg", "PrecompileTools", "RecursiveArrayTools", "ReferenceFrameRotations", "Rotations", "StaticArrays", "StructArrays", "StructTypes", "YAML"]
-git-tree-sha1 = "85b4f730bf098b5afc796daa11dd8fde66a1db2c"
+git-tree-sha1 = "c1378c78b3e955458d49977bd9dcd4d38b6aaf73"
 uuid = "90980105-b163-44e5-ba9f-8b1c83bb0533"
-version = "0.13.1"
+version = "0.14.1"
 
 [[deps.Krylov]]
 deps = ["LinearAlgebra", "Printf", "SparseArrays"]

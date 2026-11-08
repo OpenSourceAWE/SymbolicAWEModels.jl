@@ -59,7 +59,7 @@ SymbolicAWEModelsMakieExt = ["GeometryBasics", "MakieControlPlots"]
 
 [compat]
 ADTypes = "1"
-AtmosphericModels = "0.3.11"
+AtmosphericModels = "0.3.13"
 ControlSystemsBase = "1.18.1"
 DataInterpolations = "8.10.0, 9, 10"
 Dates = "1"
