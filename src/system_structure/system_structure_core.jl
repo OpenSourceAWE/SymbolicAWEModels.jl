@@ -145,68 +145,31 @@ points and segments, each carrying the tether's material and its
 Detects Route 2 tethers by checking `start_point_ref !== nothing`
 and `segment_refs` names not yet present in `segments`.
 """
-function expand_auto_tethers!(
-    points::Vector{Point},
-    segments::AbstractVector,
-    tethers::Vector{Tether},
-    set::Settings
-)
-    point_names = Dict{Symbol, Int}(Symbol(point.name) => i
-                                    for (i, point) in enumerate(points))
+function expand_auto_tethers!(points::Vector{Point}, segments::AbstractVector,
+                              tethers::Vector{Tether}, materials, set::Settings)
+    point_transforms = fill(nothing, length(points))
+    table = KiteGeometry.MaterialTable(materials, Dict{String, Any}())
     seg_names = Set{Symbol}(Symbol(segment.name) for segment in segments)
-
-    for tether in tethers
-        # Skip Route 1 tethers (no start_point_ref)
+    for (i, tether) in enumerate(tethers)
         isnothing(tether.start_point_ref) && continue
-
-        # Skip if segments already exist (user pre-created, or an index)
         first_segment = tether.segment_refs[1]
         (first_segment isa Int || first_segment in seg_names) && continue
-
-        start_point_idx = endpoint_idx(tether, tether.start_point_ref, point_names, points)
-        end_point_idx = endpoint_idx(tether, tether.end_point_ref, point_names, points)
-        start_pos = points[start_point_idx].pos_ENU
-        end_pos = points[end_point_idx].pos_ENU
-
-        n = tether.n_segments
-
-        rope_len = isnothing(tether.init_stretched_len) ?
-            norm(end_pos - start_pos) : tether.init_stretched_len
-        seg_l0 = rope_len / n
-        tether.len = rope_len
-
-        # Generate n-1 intermediate DYNAMIC points along the straight line.
-        direction = end_pos - start_pos
-        for i in 1:(n - 1)
-            frac = i / n
-            pos = start_pos + frac * direction
-            point_name = Symbol("$(tether.name)_point_$i")
-            push!(points, Point(point_name, pos, DYNAMIC))
-            point_names[point_name] = length(points)
-        end
-
-        # Generate n segments
-        for i in 1:n
-            seg_name = tether.segment_refs[i]
-            seg_sym = seg_name isa Symbol ? seg_name :
-                Symbol(seg_name)
-            if i == 1
-                start_ref = tether.start_point_ref
-            else
-                start_ref = Symbol(
-                    "$(tether.name)_point_$(i - 1)")
-            end
-            if i == n
-                end_ref = tether.end_point_ref
-            else
-                end_ref = Symbol(
-                    "$(tether.name)_point_$i")
-            end
-            push!(segments, settings_segment(seg_sym, set, (start_ref, end_ref), seg_l0;
-                                             tether.segment_columns...))
-            push!(seg_names, seg_sym)
-        end
+        columns = tether.segment_columns
+        spring = SegmentSpring(;
+            unit_damping=nan_to_nothing(get(columns, :unit_damping, NaN)),
+            damping_per_stiffness=nan_to_nothing(get(columns, :damping_per_stiffness, NaN)),
+            compression_frac=nan_to_nothing(get(columns, :compression_frac, NaN)),
+            compression_damping_frac=nan_to_nothing(
+                get(columns, :compression_damping_frac, NaN)))
+        line = Base.structdiff(columns, NamedTuple{fieldnames(SegmentSpring)})
+        expanded = KiteGeometry.expand_tether!(points, segments, point_transforms,
+            tether.name, tether.start_point_ref, tether.end_point_ref, tether.n_segments,
+            (; stretched_length=tether.init_stretched_len), set, table;
+            model=tether.model, segment_model=spring, line...)
+        tethers[i] = expanded
+        expanded.model.segment_columns = (;)
     end
+    return nothing
 end
 
 """
@@ -821,8 +784,9 @@ function SystemStructure(name, set;
     end
 
     # Expand Route 2 tethers (auto-generate points/segments)
-    expand_auto_tethers!(points, segments, tethers, set)
     materials = isnothing(definition) ? KiteGeometry.Material[] : definition.materials
+    segments = convert(Vector{Segment}, segments)
+    expand_auto_tethers!(points, segments, tethers, materials, set)
     segments = SegmentRow[structure_segment!(materials, segment, set) for segment in segments]
 
     # Assign indices and resolve all symbolic references to numeric indices.

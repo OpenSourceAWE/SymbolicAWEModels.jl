@@ -718,7 +718,11 @@ function structure_segment!(materials, segment::DraftSegment, set)
     return KiteGeometry.Segment(; segment.name, segment.points, segment.rest_length,
         segment.diameter, material=length(materials), model=spring)
 end
-structure_segment!(materials, segment::SegmentRow, set) = segment
+function structure_segment!(materials, segment::SegmentRow, set)
+    segment.material isa Integer && return segment
+    segment.material = findfirst(material -> material.name == segment.material, materials)
+    return segment
+end
 
 """
     BuiltSegment

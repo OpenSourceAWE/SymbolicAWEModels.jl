@@ -246,7 +246,7 @@ end
             struc_yaml;
             system_name="quat_geom", set, vsm_set,
             dynamics_type=RIGID_DYNAMICS)
-        wing = sys_q.wings[1]
+        wing = SymbolicAWEModels.SystemState(sys_q; set).wings[1]
         points = sys_q.points
         vsm_w = wing.vsm_wing
 
@@ -283,7 +283,7 @@ end
             struc_yaml;
             system_name="quat_preserve", set, vsm_set,
             dynamics_type=RIGID_DYNAMICS)
-        wing = sys_q.wings[1]
+        wing = SymbolicAWEModels.SystemState(sys_q; set).wings[1]
         points = sys_q.points
         vsm_w = wing.vsm_wing
 
