@@ -53,7 +53,7 @@ using LinearAlgebra
         system_name="2plate_quat", set, vsm_set,
         dynamics_type=RIGID_DYNAMICS)
 
-    wing = sys_quat.bodies[1]
+    wing = SymbolicAWEModels.SystemState(sys_quat; set).wings[1]
     @test wing.dynamics_type == RIGID_DYNAMICS
     @test length(sys_quat.stations) == 3
     @test length(wing.station_idxs) == 3

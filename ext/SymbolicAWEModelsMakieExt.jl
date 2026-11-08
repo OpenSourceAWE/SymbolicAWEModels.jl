@@ -855,6 +855,7 @@ function Makie.plot!(ax, sys::SystemState;
         plots[:vsm] = []
         use_obs = !isnothing(geometry_obs)
         for wing in sys.wings
+            SymbolicAWEModels.has_vsm_engine(wing.aero) || continue
             border_lw = wing_border_linewidth(ax, sys, wing, geometry_obs,
                 segment_linewidth, taper)
             p = SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, wing.aero;
@@ -870,7 +871,7 @@ function Makie.plot!(ax, sys::SystemState;
         use_obs = !isnothing(geometry_obs)
         for wing in sys.wings
             mode = wing.aero
-            mode isa SymbolicAWEModels.AbstractVSMAero || continue
+            SymbolicAWEModels.has_vsm_engine(mode) || continue
             border_lw = wing_border_linewidth(ax, sys, wing, geometry_obs,
                 segment_linewidth, taper)
             p = plot!(ax, mode.vsm_aero; airfoils=true, R_b_w=wing.R_b_to_w,

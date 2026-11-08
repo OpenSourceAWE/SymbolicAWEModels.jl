@@ -255,12 +255,13 @@ Base.getindex(records::Records, name::Symbol) = records[get_idx(records.rows, na
 Base.haskey(records::Records, name::Symbol) = haskey(records.rows, name)
 
 @inline function Base.getproperty(state::SystemState, name::Symbol)
-    name === :points && return records(PointState, state, name)
-    name === :stations && return records(StationState, state, name)
-    name === :segments && return records(SegmentState, state, name)
-    name === :pulleys && return records(PulleyState, state, name)
-    name === :tethers && return records(TetherState, state, name)
-    name === :winches && return records(WinchState, state, name)
+    rows = getfield(state, :rows)
+    name === :points && return Records{PointState}(state, rows.points)
+    name === :stations && return Records{StationState}(state, rows.stations)
+    name === :segments && return Records{SegmentState}(state, rows.segments)
+    name === :pulleys && return Records{PulleyState}(state, rows.pulleys)
+    name === :tethers && return Records{TetherState}(state, rows.tethers)
+    name === :winches && return Records{WinchState}(state, rows.winches)
     name === :state_vars && return state_vars(state)
     hasfield(SystemState, name) && return getfield(state, name)
     return getproperty(getfield(state, :structure), name)
@@ -271,10 +272,6 @@ function Base.setproperty!(state::SystemState, name::Symbol, value)
     set_state_vars!(state, vec(value))
     return value
 end
-
-"""The records `R` of the structure's component collection `name`."""
-@inline records(R, state::SystemState, name) =
-    Records{R}(state, getproperty(getfield(state, :rows), name))
 
 # ==================== RECORDS ==================== #
 

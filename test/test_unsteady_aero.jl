@@ -75,8 +75,9 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
 
     @testset "apparent mass" begin
         set, sys, _ = build_unsteady_case(root, "am_on"; apparent_mass=1.0)
-        wing = SystemState(sys; set).wings[1]
-        points = wing_points(SystemState(sys; set), wing)
+        state = SystemState(sys; set)
+        wing = state.wings[1]
+        points = wing_points(state, wing)
 
         rho = 1.225
         chord, width = panel_chord_width(wing)
@@ -91,7 +92,7 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
         end
         @test all(w -> isapprox(w, 1.0; atol=1e-9), weights)
 
-        apply_apparent_mass!(sys, wing, rho)
+        apply_apparent_mass!(state, wing, rho)
         @test sum(p.apparent_mass for p in points) ≈ sum(mass) rtol=1e-9
         @test all(p -> p.apparent_mass ≥ 0, points)
 
@@ -100,10 +101,10 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
 
         # Half the scale is half the air, and zero clears what a previous scale left.
         wing.unsteady.apparent_mass = 0.5
-        apply_apparent_mass!(sys, wing, rho)
+        apply_apparent_mass!(state, wing, rho)
         @test sum(p.apparent_mass for p in points) ≈ 0.5 * sum(mass) rtol=1e-9
         wing.unsteady.apparent_mass = 0.0
-        apply_apparent_mass!(sys, wing, rho)
+        apply_apparent_mass!(state, wing, rho)
         @test all(p -> p.apparent_mass == 0, points)
     end
 
@@ -142,20 +143,22 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
             points=[rider, anchored, free], bodies=[node_a, node_b],
             tubes=[tube])
 
+        beam_state = SystemState(beam)
         # A tube rider is placed by both bodies, split by where it sits.
-        carriers = apparent_mass_carriers(beam, beam.points[:rider])
+        carriers = apparent_mass_carriers(beam_state, beam.points[:rider])
         @test length(carriers) == 2
         @test sum(share for (_, share) in carriers) ≈ 1.0
         frac = beam.points[:rider].beam_frac
-        @test carriers[1][1] === beam.bodies[tube.body_a_idx]
+        @test carriers[1][1].row === beam.bodies[tube.body_a_idx]
         @test carriers[1][2] ≈ 1 - frac
         @test carriers[2][2] ≈ frac
 
         # An anchored node hands everything to its body, a free node keeps it.
-        anchored_carriers = apparent_mass_carriers(beam, beam.points[:anchored])
-        @test anchored_carriers == [(beam.bodies[:node_b], 1.0)]
-        @test apparent_mass_carriers(beam, beam.points[:free]) ==
-            [(beam.points[:free], 1.0)]
+        anchored_carriers = apparent_mass_carriers(beam_state, beam.points[:anchored])
+        @test anchored_carriers[1][1].row === beam.bodies[:node_b]
+        @test anchored_carriers[1][2] == 1.0
+        free_carriers = apparent_mass_carriers(beam_state, beam.points[:free])
+        @test free_carriers == [(beam.points[:free], 1.0)]
     end
 
     @testset "Wagner: off by default" begin
