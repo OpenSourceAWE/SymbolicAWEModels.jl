@@ -176,9 +176,11 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
                      stations=length(sys.stations), bodies=length(sys.bodies))
     no_records = NamedCollection(ComponentState[])
     built_segments = [resolve_segment(row, sys.materials, set) for row in sys.segments]
-    rows = (points=typed_rows(Point, sys.points), stations=typed_rows(Station, sys.stations),
+    rows = (points=typed_rows(Point, sys.points),
+            stations=typed_rows(Station, sys.stations),
             segments=typed_rows(SegmentRow, sys.segments),
-            pulleys=typed_rows(Pulley, sys.pulleys), tethers=typed_rows(Tether, sys.tethers),
+            pulleys=typed_rows(Pulley, sys.pulleys),
+            tethers=typed_rows(Tether, sys.tethers),
             winches=typed_rows(Winch, sys.winches))
     state = SystemState(sys, SysState(P; counts..., precision=SimFloat), cache,
                         built_segments, point_segments(sys),
@@ -389,7 +391,8 @@ between its points, its spring force and its spring, its stiffness and density t
 its material.
 """ begin
     idx => (index(r), derived(:idx))
-    unit_stiffness => (material_unit_stiffness(built(r).material, getfield(r, :row).diameter),
+    unit_stiffness => (material_unit_stiffness(built(r).material,
+                                               getfield(r, :row).diameter),
                        set_material_stiffness!(built(r).material, value,
                                                getfield(r, :row).diameter))
     density => (built(r).material.parameters["density"],
@@ -498,17 +501,28 @@ aero mode, with this run's VSM engine where it has one.
     heading => (sysstate(r).headings[index(r)], sysstate(r).headings[index(r)] = value)
     course => (sysstate(r).courses[index(r)], sysstate(r).courses[index(r)] = value)
     aoa => (sysstate(r).AoAs[index(r)], sysstate(r).AoAs[index(r)] = value)
-    vsm_aero => (getproperty(r.aero, :vsm_aero), setproperty!(r.aero, :vsm_aero, value))
-    vsm_wing => (getproperty(r.aero, :vsm_wing), setproperty!(r.aero, :vsm_wing, value))
-    vsm_solver => (getproperty(r.aero, :vsm_solver), setproperty!(r.aero, :vsm_solver, value))
-    aero_y => (getproperty(r.aero, :aero_y), setproperty!(r.aero, :aero_y, value))
-    aero_x => (getproperty(r.aero, :aero_x), setproperty!(r.aero, :aero_x, value))
-    aero_jac => (getproperty(r.aero, :aero_jac), setproperty!(r.aero, :aero_jac, value))
-    point_to_vsm_point => (getproperty(r.aero, :point_to_vsm_point), setproperty!(r.aero, :point_to_vsm_point, value))
-    wing_segments => (getproperty(r.aero, :wing_segments), setproperty!(r.aero, :wing_segments, value))
-    aero_scale_chord => (getproperty(r.aero, :aero_scale_chord), setproperty!(r.aero, :aero_scale_chord, value))
-    aero_z_offset => (getproperty(r.aero, :aero_z_offset), setproperty!(r.aero, :aero_z_offset, value))
-    unsteady => (getproperty(r.aero, :unsteady), setproperty!(r.aero, :unsteady, value))
+    vsm_aero => (getproperty(r.aero, :vsm_aero),
+        setproperty!(r.aero, :vsm_aero, value))
+    vsm_wing => (getproperty(r.aero, :vsm_wing),
+        setproperty!(r.aero, :vsm_wing, value))
+    vsm_solver => (getproperty(r.aero, :vsm_solver),
+        setproperty!(r.aero, :vsm_solver, value))
+    aero_y => (getproperty(r.aero, :aero_y),
+        setproperty!(r.aero, :aero_y, value))
+    aero_x => (getproperty(r.aero, :aero_x),
+        setproperty!(r.aero, :aero_x, value))
+    aero_jac => (getproperty(r.aero, :aero_jac),
+        setproperty!(r.aero, :aero_jac, value))
+    point_to_vsm_point => (getproperty(r.aero, :point_to_vsm_point),
+        setproperty!(r.aero, :point_to_vsm_point, value))
+    wing_segments => (getproperty(r.aero, :wing_segments),
+        setproperty!(r.aero, :wing_segments, value))
+    aero_scale_chord => (getproperty(r.aero, :aero_scale_chord),
+        setproperty!(r.aero, :aero_scale_chord, value))
+    aero_z_offset => (getproperty(r.aero, :aero_z_offset),
+        setproperty!(r.aero, :aero_z_offset, value))
+    unsteady => (getproperty(r.aero, :unsteady),
+        setproperty!(r.aero, :unsteady, value))
 end true
 
 """The apparent wind on `point` in the body frame of its wing [m/s], zero where it has

@@ -1138,7 +1138,8 @@ reference is the weighted blend of its points. Writes the body frame `R_b_to_w`
 ([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the frame's own
 `ω_b` ([`body_frame_omega`](@ref)), the origin's acceleration `acc_w`
 ([`point_acceleration_w`](@ref)), the reported scalars
-([`write_wing_scalars!`](@ref)) and each aero point's wind, the wind coming from the height profile or, under
+([`write_wing_scalars!`](@ref)) and each aero point's wind, the wind coming from the
+height profile or, under
 [`PerPointWind`](@ref), from `point.wind_vec` and `wing.wind_vec`, which the caller
 owns — the same quantities the monolith's `get_all_state` copies out of the integrator.
 """
