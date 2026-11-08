@@ -37,17 +37,8 @@ end
 """
     generate_prob_getters(sys_struct, sys)
 
-Generate getter and setter functions for the state variables of the full system model.
-
-These functions provide a convenient way to access and modify the state and parameters
-of the compiled `ODESystem` (`sys`).
-
-# Arguments
-- `sys_struct::SystemStructure`: The structure defining the system topology.
-- `sys::ODESystem`: The compiled ModelingToolkit system.
-
-# Returns
-- A `NamedTuple` containing various getter and setter functions for different parts of the system state.
+Generate the functions that read and write the state and parameters of the compiled
+`ODESystem` `sys`, whose topology `sys_struct` defines. Returns them as a `NamedTuple`.
 """
 function generate_prob_getters(sys_struct, sys, param_registry=nothing,
                                initial_registry=nothing)
@@ -277,14 +268,8 @@ end
 """
     generate_lin_getters(sys)
 
-Generate setter functions for the parameters of a linearized system.
-
-# Arguments
-- `sys`: The linearized ModelingToolkit system.
-
-# Returns
-- A `NamedTuple` containing the setter function for the winch set-points
-  (`set_set_values`).
+Generate the parameter setters of the linearized system `sys`. Returns a `NamedTuple` with
+`set_set_values`, the setter of the winch set-points.
 """
 function generate_lin_getters(sys)
     set_set_values = nothing
@@ -297,18 +282,10 @@ end
 """
     generate_control_funcs(model, inputs, outputs)
 
-Generate in-place and out-of-place control functions from a ModelingToolkit system,
-wrapping `ModelingToolkit.generate_control_function` and
-`ModelingToolkit.build_explicit_observed_function`.
-
-# Arguments
-- `model`: The full `ODESystem`.
-- `inputs`: A vector of input variables.
-- `outputs`: A vector of output variables.
-
-# Returns
-- A `NamedTuple` containing the generated functions (`f_oop`, `f_ip`, `h_oop`, `h_ip`),
-  system dimensions (`nu`, `nx`, `ny`), and symbolic variables (`dvs`, `psym`, `io_sys`).
+Generate in-place and out-of-place control functions of the `ODESystem` `model` for the
+variables `inputs` and `outputs`. Returns a `NamedTuple` of the functions (`f_oop`, `f_ip`,
+`h_oop`, `h_ip`), the dimensions (`nu`, `nx`, `ny`) and the symbolic variables (`dvs`,
+`psym`, `io_sys`).
 """
 function generate_control_funcs(model, inputs, outputs)
     (f_ip, f_oop), dvs, psym, io_sys = @suppress_err ModelingToolkit.generate_control_function(
@@ -337,21 +314,10 @@ end
 """
     load_serialized_model!(sam, model_path; remake=false, reload=false)
 
-Load a serialized model from disk if it is valid.
-
-A model is considered valid if its settings and system structure hashes match the
-current ones in the `SymbolicAWEModel` object (`sam`).
-
-# Arguments
-- `sam::SymbolicAWEModel`: The main model object.
-- `model_path::String`: The path to the serialized model file.
-- `remake::Bool`: If true, forces the model to be considered invalid, triggering a rebuild.
-- `reload::Bool`: If true, forces reloading from disk even if the model is already in memory.
-- `prn::Bool`: If true, say what happened — kept in memory, read back from disk, or
-  rejected — since from the outside a cache hit and a rebuild look the same.
-
-# Returns
-- `true` if a valid model was successfully loaded into `sam.serialized_model`, `false` otherwise.
+Load the model serialized at `model_path` into `sam.serialized_model` if its settings and
+structure hashes match those of `sam`; returns `true` if a valid model is loaded, else
+`false`. `remake` rejects the file and triggers a rebuild, `reload` reads it even with a
+model in memory, and `prn` reports whether it was kept in memory, read back or rejected.
 """
 function load_serialized_model!(sam, model_path; remake=false, reload=false,
                                 prn=true)
@@ -403,19 +369,9 @@ end
     maybe_create_prob!(sam; create_prob=true, sparse=false,
                        analytic_jacobian=false, prn=true)
 
-Compile the full system, create the `ODEProblem` and its getter/setter functions, if
-they do not already exist.
-
-# Arguments
-- `sam::SymbolicAWEModel`: The main model object.
-- `create_prob::Bool`: A flag to enable or disable the creation of the problem.
-- `sparse::Bool`: Give the solver a Jacobian sparsity pattern (see [`init!`](@ref)).
-- `analytic_jacobian::Bool`: Give the solver an analytical Jacobian (see
-  [`init!`](@ref)).
-- `prn::Bool`: A flag to enable or disable printing of progress messages.
-
-# Returns
-- `true` if a new problem was created, `false` otherwise.
+Compile the full system and create the `ODEProblem` with its getters and setters, if they
+do not exist yet and `create_prob` is set. `sparse` and `analytic_jacobian` are those of
+[`init!`](@ref), `prn` prints progress. Returns `true` if a new problem was created.
 """
 function maybe_create_prob!(sam; create_prob=true, sparse=false,
                             analytic_jacobian=false, prn=true)
@@ -428,13 +384,10 @@ end
 """
     build_prob!(backend, sam; sparse=false, analytic_jacobian=false, prn=true)
 
-Assemble `sam.prob` for the given [`ModelBackend`](@ref). The
-[`MonolithBackend`](@ref) method `mtkcompile`s the flattened `full_sys` into one
-`ODEProblem`; the [`KernelBackend`](@ref) assembles one kernel per component
-type and schedules them. `sparse` gives the solver a Jacobian sparsity pattern and
-`analytic_jacobian` a Jacobian, both of which each backend derives its own way — the
-monolith's is MTK's symbolic one, which is why it is off by default
-([`default_analytic_jacobian`](@ref)). Returns `true` when a problem was built.
+Assemble `sam.prob`: the [`MonolithBackend`](@ref) `mtkcompile`s the flattened `full_sys`
+into one `ODEProblem`, the [`KernelBackend`](@ref) schedules one kernel per component type.
+`sparse` gives the solver a Jacobian sparsity pattern and `analytic_jacobian` a Jacobian
+(MTK's symbolic one on the monolith). Returns `true` when a problem was built.
 """
 function build_prob!(::MonolithBackend, sam; sparse=false, analytic_jacobian=false,
                      prn=true)
@@ -484,17 +437,9 @@ end
 """
     maybe_create_lin_prob!(sam, outputs; ...)
 
-Create and cache the `LinearizationProblem` if it does not exist or if the outputs have changed.
-
-# Arguments
-- `sam::SymbolicAWEModel`: The main model object.
-- `outputs`: A vector of output variables for the linearization.
-- `create_lin_prob::Bool`: Flag to enable/disable creation.
-- `outputs_changed::Bool`: Flag indicating if the output vector has changed.
-- `prn::Bool`: Flag to enable/disable printing of progress messages.
-
-# Returns
-- `true` if a new problem was created, `false` otherwise.
+Create and cache the `LinearizationProblem` for the variables `outputs`, if it does not
+exist yet and `create_lin_prob` is set. `prn` prints progress. Returns `true` if a new
+problem was created.
 """
 function maybe_create_lin_prob!(sam, outputs; create_lin_prob=true, prn=true)
     if create_lin_prob && isnothing(sam.lin_prob)
@@ -518,17 +463,9 @@ end
 """
     maybe_create_control_functions!(sam, outputs; ...)
 
-Create and cache the control functions if they do not exist or if the outputs have changed.
-
-# Arguments
-- `sam::SymbolicAWEModel`: The main model object.
-- `outputs`: A vector of output variables for the control functions.
-- `create_control_func::Bool`: Flag to enable/disable creation.
-- `outputs_changed::Bool`: Flag indicating if the output vector has changed.
-- `prn::Bool`: Flag to enable/disable printing of progress messages.
-
-# Returns
-- `true` if new functions were created, `false` otherwise.
+Create and cache the control functions for the variables `outputs`, if they do not exist
+yet and `create_control_func` is set. `prn` prints progress. Returns `true` if new
+functions were created.
 """
 function maybe_create_control_functions!(sam, outputs; create_control_func=false, prn=true)
     if create_control_func && isnothing(sam.control_functions)
@@ -804,25 +741,10 @@ end
 """
     get_set_hash(set::Settings; fields)
 
-Calculates a SHA1 hash for structural fields in the `Settings` object.
-This is used to check if a cached compiled model is still valid.
-
-# Structural Fields (affect symbolic equations):
-- `:segments`: Number of tether segments (affects state vector size)
-- `:model`: Kite model name (affects geometry)
-- `:foil_file`: Airfoil data file (affects VSM setup)
-- `:physical_model`: Free-form name of the physical model (affects geometry)
-- `:winch_model`: Winch dynamics model (affects winch equations)
-
-Anything read back from a struct at sync time stays out, so one build serves a sweep
-over it. That is every numeric setting the equations use — `:g_earth`, `:wind_vec`,
-`:cd_tether`, `:v_wind`, the profile law, initial conditions — since each enters
-as a flat parameter `sync_params!` refreshes from the run's `set`, not as a literal.
-
-# Runtime Fields (don't affect compilation, excluded from hash):
-- `:profile_law`: Wind profile law (evaluated at runtime via symbolic function)
-- `:elevation`: Initial conditions
-- Other runtime parameters
+SHA1 hash of the `fields` of `set` that shape the compiled equations, by default
+`:segments`, `:model`, `:foil_file`, `:physical_model` and `:winch_model`, to check a cached
+compiled model. Numeric settings and initial conditions (`:g_earth`, `:wind_vec`,
+`:cd_tether`, `:v_wind`, `:profile_law`, `:elevation`) are read at runtime and not hashed.
 """
 function get_set_hash(set::Settings;
         fields=[:segments, :model, :foil_file, :physical_model, :winch_model]
@@ -838,24 +760,10 @@ end
 """
     get_sys_struct_hash(state::SystemState)
 
-Calculates a SHA1 hash for the topology and structure of a run's `SystemStructure`.
-This is used to check if a cached compiled model is still valid.
-
-Includes all structural properties that affect the symbolic equations:
-- Point connectivity and types (STATIC, DYNAMIC, BODY_STATIC), including the
-  beam joint a BODY_STATIC point anchors to (selects which bodies enter its equations)
-- Segment connectivity
-- Station structure and types (STATIC, DYNAMIC)
-- Pulley constraints and types
-- Tether topology
-- Winch configuration
-- Wing topology, connectivity, aerodynamic model type (RIGID_DYNAMICS vs PARTICLE_DYNAMICS), and aero mode
-- The transform base point each wing's elevation and azimuth are measured from
-- The wind mode, which decides whether the wind is a height profile or a per-point
-  parameter. Only [`PerPointWind`](@ref) enters the hash, so structures on the
-  default [`ProfileWind`](@ref) keep the cached models they already have.
-
-Excludes runtime-configurable properties like masses, lengths, stiffnesses.
+SHA1 hash of a run's `SystemStructure` topology, to check a cached compiled model: the
+connectivity and types of its points (with a `BODY_STATIC` point's beam joint), segments,
+stations, pulleys, tethers, winches, bodies and tubes, each wing's dynamics type, aero mode
+and transform base point, and [`PerPointWind`](@ref); no mass, length or stiffness value.
 """
 function get_sys_struct_hash(state::SystemState)
     (; structure, transforms) = state

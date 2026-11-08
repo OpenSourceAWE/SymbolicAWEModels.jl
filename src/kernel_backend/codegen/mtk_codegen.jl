@@ -13,7 +13,7 @@
 #                                pick_best_alias_names, simplify_with_mtkcompile
 #   ext/NetworkDynamicsMTKExt.jl _scalarize_io_syms, is_nonnumeric_param,
 #                                _get_formulas, _collect_deps_on_obs,
-#                                _all_dependencies, generate_io_function
+#                                generate_io_function
 #
 # Removed while vendoring — all of it exists only to serve NetworkDynamics' fixed
 # depth-2 coreloop, which this backend does not have:
@@ -639,26 +639,6 @@ _all_rhs_symbols(eq::Equation) = get_variables_deriv(eq.rhs)
 _all_rhs_symbols(eqs::Union{AbstractVector,AbstractDict}) =
     mapreduce(eq->get_variables_deriv(eq isa Pair ? eq.second : eq.rhs), ∪, eqs,
               init=Set{ST}())
-
-"The symbols `term` depends on once every substitution in `dict` is resolved
-recursively."
-function _all_dependencies(term, dict)
-    deps = Set{ST}()
-    _recursive_collect_dependencies!(deps, term, dict)
-    deps
-end
-
-function _recursive_collect_dependencies!(deps, term, dict)
-    termdeps = _all_rhs_symbols(term)
-    for sym in termdeps
-        if haskey(dict, sym)
-            _recursive_collect_dependencies!(deps, dict[sym], dict)
-        else
-            push!(deps, sym)
-        end
-    end
-    deps
-end
 
 """
     dependency_indices(eqs, obs_subs, symbols) -> Vector{Vector{Int}}

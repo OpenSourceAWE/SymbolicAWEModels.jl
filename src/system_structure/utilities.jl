@@ -44,20 +44,10 @@ end
 """
     validate_sys_struct(sys_struct::SystemStructure)
 
-Check a `SystemStructure` for configurations that cause initialization failures or
-numerical problems: warnings for suspicious values, assertions for definite errors.
-
-# Validations Performed
-- **Points**: NaN or negative `extra_mass`, non-positive `total_mass` on DYNAMIC
-  points, NaN position (usually a consequence of zero mass).
-- **Wings**: non-positive mass, zero/near-zero or NaN principal inertia on
-  RIGID_DYNAMICS wings, empty station list, NaN position.
-- **Winches**: non-positive, tiny or NaN `inertia_total`, non-positive `drum_radius`
-  or `gear_ratio`.
-- **Segments**: diameter outside (0, 1) m, non-positive rest length `l0`,
-  non-positive stiffness, negative damping.
-- **Pulleys**: zero total length constraint.
-- **Stations**: inconsistent `moment_frac`.
+Error on values that break a run and warn on suspicious ones: NaN or non-positive point and
+wing mass, wing and winch inertia, NaN positions, rigid wings without stations, non-positive
+`drum_radius` or `gear_ratio`, segment `diameter` outside (0, 1) m, non-positive `l0` or
+stiffness, negative damping, zero pulley `sum_len`, unequal station `moment_frac`.
 """
 function validate_sys_struct(sys_struct)
     (; points, stations, segments, pulleys, wings, winches) = sys_struct
@@ -218,40 +208,16 @@ end
 
 # ==================== TETHER INIT LEN ==================== #
 
-"""
-    tether_ordered_point_idxs(tether, segments)
+"""`tether` as KiteGeometry's placement reads one, its references the resolved indices."""
+placement_row(tether) = (; tether.name, start_point=tether.start_point_idx,
+                         end_point=tether.end_point_idx, segments=tether.segment_idxs)
 
-Point indices along the tether, ordered from `start_point_idx`
-through each segment's far endpoint to the end point.
-"""
-function tether_ordered_point_idxs(tether, segments)
-    idxs = Int64[tether.start_point_idx]
-    for seg_idx in tether.segment_idxs
-        push!(idxs, segments[seg_idx].point_idxs[2])
-    end
-    return idxs
-end
+"""`segments` as KiteGeometry's placement reads them."""
+placement_segments(segments) = [(; points=segment.point_idxs) for segment in segments]
 
-"""
-    tether_anchor_free(tether, boundary)
-
-Return `(anchor_idx, free_idx)` for a root tether: the endpoint in
-`boundary` (`STATIC`/winch points) is the anchor, the other is free.
-Returns `(nothing, nothing)` if neither endpoint is on a boundary, or if
-both are (a both-fixed tether cannot be placed; the caller warns and skips it).
-"""
-function tether_anchor_free(tether, boundary)
-    start_on_boundary = tether.start_point_idx in boundary
-    end_on_boundary = tether.end_point_idx in boundary
-    if start_on_boundary && end_on_boundary
-        return nothing, nothing
-    elseif start_on_boundary
-        return tether.start_point_idx, tether.end_point_idx
-    elseif end_on_boundary
-        return tether.end_point_idx, tether.start_point_idx
-    end
-    return nothing, nothing
-end
+"""`tubes` joining two bodies, as KiteGeometry's placement reads them."""
+placement_tubes(tubes) = [(; bodies=(tube.body_a_idx, tube.body_b_idx)) for tube in tubes
+                          if tube.body_a_idx != 0 && tube.body_b_idx != 0]
 
 """
     anchor_body_idxs(point, tubes) -> Tuple
@@ -273,57 +239,12 @@ function anchor_body_idxs(point, tubes)
 end
 
 """
-    beam_body_neighbors(tubes) -> Dict{Int64, Vector{Int64}}
-
-Adjacency of the beam graph: each body index mapped to the bodies it shares a
-tube with.
-"""
-function beam_body_neighbors(tubes)
-    neighbors = Dict{Int64, Vector{Int64}}()
-    for tube in tubes
-        body_a, body_b = tube.body_a_idx, tube.body_b_idx
-        (body_a == 0 || body_b == 0) && continue
-        push!(get!(neighbors, body_a, Int64[]), body_b)
-        push!(get!(neighbors, body_b, Int64[]), body_a)
-    end
-    return neighbors
-end
-
-"""
-    translated_body_idxs(seeds, bodies, body_neighbors) -> Set{Int64}
-
-Bodies that translate rigidly with `seeds` (the bodies the repositioned points
-ride): the seeds plus everything reachable from them through `body_neighbors`.
-This is what carries beam bodies no point rides at all. Expansion stops at
-`STATIC` bodies, which are clamped to the world — a beam with a clamped end
-deforms rather than translating, so only its free part moves.
-"""
-function translated_body_idxs(seeds, bodies, body_neighbors)
-    moved = Set{Int64}()
-    queue = Int64[]
-    for seed in seeds
-        (seed in moved || bodies[seed].type == STATIC) && continue
-        push!(moved, seed)
-        push!(queue, seed)
-    end
-    while !isempty(queue)
-        current = pop!(queue)
-        for neighbor in get(body_neighbors, current, Int64[])
-            (neighbor in moved || bodies[neighbor].type == STATIC) && continue
-            push!(moved, neighbor)
-            push!(queue, neighbor)
-        end
-    end
-    return moved
-end
-
-"""
     rigid_point_siblings(points, wings, tubes, root)
 
 Map each point index that rides a rigid structure to the set of all points
 sharing it, so downstream traversal moves them as one unit. Which bodies carry a
-point comes from [`anchor_body_idxs`](@ref); `root` (from
-[`connected_body_groups`](@ref)) collapses bodies tied by tubes into one
+point comes from [`anchor_body_idxs`](@ref); `root` (from KiteGeometry's
+`connected_body_groups`) collapses bodies tied by tubes into one
 component, so all points riding any body in a tube-connected chain are
 siblings. This is how the two halves of a beam wing — bridged only through the
 beam, not by inter-point segments — are recognised as one structure.
@@ -355,91 +276,6 @@ function rigid_point_siblings(points, wings, tubes, root)
 end
 
 """
-    tether_downstream_idxs(tether, segments, boundary, from_idx,
-                           anchor_idx, rigid_siblings)
-
-Breadth-first set of point indices reachable from `from_idx` (the
-tether's free end) through segments outside this tether and through
-`rigid_siblings`, stopping at boundary points. These are the points
-that must translate with the free end when the tether is repositioned.
-Errors if traversal reaches `anchor_idx` (a loop back to the anchor).
-"""
-function tether_downstream_idxs(tether, segments, boundary,
-                                from_idx, anchor_idx, rigid_siblings)
-    own = Set{Int64}(tether_ordered_point_idxs(tether, segments))
-    tether_segment_set = Set(tether.segment_idxs)
-    visited = copy(own)
-    downstream = Set{Int64}()
-    queue = Int64[from_idx]
-    while !isempty(queue)
-        current_idx = pop!(queue)
-        neighbors = Int64[]
-        for (seg_idx, seg) in enumerate(segments)
-            seg_idx in tether_segment_set && continue
-            point_idx1, point_idx2 = seg.point_idxs
-            if point_idx1 == current_idx
-                push!(neighbors, point_idx2)
-            elseif point_idx2 == current_idx
-                push!(neighbors, point_idx1)
-            end
-        end
-        if haskey(rigid_siblings, current_idx)
-            for sibling in rigid_siblings[current_idx]
-                sibling == current_idx || push!(neighbors, sibling)
-            end
-        end
-        for neighbor_idx in neighbors
-            if neighbor_idx == anchor_idx
-                error("Tether $(tether.name): downstream structure " *
-                      "connects back to the anchor point. Cannot " *
-                      "apply tether length scaling.")
-            end
-            neighbor_idx in visited && continue
-            push!(visited, neighbor_idx)
-            neighbor_idx in boundary && continue
-            push!(downstream, neighbor_idx)
-            push!(queue, neighbor_idx)
-        end
-    end
-    return downstream
-end
-
-"""
-    station_tethers_by_overlap(specified, reach)
-
-Cluster the `specified` tethers with a union-find over `reach`
-(point indices each tether touches): tethers whose reaches intersect
-share structure and land in the same cluster. Returns a vector of
-tether vectors, one per cluster.
-"""
-function station_tethers_by_overlap(specified, reach)
-    n = length(specified)
-    parent = collect(1:n)
-    function find_root(i)
-        while parent[i] != i
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        end
-        return i
-    end
-    for i in 1:n
-        for j in i+1:n
-            isempty(intersect(reach[specified[i].idx],
-                              reach[specified[j].idx])) && continue
-            root_i = find_root(i)
-            root_j = find_root(j)
-            root_i == root_j && continue
-            parent[root_i] = root_j
-        end
-    end
-    stations = Dict{Int64, Vector{eltype(specified)}}()
-    for i in 1:n
-        push!(get!(() -> eltype(specified)[], stations, find_root(i)), specified[i])
-    end
-    return collect(values(stations))
-end
-
-"""
     tether_unit_stiffness(tether, segments)
 
 Return the common per-unit-length stiffness `[N]` of the tether's
@@ -461,27 +297,6 @@ function tether_unit_stiffness(tether, segments)
 end
 
 """
-    cluster_standoff_shift(spans, mean_len) -> Vector
-
-Translation `t·d` that brings the mean length of the anchor→free vectors `spans` to
-`mean_len`, with `d` the direction of their mean: the structure moves straight away
-from (or towards) the mean anchor. Newton's method on `t`, from `t = 0`.
-"""
-function cluster_standoff_shift(spans, mean_len)
-    direction = normalize(sum(spans))
-    t = 0.0
-    for _ in 1:50
-        lens = [norm(span .+ t .* direction) for span in spans]
-        residual = sum(lens) / length(lens) - mean_len
-        abs(residual) < 1e-12 * mean_len && break
-        slope = sum(dot(span .+ t .* direction, direction) / len
-                    for (span, len) in zip(spans, lens)) / length(lens)
-        t -= residual / slope
-    end
-    return t .* direction
-end
-
-"""
     apply_cluster_init_stretched_len!(cluster, points, segments, bodies,
                                       tubes, body_neighbors,
                                       downstream, boundary; prn=true)
@@ -489,23 +304,25 @@ end
 Reposition one cluster of root tethers to their `init_stretched_len` standoff. The
 free ends and everything downstream of them are translated along the line from the
 mean anchor through the mean free end until the tethers' mean length is their mean
-`init_stretched_len` ([`cluster_standoff_shift`](@ref)); interior points are then
+`init_stretched_len` (KiteGeometry's `cluster_standoff_shift`); interior points are then
 redistributed proportionally along each tether. A single tether lands at exactly its
 length, tethers that already have their lengths stay, and placing again moves
 nothing. For a multi-tether cluster, logs an `@info` when `prn`.
 
 The bodies the moved points ride are translated too, expanded over the beam graph
-by [`translated_body_idxs`](@ref) so bodies that carry no point of their own do
+by KiteGeometry's `translated_body_idxs` so bodies that carry no point of their own do
 not stay behind.
 """
 function apply_cluster_init_stretched_len!(
     cluster, points, segments, bodies, tubes, body_neighbors,
     downstream, boundary; prn=true)
+    segment_rows = placement_segments(segments)
     snaps = map(cluster) do tether
-        anchor_idx, free_idx = tether_anchor_free(tether, boundary)
+        row = placement_row(tether)
+        anchor_idx, free_idx = KiteGeometry.tether_anchor_free(row, boundary)
         anchor_pos = copy(points[anchor_idx].pos_w)
         free_pos = copy(points[free_idx].pos_w)
-        ordered = tether_ordered_point_idxs(tether, segments)
+        ordered = KiteGeometry.tether_ordered_point_idxs(row, segment_rows)
         seg_lens = SimFloat[segment_world_length(segments[seg_idx], points)
                             for seg_idx in tether.segment_idxs]
         if ordered[1] != anchor_idx
@@ -518,7 +335,7 @@ function apply_cluster_init_stretched_len!(
         (; tether, free_idx, anchor_pos, free_pos, ordered, seg_lens, path_len)
     end
 
-    delta = cluster_standoff_shift(
+    delta = KiteGeometry.cluster_standoff_shift(
         [snap.free_pos .- snap.anchor_pos for snap in snaps],
         sum(snap.tether.init_stretched_len::SimFloat for snap in snaps) / length(snaps))
 
@@ -547,7 +364,8 @@ function apply_cluster_init_stretched_len!(
     for idx in moved
         union!(seeds, anchor_body_idxs(points[idx], tubes))
     end
-    for body_idx in translated_body_idxs(seeds, bodies, body_neighbors)
+    static_body = [body.type == STATIC for body in bodies]
+    for body_idx in KiteGeometry.translated_body_idxs(seeds, static_body, body_neighbors)
         bodies[body_idx].pos_w .+= delta
     end
 
@@ -589,8 +407,9 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemState;
 
     bodies = sys_struct.bodies
     tubes = sys_struct.tubes
-    body_neighbors = beam_body_neighbors(tubes)
-    root = connected_body_groups(length(bodies), tubes)
+    tube_rows = placement_tubes(tubes)
+    body_neighbors = KiteGeometry.beam_body_neighbors(tube_rows)
+    root = KiteGeometry.connected_body_groups(length(bodies), tube_rows)
     rigid_siblings = rigid_point_siblings(points, wings, tubes, root)
 
     # Boundary = externally world-fixed points: STATIC, winch, and BODY_STATIC carried
@@ -616,8 +435,10 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemState;
     isempty(placeable) && return
     specified = placeable
 
-    anchor_free = Dict(tether.idx => tether_anchor_free(tether, boundary)
-                       for tether in specified)
+    rows = Dict(tether.idx => placement_row(tether) for tether in specified)
+    segment_rows = placement_segments(segments)
+    anchor_free = Dict(idx => KiteGeometry.tether_anchor_free(row, boundary)
+                       for (idx, row) in rows)
     non_root = [tether for tether in specified
                 if isnothing(anchor_free[tether.idx][1])]
     if !isempty(non_root)
@@ -627,16 +448,19 @@ function apply_tether_init_stretched_lens!(sys_struct::SystemState;
               "endpoint anchored; their position rides the root tether.")
     end
 
-    downstream = Dict(tether.idx => tether_downstream_idxs(
-                          tether, segments, boundary, anchor_free[tether.idx][2],
-                          anchor_free[tether.idx][1], rigid_siblings)
-                      for tether in specified)
-    reach = Dict(tether.idx => union(
-        setdiff(Set{Int64}(tether_ordered_point_idxs(tether, segments)),
+    downstream = Dict(idx => KiteGeometry.tether_downstream_idxs(
+                          row, segment_rows, boundary, anchor_free[idx][2],
+                          anchor_free[idx][1], rigid_siblings)
+                      for (idx, row) in rows)
+    reach = Dict(idx => union(
+        setdiff(Set{Int64}(KiteGeometry.tether_ordered_point_idxs(row, segment_rows)),
                 boundary),
-        downstream[tether.idx]) for tether in specified)
+        downstream[idx]) for (idx, row) in rows)
 
-    for cluster in station_tethers_by_overlap(specified, reach)
+    placed = Dict(tether.idx => tether for tether in specified)
+    placed_idxs = [tether.idx for tether in specified]
+    for indices in KiteGeometry.tether_clusters(placed_idxs, reach)
+        cluster = [placed[index] for index in indices]
         apply_cluster_init_stretched_len!(cluster, points, segments, bodies,
                                           tubes, body_neighbors,
                                           downstream, boundary; prn)
@@ -897,7 +721,8 @@ KiteGeometry.place!(sys::SystemStructure; ignore_l0::Bool=false, prn::Bool=true)
     place_structure!(sys; ignore_l0, prn)
 
 """
-    place_structure!(sys::SystemStructure, transforms=Transform[]; ignore_l0=false, prn=true)
+    place_structure!(sys::SystemStructure, transforms=Transform[];
+                     ignore_l0=false, prn=true)
 
 Place `sys` in the world by KiteGeometry `transforms` and its tether lengths, and make
 where it lands its initial pose: its points' and bodies' `pos_ENU` and `Q_KA_to_ENU`, its
@@ -1100,105 +925,6 @@ function store_initial_pose!(state::SystemState)
     foreach(segment -> segment.row.l0 = segment.l0, state.segments)
     foreach(tether -> tether.row.len = tether.len, state.tethers)
     return nothing
-end
-
-# ==================== STATE COPY ==================== #
-
-"""
-    copy!(sys1::SystemStructure, sys2::SystemStructure)
-
-Copy the dynamic state (positions, velocities, …) from one `SystemStructure` to
-another, which may be of a different fidelity — e.g. from a multi-segment tether model
-to a single-segment one.
-
-- Same structure: direct copy of all point states.
-- `sys2` a 1-segment-per-tether version of `sys1`: the tether endpoints' positions and
-  velocities are copied.
-- Wing, station, winch and pulley states are copied where applicable.
-"""
-function copy!(sys1::SystemStructure, sys2::SystemStructure)
-
-    # copy point pos and vel
-    if length(sys1.points) > 0
-        if length(sys1.points) == length(sys2.points)
-            for (point1, point2) in zip(sys1.points, sys2.points)
-                point2.pos_w .= point1.pos_w
-                point2.vel_w .= point1.vel_w
-                point2.disturb .= point1.disturb
-            end
-        # if different number of points, copy only the tether points
-        elseif length(sys1.tethers) > 1 && length(sys1.tethers) == length(sys2.tethers)
-            for (tether1, tether2) in zip(sys1.tethers, sys2.tethers)
-                if length(tether1.segment_idxs) == length(tether2.segment_idxs)
-                    # copy the points of the segments of the tethers
-                    for (segment_idx1, segment_idx2) in zip(tether1.segment_idxs, tether2.segment_idxs)
-                        point_idxs1 = sys1.segments[segment_idx1].point_idxs
-                        point_idxs2 = sys2.segments[segment_idx2].point_idxs
-                        for (point_idx1, point_idx2) in zip(point_idxs1, point_idxs2)
-                            sys2.points[point_idx2].pos_w .= sys1.points[point_idx1].pos_w
-                            sys2.points[point_idx2].vel_w .= sys1.points[point_idx1].vel_w
-                            sys2.points[point_idx2].disturb .= sys1.points[point_idx1].disturb
-                        end
-                    end
-                elseif length(tether2.segment_idxs) == 1
-                    # copy the first and last point of the tether
-                    point_idxs1 = [sys1.segments[tether1.segment_idxs[1]].point_idxs[1],
-                                   sys1.segments[tether1.segment_idxs[end]].point_idxs[2]]
-                    point_idxs2 = sys2.segments[tether2.segment_idxs[1]].point_idxs
-                    sys2.points[point_idxs2[1]].pos_w .= sys1.points[point_idxs1[1]].pos_w
-                    sys2.points[point_idxs2[2]].pos_w .= sys1.points[point_idxs1[2]].pos_w
-                    sys2.points[point_idxs2[1]].vel_w .= sys1.points[point_idxs1[1]].vel_w
-                    sys2.points[point_idxs2[2]].vel_w .= sys1.points[point_idxs1[2]].vel_w
-                    sys2.points[point_idxs2[1]].disturb .= sys1.points[point_idxs1[1]].disturb
-                    sys2.points[point_idxs2[2]].disturb .= sys1.points[point_idxs1[2]].disturb
-                end
-            end
-        end
-    end
-
-    # copy twist and twist_ω of stations
-    if length(sys1.stations) > 0 && length(sys1.stations) == length(sys2.stations)
-        for (station1, station2) in zip(sys1.stations, sys2.stations)
-            station2.twist = station1.twist
-            station2.twist_ω = station1.twist_ω
-        end
-    end
-
-    # copy tether lengths
-    if length(sys1.tethers) > 0 &&
-       length(sys1.tethers) == length(sys2.tethers)
-        for (tether2, tether1) in
-                zip(sys2.tethers, sys1.tethers)
-            tether2.len = tether1.len
-        end
-    end
-
-    # copy winch velocities
-    if length(sys1.winches) > 0 &&
-       length(sys1.winches) == length(sys2.winches)
-        for (winch2, winch1) in
-                zip(sys2.winches, sys1.winches)
-            winch2.vel = winch1.vel
-        end
-    end
-
-    # copy pulley lengths and velocities
-    if length(sys1.pulleys) > 0 && length(sys1.pulleys) == length(sys2.pulleys)
-        for (pulley1, pulley2) in zip(sys1.pulleys, sys2.pulleys)
-            pulley2.len = pulley1.len
-            pulley2.vel = pulley1.vel
-        end
-    end
-
-    # copy wing positions and velocities
-    if length(sys1.wings) > 0 && length(sys1.wings) == length(sys2.wings)
-        for (wing1, wing2) in zip(sys1.wings, sys2.wings)
-            wing2.pos_w .= wing1.pos_w
-            wing2.vel_w .= wing1.vel_w
-            wing2.ω_b .= wing1.ω_b
-            wing2.Q_b_to_w .= wing1.Q_b_to_w
-        end
-    end
 end
 
 # ==================== SYSSTATE INTEROP ==================== #

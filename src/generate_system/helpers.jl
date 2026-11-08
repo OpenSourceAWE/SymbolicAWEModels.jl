@@ -154,17 +154,6 @@ function rotation_matrix_to_quaternion(R::AbstractMatrix)
 end
 
 """
-    rotate_v_around_k(v, k, θ)
-
-Rotate vector `v` around axis `k` by angle `θ` using Rodrigues' rotation formula.
-"""
-function rotate_v_around_k(v, k, θ)
-    k = smooth_normalize(k)
-    v_rot = v * cos(θ) + (k × v) * sin(θ) + k * (k ⋅ v) * (1 - cos(θ))
-    return v_rot
-end
-
-"""
     calc_R_v_to_w(wing_pos, e_x)
 
 Calculate the rotation matrix from the view frame (`_v`) to the world frame (`_w`).

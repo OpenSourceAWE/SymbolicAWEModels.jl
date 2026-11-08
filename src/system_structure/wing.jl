@@ -57,12 +57,12 @@ function WeightedRefPoints(refs::AbstractVector)
         "WeightedRefPoints requires at least one " *
         "reference point, got empty vector")
     if refs[1] isa Tuple
-        names = NameRef[to_name_ref(entry[1]) for entry in refs]
+        names = NameRef[cell_ref(entry[1]) for entry in refs]
         weights = Float64[Float64(entry[2]) for entry in refs]
         validate_weights!(weights)
         return WeightedRefPoints(names, Int64[], weights)
     end
-    names = NameRef[to_name_ref(v) for v in refs]
+    names = NameRef[cell_ref(v) for v in refs]
     n = length(names)
     WeightedRefPoints(names, Int64[], fill(1.0 / n, n))
 end
@@ -100,10 +100,6 @@ function count_aero_log_points(wings)
 end
 
 # ==================== CONSTRUCTORS ==================== #
-
-# Helper to convert to NameRef
-to_name_ref(x::Integer) = Int(x)
-to_name_ref(x) = Symbol(x)
 
 """Warn and normalize if weights don't sum to 1."""
 function validate_weights!(weights::Vector{Float64})
@@ -170,7 +166,7 @@ function Wing(name, stations::AbstractVector, Q_KA_to_ENU::AbstractVector,
     isnothing(dynamics_type) && (dynamics_type = RIGID_DYNAMICS)
     isnothing(aero) && (aero = dynamics_type == RIGID_DYNAMICS ?
         AeroLinearized() : AeroDirect())
-    station_refs = Vector{NameRef}([to_name_ref(station) for station in stations])
+    station_refs = Vector{NameRef}([cell_ref(station) for station in stations])
 
     z_ref = isnothing(z_ref_points) ? nothing :
         (WeightedRefPoints(z_ref_points[1]), WeightedRefPoints(z_ref_points[2]))
@@ -196,19 +192,10 @@ end
     create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
                     prn=true, sort_sections=true)
 
-Create a `VortexStepMethod.Wing` geometry object from the settings provided.
-
-This function checks for a `.obj` file in the model directory. If present it uses
-`VortexStepMethod.ObjWing(obj_path; …)` to generate the aero geometry (airfoils
-are extracted from the mesh; no `.dat` is needed). The mesh is sliced at panel
-resolution — `ObjWing` defaults to one unrefined section per panel boundary
-(`n_panels + 1`) — independent of the wing's station count; the twist
-surfaces map onto the refined panels by distance later. The generated
-`geometry.yaml` is cached under `<model_dir>/obj_geometry` and reused on later
-runs. When no `.obj` is present each wing is built from its own `geometry_file`,
-or from the project file's `aero_geometry:` where it names none. Aero only —
-mass properties are handled separately (see [`VSMWing`](@ref) and
-[`ObjAdapter`](@ref)).
+Create the aero-only `VortexStepMethod.Wing` from the settings: by `ObjWing` from the
+`.obj` file `set.model` in the data path if there is one, at panel resolution with its
+airfoils from the mesh and its `geometry.yaml` cached under `<model_dir>/obj_geometry`;
+otherwise from each wing's `geometry_file`, or the project file's `aero_geometry:`.
 """
 function create_vsm_wing(set::Settings, vsm_set::VortexStepMethod.VSMSettings;
                          prn=true, sort_sections=true)
@@ -258,19 +245,11 @@ end
                      point_to_vsm_point=nothing, wing_segments=nothing,
                      aero_scale_chord=0.0, aero_z_offset=0.0)
 
-Build a [`VSMEngine`](@ref): create the VortexStepMethod `vsm_wing`/`vsm_aero`/
-`vsm_solver` and size the linearization state vectors. Aero-state sizes are
-placeholders for `RIGID_DYNAMICS` (using the mesh's `n_unrefined_sections` as the
-station-count proxy) and resized by `SystemStructure` once stations
-are resolved.
-
-# Keywords
-- `n_stations`: the wing's station count, which sizes the solver
-  ([`build_vsm_solver`](@ref)).
-- `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
-- `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
-- `unsteady`: the wing's [`UnsteadyAero`](@ref) corrections; `nothing` takes the
-  defaults, which are all off.
+Build a [`VSMEngine`](@ref): the VortexStepMethod wing, aerodynamics and solver (sized by
+`n_stations`, [`build_vsm_solver`](@ref)) and the linearization vectors, placeholders for
+`RIGID_DYNAMICS` until `SystemStructure` resolves the stations. `point_to_vsm_point` and
+`wing_segments` map structure to VSM panels, `aero_scale_chord` and `aero_z_offset` adjust
+VSM forces and panels, `unsteady` is the [`UnsteadyAero`](@ref) (`nothing`: all off).
 """
 function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
                           dynamics_type::WingType; n_stations=0,
@@ -404,13 +383,10 @@ end
 """
     seed_wing_inertia!(vsm_wing, set, com, unit_inertia)
 
-Seed a VSM mesh's per-unit-mass inertia `vsm_wing.inertia_tensor` (3×3, [m²]) and
-COM `vsm_wing.T_cad_body = -com` so the SystemStructure inertia pipeline
-([`normalized_inertia`](@ref)) uses them instead of the point-mass fallback.
-`unit_inertia` accepts either the symmetric 6-vector `[Ixx,Iyy,Izz,Ixy,Ixz,Iyz]`
-or a full 3×3. When `com`/`unit_inertia` are omitted they auto-compute from the
-`.obj` at `joinpath(get_data_path(), set.model)` if present; with neither given
-and no `.obj`, this is a no-op (point-mass fallback stays in effect).
+Set a VSM mesh's per-unit-mass `inertia_tensor` (3×3, [m²]) and `T_cad_body = -com`, which
+[`normalized_inertia`](@ref) uses over the point masses. `unit_inertia` is the 6-vector
+`[Ixx,Iyy,Izz,Ixy,Ixz,Iyz]` or a 3×3 matrix. A `com` or `unit_inertia` of `nothing` comes
+from the `.obj` at `joinpath(get_data_path(), set.model)`; if none, nothing is set.
 """
 function seed_wing_inertia!(vsm_wing, set::Settings, com, unit_inertia)
     tensor = isnothing(unit_inertia) ? nothing :
@@ -489,16 +465,8 @@ frame_sections(vsm_wing) = Iterators.flatten((
 """
     adjust_vsm_panels_to_origin!(vsm_wing, origin_offset)
 
-Adjust VSM panel positions when body frame origin changes.
-
-When RIGID_DYNAMICS wings are loaded from YAML, the panel positions in aero_geometry.yaml
-are specified in an absolute body frame. However, the body frame origin is adjusted
-to the mean position of all wing-nodes. This function updates all panel positions
-to be relative to the new origin by subtracting the offset.
-
-# Arguments
-- `vsm_wing`: VortexStepMethod.Wing with sections to adjust
-- `origin_offset`: Vector [x, y, z] to subtract from panel positions
+Subtract `origin_offset` (`[x, y, z]`) from the panel positions of `vsm_wing`, making them
+relative to the body-frame origin after it has moved.
 """
 function adjust_vsm_panels_to_origin!(vsm_wing, origin_offset)
     for section in frame_sections(vsm_wing)
@@ -526,15 +494,9 @@ end
 """
     apply_aero_z_offset!(vsm_wing, aero_z_offset)
 
-Apply z-axis offset to VSM panel positions in body frame.
-
-For RIGID_DYNAMICS wings, this shifts the aerodynamic center of pressure
-in the positive z-direction (body frame) to adjust the moment arm.
-This is applied AFTER the COM adjustment.
-
-# Arguments
-- `vsm_wing`: VortexStepMethod.Wing with sections to adjust
-- `aero_z_offset`: Distance to shift panels in +z direction [m]
+Shift the panels of `vsm_wing` by `aero_z_offset` [m] along body-frame `+z`, which moves a
+`RIGID_DYNAMICS` wing's centre of pressure and so its moment arm. Apply after the COM
+adjustment.
 """
 function apply_aero_z_offset!(vsm_wing, aero_z_offset)
     abs(aero_z_offset) > 1e-10 || return nothing
@@ -544,18 +506,6 @@ function apply_aero_z_offset!(vsm_wing, aero_z_offset)
         section.TE_point .+= offset_vec
     end
     return nothing
-end
-
-"""
-    calc_pos(wing::Wing, gamma, frac)
-
-Calculate a position on the kite based on spanwise (`gamma`) and chordwise (`frac`) parameters.
-"""
-function calc_pos(wing::VortexStepMethod.Wing, gamma, frac)
-    le_pos = [wing.le_interp[i](gamma) for i in 1:3]
-    chord = [wing.te_interp[i](gamma) for i in 1:3] .- le_pos
-    pos = le_pos .+ chord .* frac
-    return pos
 end
 
 # ==================== BODY FRAMES ==================== #
@@ -569,7 +519,8 @@ Base.getindex(positions::PointPositions, i) =
     getproperty(positions.points[i], positions.field)
 
 """`ref_pt` as KiteGeometry's reference points: pairs of index and weight."""
-ref_points(ref_pt::WeightedRefPoints) = [id => weight for (id, weight) in zip(ref_pt.ids, ref_pt.weights)]
+ref_points(ref_pt::WeightedRefPoints) =
+    [id => weight for (id, weight) in zip(ref_pt.ids, ref_pt.weights)]
 
 """
     get_ref_position_from_points(points, ref_pt; field=:pos_w)
@@ -579,7 +530,8 @@ selects which point coordinate to read (`:pos_w` or `:pos_ENU`).
 """
 get_ref_position_from_points(points::AbstractVector, ref_pt::WeightedRefPoints;
                              field::Symbol=:pos_w) =
-    KiteGeometry.ref_position(PointPositions(points, field), zip(ref_pt.ids, ref_pt.weights))
+    KiteGeometry.ref_position(PointPositions(points, field),
+                              zip(ref_pt.ids, ref_pt.weights))
 
 """
     calc_particle_dynamics_wing_frame(points, z_ref_points, y_ref_points, origin;

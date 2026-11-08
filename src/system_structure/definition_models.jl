@@ -387,8 +387,10 @@ mutable struct ElasticTubeModel <: KiteGeometry.AbstractModel
     "The element a structure built in Julia is simulated as, `nothing` for one read from a
     document."
     simulated::Any
-    ElasticTubeModel(stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping, anchor_a, anchor_b) =
-        new(stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping, anchor_a, anchor_b, nothing)
+    ElasticTubeModel(stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending,
+                     damping, anchor_a, anchor_b) =
+        new(stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping,
+            anchor_a, anchor_b, nothing)
 end
 KiteGeometry.model_columns(::Type{ElasticTubeModel}) =
     (:stiffness_axial, :stiffness_shear, :stiffness_torsion, :stiffness_bending,

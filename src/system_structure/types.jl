@@ -261,7 +261,8 @@ The aero mode a model flies `wing` with: its row's, with an engine of its own bu
 """
 function model_aero(wing, set, vsm_set)
     seed = wing.vsm_seed
-    (isnothing(seed) || isnothing(set) || !(wing.aero isa AbstractVSMAero)) && return wing.aero
+    (isnothing(seed) || isnothing(set) || !(wing.aero isa AbstractVSMAero)) &&
+        return wing.aero
     engine = build_vsm_engine(set, something(vsm_set, seed.vsm_set), wing.dynamics_type;
         n_stations=length(wing.station_idxs), seed.point_to_vsm_point, seed.wing_segments,
         seed.aero_scale_chord, seed.aero_z_offset,
@@ -353,10 +354,6 @@ the structure resolves it to, and `anchor_b` where it rides its body, given or d
 """
 const Point = KiteGeometry.Point{PointModel}
 
-@inline Base.getproperty(point::Point, property::Symbol) = row_property(point, Val(property))
-Base.setproperty!(point::Point, property::Symbol, value) =
-    set_row_property!(point, Val(property), value)
-
 """
     row_property(row, Val(property))
 
@@ -373,13 +370,6 @@ row_property(row::Point, ::Val{:type}) = point_type(row)
 @inline row_property(row::Point, ::Val{:disturb}) = row_property(row, Val(:ext_force_w))
 @inline row_property(row::Point, ::Val{:extra_mass}) =
     something(getfield(row, :extra_mass), 0.0)
-@inline row_property(row::Point, ::Val{:area}) = something(point_model(row).area, 0.0)
-@inline row_property(row::Point, ::Val{:drag_coeff}) =
-    something(point_model(row).drag_coeff, 0.0)
-@inline row_property(row::Point, ::Val{:fix_sphere}) =
-    something(point_model(row).fix_sphere, false)
-@inline row_property(row::Point, ::Val{:fix_static}) =
-    something(point_model(row).fix_static, false)
 @inline row_property(row::Point, ::Val{:body_frame_damping}) =
     per_axis(point_model(row).body_frame_damping)
 @inline row_property(row::Point, ::Val{:world_frame_damping}) =
@@ -558,22 +548,9 @@ the indices the structure resolves them to.
 """
 const Station = KiteGeometry.SpanwiseStation{StationModel}
 
-@inline Base.getproperty(station::Station, property::Symbol) =
-    row_property(station, Val(property))
-Base.setproperty!(station::Station, property::Symbol, value) =
-    set_row_property!(station, Val(property), value)
-
 """The [`StationModel`](@ref) of station row `row`."""
 @inline station_model(row::Station) = getfield(row, :model)
 row_property(row::Station, ::Val{:type}) = parse_dynamics_type(station_model(row).type)
-@inline row_property(row::Station, ::Val{:moment_frac}) =
-    something(station_model(row).moment_frac, 0.0)
-@inline row_property(row::Station, ::Val{:damping}) =
-    something(station_model(row).damping, 50.0)
-@inline row_property(row::Station, ::Val{:stiffness}) =
-    something(station_model(row).stiffness, 0.0)
-@inline row_property(row::Station, ::Val{:flap_axis}) =
-    something(station_model(row).flap_axis, SVector(0.0, 1.0, 0.0))
 @inline row_property(row::Station, ::Val{:point_refs}) = getfield(row, :points)
 @inline row_property(row::Station, ::Val{:wing_ref}) = getfield(row, :wing)
 @inline row_property(row::Station, ::Val{:wing_idx}) = station_model(row).resolved_wing_idx
@@ -792,7 +769,8 @@ The stiffness per unit length of `material` at `diameter` [m]: KiteGeometry's
 `unit_stiffness` for a `linear` material [N], else the number or force law `F(ε)` it holds,
 read through `read_held`.
 """
-@inline function material_unit_stiffness(material, diameter, read_held::F=identity) where {F}
+@inline function material_unit_stiffness(material, diameter,
+                                         read_held::F=identity) where {F}
     stiffness = KiteGeometry.unit_stiffness(material, diameter)
     return isnothing(stiffness) ? read_held(material.parameters["unit_stiffness"]) :
            stiffness
@@ -804,11 +782,6 @@ to_float64(value) = value isa Float64 ? value : Float64(value)::Float64
 """The [`SegmentSpring`](@ref) of segment row `row`."""
 @inline segment_spring(row::KiteGeometry.Segment) = getfield(row, :model)
 @inline segment_spring(row::DraftSegment) = getfield(row, :model).spring
-
-@inline Base.getproperty(segment::KiteGeometry.Segment, property::Symbol) =
-    row_property(segment, Val(property))
-Base.setproperty!(segment::KiteGeometry.Segment, property::Symbol, value) =
-    set_row_property!(segment, Val(property), value)
 
 @inline function row_property(row::KiteGeometry.Segment, ::Val{property}) where {property}
     hasfield(typeof(row), property) && return getfield(row, property)
@@ -831,7 +804,8 @@ set_row_property!(row::KiteGeometry.Segment, ::Val{:l0}, value) =
     setfield!(row, :rest_length, Float64(value))
 set_row_property!(row::KiteGeometry.Segment, ::Val{:point_idxs}, points) =
     setfield!(row, :points, points)
-function set_row_property!(row::KiteGeometry.Segment, ::Val{property}, value) where {property}
+function set_row_property!(row::KiteGeometry.Segment, ::Val{property},
+                           value) where {property}
     hasfield(typeof(row), property) &&
         return setfield!(row, property, convert(fieldtype(typeof(row), property), value))
     return setproperty!(segment_spring(row), property, value)
@@ -1010,21 +984,9 @@ to.
 """
 const Pulley = KiteGeometry.Pulley{PulleyModel}
 
-@inline Base.getproperty(pulley::Pulley, property::Symbol) =
-    row_property(pulley, Val(property))
-Base.setproperty!(pulley::Pulley, property::Symbol, value) =
-    set_row_property!(pulley, Val(property), value)
-
 """The [`PulleyModel`](@ref) of pulley row `row`."""
 @inline pulley_model(row::Pulley) = getfield(row, :model)
 row_property(row::Pulley, ::Val{:type}) = parse_dynamics_type(pulley_model(row).type)
-@inline row_property(row::Pulley, ::Val{:efficiency}) =
-    something(pulley_model(row).efficiency, 0.95)
-@inline row_property(row::Pulley, ::Val{:damping}) =
-    something(pulley_model(row).damping, 0.0)
-@inline row_property(row::Pulley, ::Val{:brake}) = something(pulley_model(row).brake, false)
-@inline row_property(row::Pulley, ::Val{:friction_epsilon}) =
-    something(pulley_model(row).friction_epsilon, 0.1)
 @inline row_property(row::Pulley, ::Val{:segment_refs}) = getfield(row, :segments)
 @inline row_property(row::Pulley, ::Val{:segment_idxs}) = map(Int, getfield(row, :segments))
 set_row_property!(row::Pulley, ::Val{:type}, type::DynamicsType) =
@@ -1103,16 +1065,13 @@ again and overwrites it.
 """
 const Tether = KiteGeometry.Tether{TetherModel}
 
-@inline Base.getproperty(tether::Tether, property::Symbol) =
-    row_property(tether, Val(property))
-Base.setproperty!(tether::Tether, property::Symbol, value) =
-    set_row_property!(tether, Val(property), value)
-
 """The [`TetherModel`](@ref) of tether row `row`."""
 @inline tether_model(row::Tether) = getfield(row, :model)
 @inline row_property(row::Tether, ::Val{:segment_refs}) = getfield(row, :segments)
-row_property(row::Tether, ::Val{:start_point_ref}) = open_end(getfield(row, :start_point))
-row_property(row::Tether, ::Val{:end_point_ref}) = open_end(getfield(row, :end_point))
+row_property(row::Tether, ::Val{:start_point_ref}) =
+    reference_column(getfield(row, :start_point))
+row_property(row::Tether, ::Val{:end_point_ref}) =
+    reference_column(getfield(row, :end_point))
 @inline row_property(row::Tether, ::Val{:init_stretched_len}) =
     tether_model(row).init_stretched_length
 @inline function row_property(row::Tether, ::Val{:init_tether_force})
@@ -1131,8 +1090,6 @@ function set_row_property!(row::Tether, ::Val{:init_tether_force}, force)
     return tether_model(row).init_tether_force = force
 end
 
-"""A tether end a row gives: its point, `nothing` for the open end 0."""
-open_end(ref) = ref == 0 ? nothing : ref
 
 """
     Tether(name, segments, stretched_length=nothing;
@@ -1177,13 +1134,9 @@ end
 open end `nothing`, with `model`."""
 tether_row(name, segments, start_point, end_point, model) =
     KiteGeometry.Tether(; name=Symbol(name),
-        start_point=something(name_ref(start_point), 0),
-        end_point=something(name_ref(end_point), 0),
-        segments=NameRef[name_ref(segment) for segment in segments], model)
-
-name_ref(::Nothing) = nothing
-name_ref(x::Integer) = Int(x)
-name_ref(x) = Symbol(x)
+        start_point=something(cell_ref(start_point), 0),
+        end_point=something(cell_ref(end_point), 0),
+        segments=NameRef[cell_ref(segment) for segment in segments], model)
 
 opt_simfloat(::Nothing) = nothing
 opt_simfloat(x) = SimFloat(x)
@@ -1289,19 +1242,8 @@ reel-out velocity through the run's `winch.vel` instead of integrating the dynam
 """
 const Winch{W} = KiteGeometry.Winch{WinchModel{W}}
 
-@inline Base.getproperty(winch::Winch, property::Symbol) =
-    row_property(winch, Val(property))
-Base.setproperty!(winch::Winch, property::Symbol, value) =
-    set_row_property!(winch, Val(property), value)
-
 """The [`WinchModel`](@ref) of winch row `row`."""
 @inline winch_model(row::Winch) = getfield(row, :model)
-@inline row_property(row::Winch, ::Val{:init_vel}) =
-    something(getfield(winch_model(row), :init_vel), 0.0)
-@inline row_property(row::Winch, ::Val{:brake}) =
-    something(getfield(winch_model(row), :brake), 0.0)
-@inline row_property(row::Winch, ::Val{:speed_controlled}) =
-    something(getfield(winch_model(row), :speed_controlled), false)
 @inline row_property(row::Winch, ::Val{:gear_ratio}) = getfield(row, :gear_ratio)::Float64
 @inline row_property(row::Winch, ::Val{:drum_radius}) = getfield(row, :drum_radius)::Float64
 @inline row_property(row::Winch, ::Val{:tether_refs}) = getfield(row, :tethers)

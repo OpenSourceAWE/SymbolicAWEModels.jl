@@ -33,9 +33,6 @@ end
 """The name a definition gives component `component`: its own, else its index."""
 definition_name(component) = Symbol(something(component.name, component.idx))
 
-"""Index `idx` as a reference, `nothing` for the absent reference 0."""
-optional_index(idx) = idx == 0 ? nothing : idx
-
 """The index of the material `law` with `parameters` among `materials`, added where none
 matches."""
 function material!(materials, law, parameters)

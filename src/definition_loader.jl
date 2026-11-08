@@ -127,6 +127,7 @@ row_name(row) = something(tryparse(Int, String(row.name)), row.name)
 name_of(rows, i) = isnothing(i) ? nothing : row_name(rows[i])
 
 """A reference an authoring YAML cell gives: an index, or a name as a `Symbol`."""
+cell_ref(::Nothing) = nothing
 cell_ref(value::Integer) = Int(value)
 cell_ref(value::Union{AbstractString, Symbol}) = Symbol(value)
 

@@ -722,31 +722,6 @@ function calc_steady_torque(sys_struct::SystemState)
 end
 
 """
-    calc_winch_force(sys, winch_vel, winch_acc, set_values)
-
-Calculate the tensile force on each winch tether from its motion and
-motor torque, using the default-component motor dynamics inverted for
-the force connector.
-
-Reads `friction` from the live winch struct (populated each step from
-the component output), so the formula matches whatever the component
-reported even if the component overrides friction.
-"""
-function calc_winch_force(sys::SystemState,
-        winch_vel, winch_acc, set_values)
-    winches = sys.winches
-    winch_force = zeros(length(winches))
-    for i in eachindex(winches)
-        (; gear_ratio, drum_radius, inertia_total, friction) = winches[i]
-        ratio = drum_radius / gear_ratio
-        α_motor = winch_acc[i] / ratio
-        tau_total = α_motor * inertia_total
-        winch_force[i] = (-set_values[i] + tau_total + friction) / ratio
-    end
-    return winch_force
-end
-
-"""
     calc_aoa(s::SymbolicAWEModel)
 
 Angle of attack [rad] of the first wing, dispatched on its aero mode

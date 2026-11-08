@@ -322,17 +322,21 @@ A record type `Name{P, S}` of a run's state and the properties it takes from the
 vector one is written in place through its getter.
 """
 macro state_record(name, doc, block, with_aero=false)
-    properties = Symbol[]
+    accessors = Tuple{Symbol, Any}[(line.args[2], line.args[3]) for line in block.args
+        if line isa Expr && line.head === :call && line.args[1] === :(=>)]
+    with_aero && for field in VSM_ENGINE_FIELDS
+        push!(accessors, (field, :((getproperty(r.aero, $(QuoteNode(field))),
+                                    setproperty!(r.aero, $(QuoteNode(field)), value)))))
+    end
+    properties = first.(accessors)
     methods = Expr[]
-    for line in block.args
-        (line isa Expr && line.head === :call && line.args[1] === :(=>)) || continue
-        property, access = QuoteNode(line.args[2]), line.args[3]
-        push!(properties, line.args[2])
+    for (property, access) in accessors
         getter, setter = access isa Expr && access.head === :tuple ?
             access.args : (access, nothing)
-        push!(methods, :(@inline state_property(r::$name, ::Val{$property}) = $getter))
+        key = QuoteNode(property)
+        push!(methods, :(@inline state_property(r::$name, ::Val{$key}) = $getter))
         isnothing(setter) || push!(methods,
-            :(@inline set_state_property!(r::$name, ::Val{$property}, value) = $setter))
+            :(@inline set_state_property!(r::$name, ::Val{$key}, value) = $setter))
     end
     return esc(quote
         @doc $doc struct $(with_aero ? :($name{P, S, A}) : :($name{P, S})) <: ComponentState
@@ -501,28 +505,6 @@ aero mode, with this run's VSM engine where it has one.
     heading => (sysstate(r).headings[index(r)], sysstate(r).headings[index(r)] = value)
     course => (sysstate(r).courses[index(r)], sysstate(r).courses[index(r)] = value)
     aoa => (sysstate(r).AoAs[index(r)], sysstate(r).AoAs[index(r)] = value)
-    vsm_aero => (getproperty(r.aero, :vsm_aero),
-        setproperty!(r.aero, :vsm_aero, value))
-    vsm_wing => (getproperty(r.aero, :vsm_wing),
-        setproperty!(r.aero, :vsm_wing, value))
-    vsm_solver => (getproperty(r.aero, :vsm_solver),
-        setproperty!(r.aero, :vsm_solver, value))
-    aero_y => (getproperty(r.aero, :aero_y),
-        setproperty!(r.aero, :aero_y, value))
-    aero_x => (getproperty(r.aero, :aero_x),
-        setproperty!(r.aero, :aero_x, value))
-    aero_jac => (getproperty(r.aero, :aero_jac),
-        setproperty!(r.aero, :aero_jac, value))
-    point_to_vsm_point => (getproperty(r.aero, :point_to_vsm_point),
-        setproperty!(r.aero, :point_to_vsm_point, value))
-    wing_segments => (getproperty(r.aero, :wing_segments),
-        setproperty!(r.aero, :wing_segments, value))
-    aero_scale_chord => (getproperty(r.aero, :aero_scale_chord),
-        setproperty!(r.aero, :aero_scale_chord, value))
-    aero_z_offset => (getproperty(r.aero, :aero_z_offset),
-        setproperty!(r.aero, :aero_z_offset, value))
-    unsteady => (getproperty(r.aero, :unsteady),
-        setproperty!(r.aero, :unsteady, value))
 end true
 
 """The apparent wind on `point` in the body frame of its wing [m/s], zero where it has

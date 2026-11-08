@@ -81,11 +81,8 @@ SymbolicAWEModels.seed_per_point_wind!
 SymbolicAWEModels.calc_angle_of_attack
 SymbolicAWEModels.calc_heading
 SymbolicAWEModels.calc_R_v_to_w
-SymbolicAWEModels.calc_pos
-SymbolicAWEModels.calc_winch_force
 SymbolicAWEModels.quaternion_to_rotation_matrix
 SymbolicAWEModels.rotation_matrix_to_quaternion
-SymbolicAWEModels.rotate_v_around_k
 SymbolicAWEModels.smooth_norm
 SymbolicAWEModels.smooth_sign
 SymbolicAWEModels.coulomb_viscous_friction
@@ -203,7 +200,6 @@ SymbolicAWEModels.copy_examples
 SymbolicAWEModels.copy_data
 SymbolicAWEModels.copy_dir
 SymbolicAWEModels.get_example_packages
-SymbolicAWEModels.make_lin_sys_state
 ```
 
 ## Base overloads (internal use)
@@ -221,18 +217,10 @@ Serialization.serialize(::Serialization.AbstractSerializer, ::SymbolicAWEModels.
 ```@docs
 SymbolicAWEModels.segment_initial_length
 SymbolicAWEModels.segment_world_length
-SymbolicAWEModels.tether_ordered_point_idxs
-SymbolicAWEModels.endpoint_idx
-SymbolicAWEModels.tether_anchor_free
 SymbolicAWEModels.anchor_body_idxs
-SymbolicAWEModels.beam_body_neighbors
-SymbolicAWEModels.translated_body_idxs
 SymbolicAWEModels.rigid_point_siblings
-SymbolicAWEModels.tether_downstream_idxs
-SymbolicAWEModels.station_tethers_by_overlap
 SymbolicAWEModels.tether_unit_stiffness
 SymbolicAWEModels.apply_cluster_init_stretched_len!
-SymbolicAWEModels.cluster_standoff_shift
 SymbolicAWEModels.init_unstretched_len
 SymbolicAWEModels.tube_initial_frames
 SymbolicAWEModels.init_tube_rest!
@@ -245,7 +233,6 @@ SymbolicAWEModels.resolve_ref
 SymbolicAWEModels.validate_sys_struct
 SymbolicAWEModels.build_name_dict
 SymbolicAWEModels.setup_wing_frame!
-SymbolicAWEModels.connected_body_groups
 SymbolicAWEModels.particle_wing_parts
 SymbolicAWEModels.finalize_particle_wing_mass!
 SymbolicAWEModels.compute_station_geometry!

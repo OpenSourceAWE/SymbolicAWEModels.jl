@@ -140,10 +140,6 @@ row then holds, so it can be written in place.
 """
 const Body{A, D} = KiteGeometry.Body{BodyModel{A, D}}
 
-@inline Base.getproperty(body::Body, property::Symbol) = row_property(body, Val(property))
-Base.setproperty!(body::Body, property::Symbol, value) =
-    set_row_property!(body, Val(property), value)
-
 """The [`BodyModel`](@ref) of body row `row`."""
 @inline body_model(row::Body) = getfield(row, :model)
 function row_property(row::Body{A, D}, ::Val{:type}) where {A, D}
@@ -165,10 +161,6 @@ row_property(row::Body, ::Val{:principal_frame_method}) =
 @inline row_property(row::Body, ::Val{:Q_KA_to_ENU}) = body_model(row).initial_Q_KA_to_ENU
 @inline row_property(row::Body, ::Val{:wing_ref}) = reference(body_model(row).wing)
 @inline row_property(row::Body, ::Val{:wing_idx}) = body_model(row).resolved_wing_idx
-@inline row_property(row::Body, ::Val{:fix_sphere}) =
-    something(body_model(row).fix_sphere, false)
-@inline row_property(row::Body, ::Val{:fix_static}) =
-    something(body_model(row).fix_static, false)
 row_property(row::Body{A}, ::Val{:angular_damping}) where {A} =
     per_axis(something(wing_column(row, :angular_damping),
                        A === AeroNone ? 0.0 : [0.0, 150.0, 0.0]))
@@ -627,10 +619,6 @@ they resolve to; `idx`, `anchor_a_b` and `anchor_b_b` read its model.
 """
 const Tube{M <: AbstractTubeModel} = KiteGeometry.Tube{M}
 
-@inline Base.getproperty(tube::Tube, property::Symbol) = row_property(tube, Val(property))
-Base.setproperty!(tube::Tube, property::Symbol, value) =
-    set_row_property!(tube, Val(property), value)
-
 row_property(row::Tube, ::Val{:law}) = getfield(row, :material)
 @inline row_property(row::Tube, ::Val{:body_a_ref}) = getfield(row, :bodies)[1]
 @inline row_property(row::Tube, ::Val{:body_b_ref}) = getfield(row, :bodies)[2]
@@ -656,7 +644,7 @@ function Tube(name, body_a, body_b; diameter::Real, pressure::Real,
     model = with_law_rigidities(model, law, diameter, pressure)
     model.anchor_a_b .= anchor_a
     model.anchor_b_b .= anchor_b
-    return KiteGeometry.Tube(; name=Symbol(name), bodies=name_ref.((body_a, body_b)),
+    return KiteGeometry.Tube(; name=Symbol(name), bodies=cell_ref.((body_a, body_b)),
         diameter=SimFloat(diameter), pressure=SimFloat(pressure), material=law, model)
 end
 
@@ -833,4 +821,28 @@ function init_station_flap!(station, sys_struct)
     station.flap_rest_delta = 0.0
     station.flap_rest_delta = flap_delta(station, R_main, R_flap)
     return nothing
+end
+
+const ComponentRow = Union{Point, Station, KiteGeometry.Segment, Pulley, Tether, Winch,
+                          Body, Tube}
+
+@inline Base.getproperty(row::ComponentRow, property::Symbol) =
+    row_property(row, Val(property))
+Base.setproperty!(row::ComponentRow, property::Symbol, value) =
+    set_row_property!(row, Val(property), value)
+
+# what an unset column of a row's model reads as
+for (row, model, defaults) in (
+    (Point, :point_model, (area=0.0, drag_coeff=0.0, fix_sphere=false, fix_static=false)),
+    (Station, :station_model, (moment_frac=0.0, damping=50.0, stiffness=0.0,
+                              flap_axis=SVector(0.0, 1.0, 0.0))),
+    (Pulley, :pulley_model, (efficiency=0.95, damping=0.0, brake=false,
+                            friction_epsilon=0.1)),
+    (Winch, :winch_model, (init_vel=0.0, brake=0.0, speed_controlled=false)),
+    (Body, :body_model, (fix_sphere=false, fix_static=false)),
+)
+    for (property, default) in pairs(defaults)
+        @eval @inline row_property(row::$row, ::Val{$(QuoteNode(property))}) =
+            something(getfield($model(row), $(QuoteNode(property))), $default)
+    end
 end

@@ -205,7 +205,6 @@ need no update here. Defined in the Makie extension.
 """
 function update_wing_aero_plot! end
 function find_steady_state! end
-function make_lin_sys_state end
 
 function __init__()
     register_definition_models()
@@ -250,33 +249,6 @@ include("kernel_backend/state.jl")
 include("kernel_backend/jacobian.jl")
 include("kernel_backend/backend.jl")
 include("simulate.jl")
-
-# rotate a 3d vector around the x axis in the yz plane - following the right hand rule
-function rotate_around_x(vec, angle::T) where T
-    result = zeros(T, 3)
-    result[1] = vec[1]
-    result[2] = cos(angle) * vec[2] - sin(angle) * vec[3]
-    result[3] = sin(angle) * vec[2] + cos(angle) * vec[3]
-    result
-end
-
-# rotate a 3d vector around the y axis in the xz plane - following the right hand rule
-function rotate_around_y(vec, angle::T) where T
-    result = zeros(T, 3)
-    result[1] = cos(angle) * vec[1] + sin(angle) * vec[3]
-    result[2] = vec[2]
-    result[3] = -sin(angle) * vec[1] + cos(angle) * vec[3]
-    result
-end
-
-# rotate a 3d vector around the z axis in the yx plane - following the right hand rule
-function rotate_around_z(vec, angle::T) where T
-    result = zeros(T, 3)
-    result[1] = cos(angle) * vec[1] - sin(angle) * vec[2]
-    result[2] = sin(angle) * vec[1] + cos(angle) * vec[2]
-    result[3] = vec[3]
-    result
-end
 
 """
     copy_examples()
