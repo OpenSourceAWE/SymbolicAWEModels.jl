@@ -97,6 +97,8 @@ $(TYPEDFIELDS)
     wing_definition::Union{Nothing, KiteGeometry.Wing} = nothing
     "What a model builds this wing's engine from, once its structure is built."
     vsm_seed::Union{Nothing, VSMSeed} = nothing
+    "The stations of this body that no wing owns."
+    stations_without_wing::Vector{Any} = Any[]
 end
 
 BodyModel(type, wing, angular_damping, world_frame_damping, body_frame_damping,

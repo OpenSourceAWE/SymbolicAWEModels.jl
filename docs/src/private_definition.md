@@ -57,7 +57,6 @@ SymbolicAWEModels.with_field
 SymbolicAWEModels.point_type
 SymbolicAWEModels.per_axis
 SymbolicAWEModels.point_model
-SymbolicAWEModels.segment_model
 SymbolicAWEModels.material_unit_stiffness
 SymbolicAWEModels.to_float64
 SymbolicAWEModels.station_model
@@ -85,7 +84,6 @@ SymbolicAWEModels.axis_column
 
 ```@docs
 SymbolicAWEModels.system_definition
-SymbolicAWEModels.attach_definition!
 SymbolicAWEModels.replace_with_rows!
 SymbolicAWEModels.station_row
 SymbolicAWEModels.with_ends!

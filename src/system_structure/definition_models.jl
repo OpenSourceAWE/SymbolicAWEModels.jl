@@ -332,7 +332,7 @@ The columns of a KiteGeometry `tubes` row with model `timoshenko`, a
 
 $(TYPEDFIELDS)
 """
-struct TimoshenkoTubeModel <: KiteGeometry.AbstractModel
+mutable struct TimoshenkoTubeModel <: KiteGeometry.AbstractModel
     "Axial rigidity [N]."
     EA::Union{Nothing, Float64}
     "Shear rigidity [N]."
@@ -351,7 +351,14 @@ struct TimoshenkoTubeModel <: KiteGeometry.AbstractModel
     anchor_a::Union{Nothing, Vector{Float64}}
     "Tube end in the second body's frame [m]."
     anchor_b::Union{Nothing, Vector{Float64}}
+    "The element a structure built in Julia is simulated as, `nothing` for one read from a
+    document."
+    simulated::Any
+    TimoshenkoTubeModel(EA, GA, GJ, EIy, EIz, shear_coeff, damping, anchor_a, anchor_b) = new(EA, GA, GJ, EIy, EIz, shear_coeff, damping, anchor_a, anchor_b, nothing)
 end
+KiteGeometry.model_columns(::Type{TimoshenkoTubeModel}) =
+    (:EA, :GA, :GJ, :EIy, :EIz, :shear_coeff, :damping, :anchor_a, :anchor_b)
+
 
 """
     ElasticTubeModel
@@ -361,7 +368,7 @@ The columns of a KiteGeometry `tubes` row with model `elastic`, an
 
 $(TYPEDFIELDS)
 """
-struct ElasticTubeModel <: KiteGeometry.AbstractModel
+mutable struct ElasticTubeModel <: KiteGeometry.AbstractModel
     "Axial stiffness [N/m]."
     stiffness_axial::Union{Nothing, Float64}
     "Shear stiffness [N/m]."
@@ -376,7 +383,14 @@ struct ElasticTubeModel <: KiteGeometry.AbstractModel
     anchor_a::Union{Nothing, Vector{Float64}}
     "Tube end in the second body's frame [m]."
     anchor_b::Union{Nothing, Vector{Float64}}
+    "The element a structure built in Julia is simulated as, `nothing` for one read from a
+    document."
+    simulated::Any
+    ElasticTubeModel(stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping, anchor_a, anchor_b) = new(stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping, anchor_a, anchor_b, nothing)
 end
+KiteGeometry.model_columns(::Type{ElasticTubeModel}) =
+    (:stiffness_axial, :stiffness_shear, :stiffness_torsion, :stiffness_bending, :damping, :anchor_a, :anchor_b)
+
 
 """
     register_definition_models()

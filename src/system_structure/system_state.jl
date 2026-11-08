@@ -115,7 +115,7 @@ state from those columns and every other property from its component. It holds t
 run's settings `set`, its atmosphere `am`, its `wind_mode` and its `transforms`. Any
 other property, `tubes` among them, is the structure's.
 """
-mutable struct SystemState{SS, ST <: SysState}
+mutable struct SystemState{SS, ST <: SysState, R <: NamedTuple}
     const structure::SS
     const sysstate::ST
     const cache::RunCache
@@ -128,7 +128,7 @@ mutable struct SystemState{SS, ST <: SysState}
     "the number of wings, whose orientation frames come before the bodies'"
     const n_wings::Int
     "the rows of the points, stations, segments, pulleys, tethers and winches, typed"
-    const rows::NamedTuple
+    const rows::R
     "the tubes as this run simulates them"
     const tubes::NamedCollection{Tube}
     "the records of the bodies, built once: a body's type is its row's, which differs
@@ -211,9 +211,14 @@ function run_tubes(sys)
         tube.body_a_idx = resolve_ref(tube.body_a_ref, body_names, "rigid_body")
         tube.body_b_idx = resolve_ref(tube.body_b_ref, body_names, "rigid_body")
     end
+    init_tube_rest!.(tubes, Ref(sys.bodies))
     return tubes
 end
-run_tube(sys, tube) = tube.model isa AbstractTubeModel ? tube : definition_tube(sys, tube)
+function run_tube(sys, tube)
+    tube.model isa AbstractTubeModel && return tube
+    isnothing(tube.model.simulated) || return tube.model.simulated
+    return definition_tube(sys, tube)
+end
 
 """`vsm_set`, else the one the wings of `sys` were built with."""
 function model_vsm_set(sys, vsm_set)
@@ -485,7 +490,7 @@ aero mode, with this run's VSM engine where it has one.
                                 sysstate(r).aero_moment_KA_z, index(r))
     turn_rate => (wing_rates(r).turn_rate, derived(:turn_rate))
     turn_acc => ColumnVec3(sysstate(r).turn_acc_x, sysstate(r).turn_acc_y,
-                           sysstate(r).turn_acc_z, body_frame(r))
+                           sysstate(r).turn_acc_z, index(r))
     elevation => (sysstate(r).elevations[index(r)],
                   sysstate(r).elevations[index(r)] = value)
     elevation_vel => (wing_rates(r).elevation_vel, derived(:elevation_vel))

@@ -19,12 +19,9 @@ The old name of KiteGeometry's `SystemDefinition`: a kite system's points, segme
 tethers, winches, wings, bodies and tubes as rows of the same type a structure document
 holds. Its `wings` are KiteGeometry's rows, each a wing's frame; a wing's body is the first
 of `bodies` under the same name. `sys.stations` lists the `spanwise_stations` and the
-stations of a body that is no wing.
+stations a body that is no wing owns, kept on that body.
 """
 const SystemStructure = KiteGeometry.SystemDefinition
-
-"""The key of the `extras` of a structure holding the stations no wing owns."""
-const STATIONS_WITHOUT_WING = "stations_without_wing"
 
 """The bodies of the wings of `sys`, the first of its `bodies`."""
 wing_bodies(sys) = sys.wings
@@ -33,7 +30,9 @@ wing_bodies(sys::KiteGeometry.SystemDefinition) = view(sys.bodies, 1:length(sys.
 """The stations of `sys`: its `spanwise_stations`, then the ones no wing owns."""
 function structure_stations(sys)
     stations = collect(Station, getfield(sys, :spanwise_stations))
-    append!(stations, get(getfield(sys, :extras), STATIONS_WITHOUT_WING, Station[]))
+    for body in getfield(sys, :bodies)
+        append!(stations, body_model(body).stations_without_wing)
+    end
     return NamedCollection(stations)
 end
 
@@ -130,18 +129,14 @@ function endpoint_idx(tether, ref, point_names, points)
 end
 
 """
-    expand_auto_tethers!(points, segments, tethers, set)
+    expand_tethers!(points, segments, tethers, materials, set)
 
-For Route 2 tethers (auto-generation), create intermediate DYNAMIC
-points and segments, each carrying the tether's material and its
-`compression_frac`/`compression_damping_frac`. Must be called before
+Expand each segment-count tether through KiteGeometry's `expand_tether!`, adding its inner
+points and its segments, which carry its material and spring. Must be called before
 `assign_indices_and_resolve!`.
-
-Detects Route 2 tethers by checking `start_point_ref !== nothing`
-and `segment_refs` names not yet present in `segments`.
 """
-function expand_auto_tethers!(points::Vector{Point}, segments::AbstractVector,
-                              tethers::Vector{Tether}, materials, set::Settings)
+function expand_tethers!(points::Vector{Point}, segments::AbstractVector,
+                         tethers::Vector{Tether}, materials, set::Settings)
     point_transforms = fill(nothing, length(points))
     table = KiteGeometry.MaterialTable(materials, Dict{String, Any}())
     seg_names = Set{Symbol}(Symbol(segment.name) for segment in segments)
@@ -781,7 +776,7 @@ function SystemStructure(name::AbstractString, set;
     # Expand Route 2 tethers (auto-generate points/segments)
     materials = isnothing(definition) ? KiteGeometry.Material[] : definition.materials
     segments = convert(Vector{Segment}, segments)
-    expand_auto_tethers!(points, segments, tethers, materials, set)
+    expand_tethers!(points, segments, tethers, materials, set)
     segments = SegmentRow[structure_segment!(materials, segment, set) for segment in segments]
 
     # Assign indices and resolve all symbolic references to numeric indices.
@@ -951,7 +946,7 @@ function SystemStructure(name::AbstractString, set;
     for wing in sys_struct.wings
         build_panel_station_map!(wing.aero, wing, sys_struct)
     end
-    system = something(definition, system_definition(sys_struct))
+    system = isnothing(definition) ? system_definition(sys_struct) : definition
     foreach(wing -> detach_vsm_engine!(wing, vsm_set), sys_struct.wings)
     return system
 end

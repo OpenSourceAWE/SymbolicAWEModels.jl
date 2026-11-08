@@ -44,7 +44,7 @@ using LinearAlgebra
     write_pressure_fixture(data_path)
 
     set, sys = load_pressure_sys(data_path, AeroPressure(; live_polars=true))
-    wing = sys.wings[1]
+    wing = sys.bodies[1]
     mode = wing.aero
     panels = wing.vsm_aero.panels
 
@@ -269,7 +269,7 @@ using LinearAlgebra
     # to be a second scatter rather than a second polar source.
     @testset "against the tabulated mode" begin
         set_t, sys_t = load_pressure_sys(data_path, AeroPressure())
-        wing_t = sys_t.wings[1]
+        wing_t = sys_t.bodies[1]
         mode_t = wing_t.aero
         @test mode.station_point == mode_t.station_point
         @test mode.node_residual_share == mode_t.node_residual_share

@@ -42,8 +42,8 @@ SystemStructure(::SystemDefinition, ::Settings)
 
 ## Structure documents
 
-A `SystemStructure` holds the KiteGeometry `SystemDefinition` of its initial pose,
-and reads and writes as that definition's awesIO *structure document*: one
+A `SystemStructure` is a KiteGeometry `SystemDefinition`, and reads and writes as its
+awesIO *structure document*: one
 `headers`/`units`/`data` table per block, conforming to the `structure_schema.yml`
 KiteGeometry ships. YAML and JSON are two encodings of the one document, and the file
 extension picks between them. Every position is in the ENU world frame, each body at
@@ -52,11 +52,9 @@ do not survive a round trip. `save_log(logger, sys, name)` writes a log that car
 the document as JSON under the metadata key `topology`.
 
 ```@docs
-structure_document(::SystemStructure)
 sys_struct_from_document
 save_structure_document
 load_structure_document
-save_log(::Logger, ::SystemStructure)
 ```
 
 ## System configuration
@@ -79,6 +77,7 @@ init!(sam)
 
 ```@docs
 place!
+place_structure!
 place_transforms!(::SystemState, ::Any)
 Pose(::SystemState)
 start_run!

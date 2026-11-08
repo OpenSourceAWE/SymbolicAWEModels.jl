@@ -41,9 +41,9 @@ using LinearAlgebra
         system_name="2plate_refine", set, vsm_set)
 
     @test length(sys_refine.wings) == 1
-    @test sys_refine.wings[1].dynamics_type == PARTICLE_DYNAMICS
+    @test sys_refine.bodies[1].dynamics_type == PARTICLE_DYNAMICS
     @test length(sys_refine.stations) == 3
-    @test length(sys_refine.wings[1].station_idxs) == 3
+    @test length(sys_refine.bodies[1].station_idxs) == 3
 
     # ── RIGID_DYNAMICS with YAML-defined stations ───────
     # rigid_structural_geometry.yaml has 3 explicit stations
@@ -53,7 +53,7 @@ using LinearAlgebra
         system_name="2plate_quat", set, vsm_set,
         dynamics_type=RIGID_DYNAMICS)
 
-    wing = sys_quat.wings[1]
+    wing = sys_quat.bodies[1]
     @test wing.dynamics_type == RIGID_DYNAMICS
     @test length(sys_quat.stations) == 3
     @test length(wing.station_idxs) == 3

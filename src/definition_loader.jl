@@ -213,7 +213,7 @@ function definition_tube(definition, tube)
     tube_model = tube.model
     columns = (; (field => getfield(tube_model, field)
                   for field in fieldnames(typeof(tube_model))
-                  if !(field in (:anchor_a, :anchor_b)) &&
+                  if !(field in (:anchor_a, :anchor_b, :simulated)) &&
                      !isnothing(getfield(tube_model, field)))...)
     model = tube_model isa ElasticTubeModel ? ElasticTube(; columns...) :
         TimoshenkoTube(; columns...)

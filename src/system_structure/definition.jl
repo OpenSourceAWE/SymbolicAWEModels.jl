@@ -11,12 +11,12 @@ the centre of its own mass.
 """
 function system_definition(sys)
     materials = sys.materials
-    wingless = Station[station for station in sys.stations
-                       if isnothing(station_wing_idx(sys, station))]
+    for station in sys.stations
+        isnothing(station_wing_idx(sys, station)) || continue
+        push!(body_model(sys.bodies[station.wing_idx]).stations_without_wing, station)
+    end
     return SystemDefinition(;
         metadata=Metadata(; name=sys.name, n_points=length(sys.points)),
-        extras=OrderedDict{String, Any}(isempty(wingless) ? () :
-                                        (STATIONS_WITHOUT_WING => wingless,)),
         points=collect(sys.points),
         segments=collect(sys.segments),
         spanwise_stations=[station_row(sys, station) for station in sys.stations
@@ -135,6 +135,7 @@ function tube_row!(materials, sys, tube)
                          model.damping, anchors...) :
         TimoshenkoTubeModel(linear(:EA), linear(:GA), linear(:GJ), linear(:EIy),
                             linear(:EIz), model.shear_coeff, model.damping, anchors...)
+    row_model.simulated = tube
     return KiteGeometry.Tube(; name=definition_name(tube),
         bodies=(tube.body_a_idx, tube.body_b_idx), tube.diameter, tube.pressure,
         material=material!(materials, string(tube.law), tube_law_parameters(tube.law)),

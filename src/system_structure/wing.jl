@@ -569,7 +569,7 @@ Base.getindex(positions::PointPositions, i) =
     getproperty(positions.points[i], positions.field)
 
 """`ref_pt` as KiteGeometry's reference points: pairs of index and weight."""
-ref_points(ref_pt::WeightedRefPoints) = collect(zip(ref_pt.ids, ref_pt.weights))
+ref_points(ref_pt::WeightedRefPoints) = [id => weight for (id, weight) in zip(ref_pt.ids, ref_pt.weights)]
 
 """
     get_ref_position_from_points(points, ref_pt; field=:pos_w)

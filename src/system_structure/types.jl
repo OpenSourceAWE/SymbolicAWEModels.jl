@@ -1077,7 +1077,7 @@ read the references the row gives, `nothing` for an end it leaves open.
 Can be constructed two ways:
 - **Route 1** (explicit segments): Provide segment references directly.
 - **Route 2** (auto-generation): Provide start/end points and `n_segments`;
-  intermediate points and segments are created by `expand_auto_tethers!`.
+  intermediate points and segments are created by `expand_tethers!`.
 
 `unit_stiffness` is either a `Real` (linear) or a callable `F(ε)` of the axial
 strain returning force [N]; a callable propagates to every auto-generated segment
@@ -1207,7 +1207,7 @@ end
            tether_force=nothing, stretch_frac=nothing)
 
 Route 2: Construct a `Tether` for auto-generation of intermediate
-points and segments by `expand_auto_tethers!`.
+points and segments by `expand_tethers!`.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the tether.

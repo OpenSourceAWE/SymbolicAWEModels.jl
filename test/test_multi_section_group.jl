@@ -146,8 +146,8 @@ end
         both_yaml; system_name="rigid_total_mass", set, vsm_set,
         dynamics_type=RIGID_DYNAMICS)
     both, _ = @test_logs min_level=Base.CoreLogging.Warn load_both()
-    @test both.wings[1].extra_mass == 2.0
-    @test both.wings[1].total_mass ≈ 2.0 + riding_mass(both, both.wings[1])
+    @test both.bodies[1].extra_mass == 2.0
+    @test both.bodies[1].total_mass ≈ 2.0 + riding_mass(both, both.bodies[1])
 end
 
 @testset "n_stations > n_unrefined errors" begin

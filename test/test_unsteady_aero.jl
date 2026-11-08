@@ -60,9 +60,9 @@ function build_unsteady_case(root, tag; apparent_mass=0.0, wagner=false,
     sys, transforms = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
         system_name=tag, set, vsm_set, aero_mode=ContinuousAero())
-    sys.wings[1].vsm_seed.unsteady.apparent_mass = apparent_mass
-    sys.wings[1].vsm_seed.unsteady.wagner = wagner
-    sys.wings[1].vsm_seed.unsteady.wagner_rates = rates
+    sys.bodies[1].vsm_seed.unsteady.apparent_mass = apparent_mass
+    sys.bodies[1].vsm_seed.unsteady.wagner = wagner
+    sys.bodies[1].vsm_seed.unsteady.wagner_rates = rates
     return set, sys, transforms
 end
 
@@ -76,7 +76,7 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
     @testset "apparent mass" begin
         set, sys, _ = build_unsteady_case(root, "am_on"; apparent_mass=1.0)
         wing = SystemState(sys; set).wings[1]
-        points = wing_points(sys, wing)
+        points = wing_points(SystemState(sys; set), wing)
 
         rho = 1.225
         chord, width = panel_chord_width(wing)
@@ -182,8 +182,8 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
         set, slow, _ = build_unsteady_case(root, "wag_tune"; wagner=true,
                                            rates=(0.02, 0.15))
         slow_hash = get_sys_struct_hash(SystemState(slow; set))
-        slow.wings[1].vsm_seed.unsteady.wagner_rates = [0.0455, 0.3]
-        slow.wings[1].vsm_seed.unsteady.wagner_gains = [0.2, 0.4]
+        slow.bodies[1].vsm_seed.unsteady.wagner_rates = [0.0455, 0.3]
+        slow.bodies[1].vsm_seed.unsteady.wagner_gains = [0.2, 0.4]
         @test get_sys_struct_hash(SystemState(slow; set)) == slow_hash
 
         off_set, off, _ = build_unsteady_case(root, "wag_tune"; wagner=false)

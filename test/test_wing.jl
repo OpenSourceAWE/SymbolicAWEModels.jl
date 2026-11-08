@@ -120,7 +120,7 @@ end
 
                 @test length(sys.wings) == 1
                 @test haskey(sys.wings, :main_wing)
-                wing = sys.wings[:main_wing]
+                wing = sys.bodies[:main_wing]
                 @test wing.dynamics_type == expected_dynamics_type
 
                 @test haskey(sys.points, :le_left)
@@ -151,7 +151,7 @@ end
                 @show sam.state.wings[1].heading
 
                 sys = sam.state
-                wing = sys.wings[:main_wing]
+                wing = sys.bodies[:main_wing]
                 init_wing_pos = copy(wing.pos_w)
                 init_kcu_pos = copy(sys.points[:kcu].pos_w)
 

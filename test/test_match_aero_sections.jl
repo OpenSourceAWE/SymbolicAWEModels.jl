@@ -179,9 +179,9 @@ vsm_set = VortexStepMethod.VSMSettings(
             "\n    # Right section" => "\n" * extra_sections * "\n    # Right section")
         write(joinpath(data_path, "aero_geometry_5_sections.yaml"), geometry)
         vsm_set_5 = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
-        vsm_set_5.wings[1].geometry_file = "aero_geometry_5_sections.yaml"
-        vsm_set_5.wings[1].use_prior_polar = true
-        vsm_set_5.wings[1].n_panels = 8
+        vsm_set_5.bodies[1].geometry_file = "aero_geometry_5_sections.yaml"
+        vsm_set_5.bodies[1].use_prior_polar = true
+        vsm_set_5.bodies[1].n_panels = 8
 
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;

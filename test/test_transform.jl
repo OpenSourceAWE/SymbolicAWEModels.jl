@@ -598,8 +598,8 @@ using LinearAlgebra
                            for body in sys.bodies])
             base_pos = base_position(Pose(sys), sys.transforms, tf_child)
             curr_base_pos = base_position(design, sys.transforms, tf_child)
-            @test base_pos == sys.wings[:plate_wing].pos_w
-            @test curr_base_pos == sys.wings[:plate_wing].pos_ENU
+            @test base_pos == sys.bodies[:plate_wing].pos_w
+            @test curr_base_pos == sys.bodies[:plate_wing].pos_ENU
         end
 
         @testset "Child points translated from the authoring geometry" begin
@@ -613,7 +613,7 @@ using LinearAlgebra
 
         @testset "Child points near parent wing" begin
             sys = sam_c.state
-            wing_pos = sys.wings[1].pos_w
+            wing_pos = sys.bodies[1].pos_w
             top_pos = sys.points[:top].pos_w
             right_pos = sys.points[:right].pos_w
             left_pos = sys.points[:left].pos_w

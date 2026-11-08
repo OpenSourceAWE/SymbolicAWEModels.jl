@@ -156,7 +156,7 @@ end
         @test isnothing(sys.bodies[1].aero.engine)
         first_state = SymbolicAWEModels.SystemState(sys; set)
         second_state = SymbolicAWEModels.SystemState(sys; set)
-        @test first_state.wings[1].vsm_wing !== second_state.wings[1].vsm_wing
+        @test first_state.bodies[1].vsm_wing !== second_state.bodies[1].vsm_wing
         @test isnothing(sys.bodies[1].aero.engine)
     end
 

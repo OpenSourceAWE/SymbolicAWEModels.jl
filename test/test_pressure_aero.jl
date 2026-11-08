@@ -68,7 +68,7 @@ end
     n_node = write_pressure_fixture(data_path)
 
     set, sys = load_pressure_sys(data_path, AeroPressure())
-    wing = sys.wings[1]
+    wing = sys.bodies[1]
     mode = wing.aero
     wing_pts = [p for p in sys.points if p.is_wing_node && p.wing_idx == wing.idx]
 
@@ -325,7 +325,7 @@ end
         write_pressure_fixture(data_path; camber, uniform_cp=1.0)
 
         set, sys = load_pressure_sys(data_path, AeroPressure())
-        wing = sys.wings[1]
+        wing = sys.bodies[1]
         mode = wing.aero
         set_apparent_wind!(wing, SimFloat[15.0, 0.0, 3.5])
         wing.ω_b .= SimFloat[0.0, 0.0, 0.0]
