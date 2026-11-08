@@ -145,4 +145,28 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         rider = sys.points[:rider]
         @test rider.tube_idx == sys.tubes[:strut].idx
     end
+
+    @testset "a segment's damping is resolved when its model is built" begin
+        material = KiteGeometry.Material(; name=:line, law="linear",
+            parameters=Dict{String, Any}("density" => 724.0, "youngs_modulus" => 1.0e9))
+        materials = [material]
+        spring_row(; columns...) = KiteGeometry.Segment(; name=:line_seg, points=(1, 2),
+            rest_length=1.0, diameter=0.002, material=1,
+            model=SymbolicAWEModels.SegmentSpring(; columns...))
+        stiffness = KiteGeometry.unit_stiffness(material, 0.002)
+        resolved(set=(; rel_damping=0.1); columns...) =
+            SymbolicAWEModels.resolve_segment(spring_row(; columns...), materials, set)
+        @test resolved(; unit_damping=3.0).unit_damping == 3.0
+        @test resolved(; damping_per_stiffness=0.002).unit_damping == 0.002 * stiffness
+        @test resolved().unit_damping == 0.1 * stiffness
+        @test_throws "not both" resolved(; unit_damping=3.0, damping_per_stiffness=0.002)
+        @test_logs (:warn, r"no rel_damping") resolved((; rel_damping=0.0))
+        @test resolved().compression_frac == 0.1
+        @test resolved().compression_damping_frac == 1.0
+        @test resolved(; compression_frac=0.2).compression_frac == 0.2
+        law = KiteGeometry.Material(; name=:law, law="unit_stiffness",
+            parameters=Dict{String, Any}("density" => 724.0, "unit_stiffness" => identity))
+        @test_throws "give `unit_damping` for a nonlinear" SymbolicAWEModels.resolve_segment(
+            spring_row(), [law], (; rel_damping=0.1))
+    end
 end

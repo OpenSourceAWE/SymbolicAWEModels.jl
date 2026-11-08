@@ -98,7 +98,7 @@ end
     # Exercise the refresh directly (no ODE compile): set the operating point the
     # way update_sys_struct!/sync_aero_density! would, then distribute. Alpha is
     # 13°, clear of the α ≈ 8° sign change of the body-origin moment.
-    wing.va_b .= SimFloat[15.0, 0.0, 3.5]
+    set_apparent_wind!(wing, SimFloat[15.0, 0.0, 3.5])
     wing.ω_b .= SimFloat[0.0, 0.0, 0.0]
     wing.vsm_solver.density = 1.225
     va_vals = zeros(SimFloat, 3, length(sys.points))
@@ -285,7 +285,7 @@ end
 
         # The pattern scales with dynamic pressure and nothing else.
         traction_before = copy(mode.traction)
-        wing.va_b .*= 2.0
+        set_apparent_wind!(wing, 2.0 .* wing.va_b)
         refresh_particle_aero!(mode, wing, sys.points, 2.0 .* va_vals)
         @test isapprox(mode.traction, 4.0 .* traction_before; rtol=1e-6)
 
@@ -293,7 +293,7 @@ end
         # bounded, not exact: the circulation solve is warm-started from the
         # previous gamma (`use_gamma_prev`), so the converged state carries a
         # little history. A mode that latched state would drift by O(1).
-        wing.va_b ./= 2.0
+        set_apparent_wind!(wing, wing.va_b ./ 2.0)
         refresh_particle_aero!(mode, wing, sys.points, va_vals)
         @test isapprox(mode.traction, traction_before; rtol=1e-2)
     end
@@ -302,7 +302,7 @@ end
     # offsets included — those are what the symbolic scatter adds on top of the
     # live panel force, so leaving them stale keeps applying a load.
     @testset "no stale load below vsm_min_wind" begin
-        wing.va_b .= SimFloat[0.1, 0.0, 0.0]
+        set_apparent_wind!(wing, SimFloat[0.1, 0.0, 0.0])
         refresh_particle_aero!(mode, wing, sys.points, 0.0 .* va_vals)
         @test all(iszero, mode.v_ind)
         @test all(iszero, mode.traction)
@@ -327,7 +327,7 @@ end
         set, sys = load_pressure_sys(data_path, AeroPressure())
         wing = sys.wings[1]
         mode = wing.aero
-        wing.va_b .= SimFloat[15.0, 0.0, 3.5]
+        set_apparent_wind!(wing, SimFloat[15.0, 0.0, 3.5])
         wing.ω_b .= SimFloat[0.0, 0.0, 0.0]
         wing.vsm_solver.density = 1.225
         va_vals = zeros(SimFloat, 3, length(sys.points))

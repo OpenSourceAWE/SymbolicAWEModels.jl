@@ -149,6 +149,23 @@ using LinearAlgebra
             # ================================================================
             # Physics Test 2b: A start velocity is the wing's own rate
             # ================================================================
+            @testset "azimuth rates have the sign of a finite difference of azimuth" begin
+                azimuth(t) = 0.3 + 0.4t + 0.2t^2
+                position(t) = 100.0 .* [cos(azimuth(t)), sin(azimuth(t)), 0.5]
+                t, dt = 1.0, 1e-5
+                velocity = (position(t + dt) - position(t - dt)) / 2dt
+                acceleration = (position(t + dt) - 2position(t) + position(t - dt)) / dt^2
+                rates = SymbolicAWEModels.wing_scalar_kinematics(; rel_pos=position(t),
+                    e_x=[1.0, 0.0, 0.0],
+                    R_t_to_w=SymbolicAWEModels.sym_calc_R_t_to_w(position(t)),
+                    R_v_to_w=[1.0 0 0; 0 1.0 0; 0 0 1.0], R_b_to_w=[1.0 0 0; 0 1.0 0; 0 0 1.0],
+                    vel=velocity, acc=acceleration, omega_b=zeros(3), alpha_b=zeros(3),
+                    va_b=[1.0, 0.0, 0.0], twist_offset=0.0)
+                @test rates.azimuth ≈ azimuth(t) atol=1e-8
+                @test rates.azimuth_vel ≈ 0.4 + 0.4t atol=1e-6
+                @test sign(rates.azimuth_acc) == sign(0.4)
+            end
+
             @testset "Start velocity round-trips into the wing rates" begin
                 sys = sam.state
                 tf = sys.transforms[:main_transform]
@@ -164,6 +181,8 @@ using LinearAlgebra
                 write_wing_scalars!(wing, sys.points;
                     base_point=tf.base_point)
 
+                rel_pos = wing.pos_w - tf.base_pos
+                @test atan(rel_pos[2], rel_pos[1]) ≈ tf.azimuth atol=1e-8
                 @test wing.elevation_vel ≈ tf.elevation_vel atol=1e-8
                 @test wing.azimuth_vel ≈ tf.azimuth_vel atol=1e-8
 

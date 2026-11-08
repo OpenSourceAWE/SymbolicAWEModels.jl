@@ -83,7 +83,7 @@ using LinearAlgebra
         @test all(iszero, mode.panel_station)
     end
 
-    wing.va_b .= SimFloat[15.0, 0.0, 3.5]
+    set_apparent_wind!(wing, SimFloat[15.0, 0.0, 3.5])
     wing.ω_b .= SimFloat[0.0, 0.0, 0.0]
     wing.vsm_solver.density = 1.225
     va_vals = zeros(SimFloat, 3, length(sys.points))
@@ -280,7 +280,7 @@ using LinearAlgebra
         @test SymbolicAWEModels.aero_hash_id(mode) !=
               SymbolicAWEModels.aero_hash_id(mode_t)
 
-        wing_t.va_b .= wing.va_b
+        set_apparent_wind!(wing_t, wing.va_b)
         wing_t.ω_b .= wing.ω_b
         wing_t.vsm_solver.density = wing.vsm_solver.density
         va_t = zeros(SimFloat, 3, length(sys_t.points))

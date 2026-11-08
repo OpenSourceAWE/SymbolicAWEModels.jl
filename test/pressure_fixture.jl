@@ -83,3 +83,7 @@ function load_pressure_sys(data_path, aero_mode)
         set, vsm_set, aero_mode)
     return set, SystemState(sys)
 end
+
+"""Give `wing` the apparent wind `va_b` in its body frame, through the wind on it."""
+set_apparent_wind!(wing, va_b) =
+    wing.wind_vec .= wing.R_b_to_w * collect(va_b) .+ collect(wing.vel_w)
