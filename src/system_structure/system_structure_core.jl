@@ -13,41 +13,36 @@ This file contains:
 # ==================== SYSTEM STRUCTURE ==================== #
 
 """
-    struct SystemStructure
+    SystemStructure
 
-A discrete mass-spring-damper representation of a kite system: all components of the
-physical model, from points and segments to winches and wings.
-
-# Components
-- [`Point`](@ref): Point masses.
-- [`Station`](@ref): Collections of points for wing deformation.
-- [`Segment`](@ref): Spring-damper elements.
-- [`Pulley`](@ref): Elements that redistribute line lengths.
-- [`Tether`](@ref): Collections of segments controlled by a winch.
-- [`Winch`](@ref): Ground-based winches.
-- [`Body`](@ref): Rigid bodies; a wing is a body that carries aero, so
-  `sys.wings` holds the subset of `sys.bodies` that does.
-- [`Tube`](@ref): Inflated tubes between two bodies; a chain of them forms a beam.
+The old name of KiteGeometry's `SystemDefinition`: a kite system's points, segments,
+tethers, winches, wings, bodies and tubes as rows of the same type a structure document
+holds. Its `wings` are KiteGeometry's rows, each a wing's frame; a wing's body is the first
+of `bodies` under the same name. `sys.stations` lists the `spanwise_stations` and the
+stations of a body that is no wing.
 """
-mutable struct SystemStructure
-    const name::String
-    const points::NamedCollection{Point}
-    const stations::NamedCollection{Station}
-    const segments::NamedCollection{SegmentRow}
-    const pulleys::NamedCollection{Pulley}
-    const tethers::NamedCollection{Tether}
-    const winches::NamedCollection{Winch}
-    "All bodies (plain bodies + wings). `wings` holds those of them that carry aero."
-    const bodies::NamedCollection{Body}
-    "The `bodies` that carry aero, which are prepended to `bodies`, so a wing's
-    position here equals its `idx`. The same objects, not copies."
-    const wings::NamedCollection{Body}
-    const tubes::NamedCollection{Tube}
-    "The materials the segments and tubes name."
-    const materials::AbstractVector
-    "The KiteGeometry definition of the system in its initial pose."
-    definition::Union{Nothing, SystemDefinition}
+const SystemStructure = KiteGeometry.SystemDefinition
+
+"""The key of the `extras` of a structure holding the stations no wing owns."""
+const STATIONS_WITHOUT_WING = "stations_without_wing"
+
+"""The bodies of the wings of `sys`, the first of its `bodies`."""
+wing_bodies(sys) = sys.wings
+wing_bodies(sys::KiteGeometry.SystemDefinition) = view(sys.bodies, 1:length(sys.wings))
+
+"""The stations of `sys`: its `spanwise_stations`, then the ones no wing owns."""
+function structure_stations(sys)
+    stations = collect(Station, getfield(sys, :spanwise_stations))
+    append!(stations, get(getfield(sys, :extras), STATIONS_WITHOUT_WING, Station[]))
+    return NamedCollection(stations)
 end
+
+function Base.getproperty(sys::KiteGeometry.SystemDefinition, name::Symbol)
+    name === :stations && return structure_stations(sys)
+    name === :name && return getfield(getfield(sys, :metadata), :name)
+    return getfield(sys, name)
+end
+
 
 """
     calc_heading(sys::SystemState)
@@ -749,7 +744,7 @@ of the same structural shape should share one.
 # Returns
 - `SystemStructure`: A complete system ready for building a `SymbolicAWEModel`.
 """
-function SystemStructure(name, set;
+function SystemStructure(name::AbstractString, set;
         points=Point[],
         stations=Station[],
         segments=Segment[],
@@ -937,28 +932,26 @@ function SystemStructure(name, set;
                 wing, stations, points, bodies, set, body_groups)
     end
 
-    # Name dictionaries were already built by assign_indices_and_resolve!
     wing_bodies = filter(is_wing, bodies)
-    sys_struct = SystemStructure(name,
-        NamedCollection{Point}(points, point_names_dict),
-        NamedCollection{Station}(stations, station_names_dict),
-        NamedCollection{SegmentRow}(segments, segment_names_dict),
-        NamedCollection{Pulley}(pulleys, pulley_names_dict),
-        NamedCollection{Tether}(tethers, tether_names_dict),
-        NamedCollection{Winch}(winches, winch_names_dict),
-        NamedCollection{Body}(bodies, rigid_body_names_dict),
-        NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
-        NamedCollection{Tube}(tubes, tube_names_dict),
-        materials, definition)
-    placed || place!(sys_struct; ignore_l0, prn)
+    sys_struct = (; name,
+        points=NamedCollection{Point}(points, point_names_dict),
+        stations=NamedCollection{Station}(stations, station_names_dict),
+        segments=NamedCollection{SegmentRow}(segments, segment_names_dict),
+        pulleys=NamedCollection{Pulley}(pulleys, pulley_names_dict),
+        tethers=NamedCollection{Tether}(tethers, tether_names_dict),
+        winches=NamedCollection{Winch}(winches, winch_names_dict),
+        bodies=NamedCollection{Body}(bodies, rigid_body_names_dict),
+        wings=NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
+        tubes=NamedCollection{Tube}(tubes, tube_names_dict),
+        materials)
+    placed || place_structure!(sys_struct; ignore_l0, prn)
     init_derived_properties!(sys_struct; prn)
-    isnothing(definition) && attach_definition!(sys_struct)
 
     # Panel→flap station map (structural; needs placed bodies + built panels).
     for wing in sys_struct.wings
         build_panel_station_map!(wing.aero, wing, sys_struct)
-        detach_vsm_engine!(wing, vsm_set)
     end
-
-    return sys_struct
+    system = something(definition, system_definition(sys_struct))
+    foreach(wing -> detach_vsm_engine!(wing, vsm_set), sys_struct.wings)
+    return system
 end

@@ -127,6 +127,10 @@ mutable struct SystemState{SS, ST <: SysState}
     const body_slot0::Int
     "the number of wings, whose orientation frames come before the bodies'"
     const n_wings::Int
+    "the rows of the points, stations, segments, pulleys, tethers and winches, typed"
+    const rows::NamedTuple
+    "the tubes as this run simulates them"
+    const tubes::NamedCollection{Tube}
     "the records of the bodies, built once: a body's type is its row's, which differs
     from body to body"
     bodies::NamedCollection{ComponentState}
@@ -172,9 +176,14 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
                      stations=length(sys.stations), bodies=length(sys.bodies))
     no_records = NamedCollection(ComponentState[])
     built_segments = [resolve_segment(row, sys.materials, set) for row in sys.segments]
+    rows = (points=typed_rows(Point, sys.points), stations=typed_rows(Station, sys.stations),
+            segments=typed_rows(SegmentRow, sys.segments),
+            pulleys=typed_rows(Pulley, sys.pulleys), tethers=typed_rows(Tether, sys.tethers),
+            winches=typed_rows(Winch, sys.winches))
     state = SystemState(sys, SysState(P; counts..., precision=SimFloat), cache,
                         built_segments, point_segments(sys),
-                        first(position_slots(sys).bodies) - 1, length(sys.wings),
+                        first(position_slots(sys).bodies) - 1, length(sys.wings), rows,
+                        run_tubes(sys),
                         no_records, no_records, convert(Rows{Transform}, transforms),
                         set, model_vsm_set(sys, vsm_set),
                         isnothing(set) ? nothing : AtmosphericModel(set), wind_mode)
@@ -190,10 +199,26 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
     return start_run!(state)
 end
 
+"""`rows` as a collection of `T`."""
+typed_rows(::Type{T}, rows) where {T} = NamedCollection(T[row for row in rows])
+
+"""The tubes of `sys` as a run simulates them, built from the rows a document holds."""
+function run_tubes(sys)
+    body_names = build_name_dict(collect(sys.bodies))
+    tubes = NamedCollection(Tube[run_tube(sys, tube) for tube in sys.tubes])
+    for (i, tube) in enumerate(tubes)
+        tube.idx = i
+        tube.body_a_idx = resolve_ref(tube.body_a_ref, body_names, "rigid_body")
+        tube.body_b_idx = resolve_ref(tube.body_b_ref, body_names, "rigid_body")
+    end
+    return tubes
+end
+run_tube(sys, tube) = tube.model isa AbstractTubeModel ? tube : definition_tube(sys, tube)
+
 """`vsm_set`, else the one the wings of `sys` were built with."""
 function model_vsm_set(sys, vsm_set)
     isnothing(vsm_set) || return vsm_set
-    seeds = [wing.vsm_seed for wing in sys.wings if !isnothing(wing.vsm_seed)]
+    seeds = [wing.vsm_seed for wing in wing_bodies(sys) if !isnothing(wing.vsm_seed)]
     return isempty(seeds) ? nothing : first(seeds).vsm_set
 end
 
@@ -244,7 +269,7 @@ end
 
 """The records `R` of the structure's component collection `name`."""
 @inline records(R, state::SystemState, name) =
-    Records{R}(state, getproperty(getfield(state, :structure), name))
+    Records{R}(state, getproperty(getfield(state, :rows), name))
 
 # ==================== RECORDS ==================== #
 

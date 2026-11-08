@@ -95,7 +95,7 @@ function build_plate_kite(data_root)
     transforms = [Transform(; name=:main_tf, elevation=deg2rad(set.elevation),
         azimuth=0.0, heading=0.0, base_pos=zeros(3), base_point=1, body=1,
         points=collect(2:length(sys.points)), bodies=[1])]
-    place!(sys, transforms)
+    place_structure!(sys, transforms)
     return set, sys, transforms
 end
 

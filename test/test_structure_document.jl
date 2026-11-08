@@ -141,7 +141,7 @@ end
     @testset "a point is its definition row" for
             sys in (first(two_plate_kite(set, vsm_set)), pretensioned_tether(set))
         point = last(sys.points)
-        row = sys.definition.points[point.idx]
+        row = sys.points[point.idx]
         point.extra_mass = 2.0
         point.area = 0.3
         point.fix_static = true
@@ -153,17 +153,17 @@ end
 
     @testset "a model builds its own VSM engine" begin
         sys, _ = two_plate_kite(set, vsm_set)
-        @test isnothing(sys.wings[1].aero.engine)
+        @test isnothing(sys.bodies[1].aero.engine)
         first_state = SymbolicAWEModels.SystemState(sys; set)
         second_state = SymbolicAWEModels.SystemState(sys; set)
         @test first_state.wings[1].vsm_wing !== second_state.wings[1].vsm_wing
-        @test isnothing(sys.wings[1].aero.engine)
+        @test isnothing(sys.bodies[1].aero.engine)
     end
 
     @testset "a segment is its definition row" for
             sys in (first(two_plate_kite(set, vsm_set)), pretensioned_tether(set))
         segment = last(sys.segments)
-        row = last(sys.definition.segments)
+        row = last(sys.segments)
         segment.l0 = 1.5
         segment.diameter = 0.002
         segment.unit_damping = 3.0
@@ -181,7 +181,7 @@ end
             pretensioned_tether(set;
                                 winches=[Winch(:reel, set, [:line]; winch_point=:ground)]))
         winch = only(sys.winches)
-        row = sys.definition.winches[winch.idx]
+        row = sys.winches[winch.idx]
         winch.brake = 1.0
         winch.model.friction_epsilon = 3.0
         @test row.model.brake == 1.0
@@ -217,8 +217,8 @@ end
                                           prn=false)
         @test [point.pos_ENU for point in reread.points] ≈
               [point.pos_ENU for point in sys.points]
-        @test reread.wings[:main_wing].pos_ENU ≈ sys.wings[:main_wing].pos_ENU
-        @test reread.wings[:main_wing].Q_KA_to_ENU ≈ sys.wings[:main_wing].Q_KA_to_ENU
+        @test reread.bodies[:main_wing].pos_ENU ≈ sys.bodies[:main_wing].pos_ENU
+        @test reread.bodies[:main_wing].Q_KA_to_ENU ≈ sys.bodies[:main_wing].Q_KA_to_ENU
     end
 
     @testset "bodies and tubes round-trip through $extension" for
@@ -231,7 +231,7 @@ end
         reread = load_structure_document(path; set, prn=false)
         @test structure_document(reread) == document
         @test reread.bodies[:root].type == STATIC
-        @test reread.tubes[:beam].body_a_idx == reread.bodies[:root].idx
+        @test SymbolicAWEModels.SystemState(reread).tubes[:beam].body_a_idx == reread.bodies[:root].idx
         @test reread.tubes[:beam].model.EA ≈ 1.0e4
         @test reread.tubes[:spring].model.stiffness_axial ≈ 1.2e5
         @test reread.points[:hub_anchor].body_idx == reread.bodies[:hub].idx
@@ -241,7 +241,8 @@ end
             @test reread_body.inertia_principal ≈ body.inertia_principal
             @test com_w(reread_body) ≈ com_w(body)
         end
-        spring, reread_spring = sys.tubes[:spring], reread.tubes[:spring]
+        spring = SymbolicAWEModels.SystemState(sys).tubes[:spring]
+        reread_spring = SymbolicAWEModels.SystemState(reread).tubes[:spring]
         @test tube_end(reread, reread_spring) ≈ tube_end(sys, spring)
     end
 
@@ -293,6 +294,6 @@ end
         segments = Segment[Segment(:link, :ground, :top, strain -> 1000.0 * strain,
                                    10.0, 0.004; l0=1.0, density=724.0)]
         sys = SystemStructure("nonlinear_link", set; points, segments, prn=false)
-        @test_throws "awesIO#1" structure_document(sys)
+        @test_throws "awesIO#1" save_structure_document(joinpath(tmpdir, "nonlinear.yml"), sys)
     end
 end

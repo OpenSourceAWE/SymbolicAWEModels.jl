@@ -490,7 +490,7 @@ sam.state.bodies[2]  # logged at X/Y/Z slot slots.bodies[2]
 """
 function position_slots(sys_struct)
     n_points = length(sys_struct.points)
-    n_corners = count_aero_log_points(sys_struct.wings)
+    n_corners = count_aero_log_points(wing_bodies(sys_struct))
     n_wings = length(sys_struct.wings)
     n_bodies = length(sys_struct.bodies)
     base_wings = n_points + n_corners

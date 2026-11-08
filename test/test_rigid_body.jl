@@ -158,7 +158,7 @@ environment:
                        base_pos=[0.0, 0.0, 0.0], base_point=1, rot_point=[2 => 1.0],
                        body=1, points=[2], bodies=[1])
 
-        place!(sys3, [tf])
+        place_structure!(sys3, [tf])
 
         rb = sys3.bodies[:body3]
         r = 100.0 / sqrt(2)
@@ -169,7 +169,7 @@ environment:
         # the body-anchored point rides the rotated body
         @test sys3.points[:tip].pos_ENU ≈ rb.pos_ENU atol=1e-6
         # idempotent across a second reinit!
-        place!(sys3, [tf])
+        place_structure!(sys3, [tf])
         @test rb.pos_ENU ≈ KVec3(r, 0.0, r) atol=1e-6
     end
 

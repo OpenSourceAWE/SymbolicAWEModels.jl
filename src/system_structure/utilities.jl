@@ -894,7 +894,7 @@ function init_derived_properties!(sys_struct; prn::Bool=true)
 end
 
 """
-    place!(sys::SystemStructure, transforms=Transform[]; ignore_l0=false, prn=true)
+    place_structure!(sys::SystemStructure, transforms=Transform[]; ignore_l0=false, prn=true)
 
 Place `sys` in the world by KiteGeometry `transforms` and its tether lengths, and make
 where it lands its initial pose: its points' and bodies' `pos_ENU` and `Q_KA_to_ENU`, its
@@ -914,7 +914,9 @@ The `SystemStructure` constructor runs it with no transforms. Run again after a 
 changes, it places the structure anew from its initial pose. `prn` prints the info
 messages of step 2.
 """
-function KiteGeometry.place!(sys::SystemStructure, transforms=Transform[];
+KiteGeometry.place!(sys::SystemStructure; ignore_l0::Bool=false, prn::Bool=true) =
+    place_structure!(sys; ignore_l0, prn)
+function place_structure!(sys, transforms=Transform[];
                              ignore_l0::Bool=false, prn::Bool=true)
     state = SystemState(sys; transforms)
     reset_to_initial_pose!(state)

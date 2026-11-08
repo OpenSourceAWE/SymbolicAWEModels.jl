@@ -9,10 +9,14 @@ reference an index, a station only where it is a wing's, what only SymbolicAWEMo
 reads in the models it registers ([`register_definition_models`](@ref)), and each body at
 the centre of its own mass.
 """
-function system_definition(sys::SystemStructure)
+function system_definition(sys)
     materials = sys.materials
+    wingless = Station[station for station in sys.stations
+                       if isnothing(station_wing_idx(sys, station))]
     return SystemDefinition(;
         metadata=Metadata(; name=sys.name, n_points=length(sys.points)),
+        extras=OrderedDict{String, Any}(isempty(wingless) ? () :
+                                        (STATIONS_WITHOUT_WING => wingless,)),
         points=collect(sys.points),
         segments=collect(sys.segments),
         spanwise_stations=[station_row(sys, station) for station in sys.stations
@@ -24,41 +28,6 @@ function system_definition(sys::SystemStructure)
         bodies=[body_row(sys, body) for body in sys.bodies],
         tubes=[tube_row!(materials, sys, tube) for tube in sys.tubes],
         materials)
-end
-
-"""
-    attach_definition!(sys::SystemStructure)
-
-Give `sys` the definition [`system_definition`](@ref) writes from its components, each
-point, segment, station, pulley, tether, winch, body and wing of `sys` then being its
-row there.
-"""
-function attach_definition!(sys::SystemStructure)
-    definition = sys.definition = system_definition(sys)
-    for (components, rows) in ((sys.points, definition.points),
-                               (sys.segments, definition.segments),
-                               (sys.stations, definition.spanwise_stations),
-                               (sys.pulleys, definition.pulleys),
-                               (sys.tethers, definition.tethers),
-                               (sys.winches, definition.winches),
-                               (sys.bodies, definition.bodies),
-                               (sys.wings, definition.bodies))
-        replace_with_rows!(components.items, rows)
-    end
-    for (wing, row) in zip(sys.wings, definition.wings)
-        body_model(wing).wing_definition = row
-    end
-    return definition
-end
-
-"""Replace each of `components` by the row of `rows` that holds its model."""
-function replace_with_rows!(components, rows)
-    position = IdDict(component.model => i for (i, component) in enumerate(components))
-    for row in rows
-        i = get(position, row.model, nothing)
-        isnothing(i) || (components[i] = row)
-    end
-    return components
 end
 
 """The name a definition gives component `component`: its own, else its index."""
@@ -179,9 +148,7 @@ Write the pose `state` holds into its structure's definition, where it has one: 
 body's at the centre of its own mass and each wing's KA frame carried with its body.
 """
 function store_definition_pose!(state::SystemState)
-    sys = getfield(state, :structure)
-    definition = sys.definition
-    isnothing(definition) && return nothing
+    definition = getfield(state, :structure)
     for (row, wing) in zip(definition.wings, state.wings)
         R = quaternion_to_rotation_matrix(wing.Q_b_to_w) * initial_rotation(wing.row)'
         row.pos_ENU .= wing.pos_w + R * (row.pos_ENU - wing.row.pos_ENU)

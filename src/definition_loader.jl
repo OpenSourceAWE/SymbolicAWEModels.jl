@@ -296,22 +296,6 @@ unit_inertia_spec(value) = first(value) isa AbstractVector ?
 # ==================== STRUCTURE DOCUMENTS ==================== #
 
 """
-    structure_document(sys::SystemStructure)
-
-The awesIO structure document of `sys`'s definition in its initial pose, refusing one
-whose segments carry a nonlinear stiffness law, which the schema cannot hold yet
-(1-Bart-1/awesIO#1).
-"""
-function KiteGeometry.structure_document(sys::SystemStructure)
-    for material in sys.definition.materials
-        material.law == "unit_stiffness" && error("material $(material.name) is a " *
-            "nonlinear stiffness law, which a structure document cannot hold yet " *
-            "(1-Bart-1/awesIO#1)")
-    end
-    return structure_document(sys.definition)
-end
-
-"""
     sys_struct_from_document(document::AbstractDict; set=nothing, kwargs...)
 
 The `SystemStructure` of a parsed structure document, in the initial pose it gives. `set`
@@ -330,6 +314,11 @@ Write [`structure_document`](@ref)`(sys)` to `path`, as YAML for a `.yml` or `.y
 extension and as JSON for `.json`.
 """
 function save_structure_document(path::AbstractString, sys::SystemStructure)
+    for material in sys.materials
+        material.law == "unit_stiffness" && error("material $(material.name) is a " *
+            "nonlinear stiffness law, which a structure document cannot hold yet " *
+            "(1-Bart-1/awesIO#1)")
+    end
     document = structure_document(sys)
     write(path, document_format(path) == :json ? JSON.json(document, 2) :
                 YAML.write(document))
@@ -357,11 +346,3 @@ function document_format(path::AbstractString)
     error("$path: a structure document is written as .yml, .yaml or .json.")
 end
 
-"""
-    save_log(logger::Logger, sys::SystemStructure, name="sim_log"; path="")
-
-Save `logger` as an uncompressed .arrow file whose metadata holds the structure document
-of `sys` under the key `topology`.
-"""
-KiteUtils.save_log(logger::Logger, sys::SystemStructure, name="sim_log"; path="") =
-    save_log(logger, sys.definition, name, false; path)

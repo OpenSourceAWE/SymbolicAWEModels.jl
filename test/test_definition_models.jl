@@ -143,7 +143,7 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         sys, _ = load_sys_struct_from_yaml(file; system_name="tube_rider", set,
                                            aero_mode=AeroNone(), prn=false)
         rider = sys.points[:rider]
-        @test rider.tube_idx == sys.tubes[:strut].idx
+        @test rider.tube_idx == findfirst(tube -> tube.name == :strut, sys.tubes)
     end
 
     @testset "a segment's damping is resolved when its model is built" begin

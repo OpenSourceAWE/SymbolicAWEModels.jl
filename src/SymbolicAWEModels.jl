@@ -136,7 +136,7 @@ export animate
 export load_sys_struct_from_yaml
 export project_file
 export sys_struct_from_document
-export save_structure_document, load_structure_document
+export save_structure_document, load_structure_document, place_structure!
 export replay
 export record
 export plot_sphere_trajectory

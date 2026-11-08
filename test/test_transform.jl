@@ -584,7 +584,7 @@ using LinearAlgebra
                 heading=0.0, base_transform=1, rot_point=[point_idx(:top) => 1.0],
                 points=point_idx.([:top, :right, :left])),
         ]
-        place!(sys_c, transforms_c; prn=false)
+        place_structure!(sys_c, transforms_c; prn=false)
 
         sam_c = SymbolicAWEModel(set_c, sys_c; transforms=transforms_c)
         init!(sam_c)
