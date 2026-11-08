@@ -69,7 +69,6 @@ SymbolicAWEModels.reference
 SymbolicAWEModels.reference_column
 SymbolicAWEModels.references
 SymbolicAWEModels.references_column
-SymbolicAWEModels.open_end
 SymbolicAWEModels.check_point_anchor
 SymbolicAWEModels.tether_row
 SymbolicAWEModels.body_row

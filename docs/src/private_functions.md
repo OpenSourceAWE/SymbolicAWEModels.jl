@@ -54,7 +54,6 @@ SymbolicAWEModels.build_vsm_solver
 ## State management and model simplification
 
 ```@docs
-SymbolicAWEModels.copy!
 SymbolicAWEModels.reinit!
 SymbolicAWEModels.reposition!
 SymbolicAWEModels.update_sys_struct!
@@ -218,6 +217,9 @@ Serialization.serialize(::Serialization.AbstractSerializer, ::SymbolicAWEModels.
 SymbolicAWEModels.segment_initial_length
 SymbolicAWEModels.segment_world_length
 SymbolicAWEModels.anchor_body_idxs
+SymbolicAWEModels.placement_row
+SymbolicAWEModels.placement_segments
+SymbolicAWEModels.placement_tubes
 SymbolicAWEModels.rigid_point_siblings
 SymbolicAWEModels.tether_unit_stiffness
 SymbolicAWEModels.apply_cluster_init_stretched_len!
