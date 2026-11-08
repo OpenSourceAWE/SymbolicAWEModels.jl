@@ -2,7 +2,7 @@
 
 julia_version = "1.12.7"
 manifest_format = "2.0"
-project_hash = "38ea9c1be0329dab0901e58b2251faf7882c4bfd"
+project_hash = "a17d77dea324f780db0f9349ae2f0c49c32acd2d"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -1502,9 +1502,9 @@ version = "0.4.0"
 
 [[deps.KiteUtils]]
 deps = ["Arrow", "CSV", "DocStringExtensions", "LinearAlgebra", "OrderedCollections", "Parameters", "Parsers", "Pkg", "PrecompileTools", "RecursiveArrayTools", "ReferenceFrameRotations", "Rotations", "StaticArrays", "StructArrays", "StructTypes", "YAML"]
-git-tree-sha1 = "c1378c78b3e955458d49977bd9dcd4d38b6aaf73"
+git-tree-sha1 = "9732b26932613962ea1c089b27004462ba6056b4"
 uuid = "90980105-b163-44e5-ba9f-8b1c83bb0533"
-version = "0.14.1"
+version = "0.14.2"
 
 [[deps.Krylov]]
 deps = ["LinearAlgebra", "Printf", "SparseArrays"]
