@@ -43,7 +43,6 @@ SymbolicAWEModels.WinchState
 SymbolicAWEModels.BodyState
 SymbolicAWEModels.RigidWingState
 SymbolicAWEModels.ParticleWingState
-SymbolicAWEModels.records
 SymbolicAWEModels.state_vars
 SymbolicAWEModels.set_state_vars!
 SymbolicAWEModels.next_values!

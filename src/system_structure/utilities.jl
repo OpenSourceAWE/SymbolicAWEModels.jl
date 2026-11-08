@@ -893,6 +893,9 @@ function init_derived_properties!(sys_struct; prn::Bool=true)
     return nothing
 end
 
+KiteGeometry.place!(sys::SystemStructure; ignore_l0::Bool=false, prn::Bool=true) =
+    place_structure!(sys; ignore_l0, prn)
+
 """
     place_structure!(sys::SystemStructure, transforms=Transform[]; ignore_l0=false, prn=true)
 
@@ -914,8 +917,6 @@ The `SystemStructure` constructor runs it with no transforms. Run again after a 
 changes, it places the structure anew from its initial pose. `prn` prints the info
 messages of step 2.
 """
-KiteGeometry.place!(sys::SystemStructure; ignore_l0::Bool=false, prn::Bool=true) =
-    place_structure!(sys; ignore_l0, prn)
 function place_structure!(sys, transforms=Transform[];
                              ignore_l0::Bool=false, prn::Bool=true)
     state = SystemState(sys; transforms)
