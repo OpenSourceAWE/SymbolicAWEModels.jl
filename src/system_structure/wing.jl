@@ -560,71 +560,44 @@ end
 
 # ==================== BODY FRAMES ==================== #
 
+"""The positions of `points`, each point's `field`, indexed as KiteGeometry reads them."""
+struct PointPositions{P}
+    points::P
+    field::Symbol
+end
+Base.getindex(positions::PointPositions, i) =
+    getproperty(positions.points[i], positions.field)
+
+"""`ref_pt` as KiteGeometry's reference points: pairs of index and weight."""
+ref_points(ref_pt::WeightedRefPoints) = collect(zip(ref_pt.ids, ref_pt.weights))
+
 """
     get_ref_position_from_points(points, ref_pt; field=:pos_w)
 
-Weighted position from structural points. `field` selects
-which point coordinate to read (`:pos_w` or `:pos_ENU`).
+Weighted position from structural points, through KiteGeometry's `ref_position`. `field`
+selects which point coordinate to read (`:pos_w` or `:pos_ENU`).
 """
-function get_ref_position_from_points(
-    points::AbstractVector,
-    ref_pt::WeightedRefPoints;
-    field::Symbol=:pos_w,
-)
-    pos = zero(KVec3)
-    for (idx, w) in zip(ref_pt.ids, ref_pt.weights)
-        pos += w * getproperty(points[idx], field)
-    end
-    return pos
-end
+get_ref_position_from_points(points::AbstractVector, ref_pt::WeightedRefPoints;
+                             field::Symbol=:pos_w) =
+    KiteGeometry.ref_position(PointPositions(points, field), zip(ref_pt.ids, ref_pt.weights))
 
 """
     calc_particle_dynamics_wing_frame(points, z_ref_points, y_ref_points, origin;
                                       field=:pos_w)
 
-Calculate R_b_to_w rotation matrix and origin position
-from structural point positions, each point's `field`.
-
-# Algorithm
-1. Weighted ref point positions
-2. Z-axis (normal): z_p1 → z_p2
-3. X-axis (chord): Y_temp × Z
-4. Y-axis (span): Z × X (orthogonal, right-handed)
-5. Origin from weighted `origin` ref points
+The `R_b_to_w` rotation matrix and origin position from structural point positions, each
+point's `field`, by KiteGeometry's `wing_frame`.
 """
-function calc_particle_dynamics_wing_frame(
-    points::AbstractVector,
-    z_ref_points::Tuple{WeightedRefPoints,
-                        WeightedRefPoints},
-    y_ref_points::Tuple{WeightedRefPoints,
-                        WeightedRefPoints},
-    origin::WeightedRefPoints;
-    field::Symbol=:pos_w,
-)
-    z_p1, z_p2 = z_ref_points
-    y_p1, y_p2 = y_ref_points
-
-    pos_z1 = get_ref_position_from_points(points, z_p1; field)
-    pos_z2 = get_ref_position_from_points(points, z_p2; field)
-    pos_y1 = get_ref_position_from_points(points, y_p1; field)
-    pos_y2 = get_ref_position_from_points(points, y_p2; field)
-
-    # Z direction (normal to wing, normalized)
-    z_axis = normalize(pos_z2 - pos_z1)
-
-    # Y temp direction (not necessarily orthogonal)
-    y_temp = normalize(pos_y2 - pos_y1)
-
-    # X = Y_temp × Z (chord, orthogonal to Z)
-    x_axis = normalize(y_temp × z_axis)
-
-    # Y = Z × X (orthogonal, right-handed)
-    y_axis = z_axis × x_axis
-
-    R_b_to_w = hcat(x_axis, y_axis, z_axis)
-    origin_pos = get_ref_position_from_points(points, origin; field)
-
-    return R_b_to_w, origin_pos
+function calc_particle_dynamics_wing_frame(points::AbstractVector,
+                                           z_ref_points::Tuple{WeightedRefPoints,
+                                                               WeightedRefPoints},
+                                           y_ref_points::Tuple{WeightedRefPoints,
+                                                               WeightedRefPoints},
+                                           origin::WeightedRefPoints;
+                                           field::Symbol=:pos_w)
+    frame = KiteGeometry.WingFrame(ref_points(origin), ref_points.(z_ref_points),
+                                   ref_points.(y_ref_points))
+    return KiteGeometry.wing_frame(PointPositions(points, field), frame)
 end
 
 """

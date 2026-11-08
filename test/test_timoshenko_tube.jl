@@ -100,9 +100,9 @@ end
     @testset "Model setup" begin
         @info "Structure wiring: one tube resolved, rest length from geometry."
         @test length(sys.tubes) == 1
-        @test sys.tubes[:tube].body_a_idx == 1
-        @test sys.tubes[:tube].body_b_idx == 2
-        @test sys.tubes[:tube].model.rest_length ≈ beam_length
+        @test SymbolicAWEModels.SystemState(sys).tubes[:tube].body_a_idx == 1
+        @test SymbolicAWEModels.SystemState(sys).tubes[:tube].body_b_idx == 2
+        @test SymbolicAWEModels.SystemState(sys).tubes[:tube].model.rest_length ≈ beam_length
     end
 
     sam = SymbolicAWEModel(set, sys)
@@ -175,7 +175,7 @@ end
     rb_nl = sam_nl.state.bodies[:nodeB]
 
     @testset "Nonlinear axial (callable rigidity)" begin
-        @test !(sys_nl.tubes[:tube].model.EA isa Real)  # callable path
+        @test !(SymbolicAWEModels.SystemState(sys_nl).tubes[:tube].model.EA isa Real)  # callable path
         load = 20.0
         rb_nl.ext_force_w .= [load, 0.0, 0.0]
         rb_nl.ext_moment_b .= 0.0

@@ -206,7 +206,7 @@ transforms = [
         azimuth=AZIMUTH, heading=0.0, base_transform=1,
         rot_point=[point_idx(:top) => 1.0], points=point_idx.([:top, :right, :left])),
 ]
-place!(sys, transforms)
+place_structure!(sys, transforms)
 
 sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false, prn=true)

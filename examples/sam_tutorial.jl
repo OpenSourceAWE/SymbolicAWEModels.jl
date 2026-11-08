@@ -47,7 +47,7 @@ transforms = [
 ]
 
 sys = SystemStructure("tether", set; points, segments)
-place!(sys, transforms)
+place_structure!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false)
 
@@ -64,7 +64,7 @@ tethers = [Tether(:main, collect(1:n_seg))]
 winches = [Winch(:winch, set, [:main]; winch_point=1)]
 
 sys = SystemStructure("winch", set; points, segments, tethers, winches)
-place!(sys, transforms)
+place_structure!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false)
 
@@ -89,7 +89,7 @@ transforms = [
 ]
 
 sys = SystemStructure("pulley", set; points, segments, tethers, winches, pulleys)
-place!(sys, transforms)
+place_structure!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false)
 
@@ -124,6 +124,6 @@ transforms = [
 
 sys = SystemStructure("wing", set;
     points, stations, segments, tethers, winches, pulleys, wings)
-place!(sys, transforms)
+place_structure!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms)
 @info "Wing model created successfully"

@@ -100,8 +100,8 @@ end
     @testset "Model setup" begin
         @test length(sys.bodies) == 2
         @test length(sys.tubes) == 1
-        @test sys.tubes[:j1].body_a_idx == 1
-        @test sys.tubes[:j1].body_b_idx == 2
+        @test SymbolicAWEModels.SystemState(sys).tubes[:j1].body_a_idx == 1
+        @test SymbolicAWEModels.SystemState(sys).tubes[:j1].body_b_idx == 2
     end
 
     @testset "Tubes built from one element keep their own anchors" begin
@@ -120,7 +120,7 @@ end
     test_init!(sam)
     b1 = sam.state.bodies[:b1]
     b2 = sam.state.bodies[:b2]
-    jt = sam.sys_struct.tubes[:j1].model
+    jt = sam.state.tubes[:j1].model
 
     # Reset the initial pose that place! puts the bodies back at.
     function reset_bodies!()
@@ -270,7 +270,7 @@ end
         sam_r = SymbolicAWEModel(set, sys_r)
         test_init!(sam_r; prn=false)
 
-        jr = sam_r.sys_struct.tubes[:j1].model
+        jr = sam_r.state.tubes[:j1].model
         Rz30 = [cos(2half) -sin(2half) 0.0; sin(2half) cos(2half) 0.0; 0.0 0.0 1.0]
         @info "Rest captured from CAD: anchor offset and relative rotation."
         @test jr.rest_offset_a ≈ [1.0, 0.0, 0.0] atol=1e-9

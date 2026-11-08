@@ -567,7 +567,7 @@ Place the model's structure by its transforms
 ([`start_run!`](@ref)). `reset_vel=false` keeps the velocities the run holds.
 """
 function KiteGeometry.place!(sam::SymbolicAWEModel; reset_vel::Bool=true, kwargs...)
-    place!(sam.sys_struct, sam.transforms; kwargs...)
+    place_structure!(sam.sys_struct, sam.transforms; kwargs...)
     start_run!(sam.state; reset_vel)
     return nothing
 end
@@ -859,8 +859,8 @@ Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(state::SystemState)
     (; structure, transforms) = state
-    (; points, stations, segments, pulleys, tethers, winches, tubes) = structure
-    (; wings, bodies) = state
+    (; points, stations, segments, pulleys, tethers, winches) = structure
+    (; wings, bodies, tubes) = state
     data_parts = []
     for point in points
         # nothing-vs-set gates whether drag/damping equations are emitted (structure,
