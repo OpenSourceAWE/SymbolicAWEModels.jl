@@ -731,7 +731,8 @@ end
 
 @testset "segment_role tells winched and unwinched tethers, wing and free apart" begin
     sys, set = load_2plate_particle_sys("2plate_segment_role")
-    roles = Dict(segment.name => segment_role(sys, segment) for segment in sys.segments)
+    state = SymbolicAWEModels.SystemState(sys; set)
+    roles = Dict(segment.name => segment_role(state, segment) for segment in state.segments)
     @test roles[:strut_left] == roles[:diag_1] == :wing
     @test roles[:le_left] == roles[:kcu_steering_right] == :free
     @test roles[:main_tether_seg_1] == roles[:main_tether_seg_6] == :winched_tether
@@ -750,7 +751,8 @@ end
     winches = [Winch(:winch, set, [:main_tether]; winch_point=:ground)]
     sys = SystemStructure("segment_role_tethers", set; points, segments, tethers,
                           winches)
-    @test [segment_role(sys, segment) for segment in sys.segments] ==
+    state = SymbolicAWEModels.SystemState(sys; set)
+    @test [segment_role(state, segment) for segment in state.segments] ==
           [:winched_tether, :unwinched_tether, :free]
 end
 nothing
