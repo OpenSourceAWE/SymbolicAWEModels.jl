@@ -95,6 +95,8 @@ $(TYPEDFIELDS)
     origin::Union{Nothing, WeightedRefPoints} = nothing
     "The definition's `wings` row of the wing whose body this is, where it has one."
     wing_definition::Union{Nothing, KiteGeometry.Wing} = nothing
+    "What a model builds this wing's engine from, once its structure is built."
+    vsm_seed::Union{Nothing, VSMSeed} = nothing
 end
 
 BodyModel(type, wing, angular_damping, world_frame_damping, body_frame_damping,

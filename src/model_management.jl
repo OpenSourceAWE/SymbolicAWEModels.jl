@@ -859,8 +859,8 @@ Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(state::SystemState)
     (; structure, transforms) = state
-    (; points, stations, segments, pulleys, tethers, winches, wings, bodies,
-       tubes) = structure
+    (; points, stations, segments, pulleys, tethers, winches, tubes) = structure
+    (; wings, bodies) = state
     data_parts = []
     for point in points
         # nothing-vs-set gates whether drag/damping equations are emitted (structure,

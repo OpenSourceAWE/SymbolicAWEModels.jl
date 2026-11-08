@@ -115,7 +115,7 @@ for (i, y) in enumerate([-1.0, 0.0, 1.0])
     push!(stations, Station(i, [n + 1, n + 2], DYNAMIC, 0.25))
 end
 
-wings = [VSMWing(1, set, eachindex(stations), vsm_set)]
+wings = [VSMWing(1, set, eachindex(stations); vsm_set)]
 transforms = [
     Transform(; name=:main, elevation=deg2rad(-85), azimuth=0, heading=0,
               base_pos=[0, 0, 0], base_point=1, rot_point=[21 => 1.0],

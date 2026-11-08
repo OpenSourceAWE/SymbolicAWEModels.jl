@@ -294,12 +294,13 @@ function SymbolicAWEModel(
     set::Settings,
     sys_struct::SystemStructure;
     transforms=Transform[],
+    vsm_set=nothing,
     wind_mode::WindMode=ProfileWind(),
     kwargs...
 )
     set.physical_model = sys_struct.name
     set_hash = get_set_hash(set)
-    state = SystemState(sys_struct; set, transforms, wind_mode)
+    state = SystemState(sys_struct; set, transforms, vsm_set, wind_mode)
     sys_struct_hash = get_sys_struct_hash(state)
     # Initialize with an empty, but now fully typed, SerializedModel.
     serialized_model = SerializedModel(; set_hash, sys_struct_hash)

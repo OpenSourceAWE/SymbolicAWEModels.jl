@@ -299,7 +299,7 @@ function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
 end
 
 """
-    VSMWing(name, set, stations, vsm_set; angular_damping=[0.0, 150.0, 0.0], ...)
+    VSMWing(name, set, stations; vsm_set, angular_damping=[0.0, 150.0, 0.0], ...)
 
 Construct a [`Wing`](@ref) with Vortex Step Method aerodynamics. Builds the
 [`VSMEngine`](@ref) (`vsm_wing`/`vsm_aero`/`vsm_solver`) internally and attaches
@@ -329,8 +329,8 @@ it to the wing.
 - `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
 """
 function VSMWing(name, set::Settings,
-                 stations::AbstractVector,
-                 vsm_set::Union{Nothing, VortexStepMethod.VSMSettings};
+                 stations::AbstractVector;
+                 vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}=nothing,
                  Q_KA_to_ENU::Union{Nothing,AbstractVector}=nothing,
                  pos_ENU::Union{Nothing,AbstractVector}=nothing,
                  angular_damping=[0.0, 150.0, 0.0], inertia_diag=nothing,

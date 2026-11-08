@@ -271,8 +271,8 @@ function load_wing(mode::AbstractAeroModel, definition, w, set, dynamics_type, v
     pos_ENU = dynamics_type == PARTICLE_DYNAMICS || isnothing(wing.pos_cad) ? nothing :
         wing.pos_ENU + quaternion_to_rotation_matrix(wing.Q_KA2ENU) * wing.pos_cad
     aero_z_offset = dynamics_type == RIGID_DYNAMICS ? wing.aero_z_offset : nothing
-    return VSMWing(row_name(wing), set, station_refs, vsm_set;
-        dynamics_type, aero=mode, pos_ENU,
+    return VSMWing(row_name(wing), set, station_refs;
+        vsm_set, dynamics_type, aero=mode, pos_ENU,
         extra_mass=definition.bodies[w].extra_mass,
         set_kwargs(:angular_damping => wing.angular_damping,
                    :z_ref_points => maybe(ref_pair_spec, wing.z_ref_points),

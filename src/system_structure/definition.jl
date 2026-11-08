@@ -124,7 +124,8 @@ end
 
 """A VSM engine field of `wing`, `nothing` for a wing without one."""
 wing_engine_field(wing, field) =
-    has_vsm_engine(wing.aero) ? Float64(getproperty(wing, field)) : nothing
+    has_vsm_engine(wing.aero) ? Float64(getproperty(wing, field)) :
+    (isnothing(wing.vsm_seed) ? nothing : Float64(getproperty(wing.vsm_seed, field)))
 
 """The drag correction of a flat-plate aero model, `nothing` for another."""
 wing_drag_corr(aero) = hasproperty(aero, :drag_corr) ? aero.drag_corr : nothing

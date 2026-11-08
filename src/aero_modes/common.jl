@@ -1762,7 +1762,7 @@ Number of extra `SysState` log slots the mode contributes for `wing`
 """
 n_aero_log_points(::AbstractAeroModel, wing) = 0
 n_aero_log_points(mode::AbstractVSMAero, wing) =
-    4 * length(mode.vsm_aero.panels)
+    4 * (has_vsm_engine(mode) ? length(mode.vsm_aero.panels) : wing.vsm_seed.n_panels)
 
 """
     write_aero_log_points!(mode, wing, sys_struct, sys_state, point_idx,

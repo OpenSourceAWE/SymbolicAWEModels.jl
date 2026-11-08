@@ -45,7 +45,6 @@ mutable struct SystemStructure
     const tubes::NamedCollection{Tube}
     "The materials the segments and tubes name."
     const materials::AbstractVector
-    vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
     "The KiteGeometry definition of the system in its initial pose."
     definition::Union{Nothing, SystemDefinition}
 end
@@ -986,7 +985,7 @@ function SystemStructure(name, set;
         NamedCollection{Body}(bodies, rigid_body_names_dict),
         NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
         NamedCollection{Tube}(tubes, tube_names_dict),
-        materials, vsm_set, definition)
+        materials, definition)
     placed || place!(sys_struct; ignore_l0, prn)
     init_derived_properties!(sys_struct; prn)
     isnothing(definition) && attach_definition!(sys_struct)
@@ -994,6 +993,7 @@ function SystemStructure(name, set;
     # Panel→flap station map (structural; needs placed bodies + built panels).
     for wing in sys_struct.wings
         build_panel_station_map!(wing.aero, wing, sys_struct)
+        detach_vsm_engine!(wing, vsm_set)
     end
 
     return sys_struct

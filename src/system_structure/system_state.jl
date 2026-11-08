@@ -136,6 +136,8 @@ mutable struct SystemState{SS, ST <: SysState}
     const transforms::Rows{Transform}
     "the run's settings; `nothing` for a state that only draws or places the structure"
     const set::Union{Nothing, Settings}
+    "the VSM settings the run's engines are built from"
+    const vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
     "the atmosphere of `set`"
     const am::Union{Nothing, AtmosphericModel}
     "where the wind comes from: [`ProfileWind`](@ref) or [`PerPointWind`](@ref)"
@@ -163,7 +165,7 @@ end
 The state of a run of `sys` with settings `set` and `wind_mode`, placed by KiteGeometry
 `transforms`, at its start from the pose `sys` is placed in ([`start_run!`](@ref)).
 """
-function SystemState(sys; set=nothing, transforms=Transform[],
+function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
                      wind_mode::WindMode=ProfileWind())
     P, counts = sysstate_counts(sys)
     cache = RunCache(; points=length(sys.points), segments=length(sys.segments),
@@ -174,13 +176,25 @@ function SystemState(sys; set=nothing, transforms=Transform[],
                         built_segments, point_segments(sys),
                         first(position_slots(sys).bodies) - 1, length(sys.wings),
                         no_records, no_records, convert(Rows{Transform}, transforms),
-                        set, isnothing(set) ? nothing : AtmosphericModel(set), wind_mode)
-    bodies = NamedCollection(ComponentState[BodyState(body, state, i)
+                        set, model_vsm_set(sys, vsm_set),
+                        isnothing(set) ? nothing : AtmosphericModel(set), wind_mode)
+    bodies = NamedCollection(ComponentState[BodyState(body, state, i,
+                                                      model_aero(body, set, vsm_set))
                                             for (i, body) in enumerate(sys.bodies)])
     setfield!(state, :bodies, bodies)
     setfield!(state, :wings, NamedCollection(ComponentState[bodies[i]
                                                             for i in eachindex(sys.wings)]))
+    isnothing(set) || foreach(wing -> remake_aero!(wing.aero, wing, set, state.vsm_set,
+                                                   state.points, state.stations),
+                              filter(wing -> has_vsm_engine(wing.aero), state.wings))
     return start_run!(state)
+end
+
+"""`vsm_set`, else the one the wings of `sys` were built with."""
+function model_vsm_set(sys, vsm_set)
+    isnothing(vsm_set) || return vsm_set
+    seeds = [wing.vsm_seed for wing in sys.wings if !isnothing(wing.vsm_seed)]
+    return isempty(seeds) ? nothing : first(seeds).vsm_set
 end
 
 """The indices of the segments on each point of `sys`."""
@@ -278,7 +292,7 @@ A record type `Name{P, S}` of a run's state and the properties it takes from the
 `getter` reads one from record `r`, and `setter` writes `value` to a scalar one; a
 vector one is written in place through its getter.
 """
-macro state_record(name, doc, block)
+macro state_record(name, doc, block, with_aero=false)
     properties = Symbol[]
     methods = Expr[]
     for line in block.args
@@ -292,10 +306,11 @@ macro state_record(name, doc, block)
             :(@inline set_state_property!(r::$name, ::Val{$property}, value) = $setter))
     end
     return esc(quote
-        @doc $doc struct $name{P, S} <: ComponentState
+        @doc $doc struct $(with_aero ? :($name{P, S, A}) : :($name{P, S})) <: ComponentState
             row::P
             state::S
             idx::Int
+            $(with_aero ? :(aero::A) : nothing)
         end
         state_properties(::Type{<:$name}) = $(Tuple(properties))
         $(methods...)
@@ -415,8 +430,10 @@ com_offset(r) = getfield(r, :row).com_offset_b
     BodyState
 
 A body of a run's state, a wing among them: its pose and motion in its body frame, the
-same in its principal frame, derived from them, and what the air does to it.
+same in its principal frame, derived from them, what the air does to it, and its own
+aero mode, with this run's VSM engine where it has one.
 """ begin
+    aero => (getfield(r, :aero), derived(:aero))
     pos_w => ColumnVec3(sysstate(r).X, sysstate(r).Y, sysstate(r).Z, body_slot(r))
     vel_w => ColumnVec3(sysstate(r).VX, sysstate(r).VY, sysstate(r).VZ, body_slot(r))
     Q_b_to_w => ColumnQuat(sysstate(r).Qw, sysstate(r).Qx, sysstate(r).Qy,
@@ -454,7 +471,18 @@ same in its principal frame, derived from them, and what the air does to it.
     heading => (sysstate(r).headings[index(r)], sysstate(r).headings[index(r)] = value)
     course => (sysstate(r).courses[index(r)], sysstate(r).courses[index(r)] = value)
     aoa => (sysstate(r).AoAs[index(r)], sysstate(r).AoAs[index(r)] = value)
-end
+    vsm_aero => (getproperty(r.aero, :vsm_aero), setproperty!(r.aero, :vsm_aero, value))
+    vsm_wing => (getproperty(r.aero, :vsm_wing), setproperty!(r.aero, :vsm_wing, value))
+    vsm_solver => (getproperty(r.aero, :vsm_solver), setproperty!(r.aero, :vsm_solver, value))
+    aero_y => (getproperty(r.aero, :aero_y), setproperty!(r.aero, :aero_y, value))
+    aero_x => (getproperty(r.aero, :aero_x), setproperty!(r.aero, :aero_x, value))
+    aero_jac => (getproperty(r.aero, :aero_jac), setproperty!(r.aero, :aero_jac, value))
+    point_to_vsm_point => (getproperty(r.aero, :point_to_vsm_point), setproperty!(r.aero, :point_to_vsm_point, value))
+    wing_segments => (getproperty(r.aero, :wing_segments), setproperty!(r.aero, :wing_segments, value))
+    aero_scale_chord => (getproperty(r.aero, :aero_scale_chord), setproperty!(r.aero, :aero_scale_chord, value))
+    aero_z_offset => (getproperty(r.aero, :aero_z_offset), setproperty!(r.aero, :aero_z_offset, value))
+    unsteady => (getproperty(r.aero, :unsteady), setproperty!(r.aero, :unsteady, value))
+end true
 
 """The apparent wind on `point` in the body frame of its wing [m/s], zero where it has
 none."""
