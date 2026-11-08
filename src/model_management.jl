@@ -872,7 +872,7 @@ function get_sys_struct_hash(state::SystemState)
         push!(data_parts, ("point", point.idx, point.wing_idx, point.body_idx,
                            point.tube_idx, Int(point.type)))
     end
-    for segment in segments
+    for segment in state.segments
         # Stiffness type selects the spring law (scalar k·Δ vs callable F(ε)).
         stiff_type = segment.unit_stiffness isa Real ? "float" :
                      string(typeof(segment.unit_stiffness))

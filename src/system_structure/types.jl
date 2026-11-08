@@ -609,7 +609,7 @@ end
     Segment
 
 A spring-damper from one point to another: a KiteGeometry `segments` row whose model is a
-[`SegmentModel`](@ref). Its `l0` is the row's `rest_length`; `point_refs` reads the points
+[`SegmentSpring`](@ref). Its `l0` is the row's `rest_length`; `point_refs` reads the points
 the row gives, `point_idxs` the indices they resolve to.
 
 The spring-damper model uses per-unit-length stiffness and damping:
@@ -621,78 +621,173 @@ strain `ε = (len − l0)/l0` returning the spring force [N] (nonlinear); the ca
 owns the full law, including any slack/compression behaviour, so `compression_frac`
 is ignored for it.
 """
-const Segment = KiteGeometry.Segment{SegmentModel}
+const Segment = KiteGeometry.Segment
 
-@inline Base.getproperty(segment::Segment, property::Symbol) =
-    row_property(segment, Val(property))
-Base.setproperty!(segment::Segment, property::Symbol, value) =
-    set_row_property!(segment, Val(property), value)
+"""
+    SegmentDraft
 
-"""The [`SegmentModel`](@ref) of segment row `row`."""
-@inline segment_model(row::Segment) = getfield(row, :model)
-@inline function row_property(row::Segment, ::Val{property}) where {property}
-    hasfield(Segment, property) && return getfield(row, property)
-    return getproperty(segment_model(row), property)
+A segment built in Julia until its structure is built: its [`SegmentSpring`](@ref) and
+the material of its own that its structure's `materials` then holds.
+
+$(TYPEDFIELDS)
+"""
+struct SegmentDraft <: KiteGeometry.AbstractModel
+    "The segment's spring."
+    spring::SegmentSpring
+    "The segment's material."
+    material::KiteGeometry.Material{KiteGeometry.NoModel}
 end
-@inline row_property(row::Segment, ::Val{:l0}) = something(getfield(row, :rest_length), 0.0)
-@inline row_property(row::Segment, ::Val{:diameter}) =
-    something(getfield(row, :diameter), 0.0)
-@inline row_property(row::Segment, ::Val{:point_refs}) = getfield(row, :points)
-@inline row_property(row::Segment, ::Val{:point_idxs}) = map(Int, getfield(row, :points))
+
+"""A segment row built in Julia, before its structure holds its material."""
+const DraftSegment = KiteGeometry.Segment{SegmentDraft}
+KiteGeometry.model_columns(::Type{SegmentDraft}) = ()
+"""A segment row of a built structure."""
+const SegmentRow = KiteGeometry.Segment{SegmentSpring}
+
+"""`segment` as its structure holds it, its material filed in `materials`, the density
+it left `NaN` that of `set`'s tether."""
+function structure_segment!(materials, segment::DraftSegment, set)
+    (; spring, material) = getfield(segment, :model)
+    isnan(material.parameters["density"]) &&
+        (material.parameters["density"] = SimFloat(set.rho_tether))
+    push!(materials, material)
+    return KiteGeometry.Segment(; segment.name, segment.points, segment.rest_length,
+        segment.diameter, material=length(materials), model=spring)
+end
+structure_segment!(materials, segment::SegmentRow, set) = segment
 
 """
-    row_property(row::Segment, Val(:unit_stiffness))
+    BuiltSegment
 
-Stiffness per unit length of segment row `row`: KiteGeometry's `unit_stiffness` from its
-`linear` material and its diameter [N], else the force law `F(ε)` [N] its material holds.
-"""
-@inline row_property(row::Segment, ::Val{:unit_stiffness}) =
-    material_unit_stiffness(row, identity)
-"""
-    numeric_unit_stiffness(row::Segment) -> Float64
+A segment as a run reads it: its row, the material the row names and the spring its model
+leaves to be resolved ([`resolve_segment`](@ref)).
 
-The stiffness per unit length [N] of segment row `row` whose stiffness is a number, as
-`row.unit_stiffness` reads it but typed `Float64`.
+$(TYPEDFIELDS)
 """
-numeric_unit_stiffness(row::Segment) = material_unit_stiffness(row, to_float64)
-"""The stiffness per unit length of segment row `row` from its material and diameter,
-the stiffness a non-`linear` material holds read through `read_held`."""
-@inline function material_unit_stiffness(row::Segment, read_held::F) where {F}
-    material = segment_model(row).material_row
-    stiffness = KiteGeometry.unit_stiffness(material, row.diameter)
+mutable struct BuiltSegment
+    "The segment's row."
+    const row::SegmentRow
+    "The segment's material."
+    const material::KiteGeometry.Material{KiteGeometry.NoModel}
+    "Damping per unit length [N·s]."
+    unit_damping::SimFloat
+    "Compressive over tensile stiffness (0-1)."
+    compression_frac::SimFloat
+    "Fraction of the damping still acting under compression (0-1)."
+    compression_damping_frac::SimFloat
+end
+
+"""
+    resolve_segment(row, materials, set) -> BuiltSegment
+
+Segment `row` as a run with settings `set` reads it, its material found in `materials`. Its
+damping is the row's `unit_damping`, else its `damping_per_stiffness` times its stiffness,
+else `set.rel_damping` times its stiffness.
+"""
+function resolve_segment(row::SegmentRow, materials, set)
+    material = materials[row.material]
+    material.law == "linear" || haskey(material.parameters, "unit_stiffness") ||
+        error("segment $(row.name): material law $(material.law) has no force law here; " *
+              "give its unit_stiffness in Julia")
+    spring = segment_spring(row)
+    unit_damping = resolved_unit_damping(row.name, spring,
+        material_unit_stiffness(material, row.diameter), set)
+    return BuiltSegment(row, material, unit_damping,
+                        something(spring.compression_frac, 0.1),
+                        something(spring.compression_damping_frac, 1.0))
+end
+
+"""The damping per unit length [N·s] of segment `name` with `spring` and `stiffness`."""
+function resolved_unit_damping(name, spring, stiffness, set)
+    (; unit_damping, damping_per_stiffness) = spring
+    isnothing(unit_damping) || isnothing(damping_per_stiffness) ||
+        error("segment $name: give either `unit_damping` or `damping_per_stiffness`, " *
+              "not both")
+    isnothing(unit_damping) || return unit_damping
+    linear = stiffness isa Real
+    if !isnothing(damping_per_stiffness)
+        linear || error("segment $name: `damping_per_stiffness` needs a linear " *
+                        "`unit_stiffness`")
+        return damping_per_stiffness * stiffness
+    end
+    linear || error("segment $name: give `unit_damping` for a nonlinear `unit_stiffness`")
+    isnothing(set) && return NaN
+    set.rel_damping == 0 && @warn "segment $name: unit_damping is zero (no rel_damping " *
+                                  "in the settings)."
+    return set.rel_damping * stiffness
+end
+
+"""
+    material_unit_stiffness(material, diameter, read_held=identity)
+
+The stiffness per unit length of `material` at `diameter` [m]: KiteGeometry's
+`unit_stiffness` for a `linear` material [N], else the number or force law `F(ε)` it holds,
+read through `read_held`.
+"""
+@inline function material_unit_stiffness(material, diameter, read_held::F=identity) where {F}
+    stiffness = KiteGeometry.unit_stiffness(material, diameter)
     return isnothing(stiffness) ? read_held(material.parameters["unit_stiffness"]) :
            stiffness
 end
+
 """`value` as a `Float64`."""
 to_float64(value) = value isa Float64 ? value : Float64(value)::Float64
-@inline row_property(row::Segment, ::Val{:density}) =
-    segment_model(row).material_row.parameters["density"]
 
-set_row_property!(row::Segment, ::Val{:l0}, value) = row.rest_length = value
-set_row_property!(row::Segment, ::Val{:point_idxs}, points) = row.points = points
-function set_row_property!(row::Segment, ::Val{property}, value) where {property}
-    hasfield(KiteGeometry.SegmentSpring, property) || return invoke(set_row_property!,
-        Tuple{KiteGeometry.Component, Val{property}, Any}, row, Val(property), value)
-    return setproperty!(segment_model(row), property, value)
+"""The [`SegmentSpring`](@ref) of segment row `row`."""
+@inline segment_spring(row::KiteGeometry.Segment) = getfield(row, :model)
+@inline segment_spring(row::DraftSegment) = getfield(row, :model).spring
+
+@inline Base.getproperty(segment::KiteGeometry.Segment, property::Symbol) =
+    row_property(segment, Val(property))
+Base.setproperty!(segment::KiteGeometry.Segment, property::Symbol, value) =
+    set_row_property!(segment, Val(property), value)
+
+@inline function row_property(row::KiteGeometry.Segment, ::Val{property}) where {property}
+    hasfield(typeof(row), property) && return getfield(row, property)
+    return getproperty(segment_spring(row), property)
 end
+@inline row_property(row::KiteGeometry.Segment, ::Val{:l0}) =
+    something(getfield(row, :rest_length), 0.0)
+@inline row_property(row::KiteGeometry.Segment, ::Val{:diameter}) =
+    something(getfield(row, :diameter), 0.0)
+@inline row_property(row::KiteGeometry.Segment, ::Val{:point_refs}) =
+    getfield(row, :points)
+@inline row_property(row::KiteGeometry.Segment, ::Val{:point_idxs}) =
+    map(Int, getfield(row, :points))
+@inline row_property(row::DraftSegment, ::Val{:unit_stiffness}) =
+    material_unit_stiffness(getfield(row, :model).material, row.diameter)
+@inline row_property(row::DraftSegment, ::Val{:density}) =
+    getfield(row, :model).material.parameters["density"]
+
+set_row_property!(row::KiteGeometry.Segment, ::Val{:l0}, value) =
+    setfield!(row, :rest_length, Float64(value))
+set_row_property!(row::KiteGeometry.Segment, ::Val{:point_idxs}, points) =
+    setfield!(row, :points, points)
+function set_row_property!(row::KiteGeometry.Segment, ::Val{property}, value) where {property}
+    hasfield(typeof(row), property) &&
+        return setfield!(row, property, convert(fieldtype(typeof(row), property), value))
+    return setproperty!(segment_spring(row), property, value)
+end
+set_row_property!(row::DraftSegment, ::Val{:unit_stiffness}, unit_stiffness) =
+    set_material_stiffness!(getfield(row, :model).material, unit_stiffness, row.diameter)
+set_row_property!(row::DraftSegment, ::Val{:density}, density) =
+    getfield(row, :model).material.parameters["density"] = SimFloat(density)
 
 """
-    set_row_property!(row::Segment, Val(:unit_stiffness), unit_stiffness)
+    set_material_stiffness!(material, unit_stiffness, diameter)
 
-Give the material of segment row `row` the stiffness per unit length `unit_stiffness`, a
-number [N] or a force law `F(ε)` [N], at the segment's diameter. The material's law
-changes for every segment sharing it: a number on a line with a cross-section becomes its
-Young's modulus, so a segment of another diameter takes that modulus at its own area.
+Give `material` the stiffness per unit length `unit_stiffness`, a number [N] or a force
+law `F(ε)` [N], at `diameter` [m]. Its law changes for every segment sharing it: a number
+on a line with a cross-section becomes its Young's modulus, so a segment of another
+diameter takes that modulus at its own area.
 """
-function set_row_property!(row::Segment, ::Val{:unit_stiffness}, unit_stiffness)
-    material = segment_model(row).material_row
-    law, stiffness = stiffness_law(unit_stiffness, row.diameter)
+function set_material_stiffness!(material, unit_stiffness, diameter)
+    law, stiffness = stiffness_law(unit_stiffness, diameter)
     material.law = law
-    material.parameters = material_parameters(law, stiffness, row.density)
+    material.parameters = material_parameters(law, stiffness,
+                                              material.parameters["density"])
     return unit_stiffness
 end
-set_row_property!(row::Segment, ::Val{:density}, density) =
-    segment_model(row).material_row.parameters["density"] = SimFloat(density)
 
 """
     stiffness_law(unit_stiffness, diameter) -> (law, stiffness)
@@ -723,8 +818,8 @@ function segment_with_material(name, points, l0, diameter, (law, stiffness), den
     parameters = material_parameters(law, stiffness, density)
     material = KiteGeometry.Material(; name=Symbol(name), law, parameters)
     return KiteGeometry.Segment(; name=Symbol(name), points=cell_ref.(points),
-        rest_length=l0, diameter, material=nothing,
-        model=SegmentModel(; spring, material_row=material))
+        rest_length=l0, diameter, material=Symbol(name),
+        model=SegmentDraft(spring, material))
 end
 
 """
@@ -753,8 +848,7 @@ function Segment(name, point_i::Union{Integer, Symbol}, point_j::Union{Integer, 
     l0=zero(SimFloat), compression_frac=0.1, compression_damping_frac=1.0,
     density=NaN
 )
-    spring = KiteGeometry.SegmentSpring(unit_damping, compression_frac,
-                                        compression_damping_frac)
+    spring = SegmentSpring(; unit_damping, compression_frac, compression_damping_frac)
     return segment_with_material(name, (point_i, point_j), l0, diameter,
                        stiffness_law(unit_stiffness, diameter), density, spring)
 end
@@ -815,15 +909,18 @@ function settings_segment(name, set, points, l0; diameter=NaN, unit_stiffness=Na
                           unit_damping=NaN, density=NaN, youngs_modulus=NaN,
                           damping_per_stiffness=NaN, compression_frac=0.1,
                           compression_damping_frac=1.0)
-    diameter, stiffness, unit_damping, density = KiteGeometry.resolve_material(
-        "Segment $(name)", set; diameter, unit_stiffness, unit_damping, density,
-        youngs_modulus, damping_per_stiffness)
+    diameter, stiffness, density = KiteGeometry.resolve_material(
+        "Segment $(name)", set; diameter, unit_stiffness, density, youngs_modulus)
     law = stiffness isa Real ? "linear" : "unit_stiffness"
-    spring = KiteGeometry.SegmentSpring(unit_damping, compression_frac,
-                                        compression_damping_frac)
+    spring = SegmentSpring(; unit_damping=nan_to_nothing(unit_damping),
+                           damping_per_stiffness=nan_to_nothing(damping_per_stiffness),
+                           compression_frac, compression_damping_frac)
     return segment_with_material(name, points, l0, diameter, (law, stiffness), density,
                                  spring)
 end
+
+"""`value`, `nothing` for `NaN`."""
+nan_to_nothing(value) = isnan(value) ? nothing : Float64(value)
 
 """Deprecated: SegmentType parameter removed."""
 function Segment(_name, _set, _p_i, _p_j, _type::SegmentType;

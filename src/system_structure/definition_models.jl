@@ -69,44 +69,24 @@ KiteGeometry.model_columns(::Type{PointModel}) =
      :fix_sphere, :fix_static, :wing_idx, :anchor_b)
 
 """
-    SegmentModel
+    SegmentSpring
 
-What SymbolicAWEModels holds of a segment beyond its KiteGeometry `segments` row: the
-segment's KiteGeometry `SegmentSpring`, whose fields are its columns and its properties,
-then what it derives when it builds the structure, which no document holds.
+The spring of a segment, the model of a `segments` row: its damping and how it carries
+compression as a document authors them, each `nothing` where the row leaves it unset.
+A run resolves them when it is built ([`resolve_segment`](@ref)).
 
 $(TYPEDFIELDS)
 """
-@kwdef mutable struct SegmentModel <: KiteGeometry.AbstractModel
-    "Damping per unit length and how the segment carries compression."
-    spring::KiteGeometry.SegmentSpring
-    "Index in the structure's segments."
-    idx::Int64 = 0
-    "The segment's material, whose law gives its stiffness and density; `nothing` until
-    the segment is given one."
-    material_row::Union{Nothing, KiteGeometry.Material{KiteGeometry.NoModel}} = nothing
+@kwdef mutable struct SegmentSpring <: KiteGeometry.AbstractModel
+    "Damping per unit length [N·s]."
+    unit_damping::Union{Nothing, Float64} = nothing
+    "Damping per unit length over stiffness per unit length [s]."
+    damping_per_stiffness::Union{Nothing, Float64} = nothing
+    "Compressive over tensile stiffness (0-1)."
+    compression_frac::Union{Nothing, Float64} = nothing
+    "Fraction of the damping still acting under compression (0-1)."
+    compression_damping_frac::Union{Nothing, Float64} = nothing
 end
-
-SegmentModel(unit_damping::Real, compression_frac::Real, compression_damping_frac::Real) =
-    SegmentModel(; spring=KiteGeometry.SegmentSpring(unit_damping, compression_frac,
-                                                     compression_damping_frac))
-
-KiteGeometry.model_columns(::Type{SegmentModel}) = fieldnames(KiteGeometry.SegmentSpring)
-KiteGeometry.column_type(::Type{SegmentModel}, column::Symbol) =
-    fieldtype(KiteGeometry.SegmentSpring, column)
-
-@inline function Base.getproperty(model::SegmentModel, property::Symbol)
-    hasfield(SegmentModel, property) && return getfield(model, property)
-    return getfield(getfield(model, :spring), property)
-end
-function Base.setproperty!(model::SegmentModel, property::Symbol, value)
-    hasfield(SegmentModel, property) && return setfield!(model, property,
-        convert(fieldtype(SegmentModel, property), value))
-    setfield!(model, :spring, with_field(getfield(model, :spring), property, value))
-    return value
-end
-Base.propertynames(model::SegmentModel) =
-    (fieldnames(SegmentModel)..., fieldnames(KiteGeometry.SegmentSpring)...)
 
 """
     StationModel
@@ -410,7 +390,7 @@ function register_definition_models()
     register_model!(:points, "sam_point", PointModel,
                     ("-", "N*s/m", "N*s/m", "m^2", "-", "-", "-", "-", "-", "m");
                     default=true)
-    register_model!(:segments, "sam_segment", SegmentModel, ("N*s", "-", "-");
+    register_model!(:segments, "spring", SegmentSpring, ("N*s", "s", "-", "-");
                     default=true)
     register_model!(:spanwise_stations, "sam_station", StationModel,
                     ("-", "-", "N*m*s/rad", "N*m/rad", "-", "-", "-", "-");

@@ -23,7 +23,6 @@ SymbolicAWEModels.maybe
 SymbolicAWEModels.definition_wing
 SymbolicAWEModels.definition_point
 SymbolicAWEModels.definition_station
-SymbolicAWEModels.definition_segment
 SymbolicAWEModels.definition_pulley
 SymbolicAWEModels.definition_tether
 SymbolicAWEModels.definition_winch
@@ -45,7 +44,7 @@ SymbolicAWEModels.TetherModel
 SymbolicAWEModels.WinchModel
 SymbolicAWEModels.TimoshenkoTubeModel
 SymbolicAWEModels.ElasticTubeModel
-SymbolicAWEModels.SegmentModel
+SymbolicAWEModels.SegmentSpring
 SymbolicAWEModels.register_definition_models
 ```
 
@@ -59,7 +58,6 @@ SymbolicAWEModels.point_type
 SymbolicAWEModels.per_axis
 SymbolicAWEModels.point_model
 SymbolicAWEModels.segment_model
-SymbolicAWEModels.numeric_unit_stiffness
 SymbolicAWEModels.material_unit_stiffness
 SymbolicAWEModels.to_float64
 SymbolicAWEModels.station_model
@@ -92,7 +90,6 @@ SymbolicAWEModels.replace_with_rows!
 SymbolicAWEModels.station_row
 SymbolicAWEModels.with_ends!
 SymbolicAWEModels.winch_row!
-SymbolicAWEModels.segment_row!
 SymbolicAWEModels.segment_with_material
 SymbolicAWEModels.settings_segment
 SymbolicAWEModels.stiffness_law

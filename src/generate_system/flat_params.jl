@@ -247,8 +247,7 @@ struct StiffnessReader{R}
     segment::R
 end
 
-(reader::StiffnessReader)(sys_struct) =
-    numeric_unit_stiffness(getfield(reader.segment(sys_struct), :row))
+(reader::StiffnessReader)(sys_struct) = numeric_unit_stiffness(reader.segment(sys_struct))
 
 """The [`PathReader`](@ref) `reader` reads through, or `nothing` for a computed one."""
 path_reader(reader) = nothing

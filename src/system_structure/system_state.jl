@@ -175,6 +175,8 @@ mutable struct SystemState{SS, ST <: SysState}
     const structure::SS
     const sysstate::ST
     const columns::RunColumns
+    "the segments as this run reads them"
+    const built_segments::Vector{BuiltSegment}
     "the position slot before the first body's in `sysstate.X/Y/Z`"
     const body_slot0::Int
     "the number of wings, whose orientation frames come before the bodies'"
@@ -222,7 +224,9 @@ function SystemState(sys; set=nothing, transforms=Transform[],
                          stations=length(sys.stations), winches=length(sys.winches),
                          bodies=length(sys.bodies))
     no_records = NamedCollection(ComponentState[])
+    built_segments = [resolve_segment(row, sys.materials, set) for row in sys.segments]
     state = SystemState(sys, SysState(P; counts..., precision=SimFloat), columns,
+                        built_segments,
                         first(position_slots(sys).bodies) - 1, length(sys.wings),
                         no_records, no_records, convert(Rows{Transform}, transforms),
                         set, isnothing(set) ? nothing : AtmosphericModel(set), wind_mode)
@@ -301,6 +305,12 @@ set_state_property!(record::ComponentState, ::Val{name}, value) where {name} =
 sysstate(record::ComponentState) = getfield(getfield(record, :state), :sysstate)
 """The [`RunColumns`](@ref) a record's state is held in."""
 columns(record::ComponentState) = getfield(getfield(record, :state), :columns)
+"""What a run reads of a segment record's segment."""
+built(record) = getfield(getfield(record, :state), :built_segments)[index(record)]
+"""The stiffness per unit length [N] of a segment record whose stiffness is a number,
+typed `Float64`."""
+numeric_unit_stiffness(record) = material_unit_stiffness(built(record).material,
+    getfield(record, :row).diameter, to_float64)
 """The index of a record's component in its collection."""
 index(record::ComponentState) = getfield(record, :idx)
 
@@ -379,9 +389,20 @@ end
 @state_record SegmentState """
     SegmentState
 
-A segment of a run's state: its rest length, which a winch reels, its length between
-its points and its spring force.
+A segment of a run's state: its index, its rest length, which a winch reels, its length
+between its points, its spring force and its spring, its stiffness and density those of
+its material.
 """ begin
+    idx => (index(r), derived(:idx))
+    unit_stiffness => (material_unit_stiffness(built(r).material, getfield(r, :row).diameter),
+                       set_material_stiffness!(built(r).material, value,
+                                               getfield(r, :row).diameter))
+    density => (built(r).material.parameters["density"],
+                built(r).material.parameters["density"] = SimFloat(value))
+    unit_damping => (built(r).unit_damping, built(r).unit_damping = value)
+    compression_frac => (built(r).compression_frac, built(r).compression_frac = value)
+    compression_damping_frac => (built(r).compression_damping_frac,
+                                 built(r).compression_damping_frac = value)
     l0 => (columns(r).segment_l0[index(r)], columns(r).segment_l0[index(r)] = value)
     len => (segment_world_length(getfield(r, :row), getfield(r, :state).points),
             derived(:len))

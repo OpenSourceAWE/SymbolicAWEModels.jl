@@ -33,7 +33,7 @@ mutable struct SystemStructure
     const name::String
     const points::NamedCollection{Point}
     const stations::NamedCollection{Station}
-    const segments::NamedCollection{Segment}
+    const segments::NamedCollection{SegmentRow}
     const pulleys::NamedCollection{Pulley}
     const tethers::NamedCollection{Tether}
     const winches::NamedCollection{Winch}
@@ -43,6 +43,8 @@ mutable struct SystemStructure
     position here equals its `idx`. The same objects, not copies."
     const wings::NamedCollection{Body}
     const tubes::NamedCollection{Tube}
+    "The materials the segments and tubes name."
+    const materials::AbstractVector
     vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
     "The KiteGeometry definition of the system in its initial pose."
     definition::Union{Nothing, SystemDefinition}
@@ -146,7 +148,7 @@ and `segment_refs` names not yet present in `segments`.
 """
 function expand_auto_tethers!(
     points::Vector{Point},
-    segments::Vector{Segment},
+    segments::AbstractVector,
     tethers::Vector{Tether},
     set::Settings
 )
@@ -360,7 +362,7 @@ and resolve all references to indices.
 function assign_indices_and_resolve!(
     points::Vector{Point},
     stations::Vector{Station},
-    segments::Vector{Segment},
+    segments::AbstractVector{<:Segment},
     pulleys::Vector{Pulley},
     tethers::Vector{Tether},
     winches::AbstractVector{<:Winch},
@@ -372,9 +374,6 @@ function assign_indices_and_resolve!(
     end
     for (i, station) in enumerate(stations)
         station.idx = i
-    end
-    for (i, segment) in enumerate(segments)
-        segment.idx = i
     end
     for (i, pulley) in enumerate(pulleys)
         pulley.idx = i
@@ -824,6 +823,8 @@ function SystemStructure(name, set;
 
     # Expand Route 2 tethers (auto-generate points/segments)
     expand_auto_tethers!(points, segments, tethers, set)
+    materials = isnothing(definition) ? KiteGeometry.Material[] : definition.materials
+    segments = SegmentRow[structure_segment!(materials, segment, set) for segment in segments]
 
     # Assign indices and resolve all symbolic references to numeric indices.
     (point_names_dict, station_names_dict,
@@ -860,10 +861,8 @@ function SystemStructure(name, set;
     for (i, station) in enumerate(stations)
         @assert station.idx == i
     end
-    for (i, segment) in enumerate(segments)
-        @assert segment.idx == i
+    for segment in segments
         (segment.l0 ≈ 0) && (segment.l0 = segment_initial_length(segment, points))
-        isnan(segment.density) && (segment.density = set.rho_tether)
     end
     for (i, pulley) in enumerate(pulleys)
         @assert pulley.idx == i
@@ -980,14 +979,14 @@ function SystemStructure(name, set;
     sys_struct = SystemStructure(name,
         NamedCollection{Point}(points, point_names_dict),
         NamedCollection{Station}(stations, station_names_dict),
-        NamedCollection{Segment}(segments, segment_names_dict),
+        NamedCollection{SegmentRow}(segments, segment_names_dict),
         NamedCollection{Pulley}(pulleys, pulley_names_dict),
         NamedCollection{Tether}(tethers, tether_names_dict),
         NamedCollection{Winch}(winches, winch_names_dict),
         NamedCollection{Body}(bodies, rigid_body_names_dict),
         NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
         NamedCollection{Tube}(tubes, tube_names_dict),
-        vsm_set, definition)
+        materials, vsm_set, definition)
     placed || place!(sys_struct; ignore_l0, prn)
     init_derived_properties!(sys_struct; prn)
     isnothing(definition) && attach_definition!(sys_struct)

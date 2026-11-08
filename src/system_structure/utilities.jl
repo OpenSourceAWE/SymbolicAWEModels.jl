@@ -374,8 +374,8 @@ function tether_downstream_idxs(tether, segments, boundary,
     while !isempty(queue)
         current_idx = pop!(queue)
         neighbors = Int64[]
-        for seg in segments
-            seg.idx in tether_segment_set && continue
+        for (seg_idx, seg) in enumerate(segments)
+            seg_idx in tether_segment_set && continue
             point_idx1, point_idx2 = seg.point_idxs
             if point_idx1 == current_idx
                 push!(neighbors, point_idx2)
@@ -1547,7 +1547,9 @@ function write_total_mass!(sys_struct)
         point.total_mass = point.extra_mass
     end
     for segment in sys_struct.segments
-        half = segment_half_mass(segment.l0, segment.diameter, segment.density)
+        material = sys_struct.materials[segment.material]
+        half = segment_half_mass(segment.l0, segment.diameter,
+                                 material.parameters["density"])
         sys_struct.points[segment.point_idxs[1]].total_mass += half
         sys_struct.points[segment.point_idxs[2]].total_mass += half
     end

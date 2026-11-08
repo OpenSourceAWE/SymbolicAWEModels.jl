@@ -108,8 +108,7 @@ function SystemStructure(definition::SystemDefinition, set::Settings;
     return SystemStructure(definition.metadata.name, set;
         points=Point[definition_point(definition, point) for point in definition.points],
         stations,
-        segments=Segment[definition_segment(definition, i)
-                         for i in eachindex(definition.segments)],
+        segments=Segment[segment for segment in definition.segments],
         pulleys=Pulley[definition_pulley(pulley) for pulley in definition.pulleys],
         tethers=Tether[definition_tether(tether) for tether in definition.tethers],
         winches=Winch[definition_winch(winch, set) for winch in definition.winches],
@@ -166,20 +165,6 @@ maybe(f, value) = isnothing(value) ? nothing : f(value)
 function definition_station(station)
     isnothing(station.model.type) && error("station $(station.name) needs its `type`")
     return station
-end
-
-"""Replace segment `i` of `definition` with one whose model is a [`SegmentModel`](@ref)
-holding its spring, the `SegmentSpring` a `spring` row reads into or the one a row of
-SymbolicAWEModels' own model holds, and its material."""
-function definition_segment(definition, i)
-    segment = definition.segments[i]
-    material = definition.materials[segment.material]
-    material.law == "linear" || error("segment $(segment.name): material law " *
-        "$(material.law) has no force law here; give its unit_stiffness in Julia")
-    spring = segment.model isa SegmentModel ? segment.model.spring : segment.model
-    model = SegmentModel(; spring, material_row=material)
-    return definition.segments[i] = KiteGeometry.Segment(; segment.name, segment.points,
-        segment.rest_length, segment.diameter, segment.material, model)
 end
 
 """The pulley `pulley` of a definition is: the row itself, refusing one without a

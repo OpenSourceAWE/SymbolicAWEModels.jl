@@ -28,9 +28,9 @@ SIM_TIME = 30.0
 dt = 0.05
 N_STEPS = round(Int, SIM_TIME / dt)
 UPWIND_DIR = -pi/2 + deg2rad(10)
-# KiteModels places the initial kite directly downwind; SAM transform
-# azimuth is world-frame and applied as -azimuth, so this matches it.
-AZIMUTH = UPWIND_DIR + pi/2
+# KiteModels places the initial kite directly downwind; a transform's azimuth runs
+# anti-clockwise from east, so this matches it.
+AZIMUTH = -(UPWIND_DIR + pi/2)
 # Same value as KiteModels.PRE_STRESS (applied to its kite springs).
 PRE_STRESS = 0.9998
 

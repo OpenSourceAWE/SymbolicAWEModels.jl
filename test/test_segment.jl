@@ -267,7 +267,7 @@ system:
         @test length(sys.segments) == 1
         @test haskey(sys.segments, :test_segment)
 
-        segment = sys.segments[:test_segment]
+        segment = SymbolicAWEModels.SystemState(sys; set).segments[:test_segment]
         @test segment.l0 == 10.0
         @test segment.unit_stiffness == 1000.0
         @test segment.unit_damping == 10.0
@@ -362,7 +362,7 @@ system:
             system_name="segment_test", set=set)
 
         # Verify the properties were loaded
-        @test sys.segments[:test_segment].unit_damping == 100.0
+        @test SymbolicAWEModels.SystemState(sys; set).segments[:test_segment].unit_damping == 100.0
         @test sys.points[:mass_point].extra_mass == 5.0
 
         sam = SymbolicAWEModel(set, sys; transforms)
@@ -375,7 +375,7 @@ system:
         unit_damping = 100.0
 
         # Calculate expected total mass: extra_mass + half segment mass
-        segment = sys.segments[:test_segment]
+        segment = SymbolicAWEModels.SystemState(sys; set).segments[:test_segment]
         half_segment_mass = 0.5 * segment.density * π * (segment.diameter / 2)^2 * l0
         expected_total_mass = sys.points[:mass_point].extra_mass + half_segment_mass
 
@@ -476,7 +476,7 @@ system:
 
         sys, transforms = load_sys_struct_from_yaml(yaml_horiz_drag_path;
             system_name="segment_test", set=set)
-        segment = sys.segments[:horiz_segment]
+        segment = SymbolicAWEModels.SystemState(sys; set).segments[:horiz_segment]
         L = segment.l0  # 10.0 m
         d = segment.diameter  # 0.004 m (4mm)
 
@@ -607,7 +607,7 @@ system:
         # Get segment properties
         sys, transforms = load_sys_struct_from_yaml(yaml_high_alt_path;
             system_name="segment_test", set=set)
-        segment = sys.segments[:horiz_segment]
+        segment = SymbolicAWEModels.SystemState(sys; set).segments[:horiz_segment]
         L = segment.l0  # 10.0 m
         d = segment.diameter  # 0.004 m (4mm)
 
@@ -672,8 +672,9 @@ system:
         sys, transforms = load_sys_struct_from_yaml(yaml_material_density_path;
             system_name="segment_test", set=set)
 
-        seg_dyneema = sys.segments[:seg_dyneema]
-        seg_steel = sys.segments[:seg_steel]
+        segments = SymbolicAWEModels.SystemState(sys; set).segments
+        seg_dyneema = segments[:seg_dyneema]
+        seg_steel = segments[:seg_steel]
 
         # Each segment carries its material's density, not the global rho_tether
         @test seg_dyneema.density ≈ 724.0

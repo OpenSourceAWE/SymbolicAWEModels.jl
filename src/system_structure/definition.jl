@@ -10,11 +10,11 @@ reads in the models it registers ([`register_definition_models`](@ref)), and eac
 the centre of its own mass.
 """
 function system_definition(sys::SystemStructure)
-    materials = KiteGeometry.Material[]
+    materials = sys.materials
     return SystemDefinition(;
         metadata=Metadata(; name=sys.name, n_points=length(sys.points)),
         points=collect(sys.points),
-        segments=[segment_row!(materials, segment) for segment in sys.segments],
+        segments=collect(sys.segments),
         spanwise_stations=[station_row(sys, station) for station in sys.stations
                            if !isnothing(station_wing_idx(sys, station))],
         pulleys=collect(sys.pulleys),
@@ -76,15 +76,6 @@ function material!(materials, law, parameters)
     push!(materials, KiteGeometry.Material(; name="$(law)_$(length(materials) + 1)", law,
                                            parameters))
     return length(materials)
-end
-
-"""`segment` with its own material filed in `materials`, where it is not already."""
-function segment_row!(materials, segment)
-    material = segment_model(segment).material_row
-    index = findfirst(row -> row === material, materials)
-    isnothing(index) && push!(materials, material)
-    segment.material = something(index, length(materials))
-    return segment
 end
 
 """Indices as references, `nothing` for none."""

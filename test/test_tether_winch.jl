@@ -437,8 +437,8 @@ environment:
         # 4 auto-generated segments
         @test length(sys2.segments) == 4
         # Segment names follow convention
-        @test sys2.segments[:line_seg_1].idx == 1
-        @test sys2.segments[:line_seg_4].idx == 4
+        @test SymbolicAWEModels.SystemState(sys2; set).segments[:line_seg_1].idx == 1
+        @test SymbolicAWEModels.SystemState(sys2; set).segments[:line_seg_4].idx == 4
 
         # Tether start/end resolved correctly
         teth = sys2.tethers[:line]
@@ -487,8 +487,8 @@ environment:
         l0 = 25.0
         g = set.g_earth
         unit_k = 50000.0
-        d = sam2.sys_struct.segments[1].diameter
-        rho = sam2.sys_struct.segments[1].density
+        d = sam2.state.segments[1].diameter
+        rho = sam2.state.segments[1].density
         half_seg_m = rho * π * (d / 2)^2 * l0 / 2
         m_mass = 5.0 + half_seg_m         # bottom point
         m_mid = 2 * half_seg_m            # intermediate pts

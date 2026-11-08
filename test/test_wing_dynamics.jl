@@ -456,7 +456,7 @@ end
         hanging, hanging_transforms = load_sys_struct_from_yaml(hanging_path;
             system_name="wing_hanging", set, vsm_set, aero_mode=AeroNone())
         wing = hanging.bodies[:main_wing]
-        line = hanging.segments[:line]
+        line = SymbolicAWEModels.SystemState(hanging; set).segments[:line]
         half_line = SymbolicAWEModels.segment_half_mass(
             line.l0, line.diameter, line.density)
         @test wing.extra_mass == 2.0

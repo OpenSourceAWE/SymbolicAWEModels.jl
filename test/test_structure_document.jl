@@ -154,7 +154,7 @@ end
     @testset "a segment is its definition row" for
             sys in (first(two_plate_kite(set, vsm_set)), pretensioned_tether(set))
         segment = last(sys.segments)
-        row = sys.definition.segments[segment.idx]
+        row = last(sys.definition.segments)
         segment.l0 = 1.5
         segment.diameter = 0.002
         segment.unit_damping = 3.0
