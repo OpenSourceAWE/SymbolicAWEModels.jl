@@ -61,7 +61,7 @@ function build_continuous_case(case, root)
     sys, transforms = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
         system_name=case.system_name, set, aero_mode=case.make())
-    return set, sys, transforms
+    return set, sys, transforms, vsm_set
 end
 
 """
@@ -105,7 +105,7 @@ group_means(groups, values) =
 
     for case in cases
         @testset "$(case.name)" begin
-            set, sys, transforms = build_continuous_case(case, root)
+            set, sys, transforms, vsm_set = build_continuous_case(case, root)
             sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
             wing = sam.state.wings[1]
             mode = wing.aero

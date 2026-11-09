@@ -199,7 +199,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
             system_name="refine_err", set)
-        wing = SymbolicAWEModels.SystemState(sys; set, vsm_set=vsm_set_5).wings[1]
+        wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
         points = sys.points
         vsm_w = wing.vsm_wing
 
@@ -220,7 +220,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
             system_name="refine_span_order", set)
-        state = SystemState(sys; set, vsm_set=vsm_set_5)
+        state = SystemState(sys; set, vsm_set)
         wing = state.wings[1]
         # The fixture's wing is pitched about y, so mirroring y mirrors body y too.
         for point in state.points
@@ -246,7 +246,7 @@ end
             struc_yaml;
             system_name="quat_geom", set,
             dynamics_type=RIGID_DYNAMICS)
-        wing = SymbolicAWEModels.SystemState(sys_q; set, vsm_set=vsm_set_5).wings[1]
+        wing = SymbolicAWEModels.SystemState(sys_q; set, vsm_set).wings[1]
         points = sys_q.points
         vsm_w = wing.vsm_wing
 
@@ -283,7 +283,7 @@ end
             struc_yaml;
             system_name="quat_preserve", set,
             dynamics_type=RIGID_DYNAMICS)
-        wing = SymbolicAWEModels.SystemState(sys_q; set, vsm_set=vsm_set_5).wings[1]
+        wing = SymbolicAWEModels.SystemState(sys_q; set, vsm_set).wings[1]
         points = sys_q.points
         vsm_w = wing.vsm_wing
 

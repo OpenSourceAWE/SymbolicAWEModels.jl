@@ -46,7 +46,7 @@ using LinearAlgebra
         yaml_path;
         system_name="frame_test", set)
 
-    state = SystemState(sys)
+    state = SystemState(sys; set, vsm_set)
     wing = state.wings[:main_wing]
     @test wing.dynamics_type == RIGID_DYNAMICS
     @test !isnothing(wing.origin)

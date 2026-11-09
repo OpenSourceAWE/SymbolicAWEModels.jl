@@ -134,7 +134,7 @@ function jacobian_test_model(; analytic_jacobian)
     set = Settings("system.yaml")
     sys, transforms = load_sys_struct_from_yaml(joinpath(tmpdir, "jacobian_geometry.yaml");
                                                 system_name="jacobian_test", set=set)
-    sam = SymbolicAWEModel(set, sys; transforms, backend=KernelBackend(), vsm_set)
+    sam = SymbolicAWEModel(set, sys; transforms, backend=KernelBackend())
     init!(sam; prn=false, remake=true, analytic_jacobian)
     next_step!(sam; dt=0.05)
     return sam

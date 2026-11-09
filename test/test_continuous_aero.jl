@@ -43,9 +43,10 @@ function load_continuous_sys(data_path, set; billowing)
             vsm_wing_settings.billowing_percentage = 8.0
         end
     end
-    return first(load_sys_struct_from_yaml(
+    sys, _ = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name="continuous_test", set, aero_mode=ContinuousAero()))
+        system_name="continuous_test", set, aero_mode=ContinuousAero())
+    return sys, vsm_set
 end
 
 @testset "ContinuousAero" begin
@@ -56,11 +57,11 @@ end
     set = Settings("system.yaml")
 
     @testset "BILLOWING is required" begin
-        @test_throws ErrorException load_continuous_sys(
-            data_path, set; billowing=false)
+        sys, vsm_set = load_continuous_sys(data_path, set; billowing=false)
+        @test_throws ErrorException SymbolicAWEModels.SystemState(sys; set, vsm_set)
     end
 
-    sys = load_continuous_sys(data_path, set; billowing=true)
+    sys, vsm_set = load_continuous_sys(data_path, set; billowing=true)
     wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
     mode = wing.aero
     n_panels = length(wing.vsm_aero.panels)

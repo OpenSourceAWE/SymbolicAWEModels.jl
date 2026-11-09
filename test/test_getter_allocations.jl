@@ -122,7 +122,7 @@ SYNC_ALLOC_BUDGET = Dict(:KernelBackend => 0, :MonolithBackend => 256)
     for backend in (MonolithBackend(), KernelBackend())
         sys, transforms = load_sys_struct_from_yaml(yaml_path;
             system_name="segment_test", set=set)
-        sam = SymbolicAWEModel(set, sys; transforms, backend, vsm_set)
+        sam = SymbolicAWEModel(set, sys; transforms, backend)
         # init!, not test_init!: the RHS allocation check belongs to the tests
         # about the RHS, and this file is about the sync paths either side of it.
         init!(sam)

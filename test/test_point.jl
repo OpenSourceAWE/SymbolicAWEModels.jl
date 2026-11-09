@@ -211,7 +211,7 @@ system:
             system_name="point_no_drag_test", set=set)
         @test sys.points[:test_point].area == 0.0
 
-        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Record initial state
@@ -254,7 +254,7 @@ system:
         @test sys.points[:test_point].drag_coeff == 1.0
         @test sys.points[:test_point].extra_mass == 50.0
 
-        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Physics: F = 0.5 * rho * Cd * A * v^2
@@ -314,7 +314,7 @@ system:
         @test sys.points[:test_point].world_frame_damping == KVec3(0.0, 0.0, 0.0)
         @test sys.points[:test_point].extra_mass == 0.69
 
-        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Initial state
@@ -361,7 +361,7 @@ system:
         @test sys.points[:test_point].area == 0.0
         @test sys.points[:test_point].extra_mass == 2.3
 
-        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         # Terminal velocity calculation:
@@ -406,7 +406,7 @@ system:
         @test sys.points[:test_point].extra_mass == 2.3
         @test sys.points[:test_point].total_mass == 2.3
 
-        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
         @test sys.points[:test_point].total_mass == 2.3
 
@@ -471,7 +471,7 @@ system:
         @test sys.points[:test_point].drag_coeff == 0.33
         @test sys.points[:test_point].extra_mass == 2.3
 
-        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         test_init!(sam)
 
         point = sam.state.points[:test_point]

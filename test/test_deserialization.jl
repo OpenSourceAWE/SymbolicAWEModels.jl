@@ -87,7 +87,7 @@ system:
         sys, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_1", set)
 
-        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
+        sam = SymbolicAWEModel(set, sys; transforms)
         init!(sam; remake=true, prn=false)
 
         # sam.set must be the exact same object as
@@ -109,8 +109,8 @@ system:
         set_b.g_earth, set_b.v_wind = 9.81, 0.0
         sys, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_1", set=set_a)
-        sam_a = SymbolicAWEModel(set_a, sys; transforms, vsm_set)
-        sam_b = SymbolicAWEModel(set_b, sys; transforms, wind_mode=PerPointWind(), vsm_set)
+        sam_a = SymbolicAWEModel(set_a, sys; transforms)
+        sam_b = SymbolicAWEModel(set_b, sys; transforms, wind_mode=PerPointWind())
         @test sam_a.set === set_a
         @test sam_b.set === set_b
         @test sam_a.wind_mode isa ProfileWind
@@ -134,7 +134,7 @@ system:
         set1.v_wind = 0.0
         sys1, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_2", set=set1)
-        sam1 = SymbolicAWEModel(set1, sys1; transforms, vsm_set)
+        sam1 = SymbolicAWEModel(set1, sys1; transforms)
         init!(sam1; remake=true, prn=false)
 
         # Simulate - no gravity, no wind → stationary
@@ -152,7 +152,7 @@ system:
         set2.v_wind = 0.0
         sys2, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_2", set=set2)
-        sam2 = SymbolicAWEModel(set2, sys2; transforms, vsm_set)
+        sam2 = SymbolicAWEModel(set2, sys2; transforms)
         # remake=false → loads from cache
         init!(sam2; remake=false, prn=false)
 
