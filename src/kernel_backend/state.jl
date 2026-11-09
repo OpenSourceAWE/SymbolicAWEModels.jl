@@ -331,9 +331,9 @@ drag_source(model::KernelModel, idx) =
 """The output slots of point `idx`'s body-frame aerodynamic force, or none when it
 has no [`AeroPointForce`](@ref) — a point outside a panel-decomposed wing."""
 function aero_force_slots(model::KernelModel, idx)
-    instance = model.aero_force_instances[idx]
+    instance, output = model.aero_force_outputs[idx]
     instance == 0 && return Int[]
-    return buffer_slots(model.system, instance, :outputs, :force_b)
+    return buffer_slots(model.system, instance, :outputs, output)
 end
 
 """The output slots of point `idx`'s `va_b`, or none when it has no
@@ -390,7 +390,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
         copy_slots!(point.wind_vec, scratch.observable, readout.wind)
         copy_slots!(point.force, scratch.observable, readout.force)
         isempty(readout.aero) ||
-            copy_slots!(point.aero_force_b, scratch.output, readout.aero)
+            copy_slots!(point.aero_force, scratch.output, readout.aero)
     end
     for readout in getter.segments
         segment = sys_struct.segments[readout.segment]

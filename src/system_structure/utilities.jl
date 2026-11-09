@@ -910,22 +910,14 @@ end
 
 # ==================== SYSSTATE INTEROP ==================== #
 
-"""
-    restore_point_aero_forces!(sys, wing, sys_state)
-
-Put each of `wing`'s nodes back to the body-frame aero force the log holds for it,
-rotating the logged world-frame `aero_force_x/y/z` by the frame just restored. A log
-without those channels restores zeros.
-"""
-function restore_point_aero_forces!(sys, wing, sys_state)
+"""Put the world-frame aero force of each point back from `sys_state`; a log without
+those channels leaves them as they are."""
+function restore_point_aero_forces!(sys, sys_state)
     length(sys_state.aero_force_x) == length(sys_state.X) || return nothing
-    rot = quaternion_to_rotation_matrix(wing.Q_b_to_w)
-    for point in sys.points
-        (point.is_wing_node && point.wing_idx == wing.idx) || continue
-        point.aero_force_b .= rot' * [sys_state.aero_force_x[point.idx],
-                                      sys_state.aero_force_y[point.idx],
-                                      sys_state.aero_force_z[point.idx]]
-    end
+    columns = sys.sysstate
+    copyto!(columns.aero_force_x, sys_state.aero_force_x)
+    copyto!(columns.aero_force_y, sys_state.aero_force_y)
+    copyto!(columns.aero_force_z, sys_state.aero_force_z)
     return nothing
 end
 
@@ -1002,11 +994,12 @@ function update_from_sysstate!(sys::SystemState, sys_state::SysState{P}) where P
 
         wing.aero_force_b .= sys_state.aero_force_KA
         wing.aero_moment_b .= sys_state.aero_moment_KA
-        restore_point_aero_forces!(sys, wing, sys_state)
         wing.wind_vec .= sys_state.v_wind_kite
         wing.aoa = Float64(sys_state.AoA)
         wing.course = Float64(sys_state.course)
     end
+
+    restore_point_aero_forces!(sys, sys_state)
 
     # Standalone bodies: origins after the wing slots, orientations after the wings.
     if has_wing_slots

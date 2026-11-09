@@ -307,29 +307,6 @@ function SymbolicAWEModel(
     return SymbolicAWEModel(; sys_struct, state, serialized_model, kwargs...)
 end
 
-"""
-    write_aero_forces!(ss, sys_struct) -> ss
-
-Fill `ss.aero_force_x/y/z` with the world-frame aerodynamic force each wing node
-carries, from its `point.aero_force_b`. A mode that stores none leaves its nodes at
-zero.
-"""
-function write_aero_forces!(ss::SysState, sys_struct::SystemState)
-    fill!(ss.aero_force_x, 0.0)
-    fill!(ss.aero_force_y, 0.0)
-    fill!(ss.aero_force_z, 0.0)
-    for wing in sys_struct.wings
-        rot = quaternion_to_rotation_matrix(wing.Q_b_to_w)
-        for point in wing_points(sys_struct, wing)
-            force = rot * point.aero_force_b
-            ss.aero_force_x[point.idx] += force[1]
-            ss.aero_force_y[point.idx] += force[2]
-            ss.aero_force_z[point.idx] += force[3]
-        end
-    end
-    return ss
-end
-
 """Copy the columns a run writes directly from its state `from` into the log frame `to`."""
 function copy_run_columns!(to::SysState, from::SysState)
     copyto!(to.force_x, from.force_x)
@@ -338,6 +315,9 @@ function copy_run_columns!(to::SysState, from::SysState)
     copyto!(to.wind_x, from.wind_x)
     copyto!(to.wind_y, from.wind_y)
     copyto!(to.wind_z, from.wind_z)
+    copyto!(to.aero_force_x, from.aero_force_x)
+    copyto!(to.aero_force_y, from.aero_force_y)
+    copyto!(to.aero_force_z, from.aero_force_z)
     copyto!(to.acc_x, from.acc_x)
     copyto!(to.acc_y, from.acc_y)
     copyto!(to.acc_z, from.acc_z)
@@ -424,7 +404,6 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     for segment in sam.state.segments
         ss.spring_force[segment.idx] = segment.force
     end
-    write_aero_forces!(ss, sam.state)
 
     # Store per-mode aero log points (e.g. VSM panel corners) in world frame
     corner_idx = length(points)
@@ -629,7 +608,7 @@ function next_step!(sam::SymbolicAWEModel;
                 has_vsm_wing(sam.state)
             sam.t_vsm = @elapsed begin
                 refresh_aero!(sam; vsm_min_wind, vsm_warn_on_fail)
-                sync_params!(prob.param_sync, integrator, sam.state)
+                sync_aero_params!(prob.param_sync, integrator, sam.state)
             end
         end
     end

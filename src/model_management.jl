@@ -2,36 +2,25 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 """
-    carries_point_aero(sys_struct, point) -> Bool
-
-Whether `point`'s per-node aerodynamic force has to be read back out of the model:
-it is a node of a `PARTICLE_DYNAMICS` wing whose mode scatters panel loads, so the
-load exists only in the equations. This selects the same nodes the `KernelBackend`
-builds an [`AeroPointForce`](@ref) for.
-"""
-function carries_point_aero(sys_struct, point)
-    point.is_wing_node || return false
-    body = sys_struct.bodies[point.wing_idx]
-    return is_wing(body) && body.dynamics_type == PARTICLE_DYNAMICS &&
-        supports_panel_decomposition(body.aero)
-end
-
-"""
     point_aero_force_array(sys_struct, sys) -> Matrix{Num} or nothing
 
-The body-frame aerodynamic force of every point as one `3 x n_points` array to
-fetch, holding `aero_force_point_b` where a node has one and a literal zero
-elsewhere, so it scatters on the point index like the other per-point arrays.
-`nothing` when no wing writes per-node forces. The zeros are constants in the
-generated function, so a point carrying no aero costs nothing to fetch.
+The world-frame aerodynamic force of every point as one `3 x n_points` array to fetch: a
+particle wing's node holds its body-frame `aero_force_point_b` turned into the world, and
+any other point a literal zero, a constant of the generated function. `nothing` when no
+wing has per-node forces.
 """
 function point_aero_force_array(sys_struct, sys)
     hasproperty(sys, :aero_force_point_b) || return nothing
-    any(carries_point_aero(sys_struct, point) for point in sys_struct.points) ||
-        return nothing
-    field = getproperty(sys, :aero_force_point_b)
-    return [carries_point_aero(sys_struct, point) ? Num(field[i, point.idx]) : Num(0)
-            for i in 1:3, point in sys_struct.points]
+    particle_node(point) = point.is_wing_node &&
+        is_wing(sys_struct.bodies[point.wing_idx]) &&
+        sys_struct.bodies[point.wing_idx].dynamics_type == PARTICLE_DYNAMICS
+    any(particle_node, sys_struct.points) || return nothing
+    force = [particle_node(point) ?
+                 collect(sys.body_R_b_to_w[:, :, point.wing_idx] *
+                         sys.aero_force_point_b[:, point.idx]) :
+                 zeros(Num, 3)
+             for point in sys_struct.points]
+    return reduce(hcat, force)
 end
 
 """
@@ -59,7 +48,8 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
                                                :drag_force_y, :drag_force_z), v)]
         aero_force = point_aero_force_array(sys_struct, sys)
         isnothing(aero_force) || push!(pairs,
-            aero_force => (st, v) -> write_columns!(st.cache.point_aero_force_b, v))
+            aero_force => (st, v) -> write_columns!(
+                xyz(st.sysstate, :aero_force_x, :aero_force_y, :aero_force_z), v))
         push!(specs, scatter_spec(pairs...))
     end
     if length(pulleys) > 0
@@ -70,14 +60,14 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
     if length(segments) > 0
         push!(specs, scatter_spec(
             sys.spring_force => (st, v) -> write_column!(st.sysstate.spring_force, v),
-            sys.l0           => (st, v) -> write_column!(st.cache.segment_l0, v)))
+            sys.l0           => (st, v) -> write_column!(st.segment_l0, v)))
     end
     if length(stations) > 0
         push!(specs, scatter_spec(
             sys.twist_angle => (st, v) -> write_column!(st.sysstate.twist_angles, v),
             sys.twist_ω     => (st, v) -> write_column!(st.sysstate.twist_vel, v),
             sys.station_aero_moment =>
-                (st, v) -> write_column!(st.cache.station_aero_moment, v)))
+                (st, v) -> write_column!(st.station_aero_moment, v)))
     end
     if length(winches) > 0
         push!(specs, scatter_spec(
@@ -95,7 +85,8 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
     if length(wings) > 0
         # A wing is the body of the same index; its body pose comes with the bodies.
         push!(specs, scatter_spec(
-            sys.wind_vel_wing => (st, v) -> write_columns!(st.cache.body_wind, v),
+            sys.wind_vel_wing => (st, v) -> write_columns!(
+                xyz(st.sysstate, :wind_x, :wind_y, :wind_z), v, st.body_slot0),
             sys.aero_force_b  => (st, v) -> write_columns!(xyz(st.sysstate,
                 :aero_force_KA_x, :aero_force_KA_y, :aero_force_KA_z), v),
             sys.aero_moment_b => (st, v) -> write_columns!(xyz(st.sysstate,
@@ -710,7 +701,7 @@ function reinit!(
             SimFloat[winch.set_value for winch in sam.state.winches])
     if fresh
         # A trailing reinit! would re-solve the DAE init and discard this synced state.
-        sync_params!(prob.param_sync, prob.prob, sam.state)
+        sync_aero_params!(prob.param_sync, prob.prob, sam.state)
         sync_initial!(prob.initial_sync, prob.prob, sam.state)
         seed_set_values!(prob.prob)
         prn && @info "JIT-compiling the RHS and building the integrator (first " *
@@ -723,7 +714,7 @@ function reinit!(
     else
         integrator = existing
         sam.integrator = integrator
-        sync_params!(prob.param_sync, integrator, sam.state)
+        sync_aero_params!(prob.param_sync, integrator, sam.state)
         seed_set_values!(integrator)
         OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
     end
@@ -732,7 +723,7 @@ function reinit!(
         prn && @info "Running initial VSM aero solve…"
         aero_time = @elapsed refresh_aero!(sam; vsm_min_wind, cold_start=true)
         prn && @info "Initial aero solved in $(round(aero_time; digits=1)) s."
-        sync_params!(prob.param_sync, integrator, sam.state)
+        sync_aero_params!(prob.param_sync, integrator, sam.state)
     end
     validate_sys_struct(sam.state)  # Check for division-by-zero issues
     return integrator, true

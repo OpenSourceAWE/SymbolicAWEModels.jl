@@ -304,7 +304,7 @@ all the state getter and the control setter need to find their values. A
 `BODY_STATIC` point has two: `point_instances` holds its kinematics and
 `wrench_instances` the load it feeds back (`0` for every other point).
 `aero_instances` holds each wing's aero instance and `twist_instances` each twist
-surface's, `0` where there is none. `aero_force_instances` holds each point's
+surface's, `0` where there is none. `aero_force_outputs` holds each point's
 [`AeroPointForce`](@ref) and `inflow_instances` its [`AeroInflowPoint`](@ref), whose
 `va_b` output is the apparent wind the aero is solved on; `0` for a point with
 neither.
@@ -323,7 +323,7 @@ struct KernelModel{S, P}
     aero_instances::Vector{Int}
     twist_instances::Vector{Int}
     inflow_instances::Vector{Int}
-    aero_force_instances::Vector{Int}
+    aero_force_outputs::Vector{Tuple{Int, Symbol}}
 end
 
 """
@@ -381,11 +381,11 @@ function assemble(sam; verbose = false)
     flap_instances = add_flap_deltas!(builder, table, bindings, sam, body_instances,
                                       point_instances)
     inflow_instances = zeros(Int, length(sys_struct.points))
-    aero_force_instances = zeros(Int, length(sys_struct.points))
+    aero_force_outputs = fill((0, :force), length(sys_struct.points))
     aero_instances = [add_wing_aero!(builder, table, bindings, sam, wing,
                                      body_instances, point_instances, flap_instances,
                                      twist_instances, wrench_instances,
-                                     inflow_instances, aero_force_instances)
+                                     inflow_instances, aero_force_outputs)
                       for wing in sys_struct.wings]
 
     system = build_system(builder)
@@ -398,7 +398,7 @@ function assemble(sam; verbose = false)
     return KernelModel(system, u0, params, sync, point_instances,
                           wrench_instances, segment_instances, body_instances,
                           point_roles, segment_roles, aero_instances,
-                          twist_instances, inflow_instances, aero_force_instances)
+                          twist_instances, inflow_instances, aero_force_outputs)
 end
 
 """
@@ -454,12 +454,12 @@ body: nothing about it is a cycle, so the schedule runs the structure, then the 
 frame, then the aero, then the derivatives.
 """
 function add_wing_aero!(builder, table, bindings, sam, wing, bodies, points, flaps,
-                        twists, wrenches, inflow_instances, aero_force_instances)
+                        twists, wrenches, inflow_instances, aero_force_outputs)
     wing.dynamics_type == PARTICLE_DYNAMICS || return add_rigid_wing_aero!(
         builder, table, bindings, sam, wing, bodies, twists)
     supports_panel_decomposition(wing.aero) && return add_panel_wing_aero!(
         builder, table, bindings, sam, wing, bodies, points, flaps, wrenches,
-        inflow_instances, aero_force_instances)
+        inflow_instances, aero_force_outputs)
     sys_struct = sam.state
     nodes = wing_points(sys_struct, wing)
     surfaces = wing_flap_surfaces(wing)
@@ -481,6 +481,7 @@ function add_wing_aero!(builder, table, bindings, sam, wing, bodies, points, fla
         connect!(builder, points[node.idx], :vel, instance, Symbol(:point_vel_, k))
         connect!(builder, instance, Symbol(:point_force_, k),
                  load_target(points, wrenches, node.idx), :force_in)
+        aero_force_outputs[node.idx] = (instance, Symbol(:point_force_, k))
     end
     for surface in surfaces
         haskey(flaps, surface) || continue
@@ -507,7 +508,7 @@ size; this decomposition is not, which is what makes a large wing buildable.
 """
 function add_panel_wing_aero!(builder, table, bindings, sam, wing, bodies, points,
                               flaps, wrenches, inflow_instances,
-                              aero_force_instances)
+                              aero_force_outputs)
     nodes = wing_points(sam.state, wing)
     body = bodies[wing.idx]
     inflow_points = add_aero_inflow_points!(builder, table, bindings, sam, nodes,
@@ -531,7 +532,7 @@ function add_panel_wing_aero!(builder, table, bindings, sam, wing, bodies, point
     forces = add_aero_point_forces!(builder, table, bindings, sam, wing, nodes,
                                     inflow_points, body, points, wrenches)
     for (node, instance) in zip(nodes, forces)
-        aero_force_instances[node.idx] = instance
+        aero_force_outputs[node.idx] = (instance, :force)
     end
     for (panel, node, force_weight, couple_weight) in
             aero_scatter_entries(wing.aero, wing, nodes)
@@ -1254,7 +1255,10 @@ function bind_params(system, sys_struct, bindings, segment_roles, segment_instan
     end
     retarget_tether_rest_lengths!(readers, segment_roles)
     bind_segment_winds!(slots, readers, system, sys_struct, segment_instances)
-    sync = KernelParamSync(group_readers(slots, readers),
+    refreshed = [!isnothing(path_reader(reader)) && refreshed_path(path_reader(reader).path)
+                 for reader in readers]
+    sync = KernelParamSync(group_readers(slots[.!refreshed], readers[.!refreshed]),
+                           group_readers(slots[refreshed], readers[refreshed]),
                            group_callables(callable_targets, callable_readers))
     return KernelParams(numeric, callables), sync
 end

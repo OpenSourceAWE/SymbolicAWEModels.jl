@@ -99,7 +99,7 @@ function refresh_particle_aero!(::AeroDirect, wing, points, va_point_b_vals;
     if norm(wing.va_b) < vsm_min_wind
         for point in points
             if point.is_wing_node && point.wing_idx == wing.idx
-                fill!(point.aero_force_b, 0.0)
+                point.aero_force .= 0.0
             end
         end
         return nothing

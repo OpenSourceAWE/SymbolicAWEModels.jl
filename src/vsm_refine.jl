@@ -351,7 +351,7 @@ function distribute_panel_forces_to_points!(wing, points::AbstractVector)
     # Initialize all wing-node forces to zero
     for point in points
         if point.is_wing_node && point.wing_idx == wing.idx
-            point.aero_force_b .= 0.0
+            point.aero_force .= 0.0
         end
     end
 
@@ -379,6 +379,7 @@ function distribute_panel_forces_to_points!(wing, points::AbstractVector)
     end
 
     # For each refined panel, split force/moment to LE/TE of its parent section
+    R_b_to_w = wing.R_b_to_w
     n_panels_wing = length(panels)
     for local_panel_idx in 1:n_panels_wing
         panel_idx = start_idx + local_panel_idx - 1
@@ -399,8 +400,8 @@ function distribute_panel_forces_to_points!(wing, points::AbstractVector)
         F_le = F_le_left + F_le_right
         F_te = F_te_left + F_te_right
 
-        points[vsm_point_to_struct[le_key]].aero_force_b .+= F_le
-        points[vsm_point_to_struct[te_key]].aero_force_b .+= F_te
+        points[vsm_point_to_struct[le_key]].aero_force .+= R_b_to_w * F_le
+        points[vsm_point_to_struct[te_key]].aero_force .+= R_b_to_w * F_te
     end
 
     return nothing

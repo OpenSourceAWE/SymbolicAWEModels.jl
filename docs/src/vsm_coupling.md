@@ -150,9 +150,9 @@ evaluation:
 
 The component reads those buffers through its `params` view —
 `params.wings[i].aero_force_b` / `.aero_moment_b` for a rigid wing,
-`params.points[j].aero_force_b` for a particle wing — so the values are synced
-from the live `SystemStructure` once per step without a registered-function call
-in the RHS.
+`params.points[j].aero_force_b` for a particle wing — so the values reach the RHS
+without a registered-function call. A rigid wing's are synced from the run's state once
+per step, a particle wing's at each refresh, since they stay fixed in the body frame.
 
 ### `AeroLinearized`
 

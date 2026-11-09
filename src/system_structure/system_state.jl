@@ -27,9 +27,6 @@ Base.copy(c::ColumnVec3) = MVector{3, SimFloat}(Tuple(c))
 StaticArrays.similar_type(::Type{<:ColumnVec3}, ::Type{T}, ::Size{(3,)}) where {T} =
     SVector{3, T}
 
-"""`ColumnVec3` over entry `i` of the three columns `xyz`."""
-column_vec3(xyz::NTuple{3}, i) = ColumnVec3(xyz..., i)
-
 """
     ColumnQuat{V}
 
@@ -56,43 +53,6 @@ Base.copy(q::ColumnQuat) = SimFloat[q[1], q[2], q[3], q[4]]
 StaticArrays.similar_type(::Type{<:ColumnQuat}, ::Type{T}, ::Size{(4,)}) where {T} =
     SVector{4, T}
 
-# ==================== RUN CACHE ==================== #
-
-"""
-    RunCache
-
-What a run keeps that a `SysState` has no column for and that cannot be recomputed from
-the rest of its state: the segments' rest lengths and the apparent masses a caller or the
-air sets, and what the aerodynamic refresh keeps between refreshes. One vector per
-quantity, or three for a vector quantity, indexed like the structure's components. A
-wing's are its body's.
-
-$(TYPEDFIELDS)
-"""
-struct RunCache
-    "Each segment's rest length [m], which a winch reels."
-    segment_l0::Vector{SimFloat}
-    "Each point's apparent mass [kg]."
-    point_apparent_mass::Vector{SimFloat}
-    "Each body's apparent mass [kg]."
-    body_apparent_mass::Vector{SimFloat}
-    "Each point's aerodynamic force in its wing's body frame [N]."
-    point_aero_force_b::NTuple{3, Vector{SimFloat}}
-    "The wind at each body [m/s]."
-    body_wind::NTuple{3, Vector{SimFloat}}
-    "Each station's aerodynamic twist moment [N·m]."
-    station_aero_moment::Vector{SimFloat}
-end
-
-"""The zeroed [`RunCache`](@ref) of a structure of `points`, `segments`, `stations` and
-`bodies` components."""
-function RunCache(; points, segments, stations, bodies)
-    column(n) = zeros(SimFloat, n)
-    columns3(n) = (column(n), column(n), column(n))
-    return RunCache(column(segments), column(points), column(bodies), columns3(points),
-                    columns3(bodies), column(stations))
-end
-
 # ==================== SYSTEM STATE ==================== #
 
 """
@@ -108,7 +68,7 @@ abstract type ComponentState end
     SystemState{SS, ST}
 
 What a run holds of a [`SystemStructure`](@ref). Its state is a KiteUtils `SysState` of
-`Float64`, `sysstate`, beside `cache` for what it has no column for. Its
+`Float64`, `sysstate`, beside the integrator's parameters no column holds. Its
 `points`, `stations`, `segments`, `pulleys`, `tethers`, `winches`, `bodies` and `wings`
 are records of the structure's components, found by index or name, each reading its
 state from those columns and every other property from its component. It holds the
@@ -118,7 +78,14 @@ other property, `tubes` among them, is the structure's.
 mutable struct SystemState{SS, ST <: SysState, R <: NamedTuple}
     const structure::SS
     const sysstate::ST
-    const cache::RunCache
+    "each segment's rest length [m], the integrator's parameter a winch reels"
+    const segment_l0::Vector{SimFloat}
+    "each point's apparent mass [kg], an integrator parameter"
+    const point_apparent_mass::Vector{SimFloat}
+    "each body's apparent mass [kg], an integrator parameter"
+    const body_apparent_mass::Vector{SimFloat}
+    "each station's aerodynamic twist moment [N·m], an integrator parameter"
+    const station_aero_moment::Vector{SimFloat}
     "the segments as this run reads them"
     const built_segments::Vector{BuiltSegment}
     "each point's segments"
@@ -172,8 +139,6 @@ The state of a run of `sys` with settings `set` and `wind_mode`, placed by KiteG
 function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
                      wind_mode::WindMode=ProfileWind())
     P, counts = sysstate_counts(sys)
-    cache = RunCache(; points=length(sys.points), segments=length(sys.segments),
-                     stations=length(sys.stations), bodies=length(sys.bodies))
     no_records = NamedCollection(ComponentState[])
     built_segments = [resolve_segment(row, sys.materials, set) for row in sys.segments]
     rows = (points=typed_rows(Point, sys.points),
@@ -182,8 +147,11 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
             pulleys=typed_rows(Pulley, sys.pulleys),
             tethers=typed_rows(Tether, sys.tethers),
             winches=typed_rows(Winch, sys.winches))
-    state = SystemState(sys, SysState(P; counts..., precision=SimFloat), cache,
-                        built_segments, point_segments(sys),
+    state = SystemState(sys, SysState(P; counts..., precision=SimFloat),
+                        zeros(SimFloat, length(sys.segments)),
+                        zeros(SimFloat, length(sys.points)),
+                        zeros(SimFloat, length(sys.bodies)),
+                        zeros(SimFloat, length(sys.stations)), built_segments, point_segments(sys),
                         first(position_slots(sys).bodies) - 1, length(sys.wings), rows,
                         run_tubes(sys),
                         no_records, no_records, convert(Rows{Transform}, transforms),
@@ -300,8 +268,8 @@ set_state_property!(record::ComponentState, ::Val{name}, value) where {name} =
 
 """The `SysState` a record's state is held in."""
 sysstate(record::ComponentState) = getfield(getfield(record, :state), :sysstate)
-"""The [`RunCache`](@ref) of a record's state."""
-cache(record::ComponentState) = getfield(getfield(record, :state), :cache)
+"""The run's state a record reads."""
+run_state(record::ComponentState) = getfield(record, :state)
 """What a run reads of a segment record's segment."""
 built(record) = getfield(getfield(record, :state), :built_segments)[index(record)]
 """The stiffness per unit length [N] of a segment record whose stiffness is a number,
@@ -364,13 +332,15 @@ A point of a run's state: its position and velocity and the forces on it.
                              sysstate(r).drag_force_z, index(r))
     force => ColumnVec3(sysstate(r).force_x, sysstate(r).force_y, sysstate(r).force_z,
                         index(r))
-    aero_force_b => column_vec3(cache(r).point_aero_force_b, index(r))
+    aero_force => ColumnVec3(sysstate(r).aero_force_x, sysstate(r).aero_force_y,
+                             sysstate(r).aero_force_z, index(r))
+    aero_force_b => (point_aero_force_b(r), derived(:aero_force_b))
     wind_vec => ColumnVec3(sysstate(r).wind_x, sysstate(r).wind_y, sysstate(r).wind_z,
                            index(r))
     va_b => (point_apparent_wind(r), derived(:va_b))
     total_mass => (point_total_mass(r), derived(:total_mass))
-    apparent_mass => (cache(r).point_apparent_mass[index(r)],
-                      cache(r).point_apparent_mass[index(r)] = value)
+    apparent_mass => (run_state(r).point_apparent_mass[index(r)],
+                      run_state(r).point_apparent_mass[index(r)] = value)
 end
 
 @state_record StationState """
@@ -383,8 +353,8 @@ A station of a run's state: its twist and the moments on it.
     twist_ω => (sysstate(r).twist_vel[index(r)], sysstate(r).twist_vel[index(r)] = value)
     tether_force => (station_tether_load(r).force, derived(:tether_force))
     tether_moment => (station_tether_load(r).moment, derived(:tether_moment))
-    aero_moment => (cache(r).station_aero_moment[index(r)],
-                    cache(r).station_aero_moment[index(r)] = value)
+    aero_moment => (run_state(r).station_aero_moment[index(r)],
+                    run_state(r).station_aero_moment[index(r)] = value)
 end
 
 @state_record SegmentState """
@@ -405,7 +375,7 @@ its material.
     compression_frac => (built(r).compression_frac, built(r).compression_frac = value)
     compression_damping_frac => (built(r).compression_damping_frac,
                                  built(r).compression_damping_frac = value)
-    l0 => (cache(r).segment_l0[index(r)], cache(r).segment_l0[index(r)] = value)
+    l0 => (run_state(r).segment_l0[index(r)], run_state(r).segment_l0[index(r)] = value)
     len => (segment_world_length(getfield(r, :row), getfield(r, :state).points),
             derived(:len))
     force => (sysstate(r).spring_force[index(r)],
@@ -484,10 +454,11 @@ aero mode, with this run's VSM engine where it has one.
     ω_p => (getfield(r, :row).R_b_to_p * r.ω_b, derived(:ω_p))
     acc_w => ColumnVec3(sysstate(r).acc_x, sysstate(r).acc_y, sysstate(r).acc_z,
                         body_slot(r))
-    wind_vec => column_vec3(cache(r).body_wind, index(r))
+    wind_vec => ColumnVec3(sysstate(r).wind_x, sysstate(r).wind_y, sysstate(r).wind_z,
+                           body_slot(r))
     va_b => (body_apparent_wind(r), derived(:va_b))
-    apparent_mass => (cache(r).body_apparent_mass[index(r)],
-                      cache(r).body_apparent_mass[index(r)] = value)
+    apparent_mass => (run_state(r).body_apparent_mass[index(r)],
+                      run_state(r).body_apparent_mass[index(r)] = value)
     aero_force_b => ColumnVec3(sysstate(r).aero_force_KA_x, sysstate(r).aero_force_KA_y,
                                sysstate(r).aero_force_KA_z, index(r))
     aero_moment_b => ColumnVec3(sysstate(r).aero_moment_KA_x, sysstate(r).aero_moment_KA_y,
@@ -514,6 +485,15 @@ function point_apparent_wind(point)
     wing_idx > 0 || return zero(SVector{3, SimFloat})
     wing = getfield(point, :state).bodies[wing_idx]
     return SVector{3}(wing.R_b_to_w' * (point.wind_vec - point.vel_w))
+end
+
+"""The aerodynamic force on `point` in the body frame of its wing [N], zero where it has
+none."""
+function point_aero_force_b(point)
+    wing_idx = point.wing_idx
+    wing_idx > 0 || return zero(SVector{3, SimFloat})
+    wing = getfield(point, :state).bodies[wing_idx]
+    return SVector{3}(wing.R_b_to_w' * point.aero_force)
 end
 
 """The apparent wind on `body` in its body frame [m/s]."""

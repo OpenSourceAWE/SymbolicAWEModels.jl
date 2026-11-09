@@ -207,5 +207,25 @@ system:
                       for (pf, pc) in zip(fresh, cached)) < 1e-2
         @test maximum(norm(pf.pos_w - pc.pos_w)
                       for (pf, pc) in zip(fresh, cached)) < 1e-4
+
+        @testset "a frozen point force stays fixed in its wing's frame" begin
+            frozen_b = [collect(point.aero_force_b) for point in wpts(sam_cached)]
+            frozen_w = [collect(point.aero_force) for point in wpts(sam_cached)]
+            for _ in 1:5
+                next_step!(sam_cached; dt=0.05, vsm_interval=0)
+            end
+            @test maximum(norm(point.aero_force_b - force)
+                          for (point, force) in zip(wpts(sam_cached), frozen_b)) < 1e-4
+            @test maximum(norm(point.aero_force - force)
+                          for (point, force) in zip(wpts(sam_cached), frozen_w)) > 1e-3
+        end
+
+        @testset "a logged point force reaches a run that does not solve the aero" begin
+            restored = build_refine(; remake=false)
+            update_from_sysstate!(restored.state, sam_fresh.state.sysstate)
+            init!(restored; remake=false, remake_vsm=false, lin_vsm=false, prn=false)
+            @test maximum(norm(point.aero_force - logged.aero_force)
+                          for (point, logged) in zip(wpts(restored), wpts(sam_fresh))) < 1e-4
+        end
     end
 end

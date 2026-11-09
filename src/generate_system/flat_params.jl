@@ -328,11 +328,16 @@ struct ParamGroup{Setter, Buf}
 end
 
 """Bundle of the per-kind sync groups (each may be `nothing`)."""
-struct ParamSync{S, A, C}
+struct ParamSync{S, A, C, R}
     scalar::S
     array::A
     callable::C
+    refreshed::R
 end
+
+"""Whether `path` reads a point's frozen aerodynamic force, which only an aerodynamic
+refresh changes: a sync at another attitude would turn it with the wing."""
+refreshed_path(path) = length(path) >= 3 && path[1] === :points && path[3] === :aero_force_b
 
 """
     survivor_index(sys) -> Dict{String, Vector{param}}
@@ -371,7 +376,8 @@ touches a parameter absent from the buffer.
 function build_param_sync(sys, registry::ParamRegistry)
     isempty(registry.entries) && return nothing
     index = survivor_index(sys)
-    by_kind(k) = filter(e -> e.kind === k, registry.entries)
+    refreshed_entries = filter(e -> refreshed_path(e.path), registry.entries)
+    by_kind(k) = filter(e -> e.kind === k && !refreshed_path(e.path), registry.entries)
     grp(entries, ::Type{Buf}) where {Buf} = begin
         survivors, readers = Any[], Any[]
         for entry in entries
@@ -386,8 +392,9 @@ function build_param_sync(sys, registry::ParamRegistry)
     scalar = grp(by_kind(:scalar), Vector{SimFloat})
     array = grp(by_kind(:array), Vector{Any})
     callable = grp(by_kind(:callable), Vector{Any})
-    (scalar === nothing && array === nothing && callable === nothing) && return nothing
-    return ParamSync(scalar, array, callable)
+    refreshed = grp(refreshed_entries, Vector{Any})
+    all(isnothing, (scalar, array, callable, refreshed)) && return nothing
+    return ParamSync(scalar, array, callable, refreshed)
 end
 
 """
@@ -403,6 +410,18 @@ function sync_params!(sync::ParamSync, target, sys_struct)
     sync_group!(sync.array, target, sys_struct)
     sync_group!(sync.callable, target, sys_struct)
     return nothing
+end
+
+"""
+    sync_aero_params!(sync, target, sys_struct)
+
+[`sync_params!`](@ref), and the parameters only an aerodynamic refresh changes: to call
+right after a refresh, and where a run starts.
+"""
+sync_aero_params!(::Nothing, target, sys_struct) = nothing
+function sync_aero_params!(sync::ParamSync, target, sys_struct)
+    sync_group!(sync.refreshed, target, sys_struct)
+    return sync_params!(sync, target, sys_struct)
 end
 
 sync_group!(::Nothing, target, sys_struct) = nothing
