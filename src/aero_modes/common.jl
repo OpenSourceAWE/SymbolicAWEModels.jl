@@ -188,7 +188,8 @@ end
     frozen_point_force_component(wing::AbstractWing, sys_struct; name, params) -> System
 
 Particle aero component binding each wing node's connector force to its frozen
-`point.aero_force_b` flat parameter, set at each refresh ([`sync_aero_params!`](@ref)). Used by
+`point.aero_force_b` flat parameter, set at each refresh
+([`sync_aero_params!`](@ref)). Used by
 [`AeroDirect`](@ref), whose refresh precomputes that force. Touching the parameter
 here is what registers it.
 """

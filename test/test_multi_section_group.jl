@@ -118,7 +118,8 @@ function riding_mass(sys, wing)
     riders = [point.idx for point in sys.points
               if point.type == SymbolicAWEModels.BODY_STATIC && point.body_idx == wing.idx]
     mass = sum(sys.points[idx].extra_mass for idx in riders)
-    for segment in SymbolicAWEModels.SystemState(sys; set, vsm_set).segments, idx in segment.point_idxs
+    state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
+    for segment in state.segments, idx in segment.point_idxs
         idx in riders && (mass += SymbolicAWEModels.segment_half_mass(
             segment.l0, segment.diameter, segment.density))
     end

@@ -58,11 +58,13 @@ using LinearAlgebra
     test_init!(rigid_dynamics_sam)
 
     particle_dynamics_sys, particle_dynamics_transforms = load_sys_struct_from_yaml(
-        particle_dynamics_yaml_path; system_name="transform_test_PARTICLE_DYNAMICS", set=set,
+        particle_dynamics_yaml_path;
+        system_name="transform_test_PARTICLE_DYNAMICS", set=set,
         aero_mode=AeroNone()
     )
     particle_dynamics_sam = SymbolicAWEModel(set, particle_dynamics_sys;
-                                             transforms=particle_dynamics_transforms, vsm_set)
+                                             transforms=particle_dynamics_transforms,
+                                             vsm_set)
     test_init!(particle_dynamics_sam)
 
     # Helper to reset transform to default YAML values

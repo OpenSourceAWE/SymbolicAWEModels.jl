@@ -114,6 +114,7 @@ SymbolicAWEModels.built
 SymbolicAWEModels.copy_run_columns!
 SymbolicAWEModels.model_aero
 SymbolicAWEModels.model_vsm_set
+SymbolicAWEModels.copy_unsteady
 SymbolicAWEModels.nan_to_nothing
 SymbolicAWEModels.numeric_unit_stiffness
 SymbolicAWEModels.point_apparent_wind

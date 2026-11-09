@@ -230,8 +230,9 @@ system:
             restored = build_refine(; remake=false)
             update_from_sysstate!(restored.state, sam_fresh.state.sysstate)
             init!(restored; remake=false, remake_vsm=false, lin_vsm=false, prn=false)
+            pairs = zip(wpts(restored), wpts(sam_fresh))
             @test maximum(norm(point.aero_force - logged.aero_force)
-                          for (point, logged) in zip(wpts(restored), wpts(sam_fresh))) < 1e-4
+                          for (point, logged) in pairs) < 1e-4
         end
     end
 end
