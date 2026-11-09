@@ -205,89 +205,47 @@ const VSM_ENGINE_FIELDS = (
     :unsteady)
 
 """
-    VSMSeed
+    AeroSpec{M}
 
-What a model builds a VSM wing's engine from, kept on its body once its structure is built
-so a bare structure holds no engine: the structure's `vsm_set`, the mesh pose and what the
-structure's matching of the mesh to its points found.
-
-$(TYPEDFIELDS)
+The VSM aero mode `M` a structure's wing is flown with, and the options `M` is built with:
+what a structure holds of a mode a model builds with its engine ([`model_aero`](@ref)).
 """
-struct VSMSeed
-    "The VSM settings the structure was built with."
-    vsm_set::VortexStepMethod.VSMSettings
-    "The mesh origin in the body frame [m]."
-    T_cad_body::Vector{SimFloat}
-    "The rotation of the mesh to the body frame."
-    R_cad_body::Matrix{SimFloat}
-    "The structural to panel maps."
-    wing_segments::Any
-    point_to_vsm_point::Any
-    "Force and panel adjustments."
-    aero_scale_chord::SimFloat
-    aero_z_offset::SimFloat
-    "The wing's unsteady corrections."
-    unsteady::UnsteadyAero
-    "The wing's panel count."
-    n_panels::Int
+struct AeroSpec{M, O <: NamedTuple} <: AbstractAeroModel
+    options::O
 end
-
-"""Take `wing`'s engine off its row, keeping what a model builds its own from."""
-function detach_vsm_engine!(wing, vsm_set)
-    has_vsm_engine(wing.aero) || return wing
-    engine = getfield(wing.aero, :engine)
-    vsm_wing = engine.vsm_wing
-    body_model(wing).vsm_seed = VSMSeed(vsm_set, collect(vsm_wing.T_cad_body),
-        collect(vsm_wing.R_cad_body), engine.wing_segments, engine.point_to_vsm_point,
-        engine.aero_scale_chord, engine.aero_z_offset, engine.unsteady,
-        length(engine.vsm_aero.panels))
-    setfield!(wing.aero, :engine, nothing)
-    return wing
-end
+AeroSpec{M}(; options...) where {M} =
+    AeroSpec{M, typeof(values(options))}(values(options))
 
 """
-    model_aero(wing, set, vsm_set)
+    model_aero(aero, body, set, vsm_set)
 
-The aero mode a model flies `wing` with: its row's, with an engine of its own built from
-`set` and `vsm_set` where the row has a seed for one and the model has settings.
+The aero mode a model flies `body` with: `aero`, or for an [`AeroSpec`](@ref) its mode with
+an engine of its own built from `set` and `vsm_set`, unless there is no `set` to build it
+from.
 """
-function model_aero(wing, set, vsm_set)
-    seed = wing.vsm_seed
-    (isnothing(seed) || isnothing(set) || !(wing.aero isa AbstractVSMAero)) &&
-        return wing.aero
-    engine = build_vsm_engine(set, something(vsm_set, seed.vsm_set), wing.dynamics_type;
-        n_stations=length(wing.station_idxs), seed.point_to_vsm_point, seed.wing_segments,
-        seed.aero_scale_chord, seed.aero_z_offset,
-        unsteady=copy_aero_mode(seed.unsteady))
-    engine.vsm_wing.T_cad_body .= seed.T_cad_body
-    engine.vsm_wing.R_cad_body .= seed.R_cad_body
-    mode = copy_aero_mode(wing.aero)
-    setfield!(mode, :engine, engine)
-    return mode
+model_aero(aero::AbstractAeroModel, body, set, vsm_set) = aero
+function model_aero(spec::AeroSpec{M}, body, set, vsm_set) where {M}
+    isnothing(set) && return spec
+    isnothing(vsm_set) && error("Wing $(body.name): aero mode $(nameof(M)) needs VSM " *
+        "geometry, but the model has no `vsm_set` and the project names no `vsm_settings`.")
+    return M(build_vsm_engine(set, vsm_set, body.dynamics_type;
+        n_stations=length(body.station_idxs),
+        aero_scale_chord=body_model(body).aero_scale_chord,
+        aero_z_offset=body_model(body).aero_z_offset,
+        unsteady=copy_unsteady(body_model(body).unsteady)); spec.options...)
 end
 
-"""A new object of the same type and fields as `mode`."""
-copy_aero_mode(mode::T) where {T} = T((getfield(mode, name) for name in fieldnames(T))...)
+"""A new [`UnsteadyAero`](@ref) with the values of `unsteady`."""
+copy_unsteady(unsteady::UnsteadyAero) =
+    UnsteadyAero((copy(getfield(unsteady, name)) for name in fieldnames(UnsteadyAero))...)
 
 function Base.getproperty(mode::AbstractVSMAero, sym::Symbol)
-    sym === :engine && return getfield(mode, :engine)
-    if sym in VSM_ENGINE_FIELDS
-        engine = getfield(mode, :engine)
-        engine === nothing && error(
-            "$(typeof(mode)) has no VSM engine yet; field `$sym` unavailable.")
-        return getproperty(engine, sym)
-    end
+    sym in VSM_ENGINE_FIELDS && return getproperty(getfield(mode, :engine), sym)
     return getfield(mode, sym)
 end
 
 function Base.setproperty!(mode::AbstractVSMAero, sym::Symbol, value)
-    sym === :engine && return setfield!(mode, :engine, value)
-    if sym in VSM_ENGINE_FIELDS
-        engine = getfield(mode, :engine)
-        engine === nothing && error(
-            "$(typeof(mode)) has no VSM engine yet; cannot set `$sym`.")
-        return setproperty!(engine, sym, value)
-    end
+    sym in VSM_ENGINE_FIELDS && return setproperty!(getfield(mode, :engine), sym, value)
     return setfield!(mode, sym, value)
 end
 

@@ -50,19 +50,19 @@ using LinearAlgebra
 
     # Create and initialize SAMs once for each wing type
     rigid_dynamics_sys, rigid_dynamics_transforms = load_sys_struct_from_yaml(
-        rigid_dynamics_yaml_path; system_name="transform_test_RIGID_DYNAMICS", set=set, vsm_set=vsm_set,
+        rigid_dynamics_yaml_path; system_name="transform_test_RIGID_DYNAMICS", set=set,
         aero_mode=AeroNone()
     )
     rigid_dynamics_sam = SymbolicAWEModel(set, rigid_dynamics_sys;
-                                          transforms=rigid_dynamics_transforms)
+                                          transforms=rigid_dynamics_transforms, vsm_set)
     test_init!(rigid_dynamics_sam)
 
     particle_dynamics_sys, particle_dynamics_transforms = load_sys_struct_from_yaml(
-        particle_dynamics_yaml_path; system_name="transform_test_PARTICLE_DYNAMICS", set=set, vsm_set=vsm_set,
+        particle_dynamics_yaml_path; system_name="transform_test_PARTICLE_DYNAMICS", set=set,
         aero_mode=AeroNone()
     )
     particle_dynamics_sam = SymbolicAWEModel(set, particle_dynamics_sys;
-                                             transforms=particle_dynamics_transforms)
+                                             transforms=particle_dynamics_transforms, vsm_set)
     test_init!(particle_dynamics_sam)
 
     # Helper to reset transform to default YAML values
@@ -586,7 +586,7 @@ using LinearAlgebra
         ]
         place_structure!(sys_c, transforms_c; prn=false)
 
-        sam_c = SymbolicAWEModel(set_c, sys_c; transforms=transforms_c)
+        sam_c = SymbolicAWEModel(set_c, sys_c; transforms=transforms_c, vsm_set)
         init!(sam_c)
 
         @testset "get_base_pos returns the parent's current and initial position" begin

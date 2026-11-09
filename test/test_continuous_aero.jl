@@ -45,7 +45,7 @@ function load_continuous_sys(data_path, set; billowing)
     end
     return first(load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name="continuous_test", set, vsm_set, aero_mode=ContinuousAero()))
+        system_name="continuous_test", set, aero_mode=ContinuousAero()))
 end
 
 @testset "ContinuousAero" begin
@@ -61,7 +61,7 @@ end
     end
 
     sys = load_continuous_sys(data_path, set; billowing=true)
-    wing = SymbolicAWEModels.SystemState(sys; set).wings[1]
+    wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
     mode = wing.aero
     n_panels = length(wing.vsm_aero.panels)
 

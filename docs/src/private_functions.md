@@ -265,7 +265,6 @@ SymbolicAWEModels.ParticleDynamics
 SymbolicAWEModels.rotate_vsm_sections!
 SymbolicAWEModels.AERO_SCALE_CHORD
 SymbolicAWEModels.COLLOCATION_CHORD_FRAC
-SymbolicAWEModels.body_vsm_engine
 SymbolicAWEModels.expand_tethers!
 SymbolicAWEModels.resolve!
 SymbolicAWEModels.validate_weights!
@@ -313,7 +312,10 @@ SymbolicAWEModels.plate_corners
 ```@docs
 SymbolicAWEModels.vsm_engine
 SymbolicAWEModels.has_vsm_engine
-SymbolicAWEModels.require_vsm_engine
+SymbolicAWEModels.AeroSpec
+SymbolicAWEModels.setup_model_aero!
+SymbolicAWEModels.store_mesh_pose!
+SymbolicAWEModels.aero_mode_name
 SymbolicAWEModels.couples_to_sections
 SymbolicAWEModels.has_vsm_wing
 SymbolicAWEModels.aero_mode_tag
@@ -322,7 +324,6 @@ SymbolicAWEModels.validate_aero_component
 SymbolicAWEModels.validate_aero_structure
 SymbolicAWEModels.remake_aero!
 SymbolicAWEModels.setup_aero!
-SymbolicAWEModels.attach_engine!
 SymbolicAWEModels.resize_aero_state!
 SymbolicAWEModels.init_aero_state!
 SymbolicAWEModels.normalized_inertia

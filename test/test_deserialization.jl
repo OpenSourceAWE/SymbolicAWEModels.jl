@@ -87,7 +87,7 @@ system:
         sys, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_1", set)
 
-        sam = SymbolicAWEModel(set, sys; transforms)
+        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
         init!(sam; remake=true, prn=false)
 
         # sam.set must be the exact same object as
@@ -109,8 +109,8 @@ system:
         set_b.g_earth, set_b.v_wind = 9.81, 0.0
         sys, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_1", set=set_a)
-        sam_a = SymbolicAWEModel(set_a, sys; transforms)
-        sam_b = SymbolicAWEModel(set_b, sys; transforms, wind_mode=PerPointWind())
+        sam_a = SymbolicAWEModel(set_a, sys; transforms, vsm_set)
+        sam_b = SymbolicAWEModel(set_b, sys; transforms, wind_mode=PerPointWind(), vsm_set)
         @test sam_a.set === set_a
         @test sam_b.set === set_b
         @test sam_a.wind_mode isa ProfileWind
@@ -134,7 +134,7 @@ system:
         set1.v_wind = 0.0
         sys1, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_2", set=set1)
-        sam1 = SymbolicAWEModel(set1, sys1; transforms)
+        sam1 = SymbolicAWEModel(set1, sys1; transforms, vsm_set)
         init!(sam1; remake=true, prn=false)
 
         # Simulate - no gravity, no wind → stationary
@@ -152,7 +152,7 @@ system:
         set2.v_wind = 0.0
         sys2, transforms = load_sys_struct_from_yaml(
             yaml_path; system_name="deser_test_2", set=set2)
-        sam2 = SymbolicAWEModel(set2, sys2; transforms)
+        sam2 = SymbolicAWEModel(set2, sys2; transforms, vsm_set)
         # remake=false → loads from cache
         init!(sam2; remake=false, prn=false)
 
@@ -184,9 +184,9 @@ system:
             set.g_earth = 0.0
             sys, transforms = load_sys_struct_from_yaml(refine_yaml;
                 system_name="deser_refine", set,
-                dynamics_type=PARTICLE_DYNAMICS, vsm_set)
+                dynamics_type=PARTICLE_DYNAMICS)
             sys.winches[:main_winch].brake = true
-            sam = SymbolicAWEModel(set, sys; transforms)
+            sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
             init!(sam; remake, remake_vsm=false, prn=false)
             for _ in 1:5
                 next_step!(sam; dt=0.05, vsm_interval=1)
@@ -218,6 +218,12 @@ system:
                           for (point, force) in zip(wpts(sam_cached), frozen_b)) < 1e-4
             @test maximum(norm(point.aero_force - force)
                           for (point, force) in zip(wpts(sam_cached), frozen_w)) > 1e-3
+        end
+
+        @testset "init! keeps the model's one VSM engine" begin
+            vsm_wing = sam_cached.state.wings[1].vsm_wing
+            init!(sam_cached; remake=false, prn=false)
+            @test sam_cached.state.wings[1].vsm_wing === vsm_wing
         end
 
         @testset "a logged point force reaches a run that does not solve the aero" begin

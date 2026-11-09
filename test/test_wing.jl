@@ -88,16 +88,16 @@ end
     # Build SAMs once (expensive symbolic compilation)
     quat_sys, quat_transforms = load_sys_struct_from_yaml(
         quat_yaml_path;
-        system_name="wing_test_QUATERNION", set, vsm_set
+        system_name="wing_test_QUATERNION", set
     )
-    quat_sam = SymbolicAWEModel(set, quat_sys; transforms=quat_transforms)
+    quat_sam = SymbolicAWEModel(set, quat_sys; transforms=quat_transforms, vsm_set)
     test_init!(quat_sam)
 
     refine_sys, refine_transforms = load_sys_struct_from_yaml(
         refine_yaml_path;
-        system_name="wing_test_REFINE", set, vsm_set
+        system_name="wing_test_REFINE", set
     )
-    refine_sam = SymbolicAWEModel(set, refine_sys; transforms=refine_transforms)
+    refine_sam = SymbolicAWEModel(set, refine_sys; transforms=refine_transforms, vsm_set)
     test_init!(refine_sam)
 
     sam_configs = [

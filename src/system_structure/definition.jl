@@ -76,7 +76,7 @@ function wing_row(sys, wing)
     origin, R = mesh_frame(wing)
     return KiteGeometry.Wing(; name=definition_name(wing), pos_ENU=origin,
         Q_KA2ENU=rotation_matrix_to_quaternion(R),
-        model=WingModel(string(nameof(typeof(wing.aero))), Vector(wing.angular_damping),
+        model=WingModel(aero_mode_name(wing.aero), Vector(wing.angular_damping),
             wing_engine_field(wing, :aero_scale_chord),
             wing_engine_field(wing, :aero_z_offset), string(wing.principal_frame_method),
             string(wing.dynamics_type), ref_points_cell(sys, wing.origin),
@@ -85,10 +85,13 @@ function wing_row(sys, wing)
             references_column(wing.station_idxs)))
 end
 
-"""A VSM engine field of `wing`, `nothing` for a wing without one."""
+"""The name of an aero mode a wing row gives."""
+aero_mode_name(mode) = string(nameof(typeof(mode)))
+aero_mode_name(::AeroSpec{M}) where {M} = string(nameof(M))
+
+"""A VSM adjustment of `wing`, `nothing` for a wing flown without VSM."""
 wing_engine_field(wing, field) =
-    has_vsm_engine(wing.aero) ? Float64(getproperty(wing, field)) :
-    (isnothing(wing.vsm_seed) ? nothing : Float64(getproperty(wing.vsm_seed, field)))
+    wing.aero isa AeroSpec ? Float64(getfield(body_model(wing), field)) : nothing
 
 """The drag correction of a flat-plate aero model, `nothing` for another."""
 wing_drag_corr(aero) = hasproperty(aero, :drag_corr) ? aero.drag_corr : nothing

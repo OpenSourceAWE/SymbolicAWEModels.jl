@@ -12,11 +12,11 @@ evaluates the `calc_forces!` chain symbolically per refined panel — geometry
 interpolated from the live strut points with the frozen mesh weights,
 effective angle of attack, polar lookups, and lift/drag directions all live —
 capturing aerodynamic damping between refreshes. Carries a
-[`VSMEngine`](@ref); the no-arg form is the engine-less marker filled in
-during wing construction.
+[`VSMEngine`](@ref); `ContinuousAero()` selects the mode for a wing
+([`AeroSpec`](@ref)).
 """
 mutable struct ContinuousAero{E} <: AbstractVSMAero
-    engine::Union{Nothing, E}
+    engine::E
     "Frozen body-frame induced velocity per refined panel (3 × n_panels)."
     v_ind::Matrix{SimFloat}
     "Frozen section-1 share of each refined panel's chord blend (n_panels)."
@@ -33,24 +33,12 @@ mutable struct ContinuousAero{E} <: AbstractVSMAero
     cl::Any
     cd::Any
     cm::Any
-    ContinuousAero{E}(engine, v_ind, chord_weight, section_left_strut,
-        section_left_weight, section_le_offset, section_te_offset,
-        cl, cd, cm) where {E} =
-        new{E}(engine, v_ind, chord_weight, section_left_strut,
-            section_left_weight, section_le_offset, section_te_offset,
-            cl, cd, cm)
 end
 
-ContinuousAero() =
-    ContinuousAero{VSMEngine}(nothing, zeros(SimFloat, 3, 0), SimFloat[],
-                   Int64[], SimFloat[],
-                   zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0),
-                   nothing, nothing, nothing)
-attach_engine!(mode::ContinuousAero, engine::VSMEngine) =
-    ContinuousAero{typeof(engine)}(engine, mode.v_ind, mode.chord_weight,
-        mode.section_left_strut,
-        mode.section_left_weight, mode.section_le_offset, mode.section_te_offset,
-        mode.cl, mode.cd, mode.cm)
+ContinuousAero() = AeroSpec{ContinuousAero}()
+ContinuousAero(engine::VSMEngine) =
+    ContinuousAero(engine, zeros(SimFloat, 3, 0), SimFloat[], Int64[], SimFloat[],
+                   zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0), nothing, nothing, nothing)
 
 is_builtin_aero(::ContinuousAero) = true
 aero_mode_tag(::ContinuousAero) = "cont"
@@ -153,27 +141,12 @@ function setup_aero!(mode::ContinuousAero, wing, points, stations;
         "ContinuousAero supports PARTICLE_DYNAMICS wings only; wing " *
         "$(wing.name) is $(wing.dynamics_type).")
     invoke(setup_aero!, Tuple{AbstractVSMAero, Any, Any, Any},
-           mode, wing, points, stations; prn)
+           mode, wing, points, stations; prn, vsm_set)
     mode.vsm_wing.spanwise_distribution == VortexStepMethod.BILLOWING || error(
         "ContinuousAero requires the BILLOWING spanwise distribution so the " *
         "refined panels carry the canopy billow shape; wing $(wing.name) uses " *
         "$(mode.vsm_wing.spanwise_distribution). Set " *
         "spanwise_panel_distribution: BILLOWING in the VSM settings.")
-    build_mesh_maps!(mode)
-    return nothing
-end
-
-"""
-    remake_aero!(mode::ContinuousAero, wing, set, vsm_set, points,
-                 stations)
-
-The generic VSM remake plus a rebuild of the mesh maps (the VSM wing geometry
-objects are replaced, invalidating the panel indexing).
-"""
-function remake_aero!(mode::ContinuousAero, wing, set, vsm_set, points,
-                      stations)
-    invoke(remake_aero!, Tuple{AbstractVSMAero, Any, Any, Any, Any, Any},
-           mode, wing, set, vsm_set, points, stations)
     build_mesh_maps!(mode)
     return nothing
 end

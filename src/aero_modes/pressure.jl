@@ -47,7 +47,7 @@ the range the answer is bounded rather than lost, which is the difference from a
 tabulated polar spanning the whole range: stale, not wrong-signed.
 """
 mutable struct AeroPressure{E} <: AbstractVSMAero
-    engine::Union{Nothing, E}
+    engine::E
     "Near-station wing-node index for every (panel, contour node): `station_point[panel][node]`."
     station_point::Vector{Vector{Int64}}
     "Far-station wing-node index for the same (panel, contour node)."
@@ -92,42 +92,20 @@ mutable struct AeroPressure{E} <: AbstractVSMAero
     live_polars::Bool
     "Live polar source and control-point map, `nothing` unless `live_polars`."
     live::Any
-    AeroPressure{E}(engine, station_point, blend_point, panel_blend,
-        node_couple_shape, node_residual_share,
-        frame_tol_frac, v_ind, chord_weight, traction, point_offset, traction_net,
-        traction_moment, residual_arm,
-        cl, cd, cm, panel_station, section_left_strut, section_left_weight,
-        section_le_offset, section_te_offset, live_polars, live) where {E} =
-        new{E}(engine, station_point, blend_point, panel_blend,
-               node_couple_shape, node_residual_share,
-               frame_tol_frac, v_ind, chord_weight, traction, point_offset,
-               traction_net, traction_moment, residual_arm,
-               cl, cd, cm, panel_station, section_left_strut,
-               section_left_weight, section_le_offset, section_te_offset,
-               live_polars, live)
 end
 
 AeroPressure(; frame_tol_frac=2.0, live_polars=false) =
-    AeroPressure{VSMEngine}(nothing, Vector{Vector{Int64}}(),
-        Vector{Vector{Int64}}(), Tuple{Int64, Int64, SimFloat}[],
-        Vector{Vector{SimFloat}}(), Vector{Vector{SimFloat}}(),
-        SimFloat(frame_tol_frac),
+    AeroSpec{AeroPressure}(; frame_tol_frac, live_polars)
+AeroPressure(engine::VSMEngine; frame_tol_frac=2.0, live_polars=false) =
+    AeroPressure(engine, Vector{Vector{Int64}}(), Vector{Vector{Int64}}(),
+        Tuple{Int64, Int64, SimFloat}[], Vector{Vector{SimFloat}}(),
+        Vector{Vector{SimFloat}}(), SimFloat(frame_tol_frac),
         zeros(SimFloat, 3, 0), SimFloat[], zeros(SimFloat, 3, 0),
         Dict{Int64, Vector{SimFloat}}(), zeros(SimFloat, 3, 0),
         zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0),
         nothing, nothing, nothing, Int64[],
         Int64[], SimFloat[], zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0),
         live_polars, nothing)
-attach_engine!(mode::AeroPressure, engine::VSMEngine) =
-    AeroPressure{typeof(engine)}(engine, mode.station_point, mode.blend_point,
-        mode.panel_blend,
-        mode.node_couple_shape, mode.node_residual_share, mode.frame_tol_frac,
-        mode.v_ind,
-        mode.chord_weight, mode.traction, mode.point_offset, mode.traction_net,
-        mode.traction_moment, mode.residual_arm, mode.cl, mode.cd, mode.cm,
-        mode.panel_station, mode.section_left_strut,
-        mode.section_left_weight, mode.section_le_offset, mode.section_te_offset,
-        mode.live_polars, mode.live)
 
 is_builtin_aero(::AeroPressure) = true
 aero_mode_tag(::AeroPressure) = "press"
@@ -628,7 +606,7 @@ function setup_aero!(mode::AeroPressure, wing, points, stations; prn=false,
         "AeroPressure supports PARTICLE_DYNAMICS wings only; wing " *
         "$(wing.name) is $(wing.dynamics_type).")
     invoke(setup_aero!, Tuple{AbstractVSMAero, Any, Any, Any},
-           mode, wing, points, stations; prn)
+           mode, wing, points, stations; prn, vsm_set)
     mode.section_left_strut, mode.section_left_weight,
         mode.section_le_offset, mode.section_te_offset =
         build_section_interp(wing.vsm_wing)
@@ -650,26 +628,6 @@ function validate_aero_structure(mode::AeroPressure, wing, points; prn=false)
         "AeroPressure wing $(wing.idx): surface→point map not built.")
     prn && println("✓ AeroPressure wing $(wing.idx): " *
         "$(length(mode.station_point)) panels mapped.")
-    return nothing
-end
-
-"""
-    remake_aero!(mode::AeroPressure, wing, set, vsm_set, points, stations)
-
-Rebuild the VSM objects from edited settings via the generic particle remake
-(coarsen onto the structural stations, refine, rebuild `point_to_vsm_point`), then
-rebuild the strut-interpolation caches, surface→point map and frozen buffers/polars.
-"""
-function remake_aero!(mode::AeroPressure, wing, set, vsm_set, points,
-                      stations)
-    invoke(remake_aero!, Tuple{AbstractVSMAero, Any, Any, Any, Any, Any},
-           mode, wing, set, vsm_set, points, stations)
-    mode.section_left_strut, mode.section_left_weight,
-        mode.section_le_offset, mode.section_te_offset =
-        build_section_interp(wing.vsm_wing)
-    build_station_point_map!(mode, wing, points, stations)
-    init_pressure_buffers!(mode, wing)
-    mode.live_polars && build_live_polars!(mode, wing, points, stations; vsm_set)
     return nothing
 end
 

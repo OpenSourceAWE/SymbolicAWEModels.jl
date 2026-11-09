@@ -551,7 +551,7 @@ function init!(sam::SymbolicAWEModel;
     create_lin_prob::Bool=false,
     create_control_func::Bool=false,
     lin_vsm::Bool=true,
-    remake_vsm::Bool=true,
+    remake_vsm::Bool=false,
     reset_integrator::Bool=true,
     vsm_min_wind=0.5,
     sparse::Union{Bool, Nothing}=nothing,

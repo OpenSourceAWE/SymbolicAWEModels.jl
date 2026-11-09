@@ -499,7 +499,7 @@ function compute_station_geometry!(wing, stations, points)
         ksec < n_sec && (span_dir += normalize(
             le_sec - Vector(sections[ksec + 1].LE_point)))
 
-        station.le_pos .= le_sec
+        station.le_pos .= le_sec - wing.com_offset_b
         station.chord .= te_sec - le_sec
         station.y_airf .= normalize(span_dir)
     end

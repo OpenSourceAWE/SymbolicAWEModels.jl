@@ -109,12 +109,9 @@ SymbolicAWEModels.DraftSegment
 SymbolicAWEModels.PointPositions
 SymbolicAWEModels.SegmentDraft
 SymbolicAWEModels.SegmentRow
-SymbolicAWEModels.VSMSeed
 SymbolicAWEModels.body_apparent_wind
 SymbolicAWEModels.built
-SymbolicAWEModels.copy_aero_mode
 SymbolicAWEModels.copy_run_columns!
-SymbolicAWEModels.detach_vsm_engine!
 SymbolicAWEModels.model_aero
 SymbolicAWEModels.model_vsm_set
 SymbolicAWEModels.nan_to_nothing

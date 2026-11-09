@@ -84,7 +84,7 @@ them; a parameter no registry reader syncs keeps the value the struct had when t
 bin was built, as on the monolith.
 """
 function init_backend!(::KernelBackend, sam, solver;
-        adaptive = true, prn = true, remake_vsm = true,
+        adaptive = true, prn = true, remake_vsm = false,
         reset_integrator = true, vsm_min_wind = 0.5, lin_vsm = true,
         sparse = false, analytic_jacobian = true, remake = false, reload = false)
     model_name = get_model_name(sam.set, sam.state; sparse, analytic_jacobian,

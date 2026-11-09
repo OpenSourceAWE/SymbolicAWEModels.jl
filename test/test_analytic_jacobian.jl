@@ -134,7 +134,7 @@ function jacobian_test_model(; analytic_jacobian)
     set = Settings("system.yaml")
     sys, transforms = load_sys_struct_from_yaml(joinpath(tmpdir, "jacobian_geometry.yaml");
                                                 system_name="jacobian_test", set=set)
-    sam = SymbolicAWEModel(set, sys; transforms, backend=KernelBackend())
+    sam = SymbolicAWEModel(set, sys; transforms, backend=KernelBackend(), vsm_set)
     init!(sam; prn=false, remake=true, analytic_jacobian)
     next_step!(sam; dt=0.05)
     return sam
@@ -160,8 +160,8 @@ function continuous_wing_model()
     end
     sys, transforms = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name="continuous_test", set, vsm_set, aero_mode=ContinuousAero())
-    sam = SymbolicAWEModel(set, sys; transforms, backend=KernelBackend())
+        system_name="continuous_test", set, aero_mode=ContinuousAero())
+    sam = SymbolicAWEModel(set, sys; transforms, backend=KernelBackend(), vsm_set)
     init!(sam; prn=false, analytic_jacobian=true)
     next_step!(sam; dt=0.05)
     return sam

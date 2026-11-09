@@ -95,8 +95,20 @@ $(TYPEDFIELDS)
     origin::Union{Nothing, WeightedRefPoints} = nothing
     "The definition's `wings` row of the wing whose body this is, where it has one."
     wing_definition::Union{Nothing, KiteGeometry.Wing} = nothing
-    "What a model builds this wing's engine from, once its structure is built."
-    vsm_seed::Union{Nothing, VSMSeed} = nothing
+    "The mesh's centre of mass in the frame it is authored in [m], `nothing` for no mesh."
+    mesh_com::Union{Nothing, KVec3} = nothing
+    "The mesh's inertia per unit mass in the frame it is authored in [m²]."
+    mesh_unit_inertia::Union{Nothing, Matrix{SimFloat}} = nothing
+    "The body's origin in the frame its mesh is authored in [m]."
+    mesh_origin_b::KVec3 = zeros(KVec3)
+    "The body's axes in the frame its mesh is authored in."
+    R_b_to_mesh::Matrix{SimFloat} = Matrix{SimFloat}(I, 3, 3)
+    "Force scale compensating the chord error of a particle wing's panels."
+    aero_scale_chord::SimFloat = 0.0
+    "Body-frame z-shift of a rigid wing's panels [m]."
+    aero_z_offset::SimFloat = 0.0
+    "The unsteady corrections of a wing's aerodynamics."
+    unsteady::UnsteadyAero = UnsteadyAero()
     "The stations of this body that no wing owns."
     stations_without_wing::Vector{Any} = Any[]
 end
@@ -149,8 +161,6 @@ function row_property(row::Body{A, D}, ::Val{:type}) where {A, D}
 end
 row_property(row::Body, ::Val{:dynamics_type}) =
     row_property(row, Val(:type)) === KINEMATIC ? PARTICLE_DYNAMICS : RIGID_DYNAMICS
-row_property(row::Body, ::Val{:vsm_aoa}) =
-    mean(body_vsm_engine(row, :vsm_aoa).vsm_solver.sol.alpha_dist)
 row_property(row::Body, ::Val{:principal_frame_method}) =
     parse_principal_frame_method(something(wing_column(row, :principal_frame_method),
                                            "EIGEN_DECOMP"))
@@ -171,12 +181,6 @@ row_property(row::Body{A}, ::Val{:angular_damping}) where {A} =
 @inline row_property(row::Body, ::Val{:ext_force_w}) = held_vector!(row, :ext_force_w)
 @inline row_property(row::Body, ::Val{:ext_force_b}) = held_vector!(row, :ext_force_b)
 @inline row_property(row::Body, ::Val{:ext_moment_b}) = held_vector!(row, :ext_moment_b)
-for field in VSM_ENGINE_FIELDS
-    @eval row_property(row::Body, ::Val{$(QuoteNode(field))}) =
-        getproperty(body_vsm_engine(row, $(QuoteNode(field))), $(QuoteNode(field)))
-    @eval set_row_property!(row::Body, ::Val{$(QuoteNode(field))}, value) =
-        setproperty!(body_vsm_engine(row, $(QuoteNode(field))), $(QuoteNode(field)), value)
-end
 set_row_property!(row::Body, ::Val{:type}, type::DynamicsType) =
     body_model(row).type = string(type)
 set_row_property!(row::Body, ::Val{:principal_frame_method}, method::PrincipalFrameMethod) =

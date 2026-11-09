@@ -63,7 +63,7 @@ function build_curvature_case(case, root, flow_curvature)
     end
     sys, transforms = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
-        system_name, set, vsm_set, aero_mode=case.make())
+        system_name, set, aero_mode=case.make())
     return set, sys, transforms
 end
 
@@ -252,9 +252,9 @@ end
             # Each model is built while its own case is the active data path, so
             # the two compiled models cache separately.
             set_on, sys_on, transforms_on = build_curvature_case(case, root, true)
-            sam_on = SymbolicAWEModel(set_on, sys_on; transforms=transforms_on)
+            sam_on = SymbolicAWEModel(set_on, sys_on; transforms=transforms_on, vsm_set)
             set_off, sys_off, transforms_off = build_curvature_case(case, root, false)
-            sam_off = SymbolicAWEModel(set_off, sys_off; transforms=transforms_off)
+            sam_off = SymbolicAWEModel(set_off, sys_off; transforms=transforms_off, vsm_set)
             wing_on, wing_off = sam_on.state.wings[1], sam_off.state.wings[1]
 
             @testset "the flag reaches the wing" begin

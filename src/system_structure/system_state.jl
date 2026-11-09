@@ -121,12 +121,12 @@ end
 The position slot count `P` and the keywords `counts` of `KiteUtils.SysState(P; ...)`
 for `sys`, shared by a run's state and the log frames written from it.
 """
-function sysstate_counts(sys)
+function sysstate_counts(sys, n_corners=count_aero_log_points(wing_bodies(sys)))
     counts = (wings = length(sys.wings), orients = n_orient_frames(sys),
               deflections = n_flap_deflections(sys), pulleys = length(sys.pulleys),
               winches = length(sys.winches), tethers = length(sys.tethers),
               segments = length(sys.segments))
-    return position_slots(sys).total, counts
+    return position_slots(sys, n_corners).total, counts
 end
 
 """
@@ -138,7 +138,11 @@ The state of a run of `sys` with settings `set` and `wind_mode`, placed by KiteG
 """
 function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
                      wind_mode::WindMode=ProfileWind())
-    P, counts = sysstate_counts(sys)
+    vsm_set = model_vsm_set(sys, set, vsm_set)
+    modes = [model_aero(body.aero, body, set, vsm_set) for body in sys.bodies]
+    n_corners = sum(n_aero_log_points(mode, body)
+                    for (mode, body) in zip(modes, sys.bodies); init=0)
+    P, counts = sysstate_counts(sys, n_corners)
     no_records = NamedCollection(ComponentState[])
     built_segments = [resolve_segment(row, sys.materials, set) for row in sys.segments]
     rows = (points=typed_rows(Point, sys.points),
@@ -152,20 +156,18 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
                         zeros(SimFloat, length(sys.points)),
                         zeros(SimFloat, length(sys.bodies)),
                         zeros(SimFloat, length(sys.stations)), built_segments, point_segments(sys),
-                        first(position_slots(sys).bodies) - 1, length(sys.wings), rows,
+                        first(position_slots(sys, n_corners).bodies) - 1,
+                        length(sys.wings), rows,
                         run_tubes(sys),
                         no_records, no_records, convert(Rows{Transform}, transforms),
-                        set, model_vsm_set(sys, vsm_set),
+                        set, vsm_set,
                         isnothing(set) ? nothing : AtmosphericModel(set), wind_mode)
-    bodies = NamedCollection(ComponentState[BodyState(body, state, i,
-                                                      model_aero(body, set, vsm_set))
+    bodies = NamedCollection(ComponentState[BodyState(body, state, i, modes[i])
                                             for (i, body) in enumerate(sys.bodies)])
     setfield!(state, :bodies, bodies)
     setfield!(state, :wings, NamedCollection(ComponentState[bodies[i]
                                                             for i in eachindex(sys.wings)]))
-    isnothing(set) || foreach(wing -> remake_aero!(wing.aero, wing, set, state.vsm_set,
-                                                   state.points, state.stations),
-                              filter(wing -> has_vsm_engine(wing.aero), state.wings))
+    foreach(wing -> setup_model_aero!(wing, state), state.wings)
     return start_run!(state)
 end
 
@@ -190,11 +192,12 @@ function run_tube(sys, tube)
     return definition_tube(sys, tube)
 end
 
-"""`vsm_set`, else the one the wings of `sys` were built with."""
-function model_vsm_set(sys, vsm_set)
+"""`vsm_set`, else the project's `vsm_settings` for a run of `set` with a VSM wing."""
+function model_vsm_set(sys, set, vsm_set)
     isnothing(vsm_set) || return vsm_set
-    seeds = [wing.vsm_seed for wing in wing_bodies(sys) if !isnothing(wing.vsm_seed)]
-    return isempty(seeds) ? nothing : first(seeds).vsm_set
+    (isnothing(set) || !any(body -> body.aero isa AeroSpec, sys.bodies)) && return nothing
+    path = optional_project_file("vsm_settings")
+    return isnothing(path) ? nothing : VortexStepMethod.VSMSettings(path; data_prefix=false)
 end
 
 """The indices of the segments on each point of `sys`."""
@@ -438,6 +441,7 @@ same in its principal frame, derived from them, what the air does to it, and its
 aero mode, with this run's VSM engine where it has one.
 """ begin
     aero => (getfield(r, :aero), derived(:aero))
+    vsm_aoa => (mean(r.vsm_solver.sol.alpha_dist), derived(:vsm_aoa))
     pos_w => ColumnVec3(sysstate(r).X, sysstate(r).Y, sysstate(r).Z, body_slot(r))
     vel_w => ColumnVec3(sysstate(r).VX, sysstate(r).VY, sysstate(r).VZ, body_slot(r))
     Q_b_to_w => ColumnQuat(sysstate(r).Qw, sysstate(r).Qx, sysstate(r).Qy,

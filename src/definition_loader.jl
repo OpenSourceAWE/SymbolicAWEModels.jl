@@ -71,7 +71,7 @@ end
 """
     load_sys_struct_from_yaml(yaml_path; system_name="from_yaml", set=nothing,
                               ignore_l0=false, dynamics_type=nothing, aero_mode=nothing,
-                              vsm_set=nothing, prn=true) -> (sys, transforms)
+                              prn=true) -> (sys, transforms)
 
 The structure of an authoring YAML and its KiteGeometry transforms, read and placed by
 them with KiteGeometry's `load_authoring`. `set` defaults to the `base` settings;
@@ -81,29 +81,27 @@ messages loading a structure prints.
 function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml",
         set::Union{Nothing, Settings}=nothing, ignore_l0::Bool=false,
         dynamics_type::Union{Nothing, WingType}=nothing,
-        aero_mode::Union{Nothing, AbstractAeroModel}=nothing,
-        vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}=nothing, prn::Bool=true)
+        aero_mode::Union{Nothing, AbstractAeroModel}=nothing, prn::Bool=true)
     isnothing(set) && (set = load_settings("base"))
     definition, transforms = load_authoring(yaml_path; set, name=system_name, ignore_l0)
-    sys = SystemStructure(definition, set; dynamics_type, aero_mode, vsm_set, prn)
+    sys = SystemStructure(definition, set; dynamics_type, aero_mode, prn)
     return sys, transforms
 end
 
 """
     SystemStructure(definition::SystemDefinition, set; dynamics_type=nothing,
-                    aero_mode=nothing, vsm_set=nothing, prn=true)
+                    aero_mode=nothing, prn=true)
 
 The structure of a KiteGeometry `definition`, in the pose the definition gives. Its
 components are read from the definition's rows and the models SymbolicAWEModels
 registers for them ([`register_definition_models`](@ref)).
 """
 function SystemStructure(definition::SystemDefinition, set::Settings;
-        dynamics_type=nothing, aero_mode=nothing, vsm_set=nothing, prn=true)
+        dynamics_type=nothing, aero_mode=nothing, prn=true)
     n_wings = length(definition.wings)
     stations = Station[typed_row(station, "station")
                        for station in definition.spanwise_stations]
-    wings = Body[definition_wing(definition, w, set, stations; dynamics_type, aero_mode,
-                                 vsm_set)
+    wings = Body[definition_wing(definition, w, set, stations; dynamics_type, aero_mode)
                  for w in 1:n_wings]
     return SystemStructure(definition.metadata.name, set;
         points=Point[definition_point(definition, point) for point in definition.points],
@@ -116,7 +114,7 @@ function SystemStructure(definition::SystemDefinition, set::Settings;
         bodies=Body[definition_body(definition.bodies[b])
                     for b in n_wings+1:length(definition.bodies)],
         tubes=Tube[definition_tube(definition, tube) for tube in definition.tubes],
-        placed=true, vsm_set, prn, definition)
+        placed=true, prn, definition)
 end
 
 """A row's name as a `Symbol`, or its index where the authoring YAML gave it none."""
@@ -211,21 +209,19 @@ function definition_tube(definition, tube)
 end
 
 """
-    definition_wing(definition, w, set, stations; dynamics_type, aero_mode, vsm_set)
+    definition_wing(definition, w, set, stations; dynamics_type, aero_mode)
 
 Wing `w` of `definition`, its mesh authored in the wing's KA frame. `dynamics_type` and
 `aero_mode` override the wing row's; `stations` collects the stations a flat-plate wing
 adds.
 """
-function definition_wing(definition, w, set, stations; dynamics_type, aero_mode,
-                         vsm_set)
+function definition_wing(definition, w, set, stations; dynamics_type, aero_mode)
     wing = definition.wings[w]
     dynamics = something(dynamics_type, maybe(parse_wing_type, wing.dynamics_type))
     mode = something(aero_mode, maybe(parse_aero_mode, wing.aero_mode),
         dynamics == RIGID_DYNAMICS ? AeroLinearized() : AeroDirect())
     station_refs = [cell_ref(station) for station in something(wing.stations, [])]
-    built = load_wing(mode, definition, w, set, dynamics, vsm_set, station_refs,
-                      stations)
+    built = load_wing(mode, definition, w, set, dynamics, station_refs, stations)
     return definition.bodies[w] = in_place_of(definition.bodies[w], built, wing)
 end
 
@@ -245,20 +241,20 @@ function in_place_of(body, built, wing)
 end
 
 """
-    load_wing(mode::AbstractAeroModel, definition, w, set, dynamics_type, vsm_set,
-              station_refs, stations)
+    load_wing(mode::AbstractAeroModel, definition, w, set, dynamics_type, station_refs,
+              stations)
 
 Build wing `w` of `definition` for its aero `mode`: a [`VSMWing`](@ref) by default.
 Add a method to build a wing for a custom aero mode.
 """
-function load_wing(mode::AbstractAeroModel, definition, w, set, dynamics_type, vsm_set,
+function load_wing(mode::AbstractAeroModel, definition, w, set, dynamics_type,
                    station_refs, stations)
     wing = definition.wings[w]
     pos_ENU = dynamics_type == PARTICLE_DYNAMICS || isnothing(wing.pos_cad) ? nothing :
         wing.pos_ENU + quaternion_to_rotation_matrix(wing.Q_KA2ENU) * wing.pos_cad
     aero_z_offset = dynamics_type == RIGID_DYNAMICS ? wing.aero_z_offset : nothing
     return VSMWing(row_name(wing), set, station_refs;
-        vsm_set, dynamics_type, aero=mode, pos_ENU,
+        dynamics_type, aero=mode, pos_ENU,
         extra_mass=definition.bodies[w].extra_mass,
         set_kwargs(:angular_damping => wing.angular_damping,
                    :z_ref_points => maybe(ref_pair_spec, wing.z_ref_points),

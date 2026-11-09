@@ -105,9 +105,9 @@ vsm_set = VortexStepMethod.VSMSettings(
 
 # Build system structure from YAML
 sys, transforms = load_sys_struct_from_yaml(struc_yaml;
-    system_name="2plate_kite", set, vsm_set)
+    system_name="2plate_kite", set)
 
-sam = SymbolicAWEModel(set, sys; transforms)
+sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 init!(sam)
 
 # Run with a steering ramp

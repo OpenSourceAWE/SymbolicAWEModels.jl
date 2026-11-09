@@ -334,7 +334,8 @@ the mode:
   [`is_builtin_aero`](@ref) / [`aero_hash_id`](@ref) (see below).
 
 Subtyping [`AbstractVSMAero`](@ref) (a [`VSMEngine`](@ref) in an `engine` field,
-exposed via [`vsm_engine`](@ref)) inherits the VSM implementation of every hook.
+exposed via [`vsm_engine`](@ref), built by a model from an [`AeroSpec`](@ref) on the
+wing) inherits the VSM implementation of every hook.
 There are no `isa`/`is_vsm` branches in the pipeline, so a custom mode is never
 excluded from a code path it cannot extend.
 

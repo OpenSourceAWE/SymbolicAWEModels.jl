@@ -38,7 +38,7 @@ using LinearAlgebra
     # ── PARTICLE_DYNAMICS: 3 explicit stations (LE/TE membership) ──
     sys_refine, _ = load_sys_struct_from_yaml(
         refine_yaml;
-        system_name="2plate_refine", set, vsm_set)
+        system_name="2plate_refine", set)
 
     @test length(sys_refine.wings) == 1
     @test sys_refine.bodies[1].dynamics_type == PARTICLE_DYNAMICS
@@ -50,10 +50,10 @@ using LinearAlgebra
     # and 7 WING points (6 LE/TE + kcu).
     sys_quat, _ = load_sys_struct_from_yaml(
         struc_yaml;
-        system_name="2plate_quat", set, vsm_set,
+        system_name="2plate_quat", set,
         dynamics_type=RIGID_DYNAMICS)
 
-    wing = SymbolicAWEModels.SystemState(sys_quat; set).wings[1]
+    wing = SymbolicAWEModels.SystemState(sys_quat; set, vsm_set).wings[1]
     @test wing.dynamics_type == RIGID_DYNAMICS
     @test length(sys_quat.stations) == 3
     @test length(wing.station_idxs) == 3

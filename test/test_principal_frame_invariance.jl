@@ -122,12 +122,12 @@ end
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
     sys, transforms = load_sys_struct_from_yaml(
         joinpath(data_path, "rigid_structural_geometry.yaml");
-        system_name="frame_invariance", set, vsm_set,
+        system_name="frame_invariance", set,
         aero_mode=AeroLinearized())
     wing = sys.bodies[1]
     @test wing.dynamics_type == RIGID_DYNAMICS
 
-    sam = SymbolicAWEModel(set, sys; transforms)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
     ref = run_case(sam)
     @test norm(ref[1].aero_wrench_w) > 1.0
     @test maximum(norm, ref[1].point_force_w) > 1.0

@@ -30,7 +30,7 @@ document describes, with the transforms placing it.
 function two_plate_kite(set, vsm_set)
     return load_sys_struct_from_yaml(
         joinpath(get_data_path(), "rigid_structural_geometry.yaml");
-        system_name="2plate_kite", set, vsm_set, prn=false)
+        system_name="2plate_kite", set, prn=false)
 end
 
 """
@@ -98,6 +98,28 @@ function cells(document, block, header)
     return Dict(row[1] => row[column] for row in table["data"])
 end
 
+"""The first VortexStepMethod object reachable through the fields of `value`, or
+`nothing`."""
+function reachable_vsm_object(value, seen=IdDict{Any, Nothing}())
+    isbits(value) && return nothing
+    haskey(seen, value) && return nothing
+    seen[value] = nothing
+    parentmodule(typeof(value)) == VortexStepMethod && return value
+    if value isa AbstractArray || value isa AbstractDict || value isa Tuple
+        for item in value
+            found = reachable_vsm_object(item, seen)
+            isnothing(found) || return found
+        end
+        return nothing
+    end
+    for name in fieldnames(typeof(value))
+        isdefined(value, name) || continue
+        found = reachable_vsm_object(getfield(value, name), seen)
+        isnothing(found) || return found
+    end
+    return nothing
+end
+
 @testset verbose = true "Structure document" begin
     pkg_root = dirname(@__DIR__)
     set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
@@ -153,11 +175,11 @@ end
 
     @testset "a model builds its own VSM engine" begin
         sys, _ = two_plate_kite(set, vsm_set)
-        @test isnothing(sys.bodies[1].aero.engine)
-        first_state = SymbolicAWEModels.SystemState(sys; set)
-        second_state = SymbolicAWEModels.SystemState(sys; set)
+        @test isnothing(reachable_vsm_object(sys))
+        first_state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
+        second_state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
         @test first_state.bodies[1].vsm_wing !== second_state.bodies[1].vsm_wing
-        @test isnothing(sys.bodies[1].aero.engine)
+        @test isnothing(reachable_vsm_object(sys))
     end
 
     @testset "a segment is its definition row" for
@@ -213,7 +235,7 @@ end
 
     @testset "a document with wings reads back in its initial pose" begin
         sys, _ = two_plate_kite(set, vsm_set)
-        reread = sys_struct_from_document(structure_document(sys); set, vsm_set,
+        reread = sys_struct_from_document(structure_document(sys); set,
                                           prn=false)
         @test [point.pos_ENU for point in reread.points] ≈
               [point.pos_ENU for point in sys.points]
@@ -258,7 +280,7 @@ end
 
     @testset "a run's log carries the structure document of the system that ran" begin
         sys, transforms = two_plate_kite(set, vsm_set)
-        sam = SymbolicAWEModel(set, sys; transforms)
+        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
         init!(sam; prn=false)
         logger = Logger(sam, 3)
         state = SysState(sam)

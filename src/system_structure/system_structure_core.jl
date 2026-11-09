@@ -347,9 +347,6 @@ function assign_indices_and_resolve!(
             resolve!(something(wing.y_ref_points)[2],
                 point_names, "point")
         end
-
-        # Resize per-mode aero state now that station_idxs are resolved.
-        resize_aero_state!(wing.aero, wing)
     end
 
     return (point_names, station_names, segment_names, pulley_names,
@@ -661,20 +658,9 @@ function SystemStructure(name::AbstractString, set;
         tubes=Tube[],
         ignore_l0::Bool=false,
         placed::Bool=false,
-        vsm_set=nothing,
         prn::Bool=true,
         definition::Union{Nothing, SystemDefinition}=nothing,
     )
-    # Load VSMSettings if not provided and VSM wings exist
-    has_vsm_wings = any(has_vsm_engine(wing.aero) for wing in wings)
-    if isnothing(vsm_set) && has_vsm_wings
-        vsm_set_path = optional_project_file("vsm_settings")
-        if !isnothing(vsm_set_path)
-            vsm_set = VortexStepMethod.VSMSettings(
-                vsm_set_path; data_prefix=false)
-        end
-    end
-
     # Narrow to a concrete element type only when wings are homogeneous; mixed dynamics keep the broader type.
     if length(wings) > 0
         W = typeof(wings[1])
@@ -753,10 +739,8 @@ function SystemStructure(name::AbstractString, set;
         setup_wing_frame!(wing, points; prn)
     end
 
-    # Per-mode aero construction (dispatched; no-op for modes without an engine).
-    for wing in wings
-        setup_aero!(wing.aero, wing, points, stations; prn, vsm_set)
-    end
+    # A VSM wing's mesh follows the wing's pose as authored, before any placement.
+    foreach(store_mesh_pose!, wings)
 
     # Wings are bodies, placed first so idx stays 1..n_wings (wing arrays index by idx).
     prepend!(bodies, wings)
@@ -840,12 +824,5 @@ function SystemStructure(name::AbstractString, set;
         materials)
     placed || place_structure!(sys_struct; ignore_l0, prn)
     init_derived_properties!(sys_struct; prn)
-
-    # Panel→flap station map (structural; needs placed bodies + built panels).
-    for wing in sys_struct.wings
-        build_panel_station_map!(wing.aero, wing, sys_struct)
-    end
-    system = isnothing(definition) ? system_definition(sys_struct) : definition
-    foreach(wing -> detach_vsm_engine!(wing, vsm_set), sys_struct.wings)
-    return system
+    return isnothing(definition) ? system_definition(sys_struct) : definition
 end

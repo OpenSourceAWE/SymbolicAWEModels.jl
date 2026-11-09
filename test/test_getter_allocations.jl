@@ -122,7 +122,7 @@ SYNC_ALLOC_BUDGET = Dict(:KernelBackend => 0, :MonolithBackend => 256)
     for backend in (MonolithBackend(), KernelBackend())
         sys, transforms = load_sys_struct_from_yaml(yaml_path;
             system_name="segment_test", set=set)
-        sam = SymbolicAWEModel(set, sys; transforms, backend)
+        sam = SymbolicAWEModel(set, sys; transforms, backend, vsm_set)
         # init!, not test_init!: the RHS allocation check belongs to the tests
         # about the RHS, and this file is about the sync paths either side of it.
         init!(sam)
@@ -178,8 +178,8 @@ WING_ALLOC_BUDGET = Dict(:KernelBackend => 22_000, :MonolithBackend => 4_000)
             vsm_set = VortexStepMethod.VSMSettings(
                 joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
             sys, transforms = load_sys_struct_from_yaml(joinpath(data_path, geometry);
-                system_name="wing_alloc_$name", set=set, vsm_set=vsm_set)
-            sam = SymbolicAWEModel(set, sys; transforms, backend)
+                system_name="wing_alloc_$name", set=set)
+            sam = SymbolicAWEModel(set, sys; transforms, backend, vsm_set)
             init!(sam; prn=false, remake=true)
             next_step!(sam; dt=0.05, vsm_interval=0)
 

@@ -7,16 +7,13 @@
     AeroDirect()
 
 Stored forces from the nonlinear VSM solve, piecewise-constant between updates.
-Carries a [`VSMEngine`](@ref); the no-arg form is the engine-less marker filled
-in during wing construction.
+Carries a [`VSMEngine`](@ref); `AeroDirect()` selects the mode for a wing
+([`AeroSpec`](@ref)).
 """
 mutable struct AeroDirect{E} <: AbstractVSMAero
-    engine::Union{Nothing, E}
-    AeroDirect{E}(engine) where {E} = new{E}(engine)
+    engine::E
 end
-AeroDirect() = AeroDirect{VSMEngine}(nothing)
-AeroDirect(engine::VSMEngine) = AeroDirect{typeof(engine)}(engine)
-attach_engine!(::AeroDirect, engine::VSMEngine) = AeroDirect(engine)
+AeroDirect() = AeroSpec{AeroDirect}()
 
 is_builtin_aero(::AeroDirect) = true
 aero_mode_tag(::AeroDirect) = "dir"

@@ -32,9 +32,9 @@ vsm_set = VortexStepMethod.VSMSettings(vsm_set_path; data_prefix=false)
 
 sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
     struc_yaml; system_name="2plate_kite",
-    set=set, vsm_set=vsm_set)
+    set=set)
 
-wing = SymbolicAWEModels.SystemState(sys; set).wings[1]
+wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
 vsm_wing = wing.vsm_wing
 points = sys.points
 

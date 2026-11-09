@@ -71,21 +71,6 @@ end
 # ==================== VSM ENGINE ==================== #
 
 """
-    body_vsm_engine(body::Body, sym::Symbol)
-
-Return the body's VSM engine; errors if the aero mode carries none
-(e.g. AeroNone/AeroPlate).
-"""
-function body_vsm_engine(body::Body, sym::Symbol)
-    aero = body_model(body).aero
-    engine = vsm_engine(aero)
-    engine === nothing && error(
-        "Body $(getfield(body, :name)) aero mode " *
-        "$(typeof(aero)) has no VSM engine; field `$sym` unavailable.")
-    return engine
-end
-
-"""
     count_aero_log_points(wings) -> Int
 
 Total extra `SysState` log slots contributed by the wings' aero modes
@@ -234,19 +219,17 @@ end
 
 """
     build_vsm_engine(set, vsm_set, dynamics_type; n_stations=0,
-                     point_to_vsm_point=nothing, wing_segments=nothing,
                      aero_scale_chord=0.0, aero_z_offset=0.0)
 
 Build a [`VSMEngine`](@ref): the VortexStepMethod wing, aerodynamics and solver (sized by
 `n_stations`, [`build_vsm_solver`](@ref)) and the linearization vectors, placeholders for
-`RIGID_DYNAMICS` until `SystemStructure` resolves the stations. `point_to_vsm_point` and
-`wing_segments` map structure to VSM panels, `aero_scale_chord` and `aero_z_offset` adjust
-VSM forces and panels, `unsteady` is the [`UnsteadyAero`](@ref) (`nothing`: all off).
+`RIGID_DYNAMICS` until [`setup_aero!`](@ref) sizes them. `aero_scale_chord` and
+`aero_z_offset` adjust VSM forces and panels.
 """
 function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
                           dynamics_type::WingType; n_stations=0,
-                          point_to_vsm_point=nothing, wing_segments=nothing,
-                          aero_scale_chord=0.0, aero_z_offset=0.0, unsteady=nothing)
+                          aero_scale_chord=0.0, aero_z_offset=0.0,
+                          unsteady=UnsteadyAero())
     vsm_wing = create_vsm_wing(set, vsm_set; prn=false, sort_sections=false)
     vsm_aero = VortexStepMethod.BodyAerodynamics([vsm_wing])
     vsm_solver = build_vsm_solver(vsm_aero, vsm_set, dynamics_type, n_stations)
@@ -264,25 +247,19 @@ function build_vsm_engine(set::Settings, vsm_set::VortexStepMethod.VSMSettings,
         zeros(SimFloat, num_aero_inputs),
         zeros(SimFloat, num_aero_outputs),
         zeros(SimFloat, num_aero_outputs, num_aero_inputs),
-        point_to_vsm_point, wing_segments,
-        SimFloat(aero_scale_chord), SimFloat(aero_z_offset),
-        isnothing(unsteady) ? UnsteadyAero() : unsteady)
+        nothing, nothing, SimFloat(aero_scale_chord), SimFloat(aero_z_offset), unsteady)
 end
 
 """
-    VSMWing(name, set, stations; vsm_set, angular_damping=[0.0, 150.0, 0.0], ...)
+    VSMWing(name, set, stations; angular_damping=[0.0, 150.0, 0.0], ...)
 
-Construct a [`Wing`](@ref) with Vortex Step Method aerodynamics. Builds the
-[`VSMEngine`](@ref) (`vsm_wing`/`vsm_aero`/`vsm_solver`) internally and attaches
-it to the wing.
+Construct a [`Wing`](@ref) flown with Vortex Step Method aerodynamics; each model builds
+its [`VSMEngine`](@ref) from it.
 
 # Arguments
 - `name::Union{Int, Symbol}`: Name/identifier for the wing.
-- `set::Settings`: Settings object for VSM configuration.
+- `set::Settings`: Settings the mesh's inertia is read with.
 - `stations::Vector`: References to stations (names or indices).
-- `vsm_set`: VSM settings for engine creation. Required for VSM-backed aero
-  modes ([`AbstractVSMAero`](@ref)); may be `nothing` for engine-less modes
-  like [`AeroNone`](@ref).
 
 # Keyword Arguments
 - `Q_KA_to_ENU`, `pos_ENU`, `inertia_diag`: Placeholders that [`SystemStructure`](@ref)
@@ -295,13 +272,11 @@ it to the wing.
 - `aero::AbstractAeroModel`: Aerodynamic model (defaults by `dynamics_type`).
 - `group_points_moment::Bool=true`: When `false`, in-group (station) points
   add no moment to the wing body; their force still contributes. Runtime-switchable.
-- `point_to_vsm_point`, `wing_segments`: VSM structural↔panel maps.
 - `z_ref_points`, `y_ref_points`, `origin`: Body-frame references.
 - `aero_scale_chord`, `aero_z_offset`: VSM force/panel adjustments.
 """
 function VSMWing(name, set::Settings,
                  stations::AbstractVector;
-                 vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}=nothing,
                  Q_KA_to_ENU::Union{Nothing,AbstractVector}=nothing,
                  pos_ENU::Union{Nothing,AbstractVector}=nothing,
                  angular_damping=[0.0, 150.0, 0.0], inertia_diag=nothing,
@@ -312,8 +287,6 @@ function VSMWing(name, set::Settings,
                  aero::Union{Nothing,AbstractAeroModel}=nothing,
                  wing_type::Union{Nothing,WingType}=nothing,
                  group_points_moment::Bool=true,
-                 point_to_vsm_point::Union{Nothing, Dict{Int64, Tuple{Int64, Symbol}}}=nothing,
-                 wing_segments::Union{Nothing, Vector{Tuple{Int64, Int64}}}=nothing,
                  z_ref_points=nothing,
                  y_ref_points=nothing,
                  origin=nothing,
@@ -332,22 +305,10 @@ function VSMWing(name, set::Settings,
                 "origin point)"
             pos_ENU = nothing
         end
-    else
-        @assert isnothing(point_to_vsm_point) "RIGID_DYNAMICS wings: no point_to_vsm_point"
     end
 
-    # Engine-less modes (AeroNone/AeroPlate) need no vsm_set.
     isnothing(aero) && (aero = dynamics_type == RIGID_DYNAMICS ?
         AeroLinearized() : AeroDirect())
-    if aero isa AbstractVSMAero
-        isnothing(vsm_set) && error(
-            "Wing '$name': aero mode $(typeof(aero)) needs VSM geometry " *
-            "but no vsm_set was provided.")
-        aero = attach_engine!(aero, build_vsm_engine(set, vsm_set, dynamics_type;
-            n_stations=length(stations), point_to_vsm_point, wing_segments,
-            aero_scale_chord, aero_z_offset))
-        seed_wing_inertia!(aero.engine.vsm_wing, set, com, unit_inertia)
-    end
 
     # Placeholders — overwritten by SystemStructure
     isnothing(Q_KA_to_ENU) && (Q_KA_to_ENU = SimFloat[1, 0, 0, 0])
@@ -359,18 +320,22 @@ function VSMWing(name, set::Settings,
         angular_damping, dynamics_type, aero, group_points_moment, z_ref_points,
         y_ref_points, origin, principal_frame_method)
     isnothing(extra_mass) || (wing.extra_mass = SimFloat(extra_mass))
+    model = body_model(wing)
+    model.aero_scale_chord = aero_scale_chord
+    model.aero_z_offset = aero_z_offset
+    aero isa AeroSpec && seed_wing_inertia!(model, set, com, unit_inertia)
     return wing
 end
 
 """
-    seed_wing_inertia!(vsm_wing, set, com, unit_inertia)
+    seed_wing_inertia!(model, set, com, unit_inertia)
 
-Set a VSM mesh's per-unit-mass `inertia_tensor` (3×3, [m²]) and `T_cad_body = -com`, which
-[`normalized_inertia`](@ref) uses over the point masses. `unit_inertia` is the 6-vector
+Set the mesh inertia of body `model`, which [`normalized_inertia`](@ref) uses over the
+point masses. `unit_inertia` is the 6-vector
 `[Ixx,Iyy,Izz,Ixy,Ixz,Iyz]` or a 3×3 matrix. A `com` or `unit_inertia` of `nothing` comes
 from the `.obj` at `joinpath(get_data_path(), set.model)`; if none, nothing is set.
 """
-function seed_wing_inertia!(vsm_wing, set::Settings, com, unit_inertia)
+function seed_wing_inertia!(model, set::Settings, com, unit_inertia)
     tensor = isnothing(unit_inertia) ? nothing :
         (unit_inertia isa AbstractMatrix ? Matrix{SimFloat}(unit_inertia) :
          Matrix{SimFloat}(ObjAdapter.unit_inertia_matrix(unit_inertia)))
@@ -384,8 +349,8 @@ function seed_wing_inertia!(vsm_wing, set::Settings, com, unit_inertia)
         end
     end
     (isnothing(tensor) || isnothing(com_val)) && return nothing
-    vsm_wing.inertia_tensor = tensor
-    vsm_wing.T_cad_body .= -com_val
+    model.mesh_unit_inertia = tensor
+    model.mesh_com = com_val
     return nothing
 end
 

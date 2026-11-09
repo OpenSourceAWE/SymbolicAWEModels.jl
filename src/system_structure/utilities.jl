@@ -613,8 +613,7 @@ after editing `aero_geometry.yaml`. A no-op for aero modes without an engine.
 """
 function remake_wing_aero!(state, set::Settings)
     for wing in state.wings
-        remake_aero!(wing.aero, wing, set, state.vsm_set,
-                     state.points, state.stations)
+        remake_aero!(wing.aero, wing, set, state.vsm_set, state)
     end
     return nothing
 end

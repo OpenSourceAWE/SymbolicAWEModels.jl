@@ -211,7 +211,7 @@ system:
             system_name="point_no_drag_test", set=set)
         @test sys.points[:test_point].area == 0.0
 
-        sam = SymbolicAWEModel(set, sys; transforms)
+        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
         test_init!(sam)
 
         # Record initial state
@@ -254,7 +254,7 @@ system:
         @test sys.points[:test_point].drag_coeff == 1.0
         @test sys.points[:test_point].extra_mass == 50.0
 
-        sam = SymbolicAWEModel(set, sys; transforms)
+        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
         test_init!(sam)
 
         # Physics: F = 0.5 * rho * Cd * A * v^2
@@ -314,7 +314,7 @@ system:
         @test sys.points[:test_point].world_frame_damping == KVec3(0.0, 0.0, 0.0)
         @test sys.points[:test_point].extra_mass == 0.69
 
-        sam = SymbolicAWEModel(set, sys; transforms)
+        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
         test_init!(sam)
 
         # Initial state
@@ -361,7 +361,7 @@ system:
         @test sys.points[:test_point].area == 0.0
         @test sys.points[:test_point].extra_mass == 2.3
 
-        sam = SymbolicAWEModel(set, sys; transforms)
+        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
         test_init!(sam)
 
         # Terminal velocity calculation:
@@ -406,7 +406,7 @@ system:
         @test sys.points[:test_point].extra_mass == 2.3
         @test sys.points[:test_point].total_mass == 2.3
 
-        sam = SymbolicAWEModel(set, sys; transforms)
+        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
         test_init!(sam)
         @test sys.points[:test_point].total_mass == 2.3
 
@@ -471,7 +471,7 @@ system:
         @test sys.points[:test_point].drag_coeff == 0.33
         @test sys.points[:test_point].extra_mass == 2.3
 
-        sam = SymbolicAWEModel(set, sys; transforms)
+        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
         test_init!(sam)
 
         point = sam.state.points[:test_point]
@@ -555,11 +555,11 @@ end
     # The KCU carries no body-frame damping, so its physics is unchanged by this.
     @testset "free point with no wing builds and flies" begin
         sys, transforms = load_sys_struct_from_yaml(geometry_with_wing(:kcu, "0");
-            system_name="point_no_wing", set, vsm_set)
+            system_name="point_no_wing", set)
         @test sys.points[:kcu].wing_idx == 0
         @test !sys.points[:kcu].is_wing_node
 
-        sam = SymbolicAWEModel(set, sys; transforms)
+        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
         test_init!(sam)
         kcu = sam.state.points[:kcu]
         height_before = kcu.pos_w[3]
@@ -574,13 +574,13 @@ end
     @testset "station member without a wing is rejected" begin
         @test_throws "le_left" load_sys_struct_from_yaml(
             geometry_with_wing(:le_left, "0");
-            system_name="wing_node_no_wing", set, vsm_set)
+            system_name="wing_node_no_wing", set)
     end
 
     @testset "wing that does not exist is rejected at load" begin
         @test_throws "kcu" load_sys_struct_from_yaml(
             geometry_with_wing(:kcu, "7");
-            system_name="wing_out_of_range", set, vsm_set)
+            system_name="wing_out_of_range", set)
     end
 
     rm(tmpdir; recursive=true)

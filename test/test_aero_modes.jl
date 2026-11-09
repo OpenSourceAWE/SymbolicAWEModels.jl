@@ -221,12 +221,12 @@ aero_poses = [
         @testset "$(case.name)" begin
             set_data_path(case.data)
             sys, transforms = load_sys_struct_from_yaml(case.yaml;
-                system_name="aero_modes_$(idx)", set, vsm_set=case.vsm_set,
+                system_name="aero_modes_$(idx)", set,
                 aero_mode=case.make())
             wing = sys.bodies[1]
             @test wing.dynamics_type == case.dynamics
 
-            sam = SymbolicAWEModel(set, sys; transforms)
+            sam = SymbolicAWEModel(set, sys; transforms, vsm_set=case.vsm_set)
             wing = sam.state.bodies[1]
             test_init!(sam)
 
