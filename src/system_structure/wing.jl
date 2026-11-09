@@ -1,17 +1,18 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-"""
-Wing type and VSM-related wing code.
-
-This file contains:
-- AbstractWing, Wing structs (abstract aero types + VSMEngine live in types.jl;
-  concrete aero modes live in src/aero_modes/)
-- Wing constructors and helper functions
-- VSM panel adjustment functions
-"""
-
 # ==================== ABSTRACT WING ==================== #
+
+"""`dynamics_type`, or the deprecated keyword `wing_type` given in its place; by default
+`RIGID_DYNAMICS`."""
+function resolve_dynamics_type(dynamics_type, wing_type)
+    isnothing(wing_type) && return something(dynamics_type, RIGID_DYNAMICS)
+    isnothing(dynamics_type) ||
+        error("Cannot specify both `wing_type` and `dynamics_type`; " *
+              "`wing_type` is deprecated, use `dynamics_type`.")
+    @warn "Keyword argument `wing_type` is deprecated; use `dynamics_type` instead."
+    return wing_type
+end
 
 """
     abstract type AbstractWing
@@ -154,16 +155,7 @@ function Wing(name, stations::AbstractVector, Q_KA_to_ENU::AbstractVector,
               group_points_moment::Bool=true,
               z_ref_points=nothing, y_ref_points=nothing, origin=nothing,
               principal_frame_method::PrincipalFrameMethod=EIGEN_DECOMP)
-    # Handle deprecated wing_type keyword
-    if !isnothing(wing_type)
-        if !isnothing(dynamics_type)
-            error("Cannot specify both `wing_type` and `dynamics_type`; `wing_type` is deprecated, use `dynamics_type`.")
-        end
-        @warn "Keyword argument `wing_type` is deprecated; use `dynamics_type` instead."
-        dynamics_type = wing_type
-    end
-    # Apply defaults now that dynamics_type is resolved
-    isnothing(dynamics_type) && (dynamics_type = RIGID_DYNAMICS)
+    dynamics_type = resolve_dynamics_type(dynamics_type, wing_type)
     isnothing(aero) && (aero = dynamics_type == RIGID_DYNAMICS ?
         AeroLinearized() : AeroDirect())
     station_refs = Vector{NameRef}([cell_ref(station) for station in stations])
@@ -329,20 +321,11 @@ function VSMWing(name, set::Settings,
                  aero_z_offset::SimFloat=0.0,
                  principal_frame_method::PrincipalFrameMethod=EIGEN_DECOMP)
 
-    # Handle deprecated wing_type keyword
-    if !isnothing(wing_type)
-        if !isnothing(dynamics_type)
-            error("Cannot specify both `wing_type` and `dynamics_type`; `wing_type` is deprecated, use `dynamics_type`.")
-        end
-        @warn "Keyword argument `wing_type` is deprecated; use `dynamics_type` instead."
-        dynamics_type = wing_type
-    end
-    isnothing(dynamics_type) && (dynamics_type = RIGID_DYNAMICS)
+    dynamics_type = resolve_dynamics_type(dynamics_type, wing_type)
 
     # Validation
     if dynamics_type == PARTICLE_DYNAMICS
-        @assert !isnothing(origin)
-            "PARTICLE_DYNAMICS wings require origin to define KCU position"
+        @assert !isnothing(origin) "PARTICLE_DYNAMICS wings require an origin point"
         if !isnothing(pos_ENU)
             @warn "Wing '$name': pos_ENU is unused for " *
                 "PARTICLE_DYNAMICS wings (position comes from " *
@@ -350,8 +333,7 @@ function VSMWing(name, set::Settings,
             pos_ENU = nothing
         end
     else
-        @assert isnothing(point_to_vsm_point)
-            "RIGID_DYNAMICS wings: no point_to_vsm_point"
+        @assert isnothing(point_to_vsm_point) "RIGID_DYNAMICS wings: no point_to_vsm_point"
     end
 
     # Engine-less modes (AeroNone/AeroPlate) need no vsm_set.
@@ -479,10 +461,6 @@ end
     rotate_vsm_sections!(vsm_wing, R)
 
 Rotate all VSM section LE/TE points by rotation matrix `R`.
-
-Used during initialization to transform sections from the frame they are
-authored in to the body frame. After the first step, `refresh_aero!()`
-updates positions from `pos_b` (already in body frame).
 """
 function rotate_vsm_sections!(vsm_wing, R)
     for section in frame_sections(vsm_wing)

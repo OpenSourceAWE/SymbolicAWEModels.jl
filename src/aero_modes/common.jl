@@ -46,14 +46,6 @@ is a no-op for every wing, so callers skip it and the trailing parameter sync.
 has_vsm_wing(sys_struct) =
     any(wing -> wing.aero isa AbstractVSMAero, sys_struct.wings)
 
-"""
-    provides_aero_override(mode::AbstractAeroModel) -> Bool
-
-`true` if the mode supplies frozen body-frame force/moment overrides read by the
-compiled RHS (the stored-force path of [`AeroDirect`](@ref)).
-"""
-provides_aero_override(::AbstractAeroModel) = false
-
 # ==================== interface: required cache tag ==================== #
 
 """

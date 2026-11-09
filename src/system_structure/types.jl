@@ -1,14 +1,6 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-"""
-Basic type definitions for the system structure components.
-
-This file contains enums and struct definitions for:
-- DynamicsType, WingType, SegmentType (deprecated) enums; AbstractAeroModel types
-- Point, Station, Segment, Pulley, Tether, Winch structs
-"""
-
 # ==================== ENUMS ==================== #
 
 """
@@ -1124,7 +1116,7 @@ function Tether(name, segments::AbstractVector, stretched_length=nothing;
     end
     init_force, init_frac =
         resolve_tether_init(name, tether_force, stretch_frac)
-    model = TetherModel(; init_stretched_length=opt_simfloat(stretched_length),
+    model = TetherModel(; init_stretched_length=maybe(SimFloat, stretched_length),
                         init_tether_force=init_force, init_stretch_frac=init_frac,
                         n_segments=length(segments))
     return tether_row(name, segments, start_point, end_point, model)
@@ -1137,9 +1129,6 @@ tether_row(name, segments, start_point, end_point, model) =
         start_point=something(cell_ref(start_point), 0),
         end_point=something(cell_ref(end_point), 0),
         segments=NameRef[cell_ref(segment) for segment in segments], model)
-
-opt_simfloat(::Nothing) = nothing
-opt_simfloat(x) = SimFloat(x)
 
 function resolve_tether_init(name, tether_force, stretch_frac)
     if !isnothing(tether_force) && !isnothing(stretch_frac)
@@ -1202,7 +1191,7 @@ function Tether(name, stretched_length=nothing;
     init_force, init_frac =
         resolve_tether_init(name, tether_force, stretch_frac)
     segments = [Symbol("$(name)_seg_$i") for i in 1:n_segments]
-    model = TetherModel(; init_stretched_length=opt_simfloat(stretched_length),
+    model = TetherModel(; init_stretched_length=maybe(SimFloat, stretched_length),
         init_tether_force=init_force, init_stretch_frac=init_frac,
         n_segments=Int64(n_segments), segment_columns=(; unit_stiffness,
             unit_damping, diameter, density, youngs_modulus, damping_per_stiffness,

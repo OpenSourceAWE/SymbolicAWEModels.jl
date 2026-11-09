@@ -20,7 +20,6 @@ attach_engine!(::AeroDirect, engine::VSMEngine) = AeroDirect(engine)
 
 is_builtin_aero(::AeroDirect) = true
 aero_mode_tag(::AeroDirect) = "dir"
-provides_aero_override(::AeroDirect) = true
 
 """
     aero_component(::AeroDirect, wing::ParticleWingState, sys_struct; name, params)

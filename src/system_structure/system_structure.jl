@@ -1,23 +1,6 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-"""
-System Structure
-
-Defines the physical structure of the kite system, including:
-- Basic types: Point, Station, Segment, Pulley, Tether, Winch
-- Wing types: BaseWing, VSMWing with VSM aerodynamics coupling
-- SystemStructure container and initialization
-
-Files are organized as:
-- types.jl: Enums and struct definitions (Point, Segment, etc.)
-- wing.jl: Wing types and VSM-related code
-- system_structure_core.jl: SystemStructure type and constructor
-- utilities.jl: Helper functions and state management
-- tube_laws.jl: Inflated-tube rigidity laws for tubes
-- definition_models.jl: The models SymbolicAWEModels registers with KiteGeometry
-"""
-
 # Include files in dependency order
 include("definition_models.jl")  # KiteGeometry models of SAM's own columns
 include("types.jl")         # Enums, Point, Station, Segment, Pulley, Tether, Winch

@@ -44,9 +44,6 @@ function material!(materials, law, parameters)
     return length(materials)
 end
 
-"""Indices as references, `nothing` for none."""
-optional_indices(idxs) = isempty(idxs) ? nothing : Vector{KiteGeometry.NameRef}(idxs)
-
 """`station` with the wing whose twist it carries."""
 function station_row(sys, station)
     station.wing_ref = station_wing_idx(sys, station)
@@ -85,7 +82,7 @@ function wing_row(sys, wing)
             string(wing.dynamics_type), ref_points_cell(sys, wing.origin),
             ref_pair_cell(sys, wing.z_ref_points), ref_pair_cell(sys, wing.y_ref_points),
             nothing, nothing, nothing, wing_drag_corr(wing.aero),
-            optional_indices(wing.station_idxs)))
+            references_column(wing.station_idxs)))
 end
 
 """A VSM engine field of `wing`, `nothing` for a wing without one."""

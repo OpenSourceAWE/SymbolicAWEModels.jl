@@ -2,14 +2,6 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 """
-Helper functions for VSM wing types.
-
-PARTICLE_DYNAMICS-specific functions (panel force distribution, structural geometry
-updates) are at the bottom of this file.  The shared
-`match_aero_sections_to_structure!` works for all VSMWing types.
-"""
-
-"""
     const AERO_SCALE_CHORD = 0.0
 
 Baseline chord-based aero scaling for PARTICLE_DYNAMICS wings; effective

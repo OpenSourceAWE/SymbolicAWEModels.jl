@@ -279,9 +279,7 @@ SymbolicAWEModels.distribute_mass_over_points!
 ## NamedCollection internals
 
 ```@docs
-SymbolicAWEModels.names
 SymbolicAWEModels.get_idx
-SymbolicAWEModels.get_name
 Base.keys(::NamedCollection)
 Base.values(::NamedCollection)
 Base.haskey(::NamedCollection, ::Symbol)
@@ -320,7 +318,6 @@ SymbolicAWEModels.has_vsm_engine
 SymbolicAWEModels.require_vsm_engine
 SymbolicAWEModels.couples_to_sections
 SymbolicAWEModels.has_vsm_wing
-SymbolicAWEModels.provides_aero_override
 SymbolicAWEModels.aero_mode_tag
 SymbolicAWEModels.calc_side_slip
 SymbolicAWEModels.validate_aero_component

@@ -330,7 +330,7 @@ the mode:
   [`update_wing_aero_plot!`](@ref) — methods live in the Makie extension, so a
   custom mode draws with full Makie access (default: draws nothing).
 - **Traits**: [`couples_to_sections`](@ref) (needs per-section stations;
-  default `false`), [`provides_aero_override`](@ref), and the cache controls
+  default `false`) and the cache controls
   [`is_builtin_aero`](@ref) / [`aero_hash_id`](@ref) (see below).
 
 Subtyping [`AbstractVSMAero`](@ref) (a [`VSMEngine`](@ref) in an `engine` field,

@@ -1,15 +1,6 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-"""
-SystemStructure type and main constructor.
-
-This file contains:
-- SystemStructure struct definition
-- Property accessors (getproperty/setproperty!)
-- Main SystemStructure constructor with initialization logic
-"""
-
 # ==================== SYSTEM STRUCTURE ==================== #
 
 """
@@ -79,21 +70,11 @@ end
 Resolve a reference (name or index) to an index using the name dictionary.
 If ref is an integer, returns it directly. If ref is a symbol, looks up in dictionary.
 """
-function resolve_ref(ref::Union{Int, Symbol}, name_dict::Dict{Symbol, Int64}, component_type::String)
-    if ref isa Int
-        return Int64(ref)
-    else
-        name = ref isa Symbol ? ref : Symbol(ref)
-        if haskey(name_dict, name)
-            return name_dict[name]
-        else
-            error("Unknown $component_type name: $name")
-        end
-    end
-end
-
-function resolve_ref(::Nothing, ::Dict{Symbol, Int64}, ::String)
-    return Int64(0)
+resolve_ref(index::Int, ::Dict{Symbol, Int64}, ::String) = Int64(index)
+resolve_ref(::Nothing, ::Dict{Symbol, Int64}, ::String) = Int64(0)
+function resolve_ref(name::Symbol, name_dict::Dict{Symbol, Int64}, component_type::String)
+    haskey(name_dict, name) || error("Unknown $component_type name: $name")
+    return name_dict[name]
 end
 
 """
@@ -151,10 +132,7 @@ end
     mark_wing_nodes!(points, stations)
 
 Set `point.is_wing_node` for every point that is a member of some station.
-A wing's aerodynamic-surface structural points carry their wing membership
-through station membership (there is no `WING` dynamics type); this flag,
-derived once here, drives the per-point aero and wing-frame equations. Requires
-`station.point_idxs` to be resolved first.
+Requires `station.point_idxs` to be resolved first.
 """
 function mark_wing_nodes!(points, stations)
     members = Set{Int64}()
@@ -172,10 +150,7 @@ end
 
 Whether `point` belongs to wing `wing_idx`'s frame: it places the wing body and,
 without a mesh, shapes its own inertia. Its aerodynamic-surface nodes
-(`is_wing_node`) plus any `BODY_STATIC` structural point sharing its `wing_idx` —
-e.g. a rigid wing's attachment points (like the KCU) that ride the wing body without
-being aero-surface members. Bridle points riding a beam carry `wing_idx == 0`, so
-they are excluded.
+(`is_wing_node`) plus any `BODY_STATIC` structural point sharing its `wing_idx`.
 """
 wing_frame_member(point, wing_idx) =
     (point.is_wing_node || point.type == BODY_STATIC) && point.wing_idx == wing_idx
@@ -627,8 +602,7 @@ function combine_carried_points!(body, points, bodies)
     for (mass, position) in carried
         inertia .+= point_mass_inertia(mass, position .- com)
     end
-    inertia_principal, R_b_to_p = body.principal_frame_method == Y_ROTATION ?
-        calc_inertia_y_rotation(inertia) : principal_frame(inertia)
+    inertia_principal, R_b_to_p = principal_axes(inertia, body.principal_frame_method)
     body.total_mass = total_mass
     body.com_offset_b .= com
     body.inertia_principal .= inertia_principal

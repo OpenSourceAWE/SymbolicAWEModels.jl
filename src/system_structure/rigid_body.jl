@@ -724,11 +724,7 @@ remainder expressed in the rest element frame (so the point tracks the same
 off-centerline offset as the beam bends). Usually near-centerline (offset ≈ 0).
 """
 function derive_point_beam_anchor!(point::Point, tube::Tube, bodies)
-    body_a = bodies[tube.body_a_idx]
-    body_b = bodies[tube.body_b_idx]
-    R_a = initial_rotation(body_a)
-    node_a = body_a.pos_ENU .+ R_a * tube.anchor_a_b
-    node_b = body_b.pos_ENU .+ initial_rotation(body_b) * tube.anchor_b_b
+    R_a, _, node_a, node_b = tube_initial_frames(tube, bodies)
     e1, e2, e3, len = timoshenko_element_frame(node_a, node_b, R_a)
     rel = point.pos_ENU .- node_a
     s = clamp(dot(rel, e1) / len, 0.0, 1.0)
@@ -769,10 +765,7 @@ has_flap(station) =
 Signed flap deflection δ [rad] of `station` from the two flap bodies'
 world orientations `R_main`, `R_flap`: project each body's reference chord
 direction onto the plane normal to the world hinge axis and take the signed angle
-about that axis, minus the rest deflection `flap_rest_delta`. Robust across the
-full polar δ range (an `atan`, not a small-angle approximation). The same formula
-the symbolic RHS uses (`station_delta_eqs!`), so it is the ground truth for
-tests.
+about that axis, minus the rest deflection `flap_rest_delta`.
 """
 flap_delta(station, R_main, R_flap) =
     flap_delta_expression(station, R_main, R_flap)

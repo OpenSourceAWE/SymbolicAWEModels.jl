@@ -22,9 +22,8 @@ SymbolicAWEModels.set_kwargs
 SymbolicAWEModels.maybe
 SymbolicAWEModels.definition_wing
 SymbolicAWEModels.definition_point
-SymbolicAWEModels.definition_station
-SymbolicAWEModels.definition_pulley
-SymbolicAWEModels.definition_tether
+SymbolicAWEModels.typed_row
+SymbolicAWEModels.resolve_dynamics_type
 SymbolicAWEModels.definition_winch
 SymbolicAWEModels.definition_body
 SymbolicAWEModels.in_place_of
@@ -92,7 +91,6 @@ SymbolicAWEModels.stiffness_law
 SymbolicAWEModels.material_parameters
 SymbolicAWEModels.store_definition_pose!
 SymbolicAWEModels.definition_name
-SymbolicAWEModels.optional_indices
 SymbolicAWEModels.material!
 SymbolicAWEModels.station_wing_idx
 SymbolicAWEModels.winch_friction_epsilon

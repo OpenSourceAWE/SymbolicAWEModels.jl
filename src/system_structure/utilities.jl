@@ -1,17 +1,6 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-"""
-Utility functions for SystemStructure.
-
-This file contains:
-- Validation functions
-- reinit! for SystemStructure
-- State copy and update functions
-- Damping setters
-- Segment statistics
-"""
-
 # ==================== SHARED HELPERS ==================== #
 
 """
@@ -242,12 +231,9 @@ end
     rigid_point_siblings(points, wings, tubes, root)
 
 Map each point index that rides a rigid structure to the set of all points
-sharing it, so downstream traversal moves them as one unit. Which bodies carry a
-point comes from [`anchor_body_idxs`](@ref); `root` (from KiteGeometry's
-`connected_body_groups`) collapses bodies tied by tubes into one
-component, so all points riding any body in a tube-connected chain are
-siblings. This is how the two halves of a beam wing — bridged only through the
-beam, not by inter-point segments — are recognised as one structure.
+sharing it. `root` (from KiteGeometry's `connected_body_groups`) collapses bodies tied by
+tubes into one component, so all points riding any body in a tube-connected chain are
+siblings.
 """
 function rigid_point_siblings(points, wings, tubes, root)
     siblings = Dict{Int64, Set{Int64}}()
@@ -304,14 +290,9 @@ end
 Reposition one cluster of root tethers to their `init_stretched_len` standoff. The
 free ends and everything downstream of them are translated along the line from the
 mean anchor through the mean free end until the tethers' mean length is their mean
-`init_stretched_len` (KiteGeometry's `cluster_standoff_shift`); interior points are then
-redistributed proportionally along each tether. A single tether lands at exactly its
-length, tethers that already have their lengths stay, and placing again moves
-nothing. For a multi-tether cluster, logs an `@info` when `prn`.
-
-The bodies the moved points ride are translated too, expanded over the beam graph
-by KiteGeometry's `translated_body_idxs` so bodies that carry no point of their own do
-not stay behind.
+`init_stretched_len`; interior points are then redistributed proportionally along each
+tether, and the bodies the moved points ride are translated too. For a multi-tether
+cluster, logs an `@info` when `prn`.
 """
 function apply_cluster_init_stretched_len!(
     cluster, points, segments, bodies, tubes, body_neighbors,
@@ -1250,10 +1231,7 @@ end
     write_total_mass!(sys_struct)
 
 Write each point's effective translational mass — `extra_mass` plus the half-mass
-of every incident segment — into `point.total_mass`, so `validate_sys_struct` and
-the diagnostics see it. The monolith gets the same value from its `point_mass`
-observable; the batched backends compute it here because no single component owns
-it.
+of every incident segment — into `point.total_mass`.
 """
 write_total_mass!(::SystemState) = nothing
 function write_total_mass!(sys_struct)

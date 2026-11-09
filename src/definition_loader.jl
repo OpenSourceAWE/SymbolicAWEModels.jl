@@ -100,7 +100,7 @@ registers for them ([`register_definition_models`](@ref)).
 function SystemStructure(definition::SystemDefinition, set::Settings;
         dynamics_type=nothing, aero_mode=nothing, vsm_set=nothing, prn=true)
     n_wings = length(definition.wings)
-    stations = Station[definition_station(station)
+    stations = Station[typed_row(station, "station")
                        for station in definition.spanwise_stations]
     wings = Body[definition_wing(definition, w, set, stations; dynamics_type, aero_mode,
                                  vsm_set)
@@ -109,8 +109,8 @@ function SystemStructure(definition::SystemDefinition, set::Settings;
         points=Point[definition_point(definition, point) for point in definition.points],
         stations,
         segments=Segment[segment for segment in definition.segments],
-        pulleys=Pulley[definition_pulley(pulley) for pulley in definition.pulleys],
-        tethers=Tether[definition_tether(tether) for tether in definition.tethers],
+        pulleys=Pulley[typed_row(pulley, "pulley") for pulley in definition.pulleys],
+        tethers=Tether[tether for tether in definition.tethers],
         winches=Winch[definition_winch(winch, set) for winch in definition.winches],
         wings,
         bodies=Body[definition_body(definition.bodies[b])
@@ -161,25 +161,10 @@ end
 """`f(value)`, or `nothing` for `nothing`."""
 maybe(f, value) = isnothing(value) ? nothing : f(value)
 
-"""The station `station` of a definition is: the row itself, refusing one without a
-`type`."""
-function definition_station(station)
-    isnothing(station.model.type) && error("station $(station.name) needs its `type`")
-    return station
-end
-
-"""The pulley `pulley` of a definition is: the row itself, refusing one without a
-`type`."""
-function definition_pulley(pulley)
-    isnothing(pulley.model.type) && error("pulley $(pulley.name) needs its `type`")
-    return pulley
-end
-
-"""The tether `tether` of a definition is: the row itself, of as many segments as it
-lists."""
-function definition_tether(tether)
-    tether.n_segments = length(tether.segments)
-    return tether
+"""The definition's row `row` of block `block`, refusing one without a `type`."""
+function typed_row(row, block)
+    isnothing(row.model.type) && error("$block $(row.name) needs its `type`")
+    return row
 end
 
 """The winch `winch` of a definition is: the row itself, its drum parameters the row

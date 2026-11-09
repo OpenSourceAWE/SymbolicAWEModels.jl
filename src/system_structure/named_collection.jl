@@ -2,21 +2,6 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 """
-NamedCollection - A wrapper that enables both numeric and symbolic indexing.
-
-Wraps a vector of named items and adds lookup by symbolic name via a name → index
-dictionary.
-
-```julia
-points = [Point(1, ...; name=:kcu), Point(2, ...; name=:le_1)]
-nc = NamedCollection(points)
-nc[1]              # -> Point 1
-nc[:le_1]          # -> Point 2
-haskey(nc, :kcu)   # -> true
-```
-"""
-
-"""
     NamedCollection{T} <: AbstractVector{T}
 
 A wrapper around a vector that enables both numeric and symbolic indexing.
@@ -155,28 +140,3 @@ end
 Get the numeric index for a given symbolic name.
 """
 get_idx(nc::NamedCollection, name::Symbol) = nc.name_to_idx[name]
-
-"""
-    get_name(nc::NamedCollection, idx::Integer)
-
-Get the symbolic name for a given numeric index, or nothing if unnamed.
-"""
-function get_name(nc::NamedCollection, idx::Integer)
-    item = nc.items[idx]
-    # Use try-catch to handle both direct fields and delegated properties
-    return try
-        item.name
-    catch
-        nothing
-    end
-end
-
-"""
-    names(nc::NamedCollection)
-
-Return a vector of all symbolic names in order of their indices.
-Names are `nothing` for unnamed items.
-"""
-function names(nc::NamedCollection)
-    return [get_name(nc, i) for i in eachindex(nc.items)]
-end
