@@ -479,7 +479,6 @@ The source code is organized into modular directories:
     [`ElasticTube`](@ref)
   - `system_structure_core.jl`: [`SystemStructure`](@ref) constructor, reference
     resolution
-  - `named_collection.jl`: Symbol-based indexing ([`NamedCollection`](@ref))
   - `utilities.jl`: Validation, tether creation, state management
 - **`src/aero_modes/`** — one file per [`AbstractAeroModel`](@ref)
   (`none`, `direct`, `linearized`, `continuous`, `pressure`, `plate`), plus

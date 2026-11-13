@@ -133,7 +133,6 @@ See `coupled_2plate_kite.jl` for the full example with logging and replay.
 | `coupled_linearize.jl` | State-space linearization of a coupled model |
 | `cosine_steering_trajectory.jl` | Prescribed cosine steering input |
 | `heading_gate.jl` | Heading tracking through a gate |
-| `kps4_comparison.jl` | [`PlateWing`](@ref) kite against the KiteModels kps4 reference |
 | `vsm_linearization.jl` | Plots the VSM linearisation tangents around the operating point |
 | `sam_tutorial.jl` | Step-by-step model build, mirroring the Julia tutorial |
 

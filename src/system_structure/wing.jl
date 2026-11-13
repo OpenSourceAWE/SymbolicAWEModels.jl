@@ -112,7 +112,7 @@ Low-level `Wing` constructor. The `idx` and `station_idxs` are resolved by
 `SystemStructure`.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier (e.g. `:main_wing`).
+- `name::Symbol`: Name/identifier (e.g. `:main_wing`).
 - `stations::Vector`: References to attached stations (names or indices).
 - `Q_KA_to_ENU`: Body→world orientation quaternion before [`place!`](@ref) turns it.
 - `pos_ENU::KVec3`: Body-origin position before [`place!`](@ref) moves it [m].
@@ -257,7 +257,7 @@ Construct a [`Wing`](@ref) flown with Vortex Step Method aerodynamics; each mode
 its [`VSMEngine`](@ref) from it.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the wing.
+- `name::Symbol`: Name/identifier for the wing.
 - `set::Settings`: Settings the mesh's inertia is read with.
 - `stations::Vector`: References to stations (names or indices).
 
@@ -505,7 +505,7 @@ function init_undeformed_offsets!(bodies, points)
     for body in bodies
         body.dynamics_type == RIGID_DYNAMICS || continue
         R_initial = initial_rotation(body)
-        com_initial = body.pos_ENU .+ R_initial * body.com_offset_b
+        com_initial = body.origin_ENU .+ R_initial * body.com_offset_b
         for point in points
             if point.is_wing_node && point.wing_idx == body.idx
                 point.pos_undeformed_b .= R_initial' * (point.pos_ENU - com_initial)

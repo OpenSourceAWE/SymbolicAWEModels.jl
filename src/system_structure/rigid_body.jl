@@ -70,11 +70,6 @@ $(TYPEDFIELDS)
     extra_inertia_b::Matrix{SimFloat} = zeros(SimFloat, 3, 3)
     "Offset from the body origin to the centre of mass of the body alone, body frame [m]."
     extra_com_offset_b::KVec3 = zeros(KVec3)
-    "Initial position of the body origin, world frame [m]: where [`place!`](@ref) puts it;
-    unset until the structure is built."
-    initial_pos_ENU::Union{Nothing, KVec3} = nothing
-    "Initial body→world orientation quaternion: how [`place!`](@ref) turns the body."
-    initial_Q_KA_to_ENU::Vector{SimFloat} = SimFloat[1, 0, 0, 0]
     "The body's aero model; [`AeroNone`](@ref) for a body that is no wing."
     aero::A
     "Indices of the wing's stations."
@@ -145,10 +140,10 @@ with them ([`update_mass_properties!`](@ref)). Aero/wing fields are inert when
 `aero` is [`AeroNone`](@ref). Loads are gravity (`-g·total_mass` at the COM), the
 settable external wrench, tube wrenches, and aerodynamics.
 
-`pos_ENU` and `Q_KA_to_ENU` are the initial pose of the body frame, whose origin the row
-puts at the centre of the body's own mass; `extra_inertia_b` is about that centre in the
-body frame. An external force or moment the row leaves unset reads as a zero vector the
-row then holds, so it can be written in place.
+`origin_ENU` and `Q_KA_to_ENU` are the initial pose of the body frame; the row's
+`pos_ENU` is the centre of the body's own mass, `extra_com_offset_b` from that origin, and
+`extra_inertia_b` is about that centre in the body frame. An external force or moment the
+row leaves unset reads as a zero vector the row then holds, so it can be written in place.
 """
 const Body{A, D} = KiteGeometry.Body{BodyModel{A, D}}
 
@@ -166,9 +161,10 @@ row_property(row::Body, ::Val{:principal_frame_method}) =
                                            "EIGEN_DECOMP"))
 @inline row_property(row::Body, ::Val{:extra_mass}) =
     something(getfield(row, :extra_mass), 0.0)
-@inline row_property(row::Body, ::Val{:pos_ENU}) =
-    something(body_model(row).initial_pos_ENU, getfield(row, :pos_ENU))
-@inline row_property(row::Body, ::Val{:Q_KA_to_ENU}) = body_model(row).initial_Q_KA_to_ENU
+@inline row_property(row::Body, ::Val{:origin_ENU}) = KVec3(getfield(row, :pos_ENU)) -
+    quaternion_to_rotation_matrix(getfield(row, :Q_KA2ENU)) *
+    body_model(row).extra_com_offset_b
+@inline row_property(row::Body, ::Val{:Q_KA_to_ENU}) = Vector(getfield(row, :Q_KA2ENU))
 @inline row_property(row::Body, ::Val{:wing_ref}) = reference(body_model(row).wing)
 @inline row_property(row::Body, ::Val{:wing_idx}) = body_model(row).resolved_wing_idx
 row_property(row::Body{A}, ::Val{:angular_damping}) where {A} =
@@ -181,18 +177,26 @@ row_property(row::Body{A}, ::Val{:angular_damping}) where {A} =
 @inline row_property(row::Body, ::Val{:ext_force_w}) = held_vector!(row, :ext_force_w)
 @inline row_property(row::Body, ::Val{:ext_force_b}) = held_vector!(row, :ext_force_b)
 @inline row_property(row::Body, ::Val{:ext_moment_b}) = held_vector!(row, :ext_moment_b)
-set_row_property!(row::Body, ::Val{:type}, type::DynamicsType) =
-    body_model(row).type = string(type)
 set_row_property!(row::Body, ::Val{:principal_frame_method}, method::PrincipalFrameMethod) =
     body_model(row).principal_frame_method = string(method)
 set_row_property!(row::Body, ::Val{:wing_ref}, ref) =
     body_model(row).wing = reference_column(ref)
 set_row_property!(row::Body, ::Val{:wing_idx}, idx) =
     body_model(row).resolved_wing_idx = idx
-set_row_property!(row::Body, ::Val{:pos_ENU}, pos) =
-    body_model(row).initial_pos_ENU = KVec3(pos)
-set_row_property!(row::Body, ::Val{:Q_KA_to_ENU}, Q) =
-    body_model(row).initial_Q_KA_to_ENU .= Q
+set_row_property!(row::Body, ::Val{:origin_ENU}, pos) = getfield(row, :pos_ENU) .=
+    pos + quaternion_to_rotation_matrix(getfield(row, :Q_KA2ENU)) *
+    body_model(row).extra_com_offset_b
+function set_row_property!(row::Body, ::Val{:Q_KA_to_ENU}, Q)
+    origin = row.origin_ENU
+    getfield(row, :Q_KA2ENU) .= Q
+    row.origin_ENU = origin
+    return Q
+end
+function set_row_property!(row::Body, ::Val{:type}, type::DynamicsType)
+    body_model(row).type = string(type)
+    setfield!(row, :fixed, type == STATIC)
+    return type
+end
 
 """Column `column` of the model of body row `row`, else the same column of its wing's
 `wings` row, `nothing` where neither gives it."""
@@ -238,15 +242,18 @@ end
 The `bodies` row of a body named `name` with aero model `aero` and
 [`WingDynamics`](@ref) `dynamics`: its own mass `extra_mass` and inertia
 `extra_inertia_b` about its body-frame origin, which sits at its initial pose `pos_ENU`,
-`Q_KA_to_ENU`, and a model holding `model_fields`.
+`Q_KA_to_ENU`, and a model holding `model_fields`. The row stands at the body's own centre
+of mass.
 """
 function body_row(name, aero::A, ::Type{D}; extra_mass, extra_inertia_b, pos_ENU,
                   Q_KA_to_ENU, model_fields...) where {A, D}
     model = BodyModel{A, D}(; aero, model_fields...,
-        extra_inertia_b=Matrix{SimFloat}(extra_inertia_b),
-        initial_pos_ENU=KVec3(pos_ENU), initial_Q_KA_to_ENU=Vector{SimFloat}(Q_KA_to_ENU))
-    return KiteGeometry.Body(; name=Symbol(name), pos_ENU, Q_KA2ENU=Q_KA_to_ENU,
-        extra_mass, extra_inertia_KA=extra_inertia_b, model)
+        extra_inertia_b=Matrix{SimFloat}(extra_inertia_b))
+    mass_centre = pos_ENU + quaternion_to_rotation_matrix(Q_KA_to_ENU) *
+        model.extra_com_offset_b
+    return KiteGeometry.Body(; name=Symbol(name), pos_ENU=mass_centre,
+        Q_KA2ENU=Q_KA_to_ENU, extra_mass, extra_inertia_KA=extra_inertia_b,
+        fixed=model.type == "STATIC", model)
 end
 
 """`Body` with rigid (DYNAMIC/STATIC) 6-DOF dynamics."""
@@ -424,7 +431,7 @@ initial_rotation(body) = quaternion_to_rotation_matrix(body.Q_KA_to_ENU)
 Where `point` sits in `body`'s frame, from the body origin, in the initial pose.
 """
 initial_body_position(body, point) =
-    initial_rotation(body)' * (point.pos_ENU - body.pos_ENU)
+    initial_rotation(body)' * (point.pos_ENU - body.origin_ENU)
 
 """
     initial_chord_position(wing, point) -> SimFloat
@@ -681,8 +688,8 @@ function tube_initial_frames(tube::Tube, bodies)
     body_b = bodies[tube.body_b_idx]
     R_a = initial_rotation(body_a)
     R_b = initial_rotation(body_b)
-    anchor_a_w = body_a.pos_ENU .+ R_a * tube.anchor_a_b
-    anchor_b_w = body_b.pos_ENU .+ R_b * tube.anchor_b_b
+    anchor_a_w = body_a.origin_ENU .+ R_a * tube.anchor_a_b
+    anchor_b_w = body_b.origin_ENU .+ R_b * tube.anchor_b_b
     return R_a, R_b, anchor_a_w, anchor_b_w
 end
 

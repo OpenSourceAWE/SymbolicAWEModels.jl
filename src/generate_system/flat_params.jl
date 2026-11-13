@@ -166,7 +166,7 @@ param_computed!(reg::ParamRegistry, name::Symbol, reader) =
 # ==================== BUILD-TIME VIEW ==================== #
 
 """Types the view descends *through* (everything else is a leaf)."""
-param_descend(x) = x isa NamedCollection || x isa AbstractAeroModel ||
+param_descend(x) = x isa Rows || x isa AbstractAeroModel ||
                    x isa AbstractWinchModel || x isa WinchModel ||
                    x isa AbstractTubeModel || x isa VSMEngine || x isa Settings ||
                    x isa UnsteadyAero

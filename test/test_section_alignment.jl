@@ -63,7 +63,7 @@ for i in 1:2:length(wing_pts)
     end
 end
 
-com = wing.pos_ENU
+com = wing.origin_ENU
 R = SymbolicAWEModels.initial_rotation(wing)
 
 println("== Wing info ==")
@@ -109,12 +109,12 @@ println("\n== Applying transforms ==")
 place!(sys)
 
 println("  R_b_to_w = ", round.(SymbolicAWEModels.initial_rotation(wing); digits=4))
-println("  pos_w = ", round.(wing.pos_ENU; digits=4))
+println("  pos_w = ", round.(wing.origin_ENU; digits=4))
 println()
 
 @testset "World-frame panel alignment" begin
     R_bw = SymbolicAWEModels.initial_rotation(wing)
-    T_bw = wing.pos_ENU
+    T_bw = wing.origin_ENU
     panels = wing.vsm_aero.panels
 
     for i in 1:length(pairs)
@@ -199,7 +199,7 @@ end
 # Also check unrefined sections → world directly
 @testset "World-frame unrefined section alignment" begin
     R_bw = SymbolicAWEModels.initial_rotation(wing)
-    T_bw = wing.pos_ENU
+    T_bw = wing.origin_ENU
     n = vsm_wing.n_unrefined_sections
 
     for i in 1:n

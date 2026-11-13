@@ -106,7 +106,6 @@ ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_ben
 ## Indexing
 
 ```@docs
-NamedCollection
 NameRef
 WeightedRefPoints
 ```

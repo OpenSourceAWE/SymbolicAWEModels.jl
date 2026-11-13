@@ -106,7 +106,7 @@ function apply_pose!(sam, set, pose; twist=nothing)
     transform.heading = heading
     transform.elevation_vel = 0.0
     transform.azimuth_vel = 0.0
-    place!(sam; prn=false)
+    place!(sam)
     set.v_wind = v_wind
     isnothing(twist) || set_twist!(sam.state, twist)
     init!(sam; prn=false)

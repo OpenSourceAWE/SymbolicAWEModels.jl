@@ -89,7 +89,6 @@ SymbolicAWEModels.segment_with_material
 SymbolicAWEModels.settings_segment
 SymbolicAWEModels.stiffness_law
 SymbolicAWEModels.material_parameters
-SymbolicAWEModels.store_definition_pose!
 SymbolicAWEModels.definition_name
 SymbolicAWEModels.material!
 SymbolicAWEModels.station_wing_idx

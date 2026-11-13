@@ -110,7 +110,7 @@ sys_struct = SystemStructure("tether", set; points, segments)
 transforms = [Transform(; name=:tf, elevation=deg2rad(-80), azimuth=0.0,
     heading=0.0, base_pos=[0.0, 0.0, 50.0], base_point=1,
     rot_point=[length(points) => 1.0], points=collect(eachindex(points)))]
-place_structure!(sys_struct, transforms)
+place!(sys_struct, transforms)
 
 scene = plot(sys_struct)                                          #hide
 plot(sys_struct)
@@ -171,7 +171,7 @@ winches = [Winch(:winch, [:main],
 # Build and simulate with a constant torque of -20 Nm:
 
 sys_struct = SystemStructure("winch", set; points, segments, tethers, winches)
-place_structure!(sys_struct, transforms)
+place!(sys_struct, transforms)
 
 scene = plot(sys_struct)                                          #hide
 GLMakie.save(joinpath(ASSETS, "winch_sys_struct.png"), scene)     #hide

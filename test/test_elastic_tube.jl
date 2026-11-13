@@ -125,8 +125,8 @@ end
     # Reset the initial pose that place! puts the bodies back at.
     function reset_bodies!()
         for (b, x) in ((b1, 0.0), (b2, 1.0))
-            b.pos_ENU .= [x, 0.0, 0.0]
-            b.Q_KA_to_ENU .= [1.0, 0.0, 0.0, 0.0]
+            b.origin_ENU = [x, 0.0, 0.0]
+            b.Q_KA_to_ENU = [1.0, 0.0, 0.0, 0.0]
             b.vel_w .= 0.0
             b.ω_b .= 0.0
         end
@@ -292,7 +292,7 @@ end
         reset_bodies!()
         place!(sam)
         Q_rot = Float64[cos(π / 12), 0.0, 0.0, sin(π / 12)]
-        b2.Q_KA_to_ENU .= Q_rot
+        b2.Q_KA_to_ENU = Q_rot
         b2.extra_mass = 2.5
         test_init!(sam; prn=false)
         @test b2.total_mass ≈ 2.5

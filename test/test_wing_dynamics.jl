@@ -340,7 +340,7 @@ end
 
         wing.vel_w .= vel_set
         wing.ω_b .= omega_set
-        place!(sam; prn=false)
+        place!(sam)
         test_init!(sam; prn=false)
         @test norm(wing.vel_w) < 1e-10
         @test norm(wing.ω_b) < 1e-10

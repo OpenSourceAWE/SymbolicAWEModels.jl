@@ -21,8 +21,6 @@ $(TYPEDFIELDS)
     area::Union{Nothing, Float64} = nothing
     "Drag coefficient."
     drag_coeff::Union{Nothing, Float64} = nothing
-    "The tube the point rides on, by name or index."
-    tube::Union{Nothing, KiteGeometry.NameRef} = nothing
     "Whether the point is held on a sphere."
     fix_sphere::Union{Nothing, Bool} = nothing
     "Whether the point is frozen in place."
@@ -58,14 +56,14 @@ $(TYPEDFIELDS)
     beam_offset_b::KVec3 = zeros(KVec3)
 end
 
-PointModel(type, body_frame_damping, world_frame_damping, area, drag_coeff, tube,
+PointModel(type, body_frame_damping, world_frame_damping, area, drag_coeff,
            fix_sphere, fix_static, wing_idx, anchor_b) =
-    PointModel(; type, body_frame_damping, world_frame_damping, area, drag_coeff, tube,
+    PointModel(; type, body_frame_damping, world_frame_damping, area, drag_coeff,
                fix_sphere, fix_static, wing_idx, anchor_b,
                resolved_anchor_b=KVec3(something(anchor_b, zeros(3))))
 
 KiteGeometry.model_columns(::Type{PointModel}) =
-    (:type, :body_frame_damping, :world_frame_damping, :area, :drag_coeff, :tube,
+    (:type, :body_frame_damping, :world_frame_damping, :area, :drag_coeff,
      :fix_sphere, :fix_static, :wing_idx, :anchor_b)
 
 """
@@ -238,12 +236,6 @@ builds the structure, which no document holds.
 $(TYPEDFIELDS)
 """
 @kwdef mutable struct TetherModel <: KiteGeometry.AbstractModel
-    "Length the tether is stretched to when placed [m]."
-    init_stretched_length::Union{Nothing, Float64} = nothing
-    "Tension the placed tether carries, which sets its rest length [N]."
-    init_tether_force::Union{Nothing, Float64} = nothing
-    "Strain of the placed tether, which sets its rest length."
-    init_stretch_frac::Union{Nothing, Float64} = nothing
     "Index in the structure's tethers."
     idx::Int64 = 0
     "Indices of the tether's segments."
@@ -257,15 +249,9 @@ $(TYPEDFIELDS)
     "Keywords of [`settings_segment`](@ref) for each segment a tether given by its end
     points generates; `NaN` from the settings."
     segment_columns::NamedTuple = (;)
-    "Unstretched length where [`place!`](@ref) puts it: the sum of its segments' `l0` [m]."
-    len::SimFloat = 0.0
 end
 
-TetherModel(init_stretched_length, init_tether_force, init_stretch_frac) =
-    TetherModel(; init_stretched_length, init_tether_force, init_stretch_frac)
-
-KiteGeometry.model_columns(::Type{TetherModel}) =
-    (:init_stretched_length, :init_tether_force, :init_stretch_frac)
+KiteGeometry.model_columns(::Type{TetherModel}) = ()
 
 """
     WinchModel{W}
@@ -407,7 +393,7 @@ wings, pulleys, bodies, tethers and winches, and the tube models `timoshenko`, t
 """
 function register_definition_models()
     register_model!(:points, "sam_point", PointModel,
-                    ("-", "N*s/m", "N*s/m", "m^2", "-", "-", "-", "-", "-", "m");
+                    ("-", "N*s/m", "N*s/m", "m^2", "-", "-", "-", "-", "m");
                     default=true)
     register_model!(:segments, "spring", SegmentSpring, ("N*s", "s", "-", "-");
                     default=true)
@@ -423,7 +409,7 @@ function register_definition_models()
     register_model!(:bodies, "sam_body", BodyModel,
                     ("-", "-", "1/s", "1/s", "1/s", "-", "-", "N", "N", "N*m", "-");
                     default=true)
-    register_model!(:tethers, "sam_tether", TetherModel, ("m", "N", "-"); default=true)
+    register_model!(:tethers, "sam_tether", TetherModel, (); default=true)
     register_model!(:winches, "sam_winch", WinchModel, ("m/s", "-", "-", "m/s");
                     default=true)
     register_model!(:tubes, "timoshenko", TimoshenkoTubeModel,

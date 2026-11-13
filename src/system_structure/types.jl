@@ -281,13 +281,12 @@ A reference to another component, either by symbolic name
 Components reference each other by name or index at construction
 time. These are stored in `_ref` fields (e.g. `point_refs`,
 `wing_ref`). During [`SystemStructure`](@ref) construction,
-`assign_indices_and_resolve!` maps every ref to a numeric index
-via `build_name_dict` (name → vector position) and stores the
-result in the corresponding `_idx` fields (e.g. `point_idxs`,
-`wing_idx`).
+`assign_indices_and_resolve!` maps every ref to its position in the
+component's KiteGeometry `Rows` and stores the result in the
+corresponding `_idx` fields (e.g. `point_idxs`, `wing_idx`).
 
-Each component has a `name` field (`const`, set once at
-construction) that identifies it for lookup.
+Each component has a `name` field, a `Symbol` set once at
+construction, that identifies it for lookup.
 """
 const NameRef = Union{Int, Symbol}
 
@@ -327,7 +326,7 @@ row_property(row::Point, ::Val{:type}) = point_type(row)
 @inline row_property(row::Point, ::Val{:anchor_b}) = point_model(row).resolved_anchor_b
 @inline row_property(row::Point, ::Val{:wing_ref}) = reference(point_model(row).wing_idx)
 @inline row_property(row::Point, ::Val{:body_ref}) = reference(getfield(row, :body))
-@inline row_property(row::Point, ::Val{:tube_ref}) = reference(point_model(row).tube)
+@inline row_property(row::Point, ::Val{:tube_ref}) = reference(getfield(row, :tube))
 @inline row_property(row::Point, ::Val{:wing_idx}) = point_model(row).resolved_wing_idx
 @inline row_property(row::Point, ::Val{:body_idx}) = point_model(row).resolved_body_idx
 @inline row_property(row::Point, ::Val{:tube_idx}) = point_model(row).resolved_tube_idx
@@ -370,7 +369,7 @@ set_row_property!(row::Point, ::Val{:disturb}, value) =
 set_row_property!(row::Point, ::Val{:wing_ref}, ref) =
     row.model.wing_idx = reference_column(ref)
 set_row_property!(row::Point, ::Val{:body_ref}, ref) = row.body = reference_column(ref)
-set_row_property!(row::Point, ::Val{:tube_ref}, ref) = row.model.tube = reference_column(ref)
+set_row_property!(row::Point, ::Val{:tube_ref}, ref) = row.tube = reference_column(ref)
 set_row_property!(row::Point, ::Val{:wing_idx}, idx) = row.model.resolved_wing_idx = idx
 set_row_property!(row::Point, ::Val{:body_idx}, idx) = row.model.resolved_body_idx = idx
 set_row_property!(row::Point, ::Val{:tube_idx}, idx) = row.model.resolved_tube_idx = idx
@@ -415,7 +414,7 @@ stations; their `is_wing_node` flag is then set from that membership and
 drives the per-point aero and wing-frame fitting.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the point (e.g., `:kcu`, `:le_1`, or `1` for legacy).
+- `name::Symbol`: Name/identifier for the point (e.g., `:kcu`, `:le_1`).
 - `pos_ENU::KVec3`: Position of the point before [`place!`](@ref) moves it [m].
 - `type::DynamicsType`: Dynamics type of the point (`STATIC`, `DYNAMIC`, etc.).
   Pass `BODY_STATIC` together with `body` to anchor the point to a rigid body.
@@ -450,11 +449,11 @@ function Point(name, pos_ENU, type::DynamicsType;
 )
     model = PointModel(; type=string(type),
         body_frame_damping=axis_column(body_frame_damping),
-        world_frame_damping=axis_column(world_frame_damping), area, drag_coeff, tube,
+        world_frame_damping=axis_column(world_frame_damping), area, drag_coeff,
         fix_sphere, fix_static, wing_idx=wing,
         anchor_b=isnothing(anchor_b) ? nothing : Vector{Float64}(anchor_b),
         resolved_anchor_b=KVec3(something(anchor_b, zeros(3))), apparent_mass)
-    point = KiteGeometry.Point(; name=Symbol(name), fixed=type == STATIC, body,
+    point = KiteGeometry.Point(; name=Symbol(name), fixed=type == STATIC, body, tube,
         pos_ENU=KVec3(pos_ENU...), extra_mass, model)
     check_point_anchor(point)
     return point
@@ -533,7 +532,7 @@ Station geometry (le_pos, chord, y_airf) is computed later by SystemStructure
 using the closest VSM panel to the station's mean point position.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the station.
+- `name::Symbol`: Name/identifier for the station.
 - `points::Vector`: References to points (names or indices).
 - `type::DynamicsType`: DYNAMIC or STATIC.
 - `moment_frac::SimFloat`: Chordwise rotation point (0=LE, 1=TE).
@@ -820,7 +819,7 @@ end
 Basic constructor for a `Segment` object.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the segment.
+- `name::Symbol`: Name/identifier for the segment.
 - `point_i`, `point_j`: References to the two endpoint points (names or indices).
 - `unit_stiffness`: Stiffness per unit length [N]. Effective k = unit_stiffness/length [N/m].
 - `unit_damping`: Damping per unit length [N·s]. Effective c = unit_damping/length [N·s/m].
@@ -853,7 +852,7 @@ end
 Constructs a `Segment` using settings for material properties.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the segment.
+- `name::Symbol`: Name/identifier for the segment.
 - `set::Settings`: The settings object containing material properties.
 - `point_i`, `point_j`: References to the two endpoint points
   (names or indices).
@@ -949,7 +948,7 @@ set_row_property!(row::Pulley, ::Val{:segment_idxs}, segments) = row.segments = 
 Constructs a `Pulley` object that enforces length redistribution between two segments.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the pulley.
+- `name::Symbol`: Name/identifier for the pulley.
 - `segment_i`, `segment_j`: References to the two segments (names or indices).
 - `type::DynamicsType`: Dynamics type (`DYNAMIC`).
 - `efficiency`: Fraction of line tension the sheave passes on (0-1).
@@ -1023,21 +1022,16 @@ row_property(row::Tether, ::Val{:start_point_ref}) =
 row_property(row::Tether, ::Val{:end_point_ref}) =
     reference_column(getfield(row, :end_point))
 @inline row_property(row::Tether, ::Val{:init_stretched_len}) =
-    tether_model(row).init_stretched_length
-@inline function row_property(row::Tether, ::Val{:init_tether_force})
-    model = tether_model(row)
-    isnothing(model.init_stretch_frac) || return model.init_tether_force
-    return something(model.init_tether_force, 0.0)
-end
+    getfield(row, :init_stretched_length)
 set_row_property!(row::Tether, ::Val{:init_stretched_len}, len) =
-    tether_model(row).init_stretched_length = len
+    setfield!(row, :init_stretched_length, maybe(Float64, len))
 function set_row_property!(row::Tether, ::Val{:init_stretch_frac}, frac)
-    isnothing(frac) || (tether_model(row).init_tether_force = nothing)
-    return tether_model(row).init_stretch_frac = frac
+    isnothing(frac) || setfield!(row, :init_tether_force, nothing)
+    return setfield!(row, :init_stretch_frac, maybe(Float64, frac))
 end
 function set_row_property!(row::Tether, ::Val{:init_tether_force}, force)
-    isnothing(force) || (tether_model(row).init_stretch_frac = nothing)
-    return tether_model(row).init_tether_force = force
+    isnothing(force) || setfield!(row, :init_stretch_frac, nothing)
+    return setfield!(row, :init_tether_force, maybe(Float64, force))
 end
 
 
@@ -1049,7 +1043,7 @@ end
 Route 1: Construct a `Tether` from explicit segment references.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the tether.
+- `name::Symbol`: Name/identifier for the tether.
 - `segments::Vector`: References to segments (names or indices).
 - `stretched_length=nothing`: Stretched standoff [m] (placed point
   geometry). Drives placement of root tethers. `nothing` = use the
@@ -1072,30 +1066,25 @@ function Tether(name, segments::AbstractVector, stretched_length=nothing;
               "len) and pass winch_point to the " *
               "Winch constructor.")
     end
-    init_force, init_frac =
-        resolve_tether_init(name, tether_force, stretch_frac)
-    model = TetherModel(; init_stretched_length=maybe(SimFloat, stretched_length),
-                        init_tether_force=init_force, init_stretch_frac=init_frac,
-                        n_segments=length(segments))
-    return tether_row(name, segments, start_point, end_point, model)
+    model = TetherModel(; n_segments=length(segments))
+    return tether_row(name, segments, start_point, end_point, stretched_length,
+                      tether_force, stretch_frac, model)
 end
 
 """The tether row named `name` of `segments` from `start_point` to `end_point`, an
-open end `nothing`, with `model`."""
-tether_row(name, segments, start_point, end_point, model) =
-    KiteGeometry.Tether(; name=Symbol(name),
+open end `nothing`, placed at `stretched_length` with `tether_force` or `stretch_frac`,
+with `model`."""
+function tether_row(name, segments, start_point, end_point, stretched_length,
+                    tether_force, stretch_frac, model)
+    isnothing(tether_force) || isnothing(stretch_frac) || error(
+        "Tether $name: set only one of `tether_force` and `stretch_frac`.")
+    return KiteGeometry.Tether(; name=Symbol(name),
         start_point=something(cell_ref(start_point), 0),
         end_point=something(cell_ref(end_point), 0),
-        segments=NameRef[cell_ref(segment) for segment in segments], model)
-
-function resolve_tether_init(name, tether_force, stretch_frac)
-    if !isnothing(tether_force) && !isnothing(stretch_frac)
-        error("Tether $name: set only one of `tether_force` and " *
-              "`stretch_frac`.")
-    end
-    !isnothing(stretch_frac) && return nothing, SimFloat(stretch_frac)
-    !isnothing(tether_force) && return SimFloat(tether_force), nothing
-    return SimFloat(0.0), nothing
+        segments=NameRef[cell_ref(segment) for segment in segments],
+        init_stretched_length=maybe(Float64, stretched_length),
+        init_tether_force=maybe(Float64, tether_force),
+        init_stretch_frac=maybe(Float64, stretch_frac), model)
 end
 
 """
@@ -1110,7 +1099,7 @@ Route 2: Construct a `Tether` for auto-generation of intermediate
 points and segments by `expand_tethers!`.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the tether.
+- `name::Symbol`: Name/identifier for the tether.
 - `stretched_length=nothing`: Stretched standoff [m] (placed point
   geometry). Drives placement of root tethers. `nothing` = use the
   geometric length.
@@ -1146,15 +1135,12 @@ function Tether(name, stretched_length=nothing;
                 damping_per_stiffness=NaN, compression_frac=0.1,
                 compression_damping_frac=1.0, tether_force=nothing,
                 stretch_frac=nothing)
-    init_force, init_frac =
-        resolve_tether_init(name, tether_force, stretch_frac)
     segments = [Symbol("$(name)_seg_$i") for i in 1:n_segments]
-    model = TetherModel(; init_stretched_length=maybe(SimFloat, stretched_length),
-        init_tether_force=init_force, init_stretch_frac=init_frac,
-        n_segments=Int64(n_segments), segment_columns=(; unit_stiffness,
-            unit_damping, diameter, density, youngs_modulus, damping_per_stiffness,
-            compression_frac, compression_damping_frac))
-    return tether_row(name, segments, start_point, end_point, model)
+    model = TetherModel(; n_segments=Int64(n_segments), segment_columns=(; unit_stiffness,
+        unit_damping, diameter, density, youngs_modulus, damping_per_stiffness,
+        compression_frac, compression_damping_frac))
+    return tether_row(name, segments, start_point, end_point, stretched_length,
+                      tether_force, stretch_frac, model)
 end
 
 # ==================== WINCH ==================== #
@@ -1203,7 +1189,7 @@ Constructs a `Winch` object that controls tether length through
 torque or speed regulation, its drum parameters from `set`.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the winch.
+- `name::Symbol`: Name/identifier for the winch.
 - `set::Settings`: Settings object for winch parameters.
 - `tethers::Vector`: References to tethers connected to this
   winch (names or indices).
@@ -1234,7 +1220,7 @@ Winch(name, set::Settings, tethers; kwargs...) =
 Constructs a `Winch` by directly providing physical parameters.
 
 # Arguments
-- `name::Union{Int, Symbol}`: Name/identifier for the winch.
+- `name::Symbol`: Name/identifier for the winch.
 - `tethers::Vector`: References to tethers (names or indices).
 - `gear_ratio`, `drum_radius`, `coulomb_friction`, `viscous_coefficient`,
   `inertia_total`: Physical parameters.

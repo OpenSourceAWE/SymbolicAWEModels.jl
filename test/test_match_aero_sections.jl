@@ -75,7 +75,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         @test length(wing.wing_segments) == n_struct
 
         R = SymbolicAWEModels.initial_rotation(wing)
-        origin = wing.pos_ENU
+        origin = wing.origin_ENU
         for (i, (le_idx, te_idx)) in
                 enumerate(wing.wing_segments)
             sec = vsm_w.unrefined_sections[i]
@@ -234,7 +234,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         @test_throws "run from -y to +y" match_aero_sections_to_structure!(
             wing, sys.points)
         @test_throws "run from -y to +y" transform_vsm_sections_to_body!(
-            wing, wing.pos_ENU, SymbolicAWEModels.initial_rotation(wing))
+            wing, wing.origin_ENU, SymbolicAWEModels.initial_rotation(wing))
     end
 end
 
@@ -259,7 +259,7 @@ end
 
         # Verify LE/TE positions match
         R = SymbolicAWEModels.initial_rotation(wing)
-        origin = wing.pos_ENU
+        origin = wing.origin_ENU
         for (i, (le_idx, te_idx)) in
                 enumerate(wing.wing_segments)
             sec = vsm_w.unrefined_sections[i]

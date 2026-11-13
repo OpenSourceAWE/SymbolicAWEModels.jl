@@ -150,7 +150,7 @@ function heading_after_reinit(base_pos, dx, target_heading)
 
     sys = SystemStructure("near_vertical_heading", set;
         points, bodies=[kite], prn=false)
-    place_structure!(sys, transforms; prn=false)
+    place!(sys, transforms)
 
     placed = sys.bodies[:kite]
     return calc_heading(

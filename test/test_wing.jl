@@ -53,7 +53,7 @@ function reset_state!(sam, set)
 
     sam.sys_struct.winches[:main_winch].brake = true
 
-    place!(sam; prn=false)
+    place!(sam)
     test_init!(sam; prn=false)
 end
 

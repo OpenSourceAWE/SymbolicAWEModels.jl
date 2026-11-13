@@ -102,7 +102,7 @@ segments = [Segment(:spring, :anchor, :mass,
 sys = SystemStructure("pendulum", set; points, segments)
 transforms = [Transform(; name=:tf, elevation=deg2rad(-70), azimuth=0.0, heading=0.0,
     base_pos=[0, 0, 50], base_point=1, rot_point=[2 => 1.0], points=[1, 2])]
-place_structure!(sys, transforms)
+place!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam)
 plot(sam.sys_struct)

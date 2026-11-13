@@ -97,12 +97,12 @@ mutable struct SystemState{SS, ST <: SysState, R <: NamedTuple}
     "the rows of the points, stations, segments, pulleys, tethers and winches, typed"
     const rows::R
     "the tubes as this run simulates them"
-    const tubes::NamedCollection{Tube}
+    const tubes::Rows{Tube}
     "the records of the bodies, built once: a body's type is its row's, which differs
     from body to body"
-    bodies::NamedCollection{ComponentState}
+    bodies::Rows{ComponentState}
     "the records of the wings, the first of `bodies`"
-    wings::NamedCollection{ComponentState}
+    wings::Rows{ComponentState}
     "the KiteGeometry transforms placing the run"
     const transforms::Rows{Transform}
     "the run's settings; `nothing` for a state that only draws or places the structure"
@@ -143,7 +143,7 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
     n_corners = sum(n_aero_log_points(mode, body)
                     for (mode, body) in zip(modes, sys.bodies); init=0)
     P, counts = sysstate_counts(sys, n_corners)
-    no_records = NamedCollection(ComponentState[])
+    no_records = Rows{ComponentState}()
     built_segments = [resolve_segment(row, sys.materials, set) for row in sys.segments]
     rows = (points=typed_rows(Point, sys.points),
             stations=typed_rows(Station, sys.stations),
@@ -163,26 +163,24 @@ function SystemState(sys; set=nothing, transforms=Transform[], vsm_set=nothing,
                         no_records, no_records, convert(Rows{Transform}, transforms),
                         set, vsm_set,
                         isnothing(set) ? nothing : AtmosphericModel(set), wind_mode)
-    bodies = NamedCollection(ComponentState[BodyState(body, state, i, modes[i])
-                                            for (i, body) in enumerate(sys.bodies)])
+    bodies = Rows(ComponentState[BodyState(body, state, i, modes[i])
+                                 for (i, body) in enumerate(sys.bodies)])
     setfield!(state, :bodies, bodies)
-    setfield!(state, :wings, NamedCollection(ComponentState[bodies[i]
-                                                            for i in eachindex(sys.wings)]))
+    setfield!(state, :wings, Rows(ComponentState[bodies[i] for i in eachindex(sys.wings)]))
     foreach(wing -> setup_model_aero!(wing, state), state.wings)
     return start_run!(state)
 end
 
 """`rows` as a collection of `T`."""
-typed_rows(::Type{T}, rows) where {T} = NamedCollection(T[row for row in rows])
+typed_rows(::Type{T}, rows) where {T} = Rows{T}(rows)
 
 """The tubes of `sys` as a run simulates them, built from the rows a document holds."""
 function run_tubes(sys)
-    body_names = build_name_dict(collect(sys.bodies))
-    tubes = NamedCollection(Tube[run_tube(sys, tube) for tube in sys.tubes])
+    tubes = Rows(Tube[run_tube(sys, tube) for tube in sys.tubes])
     for (i, tube) in enumerate(tubes)
         tube.idx = i
-        tube.body_a_idx = resolve_ref(tube.body_a_ref, body_names, "rigid_body")
-        tube.body_b_idx = resolve_ref(tube.body_b_ref, body_names, "rigid_body")
+        tube.body_a_idx = resolve_ref(tube.body_a_ref, sys.bodies, "rigid_body")
+        tube.body_b_idx = resolve_ref(tube.body_b_ref, sys.bodies, "rigid_body")
     end
     init_tube_rest!.(tubes, Ref(sys.bodies))
     return tubes
@@ -225,7 +223,8 @@ Records{R}(state::S, rows::C) where {R, S, C} = Records{R, S, C}(state, rows)
 Base.size(records::Records) = size(records.rows)
 Base.@propagate_inbounds Base.getindex(records::Records{R}, i::Int) where {R} =
     R(records.rows[i], records.state, i)
-Base.getindex(records::Records, name::Symbol) = records[get_idx(records.rows, name)]
+Base.getindex(records::Records, name::Symbol) =
+    records[KiteGeometry.row_index(records.rows, name)]
 Base.haskey(records::Records, name::Symbol) = haskey(records.rows, name)
 
 @inline function Base.getproperty(state::SystemState, name::Symbol)

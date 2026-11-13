@@ -77,19 +77,12 @@ init!(sam)
 
 ```@docs
 place!
-place_structure!
-place_transforms!(::SystemState, ::Any)
 Pose(::SystemState)
 start_run!
 reset_to_initial_pose!
-apply_tether_init_stretched_lens!
-update_segment_lengths!
-apply_tether_init_forces!
-init_pulley_lengths!
 remake_wing_aero!
 init_wind!
 init_sys_struct!
-relax_segments!
 init_derived_properties!
 update_mass_properties!
 init_rest_geometry!

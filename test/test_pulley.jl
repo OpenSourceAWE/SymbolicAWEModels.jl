@@ -629,7 +629,7 @@ system:
             sam.sys_struct.points[:pulley_point].body_frame_damping = zeros(3)
             sam.sys_struct.points[:weight].body_frame_damping = zeros(3)
             sam.state.segments[:main_tether].unit_damping = 0.0
-            place!(sam; prn=false)
+            place!(sam)
             init!(sam; prn=false)
             speeds = Float64[]
             for _ in 1:n

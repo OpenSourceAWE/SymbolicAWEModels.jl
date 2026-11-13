@@ -91,7 +91,7 @@ diverging variant).
 """
 function run_case(sam; frame=nothing, steps=10, dt=0.05)
     wing = sam.state.wings[1]
-    place!(sam; prn=false)
+    place!(sam)
     init!(sam; prn=false)
     if !isnothing(frame)
         apply_principal_frame!(wing, frame)

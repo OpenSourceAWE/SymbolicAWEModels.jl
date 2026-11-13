@@ -83,12 +83,12 @@ function pretensioned_tether(set; winches=Winch[])
 end
 
 """World position of `body`'s centre of mass."""
-com_w(body) = body.pos_ENU .+ SymbolicAWEModels.initial_rotation(body) * body.com_offset_b
+com_w(body) = body.origin_ENU .+ SymbolicAWEModels.initial_rotation(body) * body.com_offset_b
 
 """World position of `tube`'s end on body B in `sys`."""
 function tube_end(sys, tube)
     body = sys.bodies[tube.body_b_idx]
-    return body.pos_ENU .+ SymbolicAWEModels.initial_rotation(body) * tube.anchor_b_b
+    return body.origin_ENU .+ SymbolicAWEModels.initial_rotation(body) * tube.anchor_b_b
 end
 
 """The `header` cells of the rows of `block` in `document`, by row name."""
@@ -239,7 +239,7 @@ end
                                           prn=false)
         @test [point.pos_ENU for point in reread.points] ≈
               [point.pos_ENU for point in sys.points]
-        @test reread.bodies[:main_wing].pos_ENU ≈ sys.bodies[:main_wing].pos_ENU
+        @test reread.bodies[:main_wing].origin_ENU ≈ sys.bodies[:main_wing].origin_ENU
         @test reread.bodies[:main_wing].Q_KA_to_ENU ≈ sys.bodies[:main_wing].Q_KA_to_ENU
     end
 

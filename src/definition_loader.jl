@@ -104,7 +104,7 @@ function SystemStructure(definition::SystemDefinition, set::Settings;
     wings = Body[definition_wing(definition, w, set, stations; dynamics_type, aero_mode)
                  for w in 1:n_wings]
     return SystemStructure(definition.metadata.name, set;
-        points=Point[definition_point(definition, point) for point in definition.points],
+        points=Point[check_point_anchor(point) for point in definition.points],
         stations,
         segments=Segment[segment for segment in definition.segments],
         pulleys=Pulley[typed_row(pulley, "pulley") for pulley in definition.pulleys],
@@ -138,23 +138,6 @@ ref_points_spec(value) = value isa AbstractVector ?
 """Keyword arguments from `pairs` whose value is set."""
 set_kwargs(pairs...) = (; (key => value for (key, value) in pairs if !isnothing(value))...)
 
-"""The point `point` of `definition` is: the row itself, riding no body where it is a
-tube rider on its wing's ([`point_body`](@ref))."""
-function definition_point(definition, point)
-    point.body_ref = point_body(definition, point)
-    return check_point_anchor(point)
-end
-
-"""The body `point` rides: none for a tube rider whose body is the one KiteGeometry gives
-a `BODY_STATIC` point naming its wing and no body, which is that wing's."""
-function point_body(definition, point)
-    body = getfield(point, :body)
-    isnothing(body) && return 0
-    wing = point.model.wing_idx
-    wing_body = body <= length(definition.wings) &&
-        wing in (body, definition.wings[body].name)
-    return !isnothing(point.model.tube) && wing_body ? 0 : body
-end
 
 """`f(value)`, or `nothing` for `nothing`."""
 maybe(f, value) = isnothing(value) ? nothing : f(value)
@@ -188,8 +171,6 @@ function definition_body(body)
     model.inertia_principal .= inertia_principal
     model.R_b_to_p = R_b_to_p
     model.extra_inertia_b = R_b_to_p' * Diagonal(inertia_principal) * R_b_to_p
-    model.initial_pos_ENU = KVec3(getfield(body, :pos_ENU))
-    model.initial_Q_KA_to_ENU .= getfield(body, :Q_KA2ENU)
     return body
 end
 

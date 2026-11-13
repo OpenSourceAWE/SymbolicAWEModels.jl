@@ -490,12 +490,12 @@ end
 """
     place!(sam::SymbolicAWEModel; reset_vel=true, kwargs...)
 
-Place the model's structure by its transforms
-([`place!`](@ref)`(sam.sys_struct, sam.transforms; kwargs...)`) and start its run there
+Place the model's structure by its transforms with KiteGeometry's
+`place!(sam.sys_struct, sam.transforms; kwargs...)` and start its run there
 ([`start_run!`](@ref)). `reset_vel=false` keeps the velocities the run holds.
 """
 function KiteGeometry.place!(sam::SymbolicAWEModel; reset_vel::Bool=true, kwargs...)
-    place_structure!(sam.sys_struct, sam.transforms; kwargs...)
+    place!(sam.sys_struct, sam.transforms; kwargs...)
     start_run!(sam.state; reset_vel)
     return nothing
 end

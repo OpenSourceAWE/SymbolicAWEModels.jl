@@ -17,7 +17,7 @@ function system_definition(sys)
     end
     return SystemDefinition(;
         metadata=Metadata(; name=sys.name, n_points=length(sys.points)),
-        points=collect(sys.points),
+        points=[point_row!(point) for point in sys.points],
         segments=collect(sys.segments),
         spanwise_stations=[station_row(sys, station) for station in sys.stations
                            if !isnothing(station_wing_idx(sys, station))],
@@ -57,6 +57,13 @@ function station_wing_idx(sys, station)
     return findfirst(wing -> station.idx in wing.station_idxs, sys.wings)
 end
 
+"""`point` naming the body and the tube it rides by the indices they resolve to."""
+function point_row!(point)
+    point.body = reference_column(point.body_idx)
+    point.tube = reference_column(point.tube_idx)
+    return point
+end
+
 """`tether` naming the ends it resolves to, those its segments give where it names
 none."""
 function with_ends!(tether)
@@ -75,7 +82,7 @@ end
 function wing_row(sys, wing)
     origin, R = mesh_frame(wing)
     return KiteGeometry.Wing(; name=definition_name(wing), pos_ENU=origin,
-        Q_KA2ENU=rotation_matrix_to_quaternion(R),
+        Q_KA2ENU=rotation_matrix_to_quaternion(R), body=wing.idx,
         model=WingModel(aero_mode_name(wing.aero), Vector(wing.angular_damping),
             wing_engine_field(wing, :aero_scale_chord),
             wing_engine_field(wing, :aero_z_offset), string(wing.principal_frame_method),
@@ -105,12 +112,8 @@ ref_points_cell(sys, ::Nothing) = nothing
 ref_pair_cell(sys, pair) = isnothing(pair) ? nothing :
     [ref_points_cell(sys, pair[1]), ref_points_cell(sys, pair[2])]
 
-"""`body` with its row at the centre of its own mass in its initial pose, its inertia in
-that frame."""
+"""`body` with its inertia about its own centre of mass."""
 function body_row(sys, body)
-    R = initial_rotation(body)
-    getfield(body, :pos_ENU) .= body.pos_ENU + R * body.extra_com_offset_b
-    getfield(body, :Q_KA2ENU) .= body.Q_KA_to_ENU
     setfield!(body, :extra_inertia_KA, MMatrix{3, 3, Float64, 9}(body.extra_inertia_b))
     return body
 end
@@ -137,26 +140,4 @@ function tube_row!(materials, sys, tube)
         bodies=(tube.body_a_idx, tube.body_b_idx), tube.diameter, tube.pressure,
         material=material!(materials, string(tube.law), tube_law_parameters(tube.law)),
         model=row_model)
-end
-
-"""
-    store_definition_pose!(state::SystemState)
-
-Write the pose `state` holds into its structure's definition, where it has one: each
-body's at the centre of its own mass and each wing's KA frame carried with its body.
-"""
-function store_definition_pose!(state::SystemState)
-    definition = getfield(state, :structure)
-    for (row, wing) in zip(definition.wings, state.wings)
-        R = quaternion_to_rotation_matrix(wing.Q_b_to_w) * initial_rotation(wing.row)'
-        row.pos_ENU .= wing.pos_w + R * (row.pos_ENU - wing.row.pos_ENU)
-        row.Q_KA2ENU .= rotation_matrix_to_quaternion(
-            R * quaternion_to_rotation_matrix(row.Q_KA2ENU))
-    end
-    for (row, body) in zip(definition.bodies, state.bodies)
-        R = quaternion_to_rotation_matrix(body.Q_b_to_w)
-        getfield(row, :pos_ENU) .= body.pos_w + R * body.row.extra_com_offset_b
-        getfield(row, :Q_KA2ENU) .= body.Q_b_to_w
-    end
-    return nothing
 end

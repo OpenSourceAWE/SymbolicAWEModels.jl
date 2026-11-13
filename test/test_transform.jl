@@ -113,7 +113,7 @@ using LinearAlgebra
             # ================================================================
             @testset "Initial angles after init!" begin
                 reset_transform!(sam.state)
-                place!(sam; prn=false)
+                place!(sam)
                 test_init!(sam; prn=false)
 
                 # After init, the transform angles should still match
@@ -134,7 +134,7 @@ using LinearAlgebra
             # ================================================================
             @testset "Initial velocities after init!" begin
                 reset_transform!(sam.state)
-                place!(sam; prn=false)
+                place!(sam)
                 test_init!(sam; prn=false)
 
                 transform = sam.transforms[:main_transform]
@@ -240,7 +240,7 @@ using LinearAlgebra
                 # For elevation=80deg, azimuth=0deg, the wing should be positioned
                 # according to spherical coordinate transformation
                 reset_transform!(sam.state)
-                place!(sam; prn=false)
+                place!(sam)
                 test_init!(sam; prn=false)
 
                 # Get wing position
@@ -287,7 +287,7 @@ using LinearAlgebra
                 @test tf.elevation_vel ≈ deg2rad(0.1) atol=1e-10
                 @test tf.azimuth_vel ≈ deg2rad(0.5) atol=1e-10
 
-                place!(sam; prn=false)
+                place!(sam)
                 test_init!(sam; prn=false)
 
                 # Angles should be preserved after init
@@ -306,7 +306,7 @@ using LinearAlgebra
             @testset "Transform affects wing position" begin
                 # Test 1: elevation = 80 deg (default)
                 reset_transform!(sam.state)
-                place!(sam; prn=false)
+                place!(sam)
                 test_init!(sam; prn=false)
                 wing_z1 = sam.state.bodies[:main_wing].pos_w[3]
 
@@ -314,7 +314,7 @@ using LinearAlgebra
                 sam.transforms[:main_transform].elevation = deg2rad(45)
                 test_init!(sam; prn=false)
                 @test sam.state.bodies[:main_wing].pos_w[3] ≈ wing_z1 atol=1e-6
-                place!(sam; prn=false)
+                place!(sam)
                 test_init!(sam; prn=false)
                 wing_z2 = sam.state.bodies[:main_wing].pos_w[3]
 
@@ -333,13 +333,13 @@ using LinearAlgebra
             @testset "Azimuth affects y-position" begin
                 # Test 1: azimuth = 0 deg (default)
                 reset_transform!(sam.state)
-                place!(sam; prn=false)
+                place!(sam)
                 test_init!(sam; prn=false)
                 wing_y1 = sam.state.bodies[:main_wing].pos_w[2]
 
                 # Test 2: azimuth = 30 deg (more to the side)
                 sam.transforms[:main_transform].azimuth = deg2rad(30)
-                place!(sam; prn=false)
+                place!(sam)
                 test_init!(sam; prn=false)
                 wing_y2 = sam.state.bodies[:main_wing].pos_w[2]
 
@@ -356,7 +356,7 @@ using LinearAlgebra
             # ================================================================
             @testset "Heading affects orientation" begin
                 reset_transform!(sam.state)
-                place!(sam; prn=false)
+                place!(sam)
                 test_init!(sam; prn=false)
 
                 wing = sam.state.bodies[:main_wing]
@@ -382,7 +382,7 @@ using LinearAlgebra
                 @test transform.base_point == 10  # ground index
 
                 reset_transform!(sam.state)
-                place!(sam; prn=false)
+                place!(sam)
                 test_init!(sam; prn=false)
 
                 # Transform base_pos should match the ground point position
@@ -412,7 +412,7 @@ using LinearAlgebra
                         tf.base_pos .= base_pos
                         reset_transform!(sys)
                         tf.heading = target_h
-                        place!(sam; prn=false)
+                        place!(sam)
                         test_init!(sam; prn=false)
                         wing = sys.bodies[:main_wing]
                         reinit_R = copy(wing.R_b_to_w)
@@ -422,7 +422,7 @@ using LinearAlgebra
                         # reposition! to target
                         tf.base_pos .= base_pos
                         reset_transform!(sys)
-                        place!(sam; prn=false)
+                        place!(sam)
                         test_init!(sam; prn=false)
                         tf.heading = target_h
                         reposition!(sys)
@@ -586,7 +586,7 @@ using LinearAlgebra
                 heading=0.0, base_transform=1, rot_point=[point_idx(:top) => 1.0],
                 points=point_idx.([:top, :right, :left])),
         ]
-        place_structure!(sys_c, transforms_c; prn=false)
+        place!(sys_c, transforms_c)
 
         sam_c = SymbolicAWEModel(set_c, sys_c; transforms=transforms_c, vsm_set)
         init!(sam_c)
@@ -595,13 +595,13 @@ using LinearAlgebra
             sys = sam_c.state
             tf_child = sys.transforms[:kite_tilt]
             design = Pose([KVec3(point.pos_ENU) for point in sys.points],
-                          [KVec3(body.pos_ENU) for body in sys.bodies],
+                          [KVec3(body.origin_ENU) for body in sys.bodies],
                           [quaternion_to_rotation_matrix(body.Q_KA_to_ENU)
                            for body in sys.bodies])
             base_pos = base_position(Pose(sys), sys.transforms, tf_child)
             curr_base_pos = base_position(design, sys.transforms, tf_child)
             @test base_pos == sys.bodies[:plate_wing].pos_w
-            @test curr_base_pos == sys.bodies[:plate_wing].pos_ENU
+            @test curr_base_pos == sys.bodies[:plate_wing].origin_ENU
         end
 
         @testset "Child points translated from the authoring geometry" begin
@@ -672,13 +672,13 @@ using LinearAlgebra
 
             # Elevation 1
             tf_child.elevation = elev + kite_angle
-            place!(sam_c; prn=false)
+            place!(sam_c)
             init!(sam_c; prn=false)
             top_pos1 = copy(sys.points[:top].pos_w)
 
             # Elevation 2 (larger tilt)
             tf_child.elevation = elev + 2 * kite_angle
-            place!(sam_c; prn=false)
+            place!(sam_c)
             init!(sam_c; prn=false)
             top_pos2 = copy(sys.points[:top].pos_w)
 

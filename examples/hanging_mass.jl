@@ -39,7 +39,7 @@ transforms = [
 ]
 
 sys = SystemStructure("hanging_mass", set; points, segments)
-place_structure!(sys, transforms)
+place!(sys, transforms)
 sam = SymbolicAWEModel(set, sys; transforms)
 init!(sam; remake=false)
 

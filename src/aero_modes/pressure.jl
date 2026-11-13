@@ -258,9 +258,9 @@ function build_panel_station_map!(mode::AeroPressure, wing, sys_struct)
     flap_station = map(flaps) do ts
         mid = has_point_flap(ts) ?
             sys_struct.points[ts.flap_point_idxs[2]].pos_ENU :
-            0.5 .* (sys_struct.bodies[ts.flap_body_idxs[1]].pos_ENU .+
-                    sys_struct.bodies[ts.flap_body_idxs[2]].pos_ENU)
-        dot(rot_to_body * (mid .- wing.pos_ENU), spanwise)
+            0.5 .* (sys_struct.bodies[ts.flap_body_idxs[1]].origin_ENU .+
+                    sys_struct.bodies[ts.flap_body_idxs[2]].origin_ENU)
+        dot(rot_to_body * (mid .- wing.origin_ENU), spanwise)
     end
     assignment = zeros(Int64, n_panels)
     for (panel_idx, panel) in enumerate(panels)

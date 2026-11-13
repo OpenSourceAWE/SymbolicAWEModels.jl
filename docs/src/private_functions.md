@@ -214,14 +214,6 @@ Serialization.serialize(::Serialization.AbstractSerializer, ::SymbolicAWEModels.
 ```@docs
 SymbolicAWEModels.segment_initial_length
 SymbolicAWEModels.segment_world_length
-SymbolicAWEModels.anchor_body_idxs
-SymbolicAWEModels.placement_row
-SymbolicAWEModels.placement_segments
-SymbolicAWEModels.placement_tubes
-SymbolicAWEModels.rigid_point_siblings
-SymbolicAWEModels.tether_unit_stiffness
-SymbolicAWEModels.apply_cluster_init_stretched_len!
-SymbolicAWEModels.init_unstretched_len
 SymbolicAWEModels.tube_initial_frames
 SymbolicAWEModels.init_tube_rest!
 SymbolicAWEModels.rigidity_fields
@@ -231,7 +223,6 @@ SymbolicAWEModels.timoshenko_element_frame
 SymbolicAWEModels.assign_indices_and_resolve!
 SymbolicAWEModels.resolve_ref
 SymbolicAWEModels.validate_sys_struct
-SymbolicAWEModels.build_name_dict
 SymbolicAWEModels.setup_wing_frame!
 SymbolicAWEModels.particle_wing_parts
 SymbolicAWEModels.finalize_particle_wing_mass!
@@ -246,8 +237,6 @@ SymbolicAWEModels.share_body_mass!
 SymbolicAWEModels.carrier_body_idx
 SymbolicAWEModels.combine_carried_points!
 SymbolicAWEModels.carried_position_b
-SymbolicAWEModels.carry_body_points!
-SymbolicAWEModels.store_initial_pose!
 SymbolicAWEModels.initial_rotation
 SymbolicAWEModels.initial_body_position
 SymbolicAWEModels.initial_chord_position
@@ -271,17 +260,6 @@ SymbolicAWEModels.validate_weights!
 SymbolicAWEModels.mark_wing_nodes!
 SymbolicAWEModels.wing_frame_member
 SymbolicAWEModels.distribute_mass_over_points!
-```
-
-## NamedCollection internals
-
-```@docs
-SymbolicAWEModels.get_idx
-Base.keys(::NamedCollection)
-Base.values(::NamedCollection)
-Base.haskey(::NamedCollection, ::Symbol)
-Base.setindex!(::NamedCollection, ::Any, ::Integer)
-Base.setindex!(::NamedCollection, ::Any, ::Symbol)
 ```
 
 ## Equation builders

@@ -1423,7 +1423,7 @@ The initial pose of `wing`'s body in the frame its mesh is authored in.
 """
 function body_in_mesh_frame(wing)
     origin, R = mesh_frame(wing)
-    return R' * (wing.pos_ENU - origin), R' * initial_rotation(wing)
+    return R' * (wing.origin_ENU - origin), R' * initial_rotation(wing)
 end
 
 """Record the pose of a VSM `wing`'s body in its mesh's frame, on the wing's model."""
