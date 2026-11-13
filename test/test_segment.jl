@@ -730,8 +730,8 @@ system:
 end
 
 @testset "segment_role tells winched and unwinched tethers, wing and free apart" begin
-    sys, set = load_2plate_particle_sys("2plate_segment_role")
-    state = SymbolicAWEModels.SystemState(sys; set)
+    sys, set, vsm_set = load_2plate_particle_sys("2plate_segment_role")
+    state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
     roles = Dict(segment.name => segment_role(state, segment) for segment in state.segments)
     @test roles[:strut_left] == roles[:diag_1] == :wing
     @test roles[:le_left] == roles[:kcu_steering_right] == :free

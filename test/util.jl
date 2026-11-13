@@ -213,10 +213,10 @@ function test_init!(
 end
 
 """
-    load_2plate_particle_sys(system_name) -> (sys, set)
+    load_2plate_particle_sys(system_name) -> (sys, set, vsm_set)
 
-The 2plate kite's particle `SystemStructure` and its settings, loaded from a scratch
-copy of `data/2plate_kite`; the global data path is left as it was.
+The 2plate kite's particle `SystemStructure`, its settings and its VSM settings, loaded
+from a scratch copy of `data/2plate_kite`; the global data path is left as it was.
 """
 function load_2plate_particle_sys(system_name)
     data_path = joinpath(mktempdir(), "2plate_kite")
@@ -226,11 +226,14 @@ function load_2plate_particle_sys(system_name)
     set = Settings("system.yaml")
     vsm_set = SymbolicAWEModels.VortexStepMethod.VSMSettings(
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
+    for wing in vsm_set.wings
+        wing.geometry_file = SymbolicAWEModels.optional_project_file("aero_geometry")
+    end
     sys, _ = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_structural_geometry.yaml");
         system_name, set)
     set_data_path(data_path_before)
-    return sys, set
+    return sys, set, vsm_set
 end
 
 """
