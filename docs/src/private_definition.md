@@ -21,13 +21,11 @@ SymbolicAWEModels.unit_inertia_spec
 SymbolicAWEModels.set_kwargs
 SymbolicAWEModels.maybe
 SymbolicAWEModels.definition_wing
-SymbolicAWEModels.definition_point
 SymbolicAWEModels.typed_row
 SymbolicAWEModels.resolve_dynamics_type
 SymbolicAWEModels.definition_winch
 SymbolicAWEModels.definition_body
 SymbolicAWEModels.in_place_of
-SymbolicAWEModels.point_body
 SymbolicAWEModels.document_format
 ```
 
@@ -83,6 +81,7 @@ SymbolicAWEModels.axis_column
 ```@docs
 SymbolicAWEModels.system_definition
 SymbolicAWEModels.station_row
+SymbolicAWEModels.point_row!
 SymbolicAWEModels.with_ends!
 SymbolicAWEModels.winch_row!
 SymbolicAWEModels.segment_with_material

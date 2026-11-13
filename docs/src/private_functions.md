@@ -226,6 +226,7 @@ SymbolicAWEModels.validate_sys_struct
 SymbolicAWEModels.setup_wing_frame!
 SymbolicAWEModels.particle_wing_parts
 SymbolicAWEModels.finalize_particle_wing_mass!
+SymbolicAWEModels.structure_tubes
 SymbolicAWEModels.compute_station_geometry!
 SymbolicAWEModels.setup_particle_point_mapping!
 SymbolicAWEModels.identify_wing_segments
