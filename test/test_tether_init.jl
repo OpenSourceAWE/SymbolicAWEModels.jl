@@ -415,7 +415,8 @@ winches:
         stretched = sum(state.segments[si].len for si in segment_idxs)
         k = state.segments[first(segment_idxs)].unit_stiffness
         tether = sys.tethers[:main_tether]
-        unstretched() = (place!(sys); sum(sys.segments[si].rest_length for si in segment_idxs))
+        unstretched() =
+            (place!(sys); sum(sys.segments[si].rest_length for si in segment_idxs))
         @test stretched ≈ 200.0
 
         # default: no force, no frac → len == stretched

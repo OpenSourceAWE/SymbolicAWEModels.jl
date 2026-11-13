@@ -83,7 +83,8 @@ function pretensioned_tether(set; winches=Winch[])
 end
 
 """World position of `body`'s centre of mass."""
-com_w(body) = body.origin_ENU .+ SymbolicAWEModels.initial_rotation(body) * body.com_offset_b
+com_w(body) =
+    body.origin_ENU .+ SymbolicAWEModels.initial_rotation(body) * body.com_offset_b
 
 """World position of `tube`'s end on body B in `sys`."""
 function tube_end(sys, tube)
