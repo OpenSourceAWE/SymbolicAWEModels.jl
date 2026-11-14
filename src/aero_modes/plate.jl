@@ -218,8 +218,8 @@ read_aero_log_points!(mode::AeroPlate, wing, sys_struct, sys_state,
 
 # ==================== YAML construction ==================== #
 
-function load_wing(mode::AeroPlate, definition, w, set, dynamics_type, vsm_set,
-                   station_refs, stations)
+function load_wing(mode::AeroPlate, definition, w, set, dynamics_type, station_refs,
+                   stations)
     return load_plate_wing(definition, w, set, dynamics_type, mode, stations)
 end
 

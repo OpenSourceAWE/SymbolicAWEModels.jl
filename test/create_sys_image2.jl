@@ -11,14 +11,14 @@ if ! ("GLMakie" ∈ keys(Pkg.project().dependencies))
     Pkg.add("GLMakie")
 end
 @info "Loading packages ..."
-using KiteUtils, KitePodModels, SymbolicAWEModels, GLMakie, MakieControlPlots
+using KiteUtils, SymbolicAWEModels, GLMakie, MakieControlPlots
 using PackageCompiler
 
 @info "Creating sysimage ..."
 push!(LOAD_PATH,joinpath(pwd(),"src"))
 
 PackageCompiler.create_sysimage(
-    [:KiteUtils, :KitePodModels, :SymbolicAWEModels, :GLMakie];
+    [:KiteUtils, :SymbolicAWEModels, :GLMakie];
     sysimage_path="kps-image_tmp.so",
     include_transitive_dependencies=true,
     precompile_execution_file=joinpath("test", "test_for_precompile.jl")

@@ -150,9 +150,9 @@ evaluation:
 
 The component reads those buffers through its `params` view —
 `params.wings[i].aero_force_b` / `.aero_moment_b` for a rigid wing,
-`params.points[j].aero_force_b` for a particle wing — so the values are synced
-from the live `SystemStructure` once per step without a registered-function call
-in the RHS.
+`params.points[j].aero_force_b` for a particle wing — so the values reach the RHS
+without a registered-function call. A rigid wing's are synced from the run's state once
+per step, a particle wing's at each refresh, since they stay fixed in the body frame.
 
 ### `AeroLinearized`
 
@@ -330,11 +330,12 @@ the mode:
   [`update_wing_aero_plot!`](@ref) — methods live in the Makie extension, so a
   custom mode draws with full Makie access (default: draws nothing).
 - **Traits**: [`couples_to_sections`](@ref) (needs per-section stations;
-  default `false`), [`provides_aero_override`](@ref), and the cache controls
+  default `false`) and the cache controls
   [`is_builtin_aero`](@ref) / [`aero_hash_id`](@ref) (see below).
 
 Subtyping [`AbstractVSMAero`](@ref) (a [`VSMEngine`](@ref) in an `engine` field,
-exposed via [`vsm_engine`](@ref)) inherits the VSM implementation of every hook.
+exposed via [`vsm_engine`](@ref), built by a model from an [`AeroSpec`](@ref) on the
+wing) inherits the VSM implementation of every hook.
 There are no `isa`/`is_vsm` branches in the pipeline, so a custom mode is never
 excluded from a code path it cannot extend.
 

@@ -440,8 +440,8 @@ function wing_scalar_kinematics(; rel_pos, e_x, R_t_to_w, R_v_to_w, R_b_to_w, ve
         elevation_vel = dot(vel, -R_t_to_w[:, 1]) / distance,
         elevation_acc = dot(acc, -R_t_to_w[:, 1]) / distance,
         azimuth = KiteUtils.azimuth_east(rel_pos),
-        azimuth_vel = dot(vel, -R_t_to_w[:, 2]) / ground_radius,
-        azimuth_acc = dot(acc, -R_t_to_w[:, 2]) / ground_radius,
+        azimuth_vel = dot(vel, R_t_to_w[:, 2]) / ground_radius,
+        azimuth_acc = dot(acc, R_t_to_w[:, 2]) / ground_radius,
         course = atan(vel ⋅ R_t_to_w[:, 2], vel ⋅ R_t_to_w[:, 1]),
         angle_of_attack = calc_angle_of_attack(va_b) + twist_offset)
 end

@@ -178,8 +178,8 @@ WING_ALLOC_BUDGET = Dict(:KernelBackend => 22_000, :MonolithBackend => 4_000)
             vsm_set = VortexStepMethod.VSMSettings(
                 joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
             sys, transforms = load_sys_struct_from_yaml(joinpath(data_path, geometry);
-                system_name="wing_alloc_$name", set=set, vsm_set=vsm_set)
-            sam = SymbolicAWEModel(set, sys; transforms, backend)
+                system_name="wing_alloc_$name", set=set)
+            sam = SymbolicAWEModel(set, sys; transforms, backend, vsm_set)
             init!(sam; prn=false, remake=true)
             next_step!(sam; dt=0.05, vsm_interval=0)
 

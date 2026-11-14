@@ -71,7 +71,7 @@ end
 """
     load_sys_struct_from_yaml(yaml_path; system_name="from_yaml", set=nothing,
                               ignore_l0=false, dynamics_type=nothing, aero_mode=nothing,
-                              vsm_set=nothing, prn=true) -> (sys, transforms)
+                              prn=true) -> (sys, transforms)
 
 The structure of an authoring YAML and its KiteGeometry transforms, read and placed by
 them with KiteGeometry's `load_authoring`. `set` defaults to the `base` settings;
@@ -81,43 +81,40 @@ messages loading a structure prints.
 function load_sys_struct_from_yaml(yaml_path::AbstractString; system_name="from_yaml",
         set::Union{Nothing, Settings}=nothing, ignore_l0::Bool=false,
         dynamics_type::Union{Nothing, WingType}=nothing,
-        aero_mode::Union{Nothing, AbstractAeroModel}=nothing,
-        vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}=nothing, prn::Bool=true)
+        aero_mode::Union{Nothing, AbstractAeroModel}=nothing, prn::Bool=true)
     isnothing(set) && (set = load_settings("base"))
     definition, transforms = load_authoring(yaml_path; set, name=system_name, ignore_l0)
-    sys = SystemStructure(definition, set; dynamics_type, aero_mode, vsm_set, prn)
+    sys = SystemStructure(definition, set; dynamics_type, aero_mode, prn)
     return sys, transforms
 end
 
 """
     SystemStructure(definition::SystemDefinition, set; dynamics_type=nothing,
-                    aero_mode=nothing, vsm_set=nothing, prn=true)
+                    aero_mode=nothing, prn=true)
 
 The structure of a KiteGeometry `definition`, in the pose the definition gives. Its
 components are read from the definition's rows and the models SymbolicAWEModels
 registers for them ([`register_definition_models`](@ref)).
 """
 function SystemStructure(definition::SystemDefinition, set::Settings;
-        dynamics_type=nothing, aero_mode=nothing, vsm_set=nothing, prn=true)
+        dynamics_type=nothing, aero_mode=nothing, prn=true)
     n_wings = length(definition.wings)
-    stations = Station[definition_station(station)
+    stations = Station[typed_row(station, "station")
                        for station in definition.spanwise_stations]
-    wings = Body[definition_wing(definition, w, set, stations; dynamics_type, aero_mode,
-                                 vsm_set)
+    wings = Body[definition_wing(definition, w, set, stations; dynamics_type, aero_mode)
                  for w in 1:n_wings]
     return SystemStructure(definition.metadata.name, set;
-        points=Point[definition_point(definition, point) for point in definition.points],
+        points=Point[check_point_anchor(point) for point in definition.points],
         stations,
-        segments=Segment[definition_segment(definition, i, set)
-                         for i in eachindex(definition.segments)],
-        pulleys=Pulley[definition_pulley(pulley) for pulley in definition.pulleys],
-        tethers=Tether[definition_tether(tether) for tether in definition.tethers],
+        segments=Segment[segment for segment in definition.segments],
+        pulleys=Pulley[typed_row(pulley, "pulley") for pulley in definition.pulleys],
+        tethers=Tether[tether for tether in definition.tethers],
         winches=Winch[definition_winch(winch, set) for winch in definition.winches],
         wings,
         bodies=Body[definition_body(definition.bodies[b])
                     for b in n_wings+1:length(definition.bodies)],
         tubes=Tube[definition_tube(definition, tube) for tube in definition.tubes],
-        placed=true, vsm_set, prn, definition)
+        placed=true, prn, definition)
 end
 
 """A row's name as a `Symbol`, or its index where the authoring YAML gave it none."""
@@ -128,6 +125,7 @@ row_name(row) = something(tryparse(Int, String(row.name)), row.name)
 name_of(rows, i) = isnothing(i) ? nothing : row_name(rows[i])
 
 """A reference an authoring YAML cell gives: an index, or a name as a `Symbol`."""
+cell_ref(::Nothing) = nothing
 cell_ref(value::Integer) = Int(value)
 cell_ref(value::Union{AbstractString, Symbol}) = Symbol(value)
 
@@ -140,64 +138,14 @@ ref_points_spec(value) = value isa AbstractVector ?
 """Keyword arguments from `pairs` whose value is set."""
 set_kwargs(pairs...) = (; (key => value for (key, value) in pairs if !isnothing(value))...)
 
-"""The point `point` of `definition` is: the row itself, riding no body where it is a
-tube rider on its wing's ([`point_body`](@ref))."""
-function definition_point(definition, point)
-    point.body_ref = point_body(definition, point)
-    return check_point_anchor(point)
-end
-
-"""The body `point` rides: none for a tube rider whose body is the one KiteGeometry gives
-a `BODY_STATIC` point naming its wing and no body, which is that wing's."""
-function point_body(definition, point)
-    body = getfield(point, :body)
-    isnothing(body) && return 0
-    wing = point.model.wing_idx
-    wing_body = body <= length(definition.wings) &&
-        wing in (body, definition.wings[body].name)
-    return !isnothing(point.model.tube) && wing_body ? 0 : body
-end
 
 """`f(value)`, or `nothing` for `nothing`."""
 maybe(f, value) = isnothing(value) ? nothing : f(value)
 
-"""The station `station` of a definition is: the row itself, refusing one without a
-`type`."""
-function definition_station(station)
-    isnothing(station.model.type) && error("station $(station.name) needs its `type`")
-    return station
-end
-
-"""The segment `segment` of `definition` is, its `spring` model read into a
-[`SegmentModel`](@ref) with the stiffness and density of its material, in its place in
-`definition`."""
-function definition_segment(definition, i, set)
-    segment = definition.segments[i]
-    material = definition.materials[segment.material]
-    material.law == "linear" || error("segment $(segment.name): material law " *
-        "$(material.law) has no force law here; give its unit_stiffness in Julia")
-    spring = segment.model
-    _, unit_stiffness, _, density = resolve_material("Segment $(segment.name)", set;
-        diameter_m=segment.diameter, youngs_modulus=material.parameters["youngs_modulus"],
-        density=material.parameters["density"], spring.unit_damping)
-    model = SegmentModel(; spring.unit_damping, spring.compression_frac,
-                         spring.compression_damping_frac, unit_stiffness, density)
-    return definition.segments[i] = KiteGeometry.Segment(; segment.name, segment.points,
-        segment.rest_length, segment.diameter, segment.material, model)
-end
-
-"""The pulley `pulley` of a definition is: the row itself, refusing one without a
-`type`."""
-function definition_pulley(pulley)
-    isnothing(pulley.model.type) && error("pulley $(pulley.name) needs its `type`")
-    return pulley
-end
-
-"""The tether `tether` of a definition is: the row itself, of as many segments as it
-lists."""
-function definition_tether(tether)
-    tether.n_segments = length(tether.segments)
-    return tether
+"""The definition's row `row` of block `block`, refusing one without a `type`."""
+function typed_row(row, block)
+    isnothing(row.model.type) && error("$block $(row.name) needs its `type`")
+    return row
 end
 
 """The winch `winch` of a definition is: the row itself, its drum parameters the row
@@ -223,8 +171,6 @@ function definition_body(body)
     model.inertia_principal .= inertia_principal
     model.R_b_to_p = R_b_to_p
     model.extra_inertia_b = R_b_to_p' * Diagonal(inertia_principal) * R_b_to_p
-    model.initial_pos_ENU = KVec3(getfield(body, :pos_ENU))
-    model.initial_Q_KA_to_ENU .= getfield(body, :Q_KA2ENU)
     return body
 end
 
@@ -232,7 +178,7 @@ function definition_tube(definition, tube)
     tube_model = tube.model
     columns = (; (field => getfield(tube_model, field)
                   for field in fieldnames(typeof(tube_model))
-                  if !(field in (:anchor_a, :anchor_b)) &&
+                  if !(field in (:anchor_a, :anchor_b, :simulated)) &&
                      !isnothing(getfield(tube_model, field)))...)
     model = tube_model isa ElasticTubeModel ? ElasticTube(; columns...) :
         TimoshenkoTube(; columns...)
@@ -244,23 +190,19 @@ function definition_tube(definition, tube)
 end
 
 """
-    definition_wing(definition, w, set, stations; dynamics_type, aero_mode, vsm_set)
+    definition_wing(definition, w, set, stations; dynamics_type, aero_mode)
 
 Wing `w` of `definition`, its mesh authored in the wing's KA frame. `dynamics_type` and
 `aero_mode` override the wing row's; `stations` collects the stations a flat-plate wing
 adds.
 """
-function definition_wing(definition, w, set, stations; dynamics_type, aero_mode,
-                         vsm_set)
+function definition_wing(definition, w, set, stations; dynamics_type, aero_mode)
     wing = definition.wings[w]
     dynamics = something(dynamics_type, maybe(parse_wing_type, wing.dynamics_type))
     mode = something(aero_mode, maybe(parse_aero_mode, wing.aero_mode),
         dynamics == RIGID_DYNAMICS ? AeroLinearized() : AeroDirect())
     station_refs = [cell_ref(station) for station in something(wing.stations, [])]
-    built = load_wing(mode, definition, w, set, dynamics, vsm_set, station_refs,
-                      stations)
-    built.mesh_frame_pos .= wing.pos_ENU
-    built.R_mesh_to_w .= quaternion_to_rotation_matrix(wing.Q_KA2ENU)
+    built = load_wing(mode, definition, w, set, dynamics, station_refs, stations)
     return definition.bodies[w] = in_place_of(definition.bodies[w], built, wing)
 end
 
@@ -280,19 +222,19 @@ function in_place_of(body, built, wing)
 end
 
 """
-    load_wing(mode::AbstractAeroModel, definition, w, set, dynamics_type, vsm_set,
-              station_refs, stations)
+    load_wing(mode::AbstractAeroModel, definition, w, set, dynamics_type, station_refs,
+              stations)
 
 Build wing `w` of `definition` for its aero `mode`: a [`VSMWing`](@ref) by default.
 Add a method to build a wing for a custom aero mode.
 """
-function load_wing(mode::AbstractAeroModel, definition, w, set, dynamics_type, vsm_set,
+function load_wing(mode::AbstractAeroModel, definition, w, set, dynamics_type,
                    station_refs, stations)
     wing = definition.wings[w]
     pos_ENU = dynamics_type == PARTICLE_DYNAMICS || isnothing(wing.pos_cad) ? nothing :
         wing.pos_ENU + quaternion_to_rotation_matrix(wing.Q_KA2ENU) * wing.pos_cad
     aero_z_offset = dynamics_type == RIGID_DYNAMICS ? wing.aero_z_offset : nothing
-    return VSMWing(row_name(wing), set, station_refs, vsm_set;
+    return VSMWing(row_name(wing), set, station_refs;
         dynamics_type, aero=mode, pos_ENU,
         extra_mass=definition.bodies[w].extra_mass,
         set_kwargs(:angular_damping => wing.angular_damping,
@@ -317,22 +259,6 @@ unit_inertia_spec(value) = first(value) isa AbstractVector ?
 # ==================== STRUCTURE DOCUMENTS ==================== #
 
 """
-    structure_document(sys::SystemStructure)
-
-The awesIO structure document of `sys`'s definition in its initial pose, refusing one
-whose segments carry a nonlinear stiffness law, which the schema cannot hold yet
-(1-Bart-1/awesIO#1).
-"""
-function KiteGeometry.structure_document(sys::SystemStructure)
-    for material in sys.definition.materials
-        material.law == "unit_stiffness" && error("material $(material.name) is a " *
-            "nonlinear stiffness law, which a structure document cannot hold yet " *
-            "(1-Bart-1/awesIO#1)")
-    end
-    return structure_document(sys.definition)
-end
-
-"""
     sys_struct_from_document(document::AbstractDict; set=nothing, kwargs...)
 
 The `SystemStructure` of a parsed structure document, in the initial pose it gives. `set`
@@ -351,6 +277,11 @@ Write [`structure_document`](@ref)`(sys)` to `path`, as YAML for a `.yml` or `.y
 extension and as JSON for `.json`.
 """
 function save_structure_document(path::AbstractString, sys::SystemStructure)
+    for material in sys.materials
+        material.law == "unit_stiffness" && error("material $(material.name) is a " *
+            "nonlinear stiffness law, which a structure document cannot hold yet " *
+            "(1-Bart-1/awesIO#1)")
+    end
     document = structure_document(sys)
     write(path, document_format(path) == :json ? JSON.json(document, 2) :
                 YAML.write(document))
@@ -378,11 +309,3 @@ function document_format(path::AbstractString)
     error("$path: a structure document is written as .yml, .yaml or .json.")
 end
 
-"""
-    save_log(logger::Logger, sys::SystemStructure, name="sim_log"; path="")
-
-Save `logger` as an uncompressed .arrow file whose metadata holds the structure document
-of `sys` under the key `topology`.
-"""
-KiteUtils.save_log(logger::Logger, sys::SystemStructure, name="sim_log"; path="") =
-    save_log(logger, sys.definition, name, false; path)

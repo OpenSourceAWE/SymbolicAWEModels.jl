@@ -102,6 +102,7 @@ on the hot path twice per step and is grouped by type to stay allocation-free.
 """
 struct KernelParamSync
     groups::Vector{ReaderGroup}
+    refreshed_groups::Vector{ReaderGroup}
     callable_groups::Vector{CallableGroup}
 end
 
@@ -114,6 +115,13 @@ function sync_params!(sync::KernelParamSync, target, sys_struct)
         sync_callables!(group, sys_struct)
     end
     return nothing
+end
+
+function sync_aero_params!(sync::KernelParamSync, target, sys_struct)
+    for group in sync.refreshed_groups
+        sync_readers!(group, target.p.numeric, sys_struct)
+    end
+    return sync_params!(sync, target, sys_struct)
 end
 
 """

@@ -103,7 +103,7 @@ set.v_wind = 0.0
 
 sys = load_sys_struct_from_yaml("simple_tether.yaml";
     system_name="simple_tether", set=set)
-sam = SymbolicAWEModel(set, sys)
+sam = SymbolicAWEModel(set, sys; vsm_set)
 init!(sam)
 
 for _ in 1:100
@@ -446,10 +446,9 @@ struc_yaml = joinpath(get_data_path(),
     "rigid_structural_geometry.yaml")
 sys = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite",
-    set=set,
-    vsm_set=vsm_set)
+    set=set)
 
-sam = SymbolicAWEModel(set, sys)
+sam = SymbolicAWEModel(set, sys; vsm_set)
 init!(sam)
 ```
 

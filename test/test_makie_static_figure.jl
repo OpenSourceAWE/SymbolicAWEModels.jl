@@ -42,7 +42,7 @@ import MakieControlPlots
     CairoMakie.save(pdf_path, fig; backend=CairoMakie)
 
     @test plots[:segments] in ax.scene.plots
-    @test plots[:segment_colors_obs][] == CairoMakie.to_color.(role_color.(sys.segments))
+    @test plots[:segment_colors_obs][] == CairoMakie.to_color.(role_color.(SymbolicAWEModels.SystemState(sys).segments))
     @test [entry.label[] for entry in only(legend.entrygroups[])[2]] ==
         ["wing", "free", "unwinched_tether", "winched_tether"]
     pdf = read(pdf_path, String)

@@ -9,10 +9,7 @@
     vsm_engine(mode::AbstractAeroModel) -> Union{Nothing, VSMEngine}
 
 The mode's [`VSMEngine`](@ref) (VSM geometry + linearization state), or
-`nothing` for modes without one. After construction every `AbstractVSMAero`
-carries an engine ([`require_vsm_engine`](@ref) enforces this in
-[`setup_aero!`](@ref)); `nothing` only occurs for non-VSM modes and bare
-pre-construction markers. Used for the wing's VSM property forwarding and
+`nothing` for modes without one. Used for the wing's VSM property forwarding and
 the VSM-settings loading; per-mode behaviour goes through the dispatch
 hooks instead.
 """
@@ -45,14 +42,6 @@ is a no-op for every wing, so callers skip it and the trailing parameter sync.
 """
 has_vsm_wing(sys_struct) =
     any(wing -> wing.aero isa AbstractVSMAero, sys_struct.wings)
-
-"""
-    provides_aero_override(mode::AbstractAeroModel) -> Bool
-
-`true` if the mode supplies frozen body-frame force/moment overrides read by the
-compiled RHS (the stored-force path of [`AeroDirect`](@ref)).
-"""
-provides_aero_override(::AbstractAeroModel) = false
 
 # ==================== interface: required cache tag ==================== #
 
@@ -101,19 +90,20 @@ Normalized (per-unit-mass) inertia of the wing body about its COM, in world axes
 `inertia` in [m²] — multiply by the wing's own `extra_mass` for the physical tensor
 [kg·m²]. `inertia` is `nothing` when there is no mass to normalize by. The default
 normalizes the wing nodes' point-mass inertia ([`normalized_point_inertia`](@ref)); VSM
-modes with an `ObjWing` mesh return the per-unit-mass mesh tensor (its COM is
-`-T_cad_body`) carried from the mesh's frame into the world, and fall back to the point
+wings with a mesh return its per-unit-mass tensor and COM ([`seed_wing_inertia!`](@ref))
+carried from the mesh's frame into the world, and fall back to the point
 masses otherwise.
 """
 normalized_inertia(::AbstractAeroModel, wing, points) =
     normalized_point_inertia(wing, points)
 
-function normalized_inertia(mode::AbstractVSMAero, wing, points)
-    tensor = mode.vsm_wing.inertia_tensor
-    (isempty(tensor) || all(iszero, tensor)) &&
+function normalized_inertia(::AeroSpec, wing, points)
+    model = body_model(wing)
+    tensor = model.mesh_unit_inertia
+    (isnothing(tensor) || all(iszero, tensor)) &&
         return normalized_point_inertia(wing, points)
-    R = wing.R_mesh_to_w
-    return wing.mesh_frame_pos - R * mode.vsm_wing.T_cad_body, R * tensor * R'
+    origin, R = mesh_frame(wing)
+    return origin + R * model.mesh_com, R * tensor * R'
 end
 
 """
@@ -198,7 +188,8 @@ end
     frozen_point_force_component(wing::AbstractWing, sys_struct; name, params) -> System
 
 Particle aero component binding each wing node's connector force to its frozen
-`point.aero_force_b` flat parameter (synced every refresh). Used by
+`point.aero_force_b` flat parameter, set at each refresh
+([`sync_aero_params!`](@ref)). Used by
 [`AeroDirect`](@ref), whose refresh precomputes that force. Touching the parameter
 here is what registers it.
 """
@@ -1138,8 +1129,8 @@ reference is the weighted blend of its points. Writes the body frame `R_b_to_w`
 ([`wing_frame_columns`](@ref)), the origin pose `pos_w`/`vel_w`, the frame's own
 `ω_b` ([`body_frame_omega`](@ref)), the origin's acceleration `acc_w`
 ([`point_acceleration_w`](@ref)), the reported scalars
-([`write_wing_scalars!`](@ref)), the wing apparent wind `va_b`, and each aero point's
-`va_b = R'·(wind − vel)`, the wind coming from the height profile or, under
+([`write_wing_scalars!`](@ref)) and each aero point's wind, the wind coming from the
+height profile or, under
 [`PerPointWind`](@ref), from `point.wind_vec` and `wing.wind_vec`, which the caller
 owns — the same quantities the monolith's `get_all_state` copies out of the integrator.
 """
@@ -1169,12 +1160,9 @@ function wing_kinematics_from_points!(wing, points, set, am, wind_mode::WindMode
     end
     profile = wind_mode isa PerPointWind ? nothing : WindFactor(am, set.profile_law)
     isnothing(profile) || (wing.wind_vec .= profile(wing.pos_w[3]) .* set.wind_vec)
-    wing.va_b .= R' * (wing.wind_vec .- wing.vel_w .+ wing.wind_disturb)
     for point_idx in aero_points
         point = points[point_idx]
-        wind = isnothing(profile) ? point.wind_vec :
-            profile(point.pos_w[3]) .* set.wind_vec
-        point.va_b .= R' * (wind .- point.vel_w)
+        isnothing(profile) || (point.wind_vec .= profile(point.pos_w[3]) .* set.wind_vec)
     end
     write_wing_scalars!(wing, points; base_point, stations)
     return nothing
@@ -1184,11 +1172,10 @@ end
     write_wing_scalars!(wing, points; base_point, alpha_b, stations) -> nothing
 
 Fill a fitted wing's reported scalars — heading, course, elevation, azimuth,
-distance and angle of attack with their rates — from its freshly rebuilt pose,
+and angle of attack — from its freshly rebuilt pose,
 via the one definition in [`wing_scalar_kinematics`](@ref).
 
-`turn_rate` follows the `ω_b` the caller fitted from the frame's own ref points, the
-`_acc` scalars the `wing.acc_w` it wrote, and `turn_acc` the `alpha_b` it passed.
+`turn_acc` follows the `alpha_b` the caller passed.
 `alpha_b` defaults to zero, which is what the monolith binds a fitted wing's to.
 """
 function write_wing_scalars!(wing, points; base_point = 0, alpha_b = zeros(3),
@@ -1210,15 +1197,11 @@ function write_wing_scalars!(wing, points; base_point = 0, alpha_b = zeros(3),
         R_b_to_w, vel = collect(wing.vel_w), acc = collect(wing.acc_w),
         omega_b = collect(wing.ω_b), alpha_b = collect(alpha_b),
         va_b = collect(wing.va_b), twist_offset)
-    wing.heading = scalars.heading
-    wing.turn_rate .= scalars.turn_rate
     wing.turn_acc .= scalars.turn_acc
+    index(wing) > getfield(getfield(wing, :state), :n_wings) && return nothing
+    wing.heading = scalars.heading
     wing.elevation = scalars.elevation
-    wing.elevation_vel = scalars.elevation_vel
-    wing.elevation_acc = scalars.elevation_acc
     wing.azimuth = scalars.azimuth
-    wing.azimuth_vel = scalars.azimuth_vel
-    wing.azimuth_acc = scalars.azimuth_acc
     wing.course = scalars.course
     wing.aoa = scalars.angle_of_attack
     return nothing
@@ -1345,55 +1328,31 @@ refresh_particle_aero!(::AbstractAeroModel, wing, points, va_point_b_vals;
 # ==================== per-wing lifecycle ==================== #
 
 """
-    remake_aero!(mode, wing, set, vsm_set, points, stations)
+    remake_aero!(mode, wing, set, vsm_set, state)
 
-Rebuild the mode's aero engine from `set`/`vsm_set` (the `remake_vsm` path in
-`reinit!`, used after editing settings). Default no-op; VSM modes recreate the
-VSM wing/aero/solver, re-transform sections to the body frame, re-match aero
-sections to structure, and rebuild the station / point mappings.
+Rebuild the mode's VSM objects from `set` and `vsm_set` (the `remake_vsm` path of
+`init!`, after editing settings) and set them up again ([`setup_model_aero!`](@ref)). A
+no-op for a mode without an engine.
 """
-remake_aero!(::AbstractAeroModel, wing, set, vsm_set, points, stations) =
-    nothing
+remake_aero!(::AbstractAeroModel, wing, set, vsm_set, state) = nothing
 
-"""
-    attach_engine!(mode, engine) -> mode
-
-Attach a freshly built [`VSMEngine`](@ref) to a VSM aero `mode` during wing
-construction. Built-in modes reconstruct (so the concrete engine type lands in
-the wing's type parameter, removing the abstract-`engine` dispatch from the RHS);
-the default mutates a custom mode in place.
-"""
-attach_engine!(mode::AbstractVSMAero, engine::VSMEngine) =
-    (setfield!(mode, :engine, engine); mode)
-
-function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, points,
-                      stations)
-    vsm_set isa VortexStepMethod.VSMSettings || error(
-        "remake_aero!: VSM wing $(wing.idx) needs a VSMSettings, " *
-        "got $(typeof(vsm_set)).")
-    mesh_origin = copy(wing.vsm_wing.T_cad_body)
-    R_b_to_mesh = copy(wing.vsm_wing.R_cad_body)
-    wing.vsm_wing = create_vsm_wing(set, vsm_set;
-        prn=false, sort_sections=false)
+function remake_aero!(mode::AbstractVSMAero, wing, set, vsm_set, state)
+    wing.vsm_wing = create_vsm_wing(set, vsm_set; prn=false, sort_sections=false)
     wing.vsm_aero = VortexStepMethod.BodyAerodynamics([wing.vsm_wing])
     wing.vsm_solver = build_vsm_solver(wing.vsm_aero, vsm_set, wing.dynamics_type,
-        length(wing.station_idxs))
+                                       length(wing.station_idxs))
+    return setup_model_aero!(wing, state)
+end
 
-    transform_vsm_sections_to_body!(wing, mesh_origin, R_b_to_mesh;
-        aero_z_offset=(wing.dynamics_type == PARTICLE_DYNAMICS ? nothing :
-                       wing.aero_z_offset))
-
-    match_aero_sections_to_structure!(wing, points; stations)
-
-    if wing.dynamics_type == RIGID_DYNAMICS && !isempty(wing.station_idxs)
-        compute_spatial_station_mapping!(wing, stations, points)
-    end
-    if wing.dynamics_type == PARTICLE_DYNAMICS &&
-       !isnothing(wing.wing_segments)
-        wing.point_to_vsm_point =
-            build_point_to_vsm_point_mapping(wing.wing_segments)
-    end
-    return nothing
+"""Set a model's VSM `wing` up on its structure: its panels in the body frame, its
+sections on the structure's, the maps between them ([`setup_aero!`](@ref)) and its flap
+stations ([`build_panel_station_map!`](@ref))."""
+function setup_model_aero!(wing, state)
+    mode = wing.aero
+    mode isa AbstractVSMAero || return nothing
+    resize_aero_state!(mode, wing)
+    setup_aero!(mode, wing, state.points, state.stations; vsm_set=state.vsm_set)
+    return build_panel_station_map!(mode, wing, state)
 end
 
 """
@@ -1437,31 +1396,13 @@ setup_aero!(::AbstractAeroModel, wing, points, stations; prn=false,
             vsm_set=nothing) = nothing
 
 """
-    require_vsm_engine(mode, wing) -> VSMEngine
-
-Return the mode's [`VSMEngine`](@ref), erroring with construction advice when it
-is missing (a bare `AeroDirect()`/`AeroLinearized()` marker attached to a wing
-that was not built via [`VSMWing`](@ref)). Called once, in [`setup_aero!`](@ref);
-after construction every `AbstractVSMAero` is guaranteed to carry an engine.
-"""
-function require_vsm_engine(mode, wing)
-    engine = vsm_engine(mode)
-    engine === nothing && error(
-        "Wing $(wing.name): aero mode $(typeof(mode)) has no VSM engine. " *
-        "Construct the wing via VSMWing (or attach a VSMEngine to the mode) " *
-        "to use VSM aerodynamics.")
-    return engine
-end
-
-"""
     transform_vsm_sections_to_body!(wing, origin, R_b_to_mesh; aero_z_offset=nothing)
 
 Move the wing's VSM sections/panels from the frame its aero geometry is authored in
 into the body frame, given the body origin `origin` and orientation `R_b_to_mesh` in
 that frame, record both in `T_cad_body` / `R_cad_body`, and reinit the panels. With
 `aero_z_offset` set, also apply the chordwise aero z-offset (RIGID wings); PARTICLE
-wings pass `nothing`. [`setup_aero!`](@ref) passes the wing's pose as authored,
-[`remake_aero!`](@ref) the one the replaced mesh recorded.
+wings pass `nothing`. [`setup_aero!`](@ref) passes the wing's pose as authored.
 """
 function transform_vsm_sections_to_body!(wing, origin, R_b_to_mesh; aero_z_offset=nothing)
     vsm_wing = wing.vsm_wing
@@ -1481,15 +1422,26 @@ end
 The initial pose of `wing`'s body in the frame its mesh is authored in.
 """
 function body_in_mesh_frame(wing)
-    R = wing.R_mesh_to_w
-    return R' * (wing.pos_ENU - wing.mesh_frame_pos), R' * initial_rotation(wing)
+    origin, R = mesh_frame(wing)
+    return R' * (wing.origin_ENU - origin), R' * initial_rotation(wing)
+end
+
+"""Record the pose of a VSM `wing`'s body in its mesh's frame, on the wing's model."""
+store_mesh_pose!(wing) = store_mesh_pose!(wing.aero, wing)
+store_mesh_pose!(::AbstractAeroModel, wing) = nothing
+function store_mesh_pose!(::AeroSpec, wing)
+    model = body_model(wing)
+    origin, R_b_to_mesh = body_in_mesh_frame(wing)
+    model.mesh_origin_b = KVec3(origin)
+    model.R_b_to_mesh = Matrix{SimFloat}(R_b_to_mesh)
+    return nothing
 end
 
 function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
                      prn=false, vsm_set=nothing)
-    require_vsm_engine(mode, wing)
+    model = body_model(getfield(wing, :row))
     if wing.dynamics_type == RIGID_DYNAMICS
-        transform_vsm_sections_to_body!(wing, body_in_mesh_frame(wing)...;
+        transform_vsm_sections_to_body!(wing, model.mesh_origin_b, model.R_b_to_mesh;
                                         aero_z_offset=wing.aero_z_offset)
 
         if couples_to_sections(mode) && isempty(wing.station_idxs)
@@ -1502,12 +1454,9 @@ function setup_aero!(mode::AbstractVSMAero, wing, points, stations;
         isempty(wing.station_idxs) ||
             compute_spatial_station_mapping!(wing, stations, points)
         compute_station_geometry!(wing, stations, points)
-        for station_idx in wing.station_idxs
-            stations[station_idx].le_pos .-= wing.com_offset_b
-        end
     else  # PARTICLE_DYNAMICS
         isnothing(wing.origin) ||
-            transform_vsm_sections_to_body!(wing, body_in_mesh_frame(wing)...)
+            transform_vsm_sections_to_body!(wing, model.mesh_origin_b, model.R_b_to_mesh)
         couples_to_sections(mode) &&
             match_aero_sections_to_structure!(wing, points; stations)
         setup_particle_point_mapping!(wing, points, stations)

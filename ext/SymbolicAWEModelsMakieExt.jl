@@ -855,6 +855,7 @@ function Makie.plot!(ax, sys::SystemState;
         plots[:vsm] = []
         use_obs = !isnothing(geometry_obs)
         for wing in sys.wings
+            SymbolicAWEModels.has_vsm_engine(wing.aero) || continue
             border_lw = wing_border_linewidth(ax, sys, wing, geometry_obs,
                 segment_linewidth, taper)
             p = SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, wing.aero;
@@ -870,7 +871,7 @@ function Makie.plot!(ax, sys::SystemState;
         use_obs = !isnothing(geometry_obs)
         for wing in sys.wings
             mode = wing.aero
-            mode isa SymbolicAWEModels.AbstractVSMAero || continue
+            SymbolicAWEModels.has_vsm_engine(mode) || continue
             border_lw = wing_border_linewidth(ax, sys, wing, geometry_obs,
                 segment_linewidth, taper)
             p = plot!(ax, mode.vsm_aero; airfoils=true, R_b_w=wing.R_b_to_w,
@@ -3881,10 +3882,10 @@ function SymbolicAWEModels.plot_sphere_trajectory(logs::Vector{<:SysLog};
            color=:red, linewidth=3)
     text!(ax, Point3f(axis_len * 1.1, 0, 0), text="X (az=0°)",
           fontsize=14, color=:red)
-    # Y axis: azimuth=-90° (north)
+    # Y axis: azimuth=90° (north)
     lines!(ax, [Point3f(0, 0, 0), Point3f(0, axis_len, 0)],
            color=:green, linewidth=3)
-    text!(ax, Point3f(0, axis_len * 1.1, 0), text="Y (az=-90°)",
+    text!(ax, Point3f(0, axis_len * 1.1, 0), text="Y (az=90°)",
           fontsize=14, color=:green)
     # Z axis: elevation=90° (up)
     lines!(ax, [Point3f(0, 0, 0), Point3f(0, 0, axis_len)],
@@ -3904,7 +3905,7 @@ function SymbolicAWEModels.plot_sphere_trajectory(logs::Vector{<:SysLog};
 
         # Convert to Cartesian (ENU frame, azimuth_east convention)
         x = radius .* cos.(elevation) .* cos.(azimuth)
-        y = -radius .* cos.(elevation) .* sin.(azimuth)
+        y = radius .* cos.(elevation) .* sin.(azimuth)
         z = radius .* sin.(elevation)
 
         color = actual_colors[mod1(i, length(actual_colors))]

@@ -103,8 +103,8 @@ environment:
 
     @testset "Spin-up under applied moment" begin
         rb = sam.state.bodies[:body1]
-        rb.pos_ENU .= [0.0, 0.0, 10.0]
-        rb.Q_KA_to_ENU .= [1.0, 0.0, 0.0, 0.0]
+        rb.origin_ENU = [0.0, 0.0, 10.0]
+        rb.Q_KA_to_ENU = [1.0, 0.0, 0.0, 0.0]
         rb.vel_w .= 0.0
         rb.ω_b .= 0.0
         torque = 0.05
@@ -162,15 +162,15 @@ environment:
 
         rb = sys3.bodies[:body3]
         r = 100.0 / sqrt(2)
-        @test rb.pos_ENU ≈ KVec3(r, 0.0, r) atol=1e-6
+        @test rb.origin_ENU ≈ KVec3(r, 0.0, r) atol=1e-6
         # body x-axis followed the radial from +x to the 45° elevation direction
         R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(rb.Q_KA_to_ENU)
         @test R_b_to_w[:, 1] ≈ normalize(KVec3(1.0, 0.0, 1.0)) atol=1e-6
         # the body-anchored point rides the rotated body
-        @test sys3.points[:tip].pos_ENU ≈ rb.pos_ENU atol=1e-6
+        @test sys3.points[:tip].pos_ENU ≈ rb.origin_ENU atol=1e-6
         # idempotent across a second reinit!
         place!(sys3, [tf])
-        @test rb.pos_ENU ≈ KVec3(r, 0.0, r) atol=1e-6
+        @test rb.origin_ENU ≈ KVec3(r, 0.0, r) atol=1e-6
     end
 
     # A KCU-like point riding 1 m out moves the COM a third of the way to it, and

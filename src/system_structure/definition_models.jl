@@ -21,8 +21,6 @@ $(TYPEDFIELDS)
     area::Union{Nothing, Float64} = nothing
     "Drag coefficient."
     drag_coeff::Union{Nothing, Float64} = nothing
-    "The tube the point rides on, by name or index."
-    tube::Union{Nothing, KiteGeometry.NameRef} = nothing
     "Whether the point is held on a sphere."
     fix_sphere::Union{Nothing, Bool} = nothing
     "Whether the point is frozen in place."
@@ -58,45 +56,35 @@ $(TYPEDFIELDS)
     beam_offset_b::KVec3 = zeros(KVec3)
 end
 
-PointModel(type, body_frame_damping, world_frame_damping, area, drag_coeff, tube,
+PointModel(type, body_frame_damping, world_frame_damping, area, drag_coeff,
            fix_sphere, fix_static, wing_idx, anchor_b) =
-    PointModel(; type, body_frame_damping, world_frame_damping, area, drag_coeff, tube,
+    PointModel(; type, body_frame_damping, world_frame_damping, area, drag_coeff,
                fix_sphere, fix_static, wing_idx, anchor_b,
                resolved_anchor_b=KVec3(something(anchor_b, zeros(3))))
 
 KiteGeometry.model_columns(::Type{PointModel}) =
-    (:type, :body_frame_damping, :world_frame_damping, :area, :drag_coeff, :tube,
+    (:type, :body_frame_damping, :world_frame_damping, :area, :drag_coeff,
      :fix_sphere, :fix_static, :wing_idx, :anchor_b)
 
 """
-    SegmentModel
+    SegmentSpring
 
-What SymbolicAWEModels holds of a segment beyond its KiteGeometry `segments` row: the
-columns of KiteGeometry's segment model `spring`, then what it derives when it builds the
-structure, which no document holds.
+The spring of a segment, the model of a `segments` row: its damping and how it carries
+compression as a document authors them, each `nothing` where the row leaves it unset.
+A run resolves them when it is built ([`resolve_segment`](@ref)).
 
 $(TYPEDFIELDS)
 """
-@kwdef mutable struct SegmentModel <: KiteGeometry.AbstractModel
+@kwdef mutable struct SegmentSpring <: KiteGeometry.AbstractModel
     "Damping per unit length [N·s]."
-    unit_damping::Float64
-    "Compressive over tensile stiffness; 0 for a segment that goes slack."
-    compression_frac::Float64 = 0.1
-    "Fraction of `unit_damping` still acting under compression."
-    compression_damping_frac::Float64 = 1.0
-    "Index in the structure's segments."
-    idx::Int64 = 0
-    "Stiffness per unit length: a number [N], or a callable force law `F(ε)` [N]."
-    unit_stiffness::Any = NaN
-    "Material density [kg/m³]."
-    density::SimFloat = NaN
+    unit_damping::Union{Nothing, Float64} = nothing
+    "Damping per unit length over stiffness per unit length [s]."
+    damping_per_stiffness::Union{Nothing, Float64} = nothing
+    "Compressive over tensile stiffness (0-1)."
+    compression_frac::Union{Nothing, Float64} = nothing
+    "Fraction of the damping still acting under compression (0-1)."
+    compression_damping_frac::Union{Nothing, Float64} = nothing
 end
-
-SegmentModel(unit_damping, compression_frac, compression_damping_frac) =
-    SegmentModel(; unit_damping, compression_frac, compression_damping_frac)
-
-KiteGeometry.model_columns(::Type{SegmentModel}) =
-    (:unit_damping, :compression_frac, :compression_damping_frac)
 
 """
     StationModel
@@ -248,12 +236,6 @@ builds the structure, which no document holds.
 $(TYPEDFIELDS)
 """
 @kwdef mutable struct TetherModel <: KiteGeometry.AbstractModel
-    "Length the tether is stretched to when placed [m]."
-    init_stretched_length::Union{Nothing, Float64} = nothing
-    "Tension the placed tether carries, which sets its rest length [N]."
-    init_tether_force::Union{Nothing, Float64} = nothing
-    "Strain of the placed tether, which sets its rest length."
-    init_stretch_frac::Union{Nothing, Float64} = nothing
     "Index in the structure's tethers."
     idx::Int64 = 0
     "Indices of the tether's segments."
@@ -264,32 +246,12 @@ $(TYPEDFIELDS)
     end_point_idx::Int64 = 0
     "Number of segments a tether given by its end points is split into."
     n_segments::Int64 = 0
-    "Stiffness per unit length of the segments it generates: a number [N] or a callable
-    force law `F(ε)` [N]; `NaN` from the settings."
-    unit_stiffness::Any = NaN
-    "Damping per unit length of the segments it generates [N·s]; `NaN` from the settings."
-    unit_damping::SimFloat = NaN
-    "Diameter [m]; `NaN` from the settings."
-    diameter::SimFloat = NaN
-    "Material density [kg/m³]; `NaN` from the settings."
-    density::SimFloat = NaN
-    "Young's modulus [Pa], the diameter-independent form of `unit_stiffness`."
-    youngs_modulus::SimFloat = NaN
-    "Damping per unit stiffness [s], the diameter-independent form of `unit_damping`."
-    damping_per_stiffness::SimFloat = NaN
-    "Compressive over tensile stiffness of the segments it generates."
-    compression_frac::SimFloat = 0.1
-    "Fraction of `unit_damping` still acting under compression, per segment."
-    compression_damping_frac::SimFloat = 1.0
-    "Unstretched length where [`place!`](@ref) puts it: the sum of its segments' `l0` [m]."
-    len::SimFloat = 0.0
+    "Keywords of [`settings_segment`](@ref) for each segment a tether given by its end
+    points generates; `NaN` from the settings."
+    segment_columns::NamedTuple = (;)
 end
 
-TetherModel(init_stretched_length, init_tether_force, init_stretch_frac) =
-    TetherModel(; init_stretched_length, init_tether_force, init_stretch_frac)
-
-KiteGeometry.model_columns(::Type{TetherModel}) =
-    (:init_stretched_length, :init_tether_force, :init_stretch_frac)
+KiteGeometry.model_columns(::Type{TetherModel}) = ()
 
 """
     WinchModel{W}
@@ -356,7 +318,7 @@ The columns of a KiteGeometry `tubes` row with model `timoshenko`, a
 
 $(TYPEDFIELDS)
 """
-struct TimoshenkoTubeModel <: KiteGeometry.AbstractModel
+mutable struct TimoshenkoTubeModel <: KiteGeometry.AbstractModel
     "Axial rigidity [N]."
     EA::Union{Nothing, Float64}
     "Shear rigidity [N]."
@@ -375,7 +337,15 @@ struct TimoshenkoTubeModel <: KiteGeometry.AbstractModel
     anchor_a::Union{Nothing, Vector{Float64}}
     "Tube end in the second body's frame [m]."
     anchor_b::Union{Nothing, Vector{Float64}}
+    "The element a structure built in Julia is simulated as, `nothing` for one read from a
+    document."
+    simulated::Any
+    TimoshenkoTubeModel(EA, GA, GJ, EIy, EIz, shear_coeff, damping, anchor_a, anchor_b) =
+        new(EA, GA, GJ, EIy, EIz, shear_coeff, damping, anchor_a, anchor_b, nothing)
 end
+KiteGeometry.model_columns(::Type{TimoshenkoTubeModel}) =
+    (:EA, :GA, :GJ, :EIy, :EIz, :shear_coeff, :damping, :anchor_a, :anchor_b)
+
 
 """
     ElasticTubeModel
@@ -385,7 +355,7 @@ The columns of a KiteGeometry `tubes` row with model `elastic`, an
 
 $(TYPEDFIELDS)
 """
-struct ElasticTubeModel <: KiteGeometry.AbstractModel
+mutable struct ElasticTubeModel <: KiteGeometry.AbstractModel
     "Axial stiffness [N/m]."
     stiffness_axial::Union{Nothing, Float64}
     "Shear stiffness [N/m]."
@@ -400,7 +370,18 @@ struct ElasticTubeModel <: KiteGeometry.AbstractModel
     anchor_a::Union{Nothing, Vector{Float64}}
     "Tube end in the second body's frame [m]."
     anchor_b::Union{Nothing, Vector{Float64}}
+    "The element a structure built in Julia is simulated as, `nothing` for one read from a
+    document."
+    simulated::Any
+    ElasticTubeModel(stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending,
+                     damping, anchor_a, anchor_b) =
+        new(stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping,
+            anchor_a, anchor_b, nothing)
 end
+KiteGeometry.model_columns(::Type{ElasticTubeModel}) =
+    (:stiffness_axial, :stiffness_shear, :stiffness_torsion, :stiffness_bending,
+     :damping, :anchor_a, :anchor_b)
+
 
 """
     register_definition_models()
@@ -412,9 +393,9 @@ wings, pulleys, bodies, tethers and winches, and the tube models `timoshenko`, t
 """
 function register_definition_models()
     register_model!(:points, "sam_point", PointModel,
-                    ("-", "N*s/m", "N*s/m", "m^2", "-", "-", "-", "-", "-", "m");
+                    ("-", "N*s/m", "N*s/m", "m^2", "-", "-", "-", "-", "m");
                     default=true)
-    register_model!(:segments, "sam_segment", SegmentModel, ("N*s", "-", "-");
+    register_model!(:segments, "spring", SegmentSpring, ("N*s", "s", "-", "-");
                     default=true)
     register_model!(:spanwise_stations, "sam_station", StationModel,
                     ("-", "-", "N*m*s/rad", "N*m/rad", "-", "-", "-", "-");
@@ -428,7 +409,7 @@ function register_definition_models()
     register_model!(:bodies, "sam_body", BodyModel,
                     ("-", "-", "1/s", "1/s", "1/s", "-", "-", "N", "N", "N*m", "-");
                     default=true)
-    register_model!(:tethers, "sam_tether", TetherModel, ("m", "N", "-"); default=true)
+    register_model!(:tethers, "sam_tether", TetherModel, (); default=true)
     register_model!(:winches, "sam_winch", WinchModel, ("m/s", "-", "-", "m/s");
                     default=true)
     register_model!(:tubes, "timoshenko", TimoshenkoTubeModel,

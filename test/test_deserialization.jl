@@ -184,9 +184,9 @@ system:
             set.g_earth = 0.0
             sys, transforms = load_sys_struct_from_yaml(refine_yaml;
                 system_name="deser_refine", set,
-                dynamics_type=PARTICLE_DYNAMICS, vsm_set)
+                dynamics_type=PARTICLE_DYNAMICS)
             sys.winches[:main_winch].brake = true
-            sam = SymbolicAWEModel(set, sys; transforms)
+            sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
             init!(sam; remake, remake_vsm=false, prn=false)
             for _ in 1:5
                 next_step!(sam; dt=0.05, vsm_interval=1)
@@ -207,5 +207,32 @@ system:
                       for (pf, pc) in zip(fresh, cached)) < 1e-2
         @test maximum(norm(pf.pos_w - pc.pos_w)
                       for (pf, pc) in zip(fresh, cached)) < 1e-4
+
+        @testset "a frozen point force stays fixed in its wing's frame" begin
+            frozen_b = [collect(point.aero_force_b) for point in wpts(sam_cached)]
+            frozen_w = [collect(point.aero_force) for point in wpts(sam_cached)]
+            for _ in 1:5
+                next_step!(sam_cached; dt=0.05, vsm_interval=0)
+            end
+            @test maximum(norm(point.aero_force_b - force)
+                          for (point, force) in zip(wpts(sam_cached), frozen_b)) < 1e-4
+            @test maximum(norm(point.aero_force - force)
+                          for (point, force) in zip(wpts(sam_cached), frozen_w)) > 1e-3
+        end
+
+        @testset "init! keeps the model's one VSM engine" begin
+            vsm_wing = sam_cached.state.wings[1].vsm_wing
+            init!(sam_cached; remake=false, prn=false)
+            @test sam_cached.state.wings[1].vsm_wing === vsm_wing
+        end
+
+        @testset "a logged point force reaches a run that does not solve the aero" begin
+            restored = build_refine(; remake=false)
+            update_from_sysstate!(restored.state, sam_fresh.state.sysstate)
+            init!(restored; remake=false, remake_vsm=false, lin_vsm=false, prn=false)
+            pairs = zip(wpts(restored), wpts(sam_fresh))
+            @test maximum(norm(point.aero_force - logged.aero_force)
+                          for (point, logged) in pairs) < 1e-4
+        end
     end
 end

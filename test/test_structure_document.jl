@@ -30,7 +30,7 @@ document describes, with the transforms placing it.
 function two_plate_kite(set, vsm_set)
     return load_sys_struct_from_yaml(
         joinpath(get_data_path(), "rigid_structural_geometry.yaml");
-        system_name="2plate_kite", set, vsm_set, prn=false)
+        system_name="2plate_kite", set, prn=false)
 end
 
 """
@@ -83,12 +83,13 @@ function pretensioned_tether(set; winches=Winch[])
 end
 
 """World position of `body`'s centre of mass."""
-com_w(body) = body.pos_ENU .+ SymbolicAWEModels.initial_rotation(body) * body.com_offset_b
+com_w(body) =
+    body.origin_ENU .+ SymbolicAWEModels.initial_rotation(body) * body.com_offset_b
 
 """World position of `tube`'s end on body B in `sys`."""
 function tube_end(sys, tube)
     body = sys.bodies[tube.body_b_idx]
-    return body.pos_ENU .+ SymbolicAWEModels.initial_rotation(body) * tube.anchor_b_b
+    return body.origin_ENU .+ SymbolicAWEModels.initial_rotation(body) * tube.anchor_b_b
 end
 
 """The `header` cells of the rows of `block` in `document`, by row name."""
@@ -96,6 +97,28 @@ function cells(document, block, header)
     table = document[block]
     column = findfirst(==(header), table["headers"])
     return Dict(row[1] => row[column] for row in table["data"])
+end
+
+"""The first VortexStepMethod object reachable through the fields of `value`, or
+`nothing`."""
+function reachable_vsm_object(value, seen=IdDict{Any, Nothing}())
+    isbits(value) && return nothing
+    haskey(seen, value) && return nothing
+    seen[value] = nothing
+    parentmodule(typeof(value)) == VortexStepMethod && return value
+    if value isa AbstractArray || value isa AbstractDict || value isa Tuple
+        for item in value
+            found = reachable_vsm_object(item, seen)
+            isnothing(found) || return found
+        end
+        return nothing
+    end
+    for name in fieldnames(typeof(value))
+        isdefined(value, name) || continue
+        found = reachable_vsm_object(getfield(value, name), seen)
+        isnothing(found) || return found
+    end
+    return nothing
 end
 
 @testset verbose = true "Structure document" begin
@@ -141,7 +164,7 @@ end
     @testset "a point is its definition row" for
             sys in (first(two_plate_kite(set, vsm_set)), pretensioned_tether(set))
         point = last(sys.points)
-        row = sys.definition.points[point.idx]
+        row = sys.points[point.idx]
         point.extra_mass = 2.0
         point.area = 0.3
         point.fix_static = true
@@ -151,10 +174,19 @@ end
         @test point === row
     end
 
+    @testset "a model builds its own VSM engine" begin
+        sys, _ = two_plate_kite(set, vsm_set)
+        @test isnothing(reachable_vsm_object(sys))
+        first_state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
+        second_state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
+        @test first_state.bodies[1].vsm_wing !== second_state.bodies[1].vsm_wing
+        @test isnothing(reachable_vsm_object(sys))
+    end
+
     @testset "a segment is its definition row" for
             sys in (first(two_plate_kite(set, vsm_set)), pretensioned_tether(set))
         segment = last(sys.segments)
-        row = sys.definition.segments[segment.idx]
+        row = last(sys.segments)
         segment.l0 = 1.5
         segment.diameter = 0.002
         segment.unit_damping = 3.0
@@ -172,7 +204,7 @@ end
             pretensioned_tether(set;
                                 winches=[Winch(:reel, set, [:line]; winch_point=:ground)]))
         winch = only(sys.winches)
-        row = sys.definition.winches[winch.idx]
+        row = sys.winches[winch.idx]
         winch.brake = 1.0
         winch.model.friction_epsilon = 3.0
         @test row.model.brake == 1.0
@@ -204,12 +236,12 @@ end
 
     @testset "a document with wings reads back in its initial pose" begin
         sys, _ = two_plate_kite(set, vsm_set)
-        reread = sys_struct_from_document(structure_document(sys); set, vsm_set,
+        reread = sys_struct_from_document(structure_document(sys); set,
                                           prn=false)
         @test [point.pos_ENU for point in reread.points] ≈
               [point.pos_ENU for point in sys.points]
-        @test reread.wings[:main_wing].pos_ENU ≈ sys.wings[:main_wing].pos_ENU
-        @test reread.wings[:main_wing].Q_KA_to_ENU ≈ sys.wings[:main_wing].Q_KA_to_ENU
+        @test reread.bodies[:main_wing].origin_ENU ≈ sys.bodies[:main_wing].origin_ENU
+        @test reread.bodies[:main_wing].Q_KA_to_ENU ≈ sys.bodies[:main_wing].Q_KA_to_ENU
     end
 
     @testset "bodies and tubes round-trip through $extension" for
@@ -222,7 +254,7 @@ end
         reread = load_structure_document(path; set, prn=false)
         @test structure_document(reread) == document
         @test reread.bodies[:root].type == STATIC
-        @test reread.tubes[:beam].body_a_idx == reread.bodies[:root].idx
+        @test SymbolicAWEModels.SystemState(reread).tubes[:beam].body_a_idx == reread.bodies[:root].idx
         @test reread.tubes[:beam].model.EA ≈ 1.0e4
         @test reread.tubes[:spring].model.stiffness_axial ≈ 1.2e5
         @test reread.points[:hub_anchor].body_idx == reread.bodies[:hub].idx
@@ -232,7 +264,8 @@ end
             @test reread_body.inertia_principal ≈ body.inertia_principal
             @test com_w(reread_body) ≈ com_w(body)
         end
-        spring, reread_spring = sys.tubes[:spring], reread.tubes[:spring]
+        spring = SymbolicAWEModels.SystemState(sys).tubes[:spring]
+        reread_spring = SymbolicAWEModels.SystemState(reread).tubes[:spring]
         @test tube_end(reread, reread_spring) ≈ tube_end(sys, spring)
     end
 
@@ -248,7 +281,7 @@ end
 
     @testset "a run's log carries the structure document of the system that ran" begin
         sys, transforms = two_plate_kite(set, vsm_set)
-        sam = SymbolicAWEModel(set, sys; transforms)
+        sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
         init!(sam; prn=false)
         logger = Logger(sam, 3)
         state = SysState(sam)
@@ -284,6 +317,6 @@ end
         segments = Segment[Segment(:link, :ground, :top, strain -> 1000.0 * strain,
                                    10.0, 0.004; l0=1.0, density=724.0)]
         sys = SystemStructure("nonlinear_link", set; points, segments, prn=false)
-        @test_throws "awesIO#1" structure_document(sys)
+        @test_throws "awesIO#1" save_structure_document(joinpath(tmpdir, "nonlinear.yml"), sys)
     end
 end

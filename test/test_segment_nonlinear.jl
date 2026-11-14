@@ -97,7 +97,7 @@ end
     @testset "Model setup" begin
         @info "Wiring: one segment with a callable (nonlinear) unit_stiffness."
         @test length(sys.segments) == 1
-        @test !(sys.segments[:spring].unit_stiffness isa Real)
+        @test !(SymbolicAWEModels.SystemState(sys; set).segments[:spring].unit_stiffness isa Real)
         @test sys.points[:hang].extra_mass == mass
     end
 
@@ -129,8 +129,9 @@ end
 
         @info "Route 2 tether: callable unit_stiffness fanned out to every segment."
         @test length(sys_t.segments) == 3
-        @test all(!(s.unit_stiffness isa Real) for s in sys_t.segments)
-        @test all(s.unit_stiffness === force_law for s in sys_t.segments)
+        segments_t = SymbolicAWEModels.SystemState(sys_t; set).segments
+        @test all(!(s.unit_stiffness isa Real) for s in segments_t)
+        @test all(s.unit_stiffness === force_law for s in segments_t)
 
         sam_t = SymbolicAWEModel(set, sys_t)
         node_t = sam_t.state.points[:mass]

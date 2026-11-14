@@ -174,7 +174,7 @@ end
     end
 
     sam = SymbolicAWEModel(set, sys)
-    jt = sam.sys_struct.tubes[:tube]
+    jt = sam.state.tubes[:tube]
     rb = sam.state.bodies[:nodeB]
     br = sam.state.points[:bridle]
 

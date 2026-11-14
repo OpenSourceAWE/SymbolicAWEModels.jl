@@ -49,8 +49,8 @@ vsm_set = VortexStepMethod.VSMSettings(
     data_prefix=false)
 
 sys, transforms = load_sys_struct_from_yaml(struc_yaml;
-    system_name=MODEL_NAME, set, vsm_set)
-sam = SymbolicAWEModel(set, sys; transforms)
+    system_name=MODEL_NAME, set)
+sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 init!(sam; remake=false)
 
 # ─── Extract VSM objects ─────────────────────────────

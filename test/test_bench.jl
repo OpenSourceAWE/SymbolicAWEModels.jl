@@ -36,9 +36,9 @@ function setup_bench_sam()
         data_prefix=false)
     struc_yaml = joinpath(dp, "rigid_structural_geometry.yaml")
     sys, transforms = load_sys_struct_from_yaml(struc_yaml;
-        system_name="bench", set, vsm_set)
+        system_name="bench", set)
     sys.winches[:main_winch].brake = true
-    sam = SymbolicAWEModel(set, sys; transforms)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
     test_init!(sam)
     return sam
 end

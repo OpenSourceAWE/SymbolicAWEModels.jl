@@ -80,6 +80,10 @@ function load_pressure_sys(data_path, aero_mode)
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
     particle_yaml = joinpath(data_path, "particle_structural_geometry.yaml")
     sys, _ = load_sys_struct_from_yaml(particle_yaml; system_name="pressure_test",
-        set, vsm_set, aero_mode)
-    return set, SystemState(sys)
+        set, aero_mode)
+    return set, SystemState(sys; set, vsm_set)
 end
+
+"""Give `wing` the apparent wind `va_b` in its body frame, through the wind on it."""
+set_apparent_wind!(wing, va_b) =
+    wing.wind_vec .= wing.R_b_to_w * collect(va_b) .+ collect(wing.vel_w)

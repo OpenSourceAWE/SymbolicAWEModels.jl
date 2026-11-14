@@ -2,52 +2,32 @@
 # SPDX-License-Identifier: LGPL-3.0-only
 
 """
-    carries_point_aero(sys_struct, point) -> Bool
-
-Whether `point`'s per-node aerodynamic force has to be read back out of the model:
-it is a node of a `PARTICLE_DYNAMICS` wing whose mode scatters panel loads, so the
-load exists only in the equations. This selects the same nodes the `KernelBackend`
-builds an [`AeroPointForce`](@ref) for.
-"""
-function carries_point_aero(sys_struct, point)
-    point.is_wing_node || return false
-    body = sys_struct.bodies[point.wing_idx]
-    return is_wing(body) && body.dynamics_type == PARTICLE_DYNAMICS &&
-        supports_panel_decomposition(body.aero)
-end
-
-"""
     point_aero_force_array(sys_struct, sys) -> Matrix{Num} or nothing
 
-The body-frame aerodynamic force of every point as one `3 x n_points` array to
-fetch, holding `aero_force_point_b` where a node has one and a literal zero
-elsewhere, so it scatters on the point index like the other per-point arrays.
-`nothing` when no wing writes per-node forces. The zeros are constants in the
-generated function, so a point carrying no aero costs nothing to fetch.
+The world-frame aerodynamic force of every point as one `3 x n_points` array to fetch: a
+particle wing's node holds its body-frame `aero_force_point_b` turned into the world, and
+any other point a literal zero, a constant of the generated function. `nothing` when no
+wing has per-node forces.
 """
 function point_aero_force_array(sys_struct, sys)
     hasproperty(sys, :aero_force_point_b) || return nothing
-    any(carries_point_aero(sys_struct, point) for point in sys_struct.points) ||
-        return nothing
-    field = getproperty(sys, :aero_force_point_b)
-    return [carries_point_aero(sys_struct, point) ? Num(field[i, point.idx]) : Num(0)
-            for i in 1:3, point in sys_struct.points]
+    particle_node(point) = point.is_wing_node &&
+        is_wing(sys_struct.bodies[point.wing_idx]) &&
+        sys_struct.bodies[point.wing_idx].dynamics_type == PARTICLE_DYNAMICS
+    any(particle_node, sys_struct.points) || return nothing
+    force = [particle_node(point) ?
+                 collect(sys.body_R_b_to_w[:, :, point.wing_idx] *
+                         sys.aero_force_point_b[:, point.idx]) :
+                 zeros(Num, 3)
+             for point in sys_struct.points]
+    return reduce(hcat, force)
 end
 
 """
     generate_prob_getters(sys_struct, sys)
 
-Generate getter and setter functions for the state variables of the full system model.
-
-These functions provide a convenient way to access and modify the state and parameters
-of the compiled `ODESystem` (`sys`).
-
-# Arguments
-- `sys_struct::SystemStructure`: The structure defining the system topology.
-- `sys::ODESystem`: The compiled ModelingToolkit system.
-
-# Returns
-- A `NamedTuple` containing various getter and setter functions for different parts of the system state.
+Generate the functions that read and write the state and parameters of the compiled
+`ODESystem` `sys`, whose topology `sys_struct` defines. Returns them as a `NamedTuple`.
 """
 function generate_prob_getters(sys_struct, sys, param_registry=nothing,
                                initial_registry=nothing)
@@ -60,15 +40,16 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
             sys.pos           => (st, v) -> write_columns!(xyz(st.sysstate, :X, :Y, :Z), v),
             sys.vel           => (st, v) -> write_columns!(
                 xyz(st.sysstate, :VX, :VY, :VZ), v),
-            sys.point_force   => (st, v) -> write_columns!(st.columns.point_force, v),
-            sys.va_point_b    => (st, v) -> write_columns!(st.columns.point_va_b, v),
-            sys.wind_at_point => (st, v) -> write_columns!(st.columns.point_wind, v),
-            sys.point_mass    => (st, v) -> write_column!(st.columns.point_mass, v),
+            sys.point_force   => (st, v) -> write_columns!(
+                xyz(st.sysstate, :force_x, :force_y, :force_z), v),
+            sys.wind_at_point => (st, v) -> write_columns!(
+                xyz(st.sysstate, :wind_x, :wind_y, :wind_z), v),
             sys.total_drag    => (st, v) -> write_columns!(xyz(st.sysstate, :drag_force_x,
                                                :drag_force_y, :drag_force_z), v)]
         aero_force = point_aero_force_array(sys_struct, sys)
         isnothing(aero_force) || push!(pairs,
-            aero_force => (st, v) -> write_columns!(st.columns.point_aero_force_b, v))
+            aero_force => (st, v) -> write_columns!(
+                xyz(st.sysstate, :aero_force_x, :aero_force_y, :aero_force_z), v))
         push!(specs, scatter_spec(pairs...))
     end
     if length(pulleys) > 0
@@ -79,26 +60,21 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
     if length(segments) > 0
         push!(specs, scatter_spec(
             sys.spring_force => (st, v) -> write_column!(st.sysstate.spring_force, v),
-            sys.l0           => (st, v) -> write_column!(st.columns.segment_l0, v)))
+            sys.l0           => (st, v) -> write_column!(st.segment_l0, v)))
     end
     if length(stations) > 0
         push!(specs, scatter_spec(
             sys.twist_angle => (st, v) -> write_column!(st.sysstate.twist_angles, v),
             sys.twist_ω     => (st, v) -> write_column!(st.sysstate.twist_vel, v),
-            sys.station_tether_force =>
-                (st, v) -> write_column!(st.columns.station_tether_force, v),
-            sys.station_tether_moment =>
-                (st, v) -> write_column!(st.columns.station_tether_moment, v),
             sys.station_aero_moment =>
-                (st, v) -> write_column!(st.columns.station_aero_moment, v)))
+                (st, v) -> write_column!(st.station_aero_moment, v)))
     end
     if length(winches) > 0
         push!(specs, scatter_spec(
-            sys.winch_acc       => (st, v) -> write_column!(st.columns.winch_acc, v),
+            sys.winch_acc       => (st, v) -> write_column!(st.sysstate.winch_acc, v),
             sys.winch_vel       => (st, v) -> write_column!(st.sysstate.v_reelout, v),
             sys.set_values      => (st, v) -> write_column!(st.sysstate.set_torque, v),
-            sys.winch_force_vec => (st, v) -> write_columns!(st.columns.winch_force, v),
-            sys.winch_friction  => (st, v) -> write_column!(st.columns.winch_friction, v)))
+            sys.winch_friction  => (st, v) -> write_column!(st.sysstate.winch_friction, v)))
         set_set_values = setp(sys, sys.set_values)
         get_set_values = getp(sys, sys.set_values)
     end
@@ -109,22 +85,19 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
     if length(wings) > 0
         # A wing is the body of the same index; its body pose comes with the bodies.
         push!(specs, scatter_spec(
-            sys.va_wing_b     => (st, v) -> write_columns!(st.columns.body_va_b, v),
-            sys.wind_vel_wing => (st, v) -> write_columns!(st.columns.body_wind, v),
-            sys.aero_force_b  => (st, v) -> write_columns!(st.columns.body_aero_force_b, v),
-            sys.aero_moment_b =>
-                (st, v) -> write_columns!(st.columns.body_aero_moment_b, v),
-            sys.elevation     => (st, v) -> write_column!(st.columns.body_elevation, v),
-            sys.elevation_vel => (st, v) -> write_column!(st.columns.body_elevation_vel, v),
-            sys.elevation_acc => (st, v) -> write_column!(st.columns.body_elevation_acc, v),
-            sys.azimuth       => (st, v) -> write_column!(st.columns.body_azimuth, v),
-            sys.azimuth_vel   => (st, v) -> write_column!(st.columns.body_azimuth_vel, v),
-            sys.azimuth_acc   => (st, v) -> write_column!(st.columns.body_azimuth_acc, v),
-            sys.heading       => (st, v) -> write_column!(st.columns.body_heading, v),
-            sys.turn_rate     => (st, v) -> write_columns!(st.columns.body_turn_rate, v),
-            sys.turn_acc      => (st, v) -> write_columns!(st.columns.body_turn_acc, v),
-            sys.course        => (st, v) -> write_column!(st.columns.body_course, v),
-            sys.angle_of_attack => (st, v) -> write_column!(st.columns.body_aoa, v)))
+            sys.wind_vel_wing => (st, v) -> write_columns!(
+                xyz(st.sysstate, :wind_x, :wind_y, :wind_z), v, st.body_slot0),
+            sys.aero_force_b  => (st, v) -> write_columns!(xyz(st.sysstate,
+                :aero_force_KA_x, :aero_force_KA_y, :aero_force_KA_z), v),
+            sys.aero_moment_b => (st, v) -> write_columns!(xyz(st.sysstate,
+                :aero_moment_KA_x, :aero_moment_KA_y, :aero_moment_KA_z), v),
+            sys.elevation     => (st, v) -> write_column!(st.sysstate.elevations, v),
+            sys.azimuth       => (st, v) -> write_column!(st.sysstate.azimuths, v),
+            sys.heading       => (st, v) -> write_column!(st.sysstate.headings, v),
+            sys.turn_acc      => (st, v) -> write_columns!(xyz(st.sysstate,
+                :turn_acc_x, :turn_acc_y, :turn_acc_z), v),
+            sys.course        => (st, v) -> write_column!(st.sysstate.courses, v),
+            sys.angle_of_attack => (st, v) -> write_column!(st.sysstate.AoAs, v)))
 
         # aero_input exists only for wings whose component exposes the connector.
         aero_inputs = [
@@ -145,7 +118,8 @@ function generate_prob_getters(sys_struct, sys, param_registry=nothing,
                 xyz(st.sysstate, :X, :Y, :Z), v, st.body_slot0),
             sys.body_vel_w    => (st, v) -> write_columns!(
                 xyz(st.sysstate, :VX, :VY, :VZ), v, st.body_slot0),
-            sys.body_acc_w    => (st, v) -> write_columns!(st.columns.body_acc, v)))
+            sys.body_acc_w    => (st, v) -> write_columns!(
+                xyz(st.sysstate, :acc_x, :acc_y, :acc_z), v, st.body_slot0)))
     end
 
     get_all_state = build_inplace_getter(sys, specs)
@@ -173,7 +147,11 @@ function scatter_spec(pairs::Pair...)
 end
 
 """The columns `names` of `sysstate`, as a tuple."""
-@inline xyz(sysstate, names::Symbol...) = map(name -> getproperty(sysstate, name), names)
+@inline xyz(sysstate, a::Symbol, b::Symbol, c::Symbol) =
+    (getfield(sysstate, a), getfield(sysstate, b), getfield(sysstate, c))
+@inline xyz(sysstate, a::Symbol, b::Symbol, c::Symbol, d::Symbol) =
+    (getfield(sysstate, a), getfield(sysstate, b), getfield(sysstate, c),
+     getfield(sysstate, d))
 
 """
     write_columns!(columns, v, offset=0)
@@ -281,14 +259,8 @@ end
 """
     generate_lin_getters(sys)
 
-Generate setter functions for the parameters of a linearized system.
-
-# Arguments
-- `sys`: The linearized ModelingToolkit system.
-
-# Returns
-- A `NamedTuple` containing the setter function for the winch set-points
-  (`set_set_values`).
+Generate the parameter setters of the linearized system `sys`. Returns a `NamedTuple` with
+`set_set_values`, the setter of the winch set-points.
 """
 function generate_lin_getters(sys)
     set_set_values = nothing
@@ -301,18 +273,10 @@ end
 """
     generate_control_funcs(model, inputs, outputs)
 
-Generate in-place and out-of-place control functions from a ModelingToolkit system,
-wrapping `ModelingToolkit.generate_control_function` and
-`ModelingToolkit.build_explicit_observed_function`.
-
-# Arguments
-- `model`: The full `ODESystem`.
-- `inputs`: A vector of input variables.
-- `outputs`: A vector of output variables.
-
-# Returns
-- A `NamedTuple` containing the generated functions (`f_oop`, `f_ip`, `h_oop`, `h_ip`),
-  system dimensions (`nu`, `nx`, `ny`), and symbolic variables (`dvs`, `psym`, `io_sys`).
+Generate in-place and out-of-place control functions of the `ODESystem` `model` for the
+variables `inputs` and `outputs`. Returns a `NamedTuple` of the functions (`f_oop`, `f_ip`,
+`h_oop`, `h_ip`), the dimensions (`nu`, `nx`, `ny`) and the symbolic variables (`dvs`,
+`psym`, `io_sys`).
 """
 function generate_control_funcs(model, inputs, outputs)
     (f_ip, f_oop), dvs, psym, io_sys = @suppress_err ModelingToolkit.generate_control_function(
@@ -341,21 +305,10 @@ end
 """
     load_serialized_model!(sam, model_path; remake=false, reload=false)
 
-Load a serialized model from disk if it is valid.
-
-A model is considered valid if its settings and system structure hashes match the
-current ones in the `SymbolicAWEModel` object (`sam`).
-
-# Arguments
-- `sam::SymbolicAWEModel`: The main model object.
-- `model_path::String`: The path to the serialized model file.
-- `remake::Bool`: If true, forces the model to be considered invalid, triggering a rebuild.
-- `reload::Bool`: If true, forces reloading from disk even if the model is already in memory.
-- `prn::Bool`: If true, say what happened — kept in memory, read back from disk, or
-  rejected — since from the outside a cache hit and a rebuild look the same.
-
-# Returns
-- `true` if a valid model was successfully loaded into `sam.serialized_model`, `false` otherwise.
+Load the model serialized at `model_path` into `sam.serialized_model` if its settings and
+structure hashes match those of `sam`; returns `true` if a valid model is loaded, else
+`false`. `remake` rejects the file and triggers a rebuild, `reload` reads it even with a
+model in memory, and `prn` reports whether it was kept in memory, read back or rejected.
 """
 function load_serialized_model!(sam, model_path; remake=false, reload=false,
                                 prn=true)
@@ -407,19 +360,9 @@ end
     maybe_create_prob!(sam; create_prob=true, sparse=false,
                        analytic_jacobian=false, prn=true)
 
-Compile the full system, create the `ODEProblem` and its getter/setter functions, if
-they do not already exist.
-
-# Arguments
-- `sam::SymbolicAWEModel`: The main model object.
-- `create_prob::Bool`: A flag to enable or disable the creation of the problem.
-- `sparse::Bool`: Give the solver a Jacobian sparsity pattern (see [`init!`](@ref)).
-- `analytic_jacobian::Bool`: Give the solver an analytical Jacobian (see
-  [`init!`](@ref)).
-- `prn::Bool`: A flag to enable or disable printing of progress messages.
-
-# Returns
-- `true` if a new problem was created, `false` otherwise.
+Compile the full system and create the `ODEProblem` with its getters and setters, if they
+do not exist yet and `create_prob` is set. `sparse` and `analytic_jacobian` are those of
+[`init!`](@ref), `prn` prints progress. Returns `true` if a new problem was created.
 """
 function maybe_create_prob!(sam; create_prob=true, sparse=false,
                             analytic_jacobian=false, prn=true)
@@ -432,13 +375,10 @@ end
 """
     build_prob!(backend, sam; sparse=false, analytic_jacobian=false, prn=true)
 
-Assemble `sam.prob` for the given [`ModelBackend`](@ref). The
-[`MonolithBackend`](@ref) method `mtkcompile`s the flattened `full_sys` into one
-`ODEProblem`; the [`KernelBackend`](@ref) assembles one kernel per component
-type and schedules them. `sparse` gives the solver a Jacobian sparsity pattern and
-`analytic_jacobian` a Jacobian, both of which each backend derives its own way — the
-monolith's is MTK's symbolic one, which is why it is off by default
-([`default_analytic_jacobian`](@ref)). Returns `true` when a problem was built.
+Assemble `sam.prob`: the [`MonolithBackend`](@ref) `mtkcompile`s the flattened `full_sys`
+into one `ODEProblem`, the [`KernelBackend`](@ref) schedules one kernel per component type.
+`sparse` gives the solver a Jacobian sparsity pattern and `analytic_jacobian` a Jacobian
+(MTK's symbolic one on the monolith). Returns `true` when a problem was built.
 """
 function build_prob!(::MonolithBackend, sam; sparse=false, analytic_jacobian=false,
                      prn=true)
@@ -488,17 +428,9 @@ end
 """
     maybe_create_lin_prob!(sam, outputs; ...)
 
-Create and cache the `LinearizationProblem` if it does not exist or if the outputs have changed.
-
-# Arguments
-- `sam::SymbolicAWEModel`: The main model object.
-- `outputs`: A vector of output variables for the linearization.
-- `create_lin_prob::Bool`: Flag to enable/disable creation.
-- `outputs_changed::Bool`: Flag indicating if the output vector has changed.
-- `prn::Bool`: Flag to enable/disable printing of progress messages.
-
-# Returns
-- `true` if a new problem was created, `false` otherwise.
+Create and cache the `LinearizationProblem` for the variables `outputs`, if it does not
+exist yet and `create_lin_prob` is set. `prn` prints progress. Returns `true` if a new
+problem was created.
 """
 function maybe_create_lin_prob!(sam, outputs; create_lin_prob=true, prn=true)
     if create_lin_prob && isnothing(sam.lin_prob)
@@ -522,17 +454,9 @@ end
 """
     maybe_create_control_functions!(sam, outputs; ...)
 
-Create and cache the control functions if they do not exist or if the outputs have changed.
-
-# Arguments
-- `sam::SymbolicAWEModel`: The main model object.
-- `outputs`: A vector of output variables for the control functions.
-- `create_control_func::Bool`: Flag to enable/disable creation.
-- `outputs_changed::Bool`: Flag indicating if the output vector has changed.
-- `prn::Bool`: Flag to enable/disable printing of progress messages.
-
-# Returns
-- `true` if new functions were created, `false` otherwise.
+Create and cache the control functions for the variables `outputs`, if they do not exist
+yet and `create_control_func` is set. `prn` prints progress. Returns `true` if new
+functions were created.
 """
 function maybe_create_control_functions!(sam, outputs; create_control_func=false, prn=true)
     if create_control_func && isnothing(sam.control_functions)
@@ -566,8 +490,8 @@ end
 """
     place!(sam::SymbolicAWEModel; reset_vel=true, kwargs...)
 
-Place the model's structure by its transforms
-([`place!`](@ref)`(sam.sys_struct, sam.transforms; kwargs...)`) and start its run there
+Place the model's structure by its transforms with KiteGeometry's
+`place!(sam.sys_struct, sam.transforms; kwargs...)` and start its run there
 ([`start_run!`](@ref)). `reset_vel=false` keeps the velocities the run holds.
 """
 function KiteGeometry.place!(sam::SymbolicAWEModel; reset_vel::Bool=true, kwargs...)
@@ -627,7 +551,7 @@ function init!(sam::SymbolicAWEModel;
     create_lin_prob::Bool=false,
     create_control_func::Bool=false,
     lin_vsm::Bool=true,
-    remake_vsm::Bool=true,
+    remake_vsm::Bool=false,
     reset_integrator::Bool=true,
     vsm_min_wind=0.5,
     sparse::Union{Bool, Nothing}=nothing,
@@ -777,7 +701,7 @@ function reinit!(
             SimFloat[winch.set_value for winch in sam.state.winches])
     if fresh
         # A trailing reinit! would re-solve the DAE init and discard this synced state.
-        sync_params!(prob.param_sync, prob.prob, sam.state)
+        sync_aero_params!(prob.param_sync, prob.prob, sam.state)
         sync_initial!(prob.initial_sync, prob.prob, sam.state)
         seed_set_values!(prob.prob)
         prn && @info "JIT-compiling the RHS and building the integrator (first " *
@@ -790,7 +714,7 @@ function reinit!(
     else
         integrator = existing
         sam.integrator = integrator
-        sync_params!(prob.param_sync, integrator, sam.state)
+        sync_aero_params!(prob.param_sync, integrator, sam.state)
         seed_set_values!(integrator)
         OrdinaryDiffEqCore.reinit!(integrator; reinit_dae=true)
     end
@@ -799,7 +723,7 @@ function reinit!(
         prn && @info "Running initial VSM aero solve…"
         aero_time = @elapsed refresh_aero!(sam; vsm_min_wind, cold_start=true)
         prn && @info "Initial aero solved in $(round(aero_time; digits=1)) s."
-        sync_params!(prob.param_sync, integrator, sam.state)
+        sync_aero_params!(prob.param_sync, integrator, sam.state)
     end
     validate_sys_struct(sam.state)  # Check for division-by-zero issues
     return integrator, true
@@ -808,25 +732,10 @@ end
 """
     get_set_hash(set::Settings; fields)
 
-Calculates a SHA1 hash for structural fields in the `Settings` object.
-This is used to check if a cached compiled model is still valid.
-
-# Structural Fields (affect symbolic equations):
-- `:segments`: Number of tether segments (affects state vector size)
-- `:model`: Kite model name (affects geometry)
-- `:foil_file`: Airfoil data file (affects VSM setup)
-- `:physical_model`: Free-form name of the physical model (affects geometry)
-- `:winch_model`: Winch dynamics model (affects winch equations)
-
-Anything read back from a struct at sync time stays out, so one build serves a sweep
-over it. That is every numeric setting the equations use — `:g_earth`, `:wind_vec`,
-`:cd_tether`, `:v_wind`, the profile law, initial conditions — since each enters
-as a flat parameter `sync_params!` refreshes from the run's `set`, not as a literal.
-
-# Runtime Fields (don't affect compilation, excluded from hash):
-- `:profile_law`: Wind profile law (evaluated at runtime via symbolic function)
-- `:elevation`: Initial conditions
-- Other runtime parameters
+SHA1 hash of the `fields` of `set` that shape the compiled equations, by default
+`:segments`, `:model`, `:foil_file`, `:physical_model` and `:winch_model`, to check a cached
+compiled model. Numeric settings and initial conditions (`:g_earth`, `:wind_vec`,
+`:cd_tether`, `:v_wind`, `:profile_law`, `:elevation`) are read at runtime and not hashed.
 """
 function get_set_hash(set::Settings;
         fields=[:segments, :model, :foil_file, :physical_model, :winch_model]
@@ -842,29 +751,15 @@ end
 """
     get_sys_struct_hash(state::SystemState)
 
-Calculates a SHA1 hash for the topology and structure of a run's `SystemStructure`.
-This is used to check if a cached compiled model is still valid.
-
-Includes all structural properties that affect the symbolic equations:
-- Point connectivity and types (STATIC, DYNAMIC, BODY_STATIC), including the
-  beam joint a BODY_STATIC point anchors to (selects which bodies enter its equations)
-- Segment connectivity
-- Station structure and types (STATIC, DYNAMIC)
-- Pulley constraints and types
-- Tether topology
-- Winch configuration
-- Wing topology, connectivity, aerodynamic model type (RIGID_DYNAMICS vs PARTICLE_DYNAMICS), and aero mode
-- The transform base point each wing's elevation and azimuth are measured from
-- The wind mode, which decides whether the wind is a height profile or a per-point
-  parameter. Only [`PerPointWind`](@ref) enters the hash, so structures on the
-  default [`ProfileWind`](@ref) keep the cached models they already have.
-
-Excludes runtime-configurable properties like masses, lengths, stiffnesses.
+SHA1 hash of a run's `SystemStructure` topology, to check a cached compiled model: the
+connectivity and types of its points (with a `BODY_STATIC` point's beam joint), segments,
+stations, pulleys, tethers, winches, bodies and tubes, each wing's dynamics type, aero mode
+and transform base point, and [`PerPointWind`](@ref); no mass, length or stiffness value.
 """
 function get_sys_struct_hash(state::SystemState)
     (; structure, transforms) = state
-    (; points, stations, segments, pulleys, tethers, winches, wings, bodies,
-       tubes) = structure
+    (; points, stations, segments, pulleys, tethers, winches) = structure
+    (; wings, bodies, tubes) = state
     data_parts = []
     for point in points
         # nothing-vs-set gates whether drag/damping equations are emitted (structure,
@@ -872,7 +767,7 @@ function get_sys_struct_hash(state::SystemState)
         push!(data_parts, ("point", point.idx, point.wing_idx, point.body_idx,
                            point.tube_idx, Int(point.type)))
     end
-    for segment in segments
+    for segment in state.segments
         # Stiffness type selects the spring law (scalar k·Δ vs callable F(ε)).
         stiff_type = segment.unit_stiffness isa Real ? "float" :
                      string(typeof(segment.unit_stiffness))

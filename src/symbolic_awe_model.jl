@@ -294,39 +294,44 @@ function SymbolicAWEModel(
     set::Settings,
     sys_struct::SystemStructure;
     transforms=Transform[],
+    vsm_set=nothing,
     wind_mode::WindMode=ProfileWind(),
     kwargs...
 )
     set.physical_model = sys_struct.name
     set_hash = get_set_hash(set)
-    state = SystemState(sys_struct; set, transforms, wind_mode)
+    state = SystemState(sys_struct; set, transforms, vsm_set, wind_mode)
     sys_struct_hash = get_sys_struct_hash(state)
     # Initialize with an empty, but now fully typed, SerializedModel.
     serialized_model = SerializedModel(; set_hash, sys_struct_hash)
     return SymbolicAWEModel(; sys_struct, state, serialized_model, kwargs...)
 end
 
-"""
-    write_aero_forces!(ss, sys_struct) -> ss
-
-Fill `ss.aero_force_x/y/z` with the world-frame aerodynamic force each wing node
-carries, from its `point.aero_force_b`. A mode that stores none leaves its nodes at
-zero.
-"""
-function write_aero_forces!(ss::SysState, sys_struct::SystemState)
-    fill!(ss.aero_force_x, 0.0)
-    fill!(ss.aero_force_y, 0.0)
-    fill!(ss.aero_force_z, 0.0)
-    for wing in sys_struct.wings
-        rot = quaternion_to_rotation_matrix(wing.Q_b_to_w)
-        for point in wing_points(sys_struct, wing)
-            force = rot * point.aero_force_b
-            ss.aero_force_x[point.idx] += force[1]
-            ss.aero_force_y[point.idx] += force[2]
-            ss.aero_force_z[point.idx] += force[3]
-        end
-    end
-    return ss
+"""Copy the columns a run writes directly from its state `from` into the log frame `to`."""
+function copy_run_columns!(to::SysState, from::SysState)
+    copyto!(to.force_x, from.force_x)
+    copyto!(to.force_y, from.force_y)
+    copyto!(to.force_z, from.force_z)
+    copyto!(to.wind_x, from.wind_x)
+    copyto!(to.wind_y, from.wind_y)
+    copyto!(to.wind_z, from.wind_z)
+    copyto!(to.aero_force_x, from.aero_force_x)
+    copyto!(to.aero_force_y, from.aero_force_y)
+    copyto!(to.aero_force_z, from.aero_force_z)
+    copyto!(to.acc_x, from.acc_x)
+    copyto!(to.acc_y, from.acc_y)
+    copyto!(to.acc_z, from.acc_z)
+    copyto!(to.turn_acc_x, from.turn_acc_x)
+    copyto!(to.turn_acc_y, from.turn_acc_y)
+    copyto!(to.turn_acc_z, from.turn_acc_z)
+    copyto!(to.winch_acc, from.winch_acc)
+    copyto!(to.winch_friction, from.winch_friction)
+    copyto!(to.elevations, from.elevations)
+    copyto!(to.azimuths, from.azimuths)
+    copyto!(to.headings, from.headings)
+    copyto!(to.courses, from.courses)
+    copyto!(to.AoAs, from.AoAs)
+    return to
 end
 
 """
@@ -342,6 +347,7 @@ degrees) and computes derived values like AoA. Roll, pitch and yaw are
 - `zoom::SimFloat=1.0`: A scaling factor for the position coordinates.
 """
 function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
+    copy_run_columns!(ss, sam.state.sysstate)
     ss.time = isnothing(sam.integrator) ? 0.0 : sam.integrator.t # Use integrator time
     (; points, stations, winches, wings, tethers,
        bodies) = sam.state
@@ -398,7 +404,6 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
     for segment in sam.state.segments
         ss.spring_force[segment.idx] = segment.force
     end
-    write_aero_forces!(ss, sam.state)
 
     # Store per-mode aero log points (e.g. VSM panel corners) in world frame
     corner_idx = length(points)
@@ -462,9 +467,9 @@ slots = position_slots(sam.state)
 sam.state.bodies[2]  # logged at X/Y/Z slot slots.bodies[2]
 ```
 """
-function position_slots(sys_struct)
+function position_slots(sys_struct,
+                        n_corners=count_aero_log_points(wing_bodies(sys_struct)))
     n_points = length(sys_struct.points)
-    n_corners = count_aero_log_points(sys_struct.wings)
     n_wings = length(sys_struct.wings)
     n_bodies = length(sys_struct.bodies)
     base_wings = n_points + n_corners
@@ -603,7 +608,7 @@ function next_step!(sam::SymbolicAWEModel;
                 has_vsm_wing(sam.state)
             sam.t_vsm = @elapsed begin
                 refresh_aero!(sam; vsm_min_wind, vsm_warn_on_fail)
-                sync_params!(prob.param_sync, integrator, sam.state)
+                sync_aero_params!(prob.param_sync, integrator, sam.state)
             end
         end
     end
@@ -693,31 +698,6 @@ function calc_steady_torque(sys_struct::SystemState)
     torques = [-winch.drum_radius / winch.gear_ratio * norm(winch.force) +
                winch.friction for winch in sys_struct.winches]
     return torques
-end
-
-"""
-    calc_winch_force(sys, winch_vel, winch_acc, set_values)
-
-Calculate the tensile force on each winch tether from its motion and
-motor torque, using the default-component motor dynamics inverted for
-the force connector.
-
-Reads `friction` from the live winch struct (populated each step from
-the component output), so the formula matches whatever the component
-reported even if the component overrides friction.
-"""
-function calc_winch_force(sys::SystemState,
-        winch_vel, winch_acc, set_values)
-    winches = sys.winches
-    winch_force = zeros(length(winches))
-    for i in eachindex(winches)
-        (; gear_ratio, drum_radius, inertia_total, friction) = winches[i]
-        ratio = drum_radius / gear_ratio
-        α_motor = winch_acc[i] / ratio
-        tau_total = α_motor * inertia_total
-        winch_force[i] = (-set_values[i] + tau_total + friction) / ratio
-    end
-    return winch_force
 end
 
 """

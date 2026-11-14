@@ -24,7 +24,6 @@ options = [
     "coupled_linearize = include(\"coupled_linearize.jl\")",
     "cosine_steering_trajectory = include(\"cosine_steering_trajectory.jl\")",
     "heading_gate = include(\"heading_gate.jl\")",
-    "kps4_comparison = include(\"kps4_comparison.jl\")",
     "vsm_linearization = include(\"vsm_linearization.jl\")",
     "sam_tutorial = include(\"sam_tutorial.jl\")",
     "custom_tape_winch = include(\"custom_tape_winch.jl\")",

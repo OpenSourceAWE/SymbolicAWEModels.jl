@@ -1,52 +1,38 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-"""
-SystemStructure type and main constructor.
-
-This file contains:
-- SystemStructure struct definition
-- Property accessors (getproperty/setproperty!)
-- Main SystemStructure constructor with initialization logic
-"""
-
 # ==================== SYSTEM STRUCTURE ==================== #
 
 """
-    struct SystemStructure
+    SystemStructure
 
-A discrete mass-spring-damper representation of a kite system: all components of the
-physical model, from points and segments to winches and wings.
-
-# Components
-- [`Point`](@ref): Point masses.
-- [`Station`](@ref): Collections of points for wing deformation.
-- [`Segment`](@ref): Spring-damper elements.
-- [`Pulley`](@ref): Elements that redistribute line lengths.
-- [`Tether`](@ref): Collections of segments controlled by a winch.
-- [`Winch`](@ref): Ground-based winches.
-- [`Body`](@ref): Rigid bodies; a wing is a body that carries aero, so
-  `sys.wings` holds the subset of `sys.bodies` that does.
-- [`Tube`](@ref): Inflated tubes between two bodies; a chain of them forms a beam.
+The old name of KiteGeometry's `SystemDefinition`: a kite system's points, segments,
+tethers, winches, wings, bodies and tubes as rows of the same type a structure document
+holds. Its `wings` are KiteGeometry's rows, each a wing's frame; a wing's body is the first
+of `bodies` under the same name. `sys.stations` lists the `spanwise_stations` and the
+stations a body that is no wing owns, kept on that body.
 """
-mutable struct SystemStructure
-    const name::String
-    const points::NamedCollection{Point}
-    const stations::NamedCollection{Station}
-    const segments::NamedCollection{Segment}
-    const pulleys::NamedCollection{Pulley}
-    const tethers::NamedCollection{Tether}
-    const winches::NamedCollection{Winch}
-    "All bodies (plain bodies + wings). `wings` holds those of them that carry aero."
-    const bodies::NamedCollection{Body}
-    "The `bodies` that carry aero, which are prepended to `bodies`, so a wing's
-    position here equals its `idx`. The same objects, not copies."
-    const wings::NamedCollection{Body}
-    const tubes::NamedCollection{Tube}
-    vsm_set::Union{Nothing, VortexStepMethod.VSMSettings}
-    "The KiteGeometry definition of the system in its initial pose."
-    definition::Union{Nothing, SystemDefinition}
+const SystemStructure = KiteGeometry.SystemDefinition
+
+"""The bodies of the wings of `sys`, the first of its `bodies`."""
+wing_bodies(sys) = sys.wings
+wing_bodies(sys::KiteGeometry.SystemDefinition) = view(sys.bodies, 1:length(sys.wings))
+
+"""The stations of `sys`: its `spanwise_stations`, then the ones no wing owns."""
+function structure_stations(sys)
+    stations = collect(Station, getfield(sys, :spanwise_stations))
+    for body in getfield(sys, :bodies)
+        append!(stations, body_model(body).stations_without_wing)
+    end
+    return Rows(stations)
 end
+
+function Base.getproperty(sys::KiteGeometry.SystemDefinition, name::Symbol)
+    name === :stations && return structure_stations(sys)
+    name === :name && return getfield(getfield(sys, :metadata), :name)
+    return getfield(sys, name)
+end
+
 
 """
     calc_heading(sys::SystemState)
@@ -60,173 +46,69 @@ function calc_heading(sys::SystemState)
 end
 
 """
-    build_name_dict(items::Vector) -> Dict{Symbol, Int64}
+    resolve_ref(ref, rows::Rows, component_type) -> Int64
 
-Build a name→index dictionary from a vector of items with optional `name` fields.
-Items with `name=nothing` are skipped. Integer names are converted to Symbols.
+The position in `rows` of the component `ref` names, `ref` itself where it is a position,
+and `0` where it is `nothing`.
 """
-function build_name_dict(items::Vector)
-    name_to_idx = Dict{Symbol, Int64}()
-    for (i, item) in enumerate(items)
-        # Use try-catch to handle both direct fields and delegated properties (e.g., VSMWing.name -> base.name)
-        item_name = try
-            item.name
-        catch
-            nothing
-        end
-        if !isnothing(item_name)
-            name = item_name isa Symbol ? item_name : Symbol(item_name)
-            if haskey(name_to_idx, name)
-                error("Duplicate name '$name' found at indices $(name_to_idx[name]) and $i")
-            end
-            name_to_idx[name] = i
-        end
-    end
-    return name_to_idx
+resolve_ref(index::Int, ::Rows, ::String) = Int64(index)
+resolve_ref(::Nothing, ::Rows, ::String) = Int64(0)
+function resolve_ref(name::Symbol, rows::Rows, component_type::String)
+    haskey(rows, name) || error("Unknown $component_type name: $name")
+    return KiteGeometry.row_index(rows, name)
 end
 
 """
-    resolve_ref(ref::NameRef, name_dict::Dict{Symbol, Int64}, component_type::String) -> Int64
+    resolve!(ref_pt::WeightedRefPoints, rows, type)
 
-Resolve a reference (name or index) to an index using the name dictionary.
-If ref is an integer, returns it directly. If ref is a symbol, looks up in dictionary.
+Resolve symbolic refs to their positions in `rows`, filling `ref_pt.ids`. No-op if
+`refs` is empty (already resolved).
 """
-function resolve_ref(ref::Union{Int, Symbol}, name_dict::Dict{Symbol, Int64}, component_type::String)
-    if ref isa Int
-        return Int64(ref)
-    else
-        name = ref isa Symbol ? ref : Symbol(ref)
-        if haskey(name_dict, name)
-            return name_dict[name]
-        else
-            error("Unknown $component_type name: $name")
-        end
-    end
-end
-
-function resolve_ref(::Nothing, ::Dict{Symbol, Int64}, ::String)
-    return Int64(0)
-end
-
-"""
-    resolve!(ref_pt::WeightedRefPoints, name_dict, type)
-
-Resolve symbolic refs to integer indices, filling
-`ref_pt.ids`. No-op if `refs` is empty (already resolved).
-"""
-function resolve!(
-    ref_pt::WeightedRefPoints,
-    name_dict::Dict{Symbol, Int64},
-    component_type::String
-)
+function resolve!(ref_pt::WeightedRefPoints, rows::Rows, component_type::String)
     isempty(ref_pt.refs) && return
-    ref_pt.ids = Int64[
-        resolve_ref(ref, name_dict, component_type)
-        for ref in ref_pt.refs]
-end
-
-"""The index of the point `ref` names as an end of `tether`, refusing one that names none
-of `points`."""
-function endpoint_idx(tether, ref, point_names, points)
-    ref isa Int && ref in eachindex(points) && return ref
-    ref isa Symbol && haskey(point_names, ref) && return point_names[ref]
-    error("Tether $(tether.name): end point $ref not found in points")
+    ref_pt.ids = Int64[resolve_ref(ref, rows, component_type) for ref in ref_pt.refs]
 end
 
 """
-    expand_auto_tethers!(points, segments, tethers, set)
+    expand_tethers!(points, segments, tethers, materials, set)
 
-For Route 2 tethers (auto-generation), create intermediate DYNAMIC
-points and segments, each carrying the tether's material and its
-`compression_frac`/`compression_damping_frac`. Must be called before
+Expand each segment-count tether through KiteGeometry's `expand_tether!`, adding its inner
+points and its segments, which carry its material and spring. Must be called before
 `assign_indices_and_resolve!`.
-
-Detects Route 2 tethers by checking `start_point_ref !== nothing`
-and `segment_refs` names not yet present in `segments`.
 """
-function expand_auto_tethers!(
-    points::Vector{Point},
-    segments::Vector{Segment},
-    tethers::Vector{Tether},
-    set::Settings
-)
-    point_names = Dict{Symbol, Int}(Symbol(point.name) => i
-                                    for (i, point) in enumerate(points))
+function expand_tethers!(points::Vector{Point}, segments::AbstractVector,
+                         tethers::Vector{Tether}, materials, set::Settings)
+    point_transforms = fill(nothing, length(points))
+    table = KiteGeometry.MaterialTable(materials, Dict{String, Any}())
     seg_names = Set{Symbol}(Symbol(segment.name) for segment in segments)
-
-    for tether in tethers
-        # Skip Route 1 tethers (no start_point_ref)
+    for (i, tether) in enumerate(tethers)
         isnothing(tether.start_point_ref) && continue
-
-        # Skip if segments already exist (user pre-created, or an index)
         first_segment = tether.segment_refs[1]
         (first_segment isa Int || first_segment in seg_names) && continue
-
-        start_point_idx = endpoint_idx(tether, tether.start_point_ref, point_names, points)
-        end_point_idx = endpoint_idx(tether, tether.end_point_ref, point_names, points)
-        start_pos = points[start_point_idx].pos_ENU
-        end_pos = points[end_point_idx].pos_ENU
-
-        n = tether.n_segments
-
-        diameter, unit_stiffness, unit_damping, density = resolve_material(
-            "Tether $(tether.name)", set; diameter_m=tether.diameter,
-            unit_stiffness=tether.unit_stiffness,
-            unit_damping=tether.unit_damping, density=tether.density,
-            youngs_modulus=tether.youngs_modulus,
-            damping_per_stiffness=tether.damping_per_stiffness)
-
-        rope_len = isnothing(tether.init_stretched_len) ?
-            norm(end_pos - start_pos) : tether.init_stretched_len
-        seg_l0 = rope_len / n
-        tether.len = rope_len
-
-        # Generate n-1 intermediate DYNAMIC points along the straight line.
-        direction = end_pos - start_pos
-        for i in 1:(n - 1)
-            frac = i / n
-            pos = start_pos + frac * direction
-            point_name = Symbol("$(tether.name)_point_$i")
-            push!(points, Point(point_name, pos, DYNAMIC))
-            point_names[point_name] = length(points)
-        end
-
-        # Generate n segments
-        for i in 1:n
-            seg_name = tether.segment_refs[i]
-            seg_sym = seg_name isa Symbol ? seg_name :
-                Symbol(seg_name)
-            if i == 1
-                start_ref = tether.start_point_ref
-            else
-                start_ref = Symbol(
-                    "$(tether.name)_point_$(i - 1)")
-            end
-            if i == n
-                end_ref = tether.end_point_ref
-            else
-                end_ref = Symbol(
-                    "$(tether.name)_point_$i")
-            end
-            push!(segments, Segment(
-                seg_sym, start_ref, end_ref,
-                unit_stiffness, unit_damping, diameter;
-                l0=seg_l0, density,
-                compression_frac=tether.compression_frac,
-                compression_damping_frac=tether.compression_damping_frac))
-            push!(seg_names, seg_sym)
-        end
+        columns = tether.segment_columns
+        spring = SegmentSpring(;
+            unit_damping=nan_to_nothing(get(columns, :unit_damping, NaN)),
+            damping_per_stiffness=nan_to_nothing(get(columns, :damping_per_stiffness, NaN)),
+            compression_frac=nan_to_nothing(get(columns, :compression_frac, NaN)),
+            compression_damping_frac=nan_to_nothing(
+                get(columns, :compression_damping_frac, NaN)))
+        line = Base.structdiff(columns, NamedTuple{fieldnames(SegmentSpring)})
+        init = (; (field => getfield(tether, field) for field in
+                   (:init_stretched_length, :init_tether_force, :init_stretch_frac))...)
+        expanded = KiteGeometry.expand_tether!(points, segments, point_transforms,
+            tether.name, tether.start_point_ref, tether.end_point_ref, tether.n_segments,
+            set, table; init, model=tether.model, segment_model=spring, line...)
+        tethers[i] = expanded
+        expanded.model.segment_columns = (;)
     end
+    return nothing
 end
 
 """
     mark_wing_nodes!(points, stations)
 
 Set `point.is_wing_node` for every point that is a member of some station.
-A wing's aerodynamic-surface structural points carry their wing membership
-through station membership (there is no `WING` dynamics type); this flag,
-derived once here, drives the per-point aero and wing-frame equations. Requires
-`station.point_idxs` to be resolved first.
+Requires `station.point_idxs` to be resolved first.
 """
 function mark_wing_nodes!(points, stations)
     members = Set{Int64}()
@@ -244,10 +126,7 @@ end
 
 Whether `point` belongs to wing `wing_idx`'s frame: it places the wing body and,
 without a mesh, shapes its own inertia. Its aerodynamic-surface nodes
-(`is_wing_node`) plus any `BODY_STATIC` structural point sharing its `wing_idx` —
-e.g. a rigid wing's attachment points (like the KCU) that ride the wing body without
-being aero-surface members. Bridle points riding a beam carry `wing_idx == 0`, so
-they are excluded.
+(`is_wing_node`) plus any `BODY_STATIC` structural point sharing its `wing_idx`.
 """
 wing_frame_member(point, wing_idx) =
     (point.is_wing_node || point.type == BODY_STATIC) && point.wing_idx == wing_idx
@@ -282,32 +161,11 @@ function distribute_mass_over_points!(points, point_idxs, mass)
 end
 
 """
-    connected_body_groups(n_bodies, tubes) -> Vector{Int64}
-
-Union-find over body indices `1:n_bodies`, uniting the two bodies of every tube.
-Returns a `root` vector mapping each body to its component representative, so all
-bodies tied into one continuous beam share a root.
-"""
-function connected_body_groups(n_bodies, tubes)
-    root = collect(1:n_bodies)
-    find(x) = root[x] == x ? x : (root[x] = find(root[x]))
-    for tube in tubes
-        a, b = tube.body_a_idx, tube.body_b_idx
-        (a == 0 || b == 0) && continue
-        root[find(a)] = find(b)
-    end
-    for b in 1:n_bodies
-        root[b] = find(b)
-    end
-    return root
-end
-
-"""
     particle_wing_parts(wing, stations, points, bodies, root)
         -> (point_idxs, body_idxs)
 
 The member points of a PARTICLE_DYNAMICS `wing` and the non-wing bodies sharing a
-beam component (`root`, from [`connected_body_groups`](@ref)) with its structure,
+beam component (`root`, from KiteGeometry's `connected_body_groups`) with its structure,
 which carry its mass. The components are seeded from its stations' member/flap
 bodies and the bodies its member points ride. Members are the union of the wing's
 station points, falling back to `wing_frame_member` points when it has no stations.
@@ -363,55 +221,34 @@ function finalize_particle_wing_mass!(wing, stations, points, bodies, set, root)
 end
 
 """
-    assign_indices_and_resolve!(components, name_dicts)
+    assign_indices_and_resolve!(points, stations, segments, pulleys, tethers, winches,
+                                wings) -> Tuple of Rows
 
-Assign indices to all components based on their position in the vectors,
-and resolve all references to indices.
+Assign indices to all components based on their position in the vectors, resolve all
+references to indices, and return each vector as `Rows`.
 """
 function assign_indices_and_resolve!(
     points::Vector{Point},
     stations::Vector{Station},
-    segments::Vector{Segment},
+    segments::AbstractVector{<:Segment},
     pulleys::Vector{Pulley},
     tethers::Vector{Tether},
     winches::AbstractVector{<:Winch},
     wings::AbstractVector{<:Body}
 )
     # First pass: assign indices based on position.
-    for (i, point) in enumerate(points)
-        point.idx = i
-    end
-    for (i, station) in enumerate(stations)
-        station.idx = i
-    end
-    for (i, segment) in enumerate(segments)
-        segment.idx = i
-    end
-    for (i, pulley) in enumerate(pulleys)
-        pulley.idx = i
-    end
-    for (i, tether) in enumerate(tethers)
-        tether.idx = i
-    end
-    for (i, winch) in enumerate(winches)
-        winch.idx = i
-    end
-    for (i, wing) in enumerate(wings)
-        wing.idx = i
+    for components in (points, stations, pulleys, tethers, winches, wings),
+            (i, component) in enumerate(components)
+        component.idx = i
     end
 
-    # Build name lookup dictionaries
-    point_names = build_name_dict(points)
-    station_names = build_name_dict(stations)
-    segment_names = build_name_dict(segments)
-    pulley_names = build_name_dict(pulleys)
-    tether_names = build_name_dict(tethers)
-    winch_names = build_name_dict(winches)
-    wing_names = build_name_dict(wings)
+    point_rows, station_rows, segment_rows = Rows(points), Rows(stations), Rows(segments)
+    pulley_rows, tether_rows = Rows(pulleys), Rows(tethers)
+    winch_rows, wing_rows = Rows(winches), Rows(wings)
 
     # Points: resolve wing refs (body_ref resolved later, no bodies here).
     for point in points
-        point.wing_idx = resolve_ref(point.wing_ref, wing_names, "wing")
+        point.wing_idx = resolve_ref(point.wing_ref, wing_rows, "wing")
         point.wing_idx in 0:length(wings) || error(
             "Point $(point.name): wing $(point.wing_ref) does not exist; the " *
             "system has $(length(wings)) wings.")
@@ -419,82 +256,81 @@ function assign_indices_and_resolve!(
 
     # Stations: resolve point_refs
     for station in stations
-        station.point_idxs = Int64[resolve_ref(ref, point_names, "point") for ref in station.point_refs]
+        station.point_idxs = Int64[resolve_ref(ref, point_rows, "point")
+                                   for ref in station.point_refs]
     end
     mark_wing_nodes!(points, stations)
 
     # Segments: resolve point_refs
     for segment in segments
-        point1 = resolve_ref(segment.point_refs[1], point_names, "point")
-        point2 = resolve_ref(segment.point_refs[2], point_names, "point")
+        point1 = resolve_ref(segment.point_refs[1], point_rows, "point")
+        point2 = resolve_ref(segment.point_refs[2], point_rows, "point")
         segment.point_idxs = (point1, point2)
     end
 
     # Pulleys: resolve segment_refs
     for pulley in pulleys
-        segment1 = resolve_ref(pulley.segment_refs[1], segment_names, "segment")
-        segment2 = resolve_ref(pulley.segment_refs[2], segment_names, "segment")
+        segment1 = resolve_ref(pulley.segment_refs[1], segment_rows, "segment")
+        segment2 = resolve_ref(pulley.segment_refs[2], segment_rows, "segment")
         pulley.segment_idxs = (segment1, segment2)
     end
 
     # Tethers: resolve segment_refs and start/end point refs
     for tether in tethers
         tether.segment_idxs = Int64[
-            resolve_ref(ref, segment_names, "segment")
+            resolve_ref(ref, segment_rows, "segment")
             for ref in tether.segment_refs]
         if !isnothing(tether.start_point_ref)
             tether.start_point_idx = resolve_ref(
-                tether.start_point_ref, point_names, "point")
+                tether.start_point_ref, point_rows, "point")
         end
         if !isnothing(tether.end_point_ref)
             tether.end_point_idx = resolve_ref(
-                tether.end_point_ref, point_names, "point")
+                tether.end_point_ref, point_rows, "point")
         end
     end
 
     # Winches: resolve tether_refs and winch_point_ref
     for winch in winches
         winch.tether_idxs = Int64[
-            resolve_ref(ref, tether_names, "tether")
+            resolve_ref(ref, tether_rows, "tether")
             for ref in winch.tether_refs]
         winch.winch_point_idx = resolve_ref(
-            winch.winch_point_ref, point_names, "point")
+            winch.winch_point_ref, point_rows, "point")
     end
 
     # Wings: resolve station_refs and PARTICLE_DYNAMICS-specific refs
     for wing in wings
         # BaseWing fields
-        wing.station_idxs = Int64[resolve_ref(ref, station_names, "station") for ref in wing.station_refs]
+        wing.station_idxs = Int64[resolve_ref(ref, station_rows, "station")
+                                  for ref in wing.station_refs]
 
         # Body-frame reference points (any wing may carry them)
         if !isnothing(wing.origin)
-            resolve!(wing.origin, point_names, "point")
+            resolve!(wing.origin, point_rows, "point")
         end
         if !isnothing(wing.z_ref_points)
             resolve!(something(wing.z_ref_points)[1],
-                point_names, "point")
+                point_rows, "point")
             resolve!(something(wing.z_ref_points)[2],
-                point_names, "point")
+                point_rows, "point")
         end
         if !isnothing(wing.y_ref_points)
             resolve!(something(wing.y_ref_points)[1],
-                point_names, "point")
+                point_rows, "point")
             resolve!(something(wing.y_ref_points)[2],
-                point_names, "point")
+                point_rows, "point")
         end
-
-        # Resize per-mode aero state now that station_idxs are resolved.
-        resize_aero_state!(wing.aero, wing)
     end
 
-    return (point_names, station_names, segment_names, pulley_names,
-            tether_names, winch_names, wing_names)
+    return (point_rows, station_rows, segment_rows, pulley_rows,
+            tether_rows, winch_rows, wing_rows)
 end
 
 """
     init_body_frame_from_ref_points!(wing, points; prn=true)
 
-Initialize wing body frame (`Q_KA_to_ENU`, `pos_ENU`) from z/y
+Initialize wing body frame (`Q_KA_to_ENU`, `origin_ENU`) from z/y
 reference points. Shared by VSMWing PARTICLE_DYNAMICS and PlateWing.
 """
 function init_body_frame_from_ref_points!(
@@ -506,12 +342,11 @@ function init_body_frame_from_ref_points!(
 
     origin_pos = get_ref_position_from_points(
         points, wing.origin; field=:pos_ENU)
-    wing.pos_ENU .= origin_pos
-
     R_b_to_w, _ = calc_particle_dynamics_wing_frame(
         points, wing.z_ref_points,
         wing.y_ref_points, wing.origin; field=:pos_ENU)
-    wing.Q_KA_to_ENU .= rotation_matrix_to_quaternion(R_b_to_w)
+    wing.Q_KA_to_ENU = rotation_matrix_to_quaternion(R_b_to_w)
+    wing.origin_ENU = origin_pos
     wing.R_b_to_p .= Matrix{SimFloat}(I, 3, 3)
 
     if prn
@@ -524,21 +359,10 @@ end
 """
     compute_spatial_station_mapping!(the_wing, stations, points)
 
-Partition the wing's unrefined VSM sections among its
-stations by spatial proximity: each unrefined section is
-assigned to the single closest station (by distance between
-section centre and station centre, both in body frame).
-Each VSM panel goes the same way, by the centre of its corners, into
-`panel_idxs`, which the station's twist moment is summed over, and
-[`share_body_mass!`](@ref) splits the wing's own mass by them. A panel between
-two sections owned by different stations thus goes to the nearer station,
-rather than to the station of the section VSM files it under, which
-without refinement is always its left edge.
-
-`n_stations == n_unrefined` gives a 1:1 mapping; with
-fewer stations one may own several adjacent sections and
-drive them all as a rigid unit with its single twist DOF. More
-stations than sections is rejected.
+Give each unrefined VSM section, and into `panel_idxs` each panel, to the station closest
+in the body frame, and split the wing's own mass by panel ([`share_body_mass!`](@ref)). A
+station's twist moment sums over `panel_idxs`, and one owning several sections drives them
+as a rigid unit. Errors if there are more stations than sections or a station claims none.
 """
 function compute_spatial_station_mapping!(the_wing, stations::AbstractVector,
                                           points::AbstractVector)
@@ -643,15 +467,11 @@ end
 """
     setup_wing_frame!(wing, points; prn=true)
 
-Compute a wing's body frame (`Q_KA_to_ENU`, `pos_ENU`) and, for `RIGID_DYNAMICS`, its
-own COM offset and inertia (`extra_com_offset_b`, `extra_inertia_b`), from its mesh or
-structural points and its ref points. [`update_mass_properties!`](@ref) adds the
-carried points. This is dynamics/geometry only — independent of the aero mode, which
-does its own mode-specific setup afterwards in [`setup_aero!`](@ref).
-
-Without ref points the body frame keeps the world orientation (origin at the wing
-body's own COM). Without a mesh, the wing's own mass is spread like the frame points'
-`extra_mass`; with neither, the constructor's inertia stays, or none for a massless wing.
+Compute a wing's body frame (`Q_KA_to_ENU`, `origin_ENU`) and, for `RIGID_DYNAMICS`, its own
+COM offset and inertia (`extra_com_offset_b`, `extra_inertia_b`) from its mesh or points and
+ref points; without ref points the frame keeps the world axes, origin at the wing's COM.
+Without a mesh the inertia comes from the frame points' `extra_mass`; with neither a mesh
+nor point masses, the constructor's inertia stays, or none for a massless wing.
 """
 function setup_wing_frame!(wing, points; prn=true)
     if wing.dynamics_type == RIGID_DYNAMICS
@@ -667,19 +487,19 @@ function setup_wing_frame!(wing, points; prn=true)
         if !isnothing(origin) && !isnothing(z_ref) && !isnothing(y_ref)
             origin_pos = get_ref_position_from_points(
                 points, origin; field=:pos_ENU)
-            wing.pos_ENU .= origin_pos
             R_b_to_w, _ = calc_particle_dynamics_wing_frame(
                 points, z_ref, y_ref, origin; field=:pos_ENU)
-            wing.Q_KA_to_ENU .= rotation_matrix_to_quaternion(R_b_to_w)
             wing.extra_com_offset_b .= R_b_to_w' * (com - origin_pos)
+            wing.Q_KA_to_ENU = rotation_matrix_to_quaternion(R_b_to_w)
+            wing.origin_ENU = origin_pos
         else
-            wing.pos_ENU .= com
-            wing.Q_KA_to_ENU .= SimFloat[1, 0, 0, 0]
             wing.extra_com_offset_b .= 0.0
+            wing.Q_KA_to_ENU = SimFloat[1, 0, 0, 0]
+            wing.origin_ENU = com
         end
         wing.com_offset_b .= wing.extra_com_offset_b
 
-        # The hook returns per-unit-mass inertia [m²] in the world axes of `pos_ENU`.
+        # The hook returns per-unit-mass inertia [m²] in the world axes of `origin_ENU`.
         if !isnothing(inertia_normalized)
             R_initial = initial_rotation(wing)
             wing.extra_inertia_b .=
@@ -719,7 +539,7 @@ function update_mass_properties!(sys_struct; prn=true)
             ", I=$(round.(body.inertia_principal; digits=4))" *
             ", com_offset_b=$(round.(body.com_offset_b; digits=4))"
     end
-    root = connected_body_groups(length(bodies), sys_struct.tubes)
+    root = KiteGeometry.connected_body_groups(length(bodies), structure_tubes(sys_struct))
     for wing in sys_struct.wings
         wing.dynamics_type == PARTICLE_DYNAMICS || continue
         point_idxs, body_idxs = particle_wing_parts(wing, stations, points, bodies, root)
@@ -751,8 +571,7 @@ function combine_carried_points!(body, points, bodies)
     for (mass, position) in carried
         inertia .+= point_mass_inertia(mass, position .- com)
     end
-    inertia_principal, R_b_to_p = body.principal_frame_method == Y_ROTATION ?
-        calc_inertia_y_rotation(inertia) : principal_frame(inertia)
+    inertia_principal, R_b_to_p = principal_axes(inertia, body.principal_frame_method)
     body.total_mass = total_mass
     body.com_offset_b .= com
     body.inertia_principal .= inertia_principal
@@ -788,8 +607,7 @@ of the same structural shape should share one.
 - `points`, `stations`, `segments`, etc.: Vectors of the system components.
 - `vsm_set`: `VSMSettings` for VSM wings; read from the project file's
   `vsm_settings:` when omitted.
-- `ignore_l0::Bool=false`: Set every segment `l0` to its placed length
-  ([`relax_segments!`](@ref)).
+- `ignore_l0::Bool=false`: Set every segment `l0` to its placed length.
 - `placed::Bool=false`: The positions given are the initial pose already: keep them
   and every `l0` instead of running [`place!`](@ref).
 - `prn::Bool=true`: If true, print info messages about auto-generated components.
@@ -799,7 +617,7 @@ of the same structural shape should share one.
 # Returns
 - `SystemStructure`: A complete system ready for building a `SymbolicAWEModel`.
 """
-function SystemStructure(name, set;
+function SystemStructure(name::AbstractString, set;
         points=Point[],
         stations=Station[],
         segments=Segment[],
@@ -811,20 +629,9 @@ function SystemStructure(name, set;
         tubes=Tube[],
         ignore_l0::Bool=false,
         placed::Bool=false,
-        vsm_set=nothing,
         prn::Bool=true,
         definition::Union{Nothing, SystemDefinition}=nothing,
     )
-    # Load VSMSettings if not provided and VSM wings exist
-    has_vsm_wings = any(has_vsm_engine(wing.aero) for wing in wings)
-    if isnothing(vsm_set) && has_vsm_wings
-        vsm_set_path = optional_project_file("vsm_settings")
-        if !isnothing(vsm_set_path)
-            vsm_set = VortexStepMethod.VSMSettings(
-                vsm_set_path; data_prefix=false)
-        end
-    end
-
     # Narrow to a concrete element type only when wings are homogeneous; mixed dynamics keep the broader type.
     if length(wings) > 0
         W = typeof(wings[1])
@@ -834,12 +641,19 @@ function SystemStructure(name, set;
     end
 
     # Expand Route 2 tethers (auto-generate points/segments)
-    expand_auto_tethers!(points, segments, tethers, set)
+    # KiteGeometry's MaterialTable adds the expanded tethers' materials to a Vector
+    materials = isnothing(definition) ? KiteGeometry.Material[] :
+                collect(definition.materials)
+    segments = convert(Vector{Segment}, segments)
+    expand_tethers!(points, segments, tethers, materials, set)
+    materials = Rows(materials)
+    segments = SegmentRow[structure_segment!(materials, segment, set)
+                          for segment in segments]
 
     # Assign indices and resolve all symbolic references to numeric indices.
-    (point_names_dict, station_names_dict,
-     segment_names_dict, pulley_names_dict,
-     tether_names_dict, winch_names_dict, _) =
+    (point_rows, station_rows,
+     segment_rows, pulley_rows,
+     tether_rows, winch_rows, _) =
         assign_indices_and_resolve!(
             points, stations, segments, pulleys, tethers, winches, wings)
 
@@ -864,23 +678,10 @@ function SystemStructure(name, set;
             "of a wing, but it names no wing. Give it a `wing`.")
     end
 
-    # Validate indices (now assigned by assign_indices_and_resolve!)
-    for (i, point) in enumerate(points)
-        @assert point.idx == i "Point $(point.idx) != $i"
-    end
-    for (i, station) in enumerate(stations)
-        @assert station.idx == i
-    end
-    for (i, segment) in enumerate(segments)
-        @assert segment.idx == i
+    for segment in segments
         (segment.l0 ≈ 0) && (segment.l0 = segment_initial_length(segment, points))
-        isnan(segment.density) && (segment.density = set.rho_tether)
     end
-    for (i, pulley) in enumerate(pulleys)
-        @assert pulley.idx == i
-    end
-    for (i, tether) in enumerate(tethers)
-        @assert tether.idx == i
+    for tether in tethers
         # Route 1: auto-detect start/end from segment chain
         if isnothing(tether.start_point_ref) &&
            !isempty(tether.segment_idxs)
@@ -912,28 +713,26 @@ function SystemStructure(name, set;
         setup_wing_frame!(wing, points; prn)
     end
 
-    # Per-mode aero construction (dispatched; no-op for modes without an engine).
-    for (i, wing) in enumerate(wings)
-        @assert wing.idx == i
-        setup_aero!(wing.aero, wing, points, stations; prn, vsm_set)
-    end
+    # A VSM wing's mesh follows the wing's pose as authored, before any placement.
+    foreach(store_mesh_pose!, wings)
 
     # Wings are bodies, placed first so idx stays 1..n_wings (wing arrays index by idx).
     prepend!(bodies, wings)
-    wing_names_dict = build_name_dict(wings)
+    wing_rows = Rows(wings)
     for (i, body) in enumerate(bodies)
         body.idx = i
-        body.wing_idx = resolve_ref(body.wing_ref, wing_names_dict, "wing")
+        body.wing_idx = resolve_ref(body.wing_ref, wing_rows, "wing")
     end
-    rigid_body_names_dict = build_name_dict(bodies)
+    body_rows = Rows(bodies)
 
     # Body-anchored points: resolve the body, deriving anchor_b from pos_ENU when unset.
     for point in points
         point.body_idx = resolve_ref(
-            point.body_ref, rigid_body_names_dict, "rigid_body")
+            point.body_ref, body_rows, "rigid_body")
         # A BODY_STATIC point given only a `wing` rides that wing's own body.
-        if point.type == BODY_STATIC && point.body_idx == 0 && point.wing_idx > 0
-            point.body_idx = point.wing_idx
+        if point.type == BODY_STATIC && point.body_idx == 0 && point.tube_ref == 0 &&
+           point.wing_idx > 0
+            point.body_ref = point.body_idx = point.wing_idx
         elseif point.body_idx > 0 && point.wing_idx > 0 &&
                is_wing(bodies[point.body_idx]) && point.body_idx != point.wing_idx
             error("Point $(point.name): `body` and `wing` name different wings " *
@@ -950,27 +749,27 @@ function SystemStructure(name, set;
     for (i, tube) in enumerate(tubes)
         tube.idx = i
         tube.body_a_idx = resolve_ref(
-            tube.body_a_ref, rigid_body_names_dict, "rigid_body")
+            tube.body_a_ref, body_rows, "rigid_body")
         tube.body_b_idx = resolve_ref(
-            tube.body_b_ref, rigid_body_names_dict, "rigid_body")
+            tube.body_b_ref, body_rows, "rigid_body")
     end
-    tube_names_dict = build_name_dict(tubes)
+    tube_rows = Rows(tubes)
 
     # Stations: resolve owning-wing and (member + flap) body references.
     for station in stations
         station.wing_idx = resolve_ref(
-            station.wing_ref, rigid_body_names_dict, "rigid_body")
-        station.body_idxs = Int64[resolve_ref(ref, rigid_body_names_dict,
+            station.wing_ref, body_rows, "rigid_body")
+        station.body_idxs = Int64[resolve_ref(ref, body_rows,
             "rigid_body") for ref in station.body_refs]
-        station.flap_body_idxs = Int64[resolve_ref(ref, rigid_body_names_dict,
+        station.flap_body_idxs = Int64[resolve_ref(ref, body_rows,
             "rigid_body") for ref in station.flap_body_refs]
-        station.flap_point_idxs = Int64[resolve_ref(ref, point_names_dict,
+        station.flap_point_idxs = Int64[resolve_ref(ref, point_rows,
             "point") for ref in station.flap_point_refs]
     end
 
     # Beam-anchored points: resolve the tube ref, derive beam_frac + offset.
     for point in points
-        point.tube_idx = resolve_ref(point.tube_ref, tube_names_dict, "tube")
+        point.tube_idx = resolve_ref(point.tube_ref, tube_rows, "tube")
         point.tube_idx == 0 && continue
         tube = tubes[point.tube_idx]
         tube.model isa TimoshenkoTube || error("Point $(point.name) rides tube " *
@@ -979,34 +778,26 @@ function SystemStructure(name, set;
     end
 
     # Particle wings carry mass on their (tube-connected) section bodies.
-    body_groups = connected_body_groups(length(bodies), tubes)
+    body_groups = KiteGeometry.connected_body_groups(length(bodies), tubes)
     for wing in wings
         wing.dynamics_type == PARTICLE_DYNAMICS &&
             finalize_particle_wing_mass!(
                 wing, stations, points, bodies, set, body_groups)
     end
 
-    # Name dictionaries were already built by assign_indices_and_resolve!
     wing_bodies = filter(is_wing, bodies)
-    sys_struct = SystemStructure(name,
-        NamedCollection{Point}(points, point_names_dict),
-        NamedCollection{Station}(stations, station_names_dict),
-        NamedCollection{Segment}(segments, segment_names_dict),
-        NamedCollection{Pulley}(pulleys, pulley_names_dict),
-        NamedCollection{Tether}(tethers, tether_names_dict),
-        NamedCollection{Winch}(winches, winch_names_dict),
-        NamedCollection{Body}(bodies, rigid_body_names_dict),
-        NamedCollection{Body}(wing_bodies, build_name_dict(wing_bodies)),
-        NamedCollection{Tube}(tubes, tube_names_dict),
-        vsm_set, definition)
-    placed || place!(sys_struct; ignore_l0, prn)
+    sys_struct = (; name,
+        points=point_rows, stations=station_rows,
+        segments=segment_rows, pulleys=pulley_rows,
+        tethers=tether_rows, winches=winch_rows,
+        bodies=body_rows, wings=Rows(wing_bodies), tubes=tube_rows,
+        materials)
+    isnothing(definition) && (definition = system_definition(sys_struct))
+    placed || place!(definition; ignore_l0)
     init_derived_properties!(sys_struct; prn)
-    isnothing(definition) && attach_definition!(sys_struct)
-
-    # Panel→flap station map (structural; needs placed bodies + built panels).
-    for wing in sys_struct.wings
-        build_panel_station_map!(wing.aero, wing, sys_struct)
-    end
-
-    return sys_struct
+    return definition
 end
+
+"""The rows of the tubes of `sys`, each naming its two bodies by index."""
+structure_tubes(sys) = sys.tubes
+structure_tubes(state::SystemState) = getfield(state, :structure).tubes
