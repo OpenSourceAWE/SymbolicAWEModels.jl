@@ -11,6 +11,7 @@
 
 ### Changed
 
+- The `KernelBackend` hands the solver its right-hand side behind a function wrapper (`AutoSpecialize`) rather than as the model's own type, so the first step after `init!` no longer compiles the solver again for each model: on a 16-kite model the first step fell from 45–50 s to 3 s and the cold start as a whole by about 12 %, with the warm step unchanged. A model bin written before this keeps its old problem until it is rebuilt.
 - A point holds its row of `sys.definition`: setting `extra_mass`, `area`, `drag_coeff`, the dampings, `fix_sphere`, `fix_static` or `pos_ENU` on a point changes the definition too, and a change to the row reads back on the point.
 - A segment holds its row of `sys.definition`: setting `name`, `l0`, `diameter`, `unit_damping`, `compression_frac` or `compression_damping_frac` on a segment changes the definition too, and a change to the row reads back on the segment.
 - A station, a pulley, a tether, a winch, a body and a wing are their rows of `sys.definition`, so a value set on one is the definition's and an unset column reads as its default. A wing is its `bodies` row, reading what that row leaves unset from its `wings` row. A winch's motor dynamics are `winch.model.dynamics`, and `winch.model.<field>` reads and sets them as before; a winch read from a definition takes the `gear_ratio` and `drum_radius` its row gives, the settings' only where the row leaves them unset. A structure document names no `spring` segment model: segments carry SymbolicAWEModels' own.

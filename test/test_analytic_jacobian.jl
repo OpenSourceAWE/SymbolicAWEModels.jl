@@ -14,6 +14,8 @@
 # 5. It stays finite on a `ContinuousAero` wing, whose `aero_panel` kernel is the
 #    widest one the composition differentiates
 # 6. A plan that is not finite errors instead of reaching the solver
+# 7. The solver gets a right-hand side wrapped free of the model's kernel types,
+#    and still the composed Jacobian
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -225,6 +227,20 @@ end
         plain = jacobian_test_model(; analytic_jacobian=false)
         @test isnothing(plain.prob.prob.f.jac)
         @test plain.integrator.t > 0.0
+    end
+
+    @testset "Reaches the solver behind a wrapper, with its Jacobian" begin
+        integrator = sam.integrator
+        @test !(integrator.f.f isa SymbolicAWEModels.KernelRHS)
+        u, p, t = copy(integrator.u), integrator.p, integrator.t
+        prototype = integrator.f.jac_prototype
+        handed = isnothing(prototype) ? zeros(length(u), length(u)) :
+                 fill!(similar(prototype), 0)
+        composed = fill!(similar(handed), 0)
+        integrator.f.jac(handed, u, p, t)
+        sam.prob.prob.f.jac(composed, u, p, t)
+        @test handed == composed
+        @test count(!iszero, handed) > 0
     end
 
     @testset "Errors on a plan that is not finite" begin
