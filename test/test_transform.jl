@@ -596,7 +596,7 @@ using LinearAlgebra
             tf_child = sys.transforms[:kite_tilt]
             design = Pose([KVec3(point.pos_ENU) for point in sys.points],
                           [KVec3(body.origin_ENU) for body in sys.bodies],
-                          [quaternion_to_rotation_matrix(body.Q_KA_to_ENU)
+                          [SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_KA_to_ENU)
                            for body in sys.bodies])
             base_pos = base_position(Pose(sys), sys.transforms, tf_child)
             curr_base_pos = base_position(design, sys.transforms, tf_child)
