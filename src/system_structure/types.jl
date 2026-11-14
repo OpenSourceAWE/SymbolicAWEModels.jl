@@ -646,7 +646,7 @@ function structure_segment!(materials, segment::DraftSegment, set)
 end
 function structure_segment!(materials, segment::SegmentRow, set)
     segment.material isa Integer && return segment
-    segment.material = findfirst(material -> material.name == segment.material, materials)
+    segment.material = KiteGeometry.row_index(materials, segment.material)
     return segment
 end
 

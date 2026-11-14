@@ -641,9 +641,12 @@ function SystemStructure(name::AbstractString, set;
     end
 
     # Expand Route 2 tethers (auto-generate points/segments)
-    materials = isnothing(definition) ? KiteGeometry.Material[] : definition.materials
+    # KiteGeometry's MaterialTable adds the expanded tethers' materials to a Vector
+    materials = isnothing(definition) ? KiteGeometry.Material[] :
+                collect(definition.materials)
     segments = convert(Vector{Segment}, segments)
     expand_tethers!(points, segments, tethers, materials, set)
+    materials = Rows(materials)
     segments = SegmentRow[structure_segment!(materials, segment, set)
                           for segment in segments]
 
