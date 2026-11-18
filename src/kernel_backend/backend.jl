@@ -14,10 +14,9 @@ Jacobian is dense, as the monolith's is. `analytic_jacobian` hands it a
 [`KernelJacobian`](@ref) rather than leaving it to differentiate the right-hand side
 numerically, unless [`build_jacobian`](@ref) declines to plan one; the plan is
 evaluated once at the synchronised initial state and has to be finite there
-([`check_jacobian_finite`](@ref)). `FullSpecialize` because the right-hand side is
-one concrete type, so `SciMLBase`'s function wrappers would only add indirection and
-allocate; it goes on the `ODEFunction` as well as the problem, a bare `ODEFunction`
-being `AutoSpecialize`.
+([`check_jacobian_finite`](@ref)). The problem is `AutoSpecialize`, so the solver
+receives the right-hand side behind a function wrapper rather than as the model's own
+kernel type.
 """
 function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = true,
                      prn = true)
@@ -35,8 +34,8 @@ function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = t
         time = @elapsed jacobian = build_jacobian(rhs; prn)
         prn && println("\tPlanned the analytical Jacobian in $time seconds.")
     end
-    problem = ODEProblem{true, SciMLBase.FullSpecialize}(
-        ODEFunction{true, SciMLBase.FullSpecialize}(
+    problem = ODEProblem{true, SciMLBase.AutoSpecialize}(
+        ODEFunction{true, SciMLBase.AutoSpecialize}(
             rhs; mass_matrix = model.system.mass_matrix,
             jac_prototype = prototype, jac = jacobian),
         model.u0, (0.0, step), model.params)
