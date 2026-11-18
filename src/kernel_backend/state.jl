@@ -409,7 +409,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
         winch.vel = integrator.u[readout.vel]
         winch.acc = scratch.observable[readout.acc]
         winch.friction = scratch.observable[readout.friction]
-        winch.set_value = integrator.p.numeric[readout.set_value]
+        winch.set_value = integrator.p[readout.set_value]
         fill!(winch.force, 0.0)
         winch.force[1] = scratch.observable[readout.force]
         for (tether, slot) in readout.tether_lengths
@@ -496,7 +496,7 @@ end
 
 function (setter::KernelControlSetter)(target, values)
     for (winch, slot) in setter.slots
-        target.p.numeric[slot] = values[winch]
+        target.p[slot] = values[winch]
     end
     return nothing
 end

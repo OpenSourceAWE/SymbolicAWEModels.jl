@@ -298,21 +298,22 @@ end
 """
     KernelModel
 
-An assembled model: the runtime `system`, its initial state and parameters, the
-parameter sync, and the instance index of every point, segment and body, which is
-all the state getter and the control setter need to find their values. A
-`BODY_STATIC` point has two: `point_instances` holds its kinematics and
-`wrench_instances` the load it feeds back (`0` for every other point).
+An assembled model: the runtime `system`, its initial state, its numeric parameters
+and its [`callable_store`](@ref), the parameter sync, and the instance index of every
+point, segment and body, which is all the state getter and the control setter need
+to find their values. A `BODY_STATIC` point has two: `point_instances` holds its
+kinematics and `wrench_instances` the load it feeds back (`0` for every other point).
 `aero_instances` holds each wing's aero instance and `twist_instances` each twist
 surface's, `0` where there is none. `aero_force_instances` holds each point's
 [`AeroPointForce`](@ref) and `inflow_instances` its [`AeroInflowPoint`](@ref), whose
 `va_b` output is the apparent wind the aero is solved on; `0` for a point with
 neither.
 """
-struct KernelModel{S, P}
+struct KernelModel{S, C <: Tuple}
     system::S
     u0::Vector{SimFloat}
-    params::P
+    params::Vector{SimFloat}
+    callables::C
     param_sync::KernelParamSync
     point_instances::Vector{Int}
     wrench_instances::Vector{Int}
@@ -389,13 +390,13 @@ function assemble(sam; verbose = false)
                       for wing in sys_struct.wings]
 
     system = build_system(builder)
-    params, sync = bind_params(system, sys_struct, bindings, segment_roles,
-                               segment_instances)
+    params, callables, sync = bind_params(system, sys_struct, bindings, segment_roles,
+                                          segment_instances)
     apply_constants!(params, system, segment_roles, segment_instances)
     u0 = zeros(SimFloat, system.n_states)
     initial_state!(u0, system, sys_struct, point_roles, point_instances,
                    body_instances, twist_instances)
-    return KernelModel(system, u0, params, sync, point_instances,
+    return KernelModel(system, u0, params, callables, sync, point_instances,
                           wrench_instances, segment_instances, body_instances,
                           point_roles, segment_roles, aero_instances,
                           twist_instances, inflow_instances, aero_force_instances)
@@ -1227,7 +1228,8 @@ end
 
 Fill the parameter buffer with every kernel's build-time defaults, then record the
 live reader for each parameter that is a struct field read, remapped to its own
-instance. Returns `(KernelParams, KernelParamSync)`.
+instance. Returns the numeric buffer, the [`callable_store`](@ref) and the
+[`KernelParamSync`](@ref) writing both.
 """
 function bind_params(system, sys_struct, bindings, segment_roles, segment_instances)
     numeric = zeros(SimFloat, system.n_params)
@@ -1256,7 +1258,7 @@ function bind_params(system, sys_struct, bindings, segment_roles, segment_instan
     bind_segment_winds!(slots, readers, system, sys_struct, segment_instances)
     sync = KernelParamSync(group_readers(slots, readers),
                            group_callables(callable_targets, callable_readers))
-    return KernelParams(numeric, callables), sync
+    return numeric, callables, sync
 end
 
 """
@@ -1339,10 +1341,10 @@ function apply_constants!(params, system, segment_roles, segment_instances)
         instance = segment_instances[idx]
         if role.kind === :pulley
             slot = only(buffer_slots(system, instance, :params, :pulley_side))
-            params.numeric[slot] = role.pulley_side
+            params[slot] = role.pulley_side
         elseif role.kind === :tether
             slot = only(buffer_slots(system, instance, :params, :segment_count))
-            params.numeric[slot] = role.segment_count
+            params[slot] = role.segment_count
         end
     end
     return nothing

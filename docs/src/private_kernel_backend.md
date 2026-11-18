@@ -78,7 +78,6 @@ SymbolicAWEModels.output_reach
 SymbolicAWEModels.expand_reach!
 SymbolicAWEModels.collect_reach!
 SymbolicAWEModels.global_mass_matrix
-SymbolicAWEModels.KernelParams
 SymbolicAWEModels.CallableSlot
 SymbolicAWEModels.write_callable!
 SymbolicAWEModels.CallableGroup
@@ -122,6 +121,7 @@ SymbolicAWEModels.record_build_index!
 SymbolicAWEModels.KernelJacobian
 SymbolicAWEModels.build_jacobian
 SymbolicAWEModels.check_jacobian_finite
+SymbolicAWEModels.wrap_jacobian
 SymbolicAWEModels.KernelDuals
 SymbolicAWEModels.packed_slice
 SymbolicAWEModels.fill_blocks!

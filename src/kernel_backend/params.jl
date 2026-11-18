@@ -1,7 +1,7 @@
 # Copyright (c) 2025 Bart van de Lint
 # SPDX-License-Identifier: LGPL-3.0-only
 
-# The parameter object the runtime evaluates against, and the binding of a kernel's
+# The parameters the runtime evaluates against, and the binding of a kernel's
 # parameters to one instance. A kernel is compiled from one representative
 # component, so its parameters carry that component's index in their recorded path
 # (`(:points, 3, :extra_mass)`). Every other instance of the same kernel reads the
@@ -10,22 +10,8 @@
 # two reads of the same field name can never collide.
 #
 # This is the lowest layer that mentions the `SystemStructure`: the runtime below it
-# sees only integers and buffers, and only ever reads `p.numeric` / `p.callables`.
-
-"""
-    KernelParams(numeric, callables)
-
-The parameter object the assembled `ODEProblem` carries. `numeric` is the flat
-buffer the generated kernels index — its layout is ours, `(instance, slot) → flat
-index`, so the same field read on two instances can never collide. `callables`
-holds the polars and rigidity laws, which cannot live in a numeric buffer: one
-entry per kernel, each a vector holding one instance's callables per element as a
-tuple, so every slot keeps its own type and calling a polar dispatches statically.
-"""
-struct KernelParams{C <: Tuple}
-    numeric::Vector{SimFloat}
-    callables::C
-end
+# sees only integers and buffers: the numeric buffer is the problem's `p`, and the
+# callable store is held by the right-hand side.
 
 """
     CallableSlot(store, position, slot)
@@ -94,9 +80,10 @@ end
 """
     KernelParamSync(groups, callable_groups)
 
-Copies live `SystemStructure` fields into a [`KernelParams`](@ref): the
-[`ReaderGroup`](@ref)s supply `numeric`, the [`CallableGroup`](@ref)s the
-callables. This is the [`KernelBackend`](@ref)'s parameter sync, applied every
+Copies live `SystemStructure` fields into the model's parameters: the
+[`ReaderGroup`](@ref)s into the problem's numeric buffer, the
+[`CallableGroup`](@ref)s into the [`callable_store`](@ref) the right-hand side
+holds. This is the [`KernelBackend`](@ref)'s parameter sync, applied every
 step through the same `ProbWithAttributes` machinery as the monolith's, so it is
 on the hot path twice per step and is grouped by type to stay allocation-free.
 """
@@ -106,7 +93,7 @@ struct KernelParamSync
 end
 
 function sync_params!(sync::KernelParamSync, target, sys_struct)
-    numeric = target.p.numeric
+    numeric = target.p
     for group in sync.groups
         sync_readers!(group, numeric, sys_struct)
     end

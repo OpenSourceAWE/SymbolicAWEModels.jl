@@ -16,6 +16,8 @@
 # 6. A plan that is not finite errors instead of reaching the solver
 # 7. The solver gets the right-hand side behind a function wrapper, and a Jacobian
 #    that matches forward mode
+# 8. Two models with different polars hand the solver the same problem, function and
+#    parameter types, so its compiled code serves both
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -169,19 +171,18 @@ function continuous_wing_model()
     return sam
 end
 
+"""The composed Jacobian `sam`'s problem holds, out of its function wrapper."""
+composed_jacobian(sam) = SciMLBase.unwrapped_f(sam.prob.prob.f.jac)
+
 """
-The Jacobian `f` holds, the composed problem's by default, filled into `f`'s prototype
-and made dense, and a global forward-mode one, at the state.
+The Jacobian `f` holds, the composed problem's by default, and a global forward-mode
+one, at the state.
 """
 function jacobian_pair(sam, f = sam.prob.prob.f)
-    rhs = sam.prob.prob.f.jac.rhs
+    rhs = composed_jacobian(sam).rhs
     integrator = sam.integrator
     u, p, t = copy(integrator.u), integrator.p, integrator.t
-    prototype = f.jac_prototype
-    filled = isnothing(prototype) ? zeros(length(u), length(u)) :
-             fill!(similar(prototype), 0)
-    f.jac(filled, u, p, t)
-    composed = Matrix(filled)
+    composed = dense_jacobian(f, u, p, t)
     reference = ForwardDiff.jacobian((du, x) -> rhs(du, x, p, t), similar(u), copy(u))
     return composed, reference, rhs
 end
@@ -189,6 +190,7 @@ end
 @testset "Analytical Jacobian" begin
     data_path_before = get_data_path()
     sam = jacobian_test_model(; analytic_jacobian=true)
+    wing = continuous_wing_model()
 
     @testset "Matches global forward mode" begin
         composed, reference, _ = jacobian_pair(sam)
@@ -211,7 +213,7 @@ end
         moved = copy(integrator.u)
         moved .+= 0.05 .* (1:length(moved))
         again = zeros(length(moved), length(moved))
-        sam.prob.prob.f.jac(again, moved, integrator.p, integrator.t)
+        composed_jacobian(sam)(again, moved, integrator.p, integrator.t)
         @test again != composed
         reference = ForwardDiff.jacobian(
             (du, x) -> rhs(du, x, integrator.p, integrator.t), similar(moved), moved)
@@ -219,7 +221,6 @@ end
     end
 
     @testset "Stays finite through a ContinuousAero wing's panels" begin
-        wing = continuous_wing_model()
         @test wing.integrator.t > 0.0
         composed, reference, _ = jacobian_pair(wing)
         @test all(isfinite, composed)
@@ -241,8 +242,14 @@ end
         @test maximum(abs, composed .- reference) < 1e-8 * maximum(abs, reference)
     end
 
+    @testset "Hands the solver one problem type for every model" begin
+        @test typeof(wing.prob.prob) == typeof(sam.prob.prob)
+        @test typeof(wing.integrator.p) == typeof(sam.integrator.p)
+        @test typeof(wing.integrator.f) == typeof(sam.integrator.f)
+    end
+
     @testset "Errors on a plan that is not finite" begin
-        jacobian = sam.prob.prob.f.jac
+        jacobian = composed_jacobian(sam)
         integrator = sam.integrator
         @test isnothing(check_jacobian_finite(jacobian, integrator.u, integrator.p))
         broken = fill(NaN, length(integrator.u))

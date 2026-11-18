@@ -336,3 +336,17 @@ function diagnose_rhs(f, du, u, p, t)
     end
     return nothing
 end
+
+"""
+    dense_jacobian(f, u, p, t)
+
+The Jacobian `f.jac` writes at `(u, p, t)`, filled into `f`'s Jacobian prototype, or a
+dense matrix where it has none, and returned dense.
+"""
+function dense_jacobian(f, u, p, t)
+    prototype = f.jac_prototype
+    filled = isnothing(prototype) ? zeros(length(u), length(u)) :
+             fill!(similar(prototype), 0)
+    f.jac(filled, u, p, t)
+    return Matrix(filled)
+end
