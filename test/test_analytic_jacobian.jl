@@ -171,13 +171,19 @@ function continuous_wing_model()
     return sam
 end
 
-"""`jacobian`, the composed one by default, and a global forward-mode one, at the state."""
-function jacobian_pair(sam, jacobian = sam.prob.prob.f.jac)
+"""
+The Jacobian `f` holds, the composed problem's by default, filled into `f`'s prototype
+and made dense, and a global forward-mode one, at the state.
+"""
+function jacobian_pair(sam, f = sam.prob.prob.f)
     rhs = sam.prob.prob.f.jac.rhs
     integrator = sam.integrator
     u, p, t = copy(integrator.u), integrator.p, integrator.t
-    composed = zeros(length(u), length(u))
-    jacobian(composed, u, p, t)
+    prototype = f.jac_prototype
+    filled = isnothing(prototype) ? zeros(length(u), length(u)) :
+             fill!(similar(prototype), 0)
+    f.jac(filled, u, p, t)
+    composed = Matrix(filled)
     reference = ForwardDiff.jacobian((du, x) -> rhs(du, x, p, t), similar(u), copy(u))
     return composed, reference, rhs
 end
@@ -233,7 +239,7 @@ end
     @testset "Reaches the solver behind a wrapper, with its Jacobian" begin
         handed = sam.integrator.f
         @test handed.f isa SciMLBase.FunctionWrappersWrappers.FunctionWrappersWrapper
-        composed, reference, _ = jacobian_pair(sam, handed.jac)
+        composed, reference, _ = jacobian_pair(sam, handed)
         @test maximum(abs, composed .- reference) < 1e-8 * maximum(abs, reference)
     end
 
