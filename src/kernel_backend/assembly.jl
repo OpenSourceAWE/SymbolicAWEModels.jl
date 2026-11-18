@@ -298,11 +298,11 @@ end
 """
     KernelModel
 
-An assembled model: the runtime `system`, its initial state, its numeric
-parameters and the callable ones (see [`callable_store`](@ref)), the parameter sync, and the instance index of every point, segment and body, which is
-all the state getter and the control setter need to find their values. A
-`BODY_STATIC` point has two: `point_instances` holds its kinematics and
-`wrench_instances` the load it feeds back (`0` for every other point).
+An assembled model: the runtime `system`, its initial state, its numeric parameters
+and its [`callable_store`](@ref), the parameter sync, and the instance index of every
+point, segment and body, which is all the state getter and the control setter need
+to find their values. A `BODY_STATIC` point has two: `point_instances` holds its
+kinematics and `wrench_instances` the load it feeds back (`0` for every other point).
 `aero_instances` holds each wing's aero instance and `twist_instances` each twist
 surface's, `0` where there is none. `aero_force_instances` holds each point's
 [`AeroPointForce`](@ref) and `inflow_instances` its [`AeroInflowPoint`](@ref), whose

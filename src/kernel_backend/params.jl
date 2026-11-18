@@ -10,8 +10,8 @@
 # two reads of the same field name can never collide.
 #
 # This is the lowest layer that mentions the `SystemStructure`: the runtime below it
-# sees only integers and buffers, the numeric one the problem's `p` and the callable
-# store the right-hand side's own.
+# sees only integers and buffers: the numeric buffer is the problem's `p`, and the
+# callable store is held by the right-hand side.
 
 """
     CallableSlot(store, position, slot)
