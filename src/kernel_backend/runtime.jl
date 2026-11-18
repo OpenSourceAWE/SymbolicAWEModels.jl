@@ -611,9 +611,10 @@ KernelBuffers{T}(system::KernelSystem) where {T} = KernelBuffers(
     zeros(T, system.n_observables))
 
 """
-    KernelRHS(system)
+    KernelRHS(system, callables)
 
-The callable `(du, u, p, t)` an `ODEProblem` integrates. Each schedule layer
+The callable `(du, u, p, t)` an `ODEProblem` integrates, `p` being the numeric
+parameter buffer and `callables` the [`callable_store`](@ref). Each schedule layer
 gathers the inputs and runs its batches' output maps; once every layer has run the
 inputs are complete and the stateful kernels write their derivatives.
 
@@ -623,15 +624,17 @@ kernel call is statically dispatched. It lives here rather than on the
 is what assembly, parameter binding and the state getter all carry, and the tuple's
 type on it is what made their inference explode.
 """
-struct KernelRHS{S, K <: Tuple}
+struct KernelRHS{S, K <: Tuple, C <: Tuple}
     system::S
     kernels::K
+    callables::C
     scratch::KernelBuffers{SimFloat}
     others::Dict{DataType, Any}
 end
 
-KernelRHS(system::KernelSystem) = KernelRHS(system, Tuple(system.kernels),
-    KernelBuffers{SimFloat}(system), Dict{DataType, Any}())
+KernelRHS(system::KernelSystem, callables::Tuple) = KernelRHS(system,
+    Tuple(system.kernels), callables, KernelBuffers{SimFloat}(system),
+    Dict{DataType, Any}())
 
 """Scratch buffers for element type `T`, allocated on first use. The solver's own
 element type is a field rather than a lookup, so the hot path allocates nothing."""
@@ -649,24 +652,24 @@ function (rhs::KernelRHS)(du, u, p, t)
     system = rhs.system
     kernels = rhs.kernels
     scratch = buffers(rhs, eltype(u))
-    run_layers!(kernels, system, scratch, u, p, t)
+    run_layers!(rhs, scratch, u, p, t)
     run_batches!(derivative_map, kernels, system.state_active,
-                 system.state_batches, p.callables, system.instances, scratch.input,
-                 du, u, p.numeric, t)
+                 system.state_batches, rhs.callables, system.instances, scratch.input,
+                 du, u, p, t)
     return nothing
 end
 
 """Gather and run every schedule layer, leaving the inputs the derivative and
 observable passes read complete."""
-function run_layers!(kernels::Tuple, system::KernelSystem, scratch, u, p, t)
+function run_layers!(rhs::KernelRHS, scratch, u, p, t)
+    system, kernels, callables = rhs.system, rhs.kernels, rhs.callables
     input = scratch.input
     output = scratch.output
     instances = system.instances
-    numeric = p.numeric
     for (index, layer) in enumerate(system.layers)
         gather!(input, output, system.wiring, system.layer_inputs[index])
         run_batches!(output_map, kernels, system.layer_active[index], layer,
-                     p.callables, instances, input, output, u, numeric, t)
+                     callables, instances, input, output, u, p, t)
     end
     gather!(input, output, system.wiring, system.final_inputs)
     return nothing
@@ -682,7 +685,7 @@ costs nothing; walking the whole kernel tuple instead costs a call frame per ker
 per pass.
 
 The buffers arrive as arrays rather than as the `KernelSystem`, `KernelBuffers` and
-`KernelParams` holding them: reaching through those structs inside the loop makes
+`KernelRHS` holding them: reaching through those structs inside the loop makes
 every instance reload the field (a store into `target` may alias the struct) and puts
 a huge type on a call the compiler then declines to inline.
 """
@@ -739,9 +742,9 @@ function refresh_outputs!(rhs::KernelRHS, u, p, t)
     system = rhs.system
     kernels = rhs.kernels
     scratch = buffers(rhs, eltype(u))
-    run_layers!(kernels, system, scratch, u, p, t)
+    run_layers!(rhs, scratch, u, p, t)
     run_batches!(observable_map, kernels, system.observable_active,
-                 system.observable_batches, p.callables, system.instances,
-                 scratch.input, scratch.observable, u, p.numeric, t)
+                 system.observable_batches, rhs.callables, system.instances,
+                 scratch.input, scratch.observable, u, p, t)
     return scratch
 end

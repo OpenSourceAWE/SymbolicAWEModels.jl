@@ -406,7 +406,7 @@ function (jac::KernelJacobian)(J, u, p, t)
 
     for duals in jac.duals
         fill_blocks!(duals, system.kernels[duals.kernel], system, u, input,
-                     p.numeric, p.callables[duals.kernel], t)
+                     p, rhs.callables[duals.kernel], t)
     end
 
     for index in jac.order

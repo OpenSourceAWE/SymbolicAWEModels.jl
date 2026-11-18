@@ -16,6 +16,8 @@
 # 6. A plan that is not finite errors instead of reaching the solver
 # 7. The solver gets the right-hand side behind a function wrapper, and a Jacobian
 #    that matches forward mode
+# 8. Two models with different polars hand the solver the same function and
+#    parameter types, so its compiled code serves both
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -183,6 +185,7 @@ end
 @testset "Analytical Jacobian" begin
     data_path_before = get_data_path()
     sam = jacobian_test_model(; analytic_jacobian=true)
+    wing = continuous_wing_model()
 
     @testset "Matches global forward mode" begin
         composed, reference, _ = jacobian_pair(sam)
@@ -213,7 +216,6 @@ end
     end
 
     @testset "Stays finite through a ContinuousAero wing's panels" begin
-        wing = continuous_wing_model()
         @test wing.integrator.t > 0.0
         composed, reference, _ = jacobian_pair(wing)
         @test all(isfinite, composed)
@@ -233,6 +235,11 @@ end
         @test handed.f isa SciMLBase.FunctionWrappersWrappers.FunctionWrappersWrapper
         composed, reference, _ = jacobian_pair(sam, handed.jac)
         @test maximum(abs, composed .- reference) < 1e-8 * maximum(abs, reference)
+    end
+
+    @testset "Hands the solver one function and parameter type for every model" begin
+        @test typeof(wing.integrator.p) == typeof(sam.integrator.p)
+        @test typeof(wing.integrator.f) == typeof(sam.integrator.f)
     end
 
     @testset "Errors on a plan that is not finite" begin

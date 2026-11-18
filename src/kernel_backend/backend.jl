@@ -7,8 +7,9 @@
     build_prob!(::KernelBackend, sam; sparse=false, analytic_jacobian=true, prn=true)
 
 Assemble `sam.state` into a [`KernelModel`](@ref) and wrap its right-hand side as an
-`ODEProblem`. The problem's parameter object is our own flat buffer plus the
-callable store, so `sync_params!` writes struct fields straight into it. `sparse`
+`ODEProblem`. The problem's parameter object is our own flat numeric buffer and the
+right-hand side holds the callable store, so `sync_params!` writes struct fields
+straight into both and the parameter's type is the same for every model. `sparse`
 hands the solver [`state_sparsity`](@ref) as the Jacobian prototype; without it the
 Jacobian is dense, as the monolith's is. `analytic_jacobian` hands it a
 [`KernelJacobian`](@ref) rather than leaving it to differentiate the right-hand side
@@ -26,7 +27,7 @@ function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = t
                 "$(length(model.system.instances)) instances in $time seconds.")
         print_kernel_times(model.system)
     end
-    rhs = KernelRHS(model.system)
+    rhs = KernelRHS(model.system, model.callables)
     step = SimFloat(1 / sam.set.sample_freq)
     prototype = sparse ? SimFloat.(model.system.sparsity) : nothing
     jacobian = nothing

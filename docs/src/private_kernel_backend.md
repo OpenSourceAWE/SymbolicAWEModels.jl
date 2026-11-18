@@ -78,7 +78,6 @@ SymbolicAWEModels.output_reach
 SymbolicAWEModels.expand_reach!
 SymbolicAWEModels.collect_reach!
 SymbolicAWEModels.global_mass_matrix
-SymbolicAWEModels.KernelParams
 SymbolicAWEModels.CallableSlot
 SymbolicAWEModels.write_callable!
 SymbolicAWEModels.CallableGroup
