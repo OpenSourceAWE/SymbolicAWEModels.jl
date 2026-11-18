@@ -15,9 +15,8 @@ Jacobian is dense, as the monolith's is. `analytic_jacobian` hands it a
 [`KernelJacobian`](@ref) rather than leaving it to differentiate the right-hand side
 numerically, unless [`build_jacobian`](@ref) declines to plan one; the plan is
 evaluated once at the synchronised initial state and has to be finite there
-([`check_jacobian_finite`](@ref)). The problem is `AutoSpecialize`, so the solver
-receives the right-hand side behind a function wrapper rather than as the model's own
-kernel type.
+([`check_jacobian_finite`](@ref)). The right-hand side and the Jacobian go into the
+problem behind function wrappers, so the problem's type is the same for every model.
 """
 function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = true,
                      prn = true)
@@ -35,11 +34,13 @@ function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = t
         time = @elapsed jacobian = build_jacobian(rhs; prn)
         prn && println("\tPlanned the analytical Jacobian in $time seconds.")
     end
-    problem = ODEProblem{true, SciMLBase.AutoSpecialize}(
-        ODEFunction{true, SciMLBase.AutoSpecialize}(
-            rhs; mass_matrix = model.system.mass_matrix,
-            jac_prototype = prototype, jac = jacobian),
-        model.u0, (0.0, step), model.params)
+    arguments = (model.u0, model.u0, model.params, zero(step))
+    problem = ODEProblem(
+        ODEFunction{true, SciMLBase.FunctionWrapperSpecialize}(
+            SciMLBase.wrapfun_iip(rhs, arguments);
+            mass_matrix = model.system.mass_matrix, jac_prototype = prototype,
+            jac = wrap_jacobian(jacobian, prototype, arguments)),
+        model.u0, (zero(step), step), model.params)
     sync_params!(model.param_sync, problem, sam.state)
     isnothing(jacobian) || check_jacobian_finite(jacobian, problem.u0, problem.p)
     sam.prob = ProbWithAttributes(; prob = problem,
@@ -48,6 +49,21 @@ function build_prob!(::KernelBackend, sam; sparse = false, analytic_jacobian = t
         get_set_values = nothing, get_aero_input = nothing,
         get_all_state = KernelStateGetter(model, rhs, sam.state))
     return true
+end
+
+"""
+    wrap_jacobian(jacobian, prototype, (du, u, p, t))
+
+`jacobian` behind a function wrapper taking `prototype`'s matrix type, or a dense
+matrix where `prototype` is `nothing`, with the right-hand side's `u`, `p` and `t`.
+`nothing` where `jacobian` is.
+"""
+wrap_jacobian(::Nothing, prototype, arguments) = nothing
+function wrap_jacobian(jacobian, prototype, (du, u, p, t))
+    matrix = isnothing(prototype) ? Matrix{eltype(u)} : typeof(prototype)
+    return SciMLBase.FunctionWrappersWrappers.FunctionWrappersWrapper(
+        SciMLBase.Void(jacobian), (Tuple{matrix, typeof(u), typeof(p), typeof(t)},),
+        (Nothing,))
 end
 
 """

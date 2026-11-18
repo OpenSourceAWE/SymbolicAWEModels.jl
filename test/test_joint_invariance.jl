@@ -272,10 +272,10 @@ log_decrement(zeta) = exp(-2π * zeta / sqrt(1 - zeta^2))
         integ = sam.integrator
         isnothing(integ.f.jac) && continue
         u = copy(integ.u); p = integ.p; t = integ.t
-        analytic = zeros(length(u), length(u))
-        integ.f.jac(analytic, u, p, t)
+        analytic = dense_jacobian(integ.f, u, p, t)
+        rhs = SymbolicAWEModels.SciMLBase.unwrapped_f(integ.f.f)
         forward = SymbolicAWEModels.ForwardDiff.jacobian(
-            (du, x) -> integ.f(du, x, p, t), similar(u), u)
+            (du, x) -> rhs(du, x, p, t), similar(u), u)
         scale = max(maximum(abs, forward), eps())
         @info "$label: Jacobian" maxdiff=maximum(abs, analytic .- forward) scale
         @test maximum(abs, analytic .- forward) < 1e-6 * scale
