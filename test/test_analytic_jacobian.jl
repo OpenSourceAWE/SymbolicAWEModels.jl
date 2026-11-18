@@ -242,7 +242,7 @@ end
         @test maximum(abs, composed .- reference) < 1e-8 * maximum(abs, reference)
     end
 
-    @testset "Hands the solver one problem, function and parameter type for every model" begin
+    @testset "Hands the solver one problem type for every model" begin
         @test typeof(wing.prob.prob) == typeof(sam.prob.prob)
         @test typeof(wing.integrator.p) == typeof(sam.integrator.p)
         @test typeof(wing.integrator.f) == typeof(sam.integrator.f)
