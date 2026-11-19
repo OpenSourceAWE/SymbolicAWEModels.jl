@@ -76,12 +76,12 @@ function scalar_eqs!(
         rel_pos = base_point == 0 ? wing_pos[:, wing.idx] :
             wing_pos[:, wing.idx] .- pos[:, base_point]
 
-        has_stations = !isempty(wing.station_idxs)
-        half_len = has_stations ?
-            wing.station_idxs[1] +
-            length(wing.station_idxs) ÷ 2 - 1 : 0
-        twist_offset = has_stations ?
-            0.5 * twist_angle[half_len] + 0.5 * twist_angle[half_len + 1] : 0
+        # The twist at the middle of the span: of its middle station, or the mean of two.
+        n_stations = length(wing.station_idxs)
+        first_station = n_stations > 0 ? wing.station_idxs[1] : 0
+        twist_offset = n_stations > 0 ?
+            0.5 * twist_angle[first_station + (n_stations - 1) ÷ 2] +
+            0.5 * twist_angle[first_station + n_stations ÷ 2] : 0
 
         scalars = wing_scalar_kinematics(;
             rel_pos,
