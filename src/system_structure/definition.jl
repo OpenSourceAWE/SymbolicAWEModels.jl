@@ -125,14 +125,10 @@ function tube_row!(materials, sys, tube)
     anchors = (Vector(tube.anchor_a_b - body_a.extra_com_offset_b),
                Vector(tube.anchor_b_b - body_b.extra_com_offset_b))
     model = tube.model
-    linear(field) = (value = getfield(model, field); value isa Real ? value : nothing)
+    rigidities = map(field -> getfield(model, field), rigidity_fields(model))
     row_model = model isa ElasticTube ?
-        ElasticTubeModel(linear(:stiffness_axial), linear(:stiffness_shear),
-                         linear(:stiffness_torsion), linear(:stiffness_bending),
-                         model.damping, anchors...) :
-        TimoshenkoTubeModel(linear(:EA), linear(:GA), linear(:GJ), linear(:EIy),
-                            linear(:EIz), model.shear_coeff, model.damping, anchors...)
-    row_model.simulated = tube
+        ElasticTubeModel(rigidities..., model.damping, anchors...) :
+        TimoshenkoTubeModel(rigidities..., model.shear_coeff, model.damping, anchors...)
     return KiteGeometry.Tube(; name=definition_name(tube),
         bodies=(tube.body_a_idx, tube.body_b_idx), tube.diameter, tube.pressure,
         material=material!(materials, string(tube.law), tube_law_parameters(tube.law)),

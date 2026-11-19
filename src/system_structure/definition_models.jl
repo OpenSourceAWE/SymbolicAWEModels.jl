@@ -244,10 +244,10 @@ $(TYPEDFIELDS)
     start_point_idx::Int64 = 0
     "Index of the tether's end point; 0 for none."
     end_point_idx::Int64 = 0
-    "Number of segments a tether given by its end points is split into."
+    "Number of segments a tether given by its end points is split into at build."
     n_segments::Int64 = 0
     "Keywords of [`settings_segment`](@ref) for each segment a tether given by its end
-    points generates; `NaN` from the settings."
+    points is split into at build; `NaN` from the settings."
     segment_columns::NamedTuple = (;)
 end
 
@@ -314,21 +314,22 @@ end
     TimoshenkoTubeModel
 
 The columns of a KiteGeometry `tubes` row with model `timoshenko`, a
-[`TimoshenkoTube`](@ref), each `nothing` where the row leaves it unset.
+[`TimoshenkoTube`](@ref), each `nothing` where the row leaves it unset. A rigidity is a number or, in a
+structure built in Julia, a callable of its strain or curvature.
 
 $(TYPEDFIELDS)
 """
 mutable struct TimoshenkoTubeModel <: KiteGeometry.AbstractModel
     "Axial rigidity [N]."
-    EA::Union{Nothing, Float64}
+    EA::Any
     "Shear rigidity [N]."
-    GA::Union{Nothing, Float64}
+    GA::Any
     "Torsional rigidity [N·m²]."
-    GJ::Union{Nothing, Float64}
+    GJ::Any
     "Bending rigidity about the y-axis [N·m²]."
-    EIy::Union{Nothing, Float64}
+    EIy::Any
     "Bending rigidity about the z-axis [N·m²]."
-    EIz::Union{Nothing, Float64}
+    EIz::Any
     "Shear correction coefficient."
     shear_coeff::Union{Nothing, Float64}
     "Rayleigh damping, damping over stiffness [s]."
@@ -337,11 +338,6 @@ mutable struct TimoshenkoTubeModel <: KiteGeometry.AbstractModel
     anchor_a::Union{Nothing, Vector{Float64}}
     "Tube end in the second body's frame [m]."
     anchor_b::Union{Nothing, Vector{Float64}}
-    "The element a structure built in Julia is simulated as, `nothing` for one read from a
-    document."
-    simulated::Any
-    TimoshenkoTubeModel(EA, GA, GJ, EIy, EIz, shear_coeff, damping, anchor_a, anchor_b) =
-        new(EA, GA, GJ, EIy, EIz, shear_coeff, damping, anchor_a, anchor_b, nothing)
 end
 KiteGeometry.model_columns(::Type{TimoshenkoTubeModel}) =
     (:EA, :GA, :GJ, :EIy, :EIz, :shear_coeff, :damping, :anchor_a, :anchor_b)
@@ -351,32 +347,26 @@ KiteGeometry.model_columns(::Type{TimoshenkoTubeModel}) =
     ElasticTubeModel
 
 The columns of a KiteGeometry `tubes` row with model `elastic`, an
-[`ElasticTube`](@ref), each `nothing` where the row leaves it unset.
+[`ElasticTube`](@ref), each `nothing` where the row leaves it unset. A stiffness is a number or, in a
+structure built in Julia, a callable of its strain or angle.
 
 $(TYPEDFIELDS)
 """
 mutable struct ElasticTubeModel <: KiteGeometry.AbstractModel
     "Axial stiffness [N/m]."
-    stiffness_axial::Union{Nothing, Float64}
+    stiffness_axial::Any
     "Shear stiffness [N/m]."
-    stiffness_shear::Union{Nothing, Float64}
+    stiffness_shear::Any
     "Torsional stiffness [N·m/rad]."
-    stiffness_torsion::Union{Nothing, Float64}
+    stiffness_torsion::Any
     "Bending stiffness [N·m/rad]."
-    stiffness_bending::Union{Nothing, Float64}
+    stiffness_bending::Any
     "Rayleigh damping, damping over stiffness [s]."
     damping::Union{Nothing, Float64}
     "Tube end in the first body's frame [m]."
     anchor_a::Union{Nothing, Vector{Float64}}
     "Tube end in the second body's frame [m]."
     anchor_b::Union{Nothing, Vector{Float64}}
-    "The element a structure built in Julia is simulated as, `nothing` for one read from a
-    document."
-    simulated::Any
-    ElasticTubeModel(stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending,
-                     damping, anchor_a, anchor_b) =
-        new(stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping,
-            anchor_a, anchor_b, nothing)
 end
 KiteGeometry.model_columns(::Type{ElasticTubeModel}) =
     (:stiffness_axial, :stiffness_shear, :stiffness_torsion, :stiffness_bending,

@@ -87,9 +87,8 @@ function expand_tethers!(points::Vector{Point}, segments::AbstractVector,
                    (:init_stretched_length, :init_tether_force, :init_stretch_frac))...)
         expanded = KiteGeometry.expand_tether!(points, segments, point_transforms,
             tether.name, tether.start_point_ref, tether.end_point_ref, tether.n_segments,
-            set, table; init, model=tether.model, segment_model=spring, line...)
+            set, table; init, model=TetherModel(), segment_model=spring, line...)
         tethers[i] = expanded
-        expanded.model.segment_columns = (;)
     end
     return nothing
 end

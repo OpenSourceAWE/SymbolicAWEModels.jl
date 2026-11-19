@@ -178,15 +178,19 @@ function definition_tube(definition, tube)
     tube_model = tube.model
     columns = (; (field => getfield(tube_model, field)
                   for field in fieldnames(typeof(tube_model))
-                  if !(field in (:anchor_a, :anchor_b, :simulated)) &&
+                  if !(field in (:anchor_a, :anchor_b)) &&
                      !isnothing(getfield(tube_model, field)))...)
     model = tube_model isa ElasticTubeModel ? ElasticTube(; columns...) :
         TimoshenkoTube(; columns...)
+    # Row anchors are from each body's mass centre, a Tube's from its frame origin.
+    com_offsets = map(idx -> body_model(definition.bodies[idx]).extra_com_offset_b,
+                      tube.bodies)
+    anchors = map((anchor, offset) -> something(anchor, zeros(3)) + offset,
+                  (tube_model.anchor_a, tube_model.anchor_b), com_offsets)
     return Tube(row_name(tube), name_of.((definition.bodies,), tube.bodies)...;
         tube.diameter, tube.pressure,
         law=definition.materials[tube.material].law, model,
-        set_kwargs(:anchor_a => tube_model.anchor_a,
-                   :anchor_b => tube_model.anchor_b)...)
+        anchor_a=anchors[1], anchor_b=anchors[2])
 end
 
 """

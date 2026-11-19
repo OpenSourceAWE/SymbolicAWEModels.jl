@@ -187,7 +187,6 @@ function run_tubes(sys)
 end
 function run_tube(sys, tube)
     tube.model isa AbstractTubeModel && return tube
-    isnothing(tube.model.simulated) || return tube.model.simulated
     return definition_tube(sys, tube)
 end
 

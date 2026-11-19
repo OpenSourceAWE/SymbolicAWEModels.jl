@@ -1066,7 +1066,7 @@ function Tether(name, segments::AbstractVector, stretched_length=nothing;
               "len) and pass winch_point to the " *
               "Winch constructor.")
     end
-    model = TetherModel(; n_segments=length(segments))
+    model = TetherModel()
     return tether_row(name, segments, start_point, end_point, stretched_length,
                       tether_force, stretch_frac, model)
 end
