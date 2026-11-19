@@ -126,7 +126,6 @@ SymbolicAWEModels.segment_spring
 SymbolicAWEModels.set_material_stiffness!
 SymbolicAWEModels.station_tether_load
 SymbolicAWEModels.structure_segment!
-SymbolicAWEModels.structure_stations
 SymbolicAWEModels.typed_rows
 SymbolicAWEModels.winch_force_vector
 SymbolicAWEModels.wing_bodies

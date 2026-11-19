@@ -247,7 +247,7 @@ SymbolicAWEModels.calc_particle_dynamics_wing_frame
 SymbolicAWEModels.principal_frame
 SymbolicAWEModels.calc_inertia_y_rotation
 SymbolicAWEModels.point_mass_inertia
-SymbolicAWEModels.is_wing
+SymbolicAWEModels.has_aero
 SymbolicAWEModels.wing_dynamics
 SymbolicAWEModels.WingDynamics
 SymbolicAWEModels.RigidDynamics

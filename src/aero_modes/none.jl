@@ -11,10 +11,11 @@ rigid/kinematic body. Needs no VSM geometry and carries no state.
 """
 struct AeroNone <: AbstractAeroModel end
 
-"""A wing is a `Body` carrying aerodynamics; `Body{AeroNone}` is a plain body."""
-is_wing(::Body{AeroNone}) = false
-is_wing(::Body) = true
-is_wing(body::BodyState) = is_wing(body.row)
+"""Whether `body` flies with aerodynamics: a plain body and a wing flown with `AeroNone`
+do not."""
+has_aero(::Body{AeroNone}) = false
+has_aero(::Body) = true
+has_aero(body::BodyState) = has_aero(body.row)
 
 is_builtin_aero(::AeroNone) = true
 aero_mode_tag(::Type{AeroNone}) = "none"

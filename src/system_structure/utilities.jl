@@ -383,9 +383,9 @@ The KiteGeometry `Pose` `state` stands in: the position of each point, and the o
 and frame of each body.
 """
 KiteGeometry.Pose(state::SystemState) =
-    Pose([KiteGeometry.Vec3(point.pos_w) for point in state.points],
-         [KiteGeometry.Vec3(body.pos_w) for body in state.bodies],
-         [KiteGeometry.Mat3(body.R_b_to_w) for body in state.bodies])
+    Pose([SVector{3, Float64}(point.pos_w) for point in state.points],
+         [SVector{3, Float64}(body.pos_w) for body in state.bodies],
+         [SMatrix{3, 3, Float64}(body.R_b_to_w) for body in state.bodies])
 
 """Put the points and bodies of `state` where `pose` has them."""
 function set_pose!(state::SystemState, pose)

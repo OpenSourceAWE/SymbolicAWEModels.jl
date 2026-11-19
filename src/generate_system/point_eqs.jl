@@ -196,7 +196,7 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
         rigid_wing_node = point.is_wing_node &&
             s.state.bodies[point.wing_idx].dynamics_type == RIGID_DYNAMICS
         aero_force_w = (!rigid_wing_node && point.is_wing_node &&
-                        is_wing(s.state.bodies[point.wing_idx])) ?
+                        has_aero(s.state.bodies[point.wing_idx])) ?
             collect(R_b_to_w[:, :, point.wing_idx] *
                     aero_force_point_b[:, point.idx]) : zeros(Num, 3)
         carries_gravity = carrier_body_idx(point, s.state.bodies) == 0

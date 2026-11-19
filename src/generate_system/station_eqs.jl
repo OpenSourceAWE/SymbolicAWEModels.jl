@@ -141,7 +141,7 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
         )
 
         # An AeroNone owner drives no aero moment; aero_eqs! never sets it.
-        no_aero = !is_wing(wing)
+        no_aero = !has_aero(wing)
         no_aero &&
             (eqs = [eqs; station_aero_moment[station.idx] ~ 0])
 

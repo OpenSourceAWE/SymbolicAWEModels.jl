@@ -5,22 +5,16 @@
     system_definition(sys::SystemStructure) -> SystemDefinition
 
 The KiteGeometry definition of `sys` in its initial pose: its components as rows, every
-reference an index, a station only where it is a wing's, what only SymbolicAWEModels
-reads in the models it registers ([`register_definition_models`](@ref)), and each body at
-the centre of its own mass.
+reference an index, what only SymbolicAWEModels reads in the models it registers
+([`register_definition_models`](@ref)), and each body at the centre of its own mass.
 """
 function system_definition(sys)
     materials = sys.materials
-    for station in sys.stations
-        isnothing(station_wing_idx(sys, station)) || continue
-        push!(body_model(sys.bodies[station.wing_idx]).stations_without_wing, station)
-    end
     return SystemDefinition(;
         metadata=Metadata(; name=sys.name, n_points=length(sys.points)),
         points=[point_row!(point) for point in sys.points],
         segments=collect(sys.segments),
-        spanwise_stations=[station_row(sys, station) for station in sys.stations
-                           if !isnothing(station_wing_idx(sys, station))],
+        spanwise_stations=[station_row(sys, station) for station in sys.stations],
         pulleys=collect(sys.pulleys),
         tethers=[with_ends!(tether) for tether in sys.tethers],
         winches=[winch_row!(winch) for winch in sys.winches],
@@ -50,11 +44,14 @@ function station_row(sys, station)
     return station
 end
 
-"""The wing whose twist `station` carries: its own, else the one listing it, `nothing`
-for a station of a body that is no wing."""
+"""The wing whose twist `station` carries: its own, else the one listing it, refusing a
+station on no wing."""
 function station_wing_idx(sys, station)
     station.wing_idx in eachindex(sys.wings) && return station.wing_idx
-    return findfirst(wing -> station.idx in wing.station_idxs, sys.wings)
+    idx = findfirst(wing -> station.idx in wing.station_idxs, sys.wings)
+    isnothing(idx) && error("Station $(station.name) is on no wing: a spanwise station " *
+                            "is part of a wing.")
+    return idx
 end
 
 """`point` naming the body and the tube it rides by the indices they resolve to."""

@@ -12,7 +12,7 @@ wing has per-node forces.
 function point_aero_force_array(sys_struct, sys)
     hasproperty(sys, :aero_force_point_b) || return nothing
     particle_node(point) = point.is_wing_node &&
-        is_wing(sys_struct.bodies[point.wing_idx]) &&
+        has_aero(sys_struct.bodies[point.wing_idx]) &&
         sys_struct.bodies[point.wing_idx].dynamics_type == PARTICLE_DYNAMICS
     any(particle_node, sys_struct.points) || return nothing
     force = [particle_node(point) ?

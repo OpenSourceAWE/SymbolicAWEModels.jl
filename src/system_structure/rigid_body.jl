@@ -104,8 +104,6 @@ $(TYPEDFIELDS)
     aero_z_offset::SimFloat = 0.0
     "The unsteady corrections of a wing's aerodynamics."
     unsteady::UnsteadyAero = UnsteadyAero()
-    "The stations of this body that no wing owns."
-    stations_without_wing::Vector{Any} = Any[]
 end
 
 BodyModel(type, wing, angular_damping, world_frame_damping, body_frame_damping,

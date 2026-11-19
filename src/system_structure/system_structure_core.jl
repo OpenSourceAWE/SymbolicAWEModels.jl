@@ -9,8 +9,7 @@
 The old name of KiteGeometry's `SystemDefinition`: a kite system's points, segments,
 tethers, winches, wings, bodies and tubes as rows of the same type a structure document
 holds. Its `wings` are KiteGeometry's rows, each a wing's frame; a wing's body is the first
-of `bodies` under the same name. `sys.stations` lists the `spanwise_stations` and the
-stations a body that is no wing owns, kept on that body.
+of `bodies` under the same name. `sys.stations` is its `spanwise_stations`.
 """
 const SystemStructure = KiteGeometry.SystemDefinition
 
@@ -18,17 +17,8 @@ const SystemStructure = KiteGeometry.SystemDefinition
 wing_bodies(sys) = sys.wings
 wing_bodies(sys::KiteGeometry.SystemDefinition) = view(sys.bodies, 1:length(sys.wings))
 
-"""The stations of `sys`: its `spanwise_stations`, then the ones no wing owns."""
-function structure_stations(sys)
-    stations = collect(Station, getfield(sys, :spanwise_stations))
-    for body in getfield(sys, :bodies)
-        append!(stations, body_model(body).stations_without_wing)
-    end
-    return Rows(stations)
-end
-
 function Base.getproperty(sys::KiteGeometry.SystemDefinition, name::Symbol)
-    name === :stations && return structure_stations(sys)
+    name === :stations && return getfield(sys, :spanwise_stations)
     name === :name && return getfield(getfield(sys, :metadata), :name)
     return getfield(sys, name)
 end
@@ -161,16 +151,17 @@ function distribute_mass_over_points!(points, point_idxs, mass)
 end
 
 """
-    particle_wing_parts(wing, stations, points, bodies, root)
+    particle_wing_parts(wing, stations, points, bodies, wings, root)
         -> (point_idxs, body_idxs)
 
-The member points of a PARTICLE_DYNAMICS `wing` and the non-wing bodies sharing a
-beam component (`root`, from KiteGeometry's `connected_body_groups`) with its structure,
-which carry its mass. The components are seeded from its stations' member/flap
-bodies and the bodies its member points ride. Members are the union of the wing's
-station points, falling back to `wing_frame_member` points when it has no stations.
+The member points of a PARTICLE_DYNAMICS `wing` and the bodies other than `wings` (the
+first of `bodies`) sharing a beam component (`root`, from KiteGeometry's
+`connected_body_groups`) with its structure, which carry its mass. The components are
+seeded from its stations' member/flap bodies and the bodies its member points ride.
+Members are the union of the wing's station points, falling back to `wing_frame_member`
+points when it has no stations.
 """
-function particle_wing_parts(wing, stations, points, bodies, root)
+function particle_wing_parts(wing, stations, points, bodies, wings, root)
     seed_roots = Set{Int64}()
     point_idxs = Set{Int64}()
     for station_idx in wing.station_idxs
@@ -190,8 +181,8 @@ function particle_wing_parts(wing, stations, points, bodies, root)
         body_idx = points[idx].body_idx
         body_idx != 0 && body_idx != wing.idx && push!(seed_roots, root[body_idx])
     end
-    body_idxs = [body_idx for (body_idx, body) in enumerate(bodies)
-                 if !is_wing(body) && root[body_idx] in seed_roots]
+    body_idxs = [body_idx for body_idx in eachindex(bodies)
+                 if body_idx ∉ eachindex(wings) && root[body_idx] in seed_roots]
     return point_idxs, body_idxs
 end
 
@@ -203,8 +194,9 @@ they nor its section bodies (see [`particle_wing_parts`](@ref)) carry `extra_mas
 warning when that leaves the wing massless. Deferred until point/station→body and
 tube→body references resolve.
 """
-function finalize_particle_wing_mass!(wing, stations, points, bodies, set, root)
-    point_idxs, body_idxs = particle_wing_parts(wing, stations, points, bodies, root)
+function finalize_particle_wing_mass!(wing, stations, points, bodies, wings, set, root)
+    point_idxs, body_idxs = particle_wing_parts(wing, stations, points, bodies, wings,
+                                                root)
     own_mass = sum(points[idx].extra_mass for idx in point_idxs; init=0.0) +
         sum(bodies[idx].extra_mass for idx in body_idxs; init=0.0)
     own_mass > 0 && return nothing
@@ -534,7 +526,8 @@ function update_mass_properties!(sys_struct; prn=true)
         for station_idx in body.station_idxs
             stations[station_idx].le_pos .+= old_com_offset .- body.com_offset_b
         end
-        prn && is_wing(body) && @info "RIGID_DYNAMICS wing $(body.idx):" *
+        prn && body.idx in eachindex(sys_struct.wings) &&
+            @info "RIGID_DYNAMICS wing $(body.idx):" *
             " total_mass=$(round(body.total_mass; digits=3))" *
             ", I=$(round.(body.inertia_principal; digits=4))" *
             ", com_offset_b=$(round.(body.com_offset_b; digits=4))"
@@ -542,7 +535,8 @@ function update_mass_properties!(sys_struct; prn=true)
     root = KiteGeometry.connected_body_groups(length(bodies), structure_tubes(sys_struct))
     for wing in sys_struct.wings
         wing.dynamics_type == PARTICLE_DYNAMICS || continue
-        point_idxs, body_idxs = particle_wing_parts(wing, stations, points, bodies, root)
+        point_idxs, body_idxs = particle_wing_parts(wing, stations, points, bodies,
+                                                    sys_struct.wings, root)
         wing.total_mass = sum(points[idx].total_mass for idx in point_idxs
                               if carrier_body_idx(points[idx], bodies) == 0; init=0.0) +
             sum(bodies[idx].total_mass for idx in body_idxs; init=0.0)
@@ -734,7 +728,7 @@ function SystemStructure(name::AbstractString, set;
            point.wing_idx > 0
             point.body_ref = point.body_idx = point.wing_idx
         elseif point.body_idx > 0 && point.wing_idx > 0 &&
-               is_wing(bodies[point.body_idx]) && point.body_idx != point.wing_idx
+               point.body_idx in eachindex(wings) && point.body_idx != point.wing_idx
             error("Point $(point.name): `body` and `wing` name different wings " *
                 "(body $(point.body_idx) vs wing $(point.wing_idx)); a wing is a " *
                 "body, so they must reference the same one.")
@@ -782,15 +776,14 @@ function SystemStructure(name::AbstractString, set;
     for wing in wings
         wing.dynamics_type == PARTICLE_DYNAMICS &&
             finalize_particle_wing_mass!(
-                wing, stations, points, bodies, set, body_groups)
+                wing, stations, points, bodies, wings, set, body_groups)
     end
 
-    wing_bodies = filter(is_wing, bodies)
     sys_struct = (; name,
         points=point_rows, stations=station_rows,
         segments=segment_rows, pulleys=pulley_rows,
         tethers=tether_rows, winches=winch_rows,
-        bodies=body_rows, wings=Rows(wing_bodies), tubes=tube_rows,
+        bodies=body_rows, wings=wing_rows, tubes=tube_rows,
         materials)
     isnothing(definition) && (definition = system_definition(sys_struct))
     placed || place!(definition; ignore_l0)
