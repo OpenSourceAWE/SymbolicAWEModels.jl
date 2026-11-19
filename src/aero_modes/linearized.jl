@@ -16,7 +16,7 @@ end
 AeroLinearized() = AeroSpec{AeroLinearized}()
 
 is_builtin_aero(::AeroLinearized) = true
-aero_mode_tag(::AeroLinearized) = "lin"
+aero_mode_tag(::Type{<:AeroLinearized}) = "lin"
 
 function aero_component(::AeroLinearized, wing::RigidWingState, sys_struct; name, params)
     wing_idx = wing.idx

@@ -48,13 +48,16 @@ has_vsm_wing(sys_struct) =
 """
     aero_mode_tag(mode::AbstractAeroModel) -> String
 
-Short identifier for the mode in the compiled-model cache filename. Required: the
-`AbstractAeroModel` fallback errors, so every aero mode must declare its own tag
-(no silent default that could collide two distinct modes on one cache file).
-Built-ins: `"lin"`, `"dir"`, `"cont"`, `"press"`, `"none"`, `"plate"`.
+Short identifier for the mode in the compiled-model cache filename, the same for a mode
+and for the [`AeroSpec`](@ref) a structure holds of it. Required: an aero mode declares
+its tag on its instance or its type, else this errors, so no silent default collides two
+distinct modes on one cache file. Built-ins: `"lin"`, `"dir"`, `"cont"`, `"press"`,
+`"none"`, `"plate"`.
 """
-aero_mode_tag(mode::AbstractAeroModel) = error(
-    "aero_mode_tag is not defined for aero mode $(typeof(mode)); " *
+aero_mode_tag(mode::AbstractAeroModel) = aero_mode_tag(typeof(mode))
+aero_mode_tag(::AeroSpec{M}) where {M} = aero_mode_tag(M)
+aero_mode_tag(M::Type) = error(
+    "aero_mode_tag is not defined for aero mode $M; " *
     "every aero mode must provide its own cache tag.")
 
 # ==================== interface: diagnostics ==================== #

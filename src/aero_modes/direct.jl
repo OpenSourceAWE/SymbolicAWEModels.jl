@@ -16,7 +16,7 @@ end
 AeroDirect() = AeroSpec{AeroDirect}()
 
 is_builtin_aero(::AeroDirect) = true
-aero_mode_tag(::AeroDirect) = "dir"
+aero_mode_tag(::Type{<:AeroDirect}) = "dir"
 
 """
     aero_component(::AeroDirect, wing::ParticleWingState, sys_struct; name, params)

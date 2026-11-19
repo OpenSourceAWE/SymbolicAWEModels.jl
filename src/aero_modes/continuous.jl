@@ -41,7 +41,7 @@ ContinuousAero(engine::VSMEngine) =
                    zeros(SimFloat, 3, 0), zeros(SimFloat, 3, 0), nothing, nothing, nothing)
 
 is_builtin_aero(::ContinuousAero) = true
-aero_mode_tag(::ContinuousAero) = "cont"
+aero_mode_tag(::Type{<:ContinuousAero}) = "cont"
 
 """
     aero_hash_id(mode::ContinuousAero)

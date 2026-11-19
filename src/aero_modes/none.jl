@@ -17,7 +17,7 @@ is_wing(::Body) = true
 is_wing(body::BodyState) = is_wing(body.row)
 
 is_builtin_aero(::AeroNone) = true
-aero_mode_tag(::AeroNone) = "none"
+aero_mode_tag(::Type{AeroNone}) = "none"
 
 """
     aero_component(::AeroNone, wing::ParticleWingState, sys_struct; name)

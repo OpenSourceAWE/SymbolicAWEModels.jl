@@ -108,7 +108,7 @@ AeroPressure(engine::VSMEngine; frame_tol_frac=2.0, live_polars=false) =
         live_polars, nothing)
 
 is_builtin_aero(::AeroPressure) = true
-aero_mode_tag(::AeroPressure) = "press"
+aero_mode_tag(::Type{<:AeroPressure}) = "press"
 
 """
     aero_hash_id(mode::AeroPressure)
