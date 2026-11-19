@@ -160,7 +160,8 @@ using LinearAlgebra
                 rates = SymbolicAWEModels.wing_scalar_kinematics(; rel_pos=position(t),
                     e_x=[1.0, 0.0, 0.0],
                     R_t_to_w=SymbolicAWEModels.sym_calc_R_t_to_w(position(t)),
-                    R_v_to_w=[1.0 0 0; 0 1.0 0; 0 0 1.0], R_b_to_w=[1.0 0 0; 0 1.0 0; 0 0 1.0],
+                    R_v_to_w=[1.0 0 0; 0 1.0 0; 0 0 1.0],
+                    R_b_to_w=[1.0 0 0; 0 1.0 0; 0 0 1.0],
                     vel=velocity, acc=acceleration, omega_b=zeros(3), alpha_b=zeros(3),
                     va_b=[1.0, 0.0, 0.0], twist_offset=0.0)
                 @test rates.azimuth ≈ azimuth(t) atol=1e-8

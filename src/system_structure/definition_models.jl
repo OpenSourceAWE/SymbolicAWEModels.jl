@@ -314,8 +314,8 @@ end
     TimoshenkoTubeModel
 
 The columns of a KiteGeometry `tubes` row with model `timoshenko`, a
-[`TimoshenkoTube`](@ref), each `nothing` where the row leaves it unset. A rigidity is a number or, in a
-structure built in Julia, a callable of its strain or curvature.
+[`TimoshenkoTube`](@ref), each `nothing` where the row leaves it unset. A rigidity is a
+number or, in a structure built in Julia, a callable of its strain or curvature.
 
 $(TYPEDFIELDS)
 """
@@ -347,8 +347,8 @@ KiteGeometry.model_columns(::Type{TimoshenkoTubeModel}) =
     ElasticTubeModel
 
 The columns of a KiteGeometry `tubes` row with model `elastic`, an
-[`ElasticTube`](@ref), each `nothing` where the row leaves it unset. A stiffness is a number or, in a
-structure built in Julia, a callable of its strain or angle.
+[`ElasticTube`](@ref), each `nothing` where the row leaves it unset. A stiffness is a
+number or, in a structure built in Julia, a callable of its strain or angle.
 
 $(TYPEDFIELDS)
 """
@@ -377,9 +377,9 @@ KiteGeometry.model_columns(::Type{ElasticTubeModel}) =
     register_definition_models()
 
 Register SymbolicAWEModels' models of each KiteGeometry block, so `load_authoring` and
-`load_structure` read its columns into them: the default model of points, segments, stations,
-wings, pulleys, bodies, tethers and winches, and the tube models `timoshenko`, the default, and
-`elastic`.
+`load_structure` read its columns into them: the default model of points, segments,
+stations, wings, pulleys, bodies, tethers and winches, and the tube models `timoshenko`, the
+default, and `elastic`.
 """
 function register_definition_models()
     register_model!(:points, "sam_point", PointModel,

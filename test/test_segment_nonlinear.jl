@@ -97,7 +97,8 @@ end
     @testset "Model setup" begin
         @info "Wiring: one segment with a callable (nonlinear) unit_stiffness."
         @test length(sys.segments) == 1
-        @test !(SymbolicAWEModels.SystemState(sys; set).segments[:spring].unit_stiffness isa Real)
+        run_spring = SymbolicAWEModels.SystemState(sys; set).segments[:spring]
+        @test !(run_spring.unit_stiffness isa Real)
         @test sys.points[:hang].extra_mass == mass
     end
 

@@ -56,7 +56,8 @@ function pressure_model()
         aero_mode = AeroPressure())
     haskey(structure.winches, :main_winch) &&
         (structure.winches[:main_winch].brake = true)
-    return SymbolicAWEModel(settings, structure; transforms, backend = KernelBackend(), vsm_set=vsm_settings)
+    return SymbolicAWEModel(settings, structure; transforms, backend = KernelBackend(),
+                            vsm_set=vsm_settings)
 end
 
 """The signature a frame inferred, in full, or a note that it is unavailable."""

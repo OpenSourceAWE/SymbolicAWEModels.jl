@@ -362,7 +362,8 @@ system:
             system_name="segment_test", set=set)
 
         # Verify the properties were loaded
-        @test SymbolicAWEModels.SystemState(sys; set).segments[:test_segment].unit_damping == 100.0
+        run_segment = SymbolicAWEModels.SystemState(sys; set).segments[:test_segment]
+        @test run_segment.unit_damping == 100.0
         @test sys.points[:mass_point].extra_mass == 5.0
 
         sam = SymbolicAWEModel(set, sys; transforms)

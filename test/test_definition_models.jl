@@ -166,7 +166,7 @@ named(components, name) = only(filter(row -> row.name == Symbol(name), component
         @test resolved(; compression_frac=0.2).compression_frac == 0.2
         law = KiteGeometry.Material(; name=:law, law="unit_stiffness",
             parameters=Dict{String, Any}("density" => 724.0, "unit_stiffness" => identity))
-        @test_throws "give `unit_damping` for a nonlinear" SymbolicAWEModels.resolve_segment(
-            spring_row(), [law], (; rel_damping=0.1))
+        @test_throws "give `unit_damping` for a nonlinear" (
+            SymbolicAWEModels.resolve_segment(spring_row(), [law], (; rel_damping=0.1)))
     end
 end

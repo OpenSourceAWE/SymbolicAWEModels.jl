@@ -254,7 +254,8 @@ end
         reread = load_structure_document(path; set, prn=false)
         @test structure_document(reread) == document
         @test reread.bodies[:root].type == STATIC
-        @test SymbolicAWEModels.SystemState(reread).tubes[:beam].body_a_idx == reread.bodies[:root].idx
+        @test SymbolicAWEModels.SystemState(reread).tubes[:beam].body_a_idx ==
+              reread.bodies[:root].idx
         @test reread.tubes[:beam].model.EA ≈ 1.0e4
         @test reread.tubes[:spring].model.stiffness_axial ≈ 1.2e5
         @test reread.points[:hub_anchor].body_idx == reread.bodies[:hub].idx
@@ -317,6 +318,7 @@ end
         segments = Segment[Segment(:link, :ground, :top, strain -> 1000.0 * strain,
                                    10.0, 0.004; l0=1.0, density=724.0)]
         sys = SystemStructure("nonlinear_link", set; points, segments, prn=false)
-        @test_throws "awesIO#1" save_structure_document(joinpath(tmpdir, "nonlinear.yml"), sys)
+        @test_throws "awesIO#1" save_structure_document(
+            joinpath(tmpdir, "nonlinear.yml"), sys)
     end
 end
