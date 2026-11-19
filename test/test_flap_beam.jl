@@ -150,6 +150,7 @@ end
         # The wing owning the flap: a rigid wing with no aero, held where it is.
         nodeA = Wing(:nodeA, with_flap ? [:flap] : Symbol[], [1.0, 0.0, 0.0, 0.0],
                      [0.0, 0.0, 0.0], inertia; aero=AeroNone())
+        nodeA.extra_mass = 1.0
         nodeB = Body(:nodeB; extra_mass=1.0, inertia_principal=inertia,
                      pos=[beam_length, 0.0, 0.0])
         tube = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
