@@ -158,6 +158,52 @@ winches:
     - [main_winch, [main_tether], ground]
 """
 
+# The beam of `tube_rider_beam` as an authoring document.
+const TUBE_RIDER_BEAM_YAML = """
+bodies:
+  headers: [name, extra_mass, inertia_principal, pos, type]
+  data:
+    - [node1, 1.0, [0.01, 0.01, 0.01], [0.0, 0.0, 0.0], DYNAMIC]
+    - [node2, 1.0, [0.01, 0.01, 0.01], [1.0, 0.0, 0.0], DYNAMIC]
+    - [node3, 1.0, [0.01, 0.01, 0.01], [2.0, 0.0, 0.0], DYNAMIC]
+    - [node4, 1.0, [0.01, 0.01, 0.01], [3.0, 0.0, 0.0], DYNAMIC]
+
+tubes:
+  headers: [name, bodies, diameter, pressure, law, model, EA, GA, GJ, EIy, EIz,
+            shear_coeff, damping]
+  data:
+    - [j1, [node1, node2], 0.1, 30000.0, breukels2011, timoshenko, 10000.0,
+       1500.0, 50.0, 100.0, 100.0, 0.8333333333333334, 0.05]
+    - [j2, [node2, node3], 0.1, 30000.0, breukels2011, timoshenko, 10000.0,
+       1500.0, 50.0, 100.0, 100.0, 0.8333333333333334, 0.05]
+    - [j3, [node3, node4], 0.1, 30000.0, breukels2011, timoshenko, 10000.0,
+       1500.0, 50.0, 100.0, 100.0, 0.8333333333333334, 0.05]
+
+points:
+  headers: [name, pos_cad, type, tube, extra_mass]
+  data:
+    - [ground, [0.5, 0.0, -5.0], STATIC, nothing, 0.0]
+    - [beam_anchor, [0.5, 0.0, 0.0], BODY_STATIC, j1, 0.0]
+    - [tip_anchor, [1.5, 0.0, 0.0], BODY_STATIC, j2, 0.0]
+    - [tail, [1.5, 0.0, -1.0], DYNAMIC, nothing, 1.0]
+
+segments:
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping]
+  data:
+    - [tether_seg, ground, beam_anchor, 5.0, 10.0, 10000.0, 10.0]
+    - [tail_seg, tip_anchor, tail, 1.0, 10.0, 10000.0, 10.0]
+
+tethers:
+  headers: [name, segment_idxs, init_stretched_length]
+  data:
+    - [tether, [tether_seg], 6.0]
+
+winches:
+  headers: [name, tether_idxs, winch_point]
+  data:
+    - [winch, [tether], ground]
+"""
+
 const INIT_LEN_SETTINGS = """
 system:
     log_file: "data/init_len_test"
@@ -574,7 +620,9 @@ winches:
     # alone leaves the whole beam behind while the tether's free end moves —
     # the ride constraint then snaps the point back, silently.
     # ================================================================
-    @testset "Placement moves a beam (tube-anchored points)" begin
+    """A beam of four bodies on three tubes, hung from the ground by a tether to a point
+    riding the first tube, with a tail off a point riding the second."""
+    function tube_rider_beam(name)
         inertia = [0.01, 0.01, 0.01]
         bodies = [Body(Symbol(:node, i); extra_mass=1.0, inertia_principal=inertia,
                        pos=[Float64(i - 1), 0.0, 0.0], type=DYNAMIC)
@@ -596,8 +644,12 @@ winches:
                             l0=1.0)]
         tethers = [Tether(:tether, [:tether_seg], 6.0)]
         winches = [Winch(:winch, set, [:tether]; winch_point=:ground)]
-        sys = SystemStructure("init_stretched_length_beam", set; points,
-            segments, tethers, winches, bodies=bodies, tubes)
+        return SystemStructure(name, set; points, segments, tethers, winches, bodies,
+                               tubes)
+    end
+
+    @testset "Placement moves a beam (tube-anchored points)" begin
+        sys = tube_rider_beam("init_stretched_length_beam")
 
         delta = KVec3(0.0, 0.0, 1.0)
         place!(sys)
@@ -614,6 +666,38 @@ winches:
         @test sys.points[:tail].pos_ENU ≈ KVec3(1.5, 0.0, -1.0) .+ delta
         @test SymbolicAWEModels.segment_initial_length(
             sys.segments[:tail_seg], sys.points) ≈ 1.0
+    end
+
+    # ================================================================
+    # Test 11b: the beam of Test 11 lands on one pose and one set of rest lengths
+    # whether it is loaded from YAML, built in Julia, or placed again after its
+    # transform changes.
+    # ================================================================
+    @testset "YAML, Julia and re-placement agree (tube riders)" begin
+        same_pose(a, b) = all(
+            [all(p.pos_ENU ≈ q.pos_ENU for (p, q) in zip(a.points, b.points)),
+             all(p.origin_ENU ≈ q.origin_ENU for (p, q) in zip(a.bodies, b.bodies)),
+             all(p.Q_KA_to_ENU ≈ q.Q_KA_to_ENU for (p, q) in zip(a.bodies, b.bodies)),
+             all(p.rest_length ≈ q.rest_length
+                 for (p, q) in zip(a.segments, b.segments))])
+
+        yaml_path = joinpath(tmpdir, "tube_rider_beam.yaml")
+        write(yaml_path, TUBE_RIDER_BEAM_YAML)
+        from_yaml, _ = load_sys_struct_from_yaml(
+            yaml_path; system_name="tube_rider_beam_yaml", set=set)
+        from_julia = tube_rider_beam("tube_rider_beam_julia")
+        @test same_pose(from_yaml, from_julia)
+
+        turn(elevation) = Transform(; name=:tf, elevation, azimuth=0.0, heading=0.0,
+            base_pos=[0.5, 0.0, -5.0], base_point=1, rot_point=[2 => 1.0],
+            points=[2, 3, 4], bodies=[1, 2, 3, 4])
+        replaced = tube_rider_beam("tube_rider_beam_replaced")
+        place!(replaced, [turn(deg2rad(30))])
+        place!(replaced, [turn(deg2rad(60))])
+        placed_once = tube_rider_beam("tube_rider_beam_once")
+        place!(placed_once, [turn(deg2rad(60))])
+        @test same_pose(replaced, placed_once)
+        @test !same_pose(replaced, from_julia)
     end
 
     # ================================================================

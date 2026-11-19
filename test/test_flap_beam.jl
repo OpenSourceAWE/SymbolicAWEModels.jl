@@ -147,8 +147,9 @@ end
 
     # Fresh components per call: `SystemStructure` resolves indices in place.
     function build_beam_sys(name; with_flap=true)
-        nodeA = Body(:nodeA; extra_mass=1.0, inertia_principal=inertia,
-                     pos=[0.0, 0.0, 0.0], type=STATIC)
+        # The wing owning the flap: a rigid wing with no aero, held where it is.
+        nodeA = Wing(:nodeA, with_flap ? [:flap] : Symbol[], [1.0, 0.0, 0.0, 0.0],
+                     [0.0, 0.0, 0.0], inertia; aero=AeroNone())
         nodeB = Body(:nodeB; extra_mass=1.0, inertia_principal=inertia,
                      pos=[beam_length, 0.0, 0.0])
         tube = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
@@ -160,7 +161,7 @@ end
         # Beam-anchored point at midspan, offset 0.1 in +z off the centerline.
         bridle = Point(:bridle, [0.5, 0.0, 0.1], BODY_STATIC; tube=:tube)
         return SystemStructure(name, set;
-            points=[bridle], bodies=[nodeA, nodeB], tubes=[tube],
+            points=[bridle], wings=[nodeA], bodies=[nodeB], tubes=[tube],
             stations=with_flap ? [flap] : Station[])
     end
 
@@ -174,6 +175,7 @@ end
     end
 
     sam = SymbolicAWEModel(set, sys)
+    sam.state.bodies[:nodeA].fix_static = true
     jt = sam.state.tubes[:tube]
     rb = sam.state.bodies[:nodeB]
     br = sam.state.points[:bridle]
@@ -190,6 +192,7 @@ end
         # the same beam without the station: a DYNAMIC DOF would add 2.
         bare = SymbolicAWEModel(set, build_beam_sys("flap_beam_bare";
                                                     with_flap=false))
+        bare.state.bodies[:nodeA].fix_static = true
         test_init!(bare; prn=false)
         @test length(sam.integrator.u) == length(bare.integrator.u)
         @test all(isfinite, rb.pos_w)
