@@ -696,3 +696,11 @@ using LinearAlgebra
     rm(tmpdir; recursive=true)
 end
 nothing
+
+@testset "a wing's twist offset is the twist at the middle of its span" begin
+    twist(i) = 0.1i
+    @test SymbolicAWEModels.mid_span_twist(twist, Int[]) == 0
+    @test SymbolicAWEModels.mid_span_twist(twist, [4]) ≈ 0.4
+    @test SymbolicAWEModels.mid_span_twist(twist, 3:5) ≈ 0.4
+    @test SymbolicAWEModels.mid_span_twist(twist, 3:6) ≈ 0.45
+end

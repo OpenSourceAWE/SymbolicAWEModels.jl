@@ -1185,13 +1185,8 @@ function write_wing_scalars!(wing, points; base_point = 0, alpha_b = zeros(3),
                              stations = nothing)
     rel_pos = base_point == 0 ? collect(wing.pos_w) :
         collect(wing.pos_w) .- collect(points[base_point].pos_w)
-    idxs = wing.station_idxs
-    twist_offset = if isnothing(stations) || isempty(idxs)
-        0.0
-    else
-        half = idxs[1] + length(idxs) ÷ 2 - 1
-        0.5 * stations[half].twist + 0.5 * stations[half + 1].twist
-    end
+    twist_offset = isnothing(stations) ? 0.0 :
+        mid_span_twist(i -> stations[i].twist, wing.station_idxs)
     R_b_to_w = collect(wing.R_b_to_w)
     e_x = R_b_to_w[:, 1]
     scalars = wing_scalar_kinematics(; rel_pos, e_x,

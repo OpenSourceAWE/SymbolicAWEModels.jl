@@ -116,6 +116,7 @@ SymbolicAWEModels.elastic_tube_wrench
 SymbolicAWEModels.beam_hermite_ride_expressions
 SymbolicAWEModels.ground_wind_vec
 SymbolicAWEModels.wing_scalar_kinematics
+SymbolicAWEModels.mid_span_twist
 SymbolicAWEModels.station_dynamics
 SymbolicAWEModels.MAX_TWIST_ANGLE
 SymbolicAWEModels.pulley_split_eqs

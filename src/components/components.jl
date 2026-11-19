@@ -447,6 +447,20 @@ function wing_scalar_kinematics(; rel_pos, e_x, R_t_to_w, R_v_to_w, R_b_to_w, ve
 end
 
 """
+    mid_span_twist(twist, station_idxs)
+
+The twist at the middle of a wing's span [rad]: its middle station's, or the mean of the
+two middle ones, and zero for a wing with no station. `twist(i)` is station `i`'s twist.
+"""
+function mid_span_twist(twist, station_idxs)
+    isempty(station_idxs) && return 0.0
+    first_station = first(station_idxs)
+    n_stations = length(station_idxs)
+    return 0.5 * twist(first_station + (n_stations - 1) ÷ 2) +
+           0.5 * twist(first_station + n_stations ÷ 2)
+end
+
+"""
     timoshenko_local_wrench(rigidities, L0, kshear, δ, θ_a, θ_b)
 
 Consistent Timoshenko end wrench `(F_a, M_a, F_b, M_b)` in element-frame
