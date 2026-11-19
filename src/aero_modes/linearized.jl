@@ -11,15 +11,12 @@ First-order Taylor expansion using the Jacobian from VSM linearization
 engine-less marker filled in during wing construction.
 """
 mutable struct AeroLinearized{E} <: AbstractVSMAero
-    engine::Union{Nothing, E}
-    AeroLinearized{E}(engine) where {E} = new{E}(engine)
+    engine::E
 end
-AeroLinearized() = AeroLinearized{VSMEngine}(nothing)
-AeroLinearized(engine::VSMEngine) = AeroLinearized{typeof(engine)}(engine)
-attach_engine!(::AeroLinearized, engine::VSMEngine) = AeroLinearized(engine)
+AeroLinearized() = AeroSpec{AeroLinearized}()
 
 is_builtin_aero(::AeroLinearized) = true
-aero_mode_tag(::AeroLinearized) = "lin"
+aero_mode_tag(::Type{<:AeroLinearized}) = "lin"
 
 function aero_component(::AeroLinearized, wing::RigidWingState, sys_struct; name, params)
     wing_idx = wing.idx

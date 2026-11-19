@@ -166,7 +166,7 @@ param_computed!(reg::ParamRegistry, name::Symbol, reader) =
 # ==================== BUILD-TIME VIEW ==================== #
 
 """Types the view descends *through* (everything else is a leaf)."""
-param_descend(x) = x isa NamedCollection || x isa AbstractAeroModel ||
+param_descend(x) = x isa Rows || x isa AbstractAeroModel ||
                    x isa AbstractWinchModel || x isa WinchModel ||
                    x isa AbstractTubeModel || x isa VSMEngine || x isa Settings ||
                    x isa UnsteadyAero
@@ -209,15 +209,19 @@ function Base.getproperty(view::PathView, sym::Symbol)
     path = (getfield(view, :path)..., sym)
     value = read_path(reg.sys_struct, path)
     param_descend(value) && return PathView(reg, path)
-    return leaf_param!(reg, path, leaf_reader(path, value), value)
+    parent = read_path(reg.sys_struct, Base.front(path))
+    return leaf_param!(reg, path, leaf_reader(path, value, parent), value)
 end
 
-"""The reader of the leaf `value` at `path`: a [`PathReader`](@ref), copying into a
-buffer of its own a vector built on read — one a run's state holds in its columns, or
-one a definition row holds as one number per axis."""
-leaf_reader(path, value) = PathReader(path)
-leaf_reader(path, value::Union{ColumnVec3, ColumnQuat, SVector}) =
+"""The reader of the leaf `value` at `path`, a property of `parent`: a
+[`PathReader`](@ref), copying into a buffer of its own a vector built on read — one a
+run's state holds in its columns, or one a definition row holds as one number per axis —
+and a [`StiffnessReader`](@ref) for a segment's numeric `unit_stiffness`."""
+leaf_reader(path, value, parent) = PathReader(path)
+leaf_reader(path, value::Union{ColumnVec3, ColumnQuat, SVector}, parent) =
     CopyReader(PathReader(path), MVector(Tuple(value)))
+leaf_reader(path, value::Real, parent::SegmentState) = last(path) === :unit_stiffness ?
+    StiffnessReader(PathReader(Base.front(path))) : PathReader(path)
 
 """
     CopyReader(reader, buffer)
@@ -233,14 +237,28 @@ end
 
 (reader::CopyReader)(sys_struct) = (reader.buffer .= reader.reader(sys_struct))
 
+"""
+    StiffnessReader(segment)
+
+Reads the numeric stiffness per unit length of the segment the reader `segment` reads,
+through [`numeric_unit_stiffness`](@ref).
+"""
+struct StiffnessReader{R}
+    segment::R
+end
+
+(reader::StiffnessReader)(sys_struct) = numeric_unit_stiffness(reader.segment(sys_struct))
+
 """The [`PathReader`](@ref) `reader` reads through, or `nothing` for a computed one."""
 path_reader(reader) = nothing
 path_reader(reader::PathReader) = reader
 path_reader(reader::CopyReader) = reader.reader
+path_reader(reader::StiffnessReader) = PathReader((reader.segment.path..., :unit_stiffness))
 
 """A reader of the same kind as `reader` reading `path` instead."""
 read_at(::PathReader, path) = PathReader(path)
 read_at(reader::CopyReader, path) = CopyReader(PathReader(path), similar(reader.buffer))
+read_at(::StiffnessReader, path) = StiffnessReader(PathReader(Base.front(path)))
 
 # ==================== SYNC ==================== #
 
@@ -310,11 +328,16 @@ struct ParamGroup{Setter, Buf}
 end
 
 """Bundle of the per-kind sync groups (each may be `nothing`)."""
-struct ParamSync{S, A, C}
+struct ParamSync{S, A, C, R}
     scalar::S
     array::A
     callable::C
+    refreshed::R
 end
+
+"""Whether `path` reads a point's frozen aerodynamic force, which only an aerodynamic
+refresh changes: a sync at another attitude would turn it with the wing."""
+refreshed_path(path) = length(path) >= 3 && path[1] === :points && path[3] === :aero_force_b
 
 """
     survivor_index(sys) -> Dict{String, Vector{param}}
@@ -353,7 +376,8 @@ touches a parameter absent from the buffer.
 function build_param_sync(sys, registry::ParamRegistry)
     isempty(registry.entries) && return nothing
     index = survivor_index(sys)
-    by_kind(k) = filter(e -> e.kind === k, registry.entries)
+    refreshed_entries = filter(e -> refreshed_path(e.path), registry.entries)
+    by_kind(k) = filter(e -> e.kind === k && !refreshed_path(e.path), registry.entries)
     grp(entries, ::Type{Buf}) where {Buf} = begin
         survivors, readers = Any[], Any[]
         for entry in entries
@@ -368,8 +392,9 @@ function build_param_sync(sys, registry::ParamRegistry)
     scalar = grp(by_kind(:scalar), Vector{SimFloat})
     array = grp(by_kind(:array), Vector{Any})
     callable = grp(by_kind(:callable), Vector{Any})
-    (scalar === nothing && array === nothing && callable === nothing) && return nothing
-    return ParamSync(scalar, array, callable)
+    refreshed = grp(refreshed_entries, Vector{Any})
+    all(isnothing, (scalar, array, callable, refreshed)) && return nothing
+    return ParamSync(scalar, array, callable, refreshed)
 end
 
 """
@@ -385,6 +410,18 @@ function sync_params!(sync::ParamSync, target, sys_struct)
     sync_group!(sync.array, target, sys_struct)
     sync_group!(sync.callable, target, sys_struct)
     return nothing
+end
+
+"""
+    sync_aero_params!(sync, target, sys_struct)
+
+[`sync_params!`](@ref), and the parameters only an aerodynamic refresh changes: to call
+right after a refresh, and where a run starts.
+"""
+sync_aero_params!(::Nothing, target, sys_struct) = nothing
+function sync_aero_params!(sync::ParamSync, target, sys_struct)
+    sync_group!(sync.refreshed, target, sys_struct)
+    return sync_params!(sync, target, sys_struct)
 end
 
 sync_group!(::Nothing, target, sys_struct) = nothing

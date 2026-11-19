@@ -122,7 +122,7 @@ end
         @test sys.bodies[:nodeB].type == DYNAMIC
         @test sys.bodies[:nodeA].extra_mass == 1.0
         @test length(sys.tubes) == 1
-        tube = sys.tubes[:tube]
+        tube = SymbolicAWEModels.SystemState(sys).tubes[:tube]
         @test tube.body_a_idx == sys.bodies[:nodeA].idx
         @test tube.body_b_idx == sys.bodies[:nodeB].idx
         @test (tube.diameter, tube.pressure, tube.law) == (0.1, 30000.0, :breukels2011)

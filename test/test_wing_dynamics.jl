@@ -215,7 +215,7 @@ end
     sys, transforms = load_sys_struct_from_yaml(
         yaml_path;
         system_name="wing_freefall",
-        set, vsm_set,
+        set,
         aero_mode=AeroNone()
     )
 
@@ -233,7 +233,7 @@ end
         @test !isapprox(wing.R_b_to_p, I(3); atol=0.01)
     end
 
-    sam = SymbolicAWEModel(set, sys; transforms)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
     test_init!(sam)
 
     # ================ Free fall ================ #
@@ -340,7 +340,7 @@ end
 
         wing.vel_w .= vel_set
         wing.ω_b .= omega_set
-        place!(sam; prn=false)
+        place!(sam)
         test_init!(sam; prn=false)
         @test norm(wing.vel_w) < 1e-10
         @test norm(wing.ω_b) < 1e-10
@@ -454,15 +454,15 @@ end
         hanging_path = joinpath(data_path, "wing_hanging.yaml")
         write(hanging_path, WING_HANGING_YAML)
         hanging, hanging_transforms = load_sys_struct_from_yaml(hanging_path;
-            system_name="wing_hanging", set, vsm_set, aero_mode=AeroNone())
+            system_name="wing_hanging", set, aero_mode=AeroNone())
         wing = hanging.bodies[:main_wing]
-        line = hanging.segments[:line]
+        line = SymbolicAWEModels.SystemState(hanging; set, vsm_set).segments[:line]
         half_line = SymbolicAWEModels.segment_half_mass(
             line.l0, line.diameter, line.density)
         @test wing.extra_mass == 2.0
         @test wing.total_mass ≈ 2.0 + half_line
 
-        hanging_sam = SymbolicAWEModel(set, hanging; transforms=hanging_transforms)
+        hanging_sam = SymbolicAWEModel(set, hanging; transforms=hanging_transforms, vsm_set)
         test_init!(hanging_sam)
         for _ in 1:100
             next_step!(hanging_sam; dt=0.01, vsm_interval=0)

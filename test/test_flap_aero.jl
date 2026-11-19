@@ -159,8 +159,8 @@ function build_flap_model(data_path, tube_block; point_flap=false, kwargs...)
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
     sys, transforms = load_sys_struct_from_yaml(
         joinpath(data_path, "particle_flap_geometry.yaml");
-        system_name="flap_press_test", set, vsm_set, aero_mode=AeroPressure())
-    return SymbolicAWEModel(set, sys; transforms, kwargs...), sys
+        system_name="flap_press_test", set, aero_mode=AeroPressure())
+    return SymbolicAWEModel(set, sys; transforms, kwargs..., vsm_set), sys
 end
 
 flap_angle(sam) = station_deltas(sam.state)[sam.state.stations[:flap].idx]

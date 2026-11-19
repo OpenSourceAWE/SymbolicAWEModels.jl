@@ -48,7 +48,7 @@ transforms = [
 
 sys = SystemStructure("tether", set; points, segments)
 place!(sys, transforms)
-sam = SymbolicAWEModel(set, sys; transforms)
+sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 init!(sam; remake=false)
 
 for _ in 1:80
@@ -65,7 +65,7 @@ winches = [Winch(:winch, set, [:main]; winch_point=1)]
 
 sys = SystemStructure("winch", set; points, segments, tethers, winches)
 place!(sys, transforms)
-sam = SymbolicAWEModel(set, sys; transforms)
+sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 init!(sam; remake=false)
 
 for _ in 1:80
@@ -90,7 +90,7 @@ transforms = [
 
 sys = SystemStructure("pulley", set; points, segments, tethers, winches, pulleys)
 place!(sys, transforms)
-sam = SymbolicAWEModel(set, sys; transforms)
+sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 init!(sam; remake=false)
 
 for _ in 1:80
@@ -115,7 +115,7 @@ for (i, y) in enumerate([-1.0, 0.0, 1.0])
     push!(stations, Station(i, [n + 1, n + 2], DYNAMIC, 0.25))
 end
 
-wings = [VSMWing(1, set, eachindex(stations), vsm_set)]
+wings = [VSMWing(1, set, eachindex(stations))]
 transforms = [
     Transform(; name=:main, elevation=deg2rad(-85), azimuth=0, heading=0,
               base_pos=[0, 0, 0], base_point=1, rot_point=[21 => 1.0],
@@ -125,5 +125,5 @@ transforms = [
 sys = SystemStructure("wing", set;
     points, stations, segments, tethers, winches, pulleys, wings)
 place!(sys, transforms)
-sam = SymbolicAWEModel(set, sys; transforms)
+sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
 @info "Wing model created successfully"

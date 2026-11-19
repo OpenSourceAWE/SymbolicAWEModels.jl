@@ -331,9 +331,9 @@ drag_source(model::KernelModel, idx) =
 """The output slots of point `idx`'s body-frame aerodynamic force, or none when it
 has no [`AeroPointForce`](@ref) — a point outside a panel-decomposed wing."""
 function aero_force_slots(model::KernelModel, idx)
-    instance = model.aero_force_instances[idx]
+    instance, output = model.aero_force_outputs[idx]
     instance == 0 && return Int[]
-    return buffer_slots(model.system, instance, :outputs, :force_b)
+    return buffer_slots(model.system, instance, :outputs, output)
 end
 
 """The output slots of point `idx`'s `va_b`, or none when it has no
@@ -390,9 +390,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
         copy_slots!(point.wind_vec, scratch.observable, readout.wind)
         copy_slots!(point.force, scratch.observable, readout.force)
         isempty(readout.aero) ||
-            copy_slots!(point.aero_force_b, scratch.output, readout.aero)
-        readout.mass == 0 || (point.total_mass =
-            point.extra_mass + scratch.input[readout.mass])
+            copy_slots!(point.aero_force, scratch.output, readout.aero)
     end
     for readout in getter.segments
         segment = sys_struct.segments[readout.segment]
@@ -410,8 +408,6 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
         winch.acc = scratch.observable[readout.acc]
         winch.friction = scratch.observable[readout.friction]
         winch.set_value = integrator.p.numeric[readout.set_value]
-        fill!(winch.force, 0.0)
-        winch.force[1] = scratch.observable[readout.force]
         for (tether, slot) in readout.tether_lengths
             sys_struct.tethers[tether].len = integrator.u[slot]
         end
@@ -428,15 +424,12 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
         surface = sys_struct.stations[readout.surface]
         surface.twist = scratch.output[readout.angle]
         surface.twist_ω = scratch.output[readout.rate]
-        surface.tether_force = scratch.observable[readout.tether_force]
-        surface.tether_moment = scratch.observable[readout.tether_moment]
         surface.aero_moment = scratch.observable[readout.aero_moment]
     end
     for readout in getter.aero
         wing = sys_struct.bodies[readout.wing]
         copy_slots!(wing.aero_force_b, scratch.observable, readout.force)
         copy_slots!(wing.aero_moment_b, scratch.observable, readout.moment)
-        copy_slots!(wing.va_b, scratch.observable, readout.apparent)
         copy_slots!(wing.wind_vec, scratch.observable, readout.wind)
     end
     for readout in getter.kinematic
@@ -456,15 +449,6 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
         write_wing_scalars!(wing, sys_struct.points;
             base_point = readout.base_point, alpha_b = getter.alpha_b,
             stations = sys_struct.stations)
-    end
-    for readout in getter.points
-        point = sys_struct.points[readout.point]
-        if !isempty(readout.va)
-            copy_slots!(point.va_b, scratch.output, readout.va)
-        elseif readout.va_frame != 0
-            frame = sys_struct.bodies[readout.va_frame].R_b_to_w
-            mul!(point.va_b, frame', point.wind_vec .- point.vel_w)
-        end
     end
     return nothing
 end

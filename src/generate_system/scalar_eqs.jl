@@ -76,13 +76,6 @@ function scalar_eqs!(
         rel_pos = base_point == 0 ? wing_pos[:, wing.idx] :
             wing_pos[:, wing.idx] .- pos[:, base_point]
 
-        has_stations = !isempty(wing.station_idxs)
-        half_len = has_stations ?
-            wing.station_idxs[1] +
-            length(wing.station_idxs) ÷ 2 - 1 : 0
-        twist_offset = has_stations ?
-            0.5 * twist_angle[half_len] + 0.5 * twist_angle[half_len + 1] : 0
-
         scalars = wing_scalar_kinematics(;
             rel_pos,
             e_x = e_x[:, wing.idx],
@@ -94,7 +87,7 @@ function scalar_eqs!(
             omega_b = ω_b[:, wing.idx],
             alpha_b = α_b[:, wing.idx],
             va_b = va_wing_b[:, wing.idx],
-            twist_offset)
+            twist_offset = mid_span_twist(i -> twist_angle[i], wing.station_idxs))
 
         eqs = [
             eqs

@@ -74,7 +74,7 @@ export Body, Tube, AbstractTubeModel, TimoshenkoTube, ElasticTube
 export AbstractWing, RigidWing, ParticleWing, VSMWing, PlateWing, VSMEngine, AbstractVSMAero
 export ObjAdapter
 export create_plate_interpolations
-export NameRef, NamedCollection, WeightedRefPoints
+export NameRef, WeightedRefPoints
 # Inflated-tube rigidity laws
 export TubeRigidityLaw, TUBE_SHEAR_COEFF, TUBE_POISSON_RATIO
 export tube_torsion_law, tube_linear_rigidities, tube_law_rigidities, tube_bending_law
@@ -107,14 +107,9 @@ export set_body_frame_damping
 export set_angular_damping
 export set_unstretched_length!
 export reset_to_initial_pose!
-export apply_tether_init_stretched_lens!
-export update_segment_lengths!
-export apply_tether_init_forces!
-export init_pulley_lengths!
 export remake_wing_aero!
 export init_wind!
 export init_sys_struct!
-export relax_segments!
 export update_mass_properties!
 export init_rest_geometry!, init_derived_properties!
 export segment_stretch_stats
@@ -205,7 +200,6 @@ need no update here. Defined in the Makie extension.
 """
 function update_wing_aero_plot! end
 function find_steady_state! end
-function make_lin_sys_state end
 
 function __init__()
     register_definition_models()
@@ -250,33 +244,6 @@ include("kernel_backend/state.jl")
 include("kernel_backend/jacobian.jl")
 include("kernel_backend/backend.jl")
 include("simulate.jl")
-
-# rotate a 3d vector around the x axis in the yz plane - following the right hand rule
-function rotate_around_x(vec, angle::T) where T
-    result = zeros(T, 3)
-    result[1] = vec[1]
-    result[2] = cos(angle) * vec[2] - sin(angle) * vec[3]
-    result[3] = sin(angle) * vec[2] + cos(angle) * vec[3]
-    result
-end
-
-# rotate a 3d vector around the y axis in the xz plane - following the right hand rule
-function rotate_around_y(vec, angle::T) where T
-    result = zeros(T, 3)
-    result[1] = cos(angle) * vec[1] + sin(angle) * vec[3]
-    result[2] = vec[2]
-    result[3] = -sin(angle) * vec[1] + cos(angle) * vec[3]
-    result
-end
-
-# rotate a 3d vector around the z axis in the yx plane - following the right hand rule
-function rotate_around_z(vec, angle::T) where T
-    result = zeros(T, 3)
-    result[1] = cos(angle) * vec[1] - sin(angle) * vec[2]
-    result[2] = sin(angle) * vec[1] + cos(angle) * vec[2]
-    result[3] = vec[3]
-    result
-end
 
 """
     copy_examples()

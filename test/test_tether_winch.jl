@@ -184,7 +184,7 @@ environment:
         winch.inertia_total = 0.1
         seg.unit_stiffness = 0.0
         seg.unit_damping = 0.0
-        place!(sam; prn=false)
+        place!(sam)
         test_init!(sam; prn=false)
 
         tau_motor = 5.0
@@ -210,7 +210,7 @@ environment:
 
         for I_test in [0.1, 0.5, 1.0]
             winch.inertia_total = I_test
-            place!(sam; prn=false)
+            place!(sam)
             test_init!(sam; prn=false)
 
             dt = 0.001
@@ -246,7 +246,7 @@ environment:
 
         for f_c in [0.5, 2.0, 5.0]
             winch.coulomb_friction = f_c
-            place!(sam; prn=false)
+            place!(sam)
             test_init!(sam; prn=false)
 
             dt = 0.001
@@ -291,7 +291,7 @@ environment:
 
         for viscous_test in [50.0, 100.0, 200.0]
             winch.viscous_coefficient = viscous_test
-            place!(sam; prn=false)
+            place!(sam)
             test_init!(sam; prn=false)
 
             # Time constant: I / (viscous_coefficient * (r/n)^2)
@@ -327,7 +327,7 @@ environment:
         unit_d = unit_k * 0.01  # Damping for settling
         seg.unit_stiffness = unit_k
         seg.unit_damping = unit_d
-        place!(sam; prn=false)
+        place!(sam)
         test_init!(sam; prn=false)
 
         # Compute total mass at weight point:
@@ -371,7 +371,7 @@ environment:
         # Stiff tether to transmit gravity force
         seg.unit_stiffness = 120000.0
         seg.unit_damping = 500.0
-        place!(sam; prn=false)
+        place!(sam)
         test_init!(sam; prn=false)
 
         tau_motor = 0.5
@@ -437,8 +437,8 @@ environment:
         # 4 auto-generated segments
         @test length(sys2.segments) == 4
         # Segment names follow convention
-        @test sys2.segments[:line_seg_1].idx == 1
-        @test sys2.segments[:line_seg_4].idx == 4
+        @test SymbolicAWEModels.SystemState(sys2; set).segments[:line_seg_1].idx == 1
+        @test SymbolicAWEModels.SystemState(sys2; set).segments[:line_seg_4].idx == 4
 
         # Tether start/end resolved correctly
         teth = sys2.tethers[:line]
@@ -476,7 +476,7 @@ environment:
             s.unit_stiffness = 50000.0
             s.unit_damping = 500.0
         end
-        place!(sam2; prn=false)
+        place!(sam2)
         test_init!(sam2; prn=false)
 
         next_step!(sam2; dt=3.0, vsm_interval=0)
@@ -487,8 +487,8 @@ environment:
         l0 = 25.0
         g = set.g_earth
         unit_k = 50000.0
-        d = sam2.sys_struct.segments[1].diameter
-        rho = sam2.sys_struct.segments[1].density
+        d = sam2.state.segments[1].diameter
+        rho = sam2.state.segments[1].density
         half_seg_m = rho * π * (d / 2)^2 * l0 / 2
         m_mass = 5.0 + half_seg_m         # bottom point
         m_mid = 2 * half_seg_m            # intermediate pts
@@ -600,7 +600,7 @@ environment:
             points=points_l, segments=segments_l,
             tethers=tethers_l, winches=winches_l, prn=false)
         sam_l = SymbolicAWEModel(set, sys_l)
-        place!(sam_l; prn=false)
+        place!(sam_l)
         test_init!(sam_l; prn=false)
 
         tether_l = sam_l.state.tethers[:main_l]
@@ -653,7 +653,7 @@ environment:
         winch.brake = true
         seg.unit_stiffness = 50000.0
         seg.unit_damping = 500.0
-        place!(sam; prn=false)
+        place!(sam)
         test_init!(sam; prn=false)
 
         placed = [copy(point.pos_w) for point in sam.state.points]

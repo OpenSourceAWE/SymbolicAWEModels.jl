@@ -440,10 +440,24 @@ function wing_scalar_kinematics(; rel_pos, e_x, R_t_to_w, R_v_to_w, R_b_to_w, ve
         elevation_vel = dot(vel, -R_t_to_w[:, 1]) / distance,
         elevation_acc = dot(acc, -R_t_to_w[:, 1]) / distance,
         azimuth = KiteUtils.azimuth_east(rel_pos),
-        azimuth_vel = dot(vel, -R_t_to_w[:, 2]) / ground_radius,
-        azimuth_acc = dot(acc, -R_t_to_w[:, 2]) / ground_radius,
+        azimuth_vel = dot(vel, R_t_to_w[:, 2]) / ground_radius,
+        azimuth_acc = dot(acc, R_t_to_w[:, 2]) / ground_radius,
         course = atan(vel ⋅ R_t_to_w[:, 2], vel ⋅ R_t_to_w[:, 1]),
         angle_of_attack = calc_angle_of_attack(va_b) + twist_offset)
+end
+
+"""
+    mid_span_twist(twist, station_idxs)
+
+The twist at the middle of a wing's span [rad]: its middle station's, or the mean of the
+two middle ones, and zero for a wing with no station. `twist(i)` is station `i`'s twist.
+"""
+function mid_span_twist(twist, station_idxs)
+    isempty(station_idxs) && return 0.0
+    first_station = first(station_idxs)
+    n_stations = length(station_idxs)
+    return 0.5 * twist(first_station + (n_stations - 1) ÷ 2) +
+           0.5 * twist(first_station + n_stations ÷ 2)
 end
 
 """

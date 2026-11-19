@@ -37,8 +37,8 @@ vsm_set = VortexStepMethod.VSMSettings(
 @testset "Multi-section station partition" begin
     sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="multi_section",
-        set, vsm_set, dynamics_type=RIGID_DYNAMICS)
-    wing = sys.wings[1]
+        set, dynamics_type=RIGID_DYNAMICS)
+    wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
     vsm_w = wing.vsm_wing
 
     # Baseline: 3 stations, 3 unrefined sections (1:1)
@@ -118,7 +118,8 @@ function riding_mass(sys, wing)
     riders = [point.idx for point in sys.points
               if point.type == SymbolicAWEModels.BODY_STATIC && point.body_idx == wing.idx]
     mass = sum(sys.points[idx].extra_mass for idx in riders)
-    for segment in sys.segments, idx in segment.point_idxs
+    state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
+    for segment in state.segments, idx in segment.point_idxs
         idx in riders && (mass += SymbolicAWEModels.segment_half_mass(
             segment.l0, segment.diameter, segment.density))
     end
@@ -128,8 +129,8 @@ end
 @testset "Rigid wing total_mass is its extra_mass plus its riders" begin
     sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="rigid_total_mass",
-        set, vsm_set, dynamics_type=RIGID_DYNAMICS)
-    wing = sys.wings[1]
+        set, dynamics_type=RIGID_DYNAMICS)
+    wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
 
     # The six wing nodes and the kcu carry 1.6 kg of extra_mass; it stays on them
     # and reaches the wing once, with the halves of the bridles and tether they hold.
@@ -143,18 +144,18 @@ end
     both_yaml = joinpath(data_path, "rigid_both_masses.yaml")
     write(both_yaml, wing_yaml)
     load_both() = SymbolicAWEModels.load_sys_struct_from_yaml(
-        both_yaml; system_name="rigid_total_mass", set, vsm_set,
+        both_yaml; system_name="rigid_total_mass", set,
         dynamics_type=RIGID_DYNAMICS)
     both, _ = @test_logs min_level=Base.CoreLogging.Warn load_both()
-    @test both.wings[1].extra_mass == 2.0
-    @test both.wings[1].total_mass ≈ 2.0 + riding_mass(both, both.wings[1])
+    @test both.bodies[1].extra_mass == 2.0
+    @test both.bodies[1].total_mass ≈ 2.0 + riding_mass(both, both.bodies[1])
 end
 
 @testset "n_stations > n_unrefined errors" begin
     sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
         struc_yaml; system_name="too_many_stations",
-        set, vsm_set, dynamics_type=RIGID_DYNAMICS)
-    wing = sys.wings[1]
+        set, dynamics_type=RIGID_DYNAMICS)
+    wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
     vsm_w = wing.vsm_wing
 
     # Drop down to 2 unrefined sections while keeping

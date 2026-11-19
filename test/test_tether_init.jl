@@ -158,6 +158,52 @@ winches:
     - [main_winch, [main_tether], ground]
 """
 
+# The beam of `tube_rider_beam` as an authoring document.
+const TUBE_RIDER_BEAM_YAML = """
+bodies:
+  headers: [name, extra_mass, inertia_principal, pos, type]
+  data:
+    - [node1, 1.0, [0.01, 0.01, 0.01], [0.0, 0.0, 0.0], DYNAMIC]
+    - [node2, 1.0, [0.01, 0.01, 0.01], [1.0, 0.0, 0.0], DYNAMIC]
+    - [node3, 1.0, [0.01, 0.01, 0.01], [2.0, 0.0, 0.0], DYNAMIC]
+    - [node4, 1.0, [0.01, 0.01, 0.01], [3.0, 0.0, 0.0], DYNAMIC]
+
+tubes:
+  headers: [name, bodies, diameter, pressure, law, model, EA, GA, GJ, EIy, EIz,
+            shear_coeff, damping]
+  data:
+    - [j1, [node1, node2], 0.1, 30000.0, breukels2011, timoshenko, 10000.0,
+       1500.0, 50.0, 100.0, 100.0, 0.8333333333333334, 0.05]
+    - [j2, [node2, node3], 0.1, 30000.0, breukels2011, timoshenko, 10000.0,
+       1500.0, 50.0, 100.0, 100.0, 0.8333333333333334, 0.05]
+    - [j3, [node3, node4], 0.1, 30000.0, breukels2011, timoshenko, 10000.0,
+       1500.0, 50.0, 100.0, 100.0, 0.8333333333333334, 0.05]
+
+points:
+  headers: [name, pos_cad, type, tube, extra_mass]
+  data:
+    - [ground, [0.5, 0.0, -5.0], STATIC, nothing, 0.0]
+    - [beam_anchor, [0.5, 0.0, 0.0], BODY_STATIC, j1, 0.0]
+    - [tip_anchor, [1.5, 0.0, 0.0], BODY_STATIC, j2, 0.0]
+    - [tail, [1.5, 0.0, -1.0], DYNAMIC, nothing, 1.0]
+
+segments:
+  headers: [name, point_i, point_j, l0, diameter_mm, unit_stiffness, unit_damping]
+  data:
+    - [tether_seg, ground, beam_anchor, 5.0, 10.0, 10000.0, 10.0]
+    - [tail_seg, tip_anchor, tail, 1.0, 10.0, 10000.0, 10.0]
+
+tethers:
+  headers: [name, segment_idxs, init_stretched_length]
+  data:
+    - [tether, [tether_seg], 6.0]
+
+winches:
+  headers: [name, tether_idxs, winch_point]
+  data:
+    - [winch, [tether], ground]
+"""
+
 const INIT_LEN_SETTINGS = """
 system:
     log_file: "data/init_len_test"
@@ -227,7 +273,7 @@ environment:
         mid = sys.points[:main_tether_point_1]
         @test mid.pos_ENU ≈ KVec3(0, 0, -100)
         @test sys.points[:top].pos_ENU ≈ KVec3(0, 0, -200)
-        @test sys.tethers[:main_tether].len ≈ 200.0
+        @test SystemState(sys).tethers[:main_tether].len ≈ 200.0
         # The stretched placement is the initial pose.
         @test SystemState(sys).points[:main_tether_point_1].pos_w == mid.pos_ENU
         @test SystemState(sys).points[:top].pos_w == sys.points[:top].pos_ENU
@@ -341,7 +387,7 @@ winches:
 
         sys.tethers[:tether_winch].init_stretched_len = 100.0
         top_before = copy(sys.points[:top].pos_ENU)
-        @test_logs (:info,) match_mode=:any place!(sys)
+        place!(sys)
 
         # top moves along the line from the mean anchor (the origin) through where
         # it was, until the two tethers' mean length is the mean target, 150 m.
@@ -350,13 +396,13 @@ winches:
         @test (norm(placed - ground_static) + norm(placed - KVec3(-10, 0, 0))) / 2 ≈ 150.0
         @test sys.points[:ground_winch].pos_ENU ≈ KVec3(-10, 0, 0)
 
-        place!(sys; prn=false)
+        place!(sys)
         @test sys.points[:top].pos_ENU ≈ placed
 
         # Tethers that already have their lengths stay where they are.
         sys.tethers[:tether_static].init_stretched_len = norm(placed - ground_static)
         sys.tethers[:tether_winch].init_stretched_len = norm(placed - KVec3(-10, 0, 0))
-        place!(sys; prn=false)
+        place!(sys)
         @test sys.points[:top].pos_ENU ≈ placed
     end
 
@@ -411,38 +457,36 @@ winches:
         place!(sys)
 
         state = SystemState(sys)
-        tether = state.tethers[:main_tether]
-        segs = state.segments
-        stretched = sum(segs[si].len for si in tether.segment_idxs)
-        k = SymbolicAWEModels.tether_unit_stiffness(tether, segs)
+        segment_idxs = state.tethers[:main_tether].segment_idxs
+        stretched = sum(state.segments[si].len for si in segment_idxs)
+        k = state.segments[first(segment_idxs)].unit_stiffness
+        tether = sys.tethers[:main_tether]
+        unstretched() =
+            (place!(sys); sum(sys.segments[si].rest_length for si in segment_idxs))
         @test stretched ≈ 200.0
 
-        # default: force 0, no frac → len == stretched
-        @test tether.init_tether_force == 0.0
+        # default: no force, no frac → len == stretched
+        @test isnothing(tether.init_tether_force)
         @test isnothing(tether.init_stretch_frac)
-        SymbolicAWEModels.apply_tether_init_forces!(state)
-        @test tether.len ≈ stretched
+        @test unstretched() ≈ stretched
 
         # stretch_frac → len = frac * stretched; clears the force
         tether.init_stretch_frac = 0.8
         @test isnothing(tether.init_tether_force)
-        SymbolicAWEModels.apply_tether_init_forces!(state)
-        @test tether.len ≈ 0.8 * stretched
+        @test unstretched() ≈ 0.8 * stretched
 
         # stretch_frac > 1 → slack: len longer than stretched
         tether.init_stretch_frac = 1.1
-        SymbolicAWEModels.apply_tether_init_forces!(state)
-        @test tether.len ≈ 1.1 * stretched
+        @test unstretched() ≈ 1.1 * stretched
 
         # non-positive stretch_frac errors
         tether.init_stretch_frac = 0.0
-        @test_throws ErrorException SymbolicAWEModels.apply_tether_init_forces!(state)
+        @test_throws ErrorException place!(sys)
 
         # force → len = stretched * (1 - force/k); clears the frac
         tether.init_tether_force = 0.1 * k
         @test isnothing(tether.init_stretch_frac)
-        SymbolicAWEModels.apply_tether_init_forces!(state)
-        @test tether.len ≈ stretched * 0.9
+        @test unstretched() ≈ stretched * 0.9
 
         # only one of force / frac may have a value at a time
         @test_throws ErrorException Tether(:both, [:s1];
@@ -482,14 +526,14 @@ winches:
         place!(sys)
 
         tip = sys.bodies[:tip]
-        @test tip.pos_ENU[3] > 0.5
+        @test tip.origin_ENU[3] > 0.5
         R_b_to_w = SymbolicAWEModels.quaternion_to_rotation_matrix(tip.Q_KA_to_ENU)
-        anchor_w = tip.pos_ENU .+ R_b_to_w * sys.points[:tip_anchor].anchor_b
+        anchor_w = tip.origin_ENU .+ R_b_to_w * sys.points[:tip_anchor].anchor_b
         @test sys.points[:tip_anchor].pos_ENU ≈ anchor_w
         @test norm(sys.points[:tip_anchor].pos_ENU -
                    sys.points[:ground].pos_ENU) ≈ 6.0
         # The clamped root body must not move.
-        @test sys.bodies[:root].pos_ENU ≈ KVec3(0.5seg_len, 0, 0)
+        @test sys.bodies[:root].origin_ENU ≈ KVec3(0.5seg_len, 0, 0)
     end
 
     # ================================================================
@@ -564,9 +608,9 @@ winches:
         @test norm(le_center - ground) ≈ 5.0990195135927845
         # The wing body translated with its points (the regression: the body
         # stayed where it was authored while the points moved).
-        @test wing.pos_ENU ≈ authored_origin .+ delta
+        @test wing.origin_ENU ≈ authored_origin .+ delta
         # Body and its WING points stay rigid: point→origin offset preserved.
-        @test le_center .- wing.pos_ENU ≈ KVec3(-0.5, 0.0, 2.5) .- authored_origin
+        @test le_center .- wing.origin_ENU ≈ KVec3(-0.5, 0.0, 2.5) .- authored_origin
     end
 
     # ================================================================
@@ -576,7 +620,9 @@ winches:
     # alone leaves the whole beam behind while the tether's free end moves —
     # the ride constraint then snaps the point back, silently.
     # ================================================================
-    @testset "Placement moves a beam (tube-anchored points)" begin
+    """A beam of four bodies on three tubes, hung from the ground by a tether to a point
+    riding the first tube, with a tail off a point riding the second."""
+    function tube_rider_beam(name)
         inertia = [0.01, 0.01, 0.01]
         bodies = [Body(Symbol(:node, i); extra_mass=1.0, inertia_principal=inertia,
                        pos=[Float64(i - 1), 0.0, 0.0], type=DYNAMIC)
@@ -598,8 +644,12 @@ winches:
                             l0=1.0)]
         tethers = [Tether(:tether, [:tether_seg], 6.0)]
         winches = [Winch(:winch, set, [:tether]; winch_point=:ground)]
-        sys = SystemStructure("init_stretched_length_beam", set; points,
-            segments, tethers, winches, bodies=bodies, tubes)
+        return SystemStructure(name, set; points, segments, tethers, winches, bodies,
+                               tubes)
+    end
+
+    @testset "Placement moves a beam (tube-anchored points)" begin
+        sys = tube_rider_beam("init_stretched_length_beam")
 
         delta = KVec3(0.0, 0.0, 1.0)
         place!(sys)
@@ -609,13 +659,45 @@ winches:
         # Every beam body translates, including node4, which no point rides and
         # which is reachable only through the joint graph.
         for (i, body) in enumerate(sys.bodies)
-            @test body.pos_ENU ≈ KVec3(Float64(i - 1), 0.0, 0.0) .+ delta
+            @test body.origin_ENU ≈ KVec3(Float64(i - 1), 0.0, 0.0) .+ delta
         end
         # tail hangs off the far end of the beam, reachable from the tether's
         # free end only through the rigid-sibling hop across the beam.
         @test sys.points[:tail].pos_ENU ≈ KVec3(1.5, 0.0, -1.0) .+ delta
         @test SymbolicAWEModels.segment_initial_length(
             sys.segments[:tail_seg], sys.points) ≈ 1.0
+    end
+
+    # ================================================================
+    # Test 11b: the beam of Test 11 lands on one pose and one set of rest lengths
+    # whether it is loaded from YAML, built in Julia, or placed again after its
+    # transform changes.
+    # ================================================================
+    @testset "YAML, Julia and re-placement agree (tube riders)" begin
+        same_pose(a, b) = all(
+            [all(p.pos_ENU ≈ q.pos_ENU for (p, q) in zip(a.points, b.points)),
+             all(p.origin_ENU ≈ q.origin_ENU for (p, q) in zip(a.bodies, b.bodies)),
+             all(p.Q_KA_to_ENU ≈ q.Q_KA_to_ENU for (p, q) in zip(a.bodies, b.bodies)),
+             all(p.rest_length ≈ q.rest_length
+                 for (p, q) in zip(a.segments, b.segments))])
+
+        yaml_path = joinpath(tmpdir, "tube_rider_beam.yaml")
+        write(yaml_path, TUBE_RIDER_BEAM_YAML)
+        from_yaml, _ = load_sys_struct_from_yaml(
+            yaml_path; system_name="tube_rider_beam_yaml", set=set)
+        from_julia = tube_rider_beam("tube_rider_beam_julia")
+        @test same_pose(from_yaml, from_julia)
+
+        turn(elevation) = Transform(; name=:tf, elevation, azimuth=0.0, heading=0.0,
+            base_pos=[0.5, 0.0, -5.0], base_point=1, rot_point=[2 => 1.0],
+            points=[2, 3, 4], bodies=[1, 2, 3, 4])
+        replaced = tube_rider_beam("tube_rider_beam_replaced")
+        place!(replaced, [turn(deg2rad(30))])
+        place!(replaced, [turn(deg2rad(60))])
+        placed_once = tube_rider_beam("tube_rider_beam_once")
+        place!(placed_once, [turn(deg2rad(60))])
+        @test same_pose(replaced, placed_once)
+        @test !same_pose(replaced, from_julia)
     end
 
     # ================================================================
@@ -646,7 +728,7 @@ winches:
 
         # `reinit!` re-places the structure, so it derives `len` afresh.
         place!(sys)
-        @test sys.tethers[:main_tether].len ≈ 200.0
+        @test SystemState(sys).tethers[:main_tether].len ≈ 200.0
 
         @test_throws ErrorException set_unstretched_length!(state, tether, 0.0)
         @test_throws ErrorException set_unstretched_length!(state, tether, -1.0)

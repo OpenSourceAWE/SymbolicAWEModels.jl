@@ -44,9 +44,9 @@ using LinearAlgebra
         data_path, "rigid_structural_geometry.yaml")
     sys, _ = load_sys_struct_from_yaml(
         yaml_path;
-        system_name="frame_test", set, vsm_set)
+        system_name="frame_test", set)
 
-    state = SystemState(sys)
+    state = SystemState(sys; set, vsm_set)
     wing = state.wings[:main_wing]
     @test wing.dynamics_type == RIGID_DYNAMICS
     @test !isnothing(wing.origin)

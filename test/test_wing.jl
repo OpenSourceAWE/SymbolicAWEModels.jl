@@ -53,7 +53,7 @@ function reset_state!(sam, set)
 
     sam.sys_struct.winches[:main_winch].brake = true
 
-    place!(sam; prn=false)
+    place!(sam)
     test_init!(sam; prn=false)
 end
 
@@ -88,16 +88,16 @@ end
     # Build SAMs once (expensive symbolic compilation)
     quat_sys, quat_transforms = load_sys_struct_from_yaml(
         quat_yaml_path;
-        system_name="wing_test_QUATERNION", set, vsm_set
+        system_name="wing_test_QUATERNION", set
     )
-    quat_sam = SymbolicAWEModel(set, quat_sys; transforms=quat_transforms)
+    quat_sam = SymbolicAWEModel(set, quat_sys; transforms=quat_transforms, vsm_set)
     test_init!(quat_sam)
 
     refine_sys, refine_transforms = load_sys_struct_from_yaml(
         refine_yaml_path;
-        system_name="wing_test_REFINE", set, vsm_set
+        system_name="wing_test_REFINE", set
     )
-    refine_sam = SymbolicAWEModel(set, refine_sys; transforms=refine_transforms)
+    refine_sam = SymbolicAWEModel(set, refine_sys; transforms=refine_transforms, vsm_set)
     test_init!(refine_sam)
 
     sam_configs = [
@@ -120,7 +120,7 @@ end
 
                 @test length(sys.wings) == 1
                 @test haskey(sys.wings, :main_wing)
-                wing = sys.wings[:main_wing]
+                wing = sys.bodies[:main_wing]
                 @test wing.dynamics_type == expected_dynamics_type
 
                 @test haskey(sys.points, :le_left)
@@ -151,7 +151,7 @@ end
                 @show sam.state.wings[1].heading
 
                 sys = sam.state
-                wing = sys.wings[:main_wing]
+                wing = sys.bodies[:main_wing]
                 init_wing_pos = copy(wing.pos_w)
                 init_kcu_pos = copy(sys.points[:kcu].pos_w)
 

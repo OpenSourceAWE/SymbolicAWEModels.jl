@@ -47,8 +47,8 @@ vsm_set = VortexStepMethod.VSMSettings(
     @testset "geometry: LE/TE match structural points" begin
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
-            system_name="refine_geom", set, vsm_set)
-        wing = sys.wings[1]
+            system_name="refine_geom", set)
+        wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
         points = sys.points
         vsm_w = wing.vsm_wing
 
@@ -75,7 +75,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         @test length(wing.wing_segments) == n_struct
 
         R = SymbolicAWEModels.initial_rotation(wing)
-        origin = wing.pos_ENU
+        origin = wing.origin_ENU
         for (i, (le_idx, te_idx)) in
                 enumerate(wing.wing_segments)
             sec = vsm_w.unrefined_sections[i]
@@ -93,8 +93,8 @@ vsm_set = VortexStepMethod.VSMSettings(
     @testset "use_prior_polar preserves refined polars" begin
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
-            system_name="refine_polar", set, vsm_set)
-        wing = sys.wings[1]
+            system_name="refine_polar", set)
+        wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
         points = sys.points
         vsm_w = wing.vsm_wing
 
@@ -185,8 +185,8 @@ vsm_set = VortexStepMethod.VSMSettings(
 
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
-            system_name="refine_solver_size", set, vsm_set=vsm_set_5)
-        wing = sys.wings[1]
+            system_name="refine_solver_size", set)
+        wing = SymbolicAWEModels.SystemState(sys; set, vsm_set=vsm_set_5).wings[1]
         @test length(wing.station_idxs) == 3
         @test wing.vsm_wing.n_unrefined_sections == 3
         @test length(wing.vsm_solver.sol.cm_unrefined_dist) == 3
@@ -198,8 +198,8 @@ vsm_set = VortexStepMethod.VSMSettings(
     @testset "errors when use_prior_polar=false" begin
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
-            system_name="refine_err", set, vsm_set)
-        wing = sys.wings[1]
+            system_name="refine_err", set)
+        wing = SymbolicAWEModels.SystemState(sys; set, vsm_set).wings[1]
         points = sys.points
         vsm_w = wing.vsm_wing
 
@@ -219,8 +219,8 @@ vsm_set = VortexStepMethod.VSMSettings(
     @testset "a wing whose sections run from -y to +y is refused" begin
         sys, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             refine_yaml;
-            system_name="refine_span_order", set, vsm_set)
-        state = SystemState(sys)
+            system_name="refine_span_order", set)
+        state = SystemState(sys; set, vsm_set)
         wing = state.wings[1]
         # The fixture's wing is pitched about y, so mirroring y mirrors body y too.
         for point in state.points
@@ -234,7 +234,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         @test_throws "run from -y to +y" match_aero_sections_to_structure!(
             wing, sys.points)
         @test_throws "run from -y to +y" transform_vsm_sections_to_body!(
-            wing, wing.pos_ENU, SymbolicAWEModels.initial_rotation(wing))
+            wing, wing.origin_ENU, SymbolicAWEModels.initial_rotation(wing))
     end
 end
 
@@ -244,9 +244,9 @@ end
     @testset "geometry: LE/TE match structural points" begin
         sys_q, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             struc_yaml;
-            system_name="quat_geom", set, vsm_set,
+            system_name="quat_geom", set,
             dynamics_type=RIGID_DYNAMICS)
-        wing = sys_q.wings[1]
+        wing = SymbolicAWEModels.SystemState(sys_q; set, vsm_set).wings[1]
         points = sys_q.points
         vsm_w = wing.vsm_wing
 
@@ -259,7 +259,7 @@ end
 
         # Verify LE/TE positions match
         R = SymbolicAWEModels.initial_rotation(wing)
-        origin = wing.pos_ENU
+        origin = wing.origin_ENU
         for (i, (le_idx, te_idx)) in
                 enumerate(wing.wing_segments)
             sec = vsm_w.unrefined_sections[i]
@@ -281,9 +281,9 @@ end
         # partition assigns sections to stations.
         sys_q, _ = SymbolicAWEModels.load_sys_struct_from_yaml(
             struc_yaml;
-            system_name="quat_preserve", set, vsm_set,
+            system_name="quat_preserve", set,
             dynamics_type=RIGID_DYNAMICS)
-        wing = sys_q.wings[1]
+        wing = SymbolicAWEModels.SystemState(sys_q; set, vsm_set).wings[1]
         points = sys_q.points
         vsm_w = wing.vsm_wing
 

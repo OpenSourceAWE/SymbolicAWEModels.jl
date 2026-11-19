@@ -82,7 +82,7 @@ end
     write(fixed_yaml, txt)
 
     sys, transforms = load_sys_struct_from_yaml(fixed_yaml;
-        system_name="2plate_fixed", set, vsm_set)
+        system_name="2plate_fixed", set)
     sys.winches[:main_winch].brake = true
     @test all(g.type == STATIC for g in sys.stations)
 
@@ -92,7 +92,7 @@ end
         g.twist = prescribed[g.name]
     end
 
-    sam = SymbolicAWEModel(set, sys; transforms)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
     init!(sam; prn=false, remake=true, remake_vsm=false)
     next_step!(sam)
 
@@ -115,9 +115,9 @@ station_point_mass(points, station, field) =
         joinpath(get_data_path(), "vsm_settings.yaml"); data_prefix=false)
     sys, transforms = load_sys_struct_from_yaml(
         joinpath(get_data_path(), "rigid_structural_geometry.yaml");
-        system_name="2plate_kite", set, vsm_set)
+        system_name="2plate_kite", set)
     sys.winches[:main_winch].brake = true
-    sam = SymbolicAWEModel(set, sys; transforms)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
     init!(sam; prn=false, remake=false, remake_vsm=false)
     update_sys_struct!(sam.prob, sam.integrator, sam.state)
 

@@ -49,7 +49,7 @@ World-frame observables: wing attitude, aero force/moment, point
 positions and forces (tether/bridle loads), segment tensions, twists.
 """
 function frame_snapshot(sys_struct)
-    wing = sys_struct.wings[1]
+    wing = sys_struct.bodies[1]
     R_b_to_w = quaternion_to_rotation_matrix(Vector(wing.Q_b_to_w))
     return (;
         R_b_to_w,
@@ -91,7 +91,7 @@ diverging variant).
 """
 function run_case(sam; frame=nothing, steps=10, dt=0.05)
     wing = sam.state.wings[1]
-    place!(sam; prn=false)
+    place!(sam)
     init!(sam; prn=false)
     if !isnothing(frame)
         apply_principal_frame!(wing, frame)
@@ -122,12 +122,12 @@ end
         joinpath(data_path, "vsm_settings.yaml"); data_prefix=false)
     sys, transforms = load_sys_struct_from_yaml(
         joinpath(data_path, "rigid_structural_geometry.yaml");
-        system_name="frame_invariance", set, vsm_set,
+        system_name="frame_invariance", set,
         aero_mode=AeroLinearized())
-    wing = sys.wings[1]
+    wing = sys.bodies[1]
     @test wing.dynamics_type == RIGID_DYNAMICS
 
-    sam = SymbolicAWEModel(set, sys; transforms)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
     ref = run_case(sam)
     @test norm(ref[1].aero_wrench_w) > 1.0
     @test maximum(norm, ref[1].point_force_w) > 1.0

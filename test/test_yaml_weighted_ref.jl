@@ -110,7 +110,7 @@ transforms:
     # This should not throw — the bug causes
     # MethodError: no method matching Int64(::Vector{Real})
     sys, transforms = load_sys_struct_from_yaml(yaml_path;
-        system_name="weighted_ref_test", set, vsm_set)
+        system_name="weighted_ref_test", set)
 
     wing = sys.bodies[1]
 
@@ -135,7 +135,7 @@ transforms:
     @test wing.origin.weights ≈ [0.7, 0.3]
 
     # The wing origin is the weighted centroid of points 7 and 9
-    @test wing.pos_ENU ≈ 0.7 .* sys.points[7].pos_ENU .+ 0.3 .* sys.points[9].pos_ENU
+    @test wing.origin_ENU ≈ 0.7 .* sys.points[7].pos_ENU .+ 0.3 .* sys.points[9].pos_ENU
 
     # N-point (4-point) weighted origin should also parse
     # and resolve correctly
@@ -145,14 +145,14 @@ transforms:
     yaml_path_4pt = joinpath(tmpdir, "geometry_4pt.yaml")
     write(yaml_path_4pt, yaml_4pt)
     sys_4pt, _ = load_sys_struct_from_yaml(yaml_path_4pt;
-        system_name="weighted_ref_4pt_test", set, vsm_set)
+        system_name="weighted_ref_4pt_test", set)
     wing_4pt = sys_4pt.bodies[1]
     @test wing_4pt.origin.ids == [1, 3, 5, 9]
     @test wing_4pt.origin.weights ≈ [0.1, 0.2, 0.3, 0.4]
 
     # Compile and init — weighted refs must survive
     # symbolic equation generation and scalarization
-    sam = SymbolicAWEModel(set, sys; transforms)
+    sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
     integ = init!(sam; prn=false)
     @test integ !== nothing
 

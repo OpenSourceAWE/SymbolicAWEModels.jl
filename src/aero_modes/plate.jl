@@ -30,7 +30,7 @@ Polar-less marker, used only to select the flat-plate path when parsing a YAML
 AeroPlate() = AeroPlate(nothing, nothing)
 
 is_builtin_aero(::AeroPlate) = true
-aero_mode_tag(::AeroPlate) = "plate"
+aero_mode_tag(::Type{<:AeroPlate}) = "plate"
 calc_aoa(::AeroPlate, wing) = atan(wing.va_b[3], wing.va_b[1])
 
 # ==================== polar interpolation + accessors ==================== #
@@ -218,8 +218,8 @@ read_aero_log_points!(mode::AeroPlate, wing, sys_struct, sys_state,
 
 # ==================== YAML construction ==================== #
 
-function load_wing(mode::AeroPlate, definition, w, set, dynamics_type, vsm_set,
-                   station_refs, stations)
+function load_wing(mode::AeroPlate, definition, w, set, dynamics_type, station_refs,
+                   stations)
     return load_plate_wing(definition, w, set, dynamics_type, mode, stations)
 end
 

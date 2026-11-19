@@ -617,8 +617,8 @@ system:
         test_init!(sam)
 
         pulley = sam.state.pulleys[:main_pulley]
-        left = sam.sys_struct.segments[:left_leg]
-        right = sam.sys_struct.segments[:right_leg]
+        left = sam.state.segments[:left_leg]
+        right = sam.state.segments[:right_leg]
         nominal = left.unit_damping
 
         """Split speed over the first 30 ms of the transient, at this leg damping."""
@@ -628,8 +628,8 @@ system:
             pulley.efficiency, pulley.damping, pulley.brake = 1.0, 0.0, false
             sam.sys_struct.points[:pulley_point].body_frame_damping = zeros(3)
             sam.sys_struct.points[:weight].body_frame_damping = zeros(3)
-            sam.sys_struct.segments[:main_tether].unit_damping = 0.0
-            place!(sam; prn=false)
+            sam.state.segments[:main_tether].unit_damping = 0.0
+            place!(sam)
             init!(sam; prn=false)
             speeds = Float64[]
             for _ in 1:n

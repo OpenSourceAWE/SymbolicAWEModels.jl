@@ -42,7 +42,6 @@ SymbolicAWEModels.KernelCodegen._insert_sorted!
 SymbolicAWEModels.KernelCodegen.get_alias
 SymbolicAWEModels.KernelCodegen.dependency_indices
 SymbolicAWEModels.KernelCodegen._resolved_reads
-SymbolicAWEModels.KernelCodegen._all_dependencies
 ```
 
 ## Kernel backend — runtime

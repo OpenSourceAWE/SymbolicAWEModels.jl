@@ -257,18 +257,6 @@ end
 
 
 """
-    make_lin_sys_state(y::AbstractVector, sam::SymbolicAWEModel, t::Real)
-
-Construct a SysState for logging linear state-space simulation output y (ordered as
-sam.outputs).
-"""
-function make_lin_sys_state(y::AbstractVector, sam::SymbolicAWEModel, t::Real)
-    sys_state = SysState(sam)
-    update_sys_state!(sys_state, y, sam, t)
-    return sys_state
-end
-
-"""
     update_sys_state!(sys_state, y::AbstractVector, sam::SymbolicAWEModel, t::Real)
 
 Update a SysState for a linear state-space simulation, using output y and model sam.

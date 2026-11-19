@@ -44,7 +44,7 @@ using LinearAlgebra
     write_pressure_fixture(data_path)
 
     set, sys = load_pressure_sys(data_path, AeroPressure(; live_polars=true))
-    wing = sys.wings[1]
+    wing = sys.bodies[1]
     mode = wing.aero
     panels = wing.vsm_aero.panels
 
@@ -83,7 +83,7 @@ using LinearAlgebra
         @test all(iszero, mode.panel_station)
     end
 
-    wing.va_b .= SimFloat[15.0, 0.0, 3.5]
+    set_apparent_wind!(wing, SimFloat[15.0, 0.0, 3.5])
     wing.ω_b .= SimFloat[0.0, 0.0, 0.0]
     wing.vsm_solver.density = 1.225
     va_vals = zeros(SimFloat, 3, length(sys.points))
@@ -269,7 +269,7 @@ using LinearAlgebra
     # to be a second scatter rather than a second polar source.
     @testset "against the tabulated mode" begin
         set_t, sys_t = load_pressure_sys(data_path, AeroPressure())
-        wing_t = sys_t.wings[1]
+        wing_t = sys_t.bodies[1]
         mode_t = wing_t.aero
         @test mode.station_point == mode_t.station_point
         @test mode.node_residual_share == mode_t.node_residual_share
@@ -280,7 +280,7 @@ using LinearAlgebra
         @test SymbolicAWEModels.aero_hash_id(mode) !=
               SymbolicAWEModels.aero_hash_id(mode_t)
 
-        wing_t.va_b .= wing.va_b
+        set_apparent_wind!(wing_t, wing.va_b)
         wing_t.ω_b .= wing.ω_b
         wing_t.vsm_solver.density = wing.vsm_solver.density
         va_t = zeros(SimFloat, 3, length(sys_t.points))

@@ -154,17 +154,6 @@ function rotation_matrix_to_quaternion(R::AbstractMatrix)
 end
 
 """
-    rotate_v_around_k(v, k, θ)
-
-Rotate vector `v` around axis `k` by angle `θ` using Rodrigues' rotation formula.
-"""
-function rotate_v_around_k(v, k, θ)
-    k = smooth_normalize(k)
-    v_rot = v * cos(θ) + (k × v) * sin(θ) + k * (k ⋅ v) * (1 - cos(θ))
-    return v_rot
-end
-
-"""
     calc_R_v_to_w(wing_pos, e_x)
 
 Calculate the rotation matrix from the view frame (`_v`) to the world frame (`_w`).
@@ -199,8 +188,8 @@ end
 """
     sym_calc_R_t_to_w(wing_pos)
 
-Symbolic version of KiteGeometry's `calc_R_t_to_w` that uses explicit element access
-to avoid slice scalarization issues.
+Symbolic form of KiteGeometry's `calc_R_t_to_w`, with its fallback at the zenith, that uses
+explicit element access to avoid slice scalarization issues.
 """
 function sym_calc_R_t_to_w(wing_pos)
     wp1, wp2, wp3 = wing_pos[1], wing_pos[2], wing_pos[3]
@@ -209,10 +198,12 @@ function sym_calc_R_t_to_w(wing_pos)
     wp_norm = smooth_norm((wp1, wp2, wp3))
     z1, z2, z3 = wp1 / wp_norm, wp2 / wp_norm, wp3 / wp_norm
 
-    # y = normalize([-wp2, wp1, 0])
+    # y = normalize([-wp2, wp1, 0]), else y itself at the zenith
     yu1, yu2, yu3 = -wp2, wp1, 0
     y_norm = smooth_norm((yu1, yu2, yu3))
-    y1, y2, y3 = yu1 / y_norm, yu2 / y_norm, yu3 / y_norm
+    at_zenith = (abs(wp1) < 1e-6) & (abs(wp2) < 1e-6)
+    y1, y2, y3 = ifelse(at_zenith, 0, yu1 / y_norm), ifelse(at_zenith, 1, yu2 / y_norm),
+                 ifelse(at_zenith, 0, yu3 / y_norm)
 
     # x = y × z
     x1 = y2 * z3 - y3 * z2

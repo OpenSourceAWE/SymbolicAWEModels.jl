@@ -68,7 +68,7 @@ default_backend!
 
 ```@docs
 SystemStructure
-SystemStructure(name, set; points, stations, segments, pulleys, tethers, winches, wings, bodies, tubes)
+SystemStructure(::AbstractString, ::Any)
 Point
 Point(name, pos_ENU, type::DynamicsType; wing, extra_mass, body_frame_damping, world_frame_damping, fix_sphere)
 Station
@@ -106,7 +106,6 @@ ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_ben
 ## Indexing
 
 ```@docs
-NamedCollection
 NameRef
 WeightedRefPoints
 ```
