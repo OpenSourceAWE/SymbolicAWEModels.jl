@@ -492,14 +492,11 @@ Set every DYNAMIC and STATIC body's `total_mass`, `com_offset_b` and principal
 inertia (`inertia_principal`, `R_b_to_p`): its own mass properties plus
 each point it carries ([`carrier_body_idx`](@ref)) as a point mass of the point's
 `total_mass`, at its anchor. A particle wing's `total_mass` sums its free member points
-and its section bodies. Point masses are taken at the current `rest_length`, and the rigid
-wing
-nodes' offsets from the new COM re-derived ([`init_undeformed_offsets!`](@ref)).
+and its section bodies. Point masses are taken at the current `rest_length`.
 """
 function update_mass_properties!(sys_struct; prn=true)
     (; points, bodies) = sys_struct
     stations = sys_struct.spanwise_stations
-    write_total_mass!(sys_struct)
     for body in bodies
         body_type(body) == KINEMATIC && continue
         old_com_offset = copy(body.com_offset_b)
@@ -523,7 +520,6 @@ function update_mass_properties!(sys_struct; prn=true)
                               if carrier_body_idx(points[idx], bodies) == 0; init=0.0) +
             sum(bodies[idx].total_mass for idx in body_idxs; init=0.0)
     end
-    init_undeformed_offsets!(bodies, points)
     return nothing
 end
 
@@ -643,7 +639,8 @@ function system_definition(name::AbstractString, set;
             for point in points[wing_point_idxs]
                 point.fixed = true
                 point.wing_idx, point.body, point.tube = nothing, nothing, nothing
-                point.anchor_b, point.apparent_mass, point.is_wing_node = nothing, 0.0, false
+                point.anchor_b, point.apparent_mass, point.is_wing_node = nothing, nothing,
+                    false
             end
         end
     end
@@ -703,7 +700,7 @@ function system_definition(name::AbstractString, set;
     end
     body_rows = Rows(bodies)
 
-    # Body-anchored points: resolve the body, deriving anchor_b from pos_ENU when unset.
+    # Body-anchored points: resolve the body.
     for point in points
         point.body = resolve_ref(point.body, body_rows, "rigid_body")
         body, wing = point.body, point.wing_idx
@@ -711,9 +708,6 @@ function system_definition(name::AbstractString, set;
             error("Point $(point.name): `body` and `wing` name different wings " *
                 "(body $body vs wing $wing); a wing is a body, so they must reference " *
                 "the same one.")
-        if !isnothing(body) && isnothing(point.anchor_b)
-            point.resolved_anchor_b = initial_body_position(bodies[body], point)
-        end
     end
 
     # Tubes: assign indices, resolve their body references.
@@ -731,14 +725,12 @@ function system_definition(name::AbstractString, set;
         station.flap_points = resolve_refs(station.flap_points, point_rows, "point")
     end
 
-    # Beam-anchored points: resolve the tube ref, derive beam_frac + offset.
+    # Beam-anchored points: resolve the tube ref.
     for point in points
         point.tube = resolve_ref(point.tube, tube_rows, "tube")
         isnothing(point.tube) && continue
-        tube = tubes[point.tube]
-        tube.model isa TimoshenkoTube || error("Point $(point.name) rides tube " *
-            "$(tube.name), which is not a TimoshenkoTube beam element.")
-        derive_point_beam_anchor!(point, tube, bodies)
+        tubes[point.tube].model isa TimoshenkoTube || error("Point $(point.name) rides " *
+            "tube $(tubes[point.tube].name), which is not a TimoshenkoTube beam element.")
     end
 
     # Particle wings carry mass on their (tube-connected) section bodies.

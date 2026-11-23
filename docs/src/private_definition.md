@@ -111,6 +111,10 @@ SymbolicAWEModels.run_value
 SymbolicAWEModels.set_run_value!
 SymbolicAWEModels.segment_rest_length
 SymbolicAWEModels.station_aero_moment!
+SymbolicAWEModels.point_anchor_b
+SymbolicAWEModels.point_undeformed_b
+SymbolicAWEModels.point_beam_anchor
+SymbolicAWEModels.beam_anchor
 SymbolicAWEModels.collection
 SymbolicAWEModels.start_lengths!
 SymbolicAWEModels.point_total_mass

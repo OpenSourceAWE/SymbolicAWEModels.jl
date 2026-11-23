@@ -440,9 +440,7 @@ end
 """
     fit_body_frames!(points, bodies)
 
-Fit each `PARTICLE_DYNAMICS` body's frame and origin to its reference points and set its
-nodes' undeformed offsets from them, and the rigid wings' nodes' offsets from the initial
-pose ([`init_undeformed_offsets!`](@ref)).
+Fit each `PARTICLE_DYNAMICS` body's frame and origin to its reference points.
 """
 function fit_body_frames!(points, bodies)
     for body in bodies
@@ -453,13 +451,7 @@ function fit_body_frames!(points, bodies)
             points, body.z_ref_points, body.y_ref_points, body.origin)
         body.R_b_to_w = R_b_to_w
         body.pos_w .= origin
-        for point in points
-            if point.is_wing_node && point.wing_idx == body.idx
-                point.pos_undeformed_b .= R_b_to_w' * (point.pos_w - origin)
-            end
-        end
     end
-    init_undeformed_offsets!(bodies, points)
 end
 
 """
@@ -785,27 +777,6 @@ function segment_stretch_stats(sys::SystemState)
     max_idx = stretch_data[argmax(stretches)][1]
 
     return (max_stretch, mean_stretch, max_idx)
-end
-
-"""
-    write_total_mass!(sys_struct)
-
-Write each point's effective translational mass — `extra_mass` plus the half-mass
-of every incident segment — into `point.total_mass`.
-"""
-write_total_mass!(::SystemState) = nothing
-function write_total_mass!(sys_struct)
-    for point in sys_struct.points
-        point.total_mass = point.extra_mass
-    end
-    for segment in sys_struct.segments
-        material = sys_struct.materials[segment.material]
-        half = segment_half_mass(segment.rest_length, segment.diameter,
-                                 material.parameters["density"])
-        sys_struct.points[segment.points[1]].total_mass += half
-        sys_struct.points[segment.points[2]].total_mass += half
-    end
-    return nothing
 end
 
 """

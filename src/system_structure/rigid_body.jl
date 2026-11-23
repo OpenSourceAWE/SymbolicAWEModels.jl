@@ -689,23 +689,19 @@ function init_rest!(model::TimoshenkoTube, R_a, R_b, x_a, x_b)
 end
 
 """
-    derive_point_beam_anchor!(point, tube, bodies)
+    beam_anchor(pos_ENU, tube, bodies) -> (beam_frac, beam_offset_b)
 
-Derive a beam-anchored point's `beam_frac` and `beam_offset_b` from its
-`pos_ENU`: project onto the rest beam line between the tube's two node anchors
-in the initial pose, storing the axial fraction `s ∈ [0,1]` and the perpendicular
-remainder expressed in the rest element frame (so the point tracks the same
-off-centerline offset as the beam bends). Usually near-centerline (offset ≈ 0).
+Where a point at `pos_ENU` [m] rides `tube`'s beam element in the bodies' initial poses:
+its position `s ∈ [0, 1]` along the element and its offset off the centreline in the
+rest element frame [m].
 """
-function derive_point_beam_anchor!(point::Point, tube::Tube, bodies)
+function beam_anchor(pos_ENU, tube::Tube, bodies)
     R_a, _, node_a, node_b = tube_initial_frames(tube, bodies)
     e1, e2, e3, len = timoshenko_element_frame(node_a, node_b, R_a)
-    rel = point.pos_ENU .- node_a
+    rel = pos_ENU .- node_a
     s = clamp(dot(rel, e1) / len, 0.0, 1.0)
-    point.beam_frac = s
     perp = rel .- (s * len) .* e1
-    point.beam_offset_b = KVec3(dot(perp, e1), dot(perp, e2), dot(perp, e3))
-    return nothing
+    return s, KVec3(dot(perp, e1), dot(perp, e2), dot(perp, e3))
 end
 
 """

@@ -27,36 +27,22 @@ $(TYPEDFIELDS)
     wing_idx::Union{Nothing, KiteGeometry.NameRef} = nothing
     "Where the point sits in its body's frame [m]."
     anchor_b::Union{Nothing, Vector{Float64}} = nothing
+    "Entrained-air mass resisting acceleration without adding weight [kg]."
+    apparent_mass::Union{Nothing, Float64} = nothing
     "Index in the structure's points."
     idx::Int64 = 0
-    "Where the point sits in the frame of the body it rides [m]: `anchor_b`, else where its
-    position puts it."
-    resolved_anchor_b::KVec3 = zeros(KVec3)
-    "Undeformed position relative to the wing's centre of mass, principal frame [m]."
-    pos_undeformed_b::KVec3 = zeros(KVec3)
-    "External force on the point, world frame [N]."
-    ext_force_w::KVec3 = zeros(KVec3)
-    "Own mass plus half of each of its segments' masses at rest length [kg]."
-    total_mass::SimFloat = 0.0
-    "Entrained-air mass resisting acceleration without adding weight [kg]."
-    apparent_mass::SimFloat = 0.0
     "Whether the point is a structural node of a wing: a member of one of its stations."
     is_wing_node::Bool = false
-    "Position `s ∈ [0,1]` along the beam element of the tube the point rides."
-    beam_frac::SimFloat = 0.0
-    "Offset off that beam's centerline, rest element frame [m]."
-    beam_offset_b::KVec3 = zeros(KVec3)
 end
 
 PointModel(body_frame_damping, world_frame_damping, area, drag_coeff,
-           fix_sphere, fix_static, wing_idx, anchor_b) =
+           fix_sphere, fix_static, wing_idx, anchor_b, apparent_mass) =
     PointModel(; body_frame_damping, world_frame_damping, area, drag_coeff,
-               fix_sphere, fix_static, wing_idx, anchor_b,
-               resolved_anchor_b=KVec3(something(anchor_b, zeros(3))))
+               fix_sphere, fix_static, wing_idx, anchor_b, apparent_mass)
 
 KiteGeometry.model_columns(::Type{PointModel}) =
     (:body_frame_damping, :world_frame_damping, :area, :drag_coeff,
-     :fix_sphere, :fix_static, :wing_idx, :anchor_b)
+     :fix_sphere, :fix_static, :wing_idx, :anchor_b, :apparent_mass)
 
 """
     SegmentSpring
@@ -355,7 +341,7 @@ default, and `elastic`.
 """
 function register_definition_models()
     register_model!(:points, "sam_point", PointModel,
-                    ("N*s/m", "N*s/m", "m^2", "-", "-", "-", "-", "m");
+                    ("N*s/m", "N*s/m", "m^2", "-", "-", "-", "-", "m", "kg");
                     default=true)
     register_model!(:segments, "spring", SegmentSpring, ("N*s", "s", "-", "-");
                     default=true)

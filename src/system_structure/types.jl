@@ -373,7 +373,7 @@ function Point(name, pos_ENU, type::DynamicsType;
         world_frame_damping=axis_column(world_frame_damping), area, drag_coeff,
         fix_sphere, fix_static, wing_idx=wing,
         anchor_b=isnothing(anchor_b) ? nothing : Vector{Float64}(anchor_b),
-        resolved_anchor_b=KVec3(something(anchor_b, zeros(3))), apparent_mass)
+        apparent_mass=iszero(apparent_mass) ? nothing : Float64(apparent_mass))
     return KiteGeometry.Point(; name=Symbol(name), fixed=type == STATIC, body, tube,
         pos_ENU=KVec3(pos_ENU...), extra_mass, model)
 end

@@ -172,8 +172,8 @@ end
     @testset "structural resolution" begin
         @test sys.spanwise_stations[:flap].flap_bodies == [1, 2]
         @test sys.points[:bridle].tube == 1
-        @test sys.points[:bridle].beam_frac ≈ 0.5 atol=1e-6
-        @test sys.points[:bridle].beam_offset_b[3] ≈ 0.1 atol=1e-6
+        @test SystemState(sys).points[:bridle].beam_frac ≈ 0.5 atol=1e-6
+        @test SystemState(sys).points[:bridle].beam_offset_b[3] ≈ 0.1 atol=1e-6
     end
 
     sam = SymbolicAWEModel(set, sys)

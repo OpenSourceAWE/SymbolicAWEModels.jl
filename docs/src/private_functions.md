@@ -145,7 +145,6 @@ SymbolicAWEModels.has_point_flap
 SymbolicAWEModels.flap_delta
 SymbolicAWEModels.point_flap_delta
 SymbolicAWEModels.init_station_flap!
-SymbolicAWEModels.derive_point_beam_anchor!
 SymbolicAWEModels.n_orient_frames
 SymbolicAWEModels.aero_eqs!
 SymbolicAWEModels.point_eqs!
@@ -545,7 +544,6 @@ SymbolicAWEModels.fit_softening_exponent
 ## Other internals
 
 ```@docs
-SymbolicAWEModels.init_undeformed_offsets!
 SymbolicAWEModels.init_body_frame_from_ref_points!
 KiteUtils.Logger(::SymbolicAWEModel, ::Int64)
 ```

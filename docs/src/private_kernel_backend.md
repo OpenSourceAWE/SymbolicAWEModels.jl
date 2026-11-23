@@ -284,7 +284,6 @@ SymbolicAWEModels.va_frame_body
 SymbolicAWEModels.drag_source
 SymbolicAWEModels.copy_slots!
 SymbolicAWEModels.KernelControlSetter
-SymbolicAWEModels.write_total_mass!
 SymbolicAWEModels.segment_load_terms
 SymbolicAWEModels.segment_nonlinear_force
 SymbolicAWEModels.workload_fixture

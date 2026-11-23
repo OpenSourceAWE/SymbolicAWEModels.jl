@@ -494,22 +494,3 @@ function calc_particle_dynamics_wing_frame(points::AbstractVector,
     return KiteGeometry.wing_frame(PointPositions(points, field), frame)
 end
 
-"""
-    init_undeformed_offsets!(bodies, points)
-
-Set every rigid wing node's `pos_undeformed_b`, its offset from the wing's centre of
-mass in the body frame, from the initial pose.
-"""
-function init_undeformed_offsets!(bodies, points)
-    for body in bodies
-        body_dynamics_type(body) == RIGID_DYNAMICS || continue
-        R_initial = initial_rotation(body)
-        com_initial = origin_ENU(body) .+ R_initial * body.com_offset_b
-        for point in points
-            if point.is_wing_node && point.wing_idx == body.idx
-                point.pos_undeformed_b .= R_initial' * (point.pos_ENU - com_initial)
-            end
-        end
-    end
-    return nothing
-end

@@ -145,20 +145,21 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
 
         beam_state = SystemState(beam)
         # A tube rider is placed by both bodies, split by where it sits.
-        carriers = apparent_mass_carriers(beam_state, beam.points[:rider])
+        carriers = apparent_mass_carriers(beam_state, beam_state.points[:rider])
         @test length(carriers) == 2
         @test sum(share for (_, share) in carriers) ≈ 1.0
-        frac = beam.points[:rider].beam_frac
+        frac = beam_state.points[:rider].beam_frac
         @test carriers[1][1].row === beam.bodies[tube.bodies[1]]
         @test carriers[1][2] ≈ 1 - frac
         @test carriers[2][2] ≈ frac
 
         # An anchored node hands everything to its body, a free node keeps it.
-        anchored_carriers = apparent_mass_carriers(beam_state, beam.points[:anchored])
+        anchored_carriers = apparent_mass_carriers(beam_state,
+                                                   beam_state.points[:anchored])
         @test anchored_carriers[1][1].row === beam.bodies[:node_b]
         @test anchored_carriers[1][2] == 1.0
-        free_carriers = apparent_mass_carriers(beam_state, beam.points[:free])
-        @test free_carriers == [(beam.points[:free], 1.0)]
+        free_carriers = apparent_mass_carriers(beam_state, beam_state.points[:free])
+        @test free_carriers == [(beam_state.points[:free], 1.0)]
     end
 
     @testset "Wagner: off by default" begin

@@ -354,6 +354,49 @@ function segment_rest_length(r)
     return run_value(r, :rest_length, something(getfield(r, :row).rest_length, 0.0))
 end
 
+"""Where point record `r` sits in the frame of the body it rides [m]: its `anchor_b`, else
+where its initial position puts it; zero for a point on no body."""
+function point_anchor_b(r)
+    anchor = getfield(r, :row).anchor_b
+    isnothing(anchor) || return KVec3(anchor)
+    body = r.body
+    isnothing(body) && return zero(KVec3)
+    return KVec3(initial_body_position(run_state(r).bodies[body], getfield(r, :row)))
+end
+
+"""
+    point_undeformed_b(r)
+
+Where wing-node record `r` sits relative to its wing in the initial pose, wing frame [m]:
+from a rigid wing's centre of mass, or from a particle wing's frame fitted to the initial
+positions of its reference points; zero for a point that is no wing node.
+"""
+function point_undeformed_b(r)
+    wing_idx = r.wing_idx
+    (isnothing(wing_idx) || !r.is_wing_node) && return zero(KVec3)
+    state = run_state(r)
+    wing = state.bodies[wing_idx]
+    pos = KVec3(getfield(r, :row).pos_ENU)
+    if body_dynamics_type(wing) == RIGID_DYNAMICS
+        R = initial_rotation(wing)
+        return KVec3(R' * (pos - (origin_ENU(wing) .+ R * wing.com_offset_b)))
+    end
+    any(isnothing, (wing.z_ref_points, wing.y_ref_points, wing.origin)) &&
+        return zero(KVec3)
+    R, origin = calc_particle_dynamics_wing_frame(state.points, wing.z_ref_points,
+        wing.y_ref_points, wing.origin; field=:pos_ENU)
+    return KVec3(R' * (pos - origin))
+end
+
+"""The position along the beam element of the tube point record `r` rides and its offset
+off the centreline ([`beam_anchor`](@ref)), `(0, 0)` for a point on no tube."""
+function point_beam_anchor(r)
+    tube = r.tube
+    isnothing(tube) && return (0.0, zero(KVec3))
+    state = run_state(r)
+    return beam_anchor(getfield(r, :row).pos_ENU, state.tubes[tube], state.bodies)
+end
+
 """Write station record `r`'s aerodynamic moment [N·m] where its run reads it."""
 function station_aero_moment!(r, value)
     run_state(r).station_aero_moment[index(r)] = value
@@ -423,7 +466,7 @@ A point of a run's state: its position and velocity and the forces on it.
                            index(r))
     va_b => (point_apparent_wind(r), derived(:va_b))
     total_mass => (point_total_mass(r), derived(:total_mass))
-    apparent_mass => (run_value(r, :apparent_mass, r.row.apparent_mass),
+    apparent_mass => (run_value(r, :apparent_mass, something(r.row.apparent_mass, 0.0)),
                       set_run_value!(r, :apparent_mass, value))
     extra_mass => (run_value(r, :extra_mass, something(r.row.extra_mass, 0.0)),
                    set_run_value!(r, :extra_mass, value))
@@ -441,9 +484,12 @@ A point of a run's state: its position and velocity and the forces on it.
                    set_run_value!(r, :fix_sphere, value))
     fix_static => (run_value(r, :fix_static, something(r.row.fix_static, false)),
                    set_run_value!(r, :fix_static, value))
-    ext_force_w => (run_value(r, :ext_force_w, r.row.ext_force_w),
+    ext_force_w => (run_value(r, :ext_force_w, zero(KVec3)),
                     set_run_value!(r, :ext_force_w, value))
-    anchor_b => (r.row.resolved_anchor_b, derived(:anchor_b))
+    anchor_b => (point_anchor_b(r), derived(:anchor_b))
+    pos_undeformed_b => (point_undeformed_b(r), derived(:pos_undeformed_b))
+    beam_frac => (first(point_beam_anchor(r)), derived(:beam_frac))
+    beam_offset_b => (last(point_beam_anchor(r)), derived(:beam_offset_b))
 end
 
 @state_record StationState """
