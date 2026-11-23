@@ -114,8 +114,8 @@ init!(sam)
 for step in 1:600
     t = step * (10.0 / 600)
     ramp = clamp(t / 2.0, 0.0, 1.0)
-    sam.state.segments[:kcu_steering_left].l0 -= 0.1 * ramp
-    sam.state.segments[:kcu_steering_right].l0 += 0.1 * ramp
+    sam.state.segments[:kcu_steering_left].rest_length -= 0.1 * ramp
+    sam.state.segments[:kcu_steering_right].rest_length += 0.1 * ramp
     next_step!(sam; dt=10.0/600, vsm_interval=1)
 end
 ```

@@ -31,7 +31,7 @@ set_data_path(joinpath(pkg_root, "data", "2plate_kite"))
     mkstation(name, npoints, type) = begin
         g = Station(name, collect(1:npoints), type, 0.25)
         g.idx = 1
-        g.point_idxs = collect(1:npoints)
+        g.points = collect(1:npoints)
         g
     end
 
@@ -105,7 +105,7 @@ end
 
 """The sum of `field`, a point mass, over the points of `station`."""
 station_point_mass(points, station, field) =
-    sum(getproperty(points[idx], field) for idx in station.point_idxs)
+    sum(getproperty(points[idx], field) for idx in station.points)
 
 @testset "DYNAMIC station twists with the total mass of its points" begin
     set_data_path(joinpath(pkg_root, "data", "2plate_kite"))

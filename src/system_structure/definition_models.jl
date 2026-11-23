@@ -114,8 +114,6 @@ $(TYPEDFIELDS)
     flap_axis::Union{Nothing, Vector{Float64}} = nothing
     "Index in the structure's stations."
     idx::Int64 = 0
-    "Indices of the station's points."
-    point_idxs::Vector{Int64} = Int64[]
     "Index of the body whose twist the station carries; 0 for none."
     resolved_wing_idx::Int64 = 0
     "Indices of the bodies the station twists with."
@@ -238,12 +236,6 @@ $(TYPEDFIELDS)
 @kwdef mutable struct TetherModel <: KiteGeometry.AbstractModel
     "Index in the structure's tethers."
     idx::Int64 = 0
-    "Indices of the tether's segments."
-    segment_idxs::Vector{Int64} = Int64[]
-    "Index of the tether's start point; 0 for none."
-    start_point_idx::Int64 = 0
-    "Index of the tether's end point; 0 for none."
-    end_point_idx::Int64 = 0
     "Number of segments a tether given by its end points is split into at build."
     n_segments::Int64 = 0
     "Keywords of [`settings_segment`](@ref) for each segment a tether given by its end
@@ -275,10 +267,6 @@ $(TYPEDFIELDS)
     friction_epsilon::Union{Nothing, Float64} = nothing
     "Index in the structure's winches."
     idx::Int64 = 0
-    "Indices of the winch's tethers."
-    tether_idxs::Vector{Int64} = Int64[]
-    "Index of the winch's ground point."
-    winch_point_idx::Int64 = 0
     "Coulomb friction force [N]."
     coulomb_friction::SimFloat = NaN
     "Viscous friction coefficient [N·s/m]."

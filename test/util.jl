@@ -70,8 +70,8 @@ function deform_trailing_edge!(sys, wing, base_pos, delta)
         haskey(base_pos, point.idx) && (point.pos_w .= base_pos[point.idx])
     end
     for surface in sys.spanwise_stations
-        length(surface.point_idxs) >= 2 || continue
-        trailing = sys.points[surface.point_idxs[2]]
+        length(surface.points) >= 2 || continue
+        trailing = sys.points[surface.points[2]]
         span = SymbolicAWEModels.initial_body_position(wing, trailing)[2]
         abs(span) < 1e-9 && continue
         side = sign(span)

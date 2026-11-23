@@ -86,9 +86,9 @@ of those often sit on the very same nodes, so coincident points are kept once: t
 one place on the chord, and a fit handed the same station twice has no answer.
 """
 function station_control_points(stations, points, wing)
-    owned = [surface.point_idxs for surface in stations
-             if length(surface.point_idxs) >= 2 &&
-                all(points[i].wing_idx == wing.idx for i in surface.point_idxs)]
+    owned = [surface.points for surface in stations
+             if length(surface.points) >= 2 &&
+                all(points[i].wing_idx == wing.idx for i in surface.points)]
     return [unique(idx -> round.(points[idx].pos_ENU; digits = 9), group)
             for group in owned]
 end

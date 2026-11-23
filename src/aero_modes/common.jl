@@ -540,13 +540,13 @@ Mass left on a node that integrates nothing would never be felt, so a carrier th
 is not the node itself is the whole reason this lookup exists.
 """
 function apparent_mass_carriers(sys_struct, point)
-    if point.tube_idx > 0
-        tube = sys_struct.tubes[point.tube_idx]
+    if !isnothing(point.tube)
+        tube = sys_struct.tubes[point.tube]
         frac = clamp(point.beam_frac, 0.0, 1.0)
-        return [(sys_struct.bodies[tube.body_a_idx], 1.0 - frac),
-                (sys_struct.bodies[tube.body_b_idx], frac)]
+        return [(sys_struct.bodies[tube.bodies[1]], 1.0 - frac),
+                (sys_struct.bodies[tube.bodies[2]], frac)]
     end
-    point.body_idx > 0 && return [(sys_struct.bodies[point.body_idx], 1.0)]
+    !isnothing(point.body) && return [(sys_struct.bodies[point.body], 1.0)]
     return [(point, 1.0)]
 end
 

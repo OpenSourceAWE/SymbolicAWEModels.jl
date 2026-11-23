@@ -766,28 +766,28 @@ function get_sys_struct_hash(state::SystemState)
     for point in points
         # nothing-vs-set gates whether drag/damping equations are emitted (structure,
         # not value), so 0.0↔1.0 reuses the cached bin but adding/removing regenerates.
-        push!(data_parts, ("point", point.idx, point.wing_idx, point.body_idx,
-                           point.tube_idx, Int(point.type)))
+        push!(data_parts, ("point", point.idx, point.wing_idx, something(point.body, 0),
+                           something(point.tube, 0), Int(point.type)))
     end
     for segment in state.segments
         # Stiffness type selects the spring law (scalar k·Δ vs callable F(ε)).
         stiff_type = segment.unit_stiffness isa Real ? "float" :
                      string(typeof(segment.unit_stiffness))
-        push!(data_parts, ("segment", segment.idx, segment.point_idxs, stiff_type))
+        push!(data_parts, ("segment", segment.idx, segment.points, stiff_type))
     end
     for station in stations
-        push!(data_parts, ("station", station.idx, station.point_idxs,
+        push!(data_parts, ("station", station.idx, station.points,
                            Int(station.type), station.flap_body_idxs,
                            station.flap_point_idxs))
     end
     for pulley in pulleys
-        push!(data_parts, ("pulley", pulley.idx, pulley.segment_idxs, Int(pulley.type)))
+        push!(data_parts, ("pulley", pulley.idx, pulley.segments, Int(pulley.type)))
     end
     for tether in tethers
-        push!(data_parts, ("tether", tether.idx, tether.segment_idxs))
+        push!(data_parts, ("tether", tether.idx, tether.segments))
     end
     for winch in winches
-        push!(data_parts, ("winch", winch.idx, winch.tether_idxs))
+        push!(data_parts, ("winch", winch.idx, winch.tethers))
     end
     for wing in wings
         # Polar format sets the panel interpolant dimensionality baked into the bin.
@@ -824,7 +824,7 @@ function get_sys_struct_hash(state::SystemState)
         rigidity_types = [value isa Real ? "float" : string(typeof(value))
                           for value in getfield.(Ref(tube.model),
                                                  rigidity_fields(tube.model))]
-        push!(data_parts, ("tube", tube.idx, tube.body_a_idx, tube.body_b_idx,
+        push!(data_parts, ("tube", tube.idx, tube.bodies[1], tube.bodies[2],
                            nameof(typeof(tube.model)), rigidity_types...))
     end
     content = string(data_parts)

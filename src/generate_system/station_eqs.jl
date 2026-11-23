@@ -26,8 +26,6 @@ function validate_station_modes(stations, bodies)
             has_body_flap(station) || isempty(station.flap_body_idxs) || error(
                 "Station $(station.name): flap needs exactly 2 flap " *
                 "bodies [main, flap], got $(length(station.flap_body_idxs)).")
-            has_flap(station) && station.wing_idx == 0 && error(
-                "Station $(station.name): KINEMATIC flap needs a `wing`.")
             continue
         end
         owners = [body for body in bodies if station.idx in body.station_idxs]
@@ -35,7 +33,7 @@ function validate_station_modes(stations, bodies)
             "Station $(station.name) is in $(length(owners)) bodies; must be in exactly 1.")
         wing = owners[1]
         rigid = wing.dynamics_type == RIGID_DYNAMICS
-        npoints = length(station.point_idxs)
+        npoints = length(station.points)
         if station.type == DYNAMIC
             rigid || error(
                 "Station $(station.name): $(station.type) twist requires a " *
@@ -91,7 +89,7 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
     # bridle with an asymmetric number of attachment points). Size the per-point
     # arrays by the largest point count so every station fits, and fill the
     # unused tail slots with zero equations below so the system stays balanced.
-    max_npoints = maximum(length(ts.point_idxs) for ts in stations)
+    max_npoints = maximum(length(ts.points) for ts in stations)
 
     @variables begin
         trailing_edge_angle(t)[eachindex(stations)]
@@ -173,7 +171,7 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
         orientation = collect(R_b_to_w[:, :, wing.idx])
         surface_params = params.spanwise_stations[station.idx]
 
-        for (i, point_idx) in enumerate(station.point_idxs)
+        for (i, point_idx) in enumerate(station.points)
             couple = twist_bridle_couple(surface_params,
                                          params.points[point_idx].pos_undeformed_b,
                                          twist_angle[station.idx], orientation)
@@ -193,7 +191,7 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
         # Zero out the unused tail rows for stations with fewer than
         # max_npoints points, so every declared array element gets exactly one
         # equation regardless of how many points this particular surface has.
-        npoints = length(station.point_idxs)
+        npoints = length(station.points)
         if npoints < max_npoints
             eqs = [
                 eqs
@@ -205,7 +203,7 @@ function station_eqs!(eqs, defaults, stations, bodies, params, initial;
         end
 
         station_chord = collect(station_chord)
-        station_mass = sum(point_mass[point_idx] for point_idx in station.point_idxs) +
+        station_mass = sum(point_mass[point_idx] for point_idx in station.points) +
             params.spanwise_stations[station.idx].body_mass
         twist = station_dynamics(;
             free_angle = free_twist_angle[station.idx],
@@ -275,7 +273,7 @@ function station_delta_eqs!(eqs, stations;
                    station_delta[j] ~ point_flap_delta_expression(station,
                        collect(pos[:, fore]), collect(pos[:, hinge]),
                        collect(pos[:, aft]),
-                       collect(body_R_b_to_w[:, :, station.wing_idx]))]
+                       collect(body_R_b_to_w[:, :, station.wing]))]
             continue
         end
         R_main = collect(body_R_b_to_w[:, :, station.flap_body_idxs[1]])

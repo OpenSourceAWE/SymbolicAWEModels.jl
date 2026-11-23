@@ -180,8 +180,7 @@ function run_tubes(sys)
     tubes = Rows(Tube[run_tube(sys, tube) for tube in sys.tubes])
     for (i, tube) in enumerate(tubes)
         tube.idx = i
-        tube.body_a_idx = resolve_ref(tube.body_a_ref, sys.bodies, "rigid_body")
-        tube.body_b_idx = resolve_ref(tube.body_b_ref, sys.bodies, "rigid_body")
+        tube.bodies = map(ref -> resolve_ref(ref, sys.bodies, "rigid_body"), tube.bodies)
     end
     init_tube_rest!.(tubes, Ref(sys.bodies))
     return tubes
@@ -202,7 +201,7 @@ end
 """The indices of the segments on each point of `sys`."""
 function point_segments(sys)
     on_point = [Int[] for _ in sys.points]
-    for (i, segment) in enumerate(sys.segments), point_idx in segment.point_idxs
+    for (i, segment) in enumerate(sys.segments), point_idx in segment.points
         push!(on_point[point_idx], i)
     end
     return on_point
@@ -255,6 +254,7 @@ Base.propertynames(record::ComponentState) =
 
 @inline function Base.getproperty(record::ComponentState, name::Symbol)
     name === :row && return getfield(record, :row)
+    name === :idx && return index(record)
     return state_property(record, Val(name))
 end
 
@@ -368,7 +368,6 @@ A segment of a run's state: its index, its rest length, which a winch reels, its
 between its points, its spring force and its spring, its stiffness and density those of
 its material.
 """ begin
-    idx => (index(r), derived(:idx))
     unit_stiffness => (material_unit_stiffness(built(r).material,
                                                getfield(r, :row).diameter),
                        set_material_stiffness!(built(r).material, value,
@@ -379,7 +378,8 @@ its material.
     compression_frac => (built(r).compression_frac, built(r).compression_frac = value)
     compression_damping_frac => (built(r).compression_damping_frac,
                                  built(r).compression_damping_frac = value)
-    l0 => (run_state(r).segment_l0[index(r)], run_state(r).segment_l0[index(r)] = value)
+    rest_length => (run_state(r).segment_l0[index(r)],
+                    run_state(r).segment_l0[index(r)] = value)
     len => (segment_world_length(getfield(r, :row), getfield(r, :state).points),
             derived(:len))
     force => (sysstate(r).spring_force[index(r)],
@@ -408,7 +408,7 @@ end
 """The length of `tether`'s segments end to end in its run [m]."""
 function tether_stretched_length(tether)
     segments = getfield(tether, :state).segments
-    return sum(segments[idx].len for idx in getfield(tether, :row).segment_idxs; init=0.0)
+    return sum(segments[idx].len for idx in getfield(tether, :row).segments; init=0.0)
 end
 
 @state_record WinchState """
@@ -511,7 +511,7 @@ function point_total_mass(point)
     mass = point.extra_mass
     for i in getfield(state, :point_segments)[index(point)]
         segment = state.segments[i]
-        mass += segment_half_mass(segment.l0, segment.diameter, segment.density)
+        mass += segment_half_mass(segment.rest_length, segment.diameter, segment.density)
     end
     return mass
 end
@@ -521,9 +521,9 @@ points, zero for a station that does not twist."""
 function station_tether_load(station)
     state = getfield(station, :state)
     station.type == KINEMATIC && return (; force = 0.0, moment = 0.0)
-    orientation = state.bodies[station.wing_idx].R_b_to_w
+    orientation = state.bodies[station.wing].R_b_to_w
     force, moment = 0.0, 0.0
-    for point_idx in station.point_idxs
+    for point_idx in station.points
         point = state.points[point_idx]
         couple = twist_bridle_couple(station, point.pos_undeformed_b, station.twist,
                                      orientation)
@@ -538,11 +538,11 @@ end
 point, negated."""
 function winch_force_vector(winch)
     state = getfield(winch, :state)
-    winch_point = winch.winch_point_idx
+    winch_point = winch.winch_point
     force = zero(SVector{3, SimFloat})
-    for tether_idx in winch.tether_idxs, i in state.tethers[tether_idx].segment_idxs
+    for tether_idx in winch.tethers, i in state.tethers[tether_idx].segments
         segment = state.segments[i]
-        ends = segment.point_idxs
+        ends = segment.points
         winch_point in ends || continue
         other = state.points[ends[1] == winch_point ? ends[2] : ends[1]]
         away = SVector{3}(other.pos_w - state.points[winch_point].pos_w)

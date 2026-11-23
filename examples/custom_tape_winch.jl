@@ -96,7 +96,7 @@ points = [
     Point(:mass, [0.0, 0.0, -50.0], DYNAMIC; extra_mass=10.0),
 ]
 segments = [
-    Segment(:line, :ground, :mass, 50_000.0, 500.0, 0.005; l0=50.0),
+    Segment(:line, :ground, :mass, 50_000.0, 500.0, 0.005; rest_length=50.0),
 ]
 tethers = [Tether(:main, [:line], 50.0)]
 winches = [Winch(:winch, set, [:main]; winch_point=:ground,

@@ -9,8 +9,8 @@
 Compute segment length from endpoint `pos_ENU` positions.
 """
 function segment_initial_length(segment, points)
-    point1 = points[segment.point_idxs[1]]
-    point2 = points[segment.point_idxs[2]]
+    point1 = points[segment.points[1]]
+    point2 = points[segment.points[2]]
     return norm(point1.pos_ENU - point2.pos_ENU)
 end
 
@@ -20,8 +20,8 @@ end
 Compute segment length from endpoint `pos_w` positions.
 """
 function segment_world_length(segment, points)
-    point1 = points[segment.point_idxs[1]]
-    point2 = points[segment.point_idxs[2]]
+    point1 = points[segment.points[1]]
+    point2 = points[segment.points[2]]
     return norm(point1.pos_w - point2.pos_w)
 end
 
@@ -35,8 +35,9 @@ end
 
 Error on values that break a run and warn on suspicious ones: NaN or non-positive point and
 wing mass, wing and winch inertia, NaN positions, rigid wings without stations, non-positive
-`drum_radius` or `gear_ratio`, segment `diameter` outside (0, 1) m, non-positive `l0` or
-stiffness, negative damping, zero pulley `sum_len`, unequal station `moment_frac`.
+`drum_radius` or `gear_ratio`, segment `diameter` outside (0, 1) m, non-positive
+`rest_length` or stiffness, negative damping, zero pulley `sum_len`, unequal station
+`moment_frac`.
 """
 function validate_sys_struct(sys_struct)
     (; points, segments, pulleys, wings, winches) = sys_struct
@@ -144,16 +145,17 @@ function validate_sys_struct(sys_struct)
     # ==================== SEGMENT VALIDATIONS ==================== #
     for segment in segments
         # Wing structural segments don't use diameter (stiffness explicit, drag from VSM)
-        wing_structural = all(points[i].is_wing_node for i in segment.point_idxs)
+        wing_structural = all(points[i].is_wing_node for i in segment.points)
         if !wing_structural && !(0 < segment.diameter < 1)
             @warn "Segment $(segment.name) has unusual diameter " *
                   "$(segment.diameter) m (expected range: 0 to 1 m)"
         end
 
         # Rest length must be positive
-        if segment.l0 <= 0
+        if segment.rest_length <= 0
             error("Segment $(segment.name) has non-positive rest length " *
-                  "l0 = $(segment.l0) m. This will cause division by zero.")
+                  "rest_length = $(segment.rest_length) m. This will cause division " *
+                  "by zero.")
         end
 
         # Warn about zero or negative stiffness/damping (callable laws self-validate).
@@ -200,18 +202,18 @@ end
     set_unstretched_length!(sys_struct::SystemState, tether, len)
 
 Set `tether`'s unstretched length [m] and share it equally over its segments'
-`l0`. Point positions, body poses, tube rest geometry and station flap
+`rest_length`. Point positions, body poses, tube rest geometry and station flap
 references are left as they are.
 """
 function set_unstretched_length!(sys_struct::SystemState, tether, len)
     len > 0 || error("Tether $(tether.name): unstretched length $len m " *
         "must be positive")
-    isempty(tether.segment_idxs) && error("Tether $(tether.name): " *
+    isempty(tether.segments) && error("Tether $(tether.name): " *
         "has no segments to carry an unstretched length")
     tether.len = len
-    l0 = len / length(tether.segment_idxs)
-    for seg_idx in tether.segment_idxs
-        sys_struct.segments[seg_idx].l0 = l0
+    l0 = len / length(tether.segments)
+    for seg_idx in tether.segments
+        sys_struct.segments[seg_idx].rest_length = l0
     end
     return nothing
 end
@@ -362,14 +364,15 @@ function start_run!(state; reset_vel::Bool=true)
         point.apparent_mass = point.row.apparent_mass
     end
     foreach(body -> body.apparent_mass = body.row.apparent_mass, state.bodies)
-    foreach(segment -> segment.l0 = segment.row.l0, state.segments)
+    foreach(segment -> segment.rest_length = segment.row.rest_length, state.segments)
     for tether in state.tethers
-        tether.len = sum(state.segments[idx].l0 for idx in tether.segment_idxs; init=0.0)
+        tether.len = sum(state.segments[idx].rest_length for idx in tether.segments;
+                         init=0.0)
     end
     for pulley in state.pulleys
-        segment1, segment2 = (state.segments[idx] for idx in pulley.segment_idxs)
-        pulley.sum_len = segment1.l0 + segment2.l0
-        pulley.len = segment1.l0
+        segment1, segment2 = (state.segments[idx] for idx in pulley.segments)
+        pulley.sum_len = segment1.rest_length + segment2.rest_length
+        pulley.len = segment1.rest_length
         pulley.vel = 0.0
     end
     fit_body_frames!(state.points, state.bodies)
@@ -725,8 +728,9 @@ set_angular_damping(bodies::AbstractVector, damping::Union{Real, AbstractVector}
 """
     segment_stretch_stats(sys::SystemDefinition)
 
-Maximum and mean relative stretch `(len - l0) / l0` over the segments in tension
-(`len > l0`), plus the index of the most stretched one.
+Maximum and mean relative stretch `(len - rest_length) / rest_length` over the segments in
+tension
+(`len > rest_length`), plus the index of the most stretched one.
 
 For pulley segments, the combined length of both legs is used against the pulley's
 `sum_l0`, since the pulley constraint distributes length between them.
@@ -746,28 +750,28 @@ function segment_stretch_stats(sys::SystemState)
     # Build set of segment indices that belong to pulleys
     pulley_seg_idxs = Set{Int64}()
     for pulley in sys.pulleys
-        push!(pulley_seg_idxs, pulley.segment_idxs[1])
-        push!(pulley_seg_idxs, pulley.segment_idxs[2])
+        push!(pulley_seg_idxs, pulley.segments[1])
+        push!(pulley_seg_idxs, pulley.segments[2])
     end
 
     stretch_data = Tuple{Int64, Float64}[]
 
     # Add pulley stretches (combined length of both segments)
     for pulley in sys.pulleys
-        seg1 = sys.segments[pulley.segment_idxs[1]]
-        seg2 = sys.segments[pulley.segment_idxs[2]]
+        seg1 = sys.segments[pulley.segments[1]]
+        seg2 = sys.segments[pulley.segments[2]]
         combined_len = seg1.len + seg2.len
-        sum_l0 = pulley.sum_len  # sum_len stores seg1.l0 + seg2.l0
+        sum_l0 = pulley.sum_len  # sum_len stores seg1.rest_length + seg2.rest_length
         if combined_len > sum_l0
-            push!(stretch_data, (pulley.segment_idxs[1],
+            push!(stretch_data, (pulley.segments[1],
                                  (combined_len - sum_l0) / sum_l0))
         end
     end
 
     # Add non-pulley segment stretches
     for seg in sys.segments
-        if seg.idx ∉ pulley_seg_idxs && seg.len > seg.l0
-            push!(stretch_data, (seg.idx, (seg.len - seg.l0) / seg.l0))
+        if seg.idx ∉ pulley_seg_idxs && seg.len > seg.rest_length
+            push!(stretch_data, (seg.idx, (seg.len - seg.rest_length) / seg.rest_length))
         end
     end
 
@@ -796,10 +800,10 @@ function write_total_mass!(sys_struct)
     end
     for segment in sys_struct.segments
         material = sys_struct.materials[segment.material]
-        half = segment_half_mass(segment.l0, segment.diameter,
+        half = segment_half_mass(segment.rest_length, segment.diameter,
                                  material.parameters["density"])
-        sys_struct.points[segment.point_idxs[1]].total_mass += half
-        sys_struct.points[segment.point_idxs[2]].total_mass += half
+        sys_struct.points[segment.points[1]].total_mass += half
+        sys_struct.points[segment.points[2]].total_mass += half
     end
     return nothing
 end

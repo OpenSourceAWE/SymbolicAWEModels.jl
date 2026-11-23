@@ -274,8 +274,8 @@ a per-segment drag coefficient.
 """
 function wing_structural_segment(sys_struct, idx)
     seg = sys_struct.segments[idx]
-    return sys_struct.points[seg.point_idxs[1]].is_wing_node &&
-           sys_struct.points[seg.point_idxs[2]].is_wing_node
+    return sys_struct.points[seg.points[1]].is_wing_node &&
+           sys_struct.points[seg.points[2]].is_wing_node
 end
 
 """
@@ -287,8 +287,8 @@ What `segment` is in the system: `:winched_tether` when it is in a tether a winc
 """
 function segment_role(sys_struct, segment)
     for tether in sys_struct.tethers
-        segment.idx in tether.segment_idxs || continue
-        winched = any(tether.idx in winch.tether_idxs for winch in sys_struct.winches)
+        segment.idx in tether.segments || continue
+        winched = any(tether.idx in winch.tethers for winch in sys_struct.winches)
         return winched ? :winched_tether : :unwinched_tether
     end
     wing_structural_segment(sys_struct, segment.idx) && return :wing
@@ -1056,7 +1056,7 @@ spring forces there, as `winch_eqs!` forms it), the mean tether length, the cont
 `set_value` and the `brake`, and returns the drum acceleration.
 """
 function WinchAnchor(s, params, winch, idx; name)
-    count = length(winch.tether_idxs)
+    count = length(winch.tethers)
     io = point_variables()
     extra = @variables begin
         tension_in(t)[1:3], [input = true]
@@ -1171,13 +1171,13 @@ end
 """
     SpringSegment(s, params, idx; name, with_drag=true)
 
-A spring-damper segment at a fixed rest length (`params.segments[idx].l0`). With
+A spring-damper segment at a fixed rest length (`params.segments[idx].rest_length`). With
 `with_drag = false` it is the drag-free wing-structural link — a distinct compiled
 type rather than a zeroed drag coefficient.
 """
 function SpringSegment(s, params, idx; name, with_drag = true)
     io = segment_variables()
-    eqs, _, wind = segment_eqs(s, params, idx, io, params.segments[idx].l0;
+    eqs, _, wind = segment_eqs(s, params, idx, io, params.segments[idx].rest_length;
                                with_drag)
     return System(eqs, t, io.all, [param_unknowns(params); wind]; name)
 end
@@ -1573,7 +1573,7 @@ function HermiteRidePoint(s, params, idx; name)
         height(t), [output = true]
     end
     sys_struct = params.reg.sys_struct
-    tube = sys_struct.tubes[sys_struct.points[idx].tube_idx]
+    tube = sys_struct.tubes[sys_struct.points[idx].tube]
     ex = beam_hermite_ride_expressions(tube, params, idx; joint_poses(io)...)
     eqs = [
         collect(vars[1]) .~ ex.pos_point

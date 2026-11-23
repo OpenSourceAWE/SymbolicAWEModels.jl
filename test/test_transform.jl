@@ -501,31 +501,31 @@ using LinearAlgebra
 
         segments_c = [
             Segment(:kcu_nose, set_c, :kcu, :nose;
-                l0=bridle_l0(:kcu, :nose),
+                rest_length=bridle_l0(:kcu, :nose),
                 diameter_mm=set_c.d_line),
             Segment(:right_nose, set_c, :right, :nose;
-                l0=bridle_l0(:right, :nose),
+                rest_length=bridle_l0(:right, :nose),
                 diameter_mm=set_c.d_line),
             Segment(:right_left, set_c, :right, :left;
-                l0=bridle_l0(:right, :left),
+                rest_length=bridle_l0(:right, :left),
                 diameter_mm=set_c.d_line),
             Segment(:top_right, set_c, :top, :right;
-                l0=bridle_l0(:top, :right),
+                rest_length=bridle_l0(:top, :right),
                 diameter_mm=set_c.d_line),
             Segment(:left_kcu, set_c, :left, :kcu;
-                l0=bridle_l0(:left, :kcu),
+                rest_length=bridle_l0(:left, :kcu),
                 diameter_mm=set_c.d_line),
             Segment(:right_kcu, set_c, :right, :kcu;
-                l0=bridle_l0(:right, :kcu),
+                rest_length=bridle_l0(:right, :kcu),
                 diameter_mm=set_c.d_line),
             Segment(:top_left, set_c, :top, :left;
-                l0=bridle_l0(:top, :left),
+                rest_length=bridle_l0(:top, :left),
                 diameter_mm=set_c.d_line),
             Segment(:left_nose, set_c, :left, :nose;
-                l0=bridle_l0(:left, :nose),
+                rest_length=bridle_l0(:left, :nose),
                 diameter_mm=set_c.d_line),
             Segment(:nose_top, set_c, :nose, :top;
-                l0=bridle_l0(:nose, :top),
+                rest_length=bridle_l0(:nose, :top),
                 diameter_mm=set_c.d_line),
         ]
 

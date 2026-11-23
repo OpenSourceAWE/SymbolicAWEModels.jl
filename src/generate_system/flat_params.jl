@@ -174,8 +174,8 @@ param_descend(x) = x isa Rows || x isa AbstractAeroModel ||
 param_name(path::Tuple) = Symbol("p_", join(path, "_"))
 
 """
-Top-level `params` view wrapping a [`ParamRegistry`](@ref): `params.segments[i].l0`
-mirrors `sys_struct.segments[i].l0` and records the parameter that stands for it
+Top-level `params` view wrapping a [`ParamRegistry`](@ref): `params.segments[i].rest_length`
+mirrors `sys_struct.segments[i].rest_length` and records the parameter that stands for it
 (build-time only).
 """
 struct ParamView

@@ -107,7 +107,7 @@ function aero_component(::AeroPlate, wing::ParticleWingState, sys_struct;
     for (point_num, point) in enumerate(points)
         ts_idx = 0
         for gidx in wing.station_idxs
-            if stations[gidx].point_idxs[1] == point.idx
+            if stations[gidx].points[1] == point.idx
                 ts_idx = gidx
                 break
             end
@@ -195,7 +195,7 @@ function write_aero_log_points!(::AeroPlate, wing, sys_struct, sys_state,
     R_b_to_w = wing.R_b_to_w::Matrix{SimFloat}
     for station_idx in wing.station_idxs
         station = sys_struct.spanwise_stations[station_idx]
-        point = sys_struct.points[station.point_idxs[1]]
+        point = sys_struct.points[station.points[1]]
         for corner_w in plate_corners(station, point.pos_w, R_b_to_w)
             point_idx += 1
             sys_state.X[point_idx] = corner_w[1] * zoom

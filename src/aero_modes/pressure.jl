@@ -248,7 +248,7 @@ function build_panel_station_map!(mode::AeroPressure, wing, sys_struct)
         return nothing
     end
     flaps = [ts for ts in sys_struct.spanwise_stations
-             if ts.type == KINEMATIC && has_flap(ts) && ts.wing_idx == wing.idx]
+             if ts.type == KINEMATIC && has_flap(ts) && ts.wing == wing.idx]
     if isempty(flaps)
         mode.panel_station = zeros(Int64, n_panels)
         return nothing
@@ -290,7 +290,7 @@ function station_deltas(sys_struct)
         has_flap(station) || continue
         if has_point_flap(station)
             deltas[station.idx] = point_flap_delta(station, sys_struct.points,
-                sys_struct.wings[station.wing_idx].R_b_to_w)
+                sys_struct.wings[station.wing].R_b_to_w)
             continue
         end
         R_main = quaternion_to_rotation_matrix(

@@ -481,7 +481,6 @@ const Station = KiteGeometry.SpanwiseStation{StationModel}
 """The [`StationModel`](@ref) of station row `row`."""
 @inline station_model(row::Station) = getfield(row, :model)
 row_property(row::Station, ::Val{:type}) = parse_dynamics_type(station_model(row).type)
-@inline row_property(row::Station, ::Val{:point_refs}) = getfield(row, :points)
 @inline row_property(row::Station, ::Val{:wing_ref}) = getfield(row, :wing)
 @inline row_property(row::Station, ::Val{:wing_idx}) = station_model(row).resolved_wing_idx
 row_property(row::Station, ::Val{:body_refs}) = references(station_model(row).bodies)
@@ -581,15 +580,15 @@ end
     Segment
 
 A spring-damper from one point to another: a KiteGeometry `segments` row whose model is a
-[`SegmentSpring`](@ref). Its `l0` is the row's `rest_length`; `point_refs` reads the points
-the row gives, `point_idxs` the indices they resolve to.
+[`SegmentSpring`](@ref).
 
 The spring-damper model uses per-unit-length stiffness and damping:
 - Effective stiffness: `k = unit_stiffness / length` [N/m]
 - Effective damping: `c = unit_damping / length` [N·s/m]
 
 `unit_stiffness` is either a `Real` (linear) or a callable `F(ε)` of the axial
-strain `ε = (len − l0)/l0` returning the spring force [N] (nonlinear); the callable
+strain `ε = (len − rest_length)/rest_length` returning the spring force [N] (nonlinear); the
+callable
 owns the full law, including any slack/compression behaviour, so `compression_frac`
 is ignored for it.
 """
@@ -718,23 +717,13 @@ to_float64(value) = value isa Float64 ? value : Float64(value)::Float64
     hasfield(typeof(row), property) && return getfield(row, property)
     return getproperty(segment_spring(row), property)
 end
-@inline row_property(row::KiteGeometry.Segment, ::Val{:l0}) =
-    something(getfield(row, :rest_length), 0.0)
 @inline row_property(row::KiteGeometry.Segment, ::Val{:diameter}) =
     something(getfield(row, :diameter), 0.0)
-@inline row_property(row::KiteGeometry.Segment, ::Val{:point_refs}) =
-    getfield(row, :points)
-@inline row_property(row::KiteGeometry.Segment, ::Val{:point_idxs}) =
-    map(Int, getfield(row, :points))
 @inline row_property(row::DraftSegment, ::Val{:unit_stiffness}) =
     material_unit_stiffness(getfield(row, :model).material, row.diameter)
 @inline row_property(row::DraftSegment, ::Val{:density}) =
     getfield(row, :model).material.parameters["density"]
 
-set_row_property!(row::KiteGeometry.Segment, ::Val{:l0}, value) =
-    setfield!(row, :rest_length, Float64(value))
-set_row_property!(row::KiteGeometry.Segment, ::Val{:point_idxs}, points) =
-    setfield!(row, :points, points)
 function set_row_property!(row::KiteGeometry.Segment, ::Val{property},
                            value) where {property}
     hasfield(typeof(row), property) &&
@@ -784,19 +773,20 @@ material_parameters(law, stiffness, density) = OrderedDict{String, Any}(
     "density" => SimFloat(density),
     (law == "linear" ? "youngs_modulus" : "unit_stiffness") => stiffness)
 
-"""The segment row `name` from `points`, `l0` [m] long at rest and `diameter` [m] thick,
-of a material of its own name of `law` with `stiffness` and `density`, and `spring`."""
-function segment_with_material(name, points, l0, diameter, (law, stiffness), density,
-                               spring)
+"""The segment row `name` from `points`, `rest_length` [m] long at rest and `diameter` [m]
+thick, of a material of its own name of `law` with `stiffness` and `density`, and `spring`."""
+function segment_with_material(name, points, rest_length, diameter, (law, stiffness),
+                               density, spring)
     parameters = material_parameters(law, stiffness, density)
     material = KiteGeometry.Material(; name=Symbol(name), law, parameters)
     return KiteGeometry.Segment(; name=Symbol(name), points=cell_ref.(points),
-        rest_length=l0, diameter, material=Symbol(name),
+        rest_length, diameter, material=Symbol(name),
         model=SegmentDraft(spring, material))
 end
 
 """
-    Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; l0, compression_frac, compression_damping_frac)
+    Segment(name, point_i, point_j, unit_stiffness, unit_damping, diameter; rest_length,
+            compression_frac, compression_damping_frac)
 
 Basic constructor for a `Segment` object.
 
@@ -818,16 +808,16 @@ The segment gets a material of its own, holding its stiffness and density.
 """
 function Segment(name, point_i::Union{Integer, Symbol}, point_j::Union{Integer, Symbol},
     unit_stiffness, unit_damping, diameter;
-    l0=zero(SimFloat), compression_frac=0.1, compression_damping_frac=1.0,
+    rest_length=zero(SimFloat), compression_frac=0.1, compression_damping_frac=1.0,
     density=NaN
 )
     spring = SegmentSpring(; unit_damping, compression_frac, compression_damping_frac)
-    return segment_with_material(name, (point_i, point_j), l0, diameter,
+    return segment_with_material(name, (point_i, point_j), rest_length, diameter,
                        stiffness_law(unit_stiffness, diameter), density, spring)
 end
 
 """
-    Segment(name, set, point_i, point_j; l0, compression_frac,
+    Segment(name, set, point_i, point_j; rest_length, compression_frac,
             compression_damping_frac, diameter_mm, unit_stiffness, unit_damping,
             density, youngs_modulus, damping_per_stiffness)
 
@@ -840,7 +830,7 @@ Constructs a `Segment` using settings for material properties.
   (names or indices).
 
 # Keyword Arguments
-- `l0::SimFloat=zero(SimFloat)`: Unstretched length [m].
+- `rest_length::SimFloat=zero(SimFloat)`: Unstretched length [m].
   Calculated from point positions if zero.
 - `compression_frac::SimFloat=0.1`: Compressive/tensile stiffness ratio (0-1).
   0 = a slack segment carries no spring force.
@@ -862,23 +852,24 @@ Constructs a `Segment` using settings for material properties.
 KiteGeometry's `resolve_material` completes what is left `NaN` from `set`.
 """
 function Segment(name, set, point_i, point_j;
-    l0=zero(SimFloat), compression_frac=0.1, compression_damping_frac=1.0,
+    rest_length=zero(SimFloat), compression_frac=0.1, compression_damping_frac=1.0,
     diameter_mm=NaN, kwargs...
 )
-    return settings_segment(name, set, (point_i, point_j), l0;
+    return settings_segment(name, set, (point_i, point_j), rest_length;
         diameter=isnan(diameter_mm) ? NaN : 0.001 * diameter_mm, compression_frac,
         compression_damping_frac, kwargs...)
 end
 
 """
-    settings_segment(name, set, points, l0; diameter, unit_stiffness, unit_damping,
+    settings_segment(name, set, points, rest_length; diameter, unit_stiffness, unit_damping,
                      density, youngs_modulus, damping_per_stiffness, compression_frac,
                      compression_damping_frac)
 
-The segment row `name` from `points`, `l0` [m] long at rest, its material and damping
+The segment row `name` from `points`, `rest_length` [m] long at rest, its material and
+damping
 those KiteGeometry's `resolve_material` completes from the given ones and `set`.
 """
-function settings_segment(name, set, points, l0; diameter=NaN, unit_stiffness=NaN,
+function settings_segment(name, set, points, rest_length; diameter=NaN, unit_stiffness=NaN,
                           unit_damping=NaN, density=NaN, youngs_modulus=NaN,
                           damping_per_stiffness=NaN, compression_frac=0.1,
                           compression_damping_frac=1.0)
@@ -888,8 +879,8 @@ function settings_segment(name, set, points, l0; diameter=NaN, unit_stiffness=Na
     spring = SegmentSpring(; unit_damping=nan_to_nothing(unit_damping),
                            damping_per_stiffness=nan_to_nothing(damping_per_stiffness),
                            compression_frac, compression_damping_frac)
-    return segment_with_material(name, points, l0, diameter, (law, stiffness), density,
-                                 spring)
+    return segment_with_material(name, points, rest_length, diameter, (law, stiffness),
+                                 density, spring)
 end
 
 """`value`, `nothing` for `NaN`."""
@@ -918,11 +909,8 @@ const Pulley = KiteGeometry.Pulley{PulleyModel}
 """The [`PulleyModel`](@ref) of pulley row `row`."""
 @inline pulley_model(row::Pulley) = getfield(row, :model)
 row_property(row::Pulley, ::Val{:type}) = parse_dynamics_type(pulley_model(row).type)
-@inline row_property(row::Pulley, ::Val{:segment_refs}) = getfield(row, :segments)
-@inline row_property(row::Pulley, ::Val{:segment_idxs}) = map(Int, getfield(row, :segments))
 set_row_property!(row::Pulley, ::Val{:type}, type::DynamicsType) =
     pulley_model(row).type = string(type)
-set_row_property!(row::Pulley, ::Val{:segment_idxs}, segments) = row.segments = segments
 
 """
     Pulley(name, segment_i, segment_j, type; efficiency, damping, brake, friction_epsilon)
@@ -981,7 +969,7 @@ segments Route 2 generates; a Route 1 tether reads them off its own segments.
 
 # Initial length
 Two distinct lengths, set independently at `place!`:
-- `init_stretched_len` — the *placed* (stretched) standoff; `place!` scales the
+- `init_stretched_length` — the *placed* (stretched) standoff; `place!` scales the
   free end's world position so the geometry spans this length.
 - `len` — the *unstretched* rest length and the reeled ODE state. `place!`
   derives it from the placed length via either `init_stretch_frac`
@@ -989,32 +977,19 @@ Two distinct lengths, set independently at `place!`:
   (`len = stretched · (1 − force/stiffness)`, default 0 → `len = stretched`).
 
 For a specific initial unstretched length `L` through `place!`, place at a known
-`init_stretched_len = S` and set `init_stretch_frac = L / S`. On a structure that
+`init_stretched_length = S` and set `init_stretch_frac = L / S`. On a structure that
 is already placed, [`set_unstretched_length!`](@ref) writes `len` and the segments'
-`l0` without moving anything; the next `place!` derives `len` from the geometry
+`rest_length` without moving anything; the next `place!` derives `len` from the geometry
 again and overwrites it.
 """
 const Tether = KiteGeometry.Tether{TetherModel}
 
 """The [`TetherModel`](@ref) of tether row `row`."""
 @inline tether_model(row::Tether) = getfield(row, :model)
-@inline row_property(row::Tether, ::Val{:segment_refs}) = getfield(row, :segments)
 row_property(row::Tether, ::Val{:start_point_ref}) =
     reference_column(getfield(row, :start_point))
 row_property(row::Tether, ::Val{:end_point_ref}) =
     reference_column(getfield(row, :end_point))
-@inline row_property(row::Tether, ::Val{:init_stretched_len}) =
-    getfield(row, :init_stretched_length)
-set_row_property!(row::Tether, ::Val{:init_stretched_len}, len) =
-    setfield!(row, :init_stretched_length, maybe(Float64, len))
-function set_row_property!(row::Tether, ::Val{:init_stretch_frac}, frac)
-    isnothing(frac) || setfield!(row, :init_tether_force, nothing)
-    return setfield!(row, :init_stretch_frac, maybe(Float64, frac))
-end
-function set_row_property!(row::Tether, ::Val{:init_tether_force}, force)
-    isnothing(force) || setfield!(row, :init_stretch_frac, nothing)
-    return setfield!(row, :init_tether_force, maybe(Float64, force))
-end
 
 
 """
@@ -1161,8 +1136,6 @@ const Winch{W} = KiteGeometry.Winch{WinchModel{W}}
 @inline winch_model(row::Winch) = getfield(row, :model)
 @inline row_property(row::Winch, ::Val{:gear_ratio}) = getfield(row, :gear_ratio)::Float64
 @inline row_property(row::Winch, ::Val{:drum_radius}) = getfield(row, :drum_radius)::Float64
-@inline row_property(row::Winch, ::Val{:tether_refs}) = getfield(row, :tethers)
-@inline row_property(row::Winch, ::Val{:winch_point_ref}) = getfield(row, :winch_point)
 
 """
     Winch(name, set, tethers; winch_point, ...)

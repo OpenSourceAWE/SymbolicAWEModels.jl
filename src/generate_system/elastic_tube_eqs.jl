@@ -51,8 +51,8 @@ function elastic_tube_eqs!(
     end
 
     for (j, tube) in enumerate(elastic_tubes)
-        a = tube.body_a_idx
-        b = tube.body_b_idx
+        a = tube.bodies[1]
+        b = tube.bodies[2]
         R_a = collect(body_R_b_to_w[:, :, a])
         R_b = collect(body_R_b_to_w[:, :, b])
         ex = elastic_tube_wrench(tube, params;

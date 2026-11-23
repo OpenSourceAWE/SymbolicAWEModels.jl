@@ -682,8 +682,8 @@ World rotations of the two connected bodies and the world positions of the tube'
 two anchors, in the bodies' initial poses (`pos_ENU`, `Q_KA_to_ENU`).
 """
 function tube_initial_frames(tube::Tube, bodies)
-    body_a = bodies[tube.body_a_idx]
-    body_b = bodies[tube.body_b_idx]
+    body_a = bodies[tube.bodies[1]]
+    body_b = bodies[tube.bodies[2]]
     R_a = initial_rotation(body_a)
     R_b = initial_rotation(body_b)
     anchor_a_w = body_a.origin_ENU .+ R_a * tube.anchor_a_b
@@ -803,15 +803,12 @@ its three points' `pos_ENU`. No-op for surfaces without a flap.
 """
 function init_station_flap!(station, sys_struct)
     if has_point_flap(station)
-        station.wing_idx in eachindex(sys_struct.wings) || error(
-            "Station $(station.name): a point flap needs a `wing` to take its hinge " *
-            "axis from; wing_idx is $(station.wing_idx).")
         points = sys_struct.points
         fore, hinge, aft = station.flap_point_idxs
         station.flap_rest_delta = 0.0
         station.flap_rest_delta = point_flap_delta_expression(station,
             points[fore].pos_ENU, points[hinge].pos_ENU, points[aft].pos_ENU,
-            initial_rotation(sys_struct.wings[station.wing_idx]))
+            initial_rotation(sys_struct.wings[station.wing]))
         return nothing
     end
     has_body_flap(station) || return nothing

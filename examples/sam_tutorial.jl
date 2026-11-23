@@ -37,7 +37,7 @@ for i in 1:set.segments
     push!(points, Point(i + 1, pos, DYNAMIC; kw...))
     push!(segments, Segment(i, i, i + 1,
         seg_stiffness, seg_damping, seg_diameter;
-        l0=l_seg))
+        rest_length=l_seg))
 end
 
 transforms = [

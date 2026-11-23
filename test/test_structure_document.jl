@@ -53,7 +53,7 @@ function bodies_and_tubes(set)
         Point(:hub_anchor, [2.0, 0.0, 0.0], BODY_STATIC; body=:hub)]
     segments = Segment[
         Segment(:link, :tip_anchor, :hub_anchor, 1000.0, 10.0, 0.004;
-                l0=1.0, density=724.0)]
+                rest_length=1.0, density=724.0)]
     tubes = Tube[
         Tube(:beam, :root, :tip; diameter=0.12, pressure=3.0e4,
              model=TimoshenkoTube(EA=1.0e4, GA=1500.0, GJ=50.0, EIy=100.0,
@@ -88,7 +88,7 @@ com_w(body) =
 
 """World position of `tube`'s end on body B in `sys`."""
 function tube_end(sys, tube)
-    body = sys.bodies[tube.body_b_idx]
+    body = sys.bodies[tube.bodies[2]]
     return body.origin_ENU .+ SymbolicAWEModels.initial_rotation(body) * tube.anchor_b_b
 end
 
@@ -187,7 +187,7 @@ end
             sys in (first(two_plate_kite(set, vsm_set)), pretensioned_tether(set))
         segment = last(sys.segments)
         row = last(sys.segments)
-        segment.l0 = 1.5
+        segment.rest_length = 1.5
         segment.diameter = 0.002
         segment.unit_damping = 3.0
         segment.compression_frac = 0.2
@@ -195,7 +195,7 @@ end
         @test (row.rest_length, row.diameter, row.unit_damping, row.compression_frac,
                row.compression_damping_frac) == (1.5, 0.002, 3.0, 0.2, 0.5)
         row.rest_length = 2.5
-        @test segment.l0 == 2.5
+        @test segment.rest_length == 2.5
         @test segment === row
     end
 
@@ -254,7 +254,7 @@ end
         reread = load_structure_document(path; set, prn=false)
         @test structure_document(reread) == document
         @test reread.bodies[:root].type == STATIC
-        @test SymbolicAWEModels.SystemState(reread).tubes[:beam].body_a_idx ==
+        @test SymbolicAWEModels.SystemState(reread).tubes[:beam].bodies[1] ==
               reread.bodies[:root].idx
         @test reread.tubes[:beam].model.EA ≈ 1.0e4
         @test reread.tubes[:spring].model.stiffness_axial ≈ 1.2e5
@@ -272,7 +272,7 @@ end
 
     @testset "a document is read in its initial pose, its tethers' rest lengths kept" begin
         sys = pretensioned_tether(set)
-        @test sum(segment.l0 for segment in sys.segments) ≈ 9.9
+        @test sum(segment.rest_length for segment in sys.segments) ≈ 9.9
         document = structure_document(sys)
         reread = sys_struct_from_document(document; set, prn=false)
         @test structure_document(reread) == document
@@ -316,7 +316,7 @@ end
         points = Point[Point(:ground, [0.0, 0.0, 0.0], STATIC),
                        Point(:top, [0.0, 0.0, 1.0], DYNAMIC; extra_mass=1.0)]
         segments = Segment[Segment(:link, :ground, :top, strain -> 1000.0 * strain,
-                                   10.0, 0.004; l0=1.0, density=724.0)]
+                                   10.0, 0.004; rest_length=1.0, density=724.0)]
         sys = system_definition("nonlinear_link", set; points, segments, prn=false)
         @test_throws "awesIO#1" save_structure_document(
             joinpath(tmpdir, "nonlinear.yml"), sys)

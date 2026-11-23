@@ -358,7 +358,7 @@ function update_sys_state!(ss::SysState, sam::SymbolicAWEModel, zoom=1.0)
         ss.l_tether[ti] = tether.len
     end
     for winch in winches
-        isempty(winch.tether_idxs) && continue
+        isempty(winch.tethers) && continue
         ss.v_reelout[winch.idx] = winch.vel
         ss.winch_force[winch.idx] = norm(winch.force)
         ss.set_torque[winch.idx] = winch.set_value

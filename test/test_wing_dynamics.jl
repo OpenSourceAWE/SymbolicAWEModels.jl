@@ -458,7 +458,7 @@ end
         wing = hanging.bodies[:main_wing]
         line = SymbolicAWEModels.SystemState(hanging; set, vsm_set).segments[:line]
         half_line = SymbolicAWEModels.segment_half_mass(
-            line.l0, line.diameter, line.density)
+            line.rest_length, line.diameter, line.density)
         @test wing.extra_mass == 2.0
         @test wing.total_mass ≈ 2.0 + half_line
 

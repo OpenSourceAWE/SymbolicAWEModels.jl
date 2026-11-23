@@ -16,8 +16,7 @@ function definition_rows(sys)
         segments=collect(sys.segments),
         spanwise_stations=[station_row(sys, station) for station in sys.spanwise_stations],
         pulleys=collect(sys.pulleys),
-        tethers=[with_ends!(tether) for tether in sys.tethers],
-        winches=[winch_row!(winch) for winch in sys.winches],
+        tethers=collect(sys.tethers), winches=collect(sys.winches),
         wings=[wing_row(sys, wing) for wing in sys.wings],
         bodies=[body_row(sys, body) for body in sys.bodies],
         tubes=[tube_row!(materials, sys, tube) for tube in sys.tubes],
@@ -59,21 +58,6 @@ function point_row!(point)
     point.body = reference_column(point.body_idx)
     point.tube = reference_column(point.tube_idx)
     return point
-end
-
-"""`tether` naming the ends it resolves to, those its segments give where it names
-none."""
-function with_ends!(tether)
-    tether.start_point = tether.start_point_idx
-    tether.end_point = tether.end_point_idx
-    return tether
-end
-
-"""`winch` naming its tethers and ground point by the indices they resolve to."""
-function winch_row!(winch)
-    winch.tethers = winch.tether_idxs
-    winch.winch_point = winch.winch_point_idx
-    return winch
 end
 
 function wing_row(sys, wing)
@@ -121,7 +105,7 @@ tube_law_parameters(law) = law == :breukels2011 ? copy(KiteGeometry.BREUKELS2011
     OrderedDict{String, Any}()
 
 function tube_row!(materials, sys, tube)
-    body_a, body_b = sys.bodies[tube.body_a_idx], sys.bodies[tube.body_b_idx]
+    body_a, body_b = sys.bodies[tube.bodies[1]], sys.bodies[tube.bodies[2]]
     anchors = (Vector(tube.anchor_a_b - body_a.extra_com_offset_b),
                Vector(tube.anchor_b_b - body_b.extra_com_offset_b))
     model = tube.model
@@ -130,7 +114,7 @@ function tube_row!(materials, sys, tube)
         ElasticTubeModel(rigidities..., model.damping, anchors...) :
         TimoshenkoTubeModel(rigidities..., model.shear_coeff, model.damping, anchors...)
     return KiteGeometry.Tube(; name=definition_name(tube),
-        bodies=(tube.body_a_idx, tube.body_b_idx), tube.diameter, tube.pressure,
+        bodies=(tube.bodies[1], tube.bodies[2]), tube.diameter, tube.pressure,
         material=material!(materials, string(tube.law), tube_law_parameters(tube.law)),
         model=row_model)
 end

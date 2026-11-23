@@ -61,9 +61,9 @@ wing-node aero receivers, so both track the deformed beam identically.
 function beam_hermite_ride_eqs(point, force_on_point, s, params;
                                pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
                                body_com_vel, body_ω_b, body_force, body_moment)
-    tube = s.state.tubes[point.tube_idx]
-    a = tube.body_a_idx
-    b = tube.body_b_idx
+    tube = s.state.tubes[point.tube]
+    a = tube.bodies[1]
+    b = tube.bodies[2]
     R_a = collect(body_R_b_to_w[:, :, a])
     R_b = collect(body_R_b_to_w[:, :, b])
     ex = beam_hermite_ride_expressions(tube, params, point.idx;
@@ -145,8 +145,8 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
         seg_drag::Vector{Num} = zeros(Num, 3)
         mass = params.points[point.idx].extra_mass
         for segment in segments
-            if point.idx in segment.point_idxs
-                inverted = segment.point_idxs[2] == point.idx
+            if point.idx in segment.points
+                inverted = segment.points[2] == point.idx
                 if inverted
                     F .-= spring_force_vec[:, segment.idx]
                 else
@@ -220,7 +220,7 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
             found = 0
             station = nothing
             for station_ in stations
-                if point.idx in station_.point_idxs
+                if point.idx in station_.points
                     station = station_
                     found += 1
                 end
@@ -282,12 +282,12 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
 
         # Placement by anchor — the single rule for every non-rigid-wing point.
         force_on_point = collect(point_force[:, point.idx])
-        if point.tube_idx > 0
+        if !isnothing(point.tube)
             eqs = [eqs; beam_hermite_ride_eqs(point, force_on_point, s, params;
                 pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
                 body_com_vel, body_ω_b, body_force, body_moment)]
-        elseif point.body_idx > 0
-            eqs = [eqs; body_ride_eqs(point, point.body_idx, force_on_point,
+        elseif !isnothing(point.body)
+            eqs = [eqs; body_ride_eqs(point, point.body, force_on_point,
                 params; pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
                 body_com_vel, body_ω_b, body_force, body_moment)]
         elseif point.type == STATIC

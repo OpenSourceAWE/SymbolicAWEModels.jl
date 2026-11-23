@@ -67,7 +67,7 @@ function build_plate_kite(data_root)
     pairs = [(:kcu, :nose), (:right, :nose), (:right, :left), (:top, :right),
              (:left, :kcu), (:right, :kcu), (:top, :left), (:left, :nose),
              (:nose, :top)]
-    segments = [Segment(Symbol(a, :_, b), set, a, b; l0=bridle_l0(a, b),
+    segments = [Segment(Symbol(a, :_, b), set, a, b; rest_length=bridle_l0(a, b),
                         diameter_mm=set.d_line) for (a, b) in pairs]
     tethers = [Tether(:main_tether, set.l_tethers[1]; start_point=:ground,
                       end_point=:kcu, n_segments=set.segments)]

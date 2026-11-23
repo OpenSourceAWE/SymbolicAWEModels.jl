@@ -25,11 +25,11 @@ function tether_eqs!(eqs, tethers; len, spring_force)
     for tether in tethers
         slen = zero(Num)
         tforce = zero(Num)
-        for segment_idx in tether.segment_idxs
+        for segment_idx in tether.segments
             slen += len[segment_idx]
             tforce += spring_force[segment_idx]
         end
-        tforce /= length(tether.segment_idxs)
+        tforce /= length(tether.segments)
         eqs = [
             eqs
             stretched_len[tether.idx] ~ slen

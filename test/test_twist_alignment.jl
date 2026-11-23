@@ -31,8 +31,8 @@ sys, transforms = load_sys_struct_from_yaml(struc_yaml;
     system_name="2plate_kite", set)
 sys.winches[:main_winch].brake = true
 sam = SymbolicAWEModel(set, sys; transforms, vsm_set)
-l0_left = sam.state.segments[:kcu_steering_left].l0
-l0_right = sam.state.segments[:kcu_steering_right].l0
+l0_left = sam.state.segments[:kcu_steering_left].rest_length
+l0_right = sam.state.segments[:kcu_steering_right].rest_length
 
 dt = 0.05
 
@@ -70,7 +70,7 @@ function twist_chord_diffs(sam)
 
     rows = NamedTuple[]
     for g in stations
-        i1, i2 = g.point_idxs[1], g.point_idxs[end]
+        i1, i2 = g.points[1], g.points[end]
         le_idx, te_idx =
             SymbolicAWEModels.initial_chord_position(wing, points[i1]) <
             SymbolicAWEModels.initial_chord_position(wing, points[i2]) ?
@@ -117,9 +117,9 @@ end
 steer_mag = 0.03
 for step in 1:100
     steer = steer_mag * clamp(step * dt / 2.0, 0.0, 1.0)
-    sam.state.segments[:kcu_steering_left].l0 =
+    sam.state.segments[:kcu_steering_left].rest_length =
         l0_left - steer
-    sam.state.segments[:kcu_steering_right].l0 =
+    sam.state.segments[:kcu_steering_right].rest_length =
         l0_right + steer
     next_step!(sam; dt, vsm_interval=1)
     any(station -> abs(station.twist) > 0.1, sam.state.spanwise_stations) && break

@@ -25,12 +25,12 @@ function segment_rest_length_eqs(segment, pulleys, tethers, params;
     for pulley in pulleys
         split_rate = pulley_len_rate(params.pulleys[pulley.idx],
                                      pulley_vel[pulley.idx])
-        if idx == pulley.segment_idxs[1]
+        if idx == pulley.segments[1]
             push!(eqs, l0[idx] ~ pulley_len[pulley.idx])
             rate = split_rate
             in_pulley += 1
         end
-        if idx == pulley.segment_idxs[2]
+        if idx == pulley.segments[2]
             push!(eqs, l0[idx] ~
                 params.pulleys[pulley.idx].sum_len - pulley_len[pulley.idx])
             rate = -split_rate
@@ -45,7 +45,7 @@ function segment_rest_length_eqs(segment, pulleys, tethers, params;
     in_tether = 0
     tether_idx = 0
     for tether in tethers
-        if idx in tether.segment_idxs
+        if idx in tether.segments
             tether_idx = tether.idx
             in_tether += 1
         end
@@ -54,11 +54,11 @@ function segment_rest_length_eqs(segment, pulleys, tethers, params;
         "Segment $idx is in $in_tether tethers; should be 0 or 1.",
     )
     if in_tether == 1
-        n_segments = length(tethers[tether_idx].segment_idxs)
+        n_segments = length(tethers[tether_idx].segments)
         push!(eqs, l0[idx] ~ tether_len[tether_idx] / n_segments)
         rate = tether_vel[tether_idx] / n_segments
     else
-        push!(eqs, l0[idx] ~ params.segments[idx].l0)
+        push!(eqs, l0[idx] ~ params.segments[idx].rest_length)
     end
     return eqs, rate
 end
@@ -111,7 +111,7 @@ function segment_eqs!(s, eqs, points, segments,
 
     for segment in segments
         idx = segment.idx
-        src, dst = segment.point_idxs[1], segment.point_idxs[2]
+        src, dst = segment.points[1], segment.points[2]
         src_pos, src_vel = collect(pos[:, src]), collect(vel[:, src])
         dst_pos, dst_vel = collect(pos[:, dst]), collect(vel[:, dst])
 

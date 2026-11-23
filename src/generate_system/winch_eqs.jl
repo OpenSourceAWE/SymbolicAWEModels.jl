@@ -20,7 +20,7 @@ For each winch:
 3. Validate the connector contract with
    [`validate_winch_component`](@ref).
 4. Bind connectors to the parent variables (including
-   `subsys.len ~ mean(tether_len[tether_idx] for tether_idx in winch.tether_idxs)`)
+   `subsys.len ~ mean(tether_len[tether_idx] for tether_idx in winch.tethers)`)
    and integrate `D(winch_vel) = ifelse(brake > 0.5, 0, winch_acc)`.
    When `winch.speed_controlled` is true, `winch_acc` is forced to 0
    (ignoring `subsys.acc`) so velocity is prescribed via `winch.vel`.
@@ -40,7 +40,7 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
                     winch_friction)
     tether_winch = Dict{Int, Int}()
     for winch in winches
-        for tether_idx in winch.tether_idxs
+        for tether_idx in winch.tethers
             haskey(tether_winch, tether_idx) && error(
                 "Tether $tether_idx is connected to winch " *
                 "$(tether_winch[tether_idx]) and winch $(winch.idx). " *
@@ -69,23 +69,23 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
 
     winch_subsystems = Any[]
     for winch in winches
-        isempty(winch.tether_idxs) &&
+        isempty(winch.tethers) &&
             error("Winch $(winch.name): no connected tethers; " *
                   "at least one is required.")
-        winch_point_idx = winch.winch_point_idx
+        winch_point_idx = winch.winch_point
         (winch_point_idx > length(points)) &&
             error("Winch $(winch.name): point $winch_point_idx does not exist.")
 
         winch_seg_idxs = Set{Int}()
-        for tether_idx in winch.tether_idxs
-            union!(winch_seg_idxs, tethers[tether_idx].segment_idxs)
+        for tether_idx in winch.tethers
+            union!(winch_seg_idxs, tethers[tether_idx].segments)
         end
         force_vec = zeros(Num, 3)
         for segment in segments
             segment.idx in winch_seg_idxs || continue
-            if segment.point_idxs[1] == winch_point_idx
+            if segment.points[1] == winch_point_idx
                 force_vec .+= spring_force_vec[:, segment.idx]
-            elseif segment.point_idxs[2] == winch_point_idx
+            elseif segment.points[2] == winch_point_idx
                 force_vec .-= spring_force_vec[:, segment.idx]
             end
         end
@@ -102,8 +102,8 @@ function winch_eqs!(eqs, defaults, winches, tethers, segments, points,
                    smooth_norm(winch_force_vec[:, winch.idx])
                subsys.vel       ~ winch_vel[winch.idx]
                subsys.len       ~
-                   sum(tether_len[tether_idx] for tether_idx in winch.tether_idxs) /
-                   length(winch.tether_idxs)
+                   sum(tether_len[tether_idx] for tether_idx in winch.tethers) /
+                   length(winch.tethers)
                subsys.force     ~ winch_force[winch.idx]
                subsys.set_value ~ set_values[winch.idx]
                subsys.brake     ~ brake_p

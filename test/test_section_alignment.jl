@@ -42,7 +42,7 @@ points = sys.points
 # that belong to a station. The structural attachment point (KCU) is
 # not in any station, so it is excluded.
 station_point_ids = reduce(vcat,
-    [sys.spanwise_stations[g].point_idxs for g in wing.station_idxs];
+    [sys.spanwise_stations[g].points for g in wing.station_idxs];
     init=Int[])
 wing_pts = filter(
     p -> p.is_wing_node && p.wing_idx == wing.idx &&

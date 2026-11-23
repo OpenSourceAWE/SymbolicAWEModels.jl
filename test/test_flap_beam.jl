@@ -72,8 +72,8 @@ of the symbolic branch in `point_eqs!`, used as the ground truth.
 """
 function hermite_point_w(sam, tube, point)
     bodies = sam.state.bodies
-    body_a = bodies[tube.body_a_idx]
-    body_b = bodies[tube.body_b_idx]
+    body_a = bodies[tube.bodies[1]]
+    body_b = bodies[tube.bodies[2]]
     R_a = S.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
     R_b = S.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
     x_a = body_a.pos_w .+ R_a * tube.anchor_a_b

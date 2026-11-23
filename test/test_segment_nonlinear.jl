@@ -90,7 +90,7 @@ end
     ground = Point(:ground, KVec3(0.0, 0.0, 0.0), STATIC)
     hang = Point(:hang, KVec3(0.0, 0.0, -rest_length), DYNAMIC; extra_mass=mass)
     spring = Segment(:spring, :ground, :hang, force_law, damping, diameter;
-                     l0=rest_length, density=0.0)
+                     rest_length=rest_length, density=0.0)
     sys = system_definition("segment_nl_test", set;
         points=[ground, hang], segments=[spring])
 

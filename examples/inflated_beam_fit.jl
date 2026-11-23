@@ -394,7 +394,7 @@ function build_beam(name, n_seg, joint_law)
               body = tip_body, anchor_b = [seg_len / 2, 0.0, 0.0]),
     ]
     segments = [Segment(:tether_seg, :ground, :tip_anchor,
-        tether_stiffness, tether_damping, tether_diameter; l0 = winch_depth)]
+        tether_stiffness, tether_damping, tether_diameter; rest_length = winch_depth)]
     tethers = [Tether(:tether, [:tether_seg], winch_depth)]
     winches = [Winch(:winch, set, [:tether]; winch_point = :ground,
         model = CascadedLengthWinch(v_max = sweep_v_max,

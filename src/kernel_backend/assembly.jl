@@ -97,15 +97,15 @@ function classify_points(sys_struct)
                                  station_of(sys_struct, point.idx))
             continue
         end
-        if point.tube_idx > 0
-            roles[i] = PointRole(:hermite, 0, 0, 0, 0, point.tube_idx)
+        if !isnothing(point.tube)
+            roles[i] = PointRole(:hermite, 0, 0, 0, 0, point.tube)
             continue
         end
         if point.type == BODY_STATIC
-            point.body_idx > 0 || error(
+            !isnothing(point.body) || error(
                 "KernelBackend: BODY_STATIC point $(point.name) is anchored to " *
                 "neither a body nor a beam.")
-            roles[i] = PointRole(:ride, 0, 0, 0, point.body_idx, 0)
+            roles[i] = PointRole(:ride, 0, 0, 0, point.body, 0)
             continue
         end
         point.type in (STATIC, DYNAMIC) || error(
@@ -120,11 +120,11 @@ function classify_points(sys_struct)
             "KernelBackend: pulley $(pulley.name) has type $(pulley.type); " *
             "only DYNAMIC pulleys exist.")
         index = pulley_point_index(sys_struct, pulley)
-        roles[index] = PointRole(:pulley, pulley.idx, pulley.segment_idxs[1],
+        roles[index] = PointRole(:pulley, pulley.idx, pulley.segments[1],
                                  0, 0, 0)
     end
     for winch in sys_struct.winches
-        index = winch.winch_point_idx
+        index = winch.winch_point
         sys_struct.points[index].type == STATIC || error(
             "KernelBackend: winch $(winch.name) is at a non-STATIC point.")
         roles[index] = PointRole(:winch, 0, 0, winch.idx, 0, 0)
@@ -152,7 +152,7 @@ twist ambiguous, which `point_eqs!` also rejects.
 """
 function station_of(sys_struct, idx)
     found = [surface.idx for surface in sys_struct.spanwise_stations
-             if idx in surface.point_idxs]
+             if idx in surface.points]
     length(found) <= 1 || error(
         "KernelBackend: point $(sys_struct.points[idx].name) is in " *
         "$(length(found)) stations; expected 0 or 1.")
@@ -178,8 +178,8 @@ end
 The point a pulley splits its rope over: the single point its two segments share.
 """
 function pulley_point_index(sys_struct, pulley)
-    first_points = sys_struct.segments[pulley.segment_idxs[1]].point_idxs
-    second_points = sys_struct.segments[pulley.segment_idxs[2]].point_idxs
+    first_points = sys_struct.segments[pulley.segments[1]].points
+    second_points = sys_struct.segments[pulley.segments[2]].points
     shared = intersect(first_points, second_points)
     length(shared) == 1 || error(
         "KernelBackend: pulley $(pulley.name) segments share $(length(shared)) " *
@@ -215,23 +215,23 @@ plain springs whose `l0` parameter the assembler reads from the tether instead.
 """
 function classify_segments(sys_struct)
     tether_of_segment = Dict{Int, Int}()
-    for tether in sys_struct.tethers, index in tether.segment_idxs
+    for tether in sys_struct.tethers, index in tether.segments
         tether_of_segment[index] = tether.idx
     end
     winch_point_of_tether = Dict{Int, Int}()
-    for winch in sys_struct.winches, index in winch.tether_idxs
-        winch_point_of_tether[index] = winch.winch_point_idx
+    for winch in sys_struct.winches, index in winch.tethers
+        winch_point_of_tether[index] = winch.winch_point
     end
     side_of_segment = Dict{Int, Tuple{Int, Float64}}()
     for pulley in sys_struct.pulleys
-        side_of_segment[pulley.segment_idxs[1]] = (pulley.idx, 1.0)
-        side_of_segment[pulley.segment_idxs[2]] = (pulley.idx, -1.0)
+        side_of_segment[pulley.segments[1]] = (pulley.idx, 1.0)
+        side_of_segment[pulley.segments[2]] = (pulley.idx, -1.0)
     end
     roles = SegmentRole[]
     for segment in sys_struct.segments
         tether_idx = get(tether_of_segment, segment.idx, 0)
         count = tether_idx == 0 ? 0 :
-            length(sys_struct.tethers[tether_idx].segment_idxs)
+            length(sys_struct.tethers[tether_idx].segments)
         if haskey(side_of_segment, segment.idx)
             pulley_idx, side = side_of_segment[segment.idx]
             push!(roles, SegmentRole(:pulley, pulley_idx, side, 0, 0, 0))
@@ -428,7 +428,7 @@ function add_flap_deltas!(builder, table, bindings, sam, bodies, points)
                 connect!(builder, points[idx], :pos, instance,
                          Symbol(:point_pos_, k))
             end
-            connect!(builder, bodies[surface.wing_idx], :frame, instance,
+            connect!(builder, bodies[surface.wing], :frame, instance,
                      :wing_frame)
         else
             main, flap = surface.flap_body_idxs
@@ -882,8 +882,8 @@ function add_point!(builder, table, bindings, sam, idx, role, bodies, wrenches,
         index_map[:winches] = role.winch_idx
         key = Symbol(:winch_, role.winch_idx)
         outputs = [PARTICLE_OUTPUTS;
-                   [Symbol(:tether_len_, k) for k in eachindex(winch.tether_idxs)];
-                   [Symbol(:tether_vel_, k) for k in eachindex(winch.tether_idxs)]]
+                   [Symbol(:tether_len_, k) for k in eachindex(winch.tethers)];
+                   [Symbol(:tether_vel_, k) for k in eachindex(winch.tethers)]]
         kernel!(builder, table, sam, key, idx,
                 params -> WinchAnchor(sam, params, winch, idx; name = key),
                 WINCH_INPUTS, outputs)
@@ -1048,7 +1048,7 @@ function add_hermite_ride_point!(builder, table, bindings, sam, idx, role, bodie
     push!(bindings, (ride, kinematics, index_map))
     push!(bindings, (wrench, statics, index_map))
     wrenches[idx] = wrench
-    for (prefix, body) in ((:a, tube.body_a_idx), (:b, tube.body_b_idx))
+    for (prefix, body) in ((:a, tube.bodies[1]), (:b, tube.bodies[2]))
         for source in (:pos, :frame, :com, :com_velocity)
             connect!(builder, bodies[body], source, ride, Symbol(prefix, :_, source))
         end
@@ -1077,7 +1077,7 @@ function add_tube!(builder, table, bindings, sam, tube, bodies)
                     JOINT_INPUTS, JOINT_OUTPUTS)
     instance = add_instance!(builder, entry.index)
     push!(bindings, (instance, entry, Dict(:tubes => tube.idx)))
-    for (prefix, body) in ((:a, tube.body_a_idx), (:b, tube.body_b_idx))
+    for (prefix, body) in ((:a, tube.bodies[1]), (:b, tube.bodies[2]))
         for (source, target) in ((:pos, :pos), (:frame, :frame), (:com, :com),
                                  (:com_velocity, :com_velocity),
                                  (:omega_w, :omega))
@@ -1147,7 +1147,7 @@ there.
 function wire_segment!(builder, sys_struct, idx, role, point_instances,
                        segment_instances, wrench_instances)
     segment = segment_instances[idx]
-    source, target = sys_struct.segments[idx].point_idxs
+    source, target = sys_struct.segments[idx].points
     source == target && error(
         "KernelBackend: segment $(sys_struct.segments[idx].name) has both " *
         "endpoints at point $source.")
@@ -1170,7 +1170,7 @@ function wire_segment!(builder, sys_struct, idx, role, point_instances,
     elseif role.kind === :tether
         winch_point = point_instances[role.winch_point]
         winch = sys_struct.winches[find_winch(sys_struct, role.winch_point)]
-        position = findfirst(==(role.tether_idx), winch.tether_idxs)
+        position = findfirst(==(role.tether_idx), winch.tethers)
         connect!(builder, winch_point, Symbol(:tether_len_, position), segment,
                  :rest_len)
         connect!(builder, winch_point, Symbol(:tether_vel_, position), segment,
@@ -1194,7 +1194,7 @@ load_target(points, wrenches, idx) = wrenches[idx] == 0 ? points[idx] : wrenches
 
 """The index of the winch sitting at point `point_idx`."""
 find_winch(sys_struct, point_idx) =
-    findfirst(winch -> winch.winch_point_idx == point_idx, sys_struct.winches)
+    findfirst(winch -> winch.winch_point == point_idx, sys_struct.winches)
 
 """
     buffer_slots(system, instance, buffer, name) -> Vector{Int}
@@ -1298,7 +1298,7 @@ function bind_segment_winds!(slots, readers, system, sys_struct, segment_instanc
     for (idx, instance) in enumerate(segment_instances)
         kernel = system.kernels[system.instances[instance].kernel]
         has_slot(kernel.params, :src_wind) || continue
-        endpoints = sys_struct.segments[idx].point_idxs
+        endpoints = sys_struct.segments[idx].points
         for (endpoint, name) in zip(endpoints, (:src_wind, :dst_wind))
             for (k, slot) in enumerate(buffer_slots(system, instance, :params, name))
                 push!(slots, slot)
@@ -1396,10 +1396,10 @@ function initial_state!(u0, system, sys_struct, point_roles, point_instances,
             u0[only(buffer_slots(system, instance, :states, :pulley_vel))] = pulley.vel
         elseif role.kind === :winch
             winch = sys_struct.winches[role.winch_idx]
-            single = length(winch.tether_idxs) == 1
+            single = length(winch.tethers) == 1
             u0[only(winch_state_slots(system, instance, :winch_vel,
                                       Symbol("motor₊vel")))] = winch.vel
-            for (k, tether_idx) in enumerate(winch.tether_idxs)
+            for (k, tether_idx) in enumerate(winch.tethers)
                 alias = single ? Symbol("motor₊len") : nothing
                 slot = only(winch_state_slots(system, instance,
                                               Symbol(:tether_len_, k), alias))

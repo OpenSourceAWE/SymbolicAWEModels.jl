@@ -100,8 +100,8 @@ end
     @testset "Model setup" begin
         @info "Structure wiring: one tube resolved, rest length from geometry."
         @test length(sys.tubes) == 1
-        @test SymbolicAWEModels.SystemState(sys).tubes[:tube].body_a_idx == 1
-        @test SymbolicAWEModels.SystemState(sys).tubes[:tube].body_b_idx == 2
+        @test SymbolicAWEModels.SystemState(sys).tubes[:tube].bodies[1] == 1
+        @test SymbolicAWEModels.SystemState(sys).tubes[:tube].bodies[2] == 2
         @test SymbolicAWEModels.SystemState(sys).tubes[:tube].model.rest_length ≈
               beam_length
     end

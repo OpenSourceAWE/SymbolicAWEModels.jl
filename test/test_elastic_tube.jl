@@ -100,8 +100,8 @@ end
     @testset "Model setup" begin
         @test length(sys.bodies) == 2
         @test length(sys.tubes) == 1
-        @test SymbolicAWEModels.SystemState(sys).tubes[:j1].body_a_idx == 1
-        @test SymbolicAWEModels.SystemState(sys).tubes[:j1].body_b_idx == 2
+        @test SymbolicAWEModels.SystemState(sys).tubes[:j1].bodies[1] == 1
+        @test SymbolicAWEModels.SystemState(sys).tubes[:j1].bodies[2] == 2
     end
 
     @testset "Tubes built from one element keep their own anchors" begin

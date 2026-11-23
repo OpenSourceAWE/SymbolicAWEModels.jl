@@ -292,8 +292,8 @@ environment:
 
         @test sys.points[:mid].pos_ENU ≈ KVec3(0, 0, -100)
         @test sys.points[:top].pos_ENU ≈ KVec3(0, 0, -200)
-        @test sys.segments[:s1].l0 ≈ 100.0
-        @test sys.segments[:s2].l0 ≈ 100.0
+        @test sys.segments[:s1].rest_length ≈ 100.0
+        @test sys.segments[:s2].rest_length ≈ 100.0
         @test SystemState(sys).points[:top].pos_w == sys.points[:top].pos_ENU
     end
 
@@ -377,7 +377,7 @@ winches:
         sys, _ = load_sys_struct_from_yaml(
             yaml_path; system_name="init_stretched_length_multi", set=set)
 
-        sys.tethers[:tether_static].init_stretched_len = 200.0
+        sys.tethers[:tether_static].init_stretched_length = 200.0
         place!(sys)
 
         ground_static = sys.points[:ground_static].pos_ENU
@@ -385,7 +385,7 @@ winches:
         @test sys.points[:ground_static].pos_ENU ≈ KVec3(10, 0, 0)
         @test sys.points[:ground_winch].pos_ENU ≈ KVec3(-10, 0, 0)
 
-        sys.tethers[:tether_winch].init_stretched_len = 100.0
+        sys.tethers[:tether_winch].init_stretched_length = 100.0
         top_before = copy(sys.points[:top].pos_ENU)
         place!(sys)
 
@@ -400,16 +400,16 @@ winches:
         @test sys.points[:top].pos_ENU ≈ placed
 
         # Tethers that already have their lengths stay where they are.
-        sys.tethers[:tether_static].init_stretched_len = norm(placed - ground_static)
-        sys.tethers[:tether_winch].init_stretched_len = norm(placed - KVec3(-10, 0, 0))
+        sys.tethers[:tether_static].init_stretched_length = norm(placed - ground_static)
+        sys.tethers[:tether_winch].init_stretched_length = norm(placed - KVec3(-10, 0, 0))
         place!(sys)
         @test sys.points[:top].pos_ENU ≈ placed
     end
 
     # ================================================================
-    # Test 7: init_stretched_len on a non-root tether is an error
+    # Test 7: init_stretched_length on a non-root tether is an error
     # ================================================================
-    @testset "Error on non-root init_stretched_len" begin
+    @testset "Error on non-root init_stretched_length" begin
         stacked_yaml = """
 variables:
   test_mat:
@@ -457,7 +457,7 @@ winches:
         place!(sys)
 
         state = SystemState(sys)
-        segment_idxs = state.tethers[:main_tether].segment_idxs
+        segment_idxs = state.tethers[:main_tether].segments
         stretched = sum(state.segments[si].len for si in segment_idxs)
         k = state.segments[first(segment_idxs)].unit_stiffness
         tether = sys.tethers[:main_tether]
@@ -470,9 +470,8 @@ winches:
         @test isnothing(tether.init_stretch_frac)
         @test unstretched() ≈ stretched
 
-        # stretch_frac → len = frac * stretched; clears the force
+        # stretch_frac → len = frac * stretched
         tether.init_stretch_frac = 0.8
-        @test isnothing(tether.init_tether_force)
         @test unstretched() ≈ 0.8 * stretched
 
         # stretch_frac > 1 → slack: len longer than stretched
@@ -483,9 +482,12 @@ winches:
         tether.init_stretch_frac = 0.0
         @test_throws ErrorException place!(sys)
 
-        # force → len = stretched * (1 - force/k); clears the frac
+        # force and frac both given: placing refuses the tether
         tether.init_tether_force = 0.1 * k
-        @test isnothing(tether.init_stretch_frac)
+        @test_throws ErrorException place!(sys)
+
+        # force → len = stretched * (1 - force/k)
+        tether.init_stretch_frac = nothing
         @test unstretched() ≈ stretched * 0.9
 
         # only one of force / frac may have a value at a time
@@ -517,7 +519,7 @@ winches:
                   body=:tip, anchor_b=[seg_len/2, 0.0, 0.0]),
         ]
         segments = [Segment(:tether_seg, :ground, :tip_anchor,
-            1e4, 10.0, 0.01; l0=5.0)]
+            1e4, 10.0, 0.01; rest_length=5.0)]
         tethers = [Tether(:tether, [:tether_seg], 6.0)]
         winches = [Winch(:winch, set, [:tether]; winch_point=:ground)]
         sys = system_definition("init_stretched_length_body", set; points,
@@ -639,9 +641,9 @@ winches:
             Point(:tail, [1.5, 0.0, -1.0], DYNAMIC; extra_mass=1.0),
         ]
         segments = [Segment(:tether_seg, :ground, :beam_anchor, 1e4, 10.0, 0.01;
-                            l0=5.0),
+                            rest_length=5.0),
                     Segment(:tail_seg, :tip_anchor, :tail, 1e4, 10.0, 0.01;
-                            l0=1.0)]
+                            rest_length=1.0)]
         tethers = [Tether(:tether, [:tether_seg], 6.0)]
         winches = [Winch(:winch, set, [:tether]; winch_point=:ground)]
         return system_definition(name, set; points, segments, tethers, winches, bodies,
@@ -718,13 +720,13 @@ winches:
         set_unstretched_length!(state, tether, 150.0)
 
         @test tether.len ≈ 150.0
-        @test state.segments[:s1].l0 ≈ 75.0
-        @test state.segments[:s2].l0 ≈ 75.0
+        @test state.segments[:s1].rest_length ≈ 75.0
+        @test state.segments[:s2].rest_length ≈ 75.0
         @test all(point.pos_w ≈ was for (point, was) in zip(state.points, placed_w))
         @test all(point.pos_ENU ≈ was
                   for (point, was) in zip(sys.points, placed_initial))
         # The stretched geometry is untouched, so the rope is now taut.
-        @test sum(state.segments[idx].len for idx in tether.segment_idxs) ≈ 200.0
+        @test sum(state.segments[idx].len for idx in tether.segments) ≈ 200.0
 
         # `reinit!` re-places the structure, so it derives `len` afresh.
         place!(sys)

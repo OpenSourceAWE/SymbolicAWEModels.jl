@@ -65,7 +65,7 @@ The [`SystemDefinition`](@ref) constructor takes the component vectors and:
 
 ```julia
 sys = system_definition("my_model", set; points, segments)
-# All references now resolved: segments[1].point_idxs == (1, 2)
+# All references now resolved: segments[1].points == (1, 2)
 ```
 
 ## Stage 3: symbolic equation generation

@@ -442,14 +442,14 @@ environment:
 
         # Tether start/end resolved correctly
         teth = sys2.tethers[:line]
-        @test teth.start_point_idx ==
+        @test teth.start_point ==
             sys2.points[:mass].idx
-        @test teth.end_point_idx ==
+        @test teth.end_point ==
             sys2.points[:anchor].idx
-        @test length(teth.segment_idxs) == 4
+        @test length(teth.segments) == 4
 
         # Winch point is anchor
-        @test sys2.winches[:winch].winch_point_idx ==
+        @test sys2.winches[:winch].winch_point ==
             sys2.points[:anchor].idx
 
         # Intermediate points evenly spaced
@@ -462,7 +462,7 @@ environment:
         # Segments have correct l0 (100m / 4 = 25m each)
         for i in 1:4
             s = sys2.segments[Symbol("line_seg_$i")]
-            @test s.l0 ≈ 25.0 atol=0.01
+            @test s.rest_length ≈ 25.0 atol=0.01
         end
 
         # Build and simulate: mass should settle under gravity
@@ -525,7 +525,7 @@ environment:
         ]
         segments = [
             Segment(:seg, :top, :bot, 50000.0, 500.0,
-                    0.001; l0=50.0)
+                    0.001; rest_length=50.0)
         ]
         tethers = [Tether(:free_tether, [:seg], 50.0)]
         transforms = [
@@ -540,9 +540,9 @@ environment:
         @test length(sys3.winches) == 0
         @test length(sys3.tethers) == 1
         teth = sys3.tethers[:free_tether]
-        @test teth.start_point_idx ==
+        @test teth.start_point ==
             sys3.points[:top].idx
-        @test teth.end_point_idx ==
+        @test teth.end_point ==
             sys3.points[:bot].idx
 
         sam3 = SymbolicAWEModel(set, sys3; transforms)
@@ -567,7 +567,7 @@ environment:
         for _ in 1:250
             next_step!(sam3; dt=0.02, vsm_interval=0)
         end
-        @test sam3.state.segments[:seg].l0 ≈ 48.0 rtol=1e-6
+        @test sam3.state.segments[:seg].rest_length ≈ 48.0 rtol=1e-6
         @test sam3.state.points[:top].pos_w[3] > top_z
     end
 
@@ -589,7 +589,7 @@ environment:
         ]
         segments_l = [
             Segment(:line_l, :ground_l, :mass_l,
-                    50000.0, 500.0, 0.005; l0=50.0),
+                    50000.0, 500.0, 0.005; rest_length=50.0),
         ]
         tethers_l = [Tether(:main_l, [:line_l], 50.0)]
         winches_l = [Winch(:winch_l, set, [:main_l];
@@ -665,7 +665,7 @@ environment:
         init!(sam; remake=false, prn=false)
 
         @test unstretched_length(sam) ≈ [48.0]
-        @test seg.l0 ≈ 48.0
+        @test seg.rest_length ≈ 48.0
         @test all(point.pos_w ≈ was
                   for (point, was) in zip(sam.state.points, placed))
     end

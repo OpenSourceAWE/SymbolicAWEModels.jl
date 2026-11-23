@@ -52,7 +52,7 @@ for i in 1:n_segments
         Symbol("seg$i"), points[i].name,
         points[i + 1].name,
         seg_stiffness, seg_damping, seg_diameter;
-        l0=l0_seg, compression_frac=0.01))
+        rest_length=l0_seg, compression_frac=0.01))
 end
 
 transforms = [

@@ -48,7 +48,7 @@ function load_saddle(yaml_file;
         end
         push!(segments, Segment(sid, pi_idx, pj_idx,
             unit_stiffness, unit_damping, diameter;
-            l0=rest_length, compression_frac))
+            rest_length=rest_length, compression_frac))
     end
 
     return points, segments

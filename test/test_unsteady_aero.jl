@@ -149,7 +149,7 @@ wagner_phi(unsteady, s) = 1 - sum(unsteady.wagner_gains[i] *
         @test length(carriers) == 2
         @test sum(share for (_, share) in carriers) ≈ 1.0
         frac = beam.points[:rider].beam_frac
-        @test carriers[1][1].row === beam.bodies[tube.body_a_idx]
+        @test carriers[1][1].row === beam.bodies[tube.bodies[1]]
         @test carriers[1][2] ≈ 1 - frac
         @test carriers[2][2] ≈ frac
 

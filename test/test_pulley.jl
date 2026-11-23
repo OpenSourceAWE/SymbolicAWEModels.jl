@@ -246,9 +246,9 @@ system:
         l0_right_expected = norm(pulley_pos - attach_right_pos)
         l0_main_expected = norm(weight_pos - pulley_pos)
 
-        @test sys.segments[:left_leg].l0 ≈ l0_left_expected atol=1e-10
-        @test sys.segments[:right_leg].l0 ≈ l0_right_expected atol=1e-10
-        @test sys.segments[:main_tether].l0 ≈ l0_main_expected atol=1e-10
+        @test sys.segments[:left_leg].rest_length ≈ l0_left_expected atol=1e-10
+        @test sys.segments[:right_leg].rest_length ≈ l0_right_expected atol=1e-10
+        @test sys.segments[:main_tether].rest_length ≈ l0_main_expected atol=1e-10
 
         # Verify pulley was loaded
         @test length(sys.pulleys) == 1
@@ -377,9 +377,9 @@ system:
         l0_main_expected = norm(weight_pos - pulley_pos)
 
         # Verify auto-calculated l0 matches expected from geometry
-        @test sys.segments[:left_leg].l0 ≈ l0_left_expected atol=1e-10
-        @test sys.segments[:right_leg].l0 ≈ l0_right_expected atol=1e-10
-        @test sys.segments[:main_tether].l0 ≈ l0_main_expected atol=1e-10
+        @test sys.segments[:left_leg].rest_length ≈ l0_left_expected atol=1e-10
+        @test sys.segments[:right_leg].rest_length ≈ l0_right_expected atol=1e-10
+        @test sys.segments[:main_tether].rest_length ≈ l0_main_expected atol=1e-10
 
         # For symmetric config, left and right should be equal
         @test l0_left_expected ≈ l0_right_expected atol=1e-10

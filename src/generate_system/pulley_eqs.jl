@@ -33,14 +33,14 @@ function pulley_eqs!(eqs, defaults, pulleys, segments, params, initial;
     end
     for pulley in pulleys
         pulley.type == DYNAMIC || error("Wrong pulley type")
-        mass = pulley_rope_mass(params, pulley.idx, pulley.segment_idxs[1])
-        line_tension = 0.5 * (spring_force[pulley.segment_idxs[1]] +
-                              spring_force[pulley.segment_idxs[2]])
+        mass = pulley_rope_mass(params, pulley.idx, pulley.segments[1])
+        line_tension = 0.5 * (spring_force[pulley.segments[1]] +
+                              spring_force[pulley.segments[2]])
         eqs = [
             eqs
             pulley_force[pulley.idx] ~
-                spring_force[pulley.segment_idxs[1]] -
-                spring_force[pulley.segment_idxs[2]]
+                spring_force[pulley.segments[1]] -
+                spring_force[pulley.segments[2]]
             pulley_acc[pulley.idx] ~ pulley_force[pulley.idx] / mass
             pulley_split_eqs(pulley_len[pulley.idx], pulley_vel[pulley.idx],
                              pulley_force[pulley.idx], line_tension, mass,
@@ -51,7 +51,7 @@ function pulley_eqs!(eqs, defaults, pulleys, segments, params, initial;
             bind_initial!(initial.pulleys[pulley.idx].len, pulley_len[pulley.idx])
             bind_initial!(initial.pulleys[pulley.idx].vel, pulley_vel[pulley.idx])
             # l0[seg1] == pulley_len; bind for the tearing that keeps l0.
-            bind_initial!(initial.pulleys[pulley.idx].len, l0[pulley.segment_idxs[1]])
+            bind_initial!(initial.pulleys[pulley.idx].len, l0[pulley.segments[1]])
         ]
     end
     return eqs, defaults

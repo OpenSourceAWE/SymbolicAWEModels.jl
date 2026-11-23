@@ -56,7 +56,7 @@ function expand_tethers!(points::Vector{Point}, segments::AbstractVector,
     seg_names = Set{Symbol}(Symbol(segment.name) for segment in segments)
     for (i, tether) in enumerate(tethers)
         isnothing(tether.start_point_ref) && continue
-        first_segment = tether.segment_refs[1]
+        first_segment = tether.segments[1]
         (first_segment isa Int || first_segment in seg_names) && continue
         columns = tether.segment_columns
         spring = SegmentSpring(;
@@ -80,11 +80,11 @@ end
     mark_wing_nodes!(points, stations)
 
 Set `point.is_wing_node` for every point that is a member of some station.
-Requires `station.point_idxs` to be resolved first.
+Requires `station.points` to be resolved first.
 """
 function mark_wing_nodes!(points, stations)
     members = Set{Int64}()
-    for station in stations, point_idx in station.point_idxs
+    for station in stations, point_idx in station.points
         push!(members, point_idx)
     end
     for point in points
@@ -148,7 +148,7 @@ function particle_wing_parts(wing, stations, points, bodies, wings, root)
     point_idxs = Set{Int64}()
     for station_idx in wing.station_idxs
         station = stations[station_idx]
-        union!(point_idxs, station.point_idxs)
+        union!(point_idxs, station.points)
         for body_idx in Iterators.flatten(
                 (station.body_idxs, station.flap_body_idxs))
             body_idx != 0 && body_idx != wing.idx && push!(seed_roots, root[body_idx])
@@ -230,47 +230,47 @@ function assign_indices_and_resolve!(
 
     # Stations: resolve point_refs
     for station in stations
-        station.point_idxs = Int64[resolve_ref(ref, point_rows, "point")
-                                   for ref in station.point_refs]
+        station.points = Int64[resolve_ref(ref, point_rows, "point")
+                                   for ref in station.points]
     end
     mark_wing_nodes!(points, stations)
 
     # Segments: resolve point_refs
     for segment in segments
-        point1 = resolve_ref(segment.point_refs[1], point_rows, "point")
-        point2 = resolve_ref(segment.point_refs[2], point_rows, "point")
-        segment.point_idxs = (point1, point2)
+        point1 = resolve_ref(segment.points[1], point_rows, "point")
+        point2 = resolve_ref(segment.points[2], point_rows, "point")
+        segment.points = (point1, point2)
     end
 
     # Pulleys: resolve segment_refs
     for pulley in pulleys
-        segment1 = resolve_ref(pulley.segment_refs[1], segment_rows, "segment")
-        segment2 = resolve_ref(pulley.segment_refs[2], segment_rows, "segment")
-        pulley.segment_idxs = (segment1, segment2)
+        segment1 = resolve_ref(pulley.segments[1], segment_rows, "segment")
+        segment2 = resolve_ref(pulley.segments[2], segment_rows, "segment")
+        pulley.segments = (segment1, segment2)
     end
 
     # Tethers: resolve segment_refs and start/end point refs
     for tether in tethers
-        tether.segment_idxs = Int64[
+        tether.segments = Int64[
             resolve_ref(ref, segment_rows, "segment")
-            for ref in tether.segment_refs]
+            for ref in tether.segments]
         if !isnothing(tether.start_point_ref)
-            tether.start_point_idx = resolve_ref(
+            tether.start_point = resolve_ref(
                 tether.start_point_ref, point_rows, "point")
         end
         if !isnothing(tether.end_point_ref)
-            tether.end_point_idx = resolve_ref(
+            tether.end_point = resolve_ref(
                 tether.end_point_ref, point_rows, "point")
         end
     end
 
     # Winches: resolve tether_refs and winch_point_ref
     for winch in winches
-        winch.tether_idxs = Int64[
+        winch.tethers = Int64[
             resolve_ref(ref, tether_rows, "tether")
-            for ref in winch.tether_refs]
-        winch.winch_point_idx = resolve_ref(
-            winch.winch_point_ref, point_rows, "point")
+            for ref in winch.tethers]
+        winch.winch_point = resolve_ref(
+            winch.winch_point, point_rows, "point")
     end
 
     # Wings: resolve station_refs and PARTICLE_DYNAMICS-specific refs
@@ -356,11 +356,11 @@ function compute_spatial_station_mapping!(the_wing, stations::AbstractVector,
             enumerate(the_wing.station_idxs)
         station = stations[station_idx]
         center = zeros(3)
-        for pt_idx in station.point_idxs
+        for pt_idx in station.points
             center += initial_body_position(the_wing, points[pt_idx])
         end
         station_centers[local_idx] =
-            center / length(station.point_idxs)
+            center / length(station.points)
     end
 
     offset_vec = [0.0, 0.0, the_wing.aero_z_offset]
@@ -494,7 +494,8 @@ Set every DYNAMIC and STATIC body's `total_mass`, `com_offset_b` and principal
 inertia (`inertia_principal`, `R_b_to_p`): its own mass properties plus
 each point it carries ([`carrier_body_idx`](@ref)) as a point mass of the point's
 `total_mass`, at its anchor. A particle wing's `total_mass` sums its free member points
-and its section bodies. Point masses are taken at the current `l0`, and the rigid wing
+and its section bodies. Point masses are taken at the current `rest_length`, and the rigid
+wing
 nodes' offsets from the new COM re-derived ([`init_undeformed_offsets!`](@ref)).
 """
 function update_mass_properties!(sys_struct; prn=true)
@@ -584,9 +585,9 @@ of the same structural shape should share one.
 - `points`, `stations`, `segments`, etc.: Vectors of the system components.
 - `vsm_set`: `VSMSettings` for VSM wings; read from the project file's
   `vsm_settings:` when omitted.
-- `ignore_l0::Bool=false`: Set every segment `l0` to its placed length.
+- `ignore_l0::Bool=false`: Set every segment `rest_length` to its placed length.
 - `placed::Bool=false`: The positions given are the initial pose already: keep them
-  and every `l0` instead of running [`place!`](@ref).
+  and every `rest_length` instead of running [`place!`](@ref).
 - `prn::Bool=true`: If true, print info messages about auto-generated components.
 - `definition`: The KiteGeometry definition the components were read from; written from
   them (`definition_rows`) when omitted.
@@ -656,18 +657,19 @@ function system_definition(name::AbstractString, set;
     end
 
     for segment in segments
-        (segment.l0 ≈ 0) && (segment.l0 = segment_initial_length(segment, points))
+        something(segment.rest_length, 0.0) ≈ 0 &&
+            (segment.rest_length = segment_initial_length(segment, points))
     end
     for tether in tethers
         # Route 1: auto-detect start/end from segment chain
         if isnothing(tether.start_point_ref) &&
-           !isempty(tether.segment_idxs)
-            seg_first = segments[tether.segment_idxs[1]]
-            seg_last = segments[tether.segment_idxs[end]]
-            tether.start_point_idx =
-                seg_first.point_idxs[1]
-            tether.end_point_idx =
-                seg_last.point_idxs[2]
+           !isempty(tether.segments)
+            seg_first = segments[tether.segments[1]]
+            seg_last = segments[tether.segments[end]]
+            tether.start_point =
+                seg_first.points[1]
+            tether.end_point =
+                seg_last.points[2]
         end
     end
     for wing in wings
@@ -725,10 +727,7 @@ function system_definition(name::AbstractString, set;
     # Tubes: assign indices, resolve their body references.
     for (i, tube) in enumerate(tubes)
         tube.idx = i
-        tube.body_a_idx = resolve_ref(
-            tube.body_a_ref, body_rows, "rigid_body")
-        tube.body_b_idx = resolve_ref(
-            tube.body_b_ref, body_rows, "rigid_body")
+        tube.bodies = map(ref -> resolve_ref(ref, body_rows, "rigid_body"), tube.bodies)
     end
     tube_rows = Rows(tubes)
 

@@ -207,13 +207,13 @@ function create_sys!(s::SymbolicAWEModel, system::SystemState;
     # mtkcompile may keep it as the surviving unknown. An unwinched tether's
     # length is a parameter, so that l0 is already determined and takes no
     # initial value.
-    winched_tethers = Set(idx for winch in winches for idx in winch.tether_idxs)
+    winched_tethers = Set(idx for winch in winches for idx in winch.tethers)
     for tether in tethers
-        (length(tether.segment_idxs) == 1 && tether.idx in winched_tethers) ||
+        (length(tether.segments) == 1 && tether.idx in winched_tethers) ||
             continue
-        segidx = only(tether.segment_idxs)
+        segidx = only(tether.segments)
         defaults = [defaults;
-            bind_initial!(initial.segments[segidx].l0, l0[segidx])]
+            bind_initial!(initial.segments[segidx].rest_length, l0[segidx])]
     end
 
     # 4. Pulley equations (rope distribution)

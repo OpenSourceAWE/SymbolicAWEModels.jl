@@ -56,7 +56,7 @@ vsm_set = VortexStepMethod.VSMSettings(
     @test sort(owned) == collect(1:n_panels)
     station_center(station) =
         sum(SymbolicAWEModels.initial_body_position(wing, sys.points[i])
-            for i in station.point_idxs) / length(station.point_idxs)
+            for i in station.points) / length(station.points)
     offset = [0.0, 0.0, wing.aero_z_offset]
     for station in sys.spanwise_stations, panel_idx in station.panel_idxs
         corners = wing.vsm_aero.panels[panel_idx].corner_points
@@ -120,9 +120,9 @@ function riding_mass(sys, wing)
               if point.type == SymbolicAWEModels.BODY_STATIC && point.body_idx == wing.idx]
     mass = sum(sys.points[idx].extra_mass for idx in riders)
     state = SymbolicAWEModels.SystemState(sys; set, vsm_set)
-    for segment in state.segments, idx in segment.point_idxs
+    for segment in state.segments, idx in segment.points
         idx in riders && (mass += SymbolicAWEModels.segment_half_mass(
-            segment.l0, segment.diameter, segment.density))
+            segment.rest_length, segment.diameter, segment.density))
     end
     return mass
 end

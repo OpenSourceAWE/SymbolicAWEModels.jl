@@ -123,8 +123,8 @@ end
         @test sys.bodies[:nodeA].extra_mass == 1.0
         @test length(sys.tubes) == 1
         tube = SymbolicAWEModels.SystemState(sys).tubes[:tube]
-        @test tube.body_a_idx == sys.bodies[:nodeA].idx
-        @test tube.body_b_idx == sys.bodies[:nodeB].idx
+        @test tube.bodies[1] == sys.bodies[:nodeA].idx
+        @test tube.bodies[2] == sys.bodies[:nodeB].idx
         @test (tube.diameter, tube.pressure, tube.law) == (0.1, 30000.0, :breukels2011)
         @test tube.model isa TimoshenkoTube
         @test tube.model.rest_length ≈ 1.0     # taken from placed geometry

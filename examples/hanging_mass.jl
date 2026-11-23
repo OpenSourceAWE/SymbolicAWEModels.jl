@@ -30,7 +30,7 @@ points = [
 ]
 segments = [
     Segment(:spring, :anchor, :mass,
-            500.0, 50.0, 0.005; l0=4.0),
+            500.0, 50.0, 0.005; rest_length=4.0),
 ]
 transforms = [
     Transform(; name=:tf, elevation=-deg2rad(90), azimuth=0, heading=0,

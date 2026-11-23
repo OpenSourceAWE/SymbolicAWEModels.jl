@@ -103,7 +103,7 @@ using LinearAlgebra
             # Find LE and TE points in this station
             le_pt = nothing
             te_pt = nothing
-            for pt_idx in station.point_idxs
+            for pt_idx in station.points
                 pt = sys.points[pt_idx]
                 name_str = string(pt.name)
                 if occursin("le", name_str)

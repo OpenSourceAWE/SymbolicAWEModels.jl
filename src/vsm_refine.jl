@@ -47,12 +47,12 @@ function identify_wing_segments(
         segments = Tuple{Int64, Int64}[]
         for g_idx in wing_station_idxs
             station = stations[g_idx]
-            length(station.point_idxs) >= 2 || error(
+            length(station.points) >= 2 || error(
                 "Station $(station.name): need at least " *
                 "2 point_idxs (LE/TE), got " *
-                "$(length(station.point_idxs))")
+                "$(length(station.points))")
             station = [wing_points[findfirst(p -> p.idx == idx, wing_points)]
-                       for idx in station.point_idxs]
+                       for idx in station.points]
             le_point = argmin(p -> initial_chord_position(wing, p), station)
             te_point = argmax(p -> initial_chord_position(wing, p), station)
             push!(segments, (le_point.idx, te_point.idx))
@@ -144,11 +144,11 @@ function match_aero_sections_to_structure!(
         n_struct_sections = length(wing_station_idxs)
         for g_idx in wing_station_idxs
             station = stations[g_idx]
-            length(station.point_idxs) >= 2 || error(
+            length(station.points) >= 2 || error(
                 "PARTICLE_DYNAMICS wing $(wing.idx): station " *
                 "$(station.name) needs at least 2 points " *
                 "(LE = point_idxs[1], TE = point_idxs[end]), got " *
-                "$(length(station.point_idxs))")
+                "$(length(station.points))")
         end
     else
         n_points = length(wing_points)
@@ -478,10 +478,10 @@ function compute_station_geometry!(wing, stations, points)
         station = stations[station_idx]
         iszero(station.chord) || continue
         center = zeros(3)
-        for pt_idx in station.point_idxs
+        for pt_idx in station.points
             center .+= initial_body_position(wing, points[pt_idx])
         end
-        center ./= length(station.point_idxs)
+        center ./= length(station.points)
 
         sections = wing.vsm_wing.refined_sections
         n_sec = length(sections)

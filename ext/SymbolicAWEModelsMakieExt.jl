@@ -171,7 +171,7 @@ function SymbolicAWEModels.plot_wing_aero!(ax, sys, wing, mode::AeroPlate;
         for corner in SymbolicAWEModels.plate_corners(
             sys.spanwise_stations[station_idx],
             sys.points[
-                sys.spanwise_stations[station_idx].point_idxs[1]].pos_w,
+                sys.spanwise_stations[station_idx].points[1]].pos_w,
             wing.R_b_to_w)]
     initial = quad_vertices()
     isempty(initial) && return nothing
@@ -351,8 +351,8 @@ slot in here the same way once points can attach to rigid bodies.)
 function body_tube_spokes(sys)
     points = Point3f[]
     for tube in elastic_tubes(sys)
-        body_a = sys.bodies[tube.body_a_idx]
-        body_b = sys.bodies[tube.body_b_idx]
+        body_a = sys.bodies[tube.bodies[1]]
+        body_b = sys.bodies[tube.bodies[2]]
         R_a = SymbolicAWEModels.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
         R_b = SymbolicAWEModels.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
         push!(points, Point3f(body_a.pos_w),
@@ -375,8 +375,8 @@ corotational cubic-Hermite centerline, so the drawn tube bends with the beam.
 Mirrors the `x_center` construction in `beam_hermite_ride_eqs`.
 """
 function beam_centerline(tube, sys)
-    body_a = sys.bodies[tube.body_a_idx]
-    body_b = sys.bodies[tube.body_b_idx]
+    body_a = sys.bodies[tube.bodies[1]]
+    body_b = sys.bodies[tube.bodies[2]]
     R_a = SymbolicAWEModels.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
     R_b = SymbolicAWEModels.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
     x_a = body_a.pos_w .+ R_a * tube.anchor_a_b
@@ -419,8 +419,8 @@ indexing.
 function beam_elements(sys)
     elements = Tuple{Point3f, Point3f, Float32}[]
     for tube in elastic_tubes(sys)
-        body_a = sys.bodies[tube.body_a_idx]
-        body_b = sys.bodies[tube.body_b_idx]
+        body_a = sys.bodies[tube.bodies[1]]
+        body_b = sys.bodies[tube.bodies[2]]
         R_a = SymbolicAWEModels.quaternion_to_rotation_matrix(body_a.Q_b_to_w)
         R_b = SymbolicAWEModels.quaternion_to_rotation_matrix(body_b.Q_b_to_w)
         norm(body_b.pos_w .- body_a.pos_w) < 1e-9 && continue
@@ -492,8 +492,8 @@ end
 
 World-frame midpoint of every segment, in `sys.segments` order.
 """
-segment_midpoints(sys) = [Point3f(0.5 .* (sys.points[seg.point_idxs[1]].pos_w .+
-                                          sys.points[seg.point_idxs[2]].pos_w))
+segment_midpoints(sys) = [Point3f(0.5 .* (sys.points[seg.points[1]].pos_w .+
+                                          sys.points[seg.points[2]].pos_w))
                           for seg in sys.segments]
 
 """
@@ -625,7 +625,7 @@ spokes.
 function spoke_body_indices(sys)
     idxs = Int[]
     for tube in elastic_tubes(sys)
-        push!(idxs, tube.body_a_idx, tube.body_b_idx)
+        push!(idxs, tube.bodies[1], tube.bodies[2])
     end
     return idxs
 end
@@ -700,8 +700,8 @@ function Makie.plot!(ax, sys::SystemState;
             # Static plotting: build segment points once
             lineseg_points = Point3f[]
             for seg in sys.segments
-                p1 = sys.points[seg.point_idxs[1]].pos_w
-                p2 = sys.points[seg.point_idxs[2]].pos_w
+                p1 = sys.points[seg.points[1]].pos_w
+                p2 = sys.points[seg.points[2]].pos_w
                 push!(lineseg_points, Point3f(p1))
                 push!(lineseg_points, Point3f(p2))
             end
@@ -712,8 +712,8 @@ function Makie.plot!(ax, sys::SystemState;
                 sys_ref = PLOT_SYSTEM_STATE[]
                 points = Point3f[]
                 for seg in sys_ref.segments
-                    p1 = sys_ref.points[seg.point_idxs[1]].pos_w
-                    p2 = sys_ref.points[seg.point_idxs[2]].pos_w
+                    p1 = sys_ref.points[seg.points[1]].pos_w
+                    p2 = sys_ref.points[seg.points[2]].pos_w
                     push!(points, Point3f(p1))
                     push!(points, Point3f(p2))
                 end
@@ -1650,7 +1650,7 @@ function MakieControlPlots.plot(syss::Vector{<:SystemState}, logs::Vector{<:SysL
                 continue
             end
             tether = sys.tethers[1]
-            seg_idxs = tether.segment_idxs
+            seg_idxs = tether.segments
             if isempty(seg_idxs)
                 @warn "Tether has no segments; skipping plot_tether_actual for $suffix"
                 continue
@@ -1665,7 +1665,7 @@ function MakieControlPlots.plot(syss::Vector{<:SystemState}, logs::Vector{<:SysL
                 total = 0.0
                 for seg_idx in seg_idxs
                     seg = segs[seg_idx]
-                    p1, p2 = seg.point_idxs
+                    p1, p2 = seg.points
                     dx = X[p2] - X[p1]
                     dy = Y[p2] - Y[p1]
                     dz = Z[p2] - Z[p1]
@@ -2287,8 +2287,8 @@ function zoom_in!(scene, cam, sys, segment_idx, distance=nothing)
     # --- ZOOM IN ON SEGMENT ---
     # Get current segment endpoints
     seg = sys.segments[segment_idx]
-    p1_w = sys.points[seg.point_idxs[1]].pos_w
-    p2_w = sys.points[seg.point_idxs[2]].pos_w
+    p1_w = sys.points[seg.points[1]].pos_w
+    p2_w = sys.points[seg.points[2]].pos_w
 
     # Calculate segment center
     center = (p1_w + p2_w) / 2.0f0
@@ -2412,9 +2412,9 @@ function zoom_in_body!(scene, cam, sys, body_idx, distance=nothing)
         R = SymbolicAWEModels.quaternion_to_rotation_matrix(body.Q_b_to_w)
         reach = 0.0
         for tube in elastic_tubes(sys)
-            tube.body_a_idx == body_idx &&
+            tube.bodies[1] == body_idx &&
                 (reach = max(reach, norm(R * tube.anchor_a_b)))
-            tube.body_b_idx == body_idx &&
+            tube.bodies[2] == body_idx &&
                 (reach = max(reach, norm(R * tube.anchor_b_b)))
         end
         distance = zoomed_distance(reach * 4.0 + 2.0)
@@ -2557,8 +2557,8 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemState},
         for (sys_i, sys) in enumerate(systems)
             for seg_i in eachindex(sys.segments)
                 seg = sys.segments[seg_i]
-                p1_2d = Makie.project(scene, Point3f(sys.points[seg.point_idxs[1]].pos_w))
-                p2_2d = Makie.project(scene, Point3f(sys.points[seg.point_idxs[2]].pos_w))
+                p1_2d = Makie.project(scene, Point3f(sys.points[seg.points[1]].pos_w))
+                p2_2d = Makie.project(scene, Point3f(sys.points[seg.points[2]].pos_w))
                 dist = point_line_segment_distance(mouse_pos_2d, p1_2d, p2_2d)
                 if dist < min_dist
                     min_dist = dist
@@ -2583,13 +2583,13 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemState},
                 sys_i, seg_i = hover
                 sys = systems[sys_i]
                 seg = sys.segments[seg_i]
-                p1_3d = sys.points[seg.point_idxs[1]].pos_w
-                p2_3d = sys.points[seg.point_idxs[2]].pos_w
+                p1_3d = sys.points[seg.points[1]].pos_w
+                p2_3d = sys.points[seg.points[2]].pos_w
 
                 # Multi-system label format: "1:seg_ref" or just "seg_ref" if single system
                 prefix = length(systems) > 1 ? "$(sys_i):" : ""
-                p1 = sys.points[seg.point_idxs[1]]
-                p2 = sys.points[seg.point_idxs[2]]
+                p1 = sys.points[seg.points[1]]
+                p2 = sys.points[seg.points[2]]
 
                 mid_point_2d = Makie.project(scene, (p1_3d + p2_3d) / 2)
                 segment_label[] = "$(prefix)$(hover_ref_label(seg.name, seg_i))"
@@ -2598,10 +2598,10 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemState},
 
                 p1_2d = Makie.project(scene, p1_3d)
                 p2_2d = Makie.project(scene, p2_3d)
-                point1_label[] = "$(prefix)$(hover_ref_label(p1.name, seg.point_idxs[1]))"
+                point1_label[] = "$(prefix)$(hover_ref_label(p1.name, seg.points[1]))"
                 point1_label_pos[] = p1_2d + Point2f(20, 0)
                 point1_label_visible[] = true
-                point2_label[] = "$(prefix)$(hover_ref_label(p2.name, seg.point_idxs[2]))"
+                point2_label[] = "$(prefix)$(hover_ref_label(p2.name, seg.points[2]))"
                 point2_label_pos[] = p2_2d + Point2f(20, 0)
                 point2_label_visible[] = true
             else
@@ -2619,8 +2619,8 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemState},
         if sys_i != -1 && seg_i != -1
             sys = systems[sys_i]
             seg = sys.segments[seg_i]
-            p1_3d = sys.points[seg.point_idxs[1]].pos_w
-            p2_3d = sys.points[seg.point_idxs[2]].pos_w
+            p1_3d = sys.points[seg.points[1]].pos_w
+            p2_3d = sys.points[seg.points[2]].pos_w
 
             mid_point_2d = Makie.project(scene, (p1_3d + p2_3d) / 2)
             segment_label_pos[] = mid_point_2d + Point2f(20, 0)
@@ -2641,8 +2641,8 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemState},
             if sys_i != -1 && seg_i != -1
                 sys = systems[sys_i]
                 seg = sys.segments[seg_i]
-                p1_w = sys.points[seg.point_idxs[1]].pos_w
-                p2_w = sys.points[seg.point_idxs[2]].pos_w
+                p1_w = sys.points[seg.points[1]].pos_w
+                p2_w = sys.points[seg.points[2]].pos_w
 
                 center = (p1_w + p2_w) / 2.0f0
                 segment_len = norm(p2_w - p1_w)
@@ -2669,8 +2669,8 @@ function setup_segment_hover_events!(scene, systems::Vector{<:SystemState},
                 PLOT_PREV_SEGMENT_IDX[] = seg_i
 
                 sleep(0.01)
-                p1_3d = sys.points[seg.point_idxs[1]].pos_w
-                p2_3d = sys.points[seg.point_idxs[2]].pos_w
+                p1_3d = sys.points[seg.points[1]].pos_w
+                p2_3d = sys.points[seg.points[2]].pos_w
                 mid_point_2d = Makie.project(scene, (p1_3d + p2_3d) / 2)
                 segment_label_pos[] = mid_point_2d + Point2f(20, 0)
                 p1_2d = Makie.project(scene, p1_3d)
@@ -2732,9 +2732,9 @@ function setup_body_zoom_events!(scene, sys; relmargin=0.2,
         origin_2d = Makie.project(scene, Point3f(body.pos_w))
         dist = Inf
         for tube in elastic_tubes(sys)
-            anchor = if tube.body_a_idx == b
+            anchor = if tube.bodies[1] == b
                 tube.anchor_a_b
-            elseif tube.body_b_idx == b
+            elseif tube.bodies[2] == b
                 tube.anchor_b_b
             else
                 continue
@@ -2985,8 +2985,8 @@ function build_geometry_observables(sys::SystemState, trigger::Observable)
         $trigger
         points = Point3f[]
         for seg in sys.segments
-            push!(points, Point3f(sys.points[seg.point_idxs[1]].pos_w))
-            push!(points, Point3f(sys.points[seg.point_idxs[2]].pos_w))
+            push!(points, Point3f(sys.points[seg.points[1]].pos_w))
+            push!(points, Point3f(sys.points[seg.points[2]].pos_w))
         end
         points
     end
@@ -4017,7 +4017,7 @@ function SymbolicAWEModels.plot_body_frame(sys_struct::SystemState;
     wing_point_idxs = Set(p.idx for p in wing_points)
     for seg in segments
         # Only plot segments between wing points
-        from_idx, to_idx = seg.point_idxs
+        from_idx, to_idx = seg.points
         if from_idx in wing_point_idxs && to_idx in wing_point_idxs
             p1 = points[from_idx]
             p2 = points[to_idx]

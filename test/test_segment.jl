@@ -268,13 +268,13 @@ system:
         @test haskey(sys.segments, :test_segment)
 
         segment = SymbolicAWEModels.SystemState(sys; set).segments[:test_segment]
-        @test segment.l0 == 10.0
+        @test segment.rest_length == 10.0
         @test segment.unit_stiffness == 1000.0
         @test segment.unit_damping == 10.0
         @test segment.diameter == 0.005  # 5mm in meters
         @test segment.compression_frac == 0.1
 
-        println("\n  ====== Loaded segment: l0=$(segment.l0)m, unit_stiffness=$(segment.unit_stiffness)N, unit_damping=$(segment.unit_damping)N·s ======\n")
+        println("\n  ====== Loaded segment: l0=$(segment.rest_length)m, unit_stiffness=$(segment.unit_stiffness)N, unit_damping=$(segment.unit_damping)N·s ======\n")
     end
 
     @testset "Compression softens stiffness, and damping on request" begin
@@ -478,7 +478,7 @@ system:
         sys, transforms = load_sys_struct_from_yaml(yaml_horiz_drag_path;
             system_name="segment_test", set=set)
         segment = SymbolicAWEModels.SystemState(sys; set).segments[:horiz_segment]
-        L = segment.l0  # 10.0 m
+        L = segment.rest_length  # 10.0 m
         d = segment.diameter  # 0.004 m (4mm)
 
         # Segment mass from material density
@@ -609,7 +609,7 @@ system:
         sys, transforms = load_sys_struct_from_yaml(yaml_high_alt_path;
             system_name="segment_test", set=set)
         segment = SymbolicAWEModels.SystemState(sys; set).segments[:horiz_segment]
-        L = segment.l0  # 10.0 m
+        L = segment.rest_length  # 10.0 m
         d = segment.diameter  # 0.004 m (4mm)
 
         # Segment mass from material density

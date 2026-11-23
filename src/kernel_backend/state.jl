@@ -365,10 +365,10 @@ function winch_readouts(model::KernelModel, sys_struct)
         role.kind === :winch || continue
         instance = model.point_instances[idx]
         winch = sys_struct.winches[role.winch_idx]
-        alias = length(winch.tether_idxs) == 1 ? Symbol("motor₊len") : nothing
+        alias = length(winch.tethers) == 1 ? Symbol("motor₊len") : nothing
         lengths = [(tether, only(winch_state_slots(system, instance,
                                                    Symbol(:tether_len_, k), alias)))
-                   for (k, tether) in enumerate(winch.tether_idxs)]
+                   for (k, tether) in enumerate(winch.tethers)]
         push!(readouts, WinchReadout(role.winch_idx,
             only(winch_state_slots(system, instance, :winch_vel,
                                    Symbol("motor₊vel"))),
@@ -395,7 +395,7 @@ function (getter::KernelStateGetter)(integrator, sys_struct)
     for readout in getter.segments
         segment = sys_struct.segments[readout.segment]
         segment.force = scratch.observable[readout.spring_force]
-        segment.l0 = scratch.observable[readout.l0]
+        segment.rest_length = scratch.observable[readout.l0]
     end
     for readout in getter.pulleys
         pulley = sys_struct.pulleys[readout.pulley]
