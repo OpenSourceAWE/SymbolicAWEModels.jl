@@ -151,6 +151,7 @@ end
         nodeA = Wing(:nodeA, with_flap ? [:flap] : Symbol[], [1.0, 0.0, 0.0, 0.0],
                      [0.0, 0.0, 0.0], inertia; aero=AeroNone())
         nodeA.extra_mass = 1.0
+        nodeA.fixed = true
         nodeB = Body(:nodeB; extra_mass=1.0, inertia_principal=inertia,
                      pos=[beam_length, 0.0, 0.0])
         tube = Tube(:tube, :nodeA, :nodeB; diameter=0.1, pressure=3e4,
@@ -176,7 +177,6 @@ end
     end
 
     sam = SymbolicAWEModel(set, sys)
-    sam.state.bodies[:nodeA].fix_static = true
     jt = sam.state.tubes[:tube]
     rb = sam.state.bodies[:nodeB]
     br = sam.state.points[:bridle]
@@ -193,7 +193,6 @@ end
         # the same beam without the station: a DYNAMIC DOF would add 2.
         bare = SymbolicAWEModel(set, build_beam_sys("flap_beam_bare";
                                                     with_flap=false))
-        bare.state.bodies[:nodeA].fix_static = true
         test_init!(bare; prn=false)
         @test length(sam.integrator.u) == length(bare.integrator.u)
         @test all(isfinite, rb.pos_w)

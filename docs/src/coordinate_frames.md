@@ -31,8 +31,11 @@ a run never changes it; what moves is `pos_w` and `Q_b_to_w`.
   [`init!`](@ref) on every call: each body's mass properties and principal frame,
   each tube's rest geometry and each flap's rest deflection. A run restarted from a
   logged state therefore keeps the rest shape it started with.
-- A wing's `pos_ENU` is its centre of mass (RIGID_DYNAMICS without reference
-  points) or its weighted `origin` reference position.
+- A body's `pos_ENU`, a wing's body among them, is the centre of its own mass, which
+  is what placing moves; the origin of its frame is `origin_ENU(body)`.
+- A wing's row in `sys.wings` gives the origin of the wing's KA frame, the frame its
+  aerodynamic mesh is drawn in, as its `pos_ENU` and that frame's orientation as its
+  `Q_KA2ENU`.
 - [`reset_to_initial_pose!`](@ref) puts the structure back at it.
 
 ## Transform: Authoring Geometry to World
@@ -45,7 +48,10 @@ pose:
 
 1. **Translation**: the members move by `base_pos - curr_base_pos`
 2. **Rotation**: spherical repositioning using `elevation` and
-   `azimuth` angles around the base point
+   `azimuth` angles around the base point. Azimuth turns anti-clockwise seen from
+   above, from east towards north, as KiteUtils' `azimuth_east` does: a transform
+   with `azimuth: 30.0` places the rotated point 30° north of east, and a run reads
+   that wing's azimuth back as 30°.
 3. **Heading**: a turn about the radial until the transform's `body` has its
    `heading`
 
