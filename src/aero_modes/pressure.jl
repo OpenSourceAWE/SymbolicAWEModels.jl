@@ -275,15 +275,14 @@ function build_panel_station_map!(mode::AeroPressure, wing, sys_struct)
         mode.panel_station = zeros(Int64, n_panels)
         return nothing
     end
-    rot_cad_to_body = wing.R_b_to_c'
-    origin_cad = wing.pos_cad
+    rot_to_body = initial_rotation(wing)'
     spanwise = collect(SimFloat, wing.vsm_wing.spanwise_direction)
     flap_station = map(flaps) do ts
-        mid_cad = has_point_flap(ts) ?
-            sys_struct.points[ts.flap_point_idxs[2]].pos_cad :
-            0.5 .* (sys_struct.bodies[ts.flap_body_idxs[1]].pos_cad .+
-                    sys_struct.bodies[ts.flap_body_idxs[2]].pos_cad)
-        dot(rot_cad_to_body * (mid_cad .- origin_cad), spanwise)
+        mid = has_point_flap(ts) ?
+            sys_struct.points[ts.flap_point_idxs[2]].pos_ENU :
+            0.5 .* (sys_struct.bodies[ts.flap_body_idxs[1]].pos_ENU .+
+                    sys_struct.bodies[ts.flap_body_idxs[2]].pos_ENU)
+        dot(rot_to_body * (mid .- wing.pos_ENU), spanwise)
     end
     assignment = zeros(Int64, n_panels)
     for (panel_idx, panel) in enumerate(panels)
@@ -506,10 +505,8 @@ function build_station_point_map!(mode::AeroPressure, wing, points, stations;
     wing_pts = [p for p in points if p.is_wing_node && p.wing_idx == wing.idx]
     isempty(wing_pts) && error(
         "AeroPressure wing $(wing.name): no wing nodes to receive forces.")
-    rot_cad_to_body = wing.R_b_to_c'
-    origin_cad = wing.pos_cad
     point_idx = [p.idx for p in wing_pts]
-    point_pos_b = [rot_cad_to_body * (p.pos_cad - origin_cad) for p in wing_pts]
+    point_pos_b = [initial_body_position(wing, p) for p in wing_pts]
 
     panels = wing.vsm_aero.panels
     control = station_control_points(stations, points, wing)

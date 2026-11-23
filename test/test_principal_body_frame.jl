@@ -11,7 +11,7 @@
 # 1. pos_w = com_w + R_b_to_w * pos_b  (rigid body)
 # 2. Station le_pos, chord, y_airf in body frame
 #    relative to COM (same frame as pos_b)
-# 3. R_b_to_p = R_p_to_c' * R_b_to_c (constant body→principal)
+# 3. R_b_to_p = R_p_to_w' * R_b_to_w (constant body→principal)
 
 using Pkg
 if abspath(PROGRAM_FILE) == abspath(@__FILE__)
@@ -51,15 +51,13 @@ using LinearAlgebra
     @test !isnothing(wing.origin)
     @test !isnothing(wing.z_ref_points)
 
-    # Compute R_p_to_w from Q_p_to_w (same as runtime)
-    R_p_to_w = wing.R_p_to_c' * wing.R_b_to_c * wing.R_b_to_w'
-    # More directly: wing.R_p_to_w uses Q_p_to_w
+    # wing.R_p_to_w uses Q_p_to_w (same as runtime)
     R_p_to_w_from_q = wing.R_p_to_w
 
     # ---- Test 1: R_p_b is consistent ---- #
     @testset "R_p_b consistency" begin
         # Constant rotation from body to principal
-        R_p_b_const = wing.R_p_to_c' * wing.R_b_to_c
+        R_p_b_const = wing.R_b_to_p
         # Same thing from world-frame rotations
         R_p_b_world = R_p_to_w_from_q' * wing.R_b_to_w
         @test R_p_b_const ≈ R_p_b_world atol=1e-10

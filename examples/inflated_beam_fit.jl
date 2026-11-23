@@ -7,7 +7,7 @@
 # tube in closed form (parametrised by the slack-arc angle θ₀), from the linear
 # regime through wrinkling onset to collapse. We sample that curve as synthetic
 # "measurements", fit a smooth per-joint bending law to it, and build a
-# Body + ElasticJoint chain. It is validated as a cantilever under a ramped
+# Body + ElasticTube chain. It is validated as a cantilever under a ramped
 # downward tip force, reproducing the P-vs-tip-deflection curve up to collapse.
 #
 # Isotropic by choice: Comer-Levy assumes one modulus E. A woven (orthotropic)
@@ -305,15 +305,13 @@ stiffness_torsion = 1.0e5
 seg_mass = 0.5                            # transient-only (g=0); not fitted
 
 """
-    critical_damping(stiffness, inertia; ratio=1.0) -> Float64
+    critical_rayleigh_beta(stiffness, inertia; ratio=1.0) -> Float64
 
-Critical (ζ=`ratio`) damping `2·ratio·√(stiffness·inertia)` of a 2nd-order mode:
-translational [N·s/m] from [N/m]·[kg], or rotational [N·m·s/rad] from
-[N·m/rad]·[kg·m²]. Lets each joint damp itself near-critically (fast settle, no
-creep) from its own stiffness and inertia, instead of a guessed constant.
+Rayleigh β [s] that damps a 2nd-order mode of `stiffness` and `inertia` at the
+damping ratio ζ=`ratio`: `2·ratio·√(inertia/stiffness)`.
 """
-critical_damping(stiffness, inertia; ratio = 1.0) =
-    2.0 * ratio * sqrt(stiffness * inertia)
+critical_rayleigh_beta(stiffness, inertia; ratio = 1.0) =
+    2.0 * ratio * sqrt(inertia / stiffness)
 
 # Tip-load winch+tether. A CascadedLengthWinch reels a vertical tether at a low
 # v_max: tether length is the independent variable, so the test is displacement-
@@ -373,21 +371,20 @@ function build_beam(name, n_seg, joint_law)
             inertia_principal = inertia, pos = [(i - 0.5) * seg_len, 0.0, 0.0],
             type = i == 1 ? STATIC : DYNAMIC))
     end
-    # Near-critical joint damping from each joint's stiffness and the inertia of
-    # everything outboard of it about the hinge — that is the bending mode the
-    # joint must damp (the root joint swings the whole beam, not one segment).
-    damping_trans = critical_damping(stiffness_axial, seg_mass)
+    # Each tube's β critically damps the bending mode of everything outboard of it
+    # about the hinge (the root tube swings the whole beam, not one segment).
     function make_joint(i)
         law = joint_law(i)
         joint_x = i * seg_len
         inertia_out = sum(seg_mass * seg_len^2 / 12 +
                           seg_mass * ((j - 0.5) * seg_len - joint_x)^2
                           for j in (i + 1):n_seg)
-        damping_rot = critical_damping(linear_bending_stiffness(law), inertia_out)
-        ElasticJoint(Symbol("joint_$i"), Symbol("seg_$i"), Symbol("seg_$(i + 1)");
+        damping = critical_rayleigh_beta(linear_bending_stiffness(law), inertia_out)
+        Tube(Symbol("joint_$i"), Symbol("seg_$i"), Symbol("seg_$(i + 1)");
+            diameter = 2 * station_radius(i / n_seg), pressure,
             anchor_a = [seg_len / 2, 0.0, 0.0], anchor_b = [-seg_len / 2, 0.0, 0.0],
-            stiffness_axial, stiffness_shear, stiffness_torsion,
-            stiffness_bending = law, damping_trans, damping_rot)
+            model = ElasticTube(; stiffness_axial, stiffness_shear, stiffness_torsion,
+                                stiffness_bending = law, damping))
     end
     joints = [make_joint(i) for i in 1:(n_seg - 1)]
     tip_body = Symbol("seg_$n_seg")
@@ -404,7 +401,7 @@ function build_beam(name, n_seg, joint_law)
             position_gain = 20.0, velocity_gain = 20.0))]
     winches[1].inertia_total = 1.0e-4     # tiny rotor → near-instant tracking
     sys = SystemStructure(name, set; points, segments, tethers, winches,
-        bodies = bodies, elastic_joints = joints)
+        bodies = bodies, tubes = joints)
     sam = SymbolicAWEModel(set, sys)
     init!(sam; remake = false, prn = true)
     return sam

@@ -255,12 +255,12 @@ system:
         # Verify point properties
         anchor = sys.points[:anchor]
         @test anchor.type == SymbolicAWEModels.STATIC
-        @test anchor.pos_cad == KVec3(0.0, 0.0, 0.0)
+        @test anchor.pos_ENU == KVec3(0.0, 0.0, 0.0)
         @test anchor.extra_mass == 0.0
 
         mass_point = sys.points[:mass_point]
         @test mass_point.type == SymbolicAWEModels.DYNAMIC
-        @test mass_point.pos_cad == KVec3(0.0, 0.0, -10.0)
+        @test mass_point.pos_ENU == KVec3(0.0, 0.0, -10.0)
         @test mass_point.extra_mass == 1.0
         @test mass_point.area == 0.0
         @test mass_point.drag_coeff == 0.0

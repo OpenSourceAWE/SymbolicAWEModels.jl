@@ -9,7 +9,7 @@
 # station carries δ = the LE→TE hinge angle into the (α, δ) polars. Putting a
 # spanwise moment on the TE body deflects the flap — δ changes and the live RHS
 # per-panel force responds (δ enters cl/cd/cm every step). Runs both the lumped
-# `ElasticJoint` hinge and the distributed `TimoshenkoJoint` beam, with a δ-swept
+# `ElasticTube` hinge and the distributed `TimoshenkoTube` beam, with a δ-swept
 # POLAR_MATRICES polar so the flap actually bites.
 
 using Pkg
@@ -69,7 +69,7 @@ function write_delta_swept_fixture(data_path)
     write(geom, txt)
 end
 
-function struct_yaml(joint_block; point_flap=false)
+function struct_yaml(tube_block; point_flap=false)
     mid_row = point_flap ?
         "    - [mid_center, [0.0,  0.0, 2.65], BODY_STATIC, main_wing, " *
         "main_transform, le_body, 0.1, 0.0, 0.0]\n" : ""
@@ -118,7 +118,7 @@ bodies:
   data:
     - [le_body, [-0.5, 0.0, 2.17], STATIC,  main_transform, 0.5, [0.05, 0.05, 0.05]]
     - [te_body, [0.5,  0.0, 2.47], DYNAMIC, main_transform, 0.5, [0.05, 0.05, 0.05]]
-$(joint_block)stations:
+$(tube_block)stations:
 $(station_block)
 wings:
   data:
@@ -139,20 +139,20 @@ transforms:
 """
 end
 
-ELASTIC_JOINT = """elastic_joints:
-  headers: [name, body_a, body_b, anchor_a, anchor_b, stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping]
+ELASTIC_TUBE = """tubes:
+  headers: [name, bodies, diameter, pressure, law, model, anchor_a, anchor_b, stiffness_axial, stiffness_shear, stiffness_torsion, stiffness_bending, damping]
   data:
-    - [flap_hinge, le_body, te_body, [0.5, 0.0, 0.15], [-0.5, 0.0, -0.15], 100000.0, 100000.0, 20.0, 6.0, 0.05]
+    - [flap_hinge, [le_body, te_body], 0.1, 30000.0, breukels2011, elastic, [0.5, 0.0, 0.15], [-0.5, 0.0, -0.15], 100000.0, 100000.0, 20.0, 6.0, 0.05]
 """
-TIMO_JOINT = """timoshenko_joints:
-  headers: [name, body_a, body_b, anchor_a, anchor_b, EA, GA, GJ, EIy, EIz, damping]
+TIMOSHENKO_TUBE = """tubes:
+  headers: [name, bodies, diameter, pressure, law, model, anchor_a, anchor_b, EA, GA, GJ, EIy, EIz, damping]
   data:
-    - [flap_beam, le_body, te_body, [0.45, 0.0, 0.135], [-0.45, 0.0, -0.135], 100000.0, 50000.0, 20.0, 6.0, 6.0, 0.05]
+    - [flap_beam, [le_body, te_body], 0.1, 30000.0, breukels2011, timoshenko, [0.45, 0.0, 0.135], [-0.45, 0.0, -0.135], 100000.0, 50000.0, 20.0, 6.0, 6.0, 0.05]
 """
 
-function build_flap_model(data_path, joint_block; point_flap=false, kwargs...)
+function build_flap_model(data_path, tube_block; point_flap=false, kwargs...)
     write(joinpath(data_path, "particle_flap_geometry.yaml"),
-          struct_yaml(joint_block; point_flap))
+          struct_yaml(tube_block; point_flap))
     set_data_path(data_path)
     set = Settings("system.yaml")
     vsm_set = VortexStepMethod.VSMSettings(
@@ -191,13 +191,13 @@ end
 
 @testset "flap + continuous pressure aero" begin
     pkg_root = dirname(@__DIR__)
-    for (label, joint_block) in (("elastic", ELASTIC_JOINT), ("timoshenko", TIMO_JOINT))
-        @testset "$label joint" begin
+    for (label, tube_block) in (("elastic", ELASTIC_TUBE), ("timoshenko", TIMOSHENKO_TUBE))
+        @testset "$label tube" begin
             tmpdir = mktempdir()
             data_path = joinpath(tmpdir, "2plate_kite")
             cp(joinpath(pkg_root, "data", "2plate_kite"), data_path; force=true)
             write_delta_swept_fixture(data_path)
-            sam, sys = build_flap_model(data_path, joint_block)
+            sam, sys = build_flap_model(data_path, tube_block)
             wing = sys.wings[1]; mode = wing.aero
             te = sys.bodies[:te_body]
             @test mode isa AeroPressure
@@ -236,7 +236,7 @@ end
     data_path = joinpath(tmpdir, "2plate_kite")
     cp(joinpath(dirname(@__DIR__), "data", "2plate_kite"), data_path; force=true)
     write_delta_swept_fixture(data_path)
-    sam, sys = build_flap_model(data_path, ELASTIC_JOINT;
+    sam, sys = build_flap_model(data_path, ELASTIC_TUBE;
                                 point_flap=true, backend=KernelBackend())
     wing = sys.wings[1]
     station = sys.stations[:flap]

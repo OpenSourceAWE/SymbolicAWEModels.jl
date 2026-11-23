@@ -51,7 +51,7 @@ end
 """
     beam_hermite_ride_eqs(point, force_on_point, s, params; kwargs...)
 
-Kinematics of a `point` that rides its `TimoshenkoJoint`'s corotational cubic-Hermite
+Kinematics of a `point` that rides its `TimoshenkoTube`'s corotational cubic-Hermite
 centerline at `beam_frac` (transverse deflection from the two end slopes, plus a
 frame-carried `beam_offset_b`), and the load it feeds to the two end bodies split by
 axial fraction. Mutates `body_force`/`body_moment` in place; returns the point's
@@ -61,12 +61,12 @@ wing-node aero receivers, so both track the deformed beam identically.
 function beam_hermite_ride_eqs(point, force_on_point, s, params;
                                pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
                                body_com_vel, body_ω_b, body_force, body_moment)
-    joint = s.sys_struct.timoshenko_joints[point.joint_idx]
-    a = joint.body_a_idx
-    b = joint.body_b_idx
+    tube = s.sys_struct.tubes[point.tube_idx]
+    a = tube.body_a_idx
+    b = tube.body_b_idx
     R_a = collect(body_R_b_to_w[:, :, a])
     R_b = collect(body_R_b_to_w[:, :, b])
-    ex = beam_hermite_ride_expressions(joint, params, point.idx;
+    ex = beam_hermite_ride_expressions(tube, params, point.idx;
         pos_a = collect(body_pos_w[:, a]), R_a, com_a = collect(body_com_w[:, a]),
         com_vel_a = collect(body_com_vel[:, a]), omega_a_w = R_a * collect(body_ω_b[:, a]),
         pos_b = collect(body_pos_w[:, b]), R_b, com_b = collect(body_com_w[:, b]),
@@ -214,7 +214,7 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
         # placed by a twist-deformed offset in the wing body frame — the wing is
         # itself the rigid body, so there is no node body or beam to ride, and the
         # section-twist DOF deforms the offset. Every other point follows the
-        # anchor rule below (joint → beam, body → rigid ride, STATIC → fixed,
+        # anchor rule below (tube → beam, body → rigid ride, STATIC → fixed,
         # else → free particle).
         if rigid_wing_node
             found = 0
@@ -282,7 +282,7 @@ function point_eqs!(s, eqs, defaults, points, segments, stations, params, initia
 
         # Placement by anchor — the single rule for every non-rigid-wing point.
         force_on_point = collect(point_force[:, point.idx])
-        if point.joint_idx > 0
+        if point.tube_idx > 0
             eqs = [eqs; beam_hermite_ride_eqs(point, force_on_point, s, params;
                 pos, vel, acc, body_pos_w, body_R_b_to_w, body_com_w,
                 body_com_vel, body_ω_b, body_force, body_moment)]

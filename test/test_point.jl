@@ -193,7 +193,7 @@ system:
         # Verify point properties
         test_point = sys.points[:test_point]
         @test test_point.type == SymbolicAWEModels.DYNAMIC
-        @test test_point.pos_cad == KVec3(0.0, 0.0, 100.0)
+        @test test_point.pos_ENU == KVec3(0.0, 0.0, 100.0)
         @test test_point.extra_mass == 0.69
         @test test_point.area == 0.1
         @test test_point.drag_coeff == 0.45

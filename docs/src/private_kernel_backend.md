@@ -212,8 +212,8 @@ SymbolicAWEModels.joint_pose_variables
 SymbolicAWEModels.joint_wrench_variables
 SymbolicAWEModels.joint_poses
 SymbolicAWEModels.joint_wrench_eqs
-SymbolicAWEModels.ElasticJointComponent
-SymbolicAWEModels.TimoshenkoJointComponent
+SymbolicAWEModels.ElasticTubeComponent
+SymbolicAWEModels.TimoshenkoTubeComponent
 SymbolicAWEModels.PointRole
 SymbolicAWEModels.classify_points
 SymbolicAWEModels.pulley_point_index
@@ -222,7 +222,7 @@ SymbolicAWEModels.classify_segments
 SymbolicAWEModels.KernelEntry
 SymbolicAWEModels.kernel!
 SymbolicAWEModels.callable_field_key
-SymbolicAWEModels.ELASTIC_RIGIDITIES
+SymbolicAWEModels.tube_kernel
 SymbolicAWEModels.KernelModel
 SymbolicAWEModels.assemble
 SymbolicAWEModels.add_point!
@@ -249,7 +249,7 @@ SymbolicAWEModels.add_twist_node!
 SymbolicAWEModels.rigid_wing_node
 SymbolicAWEModels.station_of
 SymbolicAWEModels.add_flap_deltas!
-SymbolicAWEModels.add_joint!
+SymbolicAWEModels.add_tube!
 SymbolicAWEModels.wire_segment!
 SymbolicAWEModels.find_winch
 SymbolicAWEModels.load_target

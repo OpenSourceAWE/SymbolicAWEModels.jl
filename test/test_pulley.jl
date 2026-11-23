@@ -217,13 +217,13 @@ system:
         # Verify attachment points are STATIC
         @test sys.points[:attach_left].type == SymbolicAWEModels.STATIC
         @test sys.points[:attach_right].type == SymbolicAWEModels.STATIC
-        @test sys.points[:attach_left].pos_cad == KVec3(-2.0, 0.0, 10.0)
-        @test sys.points[:attach_right].pos_cad == KVec3(2.0, 0.0, 10.0)
+        @test sys.points[:attach_left].pos_ENU == KVec3(-2.0, 0.0, 10.0)
+        @test sys.points[:attach_right].pos_ENU == KVec3(2.0, 0.0, 10.0)
 
         # Verify pulley point is DYNAMIC with no extra mass
         pulley_point = sys.points[:pulley_point]
         @test pulley_point.type == SymbolicAWEModels.DYNAMIC
-        @test pulley_point.pos_cad[1] == 0.5  # Off-center at x=0.5
+        @test pulley_point.pos_ENU[1] == 0.5  # Off-center at x=0.5
         @test pulley_point.extra_mass == 0.0
         @test pulley_point.body_frame_damping == KVec3(50.0, 50.0, 50.0)
 
@@ -239,10 +239,10 @@ system:
         @test haskey(sys.segments, :main_tether)
 
         # Verify segment rest lengths are auto-calculated from point positions
-        attach_left_pos = sys.points[:attach_left].pos_cad
-        attach_right_pos = sys.points[:attach_right].pos_cad
-        pulley_pos = sys.points[:pulley_point].pos_cad
-        weight_pos = sys.points[:weight].pos_cad
+        attach_left_pos = sys.points[:attach_left].pos_ENU
+        attach_right_pos = sys.points[:attach_right].pos_ENU
+        pulley_pos = sys.points[:pulley_point].pos_ENU
+        weight_pos = sys.points[:weight].pos_ENU
 
         l0_left_expected = norm(pulley_pos - attach_left_pos)
         l0_right_expected = norm(pulley_pos - attach_right_pos)
@@ -280,9 +280,9 @@ system:
         initial_sum_len = pulley.sum_len
 
         # Expected sum_len = l0_left + l0_right (from point positions)
-        attach_left_pos = sys.points[:attach_left].pos_cad
-        attach_right_pos = sys.points[:attach_right].pos_cad
-        pulley_pos = sys.points[:pulley_point].pos_cad
+        attach_left_pos = sys.points[:attach_left].pos_ENU
+        attach_right_pos = sys.points[:attach_right].pos_ENU
+        pulley_pos = sys.points[:pulley_point].pos_ENU
         expected_sum_len = norm(pulley_pos - attach_left_pos) + norm(pulley_pos - attach_right_pos)
         @test initial_sum_len ≈ expected_sum_len atol=1e-10
 
@@ -365,10 +365,10 @@ system:
         sys = load_sys_struct_from_yaml(yaml_symmetric_path; system_name="pulley_symmetric", set=set)
 
         # Get positions from YAML
-        attach_left_pos = sys.points[:attach_left].pos_cad
-        attach_right_pos = sys.points[:attach_right].pos_cad
-        pulley_pos = sys.points[:pulley_point].pos_cad
-        weight_pos = sys.points[:weight].pos_cad
+        attach_left_pos = sys.points[:attach_left].pos_ENU
+        attach_right_pos = sys.points[:attach_right].pos_ENU
+        pulley_pos = sys.points[:pulley_point].pos_ENU
+        weight_pos = sys.points[:weight].pos_ENU
 
         # Calculate expected l0 from geometry
         l0_left_expected = norm(pulley_pos - attach_left_pos)
@@ -625,6 +625,7 @@ system:
             sam.sys_struct.points[:pulley_point].body_frame_damping .= 0.0
             sam.sys_struct.points[:weight].body_frame_damping .= 0.0
             sam.sys_struct.segments[:main_tether].unit_damping = 0.0
+            place!(sam.sys_struct; prn=false)
             init!(sam; prn=false)
             speeds = Float64[]
             for _ in 1:n

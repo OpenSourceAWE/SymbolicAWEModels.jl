@@ -389,14 +389,14 @@ its own job on Ubuntu with Julia 1.12.
 | `test_principal_body_frame` | [`Wing`](@ref AbstractWing) | Principal vs body frame separation |
 | `test_principal_frame_invariance` | [`Wing`](@ref AbstractWing) | [`PrincipalFrameMethod`](@ref) is a gauge choice |
 | `test_rigid_body` | [`Body`](@ref) | Free rigid-body motion, gravity, damping |
-| `test_joint` | [`ElasticJoint`](@ref) | Lumped 6-DOF spring between bodies |
-| `test_timoshenko_joint` | [`TimoshenkoJoint`](@ref) | Beam bending, shear, axial, torsion vs closed form |
+| `test_elastic_tube` | [`ElasticTube`](@ref) | Lumped 6-DOF spring between bodies |
+| `test_timoshenko_tube` | [`TimoshenkoTube`](@ref) | Beam bending, shear, axial, torsion vs closed form |
 | `test_tube_laws` | — | Breukels inflated-tube correlations and their fitted range |
 | `test_aero_modes` | [`AbstractAeroModel`](@ref) | Mode dispatch and connector contract |
 | `test_continuous_aero` | [`ContinuousAero`](@ref) | Live symbolic force assembly |
 | `test_pressure_aero` | [`AeroPressure`](@ref) | Surface-traction scatter onto points |
 | `test_flap_aero`, `test_flap_beam` | [`AeroPressure`](@ref) | Flap deflection δ into the polars |
-| `test_yaml_bodies` | — | YAML `bodies` / `timoshenko_joints` loading |
+| `test_yaml_bodies` | — | YAML `bodies` / `tubes` loading |
 | `test_heading_calculation` | — | Kite heading from tether geometry |
 | `test_section_alignment` | [`Wing`](@ref AbstractWing) | VSM section ↔ structural point mapping |
 | `test_profile_law` | — | Atmospheric wind profile verification |
@@ -475,8 +475,8 @@ The source code is organized into modular directories:
     [`Tether`](@ref), [`Winch`](@ref), [`Station`](@ref), [`Transform`](@ref)
   - `wing.jl`: [`AbstractWing`](@ref)/[`Wing`](@ref) types and the
     [`VSMWing`](@ref)/[`PlateWing`](@ref) constructors, aerodynamic setup
-  - `rigid_body.jl`: [`Body`](@ref), [`ElasticJoint`](@ref),
-    [`TimoshenkoJoint`](@ref)
+  - `rigid_body.jl`: [`Body`](@ref), [`Tube`](@ref), [`TimoshenkoTube`](@ref),
+    [`ElasticTube`](@ref)
   - `system_structure_core.jl`: [`SystemStructure`](@ref) constructor, reference
     resolution
   - `named_collection.jl`: Symbol-based indexing ([`NamedCollection`](@ref))
@@ -490,7 +490,7 @@ The source code is organized into modular directories:
 - **`src/generate_system/`** — symbolic equation generation
   - `create_sys.jl`: Top-level orchestrator
   - `point_eqs.jl`, `segment_eqs.jl`, `wing_eqs.jl`, `rigid_body_eqs.jl`,
-    `joint_eqs.jl`, etc.: per-subsystem equations
+    `elastic_tube_eqs.jl`, etc.: per-subsystem equations
 - **`src/yaml_loader.jl`** — YAML configuration file parser
   ([`load_sys_struct_from_yaml`](@ref))
 - **`src/obj_adapter.jl`** — `.obj` mesh mass properties (`ObjAdapter`)

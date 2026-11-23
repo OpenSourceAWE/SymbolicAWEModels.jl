@@ -541,7 +541,8 @@ end
 
 Load or build the symbolic model, create the `ODEProblem` (and optionally the
 `LinearizationProblem` / control functions), serialize new builds to disk, and
-return a freshly initialized `ODEIntegrator`.
+return a freshly initialized `ODEIntegrator` from `sam.sys_struct` as it stands. To
+start from the design geometry again, [`place!`](@ref) the structure first.
 
 # Keyword Arguments
 - `solver`, `adaptive`: ODE solver and time-stepping mode. `solver=nothing` picks
@@ -562,11 +563,6 @@ return a freshly initialized `ODEIntegrator`.
 - `lin_vsm`: linearize the VSM aerodynamics after init.
 - `remake_vsm`: rebuild the VSM wing/aero from settings (after editing
   `aero_geometry.yaml` etc.).
-- `reset_vel`, `ignore_l0`, `apply_tether_lengths`: forwarded to
-  `reinit!(sys_struct, set)`.
-- `reinit_sys`: place the `SystemStructure` with `reinit!(sys_struct, set)`,
-  which runs all of its steps. `false` takes the structure as it is: run the steps
-  of `reinit!` wanted on `sam.sys_struct` first.
 - `reset_integrator`: discard the existing integrator and build a fresh one, so no
   stale BDF history taints the next run.
 - `vsm_min_wind=0.5`: minimum |va| [m/s] for the initial VSM solve. Below this the
@@ -591,12 +587,8 @@ function init!(sam::SymbolicAWEModel;
     create_lin_prob::Bool=false,
     create_control_func::Bool=false,
     lin_vsm::Bool=true,
-    ignore_l0::Bool=false,
     remake_vsm::Bool=true,
-    reset_vel::Bool=true,
     reset_integrator::Bool=true,
-    reinit_sys::Bool=true,
-    apply_tether_lengths::Bool=true,
     vsm_min_wind=0.5,
     sparse::Union{Bool, Nothing}=nothing,
     linsolve=default_linsolve(sam.backend),
@@ -630,8 +622,7 @@ function init!(sam::SymbolicAWEModel;
 
         if !(sam.backend isa MonolithBackend)
             integrator = init_backend!(sam.backend, sam, solver;
-                adaptive, prn, reinit_sys, reset_vel, ignore_l0,
-                apply_tether_lengths, remake_vsm, reset_integrator, vsm_min_wind,
+                adaptive, prn, remake_vsm, reset_integrator, vsm_min_wind,
                 lin_vsm, sparse, analytic_jacobian, remake, reload)
             prn && @info "$(sam.sys_struct.name) model initialized " *
                 "($(nameof(typeof(sam.backend))))."
@@ -689,12 +680,8 @@ function init!(sam::SymbolicAWEModel;
             serialize(model_path, sam.serialized_model)
         end
 
-        if reinit_sys
-            reinit!(sam.sys_struct, sam.set;
-                    ignore_l0, remake_vsm, reset_vel,
-                    apply_tether_lengths, prn)
-        end
-        # reinit! below syncs the struct's ICs onto the problem; no rebuild needed.
+        init_sys_struct!(sam.sys_struct, sam.set; remake_vsm, prn)
+        # reinit!(sam, prob) syncs the struct's ICs onto the problem; no rebuild needed.
         if create_prob && !isnothing(sam.prob)
             prob = something(sam.prob)
             reset_integrator |= reload
@@ -836,13 +823,13 @@ Excludes runtime-configurable properties like masses, lengths, stiffnesses.
 """
 function get_sys_struct_hash(sys_struct::SystemStructure)
     (; points, stations, segments, pulleys, tethers, winches, wings, transforms,
-       bodies, elastic_joints, timoshenko_joints) = sys_struct
+       bodies, tubes) = sys_struct
     data_parts = []
     for point in points
         # nothing-vs-set gates whether drag/damping equations are emitted (structure,
         # not value), so 0.0↔1.0 reuses the cached bin but adding/removing regenerates.
         push!(data_parts, ("point", point.idx, point.wing_idx, point.body_idx,
-                           point.joint_idx, Int(point.type)))
+                           point.tube_idx, Int(point.type)))
     end
     for segment in segments
         # Stiffness type selects the spring law (scalar k·Δ vs callable F(ε)).
@@ -898,24 +885,13 @@ function get_sys_struct_hash(sys_struct::SystemStructure)
         push!(data_parts, ("rigid_body", rigid_body.idx, Int(rigid_body.type),
                            rigid_body.wing_idx))
     end
-    for joint in elastic_joints
-        # Stiffness type selects the generated law (scalar `k·Δ` vs callable `k(Δ)`).
-        stiff_type(s) = s isa Real ? "float" : string(typeof(s))
-        push!(data_parts, ("elastic_joint", joint.idx,
-                           joint.body_a_idx, joint.body_b_idx,
-                           stiff_type(joint.stiffness_axial),
-                           stiff_type(joint.stiffness_shear),
-                           stiff_type(joint.stiffness_torsion),
-                           stiff_type(joint.stiffness_bending)))
-    end
-    for joint in timoshenko_joints
+    for tube in tubes
         # Rigidity type selects the generated law (scalar vs callable of strain).
-        rigidity_type(r) = r isa Real ? "float" : string(typeof(r))
-        push!(data_parts, ("timoshenko_joint", joint.idx,
-                           joint.body_a_idx, joint.body_b_idx,
-                           rigidity_type(joint.EA), rigidity_type(joint.GA),
-                           rigidity_type(joint.GJ), rigidity_type(joint.EIy),
-                           rigidity_type(joint.EIz)))
+        rigidity_types = [value isa Real ? "float" : string(typeof(value))
+                          for value in getfield.(Ref(tube.model),
+                                                 rigidity_fields(tube.model))]
+        push!(data_parts, ("tube", tube.idx, tube.body_a_idx, tube.body_b_idx,
+                           nameof(typeof(tube.model)), rigidity_types...))
     end
     content = string(data_parts)
     return sha1(content)

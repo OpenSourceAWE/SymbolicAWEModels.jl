@@ -99,10 +99,14 @@ including it would only report each wing twice.
 """
 function struct_mismatches(kernel, monolith; atol=1e-6)
     groups = (:points, :stations, :segments, :pulleys, :tethers, :winches,
-              :bodies, :elastic_joints, :timoshenko_joints)
-    return reduce(vcat, (field_mismatches(String(group), getfield(kernel, group),
-                                          getfield(monolith, group), atol)
-                         for group in groups))
+              :bodies, :tubes)
+    found = reduce(vcat, (field_mismatches(String(group), getfield(kernel, group),
+                                           getfield(monolith, group), atol)
+                          for group in groups))
+    tube_models = field_mismatches("tube models",
+        [tube.model for tube in kernel.tubes],
+        [tube.model for tube in monolith.tubes], atol)
+    return [found; tube_models]
 end
 
 """One line per mismatch, worst first, for a failing test's message."""

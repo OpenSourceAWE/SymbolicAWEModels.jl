@@ -259,7 +259,7 @@ group_means(groups, values) =
                 for (point, velocity) in zip(nodes, rotation)
                     point.vel_w .+= velocity
                 end
-                init!(sam; reinit_sys=false, lin_vsm=false, prn=false)
+                init!(sam; lin_vsm=false, prn=false)
 
                 # The rotation only reaches the panels if the re-init actually
                 # carried it into the integrator state.

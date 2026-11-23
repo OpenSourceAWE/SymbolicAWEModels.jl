@@ -102,8 +102,8 @@ SymbolicAWEModels provides building blocks for flexible mechanical systems:
 - [`Wing`](@ref AbstractWing)s — rigid-body or particle dynamics with aerodynamic forces from the
   [Vortex Step Method](https://github.com/Albatross-Kite-Transport/VortexStepMethod.jl)
 - [`Station`](@ref)s — twist degrees of freedom for aeroelastic coupling
-- [`Body`](@ref)s — plain rigid bodies, linked by [`ElasticJoint`](@ref)s or
-  [`TimoshenkoJoint`](@ref) beam elements
+- [`Body`](@ref)s — plain rigid bodies, linked by inflated [`Tube`](@ref)s,
+  simulated as [`TimoshenkoTube`](@ref) beam elements or [`ElasticTube`](@ref) springs
 - [`Transform`](@ref)s — spherical coordinate positioning of components
 
 These components can be combined to model a wide range of systems, from simple

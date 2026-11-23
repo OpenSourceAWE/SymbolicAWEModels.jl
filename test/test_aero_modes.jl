@@ -106,6 +106,7 @@ function apply_pose!(sam, set, pose; twist=nothing)
     transform.heading = heading
     transform.elevation_vel = 0.0
     transform.azimuth_vel = 0.0
+    place!(sam.sys_struct; prn=false)
     set.v_wind = v_wind
     isnothing(twist) || set_twist!(sam.sys_struct, twist)
     init!(sam; prn=false)
@@ -401,7 +402,7 @@ aero_poses = [
 
                 function held(delta)
                     deform_trailing_edge!(sys, wing, base_pos, delta)
-                    init!(sam; reinit_sys=false, prn=false)
+                    init!(sam; prn=false)
                     next_step!(sam; dt=1e-5, vsm_interval=1)
                     return model_force_moment(sam, wing)
                 end

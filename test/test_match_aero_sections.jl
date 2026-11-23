@@ -74,14 +74,14 @@ vsm_set = VortexStepMethod.VSMSettings(
         @test !isnothing(wing.wing_segments)
         @test length(wing.wing_segments) == n_struct
 
-        R = wing.R_b_to_c
-        origin = wing.pos_cad
+        R = SymbolicAWEModels.initial_rotation(wing)
+        origin = wing.pos_ENU
         for (i, (le_idx, te_idx)) in
                 enumerate(wing.wing_segments)
             sec = vsm_w.unrefined_sections[i]
-            le_body = R' * (points[le_idx].pos_cad -
+            le_body = R' * (points[le_idx].pos_ENU -
                             origin)
-            te_body = R' * (points[te_idx].pos_cad -
+            te_body = R' * (points[te_idx].pos_ENU -
                             origin)
             @test isapprox(Vector(sec.LE_point),
                            le_body; atol=1e-10)
@@ -224,7 +224,7 @@ vsm_set = VortexStepMethod.VSMSettings(
         # The fixture's wing is pitched about y, so mirroring y mirrors body y too.
         for point in sys.points
             point.is_wing_node || continue
-            point.pos_cad[2] *= -1
+            point.pos_ENU[2] *= -1
             point.pos_w[2] *= -1
         end
         @test_throws "run from -y to +y" update_vsm_wing_from_structure!(
@@ -232,7 +232,8 @@ vsm_set = VortexStepMethod.VSMSettings(
         wing.wing_segments = nothing
         @test_throws "run from -y to +y" match_aero_sections_to_structure!(
             wing, sys.points)
-        @test_throws "run from -y to +y" transform_vsm_sections_to_body!(wing)
+        @test_throws "run from -y to +y" transform_vsm_sections_to_body!(
+            wing, wing.pos_ENU, SymbolicAWEModels.initial_rotation(wing))
     end
 end
 
@@ -256,14 +257,14 @@ end
         @test vsm_w.n_unrefined_sections == n_struct
 
         # Verify LE/TE positions match
-        R = wing.R_b_to_c
-        origin = wing.pos_cad
+        R = SymbolicAWEModels.initial_rotation(wing)
+        origin = wing.pos_ENU
         for (i, (le_idx, te_idx)) in
                 enumerate(wing.wing_segments)
             sec = vsm_w.unrefined_sections[i]
-            le_body = R' * (points[le_idx].pos_cad -
+            le_body = R' * (points[le_idx].pos_ENU -
                             origin)
-            te_body = R' * (points[te_idx].pos_cad -
+            te_body = R' * (points[te_idx].pos_ENU -
                             origin)
             @test isapprox(Vector(sec.LE_point),
                            le_body; atol=1e-10)
